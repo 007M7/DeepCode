@@ -40,6 +40,7 @@ const FS_CONFIG = fileURLToPath(new URL('../fs.cordis.yml', import.meta.url))
 const SESSION_QUERY_CONFIG = fileURLToPath(new URL('../session-query.cordis.yml', import.meta.url))
 const PTY_CONFIG = fileURLToPath(new URL('../pty.cordis.yml', import.meta.url))
 const DEPTH_TWO_CONFIG = fileURLToPath(new URL('../depth-two.cordis.yml', import.meta.url))
+const CHILD_QUESTION_CONFIG = fileURLToPath(new URL('../child-question.cordis.yml', import.meta.url))
 const SESSION_SANDBOX_ROOT_CONFIG = fileURLToPath(new URL('../session-sandbox-root.cordis.yml', import.meta.url))
 const RETRY_CONFIG = fileURLToPath(new URL('../retry.cordis.yml', import.meta.url))
 const SESSION_TITLE_CONFIG = fileURLToPath(new URL('../session-title.cordis.yml', import.meta.url))
@@ -90,8 +91,8 @@ async function prepareFsSearchWorkspace(cwd: string): Promise<void> {
   }
 }
 
-// FIXME: Migrate backend-oriented scenarios to the headless stream-json suite;
-// this ACP suite should eventually retain only automation-protocol contracts.
+// TODO(acp-snapshot-ownership): Move backend/product scenarios to headless while
+// retaining ACP protocol contracts here.
 
 function fixtureRecords(name: string): unknown[] {
   return readFileSync(join(SNAPSHOTS_DIR, name, 'session.jsonl'), 'utf8')
@@ -276,6 +277,8 @@ const SCENARIOS: Scenario[] = [
   // symlinked instruction file to its target's content. A second nested path
   // containing a literal closing tag is created at runtime: Git cannot check
   // that name out on Windows, so this delimiter-injection case is POSIX-only.
+  // The fixture also shadows the baseline after the first touch finishes its
+  // projection; the next entering pre-step restores it before request 2.
   // The scenario-specific config keeps home/root discovery hermetic, and the
   // resulting prefix needs its own pinned header class.
   {
@@ -349,6 +352,19 @@ const SCENARIOS: Scenario[] = [
     overridden: true,
     configPath: DEPTH_TWO_CONFIG,
   },
+  // Authored keyless replay through the assembled app: a one-shot child calls
+  // the real ask_user_question tool, the runtime-ownership guard rejects before
+  // the tripwire provider, and the child carries the unresolved decision in its
+  // final result so the parent can complete instead of waiting forever.
+  {
+    name: 'subagent-child-question-rejection',
+    hasModelTurn: true,
+    recorded: false,
+    pinsHeader: true,
+    headerClass: 'child-question',
+    systemPromptSource: 'text-turn',
+    configPath: CHILD_QUESTION_CONFIG,
+  },
   // The workflow tool: the model writes a one-child orchestration script; the
   // child runs as a spawn subagent under the worker-thread engine (its session is the
   // child fixture), and the tool result carries the script's return value.
@@ -402,12 +418,13 @@ const SCENARIOS: Scenario[] = [
   // tool/code-dispatch events. Each overlay composes and pins its own header class.
   { name: 'code-mode-turn', hasModelTurn: true, recorded: true, pinsHeader: true, headerClass: 'code', configPath: CODE_MODE_CONFIG },
   // A nested fs dispatch inside run_code discovers workspace instructions. The
-  // injected user/message must follow the outer result while retaining workspace
-  // provenance, which proves Code Mode carries deferred tool context end to end.
+  // projection enters the inbox after the outer result and becomes model-visible
+  // on the following step, retaining workspace provenance end to end.
   {
     name: 'code-mode-workspace-context',
     hasModelTurn: true,
-    recorded: true,
+    recorded: false,
+    overridden: true,
     pinsHeader: true,
     headerClass: 'code-workspace-context',
     systemPromptSource: 'code-mode-turn',
@@ -490,15 +507,25 @@ it('packed ACP fixture retains every chunk row kind without changing the logical
   expect([...new Set(rowTypes)].sort()).toStrictEqual(['reasoning-chunks', 'text-chunks', 'tool-call-chunks'])
   const withoutMessageId = (record: unknown): unknown => {
     const cloned = structuredClone(record) as {
+      time?: unknown
       type?: unknown
-      data?: { id?: unknown; message?: { id?: unknown } }
+      data?: {
+        durationMs?: unknown
+        id?: unknown
+        inserted?: Array<{ id?: unknown }>
+        message?: { id?: unknown }
+      }
+    }
+    delete cloned.time
+    if (cloned.type === 'agent/inbox/spliced') {
+      for (const message of cloned.data?.inserted ?? []) delete message.id
     }
     if (cloned.type === 'user/message') delete cloned.data?.id
     if (cloned.type === 'assistant/message'
-      || cloned.type === 'tool/result'
-      || cloned.type === 'steering/message') {
+      || cloned.type === 'tool/result') {
       delete cloned.data?.message?.id
     }
+    if (cloned.type === 'hook/result') delete cloned.data?.durationMs
     return cloned
   }
   const logicalRecords = (records: readonly unknown[]): unknown[] => [

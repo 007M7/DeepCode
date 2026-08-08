@@ -22,7 +22,7 @@ Do not assume a path or branch name. DSH is usually installed from source with a
 
 1. Create a fresh task branch and worktree from the recorded staging tip, using the repository-required worktree location — default to `.worktrees/` under the repository root unless the repository requires otherwise. Never implement or commit directly on staging.
 2. Implement the change, then select and run the repository-required review and checks. If a check fails, fix the cause and rerun it before integration.
-3. Test assembled TUI behavior interactively in a dedicated tmux session. Test other interactive UI behavior in a browser; unit tests and snapshots alone are insufficient.
+3. Test assembled interactive behavior in the Web UI; unit tests and snapshots alone are insufficient.
 4. Record the task tip and confirm the task worktree is clean before integration.
 
 ## Integrate under the lock

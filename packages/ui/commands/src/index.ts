@@ -47,7 +47,12 @@ export interface CommandInvocation {
 
 /** Expected command outcome rendered directly by the dispatching UI. */
 export type CommandResult =
-  | { readonly kind: 'success'; readonly text?: string }
+  | {
+    readonly kind: 'success'
+    readonly text?: string
+    /** Earlier authoritative domain event that owns a richer presentation. */
+    readonly sourceEventSeq?: number
+  }
   | { readonly kind: 'error'; readonly text: string }
 
 /**
@@ -71,6 +76,12 @@ export interface CommandDefinition {
   readonly description: string
   /** Optional free-form input hint advertised to capable clients. */
   readonly input?: CommandInputDescriptor
+  /**
+   * Whether `command/run` records `rawInput`. Defaults to true. A command
+   * whose domain event owns the payload sets this false to avoid duplicating
+   * that payload in the session log.
+   */
+  readonly recordInput?: boolean
   /** Execute against the receiving agent without sending the command to the model. */
   readonly handler: (invocation: CommandInvocation) => CommandResult | Promise<CommandResult>
 }
@@ -127,15 +138,22 @@ declare module '@deepseek-ai/dsh-session' {
      * and `args` are `parseCommand`'s own split (name and verbatim rawInput,
      * separator whitespace included), so a consumer (a projection unit
      * folding its own command records, a rich command card) never re-parses
-     * a line.
+     * a line. `args` is absent when the definition sets `recordInput: false`
+     * because an authoritative domain event owns the input payload.
      */
-    'command/run': { commandId: CommandId; name: string; args: string; source: CommandSource }
+    'command/run': { commandId: CommandId; name: string; args?: string; source: CommandSource }
     /**
      * The paired command settled. `kind`/`text` carry the handler's verbatim
      * outcome (a thrown/aborted handler settles as `kind: 'error'` with the
-     * rendered failure); presentation stays client-computed at render time.
+     * rendered failure). A successful command may identify the earlier
+     * authoritative domain event for a richer client-computed presentation.
      */
-    'command/done': { commandId: CommandId; kind: 'success' | 'error'; text?: string }
+    'command/done': {
+      commandId: CommandId
+      kind: 'success' | 'error'
+      text?: string
+      sourceEventSeq?: number
+    }
   }
 }
 
@@ -239,6 +257,7 @@ function normalizeDefinition(definition: CommandDefinition): RegisteredCommand {
     name: definition.name,
     description: definition.description,
     ...input === undefined ? {} : { input },
+    ...definition.recordInput === undefined ? {} : { recordInput: definition.recordInput },
     handler: definition.handler,
   })
   const descriptor = Object.freeze({
@@ -254,12 +273,20 @@ function normalizeResult(command: string, value: unknown): CommandResult {
   if (typeof value !== 'object' || value === null || !('kind' in value)) {
     throw new TypeError(`command "${command}" handler must return a CommandResult`)
   }
-  const result = value as { kind?: unknown; text?: unknown }
+  const result = value as { kind?: unknown; text?: unknown; sourceEventSeq?: unknown }
   if (result.kind === 'success') {
     if (result.text !== undefined && typeof result.text !== 'string') {
       throw new TypeError(`command "${command}" success text must be a string when supplied`)
     }
-    return Object.freeze(result.text === undefined ? { kind: 'success' } : { kind: 'success', text: result.text })
+    if (result.sourceEventSeq !== undefined
+      && (!Number.isSafeInteger(result.sourceEventSeq) || (result.sourceEventSeq as number) < 0)) {
+      throw new TypeError(`command "${command}" success sourceEventSeq must be a non-negative safe integer when supplied`)
+    }
+    return Object.freeze({
+      kind: 'success',
+      ...result.text === undefined ? {} : { text: result.text },
+      ...result.sourceEventSeq === undefined ? {} : { sourceEventSeq: result.sourceEventSeq as number },
+    })
   }
   if (result.kind === 'error') {
     if (typeof result.text !== 'string' || result.text.trim().length === 0) {
@@ -357,7 +384,10 @@ export class CommandService extends Service {
     if (signal.aborted) throw abortError(signal)
     const commandId = this.mintCommandId()
     this.appendLifecycle(agent.session, 'command/run', {
-      commandId, name: parsed.name, args: parsed.rawInput, source: { kind: 'user' },
+      commandId,
+      name: parsed.name,
+      ...command.definition.recordInput === false ? {} : { args: parsed.rawInput },
+      source: { kind: 'user' },
     })
     const invocation = Object.freeze({ agent, rawInput: parsed.rawInput, signal })
     let result: CommandResult
@@ -378,6 +408,9 @@ export class CommandService extends Service {
     this.appendLifecycle(agent.session, 'command/done', {
       commandId, kind: result.kind,
       ...result.text === undefined ? {} : { text: result.text },
+      ...result.kind === 'success' && result.sourceEventSeq !== undefined
+        ? { sourceEventSeq: result.sourceEventSeq }
+        : {},
     })
     return Object.freeze({ commandId, result })
   }

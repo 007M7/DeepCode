@@ -19,7 +19,6 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type { ClientContext, SessionFace } from '@deepseek-ai/dsh-client-runtime/client'
 import type { CommandServiceContract, SelectOption } from '@deepseek-ai/dsh-client-ui-command/client'
 import type { ClientSessionContext } from '@deepseek-ai/dsh-client-ui-slash/client'
-import { deferRegistration } from '@deepseek-ai/dsh-client-ui-slots'
 import type { PermissionSelect } from '@deepseek-ai/dsh-permission/client'
 import { PermissionRow } from './PermissionRow.tsx'
 import type { PermissionRowInjected } from './PermissionRow.tsx'
@@ -133,17 +132,13 @@ export function apply(ctx: ClientContext): void {
     }
   }, 'ui-permission: settings invalidations')
 
-  ctx.effect(() => {
-    const row = deferRegistration(ctx.slots, 'settings.general.item', PermissionRow, () =>
-      ctx.slots.register({
-        name: 'settings.general.item',
-        id: 'permission',
-        order: -20,
-        locale: 'settings.permission',
-        inject: injected,
-      }, PermissionRow))
-    return () => { row.dispose() }
-  }, 'ui-permission: General settings row')
+  ctx.slots.inject('settings.general.item', () => ctx.slots.register({
+    name: 'settings.general.item',
+    id: 'permission',
+    order: -20,
+    locale: 'settings.permission',
+    inject: injected,
+  }, PermissionRow))
 
   ctx.effect(() => command.decorate({
     name: 'permission',

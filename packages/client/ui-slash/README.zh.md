@@ -22,4 +22,4 @@ MenuView 把菜单 store 渲染进 `conversation.input.overlay` slot（列表类
 
 - **只有全局 source 层**：会话 scope 的 source 注册（逐会话遮蔽、类 ScopedLayers 机制）已有设计但未启用；台账记录着触发条件（出现真实的逐会话 source 需求）。
 - **`SlashCandidate.icon` 以文本渲染**：MenuView 把该字符串原样放进图标位；与设计系统图标枚举（iconFile 五变体家族）的接入将在该枚举交付后完成。
-- **overlay 的 SlotMap 合并归属与 slot 所有权分离**：`conversation.input.overlay` 的合并放在本包（唯一副本），而该 slot 的 owner 语义（锚点、children 声明、生命周期）留在 ui-conversation；依赖方向（ui-conversation → ui-slash）迫使这一拆分，未来依赖关系调整时应重新审视。
+- **overlay 的 SlotMap 合并归属与 slot 所有权分离**：唯一的 `conversation.input.overlay` 合并放在本包，而 ui-conversation 负责其锚点、children 声明和生命周期，因为依赖方向是 ui-conversation → ui-slash。

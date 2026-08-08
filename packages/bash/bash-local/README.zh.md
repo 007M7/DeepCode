@@ -20,15 +20,13 @@
     graceMs: 3000              # kill escalation and post-exit pipe-drain grace
 ```
 
-## 行为（以及设计来源）
+## 行为
 
-设计时调研了 Claude Code、OpenCode、Codex 和 pi 的 bash 工具，主要取舍如下：
-
-- **每次调用都 spawn，不保留 shell 状态**：每次调用都启动新的非登录 `bash -c`（行为确定，不读取 rc 文件）。调研的四种工具均会每次调用单独 spawn。`XXX(stateful-shell)` 位于 `src/index.ts`，记录了两种已验证的有状态设计（Claude Code 仅持久化 cwd；Codex 使用 PTY exec 会话），供真实工作流需要时采用。
-- **在受管进程组之上应用配置预算**：`resolve()` 从配置补全 `workdir`／`timeoutMs`／`stdoutMaxBytes`，每次 spawn 都向服务传入显式的字节上限、spill 上限与 `graceMs`（默认 3 秒，沿用 OpenCode 的升级策略）。进程组终止、退出后的管道排空宽限期、尾部保留截断与有界 spill 文件是 [`dsh-subprocess-local`](../../subprocess/subprocess-local/README.md) 的机制。前台 `BashExecRequest.stdoutMaxBytes` 可为某个受信任调用方提高单次 stdout 捕获预算；stderr 和后台运行仍使用 `maxOutputBytes`。
+- **每次调用都 spawn，不保留 shell 状态**：每次调用都启动新的非登录 `bash -c`，且不读取 rc 文件。
+- **在受管进程组之上应用配置预算**：`resolve()` 从配置补全 `workdir`／`timeoutMs`／`stdoutMaxBytes`，每次 spawn 都向服务传入显式的字节上限、spill 上限与 `graceMs`。该宽限期须为正有限值，且不得大于 [`MAX_TIMER_DELAY_MS`](../../util/timeout/README.md)，这样 Node 就能用一个定时器表示它。进程组终止、退出后管道排空、尾部保留与有界 spill 文件是 [`dsh-subprocess-local`](../../subprocess/subprocess-local/README.md) 的机制。前台 `BashExecRequest.stdoutMaxBytes` 可为某个受信任调用方提高单次 stdout 捕获预算；stderr 和后台运行仍使用 `maxOutputBytes`。
 - **超时与取消分类**：`run()` 通过同一个 deadline 把经配置钳位的超时与调用方的信号融合；只有执行器自身的超时报告 `timedOut`，上游取消报告 `aborted`，自身因信号终止的命令两者皆不报告（见[超时库 Agent Note](../../../.agents/notes/implemented/architecture/2026-07-06-timeout-deadline-library.md)）。
-- **适合模型的终端环境**：设置 `NO_COLOR=1 TERM=dumb PAGER=cat GIT_PAGER=cat`（Codex 硬编码的集合），防止分页器与 ANSI 颜色破坏结果；这些条目作为普通 env 合并，遵循服务的凭据清除与 `DSH_*` 通道规则；调用方的显式条目依旧优先。详见 [stdin/env Agent Note](../../../.agents/notes/implemented/architecture/2026-06-30-bash-stdin-env-trusted-plugin-surface.md) 与 [受管环境 Agent Note](../../../.agents/notes/implemented/feature/2026-07-10-agent-session-identity-and-log-location.md)。
-- **后台进程**：`start()` 会立即返回活动的 `BashProcess` 句柄，不应用超时（Claude Code 在转为后台时会解除超时）；句柄的 `readOutput()` 把服务基于偏移量的 stdout/stderr 读取合并为一条带分节标记的增量，并以消费游标记录读取进度。仍在运行的进程则由 subprocess 服务负责，因此它能在执行器重载后存活，并随服务的 dispose 被终止且等待退出。所有具有任务形态的事项（id、所有权、轮询、通知）都属于通用 [`ctx.tasks` 运行时](../../tasks/tasks/README.md)，工具层会在其中注册该句柄；本执行器不会接触会话或注册表。
+- **适合模型的终端环境**：`NO_COLOR=1 TERM=dumb PAGER=cat GIT_PAGER=cat` 防止分页器与 ANSI 颜色破坏结果。这些值作为普通 env 合并，遵循服务的凭据清除与 `DSH_*` 通道规则；调用方的显式条目依旧优先。详见 [stdin/env Agent Note](../../../.agents/notes/implemented/architecture/2026-06-30-bash-stdin-env-trusted-plugin-surface.md) 与 [受管环境 Agent Note](../../../.agents/notes/implemented/feature/2026-07-10-agent-session-identity-and-log-location.md)。
+- **后台进程**：`start()` 会立即返回活动的 `BashProcess` 句柄且不应用超时；`readOutput()` 把基于偏移量的 stdout/stderr 读取合并为一条消费式增量，并在存在 stderr 时将其置于 `[stderr]` 标记下。运行中的进程属于 subprocess 服务，可在执行器重载后存活，并在服务 dispose 时被终止且等待退出。task id、所有权、轮询和通知属于通用 [`ctx.tasks` 运行时](../../tasks/tasks/README.md)，工具层会在其中注册该句柄。
 
 ## 模型体验
 

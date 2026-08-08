@@ -7,7 +7,7 @@ import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import {
   addHarnessSourceSection, assertEntriesActivated, assertEntriesLoaded, boot,
   FAIL_LOUD_RELEASE_TIMEOUT_MS, HARNESS_SOURCE_SECTION,
-  installFailLoud, loadEnv, loadOverlayPatches, resolveConfigPath, type FailLoudProcess,
+  installFailLoud, loadEnv, loadLayeredEnv, loadOverlayPatches, resolveConfigPath, type FailLoudProcess,
 } from '../src/index.ts'
 
 const NAME = 'dsh-test-bin'
@@ -83,6 +83,190 @@ describe('loadEnv', () => {
     }
     expect(written).toHaveLength(1)
     expect(written[0]).toContain(`${NAME}: failed to load .env: `)
+  })
+})
+
+describe('loadLayeredEnv', () => {
+  const NAMES = ['APP_BOOT_LAYERED_SHARED', 'APP_BOOT_LAYERED_USER', 'APP_BOOT_LAYERED_PROJECT'] as const
+
+  function clear(): void {
+    for (const name of NAMES) Reflect.deleteProperty(process.env, name)
+  }
+
+  it('layers user under project under the inherited environment', () => {
+    const home = tmp()
+    const project = tmp()
+    writeFileSync(join(home, '.env'), [
+      `${NAMES[0]}=user`,
+      `${NAMES[1]}=user-only`,
+      'APP_BOOT_LAYERED_INHERITED=user-loses',
+      '',
+    ].join('\n'))
+    writeFileSync(join(project, '.env'), [
+      `${NAMES[0]}=project`,
+      `${NAMES[2]}=project-only`,
+      'APP_BOOT_LAYERED_INHERITED=project-loses',
+      '',
+    ].join('\n'))
+    clear()
+    vi.stubEnv('DSH_HOME', home)
+    vi.stubEnv('APP_BOOT_LAYERED_INHERITED', 'inherited')
+    const warn = vi.fn()
+    try {
+      loadLayeredEnv(NAME, project, warn)
+      expect(process.env[NAMES[0]]).toBe('project')
+      expect(process.env[NAMES[1]]).toBe('user-only')
+      expect(process.env[NAMES[2]]).toBe('project-only')
+      expect(process.env['APP_BOOT_LAYERED_INHERITED']).toBe('inherited')
+      expect(warn).not.toHaveBeenCalled()
+    } finally {
+      clear()
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it.each([
+    ['a harness switch', 'DSH_PERMISSION_MODE=danger-full-access\n'],
+    ['the executable search path', 'PATH=/tmp/evil\n'],
+    ['a module preload', 'NODE_OPTIONS=--require /tmp/evil.js\n'],
+    ['a skill root', 'DSH_AGENTS_HOME=/tmp/injected\n'],
+    ['a network proxy', 'HTTPS_PROXY=http://attacker.example\n'],
+    ['a lowercase network proxy', 'https_proxy=http://attacker.example\n'],
+  ])('refuses to launch when a .env sets %s, before applying anything', (_case, content) => {
+    const home = tmp()
+    const project = tmp()
+    writeFileSync(join(project, '.env'), `${NAMES[1]}=applied-anyway\n${content}`)
+    clear()
+    vi.stubEnv('DSH_HOME', home)
+    try {
+      expect(() => loadLayeredEnv(NAME, project, vi.fn())).toThrow(/only the launching environment may set/)
+      expect(process.env[NAMES[1]]).toBeUndefined()
+    } finally {
+      clear()
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it('reports each file value with its absolute path', () => {
+    const home = tmp()
+    const project = tmp()
+    writeFileSync(join(home, '.env'), `${NAMES[1]}=u\n`)
+    writeFileSync(join(project, '.env'), `${NAMES[2]}=p\n`)
+    clear()
+    vi.stubEnv('DSH_HOME', home)
+    try {
+      const snapshot = loadLayeredEnv(NAME, project, vi.fn())
+      expect(snapshot.get(NAMES[1])).toEqual({ value: 'u', source: 'user-env', path: join(home, '.env') })
+      expect(snapshot.get(NAMES[2])).toEqual({ value: 'p', source: 'project-env', path: join(project, '.env') })
+      expect(snapshot.getFrom(NAMES[2], ['process', 'user-env'])).toBeUndefined()
+    } finally {
+      clear()
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it('resolves the harness home from the inherited environment, never from a file', () => {
+    const home = tmp()
+    const project = tmp()
+    writeFileSync(join(home, '.env'), `${NAMES[1]}=real-home\n`)
+    writeFileSync(join(project, '.env'), `${NAMES[2]}=set-by-project\n`)
+    clear()
+    vi.stubEnv('DSH_HOME', home)
+    try {
+      loadLayeredEnv(NAME, project, vi.fn())
+      expect(process.env[NAMES[1]]).toBe('real-home')
+      expect(process.env[NAMES[2]]).toBe('set-by-project')
+    } finally {
+      clear()
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it('warns and continues when a layer exists but cannot be read', () => {
+    const home = tmp()
+    const project = tmp()
+    // A directory named `.env` is a present-but-unreadable layer.
+    mkdirSync(join(home, '.env'))
+    writeFileSync(join(project, '.env'), `${NAMES[2]}=project-only\n`)
+    clear()
+    vi.stubEnv('DSH_HOME', home)
+    const warn = vi.fn()
+    try {
+      const snapshot = loadLayeredEnv(NAME, project, warn)
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining(`${NAME}: failed to load .env`))
+      expect(snapshot.get(NAMES[1])).toBeUndefined()
+      expect(snapshot.get(NAMES[2])).toEqual({ value: 'project-only', source: 'project-env', path: join(project, '.env') })
+      expect(process.env[NAMES[2]]).toBe('project-only')
+    } finally {
+      clear()
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it('reports to stderr when the caller supplies no reporter', () => {
+    const home = tmp()
+    const project = tmp()
+    mkdirSync(join(home, '.env'))
+    writeFileSync(join(project, '.env'), `${NAMES[2]}=project-only\n`)
+    clear()
+    vi.stubEnv('DSH_HOME', home)
+    const write = vi.spyOn(process.stderr, 'write').mockReturnValue(true)
+    try {
+      const snapshot = loadLayeredEnv(NAME, project)
+      expect(write).toHaveBeenCalledWith(expect.stringContaining(`${NAME}: failed to load .env`))
+      expect(snapshot.get(NAMES[2])).toEqual({ value: 'project-only', source: 'project-env', path: join(project, '.env') })
+      expect(process.env[NAMES[2]]).toBe('project-only')
+    } finally {
+      write.mockRestore()
+      clear()
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it('passes over an absent layer without reporting it', () => {
+    const home = tmp()
+    const project = tmp()
+    writeFileSync(join(project, '.env'), `${NAMES[2]}=project-only\n`)
+    clear()
+    vi.stubEnv('DSH_HOME', home)
+    const warn = vi.fn()
+    try {
+      const snapshot = loadLayeredEnv(NAME, project, warn)
+      expect(warn).not.toHaveBeenCalled()
+      expect(snapshot.get(NAMES[2])).toEqual({ value: 'project-only', source: 'project-env', path: join(project, '.env') })
+    } finally {
+      clear()
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it('carries only the inherited environment when neither file exists', () => {
+    const home = tmp()
+    const project = tmp()
+    clear()
+    vi.stubEnv('DSH_HOME', home)
+    vi.stubEnv('APP_BOOT_LAYERED_INHERITED', 'inherited')
+    try {
+      const snapshot = loadLayeredEnv(NAME, project, vi.fn())
+      expect(snapshot.get('APP_BOOT_LAYERED_INHERITED')).toEqual({ value: 'inherited', source: 'process' })
+    } finally {
+      clear()
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it('reads a harness home that is also the invocation directory exactly once', () => {
+    const both = tmp()
+    writeFileSync(join(both, '.env'), `${NAMES[2]}=one-file\n`)
+    clear()
+    vi.stubEnv('DSH_HOME', both)
+    try {
+      const snapshot = loadLayeredEnv(NAME, both, vi.fn())
+      expect(snapshot.get(NAMES[2])).toEqual({ value: 'one-file', source: 'project-env', path: join(both, '.env') })
+    } finally {
+      clear()
+      vi.unstubAllEnvs()
+    }
   })
 })
 
@@ -435,11 +619,10 @@ describe('boot', () => {
   })
 
   it('returns instead of asserting over a tree a surface disposed mid-startup', async () => {
-    // What a TUI `/exit` does (ui-tui's disposeRootAndExit): dispose the root
-    // fiber, which lands while boot() is still awaiting the Loader whenever the
-    // surface renders before the last entry settles. The Loader service goes
-    // with the tree, so reading it for the post-boot assertions would crash an
-    // app that exited exactly as the user asked.
+    // A surface can dispose the root fiber while boot() is still awaiting the
+    // Loader, before the last entry settles. The Loader service goes with the
+    // tree, so reading it for the post-boot assertions would crash an app that
+    // exited exactly as the user asked.
     const dir = tmp()
     writeFileSync(join(dir, 'exiting.mjs'), [
       'export const name = "exiting"',

@@ -47,7 +47,7 @@ import type {
 
 ## 工具映射
 
-当前每个保留消费方都按下表映射到该库。广泛迁移不属于该库首次落地的范围；下表是预期形态。
+当前的保留机制消费方采用以下映射：
 
 | 工具 | Retainer 与策略 | 说明 |
 |---|---|---|
@@ -57,7 +57,7 @@ import type {
 | `web_fetch` | `TextRetainer`，`head` 或 `headTail` | 提供方/资源上限保留为提供方事实；retainer 只提供保留文本和省略元数据。 |
 | `web_search` | `ItemRetainer<WebSearchSource>`，`head` | 当提供方返回的来源超过面向模型的结果应包含的数量时，标准化「来源已达上限」通知。 |
 
-`read` **刻意不在 v1 范围内**。其 `read-render` 辅助工具负责文件专用的分页契约：`offset`/`limit`、行号、`totalLines`、偏移越界错误、每行预览截断、针对已选窗口的字节上限。这是行窗口渲染器，而非通用保留机制。单个 `Omitted` 数量无法表示行窗口两侧。
+`read` 仍不属于这个通用库。其 `read-render` 辅助工具负责文件专用的分页契约：`offset`/`limit`、行号、`totalLines`、偏移越界错误、每行预览截断，以及所选窗口的字节上限。这是行窗口渲染器。单个 `Omitted` 数量无法表示该窗口两侧。
 
 ## 使用形态
 

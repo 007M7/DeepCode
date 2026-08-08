@@ -8,7 +8,7 @@ English | [中文](2026-06-20-core-data-structures-catalog.zh.md)
 
 A reader trying to understand the harness could find its *behavior* in [architecture.md](../../../../docs/architecture.md) (the service map, the session/turn/step lifecycle, the event taxonomy) but had no single place describing its *vocabulary* — the data structures that behavior moves around. The type shapes lived only in source, scattered across `packages/*/src/types.ts`, so understanding "what is a `Message`, a `SessionEvent`, a `StreamChunk`" meant reading the declarations directly. A prose catalog would help, but a catalog that paraphrases or paste-copies type definitions rots the instant a field changes — and an out-of-sync type doc is worse than none, because a reader trusts it.
 
-So the work had two intertwined questions: **what belongs in such a catalog** (the scoping problem — a harness has dozens of cross-package types and dumping all of them helps no one), and **how to keep pasted type definitions from drifting** (the durability problem). This Agent Note records both decisions. Its sibling, [the generated cordis events + services catalog](2026-06-20-generated-cordis-catalog.md), is the *wiring*-axis complement: this one catalogs the data structures, that one the events and services that move them.
+So the work had two intertwined questions: **what belongs in such a catalog** (the scoping problem — a harness has dozens of cross-package types and dumping all of them helps no one), and **how to keep pasted type definitions from drifting** (the durability problem). This Agent Note records both decisions. Its historical sibling, [the archived generated Cordis events + services catalog decision](../../archived/process/2026-06-20-generated-cordis-catalog.md), is the *wiring*-axis complement: this one catalogs the data structures, that one the events and services that move them.
 
 ## Decision
 
@@ -50,7 +50,7 @@ The durability requirement was specific: the doc shows the **literal** current t
 
 The spine-vs-seam rule was tested against `BashExecRequest`, tool schemas and definitions, the schema DSL, presentation types, and the session/persistence split before adoption.
 
-`verify-type-equiv` must scan the complete Markdown scope, not only manifest-named documents. Otherwise an unmanifested `type-equiv` block escapes the claimed one-to-one check. The gate therefore reports such blocks as orphans. This Agent Note records that fail-closed scan rule together with the spine-vs-seam and verbatim-match decisions; the generated Cordis catalog has the symmetric design record in [its Agent Note](2026-06-20-generated-cordis-catalog.md).
+`verify-type-equiv` must scan the complete Markdown scope, not only manifest-named documents. Otherwise an unmanifested `type-equiv` block escapes the claimed one-to-one check. The gate therefore reports such blocks as orphans. This Agent Note records that fail-closed scan rule together with the spine-vs-seam and verbatim-match decisions; the generated Cordis catalog has the symmetric design record in [its archived Agent Note](../../archived/process/2026-06-20-generated-cordis-catalog.md).
 
 ## Consequences
 

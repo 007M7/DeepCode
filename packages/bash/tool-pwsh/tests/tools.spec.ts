@@ -28,7 +28,7 @@ import * as ToolPwsh from '@deepseek-ai/dsh-tool-pwsh'
 import * as BashEnvPlugin from '@deepseek-ai/dsh-bash-env'
 import type { BashProcessRead } from '@deepseek-ai/dsh-bash'
 import { processOutcome } from '../src/background.ts'
-import { renderPwshProcessRead } from '../src/render.ts'
+import { renderPwshProcessRead, renderPwshResult } from '../src/render.ts'
 
 const testToolSignal = new AbortController().signal
 
@@ -516,16 +516,16 @@ describe('background execution through the task runtime', () => {
 })
 
 describe('UI presentation', () => {
-  it('a real execute renders the console view through the tool definition presenter', async () => {
+  it('a real execute presents a completed foreground run as a terminal card with the parsed exit pill', async () => {
     const { ctx, bash } = await setup()
     bash.handler = () => runResult('hi\n')
     const args = { command: 'Write-Output hi', description: 'say hi' }
     const result = await call(ctx, 'pwsh', args)
     const view = ctx.tools.get('pwsh')?.presentResult?.(args, result)
-    expect(view).toEqual({
-      card: 'generic',
-      content: [{ type: 'text', text: '```console\nhi\n```' }],
-    })
+    // A terminal result keeps the RAW bytes (newlines intact) a terminal
+    // renderer needs; a clean run renders no exit marker, so the body is the
+    // raw output with a clean exit-0 pill, mirroring the bash tool.
+    expect(view).toEqual({ card: 'terminal', output: 'hi\n', exitCode: 0 })
   })
 
   it('the pending call view is a terminal card carrying command, description, and optional cwd', async () => {
@@ -551,6 +551,83 @@ describe('UI presentation', () => {
       rawInput: 'Start-Sleep -Seconds 60',
       content: [{ type: 'text', text: 'long wait' }],
     })
+  })
+
+  it('presentResult: a non-zero exit and a signal kill parse into exitCode / signal', async () => {
+    const { ctx } = await setup()
+    const present = ctx.tools.get('pwsh')
+    const args = { command: 'x', description: 'x' }
+    expect(present?.presentResult?.(args, { content: [{ type: 'text', text: 'oops\n[exit code: 3]' }], isError: false }))
+      .toEqual({ card: 'terminal', output: 'oops', exitCode: 3 })
+    expect(present?.presentResult?.(args, { content: [{ type: 'text', text: 'gone\n[killed by signal: SIGKILL]' }], isError: false }))
+      .toEqual({ card: 'terminal', output: 'gone', signal: 'SIGKILL' })
+  })
+
+  it('presentResult: markers a pill CANNOT show (timeout) stay in the terminal output', async () => {
+    const { ctx } = await setup()
+    const args = { command: 'x', description: 'x' }
+    expect(ctx.tools.get('pwsh')?.presentResult?.(
+      args,
+      { content: [{ type: 'text', text: 'slow\n[timed out after 100ms]\n[exit code: 143]' }], isError: false },
+    )).toEqual({ card: 'terminal', output: 'slow\n[timed out after 100ms]', exitCode: 143 })
+  })
+
+  it('presentResult exit parse is the inverse of renderPwshResult markers (round-trip)', async () => {
+    const { ctx } = await setup()
+    const present = ctx.tools.get('pwsh')!
+    const base = {
+      aborted: false,
+      timeoutMs: 1000,
+      stdout: { text: 'out', truncated: false },
+      stderr: { text: '', truncated: false },
+    }
+    const cases = [
+      { result: { ...base, exitCode: 0, signal: null, timedOut: false }, expect: { exitCode: 0 } },
+      { result: { ...base, exitCode: 7, signal: null, timedOut: false }, expect: { exitCode: 7 } },
+      { result: { ...base, exitCode: null, signal: 'SIGTERM' as const, timedOut: false }, expect: { signal: 'SIGTERM' } },
+      // A trapped-timeout run that exits 0 has no signal/exit marker → reads as exit 0 (it did exit 0).
+      { result: { ...base, exitCode: 0, signal: null, timedOut: true }, expect: { exitCode: 0 } },
+    ]
+    for (const c of cases) {
+      const rendered = renderPwshResult(c.result)
+      const out = present.presentResult!({ command: 'x', description: 'x' }, { content: [{ type: 'text', text: rendered }], isError: false })
+      // Drop card + output; the remaining fields are the parsed exit.
+      const { card: _c, output, ...exit } = out as { card: string; output?: string; exitCode?: number; signal?: string }
+      expect(exit).toEqual(c.expect)
+      // Whatever the parse consumed is gone from the body, so a card with an
+      // exit pill never shows the same status twice.
+      expect(output).not.toMatch(/\[exit code: \d+\]|\[killed by signal: /)
+    }
+  })
+
+  it('presentResult: a clean exit-0 whose output ENDS in marker-like text is NOT read as a failure', async () => {
+    const { ctx } = await setup()
+    const args = { command: 'Write-Output "[exit code: 5]"', description: 'print' }
+    // A successful command may print marker-like text. A clean result appends no marker or
+    // newline; parsing requires the leading newline emitted for real markers, so this stays exit 0.
+    const out = ctx.tools.get('pwsh')!.presentResult!(args, { content: [{ type: 'text', text: '[exit code: 5]' }], isError: false })
+    expect(out).toEqual({ card: 'terminal', output: '[exit code: 5]', exitCode: 0 })
+    // Same for a fake signal marker with no leading newline.
+    const sig = ctx.tools.get('pwsh')!.presentResult!(args, { content: [{ type: 'text', text: '[killed by signal: SIGKILL]' }], isError: false })
+    expect(sig).toEqual({ card: 'terminal', output: '[killed by signal: SIGKILL]', exitCode: 0 })
+  })
+
+  it('presentResult: a run_in_background ack is a generic card and carries no exit pill', async () => {
+    const { ctx } = await setup()
+    const result = ctx.tools.get('pwsh')!.presentResult!(
+      { command: 'Start-Sleep -Seconds 60', description: 'long wait', run_in_background: true },
+      { content: [{ type: 'text', text: 'started background task pwsh-1' }], isError: false },
+    )
+    expect(result).toEqual({ card: 'generic', content: [{ type: 'text', text: '```console\nstarted background task pwsh-1\n```' }] })
+  })
+
+  it('presentResult: an isError result is a generic card (no real process exit to report)', async () => {
+    const { ctx } = await setup()
+    const out = ctx.tools.get('pwsh')!.presentResult!(
+      { command: 'x', description: 'x' },
+      { content: [{ type: 'text', text: 'tool call aborted' }], isError: true },
+    )
+    expect(out).toEqual({ card: 'generic', content: [{ type: 'text', text: '```console\ntool call aborted\n```' }] })
   })
 
   it('presentResult falls back to undefined for multi-block or non-text content', async () => {

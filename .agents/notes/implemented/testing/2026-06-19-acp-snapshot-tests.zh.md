@@ -24,7 +24,7 @@ Status: implemented
 
 ### 回放从日志推导模型脚本
 
-`llm-replay` 短路了提供方无关的 `llm/stream` waterfall（瀑布式事件）。`deriveReplayScript()` 按 `(turn, step)` 对已录制的分片分组，每次模型调用服务一组。agent loop（智能体循环）每个步骤发起一次流调用，因此分组精确对应，错误结束分片也无需特殊处理。
+`llm-replay` 短路了提供方无关的 `llm/stream` waterfall（瀑布式事件）。`deriveReplayScript()` 在终止的 `finish` 分片处切分已记录的 `assistant/chunk` 事件，并用 `(turn, step)` 变化拒绝前一条未终止的调用。携带 `llmStreamCall: true` 的 `compact/summary` 会在其持久日志位置贡献一次调用：回放根据 `rawOutput` 重建规范块边界，保留已记录的 usage（如有），并提供终止的 `stop`。该标记将这次本地调用与模板摘要或远程摘要区分开；后两者即使保留了 `rawOutput`，也未使用此上下文的适配器。
 
 ### 内存中的回放条目遵守完整的 LLM 契约
 
@@ -36,7 +36,7 @@ Status: implemented
 | { kind: 'hang' }
 ```
 
-日志推导出分片条目。流开始前的抛出和挂起没有可重建的分片表示，因此这些场景提供 `replay.override.json`。throw 条目可以包含前缀分片以模拟流中途失败。显式覆盖避免了从有损的轮次结束原因推断适配器行为。
+日志从已结束的 assistant 流和显式标记的压缩（compaction）调用推导分片条目。流开始前的抛出、挂起和外部摘要器调用没有可重建的本地分片表示，因此这些场景提供 `replay.override.json`。throw 条目可以包含前缀分片以模拟流中途失败。显式覆盖避免了从有损的轮次结束原因或单独的提供方输出推断适配器行为。
 
 ### 位置式回放，单个在途流
 
@@ -74,12 +74,13 @@ Status: implemented
 ## 曾考虑的替代方案
 
 - **手工编写包含模型分片的 `llm.json`**——早期草案；复用真实会话日志，使 fixture 成为系统的真实产物而非手工构建的 mock，并让它同时充当行为预期输出。
+- **为每个压缩摘要强制提供回放 override**——否决：持久摘要事件已经固定成功本地调用的位置、完整输出与可选 usage。显式的本地调用标记保留了这份单一来源 fixture，而不会为模板摘要器或远程摘要器凭空构造调用。
 - **字节级 HTTP 录制库（Polly/nock/MSW）**：否决。与适配器耦合，处理流式 SSE（Server-Sent Events）时笨拙，且层级低于被测对象。
 - **从 `turn/end {kind:'error'|'aborted'}` 合成抛错/取消条目**：否决。这会将 `llm-replay` 耦合到 loop 内部的轮次关闭语义，且 `turn/end` 原因是有损的（无法区分抛出的 401 与 finish-error）；显式的 `replay.override.json` 伴随文件是更清晰的 seam。
 - **在每个类别 pin 旁复制两个请求头伴随文件**：否决。提示词与工具 schema 的组合各自独立变化，因此一个共享组件发生变更，就会使不相关类别 pin 中字节完全相同的文件产生无意义改动。显式的分组件来源可在不重复内容的情况下，为每个类别保留一个结构性 pin。
 
 ## 后果
 
-该测试层为每个场景增加经过评审的输入、会话、stdout、可选 override 和可选 workspace fixture，并为每个不同的已固定提示词序列、每个不同的已固定工具 schema 序列各增加一个文件。记录与回放都会把 workspace seed 复制到生成的 cwd。作为回报，该层通过真实 Loader 和工具组合提供确定性的无密钥覆盖。保留下来的大多数场景测试的是组装后的后端而非 ACP；[仅面向自动化的 ACP 决策](../simplification/2026-07-23-acp-automation-only-protocol.md#snapshot-boundary)将该语料保留在此处，并把向传输无关 headless 套件的任何迁移推迟为一项独立的测试变更（套件级 FIXME 标记了这一点）。
+该测试层为每个场景增加经过评审的输入、会话、stdout、可选 override 和可选 workspace fixture，并为每个不同的已固定提示词序列、每个不同的已固定工具 schema 序列各增加一个文件。记录与回放都会把 workspace seed 复制到生成的 cwd。作为回报，该层通过真实 Loader 和工具组合提供确定性的无密钥覆盖，其中包括一个组装后的上下文溢出恢复场景，其带标记的压缩摘要提供辅助调用。保留下来的大多数场景测试的是组装后的后端而非 ACP；[仅面向自动化的 ACP 决策](../simplification/2026-07-23-acp-automation-only-protocol.md#snapshot-boundary)将该语料保留在此处，直至它能够在不损失覆盖的情况下迁移到传输无关的 headless 套件。
 
 本 Agent Note 与[拟议的确定性 Agent Note](../../proposed/testing/2026-06-11-deterministic-and-stress-testing.md)相关，但不取代它：该提案的“通用回放 fixture”在每次测试后重新派生会话*消息历史*（内部一致性不变量），而这些快照固定组装后的行为与外部自动化输出。在后端语料迁出 ACP 之前，两者相互补充。

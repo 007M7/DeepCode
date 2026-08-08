@@ -203,4 +203,119 @@ describe('connection client apply', () => {
     expect(sockets).toHaveLength(1)
     expect(sockets[0]?.readyState).toBe(FakeWebSocket.CLOSED)
   })
+
+  it('carries RPC calls without requiring secure-context randomUUID', async () => {
+    ;(globalThis as Win).location = { hostname: 'localhost', search: '' }
+    vi.stubGlobal('crypto', {
+      getRandomValues(bytes: Uint8Array) {
+        return bytes.fill(0)
+      },
+    })
+    const handle = await mount()
+    const original = globalThis.fetch
+    const seen: { url: string; body: unknown }[] = []
+    globalThis.fetch = async (input: URL | RequestInfo, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+      if (typeof init?.body !== 'string') throw new TypeError('expected a JSON string request body')
+      const body = JSON.parse(init.body) as { rpcId: string }
+      seen.push({ url, body })
+      return Response.json({
+        type: 'server-response',
+        rpcId: body.rpcId,
+        result: { ok: true, value: { ref: 'goal-1' } },
+      })
+    }
+    try {
+      await expect(handle.rpc.call('/api', 'goals/create', { args: { agentId: 'agent-1' } }))
+        .resolves.toEqual({ ok: true, value: { ref: 'goal-1' } })
+    } finally {
+      globalThis.fetch = original
+      vi.unstubAllGlobals()
+    }
+    expect(seen).toHaveLength(1)
+    expect(seen[0]?.url).toBe('http://dsh.internal/api/goals/create')
+    expect(seen[0]?.body).toMatchObject({
+      type: 'client-request',
+      rpcId: '00000000-0000-4000-8000-000000000000',
+      method: 'goals/create',
+      payload: { args: { agentId: 'agent-1' } },
+    })
+  })
+
+  it('validates generic RPC transport failures, correlation, and targets', async () => {
+    ;(globalThis as Win).location = {
+      hostname: 'harness.example', search: '', origin: 'https://harness.example',
+    }
+    const handle = await mount()
+    const original = globalThis.fetch
+    const abort = new AbortController()
+    globalThis.fetch = vi.fn().mockResolvedValue(new Response('unavailable', { status: 503 }))
+    try {
+      await expect(handle.rpc.call('/api', 'goals/create', {}, abort.signal))
+        .rejects.toThrow('HTTP 503')
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        new URL('https://harness.example/api/goals/create'),
+        expect.objectContaining({ signal: abort.signal }),
+      )
+
+      ;(globalThis as Win).location = { hostname: 'localhost', search: '', origin: 'null' }
+      globalThis.fetch = vi.fn().mockResolvedValue(Response.json({
+        type: 'server-response',
+        rpcId: 'different-rpc',
+        result: { ok: true, value: null },
+      }))
+      await expect(handle.rpc.call('/api', 'goals/create', {})).rejects.toThrow('rpcId mismatch')
+      const fetch = vi.mocked(globalThis.fetch)
+      expect(fetch.mock.calls[0]?.[0]).toEqual(new URL('http://dsh.internal/api/goals/create'))
+      expect(fetch.mock.calls[0]?.[1]).not.toHaveProperty('signal')
+    } finally {
+      globalThis.fetch = original
+    }
+
+    for (const [channel, endpoint] of [
+      ['api2', 'goals/create'],
+      ['/api/path', 'goals/create'],
+      ['/api', ''],
+      ['/api', '.'],
+      ['/api', '..'],
+      ['/api', 'goals//create'],
+      ['/api', 'goals/create?unsafe'],
+    ] as const) {
+      await expect(handle.rpc.call(channel, endpoint, {})).rejects.toThrow('invalid RPC target')
+    }
+  })
+
+  it('carries Goal Remotes over the same state as the client-only fixture API', async () => {
+    ;(globalThis as Win).location = { hostname: 'localhost', search: '?fixture' }
+    const handle = await mount()
+    const created = await handle.rpc.call('/api', 'goals/create', {
+      args: { agentId: 'fx-alpha', request: { objective: 'fixture remote' } },
+    })
+    expect(created).toMatchObject({ ok: true, value: { ref: { revision: 1 } } })
+    if (!created.ok) throw new Error('fixture Goal create failed')
+    const ref = (created.value as { ref: { id: string; revision: number } }).ref
+    const edited = await handle.rpc.call('/api', 'goals/edit', {
+      args: { agentId: 'fx-alpha', ref, request: { objective: 'edited fixture remote' } },
+    })
+    expect(edited).toMatchObject({ ok: true, value: { objective: 'edited fixture remote', revision: 2 } })
+    const editedRef = { id: ref.id, revision: 2 }
+    const paused = await handle.rpc.call('/api', 'goals/pause', {
+      args: { agentId: 'fx-alpha', ref: editedRef },
+    })
+    expect(paused).toMatchObject({ ok: true, value: { phase: 'paused', activation: 'disarmed', revision: 3 } })
+    const resumed = await handle.rpc.call('/api', 'goals/resume', {
+      args: { agentId: 'fx-alpha', ref: { id: ref.id, revision: 3 } },
+    })
+    expect(resumed).toMatchObject({ ok: true, value: { phase: 'active', activation: 'armed', revision: 4 } })
+    const completed = await handle.rpc.call('/api', 'goals/complete', {
+      args: { agentId: 'fx-alpha', ref: { id: ref.id, revision: 4 } },
+    })
+    expect(completed).toMatchObject({ ok: true, value: { phase: 'complete', activation: 'disarmed', revision: 5 } })
+    await expect(handle.rpc.call('/api', 'goals/clear', {
+      args: { agentId: 'fx-alpha', ref: { id: ref.id, revision: 5 } },
+    })).resolves.toEqual({ ok: true, value: { id: ref.id, revision: 6 } })
+    await expect(handle.rpc.call('/other', 'goals/create', {})).rejects.toThrow(/channel.*unavailable/)
+    await expect(handle.rpc.call('/api', 'unknown/read', { args: { agentId: 'fx-alpha' } }))
+      .rejects.toThrow(/endpoint.*unavailable/)
+  })
 })

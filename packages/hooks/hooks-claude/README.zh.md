@@ -37,7 +37,7 @@ hook **本身**会在 agent 的会话工作区中运行：对 agent scope 点，
 | CC hook | Harness seam | 映射 |
 |---|---|---|
 | `SessionStart` | `agent/session-start`（emit） | additionalContext → `agent.inject()` 到新会话（无法阻塞） |
-| `UserPromptSubmit` | `agent/prompt-submit`（waterfall，瀑布式事件） | `deny` → `PromptDecision.block`；仅 additionalContext → 通过 `next()` 委托，再将一个单独标记源的上下文前置到下游 `additionalContexts`（后续 listener 仍可阻塞／改写） |
+| `UserPromptSubmit` | `agent/pre-step`（waterfall，瀑布式事件） | `deny` → `PreStepDecision.reject`；仅 additionalContext → 通过 `next()` 委托，再向下游 `enter` 决策追加一条单独标记来源的消息（后续外层 listener 仍可 reject／改写） |
 | `PreToolUse` | `tools/pre-execute`（waterfall） | `deny` → `PreToolDecision.deny`；`ask` → `PreToolDecision.ask` |
 | `PostToolUse` | `tools/post-execute`（waterfall） | `deny` → 带反馈的 `block`；仅 additionalContext → 通过 `next()` 委托，再将一个单独标记源的上下文前置到下游决策；Code Mode 将子调用上下文延迟到外层 `run_code` 结果 |
 | `Stop` | `agent/turn-stopping`（serial） | 阻塞 Stop hook 通过 `steer()` 送入其原因，强制再执行一步 |
@@ -52,7 +52,7 @@ matcher subject 是工具名称（`PreToolUse`／`PostToolUse`）、会话源（
 
 ## 上下文源
 
-注入上下文携带显式 `{ kind: 'plugin', plugin: 'hooks-claude' }` 源。`agent.inject()` 会将缺失源默认为 `{ kind: 'user' }`，这会将插件上下文错误标记为用户提示词，因此桥接始终标注自身。
+注入上下文携带显式 `{ kind: 'plugin', plugin: 'hooks-claude' }` 来源，因此持久消息绝不会被误认为用户提示词。
 
 ## 模型体验
 

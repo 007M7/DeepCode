@@ -40,6 +40,11 @@ interface OtlpCapture {
   }[]
 }
 
+interface FixtureOutput {
+  captures: OtlpCapture[]
+  logContent: string
+}
+
 async function jsonlFiles(dir: string): Promise<string[]> {
   const entries = await readdir(dir, { withFileTypes: true })
   const paths = await Promise.all(entries.map(async (entry) => {
@@ -50,10 +55,29 @@ async function jsonlFiles(dir: string): Promise<string[]> {
   return paths.flat()
 }
 
+async function readFixtureOutput(cwd: string): Promise<FixtureOutput> {
+  const captures = JSON.parse(await readFile(join(cwd, 'otlp-captures.json'), 'utf8')) as OtlpCapture[]
+  const logs = await jsonlFiles(join(cwd, '.sessions'))
+  expect(logs).toHaveLength(1)
+  return { captures, logContent: await readFile(logs[0] as string, 'utf8') }
+}
+
+function allRecords(captures: OtlpCapture[]) {
+  return captures.flatMap(capture => capture.resourceLogs.flatMap(resource =>
+    resource.scopeLogs.flatMap(scoped => scoped.logRecords.map(record => ({ scope: scoped.scope.name, record })))))
+}
+
+function eventTypes(captures: OtlpCapture[]): string[] {
+  return allRecords(captures).flatMap(({ record }) =>
+    record.attributes?.flatMap(attribute =>
+      attribute.key === 'event.type' && typeof attribute.value['stringValue'] === 'string'
+        ? [attribute.value['stringValue']]
+        : []) ?? [])
+}
+
 describe('session-telemetry-otel through a real headless cordis.yml', () => {
   it('exports redacted ledger records to the collector while the canonical log keeps the secret', async () => {
-    let captures: OtlpCapture[] = []
-    let logContent = ''
+    let output!: FixtureOutput
     const { stderr } = await runLoaderSmoke({
       label: 'session-telemetry-otel loader smoke',
       tempDirPrefix: 'telemetry-otel-e2e-',
@@ -61,39 +85,70 @@ describe('session-telemetry-otel through a real headless cordis.yml', () => {
       libBinScript: driver,
       configPath,
       tsconfigPath: repoTsconfig,
-      inspect: async (cwd) => {
-        captures = JSON.parse(await readFile(join(cwd, 'otlp-captures.json'), 'utf8')) as OtlpCapture[]
-        const logs = await jsonlFiles(join(cwd, '.sessions'))
-        expect(logs).toHaveLength(1)
-        logContent = await readFile(logs[0] as string, 'utf8')
-      },
+      inspect: async (cwd) => { output = await readFixtureOutput(cwd) },
     })
     expect(stderr).not.toContain('UNHANDLED')
 
-    const records = captures.flatMap(capture => capture.resourceLogs.flatMap(resource =>
-      resource.scopeLogs.flatMap(scoped => scoped.logRecords.map(record => ({ scope: scoped.scope.name, record })))))
+    const records = allRecords(output.captures)
     expect(records.length).toBeGreaterThan(0)
 
-    const eventTypes = records.flatMap(({ record }) =>
-      record.attributes?.flatMap(attribute =>
-        attribute.key === 'event.type' && typeof attribute.value['stringValue'] === 'string'
-          ? [attribute.value['stringValue']]
-          : []) ?? [])
+    const types = eventTypes(output.captures)
     for (const expected of ['turn/start', 'user/message', 'tool/call', 'tool/result', 'assistant/message', 'turn/end']) {
-      expect(eventTypes, expected).toContain(expected)
+      expect(types, expected).toContain(expected)
     }
     expect(records.some(({ scope }) => scope.endsWith('/ops'))).toBe(true)
 
     // The deployment-mounted rule on the wire: the fixture credential never
     // leaves the process, its surrounding prose does, and the placeholder
     // marks the spot — the seam itself ships no rules.
-    const wire = JSON.stringify(captures)
+    const wire = JSON.stringify(output.captures)
     expect(wire).not.toContain(FIXTURE_SECRET)
     expect(wire).toContain(FIXTURE_PLACEHOLDER)
     expect(wire).toContain('prove telemetry with key')
 
     // The canonical session log is never rewritten.
-    expect(logContent).toContain(FIXTURE_SECRET)
-    expect(logContent).not.toContain(FIXTURE_PLACEHOLDER)
+    expect(output.logContent).toContain(FIXTURE_SECRET)
+    expect(output.logContent).not.toContain(FIXTURE_PLACEHOLDER)
+  }, LOADER_SMOKE_TEST_TIMEOUT_MS)
+
+  it('exports only prefixes ending in feedback under feedback-only mode', async () => {
+    let output!: FixtureOutput
+    const { stderr } = await runLoaderSmoke({
+      label: 'session-telemetry-otel feedback-only loader smoke',
+      tempDirPrefix: 'telemetry-otel-feedback-e2e-',
+      binScript: driver,
+      libBinScript: driver,
+      configPath,
+      tsconfigPath: repoTsconfig,
+      env: { DSH_TELEMETRY_E2E_MODE: 'FEEDBACK_ONLY' },
+      inspect: async (cwd) => { output = await readFixtureOutput(cwd) },
+    })
+    expect(stderr).not.toContain('UNHANDLED')
+
+    const wire = JSON.stringify(output.captures)
+    expect(eventTypes(output.captures)).toContain('feedback/record')
+    expect(wire).toContain('fixture feedback')
+    expect(wire).toContain('prove telemetry with key')
+    expect(wire).not.toContain('post-feedback private suffix')
+    expect(output.logContent).toContain('post-feedback private suffix')
+  }, LOADER_SMOKE_TEST_TIMEOUT_MS)
+
+  it('keeps disabled feedback local and prints the stable warning', async () => {
+    let output!: FixtureOutput
+    const { stdout } = await runLoaderSmoke({
+      label: 'session-telemetry-otel disabled loader smoke',
+      tempDirPrefix: 'telemetry-otel-disabled-e2e-',
+      binScript: driver,
+      libBinScript: driver,
+      configPath,
+      tsconfigPath: repoTsconfig,
+      env: { DSH_TELEMETRY_E2E_MODE: 'DISABLED' },
+      inspect: async (cwd) => { output = await readFixtureOutput(cwd) },
+    })
+
+    expect(output.captures).toEqual([])
+    expect(output.logContent).toContain('fixture feedback')
+    expect(stdout.match(/session telemetry is DISABLED; nothing will be shared and this feedback remains local/)?.[0])
+      .toMatchInlineSnapshot('"session telemetry is DISABLED; nothing will be shared and this feedback remains local"')
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 })

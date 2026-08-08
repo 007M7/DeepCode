@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { compressZstdFrame, decompressZstdFrame, decompressZstdPrefix, scanZstdFrames } from '../src/zstd.ts'
+import {
+  compressZstdFrame, createZstdFrameDecoder, decompressZstdFrame, decompressZstdPrefix, scanZstdFrames,
+} from '../src/zstd.ts'
+import { NodePrivateZstdFrameDecoder } from '../src/zstd-private-decoder.ts'
+import { PublicZstdFrameDecoder } from '../src/zstd-public-decoder.ts'
 
 describe('JSONL Zstandard compatibility', () => {
   it('round-trips concatenated checksummed frames through the built-in Node API', async () => {
@@ -15,6 +19,17 @@ describe('JSONL Zstandard compatibility', () => {
       .toEqual(['28b52ffd', '28b52ffd'])
     const decoded = await Promise.all(frames.map(frame => decompressZstdFrame(encoded.subarray(frame.start, frame.end))))
     expect(Buffer.concat(decoded).toString()).toContain('"type":"turn/start"')
+
+    const preferred = createZstdFrameDecoder()
+    expect(preferred).toBeInstanceOf(NodePrivateZstdFrameDecoder)
+    for (const decoder of [preferred, new PublicZstdFrameDecoder()]) {
+      try {
+        const plaintext = Array.from(decoder.decode(encoded, frames), chunk => Buffer.from(chunk))
+        expect(Buffer.concat(plaintext).toString()).toContain('"type":"turn/start"')
+      } finally {
+        decoder.close()
+      }
+    }
 
     const eventFrame = encoded.subarray(frames[1]!.start, frames[1]!.end)
     const missingChecksumByte = eventFrame.subarray(0, -1)

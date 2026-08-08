@@ -171,36 +171,70 @@ function assertNever(value: never): never {
   throw new Error(`unknown pending interaction: ${String(value)}`)
 }
 
-/** Session status presentation; pending user interaction outranks the running state. */
-function sessionStatus(
-  node: Pick<SessionNode, 'pendingInteraction' | 'running'>,
+interface SessionStatus {
+  state: StateDotState
+  label: string
+}
+
+/**
+ * Session status presentation; pending interaction is primary and live activity
+ * outranks completion reminders.
+ */
+function sessionStatuses(
+  node: Pick<SessionNode, 'pendingInteraction' | 'running' | 'runningSubagentCount' | 'completed'>,
   t: RowTranslate,
-): { state: StateDotState; label: string } {
+): readonly [SessionStatus, ...SessionStatus[]] {
+  const subagents: SessionStatus | undefined = node.runningSubagentCount === 0
+    ? undefined
+    : {
+      state: 'ongoing',
+      label: t(
+        node.runningSubagentCount === 1
+          ? 'status.subagentsRunning.one'
+          : 'status.subagentsRunning.other',
+        { n: node.runningSubagentCount },
+      ),
+    }
+  let pending: SessionStatus | undefined
   switch (node.pendingInteraction) {
-    case 'approval': return { state: 'warning', label: t('status.waitingApproval') }
-    case 'plan-review': return { state: 'warning', label: t('status.planReview') }
-    case 'question': return { state: 'warning', label: t('status.waitingAnswer') }
+    case 'approval':
+      pending = { state: 'warning', label: t('status.waitingApproval') }
+      break
+    case 'plan-review':
+      pending = { state: 'warning', label: t('status.planReview') }
+      break
+    case 'question':
+      pending = { state: 'warning', label: t('status.waitingAnswer') }
+      break
     case undefined: break
     /* v8 ignore next -- closed PendingInteractionStatus union */
     default: return assertNever(node.pendingInteraction)
   }
-  if (node.running) return { state: 'ongoing', label: t('status.running') }
-  return { state: 'done', label: t('status.idle') }
+  if (pending !== undefined) return subagents === undefined ? [pending] : [pending, subagents]
+  if (node.running) {
+    const primary: SessionStatus = { state: 'ongoing', label: t('status.running') }
+    return subagents === undefined ? [primary] : [primary, subagents]
+  }
+  if (subagents !== undefined) return [subagents]
+  if (node.completed) return [{ state: 'done', label: t('status.completed') }]
+  return [{ state: 'done', label: t('status.idle') }]
 }
 
-/** Hover-card body: full title, relative time, and interaction/running/idle status. */
+/** Hover-card body: full title, relative time, and every relevant live status. */
 function SessionHoverContent({ node, now, t }: { node: SessionNode; now: number; t: RowTranslate }) {
-  const status = sessionStatus(node, t)
+  const statuses = sessionStatuses(node, t)
   return (
     <div className={css.hoverContent}>
       <div className={css.hoverTitle}>{displayTitle(node, t)}</div>
       {/* Same placeholder rule as the row's trailing cell: no timestamp
           before the first prompt. */}
       {!node.blank && <div className={css.hoverTime}>{hoverTimeLabel(node.updatedAt, now, t)}</div>}
-      <div className={css.hoverStatus}>
-        <StateDot state={status.state} />
-        <span>{status.label}</span>
-      </div>
+      {statuses.map(status => (
+        <div className={css.hoverStatus} key={status.label}>
+          <StateDot state={status.state} />
+          <span>{status.label}</span>
+        </div>
+      ))}
     </div>
   )
 }
@@ -240,7 +274,8 @@ export function SearchResultItem({ result, currentId, onOpen, t }: {
   t: RowTranslate
 }) {
   const selected = result.id === currentId
-  const status = sessionStatus(result, t)
+  const statuses = sessionStatuses(result, t)
+  const primaryStatus = statuses[0]
   return (
     <button
       type="button"
@@ -251,10 +286,12 @@ export function SearchResultItem({ result, currentId, onOpen, t }: {
     >
       <span className={css.searchResultHeading}>
         <span className={css.slot}>
-          {status.state !== 'done' && (
+          {(primaryStatus.state !== 'done' || result.completed) && (
             <>
-              <StateDot state={status.state} />
-              <span className={css.visuallyHidden}>{status.label}</span>
+              <StateDot state={primaryStatus.state} />
+              {statuses.map(status => (
+                <span className={css.visuallyHidden} key={status.label}>{status.label}</span>
+              ))}
             </>
           )}
         </span>
@@ -276,7 +313,7 @@ function rowHalf(e: { clientY: number; currentTarget: HTMLElement }): 'before' |
 
 /**
  * One top-level 34px session row: status dot (pending user interaction outranks
- * running), title, relative time, and the row actions menu.
+ * own or descendant activity), title, relative time, and the row actions menu.
  * @param props.node - derived session node.
  * @param props.currentId - selected session id (row highlight).
  * @param props.now - epoch ms for relative-time formatting.
@@ -306,7 +343,8 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
   const row = node
   const title = displayTitle(node, t)
   const selected = node.id === currentId
-  const status = sessionStatus(node, t)
+  const statuses = sessionStatuses(node, t)
+  const primaryStatus = statuses[0]
   const [menuOpen, setMenuOpen] = useState(false)
   // Archive replaces the former Delete placeholder: it hides the row through
   // the registry-global archive set and never touches the session log, so it
@@ -351,11 +389,16 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
           drag.drop(rowHalf(e))
         }}
     >
+      {/* Pending interaction and own or descendant activity outrank the
+          finished-but-unviewed reminder, which returns after activity stops
+          and is cleared by opening the session. */}
       <span className={css.slot}>
-        {status.state !== 'done' && (
+        {(primaryStatus.state !== 'done' || row.completed) && (
           <>
-            <StateDot state={status.state} />
-            <span className={css.visuallyHidden}>{status.label}</span>
+            <StateDot state={primaryStatus.state} />
+            {statuses.map(status => (
+              <span className={css.visuallyHidden} key={status.label}>{status.label}</span>
+            ))}
           </>
         )}
       </span>

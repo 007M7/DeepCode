@@ -7,6 +7,7 @@
     - button "模型":
       - img
       - text: 模型
+  - button "打开配置文件"
   - button "关闭":
     - img
     - text: 关闭
@@ -15,7 +16,8 @@
   - list:
     - listitem:
       - text: DeepSeek
-      - button "编辑"
+      - img "API 密钥已配置"
+      - button "编辑 DeepSeek (deepseek-official)": 编辑
       - text: DeepSeek deepseek-official API 密钥
       - textbox "API 密钥":
         - /placeholder: 已配置——输入新值可替换
@@ -23,12 +25,6 @@
         - text: 自定义设置 API 地址
         - textbox "API 地址":
           - /placeholder: https://api.deepseek.com
-        - text: 推理强度
-        - combobox "推理强度":
-          - option "默认" [selected]
-          - option "off"
-          - option "high"
-          - option "max"
         - region "模型目录":
           - text: 模型目录 已自定义模型目录
           - button "恢复默认模型"
@@ -68,3 +64,6 @@
   - button "添加提供方":
     - img
     - text: 添加提供方
+  - button "添加自定义提供方":
+    - img
+    - text: 添加自定义提供方

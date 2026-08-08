@@ -14,7 +14,7 @@
 
 3 个规范值都与已经渲染给 Native 调用方的紧凑 JSON 一致：`{ goal: null }` 或 `{ goal: { id, revision, objective, phase, roundsStarted, maxGoalRounds, blockedReason? }, activation }`。因此，编程消费方无需解析渲染后的 JSON，即可收到相同领域结构。
 
-自主 Goal Round 成功报告 `complete` 或 `blocked` 时，会在该次工具结果上附带一条收尾注入指令，要求模型面向用户写出最终收尾消息、不再调用工具，之后轮次经由常规的无工具调用停止路径结束。人类直接变更不会收到这条指令：assistant 可以确认变更，循环仍可接收并发的人类 steering（中途引导）。
+自主 Goal Round 成功报告 `complete` 或 `blocked` 时，会用 `concludeTurn()` 标记该次工具执行，使物理轮次在该步骤后停止。人类直接变更绝不会导致这种停止：assistant 可以确认变更，循环仍可接收并发的人类 steering（中途引导）。
 
 ## 权限
 
@@ -61,15 +61,15 @@ Use goal tools for one long-running completion objective in the current session.
 
 #### 模型看到的内容
 
-生成的 [`get_goal`、`create_goal` 和 `update_goal` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-goal)。成功结果是紧凑 JSON。变更结果之后是工具批次结束后由 goal 领域产生的原始 `<goal_state>` 快照。结果中的 `activation` 是实时观察值，绝不会成为回放权限依据。Goal Round 的 `complete`/`blocked` 结果还会额外注入一条 `<goal_complete>`/`<goal_blocked>` 收尾指令，要求模型向用户写出有依据的收尾消息且不再调用工具。
+生成的 [`get_goal`、`create_goal` 和 `update_goal` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-goal)。成功结果是紧凑 JSON。变更会追加 goal 领域的持久 `goal/change` 事件，而不会把模型上下文排队。结果中的 `activation` 是实时观察值，绝不会成为回放权限依据。
 
 #### Token 影响
 
-固定 schema 成本，加上每次调用的一条紧凑结果。变更还会保留领域快照，直到压缩（compaction）。Goal Round 的终态更新会增加注入的收尾指令和一次额外的模型请求用于收尾消息——每个 goal 生命周期一次，而非每个 Goal Round 一次。
+固定 schema 成本，加上每次调用的一条紧凑结果。持久变更不会增加单独的模型可见上下文。
 
 #### KV Cache 影响
 
-schema 的定义与可见性不变时，前缀保持稳定。调用、结果和生成的 goal 快照会追加到可复用请求前缀之后，不会使更早条目失效。
+schema 的定义与可见性不变时，前缀保持稳定。调用和结果会追加到可复用请求前缀之后，不会使更早条目失效。
 
 ## 已知限制与暂缓事项
 

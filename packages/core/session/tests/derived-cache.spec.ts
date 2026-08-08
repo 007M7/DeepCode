@@ -22,7 +22,7 @@ function scratch(session: Session): unknown {
 describe('derived-message cache', () => {
   it('stays deep-equal to a from-scratch replay derivation as the log grows', () => {
     const session = Session.create(SessionId('cache-grow'))
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     userText(session, 'one')
     expect(session.deriveMessages()).toEqual(scratch(session))
     userText(session, 'two')
@@ -55,7 +55,7 @@ describe('derived-message cache', () => {
 
   it('rebuilds on a surface replace and still matches scratch', () => {
     const session = Session.create(SessionId('cache-replace'))
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     userText(session, 'one')
     userText(session, 'two')
     const beforeReplace = session.deriveMessages()
@@ -73,7 +73,7 @@ describe('derived-message cache', () => {
 
   it('returns a fresh array per call: later appends never grow a held snapshot', () => {
     const session = Session.create(SessionId('cache-snapshot'))
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     userText(session, 'one')
     const first = session.deriveMessages()
     userText(session, 'two')
@@ -90,7 +90,7 @@ describe('derived-message cache', () => {
 describe('Session.deriveEventMessage — the per-event projection', () => {
   it('projects one appended event exactly as the full derivation projects its node', () => {
     const session = Session.create(SessionId('per-event'))
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     const event = session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' },
     }), { surfaceOp: 'append' })
@@ -100,7 +100,7 @@ describe('Session.deriveEventMessage — the per-event projection', () => {
 
   it('reuses the logged event\'s already frozen content', () => {
     const session = Session.create(SessionId('per-event-clone'))
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     const event = session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'orig' }], source: { kind: 'user' },
     }), { surfaceOp: 'append' })
@@ -114,7 +114,7 @@ describe('Session.deriveEventMessage — the per-event projection', () => {
 
   it('projects null for events that produce no message (boundaries, empty assistant)', () => {
     const session = Session.create(SessionId('per-event-null'))
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     const boundary = session.append('step/start', { turn: 1, step: 1 })
     expect(session.deriveEventMessage(boundary)).toBeNull()
     const empty = session.append('assistant/message', {

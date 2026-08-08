@@ -15,7 +15,16 @@
       "path": "../connection"
     },
     {
+      "path": "../locale"
+    },
+    {
       "path": "../runtime"
+    },
+    {
+      "path": "../ui-tool"
+    },
+    {
+      "path": "../ui-primitives"
     },
     {
       "path": "../ui-slash"

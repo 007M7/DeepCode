@@ -6,10 +6,10 @@ The LLM seam and its provider adapters. The interface package (`llm`) owns the a
 
 | Package | Role | ctx key |
 |---|---|---|
-| `llm/` | Abstract LLM service + content-block vocabulary + chunk assembler | `ctx.llm` |
-| `token-meter/` | Replay-aware request and surface token measurement | `ctx.tokenMeter` |
-| `llm-retry/` | Exact-provider normal or unbounded request retry policy | (listens to `agent/request-error`) |
-| `llm-deepseek/` | DeepSeek API adapter (direct fetch + eventsource-parser SSE) | (registers on `ctx.llm`) |
-| `llm-pi-ai/` | Multi-provider adapter via `@earendil-works/pi-ai` | (registers on `ctx.llm`) |
+| [`llm/`](llm/README.md) | LLM service and shared streaming vocabulary | `ctx.llm` |
+| [`token-meter/`](token-meter/README.md) | Replay-aware token measurement | `ctx.tokenMeter` |
+| [`llm-retry/`](llm-retry/README.md) | Provider-scoped retry policy | listens to `agent/request-error` |
+| [`llm-deepseek/`](llm-deepseek/README.md) | Direct DeepSeek adapter | registers on `ctx.llm` |
+| [`llm-pi-ai/`](llm-pi-ai/README.md) | Multi-provider pi-ai adapter | registers on `ctx.llm` |
 
-The interface lives at `llm/llm/`; adapters, retry policy, and the reusable token meter are flat siblings under the group. Requests route by `provider`, while `model` is passed through to the selected adapter. The route-owning adapter supplies retry policy and resolves available exact-model identity, context capacity, and reasoning metadata; the retry executor and token meter remain provider-agnostic. A new provider adapter registers one or more provider routes on `ctx.llm` without touching the consumers. See [twin LLM adapters](../../.agents/notes/implemented/architecture/2026-06-13-twin-llm-adapters.md) for the two shipping implementations, the [replay token meter Agent Note](../../.agents/notes/implemented/architecture/2026-07-15-replay-token-meter-service.md) for measurement ownership, and the [routed model context Agent Note](../../.agents/notes/implemented/architecture/2026-07-20-routed-model-context-and-compaction-policy.md) for capacity and compaction-policy ownership.
+Adapters register provider routes on the seam; retry and token measurement remain separate consumers. The child READMEs own routing, metadata, replay, and provider-wire details; the [LLM architecture decisions](../../.agents/notes/implemented/architecture/2026-06-13-twin-llm-adapters.md) own the rationale.

@@ -67,7 +67,15 @@ describe('ACP connection ownership', () => {
     const agent = harness.ctx.agents.get(SessionId(sessionId))!
     void harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'go' }] }).catch(() => {})
     await vi.waitFor(() => { expect(agent.status).toBe('running') })
-    harness.ctx.on('agent/cancel-requested', () => { order.push('parent cancelled') })
+    const cancel = agent.cancel.bind(agent)
+    let cancelObserved = false
+    vi.spyOn(agent, 'cancel').mockImplementation((...args) => {
+      if (!cancelObserved) {
+        cancelObserved = true
+        order.push('parent cancelled')
+      }
+      cancel(...args)
+    })
 
     const disposal = harness.acpFiber.dispose()
     // A drain can block on persistence, so the bridge's own turn must already be

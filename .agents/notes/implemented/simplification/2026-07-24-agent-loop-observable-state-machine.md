@@ -18,16 +18,16 @@ The public contract exposes four orthogonal state dimensions:
 
 - Registration lifetime is the `agent/created` to `agent/disposed` interval. Disposal is the terminal registry edge, not an `AgentStatus`.
 - Whole-agent activity is `AgentStatus = 'idle' | 'running'`. Consecutive turns may share one `running` interval.
-- A FIFO-backed message progresses from `agent/inbox/enqueue` to exactly one `agent/inbox/dequeue` or `agent/inbox/discard`. Enqueue and dequeue correlate an occurrence by `MessageId` plus its queued-or-steering placement; same-placement repeats retire in FIFO order. The inbox events describe acceptance, claim, and removal rather than turn completion.
-- A claimed turn passes through prompt admission and zero or more request steps. An automatic retry closes the failed turn and immediately opens another; `agent/settled` reports only the terminal turn in that chain and remains distinct from the whole-agent transition to `status === 'idle'`.
+- A pending message emits `agent/inbox/inserted` when inserted, then either `agent/inbox/claimed` after an atomic pure-deletion claim or `agent/inbox/discarded` after an ordinary removal. `MessageId` correlates the exact message; durable splice coordinates retain placement and cancellation. Inbox events describe insertion, claim, and discard rather than turn completion.
+- A claimed turn passes through pre-step entry and zero or more request steps. An automatic retry closes the failed turn and immediately opens another; `agent/settled` reports only the terminal turn in that chain and remains distinct from the whole-agent transition to `status === 'idle'`.
 
-The loop keeps five machine extension events. `agent/prompt-submit` admits, rewrites, or blocks a claimed prompt. `agent/step` is the single awaited between-steps checkpoint and runs before every request is derived. `agent/request` is the waterfall for the frozen call configuration; the configuration comes only from `await next()`, not from a duplicate positional argument. `agent/request-error` serializes ownership of awaited model-request recovery. `agent/turn-stopping` runs when the turn otherwise has no work left; a listener that needs another step records real steering with `agent.steer()`, and the loop decides from that data after all listeners settle.
+The loop keeps four machine extension events. `agent/pre-step` decides reject or enter for one exclusive claimed batch and runs before every proposed step. `agent/request` is the waterfall for the frozen call configuration; the configuration comes only from `await next()`, not from a duplicate positional argument. `agent/request-error` serializes ownership of awaited model-request recovery. `agent/turn-stopping` runs when the turn otherwise has no work left; a listener that needs another step records real steering with `agent.steer()`, and the loop decides from that data after all listeners settle.
 
 Continuation and termination are data rather than returned control enums. Tool calls and accepted steering require another step. A tool result carrying `concludesTurn` ends the tool loop at its step. The loop does not expose general `ContinuationDecision` or terminal-stop return channels.
 
 A model-request failure closes its step, then enters `agent/request-error` with the exact error, normalized `LlmFailure`, and live turn signal. A listener that owns recovery repairs state, returns `{ kind: 'retry' }`, and stops delegating. The loop closes the failed turn and opens one retry turn over that state without an intervening idle notification; retry is not another step inside the failed turn. `agent/settled` reports the terminal outcome, and `agent/error` remains the live error notification for consumers that report failures independently of turn settlement. The [retry-action decision](2026-07-27-request-error-retry-action.md) supersedes the command-shaped part of this design.
 
-The event taxonomy removes `agent/pre-step`, `agent/post-step`, `agent/session-prefix`, `agent/step-result`, `agent/turn-continuation`, and `agent/turn-stop`. Durable turn and step boundaries remain session events. Model-facing additions use logged message channels, request configuration uses `agent/request`, response content is recorded as assembled, failed-request recovery uses the `agent/request-error` return action, and end-of-turn continuation uses `agent/turn-stopping` plus steering.
+The event taxonomy removes the legacy prompt preparation/submission and serial step hooks together with `agent/post-step`, `agent/session-prefix`, `agent/step-result`, `agent/turn-continuation`, and `agent/turn-stop`. The single `agent/pre-step` waterfall owns claimed-message entry. Durable turn and step boundaries remain session events. Model-facing additions use logged message channels, request configuration uses `agent/request`, response content is recorded as assembled, failed-request recovery uses the `agent/request-error` return action, and end-of-turn continuation uses `agent/turn-stopping` plus steering.
 
 ## Alternatives considered
 
@@ -51,7 +51,7 @@ The inbox lifecycle complements, rather than replaces, the durable session log. 
 
 ## Related
 
-- [Unify agent delivery on send(target × wakeup) and coalesce injected context into user/message](../architecture/2026-07-22-unified-send-and-coalesced-user-messages.md)
+- [Unify agent delivery routing and coalesce injected context into user/message](../architecture/2026-07-22-unified-send-and-coalesced-user-messages.md)
 - [Remove implicit batching from ordinary sends](2026-07-17-one-send-one-turn.md)
 - [Microkernel event taxonomy](../architecture/2026-06-11-microkernel-event-taxonomy.md)
 - [Bounded LLM request recovery](../architecture/2026-06-21-bounded-llm-request-recovery.md)

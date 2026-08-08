@@ -22,11 +22,11 @@ Status: implemented
 
 **消息。** `Session.deriveMessages()` 带缓存：每个 surface 条目在首次出现时通过公开的逐事件函数 `deriveEventMessage(event)` 精确投影一次；surface 重写（压缩的 `replace`，即 `SurfaceManager.replaceGeneration`）触发重建。调用方每次获得一个新数组，底层是共享的深度冻结消息：通过投影变异已记录的历史是不可表达的（会抛异常），取代了旧的逐次调用克隆隔离。外部重建器对日志前缀折叠同一个公开函数，因此不可能有两条路径产生分歧。
 
-`EpochHeader` 记录请求的非历史状态：调用配置、渲染后的系统提示词、工具 schema 和会话前缀，空值规范化为缺失。`request/header` 始终写入完整快照：首个循环实例使用 reason `initial`，后续实例使用 `resume`，实例内变更使用 `change`。`foldRequestHeader` 选择最新快照。旧的 `request/header-delta` 事件和已移除的 `fallback` reason 在追加或加载时都会被拒绝。
+`EpochHeader` 记录请求的非历史状态：调用配置、渲染后的系统提示词和工具 schema，空值规范化为缺失。`request/header` 始终写入完整快照：首个循环实例使用 reason `initial`，后续实例使用 `resume`，实例内变更使用 `change`。`foldRequestHeader` 选择最新快照。旧的 `request/header-delta` 事件和已移除的 `fallback` reason 在追加或加载时都会被拒绝。
 
-每个步骤重建提示词组装。在实例的首个步骤中，`agent/session-prefix` 以一个冻结的空种子为基础，用仅限请求的开场消息进行扩展；结果在通用 `agent/pre-step` 检查点与边界快照之前被冻结并缓存于该循环实例。首次调用配置从显式的 `AgentOptions` 出发，保留 fork 覆盖和恢复重配置；后续调用从折叠后的 header 出发。`agent/request` 只能替换那个冻结的配置种子，模型可见内容通过已记录的通道进入。循环记录应写入的 header 事件（前缀唯一的持久归宿），从前缀、快照和 header 构建 `GenerateOptions`，对其深度冻结但保持 `AbortSignal` 活跃。每实例状态仅有缓存的前缀和锚定快照是否已写入。
+每个拟议步骤先领取其 inbox 批次，再运行 `agent/pre-step`。reject 不打开步骤；enter 打开 `step/start`，并把最终消息批次记录为 `user/message` 事件。随后步骤组装系统提示词与工具，`agent/request` 只能替换冻结的调用配置种子。循环记录所需的完整 header 快照，从派生消息与该 header 构建 `GenerateOptions`，对其深度冻结但保持 `AbortSignal` 活跃。首次调用配置从显式的 `AgentOptions` 出发，保留 fork 覆盖和恢复重配置；后续调用从折叠后的 header 出发。
 
-**`step/start` 是重建边界。** 一个步骤从该序列之前的事件推导消息。快照之后的注入加入下一次请求，事件发布期间的重入追加被拒绝。`agent/pre-step(agent, turn, step, signal)` 仍是当前请求所需内容的通用 seam。header 重建选择该步骤的 `request/header`，或在无新 header 写入时沿用前一个快照。
+**已打开步骤是重建边界。** 进入步骤的 `user/message` 批次与任何新写入的 `request/header` 都位于请求分派之前。原子领取后发生的注入加入后续请求；必须影响本次请求的监听器则通过 `agent/pre-step` 返回消息。header 重建选择该步骤的 `request/header`，或在无新 header 写入时沿用前一个快照。
 
 **强制执行。** `dsh-agent-loop/invariant` 配套插件向 `ctx.invariants` 注册，并在被选用时通过一个全新的 `Session` 独立重建每个循环请求，使活跃缓存无法为自身背书，然后在 `llm/stream` 处比较消息和折叠后的 header 字段。循环通过 `dsh-llm` 的 `markAgentLoopRequest()` 记录精确的冻结请求；这一进程内标识让配套插件和其他请求观察者识别对话工作，而直接的一次性调用无论其冻结形状或会话 id 如何都保持排除。正确性依赖于序列有界的重建，而非监听器顺序。带密钥的 e2e 要求首次请求之后有正值的 cache-read token；逐步骤用量是生产信号，header 变更或压缩表现为下一步骤的 cache-read 下降。
 
@@ -47,10 +47,9 @@ Status: implemented
 ## 后果
 
 - 一个日志无法解释的请求不可能被意外构造——无论是循环还是监听器；变异已构建的请求会抛异常；每个 header 变更都是持久的、可 diff 的日志事件。
-- 在建议性通道之间的选择取决于内容的变更频率，而本设计将稳定通道固化在结构中：`agent/session-prefix` 的贡献在每个循环实例中只组合一次并逐字复用，因此以零边际成本扩展可缓存前缀，且不可能在会话中途使提供方缓存失效；会话中途变化的内容通过仅追加的历史通道流入——`agent.inject()` 以及工具/prompt-submit 的 `additionalContexts`——每条都是持久的 `context/message`，付出一次代价后即被前缀缓存，代价是在历史和日志中累积。将在会话期间固定不变的开场内容路由到前缀，将变更通知路由到历史通道；逐步骤的仅限请求尾部槽位被有意放弃（无消费方，且持久追加覆盖了当前所有更新模式）。
-- 在提供方处仍需全价计算的内容是固有的且已记录的：压缩（其 `compact/*` 事件和替换条目）、真正的提示词、工具或配置变更（reason 为 `change` 的 `request/header`），或带漂移的进程边界（不同的 `resume` 快照）。提供方自身对思考内容的排除由服务端管理。
-- `step/start` 监听器行为变更（见上文）是对插件唯一可观察的语义变更；`agent/pre-step` 是当前请求的 seam。
-- 工具结果裁剪（计划中）无需新机制：一个已记录的单条目 surface replace（`start === end`），携带同一 `callId` 下裁剪后的 `tool/result`——属压缩家族，回放正确，缓存失效由相同的压力逻辑批量处理。
+- 模型可见上下文使用已记录消息通道。`agent.inject()` 与工具 `additionalContexts` 进入 inbox，等待后续领取；必须与当前已领取批次一起结算的上下文由 `agent/pre-step` 返回。每个进入步骤的值都是带来源的持久 `user/message`，只付出一次代价并在后续成为可缓存前缀，代价是会在历史中累积直至压缩。
+- 在提供方处仍需全价计算的内容是固有的且已记录的：压缩（其 `compact/*` 事件和替换条目）、真正的提示词、工具或配置变更（reason 为 `change` 的 `request/header`），或带漂移的进程边界（不同的 `resume` 快照）。提供方自身的 reasoning-content 排除由服务端管理。
+- `agent/pre-step` 是当前请求的消息 seam；直接修改 inbox 则是最终进入后续请求的 seam。
+- 工具结果裁剪（计划中）无需新机制：一个已记录的单条目 surface replace（`start === end`），携带同一 `callId` 下裁剪后的 `tool/result`——属压缩家族，回放正确，缓存击穿由相同的压力逻辑批量处理。
 - 会话日志每个循环实例增长一个 `request/header` 快照，并在真正变更时增加快照。它比 delta 编解码器更大，但相对分片密集型日志仍然很小，并只保留一种回放表示。`SESSION_FORMAT_VERSION` 保持 `0`；旧的 delta 事件被拒绝而非迁移。
 - 快照预期输出变更一次（每个 transcript（文本记录）增加其 header 事件）；写入文件系统的 fixture（测试前置数据）以规范化的撰写形式存储，工具参数使用 cwd 相对路径，因为回放只对 cwd 无关的参数路径做往返。
-- FIXME(call-config-shape)：重新审视 `LlmCallConfig` 的确切字段集——哪些字段对缓存而言真正属于 epoch 级别（`model` 毫无疑问；采样标量出于谨慎放在那里），以及当适配器需要时，提供方特定的额外项（推理（reasoning）选项、额外 body 参数）应归属何处。

@@ -17,13 +17,17 @@ export function turnEndToStopReason(reason: TurnEndReason): StopReason {
       return 'end_turn'
     case 'max-tokens':
       return 'max_tokens'
+    // `cancelled` is reserved for explicit client cancellation (`session/cancel`)
+    // and disposal, both settled out of band; a turn aborted by a hook or
+    // another owner is ordinary quiescence and reports `end_turn`.
     case 'aborted':
-    case 'disposed':
+      return 'end_turn'
     case 'interrupted':
       return 'cancelled'
+    case 'blocked':
     case 'error':
       return 'end_turn'
-    // TurnEndReason is merge-extensible; future variants still need a legal wire value.
+    /* v8 ignore next 2 -- TurnEndReason is closed and every member is handled above */
     default:
       return 'end_turn'
   }

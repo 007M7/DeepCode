@@ -21,8 +21,8 @@ On filesystems with POSIX modes, the backend requests mode `0700` for missing di
 - **Append = a transaction.** `append` runs `BEGIN`/`COMMIT` around the batch: it materializes the `sessions` row (if still lazy) and INSERTs every event, asserting the contiguous-seq contract first (the first event's `seq` must equal the stored next-seq). A mid-batch failure (a UNIQUE violation on a duplicated seq) rolls back entirely, so the stored log and the in-memory cursor stay consistent. (`load()` already balanced the stored log, so `append` never has to repair a crash tail.)
 - **Lazy materialization.** `create()` records intent in memory only — no row is written until the first `append`. A created-but-never-appended session has no `sessions` row, so it is absent from `list()` (which reports exactly the sessions that have a row).
 - **Interrupted-turn close on load.** `load()` implements the shared [crash-recovery contract](../../../.agents/notes/implemented/architecture/2026-06-14-session-persistence.md): preserve the valid interrupted turn, append its synthetic closing events in one transaction, and remove only a torn tail row. Committed parse errors or sequence gaps make the session unloadable. Because recovery mutates stored rows, the next append starts from a balanced log and accurate cursor.
-- **Non-mutating inspection.** `inspect()` returns the detached valid row prefix without deleting a torn tail row or appending recovery closers, and leaves the lightweight revision unchanged.
-- **Lightweight revisions.** `listSnapshots(signal?)` combines the immutable store and database-file identity, a per-materialization incarnation id, and a per-session counter incremented in each mutating transaction. This keeps unchanged observations stable without parsing event rows and distinguishes independent stores and recreated same-id logs. It checks cancellation before and after shared readiness and the synchronous metadata query; the query itself is non-preemptible.
+- **Non-mutating inspection.** `inspect()` returns an immutable balanced logical view and may synthesize recovery closers in memory, without deleting a torn tail row, appending recovery rows, or changing the lightweight revision.
+- **Lightweight revisions.** `listSnapshots(signal?)` combines the immutable store and database-file identity, a per-materialization incarnation id, and a per-session counter incremented in each mutating transaction. A full-prefix read captures that revision and its event rows in one read transaction, while `readStoredRevision()` queries only the session row to validate retained preparations. This keeps unchanged observations stable without parsing event rows and distinguishes independent stores and recreated same-id logs. It checks cancellation before and after shared readiness and the synchronous metadata query; the query itself is non-preemptible.
 
 ## Configuration (schemastery)
 
@@ -30,12 +30,14 @@ On filesystems with POSIX modes, the backend requests mode `0700` for missing di
 interface Config {
   path: string   // SQLite database file path, or ':memory:' for an in-process DB
   journalMode?: 'wal' | 'delete' | 'truncate' | 'persist'   // journal_mode pragma; default 'wal'
+  preparedSessionCacheSize?: number   // positive integer; default 5
+  writeBatchMaxDelayMs?: number   // positive integer; default 200; maximum 2_147_483_647
 }
 ```
 
 ## Write path
 
-Like the JSONL backend, the plugin copies each frozen `session/event` into one controller per live session and starts an eager drain. Concurrent events share the current transaction; events admitted during it form a follow-up batch, while `session/flush` waits until both current and pending batches are durable. The controller persists a fork's seed once, keeps a write cursor so resume never re-appends stored events, and seeds live sessions on apply because HMR does not replay `session/created`. Dispose drains every retained controller before closing the database.
+Like the JSONL backend, the plugin copies each frozen `session/event` into one controller per live session. The first pending event starts the configured fixed batching window, and later events join without resetting it. Expiry starts one transaction; events admitted during that write form a separately bounded follow-up batch. `session/flush` cancels the wait and drains current and pending batches. The controller persists a fork's seed once, keeps a write cursor so resume never re-appends stored events, and seeds live sessions on apply because HMR does not replay `session/created`. Dispose drains every retained controller before closing the database. Every event remains a separate SQLite row; batching only groups more INSERTs into one transaction and revision increment.
 
 ## Model Experience
 

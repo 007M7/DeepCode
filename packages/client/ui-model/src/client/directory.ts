@@ -15,6 +15,14 @@ import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 export interface ModelDirectoryState {
   /** Target the host reports for the next assembled step; null before the first load. */
   current: ModelTarget | null
+  /**
+   * Whether an adapter serves the current target's route, as the host reports
+   * it — null before the first load, which is NOT the same as blocked. Read
+   * this rather than "current matches no group": catalog membership is
+   * advisory, so a route serving a model it stopped advertising is missing
+   * from the groups yet perfectly usable.
+   */
+  routable: boolean | null
   /** Successfully loaded provider groups (last good load). */
   groups: readonly ModelProviderGroup[]
   /** Provider-local failures from the last load; usable groups stay usable. */
@@ -29,7 +37,7 @@ export interface ModelDirectoryState {
 export class ModelDirectory {
   /** The shared snapshot both entries render from (uSES-safe store). */
   readonly store: SnapshotStore<ModelDirectoryState> = createSnapshotStore<ModelDirectoryState>({
-    current: null, groups: [], failures: [], status: 'idle', error: null,
+    current: null, routable: null, groups: [], failures: [], status: 'idle', error: null,
   })
 
   /** Latest operation wins; an older response never overwrites a newer one. */
@@ -65,9 +73,10 @@ export class ModelDirectory {
       this.store.update((s) => { s.status = 'error'; s.error = `${result.error.code}: ${result.error.message}` })
       throw new Error(`session.models failed: ${result.error.code}: ${result.error.message}`)
     }
-    const { current, groups, failures } = result.value
+    const { current, routable, groups, failures } = result.value
     this.store.update((s) => {
       s.current = current
+      s.routable = routable
       s.groups = groups
       s.failures = failures
       s.status = 'ready'
@@ -102,7 +111,14 @@ export class ModelDirectory {
       this.store.update((s) => { s.status = 'error'; s.error = `${result.error.code}: ${result.error.message}` })
       throw new Error(`session.selectModel failed: ${result.error.code}: ${result.error.message}`)
     }
-    this.store.update((s) => { s.current = result.value.selected; s.status = 'ready'; s.error = null })
+    // The Host validated the route before accepting it, so a selection that
+    // landed is by construction one it can serve.
+    this.store.update((s) => {
+      s.current = result.value.selected
+      s.routable = true
+      s.status = 'ready'
+      s.error = null
+    })
   }
 
   /**
@@ -115,6 +131,7 @@ export class ModelDirectory {
     ++this.generation
     this.store.update((s) => {
       s.current = null
+      s.routable = null
       s.groups = []
       s.failures = []
       s.status = 'idle'

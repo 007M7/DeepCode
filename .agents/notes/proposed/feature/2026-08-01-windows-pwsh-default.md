@@ -13,9 +13,9 @@ The harness's shipped execution profile is bash-first on every platform. Windows
 Two follow-up stages, each independently shippable. The former stage 2 (bash-tool parity twin) shipped with the [pwsh tool bash parity decision](../../implemented/feature/2026-08-02-pwsh-tool-bash-parity.md): `tool-pwsh` now mirrors `tool-bash` for foreground and background work minus the sandbox surface, shares the `DSH_*` environment through `dsh-bash-env`, and carries a keyless application snapshot of its assembled surface.
 
 1. **Windows default composition** — the shipped CLI compositions mount `dsh-pwsh-local` as the `ctx.bash` executor and `dsh-tool-pwsh` as the model-facing shell tool on Windows hosts (bash unmounted there), while POSIX hosts keep the bash stack. This is a composition/roster decision in `base.cordis.yml` and the surface overlays, gated by platform; it makes the shipped Windows experience PowerShell-native end to end.
-2. **pwsh TUI/GUI rendering** — the TUI and Web surfaces render pwsh output with PowerShell-aware presentation (native path display, `$env:` facts), the counterpart of the bash terminal cards. This is where terminal/console rendering conventions get a PowerShell twin.
+2. **pwsh GUI rendering** — the Web surface renders pwsh calls with the bash-shaped terminal presentation (terminal card with exit-status pill), the counterpart of the bash terminal cards. Shipped in the [pwsh UI presentation matches bash decision](../../implemented/feature/2026-08-05-pwsh-ui-bash-parity.md) with a keyless web lane; the TUI was removed, so no terminal twin remains. A PowerShell-aware presentation beyond bash parity (native path display, `$env:` facts) remains unclaimed.
 
-The stages are deliberately sequenced: composition first (a Windows user gets PowerShell without choosing), then rendering. Nothing in this proposal changes POSIX behavior.
+The stages are ordered by dependency only where one exists: the rendering stage shipped first with the [pwsh UI presentation matches bash decision](../../implemented/feature/2026-08-05-pwsh-ui-bash-parity.md) because it is platform-independent and its keyless web lane runs on any host, while the Windows default composition remains the only unshipped stage. Nothing in this proposal changes POSIX behavior.
 
 ## Alternatives considered
 
@@ -30,10 +30,10 @@ The stages are deliberately sequenced: composition first (a Windows user gets Po
 - A Windows host running the shipped `dsh` TUI/Web gets `pwsh` as its shell tool and PowerShell as the `ctx.bash` executor without configuration, and `bash` is absent from the model-visible roster there.
 - POSIX hosts are byte-for-byte unaffected (same roster, same executor).
 - The shipped-composition e2es assert the platform-gated roster on both families.
-- Stage 1 lands with the keyless pwsh-tool snapshot already in place from the parity change; stage 2 lands with TUI/Web rendering snapshots for pwsh output.
+- Stage 1 lands with the keyless pwsh-tool snapshot already in place from the parity change; stage 2 landed with the web `pwsh-terminal` rendering lane (the TUI's removal left no terminal surface to snapshot).
 
 ## Risks
 
 - **Bash-dependent composition rows** — any shipped plugin that assumes `bash` semantics (hook bridges executing shell hooks, workspace tooling) must be audited per stage; the audit may force a staged rollout rather than one switch.
 - **Windows CI coverage gap** — unit coverage runs on Linux; Windows-only regressions in the pwsh stack surface through the Windows build/static lane and e2es, which must be extended per stage rather than assumed.
-- **Rendering conventions** — a PowerShell twin for terminal cards is a UI design decision with snapshot surface; deferring it (stage 2) keeps stage 1 shippable without UI churn.
+- **Rendering conventions** — the bash-shaped terminal twin shipped with the Web lane; a PowerShell-aware presentation beyond bash parity (native path display, `$env:` facts) remains a UI design decision with snapshot surface, deferred with stage 1.

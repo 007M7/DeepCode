@@ -88,6 +88,7 @@ describe('permission settings store', () => {
   it('loads and writes defaultPreset with optimistic concurrency', async () => {
     const describe = vi.fn(() => Promise.resolve(ok({
       writable: true,
+      hasDocument: false,
       namespaces: [view('read-only', 4)],
     })))
     const mutate = vi.fn(() => Promise.resolve(ok(view('workspace-write', 5))))
@@ -115,7 +116,7 @@ describe('permission settings store', () => {
   })
 
   it('hides the row when the namespace is absent and contains write failures', async () => {
-    const describe = vi.fn(() => Promise.resolve(ok({ writable: true, namespaces: [] })))
+    const describe = vi.fn(() => Promise.resolve(ok({ writable: true, hasDocument: false, namespaces: [] })))
     const controller = new PermissionSettingsController({
       settings: { describe, mutate: vi.fn() } as never,
     })
@@ -124,7 +125,7 @@ describe('permission settings store', () => {
 
     const failing = new PermissionSettingsController({
       settings: {
-        describe: () => Promise.resolve(ok({ writable: true, namespaces: [view('read-only')] })),
+        describe: () => Promise.resolve(ok({ writable: true, hasDocument: false, namespaces: [view('read-only')] })),
         mutate: () => Promise.resolve({
           rpcId: 'test',
           result: {
@@ -146,14 +147,14 @@ describe('permission settings store', () => {
     }>>>()
     const describe = vi.fn()
       .mockImplementationOnce(() => first.promise)
-      .mockResolvedValueOnce(ok({ writable: false, namespaces: [view('read-only', 2)] }))
+      .mockResolvedValueOnce(ok({ writable: false, hasDocument: false, namespaces: [view('read-only', 2)] }))
     const mutate = vi.fn()
     const controller = new PermissionSettingsController({
       settings: { describe, mutate } as never,
     })
     const stale = controller.load()
     await controller.load()
-    first.resolve(ok({ writable: true, namespaces: [view('workspace-write', 1)] }))
+    first.resolve(ok({ writable: true, hasDocument: false, namespaces: [view('workspace-write', 1)] }))
     await stale
     expect(controller.store.getSnapshot()).toMatchObject({
       currentValue: 'read-only',
@@ -200,7 +201,7 @@ describe('permission settings store', () => {
     expect(describe).not.toHaveBeenCalled()
     const loading = idle.load()
     idle.dispose()
-    read.resolve(ok({ writable: true, namespaces: [view('read-only')] }))
+    read.resolve(ok({ writable: true, hasDocument: false, namespaces: [view('read-only')] }))
     await loading
     expect(idle.store.getSnapshot().status).toBe('loading')
 
@@ -220,6 +221,7 @@ describe('permission settings store', () => {
     const mutation = Promise.withResolvers<ReturnType<typeof ok<SettingsNamespaceView>>>()
     const activeDescribe = vi.fn(() => Promise.resolve(ok({
       writable: true,
+      hasDocument: false,
       namespaces: [view('read-only')],
     })))
     const active = new PermissionSettingsController({
@@ -240,7 +242,7 @@ describe('permission settings store', () => {
     const rejectedMutation = Promise.withResolvers<ReturnType<typeof ok<SettingsNamespaceView>>>()
     const disposedWrite = new PermissionSettingsController({
       settings: {
-        describe: () => Promise.resolve(ok({ writable: true, namespaces: [view('read-only')] })),
+        describe: () => Promise.resolve(ok({ writable: true, hasDocument: false, namespaces: [view('read-only')] })),
         mutate: () => rejectedMutation.promise,
       } as never,
     })

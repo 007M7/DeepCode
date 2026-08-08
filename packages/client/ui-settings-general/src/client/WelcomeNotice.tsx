@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef } from 'react'
 import type { ReactNode } from 'react'
 import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-import { BrandWordmark, Button } from '@deepseek-ai/dsh-client-ui-primitives'
+import { BrandWordmark, Button, OnboardingSurface } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-web-react'
 import type { WelcomeNoticeState, WelcomeNoticeStore } from './welcome-store.ts'
 import css from './WelcomeNotice.module.css'
@@ -55,6 +55,9 @@ export function WelcomeNotice(props: WelcomeNoticeProps): ReactNode {
     if (state.status === 'ready' && !state.acknowledged) titleRef.current?.focus()
   }, [state.acknowledged, state.status])
 
+  // Null while the acknowledgement fact is still loading (or already given):
+  // the takeover chrome below is part of THIS render, so deciding not to
+  // show paints and blocks nothing.
   if (state.status === 'idle' || state.status === 'loading' || state.acknowledged) return null
 
   const acknowledge = async (): Promise<void> => {
@@ -62,25 +65,27 @@ export function WelcomeNotice(props: WelcomeNoticeProps): ReactNode {
   }
 
   return (
-    <section className={css.page} role="region" aria-labelledby="welcome-notice-title">
-      <div className={css.brand} aria-hidden="true"><BrandWordmark size={24} /></div>
-      <h2 ref={titleRef} id="welcome-notice-title" className={css.title} tabIndex={-1}>{t('welcome.title')}</h2>
-      <p className={css.opening}>{t('welcome.paragraph.0')}</p>
-      <blockquote className={css.reflection}>{t('welcome.paragraph.1')}</blockquote>
-      <p className={css.feedback}>
-        {emphasizedFeedback(t('welcome.paragraph.2'), t('welcome.feedbackEmphasis'))}
-      </p>
-      {state.error === null ? null : <p className={css.error} role="alert">{t('welcome.error')}</p>}
-      <div className={css.footer}>
-        <Button
-          variant="primary"
-          className={css.primary}
-          disabled={state.status === 'saving'}
-          onClick={() => { void acknowledge() }}
-        >
-          {t('welcome.continue')}
-        </Button>
-      </div>
-    </section>
+    <OnboardingSurface>
+      <section className={css.page} role="region" aria-labelledby="welcome-notice-title">
+        <div className={css.brand} aria-hidden="true"><BrandWordmark size={24} /></div>
+        <h2 ref={titleRef} id="welcome-notice-title" className={css.title} tabIndex={-1}>{t('welcome.title')}</h2>
+        <p className={css.opening}>{t('welcome.paragraph.0')}</p>
+        <blockquote className={css.reflection}>{t('welcome.paragraph.1')}</blockquote>
+        <p className={css.feedback}>
+          {emphasizedFeedback(t('welcome.paragraph.2'), t('welcome.feedbackEmphasis'))}
+        </p>
+        {state.error === null ? null : <p className={css.error} role="alert">{t('welcome.error')}</p>}
+        <div className={css.footer}>
+          <Button
+            variant="primary"
+            className={css.primary}
+            disabled={state.status === 'saving'}
+            onClick={() => { void acknowledge() }}
+          >
+            {t('welcome.continue')}
+          </Button>
+        </div>
+      </section>
+    </OnboardingSurface>
   )
 }

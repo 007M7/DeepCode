@@ -66,7 +66,7 @@ export function apply(ctx: Context): void {
         SessionId(args.subagent_id),
         message,
         {
-          source: { kind: 'coordinator', senderSessionId: parent.id },
+          source: { kind: 'coordinator', form: 'relay', senderSessionId: parent.id },
           signal: exec.signal,
         },
       )

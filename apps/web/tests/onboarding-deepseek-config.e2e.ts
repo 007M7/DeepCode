@@ -113,8 +113,8 @@ describe.skipIf(MODE === 'record')('web e2e: first-run DeepSeek credential setup
     await settings.getByRole('button', { name: '保存', exact: true }).click()
     await keyInput.waitFor({ state: 'detached', timeout: 15_000 })
 
-    const stored = await readFile(join(scaffold.harnessHome, '.env'), 'utf8')
-    expect(stored.includes(`DEEPSEEK_API_KEY=${secret}`)).toBe(true)
+    const stored = await readFile(join(scaffold.harnessHome, '.credentials.yaml'), 'utf8')
+    expect(stored.includes(`DEEPSEEK_API_KEY: ${secret}`)).toBe(true)
     expect((await page.content()).includes(secret)).toBe(false)
     expect((await page.locator('body').ariaSnapshot()).includes(secret)).toBe(false)
     expect(browserConsole.some(line => line.includes(secret))).toBe(false)
@@ -158,6 +158,58 @@ describe.skipIf(MODE === 'record')('web e2e: first-run DeepSeek credential setup
     expect((await page.locator('body').ariaSnapshot()).includes(secret)).toBe(false)
     expect(browserConsole.some(line => line.includes(secret))).toBe(false)
     expect(tripwire.warnings).toEqual([])
+    expect(tripwire.pageErrors).toEqual([])
+  }, 60_000)
+
+  it('never paints the takeover chrome on a configured reload, even with the settings join held open', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-onboarding-configured-reload'))
+    // Regression pin for the reload white flash: both steps are satisfied
+    // (welcome acknowledged, credential configured), yet each must LOAD its
+    // private join before it can decide not to show. The chrome lives inside
+    // the step (OnboardingSurface), so the deciding window paints and blocks
+    // nothing. Holding settings.describe widens that window from loopback
+    // RTT scale to a deterministic hundreds of milliseconds, removing all
+    // timing dependence from the sampler assertions below.
+    //
+    // The sampler init script persists across this shared page's later
+    // navigations (init scripts re-run per navigation); that stays harmless
+    // because no later scenario in this file legitimately shows the
+    // takeover, and only this test reads __takeoverSightings.
+    await page.addInitScript(() => {
+      const sightings: string[] = []
+      ;(window as unknown as { __takeoverSightings: string[] }).__takeoverSightings = sightings
+      setInterval(() => {
+        if (document.querySelector('[class*="onboardingStage"], [class*="onboardingMask"]') !== null) {
+          sightings.push('chrome')
+        }
+        if (document.getElementById('root')?.inert === true) sightings.push('inert')
+      }, 8)
+    })
+    // EVERY settings.describe issued before the release is held — not just
+    // the first — so the pin cannot silently collapse back to loopback
+    // timing if a second boot-time consumer of the join ever appears.
+    let released = false
+    const heldRoutes: Array<() => void> = []
+    const releaseDescribe = (): void => {
+      released = true
+      for (const resolve of heldRoutes.splice(0)) resolve()
+    }
+    await page.route('**/api/settings.describe', async (route) => {
+      if (!released) await new Promise<void>((resolve) => { heldRoutes.push(resolve) })
+      await route.continue()
+    })
+    const warningsBefore = tripwire.warnings.length
+    await page.reload({ waitUntil: 'commit' })
+    await page.waitForSelector('[class*="frame"]', { timeout: 15_000 })
+    // The app is painted and interactive while the steps are still deciding.
+    await page.waitForTimeout(600)
+    releaseDescribe()
+    await page.waitForTimeout(400)
+    await page.unroute('**/api/settings.describe')
+    acknowledgeReloadConnectionLoss(tripwire, warningsBefore)
+    expect(await page.evaluate(() =>
+      (window as unknown as { __takeoverSightings: string[] }).__takeoverSightings)).toEqual([])
+    expect(await page.locator('[class*="onboardingStage"]').count()).toBe(0)
     expect(tripwire.pageErrors).toEqual([])
   }, 60_000)
 

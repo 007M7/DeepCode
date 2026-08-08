@@ -124,7 +124,7 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'session',
     title: 'In-memory session store',
     mode: 'core',
-    consumers: ['agent-loop', 'agent', 'cli-demo', 'session-persistence', 'session-query', 'session-query-sqlite', 'subagent-inprocess', 'invariants'],
+    consumers: ['agent-loop', 'agent', 'session-persistence', 'session-query', 'session-query-sqlite', 'subagent-inprocess', 'invariants'],
     note: 'Owns append-only Session instances and emits the durable session event feed.',
   },
   {
@@ -140,8 +140,15 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'typert-registry',
     title: 'Runtime type registry',
     mode: 'core',
-    consumers: ['typert-loader'],
-    note: 'Plugins register live zod contributions directly or through dsh-typert-loader; runtime consumers query schemas and reflection metadata at their own edges.',
+    consumers: ['typert-loader', 'api-gateway'],
+    note: 'Plugins register live zod contributions directly or through dsh-typert-loader; the API gateway consumes invocation descriptors and providers, while other runtime consumers query schemas and reflection metadata at their own edges.',
+  },
+  {
+    key: 'typertGateway',
+    pkg: 'api-gateway',
+    title: 'TypeRT Host invocation gateway',
+    mode: 'core',
+    note: 'Associates generated Remote descriptors with live Cordis services, resolves registered identities, and exposes unary calls through the shared Connection RPC carrier.',
   },
   {
     key: 'sessionPersistence',
@@ -287,7 +294,7 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'skill',
     title: 'Skill provider registry',
     mode: 'seam',
-    implementations: ['skill-local'],
+    implementations: ['skill-badge', 'skill-local'],
     consumers: ['tool-skill'],
     note: 'Merges provider skill catalogs; tool-skill renders the session-prefix catalog and loads complete skill bodies.',
   },
@@ -296,7 +303,7 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'agent',
     title: 'Agent service',
     mode: 'core',
-    consumers: ['agent-loop', 'acp', 'cli-demo', 'subagent-inprocess'],
+    consumers: ['agent-loop', 'acp', 'subagent-inprocess'],
     note: 'Owns live Agent handles, the create/resume factory seam, and process-local initiator propagation.',
   },
   {
@@ -320,8 +327,8 @@ const SERVICE_ROLES: ServiceRole[] = [
     title: 'Subprocess seam',
     mode: 'seam',
     implementations: ['subprocess-local'],
-    consumers: ['bash-local', 'bash-sandbox', 'lsp-local', 'subagent-acp'],
-    note: 'The bash executors, the LSP host, and the ACP subagent backend spawn their children through ctx.subprocess; the service owns tree lifetime, stdio dispositions (pipes, inherit, bounded spill-backed collection), and kill escalation.',
+    consumers: ['bash-local', 'bash-sandbox', 'lsp-local', 'subagent-acp', 'subagent-codex', 'subagent-claude-code'],
+    note: 'The bash executors, the LSP host, and the out-of-process ACP, Codex, and Claude Code subagent backends spawn their children through ctx.subprocess; the service owns tree lifetime, stdio dispositions (pipes, inherit, bounded spill-backed collection), and kill escalation.',
   },
   {
     key: 'bash',
@@ -417,7 +424,7 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'subagent',
     title: 'Subagent provider and continuation service',
     mode: 'seam',
-    implementations: ['subagent-spawn', 'subagent-fork', 'subagent-acp'],
+    implementations: ['subagent-spawn', 'subagent-fork', 'subagent-acp', 'subagent-codex', 'subagent-claude-code', 'subagent-dsh-sdk'],
     consumers: ['tool-subagent', 'tool-subagent-control', 'tool-ralph'],
     note: 'Providers implement transports; the service also owns optional Activation-based continuation orchestration, tool-subagent selects one-shot or continuable delegation, tool-subagent-control delivers follow-ups, and tool-ralph requires one fresh structured-output route.',
   },
@@ -598,7 +605,8 @@ function parseExampleCordis(rel: string): ExamplePlugin[] {
     if (current?.name) plugins.push({ id: current.id, name: current.name })
   }
   for (const line of text.split('\n')) {
-    const id = /^-\s+id:\s+(.+?)\s*$/.exec(line)
+    // Top-level rows (`- id:`) and bundle-patch insert rows (`    - id:`).
+    const id = /^\s*-\s+id:\s+(.+?)\s*$/.exec(line)
     if (id?.[1] !== undefined) {
       flush()
       current = { id: stripYamlScalar(id[1]) }
@@ -620,17 +628,17 @@ const APP_EXAMPLES = [
     id: 'dsh_base',
     rel: 'apps/cli/composition.md',
     title: 'DSH Base Composition',
-    label: 'apps/cli/config/base.cordis.yml',
-    config: 'apps/cli/config/base.cordis.yml',
-    summary: 'The raw CLI applies one required caller-selected patch list over this shared base; Web and headless apply their own shipped overlays.',
+    label: 'packages/bundle/base/cordis.patch.yml',
+    config: 'packages/bundle/base/cordis.patch.yml',
+    summary: 'The dsh-base bundle patch every profile applies first; mode bundles (dsh-web-app, dsh-headless) and the user\'s profile layer patch over it.',
   },
   {
     id: 'headless',
     rel: 'examples/headless-agent/composition.md',
-    title: 'Headless Agent App Composition',
+    title: 'Headless Agent Snapshot Composition',
     label: 'examples/headless-agent',
     config: 'examples/headless-agent/cordis.yml',
-    summary: 'The headless demo combines the real DeepSeek adapter and coding capabilities with the one-shot app package, format-pure stdout, and one fresh persisted top-level session.',
+    summary: 'The headless snapshot composition combines the real DeepSeek adapter and coding capabilities with one explicitly configured persisted top-level agent; its JSONL driver is test-only.',
   },
   {
     id: 'acp',
@@ -649,9 +657,7 @@ function renderAppExpansion(lines: string[], appNode: string, pluginName: string
   const jsonl = nodeId('bundle', 'jsonl')
   lines.push(`  ${appNode} --> ${agentCore}["@deepseek-ai/dsh-agent-spine-demo"]`)
   lines.push(`  ${appNode} --> ${jsonl}["@deepseek-ai/dsh-session-persistence-jsonl"]`)
-  if (pluginName === '@deepseek-ai/dsh-cli-demo') {
-    lines.push(`  ${appNode} --> ${nodeId('frontdoor', 'cli')}["one-shot driver<br/>format-pure stdout<br/>fresh top-level agent"]`)
-  } else if (pluginName === '@deepseek-ai/dsh-acp-demo') {
+  if (pluginName === '@deepseek-ai/dsh-acp-demo') {
     lines.push(`  ${appNode} --> ${nodeId('frontdoor', 'acp')}["@deepseek-ai/dsh-acp<br/>automation-only JSON-RPC stdio<br/>fresh sessions created by client"]`)
   }
   lines.push(
@@ -677,7 +683,7 @@ function renderAppComposition(example: AppExample): string {
     const pluginNode = nodeId(`plugin_${example.id}`, plugin.id)
     lines.push(`  ${pluginNode}["${escLabel(plugin.id)}<br/>${escLabel(plugin.name)}"]`)
     lines.push(`  cfg --> ${pluginNode}`)
-    if (plugin.name === '@deepseek-ai/dsh-cli-demo' || plugin.name === '@deepseek-ai/dsh-acp-demo') {
+    if (plugin.name === '@deepseek-ai/dsh-acp-demo') {
       renderAppExpansion(lines, pluginNode, plugin.name)
     }
   }
@@ -1153,20 +1159,22 @@ function renderLifecycle(): string {
     '  participant Session',
     '  participant SDK as UI or SDK listener',
     '  User->>Agent: followup(content)',
-    `  Agent-->>SDK: ${mermaidCode('agent/inbox/enqueue')}`,
+    `  Agent-->>SDK: ${mermaidCode('agent/inbox/spliced')}`,
+    `  Agent-->>SDK: ${mermaidCode('agent/inbox/inserted')} { message }`,
     '  Agent->>Driver: queued work wakes driver',
     `  Driver-->>SDK: ${mermaidCode('agent/status')} running`,
-    '  Note over Agent,Driver: next-step acceptance window opens',
-    `  Driver->>Hooks: ${mermaidCode('agent/prompt-submit')} waterfall`,
-    '  Hooks-->>Driver: authoritative allow, block, or add context',
-    '  alt prompt blocked or admission failed',
-    '    Driver-->>Driver: append context-only batch or keep steering boundary pending',
-    '  else prompt allowed',
+    '  Note over Agent,Driver: claim pending next-step input plus one queued prompt',
+    `  Driver-->>SDK: ${mermaidCode('agent/inbox/spliced')} pure deletion`,
+    `  Driver-->>SDK: ${mermaidCode('agent/inbox/claimed')} { message, turn } per message`,
+    `  Driver->>Hooks: ${mermaidCode('agent/pre-step')} waterfall`,
+    '  Hooks-->>Driver: authoritative reject or enter(messages)',
+    '  alt proposed step rejected or pre-step failed',
+    '    Driver-->>Driver: claimed batch stays removed, no turn opens',
+    '  else enter proposed step',
     `  Driver->>Session: ${mermaidCode('turn/start')}`,
-    `  Driver->>Session: ${mermaidCode('user/message')}`,
-    `  Driver->>Prompt: ${mermaidCode('system-prompt/assemble')} waterfall`,
-    `  Driver-->>Driver: ${mermaidCode('agent/step')} serial checkpoint`,
     `  Driver->>Session: ${mermaidCode('step/start')}`,
+    `  Driver->>Session: ${mermaidCode('user/message')} per entered message`,
+    `  Driver->>Prompt: ${mermaidCode('system-prompt/assemble')} waterfall`,
     `  Driver->>LLM: ${mermaidCode('agent/request')} waterfall, then ${mermaidCode('llm/stream')} waterfall`,
     '  LLM-->>Driver: StreamChunk*',
     `  Driver->>Session: ${mermaidCode('assistant/chunk')}*`,
@@ -1189,11 +1197,17 @@ function renderLifecycle(): string {
     `      Driver->>Session: ${mermaidCode('tool/result')}`,
     '    end',
     '  end',
-    '  Driver->>Session: post-tool context and steering (no prompt-submit)',
     `  Driver->>Session: ${mermaidCode('step/end')}`,
-    `  Driver->>Hooks: ${mermaidCode('agent/turn-stopping')} serial terminal checkpoint`,
+    '  opt natural stop and next-step inbox empty',
+    `    Driver->>Hooks: ${mermaidCode('agent/turn-stopping')} serial terminal checkpoint`,
     '  end',
-    '  Note over Agent,Driver: next-step acceptance window closes',
+    '  opt next-step input is pending',
+    '    Driver-->>Driver: claim pending next-step input',
+    `    Driver-->>SDK: ${mermaidCode('agent/inbox/claimed')} { message, turn } per message`,
+    `    Driver->>Hooks: ${mermaidCode('agent/pre-step')} waterfall`,
+    '    Hooks-->>Driver: authoritative reject or enter(messages)',
+    '  end',
+    '  end',
     `  Driver->>Session: ${mermaidCode('turn/end')}`,
     '  end',
     `  Driver-->>SDK: ${mermaidCode('agent/status')} idle`,
@@ -1201,9 +1215,9 @@ function renderLifecycle(): string {
     '',
     'The `assistant/message` edge records every successful provider call, including content-less and `max-tokens` finishes. Empty content stays out of derived history while the durable anchor retains usage and exact chunk provenance, including an explicit empty source set.',
     '',
-    '`dsh-compact-basic` uses `agent/step` for pressure before request derivation and `agent/request-error` only for canonical context overflow. Once either trigger qualifies, optional tool-result pruning runs before summary selection. Recovery works between the closed failed step and failed turn close, and opens a fresh retry turn only when pruning or summarization advances the surface replacement generation; otherwise the original request error remains authoritative.',
+    '`dsh-compact-basic` uses `agent/pre-step` for pressure before request derivation and `agent/request-error` only for canonical context overflow. Once either trigger qualifies, optional tool-result pruning runs before summary selection. Recovery works between the closed failed step and failed turn close, and opens a fresh retry turn only when pruning or summarization advances the surface replacement generation; otherwise the original request error remains authoritative.',
     '',
-    'The returned `agent/prompt-submit` allow is authoritative; listeners wrapping `next()` preserve downstream content and additional contexts unless replacement is intentional. Steering bypasses that waterfall and joins at its durable checkpoint.',
+    'The returned `agent/pre-step` decision is authoritative; listeners wrapping `next()` preserve downstream messages unless replacement is intentional. Steering and injected context pass through the same waterfall after a later boundary claims their next-step batch.',
     '',
     'SDK users that need replayable transcript data should consume `session/event`; `agent/*` is the live coordination surface for queue/status, prompt interception, request shaping, steering, continuation, and errors.',
     '',

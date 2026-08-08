@@ -36,8 +36,6 @@ Deny-only at the seam: a denial is a reported fact, and this executor never nego
   name: '@deepseek-ai/dsh-bash-sandbox'
 ```
 
-The keyless consumer-integration proofs are `tests/bwrap.e2e.ts`, `tests/landlock.e2e.ts`, and `tests/seatbelt.e2e.ts` (the real provider + real runner driven through `ctx.bash`, world-verified, each self-skipping where its runner is absent). The agent-spine e2e additionally drives two concurrent sessions in one Cordis context and proves each real bash tool call can write only its own project. See [the acp-agent example's default composition](../../../examples/acp-agent/) for the runnable demo.
-
 ## Model Experience
 
 ### Bash tool schema, indirectly

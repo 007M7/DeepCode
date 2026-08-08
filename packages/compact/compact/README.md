@@ -38,7 +38,7 @@ The private per-session cache is keyed by `session.surface.replaceGeneration` an
 
 ## Surface contract
 
-`SurfaceEventType` is a closed union — only `user/message`, `assistant/message`, `tool/result`, and `steering/message` may carry `surfaceOp`. A `compact/*` event therefore **cannot** appear on the surface. A successful compaction instead:
+`SurfaceEventType` is a closed union — only `user/message`, `assistant/message`, and `tool/result` may carry `surfaceOp`. A `compact/*` event therefore **cannot** appear on the surface. A successful compaction instead:
 
 1. appends `compact/start` (log-only) — acquires the lock,
 2. summarizes the range,

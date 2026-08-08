@@ -28,28 +28,32 @@ async function bench() {
   const execute = vi.fn((_payload: { sessionId: SessionId; line: string }) =>
     Promise.resolve({ result: { ok: true as const, value: { matched: true as const, commandId: 'c1' } } }))
   ctx.provide('connection', { api: { commands: { execute } } })
-  ctx.provide('conversation', {})
   ctx.provide('locale', new LocaleService(ctx))
   return { ctx, slots, execute }
 }
 
 describe('ui-plan browser apply', () => {
   it('declares every service it binds', () => {
-    expect(inject).toEqual(['slots', 'connection', 'conversation', 'locale'])
+    expect(inject).toEqual(['slots', 'connection', 'locale'])
   })
 
   it('node-half apply is an intentional no-op', () => {
     expect(() => { nodeApply() }).not.toThrow()
   })
 
-  it('fails loud when conversation did not declare the plan seat', async () => {
+  it('waits until conversation declares the plan seat', async () => {
     const ctx = new Context()
     await ctx.plugin(SlotsService).await()
     ctx.provide('connection', {})
-    ctx.provide('conversation', {})
     ctx.provide('locale', new LocaleService(ctx))
-    await expect(ctx.plugin({ inject: [...inject], apply }))
-      .rejects.toThrow(/slot "conversation.input.plan" is not declared/)
+    const fiber = ctx.plugin({ inject: [...inject], apply })
+    await fiber.await()
+    expect(ctx.slots.entries('conversation.input.plan')).toHaveLength(0)
+    ctx.slots.register({
+      name: 'root', children: { 'conversation.input.plan': { kind: 'single', scope: 'session' } },
+    } as never, () => null)
+    await Promise.resolve()
+    expect(ctx.slots.entries('conversation.input.plan')).toHaveLength(1)
   })
 
   it('registers the chip, executes /plan off, and unregisters on teardown', async () => {

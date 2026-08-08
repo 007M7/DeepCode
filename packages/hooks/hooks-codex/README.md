@@ -43,7 +43,7 @@ The hooks themselves run in the agent's session workspace: for the agent-scoped 
 | Codex hook | Harness seam | Mapping |
 |---|---|---|
 | `SessionStart` | `agent/session-start` (emit) | a plain-stdout hook's output → additionalContext → `agent.inject()` |
-| `UserPromptSubmit` | `agent/prompt-submit` (waterfall) | `block` (exit 2) → `PromptDecision.block`; additionalContext-only → delegate via `next()` then prepend a separately sourced context to downstream `additionalContexts` |
+| `UserPromptSubmit` | `agent/pre-step` (waterfall) | `block` (exit 2) → `PreStepDecision.reject`; additionalContext-only → delegate via `next()` then append a separately sourced message to a downstream `enter` decision |
 | `PreToolUse` | `tools/pre-execute` (waterfall) | `block` → `PreToolDecision.deny` (no `allow`/`ask`) |
 | `PostToolUse` | `tools/post-execute` (waterfall) | `block` → `block` with feedback; additionalContext-only → delegate via `next()` then prepend a separately sourced context to the downstream decision; Code Mode defers sub-call contexts until the outer `run_code` result |
 | `Stop` | `agent/turn-stopping` (serial) | a blocking Stop hook feeds its reason through `steer()`, forcing another step |
@@ -56,7 +56,7 @@ Every agent-scoped stdin payload carries `session_id` and `transcript_path`. The
 
 ## Context source
 
-Injected context carries an explicit `{ kind: 'plugin', plugin: 'hooks-codex' }` source (`agent.inject()` would otherwise default it to `{ kind: 'user' }`).
+Injected context carries an explicit `{ kind: 'plugin', plugin: 'hooks-codex' }` source so the durable message is never mistaken for a user prompt.
 
 ## Model Experience
 

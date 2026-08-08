@@ -27,6 +27,8 @@ function expectedFailure(error: ManualCompactionError): CommandResult {
         kind: 'error',
         text: 'Compaction is unavailable because this process has an active compaction, or the agent is not idle.',
       }
+    case 'cancelled':
+      return { kind: 'error', text: 'Compaction cancelled.' }
     case 'changed':
       return {
         kind: 'error',
@@ -66,6 +68,7 @@ async function executeCompact(
     return {
       kind: 'success',
       text: `Compacted ${result.shadowedSeqs.length} history items (~${result.shadowedTokenCount} tokens).`,
+      sourceEventSeq: result.summarySeq,
     }
   } catch (error: unknown) {
     if (invocation.signal.aborted) return { kind: 'error', text: 'Compaction cancelled.' }

@@ -1,4 +1,4 @@
-// Shared IconActions chrome for user, steering, and assistant messages: copy
+// Shared IconActions chrome for user and assistant messages: copy
 // live, optional branch wiring, and an optional date-aware clock.
 
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
@@ -6,7 +6,7 @@ import {
   IconBranchOutline16, IconCheckOutline16, IconCopyOutline16, Tooltip, writeClipboard,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ChatViewSlotProps } from '../contract/slots.ts'
-import { formatMessageClock, formatRunDuration } from './message-chrome.ts'
+import { formatLatencySeconds, formatMessageClock, formatRunDuration, formatTokensPerSecond } from './message-chrome.ts'
 import { useCalendarDay } from './use-calendar-day.ts'
 import css from './MessageIconActions.module.css'
 
@@ -17,14 +17,16 @@ export interface MessageIconActionsProps {
   time?: number | undefined
   /** Turn wall time in ms, appended to the clock as `· Ran for 15s`; omitted when the turn's start is unknown. */
   runMs?: number | undefined
+  /** Turn first-step TTFT in ms, appended as `· TTFT 1.2s`; omitted when unrecorded. */
+  ttftMs?: number | undefined
+  /** Turn decode throughput, appended as `· 34 tok/s`; omitted when unrecorded. */
+  tokensPerSecond?: number | undefined
   /** Clock before icons (user) or after (assistant). */
   clock: 'start' | 'end'
   /** Fork the session at this message; omission hides the branch action. */
   onBranch?: (() => void) | undefined
   /** The message is not a completed transcript tail, so branch stays visible but unavailable. */
   branchUnavailable?: boolean | undefined
-  /** Additional branch visibility gate for transient message chrome; defaults to true. */
-  showBranch?: boolean | undefined
   /** Parent layout class composed onto the actions row. */
   className?: string | undefined
   /** The owning view's locale seat, passed down as a plain prop. */
@@ -37,7 +39,7 @@ export interface MessageIconActionsProps {
  * @returns The actions row element.
  */
 export function MessageIconActions({
-  text, time, runMs, clock, onBranch, branchUnavailable = false, showBranch = true, className, t,
+  text, time, runMs, ttftMs, tokensPerSecond, clock, onBranch, branchUnavailable = false, className, t,
 }: MessageIconActionsProps) {
   const day = useCalendarDay()
   const reasonId = useId()
@@ -67,13 +69,34 @@ export function MessageIconActions({
       }, 1000)
     })
   }, [copied, text])
+  // The dot is decorative and stays hidden, but its margins separate the
+  // readings only on screen: without the flanking spaces a reader hears one
+  // run-on string ("Ran for 13sTTFT 0.2s12 tok/s") instead of three facts.
   const clockEl = time === undefined ? null : (
     <span className={clock === 'start' ? css.timeStart : css.timeEnd}>
       {formatMessageClock(time, t, day)}
       {runMs !== undefined && (
         <>
+          {' '}
           <span className={css.runTimeDot} aria-hidden>·</span>
+          {' '}
           {t('message.ranFor', { duration: formatRunDuration(runMs, t) })}
+        </>
+      )}
+      {ttftMs !== undefined && (
+        <>
+          {' '}
+          <span className={css.runTimeDot} aria-hidden>·</span>
+          {' '}
+          {t('message.ttft', { seconds: formatLatencySeconds(ttftMs) })}
+        </>
+      )}
+      {tokensPerSecond !== undefined && (
+        <>
+          {' '}
+          <span className={css.runTimeDot} aria-hidden>·</span>
+          {' '}
+          {t('message.tokensPerSecond', { tps: formatTokensPerSecond(tokensPerSecond) })}
         </>
       )}
     </span>
@@ -86,7 +109,7 @@ export function MessageIconActions({
           {copied ? <IconCheckOutline16 /> : <IconCopyOutline16 />}
         </button>
       </Tooltip>
-      {showBranch && onBranch !== undefined && (
+      {onBranch !== undefined && (
         <Tooltip label={branchUnavailable ? t('message.branchUnavailable') : t('message.branch')} side="bottom">
           {/* Native disabled buttons do not deliver the hover/focus events Tooltip needs. */}
           <button
@@ -102,7 +125,7 @@ export function MessageIconActions({
           </button>
         </Tooltip>
       )}
-      {showBranch && onBranch !== undefined && branchUnavailable && (
+      {onBranch !== undefined && branchUnavailable && (
         <span id={reasonId} className={css.visuallyHidden}>{t('message.branchUnavailable')}</span>
       )}
       {clock === 'end' ? clockEl : null}

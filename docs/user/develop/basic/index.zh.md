@@ -2,7 +2,15 @@
 
 [English](index.md) | 中文
 
-本文带你编写一个最小的 Harness 插件并加载到 agent（智能体）中。
+本教程会创建一个最小的 Harness 插件，并将其加载到 Web UI 中。请从已完成[快速开始](../../guide/quickstart.md)的仓库检出开始。
+
+## 创建本地项目
+
+在仓库根目录创建本教程使用的临时项目：
+
+```sh
+mkdir -p scratch-plugin/src
+```
 
 ## 插件是什么
 
@@ -22,7 +30,7 @@ export function apply(ctx: Context) {
 
 ## 创建插件文件
 
-在你的项目目录下创建 `src/my-plugin.ts`：
+创建 `scratch-plugin/src/my-plugin.ts`：
 
 ```ts
 import type { Context } from 'cordis'
@@ -37,14 +45,21 @@ export function apply(ctx: Context) {
 
 ## 注册到 cordis.yml
 
-在你的 `cordis.yml` 中添加一条：
+创建 `scratch-plugin/cordis.yml`，作为插入本地插件的 Web 覆盖层：
 
 ```yaml
-- id: hello
-  name: './src/my-plugin.ts'
+- insert:
+    - id: hello
+      name: './src/my-plugin.ts'
 ```
 
-启动后你会在控制台看到 `[hello-plugin] plugin loaded!`。
+使用该覆盖层启动 Web UI：
+
+```sh
+pnpm run dsh web --patch ./scratch-plugin/cordis.yml
+```
+
+打开 `http://127.0.0.1:3080`。启动期间，终端会打印 `[hello-plugin] plugin loaded!`。
 
 ## 自动清理
 
@@ -119,35 +134,6 @@ export default class MyService extends Service {
 ```
 
 大多数情况下，函数形式足够了。当插件需要向其他插件提供服务时，可使用类形式（见 [服务与依赖](../framework/service.md)）。
-
-## 完整示例
-
-最小的工具插件会在 `ctx.tools` 上注册其定义：
-
-```ts
-import type { Context } from 'cordis'
-import { defineTool } from '@deepseek-ai/dsh-tools'
-
-export const name = 'greet-tool'
-export const inject = ['tools']
-
-export function apply(ctx: Context) {
-  ctx.tools.register(defineTool({
-    name: 'greet',
-    description: 'Greet the named person.',
-    parameters: {
-      name: { type: 'string', required: true },
-    },
-    output: {
-      schema: { type: 'string' },
-      render: (_args, value) => [{ type: 'text', text: value }],
-    },
-    async execute(args) {
-      return `Hello, ${args.name}!`
-    },
-  }))
-}
-```
 
 ## 下一步
 

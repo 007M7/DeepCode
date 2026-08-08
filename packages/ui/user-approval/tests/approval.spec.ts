@@ -118,7 +118,7 @@ describe('ApprovalService.request', () => {
     await ctx.plugin(SessionStore)
     await ctx.plugin(ApprovalService)
     const session = ctx.sessions.create(SessionId('asked-observer-throw'))
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     const agent = { session } as unknown as Agent
     const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
     ctx.on('session/event', (_session, event) => {
@@ -141,7 +141,7 @@ describe('ApprovalService.request', () => {
     await ctx.plugin(SessionStore)
     await ctx.plugin(ApprovalService)
     const session = ctx.sessions.create(SessionId('decided-observer-throw'))
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     const agent = { session } as unknown as Agent
     const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
     ctx.on('session/event', (_session, event) => {
@@ -353,14 +353,14 @@ describe('approval policy (the approval/policy fold)', () => {
   const NEVER_SENTENCE = 'Approval prompts are disabled in this session: actions that require approval are rejected automatically — do not request sandbox escalation (do not set `sandbox_permissions`).'
   const ASK_SENTENCE = 'Approval policy: ask. Operations that require approval may ask through the configured answerers; without an available answerer, the request fails closed.'
 
-  /** Agent stand-in over a real Session; the opened turn satisfies request()'s enclosure precondition. */
+  /**
+   * An agent stand-in over a REAL Session — gate and context fold real events;
+   * the opened turn satisfies request()'s enclosure precondition.
+   */
   function sessionAgent(id: string): { agent: Agent; session: Session } {
     const session = Session.create(SessionId(id))
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-    const agent = {
-      id,
-      session,
-    } as unknown as Agent
+    session.append('turn/start', { turn: 1 })
+    const agent = { id, session } as unknown as Agent
     return { agent, session }
   }
 
@@ -448,6 +448,27 @@ describe('approval policy (the approval/policy fold)', () => {
     await expect(ctx.approval.request({ agent, toolName: 'bash' })).resolves.toBe('rejected')
   })
 
+  it('queues a live policy switch for the next model step', async () => {
+    const ctx = new Context()
+    await ctx.plugin(ApprovalService)
+    const { agent, session } = sessionAgent('sess-policy-notice')
+    const inject = vi.fn<Agent['inject']>()
+    const liveAgent = { ...agent, inject } as Agent
+
+    ctx.approval.setPolicy(liveAgent, 'never')
+    ctx.approval.setPolicy(liveAgent, 'never')
+
+    expect(effectiveApprovalPolicy(session.events)).toBe('never')
+    expect(inject).toHaveBeenCalledOnce()
+    expect(inject.mock.calls[0]?.[0]).toMatchObject({
+      content: [{
+        type: 'text',
+        text: 'The approval policy changed from "ask" to "never" (changed by the user).',
+      }],
+      source: { kind: 'plugin', plugin: 'user-approval' },
+    })
+  })
+
   it('contributes the complete current ask or never policy as cache-safe context', async () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
@@ -463,7 +484,7 @@ describe('approval policy (the approval/policy fold)', () => {
     expect(await contextFor({})).toBe('')
   })
 
-  it('reflects the latest durable switch and stays byte-stable while unchanged', async () => {
+  it('reflects the latest durable switch in cache-safe context and stays byte-stable while unchanged', async () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ApprovalService)
@@ -479,13 +500,13 @@ describe('approval policy (the approval/policy fold)', () => {
     expect(await contextFor()).toBe(NEVER_SENTENCE)
   })
 
-  it('disposes the service context contribution with its fiber (HMR safety)', async () => {
+  it('disposes the runtime-context contribution with the service', async () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     const fiber = await ctx.plugin(ApprovalService)
-    const live = sessionAgent('sess-hmr-service-live')
+    const { agent } = sessionAgent('sess-hmr-service-live')
     const contextFor = async () =>
-      (await ctx.systemPrompt.assemble({ agent: live.agent })).contexts.find(context => context.name === 'approval:policy')
+      (await ctx.systemPrompt.assemble({ agent })).contexts.find(context => context.name === 'approval:policy')
     expect(await contextFor()).toBeDefined()
     await fiber.dispose()
     expect(await contextFor()).toBeUndefined()

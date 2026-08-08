@@ -4,7 +4,7 @@ import Loader from '@cordisjs/plugin-loader'
 import { createUserMessage, CallId, LlmAdapter } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { Session, SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
-import AgentRegistry, { agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { agentEvents, Inbox, type Agent } from '@deepseek-ai/dsh-agent'
 import { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
@@ -17,7 +17,7 @@ const SIGNAL = new AbortController().signal
 
 beforeEach(() => {
   process.env['TZ'] = 'UTC'
-  vi.useFakeTimers()
+  vi.useFakeTimers({ toFake: ['Date'] })
   vi.setSystemTime(BASE)
 })
 
@@ -40,24 +40,21 @@ function sessionAgent(session: Session, id = 'agent'): Agent {
     id: SessionId(id),
     options: {},
     session,
+    inbox: new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} }),
     status: 'running',
-    acceptsNextStep: true,
     ctx: new Context(),
-    followup: () => {},
-    steer: () => ({ outcome: Promise.resolve({ status: 'rejected' as const }) }),
-    inject(input) {
-      session.append('user/message', input, { surfaceOp: 'append' })
-    },
     send: () => {},
-    updateInbox: () => 'not-found',
-    reserveTurnAdmission: () => undefined,
+    followup: () => {},
+    steer: () => {},
+    inject: () => { throw new Error('time-context must append directly to the open step') },
     cancel() {},
+    runMaintenance: task => task(new AbortController().signal),
     whenIdle: () => Promise.resolve(),
   }
 }
 
 function openMessageTurn(session: Session, turn: number): void {
-  session.append('turn/start', { turn, trigger: { kind: 'message', source: { kind: 'user' } } })
+  session.append('turn/start', { turn })
   session.append('user/message', createUserMessage({
     content: [{ type: 'text', text: `turn ${turn}` }],
     source: { kind: 'user' },
@@ -83,7 +80,16 @@ async function fire(
   step: number,
   signal: AbortSignal = SIGNAL,
 ): Promise<void> {
-  await agentEvents(ctx, agent).serial('agent/step', turn, step, signal)
+  const decision = await agentEvents(ctx, agent).waterfall(
+    'agent/pre-step',
+    { messages: [], turn, step, signal },
+    () => Promise.resolve({ kind: 'enter' as const, messages: [] }),
+  )
+  if (decision.kind === 'enter') {
+    for (const message of decision.messages) {
+      agent.session.append('user/message', message, { surfaceOp: 'append' })
+    }
+  }
 }
 
 function textResponse(text: string): StreamChunk[] {
@@ -154,14 +160,26 @@ describe('durable step context', () => {
     const event = session.events.at(-1)
     expect(event?.type).toBe('user/message')
     if (event?.type !== 'user/message') throw new Error('missing time context')
-    expect(event.data.source).toEqual({ kind: 'plugin', plugin: 'time-context' })
+    // The reading is a `snapshot`-form context: one named contribution whose
+    // text is exactly what the model read, so a consumer attributes it without
+    // re-splitting prose.
+    expect(event.data.source).toEqual({
+      kind: 'plugin',
+      plugin: 'time-context',
+      form: 'snapshot',
+      sections: [{
+        name: 'time-context',
+        text: 'Time sampled while preparing turn 1, step 1: 2026-07-15T09:01:01+08:00[Asia/Shanghai]\n'
+          + 'Elapsed since the preceding model-visible message: 1d 1h 1m 1s.',
+      }],
+    })
     expect(event.surfaceOp).toBe('append')
   })
 
   it('reports an unavailable first-step baseline when no model-visible message precedes it', async () => {
     const { ctx } = await mount()
     const session = Session.create(SessionId('unavailable'))
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
 
     await fire(ctx, sessionAgent(session), 1, 1)
 
@@ -286,22 +304,17 @@ describe('durable step context', () => {
     expect(contextTexts(independent)).toHaveLength(1)
   })
 
-  it('runs before ordinary pre-step listeners and skips an already-aborted step', async () => {
+  it('skips an already-aborted prompt submission', async () => {
     const { ctx } = await mount()
     const session = Session.create(SessionId('ordering'))
     const agent = sessionAgent(session)
     openMessageTurn(session, 1)
-    let ordinarySawContext = false
-    ctx.on('agent/step', (subject) => {
-      ordinarySawContext = subject.session.events.some(event => event.type === 'user/message')
-    })
 
     await fire(ctx, agent, 1, 1)
     const abort = new AbortController()
     abort.abort()
     await fire(ctx, agent, 1, 2, abort.signal)
 
-    expect(ordinarySawContext).toBe(true)
     expect(contextTexts(session)).toHaveLength(1)
   })
 })
@@ -359,28 +372,24 @@ describe('configuration and lifecycle', () => {
 
 describe('real agent-loop request history', () => {
   it.each([
-    ['throws', 'error'],
-    ['cancels', 'aborted'],
-  ] as const)('discards the pending preparation reading when a later step listener %s', async (mode, reasonKind) => {
+    ['throws'],
+    ['cancels'],
+  ] as const)('does not commit a preparation reading when a downstream pre-step listener %s', async (mode) => {
     const adapter = new ScriptedAdapter([textResponse('unused')])
     const ctx = await loopHarness(adapter)
-    let laterSawReading = false
-    ctx.on('agent/step', (subject) => {
-      laterSawReading = contextTexts(subject.session).length === 1
+    ctx.on('agent/pre-step', ({ agent: subject }, next) => {
       if (mode === 'throws') throw new Error('later pre-step failure')
       subject.cancel({ kind: 'user' })
+      return next()
     })
     const agent = ctx.agentLoop.create(SessionId(`late-${mode}`), { provider: 'mock', model: 'mock' })
 
     agent.followup(createUserMessage({ content: [{ type: 'text', text: 'start' }], source: { kind: 'user' } }))
     await agent.whenIdle()
 
-    expect(laterSawReading).toBe(false)
     expect(contextTexts(agent.session)).toHaveLength(0)
     expect(adapter.requests).toHaveLength(0)
     expect(agent.session.events.some(event => event.type === 'step/start')).toBe(false)
-    const turnEnd = agent.session.events.findLast(event => event.type === 'turn/end')
-    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason.kind).toBe(reasonKind)
     await ctx.fiber.dispose()
   })
 
@@ -408,7 +417,7 @@ describe('real agent-loop request history', () => {
     expect(contexts).toHaveLength(adapter.requests.length)
     expect(starts).toHaveLength(adapter.requests.length)
     for (let index = 0; index < contexts.length; index += 1) {
-      expect(contexts[index]!.seq).toBeLessThan(starts[index]!.seq)
+      expect(contexts[index]!.seq).toBeGreaterThan(starts[index]!.seq)
     }
     expect(contexts.every(event => event.data.source.kind === 'plugin'
       && event.data.source.plugin === 'time-context'
@@ -417,7 +426,7 @@ describe('real agent-loop request history', () => {
     const firstRequestText = requestText(adapter.requests[0]!)
     const secondRequestText = requestText(adapter.requests[1]!)
     expect(firstRequestText).toContain('Time sampled while preparing turn 1, step 1:')
-    expect(firstRequestText).toContain('Elapsed since the preceding model-visible message: 0s.')
+    expect(firstRequestText).toContain('Elapsed since the preceding model-visible message: unavailable.')
     expect(firstRequestText).not.toContain('Time sampled while preparing turn 1, step 2:')
     expect(secondRequestText).toContain('Time sampled while preparing turn 1, step 1:')
     expect(secondRequestText).toContain('Time sampled while preparing turn 1, step 2:')

@@ -14,11 +14,13 @@ import { DatabaseSync } from 'node:sqlite'
 import { mkdir, open } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import {
+  DEFAULT_PREPARED_SESSION_CACHE_SIZE, DEFAULT_WRITE_BATCH_MAX_DELAY_MS, MAX_WRITE_BATCH_DELAY_MS,
   SessionPersistence, SessionPersistenceRevision, PersistenceCoordinator,
   type PersistenceBackend, type SessionLocation, type SessionPersistenceSnapshot,
+  type SessionInspection, type SessionPersistenceRevision as PersistenceRevision,
   type StoredPrefix, type StoredSuffix,
 } from '@deepseek-ai/dsh-session-persistence'
-import type { SessionEvent, SurfaceEventType, SessionId, SessionHeader } from '@deepseek-ai/dsh-session'
+import type { SessionEvent, SurfaceEventType, SessionId, SessionHeader, SessionPreparation } from '@deepseek-ai/dsh-session'
 import {
   type JournalMode, openDatabase, rowToMeta, scanRows, type EventRow, type SessionRow,
 } from './schema.ts'
@@ -36,6 +38,13 @@ function surfaceBindings(event: SessionEvent): [string | null, string | null] {
     se.sourceEventSeqs ? JSON.stringify(se.sourceEventSeqs) : null,
     se.surfaceOp !== undefined ? JSON.stringify(se.surfaceOp) : null,
   ]
+}
+
+/** Build the source-qualified revision shared by full and lightweight reads. */
+function sqliteRevision(storeIdentity: string, row: SessionRow): PersistenceRevision {
+  return SessionPersistenceRevision(
+    `${storeIdentity}:incarnation:${row.incarnation}:revision:${row.revision}`,
+  )
 }
 
 /**
@@ -73,6 +82,10 @@ export interface Config {
    * (network mounts). See {@link JournalMode}.
    */
   journalMode?: JournalMode
+  /** Maximum cold Session preparations retained for history-to-resume reuse. */
+  preparedSessionCacheSize?: number
+  /** Fixed live-event coalescing window; not a backend completion deadline. */
+  writeBatchMaxDelayMs?: number
 }
 
 /**
@@ -86,6 +99,9 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
   static Config: z<Config> = z.object({
     path: z.string().required(),
     journalMode: z.union(['wal', 'delete', 'truncate', 'persist'] as const).default('wal'),
+    preparedSessionCacheSize: z.number().step(1).min(1).default(DEFAULT_PREPARED_SESSION_CACHE_SIZE),
+    writeBatchMaxDelayMs: z.number().step(1).min(1).max(MAX_WRITE_BATCH_DELAY_MS)
+      .default(DEFAULT_WRITE_BATCH_MAX_DELAY_MS),
   })
 
   /**
@@ -102,10 +118,18 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
 
   constructor(ctx: Context, public config: Config) {
     super(ctx)
+    // Programmatic wrappers may construct the backend without Schemastery normalization.
+    const preparedSessionCacheSize = config.preparedSessionCacheSize
+      ?? DEFAULT_PREPARED_SESSION_CACHE_SIZE
+    const writeBatchMaxDelayMs = config.writeBatchMaxDelayMs
+      ?? DEFAULT_WRITE_BATCH_MAX_DELAY_MS
     // Open asynchronously so directory creation does not block plugin apply;
     // every storage hook awaits the same readiness promise.
     this.ready = this.openDb(config.path, (config as Required<Config>).journalMode)
-    this.coordinator = new PersistenceCoordinator<number>(this.ctx, this)
+    this.coordinator = new PersistenceCoordinator<number>(this.ctx, this, {
+      preparedSessionCacheSize,
+      writeBatchMaxDelayMs,
+    })
   }
 
   private async openDb(path: string, journalMode: JournalMode): Promise<void> {
@@ -153,11 +177,15 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
     return this.coordinator.append(id, events)
   }
 
-  load(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
+  override prepare(id: SessionId, signal?: AbortSignal): Promise<SessionPreparation> {
+    return this.coordinator.prepare(id, signal)
+  }
+
+  load(id: SessionId): Promise<SessionInspection> {
     return this.coordinator.load(id)
   }
 
-  inspect(id: SessionId, signal?: AbortSignal): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
+  inspect(id: SessionId, signal?: AbortSignal): Promise<SessionInspection> {
     return this.coordinator.inspect(id, signal)
   }
 
@@ -173,6 +201,15 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
   /** Read a stored prefix by id (ids are globally unique — no scope to scan). */
   loadStored(id: SessionId, signal?: AbortSignal): Promise<StoredPrefix<number> | undefined> {
     return this.readPrefix(id, signal)
+  }
+
+  /** Read one row's revision without loading its events. */
+  async readStoredRevision(id: SessionId, signal?: AbortSignal): Promise<PersistenceRevision | undefined> {
+    signal?.throwIfAborted()
+    await this.ready
+    signal?.throwIfAborted()
+    const row = this.rowFor(id)
+    return row === undefined ? undefined : sqliteRevision(this.storeIdentity, row)
   }
 
   /**
@@ -204,15 +241,33 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
     signal?.throwIfAborted()
     await this.ready
     signal?.throwIfAborted()
-    const row = this.rowFor(id)
-    if (row === undefined) return undefined
-    const meta = rowToMeta(row)
-    const eventRows = this.db
-      .prepare('SELECT seq, type, time, data, source_event_seqs, surface_op FROM events WHERE session_id = ? ORDER BY seq')
-      .all(id) as unknown as EventRow[]
+    this.db.exec('BEGIN')
+    let snapshot: { row: SessionRow; eventRows: EventRow[] } | undefined
+    try {
+      const row = this.rowFor(id)
+      if (row !== undefined) {
+        const eventRows = this.db
+          .prepare('SELECT seq, type, time, data, source_event_seqs, surface_op FROM events WHERE session_id = ? ORDER BY seq')
+          .all(id) as unknown as EventRow[]
+        snapshot = { row, eventRows }
+      }
+      this.db.exec('COMMIT')
+    } catch (error: unknown) {
+      /* v8 ignore start -- synchronous read failures only need transaction cleanup before propagation. */
+      this.db.exec('ROLLBACK')
+      throw error
+      /* v8 ignore stop */
+    }
     signal?.throwIfAborted()
+    if (snapshot === undefined) return undefined
+    const { row, eventRows } = snapshot
     const { preserved, tornFrom } = scanRows(eventRows)
-    return { meta, events: preserved, ...tornFrom !== undefined ? { tornMarker: tornFrom } : {} }
+    return {
+      meta: rowToMeta(row),
+      events: preserved,
+      revision: sqliteRevision(this.storeIdentity, row),
+      ...tornFrom !== undefined ? { tornMarker: tornFrom } : {},
+    }
   }
 
   /**

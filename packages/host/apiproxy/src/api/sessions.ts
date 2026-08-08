@@ -4,8 +4,8 @@
  * else references RequestPayload<'session.*'> / ResponseValue<'session.*'>.
  */
 
+import type { MessageId } from '@deepseek-ai/dsh-llm/brand'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
-import type { InboxItemId } from '@deepseek-ai/dsh-agent/brand'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session/types'
 // The pure-type outlet: api/ is browser-importable, and the package root's
 // cordis Context merge (via dsh-agent) must not enter client aggregates.
@@ -117,6 +117,15 @@ export interface ModelCatalogFailure {
 export interface SessionModels {
   /** Target selected for the session's next assembled step. */
   current: ModelTarget
+  /**
+   * Whether an adapter currently serves `current.provider`, and therefore
+   * whether this session can start a turn at all. Deliberately NOT derivable
+   * from `groups`: catalog membership is advisory, so a route serving a model
+   * it stopped advertising is absent from the groups yet perfectly usable,
+   * while a route whose adapter is gone can serve nothing. A surface that
+   * blocks input must read this rather than the groups.
+   */
+  routable: boolean
   /** Successfully loaded provider groups. */
   groups: ModelProviderGroup[]
   /** Provider-local failures; successful groups remain usable. */
@@ -287,7 +296,7 @@ export interface SessionsApi {
    * Edits, removes, or strictly steers one pending queued occurrence on an ordinary session.
    * Session-backed subagents reject with `agent-busy`.
    */
-  updateQueue(request: RpcRequest<{ sessionId: SessionId; itemId: InboxItemId; action: QueueAction }>):
+  updateQueue(request: RpcRequest<{ sessionId: SessionId; itemId: MessageId; action: QueueAction }>):
   Promise<RpcResponse<{ accepted: true }>>
 
   /**

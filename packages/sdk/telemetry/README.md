@@ -14,7 +14,7 @@ Launcher-side telemetry primitives for the dsh-sdk toolchain. This is a plain li
 
 Consent is carried by the telemetry entry in `cordis.yml`, so disabling telemetry is disabling that entry. Telemetry reports by default and is off only when a present telemetry entry is explicitly `disabled`: a missing `cordis.yml` (first `create`), an enabled entry, or a `cordis.yml` with no telemetry entry all report. `DO_NOT_TRACK`/CI always deny. The no-config and absent-entry defaults are configurable on `ConsentResolver`.
 
-The collection endpoint is a fixed constant (`DSH_TELEMETRY_ENDPOINT`); its `.invalid` placeholder must be replaced with the real endpoint before release.
+The collection endpoint is a fixed constant (`DSH_TELEMETRY_ENDPOINT`); its fail-safe `.invalid` placeholder must be replaced with the real endpoint before release.
 
 ## Model Experience
 

@@ -9,9 +9,10 @@ import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import type { LlmRetryEventData } from '@deepseek-ai/dsh-llm-retry/types'
 import type { TodoItem } from '@deepseek-ai/dsh-session/types'
 import type {
-  InboxItemId, RpcError, SessionId, SubagentAddress, ToolCallView, ToolResultView,
+  RpcError, SessionId, SubagentAddress, ToolCallView, ToolResultView,
 } from '@deepseek-ai/dsh-client-connection/client'
 import type { PendingInteraction } from './pending.ts'
+import type { ContextProvenanceView, KnownContextForm } from './context-provenance.ts'
 export type { TodoItem }
 
 /** Request configuration recorded for one provider call. */
@@ -102,15 +103,14 @@ export interface AssistantMessageNode {
   interrupted?: true
 }
 
-/** A steering message injected mid-turn. */
+/** A human message admitted from the next-step inbox while a turn was running. */
 export interface SteeringMessageNode {
   kind: 'steering'
-  /** Stable identity shared with its pre-admission inbox occurrence. */
+  /** Stable message identity shared with its pre-admission inbox occurrence. */
   messageId: MessageId
   seq: number
   /** Unix epoch ms from the source session event. */
   time: number
-  turn: number
   content: readonly ContentBlock[]
   source: unknown
 }
@@ -123,6 +123,10 @@ export interface ContextMessageNode {
   time: number
   content: readonly ContentBlock[]
   source: unknown
+  /** Role and producer name projected from `source` ({@link contextProvenance}). */
+  provenance: ContextProvenanceView
+  /** Producer-declared information form ({@link contextForm}); null presents as opaque. */
+  form: KnownContextForm | null
 }
 
 /** Durable notice that a closed failed step is waiting for a model-request retry. */
@@ -170,6 +174,8 @@ export interface ToolResultNode {
   callView: ToolCallView | null
   /** Host-computed render intent from this tool/result's wire view; null = same default. */
   resultView: ToolResultView | null
+  /** Child calls owned by this call, in dispatch order. */
+  subCalls: readonly ToolCallBlock[]
 }
 
 /**
@@ -188,6 +194,12 @@ export interface CompactionSummaryNode {
   /** Summary text from the checkpoint's `compact/summary` provenance; null when
    *  the window cut left that provenance outside (the marker is then not expandable). */
   summary: string | null
+  /** Seq of the loaded `compact/summary` event, or null when that provenance is outside the window. */
+  summaryEventSeq: number | null
+  /** Number of surface items replaced, or null when summary provenance is unavailable or malformed. */
+  shadowedItemCount: number | null
+  /** Estimated token price of the replaced items, or null when summary provenance is unavailable or malformed. */
+  shadowedTokenCount: number | null
 }
 
 /**
@@ -226,10 +238,18 @@ export interface CommandNode {
   commandId: CommandId
   /** Command name (run payload's structured field); null when the run fell outside the window. */
   name: string | null
-  /** Verbatim rawInput after the name, separator whitespace included (run payload); null when the run fell outside the window. */
+  /**
+   * Verbatim rawInput after the name, including separator whitespace; null
+   * when omitted by the command or when the run fell outside the window.
+   */
   args: string | null
   /** Settlement outcome (done payload); null while the command is still executing. */
-  outcome: { kind: 'success' | 'error'; text?: string } | null
+  outcome: {
+    kind: 'success' | 'error'
+    text?: string
+    /** Earlier authoritative domain event for a richer client-computed presentation. */
+    sourceEventSeq?: number
+  } | null
 }
 
 /** Finalized conversation node union (kind discriminates; seq is the React key). */
@@ -245,21 +265,6 @@ export type ConversationNode =
   | CompactionSummaryNode
   | UnknownSurfaceNode
 
-/**
- * One `run_code` sub-dispatch materialized in the native call-block shapes so
- * every consumer (tool rows, details panel) renders it through the exact
- * components that render a native call: a started-but-unsettled sub-call is a
- * {@link RunningToolCall} (rows derive the running state from the shape,
- * exactly as for native calls) and its `tool/code-dispatch` settlement
- * replaces it in place with the {@link ToolResultNode} form. Never part of
- * the transcript `nodes` flow — sub-calls live under their parent via
- * {@link ConversationSnapshot.codeDispatches}. `callId` is the deterministic
- * sub-call id (`<parent>:code:<n>`); the call side carries the sub-tool name
- * and its JSON-stringified logged arguments; `content`/`isError` are the
- * settled sub-call's complete logged outcome.
- */
-export type CodeSubCall = RunningToolCall | ToolResultNode
-
 /** In-flight tool card material: tool/call seen, tool/result not yet. */
 export interface RunningToolCall {
   callId: string
@@ -271,16 +276,20 @@ export interface RunningToolCall {
   time: number
   /** Host-computed render intent riding the tool/call frame; null = generic JSON card. */
   callView: ToolCallView | null
+  /** Child calls owned by this call, in dispatch order. */
+  subCalls: readonly ToolCallBlock[]
 }
 
+/** One running or settled call, recursively owning its child calls. */
+export type ToolCallBlock = RunningToolCall | ToolResultNode
 
 /** One transient inbox occurrence from the authoritative `session/queue` snapshot. */
 export interface QueuedMessage {
-  readonly id: InboxItemId
+  readonly id: MessageId
   /** Stable message identity used for transient-to-durable steering handoff. */
   readonly messageId: MessageId
   /** Agent-resolved placement; only queued rows accept queue mutations. */
-  readonly placement: 'queued' | 'steering'
+  readonly placement: 'queued' | 'steering' | 'context'
   /** Complete content used to render pending steering before it becomes durable. */
   readonly content: readonly ContentBlock[]
   readonly preview: string
@@ -337,13 +346,6 @@ export interface ConversationSnapshot {
   turnEnds: ReadonlyMap<number, number>
   partial: PartialAssistant | null
   runningCalls: readonly RunningToolCall[]
-  /**
-   * `run_code` sub-dispatches grouped under their parent callId, in dispatch
-   * order. Populated from in-window `tool/code-dispatch` events (live and
-   * replay identically); the per-parent array reference is stable across
-   * unrelated snapshot swaps (memo premise, same regime as `nodes`).
-   */
-  codeDispatches: ReadonlyMap<string, readonly CodeSubCall[]>
   pending: readonly PendingInteraction[]
   /** Authoritative transient inbox snapshot, including queued and steering placements. */
   queue: readonly QueuedMessage[]

@@ -1,9 +1,16 @@
 import { spawnSync } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
 import tsconfigPaths from 'vite-tsconfig-paths'
 import { resolvePwshPath } from './packages/bash/pwsh-local/src/resolve.ts'
 import { defineConfig } from 'vitest/config'
-import { vitestExecArgv } from './vitest.shared.ts'
+import { standardDecoratorPlugin, vitestExecArgv } from './vitest.shared.ts'
 import { COVERAGE_EXEMPT_ENV, coverageExemptHeavySuites } from './scripts/coverage-exempt.ts'
+
+// Prints exact `path:line:col` records for every uncovered statement, branch
+// path, and function when a file misses the per-file 100% gate — the built-in
+// threshold ERRORs name only the file. Absolute path because istanbul-reports
+// require()s custom reporters (which is also why the reporter is CJS).
+const uncoveredLocationsReporter = fileURLToPath(new URL('./scripts/coverage-uncovered-locations.cjs', import.meta.url))
 
 // Resolution facade shared by every plugin instance below: tsconfig.base.json
 // has no include, which vite-tsconfig-paths treats as match-all, so its paths
@@ -81,7 +88,7 @@ const processBoundTests = [
 ]
 
 export default defineConfig({
-  plugins: [pathsPlugin()],
+  plugins: [pathsPlugin(), standardDecoratorPlugin()],
   test: {
     setupFiles: ['./scripts/test-invariants.ts'],
     // .tsx: client component specs (jsdom via per-file @vitest-environment pragma).
@@ -92,7 +99,7 @@ export default defineConfig({
     // always fork.
     projects: [
       {
-        plugins: [pathsPlugin()],
+        plugins: [pathsPlugin(), standardDecoratorPlugin()],
         test: {
           name: 'thread-safe',
           execArgv: vitestExecArgv,
@@ -112,7 +119,7 @@ export default defineConfig({
         },
       },
       {
-        plugins: [pathsPlugin()],
+        plugins: [pathsPlugin(), standardDecoratorPlugin()],
         test: {
           name: 'process-bound',
           execArgv: vitestExecArgv,
@@ -155,6 +162,8 @@ export default defineConfig({
         'packages/client/web-react/src/*',
         'packages/client/runtime/src/*',
         'packages/client/ui-conversation/src/*',
+        'packages/client/ui-primitives/src/DisclosureRow.tsx',
+        'packages/client/ui-tool/src/*',
         'packages/client/ui-slots/src/*',
         'packages/client/ui-layout/src/*',
         'packages/client/web/src/*',
@@ -172,6 +181,10 @@ export default defineConfig({
         'packages/client/hmr/src/invariant.ts',
         'packages/client/connection/src/index.ts',
         'packages/client/connection/src/http-bridge.ts',
+        // This assembly imports generated Host-for-Client code that exists
+        // only in lib; the post-build built-bin smoke executes both entries.
+        'packages/api/remotes/src/index.ts',
+        'packages/api/remotes/src/client/index.ts',
         // Slash/command/input round: per-file gaps deferred with the same
         // client-lane debt. TODO(gui): cover and remove with the lane above.
         'packages/client/connection/src/client/fixture.ts',
@@ -227,7 +240,9 @@ export default defineConfig({
         functions: 100,
         lines: 100,
       },
-      reporter: process.env.CI ? ['text'] : ['text', 'html'],
+      reporter: process.env.CI
+        ? ['text', uncoveredLocationsReporter]
+        : ['text', 'html', uncoveredLocationsReporter],
     },
   },
 })

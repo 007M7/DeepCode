@@ -2,13 +2,13 @@
 
 English | [中文](README.zh.md)
 
-`PTY` stands for **Pseudo-Terminal**（伪终端）. This capability provides persistent, owner-scoped terminal sessions for workflows that require state across tool calls or interactive stdin. PTY complements the one-shot bash and filesystem tools; it does not replace their stronger per-operation contracts.
+This family provides persistent, owner-scoped pseudo-terminal sessions for interactive or stateful terminal work. It complements one-shot bash execution.
 
 | Package | Role | ctx key |
 |---|---|---|
-| [`pty`](pty/README.md) (`@deepseek-ai/dsh-pty`) | Backend registry, branded ids, exact-Agent ownership, session operations, and awaited cleanup | `ctx.pty` |
-| `pty-local` (`@deepseek-ai/dsh-pty-local`) | Local `node-pty` backend, readiness detection, bounded terminal state, sandboxing, and process-session supervision | registers on `ctx.pty` |
-| `tool-pty` (`@deepseek-ai/dsh-tool-pty`) | Six model-facing tools and generic task integration for background sends | registers on `ctx.tools` |
-| `tool-bash-persistent` (`@deepseek-ai/dsh-tool-bash-persistent`) | One model-facing `bash` backed by an owner-scoped reusable PTY shell | consumes `ctx.pty`, registers on `ctx.tools` |
+| [`pty/`](pty/README.md) | Defines the PTY service and session lifecycle | `ctx.pty` |
+| [`pty-local/`](pty-local/README.md) | Provides local persistent terminal sessions | registers on `ctx.pty` |
+| [`tool-pty/`](tool-pty/README.md) | Exposes PTY session operations to the model | registers on `ctx.tools` |
+| [`tool-bash-persistent/`](tool-bash-persistent/README.md) | Exposes a reusable PTY-backed bash tool | registers on `ctx.tools` |
 
-The design and deferred boundaries live in the [persistent PTY Agent Note](../../.agents/notes/implemented/feature/2026-07-16-persistent-pty-sessions.md).
+The [persistent PTY decision](../../.agents/notes/implemented/feature/2026-07-16-persistent-pty-sessions.md) records the family boundary.

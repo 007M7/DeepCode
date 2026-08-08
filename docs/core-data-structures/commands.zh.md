@@ -31,6 +31,12 @@ interface CommandDefinition {
   readonly description: string
   /** Optional free-form input hint advertised to capable clients. */
   readonly input?: CommandInputDescriptor
+  /**
+   * Whether `command/run` records `rawInput`. Defaults to true. A command
+   * whose domain event owns the payload sets this false to avoid duplicating
+   * that payload in the session log.
+   */
+  readonly recordInput?: boolean
   /** Execute against the receiving agent without sending the command to the model. */
   readonly handler: (invocation: CommandInvocation) => CommandResult | Promise<CommandResult>
 }
@@ -55,9 +61,16 @@ interface CommandInvocation {
 ```ts type-equiv
 /** Expected command outcome rendered directly by the dispatching UI. */
 type CommandResult =
-  | { readonly kind: 'success'; readonly text?: string }
+  | {
+    readonly kind: 'success'
+    readonly text?: string
+    /** Earlier authoritative domain event that owns a richer presentation. */
+    readonly sourceEventSeq?: number
+  }
   | { readonly kind: 'error'; readonly text: string }
 ```
+
+`sourceEventSeq` 是可选字段，且只用于成功结果。存在时，它指向接收会话日志中更早的一条非命令事件；`command/done` 会持久化同一引用，让客户端能够将命令生命周期与该领域投影合并，而无须解析 `text` 或依赖相邻行。
 
 ## 发现与解析视图
 

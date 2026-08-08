@@ -139,10 +139,10 @@ interface ConfinedArgv {
 }
 ```
 
-The operator-facing local-provider key remains `runnerFailureSignatures`: an operator-configured runner must supply at least one non-empty, single-line, case-insensitive substring for its own pre-exec refusal dialect. The provider maps those entries into one rule. Consumers directly spawn `ConfinedArgv.argv`, so a missing runner, a non-executable runner, or an executable script whose shebang interpreter is unavailable rejects through the spawn channel rather than a stderr rule when Node supplies attributable `ENOENT`/`EACCES` evidence; after a process starts, child exits such as 126 or 127 remain ordinary unless the selected runner's documented fatal signature matches.
+The [local provider](../../packages/sandbox/sandbox-local/README.md) owns operator configuration and maps its runner dialect into these rules. The [sandboxed bash consumer](../../packages/bash/bash-sandbox/README.md) owns spawn and result attribution.
 
 ## Provider and fail-closed errors
 
-`ctx.sandbox.confine(argv, policy)` returns a `ConfinedArgv` or throws `SandboxUnavailableError` with code `SANDBOX_UNAVAILABLE` when no usable backend exists. Any direct spawn rejection of the returned argv proves the confined launch never started, but only `ENOENT` or `EACCES` with positive Node provenance for provider argv[0] after the caller-owned workdir is independently verified usable carries infrastructure meaning and the original error as detail. A bare `syscall: 'spawn'` without an exact error path, any other code, an invalid or unusable workdir, a resource failure, an unrelated syscall, or an unstructured rejection retains the consumer's ordinary command-start semantics. After a process starts, a matching structured rule identifies a runner refusal. Silent unconfined passthrough is never legal for a confined policy.
+`ctx.sandbox.confine(argv, policy)` returns a `ConfinedArgv` or throws `SandboxUnavailableError` with code `SANDBOX_UNAVAILABLE` when no usable backend exists. Consumers may also classify a failure while spawning or observing the returned argv; that attribution belongs to the consumer contract. Silent unconfined passthrough is never legal for a confined policy.
 
-Provider probing arbitrates between multiple candidates and is cached for the provider lifetime. A platform with one candidate may select it directly; execution-time refusal retains the safety property. The local provider reports bwrap and Seatbelt as full and preserves the Landlock launcher's full/partial kernel verdict.
+Provider selection, probing, caching, and backend-specific enforcement reports belong to the [local provider](../../packages/sandbox/sandbox-local/README.md).

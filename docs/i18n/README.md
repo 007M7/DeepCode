@@ -43,7 +43,7 @@ The gate's limit, stated plainly: **a green gate means the pair was confirmed co
 
 **Excluded** (never paired, and the gate rejects a `.zh.md` or `.i18n.yaml` for them):
 
-- `docs/cordis-catalog/`, `docs/tool-catalog/`, `docs/config-catalog.md`, `docs/persistence-catalog.md`, `docs/module-graph.md`, `docs/agent-lifecycle.md`, `docs/capability-seams.md`, `docs/event-producer-consumer.md`, `docs/graph-atlas.md`, and `docs/tool-execution-pipeline.md` — generated files; their generators emit English only today, so a hand-written translation would go stale on every regeneration. The planned follow-up is to teach the generators to emit Chinese alongside English, at which point these leave the exclusion list.
+- `docs/cordis-catalog/`, `docs/tool-catalog/`, `docs/config-catalog.md`, `docs/persistence-catalog.md`, `docs/module-graph.md`, `docs/agent-lifecycle.md`, `docs/capability-seams.md`, `docs/event-producer-consumer.md`, `docs/graph-atlas.md`, and `docs/tool-execution-pipeline.md` — generated files whose generators emit English only; a hand-written translation would go stale on regeneration.
 - `docs/AGENTS.md`, `.agents/notes/**/AGENTS.md`, and their `CLAUDE.md` instruction symlinks — agent instructions, maintained in English only like the root `AGENTS.md`.
 - `docs/i18n/terminology.md` and [style-samples.md](style-samples.md) — both are bilingual by construction.
 - [translation-prompt.md](translation-prompt.md) — the automated pipeline's prompt template; its body is machine-consumed verbatim, so a paired translation would change pipeline behavior.

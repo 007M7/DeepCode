@@ -5,6 +5,7 @@
  */
 
 import type { z } from 'zod'
+import type { InvocationDescriptor } from '@deepseek-ai/dsh-type-meta'
 
 /** Independently compiled side that produced a contribution. */
 export type TypertFace = 'host' | 'client'
@@ -82,6 +83,8 @@ export interface TypertContribution {
   readonly face: TypertFace
   readonly schemas: readonly TypertSchema[]
   readonly model: TypertPackageModel
+  /** Host invocation definitions, empty when the package exports no Remote methods. */
+  readonly invocations: readonly InvocationDescriptor[]
 }
 
 /** A live schema plus its contribution identity. */

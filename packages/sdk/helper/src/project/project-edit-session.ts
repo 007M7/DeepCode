@@ -90,7 +90,7 @@ export class ProjectEditSession implements FeatureProjectView {
     this.profile = source.profile
     this.documents = source.cloneDocuments()
     for (const feature of registry.all()) {
-      /* v8 ignore next -- no current builtin is interface-specific after TUI removal */
+      /* v8 ignore next -- no current built-in feature is interface-specific */
       if (!feature.isApplicable(this.profile)) continue
       const installation = feature.inspect(this)
       this.states.set(feature.id, {
@@ -508,7 +508,7 @@ export class ProjectEditSession implements FeatureProjectView {
     const view = this.projectView(profile)
     for (const feature of this.registry.all()) {
       const state = this.states.get(feature.id)
-      /* v8 ignore next 5 -- no current builtin is interface-specific after TUI removal */
+      /* v8 ignore next 5 -- no current built-in feature is interface-specific */
       if (!feature.isApplicable(profile)) {
         if (state?.state === 'enabled') {
           throw new Error(`feature ${feature.id} is not available for ${profile.runInterface}`)

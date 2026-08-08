@@ -34,7 +34,7 @@ describe('SessionTitleService.rename', () => {
     await ctx.plugin(SessionStore)
     await ctx.plugin(SessionTitleService, CONFIG)
     const session = ctx.sessions.create(SessionId('rename-accept'))
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     appendHumanPrompt(session, 'Original prompt text')
     await settle()
 
@@ -79,7 +79,7 @@ describe('SessionTitleService.rename', () => {
       generate,
     })
     const session = ctx.sessions.create(SessionId('rename-pin'))
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     appendHumanPrompt(session, 'First prompt')
     await settle()
     ctx.sessionTitle.rename(session, 'Pinned by hand')
@@ -107,7 +107,7 @@ describe('SessionTitleService.rename', () => {
     await ctx.plugin(SessionStore)
     await ctx.plugin(SessionTitleService, CONFIG)
     const session = ctx.sessions.create(SessionId('rename-unpin-fallback'))
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     appendHumanPrompt(session, 'Derivable prompt words')
     await settle()
     ctx.sessionTitle.rename(session, 'Pinned without provider')
@@ -143,7 +143,7 @@ describe('SessionTitleService.rename', () => {
       generate,
     })
     const session = ctx.sessions.create(SessionId('rename-supersede'))
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     appendHumanPrompt(session, 'Prompt that triggers generation')
     session.append('request/header', {
       header: { config: { provider: 'main-route', model: 'chat-model' } },
@@ -169,7 +169,7 @@ describe('SessionTitleService.rename', () => {
     // re-derived fallback is empty, so the pinned title survives the refresh.
     await ctx.plugin(SessionTitleService, { ...CONFIG, fallbackMaxBytes: 3 })
     const session = ctx.sessions.create(SessionId('rename-unpin-empty'))
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     appendHumanPrompt(session, '😀😀')
     await settle()
     ctx.sessionTitle.rename(session, 'Sticky emoji pin')

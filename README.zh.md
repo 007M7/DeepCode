@@ -8,11 +8,9 @@ DeepSeek Harness（`dsh`）是一款基于 DeepSeek Harness SDK 构建的开源 
 
 ## 内测声明
 
-感谢您愿意拨冗试用 DeepSeek Harness。当前版本仍处于内部测试阶段，功能仍待完善，体验难免有些粗糙。
+DeepSeek Harness 正处于内部测试阶段，功能和接口可能发生变化。
 
-“如切如磋，如琢如磨。” 产品的成长，离不开一次次真实的碰撞与坦诚的反馈。您在真实使用中发现的问题，也可能促使我们重新审视，甚至推翻已有的设计。
-
-为了帮助我们更准确地还原您真实使用中的问题，内测版本默认会上传所有 Session Log；如需关闭，可以设置环境变量 `DSH_TELEMETRY_DISABLED=1`。另外，如果您有任何反馈与建议，请在企业微信群中留言告诉我们。每一条反馈，都会帮助我们把它打磨得更好。
+为帮助诊断上报的问题，内测版本默认上传所有会话日志。设置 `DSH_TELEMETRY_DISABLED=1` 可关闭遥测。请通过内部企业微信群反馈问题和建议。
 
 ## 安装
 
@@ -26,7 +24,7 @@ scripts/install.sh
 
 安装器要求系统已安装 `git` 和 Node `^22.19 || >=24`，缺少 `pnpm` 时可代为安装，并会提示输入 DeepSeek API 密钥，然后构建所需的仓库产物并启动 Web UI。
 
-安装器会把所有检出都放在 `~/.dsh/source` 下：master 克隆位于 `~/.dsh/source/master`，每次安装的 staging 检出是一个 git worktree `~/.dsh/source/staging-<时间戳>`。稳定符号链接 `~/.dsh/source/current` 指向当前生效的 staging worktree，`~/.local/bin` 中的 `dsh` 链接到 `current/bin/dsh`，因此升级只需重指一个符号链接，PATH 上的 `dsh` 从不移动。再次运行该命令会基于更新后的 master 新增一个 staging worktree，并把 `current` 重指到它。其他安装位置和选项见 [`scripts/install.sh`](scripts/install.sh)。
+默认生效的检出位于 `~/.dsh/source/current`，启动器链接到 `~/.local/bin`。再次运行安装器即可更新。其他位置、更新机制和恢复选项由 [`scripts/install.sh`](scripts/install.sh) 负责。
 
 ## 使用 DeepSeek Harness
 
@@ -41,22 +39,24 @@ dsh web
 
 上述路径是安装器的默认位置。如果你设置过 `DSH_SOURCE` 或 `DSH_CURRENT`，或者复用了已有检出，请把 `~/.dsh/source/current` 换成该检出路径；详情见 [`scripts/install.sh`](scripts/install.sh)。Web UI 默认通过 `http://127.0.0.1:3080` 提供服务。
 
-### 自定义运行时
+### Profile
 
-原始 `dsh` 要求传入一份 patch 列表配置，并将其叠加在随附 base 之上：
+`dsh` 启动 profile：按序叠放的插件组合包 patch 层，之上再叠加你在 `$DSH_HOME/profiles/<name>` 中的自有覆盖层：
 
 ```sh
-dsh --config ./app.cordis.yml
+dsh --profile web                       # the browser UI (same as: dsh web)
+dsh plugin --profile tui add <package>  # install a plugin into a custom profile
+dsh --profile tui                       # boot it
 ```
 
-base、overlay 语义与配置输出命令详见 [CLI（命令行界面）契约](apps/cli/README.md#raw-config)。
+profile 布局、层语义与配置输出命令详见 [CLI（命令行界面）契约](apps/cli/README.md#profiles)。
 
 ### Headless
 
 运行一项任务，打印最终答案后退出：
 
 ```sh
-dsh -p "summarize this workspace"
+dsh run "summarize this workspace"
 ```
 
 ### 自动化与 SDK
@@ -87,11 +87,6 @@ pnpm run demo:acp
 </p>
 
 ## 开发
-
-```sh
-pnpm install
-pnpm run test:coverage
-```
 
 请先阅读[开发指南](docs/development.md)；修改包之前，请阅读[架构文档](docs/architecture.md)。
 

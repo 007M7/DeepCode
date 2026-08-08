@@ -10,7 +10,12 @@ import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import SessionStore, { SessionId, type Session, type SessionEvent } from '@deepseek-ai/dsh-session'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { TelemetryCoordinator, type TelemetryBackend, type TelemetryRecord } from '../src/index.ts'
+import {
+  TelemetryCoordinator,
+  type TelemetryBackend,
+  type TelemetryCapture,
+  type TelemetryRecord,
+} from '../src/index.ts'
 
 declare module '@deepseek-ai/dsh-session' {
   interface SessionEventMap {
@@ -54,15 +59,21 @@ class FakeBackend implements TelemetryBackend {
   }
 }
 
-async function setup(backend: FakeBackend = new FakeBackend()) {
+async function setup(
+  backend: FakeBackend = new FakeBackend(),
+  capture: TelemetryCapture = 'live',
+) {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
+  let coordinator!: TelemetryCoordinator
   const fiber = await ctx.plugin({
     name: 'fake-telemetry',
     inject: ['sessions'],
-    apply: (inner: Context) => void new TelemetryCoordinator(inner, backend),
+    apply: (inner: Context) => {
+      coordinator = new TelemetryCoordinator(inner, backend, capture)
+    },
   })
-  return { ctx, backend, fiber }
+  return { ctx, backend, coordinator, fiber }
 }
 
 function liveSession(ctx: Context, id = `s-${Math.random().toString(36).slice(2)}`): Session {
@@ -70,7 +81,7 @@ function liveSession(ctx: Context, id = `s-${Math.random().toString(36).slice(2)
 }
 
 function appendTurn(session: Session): void {
-  session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+  session.append('turn/start', { turn: 1 })
   session.append('user/message', createUserMessage({
     content: [{ type: 'text', text: 'hello' }], source: { kind: 'user' },
   }), { surfaceOp: 'append' })
@@ -108,7 +119,7 @@ describe('TelemetryCoordinator capture', () => {
   it('maps outcome flags to severity, unknown types falling through as info', async () => {
     const { ctx, backend } = await setup()
     const session = liveSession(ctx)
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     session.append('tool/result', {
       turn: 1, step: 1,
       message: createToolResultMessage({
@@ -126,7 +137,7 @@ describe('TelemetryCoordinator capture', () => {
       }),
     }, { surfaceOp: 'append' })
     session.append('telemetry-test/opaque', { payload: { nested: [] } })
-    session.append('turn/end', { turn: 1, reason: { kind: 'error', step: 1, message: 'boom' } })
+    session.append('turn/end', { turn: 1, reason: { kind: 'error', error: { message: 'boom', code: 'UNKNOWN' } } })
     const severities = backend.ledger().map(r => [r.attributes['event.type'], r.severity])
     expect(severities).toEqual([
       ['turn/start', 'info'],
@@ -167,6 +178,104 @@ describe('TelemetryCoordinator capture', () => {
   })
 })
 
+describe('TelemetryCoordinator on-demand capture', () => {
+  it('captures one canonical-log prefix at a time without following later events', async () => {
+    const { ctx, backend, coordinator } = await setup(new FakeBackend(), 'on-demand')
+    const session = liveSession(ctx, 'on-demand-prefix')
+    appendTurn(session)
+    const firstBoundary = session.events[1]!.seq
+    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    expect(backend.records).toEqual([])
+
+    coordinator.captureSession(session, firstBoundary)
+    expect(backend.ledger().map(record => record.attributes['event.type'])).toEqual([
+      'turn/start',
+      'user/message',
+    ])
+
+    expect(backend.ledger()).toHaveLength(2)
+    coordinator.captureSession(session)
+    coordinator.captureSession(session)
+    expect(backend.ledger().map(record => record.attributes['event.type'])).toEqual([
+      'turn/start',
+      'user/message',
+      'turn/end',
+    ])
+  })
+
+  it('runs the currently mounted redaction policy during canonical-log capture', async () => {
+    const { ctx, backend, coordinator } = await setup(new FakeBackend(), 'on-demand')
+    const session = liveSession(ctx, 'on-demand-redacted')
+    session.append('turn/start', { turn: 1 })
+    const disposeRule = ctx.on('telemetry/record', (_record, next) => ({
+      ...next(),
+      body: { scrubbed: true },
+    }))
+
+    coordinator.captureSession(session)
+    expect(backend.ledger()[0]!.body).toEqual({ scrubbed: true })
+    disposeRule()
+
+    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    coordinator.captureSession(session)
+    expect(backend.ledger()[1]!.body).toEqual({ turn: 1, reason: { kind: 'completed' } })
+  })
+
+  it('contains each backend failure independently while replaying a prefix', async () => {
+    const backend = new FakeBackend()
+    backend.rejectSeq = 1
+    const { ctx, coordinator } = await setup(backend, 'on-demand')
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
+    const session = liveSession(ctx, 'on-demand-failure')
+    appendTurn(session)
+    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+
+    coordinator.captureSession(session)
+    expect(backend.ledger().map(record => record.attributes['event.seq'])).toEqual([0, 2])
+    expect(warn).toHaveBeenCalled()
+  })
+
+  it('captures a pending prefix after coordinator reload without retained records', async () => {
+    const first = new FakeBackend()
+    const { ctx, fiber } = await setup(first, 'on-demand')
+    const session = liveSession(ctx, 'on-demand-reload')
+    session.append('turn/start', { turn: 1 })
+    await fiber.dispose()
+    expect(first.records).toEqual([])
+
+    const second = new FakeBackend()
+    let coordinator!: TelemetryCoordinator
+    await ctx.plugin({
+      name: 'fake-telemetry-after-on-demand-reload',
+      inject: ['sessions'],
+      apply: (inner: Context) => {
+        coordinator = new TelemetryCoordinator(inner, second, 'on-demand')
+      },
+    })
+    coordinator.captureSession(session)
+    expect(second.ledger().map(record => record.attributes['event.seq'])).toEqual([0])
+  })
+
+  it('registers no continuous capture, flush, or ops listeners', async () => {
+    const { ctx, backend, coordinator, fiber } = await setup(new FakeBackend(), 'on-demand')
+    const redact = vi.fn((_record: TelemetryRecord, next: () => TelemetryRecord) => next())
+    ctx.on('telemetry/record', redact)
+    const session = liveSession(ctx, 'on-demand-ledger-only')
+    session.append('turn/start', { turn: 1 })
+    await ctx.parallel('session/flush', session)
+    const agent = { id: 'agent-1', session } as Agent
+    ctx.emit('agent/error', { agent, turn: 1, step: 1, error: new Error('local only') })
+    expect(backend.flush).not.toHaveBeenCalled()
+    expect(backend.records).toEqual([])
+    expect(redact).not.toHaveBeenCalled()
+
+    coordinator.captureSession(session)
+    expect(redact).toHaveBeenCalledTimes(1)
+    await fiber.dispose()
+    expect(backend.records.map(record => record.channel)).toEqual(['ledger'])
+  })
+})
+
 describe('TelemetryCoordinator adoption', () => {
   it('exports an unpublished suffix without re-exporting constructor history', async () => {
     const backend = new FakeBackend()
@@ -196,7 +305,7 @@ describe('TelemetryCoordinator adoption', () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     const donor = ctx.sessions.create(SessionId('donor'), { meta: {} })
-    donor.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    donor.append('turn/start', { turn: 1 })
     donor.append('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'first' } })
     const resumed = ctx.sessions.create(SessionId('resumed'), { seed: [...donor.events], meta: {} })
     await ctx.plugin({
@@ -265,7 +374,7 @@ describe('TelemetryCoordinator adoption', () => {
     const backend = new FakeBackend()
     const { ctx, fiber } = await setup(backend)
     const session = liveSession(ctx, 'hmr')
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     session.append('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'first' } })
     expect(backend.ledger()).toHaveLength(2)
 
@@ -412,7 +521,7 @@ describe('TelemetryCoordinator lifecycle and containment', () => {
     const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
     const session = liveSession(ctx)
     backend.emitError = new Error('backend broke')
-    expect(() => session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })).not.toThrow()
+    expect(() => session.append('turn/start', { turn: 1 })).not.toThrow()
     expect(warn).toHaveBeenCalled()
     backend.emitError = undefined
     session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
@@ -427,7 +536,7 @@ describe('TelemetryCoordinator lifecycle and containment', () => {
     const session = liveSession(ctx, 'erring')
     // Only the members the relay reads; the full Agent surface is irrelevant here.
     const agent = { id: 'agent-1', session } as Agent
-    ctx.emit('agent/error', agent, 3, 2, error)
+    ctx.emit('agent/error', { agent, turn: 3, step: 2, error })
     const record = backend.records.find(r => r.channel === 'ops')!
     expect(record.severity).toBe('error')
     expect(record.attributes).toMatchObject({

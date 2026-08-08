@@ -9,7 +9,7 @@
  * service removes the key (HMR safety).
  */
 
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { Session } from '@deepseek-ai/dsh-session'
@@ -19,6 +19,7 @@ import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import CommandService from '@deepseek-ai/dsh-commands'
 import PermissionService from '@deepseek-ai/dsh-permission'
 import type { Config } from '@deepseek-ai/dsh-permission'
+import ApprovalService from '@deepseek-ai/dsh-user-approval'
 
 async function harness(options: { withPermission?: boolean; config?: Config } = {}): Promise<{ ctx: Context; session: Session }> {
   const ctx = new Context()
@@ -31,16 +32,17 @@ async function harness(options: { withPermission?: boolean; config?: Config } = 
     run() { throw new Error('permission tests do not execute bash') },
     start() { throw new Error('permission tests do not execute bash') },
   })
-  ctx.provide('approval', { config: { policy: 'ask' } })
+  await ctx.plugin(ApprovalService)
   if (options.withPermission !== false) await ctx.plugin(PermissionService, options.config ?? {})
   return { ctx, session: ctx.sessions.create(SessionId('perm-projected')) }
 }
 
 /** Mint a scoped agent over a live session (the command executor's addressing shape). */
-async function agentFor(ctx: Context, session: Session): Promise<Agent> {
-  const agent = { id: session.id, session } as Agent
+async function agentFor(ctx: Context, session: Session) {
+  const inject = vi.fn<Agent['inject']>()
+  const agent = { id: session.id, session, inject } as unknown as Agent
   await ctx.plugin(Object.assign((inner: Context) => { createScope(inner, agent) }, { inject: ['commands'] }))
-  return agent
+  return { agent, inject }
 }
 
 describe('permissions projection unit', () => {
@@ -62,7 +64,7 @@ describe('permissions projection unit', () => {
     expect(changes).toHaveLength(3)
     expect(changes.at(-1)).toMatchObject({ key: 'permissions', value: { currentValue: 'danger-full-access' } })
     // Unrelated event: same-reference apply, no notification.
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     expect(changes).toHaveLength(3)
   })
 
@@ -87,17 +89,23 @@ describe('permissions projection unit', () => {
 describe('/permission command', () => {
   it('switches through permission.set and logs the lifecycle pair', async () => {
     const { ctx, session } = await harness()
-    const agent = await agentFor(ctx, session)
+    const { agent, inject } = await agentFor(ctx, session)
     const execution = await ctx.commands.execute(agent, '/permission danger-full-access', new AbortController().signal)
     expect(execution?.result).toEqual({ kind: 'success', text: 'preset danger-full-access' })
     expect(ctx.permission.current(session.events)).toBe('danger-full-access')
+    expect(inject.mock.calls[0]?.[0]).toMatchObject({
+      content: [{
+        type: 'text',
+        text: 'The approval policy changed from "ask" to "never" (changed by the user).',
+      }],
+    })
     const run = session.events.find(event => event.type === 'command/run')
     expect(run?.data).toMatchObject({ name: 'permission', args: ' danger-full-access' })
   })
 
   it('reports the current preset and the table on bare invocation', async () => {
     const { ctx, session } = await harness()
-    const agent = await agentFor(ctx, session)
+    const { agent } = await agentFor(ctx, session)
     const execution = await ctx.commands.execute(agent, '/permission', new AbortController().signal)
     expect(execution?.result).toEqual({
       kind: 'success',
@@ -108,7 +116,7 @@ describe('/permission command', () => {
 
   it('rejects an unknown preset without touching the log', async () => {
     const { ctx, session } = await harness()
-    const agent = await agentFor(ctx, session)
+    const { agent } = await agentFor(ctx, session)
     const before = session.events.filter(event =>
       event.type !== 'command/run' && event.type !== 'command/done')
     const execution = await ctx.commands.execute(agent, '/permission yolo', new AbortController().signal)

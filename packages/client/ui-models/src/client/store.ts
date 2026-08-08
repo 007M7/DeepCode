@@ -11,7 +11,13 @@ import type {
 } from '@deepseek-ai/dsh-client-connection/client'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
-import { getPath, hasPath } from '@deepseek-ai/dsh-client-schema-form'
+import { getPath, hasPath, nodeAtPath, rehydrateSchema } from '@deepseek-ai/dsh-client-schema-form'
+
+/**
+ * Any route key walks a dict schema to the same profile node, so the lookup
+ * names one that cannot collide with a configured route.
+ */
+const PROBE_ROUTE = '\u0000probe'
 
 /** One provider row the page renders. */
 export interface ProviderRow {
@@ -25,8 +31,6 @@ export interface ProviderRow {
   apiKeyEnv: string | undefined
   /** Credential state for {@link apiKeyEnv}, once described. */
   credential: CredentialView | undefined
-  /** Whether the redacted secret sidecar reports an effective literal `apiKey`. */
-  literalApiKeyConfigured: boolean
 }
 
 /** Page snapshot. */
@@ -66,6 +70,22 @@ export function deriveKeyRef(provider: string): string {
   return `${provider.toUpperCase().replace(/[^A-Z0-9]+/g, '_')}_API_KEY`
 }
 
+/**
+ * The wire protocols a hand-declared route may name, read out of the owning
+ * namespace's own schema. This stays a schema read rather than a wire field so
+ * the choices the page offers cannot drift from the ones the adapter accepts:
+ * both come from the same `Config`.
+ * @param namespace - the namespace view whose schema declares the profile shape.
+ * @returns the protocol identifiers, or an empty list when the schema has none.
+ */
+export function protocolChoices(namespace: SettingsNamespaceView | undefined): string[] {
+  if (namespace === undefined) return []
+  const node = nodeAtPath(rehydrateSchema(namespace.schema), ['providers', PROBE_ROUTE, 'api'])
+  const list = (node as { type?: string; list?: readonly { value?: unknown }[] } | undefined)
+  if (list?.type !== 'union' || list.list === undefined) return []
+  return list.list.map(entry => entry.value).filter((value): value is string => typeof value === 'string')
+}
+
 /** The credential reference a resolved profile names (its `apiKeyEnv` field). */
 function apiKeyEnvOf(namespace: SettingsNamespaceView | undefined, path: readonly string[]): string | undefined {
   if (namespace === undefined) return undefined
@@ -73,19 +93,6 @@ function apiKeyEnvOf(namespace: SettingsNamespaceView | undefined, path: readonl
   if (typeof profile !== 'object' || profile === null) return undefined
   const ref = (profile as { apiKeyEnv?: unknown }).apiKeyEnv
   return typeof ref === 'string' && ref.length > 0 ? ref : undefined
-}
-
-/** Whether one namespace's redacted sidecar reports a set literal API key. */
-function literalApiKeyConfigured(
-  namespace: SettingsNamespaceView | undefined,
-  path: readonly string[],
-): boolean {
-  if (namespace === undefined) return false
-  const secretPath = [...path, 'apiKey']
-  return namespace.secrets.some(secret =>
-    secret.set
-    && secret.path.length === secretPath.length
-    && secret.path.every((key, index) => key === secretPath[index]))
 }
 
 /** The models settings page controller (one per settings surface). */
@@ -102,18 +109,6 @@ export class ModelsSettingsStore {
    * @param api - the wire face (settings/credentials/llm domains).
    */
   constructor(private readonly api: Pick<IApiClient, 'settings' | 'credentials' | 'llm'>) {}
-
-  /**
-   * Surface a failure from an operation the page ran outside {@link load} —
-   * a row removal — on the same banner a load failure uses.
-   * @param message - the failure text to show.
-   */
-  fail(message: string): void {
-    this.store.update((s) => {
-      s.status = 'error'
-      s.error = message
-    })
-  }
 
   /**
    * Refresh the whole page snapshot: directory and namespaces in parallel,
@@ -160,7 +155,6 @@ export class ModelsSettingsStore {
         removable,
         apiKeyEnv: apiKeyEnvOf(namespace, entry.settingsPath),
         credential: undefined,
-        literalApiKeyConfigured: literalApiKeyConfigured(namespace, entry.settingsPath),
       }
     })
     const refs = [...new Set(rows.flatMap(row => row.apiKeyEnv === undefined ? [] : [row.apiKeyEnv]))]
@@ -247,7 +241,6 @@ export function deepSeekReadiness(state: ModelsSettingsState): DeepSeekReadiness
       reason: 'settings-unavailable',
     }
   }
-  if (row.literalApiKeyConfigured) return { kind: 'configured' }
   if (row.apiKeyEnv === undefined) {
     return {
       kind: 'unavailable',

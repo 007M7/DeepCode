@@ -4,11 +4,11 @@ Status: implemented
 
 English | [中文](2026-07-29-dsh-source-launch-tsx-esm.zh.md)
 
-> Supersedes [native TypeScript source launch](2026-07-28-dsh-native-typescript-source-launch.md): Node removed the capability that decision was built on.
+> Supersedes [native TypeScript source launch](../../archived/architecture/2026-07-28-dsh-native-typescript-source-launch.md): Node removed the capability that decision was built on.
 
 ## Problem
 
-The [native source-launch decision](2026-07-28-dsh-native-typescript-source-launch.md) ran `apps/cli/src/bin.ts` under `node --experimental-transform-types` with a resolve-only paths loader, so Node owned TypeScript transformation. Node 26.0.0 removed `--experimental-transform-types` (the process rejects the flag with `bad option`), keeping only strip mode, and strip mode rejects syntax this source graph requires: vendored Cordis parameter properties (`constructor(private ctx: Context)`), the `@Inject` decorators in `vendor/hmr`, and runtime enums/namespaces throughout `vendor/` and `packages/workflow`. The repository's engines range (`^22.19.0 || >=24.0.0`) includes Node 26, so the native launch chain could not start at all there — and no CI job executed the real launch vector, so the incompatibility shipped silently.
+The [archived native source-launch decision](../../archived/architecture/2026-07-28-dsh-native-typescript-source-launch.md) ran `apps/cli/src/bin.ts` under `node --experimental-transform-types` with a resolve-only paths loader, so Node owned TypeScript transformation. Node 26.0.0 removed `--experimental-transform-types` (the process rejects the flag with `bad option`), keeping only strip mode, and strip mode rejects syntax this source graph requires: vendored Cordis parameter properties (`constructor(private ctx: Context)`), the `@Inject` decorators in `vendor/hmr`, and runtime enums/namespaces throughout `vendor/` and `packages/workflow`. The repository's engines range (`^22.19.0 || >=24.0.0`) includes Node 26, so the native launch chain could not start at all there — and no CI job executed the real launch vector, so the incompatibility shipped silently.
 
 Startup latency also mattered: the off-thread `module.register()` hooks worker serialized every resolution across threads (~440ms of `makeSyncRequest` wait during TUI boot), and the full tsx default (`--import tsx`) pays ~0.4s in its CJS hook's resolution amplification.
 
@@ -35,4 +35,4 @@ The node-compat CI matrix (Node 22.19 and 26) gains `dsh-source-launch-smoke` (`
 - One launch vector across the whole engines range, including future Node lines that change native TypeScript support; the smoke gate enforces it per matrix line.
 - TypeScript transformation is delegated to tsx/esbuild again, reversing the prior note's goal of proving Node-native transformation; that goal is unreachable while vendored sources use non-erasable syntax and Node ships no transform mode.
 - The runtime declared-dependency enforcement in source launches is gone; undeclared workspace imports now surface only through static gates or built-mode resolution failures.
-- Startup improves ~0.4s over the full tsx default (`demo:headless` and ACP keep `--import tsx`; their graphs were not audited for CJS-hook dependence and their launch latency is not on the interactive path).
+- Startup improves ~0.4s over the full tsx default (`demo:headless` now aliases the same `dsh run` source launch; ACP keeps `--import tsx` because its graph was not audited for CJS-hook dependence and its launch latency is not on the interactive path).

@@ -206,7 +206,7 @@ describe('live event path', () => {
     expect(published).toEqual(['累计', null])
   })
 
-  it('retracts the failed step partial on retry and keeps a replayable notice before the recovered response', async () => {
+  it('retracts the failed-attempt partial and starts the retry on new chunk evidence', async () => {
     const { session } = await opened()
     const feed = (event: SessionEvent) => { session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event }) }
     const retryTurn = [
@@ -215,25 +215,13 @@ describe('live event path', () => {
       ev.stepStart(8, 1),
       ev.chunkStart(9, 1),
       ev.chunkText(10, 1, '不完整回复'),
-      ev.stepEnd(11, 1),
-      ev.retry(12, 1, 0, 1, 2, 450, '连接被重置'),
-      at(13, {
-        type: 'turn/end',
-        data: {
-          turn: 1,
-          reason: {
-            kind: 'error', step: 0,
-            failure: { code: 'TRANSPORT', message: '连接被重置' },
-          },
-        },
-      }),
-      at(14, { type: 'turn/start', data: { turn: 2, trigger: { kind: 'retry' } } }),
-      ev.stepStart(15, 2),
-      ev.assistant(16, 2, '完整回复'),
-      ev.stepEnd(17, 2),
-      ev.turnEnd(18, 2),
+      ev.retry(11, 1, 0, 1, 2, 450, '连接被重置'),
+      ev.chunkStart(12, 1),
+      ev.assistant(13, 1, '完整回复'),
+      ev.stepEnd(14, 1),
+      ev.turnEnd(15, 1),
     ]
-    for (const event of retryTurn.slice(0, 7)) feed(event)
+    for (const event of retryTurn.slice(0, 6)) feed(event)
 
     let snapshot = session.getSnapshot()
     expect(snapshot.partial).toBeNull()
@@ -252,15 +240,14 @@ describe('live event path', () => {
     })
     expect(JSON.stringify(snapshot.nodes)).not.toContain('不完整回复')
 
-    for (const event of retryTurn.slice(7)) feed(event)
+    for (const event of retryTurn.slice(6)) feed(event)
     snapshot = session.getSnapshot()
     expect(snapshot.nodes.slice(-2).map(node => node.kind)).toEqual(['model-retry', 'assistant'])
     expect(snapshot.nodes.some(node => node.kind === 'turn-error')).toBe(false)
     expect(snapshot.nodes.at(-2)).toMatchObject({ kind: 'model-retry', retryState: 'started' })
     expect(snapshot.nodes.at(-1)).toMatchObject({ kind: 'assistant', blocks: [{ kind: 'text', text: '完整回复' }] })
-    const retryStart = retryTurn.find(event =>
-      event.type === 'turn/start' && event.data.trigger.kind === 'retry')
-    if (retryStart?.type !== 'turn/start') throw new Error('test fixture must include a retry turn/start')
+    const retryStart = retryTurn.find(event => event.type === 'turn/start')
+    if (retryStart?.type !== 'turn/start') throw new Error('test fixture must include the retried turn start')
     const retryEnd = retryTurn.find(event =>
       event.type === 'turn/end' && event.data.turn === retryStart.data.turn)
     if (retryEnd?.type !== 'turn/end') throw new Error('test fixture must complete the retry turn')
@@ -285,35 +272,33 @@ describe('live event path', () => {
     const failedTurns = [
       ev.turnStart(6, 1),
       ev.user(7, '鉴权失败'),
-      at(8, {
+      ev.stepStart(8, 1),
+      at(9, {
         type: 'turn/end',
-        data: {
-          turn: 1,
-          reason: {
-            kind: 'error',
-            step: 0,
-            failure: {
-              code: 'AUTH',
-              message: 'Authentication Fails, Your api key: sk-preview-secret is invalid',
-            },
-          },
+        data: { turn: 1, reason: { kind: 'error', error: {
+          code: 'AUTH',
+          message: 'Authentication Fails, Your api key: sk-preview-secret is invalid',
+        },
+        },
         },
       }),
-      ev.turnStart(9, 2),
-      ev.user(10, '内部失败'),
-      at(11, {
+      ev.turnStart(10, 2),
+      ev.user(11, '内部失败'),
+      ev.stepStart(12, 2, 1),
+      at(13, {
         type: 'turn/end',
-        data: { turn: 2, reason: { kind: 'error', step: 1, message: 'plugin exploded' } },
+        data: { turn: 2, reason: { kind: 'error', error: { message: 'plugin exploded', code: 'UNKNOWN' } } },
       }),
     ]
     for (const event of failedTurns) feed(event)
 
     const errors = session.getSnapshot().nodes.filter(node => node.kind === 'turn-error')
     expect(errors).toMatchObject([
-      { seq: 8, turn: 1, step: 0, code: 'AUTH', message: 'API key is invalid' },
-      { seq: 11, turn: 2, step: 1, message: 'plugin exploded' },
+      { seq: 9, turn: 1, step: 0, code: 'AUTH', message: 'API key is invalid' },
+      // Every failed turn carries a structured failure; unstructured errors
+      // flatten to the UNKNOWN code.
+      { seq: 13, turn: 2, step: 1, code: 'UNKNOWN', message: 'plugin exploded' },
     ])
-    expect('code' in errors[1]!).toBe(false)
 
     const replay = makeSession()
     replay.api.onHistory = () => histResponse([...plainTurn(0, 0, 'a', 'b'), ...failedTurns])
@@ -450,7 +435,7 @@ describe('live event path', () => {
   })
 
   it.each(['aborted', 'disposed'] as const)(
-    'marks a scheduled retry as cancelled when its failed turn ends %s',
+    'marks a scheduled retry as cancelled when its failed turn receives the %s cause',
     async (reason) => {
       const { session } = await opened()
       const feed = (event: SessionEvent) => {
@@ -469,6 +454,24 @@ describe('live event path', () => {
       })
     },
   )
+
+  it('marks a scheduled retry as started when its failed turn ends with an error', async () => {
+    const { session } = await opened()
+    const feed = (event: SessionEvent) => {
+      session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event })
+    }
+    feed(ev.turnStart(6, 1))
+    feed(ev.retry(7, 1))
+    feed(at(8, {
+      type: 'turn/end',
+      data: { turn: 1, reason: { kind: 'error', error: { message: 'retry failed', code: 'UNKNOWN' } } },
+    }))
+
+    expect(session.getSnapshot().nodes.at(-1)).toMatchObject({
+      kind: 'model-retry',
+      retryState: 'started',
+    })
+  })
 
   it('freezes an unfinalized partial into an interrupted node on turn/end (cancel path)', async () => {
     const { session } = await opened()
@@ -1148,7 +1151,17 @@ describe('resync', () => {
 
 })
 
-describe('run_code sub-dispatch indexing', () => {
+describe('nested run_code sub-dispatches', () => {
+  const subCallsOf = (session: Session, callId: string) => {
+    const snapshot = session.getSnapshot()
+    const running = snapshot.runningCalls.find(call => call.callId === callId)
+    if (running !== undefined) return running.subCalls
+    for (const node of snapshot.nodes) {
+      if (node.kind === 'tool-result' && node.callId === callId) return node.subCalls
+    }
+    return undefined
+  }
+
   it('a start event lands as a running-shaped sub-call and its settle replaces it in place', async () => {
     const { api, session } = makeSession()
     api.onHistory = () => histResponse(plainTurn(0, 0, '问', '答'))
@@ -1158,19 +1171,19 @@ describe('run_code sub-dispatch indexing', () => {
     feed(ev.toolCall(7, 1, 'p1', 'run_code', '{"code":"1","description":"d"}'))
     feed(ev.codeDispatchStart(8, 'p1', 1, 'bash', { command: 'sleep' }))
     feed(ev.codeDispatchStart(9, 'p1', 2, 'read', { path: 'a.txt' }))
-    const live = session.getSnapshot().codeDispatches.get('p1')
+    const live = subCallsOf(session, 'p1')
     expect(live).toHaveLength(2)
     // Running shape (no 'kind'): the exact RunningToolCall form native rows use.
     expect(live?.[0]).toMatchObject({ callId: 'p1:code:1', name: 'bash', argsRaw: '{"command":"sleep"}' })
     expect(live?.[0] !== undefined && 'kind' in live[0]).toBe(false)
     // Settle out of order (parallel run): #2 first — replaces in place, keeping start order.
     feed(ev.codeDispatch(10, 'p1', 2, 'read', { path: 'a.txt' }, 'alpha'))
-    const mixed = session.getSnapshot().codeDispatches.get('p1')
+    const mixed = subCallsOf(session, 'p1')
     expect(mixed?.map(sub => 'kind' in sub)).toEqual([false, true])
     expect(mixed?.[1]).toMatchObject({ callId: 'p1:code:2', content: [{ type: 'text', text: 'alpha' }] })
     // The settle carries the paired start's time as callTime (duration source).
     feed(ev.codeDispatch(11, 'p1', 1, 'bash', { command: 'sleep' }, 'done'))
-    const settled = session.getSnapshot().codeDispatches.get('p1')
+    const settled = subCallsOf(session, 'p1')
     expect(settled?.map(sub => 'kind' in sub)).toEqual([true, true])
     expect(settled?.[0]).toMatchObject({ callId: 'p1:code:1', callTime: 1_700_000_000_008 })
   })
@@ -1184,7 +1197,7 @@ describe('run_code sub-dispatch indexing', () => {
     feed(ev.toolCall(7, 1, 'p1', 'run_code', '{"code":"return 1","description":"跑一个程序"}'))
     feed(ev.codeDispatch(8, 'p1', 1, 'bash', { command: 'ls', description: '列目录' }, 'demo.txt'))
     feed(ev.codeDispatch(9, 'p1', 2, 'read', { path: 'a.txt' }, 'Error: ENOENT', true))
-    const subs = session.getSnapshot().codeDispatches.get('p1')
+    const subs = subCallsOf(session, 'p1')
     expect(subs).toHaveLength(2)
     expect(subs?.[0]).toMatchObject({
       kind: 'tool-result', callId: 'p1:code:1',
@@ -1202,23 +1215,29 @@ describe('run_code sub-dispatch indexing', () => {
     expect(session.getSnapshot().nodes.some(n => n.kind === 'tool-result' && n.callId.includes(':code:'))).toBe(false)
   })
 
-  it('rebuilds the same index from a history window (replay parity)', async () => {
+  it('rebuilds the same nested tree from a history window (replay parity)', async () => {
     const { api, session } = makeSession()
     api.onHistory = () => histResponse([
       ...plainTurn(0, 0, '问', '答'),
       ev.turnStart(6, 1),
       ev.toolCall(7, 1, 'p1', 'run_code', '{"code":"return 1","description":"跑一个程序"}'),
-      ev.codeDispatch(8, 'p1', 1, 'bash', { command: 'ls' }, 'demo.txt'),
-      ev.toolResult(9, 1, 'p1', '{"done":true}'),
-      ev.turnEnd(10, 1),
+      ev.codeDispatchStart(8, 'p1', 1, 'run_code', { code: 'return tools.read({ path: "a.txt" })' }),
+      ev.codeDispatch(9, 'p1:code:1', 1, 'read', { path: 'a.txt' }, 'alpha'),
+      ev.codeDispatch(10, 'p1', 1, 'run_code', { code: 'return tools.read({ path: "a.txt" })' }, 'alpha'),
+      ev.toolResult(11, 1, 'p1', '{"done":true}'),
+      ev.turnEnd(12, 1),
     ])
     await session.open()
-    const subs = session.getSnapshot().codeDispatches.get('p1')
+    const subs = subCallsOf(session, 'p1')
     expect(subs).toHaveLength(1)
-    expect(subs?.[0]).toMatchObject({ callId: 'p1:code:1', call: { name: 'bash' } })
+    expect(subs?.[0]).toMatchObject({
+      callId: 'p1:code:1',
+      call: { name: 'run_code' },
+      subCalls: [{ callId: 'p1:code:1:code:1', call: { name: 'read' } }],
+    })
   })
 
-  it('keeps the dispatch map reference across unrelated changes and swaps it on a new dispatch', async () => {
+  it('keeps an unaffected root reference and path-copies it on a new child', async () => {
     const { api, session } = makeSession()
     api.onHistory = () => histResponse(plainTurn(0, 0, '稳', '定'))
     await session.open()
@@ -1227,13 +1246,48 @@ describe('run_code sub-dispatch indexing', () => {
     feed(ev.toolCall(7, 1, 'p1', 'run_code', '{"code":"1","description":"d"}'))
     feed(ev.codeDispatch(8, 'p1', 1, 'bash', { command: 'ls' }, 'x'))
     const before = session.getSnapshot()
+    const beforeRoot = before.runningCalls.find(call => call.callId === 'p1')!
     feed(ev.chunkStart(9, 1))
     feed(ev.chunkText(10, 1, '流式'))
     const after = session.getSnapshot()
-    expect(after.codeDispatches).toBe(before.codeDispatches)
+    const afterRoot = after.runningCalls.find(call => call.callId === 'p1')!
+    expect(afterRoot).toBe(beforeRoot)
     feed(ev.codeDispatch(11, 'p1', 2, 'read', { path: 'a' }, 'y'))
-    expect(session.getSnapshot().codeDispatches).not.toBe(after.codeDispatches)
-    expect(session.getSnapshot().codeDispatches.get('p1')).toHaveLength(2)
+    const changedRoot = session.getSnapshot().runningCalls.find(call => call.callId === 'p1')!
+    expect(changedRoot).not.toBe(afterRoot)
+    expect(changedRoot.subCalls[0]).toBe(afterRoot.subCalls[0])
+    expect(changedRoot.subCalls).toHaveLength(2)
+  })
+
+  it('path-copies only the owning branch when a nested child changes', async () => {
+    const { api, session } = makeSession()
+    api.onHistory = () => histResponse(plainTurn(0, 0, '树', '结构'))
+    await session.open()
+    const feed = (event: SessionEvent) => { session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event }) }
+    feed(ev.turnStart(6, 1))
+    feed(ev.toolCall(7, 1, 'p1', 'run_code', '{"code":"1","description":"first"}'))
+    feed(ev.toolCall(8, 1, 'p2', 'run_code', '{"code":"2","description":"second"}'))
+    feed(ev.codeDispatch(9, 'p1', 1, 'run_code', { code: 'nested' }, 'child'))
+    feed(ev.codeDispatch(10, 'p1', 2, 'read', { path: 'sibling' }, 'sibling'))
+    feed(ev.codeDispatch(11, 'p2', 1, 'bash', { command: 'pwd' }, 'root two'))
+    const before = session.getSnapshot()
+    const beforeFirst = before.runningCalls.find(call => call.callId === 'p1')!
+    const beforeSecond = before.runningCalls.find(call => call.callId === 'p2')!
+    const beforeChild = beforeFirst.subCalls[0]!
+    const beforeSibling = beforeFirst.subCalls[1]!
+
+    feed(ev.codeDispatch(12, 'p1:code:1', 1, 'read', { path: 'nested' }, 'leaf'))
+    const after = session.getSnapshot()
+    const afterFirst = after.runningCalls.find(call => call.callId === 'p1')!
+    const afterSecond = after.runningCalls.find(call => call.callId === 'p2')!
+
+    expect(afterFirst).not.toBe(beforeFirst)
+    expect(afterSecond).toBe(beforeSecond)
+    expect(afterFirst.subCalls[0]).not.toBe(beforeChild)
+    expect(afterFirst.subCalls[1]).toBe(beforeSibling)
+    expect(afterFirst.subCalls[0]?.subCalls).toMatchObject([
+      { callId: 'p1:code:1:code:1', call: { name: 'read' } },
+    ])
   })
 })
 

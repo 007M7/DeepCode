@@ -36,7 +36,7 @@ When `run_in_background` is true, this plugin preflights `ctx.tasks.start()` bef
 
 ## UI presentation
 
-The tool owns its `presentCall`/`presentResult` render intent. A foreground call is a `terminal` card carrying command, description, and optional cwd; a `run_in_background` call is a `generic` card with the raw command, mirroring the bash tool's background presentation. A completed result is a `generic` card with the rendered output in a `console` fence. The bash tool's terminal card with its parsed exit-status pill has no pwsh counterpart yet — a PowerShell-aware presentation is roadmap work. These presenters are pure and replay-safe.
+The tool owns its `presentCall`/`presentResult` render intent. A foreground call is a `terminal` card carrying command, description, and optional cwd; a `run_in_background` call is a `generic` card with the raw command, mirroring the bash tool's background presentation. A completed foreground result is a `terminal` card too: the exit marker becomes the card's exit-status pill (`exitCode`/`signal`), and the marker-free body is the card's output — exactly the bash tool's terminal-card story, via the shared exit-status parse from `@deepseek-ai/dsh-bash`. Background acks and execution errors stay `generic` cards with the rendered output in a `console` fence. These presenters are pure and replay-safe.
 
 ## Model Experience
 
@@ -121,5 +121,4 @@ Append-only; newly visible content follows the reusable request prefix and does 
 - **No sandbox escalation** — `sandbox_permissions`/`justification` are absent; escalation waits for a Windows-confining executor (the bash tool's sandbox surface is not mirrored).
 - **No persistent shell or PTY** — every call starts a fresh `pwsh -Command`; the PTY backends are Linux/macOS-only today, and a Windows ConPTY persistent shell is roadmap work.
 - **PowerShell-dialect contract** — the model must write PowerShell (native paths, `$env:` variables), not bash; there is no dialect translation.
-- **Generic UI presentation** — results use the generic card; a PowerShell-aware terminal card with exit-status pill is roadmap work.
 - **Session-cwd identity is not canonicalized** — the workdir base is the session header cwd as-is, unlike the bash tool's sandbox-root-canonicalized identity; only the sandbox-less case applies here.

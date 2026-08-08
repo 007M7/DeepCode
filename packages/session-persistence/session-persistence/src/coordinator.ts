@@ -7,21 +7,62 @@
 
 import { Context } from 'cordis'
 import {
+  adoptSessionEvent,
   interruptedTurnClosers,
   SESSION_FORMAT_VERSION,
+  SessionPreparation,
   snapshotJsonValue,
   snapshotSessionEvent,
 } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent, SessionId, SessionHeader } from '@deepseek-ai/dsh-session'
+import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
+import type { SessionInspection } from './index.ts'
+import type { SessionPersistenceRevision } from './revision.ts'
+import { observeQueuedAbort, SessionPreparations } from './preparations.ts'
+import type { SessionPreparationReservation } from './preparations.ts'
+import { SessionWriteBehind } from './write-behind.ts'
+
+/** Default number of detached session preparations retained by a coordinator. */
+export const DEFAULT_PREPARED_SESSION_CACHE_SIZE = 5
+
+/** Default maximum intentional wait before a live session batch starts writing. */
+export const DEFAULT_WRITE_BATCH_MAX_DELAY_MS = 200
+
+/** Largest write batching delay accepted by Node's timer implementation. */
+export const MAX_WRITE_BATCH_DELAY_MS = MAX_TIMER_DELAY_MS
+
+/** Durable session contents failed validation after a successful backend read. */
+export class SessionPersistenceCorruptionError extends Error {
+  /**
+   * @param message - stable corruption context.
+   * @param options - original validation failure.
+   */
+  constructor(message: string, options: ErrorOptions) {
+    super(message, options)
+    this.name = 'SessionPersistenceCorruptionError'
+  }
+}
+
+/** Coordinator policy supplied by a concrete persistence backend. */
+export interface PersistenceCoordinatorOptions {
+  /** Maximum completed unpublished preparations retained for reuse. */
+  readonly preparedSessionCacheSize: number
+  /** Maximum intentional batching wait after an idle live queue receives work. */
+  readonly writeBatchMaxDelayMs: number
+}
 
 /**
- * A stored session's header, valid contiguous event prefix, and optional opaque
- * torn-tail marker. The coordinator only checks marker presence and returns its
- * value to {@link PersistenceBackend.commitRepair}; each backend owns the type.
+ * A stored session's header, valid contiguous event prefix, source-qualified
+ * revision, and optional opaque torn-tail marker. The revision identifies the
+ * exact detached prefix. The coordinator only checks marker presence and
+ * returns its value to {@link PersistenceBackend.commitRepair}; each backend
+ * owns the marker type.
  */
 export interface StoredPrefix<TornMarker = unknown> {
   meta: SessionHeader
   events: SessionEvent[]
+  /** Revision observed for exactly this detached prefix. */
+  revision: SessionPersistenceRevision
   tornMarker?: TornMarker
 }
 
@@ -55,11 +96,23 @@ export interface PersistenceBackend<TornMarker = unknown> {
    * `undefined` if no stored artifact exists. Returned metadata must identify
    * `id` before repair or state publication. Used by resume/load, live adoption,
    * and — via `!== undefined` — the create-collision probe. The returned
-   * `tornMarker` is present iff there is a torn tail to truncate.
+   * `tornMarker` is present iff there is a torn tail to truncate. Every header
+   * and event graph must be fresh, mutually unaliased, and unretained by the
+   * backend because preparation freezes and publishes them in place. The
+   * returned revision must identify exactly those values and use the same
+   * representation as {@link readStoredRevision}.
    * @param id - persisted session id to resolve.
    * @param signal - optional cancellation for backend read work.
    */
   loadStored(id: SessionId, signal?: AbortSignal): Promise<StoredPrefix<TornMarker> | undefined>
+
+  /**
+   * Read the current source-qualified revision for one stored session without
+   * loading its event log. Returns `undefined` when the identity is absent.
+   * @param id - persisted session id to observe.
+   * @param signal - optional cancellation for backend read work.
+   */
+  readStoredRevision(id: SessionId, signal?: AbortSignal): Promise<SessionPersistenceRevision | undefined>
 
   /**
    * Optional seek-capable suffix read behind the service's `readFrom`: return
@@ -69,7 +122,10 @@ export interface PersistenceBackend<TornMarker = unknown> {
    * omit it and the coordinator falls back to {@link loadStored} plus a
    * forward skip. Non-mutating (no truncation, no closers). Validation of the
    * region strictly below `fromSeq` is limited to seq contiguity — the
-   * service contract scopes this read to the suffix.
+   * service contract scopes this read to the suffix — unless that suffix
+   * contains a supported legacy shape whose normalization needs earlier
+   * message-identity facts, in which case the coordinator falls back
+   * to the complete stored prefix.
    * @param id - persisted session id to resolve.
    * @param fromSeq - first event seq to include (non-negative safe integer,
    *   validated by the coordinator before this hook runs).
@@ -128,11 +184,21 @@ interface SessionState {
   owner?: Session
 }
 
-/** One live session's initialization and eager write-behind controller. */
+/** One live session's initialization and bounded write-behind controller. */
 interface LiveSessionState {
-  pending: SessionEvent[]
   init: Promise<void>
-  flush: Promise<void> | undefined
+  writes: SessionWriteBehind
+}
+
+/** One validated cold source and the exact unpublished Session built from it. */
+interface PreparedSessionSource<TornMarker> {
+  readonly inspection: SessionInspection
+  readonly session: Session
+  readonly revision: SessionPersistenceRevision
+  /** Session length after constructor-owned seed markers were appended. */
+  readonly sessionLength: number
+  readonly tornMarker: TornMarker | undefined
+  readonly closers: readonly SessionEvent[]
 }
 
 /** Collect the rejection reasons from a set of promises (none-throwing). */
@@ -180,6 +246,17 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
     : undefined
 }
 
+/** Whether a record contains every required key and no key outside the optional extension set. */
+function hasOnlyKeys(
+  record: Record<string, unknown>,
+  required: readonly string[],
+  optional: readonly string[] = [],
+): boolean {
+  const allowed = [...required, ...optional]
+  return Object.keys(record).every(key => allowed.includes(key))
+    && required.every(key => Object.hasOwn(record, key))
+}
+
 type PersistedMessageId = SessionEvent<'user/message'>['data']['id']
 
 /** Mint the stable import identity for a message persisted before identities existed. */
@@ -193,6 +270,138 @@ function replacementStart(event: SessionEvent): number | undefined {
   return op?.['op'] === 'replace' && typeof op['start'] === 'number'
     ? op['start']
     : undefined
+}
+
+/** Whether one suffix event needs facts available only from the preceding stored prefix. */
+function needsLegacyPrefix(event: SessionEvent): boolean {
+  const data = asRecord(event.data)
+  const legacySteeringType: string = 'steering/message'
+  if (event.type === legacySteeringType) return true
+  if (data === undefined) return false
+  switch (event.type) {
+    case 'user/message':
+      return !Object.hasOwn(data, 'id') && Object.hasOwn(data, 'content')
+    case 'assistant/message':
+      return !Object.hasOwn(data, 'message') && Object.hasOwn(data, 'content')
+    case 'tool/result':
+      return !Object.hasOwn(data, 'message') && Object.hasOwn(data, 'callId')
+    default:
+      return false
+  }
+}
+
+/** Upgrade the removed steering surface event into its current user-message equivalent. */
+function migrateLegacySteeringEvent(event: SessionEvent, id: SessionId): SessionEvent {
+  const legacyType: string = 'steering/message'
+  if (event.type !== legacyType) return event
+  const data = asRecord(event.data)
+  if (data === undefined) {
+    throw new Error(`session "${id}" contains malformed pre-react-loop steering/message at seq ${event.seq}`)
+  }
+  const wrapped = asRecord(data['message'])
+  if (wrapped !== undefined && Number.isSafeInteger(data['turn'])
+    && hasOnlyKeys(data, ['turn', 'message'])) {
+    return { ...event, type: 'user/message', data: wrapped } as SessionEvent
+  }
+  if (!Number.isSafeInteger(data['turn']) || !hasOnlyKeys(data, ['turn', 'content', 'source'])) {
+    throw new Error(`session "${id}" contains malformed pre-react-loop steering/message at seq ${event.seq}`)
+  }
+  const { turn: _turn, ...message } = data
+  return {
+    ...event,
+    type: 'user/message',
+    data: {
+      ...message,
+      id: legacyMessageId(id, event.seq),
+      role: 'user',
+    },
+  } as SessionEvent
+}
+
+/** Remove the obsolete trigger after verifying the complete old turn-start envelope. */
+function migrateLegacyTurnStartEvent(event: SessionEvent, id: SessionId): SessionEvent {
+  if (event.type !== 'turn/start') return event
+  const data = asRecord(event.data)
+  if (data === undefined || !Object.hasOwn(data, 'trigger')) return event
+  const trigger = asRecord(data['trigger'])
+  if (!Number.isSafeInteger(data['turn']) || (data['turn'] as number) < 1
+    || !hasOnlyKeys(data, ['turn', 'trigger'])
+    || trigger === undefined || typeof trigger['kind'] !== 'string' || trigger['kind'].length === 0) {
+    throw new Error(`session "${id}" contains malformed pre-react-loop turn/start at seq ${event.seq}`)
+  }
+  return { ...event, data: { turn: data['turn'] } } as SessionEvent
+}
+
+/** Upgrade an obsolete turn ending while preserving the latest-master envelope. */
+function migrateLegacyTurnEndEvent(event: SessionEvent, id: SessionId): SessionEvent {
+  if (event.type !== 'turn/end') return event
+  const data = asRecord(event.data)
+  /* v8 ignore next -- a non-record current envelope cannot match a legacy shape. */
+  if (data === undefined) return event
+  const malformed = (): never => {
+    throw new Error(`session "${id}" contains malformed pre-react-loop turn/end at seq ${event.seq}`)
+  }
+  const reason = asRecord(data['reason'])
+  if (!Number.isSafeInteger(data['turn']) || (data['turn'] as number) < 1
+    || !hasOnlyKeys(data, ['turn', 'reason'])
+    || reason === undefined || typeof reason['kind'] !== 'string') return malformed()
+
+  let currentReason: Record<string, unknown> | undefined
+  switch (reason['kind']) {
+    case 'completed':
+    case 'blocked':
+    case 'max-tokens':
+    case 'interrupted':
+      if (!hasOnlyKeys(reason, ['kind'])) return malformed()
+      return event
+    case 'aborted':
+      if (Object.hasOwn(reason, 'reason')) return event
+      if (!hasOnlyKeys(reason, ['kind'])) return malformed()
+      currentReason = { kind: 'aborted', reason: { kind: 'legacy' } }
+      break
+    case 'disposed':
+      if (!hasOnlyKeys(reason, ['kind'])) return malformed()
+      currentReason = { kind: 'aborted', reason: { kind: 'disposed' } }
+      break
+    case 'error': {
+      if (Object.hasOwn(reason, 'error')) return event
+      if (!Number.isSafeInteger(reason['step']) || (reason['step'] as number) < 0) return malformed()
+      const failure = asRecord(reason['failure'])
+      if (failure !== undefined && hasOnlyKeys(reason, ['kind', 'step', 'failure'])
+        && hasOnlyKeys(failure, ['message', 'code'], ['status', 'providerRetryAfterMs', 'requestId'])
+        && typeof failure['message'] === 'string' && typeof failure['code'] === 'string'
+        && (failure['status'] === undefined || typeof failure['status'] === 'number')
+        && (failure['providerRetryAfterMs'] === undefined || typeof failure['providerRetryAfterMs'] === 'number')
+        && (failure['requestId'] === undefined || typeof failure['requestId'] === 'string')) {
+        currentReason = { kind: 'error', error: failure }
+        break
+      }
+      const messageKeys = reason['code'] === undefined
+        ? ['kind', 'step', 'message']
+        : ['kind', 'step', 'message', 'code']
+      if (!hasOnlyKeys(reason, messageKeys)
+        || typeof reason['message'] !== 'string'
+        || (reason['code'] !== undefined && typeof reason['code'] !== 'string')) return malformed()
+      currentReason = {
+        kind: 'error',
+        error: {
+          message: reason['message'],
+          code: typeof reason['code'] === 'string' ? reason['code'] : 'UNKNOWN',
+        },
+      }
+      break
+    }
+    default:
+      return event
+  }
+
+  return {
+    ...event,
+    data: {
+      ...data,
+      reason: currentReason,
+    },
+  } as SessionEvent
 }
 
 /**
@@ -270,23 +479,6 @@ function migrateLegacyMessageEvent(
         },
       } as SessionEvent
     }
-    case 'steering/message': {
-      if (Object.hasOwn(data, 'message')
-        || !Object.hasOwn(data, 'content') || !Object.hasOwn(data, 'source')) return event
-      const { content, source, ...eventData } = data
-      return {
-        ...event,
-        data: {
-          ...eventData,
-          message: {
-            id: legacyMessageId(id, event.seq),
-            role: 'user',
-            content,
-            source,
-          },
-        },
-      } as SessionEvent
-    }
     default:
       return event
   }
@@ -304,11 +496,30 @@ function snapshotStoredEvents(events: readonly SessionEvent[], id: SessionId): S
   assertSupportedEvents(events, id)
   const messageIds = new Map<number, PersistedMessageId>()
   return events.map((event) => {
-    const snapshot = snapshotSessionEvent(migrateLegacyMessageEvent(event, id, messageIds))
+    const migratedStart = migrateLegacyTurnStartEvent(event, id)
+    const migratedTurn = migrateLegacyTurnEndEvent(migratedStart, id)
+    const migratedSteering = migrateLegacySteeringEvent(migratedTurn, id)
+    const snapshot = snapshotSessionEvent(migrateLegacyMessageEvent(migratedSteering, id, messageIds))
     const messageId = eventMessageId(snapshot)
     if (messageId !== undefined) messageIds.set(snapshot.seq, messageId)
     return snapshot
   })
+}
+
+/** Upgrade and validate an exclusively owned backend result without copying it. */
+function adoptStoredEvents(events: SessionEvent[], id: SessionId): SessionEvent[] {
+  assertSupportedEvents(events, id)
+  const messageIds = new Map<number, PersistedMessageId>()
+  for (const [index, event] of events.entries()) {
+    const migratedStart = migrateLegacyTurnStartEvent(event, id)
+    const migratedTurn = migrateLegacyTurnEndEvent(migratedStart, id)
+    const migratedSteering = migrateLegacySteeringEvent(migratedTurn, id)
+    const adopted = adoptSessionEvent(migrateLegacyMessageEvent(migratedSteering, id, messageIds))
+    events[index] = adopted
+    const messageId = eventMessageId(adopted)
+    if (messageId !== undefined) messageIds.set(adopted.seq, messageId)
+  }
+  return events
 }
 
 /**
@@ -329,17 +540,37 @@ export class PersistenceCoordinator<TornMarker = unknown> {
   private states = new Map<SessionId, SessionState>()
   /** Lifecycle and write-behind state keyed by the exact live Session. */
   private live = new Map<Session, LiveSessionState>()
-  /** Exact disposed lifecycles whose eager tail is still draining. */
+  /** Exact disposed lifecycles whose buffered tail is still draining. */
   private retirements = new Map<SessionId, Promise<void>>()
-  /** Cold loads currently reserving an id across backend reads and repair writes. */
-  private coldLoads = new Set<SessionId>()
+  /** Shared cold reads, unpublished reservations, and completed LRU entries. */
+  private readonly preparations: SessionPreparations<PreparedSessionSource<TornMarker>, SessionState>
   /**
    * Per-session serialization: every operation chains onto the prior one for the
    * same id, so writes for one session never interleave. Keyed by session id.
    */
   private chains = new Map<SessionId, Promise<unknown>>()
+  /** Resolved fixed write-batching window shared by per-session controllers. */
+  private readonly writeBatchMaxDelayMs: number
 
-  constructor(private ctx: Context, private backend: PersistenceBackend<TornMarker>) {
+  constructor(
+    private ctx: Context,
+    private backend: PersistenceBackend<TornMarker>,
+    options: PersistenceCoordinatorOptions = {
+      preparedSessionCacheSize: DEFAULT_PREPARED_SESSION_CACHE_SIZE,
+      writeBatchMaxDelayMs: DEFAULT_WRITE_BATCH_MAX_DELAY_MS,
+    },
+  ) {
+    if (!Number.isSafeInteger(options.preparedSessionCacheSize)
+      || options.preparedSessionCacheSize < 1) {
+      throw new TypeError('preparedSessionCacheSize must be a positive safe integer')
+    }
+    if (!Number.isSafeInteger(options.writeBatchMaxDelayMs)
+      || options.writeBatchMaxDelayMs < 1
+      || options.writeBatchMaxDelayMs > MAX_WRITE_BATCH_DELAY_MS) {
+      throw new TypeError(`writeBatchMaxDelayMs must be an integer between 1 and ${MAX_WRITE_BATCH_DELAY_MS}`)
+    }
+    this.writeBatchMaxDelayMs = options.writeBatchMaxDelayMs
+    this.preparations = new SessionPreparations(options.preparedSessionCacheSize)
     this.installWritePath()
   }
 
@@ -363,7 +594,7 @@ export class PersistenceCoordinator<TornMarker = unknown> {
 
   private async createCore(meta: SessionHeader): Promise<void> {
     // Do NOT clobber an existing session: the SessionId IS the identity.
-    if (this.states.has(meta.id)) {
+    if (this.states.has(meta.id) || this.preparations.has(meta.id)) {
       throw new Error(`session "${meta.id}" already exists in this backend`)
     }
     // A persisted artifact under this id (in ANY scope) blocks creation: load/
@@ -405,8 +636,9 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     // this same backend will refuse to load.
     assertSupportedEvents(events, id)
     if (events.length === 0) return
+    this.preparations.assertWritable(id)
     let state = this.states.get(id)
-    if (state === undefined) state = await this.adopt(id) // calls loadCore, not load
+    if (state === undefined) state = await this.adopt(id)
 
     // Contiguity contract: each event's seq must continue the stored log.
     for (const [i, event] of events.entries()) {
@@ -420,67 +652,115 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     // cursor as soon as it commits (uniform across backends).
     state.materialized = true
     state.cursor += events.length
+    this.preparations.invalidate(id)
   }
 
   /**
-   * Reload a session: its {@link SessionHeader} plus the event log up to the last
-   * durable checkpoint, with any interrupted final turn durably closed (synthetic
-   * boundary events) during load.
-   * @param id - the persisted session to reload.
-   * @returns the header plus the event log, ending on a balanced `turn/end`.
+   * Prepare and reserve the exact unpublished Session used by resume.
+   * Revision retries converge once the durable log remains unchanged for one
+   * read/check round trip; continuous external writers may delay completion.
+   * @param id - persisted session to prepare.
+   * @param signal - optional cancellation for reading and repair.
+   * @returns an owned preparation released after publication or rollback.
    */
-  async load(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
-    await this.retirements.get(id)
-    const selected = await this.serialize(id, async () => {
-      const live = this.ctx.sessions.get(id)
-      if (live !== undefined) return { live }
-      this.coldLoads.add(id)
-      try {
-        return { loaded: await this.loadCore(id) }
-      } finally {
-        this.coldLoads.delete(id)
+  async prepare(id: SessionId, signal?: AbortSignal): Promise<SessionPreparation> {
+    for (;;) {
+      await this.waitForRetirement(id, signal)
+      if (this.ctx.sessions.get(id) !== undefined) {
+        throw new Error(`cannot prepare session "${id}" while it is live`)
       }
-    })
-    return 'loaded' in selected ? selected.loaded : this.loadLiveSnapshot(selected.live)
+      const reservation = await this.preparations.reserve(
+        id,
+        () => this.serialize(id, () => this.prepareCore(id)),
+        source => this.serialize(id, () => this.commitPrepared(source), signal),
+        signal,
+      )
+      if (reservation === undefined) continue
+      if (this.ctx.sessions.get(id) !== undefined) {
+        this.preparations.release(reservation, false)
+        throw new Error(`cannot prepare session "${id}" while it is live`)
+      }
+      return SessionPreparation.create(reservation.source.session, {
+        release: () => {
+          this.preparations.release(
+            reservation,
+            reservation.state.owner === undefined
+              && reservation.source.session.events.length === reservation.source.sessionLength,
+          )
+        },
+      })
+    }
   }
 
   /**
-   * Read a detached valid stored prefix without recovery mutations or
-   * coordinator-state publication.
-   * @param id - persisted session to inspect.
-   * @param signal - optional cancellation for queued and backend read work.
-   * @returns stored header and events before any synthetic recovery closers.
+   * Commit recovery and return its immutable logical view without publication.
+   * Revision retries converge once the durable log remains unchanged for one
+   * read/check round trip; continuous external writers may delay completion.
+   * @param id - persisted session to load.
+   * @returns prepared header and balanced events.
    */
-  inspect(id: SessionId, signal?: AbortSignal): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
-    // Waiting for an in-flight retirement drain must honor cancellation too: a
-    // slow drain would otherwise pin a cancelled inspect until it finishes,
-    // past the documented boundary. serialize() already races the signal for
-    // the queued read; do the same for the retirement wait.
-    const retired = Promise.resolve(this.retirements.get(id))
-    const waited = signal === undefined ? retired : observeQueuedAbort(retired, signal, () => false)
-    return waited.then(() => this.serialize(id, () => this.inspectCore(id, signal), signal))
+  async load(id: SessionId): Promise<SessionInspection> {
+    for (;;) {
+      await this.waitForRetirement(id)
+      const live = this.ctx.sessions.get(id)
+      if (live !== undefined) return this.loadLiveSnapshot(live)
+      const reservation = await this.preparations.reserve(
+        id,
+        () => this.serialize(id, () => this.prepareCore(id)),
+        source => this.serialize(id, () => this.commitPrepared(source)),
+      )
+      if (reservation === undefined) continue
+      const attached = this.ctx.sessions.get(id)
+      if (attached !== undefined) {
+        this.preparations.discard(reservation)
+        return this.loadLiveSnapshot(attached)
+      }
+      this.preparations.discard(reservation)
+      return reservation.source.inspection
+    }
   }
 
-  private async inspectCore(
-    id: SessionId,
-    signal?: AbortSignal,
-  ): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
-    signal?.throwIfAborted()
-    let stored: StoredPrefix<TornMarker> | undefined
-    try {
-      stored = await this.backend.loadStored(id, signal)
-    } catch (error: unknown) {
-      if (signal?.aborted) signal.throwIfAborted()
-      throw error
-    }
-    signal?.throwIfAborted()
-    if (stored === undefined) throw new Error(`session "${id}" not found`)
-    this.assertStoredId(id, stored.meta)
-    this.assertVersion(stored.meta)
-    const events = snapshotStoredEvents(stored.events, id)
-    return {
-      meta: structuredClone(stored.meta),
-      events,
+  /**
+   * Inspect a logical session without publishing it or committing recovery.
+   * A stale ready source is reloaded. A source already committing or reserved
+   * for resume remains exclusive, and inspection may borrow its immutable view.
+   * Revision retries converge once the log is stable for one read/check round
+   * trip; continuous external writers may delay completion.
+   * @param id - persisted session to inspect.
+   * @param signal - optional cancellation for preparation work.
+   * @returns immutable prepared metadata and events; a live view may have an open turn.
+   */
+  async inspect(id: SessionId, signal?: AbortSignal): Promise<SessionInspection> {
+    for (;;) {
+      signal?.throwIfAborted()
+      if (this.retirements.has(id)) await this.waitForRetirement(id, signal)
+      const live = this.ctx.sessions.get(id)
+      if (live !== undefined) return this.inspectLive(live)
+      try {
+        const source = await this.preparations.inspect(
+          id,
+          () => this.serialize(id, () => this.prepareCore(id)),
+          signal,
+        )
+        const attached = this.ctx.sessions.get(id)
+        if (attached !== undefined) return this.inspectLive(attached)
+        const current = await this.serialize(
+          id,
+          () => this.isPreparedSourceCurrent(source, signal),
+          signal,
+        )
+        const published = this.ctx.sessions.get(id)
+        if (published !== undefined) return this.inspectLive(published)
+        if (current) return source.inspection
+        if (this.preparations.discardReady(id, source) === 'retained') {
+          return source.inspection
+        }
+      } catch (error: unknown) {
+        signal?.throwIfAborted()
+        const attached = this.ctx.sessions.get(id)
+        if (attached !== undefined) return this.inspectLive(attached)
+        throw error
+      }
     }
   }
 
@@ -522,48 +802,137 @@ export class PersistenceCoordinator<TornMarker = unknown> {
       if (suffix === undefined) throw new Error(`session "${id}" not found`)
       this.assertStoredId(id, suffix.meta)
       this.assertVersion(suffix.meta)
-      assertSupportedEvents(suffix.events, id)
-      return { meta: structuredClone(suffix.meta), events: structuredClone(suffix.events) }
+      if (suffix.events.some(needsLegacyPrefix)) {
+        const whole = await this.readStoredPrefix(id, signal)
+        return { meta: whole.meta, events: whole.events.filter(event => event.seq >= fromSeq) }
+      }
+      return { meta: structuredClone(suffix.meta), events: snapshotStoredEvents(suffix.events, id) }
     }
-    const whole = await this.inspectCore(id, signal)
+    const whole = await this.readStoredPrefix(id, signal)
     // Sequential fallback: contiguous seqs from 0 make the suffix an index slice.
     return { meta: whole.meta, events: whole.events.slice(fromSeq) }
   }
 
-  private async loadCore(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
-    const stored = await this.backend.loadStored(id)
+  /** Read one detached physical prefix without logical recovery or caching. */
+  private async readStoredPrefix(
+    id: SessionId,
+    signal?: AbortSignal,
+  ): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
+    signal?.throwIfAborted()
+    const stored = await this.backend.loadStored(id, signal)
+    signal?.throwIfAborted()
     if (stored === undefined) throw new Error(`session "${id}" not found`)
-    const { meta, events, tornMarker } = stored
-    this.assertStoredId(id, meta)
-    this.assertVersion(meta)
-    const storedEvents = snapshotStoredEvents(events, id)
-
-    // Preserve complete interrupted events and synthesize only missing closers.
-    const closers = interruptedTurnClosers(storedEvents).map(snapshotSessionEvent)
-    const balanced = [...storedEvents, ...closers]
-
-    // Repair storage before publishing coordinator state.
-    if (tornMarker !== undefined || closers.length > 0) {
-      await this.backend.commitRepair(meta, tornMarker, closers)
+    this.assertStoredId(id, stored.meta)
+    this.assertVersion(stored.meta)
+    return {
+      meta: structuredClone(stored.meta),
+      events: snapshotStoredEvents(stored.events, id),
     }
-    // Keep coordinator metadata detached from the returned record.
-    this.states.set(id, { meta: { ...meta }, cursor: balanced.length, materialized: true })
-    return { meta: structuredClone(meta), events: balanced }
   }
 
-  /** Return a durable balanced live snapshot without applying cold crash repair. */
-  private async loadLiveSnapshot(session: Session): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
-    const events = session.events.map(snapshotSessionEvent)
+  /** Read, repair in memory, validate, and freeze one cold source once. */
+  private async prepareCore(id: SessionId): Promise<PreparedSessionSource<TornMarker>> {
+    const stored = await this.backend.loadStored(id)
+    if (stored === undefined) throw new Error(`session "${id}" not found`)
+    try {
+      const { meta, events, revision, tornMarker } = stored
+      this.assertStoredId(id, meta)
+      this.assertVersion(meta)
+      const storedEvents = adoptStoredEvents(events, id)
+
+      // Preserve complete interrupted events and synthesize only missing closers.
+      const closers = interruptedTurnClosers(storedEvents).map(adoptSessionEvent)
+      const balanced = [...storedEvents, ...closers]
+      const session = this.ctx.sessions.prepare(id, {
+        seed: balanced,
+        meta,
+        seedSource: 'persistence',
+      })
+      const inspection: SessionInspection = Object.freeze({
+        meta: session.header,
+        events: Object.freeze(balanced),
+      })
+      return {
+        inspection,
+        session,
+        revision,
+        sessionLength: session.events.length,
+        tornMarker,
+        closers,
+      }
+    } catch (error: unknown) {
+      throw new SessionPersistenceCorruptionError(
+        `stored session "${id}" failed validation: ${String(error)}`,
+        { cause: error },
+      )
+    }
+  }
+
+  /** Commit one prepared repair and establish its ownerless durable cursor. */
+  private async commitPrepared(
+    source: PreparedSessionSource<TornMarker>,
+  ): Promise<{ source: PreparedSessionSource<TornMarker>; state: SessionState } | undefined> {
+    const id = source.inspection.meta.id
+    const cursor = source.inspection.events.length
+    const existing = this.states.get(id)
+    if (existing?.owner !== undefined) {
+      throw new Error(`session "${id}" already has a live persistence owner`)
+    }
+    if (!await this.isPreparedSourceCurrent(source)) return undefined
+    if (source.tornMarker !== undefined || source.closers.length > 0) {
+      await this.backend.commitRepair(source.inspection.meta, source.tornMarker, source.closers)
+      // The repair changed the durable revision. Reload the exact committed
+      // graph instead of associating the old in-memory view with a newer revision.
+      return undefined
+    }
+    const state = existing ?? {
+      meta: source.inspection.meta,
+      cursor,
+      materialized: true,
+    }
+    state.meta = source.inspection.meta
+    state.cursor = cursor
+    state.materialized = true
+    this.states.set(id, state)
+    return {
+      source,
+      state,
+    }
+  }
+
+  /** Whether one cached source still names the current durable log revision. */
+  private async isPreparedSourceCurrent(
+    source: PreparedSessionSource<TornMarker>,
+    signal?: AbortSignal,
+  ): Promise<boolean> {
+    return await this.backend.readStoredRevision(source.inspection.meta.id, signal) === source.revision
+  }
+
+  /** Return one durable immutable view of an already-live Session. */
+  private async loadLiveSnapshot(session: Session): Promise<SessionInspection> {
+    const events = session.events
     await this.flush(session)
     const state = this.states.get(session.id)
     /* v8 ignore next -- successful flush always publishes this live session's durable state */
     if (state === undefined) throw new Error(`session "${session.id}" lost persistence state during load`)
-    const meta = structuredClone(state.meta)
     if (events.length === 0) throw new Error(`session "${session.id}" not found`)
     if (interruptedTurnClosers(events).length > 0) {
       throw new Error(`cannot load session "${session.id}" while its live turn is open; use the live Session or wait for the turn to close`)
     }
-    return { meta, events }
+    return Object.freeze({ meta: state.meta, events })
+  }
+
+  /** Borrow one immutable view from an already-live Session. */
+  private inspectLive(session: Session): SessionInspection {
+    return Object.freeze({ meta: session.header, events: session.events })
+  }
+
+  /** Await one retiring lifecycle with caller cancellation. */
+  private waitForRetirement(id: SessionId, signal?: AbortSignal): Promise<void> {
+    const retired = Promise.resolve(this.retirements.get(id))
+    return signal === undefined
+      ? retired
+      : observeQueuedAbort(retired, signal, () => false)
   }
 
   // Listing is a direct backend read and needs no coordinator state.
@@ -603,13 +972,13 @@ export class PersistenceCoordinator<TornMarker = unknown> {
 
   /** Build a state for a session discovered in storage but not yet in memory. */
   private async adopt(id: SessionId): Promise<SessionState> {
-    // loadCore (NOT load) — adopt runs inside an already-serialized op, so
-    // re-entering the chain via the public load() would deadlock.
-    await this.loadCore(id)
-    const state = this.states.get(id)
-    /* v8 ignore next -- loadCore always sets the state for the id */
-    if (!state) throw new Error(`failed to adopt session "${id}"`)
-    return state
+    // This runs inside the id's serialization chain, so it uses core helpers
+    // instead of re-entering through public prepare/load methods.
+    for (;;) {
+      const source = this.preparations.takeReady(id) ?? await this.prepareCore(id)
+      const committed = await this.commitPrepared(source)
+      if (committed !== undefined) return committed.state
+    }
   }
 
   private assertVersion(meta: SessionHeader): void {
@@ -660,20 +1029,16 @@ export class PersistenceCoordinator<TornMarker = unknown> {
 
     // Capture the header on creation and persist a fork's seed once.
     ctx.on('session/created', (session) => {
-      if (this.coldLoads.has(session.id)) {
-        throw new Error(`cannot publish session "${session.id}" while its persisted history is loading`)
-      }
       void this.initFor(session)
     })
 
-    // Keep a persistence-owned copy of each frozen event and start an eager drain.
+    // Keep a persistence-owned copy of each frozen event and start its bounded window.
     ctx.on('session/event', (session, event) => {
       const live = this.initFor(session)
-      live.pending.push(structuredClone(event))
-      if (live.flush === undefined) this.scheduleDrain(session, live)
+      live.writes.enqueue(event)
     })
 
-    // Callers use flush as the observation barrier for the eager write path.
+    // Callers use flush as the immediate durability barrier for buffered writes.
     ctx.on('session/flush', session => this.flush(session))
 
     // Session disposal is observe-only, so retirement contains its own failure.
@@ -712,11 +1077,45 @@ export class PersistenceCoordinator<TornMarker = unknown> {
   private initFor(session: Session): LiveSessionState {
     const existing = this.live.get(session)
     if (existing) return existing
+    const reservation = this.preparations.reservationFor(session)
+    if (reservation !== undefined) {
+      const restored = this.attachPrepared(session, reservation)
+      this.live.set(session, restored)
+      return restored
+    }
     const seed = session.events.map(e => structuredClone(e))
-    const live: LiveSessionState = { pending: [], init: Promise.resolve(), flush: undefined }
+    const live: LiveSessionState = {
+      init: Promise.resolve(),
+      writes: this.createWriteBehind(session, () => live.init),
+    }
     this.live.set(session, live)
     live.init = this.serialize(session.header.id, () => this.onCreated(session, seed))
     live.init.catch(() => { /* observed by flush/dispose through the controller */ })
+    return live
+  }
+
+  /** Bind one exact prepared Session and persist only its unpublished suffix. */
+  private attachPrepared(
+    session: Session,
+    reservation: SessionPreparationReservation<PreparedSessionSource<TornMarker>, SessionState>,
+  ): LiveSessionState {
+    const { source, state } = reservation
+    if (source.session !== session || state.owner !== undefined
+      || state.cursor !== source.inspection.events.length
+      || session.firstLiveSeq !== state.cursor) {
+      throw new Error(`session "${session.id}" preparation no longer matches its persistence state`)
+    }
+    const suffix = session.events.slice(state.cursor).map(event => structuredClone(event))
+    this.preparations.attach(reservation)
+    state.owner = session
+    const live: LiveSessionState = {
+      init: Promise.resolve(),
+      writes: this.createWriteBehind(session, () => live.init),
+    }
+    if (suffix.length > 0) {
+      live.init = this.serialize(session.id, () => this.appendCore(session.id, suffix))
+      live.init.catch(() => { /* observed by flush/dispose through the controller */ })
+    }
     return live
   }
 
@@ -776,7 +1175,7 @@ export class PersistenceCoordinator<TornMarker = unknown> {
         return
       }
       const owner = this.live.get(tracked.owner)
-      if (!tracked.materialized && !owner?.pending.length) {
+      if (!tracked.materialized && !owner?.writes.hasWork) {
         this.states.delete(id)
       } else {
         throw new Error(`session "${id}" is already bound to a different live session in this backend (id collision)`)
@@ -787,7 +1186,7 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     // cwd mismatch before repair or state publication.
     const live = await this.backend.loadStored(id)
     if (live !== undefined) {
-      // Do NOT route through loadCore(): that crash-repairs open turns as
+      // Do NOT route through cold preparation: that crash-repairs open turns as
       // interrupted, which is wrong for HMR while the live Session is still the
       // authority and may append the real step/turn end later.
       await this.adoptLivePrefix(session, seed, live)
@@ -837,89 +1236,38 @@ export class PersistenceCoordinator<TornMarker = unknown> {
 
   private async flush(session: Session): Promise<void> {
     const live = this.initFor(session)
-    await live.init
-    const overlapping = live.flush
-    if (overlapping !== undefined) await Promise.allSettled([overlapping])
-    while (live.flush !== undefined || live.pending.length > 0) {
-      if (live.flush !== undefined) await live.flush
-      else await this.ensureFlush(session, live)
+    live.writes.cancelAutomaticWait()
+    try {
+      await live.init
+    } catch (error: unknown) {
+      // Admission is closed during retirement/teardown, but an ordinary flush
+      // may have raced one last enqueue while initialization was pending.
+      live.writes.cancelAutomaticWait()
+      throw error
     }
+    await live.writes.flush()
   }
 
-  /** Start an eager drain without exposing its failure to the synchronous append. */
-  private scheduleDrain(session: Session, live: LiveSessionState): void {
-    void this.ensureFlush(session, live).catch((error: unknown) => {
-      this.ctx.logger.warn(`${this.backend.name}: eager drain for session "${session.id}" failed (buffered events retained): ${String(error)}`)
+  /** Build one package-private write controller around initialization and id serialization. */
+  private createWriteBehind(session: Session, ready: () => Promise<void>): SessionWriteBehind {
+    return new SessionWriteBehind({
+      maxDelayMs: this.writeBatchMaxDelayMs,
+      write: async (batch) => {
+        await ready()
+        await this.serialize(session.header.id, () => this.appendLiveBatch(session.header.id, batch))
+      },
+      reportBackgroundFailure: (error) => {
+        this.ctx.logger.warn(`${this.backend.name}: background write for session "${session.id}" failed (buffered events retained): ${String(error)}`)
+      },
     })
   }
 
-  /** Start one drain for the complete pending batch. */
-  private ensureFlush(session: Session, live: LiveSessionState): Promise<void> {
-    const flush = live.init
-      .then(() => this.serialize(session.header.id, () => this.drain(session.header.id, live)))
-      .finally(() => { live.flush = undefined })
-    live.flush = flush
-    void flush.then(() => {
-      if (live.pending.length > 0) this.scheduleDrain(session, live)
-    }, () => {})
-    return flush
-  }
-
-  /** Drain one stable prefix; events admitted during the write remain pending. */
-  private async drain(id: SessionId, live: LiveSessionState): Promise<void> {
-    const batch = live.pending.slice()
+  /** Append one controller-owned prefix after filtering events initialization already stored. */
+  private async appendLiveBatch(id: SessionId, batch: readonly SessionEvent[]): Promise<void> {
     const state = this.states.get(id)
-    /* v8 ignore next -- state is always set by the awaited init before flush */
+    /* v8 ignore next -- state is always set by the awaited initialization */
     const cursor = state?.cursor ?? 0
     const fresh = batch.filter(e => e.seq >= cursor)
     await this.appendCore(id, fresh)
-    live.pending.splice(0, batch.length)
   }
-}
-
-/**
- * Give an observation caller a prompt cancellation view of queued work.
- *
- * The serialized `operation` remains in the same-id chain and checks the signal
- * before invoking backend work. Observing its settlement here therefore cannot
- * detach a storage read or let a later operation overtake its predecessor.
- */
-function observeQueuedAbort<T>(
-  operation: Promise<T>,
-  signal: AbortSignal,
-  started: () => boolean,
-): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    let settled = false
-    const finish = (callback: () => void): void => {
-      if (settled) return
-      settled = true
-      signal.removeEventListener('abort', onAbort)
-      callback()
-    }
-    const onAbort = (): void => {
-      if (started()) return
-      finish(() => {
-        try {
-          signal.throwIfAborted()
-        } catch (reason: unknown) {
-          rejectObservation(reject, reason)
-          return
-        }
-        /* v8 ignore next -- a native AbortSignal emits abort only after becoming aborted */
-        reject(new Error('persistence observation abort event lacked an aborted signal'))
-      })
-    }
-    signal.addEventListener('abort', onAbort, { once: true })
-    operation.then(
-      (value) => { finish(() => { resolve(value) }) },
-      (reason: unknown) => { finish(() => { rejectObservation(reject, reason) }) },
-    )
-    if (signal.aborted) onAbort()
-  })
-}
-
-/** Preserve an exact provider or AbortSignal reason, including legacy non-Error values. */
-function rejectObservation(reject: (reason?: unknown) => void, reason: unknown): void {
-  reject(reason)
 }

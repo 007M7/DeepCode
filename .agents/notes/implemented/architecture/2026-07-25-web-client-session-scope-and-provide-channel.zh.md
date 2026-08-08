@@ -4,7 +4,7 @@ Status: implemented
 
 [English](2026-07-25-web-client-session-scope-and-provide-channel.md) | 中文
 
-> 范围：client Agent scope（actx）与定向事件、client/host 实体化对等模型、空会话 blank 位与复用（`connectWorkspace`）、逐会话供数通道（`sessions.provide`）、队列只读镜像（`session/queued`），以及承载这些能力的 host wire 小件（summary `blank` 列、`host/session-added` 帧字段、`host/commands-changed` 帧）。输入状态机与 slash 管线见[输入状态机 note](2026-07-25-web-input-machine-and-slash-pipeline.md)；命令业务面见[命令业务面 note](2026-07-25-web-command-surfaces-and-assembly.md)。
+> 范围：client Agent scope（actx）与定向事件、client/host 实体化对等模型、空会话 blank 位与复用（`connectWorkspace`）、per-session 供数通道（`sessions.provide`），以及承载这些能力的 host wire 小件（summary `blank` 列、`host/session-added` 帧字段、`host/commands-changed` 帧）。输入状态机与 slash 管线见[输入状态机 note](2026-07-25-web-input-machine-and-slash-pipeline.md)；命令业务面见[命令业务面 note](2026-07-25-web-command-surfaces-and-assembly.md)。
 
 ## 问题
 
@@ -64,17 +64,17 @@ Session 实例与 scope 同生命周期，存活资格 = host listed（一个判
 - host 判据：`session.events.length === 0`（零日志事件 = 尚无用户消息）。live 会话 `summarize()` 内存直读；cold 会话恒 `false`——lazy-create 契约保证 never-appended 会话根本不进 `persistence.list()`（JSONL/SQLite 两后端均已实证真 lazy），blank 从不落盘。
 - wire 承载两处：`SessionSummary.blank` 必填列；`host/session-added` 帧必填 `blank` 字段（创建时恒 true，供别的 tab 按同一空会话状态入镜像）。
 - client 镜像只降不升（单调），三来源翻转，全部复用既有 wire 信号：
-  - 发送方本地：首次 `prompt()` 的**成功响应**翻 false（受理即证明 user/message 已入 host 日志——此点翻转是确证而非乐观；`onEngaged` 同步更新列表镜像，当前 `New Session` 行原地转为普通标题，不新增列表行）。首讯被拒则会话保持 blank：与 host 权威对齐、继续显示为 `New Session`、保持 connectWorkspace 复用资格。
+  - 发送方本地：首次 `prompt()` 的**成功响应**翻 false（受理即证明 user/message 已入 host 日志——此点翻转是确证而非乐观；`onEngaged` 同步更新列表镜像，当前 `New Session` 行原地转为普通标题，不新增列表行）。首讯被拒则会话保持 blank：与 host 权威对齐、继续显示为 `New Session`、在仍为该工作区成员时保持 connectWorkspace 复用资格。
   - 其他端：`host/session-status (running:true)` 帧翻转——blank 会话从不 running，首次 running 必然已非 blank；
   - 重连对齐：`session.list` 的 summary.blank 是权威，错过帧的端下次拉取自然对齐；陈旧的 blank:true 不能把已转正的会话重新标回 blank。
 - 列表纪律：store 保留全部行；Workspace browser 的分组、平铺、搜索和计数共用同一可见投影——所有非 blank 会话都显示，blank 会话只显示 `session.id === sessions.current` 的一条，并强制标题为 `New Session`。切换 Workspace 后，旧 blank 实体仍在镜像中但从列表隐藏，目标 Workspace 的 current blank 显示；因此用户可见面全局至多一条 blank 行。
-- 残留账零 GC：刷新后 blank 会话带位回来，下次同 workspace 复用，普通单端路径使每个 workspace 至多保留一个；host 重启后 blank 无盘痕自然蒸发；多 tab 竞态多出的空壳只会成为非 current 隐藏行，后续复用消化，不做协调。
+- 残留账零 GC：刷新后 blank 会话带位回来，下次同 workspace 且仍为成员时复用，普通单端路径使每个 workspace 至多保留一个；host 重启后 blank 无盘痕自然蒸发；多 tab 竞态多出的空壳只会成为非 current 隐藏行，后续复用消化，不做协调。
 
 ### connectWorkspace：New Session 的唯一入口
 
 `workspaces.connectWorkspace(workspaceId): Promise<SessionId>`（归属 WorkspacesService——它同时持有 workspace 规范 path 与 sessions 引用）：
 
-- 复用臂：list mirror 中找 `blank && cwd == workspace.path`（host realpath 规范 canon 直等比较），命中直接返回该 id，不新建。
+- 复用臂：list mirror 中找 `blank && cwd == workspace.path && sessionIds.includes(id)`——host 自己的成员规则，绝不只按 cwd。没有账户槽位的 cwd 匹配（CLI/TUI 在 host cwd 创建的会话，或已删除/重建的注册）会打开一个任何分组表面都无法显示在该工作区下的会话，因此落到新建臂（见[成员复用修复](../bug-fix/2026-08-05-workspace-blank-session-reuse-membership.md)）；命中直接返回该 id，不新建。
 - 新建臂：未命中则 `session.create({workspaceId})`，返回新 id。
 - 未知 workspaceId fail loud（不静默创建到别处）。
 - 解析保证（两臂同契约）：promise resolve 时返回的 id 已在 list store 且 `sessions.binding(id)` 同步可解析——`SessionsService.create` 在 RPC 成功后同步投影列表再 resolve，使 draft 搬运方可以在 open 之前往新 scope 的 machine 写文本，不等 notifier flush。
@@ -93,7 +93,7 @@ slot scope 是闭集 `root | session-maybe | session`：
 - `session-maybe` 以**收养（adoption）身份语义**跟随 current session（唯一行为——不存在「永久保持实例」模式）：空态出生的化身在**第一个** session 到来时保持 React 实例（空壳收养它——不重挂，DOM 存活）；此后行为与严格 session entry 完全一致——切到不同 session 重挂，跌回无 session 也重挂为崭新的空态化身（之后再次收养）。因此组件本地的 per-session 状态**由构造保证**随切换清零；需要活过切换的状态必须住 session 绑定的源（machine、store、hooks）。无 session 时 `sessionId`、`useSession`/`useInput` 的选择结果及 `inputActions` 均可缺省。根部无 key 的 `SessionMaybeProvider` 通过订阅 runtime 的原子 `currentProvide` 投影驱动这条更新——选择移动和提供方名册变化经同一 source 发布，current id 不变时的名册变化也会重发已挂载 bundle，而不是把 entry 困在过期的钩子/prop 形状上——`SessionMaybeProvideInfo` 靠静态键表在无 session 时仍保留完整钩子/prop 形状；逐 entry 的收养记账（化身计数 key）住在 renderer 的 `SessionMaybeEntry`。
 - `session` 保证 `sessionId`、所有钩子 source 与 props 均存在；每个严格 entry 的错误边界以 `sessionId` 为 key，切换 session 会重建该 entry 及其 session store。
 
-`conversation` 是 `session-maybe` 的常驻外壳：`ConversationRoot`、HeroShell、Workspace picker、composer stack 与 overlay chain 的 fallback 外框在无 session → blank session 的切换中保持 React 实例；`conversation.session` 只承载严格 session 的 header/view。composer bar（`conversation.composer.bar`）本身即为 `session-maybe`：无 session 时以惰性态渲染（machine face 缺席、`disabled` owner prop），session 出现后同一实例（含 textarea）转为 live；其余输入 slot 保持严格 `session`，在此之前不分发任何条目。blank → engaging/active 的 InputBar 不因 phase 翻转而重建。
+`conversation` 是 `session-maybe` 的常驻外壳：`ConversationRoot`、HeroShell、Workspace picker、root 持有的 scrollport 与 composer stack，以及 overlay chain 的 fallback 外框，在无 session → blank session 的切换中保持 React 实例。两个严格 session entry 只填入固定区域，不改变该树的父级：`conversation.session.header` 在 scrollport 上方承载 breadcrumb／tab／action，`conversation.session` 在其内部承载 view ring 与 draft mirror；二者共享同一个 session scope chat store。composer bar（`conversation.composer.bar`）本身即为 `session-maybe`：无 session 时以惰性态渲染（machine face 缺席、`disabled` owner prop），session 出现后同一实例（含 textarea）转为 live；其余输入 slot 保持严格 `session`，在此之前不分发任何条目。blank → engaging/active 的 InputBar 不因 phase 翻转而重建。
 
 - 运行时内建第一条：`'session'` 钩子——`useSession` 本身走同一机制，无特判。
 - Concurrent 纪律：渲染平面只从 hooks 格读（uSES 一致性保证）；props 格回调只在事件 handler 空间用；描述符解析 render-safe（幂等缓存、废弃渲染残留由 prune 收尸）。
@@ -101,7 +101,6 @@ slot scope 是闭集 `root | session-maybe | session`：
 
 ### 队列只读镜像
 
-- MuxFrame `session/queued`：Session 持只读 inbox 镜像（预览截断、steering（中途引导）按 source 匹配退休）。宿主会在实时和回放帧中标记 agent loop（智能体循环）接受消息时的 steering 分类，因此重连基线不依赖回放更早的 `turn/start`。queue 帧不进 history，纯流状态——重连清空、新基线重灌；未实例化窗口经 manager pendingBuffers 缓冲重放。
 - 队列语义：running 不锁输入；普通消息经 `session.prompt {mode:'queue'}` 排队，命令永不排队。
 
 ### host wire 小件

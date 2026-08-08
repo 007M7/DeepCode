@@ -6,11 +6,8 @@ import LlmService, {
   HarnessError,
   isContextWindowExceededError,
   isQuotaExceededError,
-  isLlmAdapterFailure,
   LlmAdapter,
   LlmError,
-  llmFailureOf,
-  llmRetryPolicyOf,
   ProviderRequestId,
   ReasoningEffortId,
   resolveRetryPolicy,
@@ -95,6 +92,12 @@ const SCRIPT: StreamChunk[] = [
   { type: 'finish', reason: { kind: 'stop' } },
 ]
 
+async function collect(stream: AsyncIterable<StreamChunk>): Promise<StreamChunk[]> {
+  const chunks: StreamChunk[] = []
+  for await (const chunk of stream) chunks.push(chunk)
+  return chunks
+}
+
 describe('LlmService', () => {
   it('recognizes structured and model-capacity context-window overflow details', () => {
     expect(isContextWindowExceededError('context_length_exceeded maximum context length')).toBe(true)
@@ -142,6 +145,8 @@ describe('LlmService', () => {
 
   it('errorChain survives non-Error values, hostile coercion, and circular causes', () => {
     expect(errorChain('plain string')).toBe('plain string')
+    expect(errorChain({ message: 'structured provider failure', code: 'SERVER' }))
+      .toBe('structured provider failure')
     expect(errorChain({ toString: () => { throw new Error('hostile') } })).toBe('<unrenderable value>')
     const circular = new Error('outer')
     circular.cause = circular
@@ -219,69 +224,61 @@ describe('LlmService', () => {
     )
   })
 
-  it('keeps the serving registration policy on an in-flight call after route replacement', async () => {
+  it('keeps a prepared registration and retry policy after route replacement', async () => {
     const oldPolicy = resolveRetryPolicy({ mode: 'always' }, 'old retryPolicy')
     const newPolicy = resolveRetryPolicy({ mode: 'normal', maxRetries: 0 }, 'new retryPolicy')
-    const entered = Promise.withResolvers<undefined>()
-    const release = Promise.withResolvers<undefined>()
-    const failure = new LlmError('old route failed', 'AUTH')
-    const oldAdapter = new class extends LlmAdapter {
+    const oldFailure = new LlmError('old route failed', 'AUTH')
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    const disposeOld = ctx.llm.registerAdapter(['route'], new class extends ThrowingAdapter {
       override providerRetryPolicy(): typeof oldPolicy {
         return oldPolicy
       }
+    }(oldFailure))
+    const prepared = await ctx.llm.prepareCall({ provider: 'route', model: 'model' })
 
-      async * stream(_options: GenerateOptions): AsyncIterable<StreamChunk> {
-        entered.resolve(undefined)
-        await release.promise
-        throw failure
-      }
-    }()
-    const newAdapter = new class extends ScriptedAdapter {
+    disposeOld()
+    ctx.llm.registerAdapter(['route'], new class extends ScriptedAdapter {
       override providerRetryPolicy(): typeof newPolicy {
         return newPolicy
       }
-    }(SCRIPT)
-    const ctx = new Context()
-    await ctx.plugin(LlmService)
-    const disposeOld = ctx.llm.registerAdapter(['route'], oldAdapter)
-    const stream = ctx.llm.stream({ provider: 'route', model: 'model', messages: [] })
-    const outcome = (async (): Promise<unknown> => {
-      try {
-        for await (const _chunk of stream) { /* drain */ }
-      } catch (error: unknown) {
-        return error
-      }
-      return undefined
-    })()
-    await entered.promise
+    }(SCRIPT))
 
-    disposeOld()
-    ctx.llm.registerAdapter(['route'], newAdapter)
-    release.resolve(undefined)
-
-    expect(await outcome).toBe(failure)
-    expect(llmRetryPolicyOf(stream)).toBe(oldPolicy)
+    const chunks = await collect(prepared.stream({ ...prepared.config, messages: [] }))
+    expect(chunks.at(-1)).toEqual({
+      type: 'finish',
+      reason: {
+        kind: 'error',
+        failure: { message: 'old route failed', code: 'AUTH' },
+      },
+    })
+    expect(prepared.retryPolicy).toBe(oldPolicy)
     expect(ctx.llm.providerRetryPolicy('route')).toBe(newPolicy)
   })
 
-  it('throws NO_ADAPTER for unregistered providers', async () => {
+  it('normalizes an unregistered provider to a terminal failure', async () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)
-    const stream = ctx.llm.stream({ provider: 'nope', model: 'any-model', messages: [] })
-    let caught: unknown
-    try {
-      for await (const _ of stream) { /* drain */ }
-    } catch (error: unknown) {
-      caught = error
-    }
-    expect(caught).toBeInstanceOf(LlmError)
-    expect((caught as LlmError).code).toBe('NO_ADAPTER')
-    expect((caught as LlmError).message).toContain('no adapter registered')
-    expect(isLlmAdapterFailure(stream, caught)).toBe(true)
-    expect(llmRetryPolicyOf(stream)).toBeUndefined()
+
+    const chunks = await collect(ctx.llm.stream({
+      provider: 'nope',
+      model: 'any-model',
+      messages: [],
+    }))
+
+    const finish = chunks.at(-1)
+    expect(finish).toMatchObject({
+      type: 'finish',
+      reason: {
+        kind: 'error',
+        failure: { code: 'NO_ADAPTER' },
+      },
+    })
+    if (finish?.type !== 'finish' || finish.reason.kind !== 'error') throw new Error('expected error finish')
+    expect(finish.reason.failure.message).toContain('no adapter registered')
   })
 
-  it.each(['done', 'value'] as const)('tags a throwing IteratorResult.%s getter without replacing its Error', async (field) => {
+  it.each(['done', 'value'] as const)('normalizes a throwing IteratorResult.%s getter', async (field) => {
     const original = new LlmError(`${field} getter failed`, 'RESULT_GETTER_FAILED')
     const result = field === 'done' ? {} : { done: false }
     Object.defineProperty(result, field, { get: () => { throw original } })
@@ -297,31 +294,30 @@ describe('LlmService', () => {
     })
     const adapter = new class extends LlmAdapter {
       stream(_options: GenerateOptions): AsyncIterable<StreamChunk> {
-        return {
-          [Symbol.asyncIterator](): AsyncIterator<StreamChunk> {
-            return iterator
-          },
-        }
+        return { [Symbol.asyncIterator]: () => iterator }
       }
     }()
     const ctx = new Context()
     await ctx.plugin(LlmService)
-    ctx.llm.registerAdapter(['test-model'], adapter)
+    ctx.llm.registerAdapter(['test'], adapter)
 
-    const stream = ctx.llm.stream({ provider: 'test-model', model: 'test-model', messages: [] })
-    let caught: unknown
-    try {
-      for await (const _chunk of stream) { /* drain */ }
-    } catch (error: unknown) {
-      caught = error
-    }
+    const chunks = await collect(ctx.llm.stream({
+      provider: 'test',
+      model: 'test',
+      messages: [],
+    }))
 
-    expect(caught).toBe(original)
-    expect(isLlmAdapterFailure(stream, caught)).toBe(true)
+    expect(chunks.at(-1)).toEqual({
+      type: 'finish',
+      reason: {
+        kind: 'error',
+        failure: { message: `${field} getter failed`, code: 'RESULT_GETTER_FAILED' },
+      },
+    })
     expect(cleanupLookups).toBe(0)
   })
 
-  it.each(['dispatch', 'iterator'] as const)('tags synchronous adapter %s failures without replacing their Error', async (boundary) => {
+  it.each(['dispatch', 'iterator'] as const)('normalizes synchronous adapter %s failures', async (boundary) => {
     const original = new LlmError(`${boundary} failed`, 'BOUNDARY_FAILED')
     const adapter = new class extends LlmAdapter {
       stream(_options: GenerateOptions): AsyncIterable<StreamChunk> {
@@ -331,339 +327,63 @@ describe('LlmService', () => {
     }()
     const ctx = new Context()
     await ctx.plugin(LlmService)
-    ctx.llm.registerAdapter(['test-model'], adapter)
+    ctx.llm.registerAdapter(['test'], adapter)
 
-    const stream = ctx.llm.stream({ provider: 'test-model', model: 'test-model', messages: [] })
-    let caught: unknown
-    try {
-      for await (const _chunk of stream) { /* drain */ }
-    } catch (error: unknown) {
-      caught = error
-    }
+    const chunks = await collect(ctx.llm.stream({
+      provider: 'test',
+      model: 'test',
+      messages: [],
+    }))
 
-    expect(caught).toBe(original)
-    expect(isLlmAdapterFailure(stream, caught)).toBe(true)
-    expect(llmFailureOf(stream, caught)).toEqual({
-      message: `${boundary} failed`,
-      code: 'BOUNDARY_FAILED',
+    expect(chunks.at(-1)).toEqual({
+      type: 'finish',
+      reason: {
+        kind: 'error',
+        failure: { message: `${boundary} failed`, code: 'BOUNDARY_FAILED' },
+      },
     })
   })
 
-  it('keeps structured provider facts beside a frozen third-party Error', async () => {
-    const original = new LlmError('provider busy', 'RATE_LIMIT', {
+  it('preserves structured LlmError facts in the terminal failure', async () => {
+    const failure = new LlmError('provider busy', 'RATE_LIMIT', {
       status: 429,
       providerRetryAfterMs: 1_500,
       requestId: ProviderRequestId('req-7'),
     })
-    Object.freeze(original)
     const ctx = new Context()
     await ctx.plugin(LlmService)
-    ctx.llm.registerAdapter(['test-provider'], new ThrowingAdapter(original))
+    ctx.llm.registerAdapter(['test'], new ThrowingAdapter(failure))
 
-    const stream = ctx.llm.stream({ provider: 'test-provider', model: 'test-model', messages: [] })
-    let caught: unknown
-    try {
-      for await (const _chunk of stream) { /* drain */ }
-    } catch (error: unknown) {
-      caught = error
-    }
+    const chunks = await collect(ctx.llm.stream({
+      provider: 'test',
+      model: 'test',
+      messages: [],
+    }))
 
-    expect(caught).toBe(original)
-    expect(llmFailureOf(stream, caught)).toEqual({
-      message: 'provider busy',
-      code: 'RATE_LIMIT',
-      status: 429,
-      providerRetryAfterMs: 1_500,
-      requestId: ProviderRequestId('req-7'),
-    })
-  })
-
-  it('does not trust retry facts carried by an unknown third-party Error', async () => {
-    const carried = { message: 'busy', code: 'SERVER', status: 503 }
-    const original = Object.assign(new Error('busy'), { failure: carried })
-    const ctx = new Context()
-    await ctx.plugin(LlmService)
-    ctx.llm.registerAdapter(['test-provider'], new ThrowingAdapter(original))
-
-    const stream = ctx.llm.stream({ provider: 'test-provider', model: 'test-model', messages: [] })
-    await expect((async () => {
-      for await (const _chunk of stream) { /* drain */ }
-    })()).rejects.toBe(original)
-    const facts = llmFailureOf(stream, original)
-    carried.status = 500
-
-    expect(facts).toEqual({ message: 'busy', code: 'UNKNOWN' })
-    expect(Object.isFrozen(facts)).toBe(true)
-    expect(facts).not.toBe(carried)
-  })
-
-  it('keeps validated failure facts across package copies with matching own codes', async () => {
-    const original = Object.assign(new Error('provider busy'), {
-      code: 'RATE_LIMIT',
-      failure: {
-        message: 'provider busy',
-        code: 'RATE_LIMIT',
-        status: 429,
-        providerRetryAfterMs: 1_500,
-        requestId: 'req-cross-copy',
+    expect(chunks.at(-1)).toEqual({
+      type: 'finish',
+      reason: {
+        kind: 'error',
+        failure: {
+          message: 'provider busy',
+          code: 'RATE_LIMIT',
+          status: 429,
+          providerRetryAfterMs: 1_500,
+          requestId: ProviderRequestId('req-7'),
+        },
       },
     })
-    const ctx = new Context()
-    await ctx.plugin(LlmService)
-    ctx.llm.registerAdapter(['test-provider'], new ThrowingAdapter(original))
-
-    const stream = ctx.llm.stream({ provider: 'test-provider', model: 'test-model', messages: [] })
-    await expect((async () => {
-      for await (const _chunk of stream) { /* drain */ }
-    })()).rejects.toBe(original)
-    expect(llmFailureOf(stream, original)).toEqual({
-      message: 'provider busy',
-      code: 'RATE_LIMIT',
-      status: 429,
-      providerRetryAfterMs: 1_500,
-      requestId: 'req-cross-copy',
-    })
   })
 
-  it('keeps an unknown SDK Error exact without trusting its private code or accessors', async () => {
-    const original = Object.assign(new Error('socket closed'), { code: 'ECONNRESET' })
-    Object.defineProperty(original, 'failure', {
-      get() { throw new Error('SDK failure accessor must not run') },
-    })
-    const ctx = new Context()
-    await ctx.plugin(LlmService)
-    ctx.llm.registerAdapter(['test-provider'], new ThrowingAdapter(original))
-
-    const stream = ctx.llm.stream({ provider: 'test-provider', model: 'test-model', messages: [] })
-    await expect((async () => {
-      for await (const _chunk of stream) { /* drain */ }
-    })()).rejects.toBe(original)
-
-    expect(original.code).toBe('ECONNRESET')
-    expect(llmFailureOf(stream, original)).toEqual({ message: 'socket closed', code: 'UNKNOWN' })
-  })
-
-  it('keeps an SDK Error exact when its message accessor is hostile', async () => {
-    const original = Object.defineProperty(new Error(), 'message', {
-      get() { throw new Error('SDK message accessor trap') },
-    })
-    const ctx = new Context()
-    await ctx.plugin(LlmService)
-    ctx.llm.registerAdapter(['test-provider'], new ThrowingAdapter(original))
-    const stream = ctx.llm.stream({ provider: 'test-provider', model: 'test-model', messages: [] })
-
-    await expect((async () => {
-      for await (const _chunk of stream) { /* drain */ }
-    })()).rejects.toBe(original)
-    expect(llmFailureOf(stream, original)).toEqual({ message: 'LLM adapter failed', code: 'UNKNOWN' })
-  })
-
-  it('keeps an SDK Error exact without trusting accessor-backed carried facts', async () => {
-    const original = Object.assign(new Error('busy'), {
-      failure: { message: 'busy', code: 'SERVER', status: 503 },
-    })
-    Object.defineProperty(original, 'code', {
-      get() { throw new Error('SDK code accessor must not escape') },
-    })
-    const ctx = new Context()
-    await ctx.plugin(LlmService)
-    ctx.llm.registerAdapter(['test-provider'], new ThrowingAdapter(original))
-    const stream = ctx.llm.stream({ provider: 'test-provider', model: 'test-model', messages: [] })
-
-    await expect((async () => {
-      for await (const _chunk of stream) { /* drain */ }
-    })()).rejects.toBe(original)
-    expect(llmFailureOf(stream, original)).toEqual({ message: 'busy', code: 'UNKNOWN' })
-  })
-
-  it('does not trust carried facts matched only by an inherited code', async () => {
-    class InheritedCodeError extends Error {
-      get code(): string { return 'SERVER' }
-    }
-    const original = Object.assign(new InheritedCodeError('busy'), {
-      failure: { message: 'busy', code: 'SERVER', status: 503 },
-    })
-    const ctx = new Context()
-    await ctx.plugin(LlmService)
-    ctx.llm.registerAdapter(['test-provider'], new ThrowingAdapter(original))
-    const stream = ctx.llm.stream({ provider: 'test-provider', model: 'test-model', messages: [] })
-
-    await expect((async () => {
-      for await (const _chunk of stream) { /* drain */ }
-    })()).rejects.toBe(original)
-    expect(llmFailureOf(stream, original)).toEqual({ message: 'busy', code: 'UNKNOWN' })
-  })
-
-  it('keeps an SDK Error exact when code descriptor inspection is trapped', async () => {
-    const target = Object.assign(new Error('busy'), {
-      code: 'SERVER',
-      failure: { message: 'busy', code: 'SERVER', status: 503 },
-    })
-    const original = new Proxy(target, {
-      getOwnPropertyDescriptor(value, property) {
-        if (property === 'code') throw new Error('SDK code descriptor trap')
-        return Reflect.getOwnPropertyDescriptor(value, property)
-      },
-    })
-    const ctx = new Context()
-    await ctx.plugin(LlmService)
-    ctx.llm.registerAdapter(['test-provider'], new ThrowingAdapter(original))
-    const stream = ctx.llm.stream({ provider: 'test-provider', model: 'test-model', messages: [] })
-
-    await expect((async () => {
-      for await (const _chunk of stream) { /* drain */ }
-    })()).rejects.toBe(original)
-    expect(llmFailureOf(stream, original)).toEqual({ message: 'busy', code: 'UNKNOWN' })
-  })
-
-  it('falls back safely when SDK objects trap failure inspection or expose malformed facts', async () => {
-    const propertyTrap = new Proxy(new HarnessError('descriptor trapped', 'SERVER'), {
-      getOwnPropertyDescriptor(target, property) {
-        if (property === 'failure') throw new Error('SDK descriptor trap')
-        return Reflect.getOwnPropertyDescriptor(target, property)
-      },
-    })
-    const throwingFacts = Object.create(null) as Record<string, unknown>
-    Object.defineProperty(throwingFacts, 'message', {
-      get() { throw new Error('SDK fact getter trap') },
-    })
-    const carrying = (message: string, failure: unknown): HarnessError => Object.defineProperty(
-      new HarnessError(message, 'SERVER'),
-      'failure',
-      { value: failure },
-    )
-    const factGetter = carrying('fact getter failed', throwingFacts)
-    const malformed = carrying('malformed facts', { message: 'provider busy', code: 'SERVER', requestId: 1 })
-    const primitive = carrying('primitive facts', 1)
-    const nullFacts = carrying('null facts', null)
-    const mismatched = carrying('mismatched facts', { message: 'busy', code: 'RATE_LIMIT' })
-
-    for (const [original, expectedMessage] of [
-      [propertyTrap, 'descriptor trapped'],
-      [factGetter, 'fact getter failed'],
-      [malformed, 'malformed facts'],
-      [primitive, 'primitive facts'],
-      [nullFacts, 'null facts'],
-      [mismatched, 'mismatched facts'],
-    ] as const) {
-      const ctx = new Context()
-      await ctx.plugin(LlmService)
-      ctx.llm.registerAdapter(['test-provider'], new ThrowingAdapter(original))
-      const stream = ctx.llm.stream({ provider: 'test-provider', model: 'test-model', messages: [] })
-
-      await expect((async () => {
-        for await (const _chunk of stream) { /* drain */ }
-      })()).rejects.toBe(original)
-      expect(llmFailureOf(stream, original)).toEqual({ message: expectedMessage, code: 'SERVER' })
-    }
-  })
-
-  it('retains a stable code from a HarnessError without requiring LlmError facts', async () => {
-    const original = new HarnessError('stable adapter failure', 'ADAPTER_STABLE')
-    const ctx = new Context()
-    await ctx.plugin(LlmService)
-    ctx.llm.registerAdapter(['test-provider'], new ThrowingAdapter(original))
-    const stream = ctx.llm.stream({ provider: 'test-provider', model: 'test-model', messages: [] })
-
-    await expect((async () => {
-      for await (const _chunk of stream) { /* drain */ }
-    })()).rejects.toBe(original)
-    expect(llmFailureOf(stream, original)).toEqual({
-      message: 'stable adapter failure',
-      code: 'ADAPTER_STABLE',
-    })
-    expect(llmFailureOf(stream, 'not an Error')).toBeUndefined()
-    expect(llmFailureOf({ [Symbol.asyncIterator]: () => stream[Symbol.asyncIterator]() }, original)).toBeUndefined()
-  })
-
-  it('keeps a nested adapter failure scoped to the nested model call', async () => {
-    const original = new LlmError('nested provider failed', 'NESTED_FAILED')
-    const outer = new RecordingAdapter(SCRIPT)
-    const nested = new ThrowingAdapter(original)
-    const ctx = new Context()
-    await ctx.plugin(LlmService)
-    ctx.llm.registerAdapter(['outer'], outer)
-    ctx.llm.registerAdapter(['nested'], nested)
-    let nestedStream: AsyncIterable<StreamChunk> | undefined
-    ctx.on('llm/stream', (options, next) => {
-      if (options.provider !== 'outer') return next()
-      return (async function* () {
-        nestedStream = ctx.llm.stream({ provider: 'nested', model: 'nested', messages: [] })
-        yield * nestedStream
-      })()
-    })
-
-    const outerStream = ctx.llm.stream({ provider: 'outer', model: 'outer', messages: [] })
-    let caught: unknown
-    try {
-      for await (const _chunk of outerStream) { /* drain */ }
-    } catch (error: unknown) {
-      caught = error
-    }
-
-    expect(caught).toBe(original)
-    expect(nestedStream).toBeDefined()
-    expect(isLlmAdapterFailure(nestedStream!, caught)).toBe(true)
-    expect(isLlmAdapterFailure(outerStream, caught)).toBe(false)
-    expect(outer.lastOptions).toBeUndefined()
-  })
-
-  it('keeps call scopes distinct when middleware reuses an iterable', async () => {
-    const firstFailure = new LlmError('first provider failed', 'FIRST_FAILED')
-    const secondFailure = new LlmError('second provider failed', 'SECOND_FAILED')
-    const delegates: AsyncIterable<StreamChunk>[] = []
-    const shared: AsyncIterable<StreamChunk> = {
-      [Symbol.asyncIterator](): AsyncIterator<StreamChunk> {
-        const delegate = delegates.shift()
-        if (delegate === undefined) throw new Error('shared stream has no call delegate')
-        return delegate[Symbol.asyncIterator]()
-      },
-    }
-    const ctx = new Context()
-    await ctx.plugin(LlmService)
-    ctx.llm.registerAdapter(['first'], new ThrowingAdapter(firstFailure))
-    ctx.llm.registerAdapter(['second'], new ThrowingAdapter(secondFailure))
-    ctx.on('llm/stream', (_options, next) => {
-      delegates.push(next())
-      return shared
-    })
-
-    const firstStream = ctx.llm.stream({ provider: 'first', model: 'first', messages: [] })
-    const secondStream = ctx.llm.stream({ provider: 'second', model: 'second', messages: [] })
-    const catchFailure = async (stream: AsyncIterable<StreamChunk>): Promise<unknown> => {
-      try {
-        for await (const _chunk of stream) { /* drain */ }
-      } catch (error: unknown) {
-        return error
-      }
-      return new Error('expected adapter to fail')
-    }
-
-    expect(firstStream).not.toBe(secondStream)
-    const firstCaught = await catchFailure(firstStream)
-    expect(firstCaught).toBe(firstFailure)
-    expect(isLlmAdapterFailure(firstStream, firstCaught)).toBe(true)
-    expect(isLlmAdapterFailure(secondStream, firstCaught)).toBe(false)
-    const secondCaught = await catchFailure(secondStream)
-    expect(secondCaught).toBe(secondFailure)
-    expect(isLlmAdapterFailure(secondStream, secondCaught)).toBe(true)
-    expect(isLlmAdapterFailure(firstStream, secondCaught)).toBe(false)
-    expect(delegates).toHaveLength(0)
-  })
-
-  it('propagates a rejected next promptly without awaiting a non-settling return', async () => {
-    const original = new LlmError('provider failed', 'PROVIDER_FAILED')
-    let cleanupCalls = 0
+  it('normalizes arbitrary adapter rejections without throwing them downstream', async () => {
     const adapter = new class extends LlmAdapter {
       stream(_options: GenerateOptions): AsyncIterable<StreamChunk> {
         return {
           [Symbol.asyncIterator](): AsyncIterator<StreamChunk> {
             return {
-              next: () => Promise.reject(original),
-              return: () => {
-                cleanupCalls += 1
-                return new Promise<IteratorResult<StreamChunk>>(() => {})
-              },
+              // Third-party adapters can reject with arbitrary values.
+              // oxlint-disable-next-line typescript/prefer-promise-reject-errors
+              next: () => Promise.reject('plain provider failure'),
             }
           },
         }
@@ -671,30 +391,73 @@ describe('LlmService', () => {
     }()
     const ctx = new Context()
     await ctx.plugin(LlmService)
-    ctx.llm.registerAdapter(['test-model'], adapter)
+    ctx.llm.registerAdapter(['test'], adapter)
 
-    const stream = ctx.llm.stream({ provider: 'test-model', model: 'test-model', messages: [] })
-    const failure = (async (): Promise<unknown> => {
-      try {
-        for await (const _chunk of stream) { /* drain */ }
-      } catch (error: unknown) {
-        return error
-      }
-      return new Error('expected adapter iteration to fail')
-    })()
-    let timer: ReturnType<typeof setTimeout> | undefined
-    const timeout = new Promise<Error>((resolve) => {
-      timer = setTimeout(() => { resolve(new Error('adapter failure did not settle promptly')) }, 100)
+    const chunks = await collect(ctx.llm.stream({
+      provider: 'test',
+      model: 'test',
+      messages: [],
+    }))
+
+    expect(chunks.at(-1)).toEqual({
+      type: 'finish',
+      reason: {
+        kind: 'error',
+        failure: { message: 'plain provider failure', code: 'UNKNOWN' },
+      },
     })
-    const caught = await Promise.race([failure, timeout])
-    if (timer !== undefined) clearTimeout(timer)
-
-    expect(caught).toBe(original)
-    expect(isLlmAdapterFailure(stream, caught)).toBe(true)
-    expect(cleanupCalls).toBe(0)
   })
 
-  it('awaits one adapter return on downstream close and leaves its rejection unclassified', async () => {
+  it('maps adapter failure to aborted when the request signal is aborted', async () => {
+    const controller = new AbortController()
+    controller.abort('cancelled')
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    ctx.llm.registerAdapter(['test'], new ThrowingAdapter(new Error('stopped')))
+
+    const chunks = await collect(ctx.llm.stream({
+      provider: 'test',
+      model: 'test',
+      messages: [],
+      signal: controller.signal,
+    }))
+
+    expect(chunks.at(-1)).toMatchObject({
+      type: 'finish',
+      reason: { kind: 'aborted', failure: { message: 'stopped' } },
+    })
+  })
+
+  it('leaves middleware and consumer failures thrown', async () => {
+    const middlewareFailure = new Error('middleware failed')
+    const middlewareCtx = new Context()
+    await middlewareCtx.plugin(LlmService)
+    middlewareCtx.llm.registerAdapter(['test'], new ScriptedAdapter(SCRIPT))
+    middlewareCtx.on('llm/stream', () => (async function* () {
+      throw middlewareFailure
+    })())
+    await expect(collect(middlewareCtx.llm.stream({
+      provider: 'test',
+      model: 'test',
+      messages: [],
+    }))).rejects.toBe(middlewareFailure)
+
+    const consumerFailure = new Error('consumer failed')
+    const consumerCtx = new Context()
+    await consumerCtx.plugin(LlmService)
+    consumerCtx.llm.registerAdapter(['test'], new ScriptedAdapter(SCRIPT))
+    await expect((async () => {
+      for await (const _chunk of consumerCtx.llm.stream({
+        provider: 'test',
+        model: 'test',
+        messages: [],
+      })) {
+        throw consumerFailure
+      }
+    })()).rejects.toBe(consumerFailure)
+  })
+
+  it('awaits adapter cleanup on downstream close and leaves cleanup failure thrown', async () => {
     const cleanup = new Error('cleanup failed')
     let cleanupCalls = 0
     const adapter = new class extends LlmAdapter {
@@ -714,22 +477,19 @@ describe('LlmService', () => {
     }()
     const ctx = new Context()
     await ctx.plugin(LlmService)
-    ctx.llm.registerAdapter(['test-model'], adapter)
+    ctx.llm.registerAdapter(['test'], adapter)
 
-    const stream = ctx.llm.stream({ provider: 'test-model', model: 'test-model', messages: [] })
-    let caught: unknown
-    try {
-      for await (const _chunk of stream) break
-    } catch (error: unknown) {
-      caught = error
-    }
-
-    expect(caught).toBe(cleanup)
-    expect(isLlmAdapterFailure(stream, caught)).toBe(false)
+    await expect((async () => {
+      for await (const _chunk of ctx.llm.stream({
+        provider: 'test',
+        model: 'test',
+        messages: [],
+      })) break
+    })()).rejects.toBe(cleanup)
     expect(cleanupCalls).toBe(1)
   })
 
-  it('allows downstream close when the adapter iterator has no return method', async () => {
+  it('allows downstream close when an adapter iterator has no return method', async () => {
     const adapter = new class extends LlmAdapter {
       stream(_options: GenerateOptions): AsyncIterable<StreamChunk> {
         return {
@@ -741,66 +501,9 @@ describe('LlmService', () => {
     }()
     const ctx = new Context()
     await ctx.plugin(LlmService)
-    ctx.llm.registerAdapter(['test-model'], adapter)
+    ctx.llm.registerAdapter(['test'], adapter)
 
-    let chunks = 0
-    for await (const _chunk of ctx.llm.stream({ provider: 'test-model', model: 'test-model', messages: [] })) {
-      chunks += 1
-      break
-    }
-
-    expect(chunks).toBe(1)
-  })
-
-  it('normalizes and tags non-Error adapter failures once', async () => {
-    const adapter = new class extends LlmAdapter {
-      stream(_options: GenerateOptions): AsyncIterable<StreamChunk> {
-        return {
-          [Symbol.asyncIterator](): AsyncIterator<StreamChunk> {
-            // Third-party adapters can reject with arbitrary values.
-            // oxlint-disable-next-line typescript/prefer-promise-reject-errors
-            return { next: () => Promise.reject('plain provider failure') }
-          },
-        }
-      }
-    }()
-    const ctx = new Context()
-    await ctx.plugin(LlmService)
-    ctx.llm.registerAdapter(['test-model'], adapter)
-
-    const stream = ctx.llm.stream({ provider: 'test-model', model: 'test-model', messages: [] })
-    let caught: unknown
-    try {
-      for await (const _chunk of stream) { /* drain */ }
-    } catch (error: unknown) {
-      caught = error
-    }
-
-    expect(caught).toBeInstanceOf(HarnessError)
-    expect(caught).toMatchObject({ code: 'UNKNOWN', cause: 'plain provider failure' })
-    expect(isLlmAdapterFailure(stream, caught)).toBe(true)
-  })
-
-  it('does not tag a failure thrown downstream while consuming adapter output', async () => {
-    const downstream = new Error('consumer failed')
-    const ctx = new Context()
-    await ctx.plugin(LlmService)
-    ctx.llm.registerAdapter(['test-model'], new ScriptedAdapter(SCRIPT))
-
-    const stream = ctx.llm.stream({ provider: 'test-model', model: 'test-model', messages: [] })
-    let caught: unknown
-    try {
-      for await (const _chunk of stream) throw downstream
-    } catch (error: unknown) {
-      caught = error
-    }
-
-    expect(caught).toBe(downstream)
-    expect(isLlmAdapterFailure(stream, caught)).toBe(false)
-    expect(isLlmAdapterFailure(new ScriptedAdapter(SCRIPT).stream({
-      provider: 'unbound', model: 'unbound', messages: [],
-    }), caught)).toBe(false)
-    expect(isLlmAdapterFailure(stream, 'consumer failed')).toBe(false)
+    for await (const _chunk of ctx.llm.stream({ provider: 'test', model: 'test', messages: [] })) break
   })
 
   it('unregisters adapters when the owning fiber is disposed (HMR safety)', async () => {
@@ -1119,19 +822,34 @@ describe('LlmService', () => {
     expect(Object.isFrozen(prepared.config)).toBe(true)
     expect(Object.isFrozen(prepared.adapterDefaults)).toBe(true)
     expect(prepared.adapterDefaults).toEqual({ reasoningEffort: true })
-    const stream = prepared.stream({
+    expect(() => prepared.stream({
       ...prepared.config,
       model: 'other',
       messages: [],
-    })
-
-    await expect((async () => {
-      for await (const _chunk of stream) { /* drain */ }
-    })()).rejects.toMatchObject({ code: 'INVALID_PREPARED_CALL' })
+    })).toThrow(expect.objectContaining({ code: 'INVALID_PREPARED_CALL' }))
+    await collect(prepared.stream({
+      ...prepared.config,
+      messages: [],
+    }))
     expect(() => prepared.stream({
       ...prepared.config,
       messages: [],
     })).toThrow(expect.objectContaining({ code: 'INVALID_PREPARED_CALL' }))
+
+    const late = await ctx.llm.prepareCall({ provider: 'route', model: 'model' })
+    const lateOptions = { ...late.config, messages: [] }
+    const lateStream = late.stream(lateOptions)
+    lateOptions.model = 'other'
+    expect(await collect(lateStream)).toContainEqual({
+      type: 'finish',
+      reason: {
+        kind: 'error',
+        failure: {
+          message: 'prepared LLM call config changed before adapter dispatch',
+          code: 'INVALID_PREPARED_CALL',
+        },
+      },
+    })
   })
 
   it('reuses one exact-model lookup for prepared config and context metadata', async () => {

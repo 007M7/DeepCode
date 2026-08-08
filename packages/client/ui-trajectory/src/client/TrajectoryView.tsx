@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ConvViewProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { InjectFace } from '@deepseek-ai/dsh-client-ui-slots'
 import type {
-  AssistantMessageNode, ConversationContext,
+  AssistantBlock, AssistantMessageNode, ConversationContext, ConversationSnapshot,
   SessionHistoryFace, SnapshotStore,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import {
@@ -17,15 +17,51 @@ import {
 } from './TrajectoryTable.tsx'
 import { TrajectoryToolbar } from './TrajectoryToolbar.tsx'
 import { TrajectoryTimeline } from './TrajectoryTimeline.tsx'
-import { deriveTrajectoryLayout } from './layout.ts'
+import {
+  appendTrajectoryPartialLayout, deriveTrajectoryLayout,
+  type TrajectoryTurnModel,
+} from './layout.ts'
 import {
   trajectoryTimelineFocusIndexes,
   type TrajectoryTimelineMode,
   type TrajectoryTimeRange,
 } from './timeline.ts'
+import { trajectoryRecordId } from './trajectory-record.ts'
 import css from './views.module.css'
 
-const EMPTY_IDS: ReadonlySet<number> = new Set()
+const EMPTY_TURN_IDS: ReadonlySet<number> = new Set()
+const EMPTY_RECORD_IDS: ReadonlySet<string> = new Set()
+
+function lastCellIndex(turns: readonly TrajectoryTurnModel[]): number {
+  let last = 0
+  for (const turn of turns) {
+    for (const group of turn.groups) {
+      for (const cell of group.cells) last = Math.max(last, cell.index)
+    }
+  }
+  return last
+}
+
+function timelineBlock(block: AssistantBlock): AssistantBlock {
+  switch (block.kind) {
+    case 'text': return { kind: 'text', text: '' }
+    case 'reasoning': return { kind: 'reasoning', text: '' }
+    case 'tool-call': return {
+      kind: 'tool-call',
+      callId: block.callId,
+      name: block.name,
+      argsRaw: '',
+    }
+    case 'other': return { kind: 'other', block: null }
+  }
+}
+
+function partialStructureSignature(partial: ConversationSnapshot['partial']): string {
+  if (partial === null) return ''
+  return partial.blocks.map(block => block.kind === 'tool-call'
+    ? `${block.kind}:${block.callId}:${block.name}`
+    : block.kind).join('\u0000')
+}
 
 /** Session-history paging needed by the event-complete trajectory view. */
 export interface TrajectoryViewInjected {
@@ -33,7 +69,8 @@ export interface TrajectoryViewInjected {
     history: SessionHistoryFace
     duration: SnapshotStore<boolean>
   }
-  loadAllHistory: (signal: AbortSignal) => Promise<void>
+  loadHistoryTail: (signal: AbortSignal) => Promise<void>
+  loadOlderHistory: (signal: AbortSignal) => Promise<boolean>
   setActualDuration: (actualDuration: boolean) => void
 }
 
@@ -137,14 +174,23 @@ function searchMatches(
   return matches
 }
 
+function mergeSearchMatches(
+  finalized: ReadonlySet<number> | null,
+  partial: ReadonlySet<number> | null,
+): ReadonlySet<number> | null {
+  if (finalized === null || partial === null) return null
+  return new Set([...finalized, ...partial])
+}
+
 export function TrajectoryView({
-  useHistory, useDuration, loadAllHistory, setActualDuration, inspect, onInspectDone,
+  useHistory, useDuration, loadHistoryTail, loadOlderHistory, setActualDuration,
+  inspect, onInspectDone,
 }: ConvViewProps & InjectFace<TrajectoryViewInjected>) {
-  const [collapsedTurns, setCollapsedTurns] = useState<ReadonlySet<number>>(EMPTY_IDS)
+  const [collapsedTurns, setCollapsedTurns] = useState<ReadonlySet<number>>(EMPTY_TURN_IDS)
   const [collapsedAssistants, setCollapsedAssistants] =
-    useState<ReadonlySet<number>>(EMPTY_IDS)
+    useState<ReadonlySet<string>>(EMPTY_RECORD_IDS)
   const [timelineSelection, setTimelineSelection] = useState<{
-    branchId: number
+    branchKey: string
     range: TrajectoryTimeRange
   } | null>(null)
   const actualDuration = useDuration(value => value)
@@ -154,26 +200,35 @@ export function TrajectoryView({
   const [timelineRecordSelection, setTimelineRecordSelection] = useState<{
     readonly index: number
   } | null>(null)
-  const ledgerRef = useRef<HTMLDivElement>(null)
+  const [timelineRecordFocus, setTimelineRecordFocus] = useState<{
+    readonly index: number
+  } | null>(null)
   const inspection = useHistory(snapshot => snapshot.inspection)
+  const historyLoading = useHistory(snapshot =>
+    snapshot.state === 'cold' || snapshot.state === 'loading')
+  const hasOlderHistory = useHistory(snapshot => snapshot.hasMore)
+  const historyBaseSeq = useHistory(snapshot => snapshot.baseSeq)
   const nodes = inspection.eventNodes
   const partial = inspection.partial
   const runningCalls = inspection.runningCalls
-  const codeDispatches = inspection.codeDispatches
-  const loadAllHistoryRef = useRef(loadAllHistory)
-  loadAllHistoryRef.current = loadAllHistory
+  const loadHistoryTailRef = useRef(loadHistoryTail)
+  loadHistoryTailRef.current = loadHistoryTail
+  const historyControllerRef = useRef<AbortController | null>(null)
   useEffect(() => {
     const controller = new AbortController()
-    void loadAllHistoryRef.current(controller.signal)
+    historyControllerRef.current = controller
+    void loadHistoryTailRef.current(controller.signal)
     return () => { controller.abort() }
   }, [])
   const requests = inspection.requests
   const callSchemas = inspection.callSchemas
+  const historyContexts = inspection.contexts
+  const interruptedNodes = inspection.interruptedNodes
   const contexts = useMemo<readonly ConversationContext[]>(
-    () => inspection.contexts.length === 0
+    () => historyContexts.length === 0
       ? [{ id: 0, nodes }]
-      : inspection.contexts,
-    [inspection, nodes],
+      : historyContexts,
+    [historyContexts, nodes],
   )
   const branches = useMemo(
     () => deriveTrajectoryContextBranches(contexts),
@@ -183,18 +238,18 @@ export function TrajectoryView({
   if (currentBranch === undefined) throw new Error('trajectory branch projection must not be empty')
   const selectedNodes = useMemo(() => {
     const selected = new Map(currentBranch.nodes.map(node => [node.seq, node]))
-    for (const node of inspection.interruptedNodes) {
+    for (const node of interruptedNodes) {
       selected.set(node.seq, node)
     }
     return [...selected.values()].sort((left, right) => left.seq - right.seq)
-  }, [currentBranch, inspection])
+  }, [currentBranch.nodes, interruptedNodes])
   const selectedRequests = useMemo(
     () => requests.filter(request =>
       trajectoryBranchContainsRequest(currentBranch, request),
     ),
     [currentBranch, requests],
   )
-  const globalRequestNumbers = useMemo<readonly TrajectoryRequestNumber[]>(() => {
+  const requestNumbers = useMemo<readonly TrajectoryRequestNumber[]>(() => {
     const assistantsByStep = new Map<string, AssistantMessageNode>()
     for (const context of contexts) {
       for (const node of context.nodes) {
@@ -295,63 +350,73 @@ export function TrajectoryView({
       })
     }
 
-    if (partial !== null && partial.step > 0) {
-      const key = `${partial.turn}\u0000${partial.step}`
-      const recorded = numbered.some(request =>
-        `${request.turn}\u0000${request.step}` === key,
-      )
-      if (!recorded) {
-        numbered.push({
-          turn: partial.turn,
-          step: partial.step,
-          group: `Step ${partial.step}`,
-          number: orderedRequests.length + 1,
-          ...(currentBranch.latest.prompt?.config.provider === undefined
-            ? {}
-            : { provider: currentBranch.latest.prompt.config.provider }),
-          ...(currentBranch.latest.prompt?.config.model === undefined
-            ? {}
-            : { model: currentBranch.latest.prompt.config.model }),
-          ...(currentBranch.latest.prompt?.config === undefined
-            ? {}
-            : { requestConfig: currentBranch.latest.prompt.config }),
-          ...(cumulativeUsage === undefined ? {} : { cumulativeUsage }),
-        })
-      }
-    }
     return numbered
   }, [
-    contexts, currentBranch.latest.prompt, nodes, partial, requests,
+    contexts, nodes, requests,
   ])
-  const requestNumbers = globalRequestNumbers
-  const turns = useMemo(
-    () => deriveTrajectoryLayout({
+  const partialTurn = partial?.turn ?? null
+  const partialStep = partial?.step ?? null
+  const finalized = useMemo(() => {
+    const turns = deriveTrajectoryLayout({
       nodes: selectedNodes,
-      partial,
+      partial: partialTurn === null || partialStep === null
+        ? null
+        : { turn: partialTurn, step: partialStep, blocks: [] },
       runningCalls,
       requests: selectedRequests,
       callSchemas,
-      codeDispatches,
-    }),
-    [
-      selectedNodes, partial, runningCalls, selectedRequests, callSchemas, codeDispatches,
-    ],
+    })
+    return { turns, lastIndex: lastCellIndex(turns) }
+  }, [
+    selectedNodes, partialTurn, partialStep,
+    runningCalls, selectedRequests, callSchemas,
+  ])
+  const timelinePartialSignature = partialStructureSignature(partial)
+  const timelinePartial = useMemo<ConversationSnapshot['partial']>(() => partial === null
+    ? null
+    : {
+      turn: partial.turn,
+      step: partial.step,
+      blocks: partial.blocks.map(block => timelineBlock(block)),
+    },
+  [partialStep, partialTurn, timelinePartialSignature])
+  const timelineTurns = useMemo(
+    () => appendTrajectoryPartialLayout(finalized.turns, timelinePartial, finalized.lastIndex),
+    [finalized, timelinePartial],
   )
   const timelineMode: TrajectoryTimelineMode = actualDuration
     ? actualTime ? 'actual' : 'duration'
     : actualTime ? 'time' : 'sequence'
-  const searchMatchIndexes = useMemo(
-    () => searchMatches(turns, searchQuery),
-    [searchQuery, turns],
+  const finalizedSearchMatches = useMemo(
+    () => searchMatches(finalized.turns, searchQuery),
+    [finalized, searchQuery],
   )
-  const timelineRange = timelineSelection?.branchId === currentBranch.id
+  const partialSearchTurns = useMemo(
+    () => appendTrajectoryPartialLayout([], partial, finalized.lastIndex),
+    [finalized.lastIndex, partial],
+  )
+  const streamingCells = useMemo(
+    () => partialSearchTurns.flatMap(turn =>
+      turn.groups.flatMap(group => group.cells),
+    ),
+    [partialSearchTurns],
+  )
+  const partialSearchMatches = useMemo(
+    () => searchMatches(partialSearchTurns, searchQuery),
+    [partialSearchTurns, searchQuery],
+  )
+  const searchMatchIndexes = useMemo(
+    () => mergeSearchMatches(finalizedSearchMatches, partialSearchMatches),
+    [finalizedSearchMatches, partialSearchMatches],
+  )
+  const timelineRange = timelineSelection?.branchKey === currentBranch.key
     ? timelineSelection.range
     : null
   const timelineFocusIndexes = useMemo(
     () => timelineRange === null
       ? null
-      : trajectoryTimelineFocusIndexes(turns, timelineRange, timelineMode),
-    [timelineMode, timelineRange, turns],
+      : trajectoryTimelineFocusIndexes(timelineTurns, timelineRange, timelineMode),
+    [timelineMode, timelineRange, timelineTurns],
   )
   const handleRecordSelect = useCallback((index: number) => {
     if (
@@ -361,31 +426,22 @@ export function TrajectoryView({
       setTimelineSelection(null)
     }
   }, [timelineFocusIndexes])
-  useEffect(() => {
-    if (timelineFocusIndexes === null || timelineFocusIndexes.size === 0) return
-    const ledger = ledgerRef.current
-    if (ledger === null) return
-    const focusedRows = [
-      ...ledger.querySelectorAll<HTMLElement>('tr[data-timeline-focus="inside"]'),
-    ]
-    const first = focusedRows.at(0)
-    const last = focusedRows.at(-1)
-    if (first === undefined || last === undefined) return
-    const focusHeight =
-      last.getBoundingClientRect().bottom - first.getBoundingClientRect().top
-    if (focusHeight > ledger.clientHeight) {
-      if (typeof first.scrollIntoView === 'function') {
-        first.scrollIntoView({ behavior: 'smooth', block: 'start' })
-      }
-      return
-    }
-    const middle = focusedRows[Math.floor((focusedRows.length - 1) / 2)]
-    if (middle !== undefined && typeof middle.scrollIntoView === 'function') {
-      middle.scrollIntoView({ behavior: 'smooth', block: 'center' })
-    }
-  }, [timelineFocusIndexes])
+  const handleTimelineRangeChange = useCallback((range: TrajectoryTimeRange | null) => {
+    setTimelineSelection(range === null ? null : {
+      branchKey: currentBranch.key,
+      range,
+    })
+  }, [currentBranch.key])
+  const handleTimelineRecordSelect = useCallback((index: number) => {
+    setTimelineSelection(null)
+    setTimelineRecordSelection({ index })
+    setSelectedTimelineIndex(index)
+  }, [])
+  const handleTimelineRecordFocus = useCallback((index: number) => {
+    setTimelineRecordFocus({ index })
+  }, [])
   const collapsibleTurnIds = useMemo(
-    () => turns
+    () => timelineTurns
       .filter(turn =>
         turn.turn !== null
         &&
@@ -396,23 +452,25 @@ export function TrajectoryView({
           0,
         ) > 1)
       .flatMap(turn => turn.turn === null ? [] : [turn.turn]),
-    [turns],
+    [timelineTurns],
   )
   const allTurnsCollapsed = collapsibleTurnIds.length > 0
     && collapsibleTurnIds.every(turn => collapsedTurns.has(turn))
   const collapsibleAssistantIds = useMemo(() => {
-    const ids: number[] = []
-    for (const turn of turns) {
+    const ids: string[] = []
+    for (const turn of timelineTurns) {
       const cells = turn.groups.flatMap(group => group.cells)
       for (let i = 0; i < cells.length; i++) {
         const cell = cells[i]
         if (cell?.kind !== 'message') continue
         const next = cells[i + 1]
-        if (next?.kind === 'tool' || next?.kind === 'subtool') ids.push(cell.index)
+        if (next?.kind === 'tool' || next?.kind === 'subtool') {
+          ids.push(trajectoryRecordId(cell))
+        }
       }
     }
     return ids
-  }, [turns])
+  }, [timelineTurns])
   const allAssistantsCollapsed = collapsibleAssistantIds.length > 0
     && collapsibleAssistantIds.every(index => collapsedAssistants.has(index))
 
@@ -437,11 +495,11 @@ export function TrajectoryView({
     })
   }
 
-  const toggleAssistant = (index: number) => {
+  const toggleAssistant = (id: string) => {
     setCollapsedAssistants((current) => {
       const collapsed = new Set(current)
-      if (collapsed.has(index)) collapsed.delete(index)
-      else collapsed.add(index)
+      if (collapsed.has(id)) collapsed.delete(id)
+      else collapsed.add(id)
       return collapsed
     })
   }
@@ -457,6 +515,13 @@ export function TrajectoryView({
       return collapsed
     })
   }
+
+  const loadEarlierHistory = useCallback(() => {
+    const signal = historyControllerRef.current?.signal
+    return signal?.aborted === false
+      ? loadOlderHistory(signal)
+      : Promise.resolve(false)
+  }, [loadOlderHistory])
 
   return (
     <div className={css.root} data-conversation-composer-overlay="">
@@ -479,45 +544,33 @@ export function TrajectoryView({
         onSearchQueryChange={setSearchQuery}
       />
       <TrajectoryTimeline
-        turns={turns}
+        turns={timelineTurns}
         mode={timelineMode}
         range={timelineRange}
+        hasEarlierRecords={hasOlderHistory}
+        onLoadEarlier={loadEarlierHistory}
         selectedIndex={selectedTimelineIndex}
         searchMatchIndexes={searchMatchIndexes}
-        onRangeChange={(range) => {
-          setTimelineSelection(range === null ? null : {
-            branchId: currentBranch.id,
-            range,
-          })
-        }}
-        onRecordSelect={(index) => {
-          setTimelineSelection(null)
-          setTimelineRecordSelection({ index })
-          setSelectedTimelineIndex(index)
-          const row = ledgerRef.current
-            ?.querySelector<HTMLElement>(`tr[data-record-index="${index}"]`)
-          if (row !== undefined && row !== null && typeof row.scrollIntoView === 'function') {
-            row.scrollIntoView({ behavior: 'smooth', block: 'center' })
-          }
-        }}
-        onRecordFocus={(index) => {
-          const row = ledgerRef.current
-            ?.querySelector<HTMLElement>(`tr[data-record-index="${index}"]`)
-          if (row !== undefined && row !== null && typeof row.scrollIntoView === 'function') {
-            row.scrollIntoView({ behavior: 'smooth', block: 'center' })
-          }
-        }}
+        onRangeChange={handleTimelineRangeChange}
+        onRecordSelect={handleTimelineRecordSelect}
+        onRecordFocus={handleTimelineRecordFocus}
       />
-      <div ref={ledgerRef} className={css.ledger}>
+      <div className={css.ledger}>
         <TrajectoryTable
-          key={currentBranch.id}
+          key={currentBranch.key}
           requestNumbers={requestNumbers}
-          turns={turns}
+          turns={timelineTurns}
+          streamingCells={streamingCells}
           timelineFocusIndexes={timelineFocusIndexes}
           searchMatchIndexes={searchMatchIndexes}
           onSelectedIndexChange={setSelectedTimelineIndex}
           onRecordSelect={handleRecordSelect}
           recordSelection={timelineRecordSelection}
+          recordFocus={timelineRecordFocus}
+          historyLoading={historyLoading}
+          historyStartSeq={historyBaseSeq}
+          hasOlderRecords={hasOlderHistory}
+          onLoadOlder={loadEarlierHistory}
           onClearSelection={() => { setTimelineSelection(null) }}
           collapsedTurns={collapsedTurns}
           onToggleTurn={toggleTurn}

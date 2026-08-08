@@ -271,8 +271,7 @@ describe('tool-pairing cache refresh', () => {
     expect(eventIndexReads).toBe(3)
 
     events.push({
-      type: 'turn/end', seq: 3, time: 3,
-      data: { turn: 1, reason: { kind: 'completed' } },
+      type: 'turn/end', seq: 3, time: 3, data: { turn: 1, reason: { kind: 'completed' } },
     })
     expect(toolPairingBalancedAfter(session, nodes[2]!)).toBe(true)
     expect(eventCollectionReads).toBe(1)

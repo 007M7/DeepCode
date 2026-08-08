@@ -1,13 +1,13 @@
 kind=matches
 summary=显示 9 / 共 42 处匹配 · 3 个文件
 file=packages/client/ui-primitives/src/SearchBlock.tsx3
-file=packages/client/ui-conversation/src/client/toolviews/search-row.tsx4
+file=packages/client/ui-tool/src/client/tool/toolviews/search-row.tsx4
 line=16: export const DEFAULT_SEARCH_MAX_LINES = 16
 line=138: export function SearchBlock(props: SearchBlockProps) {
 line=141:   const [collapsed, setCollapsed] = useState<ReadonlySet<number>>(() => new Set())
-line=35:   const search = searchCardModel(block)
-line=52:       search={search}
-line=73:     ctx.slots.register({ name: 'conversation.chat.toolview', key: 'grep', locale: NS }, SearchRow)
+line=36:   const search = searchCardModel(block)
+line=56:       search={search}
+line=78:       yield ctx.slots.register({ name: 'tool.call.toolview', key: 'grep', locale: NS }, SearchRow)
 expand=… 其余 4 行
 recovery=Found 9 of 42 matches
 
@@ -15,13 +15,13 @@ packages/client/ui-primitives/src/SearchBlock.tsx
 Line 16: export const DEFAULT_SEARCH_MAX_LINES = 16
 Line 138: export function SearchBlock(props: SearchBlockProps) {
 Line 141:   const [collapsed, setCollapsed] = useState<ReadonlySet<number>>(() => new Set())
-packages/client/ui-conversation/src/client/contract/search-card-model.ts
-Line 24: export const CHAT_SEARCH_MAX_LINES = 8
-Line 60: export function searchCardModel(block: ToolCallBlock): SearchCardModel | null {
-packages/client/ui-conversation/src/client/toolviews/search-row.tsx
-Line 33: export function SearchRow({ toolName, block, inspect, t }: SearchRowProps) {
-Line 35:   const search = searchCardModel(block)
-Line 52:       search={search}
-Line 73:     ctx.slots.register({ name: 'conversation.chat.toolview', key: 'grep', locale: NS }, SearchRow)
+packages/client/ui-tool/src/client/tool/models/search-card-model.ts
+Line 45: export const CHAT_SEARCH_MAX_LINES = 8
+Line 130: export function searchCardModel(block: ToolCallBlock): SearchCardModel | null {
+packages/client/ui-tool/src/client/tool/toolviews/search-row.tsx
+Line 34: export function SearchRow({ toolName, block, inspect, t }: SearchRowProps) {
+Line 36:   const search = searchCardModel(block)
+Line 56:       search={search}
+Line 78:       yield ctx.slots.register({ name: 'tool.call.toolview', key: 'grep', locale: NS }, SearchRow)
 
 (Full grep result stored at: fixture://spill/grep-66. Read it to see every match.)

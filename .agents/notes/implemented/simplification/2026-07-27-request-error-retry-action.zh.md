@@ -14,7 +14,7 @@ Status: implemented
 
 waterfall 结算后，循环读取该动作，关闭失败轮次，并从持久历史开启一个重试轮次。循环在使用该动作时会再次检查轮次信号，因此即使监听器随后返回重试动作，恢复期间发生的取消或 dispose（资源释放）仍会阻止重试。抛出异常的恢复不会产生动作。
 
-`Agent` 与 `ReactLoopAgent` 均不暴露 `retry()` 方法。普通新工作通过 `send()` 及其 `followup()`、`steer()` 和 `inject()` 预设进入；只有已处理的模型请求失败才能开启没有提示词的重试轮次。
+`Agent` 与 `ReactLoopAgent` 均不暴露 `retry()` 方法。普通新工作通过 `followup()`、`steer()` 和 `inject()` 进入；只有已处理的模型请求失败才能开启没有提示词的重试轮次。
 
 ## 曾考虑的替代方案
 

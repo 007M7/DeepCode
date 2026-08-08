@@ -6,6 +6,6 @@
     { "op": "waitForTurnStart", "minimumTurn": 3 },
     { "op": "cancel", "waitForFile": { "path": ".dsh-snapshot-goal-cancel-ready" } },
     { "op": "waitForTurnEnd" },
-    { "op": "waitForEventAfterTurnEnd", "type": "user/message" }
+    { "op": "waitForEventAfterTurnEnd", "type": "goal/change" }
   ]
 }

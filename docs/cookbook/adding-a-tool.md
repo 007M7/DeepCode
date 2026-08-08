@@ -1,8 +1,8 @@
-# Cookbook: adding a tool
+# Tool authoring reference
 
 English | [中文](adding-a-tool.zh.md)
 
-How to give the model a new capability. The minimal shape below shows the contract; `packages/bash/tool-bash` is the production-grade three-package seam.
+Reference for the contracts a model-facing tool must satisfy. For an ordered first tool, follow [Build a tool](../user/develop/basic/tool.md). `packages/bash/tool-bash` is the production-grade three-package example.
 
 ## The minimal shape
 
@@ -35,7 +35,7 @@ export function apply(ctx: Context) {
 }
 ```
 
-Registration is effect-based: disposing the plugin fiber unregisters the tool (write the HMR test). Schemas flow into the system-prompt assembly automatically.
+Registration is effect-based: disposing the plugin fiber unregisters the tool. Schemas flow into the system-prompt assembly automatically.
 
 ## Rules of the execute() contract
 
@@ -89,6 +89,6 @@ Hard rules (they bite if broken):
 
 The neutral vocabulary lives in `dsh-tools`; tools never import a UI or transport type. Host/client runtimes map each `card` into their own view. The design and the why are in [the render-intent-union Agent Note](../../.agents/notes/implemented/architecture/2026-07-02-tool-render-intent-union.md); `dsh-tool-fs` (generic/diff) and `dsh-tool-bash` (terminal) are the reference implementations.
 
-## Tests every tool needs
+## Verification
 
-Cover argument rejection, every canonical value and Native rendering shape, output-schema rejection, and HMR disposal. For a side-effecting tool, drive the real tool through the agent loop with a scripted `MockAdapter` and assert its `tool/call` and projected `tool/result` session events; prove the canonical value itself is not persisted. For a UI card, assert the exact `presentCall` and `presentResult` views and exercise the owning host/client projection. Add an assembled snapshot for the shipped model or UI behavior the tool changes.
+Follow the [repository testing policy](../testing.md) and the owning package's test documentation. A shipped model- or UI-visible change requires the assembled coverage specified there.

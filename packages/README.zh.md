@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-所有包都使用 `@deepseek-ai/dsh-*` scope。每个包都是 Cordis `Service` 子类或函数插件；所有贡献通过 `ctx.effect()`、`ctx.on()` 或 `ctx.waterfall()` 注册。编写规则见[包](AGENTS.md)与[根规则](../AGENTS.md#conventions)。
+所有包都使用 `@deepseek-ai/dsh-*` scope。Cordis `Service` 子类和函数插件的贡献通过 `ctx.effect()`、`ctx.on()` 或 `ctx.waterfall()` 注册。编写规则见[包](AGENTS.md)与[根规则](../AGENTS.md#conventions)。
 
 ## 层级结构
 
@@ -11,8 +11,10 @@
 | 组 | 职责 | 发布预期 |
 |---|---|---|
 | [`core/`](core/README.md) | 产品 API 主干：会话、提示词、工具、agent（智能体）服务与具体循环 | 产品：稳定表面 |
+| [`api/`](api/README.md) | Remote BFF 装配与 TypeRT RPC Gateway | 产品：稳定表面 |
 | [`typert/`](typert/README.md) | 类型图生成、产物加载与运行时注册表 | 产品：稳定表面 |
-| [`goal/`](goal/README.md) | 持久化的同会话 goal 状态与生命周期 | 产品：稳定表面 |
+| [`goal/`](goal/README.md) | 同会话 goal 的持久化与生命周期 | 产品：稳定表面 |
+| [`feedback/`](feedback/README.md) | 人类反馈 | 产品：稳定表面 |
 | [`llm/`](llm/README.md) | LLM（大语言模型）能力系列：抽象服务 + 提供方适配器 | 产品：稳定表面 |
 | [`subprocess/`](subprocess/README.md) | 进程管理能力系列：spawn seam + 本地进程树实现 | 产品：稳定表面 |
 | [`bash/`](bash/README.md) | Bash 能力系列：执行器 seam、本地实现、面向模型的工具 | 产品：稳定表面 |
@@ -26,14 +28,15 @@
 | [`context/`](context/README.md) | 模型可见请求上下文，包括 workspace 指令和时间上下文 | 产品：稳定表面 |
 | [`subagent/`](subagent/README.md) | Subagent 能力系列：提供方注册表 seam 和面向模型的委托工具 | 产品：稳定表面 |
 | [`tasks/`](tasks/README.md) | 通用后台任务运行时和面向模型的 `task_*` 控制工具 | 产品：稳定表面 |
-| [`workflow/`](workflow/README.md) | 工作流能力系列：脚本引擎 seam、worker 线程引擎、面向模型的 `workflow` 与新 agent `ralph` 工具 | 产品：稳定表面 |
+| [`workflow/`](workflow/README.md) | 脚本 seam、worker 线程引擎和面向模型的 `workflow`/`ralph` 工具 | 产品：稳定表面 |
 | [`web/`](web/README.md) | Web 能力系列：seam、搜索／获取提供方实现和面向模型的 Web 工具 | 产品：稳定表面 |
 | [`spill/`](spill/README.md) | 溢出能力系列：存储 seam、本地实现、工具结果溢出策略 | 产品：稳定表面 |
 | [`todo/`](todo/README.md) | 面向模型的 `todo_write` 工具 | 产品：稳定表面 |
 | [`plan/`](plan/README.md) | Plan 协作状态，提供直接进入命令与经评审的退出 | 产品：稳定表面 |
-| [`timeout/`](timeout/README.md) | 工具调用超时策略：`tools/execute` 截止时间强制执行器 | 产品：稳定表面 |
-| [`guard/`](guard/README.md) | 循环卫生守卫：建议性重复调用提醒 | 产品：稳定表面 |
-| [`cordis/`](cordis/README.md) | Cordis 运行时集成：自检／模型编写的临时 Plugin，以及受限 repository Plugin 加载 | 产品：稳定表面 |
+| [`timeout/`](timeout/README.md) | 工具调用 `tools/execute` 截止时间强制执行 | 产品：稳定表面 |
+| [`guard/`](guard/README.md) | 循环卫生建议性重复调用提醒 | 产品：稳定表面 |
+| [`bundle/`](bundle/README.md) | 可安装的 `dsh --profile` 补丁层 | 产品：稳定表面 |
+| [`cordis/`](cordis/README.md) | Cordis 运行时集成：自检、临时 Plugin、受限 repository Plugin 加载 | 产品：稳定表面 |
 | [`hooks/`](hooks/README.md) | 钩子桥接 + 共享 Claude Code／Codex 协议格式库 | 产品：稳定表面 |
 | [`session-persistence/`](session-persistence/README.md) | 持久化 seam + JSONL/SQLite 后端 | 产品：稳定表面 |
 | [`session-projection/`](session-projection/README.md) | 投影 seam：领域折叠单元供给全量值 | 产品：稳定表面 |

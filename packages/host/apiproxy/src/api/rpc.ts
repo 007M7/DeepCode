@@ -8,8 +8,8 @@
 import type { z as zCore } from 'zod'
 type ZodIssue = zCore.core.$ZodIssue
 import type { Branded } from '@deepseek-ai/dsh-brand'
+import type { MessageId } from '@deepseek-ai/dsh-llm/brand'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
-import type { InboxItemId } from '@deepseek-ai/dsh-agent/brand'
 
 /**
  * Message correlation id: the initiator mints it on a request; a response
@@ -45,8 +45,8 @@ export interface RpcErrorDetailsMap {
   'directory-create-failed': { path: string }
   'directory-picker-unavailable': { capability: string }
   'agent-busy': { reason: string }
-  'queue-item-not-found': { itemId: InboxItemId }
-  'steer-unavailable': { itemId: InboxItemId }
+  'queue-item-not-found': { itemId: MessageId }
+  'steer-unavailable': { itemId: MessageId }
   /** A known slash command reported a usage/state error; the message is the command's own text. */
   'command-error': {}
   /** A leading-/ prompt named no registered command; the message names the token. */
@@ -70,6 +70,15 @@ export interface RpcErrorDetailsMap {
   'settings-conflict': { ns: string; expected: number; actual: number }
   /** A credential write was refused (read-only shadowing layer or storage failure); the message is the seam's own text. */
   'credential-rejected': { ref: string }
+  /**
+   * Interrogating a draft provider endpoint did not produce a model listing:
+   * no adapter family serves the namespace, the protocol has no listing this
+   * build can read, or the endpoint was unreachable, refused the credential,
+   * or answered with something else. The message is the adapter's own text —
+   * it is what the form shows before falling back to hand-entry — and the
+   * details name the endpoint asked, never the credential offered.
+   */
+  'model-discovery-failed': { settingsNs: string; baseURL?: string }
   'title-invalid': { sessionId: SessionId }
   'fork-unavailable': { sessionId: SessionId }
   'subagent-parent-unavailable': { parentSessionId: SessionId }

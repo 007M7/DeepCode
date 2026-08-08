@@ -19,7 +19,7 @@ function event(active: unknown): SessionEvent {
 function emitTurnStart(ctx: Context, session: Session): void {
   ctx.emit('session/event', session, {
     type: 'turn/start', seq: 0, time: 0,
-    data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } },
+    data: { turn: 1 },
   })
 }
 
@@ -31,8 +31,7 @@ describe('plan-mode stream invariants', () => {
     expect(() => { ctx.emit('session/event', session, event(true)) }).not.toThrow()
     expect(() => { ctx.emit('session/event', session, event(false)) }).not.toThrow()
     ctx.emit('session/event', session, {
-      type: 'turn/end', seq: 3, time: 3,
-      data: { turn: 1, reason: { kind: 'completed' } },
+      type: 'turn/end', seq: 3, time: 3, data: { turn: 1, reason: { kind: 'completed' } },
     })
   })
 
@@ -56,7 +55,7 @@ describe('plan-mode stream invariants', () => {
     expect(() => {
       ctx.emit('tools/change')
       ctx.emit('session/event', session, {
-        type: 'turn/start', seq: 0, time: 0, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } },
+        type: 'turn/start', seq: 0, time: 0, data: { turn: 1 },
       })
     }).not.toThrow()
   })
@@ -65,7 +64,7 @@ describe('plan-mode stream invariants', () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     const session = ctx.sessions.create()
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     session.append('plan/mode', { active: 'plan' as unknown as boolean })
     session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     await ctx.plugin(InvariantService, { enabled: true })
@@ -77,7 +76,7 @@ describe('plan-mode stream invariants', () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     const session = ctx.sessions.create()
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     session.append('plan/mode', { active: true })
     session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     await ctx.plugin(InvariantService, { enabled: true })

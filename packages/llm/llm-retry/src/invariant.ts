@@ -5,7 +5,7 @@ import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type { LlmFailure } from '@deepseek-ai/dsh-llm'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import type { InvariantFailure, InvariantInstaller } from '@deepseek-ai/dsh-invariants'
-import { providerForClosedStep } from './history.ts'
+import { providerForOpenStep } from './history.ts'
 import type {} from './index.ts'
 
 const PACKAGE_NAME = '@deepseek-ai/dsh-llm-retry'
@@ -41,35 +41,7 @@ function validateFailure(value: unknown, fail: InvariantFailure): asserts value 
   }
 }
 
-/** Find the first turn in the structured-failure retry chain containing `turn`. */
-function retryChainStart(history: readonly SessionEvent[], turn: number): number {
-  let startIndex = history.findLastIndex(
-    event => event.type === 'turn/start' && event.data.turn === turn,
-  )
-  while (startIndex >= 0) {
-    const start = history[startIndex]
-    if (start?.type !== 'turn/start' || start.data.trigger.kind !== 'retry') break
-
-    let endIndex = startIndex - 1
-    while (endIndex >= 0 && history[endIndex]?.type !== 'turn/end') endIndex -= 1
-    const end = history[endIndex]
-    if (end?.type !== 'turn/end'
-      || end.data.reason.kind !== 'error'
-      || end.data.reason.failure === undefined) break
-
-    const previousStart = history.findLastIndex(
-      (event, index) =>
-        index < endIndex
-        && event.type === 'turn/start'
-        && event.data.turn === end.data.turn,
-    )
-    if (previousStart < 0) break
-    startIndex = previousStart
-  }
-  return startIndex
-}
-
-/** Validate one retry record against the open turn and most recently closed step. */
+/** Validate one retry record against the currently open request step. */
 function validateRetry(
   history: readonly SessionEvent[],
   event: SessionEvent<'llm/retry'>,
@@ -106,49 +78,34 @@ function validateRetry(
     fail(`llm/retry delayMs must be a finite number within 0..${MAX_TIMER_DELAY_MS}`)
   }
 
-  const currentTurnEvents: SessionEvent[] = []
-  let openTurn: number | undefined
-  for (const prior of history.slice().reverse()) {
-    if (prior.type === 'turn/end') fail('llm/retry must be appended inside an open turn')
-    if (prior.type === 'turn/start') {
-      openTurn = prior.data.turn
-      break
-    }
-    currentTurnEvents.push(prior)
+  const turnBoundary = history.findLast(prior =>
+    prior.type === 'turn/start' || prior.type === 'turn/end')
+  if (turnBoundary?.type !== 'turn/start') {
+    fail('llm/retry must be appended inside an open turn')
   }
-  if (openTurn === undefined) fail('llm/retry must be appended inside an open turn')
-  if (turn !== openTurn) {
-    fail(`llm/retry names turn ${turn}, but the open turn is ${openTurn}`)
+  if (turn !== turnBoundary.data.turn) {
+    fail(`llm/retry names turn ${turn}, but the open turn is ${turnBoundary.data.turn}`)
   }
 
-  let closedStep: number | undefined
-  for (const prior of currentTurnEvents) {
-    if (prior.type === 'step/start') {
-      fail(`llm/retry must follow step/end, but step ${prior.data.step} is still open`)
-    }
-    if (prior.type === 'step/end') {
-      closedStep = prior.data.step
-      break
-    }
+  const stepBoundary = history.findLast(prior =>
+    prior.type === 'step/start' || prior.type === 'step/end')
+  if (stepBoundary?.type !== 'step/start') {
+    fail('llm/retry must be appended inside an open step')
   }
-  if (closedStep === undefined || step !== closedStep) {
-    fail(`llm/retry names step ${step}, but the latest closed step is ${String(closedStep)}`)
+  if (step !== stepBoundary.data.step || turn !== stepBoundary.data.turn) {
+    fail(`llm/retry names turn ${turn}/step ${step}, but the open step is ${stepBoundary.data.turn}/${stepBoundary.data.step}`)
   }
-  const routedProvider = providerForClosedStep(history, turn, step)
+  const routedProvider = providerForOpenStep(history, turn, step)
   if (routedProvider !== provider) {
     fail(`llm/retry provider ${provider} does not match the failed request provider ${String(routedProvider)}`)
   }
 
-  const chainStart = retryChainStart(history, turn)
-  const chain = history.slice(Math.max(chainStart, 0))
-  const lastSuccess = chain.findLastIndex(prior => prior.type === 'assistant/message')
-  const chainRetries = chain.slice(lastSuccess + 1)
-    .filter((prior): prior is SessionEvent<'llm/retry'> => prior.type === 'llm/retry')
-  if (chainRetries.some(prior => prior.data.turn === turn && prior.data.step === step)) {
-    fail(`llm/retry duplicates the retry record for turn ${turn}/step ${step}`)
-  }
-  const priorPolicyRetry = chainRetries.findLast(prior =>
-    prior.data.provider === provider && prior.data.policyKey === policyKey)
+  const priorPolicyRetry = history.findLast((prior): prior is SessionEvent<'llm/retry'> =>
+    prior.type === 'llm/retry'
+    && prior.data.turn === turn
+    && prior.data.step === step
+    && prior.data.provider === provider
+    && prior.data.policyKey === policyKey)
   const expectedRetry = (priorPolicyRetry?.data.retry ?? 0) + 1
   if (retry !== expectedRetry) {
     fail(`llm/retry retry ${retry} must equal provider policy retry ${expectedRetry}`)

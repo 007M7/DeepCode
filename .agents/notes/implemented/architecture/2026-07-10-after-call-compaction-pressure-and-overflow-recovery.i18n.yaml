@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-07-10-after-call-compaction-pressure-and-overflow-recovery.md
-2026-07-10-after-call-compaction-pressure-and-overflow-recovery.md: 51d488db28c57426c75c9ed1cfc90892261c0224
-2026-07-10-after-call-compaction-pressure-and-overflow-recovery.zh.md: 1aa827bb0263ed9d104d566a7b0b0c8006ad7586
+2026-07-10-after-call-compaction-pressure-and-overflow-recovery.md: 6fbd5e2c9d57da3f25c72c652ca50eb45b84323c
+2026-07-10-after-call-compaction-pressure-and-overflow-recovery.zh.md: c46b3eeeb446165192ef44de938c9a5a657a02f8

@@ -8,7 +8,7 @@ English | [中文](2026-07-30-queued-manual-compaction.zh.md)
 
 Automatic compaction protects the context window, but an interactive user also needs a deterministic way to condense accumulated history before pressure policy fires. Sending `/compact` as prompt text would spend a model turn and let the conversation model reinterpret a direct control action. Implementing it inside one UI would duplicate command discovery, lifecycle logging, cancellation, and backend policy.
 
-The human command arrives between turns and must summarize asynchronously. A prompt accepted during that wait must keep its ordinary identity, FIFO position, and wakeup behavior, but it must not derive a request from history that compaction is about to replace. A status check is insufficient: a waking send schedules the driver's claim as a microtask, leaving a same-tick interval where status still reads idle even though the prompt already has right of way.
+The human command arrives between turns and must summarize asynchronously. A prompt accepted during that wait must keep its ordinary identity, FIFO position, and wakeup behavior, but it must not derive a request from history that compaction is about to replace. A separate status check is insufficient because another caller can wake the driver between that check and the compaction operation claiming the idle phase.
 
 Compaction also needs one mutual-exclusion fact shared by manual, pressure, overflow, and explicit-range entry points. A process-local flag alone cannot explain a crash-recovered log, while a summarize-first transaction leaves no durable evidence during the expensive interval. Conversely, treating marker pairs as exclusive containers would forbid valid idle injection even though injection is explicitly non-waking and immediate between turns.
 
@@ -22,15 +22,15 @@ This note extends the [compaction capability seam](2026-06-18-compaction-capabil
 
 The command plugin tracks each real handler promise independently of the command executor's abort-aware wait. Its composite lifecycle effect unregisters `/compact` before asynchronously draining handlers that already started, so root teardown reaches quiescence only after backend close and flush work settles.
 
-The seam's `ManualCompactAgentContext` adds only `reserveTurnAdmission()` to the session and routing facts compaction already needs. Retention, balancing, summarization, marker ordering, replacement, and durability remain backend responsibilities.
+The seam's `ManualCompactAgentContext` adds only `runMaintenance()` to the session and routing facts compaction already needs. Retention, balancing, summarization, marker ordering, replacement, and durability remain backend responsibilities.
 
-### Idle turn admission is synchronously reservable
+### Idle maintenance is synchronously claimed
 
-`Agent.reserveTurnAdmission(): (() => void) | undefined` claims the boundary before the next ordinary turn. It succeeds only when the driver is idle, no reservation exists, and no accepted waking item already owns the next turn, including a wake whose claim is still a pending microtask.
+`Agent.runMaintenance(task)` starts only from the idle phase and claims that phase before invoking the task. A waking send starts the loop immediately when idle, so whichever operation claims the phase first owns the boundary.
 
-The reservation does not create a second queue. Later sends keep their `InboxItemId`, placement, FIFO order, and wakeup facts. `acceptsNextStep` remains false, so waking next-step input becomes an ordinary queued follow-up rather than steering. Release is idempotent and re-arms the existing driver path. `inject()` is not withheld.
+Maintenance does not create a second queue. Later sends keep their `MessageId`, placement, FIFO order, and wakeup facts. Waking input remains queued until maintenance settles, then starts the existing driver path; `inject()` remains non-waking.
 
-`whenIdle()` treats a reservation as unfinished activity, including when it holds a waking item. Lifecycle teardown still drains the driver's own activity promise rather than awaiting an external operation, so disposal can cancel and unwind without depending on the reservation holder.
+`whenIdle()` treats maintenance and any waking work released behind it as unfinished activity. Cancellation aborts the agent-owned maintenance signal, and lifecycle teardown drains the same activity boundary before disposal completes.
 
 ### One parameterized transaction owns every bracket
 
@@ -75,13 +75,13 @@ Once a transaction has appended its start, every later failure makes one closing
 
 ### Reference implementation boundaries
 
-[PR #835](https://github.com/deepseek-harness/deepseek-harness/pull/835) was used as a reference implementation for the command, reservation, tests, and snapshot shape, but was not merged. Its process-local `WeakSet` lock and locked/unlocked method splits were considered and not adopted because the durable bracket is the single reachable lock.
+An unmerged reference implementation informed the command, reservation, tests, and snapshot shape. Its process-local `WeakSet` lock and locked/unlocked method splits were considered and not adopted because the durable bracket is the single reachable lock.
 
 That reference also carried client-side replacement-anchor machinery to preserve transcript placement. The log-ordered transcript projection already consumes compaction from event order and does not consult mutable surface positions, so those anchors were considered and not adopted.
 
 ## Alternatives considered
 
-**Check `agent.status` without reserving admission.** Rejected because an accepted waking send can still be waiting on its claim microtask while status reads idle.
+**Check `agent.status` before starting maintenance.** Rejected because the check and phase claim would be separate operations; a waking send could start the driver between them.
 
 **Queue the command itself.** Rejected because `/compact` is direct control, not model input, and a prompt already accepted first must retain right of way rather than being reordered around a second command queue.
 

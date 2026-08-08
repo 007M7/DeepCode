@@ -131,12 +131,20 @@ const homeAndGuide = pairedPages([
     order: 2,
   },
   {
+    source: 'docs/user/guide/providers.md',
+    route: 'guide/providers.md',
+    label: { root: '配置模型', en: 'Configure models' },
+    sidebar: { root: 'zh-guide', en: 'en-guide' },
+    section: { root: '入门', en: 'Guide' },
+    order: 3,
+  },
+  {
     source: 'docs/user/guide/config.md',
     route: 'guide/config.md',
     label: { root: '配置文件', en: 'Configuration' },
     sidebar: { root: 'zh-guide', en: 'en-guide' },
     section: { root: '入门', en: 'Guide' },
-    order: 3,
+    order: 4,
   },
 ])
 
@@ -165,6 +173,14 @@ const develop = pairedPages([
     sidebar: { root: 'zh-develop', en: 'en-develop' },
     section: { root: '基础', en: 'Basics' },
     order: 3,
+  },
+  {
+    source: 'docs/user/develop/basic/publish.md',
+    route: 'develop/basic/publish.md',
+    label: { root: '打包与安装插件', en: 'Package and install' },
+    sidebar: { root: 'zh-develop', en: 'en-develop' },
+    section: { root: '基础', en: 'Basics' },
+    order: 4,
   },
   {
     source: 'docs/user/develop/framework/index.md',

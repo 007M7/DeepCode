@@ -15,8 +15,8 @@ harness 需要一套钩子子系统：用户像 Claude Code（CC）和 Codex 那
 规范表面将可变换策略、环绕调度控制与仅观测通知分离。策略 waterfall（瀑布式事件）返回小型的、seam 专属的**类型化 Decision 联合类型**；包装层返回规范化结果；通知接收不可变快照，无法影响结果。覆盖的钩子点包括 `session-start`、`prompt-submit`、`pre-tool`、`post-tool`、通过 continuation 实现的 `stop`，同时将非钩子的执行策略留作独立可组合。
 
 **Agent 事件**（`dsh-agent`）：
-- `agent/session-start(agent, source)` ——emit，在第 1 轮次之前触发一次，携带 `SessionStartSource`（`startup` 表示全新／fork 创建，`resume` 表示重新加载的持久化会话；`clear`/`compact` 保留）。纯通知，不能阻塞启动（这是有意的空白：桥接可以记录／注入，但不管控启动）。监听器通过 `agent.inject()` 注入上下文。
-- `agent/prompt-submit(agent, content, source, signal, next) → PromptDecision` ——waterfall，针对一条取得所有权的排队消息触发，早于循环开启轮次或追加 `user/message`。显式准入 signal 位于最后的 `next` 之前；`allow` 可以重写提示词 `content` 或附加来源各自独立的 `additionalContexts[]`，而 `block` 会丢弃该候选消息，不产生会话历史。
+- `agent/session-start({ agent, source })` ——emit，在第 1 轮次之前触发一次，携带 `SessionStartSource`（`startup` 表示全新/fork 创建，`resume` 表示重新加载的持久化会话；`clear`/`compact` 保留）。纯通知，不能阻塞启动（这是有意的空白：桥接可以记录/注入，但不管控启动）。监听器通过 `agent.inject()` 注入上下文。
+- `agent/pre-step({ agent, messages, turn, step, signal }, next) → PreStepDecision` ——waterfall，在每个拟议步骤之前、循环原子移除其独占 inbox 批次后触发。payload 携带该请求的 `turn`、`step` 与取消 `signal`（已退役的 `PreStepContext` 字段位于 payload 中；参见 [payload-object 事件决策](../architecture/2026-08-06-agent-event-payload-objects.md)）；没有中途输入的工具续步会收到空批次。`enter` 返回完整消息批次，其中包括监听器为当前请求贡献的上下文；`reject` 不打开步骤，并让已领取消息保持已删除。
 
 **`agent/turn-stopping`** 是自然停止边界上的一次 awaited 通知。需要再执行一步的监听器调用 `agent.steer()`，传入来源显式的 steering（中途引导）内容供模型使用；循环随后重新读取 outbox，继续执行或关闭轮次。
 
@@ -35,7 +35,7 @@ harness 需要一套钩子子系统：用户像 Claude Code（CC）和 Codex 那
 
 ### 三个承重的循环决策
 
-1. **在开启轮次之前运行提示词策略。** 被阻止的提示词不会创建轮次，也不产生持久事件。允许时，循环先暂存重写后的提示词，再暂存每个返回的 `additionalContexts` 条目，然后开启轮次并在第一个步骤之前排空该 outbox。依照[一次 send 对应一个轮次的简化](../simplification/2026-07-17-one-send-one-turn.md)，每个取得所有权的 ordinary-send 条目都是其轮次中唯一的直接提示词。
+1. **在每个拟议步骤运行 pre-step 策略。** 循环会在首次领取和决策之前打开轮次，因此 reject 会关闭一个持久、blocked 且不含步骤或模型可见消息的轮次。即使工具续步没有新取得所有权的输入，也会提交空批次，使逐请求上下文生产方可以把带日志的消息加入这一次请求。enter 时，循环先开启步骤，再把返回批次作为 `user/message` 追加，然后派生请求。依照[一次 send 对应一个轮次的简化](../simplification/2026-07-17-one-send-one-turn.md)，每个已领取 follow-up 仍是其轮次中唯一的直接提示词。
 
 2. **工具执行后的 `additionalContexts` 与异步注入进入活跃批次 FIFO，并在该批次结算时追加。** `content`/`feedback` 塑造 `execute()` 返回的结果，但每项上下文都是一条独立的带来源 `user/message`，而单个步骤或组合工具可以产生许多上下文。立即追加上下文会产生 `result(c1) → context → result(c2)` 的交错，或把嵌套上下文放在外层结果之前，破坏工具调用／工具结果邻接性。因此 `ToolRunContext.deferContext()` 会在失败路径上也收集嵌套调度上下文，`execute()` 在 `ToolExecutionResult` 上暴露有序数组，循环再把它接纳到与执行期间 `agent.inject()` 调用相同的 FIFO 中。FIFO 在批次结算时，在所有已记录结果之后追加，其中也包括被中断轮次关闭之前。被接受的外层调用将 deferred contexts 保留在 decision contexts 之前；被外层阻止时则丢弃 deferred contexts，只暴露阻止 decision 显式提供的上下文。
 
@@ -56,4 +56,4 @@ seam 包**不**声明 `hook/*` 会话事件（持久的钩子调用日志）；�
 
 ## 后果
 
-规范拦截表面采用统一的类型体系，同时不给每个扩展相同的权力：钩子返回 decision，执行包装层封装执行过程，终结 guard 只能拒绝，最终观测者只能观测。循环负责 session-start、轮次前的提示词准入、工具执行后上下文缓冲和 stopping；`dsh-tools` 负责身份封存与五阶段执行流水线。它们的契约记录在 [architecture.md](../../../../docs/architecture.md)、各包 README、[核心拦截 decision](../../../../docs/core-data-structures/core.md#interception-decisions) 与[工具结构](../../../../docs/core-data-structures/tools.md)中。ACP（Agent Client Protocol）桥接在 agent 空闲且不再拥有轮次后，将准入拒绝结算为 `cancelled`，而钩子驱动的快照端到端验证可观测的桥接行为。
+规范拦截表面具有统一的类型化，同时不给每个扩展相同的权力：钩子返回 decision，执行包装层做包装，终结 guard 只能拒绝，最终观测者只能观测。循环负责 session-start、pre-step 领取结算、工具执行后上下文缓冲和 stopping；`dsh-tools` 负责身份封存与五阶段执行流水线。它们的契约记录在 [architecture.md](../../../../docs/architecture.md)、各包 README、[核心拦截 decision](../../../../docs/core-data-structures/core.md#interception-decisions) 与[工具结构](../../../../docs/core-data-structures/tools.md)中。ACP 桥接会把 blocked 无步骤轮次中的首次 pre-step reject 结算为 `end_turn`，而钩子驱动的快照端到端验证可观测的桥接行为。

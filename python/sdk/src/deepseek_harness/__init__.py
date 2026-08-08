@@ -1,4 +1,4 @@
-from .api import DeepSeekHarness, DeepSeekHarnessConfig, Session, TurnResult
+from .api import DeepSeekHarness, DeepSeekHarnessConfig, RunResult, Session
 from .client import HarnessClient, HarnessConfig
 from .models import IncomingRequest, InitializeResponse, JsonObject, Notification, ServerInfo
 
@@ -6,7 +6,7 @@ __all__ = [
     "DeepSeekHarness",
     "DeepSeekHarnessConfig",
     "Session",
-    "TurnResult",
+    "RunResult",
     "HarnessClient",
     "HarnessConfig",
     "IncomingRequest",

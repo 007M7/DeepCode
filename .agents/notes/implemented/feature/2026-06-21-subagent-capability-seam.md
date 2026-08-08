@@ -4,7 +4,7 @@ Status: implemented
 
 English | [中文](2026-06-21-subagent-capability-seam.zh.md)
 
-> The full seam is shipped: the `dsh-subagent` interface and `dsh-tool-subagent` consumer; the two in-process backends (`dsh-subagent-spawn`, `dsh-subagent-fork`); the nested-agent snapshot infrastructure ([per-session snapshot replay](../testing/2026-06-22-subagent-snapshot-replay.md)); and the out-of-process `dsh-subagent-acp` backend ([its Agent Note](2026-06-22-acp-subagent-backend.md)).
+> The full seam is shipped: the `dsh-subagent` interface and `dsh-tool-subagent` consumer; the two in-process backends (`dsh-subagent-spawn`, `dsh-subagent-fork`); the nested-agent snapshot infrastructure ([per-session snapshot replay](../testing/2026-06-22-subagent-snapshot-replay.md)); and the out-of-process ACP, Codex, and Claude Code backends ([ACP Agent Note](2026-06-22-acp-subagent-backend.md), [product-provider Agent Note](2026-08-04-claude-code-and-codex-subagent-backends.md)).
 
 ## Problem
 
@@ -14,7 +14,8 @@ The distinctive requirement — the one that shapes the whole design — is that
 
 - **in-process** — a child concrete `Agent` on the same `Context` (the cheapest, and nearly free given the existing agent factory);
 - **ACP** — act as an ACP *client* driving another agent process (which can be another instance of ourselves);
-- later: **A2A**, the **Codex app-server**, and the **Claude Code Agent SDK** — each the same out-of-process "start a child, prompt it, stream updates, cancel" shape as the ACP backend.
+- **Codex app-server and Claude Code Agent SDK** — current one-shot siblings that apply the same named-provider seam to official product processes ([product-provider Agent Note](2026-08-04-claude-code-and-codex-subagent-backends.md));
+- later: **A2A** using the same out-of-process "start a child, prompt it, settle, cancel" shape.
 
 ## Alternatives considered
 
@@ -34,6 +35,8 @@ A new package group `packages/subagent/`:
 | `@deepseek-ai/dsh-subagent-spawn` | implementation: a fresh in-process child via `ctx.agents.create` |
 | `@deepseek-ai/dsh-subagent-fork` | implementation: an in-process child seeded with a snapshot of the parent's log |
 | `@deepseek-ai/dsh-subagent-acp` | implementation: an ACP client driving a configured child process |
+| `@deepseek-ai/dsh-subagent-codex` | implementation: a one-shot official Codex app-server process |
+| `@deepseek-ai/dsh-subagent-claude-code` | implementation: a one-shot official Claude Code process through the Agent SDK |
 | `@deepseek-ai/dsh-tool-subagent` | consumer: the model-facing `subagent` tool over `ctx.subagents` |
 
 ### The primitive: async `start → SubagentRun`
@@ -51,7 +54,7 @@ Fresh and forked children are separate providers, not a request flag. `dsh-subag
 
 ### Child isolation and the parent log
 
-Each subagent runs in its **own `Session`** (own id, `parentSession` lineage), persisted independently. The parent's log records only the spawn `tool/call` and its `tool/result` (the child's final output) — the child's internal steps and tool calls stay in the child's own session, never injected into the parent log. This is the only design that is identical across transports: an ACP child's internal events physically cannot be injected into our parent log, so making in-process behave the same keeps the seam transport-agnostic.
+Each in-process subagent runs in its **own `Session`** (own id, `parentSession` lineage), persisted independently. Remote ACP and one-shot product providers instead mint a parent-scoped lifecycle id and expose no local `Agent` or child `Session`; their internal state remains in the remote process. Across both forms, the parent's log records only the spawn `tool/call` and its `tool/result` (the child's final output), while child steps and tool calls remain outside the parent log.
 
 ### Synchronous collect (first cut)
 

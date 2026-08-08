@@ -10,7 +10,7 @@ The assembled system prompt had four defects, all of one family: facts the harne
 
 **The model could not know its own name.** `AgentOptions.model` drives every request, but no prompt text carried it — and nothing COULD carry it: sections in `dsh-system-prompt` were context-global while the model name is per-agent, and `assemble()` took no per-agent input at all.
 
-**Tool guidance was hand-written prose in leaf YAML.** The bash/subagent/todo_write usage guidance lived in the coding-agent and ACP persona strings — two drifting copies (the ACP one was already abridged) — while `dsh-tool-fs` and `dsh-tool-web` owned their guidance as `ctx.systemPrompt.section()` contributions. Loading or dropping a tool plugin meant editing every deployment's persona by hand; both YAMLs carried a `FIXME(config-comments)` apologizing for a symptom of the split, and the old terminal welcome banner hand-enumerated the tool set too.
+**Tool guidance was hand-written prose in leaf YAML.** The bash/subagent/todo_write usage guidance lived in the coding-agent and ACP persona strings — two drifting copies (the ACP one was already abridged) — while `dsh-tool-fs` and `dsh-tool-web` owned their guidance as `ctx.systemPrompt.section()` contributions. Loading or dropping a tool plugin meant editing every deployment's persona by hand, and the old terminal welcome banner hand-enumerated the tool set too.
 
 **The persona rendered after tool guidance.** The loop string-joined `agent.options.systemPrompt` AFTER the assembled sections, so the model read "Use the read tool…" before "You are a coding agent" — backwards relative to the identity-first convention (Claude Code, Codex) and a second composition path besides the section pipeline.
 

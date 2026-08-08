@@ -39,7 +39,16 @@ declare module '@deepseek-ai/dsh-tasks' {
 
 async function composePrefix(ctx: Context, cwd: string): Promise<Message[]> {
   const agent = ctx.agentLoop.create(SessionId('agent-spine-prefix'), {}, { cwd })
-  await agentEvents(ctx, agent).serial('agent/step', 1, 1, new AbortController().signal)
+  const signal = new AbortController().signal
+  const decision = await agentEvents(ctx, agent).waterfall(
+    'agent/pre-step', { messages: [], turn: 1, step: 1, signal },
+    () => Promise.resolve({ kind: 'enter', messages: [] }),
+  )
+  if (decision.kind === 'enter') {
+    for (const message of decision.messages) {
+      agent.session.append('user/message', message, { surfaceOp: 'append' })
+    }
+  }
   return agent.session.deriveMessages()
 }
 
@@ -166,7 +175,6 @@ describe('dsh-agent-spine-demo bundle', () => {
     const session = ctx.sessions.create(SessionId('configured-title-limits'))
     session.append('turn/start', {
       turn: 1,
-      trigger: { kind: 'message', source: { kind: 'user' } },
     })
     session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'One two three four' }],
@@ -209,8 +217,8 @@ describe('dsh-agent-spine-demo bundle', () => {
   it('mounts package companions and forwards invariant selection config', async () => {
     const nestedTurn = (ctx: Context): void => {
       const session = ctx.sessions.create()
-      session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-      session.append('turn/start', { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } })
+      session.append('turn/start', { turn: 1 })
+      session.append('turn/start', { turn: 2 })
     }
 
     const enabled = await mount({ workspaceContext: false })
@@ -327,7 +335,7 @@ describe('dsh-agent-spine-demo bundle', () => {
     try {
       await mkdir(join(root, '.git'), { recursive: true })
       await writeFile(join(root, 'AGENTS.md'), 'bundled project rule')
-      const adapter = new MockAdapter([textResponse('ok')])
+      const adapter = new MockAdapter([textResponse('first')])
       const ctx = await mount({ workspaceContext: { maxBytes: 65536 } })
       await ctx.plugin(LocalFileSystem, { cwd: '/' })
       ctx.llm.registerAdapter(['mock'], adapter)
@@ -341,9 +349,10 @@ describe('dsh-agent-spine-demo bundle', () => {
       agent.followup(createUserMessage({ content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }))
       await waitForIdle(ctx, agent)
 
-      const sentText = adapter.requests[0]?.messages.map(messageText).join('\n')
-      expect(sentText).toContain('hi')
-      expect(sentText).toContain('bundled project rule')
+      expect(adapter.requests).toHaveLength(1)
+      const firstRequestText = adapter.requests[0]?.messages.map(messageText).join('\n')
+      expect(firstRequestText).toContain('hi')
+      expect(firstRequestText).toContain('bundled project rule')
       expect(adapter.requests[0]?.system).toContain('You are an AI agent powered by the DeepSeek Harness SDK.')
       expect(adapter.requests[0]?.system).not.toContain('bundled project rule')
       await handle.dispose()
@@ -467,9 +476,7 @@ describe('dsh-agent-spine-demo bundle', () => {
       expect(loadedRequest).toContain('Use the freshly loaded body.')
 
       const transcript = handle.agent.session.events.flatMap<Record<string, unknown>>((event) => {
-        if (event.type === 'user/message'
-          && event.data.source.kind === 'plugin'
-          && event.data.source.plugin === 'dsh-tool-skill') {
+        if (event.type === 'user/message' && event.data.source.kind === 'skill-catalog') {
           return [{
             type: event.type,
             source: event.data.source,
@@ -503,8 +510,14 @@ describe('dsh-agent-spine-demo bundle', () => {
           },
           {
             "source": {
-              "kind": "plugin",
-              "plugin": "dsh-tool-skill",
+              "entries": [
+                {
+                  "description": "Hot-added skill",
+                  "name": "hot-skill",
+                },
+              ],
+              "form": "catalog",
+              "kind": "skill-catalog",
             },
             "text": "<system-reminder>
         A skill is a reusable set of task-specific instructions. The following skills are available in this session:
@@ -514,6 +527,7 @@ describe('dsh-agent-spine-demo bundle', () => {
         </available_skills>
 
         If the user names a skill, or the task clearly matches a skill's description, call the \`skill\` tool with the exact skill name before taking task actions. Load all applicable skills, then follow their full instructions. This catalog contains summaries only; do not infer or follow a skill's instructions until it has been loaded.
+        A user may also invoke a skill directly; its <skill_content> block then appears in this conversation. Follow it, and do not call the \`skill\` tool again for that skill.
         </system-reminder>",
             "type": "user/message",
           },
@@ -577,12 +591,12 @@ describe('dsh-agent-spine-demo bundle', () => {
     }).toThrow('agent-spine-demo: dshHome and skills.local.dshHome must resolve to the same directory')
   })
 
-  it('places workspace instructions before the skill catalog in the session prefix', async () => {
+  it('delivers workspace instructions ahead of the first-step skill catalog', async () => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-agent-spine-demo-prefix-order-'))
     try {
       await mkdir(join(root, '.git'), { recursive: true })
       await writeFile(join(root, 'AGENTS.md'), 'workspace rule before skills')
-      const adapter = new MockAdapter([textResponse('ok')])
+      const adapter = new MockAdapter([textResponse('first')])
       const ctx = await mount({ workspaceContext: { maxBytes: 65536 } })
       await ctx.plugin(LocalFileSystem, { cwd: '/' })
       ctx.llm.registerAdapter(['mock'], adapter)
@@ -601,8 +615,16 @@ describe('dsh-agent-spine-demo bundle', () => {
       handle.agent.followup(createUserMessage({ content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }))
       await waitForIdle(ctx, handle.agent)
 
-      expect(messageText(adapter.requests[0]?.messages[1])).toContain('workspace rule before skills')
-      expect(messageText(adapter.requests[0]?.messages[2])).toContain('prefix-order-skill')
+      expect(adapter.requests).toHaveLength(1)
+      const workspaceIndex = adapter.requests[0]!.messages.findIndex(
+        message => messageText(message).includes('workspace rule before skills'),
+      )
+      const catalogIndex = adapter.requests[0]!.messages.findIndex(
+        message => messageText(message).includes('prefix-order-skill'),
+      )
+      expect(workspaceIndex).toBeGreaterThanOrEqual(0)
+      expect(catalogIndex).toBeGreaterThanOrEqual(0)
+      expect(workspaceIndex).toBeLessThan(catalogIndex)
       await handle.dispose()
       await ctx.fiber.dispose()
     } finally {

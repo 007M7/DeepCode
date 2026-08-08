@@ -34,13 +34,10 @@ Registration is effect-based (HMR-safe); one adapter per provider route — dupl
 
 Provider-specific thinking-mode toggles remain in the adapter's Config. Exact model metadata uses one provider-neutral capability seam: implement `resolveModel()` with provider/model identity and optional `context` and `reasoning` fields, declare a configured `defaultEffort` only when one exists, and honor the resolver's optional `AbortSignal`. Reasoning efforts are ordered opaque ids mapped to provider requests by the adapter. Preserve the adapter's authoritative selectable list, including an adapter-defined `off` when supported, without exposing final wire spellings or clamping unsupported values; an id need not equal its wire representation.
 
-## Structure that worked
+## Implementation structure
 
-Split the adapter into testable stages (llm-deepseek's layout): wire types (`types.ts`, coverage-exempt) → request serializer → SSE/transport parser → chunk-translation state machine → a thin adapter class wiring them. Each stage gets its own unit suite.
+Keep wire types, request serialization, transport parsing, chunk translation, and the adapter class as separate responsibilities; [`llm-deepseek`](../../packages/llm/llm-deepseek/README.md) is the reference layout.
 
-## Testing
+## Verification
 
-- **Unit: mock the provider, not the harness.** A scripted `node:http` server speaking the provider's wire format covers happy paths, every error status, malformed payloads, premature closes, and aborts — no network, and it drives the 100% per-file coverage gate. Works for SDK-backed adapters too (point the SDK's baseURL at the mock).
-- **Hostile framing tests.** Split stream payloads at arbitrary byte positions (including mid-UTF-8) — real networks do.
-- **E2E: `tests/*.e2e.ts`** under `pnpm run test:e2e`, gated with `describe.skipIf(!process.env.MY_KEY)` so CI (no secrets) stays green. Cover representative model/provider/API families and every provider mode you map, a tool-call round trip INCLUDING the follow-up turn with results in history, and loose assertions only (substring/structure, bounded maxTokens — real models are nondeterministic).
-- Register the e2e file pattern in `knip.json` (per-workspace `entry` override) or knip flags it unused.
+Follow the [repository testing policy](../testing.md), which owns adapter coverage, real-provider checks, and published-entry requirements.

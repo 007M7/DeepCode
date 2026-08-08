@@ -38,7 +38,7 @@
 
 ## 表层契约
 
-`SurfaceEventType` 是封闭联合：只有 `user/message`、`assistant/message`、`tool/result` 和 `steering/message` 可以携带 `surfaceOp`。因此 `compact/*` 事件**不能**出现在表层上。成功压缩改为：
+`SurfaceEventType` 是封闭联合：只有 `user/message`、`assistant/message` 和 `tool/result` 可以携带 `surfaceOp`。因此 `compact/*` 事件**不能**出现在表层上。成功压缩改为：
 
 1. 追加 `compact/start`（仅日志）：获取锁；
 2. 摘要该范围；

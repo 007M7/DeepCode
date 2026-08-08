@@ -31,6 +31,12 @@ interface CommandDefinition {
   readonly description: string
   /** Optional free-form input hint advertised to capable clients. */
   readonly input?: CommandInputDescriptor
+  /**
+   * Whether `command/run` records `rawInput`. Defaults to true. A command
+   * whose domain event owns the payload sets this false to avoid duplicating
+   * that payload in the session log.
+   */
+  readonly recordInput?: boolean
   /** Execute against the receiving agent without sending the command to the model. */
   readonly handler: (invocation: CommandInvocation) => CommandResult | Promise<CommandResult>
 }
@@ -55,9 +61,16 @@ interface CommandInvocation {
 ```ts type-equiv
 /** Expected command outcome rendered directly by the dispatching UI. */
 type CommandResult =
-  | { readonly kind: 'success'; readonly text?: string }
+  | {
+    readonly kind: 'success'
+    readonly text?: string
+    /** Earlier authoritative domain event that owns a richer presentation. */
+    readonly sourceEventSeq?: number
+  }
   | { readonly kind: 'error'; readonly text: string }
 ```
+
+`sourceEventSeq` is optional and success-only. When present, it names an earlier non-command event in the receiving session log; `command/done` persists the same reference so a client can combine the command lifecycle with that domain projection without parsing `text` or relying on adjacent rows.
 
 ## Discovery and parsing views
 

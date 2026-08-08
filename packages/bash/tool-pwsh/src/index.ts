@@ -8,8 +8,9 @@
  * foreground and `run_in_background` execution (background handles register
  * with the generic `ctx.tasks` runtime), the managed `DSH_*` environment
  * through the shared `bash-env` registry, and the bash marker/truncation
- * rendering story. UI presentation stays on the existing generic/terminal
- * cards; a pwsh-specific rendering twin is roadmap work.
+ * rendering story. UI presentation mirrors the bash tool's too: a completed
+ * foreground call is a terminal card with the parsed exit-status pill, using
+ * the shared exit-status parse from `@deepseek-ai/dsh-bash`.
  *
  * @module @deepseek-ai/dsh-tool-pwsh
  */
@@ -25,6 +26,7 @@ import type {} from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tasks'
 import type {} from '@deepseek-ai/dsh-bash-env'
 import type { BashRunResult } from '@deepseek-ai/dsh-bash'
+import { parseExitStatus } from '@deepseek-ai/dsh-bash'
 import { processOutcome } from './background.ts'
 import { renderPwshProcessRead, renderPwshResult } from './render.ts'
 
@@ -297,10 +299,20 @@ export function apply(ctx: Context, config: Config = {}): void {
       }
     },
     /* jscpd:ignore-end */
-    presentResult: (_args: unknown, result: ToolResult): ToolResultView | undefined => {
+    /* jscpd:ignore-start -- the completed-result presentation mirrors presentBashResult's by design (Agent Note). */
+    presentResult: (args: unknown, result: ToolResult): ToolResultView | undefined => {
       const block = result.content.length === 1 ? result.content[0] : undefined
       if (block === undefined || block.type !== 'text') return undefined
-      return { card: 'generic', content: [{ type: 'text', text: `\`\`\`console\n${block.text.replace(/\n+$/, '')}\n\`\`\`` }] }
+      const raw = block.text
+      const isBackground = typeof args === 'object' && args !== null && (args as { run_in_background?: unknown }).run_in_background === true
+      // Background acknowledgements and errors have no terminal exit status.
+      if (isBackground || result.isError) {
+        return { card: 'generic', content: [{ type: 'text', text: `\`\`\`console\n${raw.replace(/\n+$/, '')}\n\`\`\`` }] }
+      }
+      // The exit marker becomes the card's exit pill, so it leaves the output body.
+      const { body, ...exit } = parseExitStatus(raw)
+      return { card: 'terminal', output: body, ...exit }
     },
+    /* jscpd:ignore-end */
   }))
 }

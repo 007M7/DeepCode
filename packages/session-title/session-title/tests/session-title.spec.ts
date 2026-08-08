@@ -43,7 +43,6 @@ describe('SessionTitleService', () => {
     const session = ctx.sessions.create(SessionId('fresh'))
     session.append('turn/start', {
       turn: 1,
-      trigger: { kind: 'message', source: { kind: 'user' } },
     })
     const message = session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: '  Build\nlog-backed session titles please  ' }],
@@ -80,7 +79,6 @@ describe('SessionTitleService', () => {
     const session = ctx.sessions.create(SessionId('prefixed-title'))
     session.append('turn/start', {
       turn: 1,
-      trigger: { kind: 'message', source: { kind: 'user' } },
     })
     session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'Explain this referenced session' }],
@@ -99,7 +97,6 @@ describe('SessionTitleService', () => {
     const session = ctx.sessions.create(SessionId('eligibility'))
     session.append('turn/start', {
       turn: 1,
-      trigger: { kind: 'message', source: { kind: 'user' } },
     })
     session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'plugin text' }],

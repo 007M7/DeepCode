@@ -14,7 +14,6 @@ packages/<group>/<pkg>/
                    # ../../../vendor/cordis (+ ../../../vendor/schemastery if
                    # you use Config, + ../../<group>/<dep> for each dsh dep)
   src/index.ts     # service default export or plugin (name/inject/apply/Config)
-  tests/<x>.spec.ts
   README.md        # service API, events, extension points, design notes,
                    # + gated Model Experience context blocks or short form
                    # + the gated "Known Limitations and Deferred Work" section
@@ -32,12 +31,12 @@ In-package relative imports use explicit `.ts` specifiers in source (for example
 | File | Change |
 |---|---|
 | `tsconfig.base.json` | no edit for an existing group; for a new group, add a `./packages/<group>/*/src` candidate to the `@deepseek-ai/dsh-*` wildcard |
-| `tsconfig.host.json` (host-side package) or `tsconfig.client.json` (client-side package) | add `{ "path": "./packages/<group>/<pkg>" }` to `references` — exactly one aggregate, never both ([layout](../development.md#typescript-project-layout)) |
-| `knip.json` | only if the package has non-`*.spec.ts` entries (e.g. `*.e2e.ts` → add a per-workspace override like `packages/llm/llm-deepseek`) |
+| `tsconfig.host.json` (Host package) or `tsconfig.client.json` (Client package) | add `{ "path": "./packages/<group>/<pkg>" }` to `references` — an ordinary package belongs to exactly one aggregate, never both. `api/remotes` uses a repository-specific split because the Host generates a contract that the Client consumes in a later phase; new packages must not copy it ([layout](../development.md#typescript-project-layout)) |
+| `knip.json` | only if the package has entrypoints that repository discovery does not already cover |
 
 A `packages/client/*` package additionally extends `tsconfig.base.client.json` instead of `tsconfig.base.json`, and a client plugin package declares `dshClient` in package.json, exports `./client`, and calls the shared tsdown preset (`packages/client/tsdown.client.ts`) — see [packages/client/AGENTS.md](../../packages/client/AGENTS.md) for the client-side contract.
 
-Covered automatically by globs or package-manifest discovery — no edits needed: root `package.json` workspaces, `scripts/publint-all.ts`, `tsdown.config.ts`, `vitest.config.ts`, `.oxlintrc.json`, `scripts/check-workspace-constraints.ts`.
+Covered automatically by globs or package-manifest discovery — no edits needed: root `package.json` workspaces, `scripts/publint-all.ts`, `tsdown.config.ts`, `.oxlintrc.json`, `scripts/check-workspace-constraints.ts`.
 
 ## 3. Decide the package topology
 
@@ -85,8 +84,7 @@ A package with no context effect or one consumer-owned path uses the audited `No
 pnpm install        # registers the workspace
 pnpm run doc-sync
 pnpm run constraints && pnpm run typecheck && pnpm run lint
-pnpm run test:coverage  # 100% per-file over src (types.ts exempt)
 pnpm run build && pnpm run hygiene
 ```
 
-Test expectations: every registry/registration needs an HMR-safety test (register from a child fiber, dispose it, assert cleanup). Excessive tests are welcome — see [docs/testing.md](../testing.md).
+Follow the [repository testing policy](../testing.md) for the behavior-specific checks and coverage required by the new package.

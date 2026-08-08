@@ -70,6 +70,26 @@ const projected = (ctx: Context, session: Session): TokenUsageProjection => {
   return value
 }
 
+/**
+ * Meter one upcoming replacement the way compact-basic does: price the
+ * replaced span from the measurement service's own nodes and log the
+ * shadow-price event directly before the replace.
+ */
+function appendSummaryMeter(ctx: Context, session: Session, start: number, end: number): void {
+  const nodes = ctx.tokenMeter.measure(session).nodes
+  const startIdx = nodes.findIndex(node => node.seq === start)
+  const endIdx = nodes.findIndex(node => node.seq === end)
+  const shadowed = nodes.slice(startIdx, endIdx + 1)
+  session.append('compact/summary', {
+    summary: [{ type: 'text', text: 'summary' }],
+    shadowedRange: { start, end },
+    shadowedSeqs: shadowed.map(node => node.seq),
+    shadowedTokenCount: shadowed.reduce((total, node) => total + node.tokens, 0),
+    provider: 'mock',
+    model: 'mock',
+  })
+}
+
 describe('tokenUsage session projection', () => {
   it('serves zero buckets for an empty log', async () => {
     const { ctx, session } = await harness()
@@ -184,6 +204,7 @@ describe('tokenUsage session projection', () => {
       content: [{ type: 'text', text: 'before compaction' }],
       source: { kind: 'user' },
     }), { surfaceOp: 'append' })
+    appendSummaryMeter(ctx, session, before.seq, before.seq)
     session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'compacted' }],
       source: { kind: 'plugin', plugin: 'test' },
@@ -235,6 +256,34 @@ function recordContext(session: Session, model: string, contextWindow?: number):
   })
 }
 
+/** Append one model-visible user turn and return its surface seq. */
+function appendUser(session: Session, text: string): number {
+  return session.append('user/message', createUserMessage({
+    content: [{ type: 'text', text }],
+    source: { kind: 'user' },
+  }), { surfaceOp: 'append' }).seq
+}
+
+/** Append one finalized assistant turn carrying its provider usage. */
+function appendAssistant(
+  session: Session,
+  text: string,
+  usage: TokenUsage,
+  turn: number,
+  step: number,
+): number {
+  return session.append('assistant/message', {
+    turn,
+    step,
+    message: createMessage({
+      role: 'assistant',
+      content: [{ type: 'text', text }],
+      source: { kind: 'model', provider: 'mock', model: 'mock' },
+    }),
+    usage,
+  }, { surfaceOp: 'append', sourceEventSeqs: [] }).seq
+}
+
 describe('contextPressure session projection', () => {
   it('serves no pressure or capacity for an empty log', async () => {
     const { ctx, session } = await harness()
@@ -277,9 +326,13 @@ describe('contextPressure session projection', () => {
     startStep(session, 1, 1)
     recordContext(session, 'small', 64_000)
     usageChunk(session, { inputTokens: 100, outputTokens: 10 }, 1, 1)
-    expect(pressure(ctx, session)).toEqual({ pressureTokens: 100, contextWindow: 64_000 })
+    expect(pressure(ctx, session)).toEqual({
+      pressureTokens: 100, projectedTokens: 100, contextWindow: 64_000,
+    })
     recordContext(session, 'large', 256_000)
-    expect(pressure(ctx, session)).toEqual({ pressureTokens: 100, contextWindow: 256_000 })
+    expect(pressure(ctx, session)).toEqual({
+      pressureTokens: 100, projectedTokens: 100, contextWindow: 256_000,
+    })
   })
 
   it('removes an older capacity when the newest route advertises none', async () => {
@@ -288,7 +341,7 @@ describe('contextPressure session projection', () => {
     recordContext(session, 'small', 64_000)
     usageChunk(session, { inputTokens: 100, outputTokens: 10 }, 1, 1)
     recordContext(session, 'unknown')
-    expect(pressure(ctx, session)).toEqual({ pressureTokens: 100 })
+    expect(pressure(ctx, session)).toEqual({ pressureTokens: 100, projectedTokens: 100 })
   })
 
   it('pushes no change for unrelated events or a restated capacity', async () => {
@@ -319,7 +372,7 @@ describe('contextPressure session projection', () => {
     const checkpoint = JSON.parse(JSON.stringify(
       ctx.sessionProjections.checkpoint(session),
     )) as ReturnType<typeof ctx.sessionProjections.checkpoint>
-    expect(checkpoint.contextPressure?.ver).toBe(2)
+    expect(checkpoint.contextPressure?.ver).toBe(4)
 
     await meterFiber.dispose()
     expect(ctx.sessionProjections.snapshot(session).values).not.toHaveProperty('contextPressure')
@@ -327,7 +380,81 @@ describe('contextPressure session projection', () => {
     await ctx.plugin(TokenMeterService)
     expect(ctx.sessionProjections.viewCheckpoint(checkpoint).contextPressure).toEqual({
       pressureTokens: 42,
+      projectedTokens: 42,
       contextWindow: 64_000,
     })
+  })
+
+  it('carries the sample forward over surface growth and a compaction', async () => {
+    const { ctx, session } = await harness()
+    recordContext(session, 'large', 128_000)
+    const question = appendUser(session, 'a first question worth a few tokens')
+    startStep(session, 1, 1)
+    // The provider prices the prompt its request actually carried; the sample
+    // must anchor against the surface as of that request, not after the
+    // assistant message joins it.
+    const answer = appendAssistant(session, 'an answer of some length', { inputTokens: 900, outputTokens: 20 }, 1, 1)
+    session.append('step/end', { turn: 1, step: 1 })
+    const afterTurn = pressure(ctx, session)
+    expect(afterTurn.pressureTokens).toBe(900)
+    // The assistant message landed after the sample, so it already shows.
+    expect(afterTurn.projectedTokens).toBeGreaterThan(900)
+
+    const grown = appendUser(session, 'a follow-up question that grows the surface further')
+    const beforeCompaction = pressure(ctx, session).projectedTokens
+    expect(beforeCompaction).toBeGreaterThan(afterTurn.projectedTokens!)
+
+    // Compaction reports no usage of its own, so `pressureTokens` cannot move;
+    // the projected figure must shrink anyway — the defect this field fixes.
+    appendSummaryMeter(ctx, session, question, grown)
+    session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'summary' }],
+      source: { kind: 'plugin', plugin: 'test' },
+    }), {
+      surfaceOp: { op: 'replace', start: question, end: grown },
+      sourceEventSeqs: [question, answer, grown],
+    })
+    const compacted = pressure(ctx, session)
+    expect(compacted.pressureTokens).toBe(900)
+    expect(compacted.projectedTokens).toBeLessThan(beforeCompaction!)
+  })
+
+  it('folds a replacement without a claim at zero', async () => {
+    const { ctx, session } = await harness()
+    const question = appendUser(session, 'a question from an unmetered log')
+    startStep(session, 1, 1)
+    usageChunk(session, { inputTokens: 100, outputTokens: 1 }, 1, 1)
+    session.append('step/end', { turn: 1, step: 1 })
+    const before = pressure(ctx, session)
+
+    session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'summary without a preceding claim' }],
+      source: { kind: 'plugin', plugin: 'test' },
+    }), {
+      surfaceOp: { op: 'replace', start: question, end: question },
+      sourceEventSeqs: [question],
+    })
+
+    expect(pressure(ctx, session)).toEqual(before)
+  })
+
+  it('clamps a projection that heuristic error drove below zero', async () => {
+    const { ctx, session } = await harness()
+    recordContext(session, 'large', 128_000)
+    const question = appendUser(session, 'a question long enough to outprice the sample'.repeat(4))
+    startStep(session, 1, 1)
+    // A provider sample far below the heuristic price of what it replaced:
+    // shadowing that span subtracts more than the sample holds.
+    appendAssistant(session, 'ok', { inputTokens: 3, outputTokens: 1 }, 1, 1)
+    session.append('step/end', { turn: 1, step: 1 })
+    appendSummaryMeter(ctx, session, question, question)
+    session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: '.' }],
+      source: { kind: 'plugin', plugin: 'test' },
+    }), {
+      surfaceOp: { op: 'replace', start: question, end: question },
+      sourceEventSeqs: [question],
+    })
+    expect(pressure(ctx, session).projectedTokens).toBe(0)
   })
 })

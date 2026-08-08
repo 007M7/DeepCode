@@ -97,7 +97,7 @@ describe('SessionProjectionRegistry drive', () => {
     })
     const event = mark(session, ['a'])
     // Non-matching event: apply returns the same reference — no notification.
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     expect(seen).toEqual([{ key: 'test/marks', value: { marks: ['a'] }, seq: event.seq, sessionId: String(session.id) }])
   })
 
@@ -119,7 +119,7 @@ describe('SessionProjectionRegistry drive', () => {
     ctx.sessionProjections.onChanged((_session, key) => {
       changedKeys.push(key)
     })
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     // count applied (+1 change), marks returned the same reference.
     expect(changedKeys).toEqual(['test/count'])
     const snapshot = ctx.sessionProjections.snapshot(session)
@@ -235,7 +235,7 @@ describe('SessionProjectionRegistry drive', () => {
     }, tail, 3)).toThrow(/re-read from seq 0/)
     // The full-log re-read (baseSeq 0) refolds the mismatched key from init.
     const full: SessionEvent[] = [
-      { type: 'turn/start', seq: 0, time: 0, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
+      { type: 'turn/start', seq: 0, time: 0, data: { turn: 1 } },
       { type: 'test/mark', seq: 1, time: 1, data: { marks: ['old'] } },
       { type: 'test/mark', seq: 2, time: 2, data: { marks: ['old', '2'] } },
       ...tail,
@@ -261,7 +261,7 @@ describe('SessionProjectionRegistry drive', () => {
       'test/count': { ver: 1, seq: 2, val: 3 },
     }
     const tail: SessionEvent[] = [
-      { type: 'turn/start', seq: 3, time: 3, data: { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } } },
+      { type: 'turn/start', seq: 3, time: 3, data: { turn: 2 } },
       { type: 'turn/end', seq: 4, time: 4, data: { turn: 2, reason: { kind: 'completed' } } },
     ]
     const { snapshot } = ctx.sessionProjections.restore(rows, tail, 3)
@@ -309,7 +309,7 @@ describe('SessionProjectionRegistry drive', () => {
     expect(() => ctx.sessionProjections.restore(rows, [], 9)).toThrow(/re-read from seq 0/)
     // The full re-read discards the overreaching row and refolds from init.
     const events: SessionEvent[] = [
-      { type: 'turn/start', seq: 0, time: 0, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
+      { type: 'turn/start', seq: 0, time: 0, data: { turn: 1 } },
       { type: 'turn/end', seq: 1, time: 1, data: { turn: 1, reason: { kind: 'completed' } } },
     ]
     const { snapshot } = ctx.sessionProjections.restore(rows, events, 0)

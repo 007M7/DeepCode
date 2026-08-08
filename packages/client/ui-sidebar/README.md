@@ -12,7 +12,7 @@ Scrollbars in the column are a pointer affordance: the shell rebinds ui-theme's 
 
 The foot is the `sidebar.settings` seat: the sidebar renders only the bottom-pinned layout slot and shares its column state (`wide`); ui-settings registers the trigger row and settings panel there.
 
-The `/client` export surface is the plugin body (`apply`/`inject`) plus the contract types only — SidebarRoot, the row components, and the tree derivation are internal (the slot registration closes over them; tests import src paths directly).
+The `/client` export surface is the plugin body (`apply`/`inject`) plus the contract types only; SidebarRoot, the row components, and the tree derivation remain package-internal behind the slot registration.
 
 ## Model Experience
 
@@ -24,6 +24,6 @@ None; this package neither assembles nor sends a provider request.
 
 ## Known Limitations and Deferred Work
 
-- **Session state-dot rendering is owned by [ui-workspace](../ui-workspace/README.md)** — done/error notification sources remain deferred.
-- **Group-by menu ships by-workspace only** — Update/Status grouping strategies are drawn without specs and deferred.
+- **Session state-dot rendering is owned by [ui-workspace](../ui-workspace/README.md)** — no done/error notification sources are available.
+- **Group-by supports Workspace only** — Update and Status are not available strategies.
 - **"New task completed" unread marking is local viewing state** — completion-time > last-seen never reaches the host.

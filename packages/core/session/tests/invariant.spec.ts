@@ -26,7 +26,7 @@ describe('session-log invariants', () => {
     await scopedCtx.plugin(SessionInvariant)
     const session = ctx.sessions.create(SessionId('global-under-scoped-invariants'))
     expect(() => {
-      session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+      session.append('turn/start', { turn: 1 })
       session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     }).not.toThrow()
   })
@@ -35,7 +35,7 @@ describe('session-log invariants', () => {
     const { ctx } = await setup()
     const session = ctx.sessions.create()
     expect(() => {
-      session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+      session.append('turn/start', { turn: 1 })
       session.append('user/message', createUserMessage({
         content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' },
       }), { surfaceOp: 'append' })
@@ -78,11 +78,10 @@ describe('session-log invariants', () => {
     })
     expect(() => session.append('turn/start', {
       turn: 1,
-      trigger: { kind: 'message', source: { kind: 'user' } },
     })).toThrow('later dispatch veto')
     expect(session.events).toEqual([])
     expect(() => {
-      session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+      session.append('turn/start', { turn: 1 })
       session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     }).not.toThrow()
   })
@@ -94,7 +93,7 @@ describe('session-log invariants', () => {
     const session = ctx.sessions.create(SessionId('postcommit-peer'))
     ctx.on('session/event', () => { throw new Error('hostile observer') }, { prepend: true })
     expect(() => {
-      session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+      session.append('turn/start', { turn: 1 })
       session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     }).not.toThrow()
     expect(warnings).toHaveLength(2)
@@ -107,7 +106,7 @@ describe('session-log invariants', () => {
       type: 'turn/start',
       seq: 0,
       time: 1,
-      data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } },
+      data: { turn: 1 },
     } as never)
     expect(() => { ctx.emit(scopeTarget(session, undefined), 'session/event', session, {
       type: 'turn/end',
@@ -120,30 +119,42 @@ describe('session-log invariants', () => {
   it('enforces turn numbering and core execution enclosure', async () => {
     const first = await setup()
     const open = first.ctx.sessions.create()
-    open.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-    expect(() => open.append('turn/start', { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } }))
+    open.append('turn/start', { turn: 1 })
+    expect(() => open.append('turn/start', { turn: 2 }))
       .toThrow(/turn 1 is still open/)
     expect(() => open.append('turn/end', { turn: 2, reason: { kind: 'completed' } }))
       .toThrow(/does not match open turn 1/)
 
     const second = (await setup()).ctx.sessions.create()
-    second.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    second.append('turn/start', { turn: 1 })
     second.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
-    expect(() => second.append('turn/start', { turn: 3, trigger: { kind: 'message', source: { kind: 'user' } } }))
+    expect(() => second.append('turn/start', { turn: 3 }))
       .toThrow(/expected turn 2, got 3/)
+
+    const third = (await setup()).ctx.sessions.create()
+    third.append('turn/start', { turn: 1 })
+    third.append('step/start', { turn: 1, step: 1 })
+    third.append('step/end', { turn: 1, step: 1 })
+    expect(() => third.append('turn/end', { turn: 1, reason: { kind: 'completed' } }))
+      .not.toThrow()
+
+    const enclosed = (await setup()).ctx.sessions.create()
+    enclosed.append('turn/start', { turn: 1 })
+    enclosed.append('step/start', { turn: 1, step: 1 })
+    expect(() => enclosed.append('todo/write', { todos: [] })).not.toThrow()
+    expect(() => enclosed.append('request/header', {
+      header: { config: { provider: 'mock', model: 'mock' } },
+      reason: 'initial',
+    } as never)).not.toThrow()
+    expect(() => enclosed.append('request/context', {
+      provider: 'mock', model: 'mock',
+    })).not.toThrow()
 
     const outside = (await setup()).ctx.sessions.create()
     expect(() => outside.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'idle context' }],
       source: { kind: 'plugin', plugin: 'test' },
     }), { surfaceOp: 'append' })).not.toThrow()
-    expect(() => outside.append('steering/message', {
-      turn: 1,
-      message: createUserMessage({
-        content: [{ type: 'text', text: 'go' }],
-        source: { kind: 'user' },
-      }),
-    }, { surfaceOp: 'append' })).toThrow(/outside any open turn/)
     // Route capacity is core execution state like the header beside it.
     expect(() => outside.append('request/context', {
       provider: 'mock',
@@ -155,17 +166,16 @@ describe('session-log invariants', () => {
     expect(() => { appendUnknown('plugin/marker', {}) }).not.toThrow()
     expect(() => outside.append('turn/start', {
       turn: 1,
-      trigger: { kind: 'message', source: { kind: 'user' } },
     })).not.toThrow()
   })
 
   it('enforces open-step identity and numbering', async () => {
     const wrongTurn = (await setup()).ctx.sessions.create()
-    wrongTurn.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    wrongTurn.append('turn/start', { turn: 1 })
     expect(() => wrongTurn.append('step/start', { turn: 2, step: 1 })).toThrow(/open turn is 1/)
 
     const nested = (await setup()).ctx.sessions.create()
-    nested.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    nested.append('turn/start', { turn: 1 })
     nested.append('step/start', { turn: 1, step: 1 })
     expect(() => nested.append('step/start', { turn: 1, step: 2 })).toThrow(/while step 1 is still open/)
     expect(() => nested.append('turn/end', { turn: 1, reason: { kind: 'completed' } }))
@@ -185,16 +195,21 @@ describe('session-log invariants', () => {
     }, { surfaceOp: 'append' })).toThrow(/open is turn 1\/step 1/)
 
     const skipped = (await setup()).ctx.sessions.create()
-    skipped.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    skipped.append('turn/start', { turn: 1 })
     skipped.append('step/start', { turn: 1, step: 1 })
     skipped.append('step/end', { turn: 1, step: 1 })
     expect(() => skipped.append('step/start', { turn: 1, step: 3 }))
       .toThrow(/expected step 2 in turn 1, got 3/)
+
+    expect(() => skipped.append('turn/end', {
+      turn: 1,
+      reason: { kind: 'completed' },
+    })).not.toThrow()
   })
 
   it('requires step-scoped stream and tool events to name the open step', async () => {
     const chunk = (await setup()).ctx.sessions.create()
-    chunk.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    chunk.append('turn/start', { turn: 1 })
     expect(() => chunk.append('assistant/chunk', {
       turn: 1,
       step: 1,
@@ -202,7 +217,7 @@ describe('session-log invariants', () => {
     })).toThrow(/open is turn 1\/step null/)
 
     const tool = (await setup()).ctx.sessions.create()
-    tool.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    tool.append('turn/start', { turn: 1 })
     tool.append('step/start', { turn: 1, step: 1 })
     expect(() => tool.append('tool/result', {
       turn: 1,
@@ -218,7 +233,7 @@ describe('session-log invariants', () => {
   it('keeps fresh tool-result appends open-step checked', async () => {
     const { ctx } = await setup()
     const session = ctx.sessions.create()
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     expect(() => session.append('tool/result', {
       turn: 1,
       step: 1,
@@ -233,7 +248,7 @@ describe('session-log invariants', () => {
   it('treats a validated tool-result replacement as a turn-enclosed rewrite', async () => {
     const { ctx } = await setup()
     const session = ctx.sessions.create()
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     session.append('step/start', { turn: 1, step: 1 })
     session.append('tool/call', {
       turn: 1,
@@ -254,7 +269,7 @@ describe('session-log invariants', () => {
     session.append('step/end', { turn: 1, step: 1 })
     session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
 
-    session.append('turn/start', { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 2 })
     expect(() => session.append('tool/result', {
       ...original.data,
       message: freezeMessage({
@@ -273,7 +288,7 @@ describe('session-log invariants', () => {
   it('rejects a tool-result replacement outside a turn', async () => {
     const { ctx } = await setup()
     const session = ctx.sessions.create()
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     session.append('step/start', { turn: 1, step: 1 })
     session.append('tool/call', {
       turn: 1,
@@ -312,7 +327,7 @@ describe('session-log invariants', () => {
   it('allows not-started repair results and unresolved calls at step end', async () => {
     const repaired = (await setup()).ctx.sessions.create()
     expect(() => {
-      repaired.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+      repaired.append('turn/start', { turn: 1 })
       repaired.append('step/start', { turn: 1, step: 1 })
       repaired.append('tool/result', {
         turn: 1,
@@ -330,18 +345,18 @@ describe('session-log invariants', () => {
 
     const unresolved = (await setup()).ctx.sessions.create()
     expect(() => {
-      unresolved.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+      unresolved.append('turn/start', { turn: 1 })
       unresolved.append('step/start', { turn: 1, step: 1 })
       unresolved.append('tool/call', { turn: 1, step: 1, callId: CallId('c1'), name: 'echo', arguments: '{}' })
       unresolved.append('step/end', { turn: 1, step: 1 })
-      unresolved.append('turn/end', { turn: 1, reason: { kind: 'error', step: 1, message: 'boom' } })
+      unresolved.append('turn/end', { turn: 1, reason: { kind: 'error', error: { message: 'boom', code: 'UNKNOWN' } } })
     }).not.toThrow()
   })
 
   it('does not let a result in a later step satisfy an earlier call', async () => {
     const { ctx } = await setup()
     const session = ctx.sessions.create()
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     session.append('step/start', { turn: 1, step: 1 })
     session.append('tool/call', { turn: 1, step: 1, callId: CallId('c1'), name: 'echo', arguments: '{}' })
     session.append('step/end', { turn: 1, step: 1 })
@@ -360,22 +375,22 @@ describe('session-log invariants', () => {
   it('replays seeded sessions and tracks each session independently', async () => {
     const { ctx } = await setup()
     const badSeed = [
-      { type: 'turn/start' as const, seq: 0, time: 0, data: { turn: 1, trigger: { kind: 'message' as const, source: { kind: 'user' as const } } } },
-      { type: 'turn/start' as const, seq: 1, time: 0, data: { turn: 2, trigger: { kind: 'message' as const, source: { kind: 'user' as const } } } },
+      { type: 'turn/start' as const, seq: 0, time: 0, data: { turn: 1 } },
+      { type: 'turn/start' as const, seq: 1, time: 0, data: { turn: 2 } },
     ]
     expect(() => ctx.sessions.create(undefined, { seed: badSeed })).toThrow(InvariantError)
 
     const a = ctx.sessions.create(SessionId('a'))
     const b = ctx.sessions.create(SessionId('b'))
-    a.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-    expect(() => b.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } }))
+    a.append('turn/start', { turn: 1 })
+    expect(() => b.append('turn/start', { turn: 1 }))
       .not.toThrow()
   })
 
   it('rebuilds trace state for sessions that exist when the companion reloads', async () => {
     const { ctx, fiber } = await setup()
     const session = ctx.sessions.create()
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     session.append('step/start', { turn: 1, step: 1 })
     await fiber.dispose()
     await ctx.plugin(SessionInvariant)
@@ -384,7 +399,7 @@ describe('session-log invariants', () => {
       step: 1,
       chunk: { type: 'text-delta', index: 0, text: 'h' },
     })).not.toThrow()
-    expect(() => session.append('turn/start', { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } }))
+    expect(() => session.append('turn/start', { turn: 2 }))
       .toThrow(/turn 1 is still open/)
   })
 
@@ -392,16 +407,16 @@ describe('session-log invariants', () => {
     const { ctx } = await setup()
     // Balanced seed: between turns.
     expect(() => ctx.sessions.create(SessionId('inherited-between-turns'), { seed: [
-      { type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
+      { type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } },
       { type: 'turn/end', seq: 1, time: 2, data: { turn: 1, reason: { kind: 'completed' } } },
     ] })).not.toThrow()
     // Unbalanced seed: inside the open turn, which the relation permits.
     const open = ctx.sessions.create(SessionId('inherited-inside-open-turn'), { seed: [
-      { type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
+      { type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } },
     ] })
     expect(open.events.map(event => event.type)).toEqual(['turn/start', 'session/end-seed'])
     // Still open afterwards: the boundary moves no cursor.
-    expect(() => open.append('turn/start', { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } }))
+    expect(() => open.append('turn/start', { turn: 2 }))
       .toThrow(/turn 1 is still open/)
     expect(() => open.append('turn/end', { turn: 1, reason: { kind: 'completed' } })).not.toThrow()
   })
@@ -409,11 +424,10 @@ describe('session-log invariants', () => {
   it('removes all listeners when the companion is disposed', async () => {
     const { ctx, fiber } = await setup()
     const session = ctx.sessions.create()
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     await fiber.dispose()
     expect(() => session.append('turn/start', {
       turn: 2,
-      trigger: { kind: 'message', source: { kind: 'user' } },
     })).not.toThrow()
   })
 })

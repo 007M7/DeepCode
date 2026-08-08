@@ -1,7 +1,8 @@
 // MessageItem: simple chat nodes — user and consumed-steering bubbles
-// (right-aligned, with clock + copy / branch IconActions), pending steering
-// (copy only), context injection, compaction marker, retry disclosure, and
-// unknown-surface JSON rows.
+// (right-aligned, with clock + copy IconActions; steering adds the
+// interjection caption that names it; branch lives only under assistant
+// answers), pending steering (caption + copy only), context injection,
+// compaction marker, retry disclosure, and unknown-surface JSON rows.
 
 import { memo, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
@@ -26,10 +27,6 @@ export interface MessageItemProps {
     | TurnErrorNode
     | UnknownSurfaceNode
   retryActive?: boolean
-  /** Fork through this message's completed turn when eligible. */
-  onFork?: (seq: number) => void
-  /** The message is not the transcript tail of a completed turn. */
-  forkUnavailable?: boolean
   /** The owning view's locale seat, passed down as a plain prop. */
   t: ChatViewSlotProps['t']
 }
@@ -140,29 +137,27 @@ function TurnErrorItem({ node, t }: {
 /**
  * Display projection of reference forms in a user bubble (free geometry — no
  * textarea alignment constraint here); everything else stays plain text. The
- * logged model text remains the single truth; this is presentation only. Two
- * shapes decorate: legacy `<skill>name</skill>` spans (pre-decision-21
- * history) and plain-text `/name` / `@name` word-boundary tokens (decision
- * 21: the sent text IS the reference — the bubble uses the same plainest
- * token scan as the composer, minus the lexicon: sent tokens were validated
- * at compose time, so shape alone decorates).
+ * logged model text remains the single truth; this is presentation only.
+ * Plain-text `/name` / `@name` word-boundary tokens decorate (decision 21:
+ * the sent text IS the reference — the bubble uses the same plainest token
+ * scan as the composer, minus the lexicon: sent tokens were validated at
+ * compose time, so shape alone decorates).
  */
 function projectUserText(text: string): ReactNode {
-  const re = /<skill>([^<]+)<\/skill>|(^|\s)([/@][\w-]+)(?=\s|$)/g
+  const re = /(^|\s)([/@][\w-]+)(?=\s|$)/g
   const parts: ReactNode[] = []
   let cursor = 0
   let m: RegExpExecArray | null
   while ((m = re.exec(text)) !== null) {
-    const legacy = m[1] !== undefined
-    const tokenStart = legacy ? m.index : m.index + (m[2]?.length ?? 0)
-    const label = legacy ? `/${m[1]}` : m[3] ?? ''
+    const tokenStart = m.index + (m[1]?.length ?? 0)
+    const label = m[2] ?? ''
     if (tokenStart > cursor) parts.push(<MessageText key={cursor} text={text.slice(cursor, tokenStart)} />)
     parts.push(
       <span key={tokenStart} className={css.refChip} data-ref-chip={label.startsWith('@') ? 'subagent' : 'skill'}>
         {label}
       </span>,
     )
-    cursor = legacy ? m.index + m[0].length : tokenStart + label.length
+    cursor = tokenStart + label.length
   }
   if (parts.length === 0) return <MessageText text={text} />
   if (cursor < text.length) parts.push(<MessageText key={cursor} text={text.slice(cursor)} />)
@@ -171,19 +166,22 @@ function projectUserText(text: string): ReactNode {
 
 /** Right-aligned bubble shared by user and steering rows. */
 function UserStyleBubble({
-  content, actions, pending = false, t,
+  content, actions, pending = false, steering = false, t,
 }: {
   content: readonly unknown[]
   /** Optional IconActions (or similar) below the bubble; receives the joined text. */
   actions?: (text: string) => ReactNode
   /** Whether this is the Host-authoritative pre-admission steering projection. */
   pending?: boolean
+  /** Marks the bubble as mid-turn steering rather than a turn-opening prompt. */
+  steering?: boolean
   t: ChatViewSlotProps['t']
 }): ReactNode {
   const { text, rest } = contentText(content)
   const truncated = (total: number): string => t('json.truncated', { total })
   return (
     <div className={css.userRow} data-pending-steering={pending || undefined} data-time-hover-root>
+      {steering && <span className={css.steeringMark} data-steering-mark>{t('message.steering')}</span>}
       <div className={css.bubble}>
         {projectUserText(text)}
         {rest.map((block, i) => <JsonBlock key={i} label={t('message.extraBlock')} payload={block} truncatedLabel={truncated} />)}
@@ -207,12 +205,12 @@ export function PendingSteeringBubble({ content, t }: {
     <UserStyleBubble
       content={content}
       pending
+      steering
       t={t}
       actions={text => (
         <MessageIconActions
           text={text}
           clock="start"
-          showBranch={false}
           className={css.actions}
           t={t}
         />
@@ -222,7 +220,7 @@ export function PendingSteeringBubble({ content, t }: {
 }
 
 export const MessageItem = memo(function MessageItem({
-  node, retryActive = false, onFork, forkUnavailable = false, t,
+  node, retryActive = false, t,
 }: MessageItemProps) {
   const truncated = (total: number): string => t('json.truncated', { total })
   switch (node.kind) {
@@ -231,14 +229,13 @@ export const MessageItem = memo(function MessageItem({
       return (
         <UserStyleBubble
           content={node.content}
+          steering={node.kind === 'steering'}
           t={t}
           actions={text => (
             <MessageIconActions
               text={text}
               time={node.time}
               clock="start"
-              onBranch={onFork === undefined ? undefined : () => { onFork(node.seq) }}
-              branchUnavailable={forkUnavailable}
               className={css.actions}
               t={t}
             />
@@ -247,7 +244,13 @@ export const MessageItem = memo(function MessageItem({
       )
     case 'context':
       return (
-        <ContextInjectionRow content={node.content} source={node.source} t={t} />
+        <ContextInjectionRow
+          content={node.content}
+          source={node.source}
+          provenance={node.provenance}
+          form={node.form}
+          t={t}
+        />
       )
     case 'compaction':
       return <CompactionItem node={node} t={t} />

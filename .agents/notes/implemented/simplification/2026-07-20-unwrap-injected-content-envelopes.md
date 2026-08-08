@@ -15,7 +15,7 @@ Two problems:
 
 ## Decision
 
-Injected session content projects verbatim; the caller owns any framing. `deriveEventMessage` renders `user/message`, `context/message`, and `steering/message` through one shared case returning `{ role: 'user', content: event.data.content }`; their content blocks reach the model unchanged. `context/message`'s `source`/`meta` and `steering/message`'s `turn` stay in the durable event log but do not render.
+Injected session content projects verbatim; the caller owns any framing. `deriveEventMessage` renders `user/message` content blocks to the model unchanged; `source` stays in the durable event log but does not render.
 
 The `ContextEnvelope` type and every `envelope` field are removed — `context/message` in `SessionEventMap`, `InjectOptions`, `HookContext`, and the `inject()`/`additionalContexts` plumbing in `dsh-agent-loop`. `workspace-context` no longer requests `'raw'`; its self-framed content renders as before. The `renderTagged`/`renderContextEnvelope` helpers are deleted. `context/message.meta` still carries durable, model-hidden JSON state.
 
