@@ -19,7 +19,7 @@ import type { Browser, Page } from 'playwright'
 import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
-import type {} from '@deepseek-ai/dsh-agent'
+import type { Agent } from '@deepseek-ai/dsh-agent'
 import {
   acknowledgeReloadConnectionLoss, assertFixtureInventory, captureStableAria, compareOrRefreshGolden,
   launchWebScaffold, watchConsole, webSnapshotMode, type WebScaffold,
@@ -33,8 +33,11 @@ const OFFLINE_COMPOSER_EXPECTED = join(SNAPSHOT_DIR, 'offline-composer.expected.
 const MODE = webSnapshotMode()
 const LABEL = 'event-sourcing researcher'
 const INITIAL = 'Explain event sourcing in one sentence.'
+const REARM = 'Keep working until I stop you again.'
+const REARM_WAKE = 'Start that queued work now.'
 const FOLLOWUP = 'Now give the same explanation to a human reader.'
 const WAKING = 'And add one concrete example.'
+const REARMED_ANSWER = 're-armed setup answer'
 const PARKED_ANSWER = 'parked follow-up answer'
 const WAKING_ANSWER = 'waking answer'
 
@@ -45,6 +48,23 @@ async function waitFor(predicate: () => boolean, what: string, timeoutMs = 30_00
     if (Date.now() >= deadline) throw new Error(`timed out waiting for ${what}`)
     await new Promise<void>(resolve => setTimeout(resolve, 10))
   }
+}
+
+/** Resolve on one exact child's next aborted turn end. */
+function waitForAbortedTurn(scaffold: WebScaffold, childId: SessionId): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      off()
+      reject(new Error('interrupt did not reach an aborted turn/end'))
+    }, 30_000)
+    const off = scaffold.ctx.on('session/event', (session: { id: SessionId }, event: SessionEvent) => {
+      if (session.id !== childId || event.type !== 'turn/end') return
+      clearTimeout(timer)
+      off()
+      if (event.data.reason.kind === 'aborted') resolve()
+      else reject(new Error(`expected an aborted turn/end, got ${event.data.reason.kind}`))
+    })
+  })
 }
 
 /** One text-only scripted model completion (no tool calls: real tools are mounted). */
@@ -66,6 +86,8 @@ describe.skipIf(MODE === 'record')('web e2e: composer interrupt for a running co
   let browser: Browser
   let page: Page
   let sidecarRoot: string
+  let rearmedReadyFile: string
+  let parent: Agent
   let childId: SessionId
   let tripwire: ReturnType<typeof watchConsole>
   const apiCalls: string[] = []
@@ -73,10 +95,13 @@ describe.skipIf(MODE === 'record')('web e2e: composer interrupt for a running co
   beforeAll(async () => {
     sidecarRoot = await mkdtemp(join(tmpdir(), 'dsh-web-subagent-interrupt-ui-'))
     const readyFile = join(sidecarRoot, 'hang-ready')
-    // The child claims this whole-script replacement: held turn 1, then the
-    // parked follow-up and waking turns.
+    rearmedReadyFile = join(sidecarRoot, 'hang-rearmed-ready')
+    // The child claims this whole-script replacement: the offline and online
+    // interrupt paths each hold one turn, then the parked and waking turns settle.
     await writeFile(join(sidecarRoot, 'replay.override.json'), JSON.stringify([
       { kind: 'hang', readyFile },
+      { kind: 'hang', readyFile: rearmedReadyFile },
+      textCompletion(REARMED_ANSWER),
       textCompletion(PARKED_ANSWER),
       textCompletion(WAKING_ANSWER),
     ]))
@@ -113,8 +138,9 @@ describe.skipIf(MODE === 'record')('web e2e: composer interrupt for a running co
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
     await connectFreshWorkspace(page, scaffold.workspaceCwd)
 
-    const parent = scaffold.ctx.agents.roots()[0]
-    if (parent === undefined) throw new Error('fresh workspace did not publish its parent Agent')
+    const root = scaffold.ctx.agents.roots()[0]
+    if (root === undefined) throw new Error('fresh workspace did not publish its parent Agent')
+    parent = root
     // The child's first model call claims the primary override and holds.
     const started = await scaffold.ctx.subagents.startContinuable({
       provider: 'spawn',
@@ -155,7 +181,7 @@ describe.skipIf(MODE === 'record')('web e2e: composer interrupt for a running co
     if (failures.length > 1) throw new AggregateError(failures, 'subagent interrupt UI teardown failed')
   })
 
-  it('locks Send but keeps independent Stop when the parent is offline', async () => {
+  it('interrupts the live child through the parent-offline composer', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-subagent-interrupt-offline'))
     // Simulate a parent that went offline: the catalog delivers
     // parentAvailable: false while the child Activation stays live (the
@@ -188,6 +214,37 @@ describe.skipIf(MODE === 'record')('web e2e: composer interrupt for a running co
         await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd),
         MODE,
       )
+
+      // Keep the continuable Activation resident after this first abort. The
+      // direct setup queue does not change the parent-offline UI contract: its
+      // input and Send remain disabled throughout the exercised browser path.
+      await scaffold.ctx.subagents.followup(
+        parent,
+        childId,
+        [{ type: 'text', text: REARM }],
+        { source: { kind: 'user' }, signal: new AbortController().signal },
+      )
+      const aborted = waitForAbortedTurn(scaffold, childId)
+      const interruptResponse = page.waitForResponse(response =>
+        new URL(response.url()).pathname === '/api/subagent.interrupt')
+      await stop.click()
+      expect(((await (await interruptResponse).json()) as {
+        result: { ok: boolean; value?: { accepted: boolean } }
+      }).result).toMatchObject({ ok: true, value: { accepted: true } })
+      expect(apiCalls.filter(path => path === '/api/session.cancel')).toEqual([])
+      await aborted
+      await expect.poll(() => scaffold.ctx.agents.get(childId)?.status, { timeout: 15_000 }).toBe('idle')
+
+      // Wake the parked setup message only after cancellation converges. A
+      // second hang keeps the parent-available case independent from this stop.
+      await scaffold.ctx.subagents.followup(
+        parent,
+        childId,
+        [{ type: 'text', text: REARM_WAKE }],
+        { source: { kind: 'user' }, signal: new AbortController().signal },
+      )
+      await waitFor(() => existsSync(rearmedReadyFile), 'the re-armed child turn to open')
+      expect(scaffold.ctx.agents.get(childId)?.status).toBe('running')
     } finally {
       await page.unroute(pattern)
     }
@@ -212,19 +269,7 @@ describe.skipIf(MODE === 'record')('web e2e: composer interrupt for a running co
     expect(((await (await promptResponse).json()) as { result: { ok: boolean } }).result)
       .toMatchObject({ ok: true })
 
-    const aborted = new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        off()
-        reject(new Error('interrupt did not reach an aborted turn/end'))
-      }, 30_000)
-      const off = scaffold.ctx.on('session/event', (session: { id: SessionId }, event: SessionEvent) => {
-        if (session.id !== childId || event.type !== 'turn/end') return
-        clearTimeout(timer)
-        off()
-        if (event.data.reason.kind === 'aborted') resolve()
-        else reject(new Error(`expected an aborted turn/end, got ${event.data.reason.kind}`))
-      })
-    })
+    const aborted = waitForAbortedTurn(scaffold, childId)
     const stop = page.getByRole('button', { name: 'Stop generating' })
     expect(await stop.count()).toBe(1)
     const interruptResponse = page.waitForResponse(response =>
@@ -242,13 +287,14 @@ describe.skipIf(MODE === 'record')('web e2e: composer interrupt for a running co
     await expect.poll(() => scaffold.ctx.agents.get(childId)?.status, { timeout: 15_000 }).toBe('idle')
     const child = scaffold.ctx.agents.get(childId)
     expect(child).toBeDefined()
-    expect(child!.inbox.nextTurn).toHaveLength(1)
-    expect(child!.session.events.filter(event => event.type === 'turn/start')).toHaveLength(1)
+    expect(child!.inbox.nextTurn).toHaveLength(2)
+    expect(child!.session.events.filter(event => event.type === 'turn/start')).toHaveLength(2)
     await page.getByRole('button', { name: 'Send message' }).waitFor({ timeout: 15_000 })
 
     // Only the waking send resumes the parked queue, FIFO, to settlement.
     await input.fill(WAKING)
     await input.press('Enter')
+    await expect.poll(() => page.getByText(REARMED_ANSWER, { exact: true }).count(), { timeout: 30_000 }).toBe(1)
     await expect.poll(() => page.getByText(PARKED_ANSWER, { exact: true }).count(), { timeout: 30_000 }).toBe(1)
     await expect.poll(() => page.getByText(WAKING_ANSWER, { exact: true }).count(), { timeout: 30_000 }).toBe(1)
     await expect.poll(() => scaffold.ctx.agents.get(childId), { timeout: 60_000 }).toBeUndefined()
@@ -258,11 +304,11 @@ describe.skipIf(MODE === 'record')('web e2e: composer interrupt for a running co
       && event.data.source.kind === 'user'
       ? event.data.content.flatMap(block => block.type === 'text' ? [block.text] : [])
       : [])
-    expect(userTexts).toEqual([INITIAL, FOLLOWUP, WAKING])
+    expect(userTexts).toEqual([INITIAL, REARM, REARM_WAKE, FOLLOWUP, WAKING])
     const turnEndKinds = loaded.events
       .filter(event => event.type === 'turn/end')
       .map(event => event.data.reason.kind)
-    expect(turnEndKinds).toEqual(['aborted', 'completed', 'completed'])
+    expect(turnEndKinds).toEqual(['aborted', 'aborted', 'completed', 'completed', 'completed'])
     expect(tripwire.pageErrors).toEqual([])
   }, 120_000)
 
