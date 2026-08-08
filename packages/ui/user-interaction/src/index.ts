@@ -28,7 +28,7 @@ export type {
 export interface AskUserQuestionRequest {
   /** Questions to display. */
   questions: AskUserQuestionItem[]
-  /** Calling agent, when the request came from an agent tool call. */
+  /** Exact live calling agent, when the request came from an agent tool call. */
   agent?: Agent
   /** Abort signal for the owning tool/step. */
   signal?: AbortSignal
@@ -77,15 +77,17 @@ export class UserInteractionService extends Service {
   /**
    * Ask the active UI provider and wait for the user's answer.
    *
-   * Human-interaction requests are only valid from a top-level agent: a
-   * delegated subagent has no human answerer in its own context, so asking
-   * there would block forever. This mirrors the goal tools' top-level-only
-   * authority (`create_goal` rejects non-top-level agents).
+   * When a caller supplies an agent, human interaction is valid only for the
+   * exact live runtime root. Runtime ownership, not durable session lineage,
+   * decides this boundary: an owned child has no human answerer and would
+   * block forever, while a lineage-bearing session resumed as a new runtime
+   * root may ask normally.
    *
    * @param request Questions, owner agent, and abort signal.
    * @returns The answer chosen or typed by the human.
-   * @throws {UserInteractionError} code `DELEGATED_CALLER` when the calling
-   *   agent is a delegated subagent (`session.header.delegationDepth > 0`).
+   * @throws {UserInteractionError} code `CALLER_NOT_LIVE` when a supplied
+   *   agent is not the registry's exact live instance, or `DELEGATED_CALLER`
+   *   when that live agent is owned by another agent.
    */
   async ask(request: AskUserQuestionRequest): Promise<AskUserQuestionAnswer> {
     if (request.signal?.aborted) {
@@ -94,10 +96,20 @@ export class UserInteractionService extends Service {
     if (request.questions.length === 0) {
       throw new UserInteractionError('ask_user_question requires at least one question', 'EMPTY_QUESTIONS')
     }
-    if ((request.agent?.session.header.delegationDepth ?? 0) > 0) {
-      throw new UserInteractionError(
-        'ask_user_question is unavailable to delegated subagents; delegate the question to the top-level agent',
-        'DELEGATED_CALLER')
+    const agent = request.agent
+    if (agent !== undefined) {
+      const agents = this.ctx.get('agents')
+      if (agents === undefined || agents.get(agent.id) !== agent) {
+        throw new UserInteractionError(
+          'human interaction requires the exact live calling agent when an agent is supplied',
+          'CALLER_NOT_LIVE')
+      }
+      if (!agents.roots().includes(agent)) {
+        throw new UserInteractionError(
+          'human interaction is unavailable while the calling agent is owned by another live agent; '
+          + "include the unresolved question or decision in the child agent's final result",
+          'DELEGATED_CALLER')
+      }
     }
     // A presentation intent asserts two things the types cannot: that the
     // named approve label is one of this question's own options, and that a

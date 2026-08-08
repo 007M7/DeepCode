@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import { CallId } from '@deepseek-ai/dsh-llm'
-import type { Agent } from '@deepseek-ai/dsh-agent'
-import SessionStore from '@deepseek-ai/dsh-session'
+import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
 import UserInteractionService, { type AskUserQuestionRequest } from '@deepseek-ai/dsh-user-interaction'
@@ -28,11 +27,20 @@ interface OptionSchemaShape {
 
 async function setup() {
   const ctx = new Context()
+  await ctx.plugin(AgentRegistry)
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRegistry)
   await ctx.plugin(UserInteractionService)
   await ctx.plugin(toolAskUser)
   return ctx
+}
+
+function stubAgent(id: string, delegationDepth = 0): Agent {
+  const agentId = id as Agent['id']
+  return {
+    id: agentId,
+    session: { id: agentId, header: { delegationDepth } },
+  } as unknown as Agent
 }
 
 describe('ask_user_question tool', () => {
@@ -208,9 +216,8 @@ describe('ask_user_question tool', () => {
     expect(seen[0]?.signal).toBe(controller.signal)
   })
 
-  it('passes optional header and agent through to the user-interaction request', async () => {
+  it('passes optional header and a resumed runtime root through to the user-interaction request', async () => {
     const ctx = await setup()
-    await ctx.plugin(SessionStore)
     const seen: AskUserQuestionRequest[] = []
     ctx.userInteraction.registerProvider({
       async ask(request) {
@@ -218,8 +225,8 @@ describe('ask_user_question tool', () => {
         return { answers: [{ id: 'continue', selected: ['ok'] }] }
       },
     })
-    const session = ctx.sessions.create(undefined, { meta: { delegationDepth: 0 } })
-    const agent = { session } as unknown as Agent
+    const agent = stubAgent('resumed-root', 1)
+    ctx.agents.enter(agent, undefined)
 
     const result = await ctx.tools.execute({
       signal: testToolSignal,
@@ -249,9 +256,8 @@ describe('ask_user_question tool', () => {
     })
   })
 
-  it('rejects a delegated subagent with a structured DELEGATED_CALLER error', async () => {
+  it('rejects a live runtime-owned agent with a structured DELEGATED_CALLER error', async () => {
     const ctx = await setup()
-    await ctx.plugin(SessionStore)
     const seen: AskUserQuestionRequest[] = []
     ctx.userInteraction.registerProvider({
       async ask(request) {
@@ -259,20 +265,26 @@ describe('ask_user_question tool', () => {
         return { answers: [{ id: 'continue', selected: ['ok'] }] }
       },
     })
-    const session = ctx.sessions.create(undefined, { meta: { delegationDepth: 1 } })
-    const agent = { session } as unknown as Agent
+    const root = stubAgent('root', 0)
+    const child = stubAgent('child', 0)
+    ctx.agents.enter(root, undefined)
+    ctx.agents.enter(child, root)
 
     const result = await ctx.tools.execute({
       signal: testToolSignal,
       callId: CallId('ask-delegated'),
       name: 'ask_user_question',
       arguments: { questions: [{ id: 'continue', question: 'Continue?' }] },
-      agent,
+      agent: child,
     })
 
     expect(result).toMatchObject({
       isError: true,
       error: { info: { name: 'UserInteractionError', code: 'DELEGATED_CALLER' } },
+      content: [{
+        type: 'text',
+        text: "Error: human interaction is unavailable while the calling agent is owned by another live agent; include the unresolved question or decision in the child agent's final result",
+      }],
     })
     expect(seen).toHaveLength(0)
   })
