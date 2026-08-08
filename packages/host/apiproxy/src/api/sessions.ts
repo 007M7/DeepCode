@@ -224,7 +224,7 @@ export interface SessionsApi {
    * cannot be mounted fails with `agent-preset-invalid`.
    */
   create(request: RpcRequest<{ workspaceId?: WorkspaceId; cwd?: string; sessionId?: SessionId; agentPreset?: string }>):
-  Promise<RpcResponse<{ sessionId: SessionId }>>
+  Promise<RpcResponse<{ sessionId: SessionId; agentPreset?: string }>>
 
   /**
    * Reads a window of history events; page boundaries align to append-origin message
