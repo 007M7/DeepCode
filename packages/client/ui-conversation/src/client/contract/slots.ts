@@ -4,6 +4,7 @@ import type {
   InjectFace, MaybeSnapshotSelectorHook, PropsLocale, PropsRenderSlots, PropsRuntime, PropsStore, SnapshotSelectorHook,
 } from '@deepseek-ai/dsh-client-ui-slots'
 import type { CommandNode, CompactionSummaryNode, ConversationNode, ConversationSnapshot, ObservableSnapshot, PendingInteraction, PendingWait, SessionId, ToolCallBlock, WorkspaceId } from '@deepseek-ai/dsh-client-runtime/client'
+import type { MarkdownFileMentions } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { ComposerBlock } from '../input/blocks.ts'
 import type { ComposerKeyboard, EditSelection, InputActions, InputNotice, InputState } from '../input/contract.ts'
@@ -158,6 +159,30 @@ export interface ConvViewOwnerProps {
   inspect?: { callId: CallId } | null
   /** Acknowledge the inspect request once applied (clears the store field). */
   onInspectDone?: () => void
+}
+
+/**
+ * Optional prose file-mention provider, consumed via `ctx.get('chatFileMentions')`
+ * (optional-service convention): the chat view asks it for a closing message's
+ * inline-code vocabulary and threads the result into MarkdownText. Absent
+ * service — the providing plugin composed out of cordis.yml — turns the
+ * surface off; the prose renders inert code.
+ */
+export interface ChatFileMentions {
+  /**
+   * Mention vocabulary for the closing message the owner currency names.
+   * @param owner - Turn-tail owner currency (nodes, closing seq, opener).
+   * @returns The resolver MarkdownText consumes, or undefined when the turn
+   * produced nothing worth linking.
+   */
+  forClosing(owner: TurnTailOwnerProps): MarkdownFileMentions | undefined
+}
+
+declare module 'cordis' {
+  interface Context {
+    /** Prose file-mention provider (ui-deliverables); reach via ctx.get — optional. */
+    chatFileMentions: ChatFileMentions
+  }
 }
 
 /**
@@ -519,6 +544,13 @@ export interface ChatViewInjected {
   }
   /** Fork through the completed turn ending at the eligible message `seq`, then open the child. */
   forkAt: (seq: number) => void
+  /**
+   * Prose file-mention vocabulary for one closing message, from the optional
+   * {@link ChatFileMentions} service (resolved lazily per call, so composing
+   * the provider in or out takes effect live). Undefined when the service is
+   * absent or the turn produced nothing worth linking.
+   */
+  fileMentions: (owner: TurnTailOwnerProps) => MarkdownFileMentions | undefined
 }
 
 /** Full chat-view component props: runtime & its Tool/command/tail render shares & store & injected & locale seat. */

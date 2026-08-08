@@ -24,7 +24,7 @@ import {
   memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode,
 } from 'react'
 import type {
-  CommandNode, ConversationNode, ConversationSnapshot, RunningToolCall, ToolResultNode,
+  CommandNode, ConversationNode, ConversationSnapshot, RunningToolCall, ToolCallBlock, ToolResultNode,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
 import { IconChevronDownOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -111,6 +111,11 @@ type ChatScrollPosition = NonNullable<ReturnType<ChatViewSlotProps['chatScroll']
  *  chat view narrows once to the runtime snapshot the binding actually feeds. */
 type UseConversation = SnapshotSelectorHook<ConversationSnapshot>
 
+function treeContainsCall(block: ToolCallBlock, callId: string | undefined): boolean {
+  return callId !== undefined
+    && (block.callId === callId || block.subCalls.some(child => treeContainsCall(child, callId)))
+}
+
 function activeRetrySeq(nodes: readonly ConversationNode[], running: boolean): number | null {
   if (!running) return null
   for (let index = nodes.length - 1; index >= 0; index -= 1) {
@@ -174,7 +179,7 @@ const ToolGroup = memo(function ToolGroup({ renderSlot, results, openFile, selec
           toolName={node.call?.name ?? ''}
           block={node}
           openFile={openFile}
-          selectedCallId={selectedCallId}
+          selectedCallId={treeContainsCall(node, selectedCallId) ? selectedCallId : undefined}
           cwd={cwd}
           inspectCall={inspectCall}
         />
@@ -258,7 +263,8 @@ function StreamingTail({ useSession, t }: {
  * ordered root Tool call crosses the declared whole-Tool render seat.
  */
 export function ChatView({
-  useSession, useSessions, useStore, renderSlot, renderSlotChain, sessionId, openFile, loadOlder, inspectCall, chatScroll, forkAt, t,
+  useSession, useSessions, useStore, renderSlot, renderSlotChain, sessionId, openFile, loadOlder, inspectCall, chatScroll, forkAt,
+  fileMentions, t,
 }: ChatViewSlotProps) {
   const nodes = useSession(s => s.nodes)
   const turnTimings = useSession(s => s.turnTimings)
@@ -530,6 +536,7 @@ export function ChatView({
           turnTail={actionSeqs.has(node.seq)
             ? { renderSlotChain, owner: { nodes, seq: node.seq, openFile } }
             : undefined}
+          fileMentions={actionSeqs.has(node.seq) ? fileMentions : undefined}
           t={t}
         />
       )
@@ -595,7 +602,7 @@ export function ChatView({
                   toolName={call.name}
                   block={call}
                   openFile={openFile}
-                  selectedCallId={selectedCallId}
+                  selectedCallId={treeContainsCall(call, selectedCallId) ? selectedCallId : undefined}
                   cwd={cwd}
                   inspectCall={inspectCall}
                 />

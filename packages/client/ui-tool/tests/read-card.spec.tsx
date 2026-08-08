@@ -59,7 +59,7 @@ const resultRead = (over?: Partial<Extract<ToolResultView, { card: 'read' }>>): 
 
 const running = (over?: Partial<RunningToolCall>): RunningToolCall => ({
   callId: 'c1', name: 'read', argsRaw: ARGS,
-  turn: 1, step: 1, time: 1_000, callView: { card: 'generic', title: 'Read src/a.ts', kind: 'read' }, ...over,
+  turn: 1, step: 1, time: 1_000, callView: { card: 'generic', title: 'Read src/a.ts', kind: 'read' }, subCalls: [], ...over,
 })
 
 const settled = (over?: Partial<ToolResultNode>): ToolResultNode => ({
@@ -67,7 +67,7 @@ const settled = (over?: Partial<ToolResultNode>): ToolResultNode => ({
   call: { name: 'read', argsRaw: ARGS },
   callTime: 1_000,
   content: [{ type: 'text', text: '41: export const a = 1' }], isError: false,
-  callView: { card: 'generic', title: 'Read src/a.ts', kind: 'read' }, resultView: resultRead(), ...over,
+  callView: { card: 'generic', title: 'Read src/a.ts', kind: 'read' }, resultView: resultRead(), subCalls: [], ...over,
 })
 
 describe('readCardModel', () => {
@@ -289,7 +289,7 @@ describe('DetailsPanel Output section (read)', () => {
 
   function snapshot(over: Partial<ConversationSnapshot> = {}): ConversationSnapshot {
     return {
-      sessionId: SID, nodes: [], turnTimings: new Map(), turnEnds: new Map(), partial: null, runningCalls: [], codeDispatches: new Map(),
+      sessionId: SID, nodes: [], turnTimings: new Map(), turnEnds: new Map(), partial: null, runningCalls: [],
       pending: [], queue: [], running: false, composerPhase: 'active', removed: false,
       openState: 'open', openError: null, hasMore: false, loadingOlder: false,
       promptError: null, blank: false, subagent: null, lastAgentError: null, ...over,

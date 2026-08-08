@@ -18,7 +18,7 @@ Agent 拥有仅用于运行时的 `AgentCancelCause` 联合类型 `{ kind: 'user
 
 AgentLoop 为每个待启动轮次私有地持有一个 `TurnCancellation`。它在通知 `agent/status = running` 前安装该持有者，使其中唯一的 `AbortController` 持续覆盖 inbox 领取、`agent/pre-step`、提示词组装、每个步骤、模型与工具执行以及 `agent/turn-stopping`；随后在发布 `turn/end` 前立即清除所安装的那个持有者。因此，即使驱动器状态可能在持久化刷新结算前保持 `running`，终态事件观察者及其后的持久化刷新也无法取消已完成的轮次工作。所有参与的方法、事件和请求值都会收到同一个显式 signal；下一个轮次会收到全新的 signal。
 
-对于轮次被认领前已取消的排队工作，驱动器只保留一个不携带取消原因的运行前标记。实际生效的 `cancel()` 会先发出仅供观察的 `agent/cancel-requested` 通知并携带最终确定的类型化取消原因，然后才清除排队工作和 steering（中途引导）工作或中止持有者；通知失败不能阻止此次停止，空闲状态下调用则不发出任何通知。通知观察者同步加入队列的工作也会被这次清除，而稍后由 signal 中止观察者加入队列的工作属于下一个轮次。若 `running` 监听器同步取消旧工作并发送替代提示词，驱动器会丢弃已中止的持有者，并为替代提示词创建全新的持有者。同一活跃持有者上的重复取消遵循首次请求优先，后续调用仍可清除新入队的待处理工作。
+对于轮次被认领前已取消的排队工作，驱动器只保留一个不携带取消原因的运行前标记。实际生效的 `cancel()` 会先发出仅供观察的 `agent/cancel-requested` 通知并携带最终确定的类型化取消原因，然后才清除排队工作和 steering（中途引导）工作或中止持有者；通知失败不能阻止此次停止，空闲状态下调用则不发出任何通知。通知观察者同步加入队列的工作也会被这次清除，而稍后由 signal 中止观察者加入队列的工作会被锁存，并在被中止的活动收敛到空闲时执行——`disposed` 取消则将其停放（[取消收敛窗口唤醒锁存](../bug-fix/2026-08-07-cancel-convergence-wake-latch.md)）。若 `running` 监听器同步取消旧工作并发送替代提示词，驱动器会丢弃已中止的持有者，并为替代提示词创建全新的持有者。同一活跃持有者上的重复取消遵循首次请求优先，后续调用仍可清除新入队的待处理工作。
 
 显式事件签名传递单个 payload 对象：agent 作用域事件在 payload 中携带 `agent` 和 `signal`，`next` 位于最后；其余 seam 保持 `signal` 紧邻 waterfall（瀑布式事件）的最终 `next` 之前。`PreStepContext` 与 `RequestFailureContext` 已退役，其字段并入 `agent/pre-step` 与 `agent/request-error` 的 payload（[payload-object 事件](2026-08-06-agent-event-payload-objects.md)）。pre-step 进入决策、请求配置、请求错误恢复、模型生成、工具执行、审批、轮次停止以及 subagent 或工作流请求都会收到当前 signal。钩子桥接器也必须提供 `RunHookOptions.signal`，使轮次取消能够到达 Bash 执行器终止进程组并等待其退出的边界。`SystemPrompt.assemble()` 在 `AssembleContext` 中携带 `signal?: AbortSignal`，因为该对象是显式请求值，也可表示轮次之外不携带 signal 的组装。监听器可以配合该 signal 取消，但不得保留它来控制其他轮次。
 
