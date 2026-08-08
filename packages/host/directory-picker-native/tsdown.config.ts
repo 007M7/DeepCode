@@ -7,7 +7,7 @@ export default clientBundle(
   '@deepseek-ai/dsh-host-directory-picker-native',
   ['lib/types/index.js', 'lib/types/invariant.js'],
   {
-    host: [{
+    companions: [{
       // The artifact is lib/worker.cjs (the ./worker export the workspace
       // constraint keys on), bundled from the descriptive source entry.
       entry: { worker: 'lib/types/win32-dialog-worker.js' },

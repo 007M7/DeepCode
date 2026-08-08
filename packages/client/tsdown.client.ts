@@ -93,10 +93,10 @@ export function clientBundle(
     const client = clientConfig(id, face === undefined
       ? 'src/client/index.ts'
       : 'lib/types/client/index.js')
-    const host = [lib, ...(options.host ?? [])]
-    if (face === 'host') return options.hostPhase === true ? host : [SKIP_WORKSPACE_BUILD]
-    if (face === 'client') return options.hostPhase === true ? [client] : [...host, client]
-    return [...host, client]
+    const node = [lib, ...(options.companions ?? [])]
+    if (face === 'host') return options.hostPhase === true ? node : [SKIP_WORKSPACE_BUILD]
+    if (face === 'client') return options.hostPhase === true ? [client] : [...node, client]
+    return [...node, client]
   }
 }
 
@@ -125,7 +125,9 @@ export function clientOnly(configs: readonly UserConfig[]): BuildFaceConfig {
 interface ClientBundleOptions {
   /** Emit the Node-side artifacts during the Host pass instead of the Client pass. */
   readonly hostPhase?: boolean
-  readonly host?: readonly UserConfig[]
+  /** Additional Node-side configs emitted alongside the package library. */
+  readonly companions?: readonly UserConfig[]
+  /** Overrides for the package's primary Node-side library config. */
   readonly lib?: UserConfig
 }
 
