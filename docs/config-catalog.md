@@ -399,6 +399,22 @@ export interface Config {
 
 Source: [`packages/credentials/credentials-local/src/index.ts:54`](../packages/credentials/credentials-local/src/index.ts)
 
+## `@deepseek-ai/dsh-e2b`
+
+```ts config-catalog
+/** Configuration for the shared E2B sandbox owner. */
+export interface Config {
+  /** API key; omission reads `E2B_API_KEY`. It is never forwarded into the sandbox. */
+  apiKey?: string
+  /** Shared remote working directory, created before adapters receive the sandbox. */
+  cwd?: string
+  /** E2B sandbox lifetime in milliseconds; expiry always deletes the sandbox. */
+  timeoutMs?: number
+}
+```
+
+Source: [`packages/e2b/e2b/src/index.ts:43`](../packages/e2b/e2b/src/index.ts)
+
 ## `@deepseek-ai/dsh-frontend-static`
 
 Requires: `httpServer`
@@ -423,7 +439,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/fs/fs-local/src/index.ts:38`](../packages/fs/fs-local/src/index.ts)
+Source: [`packages/fs/fs-local/src/index.ts:39`](../packages/fs/fs-local/src/index.ts)
 
 ## `@deepseek-ai/dsh-fs-sandbox`
 
@@ -906,7 +922,7 @@ Source: [`packages/llm/llm-retry/src/index.ts:46`](../packages/llm/llm-retry/src
 
 ## `@deepseek-ai/dsh-lsp-local`
 
-Requires: `lsp` · `subprocess`
+Requires: `fs` · `lsp` · `subprocess`
 
 ```ts config-catalog
 /** Plugin configuration: provider id → local language-server configuration. */
@@ -942,7 +958,7 @@ export interface LspLocalServerConfig {
 }
 ```
 
-Source: [`packages/lsp/lsp-local/src/index.ts:87`](../packages/lsp/lsp-local/src/index.ts)
+Source: [`packages/lsp/lsp-local/src/index.ts:82`](../packages/lsp/lsp-local/src/index.ts)
 
 ## `@deepseek-ai/dsh-mcp-client`
 
@@ -1048,7 +1064,7 @@ Source: [`packages/plan/plan-mode/src/index.ts:69`](../packages/plan/plan-mode/s
 
 ## `@deepseek-ai/dsh-pty-local`
 
-Requires: `pty` · `sandbox` · `sandboxPolicy`
+Requires: `pty` · `sandboxPolicy` · `subprocess`
 
 ```ts config-catalog
 /** Public plugin configuration. */
@@ -1813,6 +1829,20 @@ export interface Config {
 
 Source: [`packages/subagent/subagent-spawn/src/index.ts:25`](../packages/subagent/subagent-spawn/src/index.ts)
 
+## `@deepseek-ai/dsh-subprocess-e2b`
+
+Requires: `e2b`
+
+```ts config-catalog
+/** Configuration for the E2B subprocess adapter. */
+export interface Config {
+  /** Remote status/liveness poll cadence in milliseconds; each tick is one control-plane request. */
+  pollMs?: number
+}
+```
+
+Source: [`packages/e2b/subprocess-e2b/src/index.ts:25`](../packages/e2b/subprocess-e2b/src/index.ts)
+
 ## `@deepseek-ai/dsh-system-prompt`
 
 ```ts config-catalog
@@ -2573,6 +2603,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-command-feedback` — requires `commands` ([`packages/feedback/command-feedback/src/index.ts`](../packages/feedback/command-feedback/src/index.ts))
 - `@deepseek-ai/dsh-command-goal` — requires `commands` · `goals` ([`packages/goal/command-goal/src/index.ts`](../packages/goal/command-goal/src/index.ts))
 - `@deepseek-ai/dsh-commands` ([`packages/ui/commands/src/index.ts`](../packages/ui/commands/src/index.ts))
+- `@deepseek-ai/dsh-fs-e2b` — requires `e2b` ([`packages/e2b/fs-e2b/src/index.ts`](../packages/e2b/fs-e2b/src/index.ts))
 - `@deepseek-ai/dsh-fs-policy` ([`packages/fs/fs-policy/src/index.ts`](../packages/fs/fs-policy/src/index.ts))
 - `@deepseek-ai/dsh-goal-session` — requires `agents` · `goals` · `sessions` ([`packages/goal/goal-session/src/index.ts`](../packages/goal/goal-session/src/index.ts))
 - `@deepseek-ai/dsh-host-directory-picker-auto` — requires `httpServer` · `loader` ([`packages/host/directory-picker-auto/src/index.ts`](../packages/host/directory-picker-auto/src/index.ts))
