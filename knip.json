@@ -5,6 +5,7 @@
   ],
   "ignoreBinaries": [
     "bwrap",
+    "musl-gcc",
     "python3",
     "sandbox-exec",
     "taskkill"
