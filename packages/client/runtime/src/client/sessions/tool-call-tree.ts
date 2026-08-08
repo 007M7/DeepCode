@@ -10,6 +10,9 @@ interface ProjectedBlock {
   value: ToolCallBlock
 }
 
+/** Fixed wire-safety ceiling for every recursive Tool call consumer. */
+export const MAX_TOOL_CALL_TREE_DEPTH = 256
+
 function sameReferences<T>(
   left: readonly T[],
   right: readonly T[],
@@ -24,6 +27,7 @@ function sameReferences<T>(
  */
 export class ToolCallTree {
   private readonly childrenByParent = new Map<string, readonly ToolCallBlock[]>()
+  private readonly depthByCall = new Map<string, number>()
   private readonly projectedByCall = new Map<string, ProjectedBlock>()
   private revision = 0
   private nodesCache: {
@@ -40,6 +44,7 @@ export class ToolCallTree {
   /** Forget all event-derived child calls before replaying a new window. */
   reset(): void {
     this.childrenByParent.clear()
+    this.depthByCall.clear()
     this.projectedByCall.clear()
     this.revision++
   }
@@ -68,7 +73,7 @@ export class ToolCallTree {
         subCalls: [],
       }
       const siblings = this.childrenByParent.get(data.parentCallId) ?? []
-      if (this.wouldCreateCycle(data.parentCallId, data.subCallId)) return true
+      if (!this.acceptEdge(data.parentCallId, data.subCallId)) return true
       this.childrenByParent.set(data.parentCallId, [...siblings, running])
       this.revision++
       return true
@@ -84,7 +89,7 @@ export class ToolCallTree {
     }
     const siblings = this.childrenByParent.get(data.parentCallId) ?? []
     const at = siblings.findIndex(sub => sub.callId === data.subCallId)
-    if (at === -1 && this.wouldCreateCycle(data.parentCallId, data.subCallId)) return true
+    if (at === -1 && !this.acceptEdge(data.parentCallId, data.subCallId)) return true
     const started = at === -1 ? undefined : siblings[at]
     const settled: ToolResultNode = {
       kind: 'tool-result',
@@ -161,6 +166,33 @@ export class ToolCallTree {
       value,
     })
     return value
+  }
+
+  /**
+   * Accept an edge only when every recursive consumer can traverse it safely.
+   * Host-minted ids exclude cycles and current bindings emit one level; a
+   * malformed wire/history edge is consumed without hiding the rest of the session.
+   */
+  private acceptEdge(parentCallId: string, subCallId: string): boolean {
+    if (this.wouldCreateCycle(parentCallId, subCallId)) return false
+    const pending = [{
+      callId: subCallId,
+      depth: (this.depthByCall.get(parentCallId) ?? 1) + 1,
+    }]
+    const updates = new Map<string, number>()
+    for (const candidate of pending) {
+      const knownDepth = updates.get(candidate.callId)
+        ?? this.depthByCall.get(candidate.callId)
+        ?? 1
+      if (candidate.depth <= knownDepth) continue
+      if (candidate.depth > MAX_TOOL_CALL_TREE_DEPTH) return false
+      updates.set(candidate.callId, candidate.depth)
+      for (const child of this.childrenByParent.get(candidate.callId) ?? []) {
+        pending.push({ callId: child.callId, depth: candidate.depth + 1 })
+      }
+    }
+    for (const [callId, depth] of updates) this.depthByCall.set(callId, depth)
+    return true
   }
 
   private wouldCreateCycle(parentCallId: string, subCallId: string): boolean {

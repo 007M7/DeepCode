@@ -46,7 +46,7 @@ SlotsService 分别为 renderer 提供 `useSessions` 与 `useWorkspaces` 的裸 
 
 ## Code Mode 子调用树
 
-每个 `ToolCallBlock` 都通过 `subCalls` 按启动顺序递归拥有自己的子调用。Runtime 的 `ToolCallTree` 私下维护 parent callId 到 child 的索引：`tool/code-dispatch-start` 事件落成 `RunningToolCall`，对应的 `tool/code-dispatch` 完结事件原位替换为 `ToolResultNode`，其 `callTime` 来自成对 start 事件；start 落在回放窗口之外时，完结事件会以 `callTime: null` 直接追加，绝不伪造零耗时。live mux 帧与历史回放共用这套 fold 和树投影；子调用不会成为 transcript `nodes` 中的独立 root。一次 child 变化只会复制从该 child 到所属 root 的祖先链，未变化的 sibling 和其他 root 保持对象引用稳定。
+每个 `ToolCallBlock` 都通过 `subCalls` 按启动顺序递归拥有自己的子调用。Runtime 的 `ToolCallTree` 私下维护 parent callId 到 child 的索引：`tool/code-dispatch-start` 事件落成 `RunningToolCall`，对应的 `tool/code-dispatch` 完结事件原位替换为 `ToolResultNode`，其 `callTime` 来自成对 start 事件；start 落在回放窗口之外时，完结事件会以 `callTime: null` 直接追加，绝不伪造零耗时。live mux 帧与历史回放共用这套 fold 和树投影；子调用不会成为 transcript `nodes` 中的独立 root。一次 child 变化只会复制从该 child 到所属 root 的祖先链，未变化的 sibling 和其他 root 保持对象引用稳定。会引入环，或使递归深度超过 256 个调用这一固定安全上限的协议或历史记录边会被视为已消费，但不会修改树，因此会话其余部分仍可渲染。
 
 ## Session 标题投影
 
