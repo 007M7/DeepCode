@@ -175,8 +175,8 @@ const reasoningEfforts = z.dict(
   z.union(THINKING_LEVELS),
 ) as unknown as z<PiAiReasoningEfforts>
 
-const modelProfile: z<PiAiModelProfile> = z.object({
-  id: z.string().required(),
+/** The fields a `models` entry and a `modelOverrides` value share; only the id's home differs. */
+const modelFields = {
   name: z.string(),
   contextWindow: z.number().step(1).min(1),
   maxTokens: z.number().step(1).min(1),
@@ -185,16 +185,15 @@ const modelProfile: z<PiAiModelProfile> = z.object({
   // installed catalog's capability", while `false` disables reasoning.
   reasoningEfforts: z.union([z.const(false), reasoningEfforts]),
   compat: compatProfile,
+}
+
+const modelProfile: z<PiAiModelProfile> = z.object({
+  id: z.string().required(),
+  ...modelFields,
 })
 
 /** A {@link modelProfile} whose id lives in the `modelOverrides` dict key. */
-const modelOverride: z<PiAiModelOverride> = z.object({
-  name: z.string(),
-  contextWindow: z.number().step(1).min(1),
-  maxTokens: z.number().step(1).min(1),
-  reasoningEfforts: z.union([z.const(false), reasoningEfforts]),
-  compat: compatProfile,
-})
+const modelOverride: z<PiAiModelOverride> = z.object(modelFields)
 
 const profile = z.object({
   apiKeyEnv: z.string().role('credential-ref'),
