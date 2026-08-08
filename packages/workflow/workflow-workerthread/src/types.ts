@@ -87,7 +87,7 @@ export interface ChildPort {
   /**
    * Start one child agent on the host (the `agent()` hook's start half).
    * @param request - the prompt and validated options.
-   * @returns the ready child handle; rejects when synchronous start or the
+   * @returns the published child handle; rejects when synchronous start or the
    *   provider's asynchronous start fails.
    */
   startAgent(request: ChildStartRequest): Promise<ChildHandle>

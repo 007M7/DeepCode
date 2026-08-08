@@ -33,12 +33,20 @@ flowchart LR
   cfg --> plugin_acp_token_meter
   plugin_acp_compact_basic["compact-basic<br/>@deepseek-ai/dsh-compact-basic"]
   cfg --> plugin_acp_compact_basic
+  plugin_acp_session_projection["session-projection<br/>@deepseek-ai/dsh-session-projection"]
+  cfg --> plugin_acp_session_projection
   plugin_acp_subagent["subagent<br/>@deepseek-ai/dsh-subagent"]
   cfg --> plugin_acp_subagent
   plugin_acp_subagent_spawn["subagent-spawn<br/>@deepseek-ai/dsh-subagent-spawn"]
   cfg --> plugin_acp_subagent_spawn
   plugin_acp_subagent_fork["subagent-fork<br/>@deepseek-ai/dsh-subagent-fork"]
   cfg --> plugin_acp_subagent_fork
+  plugin_acp_tool_subagent_control["tool-subagent-control<br/>@deepseek-ai/dsh-tool-subagent-control"]
+  cfg --> plugin_acp_tool_subagent_control
+  plugin_acp_tool_subagent_list_agents["tool-subagent-list-agents<br/>@deepseek-ai/dsh-tool-subagent-control/list-agents"]
+  cfg --> plugin_acp_tool_subagent_list_agents
+  plugin_acp_tool_subagent_report["tool-subagent-report<br/>@deepseek-ai/dsh-tool-subagent-report"]
+  cfg --> plugin_acp_tool_subagent_report
   plugin_acp_tool_subagent["tool-subagent<br/>@deepseek-ai/dsh-tool-subagent"]
   cfg --> plugin_acp_tool_subagent
   plugin_acp_tool_subagent_fork["tool-subagent-fork<br/>@deepseek-ai/dsh-tool-subagent"]
@@ -76,9 +84,13 @@ flowchart LR
 | `acp-agent` | `@deepseek-ai/dsh-acp-demo` |
 | `token-meter` | `@deepseek-ai/dsh-token-meter` |
 | `compact-basic` | `@deepseek-ai/dsh-compact-basic` |
+| `session-projection` | `@deepseek-ai/dsh-session-projection` |
 | `subagent` | `@deepseek-ai/dsh-subagent` |
 | `subagent-spawn` | `@deepseek-ai/dsh-subagent-spawn` |
 | `subagent-fork` | `@deepseek-ai/dsh-subagent-fork` |
+| `tool-subagent-control` | `@deepseek-ai/dsh-tool-subagent-control` |
+| `tool-subagent-list-agents` | `@deepseek-ai/dsh-tool-subagent-control/list-agents` |
+| `tool-subagent-report` | `@deepseek-ai/dsh-tool-subagent-report` |
 | `tool-subagent` | `@deepseek-ai/dsh-tool-subagent` |
 | `tool-subagent-fork` | `@deepseek-ai/dsh-tool-subagent` |
 | `workflow-workerthread` | `@deepseek-ai/dsh-workflow-workerthread` |

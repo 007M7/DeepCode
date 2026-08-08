@@ -230,3 +230,14 @@
   color: var(--dsw-alias-label-tertiary);
   font-style: italic;
 }
+
+.image {
+  display: block;
+  width: auto;
+  max-width: 100%;
+  height: auto;
+  margin: 0;
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-base);
+  object-fit: contain;
+}

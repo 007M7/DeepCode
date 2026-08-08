@@ -1,5 +1,6 @@
 - banner:
-  - heading "Use the read tool twice" [level=1]
+  - navigation "Session hierarchy":
+    - button "Use the read tool twice" [disabled]
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
@@ -7,12 +8,16 @@
 - button "Copy":
   - img
 - tooltip "Copy"
-- button "Branch into a new conversation":
-  - img
 - button "Think The user wants me to read a.txt and b.txt, then reply with \"DONE\". Let me do both reads in parallel.":
   - img
   - img
   - text: Think The user wants me to read a.txt and b.txt, then reply with "DONE". Let me do both reads in parallel.
+- paragraph: I will read both files before answering.
+- button "Copy":
+  - img
+- button "Branch into a new conversation" [disabled]:
+  - img
+- text: Available only on the last message of a completed turn 7/25 {{clock}} Ran for {{duration}} TTFT {{duration}} {{throughput}} tok/s
 - button "Read a.txt":
   - img
   - img
@@ -27,18 +32,21 @@
   - img
   - img
   - text: Think Both files have been read. a.txt contains "alpha" and b.txt contains "beta". I'll now reply with DONE as instructed.
+- text: Stopped Now give the final answer. 7/25 {{clock}}
+- button "Copy":
+  - img
 - paragraph: DONE
 - button "Copy":
   - img
 - button "Branch into a new conversation":
   - img
-- text: 7/25 {{clock}}
+- text: 7/25 {{clock}} Ran for {{duration}}
 - textbox "Message the agent"
 - button "Commands":
   - img
 - 'button "Access mode, current: Workspace Write"': Workspace Write
-- button "Select model, current deepseek-v4-flash":
-  - text: deepseek-v4-flash
+- button "Select model, current DeepSeek-V4-Flash":
+  - text: DeepSeek-V4-Flash
   - img
 - button "Send message" [disabled]
-- text: 1 turns · 2 steps Tool call {{duration}} Cache hit 98% Input 15.8K tok · Output 135 tok
+- text: 2 turns · 3 steps LLM {{duration}} · Tool call {{duration}} TTFT avg {{duration}} · {{throughput}} tok/s Cache hit 98% Input 7.8K tok · Output 103 tok

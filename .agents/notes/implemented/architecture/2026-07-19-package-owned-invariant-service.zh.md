@@ -1,4 +1,4 @@
-# Agent Note: 包拥有的不变式服务接缝
+# Agent Note: 包拥有的不变式服务 seam
 
 Status: implemented
 
@@ -8,7 +8,7 @@ Status: implemented
 
 运行时不变式检查跨越会话轨迹、agent 状态、作用域 dispatch 和请求重建。如果所有检查都放在一个诊断包中，该包就必须导入彼此无关的产品领域词汇，测试也会离开真正的所有者；任何产品包新增或移除检查时，都要修改中央包。
 
-部署还需要比“是否加载一个插件”更细的控制。标准组合应携带已知的不变式贡献，同时允许全局关闭或按包选择诊断。包稍后加载或在 HMR 下重载时，选择结果必须保持稳定；被过滤的贡献也不能让两个插件静默占用同一个包名。
+选择启用诊断的部署还需要比“是否加载一个插件”更细的控制。这类组合会携带已知的不变式贡献，同时允许全局关闭或按包选择诊断。包稍后加载或在 HMR 下重载时，选择结果必须保持稳定；被过滤的贡献也不能让两个插件静默占用同一个包名。
 
 包所有权还必须覆盖完整。若没有机械化的仓库规则，新包可能遗漏伴随插件、依赖或发布配置，并一直不会进入诊断范围，直到维护者发现这一缺口。
 
@@ -72,9 +72,9 @@ blocklist 匹配优先于 allowlist 匹配。每个条目都是区分大小写�
 
 生成的 scoped event 主体解析表位于 `dsh-scope`，与消费它的契约和不变式相邻。`gen-scoped-events` 使用根 TypeScript Program 枚举 `this: Scoped<Base>` 声明，从真实 `scopeTarget(base, key)` 调用推断路由键类型，并要求唯一、无歧义的 payload 主体或显式 unsupported 标记。提交的运行时映射不导入事件所有者包，因此语义完整性不会扩大服务包或 scope 包的运行时依赖闭包。
 
-### 标准组合与 SDK 输出
+### 示例组合与 SDK 输出
 
-标准 agent spine 会挂载服务和四个有状态伴随子路径，并把 `enabled`、`package_allowlist` 与 `package_blocklist` 转发给服务。生成的 SDK Cordis 组合输出相同条目。子路径条目添加可安装的根 npm 包，而不会把子路径误当成包名。
+示例 agent spine 会挂载服务和四个有状态伴随子路径，并把 `enabled`、`package_allowlist` 与 `package_blocklist` 转发给服务。生成的 SDK Cordis 组合输出相同条目。子路径条目添加可安装的根 npm 包，而不会把子路径误当成包名。根据[交付配置决策](../simplification/2026-08-03-omit-invariants-from-shipped-config.md)，交付的 `dsh` TUI 与 Web 配置树会省略该服务及其伴随插件。
 
 Workspace 约束识别独立的不变式 bundle；包 exports、项目引用、构建配置、依赖声明和 lockfile 描述同一发布表面。生成的配置目录、模块图和 API 文档都从这些源派生。
 
@@ -97,7 +97,7 @@ Workspace 约束识别独立的不变式 bundle；包 exports、项目引用、�
 
 - 产品包拥有并测试自己的关系断言，服务保持与产品无关。
 - 每个包都承担 companion 的发布与依赖成本；只有具备有意义运行时关系的所有者才增加 listener 或 trace 状态成本。
-- 标准组合无需改变插件树即可关闭全部检查或按包名选择。
+- 挂载诊断的组合无需改变插件树即可关闭全部检查或按包名选择。
 - 显式伴随条目让诊断成本和所有权在 Cordis 配置与包 export 中可见。
 - 每个选中的可执行贡献增加一个子 fiber 及其 listener/状态成本；选中的空贡献不增加 listener 或 trace 状态成本，被过滤注册则只保留包名占用。
 - 正则表达式源属于部署配置，在服务重载前保持固定。

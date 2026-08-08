@@ -106,7 +106,7 @@ function expectCode(code: SessionQueryErrorCode): Error {
 }
 
 function appendTraceEvents(session: Session): void {
-  session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+  session.append('turn/start', { turn: 1 })
   session.append('step/start', { turn: 1, step: 1 })
   session.append('assistant/chunk', {
     turn: 1,
@@ -348,7 +348,7 @@ describe('session event tracing', () => {
     expect([TracePersistence.listCalls, TracePersistence.inspectCalls]).toEqual([1, 1])
 
     const live = ctx.sessions.create(durable.id, { meta: { createdAt: 1, cwd: '/same' } })
-    live.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    live.append('turn/start', { turn: 1 })
     live.append(
       'user/message',
       createUserMessage({
@@ -412,7 +412,7 @@ describe('session event tracing', () => {
 
   it.each([
     ['non-surface sources', [
-      { type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } }, sourceEventSeqs: [0] },
+      { type: 'turn/start', seq: 0, time: 1, data: { turn: 1 }, sourceEventSeqs: [0] },
     ]],
     ['invalid source array', [
       { ...appendEvent(0), sourceEventSeqs: 'invalid' },
@@ -461,7 +461,7 @@ describe('session event tracing', () => {
       type: 'turn/start',
       seq: 0,
       time: 1,
-      data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } },
+      data: { turn: 1 },
       surfaceOp: 'append',
     }] as unknown as SessionEvent[]
     TracePersistence.reset([{ meta: durable, events }])

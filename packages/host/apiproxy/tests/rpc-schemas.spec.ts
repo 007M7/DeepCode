@@ -197,6 +197,7 @@ describe('sessions domain schemas', () => {
     expect(sessionModelsRequestSchema.parse({ sessionId: 's1' }).sessionId).toBe('s1')
     expect(sessionModelsValueSchema.parse({
       current: { provider: 'deepseek-official', model: 'deepseek-v4-flash', reasoningEffort: 'max' },
+      routable: true,
       groups: [{
         id: 'deepseek-official',
         name: 'DeepSeek',
@@ -204,7 +205,6 @@ describe('sessions domain schemas', () => {
           id: 'deepseek-v4-flash',
           name: 'DeepSeek V4 Flash',
           description: 'fast',
-          unlisted: true,
           reasoning: {
             efforts: [
               { id: 'off', name: 'Off' },
@@ -275,8 +275,10 @@ describe('sessions domain schemas', () => {
 describe('host domain schemas', () => {
   it('validates describe request/value', () => {
     expect(hostDescribeRequestSchema.parse({})).toEqual({})
-    const value = hostDescribeValueSchema.parse({ version: '1', cwd: '/x', provider: 'p', model: 'm', attachedSessions: 2 })
-    expect(value.attachedSessions).toBe(2)
+    const value = hostDescribeValueSchema.parse({
+      version: '1', cwd: '/x', provider: 'p', model: 'm', attachedSessions: 2,
+    })
+    expect(value).toMatchObject({ provider: 'p', model: 'm', attachedSessions: 2 })
     expect(hostDescribeValueSchema.parse({ version: '1', cwd: '/x', attachedSessions: 0 }).provider).toBeUndefined()
   })
 
@@ -393,12 +395,15 @@ describe('skills domain schemas', () => {
     expect(() => skillListRequestSchema.parse({})).toThrow()
     expect(skillListValueSchema.parse({ skills: [] }).skills).toEqual([])
     const value = skillListValueSchema.parse({ skills: [
-      { name: 'commit-helper', description: 'Git commits', whenToUse: 'when committing' },
-      { name: 'bare', description: 'No guidance' },
+      { name: 'commit-helper', description: 'Git commits', whenToUse: 'when committing', modelInvocable: true },
+      { name: 'bare', description: 'No guidance', modelInvocable: false },
     ] })
     expect(value.skills[0]?.whenToUse).toBe('when committing')
     expect(value.skills[1]?.whenToUse).toBeUndefined()
-    expect(() => skillEntrySchema.parse({ name: '', description: 'd' })).toThrow()
+    expect(value.skills[1]?.modelInvocable).toBe(false)
+    expect(() => skillEntrySchema.parse({ name: '', description: 'd', modelInvocable: true })).toThrow()
+    // modelInvocable is required wire data: an entry without it fails.
+    expect(() => skillEntrySchema.parse({ name: 'n', description: 'd' })).toThrow()
   })
 })
 
@@ -421,7 +426,11 @@ describe('events frame schemas', () => {
       { type: 'question/requested', sessionId: 's', questions: [{ id: 'q', question: 'Q?', options: [{ label: 'L' }], multiSelect: true }] },
       { type: 'question/resolved', sessionId: 's', questionRpcId: 'r', outcome: 'answered' },
       { type: 'session/queue', sessionId: 's', items: [
-        { id: 'i1', message: { id: 'm1', role: 'user', content: [{ type: 'text', text: 'queued prompt' }], source: { kind: 'user', rpcId: 'r9' } } },
+        {
+          id: 'm1',
+          placement: 'queued',
+          message: { id: 'm1', role: 'user', content: [{ type: 'text', text: 'queued prompt' }], source: { kind: 'user', rpcId: 'r9' } },
+        },
       ] },
       { type: 'session/projection', sessionId: 's', key: 'todos', value: [{ content: 'x', status: 'pending' }], seq: 7 },
       { type: 'stream/error', error: { code: 'internal', message: 'm', details: {} } },
@@ -451,10 +460,21 @@ describe('events frame schemas', () => {
     }
   })
 
+  it('accepts every queue placement and rejects unknown placements', () => {
+    const item = (placement: string) => ({ type: 'session/queue', sessionId: 's', items: [{
+      id: 'm', placement,
+      message: { id: 'm', role: 'user', content: [], source: { kind: 'user' } },
+    }] })
+    for (const placement of ['queued', 'steering', 'context']) {
+      expect(() => muxFrameSchema.parse(item(placement))).not.toThrow()
+    }
+    expect(() => muxFrameSchema.parse(item('bogus'))).toThrow()
+  })
+
   it('rejects a queue snapshot with malformed items', () => {
     expect(() => muxFrameSchema.parse({ type: 'session/queue', sessionId: 's', items: 'x' })).toThrow()
-    expect(() => muxFrameSchema.parse({ type: 'session/queue', sessionId: 's', items: [{ id: '', message: {} }] })).toThrow()
-    expect(() => muxFrameSchema.parse({ type: 'session/queue', sessionId: 's', items: [{ id: 'i', message: { id: 'm', role: 'user', content: [], source: {} } }] })).toThrow()
+    expect(() => muxFrameSchema.parse({ type: 'session/queue', sessionId: 's', items: [{ id: '', role: 'user', content: [], source: { kind: 'user' } }] })).toThrow()
+    expect(() => muxFrameSchema.parse({ type: 'session/queue', sessionId: 's', items: [{ id: 'm', role: 'assistant', content: [], source: { kind: 'user' } }] })).toThrow()
   })
 
   it('accepts every host frame branch', () => {

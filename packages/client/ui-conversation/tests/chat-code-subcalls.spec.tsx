@@ -67,10 +67,10 @@ function snapshotWith(
   runningCalls: RunningToolCall[] = [],
 ): ConversationSnapshot {
   return {
-    sessionId: SID, nodes, partial: null, runningCalls, codeDispatches,
+    sessionId: SID, nodes, turnTimings: new Map(), turnEnds: new Map(), partial: null, runningCalls, codeDispatches,
     pending: [], queue: [], running: runningCalls.length > 0, composerPhase: 'active', removed: false,
     openState: 'open', openError: null,
-    hasMore: false, loadingOlder: false, promptError: null, blank: false, lastAgentError: null,
+    hasMore: false, loadingOlder: false, promptError: null, blank: false, subagent: null, lastAgentError: null,
   }
 }
 
@@ -90,9 +90,9 @@ async function bench(snapshot: ConversationSnapshot) {
   const session = createSnapshotStore<ConversationSnapshot>(snapshot)
   const list = createSnapshotStore<SessionListState>({
     ids: [SID],
-    byId: { [SID]: { id: SID, title: 'S', displayTitle: 'S', running: false, waitingApproval: false, blank: false, updatedAt: 1 } },
+    byId: { [SID]: { id: SID, title: 'S', displayTitle: 'S', running: false, blank: false, updatedAt: 1 } },
     current: SID,
-    phase: 'ready',
+    phase: 'ready', subagentsByParent: {}, currentAddress: undefined,
   })
   const scoped = { send: vi.fn(async () => {}), cancel: vi.fn(async () => {}) }
   const layout = { openDetails: vi.fn(), closeDetails: vi.fn() }

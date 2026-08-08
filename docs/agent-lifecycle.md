@@ -17,20 +17,22 @@ sequenceDiagram
   participant Session
   participant SDK as UI or SDK listener
   User->>Agent: followup(content)
-  Agent-->>SDK: <code>agent/inbox/enqueue</code>
+  Agent-->>SDK: <code>agent/inbox/spliced</code>
+  Agent-->>SDK: <code>agent/inbox/inserted</code> { message }
   Agent->>Driver: queued work wakes driver
   Driver-->>SDK: <code>agent/status</code> running
-  Note over Agent,Driver: next-step acceptance window opens
-  Driver->>Hooks: <code>agent/prompt-submit</code> waterfall
-  Hooks-->>Driver: authoritative allow, block, or add context
-  alt prompt blocked or admission failed
-    Driver-->>Driver: append context-only batch or keep steering boundary pending
-  else prompt allowed
+  Note over Agent,Driver: claim pending next-step input plus one queued prompt
+  Driver-->>SDK: <code>agent/inbox/spliced</code> pure deletion
+  Driver-->>SDK: <code>agent/inbox/claimed</code> { message, turn } per message
+  Driver->>Hooks: <code>agent/pre-step</code> waterfall
+  Hooks-->>Driver: authoritative reject or enter(messages)
+  alt proposed step rejected or pre-step failed
+    Driver-->>Driver: claimed batch stays removed, no turn opens
+  else enter proposed step
   Driver->>Session: <code>turn/start</code>
-  Driver->>Session: <code>user/message</code>
-  Driver->>Prompt: <code>system-prompt/assemble</code> waterfall
-  Driver-->>Driver: <code>agent/step</code> serial checkpoint
   Driver->>Session: <code>step/start</code>
+  Driver->>Session: <code>user/message</code> per entered message
+  Driver->>Prompt: <code>system-prompt/assemble</code> waterfall
   Driver->>LLM: <code>agent/request</code> waterfall, then <code>llm/stream</code> waterfall
   LLM-->>Driver: StreamChunk*
   Driver->>Session: <code>assistant/chunk</code>*
@@ -53,11 +55,17 @@ sequenceDiagram
       Driver->>Session: <code>tool/result</code>
     end
   end
-  Driver->>Session: post-tool context and steering (no prompt-submit)
   Driver->>Session: <code>step/end</code>
-  Driver->>Hooks: <code>agent/turn-stopping</code> serial terminal checkpoint
+  opt natural stop and next-step inbox empty
+    Driver->>Hooks: <code>agent/turn-stopping</code> serial terminal checkpoint
   end
-  Note over Agent,Driver: next-step acceptance window closes
+  opt next-step input is pending
+    Driver-->>Driver: claim pending next-step input
+    Driver-->>SDK: <code>agent/inbox/claimed</code> { message, turn } per message
+    Driver->>Hooks: <code>agent/pre-step</code> waterfall
+    Hooks-->>Driver: authoritative reject or enter(messages)
+  end
+  end
   Driver->>Session: <code>turn/end</code>
   end
   Driver-->>SDK: <code>agent/status</code> idle
@@ -65,9 +73,9 @@ sequenceDiagram
 
 The `assistant/message` edge records every successful provider call, including content-less and `max-tokens` finishes. Empty content stays out of derived history while the durable anchor retains usage and exact chunk provenance, including an explicit empty source set.
 
-`dsh-compact-basic` uses `agent/step` for pressure before request derivation and `agent/request-error` only for canonical context overflow. Once either trigger qualifies, optional tool-result pruning runs before summary selection. Recovery works between the closed failed step and failed turn close, and opens a fresh retry turn only when pruning or summarization advances the surface replacement generation; otherwise the original request error remains authoritative.
+`dsh-compact-basic` uses `agent/pre-step` for pressure before request derivation and `agent/request-error` only for canonical context overflow. Once either trigger qualifies, optional tool-result pruning runs before summary selection. Recovery works between the closed failed step and failed turn close, and opens a fresh retry turn only when pruning or summarization advances the surface replacement generation; otherwise the original request error remains authoritative.
 
-The returned `agent/prompt-submit` allow is authoritative; listeners wrapping `next()` preserve downstream content and additional contexts unless replacement is intentional. Steering bypasses that waterfall and joins at its durable checkpoint.
+The returned `agent/pre-step` decision is authoritative; listeners wrapping `next()` preserve downstream messages unless replacement is intentional. Steering and injected context pass through the same waterfall after a later boundary claims their next-step batch.
 
 SDK users that need replayable transcript data should consume `session/event`; `agent/*` is the live coordination surface for queue/status, prompt interception, request shaping, steering, continuation, and errors.
 

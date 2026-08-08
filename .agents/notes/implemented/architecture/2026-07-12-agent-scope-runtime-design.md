@@ -150,7 +150,7 @@ sequenceDiagram
 Every teardown request joins one memoized path. The order is:
 
 1. Deactivate creation or driving and let synchronous publication finish.
-2. Stop and drain the driver, including idle injection flushes.
+2. Stop and drain the driver, discarding any injection that remains pending.
 3. Detach the agent.
 4. Detach the session.
 5. Dispose the agent scope.
@@ -238,7 +238,7 @@ For a native call, the observer deletes the stage and commits its value only whe
 
 For a Code Mode SDK call, the inner successful result records `{ parentToken, value }` rather than committing. The observer waits for the `run_code` execution whose token matches `parentToken` and commits only if that outer final result also succeeds. Program failure, runtime abort, or outer post-policy denial discards the pending value.
 
-Once a value is pending or committed, a scoped monotonic guard denies later tool calls. After commit, the ordinary serial `agent/turn-stop` listener returns a stop decision after continuation and steering have already folded. A schema-validation failure remains an ordinary `INVALID_ARGS` tool error and leaves the child able to retry within the same turn.
+Once a value is pending or committed, a scoped monotonic guard denies later tool calls. The successful structured-output execution calls `exec.concludeTurn()`, so its own immutable result carries `concludesTurn: true` and the loop ends the tool loop at that step. A schema-validation failure remains an ordinary `INVALID_ARGS` tool error and leaves the child able to retry within the same turn.
 
 Pure Code Mode's registry contribution omits `structured_output` from native wire schemas and exposes it through the generated SDK. The assembly waterfall may deliberately change that presentation; execution still validates against the child-scoped definition, and the listener owns the consistency of any alternate model-visible route it creates.
 
@@ -250,9 +250,9 @@ Prompt assembly is intentionally cooperative, but three execution facts need one
 |---|---|---|
 | Tool pre-policy | Deny monotonically | A later listener must not re-allow an already denied call |
 | Tool result | Observe the immutable committed outcome | Structured output must commit only the result that actually escaped the pipeline |
-| Turn continuation | Stop after ordinary continuation folding | A committed terminal output must end the turn |
+| Turn continuation | Conclude through the committed tool result | A committed terminal output must end the turn |
 
-`ToolGuard` is the monotonic policy registry. Committed tool observation is the contained `tools/result` point described above. Terminal structured output listens on the ordinary serial `agent/turn-stop` fold after normal continuation and steering decisions; no public `strictSerial()` dispatcher is needed for the typed listener contract.
+`ToolGuard` is the monotonic policy registry. Committed tool observation is the contained `tools/result` point described above. Terminal structured output marks its own execution with `concludesTurn`, so terminality is data on the authoritative result rather than a separate hook decision.
 
 ### Skill and approval services trust typed callers
 
@@ -260,19 +260,19 @@ Skill registry definitions and approval policies are readonly same-process contr
 
 Skill still validates external skill files and parsed provider output, routes catalogs through the calling agent's tool view, and disposes registrations exactly. Approval still resolves policy, observes cancellation, routes `approval/request` by `request.agent`, records the durable audit pair, and contains answerer and post-commit observer failures.
 
-## Subagents: readiness is the start promise
+## Subagents: publication is the start promise
 
-Subagent startup has one ownership transfer. The provider owns partial resources until its start promise fulfills with a ready published run; the caller owns the returned run and must dispose it.
+Subagent startup has one ownership transfer. The provider owns unpublished resources until its start promise fulfills with a published run; the caller owns the returned run and must dispose it.
 
 ### The service contract has one cancellation channel
 
-`SubagentProvider.start()` and `SubagentService.start()` return `Promise<SubagentRun>`. The promise fulfills only after the backend has established the child it promises, so callers and `subagent/start` observers never need a second `run.started` readiness promise.
+`SubagentProvider.start()` and `SubagentService.start()` return `Promise<SubagentRun>`. The promise fulfills after the backend crosses its publication boundary, so callers and `subagent/start` observers never need a second `run.started` promise. Provider work that fails before publication rejects `start()`; prompt, turn, cancellation, and infrastructure outcomes after publication settle through `SubagentRun.result` without hiding the child id, as required by the [durable catalog decision](../feature/2026-07-22-durable-subagent-catalog-and-list-agents.md).
 
-`SubagentStartRequest.signal` is required. Aborting it requests cancellation during startup and after readiness. `SubagentRun.dispose()` also requests cancellation and awaits quiescence. There is no separate public `run.cancel()` channel.
+`SubagentStartRequest.signal` is required. Aborting it requests cancellation during startup and across the published run's remaining readiness or turn work. `SubagentRun.dispose()` also requests cancellation and awaits quiescence. There is no separate public `run.cancel()` channel.
 
-Optional `sendMessage()` supports a live backend that can accept steering. Optional `resume()` returns `Promise<SubagentRun>` because the resumed child has the same asynchronous readiness boundary.
+Continuable conversations use their separate creation and follow-up operations and have no `SubagentRun`; their manager owns each resident `AgentHandle`.
 
-The service validates provider capabilities and request semantics before calling the provider. A provider rejection cleans any partial resources before the rejection escapes and emits no `subagent/start`/`subagent/end` pair. After fulfillment, the service attaches result observation, emits scoped start, and returns the run. Provider removal prevents later starts but does not revoke a run already accepted by the provider.
+The service validates provider capabilities and request semantics before calling the provider. A provider rejection cleans unpublished resources before the rejection escapes and emits no `subagent/start`/`subagent/end` pair. After fulfillment, the service attaches result observation, emits scoped start, and returns the run; a post-publication result rejection closes that pair. Provider removal prevents later starts but does not revoke a run already accepted by the provider.
 
 ### In-process providers reuse the core transaction
 
@@ -318,7 +318,7 @@ The design is enforced at types, runtime escape points, generated contracts, and
 
 ### Types make the ordinary path hard to misuse
 
-Readonly contracts describe borrowed same-process values. `Scoped<T>` marks event receivers, `agentEvents()` fuses carrier and subject, tool inputs omit registry-owned tokens, and subagent async return types expose readiness directly.
+Readonly contracts describe borrowed same-process values. `Scoped<T>` marks event receivers, `agentEvents()` fuses carrier and subject, tool inputs omit registry-owned tokens, and subagent async return types expose publication and settlement directly.
 
 TypeScript cannot govern JavaScript casts, direct Cordis dispatch, process messages, or durable files, so runtime enforcement remains at those escape points.
 
@@ -356,7 +356,7 @@ Parallel sentinels can all mirror whether one operation is live. One transaction
 
 ### Keep synchronous subagent start plus `run.started`
 
-This splits provider acceptance from readiness and forces every consumer to register a partial run, attach result observation, await readiness, and clean up readiness failure. An async start promise makes provider-to-caller ownership transfer the readiness boundary itself.
+This splits provider acceptance from publication and forces every consumer to register a partial run, attach result observation, await publication, and clean up publication failure. An async start promise keeps provider-to-caller ownership transfer at publication; the existing result promise owns any remaining readiness instead of adding another lifecycle promise.
 
 ### Restore selected prompt or tool contributions after assembly
 
@@ -378,7 +378,7 @@ The implementation is smaller and its proof follows the same shape as its owners
 - Durable, queued, model, worker, process, and wire values are owned at their real boundary; typed same-process values follow readonly contracts.
 - ToolRegistry's presentation, lookup, and execution resolve the same live view before expert assembly transforms, and committed results have one immutable observation point.
 - Registry contributions are deterministic inputs, while the trusted assembly waterfall owns the final model-visible composition.
-- Subagent start returns only a ready run, required signals cancel pending or live work, and disposal reaches the backend's quiescence contract.
+- Subagent start returns only a published run, required signals cancel pending or live work, and disposal reaches the backend's quiescence contract.
 - Worker/process result precedence and cleanup remain correct under death, late messages, and bounded teardown.
 
 ### Costs and limits

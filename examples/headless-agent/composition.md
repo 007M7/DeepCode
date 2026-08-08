@@ -31,12 +31,18 @@ flowchart LR
   cfg --> plugin_headless_token_meter
   plugin_headless_compact_basic["compact-basic<br/>@deepseek-ai/dsh-compact-basic"]
   cfg --> plugin_headless_compact_basic
+  plugin_headless_session_projection["session-projection<br/>@deepseek-ai/dsh-session-projection"]
+  cfg --> plugin_headless_session_projection
   plugin_headless_subagent["subagent<br/>@deepseek-ai/dsh-subagent"]
   cfg --> plugin_headless_subagent
   plugin_headless_subagent_spawn["subagent-spawn<br/>@deepseek-ai/dsh-subagent-spawn"]
   cfg --> plugin_headless_subagent_spawn
   plugin_headless_subagent_fork["subagent-fork<br/>@deepseek-ai/dsh-subagent-fork"]
   cfg --> plugin_headless_subagent_fork
+  plugin_headless_tool_subagent_control["tool-subagent-control<br/>@deepseek-ai/dsh-tool-subagent-control"]
+  cfg --> plugin_headless_tool_subagent_control
+  plugin_headless_tool_subagent_report["tool-subagent-report<br/>@deepseek-ai/dsh-tool-subagent-report"]
+  cfg --> plugin_headless_tool_subagent_report
   plugin_headless_tool_subagent["tool-subagent<br/>@deepseek-ai/dsh-tool-subagent"]
   cfg --> plugin_headless_tool_subagent
   plugin_headless_tool_subagent_fork["tool-subagent-fork<br/>@deepseek-ai/dsh-tool-subagent"]
@@ -67,9 +73,12 @@ flowchart LR
 | `cli-agent` | `@deepseek-ai/dsh-cli-demo` |
 | `token-meter` | `@deepseek-ai/dsh-token-meter` |
 | `compact-basic` | `@deepseek-ai/dsh-compact-basic` |
+| `session-projection` | `@deepseek-ai/dsh-session-projection` |
 | `subagent` | `@deepseek-ai/dsh-subagent` |
 | `subagent-spawn` | `@deepseek-ai/dsh-subagent-spawn` |
 | `subagent-fork` | `@deepseek-ai/dsh-subagent-fork` |
+| `tool-subagent-control` | `@deepseek-ai/dsh-tool-subagent-control` |
+| `tool-subagent-report` | `@deepseek-ai/dsh-tool-subagent-report` |
 | `tool-subagent` | `@deepseek-ai/dsh-tool-subagent` |
 | `tool-subagent-fork` | `@deepseek-ai/dsh-tool-subagent` |
 | `workflow-workerthread` | `@deepseek-ai/dsh-workflow-workerthread` |

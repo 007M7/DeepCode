@@ -4,19 +4,19 @@
  * arrives through `useProjection('goal')` (seeded by the history tail page,
  * updated by session/projection frames), so this plugin owns no store, no
  * refresh chain, and no event listener. The inject face carries only the
- * three mutation verbs (edit/resume/clear over the goal.* wire domain);
+ * four mutation verbs through the generated Goal Remote API;
  * their CAS ref reads the session's current projected value at call time.
  * Goal creation stays on the /goal host command.
  */
-import type { ConnectionHandle, GoalRef, SessionId } from '@deepseek-ai/dsh-client-connection/client'
-import type { RpcResult } from '@deepseek-ai/dsh-client-connection/client'
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ClientContext, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
+// Type-only: pulls the generated Remote API and ctx.remote merge through the Client assembly boundary.
+import type {} from '@deepseek-ai/dsh-api-remotes/client'
 // Type-only: pulls the ui-conversation SlotMap merge (the input.dock entry).
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 // Type-only: the `goal` SessionProjectionMap key merge (single source, the domain's pure outlet).
-import type { GoalProjection } from '@deepseek-ai/dsh-goal/client'
+import type { GoalProjection, GoalRef } from '@deepseek-ai/dsh-goal/client'
 import type { GoalActionResult, GoalBarActions } from './slots.ts'
 import { GoalDock } from './GoalBar.tsx'
 import { en, zh, type GoalKey } from './locales.ts'
@@ -35,13 +35,32 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 /** Dictionary namespace owned by this plugin. */
 const NS = 'goal'
 
-/** Required services: slots for the dock entry, sessions for the projected ref, connection for the wire verbs, locale for the copy. */
-export const inject = ['slots', 'sessions', 'connection', 'locale']
+/** Required services: slots for the dock entry, sessions for the projected ref, API for Remote mutations, locale for the copy. */
+export const inject = ['slots', 'sessions', 'remote', 'remote.goals', 'locale']
 
-/** Map one settled RPC result onto the strip's inline-render shape. */
-function settle<T>(result: RpcResult<T>): GoalActionResult {
-  if (result.ok) return { ok: true }
-  return { ok: false, error: { code: result.error.code, message: result.error.message } }
+/** Map one generated Remote call, including synchronous namespace lookup failures, onto the strip's inline-render shape. */
+async function settle(invoke: () => Promise<unknown>): Promise<GoalActionResult> {
+  try {
+    await invoke()
+    return { ok: true }
+  } catch (error) {
+    const cause = error instanceof Error ? error.cause : undefined
+    if (isRemoteError(cause)) return { ok: false, error: { code: cause.code, message: cause.message } }
+    return {
+      ok: false,
+      error: {
+        code: 'internal',
+        message: error instanceof Error ? error.message : 'goal mutation failed',
+      },
+    }
+  }
+}
+
+function isRemoteError(value: unknown): value is { readonly code: string; readonly message: string } {
+  return value !== null
+    && typeof value === 'object'
+    && typeof (value as { code?: unknown }).code === 'string'
+    && typeof (value as { message?: unknown }).message === 'string'
 }
 
 /**
@@ -51,54 +70,47 @@ function settle<T>(result: RpcResult<T>): GoalActionResult {
 export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-goal: dictionaries')
 
-  const { goals } = (ctx.get('connection') as ConnectionHandle).api
+  const sessions = ctx.sessions
 
-  // Conditional mount: 'conversation.input.dock' is declared by the
-  // conversation entry; the conversation service being up is the
-  // registration-safe signal (the TodoDock/QueueDock seam).
-  ctx.inject(['slots', 'conversation', 'sessions'], (scope: ClientContext) => {
-    const sessions = scope.sessions
+  /** The session's current projected CAS ref, read at verb call time (no staleness fence: the RPC's CAS is the guard). */
+  const refOf = (sessionId: SessionId): GoalRef | undefined => {
+    const face = sessions.binding(sessionId)?.session.projections.faceOf('goal')
+    const projection = face?.getSnapshot() as GoalProjection | null | undefined
+    if (projection == null) return undefined
+    return { id: projection.goal.id, revision: projection.goal.revision }
+  }
 
-    /** The session's current projected CAS ref, read at verb call time (no staleness fence: the RPC's CAS is the guard). */
-    const refOf = (sessionId: SessionId): GoalRef | undefined => {
-      const face = sessions.binding(sessionId)?.session.projections.faceOf('goal')
-      const projection = face?.getSnapshot() as GoalProjection | null | undefined
-      if (projection == null) return undefined
-      return { id: projection.goal.id, revision: projection.goal.revision }
-    }
+  const noCurrentGoal: GoalActionResult = {
+    ok: false,
+    error: { code: 'no-current-goal', message: 'no current goal to mutate' },
+  }
 
-    const noCurrentGoal: GoalActionResult = {
-      ok: false,
-      error: { code: 'no-current-goal', message: 'no current goal to mutate' },
-    }
-
-    scope.effect(() => scope.slots.register({
-      name: 'conversation.input.dock',
-      id: 'goal',
-      order: 0,
-      locale: NS,
-      inject: (sessionId): GoalBarActions => ({
-        onEdit: async (objective) => {
-          const ref = refOf(sessionId)
-          if (ref === undefined) return noCurrentGoal
-          return settle((await goals.edit({ sessionId, ref, objective })).result)
-        },
-        onPause: async () => {
-          const ref = refOf(sessionId)
-          if (ref === undefined) return noCurrentGoal
-          return settle((await goals.pause({ sessionId, ref })).result)
-        },
-        onResume: async () => {
-          const ref = refOf(sessionId)
-          if (ref === undefined) return noCurrentGoal
-          return settle((await goals.resume({ sessionId, ref })).result)
-        },
-        onClear: async () => {
-          const ref = refOf(sessionId)
-          if (ref === undefined) return noCurrentGoal
-          return settle((await goals.clear({ sessionId, ref })).result)
-        },
-      }),
-    }, GoalDock), 'ui-goal: GoalBar dock registration')
-  })
+  ctx.slots.inject('conversation.input.dock', () => ctx.slots.register({
+    name: 'conversation.input.dock',
+    id: 'goal',
+    order: 10,
+    locale: NS,
+    inject: (sessionId): GoalBarActions => ({
+      onEdit: async (objective) => {
+        const ref = refOf(sessionId)
+        if (ref === undefined) return noCurrentGoal
+        return settle(() => ctx.remote.goals.edit(sessionId, ref, { objective }))
+      },
+      onPause: async () => {
+        const ref = refOf(sessionId)
+        if (ref === undefined) return noCurrentGoal
+        return settle(() => ctx.remote.goals.pause(sessionId, ref))
+      },
+      onResume: async () => {
+        const ref = refOf(sessionId)
+        if (ref === undefined) return noCurrentGoal
+        return settle(() => ctx.remote.goals.resume(sessionId, ref))
+      },
+      onClear: async () => {
+        const ref = refOf(sessionId)
+        if (ref === undefined) return noCurrentGoal
+        return settle(() => ctx.remote.goals.clear(sessionId, ref))
+      },
+    }),
+  }, GoalDock))
 }

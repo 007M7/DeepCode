@@ -4,7 +4,7 @@
  * registers the factory), materialization on first import/require with
  * memoization and recursive self-sequencing, the resolution branch order,
  * shared in-flight arrival, invalidate-refetch (HMR), style claiming, the
- * default transport seams, and the loud failure modes (duplicate
+ * default transport seam, and the loud failure modes (duplicate
  * registration, cycles, table misses, double boot).
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -20,7 +20,6 @@ type Factory = ClientPluginHandoff['factory']
 afterEach(() => {
   vi.unstubAllGlobals()
   delete win.__ModuleLoader__
-  delete (document as unknown as Record<string, unknown>).__realmBridge
   for (const el of document.querySelectorAll('style, script')) el.remove()
 })
 
@@ -33,9 +32,9 @@ interface Bench {
 }
 
 /**
- * Loader over scripted bundles: fetch resolves to the row url (optionally
- * gated on a release callback); execute registers the scripted factory
- * through the window sink (`null` scripts a bundle that never calls load).
+ * Loader over scripted bundles: load records the row URL, optionally waits on
+ * a release callback, then registers the scripted factory through the window
+ * sink (`null` scripts a bundle that never calls load).
  */
 function bench(
   entries: BootModuleRow[],
@@ -47,15 +46,12 @@ function bench(
   const loader = new ClientModuleSystem({
     modules: entries,
     staticModules: opts.seed ?? {},
-    fetchBundle: (url) => {
+    loadBundle: async (url) => {
       fetched.push(url)
       if (opts.gated?.includes(url) === true) {
-        return new Promise((resolve) => { gates.set(url, () => { resolve(url) }) })
+        await new Promise<void>((resolve) => { gates.set(url, resolve) })
       }
-      return Promise.resolve(url)
-    },
-    executeBundle: (code) => {
-      const id = /\/plugins\/(.+)\/client\.js/.exec(code)?.[1]
+      const id = /\/plugins\/(.+)\/client\.js/.exec(url)?.[1]
       const factory = id === undefined ? undefined : bundles[id]
       if (factory == null || id === undefined) return
       win.__ModuleLoader__?.load({ id, factory })
@@ -65,7 +61,7 @@ function bench(
 }
 
 describe('lazy CJS arrival', () => {
-  it('prefetch fetches and executes but does not run the factory', async () => {
+  it('prefetch loads and registers but does not run the factory', async () => {
     const ran: string[] = []
     const b = bench([row('a')], { a: () => { ran.push('a'); return {} } })
     await b.loader.prefetch('a')
@@ -85,7 +81,7 @@ describe('lazy CJS arrival', () => {
     expect(b.loader.loadCache.get('a')?.id).toBe('a')
   })
 
-  it('import without prefetch fetches, executes, and materializes in one call', async () => {
+  it('import without prefetch loads, registers, and materializes in one call', async () => {
     const b = bench([row('a')], { a: () => ({ marker: 'direct' }) })
     const surface = await b.loader.import('a', '', {})
     expect((surface as { marker: string }).marker).toBe('direct')
@@ -228,7 +224,7 @@ describe('failure modes', () => {
 })
 
 describe('HMR reset', () => {
-  it('invalidate drops the factory and record so the module refetches and re-registers', async () => {
+  it('invalidate drops the factory and record so the module reloads and re-registers', async () => {
     let generation = 0
     const b = bench([row('a')], { a: () => ({ generation: ++generation }) })
     const first = await b.loader.import('a', '', {})
@@ -275,27 +271,35 @@ describe('style claiming', () => {
   })
 })
 
-describe('default transport seams', () => {
-  it('fetches same-origin and executes through an inline script tag', async () => {
-    // In a browser the loader's globalThis IS the page window; vitest's jsdom
-    // evaluates <script> in a separate realm that shares only the document,
-    // so the fixture bundle restores the sink from a document bridge before
-    // using the normal calling convention.
-    const code = 'window.__ModuleLoader__ = document.__realmBridge;\n'
-      + 'window.__ModuleLoader__.load({ id: "dee", factory: function () { return { marker: "via-script" } } })'
-    vi.stubGlobal('fetch', async () => ({ ok: true, text: async () => code }))
+describe('default transport seam', () => {
+  it('loads through an external classic script and removes the settled node', async () => {
+    const append = vi.spyOn(document.head, 'append').mockImplementation((...nodes) => {
+      const script = nodes[0]
+      if (!(script instanceof HTMLScriptElement)) throw new Error('expected script node')
+      expect(script.async).toBe(true)
+      expect(script.getAttribute('src')).toBe('/plugins/dee/client.js?rev=0')
+      queueMicrotask(() => {
+        win.__ModuleLoader__?.load({ id: 'dee', factory: () => ({ marker: 'via-script' }) })
+        script.dispatchEvent(new Event('load'))
+      })
+    })
     const loader: ClientModuleLoader = new ClientModuleSystem({ modules: [row('dee')], staticModules: {} })
-    ;(document as unknown as Record<string, unknown>).__realmBridge = win.__ModuleLoader__
     const surface = await loader.import('dee', '', {})
     expect((surface as { marker: string }).marker).toBe('via-script')
-    // The script node is removed right after its synchronous execution —
-    // repeated HMR rebuilds must not accumulate dead script nodes.
+    expect(append).toHaveBeenCalledOnce()
     expect([...document.querySelectorAll('script')]).toEqual([])
   })
 
-  it('a non-ok bundle response is loud with the status', async () => {
-    vi.stubGlobal('fetch', async () => ({ ok: false, status: 404 }))
+  it('a script load failure is loud and removes the node', async () => {
+    vi.spyOn(document.head, 'append').mockImplementation((...nodes) => {
+      const script = nodes[0]
+      if (!(script instanceof HTMLScriptElement)) throw new Error('expected script node')
+      queueMicrotask(() => { script.dispatchEvent(new Event('error')) })
+    })
     const loader = new ClientModuleSystem({ modules: [row('dee')], staticModules: {} })
-    await expect(loader.prefetch('dee')).rejects.toThrow('answered 404')
+    await expect(loader.prefetch('dee')).rejects.toThrow(
+      'bundle script /plugins/dee/client.js?rev=0 failed to load',
+    )
+    expect([...document.querySelectorAll('script')]).toEqual([])
   })
 })

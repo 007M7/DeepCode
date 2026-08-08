@@ -1,4 +1,4 @@
-# Agent Note: 生成式工具 schema 目录（启动并采集）
+# Agent Note: 生成的工具 schema 目录（启动并采集）
 
 Status: implemented
 
@@ -10,7 +10,7 @@ Status: implemented
 
 ## 决策
 
-目录通过**启动每个工具插件并读取其已注册 schema** 来生成，而不是解析源码。`scripts/gen-tool-catalog.ts` 在全新的 Cordis `Context` 上挂载每个已发布工具包（package）；该上下文还提供 `SystemPrompt`、`ToolRegistry` 以及插件 `apply` 所读取的注入 seam。生成器调用 `ctx.tools.schemas()`——也就是发送给模型的确切 `ToolSchema[]`——随后释放上下文，并为每个包渲染一个 `## <package>` 章节，每个工具附带一个 ` ```json ` `parameters` 块。它与 `gen-cordis-catalog` / `gen-module-graph` 的 CLI 形状一致：默认 `--write` 重新生成；提交副本陈旧时 `--check` 失败；输出具有确定性（按清单排序，工具按名称排序）。`verify-tool-catalog`（即 `--check`）在 `doc-sync` 内运行，因此相关文档变更和 CI 会执行同一项新鲜度检查。
+目录通过**启动每个工具插件并读取其已注册 schema** 来生成，而不是解析源码。`scripts/gen-tool-catalog.ts` 在全新的 Cordis `Context` 上挂载每个已发布工具包；该上下文还提供 `SystemPrompt`、`ToolRegistry` 以及插件 `apply` 所读取的注入 seam。生成器调用 `ctx.tools.schemas()`——也就是发送给模型的确切 `ToolSchema[]`——随后 dispose（资源释放）上下文，并为每个包渲染一个 `## <package>` 章节，每个工具附带一个 ` ```json ` `parameters` 块。它与 `gen-cordis-catalog` / `gen-module-graph` 的 CLI 形状一致：默认 `--write` 重新生成；提交副本陈旧时 `--check` 失败；输出具有确定性（按清单排序，工具按名称排序）。`verify-tool-catalog`（即 `--check`）在 `doc-sync` 内运行，因此相关文档变更和 CI 会执行同一项新鲜度检查。
 
 ### 为何启动而非解析（核心要点）
 
@@ -35,7 +35,7 @@ Cordis 目录是纯 TypeScript AST 遍历，因为每个事件/服务名都是�
 
 `packages/*/tool-*` 下已发布的产品工具包，每个都使用默认配置启动，包括 `dsh-tool-bash`（`bash`）、`dsh-tool-tasks`（`task_output`、`task_list`、`task_kill`）和 `dsh-tool-subagent`（`subagent`）。仅供示例使用的工具不在范围内。
 
-目录的单位是包，而非每个配置化的工具实例。每个包以默认配置启动一次；加载时的别名（如 `subagent_fork`）会注明，但不枚举所有部署排列。部署清单是一个独立的、无界的接口。
+目录的单位是包，而非经过配置的每个工具实例。每个包以默认配置启动一次；加载时的别名（如 `subagent_fork`）会注明，但不枚举所有部署配置组合。部署清单覆盖的是一个独立且无界的范围。
 
 ### 使用普通 `json` 围栏
 
@@ -49,7 +49,7 @@ schema 块使用 ` ```json `，而非自定义的 `ts` 系围栏。`doc-typechec
 
 ## 后果
 
-- 目录不会发生漂移：提交文件未反映的工具 schema 变化会使 `doc-sync` 和 CI 中的 `verify-tool-catalog` 失败。新增的 `tool-*` 包若未加入清单，会直接使完整性守卫失败。
+- 目录不会发生漂移：提交文件未反映的工具 schema 变化会使 `doc-sync` 和 CI 中的 `verify-tool-catalog` 失败。新增的 `tool-*` 包若未加入 manifest，会直接使完整性守卫失败。
 - 工具描述文本有唯一归属——源码中 `defineTool` 的 `description`——生成的条目质量取决于它，与 Cordis 目录对事件 JSDoc 施加的强制力相同。
 - 生成器导入并执行工作区包（这是仓库中第一个这样做的脚本；其他脚本只读文本）。它通过根 `tsconfig` 的 `paths` 映射在 `tsx` 下运行，使用与演示和测试相同的未构建源码路径，因此不需要构建步骤。
 - 未来某个工具背后新增一个能力 seam，意味着 manifest 中需要新增一条配方条目（声明要挂载哪些 seam）。这正是上文指出的有意为之的手写成本；仅在新增工具包时才需变更。

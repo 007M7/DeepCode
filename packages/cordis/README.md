@@ -6,5 +6,5 @@ Plugins that integrate Harness-owned formats with the Cordis runtime: the self-r
 
 | Package | Role | ctx key |
 |---|---|---|
-| [`tool-cordis/`](tool-cordis/README.md) | The `cordis_inspect` / `cordis_mount` / `cordis_unmount` tools: read the current-process runtime and manage in-memory temporary Plugins under one owned group fiber | registers on `ctx.tools` |
-| [`repository-plugin/`](repository-plugin/README.md) | Prepare and mount static repository skills plus common `.mcp.json` servers through DSH-owned child Plugins | registers a Loader builtin |
+| [`tool-cordis/`](tool-cordis/README.md) | Model-facing runtime inspection and temporary-plugin tools | registers on `ctx.tools` |
+| [`repository-plugin/`](repository-plugin/README.md) | Repository skill and MCP composition | registers a Loader builtin |

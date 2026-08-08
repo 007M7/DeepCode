@@ -14,6 +14,7 @@ import SandboxPolicyService, { setSandboxMode } from '@deepseek-ai/dsh-sandbox-p
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import ApprovalService, { setApprovalPolicy } from '@deepseek-ai/dsh-user-approval'
+import { snapshotSubagentDescriptor } from '@deepseek-ai/dsh-subagent'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 import { startInProcessRun } from '../src/index.ts'
 
@@ -52,9 +53,15 @@ async function setupWalled(script: Script): Promise<{ ctx: Context; parent: Agen
 
 function spawnRequest(parent: Agent) {
   return {
+    label: 'child task',
     prompt: [{ type: 'text' as const, text: 'child task' }],
     parent,
     signal: new AbortController().signal,
+    descriptor: snapshotSubagentDescriptor({
+      mode: 'one-shot',
+      provider: 'spawn',
+      label: 'child task',
+    }),
   }
 }
 

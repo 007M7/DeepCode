@@ -69,4 +69,4 @@ The web e2e scenario now seeds a real compaction transaction over its recorded t
 
 ## Deferred
 
-The terminal's [compaction progress decision](../feature/2026-07-30-compaction-progress-visibility.md) uses the live standalone bracket to drive a one-cell indicator and does not change this browser projection. The marker still carries no **scale**: the checkpoint's `sourceEventSeqs` hold the shadowed count, so a separately justified count or range can be added without coupling it to progress.
+The terminal's [archived compaction progress decision](../../archived/feature/2026-07-30-compaction-progress-visibility.md) uses the live standalone bracket to drive a one-cell indicator and does not change this browser projection. The marker still carries no **scale**: the checkpoint's `sourceEventSeqs` hold the shadowed count, so a separately justified count or range can be added without coupling it to progress.

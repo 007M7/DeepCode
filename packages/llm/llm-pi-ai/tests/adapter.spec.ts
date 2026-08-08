@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import LlmService, { createUserMessage, CONTEXT_WINDOW_EXCEEDED_CODE, LlmError, ReasoningEffortId, userAgent  } from '@deepseek-ai/dsh-llm'
 import * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
@@ -15,21 +15,31 @@ afterEach(async () => {
 })
 
 async function harness(baseURL: string, overrides: Record<string, unknown> = {}): Promise<Context> {
+  vi.stubEnv('PI_TEST_KEY', 'test-key')
   const ctx = new Context()
   await ctx.plugin(LlmService)
   await ctx.plugin(LlmPiAi, {
-    providers: { deepseek: { apiKey: 'test-key', baseURL, ...overrides } },
+    providers: { deepseek: { apiKeyEnv: 'PI_TEST_KEY', baseURL, ...overrides } },
   })
   return ctx
 }
 
-/** Direct adapter over the real profile resolver, with literal-key resolution. */
-function adapterOf(providers: Record<string, LlmPiAi.PiAiProviderProfile>): PiAiAdapter {
+/** Direct adapter over the real profile resolver, with a fixed key per call. */
+function adapterOf(
+  providers: Record<string, LlmPiAi.PiAiProviderProfile>,
+  apiKey: string | undefined = 'test-key',
+): PiAiAdapter {
   return new PiAiAdapter({
     profiles: () => resolveProfiles(providers),
-    resolveApiKey: (_provider, profile) => Promise.resolve(profile.apiKey),
+    resolveApiKey: () => Promise.resolve(apiKey),
   })
 }
+
+beforeEach(() => {
+  // Configuration carries only the reference; these mounts resolve it from
+  // the environment, which is the whole credential plane without a seam.
+  vi.stubEnv('PI_TEST_KEY', 'test-key')
+})
 
 describe('PiAiAdapter provider routing', () => {
   it('resolves a catalog model dynamically and uses a private endpoint', async () => {
@@ -85,7 +95,7 @@ describe('PiAiAdapter provider routing', () => {
     })
   })
 
-  it('uses a dynamic request effort and rejects unsupported efforts before network I/O', async () => {
+  it('uses a dynamic request effort and reports unsupported efforts before network I/O', async () => {
     const server = await mockServer([{ events: textEvents }, { events: textEvents }])
     const ctx = await harness(server.url, { reasoning: 'max' })
 
@@ -104,11 +114,15 @@ describe('PiAiAdapter provider routing', () => {
     expect(server.requests[1]).toMatchObject({ thinking: { type: 'disabled' } })
     expect(server.requests[1]).not.toHaveProperty('reasoning_effort')
 
-    await expect(assemble(ctx, {
+    const unsupported = await assemble(ctx, {
       model: 'deepseek-v4-flash',
       reasoningEffort: ReasoningEffortId('xhigh'),
       messages: [],
-    })).rejects.toMatchObject({ code: 'UNSUPPORTED_REASONING_EFFORT' })
+    })
+    expect(unsupported.finish).toMatchObject({
+      kind: 'error',
+      failure: { code: 'UNSUPPORTED_REASONING_EFFORT' },
+    })
     expect(server.requests).toHaveLength(2)
   })
 
@@ -117,7 +131,7 @@ describe('PiAiAdapter provider routing', () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)
     ctx.llm.registerAdapter(['deepseek'], adapterOf({
-      deepseek: { apiKey: 'test-key', baseURL: server.url },
+      deepseek: { apiKeyEnv: 'PI_TEST_KEY', baseURL: server.url },
     }))
 
     const result = await assemble(ctx, { model: 'deepseek-v4-flash', messages: [] })
@@ -125,19 +139,35 @@ describe('PiAiAdapter provider routing', () => {
     expect(result.message.content).toEqual([{ type: 'text', text: 'hello' }])
   })
 
-  it('rejects stop sequences rather than silently ignoring them', async () => {
+  it('names a route by its displayName, and by its own key once the profiles drop it', () => {
+    const adapter = adapterOf({ 'acme-gateway': {
+      displayName: 'Acme Gateway',
+      api: 'openai-completions',
+      baseURL: 'https://acme.test/v1',
+      models: [{ id: 'acme-large' }],
+    } })
+    expect(adapter.providerInfo('acme-gateway')).toEqual({ id: 'acme-gateway', name: 'Acme Gateway' })
+
+    // The registry and the profiles can disagree for a moment: a refused
+    // registration swap leaves the previous routes serving while resolution
+    // has already moved on, so a selector may ask about a route the current
+    // profiles no longer describe. It gets the key rather than nothing.
+    expect(adapter.providerInfo('departed')).toEqual({ id: 'departed', name: 'departed' })
+  })
+
+  it('reports unsupported stop sequences rather than silently ignoring them', async () => {
     const server = await mockServer([])
     const ctx = await harness(server.url)
-    await expect(assemble(ctx, { model: 'deepseek-v4-flash', messages: [], stop: ['END'] }))
-      .rejects.toMatchObject({ code: 'UNSUPPORTED_OPTION' })
+    const result = await assemble(ctx, { model: 'deepseek-v4-flash', messages: [], stop: ['END'] })
+    expect(result.finish).toMatchObject({ kind: 'error', failure: { code: 'UNSUPPORTED_OPTION' } })
     expect(server.requests).toEqual([])
   })
 
-  it('rejects unknown catalog models before network I/O', async () => {
+  it('reports unknown catalog models before network I/O', async () => {
     const server = await mockServer([])
     const ctx = await harness(server.url)
-    await expect(assemble(ctx, { model: 'not-in-the-catalog', messages: [] }))
-      .rejects.toMatchObject({ code: 'UNKNOWN_MODEL' })
+    const result = await assemble(ctx, { model: 'not-in-the-catalog', messages: [] })
+    expect(result.finish).toMatchObject({ kind: 'error', failure: { code: 'UNKNOWN_MODEL' } })
     expect(server.requests).toEqual([])
   })
 
@@ -146,7 +176,7 @@ describe('PiAiAdapter provider routing', () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)
     await ctx.plugin(LlmPiAi, {
-      providers: { openai: { apiKey: 'test-key', baseURL: `${server.url}/v1` } },
+      providers: { openai: { apiKeyEnv: 'PI_TEST_KEY', baseURL: `${server.url}/v1` } },
     })
     const result = await assemble(ctx, { provider: 'openai', model: 'gpt-4.1', messages: [] })
     expect(result.finish.kind).toBe('error')
@@ -166,7 +196,7 @@ describe('PiAiAdapter provider routing', () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)
     await ctx.plugin(LlmPiAi, {
-      providers: { openai: { apiKey: 'test-key', baseURL: `${server.url}/v1` } },
+      providers: { openai: { apiKeyEnv: 'PI_TEST_KEY', baseURL: `${server.url}/v1` } },
     })
 
     const result = await assemble(ctx, { provider: 'openai', model: 'gpt-4.1', messages: [] })
@@ -182,7 +212,7 @@ describe('PiAiAdapter provider routing', () => {
     await ctx.plugin(LlmPiAi, {
       providers: {
         openai: {
-          apiKey: 'test-key',
+          apiKeyEnv: 'PI_TEST_KEY',
           baseURL: `${server.url}/api/projects/openai/openai/v1`,
           headers: { 'api-key': 'test-key', Authorization: '' },
         },
@@ -237,8 +267,8 @@ describe('PiAiAdapter provider routing', () => {
     const server = await mockServer([{ events: textEvents, delayMs: 200 }])
     const ctx = await harness(server.url, { streamIdleTimeoutMs: 20 })
 
-    await expect(assemble(ctx, { model: 'deepseek-v4-flash', messages: [] }))
-      .rejects.toMatchObject({ code: 'TIMEOUT' })
+    const result = await assemble(ctx, { model: 'deepseek-v4-flash', messages: [] })
+    expect(result.finish).toMatchObject({ kind: 'error', failure: { code: 'TIMEOUT' } })
     await Promise.race([
       server.responseClosed,
       new Promise<never>((_resolve, reject) => {
@@ -335,12 +365,11 @@ describe('provider profile lifecycle', () => {
       ReasoningEffortId('xhigh'),
       ReasoningEffortId('max'),
     ])
-    await expect(ctx.llm.resolveModelInfo('openai', 'gpt-4.1'))
-      .resolves.toMatchObject({
-        reasoning: {
-          efforts: [{ id: ReasoningEffortId('off'), name: 'Off' }],
-        },
-      })
+    // A catalog model without reasoning is the same case as a hand-declared
+    // one: pi-ai reports the single level `off`, which translates to omitting
+    // the reasoning option — exactly what naming no effort already does. The
+    // capability is reported unavailable rather than offering that control.
+    expect((await ctx.llm.resolveModelInfo('openai', 'gpt-4.1')).reasoning).toBeUndefined()
   })
 
   it('uses a supported profile reasoning value as the model default and rejects an unsupported one', async () => {
@@ -352,13 +381,24 @@ describe('provider profile lifecycle', () => {
     await expect(supported.llm.resolveModelInfo('deepseek', 'deepseek-v4-flash'))
       .resolves.toMatchObject({ reasoning: { defaultEffort: ReasoningEffortId('max') } })
 
+    // A profile level this model cannot take DESCRIBES as no default rather
+    // than failing: resolveModelInfo builds the model catalog, and a catalog
+    // that throws takes its whole provider out of every picker — one mis-set
+    // field would hide every model on the route, including the ones that do
+    // support the level. The request path below is where it is refused.
     const unsupported = new Context()
     await unsupported.plugin(LlmService)
     await unsupported.plugin(LlmPiAi, {
       providers: { deepseek: { reasoning: 'medium' } },
     })
-    await expect(unsupported.llm.resolveModelInfo('deepseek', 'deepseek-v4-flash'))
-      .rejects.toMatchObject({ code: 'UNSUPPORTED_REASONING_EFFORT' })
+    const described = await unsupported.llm.resolveModelInfo('deepseek', 'deepseek-v4-flash')
+    expect(described.reasoning?.defaultEffort).toBeUndefined()
+    expect(described.reasoning?.efforts.length).toBeGreaterThan(0)
+    await expect(assemble(unsupported, {
+      provider: 'deepseek', model: 'deepseek-v4-flash', messages: [],
+    })).resolves.toMatchObject({
+      finish: { kind: 'error', failure: { code: 'UNSUPPORTED_REASONING_EFFORT' } },
+    })
 
     const disabled = new Context()
     await disabled.plugin(LlmService)
@@ -369,10 +409,191 @@ describe('provider profile lifecycle', () => {
       .resolves.toMatchObject({ reasoning: { defaultEffort: ReasoningEffortId('off') } })
   })
 
+  it('serves declared reasoning efforts to selectors and honours the profile default', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    await ctx.plugin(LlmPiAi, {
+      providers: {
+        'acme-gateway': {
+          apiKeyEnv: 'PI_TEST_KEY',
+          api: 'openai-completions',
+          baseURL: 'https://acme.test/v1',
+          reasoning: 'high',
+          models: [{
+            id: 'acme-think',
+            contextWindow: 65_536,
+            maxTokens: 4096,
+            reasoningEfforts: { off: null, low: 'low', high: 'high' },
+          }],
+        },
+      },
+    })
+
+    // Declared levels reach the same seam catalog metadata does, so the
+    // effort picker works for a model pi-ai has never heard of.
+    await expect(ctx.llm.resolveModelInfo('acme-gateway', 'acme-think')).resolves.toMatchObject({
+      reasoning: {
+        efforts: [
+          { id: ReasoningEffortId('off'), name: 'Off' },
+          { id: ReasoningEffortId('low'), name: 'Low' },
+          { id: ReasoningEffortId('high'), name: 'High' },
+        ],
+        defaultEffort: ReasoningEffortId('high'),
+      },
+    })
+  })
+
+  it('sends the declared wire spelling and refuses undeclared levels before network I/O', async () => {
+    vi.stubEnv('PI_TEST_KEY', 'test-key')
+    const server = await mockServer([{ events: textEvents }])
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    await ctx.plugin(LlmPiAi, {
+      providers: {
+        'acme-gateway': {
+          apiKeyEnv: 'PI_TEST_KEY',
+          api: 'openai-completions',
+          baseURL: `${server.url}/v1`,
+          models: [{
+            id: 'acme-think',
+            contextWindow: 65_536,
+            maxTokens: 4096,
+            reasoningEfforts: { off: null, high: 'ultra' },
+          }],
+        },
+      },
+    })
+
+    await assemble(ctx, {
+      provider: 'acme-gateway',
+      model: 'acme-think',
+      reasoningEffort: ReasoningEffortId('high'),
+      messages: [],
+    })
+    // The declared value, not the canonical level name, goes on the wire.
+    expect(server.requests[0]).toMatchObject({ reasoning_effort: 'ultra' })
+
+    const undeclared = await assemble(ctx, {
+      provider: 'acme-gateway',
+      model: 'acme-think',
+      reasoningEffort: ReasoningEffortId('max'),
+      messages: [],
+    })
+    expect(undeclared.finish).toMatchObject({
+      kind: 'error',
+      failure: { code: 'UNSUPPORTED_REASONING_EFFORT' },
+    })
+    expect(server.requests).toHaveLength(1)
+  })
+
+  it('dispatches the compat-switched dialect on a declared route', async () => {
+    vi.stubEnv('PI_TEST_KEY', 'test-key')
+    const server = await mockServer([{ events: textEvents }, { events: textEvents }])
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    await ctx.plugin(LlmPiAi, {
+      providers: {
+        'acme-gateway': {
+          apiKeyEnv: 'PI_TEST_KEY',
+          api: 'openai-completions',
+          baseURL: `${server.url}/v1`,
+          // Without the switch pi-ai guesses the dialect from the endpoint
+          // URL, and a private gateway's URL says nothing.
+          compat: { thinkingFormat: 'deepseek' },
+          models: [{
+            id: 'acme-think',
+            contextWindow: 65_536,
+            maxTokens: 4096,
+            reasoningEfforts: { off: null, high: 'high' },
+          }],
+        },
+      },
+    })
+    const prompt = (effort: string): Promise<unknown> => assemble(ctx, {
+      provider: 'acme-gateway',
+      model: 'acme-think',
+      reasoningEffort: ReasoningEffortId(effort),
+      messages: [],
+    })
+
+    await prompt('high')
+    expect(server.requests[0]).toMatchObject({ thinking: { type: 'enabled' }, reasoning_effort: 'high' })
+
+    await prompt('off')
+    expect(server.requests[1]).toMatchObject({ thinking: { type: 'disabled' } })
+    expect(server.requests[1]).not.toHaveProperty('reasoning_effort')
+  })
+
+  it('sends a declared off value as the effort parameter instead of omitting it', async () => {
+    vi.stubEnv('PI_TEST_KEY', 'test-key')
+    const server = await mockServer([{ events: textEvents }])
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    await ctx.plugin(LlmPiAi, {
+      providers: {
+        'acme-gateway': {
+          apiKeyEnv: 'PI_TEST_KEY',
+          api: 'openai-completions',
+          baseURL: `${server.url}/v1`,
+          models: [{
+            id: 'acme-think',
+            contextWindow: 65_536,
+            maxTokens: 4096,
+            reasoningEfforts: { off: 'none', high: 'high' },
+          }],
+        },
+      },
+    })
+
+    // The adapter strips a selected Off to "no reasoning option", and pi-ai's
+    // dispatch reads thinkingLevelMap.off exactly then — so the declared value
+    // still reaches the wire, which is the README's promise for `off: none`.
+    await assemble(ctx, {
+      provider: 'acme-gateway',
+      model: 'acme-think',
+      reasoningEffort: ReasoningEffortId('off'),
+      messages: [],
+    })
+    expect(server.requests[0]).toMatchObject({ reasoning_effort: 'none' })
+  })
+
+  it('holds back reasoning_effort when the endpoint cannot take it', async () => {
+    vi.stubEnv('PI_TEST_KEY', 'test-key')
+    const server = await mockServer([{ events: textEvents }])
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    await ctx.plugin(LlmPiAi, {
+      providers: {
+        'acme-gateway': {
+          apiKeyEnv: 'PI_TEST_KEY',
+          api: 'openai-completions',
+          baseURL: `${server.url}/v1`,
+          compat: { supportsReasoningEffort: false },
+          models: [{
+            id: 'acme-think',
+            contextWindow: 65_536,
+            maxTokens: 4096,
+            reasoningEfforts: { off: null, high: 'high' },
+          }],
+        },
+      },
+    })
+
+    await assemble(ctx, {
+      provider: 'acme-gateway',
+      model: 'acme-think',
+      reasoningEffort: ReasoningEffortId('high'),
+      messages: [],
+    })
+    expect(server.requests[0]).not.toHaveProperty('reasoning_effort')
+  })
+
   it('accepts absent credentials for pi-ai ambient authentication', async () => {
     vi.stubEnv('DEEPSEEK_API_KEY', 'ambient-key')
     const server = await mockServer([{ events: textEvents }])
-    const ctx = await harness(server.url, { apiKey: undefined })
+    // A profile that names no reference at all is the one case that defers to
+    // pi-ai's own provider-native discovery.
+    const ctx = await harness(server.url, { apiKeyEnv: undefined })
     await assemble(ctx, { model: 'deepseek-v4-flash', messages: [] })
     expect(server.headers[0]?.authorization).toBe('Bearer ambient-key')
   })
@@ -393,25 +614,27 @@ describe('provider profile lifecycle', () => {
     vi.stubEnv('DEEPSEEK_API_KEY', 'ambient-key')
     const server = await mockServer([{ events: textEvents }])
     const ctx = await harness(server.url, { apiKey: undefined, apiKeyEnv: 'PI_CUSTOM_REF_KEY' })
-    await expect(assemble(ctx, { model: 'deepseek-v4-flash', messages: [] }))
-      .rejects.toMatchObject({ code: 'MISSING_CREDENTIAL' })
-    await expect(assemble(ctx, { model: 'deepseek-v4-flash', messages: [] }))
-      .rejects.toThrow(/provider route "deepseek".*PI_CUSTOM_REF_KEY/s)
+    const first = await assemble(ctx, { model: 'deepseek-v4-flash', messages: [] })
+    expect(first.finish).toMatchObject({ kind: 'error', failure: { code: 'MISSING_CREDENTIAL' } })
+    const second = await assemble(ctx, { model: 'deepseek-v4-flash', messages: [] })
+    expect(second.finish.kind).toBe('error')
+    if (second.finish.kind !== 'error') throw new Error('expected an error finish')
+    expect(second.finish.failure.message).toMatch(/provider route "deepseek".*PI_CUSTOM_REF_KEY/s)
     expect(server.requests).toHaveLength(0)
   })
 
-  it('validates empty, unknown, legacy-shaped, and explicitly blank profiles', () => {
+  it('validates empty, underspecified, legacy-shaped, and explicitly blank profiles', () => {
     // Empty and omitted dicts are the dormant zero-route posture, not errors.
     expect(resolveProfiles({}).size).toBe(0)
     expect(resolveProfiles(undefined).size).toBe(0)
     expect(() => resolveProfiles({ '': {} })).toThrow(/non-empty/)
-    expect(() => resolveProfiles({ 'not-real': {} })).toThrow(/unknown/)
+    // A route the installed catalog does not ship is allowed, but it has no
+    // defaults to fall back on: it must describe its own models.
+    expect(() => resolveProfiles({ 'not-real': {} })).toThrow(/resolves no models/)
     // The pre-release array shape and its per-profile provider field fail
     // loud with migration directions instead of half-working.
     expect(() => resolveProfiles([{ provider: 'openai' }] as never)).toThrow(/dict keyed by provider/)
     expect(() => resolveProfiles({ openai: { provider: 'openai' } as never })).toThrow(/moved to the providers dict key/)
-    expect(() => resolveProfiles({ openai: { apiKey: '' } })).toThrow(/empty apiKey/)
-    expect(() => resolveProfiles({ openai: { apiKey: '  ' } })).toThrow(/empty apiKey/)
     expect(() => resolveProfiles({ openai: { baseURL: '' } })).toThrow(/empty baseURL/)
     expect(() => resolveProfiles({ openai: { apiKeyEnv: 'not-a-var!' } })).toThrow(/must match/)
   })
@@ -486,7 +709,7 @@ describe('abort wiring', () => {
     const message = Object.defineProperty({}, 'role', {
       get() { throw original },
     })
-    const adapter = adapterOf({ deepseek: { apiKey: 'test-key' } })
+    const adapter = adapterOf({ deepseek: {} })
     const drain = async (): Promise<void> => {
       for await (const _chunk of adapter.stream({
         provider: 'deepseek',
@@ -507,7 +730,7 @@ describe('abort wiring', () => {
         throw original
       },
     })
-    const adapter = adapterOf({ deepseek: { apiKey: 'test-key' } })
+    const adapter = adapterOf({ deepseek: {} })
     const drain = async (): Promise<void> => {
       for await (const _chunk of adapter.stream({
         provider: 'deepseek',
@@ -521,7 +744,7 @@ describe('abort wiring', () => {
   })
 
   it('resolves catalog endpoints without an override before honoring pre-abort', async () => {
-    const adapter = adapterOf({ deepseek: { apiKey: 'test-key' } })
+    const adapter = adapterOf({ deepseek: {} })
     const controller = new AbortController()
     controller.abort('already stopped')
     const chunks = []

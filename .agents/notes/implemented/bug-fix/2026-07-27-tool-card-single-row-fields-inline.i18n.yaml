@@ -1,6 +1,0 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
-#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-07-27-tool-card-single-row-fields-inline.md
-2026-07-27-tool-card-single-row-fields-inline.md: e04110ed74b68afffc6ea45fc2cb52c4063268e7
-2026-07-27-tool-card-single-row-fields-inline.zh.md: ac532ec6eb51d42a529e0816d1204cb2729a074a

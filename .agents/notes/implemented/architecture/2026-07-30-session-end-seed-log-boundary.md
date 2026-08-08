@@ -20,7 +20,7 @@ A bracket owner reads it positionally: an unmatched opening marker before `sessi
 
 The constructor is the placement because it is the single waist every seeded session passes through. All six entry points reach it: `agents.resume()`, config-driven startup on a persisted id (`restoreOrCreateConfigured`), `sessions.fork()`, a subagent fork child, `coordinator.adopt()`'s live-prefix path, and a bare `sessions.create(id, {seed})`. A boundary written at persistence load would miss both fork paths — and a forked child inheriting a still-running parent's open `compact/start` is precisely the case that must be classifiable. A boundary written at loop start would miss `fork()` and `adopt()`, and would have to fire on `SessionStartSource: 'startup'`, which is what a fork child publishes, so that field would stop discriminating.
 
-Two guards keep the marker precise. An omitted seed writes nothing because the session is fresh. A seed already ending in one is not re-marked, which makes the write idempotent. Idempotence is load-bearing rather than tidiness — `agentFor()` resumes a cold session on first touch, so merely opening one in a client is a pickup, and without the guard browsing would grow a log by one event per visit.
+Two guards keep the marker precise. An omitted seed writes nothing because the session is fresh. A seed already ending in one is not re-marked, which makes the write idempotent. Idempotence is load-bearing rather than tidiness: each Agent-bound pickup of a cold session passes through `agentFor()`, and without the guard repeated controls would grow the log even when they perform no work. The inspection-only `session.history` and `session.fork` source paths do not create this boundary in the source.
 
 ## Persistence needs no changes
 
@@ -36,7 +36,7 @@ The predicate holds for a bracket *this* session inherited, not as a liveness si
 
 ## Alternatives considered
 
-**A boundary written by the persistence coordinator's cold-load path.** Built first, as the [`session/resumed` boundary](../../rejected/architecture/2026-07-29-session-resumed-log-boundary.md), and abandoned before merge. It covers no fork, which is the one case where the inherited bracket's owner may still be running. Because the marker was minted at load it also had to be a durable write on a read path, which spread cost across the seam: a revision bump on every cold load, a `commitRepair` batch on a balanced log with nothing to repair, a stored-time floor to keep the clamp monotonic, and a load that failed against a read-only store.
+**A boundary written by the persistence coordinator's cold-load path.** Built first as a `session/resumed` boundary and abandoned before merge. It covers no fork, which is the one case where the inherited bracket's owner may still be running. Because the marker was minted at load it also had to be a durable write on a read path, which spread cost across the seam: a revision bump on every cold load, a `commitRepair` batch on a balanced log with nothing to repair, a stored-time floor to keep the clamp monotonic, and a load that failed against a read-only store.
 
 **A boundary appended at loop start.** The loop calls `resumeWith`, so it covers the resume paths, but it misses `fork()` and `adopt()` entirely, and the event would have to fire on `'startup'` — the source a fork child publishes — so `SessionStartSource` would stop discriminating. It also publishes the session before the marker is appended, so a `session/created` listener could observe a seeded log with no boundary.
 

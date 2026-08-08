@@ -28,6 +28,21 @@
     },
     {
       "doc": "docs/core-data-structures/core.md",
+      "symbol": "ContextForm",
+      "source": "packages/llm/llm/src/message.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.md",
+      "symbol": "ContextSnapshotSection",
+      "source": "packages/llm/llm/src/message.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.md",
+      "symbol": "ContextFormed",
+      "source": "packages/llm/llm/src/message.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.md",
       "symbol": "FinishReasonMap",
       "source": "packages/llm/llm/src/types.ts"
     },
@@ -44,6 +59,16 @@
     {
       "doc": "docs/core-data-structures/core.md",
       "symbol": "LlmModelInfo",
+      "source": "packages/llm/llm/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.md",
+      "symbol": "LlmModelDiscoveryRequest",
+      "source": "packages/llm/llm/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.md",
+      "symbol": "LlmDiscoveredModel",
       "source": "packages/llm/llm/src/types.ts"
     },
     {
@@ -98,33 +123,8 @@
     },
     {
       "doc": "docs/core-data-structures/core.md",
-      "symbol": "SendTarget",
-      "source": "packages/core/agent/src/types.ts"
-    },
-    {
-      "doc": "docs/core-data-structures/core.md",
-      "symbol": "InboxPlacement",
-      "source": "packages/core/agent/src/types.ts"
-    },
-    {
-      "doc": "docs/core-data-structures/core.md",
-      "symbol": "InboxItem",
-      "source": "packages/core/agent/src/types.ts"
-    },
-    {
-      "doc": "docs/core-data-structures/core.md",
-      "symbol": "InboxAction",
-      "source": "packages/core/agent/src/types.ts"
-    },
-    {
-      "doc": "docs/core-data-structures/core.md",
-      "symbol": "InboxActionResult",
-      "source": "packages/core/agent/src/types.ts"
-    },
-    {
-      "doc": "docs/core-data-structures/core.md",
-      "symbol": "SendOptions",
-      "source": "packages/core/agent/src/types.ts"
+      "symbol": "InboxTarget",
+      "source": "packages/core/agent/src/inbox.ts"
     },
     {
       "doc": "docs/core-data-structures/core.md",
@@ -134,7 +134,7 @@
     {
       "doc": "docs/core-data-structures/core.md",
       "symbol": "AgentCancelCause",
-      "source": "packages/core/agent/src/types.ts"
+      "source": "packages/core/session/src/types.ts"
     },
     {
       "doc": "docs/core-data-structures/core.md",
@@ -143,17 +143,12 @@
     },
     {
       "doc": "docs/core-data-structures/core.md",
-      "symbol": "PromptDecision",
+      "symbol": "PreStepDecision",
       "source": "packages/core/agent/src/types.ts"
     },
     {
       "doc": "docs/core-data-structures/core.md",
       "symbol": "RequestErrorAction",
-      "source": "packages/core/agent/src/types.ts"
-    },
-    {
-      "doc": "docs/core-data-structures/core.md",
-      "symbol": "RequestError",
       "source": "packages/core/agent/src/types.ts"
     },
     {
@@ -204,7 +199,7 @@
     {
       "doc": "docs/core-data-structures/goal.md",
       "symbol": "GoalView",
-      "source": "packages/goal/goal/src/domain.ts"
+      "source": "packages/goal/goal/src/types.ts"
     },
     {
       "doc": "docs/core-data-structures/goal.md",
@@ -224,12 +219,12 @@
     {
       "doc": "docs/core-data-structures/goal.md",
       "symbol": "CreateGoalRequest",
-      "source": "packages/goal/goal/src/domain.ts"
+      "source": "packages/goal/goal/src/types.ts"
     },
     {
       "doc": "docs/core-data-structures/goal.md",
       "symbol": "EditGoalRequest",
-      "source": "packages/goal/goal/src/domain.ts"
+      "source": "packages/goal/goal/src/types.ts"
     },
     {
       "doc": "docs/core-data-structures/goal.md",
@@ -370,7 +365,7 @@
     },
     {
       "doc": "docs/core-data-structures/session.md",
-      "symbol": "TurnTriggerMap",
+      "symbol": "TurnEndCancelCause",
       "source": "packages/core/session/src/types.ts"
     },
     {
@@ -423,6 +418,32 @@
       "doc": "docs/core-data-structures/persistence.md",
       "symbol": "CreateSessionOptions",
       "source": "packages/core/session/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/persistence.md",
+      "symbol": "RestoredSessionOptions",
+      "source": "packages/core/session/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/persistence.md",
+      "symbol": "PrepareSessionOptions",
+      "source": "packages/core/session/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/persistence.md",
+      "symbol": "SessionPreparationOptions",
+      "source": "packages/core/session/src/preparation.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/persistence.md",
+      "symbol": "SessionPreparation",
+      "source": "packages/core/session/src/preparation.ts",
+      "projection": "public-api"
+    },
+    {
+      "doc": "docs/core-data-structures/persistence.md",
+      "symbol": "SessionInspection",
+      "source": "packages/session-persistence/session-persistence/src/index.ts"
     },
     {
       "doc": "docs/core-data-structures/persistence.md",
@@ -891,6 +912,11 @@
     },
     {
       "doc": "docs/core-data-structures/sandbox.md",
+      "symbol": "RunnerFailureRule",
+      "source": "packages/sandbox/sandbox/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/sandbox.md",
       "symbol": "ConfinedArgv",
       "source": "packages/sandbox/sandbox/src/index.ts"
     },
@@ -1092,6 +1118,51 @@
     {
       "doc": "docs/core-data-structures/subagent.md",
       "symbol": "SubagentStartRequest",
+      "source": "packages/subagent/subagent/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/subagent.md",
+      "symbol": "ResolvedSubagentStartRequest",
+      "source": "packages/subagent/subagent/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/subagent.md",
+      "symbol": "CoordinatorMessageSource",
+      "source": "packages/subagent/subagent/src/continuation.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/subagent.md",
+      "symbol": "SubagentReportMessageSource",
+      "source": "packages/subagent/subagent/src/continuation.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/subagent.md",
+      "symbol": "SubagentReportDelivery",
+      "source": "packages/subagent/subagent/src/continuation.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/subagent.md",
+      "symbol": "SubagentReportOptions",
+      "source": "packages/subagent/subagent/src/continuation.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/subagent.md",
+      "symbol": "SubagentFollowupOptions",
+      "source": "packages/subagent/subagent/src/continuation.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/subagent.md",
+      "symbol": "ContinuableStart",
+      "source": "packages/subagent/subagent/src/continuation.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/subagent.md",
+      "symbol": "ContinuableCreateRequest",
+      "source": "packages/subagent/subagent/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/subagent.md",
+      "symbol": "ContinuableCreateSpec",
       "source": "packages/subagent/subagent/src/types.ts"
     },
     {
@@ -1423,6 +1494,66 @@
       "doc": "docs/core-data-structures/settings.md",
       "symbol": "SettingsPathOp",
       "source": "packages/settings/settings/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/typert.md",
+      "symbol": "TypeRTLookupMap",
+      "source": "packages/typert/type-meta/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/typert.md",
+      "symbol": "TypeRTContextMap",
+      "source": "packages/typert/type-meta/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/typert.md",
+      "symbol": "TypeRTLookupDefinition",
+      "source": "packages/typert/type-meta/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/typert.md",
+      "symbol": "TypeRTCodec",
+      "source": "packages/typert/type-meta/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/typert.md",
+      "symbol": "InvocationParameterDescriptor",
+      "source": "packages/typert/type-meta/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/typert.md",
+      "symbol": "InvocationDescriptor",
+      "source": "packages/typert/type-meta/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/typert.md",
+      "symbol": "TypeRTService",
+      "source": "packages/typert/type-meta/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/typert.md",
+      "symbol": "TypeRTRemoteNamespaceMap",
+      "source": "packages/typert/type-meta/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/typert.md",
+      "symbol": "InvokeRemoteRequest",
+      "source": "packages/api/gateway/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/typert.md",
+      "symbol": "TypertGatewayErrorCode",
+      "source": "packages/api/gateway/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/typert.md",
+      "symbol": "TypertGateway",
+      "source": "packages/api/gateway/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/typert.md",
+      "symbol": "TypeRTClientRemote",
+      "source": "packages/typert/type-meta/src/types.ts"
     }
   ]
 }

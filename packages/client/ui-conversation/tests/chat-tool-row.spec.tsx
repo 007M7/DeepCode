@@ -1,8 +1,7 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render } from '@testing-library/react'
 
-afterEach(cleanup)
 import type { RunningToolCall, ToolResultNode } from '@deepseek-ai/dsh-client-runtime/client'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
@@ -11,6 +10,36 @@ import { AssistantMarkdown } from '../src/client/chat/AssistantMarkdown.tsx'
 import { ToolRow } from '../src/client/chat/ToolRow.tsx'
 import { GenericToolCard, type GenericToolCardProps } from '../src/client/chat/GenericToolCard.tsx'
 import { zh } from '../src/client/locales.ts'
+
+let nextAnimationFrameId = 1
+let animationFrames = new Map<number, FrameRequestCallback>()
+
+function flushAnimationFrames(count: number): void {
+  for (let index = 0; index < count; index += 1) {
+    const callbacks = [...animationFrames.values()]
+    animationFrames.clear()
+    for (const callback of callbacks) callback(index)
+  }
+}
+
+beforeEach(() => {
+  nextAnimationFrameId = 1
+  animationFrames = new Map()
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+    const id = nextAnimationFrameId
+    nextAnimationFrameId += 1
+    animationFrames.set(id, callback)
+    return id
+  })
+  vi.stubGlobal('cancelAnimationFrame', (id: number) => {
+    animationFrames.delete(id)
+  })
+})
+
+afterEach(() => {
+  cleanup()
+  vi.unstubAllGlobals()
+})
 
 // Mirrors the real lookup chain (conversation namespace, then common).
 const t: GenericToolCardProps['t'] = makeTranslate(zh, commonZh)
@@ -30,6 +59,7 @@ const result = (over?: Partial<ToolResultNode>): ToolResultNode => ({
 describe('tool-call-model', () => {
   it('classifies known tools and falls back to others', () => {
     expect(classifyTool('bash')).toBe('bash')
+    expect(classifyTool('pwsh')).toBe('bash')
     expect(classifyTool('read')).toBe('read')
     expect(classifyTool('web_fetch')).toBe('read')
     expect(classifyTool('web_search')).toBe('search')
@@ -40,6 +70,12 @@ describe('tool-call-model', () => {
     expect(classifyTool('cordis_mount')).toBe('code')
     expect(classifyTool('cordis_unmount')).toBe('others')
     expect(classifyTool('todo_write')).toBe('others')
+  })
+
+  it('gives the pwsh shell row the bash family treatment with its own title', () => {
+    const m = toolRowModel('pwsh', running())
+    expect(m.variant).toBe('bash')
+    expect(m.title).toBe('Pwsh')
   })
 
   it('derives state across running/ok/error/interrupted', () => {
@@ -265,6 +301,20 @@ describe('ToolRow', () => {
     expect(view.getByText('List files')).toBeTruthy()
   })
 
+  it('renders summarySuffix outside the ellipsized summary span, and drops it on a failure line', () => {
+    const view = render(<ToolRow {...rowProps} summarySuffix="+2" />)
+    const summary = view.getByText('List files')
+    const suffix = view.getByText('+2')
+    // Separate spans: .summary truncates, the suffix must not travel inside it.
+    expect(summary.contains(suffix)).toBe(false)
+    view.unmount()
+    // The failure line replaces the summary wholesale, so the suffix goes with it.
+    const failed = render(
+      <ToolRow {...rowProps} state="error" errorSummary="boom" summarySuffix="+2" />,
+    )
+    expect(failed.queryByText('+2')).toBeNull()
+  })
+
   it('an error file row drops the open-file link (the summary is failure prose, not the path)', () => {
     const open = vi.fn()
     const view = render(
@@ -320,6 +370,47 @@ describe('ToolRow', () => {
 })
 
 describe('ThinkRow', () => {
+  it('follows the latest streaming line, scrolls to its end, then restores the settled first line', () => {
+    const view = render(
+      <AssistantMarkdown
+        t={t}
+        blocks={[{ kind: 'reasoning', text: 'Inspect the session\nNewest reasoning tokens' }]}
+        streaming
+      />,
+    )
+    const summary = view.getByText('Newest reasoning tokens')
+    Object.defineProperties(summary, {
+      scrollWidth: { configurable: true, value: 300 },
+      clientWidth: { configurable: true, value: 100 },
+    })
+
+    view.rerender(
+      <AssistantMarkdown
+        t={t}
+        blocks={[{ kind: 'reasoning', text: 'Inspect the session\nNewest reasoning tokens keep arriving' }]}
+        streaming
+      />,
+    )
+    expect(summary.scrollLeft).toBe(0)
+    flushAnimationFrames(2)
+    expect(summary.scrollLeft).toBe(0)
+    flushAnimationFrames(1)
+    expect(summary.scrollLeft).toBe(200)
+    expect(summary.getAttribute('data-follow-end')).toBe('true')
+
+    view.rerender(
+      <AssistantMarkdown
+        t={t}
+        blocks={[{ kind: 'reasoning', text: 'Inspect the session\nNewest reasoning tokens keep arriving\n' }]}
+        streaming={false}
+      />,
+    )
+    flushAnimationFrames(3)
+    expect(view.getByText('Inspect the session')).toBeTruthy()
+    expect(summary.scrollLeft).toBe(0)
+    expect(summary.hasAttribute('data-follow-end')).toBe(false)
+  })
+
   it('expands from either Think or the reasoning summary', () => {
     const view = render(
       <AssistantMarkdown

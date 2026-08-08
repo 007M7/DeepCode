@@ -85,10 +85,10 @@ export function applyEntryPatches(
         data.push(...insert)
       }
       // Index what this patch added so a LATER patch in the same list can
-      // target it. Patch lists compose one layer per source (surface overlay,
-      // then `--config`, then the user's), and a layer must be able to
-      // configure or disable a row an earlier layer inserted; without this,
-      // inserted rows were silently unpatchable.
+      // target it. Patch lists compose one layer per source (each bundle
+      // layer, then the user's, then `--patch` overlays), and a layer must be
+      // able to configure or disable a row an earlier layer inserted; without
+      // this, inserted rows were silently unpatchable.
       buildMap(insert)
       continue
     }
@@ -170,7 +170,8 @@ export class Include extends EntryTree {
   private readonly: boolean
   private content?: string
   private data?: EntryOptions[]
-  private writeTask?: NodeJS.Timeout
+  private writeTask?: NodeJS.Timeout | undefined
+  private applyQueue: Promise<unknown> = Promise.resolve()
 
   constructor(ctx: Context, public config: Include.Config) {
     super(ctx)
@@ -186,10 +187,27 @@ export class Include extends EntryTree {
 
     ctx.on('internal/update', async (config, _, next) => {
       if (config.path !== this.config.path) return next()
-      const data = this.applyPatches(this.data!, config.patches)
-      await this.root.update(data)
-      this.config = config
+      await this.enqueue(async () => {
+        const data = this.applyPatches(this.data!, config.patches)
+        await this.root.update(data)
+        this.config = config
+      })
     })
+  }
+
+  /**
+   * Serialize one child-tree mutation behind every earlier one. The group's
+   * transactional `update` is not reentrant: two concurrent applies (the init
+   * apply racing an HMR-triggered refresh from the watcher's initial scan)
+   * interleave create and rollback on the same entries and strand the include
+   * fiber without settling, so every apply path funnels through this queue.
+   * A predecessor's failure is its own caller's outcome and never gates the
+   * next task.
+   */
+  private enqueue<T>(task: () => Promise<T>): Promise<T> {
+    const run = this.applyQueue.then(task, task)
+    this.applyQueue = run.then(() => {}, () => {})
+    return run
   }
 
   private async checkAccess() {
@@ -262,12 +280,20 @@ export class Include extends EntryTree {
    * @throws when reading, parsing, validation, application, or rollback fails; the last good tree remains active when rollback succeeds.
    */
   async refresh() {
-    const candidate = await this.read()
-    if (!candidate) return
-    await this.apply(candidate)
+    // Read inside the queue so the changed-content check compares against the
+    // predecessor's committed state, not a mid-apply snapshot.
+    await this.enqueue(async () => {
+      const candidate = await this.read()
+      if (!candidate) return
+      await this._apply(candidate)
+    })
   }
 
-  private async apply(candidate: ReadCandidate) {
+  private apply(candidate: ReadCandidate) {
+    return this.enqueue(() => this._apply(candidate))
+  }
+
+  private async _apply(candidate: ReadCandidate) {
     const data = this.applyPatches(candidate.data, this.config.patches)
     await this.root.update(data)
     this.content = candidate.content

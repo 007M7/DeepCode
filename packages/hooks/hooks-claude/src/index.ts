@@ -12,7 +12,7 @@
 import { readFileSync } from 'node:fs'
 import type { Context } from 'cordis'
 import z from 'schemastery'
-import type { Agent, PromptDecision } from '@deepseek-ai/dsh-agent'
+import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
 import type { UserMessage } from '@deepseek-ai/dsh-session'
@@ -31,10 +31,9 @@ import {
   type MatcherGroup,
   type MergedHookOutcome,
 } from '@deepseek-ai/dsh-hook-protocol'
-// Side-effect type import: pulls in the `subagent/start` + `subagent/end` event
-// declarations (declaration-merged into cordis `Events` by dsh-subagent) so the
-// SubagentStart/SubagentStop listeners below type-check.
-import type {} from '@deepseek-ai/dsh-subagent'
+// Pulls in the declaration-merged subagent events and the identity pairing their
+// start/end edges.
+import type { SubagentRunId } from '@deepseek-ai/dsh-subagent'
 import { parseClaudeConfig, type ClaudeHookConfig } from './config.ts'
 
 export const name = 'hooks-claude'
@@ -119,14 +118,18 @@ export function apply(ctx: Context, config: Config): void {
   // Emit-shaped points run detached, so track their chains; disposal aborts
   // active hooks and drains continuations before resolving.
   const detached = createDetachedRuns()
+  // Only the start edge guarantees registry access. Retain each local child
+  // through its paired end so stop hooks keep the session workspace after the
+  // handle unregisters the agent. Every retained entry relies on that paired
+  // end; a producer that can omit it must provide another release edge.
+  const subagentChildren = new Map<SubagentRunId, Agent>()
   ctx.effect(() => () => detached.drain(), 'hooks-claude: drain detached hook runs')
 
   /**
    * Run every command hook configured for `point` whose matcher selects
    * `matchQuery`, with the per-event `payload` on stdin, and fold the results.
    * Writes a `hook/invoked`/`hook/result` pair per hook when `opts.turn` names
-   * an open turn. Pre-turn `UserPromptSubmit` and detached lifecycle points
-   * omit the pair. Returns the merged outcome (a neutral,
+   * an open turn. Detached lifecycle points omit the pair. Returns the merged outcome (a neutral,
    * already-most-restrictive view) for the caller to map onto its seam
    * decision. `matchQuery` is the event's matcher subject (tool name, session
    * source, …); `''` for events that ignore matchers.
@@ -200,7 +203,7 @@ export function apply(ctx: Context, config: Config): void {
   // SessionStart injects context when its detached hook resolves; a slow hook
   // may miss the first request.
   // TODO(session-start-gating): add a startup gate before promising first-turn delivery.
-  ctx.on('agent/session-start', (agent, source) => {
+  ctx.on('agent/session-start', ({ agent, source }) => {
     detached.track(runPoint('SessionStart', source, sessionStartPayload(ctx, agent, source), { agent, signal: detached.signal })
       .then((merged) => {
         const context = contextFrom(merged)
@@ -211,22 +214,23 @@ export function apply(ctx: Context, config: Config): void {
       }))
   })
 
-  // --- UserPromptSubmit → PromptDecision. The prompt text is the payload; no
+  // --- UserPromptSubmit → PreStepDecision. The prompt text is the payload; no
   // matcher subject (CC ignores matchers for this event). ---
-  ctx.on('agent/prompt-submit', async (agent, message, signal, next): Promise<PromptDecision> => {
-    const merged = await runPoint('UserPromptSubmit', '', promptPayload(ctx, agent, message.content), { agent, signal })
+  ctx.on('agent/pre-step', async ({ agent, messages, turn, signal }, next): Promise<PreStepDecision> => {
+    if (messages.length === 0) return next()
+    const content = messages.flatMap(message => message.content)
+    const merged = await runPoint('UserPromptSubmit', '', promptPayload(ctx, agent, content), { agent, turn, signal })
     if (merged.decision === 'deny') {
-      return { kind: 'block', reason: merged.reason ?? 'blocked by UserPromptSubmit hook' }
+      return { kind: 'reject' }
     }
-    // Delegate so later listeners may still rewrite or block, then prepend our
-    // context only to a downstream allow decision.
+    // Delegate so later listeners may still rewrite or reject, then prepend our
+    // context only to a downstream enter decision.
     const downstream = await next()
     const ours = contextFrom(merged)
-    if (!ours || downstream.kind !== 'allow') return downstream
+    if (!ours || downstream.kind !== 'enter') return downstream
     return {
-      kind: 'allow',
-      ...downstream.content !== undefined ? { content: downstream.content } : {},
-      additionalContexts: prependContext(ours, downstream.additionalContexts),
+      kind: 'enter',
+      messages: [...downstream.messages, ours],
     }
   })
 
@@ -263,7 +267,7 @@ export function apply(ctx: Context, config: Config): void {
   // A blocking Stop hook steers at the stopping boundary, which makes the
   // machine observe pending input and run another step.
   // TODO(stop-loop-guard): cap consecutive forced continuations; hooks must self-limit meanwhile.
-  ctx.on('agent/turn-stopping', async (agent, turn, signal): Promise<void> => {
+  ctx.on('agent/turn-stopping', async ({ agent, turn, signal }): Promise<void> => {
     const merged = await runPoint('Stop', '', stopPayload(ctx, agent), { agent, turn, signal })
     if (merged.decision === 'deny') {
       // A blocking Stop hook forces continuation.
@@ -276,6 +280,7 @@ export function apply(ctx: Context, config: Config): void {
   // use the live child's workspace and the generic agent-type matcher subject.
   ctx.on('subagent/start', (info) => {
     const child = ctx.get('agents')?.get(info.id)
+    if (child !== undefined) subagentChildren.set(info.runId, child)
     detached.track(runPoint('SubagentStart', SUBAGENT_TYPE, subagentPayload(ctx, 'SubagentStart', info, child), { ...child ? { agent: child } : {}, signal: detached.signal })
       .then((merged) => {
         const context = contextFrom(merged)
@@ -284,10 +289,8 @@ export function apply(ctx: Context, config: Config): void {
       .catch((error: unknown) => { ctx.logger.warn(`hooks-claude: SubagentStart hook failed: ${String(error)}`) }))
   })
   ctx.on('subagent/end', (info) => {
-    // Look up the child (still recoverable: `subagent/end` fires from the service's detached
-    // `.then` before the tool caller's `await run.result` disposes it) so the hook runs in the
-    // child's cwd, not the server default.
-    const child = ctx.get('agents')?.get(info.id)
+    const child = subagentChildren.get(info.runId) ?? ctx.get('agents')?.get(info.id)
+    subagentChildren.delete(info.runId)
     detached.track(runPoint('SubagentStop', SUBAGENT_TYPE, subagentPayload(ctx, 'SubagentStop', info, child), { ...child ? { agent: child } : {}, signal: detached.signal }))
   })
 }

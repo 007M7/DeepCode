@@ -12,7 +12,7 @@ The browser cannot repair that loss by resending visible rows. It does not own t
 
 ## Decision
 
-`session.cancel` is the Web Host API's active-turn stop. It calls `agent.cancel({ kind: 'user' }, { keepInbox: true })`, preserving pending inbox work while cooperatively aborting the current turn. The underlying option preserves queued and steering entries; the Web Queue projection continues to expose only queued entries.
+`session.cancel` is the Web Host API's active-turn stop for ordinary sessions. It rejects session-backed subagents with `agent-busy`; otherwise it calls `agent.cancel({ kind: 'user' }, { keepInbox: true })`, preserving pending inbox work while cooperatively aborting the current turn. The underlying option preserves queued and steering entries; the Web Queue projection continues to expose only queued entries.
 
 The AgentLoop starts no concurrent replacement turn. It closes and flushes the interrupted turn, reaches cancellation quiescence, and then claims the next waking queued occurrence through its existing FIFO driver. That claim emits `agent/inbox/dequeue`, so the Host's authoritative `session/queue` snapshot retires the claimed row and leaves the remaining tail visible. The browser neither resends nor promotes any row. Work that ignores cancellation delays this handoff until it settles.
 

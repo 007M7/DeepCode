@@ -48,19 +48,18 @@ export function ReadRow({ toolName, block, cwd, openFile, inspect, t }: ReadRowP
 }
 
 /**
- * The read row as a plain registrant plugin. `inject` carries the load-order
- * seam: requiring the conversation service guarantees the chat entry (and with
- * it the 'conversation.chat.toolview' declaration) is registered —
- * ui-conversation's apply mounts the service after the chat entry.
+ * The read row as a plain registrant plugin following the chat toolview
+ * declaration across independent activation and reload lifetimes.
  */
 export const readToolview = {
   name: 'read-toolview',
-  inject: ['slots', 'conversation'],
+  inject: ['slots'],
   /**
    * Register the read row into the chat view's keyed toolview hole.
    * @param ctx - registrant context (disposal rides ctx.effect inside slots.register).
    */
   apply(ctx: Context): void {
-    ctx.slots.register({ name: 'conversation.chat.toolview', key: 'read', locale: NS }, ReadRow)
+    ctx.slots.inject('conversation.chat.toolview', () =>
+      ctx.slots.register({ name: 'conversation.chat.toolview', key: 'read', locale: NS }, ReadRow))
   },
 }

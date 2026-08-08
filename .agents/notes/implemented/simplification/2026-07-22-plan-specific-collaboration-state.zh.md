@@ -6,25 +6,25 @@ Status: implemented
 
 ## 问题
 
-产品只交付了 `plan`，首个 plan mode 实现却引入了通用的具名模式注册表。`ModeConfig.modes`、定义名称校验、`ctx.modes.list()`、已退役定义的回退逻辑，以及测试中合成的 `review` 模式，都只为支持假想中的未来协作模式而存在。plan 引导、`/plan` 和 `exit_plan_mode` 这些生产专用行为仍位于同一个包（package）内，因此通用 API 并未将可复用机制与 plan 策略隔离开来。
+产品只交付了 `plan`，首个 plan mode 实现却引入了通用的具名模式注册表。`ModeConfig.modes`、定义名称校验、`ctx.modes.list()`、已退役定义的回退逻辑，以及测试中合成的 `review` 模式，都只为支持假想中的未来协作模式而存在。plan 引导、`/plan` 和 `exit_plan_mode` 这些生产专用行为仍位于同一个包内，因此通用 API 并未将可复用机制与 plan 策略隔离开来。
 
 「mode」一词还横跨互不相关的领域。沙箱模式是由 `ctx.sandboxPolicy` 拥有、以 `sandbox/mode` 记录日志的强制执行策略；plan mode 则是一种协作方式，会贡献引导内容和经评审的退出路径。若把两者都视为同一个具名模式抽象的实例，就会掩盖二者各自独立的归属关系。传输协议的通用词汇并不能证明 harness 需要通用模式领域。
 
-Plan mode 还需要持久协作状态、可评审的计划产物、显式人工决策边界，以及跨恢复与 fork 的请求重建。即使移除通用注册表和 ACP 交互投影，这些要求仍归 plan 功能所有。
+Plan mode 还需要持久协作状态、可评审的计划产物、显式人工决策边界，以及跨恢复与 fork 的请求重建。即使移除通用注册表和 ACP（Agent Client Protocol）交互投影，这些要求仍归 plan 功能所有。
 
 ## 决策
 
-Plan mode 拥有一个 plan 专用产品包：位于 `packages/plan/plan-mode/` 的 `@deepseek-ai/dsh-plan-mode`。持久化事实为 `plan/mode: { active: boolean }`，由 `foldPlanMode(events)` 折叠，空日志值为 `false`。`ctx.planMode.get(agent)` 返回 `{ active, pending? }`，`set(agent, active)` 则记录在边界生效的选择。现有的提示词提交、continuation、重试、追加失败和 dispose（资源释放）栅栏在语义上保持不变。
+Plan mode 拥有一个 plan 专用产品包：位于 `packages/plan/plan-mode/` 的 `@deepseek-ai/dsh-plan-mode`。持久化事实为 `plan/mode: { active: boolean }`，由 `foldPlanMode(events)` 折叠，空日志值为 `false`。`ctx.planMode.get(agent)` 返回 `{ active, pending? }`，`set(agent, active)` 则记录在边界生效的选择。pre-step、重试、追加失败和 dispose（资源释放）栅栏保留相同的状态转换归属。
 
 配置严格为 `{ section: string }`。该包自行注册固定的 `plan:policy` 段、`/plan [message]`、精确匹配的 `/plan off` 主动退出形式，以及 `exit_plan_mode`。不带参数的 `/plan` 选择激活；其他非空参数则先选择激活，再通过 `agent.steer()` 发送去除首尾空白后的文本，使该文本在受影响的步骤中成为一条记录到日志的普通用户消息。`/plan off` 选择未激活，不产生模型输入，并可取消仍待在边界生效的进入选择。即使 plan mode 未激活，退出工具仍保持注册，以确保请求工具目录稳定。
 
-面向人类的组合拥有 plan 选择与评审。本笔记最初把 ACP 协议级的 `default`/`plan` 选择器保留为布尔服务之上的适配器；[ACP 作为仅面向自动化的协议](2026-07-23-acp-automation-only-protocol.md)取代了那个线上投影，因此 ACP 组合现在既不挂载 plan mode，也不提供模式选择协议。
+面向人类的组合拥有 plan 选择与评审。本笔记最初把 ACP 协议级的 `default`/`plan` 选择器保留为布尔服务之上的适配器；[ACP 作为仅面向自动化的协议](2026-07-23-acp-automation-only-protocol.md) 取代了那个协议投影，因此 ACP 组合现在既不挂载 plan mode，也不提供模式选择协议。
 
 沙箱模式与审批策略仍是彼此独立的强制约束轴。Plan mode 既不读取也不写入二者；此次简化也没有为这些概念引入共享基类型、注册表或预设抽象。
 
 ### 边界与模型契约
 
-`plan/mode` 仅记录到日志且不进入表层，因此恢复、fork 和压缩都能恢复该状态，无需实时镜像。spawn 出的 agent 初始处于未激活状态，因为创建时没有 plan 选项。待生效的用户选择会在提示词提交、普通 continuation 或请求恢复重试时，于受影响的请求组装前写入日志；持久追加失败会让意图保持待定，留到后续边界处理。
+`plan/mode` 仅记录到日志且不进入表层，因此恢复、fork 和压缩都能恢复该状态，无需实时镜像。spawn 出的 agent 初始处于未激活状态，因为创建时没有 plan 选项。待生效的用户选择会在初始或续步 pre-step、或请求恢复重试时，于受影响的请求组装前写入日志；持久追加失败会让意图保持待定，留到后续边界处理。
 
 激活状态在提示词顺序 50 处贡献部署提供的区段。未激活状态不贡献区段，但 `exit_plan_mode` 在两种状态下都保持注册，因此状态转换会改变已记录的请求头，却不改变原生工具 schema 或 Code Mode SDK。用户发起的转换只会在上一条请求头描述相反状态时追加一条来源为插件的通知；第一次请求前的选择或最终状态未变化的选择不会追加通知，经批准的工具退出则依赖其工具结果，不再追加第二条通知。
 
@@ -32,7 +32,7 @@ Plan mode 拥有一个 plan 专用产品包：位于 `packages/plan/plan-mode/` 
 
 `exit_plan_mode` 要求调用方 agent 处于激活的 plan mode，并提交一份非空、以标题开头的 markdown 计划。用户交互问题将这份原样计划作为详情，并提供 `Approve`、`Keep planning` 和自由文本反馈。仅当唯一选择为 `Approve` 且没有自定义文本时才视为同意；其他所有回答都会留在 plan mode，并向模型返回纠正性反馈。经批准的退出会成为一项静默的待生效选择，使 plan 引导在当前工具批次的剩余部分继续有效，并在下一次请求前移除。
 
-工具将提交的计划渲染为 generic 卡片，标题取自第一个标题。用户交互提供方缺失或失败、评审失败，或评审待定期间插件被 dispose，都会失败关闭，并保留手动 `/plan off` 作为人类退出路径。
+工具将提交的计划渲染为 generic 卡片，标题取自第一个标题。用户交互提供方缺失或失败、评审失败，或评审待定期间插件被 dispose，均会拒绝退出，并保留手动 `/plan off` 作为人类退出路径。
 
 ## 删除的接口
 
@@ -55,7 +55,7 @@ Plan mode 拥有一个 plan 专用产品包：位于 `packages/plan/plan-mode/` 
 
 **按 plan 专用名称允许列表或全局策略栈筛选工具。** 不予采纳，因为可变性是每个工具自身的属性，包括未来工具和 MCP 工具，而不应由每个 plan 部署维护一份列表。只有出现具体消费方后，effects 元数据才能建立共享策略；在此之前，plan mode 是引导机制，不是安全边界。
 
-**通过审批 seam 或普通文本完成评审。** 不予采纳，因为计划评审不是权限决策，需要精确的计划产物和纠正性自由文本，而且必须以已记录的工具调用作为结构化转换。用户交互 seam 提供了这项契约。
+**通过审批 seam 或普通文本完成评审。** 不予采纳，因为计划评审不是权限决策，需要原样的计划产物和纠正性自由文本，而且必须以已记录的工具调用作为结构化转换。用户交互 seam 提供了这项契约。
 
 ## 验证
 

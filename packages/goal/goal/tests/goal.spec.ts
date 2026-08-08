@@ -1,80 +1,60 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
-import AgentRegistry, { agentEvents } from '@deepseek-ai/dsh-agent'
-import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
-import { createUserMessage, HarnessError, type ContentBlock, type MessageSource } from '@deepseek-ai/dsh-llm'
+import AgentRegistry, { agentEvents, Inbox } from '@deepseek-ai/dsh-agent'
+import type { Agent } from '@deepseek-ai/dsh-agent'
+import { createUserMessage, HarnessError } from '@deepseek-ai/dsh-llm'
 import SessionStore, { Session, SessionId, type UserMessage } from '@deepseek-ai/dsh-session'
 import GoalService, {
   GoalError,
   GoalId,
   decodeGoalChange,
   foldGoal,
-  renderGoalChange,
 } from '@deepseek-ai/dsh-goal'
-import type { GoalChangeMeta, GoalChanged, GoalRef, GoalSnapshotChangeMeta } from '@deepseek-ai/dsh-goal'
-
-type DeferredInjection = UserMessage
+import type { GoalChangeMeta, GoalRef, GoalSnapshotChangeMeta } from '@deepseek-ai/dsh-goal'
 
 interface StubAgent {
   agent: Agent
   session: Session
-  deferred: DeferredInjection[]
-  setDeferred(value: boolean): void
-  setStatus(value: AgentStatus): void
-  drain(): void
 }
 
-/** Number the next balanced one-shot injection turn. */
+/** Number the next balanced test-fixture turn. */
 function nextTurn(session: Session): number {
   return session.events.reduce((max, event) => event.type === 'turn/start' ? Math.max(max, event.data.turn) : max, 0) + 1
 }
 
 /** Mirror the public Agent.inject contract for domain tests. */
 function appendInjection(session: Session, input: UserMessage): void {
-  session.append('user/message', input, { surfaceOp: 'append' })
+  new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} }).append('next-step', input)
 }
 
 /** Build a registry-compatible agent around one concrete session. */
 function stubAgentForSession(session: Session): StubAgent {
   const id = session.id
-  const deferred: DeferredInjection[] = []
-  let shouldDefer = false
-  let status: AgentStatus = 'idle'
+  const inbox = new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} })
   const agent: Agent = {
     id,
     options: {},
     session,
+    inbox,
     ctx: new Context(),
-    get status() { return status },
-    get acceptsNextStep() { return status === 'running' },
+    status: 'idle',
     send: () => {},
-    updateInbox: () => 'not-found',
     followup: () => {},
     steer: () => {},
-    inject(input) {
-      if (shouldDefer) deferred.push(input)
-      else appendInjection(session, input)
-    },
-    reserveTurnAdmission: () => undefined,
+    inject(input) { inbox.append('next-step', input) },
     cancel() {},
+    runMaintenance: task => task(new AbortController().signal),
     whenIdle() { return Promise.resolve() },
   }
   return {
     agent,
     session,
-    deferred,
-    setDeferred(value) { shouldDefer = value },
-    setStatus(value) { status = value },
-    drain() {
-      shouldDefer = false
-      for (const injection of deferred.splice(0)) appendInjection(session, injection)
-    },
   }
 }
 
-/** Build a registry-compatible agent with controllable context deferral. */
+/** Build a registry-compatible agent around a fresh session. */
 function stubAgent(rawId: string, seed?: readonly import('@deepseek-ai/dsh-session').SessionEvent[]): StubAgent {
-  return stubAgentForSession(new Session(SessionId(rawId), seed))
+  return stubAgentForSession(Session.create(SessionId(rawId), seed))
 }
 
 async function harness(config: { defaultMaxGoalRounds?: number } = {}) {
@@ -90,7 +70,7 @@ async function harness(config: { defaultMaxGoalRounds?: number } = {}) {
 function appendRound(session: Session, ref: GoalRef, round: number): void {
   const source = { kind: 'goal', goalId: ref.id, revision: ref.revision, round } as const
   const turn = nextTurn(session)
-  session.append('turn/start', { turn, trigger: { kind: 'message', source } })
+  session.append('turn/start', { turn })
   session.append('user/message', createUserMessage({
     content: [{ type: 'text', text: `round ${round}` }], source,
   }), { surfaceOp: 'append' })
@@ -98,12 +78,12 @@ function appendRound(session: Session, ref: GoalRef, round: number): void {
 }
 
 describe('GoalService creation and replay', () => {
-  it('applies the configured default and writes one verbatim context snapshot', async () => {
+  it('applies the configured default and writes one durable goal change', async () => {
     vi.useFakeTimers()
     vi.setSystemTime(1_700_000_000_000)
     const { ctx, agent, session } = await harness({ defaultMaxGoalRounds: 17 })
     const seen: string[] = []
-    ctx.on('goal/changed', (_subject, change) => { seen.push(change.operation) })
+    ctx.on('goal/changed', ({ change }) => { seen.push(change.operation) })
 
     const goal = ctx.goals.create(agent, { objective: '  finish the feature  ' })
 
@@ -119,16 +99,15 @@ describe('GoalService creation and replay', () => {
     })
     expect(goal.id).toMatch(/^goal-/)
     expect(seen).toEqual(['create'])
-    expect(session.events.map(event => event.type)).toEqual(['user/message'])
+    expect(session.events.map(event => event.type)).toEqual(['goal/change'])
     const context = session.events[0]
-    expect(context?.type).toBe('user/message')
-    if (context?.type !== 'user/message') throw new Error('expected goal context')
-    expect(context.data.source).toMatchObject({ kind: 'goal', goalId: goal.id, revision: 1, round: 0 })
-    const change = context.data.source.kind === 'goal' ? decodeGoalChange(context.data.source.change) : undefined
+    expect(context?.type).toBe('goal/change')
+    if (context?.type !== 'goal/change') throw new Error('expected durable goal change')
+    const change = decodeGoalChange(context.data)
     if (change === undefined) throw new Error('expected decoded goal change')
     expect(change).toMatchObject({ operation: 'create', goal: { id: goal.id } })
-    expect(context.data.content).toEqual(renderGoalChange(change))
-    expect(session.deriveMessages()).toEqual([context.data])
+    expect(agent.inbox.nextStep).toEqual([])
+    expect(session.deriveMessages()).toEqual([])
     expect(foldGoal(session.events)).toMatchObject({ goal: { id: goal.id }, roundsStarted: 0 })
     vi.useRealTimers()
   })
@@ -212,7 +191,7 @@ describe('GoalService creation and replay', () => {
     const { ctx, agent, session } = await harness()
     let goal = ctx.goals.create(agent, { objective: 'stay stopped after resume' })
     expect(goal.activation).toBe('armed')
-    agentEvents(ctx, agent).emit('agent/session-start', 'resume')
+    agentEvents(ctx, agent).emit('agent/session-start', { source: 'resume' })
     expect(ctx.goals.get(agent)?.activation).toBe('disarmed')
     goal = ctx.goals.resume(agent, goal)
     expect(goal).toMatchObject({ phase: 'active', activation: 'armed', revision: 2 })
@@ -244,7 +223,7 @@ describe('GoalService creation and replay', () => {
 
     await fiber.dispose()
     expect(ctx.get('goals')).toBeUndefined()
-    agentEvents(ctx, stub.agent).emit('agent/session-start', 'resume')
+    agentEvents(ctx, stub.agent).emit('agent/session-start', { source: 'resume' })
     expect(first.get(stub.agent)).toMatchObject({ id: goal.id, activation: 'armed' })
 
     await ctx.plugin(GoalService)
@@ -256,7 +235,7 @@ describe('GoalService creation and replay', () => {
     const { ctx, agent } = await harness()
     // A same-id agent backed by a different session object — the live-instance
     // check must reject it even though the ids match.
-    const impostor = stubAgentForSession(new Session(agent.id)).agent
+    const impostor = stubAgentForSession(Session.create(agent.id)).agent
     expect(() => ctx.goals.get(impostor)).toThrow(expect.objectContaining({ code: 'GOAL_AGENT_NOT_LIVE' }))
     expect(() => ctx.goals.create(impostor, { objective: 'no' })).toThrow(expect.objectContaining({
       code: 'GOAL_AGENT_NOT_LIVE',
@@ -266,6 +245,22 @@ describe('GoalService creation and replay', () => {
 })
 
 describe('GoalService mutations', () => {
+  it('adapts Remote creation and reuses business methods for later mutations', async () => {
+    const { ctx, agent } = await harness()
+    const created = ctx.goals.remoteExportCreate(agent, { objective: 'remote lifecycle' })
+    const edited = ctx.goals.edit(agent, created.ref, { objective: 'edited remotely' })
+    const paused = ctx.goals.pause(agent, edited)
+    const resumed = ctx.goals.resume(agent, paused)
+    const completed = ctx.goals.complete(agent, resumed)
+    const cleared = ctx.goals.clear(agent, completed)
+
+    expect(edited).toMatchObject({ objective: 'edited remotely', revision: 2 })
+    expect(paused).toMatchObject({ phase: 'paused', revision: 3 })
+    expect(resumed).toMatchObject({ phase: 'active', revision: 4 })
+    expect(completed).toMatchObject({ phase: 'complete', revision: 5 })
+    expect(cleared).toEqual({ id: created.ref.id, revision: 6 })
+  })
+
   it('edits with compare-and-set revisions and rejects empty edits', async () => {
     const { ctx, agent } = await harness()
     const created = ctx.goals.create(agent, { objective: 'old', maxGoalRounds: 4 })
@@ -381,25 +376,6 @@ describe('GoalService mutations', () => {
     expect(next.id).not.toBe(goal.id)
   })
 
-  it('emits bare compare-and-set refs in folded lastRef and goal/changed notifications', async () => {
-    const { ctx, agent, session } = await harness()
-    const seen: GoalChanged['ref'][] = []
-    ctx.on('goal/changed', (_subject, change) => { seen.push(change.ref) })
-    const created = ctx.goals.create(agent, { objective: 'bare refs', maxGoalRounds: 3 })
-    const edited = ctx.goals.edit(agent, created, { objective: 'bare refs edited' })
-    const blocked = ctx.goals.block(agent, edited, { code: 'bare-blocker', message: 'Bare refs.' })
-    // GoalRef is exactly { id, revision }: every notification ref must be bare.
-    for (const ref of seen) {
-      expect(Object.keys(ref).sort()).toEqual(['id', 'revision'])
-      expect(ref).toEqual({ id: created.id, revision: ref.revision })
-    }
-    expect(seen).toHaveLength(3)
-    // The durable fold's lastRef is the same bare ref, not a full snapshot.
-    const folded = foldGoal(session.events)
-    expect(folded.lastRef).toEqual({ id: blocked.id, revision: blocked.revision })
-    expect(Object.keys(folded.lastRef as object).sort()).toEqual(['id', 'revision'])
-  })
-
   it('keeps per-goal mutation timestamps monotonic when the wall clock moves backward', async () => {
     vi.useFakeTimers()
     vi.setSystemTime(100)
@@ -411,10 +387,8 @@ describe('GoalService mutations', () => {
     vi.setSystemTime(80)
     ctx.goals.clear(agent, goal)
     const clear = session.events
-      .filter(event => event.type === 'user/message' && event.data.source.kind === 'goal')
-      .map(event => event.type === 'user/message' && event.data.source.kind === 'goal'
-        ? decodeGoalChange(event.data.source.change)
-        : undefined)
+      .filter(event => event.type === 'goal/change')
+      .map(event => event.type === 'goal/change' ? decodeGoalChange(event.data) : undefined)
       .at(-1)
     expect(clear).toMatchObject({ operation: 'clear', clearedAt: 100 })
     expect(() => foldGoal(session.events)).not.toThrow()
@@ -426,29 +400,21 @@ describe('GoalService mutations', () => {
     const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
     const seen: string[] = []
     ctx.on('goal/changed', () => { throw new Error('broken observer') })
-    ctx.on('goal/changed', (_subject, change) => { seen.push(change.operation) })
+    ctx.on('goal/changed', ({ change }) => { seen.push(change.operation) })
     expect(ctx.goals.create(agent, { objective: 'notify' }).phase).toBe('active')
     expect(seen).toEqual(['create'])
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('broken observer'))
   })
 
-  it('preserves multiple pending revisions until deferred injections enter the log', async () => {
-    const test = await harness()
-    const { ctx, agent, session, deferred } = test
-    test.setDeferred(true)
+  it('commits consecutive revisions through durable goal events', async () => {
+    const { ctx, agent, session } = await harness()
     let goal = ctx.goals.create(agent, { objective: 'deferred', maxGoalRounds: 5 })
     goal = ctx.goals.edit(agent, goal, { objective: 'deferred edit' })
     goal = ctx.goals.pause(agent, goal)
     expect(goal).toMatchObject({ revision: 3, phase: 'paused', activation: 'disarmed' })
-    expect(deferred).toHaveLength(3)
-    expect(session.events).toHaveLength(0)
-
-    appendInjection(session, createUserMessage({
-      content: [{ type: 'text', text: 'unrelated' }], source: { kind: 'plugin', plugin: 'test' },
-    }))
-    expect(ctx.goals.get(agent)).toMatchObject({ revision: 3, phase: 'paused' })
-    test.drain()
-    expect(deferred).toHaveLength(0)
+    expect(session.events.map(event => event.type)).toEqual([
+      'goal/change', 'goal/change', 'goal/change',
+    ])
     expect(ctx.goals.get(agent)).toMatchObject({ revision: 3, phase: 'paused' })
     expect(foldGoal(session.events)).toMatchObject({ goal: { revision: 3, phase: 'paused' } })
   })
@@ -462,7 +428,7 @@ describe('GoalService mutations', () => {
     ctx.agents.register(stub.agent)
     let observed: ReturnType<GoalService['get']>
     ctx.on('session/event', (session, event) => {
-      if (session === stub.session && event.type === 'user/message' && event.data.source.kind === 'goal') observed = ctx.goals.get(stub.agent)
+      if (session === stub.session && event.type === 'goal/change') observed = ctx.goals.get(stub.agent)
     })
 
     const created = ctx.goals.create(stub.agent, { objective: 'publish once' })
@@ -472,36 +438,20 @@ describe('GoalService mutations', () => {
     expect(foldGoal(stub.session.events)).toMatchObject({ goal: { id: created.id, revision: 1 } })
   })
 
-  it('rolls back a pending mutation when injection rejects before append', async () => {
+  it('does not delegate goal persistence to agent injection', async () => {
     const ctx = new Context()
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(GoalService)
-    const stub = stubAgent('goal-rejected-injection')
-    const append = stub.agent.inject.bind(stub.agent)
-    let reject = true
-    stub.agent.inject = (input) => {
-      if (reject) throw new Error('injection rejected')
-      append(input)
-    }
+    const stub = stubAgent('goal-independent-injection')
+    stub.agent.inject = () => { throw new Error('injection must not be called') }
     ctx.agents.register(stub.agent)
 
-    expect(() => ctx.goals.create(stub.agent, { objective: 'first attempt' })).toThrow('injection rejected')
-    reject = false
-    expect(ctx.goals.create(stub.agent, { objective: 'second attempt' })).toMatchObject({
-      objective: 'second attempt',
+    expect(ctx.goals.create(stub.agent, { objective: 'persist directly' })).toMatchObject({
+      objective: 'persist directly',
       revision: 1,
     })
-  })
-
-  it('rejects deferred goal mutations that enter the log out of FIFO order', async () => {
-    const test = await harness()
-    test.setDeferred(true)
-    const created = test.ctx.goals.create(test.agent, { objective: 'ordered' })
-    test.ctx.goals.edit(test.agent, created, { objective: 'ordered edit' })
-    const second = test.deferred[1]
-    if (second === undefined) throw new Error('expected a second deferred goal mutation')
-    appendInjection(test.session, second)
-    expect(() => test.ctx.goals.get(test.agent)).toThrow('advance the current goal')
+    expect(stub.agent.inbox.nextStep).toEqual([])
+    expect(stub.session.events.map(event => event.type)).toEqual(['goal/change'])
   })
 
   it('observes a valid goal snapshot appended after an empty cache was established', async () => {
@@ -522,13 +472,7 @@ describe('GoalService mutations', () => {
       createdAt: 12,
       updatedAt: 12,
     }
-    const source = { kind: 'goal', goalId: change.goal.id, revision: 1, round: 0, change } as const
-    const turn = nextTurn(session)
-    session.append('turn/start', { turn, trigger: { kind: 'injection', source } })
-    session.append('user/message', createUserMessage({
-      content: renderGoalChange(change), source,
-    }), { surfaceOp: 'append' })
-    session.append('turn/end', { turn, reason: { kind: 'completed' } })
+    session.append('goal/change', change)
 
     expect(ctx.goals.get(agent)).toMatchObject({
       id: change.goal.id,
@@ -555,17 +499,8 @@ describe('GoalService mutations', () => {
       createdAt: 12,
       updatedAt: 12,
     }
-    appendInjection(session, createUserMessage({
-      content: renderGoalChange(change),
-      source: { kind: 'goal', goalId: change.goal.id, revision: 1, round: 0, change },
-    }))
-    appendInjection(session, createUserMessage({
-      content: [{ type: 'text', text: 'corrupt' }],
-      source: {
-        kind: 'goal', goalId: change.goal.id, revision: 2, round: 0,
-        change: { ...change, operation: 'edit', extra: true } as never,
-      },
-    }))
+    session.append('goal/change', change)
+    session.append('goal/change', { ...change, operation: 'edit', extra: true } as never)
 
     expect(() => ctx.goals.get(agent)).toThrow('invalid shape')
     expect(() => ctx.goals.get(agent)).toThrow('invalid shape')
@@ -592,30 +527,13 @@ describe('goal replay validation', () => {
     }
   }
 
-  function appendChange(
-    session: Session,
-    change: GoalChangeMeta,
-    overrides: { content?: ContentBlock[]; source?: MessageSource } = {},
-  ): void {
-    const source = overrides.source ?? {
-      kind: 'goal',
-      goalId: change.operation === 'clear' ? change.cleared.id : change.goal.id,
-      revision: change.operation === 'clear' ? change.cleared.revision : change.goal.revision,
-      round: 0,
-      change,
-    }
-    const turn = nextTurn(session)
-    session.append('turn/start', { turn, trigger: { kind: 'injection', source } })
-    session.append('user/message', createUserMessage({
-      content: overrides.content ?? renderGoalChange(change),
-      source,
-    }), { surfaceOp: 'append' })
-    session.append('turn/end', { turn, reason: { kind: 'completed' } })
+  function appendChange(session: Session, change: GoalChangeMeta): void {
+    session.append('goal/change', change)
   }
 
-  function oneChange(change: GoalChangeMeta, overrides: { content?: ContentBlock[]; source?: MessageSource } = {}) {
-    const session = new Session(SessionId(`validation-${Math.random()}`))
-    appendChange(session, change, overrides)
+  function oneChange(change: GoalChangeMeta) {
+    const session = Session.create(SessionId(`validation-${Math.random()}`))
+    appendChange(session, change)
     return session.events
   }
 
@@ -643,8 +561,23 @@ describe('goal replay validation', () => {
     }
   }
 
+  it('keeps durable goal state independent from inbox changes', () => {
+    const change = snapshotChange()
+    const session = Session.create(SessionId('inbox-independent-change'))
+    appendChange(session, change)
+    expect(foldGoal(session.events)).toMatchObject({ goal: { id: change.goal.id, revision: 1 } })
+    const message = createUserMessage({
+      content: [{ type: 'text', text: 'unrelated pending context' }],
+      source: { kind: 'plugin', plugin: 'test' },
+    })
+    const inbox = new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} })
+    inbox.append('next-step', message)
+    expect(inbox.remove(message.id)).toBe(true)
+    expect(foldGoal(session.events)).toMatchObject({ goal: { id: change.goal.id, revision: 1 } })
+  })
+
   function foldPair(first: GoalSnapshotChangeMeta, second: GoalChangeMeta): ReturnType<typeof foldGoal> {
-    const session = new Session(SessionId(`validation-pair-${Math.random()}`))
+    const session = Session.create(SessionId(`validation-pair-${Math.random()}`))
     appendChange(session, first)
     appendChange(session, second)
     return foldGoal(session.events)
@@ -653,7 +586,7 @@ describe('goal replay validation', () => {
   it('ignores unrelated metadata and non-goal round sources', () => {
     expect(decodeGoalChange(undefined)).toBeUndefined()
     expect(decodeGoalChange({ kind: 'other' })).toBeUndefined()
-    const session = new Session(SessionId('unrelated'))
+    const session = Session.create(SessionId('unrelated'))
     appendInjection(session, createUserMessage({
       content: [{ type: 'text', text: 'other' }],
       source: { kind: 'plugin', plugin: 'test' },
@@ -661,7 +594,7 @@ describe('goal replay validation', () => {
     expect(foldGoal(session.events)).toEqual({ roundsStarted: 0 })
     const source = { kind: 'plugin', plugin: 'ordinary-user-message' } as const
     const turn = nextTurn(session)
-    session.append('turn/start', { turn, trigger: { kind: 'message', source } })
+    session.append('turn/start', { turn })
     session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'ordinary' }], source,
     }), { surfaceOp: 'append' })
@@ -671,7 +604,7 @@ describe('goal replay validation', () => {
 
   it('rejects rounds attributed to another goal', () => {
     const change = snapshotChange()
-    const session = new Session(SessionId('other-goal-round'), oneChange(change))
+    const session = Session.create(SessionId('other-goal-round'), oneChange(change))
     appendRound(session, { id: GoalId('goal-other'), revision: 1 }, 1)
     expect(() => foldGoal(session.events)).toThrow('not the next admitted round')
   })
@@ -743,7 +676,7 @@ describe('goal replay validation', () => {
       roundsStarted: 2,
       goal: { ...paused.goal, revision: 3, phase: 'active', maxGoalRounds: 2 },
     })
-    const session = new Session(SessionId('exhausted-resume'))
+    const session = Session.create(SessionId('exhausted-resume'))
     appendChange(session, base)
     appendRound(session, base.goal, 1)
     appendRound(session, base.goal, 2)
@@ -769,7 +702,7 @@ describe('goal replay validation', () => {
       createdAt: 20,
       updatedAt: 20,
     })
-    const completedSession = new Session(SessionId('reuse-complete'))
+    const completedSession = Session.create(SessionId('reuse-complete'))
     appendChange(completedSession, base)
     appendChange(completedSession, complete)
     appendChange(completedSession, sameCurrentId)
@@ -781,7 +714,7 @@ describe('goal replay validation', () => {
       updatedAt: 20,
     })
     const secondComplete = mutation(second, 'complete', 'complete')
-    const nonAdjacentReuse = new Session(SessionId('reuse-non-adjacent'))
+    const nonAdjacentReuse = Session.create(SessionId('reuse-non-adjacent'))
     appendChange(nonAdjacentReuse, base)
     appendChange(nonAdjacentReuse, complete)
     appendChange(nonAdjacentReuse, second)
@@ -792,23 +725,23 @@ describe('goal replay validation', () => {
     const clear: GoalChangeMeta = {
       kind: 'goal/change', version: 1, operation: 'clear', cleared: { id: base.goal.id, revision: 2 }, clearedAt: 11,
     }
-    const clearedSession = new Session(SessionId('reuse-clear'))
+    const clearedSession = Session.create(SessionId('reuse-clear'))
     appendChange(clearedSession, base)
     appendChange(clearedSession, clear)
     appendChange(clearedSession, sameCurrentId)
     expect(() => foldGoal(clearedSession.events)).toThrow('fresh active revision-one')
   })
 
-  it('rejects goal-source context without matching durable metadata', () => {
-    const session = new Session(SessionId('goal-source-without-meta'))
+  it('rejects non-positive goal round sources', () => {
+    const session = Session.create(SessionId('goal-source-without-meta'))
     const source = { kind: 'goal', goalId: GoalId('goal-missing-meta'), revision: 1, round: 0 } as const
     const turn = nextTurn(session)
-    session.append('turn/start', { turn, trigger: { kind: 'injection', source } })
+    session.append('turn/start', { turn })
     session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'missing' }], source,
     }), { surfaceOp: 'append' })
     session.append('turn/end', { turn, reason: { kind: 'completed' } })
-    expect(() => foldGoal(session.events)).toThrow('lacks source change data')
+    expect(() => foldGoal(session.events)).toThrow('goal message source is invalid')
   })
 
   it('rejects malformed snapshots, refs, counters, and timestamps', () => {
@@ -844,24 +777,9 @@ describe('goal replay validation', () => {
     })).toThrow('positive safe integer')
   })
 
-  it('rejects source and content drift from the durable metadata', () => {
-    const change = snapshotChange()
-    expect(() => foldGoal(oneChange(change, { source: { kind: 'plugin', plugin: 'wrong' } }))).toThrow('mismatched source')
-    expect(() => foldGoal(oneChange(change, {
-      source: { kind: 'goal', goalId: change.goal.id, revision: 1, round: -1 },
-    }))).toThrow('source is invalid')
-    expect(() => foldGoal(oneChange(change, {
-      source: { kind: 'goal', goalId: GoalId('goal-imposter'), revision: 1, round: 0, change },
-    }))).toThrow('mismatched source attribution')
-    expect(() => foldGoal(oneChange(change, {
-      source: { kind: 'goal', goalId: change.goal.id, revision: 2, round: 0, change },
-    }))).toThrow('mismatched source attribution')
-    expect(() => foldGoal(oneChange(change, { content: [{ type: 'text', text: 'wrong' }] }))).toThrow('model-visible content')
-  })
-
   it('folds a clear tombstone after a snapshot', () => {
     const change = snapshotChange()
-    const session = new Session(SessionId('fold-clear'), oneChange(change))
+    const session = Session.create(SessionId('fold-clear'), oneChange(change))
     const clear: GoalChangeMeta = {
       kind: 'goal/change',
       version: 1,
@@ -869,13 +787,7 @@ describe('goal replay validation', () => {
       cleared: { id: change.goal.id, revision: 2 },
       clearedAt: 20,
     }
-    const source = { kind: 'goal', goalId: change.goal.id, revision: 2, round: 0, change: clear } as const
-    const turn = nextTurn(session)
-    session.append('turn/start', { turn, trigger: { kind: 'injection', source } })
-    session.append('user/message', createUserMessage({
-      content: renderGoalChange(clear), source,
-    }), { surfaceOp: 'append' })
-    session.append('turn/end', { turn, reason: { kind: 'completed' } })
+    appendChange(session, clear)
     expect(foldGoal(session.events)).toEqual({
       roundsStarted: 0,
       lastRef: { id: change.goal.id, revision: 2 },

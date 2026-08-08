@@ -1,19 +1,23 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, expectTypeOf, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import { type Agent } from '@deepseek-ai/dsh-agent'
 
 import { HarnessError } from '@deepseek-ai/dsh-llm'
 import { carrierKeyOf } from '@deepseek-ai/dsh-scope'
 import SubagentService, {
+  foldSubagentDescriptor,
+  snapshotSubagentDescriptor,
+  SUBAGENT_DESCRIPTOR_VERSION,
   SubagentError,
   assertSubagentMaxDepth,
+  type ResolvedSubagentStartRequest,
   type SubagentCapabilities,
   type SubagentProvider,
   type SubagentResult,
   type SubagentRun,
   type SubagentStartRequest,
 } from '@deepseek-ai/dsh-subagent'
-import { SessionId } from '@deepseek-ai/dsh-session'
+import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 
 function fakeParent(id = 'parent-1'): Agent {
   return { id: SessionId(id) } as unknown as Agent
@@ -34,6 +38,7 @@ function baseRequest(overrides: Partial<SubagentStartRequest> = {}): SubagentSta
 class StubProvider implements SubagentProvider {
   readonly inheritsParentContext = false
   startCount = 0
+  lastRequest: ResolvedSubagentStartRequest | undefined
 
   constructor(
     readonly name: string,
@@ -44,8 +49,9 @@ class StubProvider implements SubagentProvider {
     },
   ) {}
 
-  async start(request: SubagentStartRequest): Promise<SubagentRun> {
+  async start(request: ResolvedSubagentStartRequest): Promise<SubagentRun> {
     this.startCount += 1
+    this.lastRequest = request
     return {
       id: SessionId(`child:${this.name}:${request.parent.id}`),
       localAgent: undefined,
@@ -97,6 +103,50 @@ describe('SubagentService', () => {
       .toThrow(expect.objectContaining({ code: 'DUPLICATE_PROVIDER' }))
     await expect(subagents.start('missing', baseRequest()))
       .rejects.toMatchObject({ code: 'NO_PROVIDER' })
+  })
+
+  it('resolves the one-shot descriptor and exposes no provider continuation operations', async () => {
+    const { subagents } = await service()
+    const provider = new StubProvider('one-shot')
+    subagents.registerProvider(provider)
+    const request = baseRequest()
+    await subagents.start('one-shot', request)
+
+    expect(provider.lastRequest).toEqual({
+      ...request,
+      descriptor: {
+        version: SUBAGENT_DESCRIPTOR_VERSION,
+        mode: 'one-shot',
+        provider: 'one-shot',
+      },
+    })
+    expect(provider.lastRequest).not.toBe(request)
+    expectTypeOf<Parameters<SubagentService['start']>[1]>().toExtend<SubagentStartRequest>()
+    expect('resume' in subagents).toBe(false)
+    expect('resume' in provider).toBe(false)
+  })
+
+  it('does not expose manager teardown and treats a scoped drain as a no-op when no manager was bound', async () => {
+    const { subagents } = await service()
+    // Without `ctx.agents` no manager exists, so nothing was ever materialized.
+    expect('drainContinuable' in subagents).toBe(false)
+    await expect(subagents.drainContinuableDescendants([])).resolves.toBeUndefined()
+  })
+
+  it('rejects continuable operations when their runtime services are absent', async () => {
+    const { subagents } = await service()
+    await expect(subagents.startContinuable({
+      provider: 'unused',
+      label: 'unused child',
+      request: baseRequest(),
+      signal: new AbortController().signal,
+    })).rejects.toMatchObject({ code: 'CONTINUATION_UNAVAILABLE' })
+    await expect(subagents.followup(
+      fakeParent(),
+      SessionId('child'),
+      [{ type: 'text', text: 'hello' }],
+      { source: { kind: 'user' }, signal: new AbortController().signal },
+    )).rejects.toMatchObject({ code: 'CONTINUATION_UNAVAILABLE' })
   })
 
   it.each([
@@ -245,5 +295,179 @@ describe('SubagentService', () => {
     expect(error).toBeInstanceOf(HarnessError)
     expect(error.name).toBe('SubagentError')
     expect(error.code).toBe('NO_PROVIDER')
+  })
+})
+
+describe('subagent descriptors', () => {
+  const event = (data: unknown): SessionEvent<'subagent/descriptor'> => ({
+    type: 'subagent/descriptor',
+    data,
+  } as unknown as SessionEvent<'subagent/descriptor'>)
+
+  it('omits absent fields, recovers a complete payload, and rejects unsupported versions', () => {
+    expect(foldSubagentDescriptor([])).toBeUndefined()
+    const minimal = snapshotSubagentDescriptor({ mode: 'one-shot', provider: 'spawn' })
+    expect(minimal).toEqual({
+      version: SUBAGENT_DESCRIPTOR_VERSION,
+      mode: 'one-shot',
+      provider: 'spawn',
+    })
+    expect(foldSubagentDescriptor([event(minimal)])).toEqual(minimal)
+    expect(snapshotSubagentDescriptor({
+      mode: 'one-shot',
+      provider: 'spawn',
+      label: 'child work',
+    })).toEqual({ ...minimal, label: 'child work' })
+    const complete = {
+      version: SUBAGENT_DESCRIPTOR_VERSION,
+      mode: 'continuable' as const,
+      provider: 'spawn',
+      label: 'complete child',
+      agentProvider: 'deepseek',
+      agentModel: 'chat',
+      persona: 'reviewer',
+      toolFilter: { allow: ['read'], deny: ['bash'] },
+    }
+    expect(snapshotSubagentDescriptor({
+      mode: 'continuable',
+      provider: complete.provider,
+      label: complete.label,
+      agentProvider: complete.agentProvider,
+      agentModel: complete.agentModel,
+      persona: complete.persona,
+      toolFilter: complete.toolFilter,
+    })).toEqual(complete)
+    expect(foldSubagentDescriptor([event(complete)])).toEqual(complete)
+    expect(foldSubagentDescriptor([
+      event({
+        version: SUBAGENT_DESCRIPTOR_VERSION,
+        mode: 'continuable',
+        provider: 'spawn',
+        label: 'l',
+        toolFilter: { allow: ['read'] },
+      }),
+    ])).toMatchObject({ toolFilter: { allow: ['read'] } })
+    expect(foldSubagentDescriptor([
+      event({
+        version: SUBAGENT_DESCRIPTOR_VERSION,
+        mode: 'continuable',
+        provider: 'spawn',
+        label: 'l',
+        toolFilter: { deny: ['bash'] },
+      }),
+    ])).toMatchObject({ toolFilter: { deny: ['bash'] } })
+    expect(foldSubagentDescriptor([
+      event({ version: SUBAGENT_DESCRIPTOR_VERSION + 1, provider: 'spawn' }),
+    ])).toBeUndefined()
+    expect(() => snapshotSubagentDescriptor({
+      mode: 'continuable',
+      provider: 'spawn',
+      label: 'bad',
+      toolFilter: { deny: [Symbol('not-json')] as unknown as string[] },
+    })).toThrow('not losslessly JSON-serializable')
+  })
+
+  it.each([
+    ['string payload', 'invalid', 'payload must be an object'],
+    ['null payload', null, 'payload must be an object'],
+    ['array payload', [], 'payload must be an object'],
+    ['missing version', { provider: 'spawn' }, 'version must be a number'],
+    ['string version', { version: '1', provider: 'spawn' }, 'version must be a number'],
+    ['missing mode', { version: SUBAGENT_DESCRIPTOR_VERSION }, 'mode must be "one-shot" or "continuable"'],
+    ['invalid mode', { version: SUBAGENT_DESCRIPTOR_VERSION, mode: 'later' }, 'mode must be "one-shot" or "continuable"'],
+    ['unknown one-shot field', {
+      version: SUBAGENT_DESCRIPTOR_VERSION,
+      mode: 'one-shot',
+      provider: 'spawn',
+      label: 'l',
+      persona: 'reviewer',
+    }, 'payload has unknown field "persona"'],
+    ['invalid one-shot label', {
+      version: SUBAGENT_DESCRIPTOR_VERSION,
+      mode: 'one-shot',
+      provider: 'spawn',
+      label: 7,
+    }, 'label must be a string'],
+    ['unknown payload field', {
+      version: SUBAGENT_DESCRIPTOR_VERSION,
+      mode: 'continuable',
+      provider: 'spawn',
+      extra: true,
+    }, 'payload has unknown field "extra"'],
+    ['missing provider', { version: SUBAGENT_DESCRIPTOR_VERSION, mode: 'continuable' }, 'provider must be a string'],
+    ['missing label', {
+      version: SUBAGENT_DESCRIPTOR_VERSION,
+      mode: 'continuable',
+      provider: 'spawn',
+    }, 'label must be a string'],
+    ['invalid label', {
+      version: SUBAGENT_DESCRIPTOR_VERSION,
+      mode: 'continuable',
+      provider: 'spawn',
+      label: 7,
+    }, 'label must be a string'],
+    ['invalid provider', {
+      version: SUBAGENT_DESCRIPTOR_VERSION,
+      mode: 'continuable',
+      provider: 7,
+    }, 'provider must be a string'],
+    ['invalid agent provider', {
+      version: SUBAGENT_DESCRIPTOR_VERSION,
+      mode: 'continuable',
+      provider: 'spawn',
+      label: 'l',
+      agentProvider: 7,
+    }, 'agentProvider must be a string'],
+    ['invalid agent model', {
+      version: SUBAGENT_DESCRIPTOR_VERSION,
+      mode: 'continuable',
+      provider: 'spawn',
+      label: 'l',
+      agentModel: [],
+    }, 'agentModel must be a string'],
+    ['invalid persona', {
+      version: SUBAGENT_DESCRIPTOR_VERSION,
+      mode: 'continuable',
+      provider: 'spawn',
+      label: 'l',
+      persona: {},
+    }, 'persona must be a string'],
+    ['non-object tool filter', {
+      version: SUBAGENT_DESCRIPTOR_VERSION,
+      mode: 'continuable',
+      provider: 'spawn',
+      label: 'l',
+      toolFilter: [],
+    }, 'toolFilter must be an object'],
+    ['unknown tool-filter field', {
+      version: SUBAGENT_DESCRIPTOR_VERSION,
+      mode: 'continuable',
+      provider: 'spawn',
+      label: 'l',
+      toolFilter: { except: ['bash'] },
+    }, 'toolFilter has unknown field "except"'],
+    ['empty tool filter', {
+      version: SUBAGENT_DESCRIPTOR_VERSION,
+      mode: 'continuable',
+      provider: 'spawn',
+      label: 'l',
+      toolFilter: {},
+    }, 'toolFilter must declare allow and/or deny'],
+    ['non-array allow list', {
+      version: SUBAGENT_DESCRIPTOR_VERSION,
+      mode: 'continuable',
+      provider: 'spawn',
+      label: 'l',
+      toolFilter: { allow: 'read' },
+    }, 'toolFilter.allow must be an array of strings'],
+    ['non-string deny item', {
+      version: SUBAGENT_DESCRIPTOR_VERSION,
+      mode: 'continuable',
+      provider: 'spawn',
+      label: 'l',
+      toolFilter: { deny: [7] },
+    }, 'toolFilter.deny must be an array of strings'],
+  ])('rejects a malformed persisted descriptor: %s', (_case, data, detail) => {
+    expect(() => foldSubagentDescriptor([event(data)])).toThrow(detail)
   })
 })

@@ -12,7 +12,7 @@ Web 停止按钮调用 `session.cancel`，后者映射到广义 `agent.cancel({ 
 
 ## 决策
 
-`session.cancel` 是 Web Host API 的活动轮次停止操作。它调用 `agent.cancel({ kind: 'user' }, { keepInbox: true })`，在协作式中止当前轮次的同时保留待处理 inbox 工作。底层选项会保留 queued 和 steering 入队项；Web Queue 投影继续只暴露 queued 入队项。
+`session.cancel` 是 Web Host API 面向普通会话的活动轮次停止操作。它会以 `agent-busy` 拒绝由会话支撑的 subagent；否则会调用 `agent.cancel({ kind: 'user' }, { keepInbox: true })`，在协作式中止当前轮次的同时保留待处理 inbox 工作。底层选项会保留 queued 和 steering 入队项；Web Queue 投影继续只暴露 queued 入队项。
 
 AgentLoop 不会启动并发的替代轮次。它会关闭并 flush 被中断的轮次，达到取消的完全停稳，然后通过现有 FIFO 驱动器认领下一个可唤醒的 queued 入队项。该认领会发出 `agent/inbox/dequeue`，因此 Host 的权威 `session/queue` 快照会退役已认领行，并使剩余队尾保持可见。浏览器既不重发，也不提升任何行。忽略取消的工作会延迟这一交接，直到该工作结算。
 

@@ -8,7 +8,7 @@ Shell self-sufficiency (web2 hard rule): the kernel value-imports no plugin pack
 
 `PLATFORM_MODULES` (src/platform.ts) is the single source of truth for the shared module surface: seed-table keys, tsdown client externals, and the vite alias set are its projections.
 
-The optional `seams` parameter forwards the module system's `fetchBundle`/`executeBundle` transport overrides (`BootSeams`); production callers omit it — it exists for test environments where `<script>` execution cannot reach the page context (jsdom).
+The optional `seams` parameter forwards the module system's `loadBundle` transport override (`BootSeams`) for environments where external `<script>` execution cannot reach the page context; ordinary browser callers omit it.
 
 The shell owns browser-title projection. With a selected session carrying a durable title, it renders `<session title> — <existing HTML title>` and reacts to later title revisions; no selection or a selected untitled session preserves the existing title, and shell unmount restores it. The existing HTML title remains the configurable product suffix.
 
@@ -23,4 +23,4 @@ None; this package neither assembles nor sends a provider request.
 ## Known Limitations and Deferred Work
 
 - **One-shot rendering by design** — the UI waits for the boot settle; a single entry failure keeps the loading page with a loud per-entry report, no partial availability (progressive rendering returns with its own project).
-- **Narrow-window acceptance is deferred** — the concession chain is implemented in ui-layout but the shell-level narrow-viewport walkthrough is a P-II acceptance item.
+- **Narrow-window shell behavior lacks an assembled walkthrough** — ui-layout implements the concession chain, but this package has no shell-level narrow-viewport acceptance case.

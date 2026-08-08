@@ -224,6 +224,7 @@ export function gatesForMode(selected: Mode): Gate[] {
         pnpmScript('cordis-config', 'verify-cordis-config', { label: 'Cordis config' }),
         pnpmScript('client-domain-graph', 'verify-client-domain-graph', { label: 'client domain graph' }),
         pnpmScript('test', 'test'),
+        pnpmScript('issue-management', 'test:issue-management', { label: 'Issue management policy' }),
         pnpmScript('duplication', 'duplication'),
         snapshotGate(),
         pnpmScript('build', 'build'),
@@ -240,12 +241,19 @@ export function gatesForMode(selected: Mode): Gate[] {
   }
 }
 
-function ciPrimaryGates(): Gate[] {
+function ciSharedStaticGates(): Gate[] {
   return [
     pnpmScript('runtime-closure', 'verify-runtime-closure', { label: 'runtime closure' }),
     pnpmScript('constraints', 'constraints'),
     pnpmScript('package-invariants', 'verify-package-invariants', { label: 'package invariants' }),
     pnpmScript('cordis-config', 'verify-cordis-config', { label: 'Cordis config' }),
+    pnpmScript('issue-management', 'test:issue-management', { label: 'Issue management policy' }),
+  ]
+}
+
+function ciPrimaryGates(): Gate[] {
+  return [
+    ...ciSharedStaticGates(),
     pnpmScript('typecheck', 'typecheck'),
     lintGate(),
     pnpmScript('duplication', 'duplication'),
@@ -255,8 +263,8 @@ function ciPrimaryGates(): Gate[] {
     ...docSyncLeafGates(),
     pnpmScript('module-graph', 'verify-module-graph', { label: 'module graph' }),
     pnpmScript('knip', 'knip'),
-    // typecheck and build now drive the same root solution graph; without the
-    // dependency two concurrent `tsc -b` runs race the same tsbuildinfo files.
+    // typecheck and build both drive the Host and Client tsc graphs; without
+    // the dependency concurrent runs race the same tsbuildinfo files.
     // The tsc step is an incremental no-op after typecheck.
     pnpmScript('build', 'build', { needs: ['typecheck'] }),
     pnpmScript('publint', 'publint', { needs: ['build'] }),
@@ -339,10 +347,7 @@ function runningNodeMajor(): number {
 
 function ciStaticGates(options: { ownsBuild: boolean }): Gate[] {
   return [
-    pnpmScript('runtime-closure', 'verify-runtime-closure', { label: 'runtime closure' }),
-    pnpmScript('constraints', 'constraints'),
-    pnpmScript('package-invariants', 'verify-package-invariants', { label: 'package invariants' }),
-    pnpmScript('cordis-config', 'verify-cordis-config', { label: 'Cordis config' }),
+    ...ciSharedStaticGates(),
     ...options.ownsBuild ? [pnpmScript('build', 'build')] : [],
     ...docSyncLeafGates({
       includeDocTypecheck: options.ownsBuild,
@@ -567,8 +572,10 @@ function docSyncLeafGates(options: {
     pnpmScript('scoped-events', 'verify-scoped-events', { label: 'scoped events' }),
     pnpmScript('markdown-wrap', 'verify-md-wrap', { label: 'markdown wrap' }),
     pnpmScript('markdown-links', 'verify-md-links', { label: 'markdown links' }),
+    pnpmScript('public-repository-links', 'verify-public-repository-links', { label: 'public repository links' }),
     pnpmScript('doc-refs', 'verify-doc-refs', { label: 'doc refs' }),
     pnpmScript('package-paths', 'verify-package-paths', { label: 'package paths' }),
+    pnpmScript('config-source-ownership', 'verify-config-source-ownership', { label: 'config source ownership' }),
     pnpmScript('package-readme-model-experience', 'verify-package-readme-model-experience', { label: 'package README model experience' }),
     pnpmScript('mermaid', 'verify-mermaid'),
     pnpmScript('agent-note-classification', 'verify-agent-note-classification', { label: 'agent note classification' }),
@@ -594,10 +601,14 @@ function builtBinSmokeGate(needs: string[] = ['build']): Gate {
     '--config',
     'vitest.e2e.config.ts',
     'examples/headless-agent/tests/keyless-smoke.e2e.ts',
-    'apps/cli/tests/tui-keyless-smoke.e2e.ts',
+    'apps/cli/tests/built-bin.e2e.ts',
     'packages/examples/cli-demo/tests/built-bin.e2e.ts',
     'packages/examples/acp-demo/tests/built-bin.e2e.ts',
+    'packages/host/directory-picker-native/tests/built-worker.e2e.ts',
     'packages/ui/jsonrpc/tests/built-scope-carrier.e2e.ts',
+    'packages/subagent/subagent-codex/tests/loader-composition.e2e.ts',
+    'packages/subagent/subagent-claude-code/tests/loader-composition.e2e.ts',
+    'packages/api/remotes/tests/built-lib.e2e.ts',
     // The worker-entry packages' built bundles: the only automated proof
     // that lib/index.js resolves its sibling lib/worker.cjs under plain node
     // (the e2e lane runs unbuilt, so these files self-skip there).

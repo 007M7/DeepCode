@@ -153,9 +153,11 @@ describe('chat row diff body', () => {
 describe('FileMutationRow diff card', () => {
   const list = () => createSnapshotStore<SessionListState>({
     ids: [SID],
-    byId: { [SID]: { id: SID, displayTitle: 'r', running: false, blank: false, waitingApproval: false, updatedAt: 0, cwd: '/w/app' } },
+    byId: { [SID]: { id: SID, displayTitle: 'r', running: false, blank: false, updatedAt: 0, cwd: '/w/app' } },
     current: SID,
     phase: 'ready',
+    subagentsByParent: {},
+    currentAddress: undefined,
   })
 
   const rowProps = (block: RunningToolCall | ToolResultNode, toolName = 'edit'): FileMutationRowProps => ({
@@ -272,8 +274,14 @@ describe('fileMutationToolview registration', () => {
   it('registers one component under both edit and write, and each disposes', () => {
     const registered: { key: string; locale: unknown; disposed: boolean }[] = []
     const disposers: (() => void)[] = []
+    let disposeInjection = (): void => {}
     const ctx = {
       slots: {
+        inject: (_name: string, callback: () => Iterable<() => void>) => {
+          const active = [...callback()]
+          disposeInjection = () => { for (const dispose of active.reverse()) dispose() }
+          return disposeInjection
+        },
         register: ({ key, locale }: { name: string; key: string; locale?: string }) => {
           const entry = { key, locale, disposed: false }
           registered.push(entry)
@@ -287,10 +295,9 @@ describe('fileMutationToolview registration', () => {
     expect(registered.map(r => r.key).sort()).toEqual(['edit', 'write'])
     // Both keys claim the conversation locale seat ToolRow's body copy needs.
     expect(registered.map(r => r.locale)).toEqual(['conversation', 'conversation'])
-    // The registrant's inject seam is the load-order contract the row relies on.
-    expect(fileMutationToolview.inject).toEqual(['slots', 'conversation'])
+    expect(fileMutationToolview.inject).toEqual(['slots'])
     // Disposal removes each contribution (packages/AGENTS.md registry contract).
-    for (const dispose of disposers) dispose()
+    disposeInjection()
     expect(registered.every(r => r.disposed)).toBe(true)
   })
 })
@@ -301,12 +308,14 @@ describe('DetailsPanel diff Output section', () => {
     const chat = createChatStore().create()
     if (selection !== null) chat.actions.select(selection)
     const sessions = createSnapshotStore<SessionListState>(cwd === undefined
-      ? { ids: [], byId: {}, current: undefined, phase: 'ready' }
+      ? { ids: [], byId: {}, current: undefined, phase: 'ready', subagentsByParent: {}, currentAddress: undefined }
       : {
         ids: [SID],
-        byId: { [SID]: { id: SID, displayTitle: 'r', running: false, blank: false, waitingApproval: false, updatedAt: 0, cwd } },
+        byId: { [SID]: { id: SID, displayTitle: 'r', running: false, blank: false, updatedAt: 0, cwd } },
         current: SID,
         phase: 'ready',
+        subagentsByParent: {},
+        currentAddress: undefined,
       })
     const workspaces = createSnapshotStore<WorkspaceListState>({
       items: [], archivedSessionIds: [], state: 'idle', phase: 'ready', error: null,
@@ -331,10 +340,10 @@ describe('DetailsPanel diff Output section', () => {
 
   function snapshot(over: Partial<ConversationSnapshot> = {}): ConversationSnapshot {
     return {
-      sessionId: SID, nodes: [], partial: null, runningCalls: [], codeDispatches: new Map(),
+      sessionId: SID, nodes: [], turnTimings: new Map(), turnEnds: new Map(), partial: null, runningCalls: [], codeDispatches: new Map(),
       pending: [], queue: [], running: false, composerPhase: 'active', removed: false,
       openState: 'open', openError: null, hasMore: false, loadingOlder: false,
-      promptError: null, blank: false, lastAgentError: null, ...over,
+      promptError: null, blank: false, subagent: null, lastAgentError: null, ...over,
     }
   }
 

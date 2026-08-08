@@ -40,7 +40,8 @@ interface EffortChoice {
  * @returns the trigger and, while open, the two-level menu.
  */
 export function ModelSelect(
-  { locked, directory, load, select, t }: ModelSelectInjected & { locked: boolean } & PropsLocale<'model'>,
+  { locked, available, directory, load, select, t }:
+  ModelSelectInjected & { locked: boolean } & PropsLocale<'model'>,
 ) {
   const state = useSyncExternalStore(
     fn => directory.subscribe(fn),
@@ -92,7 +93,9 @@ export function ModelSelect(
   const busy = state.status === 'selecting'
 
   // Mount-time load resolves the trigger label; every open refreshes.
-  useEffect(() => { load() }, [load])
+  useEffect(() => {
+    if (available) load()
+  }, [available, load])
 
   useEffect(() => {
     if (!open) return
@@ -102,6 +105,8 @@ export function ModelSelect(
     document.addEventListener('mousedown', closeOutside)
     return () => { document.removeEventListener('mousedown', closeOutside) }
   }, [open])
+
+  if (!available) return null
 
   const show = (): void => {
     setPane('root')
@@ -169,8 +174,13 @@ export function ModelSelect(
     })
   }
 
-  const modelLabel = choices[selectedIndex]?.model.name ?? state.current?.model ?? t('trigger.fallback')
+  const modelLabel = currentChoice?.model.name ?? t('trigger.fallback')
   const triggerLabel = effortLabel === undefined ? modelLabel : `${modelLabel} · ${effortLabel}`
+  const triggerAria = currentChoice === undefined
+    ? t('trigger.selectAria')
+    : effortLabel === undefined
+      ? t('trigger.aria', { model: modelLabel })
+      : t('trigger.ariaEffort', { model: modelLabel, effort: effortLabel })
   itemRefs.current = []
   let itemIndex = 0
   const itemRef = () => {
@@ -184,9 +194,7 @@ export function ModelSelect(
         ref={triggerRef}
         type="button"
         className={css.trigger}
-        aria-label={effortLabel === undefined
-          ? t('trigger.aria', { model: modelLabel })
-          : t('trigger.ariaEffort', { model: modelLabel, effort: effortLabel })}
+        aria-label={triggerAria}
         aria-haspopup="menu"
         aria-expanded={open}
         aria-controls={open ? `${id}-menu` : undefined}
@@ -271,9 +279,6 @@ export function ModelSelect(
                               <span className={css.modelName}>{model.name}</span>
                               {model.description !== undefined && (
                                 <span className={css.description}>{model.description}</span>
-                              )}
-                              {model.unlisted === true && (
-                                <span className={css.unlisted}>{t('option.currentUnlisted')}</span>
                               )}
                             </span>
                             <span className={css.check}>

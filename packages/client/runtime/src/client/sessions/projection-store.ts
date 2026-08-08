@@ -74,6 +74,7 @@ interface Channel {
 export class ProjectionValueStore {
   private readonly rows = new Map<string, Row>()
   private readonly channels = new Map<string, Channel>()
+  private valuesCache: Readonly<Partial<SessionProjectionMap>> | undefined
   /** Coarse any-key channel (no snapshot cache to rebuild: reads hit rows directly). */
   private readonly anyNotifier = new Notifier(() => {})
 
@@ -96,6 +97,19 @@ export class ProjectionValueStore {
    */
   get(key: string): unknown {
     return this.rows.get(key)?.value
+  }
+
+  /**
+   * Read every current projection value as one reference-stable snapshot.
+   * @returns The same frozen value map until a row changes.
+   */
+  values(): Readonly<Partial<SessionProjectionMap>> {
+    if (this.valuesCache === undefined) {
+      this.valuesCache = Object.freeze(Object.fromEntries(
+        [...this.rows].map(([key, row]) => [key, row.value]),
+      ))
+    }
+    return this.valuesCache
   }
 
   /**
@@ -160,6 +174,7 @@ export class ProjectionValueStore {
   }
 
   private changed(key: string): void {
+    this.valuesCache = undefined
     this.channels.get(key)?.notifier.markDirty()
     this.anyNotifier.markDirty()
   }

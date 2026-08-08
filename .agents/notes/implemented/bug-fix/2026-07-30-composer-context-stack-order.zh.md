@@ -10,7 +10,7 @@ Goal、Todo 与 Queue 独立注册到同一个 `conversation.input.dock` 列表�
 
 ## 决策
 
-composer 上下文堆栈采用唯一规范的升序排列：Goal 为 `0`，Todo 为 `10`，Queue 为 `20`，随后是位于列表外的 composer bar。顺序值之间的空档使未来条目可以声明预期位置，不必依赖插件激活顺序。
+[Todo 优先的对齐决策](2026-08-02-todo-first-composer-context-order.md)规定当前的升序排列。本记录保留围绕该顺序的堆栈契约：数值间隔使未来条目可以声明预期位置，不必依赖插件激活顺序；composer bar 位于列表之后。
 
 `ConversationRoot` 负责独立上下文卡片之间的 6px 间距。Goal 是一张独立的 752×36px 卡片，折叠后的 Todo 是一张独立的 752×44px 卡片。Queue 是末端 dock 条目：其 776px 包装层包含相同的 752px 面板列，并减去共享间距与具名的 5px 布局重叠量，因此后渲染的 composer 卡片只覆盖 Queue 边缘。空条目渲染为 null，不占用间距。
 
@@ -18,7 +18,7 @@ composer 上下文堆栈采用唯一规范的升序排列：Goal 为 `0`，Todo 
 
 ## 验证
 
-注册测试固定了三个顺序值。浏览器截图覆盖完整的 Goal／Todo／Queue 组合矩阵、没有 Queue 的 Goal+Todo，以及仅有 Queue 的情况；这些场景共同覆盖全部相邻关系：Goal–Todo、Todo–Queue 与 Queue–Composer。
+注册测试固定了三个顺序值。无密钥 Queue 浏览器场景同时渲染 Todo、Goal 和 Queue，固定它们的无障碍顺序，并检查其可见卡片边缘；聚焦的 Goal 与 Queue 场景覆盖各自的独立状态。
 
 ## 考虑过的替代方案
 
@@ -30,4 +30,4 @@ composer 上下文堆栈采用唯一规范的升序排列：Goal 为 `0`，Todo 
 
 ## 后果
 
-所有存在组合下的视觉层级都保持稳定，Queue 是唯一与 composer 相接的上下文界面。新的 input-dock 插件必须相对于 Goal `0`、Todo `10` 与 Queue `20` 选择顺序；若条目位于 Queue 之后，还必须明确决定由哪个界面负责 composer 边界。
+所有存在组合下的视觉层级都保持稳定，Queue 是唯一与 composer 相接的上下文界面。新的 input-dock 插件必须相对于 Todo `0`、Goal `10` 与 Queue `20` 选择顺序；若条目位于 Queue 之后，还必须明确决定由哪个界面负责 composer 边界。

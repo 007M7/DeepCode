@@ -94,7 +94,8 @@ export interface RequestInspectionSnapshot {
 /**
  * Derive the request-centric read model from one immutable history window.
  * Compaction participates as a request purpose rather than a parallel
- * top-level collection.
+ * top-level collection. A leading resume/change header exposes its prompt but
+ * cannot project a change until the preceding header enters the window.
  * @param entries - Contiguous raw session history.
  * @returns Requests and call-time schemas derived from that history.
  */
@@ -218,6 +219,7 @@ function promptChange(
   prompt: ConversationPromptSnapshot,
   event: SessionEvent<'request/header'>,
 ): RequestPromptChange | undefined {
+  if (previous === undefined && event.data.reason !== 'initial') return
   const systemChanged = previous !== undefined && previous.system !== prompt.system
   const toolsChanged = previous !== undefined
     && JSON.stringify(previous.tools) !== JSON.stringify(prompt.tools)
@@ -240,6 +242,7 @@ function promptChange(
 function deriveRequests(events: readonly SessionEvent[]): readonly RequestView[] {
   const requests: RequestView[] = []
   const ordinaryByStep = new Map<string, number>()
+  const lastStepByTurn = new Map<number, string>()
   let activeStep: string | undefined
   let activePrompt: ConversationPromptSnapshot | undefined
   let activeCompaction: number | undefined
@@ -266,6 +269,7 @@ function deriveRequests(events: readonly SessionEvent[]): readonly RequestView[]
       const { turn, step } = sourceEvent.data
       const key = requestKey(turn, step)
       ordinaryByStep.set(key, requests.length)
+      lastStepByTurn.set(turn, key)
       requests.push({
         purpose: 'assistant',
         startSeq: sourceEvent.seq,
@@ -358,12 +362,15 @@ function deriveRequests(events: readonly SessionEvent[]): readonly RequestView[]
       })
       continue
     }
-    if (sourceEvent.type === 'turn/end' && sourceEvent.data.reason.kind === 'error') {
-      const reason = sourceEvent.data.reason
-      updateAssistant(ordinaryByStep.get(requestKey(sourceEvent.data.turn, reason.step)), {
-        status: 'error',
-        error: displayFailureMessage('failure' in reason ? reason.failure : reason),
-      })
+    if (sourceEvent.type === 'turn/end') {
+      const lastStep = lastStepByTurn.get(sourceEvent.data.turn)
+      if (sourceEvent.data.reason.kind === 'error') {
+        updateAssistant(lastStep === undefined ? undefined : ordinaryByStep.get(lastStep), {
+          status: 'error',
+          error: displayFailureMessage(sourceEvent.data.reason.error),
+        })
+      }
+      lastStepByTurn.delete(sourceEvent.data.turn)
       continue
     }
 

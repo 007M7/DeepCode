@@ -1,6 +1,0 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
-#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-07-22-docked-web-goal-bar.md
-2026-07-22-docked-web-goal-bar.md: 30f1d45e80cb2759175948f5683b499720ab50f0
-2026-07-22-docked-web-goal-bar.zh.md: 4c8481e64d9e5177a962f10ab1d043e761d07545

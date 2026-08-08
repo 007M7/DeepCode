@@ -2,7 +2,6 @@
 // the same locale-aware, in-page risk confirmation. Zero model calls: the
 // scenario boots the shipped Web composition and exercises the real
 // permission projection, client command path, HTTP RPC, and pushed update.
-import { mkdirSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
 import type { Browser, Page } from 'playwright'
@@ -12,27 +11,7 @@ import {
   assertFixtureInventory, captureStableAria, compareOrRefreshGolden,
   launchWebScaffold, watchConsole, webSnapshotMode, type WebScaffold,
 } from './scaffold.ts'
-import { ZH_BROWSER_LOCALE, saveFailureShot } from './support.ts'
-
-/**
- * connectFreshWorkspace twin over the product default Chinese locale (the
- * shared helper's anchors assume the English page every other scenario
- * boots; this scenario deliberately keeps zh, so the localized picker
- * copy is the anchor set).
- */
-async function connectFreshWorkspaceZh(page: Page, root: string, name = 'workspace'): Promise<void> {
-  mkdirSync(join(root, name), { recursive: true })
-  await page.getByRole('button', { name: '选择工作区' }).click()
-  const dialog = page.getByRole('dialog', { name: '选择工作区目录' })
-  await dialog.waitFor({ timeout: 10_000 })
-  await dialog.getByRole('button', { name: '编辑路径' }).click()
-  const pathInput = dialog.getByRole('textbox', { name: '编辑路径' })
-  await pathInput.fill(join(root, name))
-  await pathInput.press('Enter')
-  await dialog.getByRole('button', { name: '打开', exact: true }).click()
-  await page.locator('textarea:enabled[placeholder="描述你想要构建的内容"]')
-    .waitFor({ timeout: 15_000 })
-}
+import { ZH_BROWSER_LOCALE, connectFreshWorkspaceZh, saveFailureShot } from './support.ts'
 
 const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/access-confirmation', import.meta.url))
 const UI_EXPECTED = join(SNAPSHOT_DIR, 'ui.expected.md')

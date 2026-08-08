@@ -39,12 +39,8 @@ export interface PlanChipInjected {
   exitPlanMode: () => Promise<string | null>
 }
 
-/**
- * Required services: the seat's slot registry, the transport, the copy's
- * locale registry, and the conversation service whose presence guarantees
- * the seat is declared.
- */
-export const inject = ['slots', 'connection', 'conversation', 'locale']
+/** Required services: the seat's slot registry, transport, and locale registry. */
+export const inject = ['slots', 'connection', 'locale']
 
 /**
  * Client plugin body: register the plan chip over the command channel.
@@ -53,7 +49,7 @@ export const inject = ['slots', 'connection', 'conversation', 'locale']
 export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-plan: dictionaries')
 
-  ctx.effect(() => ctx.slots.register({
+  ctx.slots.inject('conversation.input.plan', () => ctx.slots.register({
     name: 'conversation.input.plan',
     locale: NS,
     inject: (sessionId: SessionId): PlanChipInjected => ({
@@ -66,5 +62,5 @@ export function apply(ctx: ClientContext): void {
         return null
       },
     }),
-  }, PlanChip), 'ui-plan: composer plan chip registration')
+  }, PlanChip))
 }

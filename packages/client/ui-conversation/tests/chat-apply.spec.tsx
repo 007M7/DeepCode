@@ -3,8 +3,8 @@
 // as the first 'conversation.view' ring entry declaring the keyed toolview
 // hole, the slot registrations land against a root entry's children
 // declarations (the AppFrame role), the shared store handle rides all strict
-// session entries, and the bash sample + todo row mount through the
-// load-order seam as keyed entries. Full-chain rendering belongs to the
+// session entries, and the bash sample + todo row mount through declaration
+// injection as keyed entries. Full-chain rendering belongs to the
 // machinery spec (chat-toolview-slot.spec.tsx) and the shell e2e; this spec
 // stops at the assembly surface.
 
@@ -37,6 +37,7 @@ async function bench() {
   await runtime.root.declare({
     'conversation': { kind: 'single', scope: 'session-maybe' },
     'details': { kind: 'single', scope: 'session' },
+    'settings.general.item': { kind: 'list', scope: 'root' },
   }, (_p: { renderSlot?: unknown }) => null)
 
   const feature = await runtime.mount({ inject: [...inject], apply })
@@ -44,7 +45,7 @@ async function bench() {
 }
 
 /** First stored entry for a key (inject/store live directly on StoredEntry). */
-function renderEntryOf(slots: Awaited<ReturnType<typeof bench>>['slots'], key: 'conversation' | 'conversation.session' | 'conversation.view' | 'details') {
+function renderEntryOf(slots: Awaited<ReturnType<typeof bench>>['slots'], key: 'conversation' | 'conversation.session' | 'conversation.session.header' | 'conversation.view' | 'details') {
   return slots.entries(key)[0] as undefined | { inject?: unknown; store?: unknown }
 }
 
@@ -72,6 +73,7 @@ describe('apply wiring', () => {
     const b = await bench()
     const conversation = renderEntryOf(b.slots, 'conversation')
     const conversationSession = renderEntryOf(b.slots, 'conversation.session')
+    const conversationHeader = renderEntryOf(b.slots, 'conversation.session.header')
     const chatView = renderEntryOf(b.slots, 'conversation.view')
     const details = renderEntryOf(b.slots, 'details')
     expect(conversation?.inject).toBeTypeOf('function')
@@ -80,18 +82,19 @@ describe('apply wiring', () => {
     // The shared handle: one apply-built store value on ALL session entries
     // (the session-maybe 'conversation' shell carries no store by design).
     expect(conversationSession?.store).toBeDefined()
+    expect(conversationHeader?.store).toBe(conversationSession?.store)
     expect(details?.store).toBe(conversationSession?.store)
     expect(chatView?.store).toBe(conversationSession?.store)
     // The hero workspace picker hole rides the conversation entry's children
     // declaration (the empty-state occupant is gone).
     expect(b.slots.spec('conversation.hero.workspace')).toEqual({ kind: 'single', scope: 'root' })
+    expect(b.slots.entries('settings.general.item').map(entry => entry.options.id)).toEqual(['composer-enter'])
     await b.runtime.dispose()
   })
 
-  it('mounts the bash sample, the read row, the file-mutation rows, the search rows (grep + glob), the web rows, and the product rows as keyed entries through the load-order seam', async () => {
+  it('mounts the tool rows as keyed entries through declaration injection', async () => {
     const b = await bench()
-    // Every registrant plugin's inject: ['slots', 'conversation'] resolved — the
-    // service being present implies the chat entry declared the hole first. The
+    // The actual toolview declaration activates every registrant. The
     // file-mutation registrant claims both write and edit for the diff card; the
     // one search row registers under both grep and glob; the web rows register
     // one component under both web tool names.
@@ -112,6 +115,7 @@ describe('apply wiring', () => {
     expect(b.slots.entries('conversation.chat.toolview')).toHaveLength(0)
     expect(b.slots.spec('conversation.chat.toolview')).toBeUndefined()
     expect(b.slots.entries('details')).toHaveLength(0)
+    expect(b.slots.entries('settings.general.item')).toHaveLength(0)
     expect(b.runtime.ctx.get('conversation')).toBeUndefined()
     await b.runtime.dispose()
   })

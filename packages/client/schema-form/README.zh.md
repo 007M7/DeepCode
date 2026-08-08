@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-面向 settings 编辑器的 schema／草稿模型层。wire 侧的 `settings.describe` 携带每个 namespace 的序列化 schemastery schema（`schema.toJSON()` 的 ref 信封）；`rehydrateSchema` 用 `new Schema(json)` 将其还原（rehydrate）为活的校验器——在宿主上校验分节的那份 schema 对象，就是在浏览器里校验草稿的那份对象，因此客户端校验绝不会偏离 seam 侧的校验。编辑器各自渲染自己的控件（Models 页围绕它在此探测到的字段手写自己的卡片）；该包（package）不含任何 React，也不做任何渲染。
+面向 settings 编辑器的 schema／草稿模型层。wire 侧的 `settings.describe` 携带每个 namespace 的序列化 schemastery schema（`schema.toJSON()` 的 ref 信封）；`rehydrateSchema` 用 `new Schema(json)` 将其还原（rehydrate）为活的校验器——在宿主上校验分节的那份 schema 对象，就是在浏览器里校验草稿的那份对象，因此客户端校验绝不会偏离 seam 侧的校验。编辑器各自渲染自己的控件（Models 页围绕它在此探测到的字段手写自己的卡片）；该包不含任何 React，也不做任何渲染。
 
 ## 契约
 
@@ -18,6 +18,6 @@
 
 ## Known Limitations and Deferred Work
 
-- **重建 schema 会执行所收到的信封**——`rehydrateSchema` 会重建一个活的 schemastery 校验器，而 schemastery 通过 `new Function` 复活序列化过的 callback，因此 schema 信封是可执行内容，而非惰性数据。这只有在信封来自提供该页面的同一 host 时才可接受；面向浏览器的 schema 协议应当传递客户端无法执行的描述，此项与 settings seam 的[协议边界工作](../../settings/settings/README.md#known-limitations-and-deferred-work)一并暂缓。
-- **校验是草稿级的，而非逐字段**——`validateDraft` 报告 schemastery 的第一条失败消息（其中会点名 `$.path`）；逐字段的报错映射延后到出现需要它的消费方再做。
-- **没有通用渲染器**——一个 schema 驱动的表单组件曾被构建出来，随后被手写的 Models 编辑器取代（[Agent Note（agent 决策记录）](../../../.agents/notes/implemented/architecture/2026-07-30-web-config-plane.md)）；若未来有页面需要编辑任意分节，起点是这些辅助函数，而不是复活后的通用渲染器——除非该 note 的权衡发生变化。
+- **重建 schema 会执行所收到的信封**——`rehydrateSchema` 会重建一个活的 schemastery 校验器，而 schemastery 通过 `new Function` 复活序列化过的 callback，因此 schema 信封是可执行内容，而非惰性数据。只有信封来自提供该页面的同一受信任 host 时才安全；该协议没有跨信任边界使用的惰性表示。
+- **校验是草稿级的，而非逐字段**——`validateDraft` 报告 schemastery 的第一条失败消息及其 `$.path`；它不会把错误映射到各个控件。
+- **没有通用渲染器**——消费方在这些辅助函数上构建功能专用表单。[Web 配置面 Agent Note](../../../.agents/notes/implemented/architecture/2026-07-30-web-config-plane.md)记录该权衡。

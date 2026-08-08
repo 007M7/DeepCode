@@ -9,21 +9,19 @@
 // allowlist MarkdownText applies to untrusted assistant-authored links (it also
 // permits mailto, excluded here); an unparseable or non-http URL renders as
 // plain text. Geometry, radius, and fonts mirror CodeBlock/TerminalBlock so a
-// web card reads as one family with them; a long source list caps at maxSources
-// with a head/tail collapse using the same arithmetic as TerminalBlock's output
-// cap.
+// web card reads as one family with them; the whole source list renders inside a
+// fixed-height scroll container (its `.sources` max-height), so a long list
+// scrolls in place rather than growing the card — and that container's
+// `padding-left` must stay wide enough for the widest `<li>` marker, since a
+// scroll container clips inline-start overflow irrecoverably. The card draws every source the
+// view carries: the tool already cut the list to its source cap, and `truncated`
+// reports that cut. A content-only transform downstream of the tool — spill-policy
+// replacing an oversized result's text while leaving its presentationMeta whole —
+// can still narrow what the model reads below this list.
 
-import { useCallback, useState } from 'react'
 import clsx from 'clsx'
 import { MarkdownText } from './markdown/MarkdownText.tsx'
 import css from './WebBlock.module.css'
-
-/**
- * Sources shown before the height cap collapses the middle of a citation list.
- * Matches TerminalBlock's default output budget so both cards cut a long body
- * at the same place; the chat row narrows it through the maxSources prop.
- */
-export const DEFAULT_WEB_MAX_SOURCES = 16
 
 /**
  * One citeable source drawn in a search card: the projection of the contract's
@@ -50,8 +48,6 @@ export interface WebSearchBlockProps {
   sources: WebSourceView[]
   /** True when the tool cut the source list to its result cap. */
   truncated: boolean
-  /** Sources shown before the middle collapses (default {@link DEFAULT_WEB_MAX_SOURCES}). */
-  maxSources?: number | undefined
   /** Extra class merged onto the wrapper (callers position; this component draws). */
   className?: string | undefined
 }
@@ -65,13 +61,6 @@ export interface WebFetchBlockProps {
   statusCode: number
   /** True when the provider or the output cap cut the fetched content. */
   truncated: boolean
-  /**
-   * Accepted and ignored, so both card kinds take one uniform prop set (a fetch
-   * card has no source list to cap) — the same way TerminalBlock accepts one
-   * `maxLines` across its arms. Lets a render site spread `maxSources` onto
-   * either kind without a per-kind conditional.
-   */
-  maxSources?: number | undefined
   /** Extra class merged onto the wrapper (callers position; this component draws). */
   className?: string | undefined
 }
@@ -137,9 +126,9 @@ function SafeLink({ url, label, className }: { url: string; label: string; class
 
 /**
  * One source row in a search card: the safe link plus its snippet and date. The
- * `<li value>` pins the source's original 1-based position, so a collapsed list
- * whose tail is drawn after the head still numbers each source by its real
- * citation index rather than by its position in the visible subset.
+ * `<li value>` pins the source's 1-based citation index explicitly rather than
+ * relying on the `<ol>`'s implicit numbering, so a row reads by its real index
+ * even inside the scroll container.
  * @param props.source - the source to render.
  * @param props.ordinal - the source's 1-based position in the full list.
  * @returns the source list item.
@@ -159,21 +148,12 @@ function SourceItem({ source, ordinal }: { source: WebSourceView; ordinal: numbe
 }
 
 /**
- * The search card body: the answer over the capped source list.
+ * The search card body: the answer over the full source list, which scrolls in
+ * place once it exceeds the `.sources` container height.
  * @param props - see {@link WebSearchBlockProps}.
  * @returns the search card element.
  */
-function WebSearchBlock({ answer, sources, truncated, maxSources = DEFAULT_WEB_MAX_SOURCES, className }: WebSearchBlockProps) {
-  const [expanded, setExpanded] = useState(false)
-  const onToggle = useCallback(() => { setExpanded(value => !value) }, [])
-  const hidden = sources.length - maxSources
-  const capped = hidden > 0 && !expanded
-  // Same split arithmetic as TerminalBlock's output cap, so a long body's head
-  // and tail slices agree between the two cards.
-  const headCount = Math.ceil(maxSources / 2)
-  const tailCount = maxSources - headCount
-  const head = capped ? sources.slice(0, headCount) : sources
-  const tail = capped ? sources.slice(sources.length - tailCount) : []
+function WebSearchBlock({ answer, sources, truncated, className }: WebSearchBlockProps) {
   // A provider may legitimately return no answer and no sources; the chat WebRow
   // does not show the raw result content, so without this the user would see an
   // empty card. Mirror the backend's `No results found.` render text.
@@ -187,27 +167,7 @@ function WebSearchBlock({ answer, sources, truncated, maxSources = DEFAULT_WEB_M
         <div className={css.empty}>未找到结果</div>
       ) : (
         <ol className={css.sources}>
-          {head.map((source, index) => <SourceItem key={index} source={source} ordinal={index + 1} />)}
-          {hidden > 0 && (
-            <li className={css.expandItem}>
-              <button
-                type="button"
-                className={css.expand}
-                aria-expanded={expanded}
-                aria-label={expanded ? '收起来源' : `展开其余 ${hidden} 条来源`}
-                onClick={onToggle}
-              >
-                {expanded ? '收起' : `… 其余 ${hidden} 条来源`}
-              </button>
-            </li>
-          )}
-          {tail.map((source, index) => (
-            <SourceItem
-              key={sources.length - tailCount + index}
-              source={source}
-              ordinal={sources.length - tailCount + index + 1}
-            />
-          ))}
+          {sources.map((source, index) => <SourceItem key={index} source={source} ordinal={index + 1} />)}
         </ol>
       )}
       {truncated && <div className={css.truncated}>来源列表已截断</div>}

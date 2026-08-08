@@ -26,14 +26,19 @@ interface UserMessage extends Message {
  */
 interface SessionEventMap {
   /**
-   * Opens turn `turn`. `trigger` records what started the model loop.
+   * Opens turn `turn` before the loop claims queued input or runs pre-step.
+   * Rejection, empty input, cancellation, or failure may close it with no
+   * step; otherwise the following identified `user/message` event or batch
+   * records the messages entering the step.
    */
-  'turn/start': { turn: number; trigger: TurnTrigger }
+  'turn/start': { turn: number }
   /**
-   * Closes turn `turn` with the {@link TurnEndReason} that ended it. The loop
-   * awaits `session/flush` after an ordinary turn ends before claiming the next
-   * queued item. Success commits the turn; rejection is reported live and does
-   * not prevent later work.
+   * Closes turn `turn` with the {@link TurnEndReason} that ended it. A turn
+   * with no entered step has no `step/start` or `step/end`. The loop does not await a
+   * flush at turn boundaries: `dsh-session-checkpoint-policy` owns the
+   * per-request durability checkpoint, and consumers that read storage after
+   * `whenIdle()` flush themselves. Success commits the turn; rejection is
+   * reported live and does not prevent later work.
    */
   'turn/end': { turn: number; reason: TurnEndReason }
   /** Opens step `step` of turn `turn` — one model call plus the tool executions it requested. */
@@ -44,9 +49,8 @@ interface SessionEventMap {
    * A user-role message on the model-visible surface: a direct human prompt
    * (the queued message claimed for this turn), a synthetic `agent.inject()`
    * context (file-change notices, subdir AGENTS.md, skill content, cron
-   * notifications, …), or an admitted goal continuation round. All three
-   * project their `content` verbatim; `source` tells them apart. An idle
-   * injection may append this event between turns without running the model.
+   * notifications, …), or an entered goal continuation round. All three
+   * project their `content` verbatim; `source` tells them apart.
    */
   'user/message': UserMessage
   /** Raw stream chunk — token-level replay fidelity. */
@@ -82,8 +86,6 @@ interface SessionEventMap {
     error?: { name: string; code: string }
     meta?: JsonValue
   }
-  /** Steering content injected between steps of a running turn. */
-  'steering/message': { turn: number; message: UserMessage }
   /** Whole-list snapshot; latest write wins on replay. Log-only UI state; never derived history. */
   'todo/write': { todos: TodoItem[] }
   /**
@@ -92,21 +94,14 @@ interface SessionEventMap {
    */
   'request/header': { header: EpochHeader; reason: RequestHeaderReason }
   /**
-   * Registration-bound context metadata for the route a request resolved to,
-   * appended inside its step beside `request/header` and only when the route
-   * or capacity differs from the last record. It is log-only and deliberately
-   * NOT part of {@link EpochHeader}: capacity is adapter metadata about a
-   * route, not an input the request was built from, so it must not participate
-   * in request reconstruction or header equality. `contextWindow` is absent
-   * when the route's adapter advertises no capacity.
+   * Route metadata for the next request, logged only when the route or capacity
+   * changes. It does not participate in request reconstruction or header equality.
    */
   'request/context': RequestContext
   /**
    * Marks the end of a constructor seed. Events before it have smaller seq
    * values and came from the seed (resume, fork, or replay); this lifecycle
-   * produced none of them. An explicitly supplied empty seed puts the marker
-   * at seq 0, distinguishing an empty resumed session from a fresh session.
-   * This log-only event is the durable projection of
+   * produced none of them. This log-only event is the durable projection of
    * {@link Session.firstLiveSeq}. Its payload is empty — position and `time`
    * carry the meaning.
    *
@@ -133,7 +128,7 @@ interface SessionEventMap {
 
 ### `TodoItem`：一条待办项
 
-这是 `todo/write` 事件全量列表快照中的单元。它有意保持精简：一行 `content` 加一个三态 `status`（没有 id、优先级或 `activeForm`）；列表在每次写入时整体替换，因此条目无需稳定标识。见 [todo_write Agent Note（agent 决策记录）](../../.agents/notes/implemented/feature/2026-06-29-todo-write-tool.md)。
+这是 `todo/write` 事件全量列表快照中的单元。它有意保持精简：一行 `content` 加一个三态 `status`（没有 id、优先级或 `activeForm`）；列表在每次写入时整体替换，因此条目无需稳定标识。见 [todo_write Agent Note](../../.agents/notes/implemented/feature/2026-06-29-todo-write-tool.md)。
 
 ```ts type-equiv
 /**
@@ -149,7 +144,7 @@ interface SessionEventMap {
 interface TodoItem {
   /** What this task is — a short imperative line shown in the UI. */
   content: string
-  /** Lifecycle state. `in_progress` marks the single task being worked now. */
+  /** Lifecycle state. `in_progress` marks a task being worked now; parallel work may mark several. */
   status: 'pending' | 'in_progress' | 'completed'
 }
 ```
@@ -185,17 +180,13 @@ interface EpochHeader {
 请求所解析到的路由的上下文元数据是独立的已记录状态，在同一步骤内紧随 `request/header` 追加，且仅在提供方、模型或容量与上一条记录不同时追加。它保持在 `EpochHeader` 之外，因为该类型是由 `headerEquals` 逐字段比较的重建契约：容量描述的是路由，不是请求输入，把它折叠进去会让一次容量变化被登记为请求信封的 `change`，也会把适配器元数据拉进 loop 的重建不变式。与 `request/header` 一样，它不是 `SurfaceEventType`，也不产生 LLM 消息。`session.requestContext()` 以增量方式归并最新一条记录。适配器不公布容量的路由会以缺失 `contextWindow` 的形式记录，因此新记录可以清除较早路由的容量。
 
 ```ts type-equiv
-/**
- * Registration-bound context metadata of one resolved model route. Adapter
- * metadata about a route rather than a request input, which is why it lives
- * outside {@link EpochHeader}.
- */
+/** Registration-bound metadata for one resolved model route. */
 interface RequestContext {
-  /** Registered provider route the metadata was resolved through. */
+  /** Registered provider route the metadata belongs to. */
   provider: string
   /** Provider-owned model id the metadata belongs to. */
   model: string
-  /** Maximum combined request and response context in tokens; absent when the adapter advertises none. */
+  /** Maximum combined request and response context in tokens, when advertised. */
   contextWindow?: number
 }
 ```
@@ -213,7 +204,7 @@ interface RequestContext {
  *
  * The {@link sourceEventSeqs} and {@link surfaceOp} fields are conditional:
  * they only exist on {@link SurfaceEventType} variants (`user/message`,
- * `assistant/message`, `tool/result`, `steering/message`).
+ * `assistant/message`, `tool/result`).
  * Non-surface events (boundary markers, chunks, usage, errors) never carry
  * surface metadata — the compiler enforces this at `Session.append()`
  * call sites.
@@ -247,7 +238,7 @@ type SessionEvent<T extends SessionEventType = SessionEventType> = {
 
 ## Surface 类型
 
-四种产生消息的类型（`SurfaceEventType`：`user/message`、`assistant/message`、`tool/result`、`steering/message`）携带 surface 元数据，用来声明它们如何加入有序的派生 surface。见 [session surface Agent Note](../../.agents/notes/implemented/architecture/2026-06-18-session-surface.md)。
+三种产生消息的类型（`SurfaceEventType`：`user/message`、`assistant/message`、`tool/result`）携带 surface 元数据，用来声明它们如何加入有序的派生 surface。见 [session surface Agent Note](../../.agents/notes/implemented/architecture/2026-06-18-session-surface.md)。
 
 ### `SurfaceEventType`：事件类型中产生消息的子集
 
@@ -261,7 +252,6 @@ type SurfaceEventType =
   | 'user/message'
   | 'assistant/message'
   | 'tool/result'
-  | 'steering/message'
 ```
 
 ### `SurfaceOp`：事件如何进入 surface
@@ -271,7 +261,7 @@ type SurfaceEventType =
  * How a session event entered the ordered surface. Only valid on
  * {@link SurfaceEventType} events.
  *
- * - `'append'`: added to the tail — normal path for user/assistant/tool/steering
+ * - `'append'`: added to the tail — normal path for user/assistant/tool
  *   messages.
  * - `{ op: 'replace', start, end }`: replaces surface nodes from `start`
  *   (inclusive) through `end` (inclusive) with this node. Both must exist as
@@ -313,6 +303,8 @@ interface SurfaceIntent {
 
 `Session.surface` 返回会话稳定的 `SessionSurface` 视图。同一个增量管理器在提交前校验追加候选事件，并根据已提交事件推进该投影；调用方可以观察成员关系和替换代次，但不能调用校验。
 
+`SurfaceManager(log, baseSeq?)` 也可以折叠一个连续的已加载窗口，其第一个事件的绝对序号为 `baseSeq`。每个事件在该绝对序号空间中仍保持连续；如果替换跨过窗口头部，由于其声明的范围并不存在，该替换会失败。
+
 ```ts type-equiv
 /** Readonly live projection of the message-producing session events. */
 interface SessionSurface {
@@ -351,15 +343,16 @@ interface SurfaceFoldResult {
 }
 ```
 
-## `Session` public API
+## `Session` 公共 API
 
-去除方法体的声明与源码中的普通类保持同步，覆盖其公共构造函数、状态访问器、追加边界和历史投影。存储操作仍由生成的 [`ctx.sessions` 服务目录](../cordis-catalog/services.md#ctxsessions--sessionstore)记录。
+去除方法体的声明与源码中的普通类保持同步，覆盖其脱离态工厂、状态访问器、追加边界和历史投影。存储操作仍由生成的 [`ctx.sessions` 服务目录](../cordis-catalog/services.md#ctxsessions--sessionstore)记录。
 
 ```ts public-api
 /**
  * An event-sourced session: an append-only log of {@link SessionEvent}s.
  *
- * Plain class (not a Service) — create instances via `ctx.sessions.create()`.
+ * Plain class (not a Service) — create live instances via
+ * `ctx.sessions.create()` and detached instances via {@link create}.
  * Seeding with an existing event log replays/forks a session.
  * @typert object
  */
@@ -369,7 +362,7 @@ declare class Session {
   /**
    * Detached, deep-frozen creation metadata (format version, cwd, lineage,
    * seed boundary). Supplied by the store via `ctx.sessions.create()`. When a
-   * `Session` is constructed bare (tests, ad-hoc replay), a minimal header is
+   * `Session` is created without a store-owned header, a minimal header is
    * synthesized (stamped with the current {@link SESSION_FORMAT_VERSION}) so
    * `session.header` is always present. Kept out of the event log — it is a
    * storage concern, not replayable conversation state.
@@ -386,9 +379,7 @@ declare class Session {
    * start here. Distinct from `header.seedLength`, the DURABLE fork-lineage
    * boundary: a resumed session's constructor seed is its full stored log,
    * while its header keeps the original fork value — this field is the
-   * in-process construction fact. An explicitly supplied empty seed has the
-   * same value as no seed (0); its `session/end-seed` event preserves the
-   * lifecycle distinction.
+   * in-process construction fact.
    *
    * Not persisted itself: a seeded session projects it into the log as the
    * `session/end-seed` event, which is what a consumer reading STORED history
@@ -402,7 +393,25 @@ declare class Session {
    * holds an ordinary published write.
    */
   readonly firstLiveSeq: number;
-  constructor(id: SessionId, seed?: readonly SessionEvent[], header?: SessionHeader);
+  /**
+   * Create a detached session by validating and snapshotting borrowed seed
+   * events and storage metadata.
+   * @param id - session identity.
+   * @param seed - optional borrowed replay or fork events.
+   * @param header - optional borrowed storage metadata.
+   * @returns a detached session.
+   */
+  static create(id: SessionId, seed?: readonly SessionEvent[], header?: SessionHeader): Session;
+  /**
+   * Restore a detached session by taking ownership of fresh persistence values.
+   * Storage shape, event envelopes, sequence continuity, surface transitions,
+   * and header fields are validated before the graphs are frozen in place.
+   * @param id - restored session identity.
+   * @param seed - fresh detached events whose ownership is transferred.
+   * @param header - fresh detached metadata whose ownership is transferred.
+   * @returns a restored detached session.
+   */
+  static fromRestore(id: SessionId, seed: readonly SessionEvent[], header: SessionHeader): Session;
   /**
    * An immutable snapshot of the append-only event log. The snapshot is reused
    * until the next append; a previously returned array does not grow later.
@@ -462,11 +471,9 @@ declare class Session {
    */
   requestHeader(): EpochHeader | undefined;
   /**
-   * The route metadata in force after the log's last `request/context` event —
-   * what the NEXT request deduplicates against — or undefined before any such
-   * record. Maintained incrementally like {@link requestHeader}, so a per-step
-   * read costs O(new events).
-   * @returns the folded context record, or undefined when none exists yet.
+   * Return the latest resolved route metadata, or `undefined` before the first
+   * `request/context` event. Each event is folded once.
+   * @returns the latest immutable route metadata.
    */
   requestContext(): RequestContext | undefined;
   /**
@@ -489,15 +496,8 @@ declare class Session {
    */
   deriveMessages(): Message[];
   /**
-   * Project a single event into the LLM message it derives to, or null when
-   * it produces none — a non-surface event (chunk, boundary, log-only record)
-   * or an empty-content assistant/message (which exists only to host usage).
-   * The per-node pure function {@link deriveMessages} folds over the surface;
-   * an external reconstructor (or the dev invariant) folds the same function
-   * over a log prefix's surface to rebuild the exact messages any request was
-   * built from (the reconstructability Agent Note). The returned message is
-   * the already frozen message nested in the event wrapper and shared by
-   * delivery, durable history, and model requests.
+   * Instance face of the pure per-node `deriveEventMessage` export from
+   * `surface.ts`.
    * @param event - the event to project.
    * @returns the derived message, or null when the event produces none.
    */
@@ -513,9 +513,8 @@ declare class Session {
 - `assistant/message` → 一条 assistant 消息，包含事件的提供方/模型溯源信息和可选的适配器私有回放状态。原始 `assistant/chunk` 事件属于回放/UI 数据，在派生时会被**跳过**（组装后的消息才是权威）。**内容为空的** `assistant/message` 也会跳过：因 max-tokens 而截断且无内容的步骤仍会记录一条 `assistant/message` 以承载用量和溯源信息，但无内容的 assistant 轮次不得进入提供方 transcript（文本记录）。
 - `tool/result` → 一条携带 `tool-result` 块的 user 消息。
 - `user/message`（注入上下文，即非 `user` 来源）→ 按时间顺序在相应位置生成一条 user-role 消息，并原样承载其 `content`；溯源信息与领域数据都在其类型化的 source 中。
-- `steering/message` → 按时间顺序在相应位置生成一条携带确切 `content` 的 user-role 消息；可选 envelope 仅作为日志中的展示元数据保留。
 
-其余所有事件（`turn/*`、`step/*`、插件所有的 `llm/retry`）均为结构信息，不会投影为消息。token 记账读取每个步骤的 `assistant/chunk { type: 'usage' }` 记录；如果没有用量分片，则将 `assistant/message.usage` 作为已提交步骤的后备。失败的模型请求尝试没有 assistant 消息，因此其用量分片是持久化的记账记录。操作错误的步骤号记录在 `turn/end.reason`（`kind: 'error'`）中；如果是最终模型请求失败，其中包含规范化的 `LlmFailure` 事实，其他实时错误则包含消息/代码。由于这一尚未发布的格式有意不提供兼容性承诺，seed/load 校验会拒绝缺少提供方和模型的请求头，以及缺少提供方/模型溯源信息的 assistant 消息，而不会猜测历史数据应走的提供方路由。
+其余所有事件（`turn/*`、`step/*`、插件所有的 `llm/retry`）均为结构信息，不会投影为消息。token 记账读取每个步骤的 `assistant/chunk { type: 'usage' }` 记录；如果没有用量分片，则将 `assistant/message.usage` 作为已提交步骤的后备。失败的模型请求尝试没有 assistant 消息，因此其用量分片是持久化的记账记录。由于这一尚未发布的格式有意不提供兼容性承诺，seed/load 校验会拒绝缺少提供方和模型的请求头，以及缺少提供方/模型溯源信息的 assistant 消息，而不会猜测历史数据应走的提供方路由。
 
 ## 活跃会话 fork API
 
@@ -523,33 +522,18 @@ declare class Session {
 
 - `fork(source, boundary?, childSessionId?)` 接受一个活跃的 `Session` 对象或活跃的 `SessionId`，选取到 `boundary` seq（含）为止的源事件（默认为当前最后一个事件），要求所选前缀结束时没有开放轮次，然后创建一个活跃的子会话，包含深克隆的种子事件和子会话元数据（`parentSession`、`seedLength` 及继承的 `cwd`）。
 
-显式 `boundary` 允许调用者从任意稳定的轮次间位置 fork，包括之前的 `turn/end` 或更晚的独立纯日志事件，即使源会话有更新的事件或正在进行的轮次。API 拒绝结束于开放轮次内的前缀，而不是静默截断。更广泛的执行关系健全性检查留在既有的 `dsh-invariants` 插件和持久化修复路径中，不在 `fork()` 中重复。`dsh-subagent-fork` 保留其已完成前缀截断逻辑，因为工具时委托通常在父轮次仍然打开时启动；普通的会话分支应显式指定请求的 boundary。
-
-## 轮次的触发原因：`TurnTriggerMap`
-
-```ts type-equiv
-/**
- * What started a turn.
- * Merge-extensible sum type (same pattern as MessageSourceMap).
- */
-interface TurnTriggerMap {
-  message: { kind: 'message'; source: MessageSource }
-  /** Recovery turn reopened over the repaired current session log. */
-  retry: { kind: 'retry' }
-  /**
-   * An out-of-band producer explicitly enclosed injected context in a one-shot
-   * turn. `Agent.inject()` appends idle context directly and does not use this
-   * trigger; the source mirrors the producer of the enclosed `user/message`.
-   */
-  injection: { kind: 'injection'; source: MessageSource }
-}
-```
+显式 `boundary` 允许调用者从任意稳定的轮次间位置 fork，包括之前的 `turn/end` 或更晚的独立纯日志事件，即使源会话有更新的事件或正在进行的轮次。API 拒绝结束于开放轮次内的前缀，而不是静默截断。更广泛的执行关系健全性检查留在既有的 `dsh-invariants` 插件和持久化修复路径中，不在 `fork()` 中重复。`dsh-subagent-fork` 保留其已完成前缀截断逻辑，因为工具调用时的委托通常在父轮次仍然打开时启动；普通的会话分支应显式指定请求的 boundary。
 
 <a id="why-a-turn-ended-turnendreasonmap"></a>
 
 ## 轮次的结束原因：`TurnEndReasonMap`
 
-`aborted` 有意作为一种粗粒度的持久结果：它只记录取消中断了实时轮次，不记录是哪个运行时调用方发起取消。仅属于运行时的调用方词汇由 [`AgentCancelCause`](core.md#the-agent-handle) 定义；未来若有审计需求，应新增独立的控制请求事件，而非让终止结果承载这一信息。
+`turn/start` 没有 trigger 字段。返回 enter 的 pre-step 所产生的 `user/message` 批次记录进入轮次的内容，`llm/retry` 记录请求恢复，idle 注入则保持待处理，直到唤醒交付抵达后续 pre-step。实时轮次会保留停止驱动器的类型化 [`AgentCancelCause`](core.md#the-agent-handle)；只有在导入受支持的粗粒度取消记录且记录未保存调用方时，持久化才使用额外的 `{ kind: 'legacy' }` 原因。
+
+```ts type-equiv
+/** Durable cancellation cause, including imports whose original coarse record carried no cause. */
+type TurnEndCancelCause = AgentCancelCause | { readonly kind: 'legacy' }
+```
 
 ```ts type-equiv
 /**
@@ -558,20 +542,15 @@ interface TurnTriggerMap {
 interface TurnEndReasonMap {
   completed: { kind: 'completed' }
   /** A cancellation request interrupted the live turn. */
-  aborted: { kind: 'aborted' }
+  aborted: { kind: 'aborted'; reason: TurnEndCancelCause }
+
+  blocked: { kind: 'blocked' }
   /**
-   * The turn failed: a step threw or the model reported a failure. `step` is the
-   * step number the failure occurred on (the operational error's location — the
-   * single durable record of an in-turn failure; live diagnostics also fire via
-   * `agent/error`). Final model-request failures retain their normalized facts
-   * as one `failure`; other thrown values retain their rendered message and a
-   * real `HarnessError` code when present.
+   * The turn failed. `error` is always a structured failure: the `LlmError`
+   * facts verbatim, or `{ message: errorChain(error), code: 'UNKNOWN' }`
+   * flattened from any other error.
    */
-  error: { kind: 'error'; step: number } & (
-    | { failure: LlmFailure; message?: never; code?: never }
-    | { message: string; code?: string; failure?: never }
-  )
-  disposed: { kind: 'disposed' }
+  error: { kind: 'error'; error: LlmFailure }
   /** At least one step reached its output-token ceiling, even if a plugin continued the turn. */
   'max-tokens': { kind: 'max-tokens' }
   /**
@@ -582,11 +561,11 @@ interface TurnEndReasonMap {
 }
 ```
 
-`max-tokens` 与模型调用中同名的 `FinishReason` 对应：只要轮次内有任何步骤以 `max-tokens` 结束，整个轮次就以 `max-tokens` 而不是 `completed` 结束（即使之后继续执行，截断事实仍优先），让消费方能够区分正常停止和截断停止；但它只优先于 `completed`，`disposed`/`aborted`/`error` 结果的优先级更高。`interrupted` 是唯一不会由任何 loop 发出的原因：它由崩溃恢复合成（见 [persistence.md](persistence.md)）。两个 map 均可通过合并扩展。
+`max-tokens` 与模型调用中同名的 `FinishReason` 对应：只要轮次内有任何步骤以 `max-tokens` 结束，整个轮次就以 `max-tokens` 而不是 `completed` 结束（即使之后继续执行，截断事实仍优先），让消费方能够区分正常停止和截断停止。取消和错误仍是不同的结果。`interrupted` 是唯一不会由任何 loop 发出的原因：它由崩溃恢复合成（见 [persistence.md](persistence.md)）。该 map 可通过合并扩展。
 
 ## 执行封闭与独立事件
 
-一个轮次包围一次模型循环执行，而不是整个会话日志。空闲注入的 `user/message` 事件和插件所属的纯日志事件可以出现在 `turn/end` 与下一个 `turn/start` 之间；它们占用事件 seq，但不递增轮次编号。持久化会尽快记录每个连续且已接受的事件，而崩溃修复只关闭确实仍处于开放状态的尾部轮次。需要持久性屏障的生产方会显式等待 `ctx.sessions.flush(session)`。
+一个轮次包围一次模型循环执行，而不是整个会话日志。AgentLoop 只会从轮次内返回 enter 的 pre-step 批次记录注入的 `user/message` 事件；插件所属的纯日志事件仍可出现在 `turn/end` 与下一个 `turn/start` 之间，占用事件 seq 但不递增轮次编号。持久化会尽快记录每个连续且已接受的事件，而崩溃修复只关闭确实仍处于开放状态的尾部轮次。需要持久性屏障的生产方会显式等待 `ctx.sessions.flush(session)`。
 
 可选的 `dsh-session/invariant` 配套插件会强制核心拥有的关系：轮次与步骤编号、执行事件封闭，以及同一步骤内的工具调用／结果配对。可合并扩展事件的关系由声明它的插件拥有，因此核心不会仅因没有开放轮次就拒绝未知事件。见[独立事件决策](../../.agents/notes/implemented/simplification/2026-07-28-remove-synthetic-log-only-turns.md)。
 
@@ -604,10 +583,10 @@ interface TurnEndReasonMap {
 
 插件可以通过 declaration merging 添加额外的 `SessionEventMap` 类型。这些是**仅日志**事件：不是 `SurfaceEventType`（不携带 `surfaceOp`，不参与派生历史）。事件所有方决定它们属于一个开放的执行轮次，还是可以独立位于轮次之间，并在自己的不变量配套插件中强制所需关系。完整的逐事件枚举（核心与插件贡献的，含 payload 与溯源信息）见生成的[持久化日志事件目录](../persistence-catalog.md)；压缩 seam 的 `compact/*` 语义在 [compaction.md](compaction.md) 中讨论。
 
-钩子桥接层的 `hook/invoked` / `hook/result` 溯源对（来自 `@deepseek-ai/dsh-hook-protocol`）通过 `handlerId` 关联。轮次中间的钩子点（`PreToolUse`/`PostToolUse`/`Stop`）在 loop 已打开的轮次内触发，因此其 `hook/*` 记录天然位于轮次之内。`SessionStart` 与轮次开始前的 `UserPromptSubmit` 准入 seam 都不生成 `hook/*` 记录，因为两者都没有已打开的轮次可容纳该记录；被放行的上下文改由其带来源的 `user/message` 作为持久证据（见[钩子桥接 Agent Note](../../.agents/notes/implemented/feature/2026-06-30-hook-bridges.md)）。
+钩子桥接层的 `hook/invoked` / `hook/result` 溯源对（来自 `@deepseek-ai/dsh-hook-protocol`）通过 `handlerId` 关联。`UserPromptSubmit`、`PreToolUse`、`PostToolUse` 与 `Stop` 在 loop 已打开的轮次内触发，因此其 `hook/*` 记录天然位于轮次之内。`SessionStart` 不生成 `hook/*` 记录，因为它在轮次 1 之前运行；其上下文会在 inbox 中保持待处理，直到唤醒交付打开一个轮次（见[钩子桥接 Agent Note](../../.agents/notes/implemented/feature/2026-06-30-hook-bridges.md)）。
 
 ## 持久性契约
 
-持久化后端依赖的契约如下：持久日志无损保存每个事件，**包括** `assistant/chunk`；`seq` 必须连续，因此不能从规范日志中过滤分片。后端可以为事件批次选择自己的存储编码，只要 `load` 返回与追加时完全一致的事件即可（JSONL 后端默认启用的打包分片行就是此类编码；见 [persistence.md](persistence.md)）。所有 `event.data` 都必须可序列化为 JSON；`Session.append` 会从源头强制这一要求（遇到不可序列化数据时抛出），因此错误事件绝不会进入日志，`session.events` 始终与后端可持久化的内容一致。新增携带不可序列化数据的事件类型、破坏核心执行嵌套，或违反事件所有方声明的关系，都会构成磁盘格式的破坏性变更。
+持久化后端依赖的契约如下：持久日志无损保存每个事件，**包括** `assistant/chunk`；`seq` 必须连续，因此不能从规范日志中过滤分片。后端可以为事件批次选择自己的存储编码，只要 `load` 返回与追加时完全一致的事件即可（JSONL 后端默认启用的打包分片行就是此类编码；见 [persistence.md](persistence.md)）。所有 `event.data` 都必须可序列化为 JSON；`Session.append` 会从源头强制这一要求（遇到不可序列化数据时抛出），因此错误事件绝不会进入日志，`session.events` 始终与后端可持久化的内容一致。新增会携带不可序列化数据、破坏核心执行嵌套或违反事件所有方声明关系的事件类型，都会构成磁盘格式的破坏性变更。
 
 消费此契约的后端见 [persistence.md](persistence.md)。

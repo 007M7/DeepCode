@@ -4,8 +4,8 @@
  * else references RequestPayload<'session.*'> / ResponseValue<'session.*'>.
  */
 
+import type { MessageId } from '@deepseek-ai/dsh-llm/brand'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
-import type { InboxItemId } from '@deepseek-ai/dsh-agent/brand'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session/types'
 // The pure-type outlet: api/ is browser-importable, and the package root's
 // cordis Context merge (via dsh-agent) must not enter client aggregates.
@@ -89,8 +89,6 @@ export interface ModelCatalogModel {
   name: string
   /** Optional provider-supplied description. */
   description?: string
-  /** The current model was inserted because the advisory catalog omitted it. */
-  unlisted?: true
   /** Exact-route reasoning metadata when the adapter exposes it. */
   reasoning?: ModelReasoning
 }
@@ -119,6 +117,15 @@ export interface ModelCatalogFailure {
 export interface SessionModels {
   /** Target selected for the session's next assembled step. */
   current: ModelTarget
+  /**
+   * Whether an adapter currently serves `current.provider`, and therefore
+   * whether this session can start a turn at all. Deliberately NOT derivable
+   * from `groups`: catalog membership is advisory, so a route serving a model
+   * it stopped advertising is absent from the groups yet perfectly usable,
+   * while a route whose adapter is gone can serve nothing. A surface that
+   * blocks input must read this rather than the groups.
+   */
+  routable: boolean
   /** Successfully loaded provider groups. */
   groups: ModelProviderGroup[]
   /** Provider-local failures; successful groups remain usable. */
@@ -129,6 +136,7 @@ export interface SessionModels {
 export type QueueAction =
   | { kind: 'edit'; content: ContentBlock[] }
   | { kind: 'remove' }
+  | { kind: 'steer' }
 
 /** Session list entry (v1 builds no index: list does readdir+stat). */
 export interface SessionSummary {
@@ -153,6 +161,8 @@ export interface SessionSummary {
   blank: boolean
   /** fork/spawn lineage (session.header.parentSession passthrough); absent for root sessions. */
   parentSessionId?: SessionId
+  /** Coarse durable origin used by navigation surfaces; never proves resumability. */
+  origin?: 'subagent'
   /** Session working directory (header.cwd passthrough); absent when unrecorded. */
   cwd?: string
   /**
@@ -217,17 +227,22 @@ export interface SessionsApi {
    * the client needs a fresh baseline already pulls the tail page, and
    * loadOlder (the only beforeSeq path) is the only path that never needs one.
    * A deployment without the registry serves histories without the block.
+   * Reading history uses an attached Session or persistence inspection and
+   * never resumes or publishes an Agent.
    */
   history(request: RpcRequest<{ sessionId: SessionId; beforeSeq?: number; maxMessages?: number }>):
   Promise<RpcResponse<{ events: HistoryEntry[]; hasMore: boolean; projections?: SessionProjectionsBlock }>>
 
-  /** Reads a fresh advisory model directory for this session. Provider lookups run independently. */
+  /**
+   * Reads a fresh advisory model directory for an ordinary session. Provider
+   * lookups run independently; subagents reject with `agent-busy`.
+   */
   models(request: RpcRequest<{ sessionId: SessionId }>): Promise<RpcResponse<SessionModels>>
 
   /**
    * Selects the complete target for this session. Exact model metadata
    * validates an optional reasoning effort, while catalog membership remains
-   * advisory.
+   * advisory. Session-backed subagents reject with `agent-busy`.
    */
   selectModel(request: RpcRequest<{
     sessionId: SessionId
@@ -243,6 +258,7 @@ export interface SessionsApi {
    * normalized accepted title and the title event's seq return so the caller
    * can settle its projection cell without waiting for the push frame. A
    * title that normalizes to empty fails with `title-invalid`.
+   * Session-backed subagents reject with `agent-busy`.
    */
   rename(request: RpcRequest<{ sessionId: SessionId; title: string }>):
   Promise<RpcResponse<{ title: string; seq: number }>>
@@ -263,23 +279,31 @@ export interface SessionsApi {
    * falls back to the source's last completed turn. An in-log anchor whose
    * turn is still open fails with `fork-unavailable` instead of clipping to
    * an earlier turn. The child inherits the source cwd, latest logged model
-   * target, workspace attachment, and `parentSessionId` lineage; the seed
-   * prefix carries the source title.
+   * target and `parentSessionId` lineage; the seed prefix carries the source
+   * title. Reading the source uses attached state or persistence inspection
+   * without acquiring an Agent. Workspace attachment follows the source
+   * directly, or the nearest workspace-owning ancestor when the source is a
+   * subagent.
    */
   fork(request: RpcRequest<{ sessionId: SessionId; atSeq?: number }>):
   Promise<RpcResponse<{ sessionId: SessionId }>>
 
-  /** Sends a message. content is core's ContentBlock[] verbatim; mode maps 1:1 — queue→send, steer→steer. */
+  /** Sends a message to an ordinary session Agent. Session-backed subagents reject with `agent-busy` and use `subagent.prompt`. */
   prompt(request: RpcRequest<{ sessionId: SessionId; mode: 'queue' | 'steer'; content: ContentBlock[] }>):
   Promise<RpcResponse<{ accepted: true; command?: { kind: 'success'; text?: string } }>>
 
   /**
-   * Edits or removes one pending queued occurrence.
+   * Edits, removes, or strictly steers one pending queued occurrence on an ordinary session.
+   * Session-backed subagents reject with `agent-busy`.
    */
-  updateQueue(request: RpcRequest<{ sessionId: SessionId; itemId: InboxItemId; action: QueueAction }>):
+  updateQueue(request: RpcRequest<{ sessionId: SessionId; itemId: MessageId; action: QueueAction }>):
   Promise<RpcResponse<{ accepted: true }>>
 
-  /** Stops the active turn, preserving pending inbox work that resumes in FIFO order after cancellation settles. */
+  /**
+   * Stops an ordinary session's active turn, preserving pending inbox work
+   * that resumes in FIFO order after cancellation settles. Session-backed
+   * subagents reject with `agent-busy`.
+   */
   cancel(request: RpcRequest<{ sessionId: SessionId }>): Promise<RpcResponse<{ accepted: true }>>
 
 }

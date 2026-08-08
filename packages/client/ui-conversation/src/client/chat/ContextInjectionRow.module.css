@@ -12,6 +12,40 @@
   color: var(--dsw-alias-label-secondary);
 }
 
+/* Separator and producer name beside the role title: ToolRow's summary geometry,
+   so the two disclosure rows keep one 24px rhythm and one separator shape. */
+.sep {
+  flex: none;
+  width: 2px;
+  height: 2px;
+  margin: 0 8px;
+  border-radius: 1px;
+  background: var(--dsw-alias-label-caption);
+}
+
+.source {
+  flex: none;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 14px;
+  line-height: 24px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A notice's one-line account: the reason it rarely needs expanding. */
+.summary {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 14px;
+  line-height: 24px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .body {
   box-sizing: border-box;
   width: calc(100% - 22px);
@@ -23,7 +57,6 @@
   border-radius: 8px;
   background: var(--dsw-alias-markdown-code-block);
   color: var(--dsw-alias-label-tertiary);
+  /* Figma 10:2482 code text: the form bodies inherit it from the scrollport. */
   font: 400 11px/16px var(--ds-font-family-code);
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
 }

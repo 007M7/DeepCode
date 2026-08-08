@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-用于 dsh-sdk 工具链的启动器侧 telemetry 原语。这是启动器在执行每个命令时导入的普通库；它**不是** Cordis 插件，因为 `build` 与首次初始化的 `create` 从不启动 Cordis。将 reporter 接入启动器命令分发，并把 telemetry consent 功能加入 `dsh-helper` 目录，属于各自所属包（package）的职责，而不是此包的职责。
+用于 dsh-sdk 工具链的启动器侧 telemetry 原语。这是启动器在执行每个命令时导入的普通库；它**不是** Cordis 插件，因为 `build` 与首次初始化的 `create` 从不启动 Cordis。将 reporter 接入启动器命令分发，并把 telemetry consent 功能加入 `dsh-helper` 目录，属于各自所属包的职责，而不是此包的职责。
 
 | 导出 | 职责 |
 |---|---|
@@ -14,7 +14,7 @@
 
 Consent 由 `cordis.yml` 中的 telemetry 配置项承载，因此禁用 telemetry 就是禁用该配置项。telemetry 默认上报，只有已经存在的 telemetry 配置项被显式设为 `disabled` 时才关闭：缺少 `cordis.yml`（首次 `create`）、配置项已启用，或 `cordis.yml` 中没有 telemetry 配置项时都会上报。`DO_NOT_TRACK`／CI 始终拒绝。无配置与缺少配置项的默认值可以通过 `ConsentResolver` 配置。
 
-收集端点是固定常量（`DSH_TELEMETRY_ENDPOINT`）；发布前必须将其 `.invalid` 占位值替换为真实端点。
+收集端点是固定常量（`DSH_TELEMETRY_ENDPOINT`）；发布前必须将作为安全兜底的 `.invalid` 占位值替换为真实端点。
 
 ## 模型体验
 

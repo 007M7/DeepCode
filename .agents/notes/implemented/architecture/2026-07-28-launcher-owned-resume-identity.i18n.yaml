@@ -1,6 +1,0 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
-#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-07-28-launcher-owned-resume-identity.md
-2026-07-28-launcher-owned-resume-identity.md: da9b4571d154137d34ef3690e7b4aa9bc7bb9082
-2026-07-28-launcher-owned-resume-identity.zh.md: 51ccffd7bb9c8eeda03afe2528d3cb4250e2d906

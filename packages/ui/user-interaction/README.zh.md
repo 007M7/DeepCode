@@ -20,15 +20,15 @@
 - `UserInteractionProvider`：包含 `ask(request)` 的 UI 实现。
 - `UserInteractionError`：`HarnessError` 的子类，包含 `EMPTY_QUESTIONS`、`BAD_INTENT`、`NO_PROVIDER`、`DUPLICATE_PROVIDER`、`ASK_ABORTED` 和 `DELEGATED_CALLER` 等代码。
 
-当回答包含 `custom` 时，`selected` 为空；自定义文本是所选选项的替代，而不是补充。UI 可以把跳过的条目保留为 `{ id, selected: [] }`，既维持现有回答形态，也保留该批次中的其他回答。
+对于单选题，`custom` 会覆盖选中的选项，且 `selected` 为空。对于多选题，`custom` 可以补充 `selected` 中的标签。UI 可以把跳过的条目保留为 `{ id, selected: [] }`，既维持现有回答形态，也保留该批次中的其他回答。
 
 ### 呈现意图
 
-`intent` 声明某个问题本身就是一次已知形状的决定，因此认识该标签的 UI 可以照此呈现 —— `plan-review` 表示 `detail` 是一份待审阅的计划，`dsh-plan-mode` 会在 `exit_plan_mode` 的问题上设置它。意图只塑造呈现：遵循它的 UI 回答的仍是通用 UI 会发送的那些选项标签，不认识该标签的 UI 渲染通用选项列表，因此调用方两种情况下读到的都是同一种回答形态。`approve` 指名表示批准的标签，而不依赖选项顺序。有两项断言是任何类型都承载不了的，`ask()` 会以 `BAD_INTENT` 拒绝它们：`approve` 未命中该问题自身的任一选项，以及意图落在没有 `detail` 的问题上 —— 而 `detail` 正是它自称在审阅的东西。
+`intent` 声明某个问题本身就是一种已知形态的决策，因此认识该标签的 UI 可以照此呈现——`plan-review` 表示 `detail` 是一份待审阅的计划，`dsh-plan-mode` 会在 `exit_plan_mode` 的问题上设置它。意图只塑造呈现：遵循它的 UI 回答的仍是通用 UI 会发送的那些选项标签，不认识该标签的 UI 渲染通用选项列表，因此调用方两种情况下读到的都是同一种回答形态。`approve` 指名表示批准的标签，而不依赖选项顺序。有两项断言是任何类型都承载不了的，`ask()` 会以 `BAD_INTENT` 拒绝它们：`approve` 未命中该问题自身的任一选项，以及意图落在没有 `detail` 的问题上——而 `detail` 正是它自称在审阅的东西。
 
 ## 职责
 
-这是接口包（package）。`@deepseek-ai/dsh-tool-ask-user` 等面向模型的消费方依赖此 seam；`dsh-tui` 和宿主运行时提供交互式实现。循环保持不变：工具调用等待 Promise，工具结果随后恢复正常的 agent loop（智能体循环）。
+这是接口包。`@deepseek-ai/dsh-tool-ask-user` 等面向模型的消费方依赖此 seam；Web 宿主运行时提供随产品交付的交互式实现。循环保持不变：工具调用等待 Promise，工具结果随后恢复正常的 agent loop（智能体循环）。
 
 ## 模型体验
 

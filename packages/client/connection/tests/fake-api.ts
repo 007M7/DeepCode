@@ -59,6 +59,7 @@ export class FakeApiClient implements IApiClient {
 
   onModels: (payload: unknown) => Promise<RpcResponse<SessionModels>> = () => Promise.resolve(ok({
     current: { provider: 'deepseek-official', model: 'deepseek-chat' },
+    routable: true,
     groups: [],
     failures: [],
   }))
@@ -113,6 +114,20 @@ export class FakeApiClient implements IApiClient {
     cancel: (payload: unknown) => this.record('session.cancel', payload, this.onCancel(payload)),
   }
 
+  readonly subagents: IApiClient['subagents'] = {
+    list: (payload: unknown) => this.record('subagent.list', payload, Promise.resolve(ok({
+      entries: [],
+      parentAvailable: true,
+    }))),
+    history: (payload: unknown) => this.record('subagent.history', payload, Promise.resolve(ok({
+      events: [],
+      hasMore: false,
+    }))),
+    prompt: (payload: unknown) => this.record('subagent.prompt', payload, Promise.resolve(ok({
+      messageId: 'fake-message' as never,
+    }))),
+  }
+
   readonly host: IApiClient['host'] = {
     describe: payload => this.record('host.describe', payload, this.onDescribe(payload)),
     pickDirectory: payload => this.record('host.pickDirectory', payload, this.onPickDirectory(payload)),
@@ -148,6 +163,7 @@ export class FakeApiClient implements IApiClient {
   onSkillList: (payload: unknown) => Promise<RpcResponse<{ skills: SkillEntry[] }>>
     = () => Promise.resolve(ok({ skills: [] }))
 
+
   readonly commands: IApiClient['commands'] = {
     list: (payload: unknown) => this.record('command.list', payload, this.onCommandList(payload)),
     execute: (payload: unknown) => this.record('command.execute', payload, this.onCommandExecute(payload)),
@@ -167,7 +183,8 @@ export class FakeApiClient implements IApiClient {
   }
 
   readonly settings: IApiClient['settings'] = {
-    describe: payload => this.record('settings.describe', payload, Promise.resolve(ok({ writable: true, namespaces: [] }))),
+    describe: payload => this.record('settings.describe', payload, Promise.resolve(ok({ writable: true, hasDocument: false, namespaces: [] }))),
+    openDocument: payload => this.record('settings.openDocument', payload, Promise.resolve(ok({ opened: true as const }))),
     update: payload => this.record('settings.update', payload, Promise.resolve(ok({ ns: 'fake', schema: {}, value: {}, applies: 'live' as const, secrets: [], revision: 0 }))),
     replace: payload => this.record('settings.replace', payload, Promise.resolve(ok({ ns: 'fake', schema: {}, value: {}, applies: 'live' as const, secrets: [], revision: 0 }))),
     mutate: payload => this.record('settings.mutate', payload, Promise.resolve(ok({ ns: 'fake', schema: {}, value: {}, applies: 'live' as const, secrets: [], revision: 0 }))),
@@ -182,6 +199,7 @@ export class FakeApiClient implements IApiClient {
   readonly llm: IApiClient['llm'] = {
     providers: payload => this.record('llm.providers', payload, Promise.resolve(ok({ providers: [] }))),
     models: payload => this.record('llm.models', payload, Promise.resolve(ok({ groups: [], failures: [] }))),
+    discoverModels: payload => this.record('llm.discoverModels', payload, Promise.resolve(ok({ models: [] }))),
   }
 
   /** When true, streams never fire onOpen (misbehaving-carrier material for the handshake timeout guard). */

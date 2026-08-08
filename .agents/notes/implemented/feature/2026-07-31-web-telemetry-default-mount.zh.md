@@ -10,15 +10,15 @@ Status: implemented
 
 ## Decision
 
-`dsh` 共享核心（`apps/cli/config/base.cordis.yml`）默认挂载 `telemetry-otel` 行，内置生产 endpoint，因此所有 surface——TUI、web、headless——都上报；这是**内部测试期的部署立场**——有 endpoint 就报，用户可经环境变量退出。各 surface 的退出路径都会排空队列：web/headless 在 SIGINT/SIGTERM 上 dispose（headless 的信号处理是本次补上的），TUI 的正常退出走 `disposeRootAndExit`（根 dispose，5s 兜底——高于此处配置的 ~1s drain 上界），其 `/resume` 移交也在 `execve` 前 dispose 根。
+`dsh` 共享 base（`apps/cli/config/base.cordis.yml`）默认挂载 `telemetry-otel` 行，内置生产 endpoint，因此 Web 与 headless 都会上报；原始配置命令也会先挂载该行，再应用其必需的部署 overlay。这是**内部测试期的部署立场**——有 endpoint 就上报，用户可通过环境变量退出。Web 与 headless 在 SIGINT/SIGTERM 时使用[有界、可升级的进程关闭控制器](../bug-fix/2026-08-03-cli-signal-shutdown-escalation.md)，在启动器 5 秒上限到期前，先给后端 3 秒关闭截止时间完成排空。
 
 | 决策项 | 取值 | 理由 |
 |---|---|---|
-| 挂载面 | base.cordis.yml（TUI + web + headless） | 所有 surface 一个部署立场；按 surface 分化需要理由，而当前没有 |
+| 挂载面 | base.cordis.yml（原始配置 + Web + headless） | 所有加载共享 base 的配置树采用同一个部署立场；原始配置 overlay 决定该部署是否创建会话 |
 | endpoint | `DSH_TELEMETRY_OTLP_URL`，缺省 `https://harness-telemetry.deepseeksvc.com/v1/logs` | 内部 collector；env 覆盖供本地/联调 |
 | 退出开关 | `DSH_TELEMETRY_DISABLED` 非空（含 `0`/`false`）即关 | 隐私向开关取「宁关勿误开」；行级 disable 只能在 AppCLIEntry 的 patch 层做（config 无 disable 语义，且必须先于 `exporter.url` 的加载期校验生效） |
 | 上报节奏 | `processor.scheduledDelayMillis: 10000`（10s/批） | 流式回流，非退出才报；崩溃至多丢最后一个未导出间隔 |
-| 退出 drain 上界 | `exporter.timeoutMillis: 1000` + `maxExportBatchSize: 2048（== maxQueueSize）` + `exportTimeoutMillis: 1500` | collector 不可达时 dispose 必须 ~1s 内放行：timeoutMillis 同时是单次 socket 超时与重试 deadline（1s 等效关掉 SDK 5 次 backoff），批大小对齐队列上限使 drain 恒为单批；默认参数下最坏可卡 40s+ |
+| 退出 drain 上界 | `exporter.timeoutMillis: 1000` + `maxExportBatchSize: 2048（== maxQueueSize）` + `exportTimeoutMillis: 1500` + `shutdownTimeoutMillis: 3000` | collector 不可达的常规故障会在约 1s 内放行：timeoutMillis 是单次 socket 超时与重试 deadline，使用与队列等大的单批可避免依次排空导致耗时倍增。由 DSH 管理的 3s 外层上限覆盖 SDK 先执行的无界 `forceFlush()` 等待，即传输 Promise 始终无法取得 socket 的情况。 |
 | 压缩 | `compression: gzip` | 事件 body 含全文，跨机房带宽 |
 | CI 隔离 | 全部 8 个 GitHub workflow 顶层 `env: DSH_TELEMETRY_DISABLED: '1'` | CI 启动 web 组合的所有通道（e2e/snapshot/built smoke）不得向生产 endpoint 泄测试会话 |
 
@@ -30,7 +30,7 @@ Status: implemented
 
 **开关做成 config 字段而非 env patch。** 不可行：cordis 行没有 config 层的 disable 语义，且 `exporter.url` 校验在插件构造期 fail-loud，开关必须在 Loader 之前生效——AppCLIEntry patch 层是唯一落点。
 
-**退出时 `Promise.race` 兜底超时。** 暂缓：参数组合已把最坏 drain 压到 ~1.5-3s（典型 <100ms），实测 SIGINT→退出 110ms-1.1s；drip-feed 慢滴响应的无界等待风险留观，出现实证再在 backend `shutdown()` 内加 race（不放 coordinator——那会替所有 backend 决定丢失语义）。
+**退出时 `Promise.race` 兜底超时。** 最初暂缓，是因为 SDK 参数看似已经将后端排空耗时限制在约 1.5-3s（通常 <100ms），实测 SIGINT 到退出耗时 110ms-1.1s。后来在 Linux 沙箱中复现并证明，`BatchLogRecordProcessor.shutdown()` 可能在 `exporter.forceFlush()` 中永久等待，无法进入受 `exportTimeoutMillis` 限制的完成 Promise。因此，[CLI 关闭修复](../bug-fix/2026-08-03-cli-signal-shutdown-escalation.md) 既为这一特定缺口增加 3 秒后端上限，也为整棵插件树增加 5 秒进程级上限和重复信号退出途径。
 
 ## Consequences
 

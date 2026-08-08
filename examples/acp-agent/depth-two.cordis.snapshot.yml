@@ -23,6 +23,7 @@
         config:
           provider: spawn
           toolName: subagent
+          backgroundMode: continuable
           maxDepth: 2
       # Re-pin the recorded model: cordis.yml ships deepseek-v4-pro, but this
       # scenario's corpus was captured on flash. A config patch replaces the

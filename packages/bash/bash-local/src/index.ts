@@ -1,10 +1,11 @@
 /**
  * Local implementation of the bash executor seam over the subprocess
- * seam. Each command runs as `bash -c` in a managed process group spawned
- * through `ctx.subprocess`; this executor owns command defaulting, deadlines
- * and cause classification, the model-friendly terminal environment, and the
- * model-facing stdout/stderr merge for background reads. Execution policy
- * belongs in `tools/pre-execute` or a sandboxing executor.
+ * seam. Public commands run as `bash -c` in a managed process group spawned
+ * through `ctx.subprocess`; subclasses may reuse the same mechanics with an
+ * explicit argv. This executor owns command defaulting, deadlines and cause
+ * classification, the model-friendly terminal environment, and the model-facing
+ * stdout/stderr merge for background reads. Execution policy belongs in
+ * `tools/pre-execute` or a sandboxing executor.
  * @module @deepseek-ai/dsh-bash-local
  */
 
@@ -13,7 +14,7 @@ import z from 'schemastery'
 import { BashExecutor } from '@deepseek-ai/dsh-bash'
 import type { BashExecRequest, BashExecSpec, BashProcess, BashProcessRead, BashRunResult, CollectedOutput } from '@deepseek-ai/dsh-bash'
 import type { SubprocessCollect, SubprocessHandle, SubprocessOutputReader, SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
-import { clampTimeout, deadline, timeoutOf } from '@deepseek-ai/dsh-timeout'
+import { clampTimeout, deadline, MAX_TIMER_DELAY_MS, timeoutOf } from '@deepseek-ai/dsh-timeout'
 
 /**
  * Model-friendly environment overrides: disable colors, pagers, and
@@ -47,7 +48,7 @@ export interface Config {
   maxOutputBytes?: number
   /** Per-stream spill-file cap; larger streams retain only their in-memory tail. */
   maxSpillBytes?: number
-  /** Grace period for kill escalation and for inherited pipes after shell exit. */
+  /** Grace period for kill escalation and inherited pipes; at most `MAX_TIMER_DELAY_MS`. */
   graceMs?: number
 }
 
@@ -101,6 +102,9 @@ export class LocalBashExecutor extends BashExecutor {
     assertPositiveFinite('maxOutputBytes', this.config.maxOutputBytes)
     assertPositiveFinite('maxSpillBytes', this.config.maxSpillBytes)
     assertPositiveFinite('graceMs', this.config.graceMs)
+    if (this.config.graceMs > MAX_TIMER_DELAY_MS) {
+      throw new Error(`bash-local: graceMs must be no greater than ${MAX_TIMER_DELAY_MS}`)
+    }
   }
 
   /**
@@ -137,13 +141,18 @@ export class LocalBashExecutor extends BashExecutor {
     }
   }
 
-  /** Map one resolved bash spec onto a fully-specified subprocess spawn. */
+  /** Map one resolved bash spec and explicit argv onto a fully-specified subprocess spawn. */
   // XXX(stateful-shell): evaluate persistent cwd or PTY sessions when workflows require shell state.
-  private spawnSpec(spec: BashExecSpec, stdoutMaxBytes: number, signal: AbortSignal | undefined): SubprocessSpawnSpec {
+  private spawnSpec(
+    spec: BashExecSpec,
+    argv: readonly string[],
+    stdoutMaxBytes: number,
+    signal: AbortSignal | undefined,
+  ): SubprocessSpawnSpec {
     const collect = (maxBytes: number): SubprocessCollect =>
       ({ maxBytes, spill: { maxBytes: this.config.maxSpillBytes } })
     return {
-      argv: ['bash', '-c', spec.command],
+      argv,
       cwd: spec.workdir,
       stdio: {
         stdin: spec.stdin !== undefined ? { data: spec.stdin } : 'ignore',
@@ -171,9 +180,21 @@ export class LocalBashExecutor extends BashExecutor {
   }
 
   async run(spec: BashExecSpec): Promise<BashRunResult> {
+    return this.runArgv(spec, ['bash', '-c', spec.command])
+  }
+
+  /**
+   * Run an explicit argv with the foreground lifecycle, environment, output,
+   * timeout, and cancellation semantics of this executor. Subclasses use this
+   * after replacing the public command's shell argv at an execution boundary.
+   * @param spec - resolved execution settings and caller-owned command metadata.
+   * @param argv - exact executable and arguments to hand to `ctx.subprocess`.
+   * @returns the settled foreground result with collected output and cause facts.
+   */
+  protected async runArgv(spec: BashExecSpec, argv: readonly string[]): Promise<BashRunResult> {
     // One deadline combines timeout and upstream cancellation; disposal clears its timer.
     using d = deadline(spec.signal, spec.timeoutMs, 'BASH_TIMEOUT')
-    const handle = this.ctx.subprocess.spawn(this.spawnSpec(spec, spec.stdoutMaxBytes, d.signal))
+    const handle = this.ctx.subprocess.spawn(this.spawnSpec(spec, argv, spec.stdoutMaxBytes, d.signal))
     const outcome = await handle.done
     const collected = LocalBashExecutor.collected(handle)
     // Only this executor's timeout reason counts as timedOut; outer deadlines count as aborts.
@@ -190,8 +211,21 @@ export class LocalBashExecutor extends BashExecutor {
   }
 
   start(spec: BashExecSpec): BashProcess {
+    return this.startArgv(spec, ['bash', '-c', spec.command])
+  }
+
+  /**
+   * Start an explicit argv with the background lifecycle, environment, output,
+   * cancellation, and process-tree ownership semantics of this executor.
+   * Subclasses use this after replacing the public command's shell argv at an
+   * execution boundary.
+   * @param spec - resolved execution settings and caller-owned command metadata.
+   * @param argv - exact executable and arguments to hand to `ctx.subprocess`.
+   * @returns the live background handle; spawn rejection settles it as killed.
+   */
+  protected startArgv(spec: BashExecSpec, argv: readonly string[]): BashProcess {
     // Background runs ignore timeoutMs; callers stop them through kill() or spec.signal.
-    const running = this.ctx.subprocess.spawn(this.spawnSpec(spec, this.config.maxOutputBytes, spec.signal))
+    const running = this.ctx.subprocess.spawn(this.spawnSpec(spec, argv, this.config.maxOutputBytes, spec.signal))
     const collected = LocalBashExecutor.collected(running)
 
     // A spawn failure produces no process output, so the subprocess service has nothing
@@ -216,12 +250,12 @@ export class LocalBashExecutor extends BashExecutor {
         }
         proc.exitCode = outcome.exitCode
         proc.signal = outcome.signal
-        this.onProcessDone(proc, collected.stderr.readFrom(0).text)
+        this.onProcessDone(proc, collected.stderr.readFrom(0).text, false)
       }, (error: unknown) => {
         // Background spawn failures settle as killed and surface through the read path.
         proc.status = 'killed'
         spawnFailureNote = `spawn failed: ${String(error)}`
-        this.onProcessDone(proc, spawnFailureNote)
+        this.onProcessDone(proc, spawnFailureNote, true, error)
       }),
       readOutput: (): BashProcessRead => {
         const out = collected.stdout.readFrom(stdoutOffset)
@@ -261,8 +295,10 @@ export class LocalBashExecutor extends BashExecutor {
    * empty.
    * @param _proc - the settled process handle.
    * @param _stderr - the process's retained stderr tail used by subclasses for settlement classification.
+   * @param _spawnFailed - whether the subprocess promise rejected before a process started.
+   * @param _spawnError - the original spawn rejection reason, which may itself be undefined.
    */
-  protected onProcessDone(_proc: BashProcess, _stderr: string): void {}
+  protected onProcessDone(_proc: BashProcess, _stderr: string, _spawnFailed: boolean, _spawnError?: unknown): void {}
 }
 
 export default LocalBashExecutor

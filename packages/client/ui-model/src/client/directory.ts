@@ -15,6 +15,14 @@ import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 export interface ModelDirectoryState {
   /** Target the host reports for the next assembled step; null before the first load. */
   current: ModelTarget | null
+  /**
+   * Whether an adapter serves the current target's route, as the host reports
+   * it — null before the first load, which is NOT the same as blocked. Read
+   * this rather than "current matches no group": catalog membership is
+   * advisory, so a route serving a model it stopped advertising is missing
+   * from the groups yet perfectly usable.
+   */
+  routable: boolean | null
   /** Successfully loaded provider groups (last good load). */
   groups: readonly ModelProviderGroup[]
   /** Provider-local failures from the last load; usable groups stay usable. */
@@ -29,7 +37,7 @@ export interface ModelDirectoryState {
 export class ModelDirectory {
   /** The shared snapshot both entries render from (uSES-safe store). */
   readonly store: SnapshotStore<ModelDirectoryState> = createSnapshotStore<ModelDirectoryState>({
-    current: null, groups: [], failures: [], status: 'idle', error: null,
+    current: null, routable: null, groups: [], failures: [], status: 'idle', error: null,
   })
 
   /** Latest operation wins; an older response never overwrites a newer one. */
@@ -39,10 +47,12 @@ export class ModelDirectory {
   /**
    * @param sessions - the session wire face (captured from the plugin's root connection).
    * @param sessionId - the owning session.
+   * @param available - whether this session may use Agent-bound model RPCs.
    */
   constructor(
     private readonly sessions: Pick<IApiClient['sessions'], 'models' | 'selectModel'>,
     private readonly sessionId: SessionId,
+    private readonly available: () => boolean,
   ) {}
 
   /**
@@ -51,6 +61,7 @@ export class ModelDirectory {
    * @returns the fresh directory value.
    */
   async load(): Promise<SessionModels> {
+    this.assertAvailable()
     const generation = ++this.generation
     this.store.update((s) => { s.status = 'loading'; s.error = null })
     const { result } = await this.sessions.models({ sessionId: this.sessionId })
@@ -62,9 +73,10 @@ export class ModelDirectory {
       this.store.update((s) => { s.status = 'error'; s.error = `${result.error.code}: ${result.error.message}` })
       throw new Error(`session.models failed: ${result.error.code}: ${result.error.message}`)
     }
-    const { current, groups, failures } = result.value
+    const { current, routable, groups, failures } = result.value
     this.store.update((s) => {
       s.current = current
+      s.routable = routable
       s.groups = groups
       s.failures = failures
       s.status = 'ready'
@@ -80,6 +92,7 @@ export class ModelDirectory {
    * @param target - provider, provider-owned model id, and optional adapter-owned effort.
    */
   async select(target: ModelTarget): Promise<void> {
+    this.assertAvailable()
     const generation = ++this.generation
     this.store.update((s) => { s.status = 'selecting'; s.error = null })
     const { result } = await this.sessions.selectModel({
@@ -98,7 +111,14 @@ export class ModelDirectory {
       this.store.update((s) => { s.status = 'error'; s.error = `${result.error.code}: ${result.error.message}` })
       throw new Error(`session.selectModel failed: ${result.error.code}: ${result.error.message}`)
     }
-    this.store.update((s) => { s.current = result.value.selected; s.status = 'ready'; s.error = null })
+    // The Host validated the route before accepting it, so a selection that
+    // landed is by construction one it can serve.
+    this.store.update((s) => {
+      s.current = result.value.selected
+      s.routable = true
+      s.status = 'ready'
+      s.error = null
+    })
   }
 
   /**
@@ -111,16 +131,24 @@ export class ModelDirectory {
     ++this.generation
     this.store.update((s) => {
       s.current = null
+      s.routable = null
       s.groups = []
       s.failures = []
       s.status = 'idle'
       s.error = null
     })
+    if (!this.available()) return
     void this.load().catch(() => { /* the next menu open remains the explicit retry surface */ })
   }
 
   /** Scope teardown: late settlements lose write access to the store. */
   dispose(): void {
     this.disposed = true
+  }
+
+  private assertAvailable(): void {
+    if (!this.available()) {
+      throw new Error('model selection is unavailable for addressed subagent sessions')
+    }
   }
 }

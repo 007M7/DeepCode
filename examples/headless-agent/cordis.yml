@@ -9,7 +9,7 @@
 - id: settings
   name: '@deepseek-ai/dsh-settings-local'
 
-# Credential store: the live process environment over `$DSH_HOME/.env`
+# Credential store: the live process environment over `$DSH_HOME/.credentials.yaml`
 # (owner-only file, hot-reloaded). The adapter resolves `DEEPSEEK_API_KEY`
 # through it at each request, so no key is inlined in this file.
 - id: credentials
@@ -71,6 +71,11 @@
     maxTokens: 8192
     compactionRetries: 1
 
+# Projection registry: durable subagent identity (mode/label) folds through
+# its registered units; subagent catalog reads fail loud without the capability.
+- id: session-projection
+  name: '@deepseek-ai/dsh-session-projection'
+
 # Expose fresh-child `spawn` and completed-prefix `fork` through independent
 # in-process backends.
 - id: subagent
@@ -86,11 +91,21 @@
   config:
     providerName: fork
 
+# Continuable background children are selected per delegation tool. The
+# separately loaded control registers global `send_message`; `report` is
+# installed only in continuable child scopes.
+- id: tool-subagent-control
+  name: '@deepseek-ai/dsh-tool-subagent-control'
+
+- id: tool-subagent-report
+  name: '@deepseek-ai/dsh-tool-subagent-report'
+
 - id: tool-subagent
   name: '@deepseek-ai/dsh-tool-subagent'
   config:
     provider: spawn
     toolName: subagent
+    backgroundMode: continuable
     maxDepth: 1
 
 - id: tool-subagent-fork
@@ -98,6 +113,7 @@
   config:
     provider: fork
     toolName: subagent_fork
+    backgroundMode: continuable
     maxDepth: 1
 
 # The worker-thread workflow engine fans a model-written JavaScript script's
@@ -118,6 +134,8 @@
 # `todo_write` replaces the logged whole list.
 - id: tool-todo
   name: '@deepseek-ai/dsh-tool-todo'
+  config:
+    allowParallelInProgress: true
 
 # Policy loads before the model-facing filesystem tools so writes and edits
 # require an observed file. Relative paths resolve from the process cwd.

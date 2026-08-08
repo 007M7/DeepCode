@@ -12,12 +12,11 @@ import { createUserMessage,
   type StreamChunk,
   type TokenUsage,
 } from '@deepseek-ai/dsh-llm'
-import { SessionId, type SessionEvent, type TurnEndReason } from '@deepseek-ai/dsh-session'
+import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import { afterEach, describe, expect, it } from 'vitest'
 import * as cliDemo from '../src/index.ts'
 import {
   executeCli,
-  formatTurnFailure,
   parseCliArgs,
   runOneShot,
   type CliResult,
@@ -114,14 +113,13 @@ const liveContexts: Context[] = []
 
 async function harness(script: readonly ScriptEntry[]): Promise<Harness> {
   const root = await mkdtemp(join(tmpdir(), 'dsh-cli-runner-'))
-  const skillHome = await mkdtemp(join(tmpdir(), 'dsh-cli-runner-skills-'))
   const ctx = new Context()
   liveContexts.push(ctx)
   await ctx.plugin(cliDemo, {
     provider: 'mock',
     model: 'mock',
     persistenceRoot: root,
-    skills: { local: { dshHome: join(skillHome, '.dsh'), agentsHome: join(skillHome, '.agents') } },
+    skills: { enabled: false },
     workspaceContext: false,
   })
   await new Promise(resolve => setTimeout(resolve, 80))
@@ -339,6 +337,16 @@ describe('runOneShot and executeCli', () => {
     expect(files.some(file => file.endsWith('.jsonl.zstd'))).toBe(true)
   })
 
+  it('writes correlated session events in stream-json mode', async () => {
+    const { ctx } = await harness([textResponse('streamed answer')])
+    const output = await invoke(ctx, ['--output-format', 'stream-json', 'task'])
+    const records = output.stdout.trim().split('\n').map(line => JSON.parse(line) as { type: string })
+
+    expect(output.code).toBe(0)
+    expect(records.some(record => record.type === 'session_event')).toBe(true)
+    expect(records.at(-1)).toMatchObject({ type: 'result', output: 'streamed answer' })
+  })
+
   it('sums usage across tool steps and selects the last text-bearing assistant message', async () => {
     const first = { inputTokens: 10, outputTokens: 3, cacheReadTokens: 2, cacheWriteTokens: 1 }
     const second = { inputTokens: 7, outputTokens: 5, cacheReadTokens: 4, reasoningTokens: 6 }
@@ -346,7 +354,7 @@ describe('runOneShot and executeCli', () => {
     const output = await invoke(ctx, ['--output-format', 'json', 'task'])
     const result = JSON.parse(output.stdout) as CliResult
     expect(output.code).toBe(0)
-    expect(result).toMatchObject({ type: 'result', success: true, turn: 1, result: 'done', reason: { kind: 'completed' } })
+    expect(result).toMatchObject({ type: 'result', output: 'done' })
     expect(result.usage).toEqual({
       inputTokens: 17,
       outputTokens: 8,
@@ -356,7 +364,7 @@ describe('runOneShot and executeCli', () => {
     })
   })
 
-  it('counts a failed retry attempt once even though it has no assistant message', async () => {
+  it('reports usage committed by the recovered assistant message', async () => {
     const failed = { inputTokens: 11, outputTokens: 2, cacheReadTokens: 3 }
     const recovered = { inputTokens: 7, outputTokens: 5, reasoningTokens: 4 }
     const { ctx } = await harness([failedResponse(failed), textResponse('done', recovered)])
@@ -364,9 +372,8 @@ describe('runOneShot and executeCli', () => {
     const result = await runOneShot(ctx, { task: 'task' })
 
     expect(result.usage).toEqual({
-      inputTokens: 18,
-      outputTokens: 7,
-      cacheReadTokens: 3,
+      inputTokens: 7,
+      outputTokens: 5,
       reasoningTokens: 4,
     })
   })
@@ -377,38 +384,120 @@ describe('runOneShot and executeCli', () => {
       reasoningResponse('reasoning only'),
     ])
     const result = await runOneShot(ctx, { task: 'task' })
-    expect(result.result).toBe('working')
+    expect(result.output).toBe('working')
   })
 
-  it('streams only the correlated main message turn and then the result envelope', async () => {
-    const { ctx, agent } = await harness([textResponse('streamed')])
+  it('observes only the correlated main message turn', async () => {
+    const { ctx, agent } = await harness([
+      textResponse('startup'),
+      textResponse('autonomous'),
+      textResponse('streamed'),
+    ])
     const other = ctx.sessions.create(SessionId('unrelated'))
-    let injected = false
-    ctx.on('agent/inbox/enqueue', (subject) => {
-      if (subject !== agent || injected) return
-      injected = true
-      agent.inject(createUserMessage({ content: [{ type: 'text', text: 'startup injection' }], source: { kind: 'plugin', plugin: 'test' } }))
-      other.append('turn/start', { turn: 1, trigger: { kind: 'injection', source: { kind: 'plugin', plugin: 'test' } } })
+    let startupStarted!: () => void
+    const started = new Promise<void>((resolve) => { startupStarted = resolve })
+    const releaseStartup = Promise.withResolvers<undefined>()
+    ctx.on('session/event', (session, event) => {
+      if (session === agent.session && event.type === 'assistant/message'
+        && event.data.turn === 1) startupStarted()
+    })
+    ctx.on('agent/turn-stopping', async ({ agent: subject, turn }) => {
+      if (subject === agent && turn === 1) await releaseStartup.promise
+    })
+    agent.followup(createUserMessage({
+      content: [{ type: 'text', text: 'startup' }],
+      source: { kind: 'plugin', plugin: 'startup' },
+    }))
+    await started
+
+    const followup = agent.followup.bind(agent)
+    let injectedBeforeReceipt = false
+    agent.followup = (input) => {
+      if (!injectedBeforeReceipt && input.source.kind === 'user') {
+        injectedBeforeReceipt = true
+        agent.inbox.append('next-step', createUserMessage({
+          content: [{ type: 'text', text: 'wrong receipt' }],
+          source: { kind: 'plugin', plugin: 'test-wrong-receipt' },
+        }))
+        other.append('user/message', createUserMessage({
+          content: [{ type: 'text', text: 'unrelated session event' }],
+          source: { kind: 'plugin', plugin: 'test' },
+        }), { surfaceOp: 'append' })
+        agent.session.append('user/message', createUserMessage({
+          content: [{ type: 'text', text: 'uncorrelated main-session event' }],
+          source: { kind: 'plugin', plugin: 'test-before-receipt' },
+        }), { surfaceOp: 'append' })
+      }
+      followup(input)
+    }
+
+    let replacementQueued = false
+    ctx.on('agent/status', ({ agent: subject, status }) => {
+      if (subject !== agent || status !== 'idle' || replacementQueued) return
+      replacementQueued = true
+      agent.followup(createUserMessage({
+        content: [{ type: 'text', text: 'autonomous' }],
+        source: { kind: 'plugin', plugin: 'test' },
+      }))
+      other.append('turn/start', { turn: 1 })
       other.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     })
-    const output = await invoke(ctx, ['--output-format', 'stream-json', 'task'])
-    const lines = output.stdout.trimEnd().split('\n').map(line => JSON.parse(line) as Record<string, unknown>)
-    const events = lines.slice(0, -1).map(line => line['event'] as SessionEvent)
-    expect(lines.at(-1)).toMatchObject({ type: 'result', success: true, turn: 1, result: 'streamed' })
-    expect(events[0]).toMatchObject({ type: 'turn/start', data: { turn: 1, trigger: { kind: 'message' } } })
-    expect(events.at(-1)).toMatchObject({ type: 'turn/end', data: { turn: 1 } })
-    expect(lines.slice(0, -1).every(line => line['sessionId'] === agent.session.id)).toBe(true)
+    const streamed: { sessionId: string; event: SessionEvent }[] = []
+    const result = runOneShot(ctx, {
+      task: 'task',
+      onEvent: (sessionId, event) => { streamed.push({ sessionId, event }) },
+    })
+    releaseStartup.resolve(undefined)
+
+    const outcome = await result
+    expect(outcome).toMatchObject({ type: 'result', output: 'streamed' })
+    const events = streamed.map(item => item.event)
+    expect(events.find(event => event.type === 'turn/start'))
+      .toMatchObject({ type: 'turn/start', data: { turn: 3 } })
+    expect(events.at(-1)).toMatchObject({ type: 'turn/end', data: { turn: 3 } })
+    expect(streamed.every(item => item.sessionId === agent.session.id)).toBe(true)
     expect(events.some(event => event.type === 'user/message'
       && event.data.source.kind === 'plugin'
       && event.data.source.plugin === 'test')).toBe(false)
+    expect(events.some(event => event.type === 'user/message'
+      && event.data.source.kind === 'plugin'
+      && event.data.source.plugin === 'test-before-receipt')).toBe(false)
   })
 
-  it('emits partial data and a diagnostic for non-completed turns', async () => {
+  it('correlates a task whose step history is replaced', async () => {
+    const { ctx } = await harness([textResponse('rewritten answer')])
+    ctx.on('agent/pre-step', async () => ({
+      kind: 'enter',
+      messages: [createUserMessage({
+        content: [{ type: 'text', text: 'rewritten task' }],
+        source: { kind: 'plugin', plugin: 'test' },
+      })],
+    }))
+
+    await expect(runOneShot(ctx, { task: 'original task' })).resolves.toMatchObject({
+      type: 'result',
+      output: 'rewritten answer',
+    })
+  })
+
+  it('settles rejected tasks at whole-agent idle without attributing a result', async () => {
+    const blocked = await harness([])
+    blocked.ctx.on('agent/pre-step', async () => ({
+      kind: 'reject' as const,
+    }))
+    await expect(runOneShot(blocked.ctx, { task: 'task' })).resolves.toMatchObject({ output: '' })
+
+    const failed = await harness([])
+    failed.ctx.on('agent/pre-step', async () => { throw new Error('pre-step exploded') })
+    await expect(runOneShot(failed.ctx, { task: 'task' })).resolves.toMatchObject({ output: '' })
+  })
+
+  it('emits partial data without attributing a turn outcome', async () => {
     const { ctx } = await harness([textResponse('partial', { inputTokens: 2, outputTokens: 3 }, 'max-tokens')])
     const output = await invoke(ctx, ['--output-format', 'json', 'task'])
-    expect(JSON.parse(output.stdout)).toMatchObject({ success: false, result: 'partial', reason: { kind: 'max-tokens' } })
-    expect(output.code).toBe(1)
-    expect(output.stderr).toContain('output-token limit')
+    expect(JSON.parse(output.stdout)).toMatchObject({ type: 'result', output: 'partial' })
+    expect(output.code).toBe(0)
+    expect(output.stderr).toBe('')
   })
 
   it('cancels an active turn, emits its durable aborted result, and disposes', async () => {
@@ -423,9 +512,9 @@ describe('runOneShot and executeCli', () => {
     await running
     abort.abort('received SIGINT')
     const output = await outcome
-    expect(JSON.parse(output.stdout)).toMatchObject({ success: false, reason: { kind: 'aborted' } })
+    expect(output.stdout).toBe('')
     expect(output.code).toBe(1)
-    expect(output.stderr).toContain('turn 1 was aborted')
+    expect(output.stderr).toContain('received SIGINT')
     expect(agent.status).toBe('idle')
   })
 
@@ -445,6 +534,21 @@ describe('runOneShot and executeCli', () => {
       reason: undefined,
     } as unknown as AbortSignal
     await expect(runOneShot(early.ctx, { task: 'task', signal: fakeSignal })).rejects.toThrow('interrupted')
+
+    const raced = await harness([textResponse('unused')])
+    let registrations = 0
+    const racedSignal = {
+      aborted: false,
+      reason: 'cancel before followup',
+      addEventListener: (_type: string, listener: () => void) => {
+        registrations += 1
+        if (registrations === 2) listener()
+      },
+      removeEventListener: () => {},
+    } as unknown as AbortSignal
+    await expect(runOneShot(raced.ctx, { task: 'task', signal: racedSignal }))
+      .rejects.toThrow('cancel before followup')
+    expect(raced.agent.session.events.some(event => event.type === 'turn/start')).toBe(false)
 
     const preBootAbort = new AbortController()
     preBootAbort.abort('before boot completed')
@@ -498,27 +602,13 @@ describe('runOneShot and executeCli', () => {
 
     const queued = await harness([textResponse('unused')])
     const queuedAbort = new AbortController()
-    queued.ctx.on('agent/inbox/enqueue', (agent) => {
-      if (agent === queued.agent) queuedAbort.abort('cancel queued')
+    queued.ctx.on('session/event', (session, event) => {
+      if (session === queued.agent.session && event.type === 'agent/inbox/spliced'
+        && event.data.inserted.some(message => message.source.kind === 'user')) {
+        queueMicrotask(() => { queuedAbort.abort('cancel queued') })
+      }
     })
     await expect(runOneShot(queued.ctx, { task: 'task', signal: queuedAbort.signal })).rejects.toThrow('cancel queued')
     await queued.agent.whenIdle()
-  })
-})
-
-describe('formatTurnFailure', () => {
-  it('diagnoses every durable reason and preserves merge-extensible unknowns', () => {
-    const cases: [TurnEndReason, string][] = [
-      [{ kind: 'completed' }, 'completed'],
-      [{ kind: 'aborted' }, 'was aborted'],
-      [{ kind: 'aborted' }, 'was aborted'],
-      [{ kind: 'error', step: 2, message: 'bad' }, 'failed at step 2: bad'],
-      [{ kind: 'error', step: 3, failure: { message: 'provider bad', code: 'SERVER' } }, 'failed at step 3: provider bad'],
-      [{ kind: 'disposed' }, 'was disposed'],
-      [{ kind: 'max-tokens' }, 'output-token limit'],
-      [{ kind: 'interrupted' }, 'persistence recovery'],
-    ]
-    for (const [reason, expected] of cases) expect(formatTurnFailure(reason)).toContain(expected)
-    expect(formatTurnFailure({ kind: 'extension' } as unknown as TurnEndReason)).toContain('extension')
   })
 })

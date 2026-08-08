@@ -1,17 +1,16 @@
 /**
  * Types for the TypeScript SDK client: launch options, notification shapes,
- * and turn results.
+ * and owned activity results.
  *
  * @module @deepseek-ai/dsh-sdk-client/types
  */
 
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
-import type { SessionEvent, TurnEndReason } from '@deepseek-ai/dsh-session'
-import type { SdkRunStatus } from '@deepseek-ai/dsh-sdk-protocol'
+import type { SessionEvent } from '@deepseek-ai/dsh-session'
 
 /** One server-to-client notification as received off the wire. */
 export interface HarnessNotification {
-  /** The JSON-RPC method name (`session.event`, `session.finished`, `subagent.started`, `subagent.finished`). */
+  /** The JSON-RPC notification method name. */
   method: string
   /** The raw params object; see `HarnessSdkNotificationMap` for the shapes per method. */
   params: Record<string, unknown>
@@ -59,15 +58,11 @@ export interface DeepSeekHarnessOptions {
   maxTokens?: number
 }
 
-/** The settled outcome of one {@link HarnessSession.run} turn. */
-export interface TurnResult {
-  /** The session the turn ran on. */
+/** One owned session activity interval, from enqueue receipt through idle. */
+export interface RunResult {
+  /** The session the activity ran on. */
   sessionId: string
-  /** Deployment-mapped turn outcome from `session.finished`. */
-  status: SdkRunStatus
-  /** Why the last message-triggered turn ended; `undefined` when no turn ran. */
-  reason: TurnEndReason | undefined
-  /** Concatenated text of the session's last assistant message (empty when none). */
+  /** Concatenated text of the interval's last assistant message (empty when none). */
   finalResponse: string
   /** Every `session.event` payload for the root session, in wire order. */
   events: SessionEvent[]

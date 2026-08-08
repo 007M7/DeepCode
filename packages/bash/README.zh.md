@@ -1,14 +1,17 @@
-# bash/：bash 能力家族
+# bash/ — bash 能力家族
 
 [English](README.md) | 中文
 
-规范的三包能力 seam（见[能力 seam](../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md)）：抽象执行器接口、具体实现，以及消费该接口的面向模型工具。这些全是**产品**包。
+该能力家族涵盖规范执行器 seam、其实现、共享 shell 环境和面向模型的工具。这些全是**产品**包。
 
 | 包 | 职责 | ctx key |
 |---|---|---|
-| `bash/` | 抽象 bash 执行器 seam（接口 + 词汇；沙箱结果事实携带 [`sandbox/`](../sandbox/README.md) seam 的模式／强制执行词汇，受管环境／输出词汇则从 [`subprocess/`](../subprocess/README.md) seam 重导出） | `ctx.bash` |
-| `bash-local/` | 构建在 [`subprocess/`](../subprocess/README.md) 服务之上的本地 `BashExecutor` 实现（命令默认值补全、deadline、终端环境、后台读取合并） | （注册 `ctx.bash`） |
-| `bash-sandbox/` | 消费沙箱的 `BashExecutor`（通过 `ctx.sandbox` 包装每个命令 argv，标记拒绝／强制执行事实；扩展 `bash-local` 的机制） | （注册 `ctx.bash`） |
-| `tool-bash/` | 面向模型的 `bash` schema；后台进程注册到通用 [`tasks/`](../tasks/README.md) 运行时 | （注册到 `ctx.tools`） |
+| [`bash/`](bash/README.md) | 定义实现与消费方共享的执行器契约。 | `ctx.bash` |
+| [`bash-local/`](bash-local/README.md) | 通过本地 [`subprocess`](../subprocess/README.md) 服务执行命令。 | （注册 `ctx.bash`） |
+| [`bash-sandbox/`](bash-sandbox/README.md) | 在本地执行前应用已配置的 [`sandbox`](../sandbox/README.md) 后端。 | （注册 `ctx.bash`） |
+| [`pwsh-local/`](pwsh-local/README.md) | 以 Windows 专用进程行为执行 PowerShell 命令。 | （注册 `ctx.bash`） |
+| [`bash-env/`](bash-env/README.md) | 提供 shell 工具共享的托管 `DSH_*` 环境。 | `ctx.bashEnv` |
+| [`tool-bash/`](tool-bash/README.md) | 向模型公开 Bash 执行和后台任务集成。 | （注册到 `ctx.tools`） |
+| [`tool-pwsh/`](tool-pwsh/README.md) | 向模型公开 PowerShell 执行。 | （注册到 `ctx.tools`） |
 
-接口位于 `bash/bash/`。以 `bash-sandbox` 替换 `bash-local`，同时不改动接口或工具，正是这种拆分存在的意义：叶级 `cordis.yml` 选择一个执行器插件条目；受限实现还需再选择一个 `ctx.sandbox` 提供方插件条目（见 [acp-agent 示例的默认组合](../../examples/acp-agent/)）。
+叶节点 `cordis.yml` 选择一个执行器实现和所需的面向模型工具。沙箱化组合还会选择一个 `ctx.sandbox` 提供方；[ACP（Agent Client Protocol）示例](../../examples/acp-agent/)展示一套完整接线。

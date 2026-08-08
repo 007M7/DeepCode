@@ -127,11 +127,15 @@ export class BlockAssembler {
 
   /**
    * Assemble all blocks seen so far, in stream order.
-   * @returns one block per seen index; an open block assembles from its
-   *   accumulated deltas (an unknown block type never closed by `block-end` throws).
+   * @returns one block per seen index, except that max-token truncation drops
+   *   tool calls that cannot be executed safely; an open block assembles from
+   *   its accumulated deltas (an unknown block type never closed by `block-end` throws).
    */
   blocks(): ContentBlock[] {
-    return this.order.map(index => this.assemble(this.mustGet(index), index))
+    const blocks = this.order.map(index => this.assemble(this.mustGet(index), index))
+    return this.finish.kind === 'max-tokens'
+      ? blocks.filter(block => block.type !== 'tool-call')
+      : blocks
   }
 
   /** Usage from the `usage` chunk; undefined until one arrives. */

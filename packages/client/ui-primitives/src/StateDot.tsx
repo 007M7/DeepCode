@@ -6,7 +6,7 @@
 import clsx from 'clsx'
 import css from './StateDot.module.css'
 
-/** Four-color session state semantic (green done / amber approval-waiting / blue running ring / red error). */
+/** Four-color state semantic (green done / amber user-attention / blue running ring / red error). */
 export type StateDotState = 'done' | 'warning' | 'ongoing' | 'error'
 
 /** Outer 3x3 matrix cells (2px pixels on a 10px grid), clockwise from top-left. */

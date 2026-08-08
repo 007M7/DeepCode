@@ -1,4 +1,4 @@
-# Agent Note：通过配对兄弟文件与配对门禁实现双语文档
+# Agent Note: 通过配对兄弟文件与配对门禁实现双语文档
 
 Status: implemented
 

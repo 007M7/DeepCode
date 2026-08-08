@@ -1,4 +1,4 @@
-# Agent Note：Web 搜索卡片 —— grep 与 glob 的 render intent 到达浏览器
+# Agent Note: Web 搜索卡片 —— grep 与 glob 的 render intent 到达浏览器
 
 Status: implemented
 

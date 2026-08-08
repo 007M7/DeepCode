@@ -9,9 +9,9 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
-import type { Browser, Page } from 'playwright'
+import type { Browser, Page, Response } from 'playwright'
 import { chromium } from 'playwright'
-import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, onTestFailed } from 'vitest'
 import { parseSessionLog } from '@deepseek-ai/dsh-llm-replay'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import {
@@ -34,12 +34,46 @@ const SEED_ID = 'navigation-panes-web-e2e'
 const PROMPT_TURN1 = 'NavScenario: first run bash to print exactly NAVIGATION_OK, then read nav-a.md and nav-b.md using two read calls in ONE assistant message, then reply with the single word FIRST_DONE and stop.'
 const PROMPT_TURN2 = 'Reply in markdown with: a level-2 heading "Navigation Summary", a bulleted list of exactly two items, and a fenced code block containing echo WATERFALL. Then stop.'
 
+async function baselineResponse(
+  page: Page,
+  method: 'session.list' | 'workspace.list',
+): Promise<Response> {
+  return page.waitForResponse(response => (
+    response.request().method() === 'POST'
+    && new URL(response.url()).pathname === `/api/${method}`
+  ), { timeout: 30_000 })
+}
+
+async function assertBaselineSucceeded(response: Response, method: string): Promise<void> {
+  expect(response.ok(), `${method} baseline HTTP response`).toBe(true)
+  const body = await response.json() as { result?: { ok?: unknown } }
+  expect(body.result?.ok, `${method} baseline RPC result`).toBe(true)
+}
+
+async function ensureSeedOpen(page: Page): Promise<void> {
+  const chat = page.getByRole('tab', { name: 'Chat', exact: true })
+  const search = page.getByPlaceholder('Search name, keywords', { exact: false })
+  if (await chat.count() === 0) {
+    await search.fill('WATERFALL')
+    const result = page.getByRole('tree', { name: 'Search results' }).getByRole('treeitem')
+    await expect.poll(() => result.count(), { timeout: 15_000 }).toBe(1)
+    await result.click()
+    await chat.waitFor({ timeout: 15_000 })
+  }
+  await chat.click()
+  await page.getByText('FIRST_DONE', { exact: true }).waitFor({ timeout: 15_000 })
+  if (await search.inputValue() !== '') {
+    await search.fill('')
+    await expect.poll(() => search.inputValue(), { timeout: 5_000 }).toBe('')
+  }
+}
+
 describe('web e2e: navigation & panes over a rich seeded session', () => {
   let scaffold: WebScaffold
   let browser: Browser
   let page: Page
-  let tripwire: ReturnType<typeof watchConsole>
-  let slotErrors: string[]
+  let tripwire: ReturnType<typeof watchConsole> = { warnings: [], pageErrors: [] }
+  let slotErrors: string[] = []
 
   beforeAll(async () => {
     scaffold = await launchWebScaffold({})
@@ -57,6 +91,9 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
       await seedSession(scaffold, raw, SEED_ID)
     }
     browser = await chromium.launch()
+  }, 120_000)
+
+  beforeEach(async () => {
     page = await newEnglishPage(browser)
     tripwire = watchConsole(page)
     slotErrors = []
@@ -65,13 +102,52 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
         slotErrors.push(message.text())
       }
     })
-    await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
+    // Initial navigation and list ownership settle only after both independent
+    // RPC baselines succeed; arm before navigation so neither response is missed.
+    const sessionBaseline = baselineResponse(page, 'session.list')
+    const workspaceBaseline = baselineResponse(page, 'workspace.list')
+    const [, sessionResponse, workspaceResponse] = await Promise.all([
+      page.goto(scaffold.baseUrl, { waitUntil: 'load' }),
+      sessionBaseline,
+      workspaceBaseline,
+    ])
+    await Promise.all([
+      assertBaselineSucceeded(sessionResponse, 'session.list'),
+      assertBaselineSucceeded(workspaceResponse, 'workspace.list'),
+    ])
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
+    // The frame mounts before the asynchronous session-list baseline lands.
+    // Search must target the settled seeded row, not the startup input that
+    // the ready projection replaces.
+    await page.getByText('1 session', { exact: true }).waitFor({ timeout: 30_000 })
   }, 120_000)
 
+  afterEach(async () => {
+    const failures: unknown[] = []
+    try {
+      expect({
+        pageErrors: tripwire.pageErrors,
+        slotErrors,
+        warnings: tripwire.warnings,
+      }).toEqual({
+        pageErrors: [],
+        slotErrors: [],
+        warnings: [],
+      })
+    } catch (error) {
+      failures.push(error)
+    }
+    await page?.close().catch((error: unknown) => failures.push(error))
+    if (failures.length === 1) throw failures[0]
+    if (failures.length > 1) throw new AggregateError(failures, 'navigation case cleanup failed')
+  })
+
   afterAll(async () => {
-    await browser?.close()
-    await scaffold?.close()
+    const failures: unknown[] = []
+    await browser?.close().catch((error: unknown) => failures.push(error))
+    await scaffold?.close().catch((error: unknown) => failures.push(error))
+    if (failures.length === 1) throw failures[0]
+    if (failures.length > 1) throw new AggregateError(failures, 'navigation e2e cleanup failed')
   })
 
   it.skipIf(MODE !== 'record')('records the two-turn seed live through the composer', async () => {
@@ -98,6 +174,9 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
 
   it.skipIf(MODE === 'record')('finds an unopened seeded session by message content and opens it', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-navigation-search'))
+    // The API baselines can settle before React commits their projection. The
+    // seeded count is the final user-visible barrier before editing search.
+    await page.getByText('1 session', { exact: true }).waitFor({ timeout: 30_000 })
     const search = page.getByPlaceholder('Search name, keywords', { exact: false })
     // The cold row has not been opened, so only the persisted log can satisfy
     // this query. First search lazily reconciles the SQLite content index.
@@ -132,8 +211,26 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
 
   it.skipIf(MODE === 'record')('renders the trajectory ledger and opens its local record inspector', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-navigation-trajectory'))
+    await ensureSeedOpen(page)
     await page.getByRole('tab', { name: 'Trajectory' }).click()
     await page.waitForTimeout(100)
+    const overlayLayout = await page.getByRole('table').evaluate((table) => {
+      const host = table.closest('[data-conversation-scroll]')
+      const seat = host?.querySelector('[data-composer-seat]') ?? null
+      const pane = table.parentElement
+      return {
+        hostPosition: host === null ? null : getComputedStyle(host).position,
+        paneOverflowX: pane === null ? null : getComputedStyle(pane).overflowX,
+        paneScrollableWidth: pane === null ? null : pane.scrollWidth - pane.clientWidth,
+        seatPosition: seat === null ? null : getComputedStyle(seat).position,
+      }
+    })
+    expect(overlayLayout).toEqual({
+      hostPosition: 'relative',
+      paneOverflowX: 'hidden',
+      paneScrollableWidth: 0,
+      seatPosition: 'absolute',
+    })
     expect({
       pageErrors: tripwire.pageErrors,
       slotErrors,
@@ -149,6 +246,8 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
     await page.locator('tr[data-kind="tool"]').first().click()
     const details = page.getByRole('complementary', { name: 'Event details' })
     await expect.poll(() => details.count(), { timeout: 10_000 }).toBe(1)
+    expect(await details.getByRole('tabpanel').evaluate(panel => getComputedStyle(panel).overflowX))
+      .toBe('hidden')
     await page.evaluate(() => { document.body.setAttribute('data-ds-dark-theme', '') })
     const darkSummarySurfaces = await details.getByRole('heading', { name: 'Payload' }).evaluate(heading => ({
       heading: getComputedStyle(heading).backgroundColor,
@@ -158,6 +257,17 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
     await page.evaluate(() => { document.body.removeAttribute('data-ds-dark-theme') })
     await page.getByRole('tab', { name: 'Result' }).click()
     await expect.poll(() => page.getByText('NAVIGATION_OK', { exact: false }).count(), { timeout: 10_000 }).toBeGreaterThanOrEqual(1)
+    const assistantSpan = page.locator('[data-timeline-span="message"][data-assistant-timing="true"]').first()
+    await assistantSpan.hover()
+    const timingTooltip = page.getByRole('tooltip')
+    await timingTooltip.waitFor({ timeout: 5_000 })
+    await expect.poll(() => timingTooltip.textContent(), { timeout: 5_000 }).toMatch(/TTFT .* Decoding/)
+    const assistantTimingStyle = await assistantSpan.evaluate(node => ({
+      background: getComputedStyle(node).backgroundImage,
+      ttft: getComputedStyle(node).getPropertyValue('--trajectory-assistant-ttft'),
+    }))
+    expect(assistantTimingStyle.background).toContain('linear-gradient')
+    expect(assistantTimingStyle.ttft).toMatch(/%$/)
     const snapshot = (await captureStableAria(page, '[class*="viewArea"]', scaffold.workspaceCwd))
       .split(SEED_ID).join('{{seededId}}')
     await compareOrRefreshGolden(TRAJECTORY_EXPECTED, snapshot, MODE)
@@ -166,7 +276,10 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
 
   it.skipIf(MODE === 'record')('focuses the ledger by dragging an overview interval', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-navigation-timeline'))
+    await ensureSeedOpen(page)
+    await page.getByRole('tab', { name: 'Trajectory' }).click()
     const plot = page.getByLabel('Timeline overview; drag horizontally to focus events')
+    await plot.waitFor({ timeout: 15_000 })
     const before = await page.locator('tr[data-kind]').count()
     const box = await plot.boundingBox()
     if (box === null) throw new Error('trajectory timeline plot has no layout box')
@@ -183,7 +296,7 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
 
   it.skipIf(MODE === 'record')('bash and file-path rows leave the default details column closed', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-navigation-details'))
-    await page.getByRole('tab', { name: 'Chat' }).click()
+    await ensureSeedOpen(page)
     const bashRow = page.locator('[data-sample="bash"]').first()
     await bashRow.waitFor({ timeout: 15_000 })
     const frame = page.locator('[style*="grid-template-columns"]').first()
@@ -205,9 +318,9 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
 
   it.skipIf(MODE === 'record')('renders the bash row as a terminal card in the real browser', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-navigation-terminal'))
-    await page.getByRole('tab', { name: 'Chat' }).click()
+    await ensureSeedOpen(page)
     // The card is expand-gated behind the whole-row toggle (the unified
-    // tool-row interaction): open it if a previous case left it collapsed.
+    // tool-row interaction): open it if this fresh view leaves it collapsed.
     // Expanded, the recorded command's own output sits in the message flow,
     // derived from the logged call/result presentations alone.
     const bashRow = page.locator('[data-sample="bash"]').first()
@@ -288,10 +401,7 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
     expect(await page.evaluate(() => navigator.clipboard.readText())).toContain('NAVIGATION_OK')
   }, 60_000)
 
-  it.skipIf(MODE === 'record')('issued zero model calls and stayed clean', async () => {
-    expect(tripwire.pageErrors).toEqual([])
-    expect(slotErrors).toEqual([])
-    expect(tripwire.warnings).toEqual([])
+  it.skipIf(MODE === 'record')('keeps the recorded fixture inventory exact', async () => {
     await assertFixtureInventory(SNAPSHOT_DIR, [
       'seed.jsonl', 'search-results.expected.md', 'trajectory.expected.md',
       'terminal-card.expected.md',

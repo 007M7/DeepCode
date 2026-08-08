@@ -6,9 +6,11 @@ import { transportError } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type {
   SessionHistoryFace, SessionHistorySnapshot,
 } from '../contract/session-history.ts'
-import { createHistoryInspection } from '../sessions/history.ts'
+import {
+  compactHistoryInspectionEntries, createHistoryInspection,
+} from '../sessions/history.ts'
 import { Notifier } from '../sessions/notifier.ts'
-import { PartialAccumulator } from '../sessions/partial.ts'
+import { isVisibleAssistantChunk, PartialAccumulator } from '../sessions/partial.ts'
 
 const HISTORY_PAGE_MESSAGES = 50
 
@@ -18,7 +20,8 @@ function isAborted(signal: AbortSignal | undefined): boolean {
 
 /** Independent raw-history owner used only by inspection consumers. */
 export class SessionHistorySource implements SessionHistoryFace {
-  private entries: readonly HistoryEntry[] = []
+  private entries: HistoryEntry[] = []
+  private inspectionEntries: readonly HistoryEntry[] = []
   private baseSeq = 0
   private hasMore = false
   private state: SessionHistorySnapshot['state'] = 'cold'
@@ -36,7 +39,6 @@ export class SessionHistorySource implements SessionHistoryFace {
     value: SessionHistorySnapshot['inspection']
   } | null = null
   private streamPublishToken: object | null = null
-  private streamBaseInspection: SessionHistorySnapshot['inspection'] | null = null
   private streamPartial: PartialAccumulator | null = null
   private snapshotCache: SessionHistorySnapshot
   private readonly notifier = new Notifier(() => {
@@ -73,37 +75,29 @@ export class SessionHistorySource implements SessionHistoryFace {
   }
 
   /**
-   * Load the tail and exhaust all available older pages.
+   * Load the current tail without reading older pages.
    * @param signal - Consumer lifetime.
-   * @returns When paging completes, fails to advance, or is aborted.
+   * @returns When the tail is ready or loading fails.
    */
-  async loadAll(signal?: AbortSignal): Promise<void> {
-    if (signal?.aborted === true) return
+  async loadTail(signal?: AbortSignal): Promise<void> {
+    if (isAborted(signal)) return
     this.trackConsumer(signal)
     await this.open()
-    while (
-      !isAborted(signal)
-      && this.state === 'ready'
-      && this.hasMore
-    ) {
-      const previousBaseSeq = this.baseSeq
-      await this.loadOlder()
-      if (isAborted(signal) || this.baseSeq === previousBaseSeq) return
-    }
   }
 
-  /** Rebuild and page for whichever mounted consumers survive a reconnect. */
-  private async loadForConsumers(): Promise<void> {
+  /**
+   * Prepend one older page when the current window has a predecessor.
+   * @param signal - Consumer lifetime.
+   * @returns Whether the loaded window advanced.
+   */
+  async loadOlder(signal?: AbortSignal): Promise<boolean> {
+    if (isAborted(signal)) return false
+    this.trackConsumer(signal)
     await this.open()
-    while (
-      this.hasConsumer()
-      && this.state === 'ready'
-      && this.hasMore
-    ) {
-      const previousBaseSeq = this.baseSeq
-      await this.loadOlder()
-      if (!this.hasConsumer() || this.baseSeq === previousBaseSeq) return
-    }
+    if (isAborted(signal)) return false
+    const previousBaseSeq = this.baseSeq
+    await this.loadOlderPage()
+    return this.baseSeq !== previousBaseSeq
   }
 
   /**
@@ -144,12 +138,13 @@ export class SessionHistorySource implements SessionHistoryFace {
     this.liveBuffer = []
     this.subscribedLastSeq = null
     this.entries = []
+    this.inspectionEntries = []
     this.baseSeq = 0
     this.hasMore = false
     this.state = 'cold'
     this.error = null
     this.publishDirtyNow()
-    void this.loadForConsumers()
+    void this.open()
   }
 
   /** Stop future refresh work after the host removes the session. */
@@ -161,7 +156,6 @@ export class SessionHistorySource implements SessionHistoryFace {
     this.olderPromise = null
     this.liveBuffer = []
     this.streamPublishToken = null
-    this.streamBaseInspection = null
     this.streamPartial = null
   }
 
@@ -234,7 +228,7 @@ export class SessionHistorySource implements SessionHistoryFace {
     }
   }
 
-  private loadOlder(): Promise<void> {
+  private loadOlderPage(): Promise<void> {
     if (this.olderPromise !== null) return this.olderPromise
     if (this.state !== 'ready' || !this.hasMore) return Promise.resolve()
     const generation = this.generation
@@ -260,6 +254,7 @@ export class SessionHistorySource implements SessionHistoryFace {
           return
         }
         this.entries = [...older, ...this.entries]
+        this.inspectionEntries = compactHistoryInspectionEntries([...this.entries])
         this.baseSeq = older[0]?.event.seq ?? this.baseSeq
         this.hasMore = result.value.hasMore
       } catch (error) {
@@ -291,6 +286,7 @@ export class SessionHistorySource implements SessionHistoryFace {
       this.entries = [...prefix, ...tail]
     }
     this.baseSeq = this.entries[0]?.event.seq ?? 0
+    this.inspectionEntries = compactHistoryInspectionEntries([...this.entries])
     const buffered = this.liveBuffer
     this.liveBuffer = []
     for (const entry of buffered) this.appendLive(entry)
@@ -324,7 +320,11 @@ export class SessionHistorySource implements SessionHistoryFace {
   private appendLive(entry: HistoryEntry): void {
     const tailSeq = this.tailSeq()
     if (tailSeq !== null && entry.event.seq <= tailSeq) return
-    this.entries = [...this.entries, entry]
+    this.entries.push(entry)
+    this.inspectionEntries = [...this.inspectionEntries, entry]
+    if (entry.event.type === 'assistant/message') {
+      this.inspectionEntries = compactHistoryInspectionEntries(this.inspectionEntries)
+    }
   }
 
   /** Append a chunk against the cached finalized projection; false means no visible publish. */
@@ -336,11 +336,10 @@ export class SessionHistorySource implements SessionHistoryFace {
     if (!isVisibleAssistantChunk(chunk.type)) {
       const inspection = this.currentInspection()
       this.appendLive(entry)
-      this.inspectionCache = { entries: this.entries, value: inspection }
+      this.inspectionCache = { entries: this.inspectionEntries, value: inspection }
       return false
     }
-    const base = this.streamBaseInspection ?? this.currentInspection()
-    this.streamBaseInspection = base
+    const base = this.currentInspection()
     if (
       this.streamPartial === null
       || this.streamPartial.turn !== turn
@@ -356,7 +355,7 @@ export class SessionHistorySource implements SessionHistoryFace {
     this.streamPartial.push(chunk)
     this.appendLive(entry)
     this.inspectionCache = {
-      entries: this.entries,
+      entries: this.inspectionEntries,
       value: { ...base, partial: this.streamPartial.toPartial() },
     }
     return true
@@ -382,7 +381,6 @@ export class SessionHistorySource implements SessionHistoryFace {
   /** Publish structural changes immediately and invalidate an older scheduled stream publish. */
   private publishDirtyNow(): void {
     this.streamPublishToken = null
-    this.streamBaseInspection = null
     this.streamPartial = null
     this.notifier.markDirty()
   }
@@ -415,14 +413,15 @@ export class SessionHistorySource implements SessionHistoryFace {
       state: this.state,
       error: this.error,
       hasMore: this.hasMore,
+      baseSeq: this.baseSeq,
       inspection: this.currentInspection(),
     }
   }
 
   /** Inspection pinned to the source's current immutable entry array. */
   private currentInspection(): SessionHistorySnapshot['inspection'] {
-    if (this.inspectionCache?.entries !== this.entries) {
-      const entries = this.entries
+    if (this.inspectionCache?.entries !== this.inspectionEntries) {
+      const entries = this.inspectionEntries
       this.inspectionCache = {
         entries,
         value: createHistoryInspection(() => entries),
@@ -430,12 +429,4 @@ export class SessionHistorySource implements SessionHistoryFace {
     }
     return this.inspectionCache.value
   }
-}
-
-function isVisibleAssistantChunk(type: string): boolean {
-  return type === 'block-start'
-    || type === 'text-delta'
-    || type === 'reasoning-delta'
-    || type === 'tool-call-delta'
-    || type === 'block-end'
 }

@@ -12,7 +12,7 @@ import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 // read (nav labels may be locale-following thunks; the shell still ships no
 // copy of its own and takes no hard locale dependency).
 import type {} from '@deepseek-ai/dsh-client-locale/client'
-import { deferRegistration, resolveSlotLabel } from '@deepseek-ai/dsh-client-ui-slots'
+import { resolveSlotLabel } from '@deepseek-ai/dsh-client-ui-slots'
 import type {
   SettingsOnboardingStep, SettingsRootInjected, SettingsSectionRow,
 } from './contract/slots.ts'
@@ -27,8 +27,8 @@ export type {
 /**
  * Required services (cordis fiber inject). The target slot is declared by
  * ui-sidebar's apply, whose activation order relative to this one is NOT
- * constrained (dshClient.inject edges are informational); registration goes
- * through declaration-aware deferral.
+ * constrained (dshClient.inject edges are informational); registration
+ * depends on the slot through `slots.inject()`.
  */
 export const inject = ['slots']
 
@@ -96,19 +96,16 @@ export function apply(ctx: ClientContext): void {
       },
     },
   })
-  ctx.effect(() => {
-    const deferred = deferRegistration(ctx.slots, 'sidebar.settings', SettingsRoot, () =>
-      ctx.slots.register({
-        name: 'sidebar.settings',
-        children: {
-          'settings.trigger': { kind: 'single', scope: 'root' },
-          'settings.header': { kind: 'single', scope: 'root' },
-          'settings.close': { kind: 'single', scope: 'root' },
-          'settings.section': { kind: 'list', scope: 'root' },
-          'settings.onboarding': { kind: 'list', scope: 'root' },
-        },
-        inject: injected,
-      }, SettingsRoot))
-    return () => { deferred.dispose() }
-  }, 'ui-settings: shell registration')
+  ctx.slots.inject('sidebar.settings', () => ctx.slots.register({
+    name: 'sidebar.settings',
+    children: {
+      'settings.trigger': { kind: 'single', scope: 'root' },
+      'settings.header': { kind: 'single', scope: 'root' },
+      'settings.action': { kind: 'list', scope: 'root' },
+      'settings.close': { kind: 'single', scope: 'root' },
+      'settings.section': { kind: 'list', scope: 'root' },
+      'settings.onboarding': { kind: 'list', scope: 'root' },
+    },
+    inject: injected,
+  }, SettingsRoot))
 }

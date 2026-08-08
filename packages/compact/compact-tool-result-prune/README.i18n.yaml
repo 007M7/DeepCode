@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/compact/compact-tool-result-prune/README.md
 README.md: edeba52b189b3cee5530faf7efc04043a326917f
-README.zh.md: 1b42a9db5d3288c6610e431c57403858a238c07a
+README.zh.md: abc19afa784ec1121430b57a9d90d22d12b89810

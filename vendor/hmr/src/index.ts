@@ -209,6 +209,14 @@ class Hmr extends Service {
       ...this.config,
       cwd: this.baseDir,
       ignored: path => match(relative(this.baseDir, path)),
+      // The initial scan re-announces files the boot just consumed: an `add`
+      // for a config file refreshes an include whose initial apply may still
+      // be in flight, and a failing apply then rolls this plugin back while
+      // the scan-triggered refresh waits on that apply — a teardown deadlock
+      // that strands boot without a diagnostic. Only events after the scan
+      // matter here; `registerConfig` keeps its own initial scan because a
+      // user patch layer present at registration must apply once.
+      ignoreInitial: true,
     })
 
     // Collect externals: framework modules reachable from the main entry.

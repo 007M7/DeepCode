@@ -5,8 +5,8 @@ import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import type { LlmRetryEventData } from '@deepseek-ai/dsh-llm-retry/types'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import type {
-  HistoryEntry, IApiClient, InboxItemId, MuxFrame, QueueAction, RpcError,
-  RpcId, RpcResult, SessionId, ToolEventView,
+  HistoryEntry, IApiClient, MessageId, MuxFrame, QueueAction, RpcError,
+  RpcId, RpcResponse, RpcResult, SessionId, SubagentAddress, ToolEventView,
 } from '@deepseek-ai/dsh-client-connection/client'
 // Value import from the inline-safe wire layer (not the connection plugin):
 // plugin-to-plugin value imports are a bundle purity error.
@@ -21,7 +21,7 @@ import { PendingWait } from './pending.ts'
 import { TranscriptAdapter } from './transcript-adapter.ts'
 import { displayFailureMessage } from './failure-display.ts'
 import { Notifier } from './notifier.ts'
-import { PartialAccumulator } from './partial.ts'
+import { isVisibleAssistantChunk, PartialAccumulator } from './partial.ts'
 import { ProjectionValueStore } from './projection-store.ts'
 import type { ProjectionsBaseline } from './projection-store.ts'
 
@@ -34,6 +34,10 @@ const MAX_RETRY_DELAY_MS = 2_147_483_647
 
 /** Manager-owned observers of a Session object's local state edges. */
 export interface SessionOptions {
+  /** Catalog-discovered address selecting non-activating subagent transport. */
+  address?: SubagentAddress
+  /** Whether the exact direct parent Agent was live at the latest catalog read. */
+  parentAvailable?: boolean
   /**
    * First ACCEPTED prompt on a blank session (fires at most once, on the
    * prompt RPC's success response): the manager mirrors the blank→false flip
@@ -94,6 +98,8 @@ export class Session implements SessionFace {
   private readonly transcript = new TranscriptAdapter()
   private partial: PartialAccumulator | null = null
   private openCalls = new Map<string, RunningToolCall>()
+  /** Last entered step per turn, folded from step/start for terminal error placement. */
+  private lastStepByTurn = new Map<number, number>()
   /** Operational notices and interrupted-turn terminal nodes merged into the flow by seq.
    *  Derived from window events and rebuilt with partial/openCalls; the transcript is
    *  seq-monotonic, so a plain seq merge preserves event order. */
@@ -109,6 +115,16 @@ export class Session implements SessionFace {
   private pendingCache: { rev: number; value: PendingInteraction[] } | null = null
   private derivedRev = 0
   private nodesCache: { projected: readonly ConversationNode[]; derivedRev: number; value: readonly ConversationNode[] } | null = null
+  /** Exact turn timing retained from the raw window so presentation never
+   *  infers elapsed time from transcript content. */
+  private turnTimings = new Map<number, { startTime: number; endTime?: number }>()
+  private turnTimingsRev = 0
+  private turnTimingsCache: { rev: number; value: ConversationSnapshot['turnTimings'] } | null = null
+  /** Completed turn boundaries retained from the raw window so presentation
+   *  actions never infer a safe fork point from transcript content alone. */
+  private turnEnds = new Map<number, number>()
+  private turnEndsRev = 0
+  private turnEndsCache: { rev: number; value: ReadonlyMap<number, number> } | null = null
   /** Authoritative stream-only inbox snapshot; pending work never hits history. */
   private queued: QueuedMessage[] = []
   private queueRev = 0
@@ -119,6 +135,8 @@ export class Session implements SessionFace {
   private dispatchesRev = 0
   private dispatchesCache: { rev: number; value: ReadonlyMap<string, readonly CodeSubCall[]> } | null = null
   private running = false
+  private address: SubagentAddress | undefined
+  private parentAvailable = false
   /**
    * Sticky send marker, private input of the composerPhase derivation: set
    * synchronously before prompt()'s first await, never reset — the blank →
@@ -174,6 +192,8 @@ export class Session implements SessionFace {
     private readonly options: SessionOptions = {},
   ) {
     this.projections = options.projections ?? new ProjectionValueStore()
+    this.address = options.address
+    this.parentAvailable = options.parentAvailable ?? false
     this.snapshotCache = this.buildSnapshot()
   }
 
@@ -213,7 +233,21 @@ export class Session implements SessionFace {
     this.notifier.markDirty()
     let result: RpcResult<{ accepted: true }>
     try {
-      result = (await this.api.sessions.prompt({ sessionId: this.sessionId, mode, content })).result
+      if (this.address === undefined) {
+        result = (await this.api.sessions.prompt({ sessionId: this.sessionId, mode, content })).result
+      } else if (this.address.mode === 'one-shot') {
+        result = {
+          ok: false,
+          error: {
+            code: 'subagent-not-resumable',
+            message: 'one-shot subagent conversations are read-only',
+            details: { childSessionId: this.address.childSessionId },
+          },
+        }
+      } else {
+        const routed = (await this.api.subagents.prompt({ ...this.address, content })).result
+        result = routed.ok ? { ok: true, value: { accepted: true } } : routed
+      }
     } catch (error) {
       result = transportError(error)
     }
@@ -239,7 +273,7 @@ export class Session implements SessionFace {
   }
 
   /** Apply one operation to a still-pending queue occurrence. */
-  async updateQueue(itemId: InboxItemId, action: QueueAction): Promise<RpcResult<{ accepted: true }>> {
+  async updateQueue(itemId: MessageId, action: QueueAction): Promise<RpcResult<{ accepted: true }>> {
     try {
       return (await this.api.sessions.updateQueue({ sessionId: this.sessionId, itemId, action })).result
     } catch (error) {
@@ -253,6 +287,19 @@ export class Session implements SessionFace {
    * @returns the cancel result.
    */
   async cancel(): Promise<RpcResult<{ accepted: true }>> {
+    if (this.address !== undefined) {
+      const result: RpcResult<{ accepted: true }> = {
+        ok: false,
+        error: {
+          code: 'subagent-delivery-unavailable',
+          message: 'subagent activation cancellation is unavailable',
+          details: { childSessionId: this.address.childSessionId },
+        },
+      }
+      this.promptError = { op: 'stop', error: result.error }
+      this.notifier.markDirty()
+      return result
+    }
     let result: RpcResult<{ accepted: true }>
     try {
       result = (await this.api.sessions.cancel({ sessionId: this.sessionId })).result
@@ -318,9 +365,7 @@ export class Session implements SessionFace {
     this.loadingOlder = true
     this.notifier.markDirty()
     try {
-      const { result } = await this.api.sessions.history({
-        sessionId: this.sessionId, beforeSeq: this.baseSeq, maxMessages: PAGE_MESSAGES,
-      })
+      const { result } = await this.history({ beforeSeq: this.baseSeq, maxMessages: PAGE_MESSAGES })
       if (!result.ok) return // keep the window as-is; do not overwrite openError (open already succeeded)
       const older = result.value.events
       if (older.length === 0) {
@@ -413,6 +458,9 @@ export class Session implements SessionFace {
       case 'session/queue': {
         this.queued = frame.items.map(item => ({
           id: item.id,
+          messageId: item.message.id,
+          placement: item.placement,
+          content: item.message.content,
           preview: queuePreviewOf(item.message.content),
           text: queueTextOf(item.message.content),
         }))
@@ -480,6 +528,32 @@ export class Session implements SessionFace {
   }
 
   /**
+   * Install or clear the catalog-discovered transport address. A changed
+   * address rebuilds an already-open window through its new history route.
+   * @param address - direct parent/child address, or undefined for ordinary transport.
+   * @param parentAvailable - latest exact-parent availability hint.
+   */
+  configureSubagent(address: SubagentAddress | undefined, parentAvailable = false): void {
+    const same = this.address?.parentSessionId === address?.parentSessionId
+      && this.address?.childSessionId === address?.childSessionId
+      && this.address?.mode === address?.mode
+    this.address = address
+    this.parentAvailable = parentAvailable
+    if (!same && this.openState !== 'cold') void this.resync()
+    else this.notifier.markDirty()
+  }
+
+  /**
+   * Update only the parent availability hint from a catalog refresh.
+   * @param available - whether the exact direct parent is live.
+   */
+  handleSubagentParentAvailable(available: boolean): void {
+    if (this.parentAvailable === available) return
+    this.parentAvailable = available
+    this.notifier.markDirty()
+  }
+
+  /**
    * Blank-bit relay from the authoritative summary source (list baseline and
    * the session-added frame). Monotone: once any signal (local first send,
    * running flip, an earlier summary) cleared it, a stale true never
@@ -533,7 +607,7 @@ export class Session implements SessionFace {
     this.openError = null
     this.notifier.markDirty()
     try {
-      let { result } = await this.api.sessions.history({ sessionId: this.sessionId, maxMessages: PAGE_MESSAGES })
+      let { result } = await this.history({ maxMessages: PAGE_MESSAGES })
       if (generation !== this.openGeneration) return
       if (!result.ok) {
         this.openState = 'error'
@@ -544,7 +618,7 @@ export class Session implements SessionFace {
       // Gap detection (§D.3-4): baseline past the window tail and liveBuffer did not cover it -> pull the tail page once more.
       const tailSeq = this.windowTailSeq()
       if (this.subscribedLastSeq !== null && tailSeq !== null && this.subscribedLastSeq > tailSeq) {
-        result = (await this.api.sessions.history({ sessionId: this.sessionId, maxMessages: PAGE_MESSAGES })).result
+        result = (await this.history({ maxMessages: PAGE_MESSAGES })).result
         if (generation !== this.openGeneration) return
         if (result.ok) this.installWindow(result.value.events, result.value.hasMore, result.value.projections)
       }
@@ -588,7 +662,19 @@ export class Session implements SessionFace {
     this.events.push(event)
     this.views.push(view)
     this.transcript.append(event, view)
+    this.handoffPendingSteering(event)
     this.applyEventSideEffects(event, view)
+  }
+
+  /** Retire the first matching live steering occurrence when its durable message takes over. */
+  private handoffPendingSteering(event: SessionEvent): void {
+    if (event.type !== 'user/message') return
+    const message = event.data
+    const index = this.queued.findIndex(item =>
+      item.placement === 'steering' && item.messageId === message.id)
+    if (index === -1) return
+    this.queued = this.queued.filter((_item, candidate) => candidate !== index)
+    this.queueRev++
   }
 
   /** Land a live session/event (open/repair in flight -> buffer; overlapping seq -> drop;
@@ -609,6 +695,10 @@ export class Session implements SessionFace {
       return
     }
     this.appendLive(event, view)
+    if (event.type === 'assistant/chunk') {
+      if (isVisibleAssistantChunk(event.data.chunk.type)) this.notifier.markFrameDirty()
+      return
+    }
     this.notifier.markDirty()
   }
 
@@ -621,7 +711,7 @@ export class Session implements SessionFace {
     this.stitching = true
     const generation = this.openGeneration
     try {
-      const { result } = await this.api.sessions.history({ sessionId: this.sessionId, maxMessages: PAGE_MESSAGES })
+      const { result } = await this.history({ maxMessages: PAGE_MESSAGES })
       // Failure or superseded by a full resync: drop — the resync path rebuilds and clears the buffer itself.
       if (result.ok && generation === this.openGeneration && this.openState === 'open') {
         this.installWindow(result.value.events, result.value.hasMore, result.value.projections)
@@ -716,12 +806,17 @@ export class Session implements SessionFace {
       return
     }
     switch (event.type) {
-      case 'turn/start': {
-        if (event.data.trigger.kind === 'retry') this.settleScheduledRetry('started')
+      case 'turn/start':
+        this.lastStepByTurn.set(event.data.turn, 0)
+        this.turnTimings.set(event.data.turn, { startTime: event.time })
+        this.turnTimingsRev++
         return
-      }
+      case 'step/start':
+        this.lastStepByTurn.set(event.data.turn, event.data.step)
+        return
       case 'assistant/chunk': {
         const { turn, step, chunk } = event.data
+        this.settleScheduledRetry('started', turn)
         if (this.partial === null || this.partial.turn !== turn || this.partial.step !== step) {
           this.partial = new PartialAccumulator(turn, step)
         }
@@ -748,25 +843,34 @@ export class Session implements SessionFace {
         return
       }
       case 'turn/end': {
-        if (event.data.reason.kind === 'aborted' || event.data.reason.kind === 'disposed') {
+        const lastStep = this.lastStepByTurn.get(event.data.turn) ?? 0
+        const timing = this.turnTimings.get(event.data.turn)
+        if (timing !== undefined) {
+          this.turnTimings.set(event.data.turn, { ...timing, endTime: event.time })
+          this.turnTimingsRev++
+        }
+        this.turnEnds.set(event.data.turn, event.seq)
+        this.turnEndsRev++
+        if (event.data.reason.kind === 'aborted') {
           this.settleScheduledRetry('cancelled', event.data.turn)
         }
         if (
           event.data.reason.kind === 'error'
           && !this.derivedNodes.some(node => node.kind === 'model-retry' && node.turn === event.data.turn)
         ) {
-          const failure = 'failure' in event.data.reason ? event.data.reason.failure : event.data.reason
+          const failure = event.data.reason.error
           this.derivedNodes.push({
             kind: 'turn-error',
             seq: event.seq,
             time: event.time,
             turn: event.data.turn,
-            step: event.data.reason.step,
+            step: lastStep,
             message: displayFailureMessage(failure),
-            ...(failure.code === undefined ? {} : { code: failure.code }),
+            code: failure.code,
           })
           this.derivedRev++
         }
+        if (event.data.reason.kind === 'error') this.settleScheduledRetry('started', event.data.turn)
         // Aborted turns never finalize. The accumulated partial is VALUE, not residue: freeze it
         // into an interrupted terminal node (pulse stops, text survives) instead of deleting it.
         // Shared by live and window-replay paths, so a refresh reconstructs the same frozen node
@@ -801,6 +905,7 @@ export class Session implements SessionFace {
           })
           this.derivedRev++
         }
+        this.lastStepByTurn.delete(event.data.turn)
         return
       }
       default:
@@ -835,9 +940,14 @@ export class Session implements SessionFace {
   private rebuildDerivedFromWindow(): void {
     this.partial = null
     this.openCalls.clear()
+    this.lastStepByTurn.clear()
     this.callsRev++
     this.derivedNodes = []
     this.derivedRev++
+    this.turnTimings = new Map()
+    this.turnTimingsRev++
+    this.turnEnds = new Map()
+    this.turnEndsRev++
     this.codeDispatches = new Map()
     this.dispatchesRev++
     for (let i = 0; i < this.events.length; i++) {
@@ -869,6 +979,12 @@ export class Session implements SessionFace {
     if (this.callsCache === null || this.callsCache.rev !== this.callsRev) {
       this.callsCache = { rev: this.callsRev, value: [...this.openCalls.values()] }
     }
+    if (this.turnTimingsCache === null || this.turnTimingsCache.rev !== this.turnTimingsRev) {
+      this.turnTimingsCache = { rev: this.turnTimingsRev, value: new Map(this.turnTimings) }
+    }
+    if (this.turnEndsCache === null || this.turnEndsCache.rev !== this.turnEndsRev) {
+      this.turnEndsCache = { rev: this.turnEndsRev, value: new Map(this.turnEnds) }
+    }
     if (this.pendingCache === null || this.pendingCache.rev !== this.pendingRev) {
       this.pendingCache = { rev: this.pendingRev, value: [...this.pending.values()] }
     }
@@ -882,12 +998,17 @@ export class Session implements SessionFace {
     return {
       sessionId: this.sessionId,
       nodes,
+      turnTimings: this.turnTimingsCache.value,
+      turnEnds: this.turnEndsCache.value,
       partial,
       runningCalls: this.callsCache.value,
       pending: this.pendingCache.value,
       codeDispatches: this.dispatchesCache.value,
       queue: this.queueCache.value,
       running: this.running,
+      subagent: this.address === undefined
+        ? null
+        : { address: this.address, parentAvailable: this.parentAvailable },
       composerPhase: derivePhase(
         // Command lifecycle nodes are not conversation: running /permission
         // or /plan on a fresh session keeps the hero (the client mirror of
@@ -904,6 +1025,17 @@ export class Session implements SessionFace {
       blank: this.blankBit,
       lastAgentError: this.lastAgentError,
     }
+  }
+
+  /** Select ordinary or addressed history transport from the stored browser fact. */
+  private history(payload: { beforeSeq?: number; maxMessages?: number }): Promise<RpcResponse<{
+    events: HistoryEntry[]
+    hasMore: boolean
+    projections?: ProjectionsBaseline
+  }>> {
+    return this.address === undefined
+      ? this.api.sessions.history({ sessionId: this.sessionId, ...payload })
+      : this.api.subagents.history({ ...this.address, ...payload })
   }
 }
 

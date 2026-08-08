@@ -12,7 +12,7 @@ The result was a user-visible difference nobody had decided: the same model, ask
 
 ## Decision
 
-The rows that are not surface-specific move into [`base.cordis.yml`](../../../../apps/cli/config/base.cordis.yml), and three more join them: `tool-session-query`, `tool-str-replace-editor`, and `repeat-tool-guard`. Web search moves there too; its [deployment decision](2026-07-31-web-default-search.md) owns the security boundary while the shared base owns its surface-neutral mount. Both surfaces assemble the same roster: twenty tools on every host, plus `glob` and `grep` when ripgrep is available. `tool-session-query` joined and then left again — the [session-search-not-shipped-default decision](2026-08-02-session-search-not-shipped-default.md) keeps the model-facing consumer opt-in — while the rest of this roster stands.
+The rows that are not surface-specific move into [`base.cordis.yml`](../../../../packages/bundle/base/cordis.patch.yml), and three more join them: `tool-session-query`, `tool-str-replace-editor`, and `repeat-tool-guard`. Web search moves there too; its [deployment decision](2026-07-31-web-default-search.md) owns the security boundary while the shared base owns its surface-neutral mount. Both surfaces assemble the same roster: twenty-two tools on every host — the twenty shared rows plus `glob` and `grep`, which are fixed members because `dsh-tool-fs-search` spawns the [packaged ripgrep binary](../architecture/2026-08-01-packaged-ripgrep-search.md). `tool-session-query` joined and then left again — the [session-search-not-shipped-default decision](2026-08-02-session-search-not-shipped-default.md) keeps the model-facing consumer opt-in — while the rest of this roster stands.
 
 Two rows stay surface-specific. `tmux-context` is TUI-only because a browser surface has no terminal multiplexer to describe. `session-reference` is TUI-only because it drives the shared session-query index from the launcher's process-local path, and the browser sidebar reconciles that index on its own first search.
 
@@ -38,15 +38,15 @@ The layer that would make MCP a default is the one this repository does not have
 
 ## Testing
 
-[`apps/cli/tests/shipped-composition.e2e.ts`](../../../../apps/cli/tests/shipped-composition.e2e.ts) boots the shipped tree through the real Loader in a pseudo-terminal and reads the tool names out of the `request/header` the session log persisted, so the assertion is the catalog the model was actually sent. Its `--config` overlay, [`composition-keyless-tail.cordis.yml`](../../../../apps/cli/tests/fixtures/composition-keyless-tail.cordis.yml), is test isolation only: a network-free adapter and workspace-local session artifacts.
+`apps/cli/tests/shipped-composition.e2e.ts` booted the shipped tree through the real Loader in a pseudo-terminal and read the tool names out of the `request/header` the session log persisted, so the assertion was the catalog the model was actually sent. Its `--config` overlay, `composition-keyless-tail.cordis.yml`, provided test isolation only: a network-free adapter and workspace-local session artifacts.
 
-That tail also inserts [`composition-settled.ts`](../../../../apps/cli/tests/fixtures/composition-settled.ts), which announces settled Loader activation on the terminal stream. The TUI renders as soon as its own fiber starts, so a prompt typed at the banner can reach the loop while tool rows and persistence are still activating and assemble a partial catalog; gating the smoke's first prompt on that marker is what makes the assertion deterministic.
+That tail also inserted `composition-settled.ts`, which announced settled Loader activation on the terminal stream. The TUI rendered as soon as its own fiber started, so a prompt typed at the banner could reach the loop while tool rows and persistence were still activating and assemble a partial catalog; gating the smoke's first prompt on that marker made the assertion deterministic.
 
 The same smoke also pins the TUI execution posture from the same artifact. Those sandbox-schema and initial-permission assertions belong to the [workspace-write default decision](2026-07-31-workspace-write-surface-default.md), independently of this roster.
 
 [`apps/web/tests/shipped-composition.e2e.ts`](../../../../apps/web/tests/shipped-composition.e2e.ts) covers the Web surface in the built lane, asserting its catalog, that its access default is untouched, and that `workspace-write`'s writable roots include the temp directories — a trap that makes sandbox tests lie when the workspace sits under `/tmp` ([`roots.ts`](../../../../packages/sandbox/sandbox/src/roots.ts)).
 
-`glob` and `grep` are asserted as an all-or-nothing pair rather than fixed members: `dsh-tool-fs-search` probes `command -v rg` at load and registers neither tool without ripgrep, which is a host dependency.
+`glob` and `grep` are asserted as fixed members rather than a host-dependent pair: `dsh-tool-fs-search` spawns the packaged ripgrep binary and registers both tools unconditionally, so the pair is always present.
 
 Beyond the committed tests, both surfaces were driven against a real key from the built `apps/cli/lib/bin.js` under plain Node. Every mounted tool executed successfully, including `ralph` and `web_search`; the model never reached `cordis_*` or `mcp_*`, fell back to `grep` when asked for LSP navigation, and used a background `bash` task when asked for a persistent terminal.
 
@@ -62,7 +62,7 @@ Beyond the committed tests, both surfaces were driven against a real key from th
 
 ## Consequences
 
-The same model gets the same tools on both surfaces, and the difference that existed for no recorded reason is gone. The tests assert the twenty unconditional names exactly and require the ripgrep-dependent pair to be either present together or absent together on both sides, so a later change that alters only one surface fails a check instead of shipping quietly; the [session-search-not-shipped-default decision](2026-08-02-session-search-not-shipped-default.md) is exactly such a later change, and both tests moved with it.
+The same model gets the same tools on both surfaces, and the difference that existed for no recorded reason is gone. The tests assert the twenty unconditional names exactly and pin `glob` and `grep` as fixed members on both sides, so a later change that alters only one surface fails a check instead of shipping quietly; the [session-search-not-shipped-default decision](2026-08-02-session-search-not-shipped-default.md) is exactly such a later change, and both tests moved with it.
 
 `apps/cli` gained five workspace dependencies: four the shipped tree mounted, plus `dsh-mcp-client`, which it does not mount and which exists so an installed `dsh` can. Four remain — the [session-search-not-shipped-default decision](2026-08-02-session-search-not-shipped-default.md) removed `@deepseek-ai/dsh-tool-session-query` along with its row.
 

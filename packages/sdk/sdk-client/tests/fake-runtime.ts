@@ -142,13 +142,6 @@ function runTurn(sessionId: string): void {
       lastAssistantMessage: [{ type: 'text', text: 'child says hi' }],
     })
   }
-  notify('session.finished', {
-    sessionId,
-    status: env.FAKE_STATUS ?? 'ok',
-    ...(env.FAKE_MALFORMED_REASON !== undefined
-      ? { reason: 'not-a-record' }
-      : reasonKind === 'none' ? {} : { reason: { kind: reasonKind } }),
-  })
 }
 
 function sessionIdOf(params: Record<string, unknown> | undefined): string {
@@ -197,8 +190,20 @@ reader.on('line', (line) => {
       respond({ serverInfo: { name: 'deepseek-harness-sdk-runtime', version: '0.0.1' } })
       return
     case 'session/prompt': {
+      const sessionId = sessionIdOf(frame.params)
+      const messageId = `fake-user-${seq}`
+      event(sessionId, 'agent/inbox/spliced', {
+        target: 'next-turn',
+        start: 0,
+        inserted: [{
+          id: messageId,
+          role: 'user',
+          content: [],
+          source: { kind: 'user' },
+        }],
+      })
+      notify('session.status', { sessionId, status: 'running' })
       if (env.FAKE_STREAM_THEN_MALFORMED !== undefined) {
-        const sessionId = sessionIdOf(frame.params)
         event(sessionId, 'assistant/chunk', { turn: 0, step: 0, chunk: { type: 'text-delta', index: 0, text: 'streamed then cut short' } })
         respond({})
         return
@@ -208,9 +213,9 @@ reader.on('line', (line) => {
         respond({})
         return
       }
-      const sessionId = sessionIdOf(frame.params)
       runTurn(sessionId)
-      respond({ accepted: true })
+      notify('session.status', { sessionId, status: 'idle' })
+      respond({ messageId })
       return
     }
     case 'shutdown':

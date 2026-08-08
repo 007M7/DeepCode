@@ -4,8 +4,8 @@
  * Only the dedicated Node compatibility gate opts this test in after building
  * both artifacts; ordinary Vitest inventory deterministically skips it.
  * The child runs built artifacts under plain Node with the real shipped
- * config (base.cordis.yml + the web.cordis.yml overlay).
- * Its URL line follows AppCLIEntry's settled boot; SIGTERM then exercises the
+ * web profile (dsh-base + dsh-web-app bundle patches, auto-initialized).
+ * Its URL line follows the settled profile boot; SIGTERM then exercises the
  * shipped quiescent disposer.
  */
 
@@ -21,8 +21,8 @@ import { describe, expect, it } from 'vitest'
 const repoRoot = fileURLToPath(new URL('../../../', import.meta.url))
 const builtBin = join(repoRoot, 'apps/cli/lib/bin.js')
 const webDist = join(repoRoot, 'apps/web/dist/index.html')
-// The web overlay owns the session-query-sqlite lazy-open patch row.
-const configPath = join(repoRoot, 'apps/cli/config/web.cordis.yml')
+// The web bundle's patch owns the session-query-sqlite lazy-open row.
+const configPath = join(repoRoot, 'packages/bundle/web-app/cordis.patch.yml')
 const requireBuiltArtifacts = process.env.DSH_REQUIRE_BUILT_CLI_SMOKE === '1'
 
 interface ConfigRow {

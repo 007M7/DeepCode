@@ -86,20 +86,20 @@ config:
     expect(flow.serialize()).not.toContain('{')
     const document = CordisYamlFile.parse(`# lead
 - id: provider
-  name: '@deepseek-ai/dsh-llm-deepseek'
+  name: 'provider-package'
   config:
-    apiKey: !!js process.env.DEEPSEEK_API_KEY
+    endpoint: !!js process.env.PROVIDER_URL
     custom: keep
 `)
-    const apiKey = document.entry('provider')?.config?.apiKey
-    expect(apiKey).toBeInstanceOf(JsExpression)
-    document.updateOwnedConfig('provider', ['apiKey'], { apiKey: new JsExpression('process.env.NEXT_KEY') })
+    const endpoint = document.entry('provider')?.config?.endpoint
+    expect(endpoint).toBeInstanceOf(JsExpression)
+    document.updateOwnedConfig('provider', ['endpoint'], { endpoint: new JsExpression('process.env.NEXT_URL') })
     document.setDisabled('provider', true)
     document.addEntry({ id: 'tool', name: 'demo-tool' })
     document.validate()
     const text = document.serialize()
     expect(text).toContain('# lead')
-    expect(text).toContain('!!js process.env.NEXT_KEY')
+    expect(text).toContain('!!js process.env.NEXT_URL')
     expect(text).toContain('custom: keep')
     expect(document.removeEntry('tool')).toBe(true)
     expect(document.removeEntry('tool')).toBe(false)
@@ -243,7 +243,7 @@ overrides:
     expect(() => loadHelperTemplate('../bad.tpl')).toThrow('must not contain a directory')
     expect(createBaselineProjectArtifacts({
       name: 'demo', description: 'demo', releaseVersion: '0.0.1', model: 'model', modelLiteral: '"model"', packageManager: 'yarn',
-      isAcp: false, isTui: false, isEmbed: true,
+      isAcp: false, isEmbed: true,
       installArgs: 'install', buildArgs: 'build',
     }).map(document => document.relativePath)).toContain('.yarnrc.yml')
     expect(() => new LocalPluginBlueprint('---', 'plugin')).toThrow('invalid local plugin name')

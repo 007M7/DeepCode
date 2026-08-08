@@ -167,9 +167,11 @@ describe('GenericToolCard read body', () => {
 describe('ReadRow keyed toolview', () => {
   const list = () => createSnapshotStore<SessionListState>({
     ids: [SID],
-    byId: { [SID]: { id: SID, displayTitle: 'r', running: false, blank: false, waitingApproval: false, updatedAt: 0, cwd: '/w/app' } },
+    byId: { [SID]: { id: SID, displayTitle: 'r', running: false, blank: false, updatedAt: 0, cwd: '/w/app' } },
     current: SID,
     phase: 'ready',
+    subagentsByParent: {},
+    currentAddress: undefined,
   })
 
   const rowProps = (block: RunningToolCall | ToolResultNode): Parameters<typeof ReadRow>[0] => ({
@@ -235,11 +237,14 @@ describe('ReadRow keyed toolview', () => {
 
   it('registers under the read key of the keyed toolview slot', () => {
     const registered: { name: unknown; key?: unknown }[] = []
-    const ctx = { slots: { register: (options: { name: unknown; key?: unknown }) => { registered.push(options) } } } as unknown as Context
+    const ctx = { slots: {
+      inject: (_name: string, callback: () => () => void) => callback(),
+      register: (options: { name: unknown; key?: unknown }) => { registered.push(options); return () => undefined },
+    } } as unknown as Context
     readToolview.apply(ctx)
     // The row composes ToolRow, so it declares its locale namespace at the seat.
     expect(registered).toEqual([{ name: 'conversation.chat.toolview', key: 'read', locale: 'conversation' }])
-    expect(readToolview.inject).toContain('conversation')
+    expect(readToolview.inject).toEqual(['slots'])
   })
 })
 
@@ -249,12 +254,14 @@ describe('DetailsPanel Output section (read)', () => {
     const chat = createChatStore().create()
     if (selection !== null) chat.actions.select(selection)
     const sessions = createSnapshotStore<SessionListState>(cwd === undefined
-      ? { ids: [], byId: {}, current: undefined, phase: 'ready' }
+      ? { ids: [], byId: {}, current: undefined, phase: 'ready', subagentsByParent: {}, currentAddress: undefined }
       : {
         ids: [SID],
-        byId: { [SID]: { id: SID, displayTitle: 'r', running: false, blank: false, waitingApproval: false, updatedAt: 0, cwd } },
+        byId: { [SID]: { id: SID, displayTitle: 'r', running: false, blank: false, updatedAt: 0, cwd } },
         current: SID,
         phase: 'ready',
+        subagentsByParent: {},
+        currentAddress: undefined,
       })
     const workspaces = createSnapshotStore<WorkspaceListState>({
       items: [], archivedSessionIds: [], state: 'idle', phase: 'ready', error: null,
@@ -279,10 +286,10 @@ describe('DetailsPanel Output section (read)', () => {
 
   function snapshot(over: Partial<ConversationSnapshot> = {}): ConversationSnapshot {
     return {
-      sessionId: SID, nodes: [], partial: null, runningCalls: [], codeDispatches: new Map(),
+      sessionId: SID, nodes: [], turnTimings: new Map(), turnEnds: new Map(), partial: null, runningCalls: [], codeDispatches: new Map(),
       pending: [], queue: [], running: false, composerPhase: 'active', removed: false,
       openState: 'open', openError: null, hasMore: false, loadingOlder: false,
-      promptError: null, blank: false, lastAgentError: null, ...over,
+      promptError: null, blank: false, subagent: null, lastAgentError: null, ...over,
     }
   }
 

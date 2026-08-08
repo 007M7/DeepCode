@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
-import AgentRegistry from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { Inbox } from '@deepseek-ai/dsh-agent'
 import type { Agent, AgentFactory } from '@deepseek-ai/dsh-agent'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { Session } from '@deepseek-ai/dsh-session'
@@ -44,16 +44,15 @@ function stubAgent(session: Session): Agent {
     id: session.id,
     options: {},
     session,
+    inbox: new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} }),
     status: 'idle',
-    acceptsNextStep: false,
     ctx: new Context(),
-    followup: () => {},
-    steer: () => {},
-    inject: () => {},
     send: () => {},
-    updateInbox: () => 'not-found',
-    reserveTurnAdmission: () => undefined,
+    followup: () => {},
+    steer: () => ({ outcome: Promise.resolve({ status: 'rejected' as const }) }),
+    inject: () => {},
     cancel() {},
+    runMaintenance: task => task(new AbortController().signal),
     whenIdle: () => Promise.resolve(),
   }
 }
@@ -101,8 +100,7 @@ async function harness(
   // object per harness mirrors the seam's stability contract.
   ctx.provide('directoryPicker', { capability: () => picker } as never)
   const api = createApiProxy(ctx, {
-    provider: 'test',
-    model: 'test-model',
+    defaultTarget: () => ({ provider: 'test', model: 'test-model' }),
     cwd: workspaceRoot,
     workspaceRoot,
     ...extras.openPath === undefined ? {} : { openPath: extras.openPath },
@@ -364,6 +362,36 @@ describe('session creation and Workspace membership', () => {
 })
 
 describe('Host Workspace increments', () => {
+  it('projects subagent origin in attached summaries and creation increments', async () => {
+    const { api, ctx } = await harness()
+    const abort = new AbortController()
+    const stream: AsyncIterator<RpcRequest<HostFrame>> =
+      api.events.host(request({}), abort.signal)[Symbol.asyncIterator]()
+    const pending = nextHostFrame(stream)
+    const childId = SessionId('session-subagent-child')
+
+    ctx.sessions.create(childId, {
+      meta: {
+        cwd: '/tmp',
+        parentSession: SessionId('session-parent'),
+        origin: 'subagent',
+      },
+    })
+
+    expect(await pending).toMatchObject({
+      payload: {
+        type: 'host/session-added',
+        sessionId: childId,
+        parentSessionId: 'session-parent',
+        origin: 'subagent',
+      },
+    })
+    expect(expectOk(await api.sessions.list(request({}))).items).toContainEqual(
+      expect.objectContaining({ sessionId: childId, origin: 'subagent' }),
+    )
+    abort.abort()
+  })
+
   it('streams committed Workspace and Session increments after empty baselines', async () => {
     const { api } = await harness()
     expect(expectOk(await api.workspace.list(request({}))).items).toEqual([])

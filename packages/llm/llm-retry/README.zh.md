@@ -15,7 +15,7 @@
 ```yaml
 - name: '@deepseek-ai/dsh-llm-deepseek'
   config:
-    apiKey: !!js process.env.DEEPSEEK_API_KEY
+    apiKeyEnv: DEEPSEEK_API_KEY
     retryPolicy:
       mode: always
       backoff:
@@ -48,6 +48,6 @@
 
 - **agent 轮次是唯一重试边界**：直接 `ctx.llm.stream()` 消费方仍只尝试一次，因为原始流无法持久地区分各次尝试已经发出的分片。
 - **always mode 会重试永久性失败**：身份验证、配额、无效请求、协议和无法恢复的上下文错误都会继续重试，直至成功、取消或 dispose；部署负责提供方特定的成本与延迟控制。
-- **有限插件预算可叠加**：normal mode 只统计已配置 code 和确切提供方策略，上下文溢出压缩（compaction）则拥有独立预算。未来如有重叠策略，必须记录并测试注册顺序行为。
+- **有限插件预算可叠加**：normal mode 只统计已配置 code 和确切提供方策略，上下文溢出压缩（compaction）则拥有独立预算。任何重叠策略都必须定义注册顺序行为。
 - **恢复策略按 waterfall 顺序组合**：always mode 会先接受下游重试，再应用自己的回退。后续策略如果忽略取消且永不结算，也会阻止回退、轮次完全停稳和插件 dispose 完成。
 - **`llm/retry` 记录调度，不是完成**：后续步骤与轮次事件用于确立成功、耗尽或取消。

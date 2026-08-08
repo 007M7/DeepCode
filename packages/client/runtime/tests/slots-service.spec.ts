@@ -29,6 +29,7 @@ const C: FC<object> = () => null
  */
 interface ErasedService {
   register(options: object, component: unknown): () => void
+  inject(name: string, callback: () => (() => void) | Iterable<() => void>): () => void
   install(renderer: object): void
   renderSlot(key: string, owner: object): unknown
 }
@@ -163,6 +164,266 @@ describe('load-time validation', () => {
     }, C)).toThrow(/already has a registration/)
     // The failing call's declaration must not have landed.
     expect(() => bench.erased.register({ name: 't.host' }, C)).toThrow(/is not declared/)
+  })
+})
+
+describe('declaration injection', () => {
+  it('activates immediately and ignores ordinary entry mutations', async () => {
+    const bench = await boot()
+    bench.erased.register({
+      name: 'root', children: { 't.rows': { kind: 'list', scope: 'root' } },
+    }, C)
+    const setup = vi.fn(() => bench.erased.register({ name: 't.rows', id: 'injected' }, C))
+    const dispose = bench.erased.inject('t.rows', setup)
+    expect(setup).toHaveBeenCalledOnce()
+    bench.erased.register({ name: 't.rows', id: 'ordinary' }, C)
+    await Promise.resolve()
+    expect(setup).toHaveBeenCalledOnce()
+    dispose()
+    expect(bench.svc.entries('t.rows').map(entry => entry.options.id)).toEqual(['ordinary'])
+  })
+
+  it('waits for declaration, cleans up on collapse, and reruns after redeclaration', async () => {
+    const bench = await boot()
+    const cleanup = vi.fn()
+    const setup = vi.fn(() => {
+      const unregister = bench.erased.register({ name: 't.host' }, C)
+      return () => { unregister(); cleanup() }
+    })
+    bench.erased.inject('t.host', setup)
+    expect(setup).not.toHaveBeenCalled()
+    const disposeFrame = bench.erased.register({
+      name: 'root', children: { 't.host': { kind: 'single', scope: 'root' } },
+    }, C)
+    await Promise.resolve()
+    expect(setup).toHaveBeenCalledOnce()
+    expect(bench.svc.entries('t.host')).toHaveLength(1)
+    disposeFrame()
+    await Promise.resolve()
+    expect(cleanup).toHaveBeenCalledOnce()
+    expect(bench.svc.entries('t.host')).toHaveLength(0)
+    bench.erased.register({
+      name: 'root', children: { 't.host': { kind: 'single', scope: 'root' } },
+    }, C)
+    await Promise.resolve()
+    expect(setup).toHaveBeenCalledTimes(2)
+    expect(bench.svc.entries('t.host')).toHaveLength(1)
+  })
+
+  it('observes a same-tick collapse and redeclaration through the declaration epoch', async () => {
+    const bench = await boot()
+    const firstFrame = bench.erased.register({
+      name: 'root', children: { 't.host': { kind: 'single', scope: 'root' } },
+    }, C)
+    const cleanup = vi.fn()
+    const setup = vi.fn(() => {
+      const unregister = bench.erased.register({ name: 't.host' }, C)
+      return () => { unregister(); cleanup() }
+    })
+    bench.erased.inject('t.host', setup)
+    firstFrame()
+    bench.erased.register({
+      name: 'root', children: { 't.host': { kind: 'single', scope: 'root' } },
+    }, C)
+    await Promise.resolve()
+    expect(cleanup).toHaveBeenCalledOnce()
+    expect(setup).toHaveBeenCalledTimes(2)
+    expect(bench.svc.entries('t.host')).toHaveLength(1)
+  })
+
+  it('plugin disposal removes an active injection and prevents a waiting one from resurrecting', async () => {
+    const active = await boot()
+    active.erased.register({
+      name: 'root', children: { 't.host': { kind: 'single', scope: 'root' } },
+    }, C)
+    const activeFiber = active.ctx.plugin({
+      name: 'active-injection',
+      inject: ['slots'],
+      apply: (ctx: Context) => { ctx.slots.inject('t.host', () => ctx.slots.register({ name: 't.host' }, C)) },
+    })
+    await activeFiber.await()
+    expect(active.svc.entries('t.host')).toHaveLength(1)
+    await activeFiber.dispose()
+    expect(active.svc.entries('t.host')).toHaveLength(0)
+
+    const waiting = await boot()
+    const setup = vi.fn(() => waiting.erased.register({ name: 't.host' }, C))
+    const waitingFiber = waiting.ctx.plugin({
+      name: 'waiting-injection',
+      inject: ['slots'],
+      apply: (ctx: Context) => { ctx.slots.inject('t.host', setup) },
+    })
+    await waitingFiber.await()
+    await waitingFiber.dispose()
+    waiting.erased.register({
+      name: 'root', children: { 't.host': { kind: 'single', scope: 'root' } },
+    }, C)
+    await Promise.resolve()
+    expect(setup).not.toHaveBeenCalled()
+  })
+
+  it('rolls back earlier yielded registrations when generator setup fails', async () => {
+    const bench = await boot()
+    bench.erased.register({
+      name: 'root',
+      children: {
+        't.host': { kind: 'single', scope: 'root' },
+        't.rows': { kind: 'list', scope: 'root' },
+      },
+    }, C)
+    bench.erased.register({ name: 't.host' }, C)
+    expect(() => bench.erased.inject('t.rows', function* () {
+      yield bench.erased.register({ name: 't.rows', id: 'rolled-back' }, C)
+      yield bench.erased.register({ name: 't.host' }, C)
+    })).toThrow(/already has a registration/)
+    expect(bench.svc.entries('t.rows')).toHaveLength(0)
+  })
+
+  it('contains and wraps a delayed setup failure so later slot listeners still run', async () => {
+    const bench = await boot()
+    const failures: unknown[] = []
+    const onLoud = (error: unknown): void => { failures.push(error) }
+    process.on('uncaughtException', onLoud)
+    try {
+      const setup = vi.fn(function* () {
+        yield bench.erased.register({ name: 't.host' }, C)
+        throw null
+      })
+      bench.erased.inject('t.host', setup)
+      const later = vi.fn(() => () => undefined)
+      bench.erased.inject('t.host', later)
+      const disposeFrame = bench.erased.register({
+        name: 'root', children: { 't.host': { kind: 'single', scope: 'root' } },
+      }, C)
+      await new Promise(resolve => setTimeout(resolve, 20))
+      expect(failures).toHaveLength(1)
+      expect(failures[0]).toBeInstanceOf(Error)
+      expect(String(failures[0])).toContain('null')
+      expect(later).toHaveBeenCalledOnce()
+      disposeFrame()
+      bench.erased.register({
+        name: 'root', children: { 't.host': { kind: 'single', scope: 'root' } },
+      }, C)
+      expect(setup).toHaveBeenCalledOnce()
+    } finally {
+      process.off('uncaughtException', onLoud)
+    }
+  })
+
+  it('skips a stopped controller retained by the current declaration snapshot', async () => {
+    const bench = await boot()
+    let stopLater = (): void => {}
+    const first = vi.fn(() => {
+      stopLater()
+      return () => undefined
+    })
+    const later = vi.fn(() => () => undefined)
+    bench.erased.inject('t.host', first)
+    stopLater = bench.erased.inject('t.host', later)
+
+    bench.erased.register({
+      name: 'root', children: { 't.host': { kind: 'single', scope: 'root' } },
+    }, C)
+    expect(first).toHaveBeenCalledOnce()
+    expect(later).not.toHaveBeenCalled()
+  })
+
+  it('keeps a nested redeclaration activation when the outer collapse resumes', async () => {
+    const bench = await boot()
+    const disposeFrame = bench.erased.register({
+      name: 'root', children: { 't.host': { kind: 'single', scope: 'root' } },
+    }, C)
+    let disposeReplacement = (): void => {}
+    let replaced = false
+    const first = vi.fn(() => () => {
+      if (replaced) return
+      replaced = true
+      disposeReplacement = bench.erased.register({
+        name: 'root', children: { 't.host': { kind: 'single', scope: 'root' } },
+      }, C)
+    })
+    const later = vi.fn(() => () => undefined)
+    bench.erased.inject('t.host', first)
+    bench.erased.inject('t.host', later)
+
+    disposeFrame()
+    expect(first).toHaveBeenCalledTimes(2)
+    expect(later).toHaveBeenCalledTimes(2)
+    expect(bench.svc.spec('t.host')).toBeDefined()
+    disposeReplacement()
+  })
+
+  it('cancels a waiting injection when its contributor is already unloading', async () => {
+    const bench = await boot()
+    const setup = vi.fn(() => bench.erased.register({ name: 't.host' }, C))
+    let release = (): void => {}
+    const blocked = new Promise<void>((resolve) => { release = resolve })
+    const pauseUnload = vi.fn(async () => { await blocked })
+    const contributor = bench.ctx.plugin({
+      name: 'unloading-injection',
+      inject: ['slots'],
+      apply: (ctx: Context) => {
+        ctx.slots.inject('t.host', setup)
+        ctx.effect(() => pauseUnload, 'pause contributor unload')
+      },
+    })
+    await contributor.await()
+    const disposing = contributor.dispose()
+    expect(() => bench.erased.register({
+      name: 'root', children: { 't.host': { kind: 'single', scope: 'root' } },
+    }, C)).not.toThrow()
+    expect(setup).not.toHaveBeenCalled()
+    await vi.waitFor(() => { expect(pauseUnload).toHaveBeenCalledOnce() })
+    release()
+    await disposing
+  })
+
+  it('supports dynamic plugin replacement without retaining the old rendered entry', async () => {
+    const bench = await boot()
+    bench.erased.register({
+      name: 'root', children: { 't.host': { kind: 'single', scope: 'root' } },
+    }, C)
+    const componentA = (): null => null
+    const componentB = (): null => null
+    const mount = (name: string, component: FC<object>) => bench.ctx.plugin({
+      name,
+      inject: ['slots'],
+      apply: (ctx: Context) => { ctx.slots.inject('t.host', () => ctx.slots.register({ name: 't.host' }, component)) },
+    })
+    const first = mount('replacement-a', componentA)
+    await first.await()
+    expect(bench.svc.entries('t.host')[0]?.component).toBe(componentA)
+    await first.dispose()
+    expect(bench.svc.entries('t.host')).toHaveLength(0)
+    const second = mount('replacement-b', componentB)
+    await second.await()
+    expect(bench.svc.entries('t.host')[0]?.component).toBe(componentB)
+  })
+
+  it('releases service-layer store state when the declaration collapses', async () => {
+    const bench = await boot()
+    let host: SlotRendererHost | undefined
+    bench.erased.install({ renderRoot: (value: SlotRendererHost) => { host = value; return null } })
+    bench.ctx.reflect.provide('sessions', fakeSessions())
+    bench.ctx.reflect.provide('workspaces', fakeWorkspaces())
+    const disposeFrame = bench.erased.register({
+      name: 'root', children: { 't.host': { kind: 'single', scope: 'root' } },
+    }, C)
+    bench.erased.renderSlot('root', {})
+    if (host === undefined) throw new Error('renderer never received the host')
+    const { handle } = fakeHandle()
+    bench.erased.inject('t.host', () => bench.erased.register({ name: 't.host', store: handle }, C))
+    const oldEntry = host.entriesOf('t.host')[0]
+    expect(host.storeOf(oldEntry as never, undefined)).toBeDefined()
+    disposeFrame()
+    expect(() => host?.storeOf(oldEntry as never, undefined)).toThrow(/not registered/)
+    bench.erased.register({
+      name: 'root', children: { 't.panel': { kind: 'single', scope: 'session' } },
+    }, C)
+    bench.erased.register({ name: 't.panel', store: handle }, C)
+    const panelEntry = host.entriesOf('t.panel')[0]
+    expect(host.storeOf(panelEntry as never, 's1')).toBeDefined()
+    expect(handle.create).toHaveBeenLastCalledWith('s1')
   })
 })
 

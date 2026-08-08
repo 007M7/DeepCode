@@ -16,16 +16,6 @@ import type { WebBlockProps } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ToolCallBlock } from './tool-call-model.ts'
 
 /**
- * Sources the chat row's web body shows before collapsing the middle — half
- * the primitive's own default, which the details panel keeps. A chat row is a
- * summary surface inside the message flow: the flow must stay scannable across
- * many calls, while the details panel is the single-call reading surface. A
- * design constant of this UI's row geometry, not a deployment choice, so it is
- * fixed here rather than a plugin Config field.
- */
-export const CHAT_WEB_MAX_SOURCES = 8
-
-/**
  * Derive the web-card props for a tool call, or null when this call is not a
  * web card and belongs on the generic path.
  *

@@ -17,11 +17,11 @@
  *
  * Resolution branch order (import): seed word → shell instance; memoized
  * record → surface; static registry (shell-own modules, e.g. app-shell) →
- * module; registered factory → materialize; graph row → fetch + execute +
- * materialize; anything else → throw (loud — the runtime mirror of the
+ * module; registered factory → materialize; graph row → load + materialize;
+ * anything else → throw (loud — the runtime mirror of the
  * build-time bundle purity gate). The synchronous `require` handed to
- * factories walks the same order minus the fetch branch: fetching is async,
- * so only already-executed bundles can be required — and cross-plugin value
+ * factories walks the same order minus the load branch: loading is async,
+ * so only already-registered bundles can be required — and cross-plugin value
  * imports are a build error anyway.
  *
  * This file is the browser-safe contract face (zero node imports): the
@@ -56,7 +56,7 @@ export interface WebBootEntry {
   rev: string
   /** Package-name dependency edges, informational (preflight display / HMR diffing). */
   inject?: string[]
-  /** Stage-one prefetch mark: fetch + execute (factory registration) during module-face boot. */
+  /** Stage-one prefetch mark: load the script for factory registration during module-face boot. */
   immediately?: boolean
 }
 
@@ -210,18 +210,17 @@ export interface ClientModuleLoader {
    */
   registerStatic(id: string, module: unknown): void
   /**
-   * Stage-one arrival: fetch the entry's bundle and execute it, registering
-   * its factory (no materialization — module side effects wait for import).
+   * Stage-one arrival: load the entry's script to register its factory (no
+   * materialization — module side effects wait for import).
    * No-op for static-registered ids and ids whose factory is already
    * registered; concurrent calls share one in-flight task. To force a fresh
-   * fetch (HMR), {@link invalidate} first.
+   * load (HMR), {@link invalidate} first.
    * @param id - graph entry name.
    */
   prefetch(id: string): Promise<void>
   /**
-   * Full reset of one module: drop its registered factory, its materialized
-   * record, and any consumed bundle text, so the next prefetch/import
-   * refetches and re-executes (the HMR invalidation hook).
+   * Full reset of one module: drop its registered factory and materialized
+   * record so the next prefetch/import reloads it (the HMR invalidation hook).
    * @param id - entry name to invalidate.
    */
   invalidate(id: string): void
@@ -233,11 +232,6 @@ export interface ClientModuleSystemOptions {
   modules: BootModuleRow[]
   /** Module-table seed: platform-singleton specifier → shell instance. */
   staticModules: Record<string, unknown>
-  /** Bundle fetch seam (parallelizable half). Defaults to same-origin fetch().text(). */
-  fetchBundle?: (url: string) => Promise<string>
-  /**
-   * Bundle execution seam (synchronously performs the load() registration).
-   * Defaults to a <script> element carrying the code.
-   */
-  executeBundle?: (code: string, url: string) => void
+  /** Bundle-load seam. Defaults to a same-origin classic `<script src>` element. */
+  loadBundle?: (url: string) => Promise<void>
 }

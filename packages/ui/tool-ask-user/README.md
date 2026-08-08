@@ -15,7 +15,7 @@ Model-facing `ask_user_question` tool over `ctx.userInteraction`. It lets the mo
 - `options` — optional choices with `label` and `description`. If recommending a choice, put it first and append `(Recommended)` to that label.
 - `multi_select` — whether that question may return more than one selected option.
 
-The tool calls `ctx.userInteraction.ask()` and returns canonical `{ answers: [{ id, selected, custom? }] }`. `selected` contains option labels; `custom` is present only for a free-form answer and overrides selected choices. The Native renderer preserves the compact JSON text shape `{ "answers": [{ "id": "...", "selected": ["..."], "custom": "..." }] }`.
+The tool calls `ctx.userInteraction.ask()` and returns canonical `{ answers: [{ id, selected, custom? }] }`. `selected` contains option labels; `custom` carries a free-form answer, supplementing `selected` for a multi-select question and overriding it for a single-select question. The Native renderer preserves the compact JSON text shape `{ "answers": [{ "id": "...", "selected": ["..."], "custom": "..." }] }`.
 
 ## Role
 

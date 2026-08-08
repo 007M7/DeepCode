@@ -5,7 +5,7 @@ exports[`sidebar shell snapshots > renders the collapsed rail after the crossfad
   data-slot="sidebar"
 >
   <div
-    class="root collapsed railIn"
+    class="root collapsed railIn quietBars"
     style=""
   >
     <div
@@ -65,7 +65,7 @@ exports[`sidebar shell snapshots > renders the expanded column (wordmark, capsul
   data-slot="sidebar"
 >
   <div
-    class="root"
+    class="root quietBars"
     style="width: 300px;"
   >
     <div
@@ -135,7 +135,7 @@ exports[`sidebar shell snapshots > renders the expanded column in the default lo
   data-slot="sidebar"
 >
   <div
-    class="root"
+    class="root quietBars"
     style="width: 300px;"
   >
     <div

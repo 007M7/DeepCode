@@ -15,7 +15,7 @@ Status: implemented
 
 这还造成了一个真实的用户体验死胡同：窗口化读取记录 `view: partial`，而 partial 视图无法授权 `edit`。一个模型读取了大文件的第 100-150 行，如果想编辑第 120 行，就必须先获取一次 `full` 读取，而对于超过读取上限的文件这可能做不到。字面编辑实际上只需要新鲜度：被匹配的字节仍然来自模型所读取的那个版本即可。
 
-旧 Agent Note（agent 决策记录）已经推迟了独立的 `@deepseek-ai/dsh-fs-policy` 包。本 Agent Note 构建该层，使 `ctx.fs` 保持接近 fsspec 风格的存储原语（`info`/`cat`/`open`），但不把它变成完整的 fsspec。
+旧 Agent Note 已经推迟了独立的 `@deepseek-ai/dsh-fs-policy` 包。本 Agent Note 构建该层，使 `ctx.fs` 保持接近 fsspec 风格的存储原语（`info`/`cat`/`open`），但不把它变成完整的 fsspec。
 
 ## 决策
 
@@ -57,15 +57,15 @@ type FsWriteIntent =
 
 `stat` 返回元数据而非内容。`version` 是新鲜度令牌；`type` 让执行器在读取前拒绝目录/特殊文件；`size` 让 `read` 工具无需通过失败探测即可选择 `readText` 还是 `streamText`。`undefined` 表示目标不存在。
 
-`readText` 读取整个常规文本文件。`streamText` 以相同的文本语义流式读取大文件。两个提供方原语负责常规文件检查、UTF-8 解码、二进制/NUL 拒绝以及 `FS_NOT_TEXT`；策略层从不处理原始字节，也不重新实现跨分片解码。`readText` 是小文件/直接全文件原语，而面向模型的大文件读取使用 `streamText`。
+`readText` 读取整个普通文本文件。`streamText` 以相同的文本语义流式读取大文件。两个提供方原语负责普通文件检查、UTF-8 解码、二进制/NUL 拒绝以及 `FS_NOT_TEXT`；策略层从不处理原始字节，也不重新实现跨分片解码。`readText` 是小文件/直接全文件原语，而面向模型的大文件读取使用 `streamText`。
 
-`writeText` 是原子的临时文件 + rename，带有显式的写入期望。`createIfAbsent` 创建不存在的目标，对已存在的目标以 `FS_NOT_OBSERVED` 拒绝；这是 owner 没有先前读取时使用的路径。`replaceIfVersion` 仅在目标以观测到的版本存在时替换；目标不存在或版本不匹配时抛出 `FS_STALE_VERSION`。
+`writeText` 通过临时文件 + rename 实现原子写入，并带有显式的写入期望。`createIfAbsent` 创建不存在的目标，对已存在的目标以 `FS_NOT_OBSERVED` 拒绝；这是 owner 没有先前读取时使用的路径。`replaceIfVersion` 仅在目标以观测到的版本存在时替换；目标不存在或版本不匹配时抛出 `FS_STALE_VERSION`。
 
 `editText` 是提供方级别的受保护文本变更。启用守卫时，它首先验证目标仍以 `expected.version` 存在，然后读取当前文本、应用字面替换并原子写入。陈旧检查必须在字面匹配之前发生，这样基于旧读取的编辑会报告 `FS_STALE_VERSION`，而不是对更新内容进行匹配后报告 `FS_EDIT_NOT_FOUND` 或 `FS_AMBIGUOUS_EDIT`。将此原语保留在提供方 seam 上，保持了后端本地锁定的能力，也让未来的远程后端能够实现原生的 compare-and-edit，而无需策略层拉取整个文件。
 
 这是一个*文本存储* seam，刻意比字节级 fsspec（`cat`/`open` 返回原始字节）高半个层次。UTF-8 解码、二进制/NUL 拒绝、受保护的全文件写入和受保护的字面文本编辑都在提供方内完成，因此策略层从不接触原始字节、不重新实现跨分片解码、也不将陈旧检查与变更临界区分离。面向模型的概念仍然不下沉到提供方：行窗口、带行号的行、渲染的页脚、观测状态存储都不会泄漏下去。
 
-从 `dsh-fs` 删除：`readPage`、`FsExpectation`、`FsView`、`FsStateSource`、`FsReadRequest`、`FsTextLine`、行/窗口常量、`formatReadBody` 和 observed-state `WeakMap`。`applyEdit` 由更窄的提供方原语 `editText` 取代，其契约是带版本守卫的字面文本变更，而非策略层读取授权。`FS_PARTIAL_OBSERVATION` code 也从 `FsErrorCode` 分类中移除：新鲜度授权没有部分/完整之分，因此没有任何路径会抛出它。`FsTargetKey` 和 `FsVersion` 按现有[品牌化 id Agent Note](../architecture/2026-06-20-branded-ids.md) 成为品牌化不透明 id。
+从 `dsh-fs` 删除：`readPage`、`FsExpectation`、`FsView`、`FsStateSource`、`FsReadRequest`、`FsTextLine`、行/窗口常量、`formatReadBody` 和 observed-state `WeakMap`。`applyEdit` 由更窄的提供方原语 `editText` 取代，其契约是带版本守卫的字面文本变更，而非策略层读取授权。`FS_PARTIAL_OBSERVATION` 错误码也从 `FsErrorCode` 分类体系中移除：新鲜度授权没有部分/完整之分，因此没有任何路径会抛出它。`FsTargetKey` 和 `FsVersion` 按现有[品牌化 id Agent Note](../architecture/2026-06-20-branded-ids.md) 成为品牌化不透明 id。
 
 ## 策略契约
 
@@ -76,14 +76,14 @@ type FsWriteIntent =
 该插件决定三个 `fs/*` 事件：
 
 - `fs/write-intent`——无先前观测 ⇒ `{ kind: 'createIfAbsent' }`（只有新文件可以盲创建）；有先前观测 ⇒ `{ kind: 'replaceIfVersion', version: vObserved }`（已有文件仅在自观测以来未变时才替换）。单槽决策；不调用 `next()`。
-- `fs/edit-intent`——要求 owner 有先前观测（否则 `FS_NOT_OBSERVED`）；返回 `{ version: vObserved }` 作为 CAS 基础。它不实现字面替换——它授权并提供版本，提供方的变更临界区负责应用守卫，因此基于同一观测版本的并发编辑仍然是一赢一陈旧。
+- `fs/edit-intent`——要求 owner 有先前观测（否则 `FS_NOT_OBSERVED`）；返回 `{ version: vObserved }` 作为 CAS 基础。它不实现字面替换——它授权并提供版本，提供方的变更临界区负责应用守卫，因此基于同一观测版本的并发编辑仍然是一个成功，另一个因版本陈旧而失败。
 - `fs/observed`——在成功的读取/写入/编辑后，为该 owner+target 记录 `{ version }`。同步、仅副作用的 `WeakMap.set`。
 
 该插件不做任何文件系统 I/O：「你是否观测过此文件？」是一次 `WeakMap` 查找，而「你读取的版本是否仍然是当前版本？」在 `ctx.fs.editText`/`writeText` 内部、与执行变更相同的原子锁中决定——插件只提供 `vObserved` 作为基础。
 
 ## 工具契约
 
-`dsh-tool-fs` 保持相同的 schema 和提示词表面。`read` 仍然暴露 `file_path`、`offset` 和 `limit`；`write` 和 `edit` 不变。它是执行器：验证模型参数，通过 `ctx.fs` 直接读取/写入/编辑，拥有行窗口化和结果渲染（`N: text`、页脚、`<path>/<content>` 信封），并分发 `fs/*` 事件。
+`dsh-tool-fs` 保持相同的 schema 和提示词表面。`read` 仍然暴露 `file_path`、`offset` 和 `limit`；`write` 和 `edit` 不变。它是执行器：验证模型参数，通过 `ctx.fs` 直接读取/写入/编辑，拥有行窗口化和结果渲染（`N: text`、页脚、`<path>/<content>` 封装），并分发 `fs/*` 事件。
 
 每个变更操作先分发其 intent waterfall（瀑布式事件），带有 `undefined` 裸提供方默认值，然后调用 `ctx.fs`，再发出 `fs/observed`。例如 `write` 执行 `ctx.waterfall('fs/write-intent', target, exec, () => undefined)` → `ctx.fs.writeText(target, content, intent)` → `ctx.emit('fs/observed', …)`。`read` 先 stat 一次，然后读取/流式读取，构建窗口，最后发出 `fs/observed`。将 `exec` 作为 actor 传递，让 `dsh-fs-policy` 无需工具深入策略即可派生 owner。
 
@@ -109,7 +109,7 @@ type FsWriteIntent =
 
 ## 验证
 
-`dsh-fs` 精确暴露 `resolve`/`stat`/`readText`/`streamText`/`writeText`/`editText`（`stat` 返回 `FsInfo | undefined`，`writeText` 接受 `FsWriteIntent`），已删除的类型/原语不再存在；`dsh-fs-local` 不包含行、视图或 `formatReadBody` 逻辑；面向模型的 schema 保持逐字节不变。测试固定了以下行为：窗口化读取授权对未变文件的后续编辑；基于陈旧读取的编辑在尝试字面匹配之前报告 `FS_STALE_VERSION`；版本 CAS 行为得以保留；观测契约成立（`read` 工具的读取记录观测状态；直接 `ctx.fs` 读取不记录）；`dsh-fs-policy` 具有 HMR（热模块替换）/dispose（资源释放）覆盖率。
+`dsh-fs` 精确暴露 `resolve`/`stat`/`readText`/`streamText`/`writeText`/`editText`（`stat` 返回 `FsInfo | undefined`，`writeText` 接受 `FsWriteIntent`），已删除的类型/原语不再存在；`dsh-fs-local` 不包含行、视图或 `formatReadBody` 逻辑；面向模型的 schema 保持逐字节不变。测试固定了以下行为：窗口化读取授权对未变文件的后续编辑；基于陈旧读取的编辑在尝试字面匹配之前报告 `FS_STALE_VERSION`；版本 CAS 行为得以保留；观测契约成立（`read` 工具的读取记录观测状态；直接 `ctx.fs` 读取不记录）；`dsh-fs-policy` 具有 HMR（热模块替换）/dispose（资源释放）测试覆盖。
 
 ## 后续扩展
 

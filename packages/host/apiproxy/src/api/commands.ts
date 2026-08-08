@@ -1,8 +1,8 @@
 /**
  * commands domain contract: the web catalog/dispatch face of the host command
- * registry (`ctx.commands`). Both methods address one session's agent via
- * `sessionId` — every served session has an Agent (Session+Agent are born
- * together), so there is no agent-less surface on this wire.
+ * registry (`ctx.commands`). Both methods address an ordinary session's Agent
+ * via `sessionId`, resuming it when cold. Session-backed subagents reject with
+ * `agent-busy` and retain their dedicated continuation owner.
  */
 
 import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
@@ -27,7 +27,8 @@ export interface CommandDescriptor {
 export interface CommandsApi {
   /**
    * Lists the addressed agent's effective command catalog (name-sorted,
-   * globals plus its scoped shadows).
+   * globals plus its scoped shadows). Session-backed subagents reject with
+   * `agent-busy`.
    */
   list(request: RpcRequest<{ sessionId: SessionId }>): Promise<RpcResponse<{ commands: readonly CommandDescriptor[] }>>
 
@@ -42,6 +43,7 @@ export interface CommandsApi {
    * pairing id, letting the issuing client correlate this acknowledgment
    * with that flow node. The signal rides beside the request, never on the
    * wire: the fetch carrier's request signal cancels the running handler.
+   * Session-backed subagents reject with `agent-busy` before dispatch.
    */
   execute(request: RpcRequest<{ sessionId: SessionId; line: string }>, signal: AbortSignal):
   Promise<RpcResponse<{ matched: boolean; commandId?: CommandId }>>

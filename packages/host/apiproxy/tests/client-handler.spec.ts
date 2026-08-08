@@ -19,6 +19,7 @@ function ok<T>(request: RpcRequest<unknown>, value: T): Promise<RpcResponse<T>> 
 /** Scripted impl: every method resolves an empty-ish OK unless a case overrides it. */
 function scriptedApi(overrides: {
   sessions?: Partial<ApiProxy['sessions']>
+  subagents?: Partial<ApiProxy['subagents']>
   host?: Partial<ApiProxy['host']>
   commands?: Partial<ApiProxy['commands']>
   skills?: Partial<ApiProxy['skills']>
@@ -44,6 +45,7 @@ function scriptedApi(overrides: {
       }),
       models: r => ok(r, {
         current: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+        routable: true,
         groups: [],
         failures: [],
       }),
@@ -56,6 +58,12 @@ function scriptedApi(overrides: {
       updateQueue: r => ok(r, { accepted: true as const }),
       cancel: r => ok(r, { accepted: true as const }),
       ...overrides.sessions,
+    },
+    subagents: {
+      list: r => ok(r, { entries: [], parentAvailable: false }),
+      history: r => ok(r, { events: [], hasMore: false }),
+      prompt: r => ok(r, { messageId: 'message-1' as never }),
+      ...overrides.subagents,
     },
     host: {
       describe: r => ok(r, { version: '0-test', cwd: '/t', attachedSessions: 0 }),
@@ -89,7 +97,8 @@ function scriptedApi(overrides: {
       ...overrides.goals,
     },
     settings: {
-      describe: r => ok(r, { writable: true, namespaces: [] }),
+      describe: r => ok(r, { writable: true, hasDocument: false, namespaces: [] }),
+      openDocument: r => ok(r, { opened: true as const }),
       update: err,
       replace: err,
       mutate: err,
@@ -104,6 +113,7 @@ function scriptedApi(overrides: {
     llm: {
       providers: r => ok(r, { providers: [] }),
       models: r => ok(r, { groups: [], failures: [] }),
+      discoverModels: err,
       ...overrides.llm,
     },
     events: { mux: () => empty<MuxFrame>(), host: () => empty<HostFrame>(), ...overrides.events },
@@ -672,7 +682,8 @@ describe('config unary surface', () => {
     const group = { id: 'deepseek-official', name: 'DeepSeek', models: [{ id: 'deepseek-v4-flash', name: 'Flash' }] }
     const api = scriptedApi({
       settings: {
-        describe: record('settings.describe', r => ok(r, { writable: true, namespaces: [view] })),
+        describe: record('settings.describe', r => ok(r, { writable: true, hasDocument: false, namespaces: [view] })),
+        openDocument: record('settings.openDocument', r => ok(r, { opened: true as const })),
         update: record('settings.update', r => ok(r, view)),
         replace: record('settings.replace', r => ok(r, view)),
         mutate: record('settings.mutate', r => ok(r, view)),
@@ -685,12 +696,14 @@ describe('config unary surface', () => {
       llm: {
         providers: record('llm.providers', r => ok(r, { providers: [providerRow] })),
         models: record('llm.models', r => ok(r, { groups: [group], failures: [] })),
+        discoverModels: record('llm.discoverModels', r => ok(r, { models: [{ id: 'acme-large', contextWindow: 65536 }] })),
       },
     })
     const c = client(api)
 
     const described = await c.settings.describe({})
-    expect(described.result).toEqual({ ok: true, value: { writable: true, namespaces: [view] } })
+    expect(described.result).toEqual({ ok: true, value: { writable: true, hasDocument: false, namespaces: [view] } })
+    expect((await c.settings.openDocument({})).result).toEqual({ ok: true, value: { opened: true } })
     const updated = await c.settings.update({ ns: 'llm-deepseek', patch: { baseURL: 'https://next' } })
     expect(updated.result).toEqual({ ok: true, value: view })
     const replaced = await c.settings.replace({ ns: 'llm-deepseek', section: {} })
@@ -709,16 +722,31 @@ describe('config unary surface', () => {
     expect(providers.result).toEqual({ ok: true, value: { providers: [providerRow] } })
     const models = await c.llm.models({})
     expect(models.result).toEqual({ ok: true, value: { groups: [group], failures: [] } })
+    const discovered = await c.llm.discoverModels({
+      settingsNs: 'llm-pi-ai',
+      baseURL: 'https://gateway.acme.example/v1',
+      api: 'openai-completions',
+      apiKey: 'probe-key',
+    })
+    expect(discovered.result).toEqual({ ok: true, value: { models: [{ id: 'acme-large', contextWindow: 65536 }] } })
 
     expect(seen.map(call => call.method)).toEqual([
-      'settings.describe', 'settings.update', 'settings.replace', 'settings.mutate',
+      'settings.describe', 'settings.openDocument', 'settings.update', 'settings.replace', 'settings.mutate',
       'credentials.describe', 'credentials.set', 'credentials.unset',
-      'llm.providers', 'llm.models',
+      'llm.providers', 'llm.models', 'llm.discoverModels',
     ])
-    expect(seen[1]?.payload).toEqual({ ns: 'llm-deepseek', patch: { baseURL: 'https://next' } })
-    expect(seen[3]?.payload)
+    expect(seen[2]?.payload).toEqual({ ns: 'llm-deepseek', patch: { baseURL: 'https://next' } })
+    expect(seen[4]?.payload)
       .toEqual({ ns: 'llm-deepseek', ops: [{ op: 'unset', path: ['baseURL'] }], expectedRevision: 0 })
-    expect(seen[5]?.payload).toEqual({ ref: 'OPENAI_API_KEY', value: 'sk-x' })
+    expect(seen[6]?.payload).toEqual({ ref: 'OPENAI_API_KEY', value: 'sk-x' })
+    // The draft crosses whole, credential included: the host needs it for this
+    // one interrogation and stores none of it.
+    expect(seen[10]?.payload).toEqual({
+      settingsNs: 'llm-pi-ai',
+      baseURL: 'https://gateway.acme.example/v1',
+      api: 'openai-completions',
+      apiKey: 'probe-key',
+    })
   })
 
   it('rejects an invalid credential reference name at the carrier boundary', async () => {

@@ -20,12 +20,13 @@
  * suite only proves the assembled wiring.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, waitFor, within } from '@testing-library/react'
+import { useState } from 'react'
 import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
 import type { ISession, SessionId, TodoItem, ToolResultNode } from '@deepseek-ai/dsh-client-runtime/client'
 import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
 import { SlotTestRuntime, usePinnedBrowserLanguages } from '@deepseek-ai/dsh-client-test-runtime'
-import { apply, inject } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import { apply, inject, type EmptyWorkspaceOwnerProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
 
 // The service reads its initial locale from the browser; these specs assert
 // the shipped Chinese copy, so they state the browser they assume.
@@ -83,6 +84,16 @@ const LAYOUT_CHILDREN = {
   'details': { kind: 'single', scope: 'session' },
 } as const
 
+/** Stateful occupant proving the root-scoped Hero workspace outlet is not rebuilt. */
+function WorkspaceProbe({ open }: EmptyWorkspaceOwnerProps) {
+  const [count, setCount] = useState(0)
+  return (
+    <button data-testid="workspace-probe" onClick={() => { setCount(value => value + 1) }}>
+      {String(open)}:{count}
+    </button>
+  )
+}
+
 async function bench(nodes: ToolResultNode[], opts?: { blank?: boolean }) {
   const runtime = await SlotTestRuntime.create()
   runtime.provide('layout', { openDetails: vi.fn(), closeDetails: vi.fn() })
@@ -122,7 +133,7 @@ describe('todo_write assembly (product registrations, no outlet twins)', () => {
     // (default-collapsed: the header summary shows; rows appear on expand).
     const panel = view.container.querySelector('[data-testid="todo-panel"]')
     expect(panel).not.toBeNull()
-    expect(panel!.textContent).toContain('1/3 项任务 · 1 项进行中')
+    expect(panel!.textContent).toContain('1 已完成\u2002·\u20021 进行中\u2002·\u20021 待处理')
     fireEvent.click(panel!.querySelector('button')!)
     expect([...panel!.querySelectorAll('li')].map(li => li.getAttribute('data-status')))
       .toEqual(['completed', 'in_progress', 'pending'])
@@ -185,6 +196,49 @@ describe('resident composer', () => {
     expect(textarea).not.toBeNull()
     expect(textarea!.disabled).toBe(true)
     expect(view.getByRole('button', { name: '选择工作区' })).toBeTruthy()
+    await runtime.dispose()
+  })
+
+  it('keeps the complete Hero tree mounted when the first Workspace session appears', async () => {
+    const runtime = await SlotTestRuntime.create()
+    runtime.provide('layout', { openDetails: vi.fn(), closeDetails: vi.fn() })
+    const locale = new LocaleService(runtime.ctx)
+    runtime.provide('locale', locale)
+    runtime.slots.installLocale(locale)
+    await runtime.workspaces.update((draft) => {
+      draft.items = [{ workspaceId: 'w1', title: 'Proj', path: '/proj', sessionIds: [SID] }] as never
+    })
+    await runtime.root.declare(LAYOUT_CHILDREN, AppRoot)
+    await runtime.mount({ inject: [...inject], apply })
+    runtime.slots.register({ name: 'conversation.hero.workspace' }, WorkspaceProbe)
+    const view = runtime.renderRoot()
+
+    const root = view.container.querySelector('[data-phase="hero"]')!
+    const scrollBody = view.container.querySelector('[data-conversation-scroll]')!
+    const composerSeat = view.container.querySelector('[data-composer-seat]')!
+    const textarea = view.container.querySelector('textarea')!
+    const workspaceChip = view.getByRole('button', { name: '选择工作区' })
+    const workspaceProbe = view.getByTestId('workspace-probe')
+    expect(textarea.disabled).toBe(true)
+
+    fireEvent.click(workspaceChip)
+    fireEvent.click(workspaceProbe)
+    expect(workspaceProbe.textContent).toBe('true:1')
+
+    await runtime.sessions.add({
+      id: SID,
+      summary: { title: 'S', displayTitle: 'S', cwd: '/proj', blank: true },
+      snapshot: { blank: true, composerPhase: 'blank' },
+    })
+
+    expect(view.container.querySelector('[data-phase="hero"]')).toBe(root)
+    expect(view.container.querySelector('[data-conversation-scroll]')).toBe(scrollBody)
+    expect(view.container.querySelector('[data-composer-seat]')).toBe(composerSeat)
+    expect(view.container.querySelector('textarea')).toBe(textarea)
+    expect(view.getByRole('button', { name: '选择工作区' })).toBe(workspaceChip)
+    expect(view.getByTestId('workspace-probe')).toBe(workspaceProbe)
+    expect(workspaceProbe.textContent).toBe('true:1')
+    expect(textarea.disabled).toBe(false)
     await runtime.dispose()
   })
 
@@ -256,14 +310,17 @@ describe('prompt rejection through the assembled composer', () => {
 })
 
 describe('title projection across assembled surfaces', () => {
-  it('one summary update re-labels the current-session heading', async () => {
+  it('one summary update re-labels the current-session crumb', async () => {
     const runtime = await bench([])
     const view = runtime.renderRoot()
-    expect(view.getByRole('heading', { name: 'S', level: 1 })).toBeTruthy()
+    const hierarchy = view.getByRole('navigation', { name: '会话层级' })
+    expect(within(hierarchy).getByRole('button', { name: 'S' }).hasAttribute('disabled')).toBe(true)
 
     await runtime.sessions.updateSummary(SID, { displayTitle: '修订标题', title: '修订标题' })
-    await waitFor(() => { expect(view.getByRole('heading', { name: '修订标题', level: 1 })).toBeTruthy() })
-    expect(view.queryByRole('heading', { name: 'S', level: 1 })).toBeNull()
+    await waitFor(() => {
+      expect(within(hierarchy).getByRole('button', { name: '修订标题' }).hasAttribute('disabled')).toBe(true)
+    })
+    expect(within(hierarchy).queryByRole('button', { name: 'S' })).toBeNull()
     await runtime.dispose()
   })
 })

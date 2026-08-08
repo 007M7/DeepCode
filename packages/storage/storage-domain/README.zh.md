@@ -4,7 +4,7 @@
 
 DeepSeek Harness 存储中心的领域数据形式：在所有已配置的后端注册后，公开可注入的 `ctx.storageDomain` 服务及对应的 `ctx.storage.domain` 投影。一个领域通过 `defineDomain`（zod 记录 schema、从 `z.infer` 派生的类型）声明一次，通过 `DomainFacility.open` 打开，并由具有最终决定权的内存状态提供服务：读取同步执行；写入在每个领域各自的一条链上串行化，先在已路由后端达到持久状态，再更新内存并发出 `domain/changed`。打开领域的消费方负责管理句柄的生命周期，并通过 `Domain.close()` 释放它（幂等；通常作为其自身的 `ctx.effect` 资源释放函数）；插件卸载时，该设施会关闭仍处于打开状态的领域。
 
-设计原理、打开语义和存储／领域分层见 [Agent Note（agent 决策记录）](../../../.agents/notes/proposed/architecture/2026-07-24-domain-kv-storage-and-workspace.zh.md)。
+设计原理、打开语义和存储／领域分层见 [Agent Note](../../../.agents/notes/proposed/architecture/2026-07-24-domain-kv-storage-and-workspace.zh.md)。
 
 ## 配置
 
@@ -19,7 +19,7 @@ DeepSeek Harness 存储中心的领域数据形式：在所有已配置的后端
 
 #### 模型看到的内容
 
-无。该包（package）不注册工具、不注入提示词，也不追加会话事件；它在 `ctx.storageDomain` 后面存储非会话数据（工作区记录、未来的会话伴随数据），只发出进程内 `domain/changed` 事件。只有消费方包通过自身有文档说明的接口呈现该事件时，它才会到达模型。
+无。该包不注册工具、不注入提示词，也不追加会话事件；它在 `ctx.storageDomain` 后面存储非会话数据（工作区记录、未来的会话伴随数据），只发出进程内 `domain/changed` 事件。只有消费方包通过自身有文档说明的接口呈现该事件时，它才会到达模型。
 
 #### Token 影响
 

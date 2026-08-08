@@ -17,7 +17,7 @@ import type {
 import type { ToolResultView } from '@deepseek-ai/dsh-client-connection/client'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import type { SelectionTarget, ToolRowOwnerProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
-import { CHAT_WEB_MAX_SOURCES, webCardModel } from '../src/client/contract/web-card-model.ts'
+import { webCardModel } from '../src/client/contract/web-card-model.ts'
 import { createChatStore } from '../src/client/stores.ts'
 import { GenericToolCard } from '../src/client/chat/GenericToolCard.tsx'
 import { DetailsPanel } from '../src/client/skeleton/DetailsPanel.tsx'
@@ -135,8 +135,7 @@ describe('chat row web body', () => {
     fireEvent.click(view.container.querySelector('[data-expandable]')!)
   }
 
-  it('the WebRow collapses to the summary row, expanding to the search card capped tighter than the panel', () => {
-    expect(CHAT_WEB_MAX_SOURCES).toBeLessThan(16)
+  it('the WebRow collapses to the summary row, expanding to the full search card', () => {
     const view = render(<WebRow {...rowProps(settledSearch(), 'web_search')} />)
     // Collapsed: the summary row alone, no card in the DOM.
     expect(view.getByText('Search')).toBeTruthy()
@@ -205,7 +204,10 @@ describe('DetailsPanel web Output section', () => {
     localStorage.clear()
     const chat = createChatStore().create()
     if (selection !== null) chat.actions.select(selection)
-    const sessions = createSnapshotStore<SessionListState>({ ids: [], byId: {}, current: undefined, phase: 'ready' })
+    const sessions = createSnapshotStore<SessionListState>({
+      ids: [], byId: {}, current: undefined, phase: 'ready',
+      subagentsByParent: {}, currentAddress: undefined,
+    })
     const workspaces = createSnapshotStore<WorkspaceListState>({
       items: [], archivedSessionIds: [], state: 'idle', phase: 'ready', error: null,
       baselinesReady: true, recentWorkspaceId: undefined,
@@ -229,10 +231,10 @@ describe('DetailsPanel web Output section', () => {
 
   function snapshot(over: Partial<ConversationSnapshot> = {}): ConversationSnapshot {
     return {
-      sessionId: SID, nodes: [], partial: null, runningCalls: [], codeDispatches: new Map(),
+      sessionId: SID, nodes: [], turnTimings: new Map(), turnEnds: new Map(), partial: null, runningCalls: [], codeDispatches: new Map(),
       pending: [], queue: [], running: false, composerPhase: 'active', removed: false,
       openState: 'open', openError: null, hasMore: false, loadingOlder: false,
-      promptError: null, blank: false, lastAgentError: null, ...over,
+      promptError: null, blank: false, subagent: null, lastAgentError: null, ...over,
     }
   }
 
@@ -270,6 +272,10 @@ describe('web toolview registration', () => {
     const registered: { key: string; locale: unknown; component: unknown }[] = []
     const ctx = {
       slots: {
+        inject: (_name: string, callback: () => Iterable<() => void>) => {
+          for (const _dispose of callback()) { /* exhaust transactional setup */ }
+          return () => undefined
+        },
         register: (options: { name: string; key: string; locale?: string }, component: unknown) => {
           registered.push({ key: options.key, locale: options.locale, component })
           return () => {}
@@ -283,7 +289,6 @@ describe('web toolview registration', () => {
     // One component under both keys, not two thin rows.
     expect(registered[0]?.component).toBe(WebRow)
     expect(registered[1]?.component).toBe(WebRow)
-    // The load-order seam the render site depends on.
-    expect(webToolview.inject).toEqual(['slots', 'conversation'])
+    expect(webToolview.inject).toEqual(['slots'])
   })
 })

@@ -4,7 +4,7 @@ Status: implemented
 
 English | [中文](2026-06-17-ts-build-config.zh.md)
 
-> Root project topology (which tsconfig owns which graph) has since moved to a solution root over two aggregate programs; see the [solution-root note](2026-07-22-tsconfig-solution-root-two-aggregates.md). The tsc-first pipeline decided here is unchanged.
+> Root project topology uses a solution root over two aggregate programs; see the [solution-root note](2026-07-22-tsconfig-solution-root-two-aggregates.md). The [API Remotes build note](2026-08-08-api-remotes-generated-contract-build.md) defines the current command order in which the Host generates Remote contracts before the Client compiles. The tsc-first ownership decided here is unchanged.
 
 ## Problem
 
@@ -30,18 +30,15 @@ Validation found several concrete technical issues and possible routes:
 
 In-package relative imports use explicit `.ts` specifiers.
 
-`pnpm run build` is a two-stage build:
+`pnpm run build` orders Host lib, Client lib, and Web; each lib phase keeps tsc emission before tsdown bundling:
 
-- Stage 1: `tsc -b` over the root solution emits per-module `.js`, declarations `.d.ts`, JS sourcemaps `.js.map`, and declaration sourcemaps `.d.ts.map` into each package's `lib/types`. This is the authoritative TypeScript compilation result. For publish we keep `.d.ts` / `.d.ts.map` and ignore `.js` / `.js.map`.
-    - The graph is the project-reference graph reachable from the root solution `tsconfig.json` through the two aggregates ([topology](2026-07-22-tsconfig-solution-root-two-aggregates.md)). It validates and emits package/vendor build results.
-- Stage 2: a bundler reads the emitted JS under `lib/types` and writes the bundled runtime entry as `lib/index.js` or `lib/index.mjs` (follow current behavior). This stage is bundling only. It must not read TypeScript source or emit declarations.
+- Host tsc runs `tsc -b` against `tsconfig.host.json`, emitting per-module `.js`, `.d.ts`, `.js.map`, and `.d.ts.map` into `lib/types` for each package in the Host graph; Host tsdown then reads that JavaScript, produces published entries, and runs Host TypeRT.
+- Client tsc runs `tsc -b` against `tsconfig.client.json` after Host TypeRT has generated the Remote Client declarations; Client tsdown then reads the JavaScript emitted by the Client graph and produces the Client packages' Node loader entries and browser bundles.
+- The Web build starts only after both lib phases complete.
 
 `tsdown` is no longer the owner of TypeScript compilation or declaration output.
 
-`pnpm run typecheck` runs the same `tsc -b` graph.
-- The aggregates (`tsconfig.host.json`, `tsconfig.client.json`) typecheck examples, tests, and scripts with `noEmit`, and validate package/vendor source through references.
-- Referenced package/vendor projects keep the same emit behavior as build, so typecheck refreshes their `lib/types` outputs instead of using a separate no-emit graph. Project-specific strictness changes live in the owning `packages/*/*/tsconfig.json` or `vendor/*/tsconfig.json`.
-- The no-emit aggregates disable `rewriteRelativeImportExtensions`; they emit nothing and include tests that import helpers across project-reference boundaries. Package/vendor emit projects keep the rewrite enabled.
+`pnpm run typecheck` first runs the Host lib phase to generate the Remote declarations required by Client typechecking, then runs `tsc -b` against `tsconfig.client.json`. The two aggregates themselves check their respective examples, tests, and scripts with `noEmit`; referenced package/vendor projects retain the same emit behavior as the build.
 
 Composite projects keep their incremental build information inside their project-local `lib/` output. `pnpm run clean` derives live output directories from the root TypeScript project-reference graph, removes legacy root build information, and removes deleted `packages/*/*` directories that contain only known generated residue. Before removing an existing target, it resolves the target's parent and refuses it if that resolved parent is outside the repository, so a symlinked project reference cannot redirect cleanup outside the checkout. It preserves `node_modules` for every package that still has a `package.json`, and refuses to remove a manifest-less directory containing unknown files. Build does not invoke clean automatically, so ordinary builds retain incremental state.
 
@@ -49,14 +46,18 @@ The command orchestration shape is:
 
 ```sh
 pnpm run build:
-tsc -b
-tsdown
+tsc -b tsconfig.host.json
+tsdown --env.DSH_BUILD_FACE host
+tsc -b tsconfig.client.json
+tsdown --env.DSH_BUILD_FACE client
+pnpm run build:web
 
 pnpm run verify-node-next-types:
 tsx scripts/verify-node-next-types.ts
 
 pnpm run typecheck:
-tsc -b
+pnpm run build:lib:host
+tsc -b tsconfig.client.json
 
 pnpm run clean:
 tsx scripts/clean.ts
@@ -75,11 +76,11 @@ The source-mode demos run through their declared TypeScript launchers and the ro
 
 Build responsibilities are clearer:
 
-- Each module under `packages/<group>/<pkg>` and `vendor/*` has one local tsconfig for build, typecheck, and tools that run source directly, such as the `dsh` source loader, `tsx`, and `vitest`.
-- The `build` command drives the root solution graph. `tsc -b` owns the publishable per-module `.js` and `.d.ts` output, and the bundler owns only `lib/index.*`.
-    - `lib/types/*.d.ts` and `.d.ts.map` are the publish declaration output.
+- Each ordinary module under `packages/<group>/<pkg>` and `vendor/*` has one local tsconfig for build, typecheck, and tools that run source directly, such as the `dsh` source loader, `tsx`, and `vitest`. `api/remotes` is the sole exception: generated-contract ordering requires one solution and two mutually exclusive emitting projects.
+- The `build` command runs the Host and Client Project Reference graphs in order. In each phase, `tsc -b` owns the publishable per-module `.js` and `.d.ts` output, while the bundler owns only the published runtime bundles.
+    - `lib/types/*.d.ts` is the publish declaration output; `.d.ts.map` remains only as a local compilation artifact.
     - `lib/types/*.d.ts` uses explicit `.ts` relative specifiers, which TypeScript's NodeNext/Node16 resolver maps to sibling `.d.ts` files.
-    - `lib/types/*.js` is only a bundler input and must not be used as a runtime entry or public import target.
+    - `lib/types/*.js` is normally only a bundler input. It is published only when an explicit runtime export points into the emitted tree.
     - `lib/index.*` is the publish runtime output and is generated by the bundler, currently `tsdown`.
 - `pnpm run verify-node-next-types` scans built declarations for relative specifiers without file extensions, then typechecks a temporary external ESM consumer with `moduleResolution: "NodeNext"` against the built `types`/`exports` surface, so declaration specifier regressions fail before publish.
 - The `typecheck` command uses `tsconfig.json`. Examples, tests, and scripts are checked by the root no-emit project, while packages and vendor modules keep the same emit behavior as `build`. Package and vendor source stays behind project-reference boundaries.

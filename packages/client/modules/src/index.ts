@@ -2,8 +2,8 @@
  * Node half of the client module system (dshClient dual-face package): scans
  * the host Loader's entries for `dshClient` packages, composes the
  * `window.__DSH_BOOT__` entry graph (wire single source: {@link WebBootEntry}
- * in `./client/manifest.ts`), serves `/plugins/<id>/client.js`, taps the
- * index render to inject the boot manifest, and provides the
+ * in `./client/manifest.ts`), serves `/plugins/<id>/client.js` and its source
+ * map, taps the index render to inject the boot manifest, and provides the
  * `clientModuleHost` service (the HMR node half's registration/notification
  * face).
  *
@@ -424,9 +424,15 @@ export class ClientModuleHostService extends Service {
     const pathname = decodeURIComponent(new URL(req.url ?? '/', 'http://x').pathname)
     // The id may contain a scope slash. Anything else under /plugins (including
     // /plugins/events when the HMR row is absent) is an unknown resource.
-    const path = pathname.startsWith('/plugins/') && pathname.endsWith('/client.js')
-      ? this.clientPath(pathname.slice('/plugins/'.length, -'/client.js'.length))
+    const prefix = '/plugins/'
+    const mapSuffix = '/client.js.map'
+    const bundleSuffix = '/client.js'
+    const isSourceMap = pathname.startsWith(prefix) && pathname.endsWith(mapSuffix)
+    const suffix = isSourceMap ? mapSuffix : bundleSuffix
+    const clientPath = pathname.startsWith(prefix) && pathname.endsWith(suffix)
+      ? this.clientPath(pathname.slice(prefix.length, -suffix.length))
       : undefined
+    const path = clientPath === undefined ? undefined : `${clientPath}${isSourceMap ? '.map' : ''}`
     if (path === undefined) {
       res.writeHead(404)
       res.end()
@@ -434,7 +440,10 @@ export class ClientModuleHostService extends Service {
     }
     try {
       const body = await readFile(path)
-      res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'no-cache' })
+      res.writeHead(200, {
+        'content-type': isSourceMap ? 'application/json; charset=utf-8' : 'text/javascript; charset=utf-8',
+        'cache-control': 'no-cache',
+      })
       res.end(body)
     } catch {
       // Registered but unreadable (bundle not built yet): loud 404 beats a silent SPA-fallback HTML page.

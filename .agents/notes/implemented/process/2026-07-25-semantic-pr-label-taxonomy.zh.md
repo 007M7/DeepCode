@@ -44,7 +44,7 @@ PR（Pull Request）需要传达两个不同的信号：它带来哪一类变更
 
 `tasks` 负责与运行中进程绑定的后台工作，`schedule` 则负责持久化的定时作业。`tools` 负责通用的注册表契约、schema 契约和执行契约；具体能力只有在修改其中一项契约时才带有 `tools`。`attachment` 负责持久化的媒体引用和多模态输入传递，`artifact` 则负责模型声明的交付物标识和预览生命周期；二者都不会因实现包含工具或界面部分而借用 `tools` 或 `ui`。
 
-标签名称以语义归属为准，而不是词面相似性。`hooks` 指 Claude Code 和 Codex 的 agent 桥接，而不是本地 Git 钩子；`platform` 指产品可移植性，而不是 CI 运行器选择；`build` 指编译、打包和已构建的包（package）产物，而不是文档生成器。
+标签名称以语义归属为准，而不是词面相似性。`hooks` 指 Claude Code 和 Codex 的 agent 桥接，而不是本地 Git 钩子；`platform` 指产品可移植性，而不是 CI 运行器选择；`build` 指编译、打包和已构建的包产物，而不是文档生成器。
 
 ### 可扩展性
 

@@ -3,7 +3,7 @@
  * append durable, source-attributed context naming the tmux session, window,
  * and pane this agent process runs in, plus the window's pane-tree layout.
  *
- * The plugin pulls state once per turn, on the first step (`step === 1`), by
+ * The plugin pulls state once per turn, for the first request (`step === 1`), by
  * running one `tmux display-message` through the `ctx.bash` executor seam. It
  * confirms this process genuinely runs inside the pane `$TMUX_PANE` names by
  * matching the pane's `#{pane_tty}` against this process's controlling terminal,
@@ -20,14 +20,14 @@
 
 import type { Context, LoggerService } from 'cordis'
 import z from 'schemastery'
-import type { Agent } from '@deepseek-ai/dsh-agent'
+import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
 import type { BashExecutor, BashRunResult } from '@deepseek-ai/dsh-bash'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'tmux-context'
 
-/** The agent registry that owns the `agent/step` lifecycle seam. */
+/** The agent registry that owns pre-step processing. */
 export const inject = ['agents']
 
 /** Per-turn tmux-location scheduling. Invalid values fail plugin load. */
@@ -206,7 +206,7 @@ function validateRefreshInterval(refreshIntervalMs: number | undefined): void {
 }
 
 /**
- * Register a prepended `agent/step` listener for the lifetime of `ctx`.
+ * Register a prepended pre-step listener for the lifetime of `ctx`.
  * @param ctx - plugin context; the listener is disposed with it.
  * @param config - durable refresh scheduling configuration.
  * @throws when the refresh interval is invalid.
@@ -215,27 +215,33 @@ export function apply(ctx: Context, config: Config): void {
   const refreshIntervalMs = config.refreshIntervalMs
   validateRefreshInterval(refreshIntervalMs)
 
-  ctx.on('agent/step', async (
-    agent: Agent,
-    turn: number,
-    step: number,
-    signal: AbortSignal,
-  ): Promise<void> => {
-    if (signal.aborted || step !== 1) return
+  ctx.on('agent/pre-step', async (
+    { agent, turn, step, signal },
+    next,
+  ): Promise<PreStepDecision> => {
+    const decision = await next()
+    if (decision.kind === 'reject' || signal.aborted || step !== 1) return decision
     const bash = ctx.get('bash')
-    if (bash === undefined) return
+    if (bash === undefined) return decision
     const previous = latestInjectedState(agent)
     if (refreshIntervalMs !== undefined && refreshIntervalMs > 0 && previous !== undefined) {
       const now = Date.now()
-      if (now >= previous.time && now - previous.time < refreshIntervalMs) return
+      if (now >= previous.time && now - previous.time < refreshIntervalMs) return decision
     }
     const location = await queryTmuxLocation(bash, ctx.logger, process.pid, signal)
-    if (location === undefined) return
+    if (location === undefined) return decision
     const state = renderState(location)
-    if (previous !== undefined && previous.state === state) return
-    agent.inject(createUserMessage({
-      content: [{ type: 'text', text: renderReading(location, turn) }],
-      source: { kind: 'plugin', plugin: name },
-    }))
+    if (previous !== undefined && previous.state === state) return decision
+    const text = renderReading(location, turn)
+    return {
+      kind: 'enter',
+      messages: [
+        createUserMessage({
+          content: [{ type: 'text', text }],
+          source: { kind: 'plugin', plugin: name, form: 'snapshot', sections: [{ name, text }] },
+        }),
+        ...decision.messages,
+      ],
+    }
   }, { prepend: true })
 }

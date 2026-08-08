@@ -151,7 +151,7 @@ describe('create arguments', () => {
     expect(() => parseCreateArgs(['--link-packages-workspace'])).toThrow("unknown option '--link-packages-workspace'")
     expect(parseCreateArgs(['--provider=custom']).provider).toBe('custom')
     expect(parseCreateArgs(['--help']).help).toBe(true)
-    expect(() => parseCreateArgs(['--interface=bad'])).toThrow('Allowed choices are acp, tui, embed')
+    expect(() => parseCreateArgs(['--interface=bad'])).toThrow('Allowed choices are acp, embed')
     expect(() => parseCreateArgs(['--unknown'])).toThrow("unknown option '--unknown'")
     expect(() => parseCreateArgs(['one', 'two'])).toThrow('too many arguments')
   })
@@ -208,7 +208,7 @@ describe('CreateWizard and scaffolder', () => {
       '--provider=deepseek-official',
       '--api-key=deepseek-key',
       '--model=deepseek-v4-flash',
-      '--interface=tui',
+      '--interface=acp',
       '--pm=npm',
       '--no-install',
       '--link-workspace',
@@ -247,7 +247,7 @@ describe('CreateWizard and scaffolder', () => {
     const resolved = await new CreateWizard({
       args: parseCreateArgs([
         'my-agent', '--description=demo', '--provider=deepseek-official', '--api-key=deepseek-key',
-        '--model=deepseek-v4-flash', '--interface=tui', '--pm=npm', '--no-install',
+        '--model=deepseek-v4-flash', '--interface=acp', '--pm=npm', '--no-install',
       ]),
       port: new HeadlessPromptPort(),
       cwd,
@@ -275,7 +275,7 @@ describe('CreateWizard and scaffolder', () => {
     await expect(new CreateWizard({
       args: parseCreateArgs([
         'my-agent', '--description=demo', '--provider=deepseek-official', '--api-key=k',
-        '--model=m', '--interface=tui', '--pm=npm', '--no-install',
+        '--model=m', '--interface=acp', '--pm=npm', '--no-install',
       ]),
       port: new HeadlessPromptPort(),
       cwd,
@@ -381,7 +381,7 @@ describe('CreateWizard and scaffolder', () => {
     }).run()
     await scaffoldProject(resolved.directory, resolved.request)
     expect(await readFile(join(resolved.directory, '.env'), 'utf8')).toBe(
-      '# Required before start; an empty value makes provider startup fail.\nDEEPSEEK_API_KEY=\n',
+      '# Required before the first model request.\nDEEPSEEK_API_KEY=\n',
     )
     expect(port.requests).toContain('Keep the API key empty and fill .env later?')
   })

@@ -4,7 +4,8 @@
     - button "Home"
     - img
     - button "browse-golden"
-  - button "Edit path"
+  - button "Edit path":
+    - img
   - list:
     - listitem:
       - button "adopted":

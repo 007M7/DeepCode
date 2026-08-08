@@ -77,12 +77,14 @@ describe('web e2e: approval takeover keeps its actions reachable', () => {
     const input = page.locator('textarea').first()
     await input.waitFor({ timeout: 10_000 })
 
-    // The composer's own text cap, measured on the live textarea before the
-    // takeover replaces it. The panel's scroll region must stop at the same
-    // height (the designer's requirement: one cap for the composer seat), and
-    // measuring it here keeps the assertion free of the px value itself.
+    // The composer's own text cap, measured on the live draft scrollport before
+    // the takeover replaces it — the box that carries the cap, while the
+    // textarea inside it is as tall as the whole draft. The panel's scroll
+    // region must stop at the same height (the designer's requirement: one cap
+    // for the composer seat), and measuring it here keeps the assertion free of
+    // the px value itself.
     await input.fill(CAP_PROBE)
-    const composerCap = await input.evaluate(el => el.clientHeight)
+    const composerCap = await input.evaluate(el => el.closest('[data-input-scroll]')?.clientHeight ?? 0)
     expect(composerCap).toBeGreaterThan(0)
     await input.fill('')
 

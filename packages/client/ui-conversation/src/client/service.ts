@@ -14,6 +14,7 @@ import type { Context } from 'cordis'
 // method) instead of the standalone helper.
 import type { ISessions, SessionFace, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import type { QueueAction, QueueItemId } from './contract/queue.ts'
+import type { ComposerBlocks } from './input/blocks.ts'
 import type { InputService } from './input/contract.ts'
 
 /**
@@ -25,16 +26,21 @@ export interface IConversation {
   /** The per-session input machine registry (InputService face). */
   readonly input: InputService
   /**
+   * The per-session composer-block registry: how a plugin the composer
+   * cannot import makes a session's input inert with its own reason.
+   */
+  readonly blocks: ComposerBlocks
+  /**
    * Send a prompt into the caller scope's session (queued turn).
    * @param text - prompt text, sent verbatim as one text block.
    * @returns completion; business failures reject (and land in promptError).
    */
   send(text: string): Promise<void>
   /**
-   * Apply one operation to a pending queue occurrence.
+   * Apply one edit, remove, or strict steer operation to a pending queue occurrence.
    * @param itemId - agent-owned inbox occurrence identity.
-   * @param action - edit or remove operation.
-   * @returns completion; business failures reject.
+   * @param action - requested queue operation.
+   * @returns completion; converged strict-steer races resolve, while other failures reject.
    */
   updateQueue(itemId: QueueItemId, action: QueueAction): Promise<void>
   /**
@@ -53,16 +59,20 @@ export interface IConversation {
 export class ConversationService extends Service implements IConversation {
   /** The per-session input machine registry (InputService face, design §5.2). */
   readonly input: InputService
+  /** The per-session composer-block registry. */
+  readonly blocks: ComposerBlocks
 
   /**
    * @param ctx - owning root context (the plugin apply context; the service
    * registers itself and follows that fiber's lifetime).
-   * @param config - carries the InputService instance constructed by the
-   * plugin apply (the same InputHub the slot inject factories close over).
+   * @param config - carries the InputService and composer-block registry
+   * constructed by the plugin apply (the same instances the slot inject
+   * factories close over).
    */
-  constructor(ctx: Context, config: { input: InputService }) {
+  constructor(ctx: Context, config: { input: InputService; blocks: ComposerBlocks }) {
     super(ctx, 'conversation')
     this.input = config.input
+    this.blocks = config.blocks
   }
 
   /**
@@ -82,6 +92,10 @@ export class ConversationService extends Service implements IConversation {
     const session = this.scopedSession('updateQueue')
     const result = await session.updateQueue(itemId, action)
     if (!result.ok) {
+      if (
+        action.kind === 'steer'
+        && (result.error.code === 'steer-unavailable' || result.error.code === 'queue-item-not-found')
+      ) return
       throw new Error(`conversation.updateQueue failed: ${result.error.code}: ${result.error.message}`)
     }
   }

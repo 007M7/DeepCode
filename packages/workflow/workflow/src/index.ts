@@ -59,9 +59,9 @@ declare module 'cordis' {
      */
     'workflow/log'(info: WorkflowRunInfo, message: string): void
     /**
-     * One `agent()` call established a ready child run. Paired with
+     * One `agent()` call established a published child run. Paired with
      * {@link Events['workflow/agent-end']} by `agent.seq`. A call that never
-     * receives a ready run from the provider emits neither
+     * receives a published run from the provider emits neither
      * event in this pair.
      * @param info - the run's identity snapshot.
      * @param agent - the call's sequence number, label, phase, and child id.

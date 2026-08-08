@@ -20,6 +20,7 @@
 import { readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
+import { isSurfaceEligibleType } from '@deepseek-ai/dsh-session/surface'
 import { describe, expect, it } from 'vitest'
 import { type AgentUnderTest, type HarvestedLog, type InputScript, runScenario } from './harness.ts'
 import {
@@ -40,6 +41,11 @@ const SYSTEM_PROMPT_SNAPSHOT = 'system-prompt.expected.md'
 /** The structured tool-schema snapshot beside its owning header pin. */
 const TOOL_SCHEMAS_SNAPSHOT = 'tool-schemas.expected.json'
 
+/** Return the dedicated tool-schema sidecar for one child fixture index. */
+function childToolSchemasSnapshot(index: number): string {
+  return `tool-schemas.${index}.expected.json`
+}
+
 /** The optional full Windows-native stdout transcript. */
 const WINDOWS_STDOUT_SNAPSHOT = 'stdout.expected.windows.jsonl'
 
@@ -47,6 +53,9 @@ const WINDOWS_STDOUT_SNAPSHOT = 'stdout.expected.windows.jsonl'
 const TOOLS_TOKEN = '{{tools}}'
 
 const PACKED_CHUNK_ROW_TYPES = new Set(['text-chunks', 'reasoning-chunks', 'tool-call-chunks'])
+
+/** Canonical UUID spelling minted for ordinary message identities. */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 /** A snapshot scenario and how its fixtures are produced. */
 export interface Scenario {
@@ -101,6 +110,13 @@ export interface Scenario {
    */
   toolSchemasSource?: string
   /**
+   * Child fixture indices whose own schema sequence is pinned separately,
+   * where `1` names `session.1.jsonl` and
+   * `tool-schemas.1.expected.json`. The class pin still owns every other
+   * request-header field.
+   */
+  pinsChildToolSchemas?: readonly number[]
+  /**
    * How many changed `request/header` snapshots this PINNING scenario's primary
    * fixture legitimately carries (default 0). Their full prompt text is kept in
    * the readable Markdown pin; any other count fails. Meaningless off the pin.
@@ -149,25 +165,37 @@ export interface Scenario {
    * test is skipped on Windows; its fixtures stay guarded on every platform.
    */
   posixOnly?: boolean
+  /**
+   * Whether the scenario boots a composition that needs a usable `pwsh`
+   * (the pwsh-tool-turn scenario). The run test is skipped when the suite's
+   * {@link SnapshotSuiteOptions.hasPwsh} probe is false; fixtures stay guarded
+   * on every platform.
+   */
+  pwshOnly?: boolean
 }
 
 /**
  * Whether a scenario's run test is skipped for this mode and host: record mode
- * skips authored (non-`recorded`) scenarios, and {@link Scenario.posixOnly}
- * scenarios skip on Windows.
+ * skips authored (non-`recorded`) scenarios, {@link Scenario.posixOnly}
+ * scenarios skip on Windows, and {@link Scenario.pwshOnly} scenarios skip
+ * when the caller's `hasPwsh` probe is false.
  *
  * @param scenario The scenario whose run test is being registered.
  * @param recording Whether the suite runs in record mode.
  * @param platform The running Node platform, injectable for unit coverage.
+ * @param hasPwsh The caller's pwsh-availability probe; `pwshOnly` scenarios
+ *   skip unless it is true.
  * @returns True when the scenario's run test must not execute.
  */
 export function scenarioSkipped(
   scenario: Scenario,
   recording: boolean,
   platform: NodeJS.Platform = process.platform,
+  hasPwsh?: boolean,
 ): boolean {
   if (recording && !scenario.recorded) return true
-  return scenario.posixOnly === true && platform === 'win32'
+  if (scenario.posixOnly === true && platform === 'win32') return true
+  return scenario.pwshOnly === true && hasPwsh !== true
 }
 
 /** One stdout expected output selected for a platform run. */
@@ -208,6 +236,11 @@ export interface SnapshotSuiteOptions {
    * from `$DSH_SNAPSHOT` — env reading stays outside this library.
    */
   mode: 'replay' | 'record' | 'refresh'
+  /**
+   * Whether a real `pwsh` executable is available on this host (the probe the
+   * caller owns; `pwshOnly` scenarios skip when this is not true).
+   */
+  hasPwsh?: boolean
 }
 
 /** One scenario's generated claim on a shared snapshot file. */
@@ -480,11 +513,11 @@ export function headerChangeCount(rawLog: string): number {
     .length
 }
 
-/** A literal string replacement used to carry an existing fixture's volatile value into a refreshed log. */
+/** A literal replacement from a fresh replay-run volatile to its existing fixture value. */
 export interface FixtureReplacement {
-  /** The fresh replay-run value to replace. */
+  /** The fresh replay run's volatile value. */
   from: string
-  /** The existing fixture value to keep. */
+  /** The existing fixture value retained during write-back. */
   to: string
 }
 
@@ -492,6 +525,143 @@ function parseJsonlRecords(text: string): Record<string, unknown>[] {
   return text.split('\n')
     .filter(line => line.trim().length > 0)
     .map(line => JSON.parse(line) as Record<string, unknown>)
+}
+
+/** Narrow one parsed value to the complete identified-message shape retained by fixtures. */
+function completeMessage(value: unknown): Record<string, unknown> | undefined {
+  if (
+    !isRecord(value)
+    || typeof value.id !== 'string'
+    || !UUID_RE.test(value.id)
+    || typeof value.role !== 'string'
+    || !Array.isArray(value.content)
+    || !isRecord(value.source)
+  ) return undefined
+  return value
+}
+
+/** Return the complete identified message carried by one surface event. */
+function surfaceEventMessage(record: Record<string, unknown>): Record<string, unknown> | undefined {
+  const type = record.type
+  if (typeof type !== 'string' || !isSurfaceEligibleType(type)) return undefined
+  const data = record.data
+  if (!isRecord(data)) return undefined
+  let message: unknown
+  switch (type) {
+    case 'user/message':
+      message = data
+      break
+    case 'assistant/message':
+    case 'tool/result':
+      message = data.message
+      break
+    /* v8 ignore next -- the authoritative predicate must fail loud when a new surface shape lands. */
+    default: throw new Error(`acp-snapshot: unsupported surface event type "${type}"`)
+  }
+  return completeMessage(message)
+}
+
+/** Return complete message identities structurally owned by one durable record. */
+function recordMessages(record: Record<string, unknown>): Record<string, unknown>[] {
+  const surfaceMessage = surfaceEventMessage(record)
+  if (surfaceMessage !== undefined) return [surfaceMessage]
+  if (record.type !== 'agent/inbox/spliced' || !isRecord(record.data) || !Array.isArray(record.data.inserted)) {
+    return []
+  }
+  return record.data.inserted.flatMap((value) => {
+    const message = completeMessage(value)
+    return message === undefined ? [] : [message]
+  })
+}
+
+/** Serialize parsed JSON by value rather than insertion order. */
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`
+  if (isRecord(value)) {
+    return `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(',')}}`
+  }
+  return JSON.stringify(value)
+}
+
+/** Index identity-free message values whose ID and fingerprint are mutually unique. */
+function uniqueMessageIds(logs: readonly string[]): Map<string, string> {
+  const fingerprintsById = new Map<string, Set<string>>()
+  const idsByFingerprint = new Map<string, Set<string>>()
+  for (const log of logs) {
+    for (const record of parseJsonlRecords(log)) {
+      for (const message of recordMessages(record)) {
+        const { id, ...withoutId } = message
+        const messageId = id as string
+        const fingerprint = canonicalJson(withoutId)
+        const fingerprints = fingerprintsById.get(messageId)
+        if (fingerprints === undefined) fingerprintsById.set(messageId, new Set([fingerprint]))
+        else fingerprints.add(fingerprint)
+        const ids = idsByFingerprint.get(fingerprint)
+        if (ids === undefined) idsByFingerprint.set(fingerprint, new Set([messageId]))
+        else ids.add(messageId)
+      }
+    }
+  }
+
+  const unique = new Map<string, string>()
+  for (const [id, fingerprints] of fingerprintsById) {
+    if (fingerprints.size !== 1) continue
+    const fingerprint = fingerprints.values().next().value as string
+    if (idsByFingerprint.get(fingerprint)?.size !== 1) continue
+    unique.set(fingerprint, id)
+  }
+  return unique
+}
+
+/**
+ * Match unchanged complete messages across a scenario's fresh and existing logs.
+ * New, changed, duplicate-content, or otherwise ambiguous messages keep their fresh ids.
+ */
+function fixtureMessageIdReplacements(logs: readonly string[], fixtures: readonly string[]): Map<string, string> {
+  const freshIds = uniqueMessageIds(logs)
+  const existingIds = uniqueMessageIds(fixtures)
+  const replacements = new Map<string, string>()
+  for (const [fingerprint, fresh] of freshIds) {
+    const existing = existingIds.get(fingerprint)
+    if (existing === undefined || fresh === existing) continue
+    replacements.set(fresh, existing)
+  }
+  return replacements
+}
+
+/** Apply literal fixture replacements without changing any other fresh value. */
+function applyFixtureReplacements(content: string, replacements: readonly FixtureReplacement[]): string {
+  let stable = content
+  for (const { from, to } of replacements) stable = stable.split(from).join(to)
+  return stable
+}
+
+/** Rewrite only validated durable-message ID fields, leaving every other occurrence untouched. */
+function applyFixtureMessageIds(content: string, replacements: ReadonlyMap<string, string>): string {
+  return content.split('\n').map((line) => {
+    if (line.trim().length === 0) return line
+    const record = JSON.parse(line) as Record<string, unknown>
+    let changed = false
+    for (const message of recordMessages(record)) {
+      const replacement = replacements.get(message.id as string)
+      if (replacement === undefined) continue
+      message.id = replacement
+      changed = true
+    }
+    return changed ? JSON.stringify(record) : line
+  }).join('\n')
+}
+
+/**
+ * Carry committed UUIDs into unchanged, unambiguous messages in fresh session fixtures.
+ *
+ * @param logs Fresh fixture-ready session JSONL contents for one scenario.
+ * @param fixtures Existing fixture contents in matching order; missing fixtures may be empty strings.
+ * @returns The fresh contents with only reusable message UUIDs replaced.
+ */
+export function stabilizeFixtureMessageIds(logs: readonly string[], fixtures: readonly string[]): string[] {
+  const replacements = fixtureMessageIdReplacements(logs, fixtures)
+  return logs.map(log => applyFixtureMessageIds(log, replacements))
 }
 
 /** One packed row's member times, or `undefined` for an ordinary record. */
@@ -539,11 +709,12 @@ export function unknownToolCallIds(rawLog: string): string[] {
 }
 
 /**
- * Build the cross-log id/cwd/spill-path replacements used by refresh write-back.
+ * Build refresh write-back replacements for per-log session ids, cwd values,
+ * and spill paths. Durable message ids have a later structural owner.
  *
  * @param logs The freshly harvested logs, in fixture order.
  * @param fixtures The existing fixture contents, in matching order.
- * @returns Literal replacements from fresh volatile values to the fixture's old values.
+ * @returns Literal replacements from fresh values to the fixture's existing values.
  */
 export function refreshFixtureReplacements(logs: HarvestedLog[], fixtures: string[]): FixtureReplacement[] {
   const replacements: FixtureReplacement[] = []
@@ -697,6 +868,7 @@ function collectNormalizedStringMappings(
   existing: unknown,
   normalizedFresh: unknown,
   normalizedExisting: unknown,
+  excludedStrings: ReadonlySet<string>,
   forward: Map<string, string>,
   reverse: Map<string, string>,
 ): boolean {
@@ -716,6 +888,7 @@ function collectNormalizedStringMappings(
       existing[index],
       normalizedFresh[index],
       normalizedExisting[index],
+      excludedStrings,
       forward,
       reverse,
     ))
@@ -735,6 +908,7 @@ function collectNormalizedStringMappings(
         existing[key],
         normalizedFresh[key],
         normalizedExisting[key],
+        excludedStrings,
         forward,
         reverse,
       ))
@@ -745,6 +919,8 @@ function collectNormalizedStringMappings(
     || typeof normalizedFresh !== 'string'
     || normalizedFresh !== normalizedExisting
     || fresh === existing
+    || excludedStrings.has(fresh)
+    || excludedStrings.has(existing)
   ) return true
   const freshKey = JSON.stringify([normalizedFresh, fresh])
   const existingKey = JSON.stringify([normalizedFresh, existing])
@@ -770,6 +946,10 @@ function normalizedStringMappings(
   freshContext: NormalizeContext,
   existingContext: NormalizeContext,
 ): Map<string, string> | undefined {
+  const excludedStrings = new Set<string>()
+  for (const record of [...freshRecords, ...existingRecords]) {
+    for (const message of recordMessages(record)) excludedStrings.add(message.id as string)
+  }
   const forward = new Map<string, string>()
   const reverse = new Map<string, string>()
   let existingIndex = 0
@@ -791,6 +971,7 @@ function normalizedStringMappings(
         existingRecord,
         normalizedRefreshRecord(freshRecords[recordIndex] as Record<string, unknown>, freshContext),
         normalizedRefreshRecord(existingRecord, existingContext),
+        excludedStrings,
         forward,
         reverse,
       )) return undefined
@@ -803,11 +984,13 @@ function normalizedStringMappings(
 /**
  * Rewrite a fresh replay-produced log so repeated refreshes do not churn
  * volatile fixture fields. Meaningful event payloads come from `fresh`; the
- * existing fixture lends normalized-equivalent values, including ids, paths,
+ * existing fixture lends normalized-equivalent values, including non-message ids, paths,
  * creation/event times, spill locators, and hook durations, only when the
  * complete record layout aligns and volatile strings form a consistent
- * bijection. Ambiguous layouts or mappings keep fresh strings. Packed timing
- * envelopes expand for alignment, so packing does not shift later records;
+ * bijection. Complete durable-message ids are excluded because the later
+ * fixture-ready structural pass owns them. Ambiguous layouts or mappings
+ * keep fresh strings. Packed timing envelopes expand for alignment, so
+ * packing does not shift later records;
  * fresh semantic values and fragment arrays remain authoritative.
  *
  * @param fresh The newly harvested session JSONL.
@@ -823,8 +1006,7 @@ export function stabilizeRefreshLog(
   freshContext: NormalizeContext,
 ): string {
   const freshRecords = parseJsonlRecords(fresh)
-  let stable = fresh
-  for (const { from, to } of replacements) stable = stable.split(from).join(to)
+  const stable = applyFixtureReplacements(fresh, replacements)
   const existingRecords = logicalRecords(parseJsonlRecords(existing))
   const records = parseJsonlRecords(stable)
   const existingContext = fixtureContext(existing)
@@ -961,8 +1143,9 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
   scenarioSuite('snapshot scenarios', () => {
     for (const scenario of scenarios) {
       // In RECORD mode, only re-run the `recorded` (live-API) scenarios; the `authored` ones
-      // (sidecar-driven errors/cancel) are never re-recorded. `posixOnly` scenarios skip on Windows.
-      it.skipIf(scenarioSkipped(scenario, RECORDING))(`snapshot: ${scenario.name} matches the expected outputs`, async ({ expect }) => {
+      // (sidecar-driven errors/cancel) are never re-recorded. `posixOnly` scenarios skip on Windows;
+      // `pwshOnly` scenarios skip when the caller's `hasPwsh` probe is false.
+      it.skipIf(scenarioSkipped(scenario, RECORDING, process.platform, options.hasPwsh))(`snapshot: ${scenario.name} matches the expected outputs`, async ({ expect }) => {
         const dir = join(snapshotsDir, scenario.name)
         const input = JSON.parse(await readFile(join(dir, 'input.json'), 'utf8')) as InputScript
         const overrideFile = join(dir, 'replay.override.json')
@@ -1008,6 +1191,8 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
           cwdAliases: result.cwdAliases,
         }
 
+        const childSchemaPins = new Set(scenario.pinsChildToolSchemas ?? [])
+
         // Record writes live model fixtures; keyless refresh writes every comparable replayed
         // fixture. Pinning JSONL keeps prefixes but moves prompts and schemas into sidecars.
         const scrub = scenario.pinsHeader === true
@@ -1016,10 +1201,6 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
         const portableFixture = scenario.workspaceParent === undefined
           ? tokenizeSessionFixtureCwd
           : (log: string): string => log
-        const existingFixtures = REFRESHING
-          ? await Promise.all(fixtureFiles.map(file => readFile(join(dir, file), 'utf8')))
-          : []
-        const replacements = REFRESHING ? refreshFixtureReplacements(result.sessionLogs, existingFixtures) : []
         const writesSessionFixtures = (RECORDING && scenario.recorded && scenario.hasModelTurn)
           || (REFRESHING && comparesLog)
         if (writesSessionFixtures) {
@@ -1032,16 +1213,24 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
             'session.jsonl',
             ...Array.from({ length: result.sessionLogs.length - 1 }, (_, i) => `session.${i + 1}.jsonl`),
           ]
-          const primary = (result.sessionLogs[0] as HarvestedLog).content
-          await writeFile(join(dir, outputFixtureFiles[0] as string), scrub(portableFixture(
-            REFRESHING ? stabilizeRefreshLog(primary, existingFixtures[0] as string, replacements, ctx) : primary,
-          )))
-          for (let i = 1; i < result.sessionLogs.length; i++) {
-            const child = (result.sessionLogs[i] as HarvestedLog).content
-            await writeFile(join(dir, outputFixtureFiles[i] as string), scrub(portableFixture(
-              REFRESHING ? stabilizeRefreshLog(child, existingFixtures[i] as string, replacements, ctx) : child,
-            )))
-          }
+          const existingFixtures = await Promise.all(outputFixtureFiles.map(async (file) => {
+            const path = join(dir, file)
+            return existsSync(path) ? readFile(path, 'utf8') : ''
+          }))
+          const refreshReplacements = REFRESHING
+            ? refreshFixtureReplacements(result.sessionLogs, existingFixtures)
+            : []
+          const freshFixtures = REFRESHING
+            ? result.sessionLogs.map((log, index) => scrub(portableFixture(stabilizeRefreshLog(
+              log.content,
+              existingFixtures[index] as string,
+              refreshReplacements,
+              ctx,
+            ))))
+            : result.sessionLogs.map(log => scrub(portableFixture(log.content)))
+          const outputFixtures = stabilizeFixtureMessageIds(freshFixtures, existingFixtures)
+          await Promise.all(outputFixtures.map((fixture, index) =>
+            writeFile(join(dir, outputFixtureFiles[index] as string), fixture)))
           if (RECORDING) {
             const outputNames = new Set(outputFixtureFiles)
             const entries = await readdir(dir, { withFileTypes: true })
@@ -1079,6 +1268,18 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
             const schemaPath = join(snapshotsDir, schemaSource.name, TOOL_SCHEMAS_SNAPSHOT)
             claimSharedSnapshot(schemaClaims, schemaPath, scenario.name, toolSchemasSnapshot)
             await writeFile(schemaPath, toolSchemasSnapshot)
+          }
+          for (const index of childSchemaPins) {
+            const log = result.sessionLogs[index]
+            expect(log, `${mode}: no child session log at index ${index} to snapshot schemas from`)
+              .toBeDefined()
+            const schemaSets = normalizedToolSchemas((log as HarvestedLog).content, ctx)
+            expect(schemaSets.length, `${mode}: child ${index} produced no tool schemas to snapshot`)
+              .toBeGreaterThan(0)
+            await writeFile(join(dir, childToolSchemasSnapshot(index)), formatToolSchemasSnapshot(
+              schemaSets[0] as unknown[],
+              schemaSets.slice(1),
+            ))
           }
         }
 
@@ -1133,7 +1334,14 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
           header,
           pinnedSchemaSets[index] as unknown[],
         ))
+        const childPinnedSchemas = new Map<number, unknown[][]>()
+        for (const index of childSchemaPins) {
+          const sidecar = await readFile(join(dir, childToolSchemasSnapshot(index)), 'utf8')
+          const parsed = parseToolSchemasSnapshot(sidecar)
+          childPinnedSchemas.set(index, [parsed.initial, ...parsed.changes])
+        }
         for (const [logIndex, log] of result.sessionLogs.entries()) {
+          const childSchemas = childPinnedSchemas.get(logIndex)
           const expectedChanges = scenario.pinsHeader === true && logIndex === 0
             ? scenario.expectedHeaderChanges ?? 0
             : 0
@@ -1146,8 +1354,15 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
             .toBe(headers.length)
           expect(schemaSets.length, `session ${log.id}: every request/header must carry an array-valued tools field`)
             .toBe(headers.length)
+          if (childSchemas !== undefined) {
+            expect(childSchemas.length, `session ${log.id}: ${childToolSchemasSnapshot(logIndex)} has an unexpected tool-schema count`)
+              .toBe(schemaSets.length)
+          }
           for (const [k, header] of headers.entries()) {
-            const expected = expectedChanges > 0 ? pinnedHeaders[k] : pinnedHeaders[0]
+            const classPin = expectedChanges > 0 ? pinnedHeaders[k] : pinnedHeaders[0]
+            const expected = childSchemas === undefined
+              ? classPin
+              : { ...classPin as Record<string, unknown>, tools: childSchemas[k] }
             expect(header, `session ${log.id}: request/header #${k + 1} diverged from the pinned (${pinningScenario.name}) header`)
               .toEqual(expected)
             if (expectedChanges === 0) {
@@ -1185,8 +1400,16 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
 
     it('every registered scenario has its required fixture files', async () => {
       // Every scenario needs input, stdout, a primary session fixture, and matching optional sidecars.
-      for (const { name, overridden, pinsNativeWindowsStdout } of scenarios) {
+      for (const { name, overridden, pinsNativeWindowsStdout, pinsChildToolSchemas } of scenarios) {
         const dir = join(snapshotsDir, name)
+        const declaredChildPins = new Set(pinsChildToolSchemas ?? [])
+        const childSidecars = (await readdir(dir, { withFileTypes: true }))
+          .filter(entry => entry.isFile())
+          .map(entry => /^tool-schemas\.([1-9]\d*)\.expected\.json$/.exec(entry.name))
+          .filter((match): match is RegExpExecArray => match !== null)
+          .map(match => Number(match[1]))
+        expect(new Set(childSidecars), `${name}: child tool-schema sidecars must match \`pinsChildToolSchemas\``)
+          .toEqual(declaredChildPins)
         expect(existsSync(join(dir, 'input.json')), `${name}/input.json`).toBe(true)
         expect(existsSync(join(dir, 'stdout.expected.jsonl')), `${name}/stdout.expected.jsonl`).toBe(true)
         expect(
@@ -1267,6 +1490,26 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
       })))
       assertUniqueSnapshotContents('system-prompt', prompts)
       assertUniqueSnapshotContents('tool-schema', schemas)
+    })
+
+    it('every declared child tool-schema sidecar is canonical and names a real child', async () => {
+      for (const scenario of scenarios) {
+        const pins = scenario.pinsChildToolSchemas ?? []
+        if (pins.length === 0) continue
+        const dir = join(snapshotsDir, scenario.name)
+        const files = await sessionFixtures(dir)
+        for (const index of pins) {
+          expect(files[index], `${scenario.name}: child schema pin ${index} must name an existing session.<n>.jsonl fixture`)
+            .toBeDefined()
+          const file = childToolSchemasSnapshot(index)
+          const sidecar = await readFile(join(dir, file), 'utf8')
+          const parsed = parseToolSchemasSnapshot(sidecar)
+          expect(sidecar, `${scenario.name}/${file} must use canonical JSON formatting`)
+            .toBe(formatToolSchemasSnapshot(parsed.initial, parsed.changes))
+          expect(parsed.initial.length, `${scenario.name}/${file} must pin at least one schema`)
+            .toBeGreaterThan(0)
+        }
+      }
     })
 
     it('every committed JSONL has valid tool results and canonical fixture storage', async () => {

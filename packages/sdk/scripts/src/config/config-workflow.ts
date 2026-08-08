@@ -56,7 +56,7 @@ function targetRunInterface(
   desired: ReadonlyMap<string, NestedMultiSelectValue<string, string>>,
 ): RunInterface {
   const selected = desired.get('feature:app')?.choices[0]
-  return selected === 'acp' || selected === 'tui' || selected === 'embed' ? selected : current
+  return selected === 'acp' || selected === 'embed' ? selected : current
 }
 
 /** Reconcile one tree selection into domain commands, then review and commit once. */
@@ -135,6 +135,7 @@ export class ConfigWorkflow {
       runInterface: targetRunInterface(project.profile.runInterface, desiredByTarget),
     }
     for (const feature of features) {
+      /* v8 ignore next -- no current built-in feature is interface-specific */
       if (!feature.isApplicable(targetProfile)) desiredByTarget.delete(featureTarget(feature))
     }
 

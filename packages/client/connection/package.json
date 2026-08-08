@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-client-connection",
-  "description": "Wire consumer layer: IApiClient subclasses, ConnectionController (SSE dual-stream + reconnect), fixture api (no cordis)",
+  "description": "Wire consumer layer: HTTP-up/WebSocket-down client, ConnectionController dual streams with reconnect, and fixture api",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -34,15 +34,14 @@
     "@deepseek-ai/dsh-llm": "workspace:^",
     "@deepseek-ai/dsh-session": "workspace:^",
     "@deepseek-ai/dsh-tools": "workspace:^",
-    "schemastery": "^3.18.0"
+    "schemastery": "^3.18.0",
+    "ws": "^8.21.0"
   },
   "files": [
     "lib/index.js",
     "lib/invariant.js",
     "lib/client.js",
-    "lib/types/**/*.d.ts",
-    "lib/types/**/*.d.ts.map",
-    "src"
+    "lib/types/**/*.d.ts"
   ],
   "peerDependencies": {
     "@deepseek-ai/dsh-host-webserver": "^0.0.1",
@@ -52,6 +51,7 @@
   "devDependencies": {
     "@deepseek-ai/dsh-host-webserver": "workspace:^",
     "@deepseek-ai/dsh-invariants": "workspace:^",
+    "@types/ws": "^8.18.1",
     "cordis": "^4.0.0-rc.7"
   }
 }

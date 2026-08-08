@@ -20,7 +20,7 @@ Abstract user-interaction seam. It owns `ctx.userInteraction`, the service a mod
 - `UserInteractionProvider` — UI implementation with `ask(request)`.
 - `UserInteractionError` — `HarnessError` subclass with codes such as `EMPTY_QUESTIONS`, `BAD_INTENT`, `NO_PROVIDER`, `DUPLICATE_PROVIDER`, `ASK_ABORTED`, and `DELEGATED_CALLER`.
 
-When an answer includes `custom`, `selected` is empty; custom text is an override rather than a supplement to selected choices. A UI may preserve a skipped item as `{ id, selected: [] }`, keeping the existing answer shape while retaining other answers in the batch.
+For a single-select question, `custom` overrides the selected choice and `selected` is empty. For a multi-select question, `custom` may supplement the labels in `selected`. A UI may preserve a skipped item as `{ id, selected: [] }`, keeping the existing answer shape while retaining other answers in the batch.
 
 ### Presentation intent
 
@@ -28,7 +28,7 @@ When an answer includes `custom`, `selected` is empty; custom text is an overrid
 
 ## Role
 
-This is the interface package. Model-facing consumers such as `@deepseek-ai/dsh-tool-ask-user` depend on this seam; `dsh-tui` and the host runtime provide interactive implementations. The loop stays unchanged: a tool call awaits a promise, and the tool result resumes the normal agent loop.
+This is the interface package. Model-facing consumers such as `@deepseek-ai/dsh-tool-ask-user` depend on this seam; the Web host runtime provides the shipped interactive implementation. The loop stays unchanged: a tool call awaits a promise, and the tool result resumes the normal agent loop.
 
 ## Model Experience
 

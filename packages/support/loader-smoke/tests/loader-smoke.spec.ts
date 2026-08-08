@@ -8,7 +8,8 @@ import { LOADER_SMOKE_TEST_TIMEOUT_MS, runLoaderSmoke } from '@deepseek-ai/dsh-l
 const configPath = '/tmp/fixture.cordis.yml'
 const tsconfigPath = fileURLToPath(new URL('../../../../tsconfig.json', import.meta.url))
 const fixture = (name: string): string => fileURLToPath(new URL(`./fixtures/${name}.ts`, import.meta.url))
-const canonicalTempPath = (path: string): string => path.replace(/^\/private(?=\/var\/)/, '')
+// macOS realpaths temp dirs into /private; TMPDIR may live under /var or /tmp.
+const canonicalTempPath = (path: string): string => path.replace(/^\/private(?=\/(?:var|tmp)\/)/, '')
 
 describe('runLoaderSmoke', () => {
   it('isolates the process, closes stdin, captures output, and removes the cwd', async () => {

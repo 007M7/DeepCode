@@ -38,4 +38,4 @@ YAML 写入则整体替换 namespace 节点，把分节内的每条注释都删�
 
 `update()` 对锁获取期限与磁盘文档非法都有成文的失败模式，rejection 消息携带以 `$` 为根的路径。持有者崩溃后可能留下锁，需要操作者核实后移除；若按锁龄自动接管，则会允许多个写入方重叠。仍然存在、且已记录在提供方 README 中的有：同 namespace 并发编辑仍是后写胜出（没有逐值合并，也没有修订号检查）；OS 从未投递的 watcher 事件会让缓存保持陈旧，直到下一个信号或下一次写入；被替换数组内部的注释、以及行内附着在被改标量值上的注释，会随其描述的值一起消失。
 
-[用户设置 seam note](2026-07-28-user-settings-seam.md)里“延后锁文件”那条替代方案已被本 note 取代。同类缺陷还存在于 `dsh-credentials-local`（两条链共用一个 `.env`、按缓存整文件写回、持久化之后才发事件）与堆叠分支上的 `llm/adapters-updated` 扇出；这些修复归引入相应包（package）的那些 PR（Pull Request）所有，向上合并时按本模板处理。
+[用户设置 seam note](2026-07-28-user-settings-seam.md)里“延后锁文件”那条替代方案已被本 note 取代。同类缺陷还存在于 `dsh-credentials-local`（两条链共用一个 `.env`、按缓存整文件写回、持久化之后才发事件）与堆叠分支上的 `llm/adapters-updated` 扇出；这些修复归引入相应包的那些 PR（Pull Request）所有，向上合并时按本模板处理。

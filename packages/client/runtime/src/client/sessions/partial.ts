@@ -6,6 +6,19 @@ import type { StreamChunk } from '@deepseek-ai/dsh-llm/types'
 import type { AssistantBlock, PartialAssistant } from './conversation.ts'
 import { toAssistantBlock } from './conversation.ts'
 
+/**
+ * Whether a stream chunk changes the partial assistant projection shown by the UI.
+ * @param type - Stream chunk discriminant.
+ * @returns Whether publishing the accumulated partial can change the visible snapshot.
+ */
+export function isVisibleAssistantChunk(type: string): boolean {
+  return type === 'block-start'
+    || type === 'text-delta'
+    || type === 'reasoning-delta'
+    || type === 'tool-call-delta'
+    || type === 'block-end'
+}
+
 /** assistant/chunk accumulator: folds StreamChunks into AssistantBlock[] with block-level immutability. */
 export class PartialAccumulator {
   // Sparse on purpose: block-start may arrive out of order, leaving holes until compaction.

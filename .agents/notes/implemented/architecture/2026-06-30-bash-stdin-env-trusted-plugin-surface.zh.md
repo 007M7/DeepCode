@@ -18,7 +18,7 @@ Status: implemented
 
 1. **模型侧工具不暴露 `stdin` 和 `env`。** Shell 语法已覆盖这些需求，重复参数只会增加接口面而不带来权限隔离。工具仅从声明的模型参数、signal 和 owner 构建请求；受信的进程内调用方可以直接设置 seam 字段。harness 自有变量使用[托管环境决策](../feature/2026-07-10-agent-session-identity-and-log-location.md)规定的独立 `dshEnv` 通道，因此普通 `env` 无法替换它们。
 
-2. **`env` 在凭证擦除之后合并，因此调用方显式设置的条目即使具有凭证形态的名称也会胜出。** 后续的托管命名空间决策托管 `DSH_*`：环境条目会被移除，受信的 `dshEnv` 最后合并，因此普通 `env` 条目永远无法顶掉托管值。完整顺序为 `scrub(process.env, including DSH_*)` → `ENV_OVERRIDES` → 普通 `env` → `dshEnv`。
+2. **`env` 在凭证擦除之后合并，因此调用方显式设置的条目即使具有凭证形态的名称也会胜出。** 后续的托管命名空间决策负责管理 `DSH_*`：这类环境条目会被移除，受信的 `dshEnv` 最后合并，因此普通 `env` 条目永远无法顶掉托管值。完整顺序为 `scrub(process.env, including DSH_*)` → `ENV_OVERRIDES` → 普通 `env` → `dshEnv`。
 
 3. **`stdin`/`env` 在已解析 spec 上是 required-absent-OK（普通 optional），而非像 `owner` 那样 required-but-nullable。** `owner` 之所以是 required-but-nullable，是因为*静默*缺失的 owner 会产生一个无主、跨会话可读的任务——一个安全隐患，显式的 `undefined` 可以防范。`stdin`/`env` 没有这种风险：缺失意味着「无 stdin / 无额外 env」，这是安全的常规情况（所有模型驱动的调用都如此）。因此它们保持普通 optional，与 `signal` 一致。
 

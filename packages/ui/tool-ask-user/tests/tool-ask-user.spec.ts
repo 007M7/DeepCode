@@ -141,7 +141,8 @@ describe('ask_user_question tool', () => {
       async ask() {
         return {
           answers: [
-            { id: 'targets', selected: ['tests', 'docs'] },
+            { id: 'targets', selected: ['tests', 'docs'], custom: 'release notes' },
+            { id: 'labels-only', selected: ['tests'] },
             { id: 'notes', selected: [], custom: 'ship today' },
           ],
         }
@@ -160,6 +161,12 @@ describe('ask_user_question tool', () => {
             options: [{ label: 'tests' }, { label: 'docs' }],
             multi_select: true,
           },
+          {
+            id: 'labels-only',
+            question: 'Which labels should I keep?',
+            options: [{ label: 'tests' }, { label: 'docs' }],
+            multi_select: true,
+          },
           { id: 'notes', question: 'Any note?' },
         ],
       },
@@ -169,13 +176,14 @@ describe('ask_user_question tool', () => {
     if (result.isError) throw new Error('expected ask_user_question success')
     expect(result.value).toEqual({
       answers: [
-        { id: 'targets', selected: ['tests', 'docs'] },
+        { id: 'targets', selected: ['tests', 'docs'], custom: 'release notes' },
+        { id: 'labels-only', selected: ['tests'] },
         { id: 'notes', selected: [], custom: 'ship today' },
       ],
     })
     expect(result.content).toEqual([{
       type: 'text',
-      text: '{"answers":[{"id":"targets","selected":["tests","docs"]},{"id":"notes","selected":[],"custom":"ship today"}]}',
+      text: '{"answers":[{"id":"targets","selected":["tests","docs"],"custom":"release notes"},{"id":"labels-only","selected":["tests"]},{"id":"notes","selected":[],"custom":"ship today"}]}',
     }])
   })
 

@@ -28,7 +28,7 @@ function hook<T>(snapshot: T) {
   return function select<S>(selector: (state: T) => S): S { return selector(snapshot) }
 }
 const sessions: SessionListState = {
-  ids: [], byId: {}, current: undefined, phase: 'ready',
+  ids: [], byId: {}, current: undefined, phase: 'ready', subagentsByParent: {}, currentAddress: undefined,
 }
 const workspaceState = (items: readonly WorkspaceView[]): WorkspaceListState => ({
   items, archivedSessionIds: [], state: 'idle', phase: 'ready', error: null, baselinesReady: true,

@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/process/2026-07-22-fast-local-git-hooks.md
 2026-07-22-fast-local-git-hooks.md: 838024c4293372b1430d357774feb06cd9742b9b
-2026-07-22-fast-local-git-hooks.zh.md: 460acf5270c075a808c6a4dc42635a808c7cd192
+2026-07-22-fast-local-git-hooks.zh.md: 26968dd19ffb42f4a618dc760b2a6edeb4900393

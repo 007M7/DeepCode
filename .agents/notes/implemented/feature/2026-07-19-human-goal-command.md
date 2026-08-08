@@ -34,7 +34,7 @@ Status output omits branded ids and compare-and-set revisions because those are 
 
 Expected `GoalError` failures become one stable, branded-id-free `CommandResult.error`, so domain diagnostics do not leak compare-and-set internals into the human surface and invalid operations never enter model history. The current status supplies the actionable state-specific recovery. Other exceptions remain adapter-visible command failures; treating programmer faults as ordinary domain errors would hide defects. The command handler performs only synchronous domain mutations, so request cancellation is decided by the command registry before the mutation begins and there is no escaped asynchronous side effect to unwind.
 
-Generic slash input, status text, and errors are not persisted. Successful goal mutations use the existing `Agent.inject()` path, producing the raw model-visible goal snapshot or clear tombstone that persistence already owns. The command therefore changes no session format and introduces no second audit record that could disagree with the domain event.
+Generic slash input, status text, and errors are not persisted. Successful goal mutations append the domain-owned `goal/change` event and do not queue model context. The command introduces no second audit record that could disagree with the domain event.
 
 ### App composition
 

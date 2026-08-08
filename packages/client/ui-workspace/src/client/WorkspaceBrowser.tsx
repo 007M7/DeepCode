@@ -78,14 +78,16 @@ function GroupByMenu({ groupBy, onPick, t }: {
       // be cut off at the header's bounds.
       portal
       anchor={(
-        <button
-          type="button"
-          className={clsx(css.iconButton, css.wide)}
-          aria-label={t('groupBy.label')}
-          onClick={() => { setOpen(v => !v) }}
-        >
-          <IconPersonalizationOutline16 />
-        </button>
+        <Tooltip label={t('groupBy.label')} side="bottom" delayMs={500}>
+          <button
+            type="button"
+            className={clsx(css.iconButton, css.wide)}
+            aria-label={t('groupBy.label')}
+            onClick={() => { setOpen(v => !v) }}
+          >
+            <IconPersonalizationOutline16 />
+          </button>
+        </Tooltip>
       )}
     />
   )
@@ -238,7 +240,7 @@ function FlatList({ useSessions, open, forkSession, onSessionRename, onSessionAr
   const now = Date.now()
   return (
     <div className={clsx(css.treeBody, css.wide)}>
-      <div className={css.list} role="tree" aria-label={t('section.sessions')}>
+      <div className={clsx(css.list, css.flatList)} role="tree" aria-label={t('section.sessions')}>
         {rows.length === 0 && (
           <div className={css.empty}>{t('empty.none')}</div>
         )}
@@ -306,6 +308,7 @@ function SearchResults({
               result={result}
               currentId={list.current}
               onOpen={open}
+              t={t}
             />
           ))}
         </div>
@@ -550,7 +553,7 @@ export function WorkspaceBrowser({
             picking affordance has nothing to offer here: the region hides the
             button rather than leaving a dead one in the header. */}
         {directoryFlowAvailable && (
-          <Tooltip label={t('workspace.add')} disabled={wide}>
+          <Tooltip label={t('workspace.add')} side="bottom" delayMs={500}>
             <button
               ref={wsPlusRef}
               type="button"

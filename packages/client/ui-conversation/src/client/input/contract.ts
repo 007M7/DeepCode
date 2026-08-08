@@ -11,6 +11,7 @@ import type {
   ReferenceInsert, SubmitOutcome, TokenSpan,
 } from '@deepseek-ai/dsh-client-ui-slash/client'
 import type { QueueRow } from '../contract/queue.ts'
+import type { InputSubmitMode } from '../contract/composer-submission.ts'
 
 /**
  * The scoped-event application verbs: the hub's bail listeners call these,
@@ -28,8 +29,11 @@ export interface InputTarget {
 export interface SessionInput extends InputTarget {
   /** Single write path for draft text (all mutation rides machine events). */
   setDraft(text: string): void
-  /** THE complexity sink: enter adjudication, submit transaction, and the default sink live inside. */
-  submit(): void
+  /**
+   * THE complexity sink: enter adjudication, submit transaction, and the default sink live inside.
+   * @param mode - delivery intent retained through asynchronous adjudication and serialization.
+   */
+  submit(mode?: InputSubmitMode): void
   /**
    * Surface a notice outside the machine's own effect stream: detached
    * command results and business notifications render through here.
@@ -82,8 +86,8 @@ export interface ComposerKeyboard {
   readonly snapshot: InputState
   /** Draft write with the DOM-observed edit shape (narrows occurrence math). */
   setDraft(text: string, editRange?: EditRange): void
-  /** Newline at the selection as a machine transaction (Ctrl+Enter path). */
-  newline(selection: EditSelection): void
+  /** Submit with an explicit delivery mode resolved by the keyboard policy. */
+  submit(mode: InputSubmitMode): void
   undo(): void
   redo(): void
   /** Paste over the selection (sync components ride the same transaction). */
@@ -191,7 +195,7 @@ export interface InputState {
   readonly occurrences: readonly Occurrence[]
   /** Live paste-match attempt (absent when no paste is matchable). */
   readonly paste?: PasteAttemptState
-  /** Read-only queue projection (session/queued frames + connect snapshot). */
+  /** Read-only transient inbox projection (`session/queue`, including pending steering). */
   readonly queue: readonly QueuedMessage[]
 }
 
@@ -206,6 +210,8 @@ export interface SubmitAttempt {
   readonly signal: AbortSignal
   /** Draft at enter time; rollback restores it only while the live draft still equals it. */
   readonly draftSnapshot: string
+  /** Default-message delivery intent retained while slash adjudication is pending. */
+  readonly mode: InputSubmitMode
 }
 
 /**
@@ -217,8 +223,6 @@ export interface SubmitAttempt {
 export type InputEvent =
   /** Full next draft from the textarea; editRange narrows the occurrence math (absent → diff scan). */
   | { readonly type: 'draft-changed'; readonly draft: string; readonly editRange?: EditRange }
-  /** Insert '\n' replacing the selection (F1: the execCommand newline path moved into the machine). */
-  | { readonly type: 'newline'; readonly selection: EditSelection }
   | { readonly type: 'begin-command'; readonly claim: CommandClaim; readonly span: TokenSpan }
   /** Place one U+FFFC at the span and mint the occurrence (scoped insert-reference event payload). */
   | { readonly type: 'insert-ref'; readonly reference: ReferenceInsert; readonly span: TokenSpan }
@@ -239,7 +243,7 @@ export type InputEvent =
   | { readonly type: 'paste-upgrade'; readonly attemptId: number; readonly span: TokenSpan; readonly reference: ReferenceInsert }
   /** Shell-observed attempt killers the machine cannot see itself (caret/selection ops, Slash interaction updates). */
   | { readonly type: 'invalidate-paste' }
-  | { readonly type: 'enter' }
+  | { readonly type: 'enter'; readonly mode: InputSubmitMode }
   | { readonly type: 'adjudicated'; readonly attempt: SubmitAttempt; readonly outcome: PickOutcome }
   | { readonly type: 'adjudication-failed'; readonly attempt: SubmitAttempt; readonly message: string }
   | { readonly type: 'submit-settled'; readonly attempt: SubmitAttempt; readonly ok: boolean; readonly outcome?: SubmitOutcome; readonly message?: string }
@@ -258,5 +262,5 @@ export type InputEvent =
 export type InputEffect =
   | { readonly type: 'adjudicate'; readonly attempt: SubmitAttempt; readonly draft: string }
   | { readonly type: 'begin-submit'; readonly attempt: SubmitAttempt; readonly claim: CommandClaim; readonly args: string }
-  | { readonly type: 'default-sink'; readonly draft: string }
+  | { readonly type: 'default-sink'; readonly draft: string; readonly mode: InputSubmitMode }
   | { readonly type: 'notice'; readonly level: 'info' | 'error'; readonly text: string }

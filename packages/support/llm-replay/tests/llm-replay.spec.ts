@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
-import LlmService, { GenerateOptions, LlmAdapter, StreamChunk } from '@deepseek-ai/dsh-llm'
+import LlmService, { CallId, createUserMessage, GenerateOptions, LlmAdapter, StreamChunk } from '@deepseek-ai/dsh-llm'
 import {
   type ReplayEntry,
   type SessionScript,
@@ -17,6 +17,7 @@ import {
   name,
   parseSessionHeader,
   parseSessionLog,
+  resolveScriptedEntry,
 } from '../src/index.ts'
 
 /**
@@ -106,9 +107,25 @@ describe('parseSessionLog', () => {
 })
 
 describe('deriveReplayScript', () => {
-  it('groups assistant/chunk by (turn, step) into one entry per stream() call', () => {
+  it('groups one finished assistant/chunk stream into one replay entry', () => {
     const events: SessionEvent[] = TEXT_CHUNKS.map((c, i) => chunkEvent(i + 1, 1, 1, c))
     expect(deriveReplayScript(events)).toEqual([{ kind: 'chunks', chunks: TEXT_CHUNKS }])
+  })
+
+  it('separates retry calls that share one turn and step at their finish chunks', () => {
+    const failed: StreamChunk[] = [
+      { type: 'usage', usage: { inputTokens: 0, outputTokens: 0 } },
+      { type: 'finish', reason: { kind: 'error', failure: { message: 'empty', code: 'EMPTY_RESPONSE' } } },
+    ]
+    let seq = 1
+    const events: SessionEvent[] = [
+      ...failed.map(chunk => chunkEvent(seq++, 1, 1, chunk)),
+      ...TEXT_CHUNKS.map(chunk => chunkEvent(seq++, 1, 1, chunk)),
+    ]
+    expect(deriveReplayScript(events)).toEqual([
+      { kind: 'chunks', chunks: failed },
+      { kind: 'chunks', chunks: TEXT_CHUNKS },
+    ])
   })
 
   it('produces one entry per distinct (turn, step), in log order', () => {
@@ -141,7 +158,7 @@ describe('deriveReplayScript', () => {
   it('ignores non-assistant/chunk events', () => {
     let seq = 1
     const events: SessionEvent[] = [
-      { type: 'turn/start', seq: seq++, time: 0, data: { turn: 1, trigger: { kind: 'injection', source: { kind: 'user' } } } },
+      { type: 'turn/start', seq: seq++, time: 0, data: { turn: 1 } },
       ...TEXT_CHUNKS.map(c => chunkEvent(seq++, 1, 1, c)),
       { type: 'turn/end', seq: seq++, time: 0, data: { turn: 1, reason: { kind: 'completed' } } },
     ]
@@ -161,12 +178,99 @@ describe('deriveReplayScript', () => {
     expect(deriveReplayScript(events)).toEqual([{ kind: 'chunks', chunks: errChunks }])
   })
 
+  it('inserts compact/summary output between the calls surrounding it', () => {
+    const overflow: StreamChunk[] = [
+      { type: 'finish', reason: { kind: 'error', failure: { message: 'too large', code: 'CONTEXT_WINDOW_EXCEEDED' } } },
+    ]
+    const block = { type: 'text' as const, text: 'durable checkpoint' }
+    const rawOutput = [block]
+    const usage = { inputTokens: 9, outputTokens: 2 }
+    const summaryChunks: StreamChunk[] = [
+      { type: 'block-start', index: 0, blockType: 'text' },
+      { type: 'block-end', index: 0, block },
+      { type: 'usage', usage },
+      { type: 'finish', reason: { kind: 'stop' } },
+    ]
+    let seq = 1
+    const events: SessionEvent[] = [
+      ...overflow.map(chunk => chunkEvent(seq++, 1, 2, chunk)),
+      { type: 'compact/start', seq: seq++, time: 0, data: { turn: 1 } },
+      {
+        type: 'compact/summary',
+        seq: seq++,
+        time: 0,
+        data: {
+          summary: rawOutput,
+          rawOutput,
+          shadowedRange: { start: 1, end: 1 },
+          shadowedSeqs: [1],
+          shadowedTokenCount: 20,
+          provider: 'mock',
+          model: 'mock',
+          usage,
+        },
+      },
+      ...TEXT_CHUNKS.map(chunk => chunkEvent(seq++, 1, 2, chunk)),
+    ]
+
+    expect(deriveReplayScript(events)).toEqual([
+      { kind: 'chunks', chunks: overflow },
+      { kind: 'chunks', chunks: summaryChunks },
+      { kind: 'chunks', chunks: TEXT_CHUNKS },
+    ])
+  })
+
+  it('does not infer an LLM call from compact/summary without raw output', () => {
+    const event: SessionEvent<'compact/summary'> = {
+      type: 'compact/summary',
+      seq: 1,
+      time: 0,
+      data: {
+        summary: [{ type: 'text', text: 'template result' }],
+        shadowedRange: { start: 1, end: 1 },
+        shadowedSeqs: [1],
+        shadowedTokenCount: 20,
+        provider: 'template',
+        model: 'template',
+      },
+    }
+
+    expect(deriveReplayScript([event])).toEqual([])
+  })
+
+  it('derives a compact/summary stream when usage is unavailable', () => {
+    const block = { type: 'text' as const, text: 'summary without usage' }
+    const event: SessionEvent<'compact/summary'> = {
+      type: 'compact/summary',
+      seq: 1,
+      time: 0,
+      data: {
+        summary: [block],
+        rawOutput: [block],
+        shadowedRange: { start: 1, end: 1 },
+        shadowedSeqs: [1],
+        shadowedTokenCount: 20,
+        provider: 'mock',
+        model: 'mock',
+      },
+    }
+
+    expect(deriveReplayScript([event])).toEqual([{
+      kind: 'chunks',
+      chunks: [
+        { type: 'block-start', index: 0, blockType: 'text' },
+        { type: 'block-end', index: 0, block },
+        { type: 'finish', reason: { kind: 'stop' } },
+      ],
+    }])
+  })
+
   it('throws on a group that lacks a terminal finish chunk (a thrown stream)', () => {
     // A thrown stream(): prefix chunks logged, then turn/end (error reason), NO finish.
     const events: SessionEvent[] = [
       chunkEvent(1, 1, 1, { type: 'block-start', index: 0, blockType: 'text' }),
       chunkEvent(2, 1, 1, { type: 'text-delta', index: 0, text: 'par' }),
-      { type: 'turn/end', seq: 3, time: 0, data: { turn: 1, reason: { kind: 'error', step: 1, message: 'x' } } },
+      { type: 'turn/end', seq: 3, time: 0, data: { turn: 1, reason: { kind: 'error', error: { message: 'x', code: 'UNKNOWN' } } } },
     ]
     expect(() => deriveReplayScript(events)).toThrow(/without a finish chunk.*replay\.override\.json/s)
   })
@@ -176,6 +280,14 @@ describe('deriveReplayScript', () => {
       chunkEvent(1, 2, 3, { type: 'block-start', index: 0, blockType: 'text' }),
     ]
     expect(() => deriveReplayScript(events)).toThrow(/2\/3/)
+  })
+
+  it('rejects an unfinished call before consuming chunks from a new step', () => {
+    const events: SessionEvent[] = [
+      chunkEvent(1, 1, 1, { type: 'block-start', index: 0, blockType: 'text' }),
+      chunkEvent(2, 1, 2, { type: 'finish', reason: { kind: 'stop' } }),
+    ]
+    expect(() => deriveReplayScript(events)).toThrow(/model call 1\/1 ended without a finish chunk/)
   })
 })
 
@@ -308,6 +420,80 @@ describe('installLlmReplay (through the real LlmService)', () => {
     // No adapter registered for 'm' — replay must not reach it.
     installLlmReplay(ctx, { file })
     expect(await drain(ctx.llm.stream({ provider: 'm', model: 'm', messages: [] }))).toEqual(TEXT_CHUNKS)
+  })
+
+  describe('{{fromRequest:...}} substitution', () => {
+    const requestMessages = [createUserMessage({
+      content: [{ type: 'text' as const, text: 'stale {"goal":{"id":"goal-old"}} then {"goal":{"id":"goal-42ab"}}' }],
+      source: { kind: 'user' as const },
+    })]
+
+    function scriptedCall(argumentsDelta: string): StreamChunk[] {
+      return [
+        { type: 'block-start', index: 0, blockType: 'tool-call' },
+        { type: 'tool-call-delta', index: 0, id: CallId('c1'), name: 'update_goal', argumentsDelta },
+        { type: 'block-end', index: 0, block: { type: 'tool-call', id: CallId('c1'), name: 'update_goal', arguments: argumentsDelta } },
+        { type: 'finish', reason: { kind: 'tool-calls' } },
+      ]
+    }
+
+    async function streamScripted(argumentsDelta: string): Promise<StreamChunk[]> {
+      writeLog(TEXT_CHUNKS)
+      const overrideFile = join(dir, 'replay.override.json')
+      writeFileSync(overrideFile, JSON.stringify([{ kind: 'chunks', chunks: scriptedCall(argumentsDelta) }]), 'utf8')
+      const ctx = new Context()
+      await ctx.plugin(LlmService)
+      installLlmReplay(ctx, { file, overrideFile })
+      return drain(ctx.llm.stream({ provider: 'm', model: 'm', messages: requestMessages }))
+    }
+
+    it('resolves the capture group from the LAST request match in every scripted string field', async () => {
+      const streamed = await streamScripted('{"goal_id":"{{fromRequest:"id":"(goal-[^"]+)"}}","revision":1}')
+      const delta = streamed.find(chunk => chunk.type === 'tool-call-delta')
+      expect(delta).toMatchObject({ argumentsDelta: '{"goal_id":"goal-42ab","revision":1}' })
+      const end = streamed.find(chunk => chunk.type === 'block-end')
+      expect(end).toMatchObject({ block: { arguments: '{"goal_id":"goal-42ab","revision":1}' } })
+    })
+
+    it('substitutes the whole match when the pattern has no capture group', async () => {
+      const streamed = await streamScripted('{"goal_id":"{{fromRequest:goal-[0-9a-z]+}}"}')
+      const delta = streamed.find(chunk => chunk.type === 'tool-call-delta')
+      expect(delta).toMatchObject({ argumentsDelta: '{"goal_id":"goal-42ab"}' })
+    })
+
+    it('keeps a trailing brace quantifier inside the pattern (terminator is the run tail)', async () => {
+      const streamed = await streamScripted('{"goal_id":"{{fromRequest:goal-[0-9a-z]{4}}}"}')
+      const delta = streamed.find(chunk => chunk.type === 'tool-call-delta')
+      expect(delta).toMatchObject({ argumentsDelta: '{"goal_id":"goal-42ab"}' })
+    })
+
+    it('fails loud when a placeholder matches nothing in the request', async () => {
+      await expect(streamScripted('{"goal_id":"{{fromRequest:task-[0-9]+}}"}'))
+        .rejects.toThrow(/fromRequest.*matched nothing/)
+    })
+
+    it('fails loud on an invalid placeholder pattern', async () => {
+      await expect(streamScripted('{"goal_id":"{{fromRequest:(goal-}}"}'))
+        .rejects.toThrow(/fromRequest.*invalid pattern/)
+    })
+
+    it('fails loud on an unterminated placeholder', () => {
+      const entry: ReplayEntry = { kind: 'chunks', chunks: scriptedCall('{"goal_id":"{{fromRequest:goal-1"}') }
+      expect(() => resolveScriptedEntry(entry, requestMessages)).toThrow(/fromRequest placeholder is unterminated/)
+    })
+
+    it('returns the exact same entry when no placeholder appears', () => {
+      const entry: ReplayEntry = { kind: 'chunks', chunks: TEXT_CHUNKS }
+      expect(resolveScriptedEntry(entry, requestMessages)).toBe(entry)
+    })
+
+    it('skips non-string request leaves when building the corpus', () => {
+      const messages = requestMessages.map(message => ({ ...message, seq: 7 })) as unknown as GenerateOptions['messages']
+      const entry: ReplayEntry = { kind: 'chunks', chunks: scriptedCall('{"goal_id":"{{fromRequest:goal-42[a-z]+}}"}') }
+      const resolved = resolveScriptedEntry(entry, messages)
+      if (resolved.kind !== 'chunks') throw new Error('expected chunks entry')
+      expect(resolved.chunks[1]).toMatchObject({ argumentsDelta: '{"goal_id":"goal-42ab"}' })
+    })
   })
 
   it('registers a replay-only provider catalog when configured', async () => {

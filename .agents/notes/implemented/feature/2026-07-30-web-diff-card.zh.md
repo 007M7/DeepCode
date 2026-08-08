@@ -16,13 +16,13 @@ Web 客户端忽略了它。write/edit 调用落到 `GenericToolCard`，其行�
 
 `DiffBlock` 是一个 `ui-primitives` 组件，把文件改动渲染为内联 diff 表面，write/edit 调用的两个 Web 渲染点都通过它消费 diff 渲染意图：chat 工具行的行体和详情面板的 Output 区。`ui-conversation/src/client/contract/diff-card-model.ts` 是唯一把快照的 `callView`/`resultView` 对转成组件 props 的地方，因此两个渲染点不会对一次改动产生分歧。当两侧都未声明 `card: 'diff'` 时它返回 null —— 走通用路径 —— 包括本客户端版本不认识的 `card` 值，以及已结算调用的 result view 是 generic 的情况（write/edit 的执行错误正是这样留在通用路径上的）。调用结算后 result 侧是权威：已应用的 hunk 替换仅从参数推导的 call 时 diff。分页窗口丢弃了 call 头也仍能渲染，因为 result view 携带完整改动。
 
-组件的契约遵循 TUI 的 `diffLines`（`packages/ui/tui/src/components/transcript.ts`），使 diff 在两个前端读起来是同一形态：
+该组件与 TUI 共用单栏框架、行终止符规则和去重路径计数。两者的行分类不同：Web 渲染完整的变更前后两侧，而 TUI 会在有界比较完成时派生中性上下文和精确变更行，并把整侧回退标记为近似结果。
 
-- **每个文件一个路径头。** 新文件开启一个粗体路径头；同文件的第二个 hunk（分散编辑，或 `replace_all`）以一个 `⋯` gap 开启，而非重复路径。`N file(s)` 页脚在两个前端都统计**去重后的路径数** —— 本 PR 把 TUI 页脚从 `diffs.length` 改为去重路径计数，因此同文件两个 hunk 在两端都读作 `1 file`。
-- **改动用 diff 自身的颜色。** 删除行是 error token 上的 `- `，新增行是 success token 上的 `+ `，在横向滚动的盒子里以 `white-space: pre` 逐字绘制 —— 源码行靠缩进阅读，所以滚动而不折行。新建（`oldText: null`）没有删除侧。
+- **路径分组。** 新文件开启一个粗体路径头；同文件的第二个 hunk（分散编辑，或 `replace_all`）以一个 `⋯` gap 开启，而非重复路径。TUI 在每个 hunk 上都保留路径头，但两个前端的 `N file(s)` 页脚都按去重路径计数，因此同文件两个 hunk 在两端都读作 `1 file`。
+- **整侧改动配色。** 旧侧每一行都以 error token 上的 `- ` 显示，新侧每一行都以 success token 上的 `+ ` 显示，并在横向滚动的盒子里以 `white-space: pre` 逐字绘制：源码行靠缩进阅读，因此滚动而不折行。新建（`oldText: null`）没有删除侧。
 - **高度上限带展开控件。** 长于 `DEFAULT_DIFF_MAX_LINES`（16）的 diff 显示 `ceil(max/2)` 个头部行加剩余尾部行，中间一个按钮报告隐藏行数。分割算术与 `TerminalBlock` 和 TUI 的折叠卡片一致，因此长 diff 的头尾切片在两个前端一致。
-- **行终止符。** 每一侧的内容按 `TerminalBlock` 的终止符规则在 `\n` 上切分：空文本是零行（整文件删除的 `newText`、新建缺失的 `oldText` 侧），单个结尾换行终止其最后一行而非新增一条幻影空行，内部空行保留。本 PR 把同一规则应用到了 TUI diff 分支，因此对于真实 write/edit 调用携带的以换行结尾的内容，两个前端的 `+A -R` 页脚计数一致。
-- **页脚与复制。** 暗色 `└ +A -R · N file(s)` 页脚概括改动；`+A -R` 是新增/删除行数，与 TUI 页脚绘制的每侧计数相同。复制控件复制带前缀的 diff 文本（路径头、`- `/`+ ` 行、`⋯` gap），使多文件复制保持可归属。
+- **行终止符。** 每一侧的内容按 `TerminalBlock` 与 TUI 共用的终止符规则在 `\n` 上切分：空文本是零行（整文件删除的 `newText`、新建缺失的 `oldText` 侧），单个结尾换行终止其最后一行而非新增一条幻影空行，内部空行保留。
+- **页脚与复制。** 暗色 `└ +A -R · N file(s)` 页脚报告 Web 卡片完整新侧与旧侧的行数。TUI 页脚则在可用时报告精确变更行数，并把有界整侧回退标记为近似结果；两者使用相同的去重路径计数。复制控件复制带前缀的 Web diff 文本（路径头、`- `/`+ ` 行、`⋯` gap），使多文件复制保持可辨别归属。
 
 几何、圆角、字体镜像 `CodeBlock`/`TerminalBlock`，使 diff 卡片、terminal 卡片、代码块读起来是一家；`white-space: pre` 加横向滚动是刻意的分歧。复制控件浮在卡片右上角，而非占据自己的 banner 行，因为只放一个复制按钮的 banner 会在第一行 diff 上方画出一条空带 —— TUI 的 diff 卡片也没有 banner，只有页脚。
 
@@ -32,7 +32,7 @@ chat 行把 diff 常驻渲染在路径链接摘要之下，上限 `CHAT_DIFF_MAX
 
 **并排（双栏）diff。** owner 目前拒绝：它更密但不适合狭窄的 chat 行，目标是与 TUI 单栏统一形式对齐。详情面板里的双栏模式是后续的 props 改动，不是重设计。
 
-**git 式行号槽。** `FileDiff` 契约只携带 `{ path, oldText, newText }` —— `structuredPatch` 的 hunk 起始行在 `diff.ts` 里被丢弃，所以没有行号抵达客户端。渲染行号槽需要后端契约改动（携带 `oldStart`/`newStart`）并同步升级 TUI 以保持一致；推迟，使本 PR 保持为对既有契约的纯 Web 消费。
+**git 式行号槽。** `FileDiff` 契约只携带 `{ path, oldText, newText }` —— `structuredPatch` 的 hunk 起始行在 `diff.ts` 里被丢弃，所以没有行号抵达客户端。渲染行号槽需要后端契约改动（携带 `oldStart`/`newStart`）并同步升级 TUI 以保持一致；推迟，使本 PR（Pull Request）保持为对既有契约的纯 Web 消费。
 
 **复用 `CodeBlock`。** 因与 terminal 卡片相同的理由拒绝：`CodeBlock` 会折行，且没有每行 `+`/`-` 角色、没有路径头、没有页脚。两者共享几何与字体 token，那是唯一一处一个实现对两者都正确的部分。
 

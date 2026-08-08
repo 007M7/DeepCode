@@ -39,8 +39,7 @@ describe('headless-agent keyless smoke', () => {
     expect(stderr).toBe('')
     expect(events.some(event => event.type === 'tool/call' && event.data.name === 'bash')).toBe(true)
     const catalogMessage = events.find(event => event.type === 'user/message'
-      && event.data.source.kind === 'plugin'
-      && event.data.source.plugin === 'dsh-tool-skill')
+      && event.data.source.kind === 'skill-catalog')
     const catalog = catalogMessage?.type === 'user/message'
       ? catalogMessage.data.content.filter(block => block.type === 'text').map(block => block.text).join('\n')
       : ''
@@ -53,12 +52,9 @@ describe('headless-agent keyless smoke', () => {
     expect(JSON.stringify(toolResult)).toContain('CLI_TOOL_ROUND_TRIP')
     expect(result).toMatchObject({
       type: 'result',
-      success: true,
-      turn: 1,
-      reason: { kind: 'completed' },
       usage: { inputTokens: 18, outputTokens: 8, cacheReadTokens: 2, reasoningTokens: 1 },
     })
-    expect(String(result?.['result'])).toContain('CLI_TOOL_ROUND_TRIP')
+    expect(String(result?.['output'])).toContain('CLI_TOOL_ROUND_TRIP')
     expect(persistedHeader).toMatchObject({ type: 'session' })
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 

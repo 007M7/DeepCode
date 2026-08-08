@@ -20,19 +20,19 @@ LLM（大语言模型）提供方请求应当标识发出请求的产品。这�
 - **`From` 是标准的，但不适合作为强制默认值。** RFC 9110 第 10.1.2 节将 `From` 定义为负责用户代理的人的电子邮件地址。机器人代理应当发送它以便服务器联系运营者，但非机器人代理出于隐私和安全策略考虑不应在未经用户显式配置的情况下发送。harness 可以后续支持运营者联系方式，但不得凭空捏造或全局强制要求。
 - **请求体中的 `user` 或 `metadata` 字段不是应用归属。** 部分模型 API 暴露稳定的终端用户标识符、请求元数据、标签或项目/账户头部。这些对滥用监控、内部计费、仪表盘或链路追踪有用，但它们要么标识的是终端用户而非产品，要么是提供方特有的 body schema，要么不保证能通过 OpenAI 兼容网关透传。它们不能替代静态的应用身份头部。
 - **SDK 遥测头部标识的是 SDK，而非应用。** 官方和第三方 SDK 常发送库/版本头部。这些帮助 SDK 维护者调试其客户端，但除非应用显式提供产品归属层，否则它们不能标识 harness 作为应用。
-- **pi-ai 有一流的头部钩子。** `@earendil-works/pi-ai` 的 `StreamOptions.headers` 将调用方头部最后合并（覆盖提供方默认值），因此基于库的适配器无需包装或上游改动即可满足与手写适配器相同的协议格式契约。mock 服务器测试套件对两个适配器都断言头部到达了线路。
+- **pi-ai 有原生支持的头部钩子。** `@earendil-works/pi-ai` 的 `StreamOptions.headers` 将调用方头部最后合并（覆盖提供方默认值），因此基于库的适配器无需包装或上游改动即可满足与手写适配器相同的线路契约。mock 服务器测试套件对两个适配器都断言头部到达了线路。
 
 ## 决策
 
-在 LLM 适配器边界，提供方请求归属是强制的，且仅使用标准 `User-Agent` 头部。规则：每个生产 LLM 适配器在每个提供方 HTTP 请求上发送一个静态、非机密的应用身份，且每个适配器都有测试证明 `User-Agent` 到达了线路（mock 服务器断言收到的头部；对于基于库的适配器，通过库的头部钩子馈入同一个 mock 服务器断言）。
+在 LLM 适配器边界，提供方请求归属是强制的，且仅使用标准 `User-Agent` 头部。规则：每个产品级 LLM 适配器在每个提供方 HTTP 请求上发送一个静态、非机密的应用身份，且每个适配器都有测试证明 `User-Agent` 到达了线路（mock 服务器断言收到的头部；对于基于库的适配器，通过库的头部钩子馈入同一个 mock 服务器断言）。
 
 本 Agent Note **不**实现 OpenRouter 应用归属。`HTTP-Referer`、`X-OpenRouter-Title`、`X-Title` 和 `X-OpenRouter-Categories` 是 OpenRouter 特有的产品展示头部，不是提供方无关的模型请求归属。它们可以后续由 OpenRouter 适配器或显式 OpenRouter 模式提出，附带自己的隐私/产品决策、测试和文档。在此之前，即使请求指向 OpenRouter，也只发送本 Agent Note 定义的共享 `User-Agent` 归属。
 
 提供方无关的身份由 `dsh-llm`（`packages/llm/llm/src/attribution.ts`）拥有，而非各适配器。`AppIdentity` 仅包含构建 `User-Agent` 所需的公开产品事实，默认的 `APP_IDENTITY` 确定了提案中留待决定的值：
 
 - `User-Agent` 的产品 token：`deepseek-harness`（与 Agent Note 之前的线路值及仓库/组织身份保持连续性）
-- 版本：通过 `createRequire` 从所属包的 manifest 读取，绝不手动复制常量
-- 应用 URL：`https://github.com/deepseek-ai/deepseek-harness-sdk`——计划中的公开主页；`attribution.ts` 中的 `FIXME` 标记在该仓库实际存在之前阻塞发布
+- 版本：通过 `createRequire` 从所属包的 manifest（元数据清单）读取，绝不手动复制常量
+- 应用 URL：`https://github.com/deepseek-ai/deepseek-harness-sdk`——计划中的公开主页，且必须在发布前实际存在
 
 默认值是强制的且非空。白标部署通过向 `attributionHeaders(identity)` 传入自己的 `AppIdentity` 来覆盖——覆盖 seam 就是函数参数，在有消费方需要之前不做部署配置管道——省略时回退到 harness 默认值而非抑制归属。没有逐请求 API 允许模型、用户提示词、会话 id、cwd、用户邮箱、API key 所有者或本地机器身份影响这些字段。
 
@@ -51,7 +51,7 @@ LLM（大语言模型）提供方请求应当标识发出请求的产品。这�
 
 已落地的契约：
 
-- `dsh-llm` 为 `LlmAdapter` 作者文档化了强制的 `User-Agent` 归属契约（`LlmAdapter` JSDoc、包 README，以及 `docs/core-data-structures/llm-streaming.md` 的适配器契约章节）。
+- `dsh-llm` 为 `LlmAdapter` 作者文档化了强制的 `User-Agent` 归属契约（`LlmAdapter` JSDoc、包 README，以及 `docs/core-data-structures/llm-streaming.md` 的适配器契约（adapter contract）章节）。
 - 共享辅助函数（`attributionHeaders` / `userAgent`）从包元数据构建应用身份和标准 `User-Agent` 值，适配器无需手动复制版本常量。
 - `dsh-llm-deepseek` 在每个请求上发送共享的 `User-Agent`，其 mock 服务器套件断言精确值。
 - `dsh-llm-pi-ai` 通过 pi-ai 的 `StreamOptions.headers` 钩子发送相同的 `User-Agent`，其 mock 服务器套件断言精确值。
@@ -77,7 +77,7 @@ LLM（大语言模型）提供方请求应当标识发出请求的产品。这�
 
 **提供方看到流量来自 harness。** 这正是目的，但意味着此前混在通用 SDK 流量中的部署变得可识别。缓解措施：仅发送静态公开产品数据，并允许 fork/白标部署传入自己的 `AppIdentity`。
 
-**应用 URL 指向一个尚不存在的仓库。** `deepseek-ai/deepseek-harness-sdk` 是计划中的公开主页；在它创建之前，该 URL 是一个悬空承诺。常量上的 `FIXME` 标记阻塞发布，不允许带着未解决的问题出门（见 `docs/development.md` 标记语义）。
+**应用 URL 指向一个尚不存在的仓库。** `deepseek-ai/deepseek-harness-sdk` 是计划中的公开主页；在它创建之前，该 URL 是一个阻塞发布的悬空承诺。
 
 **不同客户端库的头部支持有差异。** 手写适配器直接设置头部；基于 pi-ai 的适配器依赖 pi-ai 继续尊重 `StreamOptions.headers`（最后合并覆盖提供方默认值）。线路级 mock 服务器测试是守卫：如果 pi-ai 升级后不再投递该头部，套件会变红。这对抽象施加了有益的压力：一个无法设置强制头部的提供方适配器不能完整实现 harness 的 LLM 契约。
 

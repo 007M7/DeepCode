@@ -179,12 +179,11 @@ describe.skipIf(process.platform === 'win32')('create-sdk terminal contract', ()
             "message": "DeepSeek API key",
           },
           {
-            "initialValue": "tui",
+            "initialValue": "acp",
             "kind": "select",
             "message": "Run interface",
             "options": [
               "ACP automation server",
-              "Terminal TUI",
               "Embedded context",
             ],
           },

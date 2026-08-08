@@ -4,7 +4,7 @@
 
 超时的**时序与分类**部分：一个零依赖纯函数库（无运行时 harness 依赖），由每个需要限制调用方超时提示、启动 deadline，并在之后区分「已超时」与「已取消」的功能共享。
 
-它**不负责终止**。它发出的信号只会*通知*；真正停止工作仍由各功能负责，因为机制各不相同：bash 对操作系统进程组发送 SIGKILL，web 关闭 `fetch` 套接字，没有任何共享层能够承担全部终止机制。[Agent Note（agent 决策记录）](../../../.agents/notes/implemented/architecture/2026-07-06-timeout-deadline-library.md) 将边界划定为：共享时序/分类，将强制终止保留在本地。
+它**不负责终止**。它发出的信号只会*通知*；真正停止工作仍由各功能负责，因为机制各不相同：bash 对操作系统进程组发送 SIGKILL，web 关闭 `fetch` 套接字，没有任何共享层能够承担全部终止机制。[Agent Note](../../../.agents/notes/implemented/architecture/2026-07-06-timeout-deadline-library.md) 将边界划定为：共享时序/分类，将强制终止保留在本地。
 
 它是**库，而非服务或插件**：没有 `ctx`，不注册任何内容，不持有状态，也不发出事件。「超时服务」必须了解如何停止每项功能的工作，这正是微内核要排除在共享层之外的知识。
 
@@ -46,7 +46,7 @@ export async function runWithDeadline(upstream: AbortSignal | undefined, timeout
 
 该信号只会*通知*；调用方必须接入自己的终止机制（`d.signal.addEventListener('abort', kill)`，或将 `d.signal` 传给 `fetch`）。让 promise 与 timer 竞速，会在子进程或套接字仍在泄漏时就让工具调用完成；发出信号则会强制要求存在真正的终止路径。
 
-将你自己的 `code` 传给 `timeoutOf`，以便分类可在嵌套中组合：当你收到的 `upstream` *本身*就是 deadline 信号时（未来启动每次调用 deadline 的 `tools/execute` 中间件），如果外层 timer 首先触发，`AbortSignal.any` 会保留外层 `TimeoutReason`。将范围限定为你的 `code`，可将外部超时视为普通 upstream 取消，这才是你所属功能视角下的正确分类，而不会在本地 timer 尚未到期时就声称自己超时。
+将你自己的 `code` 传给 `timeoutOf`，使分类可在嵌套场景中正确组合。当 `upstream` 本身是 deadline 信号时，如果该 timer 先触发，`AbortSignal.any` 会保留它的 `TimeoutReason`。将匹配范围限定为你的 code，会把外部超时视为普通的 upstream 取消，而不会声称本地 timer 已到期。
 
 对于流式传输，创建一个 `idleWatchdog`，将其稳定的 `signal` 传给传输层，并为提供方的每次读取调用 `watchdog.next(iterator)`。间隔必须为正有限数，且不得超过 `MAX_TIMER_DELAY_MS`；否则 Node 会将其限制为 1 毫秒。它只对尚未完成的读取请求计时，因此当下游代码进行渲染或在请求下一个分片前以其他方式等待时，timer 不会运行。该原语仍然只会通知，因此传输层必须观察稳定信号；DeepSeek 和 pi-ai 适配器证明，超时会关闭它们的真实响应正文或 SDK 请求。
 

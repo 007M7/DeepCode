@@ -19,7 +19,7 @@ pnpm -v
 ## Step 1: install and configure the API key
 
 ```sh
-git clone https://github.com/deepseek-harness/deepseek-harness.git
+git clone https://github.com/deepseek-ai/deepseek-harness-sdk.git
 cd deepseek-harness
 pnpm install
 ```
@@ -40,21 +40,23 @@ pnpm run demo:headless "summarize the architecture of this workspace"
 
 Headless runs one complete model/tool turn, persists the session, prints the result, and exits. Use `--output-format stream-json` when you need the canonical event stream.
 
-## Step 3: use the TUI
+## Step 3: use the Web UI
 
-Start the interactive coding agent:
+Build and start the browser interface:
 
 ```sh
-pnpm run demo:tui
+pnpm run build
+pnpm run dsh web
 ```
 
-The full-screen agent can read and write files, run commands, delegate subtasks, and track a plan. Try: `Create hello.js in the current directory, print "Hello from Harness!", and run it`.
+Open `http://127.0.0.1:3080`. The agent can read and write files, run commands, delegate subtasks, and track a plan. Try: `Create hello.js in the current directory, print "Hello from Harness!", and run it`.
 
 ## What happened
 
-headless-agent uses the `@deepseek-ai/dsh-cli-demo` app; the interactive `dsh` surface instead composes [`apps/cli/config/base.cordis.yml`](../../../apps/cli/config/base.cordis.yml) with the `tui.cordis.yml` overlay and no app bundle. Both load the same providerless agent spine, while their `cordis.yml` files select the DeepSeek model and capability plugins appropriate to each surface.
+headless-agent uses the `@deepseek-ai/dsh-cli-demo` app. `dsh web` instead boots the `web` profile: the [`dsh-base`](../../../packages/bundle/base/cordis.patch.yml) and [`dsh-web-app`](../../../packages/bundle/web-app/cordis.patch.yml) bundle patch layers composed over an empty root. Both select the DeepSeek model and capability plugins appropriate to their entry mode.
 
 ## Next steps
 
+- [Configure models](./providers.md) — reach providers beyond DeepSeek, and custom gateways
 - [Configuration](./config.md) — understand the `cordis.yml` format
 - [Develop a plugin](../develop/basic/) — build your own tool or backend

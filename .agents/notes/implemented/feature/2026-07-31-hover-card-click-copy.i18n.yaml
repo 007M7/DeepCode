@@ -1,6 +1,0 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
-#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-07-31-hover-card-click-copy.md
-2026-07-31-hover-card-click-copy.md: c87734fe328fa2adb396d6685495faa82bc1fff2
-2026-07-31-hover-card-click-copy.zh.md: a57b5238b095de293605d4e309dcc2da3516e904

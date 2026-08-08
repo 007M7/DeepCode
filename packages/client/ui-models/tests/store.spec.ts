@@ -25,7 +25,7 @@ const NAMESPACES = [
     value: { apiKeyEnv: 'DEEPSEEK_API_KEY', baseURL: 'https://base' },
     base: { baseURL: 'https://base' },
     applies: 'live' as const,
-    secrets: [{ path: ['apiKey'], set: false }],
+    secrets: [],
     revision: 0,
   },
   {
@@ -51,7 +51,7 @@ function api(overrides: {
       models: () => Promise.resolve(ok({ groups: [], failures: [] })),
     },
     settings: {
-      describe: overrides.describeSettings ?? (() => Promise.resolve(ok({ writable: true, namespaces: NAMESPACES }))),
+      describe: overrides.describeSettings ?? (() => Promise.resolve(ok({ writable: true, hasDocument: false, namespaces: NAMESPACES }))),
       update: () => Promise.resolve(fail('unused')),
       replace: () => Promise.resolve(fail('unused')),
     },
@@ -85,7 +85,6 @@ describe('ModelsSettingsStore', () => {
       removable: false,
       apiKeyEnv: 'DEEPSEEK_API_KEY',
       credential: { configured: false, writable: true },
-      literalApiKeyConfigured: false,
     })
     expect(byProvider.get('openai')).toMatchObject({
       configured: true,
@@ -131,29 +130,6 @@ describe('ModelsSettingsStore', () => {
     expect(store.store.getSnapshot().credentialError).toBe('credential transport refusal')
   })
 
-  it('joins a configured literal key from the redacted secret sidecar', async () => {
-    const { face } = api({
-      describeSettings: () => Promise.resolve(ok({
-        writable: true,
-        namespaces: [{
-          ...NAMESPACES[0],
-          secrets: [
-            { path: ['apiKey', 'nested'], set: true },
-            { path: ['different'], set: true },
-            { path: ['apiKey'], set: true },
-          ],
-        }] as never,
-      })),
-      providers: () => Promise.resolve(ok({ providers: [DIRECTORY[0]] as never })),
-    })
-    const store = new ModelsSettingsStore(face)
-    await store.load()
-    expect(store.store.getSnapshot().rows[0]).toMatchObject({
-      literalApiKeyConfigured: true,
-      apiKeyEnv: 'DEEPSEEK_API_KEY',
-    })
-  })
-
   it('surfaces a directory failure and keeps the last good rows', async () => {
     const { face } = api()
     const store = new ModelsSettingsStore(face)
@@ -195,6 +171,7 @@ describe('edge joins', () => {
     const { face } = api({
       describeSettings: () => Promise.resolve(ok({
         writable: true,
+        hasDocument: false,
         namespaces: [{
           ns: 'llm-pi-ai',
           schema: {},
@@ -221,6 +198,7 @@ describe('edge joins', () => {
     const { face, seenRefs } = api({
       describeSettings: () => Promise.resolve(ok({
         writable: true,
+        hasDocument: false,
         namespaces: [{ ns: 'llm-pi-ai', schema: {}, value: { providers: {} }, applies: 'live' as const, secrets: [], revision: 0 }] as never,
       })),
       providers: () => Promise.resolve(ok({

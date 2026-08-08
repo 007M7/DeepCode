@@ -12,7 +12,7 @@ import {
   acknowledgeReloadConnectionLoss, assertFixtureInventory, captureStableAria, compareOrRefreshGolden,
   launchWebScaffold, watchConsole, webSnapshotMode, type WebScaffold,
 } from './scaffold.ts'
-import { ZH_BROWSER_LOCALE, saveFailureShot } from './support.ts'
+import { ZH_BROWSER_LOCALE, connectFreshWorkspaceZh, saveFailureShot } from './support.ts'
 import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import {
   WELCOME_NOTICE_ACK_FIELD, WELCOME_NOTICE_COPY, WELCOME_NOTICE_SETTINGS_NAMESPACE,
@@ -22,6 +22,7 @@ import {
 const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/onboarding-deepseek-config', import.meta.url))
 const WELCOME_EXPECTED = join(SNAPSHOT_DIR, 'welcome.expected.md')
 const MISSING_EXPECTED = join(SNAPSHOT_DIR, 'missing.expected.md')
+const MODELS_EXPECTED = join(SNAPSHOT_DIR, 'models.expected.md')
 const MODE = webSnapshotMode()
 
 describe.skipIf(MODE === 'record')('web e2e: first-run DeepSeek credential setup', () => {
@@ -112,8 +113,8 @@ describe.skipIf(MODE === 'record')('web e2e: first-run DeepSeek credential setup
     await settings.getByRole('button', { name: '保存', exact: true }).click()
     await keyInput.waitFor({ state: 'detached', timeout: 15_000 })
 
-    const stored = await readFile(join(scaffold.harnessHome, '.env'), 'utf8')
-    expect(stored.includes(`DEEPSEEK_API_KEY=${secret}`)).toBe(true)
+    const stored = await readFile(join(scaffold.harnessHome, '.credentials.yaml'), 'utf8')
+    expect(stored.includes(`DEEPSEEK_API_KEY: ${secret}`)).toBe(true)
     expect((await page.content()).includes(secret)).toBe(false)
     expect((await page.locator('body').ariaSnapshot()).includes(secret)).toBe(false)
     expect(browserConsole.some(line => line.includes(secret))).toBe(false)
@@ -160,7 +161,112 @@ describe.skipIf(MODE === 'record')('web e2e: first-run DeepSeek credential setup
     expect(tripwire.pageErrors).toEqual([])
   }, 60_000)
 
+  it('never paints the takeover chrome on a configured reload, even with the settings join held open', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-onboarding-configured-reload'))
+    // Regression pin for the reload white flash: both steps are satisfied
+    // (welcome acknowledged, credential configured), yet each must LOAD its
+    // private join before it can decide not to show. The chrome lives inside
+    // the step (OnboardingSurface), so the deciding window paints and blocks
+    // nothing. Holding settings.describe widens that window from loopback
+    // RTT scale to a deterministic hundreds of milliseconds, removing all
+    // timing dependence from the sampler assertions below.
+    //
+    // The sampler init script persists across this shared page's later
+    // navigations (init scripts re-run per navigation); that stays harmless
+    // because no later scenario in this file legitimately shows the
+    // takeover, and only this test reads __takeoverSightings.
+    await page.addInitScript(() => {
+      const sightings: string[] = []
+      ;(window as unknown as { __takeoverSightings: string[] }).__takeoverSightings = sightings
+      setInterval(() => {
+        if (document.querySelector('[class*="onboardingStage"], [class*="onboardingMask"]') !== null) {
+          sightings.push('chrome')
+        }
+        if (document.getElementById('root')?.inert === true) sightings.push('inert')
+      }, 8)
+    })
+    // EVERY settings.describe issued before the release is held — not just
+    // the first — so the pin cannot silently collapse back to loopback
+    // timing if a second boot-time consumer of the join ever appears.
+    let released = false
+    const heldRoutes: Array<() => void> = []
+    const releaseDescribe = (): void => {
+      released = true
+      for (const resolve of heldRoutes.splice(0)) resolve()
+    }
+    await page.route('**/api/settings.describe', async (route) => {
+      if (!released) await new Promise<void>((resolve) => { heldRoutes.push(resolve) })
+      await route.continue()
+    })
+    const warningsBefore = tripwire.warnings.length
+    await page.reload({ waitUntil: 'commit' })
+    await page.waitForSelector('[class*="frame"]', { timeout: 15_000 })
+    // The app is painted and interactive while the steps are still deciding.
+    await page.waitForTimeout(600)
+    releaseDescribe()
+    await page.waitForTimeout(400)
+    await page.unroute('**/api/settings.describe')
+    acknowledgeReloadConnectionLoss(tripwire, warningsBefore)
+    expect(await page.evaluate(() =>
+      (window as unknown as { __takeoverSightings: string[] }).__takeoverSightings)).toEqual([])
+    expect(await page.locator('[class*="onboardingStage"]').count()).toBe(0)
+    expect(tripwire.pageErrors).toEqual([])
+  }, 60_000)
+
+  it('configures arbitrary DeepSeek models and prompts after the selected model is removed', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-onboarding-deepseek-models'))
+    // Opened here rather than inherited: the credential test reloads the page
+    // to exercise the welcome step, so nothing carries an open dialog across.
+    await page.getByRole('button', { name: '设置', exact: true }).click()
+    const settings = page.getByRole('dialog', { name: '设置' })
+    await settings.waitFor({ timeout: 10_000 })
+    await settings.getByRole('button', { name: '模型' }).click()
+    const deepSeek = settings.getByText('DeepSeek', { exact: true }).first()
+    await deepSeek.waitFor({ timeout: 10_000 })
+    await deepSeek.locator('xpath=ancestor::li').getByRole('button', { name: '编辑' }).click()
+    await settings.getByText('自定义设置').click()
+    await settings.getByRole('button', { name: /删除模型/ }).first().click()
+    await settings.getByRole('button', { name: '添加模型' }).click()
+    const customModelId = settings.getByLabel('模型 ID 2')
+    await customModelId.fill('private-preview')
+    await settings.getByLabel('显示名称 2').fill('Private Preview')
+    // Capacities live behind the row's own disclosure, as in the pi-ai form.
+    await settings.getByRole('button', { name: '容量 2' }).click()
+    await settings.getByLabel('上下文窗口 2').fill('131072')
+    await settings.getByLabel('最大输出 token 数 2').fill('64K')
+
+    const modelEditor = await captureStableAria(page, '[role="dialog"]', scaffold.workspaceCwd)
+    await compareOrRefreshGolden(MODELS_EXPECTED, modelEditor, MODE)
+    await settings.getByRole('button', { name: '保存', exact: true }).click()
+    await customModelId.waitFor({ state: 'detached', timeout: 15_000 })
+
+    const document = await readFile(join(scaffold.harnessHome, 'settings.yaml'), 'utf8')
+    expect(document).toContain('id: deepseek-v4-pro')
+    expect(document).toContain('id: private-preview')
+    expect(document).toContain('name: Private Preview')
+    expect(document).toContain('contextWindow: 131072')
+    expect(document).toContain('maxTokens: 64000')
+    expect(document).not.toContain('id: deepseek-v4-flash')
+
+    await page.keyboard.press('Escape')
+    // A connected Workspace is what puts a live composer — and its model
+    // trigger — on the page; the scaffold boots without one.
+    await connectFreshWorkspaceZh(page, scaffold.workspaceCwd, 'model-fallback-e2e')
+
+    const modelTrigger = page.getByRole('button', { name: '选择模型', exact: true })
+    await modelTrigger.waitFor({ timeout: 10_000 })
+    await modelTrigger.click()
+    await page.getByRole('menuitem', { name: /模型/ }).click()
+    expect(await page.getByText('deepseek-v4-flash', { exact: true }).count()).toBe(0)
+    await page.getByRole('menuitemradio', { name: 'Private Preview' }).waitFor({ timeout: 10_000 })
+    expect(tripwire.warnings).toEqual([])
+    expect(tripwire.pageErrors).toEqual([])
+  }, 60_000)
+
   it('keeps the fixture inventory closed', async () => {
-    await assertFixtureInventory(SNAPSHOT_DIR, ['missing.expected.md', 'welcome.expected.md'])
+    await assertFixtureInventory(
+      SNAPSHOT_DIR,
+      ['missing.expected.md', 'models.expected.md', 'welcome.expected.md'],
+    )
   })
 })
