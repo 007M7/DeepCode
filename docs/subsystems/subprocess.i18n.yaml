@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/subsystems/subprocess.md
 subprocess.md: 0bc2bf86518bcc60bef02554b94471425f2ac433
-subprocess.zh.md: 5d6425707edcf1952c25dbdc91dbf7aab3779350
+subprocess.zh.md: 7e27bf15dfe0cdde09459dbfb239ab25ccde126a

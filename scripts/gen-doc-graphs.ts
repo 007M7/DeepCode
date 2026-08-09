@@ -308,6 +308,14 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Owns live Agent handles, the create/resume factory seam, and process-local initiator propagation.',
   },
   {
+    key: 'agentDefaultModel',
+    pkg: 'agent-default-model',
+    title: 'Default Agent model selection',
+    mode: 'core',
+    consumers: ['headless', 'host-apiproxy'],
+    note: 'Layers the default ModelSelection through settings so direct and Host-backed Agent front doors share one state owner.',
+  },
+  {
     key: 'agentLoop',
     pkg: 'agent-loop',
     title: 'Concrete loop driver',
@@ -1154,7 +1162,7 @@ function renderLifecycle(): string {
   const maintenance = 'curated Mermaid sequence; exact event signatures live in the generated Cordis catalog'
   return [
     ...generatedHeader('Agent Turn And Step Lifecycle'),
-    'This sequence is the visual companion to [architecture.md](architecture.md#loop-lifecycle-session--turn--step). It keeps durable replay facts on `session/event` and live control/status on `agent/*`.',
+    'This sequence is the visual companion to [architecture.md](architecture.md#default-loop-lifecycle). It keeps durable replay facts on `session/event` and live control/status on `agent/*`.',
     '',
     '```mermaid',
     'sequenceDiagram',

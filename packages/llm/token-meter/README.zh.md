@@ -8,7 +8,7 @@
 
 估算器没有配置项。它有意使用一项固定启发式规则：每个 token 按四个字符估算，再加上角色、块与请求 envelope 字段的结构开销。任何配置键都会被拒绝，包括已废弃的全局 `contextWindow`；模型容量属于拥有精确提供方／模型路由的适配器，可通过 `ctx.llm.resolveModelInfo().context` 获取。
 
-## 测量契约
+## 测量约定
 
 `ctx.tokenMeter` 直接公开两个操作：
 
@@ -29,9 +29,9 @@ fold 跟踪完整请求标头快照、步骤边界、表层追加与替换、成
 
 `contextPressure` 携带可选的 `pressureTokens`（提供方报告的最新提示词规模，为未缓存输入加缓存读取与写入之和）、可选的 `projectedTokens`，以及来自最新一条 `request/context` 记录的可选 `contextWindow`。提供方报告用量前两个数字都保持缺失；路由适配器未公布容量时容量也保持缺失。输出不计入其中，因此轮次流式输出期间 `pressureTokens` 保持不动，等到下一个请求报告用量时才前进。
 
-`projectedTokens` 是「下一个请求的提示词要花多少」：在该样本之上，加上自取样以来表层增减部分的启发式重新计价，下界钳制为零，折叠走的是测量服务重放的同一份 `surface-fold.ts`。只有增量部分是估算的，因此这个数字既锚定在提供方读数上，又能在内容落地——或压缩遮蔽一段区间——的瞬间做出反应。最后这种情况正是该字段存在的理由：压缩通过直连的 `ctx.llm.stream()` 调用生成摘要，自身不追加任何用量，所以仅凭 `pressureTokens` 会一直报告压缩前的提示词规模，直到又跑完一整轮为止。占用率展示读取 `projectedTokens`。
+`projectedTokens` 是「下一个请求的提示词要花多少」：在该样本之上，加上自取样以来表层增减部分的启发式重新计价，下界钳制为零，折叠走的是测量服务重放的同一份 `surface-fold.ts`。只有增量部分是估算的，因此这个数字既锚定在提供方读数上，又能在内容落地——或压缩遮蔽一段区间——的瞬间做出反应。最后这种情况正是该字段存在的理由：压缩通过直连的 `ctx.llm.stream()` 调用生成摘要，自身不追加任何用量，所以仅凭 `pressureTokens` 会一直报告压缩前的提示词规模，直到再完成一整个轮次为止。占用率展示读取 `projectedTokens`。
 
-`contextBreakdown` 携带启发式的 `systemTokens`、`toolsTokens` 与 `messageTokens`，描述上下文的组成而非提供方计费规模。envelope 数字在每条 `request/header` 上按后者胜重新计价；消息数字重放 `surface-fold.ts`——与 `measure()` 运行的位置折叠是同一份——因此它在每个事件边界上都等于 `measure().surfaceTokens`，压缩会像缩小下一个请求那样缩小它。三个数字都使用测量服务的固定启发式规则，属于估算值：它们加起来不等于 `projectedTokens`——后者的提供方锚点恰好把这些明细行仍然带着的误差排除在外（按「4 字符 ≈ 1 token」计价，CJK 文本与 JSON schema 会被严重低估）。请把它们当作近似的**组成**呈现，而不是总量。
+`contextBreakdown` 携带启发式的 `systemTokens`、`toolsTokens` 与 `messageTokens`，描述上下文的组成而非提供方计费规模。envelope 数字在每条 `request/header` 上按后者胜重新计价；消息数字重放 `surface-fold.ts`——也就是 `measure()` 运行的同一个带位置 fold——因此它在每个事件边界上都等于 `measure().surfaceTokens`，压缩会像缩小下一个请求那样缩小它。三个数字都使用测量服务的固定启发式规则，属于估算值：它们加起来不等于 `projectedTokens`——后者的提供方锚点所体现的恰好是这些明细行仍然带着的误差（按「4 字符 ≈ 1 token」计价，CJK 文本与 JSON schema 会被严重低估）。请把它们当作近似的**组成**呈现，而不是总量。
 
 三个单元都使用标准的投影基线、实时帧、seq 高者胜值仓和 JSON 检查点路径。卸载 token-meter 会移除这三个键。不带投影 seam 的组合会保留测量服务的既有行为。
 

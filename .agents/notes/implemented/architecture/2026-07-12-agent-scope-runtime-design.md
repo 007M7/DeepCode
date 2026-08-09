@@ -34,7 +34,7 @@ The [July 8 Agent Note](2026-07-08-agent-scope-contexts.md) remains the contribu
 
 ## Cordis model: context, fiber, effect, receiver, and waterfall
 
-Five Cordis ideas are required to understand the implementation. A context selects services and registration ownership; a fiber is one live plugin or child lifecycle; an effect attaches cleanup to a fiber; an event receiver selects listeners; and a waterfall lets listeners transform or veto an operation in sequence.
+Five Cordis ideas are required to understand the implementation. A context selects services and registration ownership; a fiber is one live plugin or child lifecycle; an effect attaches cleanup to a fiber; an event receiver selects listeners; and a waterfall lets listeners transform or short-circuit an operation in sequence.
 
 ### A context is an ownership path through one service graph
 
@@ -56,7 +56,7 @@ Cordis filters listeners using the dispatch receiver (`this`), while harness lis
 
 Product helpers therefore construct the carrier and pass the domain subject separately. This prevents listener routing from becoming an alternate object model and keeps event signatures understandable without knowledge of carrier internals.
 
-A Cordis waterfall is middleware-style dispatch. Each listener receives `next()`: calling it delegates to the remaining listeners and base operation, while returning without it vetoes or replaces the downstream result. Waterfalls power prompt assembly and tool policy; ordinary emit events notify synchronously, and parallel events await all listeners without a veto result.
+A Cordis waterfall is middleware-style dispatch. Each listener receives `next()`: calling it delegates to the remaining listeners and base operation, while returning without it short-circuits or replaces the downstream result. Waterfalls power prompt assembly and tool policy; ordinary emit events notify synchronously, and parallel events await all listeners without a veto result.
 
 ## Scope routing: one opaque key selects one layer
 

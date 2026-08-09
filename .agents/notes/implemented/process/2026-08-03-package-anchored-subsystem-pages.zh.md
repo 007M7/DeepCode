@@ -6,11 +6,11 @@ Status: implemented
 
 ## Problem
 
-[子系统目录](2026-06-20-core-data-structures-catalog.md)最初用主干-vs-seam 规则界定首页范围：如果循环在每个轮次都持有、派生、流式传输或记录某个类型，它就是「核心」。该规则选择的是类型而非包，因此当目录增长到四十多页后，首页变成了跨包大杂烩：LLM 对话词汇排在 agent 契约之前，创建/所有权词汇（`AgentHandle`、`CreateAgentOptions`、`ResumeAgentOptions`、`AgentFactory`）在目录中无处记录（生成器把它们豁免给了某个包 README），读者无法根据类型所在位置预测哪一页记录它。与此同时，各包分组 README 没有统一形状——有的带分节表格、游离的设计短文，或本应属于子系统页面的尾部段落。
+[子系统目录](2026-06-20-core-data-structures-catalog.md)最初用主干-vs-seam 规则界定首页范围：如果循环在每个轮次都持有、派生、流式传输或记录某个类型，它就是「核心」。该规则选择的是类型而非包，因此当目录增长到四十多页后，首页变成了跨包大杂烩：LLM 对话词汇排在 agent 约定之前，创建/所有权词汇（`AgentHandle`、`CreateAgentOptions`、`ResumeAgentOptions`、`AgentFactory`）在目录中无处记录（生成器把它们豁免给了某个包 README），读者无法根据类型所在位置预测哪一页记录它。与此同时，各包分组 README 没有统一形状——有的带分节表格、游离的设计短文，或本应属于子系统页面的尾部段落。
 
 ## Decision
 
-每个 `docs/subsystems/` 页面锚定到声明其词汇的包或包分组，页面归属跟随仓库布局：[core.md](../../../../docs/subsystems/core.md) 是 `packages/core` 的页面（创建与所有权、`Agent` 句柄及其投递/取消/拦截契约、指向该组专属页面的指针），[llm-streaming.md](../../../../docs/subsystems/llm-streaming.md) 端到端拥有 `packages/llm`，依此类推。全仓通用类型模式（`…Map → 派生联合`、品牌化 id）保留在 core.md 一个明确标注的收尾小节中，而不是与包内容交错。这在*页面范围界定规则*的意义上取代了主干-vs-seam 规则；存活下来的放置启发式更简单：类型记录在其声明包对应的页面，机制仍与其机制放在一起。
+每个 `docs/subsystems/` 页面锚定到声明其词汇的包或包分组，页面归属跟随仓库布局：[core.md](../../../../docs/subsystems/core.md) 是 `packages/core` 的页面（创建与所有权、`Agent` 句柄及其投递/取消/拦截约定、指向该组专属页面的指针），[llm-streaming.md](../../../../docs/subsystems/llm-streaming.md) 端到端拥有 `packages/llm`，依此类推。全仓通用类型模式（`…Map → 派生联合`、品牌化 id）保留在 core.md 一个明确标注的收尾小节中，而不是与包内容交错。这在*页面范围界定规则*的意义上取代了主干-vs-seam 规则；存活下来的放置启发式更简单：类型记录在其声明包对应的页面，机制仍与其机制放在一起。
 
 生成签名引用的每个类型都必须能在目录中某处解析：agent 所有权词汇从生成器的 `TYPE_LINK_EXEMPTIONS` 移入 `LINK_MAP → core.md`，因此豁免只留给真正服务本地或 vendored 的形状。每个粘贴的声明只有一个家（`SessionEvent` 位于 [session.md](../../../../docs/subsystems/session.md)；core.md 概括并链接）。
 

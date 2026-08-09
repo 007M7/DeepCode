@@ -47,7 +47,7 @@ agent loop（智能体循环）通过同一条设置与发布流水线消费这�
 
 ## 验证
 
-共享持久化契约覆盖无变更且已配平的冷检查与后续修复。`persistence.spec.ts` 与 `preparations.spec.ts` 覆盖同 id 进行中读取共享、检查与准备之间的精确 Session 复用、在历史读取与恢复前由 revision 触发刷新、修复只提交一次、独占预留、设置失败后释放、就绪项 LRU 淘汰、预留期间拒绝 append，以及只允许发布预留 Session。后端测试覆盖完整读取与轻量读取使用同一 revision 身份。agent loop 与 continuable subagent 测试覆盖统一发布流水线，以及取消和拆卸期间从检查到恢复的路径。
+共享持久化约定覆盖无变更且已配平的冷检查与后续修复。`persistence.spec.ts` 与 `preparations.spec.ts` 覆盖同 id 进行中读取共享、检查与准备之间的精确 Session 复用、在历史读取与恢复前由 revision 触发刷新、修复只提交一次、独占预留、设置失败后释放、就绪项 LRU 淘汰、预留期间拒绝 append，以及只允许发布预留 Session。后端测试覆盖完整读取与轻量读取使用同一 revision 身份。agent loop 与 continuable subagent 测试覆盖统一发布流水线，以及取消和拆卸期间从检查到恢复的路径。
 
 ## 考虑过的替代方案
 

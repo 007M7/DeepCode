@@ -19,11 +19,11 @@
 
 该插件没有可调配置。`maxGoalRounds` 属于目标定义，面向模型的阻塞阈值则属于 [`dsh-tool-goal`](../tool-goal/README.md)；在驱动器中重复任一数值都可能产生分歧策略。
 
-## Round 契约
+## Round 约定
 
 当对应的活跃 agent 实例处于 idle 状态，且目标 phase 为 active、已启用续行并有剩余容量时，驱动器先为待处理 goal 变更创建检查点，再预留 `roundsStarted + 1`，对应当前 `{ goalId, revision }`。它会排入一条 `<goal_round>` 提示词，并携带 `GoalMessageSource`。`agent/pre-step` 监听器会在下游监听器前后验证完整的已领取记录与当前 goal；只有进入步骤的 `user/message` 才会增加 `roundsStarted`。因陈旧而被拒绝的预留不会消耗 Round 编号。
 
-`MessageId` 通过持久 inbox 插入和领取来标识预留消息；它不标识轮次结果。用户消息不消耗 goal 上限。如果用户工作在预留前进入 inbox，或加入预留的待处理批次，自动工作会让行，直到 agent 进入 idle；混合批次中的待处理自动提示词会被拒绝，只有完成该检查点后才重新预留。
+`MessageId` 通过持久 inbox 插入和领取来标识预留消息；它不标识轮次结果。用户消息不消耗 goal 上限。如果用户工作在预留前进入 inbox，或加入预留的待处理批次，自动工作会让行，直到 agent 进入 idle；混合批次中的待处理自动提示词会被拒绝，只有在该检查点之后才重新预留。
 
 保留的提示词会点明经过 JSON 引用的目标与 `round/maxGoalRounds`，将当前工作区、工具结果和持久会话状态视为权威信息，要求在完成前提供证据，并要求在工作仍未完成时保持目标 active。引用可将多行或形似标签的目标文本保留为数据。goal 生命周期变更仍必须通过 `dsh-tool-goal` 的独立权限检查。
 

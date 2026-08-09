@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-03-hmr-initial-scan-boot-deadlock.md
 2026-08-03-hmr-initial-scan-boot-deadlock.md: 1a70fbafc74a1bf7024c675ddad82acefc995b72
-2026-08-03-hmr-initial-scan-boot-deadlock.zh.md: 5f8d50c4c0103eb2209eafb89cf34233c4c1bc35
+2026-08-03-hmr-initial-scan-boot-deadlock.zh.md: a023420182971a62f125808f777f877bafe3e9e2

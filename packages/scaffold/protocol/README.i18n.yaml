@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/scaffold/protocol/README.md
 README.md: 88a48957d0d44cec9f776d31eab7d25bd353de5f
-README.zh.md: c662d28ec6eea5fe4829030daf210a91fd70ff0f
+README.zh.md: 6618d8838a00f945c79d7ec24b1e7491df08a3f1

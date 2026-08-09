@@ -43,21 +43,6 @@ async function mountRegistry(): Promise<Context> {
   return ctx
 }
 
-/** Apply the MCP client plugin and wait for tools to be registered. */
-async function applyAndWait(ctx: Context, config: Config, timeoutMs = 20_000): Promise<void> {
-  // Annotated bindings (not withResolvers<void>()): the tests lint layer runs
-  // no-invalid-void-type with default options, which rejects the explicit
-  // type argument in call position but accepts the inferred form.
-  const gate: PromiseWithResolvers<void> = Promise.withResolvers()
-  const timer = setTimeout(
-    () => { gate.reject(new Error(`applyAndWait timed out after ${timeoutMs}ms — no tools/change event`)) },
-    timeoutMs,
-  )
-  ctx.on('tools/change', () => { clearTimeout(timer); gate.resolve() })
-  apply(ctx, config)
-  await gate.promise
-}
-
 function sleep(ms: number): Promise<void> {
   const gate: PromiseWithResolvers<void> = Promise.withResolvers()
   setTimeout(gate.resolve, ms)
@@ -90,11 +75,12 @@ describe('fixture server — controlled scenarios', () => {
     env: {},
     cwd: packageDir,
     toolCallTimeoutMs: 15_000,
+    failOnStartupError: false,
   }
 
   beforeAll(async () => {
     ctx = await mountRegistry()
-    await applyAndWait(ctx, fixtureConfig)
+    await apply(ctx, fixtureConfig)
   }, 30_000)
 
   afterAll(async () => {
@@ -179,10 +165,11 @@ describe('fixture server — duplicate serverName', () => {
       env: {},
       cwd: packageDir,
       toolCallTimeoutMs: 15_000,
+      failOnStartupError: false,
     }
-    await applyAndWait(ctx, config)
+    await apply(ctx, config)
 
-    expect(() => { apply(ctx, config) }).toThrow(/serverName "dup" is already in use/)
+    await expect(apply(ctx, config)).rejects.toThrow(/serverName "dup" is already in use/)
 
     await ctx.fiber.dispose()
     await sleep(200)
@@ -192,7 +179,7 @@ describe('fixture server — duplicate serverName', () => {
 describe('fixture server — disposal', () => {
   it('disposes cleanly without error', async () => {
     const ctx = await mountRegistry()
-    await applyAndWait(ctx, {
+    await apply(ctx, {
       transport: 'stdio',
       serverName: 'fixture',
       command: process.execPath,
@@ -200,6 +187,7 @@ describe('fixture server — disposal', () => {
       env: {},
       cwd: packageDir,
       toolCallTimeoutMs: 15_000,
+      failOnStartupError: false,
     })
 
     // Tools are registered before dispose.
@@ -225,11 +213,12 @@ describe('server-everything — official test server', () => {
     env: {},
     cwd: '',
     toolCallTimeoutMs: 30_000,
+    failOnStartupError: false,
   }
 
   beforeAll(async () => {
     ctx = await mountRegistry()
-    await applyAndWait(ctx, config)
+    await apply(ctx, config)
   }, 60_000)
 
   afterAll(async () => {
@@ -292,8 +281,9 @@ describe('server-filesystem — real filesystem operations', () => {
       env: {},
       cwd: '',
       toolCallTimeoutMs: 30_000,
+      failOnStartupError: false,
     }
-    await applyAndWait(ctx, config)
+    await apply(ctx, config)
   }, 60_000)
 
   afterAll(async () => {
@@ -408,8 +398,9 @@ describe('streamable-http — in-process MCP server', () => {
       url: baseUrl,
       headers: { Authorization: 'Bearer e2e-test-token' },
       toolCallTimeoutMs: 15_000,
+      failOnStartupError: false,
     }
-    await applyAndWait(ctx, config)
+    await apply(ctx, config)
   }, 30_000)
 
   afterAll(async () => {

@@ -17,6 +17,7 @@
 | `ctx.systemPrompt` | `dsh-system-prompt` | 有序的提示词片段、工具 schema 和变量 |
 | `ctx.tools` | `dsh-tools` | 工具注册表和[执行流水线](tool-execution-pipeline.md) |
 | `ctx.agents` | `dsh-agent` | 活跃 agent（智能体）、委托创建、`agent/*` 事件、进程内发起方作用域 |
+| `ctx.agentDefaultModel` | [`dsh-agent-default-model`](../packages/core/agent-default-model/README.md) | 由 Settings 支撑、供 Agent 入口共享的模型选择 |
 | `ctx.agentLoop` | `dsh-agent-loop` | 实体 `Agent` 驱动器 |
 
 ### 功能服务
@@ -63,7 +64,7 @@
 
 ### 拦截语义
 
-waterfall（瀑布式事件）是环绕中间件：监听器通过 `next()` 委托；不调用它而直接返回会否决或接管（[语义](cordis-primer.md#cordis-waterfall-semantics)）。
+waterfall（瀑布式事件）是环绕中间件：监听器通过 `next()` 委托；不调用它而直接返回会短路或接管（[语义](cordis-primer.md#cordis-waterfall-semantics)）。
 
 ## 默认循环生命周期
 
@@ -141,7 +142,7 @@ idle inject:
 
 **模型可见 ⟺ 已记录**：在 `step/start` 进入的消息加上折叠后的 `request/header` 可以重建每个请求。该 header 会标记适配器默认值，使后续提议丢弃这些值并重新解析路由，同时不丢失显式设置。`request/context` 会在路由变化时另行记录与注册项绑定的提供方、模型及容量元数据；它不参与请求重建或 header 相等性判断。`dsh-agent-loop/invariant` 通过 `ctx.invariants` 断言可重建性（[可重建性](../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md)）。
 
-持久性由插件负责。后端会将同步的 `session/event` 通知复制到固定窗口的持久化批次中；`session/flush` 会绕过等待，在请求与顶层工具分发之前执行，并在 `turn/end` 之后、另一个轮次或空闲状态之前执行。`SessionPersistence` 存储事件和 header 元数据；JSONL 默认采用带校验和的 Zstandard，SQLite 遵循同一契约（[检查点决策](../.agents/notes/implemented/bug-fix/2026-07-21-semantic-session-checkpoints.md)、[批处理决策](../.agents/notes/implemented/architecture/2026-08-08-bounded-session-persistence-write-batching.md)）。
+持久性由插件负责。后端会将同步的 `session/event` 通知复制到固定窗口的持久化批次中；`session/flush` 会绕过等待，在请求与顶层工具分发之前执行，并在 `turn/end` 之后、另一个轮次或空闲状态之前执行。`SessionPersistence` 存储事件和 header 元数据；JSONL 默认采用带校验和的 Zstandard，SQLite 遵循同一约定（[检查点决策](../.agents/notes/implemented/bug-fix/2026-07-21-semantic-session-checkpoints.md)、[批处理决策](../.agents/notes/implemented/architecture/2026-08-08-bounded-session-persistence-write-batching.md)）。
 
 在轮次之间，事件所有方通过 `Session` 追加纯日志事件，仅为持久性而刷写。`session/title` 依赖有界后台持久化与生命周期排空；手动压缩会在操作完成前 flush 其标记对。标题工作绝不延迟响应；最新标题按后写覆盖并携带来源信息。标题记录是可继承的 fork 边界（[决策](../.agents/notes/implemented/feature/2026-07-21-log-backed-session-titles.md)）。
 
@@ -149,7 +150,7 @@ idle inject:
 
 消息使用从可合并扩展的 `ContentBlockMap` 派生的类型化块；同一模式也为 `MessageSource`、`FinishReason`、`TurnTrigger` 和 `TurnEndReason` 定义类型。新增块会协调适配器、UI、压缩、token 计量和持久化；回放计量见 [token-meter.md](subsystems/token-meter.md)。
 
-流式输出使用原始分片和 `BlockAssembler`。每次 `LlmAdapter.stream()` 调用代表一次提供方尝试；适配器报告标准化的故障事实，负责处理的 `agent/request-error` 插件会返回重试动作。循环会记录分片、成功结果的来源信息和回放状态。远程适配器使用逐次读取空闲看门狗。回放仅通过共用的适配器实例跨路由传递（[契约](subsystems/llm-streaming.md)）。
+流式输出使用原始分片和 `BlockAssembler`。每次 `LlmAdapter.stream()` 调用代表一次提供方尝试；适配器报告标准化的故障事实，负责处理的 `agent/request-error` 插件会返回重试动作。循环会记录分片、成功结果的来源信息和回放状态。远程适配器使用逐次读取空闲看门狗。回放仅通过共用的适配器实例跨路由传递（[约定](subsystems/llm-streaming.md)）。
 
 ## 扩展与组合
 

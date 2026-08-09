@@ -4,7 +4,7 @@ Status: implemented
 
 [English](2026-06-17-ts-build-config.md) | 中文
 
-> 根项目拓扑由一个 solution 根文件统辖两个 aggregate program；见 [solution 根文件 Agent Note](2026-07-22-tsconfig-solution-root-two-aggregates.md)。Host 生成 Remote 契约后再编译 Client 的当前命令顺序见 [API Remotes 构建 Agent Note](2026-08-08-api-remotes-generated-contract-build.md)。本文确定的 tsc-first 职责保持不变。
+> 根项目拓扑由一个 solution 根文件统辖两个 aggregate program；见 [solution 根文件 Agent Note](2026-07-22-tsconfig-solution-root-two-aggregates.md)。Host 生成 Remote 约定后再编译 Client 的当前命令顺序见 [API Remotes 构建 Agent Note](2026-08-08-api-remotes-generated-contract-build.md)。本文确定的 tsc-first 职责保持不变。
 
 ## 问题
 
@@ -76,7 +76,7 @@ tsx scripts/clean.ts
 
 构建职责更加清晰：
 
-- `packages/<group>/<pkg>` 和 `vendor/*` 下的每个普通模块有一份本地 tsconfig，同时服务于构建、类型检查和直接运行源码的工具（如 `dsh` 源码 loader、`tsx` 和 `vitest`）。`api/remotes` 因生成契约顺序使用一个 solution 和两个互斥的 emitting project，是唯一例外。
+- `packages/<group>/<pkg>` 和 `vendor/*` 下的每个普通模块有一份本地 tsconfig，同时服务于构建、类型检查和直接运行源码的工具（如 `dsh` 源码 loader、`tsx` 和 `vitest`）。`api/remotes` 因生成约定顺序使用一个 solution 和两个互斥的 emitting project，是唯一例外。
 - `build` 命令按 Host 与 Client Project Reference 图执行。每个阶段都由 `tsc -b` 负责可发布的逐模块 `.js` 和 `.d.ts` 输出，打包器仅负责发布 runtime bundle。
     - `lib/types/*.d.ts` 是发布用的声明输出；`.d.ts.map` 只作为本地编译产物保留。
     - `lib/types/*.d.ts` 使用显式 `.ts` 相对说明符，TypeScript 的 NodeNext/Node16 解析器会将其映射到同级的 `.d.ts` 文件。

@@ -14,7 +14,7 @@ Status: implemented
 
 两个耦合的部分，与 `dsh web` PR（#443）提出的 `apps/` 装配层对齐：
 
-**`dsh` CLI（`apps/cli`，npm 名 `@deepseek-ai/dsh`）。** `apps/*` 是位于 `packages/*` 库之上的产品组装层。一个 bin 负责分发默认交互式 TUI、`-p`/`--prompt` 无头轮次和 `web` 界面。TUI 以调用目录为 workspace，启动 `examples/tui-agent/cordis.yml`（或 `--config` 指定的配置）。已提交的 `bin/dsh` 启动器通过自身真实路径解析 checkout，并使用 tsx 的 ESM hook 运行应用；该契约由[源码启动决策](../architecture/2026-07-29-dsh-source-launch-tsx-esm.md)维护。`pnpm run demo:tui` 运行同一入口。
+**`dsh` CLI（`apps/cli`，npm 名 `@deepseek-ai/dsh`）。** `apps/*` 是位于 `packages/*` 库之上的产品组装层。一个 bin 负责分发默认交互式 TUI、`-p`/`--prompt` 无头轮次和 `web` 界面。TUI 以调用目录为 workspace，启动 `examples/tui-agent/cordis.yml`（或 `--config` 指定的配置）。已提交的 `bin/dsh` 启动器通过自身真实路径解析 checkout，并使用 tsx 的 ESM hook 运行应用；该约定由[源码启动决策](../architecture/2026-07-29-dsh-source-launch-tsx-esm.md)维护。`pnpm run demo:tui` 运行同一入口。
 
 **个人配置（`dsh-app-boot`）。** 个人 overlay 存放在 Harness home——`$DSH_HOME`，否则 `~/.dsh`——由共享的 [`resolveDshHome`](../architecture/2026-07-24-single-harness-home-resolver.md)（`@deepseek-ai/dsh-paths`）解析，与 skills、AGENTS.md 解析所依据的单一根目录相同。dsh 的 TUI、Web 和无头界面使用其中两个可选文件；各示例 bin 仍然逐字节按已提交的配置树启动：
 
@@ -34,7 +34,7 @@ TUI 和 Web 启动后通过 Cordis HMR（热模块替换）注册确切的个人
 
 **个人完整 `cordis.yml` 去 include 请求的配置。** 否决：个人文件将不得不写死叶子配置的路径，而该路径随 checkout 变化；补丁反转了依赖方向，bin 仍然选择配置树，个人层只做修正。
 
-**把个人补丁深合并进配置项配置。** 否决：会使补丁语义与已提交 overlay 和 vendor 的 include 分叉；整个 `config` 替换已是成文契约。
+**把个人补丁深合并进配置项配置。** 否决：会使补丁语义与已提交 overlay 和 vendor 的 include 分叉；整个 `config` 替换已是成文约定。
 
 **用环境变量开关代替存在性判断。** 否决：默认关闭的个人配置永远不会被用起来；存在即生效加上每个测试的显式隔离，让实际运行获得 overlay、测试获得封闭性。
 

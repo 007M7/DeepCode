@@ -32,6 +32,8 @@ flowchart LR
   cfg --> plugin_dsh_base_user_interaction
   plugin_dsh_base_agent["agent<br/>@deepseek-ai/dsh-agent"]
   cfg --> plugin_dsh_base_agent
+  plugin_dsh_base_agent_default_model["agent-default-model<br/>@deepseek-ai/dsh-agent-default-model"]
+  cfg --> plugin_dsh_base_agent_default_model
   plugin_dsh_base_tasks["tasks<br/>@deepseek-ai/dsh-tasks-local"]
   cfg --> plugin_dsh_base_tasks
   plugin_dsh_base_llm_retry["llm-retry<br/>@deepseek-ai/dsh-llm-retry"]
@@ -174,6 +176,7 @@ flowchart LR
 | `session-title-llm` | `@deepseek-ai/dsh-session-title-first-message-llm` |
 | `user-interaction` | `@deepseek-ai/dsh-user-interaction` |
 | `agent` | `@deepseek-ai/dsh-agent` |
+| `agent-default-model` | `@deepseek-ai/dsh-agent-default-model` |
 | `tasks` | `@deepseek-ai/dsh-tasks-local` |
 | `llm-retry` | `@deepseek-ai/dsh-llm-retry` |
 | `settings` | `@deepseek-ai/dsh-settings-local` |

@@ -54,6 +54,7 @@ const reasoningConfigPath = fileURLToPath(new URL('./fixtures/cli.cordis.yml', i
 const deepseekDefaultsConfigPath = fileURLToPath(new URL('./fixtures/deepseek-defaults.cordis.yml', import.meta.url))
 const dshRunOverlayPath = fileURLToPath(new URL('./fixtures/dsh-run.cordis.yml', import.meta.url))
 const dshRunSessionExpected = join(snapshotsDir, 'dsh-run', 'session.expected.jsonl')
+const dshRunFailureExpected = join(snapshotsDir, 'dsh-run', 'stderr.expected.txt')
 const cliMockLlmPluginPath = fileURLToPath(new URL('./fixtures/cli-mock-llm.ts', import.meta.url))
 const refreshing = process.env.DSH_SNAPSHOT === 'refresh'
 
@@ -196,6 +197,16 @@ async function persistedLogs(cwd: string, root: string = join(cwd, '.sessions'))
   }))
 }
 
+/** Install the keyless product-CLI adapter into the temporary headless profile. */
+async function prepareCliMockFixture(cwd: string): Promise<void> {
+  const fixtureDir = join(cwd, '.dsh', 'profiles', 'headless', 'snapshot-fixtures')
+  await mkdir(fixtureDir, { recursive: true })
+  await Promise.all([
+    copyFile(cliMockLlmPluginPath, join(fixtureDir, 'cli-mock-llm.ts')),
+    writeFile(join(fixtureDir, 'package.json'), '{"type":"module"}\n'),
+  ])
+}
+
 describe('headless stream-json snapshots', () => {
   it('runs one task through the product dsh run command', async () => {
     const task = 'Prove the product dsh run path with one real tool round trip.'
@@ -211,14 +222,7 @@ describe('headless stream-json snapshots', () => {
         DSH_TELEMETRY_DISABLED: '1',
         NODE_OPTIONS: [process.env.NODE_OPTIONS, '--disable-warning=ExperimentalWarning'].filter(Boolean).join(' '),
       },
-      prepare: async (cwd) => {
-        const fixtureDir = join(cwd, '.dsh', 'profiles', 'headless', 'snapshot-fixtures')
-        await mkdir(fixtureDir, { recursive: true })
-        await Promise.all([
-          copyFile(cliMockLlmPluginPath, join(fixtureDir, 'cli-mock-llm.ts')),
-          writeFile(join(fixtureDir, 'package.json'), '{"type":"module"}\n'),
-        ])
-      },
+      prepare: prepareCliMockFixture,
       inspect: async (cwd) => {
         const logs = await persistedLogs(cwd, join(cwd, '.dsh', 'sessions'))
         expect(logs).toHaveLength(1)
@@ -234,7 +238,28 @@ describe('headless stream-json snapshots', () => {
     })
 
     expect(result.stdout).toBe('CLI tool round trip complete: CLI_TOOL_ROUND_TRIP\n')
-    expect(result.stderr).toMatch(/^dsh: observing at http:\/\/127\.0\.0\.1:\d+\n$/u)
+    expect(result.stderr).toBe('')
+  }, LOADER_SMOKE_TEST_TIMEOUT_MS)
+
+  it('prints a terminal model failure through the product dsh run command', async () => {
+    const result = await runLoaderSmoke({
+      label: 'product dsh run model failure snapshot',
+      tempDirPrefix: 'headless-snapshot-dsh-run-failure-',
+      binScript: dshBinScript,
+      configPath: dshRunOverlayPath,
+      binArgs: ['run', '--patch', dshRunOverlayPath, 'Trigger the keyless model failure.'],
+      tsconfigPath,
+      expectedExitCode: 1,
+      env: {
+        DSH_CLI_MOCK_FAILURE: '1',
+        DSH_TELEMETRY_DISABLED: '1',
+        NODE_OPTIONS: [process.env.NODE_OPTIONS, '--disable-warning=ExperimentalWarning'].filter(Boolean).join(' '),
+      },
+      prepare: prepareCliMockFixture,
+    })
+
+    expect(result.stdout).toBe('\n')
+    await expect(result.stderr).toMatchFileSnapshot(dshRunFailureExpected)
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 
   it('prints the original Loader activation error through the assembled one-shot app', async () => {

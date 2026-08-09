@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-本包（package）注册固定的 `claude-code` subagent 提供方。每次接受运行请求后，它都会在发起委托的会话工作区中调用官方 Claude Agent SDK，通过共享子进程服务启动 SDK 分发的 Claude Code CLI，提交一个自包含的文本任务，并通过共享的 [`dsh-subagent`](../subagent/README.md) 结果契约仅返回最终答案。
+本包（package）注册固定的 `claude-code` subagent 提供方。每次接受运行请求后，它都会在发起委托的会话工作区中调用官方 Claude Agent SDK，通过共享子进程服务启动 SDK 分发的 Claude Code CLI，提交一个自包含的文本任务，并通过共享的 [`dsh-subagent`](../subagent/README.md) 结果约定仅返回最终答案。
 
 ## 启动与所有权
 
@@ -20,7 +20,7 @@ SDK 接收由文本块原样拼接成的任务。提供方会完整迭代 SDK �
 
 ## 能力与上下文
 
-本提供方不声明任何可选的启动时能力，并报告 `inheritsParentContext: false`。Claude Code 会接收独立文本任务和父会话 cwd，但不会接收父会话的对话、角色设定、工具筛选器、深度策略或结构化输出契约。每次运行都拥有独立的 SDK query、取消控制器、CLI 进程和不持久化的产品会话。
+本提供方不声明任何可选的启动时能力，并报告 `inheritsParentContext: false`。Claude Code 会接收独立文本任务和父会话 cwd，但不会接收父会话的对话、角色设定、工具筛选器、深度策略或结构化输出约定。每次运行都拥有独立的 SDK query、取消控制器、CLI 进程和不持久化的产品会话。
 
 ## 配置
 
