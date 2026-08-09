@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
@@ -181,7 +182,9 @@ describe('the shipped Web composition', () => {
     ].join('\n'))
 
     const handle = await ctx.agents.create({
-      sessionId: SessionId('preset-skills-standard'),
+      // Unique per run: the composition persists into the ambient DSH home,
+      // and a fixed id would collide with a log an earlier run left there.
+      sessionId: SessionId(`preset-skills-standard-${randomUUID()}`),
       setup: agentCtx => ctx.agentPresets.mount(agentCtx, 'standard').then(() => undefined),
     })
     try {
@@ -212,7 +215,7 @@ describe('the shipped Web composition', () => {
 
   it('shows a core-web agent the global layer but no loader tool', async () => {
     const handle = await ctx.agents.create({
-      sessionId: SessionId('preset-skills-core-web'),
+      sessionId: SessionId(`preset-skills-core-web-${randomUUID()}`),
       setup: agentCtx => ctx.agentPresets.mount(agentCtx, 'core-web').then(() => undefined),
     })
     try {
