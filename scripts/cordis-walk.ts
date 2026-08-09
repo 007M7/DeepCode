@@ -40,8 +40,9 @@ export function contextMergeFiles(
 }
 
 /** Every cordis module-merge body in `sf`: `declare module 'cordis'` (harness
- * packages) or `declare module './context.ts'` (vendor core), in source order. */
-export function cordisModuleBodies(sf: ts.SourceFile): ts.ModuleBlock[] {
+ * packages) or `declare module './context.ts'` (vendor core), in source order.
+ * Module-local: consumers walk blocks through {@link contextMergeFiles}. */
+function cordisModuleBodies(sf: ts.SourceFile): ts.ModuleBlock[] {
   const bodies: ts.ModuleBlock[] = []
   for (const stmt of sf.statements) {
     if (!ts.isModuleDeclaration(stmt) || !ts.isStringLiteral(stmt.name)) continue
