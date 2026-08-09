@@ -35,7 +35,7 @@ Status: rejected — 下列每一项替换在证据上都未达到净简化门�
 - **以 `fast-deep-equal` 替换会话接口面的 `isDeepEqualJson`**、**以 `safe-stable-stringify` 承担 repeat-tool-guard 的规范化**：两项替换在机械层面都可行，但每一项都是拿约 17–20 行带注释、有测试的代码，去换一个核心包的第一个外部运行时依赖——在这个体量上是净亏损。
 - **以 zod/valibot 承担持久事件的严格解码器**（goal fold、tool-ralph、session）：它们是位于持久化边界、键集精确匹配、失败即大声报错、带事件专属报错信息的解码器；在仓库标准 schemastery 之外再放一个 schema 库是政策变更，不是删除。
 - **以 `gpt-tokenizer`/tiktoken 替换 token-meter**：[回放 token 计量决策](../../implemented/architecture/2026-07-15-replay-token-meter-service.md)已明确否决分词器后端；GPT 的 BPE 对 DeepSeek 模型来说也是错误的分词器，而且这个包约 350 行是回放折叠簿记，任何分词器都覆盖不了。
-- **以 `partial-json` 处理流式工具调用参数**：无可替换——按已记录的契约，参数端到端保持为原始 JSON 字符串；`JSON.parse` 只在完整载荷上运行。
+- **以 `partial-json` 处理流式工具调用参数**：无可替换——按已记录的约定，参数端到端保持为原始 JSON 字符串；`JSON.parse` 只在完整载荷上运行。
 
 **文件系统、子进程与终端：**
 
@@ -46,14 +46,14 @@ Status: rejected — 下列每一项替换在证据上都未达到净简化门�
 - **以 `shell-quote` 承担 POSIX 单引号包裹**：两个各 1 行、测试详尽的引号辅助函数，对上一个处于维护模式、有 CVE 历史、转义输出还不一样的包——安全边界不是省一行代码的地方。
 - **以 `strip-ansi` 承担 pty 净化**：pty 净化器是一台流式状态机，带跨分片的断裂序列续接和 OSC `133;D` 提示符标记提取（shell 就绪信号）；无状态的剥离器只能替掉约 20 行内层代码，全部状态机构件原样保留。`stripVTControlCharacters` 还被实证会泄漏未终止的 OSC 载荷，会话标题归一化器必须剥除它们（反欺骗）。
 - **以 `pidtree`/`ps-tree` 承担 pty 进程巡检器**：它们只给裸 PID 树；这段代码需要对抗 PID 复用的启动时间身份校验，加上 `/proc` stdin 等待检测，没有包做这些。
-- **以 `execa` 承担 subagent-subprocess 的 dispose（资源释放）阶梯**：`forceKillAfterDelay` 覆盖 SIGTERM→SIGKILL，但覆盖不了先发 stdin EOF 的协作层级，也覆盖不了「无退出沿即 reject」契约；在这里采用它意味着重写各 spawn 调用点、同时阶梯照旧保留。（测试基础设施的 spawn 管线是另一回事——见[已归档的 execa 测试基础设施决策](../../archived/testing/2026-07-26-execa-for-test-subprocess-plumbing.md)。）
+- **以 `execa` 承担 subagent-subprocess 的 dispose（资源释放）阶梯**：`forceKillAfterDelay` 覆盖 SIGTERM→SIGKILL，但覆盖不了先发 stdin EOF 的协作层级，也覆盖不了「无退出沿即 reject」约定；在这里采用它意味着重写各 spawn 调用点、同时阶梯照旧保留。（测试基础设施的 spawn 管线是另一回事——见[已归档的 execa 测试基础设施决策](../../archived/testing/2026-07-26-execa-for-test-subprocess-plumbing.md)。）
 - **以 `tree-kill` 承担 acp-snapshot 拆除与 lsp 进程终止**：那些代码行做的是排空顺序与错误传播，不是进程树遍历；lsp/bash 已经使用分离的进程组加 taskkill。
 - **在 TUI 测试驱动器上到处使用 node-pty**：已归档的 [Windows TUI 决策](../../archived/feature/2026-07-20-windows-tui-support.md)明确否决了在每个宿主上都使用 node-pty；它当时已经是 Windows 那一条腿。
 
 **服务器与 HTTP：**
 
 - **以 `msw` 替换 llm-mock-server**：这个服务器的存在意义就是在线路上制造故障——socket 销毁、SSE（Server-Sent Events）中途断连、停滞、监听前拒绝——服务对象是真实的 HTTP 适配器和子进程；进程内拦截一样都表达不了。设计归[线路故障服务器决策](../../implemented/testing/2026-07-25-scriptable-llm-wire-fault-server.md)所有。
-- **以 `hono`/`sirv` 承担 host/webserver**：核心是基于 disposer 的动态路由注册表（「注册即效果」契约、HMR 反注册）加 index HTML 变换挂点；hono 的路由器只增不减，静态中间件也无法伺服变换后的 index。总共约 244 行，确实很小。
+- **以 `hono`/`sirv` 承担 host/webserver**：核心是基于 disposer 的动态路由注册表（「注册即效果」约定、HMR 反注册）加 index HTML 变换挂点；hono 的路由器只增不减，静态中间件也无法伺服变换后的 index。总共约 244 行，确实很小。
 - **以 `@mozilla/readability`/`iconv-lite` 承担 web-fetch-local**：该提供方返回原始 HTML；字符集处理已经是内置的 `TextDecoder`；MIME 解析约 11 行；重定向跟随是同源安全策略。
 
 **SQLite 与存储：**

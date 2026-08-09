@@ -31,11 +31,11 @@
 
 `BashExecRequest`（command、workdir?、timeoutMs?、stdoutMaxBytes?、signal?、stdin?、env?、dshEnv?、sandboxPolicy?）在执行前解析为 `BashExecSpec`（command、workdir、timeoutMs、stdoutMaxBytes、signal?、stdin?、env?、dshEnv?、sandboxPolicy）。`stdoutMaxBytes` 是受信任前台运行的捕获预算，用于必须解析完整有界 stdout 的消费方；面向模型的 bash 工具不公开该字段。`sandboxPolicy` 在请求上可选，在已解析 spec 上必填但可为 null：它携带完整的每次调用模式与工作区根目录。沙箱工具路径通过 `ctx.sandboxPolicy` 从调用会话解析它；沙箱执行器的直接调用方回退到部署策略，非沙箱执行器则携带该字段但不作限制。
 
-每会话沙箱模式覆盖词汇（`'sandbox/mode'` 事件、`effectiveSandboxMode(events)` fold 以及 `setSandboxMode(session, mode)` 写入路径）不位于此处。它是所有强制执行家族共享的策略状态，属于 [`@deepseek-ai/dsh-sandbox-policy`](../../sandbox/sandbox-policy/)。`run()` 返回 `BashRunResult`；`start()` 返回 `BashProcess`，其增量读取与终止方法由 `dsh-tool-bash` 适配为通用任务注册。沙箱执行器会在前台结果与已结算进程句柄上标记 `BashSandboxInfo`。详见 `src/types.ts` 与 [core-data-structures/bash.md](../../../docs/core-data-structures/bash.md)。
+每会话沙箱模式覆盖词汇（`'sandbox/mode'` 事件、`effectiveSandboxMode(events)` fold 以及 `setSandboxMode(session, mode)` 写入路径）不位于此处。它是所有强制执行家族共享的策略状态，属于 [`@deepseek-ai/dsh-sandbox-policy`](../../sandbox/sandbox-policy/)。`run()` 返回 `BashRunResult`；`start()` 返回 `BashProcess`，其增量读取与终止方法由 `dsh-tool-bash` 适配为通用任务注册。沙箱执行器会在前台结果与已结算进程句柄上标记 `BashSandboxInfo`。详见 `src/types.ts` 与 [subsystems/bash.md](../../../docs/subsystems/bash.md)。
 
 `stdin` 与普通 `env` 由同进程插件（hooks 桥接、原生插件）设置，用于向 hook 命令提供其 JSON payload 和 `CLAUDE_PROJECT_DIR`／`CLAUDE_PLUGIN_ROOT` 值。`dshEnv` 是受类型限制、仅允许受管 key 的独立受信任 overlay；导出的 `DSH_ENV_PREFIX` 是该 namespace、其 `DshEnvironmentKey` 模板类型、执行器清理、注册表验证、派生内置名称与模型指引的统一来源。模型 bash 使用 `ctx.bashEnv` 收集的当前快照。实现会移除继承的受管 key，再在普通 `env` 之后合并 `dshEnv`，因此省略的当前事实不会回退到陈旧环境状态，`env` 条目也无法顶掉受管值。面向模型的工具不将这三者中的任何一个公开为参数。这三者在已解析 spec 上仍然可选；缺失表示没有输入／overlay。详见 [bash-stdin-env Agent Note](../../../.agents/notes/implemented/architecture/2026-06-30-bash-stdin-env-trusted-plugin-surface.md) 与 [会话环境 Agent Note](../../../.agents/notes/implemented/feature/2026-07-10-agent-session-identity-and-log-location.md)。
 
-导出的 `parseExitStatus`（连同 `ParsedExitStatus`）是 shell 工具共享渲染契约的另一半：`dsh-tool-bash` 的 `renderResult` 与 `dsh-tool-pwsh` 的 `renderPwshResult` 追加的 `[exit code: N]`／`[killed by signal: X]` marker 的逆解析。两个工具的 `presentResult` 都用它把渲染文本拆成 terminal 卡的输出正文与其退出状态 pill；它放在 seam 上，两个工具便永远不会在 marker 契约上漂移。
+导出的 `parseExitStatus`（连同 `ParsedExitStatus`）是 shell 工具共享渲染约定的一部分：它对 `dsh-tool-bash` 的 `renderResult` 与 `dsh-tool-pwsh` 的 `renderPwshResult` 所追加的 `[exit code: N]`／`[killed by signal: X]` marker 进行逆解析。两个工具的 `presentResult` 都用它把渲染文本拆成 terminal 卡的输出正文与退出状态 pill；它位于 seam 上，因此两个工具的 marker 约定不会发生偏离。
 
 ## 模型体验
 

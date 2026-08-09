@@ -33,7 +33,7 @@
       "path": "../../core/scope"
     },
     {
-      "path": "../../ui/user-approval"
+      "path": "../../interaction/user-approval"
     },
     {
       "path": "../../support/invariants"

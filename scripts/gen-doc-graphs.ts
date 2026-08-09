@@ -70,6 +70,7 @@ const GROUP_ORDER = [
   'bash',
   'pty',
   'sandbox',
+  'e2b',
   'fs',
   'skill',
   'compact',
@@ -322,13 +323,21 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Folds revisioned objective state from the session log and keeps live continuation activation process-local.',
   },
   {
+    key: 'e2b',
+    pkg: 'e2b',
+    title: 'E2B sandbox lifecycle owner',
+    mode: 'core',
+    consumers: ['fs-e2b', 'subprocess-e2b'],
+    note: 'Owns one shared E2B SDK handle, remote working directory, and final sandbox disposition so both fundamental E2B providers inhabit the same Linux runtime.',
+  },
+  {
     key: 'subprocess',
     pkg: 'subprocess',
     title: 'Subprocess seam',
     mode: 'seam',
-    implementations: ['subprocess-local'],
-    consumers: ['bash-local', 'bash-sandbox', 'lsp-local', 'subagent-acp', 'subagent-codex', 'subagent-claude-code'],
-    note: 'The bash executors, the LSP host, and the out-of-process ACP, Codex, and Claude Code subagent backends spawn their children through ctx.subprocess; the service owns tree lifetime, stdio dispositions (pipes, inherit, bounded spill-backed collection), and kill escalation.',
+    implementations: ['subprocess-local', 'subprocess-e2b'],
+    consumers: ['bash-local', 'bash-sandbox', 'pty-local', 'lsp-local', 'subagent-acp', 'subagent-codex', 'subagent-claude-code'],
+    note: 'The bash executors, the PTY shell backend, the LSP host, and the out-of-process ACP, Codex, and Claude Code subagent backends spawn through ctx.subprocess; the service owns process coordinates, tree/session lifetime, stdio dispositions, terminal mechanics, and kill escalation.',
   },
   {
     key: 'bash',
@@ -405,7 +414,7 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'fs',
     title: 'Filesystem provider seam',
     mode: 'seam',
-    implementations: ['fs-local', 'fs-sandbox'],
+    implementations: ['fs-local', 'fs-sandbox', 'fs-e2b'],
     consumers: ['tool-fs'],
     companions: ['fs-policy'],
     note: 'tool-fs executes read/write/edit through ctx.fs; fs-sandbox fences mutations by the shared sandbox mode; fs-policy contributes observed-state checks through the fs/* event gate.',
@@ -1145,7 +1154,7 @@ function renderLifecycle(): string {
   const maintenance = 'curated Mermaid sequence; exact event signatures live in the generated Cordis catalog'
   return [
     ...generatedHeader('Agent Turn And Step Lifecycle'),
-    'This sequence is the visual companion to [architecture.md](architecture.md#loop-lifecycle-session--turn--step). It keeps durable replay facts on `session/event` and live control/status on `agent/*`.',
+    'This sequence is the visual companion to [architecture.md](architecture.md#default-loop-lifecycle). It keeps durable replay facts on `session/event` and live control/status on `agent/*`.',
     '',
     '```mermaid',
     'sequenceDiagram',
@@ -1335,7 +1344,7 @@ function renderIndex(docs: GraphDoc[]): string {
   const maintenance = 'mixed: each linked page declares generated, hybrid, or curated mode'
   return [
     ...generatedHeader('Documentation Graph Index'),
-    'These diagrams are the relationship layer above the generated catalogs. Use them to navigate package topology, capability seams, event flow, model-facing tools, app composition, and runtime lifecycle paths. Exact signatures and type shapes still live in the generated [events](cordis-catalog/events.md) / [services](cordis-catalog/services.md) catalogs, [tool-catalog.md](tool-catalog.md), and [core-data-structures/](core-data-structures/core.md).',
+    'These diagrams are the relationship layer above the generated catalogs. Use them to navigate package topology, capability seams, event flow, model-facing tools, app composition, and runtime lifecycle paths. Exact signatures and type shapes still live in the [subsystem pages](subsystems/core.md) (types + the generated `cordis-surface` regions) and [tool-catalog.md](tool-catalog.md).',
     '',
     'The process decision behind this index is recorded in [the documentation graph Agent Note](../.agents/notes/archived/process/2026-07-03-documentation-graph-atlas.md).',
     '',

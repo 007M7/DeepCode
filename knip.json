@@ -45,6 +45,7 @@
         "headless-agent/tests/fixtures/time-context-mock-llm.ts",
         "headless-agent/tests/fixtures/telemetry-otel-driver.ts",
         "headless-agent/tests/fixtures/telemetry-redact-rule.ts",
+        "headless-agent/tests/fixtures/e2b/e2b/bin.ts",
         "acp-agent/tests/snapshots/lsp-definition/workspace/subject.ts",
         "acp-agent/tests/fixtures/child-question-tripwire.ts",
         "acp-agent/tests/fixtures/partial-landlock-sandbox.ts",
@@ -229,6 +230,16 @@
         "tests/**/*.ts"
       ]
     },
+    "packages/e2b/e2b": {
+      "entry": [
+        "tests/**/*.spec.ts",
+        "tests/**/*.e2e.ts"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "tests/**/*.ts"
+      ]
+    },
     "packages/context/time-context": {
       "entry": [
         "tests/**/*.spec.ts",
@@ -272,7 +283,7 @@
         "tests/**/*.ts"
       ]
     },
-    "packages/telemetry/session-telemetry-otel": {
+    "packages/session/session-telemetry-otel": {
       "entry": [
         "tests/**/*.spec.ts",
         "tests/**/*.e2e.ts"
@@ -403,7 +414,7 @@
         "tests/**/*.ts"
       ]
     },
-    "packages/session-title/session-title-first-message-llm": {
+    "packages/session/session-title-first-message-llm": {
       "entry": [
         "tests/**/*.spec.ts",
         "tests/**/*.e2e.ts"
@@ -423,7 +434,7 @@
         "tests/**/*.ts"
       ]
     },
-    "packages/session-persistence/session-checkpoint-policy": {
+    "packages/session/session-checkpoint-policy": {
       "entry": [
         "tests/**/*.spec.ts",
         "tests/**/*.e2e.ts"
@@ -502,7 +513,7 @@
         "tests/**/*.ts"
       ]
     },
-    "packages/ui/jsonrpc": {
+    "packages/scaffold/server": {
       "entry": [
         "tests/**/*.spec.ts",
         "tests/**/*.e2e.ts"
@@ -512,7 +523,7 @@
         "tests/**/*.ts"
       ]
     },
-    "packages/ui/commands": {
+    "packages/interaction/commands": {
       "entry": [
         "tests/**/*.spec.ts"
       ],
@@ -526,7 +537,7 @@
         "src/**/*.ts"
       ]
     },
-    "packages/sdk/create-sdk": {
+    "packages/scaffold/create-sdk": {
       "entry": [
         "src/bin.ts",
         "tests/**/*.spec.ts",
@@ -538,7 +549,7 @@
         "tests/**/*.ts"
       ]
     },
-    "packages/sdk/scripts": {
+    "packages/scaffold/scripts": {
       "entry": [
         "src/bin.ts",
         "tests/**/*.spec.ts",
@@ -690,6 +701,20 @@
       ],
       "ignoreDependencies": [
         "@deepseek-ai/.+"
+      ]
+    },
+    "apps/cli/tests/fixtures/github-repository-plugin/.dsh-plugin": {
+      "entry": [
+        "src/*.ts"
+      ],
+      "project": [
+        "src/**/*.ts"
+      ],
+      "ignoreDependencies": [
+        "@deepseek-ai/dsh-repository-plugin"
+      ],
+      "ignoreBinaries": [
+        "dsh-plugin-prepare"
       ]
     },
     "packages/client/modules": {

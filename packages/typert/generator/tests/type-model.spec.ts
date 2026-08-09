@@ -419,7 +419,7 @@ describe('WorkspaceAnalyzer', { timeout: 60_000 }, () => {
 
   it('rejects relative imports across face boundaries', () => {
     const root = copyFixture('typert-relative-face-')
-    const sourcePath = join(root, 'packages/client/src/index.ts')
+    const sourcePath = join(root, 'packages/client', 'src/index.ts')
     const source = readFileSync(sourcePath, 'utf8')
       .replace("from '@fixture/host'", "from '../../host/src/index.ts'")
     writeFileSync(sourcePath, source)
@@ -435,7 +435,7 @@ describe('WorkspaceAnalyzer', { timeout: 60_000 }, () => {
       join(root, 'packages/host/src/private.ts'),
       'export interface PrivateHost { readonly value: string }\n',
     )
-    const sourcePath = join(root, 'packages/client/src/index.ts')
+    const sourcePath = join(root, 'packages/client', 'src/index.ts')
     const source = readFileSync(sourcePath, 'utf8')
       .replace(
         "import type { HostAgent, Payload } from '@fixture/host'",
@@ -458,7 +458,7 @@ describe('WorkspaceAnalyzer', { timeout: 60_000 }, () => {
       join(root, 'packages/host/src/private.ts'),
       'export interface PrivateHost { readonly value: string }\n',
     )
-    const sourcePath = join(root, 'packages/client/src/index.ts')
+    const sourcePath = join(root, 'packages/client', 'src/index.ts')
     writeFileSync(sourcePath, [
       readFileSync(sourcePath, 'utf8'),
       "export type { PrivateHost } from '@fixture/host/private'",
@@ -472,7 +472,7 @@ describe('WorkspaceAnalyzer', { timeout: 60_000 }, () => {
 
   it('rejects cross-face namespace re-exports until the model has a namespace target', () => {
     const root = copyFixture('typert-namespace-reexport-')
-    const sourcePath = join(root, 'packages/client/src/index.ts')
+    const sourcePath = join(root, 'packages/client', 'src/index.ts')
     writeFileSync(sourcePath, [
       readFileSync(sourcePath, 'utf8'),
       "export type * as HostNamespace from '@fixture/host'",
@@ -487,10 +487,10 @@ describe('WorkspaceAnalyzer', { timeout: 60_000 }, () => {
   it('ignores cross-face namespace exports that are not package exports', () => {
     const root = copyFixture('typert-private-namespace-reexport-')
     writeFileSync(
-      join(root, 'packages/client/src/internal.ts'),
+      join(root, 'packages/client', 'src/internal.ts'),
       "export type * as HiddenHostNamespace from '@fixture/host'\n",
     )
-    const sourcePath = join(root, 'packages/client/src/index.ts')
+    const sourcePath = join(root, 'packages/client', 'src/index.ts')
     writeFileSync(sourcePath, [
       "import './internal.ts'",
       readFileSync(sourcePath, 'utf8'),
@@ -503,7 +503,7 @@ describe('WorkspaceAnalyzer', { timeout: 60_000 }, () => {
 
   it('records public symbols from explicit cross-face star re-exports', () => {
     const root = copyFixture('typert-star-reexport-')
-    const sourcePath = join(root, 'packages/client/src/index.ts')
+    const sourcePath = join(root, 'packages/client', 'src/index.ts')
     writeFileSync(
       sourcePath,
       readFileSync(sourcePath, 'utf8')
@@ -1138,7 +1138,7 @@ describe('WorkspaceTypertGenerator', { timeout: 60_000 }, () => {
 
   it('rejects a public Typert subpath that points outside the root-level face artifact', () => {
     const root = copyFixture('typert-artifact-path-')
-    const manifestPath = join(root, 'packages/client/package.json')
+    const manifestPath = join(root, 'packages/client', 'package.json')
     const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as {
       exports: Record<string, { types: string; default: string }>
     }
@@ -1154,7 +1154,7 @@ describe('WorkspaceTypertGenerator', { timeout: 60_000 }, () => {
 
   it('rejects absent Typert exports and package file entries', () => {
     const noSubpathRoot = copyFixture('typert-missing-artifact-export-')
-    const noSubpathManifest = join(noSubpathRoot, 'packages/client/package.json')
+    const noSubpathManifest = join(noSubpathRoot, 'packages/client', 'package.json')
     const noSubpath = JSON.parse(readFileSync(noSubpathManifest, 'utf8')) as Record<string, unknown>
     noSubpath.exports = './lib/index.js'
     writeFileSync(noSubpathManifest, `${JSON.stringify(noSubpath, null, 2)}\n`)
@@ -1163,7 +1163,7 @@ describe('WorkspaceTypertGenerator', { timeout: 60_000 }, () => {
     )
 
     const invalidSubpathRoot = copyFixture('typert-invalid-artifact-export-')
-    const invalidSubpathManifest = join(invalidSubpathRoot, 'packages/client/package.json')
+    const invalidSubpathManifest = join(invalidSubpathRoot, 'packages/client', 'package.json')
     const invalidSubpath = JSON.parse(readFileSync(invalidSubpathManifest, 'utf8')) as {
       exports: Record<string, unknown>
     }
@@ -1174,7 +1174,7 @@ describe('WorkspaceTypertGenerator', { timeout: 60_000 }, () => {
     )
 
     const noFilesRoot = copyFixture('typert-missing-artifact-files-')
-    const noFilesManifest = join(noFilesRoot, 'packages/client/package.json')
+    const noFilesManifest = join(noFilesRoot, 'packages/client', 'package.json')
     const noFiles = JSON.parse(readFileSync(noFilesManifest, 'utf8')) as Record<string, unknown>
     delete noFiles.files
     writeFileSync(noFilesManifest, `${JSON.stringify(noFiles, null, 2)}\n`)
@@ -1264,14 +1264,14 @@ function configureDualRuntimeClient(root: string, splitProjects: boolean): void 
   const hostAggregate = JSON.parse(readFileSync(hostAggregatePath, 'utf8')) as {
     references: { path: string }[]
   }
-  hostAggregate.references.push({ path: './packages/client/tsconfig.host.json' })
+  hostAggregate.references.push({ path: ['.', 'packages', 'client', 'tsconfig.host.json'].join('/') })
   writeFileSync(hostAggregatePath, `${JSON.stringify(hostAggregate, null, 2)}\n`)
 
   const clientAggregatePath = join(root, 'tsconfig.client.json')
   const clientAggregate = JSON.parse(readFileSync(clientAggregatePath, 'utf8')) as {
     references: { path: string }[]
   }
-  clientAggregate.references = [{ path: './packages/client/tsconfig.client.json' }]
+  clientAggregate.references = [{ path: ['.', 'packages', 'client', 'tsconfig.client.json'].join('/') }]
   writeFileSync(clientAggregatePath, `${JSON.stringify(clientAggregate, null, 2)}\n`)
 }
 

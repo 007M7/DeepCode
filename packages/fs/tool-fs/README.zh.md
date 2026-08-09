@@ -50,11 +50,11 @@ await ctx.plugin(ToolFs)                                  // this package — re
 
 ## `fs/observed` 发后即忘
 
-`fs/observed` 在读取/写入/编辑已经成功之后，通过普通 `ctx.emit` 发出。监听器的契约是同步且只有副作用的记录器（`@deepseek-ai/dsh-fs-policy` 使用 `WeakMap.set`）；工具不保护这次发出，因此监听器抛出会作为工具的 `isError` 结果出现。异步或可能失败的观察不属于该事件。
+`fs/observed` 在读取/写入/编辑已经成功之后，通过普通 `ctx.emit` 发出。监听器的约定是同步且只有副作用的记录器（`@deepseek-ai/dsh-fs-policy` 使用 `WeakMap.set`）；工具不保护这次发出，因此监听器抛出会作为工具的 `isError` 结果出现。异步或可能失败的观察不属于该事件。
 
 `read` 允许并发调度，因为其唯一变更是同步版本记录器。稍后的 `write` 或 `edit` 会在目标锁内重新检查版本，因此记录器竞态会以拒绝方式关闭；两个变更工具仍保持互斥。见[并行工具调用 Agent Note](../../../.agents/notes/implemented/feature/2026-07-10-parallel-tool-call-execution.md)。
 
-包根目录只导出 Cordis 插件契约（`name`、`inject`、`Config` 和 `apply`）。读取渲染（行窗口与输出格式化）位于 `src/read-render.ts`（不依赖 Cordis，单独进行单元测试）；`src/read.ts`/`write.ts`/`edit.ts` 是工具执行器，`src/index.ts` 负责组合。
+包根目录只导出 Cordis 插件约定（`name`、`inject`、`Config` 和 `apply`）。读取渲染（行窗口与输出格式化）位于 `src/read-render.ts`（不依赖 Cordis，单独进行单元测试）；`src/read.ts`/`write.ts`/`edit.ts` 是工具执行器，`src/index.ts` 负责组合。
 
 ## 模型体验
 
@@ -150,4 +150,4 @@ Use the edit tool for targeted changes to existing UTF-8 text files. It replaces
 
 - **未交付面向模型的目录列表工具**：`ctx.fs.listDir` 服务于 skill（技能）发现等提供方代码，同级 [`dsh-tool-fs-search`](../tool-fs-search/) 包则提供基于 bash 的 `glob` 与 `grep`，而不是扩展文件系统 seam。
 - **`read` 只处理 UTF-8 文本文件**：二进制安全读取和 PDF/图像/多模态内容均延期处理；目录目标为 `FS_NOT_REGULAR_FILE`。
-- **没有超时接口**：`read`/`write`/`edit` 不接受超时参数，也不声明 `timeout-policy` 预算；取消只通过 `exec.signal` 传递（见[提供方理由](../fs/README.md#no-io-deadline)）。
+- **没有超时接口**：`read`/`write`/`edit` 不接受超时参数，也不声明 `timeout-policy` 预算；取消只通过 `exec.signal` 传递（见[提供方理由](../README.md#no-timeouts-on-file-io)）。

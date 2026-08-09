@@ -49,7 +49,7 @@ dsh plugin --profile tui add <package>  # install a plugin into a custom profile
 dsh --profile tui                       # boot it
 ```
 
-profile 布局、层语义与配置输出命令详见 [CLI（命令行界面）契约](apps/cli/README.md#profiles)。
+profile 布局、层语义与配置输出命令详见 [CLI（命令行界面）约定](apps/cli/README.md#profiles)。
 
 ### Headless
 
@@ -76,7 +76,7 @@ pnpm run demo:acp
 - **一切皆插件。** 模型、工具、策略、存储、上下文管理和界面均可组合为 [Cordis 插件](docs/user/develop/basic/index.md)，部署方无需 fork agent loop（智能体循环）即可扩展或替换行为。底层设计见[架构文档](docs/architecture.md)。
 - **运行可重建。** 凡是模型可见的内容，都会记录在权威会话流中；持久化、恢复／fork／查询、回放、遥测和 UI 均从同一组事件派生。参见[会话日志架构](docs/architecture.md#session-log)。
 - **Code Mode（需显式启用）。** 它会提供 `run_code` 工具和生成的 TypeScript SDK，只有程序输出会重新进入模型上下文。参见 [Code Mode](packages/core/tools/README.md#code-mode)。
-- **自指 Cordis 工具需显式启用。** 这些工具可让 agent 检查自身的实时运行时，并在运行中挂载或卸载插件。参见 [Cordis 工具](packages/cordis/tool-cordis/README.md)。
+- **自指 Cordis 工具需显式启用。** 这些工具可让 agent 检查自身的实时运行时，并在运行中挂载或卸载插件。参见 [Cordis 工具](packages/self-modification/tool-cordis/README.md)。
 
 ## 社区
 

@@ -61,7 +61,7 @@ dsh web --dump-config
 
 `DSH_TOOLS_MODE` 为进程选择 `native`、`code` 或 `both`；其他值会导致启动失败。[`config/core-web.cordis.yml`](../config/core-web.cordis.yml) 是可选的 RL 兼容 `--patch` overlay：它固定使用 `native` 模式，仅将 `DSH_SYSTEM_PROMPT` 或 `You are a helpful software engineer assistant.` 渲染为系统提示词，禁用 Workspace 指令与所有 Web 运行时提示词贡献，并且在保留随附宿主、浏览器、workspace、持久化和权限组合的同时，仅暴露持久 `bash` 和 `str_replace_editor`。
 
-`DSH_SYSTEM_PROMPT` 会传给系统提示词的 [`persona`](../../../packages/core/system-prompt/README.md#config)：完整的 `{{…}}` 分组遵循该契约的严格变量插值规则，且无法转义为字面花括号；任何已设置的值（包括空字符串）都具有权威性，因此空值会移除系统提示词，只有未设置该变量时才会选择后备值。
+`DSH_SYSTEM_PROMPT` 会传给系统提示词的 [`persona`](../../../packages/core/system-prompt/README.md#config)：完整的 `{{…}}` 分组遵循该约定的严格变量插值规则，且无法转义为字面花括号；任何已设置的值（包括空字符串）都具有权威性，因此空值会移除系统提示词，只有未设置该变量时才会选择后备值。
 
 ## 共享部署行为
 
@@ -69,7 +69,7 @@ dsh web --dump-config
 
 会话事件默认作为 OTLP/HTTP 日志流式发送。`DSH_TELEMETRY_OTLP_URL` 选择其他 collector。任何非空 `DSH_TELEMETRY_DISABLED` 都会在启动前禁用遥测配置行。随附基础配置没有遥测脱敏规则，因此导出的记录可能包含消息文本、工具参数与结果以及 workspace 路径；该部署决策由[遥测 Agent Note](../../../.agents/notes/implemented/feature/2026-07-31-web-telemetry-default-mount.md)负责。
 
-空 `repository-plugins` 行让 profile 的 patch 层能够挂载已准备的不可变 repository Plugin generation。参见 [repository Plugin 契约](../../../packages/cordis/repository-plugin/README.md#standalone-app-configuration)。CLI 还随附 `@deepseek-ai/dsh-mcp-client` 作为供 patch 层使用的依赖，但默认不启用 MCP 服务器，因为每条服务器命令都是 agent（智能体）沙箱之外的受信任可执行代码。
+空 `repository-plugins` 行让 profile 的 patch 层能够挂载已准备的不可变 repository Plugin generation。参见 [repository Plugin 约定](../../../packages/self-modification/repository-plugin/README.md#standalone-app-configuration)。CLI 还随附 `@deepseek-ai/dsh-mcp-client` 作为供 patch 层使用的依赖，但默认不启用 MCP 服务器，因为每条服务器命令都是 agent（智能体）沙箱之外的受信任可执行代码。
 
 ## 源码启动器
 

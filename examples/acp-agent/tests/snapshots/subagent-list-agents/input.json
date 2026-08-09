@@ -16,7 +16,7 @@
     },
     {
       "op": "prompt",
-      "text": "Call list_agents once and observe the subagent you started. Then reply with the single word DONE. Do not call any other tool."
+      "text": "Call list_agents once with scope set to descendants and observe the subagent you started. Then call interrupt_agent once with agent_id set to 33333333-3333-4333-8333-333333333333. Then reply with the single word DONE. Do not call any other tool."
     }
   ]
 }

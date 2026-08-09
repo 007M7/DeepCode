@@ -39,7 +39,7 @@ headless 对完成的轮次仍以 0 退出，对其他轮次结束原因或 API 
 
 ## 后果
 
-健康的退出流程仍会对整棵 Cordis 插件树执行 dispose。已知的遥测等待最多会在 3 秒后解除；其他退出流程卡死时，如无进一步输入，最多等待 5 秒，再次收到信号则立即结束进程。强制退出或受截止时间限制的退出可能中断遥测导出或尚未完成的清理工作；只有优雅关闭契约已经失败，或用户明确要求强制退出时，才会有意接受这一结果。
+健康的退出流程仍会对整棵 Cordis 插件树执行 dispose。已知的遥测等待最多会在 3 秒后解除；其他退出流程卡死时，如无进一步输入，最多等待 5 秒，再次收到信号则立即结束进程。强制退出或受截止时间限制的退出可能中断遥测导出或尚未完成的清理工作；只有优雅关闭约定已经失败，或用户明确要求强制退出时，才会有意接受这一结果。
 
 该控制器属于启动器基础设施，而不是 Cordis 插件：它不会声称 dispose 已经完成，也不会削弱普通 disposer 必须达到完全停稳状态的生命周期规则。
 
@@ -49,4 +49,4 @@ headless 对完成的轮次仍以 0 退出，对其他轮次结束原因或 API 
 
 `apps/cli/tests/headless-shutdown.e2e.ts` 在 PTY 中启动真实交付的 Web/headless Loader 插件树，并挂载一个仅用于测试的插件；该插件的 disposer 会声明已经进入清理流程，但永不结算。测试在观察地址出现后发送 SIGINT，等待 dispose 已启动的证据，再次发送 SIGINT，并要求进程以 130 退出。源码／产物启动解析器使两个执行平面都覆盖同一项回归。该 PTY 用例覆盖用户可见的进程状态；模型输出快照没有变化。
 
-`packages/telemetry/session-telemetry-otel/tests/otel.spec.ts` 在定时器导出开始后保持一条真实 OTLP 请求打开，并固定以下行为：即使 SDK 的 `forceFlush()` 仍待结算，Cordis dispose 也会在 `shutdownTimeoutMillis` 到期时返回。随后测试释放 collector，使仍受观察的提供方 Promise 干净结算。
+`packages/session/session-telemetry-otel/tests/otel.spec.ts` 在定时器导出开始后保持一条真实 OTLP 请求打开，并固定以下行为：即使 SDK 的 `forceFlush()` 仍待结算，Cordis dispose 也会在 `shutdownTimeoutMillis` 到期时返回。随后测试释放 collector，使仍受观察的提供方 Promise 干净结算。

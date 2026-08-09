@@ -10,3 +10,5 @@ The code-execution capability seam (see [capability seams](../../.agents/notes/i
 | [`code-runtime-worker/`](code-runtime-worker/README.md) | Worker-thread backend | registers `ctx.codeRuntime` |
 
 Backends register the seam without changing its consumer. The child READMEs own language, isolation, and execution-budget details.
+
+The subsystem reference — run requests/results, binding namespaces, the failure taxonomy — is [docs/subsystems/code-runtime.md](../../docs/subsystems/code-runtime.md).

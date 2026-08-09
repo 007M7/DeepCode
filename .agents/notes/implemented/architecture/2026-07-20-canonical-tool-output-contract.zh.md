@@ -1,4 +1,4 @@
-# Agent Note: 规范工具输出契约
+# Agent Note: 规范工具输出约定
 
 Status: implemented
 
@@ -8,7 +8,7 @@ Status: implemented
 
 工具主体过去直接编写面向模型的 `ContentBlock[]`，并可选择将其与不透明的 `meta` 包装在一起。因此，Native 模式的 Function Calling（函数调用）虽然拥有可供人阅读的投影，但程序化调用方没有稳定的领域值：Code Mode 会将内容块重新展平为字符串，动态工具会重复定义内容形态，策略也可以替换展示内容，却无法区分这项变更究竟是替换展示，还是替换操作结果。多个能力 seam 已经返回了信息更丰富的提供方值，却又在面向模型的工具边界丢弃这些值。
 
-持久会话契约将这份展示内容视为回放时的权威来源，但如果持久化每一个信息丰富的中间值，就会扩大日志、使实现数据进入压缩（compaction）和迁移流程，还会错误地把执行期本地 API 变成会话格式的一部分。因此，系统底层需要在执行期间保留一个类型化值，并显式将其投影为现有的持久化内容和模型可见内容。
+持久会话约定将这份展示内容视为回放时的权威来源，但如果持久化每一个信息丰富的中间值，就会扩大日志、使实现数据进入压缩（compaction）和迁移流程，还会错误地把执行期本地 API 变成会话格式的一部分。因此，系统底层需要在执行期间保留一个类型化值，并显式将其投影为现有的持久化内容和模型可见内容。
 
 ## 决策
 
@@ -46,7 +46,7 @@ type ToolExecutionResult =
 | `glob` | `{ paths: string[] }` |
 | `grep` | `{ matches: [{ path, lineNumber, line }] }` |
 | `web_search` ／ `web_fetch` | 归一化后的 `WebSearchResult` ／ `WebFetchResult` |
-| `lsp` | `{ kind: "locations", locations, resolvedWorkspaceRoot }` 或 `{ kind: "hover", hover }` |
+| `lsp` | `{ kind: "locations", locations, resolvedWorkspaceUri }` 或 `{ kind: "hover", hover }` |
 | `bash` | `{ kind: "background", taskId }` 或 `{ kind: "foreground" } & BashRunResult` |
 | `terminal_open` ／ `terminal_list` ／ `terminal_send` ／ `terminal_read` ／ `terminal_signal` ／ `terminal_close` | 公开会话快照、有界的读取／发送 DTO、信号／关闭操作结果，或后台任务句柄 |
 | `task_output` ／ `task_list` ／ `task_kill` | 不含所有者或通知管理信息的公开任务快照 |
@@ -74,6 +74,6 @@ MCP 桥接层通过 `McpResult<{...}> = { content: JsonValue[]; structuredConten
 
 ## 影响
 
-Native 和回放行为仍以内容为先，并保持逐字节兼容；执行期调用方则无需解析内容，即可使用经过校验的领域值。失败结果必须包含消息，并可选择附加内部类名／代码信息；成功与失败结果由判别字段区分，失败结果绝不会承诺存在值。工具作者必须一并设计值及其 Native 投影；增加这项声明是有意为之，因为它避免从自然语言内容意外推导出程序化契约。
+Native 和回放行为仍以内容为先，并保持逐字节兼容；执行期调用方则无需解析内容，即可使用经过校验的领域值。失败结果必须包含消息，并可选择附加内部类名／代码信息；成功与失败结果由判别字段区分，失败结果绝不会承诺存在值。工具作者必须一并设计值及其 Native 投影；增加这项声明是有意为之，因为它避免从自然语言内容意外推导出程序化约定。
 
-中间值只受产生它们的能力和进程内存限制。日志不包含这些值，因此回放无法恢复；仅处理内容的 post 策略也无法隐藏这些值。这些都是执行期本地契约的明确属性，并非意外缺口。
+中间值只受产生它们的能力和进程内存限制。日志不包含这些值，因此回放无法恢复；仅处理内容的 post 策略也无法隐藏这些值。这些都是执行期本地约定的明确属性，并非意外缺口。

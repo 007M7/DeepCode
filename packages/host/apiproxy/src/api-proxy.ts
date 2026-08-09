@@ -2032,6 +2032,31 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           return subagentPromptError(request, error, signal)
         }
       },
+
+      // Deliberately no catalog, history, persistence, or parent Agent lookup:
+      // the core primitive alone authorizes the durable address against the
+      // live Activation, which is what keeps a live child interruptible while
+      // its parent Agent is offline. Absent targets are accepted no-ops there.
+      interrupt(request) {
+        const { parentSessionId, childSessionId } = request.payload
+        try {
+          ctx.subagents.interrupt(childSessionId, { kind: 'user', parentSessionId })
+        } catch (error: unknown) {
+          if (error instanceof SubagentError && error.code === 'UNAUTHORIZED') {
+            return Promise.resolve(err(request, {
+              code: 'subagent-unauthorized',
+              message: 'subagent does not belong to this parent',
+              details: { childSessionId },
+            }))
+          }
+          return Promise.resolve(err(request, {
+            code: 'internal',
+            message: 'subagent interrupt failed',
+            details: {},
+          }))
+        }
+        return Promise.resolve(ok(request, { accepted: true as const }))
+      },
     },
 
     workspace: {

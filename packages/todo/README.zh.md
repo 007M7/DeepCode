@@ -8,4 +8,6 @@
 |---|---|---|
 | [`tool-todo/`](tool-todo/README.md) | 存储并公开会话的 todo 列表。 | （注册到 `ctx.tools`） |
 
-子级 README 负责工具、持久化和渲染契约。
+子级 README 负责工具、持久化和渲染约定。
+
+事件载荷记录在 [docs/subsystems/session.md](../../docs/subsystems/session.md)。

@@ -63,7 +63,7 @@ await ctx.serial('setup-phase', context)
 
 ### waterfall — pipeline
 
-Each listener may wrap the downstream result to form a processing chain. A listener **must call `next()` to delegate downstream**; omitting the call vetoes the pipeline:
+Each listener may wrap the downstream result to form a processing chain. A listener **must call `next()` to delegate downstream**; omitting the call short-circuits the pipeline:
 
 ```ts ignore-check
 // Dispatch
@@ -77,7 +77,7 @@ ctx.on('my-plugin/transform', async (_input, next) => {
 ```
 
 ::: warning
-A waterfall listener **must call `next()`**. Omitting it vetoes the pipeline by design, enabling interception and gateway behavior.
+A waterfall listener **must call `next()`**. Omitting it short-circuits the pipeline by design, enabling interception and gateway behavior.
 :::
 
 ## Typed events
@@ -101,7 +101,7 @@ declare module 'cordis' {
 
 ## Cordis events and session records
 
-Harness Cordis events use `namespace/action` names, including `agent/pre-step`, `agent/request`, `agent/request-error`, `tools/result`, and `session/event`. The generated [event catalog](../../../cordis-catalog/events.md) records complete signatures and modes.
+Harness Cordis events use `namespace/action` names, including `agent/step`, `agent/request`, `agent/request-error`, `tools/result`, and `session/event`. The generated `cordis-surface` regions on the [subsystem pages](../../../subsystems/core.md) record complete signatures and modes.
 
 `turn/*`, `step/*`, `tool/call`, `tool/result`, and `compact/*` are durable session-event types, not same-named Cordis events. To observe them, listen to `session/event` and inspect `event.type`.
 

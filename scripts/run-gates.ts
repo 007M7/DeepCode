@@ -312,7 +312,7 @@ function nodeCompatSmokeGates(options: { cliSmoke?: boolean } = {}): Gate[] {
     pnpmExec('jsonl-zstd-smoke', [
       'vitest',
       'run',
-      'packages/session-persistence/session-persistence-jsonl/tests/zstd.compat.spec.ts',
+      'packages/session/session-persistence-jsonl/tests/zstd.compat.spec.ts',
     ], { label: 'JSONL Zstandard smoke' }),
     pnpmExec('dsh-source-launch-smoke', [
       'vitest',
@@ -406,6 +406,7 @@ function ciConsumerGates(): Gate[] {
       needs: validatedBuild,
     }),
     builtBinSmokeGate(validatedBuild),
+    githubRepositoryPluginE2eGate(validatedBuild),
   ]
 }
 
@@ -619,19 +620,34 @@ function builtBinSmokeGate(needs: string[] = ['build']): Gate {
     'apps/cli/tests/built-bin.e2e.ts',
     'packages/examples/acp-demo/tests/built-bin.e2e.ts',
     'packages/host/directory-picker-native/tests/built-worker.e2e.ts',
-    'packages/ui/jsonrpc/tests/built-scope-carrier.e2e.ts',
+    'packages/scaffold/server/tests/built-scope-carrier.e2e.ts',
     'packages/subagent/subagent-codex/tests/loader-composition.e2e.ts',
     'packages/subagent/subagent-claude-code/tests/loader-composition.e2e.ts',
     'packages/api/remotes/tests/built-lib.e2e.ts',
-    // The worker-entry packages' built bundles: the only automated proof
-    // that lib/index.js resolves its sibling lib/worker.cjs under plain node
-    // (the e2e lane runs unbuilt, so these files self-skip there).
+    // Built execution consumers: the only automated proof that package-name
+    // imports reach their lib/ entrypoints under plain Node. The e2e lane runs
+    // unbuilt, so these files self-skip there.
     'packages/workflow/workflow-workerthread/tests/built-worker.e2e.ts',
     'packages/code-runtime/code-runtime-worker/tests/built-lib.e2e.ts',
+    'packages/lsp/lsp-local/tests/built-lib.e2e.ts',
   ], {
     label: 'built-bin smoke',
     needs,
     env: { DSH_EXAMPLE_MODE: 'lib' },
+  })
+}
+
+function githubRepositoryPluginE2eGate(needs: string[]): Gate {
+  return pnpmExec('github-repository-plugin-e2e', [
+    'vitest',
+    'run',
+    '--config',
+    'vitest.e2e.config.ts',
+    'apps/cli/tests/github-repository-plugin.built.e2e.ts',
+  ], {
+    label: 'GitHub repository Plugin dsh run',
+    needs,
+    env: { DSH_REQUIRE_GITHUB_REPOSITORY_PLUGIN_E2E: '1' },
   })
 }
 

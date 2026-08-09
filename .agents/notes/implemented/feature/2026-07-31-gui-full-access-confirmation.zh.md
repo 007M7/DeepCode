@@ -28,4 +28,4 @@ Status: implemented
 
 ## Consequences
 
-进入 Full access 的每条可见 GUI 路径现在都要求刻意且知情的确认，代价是真想启用该预设的用户多一步对话框。新的选择器通过各自拥有的状态机复用共享对话框，或在 popup 路径挂 `confirmation` 载荷。验收：`input-bar.spec.tsx` 中编辑器流的门控用例、`popup-view.spec.tsx` 与 `popup.spec.ts` 的 popup 门、`permission-row.spec.tsx` 的默认设置门控、`atoms.spec.tsx` 的 Modal/RiskConfirmation 契约，以及组装态 Web 回放。
+进入 Full access 的每条可见 GUI 路径现在都要求刻意且知情的确认，代价是真想启用该预设的用户多一步对话框。新的选择器通过各自拥有的状态机复用共享对话框，或在 popup 路径挂 `confirmation` 载荷。验收：`input-bar.spec.tsx` 中编辑器流的门控用例、`popup-view.spec.tsx` 与 `popup.spec.ts` 的 popup 门、`permission-row.spec.tsx` 的默认设置门控、`atoms.spec.tsx` 的 Modal/RiskConfirmation 约定，以及组装态 Web 回放。

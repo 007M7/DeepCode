@@ -40,11 +40,11 @@ pack 阶段按以下顺序执行：
 
 拉取请求 CI 不会调用 pack 命令；安装态入口探测属于本地发布检查，而不是合并门禁。免凭据 CI 执行、其他每个 bin 与公开运行时入口的包自有探测、workflow artifact 传递及受保护 publish job 仍属于提案范围。
 
-## 发布 payload 契约
+## 发布 payload 约定
 
 发布包只携带消费方需要的构建产物。`package.json#files` 禁止包含 `src` 和 `lib/types/**/*.d.ts.map`；tarball 内容门禁还要独立确认不存在任何 `package/src/**` 与 `package/**/*.d.ts.map`，避免 manifest pattern 或 pack 行为绕过静态约束。运行时 JS、声明文件 `.d.ts`、配置、资源、worker 文件和 bundle 动态 chunk 必须按实际入口闭包收齐。
 
-源码 manifest 可以保留 `exports["./src/*"]`，供本仓库的源码平面解析使用；该 export 不代表源码会进入发布 payload，也不属于已发布包的消费方契约。静态门禁必须分别检查源码平面与发布 payload，不能通过删除 source export 来掩盖错误的 workspace 解析，也不能通过发布 `src` 来修补缺失的构建产物。
+源码 manifest 可以保留 `exports["./src/*"]`，供本仓库的源码平面解析使用；该 export 不代表源码会进入发布 payload，也不属于已发布包的消费方约定。静态门禁必须分别检查源码平面与发布 payload，不能通过删除 source export 来掩盖错误的 workspace 解析，也不能通过发布 `src` 来修补缺失的构建产物。
 
 每个 tarball 必须不含 `workspace:` specifier，并且所有指向本次发布集合的内部依赖与对等依赖（peer dependency）都必须精确等于本次派生版本，禁止使用 `^`、`~` 或其他 semver 范围跨越 commit 基线。除了明确仅供源码平面使用的 `exports["./src/*"]`，package manifest 中声明的每个消费方入口都必须指向 tarball 内存在的文件；动态 import、运行时拼接路径和非 export 资源不能只靠 manifest 检查，必须由安装后执行覆盖。
 
@@ -87,7 +87,7 @@ PR 与普通 push 可以运行无凭据的 pack-and-test 信号，从而在合�
 
 **只运行 `dsh --help`。** 不采用，因为 Commander 可以在加载 TUI、Web 或 headless 动态入口之前输出帮助并退出。它无法证明默认生产启动路径完整。
 
-**把 `src` 和声明映射一起发布以降低漏文件风险。** 不采用，因为源码平面不是生产运行时的后备路径；扩大 payload 会掩盖 bundle 闭包错误，并把本地调试产物变成无意的发布契约。
+**把 `src` 和声明映射一起发布以降低漏文件风险。** 不采用，因为源码平面不是生产运行时的后备路径；扩大 payload 会掩盖 bundle 闭包错误，并把本地调试产物变成无意的发布约定。
 
 **要求真正的跨包原子发布。** 不采用，因为 npm 注册表没有相应事务。不可变 release bundle、发布前全量验证、integrity 比对与幂等恢复提供可实现的边界，同时明确保留部分上传短暂可见的限制。
 

@@ -281,17 +281,22 @@ export class Session implements SessionFace {
 
   /**
    * Stop the active turn while the Host preserves pending inbox work; failures
-   * land in promptError (same error-strip display slot).
+   * land in promptError (same error-strip display slot). A continuable
+   * subagent address routes through `subagent.interrupt`, whose durable
+   * parent-address authority works without a live parent Agent; a one-shot
+   * address stays uncancellable (the UI offers no stop action, so this arm is
+   * defensive).
    * @returns the cancel result.
    */
   async cancel(): Promise<RpcResult<{ accepted: true }>> {
-    if (this.address !== undefined) {
+    const address = this.address
+    if (address !== undefined && address.mode === 'one-shot') {
       const result: RpcResult<{ accepted: true }> = {
         ok: false,
         error: {
           code: 'subagent-delivery-unavailable',
           message: 'subagent activation cancellation is unavailable',
-          details: { childSessionId: this.address.childSessionId },
+          details: { childSessionId: address.childSessionId },
         },
       }
       this.promptError = { op: 'stop', error: result.error }
@@ -300,7 +305,9 @@ export class Session implements SessionFace {
     }
     let result: RpcResult<{ accepted: true }>
     try {
-      result = (await this.api.sessions.cancel({ sessionId: this.sessionId })).result
+      result = address !== undefined
+        ? (await this.api.subagents.interrupt(address)).result
+        : (await this.api.sessions.cancel({ sessionId: this.sessionId })).result
     } catch (error) {
       result = transportError(error)
     }

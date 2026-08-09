@@ -42,7 +42,8 @@ export type {
 } from './sessions.ts'
 export type { DirectoryEntry, DirectoryListing, HostApi } from './host.ts'
 export type {
-  SubagentAddress, SubagentCatalog, SubagentListEntry, SubagentPromptReceipt, SubagentsApi,
+  SubagentAddress, SubagentCatalog, SubagentInterruptReceipt, SubagentListEntry,
+  SubagentPromptReceipt, SubagentsApi,
 } from './subagents.ts'
 export type { TaskView } from './tasks.ts'
 export type { WorkspaceApi, WorkspaceId, WorkspaceView } from './workspace.ts'

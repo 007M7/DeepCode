@@ -15,3 +15,5 @@ The host side of the dsh web GUI: the API gateway every client shape shares, and
 | [`directory-picker-auto/`](directory-picker-auto/README.md) | Host-adaptive picker composition | mounts a backend |
 
 `apiproxy` remains transport-independent; [`client/connection`](../client/connection/README.md) supplies the browser/HTTP carrier. Picker implementations replace one another behind the shared seam.
+
+The subsystem references: [http-server.md](../../docs/subsystems/http-server.md) and [workspace.md](../../docs/subsystems/workspace.md) (the picker seam).
