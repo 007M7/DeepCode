@@ -233,12 +233,22 @@
     },
     {
       "doc": "docs/subsystems/schedule.md",
+      "symbol": "EveryScheduleRecord",
+      "source": "packages/schedule/tool-schedule/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/schedule.md",
       "symbol": "LocalAtInput",
       "source": "packages/schedule/tool-schedule/src/types.ts"
     },
     {
       "doc": "docs/subsystems/schedule.md",
       "symbol": "AtInput",
+      "source": "packages/schedule/tool-schedule/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/schedule.md",
+      "symbol": "OneShotScheduleRecord",
       "source": "packages/schedule/tool-schedule/src/types.ts"
     },
     {
@@ -254,6 +264,16 @@
     {
       "doc": "docs/subsystems/schedule.md",
       "symbol": "ScheduleDeleteChange",
+      "source": "packages/schedule/tool-schedule/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/schedule.md",
+      "symbol": "OneShotScheduleDispatchChange",
+      "source": "packages/schedule/tool-schedule/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/schedule.md",
+      "symbol": "EveryScheduleDispatchChange",
       "source": "packages/schedule/tool-schedule/src/types.ts"
     },
     {
