@@ -10,7 +10,7 @@ This file is GENERATED from source (`scripts/gen-cordis-catalog.ts`) and verifie
 ## Inherited `ctx` members (cordis core + loader/hmr/timer)
 
 - `ctx.on / ctx.once` — Register an event listener (disposable). ([`vendor/cordis/src/events.ts:34`](../../vendor/cordis/src/events.ts))
-- `ctx.emit / ctx.parallel / ctx.serial / ctx.bail / ctx.waterfall` — Dispatch an event (sync / awaited / first-bail / veto-chain). ([`vendor/cordis/src/events.ts:34`](../../vendor/cordis/src/events.ts))
+- `ctx.emit / ctx.parallel / ctx.serial / ctx.bail / ctx.waterfall` — Dispatch an event (sync / awaited / first-bail / short-circuit chain). ([`vendor/cordis/src/events.ts:34`](../../vendor/cordis/src/events.ts))
 - `ctx.plugin / ctx.inject` — Load a plugin / declare required services. ([`vendor/cordis/src/registry.ts:164`](../../vendor/cordis/src/registry.ts))
 - `ctx.effect` — Register a disposable side effect tied to the fiber. ([`vendor/cordis/src/fiber.ts:9`](../../vendor/cordis/src/fiber.ts))
 - `ctx.get / ctx.set / ctx.provide / ctx.accessor / ctx.mixin` — Low-level service-store access and binding. ([`vendor/cordis/src/reflect.ts:7`](../../vendor/cordis/src/reflect.ts))

@@ -63,7 +63,7 @@ await ctx.serial('setup-phase', context)
 
 ### waterfall（瀑布式事件）— 流水线
 
-每个监听器可以包装下游返回值，形成处理链。**必须调用 `next()` 传递给下游**，不调用即为否决：
+每个监听器可以包装下游返回值，形成处理链。**必须调用 `next()` 传递给下游**，不调用即会短路流水线：
 
 ```ts ignore-check
 // Dispatch
@@ -77,7 +77,7 @@ ctx.on('my-plugin/transform', async (_input, next) => {
 ```
 
 ::: warning
-waterfall 监听器**必须调用 `next()`**。不调用 `next` 等于否决整个流水线，这是故意为之的设计——用于实现拦截/网关逻辑。
+waterfall 监听器**必须调用 `next()`**。不调用 `next` 会短路整个流水线，这是故意为之的设计——用于实现拦截/网关逻辑。
 :::
 
 ## 类型安全的事件

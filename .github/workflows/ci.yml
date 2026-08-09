@@ -431,6 +431,7 @@ jobs:
     if: github.event_name == 'pull_request'
     runs-on: windows-2025
     name: windows node 24 / native complete
+    timeout-minutes: 60
     env:
       DSH_COVERAGE_MAX_WORKERS: '1'
       DSH_GATE_CONCURRENCY: '1'
@@ -722,8 +723,8 @@ jobs:
         with:
           dest: ${{ runner.temp }}/setup-pnpm
 
-      # The Windows lanes deliberately skip the store cache like the required
-      # windows job; an empty cache input disables setup-node's caching.
+      # The benchmark's Windows lanes deliberately skip the store cache like
+      # the independent native Windows job; an empty input disables caching.
       - uses: actions/setup-node@v6
         with:
           node-version: ${{ env.PRIMARY_NODE_VERSION }}

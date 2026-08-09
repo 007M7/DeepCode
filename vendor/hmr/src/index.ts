@@ -242,12 +242,13 @@ class Hmr extends Service {
 
     const onChange = (kind: 'add' | 'change' | 'unlink', path: string) => {
       this.ctx.logger.debug('%s detected at %C', kind, path)
-      const filename = resolve(this.baseDir, path)
+      const filename = resolve(watchBaseDir, path)
+      const configuredFilename = resolve(this.baseDir, path)
       // Config reload: the file is a loader config file (e.g. cordis.yml).
       for (const entry of loader.entries()) {
         const include = entry.subtree as Include | undefined
-        if (include?.filename !== filename) continue
-        this.refreshConfig(include, filename, () => include.refresh())
+        if (include?.filename !== filename && include?.filename !== configuredFilename) continue
+        this.refreshConfig(include, include.filename, () => include.refresh())
         return
       }
 

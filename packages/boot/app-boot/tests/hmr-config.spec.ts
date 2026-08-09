@@ -6,7 +6,7 @@ import { Context } from 'cordis'
 import Hmr from '@cordisjs/plugin-hmr'
 import Loader from '@cordisjs/plugin-loader'
 import Timer from '@cordisjs/plugin-timer'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 async function bootHmr(dir: string, root: string[] = []): Promise<Context> {
   const ctx = new Context()
@@ -33,7 +33,8 @@ describe('HMR exact config paths', () => {
     symlinkSync(target, alias, process.platform === 'win32' ? 'junction' : 'dir')
     writeFileSync(filename, 'export const generation = 0\n')
     const ctx = await bootHmr(alias, ['.'])
-    const expected = pathToFileURL(filename).href
+    const expected = pathToFileURL(join(realpathSync(target), 'module.ts')).href
+    const cacheHas = vi.spyOn(ctx.loader.internal!.loadCache, 'has').mockReturnValue(false)
     const observed: string[] = []
     ctx.on('hmr/change', (url) => { observed.push(url) })
     try {
@@ -43,6 +44,7 @@ describe('HMR exact config paths', () => {
         writeFileSync(filename, `export const generation = ${generation}\n`)
         await new Promise(resolve => setTimeout(resolve, 20))
       }
+      expect(cacheHas).toHaveBeenCalledWith(expected)
     } finally {
       await ctx.fiber.dispose()
       rmSync(alias, { force: true })

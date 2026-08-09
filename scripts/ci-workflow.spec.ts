@@ -53,6 +53,7 @@ describe('CI workflow', () => {
     expect(workflow.jobs).toHaveProperty('wine-apt-cache')
     expect(windowsNative['runs-on']).toBe('windows-2025')
     expect(windowsNative.name).toBe('windows node 24 / native complete')
+    expect(windowsNative['timeout-minutes']).toBe(60)
     expect(windowsNative.if).toBe("github.event_name == 'pull_request'")
     expect(windowsNative.env).toMatchObject({ DSH_COVERAGE_MAX_WORKERS: '1' })
     expect(windowsNative).not.toHaveProperty('continue-on-error')

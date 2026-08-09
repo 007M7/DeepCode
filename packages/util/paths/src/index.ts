@@ -20,12 +20,15 @@ export const DSH_HOME_ENV = 'DSH_HOME'
 /**
  * Give a native filesystem watcher one canonical spelling of a path, even
  * when its final components do not exist yet. The deepest existing ancestor
- * is resolved through {@link realpath}; the missing suffix is then restored.
- * This prevents Windows short-name aliases from being mixed with long paths
- * emitted by the native watcher backend.
+ * is resolved through {@link realpath}; when a suffix is missing, that
+ * ancestor is also proved to be an enumerable directory before the suffix is
+ * restored. This prevents Windows from treating a regular-file ancestor as
+ * ordinary absence, and prevents short-name aliases from being mixed with
+ * long paths emitted by the native watcher backend.
  * @param path - Watch target or root, resolved against the current directory.
  * @returns the target with its existing ancestor canonicalized.
- * @throws when ancestor traversal encounters an error other than absence.
+ * @throws when ancestor traversal encounters an error other than absence, or
+ * the existing ancestor of a missing suffix is not an enumerable directory.
  */
 export async function canonicalizeWatchPath(path: string): Promise<string> {
   let current = resolve(path)
@@ -34,6 +37,8 @@ export async function canonicalizeWatchPath(path: string): Promise<string> {
     try {
       const canonical = await realpath(current)
       if (missing.length > 0) {
+        // A Windows file-as-parent probe reports ENOENT. Opening the resolved
+        // ancestor preserves the cross-platform directory requirement.
         const directory = await opendir(canonical)
         await directory.close()
       }
