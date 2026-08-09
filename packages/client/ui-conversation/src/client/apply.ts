@@ -7,8 +7,9 @@ import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type { ViewTab } from './contract/views.ts'
 import type {
-  ApprovalWait, ChatScrollPosition, ChatViewInjected, ComposerBarInjected, ComposerChainProps, ConversationInjected,
-  ConversationSessionHeaderInjected, ConversationSessionInjected, DetailsInjected,
+  ApprovalWait, ChatNodeTurnDataInjected, ChatScrollPosition, ChatViewInjected, ComposerBarInjected,
+  ComposerChainProps, ConversationInjected, ConversationSessionHeaderInjected, ConversationSessionInjected,
+  DetailsInjected,
 } from './contract/slots.ts'
 import type { InputNotice } from './input/contract.ts'
 import { createChatStore } from './stores.ts'
@@ -30,6 +31,8 @@ import { ConversationRoot } from './skeleton/ConversationRoot.tsx'
 import { ConversationSession, ConversationSessionHeader } from './skeleton/ConversationSession.tsx'
 import { DetailsPanel } from './skeleton/DetailsPanel.tsx'
 import { en, NS, zh, type ConversationKey } from './locales.ts'
+import { registerConversationNodes } from './conversation-nodes/register.ts'
+import { registerChatNodeRenderers } from './chat/register-node-renderers.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
@@ -39,7 +42,10 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 }
 
 /** Services required by the conversation plugin. */
-export const inject = ['slots', 'layout', 'sessions', 'workspaces', 'locale']
+export const inject = [
+  'slots', 'layout', 'sessions', 'workspaces', 'locale',
+  'conversationEvents', 'conversationViews',
+]
 
 // Static no-session sources for the composer-bar hooks compartment: module
 // constants so the render side's per-source hook cache (observableHook) keeps
@@ -61,6 +67,19 @@ const ABSENT_LEXICON = {
 const ABSENT_MENU_LAUNCHER = {
   getSnapshot: (): string | null => null,
   subscribe: () => () => {},
+}
+
+const CHAT_NODE_INJECT: ChatNodeTurnDataInjected = {
+  hooks: {
+    turnData: ({ useSession }, nodeKey) => function useTurnData(key) {
+      return useSession((snapshot) => {
+        const location = snapshot.chat.nodes.get(nodeKey)?.location
+        return location?.kind === 'turn' || location?.kind === 'step'
+          ? location.turn.data.get(key)
+          : undefined
+      })
+    },
+  },
 }
 
 /** Resolve the session-scoped conversation face (scope-addressed send/cancel), failing loud. */
@@ -85,6 +104,9 @@ export function apply(ctx: Context): void {
   const workspaces = ctx.workspaces
   const layout = ctx.layout
   const slots = ctx.slots
+
+  registerConversationNodes(ctx)
+  registerChatNodeRenderers(ctx)
 
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-conversation: dictionaries')
 
@@ -297,8 +319,8 @@ export function apply(ctx: Context): void {
   slots.register({ name: 'conversation.composer', select: selectApproval, priority: 1, locale: NS }, ApprovalPanel)
 
   // The chat view: first entry of the ring this package just declared.
-  // ChatView owns ordered Tool placement but delegates each whole root call
-  // to ui-tool, which owns root/subcall composition and atomic dispatch.
+  // ChatView owns only the stable ordered Node list. Business renderers are
+  // independently keyed behind its one Node seat.
   slots.register({
     name: 'conversation.view',
     id: 'chat',
@@ -306,9 +328,7 @@ export function apply(ctx: Context): void {
     label: () => t('view.chat'),
     locale: NS,
     children: {
-      'conversation.chat.tool': { kind: 'single', scope: 'session' },
-      'conversation.chat.commandview': { kind: 'keyed', scope: 'session' },
-      'conversation.chat.turnTail': { kind: 'chain', scope: 'session' },
+      'conversation.chat.node': { kind: 'keyed', scope: 'session', inject: CHAT_NODE_INJECT },
     },
     store: chatStore,
     inject: (sessionId: SessionId, actions: BoundActions<typeof chatStore>): ChatViewInjected => {

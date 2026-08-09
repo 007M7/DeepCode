@@ -10,6 +10,7 @@ import type {
 // plugin-to-plugin value imports are a bundle purity error.
 import { transportError } from '@deepseek-ai/dsh-host-apiproxy/api'
 import { mergeOrderedBaseline } from '../ordered-baseline.ts'
+import type { ConversationRuntime } from './conversation-assembler.ts'
 import type { SessionListEntry, TitledSessionSummary } from './lineage.ts'
 import { flattenLineage } from './lineage.ts'
 import type { PendingInteractionStatus } from './pending.ts'
@@ -158,6 +159,7 @@ export class SessionManager {
     private readonly api: IApiClient,
     restoredSelection?: SessionId,
     restoredAddress?: SubagentAddress,
+    private readonly conversation?: ConversationRuntime,
   ) {
     this.selected = restoredSelection
     if (restoredAddress !== undefined) this.addresses.set(restoredAddress.childSessionId, restoredAddress)
@@ -282,7 +284,12 @@ export class SessionManager {
         const address = this.addresses.get(sessionId)
         const child = address === undefined ? undefined : this.catalogs.get(address.parentSessionId)?.entries
           .find(entry => entry.kind === 'child' && entry.id === sessionId)
-        if (child?.kind === 'child') session.handleRunning(child.activity === 'running')
+        if (child?.kind === 'child') {
+          // A catalogued child exists only after its delegated session has
+          // durable history, even though child rows do not carry `blank`.
+          session.handleBlank(false)
+          session.handleRunning(child.activity === 'running')
+        }
       }
     }
     return session
@@ -301,7 +308,13 @@ export class SessionManager {
         this.recordMutation({ kind: 'engaged', sessionId: engaged.sessionId })
       },
       projections: this.projectionStore(sessionId),
+      ...this.conversation === undefined ? {} : { conversation: this.conversation },
     })
+  }
+
+  /** Rebuild every resident Session after one coalesced registry transaction. */
+  rebuildConversationRegistry(): void {
+    for (const session of this.sessions.values()) session.rebuildConversationRegistry()
   }
 
   /** Resident per-session projection store (create-on-demand; outlives instantiation). */

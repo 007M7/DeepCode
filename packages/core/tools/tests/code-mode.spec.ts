@@ -785,11 +785,11 @@ describe('the run_code dispatch bridge', () => {
     const dispatches = events.filter(event => event.type === 'tool/code-dispatch')
     expect(dispatches.map(event => event.data)).toEqual([
       {
-        parentCallId: 'call-1', subCallId: 'call-1:code:1', name: 'echo',
+        rootCallId: 'call-1', parentCallId: 'call-1', subCallId: 'call-1:code:1', name: 'echo',
         arguments: { value: 'one' }, isError: false, content: [{ type: 'text', text: 'echo:one' }],
       },
       {
-        parentCallId: 'call-1', subCallId: 'call-1:code:2', name: 'echo',
+        rootCallId: 'call-1', parentCallId: 'call-1', subCallId: 'call-1:code:2', name: 'echo',
         arguments: { value: 'two' }, isError: false, content: [{ type: 'text', text: 'echo:two' }],
       },
     ])
@@ -1526,6 +1526,7 @@ describe('the run_code dispatch bridge', () => {
       content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' },
     }), { surfaceOp: 'append' })
     session.append('tool/code-dispatch', {
+      rootCallId: CallId('p1'),
       parentCallId: CallId('p1'),
       subCallId: CallId('p1:code:1'),
       name: 'echo',

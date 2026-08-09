@@ -31,7 +31,7 @@ declare module 'cordis' {
   }
 }
 
-declare module '@deepseek-ai/dsh-session' {
+declare module '@deepseek-ai/dsh-session/types' {
   interface SessionEventMap {
     /**
      * An approval question was put to the answerer chain — log-only audit

@@ -22,7 +22,9 @@ import { act, render, within } from '@testing-library/react'
 import type { RenderResult } from '@testing-library/react'
 import type { queries } from '@testing-library/dom'
 import type { BoundFunctions } from '@testing-library/dom'
-import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
+import {
+  ConversationEventRegistry, ConversationViewRegistry, SlotsService,
+} from '@deepseek-ai/dsh-client-runtime/client'
 import { createSlotRenderer } from '@deepseek-ai/dsh-client-web-react'
 import type {
   ChildrenDecl, ComposedProps, OwnerOf, SlotComponent, SlotMap, SlotRendererHost, StoreInstanceLike,
@@ -142,7 +144,7 @@ export class TestRoot {
    */
   async declare<const D extends ChildrenDecl>(
     children: D,
-    frame: SlotComponent<ComposedProps<'root', keyof NoInfer<D> & keyof SlotMap & string, undefined, object>>,
+    frame: SlotComponent<ComposedProps<'root', never, keyof NoInfer<D> & keyof SlotMap & string, undefined, object>>,
   ): Promise<void> {
     await this.stabilize(() => {
       // Erased hop (same pattern as SlotsService's own implementation arm);
@@ -218,6 +220,8 @@ export class SlotTestRuntime {
     const ctx = new Context()
     const fiber = ctx.plugin(SlotsService)
     await fiber.await()
+    await ctx.plugin(ConversationEventRegistry).await()
+    await ctx.plugin(ConversationViewRegistry).await()
     return new SlotTestRuntime(ctx, ctx.get('slots') as SlotsService)
   }
 
