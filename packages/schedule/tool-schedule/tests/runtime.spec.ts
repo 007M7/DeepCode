@@ -469,6 +469,43 @@ describe('Schedule runtime failure and teardown boundaries', () => {
     await owner.dispose()
   })
 
+  it('faults after a partial fixed-rate batch append without repeating its queued message', async () => {
+    const test = await harness()
+    appendEvery(test, 'schedule-first', 300, Date.now() - 600_000, 'first')
+    appendEvery(test, 'schedule-second', 300, Date.now() - 600_000, 'second')
+    let dispatchAttempts = 0
+    const stop = test.ctx.on('internal/dispatch', (_mode, eventName, args) => {
+      if (eventName !== 'session/event') return
+      const event = (args as unknown[])[1] as { type?: string; data?: { operation?: string } } | undefined
+      if (event?.type !== 'schedule/change' || event.data?.operation !== 'dispatch') return
+      dispatchAttempts += 1
+      if (dispatchAttempts === 2) throw new Error('second append failed')
+    }, { global: true })
+    const owner = ownerFor(test)
+    owner.start()
+    await settle()
+
+    expect(test.followed).toHaveLength(1)
+    expect(test.controls.releaseCount).toBe(1)
+    expect(test.agent.session.events.filter(event => (
+      event.type === 'schedule/change' && event.data.operation === 'dispatch'
+    )).map(event => event.data)).toEqual([{
+      version: 1,
+      operation: 'dispatch',
+      id: 'schedule-first',
+      acceptedAt: '2026-08-05T12:00:00.000Z',
+    }])
+    expect(foldScheduleEvents(test.agent.session.events).active).toEqual([
+      expect.objectContaining({ id: 'schedule-first', scheduledAt: '2026-08-05T12:05:00.000Z' }),
+      expect.objectContaining({ id: 'schedule-second', scheduledAt: '2026-08-05T11:55:00.000Z' }),
+    ])
+    owner.requestDrive()
+    await settle()
+    expect(test.followed).toHaveLength(1)
+    stop()
+    await owner.dispose()
+  })
+
   it('does not retry a rejected dispatch barrier until another trigger preflights it', async () => {
     const test = await harness()
     appendAfter(test, 'schedule-1', 1, Date.now() - 1_000)
