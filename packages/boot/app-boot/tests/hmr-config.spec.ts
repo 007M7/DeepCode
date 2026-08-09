@@ -48,9 +48,13 @@ describe('HMR exact config paths', () => {
     try {
       const deadline = Date.now() + 20_000
       for (let generation = 1; !observed.includes(expected); generation += 1) {
-        if (Date.now() >= deadline) throw new Error('HMR did not observe a module change through the alias')
+        if (Date.now() >= deadline) {
+          throw new Error(`HMR did not observe ${expected} through the alias; observed ${JSON.stringify(observed)}`)
+        }
         // The watch base, not the writer spelling, is the alias under test.
-        writeFileSync(filename, `export const generation = ${generation}\n`)
+        // Grow the file on every write: polling must not depend on timestamp
+        // precision when several generations land inside one filesystem tick.
+        writeFileSync(filename, `export const generation = ${generation}\n${' '.repeat(generation)}\n`)
         // Leave Chokidar's atomic-write window idle so one coalesced change can publish.
         await new Promise(resolve => setTimeout(resolve, 250))
       }
