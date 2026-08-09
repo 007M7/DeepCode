@@ -37,6 +37,8 @@ export interface CommandInputDescriptor {
 
 /** Invocation passed to one registered command handler. */
 export interface CommandInvocation {
+  /** Pairing id already written to this invocation's `command/run` event. */
+  readonly commandId: CommandId
   /** Exact agent whose human-facing surface received the command. */
   readonly agent: Agent
   /** Exact text following the registered command name, including separator whitespace. */
@@ -389,7 +391,7 @@ export class CommandService extends Service {
       ...command.definition.recordInput === false ? {} : { args: parsed.rawInput },
       source: { kind: 'user' },
     })
-    const invocation = Object.freeze({ agent, rawInput: parsed.rawInput, signal })
+    const invocation = Object.freeze({ commandId, agent, rawInput: parsed.rawInput, signal })
     let result: CommandResult
     try {
       const output = command.definition.handler(invocation)

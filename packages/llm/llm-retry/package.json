@@ -19,6 +19,10 @@
       "types": "./lib/types/types.d.ts",
       "default": "./lib/types/types.js"
     },
+    "./brand": {
+      "types": "./lib/types/brand.d.ts",
+      "default": "./lib/types/brand.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
@@ -29,6 +33,7 @@
   ],
   "license": "BSD-3-Clause",
   "peerDependencies": {
+    "@deepseek-ai/dsh-brand": "^0.0.1",
     "@deepseek-ai/dsh-agent": "^0.0.1",
     "@deepseek-ai/dsh-invariants": "^0.0.1",
     "@deepseek-ai/dsh-llm": "^0.0.1",
@@ -40,6 +45,7 @@
     "schemastery": "^3.18.0"
   },
   "devDependencies": {
+    "@deepseek-ai/dsh-brand": "workspace:^",
     "@cordisjs/plugin-include": "workspace:^",
     "@cordisjs/plugin-loader": "workspace:^",
     "@deepseek-ai/dsh-agent": "workspace:^",

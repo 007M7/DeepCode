@@ -297,6 +297,11 @@ export type ToolExecutionToken = symbol & { readonly [toolExecutionTokenBrand]: 
  */
 export interface ToolExecutionInput {
   readonly callId: CallId
+  /**
+   * Root model-requested call owning this execution tree. Callers omit it for
+   * a root execution; nested dispatchers propagate the enclosing value.
+   */
+  readonly rootCallId?: CallId
   readonly name: string
   /** Losslessly JSON-serializable parsed arguments (tools validate their own schema). */
   readonly arguments: unknown
@@ -352,6 +357,8 @@ export interface CodeDispatchLog {
  * observers run.
  */
 export interface ToolExecution extends ToolExecutionInput {
+  /** Root model-requested call, resolved for every root and nested execution. */
+  readonly rootCallId: CallId
   /** Registry-assigned identity shared with nested calls only as their opaque `parent` token. */
   readonly token: ToolExecutionToken
 }
@@ -1123,6 +1130,7 @@ export class ToolRegistry extends Service {
     const deferredContexts: UserMessage[] = []
     const token = createExecutionToken()
     const callId = exec.callId
+    const rootCallId = exec.rootCallId ?? callId
     const name = exec.name
     const agent = exec.agent
     const parent = exec.parent
@@ -1133,6 +1141,7 @@ export class ToolRegistry extends Service {
     const base = {
       token,
       callId,
+      rootCallId,
       name,
       signal,
       ...agent !== undefined ? { agent } : {},

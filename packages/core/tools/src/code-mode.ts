@@ -30,7 +30,7 @@ declare module '@deepseek-ai/dsh-session' {
      * with `tool/code-dispatch` by `subCallId` (timing = the two events'
      * `time` fields).
      */
-    'tool/code-dispatch-start': { parentCallId: CallId; subCallId: CallId; name: string; arguments: unknown }
+    'tool/code-dispatch-start': { rootCallId: CallId; parentCallId: CallId; subCallId: CallId; name: string; arguments: unknown }
     /**
      * One bridged sub-dispatch SETTLING: the pairing ids (matching the
      * `tool/code-dispatch-start` with the same `subCallId`), the tool `name`
@@ -46,7 +46,7 @@ declare module '@deepseek-ai/dsh-session' {
      * before returning), so its execution-enclosure relation holds by
      * construction.
      */
-    'tool/code-dispatch': { parentCallId: CallId; subCallId: CallId; name: string; arguments: unknown; isError: boolean; content: ContentBlock[] }
+    'tool/code-dispatch': { rootCallId: CallId; parentCallId: CallId; subCallId: CallId; name: string; arguments: unknown; isError: boolean; content: ContentBlock[] }
   }
 }
 
@@ -502,6 +502,7 @@ export function createRunCodeTool(registry: ToolRegistry, options: RunCodeBridge
         const subCallId = CallId(`${String(exec.callId)}:code:${n}`)
         const input = {
           callId: subCallId,
+          rootCallId: exec.rootCallId,
           name,
           arguments: normalized.dispatched,
           ...exec.agent ? { agent: exec.agent } : {},
@@ -539,6 +540,7 @@ export function createRunCodeTool(registry: ToolRegistry, options: RunCodeBridge
                 content: result.content,
               })
               agent.session.append('tool/code-dispatch', {
+                rootCallId: exec.rootCallId,
                 parentCallId: exec.callId,
                 subCallId,
                 name,
@@ -563,6 +565,7 @@ export function createRunCodeTool(registry: ToolRegistry, options: RunCodeBridge
             },
             async start(): Promise<void> {
               exec.agent?.session.append('tool/code-dispatch-start', {
+                rootCallId: exec.rootCallId,
                 parentCallId: exec.callId,
                 subCallId,
                 name,

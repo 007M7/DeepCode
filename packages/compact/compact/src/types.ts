@@ -8,6 +8,8 @@
  */
 
 import type { ContentBlock, TokenUsage } from '@deepseek-ai/dsh-llm'
+import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
+import type { CompactionId } from './brand.ts'
 
 declare module '@deepseek-ai/dsh-session' {
   interface SessionEventMap {
@@ -16,7 +18,7 @@ declare module '@deepseek-ai/dsh-session' {
      * `compact/end`. A numbered owner is strictly enclosed by that open turn;
      * `null` identifies a standalone manual transaction between turns.
      */
-    'compact/start': { turn: number | null }
+    'compact/start': { compactionId: CompactionId; sourceCommandId?: CommandId; turn: number | null }
     /**
      * Completed summary, its inputs, and its model call facts — log-only, no surfaceOp.
      * The summary content is in `data.summary`; the actual surface replacement
@@ -27,6 +29,8 @@ declare module '@deepseek-ai/dsh-session' {
      * before it (`compact/prune` documents the shared protocol).
      */
     'compact/summary': {
+      compactionId: CompactionId
+      sourceCommandId?: CommandId
       summary: ContentBlock[]
       shadowedRange: { start: number; end: number }
       shadowedSeqs: number[]
@@ -62,7 +66,7 @@ declare module '@deepseek-ai/dsh-session' {
      * Marks the end of a compaction — log-only, releases the lock. Its owner
      * matches `compact/start`; `error` records an unsuccessful attempt.
      */
-    'compact/end': { turn: number | null; error?: string }
+    'compact/end': { compactionId: CompactionId; sourceCommandId?: CommandId; turn: number | null; error?: string }
     /**
      * Shadow price of one model-free prune replacement — log-only, no
      * surfaceOp. The shared shadow-price protocol: a surface `replace` event
@@ -85,6 +89,10 @@ declare module '@deepseek-ai/dsh-session' {
 
 /** Result of a successful compaction operation. */
 export interface CompactionResult {
+  /** Stable identity shared by this compaction's complete durable lifecycle. */
+  compactionId: CompactionId
+  /** Human command that initiated this compaction, when it was manual. */
+  sourceCommandId?: CommandId
   /** The seq of the appended `compact/start` event. */
   startSeq: number
   /** The seq of the appended `compact/summary` event. */

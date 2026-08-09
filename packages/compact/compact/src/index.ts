@@ -9,14 +9,17 @@
 
 import { Context, Service } from 'cordis'
 import type { Session } from '@deepseek-ai/dsh-session'
+import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
 import type { CompactionResult } from './types.ts'
 
 export type { CompactionResult } from './types.ts'
+export { CompactionId } from './brand.ts'
 export { toolPairingBalancedAfter, toolPairingBalancedBefore } from './tool-pairing.ts'
 // The checkpoint source and its predicate are declared on the cordis-free
 // `./checkpoint` leaf so client and wire programs can name them without this
 // root's Context merge; the root stays the host-side entry point for both.
-export { COMPACT_CHECKPOINT_SOURCE, isCompactCheckpointSource } from './checkpoint.ts'
+export { COMPACT_CHECKPOINT_SOURCE, compactCheckpointSource, isCompactCheckpointSource } from './checkpoint.ts'
+export type { CompactCheckpointSource } from './checkpoint.ts'
 
 /** Why automatic policy is asking a backend to consider compaction. */
 export type CompactionTrigger = 'pressure' | 'context-overflow'
@@ -126,6 +129,7 @@ export abstract class CompactService extends Service {
    *
    * @param agent - idle agent whose durable history should be compacted.
    * @param signal - cancellation scoped to this compaction request.
+   * @param sourceCommandId - initiating command identity for a manual compaction.
    * @returns the compaction result, or `null` when no safe useful range exists.
    * @throws {@link ManualCompactionError} for expected busy, agent-cancellation,
    * changed-span, summarization/shrink, commit-stage, or persistence failures;
@@ -135,6 +139,7 @@ export abstract class CompactService extends Service {
   abstract compactNow(
     agent: ManualCompactAgentContext,
     signal: AbortSignal,
+    sourceCommandId?: CommandId,
   ): Promise<CompactionResult | null>
 
   /**

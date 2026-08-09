@@ -13,9 +13,34 @@
  */
 
 import type { MessageSource } from '@deepseek-ai/dsh-llm/message'
+import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
+import type { CompactionId } from './brand.ts'
 
 /** Canonical source for the replacement user message produced by every compaction backend. */
 export const COMPACT_CHECKPOINT_SOURCE = Object.freeze({ kind: 'plugin', plugin: 'compact' } as const)
+
+/** Message provenance carried by a concrete compaction checkpoint. */
+export type CompactCheckpointSource = typeof COMPACT_CHECKPOINT_SOURCE & {
+  readonly compactionId: CompactionId
+  readonly sourceCommandId?: CommandId
+}
+
+/**
+ * Create checkpoint provenance correlated with one compaction transaction.
+ * @param compactionId - owning compaction identity.
+ * @param sourceCommandId - initiating manual command, when present.
+ * @returns immutable checkpoint source.
+ */
+export function compactCheckpointSource(
+  compactionId: CompactionId,
+  sourceCommandId?: CommandId,
+): CompactCheckpointSource {
+  return Object.freeze({
+    ...COMPACT_CHECKPOINT_SOURCE,
+    compactionId,
+    ...sourceCommandId === undefined ? {} : { sourceCommandId },
+  })
+}
 
 /**
  * Test whether a persisted message source identifies a compaction checkpoint.
