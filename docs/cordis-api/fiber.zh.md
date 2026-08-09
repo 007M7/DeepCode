@@ -29,7 +29,7 @@ effect(execute: () => Effect, label?: string): AsyncDisposable<Promise<void>>
 
 在此 fiber 上注册一个支持清理的作用。
 
-`execute` 会立即运行；它产生的清理函数将被收集，并在调用返回的清理函数或卸载 fiber 时按相反顺序运行，以先发生者为准。重复调用清理函数不会产生任何效果。如果 fiber 已经 dispose（资源释放），则抛出 `CordisError('INACTIVE_EFFECT')`；如果 `execute` 返回的结构无效，则抛出 `TypeError`。
+`execute` 会立即运行；它产生的清理函数将被收集，并在调用返回的清理函数或卸载 fiber 时按相反顺序运行，以先发生者为准。重复调用清理函数不会产生任何效果。如果 fiber 已经 dispose（资源释放），则抛出 `CordisError('INACTIVE_EFFECT')`；如果结构无效，则抛出 `TypeError`，表示 `execute` 返回了不受支持的结果。
 
 - `execute`：作用主体；可接受的结构见 `Effect`。
 - `label`：在 `getEffects()` 诊断信息中显示的作用标签。
@@ -130,7 +130,7 @@ public store: Dict<Impl> | undefined
 public inertia: Promise<void> | undefined
 ```
 
-当前正在进行的加载或卸载转换；如果没有此类转换，则为 `undefined`。
+当前正在进行的加载或卸载转换；如果没有此类转换，则为 undefined。
 
 [源码](../../vendor/cordis/src/fiber.ts#L198)
 
@@ -185,7 +185,7 @@ effect(execute: () => Effect, label?: string): AsyncDisposable<Promise<void>>
 
 在此 fiber 上注册一个支持清理的作用。
 
-`execute` 会立即运行；它产生的清理函数将被收集，并在调用返回的清理函数或卸载 fiber 时按相反顺序运行，以先发生者为准。重复调用清理函数不会产生任何效果。如果 fiber 已经 dispose，则抛出 `CordisError('INACTIVE_EFFECT')`；如果 `execute` 返回的结构无效，则抛出 `TypeError`。
+`execute` 会立即运行；它产生的清理函数将被收集，并在调用返回的清理函数或卸载 fiber 时按相反顺序运行，以先发生者为准。重复调用清理函数不会产生任何效果。如果 fiber 已经 dispose，则抛出 `CordisError('INACTIVE_EFFECT')`；如果结构无效，则抛出 `TypeError`，表示 `execute` 返回了不受支持的结果。
 
 - `execute`：作用主体；可接受的结构见 `Effect`。
 - `label`：在 `getEffects()` 诊断信息中显示的作用标签。

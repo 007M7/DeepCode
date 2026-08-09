@@ -16,7 +16,7 @@
 
 > This document covers **behavior**; type shapes live in [subsystems/](../subsystems/core.md), the per-event/service reference in the generated regions of [subsystems/](../subsystems/core.md), per-package contracts in the package READMEs ([map](../../packages/README.md)).
 
-本文档描述整体行为逻辑；类型定义存放于 [subsystems/](../subsystems/core.md)；各类事件、服务的详细参考见 [subsystems/](../subsystems/core.md) 中的生成区块；各包（package）的对外契约写在相应的 README 中（[索引](../../packages/README.md)）。
+本文档描述整体行为逻辑；类型定义存放于 [subsystems/](../subsystems/core.md)；各类事件、服务的详细参考见 [subsystems/](../subsystems/core.md) 中的生成区块；各包的对外约定写在相应的 README 中（[索引](../../packages/README.md)）。
 
 ## ② 防御模式规则
 
@@ -60,7 +60,7 @@
 
 > The gate's limit, stated plainly: a green gate means the pair was confirmed consistent at these exact contents, not that the confirmation was sound. It checks hashes and shape; it cannot judge whether the two sides actually say the same thing — that is the reviewer's half of the contract. A re-recorded pair with a sloppy counterpart passes the gate; it must not pass review.
 
-门禁的边界很明确：通过门禁只说明两侧文件当前的 blob hash 与伴随记录吻合，并且结构签名一致，也就是说，这组内容曾被确认一致；它不代表这次确认可靠。门禁无法判断两种语言是否真正表达了相同的意思；这部分契约要由评审人把关。即使译文粗糙、表意有误，重新记录配对后仍能通过门禁，但绝不能通过人工评审。
+门禁的边界很明确：通过门禁只说明两侧文件当前的 blob hash 与伴随记录吻合，并且结构签名一致，也就是说，这组内容曾被确认一致；它不代表这次确认可靠。门禁无法判断两种语言是否真正表达了相同的意思；这部分约定要由评审人把关。即使译文粗糙、表意有误，重新记录配对后仍能通过门禁，但绝不能通过人工评审。
 
 ## ⑥ Agent Note 论证
 

@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/cordis-api/context.md
 context.md: 320b23de1c8d19e2dacdf0ec9f2361037bcf8048
-context.zh.md: 2e4cdc1d2822d6cc19bf1907a44cc31c429016ea
+context.zh.md: 9b1f92a329ff4d75b3fafe7bf6bc8db317bcc267

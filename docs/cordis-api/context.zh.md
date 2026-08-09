@@ -58,7 +58,7 @@ isolate(name: string, label?: symbol)
 
 创建一个子上下文，使 `name` 拥有独立的服务作用域。
 
-在返回的上下文之下，对服务 `name` 的读写会根据新标签解析，而不再根据父上下文的标签解析，因此可以提供不同的实现而不影响父作用域。向两次 `isolate()` 调用传入相同的 `label`，可使二者加入同一作用域。
+在返回的上下文之下，对服务 `name` 的读写会根据新标签解析，而不再根据父上下文的标签解析，因此可以提供不同的实现而不影响父作用域。将同一个 `label` 传给两次 `isolate()` 调用，可使二者加入同一作用域。
 
 - `name`：要隔离的服务名称。
 - `label`：要加入的作用域标签；默认为一个新建的唯一 symbol。
@@ -230,7 +230,7 @@ static is(value: any): value is Context
 
 - `value`：要测试的值。
 
-如果 `value` 是 Cordis 上下文，**返回** `true`，并收窄其类型。
+如果返回 `true`，则 `value` 是 Cordis 上下文，并会收窄其类型。
 
 [源码](../../vendor/cordis/src/context.ts#L61)
 
