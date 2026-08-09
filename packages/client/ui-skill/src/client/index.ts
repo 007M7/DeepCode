@@ -3,15 +3,16 @@
  * candidates from the skill.list RPC addressed by the per-call session
  * projection's sessionId (sessions are always agent-backed; the host
  * resolves cwd from the session header). A pick lands the literal `/name `
- * text and the prompt ships the same literal (decision 21); determinism
+ * text and the prompt ships the same literal (plain-text-reference decision;
+ * see .agents/notes/implemented/architecture/2026-07-25-web-input-machine-and-slash-pipeline.md);
+ * determinism
  * lives host-side — the pre-step boundary (`dsh-tool-skill`) recognizes a
  * leading `/name` naming a user-invocable skill and injects the rendered
  * body for every front end, including `disable-model-invocation` skills the
  * model-side catalog never lists (issue #1470). The RPC rides the plugin's
  * root-context connection captured at registration — the source never reads
- * services off a per-call argument. Draft chip visuals still derive from
- * the lexicon scan; the legacy `<skill>` reference codec is gone (decision
- * 21 removal cut).
+ * services off a per-call argument. Draft chip visuals derive from
+ * the lexicon scan; this source implements no reference codec.
  *
  * Catalog fetches are cached per session (the small twin of the ui-command
  * directory): the per-keystroke candidates re-poll filters a settled
@@ -162,8 +163,9 @@ export function apply(ctx: ClientContext): void {
       }
     },
     onPick({ candidate }) {
-      // Decision 21: the pick lands plain text and the prompt ships the same
-      // literal. Determinism no longer rides the client — the host's
+      // Plain-text-reference decision (web-input-machine note): the pick
+      // lands plain text and the prompt ships the same
+      // literal. Determinism lives host-side — the host's
       // pre-step boundary (dsh-tool-skill) recognizes the leading /name and
       // injects the rendered body for every front end. A name shared with a
       // host command still resolves to the command: adjudication claims the

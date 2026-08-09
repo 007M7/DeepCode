@@ -123,8 +123,8 @@ function TurnErrorItem({ node, t }: {
  * Display projection of reference forms in a user bubble (free geometry — no
  * textarea alignment constraint here); everything else stays plain text. The
  * logged model text remains the single truth; this is presentation only.
- * Plain-text `/name` / `@name` word-boundary tokens decorate (decision 21:
- * the sent text IS the reference — the bubble uses the same plainest token
+ * Plain-text `/name` / `@name` word-boundary tokens decorate (the sent text
+ * IS the reference — the bubble uses the same plainest token
  * scan as the composer, minus the lexicon: sent tokens were validated at
  * compose time, so shape alone decorates).
  */

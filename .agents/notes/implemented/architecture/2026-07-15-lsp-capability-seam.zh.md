@@ -32,7 +32,7 @@ harness 已具备文本搜索与文件读取能力，但二者都无法识别程
 
 服务边界只公开 `query(request, signal?)`，因为没有字段需要实现层填充默认值：`workspaceRoot` 是必填项，`languageId` 来自注册映射，超时与结果限制由消费方负责。`query()` 执行选择与推导时不使用隐藏的 `??` 后备逻辑，因此没有需要 resolve 的可执行 spec。`dsh-tool-lsp` 校验模型参数，并只把 `exec.signal` 作为裸 `AbortSignal` 传递，与 web 一致，并使 `dsh-lsp` 不依赖 `dsh-tools`。提供方在选择前被移除时按不可用失败；之后的释放遵循已选提供方的取消生命周期，不改路由。
 
-预期约定如下：
+约定如下：
 
 ```ts
 import type { Branded } from '@deepseek-ai/dsh-brand'
@@ -147,7 +147,7 @@ interface LspToolInput {
 
 ## 备选方案
 
-**照搬 Claude Code 的统一 schema。** 它的光标操作验证了核心场景，但符号与调用层级需要不同参数。照搬九种操作会固化尚未验证的接口，因此本提案只对齐四种语义查询。
+**照搬 Claude Code 的统一 schema。** 它的光标操作验证了核心场景，但符号与调用层级需要不同参数。照搬九种操作会固化尚未验证的接口，因此该 seam 只对齐四种语义查询。
 
 **允许提供方注册工具。** 已加载服务器会控制模型 schema 和提示词，无法在本地与远程提供方之间维持统一约定。
 

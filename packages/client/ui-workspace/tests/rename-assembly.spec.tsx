@@ -4,8 +4,9 @@
  * WorkspaceBrowser occupying the sidebar hole): row menu → rename dialog →
  * the injected renameSession hop (sessions.binding → ISession.rename) → on
  * the accepted unary response the dialog closes and the row re-labels from
- * the list state — no push-frame wait. Previously pinned only by the
- * assembled-app snapshot (apps/web/tests/session-actions.snapshot.ts); the
+ * the list state — no push-frame wait. Coverage split: the assembled-app
+ * snapshot (apps/web/tests/session-actions.snapshot.ts) pins the full-app
+ * transcript; the
  * verb's wire behavior stays with the runtime package
  * (session.spec.ts#rename), the dialog's own arms with rows.spec /
  * workspace-browser.spec.

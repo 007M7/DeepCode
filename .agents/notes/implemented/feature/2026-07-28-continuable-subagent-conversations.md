@@ -105,7 +105,7 @@ When the authenticated parent is itself a continuation-managed Activation, start
 
 Child release occurs only after the child Agent is quiescent, every child of that child is disposed, the best-effort final session flush settles, and the child's `AgentHandle` completes disposal. The manager awaits `ctx.sessions.flush(child.session)` but does not interpret its participation boolean: an arbitrary listener cannot prove that the selected persistence backend stored the state. A rejection is logged without preventing handle disposal or ownership release, because retaining a child would permanently pin its ancestors in `waiting`. If the child is owned, the manager then resolves the live parent through `SessionHeader.parentSession` and removes the child Session id from its `ownedChildren`. Manager teardown uses the same child-first order.
 
-Ownership is retained until the child Activation is disposed. A later refinement may release a request-scoped lease earlier, but it would require an exact turn-completion correlation that this Task-free proposal deliberately does not add.
+Ownership is retained until the child Activation is disposed. A later refinement may release a request-scoped lease earlier, but it would require an exact turn-completion correlation that this Task-free design deliberately does not add.
 
 Top-level teardown is host-owned rather than represented as another Activation. Manager unload invokes its internal manager-wide drain to close admission synchronously, await every admitted materialization through publication or rollback, stop the stable live forest, and release it child-first. A host that owns selected top-level Agents uses `drainContinuableDescendants(parents)`: exact Agent identities close admission only below those roots until each leaves the registry, while unrelated forests and manager-wide admission remain live; the manager stops their visible descendants before its first await, waits only materializations admitted below those roots, and releases only the selected branches. Every materialized start and live delivery rechecks caller cancellation, the applicable draining scope, Activation disposal, and exact parent authority in the same synchronous span as inbox submission, so teardown or parent replacement that wins before acceptance prevents delivery to the closing handle. Only after the applicable drain settles may the host dispose its top-level Agents; only manager-wide drain precedes manager-scope disposal.
 
@@ -149,7 +149,7 @@ It adds no host-user continuation, subagent steering operation, durable mailbox,
 
 ## Alternatives considered
 
-**Keep Task-backed Activations.** Tasks provide generic status, result collection, and cancellation, but using them for conversation delivery creates a second queue and duplicates turn ownership. The proposal gives up those generic Task controls so the Agent inbox remains the only execution order.
+**Keep Task-backed Activations.** Tasks provide generic status, result collection, and cancellation, but using them for conversation delivery creates a second queue and duplicates turn ownership. This design gives up those generic Task controls so the Agent inbox remains the only execution order.
 
 **Create one Activation per `next-turn`.** This restores independent result and cancellation boundaries, but it requires a manager FIFO beside the Agent inbox and makes a retained Agent cross artificial Activation boundaries. One Activation per residency epoch is smaller and follows the `AgentHandle` lifetime directly.
 

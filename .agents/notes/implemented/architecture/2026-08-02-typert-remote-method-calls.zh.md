@@ -341,7 +341,7 @@ Remote DTS、Remote JS、`TypeRTClientRemote`、`InvocationDescriptor`、Remote 
 
 未来 TUI 可以在不改变业务 decorator、Remote maps 和 API 调用形状的前提下接入同一调用抽象。届时 TUI 可见的 API 仍只能由 `@Remote` 和 `@RemoteScope` 生成，不能因为它与 Host 同进程就绕过 Remote 限制直接暴露 Service 方法。
 
-TUI 的 runtime 挂载、carrier、Agent Scope 关联和 SRC 启动接线均不属于本期实现。
+TUI 的 runtime 挂载、carrier、Agent Scope 关联和 SRC 启动接线均仍延后，不在本决策之内。
 
 Web 本身依赖 `lib/client.js` 等构建产物，因此启动 Web 前要求完整 `build:lib`。Host Remote 约定变化后，开发者需重新执行 lib build，再启动或重启 Web；系统不实现 Remote contract 的增量 watch。
 

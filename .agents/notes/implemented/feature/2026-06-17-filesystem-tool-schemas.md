@@ -8,17 +8,17 @@ English | [中文](2026-06-17-filesystem-tool-schemas.zh.md)
 
 [The filesystem capability-seam Agent Note](../architecture/2026-06-17-filesystem-capability-seam.md) defines the filesystem capability seam (`ctx.fs`), the package split (`dsh-fs`, `dsh-fs-local`, `dsh-tool-fs`, plus the `dsh-fs-policy` policy plugin), and the observed-file/stale-version policy for read-before-write/edit checks — which the [split-fs-seam](../simplification/2026-06-26-fsspec-style-fs-seam.md) and [event-gate](../architecture/2026-06-26-file-context-as-event-gate.md) Agent Notes moved off `ctx.fs` into the `dsh-fs-policy` plugin on the `fs/*` event gate. The remaining decision for the first filesystem tool delivery is the model-facing schema surface: what arguments the model sees for `read`, `write`, and `edit`.
 
-The schema should be small enough to implement in the first `dsh-tool-fs` pass, but stable enough that future local/remote/sandboxed filesystem backends do not require model-facing churn. It should also avoid importing every option from reference systems. Claude Code and OpenCode expose similar core file tools but differ in naming style and extra flags; this Agent Note chooses the minimal shared surface for the prototype.
+The schema must be small, yet stable enough that local/remote/sandboxed filesystem backends do not require model-facing churn, and must avoid importing every option from reference systems. Claude Code and OpenCode expose similar core file tools but differ in naming style and extra flags; this decision picks the minimal shared surface.
 
 ## Decision
 
 `@deepseek-ai/dsh-tool-fs` exposes these three model-facing tools in the first filesystem suite:
 
-| Tool | Our schema | Claude Code | OpenCode | Notes | Part of prototype |
-|---|---|---|---|---|---|
-| `read` | `read(file_path, offset?, limit?)` | `Read(file_path, offset?, limit?, pages?)` | `read(filePath, offset?, limit?)` | Files only; 1-indexed `offset`; no image/PDF/multimodal support in the first pass. | YES |
-| `write` | `write(file_path, content)` | `Write(file_path, content)` | `write(content, filePath)` | Creates or overwrites UTF-8 text. Under the default fs-policy, updates to existing files require a prior observation; new-file creates do not. | YES |
-| `edit` | `edit(file_path, old_string, new_string, replace_all?)` | `Edit(file_path, old_string, new_string, replace_all?)` | `edit(filePath, oldString, newString, replaceAll?)` | Literal string replacement; unique match required by default; under the default fs-policy requires a prior observation (any windowed read counts). | YES |
+| Tool | Our schema | Claude Code | OpenCode | Notes |
+|---|---|---|---|---|
+| `read` | `read(file_path, offset?, limit?)` | `Read(file_path, offset?, limit?, pages?)` | `read(filePath, offset?, limit?)` | Files only; 1-indexed `offset`; no image/PDF/multimodal support in the first pass. |
+| `write` | `write(file_path, content)` | `Write(file_path, content)` | `write(content, filePath)` | Creates or overwrites UTF-8 text. Under the default fs-policy, updates to existing files require a prior observation; new-file creates do not. |
+| `edit` | `edit(file_path, old_string, new_string, replace_all?)` | `Edit(file_path, old_string, new_string, replace_all?)` | `edit(filePath, oldString, newString, replaceAll?)` | Literal string replacement; unique match required by default; under the default fs-policy requires a prior observation (any windowed read counts). |
 
 The schema uses snake_case field names (`file_path`, `old_string`, `new_string`, `replace_all`) to align with Claude Code and with existing DeepSeek Harness tool-schema examples. The Consumer package translates these model-facing names into `ctx.fs` calls and `fs/*` event dispatches.
 

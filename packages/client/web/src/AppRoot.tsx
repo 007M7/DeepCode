@@ -3,7 +3,7 @@
  * Pure kernel component with zero plugin dependencies — before settled it may
  * only rely on itself (the fail-loud presentation must not depend on the
  * system whose failure it reports; the status/signal stores are kernel-own,
- * web2 shell self-sufficiency rule); the real UI is produced by the
+ * shell self-sufficiency rule); the real UI is produced by the
  * app-shell entry once every entry is active. A failed boot keeps the
  * loading page, lists the per-entry fiber states and the sweep report (fail
  * loud, no partial UI).

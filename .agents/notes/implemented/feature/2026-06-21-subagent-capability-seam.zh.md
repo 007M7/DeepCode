@@ -8,9 +8,9 @@ Status: implemented
 
 ## 问题
 
-harness 有一个长期搁置的 seam 用于 **subagent**：一个 agent 将工作委派给另一个 agent。这一意图在 `Agent`/`AgentLoop` 接口中已有草案（[packages/core/agent/src/types.ts](../../../../packages/core/agent/src/types.ts)、[packages/core/agent-loop/src/index.ts](../../../../packages/core/agent-loop/src/index.ts)）：一个创建选项引用父 agent（fork = 用父会话的事件日志初始化子会话；spawn = 全新会话），子 agent 以 `Agent` 句柄返回，使 steering（中途引导）和事件订阅可以统一工作。本 Agent Note 实现了这个 seam；上方横幅列出了已交付的内容。
+harness 有一个长期搁置的 seam 用于 **subagent**：一个 agent 将工作委派给另一个 agent。这一意图在 `Agent`/`AgentLoop` 接口中已有草案（[packages/core/agent/src/types.ts](../../../../packages/core/agent/src/types.ts)、[packages/core/agent-loop/src/index.ts](../../../../packages/core/agent-loop/src/index.ts)）：一个创建选项引用父 agent（fork = 用父会话的事件日志初始化子会话；spawn = 全新会话），子 agent 以 `Agent` 句柄返回，使 steering（中途引导）和事件订阅可以统一工作。
 
-决定整体设计走向的核心需求是：**多种 subagent 实现必须在运行时共存**。一个父 agent 可能在同一个会话中既需要一个廉价的进程内子 agent 处理有限范围的子任务，又需要一个隔离的进程外子 agent（通过 ACP）。我们预见的传输方式：
+决定整体设计走向的核心需求是：**多种 subagent 实现必须在运行时共存**。一个父 agent 可能在同一个会话中既需要一个廉价的进程内子 agent 处理有限范围的子任务，又需要一个隔离的进程外子 agent（通过 ACP）。传输方式：
 
 - **进程内**：在同一个 `Context` 上创建一个具体的子 `Agent`（最廉价，且鉴于现有 agent 工厂几乎零成本）；
 - **ACP**：作为 ACP *客户端*驱动另一个 agent 进程（可以是自身的另一个实例）；
@@ -62,7 +62,7 @@ bash seam（[能力 seam](../architecture/2026-06-13-capability-seams.md)）在�
 
 ### 提供方选择是配置，不面向模型
 
-`dsh-tool-subagent` 绑定到恰好一个提供方名称（`Config.provider`）；模型只看到 `{ description, prompt }`。若要暴露多种传输方式，请多次加载该工具插件，每次绑定不同的提供方和不同的 `toolName`（工具注册表拒绝重名）。*服务*持有多提供方注册表；*工具*选择其中一个——本版 schema 中没有提供方/type 参数。
+`dsh-tool-subagent` 绑定到恰好一个提供方名称（`Config.provider`）；模型只看到 `{ description, prompt }`。若要暴露多种传输方式，请多次加载该工具插件，每次绑定不同的提供方和不同的 `toolName`（工具注册表拒绝重名）。*服务*持有多提供方注册表；*工具*选择其中一个——schema 中没有提供方/type 参数。
 
 ## 测试
 
@@ -72,5 +72,5 @@ bash seam（[能力 seam](../architecture/2026-06-13-capability-seams.md)）在�
 
 - **递归。** 如果不设限制，进程内子 agent 能看到委派工具并递归调用。进程内后端实现了可选的绝对深度限制和有作用域的实时全局 `toolFilter`；ACP 声明这两项能力为关闭状态，并拒绝此类请求。[subagent 组合控制 Agent Note](2026-07-12-subagent-persona-tool-filter-and-depth.md) 负责定义它们的确切语义和安全边界。
 - **阻塞父轮次。** 前台收集在子 agent 的整个持续时间内保持父 agent 的步骤打开。后台委派使用共享的 `ctx.tasks` 运行时与通用 `task_*` 工具，与后台 bash 共用同一套收集机制；subagent seam 本身仍不感知任务。
-- **实时进度。** 本版仅暴露生命周期事件与最终结果；逐分片的子→父更新流推迟到后台重新设计时一并处理。
-- **ACP 客户端接口。** 将 ACP 子 agent 的 `fs`/`terminal` 代理回父 agent（共享工作区模式）是后续工作；首版不声明这两项能力，子 agent 在自己的进程中自行服务。
+- **实时进度。** 仅暴露生命周期事件与最终结果；逐分片的子→父更新流推迟到后台重新设计时一并处理。
+- **ACP 客户端接口。** 将 ACP 子 agent 的 `fs`/`terminal` 代理回父 agent（共享工作区模式）是后续工作；该后端不声明这两项能力，子 agent 在自己的进程中自行服务。

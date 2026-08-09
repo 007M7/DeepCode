@@ -4,7 +4,7 @@ Status: implemented
 
 [English](2026-07-26-code-dispatch-log-spill.md) | 中文
 
-> 范围：Code Mode UI 堆叠 PR（Pull Request）链的第四个 PR，即用既有的 spill 机制为 `tool/code-dispatch` 事件的内容施加边界。[宿主侧基础 Agent Note](2026-07-26-code-dispatch-ui-foundation.md)当初有意接受了不设上限的日志，并指明本 PR 就是兑现点；[实时并行 Agent Note](2026-07-26-code-mode-live-parallel-dispatch.md)敲定了本次整形所挂接的事件对。
+> 范围：用既有的 spill 机制为 `tool/code-dispatch` 事件的内容施加边界。[宿主侧基础 Agent Note](2026-07-26-code-dispatch-ui-foundation.md)当初有意接受了不设上限的日志，并以这次 spill 集成为兑现点；[实时并行 Agent Note](2026-07-26-code-mode-live-parallel-dispatch.md)敲定了本次整形所挂接的事件对。
 
 ## 问题
 
@@ -20,7 +20,7 @@ Status: implemented
 
 ## 曾考虑的替代方案
 
-**在桥接层内部用普通上限施加边界（不做 spill）。** 否决：没有定位符的截断会丢失回放与 UI 可能需要的数据，还会重新引入本堆叠 PR 链已经移除的「截断摘要」降级渲染路径。
+**在桥接层内部用普通上限施加边界（不做 spill）。** 否决：没有定位符的截断会丢失回放与 UI 可能需要的数据，还会重新引入本堆叠 PR（Pull Request）链已经移除的「截断摘要」降级渲染路径。
 
 **直接在桥接层内做 spill（从 code-mode.ts 调用 `ctx.spillStore`）。** 否决：注册表会因此对 spill 能力产生硬依赖；waterfall 则把策略留在所有其他 spill 决策所在的地方，既可组合也可禁用（省略 `maxInlineBytes` 依然意味着真正的 no-op）。
 

@@ -76,7 +76,7 @@ exe 内支持 `dsh-workflow-workerthread` 与 `dsh-code-runtime-worker`。两个
 
 **让 jsonrpc-agent 承担完整闭包依赖。** 应用入口将声明 53 个以上自身并不 `import()` 的依赖，使「打包 manifest」伪装成真实依赖关系，还会迫使 `constraints` 为其增加 `cordis-in-dependencies` 与 `files` 通配符两个例外。将闭包清单放在 Python 侧的 manifest 包后，`constraints` 不需要任何例外，`bin` 也能保持与 acp-agent 同构的正常包形状。
 
-**开放插件集（从磁盘加载用户插件）。** 本期采用封闭集；PoC 同时证实，可以通过 `ctx.baseUrl` 相对路径通道从 VFS 外的磁盘 `import()` ESM。该能力列为后续演进，届时还需解决外部插件与 exe 内 Cordis 实例的共享问题。
+**开放插件集（从磁盘加载用户插件）。** 交付的集合是封闭的；PoC 同时证实，可以通过 `ctx.baseUrl` 相对路径通道从 VFS 外的磁盘 `import()` ESM。该能力列为后续演进，届时还需解决外部插件与 exe 内 Cordis 实例的共享问题。
 
 ## 后果
 

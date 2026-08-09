@@ -54,8 +54,8 @@ export function PopupSelectView({ popup, t }: PopupSelectViewProps) {
     cardRef.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' })
   }, [active])
 
-  // Focus ownership: the search input grabs on open (the design's
-  // transient-layer rule), and ANY outside pointer interaction dismisses —
+  // Focus ownership: the search input grabs on open, and ANY outside
+  // pointer interaction dismisses —
   // capture phase so a click landing anywhere else (textarea included)
   // closes the shell before its own handlers run; that click's target then
   // takes focus naturally, so no focusComposer here.

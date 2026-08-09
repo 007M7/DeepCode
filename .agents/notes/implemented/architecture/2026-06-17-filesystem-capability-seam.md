@@ -6,7 +6,7 @@ English | [中文](2026-06-17-filesystem-capability-seam.zh.md)
 
 ## Problem
 
-The harness has a concrete `bash` capability seam (`dsh-bash` / `dsh-bash-local` / `dsh-tool-bash`), but filesystem operations are about to be added as model-facing tools without an equivalent seam. If `read`, `write`, and `edit` directly use `node:fs`, the model-facing tool package will own filesystem execution policy, local path resolution, atomic write behavior, text decoding, symlink behavior, and edit semantics all at once.
+The harness has a concrete `bash` capability seam (`dsh-bash` / `dsh-bash-local` / `dsh-tool-bash`), but filesystem operations were about to land as model-facing tools without an equivalent seam. If `read`, `write`, and `edit` directly used `node:fs`, the model-facing tool package would own filesystem execution policy, local path resolution, atomic write behavior, text decoding, symlink behavior, and edit semantics all at once.
 
 That couples three concerns that change independently:
 
@@ -16,7 +16,7 @@ That couples three concerns that change independently:
 
 Without a `ctx.fs` interface, swapping local filesystem access for a sandboxed or remote backend would churn the tool schemas, demos, and prompt guidance even when the model-facing contract should stay stable. It also makes permission/sandbox boundaries harder to reason about: a `cwd` option can look like a sandbox even though it is only a base path unless an explicit backend or `tools/execute` policy enforces containment.
 
-We need the filesystem tools to land in the same capability-seam shape as bash before they become a public package surface.
+The filesystem tools must land in the same capability-seam shape as bash before they become a public package surface.
 
 ## Decision
 
@@ -28,7 +28,7 @@ Filesystem access is a first-class capability seam following [the capability-sea
 
 The Consumer package depends only on the Service Definition package, never on `dsh-fs-local`. A deployment that wants a different backend loads a different provider for `ctx.fs` without changing the tool schemas or model-facing prompt guidance.
 
-The read-before-write/edit and observed-state policy is a fourth package, `@deepseek-ai/dsh-fs-policy` (`packages/fs/fs-policy`), contributed through the `fs/*` event gate rather than living on `ctx.fs`; a deployment loading `dsh-tool-fs` also loads `dsh-fs-policy` to get read-before-write/edit. This Agent Note established the three-package boundary; the split of policy off the provider base class is decided by [the split-fs-seam Agent Note](../simplification/2026-06-26-fsspec-style-fs-seam.md), and its realization as an event-gate plugin (not a method service) by [the event-gate Agent Note](2026-06-26-file-context-as-event-gate.md). This document is updated to describe that landed four-package shape.
+The read-before-write/edit and observed-state policy is a fourth package, `@deepseek-ai/dsh-fs-policy` (`packages/fs/fs-policy`), contributed through the `fs/*` event gate rather than living on `ctx.fs`; a deployment loading `dsh-tool-fs` also loads `dsh-fs-policy` to get read-before-write/edit. This decision established the three-package boundary; the split of policy off the provider base class is decided by [the split-fs-seam Agent Note](../simplification/2026-06-26-fsspec-style-fs-seam.md), and its realization as an event-gate plugin (not a method service) by [the event-gate Agent Note](2026-06-26-file-context-as-event-gate.md).
 
 The first backend is deliberately local-only: `dsh-fs-local` implements `ctx.fs` against the host filesystem. Future sibling backends can provide sandboxed, remote, virtual, or project-scoped filesystems behind the same interface.
 
@@ -74,7 +74,7 @@ The provider contract also carries the freshness hooks that policy builds on —
 - `writeText`/`editText` take an OPTIONAL version expectation: omit it for an unconditional bare-provider mutation, or supply it to guard the mutation inside the backend's atomic critical section.
 - The `dsh-fs-policy` plugin decides that expectation on `fs/write-intent`/`fs/edit-intent` and records observed versions on `fs/observed`, keyed by an owner it derives from the opaque event actor (normally `exec.agent.session`).
 
-Authorization is version freshness, not a full/partial view distinction: any read records the target's version, and a later write/edit is authorized as long as the file is still at that version — so a windowed read of lines 100-150 authorizes an edit of line 120. The observed-state store is a `WeakMap<owner, Map<targetKey, version>>` inside `dsh-fs-policy`; `dsh-fs` holds none of it and treats the actor as opaque. (This Agent Note first modeled a `FileState` cache with `full`/`partial` views on `ctx.fs`; the split-fs-seam and event-gate Agent Notes replaced that with the freshness-based policy plugin described here.)
+Authorization is version freshness, not a full/partial view distinction: any read records the target's version, and a later write/edit is authorized as long as the file is still at that version — so a windowed read of lines 100-150 authorizes an edit of line 120. The observed-state store is a `WeakMap<owner, Map<targetKey, version>>` inside `dsh-fs-policy`; `dsh-fs` holds none of it and treats the actor as opaque. (This decision first modeled a `FileState` cache with `full`/`partial` views on `ctx.fs`; the split-fs-seam and event-gate notes replaced that with the freshness-based policy plugin described here.)
 
 Path resolution is explicit and allowed to be async. Local resolution may only normalize a path, but sandboxed/remote/project-scoped backends may need I/O to resolve a user-supplied path into a stable target identity.
 
@@ -148,11 +148,11 @@ The defensive-pattern classes this repo has been bitten by are pinned directly:
 
 **The interface can become too local.** Returning fields such as `absolutePath` from `ctx.fs` would make remote, sandboxed, or virtual backends awkward. The contract should expose display metadata without requiring consumers to understand host paths.
 
-**The interface can become too thin.** If `ctx.fs` only mirrors `node:fs` primitives, `tool-fs` will reimplement binary detection, pagination, atomic writes, and edit semantics. That recreates the coupling this Agent Note is trying to avoid.
+**The interface can become too thin.** If `ctx.fs` only mirrors `node:fs` primitives, `tool-fs` will reimplement binary detection, pagination, atomic writes, and edit semantics. That recreates the coupling this decision avoids.
 
 **Edit semantics are race-prone by nature.** Literal edit is a read-modify-write operation; the guard is the backend's atomic mutation critical section plus the optional version expectation, so concurrent edits settle deterministically — one wins, the other gets `FS_STALE_VERSION`.
 
-**Observed state does not belong on `ctx.fs`.** Recording what an execution context has seen is workflow policy, not raw filesystem I/O. This Agent Note first placed it inside the filesystem seam; the split-fs-seam Agent Note then established that a sandboxed/remote backend should not inherit model-facing observation policy, and moved it into the `dsh-fs-policy` plugin. The provider contract keeps only what write/edit safety genuinely needs at the storage layer — a backend-minted version token and an optional version-guarded mutation — while the policy plugin owns owner derivation, observed-state, and read-before-edit gating over the `fs/*` events.
+**Observed state does not belong on `ctx.fs`.** Recording what an execution context has seen is workflow policy, not raw filesystem I/O. This decision first placed it inside the filesystem seam; the split-fs-seam note then established that a sandboxed/remote backend should not inherit model-facing observation policy, and moved it into the `dsh-fs-policy` plugin. The provider contract keeps only what write/edit safety genuinely needs at the storage layer — a backend-minted version token and an optional version-guarded mutation — while the policy plugin owns owner derivation, observed-state, and read-before-edit gating over the `fs/*` events.
 
 **The `resolve`-then-operate shape costs an extra round-trip per call.** Each tool may resolve a path to an `FsTarget` and then issue the read/write/edit as a separate `ctx.fs` call. For the local backend this is negligible (resolution is in-memory path normalization), but a remote/sandboxed backend may turn each step into its own request, so a single `read` can become two network round-trips. Backends where the round-trip matters can cache or fold resolution internally while preserving the observable contract.
 
