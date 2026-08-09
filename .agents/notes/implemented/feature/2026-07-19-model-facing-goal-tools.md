@@ -28,7 +28,7 @@ An autonomous goal round that successfully reports completion or blocking defers
 
 Every call requires an `exec.agent` that is the exact running object in `AgentRegistry`, is the current inherited driver initiator, and has an open turn. These are execution-time checks and cannot be bypassed by prompt injection or hand-authored tool arguments.
 
-Create, edit, pause, and resume additionally require an accepted user message or user steering event in the current turn of a runtime-root agent. Root ownership is derived from the live agent graph rather than durable fork ancestry: a resumed fork can receive direct human authority, while a live child remains a subagent and cannot mutate these states. User source is a host attestation: every `Agent.followup()` or `steer()` input requires an explicit source, so the host labels direct human content `{ kind: 'user' }` and non-human producers label their own provenance. The runtime proves provenance, not whether the human's wording semantically warrants creation or resumption; that interpretation remains with the model.
+Create, edit, pause, and resume additionally require an accepted user message or user steering event in the current turn of a runtime-root agent. Root ownership is derived from the live agent graph rather than durable fork ancestry: a resumed fork can receive direct human authority, while a live child remains a subagent and cannot mutate these states. User source is a host attestation: every `Agent.followup()` or `steer()` input requires an explicit source, so the host labels direct human content `{ kind: 'user' }` and non-human producers identify themselves in their source fields. The runtime proves that the current turn contains a direct human message, not whether the human's wording semantically warrants creation or resumption; that interpretation remains with the model.
 
 Complete and blocked accept either direct-human authority or the exact current goal round. Goal-round authority requires a goal-sourced `user/message` whose goal id, revision, and round all equal the folded current goal. It grants only the two terminal reports. Direct human authority may stop a goal immediately.
 
@@ -44,7 +44,7 @@ Unit coverage pins registration and disposal, exclusive scheduling, generated pr
 
 - **Rely on prompt instructions for authority** — rejected because text can guide model judgment but cannot authenticate the live caller, turn, or source event.
 - **Expose every goal-service verb as a separate tool** — rejected because a compact read/create/update surface reduces schema cost and keeps compare-and-set behavior uniform.
-- **Require exact command phrases** — rejected because natural-language intent, including languages other than English, should be interpreted by the model; execution authority depends on provenance rather than spelling.
+- **Require exact command phrases** — rejected because natural-language intent, including languages other than English, should be interpreted by the model; execution authority depends on a direct human message in the current turn rather than spelling.
 - **Authorize from persisted root or fork metadata** — rejected because a fork that becomes an independently resumed top-level session should accept new human authority, while a currently owned child should not.
 - **Let autonomous rounds edit or resume the goal** — rejected because continuation authority is narrower than authority to redefine or restart the human objective.
 - **Treat the blocked threshold as an evaluator** — rejected because event counts cannot prove that an obstacle is semantically unchanged or truly terminal.
@@ -53,7 +53,7 @@ Unit coverage pins registration and disposal, exclusive scheduling, generated pr
 ## Consequences
 
 - Models receive a stable, compact lifecycle surface without direct access to the goal service.
-- State-changing calls are constrained by live runtime provenance as well as durable compare-and-set references.
+- State-changing calls require a live runtime-root agent and a direct human message in the current turn, as well as durable compare-and-set references.
 - Human requests can create and rearm goals through ordinary natural language, while restored sessions remain inert until such input arrives.
 - Goal rounds can finish or report a repeated blocker but cannot broaden their own mandate.
 - Deployment policy selects the blocking lower bound; the same resolved value controls enforcement and prompt guidance.

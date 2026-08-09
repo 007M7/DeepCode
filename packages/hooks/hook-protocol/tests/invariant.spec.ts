@@ -45,7 +45,7 @@ describe('hook-protocol invariants', () => {
     session.append('hook/result', result())
   })
 
-  it('rebuilds pending hook provenance from an existing session', async () => {
+  it('rebuilds pending hook invocations from an existing session', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     const session = ctx.sessions.create()

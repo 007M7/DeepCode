@@ -159,7 +159,7 @@ describe('ToolResultPruneService content transform', () => {
 })
 
 describe('ToolResultPruneService session transaction', () => {
-  it('prunes a stable snapshot, preserves all data, and records provenance', () => {
+  it('prunes a stable snapshot, preserves all data, and cites the replaced result', () => {
     const session = Session.create(SessionId('preserve'))
     const originalSeq = appendToolStep(session, 1, 'one', [{
       type: 'text',

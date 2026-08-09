@@ -12,7 +12,7 @@ Status: implemented
 
 请求头子系统实现了一套自定义的系统/工具增量编解码器和传输决策层，尽管其约定声明增量只是编码优化，而非可重建性要求。在每个 agent loop（智能体循环）实例边界保留初始/恢复的完整快照，然后在该实例的组装头发生变化时写入一条规范的完整 `request/header`，即可保留回放能力，同时删除 `SystemDelta`、`ToolsDelta`、往返回退逻辑以及持久化的 `request/header-delta` 变体。编解码器专属的词汇随编解码器一起消失，并非因为其各分支本身无效。
 
-实现保留追加与替换操作的 `sourceEventSeqs`、崩溃修复的溯源信息，以及所有 `SessionStartSource` 变体，因为这些字段承担审计/拦截职责，当前没有读取方并不能推翻这一点。
+实现保留追加与替换操作的 `sourceEventSeqs`、崩溃修复结果引用的 `tool/call` seq，以及所有 `SessionStartSource` 变体，因为这些字段承担审计/拦截职责，当前没有读取方并不能推翻这一点。
 
 ## 决策
 

@@ -195,7 +195,7 @@ export function apply(ctx: Context, config: Config): void {
     return createUserMessage({ content, source: PLUGIN_SOURCE })
   }
 
-  /** Prepend one context without flattening downstream provenance or metadata. */
+  /** Prepend one context without flattening source fields or other downstream metadata. */
   function prependContext(ours: UserMessage, theirs: UserMessage[] | undefined): UserMessage[] {
     return [ours, ...theirs ?? []]
   }

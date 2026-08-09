@@ -8,7 +8,7 @@ Status: implemented
 
 长时间运行的 agent（智能体）对话会无限增长。随着事件日志不断累积轮次，派生出的消息历史最终逼近模型的上下文窗口，模型随即截断响应（`max-tokens`）或性能退化。**上下文压缩（context compaction）** 是对此的缓解手段：用一段简洁的摘要替换一批较早的历史，保持近期上下文完整。
 
-[会话接口面](../architecture/2026-06-18-session-surface.md)正是为此而构建的基础设施：一份建立在事件日志之上的有序投影，带有专门设计的 `surfaceOp: { op: 'replace', start, end }` 操作，用于遮蔽一段条目并插入替换内容，`sourceEventSeqs` 记录溯源信息以便决策可确定性地回放。剩下的是那个*决定压缩什么、并产出摘要*的插件。
+[会话接口面](../architecture/2026-06-18-session-surface.md)正是为此而构建的基础设施：一份建立在事件日志之上的有序投影，带有专门设计的 `surfaceOp: { op: 'replace', start, end }` 操作，用于遮蔽一段条目并插入替换内容，`sourceEventSeqs` 列出每个来源事件，使回放可以验证替换是否引用了它移除的每个事件。剩下的是那个*决定压缩什么、并产出摘要*的插件。
 
 两股力量塑造了设计。第一，压缩策略与可复用的 token 测量独立变化：测量归 LLM 系列的 [`ctx.tokenMeter` 服务](../architecture/2026-07-15-replay-token-meter-service.md)所有，摘要生成则可以使用模型调用、模板或远程服务。第二，`SurfaceEventType` 封闭为产生消息的事件类型（`user/message`、`assistant/message`、`tool/result`）；只有这些类型可以携带 `surfaceOp`。因此一个专用的 `compaction/*` 事件**不能**出现在 surface 上，编译器与 Session 始终启用的 append/seed 边界都会拒绝在其上附加 `surfaceOp`。
 
@@ -71,12 +71,12 @@ retry → next numbered step/start      ⟵ derives from the replacement surface
 
 ### Surface 替换：`compact/*` 事件仅存在于日志；一条 `user/message` 承载摘要
 
-由于 `SurfaceEventType` 是封闭的，摘要不能搭载在 `compact/*` 事件上。后端改为追加一条**单独的 `user/message`**，带有 `source: COMPACT_CHECKPOINT_SOURCE` 和 `surfaceOp: { op: 'replace', start, end }`；其 `content` 是（带框架的）摘要，`sourceEventSeqs` 覆盖被遮蔽的条目*和*簿记事件。接口导出该来源和 `isCompactCheckpointSource()`，使消费方无需依赖后端包身份，即可识别持久化或克隆得到的检查点。`compact/*` 事件是纯日志记录（锁 + 溯源信息）。surface 变更位于锁**内部**，`compact/end` 是最后追加的事件：
+由于 `SurfaceEventType` 是封闭的，摘要不能搭载在 `compact/*` 事件上。后端改为追加一条**单独的 `user/message`**，带有 `source: COMPACT_CHECKPOINT_SOURCE` 和 `surfaceOp: { op: 'replace', start, end }`；其 `content` 是（带框架的）摘要，`sourceEventSeqs` 覆盖被遮蔽的条目*和*簿记事件。接口导出该来源和 `isCompactCheckpointSource()`，使消费方无需依赖后端包身份，即可识别持久化或克隆得到的检查点。`compact/*` 事件记录锁、摘要、选中区间、被遮蔽的 seq、token 数和模型调用，但不加入 surface。surface 变更位于锁**内部**，`compact/end` 是最后追加的事件：
 
 ```
 compact/start    → log-only. Acquires the lock.
 [summarize older range via the backend]
-compact/summary  → log-only. Provenance: raw summary, local-call marker, range, shadowed seqs, token count.
+compact/summary  → log-only. Records the raw summary, local-call marker, range, shadowed seqs, and token count.
 user/message     → canonical checkpoint source + surfaceOp { op:'replace', start, end }.
                    THE surface mutation (framed summary).
                    deriveMessages() renders it as a user-role message.
@@ -93,7 +93,7 @@ compact/end      → log-only. Releases the lock (carries `error` on a recoverab
 
 `compact/start … compact/end` 标记对承担两项职责：
 
-1. **可检测的崩溃孤儿 + 来源追溯**（首要）。摘要生成是一次慢速模型调用，持久化在 `compact/start` *之后*。摘要生成中途崩溃会留下一个没有匹配 `compact/end` 的 `compact/start`——一个可检测的孤儿。最后释放锁（而非最先）将崩溃窗口从*静默损坏*转变为可检测的孤儿。
+1. **可检测的崩溃孤儿 + 已记录的摘要输入**（首要）。摘要生成是一次慢速模型调用，持久化在 `compact/start` *之后*。摘要生成中途崩溃会留下一个没有匹配 `compact/end` 的 `compact/start`——一个可检测的孤儿。最后释放锁（而非最先）将崩溃窗口从*静默损坏*转变为可检测的孤儿。
 2. **防止并发压缩。** 每个自动、手动和显式范围入口点都会拒绝活动的未匹配 `compact/start`。该标记对就是唯一的锁；没有进程本地 mutex 重复承担同一职责。
 
 该锁只排除另一项压缩，不排除无关事实。其标记是时间点，而不是排他的容器，因此持久 inbox splice 可以出现在独立手动 start 与 end 之间。自动工作要求其轮次内的整个 surface 保持稳定。手动工作只重新验证所选位置 span，使其外部的仅追加上下文在替换后保持可见。
@@ -122,7 +122,7 @@ compact/end      → log-only. Releases the lock (carries `error` on a recoverab
 - **自动 seam**：`agent/pre-step`（`@mode waterfall`）在请求派生前处理压力，`agent/request-error`（`@mode waterfall`）处理失败步骤关闭后的最终请求失败。pre-step 的 payload 携带已领取批次、轮次、步骤与 signal（参见 [payload-object 事件决策](../architecture/2026-08-06-agent-event-payload-objects.md)），不携带压缩专属的提示词/前缀 payload。
 - **`SessionEventMap`** 通过可合并扩展的声明合并获得 `compact/start` / `compact/summary` / `compact/end`；`SurfaceEventType` **未被**触及。这些是会话事件，不是 cordis `Events`，因此事件分类门禁无需新增条目。
 - **`dsh-compact`** 拥有 `COMPACT_CHECKPOINT_SOURCE`、`isCompactCheckpointSource(source)`、`toolPairingBalancedBefore(session, seq)` 与 `toolPairingBalancedAfter(session, seq)`。该标记用于跨后端实现识别替换摘要。带缓存的 surface 边缘检查会防止 `compactRegion` 和 `compactIfNeeded` 拆分工具调用/结果对，按 seq 校验当前成员关系，从每个切割点的一条平衡序列回答两侧边缘，并拒绝陈旧或缺失的 seq 与孤立结果。
-- **`dsh-session`** 通过唯一的 surface 管理器校验位置替换、完整溯源信息和仅内容的单节点 `tool/result` 重写。其不变式配套插件将新追加的工具结果视为执行，要求存在已打开的步骤与待处理调用，而压缩配套组件拥有数字轮次归属与独立 `null` 归属标记对之间的关系。
+- **`dsh-session`** 通过唯一的 surface 管理器校验位置替换、引用的来源事件是否覆盖完整，以及仅内容的单节点 `tool/result` 重写。其不变式配套插件将新追加的工具结果视为执行，要求存在已打开的步骤与待处理调用，而压缩配套组件拥有数字轮次归属与独立 `null` 归属标记对之间的关系。
 - **接线**：`examples/tui-agent/cordis.yml` 依次加载零配置的 `dsh-token-meter`、`dsh-compact-tool-result-prune`、`dsh-compact-basic`，然后加载 `dsh-command-compact`；服务级默认值使组合无需重复数值策略即可使用。
 
 ## 测试

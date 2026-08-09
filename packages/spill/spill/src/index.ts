@@ -49,7 +49,7 @@ export abstract class SpillStore extends Service {
 
   /**
    * Persist `input.content` to a session-scoped spill artifact.
-   * @param input - the owner, provenance, suggested name, and full text to save.
+   * @param input - the owner, caller-supplied source fields, suggested name, and full text to save.
    * @returns the saved artifact's {@link SpillRef}; rejects on a storage failure.
    */
   abstract saveText(input: SaveTextSpill): Promise<SpillRef>

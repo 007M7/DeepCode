@@ -539,7 +539,7 @@ describe.skipIf(!existsSync(dshBin))('dsh BUILT bin (node lib/bin.js, no tsx)', 
       expect(code).toBe(0)
       expect(stdout).toContain('provider: configured-provider')
       expect(stdout).not.toContain('personal-provider')
-      // Both layers patched the row; provenance lists them in application order.
+      // Both layers patched the row; the comment lists them in application order.
       expect(stdout).toContain(`patched by ${profilePatch}, ${overlay}`)
       expect(stderr).toContain('patch: entry "absent-row" not found')
     }, 30_000)
