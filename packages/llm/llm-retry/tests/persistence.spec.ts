@@ -6,6 +6,7 @@ import { Context } from 'cordis'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
 import SessionPersistenceSqlite from '@deepseek-ai/dsh-session-persistence-sqlite'
+import { RetryId } from '@deepseek-ai/dsh-llm-retry/brand'
 import type {} from '../src/index.ts'
 
 const dirs: string[] = []
@@ -39,6 +40,7 @@ describe.each(['jsonl', 'sqlite'] as const)('%s retry-event persistence', (kind)
         reason: 'initial',
       })
       const event = session.append('llm/retry', {
+        retryId: RetryId(`retry-${kind}-chain`),
         turn: 1,
         step: 1,
         provider: 'mock',

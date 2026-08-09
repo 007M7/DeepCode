@@ -184,6 +184,11 @@ type ToolExecutionToken = symbol & { readonly [toolExecutionTokenBrand]: true }
  */
 interface ToolExecutionInput {
   readonly callId: CallId
+  /**
+   * Root model-requested call owning this execution tree. Callers omit it for
+   * a root execution; nested dispatchers propagate the enclosing value.
+   */
+  readonly rootCallId?: CallId
   readonly name: string
   /** Losslessly JSON-serializable parsed arguments (tools validate their own schema). */
   readonly arguments: unknown
@@ -280,6 +285,8 @@ interface CodeDispatchLog {
  * observers run.
  */
 interface ToolExecution extends ToolExecutionInput {
+  /** Root model-requested call, resolved for every root and nested execution. */
+  readonly rootCallId: CallId
   /** Registry-assigned identity shared with nested calls only as their opaque `parent` token. */
   readonly token: ToolExecutionToken
 }
@@ -547,7 +554,7 @@ async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult>
 
 Types: [ScopeKey](scope.md)
 
-Source: [`packages/core/tools/src/index.ts:739`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:746`](../../packages/core/tools/src/index.ts)
 
 <a id="tools-events"></a>
 

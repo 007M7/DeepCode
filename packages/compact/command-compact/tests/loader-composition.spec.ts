@@ -9,6 +9,7 @@ import Include from '@cordisjs/plugin-include'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import CommandService from '@deepseek-ai/dsh-commands'
 import {
+  CompactionId,
   CompactService,
   type CompactAgentContext,
   type CompactionResult,
@@ -18,7 +19,10 @@ import {
 import * as commandCompact from '@deepseek-ai/dsh-command-compact'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 
+const COMPACTION_ID = CompactionId('loader-command-compact-test')
+
 const RESULT: CompactionResult = {
+  compactionId: COMPACTION_ID,
   startSeq: 1,
   summarySeq: 2,
   endSeq: 3,
@@ -44,9 +48,15 @@ class LoaderCompactService extends CompactService {
   override compactNow(
     agent: ManualCompactAgentContext,
     _signal: AbortSignal,
+    sourceCommandId?: Parameters<CompactService['compactNow']>[2],
   ): Promise<CompactionResult | null> {
-    agent.session.append('compact/start', { turn: null })
+    const provenance = {
+      compactionId: RESULT.compactionId,
+      ...sourceCommandId === undefined ? {} : { sourceCommandId },
+    }
+    agent.session.append('compact/start', { ...provenance, turn: null })
     agent.session.append('compact/summary', {
+      ...provenance,
       summary: RESULT.summary,
       shadowedRange: RESULT.shadowedRange,
       shadowedSeqs: RESULT.shadowedSeqs,
@@ -54,8 +64,8 @@ class LoaderCompactService extends CompactService {
       provider: 'loader-test',
       model: 'loader-test',
     })
-    agent.session.append('compact/end', { turn: null })
-    return Promise.resolve(RESULT)
+    agent.session.append('compact/end', { ...provenance, turn: null })
+    return Promise.resolve({ ...RESULT, ...provenance })
   }
 }
 
@@ -132,11 +142,17 @@ describe('command-compact real Loader composition', () => {
       },
       {
         type: 'compact/start',
-        data: { turn: null },
+        data: {
+          compactionId: COMPACTION_ID,
+          sourceCommandId: execution.commandId,
+          turn: null,
+        },
       },
       {
         type: 'compact/summary',
         data: {
+          compactionId: COMPACTION_ID,
+          sourceCommandId: execution.commandId,
           summary: RESULT.summary,
           shadowedRange: RESULT.shadowedRange,
           shadowedSeqs: RESULT.shadowedSeqs,
@@ -147,7 +163,11 @@ describe('command-compact real Loader composition', () => {
       },
       {
         type: 'compact/end',
-        data: { turn: null },
+        data: {
+          compactionId: COMPACTION_ID,
+          sourceCommandId: execution.commandId,
+          turn: null,
+        },
       },
       {
         type: 'command/done',

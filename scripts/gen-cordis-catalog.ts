@@ -278,6 +278,7 @@ export const LINK_MAP: Readonly<Record<string, string>> = {
   CreateGoalResult: 'goal.md',
   CommandDefinition: 'commands.md',
   CommandDescriptor: 'commands.md',
+  CommandId: 'commands.md',
   CommandResult: 'commands.md',
   CommandSurface: 'commands.md',
   LlmAdapter: 'llm-streaming.md',

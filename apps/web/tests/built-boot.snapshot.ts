@@ -38,7 +38,6 @@ it('boots the built plugin graph and renders a fixture session end to end', asyn
   await waitFor(() => {
     expect(document.querySelector('[data-sample="bash"]')).not.toBeNull()
   }, { timeout: 10_000 })
-
   // Resolve the resident approval so the ordinary composer bar (which owns
   // ContextMeter) resumes without replacing the session shell. This minimal
   // boot graph intentionally does not mount the separate question UI plugin.

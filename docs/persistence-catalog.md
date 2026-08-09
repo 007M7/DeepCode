@@ -212,7 +212,7 @@ Source: [`packages/core/session/src/types.ts:245`](../packages/core/session/src/
 }
 ```
 
-Source: [`packages/interaction/commands/src/index.ts:151`](../packages/interaction/commands/src/index.ts)
+Source: [`packages/interaction/commands/src/index.ts:153`](../packages/interaction/commands/src/index.ts)
 
 #### `command/run` — log-only
 
@@ -230,7 +230,7 @@ Source: [`packages/interaction/commands/src/index.ts:151`](../packages/interacti
 'command/run': { commandId: CommandId; name: string; args?: string; source: CommandSource }
 ```
 
-Source: [`packages/interaction/commands/src/index.ts:144`](../packages/interaction/commands/src/index.ts)
+Source: [`packages/interaction/commands/src/index.ts:146`](../packages/interaction/commands/src/index.ts)
 
 ### `compact/*`
 
@@ -241,10 +241,10 @@ Source: [`packages/interaction/commands/src/index.ts:144`](../packages/interacti
  * Marks the end of a compaction — log-only, releases the lock. Its owner
  * matches `compact/start`; `error` records an unsuccessful attempt.
  */
-'compact/end': { turn: number | null; error?: string }
+'compact/end': { compactionId: CompactionId; sourceCommandId?: CommandId; turn: number | null; error?: string }
 ```
 
-Source: [`packages/compact/compact/src/types.ts:65`](../packages/compact/compact/src/types.ts)
+Source: [`packages/compact/compact/src/types.ts:69`](../packages/compact/compact/src/types.ts)
 
 #### `compact/prune` — log-only
 
@@ -268,7 +268,7 @@ Source: [`packages/compact/compact/src/types.ts:65`](../packages/compact/compact
 }
 ```
 
-Source: [`packages/compact/compact/src/types.ts:75`](../packages/compact/compact/src/types.ts)
+Source: [`packages/compact/compact/src/types.ts:79`](../packages/compact/compact/src/types.ts)
 
 #### `compact/start` — log-only
 
@@ -278,10 +278,10 @@ Source: [`packages/compact/compact/src/types.ts:75`](../packages/compact/compact
  * `compact/end`. A numbered owner is strictly enclosed by that open turn;
  * `null` identifies a standalone manual transaction between turns.
  */
-'compact/start': { turn: number | null }
+'compact/start': { compactionId: CompactionId; sourceCommandId?: CommandId; turn: number | null }
 ```
 
-Source: [`packages/compact/compact/src/types.ts:19`](../packages/compact/compact/src/types.ts)
+Source: [`packages/compact/compact/src/types.ts:21`](../packages/compact/compact/src/types.ts)
 
 #### `compact/summary` — log-only
 
@@ -296,6 +296,8 @@ Source: [`packages/compact/compact/src/types.ts:19`](../packages/compact/compact
  * before it (`compact/prune` documents the shared protocol).
  */
 'compact/summary': {
+  compactionId: CompactionId
+  sourceCommandId?: CommandId
   summary: ContentBlock[]
   shadowedRange: { start: number; end: number }
   shadowedSeqs: number[]
@@ -331,7 +333,7 @@ Source: [`packages/compact/compact/src/types.ts:19`](../packages/compact/compact
 
 Types: [ContentBlock](subsystems/core.md) · [TokenUsage](subsystems/llm-streaming.md)
 
-Source: [`packages/compact/compact/src/types.ts:29`](../packages/compact/compact/src/types.ts)
+Source: [`packages/compact/compact/src/types.ts:31`](../packages/compact/compact/src/types.ts)
 
 ### `feedback/*`
 
@@ -412,29 +414,19 @@ Source: [`packages/hooks/hook-protocol/src/types.ts:31`](../packages/hooks/hook-
 
 ```ts persistence-catalog
 /** Durable, non-surface record of one provider-routed retry scheduled after a failed request attempt. */
-'llm/retry': {
-  turn: number
-  step: number
-  provider: string
-  mode: 'normal'
-  policyKey: string
-  retry: number
-  maxRetries: number
-  delayMs: number
-  failure: LlmFailure
-} | {
-  turn: number
-  step: number
-  provider: string
-  mode: 'always'
-  policyKey: string
-  retry: number
-  delayMs: number
-  failure: LlmFailure
-}
+'llm/retry': LlmRetryEventData
 ```
 
-Source: [`packages/llm/llm-retry/src/index.ts:17`](../packages/llm/llm-retry/src/index.ts)
+Source: [`packages/llm/llm-retry/src/index.ts:20`](../packages/llm/llm-retry/src/index.ts)
+
+#### `llm/retry-started` — log-only
+
+```ts persistence-catalog
+/** Durable transition written after a retry wait succeeds and before the next request attempt starts. */
+'llm/retry-started': LlmRetryStartedEventData
+```
+
+Source: [`packages/llm/llm-retry/src/index.ts:22`](../packages/llm/llm-retry/src/index.ts)
 
 ### `permission/*`
 
@@ -656,7 +648,7 @@ Source: [`packages/core/session/src/types.ts:251`](../packages/core/session/src/
  * before returning), so its execution-enclosure relation holds by
  * construction.
  */
-'tool/code-dispatch': { parentCallId: CallId; subCallId: CallId; name: string; arguments: unknown; isError: boolean; content: ContentBlock[] }
+'tool/code-dispatch': { rootCallId: CallId; parentCallId: CallId; subCallId: CallId; name: string; arguments: unknown; isError: boolean; content: ContentBlock[] }
 ```
 
 Types: [CallId](subsystems/core.md) · [ContentBlock](subsystems/core.md)
@@ -679,7 +671,7 @@ Source: [`packages/core/tools/src/code-mode.ts:49`](../packages/core/tools/src/c
  * with `tool/code-dispatch` by `subCallId` (timing = the two events'
  * `time` fields).
  */
-'tool/code-dispatch-start': { parentCallId: CallId; subCallId: CallId; name: string; arguments: unknown }
+'tool/code-dispatch-start': { rootCallId: CallId; parentCallId: CallId; subCallId: CallId; name: string; arguments: unknown }
 ```
 
 Types: [CallId](subsystems/core.md)

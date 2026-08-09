@@ -196,11 +196,15 @@ function stubAgent(cwd?: string, seed: SessionEvent[] = []): Agent {
 }
 
 function stubToolExecution(
-  input: Omit<ToolExecution, 'token'> & { token?: ToolExecutionToken },
+  input: Omit<ToolExecution, 'token' | 'rootCallId'> & {
+    token?: ToolExecutionToken
+    rootCallId?: ToolExecution['rootCallId']
+  },
 ): ToolExecution {
   return {
     token: input.token ?? Symbol('workspace-context-test-execution') as ToolExecutionToken,
     ...input,
+    rootCallId: input.rootCallId ?? input.callId,
   }
 }
 

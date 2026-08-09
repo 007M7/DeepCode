@@ -29,6 +29,10 @@
 ```ts type-equiv
 /** Result of a successful compaction operation. */
 interface CompactionResult {
+  /** Stable identity shared by this compaction's complete durable lifecycle. */
+  compactionId: CompactionId
+  /** Human command that initiated this compaction, when it was manual. */
+  sourceCommandId?: CommandId
   /** The seq of the appended `compact/start` event. */
   startSeq: number
   /** The seq of the appended `compact/summary` event. */
@@ -155,13 +159,14 @@ abstract compactIfNeeded( agent: CompactAgentContext, trigger: CompactionTrigger
  *
  * @param agent - idle agent whose durable history should be compacted.
  * @param signal - cancellation scoped to this compaction request.
+ * @param sourceCommandId - initiating command identity for a manual compaction.
  * @returns the compaction result, or `null` when no safe useful range exists.
  * @throws {@link ManualCompactionError} for expected busy, agent-cancellation,
  * changed-span, summarization/shrink, commit-stage, or persistence failures;
  * an aborted request preserves its exact abort reason. Failed attempts remain
  * visible in the log.
  */
-abstract compactNow( agent: ManualCompactAgentContext, signal: AbortSignal, ): Promise<CompactionResult | null>
+abstract compactNow( agent: ManualCompactAgentContext, signal: AbortSignal, sourceCommandId?: CommandId, ): Promise<CompactionResult | null>
 
 /**
  * Forcibly compact a range of surface nodes into a single summary node.
@@ -184,7 +189,9 @@ abstract compactNow( agent: ManualCompactAgentContext, signal: AbortSignal, ): P
 abstract compactRegion( start: number, end: number, agent: CompactAgentContext, signal?: AbortSignal, ): Promise<CompactionResult>
 ```
 
-Source: [`packages/compact/compact/src/index.ts:93`](../../packages/compact/compact/src/index.ts)
+Types: [CommandId](commands.md)
+
+Source: [`packages/compact/compact/src/index.ts:96`](../../packages/compact/compact/src/index.ts)
 
 <a id="ctxtoolresultprune--toolresultpruneservice"></a>
 

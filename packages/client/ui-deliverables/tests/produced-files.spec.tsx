@@ -8,15 +8,22 @@
 import { Context } from 'cordis'
 import { cleanup, fireEvent, render } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
+import {
+  ConversationEventRegistry, ConversationNodeAssembler, SlotsService,
+} from '@deepseek-ai/dsh-client-runtime/client'
 import type {
-  AssistantMessageNode, ConversationNode, ToolResultNode, UserMessageNode,
+  ConversationEventInput, ConversationLocationDataStore, ConversationNodeDefinition,
+  ConversationTimelineSnapshot, ConversationTurnDataMap, ConversationViewDefinition,
+  ConversationViewNode, ToolResultNode, TurnLocation,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import { apply as applyLocale } from '@deepseek-ai/dsh-client-locale/client'
-import type { ChatFileMentions } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type { ChatFileMentions, TurnTailOwnerProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { ProducedFiles } from '../src/client/ProducedFiles.tsx'
-import { basename, producedFileMentions, producedForClosing, selectProducedFiles } from '../src/client/turn-deliverables.ts'
+import {
+  basename, deliverablesDefinition, producedFileMentions, producedForClosing, selectProducedFiles,
+  type DeliverablesTurnData,
+} from '../src/client/turn-deliverables.ts'
 import { apply, inject } from '../src/client/index.ts'
 import { apply as applyNode } from '../src/index.ts'
 import { apply as applyInvariant } from '../src/invariant.ts'
@@ -24,101 +31,187 @@ import { zh } from '../src/client/locales.ts'
 
 afterEach(cleanup)
 
-const user = (seq: number, text: string): UserMessageNode => ({
-  kind: 'user',
-  seq,
-  time: seq * 1000,
-  content: [{ type: 'text', text }] as never,
-  source: null,
+class TestTurnDataStore implements ConversationLocationDataStore<ConversationTurnDataMap> {
+  private readonly values = new Map<string, unknown>()
+
+  get<Key extends keyof ConversationTurnDataMap & string>(
+    key: Key,
+  ): Readonly<ConversationTurnDataMap[Key]> | undefined {
+    return this.values.get(key) as Readonly<ConversationTurnDataMap[Key]> | undefined
+  }
+
+  set<Key extends keyof ConversationTurnDataMap & string>(key: Key, value: ConversationTurnDataMap[Key]): void {
+    this.values.set(key, value)
+  }
+}
+
+const turnLocation = (turn: number, deliverables?: DeliverablesTurnData): TurnLocation => {
+  const data = new TestTurnDataStore()
+  if (deliverables !== undefined) data.set('deliverables', deliverables)
+  return { turn, start: undefined, end: undefined, status: 'closed', steps: [], data }
+}
+
+const produced = (...values: ReadonlyArray<readonly [seq: number, path: string]>): DeliverablesTurnData => ({
+  produced: values.map(([seq, path]) => ({ seq, path })),
 })
-const assistant = (seq: number, text: string, turn = 1): AssistantMessageNode => ({
-  kind: 'assistant', seq, time: seq * 1_000, turn, step: 1, blocks: [{ kind: 'text', text }],
-})
-const toolResult = (seq: number, callId: string, name = 'bash'): ToolResultNode => ({
-  kind: 'tool-result', seq, time: seq * 1_000, callId,
-  call: { name, argsRaw: `{"command":"cmd-${callId}","description":"run ${callId}"}` },
-  callTime: seq * 1_000 - 500,
-  content: [], isError: false, callView: null, resultView: null, subCalls: [],
-})
-const wrote = (seq: number, callId: string, ...paths: string[]): ToolResultNode => ({
-  ...toolResult(seq, callId, 'write'),
-  callView: {
+
+function tailOwner(
+  data: DeliverablesTurnData | undefined,
+  seq: number,
+  openFile: (path: string) => void = () => {},
+  turn = 1,
+): TurnTailOwnerProps {
+  return { seq, openFile, turn: turnLocation(turn, data) }
+}
+
+interface TimelineSnapshot {
+  readonly timeline: ConversationTimelineSnapshot
+}
+
+class TestEventDefinitions {
+  entries(): readonly ConversationNodeDefinition[] { return [deliverablesDefinition] }
+  fallbackEntry(): undefined { return undefined }
+}
+
+class TestViewDefinitions {
+  entries(): readonly ConversationViewDefinition[] { return [timelineViewDefinition] }
+}
+
+const timelineViewDefinition: ConversationViewDefinition<ConversationViewNode, TimelineSnapshot> = {
+  target: 'test',
+  create: () => {
+    let current: TimelineSnapshot = { timeline: { turnOrder: [], turns: new Map() } }
+    return {
+      empty: current,
+      replace: ({ timeline }) => (current = { timeline }),
+      apply: ({ timeline }) => (current = { timeline }),
+    }
+  },
+}
+
+function at(
+  seq: number,
+  type: string,
+  data: unknown,
+  view?: ConversationEventInput['view'],
+): ConversationEventInput {
+  return {
+    event: {
+      seq, time: seq * 1_000, type, data,
+      ...(type === 'tool/result' ? { surfaceOp: 'append' } : {}),
+    } as ConversationEventInput['event'],
+    view,
+  }
+}
+
+function call(
+  seq: number,
+  callId: string,
+  view: ToolResultNode['callView'],
+  turn = 1,
+): ConversationEventInput {
+  return at(
+    seq,
+    'tool/call',
+    { turn, step: 1, callId, name: 'fixture', arguments: '{}' },
+    { for: 'call', view: view ?? { card: 'generic', title: 'fixture' } },
+  )
+}
+
+function result(seq: number, callId: string, isError = false, turn = 1): ConversationEventInput {
+  return at(seq, 'tool/result', {
+    turn,
+    step: 1,
+    message: {
+      source: { type: 'tool-result', callId },
+      content: [{ type: 'tool-result', content: [], isError }],
+    },
+  })
+}
+
+function diff(...paths: string[]): ToolResultNode['callView'] {
+  return {
     card: 'diff', title: `Write ${paths[0] ?? ''}`,
     diffs: paths.map(path => ({ path, oldText: null, newText: 'x' })),
     locations: paths.map(path => ({ path })),
-  },
-})
+  }
+}
 
-describe('producedForClosing derivation', () => {
-  it('attributes each turn’s written files to the assistant that closes it', () => {
-    const nodes: ConversationNode[] = [
-      user(1, 'build it'),
-      assistant(2, 'writing', 1),
-      wrote(3, 'a', 'out/index.html'),
-      // Same file touched twice in one turn is one deliverable, in first-seen order.
-      wrote(4, 'b', 'out/app.css', 'out/index.html'),
-      // A read is not a deliverable; a failed write has no file to open.
-      { ...toolResult(5, 'c', 'read'), callView: { card: 'generic', title: 'Read x', locations: [{ path: 'x.ts' }] } },
-      { ...wrote(6, 'd', 'out/broken.html'), isError: true },
-      assistant(7, 'done', 1),
-      user(8, 'again'),
-      assistant(9, 'second turn', 2),
-    ]
-    expect(producedForClosing(nodes, 7)).toEqual(['out/index.html', 'out/app.css'])
-    expect(selectProducedFiles({ nodes, seq: 7, openFile: () => {} })).toEqual(['out/index.html', 'out/app.css'])
-    expect(selectProducedFiles({ nodes, seq: 9, openFile: () => {} })).toBeNull()
-    // A turn that produced nothing yields the empty list, and so does an
-    // anchor the window does not contain.
-    expect(producedForClosing(nodes, 9)).toEqual([])
-    expect(producedForClosing([user(1, 'hi'), assistant(2, 'hello', 1)], 2)).toEqual([])
-    expect(producedForClosing(nodes, 999)).toEqual([])
+function edit(path: string): ToolResultNode['callView'] {
+  return { card: 'generic', title: `insert ${path}`, kind: 'edit', locations: [{ path }] }
+}
+
+function assembler(entries: readonly ConversationEventInput[], hasMore = false): ConversationNodeAssembler {
+  const value = new ConversationNodeAssembler(new TestEventDefinitions(), new TestViewDefinitions())
+  value.replaceWindow(entries, hasMore)
+  value.flush()
+  return value
+}
+
+function deliverablesOf(value: ConversationNodeAssembler, turn = 1): Readonly<DeliverablesTurnData> | undefined {
+  const snapshot = value.snapshot('test') as TimelineSnapshot
+  return snapshot.timeline.turns.get(turn)?.data.get('deliverables')
+}
+
+describe('produced-file Turn data', () => {
+  it('deduplicates paths in first-seen order and stops at the closing Assistant seq', () => {
+    const data = produced(
+      [3, 'out/index.html'],
+      [4, 'out/app.css'],
+      [4, 'out/index.html'],
+      [8, 'after.txt'],
+    )
+    expect(producedForClosing(data, 6)).toEqual(['out/index.html', 'out/app.css'])
+    expect(selectProducedFiles(tailOwner(data, 6))).toEqual(['out/index.html', 'out/app.css'])
+    expect(producedForClosing(undefined)).toEqual([])
+    expect(selectProducedFiles(tailOwner(undefined, 9, () => {}, 2))).toBeNull()
   })
 
+  it('folds successful diff and generic-edit calls while ignoring reads, failures, and missing locations', () => {
+    const value = assembler([
+      at(1, 'turn/start', { turn: 1 }),
+      call(2, 'write', diff('out/index.html', 'out/app.css')),
+      result(3, 'write'),
+      call(4, 'edit', edit('notes.md')),
+      result(5, 'edit'),
+      call(6, 'read', { card: 'generic', title: 'Read', locations: [{ path: 'input.txt' }] }),
+      result(7, 'read'),
+      call(8, 'failed', diff('broken.txt')),
+      result(9, 'failed', true),
+      call(10, 'locationless', { card: 'diff', title: 'Write', diffs: [] }),
+      result(11, 'locationless'),
+    ])
 
-  it('counts a generic edit and never spills across the turn boundary', () => {
-    const inserted = (seq: number, callId: string, path: string): ToolResultNode => ({
-      ...toolResult(seq, callId, 'str_replace_editor'),
-      // str_replace_editor's insert mutates behind a generic card, so the
-      // discriminant is the render intent, not the card shape alone.
-      callView: { card: 'generic', title: `insert ${path}`, kind: 'edit', locations: [{ path }] },
-    })
-    const nodes: ConversationNode[] = [
-      user(1, 'insert a line'),
-      inserted(2, 'i', 'notes.md'),
-      assistant(3, 'inserted', 1),
-      // Turn 2 mutates and then ends with no content text (interrupted, or its
-      // last text preceded the tool): its paths must not ride into turn 3.
-      user(4, 'now rewrite it'),
-      wrote(5, 'w', 'leaked.txt'),
-      user(6, 'and again'),
-      wrote(7, 'w2', 'notes.md'),
-      assistant(8, 'done', 3),
-    ]
-    expect(producedForClosing(nodes, 3)).toEqual(['notes.md'])
-    // Turn 3 lists only its own file — and the dedup set did not suppress the
-    // rewrite of a path an earlier turn already touched.
-    expect(producedForClosing(nodes, 8)).toEqual(['notes.md'])
-    expect(producedForClosing(nodes, 8)).not.toContain('leaked.txt')
+    expect(producedForClosing(deliverablesOf(value))).toEqual([
+      'out/index.html', 'out/app.css', 'notes.md',
+    ])
   })
 
-  it('resets on a turn-number change and skips turnless, viewless, and locationless nodes', () => {
-    const nodes: ConversationNode[] = [
-      user(1, 'go'),
-      // A turnless surface node neither tracks nor resets the boundary.
-      { kind: 'unknown', seq: 1.5, time: 1_500, type: 'x', data: null },
-      wrote(2, 'w', 'turn-one.txt'),
-      // A view-less result (window truncation) and cards without locations
-      // contribute nothing rather than crashing the walk.
-      toolResult(3, 'plain'),
-      { ...toolResult(4, 'nl', 'write'), callView: { card: 'diff', title: 'Write', diffs: [] } },
-      { ...toolResult(5, 'ge', 'str_replace_editor'), callView: { card: 'generic', title: 'insert', kind: 'edit' } },
-      assistant(6, 'mid narration', 1),
-      // Turn number advances with no user message in the window (truncated
-      // history): the accumulator must reset all the same.
-      assistant(7, 'closing', 2),
-    ]
-    expect(producedForClosing(nodes, 6)).toEqual(['turn-one.txt'])
-    expect(producedForClosing(nodes, 7)).toEqual([])
+  it('replays a tail page once prepend supplies its missing Turn start', () => {
+    const value = assembler([
+      call(10, 'late', diff('history.txt')),
+      result(11, 'late'),
+    ], true)
+    expect(deliverablesOf(value)).toBeUndefined()
+
+    value.prepend([at(1, 'turn/start', { turn: 1 })], false)
+    value.flush()
+    expect(producedForClosing(deliverablesOf(value))).toEqual(['history.txt'])
+  })
+
+  it('extends the same Turn data incrementally on live append', () => {
+    const value = assembler([
+      at(1, 'turn/start', { turn: 1 }),
+      call(2, 'first', diff('first.txt')),
+      result(3, 'first'),
+    ])
+    const first = deliverablesOf(value)
+    expect(producedForClosing(first)).toEqual(['first.txt'])
+
+    value.append(call(4, 'second', diff('second.txt')))
+    value.append(result(5, 'second'))
+    value.flush()
+    expect(producedForClosing(deliverablesOf(value))).toEqual(['first.txt', 'second.txt'])
   })
 })
 
@@ -190,6 +283,7 @@ describe('plugin registration', () => {
   it('registers the tail entry and fiber disposal removes it', async () => {
     const ctx = new Context()
     await ctx.plugin(SlotsService).await()
+    await ctx.plugin(ConversationEventRegistry).await()
     // The owning view's child declaration, stood up by a bench root entry.
     ctx.slots.register({
       name: 'root',
@@ -204,17 +298,17 @@ describe('plugin registration', () => {
     // The prose face is live while the plugin is: a produced turn yields a
     // resolver whose matches open through the owner-supplied opener.
     const opened: string[] = []
-    const owner = {
-      nodes: [user(1, 'go'), wrote(2, 'w', 'site/report.html'), assistant(3, 'done', 1)],
-      seq: 3,
-      openFile: (path: string) => { opened.push(path) },
-    }
+    const owner = tailOwner(
+      produced([2, 'site/report.html']),
+      3,
+      (path) => { opened.push(path) },
+    )
     const service = (ctx as unknown as { get(name: string): ChatFileMentions | undefined }).get('chatFileMentions')
     const mentions = service?.forClosing(owner)
     mentions?.resolve('report.html')?.open()
     expect(opened).toEqual(['site/report.html'])
     // A turn that produced nothing yields no vocabulary at all.
-    expect(service?.forClosing({ ...owner, nodes: [user(1, 'hi'), assistant(2, 'ok', 1)], seq: 2 })).toBeUndefined()
+    expect(service?.forClosing(tailOwner(undefined, 2))).toBeUndefined()
 
     await fiber.dispose()
     expect(ctx.slots.entries('conversation.chat.turnTail')).toHaveLength(0)
