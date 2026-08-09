@@ -225,9 +225,9 @@
      so by construction now that all three sit INSIDE .scroll — a scrollbar
      that consumes layout space narrows the scrollport, which is their shared
      containing block, so it costs all three the same width on every engine.
-     Scrolling the textarea itself is what used to break this, and no property
-     fixed it: WebKit reserved gutter space for the overflow-y:auto textarea
-     and not for the overflow:hidden layers beside it, leaving them 8px apart
+     A textarea that scrolls itself would break this, and no property fixes
+     it: WebKit reserves gutter space for an overflow-y:auto textarea and not
+     for the overflow:hidden layers beside it, leaving them 8px apart
      (768 against 776) — worth 2 to 5 wrapped lines on a long draft. */
 }
 
@@ -395,7 +395,7 @@
   cursor: pointer;
 }
 
-/* Plain-text reference highlight (decision 21): a pure range mark over the
+/* Plain-text reference highlight: a pure range mark over the
    draft's own glyphs — advance untouched, so the two layers cannot drift.
    Chip family colors; clone keeps rounded ends on soft-wrap fragments. */
 .textRef {

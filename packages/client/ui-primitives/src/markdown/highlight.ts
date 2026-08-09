@@ -84,8 +84,7 @@ const LAZY_GRAMMARS = new Map<string, () => Promise<LangModule>>([
  * the markdown-fence aliases `CodeBlock` uses and the file-extension hint ids
  * the read tool's `langFromPath` emits, so both callers resolve the same
  * grammars. The JS family maps to the TypeScript grammar (see {@link LANGS} for
- * the JSX/TSX approximation), unchanged from when this was the only
- * non-shell/JSON grammar. A value not in {@link LANGS} names a
+ * the JSX/TSX approximation). A value not in {@link LANGS} names a
  * {@link LAZY_GRAMMARS} entry loaded on first use.
  */
 const LANG_ALIASES = new Map<string, string>([

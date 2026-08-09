@@ -18,7 +18,7 @@ A new `docs/subsystems/` folder catalogs the vocabulary, with a new `verify-type
 
 > **Superseded as the page-scoping rule** by [package-anchored subsystem pages](2026-08-03-package-anchored-subsystem-pages.md): each page now anchors to the package group that declares its vocabulary. The `ts type-equiv` mechanism below remains current.
 
-The scoping line was not picked top-down; it was discovered by testing candidate definitions against concrete borderline types until one rule survived every case. The decisive test was `BashExecRequest`/`BashExecSpec`/`BashRunResult`: bash is a capability *seam*, not part of the agent-loop spine, so if those are "core" then "core" means *all cross-package vocabulary* and the catalog is a flat dump; if they are not, "core" means *the central spine* and bash vocabulary belongs on its own subsystem page. The latter won, which set the whole structure: a **tiered folder**, not a flat document.
+The decisive test for the scoping line is `BashExecRequest`/`BashExecSpec`/`BashRunResult`: bash is a capability *seam*, not part of the agent-loop spine, so if those are "core" then "core" means *all cross-package vocabulary* and the catalog is a flat dump; if they are not, "core" means *the central spine* and bash vocabulary belongs on its own subsystem page. The latter won, which set the whole structure: a **tiered folder**, not a flat document.
 
 The rule that settled the remaining cases: ***the type you write, hold, or receive is core; the machinery that types it, renders it, or persists it is a subsystem-page detail.*** Worked through:
 
@@ -49,8 +49,6 @@ The durability requirement was specific: the doc shows the **literal** current t
 - **Put each type block's source in a directive comment** — rejected for the central manifest, whose enforced 1:1 correspondence means a block can never be silently unchecked and an entry can never rot.
 
 ## Verification lesson
-
-The spine-vs-subsystem rule was tested against `BashExecRequest`, tool schemas and definitions, the schema DSL, presentation types, and the session/persistence split before adoption.
 
 `verify-type-equiv` must scan the complete Markdown scope, not only manifest-named documents. Otherwise an unmanifested `type-equiv` block escapes the claimed one-to-one check. The gate therefore reports such blocks as orphans. This Agent Note records that fail-closed scan rule together with the spine-vs-subsystem and verbatim-match decisions; the generated Cordis catalog has the symmetric design record in [its archived Agent Note](../../archived/process/2026-06-20-generated-cordis-catalog.md).
 

@@ -44,7 +44,7 @@ export type Config = LocalConfig
 export class SandboxBashExecutor extends LocalBashExecutor {
   static override inject = ['subprocess', 'sandbox', 'sandboxPolicy']
 
-  // No own Config: the sandbox default (mode + workspaceRoot) moved to
+  // No own Config: the sandbox default (mode + workspaceRoot) is owned by
   // ctx.sandboxPolicy, so this executor inherits LocalBashExecutor's Config
   // verbatim (the config catalog walks the inherited static).
 

@@ -341,7 +341,7 @@ Remote DTS, Remote JS, `TypeRTClientRemote`, `InvocationDescriptor`, the Remote 
 
 A future TUI can join the same call abstraction without changing business decorators, Remote maps, or the shape of API calls. The TUI-visible API must still be generated exclusively from `@Remote` and `@RemoteScope`; sharing a process with the Host must not allow it to bypass Remote restrictions and expose Service methods directly.
 
-TUI runtime mounting, carriers, Agent Scope association, and SRC startup wiring are outside this phase.
+TUI runtime mounting, carriers, Agent Scope association, and SRC startup wiring remain deferred outside this decision.
 
 The Web already depends on build artifacts such as `lib/client.js`, so it requires a complete `build:lib` before startup. After the Host Remote contract changes, developers rebuild the lib and then start or restart the Web. Incremental watching of the Remote contract is not implemented.
 

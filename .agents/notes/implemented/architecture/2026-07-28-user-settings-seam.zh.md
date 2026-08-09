@@ -26,9 +26,9 @@ Status: implemented
 
 - **以 Include 写回为用户层**（cordis-webui 式的按插件配置页写 loader entry 文件）：写回目标是按组合的文件，会把用户偏好绑死在某个 `cordis.yml` 上；用户层必须在模板升级中存活，并以同一文档服务 TUI 与 web。
 - **以 Loader reactive `fiber.update` 为传导通道**：构造期读取毫无感知；seam 的显式 `watch()` 把热更新变成消费者约定而非框架魔法。
-- **领域化的 settings 服务**（按产品域的 getter）：设计评审中的耦合反对成立；服务只做存储、校验、发布——领域含义留给拥有 schema 的注册方。
+- **领域化的 settings 服务**（按产品域的 getter）：因耦合而否决；服务只做存储、校验、发布——领域含义留给拥有 schema 的注册方。
 - **现在就做多层优先级**（Codex/Claude Code 式 system/managed/project 层级）：延后到真实第二层出现；resolve 步骤是分层未来唯一的扩展点。
-- **现在就上跨进程锁**（Pi 的 proper-lockfile）：最初以"原子替换加 watcher 收敛，真实冲突出现再说"为由延后——评审发现收敛会丢失未观察到的同级 namespace，因此该延后已被 [write-path integrity note](2026-07-30-settings-write-path-integrity.md) 的手写写锁取代。
+- **现在就上跨进程锁**（Pi 的 proper-lockfile）：最初以"原子替换加 watcher 收敛，真实冲突出现再说"为由延后——但收敛会丢失未观察到的同级 namespace，因此该延后已被 [write-path integrity note](2026-07-30-settings-write-path-integrity.md) 的手写写锁取代。
 
 ## 后果
 

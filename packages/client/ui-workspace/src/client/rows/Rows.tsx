@@ -346,9 +346,9 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
   const statuses = sessionStatuses(node, t)
   const primaryStatus = statuses[0]
   const [menuOpen, setMenuOpen] = useState(false)
-  // Archive replaces the former Delete placeholder: it hides the row through
-  // the registry-global archive set and never touches the session log, so it
-  // is not styled as destructive and needs no confirmation dialog.
+  // Archive hides the row through the registry-global archive set and never
+  // touches the session log, so it is not styled as destructive and needs no
+  // confirmation dialog.
   const sessionMenuItems = [
     { id: 'rename', label: t('rename'), icon: <IconEditOutline16 /> },
     { id: 'fork', label: t('menu.fork'), icon: <IconBranchOutline16 /> },

@@ -29,4 +29,4 @@ Status: implemented
 
 ## 后果
 
-自定义 toolview 注册免费适用于子调用——而且是刻意为之：不存在按注册粒度的退出机制，唯一的出路是组件自行读取自身上下文，而当前没有任何消费方需要这么做。选中高亮经由同一条 `selectedCallId` 通道到达嵌套行（分组归属会搜索整棵树）。trajectory/waterfall 仍把 `run_code` 渲染为单独一行——它们的子调用 span 推迟到增加分发计时（start/end 事件）的那个 PR；缺少计时，waterfall 上的 span 就是在撒谎。fixture（测试前置数据）的轮次 64（`?fixture`），加上 `code-mode-round` 浏览器 e2e（录制的真实轮次、无密钥回放），共同锁定整个界面；jsdom 与运行时测试套件则锁定 slot 分发、错误状态、递归详情解析、历史投影与引用稳定的路径复制。
+自定义 toolview 注册免费适用于子调用——而且是刻意为之：不存在按注册粒度的退出机制，唯一的出路是组件自行读取自身上下文，而当前没有任何消费方需要这么做。选中高亮经由同一条 `selectedCallId` 通道到达嵌套行（分组归属会搜索整棵树）。trajectory/waterfall 现在依据分发计时事件对（[实时并行分发](2026-07-26-code-mode-live-parallel-dispatch.md)）绘制子调用 span；缺少计时，waterfall 上的 span 就是在撒谎。fixture（测试前置数据）的轮次 64（`?fixture`），加上 `code-mode-round` 浏览器 e2e（录制的真实轮次、无密钥回放），共同锁定整个界面；jsdom 与运行时测试套件则锁定 slot 分发、错误状态、递归详情解析、历史投影与引用稳定的路径复制。

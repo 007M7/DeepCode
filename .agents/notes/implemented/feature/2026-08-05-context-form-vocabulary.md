@@ -19,7 +19,7 @@ The tool surface already solved this shape. `ToolCallView` has three cards, not 
 - `kind` answers **who produced this** and carries no presentation choice.
 - `form` answers **what shape of information it is**. Several producers may share one form, and one producer may emit more than one over a session.
 
-The vocabulary is semantic, never visual. A value states that the content is a file's instructions or a catalog of available items; colors, icons, ordering, and collapse defaults are the consumer's business and must not enter the union. It grows one value at a time, as producers gain the structured fields their form needs. This release declares two:
+The vocabulary is semantic, never visual. A value states that the content is a file's instructions or a catalog of available items; colors, icons, ordering, and collapse defaults are the consumer's business and must not enter the union. It grows one value at a time, as producers gain the structured fields their form needs. The declared forms:
 
 **`instructions`** — instructions read out of workspace files. `workspace-context` declares it on both the startup baseline and later deltas; its existing `changes[]` already carried the paths, actions, and digests the presentation needs, so no field was added. The body lists the reconciled files above the text, and keeps the `<system-reminder>` framing verbatim: the framing is part of what the model read, so hiding it would misreport the request.
 

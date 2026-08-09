@@ -1,8 +1,7 @@
 /**
  * SessionsService: root sessions service — list snapshot store (manager
  * projection; carries `current`, the persisted selection every
- * session-scoped surface keys off — migrated here from ui-layout per the
- * slot-parity design), Agent scope tree (mintScope pattern: no-op plugin
+ * session-scoped surface keys off), Agent scope tree (mintScope pattern: no-op plugin
  * Fiber + ctx.extend scope tag; one scope per session, agent id === session
  * id), stable SessionBinding cache, breadcrumb-route projection.
  *
@@ -605,7 +604,7 @@ export class SessionsService implements ISessions {
 
   /**
    * Lazily mint the scope + binding for an eligible session. Eligibility and
-   * prune share one predicate (decision 12): listed on the host or selected
+   * prune share one predicate: listed on the host or selected
    * through a retained subagent address. Breadcrumb-only ancestors remain
    * summary data and do not keep scopes alive.
    */
@@ -728,7 +727,7 @@ export class SessionsService implements ISessions {
   }
 
   /**
-   * One teardown for the whole per-session axis (decision 12): the scope
+   * One teardown for the whole per-session axis: the scope
    * fiber (cascading every actx-registered effect: input shell, slash
    * controller, popup, plugin stores, listeners), the session-keyed slot
    * stores, and the Session instance itself — the host session log is the

@@ -8,7 +8,7 @@ English | [中文](2026-07-31-code-runtime-portable-identifier-seam.zh.md)
 
 The code-runtime seam promises that a binding-namespace list valid on one backend is valid on every backend, so a Code Mode consumer can hand the same bindings to any registered runtime without knowing its language. The first backend, `dsh-code-runtime-worker`, privately owned the identifier rules that enforce part of that promise: an `IDENTIFIER` regex that allowed the JS-only `$`, a `RESERVED_WORDS` set holding only ECMAScript keywords, and a `RESERVED_ERROR_PROPERTIES` set of three JS `Error` slots. Those rules described the worker's own language, not the seam's portability contract.
 
-A second backend written against a different language (CPython, arriving in a later PR of this stack) would either re-declare its own rules — letting `lambda` pass the worker and fail Python, or `$tools` pass the worker and fail every non-JS backend — or import the worker's, inverting the dependency so a Service provider reached into a sibling Service provider. Neither keeps the portability promise real: it would hold only for the backend a caller happened to test against.
+A second backend written against a different language (CPython) would either re-declare its own rules — letting `lambda` pass the worker and fail Python, or `$tools` pass the worker and fail every non-JS backend — or import the worker's, inverting the dependency so a Service provider reached into a sibling Service provider. Neither keeps the portability promise real: it would hold only for the backend a caller happened to test against.
 
 ## Decision
 
@@ -21,13 +21,13 @@ The Service Definition package (`@deepseek-ai/dsh-code-runtime`) exports the por
 
 The Service Definition also narrows the portable identifier subset to `[A-Za-z_][A-Za-z0-9_]*` (documented on `CodeBindingNamespace.global` and `CodeBindingErrorClass`), dropping the JS-only `$`. The worker consumes the shared constants directly under their exported names — `PORTABLE_RESERVED_WORDS` for both binding-global and error-class names, `RESERVED_BINDING_GLOBALS` for backend-owned slots, `RESERVED_ERROR_MEMBERS` plus `DUNDER_MEMBER` for error members — with no local re-alias; its `IDENTIFIER` regex loses `$`.
 
-The constants live in the Service Definition even though only one backend ships in this PR: the whole point is that the contract is language-agnostic and owned above any single language. A Service provider that violated it would be the bug, and the shared set is where a reviewer looks to see what "portable" means.
+The constants live in the Service Definition even though the worker is the only shipped backend: the whole point is that the contract is language-agnostic and owned above any single language. A Service provider that violated it would be the bug, and the shared set is where a reviewer looks to see what "portable" means.
 
 ## Scope
 
-This PR delivers only the Service Definition extension and the worker's adoption of it. No Python backend, `py-types` renderer, or Code Mode language dispatch ships here — they are later PRs in the stack that depend on these exports. The Service Definition README's worker-only wording is left unchanged for the same reason: linking to a `dsh-code-runtime-python` README that does not yet exist would break the dead-link gate.
+This decision delivers only the Service Definition extension and the worker's adoption of it. The `py-types` renderer and Code Mode language dispatch are owned by the [language-dispatch note](../feature/2026-07-31-code-mode-language-dispatch.md); a Python backend does not exist yet. The Service Definition README keeps its worker-only wording for that reason: linking to a `dsh-code-runtime-python` README that does not exist would break the dead-link gate.
 
-`RESERVED_BINDING_GLOBALS` currently encodes the not-yet-merged Python bootstrap's concrete design: it seeds exactly `__builtins__`/`__name__` and wraps the program under `__dsh_main__`. The Python-backend PR that seeds any additional module global (`__doc__`, `__loader__`, `__spec__`, `__file__`, `__package__`, …) MUST widen this set in the same change, exactly as adding a language widens `PORTABLE_RESERVED_WORDS` — a name the bootstrap seeds but the set omits is the portability split this contract exists to prevent.
+`RESERVED_BINDING_GLOBALS` encodes the Python bootstrap's concrete design ahead of the backend itself: it seeds exactly `__builtins__`/`__name__` and wraps the program under `__dsh_main__`. A Python backend that seeds any additional module global (`__doc__`, `__loader__`, `__spec__`, `__file__`, `__package__`, …) MUST widen this set in the same change, exactly as adding a language widens `PORTABLE_RESERVED_WORDS` — a name the bootstrap seeds but the set omits is the portability split this contract exists to prevent.
 
 ## Alternatives considered
 

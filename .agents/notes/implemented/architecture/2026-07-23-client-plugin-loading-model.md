@@ -4,7 +4,7 @@ Status: implemented
 
 English | [中文](2026-07-23-client-plugin-loading-model.zh.md)
 
-> Scope: the browser-side plugin loading machinery — what is a plugin, how code arrives, and how hot reload rides on that model. This note owns the loading chain; the [web client architecture RFC](2026-07-19-gui-web-client-architecture.md) defers to it for loading and keeps owning slots, the data object layer, and the React face.
+> Scope: the browser-side plugin loading machinery — what is a plugin, how code arrives, and how hot reload rides on that model. This note owns the loading chain; the [web client architecture note](2026-07-19-gui-web-client-architecture.md) defers to it for loading and keeps owning slots, the data object layer, and the React face.
 
 ## Problem
 
@@ -35,7 +35,7 @@ The manifest owns the package's loading contract: its `inject` dependency edges,
 
 To add a plugin package: declare `dshClient`, emit the `./client` bundle through the shared preset, add the name to the composing app's roster. Nothing else changes hands.
 
-When does a plain package become a plugin? The upgrade law, recorded so the migration path stays honest: **a plain package becomes a plugin package when its consumers switch to cordis DI, not before.** Three promotions are queued: ui-slots (will receive the slots machinery now living in runtime — SlotsService, the renderer contract, the root slot), web-react (will take the renderer install into its own `apply`), and ui-primitives (once components are served through slots/services). Until then they stay plain, and their symbol exports stay ordinary static imports.
+When does a plain package become a plugin? The upgrade law, recorded so the migration path stays honest: **a plain package becomes a plugin package when its consumers switch to cordis DI, not before.** Three promotions are queued: ui-slots (the slots machinery now living in runtime — SlotsService, the renderer contract, the root slot), web-react (the renderer install moving into its own `apply`), and ui-primitives (once components are served through slots/services). Until then they stay plain, and their symbol exports stay ordinary static imports.
 
 Four edge rules govern imports across the two kinds. None of them depends on any per-package mark:
 
@@ -126,7 +126,7 @@ One governance implementation runs on both sides of the wire; the browser-specif
 
 Costs accepted: the vendored Loader carries idle machinery in the browser (EntryTree persistence is a no-op, groups/isolation unused); every plugin edit in dev pays a bundle rebuild plus fiber remount; graph `inject` rows are informational — activation truth is service-level — so a mismatch surfaces at the settled sweep, not at graph validation; the three not-yet-promoted libraries keep their static-import export surface until their DI conversions land; every bundle gains a source-map artifact; and external-script failures provide only coarse URL diagnostics instead of the HTTP status available to an explicit fetch.
 
-Roster endgame (landed 2026-07-25 with the config-tree boot move): the roster lives in `apps/cli/config/web.cordis.yml`, `mountWebPlugins` and the `CLIENT_PACKAGES` constant are gone, and recomposing a deployment means swapping the yml/overlay. The graph composer moved from a webserver-side registry into the `dsh-client-modules` node half (the package upgraded to dual-face per this note's promotion rule — its consumer now reaches it through cordis DI), and the transport split landed alongside: the webserver became a plain route-registration plugin, `/api/*` binding moved to the connection node half over the upgraded `api-gateway` plugin (`dsh-host-apiproxy` providing `ctx.apiProxy`), and the dev bundle watch + SSE channel moved to the hmr node half.
+Roster: it lives in the web bundle's config tree (`packages/bundle/web-app/cordis.patch.yml`); `mountWebPlugins` and the `CLIENT_PACKAGES` constant are gone, and recomposing a deployment means swapping the yml/overlay. The graph composer moved from a webserver-side registry into the `dsh-client-modules` node half (the package upgraded to dual-face per this note's promotion rule — its consumer now reaches it through cordis DI), and the transport split landed alongside: the webserver became a plain route-registration plugin, `/api/*` binding moved to the connection node half over the upgraded `api-gateway` plugin (`dsh-host-apiproxy` providing `ctx.apiProxy`), and the dev bundle watch + SSE channel moved to the hmr node half.
 
 ## Alternatives considered
 

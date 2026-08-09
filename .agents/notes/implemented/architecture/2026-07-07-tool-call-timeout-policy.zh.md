@@ -85,7 +85,7 @@ function toolTimeoutResult(timeoutMs: number): ToolExecutionResult {
 
 `read`、`write`、`edit`、`todo_write`、`task_list` 和 `task_kill` 不加入工具调用超时。`task_output` 自己拥有有界等待，因为等待超时是成功的实时状态结果，而非工具失败。
 
-未来面向模型的 grep/glob 工具可以基于 `ctx.bash` 实现而无需导入 `@deepseek-ai/dsh-timeout`：它将 `exec.signal` 转发给 `ctx.bash`，并声明自己的 `timeoutMs`（来自其插件配置）供执行器应用。如果 bash-local 的后端超时对这类工具造成问题，bash seam 可以后续添加调用方自有截止模式；这不在本次范围内。
+未来面向模型的 grep/glob 工具可以基于 `ctx.bash` 实现而无需导入 `@deepseek-ai/dsh-timeout`：它将 `exec.signal` 转发给 `ctx.bash`，并声明自己的 `timeoutMs`（来自其插件配置）供执行器应用。如果 bash-local 的后端超时对这类工具造成问题，bash seam 可以后续添加调用方自有截止模式；那是一项独立的决策。
 
 ## 曾考虑的替代方案
 
@@ -111,4 +111,3 @@ function toolTimeoutResult(timeoutMs: number): ToolExecutionResult {
 - 多个 `tools/execute` 监听器按普通 Cordis waterfall 顺序组合：调用 `next()` 的监听器包装下游监听器加分发；不调用 `next()` 直接返回的监听器短路它们。一个同时组合超时与未来重试/沙箱/指标包装器的部署通过注册顺序选择语义（「超时覆盖整个重试」vs「超时覆盖每次尝试」）。
 - 按声明加入是一个有意的误配置风险：工具可以声明 `timeoutMs` 但不遵循 `exec.signal`，这样的工具在超时时不会停止。注册表会等待这个尚未完全停稳的工具体结束，而不是与它竞速；同时插件约定声明：声明预算意味着协作；web 工具在已转发信号的工具上验证了这一模式。
 - 过渡期间 `bash` 和已迁移的 web 工具有意使用不同的超时路径：`TOOL_TIMEOUT` 是面向模型的工具调用预算，而 `BASH_TIMEOUT` 仍是 bash 和钩子使用的 bash 后端超时。
-- 与字面提案的偏差，按 implemented-Agent Note 规则记录：插件包为 `@deepseek-ai/dsh-timeout-policy`（而非 `tool-timeout`）；信号替换是在 `next()` 之前就地修改 `exec.signal`（而非 `next({ ...exec, signal })`，Cordis 会忽略后者）；逐工具预算声明在 `ToolDefinition` 上（`timeoutMs`，由拥有该工具的插件从其配置中设置），而非在本插件配置中按工具名映射——因此执行器是零配置的，拼错工具名不可能发生。以上三点均在上文 `## Decision` 中描述。

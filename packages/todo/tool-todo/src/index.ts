@@ -143,7 +143,6 @@ export function apply(ctx: Context, config: Config): void {
         return state
       },
       view: state => state,
-      // Fold semantics changed: turn/start clears the standing plan (was last-write-wins only).
       stateVersion: 2,
     })
   })

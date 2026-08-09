@@ -18,7 +18,7 @@ Each `start` spawns a new child, runs exactly one ACP session (`initialize` → 
 
 ### Minimal client stub
 
-The client advertises NO optional capabilities (no `fs`, no `terminal`): the child self-serves file/terminal access in its own process. `session/update` notifications are consumed — the backend accumulates `agent_message_chunk` text as the result output and ignores the rest (thoughts, tool-call cards) in this cut, which surfaces only the child's final answer. `session/request_permission` is auto-answered by a configured policy (`reject` declines every prompt, `allow` approves via the first allow-shaped option) — the first cut surfaces no prompt to a human. Proxying `fs`/`terminal` back to the parent (a shared-workspace mode) remains future work, as the seam Agent Note noted.
+The client advertises NO optional capabilities (no `fs`, no `terminal`): the child self-serves file/terminal access in its own process. `session/update` notifications are consumed — the backend accumulates `agent_message_chunk` text as the result output and ignores the rest (thoughts, tool-call cards), so only the child's final answer surfaces. `session/request_permission` is auto-answered by a configured policy (`reject` declines every prompt, `allow` approves via the first allow-shaped option) — no prompt is surfaced to a human. Proxying `fs`/`terminal` back to the parent (a shared-workspace mode) remains future work, as the seam Agent Note noted.
 
 ### No start-time capabilities
 

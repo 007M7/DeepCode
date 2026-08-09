@@ -126,7 +126,7 @@ export type WorkflowErrorCode =
  * discipline: `parallel()`/`pipeline()` re-throw a fatal error (a typo'd
  * option or a tripped cap must kill the script loudly), and reserve the
  * per-item `null` for child-run failures and ordinary in-stage script errors.
- * Every {@link WorkflowErrorCode} is fatal in this cut; the flag exists so the
+ * Every {@link WorkflowErrorCode} is fatal; the flag exists so the
  * distinction is explicit at every catch site rather than implied.
  */
 export class WorkflowError extends HarnessError {
