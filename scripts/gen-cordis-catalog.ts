@@ -44,6 +44,7 @@ export { REGION_BEGIN, REGION_END }
  */
 export const SERVICE_PAGE: Record<string, string> = {
   agentLoop: 'core.md',
+  agentDefaultModel: 'core.md',
   agents: 'core.md',
   approval: 'approval.md',
   bash: 'bash.md',
@@ -196,6 +197,7 @@ export const LINK_MAP: Readonly<Record<string, string>> = {
   AgentCancelCause: 'core.md',
   AgentFactory: 'core.md',
   AgentHandle: 'core.md',
+  ModelSelection: 'core.md',
   AgentOptions: 'core.md',
   AgentStatus: 'core.md',
   ContentBlock: 'llm-streaming.md',

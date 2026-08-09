@@ -30,7 +30,7 @@ import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
 import { deriveEventMessage, foldSurface } from '@deepseek-ai/dsh-session/surface'
 import type {
   ApiProxy, ClientRequest, ClientResponse, HistoryEntry, HostFrame, MuxFrame, RpcReceipt,
-  ModelProviderGroup, ModelTarget, RpcRequest, RpcResponse, RpcResult, ServerRequest, ServerResponse, SessionSummary,
+  ModelProviderGroup, ModelSelection, RpcRequest, RpcResponse, RpcResult, ServerRequest, ServerResponse, SessionSummary,
   ToolCallView, ToolEventView, ToolResultView, WorkspaceId, WorkspaceView,
 } from './api.ts'
 import type { RequestPayload, ResponseValue, RpcMethodMap } from '@deepseek-ai/dsh-host-apiproxy/api'
@@ -1347,7 +1347,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
     { sessionId: sid('fx-gamma'), updatedAt: Date.now() - 120_000, running: false, blank: false, cwd: '/tmp/fixture' },
   ]
   const logs = new Map<SessionId, SessionEvent[]>([[sid('fx-alpha'), buildAlphaLog()]])
-  const modelTargets = new Map<SessionId, ModelTarget>(sessions.map(session => [
+  const modelSelections = new Map<SessionId, ModelSelection>(sessions.map(session => [
     session.sessionId,
     { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
   ]))
@@ -1989,7 +1989,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
           sessionId: requestedId ?? sid(`fx-${nextSession++}`), updatedAt: Date.now(), running: false, blank: true, cwd,
         }
         sessions.push(created)
-        modelTargets.set(created.sessionId, { provider: 'deepseek-official', model: 'deepseek-v4-flash' })
+        modelSelections.set(created.sessionId, { provider: 'deepseek-official', model: 'deepseek-v4-flash' })
         attachedSessions += 1
         const emitSession = (): void => {
           // Mirrors the host: the frame fires at creation, so blank is constantly true.
@@ -2098,7 +2098,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
         return ok(request, { ...page, ...projections === undefined ? {} : { projections } })
       },
       models: request => ok(request, {
-        current: modelTargets.get(request.payload.sessionId)
+        current: modelSelections.get(request.payload.sessionId)
           ?? { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
         // The fixture's routes all serve; a surface exercising the blocked
         // posture drives it through its own stub.
@@ -2107,14 +2107,14 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
         failures: [],
       }),
       selectModel: (request) => {
-        const selected: ModelTarget = {
+        const selected: ModelSelection = {
           provider: request.payload.provider,
           model: request.payload.model,
           ...request.payload.reasoningEffort === undefined
             ? {}
             : { reasoningEffort: request.payload.reasoningEffort },
         }
-        modelTargets.set(request.payload.sessionId, selected)
+        modelSelections.set(request.payload.sessionId, selected)
         return ok(request, { selected })
       },
       prompt: (request) => {
@@ -2153,11 +2153,11 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
         // Capacity parallel of the host token-meter's request/context record:
         // log-only, appended inside the open turn, and deduplicated against the
         // route already recorded (the fixture never varies contextWindow).
-        const target = modelTargets.get(id) ?? { provider: 'deepseek', model: 'deepseek-v4-flash' }
-        if (lastRequestContext(logOf(id))?.model !== target.model) {
+        const selection = modelSelections.get(id) ?? { provider: 'deepseek', model: 'deepseek-v4-flash' }
+        if (lastRequestContext(logOf(id))?.model !== selection.model) {
           append(id, {
             type: 'request/context',
-            data: { provider: target.provider, model: target.model, contextWindow: 128_000 },
+            data: { provider: selection.provider, model: selection.model, contextWindow: 128_000 },
           })
         }
         startReply(
@@ -2167,9 +2167,9 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
             ? MARKDOWN_FIXTURE
             : userText === 'report model'
               ? (() => {
-                const target = modelTargets.get(id)
-                return `当前模型：${target?.provider ?? 'unknown'}/${target?.model ?? 'unknown'}`
-                  + (target?.reasoningEffort === undefined ? '' : ` · 推理等级：${target.reasoningEffort}`)
+                const selection = modelSelections.get(id)
+                return `当前模型：${selection?.provider ?? 'unknown'}/${selection?.model ?? 'unknown'}`
+                  + (selection?.reasoningEffort === undefined ? '' : ` · 推理等级：${selection.reasoningEffort}`)
               })()
               : `回声：${userText}。这是 fixture 的流式回复，用于验证打字机增长与定稿切换。`,
         )
