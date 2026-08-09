@@ -658,6 +658,7 @@ describe('prompt and cancel errors', () => {
       {
         parentSessionId: PARENT, childSessionId: SID, mode: 'continuable',
         content: [{ type: 'text', text: '继续' }],
+        clientTimeZone: new Intl.DateTimeFormat().resolvedOptions().timeZone,
       },
     ])
     expect(api.callsOf('subagent.interrupt')).toEqual([

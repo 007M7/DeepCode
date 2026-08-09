@@ -230,8 +230,25 @@ describe('Schedule tool protocol', () => {
     ])
     const changes = test.agent.session.events
       .filter(event => event.type === 'schedule/change' && event.data.operation === 'create')
-    expect(changes[0]?.data).not.toHaveProperty('at')
-    expect(changes[0]?.data).not.toHaveProperty('time_zone')
+    expect(changes.map((change) => {
+      if (change.type !== 'schedule/change' || change.data.operation !== 'create') {
+        throw new Error('expected only Schedule create changes')
+      }
+      return change.data.schedule
+    })).toEqual([
+      {
+        id: 'schedule-1',
+        kind: 'at',
+        prompt: 'join meeting',
+        scheduledAt: '2026-08-06T01:00:00.000Z',
+      },
+      {
+        id: 'schedule-2',
+        kind: 'at',
+        prompt: 'local meeting',
+        scheduledAt: '2026-08-07T01:30:00.000Z',
+      },
+    ])
   })
 
   it('returns stable at validation errors after persistence preflight', async () => {
@@ -240,7 +257,7 @@ describe('Schedule tool protocol', () => {
       prompt: 'bad instant', at: '2026-08-06T09:00:00',
     }))).toEqual({
       code: 'invalid_rule',
-      message: 'at must be a strict RFC 3339 date-time with an explicit Z or numeric offset.',
+      message: 'at must use YYYY-MM-DDTHH:mm:ss with optional 1-3 digit fractional seconds and an explicit Z or numeric offset.',
     })
     expect(value(await execute(test, 'schedule_create', {
       prompt: 'bad zone', at: { date: '2026-08-06', time: '09:00:00', time_zone: 'CST' },

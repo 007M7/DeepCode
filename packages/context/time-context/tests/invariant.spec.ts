@@ -141,7 +141,30 @@ describe('time-context invariants', () => {
         `2026-07-14T00:00:00+00:00[${timeZone}]`,
         policy,
       )))
-    }).toThrow(/browser zone cannot format/)
+    }).toThrow(/browser time zone is unsupported/)
+  })
+
+  it('rejects one corrupt zone even when another zone would classify the turn as mixed', async () => {
+    const ctx = await setup()
+    const session = preparing(1, 1, 'Asia/Shanghai')
+    session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'second browser prompt' }],
+      source: {
+        kind: 'user',
+        rpcId: 'turn-1-invalid',
+        clientTimeZone: 'Not/A_Real_Zone',
+      } as never,
+    }), { surfaceOp: 'append' })
+    expect(() => {
+      ctx.emit('session/event', session, event(reading(
+        '1',
+        '1',
+        'model-visible message',
+        '2026-07-14T00:00:00+00:00[UTC]',
+        'Browser time zone for this request: mixed ["Asia/Shanghai","Not/A_Real_Zone"]. '
+        + 'Ask the user to clarify otherwise-unqualified dates and times.',
+      )))
+    }).toThrow(/browser time zone is unsupported/)
   })
 
   it('validates each existing reading against its preceding durable prefix', async () => {

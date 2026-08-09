@@ -249,7 +249,11 @@ export class Session implements SessionFace {
           },
         }
       } else {
-        const routed = (await this.api.subagents.prompt({ ...this.address, content })).result
+        const routed = (await this.api.subagents.prompt({
+          ...this.address,
+          content,
+          clientTimeZone: resolvedClientTimeZone(),
+        })).result
         result = routed.ok ? { ok: true, value: { accepted: true } } : routed
       }
     } catch (error) {

@@ -36,6 +36,7 @@ import { hostFrameSchema, muxFrameSchema, askUserQuestionItemSchema } from '../s
 import { approvalRequestIdSchema, approvalResponsePayloadSchema } from '../src/api/approvals.schema.ts'
 import { askUserQuestionAnswerSchema, questionResponsePayloadSchema } from '../src/api/questions.schema.ts'
 import { goalEditRequestSchema } from '../src/api/goals.schema.ts'
+import { subagentPromptRequestSchema } from '../src/api/subagents.schema.ts'
 
 describe('RpcId', () => {
   it('brands a raw string at zero runtime cost', () => {
@@ -279,6 +280,24 @@ describe('sessions domain schemas', () => {
     expect(sessionCancelValueSchema.parse({ accepted: true }).accepted).toBe(true)
     expect(sessionUpdateQueueValueSchema.parse({ accepted: true }).accepted).toBe(true)
     expect(contentBlockSchema.parse({ type: 'text', text: 'x', extra: 1 })).toMatchObject({ extra: 1 })
+  })
+})
+
+describe('subagent domain schemas', () => {
+  it('carries optional request-local browser-zone provenance on prompts', () => {
+    expect(subagentPromptRequestSchema.parse({
+      parentSessionId: 'parent',
+      childSessionId: 'child',
+      mode: 'continuable',
+      content: [{ type: 'text', text: 'continue' }],
+      clientTimeZone: 'Asia/Shanghai',
+    }).clientTimeZone).toBe('Asia/Shanghai')
+    expect(subagentPromptRequestSchema.parse({
+      parentSessionId: 'parent',
+      childSessionId: 'child',
+      mode: 'continuable',
+      content: [],
+    }).clientTimeZone).toBeUndefined()
   })
 })
 

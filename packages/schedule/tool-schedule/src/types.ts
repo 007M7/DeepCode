@@ -29,7 +29,7 @@ export interface AtScheduleRecord {
   readonly id: ScheduleId
   /** Rule discriminator for an absolute one-shot reminder. */
   readonly kind: 'at'
-  /** Trimmed user-authored reminder content. */
+  /** Trimmed reminder content supplied at creation. */
   readonly prompt: string
   /** Four-digit-year RFC 3339 UTC target. */
   readonly scheduledAt: string

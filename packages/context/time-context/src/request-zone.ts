@@ -3,28 +3,47 @@
 import { assertNever } from '@deepseek-ai/dsh-llm'
 import type { UserMessage } from '@deepseek-ai/dsh-llm'
 
+const IANA_TIME_ZONE = /^[A-Za-z][A-Za-z0-9_+.-]*(?:\/[A-Za-z0-9_+.-]+)+$/
+
 /** Browser-zone facts derived from user-rpc messages in one open turn. */
 export type BrowserTimeZoneContext =
   | { readonly kind: 'resolved'; readonly timeZone: string }
   | { readonly kind: 'mixed'; readonly timeZones: readonly string[] }
   | { readonly kind: 'missing' }
 
-/** Read a Host-validated browser zone from one ordinary user-rpc message. */
+/** Read and validate a Host-canonicalized browser zone from one ordinary user-rpc message. */
 function browserTimeZone(message: UserMessage): string | undefined {
   const source = message.source
-  return source.kind === 'user'
+  const value = source.kind === 'user'
     && 'rpcId' in source
     && typeof source.rpcId === 'string'
     && 'clientTimeZone' in source
     && typeof source.clientTimeZone === 'string'
     ? source.clientTimeZone
     : undefined
+  if (value === undefined) return undefined
+  if (value !== 'UTC' && !IANA_TIME_ZONE.test(value)) {
+    throw new TypeError(
+      `browser time zone must be canonical UTC or IANA Area/Location: ${JSON.stringify(value)}`,
+    )
+  }
+  let canonical: string
+  try {
+    canonical = new Intl.DateTimeFormat('en-US', { timeZone: value }).resolvedOptions().timeZone
+  } catch (error: unknown) {
+    throw new TypeError(`browser time zone is unsupported: ${JSON.stringify(value)}`, { cause: error })
+  }
+  if (canonical !== value) {
+    throw new TypeError(`browser time zone must be canonical: ${JSON.stringify(value)}`)
+  }
+  return value
 }
 
 /**
  * Derive the unique, mixed, or missing browser zone for one open turn.
  * @param messages - Entered and proposed user messages belonging to the turn.
  * @returns Sorted, duplicate-free browser-zone facts.
+ * @throws TypeError when a user-rpc source carries an invalid or noncanonical zone.
  */
 export function deriveBrowserTimeZoneContext(
   messages: readonly UserMessage[],

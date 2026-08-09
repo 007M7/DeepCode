@@ -201,7 +201,7 @@ function parseOffsetInstant(value: string): number {
   if (groups === undefined) {
     throw new ScheduleInputError(
       'invalid_rule',
-      'at must be a strict RFC 3339 date-time with an explicit Z or numeric offset.',
+      'at must use YYYY-MM-DDTHH:mm:ss with optional 1-3 digit fractional seconds and an explicit Z or numeric offset.',
     )
   }
   const parts: CalendarParts = {

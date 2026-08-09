@@ -2016,7 +2016,17 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       },
 
       async prompt(request, signal) {
-        const { parentSessionId, childSessionId, content } = request.payload
+        const { parentSessionId, childSessionId, content, clientTimeZone } = request.payload
+        const canonicalTimeZone = clientTimeZone === undefined
+          ? undefined
+          : canonicalClientTimeZone(clientTimeZone)
+        if (clientTimeZone !== undefined && canonicalTimeZone === undefined) {
+          return err(request, {
+            code: 'invalid-time-zone',
+            message: 'clientTimeZone must be UTC or a valid IANA Area/Location name',
+            details: { value: clientTimeZone },
+          })
+        }
         const parent = ctx.agents.get(parentSessionId)
         if (parent === undefined) {
           return err(request, {
@@ -2031,7 +2041,11 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         if (verified.error !== undefined) return err(request, verified.error)
         try {
           const messageId = await ctx.subagents.followup(parent, childSessionId, content, {
-            source: { kind: 'user', rpcId: request.rpcId },
+            source: {
+              kind: 'user',
+              rpcId: request.rpcId,
+              ...(canonicalTimeZone === undefined ? {} : { clientTimeZone: canonicalTimeZone }),
+            },
             signal,
           })
           return ok(request, { messageId })

@@ -33,6 +33,19 @@ describe('browser request-zone context', () => {
     })
   })
 
+  it('validates every browser zone before classifying a mixed turn', () => {
+    expect(() => deriveBrowserTimeZoneContext([
+      browserMessage('+08:00'),
+    ])).toThrow(/canonical UTC or IANA Area\/Location/)
+    expect(() => deriveBrowserTimeZoneContext([
+      browserMessage('Asia/Shanghai'),
+      browserMessage('Not/A_Real_Zone'),
+    ])).toThrow(/browser time zone is unsupported/)
+    expect(() => deriveBrowserTimeZoneContext([
+      browserMessage('Etc/UTC'),
+    ])).toThrow(/browser time zone must be canonical/)
+  })
+
   it('renders one explicit model policy for every context', () => {
     expect(renderBrowserTimeZoneContext({ kind: 'resolved', timeZone: 'Asia/Shanghai' }))
       .toContain('Interpret otherwise-unqualified dates and times in this zone.')

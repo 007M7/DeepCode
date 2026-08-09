@@ -14,6 +14,7 @@ import {
   deriveBrowserTimeZoneContext,
   renderBrowserTimeZoneContext,
 } from './request-zone.ts'
+import type { BrowserTimeZoneContext } from './request-zone.ts'
 import { createTimestampFormatter, formatTimestamp } from './timestamp.ts'
 
 /** Cordis plugin name used by loader diagnostics. */
@@ -113,13 +114,13 @@ function renderText(
   previous: number | undefined,
   formatter: Intl.DateTimeFormat,
   timeZone: string,
-  messages: readonly UserMessage[],
+  browserContext: BrowserTimeZoneContext,
 ): string {
   const elapsed = previous === undefined ? 'unavailable' : formatDuration(now - previous)
   const baseline = step === 1 ? 'model-visible message' : 'step context'
-  const browserContext = renderBrowserTimeZoneContext(deriveBrowserTimeZoneContext(messages))
+  const browserText = renderBrowserTimeZoneContext(browserContext)
   return `Time sampled while preparing turn ${turn}, step ${step}: ${formatTimestamp(now, formatter, timeZone)}\n`
-    + `${browserContext}\n`
+    + `${browserText}\n`
     + `Elapsed since the preceding ${baseline}: ${elapsed}.`
 }
 
@@ -192,7 +193,7 @@ export function apply(ctx: Context, config: Config): void {
       previous,
       formatterFor(selectedTimeZone),
       selectedTimeZone,
-      messages,
+      browser,
     )
     return {
       kind: 'enter',
