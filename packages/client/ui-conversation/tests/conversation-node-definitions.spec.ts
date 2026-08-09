@@ -698,6 +698,26 @@ describe('built-in conversation node Definitions', () => {
     })
   })
 
+  it('ignores legacy compaction transactions without correlation ids', () => {
+    const value = assembler([
+      at(10, 'compact/start', { turn: null }),
+      at(11, 'compact/end', { turn: null, error: 'This operation was aborted' }),
+      at(20, 'compact/start', { turn: null }),
+      at(21, 'compact/summary', {
+        summary: [{ type: 'text', text: 'legacy summary' }],
+        shadowedSeqs: [1, 2, 3],
+        shadowedTokenCount: 42,
+      }),
+      at(22, 'user/message', {
+        ...textMessage('legacy-checkpoint', 'checkpoint'),
+        source: { kind: 'plugin', plugin: 'compact' },
+      }, { surfaceOp: { op: 'replace', start: 1, end: 3 } }),
+      at(23, 'compact/end', { turn: null }),
+    ], true)
+
+    expect(node(snapshot(value), 'compaction')).toBeUndefined()
+  })
+
   it('suppresses a turn error when the loaded tail contains only a later retry attempt', () => {
     const value = assembler([
       at(5, 'llm/retry', {

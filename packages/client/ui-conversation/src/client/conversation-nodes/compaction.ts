@@ -39,7 +39,9 @@ export const compactionDefinition: ConversationNodeDefinition<CompactionState> =
       || event.type === 'compact/summary'
       || event.type === 'compact/end') {
       if (event.data.sourceCommandId !== undefined) return null
-      return { id: String(event.data.compactionId), role: event.type === 'compact/start' ? 'start' : 'update' }
+      const compactionId: unknown = event.data.compactionId
+      if (typeof compactionId !== 'string' || compactionId === '') return null
+      return { id: compactionId, role: event.type === 'compact/start' ? 'start' : 'update' }
     }
     return null
   },
