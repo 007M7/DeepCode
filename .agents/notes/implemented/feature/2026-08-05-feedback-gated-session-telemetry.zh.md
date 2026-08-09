@@ -1,4 +1,4 @@
-# Agent Note：反馈门控的会话遥测
+# Agent Note: 反馈门控的会话遥测
 
 Status: implemented
 

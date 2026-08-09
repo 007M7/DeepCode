@@ -2,14 +2,14 @@
 
 [English](providers.md) | 中文
 
-Harness 出厂自带 DeepSeek，同时预装了一个通用的多提供方适配器，用来接入 Anthropic、OpenAI 这类内置目录里的提供方，或任何 OpenAI 兼容的网关与自建服务。你有两个入口：Web 界面的**模型**页，以及 `$DSH_HOME/settings.yaml`。两者写的是同一份文档，改完下一次请求即生效，不用重启。
+Harness 出厂自带 DeepSeek，同时预装了一个通用的多提供方适配器，用来接入 pi-ai 已安装目录中的 Anthropic、OpenAI 等提供方，或任何 OpenAI 兼容的网关与自建服务。你有两个入口：Web 界面的**模型**页，以及 `$DSH_HOME/settings.yaml`。两者写的是同一份文档，改完下一次请求即生效，不用重启。
 
 ## 提供方从哪里来
 
 `cordis.yml` 决定装了哪些**适配器**，settings 文档决定跑哪些**提供方**。出厂组合里有两个 LLM 适配器：
 
 - `llm-deepseek` 提供 `deepseek-official` 路由，是默认可用的那个。
-- `llm-pi-ai` 以**休眠**状态挂载：零路由，模型选择器里也不会多出条目，直到 settings 里的 `llm-pi-ai:` 段落给出 provider profile，路由才注册上来；段落清空则一并撤下。
+- `llm-pi-ai` 以**休眠**状态挂载：零路由，模型选择器里也不会多出条目，直到 settings 里的 `llm-pi-ai:` 段落给出提供方 profile，路由才注册上来；段落清空则一并撤下。
 
 因此新增一个提供方通常不需要改 `cordis.yml`，写 settings 就够了——而模型页做的正是这件事。
 
@@ -120,7 +120,7 @@ settings 段落**逐个提供方**地盖在 `cordis.yml` 的同名配置之上�
 
 在 `dsh` 下，引用依次从继承环境、模型页的 `$DSH_HOME/.credentials.yaml` 存储、调用目录的 `.env` 和 `$DSH_HOME/.env` 解析。未挂载凭据服务时，引用只读取同名环境变量。一份凭据供该路由上的所有模型使用。
 
-## 让 agent 用上新提供方
+## 让 agent（智能体）用上新提供方
 
 配好的路由会出现在 Web 的模型选择器里，随时可切，这也是最常用的方式。
 

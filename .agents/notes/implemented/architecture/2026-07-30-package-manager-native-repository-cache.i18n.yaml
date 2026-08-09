@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-07-30-package-manager-native-repository-cache.md
 2026-07-30-package-manager-native-repository-cache.md: 0ea145f20a58e4e3e9feb7ba5574818c0352e2c4
-2026-07-30-package-manager-native-repository-cache.zh.md: 2dd10f756d0b26a7af89e74be034be83d95fcb0e
+2026-07-30-package-manager-native-repository-cache.zh.md: a4ad07c42eec7b05f51b18aaf54fcfedaa4d4b3c

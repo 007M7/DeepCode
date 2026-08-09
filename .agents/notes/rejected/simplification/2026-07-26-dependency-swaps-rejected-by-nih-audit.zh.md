@@ -6,7 +6,7 @@ Status: rejected — 下列每一项替换在证据上都未达到净简化门�
 
 ## 问题
 
-一次仓库级的「Not Invented Here（非我发明）」审计（2026-07-26，十路并行普查，覆盖每个包（package）分组、scripts/、native/、vendor/ 边界、python/、测试基础设施与 CI）对每一处手写接口面追问同一个问题：在[依赖政策](../../implemented/process/2026-07-26-dependencies-over-hand-rolling.md)之下，是否有持续维护的外部包或 Node 内置能力能以净收益把它删除？得出肯定结论的发现已各自写成独立的提案 Agent Note（agent 决策记录）。否定裁定的价值不相上下——每一条都点名了一个看似可行、实则手写形态在承重的替换——但否则它们只会留存在某个 PR（Pull Request）正文里。本 note 将它们固化在案。
+一次仓库级的「Not Invented Here（非我发明）」审计（2026-07-26，十路并行普查，覆盖每个包分组、scripts/、native/、vendor/ 边界、python/、测试基础设施与 CI）对每一处手写接口面追问同一个问题：在[依赖政策](../../implemented/process/2026-07-26-dependencies-over-hand-rolling.md)之下，是否有持续维护的外部包或 Node 内置能力能以净收益把它删除？得出肯定结论的发现已各自写成独立的提案 Agent Note。否定裁定的价值不相上下——每一条都点名了一个看似可行、实则手写形态在承重的替换——但否则它们只会留存在某个 PR（Pull Request）正文里。本 Agent Note 将它们固化在案。
 
 ## 提案
 
@@ -24,7 +24,7 @@ Status: rejected — 下列每一项替换在证据上都未达到净简化门�
 
 - **以 `p-retry`/`exponential-backoff` 替换 `llm-retry`**：执行模型不对——该插件是一个返回决策的 waterfall（瀑布式事件）监听器，重新执行由 agent loop（智能体循环）依据持久日志负责；根本不存在可供重新调用的函数，而那恰是这些库的全部 API。提供方 `Retry-After` 覆写、依据先前失败代码计算预算、持久化的 `llm/retry` 事件、HMR（热模块替换）完全停稳式中止，全都无从覆盖。[LLM（大语言模型）请求受限恢复决策](../../implemented/architecture/2026-06-21-bounded-llm-request-recovery.md)已经否决了由 SDK 持有的重试。
 - **以 `p-timeout`/`AbortSignal.timeout` 替换 `dsh-timeout`**：内置能力无法提前解除，抛出的是通用 `TimeoutError`，而不是能区分嵌套截止时限、按能力编码的 `TimeoutReason`；`idleWatchdog` 按需逐次重新装定的能力没有等价物。设计归[超时库决策](../../implemented/architecture/2026-07-06-timeout-deadline-library.md)所有。
-- **以 `p-limit`/`p-queue` 替换 agent-loop 的工具调用池**：池的簿记只有约 25 行；实质部分（按模型顺序提交、组中途重新分类、排他屏障、带合成持久结果的中止排空）根本不是并发限制器的形状。
+- **以 `p-limit`/`p-queue` 替换 agent loop 的工具调用池**：池的簿记只有约 25 行；实质部分（按模型顺序提交、组中途重新分类、排他屏障、带合成持久结果的中止排空）根本不是并发限制器的形状。
 - **以 `p-queue`/`async-mutex` 替换按 key 的 promise 链串行器**（`fs-local`、`storage-domain`）：串行器只有 8–14 行；这些包严格大于它们所能删除的代码。
 - **以 `events.once` + `AbortSignal.timeout` 替换 subagent-subprocess 的 `exitsWithin`**：`error` 先触发时 `events.once` 会 reject，而手写实现有意忽略 `error`（由 spawn 失败路径单独捕获）；这次替换恰恰会在语义本身就是拆除竞态的那段代码里改变拆除竞态行为。
 
@@ -74,5 +74,5 @@ Status: rejected — 下列每一项替换在证据上都未达到净简化门�
 ## 曾考虑的替代方案
 
 - **什么都不记录，让 PR 正文承载这些裁定。** 不予采纳：PR 正文不属于受维护的记录，而普查的全部意义就在于下一次审计从这些裁定出发，而不是重新推导。
-- **每一项各写一份 rejected note。** 不予采纳：为共享同一套证据标准、同一种命运的裁定制造约 30 个文件的仪式感；只有当某一项带着新证据被重新提出时，逐项 note 才有必要。
-- **把每条裁定并入拥有该 seam 的 implemented note。** 部分已做——凡是持有方 note 已经否决过该替代方案的（重试、token 计量、schema DSL、zstd、沙箱、node-pty），本 note 一律援引而不重复。其余各项没有持有方 note，这正是它们记录于此的原因。
+- **每一项各写一份 rejected note。** 不予采纳：为共享同一套证据标准、同一种命运的裁定制造约 30 个文件的仪式感；只有当某一项带着新证据被重新提出时，逐项 Agent Note 才有必要。
+- **把每条裁定并入拥有该 seam 的 implemented note。** 部分已做——凡是持有方 Agent Note 已经否决过该替代方案的（重试、token 计量、schema DSL、zstd、沙箱、node-pty），本 note 一律援引而不重复。其余各项没有持有方 note，这正是它们记录于此的原因。

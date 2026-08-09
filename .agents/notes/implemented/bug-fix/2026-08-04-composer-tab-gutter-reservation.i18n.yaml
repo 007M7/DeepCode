@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-04-composer-tab-gutter-reservation.md
 2026-08-04-composer-tab-gutter-reservation.md: 3b28c35c1f11676e41cabde76d1b0d16c688f034
-2026-08-04-composer-tab-gutter-reservation.zh.md: 26e8b6bff73a01e6518f3918d201330c1d029876
+2026-08-04-composer-tab-gutter-reservation.zh.md: c357dd06c52a834c18d2e8a25246d4ad003db548

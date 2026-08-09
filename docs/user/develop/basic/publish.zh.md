@@ -2,14 +2,14 @@
 
 [English](publish.md) | 中文
 
-前几篇教程通过 `--patch` overlay 加载本地插件。本教程把它打包成可安装的**组合包**（bundle），用 `dsh plugin add` 安装进一个 **profile**，并解释决定组合后配置的层顺序。请先完成[插件配置](./config.md)。
+前几篇教程通过 `--patch` overlay 加载本地插件。本教程把它打包成可安装的**组合包**，用 `dsh plugin add` 安装进一个 **profile**，并解释决定组合后配置的层顺序。请先完成[插件配置](./config.md)。
 
-## 两个概念，两种 manifest
+## 两个概念，两种 manifest（元数据清单）
 
-安装机制建立在两个概念之上。二者都由一份 `package.json` 描述，但它们在 `dsh` 键下携带的 manifest（元数据清单）种类不同，回答的问题也不同：
+安装机制建立在两个概念之上。二者都由一份 `package.json` 描述，但它们在 `dsh` 键下携带的 manifest 种类不同，回答的问题也不同：
 
-- **组合包**是附带一个配置层的 npm 包。它的 manifest 声明 `dsh.bundle`，回答的是"这个包贡献什么？"：一个插入或覆盖插件行的 patch 文件。
-- **profile** 是位于 `$DSH_HOME/profiles/<name>` 下、描述一份可启动组合的目录。它的 manifest 声明 `dsh.profile`，回答的是"这套配置由哪些组合包按什么顺序组成？"。
+- **组合包**是附带一个配置层的 npm 包。它的 manifest 声明 `dsh.bundle`，回答的是「这个包贡献什么？」：一个插入或覆盖插件行的 patch 文件。
+- **profile** 是位于 `$DSH_HOME/profiles/<name>` 下、描述一份可启动组合的目录。它的 manifest 声明 `dsh.profile`，回答的是「这套配置由哪些组合包按什么顺序组成？」。
 
 组合包是你编写并分发的东西；profile 是用户用 `dsh --profile <name>` 启动的东西。没有东西同时是两者。
 
@@ -41,7 +41,7 @@ patch 文件的形状与你一直在写的 `--patch` overlay 相同——一个 
       name: dsh-hello-plugin
 ```
 
-没有 `dsh.bundle` 声明的包仍然可以安装，但只作为普通依赖：`dsh plugin` 会打印警告，且不激活任何层。这正是"供插件包 import 的库"应有的形状，区别于"供用户启用的插件"。
+没有 `dsh.bundle` 声明的包仍然可以安装，但只作为普通依赖：`dsh plugin` 会打印警告，且不激活任何层。这正是「供插件包 import 的库」应有的形状，区别于「供用户启用的插件」。
 
 ### profile manifest
 
@@ -127,7 +127,7 @@ dsh plugin --profile demo add github:you/hello-plugin
 
   然后重新执行 `add`。
 
-请如实看待这项授权：**允许该包的代码在安装时于你的机器上执行**，且不在 agent 运行的任何沙箱之内。只对源码可信的包授权，并锁定 commit（`github:you/hello-plugin#<sha>`），让后续推送无法悄悄改变实际运行的内容。
+请如实看待这项授权：**允许该包的代码在安装时于你的机器上执行**，且不在 agent（智能体）运行的任何沙箱之内。只对源码可信的包授权，并锁定 commit（`github:you/hello-plugin#<sha>`），让后续推送无法悄悄改变实际运行的内容。
 
 如果不想让用户做这项授权，就改为分发构建产物——以下两种形式都不需要任何构建权限：
 
