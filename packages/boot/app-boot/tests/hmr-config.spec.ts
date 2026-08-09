@@ -1,4 +1,5 @@
-import { mkdirSync, mkdtempSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
+import { realpath } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -6,14 +7,19 @@ import { Context } from 'cordis'
 import Hmr from '@cordisjs/plugin-hmr'
 import Loader from '@cordisjs/plugin-loader'
 import Timer from '@cordisjs/plugin-timer'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
-async function bootHmr(dir: string): Promise<Context> {
+async function bootHmr(dir: string, root: string[] = [], usePolling?: boolean): Promise<Context> {
   const ctx = new Context()
   ctx.baseUrl = pathToFileURL(dir).href + '/'
   await ctx.plugin(Loader)
   await ctx.plugin(Timer)
-  await ctx.plugin(Hmr, { root: [], ignored: [], debounce: 0 })
+  await ctx.plugin(Hmr, {
+    root,
+    ignored: [],
+    debounce: 0,
+    ...usePolling === undefined ? {} : { usePolling },
+  })
   return ctx
 }
 
@@ -26,6 +32,57 @@ async function eventually(test: () => boolean, message: string): Promise<void> {
 }
 
 describe('HMR exact config paths', () => {
+  it('observes module changes when its watch base is a filesystem alias', { timeout: 30_000 }, async () => {
+    const target = mkdtempSync(join(tmpdir(), 'dsh-hmr-module-canonical-'))
+    const alias = `${target}-alias`
+    const aliasFilename = join(alias, 'module.ts')
+    symlinkSync(target, alias, process.platform === 'win32' ? 'junction' : 'dir')
+    writeFileSync(aliasFilename, 'export const generation = 0\n')
+    // This acceptance owns alias-to-cache identity. Other cases below exercise
+    // native events; polling keeps Windows fs.watch queue pressure out of it.
+    const ctx = await bootHmr(alias, ['.'], true)
+    const filename = join(await realpath(target), 'module.ts')
+    const expected = pathToFileURL(filename).href
+    const cacheHas = vi.spyOn(ctx.loader.internal!.loadCache, 'has').mockReturnValue(false)
+    const observed: string[] = []
+    ctx.on('hmr/change', (url) => { observed.push(url) })
+    try {
+      const deadline = Date.now() + 20_000
+      for (let generation = 1; !observed.includes(expected); generation += 1) {
+        if (Date.now() >= deadline) {
+          throw new Error(`HMR did not observe ${expected} through the alias; observed ${JSON.stringify(observed)}`)
+        }
+        // The watch base, not the writer spelling, is the alias under test.
+        // Grow the file on every write: polling must not depend on timestamp
+        // precision when several generations land inside one filesystem tick.
+        writeFileSync(filename, `export const generation = ${generation}\n${' '.repeat(generation)}\n`)
+        // Leave Chokidar's atomic-write window idle so one coalesced change can publish.
+        await new Promise(resolve => setTimeout(resolve, 250))
+      }
+      expect(cacheHas).toHaveBeenCalledWith(expected)
+    } finally {
+      await ctx.fiber.dispose()
+      rmSync(alias, { force: true })
+      rmSync(target, { recursive: true, force: true })
+    }
+  })
+
+  it('collapses filesystem aliases before registering an exact watch', async () => {
+    const target = mkdtempSync(join(tmpdir(), 'dsh-hmr-canonical-'))
+    const alias = `${target}-alias`
+    symlinkSync(target, alias, process.platform === 'win32' ? 'junction' : 'dir')
+    const ctx = await bootHmr(alias)
+    try {
+      await ctx.hmr.registerConfig('plugins.yml', () => {})
+      await expect(ctx.hmr.registerConfig(join(await realpath(target), 'plugins.yml'), () => {}))
+        .rejects.toThrow('config path already registered')
+    } finally {
+      await ctx.fiber.dispose()
+      rmSync(alias, { force: true })
+      rmSync(target, { recursive: true, force: true })
+    }
+  })
+
   it('observes add, change, and unlink outside its module roots', { timeout: 20_000 }, async () => {
     const dir = mkdtempSync(join(tmpdir(), 'dsh-hmr-config-'))
     const filename = join(dir, 'plugins.yml')
@@ -133,6 +190,9 @@ describe('HMR exact config paths', () => {
       expect(observed.error).toBeInstanceOf(Error)
       expect(observed.error.message).toBe('42')
 
+      // Let Chokidar's atomic-write window close before requiring a distinct
+      // second notification from the same path.
+      await new Promise(resolve => setTimeout(resolve, 250))
       writeFileSync(filename, 'invalid again')
       await eventually(() => failureCount === 2, 'HMR stopped broadcasting after an observer rejected')
     } finally {
