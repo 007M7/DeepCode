@@ -8,12 +8,17 @@ import Loader from '@cordisjs/plugin-loader'
 import Timer from '@cordisjs/plugin-timer'
 import { describe, expect, it, vi } from 'vitest'
 
-async function bootHmr(dir: string, root: string[] = []): Promise<Context> {
+async function bootHmr(dir: string, root: string[] = [], usePolling?: boolean): Promise<Context> {
   const ctx = new Context()
   ctx.baseUrl = pathToFileURL(dir).href + '/'
   await ctx.plugin(Loader)
   await ctx.plugin(Timer)
-  await ctx.plugin(Hmr, { root, ignored: [], debounce: 0 })
+  await ctx.plugin(Hmr, {
+    root,
+    ignored: [],
+    debounce: 0,
+    ...usePolling === undefined ? {} : { usePolling },
+  })
   return ctx
 }
 
@@ -32,7 +37,9 @@ describe('HMR exact config paths', () => {
     const aliasFilename = join(alias, 'module.ts')
     symlinkSync(target, alias, process.platform === 'win32' ? 'junction' : 'dir')
     writeFileSync(aliasFilename, 'export const generation = 0\n')
-    const ctx = await bootHmr(alias, ['.'])
+    // This acceptance owns alias-to-cache identity. Other cases below exercise
+    // native events; polling keeps Windows fs.watch queue pressure out of it.
+    const ctx = await bootHmr(alias, ['.'], true)
     const filename = join(realpathSync(target), 'module.ts')
     const expected = pathToFileURL(filename).href
     const cacheHas = vi.spyOn(ctx.loader.internal!.loadCache, 'has').mockReturnValue(false)
