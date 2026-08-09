@@ -4,7 +4,7 @@ This file defines document structure, Markdown tiers, writing rules, and `verify
 
 ## Document structure
 
-These rules apply to human-facing documentation; [Agent Notes](../.agents/notes/README.md) remain outside their scope. A [postmortem](postmortem/README.md) is an incident-scoped reference; chronology records evidence, not a teaching sequence. A document's subject and tree position fix its scope: describe its own subject at appropriate detail, describe direct children only by purpose, responsibility, and high-level behavior, and link to the owning descendant for lower-level detail. Document type does not widen that scope. A reference may be exhaustive only about its own subject. Testing mechanisms, fixtures, and harnesses belong at the lowest owning level; higher documents link there.
+These rules apply to human-facing documentation; [Agent Notes](../.agents/notes/README.md) remain outside their scope. A [postmortem](postmortem/README.md) is an incident-scoped reference; chronology records evidence, not a teaching sequence. A document's subject and tree position fix its scope: describe its own subject at appropriate detail and direct children only by purpose, responsibility, and high-level behavior; link to the owning descendant for lower-level detail. Document type does not widen that scope. A reference may be exhaustive only about its own subject. Testing mechanisms, fixtures, and harnesses belong at the lowest owning level; higher documents link there.
 
 Classify every in-scope document as a tutorial or reference. A tutorial follows an ordered path to an outcome and introduces only what each step needs. A reference defines a lookup scope and describes current behavior without depending on a teaching sequence. Separate substantial tutorial and reference content; use a clear structural boundary when either part is small.
 
@@ -14,7 +14,7 @@ Author in this order: locate the document in the tree; set its permitted detail;
 
 ## The tier taxonomy: one home per fact
 
-Each fact has one home: the tier whose job it is. Elsewhere, link to that home.
+Each fact has one home: the tier whose job it is; elsewhere, link there.
 
 | Tier | Job | Does NOT belong there |
 |---|---|---|
@@ -52,21 +52,21 @@ When the gate goes red:
 
 1. **Relocate** content that belongs in another tier; leave a one-line link if needed.
 2. **Condense** content that belongs here but can be shorter.
-3. **Raise** the ceiling only when the words truly need the space; justify the manifest diff in the PR. A too-low ceiling is a budget bug.
+3. **Raise** the ceiling only when the words need the space; justify the manifest diff in the PR. A too-low ceiling is a budget bug.
 
 Ceilings are guardrails, not reduction targets. At or below target, retain at least 5% headroom; above target, freeze the ceiling until relocation or condensation brings the document under target. Lower a ceiling only when the contract still has room, and raise it when content would otherwise be deleted. Targets: root `AGENTS.md` ≤ 1,600 words; `architecture.md` ≤ 1,800; subtree `AGENTS.md` ≤ 600, except `packages/AGENTS.md` ≤ 650 and this file ≤ 1,250; `packages/README.md` ≤ 600. Review governs unbudgeted tiers.
 
 ## The slop checklist
 
-Hunt these in any doc; the [dsh-doc-standards](../.agents/skills/dsh-doc-standards/SKILL.md) skill runs this list as an audit:
+Hunt these in any doc; [dsh-doc-standards](../.agents/skills/dsh-doc-standards/SKILL.md) runs this list as an audit:
 
-- The same rule stated in more than one home. Grep a distinctive phrase; keep one home, convert the rest to links.
+- The same rule stated in more than one home. Grep a distinctive phrase; keep one home and link the rest.
 - Narrated history or war stories: "previously", "now", "no longer", "used to", "renamed", "was moved", PRs, or commits. State the current fact; link an Agent Note or postmortem when needed.
 - Implementation-status annotations in prose or diagrams ("implemented!", "future: …"). Status rots; the repo layout and package manifests carry it.
 - Hand-restated catalogs, JSDoc, or inventories of tests, packages, and status when source or a generator is authoritative.
 - Reasoning transcripts: step-by-step implementation narration, proof of obvious branches, test walkthroughs, or rejected local alternatives. Keep the resulting contract or durable rationale; delete the path used to derive it.
 - Rationale repeated beside sibling methods instead of once at the owning capability or helper.
-- Paragraph walls: one paragraph carrying several rules and parenthetical asides. Split it, or demote the detail to the linked home.
+- Paragraph walls: one paragraph carrying several rules and parenthetical asides. Split it or demote the detail to its home.
 - Emphasis inflation: bold, CAPS, or "critically" everywhere means nothing stands out. Reserve emphasis for the clause that changes behavior.
 - Spec-speak in `implemented/` Agent Notes: "should", migration plans, acceptance checklists. An implemented Agent Note describes what is, per the [implemented-note instructions](../.agents/notes/implemented/AGENTS.md).
 

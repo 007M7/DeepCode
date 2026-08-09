@@ -30,7 +30,7 @@
  * Failure window: if prefetch rejects after invalidate, the module is left
  * unregistered while the OLD fiber keeps running untouched (teardown never
  * started) — degraded but recoverable, the next rebuilt frame retries from
- * scratch. Consistent with the v1 no-rollback policy below. Known dev-only
+ * scratch. Consistent with the no-rollback policy below. Known dev-only
  * race: a rebuilt frame overlapping a still-in-flight boot arrival shares
  * that arrival's task and may materialize the pre-rebuild bytes; the next
  * rebuilt frame self-heals.
@@ -57,7 +57,7 @@
  * apply opens a fresh channel. Frames arriving during the gap are lost —
  * acceptable for the dev channel, the next rebuild renotifies.
  *
- * Failure policy (v1): no rollback. An import failure leaves the entry
+ * Failure policy: no rollback. An import failure leaves the entry
  * fiberless (the next rebuilt frame retries from scratch); an apply failure
  * leaves a FAILED fiber for the shell's status projection. Both log loudly.
  */
@@ -135,7 +135,7 @@ export function apply(ctx: Context): void {
     // re-plugins under the entry context. Import failures are logged by
     // Entry._init and leave the entry fiberless (retryable).
     await entry.refresh()
-    // Surface apply failures loudly (v1: no rollback, FAILED state stays).
+    // Surface apply failures loudly (no rollback, FAILED state stays).
     await entry.fiber?.await()
   }
 
@@ -151,7 +151,7 @@ export function apply(ctx: Context): void {
         })
         break
       case 'graph':
-        // Connect-time snapshot, unused in v1. The loader's cached graph rev
+        // Connect-time snapshot, unused. The loader's cached graph rev
         // goes stale after rebuilds — harmless, since prefetch hits the
         // network anyway (host serves bundles no-cache); graph rev refresh
         // lands with the reconnect-handshake mechanism.
