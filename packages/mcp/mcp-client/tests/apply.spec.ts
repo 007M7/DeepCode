@@ -209,7 +209,7 @@ describe('apply (plugin lifecycle)', () => {
     expect(other.tools.get('mcp__srv__remote')).toBeDefined()
   })
 
-  it('logs error and registers no tools when connect fails; dispose is a no-op', async () => {
+  it('logs error and registers no tools when connect fails; dispose closes the client', async () => {
     mockConnect.mockRejectedValue(new Error('connection refused'))
 
     await apply(ctx, stdioConfig)

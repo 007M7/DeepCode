@@ -60,7 +60,7 @@ Git 传输使用宿主的常规 Git 认证。公共仓库无需凭据；私有�
 
 ## 准备阶段
 
-安装精确指定的 Git 源时，DSH 随附的 pnpm 会按所选包自身的 manifest 安装。由事务持有的 `pnpm` 包装脚本会以 `--ignore-workspace` 重新调用同一份锁定的 pnpm，因此外层 workspace lockfile 无法抑制仅由所选 `.dsh-plugin` 包声明的依赖。必需的 `prepack` 生命周期在该依赖安装完成后、选定子目录打包前运行；其常规 `node_modules/.bin` 查找会从已声明的 `@deepseek-ai/dsh-repository-plugin` 依赖取得 `dsh-plugin-prepare`。该包把 Cordis／DSH 运行时对等依赖（peer dependency）标为可选，因此单独使用该可执行文件不会安装运行时依赖图。包自有命令可以在调用辅助程序前构建 TypeScript 或其他源码。辅助程序会校验 `package.json#dsh`，确认已编译入口是包内文件，校验 skill 与 MCP 源，把静态资源复制到 `dsh-plugin-assets`，并写入 `dsh-plugin.mjs`。导入该包装层前，DSH 会重新校验已安装包是否仍保留包含该辅助命令的 `prepack` 声明。无法解析已发布的辅助程序，或安装依赖、构建或准备失败时，流程会在发布缓存 generation 前失败。设计依据见[基于 NPM 的 Git 源准备 Agent Note](../../../.agents/notes/implemented/bug-fix/2026-08-08-npm-backed-git-repository-plugin-preparation.md)。
+安装精确指定的 Git 源时，DSH 随附的 pnpm 会按所选包自身的 manifest 安装。由事务持有的 `pnpm` 包装脚本会以 `--ignore-workspace` 重新调用同一份锁定的 pnpm，因此外层 workspace lockfile 无法抑制仅由所选 `.dsh-plugin` 包声明的依赖。必需的 `prepack` 生命周期在该依赖安装完成后、选定子目录打包前运行；其常规 `node_modules/.bin` 查找会从直接声明的 `@deepseek-ai/dsh-repository-plugin` 开发依赖中取得 `dsh-plugin-prepare`。该包把 Cordis／DSH 运行时对等依赖（peer dependency）标为可选，因此单独使用该可执行文件不会安装运行时依赖图。包自有命令可以在调用辅助程序前构建 TypeScript 或其他源码。辅助程序会校验 `package.json#dsh`，确认已编译入口是包内文件，校验 skill 与 MCP 源，把静态资源复制到 `dsh-plugin-assets`，并写入 `dsh-plugin.mjs`。导入该包装层前，DSH 会重新校验已安装包是否仍同时保留该直接开发依赖，以及包含该辅助命令的 `prepack` 声明。无法解析已发布的辅助程序，或安装依赖、构建或准备失败时，流程会在发布缓存 generation 前失败。设计依据见[基于 NPM 的 Git 源准备 Agent Note](../../../.agents/notes/implemented/bug-fix/2026-08-08-npm-backed-git-repository-plugin-preparation.md)。
 
 ## 运行时组合
 

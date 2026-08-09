@@ -32,12 +32,16 @@ async function writePlugin(
   name: string,
   dsh: Record<string, unknown>,
   prepack = RepositoryPlugin.REPOSITORY_PLUGIN_PREPARE_COMMAND,
+  devDependencies: Record<string, string> = {
+    [RepositoryPlugin.REPOSITORY_PLUGIN_PACKAGE_NAME]: '0.0.1',
+  },
 ): Promise<string> {
   const directory = join(root, '.dsh-plugin')
   await mkdir(directory, { recursive: true })
   await writeFile(join(directory, 'package.json'), `${JSON.stringify({
     name,
     version: '0.0.0',
+    devDependencies,
     scripts: { prepack },
     dsh,
   }, undefined, 2)}\n`)
@@ -148,6 +152,17 @@ describe('dsh-plugin-prepare', () => {
       'npm run build',
     )
     await expect(RepositoryPlugin.prepareDshPlugin(skippedPrepare)).rejects.toThrow('must invoke dsh-plugin-prepare')
+
+    const undeclaredPrepareRoot = await temporaryDirectory('undeclared-prepare-dependency')
+    const undeclaredPrepare = await writePlugin(
+      undeclaredPrepareRoot,
+      'undeclared-prepare-dependency',
+      { skills: ['../skills'] },
+      RepositoryPlugin.REPOSITORY_PLUGIN_PREPARE_COMMAND,
+      {},
+    )
+    await expect(RepositoryPlugin.prepareDshPlugin(undeclaredPrepare))
+      .rejects.toThrow(RepositoryPlugin.REPOSITORY_PLUGIN_PACKAGE_NAME)
 
     const emptyRoot = await temporaryDirectory('empty-metadata')
     const empty = await writePlugin(emptyRoot, 'empty', {})
@@ -584,6 +599,7 @@ describe('configured GitHub repository sources', () => {
     const root = await temporaryDirectory('installed-lifecycle')
     await writeFile(join(root, 'package.json'), JSON.stringify({
       name: 'installed-lifecycle',
+      devDependencies: { [RepositoryPlugin.REPOSITORY_PLUGIN_PACKAGE_NAME]: '0.0.1' },
       scripts: { prepare: 'dsh-plugin-prepare' },
     }))
     const ctx = new Context()
@@ -606,6 +622,7 @@ describe('configured GitHub repository sources', () => {
     const root = await temporaryDirectory('installed-skipped-prepare')
     await writeFile(join(root, 'package.json'), JSON.stringify({
       name: 'installed-skipped-prepare',
+      devDependencies: { [RepositoryPlugin.REPOSITORY_PLUGIN_PACKAGE_NAME]: '0.0.1' },
       scripts: { prepack: 'npm run build' },
     }))
     const ctx = new Context()
@@ -613,6 +630,22 @@ describe('configured GitHub repository sources', () => {
       .rejects.toMatchObject({
         cause: expect.objectContaining({
           message: expect.stringContaining('must invoke dsh-plugin-prepare') as string,
+        }) as Error,
+      })
+    await ctx.fiber.dispose()
+  })
+
+  it('rejects installed source without the declared prepare dependency', async () => {
+    const root = await temporaryDirectory('installed-missing-prepare-dependency')
+    await writeFile(join(root, 'package.json'), JSON.stringify({
+      name: 'installed-missing-prepare-dependency',
+      scripts: { prepack: 'dsh-plugin-prepare' },
+    }))
+    const ctx = new Context()
+    await expect(loadPreparedRepository(ctx, { resolve: async () => root }, 'github:owner/repository#ambient-helper&path:/.dsh-plugin'))
+      .rejects.toMatchObject({
+        cause: expect.objectContaining({
+          message: expect.stringContaining(`${JSON.stringify(RepositoryPlugin.REPOSITORY_PLUGIN_PACKAGE_NAME)} in devDependencies`) as string,
         }) as Error,
       })
     await ctx.fiber.dispose()

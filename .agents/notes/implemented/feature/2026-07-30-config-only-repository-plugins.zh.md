@@ -12,13 +12,13 @@ Status: implemented
 
 已交付的 TUI 和 Web／无头 `cordis.yml` 配置树包含一个空的 `repository-plugins` 配置项。用户只需修改 `$DSH_HOME/config.yaml`，用 `repositories` 列表替换该配置项的配置。每一项采用 `github:owner/repository#<ref>`，并可追加 `&path:/.../.dsh-plugin`；省略时选择 `/.dsh-plugin`。必须显式指定 ref；路径是仓库内的绝对路径，并以 `.dsh-plugin` 结尾；重复的规范化说明符在安装前即被拒绝。不提供插件市场、发现索引、HTTPS URL 词汇或隐式的最新版本。
 
-`@deepseek-ai/dsh-repository-plugin` 校验并规范化每个源，再通过 vendor 中的通用 [`RepositoryCache`](../architecture/2026-07-30-package-manager-native-repository-cache.md) 解析。默认缓存位于 `$DSH_HOME/cache/repository-plugins`；`cacheDir` 是显式的部署覆盖项。随应用提供的 pnpm 选择已配置的 repository 子包，安装其依赖，运行包所定义的 `prepack` 与宿主准备辅助程序，并原子发布该精确说明符。DSH 宿主会导入生成的 `dsh-plugin.mjs` 包装层并将其挂载为子 fiber；该包装层组合静态 skill（技能）与 MCP 所有者，并在声明时组合显式的受信任 Cordis 入口。
+`@deepseek-ai/dsh-repository-plugin` 校验并规范化每个源，再通过 vendor 中的通用 [`RepositoryCache`](../architecture/2026-07-30-package-manager-native-repository-cache.md) 解析。默认缓存位于 `$DSH_HOME/cache/repository-plugins`；`cacheDir` 是显式的部署覆盖项。随应用提供的 pnpm 选择已配置的 repository 子包，安装其依赖，运行包所定义的 `prepack`，并原子发布该精确说明符。所选包对 `@deepseek-ai/dsh-repository-plugin` 的直接开发依赖通过包内 `node_modules/.bin` 提供 `dsh-plugin-prepare`；该生命周期会在任何包自有构建完成后调用它。DSH 宿主会导入生成的 `dsh-plugin.mjs` 包装层并将其挂载为子 fiber；该包装层组合静态 skill（技能）与 MCP 所有者，并在声明时组合显式的受信任 Cordis 入口。
 
 ## 实时更新与失败
 
 `dsh-app-boot` 通过一个辅助函数挂载根 Include，并保留其确切的 Loader `Entry`。TUI 和 Web 通过 Cordis HMR（热模块替换）注册 `$DSH_HOME/config.yaml`；无头界面在启动时读取同一文件，但不保留监视器。监视器更新会重新构建 Include 补丁列表，先放置不可变的应用自有补丁，再放置新解析的个人补丁。因此，Web 生成的端口、会话根目录、信任和前端值会在每次个人编辑后保留，除非后续个人补丁有意替换相应配置项。
 
-Cordis 会串行处理并合并该确切路径上的变更。Include 与 Loader 以事务方式协调候选配置：成功时提交新源列表；拉取、准备、包装模块导入、格式或子插件失败时拒绝候选配置，并保留或恢复最后一个可用树。HMR 会把捕获的值规范化为 `Error`，记录错误，并广播并行的 `hmr/config-update-failed(filename, error)` 事件；观察者失败不会中断刷新处理。MCP 传输连接失败仍沿用现有 MCP 客户端所收束的「插件成功加载但无工具」结果，因此不会被重新分类为配置更新失败。
+Cordis 会串行处理并合并该确切路径上的变更。Include 与 Loader 以事务方式协调候选配置：成功时提交新源列表；拉取、准备、包装模块导入、格式或子插件失败时拒绝候选配置，并保留或恢复最后一个可用树。HMR 会把捕获的值规范化为 `Error`，记录错误，并广播并行的 `hmr/config-update-failed(filename, error)` 事件；观察者失败不会中断刷新处理。Repository MCP 服务器采用严格启动，因此初始连接、发现或工具注册失败会拒绝候选配置，并构成配置更新失败；非严格的独立 MCP 客户端仍保留其所收束的「插件成功加载但无工具」行为。
 
 相同说明符会永久复用同一个缓存版本。HMR 监视配置，而非已缓存的仓库代码；用户必须改变 ref、路径或源列表，才能选择另一个版本。
 

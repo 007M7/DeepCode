@@ -12,6 +12,7 @@ import { resolveDshHome } from '@deepseek-ai/dsh-paths'
 import { z } from 'zod'
 import {
   PREPARED_ENTRY_FILENAME,
+  REPOSITORY_PLUGIN_PACKAGE_NAME,
   REPOSITORY_PLUGIN_PREPARE_COMMAND,
   hasRepositoryPrepareCommand,
 } from './format.ts'
@@ -29,6 +30,9 @@ export const DEFAULT_REPOSITORY_CACHE_DIRECTORY = 'repository-plugins'
 // resolvable point').
 const GITHUB_SOURCE_PATTERN = /^github:([^/\s#&]+)\/([^/\s#&]+)#([^\s#&]+)(?:&path:(\/[^\s&]+))?$/
 const installedPackageSchema = z.looseObject({
+  devDependencies: z.looseObject({
+    [REPOSITORY_PLUGIN_PACKAGE_NAME]: z.string().min(1),
+  }),
   scripts: z.looseObject({
     prepack: z.string().min(1).refine(
       hasRepositoryPrepareCommand,
@@ -81,7 +85,7 @@ async function assertInstalledPackageMetadata(directory: string): Promise<void> 
   const result = installedPackageSchema.safeParse(value)
   if (!result.success) {
     throw new Error([
-      `installed DSH plugin package must declare a non-empty scripts.prepack that invokes ${JSON.stringify(REPOSITORY_PLUGIN_PREPARE_COMMAND)}:`,
+      `installed DSH plugin package must declare a non-empty scripts.prepack that invokes ${JSON.stringify(REPOSITORY_PLUGIN_PREPARE_COMMAND)}, and declare ${JSON.stringify(REPOSITORY_PLUGIN_PACKAGE_NAME)} in devDependencies:`,
       z.prettifyError(result.error),
       'Clear the matching repository cache generation before retrying the same source, or select a different exact source/ref/path after fixing the package.',
     ].join('\n'))

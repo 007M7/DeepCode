@@ -16,6 +16,8 @@ export const PREPARED_ASSET_DIRECTORY = 'dsh-plugin-assets'
 export const REPOSITORY_PLUGIN_BUILTIN = 'dsh-repository-plugin'
 /** Dependency-provided command that repository package `prepack` lifecycles must invoke. */
 export const REPOSITORY_PLUGIN_PREPARE_COMMAND = 'dsh-plugin-prepare'
+/** Published package whose direct development dependency supplies the prepare command. */
+export const REPOSITORY_PLUGIN_PACKAGE_NAME = '@deepseek-ai/dsh-repository-plugin'
 
 /**
  * Whether a package lifecycle declaration names the preparation dependency's helper.
@@ -40,6 +42,9 @@ const sourceMetadataSchema = z.object({
 })
 const sourcePackageSchema = z.looseObject({
   name: z.string().min(1),
+  devDependencies: z.looseObject({
+    [REPOSITORY_PLUGIN_PACKAGE_NAME]: z.string().min(1),
+  }),
   scripts: z.looseObject({
     prepack: prepackSchema,
   }),
