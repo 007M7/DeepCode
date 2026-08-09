@@ -51,7 +51,7 @@ The tool seam pairs its vocabulary with `presentCall(args)`, a host-side pure fu
 
 **Map source kinds to renderers in the client.** Cheapest to write and requires no format change, but it puts producer knowledge back in the client: every new kind then needs a client release to render as anything but opaque, and a foreign log cannot be classified at all. It also reintroduces exactly the coupling the [source and steer marks decision](2026-08-04-web-context-source-and-steer-marks.md) removed for labels.
 
-**Reuse `kind` as the form.** One discriminant is simpler, and `workspace-instructions` is already 1:1 with its form. It breaks on the shared shapes: three producers emit runtime snapshots today, and folding them into one kind would erase which producer supplied each message. Two axes keep the producer exact while letting presentations be shared.
+**Reuse `kind` as the form.** One discriminant is simpler, and `workspace-instructions` is already 1:1 with its form. This design loses information when several producers share one form: three producers emit runtime snapshots today, and combining them into one kind would make it impossible to tell which producer supplied each message. Separate `kind` and `form` fields record the producer while allowing several producers to share one presentation.
 
 **Let the client parse the model-facing prose.** The entries and file sections are visibly structured in the text. Parsing them couples the presentation to prompt wording, so every reword silently breaks a card — the same reason catalog identity moved off the text.
 

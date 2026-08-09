@@ -37,9 +37,10 @@ export interface SubagentRunInfo {
   /** Unique identity shared with the paired terminal event. */
   readonly runId: SubagentRunId
   /**
-   * Provider that started this run or Activation epoch. The named provider
-   * may be absent when an accepted run becomes ready or a persisted Activation
-   * cold-resumes, because neither lifecycle depends on continued registration.
+   * Provider name recorded when the child was first created. The provider may
+   * be absent when an accepted one-shot run becomes ready or a persisted
+   * Activation cold-resumes, because neither lifecycle depends on continued
+   * registration.
    */
   readonly provider: string
   /** The child agent's id. */

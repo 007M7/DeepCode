@@ -1506,9 +1506,10 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
               )
             }
             // Host visibility is the authorization boundary. Consume the
-            // provider's globally ranked stream rather than binding every
-            // visible id into one SQLite statement, then re-check complete
-            // provider id before emitting any snippet.
+            // provider's globally ranked results rather than binding every
+            // visible id into one SQLite statement, then require each hit to
+            // name a visible session and a current message from that same
+            // session before emitting its snippet.
             for (const hit of page.items) {
               if (authorized.length > SESSION_SEARCH_RESULT_LIMIT) continue
               if (

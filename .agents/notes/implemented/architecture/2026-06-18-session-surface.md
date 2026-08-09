@@ -16,7 +16,7 @@ Add a **surface** — a derived, cached order of event sequences (the subset of 
 
 Every `SessionEvent` gains two optional fields (structural metadata, like `seq`/`time`):
 
-- **`sourceEventSeqs?: number[]`** — seq numbers of earlier events cited as sources (e.g., the `assistant/chunk` seqs that built an `assistant/message`, or the surface nodes shadowed by a compaction marker). A present `[]` is valid only on `assistant/message` and records a known empty provider stream; omission there means a legacy or foreign event did not record the stream. Other surface events require a non-empty list when the field is present. Without these cited seqs, replay cannot validate that a replace-range operation names every event it removed.
+- **`sourceEventSeqs?: number[]`** — seq numbers of earlier events cited as sources (e.g., the `assistant/chunk` seqs that built an `assistant/message`, or the surface nodes shadowed by a compaction marker). A present `[]` is valid only on `assistant/message` and records a known empty provider stream; when the field is absent, a legacy or foreign event does not record which earlier events produced the message. Other surface events require a non-empty list when the field is present. Without these cited seqs, replay cannot validate that a replace-range operation names every event it removed.
 - **`surfaceOp?: SurfaceOp`** — how this event entered the surface. Absent for non-surface events.
 
 ### SurfaceOp: two operations

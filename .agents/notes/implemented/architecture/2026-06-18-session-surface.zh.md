@@ -16,7 +16,7 @@ Status: implemented
 
 每个 `SessionEvent` 获得两个可选字段（结构性元数据，与 `seq`/`time` 同级）：
 
-- **`sourceEventSeqs?: number[]`**：被引用为数据来源的早期事件 seq 编号（例如构成 `assistant/message` 的各 `assistant/chunk` 的 seq，或被压缩标记遮蔽的 surface 节点）。出现的 `[]` 只在 `assistant/message` 上有效，表示已知为空的提供方流；在该事件上省略字段，表示某个旧事件或外部事件没有记录该流。其他 surface 事件一旦出现此字段，就必须是非空列表。如果没有这些引用的 seq，回放就无法验证 replace-range 操作是否列出了它移除的每个事件。
+- **`sourceEventSeqs?: number[]`**：被引用为数据来源的早期事件 seq 编号（例如构成 `assistant/message` 的各 `assistant/chunk` 的 seq，或被压缩标记遮蔽的 surface 节点）。出现的 `[]` 只在 `assistant/message` 上有效，表示已知为空的提供方流；旧格式或外部事件缺少该字段时，没有记录这条消息由哪些早期事件产生。其他 surface 事件一旦出现此字段，就必须是非空列表。如果没有这些引用的 seq，回放就无法验证 replace-range 操作是否列出了它移除的每个事件。
 - **`surfaceOp?: SurfaceOp`**：该事件如何进入 surface。非 surface 事件不携带此字段。
 
 ### SurfaceOp：两种操作
