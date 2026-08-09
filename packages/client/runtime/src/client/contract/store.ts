@@ -2,9 +2,9 @@
  * Snapshot store engine (zustand vanilla + immer + subscribeWithSelector +
  * rafFlush middleware + opt-in persist + dev freeze) plus the declarative
  * shell over it: {@link defineStore} bakes an init/persist/actions literal
- * into a {@link StoreHandle}, the registration-side store seat of the slot
- * terminal design (§4). Lives in the React-free runtime (store-migration
- * ruling: the data layer owns its engine; web-react is shell-only React
+ * into a {@link StoreHandle}, the registration-side store seat of slot
+ * terminals. Lives in the React-free runtime (the data layer owns its
+ * engine; web-react is shell-only React
  * glue): engine products are bare observables — subscribe/getSnapshot/
  * update/set, NO selector hook. Hook synthesis is web-react's (the one
  * uSES bridge, cached per source at the binding site).

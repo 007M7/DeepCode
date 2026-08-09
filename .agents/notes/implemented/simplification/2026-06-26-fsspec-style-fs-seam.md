@@ -15,7 +15,7 @@ That makes every future backend reimplement model-facing read semantics and obse
 
 This also creates a real UX dead-end: a windowed read records `view: partial`, and partial views cannot authorize `edit`. A model that reads lines 100-150 of a large file therefore cannot edit line 120 unless it first gets a `full` read, which may be impossible for a file past the read cap. Literal edit only needs freshness: the bytes being matched must still be from the version the model read.
 
-The old Agent Note already deferred a separate `@deepseek-ai/dsh-fs-policy` package. This Agent Note builds that layer and keeps `ctx.fs` close to fsspec-style storage primitives (`info`/`cat`/`open`), without turning it into full fsspec.
+The old Agent Note already deferred a separate `@deepseek-ai/dsh-fs-policy` package. This decision builds that layer and keeps `ctx.fs` close to fsspec-style storage primitives (`info`/`cat`/`open`), without turning it into full fsspec.
 
 ## Decision
 
@@ -69,7 +69,7 @@ Deleted from `dsh-fs`: `readPage`, `FsExpectation`, `FsView`, `FsStateSource`, `
 
 ## Policy Contract
 
-`@deepseek-ai/dsh-fs-policy` is a plugin, not a service: it registers no `ctx.*` key and injects nothing. It owns the write/edit freshness policy and observed-state that do not belong on the `FileSystem` provider base class (where a sandboxed/remote backend would otherwise inherit model-facing observation policy it has no business carrying). It contributes that policy through the `fs/*` event gate the executor dispatches. (This Agent Note originally proposed a concrete `ctx.fileContext` service with `read`/`write`/`edit` methods; [the event-gate Agent Note](../architecture/2026-06-26-file-context-as-event-gate.md) refined it into the plugin described here so the tool is never method-coupled to the policy.)
+`@deepseek-ai/dsh-fs-policy` is a plugin, not a service: it registers no `ctx.*` key and injects nothing. It owns the write/edit freshness policy and observed-state that do not belong on the `FileSystem` provider base class (where a sandboxed/remote backend would otherwise inherit model-facing observation policy it has no business carrying). It contributes that policy through the `fs/*` event gate the executor dispatches.
 
 Observed state lives here as `WeakMap<owner, Map<targetKey, FsVersion>>`. An entry exists iff the owner has read, written, OR edited that target (every success emits `fs/observed`), so its presence *is* the prior-observation record — there is no separate `hasRead` flag. The owner is derived structurally from the opaque event actor (`{ agent?: { session? } }`), a shape that lives in `dsh-fs-policy`, not `dsh-fs`.
 
@@ -113,7 +113,7 @@ It keeps the Service Definition / Service provider / Consumer discipline, consum
 
 ## Later extension
 
-The seam was later extended with direct directory listing by [Add direct directory listing to the filesystem seam](../../archived/architecture/2026-07-03-filesystem-directory-listing-seam.md). That follow-up is tracked separately so this Agent Note's acceptance criteria continue to describe the fsspec-style refit that originally shipped.
+The seam was later extended with direct directory listing by [Add direct directory listing to the filesystem seam](../../archived/architecture/2026-07-03-filesystem-directory-listing-seam.md). That follow-up is recorded separately so this note continues to describe the fsspec-style refit that originally shipped.
 
 ## Alternatives considered
 

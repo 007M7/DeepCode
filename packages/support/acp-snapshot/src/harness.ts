@@ -760,8 +760,8 @@ async function harvestSessionLogs(root: string): Promise<HarvestedLog[]> {
     })
   }
   // Primary (no parentSession) first, then children by ascending createdAt. A
-  // scenario has exactly one top-level session. In the synchronous cut sibling
-  // children are created strictly sequentially, so their createdAt values are
+  // scenario has exactly one top-level session. Subagent children are created
+  // synchronously and strictly sequentially, so their createdAt values are
   // strictly ordered; the recordedId tiebreak only keeps a degenerate
   // same-millisecond collision (unreachable here) deterministic. This harvest
   // order must match the replay load order in dsh-llm-replay's loadSessionScripts

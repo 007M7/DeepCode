@@ -15,8 +15,6 @@ The pattern is **compile-time only**. The types vanish at runtime: there is no s
 
 This raises whether the event vocabulary should move to **Zod** or another runtime-schema library so durable and plugin boundaries have runtime schemas rather than erased types.
 
-This Agent Note scopes that question without proposing an implementation.
-
 ## Why this is not a persistence change
 
 It is tempting to read "use Zod for serialization" as a local change to `dsh-session-persistence-jsonl/src/format.ts`. It is not, for one structural reason: **a plugin cannot declaration-merge a Zod schema.** Declaration merging is a TypeScript compile-time mechanism; a Zod schema is a runtime value. To validate events with Zod you need a **runtime registry** that every event-producing package contributes its schema to (e.g. `ctx.sessionEvents.register('compaction/marker', z.object({…}))`), and every consumer reads from. That registry — not the persistence backend — becomes the source of truth for the vocabulary, replacing the merge-extensible interface.

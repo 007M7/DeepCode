@@ -54,7 +54,7 @@ describe('runtime client apply', () => {
     const bench = await mount()
     expect(bench.ctx.get('slots') !== undefined).toBe(true)
     // The built-in 'root' declaration ships with this package's SlotsService
-    // (the SlotMap 'root' merge lives here since the slot-parity rework).
+    // (the SlotMap 'root' merge lives here).
     expect(bench.ctx.slots.spec('root')).toEqual({ kind: 'single', scope: 'root' })
     const sessions = bench.ctx.get('sessions')
     const workspaces = bench.ctx.get('workspaces')

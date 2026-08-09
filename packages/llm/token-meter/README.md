@@ -6,7 +6,7 @@ Replay-aware token measurement through the singleton `ctx.tokenMeter` service. I
 
 ## Configuration
 
-The estimator has no settings. It intentionally uses one fixed heuristic: four characters per token plus structural overhead for roles, blocks, and request-envelope fields. Any key is rejected, including the obsolete global `contextWindow`; model capacity belongs to the adapter that owns an exact provider/model route and is available through `ctx.llm.resolveModelInfo().context`.
+The estimator has no settings. It intentionally uses one fixed heuristic: four characters per token plus structural overhead for roles, blocks, and request-envelope fields. Any key is rejected; model capacity belongs to the adapter that owns an exact provider/model route and is available through `ctx.llm.resolveModelInfo().context`.
 
 ## Measurement contract
 
@@ -41,7 +41,7 @@ The occupancy fields are independent last-wins records and are **not** one atomi
 
 This is deliberate. An occupancy percentage is a user-facing reference figure, not a billing record or a gating input — nothing in the harness makes decisions from it, and compaction reads `measure()` instead. A UI computes occupancy by dividing measured pressure by the separately resolved capacity for the selected model.
 
-Making the pair atomic was tried and rejected: it required a transient non-replayable wire frame, which needed lifecycle fencing against cross-stream reordering and left occupancy blank after every reconnect. The [Agent Note](../../../.agents/notes/implemented/architecture/2026-07-29-projected-token-usage-and-request-context.md) records that comparison. Consumers that need an exact same-boundary figure should call `measure()` at their own request boundary rather than read this projection.
+The [Agent Note](../../../.agents/notes/implemented/architecture/2026-07-29-projected-token-usage-and-request-context.md) records the rejected atomic-pair comparison. Consumers that need an exact same-boundary figure should call `measure()` at their own request boundary rather than read this projection.
 
 ## Composition
 

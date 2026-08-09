@@ -79,14 +79,14 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * reads the global workspace list.
      */
     'conversation.hero.workspace': { kind: 'single'; scope: 'root'; owner: EmptyWorkspaceOwnerProps }
-    // 'conversation.input.overlay' merges in ui-slash (dedup ruling: the
-    // dependency direction is the hard constraint — ui-slash cannot import
+    // 'conversation.input.overlay' merges in ui-slash (the dependency
+    // direction is the hard constraint — ui-slash cannot import
     // this package, while this package's input contract already imports
     // ui-slash, so the type arrives transitively). The runtime declaration
     // (children table in apply.ts) stays here with the other input slots.
     /**
      * Stacked strip above the input (queue rows / GoalBar / attachments;
-     * design §6 MIX evidence: entries coexist in fixed order).
+     * entries coexist in fixed order).
      */
     'conversation.input.dock': { kind: 'list'; scope: 'session'; owner: InputZone }
     /** The band under the composer card (stats line family), rendered inside the bar's width column via the `footer` owner prop. */
@@ -97,7 +97,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
     'conversation.input.right': { kind: 'list'; scope: 'session'; owner: InputZone }
     /**
      * The default composer body: a single slot rendered as the composer
-     * chain's fallback (decision 20 — a real entry, not a chain rider, so a
+     * chain's fallback (a real entry, not a chain rider, so a
      * takeover election hides rather than unmounts it and the textarea DOM
      * survives). Session-maybe: the bar stays mounted across the
      * no-session/session transition — the no-workspace hero renders the SAME
@@ -111,7 +111,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
     /**
      * The Plan-mode status seat in the composer tool row (left group,
      * right of the access-mode control). Declared by the composer-bar
-     * entry; empty until a plan plugin registers (B ruling: no placeholder
+     * entry; empty until a plan plugin registers (no placeholder
      * fallback).
      */
     'conversation.input.plan': { kind: 'single'; scope: 'session'; owner: InputControlOwnerProps }
@@ -124,7 +124,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 
   /**
    * ui-conversation's members of the session standard kit, provided through
-   * `sessions.provide` (decision 19/20): every session-scope slot component
+   * `sessions.provide`: every session-scope slot component
    * receives the input machine's state hook and the two public actions.
    */
   interface SessionStandardProps {
@@ -145,7 +145,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 export interface ConversationHeaderActionOwnerProps {}
 
 /**
- * The input-region slot currency (plan §1.4): dock/left/right entries read
+ * The input-region slot currency: dock/left/right entries read
  * the conversation snapshot and the live input state as owner props (both
  * are point-in-time snapshots — the dispatching skeleton re-renders on
  * either store's change, so entries stay current without subscribing).
@@ -353,7 +353,7 @@ export interface ComposerBarOwnerProps {
 
 /** Injected share of the composer-bar entry (package-internal faces). */
 export interface ComposerBarInjected {
-  /** The InputBar-exclusive keyboard/DOM command face (decision 20 private plane); absent with the session. */
+  /** The InputBar-exclusive keyboard/DOM command face (private plane); absent with the session. */
   keyboard: ComposerKeyboard | undefined
   /** Resolve one keyboard submission gesture against the current running state and persisted preference. */
   resolveSubmitMode: (
@@ -380,7 +380,8 @@ export interface ComposerBarInjected {
   hooks: {
     /** Latest surfaced notice (null after none; seq keys re-render of repeats). */
     notices: ObservableSnapshot<InputNotice | null>
-    /** Hot plain-text reference lexicon for the decoration scan (decision 21). */
+    /** Hot plain-text reference lexicon for the decoration scan (plain-text-reference decision;
+     *  see .agents/notes/implemented/architecture/2026-07-25-web-input-machine-and-slash-pipeline.md). */
     lexicon: ObservableSnapshot<ReadonlyMap<'/' | '@', readonly string[]>>
     /** Source name opened by the programmatic menu launcher, or null. */
     menuLauncher: ObservableSnapshot<string | null>

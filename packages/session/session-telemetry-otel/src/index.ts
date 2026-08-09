@@ -253,11 +253,11 @@ export class TelemetryOtel extends Telemetry {
   // The Service Definition's optional flush() hint is deliberately NOT implemented. The
   // batch processor exports on its own cadence (`processor.scheduledDelayMillis`,
   // the SDK's documented knob), and this backend is the SDK pipeline's only
-  // caller — forwarding the hint to `forceFlush()` was the sole source of
+  // caller — forwarding the hint to `forceFlush()` would be the sole source of
   // concurrent flushes, whose undocumented interactions with shutdown's
   // internal drain (concurrent-flush guard, provider-level flush timeout)
-  // silently dropped tail records. Removal history and the revival trigger:
-  // the revival Agent Note.
+  // silently drop tail records. Rationale and the revival trigger: the
+  // revival Agent Note.
 
   /**
    * Ask the SDK to drain and quiesce, but reject after the backend-owned

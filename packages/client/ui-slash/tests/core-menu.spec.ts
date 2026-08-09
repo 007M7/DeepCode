@@ -1,6 +1,5 @@
 // menuReduce generation gating, auto-close, silent group removal, cyclic
-// highlight movement, stale/no-op reference identity; exactMatch lookup
-// (design §5.1, plan §1.2).
+// highlight movement, stale/no-op reference identity; exactMatch lookup.
 import { describe, expect, it } from 'vitest'
 import type { MenuState, TriggerHit } from '../src/core/contract.ts'
 import { exactMatch, MENU_CLOSED, menuReduce, seedGroups } from '../src/core/menu.ts'

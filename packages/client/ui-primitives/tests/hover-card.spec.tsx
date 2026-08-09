@@ -91,8 +91,8 @@ describe('HoverCard', () => {
 
   it('reaching the card inside the grace keeps it open without restarting the dwell', () => {
     // The portaled card is a React child of the wrapper, so the pointer
-    // arriving on it re-enters the wrapper — the gesture the 8px anchor gap
-    // used to make impossible.
+    // arriving on it re-enters the wrapper — the gesture an anchor gap
+    // would make impossible.
     const { wrapper } = mount()
     fireEvent.pointerEnter(wrapper)
     act(() => { vi.advanceTimersByTime(500) })

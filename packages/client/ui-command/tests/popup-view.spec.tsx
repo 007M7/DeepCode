@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * PopupSelectView interaction spec (design §10.2): the search input takes
+ * PopupSelectView interaction spec: the search input takes
  * focus on open and plain typing filters locally, ↑↓ move the filtered
  * highlight while ←→ stay native to the input, Enter selects single-flight,
  * Escape dismisses back through focusComposer, outside pointerdown dismisses
