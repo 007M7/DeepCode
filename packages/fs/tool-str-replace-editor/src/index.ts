@@ -105,6 +105,7 @@ async function statExisting(
 ): Promise<FsInfo> {
   const info = await ctx.fs.stat(target, exec.signal)
   if (info === undefined) {
+    ctx.emit('fs/observed', target, { kind: 'absent' }, exec)
     throw new FsError(
       `The path ${target.displayPath} does not exist. Please provide a valid path.`,
       'FS_NOT_FOUND',
@@ -231,7 +232,7 @@ async function viewPath(
     throw new FsError(`cannot view "${target.displayPath}": not a regular file or directory`, 'FS_NOT_REGULAR_FILE')
   }
   const content = await ctx.fs.readText(target, exec.signal)
-  ctx.emit('fs/observed', target, info.version, exec)
+  ctx.emit('fs/observed', target, { kind: 'present', version: info.version }, exec)
   return formatFileView(target.displayPath, content, maxOutputChars, viewRange)
 }
 
@@ -266,7 +267,7 @@ async function createFile(
   } catch (error: unknown) {
     throw policy.mapError(error, sandboxPolicy)
   }
-  ctx.emit('fs/observed', target, outcome.version, exec)
+  ctx.emit('fs/observed', target, { kind: 'present', version: outcome.version }, exec)
   return `New file created successfully at: ${target.displayPath}`
 }
 
@@ -317,7 +318,7 @@ async function replaceInFile(
   } catch (error: unknown) {
     throw policy.mapError(error, sandboxPolicy)
   }
-  ctx.emit('fs/observed', target, outcome.version, exec)
+  ctx.emit('fs/observed', target, { kind: 'present', version: outcome.version }, exec)
   return `The file ${target.displayPath} has been edited successfully.`
 }
 
@@ -359,7 +360,7 @@ async function insertInFile(
   } catch (error: unknown) {
     throw policy.mapError(error, sandboxPolicy)
   }
-  ctx.emit('fs/observed', target, outcome.version, exec)
+  ctx.emit('fs/observed', target, { kind: 'present', version: outcome.version }, exec)
   return `The file ${target.displayPath} has been edited successfully.`
 }
 

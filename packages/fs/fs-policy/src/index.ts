@@ -1,14 +1,15 @@
 /**
  * Event-only filesystem observation policy; it registers no service. A weak owner/target map
- * records every successful read or mutation, single-slot intent listeners supply that version,
- * and the provider performs the atomic freshness check. Without this plugin, tools retain the
- * bare provider's unconditional mutation behavior. See the package README for composition rules.
+ * records every authoritative presence/absence observation, single-slot intent listeners derive
+ * guards from that state, and the provider performs the atomic freshness/no-clobber check. Without
+ * this plugin, tools retain the bare provider's unconditional mutation behavior. See the package
+ * README for composition rules.
  * @module @deepseek-ai/dsh-fs-policy
  */
 
 import type { Context } from 'cordis'
 import { FsError } from '@deepseek-ai/dsh-fs'
-import type { FsTarget, FsVersion, FsWriteIntent } from '@deepseek-ai/dsh-fs'
+import type { FsObservation, FsTarget, FsVersion, FsWriteIntent } from '@deepseek-ai/dsh-fs'
 import type { FsPolicyExec } from './types.ts'
 
 export type { FsPolicyExec } from './types.ts'
@@ -21,9 +22,10 @@ class ObservedStateGate {
   /**
    * Observed-file state, keyed first by the owner object (weakly held, so a
    * collected session frees its state), then by {@link FsTarget.targetKey}. An
-   * entry's PRESENCE is the prior-observation record.
+   * entry's presence is the prior-observation record; its discriminant keeps
+   * confirmed absence distinct from an unseen target.
    */
-  private observed = new WeakMap<object, Map<string, FsVersion>>()
+  private observed = new WeakMap<object, Map<string, FsObservation>>()
 
   /**
    * Derive the observed-state owner from the opaque event actor — normally the
@@ -38,17 +40,17 @@ class ObservedStateGate {
     return (actor as FsPolicyExec | undefined)?.agent?.session
   }
 
-  private get(owner: object, targetKey: string): FsVersion | undefined {
+  private get(owner: object, targetKey: string): FsObservation | undefined {
     return this.observed.get(owner)?.get(targetKey)
   }
 
-  private set(owner: object, targetKey: string, version: FsVersion): void {
+  private set(owner: object, targetKey: string, observation: FsObservation): void {
     let byTarget = this.observed.get(owner)
     if (!byTarget) {
       byTarget = new Map()
       this.observed.set(owner, byTarget)
     }
-    byTarget.set(targetKey, version)
+    byTarget.set(targetKey, observation)
   }
 
   /** Drop all recorded state (HMR safety / disposal). */
@@ -57,33 +59,38 @@ class ObservedStateGate {
   }
 
   /**
-   * Decide the write intent: no prior observation ⇒ `createIfAbsent` (only
-   * new files can be created blindly); a prior observation ⇒ `replaceIfVersion`
-   * at the observed version (existing files replaced only if unchanged).
+   * Decide the write intent: unseen or confirmed absent ⇒ `createIfAbsent`;
+   * confirmed present ⇒ `replaceIfVersion` at the observed version.
    */
   writeIntent(target: FsTarget, actor: object | undefined): FsWriteIntent {
     const owner = this.owner(actor)
     const prior = owner ? this.get(owner, target.targetKey) : undefined
-    return prior ? { kind: 'replaceIfVersion', version: prior } : { kind: 'createIfAbsent' }
+    return prior?.kind === 'present'
+      ? { kind: 'replaceIfVersion', version: prior.version }
+      : { kind: 'createIfAbsent' }
   }
 
   /**
-   * Decide the edit version guard: requires a prior observation by this owner
-   * (else `FS_NOT_OBSERVED`); returns the observed version as the CAS basis.
+   * Decide the edit version guard: unseen rejects with `FS_NOT_OBSERVED`,
+   * confirmed absence rejects with `FS_NOT_FOUND`, and presence supplies the
+   * observed version as the CAS basis.
    */
   editIntent(target: FsTarget, actor: object | undefined): { version: FsVersion } {
     const owner = this.owner(actor)
     const prior = owner ? this.get(owner, target.targetKey) : undefined
-    if (!owner || !prior) {
+    if (!owner || prior === undefined) {
       throw new FsError(`edit requires reading "${target.displayPath}" first`, 'FS_NOT_OBSERVED')
     }
-    return { version: prior }
+    if (prior.kind === 'absent') {
+      throw new FsError(`cannot edit "${target.displayPath}": not found`, 'FS_NOT_FOUND')
+    }
+    return { version: prior.version }
   }
 
-  /** Record a successful read/write/edit: this owner observed this target at this version. */
-  observe(target: FsTarget, version: FsVersion, actor: object | undefined): void {
+  /** Record an authoritative present or absent observation for this owner and target. */
+  observe(target: FsTarget, observation: FsObservation, actor: object | undefined): void {
     const owner = this.owner(actor)
-    if (owner) this.set(owner, target.targetKey, version)
+    if (owner) this.set(owner, target.targetKey, observation)
   }
 }
 
@@ -114,9 +121,10 @@ export function apply(ctx: Context): void {
   // fs/edit-intent: occupy the single decision slot — do not call next().
   ctx.on('fs/edit-intent', (target, actor) => Promise.resolve().then(() => gate.editIntent(target, actor)))
 
-  // fs/observed must remain synchronous and non-throwing: the mutation already succeeded, and
-  // emit does not await promises. WeakMap.set satisfies that contract.
-  ctx.on('fs/observed', (target, version, actor) => {
-    gate.observe(target, version, actor)
+  // fs/observed must remain synchronous and non-throwing: emit does not await
+  // promises, and successful mutations have already committed. WeakMap.set
+  // satisfies that contract for both presence and absence.
+  ctx.on('fs/observed', (target, observation, actor) => {
+    gate.observe(target, observation, actor)
   })
 }
