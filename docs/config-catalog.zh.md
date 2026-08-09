@@ -1198,9 +1198,10 @@ export interface Config {
    * Override the runner argv; bwrap-shaped profile arguments are appended. A
    * non-empty override asserts full enforcement and skips built-in selection and
    * probing. A runner that starts but refuses its profile must be identifiable by
-   * {@link runnerFailureSignatures}. Consumers classify spawn rejection; only
-   * attributable `ENOENT` or `EACCES` with runner argv[0] provenance becomes an
-   * infrastructure failure.
+   * {@link runnerFailureSignatures}. Consumers classify a spawn rejection only after
+   * confirming the workdir is usable. `ENOENT` or `EACCES` identifies the runner when
+   * `error.path` equals argv[0] and `error.syscall` is `spawn` or `spawn <runner>`, or
+   * when `error.path` is absent and `error.syscall` is exactly `spawn <runner>`.
    */
   runnerCommand?: string[]
   /**

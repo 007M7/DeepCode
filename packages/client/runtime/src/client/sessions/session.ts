@@ -686,7 +686,7 @@ export class Session implements SessionFace {
    *  a seq gap -> buffer + tail-page repull instead of appending a hole (audit S3: a gap is an
    *  expected reconnect-window artifact, repaired by refetch). The window stays one contiguous
    *  raw range, which is what lets the transcript render every event between its ends and lets a
-   *  compaction checkpoint find its own provenance. */
+   *  compaction checkpoint find its cited summary event. */
   private acceptLiveEvent(event: SessionEvent, view?: ToolEventView): void {
     if (this.openState === 'loading' || this.stitching) {
       this.liveBuffer.push({ event, view })

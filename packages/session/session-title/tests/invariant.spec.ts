@@ -1,4 +1,4 @@
-// Title-provenance invariant: messageSeqs is empty iff source.kind is 'user'
+// Title-source invariant: `messageSeqs` is empty iff `source.kind` is `user`.
 // — the durable relationship every appended session/title event must keep.
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
@@ -14,7 +14,7 @@ async function setup(): Promise<Context> {
   return ctx
 }
 
-describe('session-title provenance invariant', () => {
+describe('session-title source invariant', () => {
   it('accepts cited automatic titles and citation-free user renames', async () => {
     const ctx = await setup()
     const session = ctx.sessions.create(SessionId('title-invariant-valid'))

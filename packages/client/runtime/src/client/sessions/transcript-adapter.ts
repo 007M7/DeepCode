@@ -184,10 +184,10 @@ function compactSummaryDetails(event: SessionEvent): CompactSummaryDetails {
 
 /**
  * One landed checkpoint -> the human-facing compaction marker. The summary text
- * comes from the checkpoint's own provenance (`sourceEventSeqs` names the
+ * comes from the checkpoint's cited `compact/summary` event (`sourceEventSeqs` names the
  * `compact/summary` event), never from the framed checkpoint payload, which is
  * an instruction envelope written for the model. A window cut that left the
- * provenance outside soft-falls to `summary: null` (a non-expandable marker),
+ * summary event outside soft-falls to `summary: null` (a non-expandable marker),
  * the same posture as a call-less tool result.
  */
 function materializeCompaction(
@@ -222,7 +222,7 @@ function materializeCompaction(
 
 /** Log-ordered human transcript over a paged raw event window (never consults surface order). */
 export class TranscriptAdapter {
-  /** Window events by seq: provenance lookup for a checkpoint's summary. */
+  /** Window events by seq, used to find the summary event cited by a checkpoint. */
   private eventIndex = new Map<number, SessionEvent>()
   /** Transcript nodes in log order; copy-on-write so a published array never mutates. */
   private projected: ConversationNode[] = []

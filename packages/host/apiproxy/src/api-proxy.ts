@@ -109,7 +109,7 @@ function isAborted(signal: AbortSignal): boolean {
  * backwards from the window tail. Replacement copies never entered the
  * conversation a reader sees — they restate a shadowed range for the model
  * alone — so they consume no quota; the page stays one contiguous raw range,
- * which keeps a compaction's log-only provenance on the same page as its
+ * which keeps a compaction's log-only `compact/summary` record on the same page as its
  * replacement. The cut is the starting seq of the oldest message group (chunks
  * group via sourceEventSeqs — never cut mid-message). The tail page naturally
  * includes the in-progress partial.
@@ -1506,9 +1506,10 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
               )
             }
             // Host visibility is the authorization boundary. Consume the
-            // provider's globally ranked stream rather than binding every
-            // visible id into one SQLite statement, then re-check complete
-            // provenance before emitting any snippet.
+            // provider's globally ranked results rather than binding every
+            // visible id into one SQLite statement, then require each hit to
+            // name a visible session and a current message from that same
+            // session before emitting its snippet.
             for (const hit of page.items) {
               if (authorized.length > SESSION_SEARCH_RESULT_LIMIT) continue
               if (

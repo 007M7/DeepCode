@@ -93,7 +93,7 @@ const modelPolicy: z<ModelCompactPolicyConfig> = z.object({
 
 /**
  * Dependency-light compaction backend using `ctx.tokenMeter` for pressure,
- * retention, provenance, and summary-convergence pricing.
+ * retention, cited source events, and summary-convergence pricing.
  *
  * `summarize()` is the sole subclass customization hook; the replay and durable
  * mutation strategy stays fixed so every pricing decision uses the singleton
@@ -230,7 +230,7 @@ export class BasicCompactService extends CompactService {
    * @param input - replayed conversation prefix (system, tools, and leading messages) to condense.
    * @param agent - supplies routed-model history, fallback model, and session id.
    * @param signal - optional cancellation forwarded to the adapter.
-   * @returns safe text summary blocks and exact auxiliary-call provenance.
+   * @returns safe text summary blocks and the exact auxiliary call envelope and output.
    */
   protected async summarize(
     input: SummarizationInput,

@@ -382,7 +382,7 @@ function daclAcePolicy(descriptor: Buffer): string[] {
   for (let index = 0; index < aceCount; index++) {
     const size = descriptor.readUInt16LE(offset + 2)
     const ace = Buffer.from(descriptor.subarray(offset, offset + size))
-    // INHERITED_ACE records provenance, not the entry's access policy.
+    // INHERITED_ACE records which parent ACE produced this entry, not the entry's access policy.
     ace.writeUInt8(ace.readUInt8(1) & ~0x10, 1)
     const key = ace.toString('hex')
     if (!seen.has(key)) {

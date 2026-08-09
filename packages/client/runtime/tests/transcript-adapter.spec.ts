@@ -14,7 +14,7 @@ import { ev, plainTurn } from './event-script.ts'
 const at = (seq: number, e: Record<string, unknown>): SessionEvent =>
   ({ seq, time: 1_700_000_000_000 + seq, ...e }) as unknown as SessionEvent
 
-/** A `compact/summary` provenance event (log-only, no surfaceOp). */
+/** A `compact/summary` event (log-only, no surfaceOp). */
 function compactSummary(seq: number, summary: unknown = [{ type: 'text', text: '# 摘要\n\n保留事实' }]): SessionEvent {
   return at(seq, {
     type: 'compact/summary',
@@ -188,7 +188,7 @@ describe('TranscriptAdapter', () => {
 
   it('skips events core does not call surface-eligible, marker or not', () => {
     // The transcript is the append-origin surface, so log-only events (a chunk,
-    // a turn boundary, a compact/* provenance record) and a future type core
+    // a turn boundary, a `compact/*` record) and a future type core
     // has not admitted contribute no node.
     const adapter = new TranscriptAdapter()
     adapter.reset([
@@ -313,7 +313,7 @@ describe('TranscriptAdapter', () => {
     })
 
     it.each([
-      ['absent provenance', undefined],
+      ['absent summary event', undefined],
       ['text-less summary blocks', compactSummary(1, [{ type: 'image', data: 'nope' }])],
       ['a whitespace-only summary', compactSummary(1, [{ type: 'text', text: '   ' }])],
       ['an empty summary array', compactSummary(1, [])],
@@ -345,7 +345,7 @@ describe('TranscriptAdapter', () => {
       ])
     })
 
-    it('leaves the summary null when the checkpoint records no provenance at all', () => {
+    it('leaves the summary null when the checkpoint cites no source events', () => {
       const adapter = new TranscriptAdapter()
       adapter.reset([at(2, {
         type: 'user/message',
@@ -361,7 +361,7 @@ describe('TranscriptAdapter', () => {
       }])
     })
 
-    it('skips a non-summary provenance seq before reaching the real one', () => {
+    it('skips a cited non-summary seq before reaching the summary event', () => {
       const adapter = new TranscriptAdapter()
       adapter.reset([
         ev.user(0, '被压缩的问题'),
@@ -372,7 +372,7 @@ describe('TranscriptAdapter', () => {
       expect(adapter.nodes().at(-1)).toMatchObject({ kind: 'compaction', summary: '第三个来源才是摘要' })
     })
 
-    it('resolves the summary once an older page supplies the provenance', () => {
+    it('resolves the summary once an older page supplies the cited summary event', () => {
       const adapter = new TranscriptAdapter()
       const landed = checkpoint(8, 7, { start: 0, end: 0, sourceEventSeqs: [7, 0] })
       adapter.reset([landed])

@@ -46,7 +46,7 @@ Append-only in the child. In the parent, the framed report follows existing hist
 
 #### What the model sees
 
-One user-role parent message framed as `Background subagent <child-id> reported:` followed by the child's exact `output`, with durable provenance `{ kind: 'subagent-report', senderSessionId: <child-id> }`.
+One user-role parent message framed as `Background subagent <child-id> reported:` followed by the child's exact `output`, with a durable source `{ kind: 'subagent-report', senderSessionId: <child-id> }` that names the child.
 
 #### Token effect
 

@@ -64,7 +64,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('compaction: a long session compa
     expect(starts.length).toBeGreaterThan(0)
     expect(ends.length).toBe(starts.length) // every start was released
 
-    // It succeeded at least once: a compact/summary provenance event and a
+    // It succeeded at least once: a `compact/summary` event describing the summary and a
     // replace-op user/message (the surface mutation) both landed.
     const summaries = events.filter(e => e.type === 'compact/summary')
     expect(summaries.length).toBeGreaterThan(0)

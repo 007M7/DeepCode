@@ -95,10 +95,10 @@ describe('gen-persistence-catalog collectLogEvents', () => {
 
   it('extracts a member declaration-merged via the session module', () => {
     const events = collectLogEvents(make({
-      'packages/group/fix/src/types.ts': merge('    /** Merged provenance. */\n    \'fix/merged\': { id: string }'),
+      'packages/group/fix/src/types.ts': merge('    /** Merged event source record. */\n    \'fix/merged\': { id: string }'),
     }))
     expect(events).toHaveLength(1)
-    expect(events[0]).toMatchObject({ name: 'fix/merged', doc: 'Merged provenance.' })
+    expect(events[0]).toMatchObject({ name: 'fix/merged', doc: 'Merged event source record.' })
   })
 
   it('collapses a newline-separated multi-line payload to a valid one-line fragment', () => {

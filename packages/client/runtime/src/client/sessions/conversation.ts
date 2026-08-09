@@ -191,14 +191,14 @@ export interface CompactionSummaryNode {
   seq: number
   /** Unix epoch ms of the checkpoint event. */
   time: number
-  /** Summary text from the checkpoint's `compact/summary` provenance; null when
-   *  the window cut left that provenance outside (the marker is then not expandable). */
+  /** Summary text from the checkpoint's cited `compact/summary` event; null when
+   *  the window cut left that event outside (the marker is then not expandable). */
   summary: string | null
-  /** Seq of the loaded `compact/summary` event, or null when that provenance is outside the window. */
+  /** Seq of the loaded `compact/summary` event, or null when that event is outside the window. */
   summaryEventSeq: number | null
-  /** Number of surface items replaced, or null when summary provenance is unavailable or malformed. */
+  /** Number of surface items replaced, or null when the summary event is unavailable or malformed. */
   shadowedItemCount: number | null
-  /** Estimated token price of the replaced items, or null when summary provenance is unavailable or malformed. */
+  /** Estimated token price of the replaced items, or null when the summary event is unavailable or malformed. */
   shadowedTokenCount: number | null
 }
 

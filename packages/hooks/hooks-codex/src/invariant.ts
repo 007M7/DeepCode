@@ -16,7 +16,7 @@ export const inject = ['invariants']
 
 /**
  * No runtime invariant: this bridge publishes hook-protocol session events, whose companion owns
- * their cross-event provenance relation.
+ * which invocation event each result cites.
  */
 const install: InvariantInstaller = () => {}
 

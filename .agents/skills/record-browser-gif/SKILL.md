@@ -1,6 +1,6 @@
 ---
 name: record-browser-gif
-description: Record browser or Web UI interaction demos as optimized GIFs using the available built-in browser, state-based frame capture, and deterministic encoding, then publish to a dedicated assets branch when the task includes attaching the GIF to a pull request. Use when asked to make, record, or generate a GIF that demonstrates a browser workflow, and for every pull request that changes product-user-visible GUI behavior, which MUST include such a GIF with real provenance.
+description: Record browser or Web UI interaction demos as optimized GIFs using the available built-in browser, state-based frame capture, and deterministic encoding, then publish to a dedicated assets branch when the task includes attaching the GIF to a pull request. Use when asked to make, record, or generate a GIF that demonstrates a browser workflow, and for every pull request that changes product-user-visible GUI behavior, which MUST include a GIF recorded from the pull request's real server and model flow.
 ---
 
 # Record Browser GIF
@@ -13,13 +13,13 @@ The [evidence-chain decision](../../notes/implemented/process/2026-08-08-browser
 
 A pull request that changes product-user-visible GUI behavior MUST include a demonstration GIF recorded with this skill and embedded in the pull request body via [the assets-branch workflow](#publish-to-an-assets-branch).
 
-The GIF's provenance is part of the evidence and must be real: a real server booted from that pull request's own branch tree, a real API key, and real model rounds. Never substitute fixture queries, mock transports, synthetic event injection, or test-only hooks unless the user explicitly asked for fixture provenance. State the provenance next to the embed — the exact demonstrated commit SHA, which tree and origin served, which mode flags or browser-state exceptions applied, and that a real model round ran — so reviewers know exactly what the recording proves.
+The recording itself is part of the evidence: use a real server booted from that pull request's branch tree, a real API key, and real model rounds. Never substitute fixture queries, mock transports, synthetic event injection, or test-only hooks unless the user explicitly asked for a fixture recording. Next to the embed, state the exact demonstrated commit SHA, the tree and origin that served it, any mode flags or browser-state exceptions, and whether a real model round ran, so reviewers know exactly what the recording proves.
 
 ## Keep the boundary explicit
 
 - Recording produces frame images and one local `.gif` artifact only; it never mutates remote state.
 - Publication — pushing the GIF to an assets branch and embedding it in a pull request body — is the separate final step, performed only when the task includes attaching the GIF to a pull request. It never touches the pull request's own branch.
-- Preserve the requested provenance. A real-server or real-API demo must not use fixture queries, mock transports, synthetic event injection, or test-only hooks. If credentials or the server are unavailable, report that limitation instead of substituting a fixture.
+- Preserve the requested recording conditions. A real-server or real-API demo must not use fixture queries, mock transports, synthetic event injection, or test-only hooks. If credentials or the server are unavailable, report that limitation instead of substituting a fixture.
 - Never read or expose credential values. Use the application's normal configuration path and a benign demonstration prompt.
 
 ## Stage the application
@@ -33,9 +33,9 @@ A GIF for a specific pull request demonstrates that pull request's tree, so stag
 
 ## Record the flow
 
-1. Invoke the available browser-control skill and follow its setup, interaction, and cleanup instructions. Use the user's existing Chrome state only when requested or required; state that exception in the provenance and do not claim fresh client state. If browser control is unavailable, use the repository-declared Playwright dependency in an isolated headless browser; do not install another driver or launch the user's browser. State that fallback in the provenance.
+1. Invoke the available browser-control skill and follow its setup, interaction, and cleanup instructions. Use the user's existing Chrome state only when requested or required; state that exception next to the GIF and do not claim fresh client state. If browser control is unavailable, use the repository-declared Playwright dependency in an isolated headless browser; do not install another driver or launch the user's browser. State that fallback next to the GIF.
 2. Resolve the evidence boundary before recording: identify the exact origin, whether the app is built or in development, the transport, and any fixture or mock mode. Record only claims that the observed setup supports.
-3. When a production default opens a native operating-system surface that headless automation cannot drive, select an official browser-operable production backend through the application's normal configuration. State the override in the provenance; a fixture, mock transport, or test-only hook is not an acceptable substitute.
+3. When a production default opens a native operating-system surface that headless automation cannot drive, select an official browser-operable production backend through the application's normal configuration. State that override next to the GIF; a fixture, mock transport, or test-only hook is not an acceptable substitute.
 4. Choose three to six states that tell one story, such as typed, running, settled, and detail. Prefer semantic state changes over continuous capture; omit loading churn that does not help the viewer.
 5. Keep one viewport and crop for every frame, and name frames lexically: `00-initial.png`, `01-typed.png`, and so on.
 6. Store frames under the repository's gitignored `.playwright-mcp/` directory — browser-tool screenshots can only be written under the tool's allowed roots, and relative filenames resolve against the repository root. Create the frame subdirectory first (`mkdir -p .playwright-mcp/gif-frames-<label>`); writing into a missing directory fails with ENOENT at capture time.
@@ -99,7 +99,7 @@ For a new series, make a fresh shallow scratch clone (`git clone --depth 1 <repo
 
 After pushing, use authenticated GitHub API or raw requests to confirm the remote path, byte size, checksum, `200` response, and `image/gif` content type. An anonymous `404` does not disprove a private-repository asset; authenticate the verification instead. This proves the repository-member review path, not public availability.
 
-Immediately before editing the pull-request body, re-read its live head and compare it with the commit recorded in the GIF provenance. Stop and re-record when it moved. After the edit, re-read the live head and require it to remain at that recorded commit. Separately, render the body through GitHub's Markdown API and confirm that the expected `<img>` is present.
+Immediately before editing the pull-request body, re-read its live head and compare it with the commit recorded next to the GIF. Stop and re-record when it moved. After the edit, re-read the live head and require it to remain at that recorded commit. Separately, render the body through GitHub's Markdown API and confirm that the expected `<img>` is present.
 
 Embed the GIF in the pull request body with the raw blob URL; the `?raw=true` suffix is required, because the plain blob URL renders GitHub's file page instead of the image:
 
