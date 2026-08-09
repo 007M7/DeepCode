@@ -16,7 +16,7 @@
 需要：`agents`
 
 ```ts config-catalog
-/** Plugin config: the provider/model target used for each ACP-created agent. */
+/** Plugin config: the provider/model selection used for each ACP-created agent. */
 export interface AcpConfig {
   /** Provider route for created agents. */
   provider?: string
@@ -81,6 +81,20 @@ export interface Config {
 依赖：[`agentCore`](../packages/examples/agent-spine-demo/src/index.ts) · [`JsonlCompression`](../packages/session/session-persistence-jsonl/src/index.ts) · [`ToolsConfig`](#deepseek-aidsh-tools)
 
 来源：[`packages/examples/acp-demo/src/index.ts:39`](../packages/examples/acp-demo/src/index.ts)
+
+## `@deepseek-ai/dsh-agent-default-model`
+
+```ts config-catalog
+/** Composition entry for the default model selection. */
+export interface Config {
+  /** Registered provider route. */
+  provider: string
+  /** Provider-owned model id. */
+  model: string
+}
+```
+
+来源：[`packages/core/agent-default-model/src/index.ts:41`](../packages/core/agent-default-model/src/index.ts)
 
 ## `@deepseek-ai/dsh-agent-loop`
 
@@ -477,17 +491,17 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-headless`
 
-需要：`apiProxy` · `httpServer`
+需要：`agentDefaultModel` · `agents` · `sessions`
 
 ```ts config-catalog
 /** Plugin config: the task, patched in by the launcher. */
 export interface Config {
-  /** The prompt text for the single turn. */
+  /** The prompt text for the single run. */
   task: string
 }
 ```
 
-来源：[`packages/bundle/headless/src/index.ts:32`](../packages/bundle/headless/src/index.ts)
+来源：[`packages/bundle/headless/src/index.ts:29`](../packages/bundle/headless/src/index.ts)
 
 ## `@deepseek-ai/dsh-hooks-claude`
 
@@ -552,32 +566,17 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-host-apiproxy`
 
-需要：`agents` · `directoryPicker` · `llm` · `sessions` · `subagents` · `sessionQuery` · `tools` · `userInteraction` · `workspace`
+需要：`agentDefaultModel` · `agents` · `directoryPicker` · `llm` · `sessions` · `subagents` · `sessionQuery` · `tools` · `userInteraction` · `workspace`
 
 ```ts config-catalog
-/**
- * Gateway plugin config: host-level agent routing and Workspace creation root.
- *
- * `reasoningEffort` is deliberately absent, so the section carries one field
- * the composition cannot. The seam resolves a section by MERGING the user
- * layer over the composition entry per field, and an absent key cannot
- * override a present one — so a composition-set effort would survive every
- * later switch to a model that has none, and strand it for the next session
- * to fail on. Effort is a per-model fact anyway: a deployment default belongs
- * on the adapter profile (`llm-pi-ai`'s `reasoning`, `llm-deepseek`'s own),
- * which resolves per model rather than per gateway.
- */
+/** Gateway plugin config: the Host-only Workspace creation root. */
 export interface Config {
-  /** Default provider route for created agents. */
-  provider: string
-  /** Default model id. */
-  model: string
   /** Parent directory for name-created Workspaces; defaults to the Host cwd. */
   workspaceRoot?: string
 }
 ```
 
-来源：[`packages/host/apiproxy/src/index.ts:67`](../packages/host/apiproxy/src/index.ts)
+来源：[`packages/host/apiproxy/src/index.ts:38`](../packages/host/apiproxy/src/index.ts)
 
 ## `@deepseek-ai/dsh-host-directory-picker-browse`
 

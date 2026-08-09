@@ -17,7 +17,7 @@ import type { Agent, AgentOptions } from './types.ts'
 
 export * from './types.ts'
 export * from './inbox.ts'
-export * from './llm-target.ts'
+export * from './model-selection.ts'
 export { agentCarrier, agentEvents, assembleContextFor, emitAgentEvent } from './dispatch.ts'
 export type { AgentEventDispatch, AgentSubjectEvent } from './dispatch.ts'
 

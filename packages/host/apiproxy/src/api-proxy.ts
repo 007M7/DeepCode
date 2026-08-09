@@ -7,8 +7,9 @@ import { randomUUID } from 'node:crypto'
 import { mkdir, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Context } from 'cordis'
-import { installAgentLlmTarget } from '@deepseek-ai/dsh-agent'
-import type { Agent, AgentLlmTarget, AgentLlmTargetRef, AgentOptions, AgentStatus } from '@deepseek-ai/dsh-agent'
+import { installModelSelection } from '@deepseek-ai/dsh-agent'
+import type { Agent, ModelSelection, ModelSelectionRef, AgentOptions, AgentStatus } from '@deepseek-ai/dsh-agent'
+import { AGENT_DEFAULT_MODEL_SETTINGS_NAMESPACE } from '@deepseek-ai/dsh-agent-default-model'
 import { createUserMessage, freezeMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import { errorChain } from '@deepseek-ai/dsh-llm'
 import type { MessageSource } from '@deepseek-ai/dsh-llm'
@@ -83,14 +84,6 @@ import { openNativePath, openNativeTextFile } from './native-path-opener.ts'
 /** Page size when history is called without maxMessages. */
 const DEFAULT_MAX_MESSAGES = 50
 
-/**
- * The settings namespace carrying the user's default route. Named for the
- * gateway rather than for the package, because this key is what a person reads
- * and writes in `settings.yaml`; the row id in a composition happens to match
- * but does not determine it.
- */
-export const API_GATEWAY_SETTINGS_NAMESPACE = settingsNamespace('api-gateway')
-
 /** Non-model settings namespaces intentionally served to the Web client. */
 const WEB_SETTINGS_NAMESPACES = ['permission'] as const
 
@@ -152,7 +145,7 @@ function ok<T>(request: RpcRequest<unknown>, value: T): RpcResponse<T> {
 /**
  * Build the provider/model catalog over every registered route. Shared by the
  * session-scoped `session.models` and host-scoped `llm.models`. Catalog
- * membership stays advisory: an unlisted session target remains valid for
+ * membership stays advisory: an unlisted session selection remains valid for
  * provider dispatch, but is not injected back into the selector after its
  * owning catalog stops advertising it. Per-provider failures ride `failures`
  * without failing the sound groups; groups that advertise nothing are dropped.
@@ -345,14 +338,14 @@ function directoryError(error: unknown): RpcError {
   return { code: 'internal', message: error instanceof Error ? error.message : String(error), details: {} }
 }
 
-/** Resolved Host routing and project-directory defaults consumed by the API implementation. */
+/** Resolved Agent model and project-directory defaults consumed by the API implementation. */
 export interface ApiProxyDefaults {
   /**
-   * The route a session starts from when its own log names none. Read on
+   * The model selection a session starts from when its own log names none. Read on
    * every access rather than captured, so a default saved during this process
    * reaches the sessions that have not run a turn yet.
    */
-  defaultTarget: () => AgentLlmTarget
+  defaultModelSelection: () => ModelSelection
   /**
    * Record a selection as the new default. Either absent, or a closure that
    * may itself decline — the gateway plugin always passes one, and it no-ops
@@ -361,7 +354,7 @@ export interface ApiProxyDefaults {
    * reported and swallowed: the switch already applies to its own session,
    * and undoing it because storage failed would be the worse outcome.
    */
-  persistDefaultTarget?: (target: AgentLlmTarget) => Promise<void>
+  saveDefaultModelSelection?: (selection: ModelSelection) => Promise<void>
   /** Default project directory for new sessions whose create request carries no cwd. */
   cwd: string
   /** Parent directory for name-created workspaces. */
@@ -734,17 +727,17 @@ function changedWorkspaceView(workspaceId: string, value: unknown): WorkspaceVie
 /**
  * Implement ApiProxy over a composed host context.
  * @param ctx - a context with the Host spine and Workspace registry mounted.
- * @param defaults - host routing and project-directory defaults.
+ * @param defaults - Agent model and project-directory defaults.
  * @returns the ApiProxy implementation.
  */
 export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiProxy {
-  /** The seed route each create/resume declares; re-read so it never goes stale. */
+  /** The seed model each create/resume declares; re-read so it never goes stale. */
   const agentOptions = (): AgentOptions => {
-    const { provider, model } = defaults.defaultTarget()
+    const { provider, model } = defaults.defaultModelSelection()
     return { provider, model }
   }
-  type WebLlmTargetRef = AgentLlmTargetRef & { current: AgentLlmTarget }
-  const targets = new WeakMap<Agent, WebLlmTargetRef>()
+  type WebModelSelectionRef = ModelSelectionRef & { current: ModelSelection }
+  const selections = new WeakMap<Agent, WebModelSelectionRef>()
   /** Client-chosen identity creation/resume, deduplicated across concurrent retries. */
   const sessionCreations = new Map<SessionId, Promise<Agent>>()
   /** Serializes path ownership and explicit title checks with Workspace mutations. */
@@ -754,29 +747,28 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
   const muxQueues = new Set<FrameQueue<RpcRequest<MuxFrame>>>()
 
   /**
-   * Install or return the session-local target that prompt assembly snapshots.
+   * Install or return the session-local model selection that prompt assembly snapshots.
    *
    * Precedence, resolved on EVERY read rather than seeded once: a selection
    * made in this process, else the session's own latest logged request/header,
-   * else the live host default. Re-reading is what keeps the two tiers honest
-   * in both directions — a session that has run a turn derives its route from
-   * its log forever after, so changing the default never retargets it; and a
-   * session still blank (New Session reuses one rather than minting another)
-   * starts from a default saved after it was created. There is no create-time
+   * else the live Agent default. Re-reading keeps the two tiers exact in both
+   * directions: a session with a recorded request derives its selection from
+   * its log, while a blank session (New Session reuses one rather than minting
+   * another) reads any default saved after it was created. There is no create-time
    * per-session override tier on this wire — if one returns (a create-options
    * contribution), it must fold in between the selection and the log.
    */
-  function targetFor(agent: Agent): WebLlmTargetRef {
-    const installed = targets.get(agent)
+  function selectionFor(agent: Agent): WebModelSelectionRef {
+    const installed = selections.get(agent)
     if (installed !== undefined) return installed
-    let picked: AgentLlmTarget | undefined
-    const target: WebLlmTargetRef = {
-      get current(): AgentLlmTarget {
+    let picked: ModelSelection | undefined
+    const selection: WebModelSelectionRef = {
+      get current(): ModelSelection {
         if (picked !== undefined) return picked
         // Incrementally folded by the session, so a per-step read costs
         // O(new events) rather than a rescan.
         const logged = agent.session.requestHeader()?.config
-        if (logged === undefined) return defaults.defaultTarget()
+        if (logged === undefined) return defaults.defaultModelSelection()
         return {
           provider: logged.provider,
           model: logged.model,
@@ -785,21 +777,21 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             : { reasoningEffort: logged.reasoningEffort },
         }
       },
-      set current(next: AgentLlmTarget) {
+      set current(next: ModelSelection) {
         picked = next
       },
       assembled: undefined,
     }
-    installAgentLlmTarget(agent.ctx, target)
-    targets.set(agent, target)
-    return target
+    installModelSelection(agent.ctx, selection)
+    selections.set(agent, selection)
+    return selection
   }
 
   /** Pre-publication setup used by both fresh and resumed Web agents. */
-  function installTarget(agentCtx: Context): void {
+  function installSelection(agentCtx: Context): void {
     const agent = agentCtx.agent
     if (agent === undefined) throw new Error('api-proxy: agent setup has no scoped agent')
-    targetFor(agent)
+    selectionFor(agent)
   }
 
   const hasSubagentOwner = (
@@ -810,7 +802,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     apiRemoteSubagentOwnershipError(sessionId)
   const inspectServable = (sessionId: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }> =>
     inspectApiRemoteSession(ctx, sessionId)
-  const agentFor = createApiRemoteAgentResolver(ctx, { agentOptions, setup: installTarget })
+  const agentFor = createApiRemoteAgentResolver(ctx, { agentOptions, setup: installSelection })
 
   /** Send one transient frame to every connected mux consumer. */
   function broadcast(payload: MuxFrame): void {
@@ -1076,7 +1068,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           return (await ctx.agents.resume({
             resumeSessionId: sessionId,
             agentOptions: agentOptions(),
-            setup: installTarget,
+            setup: installSelection,
           })).agent
         }
 
@@ -1089,7 +1081,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           sessionId,
           agentOptions: agentOptions(),
           meta: { cwd },
-          setup: installTarget,
+          setup: installSelection,
         })).agent
       })().catch((error: unknown) => {
         // Another Host entry path may have published the same identity while
@@ -1235,10 +1227,10 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
   }
 
   /**
-   * Whether an adapter currently serves this route, and therefore whether a
-   * session pointed at it can start a turn. Catalog membership cannot answer
+   * Whether an adapter currently serves this provider, and therefore whether
+   * a session selecting it can start a turn. Catalog membership cannot answer
    * it: an adapter may serve a model its own catalog stopped advertising, so
-   * a route missing from the groups is not the same as one nothing serves.
+   * a provider missing from the groups is not the same as one nothing serves.
    * A composition with no llm registry at all cannot judge and says yes —
    * the dispatch it would have refused fails on its own terms.
    */
@@ -1249,7 +1241,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
 
   /**
    * Resolve the addressed agent for a turn-starting method and refuse when no
-   * adapter serves its current route: a route nothing serves cannot start a
+   * adapter serves its current selection: a provider nothing serves cannot start a
    * turn, and letting it try spends the whole pre-step path to fail inside
    * the adapter with a message about registration. Refusing here names the
    * model the session is pointed at while the draft is still in the composer.
@@ -1262,13 +1254,13 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     const found = await agentFor(sessionId)
     if ('error' in found) return { refused: err(request, found.error) }
     const agent = found.agent
-    const target = targetFor(agent).current
-    if (!routeServed(target.provider)) {
+    const selection = selectionFor(agent).current
+    if (!routeServed(selection.provider)) {
       return {
         refused: err(request, {
           code: 'model-unavailable',
-          message: `no adapter serves provider "${target.provider}"; select a model for this session`,
-          details: { provider: target.provider, model: target.model },
+          message: `no adapter serves provider "${selection.provider}"; select a model for this session`,
+          details: { provider: selection.provider, model: selection.model },
         }),
       }
     }
@@ -1643,7 +1635,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         const { sessionId } = request.payload
         const found = await agentFor(sessionId)
         if ('error' in found) return err(request, found.error)
-        const current = targetFor(found.agent).current
+        const current = selectionFor(found.agent).current
         const { groups, failures } = await buildModelCatalog(ctx)
         const routable = routeServed(current.provider)
         return ok(request, { current: { ...current }, routable, groups, failures })
@@ -1661,20 +1653,20 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
               ? {}
               : { reasoningEffort: ReasoningEffortId(reasoningEffort) },
           })
-          const selected: AgentLlmTarget = {
+          const selected: ModelSelection = {
             provider: resolved.provider,
             model: resolved.model,
             ...resolved.reasoningEffort === undefined
               ? {}
               : { reasoningEffort: resolved.reasoningEffort },
           }
-          targetFor(found.agent).current = selected
+          selectionFor(found.agent).current = selected
           // A switch is also how this deployment's default is chosen: the next
           // session created without one of its own starts here. Sessions that
-          // have already logged a route are unaffected — they derive from
-          // their own log (see targetFor).
+          // have already logged a selection are unaffected — they derive from
+          // their own log (see selectionFor).
           try {
-            await defaults.persistDefaultTarget?.(selected)
+            await defaults.saveDefaultModelSelection?.(selected)
           } catch (error: unknown) {
             ctx.logger.warn(
               `api-proxy: the model switch applies to this session but was not saved as the default: ${String(error)}`,
@@ -1783,7 +1775,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
               seedLength: cut,
             },
             agentOptions: agentOptions(),
-            setup: installTarget,
+            setup: installSelection,
           })
         } catch (error: unknown) {
           return err(request, {
@@ -2192,7 +2184,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     host: {
       describe(request) {
         // TODO(step2): version should read apps/cli's package.json; placeholder for now.
-        const route = defaults.defaultTarget()
+        const selection = defaults.defaultModelSelection()
         return Promise.resolve(ok(request, {
           version: '0.0.1',
           // Same source as session.create's fallback: the UI's default project
@@ -2200,8 +2192,8 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           cwd: defaults.cwd,
           // Read live for the same reason: this is what the NEXT session will
           // start from, so a saved default has to be what it reports.
-          provider: route.provider,
-          model: route.model,
+          provider: selection.provider,
+          model: selection.model,
           attachedSessions: ctx.agents.list().length,
         }))
       },
@@ -2730,11 +2722,11 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             // A provider's own settings carry its model catalog and endpoint,
             // so a change there invalidates the model list even when the route
             // set is untouched — `llm/adapters-updated` alone misses it. The
-            // gateway's own section is the other such source: it names the
-            // route every session with no logged one resolves to, so an
+            // Agent default section is the other such source: it names the
+            // selection every session with no logged one resolves to, so an
             // externally edited default (another tab, a hand-edited
             // settings.yaml) has to reach an open selector too.
-            if (modelProviderNamespaces().has(name) || name === String(API_GATEWAY_SETTINGS_NAMESPACE)) {
+            if (modelProviderNamespaces().has(name) || name === String(AGENT_DEFAULT_MODEL_SETTINGS_NAMESPACE)) {
               queue.push(frame({ type: 'host/models-changed' }))
             }
           }),

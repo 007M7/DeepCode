@@ -63,6 +63,20 @@ export interface TypeApiEntry {
 /** Every harness `ctx.<key>` service, sorted by key. */
 export const SERVICE_API: readonly ServiceApiEntry[] = [
   {
+    key: 'agentDefaultModel',
+    summary: 'Owns the default model selection independently of any Host or transport.',
+    methods: [
+      {
+        signature: 'currentSelection(): ModelSelection',
+        jsDoc: '/**\n * Read the current default model selection.\n * @returns a detached provider, model, and optional reasoning selection.\n */',
+      },
+      {
+        signature: 'async saveSelection(next: ModelSelection): Promise<void>',
+        jsDoc: '/**\n * Save the complete default model selection. A deployment without a settings\n * provider keeps its composition entry.\n * @param next - resolved selection accepted by a front door.\n * @returns fulfillment after the optional settings write settles.\n */',
+      },
+    ],
+  },
+  {
     key: 'agentLoop',
     summary: 'Concrete agent factory and driver service.',
     methods: [
@@ -2232,6 +2246,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ModelMessageSource',
     declaration: 'export interface ModelMessageSource extends AssistantProvenance {\n    kind: \'model\';\n}',
+  },
+  {
+    name: 'ModelSelection',
+    declaration: 'export interface ModelSelection {\n    provider: string;\n    model: string;\n    reasoningEffort?: ReasoningEffortId;\n}',
   },
   {
     name: 'ObjectJsonSchema',

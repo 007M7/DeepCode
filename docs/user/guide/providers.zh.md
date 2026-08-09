@@ -124,16 +124,16 @@ settings 段落**逐个提供方**地盖在 `cordis.yml` 的同名配置之上�
 
 配好的路由会出现在 Web 的模型选择器里，随时可切，这也是最常用的方式。
 
-在那里切换同时也就选定了默认值：你选的模型会成为下一个新会话的起点，记录在 `settings.yaml` 的 `api-gateway` 段里。没有另一个单独的手势。
+在那里切换同时也就选定了默认值：你选的模型会成为下一个新会话的起点，记录在 `settings.yaml` 的 `agent-default-model` 段里。没有另一个单独的手势。
 
 ```yaml
-api-gateway:
+agent-default-model:
   provider: acme-gateway
   model: acme-large
   reasoningEffort: high   # optional
 ```
 
-已经跑过一个轮次的会话不会被它重定向——那个会话从自己的日志推导路由，因此改默认值只影响还没开始的会话。这个段落之下的出厂兜底是 `api-gateway` 组合条目（`deepseek-official` / `deepseek-v4-flash`），自行组装的 `cordis.yml` 可以覆盖它；自行组装的组合（例如 headless）改的则是 `agent-loop` 的 `agents`。
+会话跑过一轮后，其自身日志仍是模型选择的权威；默认值只适用于尚无请求记录的会话。这个段落之下的出厂兜底是 base 组合包的 `agent-default-model` 组合条目（`deepseek-official` / `deepseek-v4-flash`）。自行组装的 `cordis.yml` 会挂载并配置 `@deepseek-ai/dsh-agent-default-model`；直接前门与 Host 支撑的前门都读取同一服务。
 
 如果某个已存默认值指向的提供方后来被删掉了，输入框会显示**选择模型**并拒绝输入，而不是把消息发给一个没人服务的路由。
 
