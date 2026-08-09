@@ -314,6 +314,30 @@ The two core IDs are `CallId` (correlates a tool call with its result; dsh-llm) 
 
 Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` surface lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
 
+<a id="ctxagentdefaultmodel--agentdefaultmodelservice"></a>
+
+### `ctx.agentDefaultModel` — `AgentDefaultModelService`
+
+Owns the default model selection independently of any Host or transport. The composition entry remains usable without a settings provider; when one is mounted, its user layer is read live.
+
+```ts cordis-catalog
+/**
+ * Read the current default model selection.
+ * @returns a detached provider, model, and optional reasoning selection.
+ */
+currentSelection(): ModelSelection
+
+/**
+ * Save the complete default model selection. A deployment without a settings
+ * provider keeps its composition entry.
+ * @param next - resolved selection accepted by a front door.
+ * @returns fulfillment after the optional settings write settles.
+ */
+async saveSelection(next: ModelSelection): Promise<void>
+```
+
+Source: [`packages/core/agent-default-model/src/index.ts:64`](../../packages/core/agent-default-model/src/index.ts)
+
 <a id="ctxagentloop--agentloop"></a>
 
 ### `ctx.agentLoop` — `AgentLoop`

@@ -6,13 +6,13 @@ Status: implemented
 
 ## 问题
 
-每个想把 harness 会话接入可观测性体系的部署方都得手写一套会话日志消费方：订阅、生命周期交接、以及最难的脱敏——原始日志携带文件内容与命令输出，可能内嵌凭据。遥测 seam 和 OTel 后端曾在 `session-telemetry-otlp-rfc` 分支（PR #222/#231）上完成过一版，但从未进入 master：该提案将原始会话事件原样导出，法务评审未予通过。捕获侧设计（后端契约、coordinator、handoff 游标、分片投影）本身合理且经过评审；导出侧的立场才是阻塞点。
+每个想把 harness 会话接入可观测性体系的部署方都得手写一套会话日志消费方：订阅、生命周期交接、以及最难的脱敏——原始日志携带文件内容与命令输出，可能内嵌凭据。遥测 seam 和 OTel 后端曾在 `session-telemetry-otlp-rfc` 分支（PR #222/#231）上完成过一版，但从未进入 master：该提案将原始会话事件原样导出，法务评审未予通过。捕获侧设计（后端约定、coordinator、handoff 游标、分片投影）本身合理且经过评审；导出侧的立场才是阻塞点。
 
 ## 决策
 
 `packages/session/`（原 `telemetry/`）以 SDK 立场复活这两个经过评审的包——harness 提供能力，部署方配置上报去向并对导出内容负责：
 
-- **`@deepseek-ai/dsh-session-telemetry`** —— seam 本体。`TelemetryBackend`（`emit`/`flush?`/`shutdown`）、服务注册形态的 `Telemetry`、以及拥有捕获侧的 `TelemetryCoordinator`：带游标回读的实时收养与逐 append 的 firehose（投影 → `structuredClone` → 脱敏 → `emit`，零 I/O）、从权威日志进行的无缓冲按需回放、固定的每个（轮次、步骤）组合首分片投影、实时 `agent/error` 转发，以及实时 dispose（资源释放）时的 `shutdown` 记录。
+- **`@deepseek-ai/dsh-session-telemetry`** —— seam 本体。`TelemetryBackend`（`emit`/`flush?`/`shutdown`）、服务注册形态的 `Telemetry`、以及拥有捕获侧的 `TelemetryCoordinator`：带游标回读的实时纳管与逐 append 的 firehose（投影 → `structuredClone` → 脱敏 → `emit`，零 I/O）、从权威日志进行的无缓冲按需回放、固定的每个（轮次、步骤）组合首分片投影、实时 `agent/error` 转发，以及实时 dispose（资源释放）时的 `shutdown` 记录。
 - **`telemetry/record` waterfall（瀑布式事件）** —— 相对分支版本的增量，也是该 seam 的脱敏扩展点。每条记录抵达任何后端前必经此处；seam 自身不带任何规则——最内层 `next()` 原样透传，部署方以监听器挂载自己的规则（通过变换 `next()` 的返回值堆叠），抛异常的规则将该记录 fail-closed 扣下。脱敏只作用于导出副本；canonical log 永不改写。
 - **`@deepseek-ai/dsh-session-telemetry-otel`** —— 参考后端：OTel JS SDK 日志流水线（`LoggerProvider` → `BatchLogRecordProcessor` → OTLP/HTTP exporter），经 `exporter`/`processor` passthrough 原样配置。其默认 `FULL` 模式要求 `exporter.url`；后续的[反馈门控遥测决策](2026-08-05-feedback-gated-session-telemetry.md)增加了 `FEEDBACK_ONLY` 与 `DISABLED` 投递模式，但未移动脱敏或后端边界，而[无缓冲反馈回放](../simplification/2026-08-06-buffer-free-feedback-telemetry.md)避免在内存中创建会话前缀的第二份副本。
 
@@ -20,7 +20,7 @@ Status: implemented
 
 ## 考虑过的替代方案
 
-**实现 runtime-telemetry RFC 的 outbox（落盘 spool、每 sink 游标、at-least-once、持久化 seam 的 `readCommitted` 方法）。** 推迟而非否决：SDK 立场使投递语义归属 reporting SDK，OTel SDK 自身的批处理流水线是诚实的默认。outbox 是纯增量层（`emit()` 契约不动）；待某个部署提出遥测必须满足的崩溃丢失要求时再复活。
+**实现 runtime-telemetry RFC 的 outbox（落盘 spool、每 sink 游标、at-least-once、持久化 seam 的 `readCommitted` 方法）。** 推迟而非否决：SDK 立场使投递语义归属 reporting SDK，OTel SDK 自身的批处理流水线是诚实的默认。outbox 是纯增量层（`emit()` 约定不动）；待某个部署提出遥测必须满足的崩溃丢失要求时再复活。
 
 **不设进程内脱敏点，交给接收端 collector processor。** 否决——接收端脱敏是先把秘密发出去再擦除。waterfall 在字节离开进程前提供一个可审计、可堆叠的擦除点；分支版本（PR #222 交付的形态）完全没有脱敏点，如今每条记录都必经该脱敏点。
 

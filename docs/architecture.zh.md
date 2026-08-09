@@ -6,7 +6,7 @@
 
 ## 概览
 
-每个 harness 都是 [Cordis](cordis-primer.md) 上下文；各包（package）贡献服务、类型化事件和可释放的注册项。`packages/core/` 汇集默认流程；各项功能仍以插件形式存在。
+每个 harness 都是 [Cordis](cordis-primer.md) 上下文；各包贡献服务、类型化事件和可释放的注册项。`packages/core/` 汇集默认流程；各项能力仍以插件形式存在。
 
 ### 默认服务
 
@@ -17,18 +17,19 @@
 | `ctx.systemPrompt` | `dsh-system-prompt` | 有序的提示词片段、工具 schema 和变量 |
 | `ctx.tools` | `dsh-tools` | 工具注册表和[执行流水线](tool-execution-pipeline.md) |
 | `ctx.agents` | `dsh-agent` | 活跃 agent（智能体）、委托创建、`agent/*` 事件、进程内发起方作用域 |
-| `ctx.agentLoop` | `dsh-agent-loop` | 实体 `Agent` 驱动器 |
+| `ctx.agentDefaultModel` | [`dsh-agent-default-model`](../packages/core/agent-default-model/README.md) | 由 Settings 支撑、供 Agent 入口共享的模型选择 |
+| `ctx.agentLoop` | `dsh-agent-loop` | 具体 `Agent` 驱动器 |
 
-### 功能服务
+### 能力服务
 
 | ctx 键 | 包族 | 职责 |
 |---|---|---|
 | `ctx.llm` | [`llm/`](../packages/llm/README.md) | 适配器注册表和模型流式调用 |
-| `ctx.tokenMeter` | [`llm/token-meter`](../packages/llm/token-meter/README.md) | 感知回放的单实例请求压力与表面压力 |
+| `ctx.tokenMeter` | [`llm/token-meter`](../packages/llm/token-meter/README.md) | 感知回放的请求压力与表面压力 |
 | `ctx.bash` | [`bash/`](../packages/bash/README.md) | 前台和后台命令执行 |
 | `ctx.subprocess` | [`subprocess/`](../packages/subprocess/README.md) | 可执行文件查找、受管进程树、终端 |
 | `ctx.pty` | [`pty/`](../packages/pty/README.md) | 按 owner 隔离的持久化终端会话 |
-| `ctx.sandbox` | [`sandbox/`](../packages/sandbox/README.md) | 通过 argv 包装和逐调用策略限制同一执行环境内的进程 |
+| `ctx.sandbox` | [`sandbox/`](../packages/sandbox/README.md) | 通过 argv 包装和逐调用策略限制与宿主共享文件系统和内核的进程 |
 | `ctx.sandboxPolicy` | [`sandbox/`](../packages/sandbox/README.md) | 共享沙箱策略归属点 |
 | `ctx.codeRuntime` | [`code-runtime/`](../packages/code-runtime/README.md) | 执行模型编写的程序 |
 | `ctx.fs` | [`fs/`](../packages/fs/README.md) | 执行世界路径、有界 I/O 和策略事件 |
@@ -59,11 +60,11 @@
 
 - **会话事件**是通过 `session/event` 发出的持久日志事实。
 - **Agent 事件**携带活跃 `Agent`，用于 inbox、步骤、状态、请求、验证和续跑。
-- **功能事件**无需导入循环即可附加策略和适配器。
+- **能力事件**无需导入循环即可附加策略和适配器。
 
 ### 拦截语义
 
-waterfall（瀑布式事件）是环绕中间件：监听器通过 `next()` 委托；不调用它而直接返回会否决或接管（[语义](cordis-primer.md#cordis-waterfall-semantics)）。
+waterfall（瀑布式事件）是环绕中间件：监听器通过 `next()` 委托；不调用它而直接返回会短路或接管（[语义](cordis-primer.md#cordis-waterfall-semantics)）。
 
 ## 默认循环生命周期
 
@@ -115,19 +116,19 @@ idle inject:
 
 `inject()` 将不会唤醒驱动器的上下文排入 `next-step`；空闲驱动器会让它保持待处理，直至 `followup()` 或 `steer()` 唤醒。工具执行后的 `additionalContexts` 使用同一个 inbox。`agent/pre-step` 的 payload 携带独占的已领取批次，以及即将使用的轮次、步骤和信号。拒绝则不进入步骤；进入则提供在 `step/start` 后追加的完整批次。空的工具续跑仍会经过 waterfall，其最终值一次性结算所有改写。
 
-裁剪先于摘要；溢出重试必须取得持久进展。`agent/request-error` 可以授权使用冻结提示词进行同步骤重试；取消优先。适配器的 `retryPolicy` 使 normal mode 保持有界，always mode 则在专门恢复后重试（[压缩](../.agents/notes/implemented/architecture/2026-07-10-after-call-compaction-pressure-and-overflow-recovery.md)、[重试基础](../.agents/notes/implemented/architecture/2026-06-21-bounded-llm-request-recovery.md)、[提供方策略](../.agents/notes/implemented/feature/2026-07-24-provider-retry-policies.md)）。精确事件顺序由生成的 [agent 生命周期](agent-lifecycle.md)定义；队列、steering、重试与取消机制由 [agent-loop README](../packages/core/agent-loop/README.md)定义。
+裁剪先于摘要；溢出重试必须取得持久进展。`agent/request-error` 可以授权使用冻结提示词进行同步骤重试；取消优先。适配器的 `retryPolicy` 使 normal mode 保持有界，always mode 则在专门恢复后重试（[压缩](../.agents/notes/implemented/architecture/2026-07-10-after-call-compaction-pressure-and-overflow-recovery.md)、[重试基础](../.agents/notes/implemented/architecture/2026-06-21-bounded-llm-request-recovery.md)、[提供方策略](../.agents/notes/implemented/feature/2026-07-24-provider-retry-policies.md)）。精确事件顺序由生成的 [agent 生命周期](agent-lifecycle.md)定义；队列、steering（中途引导）、重试与取消机制由 [agent-loop README](../packages/core/agent-loop/README.md)定义。
 
 ### 失败边界
 
 适配器选择、分发与迭代失败会成为 error 或 aborted 类型的终止 `finish` 分片。`agent/request-error` 接收请求坐标、标准化 `LlmFailure`、可用的重试策略和信号；middleware 与消费方错误仍在恢复之外。失败分片既不提交消息，也不提交工具调用。
 
-其他故障使用 `agent/error`；取消和资源释放优先于恢复。在提交请求头之前，轮次信号会取消功能准备；尚未分派的工具会得到合成的 `tool/call`/`ABORTED_BEFORE_DISPATCH` 对。实际生效的 `cancel(cause)` 会在清空队列和中止前报告原因；空闲调用不发事件。abort 触发后、收敛前到达的唤醒输入会在 driver 的收敛边界执行，而 `disposed` 取消则将其停放（[取消收敛窗口唤醒锁存](../.agents/notes/implemented/bug-fix/2026-08-07-cancel-convergence-wake-latch.md)）。持久化层以 `aborted` 区分取消，以 `disposed` 区分会等待完全停稳的拆卸（[决策](../.agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.md)）。
+其他故障使用 `agent/error`；取消和 dispose（资源释放）优先于恢复。在提交请求头之前，轮次信号会取消能力准备；尚未分派的工具会得到合成的 `tool/call`/`ABORTED_BEFORE_DISPATCH` 对。实际生效的 `cancel(cause)` 会在清空队列和中止前报告原因；空闲调用不发事件。abort 触发后、收敛前到达的唤醒输入会在 driver 的收敛边界执行，而 `disposed` 取消则将其停放（[取消收敛窗口唤醒锁存](../.agents/notes/implemented/bug-fix/2026-08-07-cancel-convergence-wake-latch.md)）。持久性以 `aborted` 区分取消，以 `disposed` 区分会等待完全停稳的拆卸（[决策](../.agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.md)）。
 
 轮次和步骤事件均位于轮次边界内；loop 只会在轮次内从进入步骤的批次追加 `user/message`。轮次会在首次领取与 pre-step 之前打开，因此拒绝、空输入、取消或失败会关闭一个不包含任何步骤事件的持久轮次。独立的 `compact/* { turn: null }` 事件不占用轮次，其锁定时刻标记可以与 inbox splice 交错。重新加载会为中断的轮次合成结束事件；`session/end-seed` 区分陈旧的压缩遗留项与活跃锁。关闭后仅由 `agent/error` 报告故障。每个轮次有一个 [TurnEndReason](subsystems/session.md#why-a-turn-ended-turnendreasonmap)。
 
 ### Agent 句柄
 
-`ctx.agents` 拥有 agent 并返回 `AgentHandle { agent, dispose() }`。插件使用 `send()`，或使用其 `followup()`、`steer()` 和 `inject()` 预设。`cancel()` 与 `whenIdle()` 控制生命周期，需等待完成的资源释放则负责拆卸。后续消息的 `MessageId` 跟踪持久 inbox 的插入、领取与丢弃通知，而不标识提示词输出或轮次结束；只有完整活动区间的所有方才能将其概括为一次运行结果（[决策](../.agents/notes/implemented/architecture/2026-07-30-followup-enqueue-and-owned-runs.md)）。
+`ctx.agents` 拥有 agent 并返回 `AgentHandle { agent, dispose() }`。插件使用 `send()`，或使用其 `followup()`、`steer()` 和 `inject()` 预设。`cancel()` 与 `whenIdle()` 控制生命周期，拆卸由需等待完成的 dispose 负责。后续消息的 `MessageId` 跟踪持久 inbox 的插入、领取与丢弃通知，而不标识提示词输出或轮次结束；只有完整活动区间的所有者才能将其概括为一次运行结果（[决策](../.agents/notes/implemented/architecture/2026-07-30-followup-enqueue-and-owned-runs.md)）。
 
 ### Agent 作用域
 
@@ -141,23 +142,23 @@ idle inject:
 
 **模型可见 ⟺ 已记录**：在 `step/start` 进入的消息加上折叠后的 `request/header` 可以重建每个请求。该 header 会标记适配器默认值，使后续提议丢弃这些值并重新解析路由，同时不丢失显式设置。`request/context` 会在路由变化时另行记录与注册项绑定的提供方、模型及容量元数据；它不参与请求重建或 header 相等性判断。`dsh-agent-loop/invariant` 通过 `ctx.invariants` 断言可重建性（[可重建性](../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md)）。
 
-持久性由插件负责。后端会将同步的 `session/event` 通知复制到固定窗口的持久化批次中；`session/flush` 会绕过等待，在请求与顶层工具分发之前执行，并在 `turn/end` 之后、另一个轮次或空闲状态之前执行。`SessionPersistence` 存储事件和 header 元数据；JSONL 默认采用带校验和的 Zstandard，SQLite 遵循同一契约（[检查点决策](../.agents/notes/implemented/bug-fix/2026-07-21-semantic-session-checkpoints.md)、[批处理决策](../.agents/notes/implemented/architecture/2026-08-08-bounded-session-persistence-write-batching.md)）。
+持久性由插件负责。后端会将同步的 `session/event` 通知复制到固定窗口的持久化批次中；`session/flush` 会绕过等待，在请求与顶层工具分发之前执行，并在 `turn/end` 之后、另一个轮次或空闲状态之前执行。`SessionPersistence` 存储事件和 header 元数据；JSONL 默认采用带校验和的 Zstandard，SQLite 遵循同一约定（[检查点决策](../.agents/notes/implemented/bug-fix/2026-07-21-semantic-session-checkpoints.md)、[批处理决策](../.agents/notes/implemented/architecture/2026-08-08-bounded-session-persistence-write-batching.md)）。
 
-在轮次之间，事件所有方通过 `Session` 追加纯日志事件，仅为持久性而刷写。`session/title` 依赖有界后台持久化与生命周期排空；手动压缩会在操作完成前 flush 其标记对。标题工作绝不延迟响应；最新标题按后写覆盖并携带来源信息。标题记录是可继承的 fork 边界（[决策](../.agents/notes/implemented/feature/2026-07-21-log-backed-session-titles.md)）。
+在轮次之间，事件所有者通过 `Session` 追加纯日志事件，仅为持久性而刷写。`session/title` 依赖有界后台持久化与生命周期排空；手动压缩会在操作完成前 flush 其标记对。标题工作绝不延迟响应；最新标题按后写覆盖并携带来源信息。标题记录是可继承的 fork 边界（[决策](../.agents/notes/implemented/feature/2026-07-21-log-backed-session-titles.md)）。
 
 ### 模型内容
 
 消息使用从可合并扩展的 `ContentBlockMap` 派生的类型化块；同一模式也为 `MessageSource`、`FinishReason`、`TurnTrigger` 和 `TurnEndReason` 定义类型。新增块会协调适配器、UI、压缩、token 计量和持久化；回放计量见 [token-meter.md](subsystems/token-meter.md)。
 
-流式输出使用原始分片和 `BlockAssembler`。每次 `LlmAdapter.stream()` 调用代表一次提供方尝试；适配器报告标准化的故障事实，负责处理的 `agent/request-error` 插件会返回重试动作。循环会记录分片、成功结果的来源信息和回放状态。远程适配器使用逐次读取空闲看门狗。回放仅通过共用的适配器实例跨路由传递（[契约](subsystems/llm-streaming.md)）。
+流式输出使用原始分片和 `BlockAssembler`。每次 `LlmAdapter.stream()` 调用代表一次提供方尝试；适配器报告标准化的故障事实，负责处理的 `agent/request-error` 插件会返回重试动作。循环会记录分片、成功结果的来源信息和回放状态。远程适配器使用逐次读取空闲看门狗。回放仅通过共用的适配器实例跨路由传递（[约定](subsystems/llm-streaming.md)）。
 
 ## 扩展与组合
 
-### 功能模式
+### 能力模式
 
-能力分为**接口／实现／消费方**三层。文件系统与进程管理提供方共同定义一个执行世界；Bash、PTY 和 LSP 都在其中运行，无需提供方专用 fork。参见[功能图](capability-seams.md)。
+能力分为**接口／实现／消费方**三层。文件系统与进程管理提供方共同定义一个执行世界；Bash、PTY 和 LSP 都在其中运行，无需提供方专用 fork。参见[能力图](capability-seams.md)。
 
-例外情况包括 LLM（大语言模型）合并接口和消费方、文件系统整合策略、web 使用注册表、skill 和 subagent 使用具名提供方。subagent 可以通过 spawn 创建全新实例、fork 一个已完成轮次的前缀、使用 ACP（Agent Client Protocol）子 agent，或将一个独立完整的轮次委派给 Codex 等真实产品提供方（[subagent.md](subsystems/subagent.md)）。
+例外情况包括 LLM（大语言模型）接口／消费方合并、文件系统策略、web 注册表，以及具名 skill/subagent 提供方。subagent 可以通过 spawn 创建全新实例、fork 一个已完成轮次的前缀、使用 ACP（Agent Client Protocol）子 agent，或将一个独立完整的轮次委派给 Codex 等真实产品提供方（[subagent.md](subsystems/subagent.md)）。
 
 `dsh-workspace-context` 在第一次 `agent/pre-step` 组合基线并将它折入最终进入的批次、紧随已领取的直接提示词之后，使其与直接提示词一同抵达第一次请求；reject 则将它留在 next-step inbox。当压缩从可见表层移除该基线时，下一次进入步骤的 pre-step 会组合当前基线，并在同一请求中携带它。工具执行后投影的文件系统变更也会折入下一次进入步骤的 pre-step，而不会另外创建稍后的纯上下文步骤（[决策](../.agents/notes/implemented/feature/2026-06-24-workspace-context.md)）。`dsh-paths` 负责共享路径。
 
@@ -172,13 +173,13 @@ idle inject:
 | 目标 | 机制 |
 |---|---|
 | 添加模型提供方 | 在 `ctx.llm` 上注册其适配器 |
-| 添加面向模型的功能 | 在 `ctx.tools` 上注册；schema 加入提示词组装 |
-| 添加 shell 执行 | 实现并注册 `ctx.bash` 后端；本地后端通过 `ctx.subprocess` 生成进程 |
+| 添加面向模型的能力 | 在 `ctx.tools` 上注册；schema 加入提示词组装 |
+| 添加 shell 执行 | 实现并注册 `ctx.bash` 后端；本地后端通过 `ctx.subprocess` spawn 进程 |
 | 添加持久化终端执行 | 注册 `ctx.pty` 后端和 `dsh-tool-pty` |
 | 添加用户命令 | 在 `ctx.commands` 上注册；适配器无需模型轮次即可发现并分派 |
 | 添加后台工作 | 在 `ctx.tasks` 上注册；通用 `task_*` 工具负责收集或停止 |
 | 添加文件系统访问或策略 | 实现 `ctx.fs` 提供方，或监听 `fs/*` 策略事件 |
-| 限制生成的进程 | 使用 `ctx.sandbox` 后端；消费方在生成前包装 argv |
+| 限制 spawn 出的进程 | 使用 `ctx.sandbox` 后端；消费方在 spawn 前包装 argv |
 | 拦截请求、工具或轮次 | 使用相应的 `agent/*` 或 `tools/*` 事件；`agent/turn-stopping` 是停止边界 |
 | 添加模型可见上下文 | 调用 `agent.inject()`，将带来源的上下文排入下一次获准请求 |
 | 添加 UI 或编辑器集成 | 驱动 `ctx.agents` 并从 `session/event` 渲染 |
@@ -188,4 +189,4 @@ idle inject:
 | fork 活跃会话 | 调用 `ctx.sessions.fork(source, boundary?, childSessionId?)` |
 | 将注册项限定到单个 agent | 使用其 `agent.ctx`（参见 Agent 作用域） |
 
-[扩展实操手册（cookbook）](cookbook/extension-cookbook.md)提供插件骨架和功能到服务边界的映射；指南涵盖[包](cookbook/adding-a-package.md)、[工具](cookbook/adding-a-tool.md)、[LLM 适配器](cookbook/adding-an-llm-adapter.md)和 [vendored 包](cookbook/adding-a-vendored-package.md)。
+[扩展实操手册（cookbook）](cookbook/extension-cookbook.md)提供插件骨架和功能到 seam 的映射；指南涵盖[包](cookbook/adding-a-package.md)、[工具](cookbook/adding-a-tool.md)、[LLM 适配器](cookbook/adding-an-llm-adapter.md)和 [vendored 包](cookbook/adding-a-vendored-package.md)。

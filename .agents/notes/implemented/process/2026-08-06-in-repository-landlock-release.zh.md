@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-`@deepseek-ai/node-addon-landlock-run` 源码已经与其 DeepSeek Harness 消费方一同位于 `native/landlock-run` 下，但此前仍保留独立的 pnpm workspace 和锁文件，并依赖一个独立仓库发布到 npm。Harness 包使用 npm 注册表中的固定版本，因此同一个 PR（Pull Request）可以同时修改启动器契约及其消费方，却无法一起测试这些改动。源码仓库的原生工作流可以演练打包流程，但不会发布它实际测试过的产物。
+`@deepseek-ai/node-addon-landlock-run` 源码已经与其 DeepSeek Harness 消费方一同位于 `native/landlock-run` 下，但此前仍保留独立的 pnpm workspace 和锁文件，并依赖一个独立仓库发布到 npm。Harness 包使用 npm 注册表中的固定版本，因此同一个 PR（Pull Request）可以同时修改启动器约定及其消费方，却无法一起测试这些改动。源码仓库的原生工作流可以演练打包流程，但不会发布它实际测试过的产物。
 
 发布镜像还造成重复的发布协调工作：导出源码、更新另一份锁文件、运行另一套发布工作流、发布原生包家族，然后回到本仓库更新注册表依赖。npm 用户的实际需求并未改变，这种拆分却增加了从源码到二进制的溯源、回滚和安全修复协调难度。
 
@@ -33,7 +33,7 @@ Status: implemented
 
 ## 后果
 
-同一个 PR 可以同时修改启动器协议、TypeScript 入口代码、原生源码、harness 消费方式和发布路径测试，并从同一份锁文件解析这些内容。发布 tag 现在标识源码、消费方集成、构建指令，以及主仓库测试过的 tarball。第一次成功从本仓库发布后，独立镜像便不再属于发布路径，可以归档。
+同一个 PR 可以同时修改启动器协议、TypeScript 入口代码、原生源码、harness 消费方式和发布路径测试，并从同一份锁文件解析这些内容。发布 tag 现在标识源码、消费方集成、构建指令，以及主仓库测试过的 tarball。独立镜像已不再属于发布路径，可以在第一次成功从本仓库发布后归档。
 
 npm 消费方改为安装 `@deepseek-ai/node-addon-landlock-run`；原先的非 scoped 包名不会被静默重定向。受支持的 Linux 主机会下载 scoped 入口包及与其架构匹配的包，并跳过另一架构的包。不受支持的主机不会收到平台二进制文件，并继续沿用现有的确定性失败闭合探测路径。
 

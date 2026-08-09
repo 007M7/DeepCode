@@ -2,14 +2,14 @@
 
 [English](providers.md) | 中文
 
-Harness 出厂自带 DeepSeek，同时预装了一个通用的多提供方适配器，用来接入 Anthropic、OpenAI 这类内置目录里的提供方，或任何 OpenAI 兼容的网关与自建服务。你有两个入口：Web 界面的**模型**页，以及 `$DSH_HOME/settings.yaml`。两者写的是同一份文档，改完下一次请求即生效，不用重启。
+Harness 出厂自带 DeepSeek，同时预装了一个通用的多提供方适配器，用来接入 pi-ai 已安装目录中的 Anthropic、OpenAI 等提供方，或任何 OpenAI 兼容的网关与自建服务。你有两个入口：Web 界面的**模型**页，以及 `$DSH_HOME/settings.yaml`。两者写的是同一份文档，改完下一次请求即生效，不用重启。
 
 ## 提供方从哪里来
 
 `cordis.yml` 决定装了哪些**适配器**，settings 文档决定跑哪些**提供方**。出厂组合里有两个 LLM 适配器：
 
 - `llm-deepseek` 提供 `deepseek-official` 路由，是默认可用的那个。
-- `llm-pi-ai` 以**休眠**状态挂载：零路由，模型选择器里也不会多出条目，直到 settings 里的 `llm-pi-ai:` 段落给出 provider profile，路由才注册上来；段落清空则一并撤下。
+- `llm-pi-ai` 以**休眠**状态挂载：零路由，模型选择器里也不会多出条目，直到 settings 里的 `llm-pi-ai:` 段落给出提供方 profile，路由才注册上来；段落清空则一并撤下。
 
 因此新增一个提供方通常不需要改 `cordis.yml`，写 settings 就够了——而模型页做的正是这件事。
 
@@ -120,20 +120,20 @@ settings 段落**逐个提供方**地盖在 `cordis.yml` 的同名配置之上�
 
 在 `dsh` 下，引用依次从继承环境、模型页的 `$DSH_HOME/.credentials.yaml` 存储、调用目录的 `.env` 和 `$DSH_HOME/.env` 解析。未挂载凭据服务时，引用只读取同名环境变量。一份凭据供该路由上的所有模型使用。
 
-## 让 agent 用上新提供方
+## 让 agent（智能体）用上新提供方
 
 配好的路由会出现在 Web 的模型选择器里，随时可切，这也是最常用的方式。
 
-在那里切换同时也就选定了默认值：你选的模型会成为下一个新会话的起点，记录在 `settings.yaml` 的 `api-gateway` 段里。没有另一个单独的手势。
+在那里切换同时也就选定了默认值：你选的模型会成为下一个新会话的起点，记录在 `settings.yaml` 的 `agent-default-model` 段里。没有另一个单独的手势。
 
 ```yaml
-api-gateway:
+agent-default-model:
   provider: acme-gateway
   model: acme-large
   reasoningEffort: high   # optional
 ```
 
-已经跑过一轮的会话不会被它重定向——那个会话从自己的日志推导路由，因此改默认值只影响还没开始的会话。这个段落之下的出厂兜底是 `api-gateway` 组合条目（`deepseek-official` / `deepseek-v4-flash`），自行组装的 `cordis.yml` 可以覆盖它；自行组装的组合（例如 headless）改的则是 `agent-loop` 的 `agents`。
+会话跑过一轮后，其自身日志仍是模型选择的权威；默认值只适用于尚无请求记录的会话。这个段落之下的出厂兜底是 base 组合包的 `agent-default-model` 组合条目（`deepseek-official` / `deepseek-v4-flash`）。自行组装的 `cordis.yml` 会挂载并配置 `@deepseek-ai/dsh-agent-default-model`；直接前门与 Host 支撑的前门都读取同一服务。
 
 如果某个已存默认值指向的提供方后来被删掉了，输入框会显示**选择模型**并拒绝输入，而不是把消息发给一个没人服务的路由。
 

@@ -28,14 +28,14 @@ SDK 工程模型与 create/config 工作流将 `stdio` 运行接口选项替换�
 
 ## 验证
 
-TUI 与 Headless 的 Loader 覆盖以源码和构建产物两种模式运行真实 app 包。由 PTY 驱动的子进程覆盖仅用于 TUI 生命周期；其他入口冒烟测试使用单次管道协议。Headless 验证任务/结果契约和工具调用契约。生成图谱与仓库搜索会拒绝陈旧的包、命令、叶节点、SDK 接口、`createStdioChat` 和 `StdioRuntime` 引用。
+TUI 与 Headless 的 Loader 覆盖以源码和构建产物两种模式运行真实 app 包。由 PTY 驱动的子进程覆盖仅用于 TUI 生命周期；其他入口冒烟测试使用单次管道协议。Headless 验证任务/结果约定和工具调用约定。生成图谱与仓库搜索会拒绝陈旧的包、命令、叶节点、SDK 接口、`createStdioChat` 和 `StdioRuntime` 引用。
 
-构建后的 `dsh` 可执行文件会在 Loader 启动前拒绝通过管道启动 TUI，并指向 `dsh run`；`apps/cli/tests/built-bin.e2e.ts` 在普通 Node 下固定产品的一次性入口，包括输出和无效参数。`examples/headless-agent/tests/headless.snapshot.ts` 固定产品持久化，`apps/cli/tests/headless-shutdown.e2e.ts` 则负责有界信号升级。headless 示例仅供测试的 JSONL driver 保留组装后的规范事件快照，而不会创建第二套 CLI（命令行界面）契约。Code Mode 由程序化 TUI 快照与 ACP overlay demo 覆盖。时间上下文集成通过显式的 Headless 测试组装执行两个有序轮次，而更细粒度的耗时行为由时间上下文的包级测试负责。
+构建后的 `dsh` 可执行文件会在 Loader 启动前拒绝通过管道启动 TUI，并指向 `dsh run`；`apps/cli/tests/built-bin.e2e.ts` 在普通 Node 下固定产品的一次性入口，包括输出和无效参数。`examples/headless-agent/tests/headless.snapshot.ts` 固定产品持久化，`apps/cli/tests/headless-shutdown.e2e.ts` 则负责有界信号升级。headless 示例仅供测试的 JSONL driver 保留组装后的规范事件快照，而不会创建第二套 CLI（命令行界面）约定。Code Mode 由程序化 TUI 快照与 ACP overlay demo 覆盖。时间上下文集成通过显式的 Headless 测试组装执行两个有序轮次，而更细粒度的耗时行为由时间上下文的包级测试负责。
 
 ## 曾考虑的替代方案
 
-- **仅为 pipe 保留面向行 agent**：不予采纳，因为 Headless 已提供有界任务契约、格式纯净的 stdout、持久完成边界和进程退出状态。
-- **将 readline helper 作为包保留、折叠或提升**：不予采纳，因为它只有一个 app 消费方，并不存在可独立替换的契约。将它折叠进 stdio app 虽然移除了没有正当理由的支撑包边界，却仍保留了重复产品；将来要重新引入这个包，独立的面向行 UI 必须先有真正的第二个消费方。
+- **仅为 pipe 保留面向行 agent**：不予采纳，因为 Headless 已提供有界任务约定、格式纯净的 stdout、持久完成边界和进程退出状态。
+- **将 readline helper 作为包保留、折叠或提升**：不予采纳，因为它只有一个 app 消费方，并不存在可独立替换的约定。将它折叠进 stdio app 虽然移除了没有正当理由的支撑包边界，却仍保留了重复产品；将来要重新引入这个包，独立的面向行 UI 必须先有真正的第二个消费方。
 - **保留 Echo 作为无密钥快速上手路径**：不予采纳，因为首次产品体验应使用真实模型和受支持的 coding agent，而不是带专用工具的脚本化适配器。
 - **只为 CI 演示命令保留 Echo**：不予采纳，因为由测试持有的 Headless fixture 可以覆盖相同的 Loader 和构建产物边界，无需保留 mock 产品叶节点。
 - **移除所有 stdio 或 mock 机制**：不予采纳，因为分帧协议、进程 I/O 和确定性测试适配器是独立基础设施，并不是被移除的 agent。

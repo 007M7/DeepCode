@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/process/2026-08-06-in-repository-landlock-release.md
 2026-08-06-in-repository-landlock-release.md: 3ae9e9c3c50a1d0202a345e419cb2b7079e29ffa
-2026-08-06-in-repository-landlock-release.zh.md: 9f2233f6ae95620d7221f83648b5dc9b4cf8c7d2
+2026-08-06-in-repository-landlock-release.zh.md: b890346e861469eac9b7a08c14912be1a4f99ece

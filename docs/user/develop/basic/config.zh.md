@@ -93,7 +93,7 @@ export interface Config {
 
 ### 配置错误要响亮
 
-在 schema 中表达自身完备的约束，使无效配置在插件加载时失败。对服务或已注册资源的引用需要依赖注入；[服务教程](../framework/service.md)会介绍这项契约。
+在 schema 中表达自身完备的约束，使无效配置在插件加载时失败。对服务或已注册资源的引用需要依赖注入；[服务教程](../framework/service.md) 会介绍这项约定。
 
 ## 配合 HMR
 

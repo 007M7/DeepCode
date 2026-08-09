@@ -81,7 +81,7 @@ type ManualCompactionErrorCode =
 
 压力压缩在串行 `agent/pre-step` 中运行，先于请求推导。一旦压力或规范化溢出满足条件，compact-basic 会在选择范围前调用可选的 [`ctx.toolResultPrune`](../../packages/compact/compact-tool-result-prune/README.md)，再通过 `ctx.tokenMeter` 重新测量，并且可以在不生成摘要的情况下推进 surface。失败请求的恢复在失败的步骤关闭后通过 `agent/request-error` 运行；仅当 surface replacement generation 前进时才返回重试动作，即便后续摘要工作在剪枝后抛异常亦如此；取消仍然优先。区域边界保持工具调用/结果配对，但不保持整个轮次，因此一个过大轮次中较早关闭的步骤可以被压缩。`dsh-compact-basic` 拥有阈值、保留尾部策略、溢出上限与失败处理。
 
-该 seam 导出 `toolPairingBalancedBefore(session, seq)` 与 `toolPairingBalancedAfter(session, seq)`，用于这些边缘检查。两者都会验证当前 surface 成员关系，并拒绝缺失的 seq 与遗留结果；其缓存语义由[包契约](../../packages/compact/compact/README.md#tool-pairing-boundaries)规定。
+该 seam 导出 `toolPairingBalancedBefore(session, seq)` 与 `toolPairingBalancedAfter(session, seq)`，用于这些边缘检查。两者都会验证当前 surface 成员关系，并拒绝缺失的 seq 与遗留结果；其缓存语义由[包约定](../../packages/compact/compact/README.md#tool-pairing-boundaries)规定。
 
 ## 工具结果剪枝产出
 

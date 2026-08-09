@@ -46,4 +46,4 @@ subagent 脚本由 [`deriveReplayScript`](../../../../packages/support/llm-repla
 
 - core 与两个后端新增一个持久化 header 字段；子系统目录（`persistence.md`）在同一变更中更新（其 `SessionHeader` / `CreateSessionOptions` 的 `type-equiv` 块）。
 - 既有的 schema v2 SQLite 数据库在打开时被拒绝（预发布阶段无用户数据）。
-- spawn 回放不变（`seedLength` 为 0）。fork 回放现在将子会话路由到自身的脚本；由 `llm-replay` 测试中的一个回归用例覆盖（一个子会话 fixture，其播种前缀包含父会话的分片——推导出的子会话脚本必须排除它，不做 slice 时该用例为红）以及一个持久化往返测试（两个后端，通过共享的 coordinator 契约）。
+- spawn 回放不变（`seedLength` 为 0）。fork 回放现在将子会话路由到自身的脚本；由 `llm-replay` 测试中的一个回归用例覆盖（一个子会话 fixture，其播种前缀包含父会话的分片——推导出的子会话脚本必须排除它，不做 slice 时该用例为红）以及一个持久化往返测试（两个后端，通过共享的 coordinator 约定）。

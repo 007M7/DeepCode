@@ -26,7 +26,7 @@ JSONL 后端会打包每个持久追加批次。原始模式 `compression: 'none
 
 每个签入仓库的会话格式 JSONL fixture 都使用规范打包表示。`scripts/session-fixture-layout.snapshot.ts` 会在整个仓库中发现已跟踪的 `*.jsonl` 文件，以及未被忽略的新增未跟踪 JSONL 文件，选择首条记录为 `session` header 的文件，解码所有正文记录，并拒绝与 `packChunkRuns()` 输出不同的内容。因此，该清单无需维护路径列表即可覆盖 ACP、headless、TUI、`apps/web`、父会话、子会话以及未来的 fixture 名称。
 
-ACP 和 headless 快照运行会采集默认 JSONL 后端的输出。TUI 和 web 的记录模式写入器会在写入 fixture 前，对内存事件应用 `packChunkRuns()`。人工编写的 `packed-chunks` ACP 场景在普通配置下运行，并保留全部 3 种打包行类型；其契约先解码独立的源 fixture 和目标 fixture，再断言二者逐事件相等。
+ACP 和 headless 快照运行会采集默认 JSONL 后端的输出。TUI 和 web 的记录模式写入器会在写入 fixture 前，对内存事件应用 `packChunkRuns()`。人工编写的 `packed-chunks` ACP 场景在普通配置下运行，并保留全部 3 种打包行类型；其约定先解码独立的源 fixture 和目标 fixture，再断言二者逐事件相等。
 
 聚焦的包测试保留非打包和混合布局输入，以验证读取器兼容性。这些测试不会让默认快照语料库豁免规范布局要求。
 
@@ -36,9 +36,9 @@ ACP 和 headless 快照运行会采集默认 JSONL 后端的输出。TUI 和 web
 
 只要较旧分支仍可能携带 fixture 改动，测试政策和 ACP 快照 README 就会继续链接该命令。最新的开放 PR（Pull Request）清单确认每个受影响分支均已合并、关闭或符合规范后，[移除提案](../../proposed/process/2026-07-26-remove-packed-session-fixture-migrator.md)会删除该 CLI、包命令、本过渡章节和文档链接，并替换永久门禁中仅适用于该命令的修复指引。共享规范布局转换器与快照门禁保持永久存在。
 
-### 验证契约
+### 验证约定
 
-JSONL 持久化测试证明：省略选项时会写入打包行，显式传入 `false` 时会按每个事件一行的形式写入，两种形式都会加载为完全相同的事件。规范布局转换器单元测试覆盖 header 保留、非打包转换、非会话 JSONL、已打包输入的幂等性和畸形输入。无密钥快照门禁覆盖每个签入仓库的 fixture 和组装后的回放路径；文档门禁则确保配置默认值与双语契约保持一致。
+JSONL 持久化测试证明：省略选项时会写入打包行，显式传入 `false` 时会按每个事件一行的形式写入，两种形式都会加载为完全相同的事件。规范布局转换器单元测试覆盖 header 保留、非打包转换、非会话 JSONL、已打包输入的幂等性和畸形输入。无密钥快照门禁覆盖每个签入仓库的 fixture 和组装后的回放路径；文档门禁则确保配置默认值与双语约定保持一致。
 
 ## 曾考虑的替代方案
 

@@ -63,6 +63,20 @@ export interface TypeApiEntry {
 /** Every harness `ctx.<key>` service, sorted by key. */
 export const SERVICE_API: readonly ServiceApiEntry[] = [
   {
+    key: 'agentDefaultModel',
+    summary: 'Owns the default model selection independently of any Host or transport.',
+    methods: [
+      {
+        signature: 'currentSelection(): ModelSelection',
+        jsDoc: '/**\n * Read the current default model selection.\n * @returns a detached provider, model, and optional reasoning selection.\n */',
+      },
+      {
+        signature: 'async saveSelection(next: ModelSelection): Promise<void>',
+        jsDoc: '/**\n * Save the complete default model selection. A deployment without a settings\n * provider keeps its composition entry.\n * @param next - resolved selection accepted by a front door.\n * @returns fulfillment after the optional settings write settles.\n */',
+      },
+    ],
+  },
+  {
     key: 'agentLoop',
     summary: 'Concrete agent factory and driver service.',
     methods: [
@@ -2234,6 +2248,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface ModelMessageSource extends AssistantProvenance {\n    kind: \'model\';\n}',
   },
   {
+    name: 'ModelSelection',
+    declaration: 'export interface ModelSelection {\n    provider: string;\n    model: string;\n    reasoningEffort?: ReasoningEffortId;\n}',
+  },
+  {
     name: 'ObjectJsonSchema',
     declaration: 'export type ObjectJsonSchema = JsonSchemaNode & {\n    type: \'object\';\n};',
   },
@@ -3306,7 +3324,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
 /** The inherited `ctx` surface (cordis core + loader/hmr/timer), in curated order. */
 export const INHERITED_CTX_API: readonly InheritedApiEntry[] = [
   { name: 'ctx.on / ctx.once', summary: 'Register an event listener (disposable).' },
-  { name: 'ctx.emit / ctx.parallel / ctx.serial / ctx.bail / ctx.waterfall', summary: 'Dispatch an event (sync / awaited / first-bail / veto-chain).' },
+  { name: 'ctx.emit / ctx.parallel / ctx.serial / ctx.bail / ctx.waterfall', summary: 'Dispatch an event (sync / awaited / first-bail / short-circuit chain).' },
   { name: 'ctx.plugin / ctx.inject', summary: 'Load a plugin / declare required services.' },
   { name: 'ctx.effect', summary: 'Register a disposable side effect tied to the fiber.' },
   { name: 'ctx.get / ctx.set / ctx.provide / ctx.accessor / ctx.mixin', summary: 'Low-level service-store access and binding.' },

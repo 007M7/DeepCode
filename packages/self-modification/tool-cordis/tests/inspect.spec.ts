@@ -95,7 +95,7 @@ describe('cordis_inspect', () => {
     expect(report).toContain('- tools/change [emit]')
     expect(report).toContain('- tools/pre-execute [waterfall]')
     expect(report).toMatch(/'agent\/status'\(/)
-    expect(report).toContain('returning without next() vetoes the chain')
+    expect(report).toContain('returning without next() short-circuits the chain')
     expect(report).not.toContain('/**')
     expect(report).not.toContain('@mode waterfall')
   })
@@ -171,7 +171,7 @@ describe('inspect renderers (direct)', () => {
 
   it('describeEvents renders an empty catalog as just the waterfall caution', () => {
     expect(describeEvents([])).toEqual([
-      'waterfall listeners receive a trailing next() and MUST call it to delegate — returning without next() vetoes the chain.',
+      'waterfall listeners receive a trailing next() and MUST call it to delegate — returning without next() short-circuits the chain.',
     ])
   })
 })
