@@ -11,7 +11,7 @@ import { describe, expect, it } from 'vitest'
 
 const repoRoot = fileURLToPath(new URL('../../../', import.meta.url))
 const dshBin = join(repoRoot, 'apps/cli/lib/bin.js')
-const repositoryPluginPackage = join(repoRoot, 'packages/cordis/repository-plugin')
+const repositoryPluginPackage = join(repoRoot, 'packages/self-modification/repository-plugin')
 const releasePackageNames = new Set(globSync([
   'vendor/*/package.json',
   'packages/*/*/package.json',
