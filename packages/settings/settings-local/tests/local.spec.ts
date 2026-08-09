@@ -397,7 +397,9 @@ describe('watch', () => {
     const ctx = await boot({ path, debounceMs: 10 })
     const scope = ctx.settings.register(settingsNamespace('ui-theme'), ThemeSchema)
 
-    await writeFile(path, 'ui-theme: [unclosed\n')
+    // Replace the external edit atomically so this case observes one complete
+    // invalid document instead of a transient empty file during truncation.
+    await writeFileAtomic(path, 'ui-theme: [unclosed\n', { mode: 0o600 })
     // The bad edit must never take the live tree down or reset the value.
     await new Promise(resolve => setTimeout(resolve, 300))
     expect(scope.get()).toEqual({ theme: 'light', fontSize: 14 })
