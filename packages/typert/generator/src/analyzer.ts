@@ -274,7 +274,7 @@ export class WorkspaceAnalyzer {
 
   constructor(options: WorkspaceAnalyzerOptions) {
     this.options = {
-      root: resolve(options.root),
+      root: realPath(options.root),
       hostConfig: options.hostConfig ?? 'tsconfig.host.json',
       clientConfig: options.clientConfig ?? 'tsconfig.client.json',
       faces: options.faces ?? ['host', 'client'],

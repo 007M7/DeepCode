@@ -17,7 +17,7 @@ import {
   type TelemetryRecord,
 } from '../src/index.ts'
 
-declare module '@deepseek-ai/dsh-session' {
+declare module '@deepseek-ai/dsh-session/types' {
   interface SessionEventMap {
     /**
      * Test-only merged event proving unknown types flow through unchanged.
