@@ -28,7 +28,7 @@ Status: implemented
 
 ## 验证
 
-审计的成批 grep 检索（英文与中文、注释与行文、对 `.agents/` 加 `--hidden`）在已录制 fixture、已归档 Agent Note 与该清理技能自带的校准示例之外没有命中任何设计序号引用；`verify-type-equiv`、各 `gen-*` 新鲜度检查与 `verify-translation-pairing` 把重新生成与重新记录的表面固定下来。覆盖缺口：没有门禁会拒绝新的序号引用，这条规则由评审把关。
+审计的成批 grep 检索（英文与中文、注释与行文、对 `.agents/` 加 `--hidden`）在已录制 fixture、已归档 Agent Note、该清理技能自身文件与本笔记引用的证据之外没有命中任何设计序号引用；`verify-type-equiv`、各 `gen-*` 新鲜度检查与 `verify-translation-pairing` 把重新生成与重新记录的表面固定下来。覆盖缺口：没有门禁会拒绝新的序号引用，这条规则由评审把关。
 
 ## 后果
 

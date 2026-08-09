@@ -1,6 +1,6 @@
 # Few-shot leakage examples
 
-Distilled from the 2026-08 repo-wide purge and its review rounds. Use them to identify the governing principle, not as text templates. This file deliberately quotes leaked shapes as calibration material — the [recall batteries](recall-batteries.md) exclude this directory, and its wording is not a license elsewhere.
+Distilled from the 2026-08 repo-wide purge and its review rounds. Use them to identify the governing principle, not as text templates. This file deliberately quotes leaked shapes as calibration material — the [recall batteries](recall-batteries.md) exclude the skill's directory, and its wording is not a license elsewhere.
 
 ## Dead citations
 
@@ -8,9 +8,9 @@ Distilled from the 2026-08 repo-wide purge and its review rounds. Use them to id
 
 **Leaked:** "Slash input resolves against the visible catalog (decision 21)."
 
-**Fixed:** "Slash input resolves against the visible catalog — the plain-text-reference decision, owned by the web input-machine note."
+**Fixed:** "Slash input resolves against the visible catalog — the plain-text-reference decision, owned by [the web input-machine note](../../../notes/implemented/architecture/2026-07-25-web-input-machine-and-slash-pipeline.md)."
 
-The ordinal resolves nowhere at HEAD; the decision's name and owning note path do. Name the owning note's path at least once per file; later mentions may use the searchable name alone.
+The ordinal resolves nowhere at HEAD; the decision's name and owning note path do. Name the owning note's path at least once per file — as a link where the surface supports one — and later mentions may use the searchable name alone.
 
 ### Decision ordinal without an owner
 
