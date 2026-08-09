@@ -640,6 +640,43 @@ describe('dsh-tool-skill', () => {
     expect(JSON.stringify(result.content)).not.toContain('First body.')
   })
 
+  it('resolves the layered registry as the calling agent sees it', async () => {
+    const home = await tempDir('tool-scoped-layer')
+    const ctx = await setup(home)
+    const { agent, scope } = await mintAgentScope(ctx, '/workspace/scoped')
+    const scopedSkills = scope.ctx.get('skills')
+    if (scopedSkills === undefined) throw new Error('skills service missing')
+    scopedSkills.register({
+      name: 'preset-only-skill',
+      description: 'Visible to the scoped agent alone',
+      source: 'preset',
+      content: 'Preset-only body.',
+    })
+
+    expect(JSON.stringify(await composePrefixForAgent(ctx, agent))).toContain('preset-only-skill')
+    expect(JSON.stringify(await composePrefix(ctx, '/workspace/other'))).not.toContain('preset-only-skill')
+
+    const scoped = await ctx.tools.execute({
+      signal: testToolSignal,
+      callId: CallId('scoped-load'),
+      name: 'skill',
+      arguments: { name: 'preset-only-skill' },
+      agent,
+    })
+    expect(scoped.isError).toBe(false)
+    expect(JSON.stringify(scoped.content)).toContain('Preset-only body.')
+
+    const foreign = await ctx.tools.execute({
+      signal: testToolSignal,
+      callId: CallId('foreign-load'),
+      name: 'skill',
+      arguments: { name: 'preset-only-skill' },
+      agent: agentForCwd('/workspace/other'),
+    })
+    expect(foreign.isError).toBe(true)
+    await scope.dispose()
+  })
+
   it('retains the last-good catalog while any provider discovery is incomplete', async () => {
     const home = await tempDir('tool-incomplete-catalog')
     const ctx = await setup(home)
