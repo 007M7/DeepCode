@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/subsystems/llm-streaming.md
 llm-streaming.md: c65416f449d1783f398cdd81b0d6987de83a6141
-llm-streaming.zh.md: ce79ecca53edf7213853df118489817451baa7b0
+llm-streaming.zh.md: 08b627b41090e99d9a581758a593dc6d4dbf4dd7

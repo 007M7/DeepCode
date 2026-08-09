@@ -50,4 +50,4 @@ agent 的对外驱动接口逐渐长出三个近乎平行的动词——`send`�
 - [one-send-one-turn](../simplification/2026-07-17-one-send-one-turn.md)——本决策所依托的“每轮次只认领一条消息”规则。
 - [remove-agent-steering-mirror](../../archived/simplification/2026-07-04-remove-agent-steering-mirror.md)——折叠镜像实时事件的先例。
 - [explicit-turn-cancellation](2026-07-16-explicit-turn-cancellation.md)——`keepInbox` 所扩展的取消原因信号。
-- [带标识的不可变消息值](2026-07-28-identified-immutable-message-values.md)——本路由决策现在所依托的消息标识与表示契约。
+- [带标识的不可变消息值](2026-07-28-identified-immutable-message-values.md)——本路由决策现在所依托的消息标识与表示约定。

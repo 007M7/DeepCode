@@ -4,7 +4,7 @@
 
 面向 settings 编辑器的 schema／草稿模型层。wire 侧的 `settings.describe` 携带每个 namespace 的序列化 schemastery schema（`schema.toJSON()` 的 ref 信封）；`rehydrateSchema` 用 `new Schema(json)` 将其还原（rehydrate）为活的校验器——在宿主上校验分节的那份 schema 对象，就是在浏览器里校验草稿的那份对象，因此客户端校验绝不会偏离 seam 侧的校验。编辑器各自渲染自己的控件（Models 页围绕它在此探测到的字段手写自己的卡片）；该包不含任何 React，也不做任何渲染。
 
-## 契约
+## 约定
 
 编辑的单元是**用户分节草稿**：一个以不可变方式编辑的普通对象（`setPath` 会物化中间对象，`deletePath` 即逐字段重置——去掉该键，解析值便回退到组合 base 与 schema 默认值）。字段只要出现在草稿中就被标记为**已覆盖**（`hasPath`）——判定采用存在性语义而非值比较，与 settings seam 的分层方式严格对应。`nodeAtPath` 解析可配置提供方目录 `settingsPath` 所寻址的 schema 节点（object 属性按名称解析，dict 条目经由 `inner`），编辑器因此可以在决定渲染什么之前，先探测某提供方的 profile 携带哪些字段（及其 `meta.role`）；无法解析的路径返回 `undefined`，调用方因此会大声降级，而不是渲染出错误的子树。`validateDraft(schema, draft)` 运行还原出的校验器并返回其失败消息，页面因此可以在写入前拒绝无效草稿。
 

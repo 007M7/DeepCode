@@ -2,7 +2,7 @@
 
 [English](code-runtime.md) | 中文
 
-代码执行 seam 是一个[能力 seam](../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md)：其接口（[dsh-code-runtime](../../packages/code-runtime/code-runtime)，`ctx.codeRuntime`）使用宿主提供的异步绑定运行一段模型编写的程序，并报告其打印内容与返回值。代码执行是**一项可选能力**，不属于 agent loop（智能体循环）主干，因此其词汇定义在此而非 [core.md](core.md) 中。各后端的执行基底与源语言不同，这两项均为服务上的只读描述符；worker-thread 后端与工具注册表消费方的契约见 [Code Mode 基础设计](../../.agents/notes/implemented/feature/2026-06-15-code-mode.md) 和[类型化返回契约](../../.agents/notes/implemented/feature/2026-07-20-code-mode-typed-tool-returns.md)。
+代码执行 seam 是一个[能力 seam](../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md)：其接口（[dsh-code-runtime](../../packages/code-runtime/code-runtime)，`ctx.codeRuntime`）使用宿主提供的异步绑定运行一段模型编写的程序，并报告其打印内容与返回值。代码执行是**一项可选能力**，不属于 agent loop（智能体循环）主干，因此其词汇定义在此而非 [core.md](core.md) 中。各后端的执行基底与源语言不同，这两项均为服务上的只读描述符；worker-thread 后端与工具注册表消费方的约定见 [Code Mode 基础设计](../../.agents/notes/implemented/feature/2026-06-15-code-mode.md) 和[类型化返回约定](../../.agents/notes/implemented/feature/2026-07-20-code-mode-typed-tool-returns.md)。
 
 源码：[`packages/code-runtime/code-runtime/src/types.ts`](../../packages/code-runtime/code-runtime/src/types.ts)
 
@@ -36,7 +36,7 @@ interface CodeRunRequest {
 }
 ```
 
-结果将错误报告为一个**字段**，而不是让 `run()` 返回被拒绝的 Promise。报告程序失败是调用方的职责，不走异常路径（与 `BashExecutor.run` 失败时仍正常完成的契约一致）：
+结果将错误报告为一个**字段**，而不是让 `run()` 返回被拒绝的 Promise。报告程序失败是调用方的职责，不走异常路径（与 `BashExecutor.run` 失败时仍正常完成的约定一致）：
 
 ```ts type-equiv
 /**

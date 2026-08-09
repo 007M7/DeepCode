@@ -12,7 +12,7 @@ Status: implemented
 
 已交付的 TUI 和 Web／无头 `cordis.yml` 配置树包含一个空的 `repository-plugins` 配置项。用户只需修改 `$DSH_HOME/config.yaml`，用 `repositories` 列表替换该配置项的配置。每一项采用 `github:owner/repository#<ref>`，并可追加 `&path:/.../.dsh-plugin`；省略时选择 `/.dsh-plugin`。必须显式指定 ref；路径是仓库内的绝对路径，并以 `.dsh-plugin` 结尾；重复的规范化说明符在安装前即被拒绝。不提供插件市场、发现索引、HTTPS URL 词汇或隐式的最新版本。
 
-`@deepseek-ai/dsh-repository-plugin` 校验并规范化每个源，再通过 vendor 中的通用 [`RepositoryCache`](../architecture/2026-07-30-package-manager-native-repository-cache.md) 解析。默认缓存位于 `$DSH_HOME/cache/repository-plugins`；`cacheDir` 是显式的部署覆盖项。随应用提供的 pnpm 选择配置的仓库子包（package），运行包括 `prepare` 在内的普通生命周期，并原子发布该精确说明符。DSH 宿主只导入生成的 `dsh-plugin.mjs` 包装模块并将其挂载为子 fiber，因此 skill（技能）与 MCP 仍沿用格式包定义的所有者、失败契约和清理行为。
+`@deepseek-ai/dsh-repository-plugin` 校验并规范化每个源，再通过 vendor 中的通用 [`RepositoryCache`](../architecture/2026-07-30-package-manager-native-repository-cache.md) 解析。默认缓存位于 `$DSH_HOME/cache/repository-plugins`；`cacheDir` 是显式的部署覆盖项。随应用提供的 pnpm 选择配置的仓库子包（package），运行包括 `prepare` 在内的普通生命周期，并原子发布该精确说明符。DSH 宿主只导入生成的 `dsh-plugin.mjs` 包装模块并将其挂载为子 fiber，因此 skill（技能）与 MCP 仍沿用格式包定义的所有者、失败约定和清理行为。
 
 ## 实时更新与失败
 
@@ -36,7 +36,7 @@ Cordis 会串行处理并合并该确切路径上的变更。Include 与 Loader 
 
 **监视缓存内容，或自动刷新相同 ref。** 否决，因为一个配置值必须标识一个不可变的已准备版本。后台远端解析会在没有配置差异的情况下改变可执行代码，并使回滚依赖可变的远端状态。
 
-**广播 `unknown` 失败载荷。** 在 HMR 边界否决。JavaScript 内部可以抛出任意值，但公开事件始终接收规范化的 `Error`，从而为观察者提供稳定契约，并在需要时把原始值保留为错误原因。
+**广播 `unknown` 失败载荷。** 在 HMR 边界否决。JavaScript 内部可以抛出任意值，但公开事件始终接收规范化的 `Error`，从而为观察者提供稳定约定，并在需要时把原始值保留为错误原因。
 
 ## 后果
 

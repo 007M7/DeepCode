@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-`dsh-session-persistence-jsonl` 与 `dsh-session-persistence-sqlite` 有意在不同存储介质上证明同一份 `SessionPersistence` 契约，但它们重复实现了写入路径编排：每会话状态、`session/created` 接管、后端特定的前缀读取、write-behind 控制、按 id 串行执行操作、HMR（热模块替换）种子注入与 dispose（资源释放）排空。纯粹的种子前缀碰撞检查与可序列化守卫已迁入 seam 包；剩余的编排仍然对正确性要求很高，且同样的修复被应用了两次。唯一的差异在于存储原语（写字节 vs. INSERT 行）。
+`dsh-session-persistence-jsonl` 与 `dsh-session-persistence-sqlite` 有意在不同存储介质上证明同一份 `SessionPersistence` 约定，但它们重复实现了写入路径编排：每会话状态、`session/created` 接管、后端特定的前缀读取、write-behind 控制、按 id 串行执行操作、HMR（热模块替换）种子注入与 dispose（资源释放）排空。纯粹的种子前缀碰撞检查与可序列化守卫已迁入 seam 包；剩余的编排仍然对正确性要求很高，且同样的修复被应用了两次。唯一的差异在于存储原语（写字节 vs. INSERT 行）。
 
 ## 决策
 

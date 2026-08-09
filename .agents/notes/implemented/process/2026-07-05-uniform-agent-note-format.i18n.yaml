@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/process/2026-07-05-uniform-agent-note-format.md
 2026-07-05-uniform-agent-note-format.md: 06082251c1b96c90ed470d84224662e00e29791b
-2026-07-05-uniform-agent-note-format.zh.md: 8f874f26c43a88ec3d2f1185c7b4d6f2f39ba1bb
+2026-07-05-uniform-agent-note-format.zh.md: a13c436a3fa157a0bfe551a7ed0594d052a4de90

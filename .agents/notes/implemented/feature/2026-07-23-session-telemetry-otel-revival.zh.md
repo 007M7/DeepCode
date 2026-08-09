@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-每个想把 harness 会话接入可观测性体系的部署方都得手写一套会话日志消费方：订阅、生命周期交接、以及最难的脱敏——原始日志携带文件内容与命令输出，可能内嵌凭据。遥测 seam 和 OTel 后端曾在 `session-telemetry-otlp-rfc` 分支（PR #222/#231）上完成过一版，但从未进入 master：该提案将原始会话事件原样导出，法务评审未予通过。捕获侧设计（后端契约、coordinator、handoff 游标、分片投影）本身合理且经过评审；导出侧的立场才是阻塞点。
+每个想把 harness 会话接入可观测性体系的部署方都得手写一套会话日志消费方：订阅、生命周期交接、以及最难的脱敏——原始日志携带文件内容与命令输出，可能内嵌凭据。遥测 seam 和 OTel 后端曾在 `session-telemetry-otlp-rfc` 分支（PR #222/#231）上完成过一版，但从未进入 master：该提案将原始会话事件原样导出，法务评审未予通过。捕获侧设计（后端约定、coordinator、handoff 游标、分片投影）本身合理且经过评审；导出侧的立场才是阻塞点。
 
 ## 决策
 
@@ -20,7 +20,7 @@ Status: implemented
 
 ## 考虑过的替代方案
 
-**实现 runtime-telemetry RFC 的 outbox（落盘 spool、每 sink 游标、at-least-once、持久化 seam 的 `readCommitted` 方法）。** 推迟而非否决：SDK 立场使投递语义归属 reporting SDK，OTel SDK 自身的批处理流水线是诚实的默认。outbox 是纯增量层（`emit()` 契约不动）；待某个部署提出遥测必须满足的崩溃丢失要求时再复活。
+**实现 runtime-telemetry RFC 的 outbox（落盘 spool、每 sink 游标、at-least-once、持久化 seam 的 `readCommitted` 方法）。** 推迟而非否决：SDK 立场使投递语义归属 reporting SDK，OTel SDK 自身的批处理流水线是诚实的默认。outbox 是纯增量层（`emit()` 约定不动）；待某个部署提出遥测必须满足的崩溃丢失要求时再复活。
 
 **不设进程内脱敏点，交给接收端 collector processor。** 否决——接收端脱敏是先把秘密发出去再擦除。waterfall 在字节离开进程前提供一个可审计、可堆叠的擦除点；分支版本（PR #222 交付的形态）完全没有脱敏点，如今每条记录都必经该脱敏点。
 

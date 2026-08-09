@@ -12,7 +12,7 @@ Status: implemented
 
 ## 决策
 
-Agent 拥有仅用于运行时的 `AgentCancelCause` 联合类型 `{ kind: 'user' } | { kind: 'parent' }`；`agent.cancel()` 默认使用 `user`。TypeScript 在这个类型化的同进程 seam 中强制执行该词汇，不提供运行时校验器、后备行为，也不为无类型调用方提供特殊兼容性契约。活跃的 `TurnCancellation` 会把类型化判别字段复制为一个全新且已冻结的 signal 原因；空闲状态下没有可修改的持有者，也不会让后续工作预先进入取消状态。
+Agent 拥有仅用于运行时的 `AgentCancelCause` 联合类型 `{ kind: 'user' } | { kind: 'parent' }`；`agent.cancel()` 默认使用 `user`。TypeScript 在这个类型化的同进程 seam 中强制执行该词汇，不提供运行时校验器、后备行为，也不为无类型调用方提供特殊兼容性约定。活跃的 `TurnCancellation` 会把类型化判别字段复制为一个全新且已冻结的 signal 原因；空闲状态下没有可修改的持有者，也不会让后续工作预先进入取消状态。
 
 正在运行的轮次被中断后，以粗粒度的持久化结果 `{ kind: 'aborted' }` 结束。终态事件记录轮次发生了什么，运行时 signal 标识谁请求了取消；回放不会重复保存 `user` 或 `parent`。会话 seed/load 会拒绝携带取消原因或任何其他额外字段的旧式中止记录，因此回放无法重新引入由调用方持有的取消细节。仅限进程内的 `agent/cancel-requested` 通知不会持久化；未来若有审计需求，应使用独立的持久化控制请求事件，让请求与最终结果保持为两项事实。持久化事件不包含调用栈、signal、错误对象、自由文本取消原因或后端私有细节。
 

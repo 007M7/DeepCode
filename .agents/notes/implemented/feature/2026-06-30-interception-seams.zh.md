@@ -8,7 +8,7 @@ Status: implemented
 
 harness 需要一套钩子子系统：用户像 Claude Code（CC）和 Codex 那样在生命周期节点扩展或管控 agent（智能体）。驱动本设计的关键视角转换是：**「原生钩子」不是一个包**——原生钩子只是一个普通的 Cordis 插件，订阅规范的生命周期事件。因此真正的产品是一个*强大、类型完备的规范事件表面*；CC/Codex 桥接（`dsh-hooks-claude` / `dsh-hooks-codex` 包）只是将外部 shell 钩子协议映射到同一表面的翻译层。桥接能做的事，普通插件可以直接做——而且更强大（无序列化边界、完整 `ctx`、类型化返回值）。
 
-该表面需要为以下场景提供各自独立的契约：逐提示词策略（CC 的 `UserPromptSubmit`）、会话启动观测（CC 的 `SessionStart`）、工具执行前策略、环绕调度控制、工具执行后变换、最终结果观测，以及携带面向模型的原因的继续执行。如果把这些阶段混为一谈，插件就会获得不需要的 mutation 通道，而终结性将依赖监听器的注册顺序。[事件域语义 Agent Note](../architecture/2026-06-30-event-domain-semantics.md) 提供了三域规则与类型化 Decision 惯用法；本 Agent Note 将其应用于生命周期 seam。
+该表面需要为以下场景提供各自独立的约定：逐提示词策略（CC 的 `UserPromptSubmit`）、会话启动观测（CC 的 `SessionStart`）、工具执行前策略、环绕调度控制、工具执行后变换、最终结果观测，以及携带面向模型的原因的继续执行。如果把这些阶段混为一谈，插件就会获得不需要的 mutation 通道，而终结性将依赖监听器的注册顺序。[事件域语义 Agent Note](../architecture/2026-06-30-event-domain-semantics.md) 提供了三域规则与类型化 Decision 惯用法；本 Agent Note 将其应用于生命周期 seam。
 
 ## 决策
 
@@ -31,7 +31,7 @@ harness 需要一套钩子子系统：用户像 Claude Code（CC）和 Codex 那
 - **`ToolDefinition.finalizeContent`** 是一个可选、同步、对所有输入都有定义且仅能处理内容的边界，在调用创建时随可见定义一起被快照。注册表将候选结果规范化并创建无损快照后，它恰好运行一次；候选结果包括绕过后续 waterfall 的 pre、around 或 post 监听器失败，以及为另一个结果字段创建快照时发现的错误。它可以替换 `content`，也可返回 `undefined` 保留原内容，但不能重写 `isError`、结构化错误身份、上下文或呈现元数据。工具在此执行自身最后一道内容不变式，而无需将策略失败转换为更弱的阻止 decision。
 - **`tools/result`** 是在所有变换、无损 JSON 实体化和外层错误边界之后的同步且故障受控的通知。它接收相同的冻结执行身份和权威结果的不可变快照；观测者的失败按监听器隔离，无法改变或拒绝 `ToolRegistry.execute()` 返回的结果。
 
-核心调度与工具体位于规范化边界内部，因此工具、监听器、无效规范值、渲染器／投影器、非 JSON 呈现和身份形状错误均解析为 JSON 安全的 `isError` 结果，而非逃逸出轮次。post-execute 监听器因此可以检查一个抛出异常的工具；由工具定义负责的最终内容不变式也会覆盖外层流水线与候选结果实体化失败；最终观测者会同时看到执行期间的规范值，以及会话日志能够持久化的确切呈现字段。[规范工具输出契约](../architecture/2026-07-20-canonical-tool-output-contract.md)定义值／投影与持久性规则。
+核心调度与工具体位于规范化边界内部，因此工具、监听器、无效规范值、渲染器／投影器、非 JSON 呈现和身份形状错误均解析为 JSON 安全的 `isError` 结果，而非逃逸出轮次。post-execute 监听器因此可以检查一个抛出异常的工具；由工具定义负责的最终内容不变式也会覆盖外层流水线与候选结果实体化失败；最终观测者会同时看到执行期间的规范值，以及会话日志能够持久化的确切呈现字段。[规范工具输出约定](../architecture/2026-07-20-canonical-tool-output-contract.md)定义值／投影与持久性规则。
 
 ### 三个承重的循环决策
 
@@ -43,7 +43,7 @@ harness 需要一套钩子子系统：用户像 Claude Code（CC）和 Codex 那
 
 ### 工具执行前输入重写是一个独立的一致性决策
 
-`PreToolDecision` 不能重写参数。历史和审计调用在执行前记录，UI 展示读取相同的输入，因此注册表在策略之前封存参数。有效的重写必须在身份创建之前同时更新历史、审计、展示和执行；该契约属于[输入重写提案](../../proposed/feature/2026-06-30-pre-tool-input-rewrite.md)。
+`PreToolDecision` 不能重写参数。历史和审计调用在执行前记录，UI 展示读取相同的输入，因此注册表在策略之前封存参数。有效的重写必须在身份创建之前同时更新历史、审计、展示和执行；该约定属于[输入重写提案](../../proposed/feature/2026-06-30-pre-tool-input-rewrite.md)。
 
 ### 边界
 

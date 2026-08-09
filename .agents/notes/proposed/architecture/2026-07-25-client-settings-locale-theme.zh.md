@@ -6,7 +6,7 @@ Status: proposed
 
 ## 问题
 
-浏览器端已有的 Settings 直接写在 Sidebar 内，语言和主题也由组件本地状态直接改 DOM。这使 Settings 无法由独立插件扩展，偏好状态没有稳定的跨插件服务契约，主题注册表同时承担状态与呈现职责。
+浏览器端已有的 Settings 直接写在 Sidebar 内，语言和主题也由组件本地状态直接改 DOM。这使 Settings 无法由独立插件扩展，偏好状态没有稳定的跨插件服务约定，主题注册表同时承担状态与呈现职责。
 
 ## 提案
 
@@ -61,7 +61,7 @@ section/item contribution 使用 `ctx.slots.inject()`，不依赖 client manifes
 
 `SlotsService.inject()` 直接等待有类型约束的 ledger key；它不会将声明桥接为合成的 `slot:<name>` Cordis 服务。回调会跟随声明撤销与重新声明，而其控制器仍归贡献方插件 fiber 所有；直接向未声明 slot 注册仍会显式报错。这移除了陈旧 disposer 的在位判定机制和容易因拼写错误出错的平行服务命名空间。完整的生命周期与失败约定见 [slot 声明注入决策](../../implemented/architecture/2026-08-05-slot-declaration-injection.md)。
 
-### 服务契约
+### 服务约定
 
 ```ts
 export type ThemePreference = 'light' | 'dark' | 'system'

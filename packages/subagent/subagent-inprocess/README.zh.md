@@ -36,7 +36,7 @@
 
 ## 结构化输出
 
-`attachStructuredRuntime(childCtx, schema)` 会在子 agent 作用域中安装完整契约：
+`attachStructuredRuntime(childCtx, schema)` 会在子 agent 作用域中安装完整约定：
 
 - 使用请求 schema 注册的 `structured_output` 工具会校验并暂存模型值。
 - 一个顺序为 190 的系统提示词段会告诉子 agent，该工具调用就是终态答案。

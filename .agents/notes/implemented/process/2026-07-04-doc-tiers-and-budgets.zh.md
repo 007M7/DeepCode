@@ -14,13 +14,13 @@ Status: implemented
 - **每项事实只归属一处的层级分类。**文档标准为每种 Markdown 层级分配单一职责，禁止在事实归属层级之外重复陈述，并包含编写或评审任何文档时使用的赘余检查清单。
 - **范围窄且严格的预算门禁。**[scripts/verify-doc-budgets.ts](../../../../scripts/verify-doc-budgets.ts) 接入 `doc-sync`：[scripts/doc-budgets.manifest.json](../../../../scripts/doc-budgets.manifest.json) 列出的每份文档都必须低于其词数上限（采用 `wc -w` 语义，统计整个文件）；预算内文件缺失也会使门禁失败，使重命名无法悄然遗落其预算。范围刻意只涵盖容易膨胀的常设文档——根目录和子树中的 `AGENTS.md` 文件、`architecture.md`、`packages/README.md`，以及它们将内容移入的常设策略文档（`docs/testing.md`、`docs/defensive-patterns.md`）。参考文档、Agent Note 和包 README 不设预算：只要每一行都是事实，长度在这些位置就是合理的；评审和赘余检查清单负责约束它们。
 - **上限是只进不退的执行红线。** 达到或低于目标的文档在上限逐步下调时保留至少 5% 的余量；高于目标的文档则维持冻结的上限，在达到目标之前不得增长（根 `AGENTS.md` ≤ 1,600 词；`architecture.md` ≤ 1,800；子树 `AGENTS.md` ≤ 600，但 `packages/AGENTS.md` ≤ 650、`docs/AGENTS.md` ≤ 1,250；`packages/README.md` ≤ 600）。门禁变红时，迁移或压缩内容；只有在 PR（Pull Request）描述中给出明确理由时才提高上限。
-- **精简的工作流 skill（技能），契约归文档。**[.agents/skills/dsh-doc-standards](../../../skills/dsh-doc-standards/SKILL.md) 承载文档放置、审计和门禁失败处理工作流，并以文档标准为真源，与 [dsh-translate-docs](../../../skills/dsh-translate-docs/SKILL.md) 和 i18n 契约之间的分工相同。
+- **精简的工作流 skill（技能），约定归文档。**[.agents/skills/dsh-doc-standards](../../../skills/dsh-doc-standards/SKILL.md) 承载文档放置、审计和门禁失败处理工作流，并以文档标准为真源，与 [dsh-translate-docs](../../../skills/dsh-translate-docs/SKILL.md) 和 i18n 约定之间的分工相同。
 
 ## 曾考虑的替代方案
 
 - **仅靠 skill 和评审纪律，不设门禁**：否决。上述膨胀正是在现行规则和评审注意力已经存在的情况下发生的；一条没有自动化保障的行文规则在此处已被证明无法维持，而本仓库自身的[质量门禁立场](2026-06-11-quality-gates.md)认为值得保持的不变式就值得编码。
 - **对所有文档层级全面设限**：否决。一刀切的上限恰好惩罚了那些正当的长文档（如功能矩阵或类型目录，每一行都是事实），并产生逐文件的例外变更，训练贡献者机械地批准提限。
-- **将标准放在 skill 内部**：否决。契约归文档，工作流归 skill；如果标准被塞进 SKILL.md，那些不调用该 skill 而直接编辑文档的 agent（智能体）就看不到它，而 `docs/AGENTS.md` 已经作为子树指令被任何在 `docs/` 下工作的人加载。
+- **将标准放在 skill 内部**：否决。约定归文档，工作流归 skill；如果标准被塞进 SKILL.md，那些不调用该 skill 而直接编辑文档的 agent（智能体）就看不到它，而 `docs/AGENTS.md` 已经作为子树指令被任何在 `docs/` 下工作的人加载。
 
 ## 后果
 

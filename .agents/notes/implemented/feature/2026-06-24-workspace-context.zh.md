@@ -22,7 +22,7 @@ Status: implemented
 
 默认的逐目录候选列表是 `['AGENTS.md', 'CLAUDE.md']`。该列表可通过 `instructionFileCandidates` 配置；`AGENTS.md` 是普通的第一候选项，而不是隐藏优先级。一个目录中只加载第一个存在的普通文件候选项。使用默认值时，`AGENTS.md` 是原生文件，`CLAUDE.md` 是兼容性回退。第二个列表 `localInstructionFileCandidates`（默认为 `['AGENTS.local.md', 'CLAUDE.local.md']`）会在同一目录的基础文件后加载叠加式本地覆盖层；[默认本地覆盖层记录](2026-07-21-local-instruction-overlay.md)负责说明该决策。
 
-候选条目必须是同一目录中的文件名。空条目、`.`／`..`，以及包含 `/` 或 `\` 的条目会被忽略。其他同目录名称可以显式选择加入；规则目录和导入语义不属于本契约。
+候选条目必须是同一目录中的文件名。空条目、`.`／`..`，以及包含 `/` 或 `\` 的条目会被忽略。其他同目录名称可以显式选择加入；规则目录和导入语义不属于本约定。
 
 用户全局文件固定为 `$DSH_HOME/AGENTS.md`，不受任一候选列表影响，也没有本地覆盖层。`$DSH_HOME` 默认为 `~/.dsh`，与 `~/.codex` 或 `~/.claude` 在 harness 层的 home 角色一致，而不会引入插件专用 home。波浪号展开与默认值位于 `dsh-paths` 中，以便未来的 harness 功能共享同一约定。
 

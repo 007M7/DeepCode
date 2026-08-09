@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-07-12-subagent-persona-tool-filter-and-depth.md
 2026-07-12-subagent-persona-tool-filter-and-depth.md: 2c5eaf8829e01536a2de34cc190573ff35e4ab77
-2026-07-12-subagent-persona-tool-filter-and-depth.zh.md: 355db26ecaf57137420798474561d6a7032757cb
+2026-07-12-subagent-persona-tool-filter-and-depth.zh.md: ae64e26d95e42ca6c933892348e22d3cbf0dc722

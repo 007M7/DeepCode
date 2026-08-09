@@ -7,7 +7,7 @@
 | 包 | 职责 |
 |---|---|
 | [`brand/`](brand/README.md) | 提供带名义品牌的类型 |
-| [`paths/`](paths/README.md) | 解析 harness（智能体框架）数据根目录和共享路径 |
+| [`paths/`](paths/README.md) | 解析 Harness 数据根目录和共享路径 |
 | [`timeout/`](timeout/README.md) | 提供截止时间和超时分类原语 |
 | [`retention/`](retention/README.md) | 限制保留文本和项集合的大小 |
 | [`atomic-write/`](atomic-write/README.md) | 以原子方式替换文件 |

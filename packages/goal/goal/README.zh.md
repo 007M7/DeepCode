@@ -15,9 +15,9 @@
 
 `defaultMaxGoalRounds` 必须是正的安全整数。`create()` 会在提交目标前于内部物化这项部署默认值；请求级取值可以覆盖它。
 
-## 服务契约
+## 服务约定
 
-`ctx.goals` 只接受以对应 id 注册的完全相同的活跃 `Agent` 实例。`get()` 返回与内部状态脱离的 `GoalView`；变更以 `GoalRef { id, revision }` 作为比较并设置防护，并拒绝陈旧引用。服务通过 [goal.md](../../../docs/subsystems/goal.md#cordis-surface) 的生成区块公开 create、edit、pause、resume、complete、block 和 clear 动词。创建默认值在内部解析。`disarm()` 是仅供生命周期使用的例外：它移除进程本地续行权限，不写入新 revision，也不发出变更。
+`ctx.goals` 只接受以对应 id 注册的完全相同的活跃 `Agent` 实例。`get()` 返回与内部状态脱离的 `GoalView`；变更以 `GoalRef { id, revision }` 作为比较并设置防护，并拒绝陈旧引用。服务通过 [goal.md](../../../docs/subsystems/goal.md#cordis-surface) 的生成区块公开 create、edit、pause、resume、complete、block 和 clear 动词。创建默认值在内部解析。`disarm()` 是仅供生命周期使用的例外：它移除进程本地续行权限，不写入新 revision，也不发出变更事件。
 
 最多只有一个当前目标。创建操作会生成 revision 为 1、phase 为 active 的目标并启用续行。未完成的目标必须编辑、转换或清除；已完成目标可以由拥有全局未使用过的 id 的目标替换。编辑会保留 phase、blocker reason 与 activation。暂停、完成、阻塞和清除都会停用续行。阻塞会记录策略自有的 lower-kebab-case 代码和规范化的自由文本说明；提供方限制、配置预算、执行错误与请求人工输入都使用这一种持久 phase，不会扩增生命周期状态。只有配置的 Round 上限仍有剩余容量时，resume 才接受已停止 phase 或 phase 为 active 但已停用续行的目标；它会清除原 blocker reason。phase 为 active 且已启用续行的目标会拒绝冗余操作。
 

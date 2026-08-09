@@ -14,7 +14,7 @@ harness 为模型提供了 bash 和 subagent 工具，却没有办法记录结�
 
 ### 整列表替换，三态 status
 
-模型每次调用发送完整列表；新列表替换旧列表（回放时 last-write-wins）。这是 claude-code V1、opencode 和 codex `update_plan` 共同采用的形状，也是模型训练最多的形状——没有逐项 id，没有 delta 协议。`status` 恰好是 `pending | in_progress | completed`，与 codex `update_plan` 相同的三元组；在 bridge 还把 todo 列表投影为 `plan` 更新时，它也与 ACP `PlanEntryStatus` 1:1 对应，该映射已随[仅面向自动化的 ACP 契约](../simplification/2026-07-23-acp-automation-only-protocol.md)退役。
+模型每次调用发送完整列表；新列表替换旧列表（回放时 last-write-wins）。这是 claude-code V1、opencode 和 codex `update_plan` 共同采用的形状，也是模型训练最多的形状——没有逐项 id，没有 delta 协议。`status` 恰好是 `pending | in_progress | completed`，与 codex `update_plan` 相同的三元组；在 bridge 还把 todo 列表投影为 `plan` 更新时，它也与 ACP `PlanEntryStatus` 1:1 对应，该映射已随[仅面向自动化的 ACP 约定](../simplification/2026-07-23-acp-automation-only-protocol.md)退役。
 
 ### 状态在会话日志上，而非服务
 

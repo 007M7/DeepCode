@@ -6,11 +6,11 @@ Status: implemented
 
 ## 问题
 
-`Agent.cancel(cause, { keepInbox: true })` 在触发 abort 信号后立即返回，但活动 driver 可能尚未收敛到 `idle`：LLM 流拆除、工具取消与 `turn/end` 落盘都会在 `abort()` 返回后异步展开。在该窗口内到达的唤醒 send 被放入 `next-turn`，而 `wakeDriver()` 对仍处于 `running` 的 phase 直接返回，退出的 driver 也从不重放这次唤醒——消息会一直停放到下一条唤醒 send 到达。被中止的 `runMaintenance` 活动周围也存在同样的唤醒丢失窗口。多个测试固化了停放行为（「等待下一次唤醒」）；该缺陷同时破坏了 `session.cancel` 与 `subagent.interrupt` 组合路径（issue #1838）。拥有取消与发送契约的既有决策是[显式轮次取消](../architecture/2026-07-16-explicit-turn-cancellation.md)与[统一发送](../architecture/2026-07-22-unified-send-and-coalesced-user-messages.md)；生产环境中的 `keepInbox` 消费方是[Web 停止保留队列](2026-07-31-web-stop-preserves-queue.md)。
+`Agent.cancel(cause, { keepInbox: true })` 在触发 abort 信号后立即返回，但活动 driver 可能尚未收敛到 `idle`：LLM 流拆除、工具取消与 `turn/end` 落盘都会在 `abort()` 返回后异步展开。在该窗口内到达的唤醒 send 被放入 `next-turn`，而 `wakeDriver()` 对仍处于 `running` 的 phase 直接返回，退出的 driver 也从不重放这次唤醒——消息会一直停放到下一条唤醒 send 到达。被中止的 `runMaintenance` 活动周围也存在同样的唤醒丢失窗口。多个测试固化了停放行为（「等待下一次唤醒」）；该缺陷同时破坏了 `session.cancel` 与 `subagent.interrupt` 组合路径（issue #1838）。拥有取消与发送约定的既有决策是[显式轮次取消](../architecture/2026-07-16-explicit-turn-cancellation.md)与[统一发送](../architecture/2026-07-22-unified-send-and-coalesced-user-messages.md)；生产环境中的 `keepInbox` 消费方是[Web 停止保留队列](2026-07-31-web-stop-preserves-queue.md)。
 
 ## 决策
 
-`running` phase 携带 `wakeRequested` 锁存，与既有的 `maintenance` phase 字段对称。`wakeDriver()` 在当前活动无法投递唤醒时锁存——maintenance 任务从不读取队列，被中止的活动收敛后不会重启——而存活的 driver 不需要锁存，因为它自己会认领排队的工作。退出中的活动在其自身收敛边界（`kick` 的 `finally` 与 `runMaintenance` 的 `finally`）重放锁存：这一位置保证 `turn/end N` 先于重放 driver 打开 `turn/start N+1` 落盘，并保证 `whenIdle()` 通过其 `activityDone` 循环看到重放 driver。两个重放点仅在 `inbox.hasPending` 时执行，因此收敛前被从 inbox 移除的锁存唤醒不会启动空 driver。而 agent 已处于 idle 时发送的唤醒，即使消息在 driver 认领前被清除，仍会打开自己的 turn 边界——这趟 `idle → running → idle` 转换是可观察契约：goal-session driver 的 pause/disarm 回退依赖取消预订后的 `idle` 转换触发（把守卫放进 `wakeDriver()` 后该边界被抑制，CI 发现了这一点）。不带 `keepInbox` 的 `cancel()` 会连同 inbox 一起清除锁存。
+`running` phase 携带 `wakeRequested` 锁存，与既有的 `maintenance` phase 字段对称。`wakeDriver()` 在当前活动无法投递唤醒时锁存——maintenance 任务从不读取队列，被中止的活动收敛后不会重启——而存活的 driver 不需要锁存，因为它自己会认领排队的工作。退出中的活动在其自身收敛边界（`kick` 的 `finally` 与 `runMaintenance` 的 `finally`）重放锁存：这一位置保证 `turn/end N` 先于重放 driver 打开 `turn/start N+1` 落盘，并保证 `whenIdle()` 通过其 `activityDone` 循环看到重放 driver。两个重放点仅在 `inbox.hasPending` 时执行，因此收敛前被从 inbox 移除的锁存唤醒不会启动空 driver。而 agent 已处于 idle 时发送的唤醒，即使消息在 driver 认领前被清除，仍会打开自己的 turn 边界——这趟 `idle → running → idle` 转换是可观察约定：goal-session driver 的 pause/disarm 回退依赖取消预订后的 `idle` 转换触发（把守卫放进 `wakeDriver()` 后该边界被抑制，CI 发现了这一点）。不带 `keepInbox` 的 `cancel()` 会连同 inbox 一起清除锁存。
 
 `signal.aborted` 判别项是承重的：它区分「中断前已排队的工作」——`keepInbox` 将其停放以待后续唤醒（验收条件 1）——与「abort 后显式的唤醒」，后者必须在收敛后执行。
 

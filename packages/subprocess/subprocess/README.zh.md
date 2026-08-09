@@ -4,7 +4,7 @@
 
 子进程 seam（`ctx.subprocess`）是一个执行世界的进程部分。抽象的 `SubprocessService` 公开可执行文件查找、普通受管 `spawn` 和一项终端进程原语；其词汇涵盖原始／收集式 stdio、进程与终端句柄、退出事实、进程树／会话清理，以及受管的 `DSH_*` 环境命名空间。本地实现位于 [`dsh-subprocess-local`](../subprocess-local/README.md)。
 
-## 契约
+## 约定
 
 - `spawn(spec)` 立即返回一个活动句柄；`done` 在进程关闭时以退出事实 resolve（`SubprocessOutcome` 不携带输出，也不携带原因分类），仅在 spawn 层面失败时 reject。
 - spawn 工作目录和可执行文件路径属于提供方的执行世界。`resolveExecutable(command, env?, signal?)` 验证绝对命令，或根据该执行世界清理后的 PATH 加显式覆盖来解析裸名称。

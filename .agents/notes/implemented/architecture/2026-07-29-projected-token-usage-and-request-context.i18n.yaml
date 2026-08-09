@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-07-29-projected-token-usage-and-request-context.md
 2026-07-29-projected-token-usage-and-request-context.md: 1e2c5ff067928620dee3d0937c247bec245e34f2
-2026-07-29-projected-token-usage-and-request-context.zh.md: fc885982ba45df68d456e153093005747ea74984
+2026-07-29-projected-token-usage-and-request-context.zh.md: 176e4929ac47dd2e83bf8361501b57058a3021f2

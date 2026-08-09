@@ -4,7 +4,7 @@
 
 Claude Code／Codex hook 协议格式（wire format）的**共享核心**。它不是 Cordis 插件：不注册也不注入任何内容。它是一个**库**，提供两个桥接插件（`@deepseek-ai/dsh-hooks-claude`、`@deepseek-ai/dsh-hooks-codex`）导入的方言无关原语，使两者都无需重复实现协议中相同的部分。
 
-共享 lib 存在的原因是：Codex 有意重新实现了 Claude Code hook 协议的一个*子集*，包括相同的 `hooks.json` matcher group 结构、相同的退出码／stdout 输出契约以及相同的 command hook 执行模式。真正共享的部分位于此处；每个桥接只负责不同的部分。
+共享 lib 存在的原因是：Codex 有意重新实现了 Claude Code hook 协议的一个*子集*，包括相同的 `hooks.json` matcher group 结构、相同的退出码／stdout 输出约定以及相同的 command hook 执行模式。真正共享的部分位于此处；每个桥接只负责不同的部分。
 
 ## 共享内容（此处）与各方言内容（桥接）
 
@@ -41,4 +41,4 @@ Hook 溯源记录必须位于一个尚未结束的轮次内。`UserPromptSubmit`
 
 ## 已知限制与暂缓事项
 
-- **`HookOutput.updatedInput` 会被解析但不会应用**：输入改写是已暂缓的一致性设计问题（见 [pre-tool-input-rewrite Agent Note](../../../.agents/notes/proposed/feature/2026-06-30-pre-tool-input-rewrite.md)）；当 hook 设置它时，桥接会记录 + 警告。完整契约见 `src/types.ts`。
+- **`HookOutput.updatedInput` 会被解析但不会应用**：输入改写是已暂缓的一致性设计问题（见 [pre-tool-input-rewrite Agent Note](../../../.agents/notes/proposed/feature/2026-06-30-pre-tool-input-rewrite.md)）；当 hook 设置它时，桥接会记录 + 警告。完整约定见 `src/types.ts`。

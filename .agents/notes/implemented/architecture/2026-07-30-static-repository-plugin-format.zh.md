@@ -22,19 +22,19 @@
 
 `.mcp.json` 中的每个 server 都变成一个现有 `dsh-mcp-client` 子级。适配层接受通用根对象 `{ "mcpServers": ... }`；stdio 定义只允许可选的 `type: "stdio"`、`command`、`args` 与 `env`，HTTP 定义只允许 `type: "http"`、`url` 与 `headers`。严格的 `${NAME}` 进程环境变量引用在运行时、cache 准备之后展开；缺失变量会使 Plugin 加载失败。HTTP 映射到 client 的 Streamable HTTP transport，stdio 使用已准备 package 目录作为 `cwd`。只有现有 client 负责连接尝试、失败日志、远端工具同步、工具调用和断开。因此 MCP 连接失败会继续沿用“Plugin 成功但不注册工具”的既有行为，不会被重新分类为 repository 准备或 Loader 失败。
 
-未知 MCP 字段会被拒绝。这里有意排除 OAuth、`auth` 对象、`CLAUDE_PLUGIN_ROOT` 和更广泛的 Claude 兼容契约。Hooks、commands、agents、apps、任意 Cordis 代码、marketplace 和发现同样不受支持。Repository 子目录选择与 GitHub 源配置属于[独立应用集成](../feature/2026-07-30-config-only-repository-plugins.md)，而不是本格式 package。
+未知 MCP 字段会被拒绝。这里有意排除 OAuth、`auth` 对象、`CLAUDE_PLUGIN_ROOT` 和更广泛的 Claude 兼容约定。Hooks、commands、agents、apps、任意 Cordis 代码、marketplace 和发现同样不受支持。Repository 子目录选择与 GitHub 源配置属于[独立应用集成](../feature/2026-07-30-config-only-repository-plugins.md)，而不是本格式 package。
 
 ## 考虑过的替代方案
 
 **加载仓库自己的 Cordis 入口。** 拒绝，因为这会把宣传为静态的格式变成无限制代码加载 API，要求仓库作者依赖 Harness 内部实现，并重复普通 SDK／Plugin dependency 路径。
 
-**让生成包装模块直接实现 skills 和 MCP。** 拒绝，因为复制的运行时代码会与 `dsh-skill-local` 和 `dsh-mcp-client` 漂移，尤其是提供方失效、工具同步、失败和 teardown 契约。
+**让生成包装模块直接实现 skills 和 MCP。** 拒绝，因为复制的运行时代码会与 `dsh-skill-local` 和 `dsh-mcp-client` 漂移，尤其是提供方失效、工具同步、失败和 teardown 约定。
 
 **让每个生成包装模块 import Harness package。** 拒绝，因为 repository package 不应解析或锁定应用的内部依赖图。Loader builtin 提供一份由 app 所有的实现，并让生成包装模块保持无 import。
 
 **监视已准备 repository 资源。** 拒绝，因为一个精确 repository cache generation 是不可变的。Ref、子目录或配置变化会选择新 generation；第二套 watcher 会创造一套没有所有者的刷新身份。
 
-**把 MCP 连接失败当作 Loader 更新失败。** 拒绝，因为现有 MCP client 有意收束连接失败并不暴露工具。只对 repository source 改变该语义，会让同一 server 配置拥有两套失败契约。
+**把 MCP 连接失败当作 Loader 更新失败。** 拒绝，因为现有 MCP client 有意收束连接失败并不暴露工具。只对 repository source 改变该语义，会让同一 server 配置拥有两套失败约定。
 
 ## 后果
 

@@ -50,11 +50,11 @@ await ctx.plugin(ToolFs)                                  // this package — re
 
 ## `fs/observed` 发后即忘
 
-`fs/observed` 在读取/写入/编辑已经成功之后，通过普通 `ctx.emit` 发出。监听器的契约是同步且只有副作用的记录器（`@deepseek-ai/dsh-fs-policy` 使用 `WeakMap.set`）；工具不保护这次发出，因此监听器抛出会作为工具的 `isError` 结果出现。异步或可能失败的观察不属于该事件。
+`fs/observed` 在读取/写入/编辑已经成功之后，通过普通 `ctx.emit` 发出。监听器的约定是同步且只有副作用的记录器（`@deepseek-ai/dsh-fs-policy` 使用 `WeakMap.set`）；工具不保护这次发出，因此监听器抛出会作为工具的 `isError` 结果出现。异步或可能失败的观察不属于该事件。
 
 `read` 允许并发调度，因为其唯一变更是同步版本记录器。稍后的 `write` 或 `edit` 会在目标锁内重新检查版本，因此记录器竞态会以拒绝方式关闭；两个变更工具仍保持互斥。见[并行工具调用 Agent Note](../../../.agents/notes/implemented/feature/2026-07-10-parallel-tool-call-execution.md)。
 
-包根目录只导出 Cordis 插件契约（`name`、`inject`、`Config` 和 `apply`）。读取渲染（行窗口与输出格式化）位于 `src/read-render.ts`（不依赖 Cordis，单独进行单元测试）；`src/read.ts`/`write.ts`/`edit.ts` 是工具执行器，`src/index.ts` 负责组合。
+包根目录只导出 Cordis 插件约定（`name`、`inject`、`Config` 和 `apply`）。读取渲染（行窗口与输出格式化）位于 `src/read-render.ts`（不依赖 Cordis，单独进行单元测试）；`src/read.ts`/`write.ts`/`edit.ts` 是工具执行器，`src/index.ts` 负责组合。
 
 ## 模型体验
 

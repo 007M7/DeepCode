@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-06-24-workspace-context.md
 2026-06-24-workspace-context.md: 53a580aee50752b7c6daeff5caa42ba6409c8885
-2026-06-24-workspace-context.zh.md: 79e5b0014801878595d3a5d71b8c4b23c5aad996
+2026-06-24-workspace-context.zh.md: 39c3f52da10b7299301d10bd8b78330cbae8e19c

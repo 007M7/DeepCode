@@ -2,9 +2,9 @@
 
 [English](README.md) | 中文
 
-本仓库的文档会被公司内外的人和 agent（智能体）阅读，因此范围内的每篇文档都以英文和简体中文维护。本页定义配对契约、强制门禁、范围与排除规则；[translation-rules.md](translation-rules.md) 定义如何翻译；[terminology.md](terminology.md) 是术语真源。仓库内置的 agent 工作流见 [.agents/skills/dsh-translate-docs](../../.agents/skills/dsh-translate-docs/SKILL.md)。
+本仓库的文档会被公司内外的人和 agent（智能体）阅读，因此范围内的每篇文档都以英文和简体中文维护。本页定义配对约定、强制门禁、范围与排除规则；[translation-rules.md](translation-rules.md) 定义如何翻译；[terminology.md](terminology.md) 是术语真源。仓库内置的 agent 工作流见 [.agents/skills/dsh-translate-docs](../../.agents/skills/dsh-translate-docs/SKILL.md)。
 
-## 配对契约
+## 配对约定
 
 - **两种语言同权。** 一篇文档可以先用任一语言撰写和评审（先写中文的 Agent Note 与先写英文的一样正当），另一侧由它翻译而来。两个文件谁也不高于谁；约束它们的是二者必须说同样的话。
 - **一对文档是三个同目录文件。** 英文 `foo.md`、中文 `foo.zh.md`，加一份一致性记录 `foo.i18n.yaml`，都在同一目录。不用语言目录，不用独立翻译仓库，不用中英混排的单文件。配对必须整体合并：PR（Pull Request）永远不会只带一种语言而缺其余两个文件。
@@ -23,7 +23,7 @@
 
 ## 门禁：verify-translation-pairing
 
-`pnpm run verify-translation-pairing`（`doc-sync`（文档同步门禁）的一环，贡献者会针对文档变更在本地运行，CI 则会完整运行）机械地强制执行这份契约：
+`pnpm run verify-translation-pairing`（`doc-sync`（文档同步门禁）的一环，贡献者会针对文档变更在本地运行，CI 则会完整运行）机械地强制执行这份约定：
 
 1. 范围内的每篇文档都有完整配对。发现 README 时，basename 不区分大小写，因此 `missions/readme.md` 与其他文档根一样属于范围。
 2. 任何已存在的配对产物都完整且一致：三个文件齐全、每一侧的当前 blob hash 等于记录值（改了任一侧而没重新确认配对就变红）、双方都带语言切换行、结构签名按序一致：标题深度、逐字节一致的代码块（信息字符串与内容）、表格行列数、列表类型、有序列表起始编号、列表项数量，以及除切换行之外的每个链接目标。
@@ -37,7 +37,7 @@
 
 这个门禁带来的实际规则是：**当一个 PR 修改了已配对文档的任一侧时，同一个 PR 更新另一侧并重新记录配对**（运行 [dsh-translate-docs](../../.agents/skills/dsh-translate-docs/SKILL.md) skill（技能），再 `--write <pair>`），与本仓库既有的代码与 README 的 doc-sync 规则完全一致。留下失去同步的配对的 PR 会在 CI 变红。
 
-把门禁的边界说白：**门禁通过意味着这组文档在当前内容上的一致性得到了确认，不代表确认本身正确可靠。** 它检查记录的 hash 与结构签名；它无法判断两侧是否真的在说同样的话，也无法判断措辞是否准确、术语是否得当、行文是否自然；这部分契约由评审者把关，见 [translation-rules.md](translation-rules.md)。重新记录了 hash 但另一侧翻得潦草的配对能通过门禁；它不得通过评审。
+把门禁的边界说白：**门禁通过意味着这组文档在当前内容上的一致性得到了确认，不代表确认本身正确可靠。** 它检查记录的 hash 与结构签名；它无法判断两侧是否真的在说同样的话，也无法判断措辞是否准确、术语是否得当、行文是否自然；这部分约定由评审者把关，见 [translation-rules.md](translation-rules.md)。重新记录了 hash 但另一侧翻得潦草的配对能通过门禁；它不得通过评审。
 
 ## 范围与排除
 
@@ -55,4 +55,4 @@
 
 ## 分工
 
-这里的对侧文件由运行 [dsh-translate-docs](../../.agents/skills/dsh-translate-docs/SKILL.md) 的 agent 生成，再由人评审：在这里推理（inference）很便宜，评审注意力才是稀缺资源。门禁负责检查配对是否完整、记录的 hash、语言切换行以及本文列出的结构签名；翻译质量、术语和签名未涵盖的结构要求仍由评审把关。提示词契约也有可执行实现：[scripts/translation-prompt.ts](../../scripts/translation-prompt.ts) 会把仓库内置的模板（注入术语表；模板自带经人工校准的规则）渲染为英译中或中译英两个方向的提示词，并解析三段式响应；`doc-sync` 中的 `verify-translation-prompt` 会检查两个渲染方向与仓库内示例。
+这里的对侧文件由运行 [dsh-translate-docs](../../.agents/skills/dsh-translate-docs/SKILL.md) 的 agent 生成，再由人评审：在这里推理（inference）很便宜，评审注意力才是稀缺资源。门禁负责检查配对是否完整、记录的 hash、语言切换行以及本文列出的结构签名；翻译质量、术语和签名未涵盖的结构要求仍由评审把关。提示词约定也有可执行实现：[scripts/translation-prompt.ts](../../scripts/translation-prompt.ts) 会把仓库内置的模板（注入术语表；模板自带经人工校准的规则）渲染为英译中或中译英两个方向的提示词，并解析三段式响应；`doc-sync` 中的 `verify-translation-prompt` 会检查两个渲染方向与仓库内示例。

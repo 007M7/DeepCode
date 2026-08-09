@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-06-18-shared-persistence-write-coordinator.md
 2026-06-18-shared-persistence-write-coordinator.md: 12131ebf8380fb8ba816618f0cbaf72cb004623a
-2026-06-18-shared-persistence-write-coordinator.zh.md: 7c04ee921c9b3f965ef6bd6d2d203cf4cbd50ea2
+2026-06-18-shared-persistence-write-coordinator.zh.md: 0a7fbf351171d305b3b6245832a0b35a283c7c1d
