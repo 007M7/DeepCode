@@ -1,4 +1,4 @@
-# Agent Note: Package-owned invariant service seam
+# Agent Note: Package-owned invariant service contract
 
 Status: implemented
 
@@ -102,4 +102,4 @@ Every Vitest configuration loads a test host that mounts an explicitly enabled s
 - One selected executable contribution adds one child fiber and its listener/state cost; a selected empty contribution has no listener or trace-state cost, while filtered registrations retain only name ownership.
 - Regex sources are deployment configuration and remain fixed until the service reloads.
 - Ordinary Vitest roots install the owning test package's selected companion; one exhaustive topology pays the full child-fiber cost once for repository-wide registration coverage.
-- Session storage validation, snapshotting, freezing, provenance, and surface acceptance remain always on and are not affected by invariant selection.
+- Session storage validation, snapshotting, freezing, cited source-event validation, and surface acceptance remain always on and are not affected by invariant selection.

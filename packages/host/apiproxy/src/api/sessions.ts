@@ -53,8 +53,8 @@ export interface SessionProjectionsBlock {
   values: Partial<SessionProjectionMap>
 }
 
-/** Complete model target selected for one session. */
-export interface ModelTarget {
+/** Complete model selection for one session. */
+export interface ModelSelection {
   /** Registered provider route. */
   provider: string
   /** Provider-owned model id. */
@@ -115,8 +115,8 @@ export interface ModelCatalogFailure {
 
 /** Detached model-directory snapshot for one session. */
 export interface SessionModels {
-  /** Target selected for the session's next assembled step. */
-  current: ModelTarget
+  /** Model selection for the session's next assembled step. */
+  current: ModelSelection
   /**
    * Whether an adapter currently serves `current.provider`, and therefore
    * whether this session can start a turn at all. Deliberately NOT derivable
@@ -230,7 +230,7 @@ export interface SessionsApi {
    * Reads a window of history events; page boundaries align to append-origin message
    * boundaries: one page = all raw events owned by a whole number of such messages (including
    * their chunk / tool events), never cut mid-message. Model-only replacement copies consume no
-   * `maxMessages`, so a compaction's provenance stays on the page of its replacement. The tail
+   * `maxMessages`, so a compaction's `compact/summary` record stays on the page of its replacement. The tail
    * page (beforeSeq absent) additionally carries the in-flight
    * partial — chunk events already emitted for the last unfinalized message.
    * Each entry pairs the raw SessionEvent with the host-computed view (tool events whose
@@ -254,7 +254,7 @@ export interface SessionsApi {
   models(request: RpcRequest<{ sessionId: SessionId }>): Promise<RpcResponse<SessionModels>>
 
   /**
-   * Selects the complete target for this session. Exact model metadata
+   * Selects the complete model selection for this session. Exact model metadata
    * validates an optional reasoning effort, while catalog membership remains
    * advisory. Session-backed subagents reject with `agent-busy`.
    */
@@ -264,7 +264,7 @@ export interface SessionsApi {
     model: string
     reasoningEffort?: string
   }>):
-  Promise<RpcResponse<{ selected: ModelTarget }>>
+  Promise<RpcResponse<{ selected: ModelSelection }>>
 
   /**
    * Renames a session: appends a `session/title` event with the `user`

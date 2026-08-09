@@ -58,7 +58,7 @@ export interface RunHookResult {
  * timeout in seconds overrides the default; trusted environment entries merge
  * after the executor scrub. Infrastructure rejection becomes an outcome with
  * no exit code, so this function never throws or crashes the calling turn.
- * @param bash - the executor seam the command runs through.
+ * @param bash - The executor service the command runs through.
  * @param hook - the configured command; its `timeoutSec` (wire unit: seconds) overrides the default timeout.
  * @param options - the invocation's payload, env, cwd, signal, stdin framing, and default timeout.
  * @param now - millisecond clock used for the reported duration.

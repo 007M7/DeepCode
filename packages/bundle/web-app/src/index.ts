@@ -101,7 +101,7 @@ function resolveDistIndex(): string {
   }
 }
 
-/** Test seam: hosts with no built frontend dist substitute the resolver; production never touches this. */
+/** Test hook: hosts with no built frontend dist substitute the resolver; production never touches this. */
 export const internals: { resolveDistIndex: () => string } = { resolveDistIndex }
 
 /**

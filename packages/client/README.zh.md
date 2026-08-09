@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-dsh web GUI 的浏览器侧：shell 启动、浏览器与宿主通信、共享 UI 服务和特性插件。编写规则见 [AGENTS.md](AGENTS.md)；宿主半侧是 [`host/`](../host/README.md)。除 `test-runtime` 外，均为命名成 `@deepseek-ai/dsh-client-<name>` 的**产品**包。
+dsh web GUI 的浏览器侧：shell 启动、浏览器与宿主通信、共享 UI 服务和功能插件。编写规则见 [AGENTS.md](AGENTS.md)；宿主半侧是 [`host/`](../host/README.md)。除 `test-runtime` 外，均为命名成 `@deepseek-ai/dsh-client-<name>` 的**产品**包。
 
 | 包 | 目的 |
 |---|---|
@@ -14,15 +14,15 @@ dsh web GUI 的浏览器侧：shell 启动、浏览器与宿主通信、共享 U
 | [`hmr/`](hmr/README.md) | 在开发期间刷新客户端插件。 |
 | [`locale/`](locale/README.md) | 提供本地化偏好与消息词典。 |
 | [`schema-form/`](schema-form/README.md) | 为设置编辑器提供 schema 驱动的草稿处理。 |
-| [`test-runtime/`](test-runtime/README.md) | 为客户端特性包提供共享的仓库测试支持。 |
-| [`ui-slots/`](ui-slots/README.md) | 定义 UI 特性注册和组合扩展 slot 的方式。 |
+| [`test-runtime/`](test-runtime/README.md) | 为客户端功能包提供共享的仓库测试支持。 |
+| [`ui-slots/`](ui-slots/README.md) | 定义 UI 功能注册和组合扩展 slot 的方式。 |
 | [`ui-theme/`](ui-theme/README.md) | 应用所选颜色主题。 |
 | [`ui-primitives/`](ui-primitives/README.md) | 提供共享 React 控件、图标和内容渲染器。 |
 | [`ui-layout/`](ui-layout/README.md) | 排列应用的主要区域。 |
 | [`ui-sidebar/`](ui-sidebar/README.md) | 展示 Workspace 与会话导航。 |
 | [`ui-workspace/`](ui-workspace/README.md) | 提供 Workspace 选择与创建界面。 |
 | [`ui-conversation/`](ui-conversation/README.md) | 展示当前会话及其输入界面。 |
-| [`ui-tool/`](ui-tool/README.md) | 编排 Tool 调用树和按 Tool 键控的视图。 |
+| [`ui-tool/`](ui-tool/README.md) | 编排工具调用树和按工具键控的视图。 |
 | [`ui-goal/`](ui-goal/README.md) | 展示和管理当前目标。 |
 | [`ui-trajectory/`](ui-trajectory/README.md) | 提供 agent（智能体）活动的其他视图。 |
 | [`ui-command/`](ui-command/README.md) | 提供会话感知的命令发现与分发。 |

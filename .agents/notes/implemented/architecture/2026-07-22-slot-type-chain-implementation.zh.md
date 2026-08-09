@@ -88,11 +88,11 @@ inject 工厂只接收其声明所授权的形参——session slot 获得 `sess
 
 hook 只许框架造：`useSession`、`useSessions`、`useWorkspaces`、`useStore`、`renderSlot` 五席，加上 provide 贡献与 inject `hooks` 格绑出的 hook——全部出自渲染器同一台绑定机械；业务代码在父子组件之间只传普通数据与回调（组件自用、不订阅任何外部数据源的行为 hook 不在此限）。活数据恰有三条通道：父知道的，作为 owner props 在 renderSlot 现场传入；只有组件自己知道的，是本地 state；需要跨 entry 共享或跨重挂载存活的，是声明的 store。派生是对框架 hook 数据做纯函数（`useMemo`），绝不自成一路订阅。
 
-### 树上语境与渲染器安装缝
+### 树上语境与渲染器约定
 
 `SessionProvider` 是框架组件，**以标配 slot 形式送达**：`children` 里声明了 session scope slot 的 entry 经 prop 收到它（类型住 ui-slots，值由渲染器注入）——组件永不对它做值 import。它框架自接线（内部自读 runtime 的当前会话状态，装配方零传参），render-prop 形——`children(sessionId)` 外加 `empty` 分支，以 `key={sessionId}` 重挂。`BindingContext` 属机械内部；业务组件可见的 React Context 为零。inject 工厂有意在 outlet 内部执行（per-entry 错误边界接得住它们；崩溃的注册方只黑掉自己那一格，装配错误则重抛）；outlet 将树上下文作为仅供框架机制使用的隐式参数读取——即「身份出自 register 闭包、现场出自树位置」的分工。
 
-渲染位于一个 install seam 之后，因此 runtime 不依赖 React：`SlotRenderer`（接口住 ui-slots，实现 `createSlotRenderer()` 住 web-react）在壳 boot 时经 `ctx.slots.install(...)` 安装一次；双重安装与安装前渲染均 throw。归属记账是服务里的单一 `Map<key, entry>`——账本、slot、贡献、渲染绑定、store 实例全部沿同一条 entry 轴生灭，跨插件重载的陈旧权威窗口由此在构造上关闭（已 dispose 的 entry 所捕获的 `renderSlot`，一进入口即抛陈旧授权（stale-authorization）错误）。
+渲染位于一份安装约定之后，因此 runtime 不依赖 React：`SlotRenderer`（接口住 ui-slots，实现 `createSlotRenderer()` 住 web-react）在壳 boot 时经 `ctx.slots.install(...)` 安装一次；双重安装与安装前渲染均 throw。归属记账是服务里的单一 `Map<key, entry>`——账本、slot、贡献、渲染绑定、store 实例全部沿同一条 entry 轴生灭，跨插件重载的陈旧权威窗口由此在构造上关闭（已 dispose 的 entry 所捕获的 `renderSlot`，一进入口即抛陈旧授权（stale-authorization）错误）。
 
 ### 类型链实现裁定
 

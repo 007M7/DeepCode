@@ -17,7 +17,7 @@ import type { Agent, AgentOptions } from './types.ts'
 
 export * from './types.ts'
 export * from './inbox.ts'
-export * from './llm-target.ts'
+export * from './model-selection.ts'
 export { agentCarrier, agentEvents, assembleContextFor, emitAgentEvent } from './dispatch.ts'
 export type { AgentEventDispatch, AgentSubjectEvent } from './dispatch.ts'
 
@@ -313,7 +313,7 @@ export class AgentRegistry extends Service {
    * Read the initiating Agent and fail when no initiator boundary is active.
    * Use this for private helpers contractually below a driver, or for a
    * deployment-owned outbound request whose contract forbids agentless calls.
-   * Generic or direct-call seams use optional lookup or explicit request fields.
+   * Generic or direct-call paths use optional lookup or explicit request fields.
    * @returns the inherited Agent.
    * @throws when no initiator is active or this service instance has been disposed.
    */

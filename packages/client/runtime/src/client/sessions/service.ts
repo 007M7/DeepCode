@@ -498,7 +498,7 @@ export class SessionsService implements ISessions {
   }
 
   /**
-   * Read the Agent scope tag off a context. Service-method seam: fetch
+   * Read the Agent scope tag off a context. Service-method boundary: fetch
    * bundles must reach scope resolution through ctx.sessions — a cross-bundle
    * value import of the standalone helper would inline a second module
    * instance whose private tag Symbol never matches.
@@ -513,7 +513,7 @@ export class SessionsService implements ISessions {
    * Resolve the business Session behind an Agent-scoped context — the one
    * hop every scoped consumer (event listeners, per-session controllers)
    * takes from ctx-space into object-space (the client mirror of host
-   * `agent.session`). Same service-method seam as
+   * `agent.session`). Same service-method boundary as
    * {@link SessionsService.scopeOf}.
    * @param ctx - an Agent-scoped context.
    * @returns the session face, or undefined when the ctx is untagged or its scope was pruned.
@@ -600,7 +600,7 @@ export class SessionsService implements ISessions {
       ctx,
       binding,
       session,
-      // Sources are bare observables; React binds selector hooks at its own seam.
+      // Sources are bare observables; React binds selector hooks at its own boundary.
       provideInfo: this.provideChannel.materializeInfo(binding),
     }
     this.scopes.set(id, record)

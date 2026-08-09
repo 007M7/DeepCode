@@ -962,6 +962,11 @@
     },
     {
       "doc": "docs/subsystems/filesystem.md",
+      "symbol": "FsObservation",
+      "source": "packages/fs/fs/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/filesystem.md",
       "symbol": "FsInfo",
       "source": "packages/fs/fs/src/types.ts"
     },

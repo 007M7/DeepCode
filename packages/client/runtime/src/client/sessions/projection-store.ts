@@ -12,7 +12,7 @@ import type { ObservableSnapshot } from '../contract/store.ts'
 import { Notifier } from './notifier.ts'
 
 // The single projection type table, typed end to end (host unit, wire block,
-// client store, React hook) — the interface package's pure-type outlet
+// client store, React hook) — the Service Definition package's pure-type outlet
 // (`/types`, zero imports), never the package root: the root's dsh-agent →
 // dsh-session chain would drag the host `Context.sessions` merge into the
 // client program (one program must not hold both sides). No second

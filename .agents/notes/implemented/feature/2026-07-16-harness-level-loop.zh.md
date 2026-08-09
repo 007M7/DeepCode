@@ -19,7 +19,7 @@ Status: implemented
 1. **同会话目标**在当前会话中保留一个持久目标，并且只在实时激活态已激活时接纳带目标归属的续行轮次。
 2. **全新 agent Ralph 运行**执行一个固定前台工作流，其中每个 Round 都生成一个不带对话种子的全新结构化子 agent。
 
-系统中没有 `packages/loop/` 包族、`LoopDriver`、`LoopId`、通用 `StopCondition` 或面向模型的通用 `loop` 工具。两项策略共享本仓库普通的 agent、会话、工具、工作流、subagent 与 UI 扩展 seam，但不会假装一种生命周期可以同时适配两者。
+系统中没有 `packages/loop/` 包族、`LoopDriver`、`LoopId`、通用 `StopCondition` 或面向模型的通用 `loop` 工具。两项策略共享本仓库普通的 agent、会话、工具、工作流、subagent 与 UI 扩展点，但不会假装一种生命周期可以同时适配两者。
 
 ### 词汇与策略边界
 
@@ -36,7 +36,7 @@ Status: implemented
 | 包 | 仓库类别 | 所属结构与动词 |
 |---|---|---|
 | `@deepseek-ai/dsh-goal` | `packages/goal/goal/`，领域服务 | 拥有 `GoalId`、比较并交换 `GoalRef`、`GoalSnapshot`、四状态 `GoalPhase`、结构化 `GoalBlockReason`、进程本地 `GoalActivation`、重放折叠，以及 `get`、`create`、`edit`、`pause`、`resume`、`complete`、`block`、`clear` 与 `disarm` 动词。 |
-| `@deepseek-ai/dsh-tool-goal` | `packages/goal/tool-goal/`，面向模型消费方 | 注册互斥的 `get_goal`、`create_goal` 与 `update_goal`；认证实时 Turn 来源，并把自治 Round 权限收窄到带机器可路由原因代码的完成或阻塞报告。 |
+| `@deepseek-ai/dsh-tool-goal` | `packages/goal/tool-goal/`，面向模型消费方 | 注册互斥的 `get_goal`、`create_goal` 与 `update_goal`；要求实时根 agent Turn 中有一条人类直接发送的消息，并把自治 Round 权限收窄到带机器可路由原因代码的完成或阻塞报告。 |
 | `@deepseek-ai/dsh-goal-session` | `packages/goal/goal-session/`，续行策略 | 在不导入具体 loop 的情况下，预留、设围栏、接纳、归属、结算、取消并排空同会话 Goal Round，直至完全停稳。 |
 | `@deepseek-ai/dsh-commands` | `packages/interaction/commands/`，UI 注册表 | 拥有面向人类专用命令的 `CommandDefinition`、发现、作用域注册、直接分发、`CommandResult` 与请求取消。 |
 | `@deepseek-ai/dsh-command-goal` | `packages/goal/command-goal/`，人类命令生产方 | 为 TUI 注册构建在目标领域之上的 `/goal` 状态、创建、编辑、暂停、恢复与清除。 |
@@ -68,7 +68,7 @@ Goal Round 驱动器为每个特定的实时 agent 至多拥有一个待定预�
 
 人类 UX 遵循 [OpenAI Codex 在提交 `678157a` 时的公开 TUI 分发器](https://github.com/openai/codex/blob/678157acaa819d5510adfe359abb5d0392cfe461/codex-rs/tui/src/chatwidget/slash_dispatch.rs#L750-L805)中的紧凑形态：`/goal` 显示状态，`/goal <objective>` 创建目标，而 `edit`、`pause`、`resume` 或 `clear` 执行直接生命周期操作。该提交永久链接让研究所得语法在 Codex 演进时仍可验证。状态包含持久阶段、已接纳/上限 Round 数以及实时已激活/未激活状态。直接状态与命令输出不会进入模型历史；已接受领域变更仍可重建，因为目标服务会记录它们。
 
-模型只接收 `get_goal`、`create_goal` 和 `update_goal`。当直接人类请求清楚要求大量多 Round 工作时，模型可以创建目标，并且可以从任何语言推断该意图。它不得把日常单 Turn 工作变成目标。直接人类来源由代码强制执行；语义解释仍是模型判断。自治目标 Round 可以为确切的当前 Goal Round 报告 `complete` 或 `blocked`，但不能编辑、暂停、恢复或替换人类目标。
+模型只接收 `get_goal`、`create_goal` 和 `update_goal`。当直接人类请求清楚要求大量多 Round 工作时，模型可以创建目标，并且可以从任何语言推断该意图。它不得把日常单 Turn 工作变成目标。代码要求当前实时根 agent Turn 中有一条人类直接发送的消息；语义解释仍是模型判断。自治目标 Round 可以为确切的当前 Goal Round 报告 `complete` 或 `blocked`，但不能编辑、暂停、恢复或替换人类目标。
 
 TUI 默认挂载共享命令注册表和完整目标栈，并通过一个生产方暴露 `/goal`。ACP（Agent Client Protocol）挂载目标领域、模型工具和同会话驱动器，但有意省略人类命令平面。每条有效已注册命令都能被每个已组合的命令适配器发现和调用；若插件与某应用不兼容，该应用组合会省略其命令生产方，而不是依赖注册表层面的表面掩码。无 UI 的 agent 主干要求显式选择加入，以免单次调用方静默变成多 Round 操作。无头 CLI（命令行界面）与 JSON-RPC 前端不消费命令平面；挂载目标栈后，普通人类文本仍可授权模型目标工具。
 
@@ -98,11 +98,11 @@ Codex 提供了这里采用的最小可观察目标 UX：一个附着于聊天�
 
 ## 考虑过的替代方案
 
-- **实现原始通用 loop 能力 seam**——不予采纳，因为 `Evaluator`、`BudgetPolicy`、`RoundHandoff`、`GoalReflector`、后台任务所有权、持久化与调度并不构成一项一致的必选抽象。在出现首个具体消费者前全部构建，会产生宽泛推测性表面，并重复现有 session、workflow、subagent 与 task 机制。
+- **实现原始通用 loop 能力**——不予采纳，因为 `Evaluator`、`BudgetPolicy`、`RoundHandoff`、`GoalReflector`、后台任务所有权、持久化与调度并不构成一项一致的必选抽象。在出现首个具体消费者前全部构建，会产生宽泛推测性表面，并重复现有 session、workflow、subagent 与 task 机制。
 - **只实现同会话目标**——不予采纳，因为全新上下文迭代在实质上不同，也是插件架构的重要示范。Ralph 应作为带显式上下文重置的固定工作流消费者。
 - **把 Ralph 放进目标回合驱动器**——不予采纳，因为同会话目标有意保留一段对话，而 Ralph 有意移除对话。合并两者会让激活、重放、交接与 UI 状态含糊不清。
 - **把 fork 当成全新 Ralph 子 agent**——不予采纳，因为 fork 会携带对话前缀。全新子 agent 加工作区状态与一份显式报告更容易限制和重放，并且无需合成取消记录。
-- **把 Claude Code 评估器复制进首个目标实现**——不予采纳，因为只读取转录的模型评估器是一项有用策略，但不是普遍可信的完成证书。系统必须仍能支持确定性评估与隔离，因此评估器延期到其权限与 provider seam 完成设计之后。
+- **把 Claude Code 评估器复制进首个目标实现**——不予采纳，因为只读取转录的模型评估器是一项有用策略，但不是普遍可信的完成证书。系统必须仍能支持确定性评估与隔离，因此评估器延期到其权限与提供方约定完成设计之后。
 - **会话恢复后自动续行**——不予采纳，因为打开会话是观察行为，不是花费资源的权限。系统恢复持久状态，而激活态等待新的人类提示词。
 - **通过模型路由 `/goal`**——不予采纳，因为状态与显式生命周期控制应是确定性且零 token 的 UI 操作；普通自然语言提示词仍是语义模型路径。
 - **为具体 agent loop 增加目标或 Ralph 模式**——不予采纳，因为公开队列、提示词、会话、取消、工作流与 subagent seam 已经支持两项策略。通用 cancel-requested 观察是唯一核心协调新增项。
@@ -111,7 +111,7 @@ Codex 提供了这里采用的最小可观察目标 UX：一个附着于聊天�
 
 - 目标式执行在没有单个过载「loop」对象的情况下交付：同会话续行与全新 agent 迭代拥有显式、可独立测试的约定。
 - 持久目标历史可以重放和 fork，而进程本地激活态会防止恢复时意外开始工作。
-- 人类获得小型 Codex 形态 UX；模型获得紧凑、带来源检查的工具表面；部署可以独立移除任一能力。
+- 人类获得小型 Codex 形态 UX；模型获得一组紧凑工具，其中的修改操作要求当前实时根 agent Turn 中有一条人类直接发送的消息；部署可以独立移除任一能力。
 - Ralph 展示了非平凡固定策略可以完全作为现有 workflow 与 subagent 原语之上的插件实现。
 - Round 上限默认宽裕，但仍由部署控制。它限制迭代次数，不限制 token、价格、耗时或外部副作用。
 - 原始提案中的评估器、预算、反思器、后台任务、CLI 与通用 loop-session 架构有意不进入已实现公开表面。
@@ -125,5 +125,5 @@ Codex 提供了这里采用的最小可观察目标 UX：一个附着于聊天�
 - **没有通用 loop 日志或执行世界回退**——会话重放会重建目标历史，而不会恢复此前文件、进程、环境、凭据或外部副作用。Ralph 把当前工作区作为权威，并且没有跨运行日志。
 - **没有目标反思器**——concern 事件、自动无进展启发式、由独立反思器执行的目标修订、卡住模式检测与 `loop_split` 均未实现。人类可以直接编辑、暂停、清除或恢复目标。
 - **Ralph 策略仍然狭窄**——一个 Round 创建一个全新子 agent；Round 内扇出、评估器/工作者角色分离、动态 provider/模型选择与从结构上禁止递归调用 Ralph 工具都需要独立策略表面。提示词指导不是强制执行。
-- **Ralph 不会重试失败的子 agent**——普通失败会保留失败 Round 与上一份有效交接，而致命工作流基础设施错误可能在该状态可用前结束。重试次数、退避与更丰富的失败传输需要独立的策略与 seam 设计。
+- **Ralph 不会重试失败的子 agent**——普通失败会保留失败 Round 与上一份有效交接，而致命工作流基础设施错误可能在该状态可用前结束。重试次数、退避与更丰富的失败传输需要独立的策略与边界设计。
 - **可移植 UI 仍较朴素**——TUI 渲染纯文本目标状态和通用 Ralph 卡片。ACP 只承载已提交的助手文本；系统没有持续状态组件、可重连命令输出、模态目标编辑器，ACP、无头 CLI 与 JSON-RPC 也没有命令平面。

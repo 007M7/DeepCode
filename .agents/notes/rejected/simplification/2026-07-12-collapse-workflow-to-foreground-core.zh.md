@@ -28,7 +28,7 @@ Status: rejected — 工作流进度是有意设计的观测接口面；应通�
 
 ## 验收标准
 
-- 工作流公开 seam 仅包含有生产消费方的执行、取消、结果与 dispose 约定。
+- 工作流公开约定仅包含有生产消费方的执行、取消、结果与 dispose 约定。
 - 不再保留任何工作流事件、phase/log 协议消息、run-id 生成器、仅供进度使用的元数据、host 配对账本或 fatal 模式分支。
 - run handle 不再有 id/meta 回显，取消在同步 `start()` 返回后只有一条持有者拥有的通道。
 - parallel/pipeline 行为、上限、取消后的完全停稳、worker 隔离、结构化输出与面向模型的工作流场景保持测试覆盖。
@@ -36,4 +36,4 @@ Status: rejected — 工作流进度是有意设计的观测接口面；应通�
 
 ## 风险
 
-这是对工作流 DSL、事件分类体系、handle 与 start request 的编译可见收缩。现有提供描述性元数据的工作流调用，以及使用 `phase`、`log` 或 label 的脚本，都必须相应精简；程序化调用方需自行将 abort source 桥接到返回的 handle；未来的观测者必须添加一个关联性更好的 seam。使工作流有用的执行语义不变。
+这是对工作流 DSL、事件分类体系、handle 与 start request 的编译可见收缩。现有提供描述性元数据的工作流调用，以及使用 `phase`、`log` 或 label 的脚本，都必须相应精简；程序化调用方需自行将 abort source 桥接到返回的 handle；未来的观测者必须添加一个关联性更好的事件约定。使工作流有用的执行语义不变。

@@ -159,7 +159,7 @@ describe('dsh-tool-subagent-report', () => {
     expect(names).not.toContain('send_message')
   })
 
-  it('delivers quiet reports with stable identity and provenance without waking', async () => {
+  it('delivers quiet reports with stable message and sender identities without waking', async () => {
     const { ctx, parent, adapter } = await setup()
     const { started, child } = await startChild(ctx, parent)
     const parentRequests = adapter.requests.filter(request => request.sessionId === parent.id).length

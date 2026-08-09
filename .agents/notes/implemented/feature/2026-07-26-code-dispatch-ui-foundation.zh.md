@@ -4,7 +4,7 @@ Status: implemented
 
 [English](2026-07-26-code-dispatch-ui-foundation.md) | 中文
 
-> 范围：让 UI 能以与原生工具调用相同的保真度渲染 Code Mode 轮次的宿主侧约定变更，即 Code Mode Web UI 堆叠 PR（Pull Request）链的第一个 PR。传输设计归 [Code Mode 基础](2026-06-15-code-mode.md)所有；模型可见的 `description` 参数、携带完整内容的 `tool/code-dispatch` 载荷，以及 `dsh` 配置树上临时的 `DSH_TOOLS_MODE` 启用 seam，归本篇所有。
+> 范围：让 UI 能以与原生工具调用相同的保真度渲染 Code Mode 轮次的宿主侧约定变更，即 Code Mode Web UI 堆叠 PR（Pull Request）链的第一个 PR。传输设计归 [Code Mode 基础](2026-06-15-code-mode.md)所有；模型可见的 `description` 参数、携带完整内容的 `tool/code-dispatch` 载荷，以及 `dsh` 配置树上临时的 `DSH_TOOLS_MODE` 启用开关，归本篇所有。
 
 ## 问题
 
@@ -16,7 +16,7 @@ Status: implemented
 
 1. **`run_code` 新增必填的 `description` 参数**（与 bash 完全相同的约定：主动语态、5-10 个词、展示在 UI 中；仅含空白的取值在执行时被拒绝）。`presentCall` 现在以该 description 作为卡片标题，并把程序文本移入 `rawInput`。提示词侧的成本是每次调用多出几个 token；换来的是每个表面——TUI 卡片、ACP（Agent Client Protocol）标题、Web 行——都无需解析 TypeScript 就能获得可供人阅读的标签。
 2. **`tool/code-dispatch` 记录子调用面向模型的完整结果**（`content: ContentBlock[]` 加 `isError`，即 `tool/result` 的词汇），取代 `resultSummary`，并把摘要与 cwd 归一化机制彻底删除。UI 渲染子调用走的代码路径与渲染原生结果完全相同，包括错误文本和非文本块。该事件保持仅日志（`deriveMessages()` 忽略它）：模型上下文没有任何变化。
-3. **`dsh` 配置树上的 `DSH_TOOLS_MODE` 环境变量**（`native`|`code`|`both`；未设置时保持 schema 默认值）：`tools` 行通过 `!!js` 读取它，worker 代码运行时则无条件挂载（loader 元数据是静态的，因此不存在条件行；native 启动只是注册该服务，worker 要到每次运行时才 spawn）。这是一个明确标注为临时的 seam：设计目标是让 Web UI 拥有按会话的工具模式选择，该目标落地后，这个环境变量随即退役。
+3. **`dsh` 配置树上的 `DSH_TOOLS_MODE` 环境变量**（`native`|`code`|`both`；未设置时保持 schema 默认值）：`tools` 行通过 `!!js` 读取它，worker 代码运行时则无条件挂载（loader 元数据是静态的，因此不存在条件行；native 启动只是注册该服务，worker 要到每次运行时才 spawn）。这是一个明确标注为临时的配置钩子：设计目标是让 Web UI 拥有按会话的工具模式选择，该目标落地后，这个环境变量随即退役。
 
 ## 曾考虑的替代方案
 

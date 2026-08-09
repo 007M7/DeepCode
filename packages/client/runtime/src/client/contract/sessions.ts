@@ -109,7 +109,7 @@ export interface ISessions {
    */
   scope(id: SessionId): AgentContext | undefined
   /**
-   * Read the Agent scope tag off a context (service-method seam: fetch
+   * Read the Agent scope tag off a context (service-method boundary: fetch
    * bundles must reach scope resolution through ctx.sessions).
    * @param ctx - any client context.
    * @returns the session id, or undefined on root contexts.

@@ -7,7 +7,7 @@ import { z } from 'zod'
 
 /**
  * Restates dsh-mcp-client's `SERVER_NAME_PATTERN` rather than importing it:
- * the prepare bin must stay a zod-only module graph (no tools seam, no MCP
+ * the prepare bin must stay a zod-only module graph (no tools service, no MCP
  * SDK). Exported so `repository-plugin.spec.ts` pins equality with the
  * client's exported pattern — prepare-time validation cannot drift from the
  * registry that enforces uniqueness.

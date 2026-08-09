@@ -84,7 +84,7 @@ function withCompaction(raw: string, meter: TokenMeterService): string {
   /**
    * Append one event at the next seq/time.
    * @param event - the event body, without seq/time.
-   * @returns the seq it took, so provenance cites the push instead of arithmetic over the push order below.
+   * @returns the assigned seq, so later `sourceEventSeqs` cite the pushed event directly.
    */
   const at = (event: Record<string, unknown>): number => {
     const taken = seq++

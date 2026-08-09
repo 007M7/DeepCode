@@ -25,7 +25,7 @@ export interface PopupDismissFace {
 }
 
 /**
- * Construction seams of one facade. The slash/popup faces are THUNKS: the
+ * Construction dependencies of one facade. The slash/popup faces are THUNKS: the
  * shell is created inside the sessions provide materialization (before the
  * scope record is queryable), where `slash.sessionOf`/`command.popupFor`
  * cannot resolve yet — resolution defers to first interactive use.

@@ -1,7 +1,7 @@
 // Central contract re-export point: every contract import inside
 // web-runtime goes through this single file.
 // Types and runtime protocol helpers/bounds come from the apiproxy api/ layer
-// (zero Node deps, browser-safe); AbstractApiClient is the client seam.
+// (zero Node deps, browser-safe); AbstractApiClient is the client boundary.
 // NEVER import the package root: it drags bootHost/cordis into the browser bundle.
 // The ./api and ./client subpath exports are the browser-safe channels added for this.
 
@@ -12,7 +12,7 @@ export type {
   WorkspaceApi, WorkspaceId, WorkspaceView,
   CommandsApi, CommandDescriptor, SkillsApi, SkillEntry,
   ModelCatalogFailure, ModelCatalogModel, ModelProviderGroup, ModelReasoning,
-  ModelReasoningEffort, ModelTarget, QueueAction, QueuedInboxItem, SessionModels,
+  ModelReasoningEffort, ModelSelection, QueueAction, QueuedInboxItem, SessionModels,
   GoalsApi, GoalRef,
   SettingsApi, SettingsNamespaceView, SettingsPathOpView, SettingsSecretView,
   CredentialsApi, CredentialView, ConfigurableProviderView, DiscoveredModelView, LlmApi,

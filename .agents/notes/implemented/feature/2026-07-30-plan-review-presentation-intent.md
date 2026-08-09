@@ -30,7 +30,7 @@ Dismissal became its own model-facing outcome. `ASK_CANCELLED` previously reache
 
 **Route the card on the question's `id` or `header` (`plan-review` / `Plan review`).** Rejected: string-sniffing a foreign package's copy across a wire boundary, which any wording change silently breaks. The intent is the declaration that makes the routing legible.
 
-**Order the options and let the card read position 0 as approve.** Rejected: a positional contract at a package seam, invisible in both the type and the wire frame, and unenforceable — a producer that reorders its options would invert a user's verdict. Naming the label costs one string.
+**Order the options and let the card read position 0 as approve.** Rejected: a positional contract at a package boundary, invisible in both the type and the wire frame, and unenforceable — a producer that reorders its options would invert a user's verdict. Naming the label costs one string.
 
 **Register a second composer-chain entry for the plan card.** Rejected: two entries would select over the same pending question carrier, making the surface depend on chain priority and on whether the plan package's client half is composed at all. One entry that picks its own shape cannot race itself, and the generic flow is the built-in fallback.
 
@@ -42,7 +42,7 @@ Dismissal became its own model-facing outcome. `ASK_CANCELLED` previously reache
 
 ## Consequences
 
-The question protocol now carries a presentation axis. Adding a second intent is a tag on the union, a producer that sets it, a schema member, and a panel — no new frame, service, or answer shape. The cost is that the question seam knows presentation exists at all, and that `ui-question` knows the word "plan"; both are the price of one entry owning every question surface.
+The question protocol now carries a presentation axis. Adding a second intent is a tag on the union, a producer that sets it, a schema member, and a panel — no new frame, service, or answer shape. The cost is that the question contract knows presentation exists at all, and that `ui-question` knows the word "plan"; both are the price of one entry owning every question surface.
 
 The plan gate reads as a plan gate: the plan is the card's content, the verdict is two labelled buttons, and taking the turn back is a third. The generic flow is untouched for every other question, and its committed goldens did not move.
 

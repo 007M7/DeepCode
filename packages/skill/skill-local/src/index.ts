@@ -136,7 +136,7 @@ export function apply(ctx: Context, config: Config = {}): void {
   ctx.effect(function* () {
     yield async () => { await provider.dispose() }
   }, 'skill-local watcher')
-  ctx.on('fs/observed', (target, _version, actor) => {
+  ctx.on('fs/observed', (target, _observation, actor) => {
     if (mutationToolName(actor) === undefined) return
     provider.observeHostMutation(target.displayPath)
   })

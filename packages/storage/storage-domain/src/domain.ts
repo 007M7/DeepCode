@@ -118,7 +118,7 @@ export interface Domain<S extends DomainSpec> {
   close(): Promise<void>
 }
 
-/** Internal seam handing table handles their domain-owned write machinery. */
+/** Internal boundary handing table handles their domain-owned write machinery. */
 interface TableHost {
   readonly domainName: string
   readonly unit: KvUnit

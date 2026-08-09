@@ -39,7 +39,7 @@ Config plumbing follows the `persona` precedent, and `toolOrder` sits beside it:
 ## Consequences
 
 - Every registry-built assembly starts with a deterministic tool order on every host; absent an expert listener that deliberately changes it, every `request/header` event and model request inherits that order. The CI-vs-local registration-order flip is structurally gone, and the default is lexicographic.
-- The initial `PromptAssembly.tools` is canonical, so waterfall listeners start from the model-facing order; provider registration order is observable nowhere before that cooperative seam.
+- The initial `PromptAssembly.tools` is canonical, so waterfall listeners start from the model-facing order; provider registration order is observable nowhere before that cooperative extension point.
 - The snapshot suite's single pinned request-header fixture (`text-turn`) carries the new canonical tool order; every other ACP snapshot keeps the header bulk scrubbed as `{{system}}`/`{{tools}}`, per the pinned-header design.
 - A pure tool reordering between steps is logged like any other header change: a full `request/header` snapshot with reason `'change'`. Stable canonical order prevents registration timing from creating such changes in the ordinary path.
 - The `toolOrder` key rides the app → `agent-core` → `SystemPrompt` forwarding chain, so deployments set it next to `persona` in the app config; `dsh-llm` and the agent loop are untouched.

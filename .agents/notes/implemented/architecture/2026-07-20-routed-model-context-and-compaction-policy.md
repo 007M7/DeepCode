@@ -28,7 +28,7 @@ Compact-basic owns consumer policy. Top-level fields define defaults; `modelPoli
 
 For proactive pressure, compact-basic reads the latest durable request route, resolves its adapter capacity and exact-target policy, and scales ratios into a `ResolvedCompactSpec`. It performs this resolution on every check, so a provider or model switch in one session changes capacity and policy immediately. An absolute retained budget that is not below the scaled threshold fails when the target capacity first makes that comparison possible.
 
-The same exact-target override can select summarization provider/model, summarization output cap, convergence retries, and overflow retry cap. These are compaction concerns and never enter the adapter seam.
+The same exact-target override can select summarization provider/model, summarization output cap, convergence retries, and overflow retry cap. These are compaction concerns and never enter an LLM provider.
 
 ### Target-specific pressure failures preserve optional composition
 
@@ -48,7 +48,7 @@ Service tests cover detached context metadata, invalid adapter output, catalog i
 
 ## Consequences
 
-- Capacity has one authoritative owner at the provider seam, while compaction policy stays in the optional consuming plugin.
+- Capacity has one authoritative owner at the provider contract, while compaction policy stays in the optional consuming plugin.
 - The same compact-basic instance safely handles different windows, provider switches, and identical model ids under different providers without consulting discovery metadata.
 - LLM-only and meter-only compositions remain valid; loading compact-basic adds no reverse dependency from adapters.
 - DeepSeek deployments may set exact per-model capacities, or use `defaultContextWindow` for entries without capacity and unlisted pass-through ids.

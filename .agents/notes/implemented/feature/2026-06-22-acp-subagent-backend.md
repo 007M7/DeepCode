@@ -59,4 +59,4 @@ Every run pays a fresh subprocess (spawn + `initialize` + `newSession`). The par
 
 ## Product-provider siblings
 
-The [Codex app-server and Claude Code Agent SDK providers](2026-08-04-claude-code-and-codex-subagent-backends.md) apply the same out-of-process spawn/prompt/settle/cancel boundary as siblings registered by name. A2A remains a future sibling transport; the ACP backend proves that the common seam supports this boundary without owning product-private protocols.
+The [Codex app-server and Claude Code Agent SDK providers](2026-08-04-claude-code-and-codex-subagent-backends.md) apply the same out-of-process spawn/prompt/settle/cancel boundary as siblings registered by name. A2A remains a future sibling transport; the ACP backend proves that the subagent seam supports this boundary without owning product-private protocols.

@@ -1,8 +1,8 @@
 /**
  * SlotsService terminal-design account (design.md §11-3 main landing):
  * built-in 'root', the three load-time throws (duplicate declaration /
- * undeclared contribution / cross-scope store handle), the renderer install
- * seam (double install / not installed / non-root key), store instance
+ * undeclared contribution / cross-scope store handle), the renderer installation
+ * contract (double install / not installed / non-root key), store instance
  * resolution and lifecycle on the ledger axis, and the entry-unload cascade.
  */
 import { Context } from 'cordis'
@@ -92,13 +92,13 @@ function captureHost(bench: Bench, children?: object): SlotRendererHost {
   return host
 }
 
-/** Minimal independent Workspace list source for the renderer host seam. */
+/** Minimal independent Workspace list source for the renderer host contract. */
 function fakeWorkspaces() {
   const state = { items: [], phase: 'ready' as const }
   return { list: { getSnapshot: () => state, subscribe: () => () => undefined } }
 }
 
-/** Minimal sessions face for the host seam (list observable + current provide projection). */
+/** Minimal sessions face for the host contract (list observable + current provide projection). */
 function fakeSessions() {
   const state = { ids: [], byId: {}, current: undefined as string | undefined }
   const absentInfo = { sessionId: undefined, hooks: { session: undefined }, props: {} }

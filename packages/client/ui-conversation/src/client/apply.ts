@@ -364,7 +364,7 @@ export function apply(ctx: Context): void {
   ctx.plugin(todoDockEntry)
 
   // The read-only queue dock entry (T9 file territory) rides the same
-  // registration seam into the input dock declared above.
+  // registration path into the input dock declared above.
   ctx.plugin(queueDockEntry)
 
   slots.register({

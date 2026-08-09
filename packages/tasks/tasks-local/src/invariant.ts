@@ -15,7 +15,7 @@ export const name = 'tasks-local-invariant'
 export const inject = ['invariants']
 
 /**
- * No runtime invariant: the seam companion in `@deepseek-ai/dsh-tasks` already
+ * No runtime invariant: the Service Definition companion in `@deepseek-ai/dsh-tasks` already
  * validates every registry snapshot this implementation publishes.
  */
 const install: InvariantInstaller = () => {}
