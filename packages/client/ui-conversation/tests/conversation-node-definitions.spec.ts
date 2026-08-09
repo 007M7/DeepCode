@@ -718,6 +718,50 @@ describe('built-in conversation node Definitions', () => {
     expect(node(snapshot(value), 'compaction')).toBeUndefined()
   })
 
+  it('ignores legacy retry and code-dispatch events without correlation ids', () => {
+    const value = assembler([
+      at(10, 'llm/retry', {
+        turn: 1,
+        step: 1,
+        provider: 'fake',
+        mode: 'normal',
+        policyKey: 'fake-normal',
+        retry: 1,
+        maxRetries: 2,
+        delayMs: 10,
+        failure: { code: 'TRANSPORT', message: 'first legacy retry' },
+      }),
+      at(11, 'llm/retry-started', { turn: 1, step: 1, retry: 1 }),
+      at(20, 'llm/retry', {
+        turn: 2,
+        step: 1,
+        provider: 'fake',
+        mode: 'normal',
+        policyKey: 'fake-normal',
+        retry: 1,
+        maxRetries: 2,
+        delayMs: 10,
+        failure: { code: 'TRANSPORT', message: 'second legacy retry' },
+      }),
+      at(30, 'tool/code-dispatch-start', {
+        parentCallId: 'root',
+        subCallId: 'child',
+        name: 'legacy-subcall',
+        arguments: {},
+      }),
+      at(31, 'tool/code-dispatch', {
+        parentCallId: 'root',
+        subCallId: 'child',
+        name: 'legacy-subcall',
+        arguments: {},
+        content: [],
+      }),
+    ], true)
+
+    expect(node(snapshot(value), 'model-retry')).toBeUndefined()
+    expect(node(snapshot(value), 'tool-call')).toBeUndefined()
+  })
+
   it('suppresses a turn error when the loaded tail contains only a later retry attempt', () => {
     const value = assembler([
       at(5, 'llm/retry', {

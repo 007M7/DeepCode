@@ -241,7 +241,10 @@ export const toolDefinition: ConversationNodeDefinition<ToolState> = {
       return { id: String(event.data.message.source.callId), role: 'update' }
     }
     if (event.type === 'tool/code-dispatch-start' || event.type === 'tool/code-dispatch') {
-      return { id: String(event.data.rootCallId), role: 'update' }
+      const rootCallId: unknown = event.data.rootCallId
+      return typeof rootCallId === 'string' && rootCallId !== ''
+        ? { id: rootCallId, role: 'update' }
+        : null
     }
     return null
   },

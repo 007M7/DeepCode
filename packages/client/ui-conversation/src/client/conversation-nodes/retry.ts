@@ -42,10 +42,13 @@ export const retryDefinition: ConversationNodeDefinition<RetryState> = {
   kind: 'model-retry',
   match: (event) => {
     if (event.type === 'llm/retry') {
-      return { id: String(event.data.retryId), role: event.data.retry === 1 ? 'start' : 'update' }
+      const retryId: unknown = event.data.retryId
+      if (typeof retryId !== 'string' || retryId === '') return null
+      return { id: retryId, role: event.data.retry === 1 ? 'start' : 'update' }
     }
     if (event.type === 'llm/retry-started') {
-      return { id: String(event.data.retryId), role: 'update' }
+      const retryId: unknown = event.data.retryId
+      return typeof retryId === 'string' && retryId !== '' ? { id: retryId, role: 'update' } : null
     }
     return null
   },
