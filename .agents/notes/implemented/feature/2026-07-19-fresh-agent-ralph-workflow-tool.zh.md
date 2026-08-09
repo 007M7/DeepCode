@@ -12,7 +12,7 @@ Status: implemented
 
 ## 决策
 
-在 `packages/workflow/` 下新增独立的消费方包 `@deepseek-ai/dsh-tool-ralph`。它注册 `ralph({ objective, maxRounds? })`，拥有固定工作流脚本，并且只依赖 `ctx.tools`、`ctx.systemPrompt`、`ctx.workflows` 和 `ctx.subagents`。Ralph 运行不是会话目标，不会创建目标状态，也不要求在具体 agent loop 中增加分支。
+在 `packages/workflow/` 下新增独立的 Consumer 包 `@deepseek-ai/dsh-tool-ralph`。它注册 `ralph({ objective, maxRounds? })`，拥有固定工作流脚本，并且只依赖 `ctx.tools`、`ctx.systemPrompt`、`ctx.workflows` 和 `ctx.subagents`。Ralph 运行不是会话目标，不会创建目标状态，也不要求在具体 agent loop 中增加分支。
 
 该工具仅以前台方式运行。调用 agent 作为每个子 agent 的父级以提供 cwd 和谱系，父工具调用等待整次运行结束，父步骤的中止信号会取消工作流。每条路径都会等待 `run.dispose()`，因此调用返回前，取消会经过工作线程引擎的有界收敛并使子 agent 完全停稳。
 
@@ -70,5 +70,5 @@ Ralph 插件的 `subagentProvider` 默认为 `spawn`。每次调用前，它要�
 - 运行位于前台且只存在于进程内。后台收集、持久化/恢复、调度和重启恢复均不存在。
 - Round 数是唯一聚合预算。token、货币、耗时和提供方用量预算仍属于未来的独立策略。
 - 每个 Round 创建一个子 agent。Round 内扇出、evaluator/工作者角色分离、动态提供方或模型选择，以及跨运行日志均被推迟。
-- 普通子 agent 失败会结束运行且不重试，同时保留失败 Round 与上一份成功交接。致命工作流基础设施错误可能在固定脚本返回该状态前结束；增加重试或更丰富的失败传输需要独立的策略与 seam 设计。
+- 普通子 agent 失败会结束运行且不重试，同时保留失败 Round 与上一份成功交接。致命工作流基础设施错误可能在固定脚本返回该状态前结束；增加重试或更丰富的失败传输需要独立的策略与边界设计。
 - 提示指导模型不要递归调用 Ralph；结构化的子 agent 工具限制需要另行设计工作流子策略表面。

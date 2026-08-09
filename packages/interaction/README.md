@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-The seams through which a human collaborates with a running agent — questions, approvals, permission presets, commands. These are **product** packages: real interfaces a person drives.
+The services and plugins through which a human collaborates with a running agent — questions, approvals, permission presets, commands. These are **product** packages: real interfaces a person drives.
 
 | Package | Role | ctx key |
 |---|---|---|

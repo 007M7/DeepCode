@@ -8,7 +8,7 @@ Status: implemented
 
 `Agent.followup()` 会标识一条用户消息并将其排入队列，但单次 follow-up 并不拥有随后发生的活动。在 agent（智能体）下一次进入 idle 前，steering（中途引导）、注入的上下文、工具续行、恢复和后续排队消息都可能参与活动。因此，`MessageId` 可以证明 inbox 已准入，但不能标识哪一条 assistant 消息或哪一个 `turn/end` 是该输入的结果。
 
-[one-send-one-turn 决策](../simplification/2026-07-17-one-send-one-turn.md) 已经在核心 seam 中排除了按 send 返回完成句柄的设计。凡是把一项提示词请求与一个轮次结果配对的协议层和 SDK 层，都会在下游人为构造这一缺失的关系。一旦活动准入更多输入，该配对就会产生歧义，还会把轮次机制暴露为提示词级结果。
+[one-send-one-turn 决策](../simplification/2026-07-17-one-send-one-turn.md) 已经在核心 API 中排除了按 send 返回完成句柄的设计。凡是把一项提示词请求与一个轮次结果配对的协议层和 SDK 层，都会在下游人为构造这一缺失的关系。一旦活动准入更多输入，该配对就会产生歧义，还会把轮次机制暴露为提示词级结果。
 
 ## 决策
 

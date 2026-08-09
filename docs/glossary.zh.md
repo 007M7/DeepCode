@@ -6,7 +6,7 @@ DeepSeek Harness SDK 的领域词汇为每个概念规定一个规范术语。�
 
 ## capability-seam
 
-- **seam**：一种*可替换能力*，以三者组合的形式打包：**Service Definition**（拥有自身 `ctx.<key>` 和词汇类型的 Cordis `Service`——可以是 `BashExecutor` 这样的抽象类，也可以是 `WebService` 这样的具体注册表，从不是 TypeScript `interface`）、一个或多个 **Service provider**（注册后端的实现插件）以及 **Consumer**（注入该服务、面向模型或插件的表面）。`packages/bash` 是规范范例：`dsh-bash`（Service Definition）、`dsh-bash-local` / `dsh-bash-sandbox`（提供方）、`dsh-tool-bash`（消费方）。seam 是三者整体；接口包本身只是 *Service Definition*，是其中一个成员——把它称为「seam」正是本条目指出的误用。只有在角色确实属于同一个关注点时才合并角色（`dsh-llm` 合并 Service Definition 和消费方）；永远不要预防性地拆分。
+- **seam**：一种包含三种角色的*可替换能力*：**Service Definition**（拥有自身 `ctx.<key>` 和词汇类型的 Cordis `Service`——可以是 `BashExecutor` 这样的抽象类，也可以是 `WebService` 这样的具体注册表，从不是 TypeScript `interface`）、一个或多个 **Service provider**，以及一个或多个注入该服务的 **Consumer**。`packages/bash` 是规范范例：`dsh-bash`（Service Definition）、`dsh-bash-local` / `dsh-bash-sandbox`（提供方），以及 `dsh-tool-bash`（Consumer）。角色需要独立演进时通常位于不同包，但属于同一关注点时，一个包也可以承担多个角色（`dsh-llm` 同时承担 Service Definition 和 Consumer）。seam 是完整能力，绝不是其中一个角色；该术语仅保留此义，能力成员应按其角色、类、服务、约定或扩展点命名。
 
 ## agent-scope
 

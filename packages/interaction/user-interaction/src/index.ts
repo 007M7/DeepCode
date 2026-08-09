@@ -1,5 +1,5 @@
 /**
- * User-interaction seam (`ctx.userInteraction`): a UI-backed service for
+ * Service Definition for the user-interaction capability seam (`ctx.userInteraction`): a UI-backed service for
  * pausing an agent tool call until the human answers a question. The model-
  * facing tool lives in `@deepseek-ai/dsh-tool-ask-user`; UI packages provide
  * the single active provider.

@@ -8,7 +8,7 @@ The model is **additive, not subtractive**: `ctx.fs` alone is a complete, uncons
 
 Provider source: [`packages/fs/fs/src/types.ts`](../../packages/fs/fs/src/types.ts) and [`packages/fs/fs/src/index.ts`](../../packages/fs/fs/src/index.ts). Policy source: [`packages/fs/fs-policy/src/types.ts`](../../packages/fs/fs-policy/src/types.ts). Read-rendering source: [`packages/fs/tool-fs/src/read-render.ts`](../../packages/fs/tool-fs/src/read-render.ts).
 
-## Target identity and metadata (provider seam)
+## Target identity and metadata (provider contract)
 
 Every operation resolves a user-supplied path to an opaque backend target first. Consumers may display `displayPath`, but must not parse `targetKey` (a branded opaque id) or assume it is a local absolute path.
 
@@ -111,7 +111,7 @@ interface FsDirEntry {
 }
 ```
 
-## Write and edit guards (provider seam)
+## Write and edit guards (provider contract)
 
 Both `writeText` and `editText` take their version guard OPTIONALLY: omit it for an unconditional (bare-provider) mutation, supply it to guard. `writeText`'s guard is an `FsWriteIntent` — `createIfAbsent` creates a missing target and rejects an existing one with `FS_NOT_OBSERVED`; `replaceIfVersion` replaces only when the target exists at the observed version, else `FS_STALE_VERSION`. Omitting `expected` unconditionally creates-or-overwrites. The union itself carries only the two guarded intents; "no guard" is expressed by omission, so write and edit share one symmetric `expected?` shape.
 
@@ -177,7 +177,7 @@ interface FsEditOutcome {
 }
 ```
 
-## The fs policy events (provider-seam vocabulary)
+## The fs policy events (provider contract vocabulary)
 
 `dsh-fs` owns three events the tool dispatches and the policy plugin listens for, so the emitter (`dsh-tool-fs`) and the listener (`dsh-fs-policy`) share a vocabulary without the emitter depending on the policy plugin. They carry only `dsh-fs` vocabulary plus an opaque `object` actor — no model-facing concepts and no agent/session owner structure.
 
@@ -229,7 +229,7 @@ interface FileReadOutcome {
 
 Observed state is a `WeakMap<owner, Map<targetKey, { version }>>` held inside the `dsh-fs-policy` plugin. An entry exists **iff** the owner has read, written, OR edited that target (every success emits `fs/observed`), so its presence is the prior-observation record — there is no separate `hasRead` flag and no view distinction. The owner is derived from the event actor (normally `exec.agent.session`), treated as opaque and never read. A successful read/write/edit refreshes the recorded version for that owner; disposal drops everything (HMR safety).
 
-## Error taxonomy (provider seam)
+## Error taxonomy (provider contract)
 
 Filesystem failures use stable `FsErrorCode` strings carried by `FsError` (`HarnessError`). The tool registry preserves `{ name, code }` on error results, so retry, permission, and UI layers can branch without parsing text.
 
@@ -258,11 +258,11 @@ type FsErrorCode =
 
 ## No timeouts on file IO
 
-`read`/`write`/`edit` take **no** `timeoutMs`, and the provider seam arms no deadline — unlike bash and web (which consume [`@deepseek-ai/dsh-timeout`](../../packages/util/timeout/README.md)) and the bash-backed `glob`/`grep` (whose declared `timeoutMs` is enforced by `@deepseek-ai/dsh-timeout-policy`): those are process-backed, where a deadline can really kill the work. A local syscall is best-effort-abortable at most — a timeout could not force an in-progress `fsync`/`rename` to stop, so a deadline here would be a knob that cannot deliver on its promise, and an implicit default in the exact place explicit-over-implicit forbids. Both reference agents (Claude Code, Codex) leave file IO untimed for the same reason; cancellation still propagates through the tool-execution signal for best-effort abort at syscall boundaries.
+`read`/`write`/`edit` take **no** `timeoutMs`, and the provider contract arms no deadline — unlike bash and web (which consume [`@deepseek-ai/dsh-timeout`](../../packages/util/timeout/README.md)) and the bash-backed `glob`/`grep` (whose declared `timeoutMs` is enforced by `@deepseek-ai/dsh-timeout-policy`): those are process-backed, where a deadline can really kill the work. A local syscall is best-effort-abortable at most — a timeout could not force an in-progress `fsync`/`rename` to stop, so a deadline here would be a knob that cannot deliver on its promise, and an implicit default in the exact place explicit-over-implicit forbids. Both reference agents (Claude Code, Codex) leave file IO untimed for the same reason; cancellation still propagates through the tool-execution signal for best-effort abort at syscall boundaries.
 
 ## The service and the plugin
 
-`FileSystem` (`ctx.fs`, abstract) owns the provider primitives: `resolve`, `processPath`, `fileUrl`, `contains`, `stat`, `lstat`, `readText`, `streamText`, `listDir`, `writeText`, and `editText`. `dsh-fs-policy` registers **no service** — it is a plugin that adds policy through the `fs/*` event gate: it decides the write/edit intent waterfalls (supplying `createIfAbsent`/`replaceIfVersion`/`{ version }` or throwing `FS_NOT_OBSERVED`) and records on `fs/observed`. The executor is `dsh-tool-fs`: it reads/writes/edits through `ctx.fs`, dispatches the waterfalls, and emits the recording event. The generated [`ctx.fs` section](#ctxfs--filesystem) below shows the exact signatures.
+`FileSystem` (`ctx.fs`, abstract) owns the provider primitives: `resolve`, `processPath`, `fileUrl`, `contains`, `stat`, `lstat`, `readText`, `streamText`, `listDir`, `writeText`, and `editText`. `dsh-fs-policy` registers **no service** — it is a plugin that adds policy through the `fs/*` event gate: it decides the write/edit intent waterfalls (supplying `createIfAbsent`/`replaceIfVersion`/`{ version }` or throwing `FS_NOT_OBSERVED`) and records on `fs/observed`. The executor is `dsh-tool-fs`: it reads/writes/edits through `ctx.fs`, dispatches the waterfalls, and emits the recording event. The generated [`ctx.fs` section](#ctxfs--filesystem-abstract-seam) below shows the exact signatures.
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
@@ -272,9 +272,9 @@ type FsErrorCode =
 
 Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` surface lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
 
-<a id="ctxfs--filesystem"></a>
+<a id="ctxfs--filesystem-abstract-seam"></a>
 
-### `ctx.fs` — `FileSystem`
+### `ctx.fs` — `FileSystem` (abstract seam)
 
 Abstract filesystem provider. Targets must preserve identity across aliases; reads expose regular UTF-8 text or typed errors, listings are stable and content-free, and mutations are atomic. Optional guards add stale protection without changing the unguarded provider contract.
 

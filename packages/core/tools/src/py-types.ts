@@ -500,7 +500,7 @@ function renderType(schema: unknown, className: string, state: RenderState): str
     ({ schema, className, phase: 'start', listDepth, children: [], childIndex: 0, childTypes: [], entries: [] })
   try {
     // Validate the WHOLE tree once, then trust it — the same contract the
-    // sibling ts-types renderer follows at a typed same-process seam. Every
+    // sibling ts-types renderer follows at a typed same-process boundary. Every
     // node past this point is a validated JSON-schema node, so the walk reads
     // its fields without re-checking. An unsupported or malformed schema throws
     // here (before anything is emitted) and degrades to `Any`, the Python

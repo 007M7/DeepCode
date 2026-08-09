@@ -4,7 +4,7 @@ Status: implemented
 
 [English](2026-07-28-user-settings-seam.md) | 中文
 
-> 范围：`packages/settings/` 能力族——抽象 seam、文件 provider，以及用户设置与 `cordis.yml` 的组合边界。[web config-tree note](2026-07-24-web-config-tree-boot-and-transport-layering.md) 曾把"profile 写路径"记为延后项；本 seam 就是该写路径的归属。消费者迁移（主题、语言、默认模型路由）与 web `settings.*` RPC 面是后续工作，不在本 note 已交付范围内。
+> 范围：`packages/settings/` 能力族——Service Definition、文件 provider，以及用户设置与 `cordis.yml` 的组合边界。[web config-tree note](2026-07-24-web-config-tree-boot-and-transport-layering.md) 曾把"profile 写路径"记为延后项；本 seam 就是该写路径的归属。消费者迁移（主题、语言、默认模型路由）与 web `settings.*` RPC 面是后续工作，不在本 note 已交付范围内。
 
 ## 问题
 
@@ -14,7 +14,7 @@ Status: implemented
 
 **两个面，一条判定。**`cordis.yml`（+ Include patches）仍是组合面：有哪些插件、接线、部署配置，归 orchestrator 所有并随产品升级。settings namespace 只承载用户可编辑子集；判定是"个人配置页应该能改它吗？"值可同时存在于两个面而不歧义，因为分层就是约定：schema 默认值，然后注册方的组合 `base`（其 entry 配置子集），最后用户文档分节。
 
-**镜像 `session-persistence/` 的三包 seam。**`dsh-settings` 拥有抽象 `Settings` 服务：namespace 注册表、分层解析、schema 校验、按 namespace 深相等变更检测，以及 `settings/updated` 提交事件。provider 只实现 `writable`/`load()`/`persist(ns, section)`，并通过受保护的 `publish(doc)` 推入外部观察到的文档——因此热更新语义对所有 provider 一致，网络配置中心后端（nacos 类，可能只读）只是一个平级包的距离。`dsh-settings-local` 是文件 provider：`resolveSpec` 显式默认到 `<DSH_HOME>/settings.yaml` 的 YAML/JSON、chokidar 监听、跨进程写锁下以 `0600` tmp+rename 原子提交的读-改-写 persist、对被写 namespace 的叶子级 diff 修补（未触碰节点的注释得以保留）、按内容相等抑制自写（[write-path integrity note](2026-07-30-settings-write-path-integrity.md)）。
+**镜像 `session-persistence/` 的三包边界。**`dsh-settings` 拥有抽象 `Settings` 服务：namespace 注册表、分层解析、schema 校验、按 namespace 深相等变更检测，以及 `settings/updated` 提交事件。provider 只实现 `writable`/`load()`/`persist(ns, section)`，并通过受保护的 `publish(doc)` 推入外部观察到的文档——因此热更新语义对所有 provider 一致，网络配置中心后端（nacos 类，可能只读）只是一个平级包的距离。`dsh-settings-local` 是文件 provider：`resolveSpec` 显式默认到 `<DSH_HOME>/settings.yaml` 的 YAML/JSON、chokidar 监听、跨进程写锁下以 `0600` tmp+rename 原子提交的读-改-写 persist、对被写 namespace 的叶子级 diff 修补（未触碰节点的注释得以保留）、按内容相等抑制自写（[write-path integrity note](2026-07-30-settings-write-path-integrity.md)）。
 
 **注册是调用方 fiber 上的 effect。**`register()` 经服务代理调用，`this.ctx` 即注册方 context，注册挂在 `ctx.effect` 上：dispose 注册方即移除 namespace 及其观察者（HMR disposal 测试证明），而用户的分节继续留在存储中等待下一任 owner。
 

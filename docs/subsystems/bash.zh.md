@@ -2,7 +2,7 @@
 
 [English](bash.md) | 中文
 
-bash 执行 seam 分为接口（[dsh-bash](../../packages/bash/bash)，`ctx.bash`）、实现（[dsh-bash-local](../../packages/bash/bash-local) 与 [dsh-bash-sandbox](../../packages/bash/bash-sandbox)）和消费方（[dsh-tool-bash](../../packages/bash/tool-bash)，即 `bash` schema）。通用后台任务的 task id、所有权与控制位于 [tasks.md](tasks.md)；本 seam 返回一个不含任务概念的进程句柄。原始进程组机制位于[进程管理器 seam](subprocess.md)之后。
+bash 执行 seam 分为 Service Definition（[dsh-bash](../../packages/bash/bash)，`ctx.bash`）、Service provider（[dsh-bash-local](../../packages/bash/bash-local) 与 [dsh-bash-sandbox](../../packages/bash/bash-sandbox)）和 Consumer（[dsh-tool-bash](../../packages/bash/tool-bash)，即 `bash` schema）。通用后台任务的 task id、所有权与控制位于 [tasks.md](tasks.md)；本 seam 返回一个不含任务概念的进程句柄。原始进程组机制位于[进程管理器 seam](subprocess.md)之后。
 
 源码：[`packages/bash/bash/src/types.ts`](../../packages/bash/bash/src/types.ts)
 
@@ -12,7 +12,7 @@ bash 执行 seam 分为接口（[dsh-bash](../../packages/bash/bash)，`ctx.bash
 
 ## 请求与规格：`resolve()` 拆分
 
-该 seam 将**面向模型/插件的请求**（`workdir`/`timeoutMs`/`stdoutMaxBytes` 可选，由配置或请求策略补全）与执行器实际使用的**完全解析后的 spec**（这些字段均为必填）分开。工具层在二者之间调用 `ctx.bash.resolve(request)`——这具体落实了仓库的「包 seam 上显式优于隐式」规则：`BashExecSpec` 的读者不必猜测工作目录或输出预算来自何处。
+该 seam 将**面向模型/插件的请求**（`workdir`/`timeoutMs`/`stdoutMaxBytes` 可选，由配置或请求策略补全）与执行器实际使用的**完全解析后的 spec**（这些字段均为必填）分开。工具层在二者之间调用 `ctx.bash.resolve(request)`——这具体落实了仓库的「包边界处显式优于隐式」规则：`BashExecSpec` 的读者不必猜测工作目录或输出预算来自何处。
 
 ```ts type-equiv
 /**
@@ -228,9 +228,9 @@ interface BashProcessRead {
 
 Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` surface lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
 
-<a id="ctxbash--bashexecutor"></a>
+<a id="ctxbash--bashexecutor-abstract-seam"></a>
 
-### `ctx.bash` — `BashExecutor`
+### `ctx.bash` — `BashExecutor` (abstract seam)
 
 Abstract bash execution service. Subclass, implement the abstract methods, and load the subclass as a plugin — it registers as `ctx.bash` (one implementation per context; loading a second throws, which is cordis' standard duplicate-service behavior).
 

@@ -32,13 +32,13 @@ Status: implemented
 
 **重解析模型可见的渲染文本,而非消费结构化视图。** 因约定笔记给出的同一理由拒绝:`web_search` 的渲染把每个 source 的字段压缩成一行自由文本、以标题或主机名为标签,所以重解析无法恢复 `{url, title?, snippet?, publishedAt?}`。结构化的 `resultView` 是唯一忠实来源,这正是后端 PR 添加它的原因。
 
-**不加协议 allowlist 直接渲染裸锚点。** 拒绝:URL 在此接缝处是模型创作、未经验证的,所以未过滤的 href 会让 `javascript:` URL 在点击时执行。该 allowlist 是 MarkdownText allowlist（它还允许 `mailto:`）的 http(s) 子集,因此不受信任的检索链接无论在何处渲染都行为相同。
+**不加协议 allowlist 直接渲染裸锚点。** 拒绝:URL 在此展示边界处是模型创作、未经验证的,所以未过滤的 href 会让 `javascript:` URL 在点击时执行。该 allowlist 是 MarkdownText allowlist（它还允许 `mailto:`）的 http(s) 子集,因此不受信任的检索链接无论在何处渲染都行为相同。
 
 ## Testing
 
 `packages/client/ui-primitives/tests/web-block.spec.tsx` 把组件钉到 per-file 100% 门槛:两种 kind;标题-或-主机名-或-原始 URL 的标签回退;两种 kind 上的安全链接属性（http(s) URL 成为带 `target`/`rel` 的外链,`javascript:`/`file:`/无法解析的 URL 渲染为无 href 的纯 span）;snippet 与日期在存在/为空/缺失时的显示或省略;由标志位控制的截断提示;以及完整 source 列表渲染在单个滚动容器内、无展开控件、`<li value>` 从 1 起为每条 source 连续编号。
 
-`packages/client/ui-tool/tests/web-card.spec.tsx` 在每个接线接缝镜像 `terminal-card.spec.tsx`:`webCardModel` 的派生投影每个 source 字段、其截断与缺失 answer 的支路、fetch 派生、以及每个 null 支路（运行中、null result view、generic result view、未知 card 标签、未知 web `kind`）;键控 `WebRow` 对两种 kind 的常驻卡片、其仅摘要行的运行中与失败支路;`GenericToolCard` 兜底为 web 声明工具长出常驻卡片、并为非 web 调用保持纯行;详情面板 Output 区对两种 kind —— 含 `web_fetch` 正文摊平在其 URL/状态卡片下方 —— 及其对非 web 结果的摊平回退;以及在 `web_search` 与 `web_fetch` 两键下用一个组件的键控注册。该文件位于覆盖率 `exclude` 列表（`ui-tool/src/*`）,因此覆盖率运行不度量它。
+`packages/client/ui-tool/tests/web-card.spec.tsx` 在每个接线边界镜像 `terminal-card.spec.tsx`:`webCardModel` 的派生投影每个 source 字段、其截断与缺失 answer 的支路、fetch 派生、以及每个 null 支路（运行中、null result view、generic result view、未知 card 标签、未知 web `kind`）;键控 `WebRow` 对两种 kind 的常驻卡片、其仅摘要行的运行中与失败支路;`GenericToolCard` 兜底为 web 声明工具长出常驻卡片、并为非 web 调用保持纯行;详情面板 Output 区对两种 kind —— 含 `web_fetch` 正文摊平在其 URL/状态卡片下方 —— 及其对非 web 结果的摊平回退;以及在 `web_search` 与 `web_fetch` 两键下用一个组件的键控注册。该文件位于覆盖率 `exclude` 列表（`ui-tool/src/*`）,因此覆盖率运行不度量它。
 
 fixture（`packages/client/connection/src/client/fixture.ts`）添加 turn 66（`web_search`）与 67（`web_fetch`）,内联撰写,因为客户端 fixture 无法 import web 工具:turn 66 的 result view 携带一个 answer 与三个 source,演练引用列表（一个带 snippet 与日期的有标题 source、一个无标题因而以主机名标注链接的 source、一个有日期无 snippet 的 source）并开启截断提示;turn 67 携带抓取的 URL 与一个 200 状态。两者都保留 generic pending call view,仅在 result 时添加 `web` 卡片,匹配约定的 result-only web 形状,且以真实工具命名,使其命中键控 `WebRow`。它们被排在 todo turn（重编号为 68）之前,理由与终端 turn 相同:待定计划在下一个 `turn/start` 退休,所以排在其后的 turn 会清空 dock 的 plan strip。这驱动 built-boot snapshot 与一个实时 `?fixture` 服务。
 

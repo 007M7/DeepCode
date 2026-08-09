@@ -4,7 +4,7 @@
 
 subagent seam 允许一个 agent（智能体）通过具名提供方把工作委派给子 agent。调用方使用统一的服务 API（`ctx.subagents`）；提供方决定子 agent 在当前进程、另一进程还是未来的传输之上运行。
 
-[subagent 家族概述](../README.md)列出了实现和面向模型的消费方。本包负责提供方注册表、共享的请求与结果约定、持久描述符以及可继续子级编排。多个具名提供方可以在该约定背后共存。
+[subagent 家族概述](../README.md)列出了实现和面向模型的消费方。本包负责提供方注册表、共享请求和结果约定、持久描述符以及可继续子级编排。多个具名提供方可以在该约定背后共存。
 
 ## 服务 API
 
@@ -23,7 +23,7 @@ subagent seam 允许一个 agent（智能体）通过具名提供方把工作委
 | `registerContinuableSetup(contribution)` | 把一项可选部署能力组合到每个可继续 child 尚未发布的作用域中，并支持从驻留 child 立即撤销。 |
 | `drainContinuableDescendants(parents)` | 在由 host 确切拥有的在线 parent Agent 之下关闭准入，只停止其可见的可继续后代，等待在这些根之下已获准的物化过程完成发布或回滚，再按 child-first 顺序释放所选森林。该截止状态会持续到每个确切 parent 离开注册表；无关的 parent 森林和管理器全局准入保持在线。 |
 | `listChildren(parentSessionId, signal?)` | 按 `createdAt` 再按 id 的顺序列出由会话支撑的直接 subagent，包括其 `one-shot`／`continuable` 模式、`running`／`inactive` 活动状态、基于 origin 分类的一层 `hasChildren` 提示与逐 child diagnostic，且不会加载或恢复它们。直接读取在线会话存储与可选的会话持久化（持久化缺席时仅枚举在线 child），并要求已挂载 `sessionProjections` 注册表；不要求 `ctx.agents`、继续执行管理器或任何查询服务。 |
-| `listDescendants(rootSessionId, signal?)` | 从同一份在线优先语料按稳定 pre-order 展平根的完整会话树，并为每个 subagent 条目附加持久 `parentId` 与相对根的 `depth`。普通会话与一次性 child 仍作为遍历节点，因此其下的可继续后代仍可发现。身份、diagnostic、依赖与取消约定均沿用 `listChildren()`。 |
+| `listDescendants(rootSessionId, signal?)` | 从同一份实时优先语料按稳定 pre-order 展平根的完整会话树，并为每个 subagent 条目附加持久 `parentId` 与相对根的 `depth`。普通会话与一次性 child 仍作为遍历节点，因此其下的可继续后代仍可发现。身份、diagnostic、依赖与取消约定均沿用 `listChildren()`。 |
 
 `SubagentStartRequest.label` 是由会话支撑的一次性 child 所使用的可选简短持久化显示标签。面向模型的委派会提供其已有的 `description`；底层调用方无需凭空构造展示元数据。可继续启动始终携带自身的必填标签。`signal` 是必填项，也是一次性 `start` 的规范取消通道。发布前中止会使 `start()` 在回滚后拒绝；发布后中止会取消已返回 run 的剩余轮次工作，但不会隐藏其 id。请求还可以选择模型、要求结构化输出、限制委派深度、约束子 agent 工具或设置子 agent persona。对于可继续启动或后续操作，调用方信号只在 inbox 接受之前掌管查找、物化和准入；此后由管理器独立拥有 Activation，因此调用方后续取消既不会取消已接受的轮次，也不会 dispose（资源释放）子 agent。
 
@@ -44,11 +44,11 @@ subagent seam 允许一个 agent（智能体）通过具名提供方把工作委
 
 ## 持久化描述符
 
-该 seam 拥有版本化的 `subagent/descriptor` 会话事件词汇（`src/descriptor.ts`）：`snapshotSubagentDescriptor()` 会在提供方工作之前校验并分离记录，`foldSubagentDescriptor()` 则会在从已加载子 agent 日志中恢复描述符之前，校验当前版本的完整 payload。每次由本地会话支撑的启动都会追加一个带有提供方名称与生命周期 `mode` 的描述符。`one-shot` 描述符可以携带调用方拥有的可选持久化显示 `label`；`continuable` 描述符要求其持久化创建标签，并另外记录已解析的子 agent `agentOptions.provider`／`model`，以及用于从持久化存储恢复的可选 `persona`／`toolFilter`。这些是显式字段，绝不是可通过合并扩展的 `AgentOptions` 对象，因此无关的扩展值不会破坏继续执行。描述符省略 `subagentDepth`（持久化 header 的 `delegationDepth` 是单调下界）和 `outputSchema`（单次 Activation 的结果约定）。该事件只进入日志：不含 `surfaceOp`，不进入模型历史，并由仅追加日志跨压缩（compaction）保留。格式错误的当前版本 payload 属于损坏；本运行时无法对不受支持的版本进行分类。
+该 Service Definition 拥有版本化的 `subagent/descriptor` 会话事件词汇（`src/descriptor.ts`）：`snapshotSubagentDescriptor()` 会在提供方工作之前校验并分离记录，`foldSubagentDescriptor()` 则会在从已加载子 agent 日志中恢复描述符之前，校验当前版本的完整 payload。每次由本地会话支撑的启动都会追加一个带有提供方名称与生命周期 `mode` 的描述符。`one-shot` 描述符可以携带调用方拥有的可选持久化显示 `label`；`continuable` 描述符要求其持久化创建标签，并另外记录已解析的子 agent `agentOptions.provider`／`model`，以及用于从持久化存储恢复的可选 `persona`／`toolFilter`。这些是显式字段，绝不是可通过合并扩展的 `AgentOptions` 对象，因此无关的扩展值不会破坏继续执行。描述符省略 `subagentDepth`（持久化 header 的 `delegationDepth` 是单调下界）和 `outputSchema`（单次 Activation 的结果约定）。该事件只进入日志：不含 `surfaceOp`，不进入模型历史，并由仅追加日志跨压缩（compaction）保留。格式错误的当前版本 payload 属于损坏；本运行时无法对不受支持的版本进行分类。
 
 ## 委派深度
 
-该 seam 拥有实现和消费方共享的深度词汇：`AgentOptions.subagentDepth` 声明、`assertSubagentMaxDepth` 和 `delegationDepthOf(agent)`。持久化的 `SessionHeader.delegationDepth` 具有权威性且单调：运行时选项可以加深计数，但绝不能降低它，因此恢复后的子 agent 不会被重新计为顶层。
+该 seam 拥有 Service provider 和 Consumer 共享的深度词汇：`AgentOptions.subagentDepth` 声明、`assertSubagentMaxDepth` 和 `delegationDepthOf(agent)`。持久化的 `SessionHeader.delegationDepth` 具有权威性且单调：运行时选项可以加深计数，但绝不能降低它，因此恢复后的子 agent 不会被重新计为顶层。
 
 `inheritsParentContext` 只用于描述，不能强制执行。它仅说明子 agent 是否能看到父级已完成的对话历史（`fork` 可以；`spawn` 和各进程外一次性提供方不可以），不表示是否继承工具、服务或权限。
 
@@ -80,7 +80,7 @@ subagent seam 允许一个 agent（智能体）通过具名提供方把工作委
 
 可继续子级不会创建 `SubagentRun` 或 Task。继续执行管理器为每个驻留子 Session 直接拥有一个仅存在于当前进程的 Activation 和一个留存的 `AgentHandle`，使用 Agent inbox 作为唯一 FIFO，并从持久化描述符冷恢复。父到子投递由确切在线的直接父级身份授权。上报则由确切在线的子级身份授权；管理器根据持久化的 `parentSession` 推导接收方，`MessageSource` 记录发送方，但不授予权限。中断权限被刻意设计得比投递权限更宽：人类出示持久化直接 parent 地址，因此即使 parent Agent 离线，在线 child 仍可被停止；Activation 物化时记录的任何确切在线 ancestor 也可以停止其后代，因为停止一个轮次是幂等的，且不投递任何内容。
 
-当 `ctx.sessionProjections` 可用时，服务会注册两个投影单元。`subagentTiming` 会在每个描述符处重置，使 fork 种子中的祖先工作不会计入 child 总量，随后累加 `turn/start` → `turn/end` 活跃时间，并为未结束的轮次保留同一切面的 `active.since` 和 `active.through` 边界；在该轮次保持未结束期间，`active.through` 会跟随最近折叠的事件，从而为 inactive 消费方提供保守的崩溃上界，又不会混入更新的会话元数据。`subagent` 以同样的 last-wins 重置规则从 `subagent/descriptor` 事件折叠持久化身份——模式与创建标签——因此 fork 种子中的祖先描述符只在 child 自身的描述符覆盖之前有效；畸形或版本不识别的载荷折叠为可序列化的 `null` 哨兵——与没有描述符的日志不可区分，且能完好通过每个 JSON 推送帧，使消费方替换陈旧身份而不是将其保留——绝不抛错。
+当 `ctx.sessionProjections` 可用时，服务会注册两个投影单元。`subagentTiming` 会在每个描述符处重置，使 fork 种子中的祖先工作不会计入 child 总量，随后累加 `turn/start` → `turn/end` 活跃时间，并为未结束的轮次保留同一切面的 `active.since` 和 `active.through` 边界；在该轮次保持未结束期间，`active.through` 会跟随最近折叠的事件，从而为 inactive 消费方提供保守的崩溃上界，又不会混入更新的会话元数据。`subagent` 以同样的 last-wins 重置纪律从 `subagent/descriptor` 事件折叠持久化身份——模式与创建标签——因此 fork 种子中的祖先描述符只在 child 自身的描述符覆盖之前有效；畸形或版本不识别的载荷折叠为可序列化的 `null` 哨兵——与没有描述符的日志不可区分，且能完好通过每个 JSON 推送帧，让消费方以之替换掉手中过时的身份而非永久滞留——绝不抛错。
 
 `registerContinuableSetup()` 允许可选包添加子级作用域能力，而无需让继续执行管理器知道这些能力的名称。贡献会在 Activation 发布前同步安装，在设置失败时一并回滚，并随子级作用域释放。新授权须等到下一个 Activation，移除贡献则会立即撤销每个驻留安装项。
 

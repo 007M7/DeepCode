@@ -4,16 +4,16 @@
 
 **`BashExecutor`**（`ctx.bash`）定义 bash 后端做什么，即运行前台命令与启动后台进程，但不规定如何实现。task id、所有权、收集、取消与通知属于通用 `ctx.tasks` 运行时。
 
-本包是 bash 能力中负责接口的四分之一，各项职责因此可以独立演进（和替换）：
+本包承担 bash 能力的 Service Definition 角色，各角色因此可以独立演进（和替换）：
 
 | 包 | 职责 |
 |---|---|
-| `@deepseek-ai/dsh-bash`（本包） | 接口：抽象服务 + 词汇类型 |
-| `@deepseek-ai/dsh-bash-local` | 实现：本地子进程 |
-| `@deepseek-ai/dsh-bash-sandbox` | 实现：沿用 `dsh-bash-local` 的机制，但通过 [`ctx.sandbox`](../../sandbox/sandbox/) 限制每次 spawn，并将拒绝报告为结果事实 |
+| `@deepseek-ai/dsh-bash`（本包） | Service Definition：抽象服务 + 词汇类型 |
+| `@deepseek-ai/dsh-bash-local` | Service provider：本地子进程 |
+| `@deepseek-ai/dsh-bash-sandbox` | Service provider：沿用 `dsh-bash-local` 的机制，但通过 [`ctx.sandbox`](../../sandbox/sandbox/) 限制每次 spawn，并将拒绝报告为结果事实 |
 | `@deepseek-ai/dsh-tool-bash` | 基于 `ctx.bash`、面向模型的工具 schema |
 
-该拆分与 LLM（大语言模型） seam（`LlmService`／`LlmAdapter`）及 agent（智能体）工具调研结果一致：pi 将执行隐藏在 `BashOperations` 接口之后（本地 shell／SSH／VM 后端），Codex 则隐藏在 exec-server 协议之后。`dsh-bash-sandbox` 正是这种替换的实际应用：沙箱执行器位于同一接口之后；消费方检测其 `sandboxMode` 能力并添加升权字段，无需导入实现。容器化或远程执行器也可以同样接入。
+该拆分与 LLM（大语言模型） seam（`LlmService`／`LlmAdapter`）及 agent（智能体）工具调研结果一致：pi 将执行隐藏在 `BashOperations` 接口之后（本地 shell／SSH／VM 后端），Codex 则隐藏在 exec-server 协议之后。`dsh-bash-sandbox` 正是这种替换的实际应用：沙箱执行器位于同一 Service Definition 之后；Consumer 检测其 `sandboxMode` 能力并添加升权字段，无需导入提供方。容器化或远程执行器也可以同样接入。
 
 ## 服务 API（`ctx.bash`）
 
@@ -35,7 +35,7 @@
 
 `stdin` 与普通 `env` 由同进程插件（hooks 桥接、原生插件）设置，用于向 hook 命令提供其 JSON payload 和 `CLAUDE_PROJECT_DIR`／`CLAUDE_PLUGIN_ROOT` 值。`dshEnv` 是受类型限制、仅允许受管 key 的独立受信任 overlay；导出的 `DSH_ENV_PREFIX` 是该 namespace、其 `DshEnvironmentKey` 模板类型、执行器清理、注册表验证、派生内置名称与模型指引的统一来源。模型 bash 使用 `ctx.bashEnv` 收集的当前快照。实现会移除继承的受管 key，再在普通 `env` 之后合并 `dshEnv`，因此省略的当前事实不会回退到陈旧环境状态，`env` 条目也无法顶掉受管值。面向模型的工具不将这三者中的任何一个公开为参数。这三者在已解析 spec 上仍然可选；缺失表示没有输入／overlay。详见 [bash-stdin-env Agent Note](../../../.agents/notes/implemented/architecture/2026-06-30-bash-stdin-env-trusted-plugin-surface.md) 与 [会话环境 Agent Note](../../../.agents/notes/implemented/feature/2026-07-10-agent-session-identity-and-log-location.md)。
 
-导出的 `parseExitStatus`（连同 `ParsedExitStatus`）是 shell 工具共享渲染约定的一部分：它对 `dsh-tool-bash` 的 `renderResult` 与 `dsh-tool-pwsh` 的 `renderPwshResult` 所追加的 `[exit code: N]`／`[killed by signal: X]` marker 进行逆解析。两个工具的 `presentResult` 都用它把渲染文本拆成 terminal 卡的输出正文与退出状态 pill；它位于 seam 上，因此两个工具的 marker 约定不会发生偏离。
+导出的 `parseExitStatus`（连同 `ParsedExitStatus`）是 shell 工具共享渲染约定的另一半：`dsh-tool-bash` 的 `renderResult` 与 `dsh-tool-pwsh` 的 `renderPwshResult` 追加的 `[exit code: N]`／`[killed by signal: X]` marker 的逆解析。两个工具的 `presentResult` 都用它把渲染文本拆成 terminal 卡的输出正文与其退出状态 pill；它放在 Service Definition 中，两个工具便永远不会在 marker 约定上漂移。
 
 ## 模型体验
 

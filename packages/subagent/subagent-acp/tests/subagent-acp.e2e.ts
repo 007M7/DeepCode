@@ -11,7 +11,7 @@ import { resolveExampleLaunch } from '@deepseek-ai/dsh-loader-smoke'
 import * as acp from '../src/index.ts'
 
 /**
- * With-key cross-process seam proof: the backend spawns the real acp-agent example, speaks ACP over
+ * With-key cross-process boundary proof: the backend spawns the real acp-agent example, speaks ACP over
  * stdio, and returns its real model answer. This is the out-of-process counterpart to in-process
  * spawn coverage and self-skips without `DEEPSEEK_API_KEY`.
  */

@@ -36,6 +36,6 @@ Status: proposed
 
 ## 风险
 
-- 只读行为在 `tools/pre-execute` 拒绝门禁强制执行之前仅为建议性质；[拦截 seam](../../implemented/feature/2026-06-30-interception-seams.md) 可在不改变本机制的前提下添加该门禁。
+- 只读行为在 `tools/pre-execute` 拒绝门禁强制执行之前仅为建议性质；[拦截点](../../implemented/feature/2026-06-30-interception-extension-points.md) 可在不改变本机制的前提下添加该门禁。
 - 经过压缩（compaction）的源会话 fork 出的是其压缩视图，因此绑定的界面应当告知用户子会话继承的是摘要而非被替换的轮次。
 - 反复的 handback 会消耗父会话上下文。每次合并的长度上限约束了单条笔记的大小；后续的合并整理属于上下文压缩的职责。

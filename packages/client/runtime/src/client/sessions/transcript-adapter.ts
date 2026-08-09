@@ -12,7 +12,7 @@ import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 // browser bundle cannot resolve; surface.ts has no Node dependencies.
 import { isAppendSurfaceEvent, isReplacementSurfaceEvent } from '@deepseek-ai/dsh-session/surface'
 import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
-// Cordis-free leaf subpath (the dsh-commands/brand shape): the seam's own
+// Cordis-free leaf subpath (the dsh-commands/brand shape): the Service Definition's
 // declaration of the checkpoint source, reachable as a TYPE from this program.
 // The package ROOT is not — it reaches dsh-session's root, whose Context merge
 // declares the HOST `sessions: SessionStore` against this program's
@@ -28,7 +28,7 @@ import type { AssistantStepMetadata } from './assistant-timing.ts'
 import { indexAssistantStepTiming, settledAssistantTiming } from './assistant-timing.ts'
 
 /**
- * The compaction seam's checkpoint plugin, pinned to the seam's own declaration
+ * The compaction capability's checkpoint plugin, pinned to the Service Definition's declaration
  * at COMPILE time: renaming it there fails this annotation (`TS2322`). The
  * import stays type-only because a value import would fail the client purity
  * gate (`packages/client/tsdown.client.ts`) — cross-plugin value imports are

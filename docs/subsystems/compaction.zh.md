@@ -2,7 +2,7 @@
 
 [English](compaction.md) | 中文
 
-压缩 seam 是一个[能力 seam](../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md)，与 bash 一样分为接口（[dsh-compact](../../packages/compact/compact)，`ctx.compact`）、实现（例如 [dsh-compact-basic](../../packages/compact/compact-basic) 后端）和面向用户的消费方（[dsh-command-compact](../../packages/compact/command-compact)）。压缩是**一项可选能力**，不属于 agent loop（智能体循环）主干，因此其词汇定义在此而非 [core.md](core.md) 中。基于 tokenizer 或模板的后端是实现同一接口的兄弟包。与 bash 不同，该接口必然依赖 `dsh-session` 和 `dsh-llm`：其动词作用于 agent 所有的 `Session`，而其持久摘要事件使用 `ContentBlock` 词汇（见[压缩能力 seam Agent Note](../../.agents/notes/implemented/feature/2026-06-18-compaction-capability-seam.md)）。
+压缩 seam 是一个[能力 seam](../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md)，与 bash 一样分为 Service Definition（[dsh-compact](../../packages/compact/compact)，`ctx.compact`）、Service provider（例如 [dsh-compact-basic](../../packages/compact/compact-basic) 后端）和面向用户的 Consumer（[dsh-command-compact](../../packages/compact/command-compact)）。压缩是**一项可选能力**，不属于 agent loop（智能体循环）主干，因此其词汇定义在此而非 [core.md](core.md) 中。基于 tokenizer 或模板的后端是实现同一接口的兄弟包。与 bash 不同，该接口必然依赖 `dsh-session` 和 `dsh-llm`：其动词作用于 agent 所有的 `Session`，而其持久摘要事件使用 `ContentBlock` 词汇（见[压缩能力 seam Agent Note](../../.agents/notes/implemented/feature/2026-06-18-compaction-capability-seam.md)）。
 
 源码：[`packages/compact/compact/src/types.ts`](../../packages/compact/compact/src/types.ts)
 
@@ -81,7 +81,7 @@ type ManualCompactionErrorCode =
 
 压力压缩在串行 `agent/pre-step` 中运行，先于请求推导。一旦压力或规范化溢出满足条件，compact-basic 会在选择范围前调用可选的 [`ctx.toolResultPrune`](../../packages/compact/compact-tool-result-prune/README.md)，再通过 `ctx.tokenMeter` 重新测量，并且可以在不生成摘要的情况下推进 surface。失败请求的恢复在失败的步骤关闭后通过 `agent/request-error` 运行；仅当 surface replacement generation 前进时才返回重试动作，即便后续摘要工作在剪枝后抛异常亦如此；取消仍然优先。区域边界保持工具调用/结果配对，但不保持整个轮次，因此一个过大轮次中较早关闭的步骤可以被压缩。`dsh-compact-basic` 拥有阈值、保留尾部策略、溢出上限与失败处理。
 
-该 seam 导出 `toolPairingBalancedBefore(session, seq)` 与 `toolPairingBalancedAfter(session, seq)`，用于这些边缘检查。两者都会验证当前 surface 成员关系，并拒绝缺失的 seq 与遗留结果；其缓存语义由[包约定](../../packages/compact/compact/README.md#tool-pairing-boundaries)规定。
+该 Service Definition 导出 `toolPairingBalancedBefore(session, seq)` 与 `toolPairingBalancedAfter(session, seq)`，用于这些边缘检查。两者都会验证当前 surface 成员关系，并拒绝缺失的 seq 与遗留结果；其缓存语义由[包约定](../../packages/compact/compact/README.md#tool-pairing-boundaries)规定。
 
 ## 工具结果剪枝产出
 
@@ -121,9 +121,9 @@ interface PruneResult {
 
 Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` surface lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
 
-<a id="ctxcompact--compactservice"></a>
+<a id="ctxcompact--compactservice-abstract-seam"></a>
 
-### `ctx.compact` — `CompactService`
+### `ctx.compact` — `CompactService` (abstract seam)
 
 Abstract compaction service. Implementations own trigger policy, retention, and summarization, and may consume a separate measurement service. A successful run replaces the selected surface span with one summary node and prevents concurrent compaction of the same session. The replacement user message uses COMPACT_CHECKPOINT_SOURCE so consumers recognize it independently of the backend. Load one implementation per context as `ctx.compact`.
 

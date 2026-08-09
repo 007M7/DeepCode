@@ -1,4 +1,4 @@
-# Agent Note: Capability seams — interface / implementation / consumer split
+# Agent Note: Capability seams — Service Definition / Service provider / Consumer roles
 
 Status: implemented
 
@@ -12,25 +12,25 @@ This is distinct from "who provides vs. needs a capability at runtime", which Co
 
 ## Decision
 
-A swappable capability is **three packages**:
+A swappable capability has **three roles**:
 
-1. **Interface** — an abstract service + the vocabulary types, owning the `ctx.<key>` and depending only on its vocabulary dependencies (e.g. `dsh-bash`: `BashExecutor`, `BashRunResult`, `BashProcess`).
-2. **Implementation** — a concrete subclass loaded as a plugin (e.g. `dsh-bash-local`: subprocesses, process-group kills, spill-file truncation). Sandboxed/remote backends are sibling packages implementing the same interface.
-3. **Consumer** — what the model and plugins see (e.g. `dsh-tool-bash`: the `bash` schema, with background handles registered into the generic task runtime). Consumers `inject` the interface key and never import implementation types.
+1. **Service Definition** — the Cordis `Service` and vocabulary types owning `ctx.<key>` and depending only on the vocabulary the contract needs (e.g. `dsh-bash`: `BashExecutor`, `BashRunResult`, `BashProcess`). A definition may be an abstract class or a concrete registry service; it is never a TypeScript `interface`.
+2. **Service provider** — a plugin that supplies or registers an implementation (e.g. `dsh-bash-local`: subprocesses, process-group kills, spill-file truncation). Sandboxed and remote providers are sibling packages implementing or registering against the same Service Definition.
+3. **Consumer** — what the model and plugins program against (e.g. `dsh-tool-bash`: the `bash` schema, with background handles registered into the generic task runtime). Consumers inject the service key and never import provider-specific types.
 
-Implementation and consumer then evolve independently: a sandboxed executor replaces `dsh-bash-local` without touching a tool schema.
+Service providers and Consumers then evolve independently: a sandboxed executor replaces `dsh-bash-local` without touching a tool schema.
 
-The split is not mandatory when the parts are genuinely one concern: the LLM seam folds interface + consumer into `dsh-llm` (the consumer is the loop itself, not a swappable schema surface) with adapters as the implementation packages. Don't split preemptively — a capability with one conceivable implementation and one consumer stays one package until a second appears.
+Roles normally use separate packages when they evolve independently, but the split is not mandatory when the roles are genuinely one concern: the LLM seam folds Service Definition and Consumer into `dsh-llm` (the Consumer is the loop itself, not a swappable schema surface) with adapters as Service provider packages. Don't split preemptively — a capability with one conceivable provider and one Consumer stays one package until a second appears.
 
 ## Terminology: "seam" names the trio, not the interface
 
-A **seam** is the whole capability — the three roles together: a **Service Definition** (the Cordis `Service` that owns `ctx.<key>` and the vocabulary; an abstract class such as `BashExecutor`, or a concrete registry such as `WebService`), one or more **Service providers** (implementations that register a backend), and a **Consumer** (the model- or plugin-facing surface). `packages/bash` is the canonical example — `dsh-bash` / `dsh-bash-local`+`dsh-bash-sandbox` / `dsh-tool-bash`. The interface package alone is the *Service Definition*, one member — not the seam. The Service Definition is never a TypeScript `interface`; where prose must name it, use the class name or `abstract class`, never `interface`. Reserving "seam" strictly for the trio and realigning the many existing "the X seam" usages is deferred to a follow-up; the [glossary](../../../../docs/glossary.md#capability-seam) is the canonical entry.
+A **seam** is the whole capability — the three roles together: a **Service Definition** (the Cordis `Service` that owns `ctx.<key>` and the vocabulary), one or more **Service providers**, and one or more **Consumers**. `packages/bash` is the canonical example — `dsh-bash` / `dsh-bash-local`+`dsh-bash-sandbox` / `dsh-tool-bash`. A package may own multiple roles, but one role alone is not the seam. The term "seam" is reserved for this complete capability; name a constituent by its role, class, service, contract, or extension point. The [glossary](../../../../docs/glossary.md#capability-seam) is the canonical entry.
 
 ## Alternatives considered
 
-- **One combined package** — rejected because it recouples the three rates of change the split exists to separate (the whole point).
-- **`@cordisjs/plugin-capability`** — a different axis entirely: it is a permission/capability-*security* service (named permissions with inheritance, tested against a session via `ctx.capability.test`), a candidate for the deferred permissions/sandbox work on the `tools/pre-execute` deny/ask seam, NOT a mechanism for swapping implementations. Confusing the two ("capability") is the trap this Agent Note names.
+- **Always combine the roles** — rejected because it recouples independently changing Service Definitions, providers, and Consumers.
+- **`@cordisjs/plugin-capability`** — a different axis entirely: it is a permission/capability-*security* service (named permissions with inheritance, tested against a session via `ctx.capability.test`), a candidate for the deferred permissions/sandbox work on the `tools/pre-execute` deny/ask gate, NOT a mechanism for swapping implementations. Confusing the two ("capability") is the trap this Agent Note names.
 
 ## Consequences
 
-More packages and more boilerplate per capability (a `package.json`/`tsconfig`/README trio, the inject wiring). Bought: implementations and consumers ship and version independently, and a new backend never risks the model-facing contract. The rule is documented in [AGENTS.md](../../../../AGENTS.md) § Conventions ("Capability seams are three packages") and [architecture.md](../../../../docs/architecture.md) § "Capability seams"; the bash trio is the reference template. When to fold vs. split is a judgment call the architecture doc spells out — this Agent Note records *why* the default is to split.
+Separating roles adds packages and boilerplate (`package.json`, `tsconfig`, README, and injection wiring). In return, Service providers and Consumers ship and version independently, and a new backend never risks the model-facing contract. [AGENTS.md](../../../../AGENTS.md) and [architecture.md](../../../../docs/architecture.md) carry the rule; the bash trio is the reference template. This Agent Note records why independently changing roles normally split while genuinely shared concerns may remain folded.

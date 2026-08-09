@@ -2,13 +2,13 @@
 
 English | [中文](spill.zh.md)
 
-The spill storage seam — a [capability seam](../../.agents/notes/implemented/architecture/2026-07-08-tool-output-spill-files.md) that persists a tool's oversized text and returns a model-facing locator plus retrieval guidance, split across packages: interface ([dsh-spill](../../packages/spill/spill), `ctx.spillStore`), implementation ([dsh-spill-local](../../packages/spill/spill-local), private session-scoped files on the host filesystem), and consumer ([dsh-spill-policy](../../packages/spill/spill-policy), the `tools/post-execute` policy). Spill is **one optional capability**, not part of the agent-loop spine — so its vocabulary lives here, not in [core.md](core.md). Preview mechanics stay in [dsh-retention](../../packages/util/retention); this seam only saves the final text the policy hands it.
+The spill storage seam — a [capability seam](../../.agents/notes/implemented/architecture/2026-07-08-tool-output-spill-files.md) that persists a tool's oversized text and returns a model-facing locator plus retrieval guidance, split across packages: Service Definition ([dsh-spill](../../packages/spill/spill), `ctx.spillStore`), Service provider ([dsh-spill-local](../../packages/spill/spill-local), private session-scoped files on the host filesystem), and Consumer ([dsh-spill-policy](../../packages/spill/spill-policy), the `tools/post-execute` policy). Spill is **one optional capability**, not part of the agent-loop spine — so its vocabulary lives here, not in [core.md](core.md). Preview mechanics stay in [dsh-retention](../../packages/util/retention); this seam only saves the final text the policy hands it.
 
 Source: [`packages/spill/spill/src/types.ts`](../../packages/spill/spill/src/types.ts)
 
 ## The save request
 
-`saveText` is the whole seam: persist `content` verbatim, return an opaque locator, a backend-supplied retrieval hint, and the exact byte count. The request carries the save-time storage namespace (`owner`), the tool and call that produced it (`source`, used for naming and inspection — not access control), and a `suggestedName` the backend may use as a naming hint (it is not a path).
+`saveText` is the sole service operation: persist `content` verbatim, return an opaque locator, a backend-supplied retrieval hint, and the exact byte count. The request carries the save-time storage namespace (`owner`), the tool and call that produced it (`source`, used for naming and inspection — not access control), and a `suggestedName` the backend may use as a naming hint (it is not a path).
 
 ```ts type-equiv
 /** One request to persist text to a spill artifact. */
@@ -92,9 +92,9 @@ The local backend ([dsh-spill-local](../../packages/spill/spill-local)) writes u
 
 Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` surface lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
 
-<a id="ctxspillstore--spillstore"></a>
+<a id="ctxspillstore--spillstore-abstract-seam"></a>
 
-### `ctx.spillStore` — `SpillStore`
+### `ctx.spillStore` — `SpillStore` (abstract seam)
 
 Abstract spill storage service. Subclass, implement saveText, and load the subclass as a plugin — it registers as `ctx.spillStore` (one implementation per context; loading a second throws, cordis' standard duplicate-service behavior).
 

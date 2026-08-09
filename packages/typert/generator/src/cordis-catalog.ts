@@ -84,6 +84,8 @@ export interface ServiceEntry {
   key: string
   /** The service class/interface name, e.g. `LlmService`. */
   type: string
+  /** Whether the service class is abstract (a seam interface). */
+  abstract: boolean
   /** Class-level JSDoc prose, one line per paragraph. */
   doc: string
   /** Public methods (bodies stripped), in source order. */
@@ -256,6 +258,7 @@ export class CordisCatalogProjector {
         entries.push({
           key: service.key,
           type: declaration.name,
+          abstract: declaration.abstract,
           doc,
           methods,
           source,
@@ -744,7 +747,8 @@ function renderEvent(e: EventEntry, onPage: string, linkedTypePages: Readonly<Re
 
 /** Render one harness service entry onto its owning page. */
 function renderService(s: ServiceEntry, onPage: string, linkedTypePages: Readonly<Record<string, string>>): string[] {
-  const out = [...anchorFor(`ctx.${s.key} — ${s.type}`), `### \`ctx.${s.key}\` — \`${s.type}\``, '']
+  const kind = s.abstract ? ' (abstract seam)' : ''
+  const out = [...anchorFor(`ctx.${s.key} — ${s.type}${kind}`), `### \`ctx.${s.key}\` — \`${s.type}\`${kind}`, '']
   if (s.doc) out.push(s.doc, '')
   if (s.methods.length) {
     const declarations = s.methods.flatMap((method, index) => [

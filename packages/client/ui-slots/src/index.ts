@@ -211,7 +211,7 @@ export type MatchedShare<E extends SlotEntryDef, M> =
 /**
  * Conversation-session selector hook alias for props contracts. Wide by
  * default at this dependency-inverted layer; the runtime narrows at its
- * export seam (`UseSession<ConversationSnapshot>`).
+ * export outlet (`UseSession<ConversationSnapshot>`).
  */
 export type UseSession<Snap extends object = object> = SnapshotSelectorHook<Snap>
 
@@ -392,7 +392,7 @@ type BaseOptions<K extends keyof SlotMap & string, D extends ChildrenDecl, H, M 
 
 /**
  * One stored registration, as recorded by the core and read by the render
- * machinery (type-erased at this boundary; the register seam already proved
+ * machinery (type-erased at this boundary; the registration contract already proved
  * the shares against the component).
  */
 export interface StoredEntry {
@@ -467,7 +467,7 @@ interface SlotRecord {
 const NO_ENTRIES: readonly StoredEntry[] = Object.freeze([])
 
 /**
- * Pure slot registry (no cordis; event emission and the renderer install seam
+ * Pure slot registry (no cordis; event emission and the renderer installation contract
  * live in the runtime Service wrapper).
  *
  * The 'root' slot is the one a-priori declaration, seeded at construction

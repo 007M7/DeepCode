@@ -83,7 +83,7 @@ Specified during review, deferred until observation calls for them:
 - **Pure stubs, no state checkpoint** — rejected: presumes the model knows what it is missing; fails on unknown unknowns.
 - **LLM aging/consolidation of frozen chunks** — rejected as a routine mechanism: summary-of-summary loss and frozen-prefix churn; the code-only rollup is its surviving form, deferred.
 - **Full prefix as chunk-summarizer input** — rejected: O(N²); the state document gives the same background at O(state).
-- **One summarize call emitting all outputs** — rejected: the summarize path has no structured-output enforcement; parsing one free-text response apart is the fragile seam the fail-closed design avoids.
+- **One summarize call emitting all outputs** — rejected: the summarize path has no structured-output enforcement; parsing one free-text response apart is the fragile boundary the fail-closed design avoids.
 - **Model-chosen chunk boundaries** — deferred: parse-and-validate cost against unproven value; chunk policy sits behind config.
 - **Model-authored pointers** — rejected: pointers must be exact; deterministic assembly is.
 - **FTS/vector index sidecar** — rejected in-session: the live log is in memory and bounded, a literal scan under budget suffices; an index earns its keep at cross-session scope.

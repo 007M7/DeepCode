@@ -2,7 +2,7 @@
 
 English | [中文](telemetry.zh.md)
 
-Outbound session reporting, split as a [capability seam](../capability-seams.md): the seam ([dsh-session-telemetry](../../packages/session/session-telemetry), `ctx.telemetry`) owns the capture points, the fixed chunk projection, the `telemetry/record` redaction waterfall, the handoff cursor, and the minimal backend contract; the backend a deployment loads ([dsh-session-telemetry-otel](../../packages/session/session-telemetry-otel)) is the OpenTelemetry JS SDK's log pipeline configured verbatim. It is one optional capability, not part of the agent-loop spine, and nothing here reaches a model request. The boundary axiom — the harness's aspect ends at `emit()`; batching, retry, queueing, and loss policy belong to the reporting SDK — and the rejected alternatives are pinned in the [revival Agent Note](../../.agents/notes/implemented/feature/2026-07-23-session-telemetry-otel-revival.md); the capture points, cursor, and projection contracts live in the [seam README](../../packages/session/session-telemetry/README.md).
+Outbound session reporting is split as a [capability seam](../capability-seams.md): the Service Definition and capture coordinator ([dsh-session-telemetry](../../packages/session/session-telemetry), `ctx.telemetry`) own the capture points, fixed chunk projection, `telemetry/record` redaction waterfall, handoff cursor, and minimal backend contract; the Service provider a deployment loads ([dsh-session-telemetry-otel](../../packages/session/session-telemetry-otel)) is the OpenTelemetry JS SDK's log pipeline configured verbatim. It is one optional capability, not part of the agent-loop spine, and nothing here reaches a model request. The boundary axiom — the harness's aspect ends at `emit()`; batching, retry, queueing, and loss policy belong to the reporting SDK — and the rejected alternatives are pinned in the [revival Agent Note](../../.agents/notes/implemented/feature/2026-07-23-session-telemetry-otel-revival.md); the capture points, cursor, and projection contracts live in the [Service Definition README](../../packages/session/session-telemetry/README.md).
 
 Source: [`packages/session/session-telemetry/src/index.ts`](../../packages/session/session-telemetry/src/index.ts)
 
@@ -22,7 +22,7 @@ type TelemetrySeverity = 'info' | 'warn' | 'error'
 
 ```ts type-equiv
 /**
- * One logical record handed to a backend — the seam's whole outbound
+ * One logical record handed to a backend — the capture contract's whole outbound
  * vocabulary. Ledger records mirror session-log events one-to-one;
  * operational records (`channel: 'ops'`) carry the two signals with no log
  * home (`agent-error`, `shutdown`) and deliberately omit `event.seq`-style
@@ -105,7 +105,7 @@ interface TelemetryBackend {
 }
 ```
 
-`Telemetry` (`ctx.telemetry`, [signatures](#ctxtelemetry--telemetry)) is the contract's loadable form — one implementation per context, duplicate load throws — and a backend composes the seam's `TelemetryCoordinator` in its constructor to install the capture side.
+`Telemetry` (`ctx.telemetry`, [signatures](#ctxtelemetry--telemetry-abstract-seam)) is the contract's loadable form — one implementation per context, duplicate load throws — and a backend composes the seam's `TelemetryCoordinator` in its constructor to install the capture side.
 
 ## The redact waterfall: `telemetry/record`
 
@@ -119,15 +119,15 @@ Every record passes the `telemetry/record` [waterfall](../cordis-primer.md#cordi
 
 Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` surface lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
 
-<a id="ctxtelemetry--telemetry"></a>
+<a id="ctxtelemetry--telemetry-abstract-seam"></a>
 
-### `ctx.telemetry` — `Telemetry`
+### `ctx.telemetry` — `Telemetry` (abstract seam)
 
 The backend contract in its loadable form: one implementation per context — the cordis `Service` registration under the `telemetry` key throws on a duplicate, cordis' standard behavior. A backend composes a TelemetryCoordinator in its constructor to install the capture side.
 
 ```ts cordis-catalog
 /**
- * See {@link TelemetryBackend.emit} — the seam declaration is the contract's one home.
+ * See {@link TelemetryBackend.emit} — that declaration is the contract's one home.
  * @param record - the logical record to report; owned by the backend after the call.
  */
 abstract emit(record: TelemetryRecord): void
@@ -152,12 +152,12 @@ Source: [`packages/session/session-telemetry/src/index.ts:140`](../../packages/s
 
 #### `telemetry/record` — waterfall
 
-Transform one outbound record before it reaches the backend. This waterfall is the seam's redaction extension point. It ships NO rules of its own: the innermost `next()` passes the record through unchanged, and with no listener mounted records reach the backend as captured, so exported data is exactly as clean as the rules a deployment mounts. Listeners stack by transforming `next()`'s return value; returning without `next()` replaces everything beneath. Dispatched synchronously on the capture hot path inside the coordinator's containment: a throwing listener withholds that one record (fail-closed) and never reaches the agent loop. Live capture dispatches at append time; on-demand capture dispatches while reading the canonical log. Redaction applies to the exported copy only; the canonical session log is never rewritten.
+Transform one outbound record before it reaches the backend. This waterfall is the Service Definition's redaction extension point. It ships NO rules of its own: the innermost `next()` passes the record through unchanged, and with no listener mounted records reach the backend as captured, so exported data is exactly as clean as the rules a deployment mounts. Listeners stack by transforming `next()`'s return value; returning without `next()` replaces everything beneath. Dispatched synchronously on the capture hot path inside the coordinator's containment: a throwing listener withholds that one record (fail-closed) and never reaches the agent loop. Live capture dispatches at append time; on-demand capture dispatches while reading the canonical log. Redaction applies to the exported copy only; the canonical session log is never rewritten.
 
 ```ts cordis-catalog
 /**
  * Transform one outbound record before it reaches the backend. This
- * waterfall is the seam's redaction extension point. It ships NO rules
+ * waterfall is the Service Definition's redaction extension point. It ships NO rules
  * of its own: the
  * innermost `next()` passes the record through unchanged, and with no
  * listener mounted records reach the backend as captured, so exported

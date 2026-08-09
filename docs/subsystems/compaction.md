@@ -2,7 +2,7 @@
 
 English | [中文](compaction.zh.md)
 
-The compaction seam — a [capability seam](../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md) split like bash: interface ([dsh-compact](../../packages/compact/compact), `ctx.compact`), implementation (a backend such as [dsh-compact-basic](../../packages/compact/compact-basic)), and human consumer ([dsh-command-compact](../../packages/compact/command-compact)). Compaction is **one optional capability**, not part of the agent-loop spine — so its vocabulary lives here, not in [core.md](core.md). A tokenizer- or template-based backend is a sibling package implementing the same interface. Unlike bash, the interface necessarily depends on `dsh-session` and `dsh-llm`: its verbs act on an agent-owned `Session`, and its durable summary event uses the `ContentBlock` vocabulary (see the [compaction capability-seam Agent Note](../../.agents/notes/implemented/feature/2026-06-18-compaction-capability-seam.md)).
+The compaction seam — a [capability seam](../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md) split like bash: Service Definition ([dsh-compact](../../packages/compact/compact), `ctx.compact`), Service provider (a backend such as [dsh-compact-basic](../../packages/compact/compact-basic)), and human Consumer ([dsh-command-compact](../../packages/compact/command-compact)). Compaction is **one optional capability**, not part of the agent-loop spine — so its vocabulary lives here, not in [core.md](core.md). A tokenizer- or template-based backend is a sibling package implementing the same interface. Unlike bash, the interface necessarily depends on `dsh-session` and `dsh-llm`: its verbs act on an agent-owned `Session`, and its durable summary event uses the `ContentBlock` vocabulary (see the [compaction capability-seam Agent Note](../../.agents/notes/implemented/feature/2026-06-18-compaction-capability-seam.md)).
 
 Source: [`packages/compact/compact/src/types.ts`](../../packages/compact/compact/src/types.ts)
 
@@ -81,7 +81,7 @@ type ManualCompactionErrorCode =
 
 Pressure compaction runs at serial `agent/pre-step` before request derivation. Once pressure or canonical overflow qualifies, compact-basic invokes optional [`ctx.toolResultPrune`](../../packages/compact/compact-tool-result-prune/README.md) before range selection, remeasures through `ctx.tokenMeter`, and can advance the surface without a summary. Failed-request recovery runs through `agent/request-error` after the failed step closes and returns a retry action only when the surface replacement generation advances, even if later summary work throws after pruning; cancellation still wins. Region boundaries preserve tool-call/result pairing but not whole turns, allowing early closed steps of one oversized turn to compact. `dsh-compact-basic` owns thresholds, retained-tail policy, overflow caps, and failure handling.
 
-The seam exports `toolPairingBalancedBefore(session, seq)` and `toolPairingBalancedAfter(session, seq)` for those edge checks. Both validate current surface membership and reject missing seqs and orphan results; the [package contract](../../packages/compact/compact/README.md#tool-pairing-boundaries) owns their cache semantics.
+The Service Definition exports `toolPairingBalancedBefore(session, seq)` and `toolPairingBalancedAfter(session, seq)` for those edge checks. Both validate current surface membership and reject missing seqs and orphan results; the [package contract](../../packages/compact/compact/README.md#tool-pairing-boundaries) owns their cache semantics.
 
 ## Tool-result pruning outcomes
 
@@ -121,9 +121,9 @@ interface PruneResult {
 
 Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` surface lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
 
-<a id="ctxcompact--compactservice"></a>
+<a id="ctxcompact--compactservice-abstract-seam"></a>
 
-### `ctx.compact` — `CompactService`
+### `ctx.compact` — `CompactService` (abstract seam)
 
 Abstract compaction service. Implementations own trigger policy, retention, and summarization, and may consume a separate measurement service. A successful run replaces the selected surface span with one summary node and prevents concurrent compaction of the same session. The replacement user message uses COMPACT_CHECKPOINT_SOURCE so consumers recognize it independently of the backend. Load one implementation per context as `ctx.compact`.
 

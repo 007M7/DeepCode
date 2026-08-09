@@ -17,7 +17,7 @@
 
 ## 如何读取 tmux
 
-插件前置注册一个 `agent/pre-step` 监听器，仅在每轮的第一个 step 运行。当需要注入时，它通过 `ctx.bash` 执行器 seam 运行一条只读命令：
+插件前置注册一个 `agent/pre-step` 监听器，仅在每轮的第一个 step 运行。当需要注入时，它通过 `ctx.bash` 执行器服务运行一条只读命令：
 
 ```sh
 [ -n "$TMUX_PANE" ] || exit 1

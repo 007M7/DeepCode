@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-The **fs-policy plugin**: it adds observed-state, read-before-edit, and version-guarded write/edit on top of the `ctx.fs` provider seam ([`@deepseek-ai/dsh-fs`](../fs)) — through the `fs/*` event gate, **NOT** through a method service. This plugin registers **no** `ctx.fsPolicy` service and has no public `read`/`write`/`edit`/`resolve` methods. It is the policy third of the filesystem stack: not a swappable seam, but the policy that does not belong on the `FileSystem` provider base class.
+The **fs-policy plugin**: it adds observed-state, read-before-edit, and version-guarded write/edit on top of the `ctx.fs` provider contract ([`@deepseek-ai/dsh-fs`](../fs)) — through the `fs/*` event gate, **NOT** through a method service. This plugin registers **no** `ctx.fsPolicy` service and has no public `read`/`write`/`edit`/`resolve` methods. It is the policy third of the filesystem stack: not a swappable seam, but the policy that does not belong on the `FileSystem` provider base class.
 
 ```ts
 import type { Context } from 'cordis'
@@ -24,7 +24,7 @@ await ctx.plugin(FsPolicy)
 |---|---|---|
 | tool / executor | `@deepseek-ai/dsh-tool-fs` | model-facing schemas + read windowing + text rendering; reads/writes/edits via `ctx.fs`, dispatches the `fs/*` events |
 | policy | `@deepseek-ai/dsh-fs-policy` (this) | observed-state + read-before-edit + version-guarded write/edit, contributed through the `fs/*` event gate (no service) |
-| provider seam | `@deepseek-ai/dsh-fs` | `ctx.fs`: text IO + atomic mutation primitives (optional version guard); owns the `fs/*` event vocabulary |
+| provider contract | `@deepseek-ai/dsh-fs` | `ctx.fs`: text IO + atomic mutation primitives (optional version guard); owns the `fs/*` event vocabulary |
 | provider | `@deepseek-ai/dsh-fs-local` | local implementation of `ctx.fs` |
 
 ## How the gate participates

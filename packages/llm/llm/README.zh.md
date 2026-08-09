@@ -71,7 +71,7 @@
 
 - `LlmAdapter`：提供方适配器的抽象基类。唯一必需方法是 `stream()`。
 - `BlockAssembler`：将原始分片逐步组装为完整内容块，并能据此创建带标识且冻结的 assistant 消息。agent loop 向它提供原始分片（同时记录以供回放），并读取已组装块以构建历史。
-- `HarnessError`：harness 错误分类体系的基类，包含稳定 `code` 字符串（与面向人的 `message` 不同）加 `cause` 链接。它位于所有其他包都从中导入的叶子包中，因此可以共享单一基类，无需新的依赖边。各包的错误（`LlmError`、`ToolArgsError`、`InvariantError` 等）都继承自它。`isHarnessError(value)` 在 seam 处收窄类型。
+- `HarnessError`：harness 错误分类体系的基类，包含稳定 `code` 字符串（与面向人的 `message` 不同）加 `cause` 链接。它位于所有其他包都从中导入的叶子包中，因此可以共享单一基类，无需新的依赖边。各包的错误（`LlmError`、`ToolArgsError`、`InvariantError` 等）都继承自它。`isHarnessError(value)` 在进程边界处收窄类型。
 - `LlmError`：继承自 `HarnessError`；其稳定 `code` 字符串（`NO_ADAPTER`、`DUPLICATE_ADAPTER` 与 `AUTH`／`RATE_LIMIT` 等适配器 code）与冻结可序列化 `failure.code` 匹配。Payload 还可以保留已验证状态、`Retry-After` 和品牌化提供方请求 id 事实；策略位于错误之外。
 - `errorChain(value)`：渲染抛出值的完整 `cause` 链与 AggregateError 成员，供诊断表层使用，包括 UI 通知、logger 行和持久 `turn/end` 消息。因此 undici 的 `TypeError: fetch failed` 等传输包装层会显示底层 `ECONNREFUSED`／DNS／TLS 详细信息，而不是将其遮蔽。该函数只负责渲染：请按 `code` 路由，绝不解析结果。
 - `CONTEXT_WINDOW_EXCEEDED_CODE`：当请求超过模型上下文窗口时，无论通过 HTTP 异常抛出还是带内 finish 交付，两个 DeepSeek 适配器都使用的提供方无关 code。`isContextWindowExceededError(detail)` 是它们针对 OpenAI 兼容提供方详细信息的共享保守分类器。
@@ -93,7 +93,7 @@
 
 ## 已知限制与暂缓事项
 
-- **本服务不执行重试、缓存或速率限制**：提供方注册会存储重试策略，但 `llm/stream` 仍是单次尝试调用包装 seam。agent loop 会将已验证模型请求失败单独提供给 `agent/request-error`，其默认行为是保留原始失败；`@deepseek-ai/dsh-llm-retry` 是共享示例主干加载的可选执行器。
+- **本服务不执行重试、缓存或速率限制**：提供方注册会存储重试策略，但 `llm/stream` 仍是单次尝试调用包装层。agent loop 会将已验证模型请求失败单独提供给 `agent/request-error`，其默认行为是保留原始失败；`@deepseek-ai/dsh-llm-retry` 是共享示例主干加载的可选执行器。
 - **`GenerateOptions` 采样只包含 `temperature`／`maxTokens`／`stop`**：没有 `tool_choice`、`top_p` 或 penalty 字段；有产生方落地时词汇才会增长（见 [已删除惰性旋钮](../../../.agents/notes/archived/simplification/2026-07-04-drop-inert-request-knobs.md)）。
 - **受产生方约束的变体在实际产生前不会加入**：`prefill`、每工具 `strict`、块 `cache` 提示与 `agent` 消息源变体因没有产生方而被剪除（见 [Agent Note](../../../.agents/notes/archived/simplification/2026-07-04-prune-producerless-vocabulary-variants.md)）。
 - **`BlockAssembler` 只处理核心块类型**：如果插件添加块类型的流从未由 `block-end` 关闭，`blocks()` 会抛出异常。

@@ -20,7 +20,7 @@ The [subsystems README](../../../../docs/subsystems/README.md) indexes every pag
 
 ## Alternatives considered
 
-**Keep the spine-vs-seam scoping rule.** It answered "is this type core?" per type, which is why the front page accumulated types from four packages while missing half of `packages/core/agent`'s public surface. Predictability by repository layout won.
+**Keep the spine-vs-subsystem scoping rule.** It answered "is this type core?" per type, which is why the front page accumulated types from four packages while missing half of `packages/core/agent`'s public surface. Predictability by repository layout won.
 
 **A flat single-document catalog.** Already rejected in the [original catalog note](2026-06-20-core-data-structures-catalog.md); the growth to forty-one pages confirmed that verdict.
 

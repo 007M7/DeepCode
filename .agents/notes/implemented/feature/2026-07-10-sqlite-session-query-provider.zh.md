@@ -16,7 +16,7 @@ Status: implemented
 
 `@deepseek-ai/dsh-session-query-sqlite` 扩展接口服务，并且是 `ctx.sessionQuery` 唯一的具体所有者。它依赖实时的 `ctx.sessions`，动态观察可选的 `ctx.sessionPersistence`，并拥有一个专用的派生 SQLite 数据库。系统没有搜索提供方注册表、协调器、持久化事件或 agent loop（智能体循环）集成。
 
-接口包还拥有共享的第一方语义提取与提供方无关的过滤。`SessionResultFilter` 涵盖 id、可空的 cwd、创建时间范围、可空的父会话与可用性；`ctx.sessionQuery.filterSessions()` 无需 FTS 提供方即可应用这些过滤器。`SessionEventResultFilter` 涵盖 seq/时间范围、事件类型、surface 与字面语义文本。过滤器数组内各项按逻辑与（AND）组合，列表值按逻辑或（OR）组合。文本子句会将调用方输入转义为不区分大小写的 Unicode 正则表达式，其中每段连续空白都匹配一个或多个空白字符；该子句通过 `ctx.sessionQuery.filterEvents()` 提供，不会委托给 FTS 提供方。
+Service Definition 包还拥有共享的第一方语义提取与提供方无关的过滤。`SessionResultFilter` 涵盖 id、可空的 cwd、创建时间范围、可空的父会话与可用性；`ctx.sessionQuery.filterSessions()` 无需 FTS 提供方即可应用这些过滤器。`SessionEventResultFilter` 涵盖 seq/时间范围、事件类型、surface 与字面语义文本。过滤器数组内各项按逻辑与（AND）组合，列表值按逻辑或（OR）组合。文本子句会将调用方输入转义为不区分大小写的 Unicode 正则表达式，其中每段连续空白都匹配一个或多个空白字符；该子句通过 `ctx.sessionQuery.filterEvents()` 提供，不会委托给 FTS 提供方。
 
 ## 搜索语义
 

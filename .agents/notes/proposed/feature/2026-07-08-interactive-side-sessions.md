@@ -36,6 +36,6 @@ Rewind productization, session-tree views, a model-facing side-session tool, and
 
 ## Risks
 
-- Read-only behavior is advisory until a `tools/pre-execute` deny gate enforces it; [the interception seam](../../implemented/feature/2026-06-30-interception-seams.md) can add that gate without changing these mechanics.
+- Read-only behavior is advisory until a `tools/pre-execute` deny gate enforces it; [the interception point](../../implemented/feature/2026-06-30-interception-extension-points.md) can add that gate without changing these mechanics.
 - A compacted source forks its compacted view, so a bound surface should disclose that the child inherits summaries rather than replaced turns.
 - Repeated handbacks consume parent context. The per-merge length cap bounds each note; later consolidation belongs to compaction.

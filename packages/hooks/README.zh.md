@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-hooks 子系统让用户像使用 Claude Code 和 Codex 一样，在生命周期节点扩展 agent（智能体）：把桥接插件指向现有 `hooks.json`（或 settings），即可忠实运行这些外部 shell 钩子。规范扩展 surface 本身是 harness 的类型化拦截 seam（参见[拦截 seam Agent Note](../../.agents/notes/implemented/feature/2026-06-30-interception-seams.md)）；“原生钩子”只是这些 seam 上的普通 Cordis 插件。这些包是把外部 shell 钩子协议转换到同一 surface 的**桥接**，也包括它们共同依赖的共享协议格式库。
+hooks 子系统让用户像使用 Claude Code 和 Codex 一样，在生命周期节点扩展 agent（智能体）：把桥接插件指向现有 `hooks.json`（或 settings），即可忠实运行这些外部 shell 钩子。规范扩展 surface 本身是 harness 的类型化拦截点（参见[拦截扩展点 Agent Note](../../.agents/notes/implemented/feature/2026-06-30-interception-extension-points.md)）；“原生钩子”只是这些扩展点上的普通 Cordis 插件。这些包是把外部 shell 钩子协议转换到同一 surface 的**桥接**，也包括它们共同依赖的共享协议格式库。
 
 | 包 | 职责 | 形态 |
 |---|---|---|

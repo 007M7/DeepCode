@@ -19,7 +19,7 @@ This proposal is implemented in amended form as two explicit plugin policies ove
 1. **Same-session goals** retain one durable objective in the current session and admit goal-attributed continuation turns only while live activation is armed.
 2. **Fresh-agent Ralph runs** execute a fixed foreground workflow whose rounds each spawn a new structured child with no conversation seed.
 
-There is no `packages/loop/` family, `LoopDriver`, `LoopId`, universal `StopCondition`, or model-facing generic `loop` tool. The two policies share the repository's ordinary agent, session, tools, workflow, subagent, and UI extension seams, but they do not pretend that one lifecycle fits both.
+There is no `packages/loop/` family, `LoopDriver`, `LoopId`, universal `StopCondition`, or model-facing generic `loop` tool. The two policies share the repository's ordinary agent, session, tools, workflow, subagent, and UI extension points, but they do not pretend that one lifecycle fits both.
 
 ### Vocabulary and policy boundary
 
@@ -98,11 +98,11 @@ The six owning Agent Notes record unit, integration, process, snapshot, cancella
 
 ## Alternatives considered
 
-- **Implement the original universal loop capability seam** — rejected because `Evaluator`, `BudgetPolicy`, `RoundHandoff`, `GoalReflector`, background task ownership, persistence, and scheduling do not form one coherent mandatory abstraction. Building all of them before their first concrete consumers would create broad speculative surface and duplicate existing session, workflow, subagent, and task machinery.
+- **Implement the original universal loop capability** — rejected because `Evaluator`, `BudgetPolicy`, `RoundHandoff`, `GoalReflector`, background task ownership, persistence, and scheduling do not form one coherent mandatory abstraction. Building all of them before their first concrete consumers would create broad speculative surface and duplicate existing session, workflow, subagent, and task machinery.
 - **Implement only same-session goals** — rejected because fresh-context iteration is materially different and is a valuable demonstration of the plugin architecture. Ralph belongs as a fixed workflow consumer with explicit context reset.
 - **Put Ralph inside the goal-round driver** — rejected because same-session goals deliberately preserve one conversation while Ralph deliberately removes it. Combining them would make activation, replay, handoff, and UI state ambiguous.
 - **Treat a fork as a fresh Ralph child** — rejected because a fork carries a conversation prefix. Fresh children plus workspace state and one explicit report are easier to bound and replay without a synthetic cancel record.
-- **Copy Claude Code's evaluator into the first goal implementation** — rejected because a transcript-only model evaluator is one useful policy, not a generally trustworthy completion certificate. Deterministic evaluation and isolation must remain possible, so the evaluator is deferred until its authority and provider seam are designed.
+- **Copy Claude Code's evaluator into the first goal implementation** — rejected because a transcript-only model evaluator is one useful policy, not a generally trustworthy completion certificate. Deterministic evaluation and isolation must remain possible, so the evaluator is deferred until its authority and provider contract are designed.
 - **Automatically continue after session restore** — rejected because opening a session is observation, not authority to spend resources. Durable state is restored while activation waits for a new human prompt.
 - **Route `/goal` through the model** — rejected because status and explicit lifecycle controls should be deterministic, token-free UI actions; ordinary natural-language prompts remain the semantic model path.
 - **Modify the concrete agent loop with goal or Ralph modes** — rejected because public queue, prompt, session, cancellation, workflow, and subagent seams already support both policies. The generic cancel-requested observation is the only core coordination addition.
@@ -125,5 +125,5 @@ The six owning Agent Notes record unit, integration, process, snapshot, cancella
 - **No generic loop journal or execution-world rewind** — session replay reconstructs goal history, not prior files, processes, environment, credentials, or external side effects. Ralph treats the current workspace as authority and carries no cross-run journal.
 - **No goal reflector** — concern events, automatic no-progress heuristics, goal revision by an independent reflector, stuck-pattern detection, and `loop_split` are not implemented. Humans can edit, pause, clear, or resume the goal directly.
 - **Ralph policy remains narrow** — one round creates one fresh child; within-round fan-out, evaluator/worker role separation, dynamic provider/model selection, and structural recursive-Ralph tool denial need separate policy surfaces. Prompt guidance is not enforcement.
-- **Ralph does not retry a failed child** — an ordinary failure preserves the failed round and last good handoff, while fatal workflow infrastructure failures can end before that state is available. Retry count, backoff, and richer failure transport need separate policy and seam design.
+- **Ralph does not retry a failed child** — an ordinary failure preserves the failed round and last good handoff, while fatal workflow infrastructure failures can end before that state is available. Retry count, backoff, and richer failure transport need separate policy and boundary design.
 - **Portable UI remains modest** — TUI renders plain-text goal status and generic Ralph cards. ACP carries only committed assistant text; there is no continuous status widget, reconnectable command output, modal goal editor, or command plane in ACP, the headless CLI, or JSON-RPC.

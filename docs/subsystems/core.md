@@ -17,7 +17,7 @@ A turn flows through the six packages in one loop: the driver in [`agent-loop`](
 | `agent-loop/` | The concrete driver implementing the public `Agent` contract (`ctx.agentLoop`) | this page |
 | `scope/` | The scoped-registration primitive the registries and loop build per-agent scoping on | [scope.md](scope.md) |
 
-`scope/` is the one non-service package: a dependency-free library (`createScope`/`scopeOf`/`scopeTarget`) that sits below `session/` and `system-prompt/` in the module graph precisely so they can consume it without a cycle. `agent-loop` is the one concrete implementation of the `agent` seam and lives here because it is the harness's default product loop; it runs each driver inside `ctx.agents.withInitiator()`. Extension plugins depend on `agent` — including when they need the initiating Agent — and never on `agent-loop` directly, so the loop stays swappable. The default composition that wires this spine into a runnable agent is [`examples/agent-spine-demo`](../../packages/examples/agent-spine-demo/README.md).
+`scope/` is the one non-service package: a dependency-free library (`createScope`/`scopeOf`/`scopeTarget`) that sits below `session/` and `system-prompt/` in the module graph precisely so they can consume it without a cycle. `agent-loop` is the one concrete implementation of the public `Agent` contract and lives here because it is the harness's default product loop; it runs each driver inside `ctx.agents.withInitiator()`. Extension plugins depend on `agent` — including when they need the initiating Agent — and never on `agent-loop` directly, so the loop stays swappable. The default composition that wires this spine into a runnable agent is [`examples/agent-spine-demo`](../../packages/examples/agent-spine-demo/README.md).
 
 ## Creation and ownership
 
@@ -48,7 +48,7 @@ interface AgentHandle {
 
 `CreateAgentOptions` carries the shared identity and everything a fresh agent needs before publication: session metadata (`meta` — validated `cwd`, fork lineage, seed boundary, origin classification, delegation depth), an optional `seed` replay prefix for forks, per-agent `AgentOptions`, a creation-only cancellation `signal`, and `setup`. `ResumeAgentOptions` is the persisted-identity counterpart: `resumeSessionId`, `agentOptions`, `signal`, and `setup`. The `setup` callback (`AgentSetup`) composes the agent's scoped world while both ids are still unpublished — everything registered through `agentCtx` exists before `agent/created` and the first prompt assembly — and may return a synchronous commit invoked immediately before publication; a setup rejection, commit throw, or owner disposal rolls the transaction back without publishing either id.
 
-`AgentFactory` is the creation seam behind the registry: the loop registers its factory via `ctx.agents.setFactory()`, so consumers program against `ctx.agents` without depending on the concrete loop package. The exact `create`/`resume` signatures and their rollback contracts are in the [generated section](#ctxagents--agentregistry) below.
+`AgentFactory` is the creation contract behind the registry: the loop registers its factory via `ctx.agents.setFactory()`, so consumers program against `ctx.agents` without depending on the concrete loop package. The exact `create`/`resume` signatures and their rollback contracts are in the [generated section](#ctxagents--agentregistry) below.
 
 ## The agent handle
 
@@ -401,7 +401,7 @@ currentInitiator(): Agent | undefined
  * Read the initiating Agent and fail when no initiator boundary is active.
  * Use this for private helpers contractually below a driver, or for a
  * deployment-owned outbound request whose contract forbids agentless calls.
- * Generic or direct-call seams use optional lookup or explicit request fields.
+ * Generic or direct-call paths use optional lookup or explicit request fields.
  * @returns the inherited Agent.
  * @throws when no initiator is active or this service instance has been disposed.
  */
@@ -557,12 +557,12 @@ Source: [`packages/core/agent/src/index.ts:253`](../../packages/core/agent/src/i
 
 #### `agent/created` — emit
 
-A fully configured agent and live session were published. Setup is composition-only; `agent/session-start` is the first startup-driving seam. Synchronous listener failure vetoes publication, while returned-promise rejection is reported. Detach requested during dispatch waits until every creation listener has observed the stable entry.
+A fully configured agent and live session were published. Setup is composition-only; `agent/session-start` is the first startup-driving extension point. Synchronous listener failure vetoes publication, while returned-promise rejection is reported. Detach requested during dispatch waits until every creation listener has observed the stable entry.
 
 ```ts cordis-catalog
 /**
  * A fully configured agent and live session were published. Setup is
- * composition-only; `agent/session-start` is the first startup-driving seam.
+ * composition-only; `agent/session-start` is the first startup-driving extension point.
  * Synchronous listener failure vetoes publication, while returned-promise
  * rejection is reported. Detach requested during dispatch waits until every
  * creation listener has observed the stable entry.
@@ -718,14 +718,14 @@ Source: [`packages/core/agent/src/types.ts:230`](../../packages/core/agent/src/t
 
 #### `agent/request` — waterfall
 
-Replace the frozen call configuration. `await next()` yields the config the machine would use (agent options on the first request, the logged header afterwards); return a replacement to switch. Model-visible content must use logged channels; this seam cannot mutate messages.
+Replace the frozen call configuration. `await next()` yields the config the machine would use (agent options on the first request, the logged header afterwards); return a replacement to switch. Model-visible content must use logged channels; this waterfall cannot mutate messages.
 
 ```ts cordis-catalog
 /**
  * Replace the frozen call configuration. `await next()` yields the config
  * the machine would use (agent options on the first request, the logged
  * header afterwards); return a replacement to switch. Model-visible
- * content must use logged channels; this seam cannot mutate messages.
+ * content must use logged channels; this waterfall cannot mutate messages.
  * @param payload.agent - the agent making the model call.
  * @param payload.turn - the open turn number.
  * @param payload.step - the step whose request this is.

@@ -4,13 +4,13 @@ English | [中文](README.zh.md)
 
 The **`FileSystem`** (`ctx.fs`) defines the storage primitives in one execution world — resolve paths, expose canonical process paths and file URIs, test containment, read whole or streaming text, inspect/list metadata, write atomically, and apply a literal edit — without saying HOW. Both mutations take their version guard **optionally**, so `ctx.fs` on its own is a complete, unconstrained text-storage seam. This package also owns the `fs/*` policy event vocabulary the tool dispatches and the policy plugin listens for.
 
-This package is the provider-seam layer of the four-layer filesystem stack, split so each concern can evolve (and be swapped) independently (see [the capability-seam Agent Note](../../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md), [the filesystem capability-seam Agent Note](../../../.agents/notes/implemented/architecture/2026-06-17-filesystem-capability-seam.md), [the split-the-filesystem-seam Agent Note](../../../.agents/notes/implemented/simplification/2026-06-26-fsspec-style-fs-seam.md), and [the file-context event-gate Agent Note](../../../.agents/notes/implemented/architecture/2026-06-26-file-context-as-event-gate.md)):
+This package owns the Service Definition and provider contract layer of the four-layer filesystem stack, split so each concern can evolve (and be swapped) independently (see [the capability-seam Agent Note](../../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md), [the filesystem capability-seam Agent Note](../../../.agents/notes/implemented/architecture/2026-06-17-filesystem-capability-seam.md), [the split-the-filesystem-seam Agent Note](../../../.agents/notes/implemented/simplification/2026-06-26-fsspec-style-fs-seam.md), and [the file-context event-gate Agent Note](../../../.agents/notes/implemented/architecture/2026-06-26-file-context-as-event-gate.md)):
 
 | Layer | Package | Role |
 |---|---|---|
 | tool / executor | `@deepseek-ai/dsh-tool-fs` | model-facing `read`/`write`/`edit` schemas + read windowing + text rendering; reads/writes/edits via `ctx.fs`, dispatches the `fs/*` events |
 | policy | `@deepseek-ai/dsh-fs-policy` | observed-state + read-before-edit + version-guarded write/edit, contributed through the `fs/*` event gate (no service) |
-| provider seam | `@deepseek-ai/dsh-fs` (this) | `ctx.fs`: execution-world paths, text IO, and atomic mutation primitives (optional version guard); owns the `fs/*` event vocabulary |
+| provider contract | `@deepseek-ai/dsh-fs` (this) | `ctx.fs`: execution-world paths, text IO, and atomic mutation primitives (optional version guard); owns the `fs/*` event vocabulary |
 | provider | `@deepseek-ai/dsh-fs-local` | the host-filesystem implementation |
 
 A future sandboxed, virtual, or remote backend implements this interface and the policy/tool layers don't change.
@@ -39,7 +39,7 @@ The mutation runs inside the backend's per-target lock either way, so an uncondi
 
 This package declares three events (see the generated region of [filesystem.md](../../../docs/subsystems/filesystem.md#cordis-surface)) so the emitter (`@deepseek-ai/dsh-tool-fs`) and the policy listener (`@deepseek-ai/dsh-fs-policy`) share a vocabulary without the emitter depending on the policy plugin. `fs/write-intent` and `fs/edit-intent` are single-slot decision waterfalls (the listener fully decides, never calling `next()`); `fs/observed` is a fire-and-forget recording event. They carry only `dsh-fs` vocabulary plus an opaque `object` actor — no model-facing concepts and no agent/session owner structure.
 
-## A provider seam, not the policy layer
+## A provider contract, not the policy layer
 
 `ctx.fs` is deliberately close to fsspec-style storage primitives — half a level above byte-level `cat`/`open`, because it decodes text and rejects binaries so the policy layer never touches raw bytes. It owns UTF-8 decoding, binary rejection, atomic writes, and the literal-edit critical section. It does **not** own line windows, numbered lines, rendered footers, or observed-state. Observed-state, read-before-edit, and version-guarded write/edit are policy a plugin (`@deepseek-ai/dsh-fs-policy`) ADDS by supplying the optional guard — not provider behavior — so a sandboxed/remote backend inherits no model-facing observation policy.
 

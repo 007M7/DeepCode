@@ -117,7 +117,7 @@ The optional child-scoped `report(output)` tool was added later without changing
 
 ### Deferred steering
 
-This version exposes no subagent steering operation. Parent continuation messages always open later FIFO turns, so the continuation layer stores no current-turn controller and adds no controller-aware Agent admission seam.
+This version exposes no subagent steering operation. Parent continuation messages always open later FIFO turns, so the continuation layer stores no current-turn controller and adds no controller-aware Agent admission contract.
 
 A later host UI may expose separate **Steer** and **Follow up** actions. Host steering would be strict and live-only: it may call the existing Agent steering path only while the Activation accepts a next step, must reject otherwise, and must never fall back to queueing or cold resume. Exposing parent steering to a model-facing tool remains a separate design.
 
@@ -155,9 +155,9 @@ It adds no host-user continuation, subagent steering operation, durable mailbox,
 
 **Dispose the Agent while waiting.** Reconstructing a parent while its child still belongs to the previous process-local ownership graph would require a durable ownership and teardown protocol. Retaining the `AgentHandle` only for the unfinished graph preserves child-first teardown without keeping settled history resident.
 
-**Let the provider create, resume, or deliver through an Agent handle.** Initial providers own only `prepareContinuable()` and its detached creation-spec distinction: whether a child begins fresh or with a parent prefix. The manager must call `ctx.agents.create()` through its private activation-owner scope so that scope is a structural owner of every handle. A persisted in-process Session already contains the initial prefix and generic reconstruction descriptor, while delivery belongs to the Agent inbox. Giving providers any later handle, `SubagentRun`, or message ownership would preserve a seam with no shipped behavior to own.
+**Let the provider create, resume, or deliver through an Agent handle.** Initial providers own only `prepareContinuable()` and its detached creation-spec distinction: whether a child begins fresh or with a parent prefix. The manager must call `ctx.agents.create()` through its private activation-owner scope so that scope is a structural owner of every handle. A persisted in-process Session already contains the initial prefix and generic reconstruction descriptor, while delivery belongs to the Agent inbox. Giving providers any later handle, `SubagentRun`, or message ownership would retain provider ownership with no shipped behavior to justify it.
 
-**Make report delivery part of the base lifecycle.** Repeatable child-to-parent reporting is compatible with this lifecycle, but quiet versus waking delivery, acknowledgement, durability, and retry behavior are independent product choices. The later report package remains optional and consumes an explicit child-setup seam, so continuable residency does not silently grant a return channel.
+**Make report delivery part of the base lifecycle.** Repeatable child-to-parent reporting is compatible with this lifecycle, but quiet versus waking delivery, acknowledgement, durability, and retry behavior are independent product choices. The later report package remains optional and consumes an explicit child-setup hook, so continuable residency does not silently grant a return channel.
 
 **Treat `SessionHeader.parentSession` as live ownership.** Durable lineage does not prove that the recorded parent currently owns the child. Membership in the live parent's `ownedChildren` records the process-local relationship without changing the durable parent id.
 
@@ -167,7 +167,7 @@ It adds no host-user continuation, subagent steering operation, durable mailbox,
 
 **Expose subagent steering now.** Parent steering needs current-turn controller state and a separate admission policy from follow-up delivery. Queueing every first-version continuation avoids that state and its admission race.
 
-**Expose host-user follow-up without a host consumer.** A public authority-minting method and user branch would make cold resume possible without the historical parent, but no production host adapter calls that operation. The seam accepts only the exact live parent until a concrete authenticated host interaction can receive a private capability.
+**Expose host-user follow-up without a host consumer.** A public authority-minting method and user branch would make cold resume possible without the historical parent, but no production host adapter calls that operation. The continuation API accepts only the exact live parent until a concrete authenticated host interaction can receive a private capability.
 
 **Return a subagent-specific delivery route.** Labels such as `started`, `queued`, and `resumed` duplicate Activation and inbox state without giving the caller an independent result. Reusing `MessageId` and the existing inbox events keeps delivery correlation on the Agent contract that owns it.
 
@@ -193,7 +193,7 @@ The implementation pins these behaviors:
 - Every continuation-managed parent Activation disposes only after all directly owned child Activations complete `AgentHandle` disposal; top-level Agents do not join the waiting graph.
 - Final Activation settlement awaits `ctx.sessions.flush(child.session)` as a best-effort barrier, logs rejection without interpreting listener participation as durability proof, then disposes the child handle and releases parent ownership so a flush failure cannot leak a `waiting` Activation.
 - Manager teardown closes admission globally; a host owning selected top-level Agents instead closes admission only below their exact identities until those roots leave the registry. Both track admitted materializations by exact ancestry, install one memoized disposal cutoff per selected visible Activation, propagate cancellation top-down, release handles child-first, await every selected branch despite individual failures, and only then dispose the corresponding top-level Agents or manager scope.
-- The base lifecycle has no implicit report behavior; the optional report package contributes an explicit child-scoped tool through the setup seam.
+- The base lifecycle has no implicit report behavior; the optional report package contributes an explicit child-scoped tool through the setup hook.
 - Session logs reconstruct only messages that were actually written, with the source that supplied each message; inbox-accepted but unlogged messages have no restart guarantee.
 - No continuable-subagent path creates or depends on a Task, `TaskId`, Task completion notice, Task cancellation, or intermediate result-bearing execution wrapper.
 - Unit coverage pins the `startContinuable()` inbox-acceptance return boundary, complete rollback for each pre-acceptance and lifecycle-publication failure, global and parent-scoped drain quiescence for materialization caught between Agent publication and Activation registration, sibling-forest isolation, exact ancestry after an intermediate Agent leaves the registry, provider-independent cold resume, final exact-parent reauthorization after cold-resume materialization, caller-signal and teardown ownership on both sides of acceptance, and the absence of automatic replay for accepted-but-unlogged messages.

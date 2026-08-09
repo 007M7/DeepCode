@@ -329,7 +329,7 @@ describe('stdin and extra env (set by in-process plugins)', () => {
   })
 
   it('gives fd 0 the exact pre-seam type: /dev/null when no stdin, a pipe when supplied', async () => {
-    // With no bytes, fd 0 remains the pre-seam `ignore` default (/dev/null, a character device).
+    // With no bytes, fd 0 remains the pre-spawn `ignore` default (/dev/null, a character device).
     // Supplied bytes use Node's spawn pipe, which is an AF_UNIX socket rather than a FIFO.
     const none = await finish(spawnSubprocess(spec('test -c /dev/stdin && echo char || echo other')))
     expect(none.stdout.text).toBe('char\n')

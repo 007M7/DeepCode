@@ -12,7 +12,7 @@ Agent 接口、注册表、进程本地发起方作用域，以及 `agent/*` 事
 
 ### 公开 API
 
-带作用域的注册接口：`Agent.ctx` 是 agent 的作用域上下文（`dsh-scope`，键 = 该 agent）。通过它注册工具／段／变量／监听器，只对该 agent 生效，并在 dispose（资源释放）时全部撤销。`agentEvents(ctx, agent)` 是普通 agent 主体操作的融合分发器（一次完成载体 + 注入主体）；其通知 mode 会调用每个监听器，并同时收容同步抛出和返回 Promise 的拒绝。注册表生命周期对复用一个稳定路由载体。`assembleContextFor(agent)` 构建按 agent 的组装上下文（同时包含 `agent` + `scope`）。`installModelSelection(agentCtx, selection)` 在提示词组装期间快照可变的提供方／模型／推理（reasoning）强度选择，将其中的提供方和模型应用到提示词变量，并将完整选择应用到一个步骤的请求路由；如果没有选定推理强度，则会清除继承的推理强度，使适配器／提供方默认值生效。`CreateAgentOptions.setup(agentCtx)` 和 `ResumeAgentOptions.setup(agentCtx)` 在新建或恢复的 agent 尚未发布时，组合其带作用域的世界。Setup 是受信任、仅用于组合的同进程代码：只有创建完成后才能驱动 agent。
+带作用域的注册接口：`Agent.ctx` 是 agent 的作用域上下文（`dsh-scope`，键 = 该 agent）。通过它注册工具／段／变量／监听器，只对该 agent 生效，并在 dispose（资源释放）时全部撤销。`agentEvents(ctx, agent)` 是普通 agent 主体操作的融合分发器（一次完成载体 + 注入主体）；其通知 mode 会调用每个监听器，并同时收容同步抛出和返回 Promise 的拒绝。注册表生命周期对复用一个稳定路由载体。`assembleContextFor(agent)` 构建按 agent 的组装上下文（同时包含 `agent` + `scope`）。`installAgentLlmTarget(agentCtx, target)` 在提示词组装期间快照可变的提供方／模型／推理（reasoning）强度选择，将路由应用到提示词变量，并将完整目标应用到一个步骤的请求路由；如果没有选定推理强度，则会清除继承的推理强度，使该目标使用适配器／提供方默认值。`CreateAgentOptions.setup(agentCtx)` 和 `ResumeAgentOptions.setup(agentCtx)` 在新建或恢复的 agent 尚未发布时，组合其带作用域的世界。Setup 是受信任、仅用于组合的同进程代码：只有创建完成后才能驱动 agent。
 
 `AgentOptions` 提供初始的提供方／模型路由，以及可选的正数 `maxTokens` 输出上限。具体循环会解析确切模型的适配器默认值，把生效上限记录到请求 header，并应用到每次对话模型请求；显式 Agent 选项优先，省略时由适配器或提供方路由默认值控制。
 
@@ -34,7 +34,7 @@ Agent 接口、注册表、进程本地发起方作用域，以及 `agent/*` 事
 
 该作用域携带 `Agent` 本身，并且只在进程内有效。环境中的身份既不是存活证明，也不是授权；在服务、worker、进程、持久化和 wire 边界，显式 Agent 字段仍是权威来源。Teardown 会拒绝新边界，允许注入的依赖方和返回 Promise 的边界 drain，然后禁用底层 `AsyncLocalStorage`；未返回的工作仍归将其分离的子系统所有。如果某个边界继承的异步链开始卸载一个拥有它的 Cordis fiber，该嵌套边界链会从 drain 中释放，使卸载不会等待自身；其 continuation 会在 teardown 后观察到已 dispose 的服务。详细边界与 teardown 约定由[发起方作用域决策](../../../.agents/notes/implemented/architecture/2026-07-15-agent-initiator-scope.md)拥有。
 
-#### 工厂 seam（创建）
+#### 工厂 API（创建）
 
 Agent *创建* 由实现 `AgentFactory` 的插件（`dsh-agent-loop`）提供，并通过 `setFactory` 注册。这样，创建功能留在 `dsh-agent` 接口上，消费方（UI、ACP（Agent Client Protocol）桥接层）可以面向 `ctx.agents` 编程，而不依赖具体循环包。注册表会把已经 traced 的 Service 规范化为具体目标，并通过调用方上下文重新 trace 每次调用；这既避免嵌套 Cordis shadow，也会把显式、绑定调用方的 `ownerCtx` 传给普通工厂。
 
@@ -50,7 +50,7 @@ Agent *创建* 由实现 `AgentFactory` 的插件（`dsh-agent-loop`）提供，
 
 生命周期边有两个重要的本地注意事项。`agent/created` 在作用域 setup 之后、会话与 agent 注册表条目都存在之后运行。Setup 是受信任、仅用于组合的代码；紧随其后且不可 veto 的 `agent/session-start` 通知是第一个受支持的启动注入点。`agent/disposed` 始终表示确切 agent 已离开注册表。AgentLoop 在其驱动器完全停稳后发出该事件，而有序 teardown 此时可能仍在分离会话并撤销作用域；直接注册的自定义 agent 自行拥有任何更强的驱动器顺序约定。
 
-大多数拦截点都是协作式 waterfall（瀑布式事件）。`agent/pre-step` 接收一个 payload，携带主体 `agent`、独占的已领取 `UserMessage[]` 以及拟进入的 `turn`、`step` 与取消 `signal`；当工具已经要求继续请求时，该批次可以为空。agent 作用域轮次 seam 在 payload 中携带显式 `AbortSignal`；其余轮次作用域 seam 通过其请求值接收它。监听器可以配合信号，但不得将它保留为控制另一轮次的权限。`agent/request-error` 是失败模型请求的恢复 waterfall：它接收请求坐标、规范化失败事实、可用时提供服务的注册项重试策略以及信号。拥有恢复权的监听器返回 `{ kind: 'retry' }` 且不调用 `next()`。`agent/turn-stopping` 在本可完成的轮次关闭前运行。信号生命周期由[显式取消决策](../../../.agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.md)拥有；作用域分发与终止结算由 [agent 作用域运行时设计 Agent Note](../../../.agents/notes/implemented/architecture/2026-07-12-agent-scope-runtime-design.md#three-execution-boundaries-are-deliberately-one-way)拥有。
+大多数拦截点都是协作式 waterfall（瀑布式事件）。`agent/pre-step` 接收一个 payload，携带主体 `agent`、独占的已领取 `UserMessage[]` 以及拟进入的 `turn`、`step` 与取消 `signal`；当工具已经要求继续请求时，该批次可以为空。agent 作用域轮次扩展点在 payload 中携带显式 `AbortSignal`；其余轮次作用域扩展点通过其请求值接收它。监听器可以配合信号，但不得将它保留为控制另一轮次的权限。`agent/request-error` 是失败模型请求的恢复 waterfall：它接收请求坐标、规范化失败事实、可用时提供服务的注册项重试策略以及信号。拥有恢复权的监听器返回 `{ kind: 'retry' }` 且不调用 `next()`。`agent/turn-stopping` 在本可完成的轮次关闭前运行。信号生命周期由[显式取消决策](../../../.agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.md)拥有；作用域分发与终止结算由 [agent 作用域 runtime 设计 Agent Note（agent 决策记录）](../../../.agents/notes/implemented/architecture/2026-07-12-agent-scope-runtime-design.md#three-execution-boundaries-are-deliberately-one-way)拥有。
 
 `PreStepDecision` 要么是 `{ kind: 'reject' }`，要么是 `{ kind: 'enter', messages }`。enter 分支是拟进入步骤的完整、带标识且冻结的批次。包装下游 enter 的监听器会保留该批次，除非有意替换它；新增消息遵循 waterfall 的自然返回顺序。领取操作已经把候选消息从 inbox 删除，因此 reject 不会保留它们；领取后插入的消息仍等待后续边界。
 
@@ -76,7 +76,7 @@ inbox 的实时通知刻意采用逐消息的最小载荷：`agent/inbox/inserte
 
 - Agent 创建：`AgentLoop.create()` 是具体配置路径实现（位于 `dsh-agent-loop`），程序化消费方则通过 `ctx.agents.create()`/`ctx.agents.resume()` 创建或恢复有所有权的 agent。替换循环时，应实现 `Agent` 并通过 `ctx.agents.register()` 注册。
 - 事件监听器：全部 `agent/*` 事件都在此处声明，不需要依赖循环包。
-- subagent 委派不是 `Agent` 方法；提供方通过工厂 seam 创建或驱动普通 handle，因此委派传输留在核心 agent 接口之外。
+- subagent 委派不是 `Agent` 方法；提供方通过工厂 API 创建或驱动普通 handle，因此委派传输留在核心 agent 接口之外。
 
 ## 模型体验
 

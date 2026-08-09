@@ -14,7 +14,7 @@ The session log, system-prompt assembly, tool registry, agent vocabulary, deploy
 | [`agent-default-model/`](agent-default-model/README.md) | Default model selection shared by Agent front doors | `ctx.agentDefaultModel` |
 | [`agent-loop/`](agent-loop/README.md) | Default concrete agent driver | `ctx.agentLoop` |
 
-`scope` supplies the shared scoping primitive. `agent` owns the public seam, while `agent-loop` is its default implementation; extension plugins depend on the seam so the driver remains swappable. `agent-default-model` owns the deployment selection an Agent front door uses only when a session has no selection of its own.
+`scope` supplies the shared scoping primitive. `agent` owns the public contract, while `agent-loop` is its default implementation; extension plugins depend on the seam so the driver remains swappable. `agent-default-model` owns the deployment selection an Agent front door uses only when a session has no selection of its own.
 
 Runnable compositions belong to [`examples/agent-spine-demo`](../examples/agent-spine-demo/README.md); this group owns only the swappable spine pieces.
 

@@ -24,7 +24,7 @@ Status: proposed
 
 ### host 侧投影注册表（`dsh-session-projection`，新包）
 
-一个轻量的接口包：merge-extensible 类型表、注册表服务、边界上的 zod 校验。能力 seam 三方拆分：领域 host 插件负责贡献，载体负责消费，两侧互不相识。
+一个轻量的 Service Definition 包：merge-extensible 类型表、注册表服务、边界上的 zod 校验。能力 seam 的角色如下：领域 host 插件提供投影单元，载体消费这些单元，两侧互不相识。
 
 领域注册的是一个**状态驱动计算单元（state-driven computation unit）**——三个纯函数外加若干声明——绝不是一个不透明的 getter。驱动它是框架的职责（订阅、水位线（watermark）、缓存，以及后续的检查点机制），领域只负责数学本身。投影服务于所有业务领域（会话标题、plan、goal、权限、todos）；命令只是其中一条触发路径，在本约定中没有任何特殊地位。
 
@@ -58,7 +58,7 @@ declare module 'cordis' {
 
 ### 已交付的消费方：subagent 身份单元
 
-注册表的两处既有读法已经服务于本 RFC 协议计划之外的一个已交付消费方：[subagent 列表经投影单元读取身份](../../implemented/architecture/2026-08-06-subagent-list-identity-projection.md)注册了 `subagent` 单元——从 `subagent/descriptor` 按 last-wins 折叠出的持久的 mode/label 身份——`SubagentService.listChildren` 对 live child 经 `snapshot()` 读取（水位线缓存，零日志读），对 cold child 则对一次持久化读取所得的事件调用 `restore({}, events, 0)` 读取。注册表约定不变：没有失败通道、没有新读法——单元永不抛错，值缺席本身就是信号，缺席如何呈现是该消费方自己的决定。
+注册表的两处既有读法已经服务于本 RFC 协议计划之外的一个已交付消费方：[subagent 列表经投影单元读取身份](../../implemented/architecture/2026-08-06-subagent-list-identity-projection.md)注册了 `subagent` 单元——从 `subagent/descriptor` 按 last-wins 折叠出的持久化 mode/label 身份——`SubagentService.listChildren` 对 live child 经 `snapshot()` 读取（水位缓存，零日志读），对 cold child 则用一次持久化整读的结果调用 `restore({}, events, 0)` 读取。注册表约定不变：没有失败通道、没有新读法——单元永不抛错，值缺席本身就是信号，缺席如何呈现是该消费方自己的决定。
 
 ### 协议层：历史尾页上的 projections 块
 
@@ -147,7 +147,7 @@ host 侧命令执行器（`packages/interaction/commands`）在调用处理器�
 
 **为 plan 待定意图专设的仅实时叠加钩子（`live?(agent, base)`）**——不予采纳：它存在的唯一理由是用户的 plan *选择*不在日志里。让选择走标准命令通道后，`command/run` 上了账，待定态成为纯回放量，投影约定保持恰好三个纯函数。
 
-**把 seam 命名为 `registerFold`**——已被单元约定取代：注册对象如今确实是一个折叠，但本仓库里 `fold*` 专指纯 `(events) => state` 辅助函数，而该 seam 注册的是带 key、带 schema、带版本的单元。投影仍是事件溯源中指称读模型角色的术语，#587 的 Note 标题与 #497 的评论也都已在使用它。
+**把注册 API 命名为 `registerFold`**——已被单元约定取代：注册对象如今确实是一个折叠，但本仓库里 `fold*` 专指纯 `(events) => state` 辅助函数，而该注册表接收的是带 key、带 schema、带版本的单元。投影仍是事件溯源中指称读模型角色的术语，#587 的 Note 标题与 #497 的评论也都已在使用它。
 
 **客户端侧折叠（带 `fromEvent` 的按领域投影 cell）**——曾是第二稿，后被否决：一旦 plan 的单元要折叠两种事件，客户端 cell 就必须在浏览器里复刻 host 的状态转移逻辑——同一个折叠写两遍、各自演化。推送成品值（标题帧先例的泛化）保住唯一计算地点，并把客户端简化为一个由 seq 把守的通用值仓；领域零客户端代码。
 

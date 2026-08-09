@@ -1,6 +1,6 @@
 /**
- * Local implementation of the bash executor seam over the subprocess
- * seam. Public commands run as `bash -c` in a managed process group spawned
+ * Local Service provider for the bash capability seam over the subprocess
+ * capability seam. Public commands run as `bash -c` in a managed process group spawned
  * through `ctx.subprocess`; subclasses may reuse the same mechanics with an
  * explicit argv. This executor owns command defaulting, deadlines and cause
  * classification, the model-friendly terminal environment, and the model-facing

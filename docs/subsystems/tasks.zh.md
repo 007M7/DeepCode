@@ -151,7 +151,7 @@ interface TaskRead {
 
 ## 服务行为
 
-抽象的 [`TaskService`](../../packages/tasks/tasks/src/index.ts) seam 定义原子 `start`、限定调用方作用域的 `get` 和 `list`、`read`、`kill`、有界 `wait`、故障隔离的 `onTaskDone` 监听器，以及 `attachSurface` 可用性防线；[`LocalTaskService`](../../packages/tasks/tasks-local/src/index.ts) 是其进程局部实现。授权会比较拥有者会话；拥有者清理会选择确切的已注册 `Agent` 实例。seam 约定见 [`dsh-tasks`](../../packages/tasks/tasks/README.md)，注册表生命周期见 [`dsh-tasks-local`](../../packages/tasks/tasks-local/README.md)，面向模型的接口见 [`dsh-tool-tasks`](../../packages/tasks/tool-tasks/README.md)。
+抽象的 [`TaskService`](../../packages/tasks/tasks/src/index.ts) Service Definition 规定原子 `start`、限定调用方作用域的 `get` 和 `list`、`read`、`kill`、有界 `wait`、故障隔离的 `onTaskDone` 监听器，以及 `attachSurface` 可用性防线；[`LocalTaskService`](../../packages/tasks/tasks-local/src/index.ts) 是其进程局部提供方。授权会比较拥有者会话；拥有者清理会选择确切的已注册 `Agent` 实例。Service Definition 约定见 [`dsh-tasks`](../../packages/tasks/tasks/README.md)，注册表生命周期见 [`dsh-tasks-local`](../../packages/tasks/tasks-local/README.md)，面向模型的 Consumer 见 [`dsh-tool-tasks`](../../packages/tasks/tool-tasks/README.md)。
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
@@ -161,9 +161,9 @@ interface TaskRead {
 
 Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` surface lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
 
-<a id="ctxtasks--taskservice"></a>
+<a id="ctxtasks--taskservice-abstract-seam"></a>
 
-### `ctx.tasks` — `TaskService`
+### `ctx.tasks` — `TaskService` (abstract seam)
 
 Abstract background task registry. Subclass, implement the abstract methods, and load the subclass as a plugin — it registers as `ctx.tasks` (one implementation per context; loading a second throws, which is cordis' standard duplicate-service behavior).
 

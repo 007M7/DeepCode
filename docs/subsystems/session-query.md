@@ -2,7 +2,7 @@
 
 English | [中文](session-query.zh.md)
 
-Query vocabulary over the live-preferred logical session corpus. The [interface package](../../packages/session-query/session-query) owns exact reads, source precedence, relationship tracing, semantic extraction, and provider-independent filters, while the [SQLite package](../../packages/session-query/session-query-sqlite) owns the concrete full-text index lifecycle.
+Query vocabulary over the live-preferred logical session corpus. The [Service Definition package](../../packages/session-query/session-query) owns exact reads, source precedence, relationship tracing, semantic extraction, and provider-independent filters, while the [SQLite provider](../../packages/session-query/session-query-sqlite) owns the concrete full-text index lifecycle.
 
 Source: [`packages/session-query/session-query/src/types.ts`](../../packages/session-query/session-query/src/types.ts)
 
@@ -363,9 +363,9 @@ type SessionQueryErrorCode =
 
 Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` surface lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
 
-<a id="ctxsessionquery--sessionqueryservice"></a>
+<a id="ctxsessionquery--sessionqueryservice-abstract-seam"></a>
 
-### `ctx.sessionQuery` — `SessionQueryService`
+### `ctx.sessionQuery` — `SessionQueryService` (abstract seam)
 
 Unified live-preferred session query service.
 

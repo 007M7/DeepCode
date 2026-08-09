@@ -1,5 +1,5 @@
 /**
- * Process-local implementation of the background task registry seam
+ * Process-local provider for the background-task capability seam
  * (`ctx.tasks`). It keeps every record in memory and hands out fresh
  * snapshots, never live state.
  *
@@ -50,7 +50,7 @@ function isTerminal(status: TaskStatus): boolean {
 }
 
 /**
- * The in-memory `tasks` registry. See the seam contract in
+ * The in-memory `tasks` registry. See the Service Definition contract in
  * `@deepseek-ai/dsh-tasks` for the ownership, isolation, and lifecycle
  * semantics this implementation honors.
  */

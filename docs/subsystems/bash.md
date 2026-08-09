@@ -2,7 +2,7 @@
 
 English | [中文](bash.zh.md)
 
-The bash execution seam is split across interface ([dsh-bash](../../packages/bash/bash), `ctx.bash`), implementations ([dsh-bash-local](../../packages/bash/bash-local) and [dsh-bash-sandbox](../../packages/bash/bash-sandbox)), and consumer ([dsh-tool-bash](../../packages/bash/tool-bash), the `bash` schema). Generic background-task ids, ownership, and controls live in [tasks.md](tasks.md); this seam returns a task-free process handle. Raw process-group mechanics live behind the [subprocess seam](subprocess.md).
+The bash execution seam is split across a Service Definition ([dsh-bash](../../packages/bash/bash), `ctx.bash`), Service providers ([dsh-bash-local](../../packages/bash/bash-local) and [dsh-bash-sandbox](../../packages/bash/bash-sandbox)), and Consumer ([dsh-tool-bash](../../packages/bash/tool-bash), the `bash` schema). Generic background-task ids, ownership, and controls live in [tasks.md](tasks.md); this seam returns a task-free process handle. Raw process-group mechanics live behind the [subprocess seam](subprocess.md).
 
 Source: [`packages/bash/bash/src/types.ts`](../../packages/bash/bash/src/types.ts)
 
@@ -12,7 +12,7 @@ Source: [`packages/bash/bash/src/types.ts`](../../packages/bash/bash/src/types.t
 
 ## Request vs. spec: the `resolve()` split
 
-The seam separates the **model-/plugin-facing request** (optional `workdir`/`timeoutMs`/`stdoutMaxBytes`, filled from config or request policy) from the **fully-resolved spec** the executor acts on (those fields required). The tool layer calls `ctx.bash.resolve(request)` between them — this is the repo's "explicit > implicit at package seams" rule made concrete: the reader of a `BashExecSpec` never wonders where the working directory or output budget came from.
+The seam separates the **model-/plugin-facing request** (optional `workdir`/`timeoutMs`/`stdoutMaxBytes`, filled from config or request policy) from the **fully-resolved spec** the executor acts on (those fields required). The tool layer calls `ctx.bash.resolve(request)` between them — this is the repo's "explicit > implicit at package boundaries" rule made concrete: the reader of a `BashExecSpec` never wonders where the working directory or output budget came from.
 
 ```ts type-equiv
 /**
@@ -228,9 +228,9 @@ interface BashProcessRead {
 
 Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` surface lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
 
-<a id="ctxbash--bashexecutor"></a>
+<a id="ctxbash--bashexecutor-abstract-seam"></a>
 
-### `ctx.bash` — `BashExecutor`
+### `ctx.bash` — `BashExecutor` (abstract seam)
 
 Abstract bash execution service. Subclass, implement the abstract methods, and load the subclass as a plugin — it registers as `ctx.bash` (one implementation per context; loading a second throws, which is cordis' standard duplicate-service behavior).
 

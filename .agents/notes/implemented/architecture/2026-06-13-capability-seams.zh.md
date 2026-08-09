@@ -1,4 +1,4 @@
-# Agent Note: 能力 seam——接口／实现／消费方三分
+# Agent Note: 能力 seam——Service Definition / Service provider / Consumer 角色
 
 Status: implemented
 
@@ -12,25 +12,25 @@ harness 具有可替换的能力：当前是 bash 执行，未来会有沙箱化
 
 ## 决策
 
-一项可替换的能力由**三个包**构成：
+一项可替换的能力包含**三个角色**：
 
-1. **接口**——一个抽象服务加词汇类型，拥有 `ctx.<key>`，仅依赖其词汇依赖（例如 `dsh-bash`：`BashExecutor`、`BashRunResult`、`BashProcess`）。
-2. **实现**——一个具体子类，以插件形式加载（例如 `dsh-bash-local`：子进程、进程组 kill、spill 文件截断）。沙箱化／远程后端是实现同一接口的兄弟包。
-3. **消费方**——模型和插件看到的内容（例如 `dsh-tool-bash`：`bash` schema，后台句柄注册到通用任务运行时）。消费方 `inject` 接口键，从不导入实现类型。
+1. **Service Definition**——拥有 `ctx.<key>` 的 Cordis `Service` 和词汇类型，仅依赖约定所需的词汇（例如 `dsh-bash`：`BashExecutor`、`BashRunResult`、`BashProcess`）。Service Definition 可以是抽象类，也可以是具体的注册表服务；绝不是 TypeScript `interface`。
+2. **Service provider**——提供或注册实现的插件（例如 `dsh-bash-local`：子进程、进程组 kill、spill 文件截断）。沙箱化和远程 Service provider 是依据同一 Service Definition 实现或注册的兄弟包。
+3. **Consumer**——模型和插件编程所面向的内容（例如 `dsh-tool-bash`：`bash` schema，后台句柄注册到通用任务运行时）。Consumer 注入服务键，从不导入 Service provider 特有的类型。
 
-实现与消费方由此独立演进：沙箱化执行器替换 `dsh-bash-local` 时无需触碰任何工具 schema。
+Service provider 与 Consumer 由此独立演进：沙箱化执行器替换 `dsh-bash-local` 时无需触碰任何工具 schema。
 
-当各部分确实属于同一个关注点时，三分并非强制：LLM（大语言模型） seam 将接口 + 消费方合并为 `dsh-llm`（消费方是 agent loop（智能体循环）本身，而非可替换的 schema 接口），适配器作为实现包。不要预防性地拆分——如果一项能力只有一种可设想的实现和一个消费方，就保持为一个包，直到出现第二种实现或第二个消费方。
+当角色独立演进时，通常使用不同的包；但当各角色确实属于同一个关注点时，并非必须拆分：LLM（大语言模型） seam 将 Service Definition 和 Consumer 合并为 `dsh-llm`（Consumer 是 agent loop（智能体循环）本身，而非可替换的 schema 接口），适配器作为 Service provider 包。不要预防性地拆分——如果一项能力只有一种可设想的 Service provider 和一个 Consumer，就保持为一个包，直到出现第二个。
 
 ## 术语：seam 指三者组合，而非接口
 
-一个 **seam** 是完整的能力——三个角色合在一起：**Service Definition**（拥有 `ctx.<key>` 和词汇的 Cordis `Service`；可以是 `BashExecutor` 这样的抽象类，也可以是 `WebService` 这样的具体注册表）、一个或多个 **Service provider**（注册后端的实现）和 **Consumer**（面向模型或插件的表面）。`packages/bash` 是规范范例——`dsh-bash` / `dsh-bash-local`+`dsh-bash-sandbox` / `dsh-tool-bash`。接口包本身只是 *Service Definition*，是其中一个成员——不是 seam。Service Definition 从不是 TypeScript `interface`；在正文必须命名它时，使用类名或 `abstract class`，永远不要用 `interface`。严格把「seam」保留给三者组合，并校准现有大量「X seam」用法的工作推迟到后续；[术语表](../../../../docs/glossary.md#capability-seam)是规范条目。
+一个 **seam** 是完整的能力——三个角色合在一起：**Service Definition**（拥有 `ctx.<key>` 和词汇的 Cordis `Service`）、一个或多个 **Service provider**，以及一个或多个 **Consumer**。`packages/bash` 是规范范例——`dsh-bash` / `dsh-bash-local`+`dsh-bash-sandbox` / `dsh-tool-bash`。一个包可以承担多个角色，但单个角色本身不是 seam。「seam」一词严格保留给这种完整能力；命名其中一个组成部分时，应使用其角色、类、服务、约定或扩展点。[术语表](../../../../docs/glossary.md#capability-seam)是规范条目。
 
 ## 曾考虑的替代方案
 
-- **单一合并包**：否决。因为它重新耦合了三分设计本要分离的三种变化速率（这正是拆分的意义所在）。
-- **`@cordisjs/plugin-capability`**：这是完全不同的维度。它是一个权限／能力*安全*服务（具名权限加继承，通过 `ctx.capability.test` 对会话进行检测），是延后的权限/沙箱工作（`tools/pre-execute` deny/ask seam）的候选方案，不是替换实现的机制。混淆这两个「能力」概念正是本 Agent Note 所指出的陷阱。
+- **始终合并各角色**：否决。因为它会重新耦合独立变化的 Service Definition、Service provider 和 Consumer。
+- **`@cordisjs/plugin-capability`**：这是完全不同的维度。它是一个权限／能力*安全*服务（具名权限加继承，通过 `ctx.capability.test` 对会话进行检测），是延后的权限/沙箱工作（`tools/pre-execute` deny/ask 门）的候选方案，不是替换实现的机制。混淆这两个「能力」概念正是本 Agent Note 所指出的陷阱。
 
 ## 后果
 
-每项能力需要更多包和更多样板代码（一组 `package.json`/`tsconfig`/README，加上 inject 接线）。换来的是：实现与消费方独立发布和版本管理，新后端永远不会波及面向模型的约定。该规则记录在 [AGENTS.md](../../../../AGENTS.md) § Conventions（「Capability seams are three packages」）和 [architecture.md](../../../../docs/architecture.md) §「Capability seams」中；bash 三件套是参考模板。何时合并、何时拆分是一个判断问题，架构文档对此有详细说明——本 Agent Note 记录的是*为什么*默认选择拆分。
+分离角色会增加包和样板代码（`package.json`、`tsconfig`、README 和注入接线）。换来的是：Service provider 与 Consumer 独立发布和版本管理，新后端永远不会波及面向模型的约定。[AGENTS.md](../../../../AGENTS.md) 和 [architecture.md](../../../../docs/architecture.md) 载有这项规则；bash 三件套是参考模板。本 Agent Note 记录为什么独立变化的角色通常需要拆分，而确实共享的关注点可以保持合并。

@@ -79,7 +79,7 @@ interface LspService {
 
 Mapping keys normalize to lowercase, leading-dot extensions selected from `filePath`'s final extension; language ids only synchronize documents. Seam positions and ranges are zero-based UTF-16. `findReferences` always includes declarations: providers enforce this internally, the local mapping sets `context.includeDeclaration: true`, and callers get no flag. Closed result unions normalize navigation to locations and hover to content or `null`; navigation results carry the provider's canonical workspace URI so consumers relativize file URIs in the execution world's namespace. The seam exposes no protocol types, process or document controls, or generic request escape hatch.
 
-`dsh-lsp-local` owns server configuration, JSON-RPC, process and transient-document state, and protocol translation. It reads through `ctx.fs` and launches through `ctx.subprocess`, depending on their interface packages rather than concrete providers; the [portable execution-world decision](2026-07-28-portable-execution-world-consumers.md) owns that pairing. The server-table key is its provider id. The plugin resolves every server-local setting before registration, rolls back earlier registrations if a later mapping is invalid or conflicts, and retains an independent process pool per provider. `dsh-tool-lsp` runtime-injects only `tools`, `lsp`, and `systemPrompt`, obtains the workspace from `exec.agent?.session.header.cwd` through a package-local `sessionCwd(exec)` helper matching the filesystem tools' lookup, and imports no provider.
+`dsh-lsp-local` owns server configuration, JSON-RPC, process and transient-document state, and protocol translation. It reads through `ctx.fs` and launches through `ctx.subprocess`, depending on their Service Definition packages rather than concrete providers; the [portable execution-world decision](2026-07-28-portable-execution-world-consumers.md) owns that pairing. The server-table key is its provider id. The plugin resolves every server-local setting before registration, rolls back earlier registrations if a later mapping is invalid or conflicts, and retains an independent process pool per provider. `dsh-tool-lsp` runtime-injects only `tools`, `lsp`, and `systemPrompt`, obtains the workspace from `exec.agent?.session.header.cwd` through a package-local `sessionCwd(exec)` helper matching the filesystem tools' lookup, and imports no provider.
 
 ## Model-facing contract
 
@@ -155,7 +155,7 @@ The provider trusts its configured server. Its filesystem visibility and process
 
 **Expose `resolve(request)` / `query(spec)`.** With no defaulted fields, resolution would only expose provider selection, and a public spec could outlive provider disposal or replacement. One operation keeps selection and invocation atomic to the registration lifetime.
 
-**Wrap the signal in a per-seam execution-context object.** Web passes a bare `AbortSignal`; wrapping this single field would add unexplained asymmetry. `query()` gains a context object only when another field requires it.
+**Wrap the signal in an LSP execution-context object.** Web passes a bare `AbortSignal`; wrapping this single field would add unexplained asymmetry. `query()` gains a context object only when another field requires it.
 
 **Read through the model-facing `read` tool.** Rejected because tool output is windowed, numbered, transcript-visible, and observed. The provider consumes streamed full text directly through the same `ctx.fs` execution world used by its subprocess.
 
@@ -178,7 +178,7 @@ The provider trusts its configured server. Its filesystem visibility and process
 - Registry tests pin atomic reservation/release, order-independent selection, and structured unavailable, disposed, conflict, and unsupported-operation errors.
 - Fake-stdio tests pin exact initialization capabilities, four protocol mappings, `Location`/`LocationLink` and hover normalization, and `findReferences` mapping to `references.includeDeclaration`.
 - Synchronization tests pin UTF-16 negotiation and conversion, supported and rejected `textDocumentSync` forms, blocked and failed open writes, balanced transient open/close, close-write failure, and malformed-response rejection.
-- Timeout tests pin one `TOOL_TIMEOUT` budget, unclassified upstream cancellation, no hidden seam deadline, and bounded awaited teardown.
+- Timeout tests pin one `TOOL_TIMEOUT` budget, unclassified upstream cancellation, no hidden LSP deadline, and bounded awaited teardown.
 - Lifecycle tests pin startup single-flight, complete-lifecycle serialization with fresh queued source reads, cross-workspace parallelism, abortable queues, crash replacement without replay, failed-stdin teardown, and quiescent disposal.
 - Filesystem-host tests pin session-cwd requirements, provider-owned containment and URI rendering, bounded document reads, unformatted source, and no `fs/observed` event.
 - A keyless pinned TypeScript real-server e2e exercises all four operations; runnable configuration uses the same explicit provider mapping.

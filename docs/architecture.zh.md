@@ -156,11 +156,9 @@ idle inject:
 
 ### 能力模式
 
-一个 **seam** 是跨三个包的一项可替换能力：**Service Definition**（拥有自身 `ctx` key 和词汇的 Cordis `Service`）、**Service provider**（实现插件）和 **Consumer**。Service Definition 本身只是服务，不是 seam。Bash 是参考；[能力图](capability-seams.md)展示每个家族。
+一个 **seam** 是一项包含 **Service Definition**、**Service provider** 和 **Consumer** 三种角色的可替换能力。包可以合并承担多个角色；任何单一角色都不是 seam。文件系统与进程管理提供方共享一个执行世界，Bash、PTY 和 LSP 都在其中运行，无需提供方专用 fork（[能力图](capability-seams.md)）。
 
-文件系统与进程管理提供方共同定义一个执行世界；Bash、PTY 和 LSP 都在其中运行，无需提供方专用 fork。
-
-例外情况包括 LLM（大语言模型）接口／消费方合并、文件系统策略、web 注册表，以及具名 skill/subagent 提供方。subagent 可以通过 spawn 创建全新实例、fork 一个已完成轮次的前缀、使用 ACP（Agent Client Protocol）子 agent，或将一个独立完整的轮次委派给 Codex 等真实产品提供方（[subagent.md](subsystems/subagent.md)）。
+例外情况包括 LLM（大语言模型）Service Definition／消费方角色合并、文件系统策略、web 注册表，以及 skill/subagent 提供方。subagent 可以通过 spawn 创建全新实例、fork 一个已完成轮次的前缀、使用 ACP（Agent Client Protocol）子 agent，或将一个独立完整的轮次委派给 Codex 或其他产品提供方（[subagent.md](subsystems/subagent.md)）。
 
 `dsh-workspace-context` 在第一次 `agent/pre-step` 组合基线并将它折入最终进入的批次、紧随已领取的直接提示词之后，使其与直接提示词一同抵达第一次请求；reject 则将它留在 next-step inbox。当压缩从可见表层移除该基线时，下一次进入步骤的 pre-step 会组合当前基线，并在同一请求中携带它。工具执行后投影的文件系统变更也会折入下一次进入步骤的 pre-step，而不会另外创建稍后的纯上下文步骤（[决策](../.agents/notes/implemented/feature/2026-06-24-workspace-context.md)）。`dsh-paths` 负责共享路径。
 
@@ -191,4 +189,4 @@ idle inject:
 | fork 活跃会话 | 调用 `ctx.sessions.fork(source, boundary?, childSessionId?)` |
 | 将注册项限定到单个 agent | 使用其 `agent.ctx`（参见 Agent 作用域） |
 
-[扩展实操手册（cookbook）](cookbook/extension-cookbook.md)提供插件骨架和功能到 seam 的映射；指南涵盖[包](cookbook/adding-a-package.md)、[工具](cookbook/adding-a-tool.md)、[LLM 适配器](cookbook/adding-an-llm-adapter.md)和 [vendored 包](cookbook/adding-a-vendored-package.md)。
+[扩展实操手册（cookbook）](cookbook/extension-cookbook.md)将功能映射到能力；指南涵盖[包](cookbook/adding-a-package.md)、[工具](cookbook/adding-a-tool.md)、[LLM 适配器](cookbook/adding-an-llm-adapter.md)和 [vendored 包](cookbook/adding-a-vendored-package.md)。

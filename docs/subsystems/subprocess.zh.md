@@ -2,7 +2,7 @@
 
 [English](subprocess.md) | 中文
 
-进程管理器 seam 分为接口（[dsh-subprocess](../../packages/subprocess/subprocess)，`ctx.subprocess`）与实现（[dsh-subprocess-local](../../packages/subprocess/subprocess-local)）；它的消费方是其他能力 seam 与进程外后端：[bash 执行器家族](bash.md)使用收集模式的批量输出，LSP 使用原始协议管道，PTY 后端使用终端原语，ACP（Agent Client Protocol）subagent 后端则使用管道化 ndjson 加 inherit 的 stderr。该 seam 拥有受管的 `DSH_*` 环境命名空间、共享的凭据清除（`scrubbedParentEnv`）与 `CollectedOutput` 形状；[dsh-bash](../../packages/bash/bash) 重导出这套词汇，使 bash 消费方保持单一导入入口。
+进程管理器 seam 分为 Service Definition（[dsh-subprocess](../../packages/subprocess/subprocess)，`ctx.subprocess`）与 Service provider（[dsh-subprocess-local](../../packages/subprocess/subprocess-local)）；它的 Consumer 是其他能力 seam 与进程外后端：[bash 执行器家族](bash.md)使用收集模式的批量输出，LSP 使用原始协议管道，PTY 后端使用终端原语，ACP（Agent Client Protocol）subagent 后端则使用管道化 ndjson 加 inherit 的 stderr。该 seam 拥有受管的 `DSH_*` 环境命名空间、共享的凭据清除（`scrubbedParentEnv`）与 `CollectedOutput` 形状；[dsh-bash](../../packages/bash/bash) 重导出这套词汇，使 bash 消费方保持单一导入入口。
 
 源码：[`packages/subprocess/subprocess/src/types.ts`](../../packages/subprocess/subprocess/src/types.ts) 与 [`packages/subprocess/subprocess/src/index.ts`](../../packages/subprocess/subprocess/src/index.ts)
 
@@ -242,11 +242,11 @@ interface SubprocessOutcome {
 
 `spawnTerminal(spec)` 是非管道进程原语。提供方分配控制终端，并负责 UTF-8 文本传输、前台进程组检查与信号发送，以及一项须等待的 TERM→KILL 操作；该操作会使提供方仍可观察到的每个会话成员完全停稳，提供方则会记录执行基底特有的可观察性限制。PTY 后端仍负责提示符检测、就绪推断、scrollback、沙箱策略和持久会话所有权；普通 `spawn()` 无法重建控制终端语义。
 
-终端 spec 完全指定 argv、cwd、环境覆盖、尺寸、清理宽限期与可选的分配取消。其句柄公开 `pid`、有序输出、`done`、`write`、`inspectForeground`、`signalForeground` 和须等待的 `terminate`；确切的公共形状生成到 [`ctx.subprocess` 服务目录](#ctxsubprocess--subprocessservice)中。
+终端 spec 完全指定 argv、cwd、环境覆盖、尺寸、清理宽限期与可选的分配取消。其句柄公开 `pid`、有序输出、`done`、`write`、`inspectForeground`、`signalForeground` 和须等待的 `terminate`；确切的公共形状生成到 [`ctx.subprocess` 服务目录](#ctxsubprocess--subprocessservice-abstract-seam)中。
 
 ## 服务行为
 
-抽象的 [`SubprocessService`](../../packages/subprocess/subprocess/src/index.ts) seam 定义执行世界坐标、可执行文件查找、普通 `spawn` 与 `spawnTerminal`。[`LocalSubprocessService`](../../packages/subprocess/subprocess-local/src/index.ts) 以 detached 进程树、按处置方式接线、凭据清除、`node-pty`、平台进程检查，以及先终止再等待退出的资源释放实现这些能力。接口约定见 [`dsh-subprocess`](../../packages/subprocess/subprocess/README.md)，本地机制见 [`dsh-subprocess-local`](../../packages/subprocess/subprocess-local/README.md)。
+抽象的 [`SubprocessService`](../../packages/subprocess/subprocess/src/index.ts) Service Definition 规定执行世界坐标、可执行文件查找、普通 `spawn` 与 `spawnTerminal`。[`LocalSubprocessService`](../../packages/subprocess/subprocess-local/src/index.ts) 以 detached 进程树、按处置方式接线、凭据清除、`node-pty`、平台进程检查，以及先终止再等待退出的资源释放提供这些能力。Service Definition 约定见 [`dsh-subprocess`](../../packages/subprocess/subprocess/README.md)，本地机制见 [`dsh-subprocess-local`](../../packages/subprocess/subprocess-local/README.md)。
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
@@ -273,9 +273,9 @@ async getSandbox(): Promise<Sandbox>
 
 Source: [`packages/e2b/e2b/src/index.ts:74`](../../packages/e2b/e2b/src/index.ts)
 
-<a id="ctxsubprocess--subprocessservice"></a>
+<a id="ctxsubprocess--subprocessservice-abstract-seam"></a>
 
-### `ctx.subprocess` — `SubprocessService`
+### `ctx.subprocess` — `SubprocessService` (abstract seam)
 
 Abstract subprocess service. Subclass, implement spawn, and load the subclass as a plugin — it registers as `ctx.subprocess` (one implementation per context; loading a second throws, which is cordis' standard duplicate-service behavior).
 

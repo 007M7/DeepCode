@@ -1,4 +1,4 @@
-# Agent Note: 包拥有的不变式服务 seam
+# Agent Note: 包拥有的不变式服务约定
 
 Status: implemented
 

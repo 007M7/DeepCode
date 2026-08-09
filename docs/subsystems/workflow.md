@@ -4,7 +4,7 @@ English | [中文](workflow.zh.md)
 
 The workflow seam — an agent running a model-written orchestration SCRIPT that fans out subagents. Like [subagent](subagent.md) it is **one optional capability**, not part of the agent-loop spine, so its vocabulary lives here rather than in [core.md](core.md). Unlike the subagent registry it takes the bash shape: ONE engine implementation per context provides `ctx.workflows`; there is no named-provider registry (a second engine is a plugin swap, not a co-resident).
 
-Interface: [dsh-workflow](../../packages/workflow/workflow) (`ctx.workflows` + the vocabulary below). The implementation is [dsh-workflow-workerthread](../../packages/workflow/workflow-workerthread) (a `node:worker_threads` engine — one worker per run, the script's vm context inside it); the model-facing consumer is [dsh-tool-workflow](../../packages/workflow/tool-workflow). The proposal and rationale: [the dynamic-workflows Agent Note](../../.agents/notes/implemented/feature/2026-07-05-dynamic-workflows.md).
+Service Definition: [dsh-workflow](../../packages/workflow/workflow) (`ctx.workflows` + the vocabulary below). The Service provider is [dsh-workflow-workerthread](../../packages/workflow/workflow-workerthread) (a `node:worker_threads` engine — one worker per run, the script's vm context inside it); the model-facing Consumer is [dsh-tool-workflow](../../packages/workflow/tool-workflow). The proposal and rationale: [the dynamic-workflows Agent Note](../../.agents/notes/implemented/feature/2026-07-05-dynamic-workflows.md).
 
 Source: [`packages/workflow/workflow/src/types.ts`](../../packages/workflow/workflow/src/types.ts)
 
@@ -139,11 +139,11 @@ The `workflow/*` events (`workflow/start`, `workflow/phase`, `workflow/log`, `wo
 
 Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` surface lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
 
-<a id="ctxworkflows--workflowservice"></a>
+<a id="ctxworkflows--workflowservice-abstract-seam"></a>
 
-### `ctx.workflows` — `WorkflowService`
+### `ctx.workflows` — `WorkflowService` (abstract seam)
 
-Workflow execution seam. Invalid requests throw before publication; a live run is holder-owned, its result never rejects, cancellation and disposal are bounded, and disposal waits for child cleanup within that bound. Lifecycle listener failures are contained, and `workflow/end` fires exactly once as the result settles.
+Workflow Service Definition contract. Invalid requests throw before publication; a live run is holder-owned, its result never rejects, cancellation and disposal are bounded, and disposal waits for child cleanup within that bound. Lifecycle listener failures are contained, and `workflow/end` fires exactly once as the result settles.
 
 ```ts cordis-catalog
 /**
