@@ -17,6 +17,7 @@ Harnesses are [Cordis](cordis-primer.md) contexts; packages contribute services,
 | `ctx.systemPrompt` | `dsh-system-prompt` | ordered prompt sections, tool schemas, and variables |
 | `ctx.tools` | `dsh-tools` | tool registry and [execution pipeline](tool-execution-pipeline.md) |
 | `ctx.agents` | `dsh-agent` | live agents, delegated creation, `agent/*` events, process-local initiator scope |
+| `ctx.agentDefaultModel` | [`dsh-agent-default-model`](../packages/core/agent-default-model/README.md) | Settings-backed model selection shared by Agent front doors |
 | `ctx.agentLoop` | `dsh-agent-loop` | concrete `Agent` driver |
 
 ### Capability Services
@@ -63,7 +64,7 @@ Events are the service extension API ([subsystems](subsystems/core.md), [produce
 
 ### Interception Semantics
 
-Waterfalls are around-middleware: listeners delegate with `next()`; returning without it vetoes or takes over ([semantics](cordis-primer.md#cordis-waterfall-semantics)).
+Waterfalls are around-middleware: listeners delegate with `next()`; returning without it short-circuits or takes over ([semantics](cordis-primer.md#cordis-waterfall-semantics)).
 
 ## Default Loop Lifecycle
 

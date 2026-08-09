@@ -21,7 +21,7 @@ interface TaskKindMap {
 
 `TaskStatus` 为 `'running' | 'stopping' | 'completed' | 'killed' | 'failed'`；生产方特有的事实归入 `TaskSnapshot.detail`。
 
-## 生产方契约
+## 生产方约定
 
 `TaskStart` 声明身份和启动器。运行时会在调用 `run()` 前完成预检，随后提交注册，不再执行可能失败的步骤。生产方拥有执行资源；运行时拥有身份、访问权限和生命周期状态。
 
@@ -151,7 +151,7 @@ interface TaskRead {
 
 ## 服务行为
 
-抽象的 [`TaskService`](../../packages/tasks/tasks/src/index.ts) seam 定义原子 `start`、限定调用方作用域的 `get` 和 `list`、`read`、`kill`、有界 `wait`、故障隔离的 `onTaskDone` 监听器，以及 `attachSurface` 可用性防线；[`LocalTaskService`](../../packages/tasks/tasks-local/src/index.ts) 是其进程局部实现。授权会比较拥有者会话；拥有者清理会选择确切的已注册 `Agent` 实例。seam 契约见 [`dsh-tasks`](../../packages/tasks/tasks/README.md)，注册表生命周期见 [`dsh-tasks-local`](../../packages/tasks/tasks-local/README.md)，面向模型的接口见 [`dsh-tool-tasks`](../../packages/tasks/tool-tasks/README.md)。
+抽象的 [`TaskService`](../../packages/tasks/tasks/src/index.ts) seam 定义原子 `start`、限定调用方作用域的 `get` 和 `list`、`read`、`kill`、有界 `wait`、故障隔离的 `onTaskDone` 监听器，以及 `attachSurface` 可用性防线；[`LocalTaskService`](../../packages/tasks/tasks-local/src/index.ts) 是其进程局部实现。授权会比较拥有者会话；拥有者清理会选择确切的已注册 `Agent` 实例。seam 约定见 [`dsh-tasks`](../../packages/tasks/tasks/README.md)，注册表生命周期见 [`dsh-tasks-local`](../../packages/tasks/tasks-local/README.md)，面向模型的接口见 [`dsh-tool-tasks`](../../packages/tasks/tool-tasks/README.md)。
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 

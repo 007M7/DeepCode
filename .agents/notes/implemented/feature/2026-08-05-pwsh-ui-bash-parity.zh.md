@@ -18,11 +18,11 @@ Web UI 的卡片本身不需要任何按工具编写的代码：客户端的 ter
 
 ## Alternatives considered
 
-**从 `@deepseek-ai/dsh-tool-bash/src/render.ts` 导入 `parseExitStatus`。** 否决：workspace 导入在构建产物中保持外部引用，因此 `tool-pwsh` 会在每个消费方闭包中新增对 `tool-bash` 的硬运行时依赖（包括刻意只挂 pwsh 孪生、不挂 bash 的组合），且兄弟工具为其单个函数依赖孪生会颠倒包间关系。seam 迁移把共享契约放在两个工具本就依赖的包上。
+**从 `@deepseek-ai/dsh-tool-bash/src/render.ts` 导入 `parseExitStatus`。** 否决：workspace 导入在构建产物中保持外部引用，因此 `tool-pwsh` 会在每个消费方闭包中新增对 `tool-bash` 的硬运行时依赖（包括刻意只挂 pwsh 孪生、不挂 bash 的组合），且兄弟工具为其单个函数依赖孪生会颠倒包间关系。seam 迁移把共享约定放在两个工具本就依赖的包上。
 
 **新建专用呈现包（如 `@deepseek-ai/dsh-shell-present`）。** 否决：为一个纯函数新建包要付出 manifest、module-graph/目录再生成与 README 面的成本；`@deepseek-ai/dsh-bash` 已在两个工具的闭包中，且已拥有该解析重建的 `BashRunResult` 事实。
 
-**把解析复制进 `tool-pwsh` 的 render 模块（第三个孪生）。** 否决：parity 评审的核心发现正是"复制的文本契约缺少共享实现就会漂移"；解析与 marker 发出必须在同一处共同演化，而解析恰恰是 UI pill 依赖的契约。
+**把解析复制进 `tool-pwsh` 的 render 模块（第三个孪生）。** 否决：parity 评审的核心发现正是"复制的文本约定缺少共享实现就会漂移"；解析与 marker 发出必须在同一处共同演化，而解析恰恰是 UI pill 依赖的约定。
 
 ## Consequences
 

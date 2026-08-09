@@ -18,7 +18,7 @@ import { clampTimeout, deadline, idleWatchdog, MAX_TIMER_DELAY_MS, timeoutOf, Ti
 |---|---|
 | `clampTimeout(requested, def, max, name?)` | 验证调用方可选的、值为正且有限的提示，从 `def` 填充，并限制在 `max` 以内。如果提示为非正数或非有限数，则抛出错误（包含 `name`）。 |
 | `deadline(upstream, timeoutMs, code)` | 将 `upstream` 取消与超时融合为一个 `AbortSignal`（`AbortSignal.any`）；超时携带 `TimeoutReason`。`[Symbol.dispose]` 清除 timer。 |
-| `idleWatchdog(upstream, timeoutMs, code)` | 保持一个稳定的融合信号，并且只在受保护的异步迭代器 `next()` 尚未完成时启动 timer。完成后停止 timer；后续需求重新启动 timer；dispose（资源释放）时清除；并发需求被拒绝。 |
+| `idleWatchdog(upstream, timeoutMs, code)` | 保持一个稳定的融合信号，并且只在受保护的异步迭代器 `next()` 尚未完成时启动 timer。完成后停止 timer；后续需求或 `pulse()` 活动会重新启动 timer；dispose（资源释放）时清除；并发需求被拒绝。 |
 | `MAX_TIMER_DELAY_MS` | Node 在不将延迟限制为 1 毫秒时可调度的最大延迟（`2_147_483_647`）。负责 timer 的配置不得超过该值。 |
 | `timeoutOf(signal \| { reason }, code?)` | 从已中止的信号/错误中恢复 `TimeoutReason`，否则返回 `undefined`，即超时与取消的分类器。传入 `code` 可仅匹配这个 deadline 的 timer（见下文的嵌套）。 |
 | `TimeoutReason` | 标记在超时中止上的内部原因（`code` + `timeoutMs`）。它不是公开错误；提供方将其转换为自己的错误/字段。 |
@@ -48,7 +48,7 @@ export async function runWithDeadline(upstream: AbortSignal | undefined, timeout
 
 将你自己的 `code` 传给 `timeoutOf`，使分类可在嵌套场景中正确组合。当 `upstream` 本身是 deadline 信号时，如果该 timer 先触发，`AbortSignal.any` 会保留它的 `TimeoutReason`。将匹配范围限定为你的 code，会把外部超时视为普通的 upstream 取消，而不会声称本地 timer 已到期。
 
-对于流式传输，创建一个 `idleWatchdog`，将其稳定的 `signal` 传给传输层，并为提供方的每次读取调用 `watchdog.next(iterator)`。间隔必须为正有限数，且不得超过 `MAX_TIMER_DELAY_MS`；否则 Node 会将其限制为 1 毫秒。它只对尚未完成的读取请求计时，因此当下游代码进行渲染或在请求下一个分片前以其他方式等待时，timer 不会运行。该原语仍然只会通知，因此传输层必须观察稳定信号；DeepSeek 和 pi-ai 适配器证明，超时会关闭它们的真实响应正文或 SDK 请求。
+对于流式传输，创建一个 `idleWatchdog`，将其稳定的 `signal` 传给传输层，并为提供方的每次读取调用 `watchdog.next(iterator)`。当传输活动不产生迭代器值时，调用 `watchdog.pulse()`。间隔必须为正有限数，且不得超过 `MAX_TIMER_DELAY_MS`；否则 Node 会将其限制为 1 毫秒。它只对尚未完成的读取请求计时，因此当下游代码进行渲染或在请求下一个分片前以其他方式等待时，timer 不会运行。该原语仍然只会通知，因此传输层必须观察稳定信号；DeepSeek 和 pi-ai 适配器证明，超时会关闭它们的真实响应正文或 SDK 请求。
 
 ## 哪些操作不设置超时
 

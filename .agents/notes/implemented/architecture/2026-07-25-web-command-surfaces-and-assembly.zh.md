@@ -19,7 +19,7 @@ Status: implemented
 
 ### ui-command：`CommandService` + 按会话键控的 `CommandDirectory` + 逐会话 `PopupSelectController`
 
-- 投影 `ClientSessionContext { sessionId }` 自持于 ui-slash 契约（types.ts）：会话恒 agent-backed，会话身份即命令能力的全部投影；wire 以 `{sessionId}` 寻址（`command.list` / `command.execute` 均是；host 从会话 header 解析 Agent）。
+- 投影 `ClientSessionContext { sessionId }` 自持于 ui-slash 约定（types.ts）：会话恒 agent-backed，会话身份即命令能力的全部投影；wire 以 `{sessionId}` 寻址（`command.list` / `command.execute` 均是；host 从会话 header 解析 Agent）。
 - 目录按 `SessionId` 分区，per-key single-flight + epoch guard（旧拉取永不覆盖新态），`commands/changed` 全 key 软失效（旧快照继续服务、后台重拉）、`connection/reset` 全 key 硬失效并预热，Enter 必须等待当前 key 就绪、失败留草稿不降级。预热挂 source 的 `warm` 钩子——scope 出生时对全 roster 一次，即覆盖整个会话生命周期（会话能力自出生恒定）。
 - `register(contribution)` 注册 client 命令（descriptor + `available(projection)` + popupSelect spec）；候选合成 = host 目录 + contribution 可用性过滤，再过 query/position，host/contribution 重名 fail loud。
 - 命令三型按注册面派生，开发者不声明位置：host descriptor 带 `input` = **leadingInput**（回填 `/name ␣` + claim，继续打参数，仅限行首）；client 注册 popupSelect spec = **popupSelect**（官方选择框壳，业务零组件）；两者皆无 = **execute**（选中即执行，零 UI）。

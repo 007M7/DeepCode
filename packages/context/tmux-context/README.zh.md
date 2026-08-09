@@ -33,7 +33,7 @@ exec tmux display-message -t "$TMUX_PANE" -p '<format>'
 
 ## 时序语义
 
-该插件会前置一个 `agent/pre-step` 监听器。需要注入且下游决策进入拟议步骤时，它会在返回批次前添加一条带来源的 `UserMessage`。AgentLoop 会在 `step/start` 之后记录该上下文，其来源为 `{ kind: 'plugin', plugin: 'tmux-context' }`。变化抑制与间隔调度会扫描原始持久会话事件中该来源的最近一次注入，因此调度可跨压缩与恢复的进程存续，无需进程内缓存状态；各会话独立调度。下游 pre-step 监听器 reject 或失败时，该读数不会被记录。
+该插件会前置一个 `agent/pre-step` 监听器。需要注入且下游决策进入拟议步骤时，它会向返回的批次前置添加一条带来源的 `UserMessage`。AgentLoop 会在 `step/start` 之后记录该上下文，其来源为 `{ kind: 'plugin', plugin: 'tmux-context' }`。变化抑制与间隔调度会扫描原始持久会话事件中该来源的最近一次注入，因此调度可跨压缩与恢复的进程存续，无需进程内缓存状态；各会话独立调度。下游 pre-step 监听器拒绝或失败时，该读数不会被记录。
 
 ## 模型体验
 

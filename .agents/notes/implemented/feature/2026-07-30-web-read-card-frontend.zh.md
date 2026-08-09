@@ -14,7 +14,7 @@ Status: implemented
 
 **新建一个 `ReadBlock` primitive，而不是扩展 `CodeBlock`。** `CodeBlock` 已经带语言横幅和复制控件做 shiki 高亮，但读取视图需要一个每行带该行自身文件行号的行号栏，而 `CodeBlock` 把内容渲染为单个 `<pre>` 树、没有逐行结构。给 `CodeBlock` 加一个可选行号栏会把读取专属的关切（窗口行号、"显示 N / M"提示、高度上限）强加给共享该组件的每个 markdown 代码围栏和每个 `run_code` 程序体。`ReadBlock` 转而复用真正共享的部分：`markdown/highlight.ts` 里的 shiki 语法单例。那里新增的 `highlightLines(code, lang)` 把代码切成 shiki 自己的逐行 token 数组（`codeToTokens`），而不是 `highlightToHtml` 产出的单 `<pre>` HTML，于是该 block 能每行放一个行号、同时用同一套 `--shiki-*` 自定义属性、同一份语法白名单给内容上色。高度上限及其头/尾展开算法照抄自 `TerminalBlock`（`ceil(max/2)` 行头部加剩余的尾部），因此长读取和长命令输出在同一处折叠。复制控件写入窗口的原始文本（各行以换行拼接），绝不含行号栏或横幅。
 
-`readCardModel` 只在结果侧，与后端对称：一次读取调用在 `execute` 返回前不带任何内容，因此挂起中的调用保持为 `GenericCallView`（`kind: 'read'`），本函数对运行中的读取返回 null —— 该行保持其从参数派生的摘要，直到结果到达。它对结果视图不是读取卡片的已结算调用也返回 null，包括本 UI 版本不认识的 `card` 值（它从线路到来、不能被信任为一个已编译的变体）以及读取工具对错误结果自己的通用回退。卡片横幅标签在工具提供 `title` 时取它（契约的替换标题规则），否则取相对于会话工作区化简后的文件路径，使工作区根下的绝对路径显示为与行摘要相同的短形式。该 model 把冻结的行数组复制进 primitive 自己的行形状，因此卡片绝不持有指向运行时快照缓存的引用。
+`readCardModel` 只在结果侧，与后端对称：一次读取调用在 `execute` 返回前不带任何内容，因此挂起中的调用保持为 `GenericCallView`（`kind: 'read'`），本函数对运行中的读取返回 null —— 该行保持其从参数派生的摘要，直到结果到达。它对结果视图不是读取卡片的已结算调用也返回 null，包括本 UI 版本不认识的 `card` 值（它从线路到来、不能被信任为一个已编译的变体）以及读取工具对错误结果自己的通用回退。卡片横幅标签在工具提供 `title` 时取它（约定的替换标题规则），否则取相对于会话工作区化简后的文件路径，使工作区根下的绝对路径显示为与行摘要相同的短形式。该 model 把冻结的行数组复制进 primitive 自己的行形状，因此卡片绝不持有指向运行时快照缓存的引用。
 
 聊天行把卡片**常驻**渲染在摘要行之下，上限 `CHAT_READ_MAX_LINES`（8，是 primitive 默认值的一半），与 `BashRow` 对终端卡片的姿态相同 —— block 的内部展开器让长读取不会占据整个消息流。两个渲染点承载它：keyed `ReadRow`（经 `ctx.slots.inject` 以 `read` 键注册，与 bash 样例完全一致），其摘要是作为可打开的宿主链接的文件路径；以及 `GenericToolCard` 对没有自己 keyed 行的读取声明工具（例如归到 `read` 变体的 `web_fetch`）的回退。详情面板以 primitive 自己的全高上限（16）渲染同一张卡片，因为面板是单次调用的阅读界面。
 

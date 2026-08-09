@@ -20,7 +20,7 @@ session telemetry 已默认挂载（[默认挂载 Note](2026-07-31-web-telemetry
 | 并发首启 | `wx` 独占写裁决，落败方重读胜者 id | 覆盖常见并发（重读撞进胜者建档-写入微秒窗仍可能各持一 id 一次运行，下次启动收敛到落盘值——telemetry 级后果，接受） |
 | 丢失语义 | 文件被删 → 下次启动换新 id，接受丢失 | 匿名身份无恢复价值；可恢复性要求派生材料，与匿名冲突 |
 | 写失败 | best-effort 返回内存 id | telemetry 永不因 home 只读被阻塞 |
-| 上报位置 | Resource 属性，非逐条 attributes | 每批一次即够接收端按 Resource 维度聚合；逐条注入要动 seam 契约且涨 wire 体积 |
+| 上报位置 | Resource 属性，非逐条 attributes | 每批一次即够接收端按 Resource 维度聚合；逐条注入要动 seam 约定且涨 wire 体积 |
 | semconv 依赖 | 不引 `@opentelemetry/semantic-conventions` 包 | 一个字符串常量不值一个依赖 |
 | 落点 | `session-telemetry-otel` 包内模块，非公共 util 包 | 仓规「有第二个真实消费者才拆包」；sdk launcher 回流保留自有存储，无现实关联需求 |
 | 单独开关 | 无 | 身份跟随 telemetry 整体开关（`DSH_TELEMETRY_DISABLED`）；关 telemetry 即整体不报 |
@@ -30,7 +30,7 @@ session telemetry 已默认挂载（[默认挂载 Note](2026-07-31-web-telemetry
 | 被拒 | 一句话理由 |
 |---|---|
 | hostname/IP 哈希派生 id（此前口径） | 可反查即非匿名；随机 UUID 语义干净，用户裁决取代 |
-| user.id 放每条 record 的 attributes（Claude Code 形态） | 要动 session-telemetry seam 契约或逐条注入，wire 体积涨；Resource 每批一次已满足聚合 |
+| user.id 放每条 record 的 attributes（Claude Code 形态） | 要动 session-telemetry seam 约定或逐条注入，wire 体积涨；Resource 每批一次已满足聚合 |
 | 公用 util 包统一两条回流（初版实现） | 唯一现实消费者是 OTel backend；sdk launcher 换用它只是为统一而统一——用户复议收回，回流关联需求出现时再抽包 |
 | 复用 telemetry.json 不新建文件 | 文件名/JSON 格式把身份挂在 launcher 链路命名下；OTel 回流身份是独立事实 |
 | AppCLIEntry 读好 id 经 config patch 注入 | 每个 surface 入口都要接线；config 里传运行时事实与部署配置混淆 |

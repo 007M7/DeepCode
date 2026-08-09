@@ -224,6 +224,6 @@ export function describeEvents(events: readonly EventApiEntry[] = EVENT_API, nam
     entry.push(`    ${event.signature}`)
     return entry
   })
-  lines.push('waterfall listeners receive a trailing next() and MUST call it to delegate — returning without next() vetoes the chain.')
+  lines.push('waterfall listeners receive a trailing next() and MUST call it to delegate — returning without next() short-circuits the chain.')
   return lines
 }

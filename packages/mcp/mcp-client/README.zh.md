@@ -44,10 +44,11 @@ MCP 客户端桥接插件：连接外部 [Model Context Protocol](https://modelc
 | `url` | http | 是 | MCP 服务器 URL |
 | `headers` | http | 否 | 额外标头（例如认证 token） |
 | `toolCallTimeoutMs` | 两者 | 否 | 每次 `callTool` 调用的超时（默认 60000） |
+| `failOnStartupError` | 两者 | 否 | 初始连接或工具同步失败时拒绝插件激活（默认 `false`） |
 
 ## 工具命名
 
-每个 MCP 工具都有两个名称：通过 `tools/call` 在协议上传送的原始 MCP 名称，以及公开名称 `mcp__<serverName>__<rawName>`，后者注册到 `ctx.tools`。公开名称会规范化为 DeepSeek 函数名称契约（64 个字符、`[A-Za-z0-9_-]`）；如果替换或截断改变名称，就会追加 `(serverName, rawName)` 的确定性 12 位十六进制 hash，确保不同工具绝不会折叠为同一个名称。名称是 `(serverName, rawName)` 的纯函数：连接顺序、重新同步和其他服务器永远不会重命名工具。
+每个 MCP 工具都有两个名称：通过 `tools/call` 在协议上传送的原始 MCP 名称，以及公开名称 `mcp__<serverName>__<rawName>`，后者注册到 `ctx.tools`。公开名称会规范化为 DeepSeek 函数名称约定（64 个字符、`[A-Za-z0-9_-]`）；如果替换或截断改变名称，就会追加 `(serverName, rawName)` 的确定性 12 位十六进制 hash，确保不同工具绝不会折叠为同一个名称。名称是 `(serverName, rawName)` 的纯函数：连接顺序、重新同步和其他服务器永远不会重命名工具。
 
 - 发布相同原始名称（例如 `search`）的两个服务器会在各自 namespace 下共存。
 - 存活实例中的重复 `serverName` 会使后加载的插件实例失败。
@@ -56,12 +57,12 @@ MCP 客户端桥接插件：连接外部 [Model Context Protocol](https://modelc
 
 ## 行为
 
-- 连接时：`listTools()` → 通过 `ctx.tools.register()` 使用各自公开名称注册每个工具。
-- 监听 `notifications/tools/list_changed` → 重新同步；同步失败时保留上一世代的注册。
+- 连接时：插件激活会等待 `listTools()`，并在组合开始首个轮次前通过 `ctx.tools.register()` 以公开名称注册每个工具。初始连接、发现或注册失败始终会记录日志；`failOnStartupError` 为 true 时拒绝激活，否则插件仍会激活但不注册工具。
+- 监听 `notifications/tools/list_changed` → 重新同步；获取阶段失败时保留上一世代的注册，注册冲突则会回滚本次尝试的世代，并且不保留该服务器的任何工具。
 - 工具执行：`client.callTool({ name: rawName, arguments }, { signal })`，支持超时 + 中止；公开名称绝不会发给服务器。
 - 规范成功值是 `{ content: JsonValue[], structuredContent? }`；完整的 JSON MCP 块会保留给编程调用方。受支持且已声明的 `outputSchema` 会验证 `structuredContent`；不受支持的 schema 词汇会回退为不受约束的 `JsonValue`。
 - Native／模型渲染保留现有文本投影：文本块以换行连接，图片、音频、资源和不受支持的块会变成占位符。
-- 断开／崩溃时：不自动重新连接。已注册工具会一直保留到插件完成资源释放或成功重新同步，针对已关闭传输的调用可能失败；请通过 HMR 重新加载或重启 Host 来重新连接。
+- 断开／崩溃时：不自动重新连接。已注册工具会一直保留到对插件执行 dispose（资源释放）或成功重新同步，针对已关闭传输的调用可能失败；请通过 HMR 重新加载或重启 Host 来重新连接。
 
 ## 消费的服务
 
@@ -75,7 +76,7 @@ MCP 客户端桥接插件：连接外部 [Model Context Protocol](https://modelc
 
 #### 模型看到的内容
 
-初始发现成功后，每个已声明的 MCP 工具都会显示为名为 `mcp__<serverName>__<rawName>`（或其确定性规范化形式）的原生工具，并携带服务器提供的描述和输入 schema。成功的重新同步会替换整个世代；对插件执行 dispose（资源释放）会移除该世代。
+初始发现成功后，每个已声明的 MCP 工具都会显示为名为 `mcp__<serverName>__<rawName>`（或其确定性规范化形式）的原生工具，并携带服务器提供的描述和输入 schema。成功的重新同步会替换整个世代；对插件执行 dispose 会移除该世代。
 
 #### Token 影响
 
@@ -101,8 +102,8 @@ MCP 客户端桥接插件：连接外部 [Model Context Protocol](https://modelc
 
 ## 已知限制与暂缓事项
 
-- **初始发现是异步的**：插件加载不会等待连接和 `listTools()`，因此在启动或 HMR 后立即开始的轮次可能在 MCP 工具注册前完成组装。
 - **只桥接 MCP 的工具能力**：资源和提示词没有 harness 消费接口，暂缓实现。
+- **启动超时继承自 MCP SDK**：DSH 尚未公开连接／发现超时。每次 initialize 请求或分页 `tools/list` 请求都使用 SDK 默认的 60 秒，因此在初始同步完成期间，无响应的 server 或 cursor chain 可能同时延迟激活与 teardown。
 - **崩溃恢复需要手动触发**：传输关闭后不会自动重新连接；已注册工具可能仍然可见，但会因传输已关闭而调用失败，直到 HMR 重载或重启 Host。
 - **Native 非文本渲染有损**：图片、音频与资源载荷在模型上下文中会变成占位符，即使执行局部的规范值保留了其 JSON 块。更丰富的 Native 多媒体投影暂缓实现。
 - **不强制执行不受支持的 MCP 输出 schema**：已声明 schema 使用 harness 子集之外的词汇时，`structuredContent` 会回退到 `JsonValue`。
