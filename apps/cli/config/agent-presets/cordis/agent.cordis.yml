@@ -234,20 +234,14 @@
 # in the user's skill root: it documents THIS deployment's two planes, and a
 # preset is the unit that gets copied and edited. `baseUrl` is the preset's
 # own directory, so the root resolves wherever the preset is installed.
-- id: skills
-  name: cordis:group
-  group: true
-  isolate:
-    skills: true
+# Both rows register into THIS preset's layer of the host skill registry, so
+# they need no realm; the agent's merged catalog also carries whatever the
+# deployment registered globally (repository plugins).
+- id: skill-local
+  name: '@deepseek-ai/dsh-skill-local'
   config:
-    - id: skill
-      name: '@deepseek-ai/dsh-skill'
+    customSkillDirs:
+      - !!js "process.getBuiltinModule('node:url').fileURLToPath(new URL('skills/', baseUrl))"
 
-    - id: skill-local
-      name: '@deepseek-ai/dsh-skill-local'
-      config:
-        customSkillDirs:
-          - !!js "process.getBuiltinModule('node:url').fileURLToPath(new URL('skills/', baseUrl))"
-
-    - id: tool-skill
-      name: '@deepseek-ai/dsh-tool-skill'
+- id: tool-skill
+  name: '@deepseek-ai/dsh-tool-skill'

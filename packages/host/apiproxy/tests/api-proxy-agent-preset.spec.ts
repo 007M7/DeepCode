@@ -384,6 +384,59 @@ describe('agentPreset.select', () => {
   })
 })
 
+describe('skills over the layered host registry', () => {
+  it('passes the live agent as the view scope to the host registry', async () => {
+    const { api, ctx } = await harness(['standard'])
+    const seen: unknown[] = []
+    ctx.provide('skills', {
+      list: (options: { scope?: unknown }) => {
+        seen.push(options.scope)
+        return Promise.resolve([])
+      },
+    } as never)
+    await api.sessions.create(request({ sessionId: SessionId('h1'), agentPreset: 'standard' }))
+
+    const response = await api.skills.list(request({ sessionId: SessionId('h1') }))
+
+    expect(response.result).toMatchObject({ ok: true, value: { skills: [] } })
+    expect(seen).toEqual([ctx.agents.get(SessionId('h1'))])
+  })
+
+  it('resolves a cold session to its recorded preset standing key', async () => {
+    const { api, ctx } = await harness(['standard', 'core-web'])
+    const seen: unknown[] = []
+    ctx.provide('skills', {
+      list: (options: { scope?: unknown }) => {
+        seen.push(options.scope)
+        return Promise.resolve([])
+      },
+    } as never)
+    ctx.sessions.create(SessionId('h2'), { meta: { cwd: '/workspace/cold', agentPreset: 'core-web' } })
+
+    const response = await api.skills.list(request({ sessionId: SessionId('h2') }))
+
+    expect(response.result).toMatchObject({ ok: true, value: { skills: [] } })
+    expect(seen).toEqual([standingKeys.get('core-web')])
+  })
+
+  it('serves the global view when the roster no longer supplies the recorded preset', async () => {
+    const { api, ctx } = await harness(['standard'])
+    const seen: unknown[] = []
+    ctx.provide('skills', {
+      list: (options: { scope?: unknown }) => {
+        seen.push(options.scope)
+        return Promise.resolve([])
+      },
+    } as never)
+    ctx.sessions.create(SessionId('h3'), { meta: { cwd: '/workspace/cold', agentPreset: 'gone' } })
+
+    const response = await api.skills.list(request({ sessionId: SessionId('h3') }))
+
+    expect(response.result).toMatchObject({ ok: true, value: { skills: [] } })
+    expect(seen).toEqual([undefined])
+  })
+})
+
 describe('session.history presenter scope', () => {
   it('asks the roster for the RECORDED preset\'s standing key on a cold read', async () => {
     const { api } = await harness(['standard', 'core-web'])
