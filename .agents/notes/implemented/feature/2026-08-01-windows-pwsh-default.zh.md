@@ -16,7 +16,7 @@ harness 交付的执行画像在每个平台都是 bash 优先。Windows 主机�
 - **启动器按平台注入该层。** `apps/cli/src/windows-shell.ts` 在 `win32` 主机上从 base bundle 层的 `packageDir` 解析它，置于 bundle 层与用户层之间，覆盖所有组合路径（启动、config-only HMR 重组合、配置转储）。覆盖交付默认是组合决策：偏好 bash 栈（或偏好有限权）的 Windows 主机通过其 profile 或 home 的 `cordis.patch.yml` 重新启用 bash 行。未挂 base bundle 的自定义 profile 被跳过（它们自己拥有 shell 栈）；base bundle 缺 `windows.cordis.patch.yml` 时 fail loud。
 - **冷启动的模块解析已恢复。** profiles 重构把 pwsh 包从 `apps/cli` 的依赖闭包中删掉了，`healProfilesModuleFallback` 因此从未把它们链接进 `$DSH_HOME/profiles/node_modules`，新 Windows 主机解析不到插入的行。`apps/cli` 与 `dsh-base` 重新声明 `dsh-pwsh-local`/`dsh-tool-pwsh`，`dsh-base` 还声明 `dsh-fs-local`；按仓库惯例，base bundle 把每个行插件都列为依赖。
 
-原路线图的阶段 2（pwsh GUI 渲染）已随 [pwsh UI 呈现与 bash 对齐决策](2026-08-05-pwsh-ui-bash-parity.md) 先行交付；[pwsh 工具与 bash 对齐决策](2026-08-02-pwsh-tool-bash-parity.md) 交付了工具表面。本决策不改变任何 POSIX 行为。
+pwsh GUI 渲染已随 [pwsh UI 呈现与 bash 对齐决策](2026-08-05-pwsh-ui-bash-parity.md) 先行交付；[pwsh 工具与 bash 对齐决策](2026-08-02-pwsh-tool-bash-parity.md) 交付了工具表面。本决策不改变任何 POSIX 行为。
 
 ## 备选方案
 
