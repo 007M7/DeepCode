@@ -22,6 +22,7 @@ describe('repository plugin common .mcp.json support', () => {
       serverName: 'expo',
       url: 'https://mcp.expo.dev/mcp',
       headers: {},
+      failOnStartupError: true,
     }])
   })
 
@@ -43,6 +44,7 @@ describe('repository plugin common .mcp.json support', () => {
       args: ['--endpoint', 'http://localhost:8000'],
       env: { DJ_API_URL: 'http://localhost:8000' },
       cwd: '/plugin',
+      failOnStartupError: true,
     }])
   })
 
@@ -74,12 +76,14 @@ describe('repository plugin common .mcp.json support', () => {
         args: [],
         env: {},
         cwd: '/plugin',
+        failOnStartupError: true,
       },
       {
         transport: 'streamable-http',
         serverName: 'remote',
         url: 'http://localhost:3000/mcp',
         headers: { Authorization: 'Bearer test-token' },
+        failOnStartupError: true,
       },
     ])
   })

@@ -3,12 +3,19 @@
  * @module
  */
 
+import { readFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import type { Context, Fiber, FiberState, Plugin } from 'cordis'
 import type { RepositoryCache } from '@cordisjs/plugin-loader/repository'
 import { resolveDshHome } from '@deepseek-ai/dsh-paths'
-import { PREPARED_ENTRY_FILENAME } from './format.ts'
+import { z } from 'zod'
+import {
+  PREPARED_ENTRY_FILENAME,
+  REPOSITORY_PLUGIN_PACKAGE_NAME,
+  REPOSITORY_PLUGIN_PREPARE_COMMAND,
+  hasRepositoryPrepareCommand,
+} from './format.ts'
 
 // Value mirror: Cordis's const enum has no runtime object to import. Keep
 // aligned with `packages/self-modification/tool-cordis/src/fiber-state.ts`.
@@ -22,6 +29,17 @@ export const DEFAULT_REPOSITORY_CACHE_DIRECTORY = 'repository-plugins'
 // cache's pnpm install ('misconfiguration fails loud at the earliest
 // resolvable point').
 const GITHUB_SOURCE_PATTERN = /^github:([^/\s#&]+)\/([^/\s#&]+)#([^\s#&]+)(?:&path:(\/[^\s&]+))?$/
+const installedPackageSchema = z.looseObject({
+  devDependencies: z.looseObject({
+    [REPOSITORY_PLUGIN_PACKAGE_NAME]: z.string().min(1),
+  }),
+  scripts: z.looseObject({
+    prepack: z.string().min(1).refine(
+      hasRepositoryPrepareCommand,
+      { message: `must invoke ${REPOSITORY_PLUGIN_PREPARE_COMMAND}` },
+    ),
+  }),
+})
 
 function validPluginPath(path: string): boolean {
   const segments = path.split('/').slice(1)
@@ -57,6 +75,23 @@ export function resolveRepositoryCacheDirectory(configured: string | undefined):
   return resolve(configured ?? join(resolveDshHome(), 'cache', DEFAULT_REPOSITORY_CACHE_DIRECTORY))
 }
 
+async function assertInstalledPackageMetadata(directory: string): Promise<void> {
+  let value: unknown
+  try {
+    value = JSON.parse(await readFile(join(directory, 'package.json'), 'utf8')) as unknown
+  } catch (cause) {
+    throw new Error(`failed to read installed DSH plugin package metadata in ${directory}`, { cause })
+  }
+  const result = installedPackageSchema.safeParse(value)
+  if (!result.success) {
+    throw new Error([
+      `installed DSH plugin package must declare a non-empty scripts.prepack that invokes ${JSON.stringify(REPOSITORY_PLUGIN_PREPARE_COMMAND)}, and declare ${JSON.stringify(REPOSITORY_PLUGIN_PACKAGE_NAME)} in devDependencies:`,
+      z.prettifyError(result.error),
+      'Clear the matching repository cache generation before retrying the same source, or select a different exact source/ref/path after fixing the package.',
+    ].join('\n'))
+  }
+}
+
 /**
  * Load one exact repository generation's generated wrapper as a child Cordis fiber.
  * @param ctx - repository runtime context that owns the child.
@@ -73,6 +108,7 @@ export async function loadPreparedRepository(
   const directory = await cache.resolve(specifier)
   const filename = join(directory, PREPARED_ENTRY_FILENAME)
   try {
+    await assertInstalledPackageMetadata(directory)
     const plugin = await import(/* @vite-ignore */pathToFileURL(filename).href) as Plugin
     const fiber = ctx.plugin(plugin)
     await fiber
