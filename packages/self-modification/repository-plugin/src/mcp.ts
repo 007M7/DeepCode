@@ -49,12 +49,14 @@ export type ResolvedMcpServer =
     args: string[]
     env: Record<string, string>
     cwd: string
+    failOnStartupError: true
   }
   | {
     transport: 'streamable-http'
     serverName: string
     url: string
     headers: Record<string, string>
+    failOnStartupError: true
   }
 
 function assertTemplate(value: string, location: string): void {
@@ -135,6 +137,7 @@ export function resolveMcpServers(document: McpDocument, environment: NodeJS.Pro
         args: (definition.args ?? []).map((value, index) => expand(value, environment, `mcpServers.${serverName}.args[${index}]`)),
         env: expandMap(definition.env, environment, `mcpServers.${serverName}.env`),
         cwd,
+        failOnStartupError: true,
       }
     }
     const url = expand(definition.url, environment, `mcpServers.${serverName}.url`)
@@ -147,6 +150,7 @@ export function resolveMcpServers(document: McpDocument, environment: NodeJS.Pro
       serverName,
       url,
       headers: expandMap(definition.headers, environment, `mcpServers.${serverName}.headers`),
+      failOnStartupError: true,
     }
   })
 }
