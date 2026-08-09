@@ -9,9 +9,9 @@
 
 import type { ContentBlock, TokenUsage } from '@deepseek-ai/dsh-llm'
 import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
-import { CompactionId } from './brand.ts'
+import type { CompactionId } from './brand.ts'
 
-export { CompactionId }
+export type { CompactionId }
 
 declare module '@deepseek-ai/dsh-session/types' {
   interface SessionEventMap {

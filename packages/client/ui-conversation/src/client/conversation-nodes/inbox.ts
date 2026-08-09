@@ -2,9 +2,7 @@ import type { Context } from 'cordis'
 import type {
   ConversationNodeDefinition, ConversationPreviousContext,
 } from '@deepseek-ai/dsh-client-runtime/client'
-import type {} from '@deepseek-ai/dsh-agent/types'
-
-type InboxTarget = 'next-turn' | 'next-step'
+import type { InboxTarget } from '@deepseek-ai/dsh-agent/types'
 
 interface InboxIdentity {
   readonly id: string

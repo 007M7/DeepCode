@@ -6,7 +6,7 @@ import { Context } from 'cordis'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
 import SessionPersistenceSqlite from '@deepseek-ai/dsh-session-persistence-sqlite'
-import { RetryId } from '@deepseek-ai/dsh-llm-retry/types'
+import { RetryId } from '@deepseek-ai/dsh-llm-retry'
 import type {} from '../src/index.ts'
 
 const dirs: string[] = []

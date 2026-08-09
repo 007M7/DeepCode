@@ -31,6 +31,7 @@ function scheduledNode(match: Parameters<ConversationNodeDefinition['start']>[1]
   }
 }
 
+/** A scheduled attempt is cancelled once either owning boundary closes. */
 function isClosed(location: ConversationLocation): boolean {
   return (location.kind === 'step' && location.step.status === 'closed')
     || ((location.kind === 'step' || location.kind === 'turn') && location.turn.status === 'closed')

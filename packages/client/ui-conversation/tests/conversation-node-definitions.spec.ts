@@ -465,6 +465,38 @@ describe('built-in conversation node Definitions', () => {
     expect(node(snapshot(value), 'user')).toBeUndefined()
   })
 
+  it('orders claimed steering after the finalized Turn tail', () => {
+    const steering = textMessage('steer-after-answer', 'change direction')
+    const value = assembler([
+      at(1, 'turn/start', { turn: 1 }),
+      at(2, 'step/start', { turn: 1, step: 1 }),
+      at(3, 'assistant/message', {
+        turn: 1,
+        step: 1,
+        message: assistantMessage('assistant-before-steering', 'initial answer'),
+      }, { surfaceOp: 'append' }),
+      at(4, 'agent/inbox/spliced', {
+        target: 'next-step',
+        start: 0,
+        inserted: [steering],
+      }),
+      at(5, 'agent/inbox/spliced', {
+        target: 'next-step',
+        start: 0,
+        removedCount: 1,
+        inserted: [],
+      }),
+      at(6, 'user/message', steering, { surfaceOp: 'append' }),
+      at(7, 'step/end', { turn: 1, step: 1 }),
+      at(8, 'turn/end', { turn: 1, reason: { kind: 'completed' } }),
+    ])
+
+    const current = snapshot(value)
+    const steeringNode = node(current, 'steering')
+    expect(steeringNode).toBeDefined()
+    expect(current.locations.getTurn(1).at(-1)).toBe(steeringNode?.key)
+  })
+
   it('classifies appended producer context from durable source metadata', () => {
     const value = assembler([
       at(1, 'user/message', {

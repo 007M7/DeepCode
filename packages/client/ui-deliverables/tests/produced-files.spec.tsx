@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 /**
  * ui-deliverables browser half: the derivation contract of
- * `producedForClosing` over finalized snapshot nodes, the row's rendering
+ * `producedForClosing` over engine-published Turn data, the row's rendering
  * and opener wiring, and the plugin registrations' fiber-teardown removal
  * (HMR safety) against the real SlotsService.
  */
@@ -12,7 +12,7 @@ import {
   ConversationEventRegistry, ConversationNodeAssembler, SlotsService,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import type {
-  ConversationEventInput, ConversationLocationDataStore, ConversationNodeDefinition,
+  ConversationEventInput, ConversationLocationDataStore, ConversationMatch, ConversationNodeDefinition,
   ConversationTimelineSnapshot, ConversationTurnDataMap, ConversationViewDefinition,
   ConversationViewNode, ToolResultNode, TurnLocation,
 } from '@deepseek-ai/dsh-client-runtime/client'
@@ -107,6 +107,10 @@ function at(
   }
 }
 
+function matched(input: ConversationEventInput, role: ConversationMatch['role']): ConversationMatch {
+  return { ...input, role, location: { kind: 'unresolved' } }
+}
+
 function call(
   seq: number,
   callId: string,
@@ -188,6 +192,50 @@ describe('produced-file Turn data', () => {
     expect(producedForClosing(deliverablesOf(value))).toEqual([
       'out/index.html', 'out/app.css', 'notes.md',
     ])
+  })
+
+  it('ignores calls without mutation locations, orphan results, and replacement results', () => {
+    const replacement = result(8, 'replacement')
+    const value = assembler([
+      at(1, 'turn/start', { turn: 1 }),
+      at(2, 'tool/call', { turn: 1, step: 1, callId: 'no-view', name: 'fixture', arguments: '{}' }),
+      result(3, 'no-view'),
+      call(4, 'locationless-edit', { card: 'generic', title: 'Edit', kind: 'edit' }),
+      result(5, 'locationless-edit'),
+      result(6, 'orphan'),
+      call(7, 'replacement', diff('replaced.txt')),
+      {
+        ...replacement,
+        event: {
+          ...replacement.event,
+          surfaceOp: { op: 'replace', start: 1, end: 1 },
+        } as ConversationEventInput['event'],
+      },
+      at(9, 'turn/end', { turn: 1, reason: { kind: 'completed' } }),
+    ])
+
+    expect(producedForClosing(deliverablesOf(value))).toEqual([])
+  })
+
+  it('rejects an invalid start match and preserves state for an unrelated update', () => {
+    const startMatch = matched(at(1, 'turn/start', { turn: 1 }), 'start')
+    const emptyContext: Parameters<typeof deliverablesDefinition.start>[0] = {
+      key: 'deliverables:1',
+      kind: 'deliverables',
+      id: '1',
+      matches: [startMatch],
+      start: startMatch,
+      state: undefined,
+      current: new Map(),
+    }
+    const reader: Parameters<typeof deliverablesDefinition.start>[2] = { previous: () => undefined }
+    const state = deliverablesDefinition.start(emptyContext, startMatch, reader)
+    const unrelated = matched(at(2, 'turn/end', { turn: 1, reason: { kind: 'completed' } }), 'update')
+    const context: Parameters<typeof deliverablesDefinition.update>[0] = { ...emptyContext, state }
+
+    expect(() => deliverablesDefinition.start(emptyContext, unrelated, reader))
+      .toThrow('deliverables start requires turn/start')
+    expect(deliverablesDefinition.update(context, unrelated)).toBe(state)
   })
 
   it('replays a tail page once prepend supplies its missing Turn start', () => {
