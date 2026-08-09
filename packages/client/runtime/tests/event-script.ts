@@ -54,12 +54,12 @@ export const ev = {
   codeDispatchStart: (seq: number, parentCallId: string, n: number, name: string, args: unknown): SessionEvent =>
     at(seq, {
       type: 'tool/code-dispatch-start',
-      data: { parentCallId, subCallId: `${parentCallId}:code:${n}`, name, arguments: args },
+      data: { rootCallId: parentCallId, parentCallId, subCallId: `${parentCallId}:code:${n}`, name, arguments: args },
     }),
   codeDispatch: (seq: number, parentCallId: string, n: number, name: string, args: unknown, body: string, isError = false): SessionEvent =>
     at(seq, {
       type: 'tool/code-dispatch',
-      data: { parentCallId, subCallId: `${parentCallId}:code:${n}`, name, arguments: args, isError, content: text(body) },
+      data: { rootCallId: parentCallId, parentCallId, subCallId: `${parentCallId}:code:${n}`, name, arguments: args, isError, content: text(body) },
     }),
   stepEnd: (seq: number, turn: number, step = 0): SessionEvent =>
     at(seq, { type: 'step/end', data: { turn, step } }),

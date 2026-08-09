@@ -396,6 +396,14 @@ const reference = [
     section: { root: '开发手册', en: 'Cookbook' },
     order,
   }))),
+  ...pairedPages([{
+    source: 'docs/cookbook/adding-a-conversation-node.md',
+    route: 'reference/cookbook/adding-a-conversation-node.md',
+    label: { root: '新增 Conversation Node', en: 'Adding a Conversation Node' },
+    sidebar: { root: 'zh-reference', en: 'en-reference' },
+    section: { root: '开发手册', en: 'Cookbook' },
+    order: 4,
+  }]),
 ]
 
 /** Every canonical page published by the documentation website. */
