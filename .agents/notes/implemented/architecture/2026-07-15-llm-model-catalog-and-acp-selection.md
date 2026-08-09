@@ -34,9 +34,9 @@ The ACP automation transport is not a catalog consumer. Its deployment config su
 
 ### Prompt/request consistency and durability
 
-`installAgentLlmTarget` (in `dsh-agent`) installs scoped `system-prompt/assemble` and `agent/request` listeners for a front-door-owned target. Prompt assembly snapshots the selected pair once per step, overwrites the assembled `provider` and `model` variables after downstream prompt listeners, and the request listener applies that same snapshot after downstream request listeners. A selection during asynchronous assembly therefore starts on the next step rather than splitting prompt text from routing. Other call-config fields remain untouched.
+`installModelSelection` (in `dsh-agent`) installs scoped `system-prompt/assemble` and `agent/request` listeners for a front-door-owned selection. Prompt assembly snapshots the selected pair once per step, overwrites the assembled `provider` and `model` variables after downstream prompt listeners, and the request listener applies that same snapshot after downstream request listeners. A selection during asynchronous assembly therefore starts on the next step rather than splitting prompt text from routing. Other call-config fields remain untouched.
 
-The request header remains the durable source of truth. When a selected target is actually used, the existing full `request/header` snapshot records it, and a front door initializes its selection from the folded last request header before falling back to creation options. A selection that is never used by a request is intentionally in-memory only because it never became model-visible state.
+The request header remains the durable source of truth. When a selection is actually used, the existing full `request/header` snapshot records it, and a front door initializes its selection from the folded last request header before falling back to creation options. A selection that is never used by a request is intentionally in-memory only because it never became model-visible state.
 
 ## Alternatives considered
 
