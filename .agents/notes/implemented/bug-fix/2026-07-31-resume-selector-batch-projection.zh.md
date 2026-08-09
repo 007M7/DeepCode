@@ -22,7 +22,7 @@ session-query 与 session-persistence 的任何表面都未改变。随附的 TU
 
 ## Alternatives considered
 
-**通过通用批量投影（`projectSessions`）保留每行的路由/轮次/目标列。** 先实现后否决：它仍在每次 `/resume` 时解压并解析全部日志，浏览开销依旧是 O(日志总字节数)，且为单一消费者扩大了 session-query 公开 API。该公开 seam 已回退；`readTitleSnapshots` 继续使用内部 `projectMany`，保持不变。
+**通过通用批量投影（`projectSessions`）保留每行的路由/轮次/目标列。** 先实现后否决：它仍在每次 `/resume` 时解压并解析全部日志，浏览开销依旧是 O(日志总字节数)，且为单一消费者扩大了 session-query 公开 API。该公开约定已回退；`readTitleSnapshots` 继续使用内部 `projectMany`，保持不变。
 
 **只修复 `SessionCorpus.load()` 内部的 O(N²) 列表查询。** 作为主要修复被否决：在大日志上，按候选行执行的完整解压、回放验证和三重克隆才是主要开销。`load()` 中的冗余预列表查询仍是一个候选清理项，但涉及错误语义。
 

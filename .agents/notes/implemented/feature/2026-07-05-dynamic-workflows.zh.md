@@ -10,7 +10,7 @@ harness 可以将一个任务委派给一个子 agent（`dsh-tool-subagent`）�
 
 ## 决策
 
-在 `packages/workflow/` 下以 bash seam 的形态（接口／实现／消费方）提供一组工作流能力，以及它在 subagent seam 上所需的结构化输出基础。
+在 `packages/workflow/` 下以 bash seam 的形态（Service Definition／Service provider／Consumer）提供一组工作流能力，以及它在 subagent seam 上所需的结构化输出基础。
 
 ### 脚本约定（兼容 Claude Code）
 
@@ -36,7 +36,7 @@ harness 可以将一个任务委派给一个子 agent（`dsh-tool-subagent`）�
 
 **值边界**：`materializeFromRealm` 复制出站值，并拒绝函数、symbol、嵌套 `undefined`、异域原型、循环引用、稀疏数组和非有限数字。数据属性复制使 `"__proto__"` 安全；getter 正常读取，抛出异常的 getter 会明确报错。`args` 通过 `workerData` 传入，暴露前再次克隆。realm 函数被调用而非复制，抛出的值使用对所有输入均有定义的渲染器，因此 `result` 不会 reject。钩子错误是宿主 realm 的 `WorkflowError`，脚本应基于 `name` 或 `code` 分支而非 `instanceof Error`，如引擎 README 所述。并发、total-agent、item、超时和宽限限制均为经校验的配置。
 
-### 消费方（dsh-tool-workflow）
+### Consumer（`dsh-tool-workflow`）
 
 一个 `workflow` 工具，镜像 `dsh-tool-subagent` 的同步形态：启动、await、`try/finally` dispose、abort 桥接 `exec.signal`、非 `completed` → `isError`。渲染意图：一张以调用的 `meta.name` 参数为标题的 `generic` 卡片（展示是参数的纯函数）。工具描述即面向模型的编写规范。使用策略以工具自身的 `tool:<toolName>` 提示词段落随工具发布（显式请求才使用的引导——工具引导存在于工具插件中，从不在部署 persona 中）；harness 没有 ultracode 风格的 effort 门控。
 

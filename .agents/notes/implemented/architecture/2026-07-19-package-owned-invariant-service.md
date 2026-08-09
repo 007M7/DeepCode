@@ -1,4 +1,4 @@
-# Agent Note: Package-owned invariant service seam
+# Agent Note: Package-owned invariant service contract
 
 Status: implemented
 

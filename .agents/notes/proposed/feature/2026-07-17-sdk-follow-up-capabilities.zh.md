@@ -12,7 +12,7 @@ Status: proposed
 
 ## 提案
 
-SDK 扩展现有提示词与工程编辑边界，不另建平行工作流。非交互式 `PromptPort` 实现和结构化功能计划驱动 create 与 config；`dsh-sdk create <source>` 先把依赖解析交给工程的包管理器，再通过 `ProjectEditSession` 挂载解析所得的包；启动器侧遥测包住 `create-sdk` 和每个 `dsh-sdk` 命令；交互测试主要通过注入的提示词输入输出流完成。
+SDK 扩展现有提示词与工程编辑边界，不另建平行工作流。非交互式 `PromptPort` 实现和结构化功能计划驱动 create 与 config；`dsh-sdk create <source>` 先把依赖解析交给工程的包管理器，再通过 `ProjectEditSession` 挂载解析所得的包；启动器侧遥测包住 `create-sdk` 和每个 `dsh-sdk` 命令；注入的提示词输入输出流提供主要的交互测试钩子。
 
 | 功能 | 产品入口 | 所属机制 | 必须达到的结果 |
 |---|---|---|---|

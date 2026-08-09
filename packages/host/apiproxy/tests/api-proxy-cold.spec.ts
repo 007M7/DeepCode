@@ -518,7 +518,7 @@ describe('sessions.prompt synchronous rejection', () => {
     await ctx.plugin(UserInteractionService)
     const session = ctx.sessions.create(sid('session-throwing'))
     // A live structural stub whose delivery verbs throw synchronously, the
-    // shape a disposed loop presents at this seam.
+    // shape a disposed loop presents at this gateway boundary.
     ctx.agents.register({
       id: session.id,
       session,

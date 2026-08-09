@@ -2,13 +2,13 @@
 
 [English](spill.md) | 中文
 
-落盘存储 seam 是一项[能力 seam](../../.agents/notes/implemented/architecture/2026-07-08-tool-output-spill-files.md)，它持久保存工具的超大文本，并返回面向模型的定位符与检索指引；该能力拆分到三个包：接口（[dsh-spill](../../packages/spill/spill)，`ctx.spillStore`）、实现（[dsh-spill-local](../../packages/spill/spill-local)，宿主文件系统中会话作用域的私有文件）和消费方（[dsh-spill-policy](../../packages/spill/spill-policy)，`tools/post-execute` 策略）。落盘是**一项可选能力**，不属于 agent loop（智能体循环）主干，因此其词汇记录在此处，而不在 [core.md](core.md) 中。预览机制仍归 [dsh-retention](../../packages/util/retention) 所有；该 seam 只保存策略交给它的最终文本。
+落盘存储 seam 是一项[能力 seam](../../.agents/notes/implemented/architecture/2026-07-08-tool-output-spill-files.md)，它持久保存工具的超大文本，并返回面向模型的定位符与检索指引；该能力拆分到三个包：Service Definition（[dsh-spill](../../packages/spill/spill)，`ctx.spillStore`）、Service provider（[dsh-spill-local](../../packages/spill/spill-local)，宿主文件系统中会话作用域的私有文件）和 Consumer（[dsh-spill-policy](../../packages/spill/spill-policy)，`tools/post-execute` 策略）。落盘是**一项可选能力**，不属于 agent loop（智能体循环）主干，因此其词汇记录在此处，而不在 [core.md](core.md) 中。预览机制仍归 [dsh-retention](../../packages/util/retention) 所有；该 seam 只保存策略交给它的最终文本。
 
 源码：[`packages/spill/spill/src/types.ts`](../../packages/spill/spill/src/types.ts)
 
 ## 保存请求
 
-`saveText` 是整个 seam：原样持久保存 `content`，并返回不透明的定位符、后端提供的检索提示和准确字节数。请求携带保存时的存储命名空间（`owner`）、生成内容的工具和调用（`source`，用于命名和检查，而非访问控制）以及后端可用作命名提示的 `suggestedName`（它不是路径）。
+`saveText` 是唯一的服务操作：原样持久保存 `content`，并返回不透明的定位符、后端提供的检索提示和准确字节数。请求携带保存时的存储命名空间（`owner`）、生成内容的工具和调用（`source`，用于命名和检查，而非访问控制）以及后端可用作命名提示的 `suggestedName`（它不是路径）。
 
 ```ts type-equiv
 /** One request to persist text to a spill artifact. */

@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-The abstract durable session-persistence seam (`ctx.sessionPersistence`). Defines WHAT a persistence backend does — durably store, reload, and list sessions — without saying HOW. Mirrors the `dsh-bash` capability-seam template ([capability seams](../../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md)): an abstract service here, a concrete implementation in a sibling package, consumers that inject the interface.
+The durable session-persistence Service Definition (`ctx.sessionPersistence`). Defines WHAT a persistence backend does — durably store, reload, and list sessions — without saying HOW. Mirrors the `dsh-bash` capability-seam template ([capability seams](../../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md)): an abstract service here, a Service provider in a sibling package, and Consumers that inject the service.
 
 The persisted unit IS the existing `SessionEvent` (event-sourced model — the log is the single source of truth), so there is no parallel "persisted message" type. Metadata that is NOT replayable conversation state (format version, cwd, lineage, seed boundary, origin, delegation depth) travels separately as `SessionHeader`, owned by `dsh-session` and re-exported here.
 
@@ -41,7 +41,7 @@ When a live session emits `session/disposed`, the coordinator waits for its cont
 
 The side-effect-free `locate`, lightweight `listSnapshots`, and per-id `readStoredRevision` queries remain backend-owned because they describe storage topology and revision identity rather than write orchestration. `listSnapshots(signal?)` passes the caller's exact signal into backend discovery so observers can cancel that work without detaching it.
 
-The `PersistenceBackend<TornMarker>` hooks (the only seam between the coordinator and storage):
+The `PersistenceBackend<TornMarker>` hooks (the only contract between the coordinator and storage):
 
 | Hook | Role |
 |---|---|

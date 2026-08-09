@@ -362,7 +362,7 @@ describe('the boundary flush', () => {
     ctx.planMode.set(agent, true)
     const original = agent.session.append.bind(agent.session)
     // Only the flush's own plan/mode append fails; the boundary event itself
-    // lands (the loop appended it before the seam fires).
+    // lands (the loop appended it before the between-step hook fires).
     agent.session.append = (((type: string, ...rest: unknown[]) => {
       if (type === 'plan/mode') throw new Error('backend gone')
       return (original as (...args: unknown[]) => unknown)(type, ...rest)

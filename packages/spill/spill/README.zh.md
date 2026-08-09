@@ -2,17 +2,17 @@
 
 [English](README.md) | 中文
 
-**spill 存储 seam**：抽象的 `SpillStore` 服务（`ctx.spillStore`）定义 spill 后端做什么，即持久化某个工具过大的文本，并返回面向模型的定位信息与取回指引；它不规定如何实现。
+**`SpillStore`**（`ctx.spillStore`）定义 spill 后端做什么，即持久化某个工具过大的文本，并返回面向模型的定位信息与取回指引；它不规定如何实现。
 
 该包是 spill 能力的三个组成部分之一。拆分后，各项关注点可独立演进和替换：
 
 | 包 | 职责 |
 |---|---|
-| `@deepseek-ai/dsh-spill`（本包） | 接口：抽象服务与词汇类型 |
-| `@deepseek-ai/dsh-spill-local` | 实现：位于宿主文件系统中的私有会话级文件 |
-| `@deepseek-ai/dsh-spill-policy` | 对过大最终结果执行 spill 的工具结果策略 |
+| `@deepseek-ai/dsh-spill`（本包） | Service Definition：抽象服务与词汇类型 |
+| `@deepseek-ai/dsh-spill-local` | Service provider：位于宿主文件系统中的私有会话级文件 |
+| `@deepseek-ai/dsh-spill-policy` | Consumer：对过大最终结果执行 spill 的工具结果策略 |
 
-这种拆分方式与 bash/fs seam 相同。未来的远程或虚拟后端（例如 `spill://…` URI、数据库键或后端专用取回工具）可实现此接口，无需修改策略插件。
+这种拆分方式与 bash/fs seam 相同。未来的远程或虚拟后端（例如 `spill://…` URI、数据库键或后端专用取回工具）可实现此 Service Definition，无需修改策略插件。
 
 ## 服务 API（`ctx.spillStore`）
 

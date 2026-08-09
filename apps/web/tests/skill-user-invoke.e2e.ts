@@ -2,7 +2,7 @@
 // the composer (issue #1470). The entered `/name args` line claims into
 // skill.invoke: the real host forwards the gesture as an ordinary user
 // prompt, injects the rendered body as instructions context named after the
-// skill, and starts a turn answered by the replay seam. The transcript shows
+// skill, and starts a turn answered by the replay adapter. The transcript shows
 // the gesture bubble, the collapsed context-injection row, and the reply.
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -133,7 +133,7 @@ describe.skipIf(MODE === 'record')('web e2e: user-explicit skill invocation thro
     expect(injected).not.toContain(ARGS_TEXT)
     await injectionRow.click()
 
-    // The injection started a turn; the replay seam answers it.
+    // The injection started a turn; the replay adapter answers it.
     await page.getByText('USER_INVOKE_REPLY', { exact: false }).first().waitFor({ timeout: 20_000 })
 
     const snapshot = await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd)

@@ -16,7 +16,7 @@ Status: implemented
 
 agent loop（智能体循环）通过同一条设置与发布流水线消费这两种形式：先取得准备对象，围绕 `preparation.session` 构建私有 agent 上下文，等待可选设置完成，再发布该精确 Session 和 agent，并在所有退出路径上对准备对象执行 dispose（资源释放）。发布后，实时生命周期由现有 Session 与 agent 存储接管；`SessionPreparation` 本身不负责任何 agent 行为。
 
-该机制细化了 [agent 生命周期与所有权决策](2026-06-18-agent-lifecycle-and-ownership-seams.md)中的发布边界，但不替换其所有权模型。
+该机制细化了 [agent 生命周期与所有权决策](2026-06-18-agent-lifecycle-and-ownership-contracts.md)中的发布边界，但不替换其所有权模型。
 
 ## 持久化准备生命周期
 

@@ -6,7 +6,7 @@ The capability family spans the canonical executor seam, its implementations, th
 
 | Package | Role | ctx key |
 |---|---|---|
-| [`bash/`](bash/README.md) | Defines the executor contract shared by implementations and consumers. | `ctx.bash` |
+| [`bash/`](bash/README.md) | Defines the executor contract shared by Service providers and Consumers. | `ctx.bash` |
 | [`bash-local/`](bash-local/README.md) | Executes commands through the local [`subprocess`](../subprocess/README.md) service. | (registers `ctx.bash`) |
 | [`bash-sandbox/`](bash-sandbox/README.md) | Applies the configured [`sandbox`](../sandbox/README.md) backend before local execution. | (registers `ctx.bash`) |
 | [`pwsh-local/`](pwsh-local/README.md) | Executes PowerShell commands with Windows-specific process behavior. | (registers `ctx.bash`) |

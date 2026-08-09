@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-抽象用户设置 seam（`ctx.settings`）。一个提供方持有按 namespace 分节的原始文档；插件注册 namespace schema 并读取分层解析值：schema 默认值，然后注册方的组合 `base`（其 cordis.yml entry 配置子集），最后用户文档分节。不挂载提供方时消费者行为不变：仍只按 entry 配置解析，因此任何组合有无 settings 都能工作。
+用户设置 Service Definition（`ctx.settings`）。一个提供方持有按 namespace 分节的原始文档；插件注册 namespace schema 并读取分层解析值：schema 默认值，然后注册方的组合 `base`（其 cordis.yml entry 配置子集），最后用户文档分节。不挂载提供方时消费者行为不变：仍只按 entry 配置解析，因此任何组合有无 settings 都能工作。
 
 ## 服务 API
 

@@ -23,7 +23,7 @@ The production corpus is `packages/*/*/src`, example sources/config, and runtime
 | `PersistenceCoordinator.inits`, backend `inits` accessors, `seedCoversPrefix`, and `assertSerializable` | The accessors exist for white-box tests; `seedCoversPrefix` has no outside production importer; `assertSerializable` has no production caller and duplicates the coordinator append boundary's lossless snapshot. | Observe initialization through `session/flush`, make `seedCoversPrefix` source-private, and delete `assertSerializable`. Keep both backends, `SessionHeader`, and SQLite's version contract. |
 | `LlmError.status` and replay status | Adapters/replay populate it, but production branches on stable error code/message and never reads raw status. | Remove the unread field and replay plumbing while preserving error classification. |
 | `BlockAssembler.push()` return value | Both production callers ignore the returned completed block. | Return `void`; keep the deliberately public `blocks()`/`message()` contract. |
-| `compactRegion`'s separate `session` argument | The fixed caller passes the same object already present as `agent.session`; the model-visible mount API can also call the method, but accepting two identities permits a mounted plugin to provide an incoherent pair. | Keep the manual-region seam while deliberately narrowing it to `agent.session` as the one source of truth. |
+| `compactRegion`'s separate `session` argument | The fixed caller passes the same object already present as `agent.session`; the model-visible mount API can also call the method, but accepting two identities permits a mounted plugin to provide an incoherent pair. | Keep the manual-region API while deliberately narrowing it to `agent.session` as the one source of truth. |
 | `CompactionResult.startSeq`, `summarySeq`, `endSeq`, and `summary` | The production consumer reads only shadowed range/seq/token accounting; the durable log owns summary and event identity. | Remove the four result echoes while keeping both shared transcript renderers. |
 | `BasicCompactService` estimation/summarization visibility | No outside production caller invokes the five methods; the implemented Agent Note names only `estimateContentTokens()` and `summarize()` as subclass hooks. | Make those two `protected` and the three orchestration-only estimators private. |
 | `CodeLogEntry.source`/`level` and `RunCodeMeta.dispatches` | Every production consumer maps logs to text; no presenter/model path reads the other fields or the persisted dispatch count. | Make code-runtime logs strings (or text-only entries) and remove result-meta dispatch plumbing; keep the local counter that mints deterministic dispatch ids. |
@@ -43,7 +43,7 @@ The production corpus is `packages/*/*/src`, example sources/config, and runtime
 
 ## Proposal
 
-Remove or demote every row as one bounded coordinated public-surface cleanup. Update package READMEs, JSDoc, generated API/event catalogs, type-equivalence records, exports maps where needed, and tests so they exercise the owning public seam instead of preserving test-only entry points. Do not collapse any capability seam, LLM adapter, persistence backend, or lifecycle quiescence contract.
+Remove or demote every row as one bounded coordinated public-surface cleanup. Update package READMEs, JSDoc, generated API/event catalogs, type-equivalence records, exports maps where needed, and tests so they exercise the owning public contract instead of preserving test-only entry points. Do not collapse any capability seam, LLM adapter, persistence backend, or lifecycle quiescence contract.
 
 ## Alternatives considered
 
@@ -60,4 +60,4 @@ Remove or demote every row as one bounded coordinated public-surface cleanup. Up
 
 ## Risks
 
-Most removals are compile-visible but runtime-neutral. The compaction argument cleanup deliberately forbids a session/context mismatch while retaining the manual-region seam. External pre-release embedders and existing model-written mounts may import fewer helpers, pass fewer arguments, or receive narrower result shapes; this is an intentional product-surface contraction, not merely generated-catalog cleanup. The repository is unreleased, so carrying unsupported surface is the larger foundation cost.
+Most removals are compile-visible but runtime-neutral. The compaction argument cleanup deliberately forbids a session/context mismatch while retaining the manual-region API. External pre-release embedders and existing model-written mounts may import fewer helpers, pass fewer arguments, or receive narrower result shapes; this is an intentional product-surface contraction, not merely generated-catalog cleanup. The repository is unreleased, so carrying unsupported surface is the larger foundation cost.

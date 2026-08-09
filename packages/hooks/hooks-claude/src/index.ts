@@ -1,10 +1,10 @@
 /**
  * Bridge for unmodified Claude Code command hooks on harness interception
- * seams. It supports SessionStart, prompt/tool pre/post, Stop, and subagent
+ * extension points. It supports SessionStart, prompt/tool pre/post, Stop, and subagent
  * start/stop. It owns Claude payloads, environment, substitution, and decision
  * mapping; shared execution and parsing live in `dsh-hook-protocol`.
  * `updatedInput` is logged and warned but not honored. Bespoke behavior should
- * use typed native plugins on the same seams; see the
+ * use typed native plugins on the same extension points; see the
  * [hook-bridges Agent Note](../../../../.agents/notes/implemented/feature/2026-06-30-hook-bridges.md).
  * @module @deepseek-ai/dsh-hooks-claude
  */
@@ -38,7 +38,7 @@ import { parseClaudeConfig, type ClaudeHookConfig } from './config.ts'
 
 export const name = 'hooks-claude'
 // `bash` is required to run hooks; the rest are read opportunistically via
-// ctx.get so a deployment can load this bridge without every seam present.
+// ctx.get so a deployment can load this bridge without every extension point present.
 export const inject = ['bash']
 
 /** Plugin config: where the CC hook config lives + substitution roots. */
@@ -130,7 +130,7 @@ export function apply(ctx: Context, config: Config): void {
    * `matchQuery`, with the per-event `payload` on stdin, and fold the results.
    * Writes a `hook/invoked`/`hook/result` pair per hook when `opts.turn` names
    * an open turn. Detached lifecycle points omit the pair. Returns the merged outcome (a neutral,
-   * already-most-restrictive view) for the caller to map onto its seam
+   * already-most-restrictive view) for the caller to map onto its extension point
    * decision. `matchQuery` is the event's matcher subject (tool name, session
    * source, …); `''` for events that ignore matchers.
    */
@@ -186,7 +186,7 @@ export function apply(ctx: Context, config: Config): void {
     return mergeHookOutputs(outputs)
   }
 
-  // TODO(hook-continue-false): `merged.stop` is logged but needs a run-level halt seam.
+  // TODO(hook-continue-false): `merged.stop` is logged but needs a run-level halt mechanism.
 
   /** Build additional model context from hook output, or return undefined when empty. */
   function contextFrom(merged: MergedHookOutcome): UserMessage | undefined {
@@ -310,7 +310,7 @@ const SUBAGENT_TYPE = 'general-purpose'
 function lastTurn(agent: Agent | undefined): number {
   if (!agent) return 0
   const last = [...agent.session.events].findLast(e => e.type === 'turn/start')
-  /* v8 ignore next -- agent-present callers are tool/stop seams inside an open turn. */
+  /* v8 ignore next -- agent-present callers are tool/stop extension points inside an open turn. */
   return last?.type === 'turn/start' ? last.data.turn : 0
 }
 

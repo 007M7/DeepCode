@@ -135,7 +135,7 @@ export function citationSnippets(blocks: readonly ContentBlock[]): Map<string, s
  * Map a DeepSeek Anthropic Messages response to a normalized search result. Walks
  * `web_search_tool_result` blocks for citeable `web_search_result` items, joins each to its
  * citation excerpt as `snippet`, and dedupes by `url` (a `max_uses > 1` request can surface
- * the same URL across searches). The seam owns the final `maxResults` truncation, so
+ * the same URL across searches). The web service owns the final `maxResults` truncation, so
  * `truncated` is always `false` here.
  *
  * @param response - the parsed Messages response body.

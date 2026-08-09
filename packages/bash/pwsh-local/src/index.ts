@@ -1,5 +1,5 @@
 /**
- * Local PowerShell implementation of the bash executor seam. Each command runs
+ * Local PowerShell Service provider for the bash capability seam. Each command runs
  * as `pwsh -NoLogo -NoProfile -NonInteractive -Command <command>` in a managed
  * process spawned through `ctx.subprocess`; the executor owns command
  * defaulting, deadlines and cause classification, the model-friendly terminal
@@ -279,7 +279,7 @@ export class PwshLocalExecutor extends BashExecutor {
    * Settlement hook for subclasses that attach execution facts to a process.
    * The base implementation is intentionally empty. Mirrored from
    * `dsh-bash-local` (whose sandboxing subclass consumes the same hook); it is
-   * the declared seam for a future pwsh-confining subclass and has no consumer
+   * the protected extension point for a future pwsh-confining subclass and has no consumer
    * in this package yet.
    * @param _proc - the settled process handle.
    * @param _stderr - the process's retained stderr tail used by subclasses for settlement classification.

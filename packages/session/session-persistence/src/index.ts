@@ -1,5 +1,5 @@
 /**
- * Durable session-persistence seam (`ctx.sessionPersistence`). Backends store
+ * Durable session-persistence Service Definition (`ctx.sessionPersistence`). Backends store
  * {@link SessionEvent}s as the event-sourced log and carry non-replayable
  * {@link SessionHeader} metadata separately.
  * @module @deepseek-ai/dsh-session-persistence
@@ -10,7 +10,7 @@ import { SessionPreparation } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SessionId, SessionHeader } from '@deepseek-ai/dsh-session'
 import type { SessionPersistenceRevision } from './revision.ts'
 
-// Re-export the metadata vocabulary so consumers import it from the seam.
+// Re-export the metadata vocabulary so Consumers import it from the Service Definition.
 export type { SessionHeader } from '@deepseek-ai/dsh-session'
 export { SessionPersistenceRevision } from './revision.ts'
 

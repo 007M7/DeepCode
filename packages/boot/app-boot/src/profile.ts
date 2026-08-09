@@ -208,10 +208,10 @@ function ensureSymlink(link: string, target: string): void {
  * directory after the profile's own `node_modules`, so every in-box plugin
  * resolves without pnpm ever managing it — the exact "bundles come from the
  * installation" contract. The closure (not just direct dependencies) is
- * required for out-of-tree plugins: their peer dependencies name seam
- * packages (`dsh-compact`, `dsh-invariants`, ...) that the app reaches only
- * through its implementation packages. Symlinked packages resolve their own
- * dependencies from their real directories (Node's default
+ * required for out-of-tree plugins: their peer dependencies name Service
+ * Definition packages (`dsh-compact`, `dsh-invariants`, ...) that the app
+ * reaches only through its Service provider packages. Symlinked packages
+ * resolve their own dependencies from their real directories (Node's default
  * symlink-following), so each package needs only its one flat link.
  * Idempotent: correct links are kept and moved installations are
  * re-pointed; a stale link to a vanished package stays until its name is
@@ -231,7 +231,7 @@ export function healProfilesModuleFallback(installAnchor: string, home: string =
   // map itself (first resolution wins, matching Node's own nearest-wins).
   const queue: { anchor: string; manifest: ProfileManifest }[] = [{ anchor: installAnchor, manifest: appManifest }]
   for (let next = queue.shift(); next !== undefined; next = queue.shift()) {
-    // Peer dependencies participate: seam packages (dsh-subprocess,
+    // Peer dependencies participate: Service Definition packages (dsh-subprocess,
     // dsh-compact, ...) are peers of their implementations, never plain
     // dependencies, yet out-of-tree plugins import them directly.
     /* v8 ignore next -- a real app manifest always declares dependencies */

@@ -32,7 +32,7 @@ ctx.tools.execute(exec)
 
 默认行为是保守的：未声明 `timeoutMs` 的工具不会从该插件收到 `TOOL_TIMEOUT` 截止信号。
 
-### `tools/execute` 环绕 seam
+### `tools/execute` 环绕分发扩展点
 
 `@deepseek-ai/dsh-tools` 声明了一个 `tools/execute` waterfall，其基础 `next()` 是带规范化的分发 thunk——即同一个内部 `try`/`catch`，将抛出的工具错误（或未知工具错误）转换为 `isError` 的 `ToolExecutionResult`。监听器接收 `(exec, next)`：调用 `next()` 委托给分发（返回其结果，可选地包装），或返回替代结果以短路分发。整个流水线仍位于 `execute` 的外层 try/catch 内，因此抛出异常的监听器会变成 `isError` 结果，而非轮次失败。
 
@@ -101,13 +101,13 @@ function toolTimeoutResult(timeoutMs: number): ToolExecutionResult {
 
 **让 `timeout-policy` 自行匹配工具参数。** 诸如「当 `bash.run_in_background` 为 true 时禁用超时」之类的规则引擎会让策略插件了解工具特定的参数语义。通过不将 bash 迁移到工具调用超时来规避此问题。
 
-**使用 `tools/pre-execute` 加 `tools/post-execute` 代替新的环绕 seam。** pre 监听器可以启动截止时间并修改 `exec.signal`；post 监听器可以分类并替换。这样做的问题是截止时间的生命周期会跨越两个独立的 waterfall：需要 call-id 映射、在每条 pre-deny/tool-throw/post-throw/dispose（资源释放）路径上清理，以及与其他监听器的排序规则。`tools/pre-execute` 也是允许/拒绝门禁，而非执行包装器。`tools/execute` 给超时一个词法作用域：启动、委托、分类、释放。
+**使用 `tools/pre-execute` 加 `tools/post-execute` 代替新的环绕分发扩展点。** pre 监听器可以启动截止时间并修改 `exec.signal`；post 监听器可以分类并替换。这样做的问题是截止时间的生命周期会跨越两个独立的 waterfall：需要 call-id 映射、在每条 pre-deny/tool-throw/post-throw/dispose（资源释放）路径上清理，以及与其他监听器的排序规则。`tools/pre-execute` 也是允许/拒绝门禁，而非执行包装器。`tools/execute` 给超时一个词法作用域：启动、委托、分类、释放。
 
 **使用 `Promise.race` 对非协作工具强制超时。** 与超时库 Agent Note 相同的理由否决：它在底层进程、fetch 或提供方操作可能仍在运行时就将控制权返回给调用方。插件只发送信号；终止仍是实现方的责任。
 
 ## 后果
 
-- `@deepseek-ai/dsh-tools` 在有意拆分 pre/post 工具钩子的拦截 seam 之后，获得了一个环绕分发接口。其约定是狭窄的——包装注册表分发，而非替代 pre 门禁或 post 结果策略——且基础 `next()` 是带规范化的分发，因此包装器永远不会看到未经处理的工具异常。
+- `@deepseek-ai/dsh-tools` 在拦截点有意拆分 pre/post 工具钩子之后，获得了一个环绕分发接口。其约定是狭窄的——包装注册表分发，而非替代 pre 门禁或 post 结果策略——且基础 `next()` 是带规范化的分发，因此包装器永远不会看到未经处理的工具异常。
 - 多个 `tools/execute` 监听器按普通 Cordis waterfall 顺序组合：调用 `next()` 的监听器包装下游监听器加分发；不调用 `next()` 直接返回的监听器短路它们。一个同时组合超时与未来重试/沙箱/指标包装器的部署通过注册顺序选择语义（「超时覆盖整个重试」vs「超时覆盖每次尝试」）。
 - 按声明加入是一个有意的误配置风险：工具可以声明 `timeoutMs` 但不遵循 `exec.signal`，这样的工具在超时时不会停止。注册表会等待这个尚未完全停稳的工具体结束，而不是与它竞速；同时插件约定声明：声明预算意味着协作；web 工具在已转发信号的工具上验证了这一模式。
 - 过渡期间 `bash` 和已迁移的 web 工具有意使用不同的超时路径：`TOOL_TIMEOUT` 是面向模型的工具调用预算，而 `BASH_TIMEOUT` 仍是 bash 和钩子使用的 bash 后端超时。

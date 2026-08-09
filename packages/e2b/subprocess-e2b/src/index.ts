@@ -1,5 +1,5 @@
 /**
- * E2B implementation of the subprocess seam. Each handle starts through the
+ * E2B Service provider for the subprocess capability seam. Each handle starts through the
  * shared sandbox and retains command output/status paths in that remote world.
  * @module @deepseek-ai/dsh-subprocess-e2b
  */

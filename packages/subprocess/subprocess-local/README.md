@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-Local implementation of the [`@deepseek-ai/dsh-subprocess`](../subprocess/README.md) seam. `LocalSubprocessService` resolves local executables, spawns ordinary detached process trees with explicit stdio, and implements terminal processes through `node-pty` plus platform process inspection. It has no config: every disposition, limit, terminal dimension, grace, and directory arrives from the calling seams ([`dsh-bash-local`](../../bash/bash-local/README.md), [`dsh-lsp-local`](../../lsp/lsp-local/README.md), and [`dsh-pty-local`](../../pty/pty-local/README.md)).
+Local Service provider for the [`@deepseek-ai/dsh-subprocess`](../subprocess/README.md) seam. `LocalSubprocessService` resolves local executables, spawns ordinary detached process trees with explicit stdio, and implements terminal processes through `node-pty` plus platform process inspection. It has no config: every disposition, limit, terminal dimension, grace, and directory arrives from the calling capability seams ([`dsh-bash-local`](../../bash/bash-local/README.md), [`dsh-lsp-local`](../../lsp/lsp-local/README.md), and [`dsh-pty-local`](../../pty/pty-local/README.md)).
 
 ## Behavior (and where it came from)
 
@@ -16,7 +16,7 @@ Local implementation of the [`@deepseek-ai/dsh-subprocess`](../subprocess/README
 
 ## Model Experience
 
-Indirectly, through consumer seams (today the bash executor family behind `dsh-tool-bash`), which own all model-facing rendering of process output and lifecycle.
+Indirectly, through Consumers (today the bash executor family behind `dsh-tool-bash`), which own all model-facing rendering of process output and lifecycle.
 
 #### KV Cache effect
 

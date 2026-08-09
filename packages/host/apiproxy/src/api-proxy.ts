@@ -811,7 +811,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
   }
 
   // Projection change feed → session/projection push frames. The carrier
-  // mints the wire frame (the seam package holds no wire vocabulary); the
+  // mints the wire frame (the Service Definition package holds no wire vocabulary); the
   // child activates only when a projection registry is composed, and the
   // subscription unwinds with this gateway's fiber.
   ctx.inject(['sessionProjections'], (projectionCtx) => {
@@ -1319,7 +1319,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     return { code: 'internal', message: 'credentials service is absent: this deployment does not mount a credential provider (e.g. @deepseek-ai/dsh-credentials-local) in its composition', details: {} }
   }
 
-  /** Map one redacted seam descriptor to its wire view. */
+  /** Map one redacted settings descriptor to its wire view. */
   function namespaceView(descriptor: SettingsDescriptor): SettingsNamespaceView {
     return {
       ns: String(descriptor.ns),
@@ -2048,7 +2048,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       // the Web picker collapsed onto the directory flow
       // (.agents/notes/implemented/simplification/2026-07-31-one-route-to-add-a-workspace.md).
       // Delete it with the wire schema's `name` member, this
-      // `defaults.workspaceRoot`, the client seam that carried the name
+      // `defaults.workspaceRoot`, the client contract that carried the name
       // (`WorkspaceCreateInput`, `WorkspacesService.create`'s `{ name }` arm,
       // `intentName`'s name branch, the manager's "name under workspaceRoot"
       // contract), and the `dsh web --workspace-root` flag plus its apps/cli

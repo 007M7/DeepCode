@@ -70,7 +70,7 @@ function defaultProbeSeatbelt(seatbeltExec: string, timeoutMs: number): boolean 
   return probe.status === 0
 }
 
-/** Test seam: inject probe verdicts / a fake launcher / a platform without real runners. */
+/** Test hook: inject probe verdicts / a fake launcher / a platform without real runners. */
 export interface SandboxInternals {
   /** Replaces `process.platform` for chain selection (exercise any platform's chain from any host). */
   platform?: string
@@ -179,7 +179,7 @@ export class LocalSandboxProvider extends SandboxProvider {
     probeTimeoutMs: z.natural().default(5_000),
   })
 
-  /** Test seam (mirrors the bash executors' `internals`). */
+  /** Test hook (mirrors the bash executors' `internals`). */
   internals: SandboxInternals = {}
 
   private readonly runnerCommand: string[] | undefined
@@ -300,12 +300,12 @@ export class LocalSandboxProvider extends SandboxProvider {
     }
   }
 
-  /** The Landlock launcher to probe and exec (test seam over the resolved one). */
+  /** The Landlock launcher to probe and exec (test hook over the resolved one). */
   private landlockLauncher(): string {
     return this.internals.landlockLauncher ?? landlockLauncherPath()
   }
 
-  /** The `sandbox-exec` executable to probe and exec (test seam over the system one). */
+  /** The `sandbox-exec` executable to probe and exec (test hook over the system one). */
   private seatbeltExec(): string {
     return this.internals.seatbeltExec ?? 'sandbox-exec'
   }
