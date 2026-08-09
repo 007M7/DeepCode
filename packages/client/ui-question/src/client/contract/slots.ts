@@ -86,8 +86,8 @@ export function planReviewOf(questions: readonly QuestionItem[]): PlanReview | u
 
 /**
  * Question domain face over the carrier: render identity and questions
- * transparently forwarded; answer/cancel own the wire encoding (the ok value
- * shape and the cancelled error) and turn a rejected carrier receipt into a
+ * transparently forwarded; answer/cancel own the wire encoding (the success
+ * fields and the cancelled error) and turn a rejected carrier receipt into a
  * thrown error. Components mint one per carrier via useMemo (never inside a
  * select — a per-dispatch mint would churn identity and break memoization).
  */

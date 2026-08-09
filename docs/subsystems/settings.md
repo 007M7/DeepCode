@@ -8,7 +8,7 @@ Source: [`packages/settings/settings/src/index.ts`](../../packages/settings/sett
 
 ## Identity
 
-A namespace names one plugin-owned section of the user document. The brand keeps namespaces from mixing with other cross-boundary ids; construction validates the lowercase kebab-case shape.
+A namespace names one plugin-owned section of the user document. The brand prevents callers from mixing settings namespaces with other ids passed between packages or processes; construction validates lowercase kebab-case syntax.
 
 ```ts type-equiv
 /** Nominal id of one registered settings namespace. */
@@ -79,14 +79,14 @@ interface SettingsScope<T> {
   watch(callback: (next: T, prev: T) => void | Promise<void>): () => void
   /**
    * Merge a partial patch into this namespace's user layer and persist it.
-   * @param patch - plain-object patch over the user section; JSON-shaped data
+   * @param patch - plain-object patch over the user section; JSON-compatible data
    * only (non-JSON values reject with their path before anything persists).
    */
   update(patch: object): Promise<void>
   /**
    * Replace this namespace's user section wholesale; absent keys re-inherit
    * the composition `base` and schema defaults (`replace({})` resets all).
-   * @param section - the complete next user section; JSON-shaped data only,
+   * @param section - the complete next user section; JSON-compatible data only,
    * as for {@link update}.
    */
   replace(section: object): Promise<void>

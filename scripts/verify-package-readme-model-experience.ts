@@ -217,12 +217,12 @@ function validateNestedVerbatim(raw: readonly string[], fragments: Set<string>):
   return { blocks }
 }
 
-/** GitHub-style fragment for the simple ASCII nested titles allowed by this contract. */
+/** GitHub-style fragment for the simple ASCII nested titles allowed by these rules. */
 function headingFragment(title: string): string {
   return title.toLowerCase().replaceAll('`', '').replaceAll(/[^a-z0-9 _-]/g, '').trim().replaceAll(/\s+/g, '-')
 }
 
-/** A direct stable system-prompt contribution, as named by the README contract. */
+/** A direct stable system-prompt contribution, as named by the README rules. */
 function isDirectSystemPromptSurface(title: string): boolean {
   return /\bsystem prompt\b/i.test(title)
 }

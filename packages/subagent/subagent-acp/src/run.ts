@@ -248,8 +248,8 @@ export async function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpe
       return Promise.resolve()
     },
     requestPermission(params: RequestPermissionRequest): Promise<RequestPermissionResponse> {
-      // Auto-answer by the configured policy. `allow` selects the first
-      // allow-shaped option the child offered; if it offered none (or we
+      // Auto-answer by the configured policy. `allow` selects the first option
+      // whose kind is `allow_once` or `allow_always`; if the child offered none (or we
       // reject), answer `cancelled` so the child does not proceed.
       if (spec.permission === 'allow') {
         const allow = params.options.find(o => o.kind === 'allow_once' || o.kind === 'allow_always')

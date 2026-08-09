@@ -15,7 +15,7 @@ import {
 } from './sessions.schema.ts'
 import { workspaceIdSchema, workspaceViewSchema } from './workspace.schema.ts'
 
-/** Question shape validated strictly against core dsh-user-interaction. */
+/** Question fields validated strictly against core dsh-user-interaction. */
 export const askUserQuestionItemSchema = z.object({
   id: z.string(),
   question: z.string(),
