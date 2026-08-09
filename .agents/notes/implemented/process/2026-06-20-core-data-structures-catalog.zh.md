@@ -1,4 +1,4 @@
-# Agent Note: 核心数据结构目录与 `ts type-equiv` 漂移门禁
+# Agent Note: 子系统目录与 `ts type-equiv` 漂移门禁
 
 Status: implemented
 
@@ -18,14 +18,14 @@ Status: implemented
 
 > **作为页面范围界定规则已被取代**，见[按包锚定的子系统页面](2026-08-03-package-anchored-subsystem-pages.md)：每页现在锚定到声明其词汇的包分组。下文的 `ts type-equiv` 机制仍然有效。
 
-范围界定并非自上而下拍定，而是将候选定义逐一对照具体的边界类型反复测试，直到一条规则在所有案例中都成立。决定性的测试是 `BashExecRequest`/`BashExecSpec`/`BashRunResult`：bash 是一个能力 *seam*，不属于 agent loop（智能体循环）主干；如果这些算「核心」，那么「核心」就意味着*所有跨包词汇*，目录沦为平铺罗列；如果不算，「核心」就意味着*中央主干*，bash 词汇归入子页面。后者胜出，由此确定了整体结构：一个**分层文件夹**，而非一份平铺文档。
+范围界定并非自上而下拍定，而是将候选定义逐一对照具体的边界类型反复测试，直到一条规则在所有案例中都成立。决定性的测试是 `BashExecRequest`/`BashExecSpec`/`BashRunResult`：bash 是一个能力 *seam*，不属于 agent loop（智能体循环）主干；如果这些算「核心」，那么「核心」就意味着*所有跨包词汇*，目录沦为平铺罗列；如果不算，「核心」就意味着*中央主干*，bash 词汇归入自己的 seam 页面。后者胜出，由此确定了整体结构：一个**分层文件夹**，而非一份平铺文档。
 
-确定其余案例的规则是：***你编写、持有或接收的类型是核心；为其提供类型推导、渲染或持久化的机制是子页面细节。*** 逐一验证如下：
+确定其余案例的规则是：***你编写、持有或接收的类型是核心；为其提供类型推导、渲染或持久化的机制是 seam 页面细节。*** 逐一验证如下：
 
 - 一个数据结构是**核心**的，如果它流经 agent loop 主干——无论加载了哪些插件，循环在每个轮次都会持有、派生、流式输出或记录它（`Message`、`StreamChunk`、`SessionEvent`、`Agent` 句柄）——**或者**它是插件作者面对某条流水线时编写的唯一标志性类型（`ToolDefinition`）。
-- `ToolDefinition` 是核心（它是每个工具作者编写的东西），**即使循环从不持有它**——对于这一个标志性类型，编写层面的重要性压过了严格的「流经主干」规则。但它的类型推导机制——`ValueSchemaSpec`、`ParameterSchemaSpec`、`InferValue` 与 `InferArgs`——是子页面细节。这就是主干与 seam 分界线的精确表述。
+- `ToolDefinition` 是核心（它是每个工具作者编写的东西），**即使循环从不持有它**——对于这一个标志性类型，编写层面的重要性压过了严格的「流经主干」规则。但它的类型推导机制——`ValueSchemaSpec`、`ParameterSchemaSpec`、`InferValue` 与 `InferArgs`——是 seam 页面细节。这就是主干与 seam 分界线的精确表述。
 - `ToolSchema` 是核心（它是流经每个步骤的模型请求 `GenerateOptions` 的一个字段），即使它在概念上属于工具流水线——当*流经主干*与*概念归属*冲突时，前者胜出。
-- 工具展示词汇（`ToolCallView`/`ToolResultView` 等）、`SessionPersistence` 持久性 seam 以及 bash 词汇是子页面。
+- 工具展示词汇（`ToolCallView`/`ToolResultView` 等）、`SessionPersistence` 持久性 seam 以及 bash 词汇属于 seam 页面。
 
 `core.md` 是一份**自包含的主干文档**：它给出每个主干结构的确切类型定义，辅以最少的行文，并链接到同级 seam 页面获取各 seam 的细节；目录的 [README](../../../../docs/subsystems/README.md) 索引全部页面。最初的 seam 页面包括 `llm-streaming.md`、`session.md`、`persistence.md`（沿内存模型与持久性 seam 的分界线从会话页面拆出）、`tools.md` 和 `bash.md`。
 

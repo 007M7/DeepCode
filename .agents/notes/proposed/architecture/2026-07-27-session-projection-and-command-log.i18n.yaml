@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/proposed/architecture/2026-07-27-session-projection-and-command-log.md
 2026-07-27-session-projection-and-command-log.md: 2fc463ab6e65998c19b0a0fce186c7eb17dacbf6
-2026-07-27-session-projection-and-command-log.zh.md: 89877d3aabcd074863f912b334c927268014e4d8
+2026-07-27-session-projection-and-command-log.zh.md: 0cc82d1aa65dc2b99882875d655ddbe17073354a

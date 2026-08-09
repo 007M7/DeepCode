@@ -17,4 +17,4 @@
 
 可运行组合属于 [`examples/agent-spine-demo`](../examples/agent-spine-demo/README.md)；该分组只负责可替换的主干组件。
 
-子系统参考——逐包循环地图、`Agent` 句柄及其投递/拦截契约——见 [docs/subsystems/core.md](../../docs/subsystems/core.md)；默认可运行组合是 [`examples/agent-spine-demo`](../examples/agent-spine-demo/README.md)。
+子系统参考——逐包循环地图、`Agent` 句柄及其投递/拦截约定——见 [docs/subsystems/core.md](../../docs/subsystems/core.md)；默认可运行组合是 [`examples/agent-spine-demo`](../examples/agent-spine-demo/README.md)。

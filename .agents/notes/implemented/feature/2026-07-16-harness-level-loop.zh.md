@@ -42,11 +42,11 @@ Status: implemented
 | `@deepseek-ai/dsh-command-goal` | `packages/goal/command-goal/`，人类命令生产方 | 为 TUI 注册构建在目标领域之上的 `/goal` 状态、创建、编辑、暂停、恢复与清除。 |
 | `@deepseek-ai/dsh-tool-ralph` | `packages/workflow/tool-ralph/`，固定工作流消费方 | 注册 `ralph({ objective, maxRounds? })`，验证全新结构化 provider 与有界 `RalphRoundReport`，并返回 `complete`、`blocked` 或 `budget-limited`。 |
 
-详细契约分别由[目标领域](2026-07-19-persisted-same-session-goal-domain.md)、[Goal 自有事件](../architecture/2026-07-31-goal-owned-durable-events.md)、[模型目标工具](2026-07-19-model-facing-goal-tools.md)、[目标回合驱动器](2026-07-19-same-session-goal-round-driver.md)、[命令注册表](2026-07-19-plugin-command-registration.md)、[人类目标命令](2026-07-19-human-goal-command.md)与 [Ralph 工作流工具](2026-07-19-fresh-agent-ralph-workflow-tool.md) Agent Note 拥有。
+详细约定分别由[目标领域](2026-07-19-persisted-same-session-goal-domain.md)、[目标自有事件](../architecture/2026-07-31-goal-owned-durable-events.md)、[模型目标工具](2026-07-19-model-facing-goal-tools.md)、[目标回合驱动器](2026-07-19-same-session-goal-round-driver.md)、[命令注册表](2026-07-19-plugin-command-registration.md)、[人类目标命令](2026-07-19-human-goal-command.md)与 [Ralph 工作流工具](2026-07-19-fresh-agent-ralph-workflow-tool.md) Agent Note 拥有。
 
 ### 持久目标状态与实时权限
 
-一个会话至多有一个当前 goal。每次变更都通过持久 `goal/change` 事件提交，并携带带版本的完整快照或带修订号的 clear 墓碑；inbox 状态不参与其中。会话日志是唯一持久真源，因此普通持久化、恢复与 `SessionStore.fork()` 会携带 goal，无需第二个数据库或人为取消记录。
+一个会话至多有一个当前目标。每次变更都通过持久的 `goal/change` 事件提交；该事件携带带版本的完整快照或带修订号的清除墓碑，收件箱状态不参与其中。会话日志是唯一持久真源，因此普通持久化、恢复与 `SessionStore.fork()` 会携带目标，无需第二个数据库或人为取消记录。
 
 持久阶段只有 `active`、`paused`、`blocked` 与 `complete`。阻塞目标必须携带 `GoalBlockReason`，其中包含稳定的小写 kebab-case `code` 与非空的人类可读 `message`；用量限制、Round 耗尽、模型失败与策略拒绝都是原因代码，而不是额外生命周期阶段。独立激活态是 `armed` 或 `disarmed`，且永不持久化。创建与显式恢复会激活目标；停止转换、会话启动、fork 回放、驱动器替换和驱动器拆卸都会让目标保持未激活。
 
@@ -58,9 +58,9 @@ fork 会话会继承持久目标前缀，因为这是自然的重放结果。for
 
 ### 同会话续行
 
-Goal Round 驱动器为每个准确实时 agent 至多拥有一个待定预留。只有 goal 处于活跃且已激活状态、agent 空闲、不存在竞争性人类工作、最新变更已经通过持久性检查点、准确 goal id／revision／Round 仍匹配，并且下游 pre-step 策略接受时，它才会接纳预留。其 `agent/pre-step` 围栏会在下游监听器前后检查这些事实，防止编辑、暂停、人类消息或卸载竞争接纳陈旧工作。
+Goal Round 驱动器为每个特定的实时 agent 至多拥有一个待定预留。只有目标处于活跃且已激活状态、agent 空闲、不存在竞争性人类工作、最新变更已经通过持久性检查点、确切的目标 id／修订号／Round 仍匹配，并且下游 pre-step 策略接受时，它才会接纳预留。其 `agent/pre-step` 围栏会在下游监听器前后检查这些事实，防止编辑、暂停、人类消息或卸载竞争接纳过时工作。
 
-只有已准入、Round 为正数且来源为 goal 的 `user/message` 会计入一个 Round。陈旧预留会关闭一个 blocked 的无步骤轮次，不会消耗上限。并发 goal revision 会胜过旧 Round 的结算。
+只有已接纳、Round 为正数且带目标来源的 `user/message` 会计入一个 Round。陈旧预留会结束一个阻塞的零步骤轮次，不会消耗上限。并发目标修订会胜过旧 Round 的结算。
 
 普通 Turn 完成后，只有目标仍活跃、已激活且低于上限时才会安排另一个 Round。取消会暂停。速率限制或配额耗尽以代码 `usage-limited` 阻塞；上限耗尽使用 `round-limit`；队列失败使用 `queue-failed`；Turn 错误、max-token 停止、策略拒绝与未知终止结果使用各自对应的阻塞代码。独立组合的请求恢复插件可以在同一个 Turn 内重试暂时性 provider 失败；目标驱动器绝不会在异常终止结果后凭空发起另一个 Round。人类随后可以通过普通语言或 `/goal resume` 授权恢复。
 

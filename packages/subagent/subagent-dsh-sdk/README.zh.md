@@ -16,7 +16,7 @@ SDK 提供方会在全新的子进程中把每个 subagent 作为完整的 DeepS
 
 ## 停止原因映射
 
-SDK 客户端返回自有子活动，而不是提示词结果。提供方读取该活动内最后一个持久 `turn/end`，并将其映射为 seam 词汇：`completed` → `completed`，`max-tokens` → `max-tokens`，`aborted` → `aborted`；其余情况，包括 `error`、`interrupted`、`disposed`、未来变体或不含轮次的活动，均映射为 `error`，因此非正常停止绝不会报告为成功。发布后的传输层失败会通过 `onError` 诊断接收器（连接到 `ctx.logger.warn`）压平为 `stopReason: 'error'`；seam 契约禁止 `result` 被拒绝。
+SDK 客户端返回自有子活动，而不是提示词结果。提供方读取该活动内最后一个已持久化的 `turn/end`，并将其映射为 seam 词汇：`completed` → `completed`，`max-tokens` → `max-tokens`，`aborted` → `aborted`；其余情况，包括 `error`、`interrupted`、`disposed`、未来变体或不含轮次的活动，均映射为 `error`，因此非正常停止绝不会报告为成功。发布后的传输层失败会通过 `onError` 诊断接收器（连接到 `ctx.logger.warn`）压平为 `stopReason: 'error'`；seam 约定禁止 `result` 被拒绝。
 
 ## 能力与上下文
 
