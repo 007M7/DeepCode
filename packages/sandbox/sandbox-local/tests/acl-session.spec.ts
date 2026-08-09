@@ -323,8 +323,10 @@ describe('windows-acl write grants (LocalSandboxProvider)', () => {
       ctx.sessions.create(SessionId('reparse'), { seed: [recordEvent(linkRecord)], meta: { cwd: ws } })
       const linkPolicy: SandboxPolicy = { mode: 'workspace-write', workspaceRoot: ws, sessionId: SessionId('reparse') }
       expect(() => sandbox.confine(['true'], linkPolicy)).toThrow(/EEXIST/)
-      expect(mockState.grants).toHaveLength(4)
-      expect(mockState.grants[3]!.disposed).toBe(true)
+      // Same workspace as the preexisting case: the standing workspace grant
+      // is the map hit (not recreated) — only the failed temp grant joins.
+      expect(mockState.grants).toHaveLength(3)
+      expect(mockState.grants[2]!.disposed).toBe(true)
     } finally {
       cleanup()
     }
@@ -421,7 +423,7 @@ describe('windows-acl write grants (LocalSandboxProvider)', () => {
       const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
       await fiber.dispose()
       // BOTH grants (standing workspace + revocable temp) fail their dispose.
-      expect(warn).toHaveBeenCalledWith(expect.stringContaining('cleanup completed with 2 failures'))
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('cleanup completed with 2 failure(s)'))
       expect(warn).toHaveBeenCalledWith(expect.objectContaining({ message: 'revoke exploded' }))
     } finally {
       cleanup()
