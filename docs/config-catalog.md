@@ -1877,14 +1877,14 @@ Requires: `agents`
 ```ts config-catalog
 /** Request-preparation clock formatting and append scheduling. Invalid values fail plugin load. */
 export interface Config {
-  /** Fallback display zone for headerless Sessions. Omit to use the process zone. */
+  /** Fallback display zone when the open turn has no unique browser zone. Omit to use the process zone. */
   timeZone?: string
   /** Minimum milliseconds between durable injections in one session. Omit or set to 0 to inject at every eligible step. */
   refreshIntervalMs?: number
 }
 ```
 
-Source: [`packages/context/time-context/src/index.ts:29`](../packages/context/time-context/src/index.ts)
+Source: [`packages/context/time-context/src/index.ts:26`](../packages/context/time-context/src/index.ts)
 
 ## `@deepseek-ai/dsh-tmux-context`
 

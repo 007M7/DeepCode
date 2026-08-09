@@ -1,6 +1,6 @@
 import { defineConfig } from 'tsdown'
 
-/** Build both public entries separately so each inlines the shared request-zone helper. */
+/** Build both public entries separately so each inlines shared internal helpers. */
 export default defineConfig([
   {
     entry: ['lib/types/index.js'],

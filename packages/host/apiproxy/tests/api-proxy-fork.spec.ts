@@ -55,7 +55,7 @@ function liveAgent(
   id: string,
   turns: number,
   tail: Tail = 'none',
-  lineage: { parentSession?: SessionId; origin?: 'subagent'; timeZone?: string } = {},
+  lineage: { parentSession?: SessionId; origin?: 'subagent' } = {},
 ): Session {
   const session = ctx.sessions.create(sid(id), { meta: { cwd: '/proj', ...lineage } })
   for (let turn = 1; turn <= turns; turn++) {
@@ -90,7 +90,7 @@ const api = (ctx: Context) => createApiProxy(ctx, {
 describe('sessions.fork', () => {
   it('cuts at the anchored completed turn and records lineage and cwd', async () => {
     const ctx = await composed()
-    const source = liveAgent(ctx, 'session-source', 2, 'none', { timeZone: 'Asia/Shanghai' })
+    const source = liveAgent(ctx, 'session-source', 2)
     const response = await api(ctx).sessions.fork(request({ sessionId: source.id, atSeq: 1 }))
     expect(response.result.ok).toBe(true)
     if (!response.result.ok) return
@@ -100,7 +100,6 @@ describe('sessions.fork', () => {
     ])
     expect(child?.header.parentSession).toBe(source.id)
     expect(child?.header.cwd).toBe('/proj')
-    expect(child?.header.timeZone).toBe('Asia/Shanghai')
     await ctx.fiber.dispose()
   })
 
@@ -158,7 +157,6 @@ describe('sessions.fork', () => {
       id: sourceId,
       createdAt: 1,
       cwd: '/proj',
-      timeZone: 'America/New_York',
       parentSession: parentId,
       origin: 'subagent',
     }
@@ -197,7 +195,6 @@ describe('sessions.fork', () => {
     expect(ctx.sessions.get(response.result.value.sessionId)?.header).toMatchObject({
       parentSession: sourceId,
       cwd: '/proj',
-      timeZone: 'America/New_York',
     })
     expect(ctx.sessions.get(response.result.value.sessionId)?.header.origin).toBeUndefined()
     await ctx.fiber.dispose()

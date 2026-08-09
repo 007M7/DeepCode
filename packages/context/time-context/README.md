@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-Opt-in durable context with the current zoned time, immutable Session zone, request-bound browser zones, and elapsed time sampled during model-request preparation. Default compositions do not mount it; the opt-in Schedule Web overlay does. Decision record: [the durable time-context Agent Note](../../../.agents/notes/implemented/feature/2026-07-16-durable-per-step-time-context.md).
+Opt-in durable context with the current zoned time, the browser zone attached to the open request, and elapsed time sampled during model-request preparation. Default compositions leave it disabled; the Schedule Web overlay mounts it so the model can interpret otherwise-unqualified dates and times in the user's browser zone. Decision record: [the durable time-context Agent Note](../../../.agents/notes/implemented/feature/2026-07-16-durable-per-step-time-context.md).
 
 ## Config
 
@@ -10,31 +10,31 @@ Opt-in durable context with the current zoned time, immutable Session zone, requ
 - id: time-context
   name: '@deepseek-ai/dsh-time-context'
   config:
-    timeZone: Asia/Shanghai  # optional fallback for headerless Sessions; omit for the process zone
-    refreshIntervalMs: 60000 # optional; omit or set to 0 for every non-empty entered request batch
+    timeZone: Asia/Shanghai  # optional fallback when the request has no unique browser zone
+    refreshIntervalMs: 60000 # optional; omit or set to 0 for every eligible attempt
 ```
 
-When a Session has `SessionHeader.timeZone`, that immutable IANA zone formats its readings. A headerless Session instead uses the configured fallback; when `timeZone` is omitted, the plugin resolves the Node process's system zone once at plugin load. Node honors `TZ`; without that override, the host or container supplies the fallback. An explicit `timeZone` is validated at plugin load but does not override a Session-owned zone.
+When the open turn contains one Host-validated browser zone, that request-local zone formats the timestamp. With missing or mixed browser provenance, `timeZone` supplies the display fallback; omitting it resolves the Node process zone once at plugin load. Node honors `TZ`, and every explicit fallback is validated through `Intl.DateTimeFormat`.
 
-`refreshIntervalMs` must be a non-negative safe integer. Omission or `0` adds context to every non-empty entered request batch whose signal is not already aborted. A positive value adds it only when the session has no earlier time-context injection, wall time moved backward, or at least that many milliseconds have elapsed since the latest injection.
+`refreshIntervalMs` must be a non-negative safe integer. Omission or `0` adds context to every eligible entering pre-step whose signal is not already aborted. A positive value adds it only when the Session has no earlier time-context injection, wall time moved backward, or at least that many milliseconds elapsed since the latest injection.
+
+## Request-zone ownership
+
+The browser samples `Intl.DateTimeFormat().resolvedOptions().timeZone` for each prompt. The Host validates and canonicalizes that value before binding it to the exact durable `user-rpc` message source. Time-context examines only those sources in the open turn: one unique zone resolves the request, multiple zones are `mixed`, and none are `unavailable`. It does not read or mutate Session headers, connection state, or Schedule records.
+
+The resolved instruction tells the model to interpret otherwise-unqualified dates and times in that browser zone. Mixed or unavailable provenance tells the model to ask the user to clarify. This is natural-language context, not an input default at another package boundary: a tool that accepts local calendar fields still owns its explicit zone requirement.
 
 ## Timing semantics
 
-The plugin prepends an `agent/pre-step` listener and delegates first. When the downstream decision enters a non-empty message batch, time-context derives client zones from those final messages plus user-rpc messages already entered in the open turn, then appends one reading to that decision. Schedule later derives the same facts directly from the immutable Session header and those durable user-rpc sources; the reading is not a second machine authority.
+The plugin prepends an `agent/pre-step` listener and delegates first. When an injection is due and the downstream decision enters, it appends one sourced `UserMessage` to the returned batch. AgentLoop records the final batch after `step/start` and before request derivation. Rejection, listener failure, or an already-aborted signal records nothing.
 
-An entering non-empty batch records its downstream messages followed by exactly one time-context `UserMessage` after `step/start`. Its source is the exact snapshot marker `{ kind: 'plugin', plugin: 'time-context', form: 'snapshot', sections: [{ name: 'time-context', text: <same rendered text> }] }`; the invariant companion and Schedule consumer both fail closed if that shape or text equality drifts. The Session header and original user-rpc sources remain the only machine-readable zone owners. A decision rewritten to empty never gains a reading: it opens no initial step, and an empty tool continuation may still enter a later step using existing history.
+Each reading uses the exact snapshot source `{ kind: 'plugin', plugin: 'time-context', form: 'snapshot', sections: [{ name: 'time-context', text: <same text> }] }`. The `./invariant` companion validates that shape, re-derives the current-turn browser policy from the original `user-rpc` messages, and checks the timestamp zone and elapsed baseline.
 
-Reject, cancellation, and listener failure before `step/start` add no reading. A plugin disposal that wins while the listener awaits downstream work also prevents the in-flight listener from contributing. Steering inserted after AgentLoop has claimed the current batch retains ordinary next-step ownership and receives fresh context when that later step enters; time-context adds no inbox state or AgentLoop lifecycle path.
+Positive-interval scheduling scans raw durable Session events for the latest plugin-attributed message, including a reading shadowed by compaction. It therefore survives resume without a process-local cache. A positive interval can intentionally let a later request reuse existing history without a fresh reading; the Schedule Web overlay omits the interval.
 
-Positive-interval scheduling scans the raw durable session events for the latest `user/message` with that source, including a reading shadowed by compaction. The schedule therefore applies across turns and resumed processes without process-local cache state. It reduces append frequency and history growth but never removes an existing reading, and sessions schedule independently.
+Step 1 measures from the latest preceding durable user, assistant, or tool-result message. The prompt proposed for that step has not been appended yet. Later steps measure from the preceding time-context event in the same turn. Missing baselines report `unavailable`, and backward wall-clock movement clamps elapsed time to zero.
 
-Step 1 measures from the latest durable model-visible message before the current proposal; the prompt entering that same step has not been appended yet. Later steps measure from the preceding time-context event in the same turn. Both baselines use durable session-event timestamps; backward wall-clock movement clamps elapsed time to zero. A missing first-step baseline, or a later step with no earlier same-turn reading because interval suppression skipped it, reports `unavailable`.
-
-A time reading records an entered request step, not a completed or successfully transmitted request. A later request-preparation failure can therefore leave the reading in history, while a failure before `step/start` cannot.
-
-The separately published `./invariant` companion checks the simple plugin source, open turn and step, elapsed baseline, and durable event time. It also re-derives Session and client zones from the Session header and current turn's original user-rpc messages, so duplicated source authority or mismatched rendered policy fails. The rendered timestamp must parse and cannot postdate the event; process suspension between sampling and append does not invalidate the reading.
-
-The time reading stays in derived conversation history until a later compaction shadows it. Request headers contain no time-context state. Request reconstruction uses the complete durable surface prefix after each `step/start`, so transmitted requests need not map one-to-one to readings: request preparation can fail after step entry, while an empty continuation or interval suppression can let a request reuse existing history without adding one.
+A reading records an entered step, not a completed or transmitted request. A later preparation failure can leave it in history. The message remains in derived conversation history until compaction shadows it; `request/header` contains no time-context state, and request reconstruction uses the complete durable surface prefix after each `step/start`.
 
 ## Model Experience
 
@@ -42,14 +42,13 @@ The time reading stays in derived conversation history until a later compaction 
 
 #### What the model sees
 
-On each non-empty entered batch that injects, one source-tagged context message contains the four lines below. `<timestamp>` is an ISO-shaped local timestamp with numeric offset and IANA zone; durations use compact whole-second units. The Session line reports the immutable Session zone or `unavailable`, and the client line reports one resolved zone, a sorted mixed set, or `missing`. An empty continuation or positive interval can let an entered step reuse prior history without a new reading.
+Each injected message contains three lines. `<timestamp>` is an ISO-shaped timestamp with numeric offset and IANA zone; durations use compact whole-second units.
 
 ##### First step
 
 ```markdown
 Time sampled while preparing turn <turn>, step 1: <timestamp>
-Session time zone: <iana-zone-or-unavailable>.
-Client time zone for this request: <iana-zone-or-mixed-set-or-missing>.
+Browser time zone for this request: <iana-zone-or-mixed-or-unavailable-policy>.
 Elapsed since the preceding model-visible message: <duration-or-unavailable>.
 ```
 
@@ -57,14 +56,13 @@ Elapsed since the preceding model-visible message: <duration-or-unavailable>.
 
 ```markdown
 Time sampled while preparing turn <turn>, step <step>: <timestamp>
-Session time zone: <iana-zone-or-unavailable>.
-Client time zone for this request: <iana-zone-or-mixed-set-or-missing>.
+Browser time zone for this request: <iana-zone-or-mixed-or-unavailable-policy>.
 Elapsed since the preceding step context: <duration-or-unavailable>.
 ```
 
 #### Token effect
 
-Each injected four-line message accumulates until compaction shadows it. A positive interval reduces additions; omission or `0` adds one for every non-empty entered request batch.
+Each reading accumulates until compaction shadows it. A positive interval reduces additions; omission or `0` adds one at every eligible preparation attempt.
 
 #### KV Cache effect
 
@@ -72,8 +70,8 @@ Append-only; newly visible content follows the reusable request prefix and does 
 
 ## Known Limitations and Deferred Work
 
+- **Prompt provenance only** — browser-zone context guides natural-language interpretation but does not silently supply another tool's required zone field.
+- **Mixed turns ask** — if one open turn contains prompts from different browser zones, the model is told to clarify rather than guess which one owns an unqualified time.
+- **Fallback is not user authority** — the configured or process zone formats the clock when browser provenance is missing or mixed, but the model-facing policy still says to clarify.
 - **Whole-second display** — timestamps and durations omit sub-second precision even though durable event times retain milliseconds.
-- **Session-event baseline** — elapsed time starts from durable append timestamps, not a client transport's original send timestamp.
-- **Headerless fallback zone** — a Session without `SessionHeader.timeZone` renders through the configured or process fallback but reports its Session zone as `unavailable`; consumers that require unambiguous local-time interpretation must request an explicit zone.
-- **Immutable Session zone** — a Session zone does not change when another browser resumes it. The request-bound browser sources expose disagreement instead of silently changing the displayed default.
-- **History cost between compactions** — omission or `0` retains one reading for every non-empty entered request batch, including batches whose later request preparation fails; empty continuations reuse prior history, while a positive interval reduces but does not eliminate this cost.
+- **History cost between compactions** — omission or `0` retains one reading for every eligible attempt; a positive interval reduces but does not eliminate this cost and may leave a later request without fresh browser-zone guidance.

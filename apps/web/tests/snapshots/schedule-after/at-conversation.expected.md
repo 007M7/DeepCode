@@ -1,0 +1,6 @@
+- paragraph: "Reminder: Review the release window."
+- button "Copy":
+  - img
+- button "Branch into a new conversation":
+  - img
+- text: {{clock}} Ran for {{duration}}

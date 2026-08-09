@@ -63,9 +63,7 @@ function inherited(session: Session): readonly SessionEvent[] {
 describe('SessionStore.fork', () => {
   it('forks an empty live session as an empty child with lineage metadata', async () => {
     const { ctx, sessions } = await setup()
-    const source = ctx.sessions.create(SessionId('empty-parent'), {
-      meta: { cwd: '/workspace', timeZone: 'Asia/Shanghai' },
-    })
+    const source = ctx.sessions.create(SessionId('empty-parent'), { meta: { cwd: '/workspace' } })
 
     const child = sessions.fork(source, undefined, SessionId('empty-child'))
 
@@ -73,19 +71,9 @@ describe('SessionStore.fork', () => {
     expect(child.header).toMatchObject({
       id: SessionId('empty-child'),
       cwd: '/workspace',
-      timeZone: 'Asia/Shanghai',
       parentSession: SessionId('empty-parent'),
       seedLength: 0,
     })
-  })
-
-  it('keeps a headerless fork headerless', async () => {
-    const { ctx, sessions } = await setup()
-    const source = ctx.sessions.create(SessionId('headerless-parent'), { meta: { cwd: '/workspace' } })
-
-    const child = sessions.fork(source, undefined, SessionId('headerless-child'))
-
-    expect(child.header.timeZone).toBeUndefined()
   })
 
   it('forks the latest completed boundary by default into detached frozen seed events', async () => {

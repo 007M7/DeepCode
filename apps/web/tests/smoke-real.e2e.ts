@@ -27,7 +27,6 @@ import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import { REPO_ROOT, connectFreshWorkspace, newEnglishPage, probeFreePort, requireDist, saveFailureShot } from './support.ts'
 
 const DEVELOPMENT_PROMPT = fileURLToPath(new URL('./snapshots/web-runtime-context/development-prompt.expected.md', import.meta.url))
-const WEB_TIME_ZONE = 'UTC'
 
 function waitForReadyLine(child: ChildProcess): Promise<string> {
   return new Promise((resolveReady, reject) => {
@@ -242,14 +241,11 @@ describe('dsh web keyless CLI smoke', () => {
     )
     try {
       const baseUrl = await waitForReadyLine(child)
-      const created = await rpc<{ sessionId: string }>(baseUrl, 'session.create', {
-        timeZone: WEB_TIME_ZONE,
-      })
+      const created = await rpc<{ sessionId: string }>(baseUrl, 'session.create', {})
       await rpc<{ accepted: true }>(baseUrl, 'session.prompt', {
         sessionId: created.sessionId,
         mode: 'queue',
         content: [{ type: 'text', text: 'go' }],
-        clientTimeZone: WEB_TIME_ZONE,
       })
       const capturedRequests = await Promise.race([
         providerRequests,
@@ -357,14 +353,11 @@ describe('dsh web keyless CLI smoke', () => {
     )
     try {
       const baseUrl = await waitForReadyLine(child)
-      const created = await rpc<{ sessionId: string }>(baseUrl, 'session.create', {
-        timeZone: WEB_TIME_ZONE,
-      })
+      const created = await rpc<{ sessionId: string }>(baseUrl, 'session.create', {})
       await rpc<{ accepted: true }>(baseUrl, 'session.prompt', {
         sessionId: created.sessionId,
         mode: 'queue',
         content: [{ type: 'text', text: promptMarker }],
-        clientTimeZone: WEB_TIME_ZONE,
       })
       let page: HistoryPage | undefined
       await expect.poll(async () => {
@@ -444,14 +437,11 @@ describe('dsh web keyless CLI smoke', () => {
     )
     try {
       const baseUrl = await waitForReadyLine(child)
-      const created = await rpc<{ sessionId: string }>(baseUrl, 'session.create', {
-        timeZone: WEB_TIME_ZONE,
-      })
+      const created = await rpc<{ sessionId: string }>(baseUrl, 'session.create', {})
       await rpc<{ accepted: true }>(baseUrl, 'session.prompt', {
         sessionId: created.sessionId,
         mode: 'queue',
         content: [{ type: 'text', text: 'go' }],
-        clientTimeZone: WEB_TIME_ZONE,
       })
       const captured = await Promise.race([
         providerRequest,

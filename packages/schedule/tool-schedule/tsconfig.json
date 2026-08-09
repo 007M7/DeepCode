@@ -27,9 +27,6 @@
       "path": "../../core/agent"
     },
     {
-      "path": "../../context/time-context"
-    },
-    {
       "path": "../../core/tools"
     },
     {

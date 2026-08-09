@@ -361,8 +361,8 @@ declare class Session {
   /** The ordered surface over this session's event log. */
   get surface(): SessionSurface;
   /**
-   * Detached, deep-frozen creation metadata (format version, cwd, time zone,
-   * lineage, seed boundary). Supplied by the store via `ctx.sessions.create()`. When a
+   * Detached, deep-frozen creation metadata (format version, cwd, lineage,
+   * seed boundary). Supplied by the store via `ctx.sessions.create()`. When a
    * `Session` is created without a store-owned header, a minimal header is
    * synthesized (stamped with the current {@link SESSION_FORMAT_VERSION}) so
    * `session.header` is always present. Kept out of the event log — it is a

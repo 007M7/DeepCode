@@ -1879,14 +1879,14 @@ export interface Config {
 ```ts config-catalog
 /** Request-preparation clock formatting and append scheduling. Invalid values fail plugin load. */
 export interface Config {
-  /** IANA time zone used for the rendered timestamp. Omit to resolve the Node process's system zone at plugin load. */
+  /** Fallback display zone when the open turn has no unique browser zone. Omit to use the process zone. */
   timeZone?: string
   /** Minimum milliseconds between durable injections in one session. Omit or set to 0 to inject at every eligible step. */
   refreshIntervalMs?: number
 }
 ```
 
-来源：[`packages/context/time-context/src/index.ts:20`](../packages/context/time-context/src/index.ts)
+来源：[`packages/context/time-context/src/index.ts:26`](../packages/context/time-context/src/index.ts)
 
 ## `@deepseek-ai/dsh-tmux-context`
 

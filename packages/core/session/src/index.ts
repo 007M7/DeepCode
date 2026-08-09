@@ -135,9 +135,6 @@ function validateSessionHeader(id: SessionId, input: unknown): SessionHeader {
       throw new Error(`session header cwd must be an absolute path, got "${record.cwd}"`)
     }
   }
-  if (record.timeZone !== undefined && typeof record.timeZone !== 'string') {
-    throw new Error('session header timeZone must be a string')
-  }
   if (record.parentSession !== undefined && typeof record.parentSession !== 'string') {
     throw new Error('session header parentSession must be a string')
   }
@@ -451,8 +448,8 @@ export class Session {
   }
 
   /**
-   * Detached, deep-frozen creation metadata (format version, cwd, time zone,
-   * lineage, seed boundary). Supplied by the store via `ctx.sessions.create()`. When a
+   * Detached, deep-frozen creation metadata (format version, cwd, lineage,
+   * seed boundary). Supplied by the store via `ctx.sessions.create()`. When a
    * `Session` is created without a store-owned header, a minimal header is
    * synthesized (stamped with the current {@link SESSION_FORMAT_VERSION}) so
    * `session.header` is always present. Kept out of the event log — it is a
@@ -828,8 +825,8 @@ export class SessionStore extends Service {
    * Create a session owned by the calling fiber: disposing that fiber stops
    * event notification and removes the session from the store. `options.seed`
    * populates the session with a copy of those events (replay/fork);
-   * `options.meta` attaches creation metadata (validated absolute `cwd`, opaque
-   * time-zone string, seed and parent lineage, and delegation depth) as the immutable
+   * `options.meta` attaches creation metadata (validated absolute `cwd`, seed
+   * and parent lineage, and delegation depth) as the immutable
    * {@link SessionHeader} (the store fills `version`/`id`/`createdAt`).
    *
    * For an agent whose session must be torn down IN ORDER with its loop (so the
@@ -897,7 +894,6 @@ export class SessionStore extends Service {
       id: sessionId,
       createdAt: meta?.createdAt ?? Date.now(),
       ...meta?.cwd === undefined ? {} : { cwd: meta.cwd },
-      ...meta?.timeZone === undefined ? {} : { timeZone: meta.timeZone },
       ...meta?.parentSession === undefined ? {} : { parentSession: meta.parentSession },
       ...meta?.seedLength === undefined ? {} : { seedLength: meta.seedLength },
       ...meta?.origin === undefined ? {} : { origin: meta.origin },
@@ -1106,7 +1102,6 @@ export class SessionStore extends Service {
       seed,
       meta: {
         ...liveSource.header.cwd !== undefined ? { cwd: liveSource.header.cwd } : {},
-        ...liveSource.header.timeZone !== undefined ? { timeZone: liveSource.header.timeZone } : {},
         parentSession: liveSource.id,
         seedLength: seed.length,
       },

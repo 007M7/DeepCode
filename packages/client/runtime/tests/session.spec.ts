@@ -11,7 +11,6 @@ import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import type { SessionId } from '@deepseek-ai/dsh-client-connection/client'
 import { Session } from '../src/client/sessions/session.ts'
-import { resolvedClientTimeZone } from '../src/client/time-zone.ts'
 import { FakeApiClient, deferred, err, ok } from './fake-api.ts'
 import { entries, ev, plainTurn } from './event-script.ts'
 
@@ -20,7 +19,6 @@ const at = (seq: number, e: Record<string, unknown>): SessionEvent =>
 
 const SID = 'fk-s1' as SessionId
 const PARENT = 'fk-parent' as SessionId
-const CLIENT_TIME_ZONE = resolvedClientTimeZone()
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -724,11 +722,11 @@ describe('prompt and cancel errors', () => {
     expect(result.ok).toBe(true)
     // Monotone: settlement alone does not step the phase anywhere.
     expect(session.getSnapshot().composerPhase).toBe('engaging')
-    expect(api.callsOf('session.prompt')).toEqual([{
+    expect(api.callsOf('session.prompt')).toMatchObject([{
       sessionId: SID,
       mode: 'queue',
       content: [{ type: 'text', text: '要发的' }],
-      clientTimeZone: CLIENT_TIME_ZONE,
+      clientTimeZone: new Intl.DateTimeFormat().resolvedOptions().timeZone,
     }])
     // First content lands (running turn): engaging → active.
     session.handleRunning(true)

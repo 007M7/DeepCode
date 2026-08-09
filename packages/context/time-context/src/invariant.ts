@@ -3,7 +3,10 @@
 import type { Context } from 'cordis'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type { InvariantFailure, InvariantInstaller } from '@deepseek-ai/dsh-invariants'
-import { deriveClientTimeZoneContext, renderTimeZoneContext } from './request-zone.ts'
+import {
+  deriveBrowserTimeZoneContext,
+  renderBrowserTimeZoneContext,
+} from './request-zone.ts'
 import { createTimestampFormatter, formatTimestamp } from './timestamp.ts'
 
 const PACKAGE_NAME = '@deepseek-ai/dsh-time-context'
@@ -11,8 +14,7 @@ const SOURCE_NAME = 'time-context'
 const READING = new RegExp(
   '^Time sampled while preparing turn (\\d+), step (\\d+): '
   + '(\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:Z|[+-]\\d{2}:\\d{2})\\[[^\\]]+\\])\\n'
-  + 'Session time zone: ([^.]+)\\.\\n'
-  + 'Client time zone for this request: (.+)\\.\\n'
+  + '(Browser time zone for this request: .+)\\n'
   + 'Elapsed since the preceding (model-visible message|step context): '
   + '(?:unavailable|(?:(?:\\d+d )?(?:\\d+h )?(?:\\d+m )?\\d+s))\\.$',
 )
@@ -22,7 +24,7 @@ export const name = 'time-context-invariant'
 /** Service required before the companion can reserve package ownership. */
 export const inject = ['invariants']
 
-/** Derive the open step owned by a time-context reading. */
+/** Derive the open step boundary at which a time-context reading may append. */
 function preparationPosition(history: readonly SessionEvent[], fail: InvariantFailure): { turn: number; step: number } {
   let openTurn: number | undefined
   let openStep: number | undefined
@@ -68,12 +70,12 @@ function preparationPosition(history: readonly SessionEvent[], fail: InvariantFa
 /** Collect the entered user messages belonging to one open turn. */
 function requestMessages(history: readonly SessionEvent[], turn: number) {
   const start = history.findLastIndex(event => event.type === 'turn/start' && event.data.turn === turn)
-  return history.slice(start + 1).flatMap(event => event.type === 'user/message' ? [event.data] : [])
+  return history.slice(start + 1)
+    .flatMap(event => event.type === 'user/message' ? [event.data] : [])
 }
 
 /** Validate one plugin-attributed time reading against its session position and timestamp. */
 function validateReading(
-  session: Session,
   history: readonly SessionEvent[],
   event: SessionEvent<'user/message'>,
   fail: InvariantFailure,
@@ -121,15 +123,13 @@ function validateReading(
     || section.text !== blockText) {
     fail('time-context source must carry only the exact snapshot text, not request authority')
   }
-  const renderedAuthority = `Session time zone: ${match[4]}.\nClient time zone for this request: ${match[5]}.`
-  const expectedAuthority = renderTimeZoneContext(
-    session.header.timeZone,
-    deriveClientTimeZoneContext(requestMessages(history, turn)),
-  )
-  if (renderedAuthority !== expectedAuthority) {
-    fail('time-context text does not match the Session and current request zones')
+  const renderedBrowserContext = match[4]
+  const browserContext = deriveBrowserTimeZoneContext(requestMessages(history, turn))
+  const expectedBrowserContext = renderBrowserTimeZoneContext(browserContext)
+  if (renderedBrowserContext !== expectedBrowserContext) {
+    fail('time-context browser-zone text does not match current-turn user messages')
   }
-  const baseline = match[6]
+  const baseline = match[5]
   if ((step === 1) !== (baseline === 'model-visible message')) {
     fail(`time-context step ${step} uses the wrong elapsed-time baseline ${JSON.stringify(baseline)}`)
   }
@@ -141,20 +141,19 @@ function validateReading(
     || event.time < renderedTime) {
     fail('time-context rendered timestamp must parse and not postdate its durable event')
   }
-  const sessionTimeZone = session.header.timeZone
-  if (sessionTimeZone !== undefined) {
+  if (browserContext.kind === 'resolved') {
     let expectedTimestamp: string
     try {
       expectedTimestamp = formatTimestamp(
         renderedTime,
-        createTimestampFormatter(sessionTimeZone),
-        sessionTimeZone,
+        createTimestampFormatter(browserContext.timeZone),
+        browserContext.timeZone,
       )
     } catch (error: unknown) {
-      fail(`time-context Session time zone cannot format its durable timestamp: ${String(error)}`)
+      fail(`time-context browser zone cannot format its durable timestamp: ${String(error)}`)
     }
     if (rendered !== expectedTimestamp) {
-      fail('time-context rendered timestamp does not match the Session time zone')
+      fail('time-context rendered timestamp does not match the unique browser zone')
     }
   }
 }
@@ -166,7 +165,7 @@ function validateSession(session: Session, fail: InvariantFailure): void {
     if (event.type !== 'user/message'
       || event.data.source.kind !== 'plugin'
       || event.data.source.plugin !== SOURCE_NAME) continue
-    validateReading(session, session.events.slice(0, index), event, fail)
+    validateReading(session.events.slice(0, index), event, fail)
   }
 }
 
@@ -180,7 +179,7 @@ const install: InvariantInstaller = Object.assign((ctx: Context, fail: Invariant
     if (event.type !== 'user/message'
       || event.data.source.kind !== 'plugin'
       || event.data.source.plugin !== SOURCE_NAME) return
-    validateReading(session, session.events, event, fail)
+    validateReading(session.events, event, fail)
   }, { global: true })
 }, { inject: ['sessions'] })
 /* jscpd:ignore-end */

@@ -12,10 +12,7 @@ import TypertRegistry from '@deepseek-ai/dsh-typert-registry'
 import * as RuntimeClient from '../src/client/index.ts'
 import type { SessionsService } from '../src/client/sessions/service.ts'
 import type { WorkspacesService } from '../src/client/workspaces/service.ts'
-import { resolvedClientTimeZone } from '../src/client/time-zone.ts'
 import { FakeApiClient, ok } from './fake-api.ts'
-
-const CLIENT_TIME_ZONE = resolvedClientTimeZone()
 
 interface Bench {
   ctx: Context
@@ -105,10 +102,7 @@ describe('runtime client apply', () => {
 
     const sessions = bench.ctx.get('sessions') as SessionsService
     const workspaces = bench.ctx.get('workspaces') as WorkspacesService
-    expect(bench.api.callsOf('session.create')).toEqual([{
-      workspaceId: 'w-recent',
-      timeZone: CLIENT_TIME_ZONE,
-    }])
+    expect(bench.api.callsOf('session.create')).toEqual([{ workspaceId: 'w-recent' }])
     expect(sessions.list.getSnapshot().current).toBe('fk-new')
 
     sessions.clear()

@@ -908,68 +908,6 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
       }
     })
 
-    it('stored-prefix adoption rejects a different present timeZone', async () => {
-      const fix = await makeFixture()
-      const first = await freshCtx(fix)
-      try {
-        const stored = first.ctx.sessions.create(SessionId('zone-adoption'), {
-          meta: { cwd: WORK, timeZone: 'Asia/Shanghai' },
-        })
-        send(stored, oneTurnLog())
-        await first.ctx.sessions.flush(stored)
-      } finally {
-        await first.fiber.dispose()
-      }
-
-      const ctx = new Context()
-      await ctx.plugin(SessionStore)
-      const live = ctx.sessions.create(SessionId('zone-adoption'), {
-        seed: oneTurnLog(),
-        meta: { cwd: WORK, timeZone: 'America/New_York' },
-      })
-      const second = await fix.mount(ctx)
-      try {
-        await expect(ctx.sessions.flush(live)).rejects.toThrow(/different timeZone|id collision/)
-      } finally {
-        await second.dispose()
-        await ctx.fiber.dispose()
-        await fix.cleanup()
-      }
-    })
-
-    it('stored-prefix adoption rejects a zoned live session for a headerless record', async () => {
-      const fix = await makeFixture()
-      const log = [
-        ...oneTurnLog(),
-        { type: 'session/end-seed', seq: 6, time: 7, data: {} },
-      ] as SessionEvent[]
-      const first = await freshCtx(fix)
-      try {
-        const stored = first.ctx.sessions.create(SessionId('headerless-zone-adoption'), {
-          seed: log,
-          meta: { cwd: WORK },
-        })
-        await first.ctx.sessions.flush(stored)
-      } finally {
-        await first.fiber.dispose()
-      }
-
-      const ctx = new Context()
-      await ctx.plugin(SessionStore)
-      const live = ctx.sessions.create(SessionId('headerless-zone-adoption'), {
-        seed: log,
-        meta: { cwd: WORK, timeZone: 'Asia/Shanghai' },
-      })
-      const second = await fix.mount(ctx)
-      try {
-        await expect(ctx.sessions.flush(live)).rejects.toThrow(/different timeZone|id collision/)
-      } finally {
-        await second.dispose()
-        await ctx.fiber.dispose()
-        await fix.cleanup()
-      }
-    })
-
     it('HMR: adoption persists the live SUFFIX that was ahead of the stored prefix', async () => {
       const fix = await makeFixture()
       const ctx = new Context()
@@ -1160,54 +1098,6 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
         // Seeded 0-5 plus the constructor's end-seed event at 6.
         expect(loaded.events.map(e => e.seq)).toEqual([0, 1, 2, 3, 4, 5, 6])
         expect(loaded.events.at(-1)).toMatchObject({ type: 'session/end-seed' })
-      } finally {
-        await fiber.dispose()
-        await fix.cleanup()
-      }
-    })
-
-    it('a zoned live session cannot claim headerless ownerless state', async () => {
-      const fix = await makeFixture()
-      const { ctx, fiber } = await freshCtx(fix)
-      try {
-        await ctx.sessionPersistence.create(meta('headerless-zone-claim', WORK))
-        const live = ctx.sessions.create(SessionId('headerless-zone-claim'), {
-          seed: oneTurnLog(),
-          meta: { cwd: WORK, timeZone: 'Asia/Shanghai' },
-        })
-
-        await expect(ctx.sessions.flush(live)).rejects.toThrow(/different timeZone|id collision/)
-      } finally {
-        await fiber.dispose()
-        await fix.cleanup()
-      }
-    })
-
-    it('ownerless state with a timeZone only accepts the same live identity', async () => {
-      const fix = await makeFixture()
-      const { ctx, fiber } = await freshCtx(fix)
-      try {
-        await ctx.sessionPersistence.create(meta('same-zone-claim', WORK, 'Asia/Shanghai'))
-        const matching = ctx.sessions.create(SessionId('same-zone-claim'), {
-          seed: oneTurnLog(),
-          meta: { cwd: WORK, timeZone: 'Asia/Shanghai' },
-        })
-        await expect(ctx.sessions.flush(matching)).resolves.toBe(true)
-        expect((await ctx.sessionPersistence.load(matching.id)).meta.timeZone).toBe('Asia/Shanghai')
-
-        await ctx.sessionPersistence.create(meta('different-zone-claim', WORK, 'Asia/Shanghai'))
-        const conflicting = ctx.sessions.create(SessionId('different-zone-claim'), {
-          seed: oneTurnLog(),
-          meta: { cwd: WORK, timeZone: 'America/New_York' },
-        })
-        await expect(ctx.sessions.flush(conflicting)).rejects.toThrow(/different timeZone|id collision/)
-
-        await ctx.sessionPersistence.create(meta('missing-zone-claim', WORK, 'Asia/Shanghai'))
-        const missing = ctx.sessions.create(SessionId('missing-zone-claim'), {
-          seed: oneTurnLog(),
-          meta: { cwd: WORK },
-        })
-        await expect(ctx.sessions.flush(missing)).rejects.toThrow(/different timeZone|id collision/)
       } finally {
         await fiber.dispose()
         await fix.cleanup()

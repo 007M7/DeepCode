@@ -38,7 +38,7 @@ interface SessionLocation {
 
 ## `SessionHeader`：日志旁的元数据
 
-每个会话的元数据与事件日志**分开**存储：格式版本、cwd、可选且由调用方校验的时区、血统与 seed 边界是存储层关注点而非对话事件，因此不进入 `SessionEventMap`，也不会到达 `deriveMessages()`。header 通过 `session.header` 附加到 `Session` 上。
+每个会话的元数据与事件日志**分开**存储：格式版本、cwd、血统与 seed 边界是存储层关注点而非对话事件，因此不进入 `SessionEventMap`，也不会到达 `deriveMessages()`。header 通过 `session.header` 附加到 `Session` 上。
 
 源码：[`packages/core/session/src/types.ts`](../../packages/core/session/src/types.ts)
 
@@ -59,11 +59,6 @@ interface SessionHeader {
   readonly createdAt: number
   /** Absolute working directory the session was created in (if any). */
   readonly cwd?: string
-  /**
-   * Optional caller-validated time-zone identifier captured at creation.
-   * Session core preserves the exact string without interpreting or canonicalizing it.
-   */
-  readonly timeZone?: string
   /** The session this one was forked from (seed lineage), if any. */
   readonly parentSession?: SessionId
   /**
@@ -87,7 +82,7 @@ interface SessionHeader {
 
 ## `CreateSessionOptions`：seed 与元数据
 
-通过 store 创建 `Session` 时会接收 `seed`（初始回放或 fork 历史）与 `meta`（store 折叠进 `SessionHeader` 的存储层字段）。store 填充 `version`/`id` 并为 `createdAt` 提供默认值；调用方提供已校验的绝对 `cwd`、可选且由调用方校验的 `timeZone`、`parentSession` 谱系、`seedLength` 种子边界、可选的粗粒度 `origin`、`delegationDepth`，以及——仅在重建已持久化会话时——需要保留的原始 `createdAt`。`origin: 'subagent'` 让产品导航能够隐藏重复的 child 行；它不证明描述符有效，也不证明 child 可以恢复。
+通过 store 创建 `Session` 时会接收 `seed`（初始回放或 fork 历史）与 `meta`（store 折叠进 `SessionHeader` 的存储层字段）。store 填充 `version`/`id` 并为 `createdAt` 提供默认值；调用方可以提供已校验的绝对 `cwd`、`parentSession` 谱系、`seedLength` 种子边界、可选的粗粒度 `origin`、`delegationDepth` 以及已有的 `createdAt`。`origin: 'subagent'` 让产品导航能够隐藏重复的 child 行；它不证明描述符有效，也不证明 child 可以恢复。
 
 ```ts type-equiv
 /**
@@ -104,8 +99,6 @@ interface CreateSessionOptions {
    */
   readonly meta?: {
     readonly cwd?: string
-    /** Caller-validated time-zone identifier to preserve verbatim in the header. */
-    readonly timeZone?: string
     readonly parentSession?: SessionId
     readonly createdAt?: number
     readonly seedLength?: number

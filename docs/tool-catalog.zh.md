@@ -835,7 +835,7 @@ create、edit、pause 和 resume 要求直接来自人类的根权限；complete
 
 ### `schedule_create`
 
-在当前会话中创建一条提醒。v1 只接受非空 prompt 和正的安全整数 after_seconds 延时。交付模式是 session-local：只有此会话处于 live 状态时，提醒才会准时运行；否则提醒会进入 overdue 状态，直至会话恢复。
+在当前会话中创建一条提醒。请提供非空 prompt 和恰好一个 selector：正的安全整数 after_seconds 延时，或作为严格带偏移日期时间或本地日期／时间对象的 at。交付模式是 session-local：只有此会话处于 live 状态时，提醒才会准时运行；否则提醒会进入 overdue 状态，直至会话恢复。
 
 ```json
 {
@@ -848,11 +848,38 @@ create、edit、pause 和 resume 要求直接来自人类的根权限；complete
     "after_seconds": {
       "type": "number",
       "description": "Positive safe-integer delay in seconds."
+    },
+    "at": {
+      "oneOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "date": {
+              "type": "string"
+            },
+            "time": {
+              "type": "string"
+            },
+            "time_zone": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "date",
+            "time",
+            "time_zone"
+          ]
+        }
+      ],
+      "description": "Absolute target as strict offset RFC 3339 or local date/time with an explicit IANA zone."
     }
   },
   "required": [
-    "prompt",
-    "after_seconds"
+    "prompt"
   ]
 }
 ```

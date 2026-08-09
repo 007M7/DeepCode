@@ -158,6 +158,9 @@ importers:
       '@deepseek-ai/dsh-session-reference':
         specifier: workspace:^
         version: link:../../packages/context/session-reference
+      '@deepseek-ai/dsh-time-context':
+        specifier: workspace:^
+        version: link:../../packages/context/time-context
       '@deepseek-ai/dsh-tmux-context':
         specifier: workspace:^
         version: link:../../packages/context/tmux-context

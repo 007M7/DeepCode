@@ -207,19 +207,8 @@ describe('absolute record and time-zone resolution', () => {
         expect((error as ScheduleInputError).code).toBe('not_future')
       }
     }
-    try {
-      createAtScheduleRecord(
-        ScheduleId('schedule-at'),
-        'x',
-        '9999-12-31T23:59:59.999-23:59',
-        now,
-      )
-      throw new Error('expected range failure')
-    } catch (error: unknown) {
-      expect(error).toBeInstanceOf(ScheduleInputError)
-      expect((error as ScheduleInputError).code).toBe('time_out_of_range')
-    }
     for (const [at, sampleNow] of [
+      ['9999-12-31T23:59:59.999-23:59', now],
       ['0001-01-01T00:00:00+23:59', Date.parse('0001-01-01T00:00:00.000Z') - 1],
       ['2026-08-06T01:00:00Z', Number.NaN],
     ] as const) {
@@ -248,13 +237,10 @@ describe('absolute record and time-zone resolution', () => {
     }
   })
 
-  it('resolves local calendar time, rejects a gap, and chooses the first overlap instant', () => {
+  it('resolves explicit local time, rejects a DST gap, and chooses the first overlap instant', () => {
     expect(createAtScheduleRecord(ScheduleId('shanghai'), 'x', {
-      date: '2026-08-06', time: '09:00:00', time_zone: 'Asia/Shanghai',
-    }, now).scheduledAt).toBe('2026-08-06T01:00:00.000Z')
-    expect(createAtScheduleRecord(ScheduleId('implicit'), 'x', {
-      date: '2026-08-06', time: '09:00:00.25',
-    }, now, 'Asia/Shanghai').scheduledAt).toBe('2026-08-06T01:00:00.250Z')
+      date: '2026-08-06', time: '09:00:00.25', time_zone: 'Asia/Shanghai',
+    }, now).scheduledAt).toBe('2026-08-06T01:00:00.250Z')
     expect(createAtScheduleRecord(ScheduleId('utc'), 'x', {
       date: '2026-08-06', time: '09:00:00', time_zone: 'UTC',
     }, now).scheduledAt).toBe('2026-08-06T09:00:00.000Z')
@@ -273,6 +259,7 @@ describe('absolute record and time-zone resolution', () => {
   })
 
   it.each([
+    [{ date: '2026-08-06', time: '09:00:00' }],
     [{ date: '2026-08-06', time: '09:00:00', time_zone: 'UTC', extra: true }],
     [{ date: 20260806, time: '09:00:00', time_zone: 'UTC' }],
     [{ date: '2026-08-06', time: '09:00:00', time_zone: 8 }],
@@ -289,7 +276,7 @@ describe('absolute record and time-zone resolution', () => {
     )).toThrow(ScheduleInputError)
   })
 
-  it('rejects empty at prompts and local instants outside the four-digit range', () => {
+  it('rejects empty prompts and local instants outside the four-digit range', () => {
     expect(() => createAtScheduleRecord(
       ScheduleId('schedule-at'), ' ', '2026-08-06T01:00:00Z', now,
     )).toThrow(ScheduleInputError)
@@ -304,19 +291,7 @@ describe('absolute record and time-zone resolution', () => {
     }
   })
 
-  it('fails closed when local calendar input has no confirmed zone', () => {
-    try {
-      createAtScheduleRecord(ScheduleId('schedule-at'), 'x', {
-        date: '2026-08-06', time: '09:00:00',
-      }, now)
-      throw new Error('expected confirmation failure')
-    } catch (error: unknown) {
-      expect(error).toBeInstanceOf(ScheduleInputError)
-      expect((error as ScheduleInputError).code).toBe('timezone_confirmation_required')
-    }
-  })
-
-  it('derives an at view and reminder framing without persisting input interpretation', () => {
+  it('derives an at view and model framing without persisting input interpretation', () => {
     const record = createAtScheduleRecord(
       ScheduleId('schedule-at'),
       'join meeting',
@@ -329,9 +304,5 @@ describe('absolute record and time-zone resolution', () => {
       deliveryMode: 'session-local',
     })
     expect(renderReminderFraming(record)).toContain('occurrence_at: 2026-08-06T01:00:00.000Z')
-    expect(scheduleReminderPresentation([
-      scheduleEvent(atCreateData(), 0),
-      scheduleEvent({ version: 1, operation: 'dispatch', id: 'schedule-at' }, 1),
-    ], 1)).toMatchObject({ scheduleId: 'schedule-at', occurrenceAt: '2026-08-06T01:00:00.000Z' })
   })
 })

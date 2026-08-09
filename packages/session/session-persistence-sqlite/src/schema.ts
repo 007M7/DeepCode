@@ -17,55 +17,7 @@ import type { SessionEvent, SessionId, SessionHeader, SurfaceOp } from '@deepsee
  * layout; orthogonal to a session's own `version` (which versions the EVENT
  * vocabulary, stored per session in the `sessions` row).
  */
-export const SCHEMA_VERSION = 14
-
-/** The one owned schema layout this build upgrades in place. */
-const MIGRATABLE_SCHEMA_VERSION = 13
-
-/** Exact user objects emitted by the v13 schema owner, before `time_zone`. */
-const MIGRATABLE_V13_SCHEMA = [
-  {
-    type: 'table',
-    name: 'events',
-    tableName: 'events',
-    sql: `CREATE TABLE events (
-      session_id        TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-      seq               INTEGER NOT NULL,
-      type              TEXT NOT NULL,
-      time              INTEGER NOT NULL,
-      data              TEXT NOT NULL,
-      source_event_seqs TEXT,
-      surface_op        TEXT,
-      PRIMARY KEY (session_id, seq)
-    ) STRICT`,
-  },
-  {
-    type: 'table',
-    name: 'persistence_state',
-    tableName: 'persistence_state',
-    sql: `CREATE TABLE persistence_state (
-      singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
-      store_id  TEXT NOT NULL
-    ) STRICT`,
-  },
-  {
-    type: 'table',
-    name: 'sessions',
-    tableName: 'sessions',
-    sql: `CREATE TABLE sessions (
-      id               TEXT PRIMARY KEY,
-      version          INTEGER NOT NULL,
-      created_at       INTEGER NOT NULL,
-      cwd              TEXT,
-      parent_session   TEXT,
-      seed_length      INTEGER,
-      origin           TEXT,
-      delegation_depth INTEGER,
-      incarnation      TEXT NOT NULL,
-      revision         INTEGER NOT NULL
-    ) STRICT`,
-  },
-] as const
+export const SCHEMA_VERSION = 13
 
 /** SQLite application id protecting unrelated databases from persistence writes. */
 export const SESSION_PERSISTENCE_SQLITE_APPLICATION_ID = 0x44534850
@@ -82,7 +34,6 @@ export interface SessionRow {
   version: number
   created_at: number
   cwd: string | null
-  time_zone: string | null
   parent_session: string | null
   seed_length: number | null
   origin: 'subagent' | null
@@ -117,9 +68,9 @@ export type JournalMode = 'wal' | 'delete' | 'truncate' | 'persist'
 
 /**
  * Open the database and apply its schema and pragmas. An empty database with a
- * zero `user_version` is initialized at {@link SCHEMA_VERSION}; an owned v13
- * database is upgraded atomically, while a nonempty unversioned database and
- * every other non-current version reject.
+ * zero `user_version` is initialized at {@link SCHEMA_VERSION}; a nonempty
+ * unversioned database and every other non-current version reject rather than
+ * being migrated in place.
  * @param path - the SQLite database file to open (created when absent).
  * @param journalMode - validated journal pragma.
  * @returns the open handle with pragmas applied and all three tables ensured.
@@ -151,18 +102,13 @@ function configureDatabase(db: DatabaseSync, path: string, journalMode: JournalM
     if (onDisk === 0 && (applicationId !== 0 || userObjectCount > 0)) {
       throw new Error(`session database at "${path}" has an unversioned schema or application identity`)
     }
-    if (onDisk !== 0 && onDisk !== MIGRATABLE_SCHEMA_VERSION && onDisk !== SCHEMA_VERSION) {
+    if (onDisk !== 0 && onDisk !== SCHEMA_VERSION) {
       throw new Error(`session database at "${path}" has schema version ${onDisk}, incompatible with this build (${SCHEMA_VERSION})`)
     }
-    if ((onDisk === MIGRATABLE_SCHEMA_VERSION || onDisk === SCHEMA_VERSION)
-      && applicationId !== SESSION_PERSISTENCE_SQLITE_APPLICATION_ID) {
+    if (onDisk === SCHEMA_VERSION && applicationId !== SESSION_PERSISTENCE_SQLITE_APPLICATION_ID) {
       throw new Error(
         `session database at "${path}" has application id ${applicationId}, expected ${SESSION_PERSISTENCE_SQLITE_APPLICATION_ID}`,
       )
-    }
-    if (onDisk === MIGRATABLE_SCHEMA_VERSION) {
-      assertMigratableV13Schema(db, path)
-      db.exec('ALTER TABLE sessions ADD COLUMN time_zone TEXT')
     }
     db.exec(`
       CREATE TABLE IF NOT EXISTS persistence_state (
@@ -175,7 +121,6 @@ function configureDatabase(db: DatabaseSync, path: string, journalMode: JournalM
         version          INTEGER NOT NULL,
         created_at       INTEGER NOT NULL,
         cwd              TEXT,
-        time_zone        TEXT,
         parent_session   TEXT,
         seed_length      INTEGER,
         origin           TEXT,
@@ -200,8 +145,6 @@ function configureDatabase(db: DatabaseSync, path: string, journalMode: JournalM
     ).run(randomUUID())
     if (onDisk === 0) {
       db.exec(`PRAGMA application_id = ${SESSION_PERSISTENCE_SQLITE_APPLICATION_ID}`)
-    }
-    if (onDisk === 0 || onDisk === MIGRATABLE_SCHEMA_VERSION) {
       db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`)
     }
     db.exec('COMMIT')
@@ -223,34 +166,6 @@ function configureDatabase(db: DatabaseSync, path: string, journalMode: JournalM
   db.exec(`PRAGMA journal_mode = ${journalMode.toUpperCase()}`)
 }
 
-/** Reject spoofed or modified v13 layouts before the migration changes them. */
-function assertMigratableV13Schema(db: DatabaseSync, path: string): void {
-  const objects = db.prepare(`
-    SELECT type, name, tbl_name AS tableName, sql
-    FROM sqlite_schema
-    WHERE name NOT GLOB 'sqlite_*'
-    ORDER BY type, name
-  `).all() as Array<{ type: string; name: string; tableName: string; sql: string | null }>
-  const matches = objects.length === MIGRATABLE_V13_SCHEMA.length
-    && objects.every((object, index) => {
-      const expected = MIGRATABLE_V13_SCHEMA[index]
-      return expected !== undefined
-        && object.type === expected.type
-        && object.name === expected.name
-        && object.tableName === expected.tableName
-        && object.sql !== null
-        && normalizeSchemaSql(object.sql) === normalizeSchemaSql(expected.sql)
-    })
-  if (!matches) {
-    throw new Error(`session database at "${path}" does not match the owned v13 schema`)
-  }
-}
-
-/** Ignore formatting while preserving every schema token and its order. */
-function normalizeSchemaSql(sql: string): string {
-  return sql.replace(/\s+/g, ' ').trim()
-}
-
 /**
  * Reconstruct the {@link SessionHeader} from a `sessions` row.
  * @param row - the `sessions` table row.
@@ -265,7 +180,6 @@ export function rowToMeta(row: SessionRow): SessionHeader {
     id: row.id as SessionId,
     createdAt: row.created_at,
     ...row.cwd !== null ? { cwd: row.cwd } : {},
-    ...row.time_zone !== null ? { timeZone: row.time_zone } : {},
     ...row.parent_session !== null ? { parentSession: row.parent_session as SessionId } : {},
     ...row.seed_length !== null ? { seedLength: row.seed_length } : {},
     ...row.origin !== null ? { origin: row.origin } : {},

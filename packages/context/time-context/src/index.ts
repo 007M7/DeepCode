@@ -11,13 +11,10 @@ import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { UserMessage } from '@deepseek-ai/dsh-llm'
 import {
-  deriveClientTimeZoneContext,
-  renderTimeZoneContext,
+  deriveBrowserTimeZoneContext,
+  renderBrowserTimeZoneContext,
 } from './request-zone.ts'
 import { createTimestampFormatter, formatTimestamp } from './timestamp.ts'
-
-export type { ClientTimeZoneContext } from './request-zone.ts'
-export { deriveClientTimeZoneContext } from './request-zone.ts'
 
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'time-context'
@@ -27,7 +24,7 @@ export const inject = ['agents']
 
 /** Request-preparation clock formatting and append scheduling. Invalid values fail plugin load. */
 export interface Config {
-  /** Fallback display zone for headerless Sessions. Omit to use the process zone. */
+  /** Fallback display zone when the open turn has no unique browser zone. Omit to use the process zone. */
   timeZone?: string
   /** Minimum milliseconds between durable injections in one session. Omit or set to 0 to inject at every eligible step. */
   refreshIntervalMs?: number
@@ -56,7 +53,7 @@ function formatDuration(elapsedMs: number): string {
   return parts.join(' ')
 }
 
-/** Find the latest model-visible event before the current proposal. */
+/** Find the latest model-visible event, excluding this plugin's pending append. */
 function precedingMessageTime(agent: Agent): number | undefined {
   for (const event of [...agent.session.events].reverse()) {
     switch (event.type) {
@@ -97,33 +94,32 @@ function latestInjectionTime(agent: Agent): number | undefined {
   return undefined
 }
 
-/** Collect already-entered and proposed messages belonging to one open turn. */
+/** Collect already-entered and proposed user messages belonging to one open turn. */
 function requestMessages(agent: Agent, turn: number, proposed: readonly UserMessage[]): UserMessage[] {
   const start = agent.session.events.findLastIndex(
     event => event.type === 'turn/start' && event.data.turn === turn,
   )
   const entered = start < 0
     ? []
-    : agent.session.events.slice(start + 1).flatMap(event => event.type === 'user/message' ? [event.data] : [])
+    : agent.session.events.slice(start + 1)
+      .flatMap(event => event.type === 'user/message' ? [event.data] : [])
   return [...entered, ...proposed]
 }
 
-/** Render one durable time reading. */
 function renderText(
   now: number,
   turn: number,
   step: number,
   previous: number | undefined,
   formatter: Intl.DateTimeFormat,
-  displayTimeZone: string,
-  sessionTimeZone: string | undefined,
+  timeZone: string,
   messages: readonly UserMessage[],
 ): string {
   const elapsed = previous === undefined ? 'unavailable' : formatDuration(now - previous)
   const baseline = step === 1 ? 'model-visible message' : 'step context'
-  const client = deriveClientTimeZoneContext(messages)
-  return `Time sampled while preparing turn ${turn}, step ${step}: ${formatTimestamp(now, formatter, displayTimeZone)}\n`
-    + `${renderTimeZoneContext(sessionTimeZone, client)}\n`
+  const browserContext = renderBrowserTimeZoneContext(deriveBrowserTimeZoneContext(messages))
+  return `Time sampled while preparing turn ${turn}, step ${step}: ${formatTimestamp(now, formatter, timeZone)}\n`
+    + `${browserContext}\n`
     + `Elapsed since the preceding ${baseline}: ${elapsed}.`
 }
 
@@ -141,12 +137,11 @@ function validateRefreshInterval(refreshIntervalMs: number | undefined): void {
 
 /**
  * Register a prepended pre-step listener for the lifetime of `ctx`.
- * @param ctx - Plugin context; the listener is disposed with it.
- * @param config - Time zone and durable refresh scheduling configuration.
- * @returns A disposer that prevents an in-flight listener from contributing.
- * @throws When the refresh interval or configured/process time zone is invalid.
+ * @param ctx - plugin context; the listener is disposed with it.
+ * @param config - time zone and durable refresh scheduling configuration.
+ * @throws when the refresh interval is invalid or the configured or process time zone cannot be resolved.
  */
-export function apply(ctx: Context, config: Config): () => void {
+export function apply(ctx: Context, config: Config): void {
   const timeZone = config.timeZone
   const refreshIntervalMs = config.refreshIntervalMs
   validateRefreshInterval(refreshIntervalMs)
@@ -161,66 +156,22 @@ export function apply(ctx: Context, config: Config): () => void {
   }
   const fallbackTimeZone = fallbackFormatter.resolvedOptions().timeZone
   const formatters = new Map<string, Intl.DateTimeFormat>([[fallbackTimeZone, fallbackFormatter]])
-  let disposed = false
 
-  /** Resolve one Session-owned formatter without making the process zone authoritative. */
+  /** Resolve and cache one request-local timestamp formatter. */
   const formatterFor = (selectedTimeZone: string): Intl.DateTimeFormat => {
     const existing = formatters.get(selectedTimeZone)
     if (existing !== undefined) return existing
-    let created: Intl.DateTimeFormat
-    try {
-      created = createTimestampFormatter(selectedTimeZone)
-    } catch (error: unknown) {
-      throw new Error(`time-context: invalid Session time zone ${JSON.stringify(selectedTimeZone)}`, { cause: error })
-    }
+    const created = createTimestampFormatter(selectedTimeZone)
     formatters.set(selectedTimeZone, created)
     return created
-  }
-
-  /** Build one current reading after downstream pre-step transforms settle. */
-  const readingFor = (
-    agent: Agent,
-    turn: number,
-    step: number,
-    messages: readonly UserMessage[],
-  ): UserMessage => {
-    const now = Date.now()
-    const previous = step === 1
-      ? precedingMessageTime(agent)
-      : precedingStepContextTime(agent, turn)
-    const sessionTimeZone = agent.session.header.timeZone
-    const displayTimeZone = sessionTimeZone ?? fallbackTimeZone
-    const formatter = sessionTimeZone === undefined
-      ? fallbackFormatter
-      : formatterFor(sessionTimeZone)
-    const text = renderText(
-      now,
-      turn,
-      step,
-      previous,
-      formatter,
-      displayTimeZone,
-      sessionTimeZone,
-      requestMessages(agent, turn, messages),
-    )
-    return createUserMessage({
-      content: [{ type: 'text', text }],
-      source: { kind: 'plugin', plugin: name, form: 'snapshot', sections: [{ name, text }] },
-    })
   }
 
   ctx.on('agent/pre-step', async (
     { agent, turn, step, signal },
     next,
   ): Promise<PreStepDecision> => {
-    const wasDisposed = (): boolean => disposed
-    const wasAborted = (): boolean => signal.aborted
-    if (wasDisposed()) return next()
     const decision = await next()
-    if (wasDisposed() || wasAborted() || decision.kind === 'reject'
-      || decision.messages.length === 0) {
-      return decision
-    }
+    if (decision.kind === 'reject' || signal.aborted) return decision
     const now = Date.now()
     if (refreshIntervalMs !== undefined && refreshIntervalMs > 0) {
       const lastInjection = latestInjectionTime(agent)
@@ -228,16 +179,30 @@ export function apply(ctx: Context, config: Config): () => void {
         && now >= lastInjection
         && now - lastInjection < refreshIntervalMs) return decision
     }
+    const previous = step === 1
+      ? precedingMessageTime(agent)
+      : precedingStepContextTime(agent, turn)
+    const messages = requestMessages(agent, turn, decision.messages)
+    const browser = deriveBrowserTimeZoneContext(messages)
+    const selectedTimeZone = browser.kind === 'resolved' ? browser.timeZone : fallbackTimeZone
+    const text = renderText(
+      now,
+      turn,
+      step,
+      previous,
+      formatterFor(selectedTimeZone),
+      selectedTimeZone,
+      messages,
+    )
     return {
       kind: 'enter',
       messages: [
         ...decision.messages,
-        readingFor(agent, turn, step, decision.messages),
+        createUserMessage({
+          content: [{ type: 'text', text }],
+          source: { kind: 'plugin', plugin: name, form: 'snapshot', sections: [{ name, text }] },
+        }),
       ],
     }
   }, { prepend: true })
-
-  return () => {
-    disposed = true
-  }
 }

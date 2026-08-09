@@ -45,16 +45,14 @@ function reading(
   step = '1',
   baseline = 'model-visible message',
   timestamp = '2026-07-14T00:00:00+00:00[UTC]',
-  sessionTimeZone = 'unavailable',
-  clientTimeZone = 'missing',
+  browser = 'Browser time zone for this request: unavailable. Ask the user to clarify otherwise-unqualified dates and times.',
 ): string {
   return `Time sampled while preparing turn ${turn}, step ${step}: ${timestamp}\n`
-    + `Session time zone: ${sessionTimeZone}.\n`
-    + `Client time zone for this request: ${clientTimeZone}.\n`
+    + `${browser}\n`
     + `Elapsed since the preceding ${baseline}: unavailable.`
 }
 
-function preparing(turn: number, step: number): Session {
+function preparing(turn: number, step: number, clientTimeZone?: string): Session {
   const session = Session.create(SessionId(`time-invariant-${turn}-${step}`))
   for (let priorTurn = 1; priorTurn < turn; priorTurn += 1) {
     session.append('turn/start', { turn: priorTurn })
@@ -63,7 +61,9 @@ function preparing(turn: number, step: number): Session {
   session.append('turn/start', { turn })
   session.append('user/message', createUserMessage({
     content: [{ type: 'text', text: `turn ${turn}` }],
-    source: { kind: 'user' },
+    source: clientTimeZone === undefined
+      ? { kind: 'user' }
+      : { kind: 'user', rpcId: `turn-${String(turn)}`, clientTimeZone } as never,
   }), { surfaceOp: 'append' })
   for (let priorStep = 1; priorStep < step; priorStep += 1) {
     session.append('step/start', { turn, step: priorStep })
@@ -89,8 +89,7 @@ describe('time-context invariants', () => {
   it('accepts a reading whose turn, step, baseline, and timestamp agree', async () => {
     const ctx = await setup()
     const text = 'Time sampled while preparing turn 2, step 3: 2026-07-14T00:00:00+00:00[UTC]\n'
-      + 'Session time zone: unavailable.\n'
-      + 'Client time zone for this request: missing.\n'
+      + 'Browser time zone for this request: unavailable. Ask the user to clarify otherwise-unqualified dates and times.\n'
       + 'Elapsed since the preceding step context: 4m 2s.'
     expect(() => { ctx.emit('session/event', preparing(2, 3), event(text)) }).not.toThrow()
   })
@@ -102,231 +101,47 @@ describe('time-context invariants', () => {
     }).not.toThrow()
   })
 
-  it('rejects a reading appended after request execution starts', async () => {
+  it('requires browser-zone policy and timestamp to match current-turn request provenance', async () => {
     const ctx = await setup()
-    const session = preparing(1, 1)
-    session.append('request/header', {
-      header: { config: { provider: 'mock', model: 'mock' } },
-      reason: 'initial',
-    })
+    const policy = 'Browser time zone for this request: Asia/Shanghai. '
+      + 'Interpret otherwise-unqualified dates and times in this zone.'
     expect(() => {
-      ctx.emit('session/event', session, event(reading()))
-    }).toThrow(/must precede request\/header/)
-  })
-
-  it('derives Session and client zones from their original durable owners', async () => {
-    const ctx = await setup()
-    const id = SessionId('time-invariant-zones')
-    const session = Session.create(id, [], {
-      version: 0,
-      id,
-      createdAt: SECOND,
-      timeZone: 'Asia/Shanghai',
-    })
-    session.append('turn/start', { turn: 1 })
-    session.append('user/message', createUserMessage({
-      content: [{ type: 'text', text: 'travel request' }],
-      source: { kind: 'user', rpcId: 'travel-request', clientTimeZone: 'America/New_York' } as never,
-    }), { surfaceOp: 'append' })
-    session.append('step/start', { turn: 1, step: 1 })
-
-    expect(() => {
-      ctx.emit('session/event', session, event(reading(
+      ctx.emit('session/event', preparing(1, 1, 'Asia/Shanghai'), event(reading(
         '1',
         '1',
         'model-visible message',
         '2026-07-14T08:00:00+08:00[Asia/Shanghai]',
-        'Asia/Shanghai',
-        'America/New_York',
-      )))
+        policy,
+      ), SECOND + 456))
     }).not.toThrow()
     expect(() => {
-      ctx.emit('session/event', session, event(reading(
-        '1',
-        '1',
-        'model-visible message',
-        '2026-07-14T08:00:00+08:00[Asia/Shanghai]',
-        'Asia/Shanghai',
-        'Asia/Shanghai',
-      )))
-    }).toThrow(/does not match the Session and current request zones/)
+      ctx.emit('session/event', preparing(1, 1, 'Asia/Shanghai'), event(reading()))
+    }).toThrow(/browser-zone text/)
     expect(() => {
-      ctx.emit('session/event', session, event(reading(
+      ctx.emit('session/event', preparing(1, 1, 'Asia/Shanghai'), event(reading(
         '1',
         '1',
         'model-visible message',
         '2026-07-14T00:00:00+00:00[UTC]',
-        'Asia/Shanghai',
-        'America/New_York',
+        policy,
       )))
-    }).toThrow(/rendered timestamp does not match the Session time zone/)
+    }).toThrow(/rendered timestamp does not match the unique browser zone/)
   })
 
-  it('rejects a durable reading whose Session zone cannot format the timestamp', async () => {
+  it('rejects invalid browser provenance loaded across the durable boundary', async () => {
     const ctx = await setup()
-    const id = SessionId('time-invariant-invalid-zone')
-    const session = Session.create(id, [], {
-      version: 0,
-      id,
-      createdAt: SECOND,
-      timeZone: 'Invalid/Zone',
-    })
-    session.append('turn/start', { turn: 1 })
-    session.append('user/message', createUserMessage({
-      content: [{ type: 'text', text: 'invalid zone request' }],
-      source: { kind: 'user' },
-    }), { surfaceOp: 'append' })
-    session.append('step/start', { turn: 1, step: 1 })
-
+    const timeZone = 'Not/A_Real_Zone'
+    const policy = `Browser time zone for this request: ${timeZone}. `
+      + 'Interpret otherwise-unqualified dates and times in this zone.'
     expect(() => {
-      ctx.emit('session/event', session, event(reading(
+      ctx.emit('session/event', preparing(1, 1, timeZone), event(reading(
         '1',
         '1',
         'model-visible message',
-        '2026-07-14T00:00:00+00:00[UTC]',
-        'Invalid/Zone',
+        `2026-07-14T00:00:00+00:00[${timeZone}]`,
+        policy,
       )))
-    }).toThrow(/Session time zone cannot format its durable timestamp/)
-  })
-
-  it('rejects a malformed reading seeded after companion setup', async () => {
-    const ctx = await setup()
-    const id = SessionId('time-invariant-future-seed')
-    const text = reading(
-      '1',
-      '1',
-      'model-visible message',
-      '2026-07-14T00:00:00+00:00[UTC]',
-      'Asia/Shanghai',
-      'Asia/Shanghai',
-    )
-    expect(() => ctx.sessions.create(id, {
-      meta: { timeZone: 'Asia/Shanghai' },
-      seed: [
-        { type: 'turn/start', seq: 0, time: SECOND, data: { turn: 1 } },
-        {
-          type: 'user/message',
-          seq: 1,
-          time: SECOND,
-          surfaceOp: 'append',
-          data: createUserMessage({
-            content: [{ type: 'text', text: 'seeded request' }],
-            source: { kind: 'user', rpcId: 'seeded-request', clientTimeZone: 'Asia/Shanghai' } as never,
-          }),
-        },
-        { type: 'step/start', seq: 2, time: SECOND, data: { turn: 1, step: 1 } },
-        { ...event(text), seq: 3, surfaceOp: 'append' },
-      ],
-    })).toThrow(/rendered timestamp does not match the Session time zone/)
-    expect(ctx.sessions.get(id)).toBeUndefined()
-  })
-
-  it('rejects a time-context source that duplicates request authority', async () => {
-    const ctx = await setup()
-    const base = event(reading())
-    const duplicate: SessionEvent<'user/message'> = {
-      ...base,
-      data: {
-        ...base.data,
-        source: { ...base.data.source, authority: {} } as never,
-      },
-    }
-    expect(() => {
-      ctx.emit('session/event', preparing(1, 1), duplicate)
-    }).toThrow(/must carry only the exact snapshot text/)
-  })
-
-  it('rejects snapshot provenance whose section differs from the model-visible text', async () => {
-    const ctx = await setup()
-    const base = event(reading())
-    const mismatched: SessionEvent<'user/message'> = {
-      ...base,
-      data: {
-        ...base.data,
-        source: {
-          kind: 'plugin',
-          plugin: 'time-context',
-          form: 'snapshot',
-          sections: [{ name: 'time-context', text: 'different' }],
-        },
-      },
-    }
-    expect(() => {
-      ctx.emit('session/event', preparing(1, 1), mismatched)
-    }).toThrow(/must carry only the exact snapshot text/)
-  })
-
-  it('rejects snapshot provenance whose sections are only array-like', async () => {
-    const ctx = await setup()
-    const base = event(reading())
-    const arrayLike: SessionEvent<'user/message'> = {
-      ...base,
-      data: {
-        ...base.data,
-        source: {
-          kind: 'plugin',
-          plugin: 'time-context',
-          form: 'snapshot',
-          sections: { 0: { name: 'time-context', text: reading() }, length: 1 },
-        } as never,
-      },
-    }
-    expect(() => {
-      ctx.emit('session/event', preparing(1, 1), arrayLike)
-    }).toThrow(/must carry only the exact snapshot text/)
-  })
-
-  it.each([
-    [
-      'matched non-string text',
-      { type: 'text', text: 7 },
-      [{ name: 'time-context', text: 7 }],
-      /must contain exactly one text block/,
-    ],
-    [
-      'an extra text-block field',
-      { type: 'text', text: reading(), extra: true },
-      [{ name: 'time-context', text: reading() }],
-      /must contain exactly one text block/,
-    ],
-    [
-      'an extra section field',
-      { type: 'text', text: reading() },
-      [{ name: 'time-context', text: reading(), extra: true }],
-      /must carry only the exact snapshot text/,
-    ],
-  ] as const)(
-    'rejects snapshot provenance with %s',
-    async (_name, block, sections, diagnostic) => {
-      const ctx = await setup()
-      const base = event(reading())
-      const malformed: SessionEvent<'user/message'> = {
-        ...base,
-        data: {
-          ...base.data,
-          content: [block as never],
-          source: { kind: 'plugin', plugin: 'time-context', form: 'snapshot', sections } as never,
-        },
-      }
-      expect(() => {
-        ctx.emit('session/event', preparing(1, 1), malformed)
-      }).toThrow(diagnostic)
-    },
-  )
-
-  it('rejects package-owned provenance without snapshot sections', async () => {
-    const ctx = await setup()
-    const base = event(reading())
-    const unformed: SessionEvent<'user/message'> = {
-      ...base,
-      data: {
-        ...base.data,
-        source: { kind: 'plugin', plugin: 'time-context' },
-      },
-    }
-    expect(() => {
-      ctx.emit('session/event', preparing(1, 1), unformed)
-    }).toThrow(/must carry only the exact snapshot text/)
+    }).toThrow(/browser zone cannot format/)
   })
 
   it('validates each existing reading against its preceding durable prefix', async () => {
@@ -377,22 +192,23 @@ describe('time-context invariants', () => {
       .toThrow(/inside an open turn/)
   })
 
-  it('rejects a reading before step/start', async () => {
-    const ctx = await setup()
-    const session = Session.create(SessionId('time-invariant-turn-only'))
-    session.append('turn/start', { turn: 1 })
-    expect(() => { ctx.emit('session/event', session, event(reading())) }).toThrow(/follow step\/start/)
-  })
-
-  it('rejects a reading outside its open preparation', async () => {
+  it('rejects a reading outside a prompt boundary', async () => {
     const ctx = await setup()
     const ended = preparing(1, 1)
     ended.append('step/end', { turn: 1, step: 1 })
-    expect(() => { ctx.emit('session/event', ended, event(reading())) })
-      .toThrow(/follow step\/start/)
+    expect(() => { ctx.emit('session/event', ended, event(reading())) }).toThrow(/follow step\/start/)
+    const notEntered = Session.create(SessionId('time-invariant-turn-only'))
+    notEntered.append('turn/start', { turn: 1 })
+    expect(() => { ctx.emit('session/event', notEntered, event(reading())) }).toThrow(/follow step\/start/)
     expect(() => {
       ctx.emit('session/event', Session.create(SessionId('time-invariant-empty')), event(reading()))
     }).toThrow(/inside an open turn/)
+    const requested = preparing(1, 1)
+    requested.append('request/header', {
+      header: { config: { provider: 'mock', model: 'model' } },
+      reason: 'initial',
+    })
+    expect(() => { ctx.emit('session/event', requested, event(reading())) }).toThrow(/precede request\/header/)
   })
 
   it.each([
@@ -409,6 +225,7 @@ describe('time-context invariants', () => {
     ['ignored', SECOND, [], /exactly one text block/],
     ['ignored', SECOND, [{ type: 'image', data: 'x', mimeType: 'image/png' }], /exactly one text block/],
     ['ignored', SECOND, [{ type: 'text', text: 'one' }, { type: 'text', text: 'two' }], /exactly one text block/],
+    [reading(), SECOND, [{ type: 'text', text: reading(), extra: true }], /exactly one text block/],
   ] as const)('rejects an incoherent durable reading', async (text, time, content, message) => {
     const ctx = await setup()
     const preparationStep = text.includes('turn 1, step 2:') ? 2 : 1
@@ -419,6 +236,55 @@ describe('time-context invariants', () => {
         content === undefined ? undefined : [...content],
       ))
     }).toThrow(message)
+  })
+
+  it('requires exact snapshot provenance without copied request authority', async () => {
+    const ctx = await setup()
+    const base = event(reading())
+    for (const source of [
+      { kind: 'plugin', plugin: 'time-context' },
+      { ...base.data.source, authority: {} },
+      {
+        kind: 'plugin',
+        plugin: 'time-context',
+        form: 'snapshot',
+        sections: [{ name: 'time-context', text: 'different' }],
+      },
+      {
+        kind: 'plugin',
+        plugin: 'time-context',
+        form: 'snapshot',
+        sections: { 0: { name: 'time-context', text: reading() }, length: 1 },
+      },
+      {
+        kind: 'plugin',
+        plugin: 'time-context',
+        form: 'snapshot',
+        sections: [{ name: 'time-context', text: reading(), extra: true }],
+      },
+    ]) {
+      const malformed: SessionEvent<'user/message'> = {
+        ...base,
+        data: { ...base.data, source: source as never },
+      }
+      expect(() => { ctx.emit('session/event', preparing(1, 1), malformed) })
+        .toThrow(/must carry only the exact snapshot text/)
+    }
+  })
+
+  it('validates a seeded Session created after invariant registration', async () => {
+    const ctx = await setup()
+    const text = reading('1', '2', 'step context')
+    expect(() => {
+      ctx.sessions.create(SessionId('time-invariant-created-invalid'), {
+        seed: [
+          { type: 'turn/start', seq: 0, time: SECOND, data: { turn: 1 } },
+          { type: 'step/start', seq: 1, time: SECOND, data: { turn: 1, step: 1 } },
+          { ...event(text), seq: 2, surfaceOp: 'append' },
+        ],
+      })
+    }).toThrow(/expected turn 1\/step 1/)
+    expect(ctx.sessions.get(SessionId('time-invariant-created-invalid'))).toBeUndefined()
   })
 
   it('ignores context messages owned by another package', async () => {

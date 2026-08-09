@@ -38,7 +38,7 @@ interface SessionLocation {
 
 ## `SessionHeader` — metadata beside the log
 
-Per-session metadata travels **separately** from the event log: format version, cwd, optional caller-validated time zone, lineage, and the seed boundary are storage concerns, not conversation events, so they stay out of `SessionEventMap` and never reach `deriveMessages()`. The header is attached to a `Session` via `session.header`.
+Per-session metadata travels **separately** from the event log: format version, cwd, lineage, and the seed boundary are storage concerns, not conversation events, so they stay out of `SessionEventMap` and never reach `deriveMessages()`. The header is attached to a `Session` via `session.header`.
 
 Source: [`packages/core/session/src/types.ts`](../../packages/core/session/src/types.ts)
 
@@ -59,11 +59,6 @@ interface SessionHeader {
   readonly createdAt: number
   /** Absolute working directory the session was created in (if any). */
   readonly cwd?: string
-  /**
-   * Optional caller-validated time-zone identifier captured at creation.
-   * Session core preserves the exact string without interpreting or canonicalizing it.
-   */
-  readonly timeZone?: string
   /** The session this one was forked from (seed lineage), if any. */
   readonly parentSession?: SessionId
   /**
@@ -87,7 +82,7 @@ interface SessionHeader {
 
 ## `CreateSessionOptions` — seeding and metadata
 
-Creating a `Session` through the store takes a `seed` (initial replay or fork history) and `meta` (the storage-level fields the store folds into a `SessionHeader`). The store fills in `version`/`id` and defaults `createdAt`; the caller supplies the validated absolute `cwd`, optional caller-validated `timeZone`, the `parentSession` lineage, the `seedLength` seed boundary, the optional coarse `origin`, the `delegationDepth`, and — only when reconstructing a persisted session — the original `createdAt` to preserve it. `origin: 'subagent'` lets product navigation hide duplicate child rows; it does not prove that a descriptor is valid or that the child can resume.
+Creating a `Session` through the store takes a `seed` (initial replay or fork history) and `meta` (the storage-level fields the store folds into a `SessionHeader`). The store fills in `version`/`id` and defaults `createdAt`; the caller may supply the validated absolute `cwd`, the `parentSession` lineage, the `seedLength` seed boundary, the optional coarse `origin`, the `delegationDepth`, and an existing `createdAt`. `origin: 'subagent'` lets product navigation hide duplicate child rows; it does not prove that a descriptor is valid or that the child can resume.
 
 ```ts type-equiv
 /**
@@ -104,8 +99,6 @@ interface CreateSessionOptions {
    */
   readonly meta?: {
     readonly cwd?: string
-    /** Caller-validated time-zone identifier to preserve verbatim in the header. */
-    readonly timeZone?: string
     readonly parentSession?: SessionId
     readonly createdAt?: number
     readonly seedLength?: number

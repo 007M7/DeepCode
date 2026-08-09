@@ -99,6 +99,25 @@ const MESSAGE_TYPES = new Set(['user/message', 'assistant/message'])
 /** Product settings intentionally exposed beside model-provider namespaces. */
 const PRODUCT_SETTINGS_NAMESPACES = new Set(['ui-onboarding'])
 
+/** Strict browser-zone profile: UTC or an IANA Area/Location-style identifier. */
+const IANA_TIME_ZONE = /^[A-Za-z][A-Za-z0-9_+.-]*(?:\/[A-Za-z0-9_+.-]+)+$/
+
+/** Validate and canonicalize one browser-supplied IANA zone at the wire boundary. */
+function canonicalClientTimeZone(value: string): string | undefined {
+  if (value.length === 0 || value.trim() !== value
+    || (value !== 'UTC' && !IANA_TIME_ZONE.test(value))) return undefined
+  try {
+    const canonical = new Intl.DateTimeFormat('en-US', { timeZone: value })
+      .resolvedOptions().timeZone
+    /* v8 ignore next -- Intl returns UTC or a canonical IANA Area/Location for accepted input. */
+    if (canonical !== 'UTC' && !IANA_TIME_ZONE.test(canonical)) return undefined
+    return canonical
+  } catch {
+    // Intl rejects unsupported zone names; the RPC maps that parser rejection below.
+    return undefined
+  }
+}
+
 /** Read live abort state across awaits without treating it as synchronously immutable. */
 function isAborted(signal: AbortSignal): boolean {
   return signal.aborted
@@ -1803,12 +1822,26 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       },
 
       async prompt(request) {
-        const { sessionId, mode, content } = request.payload
+        const { sessionId, mode, content, clientTimeZone } = request.payload
+        const canonicalTimeZone = clientTimeZone === undefined
+          ? undefined
+          : canonicalClientTimeZone(clientTimeZone)
+        if (clientTimeZone !== undefined && canonicalTimeZone === undefined) {
+          return err(request, {
+            code: 'invalid-time-zone',
+            message: 'clientTimeZone must be UTC or a valid IANA Area/Location name',
+            details: { value: clientTimeZone },
+          })
+        }
         const resolved = await turnAgentFor<{ accepted: true }>(request, sessionId)
         if ('refused' in resolved) return resolved.refused
         const agent = resolved.agent
-        // The rpcId rides MessageSource into user/message (merge declaration in api/sessions.ts; provisional correlation).
-        const source: MessageSource = { kind: 'user', rpcId: request.rpcId }
+        // Request identity and optional browser zone ride the exact durable user message.
+        const source: MessageSource = {
+          kind: 'user',
+          rpcId: request.rpcId,
+          ...(canonicalTimeZone === undefined ? {} : { clientTimeZone: canonicalTimeZone }),
+        }
         try {
           const message: UserMessage = createUserMessage({ content, source })
           if (mode === 'steer') agent.steer(message)

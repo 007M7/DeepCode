@@ -1,15 +1,16 @@
-/** Request-zone derivation shared by time-context rendering and Schedule tools. */
+/** Browser-zone derivation and model-facing policy text for one open request turn. */
 
+import { assertNever } from '@deepseek-ai/dsh-llm'
 import type { UserMessage } from '@deepseek-ai/dsh-llm'
 
-/** Client-zone facts derived from the user-rpc messages in one open turn. */
-export type ClientTimeZoneContext =
+/** Browser-zone facts derived from user-rpc messages in one open turn. */
+export type BrowserTimeZoneContext =
   | { readonly kind: 'resolved'; readonly timeZone: string }
-  | { readonly kind: 'mixed'; readonly timeZones: string[] }
+  | { readonly kind: 'mixed'; readonly timeZones: readonly string[] }
   | { readonly kind: 'missing' }
 
-/** Read the Host-validated client zone from one ordinary user-rpc message. */
-function clientTimeZone(message: UserMessage): string | undefined {
+/** Read a Host-validated browser zone from one ordinary user-rpc message. */
+function browserTimeZone(message: UserMessage): string | undefined {
   const source = message.source
   return source.kind === 'user'
     && 'rpcId' in source
@@ -21,13 +22,15 @@ function clientTimeZone(message: UserMessage): string | undefined {
 }
 
 /**
- * Derive the unique, mixed, or missing client zone from entered request input.
- * @param messages - User messages belonging to the current open turn.
- * @returns A sorted, duplicate-free request-zone context.
+ * Derive the unique, mixed, or missing browser zone for one open turn.
+ * @param messages - Entered and proposed user messages belonging to the turn.
+ * @returns Sorted, duplicate-free browser-zone facts.
  */
-export function deriveClientTimeZoneContext(messages: readonly UserMessage[]): ClientTimeZoneContext {
+export function deriveBrowserTimeZoneContext(
+  messages: readonly UserMessage[],
+): BrowserTimeZoneContext {
   const timeZones = [...new Set(messages.flatMap((message) => {
-    const timeZone = clientTimeZone(message)
+    const timeZone = browserTimeZone(message)
     return timeZone === undefined ? [] : [timeZone]
   }))].sort()
   const [timeZone, ...remaining] = timeZones
@@ -37,20 +40,23 @@ export function deriveClientTimeZoneContext(messages: readonly UserMessage[]): C
 }
 
 /**
- * Render Session and request-zone facts for the model-visible time reading.
- * @param sessionTimeZone - Immutable Session zone, or `undefined` for legacy Sessions.
- * @param client - Client zones derived from the current open turn.
- * @returns The two policy lines appended to a time-context reading.
+ * Render the model instruction for one browser-zone context.
+ * @param context - Browser-zone facts for the open turn.
+ * @returns One durable policy line.
  */
-export function renderTimeZoneContext(
-  sessionTimeZone: string | undefined,
-  client: ClientTimeZoneContext,
-): string {
-  const session = sessionTimeZone ?? 'unavailable'
-  const request = client.kind === 'resolved'
-    ? client.timeZone
-    : client.kind === 'mixed'
-      ? `mixed ${JSON.stringify(client.timeZones)}`
-      : 'missing'
-  return `Session time zone: ${session}.\nClient time zone for this request: ${request}.`
+export function renderBrowserTimeZoneContext(context: BrowserTimeZoneContext): string {
+  switch (context.kind) {
+    case 'resolved':
+      return `Browser time zone for this request: ${context.timeZone}. `
+        + 'Interpret otherwise-unqualified dates and times in this zone.'
+    case 'mixed':
+      return `Browser time zone for this request: mixed ${JSON.stringify(context.timeZones)}. `
+        + 'Ask the user to clarify otherwise-unqualified dates and times.'
+    case 'missing':
+      return 'Browser time zone for this request: unavailable. '
+        + 'Ask the user to clarify otherwise-unqualified dates and times.'
+    /* v8 ignore next 2 -- the closed BrowserTimeZoneContext union is exhausted above. */
+    default:
+      return assertNever(context, 'BrowserTimeZoneContext')
+  }
 }

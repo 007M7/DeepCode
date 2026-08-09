@@ -41,7 +41,7 @@ describe('web e2e: the composer model switch is the default for later sessions',
   const createSession = async (sessionId: string): Promise<string> => {
     const response = await scaffold.ctx.apiProxy.sessions.create({
       rpcId: `default-model-create-${sessionId}` as never,
-      payload: { sessionId: SessionId(sessionId), cwd: scaffold.workspaceCwd, timeZone: 'UTC' },
+      payload: { sessionId: SessionId(sessionId), cwd: scaffold.workspaceCwd },
     })
     if (!response.result.ok) throw new Error(`session.create failed: ${response.result.error.message}`)
     return response.result.value.sessionId
@@ -150,7 +150,6 @@ describe('web e2e: the composer model switch is the default for later sessions',
         sessionId: SessionId(await createSession('default-model-refusal')),
         mode: 'queue' as const,
         content: [{ type: 'text' as const, text: 'hi' }],
-        clientTimeZone: 'UTC',
       },
     })
     expect(refused.result).toMatchObject({ ok: false, error: { code: 'model-unavailable' } })

@@ -10,11 +10,9 @@ import { Context } from 'cordis'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SessionId } from '@deepseek-ai/dsh-client-connection/client'
 import { SessionCreateError, SessionsService, scopeOf } from '../src/client/sessions/service.ts'
-import { resolvedClientTimeZone } from '../src/client/time-zone.ts'
 import { FakeApiClient, deferred, err, ok } from './fake-api.ts'
 
 const sid = (s: string): SessionId => s as SessionId
-const CLIENT_TIME_ZONE = resolvedClientTimeZone()
 
 interface Bench {
   ctx: Context
@@ -454,11 +452,7 @@ describe('create', () => {
     const b = bench()
     b.api.onCreate = () => Promise.resolve(ok({ sessionId: sid('fresh') }))
     await expect(b.svc.create({ cwd: '/w', sessionId: sid('fresh') })).resolves.toBe('fresh')
-    expect(b.api.callsOf('session.create')).toEqual([{
-      cwd: '/w',
-      sessionId: 'fresh',
-      timeZone: CLIENT_TIME_ZONE,
-    }])
+    expect(b.api.callsOf('session.create')).toEqual([{ cwd: '/w', sessionId: 'fresh' }])
     b.api.onCreate = () => Promise.resolve({
       rpcId: 'e' as never,
       result: { ok: false as const, error: { code: 'internal' as const, message: '爆了', details: {} } },

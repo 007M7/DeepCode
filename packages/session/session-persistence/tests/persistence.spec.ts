@@ -374,28 +374,6 @@ describe('PersistenceCoordinator bounded writes', () => {
 })
 
 describe('PersistenceCoordinator stored identity', () => {
-  it('rejects a non-string timeZone decoded by a backend', async () => {
-    const ctx = new Context()
-    await ctx.plugin(SessionStore)
-    const backend = new ControlledBackend()
-    const id = SessionId('invalid-stored-zone')
-    backend.store.set(id, {
-      meta: { ...meta(id), timeZone: 1 as unknown as string },
-      events: [],
-    })
-    let coordinator!: PersistenceCoordinator<never>
-    const fiber = await ctx.plugin(Object.assign((inner: Context) => {
-      coordinator = new PersistenceCoordinator(inner, backend)
-    }, { inject: ['sessions'] }))
-    try {
-      await expect(coordinator.inspect(id)).rejects.toThrow(/stored session .* timeZone must be a string/)
-      expect((coordinator as unknown as CoordinatorInternals).states.size).toBe(0)
-    } finally {
-      await fiber.dispose()
-      await ctx.fiber.dispose()
-    }
-  })
-
   it('rejects a mismatched backend header before repair or state publication', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)

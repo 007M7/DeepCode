@@ -786,15 +786,6 @@ describe('SessionPersistenceJsonl: scanLog unit', () => {
     expect(() => scanLog(Buffer.from(log))).toThrow(/session header/)
   })
 
-  it('round-trips an optional timeZone and rejects a non-string stored value', () => {
-    const zoned = meta('zoned-header', '/work', 'Asia/Shanghai')
-    const scanned = scanLog(Buffer.from(`${JSON.stringify(toHeaderLine(zoned))}\n`))
-
-    expect(scanned.meta).toEqual({ ...zoned, delegationDepth: 0 })
-    const invalid = { ...toHeaderLine(zoned), timeZone: 8 }
-    expect(() => scanLog(Buffer.from(`${JSON.stringify(invalid)}\n`))).toThrow(/session header/)
-  })
-
   it.each([
     ['missing', undefined],
     ['a string', '1'],

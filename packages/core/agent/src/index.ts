@@ -79,11 +79,11 @@ export interface CreateAgentOptions {
   /** The live agent/session identity. */
   readonly sessionId: SessionId
   /**
-   * Session creation metadata: validated absolute `cwd`, caller-validated
-   * `timeZone`, `parentSession` fork lineage, the `seedLength` seed boundary,
-   * the coarse `origin` classification, and the `delegationDepth` recursion
-   * budget. Mirrors the `cwd`/`timeZone`/`parentSession`/`seedLength`/`origin`/
-   * `delegationDepth` fields of {@link CreateSessionOptions.meta} in dsh-session (the internal-only
+   * Session creation metadata: validated absolute `cwd`, `parentSession`
+   * fork lineage, the `seedLength` seed boundary, the coarse `origin`
+   * classification, and the `delegationDepth` recursion budget. Mirrors the
+   * `cwd`/`parentSession`/`seedLength`/`origin`/`delegationDepth` fields of
+   * {@link CreateSessionOptions.meta} in dsh-session (the internal-only
    * `createdAt`, used when reconstructing a persisted session, is deliberately
    * excluded — a factory caller never sets it). This is durable session data,
    * so the session boundary validates and snapshots it before asynchronous
@@ -91,7 +91,6 @@ export interface CreateAgentOptions {
    */
   readonly meta?: {
     readonly cwd?: string
-    readonly timeZone?: string
     readonly parentSession?: SessionId
     readonly seedLength?: number
     readonly origin?: 'subagent'

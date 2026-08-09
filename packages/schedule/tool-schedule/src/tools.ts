@@ -6,8 +6,6 @@
 import type { Context } from 'cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
-import type { SessionEvent } from '@deepseek-ai/dsh-session'
-import { deriveClientTimeZoneContext } from '@deepseek-ai/dsh-time-context'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { GenericCallView } from '@deepseek-ai/dsh-tools'
 import {
@@ -87,17 +85,6 @@ const BASIC_ERROR_SCHEMAS = [
   basicErrorSchema('internal_error'),
 ] as const
 
-const TIME_ZONE_CONFIRMATION_SCHEMA = {
-  type: 'object',
-  additionalProperties: false,
-  properties: {
-    code: { type: 'string', required: true, const: 'timezone_confirmation_required' },
-    message: { type: 'string', required: true },
-    sessionTimeZone: { type: 'string', required: true },
-    clientTimeZones: { type: 'array', required: true, items: { type: 'string' } },
-  },
-} as const
-
 const PERSISTENCE_ERROR_SCHEMA = {
   type: 'object',
   additionalProperties: false,
@@ -111,7 +98,6 @@ const PERSISTENCE_ERROR_SCHEMA = {
 
 const ERROR_SCHEMAS = [
   ...BASIC_ERROR_SCHEMAS,
-  TIME_ZONE_CONFIRMATION_SCHEMA,
   PERSISTENCE_ERROR_SCHEMA,
 ] as const
 
@@ -211,103 +197,8 @@ function persistenceError(
   }
 }
 
-/** Request-local zone evidence returned with an implicit-local confirmation failure. */
-interface AtTimeZoneContext {
-  readonly implicitTimeZone?: string
-  readonly sessionTimeZone: string
-  readonly clientTimeZones: string[]
-}
-
-/** Whether one durable message is the exact time-context snapshot marker. */
-function isTimeContextReading(event: SessionEvent): boolean {
-  if (event.type !== 'user/message') return false
-  const source = event.data.source
-  if (source.kind !== 'plugin'
-    || source.plugin !== 'time-context'
-    || Object.keys(source).length !== 4
-    || source.form !== 'snapshot') return false
-  const blockValue: unknown = event.data.content[0]
-  const block = typeof blockValue === 'object' && blockValue !== null
-    ? blockValue as Record<string, unknown>
-    : undefined
-  const sections: unknown = source.sections
-  const sectionValue: unknown = Array.isArray(sections) ? sections[0] : undefined
-  const section = typeof sectionValue === 'object' && sectionValue !== null
-    ? sectionValue as Record<string, unknown>
-    : undefined
-  return event.data.content.length === 1
-    && block !== undefined
-    && Object.keys(block).length === 2
-    && block.type === 'text'
-    && typeof block.text === 'string'
-    && Array.isArray(sections)
-    && sections.length === 1
-    && section !== undefined
-    && Object.keys(section).length === 2
-    && section.name === 'time-context'
-    && section.text === block.text
-}
-
-/** Derive request zones only while the current open turn contains a time-context reading. */
-function currentClientTimeZoneContext(agent: Agent): ReturnType<typeof deriveClientTimeZoneContext> | undefined {
-  const events = agent.session.events
-  let stepStart = -1
-  let turn = 0
-  for (let index = events.length - 1; index >= 0; index--) {
-    const event = events[index]
-    /* v8 ignore next -- the loop bounds index to the dense Session event array. */
-    if (event === undefined) continue
-    if (event.type === 'step/end' || event.type === 'turn/end') return undefined
-    if (event.type === 'step/start') {
-      stepStart = index
-      turn = event.data.turn
-      break
-    }
-  }
-  if (stepStart < 0) return undefined
-  const turnStart = events.findLastIndex(event => event.type === 'turn/start' && event.data.turn === turn)
-  if (turnStart < 0) return undefined
-  const hasReading = events.slice(turnStart + 1).some(isTimeContextReading)
-  if (!hasReading) return undefined
-  const messages = events.slice(turnStart + 1)
-    .flatMap(event => event.type === 'user/message' ? [event.data] : [])
-  return deriveClientTimeZoneContext(messages)
-}
-
-/** Resolve the only request state that may supply an omitted local time zone. */
-function atTimeZoneContext(agent: Agent): AtTimeZoneContext {
-  const sessionTimeZone = agent.session.header.timeZone ?? 'unavailable'
-  const client = currentClientTimeZoneContext(agent)
-  const clientTimeZones = client === undefined || client.kind === 'missing'
-    ? []
-    : client.kind === 'resolved'
-      ? [client.timeZone]
-      : [...client.timeZones]
-  const implicitTimeZone = sessionTimeZone !== 'unavailable'
-    && client?.kind === 'resolved'
-    && client.timeZone === sessionTimeZone
-    ? sessionTimeZone
-    : undefined
-  return {
-    ...(implicitTimeZone === undefined ? {} : { implicitTimeZone }),
-    sessionTimeZone,
-    clientTimeZones,
-  }
-}
-
 /** Translate one contained input failure to the closed tool union. */
-function inputError(error: ScheduleInputError, timeZone?: AtTimeZoneContext): ScheduleToolError {
-  if (error.code === 'timezone_confirmation_required') {
-    // The domain emits this code only for the omitted-zone local-at arm,
-    // whose request context is computed immediately before decoding.
-    const requestTimeZone = timeZone as AtTimeZoneContext
-    return {
-      code: error.code,
-      message: error.message,
-      sessionTimeZone: requestTimeZone.sessionTimeZone,
-      clientTimeZones: requestTimeZone.clientTimeZones,
-    }
-  }
+function inputError(error: ScheduleInputError): ScheduleToolError {
   return { code: error.code, message: error.message }
 }
 
@@ -406,7 +297,7 @@ export function registerScheduleTools(
           description: 'Positive safe-integer delay in seconds.',
         },
         at: {
-          description: 'Absolute target as strict offset RFC 3339 or local date/time with optional IANA zone.',
+          description: 'Absolute target as strict offset RFC 3339 or local date/time with an explicit IANA zone.',
           oneOf: [
             { type: 'string' },
             {
@@ -415,7 +306,7 @@ export function registerScheduleTools(
               properties: {
                 date: { type: 'string', required: true },
                 time: { type: 'string', required: true },
-                time_zone: { type: 'string' },
+                time_zone: { type: 'string', required: true },
               },
             },
           ],
@@ -434,25 +325,15 @@ export function registerScheduleTools(
           if (isToolError(folded)) return folded
           const id = allocateScheduleId(folded)
           let record: ScheduleRecord
-          let timeZone: AtTimeZoneContext | undefined
           try {
             if (args.after_seconds === undefined) {
               const at = args.at as AtInput
-              timeZone = typeof at === 'string' || at.time_zone !== undefined
-                ? undefined
-                : atTimeZoneContext(agent)
-              record = createAtScheduleRecord(
-                id,
-                args.prompt,
-                at,
-                Date.now(),
-                timeZone?.implicitTimeZone,
-              )
+              record = createAtScheduleRecord(id, args.prompt, at, Date.now())
             } else {
               record = createAfterScheduleRecord(id, args.prompt, args.after_seconds, Date.now())
             }
           } catch (error: unknown) {
-            return error instanceof ScheduleInputError ? inputError(error, timeZone) : internalError()
+            return error instanceof ScheduleInputError ? inputError(error) : internalError()
           }
           const cancelledBeforeAppend = cancellationPlaceholder(exec.signal)
           if (cancelledBeforeAppend !== undefined) return cancelledBeforeAppend

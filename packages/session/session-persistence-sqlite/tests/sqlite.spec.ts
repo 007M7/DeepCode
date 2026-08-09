@@ -40,48 +40,6 @@ async function freshDbPath(): Promise<string> {
   return join(dir, 'sessions.db')
 }
 
-/** Create the exact owned v13 layout without passing through the v14 opener. */
-function createV13Database(path: string): DatabaseSync {
-  const db = new DatabaseSync(path)
-  db.exec(`
-    PRAGMA foreign_keys = ON;
-
-    CREATE TABLE persistence_state (
-      singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
-      store_id  TEXT NOT NULL
-    ) STRICT;
-
-    CREATE TABLE sessions (
-      id               TEXT PRIMARY KEY,
-      version          INTEGER NOT NULL,
-      created_at       INTEGER NOT NULL,
-      cwd              TEXT,
-      parent_session   TEXT,
-      seed_length      INTEGER,
-      origin           TEXT,
-      delegation_depth INTEGER,
-      incarnation      TEXT NOT NULL,
-      revision         INTEGER NOT NULL
-    ) STRICT;
-
-    CREATE TABLE events (
-      session_id        TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-      seq               INTEGER NOT NULL,
-      type              TEXT NOT NULL,
-      time              INTEGER NOT NULL,
-      data              TEXT NOT NULL,
-      source_event_seqs TEXT,
-      surface_op        TEXT,
-      PRIMARY KEY (session_id, seq)
-    ) STRICT;
-
-    PRAGMA application_id = ${SESSION_PERSISTENCE_SQLITE_APPLICATION_ID};
-    PRAGMA user_version = 13;
-  `)
-  db.prepare('INSERT INTO persistence_state (singleton, store_id) VALUES (1, ?)').run('v13-fixture-store')
-  return db
-}
-
 /** A context with the session store + SQLite backend, plus a teardown. */
 async function backend(path = ':memory:'): Promise<{ ctx: Context; dispose: () => Promise<void> }> {
   const ctx = new Context()
@@ -208,14 +166,13 @@ describe('rowToMeta', () => {
       version: 0,
       created_at: 1,
       cwd: null,
-      time_zone: 'Asia/Shanghai',
       parent_session: null,
       seed_length: null,
       origin: 'subagent',
       incarnation: 'with-origin',
       revision: 1,
       delegation_depth: null,
-    })).toMatchObject({ id: 'with-origin', origin: 'subagent', timeZone: 'Asia/Shanghai' })
+    })).toMatchObject({ id: 'with-origin', origin: 'subagent' })
   })
 
   it('rejects fractional stored creation metadata', () => {
@@ -224,7 +181,6 @@ describe('rowToMeta', () => {
       version: 0,
       created_at: 1.5,
       cwd: null,
-      time_zone: null,
       parent_session: null,
       seed_length: null,
       origin: null,
@@ -372,7 +328,7 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
     await b2.dispose()
   })
 
-  it('rejects opening a database whose schema version is neither v13 nor the current build', async () => {
+  it('rejects opening a database whose schema version is not the current build (newer OR older)', async () => {
     const path = await freshDbPath()
     openDatabase(path, 'wal').close() // stamp user_version = SCHEMA_VERSION
     // Bump user_version past what this build supports.
@@ -381,82 +337,14 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
     dbNewer.close()
     expect(() => openDatabase(path, 'wal')).toThrow(/incompatible with this build/)
 
-    // Versions older than the one explicit migration remain unsupported.
+    // The immediately preceding layout lacks the required store identity and is
+    // rejected rather than migrated (unreleased software, no backward-compat).
     const olderPath = await freshDbPath()
     openDatabase(olderPath, 'wal').close()
     const dbOlder = openDatabase(olderPath, 'wal')
-    dbOlder.exec(`PRAGMA user_version = ${SCHEMA_VERSION - 2}`)
+    dbOlder.exec(`PRAGMA user_version = ${SCHEMA_VERSION - 1}`)
     dbOlder.close()
     expect(() => openDatabase(olderPath, 'wal')).toThrow(/incompatible with this build/)
-  })
-
-  it('atomically migrates an owned v13 fixture and leaves old rows headerless', async () => {
-    const path = await freshDbPath()
-    const old = meta('v13-headerless', '/work')
-    const legacy = createV13Database(path)
-    legacy.prepare(`
-      INSERT INTO sessions
-        (id, version, created_at, cwd, parent_session, seed_length, origin, delegation_depth, incarnation, revision)
-      VALUES (?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, 1)
-    `).run(old.id, old.version, old.createdAt, old.cwd ?? null, 'v13-headerless-incarnation')
-    const insertEvent = legacy.prepare(
-      'INSERT INTO events (session_id, seq, type, time, data, source_event_seqs, surface_op) VALUES (?, ?, ?, ?, ?, ?, ?)',
-    )
-    for (const event of oneTurnLog()) {
-      const surface = event as SessionEvent<SurfaceEventType>
-      insertEvent.run(
-        old.id,
-        event.seq,
-        event.type,
-        event.time,
-        JSON.stringify(event.data),
-        surface.sourceEventSeqs !== undefined ? JSON.stringify(surface.sourceEventSeqs) : null,
-        surface.surfaceOp !== undefined ? JSON.stringify(surface.surfaceOp) : null,
-      )
-    }
-    legacy.close()
-
-    const migrated = openDatabase(path, 'wal')
-    expect(migrated.prepare('PRAGMA user_version').get()).toEqual({ user_version: 14 })
-    expect(migrated.prepare('SELECT time_zone FROM sessions WHERE id = ?').get(old.id))
-      .toEqual({ time_zone: null })
-    migrated.close()
-
-    const mounted = await backend(path)
-    try {
-      const loaded = await mounted.ctx.sessionPersistence.load(old.id)
-      expect(loaded.meta.timeZone).toBeUndefined()
-      expect(loaded.events).toEqual(oneTurnLog())
-
-      const zoned = meta('v14-zoned', '/work', 'Asia/Shanghai')
-      await mounted.ctx.sessionPersistence.create(zoned)
-      await mounted.ctx.sessionPersistence.append(zoned.id, oneTurnLog())
-      expect((await mounted.ctx.sessionPersistence.load(zoned.id)).meta.timeZone).toBe('Asia/Shanghai')
-    } finally {
-      await mounted.dispose()
-    }
-  })
-
-  it('rejects a spoofed v13 layout without changing its schema or version', async () => {
-    const path = await freshDbPath()
-    const malformed = new DatabaseSync(path)
-    malformed.exec(`
-      CREATE TABLE sessions (id TEXT);
-      PRAGMA application_id = ${SESSION_PERSISTENCE_SQLITE_APPLICATION_ID};
-      PRAGMA user_version = 13;
-    `)
-    malformed.close()
-
-    expect(() => openDatabase(path, 'wal')).toThrow(/does not match the owned v13 schema/)
-
-    const unchanged = new DatabaseSync(path)
-    const columns = unchanged.prepare('PRAGMA table_info(sessions)').all() as Array<{ name: string }>
-    expect(columns.map(column => column.name)).toEqual(['id'])
-    expect(unchanged.prepare('PRAGMA user_version').get()).toEqual({ user_version: 13 })
-    expect(unchanged.prepare(
-      "SELECT name FROM sqlite_schema WHERE name IN ('persistence_state', 'events')",
-    ).all()).toEqual([])
-    unchanged.close()
   })
 
   it('rejects a table-backed unversioned database before stamping or changing journal mode', async () => {
@@ -520,23 +408,23 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
     unchangedApplication.close()
   })
 
-  it.each([13, SCHEMA_VERSION])('rejects a schema-v%i database with a foreign application identity', async (version) => {
+  it('rejects a current-version database with a foreign application identity', async () => {
     const path = await freshDbPath()
     const foreign = new DatabaseSync(path)
     foreign.exec('PRAGMA application_id = 12345')
-    foreign.exec(`PRAGMA user_version = ${version}`)
+    foreign.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`)
     foreign.close()
 
     expect(() => openDatabase(path, 'wal')).toThrow(/has application id 12345/)
 
     const unchanged = new DatabaseSync(path)
     expect(unchanged.prepare('PRAGMA application_id').get()).toEqual({ application_id: 12345 })
-    expect(unchanged.prepare('PRAGMA user_version').get()).toEqual({ user_version: version })
+    expect(unchanged.prepare('PRAGMA user_version').get()).toEqual({ user_version: SCHEMA_VERSION })
     expect(unchanged.prepare('PRAGMA journal_mode').get()).toEqual({ journal_mode: 'delete' })
     unchanged.close()
   })
 
-  it('rolls back tables created before persistence-state initialization fails', async () => {
+  it('rolls back schema objects and identity stamps when initialization fails', async () => {
     const path = await freshDbPath()
     const conflicting = new DatabaseSync(path)
     conflicting.exec(`PRAGMA application_id = ${SESSION_PERSISTENCE_SQLITE_APPLICATION_ID}`)
@@ -571,11 +459,6 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
     expect(db.prepare('PRAGMA application_id').get())
       .toEqual({ application_id: SESSION_PERSISTENCE_SQLITE_APPLICATION_ID })
     expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: SCHEMA_VERSION })
-    expect(db.prepare('PRAGMA table_info(sessions)').all()).toContainEqual(expect.objectContaining({
-      name: 'time_zone',
-      type: 'TEXT',
-      notnull: 0,
-    }))
     db.close()
   })
 
@@ -755,7 +638,7 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
   })
 
   it('exposes the schema version constant', () => {
-    expect(SCHEMA_VERSION).toBe(14)
+    expect(SCHEMA_VERSION).toBe(13)
   })
 
   it('keeps the revision stable for an empty repair hook', async () => {

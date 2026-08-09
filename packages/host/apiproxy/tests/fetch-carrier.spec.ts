@@ -310,7 +310,7 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
       ok: true,
       value: { items: [{ sessionId: 's1', snippet: 'fixture match' }], hasMore: false },
     })
-    expect((await c.sessions.create({ timeZone: 'UTC' })).result.ok).toBe(true)
+    expect((await c.sessions.create({})).result.ok).toBe(true)
     expect((await c.sessions.models({ sessionId: 's' as never })).result.ok).toBe(true)
     const selected = await c.sessions.selectModel({
       sessionId: 's' as never,
@@ -330,12 +330,7 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
     })
     const renamed = await c.sessions.rename({ sessionId: 's' as never, title: 'named' })
     expect(renamed.result).toMatchObject({ ok: true, value: { title: 'named', seq: 0 } })
-    expect((await c.sessions.prompt({
-      sessionId: 's' as never,
-      mode: 'queue',
-      content: [{ type: 'text', text: 'x' }],
-      clientTimeZone: 'UTC',
-    })).result.ok).toBe(true)
+    expect((await c.sessions.prompt({ sessionId: 's' as never, mode: 'queue', content: [{ type: 'text', text: 'x' }] })).result.ok).toBe(true)
     expect((await c.sessions.updateQueue({
       sessionId: 's' as never,
       itemId: 'item-1' as never,

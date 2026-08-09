@@ -866,11 +866,12 @@ Create one reminder in the current session. Supply a non-empty prompt and exactl
           },
           "required": [
             "date",
-            "time"
+            "time",
+            "time_zone"
           ]
         }
       ],
-      "description": "Absolute target as strict offset RFC 3339 or local date/time with optional IANA zone."
+      "description": "Absolute target as strict offset RFC 3339 or local date/time with an explicit IANA zone."
     }
   },
   "required": [

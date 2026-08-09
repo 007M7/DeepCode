@@ -12,11 +12,11 @@ describe('browser time zone', () => {
     )
   })
 
-  it('fails loud when the runtime exposes no zone', () => {
+  it.each([undefined, ''])('fails loud when the runtime exposes no zone %#', (timeZone) => {
     const options = new Intl.DateTimeFormat().resolvedOptions()
     vi.spyOn(Intl.DateTimeFormat.prototype, 'resolvedOptions').mockReturnValue({
       ...options,
-      timeZone: '',
+      timeZone: timeZone as string,
     })
 
     expect(() => resolvedClientTimeZone()).toThrow('browser time zone is unavailable')

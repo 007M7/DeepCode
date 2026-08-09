@@ -1,4 +1,4 @@
-/** Browser-owned time-zone sampling for Session and prompt RPC provenance. */
+/** Browser-owned time-zone sampling for prompt RPC provenance. */
 
 /**
  * Resolve the current browser IANA zone for one outbound operation.

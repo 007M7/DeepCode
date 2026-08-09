@@ -10,7 +10,6 @@ import type {
 // plugin-to-plugin value imports are a bundle purity error.
 import { transportError } from '@deepseek-ai/dsh-host-apiproxy/api'
 import { mergeOrderedBaseline } from '../ordered-baseline.ts'
-import { resolvedClientTimeZone } from '../time-zone.ts'
 import type { SessionListEntry, TitledSessionSummary } from './lineage.ts'
 import { flattenLineage } from './lineage.ts'
 import type { PendingInteractionStatus } from './pending.ts'
@@ -515,10 +514,7 @@ export class SessionManager {
     opts: { workspaceId?: WorkspaceId; cwd?: string; sessionId?: SessionId } = {},
   ): Promise<RpcResult<{ sessionId: SessionId }>> {
     try {
-      const shared = {
-        timeZone: resolvedClientTimeZone(),
-        ...(opts.sessionId === undefined ? {} : { sessionId: opts.sessionId }),
-      }
+      const shared = opts.sessionId === undefined ? {} : { sessionId: opts.sessionId }
       const payload = opts.workspaceId !== undefined
         ? { workspaceId: opts.workspaceId, ...shared }
         : { ...(opts.cwd === undefined ? {} : { cwd: opts.cwd }), ...shared }

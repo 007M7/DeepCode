@@ -41,8 +41,8 @@ export interface LocalAtInput {
   readonly date: string
   /** Local wall-clock time with optional one-to-three digit milliseconds. */
   readonly time: string
-  /** Explicit IANA zone; omit only when current request authority permits the Session zone. */
-  readonly time_zone?: string
+  /** Explicit UTC or IANA Area/Location zone. */
+  readonly time_zone: string
 }
 
 /** Absolute selector accepted by `schedule_create`. */
@@ -116,14 +116,6 @@ export interface InvalidTimeZoneError {
   readonly message: string
 }
 
-/** Stable error returned when a local absolute time needs an explicit zone choice. */
-export interface TimeZoneConfirmationRequiredError {
-  readonly code: 'timezone_confirmation_required'
-  readonly message: string
-  readonly sessionTimeZone: string
-  readonly clientTimeZones: string[]
-}
-
 /** Stable error returned when an absolute target is not strictly future. */
 export interface NotFutureError {
   readonly code: 'not_future'
@@ -162,7 +154,6 @@ export type ScheduleToolError =
   | InvalidSelectorError
   | InvalidRuleError
   | InvalidTimeZoneError
-  | TimeZoneConfirmationRequiredError
   | NotFutureError
   | TimeOutOfRangeError
   | CorruptScheduleLogError

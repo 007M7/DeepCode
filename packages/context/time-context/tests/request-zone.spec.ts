@@ -1,64 +1,44 @@
 import { describe, expect, it } from 'vitest'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
-import * as timeContext from '@deepseek-ai/dsh-time-context'
+import type { UserMessage } from '@deepseek-ai/dsh-llm'
 import {
-  deriveClientTimeZoneContext,
-} from '@deepseek-ai/dsh-time-context'
-import { renderTimeZoneContext } from '../src/request-zone.ts'
+  deriveBrowserTimeZoneContext,
+  renderBrowserTimeZoneContext,
+} from '../src/request-zone.ts'
 
-function request(clientTimeZone?: unknown) {
+function browserMessage(timeZone: string): UserMessage {
   return createUserMessage({
-    content: [{ type: 'text', text: 'request' }],
-    source: clientTimeZone === undefined
-      ? { kind: 'user' }
-      : { kind: 'user', rpcId: 'request-zone', clientTimeZone } as never,
+    content: [{ type: 'text', text: timeZone }],
+    source: { kind: 'user', rpcId: `rpc-${timeZone}`, clientTimeZone: timeZone } as never,
   })
 }
 
-describe('request-zone derivation', () => {
-  it('publishes derivation without exposing the internal renderer', () => {
-    expect(timeContext.deriveClientTimeZoneContext).toBe(deriveClientTimeZoneContext)
-    expect('renderTimeZoneContext' in timeContext).toBe(false)
-  })
-
-  it('derives missing, one resolved zone, and sorted unique mixed zones', () => {
+describe('browser request-zone context', () => {
+  it('derives missing, unique, and sorted mixed zones from user-rpc messages only', () => {
     const plugin = createUserMessage({
-      content: [],
-      source: { kind: 'plugin', plugin: 'fixture' },
+      content: [{ type: 'text', text: 'plugin' }],
+      source: { kind: 'plugin', plugin: 'test' },
     })
-    expect(deriveClientTimeZoneContext([plugin, request(), request(1)])).toEqual({ kind: 'missing' })
-    expect(deriveClientTimeZoneContext([createUserMessage({
-      content: [],
-      source: { kind: 'user', clientTimeZone: 'Asia/Shanghai' } as never,
-    })])).toEqual({ kind: 'missing' })
-    expect(deriveClientTimeZoneContext([
-      request('Asia/Shanghai'),
-      request('Asia/Shanghai'),
+    expect(deriveBrowserTimeZoneContext([plugin])).toEqual({ kind: 'missing' })
+    expect(deriveBrowserTimeZoneContext([
+      browserMessage('Asia/Shanghai'),
+      browserMessage('Asia/Shanghai'),
     ])).toEqual({ kind: 'resolved', timeZone: 'Asia/Shanghai' })
-    expect(deriveClientTimeZoneContext([
-      request('Asia/Shanghai'),
-      request('America/New_York'),
+    expect(deriveBrowserTimeZoneContext([
+      browserMessage('Asia/Shanghai'),
+      browserMessage('America/New_York'),
     ])).toEqual({
       kind: 'mixed',
       timeZones: ['America/New_York', 'Asia/Shanghai'],
     })
   })
 
-  it('renders resolved, mixed, and unavailable policy lines', () => {
-    expect(renderTimeZoneContext('Asia/Shanghai', {
-      kind: 'resolved',
-      timeZone: 'Asia/Shanghai',
-    })).toBe(
-      'Session time zone: Asia/Shanghai.\nClient time zone for this request: Asia/Shanghai.',
-    )
-    expect(renderTimeZoneContext('UTC', {
-      kind: 'mixed',
-      timeZones: ['America/New_York', 'UTC'],
-    })).toBe(
-      'Session time zone: UTC.\nClient time zone for this request: mixed ["America/New_York","UTC"].',
-    )
-    expect(renderTimeZoneContext(undefined, { kind: 'missing' })).toBe(
-      'Session time zone: unavailable.\nClient time zone for this request: missing.',
-    )
+  it('renders one explicit model policy for every context', () => {
+    expect(renderBrowserTimeZoneContext({ kind: 'resolved', timeZone: 'Asia/Shanghai' }))
+      .toContain('Interpret otherwise-unqualified dates and times in this zone.')
+    expect(renderBrowserTimeZoneContext({
+      kind: 'mixed', timeZones: ['America/New_York', 'Asia/Shanghai'],
+    })).toContain('mixed ["America/New_York","Asia/Shanghai"]')
+    expect(renderBrowserTimeZoneContext({ kind: 'missing' })).toContain('unavailable')
   })
 })

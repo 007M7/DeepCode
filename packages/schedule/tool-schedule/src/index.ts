@@ -17,6 +17,7 @@ export {
   ScheduleLogError,
   allocateScheduleId,
   createAfterScheduleRecord,
+  createAtScheduleRecord,
   decodeScheduleChange,
   foldScheduleEvents,
   renderReminderFraming,

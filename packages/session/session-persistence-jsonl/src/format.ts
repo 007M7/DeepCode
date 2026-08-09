@@ -35,7 +35,6 @@ export interface HeaderLine {
   id: SessionId
   createdAt: number
   cwd?: string
-  timeZone?: string
   parentSession?: SessionId
   seedLength?: number
   origin?: 'subagent'
@@ -54,7 +53,6 @@ export function toHeaderLine(header: SessionHeader): HeaderLine {
     id: header.id,
     createdAt: header.createdAt,
     ...header.cwd !== undefined ? { cwd: header.cwd } : {},
-    ...header.timeZone !== undefined ? { timeZone: header.timeZone } : {},
     ...header.parentSession !== undefined ? { parentSession: header.parentSession } : {},
     ...header.seedLength !== undefined ? { seedLength: header.seedLength } : {},
     ...header.origin !== undefined ? { origin: header.origin } : {},
@@ -76,7 +74,6 @@ export function fromHeaderLine(line: HeaderLine): SessionHeader {
     id: line.id,
     createdAt: line.createdAt,
     ...line.cwd !== undefined ? { cwd: line.cwd } : {},
-    ...line.timeZone !== undefined ? { timeZone: line.timeZone } : {},
     ...line.parentSession !== undefined ? { parentSession: line.parentSession } : {},
     ...line.seedLength !== undefined ? { seedLength: line.seedLength } : {},
     ...line.origin !== undefined ? { origin: line.origin } : {},
@@ -95,8 +92,6 @@ function isHeaderLine(value: unknown): value is HeaderLine {
     && Number.isSafeInteger((value as { createdAt: number }).createdAt)
     && (value as { createdAt: number }).createdAt >= 0
     && !Object.is((value as { createdAt: number }).createdAt, -0)
-    && ((value as { timeZone?: unknown }).timeZone === undefined
-      || typeof (value as { timeZone?: unknown }).timeZone === 'string')
     && typeof (value as { delegationDepth?: unknown }).delegationDepth === 'number'
     && Number.isSafeInteger((value as { delegationDepth: number }).delegationDepth)
     && (value as { delegationDepth: number }).delegationDepth >= 0

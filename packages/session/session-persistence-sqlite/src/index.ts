@@ -380,13 +380,12 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
   private writeRow(meta: SessionHeader): void {
     this.db.prepare(`
       INSERT INTO sessions
-        (id, version, created_at, cwd, time_zone, parent_session, seed_length, origin, delegation_depth, incarnation, revision)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+        (id, version, created_at, cwd, parent_session, seed_length, origin, delegation_depth, incarnation, revision)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
       ON CONFLICT(id) DO UPDATE SET
         version = excluded.version,
         created_at = excluded.created_at,
         cwd = excluded.cwd,
-        time_zone = excluded.time_zone,
         parent_session = excluded.parent_session,
         seed_length = excluded.seed_length,
         origin = excluded.origin,
@@ -396,7 +395,6 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
       meta.version,
       meta.createdAt,
       meta.cwd ?? null,
-      meta.timeZone ?? null,
       meta.parentSession ?? null,
       meta.seedLength ?? null,
       meta.origin ?? null,

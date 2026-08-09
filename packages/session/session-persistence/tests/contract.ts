@@ -21,13 +21,12 @@ export interface ContractBackend {
 }
 
 /** Build a minimal {@link SessionHeader} for a session id. */
-export function meta(id: string, cwd?: string, timeZone?: string): SessionHeader {
+export function meta(id: string, cwd?: string): SessionHeader {
   return {
     version: SESSION_FORMAT_VERSION,
     id: SessionId(id),
     createdAt: 1000,
     ...cwd !== undefined ? { cwd } : {},
-    ...timeZone !== undefined ? { timeZone } : {},
   }
 }
 
@@ -87,44 +86,14 @@ export function runPersistenceContract(name: string, make: () => Promise<Contrac
     it('round-trips a session: create + append → load returns identical meta and byte-identical events', async () => {
       const { persistence, dispose } = await make()
       try {
-        const m = meta('s1', '/work', 'Asia/Shanghai')
+        const m = meta('s1', '/work')
         const log = oneTurnLog()
         await persistence.create(m)
         await persistence.append(m.id, log)
 
         const loaded = await persistence.load(m.id)
-        expect(loaded.meta).toMatchObject(m)
+        expect(loaded.meta).toMatchObject({ version: SESSION_FORMAT_VERSION, id: m.id, cwd: '/work' })
         expect(loaded.events).toEqual(log)
-      } finally {
-        await dispose()
-      }
-    })
-
-    it('keeps a headerless session headerless across storage reads', async () => {
-      const { persistence, dispose } = await make()
-      try {
-        const m = meta('headerless', '/work')
-        await persistence.create(m)
-        await persistence.append(m.id, oneTurnLog())
-
-        expect((await persistence.inspect(m.id)).meta.timeZone).toBeUndefined()
-        expect((await persistence.load(m.id)).meta.timeZone).toBeUndefined()
-        expect((await persistence.list()).find(header => header.id === m.id)?.timeZone).toBeUndefined()
-      } finally {
-        await dispose()
-      }
-    })
-
-    it('rejects non-string timeZone metadata without reserving its session id', async () => {
-      const { persistence, dispose } = await make()
-      try {
-        const invalid = { ...meta('invalid-time-zone'), timeZone: 1 as unknown as string }
-        await expect(persistence.create(invalid)).rejects.toThrow('session metadata timeZone must be a string')
-
-        const valid = meta('invalid-time-zone', undefined, 'UTC')
-        await persistence.create(valid)
-        await persistence.append(valid.id, oneTurnLog())
-        expect((await persistence.load(valid.id)).meta.timeZone).toBe('UTC')
       } finally {
         await dispose()
       }

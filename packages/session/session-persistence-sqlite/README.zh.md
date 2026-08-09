@@ -10,9 +10,9 @@ SQLite 持久会话存储后端：第二个 `SessionPersistence` 提供方（见
 
 ## 存储模型
 
-每个 `SessionEvent` 1:1 映射到 `events` 表中的一行 `(session_id, seq, type, time, data, source_event_seqs, surface_op)`；`data` 是作为 JSON 文本的事件 payload，因此行结构就是原始事件本身（包括 `assistant/chunk`，保持 `seq` 连续）。两个 `TEXT` 列 `source_event_seqs` 和 `surface_op` 可为空，存储事件可选接口元数据字段（见[会话接口](../../../.agents/notes/implemented/architecture/2026-06-18-session-surface.md)）。日志外元数据（`SessionHeader`）、每实体化 incarnation id 和每日志单调修订位于 `sessions` 行；`createdAt` 是存储在 strict `INTEGER` 列中的非负安全整数，可为空的 `time_zone` 则保留可选的 `timeZone` 字符串。单例状态行携带不可变存储 id。`sessions` 行只由第一次 `append` 写入，其存在性是延迟实体化信号（`list` 精确报告有行的会话）。
+每个 `SessionEvent` 1:1 映射到 `events` 表中的一行 `(session_id, seq, type, time, data, source_event_seqs, surface_op)`；`data` 是作为 JSON 文本的事件 payload，因此行结构就是原始事件本身（包括 `assistant/chunk`，保持 `seq` 连续）。两个 `TEXT` 列 `source_event_seqs` 和 `surface_op` 可为空，存储事件可选接口元数据字段（见[会话接口](../../../.agents/notes/implemented/architecture/2026-06-18-session-surface.md)）。日志外元数据（`SessionHeader`）、每实体化 incarnation id 和每日志单调修订位于 `sessions` 行；`createdAt` 是存储在 strict `INTEGER` 列中的非负安全整数。单例状态行携带不可变存储 id。`sessions` 行只由第一次 `append` 写入，其存在性是延迟实体化信号（`list` 精确报告有行的会话）。
 
-仓库支持的 Node 范围可不加 flag 使用 `node:sqlite`。数据库启用外键，并使用已配置 journal mode（默认 `wal`；WAL 共享内存文件不适用时使用 rollback mode）。`PRAGMA application_id` 标识规范持久化数据库，`PRAGMA user_version` 存储布局版本。新数据库必须没有 application identity 或用户定义 schema 对象；初始化在一个事务中创建全部表并盖上两个 pragma。唯一受支持的升级接受自有 v13 数据库，在既有 `BEGIN IMMEDIATE` 中添加可为空的 `time_zone`，并将 `user_version` 推进到 14；旧行保持 `NULL`。失败会回滚这两项变更。非 pristine 无版本数据库、外部 application identity 和所有其他版本在 journal-mode 变更前均会被拒绝。
+仓库支持的 Node 范围可不加 flag 使用 `node:sqlite`。数据库启用外键，并使用已配置 journal mode（默认 `wal`；WAL 共享内存文件不适用时使用 rollback mode）。`PRAGMA application_id` 标识规范持久化数据库，`PRAGMA user_version` 存储布局版本。新数据库必须没有 application identity 或用户定义 schema 对象；初始化在一个事务中创建全部表并盖上两个 pragma。非 pristine 无版本数据库、外部 application identity 和所有非当前版本在 journal-mode 变更前均会被拒绝，因为该未发布格式无迁移。
 
 在具有 POSIX mode 的文件系统上，后端为缺失目录请求 mode `0700`，并在 SQLite 打开前以 mode `0600` 排他创建缺失数据库；进程 umask 可进一步限制两者。新 WAL、共享内存和持久 rollback-journal sidecar 获得数据库最终的仅所有者 mode。现有目录、数据库文件和 sidecar 保留原 mode；除已存在数据库外的文件系统设置错误会使初始化失败。这些默认值防止宽松进程 umask 造成的意外暴露，但当其他 principal 能替换父目录中的数据库条目时，不保护数据库机密性或完整性。
 
@@ -59,5 +59,5 @@ SQLite 存储不修改当前请求前缀。只有重建历史、当前 envelope 
 
 - **`DatabaseSync` 是同步的**：每个 append 事务在整个期间阻塞事件循环；对本地存储可接受，对繁忙多会话服务器是吞吐上限。
 - **写入争用无等待或重试策略**：后端不设置 busy timeout，也不重试 locked-database 错误，因此其他连接持有写事务时操作立即拒绝。
-- **只有 pristine 新数据库、符合 v14 升级条件的自有 v13 数据库或当前自有 `SCHEMA_VERSION` 才能打开**：无版本 schema 对象、外部 application identity 和所有其他 schema 版本都会被拒绝。
+- **只有 pristine 新数据库或当前自有 `SCHEMA_VERSION` 才能打开**：无版本 schema 对象、外部 application identity 和所有其他 schema 版本被拒绝，而不是迁移（未发布软件，无持久用户数据需要保留）。
 - **不删除已存储会话**：行会累积，直到外部移除（seam 无删除接口；`ON DELETE CASCADE` 已为这种带外清理配置）。

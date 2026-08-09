@@ -6,13 +6,11 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionId } from '@deepseek-ai/dsh-client-connection/client'
 import { SessionManager } from '../src/client/sessions/manager.ts'
-import { resolvedClientTimeZone } from '../src/client/time-zone.ts'
 import { FakeApiClient, deferred, err, ok } from './fake-api.ts'
 import { entries, plainTurn } from './event-script.ts'
 
 const S1 = 'fk-m1' as SessionId
 const S2 = 'fk-m2' as SessionId
-const CLIENT_TIME_ZONE = resolvedClientTimeZone()
 
 type SummaryOver = Partial<{
   updatedAt: number
@@ -710,11 +708,7 @@ describe('remaining branches', () => {
     api.onCreate = () => Promise.resolve(ok({ sessionId: S1 }))
     const manager = new SessionManager(api)
     await manager.create({ cwd: '/tmp/w', sessionId: S1 })
-    expect(api.callsOf('session.create')).toEqual([{
-      cwd: '/tmp/w',
-      sessionId: S1,
-      timeZone: CLIENT_TIME_ZONE,
-    }])
+    expect(api.callsOf('session.create')).toEqual([{ cwd: '/tmp/w', sessionId: S1 }])
     expect(manager.getListSnapshot().items[0]).toMatchObject({ sessionId: S1, cwd: '/tmp/w' })
     await manager.create({ cwd: '/tmp/w' }) // same id returned: no duplicate row
     expect(manager.getListSnapshot().items).toHaveLength(1)

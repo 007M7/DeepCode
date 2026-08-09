@@ -12,7 +12,6 @@ import type {
   ScheduleChange,
   ScheduleId as ScheduleIdType,
   ScheduleRecord,
-  ScheduleReminderPresentation,
   ScheduleView,
 } from './types.ts'
 
@@ -48,14 +47,13 @@ export class ScheduleLogError extends Error {
   }
 }
 
-/** Error from a model-supplied after rule that cannot become a record. */
+/** Error from a model-supplied Schedule rule that cannot become a record. */
 export class ScheduleInputError extends Error {
   /** Stable public Schedule input code. */
   readonly code:
     | 'invalid_prompt'
     | 'invalid_rule'
     | 'invalid_time_zone'
-    | 'timezone_confirmation_required'
     | 'not_future'
     | 'time_out_of_range'
 
@@ -70,7 +68,6 @@ export class ScheduleInputError extends Error {
       | 'invalid_prompt'
       | 'invalid_rule'
       | 'invalid_time_zone'
-      | 'timezone_confirmation_required'
       | 'not_future'
       | 'time_out_of_range',
     message: string,
@@ -568,7 +565,6 @@ export function createAfterScheduleRecord(
  * @param prompt - User-authored reminder content.
  * @param at - Explicit-offset instant or structured local calendar value.
  * @param now - Single creation-time wall-clock sample in epoch milliseconds.
- * @param implicitTimeZone - Confirmed Session zone for a local value that omits `time_zone`.
  * @returns Frozen durable absolute one-shot record.
  */
 export function createAtScheduleRecord(
@@ -576,7 +572,6 @@ export function createAtScheduleRecord(
   prompt: string,
   at: AtInput,
   now: number,
-  implicitTimeZone?: string,
 ): AtScheduleRecord {
   const normalizedPrompt = prompt.trim()
   if (normalizedPrompt.length === 0) {
@@ -587,29 +582,22 @@ export function createAtScheduleRecord(
   if (typeof at === 'string') {
     target = parseOffsetInstant(at)
   } else if (isRecord(at)) {
-    if (!hasExactKeys(at, ['date', 'time']) && !hasExactKeys(at, ['date', 'time', 'time_zone'])) {
-      throw new ScheduleInputError('invalid_rule', 'Local at must contain exactly date, time, and optional time_zone.')
+    if (!hasExactKeys(at, ['date', 'time', 'time_zone'])) {
+      throw new ScheduleInputError('invalid_rule', 'Local at must contain exactly date, time, and time_zone.')
     }
     if (typeof at['date'] !== 'string' || typeof at['time'] !== 'string') {
       throw new ScheduleInputError('invalid_rule', 'Local at date and time must be strings.')
     }
     const rawTimeZone = at['time_zone']
-    if (rawTimeZone !== undefined && typeof rawTimeZone !== 'string') {
+    if (typeof rawTimeZone !== 'string') {
       throw new ScheduleInputError('invalid_time_zone', 'time_zone must be a string.')
-    }
-    const selectedTimeZone = rawTimeZone ?? implicitTimeZone
-    if (selectedTimeZone === undefined) {
-      throw new ScheduleInputError(
-        'timezone_confirmation_required',
-        'Local at requires an explicit time_zone for this request.',
-      )
     }
     const local: LocalAtInput = {
       date: at['date'],
       time: at['time'],
-      ...(rawTimeZone === undefined ? {} : { time_zone: rawTimeZone }),
+      time_zone: rawTimeZone,
     }
-    target = resolveLocalInstant(parseLocalAt(local), canonicalizeTimeZone(selectedTimeZone))
+    target = resolveLocalInstant(parseLocalAt(local), canonicalizeTimeZone(rawTimeZone))
   } else {
     throw new ScheduleInputError('invalid_rule', 'at must be an explicit-offset string or local calendar object.')
   }
@@ -634,64 +622,6 @@ export function scheduleView(record: ScheduleRecord, now: number): ScheduleView 
     state: now >= Date.parse(record.scheduledAt) ? 'overdue' : 'scheduled',
     deliveryMode: 'session-local',
   })
-}
-
-/**
- * Derive the Web receipt for one dispatch from its owning stream segment.
- * A child-owned dispatch cannot cross the current fork's `seedLength`.
- * An inherited dispatch pairs with its nearest preceding same-id create, so
- * resumed ancestors remain renderable and nested forks may reuse local ids.
- * @param events - Complete contiguous Session log.
- * @param dispatchSeq - Exact event seq to present.
- * @param seedLength - Inherited fork prefix length.
- * @returns The immutable receipt, or `undefined` when the selected event is not a dispatch.
- */
-export function scheduleReminderPresentation(
-  events: readonly SessionEvent[],
-  dispatchSeq: number,
-  seedLength = 0,
-): ScheduleReminderPresentation | undefined {
-  if (!Number.isSafeInteger(dispatchSeq) || dispatchSeq < 0) {
-    throw new ScheduleLogError('schedule presentation seq must be a non-negative safe integer')
-  }
-  if (!Number.isSafeInteger(seedLength) || seedLength < 0 || seedLength > events.length) {
-    throw new ScheduleLogError('schedule seedLength must be within the supplied event log')
-  }
-  const event = events[dispatchSeq]
-  if (event === undefined || event.seq !== dispatchSeq) {
-    throw new ScheduleLogError('schedule presentation seq must identify the matching contiguous event')
-  }
-  if (event.type !== 'schedule/change') return undefined
-  const dispatch = decodeScheduleChange(event.data)
-  if (dispatch.operation !== 'dispatch') return undefined
-
-  const segmentStart = dispatchSeq < seedLength ? 0 : seedLength
-  for (let index = dispatchSeq - 1; index >= segmentStart; index -= 1) {
-    const candidate = events[index]
-    if (candidate?.type !== 'schedule/change') continue
-    const change = decodeScheduleChange(candidate.data)
-    switch (change.operation) {
-      case 'create':
-        if (change.schedule.id !== dispatch.id) break
-        return Object.freeze({
-          scheduleId: change.schedule.id,
-          prompt: change.schedule.prompt,
-          occurrenceAt: change.schedule.scheduledAt,
-        })
-      case 'delete':
-      case 'dispatch':
-        if (change.id === dispatch.id) {
-          throw new ScheduleLogError(`schedule dispatch targets inactive id ${JSON.stringify(dispatch.id)}`)
-        }
-        break
-      /* v8 ignore next 3 -- decodeScheduleChange returns a closed operation union. */
-      default: {
-        const unreachable: never = change
-        throw new ScheduleLogError(`unknown decoded schedule change ${String(unreachable)}`)
-      }
-    }
-  }
-  throw new ScheduleLogError(`schedule dispatch targets inactive id ${JSON.stringify(dispatch.id)}`)
 }
 
 /**

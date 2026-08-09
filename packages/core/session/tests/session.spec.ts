@@ -997,7 +997,6 @@ describe('Session', () => {
       id: SessionId('header-owned'),
       createdAt: 123,
       cwd: '/accepted',
-      timeZone: 'Caller/Canonical',
       parentSession: SessionId('parent'),
       seedLength: 2,
     }
@@ -1010,7 +1009,6 @@ describe('Session', () => {
       id: 'header-owned',
       createdAt: 123,
       cwd: '/accepted',
-      timeZone: 'Caller/Canonical',
       parentSession: 'parent',
       seedLength: 2,
     })
@@ -1065,7 +1063,6 @@ describe('Session', () => {
       { header: { ...base, createdAt: '123' }, error: /createdAt must be a non-negative safe integer/ },
       { header: { ...base, cwd: 1 }, error: /header cwd must be a string/ },
       { header: { ...base, cwd: 'relative' }, error: /header cwd must be an absolute path/ },
-      { header: { ...base, timeZone: 1 }, error: /header timeZone must be a string/ },
       { header: { ...base, parentSession: 1 }, error: /header parentSession must be a string/ },
       { header: { ...base, seedLength: '1' }, error: /seedLength must be a non-negative safe integer/ },
       { header: { ...base, seedLength: 0.5 }, error: /seedLength must be a non-negative safe integer/ },
@@ -1276,17 +1273,16 @@ describe('SessionStore', () => {
     expect(session.header.parentSession).toBeUndefined()
   })
 
-  it('attaches cwd, timeZone, and parentSession from meta to the header', async () => {
+  it('attaches cwd and parentSession from meta to the header', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     const session = ctx.sessions.create(SessionId('child'), {
-      meta: { cwd: '/work/project', timeZone: 'Asia/Shanghai', parentSession: SessionId('parent') },
+      meta: { cwd: '/work/project', parentSession: SessionId('parent') },
     })
     expect(session.header).toMatchObject({
       version: SESSION_FORMAT_VERSION,
       id: 'child',
       cwd: '/work/project',
-      timeZone: 'Asia/Shanghai',
       parentSession: 'parent',
     })
   })
@@ -1311,7 +1307,6 @@ describe('SessionStore', () => {
     const cases: Array<{ meta: unknown; error: RegExp }> = [
       { meta: { parentSession: 1n }, error: /header is not losslessly JSON-serializable/ },
       { meta: { cwd: 1 }, error: /header cwd must be a string/ },
-      { meta: { timeZone: 1 }, error: /header timeZone must be a string/ },
       { meta: { parentSession: 1 }, error: /header parentSession must be a string/ },
       { meta: { createdAt: '123' }, error: /header createdAt must be a non-negative safe integer/ },
       { meta: { createdAt: 1.5 }, error: /header createdAt must be a non-negative safe integer/ },
