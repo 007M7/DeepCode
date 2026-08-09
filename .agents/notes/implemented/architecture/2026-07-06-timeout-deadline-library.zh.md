@@ -57,10 +57,11 @@ export function deadline(
 export interface IdleWatchdog {
   readonly signal: AbortSignal
   next<T>(iterator: AsyncIterator<T>): Promise<IteratorResult<T>>
+  pulse(): void
   [Symbol.dispose](): void
 }
 
-/** Arm only while one iterator `next()` is outstanding, then rearm on later demand. */
+/** Arm only while one iterator `next()` is outstanding; rearm on later demand or out-of-band activity. */
 export function idleWatchdog(
   upstream: AbortSignal | undefined,
   timeoutMs: number,
@@ -71,7 +72,7 @@ export function idleWatchdog(
 export function timeoutOf(x: AbortSignal | { reason?: unknown }, code?: string): TimeoutReason | undefined
 ```
 
-`deadline` 通过 `AbortSignal.any` 将上游信号与一次性定时器融合，附加一个类型化的 `TimeoutReason`，并暴露可 dispose（资源释放）的定时器清理。非正数超时是内部的「无超时」哨兵，用于后端拥有的后台任务；外部提示经过 `clampTimeout`，必须为正有限值。既无定时器也无上游信号时，函数返回一个永不中止的信号，具有相同的 disposal 形状。`idleWatchdog` 则要求正有限的间隔，在整个流期间保持一个稳定的融合信号，并且只在一个迭代器 `next()` 尚未结算时启动定时器；结算会解除定时器，后续 demand 会重新启动，并发 demand 会失败，dispose 会清除当前 arm。提供方将超时原因转译为 seam 特定的结果。`timeoutOf(signal, code)` 限定分类范围，使外层嵌套的 deadline 被视为上游取消而非内层能力自身的超时。
+`deadline` 通过 `AbortSignal.any` 将上游信号与一次性定时器融合，附加一个类型化的 `TimeoutReason`，并暴露可 dispose（资源释放）的定时器清理。非正数超时是内部的「无超时」哨兵，用于后端拥有的后台任务；外部提示经过 `clampTimeout`，必须为正有限值。既无定时器也无上游信号时，函数返回一个永不中止的信号，具有相同的 disposal 形状。`idleWatchdog` 则要求正有限的间隔，在整个流期间保持一个稳定的融合信号，并且只在一个迭代器 `next()` 尚未结算时启动定时器；结算会解除定时器，后续 demand 会重新启动，带外传输活动发生后，`pulse()` 则会为同一个尚未结算的 demand 重新启动定时器。若没有尚未结算的 demand，或已经 dispose，pulse 不执行任何操作；并发 demand 会失败，dispose 会清除当前 arm。提供方将超时原因转译为 seam 特定的结果。`timeoutOf(signal, code)` 限定分类范围，使外层嵌套的 deadline 被视为上游取消而非内层能力自身的超时。
 
 ### 职责划分
 
@@ -79,7 +80,7 @@ export function timeoutOf(x: AbortSignal | { reason?: unknown }, code?: string):
 |---|---|
 | 校验请求提示并钳位默认值/最大值 | `dsh-timeout`（`clampTimeout`）：纯算术加共享的正有限请求约定 |
 | 启动一次性定时器、到期中止、携带 reason、与上游取消融合 | `dsh-timeout`（`deadline`） |
-| 仅围绕未结算的迭代器 demand 启动和重启 | `dsh-timeout`（`idleWatchdog`） |
+| 仅围绕未结算的迭代器 demand 启动和重启，带外活动也会触发重启 | `dsh-timeout`（`idleWatchdog`） |
 | 清除定时器 | `dsh-timeout`（任一原语的 `[Symbol.dispose]`） |
 | 中止后对首个 abort reason 进行分类 | `dsh-timeout`（`timeoutOf`） |
 | **实际终止工作** | 各能力的实现 |
@@ -92,7 +93,7 @@ export function timeoutOf(x: AbortSignal | { reason?: unknown }, code?: string):
 
 - **web_fetch**：工具层保持校验并转发；提供方手写的 controller + `setTimeout` + 手动监听器 + `finally` + `signal.reason` 恢复被替换为提供方自有的 `deadline`/`timeoutOf`。已预先中止的上游信号仍然立即抛出 `WEB_ABORTED`；否则 `fetch` 使用融合后的 `d.signal` 运行，`translateAbortOrNetwork` 根据信号分类抛出的错误（`timeoutOf` → `WEB_FETCH_TIMEOUT`，否则已中止 → `WEB_ABORTED`，否则网络错误 → `WEB_PROVIDER_ERROR`）。公开的错误码约定不变，`TimeoutReason` 永远不会作为公开错误跨越 web seam。
 - **bash**：`resolve()` 将请求钳位为显式规格。前台 `run()` 创建 deadline 并将其信号传给进程执行，后者既有的 abort 监听器执行进程组 kill。执行器将首个 abort 分类为超时或取消。后台启动保持无超时，仅转发上游取消。
-- **LLM（大语言模型）适配器**：`dsh-llm-deepseek` 和 `dsh-llm-pi-ai` 用 `idleWatchdog` 包装实际的传输迭代。配置的五分钟间隔只覆盖尚未结算的提供方 demand，不包括下游消费方在分片之间花费的时间。稳定信号在整个调用期间传给 `fetch` 或 SDK，因此超时会关闭底层请求并映射为 `TIMEOUT`，而更早的调用方中止映射为 `ABORTED`。
+- **LLM（大语言模型）适配器**：`dsh-llm-deepseek` 和 `dsh-llm-pi-ai` 用 `idleWatchdog` 包装实际的传输迭代。配置的五分钟间隔只覆盖尚未结算的提供方 demand，不包括下游消费方在分片之间花费的时间。DeepSeek 直连适配器还会在其 SSE（Server-Sent Events）解析器观察到注释时，对该项尚未结算的 demand 调用 `pulse()`；该注释既不会作为 `StreamChunk` 产出，也不会写入会话日志。pi-ai SDK 不会向其适配器暴露注释活动，因此该路径只能在 SDK 产出值时重新启动定时器。稳定信号在整个调用期间传给 `fetch` 或 SDK，因此超时会关闭底层请求并映射为 `TIMEOUT`，而更早的调用方中止映射为 `ABORTED`。
 
 ## 后果
 
@@ -100,7 +101,7 @@ export function timeoutOf(x: AbortSignal | { reason?: unknown }, code?: string):
 - `SpawnSpec.timeoutMs` 和 `SpawnOutcome.timedOut`/`aborted` 被移除，而非作为始终为零/始终为 false 的残余保留：由于 `runBash` 不再拥有定时器且执行器负责分类，这些字段无处被读取。这是与字面提案形状（向 `runBash` 传入 `timeoutMs: 0`）的唯一偏差；一个始终为 0 且无处读取的字段在逐文件覆盖率门禁下属于死代码。
 - web_fetch 去除了其定制的 controller/timer/listener/reason-recovery；分类器现在基于 deadline 信号（`timeoutOf` + `aborted`）而非抛出错误的形状来判断，这在请求阶段的 reject-with-reason 和读取阶段的裸 `AbortError` 两种情况下都是健壮的。
 - `AbortSignal.any` 和 `using`/`Symbol.dispose` 在此首次进入本仓库（Node ≥ 24 基线，已满足）。
-- 模型流现在共享一个可重启的定时器约定，不会把滑动的空闲间隔变成总调用截止时间，也不会计入消费方思考时间。该原语仍然只做通知；适配器测试证明其传输观察到稳定信号并终止。
+- 模型流现在共享一个可重启的定时器约定，不会把滑动的空闲间隔变成总调用截止时间，也不会计入消费方思考时间。能够观察到带外传输活动的适配器可以对尚未结算的 demand 调用 `pulse()`；被屏蔽的活动对 watchdog 仍不可见。该原语仍然只做通知；适配器测试证明其传输观察到稳定信号并终止。
 
 以下内容不在本次范围内，列出以标明边界：`web_search` 可以在其工具 schema 和快照覆盖规划完成后获得可选的面向模型的 `timeout_ms`；未来基于 ripgrep 的文件系统发现工具可以在实现后消费同样的提供方自有 deadline 形状；`tools/execute` waterfall（瀑布式事件）中间件可以通过驱动 `exec.signal` 为每次工具调用设置默认 deadline——那将是一个*消费*本库的插件，仍然只做通知，硬终止仍是各能力自己的事。
 
