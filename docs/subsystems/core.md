@@ -107,7 +107,7 @@ interface Agent {
    * cancel leaves it parked. A wake submitted while already idle always opens
    * its turn boundary, even when its message is cleared before the driver
    * claims ([cancel-convergence wake latch](../../../../.agents/notes/implemented/bug-fix/2026-08-07-cancel-convergence-wake-latch.md)).
-   * @param message - identified content and its producer provenance.
+   * @param message - identified content and the source that supplied it.
    * @param target - the preferred next-turn or next-step inbox boundary.
    * @param wakeup - whether delivery may wake the driver.
    */
@@ -116,7 +116,7 @@ interface Agent {
   /**
    * Queue an ordinary follow-up turn and wake the driver. The item becomes the
    * sole ordinary message of its own turn.
-   * @param message - identified prompt content and its producer provenance.
+   * @param message - identified prompt content and the source that supplied it.
    */
   followup(message: UserMessage): void
 
@@ -125,7 +125,7 @@ interface Agent {
    * a running driver consumes it at its next step boundary.
    * A rejected step leaves steering parked in the inbox until the next
    * wake; cancellation or disposal may discard pending steering.
-   * @param message - identified steering content and its producer provenance.
+   * @param message - identified steering content and the source that supplied it.
    */
   steer(message: UserMessage): void
 
@@ -135,7 +135,7 @@ interface Agent {
    * idle drivers leave it pending until follow-up or steering
    * wakes them. It may miss a request whose pre-step already claimed its
    * batch. Cancellation or disposal may discard pending context.
-   * @param message - identified injected context and its producer provenance.
+   * @param message - identified injected context and the source that supplied it.
    */
   inject(message: UserMessage): void
 }
@@ -200,7 +200,7 @@ type AgentCancelCause =
   | { readonly kind: 'disposed' }
 ```
 
-The cause is a TypeScript-enforced same-process input. An active cancellation holder copies it into the runtime-only `AbortSignal.reason`; a signal grants cooperating listeners no classification authority. Durable `turn/end` retains the coarse `{ kind: 'aborted' }` outcome; request provenance would require a separate durable event rather than overloading the terminal result.
+The cause is a TypeScript-enforced same-process input. An active cancellation holder copies it into the runtime-only `AbortSignal.reason`; a signal grants cooperating listeners no classification authority. Durable `turn/end` retains the coarse `{ kind: 'aborted' }` outcome; recording who requested cancellation would require a separate durable event rather than overloading the terminal result.
 
 The [event taxonomy](../architecture.md#event) owns the `agent/*` lifecycle, checkpoint, and waterfall contracts. Turn and step boundaries are durable session events rather than agent emits.
 
@@ -210,7 +210,7 @@ The process-local initiator carried by `ctx.agents` is the exact `Agent` above, 
 
 ## Interception decisions
 
-Pre-step decisions use the same identified `UserMessage` shape as durable user-role input. The entered batch is authoritative and preserves every message's identity and provenance. Hook bridges map their native decision fields onto this typed result.
+Pre-step decisions use the same identified `UserMessage` shape as durable user-role input. The entered batch is authoritative and preserves every message's id and source. Hook bridges map their native decision fields onto this typed result.
 
 Source: [`packages/core/agent/src/types.ts`](../../packages/core/agent/src/types.ts)
 
@@ -243,7 +243,7 @@ type SessionStartSource = 'startup' | 'resume' | 'clear' | 'compact'
 
 ## Sessions
 
-A `Session` is an **append-only log** of typed `SessionEvent`s — the single source of truth. The LLM message history is *derived* from the log (`deriveMessages()`), not stored separately. Every entry carries a monotonic `seq`, a `time`, and a `type`-discriminated `data` payload; surface variants additionally carry `sourceEventSeqs` provenance and a `surfaceOp`.
+A `Session` is an **append-only log** of typed `SessionEvent`s — the single source of truth. The LLM message history is *derived* from the log (`deriveMessages()`), not stored separately. Every entry carries a monotonic `seq`, a `time`, and a `type`-discriminated `data` payload; surface variants may also list cited earlier events in `sourceEventSeqs` and carry a `surfaceOp`.
 
 The `SessionEvent` envelope's exact conditional shape, the twelve event variants (`turn/start`, `turn/end`, `step/start`, `step/end`, `user/message`, `assistant/chunk`, `assistant/message`, `tool/call`, `tool/result`, `steering/message`, `todo/write`, `request/header`), the `deriveMessages()` projection rules, the `TurnTrigger`/`TurnEndReason` reasons, and the execution-enclosure and standalone-event rules are on **[session.md](session.md)**. How the log is made durable — the `SessionPersistence` seam, JSONL/SQLite backends, the `session/flush` checkpoint, crash recovery, and `SessionHeader` — is on **[persistence.md](persistence.md)**.
 

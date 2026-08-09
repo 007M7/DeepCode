@@ -267,7 +267,7 @@ describe('deriveReplayScript', () => {
         seq: 1,
         time: 0,
         data: {
-          summary: [{ type: 'text', text: 'incomplete provenance' }],
+          summary: [{ type: 'text', text: 'missing source events' }],
           llmStreamCall: true,
           shadowedRange: { start: 1, end: 1 },
           shadowedSeqs: [1],

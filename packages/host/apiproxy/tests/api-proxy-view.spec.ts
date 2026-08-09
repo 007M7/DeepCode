@@ -236,7 +236,7 @@ describe('mux live view computation', () => {
     expect('view' in (byKey.get('tool/result:h-plain') ?? {})).toBe(false)
   })
 
-  it('counts only append-origin messages toward maxMessages and keeps compaction provenance whole', async () => {
+  it('counts only append-origin messages toward maxMessages and keeps each compaction summary with its replacement', async () => {
     const { ctx } = await harness()
     const api = createApiProxy(ctx, { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp', workspaceRoot: '/tmp' })
     const session = ctx.sessions.create()
@@ -247,7 +247,7 @@ describe('mux live view computation', () => {
     const third = appendUserText(session, 'second prompt')
     appendAssistantText(session, 'second reply', 2)
     const shadowed = [...session.surface.nodes]
-    // A compaction transaction: log-only provenance immediately followed by the
+    // A compaction transaction: a log-only summary record immediately followed by the
     // replacement that shadows the range.
     const summary = appendExtension(session, 'compact/summary', {
       summary: [{ type: 'text', text: 'summary' }],
@@ -277,7 +277,7 @@ describe('mux live view computation', () => {
     expect(messages.map(event => event.seq)).toEqual([third.seq, third.seq + 1, third.seq + 3])
     expect(page.some(event => event.seq === first.seq)).toBe(false)
     expect(response.result.value.hasMore).toBe(true)
-    // The range stays contiguous, so the checkpoint's provenance is readable on
+    // The range stays contiguous, so the checkpoint's summary record is readable on
     // the same page as the checkpoint itself.
     const summaryIndex = page.findIndex(event => event.seq === summary.seq)
     expect(summaryIndex).toBeGreaterThan(-1)

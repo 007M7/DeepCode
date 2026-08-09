@@ -25,7 +25,7 @@ The launcher exits `125` without exec'ing the command on any launcher-level fail
 
 ## Build and release model
 
-Builds are native-only. `scripts/build.ts` compiles the running architecture's binaries with the distro `musl-gcc` (static: no loader or libc expectations on consumers, one binary for glibc and musl distros); CI's per-architecture runners are the builders of record, and no cross toolchain exists in the repo. The audit surface of a tool is its reviewed C source plus CI provenance, enforced by three gates: platform prepack refuses missing/wrong-ELF binaries, entry prepack refuses unbuilt `lib/`, and the release pipeline byte-pins installed binaries against the workspace builds they were packed from.
+Builds are native-only. `scripts/build.ts` compiles the running architecture's binaries with the distro `musl-gcc` (static: no loader or libc expectations on consumers, one binary for glibc and musl distros); CI's per-architecture runners are the builders of record, and no cross toolchain exists in the repo. Review covers the C source and the CI job that built each binary, enforced by three gates: platform prepack refuses missing/wrong-ELF binaries, entry prepack refuses unbuilt `lib/`, and the release pipeline byte-pins installed binaries against the workspace builds they were packed from.
 
 The package matrix is checked-in metadata (`prebuilds.json` + `os`/`cpu` fields); `scripts/github-matrix.mjs` derives the CI and Release matrices from it, so adding a platform extends automation without editing workflows.
 

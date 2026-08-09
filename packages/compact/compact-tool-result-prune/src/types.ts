@@ -17,7 +17,7 @@ export interface ResolvedConfig {
   readonly tailChars: number
 }
 
-/** Provenance and size accounting for one landed surface replacement. */
+/** Cited source event and size accounting for one landed surface replacement. */
 export interface PrunedEntry {
   /** Full-fidelity tool-result event shadowed by the replacement. */
   readonly originalSeq: number

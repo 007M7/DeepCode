@@ -105,7 +105,7 @@ export const ev = {
       ...text === undefined ? {} : { text },
       ...sourceEventSeq === undefined ? {} : { sourceEventSeq },
     } }),
-  /** A compaction's log-only `compact/summary` provenance record. */
+  /** A compaction's log-only `compact/summary` record. */
   compactSummary: (seq: number, summary: string, start: number, end: number): SessionEvent =>
     at(seq, { type: 'compact/summary', data: {
       summary: text(summary),

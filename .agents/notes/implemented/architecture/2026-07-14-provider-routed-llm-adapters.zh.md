@@ -10,7 +10,7 @@ Status: implemented
 
 这种混淆使提供方网关无法提供开放的模型目录。例如，OpenRouter 是一个包含大量模型 ID 的提供方，私有 OpenAI 兼容端点也可能在不修改 Harness 插件树的情况下增加模型。目前，每个新选择的模型都必须在插件启动期间完成注册。同一个模型 ID 还可能存在于多个提供方中，因此仅按模型注册无法表达调用方预期使用的提供方。
 
-`dsh-llm-pi-ai` 没有暴露 pi-ai 的提供方抽象。它以内联方式构造 DeepSeek `openai-completions` 模型，应用 DeepSeek 专用的 payload 补丁，并将每条回放的助手消息标记为 DeepSeek。pi-ai 自身提供提供方/模型目录，能够选择 `openai-responses`、`anthropic-messages`、`google-generative-ai` 等 API，并保留提供方专用的响应 ID，以及后续轮次所需的推理和工具签名。Harness 转换丢弃了这些来源信息，因此仅将内联模型替换为目录查询，会导致同模型回放与跨提供方移交不完整。
+`dsh-llm-pi-ai` 没有暴露 pi-ai 的提供方抽象。它以内联方式构造 DeepSeek `openai-completions` 模型，应用 DeepSeek 专用的 payload 补丁，并将每条回放的助手消息标记为 DeepSeek。pi-ai 自身提供提供方/模型目录，能够选择 `openai-responses`、`anthropic-messages`、`google-generative-ai` 等 API，并保留提供方专用的响应 ID，以及后续轮次所需的推理和工具签名。Harness 转换丢弃了提供方／模型路由和提供方响应字段，因此仅将内联模型替换为目录查询，会导致同模型回放与跨提供方移交不完整。
 
 适配器配置同样假定只存在一个 DeepSeek API 密钥和端点。通用后端需要为各提供方分别配置凭据和端点覆盖，同时继续由 pi-ai 处理 AWS、Google ADC、OAuth 等环境认证机制。
 
@@ -36,15 +36,15 @@ Status: implemented
 
 pi-ai 的通用流选项不支持停止序列。若 Harness `stop` 选项已定义，`dsh-llm-pi-ai` 会以 `UNSUPPORTED_OPTION` 拒绝请求，不会静默忽略，也不会增加第二套提供方专用 payload 实现。`dsh-llm-deepseek` 继续通过原生请求序列化器支持 `stop`。
 
-### 持久化助手来源信息与回放状态
+### 已记录的助手路由与回放状态
 
-助手消息携带提供方无关的来源信息，其中包含请求的 `provider` 和 `model`，以及可选的 JSON 可序列化适配器回放状态。成功的 `assistant/message` 会话事件记录这些来源信息，`deriveMessages()` 返回助手消息时也会包含这些信息。用户、system、context 与工具结果消息不携带助手来源信息。provider/model 字段是 agent loop 的权威数据；适配器仅拥有其不透明回放状态 payload。
+助手消息携带请求的 `provider` 和 `model`，以及可选的 JSON 可序列化适配器回放状态。成功的 `assistant/message` 会话事件记录这些字段，`deriveMessages()` 返回助手消息时也会包含它们。用户、system、context 与工具结果消息不携带助手路由字段。provider/model 字段是 agent loop 的权威数据；适配器仅拥有其不透明回放状态 payload。
 
-成功的终止 `finish` 分片可以携带回放状态，`BlockAssembler` 会将其与 token 用量和结束原因一起保留。只有当 `agent/step-result` 处理后的内容与提供方组装输出在结构上相等时，agent loop 才会把回放状态附加到助手来源信息。监听器重写内容后，provider/model 来源信息仍会保留，但已经陈旧的回放状态会被移除。错误或中止响应不会生成正常助手消息，因此不会进入后续模型历史。
+成功的终止 `finish` 分片可以携带回放状态，`BlockAssembler` 会将其与 token 用量和结束原因一起保留。agent loop 会把该状态附加到已组装助手消息的模型来源中，但不公开响应改写钩子。错误或中止响应不会生成正常助手消息，因此不会进入后续模型历史。
 
-pi-ai 回放状态是其成功 `AssistantMessage` 的带版本最小投影，包含源 API/provider/model、响应 ID/model、停止原因，以及按索引对齐的文本、thinking 和工具调用签名。它不会重复 Harness 内容块中已有的文本或工具参数，也不包含诊断信息、时间戳、用量或错误。后续请求中，只有历史提供方和目标提供方当前归同一个适配器实例所有时，`LlmService` 才会把回放状态交给目标适配器。适配器在能够恢复历史响应时，将 Harness 记录的内容与回放状态组合，并负责所需的跨模型或跨提供方转换。适配器收到未知版本或块形状不匹配的回放状态时会显式失败；其他适配器只能收到提供方无关的内容与来源信息。
+pi-ai 回放状态是其成功 `AssistantMessage` 的带版本最小投影，包含源 API/provider/model、响应 ID/model、停止原因，以及按索引对齐的文本、thinking 和工具调用签名。它不会重复 Harness 内容块中已有的文本或工具参数，也不包含诊断信息、时间戳、用量或错误。后续请求中，只有历史提供方和目标提供方当前归同一个适配器实例所有时，`LlmService` 才会把回放状态交给目标适配器。适配器在能够恢复历史响应时，将 Harness 记录的内容与回放状态组合，并负责所需的跨模型或跨提供方转换。适配器收到未知版本或块形状不匹配的回放状态时会显式失败；其他适配器只能收到提供方无关的内容以及 provider/model 字段。
 
-该状态属于模型可见的回放输入，因此遵循现有的[请求可重建规则](2026-07-05-reconstructable-requests.md)：它同时存在于终止 `finish` 分片和驱动派生的已组装 `assistant/message` 来源信息中。恢复和 fork 会原样保留该状态。压缩（compaction）遮蔽助手消息时，也会从活动 surface 中移除其回放状态；摘要属于普通的提供方无关内容。
+该状态属于模型可见的回放输入，因此遵循现有的[请求可重建规则](2026-07-05-reconstructable-requests.md)：它同时存在于终止 `finish` 分片和驱动派生的已组装 `assistant/message` 模型来源中。恢复和 fork 会原样保留该状态。压缩（compaction）遮蔽助手消息时，也会从活动 surface 中移除其回放状态；摘要属于普通的提供方无关内容。
 
 ### 在所有请求生产方中传播目标
 
@@ -54,7 +54,7 @@ pi-ai 回放状态是其成功 `AssistantMessage` 的带版本最小投影，包
 
 JSON-RPC 运行时显式接收 provider 与 model。仅当 `deepseek` 提供方没有注册所有者时，其便利回退才会挂载 `dsh-llm-deepseek`；其他缺失的提供方会直接失败，不会猜测适配器。
 
-磁盘会话格式仍使用预发布阶段固定的版本 `0`，且不承诺兼容性。seed/load 验证会拒绝缺少 provider 的请求头，以及缺少必需来源信息的助手消息，不会接受已无法重建请求的旧格式。
+磁盘会话格式仍使用预发布阶段固定的版本 `0`，且不承诺兼容性。seed/load 验证会拒绝省略必需 provider/model 字段的请求头和助手消息，不会接受已无法重建请求的旧格式。
 
 ## 考虑过的替代方案
 
@@ -78,7 +78,7 @@ JSON-RPC 运行时显式接收 provider 与 model。仅当 `deepseek` 提供方�
 - pi-ai 凭据、传输选项、SDK 超时，以及默认五分钟的 `streamIdleTimeoutMs` 空闲超时机制均按提供方配置隔离。系统禁用隐藏的提供方重试；有界重试由单独组合的 agent 恢复策略负责。
 - pi-ai 的通用流 API 无法表达停止序列，因此 `dsh-llm-pi-ai` 会拒绝停止序列；原生 DeepSeek 适配器仍支持停止序列。
 - 仅当历史提供方与目标提供方归同一个适配器实例所有时，回放状态才可移植。适配器负责跨提供方和跨模型恢复；其他适配器只接收不含不透明状态的提供方无关历史。
-- 当前预发布会话 JSONL 要求请求头包含 provider/model，助手消息包含来源信息。旧格式仍使用版本 `0`，但会被拒绝，不执行迁移。
+- 当前预发布会话 JSONL 要求请求头和助手消息都包含 provider/model。旧格式仍使用版本 `0`，但会被拒绝，不执行迁移。
 
 ## 测试
 

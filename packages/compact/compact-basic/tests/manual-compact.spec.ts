@@ -618,7 +618,7 @@ describe('compactNow transaction and failure classification', () => {
     const agent = fakeAgent(session, () => () => { released += 1 })
     const append = session.append.bind(session)
     vi.spyOn(session, 'append').mockImplementation(((type: string, ...rest: never[]) => {
-      if (type === 'compact/summary') throw new Error('provenance rejected')
+      if (type === 'compact/summary') throw new Error('summary record rejected')
       return (append as (...args: never[]) => unknown)(type as never, ...rest)
     }) as never)
 
@@ -627,7 +627,7 @@ describe('compactNow transaction and failure classification', () => {
     expect(error.code).toBe('commit')
     expect(released).toBe(1)
     const end = session.events.findLast(event => event.type === 'compact/end')
-    expect(end?.type === 'compact/end' && end.data.error).toContain('provenance rejected')
+    expect(end?.type === 'compact/end' && end.data.error).toContain('summary record rejected')
     expect(end?.type === 'compact/end' && end.data.turn).toBeNull()
   })
 
@@ -637,14 +637,14 @@ describe('compactNow transaction and failure classification', () => {
     const agent = fakeAgent(session, () => () => undefined)
     const append = session.append.bind(session)
     vi.spyOn(session, 'append').mockImplementation(((type: string, ...rest: never[]) => {
-      if (type === 'compact/summary') throw new Error('provenance rejected')
+      if (type === 'compact/summary') throw new Error('summary record rejected')
       return (append as (...args: never[]) => unknown)(type as never, ...rest)
     }) as never)
     vi.spyOn(ctx.sessions, 'flush').mockRejectedValueOnce(new Error('disk full'))
 
     const error = await rejection(compact.compactNow(agent, SIGNAL))
     expect(error.code).toBe('commit')
-    expect(causeOf(error).message).toBe('provenance rejected')
+    expect(causeOf(error).message).toBe('summary record rejected')
     vi.restoreAllMocks()
   })
 

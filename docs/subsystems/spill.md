@@ -8,7 +8,7 @@ Source: [`packages/spill/spill/src/types.ts`](../../packages/spill/spill/src/typ
 
 ## The save request
 
-`saveText` is the whole seam: persist `content` verbatim, return an opaque locator, a backend-supplied retrieval hint, and the exact byte count. The request carries the save-time storage namespace (`owner`), WHERE it came from (`source`, descriptive provenance for naming and inspection — not access control), and a `suggestedName` the backend may use as a naming hint (it is not a path).
+`saveText` is the whole seam: persist `content` verbatim, return an opaque locator, a backend-supplied retrieval hint, and the exact byte count. The request carries the save-time storage namespace (`owner`), the tool and call that produced it (`source`, used for naming and inspection — not access control), and a `suggestedName` the backend may use as a naming hint (it is not a path).
 
 ```ts type-equiv
 /** One request to persist text to a spill artifact. */
@@ -42,7 +42,7 @@ interface SpillOwner {
 
 ```ts type-equiv
 /**
- * Provenance of one spilled artifact — recorded by the backend for a readable
+ * Tool and call that produced one spilled artifact — recorded by the backend for a readable
  * filename and inspection. Not interpreted for access control; purely
  * descriptive.
  */
@@ -107,7 +107,7 @@ Semantics every implementation must honor:
 ```ts cordis-catalog
 /**
  * Persist `input.content` to a session-scoped spill artifact.
- * @param input - the owner, provenance, suggested name, and full text to save.
+ * @param input - the owner, caller-supplied source fields, suggested name, and full text to save.
  * @returns the saved artifact's {@link SpillRef}; rejects on a storage failure.
  */
 abstract saveText(input: SaveTextSpill): Promise<SpillRef>

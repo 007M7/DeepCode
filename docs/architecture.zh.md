@@ -92,7 +92,7 @@ forever:
       'step/start'
       append the returned batch as separate 'user/message' events
       assemble ordered prompt and tool schemas -> snapshot derived messages
-      agent/request (config only) -> prepare adapter defaults/provenance + context capacity under turn signal -> log request/header (+ request/context on route change) -> llm/stream (frozen, registration-bound)
+      agent/request (config only) -> resolve adapter defaults and mark defaulted fields + context capacity under turn signal -> log request/header (+ request/context on route change) -> llm/stream (frozen, registration-bound)
       'assistant/chunk'
       'assistant/message'
       schedule tool calls by ctx.tools.executionMode:
@@ -144,13 +144,13 @@ idle inject:
 
 持久性由插件负责。后端会将同步的 `session/event` 通知复制到固定窗口的持久化批次中；`session/flush` 会绕过等待，在请求与顶层工具分发之前执行，并在 `turn/end` 之后、另一个轮次或空闲状态之前执行。`SessionPersistence` 存储事件和 header 元数据；JSONL 默认采用带校验和的 Zstandard，SQLite 遵循同一约定（[检查点决策](../.agents/notes/implemented/bug-fix/2026-07-21-semantic-session-checkpoints.md)、[批处理决策](../.agents/notes/implemented/architecture/2026-08-08-bounded-session-persistence-write-batching.md)）。
 
-在轮次之间，事件所有者通过 `Session` 追加纯日志事件，仅为持久性而刷写。`session/title` 依赖有界后台持久化与生命周期排空；手动压缩会在操作完成前 flush 其标记对。标题工作绝不延迟响应；最新标题按后写覆盖并携带来源信息。标题记录是可继承的 fork 边界（[决策](../.agents/notes/implemented/feature/2026-07-21-log-backed-session-titles.md)）。
+在轮次之间，事件所有方通过 `Session` 追加纯日志事件，仅为持久性而刷写。`session/title` 依赖有界后台持久化与生命周期排空；手动压缩会在操作完成前 flush 其标记对。标题工作绝不延迟响应；最新的标题事件生效，并记录来源消息 seq，以及标题由用户、后备逻辑还是提供方提供。标题记录是可继承的 fork 边界（[决策](../.agents/notes/implemented/feature/2026-07-21-log-backed-session-titles.md)）。
 
 ### 模型内容
 
 消息使用从可合并扩展的 `ContentBlockMap` 派生的类型化块；同一模式也为 `MessageSource`、`FinishReason`、`TurnTrigger` 和 `TurnEndReason` 定义类型。新增块会协调适配器、UI、压缩、token 计量和持久化；回放计量见 [token-meter.md](subsystems/token-meter.md)。
 
-流式输出使用原始分片和 `BlockAssembler`。每次 `LlmAdapter.stream()` 调用代表一次提供方尝试；适配器报告标准化的故障事实，负责处理的 `agent/request-error` 插件会返回重试动作。循环会记录分片、成功结果的来源信息和回放状态。远程适配器使用逐次读取空闲看门狗。回放仅通过共用的适配器实例跨路由传递（[约定](subsystems/llm-streaming.md)）。
+流式输出使用原始分片和 `BlockAssembler`。每次 `LlmAdapter.stream()` 调用代表一次提供方尝试；适配器报告标准化的故障事实，负责处理的 `agent/request-error` 插件会返回重试动作。循环会记录分片、成功使用的提供方／模型路由和回放状态。远程适配器使用逐次读取空闲看门狗。回放仅通过共用的适配器实例跨路由传递（[约定](subsystems/llm-streaming.md)）。
 
 ## 扩展与组合
 

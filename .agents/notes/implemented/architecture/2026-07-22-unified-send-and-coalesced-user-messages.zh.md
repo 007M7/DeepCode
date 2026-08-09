@@ -14,9 +14,9 @@ agent 的对外驱动接口逐渐长出三个近乎平行的动词——`send`�
 
 **一个原语，三个预设别名。** `Agent` 接口的 `send(message, target, wakeup)` 覆盖 (`target` × `wakeup`) 矩阵。完整的 `UserMessage` 持有标识、角色、模型可见 `content` 与生产方 `source`；其余参数只持有路由策略。`followup`（`next-turn`/wakeup）、`steer`（`next-step`/wakeup）和 `inject`（`next-step`/no-wakeup）都接收这一条消息并固定策略。`wakeup` 会在 agent 空闲时保留一个驱动器；已经活跃的驱动器不会获得第二次保留，只有在抵达后续 pre-step 边界时才能领取该输入。`next-turn`/no-wakeup（入队但不唤醒）可以表达，只是没有别名，也没有当前调用方。
 
-**inject 是不会唤醒的 next-step 投递。** 它始终把完整消息追加到 next-step inbox，并在持久 `agent/inbox/spliced` 事件中记录该插入。驱动器会在后续 pre-step 领取它，并且只有最终决策把它放入进入步骤的批次时，才会将其记录为模型可见的 `user/message`；空闲注入会保持待处理，直到其他投递唤醒驱动器。必填的 `UserMessage.source` 会保留调用方显式提供的来源信息。
+**inject 是不会唤醒的 next-step 投递。** 它始终把完整消息追加到 next-step inbox，并在持久 `agent/inbox/spliced` 事件中记录该插入。驱动器会在后续 pre-step 领取它，并且只有最终决策把它放入进入步骤的批次时，才会将其记录为模型可见的 `user/message`；空闲注入会保持待处理，直到其他投递唤醒驱动器。必填的 `UserMessage.source` 会保留调用方提供的源字段。
 
-**context/message 已移除。** 注入的上下文在 inbox 中使用同一个 `UserMessage` 值，并在获准时成为 `user/message` 事件；上下文生产方显式提供合适的非 `user` 类别 `source`，类型化 source 变体携带所有特定于领域的持久来源信息。对外接口、派生逻辑和 `SurfaceEventType` 都不再包含 `context/message`；需要判断“这是不是一条人类提示词？”的消费方改为读取 `source.kind === 'user'`，而不是事件类型。
+**context/message 已移除。** 注入的上下文在 inbox 中使用同一个 `UserMessage` 值，并在获准时成为 `user/message` 事件；上下文生产方显式提供合适的非 `user` 类别 `source`，类型化 source 变体携带持久化的生产方专用字段。对外接口、派生逻辑和 `SurfaceEventType` 都不再包含 `context/message`；需要判断“这是不是一条人类提示词？”的消费方改为读取 `source.kind === 'user'`，而不是事件类型。
 
 **Goal 继续执行归属使用正数 Round。** Goal 生命周期状态通过后续的[Goal 自有持久事件决策](2026-07-31-goal-owned-durable-events.md)所定义的领域自有 `goal/change` 事件提交。正数 Round 只从已准入的继续执行 `user/message` 推进；goal 持久化不使用注入或 inbox 状态。
 

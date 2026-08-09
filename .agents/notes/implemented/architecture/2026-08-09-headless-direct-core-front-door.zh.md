@@ -24,7 +24,7 @@ Status: implemented
 
 ## 验证
 
-包测试围绕脚本化 Agent 工厂使用真实的会话存储与 Agent 注册表，固定空闲态到空闲态的聚合、延迟异步完成、终止态模型诊断、其他未完成退出、直接失败、Loader 加载期间的 dispose（资源释放），以及退出前 flush 的顺序。组装后的无密钥快照通过回放的工具往返驱动 `dsh run`，记录直接用户消息的来源，并在 stderr 暴露终止态模型失败。构建后二进制验收通过已发布入口访问 mock 提供方，并要求最终文本出现在 stdout、退出状态为 0 且 stderr 为空。配置转储验收排除随附 headless 树中的所有 Host、Web 与 Client 包；PTY 关闭覆盖要求不出现观察行，并在有界时间内完成 dispose。
+包测试围绕脚本化 Agent 工厂使用真实的会话存储与 Agent 注册表，固定空闲态到空闲态的聚合、延迟异步完成、终止态模型诊断、其他未完成退出、直接失败、Loader 加载期间的 dispose（资源释放），以及退出前 flush 的顺序。组装后的无密钥快照通过回放的工具往返驱动 `dsh run`，记录一条带 `source.kind: 'user'` 的 `user/message`，并在 stderr 暴露终止态模型失败。构建后二进制验收通过已发布入口访问 mock 提供方，并要求最终文本出现在 stdout、退出状态为 0 且 stderr 为空。配置转储验收排除随附 headless 树中的所有 Host、Web 与 Client 包；PTY 关闭覆盖要求不出现观察行，并在有界时间内完成 dispose。
 
 ## 考虑过的替代方案
 
@@ -39,6 +39,6 @@ Status: implemented
 
 ## 后果
 
-`dsh run` 提供本地 Agent 任务，而不是浏览器观察、Host API 或 HTTP。需要这些能力的用户选择 `dsh web`。成功时 stderr 为空，完成结果在持久化 flush 后推导，持久化会话仍可供后续工具使用。初始用户消息直接来自用户，因此不携带 ApiProxy `rpcId`。
+`dsh run` 提供本地 Agent 任务，而不是浏览器观察、Host API 或 HTTP。需要这些能力的用户选择 `dsh web`。成功时 stderr 为空，完成结果在持久化 flush 后推导，持久化会话仍可供后续工具使用。初始用户消息记录 `source.kind: 'user'`，因此不携带 ApiProxy `rpcId`。
 
 ApiProxy 载体覆盖保留在 ApiProxy 包中。自定义一次性 profile 可以显式包含 Host 或 Web 组合包；随附 profile 与可识别的安装过程所属元组均不含 Web。

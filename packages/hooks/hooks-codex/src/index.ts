@@ -107,7 +107,7 @@ export function apply(ctx: Context, config: Config): void {
   /**
    * Run and fold one configured Codex hook point.
    *
-   * A supplied turn records the hook provenance pair inside that open turn.
+   * A supplied turn records the hook invocation/result pair inside that open turn.
    * Detached lifecycle points omit it.
    */
   async function runPoint(
@@ -177,7 +177,7 @@ export function apply(ctx: Context, config: Config): void {
     return createUserMessage({ content, source: PLUGIN_SOURCE })
   }
 
-  /** Prepend one context without flattening downstream provenance or metadata. */
+  /** Prepend one context without flattening source fields or other downstream metadata. */
   function prependContext(ours: UserMessage, theirs: UserMessage[] | undefined): UserMessage[] {
     return [ours, ...theirs ?? []]
   }

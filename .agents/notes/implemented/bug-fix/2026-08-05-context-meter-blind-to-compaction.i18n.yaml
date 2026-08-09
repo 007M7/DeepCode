@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-05-context-meter-blind-to-compaction.md
-2026-08-05-context-meter-blind-to-compaction.md: 8f4845c3c9bf52c5c3a2d39dee2ff25bda30c7bd
-2026-08-05-context-meter-blind-to-compaction.zh.md: 7df587d61cc487497a3a95263e10e3aa6f65943b
+2026-08-05-context-meter-blind-to-compaction.md: 10ded250cec9c92d90803bdf5969cc7f5aa54c50
+2026-08-05-context-meter-blind-to-compaction.zh.md: ca3fe59eecde82bb97b44af4c3383546d5672753

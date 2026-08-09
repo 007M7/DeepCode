@@ -92,7 +92,7 @@ forever:
       'step/start'
       append the returned batch as separate 'user/message' events
       assemble ordered prompt and tool schemas -> snapshot derived messages
-      agent/request (config only) -> prepare adapter defaults/provenance + context capacity under turn signal -> log request/header (+ request/context on route change) -> llm/stream (frozen, registration-bound)
+      agent/request (config only) -> resolve adapter defaults and mark defaulted fields + context capacity under turn signal -> log request/header (+ request/context on route change) -> llm/stream (frozen, registration-bound)
       'assistant/chunk'
       'assistant/message'
       schedule tool calls by ctx.tools.executionMode:
@@ -144,13 +144,13 @@ The session log is authoritative. `deriveMessages()` projects model history; raw
 
 Durability is a plugin concern. Backends copy synchronous `session/event` notifications into fixed-window durable batches; `session/flush` bypasses the wait before requests and top-level tool dispatch, and after `turn/end` before another turn or idle. `SessionPersistence` stores events and header metadata; JSONL defaults to checksummed Zstandard and SQLite shares the contract ([checkpoint decision](../.agents/notes/implemented/bug-fix/2026-07-21-semantic-session-checkpoints.md), [batching decision](../.agents/notes/implemented/architecture/2026-08-08-bounded-session-persistence-write-batching.md)).
 
-Between turns, owners append log-only events through `Session`, flushing only for durability. `session/title` relies on bounded background persistence and lifecycle drains; manual compaction flushes its bracket before the operation completes. Title work never delays responses; latest wins with provenance. Title records are inherited fork boundaries ([decision](../.agents/notes/implemented/feature/2026-07-21-log-backed-session-titles.md)).
+Between turns, owners append log-only events through `Session`, flushing only for durability. `session/title` relies on bounded background persistence and lifecycle drains; manual compaction flushes its bracket before the operation completes. Title work never delays responses; the latest title event wins, and it records the source message seqs and whether the user, fallback, or provider supplied it. Title records are inherited fork boundaries ([decision](../.agents/notes/implemented/feature/2026-07-21-log-backed-session-titles.md)).
 
 ### Model Content
 
 Messages use typed blocks from merge-extensible `ContentBlockMap`; the pattern also types `MessageSource`, `FinishReason`, `TurnTrigger`, and `TurnEndReason`. New blocks coordinate adapters, UI, compaction, token metering, and persistence; replay measurements live in [token-meter.md](subsystems/token-meter.md).
 
-Streaming uses raw chunks and `BlockAssembler`. Each `LlmAdapter.stream()` is one provider attempt; adapters report normalized failure facts, and a handling `agent/request-error` plugin returns a retry action. The loop logs chunks, successful provenance, and replay state. Remote adapters use per-read idle watchdogs. Replay crosses routes only through a shared adapter instance ([contract](subsystems/llm-streaming.md)).
+Streaming uses raw chunks and `BlockAssembler`. Each `LlmAdapter.stream()` is one provider attempt; adapters report normalized failure facts, and a handling `agent/request-error` plugin returns a retry action. The loop logs chunks, the successful provider/model route, and replay state. Remote adapters use per-read idle watchdogs. Replay crosses routes only through a shared adapter instance ([contract](subsystems/llm-streaming.md)).
 
 ## Extension And Composition
 

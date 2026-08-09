@@ -29,7 +29,7 @@ Amend the implemented compaction decision and the [recallable-compaction proposa
 - `@deepseek-ai/dsh-compact-basic` and its workspace/package metadata are removed.
 - `@deepseek-ai/dsh-compact` owns the current configuration, plugin class, algorithm, types, events, and shared helpers.
 - Existing deployments can load the surviving package with equivalent configuration and model-visible behavior.
-- Automatic and manual compaction preserve cancellation, locking, token accounting, tool pairing, durable events, provenance, retry convergence, and transcript rendering.
+- Automatic and manual compaction preserve cancellation, locking, token accounting, tool pairing, durable events, cited source-event seqs, retry convergence, and transcript rendering.
 - Loader composition, unit, runaway-turn, cancellation, snapshot, and real-model compaction tests pass; generated catalogs and module graphs are current.
 
 ## Risks
