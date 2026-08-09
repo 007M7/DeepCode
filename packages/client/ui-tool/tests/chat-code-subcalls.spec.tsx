@@ -89,7 +89,10 @@ function AppRoot({ renderSlot }: AppRootProps) {
   return <>{renderSlot('conversation', {})}</>
 }
 
-/** Same real-stack bench as the toolview-slot spec: SlotsService + renderer + both owning package applies; fakes only at service seams. */
+/**
+ * Same real-stack bench as the toolview-slot spec: SlotsService + renderer +
+ * both owning package applies; fakes only at service boundaries.
+ */
 async function bench(snapshot: ConversationSnapshot) {
   const ctx = new Context()
   const slotsFiber = ctx.plugin(SlotsService)

@@ -13,7 +13,7 @@ import type { ManualCompactAgentContext } from '@deepseek-ai/dsh-compact'
 
 /**
  * A trivial concrete CompactService implementing the abstract contract. The
- * interface package owns no algorithm — these tests exercise the seam itself:
+ * Service Definition package owns no algorithm — these tests exercise its contract:
  * service registration, the abstract method shape, and the `compact/*` event
  * declaration merge.
  */

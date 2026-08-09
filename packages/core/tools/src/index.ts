@@ -148,7 +148,7 @@ declare module 'cordis' {
     'tools/execute'(this: Scoped<ToolRegistry>, exec: ToolDispatchExecution, next: () => Promise<ToolExecutionResult>): Promise<ToolExecutionResult>
     /**
      * Accept, replace, enrich, or block a normalized dispatch result. `next()`
-     * accepts it unchanged; thrown tools still reach this seam as errors. Async
+     * accepts it unchanged; thrown tools still reach this waterfall as errors. Async
      * listeners must observe `exec.signal`; after they settle, caller
      * cancellation replaces only a successful accepted outcome with the code
      * selected by whether the tool body was invoked.
@@ -418,7 +418,7 @@ export type ScheduledToolDispatch =
 /**
  * Symbol-keyed scheduler view that keeps pre/post policy ordered while
  * overlapping dispatch. Ordinary callers use {@link ToolRegistry.execute};
- * this is not a plugin seam.
+ * this is not a plugin extension point.
  * @internal
  */
 export interface ToolRegistryScheduler {
@@ -1080,7 +1080,7 @@ export class ToolRegistry extends Service {
    * shaping must never fail the dispatch or lose the settle event. Private:
    * the ONE consumer is the `run_code` bridge this registry constructs, which
    * receives it as a capability parameter (the `requireRuntime` idiom) — the
-   * waterfall, not this invoker, is the public extension seam.
+   * waterfall, not this invoker, is the public extension point.
    */
   private async shapeDispatchLog(dispatch: CodeDispatchLog): Promise<ContentBlock[]> {
     try {

@@ -124,7 +124,7 @@ export class ToolResultPruneService extends Service {
   /**
    * Prune every over-budget tool result from one stable current-surface snapshot.
    * Each replacement preserves the complete event data except for `content`,
-   * points at the shadowed node for durable provenance and replay, and is
+   * cites the shadowed node so replay can recover the replacement input, and is
    * immediately preceded by a `compact/prune` shadow-price event pricing the
    * shadowed node through the injected token meter, so pure consumers can
    * subtract it without per-node state.

@@ -68,7 +68,7 @@ export class Inbox {
    * @param target - whether this boundary also consumes one queued turn.
    * @param turn - turn that will own the claimed batch.
    * @returns next-step input followed by the queued turn, when requested.
-   * @internal - the agent loop's step-boundary operation, not a plugin seam.
+   * @internal - The agent loop's step-boundary operation, not a plugin extension point.
    */
   claim(target: InboxTarget, turn: number): UserMessage[] {
     const claimed = this.mutate('next-step', 0, this.nextStep.length, [], false)

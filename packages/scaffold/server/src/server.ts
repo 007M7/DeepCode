@@ -87,7 +87,7 @@ export class HarnessSdkServer {
     this.disposers.push(ctx.on('subagent/end', function (this: Scoped<SubagentService>, info: SubagentRunEndInfo) {
       const parent = subagentParentOf(this)
       // This protocol reports only in-process child sessions. The service
-      // snapshots the provider's exact run provenance through child disposal;
+      // snapshots the provider name and local flag through child disposal;
       // matching ids or parent lineage alone never establishes locality.
       if (!info.local) return
       const payload: SubagentFinishedNotification = {

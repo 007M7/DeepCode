@@ -73,7 +73,7 @@ Schemas are prefix-stable while their definitions and visibility are unchanged. 
 
 ## Known Limitations and Deferred Work
 
-- **Semantic intent remains model judgment** — execution can prove direct human provenance, not whether a request is substantial enough to merit a goal.
+- **Semantic intent remains model judgment** — execution can prove that the current turn contains a direct human message, not whether the request is substantial enough to merit a goal.
 - **Same-condition blocking remains model judgment** — the runtime enforces distinct admitted-round count, not semantic equivalence of obstacles; an independent evaluator is deferred.
 - **No scheduling or direct human rendering** — these tools mutate state only; the same-session driver and [`dsh-command-goal`](../command-goal/README.md) are independent consumers of the same domain.
 - **Goal-round authority requires a driver** — the autonomous `complete`/`blocked` path is dormant unless a continuation driver admits goal-sourced user turns; mounting this tool package alone does not create them.

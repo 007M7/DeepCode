@@ -1,7 +1,7 @@
 /**
  * `renderConfigDump` behavior: the offline composition must equal what
  * `boot()` mounts (same parser, same patch algorithm), print `!!js`
- * expressions verbatim, separate provenance runs with comment lines while
+ * expressions verbatim, separate source-file runs with comment lines while
  * staying one loadable YAML document, and report skipped patches through
  * `warn` instead of failing — mirroring the Loader's boot-time warning for a
  * shared overlay whose row exists only on another surface.
@@ -35,7 +35,7 @@ function writeBase(dir: string): string {
 }
 
 describe('renderConfigDump', () => {
-  it('composes overlay layers in order, prints !!js verbatim, and labels each section with its provenance', () => {
+  it('composes overlay layers in order, prints !!js verbatim, and labels each section with its source and patches', () => {
     const dir = tmp()
     const base = writeBase(dir)
     const surface = join(dir, 'surface.yml')
@@ -78,7 +78,7 @@ describe('renderConfigDump', () => {
     ])
     // Unevaluated: the expression text round-trips as a !!js scalar.
     expect(dump).toContain('!!js process.env.DSH_DUMP_SPEC')
-    // Provenance separators: origin file, plus every layer that changed the
+    // Source separators: origin file, plus every layer that changed the
     // row; an inserted row carries the inserting layer as its origin.
     expect(dump).toContain('# == base.yml, patched by surface.yml')
     expect(dump).toContain('# == base.yml\n- id: untouched')
@@ -86,7 +86,7 @@ describe('renderConfigDump', () => {
     expect(dump.indexOf('# == base.yml, patched by surface.yml')).toBeLessThan(dump.indexOf('# == base.yml\n- id: untouched'))
   })
 
-  it('groups contiguous same-provenance rows under one separator', () => {
+  it('groups contiguous rows with the same origin and patches under one separator', () => {
     const dir = tmp()
     const base = join(dir, 'base.yml')
     writeFileSync(base, [
@@ -130,7 +130,7 @@ describe('renderConfigDump', () => {
       config?: { config?: { v?: number } }[]
     }[]
     expect(parsed[0]?.config?.[0]?.config?.v).toBe(1)
-    // The skipped layer did not change the row, so it is not in provenance.
+    // The skipped layer did not change the row, so the comment does not list it.
     expect(dump).toContain('# == base.yml, patched by a.yml\n- id: g')
     expect(dump).not.toContain('b.yml\n- id: g')
   })

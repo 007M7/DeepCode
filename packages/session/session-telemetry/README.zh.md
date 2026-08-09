@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-遥测（telemetry）seam：会话事件上报的捕获侧，隔在一个后端约定之后，任何上报 SDK 都无需变形即可满足该约定。捕获侧可跟随实时会话事件，也可按需回放权威会话日志前缀。塑造本包一切设计的边界公理：**本包的职责止于 `emit()`**。批处理、重试、排队与丢失策略都属于后端自身的 SDK，本包既不为其立规，也不做包装。设计依据与被否决的替代方案见[复活 Agent Note](../../../.agents/notes/implemented/feature/2026-07-23-session-telemetry-otel-revival.md)、[反馈门控投递](../../../.agents/notes/implemented/feature/2026-08-05-feedback-gated-session-telemetry.md)与[无缓冲反馈回放](../../../.agents/notes/implemented/simplification/2026-08-06-buffer-free-feedback-telemetry.md)。
+遥测（telemetry）Service Definition 与捕获协调器位于一个后端约定之后，任何上报 SDK 都无需变形即可满足该约定。捕获侧可跟随实时会话事件，也可按需回放权威会话日志前缀。塑造本包（package）一切设计的边界公理：**本包的职责止于 `emit()`**。批处理、重试、排队与丢失策略都属于后端自身的 SDK，本包既不为其立规，也不做包装。设计依据与被否决的替代方案见[复活 Agent Note（agent 决策记录）](../../../.agents/notes/implemented/feature/2026-07-23-session-telemetry-otel-revival.md)、[反馈门控投递](../../../.agents/notes/implemented/feature/2026-08-05-feedback-gated-session-telemetry.md)与[无缓冲反馈回放](../../../.agents/notes/implemented/simplification/2026-08-06-buffer-free-feedback-telemetry.md)。
 
 ## 后端约定
 
@@ -14,7 +14,7 @@
 
 ## 脱敏 waterfall（瀑布式事件）
 
-每条记录在投影后立即经过 `telemetry/record` waterfall，这是该 seam 的脱敏扩展点。seam 自身不带任何规则：最内层的 `next()` 原样透传记录，因此未挂载监听器时，记录以捕获时的原样到达后端；导出数据能干净到什么程度，恰恰取决于部署方挂载了什么规则。监听器通过变换 `next()` 的返回值来堆叠；不调用 `next()` 就返回，即替换其下方的全部逻辑；抛出异常的监听器会在协调器的隔离范围内以 fail-closed 方式拦下这一条记录。实时捕获在追加时运行 waterfall；按需捕获则在回放权威日志时使用当时挂载的规则运行 waterfall。脱敏只作用于外发副本；权威会话日志永不改写。
+每条记录在投影后立即经过 `telemetry/record` waterfall，这是 Service Definition 的脱敏扩展点。本包自身不带任何规则：最内层的 `next()` 原样透传记录，因此未挂载监听器时，记录以捕获时的原样到达后端；导出数据能干净到什么程度，恰恰取决于部署方挂载了什么规则。监听器通过变换 `next()` 的返回值来堆叠；不调用 `next()` 就返回，即替换其下方的全部逻辑；抛出异常的监听器会在协调器的隔离范围内以 fail-closed 方式拦下这一条记录。实时捕获在追加时运行 waterfall；按需捕获则在回放权威日志时使用当时挂载的规则运行 waterfall。脱敏只作用于外发副本；权威会话日志永不改写。
 
 ## handoff 游标
 
@@ -30,7 +30,7 @@
 
 ## 模型体验
 
-无。该 seam 只观察会话流，并把脱敏后的副本交给上报后端；它绝不向模型请求贡献任何内容。
+无。本包只观察会话流，并把脱敏后的副本交给上报后端；它绝不向模型请求贡献任何内容。
 
 #### KV Cache 影响
 

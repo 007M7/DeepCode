@@ -59,7 +59,7 @@ function inboxText(message: UserMessage): string {
     .join('')
 }
 
-describe('assistant replay provenance', () => {
+describe('assistant replay provider and model fields', () => {
   it('records adapter replay state with the assembled assistant content', async () => {
     const response = textResponse('unchanged')
     const replayState = { private: 'state' }

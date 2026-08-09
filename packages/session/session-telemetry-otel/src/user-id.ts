@@ -33,11 +33,11 @@ export const USER_ID_FILE_NAME = '.userid'
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
-/** Ambient seams for locating and generating the id; every field has a default. */
+/** Ambient hooks for locating and generating the id; every field has a default. */
 export interface AnonymousUserIdOptions {
   /** Environment consulted for `DSH_HOME`; defaults to `process.env`. */
   env?: NodeJS.ProcessEnv
-  /** UUID generator; defaults to `crypto.randomUUID` (test seam). */
+  /** UUID generator; defaults to `crypto.randomUUID` (test hook). */
   randomUUID?: () => string
 }
 
@@ -65,7 +65,7 @@ function readPersistedId(file: string): AnonymousUserId | undefined {
  * run; the next launch converges on the persisted one.) Persistence is
  * best-effort — a write failure (read-only home) still returns a usable id
  * for the current run so telemetry is never blocked.
- * @param options - home-location and UUID-generation seams.
+ * @param options - Home-location and UUID-generation hooks.
  * @returns the stable per-harness-home anonymous user id.
  */
 export function getOrCreateAnonymousUserId(options: AnonymousUserIdOptions = {}): AnonymousUserId {

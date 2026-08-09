@@ -116,7 +116,7 @@ Slot scope is the closed set `root | session-maybe | session`:
 |---|---|
 | A client-local Intent + materialize (published CAS / the pendingPrompt attach transaction / the before-create chain) | The client is forced to simulate the first half-life the host lacks, breeding a pile of state machinery — published CAS, the attach transaction, partial publication |
 | Host-reserved IDs (a draft Map) | The host merely acknowledges a number; the state machine stays on the client untouched |
-| A host draft Session (a Session without an Agent) | Every host surface that looks up the Agent must fork for drafts; core would need an attachAgent seam plus late-written header cwd |
+| A host draft Session (a Session without an Agent) | Every host surface that looks up the Agent must fork for drafts; core would need an `attachAgent` API plus late-written header cwd |
 | Binding an Agent before cwd (ungrouped) | Overturns the readonly header.cwd "created in" invariant, plus the launch-dir side-effect product trap |
 | Passing session context down through React Context | Plugins should hold one mental model across host and client; the scope mechanism is isomorphic to the host dsh-scope |
 | A `scopeTarget` carrier + fused dispatcher (mirroring the host `agentEvents`) | The host wrapper layer guards the business Agent subject against drifting from the scope key; client events have no subject to guard — the filter on the actx plus cordis primitives covers every need |

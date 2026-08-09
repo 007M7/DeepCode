@@ -14,7 +14,7 @@ The package also made the repository's supported application inventory misleadin
 
 The `packages/ui/tui` package is deleted without a compatibility package or alias. Its source, package tests, terminal snapshots, dependency declarations, patched `pi-tui` artifact, workspace references, generated service catalog entry, and documentation are removed together. Generic host and agent-loop capabilities remain unchanged.
 
-The SDK run-interface union now contains only `acp` and `embed`. `create-sdk` defaults to ACP, generated templates contain no terminal startup, resume, session-environment, or model-argument branch, and the builtin `ask-user` feature is removed because neither remaining generated interface supplies a `UserInteractionProvider`. Host applications may still mount the provider-neutral `dsh-user-interaction`, `dsh-commands`, and presentation seams directly.
+The SDK run-interface union now contains only `acp` and `embed`. `create-sdk` defaults to ACP, generated templates contain no terminal startup, resume, session-environment, or model-argument branch, and the builtin `ask-user` feature is removed because neither remaining generated interface supplies a `UserInteractionProvider`. Host applications may still mount the provider-neutral `dsh-user-interaction`, `dsh-commands`, and presentation services directly.
 
 This decision supersedes the reusable-package retention in [the explicit-config `dsh` entrypoint decision](../../archived/simplification/2026-08-03-explicit-config-dsh-entrypoint.md) and the current applicability of the archived TUI implementation notes. Their historical records remain frozen, but they are not authority for the supported package or application inventory.
 

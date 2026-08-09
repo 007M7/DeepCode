@@ -63,6 +63,20 @@ export interface TypeApiEntry {
 /** Every harness `ctx.<key>` service, sorted by key. */
 export const SERVICE_API: readonly ServiceApiEntry[] = [
   {
+    key: 'agentDefaultModel',
+    summary: 'Owns the default model selection independently of any Host or transport.',
+    methods: [
+      {
+        signature: 'currentSelection(): ModelSelection',
+        jsDoc: '/**\n * Read the current default model selection.\n * @returns a detached provider, model, and optional reasoning selection.\n */',
+      },
+      {
+        signature: 'async saveSelection(next: ModelSelection): Promise<void>',
+        jsDoc: '/**\n * Save the complete default model selection. A deployment without a settings\n * provider keeps its composition entry.\n * @param next - resolved selection accepted by a front door.\n * @returns fulfillment after the optional settings write settles.\n */',
+      },
+    ],
+  },
+  {
     key: 'agentLoop',
     summary: 'Concrete agent factory and driver service.',
     methods: [
@@ -108,7 +122,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'requireInitiator(): Agent',
-        jsDoc: '/**\n * Read the initiating Agent and fail when no initiator boundary is active.\n * Use this for private helpers contractually below a driver, or for a\n * deployment-owned outbound request whose contract forbids agentless calls.\n * Generic or direct-call seams use optional lookup or explicit request fields.\n * @returns the inherited Agent.\n * @throws when no initiator is active or this service instance has been disposed.\n */',
+        jsDoc: '/**\n * Read the initiating Agent and fail when no initiator boundary is active.\n * Use this for private helpers contractually below a driver, or for a\n * deployment-owned outbound request whose contract forbids agentless calls.\n * Generic or direct-call paths use optional lookup or explicit request fields.\n * @returns the inherited Agent.\n * @throws when no initiator is active or this service instance has been disposed.\n */',
       },
       {
         signature: 'withInitiator<T>(agent: Agent, operation: () => T): T',
@@ -246,7 +260,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     methods: [
       {
         signature: 'abstract run(request: CodeRunRequest): Promise<CodeRunResult>',
-        jsDoc: '/**\n * Execute one program against the request\'s bindings and capture what it\n * emitted. See the class doc for the resolution contract (error is a result\n * field; rejection means seam misuse only).\n * @param request - the program, its bindings, and the abort signal; the\n *   request carries everything the runtime acts on, with no hidden defaults.\n * @returns the run\'s outcome: completion value (when transferable), the\n *   ordered log capture, and the failure (if any).\n */',
+        jsDoc: '/**\n * Execute one program against the request\'s bindings and capture what it\n * emitted. See the class doc for the resolution contract (error is a result\n * field; rejection means Service Definition contract misuse only).\n * @param request - the program, its bindings, and the abort signal; the\n *   request carries everything the runtime acts on, with no hidden defaults.\n * @returns the run\'s outcome: completion value (when transferable), the\n *   ordered log capture, and the failure (if any).\n */',
       },
     ],
   },
@@ -374,11 +388,11 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'abstract writeText( target: FsTarget, content: string, expected?: FsWriteIntent, signal?: AbortSignal, sandboxPolicy?: SandboxExecutionPolicy, ): Promise<FsWriteOutcome>',
-        jsDoc: '/**\n * Atomically create or replace UTF-8 text. `expected` guards intent and\n * staleness; omission allows unconditional overwrite.\n * @param target - the resolved target to write.\n * @param content - the full new file content.\n * @param expected - the write intent guarding the write; omit for unconditional.\n * @param signal - aborts before the atomic rename takes effect.\n * @param sandboxPolicy - the per-call mode and workspace root this write\n *   runs under; a sandboxing backend fences the write by it, the bare backend\n *   ignores it. Omit to leave the backend its own default.\n * @returns the outcome, including the version the write produced.\n */',
+        jsDoc: '/**\n * Atomically create or replace UTF-8 text. `expected` guards intent and\n * staleness; omission allows unconditional overwrite.\n * @param target - the resolved target to write.\n * @param content - the full new file content.\n * @param expected - the write intent guarding the write; omit for unconditional.\n * @param signal - aborts before atomic publication takes effect.\n * @param sandboxPolicy - the per-call mode and workspace root this write\n *   runs under; a sandboxing backend fences the write by it, the bare backend\n *   ignores it. Omit to leave the backend its own default.\n * @returns the outcome, including the version the write produced.\n */',
       },
       {
         signature: 'abstract editText( target: FsTarget, edit: FsEditRequest, expected?: { version: FsVersion }, signal?: AbortSignal, sandboxPolicy?: SandboxExecutionPolicy, ): Promise<FsEditOutcome>',
-        jsDoc: '/**\n * Atomically edit literal text. When supplied, the version guard is checked\n * before matching so stale content reports `FS_STALE_VERSION`; omission edits\n * the current content without a freshness precondition.\n * @param target - the resolved target to edit.\n * @param edit - the literal search/replace request.\n * @param expected - the version guard; omit for an unconditional edit.\n * @param signal - aborts before the atomic rename takes effect.\n * @param sandboxPolicy - the per-call mode and workspace root this edit runs\n *   under; a sandboxing backend fences the edit by it, the bare backend\n *   ignores it. Omit to leave the backend its own default.\n * @returns the outcome, including the version the edit produced.\n */',
+        jsDoc: '/**\n * Atomically edit literal text. When supplied, the version guard is checked\n * before matching so stale content reports `FS_STALE_VERSION`; omission edits\n * the current content without a freshness precondition.\n * @param target - the resolved target to edit.\n * @param edit - the literal search/replace request.\n * @param expected - the version guard; omit for an unconditional edit.\n * @param signal - aborts before atomic publication takes effect.\n * @param sandboxPolicy - the per-call mode and workspace root this edit runs\n *   under; a sandboxing backend fences the edit by it, the bare backend\n *   ignores it. Omit to leave the backend its own default.\n * @returns the outcome, including the version the edit produced.\n */',
       },
     ],
   },
@@ -772,7 +786,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'async traceEvent(request: SessionEventTraceRequest, signal?: AbortSignal): Promise<SessionEventTraceObservation>',
-        jsDoc: '/**\n * Trace one event\'s direct positional and provenance relationships.\n * @param request - target session id and event seq.\n * @param signal - optional cancellation for persisted source resolution.\n * @returns source header, direct links, and the target\'s positional replacement chain.\n * @throws when source resolution fails, the target is absent, or surface/provenance validation fails.\n */',
+        jsDoc: '/**\n * Trace one event\'s direct positional replacements and cited source events.\n * @param request - target session id and event seq.\n * @param signal - optional cancellation for persisted source resolution.\n * @returns source header, direct links, and the target\'s positional replacement chain.\n * @throws when source resolution fails, the target is absent, or surface/source-event validation fails.\n */',
       },
       {
         signature: 'async readEvent(request: SessionEventReadRequest, signal?: AbortSignal): Promise<SessionEventWindow>',
@@ -808,7 +822,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'enter(session: Session): () => void',
-        jsDoc: '/**\n * Enter a {@link prepare}d session into the store: install the module-private\n * append publication hooks and add it to the store. Returns the DETACH\n * disposer (hooks + store removal). Does NOT emit `session/created` —\n * the caller yields this disposer inside its effect and THEN calls\n * {@link announce}, so a throwing `session/created` listener rolls the attach\n * back instead of leaking it.\n *\n * Re-checks the id for a duplicate: `prepare` and `enter` are public\n * cross-package primitives and a caller may interleave arbitrary work (or\n * another create) between them, so a stale prepared session must NOT overwrite\n * a live store entry of the same id — its detach disposer would later delete\n * the REAL session. The {@link create} convenience and the agent factory call\n * the two back-to-back so they never trip this, but the public seam cannot\n * assume that.\n *\n * @param session - a {@link prepare}d session not yet in the store.\n * @returns the detach disposer (publication hooks + store removal). When called from\n *   a synchronous `session/created` listener, removal and disposal wait until\n *   that creation dispatch unwinds.\n * @throws if a session with this id is already in the store.\n */',
+        jsDoc: '/**\n * Enter a {@link prepare}d session into the store: install the module-private\n * append publication hooks and add it to the store. Returns the DETACH\n * disposer (hooks + store removal). Does NOT emit `session/created` —\n * the caller yields this disposer inside its effect and THEN calls\n * {@link announce}, so a throwing `session/created` listener rolls the attach\n * back instead of leaking it.\n *\n * Re-checks the id for a duplicate: `prepare` and `enter` are public\n * cross-package primitives and a caller may interleave arbitrary work (or\n * another create) between them, so a stale prepared session must NOT overwrite\n * a live store entry of the same id — its detach disposer would later delete\n * the REAL session. The {@link create} convenience and the agent factory call\n * the two back-to-back so they never trip this, but the public API cannot\n * assume that.\n *\n * @param session - a {@link prepare}d session not yet in the store.\n * @returns the detach disposer (publication hooks + store removal). When called from\n *   a synchronous `session/created` listener, removal and disposal wait until\n *   that creation dispatch unwinds.\n * @throws if a session with this id is already in the store.\n */',
       },
       {
         signature: 'announce(session: Session): void',
@@ -920,7 +934,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     methods: [
       {
         signature: 'abstract saveText(input: SaveTextSpill): Promise<SpillRef>',
-        jsDoc: '/**\n * Persist `input.content` to a session-scoped spill artifact.\n * @param input - the owner, provenance, suggested name, and full text to save.\n * @returns the saved artifact\'s {@link SpillRef}; rejects on a storage failure.\n */',
+        jsDoc: '/**\n * Persist `input.content` to a session-scoped spill artifact.\n * @param input - the owner, caller-supplied source fields, suggested name, and full text to save.\n * @returns the saved artifact\'s {@link SpillRef}; rejects on a storage failure.\n */',
       },
     ],
   },
@@ -966,7 +980,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'async followup( parent: Agent, childId: SessionId, content: ContentBlock[], options: SubagentFollowupOptions, ): Promise<MessageId>',
-        jsDoc: '/**\n * Deliver one later message to a continuable child as its next FIFO turn. A\n * resident child\'s Agent inbox accepts it directly (waking a `waiting`\n * Activation), while an absent one is cold-resumed from its persisted\n * Session. The Agent inbox is the only queue, so every accepted message has\n * one observable order.\n * @param parent - the exact live direct parent authorizing this delivery.\n * @param childId - durable child session id.\n * @param content - user-role content to deliver.\n * @param options - durable provenance and caller cancellation, which stops the\n *   operation only before inbox acceptance.\n * @returns the accepted message\'s inbox id.\n * @throws when continuation services are unavailable, parent authority is\n *   rejected, or the message was not admitted.\n */',
+        jsDoc: '/**\n * Deliver one later message to a continuable child as its next FIFO turn. A\n * resident child\'s Agent inbox accepts it directly (waking a `waiting`\n * Activation), while an absent one is cold-resumed from its persisted\n * Session. The Agent inbox is the only queue, so every accepted message has\n * one observable order.\n * @param parent - the exact live direct parent authorizing this delivery.\n * @param childId - durable child session id.\n * @param content - user-role content to deliver.\n * @param options - the message source fields and caller cancellation, which stops the\n *   operation only before inbox acceptance.\n * @returns the accepted message\'s inbox id.\n * @throws when continuation services are unavailable, parent authority is\n *   rejected, or the message was not admitted.\n */',
       },
       {
         signature: 'interrupt(targetSessionId: SessionId, authority: SubagentInterruptAuthority): void',
@@ -986,7 +1000,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'listChildren(parentSessionId: SessionId, signal?: AbortSignal): Promise<SubagentListEntry[]>',
-        jsDoc: '/**\n * Enumerate the parent\'s direct session-backed subagents without loading or\n * resuming an Agent and without any query seam: the listing merges the live\n * session store with optional session persistence (live-preferred) and\n * serves each child\'s durable mode/label from the registered `subagent`\n * projection unit down a three-rung ladder — the registry\'s watermark\n * snapshot for a live child; for a cold one, a durable projection-cache\n * row when the optional cache serves an own-suffix identity (its `seq`\n * gate proves the value postdates the fork seed, where a child\'s own\n * descriptor is immutable once appended), else one persistence inspection\n * folded through the registry. The\n * projection fold is the single classification authority; per-child\n * diagnostics relay a fold that served no identity or a failed inspection,\n * never a list-time descriptor parse. Absent persistence, enumeration is\n * live-only (a cold child cannot be resumed then either, so its absence is\n * capability absence, not an error). This service consults no Agent\n * registrations, Activations, or providers.\n *\n * Every persistence read receives `signal`, and the listing rechecks\n * cancellation around each of those awaits. Read rejections that settle\n * after an abort become a stable `SubagentError` with code `CANCELLED`.\n * @param parentSessionId - parent session whose direct children are listed.\n * @param signal - caller-owned cancellation forwarded to persistence reads\n *   and observed around every read await.\n * @returns children and per-child diagnostics ordered by `createdAt`, then id.\n * @throws {@link SubagentError} when the projection registry or the session\n *   store is not mounted, or the caller cancels the listing.\n */',
+        jsDoc: '/**\n * Enumerate the parent\'s direct session-backed subagents without loading or\n * resuming an Agent and without any query service: the listing merges the live\n * session store with optional session persistence (live-preferred) and\n * serves each child\'s durable mode/label from the registered `subagent`\n * projection unit down a three-rung ladder — the registry\'s watermark\n * snapshot for a live child; for a cold one, a durable projection-cache\n * row when the optional cache serves an own-suffix identity (its `seq`\n * gate proves the value postdates the fork seed, where a child\'s own\n * descriptor is immutable once appended), else one persistence inspection\n * folded through the registry. The\n * projection fold is the single classification authority; per-child\n * diagnostics relay a fold that served no identity or a failed inspection,\n * never a list-time descriptor parse. Absent persistence, enumeration is\n * live-only (a cold child cannot be resumed then either, so its absence is\n * capability absence, not an error). This service consults no Agent\n * registrations, Activations, or providers.\n *\n * Every persistence read receives `signal`, and the listing rechecks\n * cancellation around each of those awaits. Read rejections that settle\n * after an abort become a stable `SubagentError` with code `CANCELLED`.\n * @param parentSessionId - parent session whose direct children are listed.\n * @param signal - caller-owned cancellation forwarded to persistence reads\n *   and observed around every read await.\n * @returns children and per-child diagnostics ordered by `createdAt`, then id.\n * @throws {@link SubagentError} when the projection registry or the session\n *   store is not mounted, or the caller cancels the listing.\n */',
       },
       {
         signature: 'listDescendants(rootSessionId: SessionId, signal?: AbortSignal): Promise<SubagentDescendantListEntry[]>',
@@ -1098,7 +1112,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     methods: [
       {
         signature: 'abstract emit(record: TelemetryRecord): void',
-        jsDoc: '/**\n * See {@link TelemetryBackend.emit} — the seam declaration is the contract\'s one home.\n * @param record - the logical record to report; owned by the backend after the call.\n */',
+        jsDoc: '/**\n * See {@link TelemetryBackend.emit} — that declaration is the contract\'s one home.\n * @param record - the logical record to report; owned by the backend after the call.\n */',
       },
       {
         signature: 'flush?(): void',
@@ -1138,7 +1152,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'pruneSession(session: Session): PruneResult',
-        jsDoc: '/**\n * Prune every over-budget tool result from one stable current-surface snapshot.\n * Each replacement preserves the complete event data except for `content`,\n * points at the shadowed node for durable provenance and replay, and is\n * immediately preceded by a `compact/prune` shadow-price event pricing the\n * shadowed node through the injected token meter, so pure consumers can\n * subtract it without per-node state.\n * @param session - session whose current surface is rewritten.\n * @returns landed replacements and aggregate Unicode-code-point savings.\n * @throws when the session rejects a replacement; replacements committed\n * earlier in the pass remain durable.\n */',
+        jsDoc: '/**\n * Prune every over-budget tool result from one stable current-surface snapshot.\n * Each replacement preserves the complete event data except for `content`,\n * cites the shadowed node so replay can recover the replacement input, and is\n * immediately preceded by a `compact/prune` shadow-price event pricing the\n * shadowed node through the injected token meter, so pure consumers can\n * subtract it without per-node state.\n * @param session - session whose current surface is rewritten.\n * @returns landed replacements and aggregate Unicode-code-point savings.\n * @throws when the session rejects a replacement; replacements committed\n * earlier in the pass remain durable.\n */',
       },
     ],
   },
@@ -1258,7 +1272,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   },
   {
     key: 'workflows',
-    summary: 'Workflow execution seam.',
+    summary: 'Workflow Service Definition contract.',
     methods: [
       {
         signature: 'abstract start(request: WorkflowStartRequest): WorkflowRun',
@@ -1311,7 +1325,7 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'agent/created',
     mode: 'emit',
     signature: '\'agent/created\'(this: Scoped<Agent>, payload: { agent: Agent }): void',
-    jsDoc: '/**\n * A fully configured agent and live session were published. Setup is\n * composition-only; `agent/session-start` is the first startup-driving seam.\n * Synchronous listener failure vetoes publication, while returned-promise\n * rejection is reported. Detach requested during dispatch waits until every\n * creation listener has observed the stable entry.\n * @param payload.agent - the newly registered agent with its live session and completed setup.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
+    jsDoc: '/**\n * A fully configured agent and live session were published. Setup is\n * composition-only; `agent/session-start` is the first startup-driving extension point.\n * Synchronous listener failure vetoes publication, while returned-promise\n * rejection is reported. Detach requested during dispatch waits until every\n * creation listener has observed the stable entry.\n * @param payload.agent - the newly registered agent with its live session and completed setup.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
     summary: 'A fully configured agent and live session were published.',
   },
   {
@@ -1360,7 +1374,7 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'agent/request',
     mode: 'waterfall',
     signature: '\'agent/request\'(this: Scoped<Agent>, payload: { agent: Agent; turn: number; step: number; signal: AbortSignal }, next: () => Promise<LlmCallConfig>): Promise<LlmCallConfig>',
-    jsDoc: '/**\n * Replace the frozen call configuration. `await next()` yields the config\n * the machine would use (agent options on the first request, the logged\n * header afterwards); return a replacement to switch. Model-visible\n * content must use logged channels; this seam cannot mutate messages.\n * @param payload.agent - the agent making the model call.\n * @param payload.turn - the open turn number.\n * @param payload.step - the step whose request this is.\n * @param payload.signal - the current turn\'s explicit abort signal.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode waterfall\n*/',
+    jsDoc: '/**\n * Replace the frozen call configuration. `await next()` yields the config\n * the machine would use (agent options on the first request, the logged\n * header afterwards); return a replacement to switch. Model-visible\n * content must use logged channels; this waterfall cannot mutate messages.\n * @param payload.agent - the agent making the model call.\n * @param payload.turn - the open turn number.\n * @param payload.step - the step whose request this is.\n * @param payload.signal - the current turn\'s explicit abort signal.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode waterfall\n*/',
     summary: 'Replace the frozen call configuration.',
   },
   {
@@ -1429,9 +1443,9 @@ export const EVENT_API: readonly EventApiEntry[] = [
   {
     name: 'fs/observed',
     mode: 'emit',
-    signature: '\'fs/observed\'(target: FsTarget, version: FsVersion, actor: object | undefined): void',
-    jsDoc: '/**\n * Record a successful observation. Listeners must be synchronous recorders:\n * throws fail the tool call and returned promises are not awaited.\n * @param target - the target that was read/written/edited.\n * @param version - the version the actor now holds as its observation.\n * @param actor - the observing tool-execution context; undefined records nothing useful.\n * @mode emit\n */',
-    summary: 'Record a successful observation.',
+    signature: '\'fs/observed\'(target: FsTarget, observation: FsObservation, actor: object | undefined): void',
+    jsDoc: '/**\n * Record an authoritative positive or negative observation. Listeners must\n * be synchronous recorders: throws fail the tool call and returned promises\n * are not awaited.\n * @param target - the target whose presence or absence was observed.\n * @param observation - present with its version, or confirmed absent.\n * @param actor - the observing tool-execution context; undefined records nothing useful.\n * @mode emit\n */',
+    summary: 'Record an authoritative positive or negative observation.',
   },
   {
     name: 'fs/write-intent',
@@ -1556,7 +1570,7 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'telemetry/record',
     mode: 'waterfall',
     signature: '\'telemetry/record\'(record: TelemetryRecord, next: () => TelemetryRecord): TelemetryRecord',
-    jsDoc: '/**\n * Transform one outbound record before it reaches the backend. This\n * waterfall is the seam\'s redaction extension point. It ships NO rules\n * of its own: the\n * innermost `next()` passes the record through unchanged, and with no\n * listener mounted records reach the backend as captured, so exported\n * data is exactly as clean as the rules a deployment mounts. Listeners\n * stack by transforming `next()`\'s return value; returning without\n * `next()` replaces everything beneath. Dispatched synchronously on the\n * capture hot path inside the coordinator\'s containment: a throwing\n * listener withholds that one record (fail-closed) and never reaches the\n * agent loop. Live capture dispatches at append time; on-demand capture\n * dispatches while reading the canonical log. Redaction applies to the\n * exported copy only; the canonical session log is never rewritten.\n * @param record - the candidate record, already the coordinator\'s own deep\n *   copy; listeners return a (possibly new) record and must not mutate it.\n * @mode waterfall\n */',
+    jsDoc: '/**\n * Transform one outbound record before it reaches the backend. This\n * waterfall is the Service Definition\'s redaction extension point. It ships NO rules\n * of its own: the\n * innermost `next()` passes the record through unchanged, and with no\n * listener mounted records reach the backend as captured, so exported\n * data is exactly as clean as the rules a deployment mounts. Listeners\n * stack by transforming `next()`\'s return value; returning without\n * `next()` replaces everything beneath. Dispatched synchronously on the\n * capture hot path inside the coordinator\'s containment: a throwing\n * listener withholds that one record (fail-closed) and never reaches the\n * agent loop. Live capture dispatches at append time; on-demand capture\n * dispatches while reading the canonical log. Redaction applies to the\n * exported copy only; the canonical session log is never rewritten.\n * @param record - the candidate record, already the coordinator\'s own deep\n *   copy; listeners return a (possibly new) record and must not mutate it.\n * @mode waterfall\n */',
     summary: 'Transform one outbound record before it reaches the backend.',
   },
   {
@@ -1584,7 +1598,7 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'tools/post-execute',
     mode: 'waterfall',
     signature: '\'tools/post-execute\'(this: Scoped<ToolRegistry>, exec: ToolExecution, result: Readonly<ToolExecutionResult>, next: () => Promise<PostToolDecision>): Promise<PostToolDecision>',
-    jsDoc: '/**\n * Accept, replace, enrich, or block a normalized dispatch result. `next()`\n * accepts it unchanged; thrown tools still reach this seam as errors. Async\n * listeners must observe `exec.signal`; after they settle, caller\n * cancellation replaces only a successful accepted outcome with the code\n * selected by whether the tool body was invoked.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent\'s calls.\n * @param exec - the call that just ran (name, parsed arguments, caller agent).\n * @param result - the dispatch outcome a listener may accept, replace, or block.\n * @mode waterfall\n */',
+    jsDoc: '/**\n * Accept, replace, enrich, or block a normalized dispatch result. `next()`\n * accepts it unchanged; thrown tools still reach this waterfall as errors. Async\n * listeners must observe `exec.signal`; after they settle, caller\n * cancellation replaces only a successful accepted outcome with the code\n * selected by whether the tool body was invoked.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent\'s calls.\n * @param exec - the call that just ran (name, parsed arguments, caller agent).\n * @param result - the dispatch outcome a listener may accept, replace, or block.\n * @mode waterfall\n */',
     summary: 'Accept, replace, enrich, or block a normalized dispatch result.',
   },
   {
@@ -2254,6 +2268,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ModelMessageSource',
     declaration: 'export interface ModelMessageSource extends AssistantProvenance {\n    kind: \'model\';\n}',
+  },
+  {
+    name: 'ModelSelection',
+    declaration: 'export interface ModelSelection {\n    provider: string;\n    model: string;\n    reasoningEffort?: ReasoningEffortId;\n}',
   },
   {
     name: 'ObjectJsonSchema',
@@ -3332,7 +3350,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
 /** The inherited `ctx` surface (cordis core + loader/hmr/timer), in curated order. */
 export const INHERITED_CTX_API: readonly InheritedApiEntry[] = [
   { name: 'ctx.on / ctx.once', summary: 'Register an event listener (disposable).' },
-  { name: 'ctx.emit / ctx.parallel / ctx.serial / ctx.bail / ctx.waterfall', summary: 'Dispatch an event (sync / awaited / first-bail / veto-chain).' },
+  { name: 'ctx.emit / ctx.parallel / ctx.serial / ctx.bail / ctx.waterfall', summary: 'Dispatch an event (sync / awaited / first-bail / short-circuit chain).' },
   { name: 'ctx.plugin / ctx.inject', summary: 'Load a plugin / declare required services.' },
   { name: 'ctx.effect', summary: 'Register a disposable side effect tied to the fiber.' },
   { name: 'ctx.get / ctx.set / ctx.provide / ctx.accessor / ctx.mixin', summary: 'Low-level service-store access and binding.' },

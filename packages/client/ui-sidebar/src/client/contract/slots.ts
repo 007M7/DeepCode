@@ -32,7 +32,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 
 /**
  * Owner share of the browser hole — the only facts crossing the shell/region
- * seam. Business data and actions arrive through the region's own inject.
+ * boundary. Business data and actions arrive through the region's own inject.
  */
 export interface SidebarSectionOwnerProps {
   /** Shell fold-state output: wide renders the full browser, rail the icon column. */

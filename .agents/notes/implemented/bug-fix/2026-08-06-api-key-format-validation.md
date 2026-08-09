@@ -42,9 +42,9 @@ The rule applies to a value that was *provided*; deciding whether one was provid
 
 ### Where the rule lives
 
-`normalizeApiKey` is a module of the `dsh-llm` seam, beside [attribution.ts](../../../../packages/llm/llm/src/attribution.ts), which already owns shared header concerns. Both adapters depend on the seam and both need the rule, so it has two current consumers rather than a speculative one. It returns the trimmed value or a reason (`empty`, `illegalCharacters`).
+`normalizeApiKey` is a module of the `dsh-llm` Service Definition, beside [attribution.ts](../../../../packages/llm/llm/src/attribution.ts), which already owns shared header concerns. Both adapters depend on the seam and both need the rule, so it has two current consumers rather than a speculative one. It returns the trimmed value or a reason (`empty`, `illegalCharacters`).
 
-Both adapters also need the identical "refuse a stored credential" diagnosis, differing only by package prefix. `LlmError` is declared in the seam's `index.ts`, so `assertUsableApiKey(raw, pkg, ref)` lives there beside it and neither adapter carries a local copy. The predicate module stays dependency-free: importing `LlmError` into `api-key.ts` would cycle with `index.ts`'s re-export of it.
+Both adapters also need the identical "refuse a stored credential" diagnosis, differing only by package prefix. `LlmError` is declared in the Service Definition's `index.ts`, so `assertUsableApiKey(raw, pkg, ref)` lives there beside it and neither adapter carries a local copy. The predicate module stays dependency-free: importing `LlmError` into `api-key.ts` would cycle with `index.ts`'s re-export of it.
 
 The client cannot import any of this: client packages reference only client packages, so `packages/client/ui-models` mirrors the predicate in its own `apiKey.ts` and owns the localized messages, exactly as `validateDeepSeekModels` mirrors the host's `catalogModel` schema. Each side names the other in a comment.
 
@@ -66,7 +66,7 @@ The client cannot import any of this: client packages reference only client pack
 
 **A validation module shared by client and host.** Rejected by the source-plane layout: client packages reference only client packages plus `vendor/cordis` and `support/invariants`, and widening that to reach a host package would collide the two `Context` merges the split exists to keep apart. Mirroring a one-line predicate with a test on each side is the established shape here.
 
-**A per-adapter thrower in each of `llm-deepseek` and `llm-pi-ai`.** The first plan gave each adapter its own, differing only by the package prefix in the message, with a duplication-gate exemption to excuse the pair. Rejected before implementation: `LlmError` is declared in the seam, so the seam can own the diagnosis outright, and an exemption there would have hidden exactly the duplication it was covering for.
+**A per-adapter thrower in each of `llm-deepseek` and `llm-pi-ai`.** The first plan gave each adapter its own, differing only by the package prefix in the message, with a duplication-gate exemption to excuse the pair. Rejected before implementation: `LlmError` is declared in the Service Definition, so that package can own the diagnosis outright, and an exemption there would have hidden exactly the duplication it was covering for.
 
 **Sniffing the `TypeError` in the adapter's `catch`.** This would classify the ByteString failure after the fact, leaving the header construction itself unguarded. It depends on the wording of a Node error message, so it degrades silently across runtime versions, and it cannot help `llm-pi-ai`, whose request header is built inside the pi-ai SDK. Refusing the key before handing it over works for both adapters and for the discovery probe.
 

@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-SQLite 持久会话存储后端：第二个 `SessionPersistence` 实现（见[会话持久化](../../../.agents/notes/implemented/architecture/2026-06-14-session-persistence.md)），用于验证抽象 seam 和共享 `runPersistenceContract` 套件真正与后端无关。它满足与 `dsh-session-persistence-jsonl` 相同的约定（仅追加、连续 seq、延迟实体化、在 load 时关闭中断轮次），但用 `node:sqlite` 行而非文件字节表达。
+SQLite 持久会话存储后端：第二个 `SessionPersistence` 提供方（见[会话持久化](../../../.agents/notes/implemented/architecture/2026-06-14-session-persistence.md)），用于验证 Service Definition 和共享 `runPersistenceContract` 套件真正与后端无关。它满足与 `dsh-session-persistence-jsonl` 相同的约定（仅追加、连续 seq、延迟实体化、在 load 时关闭中断轮次），但用 `node:sqlite` 行而非文件字节表达。
 
 `locate(meta)` 返回 `undefined`：所有会话共享一个数据库，因此不存在真实、独立的逐会话 transcript（文本记录）路径。
 
@@ -22,7 +22,7 @@ SQLite 持久会话存储后端：第二个 `SessionPersistence` 实现（见[�
 - **延迟实体化。**`create()` 只在内存记录意图，第一次 `append` 前不写行。从未 append 的会话没有 `sessions` 行，因此不在 `list()` 中（它精确报告有行的会话）。
 - **在 load 时关闭中断轮次。**`load()` 实现共享[崩溃恢复约定](../../../.agents/notes/implemented/architecture/2026-06-14-session-persistence.md)：保留有效中断轮次，在一个事务中追加合成关闭事件，并只移除撕裂尾部行。已提交解析错误或序列缺口使会话无法加载。恢复会变更已存储行，因此下一次 append 从平衡日志和准确游标开始。
 - **非变更检查。**`inspect()` 返回不可变、平衡的逻辑视图，并可在内存中合成恢复 closer，但不会删除撕裂尾部行、追加恢复行或更改轻量修订。
-- **轻量修订。**`listSnapshots(signal?)` 组合不可变存储与数据库文件身份、每实体化 incarnation id，以及在每个变更事务中递增的每会话计数器。完整前缀读取在同一个读事务中捕获该修订及其事件行，`readStoredRevision()` 则只查询会话行来校验保留的准备结果。它在不解析事件行的情况下保持未变观察稳定，并区分独立存储和重建的同 id 日志。它在共享就绪和同步元数据查询前后检查取消；查询本身不可抢占。
+- **轻量修订。**`listSnapshots(signal?)` 组合不可变存储与数据库文件身份、每实体化 incarnation id，以及在每个变更事务中递增的每会话计数器。完整前缀读取在同一个读事务中捕获该 revision 及其事件行，`readStoredRevision()` 则只查询 session 行来校验保留的 preparation。它在不解析事件行的情况下保持未变观察稳定，并区分独立存储和重建的同 id 日志。它在共享就绪和同步元数据查询前后检查取消；查询本身不可抢占。
 
 ## 配置（schemastery）
 
@@ -37,7 +37,7 @@ interface Config {
 
 ## 写入路径
 
-与 JSONL 后端一样，插件将每个冻结的 `session/event` 复制到每个活动会话各自的 controller。第一个待处理事件会开启配置的固定批处理窗口，后续事件会加入但不会重置截止时间。窗口到期后会启动一个事务；该次写入期间接纳的事件会形成另一个独立有界的后续批次。`session/flush` 会取消等待并排空当前与待处理批次。Controller 会持久化一次 fork 种子，并保留写入游标，使恢复操作绝不重新 append 已存储事件；它还会在 apply 时为活动会话设置初始状态，因为 HMR（热模块替换）不回放 `session/created`。dispose（资源释放）会在关闭数据库前排空每个保留的 controller。每个事件仍各占一行 SQLite 记录；批处理只把更多 INSERT 归入同一个事务和同一次修订递增。
+与 JSONL 后端一样，插件将每个冻结的 `session/event` 复制到每个活动会话各自的 controller。第一个待处理事件会开启配置的固定批处理窗口，后续事件会加入但不会重置截止时间。窗口到期后会启动一个事务；该次写入期间接纳的事件会形成另一个独立有界的后续批次。`session/flush` 会取消等待并排空当前与待处理批次。Controller 会持久化一次 fork 种子，并保留写入游标，使恢复操作绝不重新 append 已存储事件；它还会在 apply 时为活动会话设置初始状态，因为 HMR（热模块替换）不回放 `session/created`。dispose（资源释放）会在关闭数据库前排空每个保留的 controller。每个事件仍各占一行 SQLite 记录；批处理只把更多 INSERT 归入同一个事务和同一次修订版本递增。
 
 ## 模型体验
 

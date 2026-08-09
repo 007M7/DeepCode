@@ -5,7 +5,7 @@ import { TaskId, TaskService } from '@deepseek-ai/dsh-tasks'
 import type { TaskDoneListener, TaskRead, TaskSnapshot, TaskStart } from '@deepseek-ai/dsh-tasks'
 
 /**
- * Minimal concrete registry: one canned record. The seam owns the contract
+ * Minimal concrete registry: one canned record. The Service Definition owns the contract
  * only (ids, snapshots, authorization-shaped signatures); the registry
  * behavior suite lives with `@deepseek-ai/dsh-tasks-local`.
  */

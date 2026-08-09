@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-Behavioral guard plugins watch the agent loop for unproductive patterns and enforce per-call budgets. A guard is a self-contained consumer of core seams, not a swappable capability.
+Behavioral guard plugins watch the agent loop for unproductive patterns and enforce per-call budgets. A guard is a self-contained consumer of core services and extension points, not a swappable capability.
 
 | Package | Role | ctx key |
 |---|---|---|

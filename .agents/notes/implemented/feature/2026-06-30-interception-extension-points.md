@@ -1,18 +1,18 @@
-# Agent Note: Interception seams — the typed-Decision surface a hook programs against
+# Agent Note: Interception extension points — the typed-Decision surface a hook programs against
 
 Status: implemented
 
-English | [中文](2026-06-30-interception-seams.zh.md)
+English | [中文](2026-06-30-interception-extension-points.zh.md)
 
 ## Problem
 
 The harness needs a hooks subsystem: users extend or gate the agent at lifecycle points the way Claude Code (CC) and Codex do. The key reframe driving this design is that **"native hooks" are not a package** — a native hook is just an ordinary Cordis plugin subscribing to the canonical lifecycle events. So the real product is a *powerful, well-typed canonical event surface*; the CC/Codex bridges (the `dsh-hooks-claude` / `dsh-hooks-codex` packages) are merely translators that map an external shell-hook protocol onto that same surface. Anything a bridge can do, a plain plugin can do directly — more powerfully (no serialization boundary, full `ctx`, typed returns).
 
-The surface needs distinct contracts for per-prompt policy (CC's `UserPromptSubmit`), session-start observation (CC's `SessionStart`), pre-tool policy, around-dispatch control, post-tool transformation, final-result observation, and continuation with a model-facing reason. Conflating those phases gives plugins mutation channels they do not need and makes finality depend on listener ordering. The [event-domain-semantics Agent Note](../architecture/2026-06-30-event-domain-semantics.md) supplies the three-domain rule and the typed-Decision idiom; this Agent Note applies them to the lifecycle seams.
+The surface needs distinct contracts for per-prompt policy (CC's `UserPromptSubmit`), session-start observation (CC's `SessionStart`), pre-tool policy, around-dispatch control, post-tool transformation, final-result observation, and continuation with a model-facing reason. Conflating those phases gives plugins mutation channels they do not need and makes finality depend on listener ordering. The [event-domain-semantics Agent Note](../architecture/2026-06-30-event-domain-semantics.md) supplies the three-domain rule and the typed-Decision idiom; this Agent Note applies them to the lifecycle extension points.
 
 ## Decision
 
-The canonical surface separates transformable policy, around-dispatch control, and observe-only notification. Policy waterfalls return small seam-specific **typed Decision unions**; wrappers return normalized results; notifications receive immutable snapshots and cannot affect the outcome. The set covers the hook points in scope (`session-start`, `prompt-submit`, `pre-tool`, `post-tool`, `stop`-via-continuation) while leaving non-hook execution policy independently composable.
+The canonical surface separates transformable policy, around-dispatch control, and observe-only notification. Policy waterfalls return small extension-point-specific **typed Decision unions**; wrappers return normalized results; notifications receive immutable snapshots and cannot affect the outcome. The set covers the hook points in scope (`session-start`, `prompt-submit`, `pre-tool`, `post-tool`, `stop`-via-continuation) while leaving non-hook execution policy independently composable.
 
 **Agent events** (`dsh-agent`):
 - `agent/session-start({ agent, source })` — emit, once before turn 1, carrying a `SessionStartSource` (`startup` for a fresh/forked create, `resume` for a reloaded persisted session; `clear`/`compact` reserved). A pure notification — it CANNOT block startup (a deliberate gap: a bridge logs/injects, it does not gate startup). A listener seeds context via `agent.inject()`.
@@ -47,12 +47,12 @@ Core dispatch and the tool body sit inside normalization boundaries, so tool, li
 
 ### Boundaries
 
-The seam package does **not** declare `hook/*` session events (the durable hook-invocation log); those belong to `dsh-hook-protocol`, because a native plugin uses typed decisions without an external hook log. The native-plugin integration test (`packages/core/agent-loop/tests/interception.spec.ts`) composes the seams through the real loop with no `hook/*` protocol. Compaction (`PreCompact`/`PostCompact`), Notification, and Codex `PermissionRequest` remain outside this decision. The [approval seam](2026-07-06-approval-seam.md) resolves `ask` decisions through `ctx.approval`; terminal monotonic stopping is expressed by tool-result data, while `agent/turn-stopping` is the last chance to steer another step.
+The Service Definition package does **not** declare `hook/*` session events (the durable hook-invocation log); those belong to `dsh-hook-protocol`, because a native plugin uses typed decisions without an external hook log. The native-plugin integration test (`packages/core/agent-loop/tests/interception.spec.ts`) composes the extension points through the real loop with no `hook/*` protocol. Compaction (`PreCompact`/`PostCompact`), Notification, and Codex `PermissionRequest` remain outside this decision. The [approval seam](2026-07-06-approval-seam.md) resolves `ask` decisions through `ctx.approval`; terminal monotonic stopping is expressed by tool-result data, while `agent/turn-stopping` is the last chance to steer another step.
 
 ## Alternatives considered
 
-- **Shipping pre-tool INPUT rewrite as part of this seam set** — deferred as the over-reach signal; the section above carries the consistency problem (audit, history, and presentation all read `tool/call.arguments` logged before execution), and [the pre-tool input-rewrite proposal](../../proposed/feature/2026-06-30-pre-tool-input-rewrite.md) owns the design.
-- **Declaring the durable `hook/*` SessionEvents alongside the seams** — rejected: a native plugin uses the typed Decisions with no hook log at all (the worked example proves it), so the durable log belongs to [the hook-protocol library](2026-06-30-hook-protocol-lib.md), not the seam surface.
+- **Shipping pre-tool INPUT rewrite as part of this extension-point set** — deferred as the over-reach signal; the section above carries the consistency problem (audit, history, and presentation all read `tool/call.arguments` logged before execution), and [the pre-tool input-rewrite proposal](../../proposed/feature/2026-06-30-pre-tool-input-rewrite.md) owns the design.
+- **Declaring the durable `hook/*` SessionEvents alongside the extension points** — rejected: a native plugin uses the typed Decisions with no hook log at all (the worked example proves it), so the durable log belongs to [the hook-protocol library](2026-06-30-hook-protocol-lib.md), not the extension surface.
 
 ## Consequences
 

@@ -19,7 +19,7 @@
 
 ## 职责
 
-此包是用户交互 seam 的消费方。它不渲染 UI，也不了解输入的收集方式；它只将模型参数转换为 `AskUserQuestionRequest`，并把用户回答返回给 agent loop（智能体循环）。
+此包是用户交互 seam 的 Consumer 包。它不渲染 UI，也不了解输入的收集方式；它只将模型参数转换为 `AskUserQuestionRequest`，并把用户回答返回给 agent loop（智能体循环）。
 
 ## 模型体验
 

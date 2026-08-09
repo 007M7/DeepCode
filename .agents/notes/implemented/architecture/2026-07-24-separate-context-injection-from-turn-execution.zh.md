@@ -12,7 +12,7 @@ agent API 曾用三种相互重叠的方式表示面向模型的补充输入：�
 
 空闲状态下的 `inject()` 还暴露了另一处语义错位。注入当时并不请求模型执行，但实现仅为了满足轮次封闭不变量并获得持久性检查点，就会打开并关闭一个零步骤的 `injection` 轮次。于是，当时的轮次有时表示「运行 agent loop」，有时却表示「不运行 agent，仅持久化上下文」。
 
-`HookContext` 的名字也描述了生产方，而非该值的职责。它可能来自原生插件、hook bridge、提示词准入或工具后处理；其稳定含义是带来源信息的额外模型上下文。
+`HookContext` 的名字也描述了生产方，而非该值的职责。它可能来自原生插件、hook bridge、提示词准入或工具后处理；其稳定含义是额外的模型可见上下文，并且 source 会指明生产方。
 
 ## 决策
 
@@ -22,7 +22,7 @@ agent API 曾用三种相互重叠的方式表示面向模型的补充输入：�
 
 返回 enter 的 pre-step 会为正在最终确定的请求返回完整的 `PreStepDecision.messages` 批次。工具扩展点仍可返回 `additionalContexts`，这些上下文只会在对应工具结果之后进入 next-step inbox。这些值是扩展点的输出，而不是从调用方 inbox 条目捕获的附件。
 
-每项额外上下文都是独立的 `UserMessage`，并由 `source` 记录来源。inbox 插入会立即持久化；后续准入会将同一个值记录为 `user/message`。不再有 `context/message`、prompt-prefix 放置方式、稳定请求分隔符或提示词封套。transcript 与 UI 消费方通过 `source` 区分直接用户消息和注入上下文。
+每项额外上下文都是独立的 `UserMessage`，其 `source` 会指明生产方，并携带生产方专用字段。inbox 插入会立即持久化；后续准入会将同一个值记录为 `user/message`。不再有 `context/message`、prompt-prefix 放置方式、稳定请求分隔符或提示词封套。transcript 与 UI 消费方通过 `source` 区分直接用户消息和注入上下文。
 
 ## 注入生命周期
 
@@ -36,7 +36,7 @@ loop 只会在轮次内从进入步骤的批次追加注入的 `user/message`。
 
 ## 扩展点与调用方语义
 
-enter 分支的 `PreStepDecision.messages` 是拟议步骤的完整批次。waterfall（瀑布式事件）监听器调用 `next()` 委托时，会保留下游消息，除非有意替换；新增消息遵循 waterfall 的自然返回顺序。工具结果的 `additionalContexts` 保留 FIFO 顺序及各自来源。
+enter 分支的 `PreStepDecision.messages` 是拟议步骤的完整批次。waterfall（瀑布式事件）监听器调用 `next()` 委托时，会保留下游消息，除非有意替换；新增消息遵循 waterfall 的自然返回顺序。工具结果的 `additionalContexts` 保留 FIFO 顺序及每条消息的 source。
 
 调用方主动注入与当前步骤上下文刻意采用不同的时序。`inject()` 会加入下一个可用 pre-step，无法保证正在最终确定的请求会消费它。必须影响该请求的监听器在 `PreStepDecision.messages` 中返回上下文；下游 reject 或失败时，该上下文不会落入日志。
 

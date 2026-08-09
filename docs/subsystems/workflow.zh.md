@@ -4,7 +4,7 @@
 
 工作流 seam 允许 agent（智能体）运行由模型编写的编排脚本，并由该脚本扇出 subagent。与 [subagent](subagent.md) 一样，它是**一项可选能力**，不属于 agent loop（智能体循环）主干，因此其词汇定义在此处而非 [core.md](core.md)。与 subagent 注册表不同，它采用 bash 形态：每个上下文只有一个引擎实现提供 `ctx.workflows`；没有命名提供方注册表（第二个引擎是插件替换，而非共存）。
 
-接口：[dsh-workflow](../../packages/workflow/workflow)（`ctx.workflows` + 下文词汇）。实现是 [dsh-workflow-workerthread](../../packages/workflow/workflow-workerthread)（一个 `node:worker_threads` 引擎——每个 run 一个 worker，脚本的 vm 上下文位于其中）；面向模型的消费方是 [dsh-tool-workflow](../../packages/workflow/tool-workflow)。提案与设计理由见 [dynamic-workflows Agent Note](../../.agents/notes/implemented/feature/2026-07-05-dynamic-workflows.md)。
+Service Definition：[dsh-workflow](../../packages/workflow/workflow)（`ctx.workflows` + 下文词汇）。Service provider 是 [dsh-workflow-workerthread](../../packages/workflow/workflow-workerthread)（一个 `node:worker_threads` 引擎——每个 run 一个 worker，脚本的 vm 上下文位于其中）；面向模型的 Consumer 是 [dsh-tool-workflow](../../packages/workflow/tool-workflow)。提案与设计理由见 [dynamic-workflows Agent Note](../../.agents/notes/implemented/feature/2026-07-05-dynamic-workflows.md)。
 
 源码：[`packages/workflow/workflow/src/types.ts`](../../packages/workflow/workflow/src/types.ts)
 
@@ -143,7 +143,7 @@ Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnp
 
 ### `ctx.workflows` — `WorkflowService` (abstract seam)
 
-Workflow execution seam. Invalid requests throw before publication; a live run is holder-owned, its result never rejects, cancellation and disposal are bounded, and disposal waits for child cleanup within that bound. Lifecycle listener failures are contained, and `workflow/end` fires exactly once as the result settles.
+Workflow Service Definition contract. Invalid requests throw before publication; a live run is holder-owned, its result never rejects, cancellation and disposal are bounded, and disposal waits for child cleanup within that bound. Lifecycle listener failures are contained, and `workflow/end` fires exactly once as the result settles.
 
 ```ts cordis-catalog
 /**

@@ -22,7 +22,7 @@ Status: implemented
 | `@deepseek-ai/dsh-spill-local` | 本地后端：在宿主文件系统中提供私有、会话作用域的文件存储。 |
 | `@deepseek-ai/dsh-spill-policy` | 工具结果策略插件：包装分发后的最终文本结果，并以保留预览和落盘定位符替换超大结果。 |
 
-系统不增加专用的面向模型消费方包。消费方是现有 `ctx.tools` 执行流水线：`dsh-spill-policy` 通过 `tools/post-execute` waterfall（瀑布式事件）使用最终工具结果，模型则按照后端随定位符返回的检索提示读取内容。
+系统不增加专用的面向模型 Consumer 包。Consumer 是现有 `ctx.tools` 执行流水线：`dsh-spill-policy` 通过 `tools/post-execute` waterfall（瀑布式事件）使用最终工具结果，模型则按照后端随定位符返回的检索提示读取内容。
 
 ### 落盘 seam
 

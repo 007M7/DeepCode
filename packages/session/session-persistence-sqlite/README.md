@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-A SQLite durable session-persistence backend — a second `SessionPersistence` implementation ([session persistence](../../../.agents/notes/implemented/architecture/2026-06-14-session-persistence.md)), built to validate that the abstract seam and the shared `runPersistenceContract` suite are genuinely backend-agnostic. It satisfies the SAME contract as `dsh-session-persistence-jsonl` (append-only, contiguous-seq, lazy materialization, interrupted-turn close on load), expressed over `node:sqlite` rows instead of file bytes.
+A SQLite durable session-persistence backend — a second `SessionPersistence` provider ([session persistence](../../../.agents/notes/implemented/architecture/2026-06-14-session-persistence.md)), built to validate that the Service Definition and the shared `runPersistenceContract` suite are genuinely backend-agnostic. It satisfies the SAME contract as `dsh-session-persistence-jsonl` (append-only, contiguous-seq, lazy materialization, interrupted-turn close on load), expressed over `node:sqlite` rows instead of file bytes.
 
 `locate(meta)` returns `undefined`: all sessions share one database, so there is no honest independent per-session transcript path.
 
