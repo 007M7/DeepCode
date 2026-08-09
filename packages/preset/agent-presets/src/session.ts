@@ -15,7 +15,7 @@
 
 import type { SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
 
-declare module '@deepseek-ai/dsh-session' {
+declare module '@deepseek-ai/dsh-session/types' {
   interface SessionEventMap {
     /**
      * The session's agent preset was chosen after creation, while the session
