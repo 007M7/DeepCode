@@ -12,7 +12,7 @@ Status: implemented
 
 一切都变成 **profile**：即目录 `$DSH_HOME/profiles/<name>`，其中包含一个 `package.json`（pnpm 管理的树外插件 `dependencies`，加上 profile manifest（元数据清单）`dsh.profile` 及其有序的 `bundles` 层列表）和一份用户 `cordis.patch.yml`。**组合包**（bundle）是声明了 `"dsh": { "bundle": { "patch": "./cordis.patch.yml" } }` 的 npm 包；两种 manifest 分别位于互不相同的 `dsh.profile` / `dsh.bundle` 键下，因此一份 package.json 能说明自己扮演哪种角色。配置树在空的根之上组合：按 `dsh.profile.bundles` 顺序应用每个组合包的 patch，然后是用户层，然后是 `--patch` overlay，最后是 flag patch——全部收敛为一次 `applyEntryPatches` 调用，启动、flag 派生与 `--dump-config` 使用完全相同的路径。
 
-随附的组合包是 `@deepseek-ai/dsh-base`（共享核心配置行）、`@deepseek-ai/dsh-web-app`（浏览器 Host 配置行与 Web 运行时粘合层）和 `@deepseek-ai/dsh-headless`（直接叠加在 base 上且不含 web-app 的一次性 runner）。`dsh web` 是携带 Web flag 家族的 `--profile web` 别名；`dsh run [--profile <name>] "task"` 负责一次性执行，默认使用 headless profile；通用的 `dsh --profile <name>` 启动 profile 而不携带任务。patch overlay 使用 `--patch`。`dsh plugin --profile <name> <args...>` 是一层薄薄的 pnpm 转发器，负责初始化 profile，并依据已安装包的组合包声明调和 `dsh.profile.bundles`；没有组合包声明的包保持为普通依赖。[Headless 作为直接 core 前门](2026-08-09-headless-direct-core-front-door.md)负责 headless 组合契约。
+随附的组合包是 `@deepseek-ai/dsh-base`（共享核心配置行）、`@deepseek-ai/dsh-web-app`（浏览器 Host 配置行与 Web 运行时粘合层）和 `@deepseek-ai/dsh-headless`（直接叠加在 base 上且不含 web-app 的一次性 runner）。`dsh web` 是携带 Web flag 家族的 `--profile web` 别名；`dsh run [--profile <name>] "task"` 负责一次性执行，默认使用 headless profile；通用的 `dsh --profile <name>` 启动 profile 而不携带任务。patch overlay 使用 `--patch`。`dsh plugin --profile <name> <args...>` 是一层薄薄的 pnpm 转发器，负责初始化 profile，并依据已安装包的组合包声明调和 `dsh.profile.bundles`；没有组合包声明的包保持为普通依赖。[Headless 作为直接 core 前门](2026-08-09-headless-direct-core-front-door.md)负责 headless 组合约定。
 
 [`dsh run` 命令决策](../feature/2026-08-08-dsh-run-headless-command.md)负责一次性语法；本 Agent Note 负责该语法所选择的 profile 组合。
 
