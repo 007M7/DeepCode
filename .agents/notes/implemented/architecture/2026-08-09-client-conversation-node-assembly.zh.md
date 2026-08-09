@@ -148,7 +148,7 @@ Assembler 校验 Node `key === context.key` 且 Node `target === target`。业�
 
 `current` 让 Definition 区分“从未生成”与“已经生成后需要隐藏”。Assistant retry 和 Turn Error suppression 使用它避免非法的 Node 撤回。
 
-Definition 可以针对 target 分支构造不同 data，但匹配、Context identity 和 State 保持 target-neutral。本次只注册 `chat` builder，Trajectory 仍通过兼容 slice 使用结果。
+Definition 可以针对 target 分支构造不同 data，但匹配、Context identity 和 State 保持 target-neutral。本次只注册 `chat` builder；在拥有注册 target 之前，Trajectory 继续使用独立的 `session-history` fold。
 
 #### 不提供通用 `end()`
 
@@ -306,7 +306,7 @@ Unknown fallback 展示了 Registry ownership：fallback 只处理没有任何�
 
 Assembler 低频完整替换时调用 `replace({ nodes, timeline })`；普通 prepend/append flush 调用 `apply({ upserts, timeline })`。Builder 只接收 Definition 已构造完成的 target Nodes。
 
-[`ChatSnapshotBuilder`](../../../../packages/client/ui-conversation/src/client/conversation-nodes/chat-snapshot-builder.ts) 维护 `order`、keyed `nodes` store、turn/step `locations` index、`timeline` 和 Trajectory 临时使用的 `legacy` slice。
+[`ChatSnapshotBuilder`](../../../../packages/client/ui-conversation/src/client/conversation-nodes/chat-snapshot-builder.ts) 维护 `order`、keyed `nodes` store、turn/step `locations` index、`timeline`，以及由 StatsLine 使用并镜像到顶层公共兼容字段的 `legacy` slice。
 
 Chat 结构变化只由新 key、`anchorSeq`、visibility 或 Location identity 变化触发。普通内容变化不重建 `order`；keyed Node store 只替换该 key 的 value。
 
@@ -328,7 +328,7 @@ Assistant streaming 到 final、Tool running 到 settled 只更新同一个 Seat
 
 具体 Tool renderer 仍由 [`ui-tool ownership decision`](2026-08-08-client-tool-presentation-ownership.md) 约束。Tool Definition 只交付递归 root/subcall data，`ui-tool` 再按 Tool name keyed slot 分发具体表现。
 
-Trajectory 尚未注册独立 target。它继续消费 Chat Builder 增量派生的 legacy slice，Session 不再运行第二套 transcript fold；未来迁移不改变 Event Definition、Context、Reader 或 Location 契约。
+Trajectory 尚未注册 target，也不消费 Chat Builder 的 legacy slice。它已激活的 `SessionHistoryInspection` 继续维护独立 history fold，而普通 Session snapshot 不再运行第二套 transcript fold。Chat Builder 为 StatsLine 和顶层公共兼容字段保留 legacy slice；未来迁移 Trajectory 不改变 Event Definition、Context、Reader 或 Location 契约。
 
 ## Runtime and render path
 
@@ -382,7 +382,7 @@ Assembled Web snapshot、GUI 和浏览器场景覆盖真实 plugin graph。浏�
 
 **增加通用 `end()`、prepared 或 window reset 生命周期。** 拒绝：不同业务完成条件不同，分页缺口也不是业务生命周期。业务 Event 更新 State，Location close 触发 replay/build，Reader dependency 负责补页失效。
 
-**为 Chat 与 Trajectory 注册两套 Event Definition。** 拒绝：identity、State 和 Location 与 target 无关。视图差异由 `buildViewNode(target)` 和各自 Builder 表达；Trajectory 在真正迁移前保留兼容 slice。
+**为 Chat 与 Trajectory 注册两套 Event Definition。** 拒绝：identity、State 和 Location 与 target 无关。视图差异由 `buildViewNode(target)` 和各自 Builder 表达；Trajectory 在注册自己的 Builder 之前继续使用独立 history fold。
 
 **在最终业务 Node 上再叠一层通用 layout model。** 拒绝：activity、tail candidacy 和 layout enum 会把当前 Chat 的业务语义重新集中到引擎。最终 Node 直接携带 renderer 所需 data，只共享 identity、排序和 Location 事实。
 
@@ -404,4 +404,4 @@ Step/Turn 成为业务间共享聚合的稳定宿主。Turn Tail 和 Deliverable
 
 代价是 Runtime 新增 Registry、Assembler、Location data、依赖重放和 per-target Builder 契约，UI Slots 也新增 parent-owned common inject 与 per-occurrence `hookContext`。Definition 作者必须理解稳定 ID、唯一 start、正序 replay、Step→Turn 发布顺序、只读 Reader 和 Node 不撤回规则。
 
-`useTurnData()` 不撤销 session-scoped renderer 的标准 `useSession`，因此该边界依靠 API 引导和测试，而不是能力隔离。Registry 变化仍是低频完整 rebuild；Chat Builder 在 Trajectory 迁移前仍维护 legacy slice；内建 Definitions 暂时集中在 `ui-conversation`。这些是兼容边界，不把业务解释权交还给 Session。
+`useTurnData()` 不撤销 session-scoped renderer 的标准 `useSession`，因此该边界依靠 API 引导和测试，而不是能力隔离。Registry 变化仍是低频完整 rebuild；Chat Builder 继续为 StatsLine 和顶层公共字段维护 legacy slice，Trajectory 继续拥有独立 history fold，内建 Definitions 暂时集中在 `ui-conversation`。这些是兼容边界，不把业务解释权交还给 Session。

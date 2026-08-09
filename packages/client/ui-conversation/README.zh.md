@@ -18,7 +18,7 @@
 
 Think 行默认保持折叠，并在不展开思维链的情况下暴露实时推理（reasoning）吞吐：当推理块是流式输出尾部时，摘要从结算后的首行切换到最新的非空行，其单行滚动区会随每个 delta 追到行内末端。展开该行会移除移动摘要，让完整推理进入普通页面流，因此页面阅读不会与内部跟随器争夺滚动；结算后恢复左对齐的稳定首行摘要（[决策](../../../.agents/notes/implemented/feature/2026-08-02-web-thinking-tail-scroll.md)）。
 
-聊天视图保留 Tool 的消息流位置，但委托其展示。它通过 `conversation.chat.tool` 传递每个已排序的 root call；详情壳层则通过 `conversation.details.tool` 传递当前选中的调用。组装后的 Web bundle 由 [`ui-tool`](../ui-tool/README.md) 填充整体 Tool 席位，并由后者选择 Runtime 已投影的 Code Dispatch 子调用，负责 root/child 编排、按名称分发、通用展示和 render-intent 卡片；只有详情席位会在该 renderer 缺席时保留 raw-result fallback。
+聊天视图保留 Tool 的消息流位置，但委托其展示。每个已排序的 `tool-call` Conversation Node 都通过 `conversation.chat.node` 的同名 key 分发；详情壳层则通过 `conversation.details.tool` 传递当前选中的调用。组装后的 Web bundle 为该 Chat Node key 注册 [`ui-tool`](../ui-tool/README.md)，由后者渲染 Runtime 已投影的递归 root/child 树，并负责按名称分发、通用展示和 render-intent 卡片；只有详情席位会在该 renderer 缺席时保留 raw-result fallback。
 
 聊天流会将跨重试轮次连续出现的模型重试节点投影为一个稳定的弱化状态行，并用最新一次尝试更新该行；每个重试事件仍保留在运行时快照与会话日志中。前端倒计时以客户端收到事件的时刻为计划延迟的起点，避免 Host 与浏览器的时钟偏差；剩余时间向上取整到秒，且下限为 1 秒。最近一次尚未完成的重试会显示从左到右的文字渐变动画。后续轮次事实用于区分已开始的尝试与在退避期间取消的尝试，Host 的 running 位只控制实时动画；随后该行会显示静态的已完成或已取消标签。normal 策略行显示有限重试上限；always 策略行显示 `∞`。激活该行会显示最近一次重试的精确延迟和失败消息。客户端运行时会在相应重试节点到达前移除每个失败步骤的流式输出尾部；后续某次尝试成功后，该状态仍保持可见。未进入重试的终态失败会在其轮次边界渲染为持久的内联状态，展示适合显示的持久消息与可选错误码，但不会提供 Host 无法兑现的操作；AUTH 文案绝不会回显提供方给出的凭据片段。
 
@@ -40,7 +40,7 @@ Host 带 placement 的 `session/queue` 快照也会携带待处理 steering。Qu
 
 `src/client/` 按领域组织。`contract/` 是 slot 声明、组合 props 与跨领域类型的共享表层；`skeleton/`、`chat/`、`input/`、`queue/` 和 `settings/` 保持内部实现，`apply.ts` 是它们的组装点。`/client` 导出表层只包含 loader entry、service class 和 contract 类型；组件与 store factory 经 slot 注册抵达页面。
 
-完成的一轮以一个 turn-tail 空位收尾：chat 视图在收尾 assistant 正文与其 IconActions 之间渲染 `conversation.chat.turnTail` list slot，每轮一次、位于 `assistantActionsSeqs` 选出的 seq，派发 `TurnTailOwnerProps`（快照节点、收尾 seq，以及工具行的 `openFile`）。本包只拥有空位；填充它的产物行——从改写工具 `locations` 的派生、chip 上限、文案——都在 `@deepseek-ai/dsh-client-ui-deliverables` 里，因此把那个插件从 cordis.yml 中组合掉即可关闭该交互面，空位以零成本渲染为空。收尾正文经由同一个开关参与其中：chat 视图向可选的 `chatFileMentions` service（ctx.get；由同一插件提供）索取收尾消息的行内代码词表，并把结果接进 MarkdownText 的 `fileMentions` 约定——service 缺席时正文保持死文本。
+完成的一轮会物化一个有序的 `turn-tail` Conversation Node。它由引擎维护的 `TurnLocation` 提供收尾 Assistant 和 Turn data；renderer 在该 Node 的 IconActions 之前渲染 `conversation.chat.turnTail` chain，并派发包含 Turn、收尾 seq 和 `openFile` 的 `TurnTailOwnerProps`。本包只拥有空位；`@deepseek-ai/dsh-client-ui-deliverables` 把改写工具的 `locations` 累积到 Turn data，并拥有产物行、chip 上限和文案，因此把该插件从 cordis.yml 中组合掉即可关闭该交互面，空位以零成本渲染为空。收尾正文经由同一个开关参与其中：chat 视图向可选的 `chatFileMentions` service（ctx.get；由同一插件提供）索取收尾消息的行内代码词表，并把结果接进 MarkdownText 的 `fileMentions` seam——service 缺席时正文保持死文本。
 
 ## 模型体验
 

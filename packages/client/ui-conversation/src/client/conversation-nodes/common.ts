@@ -6,6 +6,16 @@ import type {
 } from '../contract/chat-nodes.ts'
 
 /**
+ * Relative positions in one durable event's seq neighborhood: interrupted
+ * Assistant, its follow-up Nodes, then follow-ups to an ordinary final.
+ */
+export const CHAT_SYNTHETIC_SEQ_OFFSETS = {
+  interruptedAssistant: -0.9,
+  interruptedFollowup: -0.8,
+  finalizedFollowup: 0.1,
+} as const
+
+/**
  * Resolve one Context's best currently loaded event Location.
  * @param context - assembled business Context.
  * @returns start or first-match Location, otherwise unresolved.

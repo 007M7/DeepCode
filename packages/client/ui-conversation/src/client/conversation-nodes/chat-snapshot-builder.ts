@@ -154,6 +154,9 @@ const EMPTY_CONTRIBUTION: LegacyContribution = {
 
 function legacyContribution(raw: ChatConversationViewNode): LegacyContribution {
   const node = raw as ChatNode
+  // Content-free settled Assistants remain in the finalized compatibility
+  // stream so StatsLine preserves its pre-assembly step counts; hidden running
+  // attempts have no final Node to contribute.
   if (raw.visibility !== 'visible' && node.kind !== 'assistant-step') return EMPTY_CONTRIBUTION
   switch (node.kind) {
     case 'user':
@@ -221,7 +224,7 @@ function sameContribution(left: LegacyContribution | undefined, right: LegacyCon
     && sameReferences(left.nodes, right.nodes)
 }
 
-/** Incremental compatibility projection retained solely for unmigrated Trajectory consumers. */
+/** Incremental compatibility projection for StatsLine and legacy top-level snapshot fields. */
 class LegacySliceBuilder {
   private readonly contributions = new Map<string, LegacyContribution>()
   private readonly finalizedContributions = new Map<string, LegacyContribution>()

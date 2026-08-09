@@ -5,7 +5,7 @@ import type {
 } from '@deepseek-ai/dsh-client-runtime/client'
 import { isAppendSurfaceEvent } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ToolChatData } from '../contract/chat-nodes.ts'
-import { chatNode } from './common.ts'
+import { CHAT_SYNTHETIC_SEQ_OFFSETS, chatNode } from './common.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-conversation/client' {
   interface ChatNodeDataMap {
@@ -190,7 +190,7 @@ function projectBlock(
     ? sameReferences(block.subCalls, children) ? block : { ...block, subCalls: children }
     : {
       kind: 'tool-result',
-      seq: interruptedAt.seq - 0.8,
+      seq: interruptedAt.seq + CHAT_SYNTHETIC_SEQ_OFFSETS.interruptedFollowup,
       time: interruptedAt.time,
       callId: block.callId,
       call: { name: block.name, argsRaw: block.argsRaw },

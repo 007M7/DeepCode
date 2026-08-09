@@ -56,11 +56,10 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      */
     'conversation.chat.commandview': { kind: 'keyed'; scope: 'session'; owner: CommandRowOwnerProps }
     /**
-     * The chat view's turn-tail chain: rendered between a closing assistant
-     * message's body and its IconActions footer, once per turn (the render
-     * site elects the closing seq). Entries derive a match from the owner
-     * currency before mounting, so presentation components never mount only
-     * to return null; an all-declined chain renders nothing.
+     * The completed Turn Node's extension chain, rendered before that Node's
+     * IconActions. Entries derive a match from the engine-owned Turn and
+     * closing seq before mounting, so presentation components never mount
+     * only to return null; an all-declined chain renders nothing.
      */
     'conversation.chat.turnTail': { kind: 'chain'; scope: 'session'; owner: TurnTailOwnerProps }
     /** Selected Tool call output inside the details panel. */

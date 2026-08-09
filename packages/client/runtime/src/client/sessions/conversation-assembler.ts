@@ -743,6 +743,8 @@ export class ConversationNodeAssembler {
         context.locationData[scope] = data
         if (data !== null) entries.push({ owner: context.key, data })
       }
+      // Turn publishers may read Step data from this same flush, so each phase
+      // installs the cumulative replacement before the next phase builds.
       this.locationIndex.replaceData(entries)
     }
   }

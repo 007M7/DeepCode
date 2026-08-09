@@ -7,7 +7,7 @@ import {
   emptyAssistantBlock, isAppendSurfaceEvent, isTokenDelta, toAssistantBlock, toAssistantBlocks,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import type { AssistantChatData } from '../contract/chat-nodes.ts'
-import { chatNode } from './common.ts'
+import { CHAT_SYNTHETIC_SEQ_OFFSETS, chatNode } from './common.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-conversation/client' {
   interface ChatNodeDataMap {
@@ -169,7 +169,7 @@ function finalNode(
   if (boundary === undefined || !hasInterruptionEvidence(blocks)) return undefined
   return {
     kind: 'assistant',
-    seq: boundary.seq - 0.9,
+    seq: boundary.seq + CHAT_SYNTHETIC_SEQ_OFFSETS.interruptedAssistant,
     time: boundary.time,
     turn: state.turn,
     step: state.step,

@@ -7,7 +7,7 @@ import type {
   AssistantChatData, FinalAssistantChatData, TurnTailChatData,
 } from '../contract/chat-nodes.ts'
 import { deriveTurnMetrics } from '../chat/turn-metrics.ts'
-import { chatNode } from './common.ts'
+import { CHAT_SYNTHETIC_SEQ_OFFSETS, chatNode } from './common.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-conversation/client' {
   interface ChatNodeDataMap {
@@ -85,7 +85,9 @@ function closingAnchor(context: ConversationNodeContext<TurnTailState>): number 
     }
     if (event.type === 'assistant/message') {
       steps.set(coordinates.step, { streamedText: false, finalized: true })
-      if (hasTextAssistant(event)) anchor = event.seq + 0.1
+      if (hasTextAssistant(event)) {
+        anchor = event.seq + CHAT_SYNTHETIC_SEQ_OFFSETS.finalizedFollowup
+      }
       continue
     }
     if ((event.type as string) === 'llm/retry') {
@@ -93,7 +95,7 @@ function closingAnchor(context: ConversationNodeContext<TurnTailState>): number 
       continue
     }
     if (event.type === 'step/end' && previous.streamedText && !previous.finalized) {
-      anchor = event.seq - 0.8
+      anchor = event.seq + CHAT_SYNTHETIC_SEQ_OFFSETS.interruptedFollowup
     }
   }
   return anchor

@@ -1,7 +1,9 @@
 // ConversationSnapshot / ConversationNode: the only data shape the logic layer feeds the UI.
-// Immutability contract: every change swaps the top-level object; unchanged
-// substructures keep their references (the React.memo premise). callId/approvalId stay plain
-// string here (narrow to real brands when convenient).
+// Publication contract: every change swaps the top-level object; unchanged
+// substructures keep their references (the React.memo premise). Chat node and
+// Location stores are stable live readers, so old snapshots are not time-point
+// views. callId/approvalId stay plain string here (narrow to real brands when
+// convenient).
 
 import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
 import type { MessageId } from '@deepseek-ai/dsh-llm/brand'
@@ -336,7 +338,10 @@ export interface PromptError {
   error: RpcError
 }
 
-/** Stable per-key reader for final Chat view Nodes. */
+/**
+ * Stable live per-key reader. An old ChatSnapshot observes later flushes
+ * through this store.
+ */
 export interface ChatNodeStore {
   /** @param key - stable Conversation Context key. @returns current Node, when visible or hidden. */
   get(key: string): ChatConversationViewNode | undefined
@@ -344,7 +349,10 @@ export interface ChatNodeStore {
   values(): readonly ChatConversationViewNode[]
 }
 
-/** Stable per-Location membership index for turn-local and step-local consumers. */
+/**
+ * Stable live Location index. An old ChatSnapshot observes later membership
+ * changes through this index.
+ */
 export interface ChatLocationNodeIndex {
   /** @param turn - owning turn. @returns ordered Chat Node keys in the turn. */
   getTurn(turn: number): readonly string[]
@@ -352,7 +360,7 @@ export interface ChatLocationNodeIndex {
   getStep(turn: number, step: number): readonly string[]
 }
 
-/** Temporary projection consumed by Trajectory and unmigrated readers. */
+/** Compatibility projection backing StatsLine and the legacy top-level snapshot fields. */
 export interface LegacyConversationSlice {
   readonly nodes: readonly ConversationNode[]
   readonly turnTimings: ReadonlyMap<number, { readonly startTime: number; readonly endTime?: number }>
@@ -361,7 +369,7 @@ export interface LegacyConversationSlice {
   readonly runningCalls: readonly RunningToolCall[]
 }
 
-/** Incremental Chat target snapshot: stable keyed stores plus structural order. */
+/** Incremental Chat publication with immutable order and stable live keyed readers. */
 export interface ChatSnapshot {
   readonly order: readonly string[]
   readonly nodes: ChatNodeStore
@@ -399,7 +407,7 @@ export interface ConversationSnapshot {
   sessionId: SessionId
   /** Final Chat target assembled from independently registered business Definitions. */
   chat: ChatSnapshot
-  /** Legacy Trajectory slice derived from the registered Chat Definitions. */
+  /** Legacy top-level compatibility field mirrored from the registered Chat Definitions. */
   nodes: readonly ConversationNode[]
   /** Exact in-window `turn/start` time and optional matching `turn/end` time. */
   turnTimings: ReadonlyMap<number, { readonly startTime: number; readonly endTime?: number }>

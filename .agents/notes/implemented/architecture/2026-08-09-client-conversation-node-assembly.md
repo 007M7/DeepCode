@@ -148,7 +148,7 @@ The Assembler verifies `node.key === context.key` and `node.target === target`. 
 
 `current` lets a Definition distinguish "never materialized" from "already materialized and now hidden." Assistant retry and Turn Error suppression use it to avoid illegal Node withdrawal.
 
-A Definition may branch by target to construct different data, while matching, Context identity, and State remain target-neutral. This change registers only the `chat` builder; Trajectory continues to consume the compatibility slice.
+A Definition may branch by target to construct different data, while matching, Context identity, and State remain target-neutral. This change registers only the `chat` builder; Trajectory remains on its independent `session-history` fold until it gains a registered target.
 
 #### No generic `end()`
 
@@ -306,7 +306,7 @@ Unknown fallback demonstrates Registry ownership: it handles only append-surface
 
 The Assembler calls `replace({ nodes, timeline })` on low-frequency complete replacements and `apply({ upserts, timeline })` for ordinary prepend/append flushes. Builders receive only final target Nodes already constructed by Definitions.
 
-[`ChatSnapshotBuilder`](../../../../packages/client/ui-conversation/src/client/conversation-nodes/chat-snapshot-builder.ts) maintains `order`, a keyed `nodes` store, the turn/step `locations` index, `timeline`, and the `legacy` slice temporarily consumed by Trajectory.
+[`ChatSnapshotBuilder`](../../../../packages/client/ui-conversation/src/client/conversation-nodes/chat-snapshot-builder.ts) maintains `order`, a keyed `nodes` store, the turn/step `locations` index, `timeline`, and the `legacy` slice used by StatsLine and mirrored into top-level public compatibility fields.
 
 Only a new key or a change to `anchorSeq`, visibility, or Location identity makes a Chat update structural. An ordinary content change does not rebuild `order`; the keyed Node store replaces only that key's value.
 
@@ -328,7 +328,7 @@ When business logic deliberately changes a materialized Node to hidden, it leave
 
 The concrete Tool renderer remains governed by the [`ui-tool ownership decision`](2026-08-08-client-tool-presentation-ownership.md). Tool Definition supplies recursive root/subcall data, and `ui-tool` dispatches concrete presentation by the Tool-name keyed slot.
 
-Trajectory has no independent registered target yet. It continues to consume the legacy slice incrementally derived by the Chat Builder, while Session no longer runs a second transcript fold; a future migration does not change the Event Definition, Context, Reader, or Location contracts.
+Trajectory has no registered target and does not consume the Chat Builder's legacy slice. Its activated `SessionHistoryInspection` keeps an independent history fold, while the ordinary Session snapshot no longer runs a second transcript fold. The Chat Builder retains its legacy slice for StatsLine and the top-level public compatibility fields; a future Trajectory migration does not change the Event Definition, Context, Reader, or Location contracts.
 
 ## Runtime and render path
 
@@ -382,7 +382,7 @@ History-path tests cover complete replace, non-overlapping prepend, overlapping-
 
 **Add generic `end()`, prepared, or window-reset lifecycles.** Rejected: businesses have different completion conditions, and a pagination gap is not a business lifecycle. Business Events update State, Location close triggers replay/build, and Reader dependencies own pagination invalidation.
 
-**Register separate Event Definitions for Chat and Trajectory.** Rejected: identity, State, and Location are target-neutral. `buildViewNode(target)` and each Builder express view differences; Trajectory retains a compatibility slice until its actual migration.
+**Register separate Event Definitions for Chat and Trajectory.** Rejected: identity, State, and Location are target-neutral. `buildViewNode(target)` and each Builder express view differences; Trajectory's independent history fold remains until it registers its own Builder.
 
 **Add a generic layout model above final business Nodes.** Rejected: activity, tail candidacy, and layout enums would centralize current Chat business semantics in the engine again. Final Nodes carry renderer-required data directly and share only identity, ordering, and Location facts.
 
@@ -404,4 +404,4 @@ Steps and Turns become stable homes for cross-business aggregates. Turn Tail and
 
 The cost is new Runtime contracts for Registry, Assembler, Location data, dependency replay, and per-target Builders, plus parent-owned common inject and per-occurrence `hookContext` in UI Slots. Definition authors must understand stable IDs, unique starts, forward replay, Step→Turn publication order, read-only Reader access, and the prohibition on Node withdrawal.
 
-`useTurnData()` does not revoke the standard `useSession` capability from session-scoped renderers, so this boundary relies on API guidance and tests rather than capability isolation. Registry changes remain low-frequency full rebuilds; the Chat Builder still maintains a legacy slice until Trajectory migrates; built-in Definitions currently remain centralized in `ui-conversation`. These compatibility boundaries do not return business interpretation to Session.
+`useTurnData()` does not revoke the standard `useSession` capability from session-scoped renderers, so this boundary relies on API guidance and tests rather than capability isolation. Registry changes remain low-frequency full rebuilds; the Chat Builder still maintains a legacy slice for StatsLine and the top-level public fields, Trajectory still owns an independent history fold, and built-in Definitions currently remain centralized in `ui-conversation`. These compatibility boundaries do not return business interpretation to Session.
