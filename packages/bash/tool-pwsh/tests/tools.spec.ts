@@ -552,13 +552,15 @@ describe('sandbox escalation through ctx.approval', () => {
     justification: 'the command needs workspace writes',
   }
 
-  it('advertises the sandbox fields, the escalation clause, and the ConstrainedLanguage contract', async () => {
+  it('advertises the sandbox fields, the escalation clause, and the confined-mode contracts', async () => {
     const { ctx } = await setupSandboxed()
     const schema = ctx.tools.schemas().find(item => item.name === 'pwsh')!
     const properties = schema.parameters.properties as Record<string, { enum?: string[] }>
     expect(properties['sandbox_permissions']?.enum).toEqual(['workspace-write', 'danger-full-access'])
     expect(schema.description).toContain('approval prompt')
     expect(schema.description).toContain('ConstrainedLanguage')
+    expect(schema.description).toContain('named pipes')
+    expect(schema.description).toContain('fails with EPERM')
 
     for (const args of [
       { command: 'Write-Output ok', description: 'd', sandbox_permissions: 'workspace-write' },
@@ -569,10 +571,11 @@ describe('sandbox escalation through ctx.approval', () => {
     }
   })
 
-  it('the escalation fields and the ConstrainedLanguage clause stay out of sandbox-less compositions', async () => {
+  it('the escalation fields and the confined-mode clauses stay out of sandbox-less compositions', async () => {
     const { ctx } = await setup()
     const schema = ctx.tools.schemas().find(item => item.name === 'pwsh')!
     expect(schema.description).not.toContain('ConstrainedLanguage')
+    expect(schema.description).not.toContain('named pipes')
     expect(schema.description).not.toContain('sandbox_permissions')
     expect(schema.parameters.properties).not.toHaveProperty('sandbox_permissions')
   })

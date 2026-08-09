@@ -114,16 +114,23 @@ function pwshDescription(backgroundEnabled: boolean, escalationModes: readonly S
     + 'On Windows a force-killed command settles as `[exit code: 1]` without a signal marker — treat it as an interruption, not a command failure. '
     + background
   if (escalationModes.length === 0) return base
-  // The CLM contract below is Windows-restricted-token behavior, but the gate
-  // is 'any confining executor is mounted' (escalationModes non-empty). The
-  // conflation is safe today because every shipped composition pairing
-  // tool-pwsh with a confining executor is win32-only; a future POSIX
-  // pwsh-sandbox composition must gate the CLM sentence on the platform
-  // instead (tracked in the pwsh-tool-and-executor Agent Note).
+  // The CLM and named-pipe contracts below are Windows-restricted-token
+  // behavior, but the gate is 'any confining executor is mounted'
+  // (escalationModes non-empty). The conflation is safe today because every
+  // shipped composition pairing tool-pwsh with a confining executor is
+  // win32-only; a future POSIX pwsh-sandbox composition must gate both
+  // sentences on the platform instead (tracked in the pwsh-tool-and-executor
+  // Agent Note).
   return base + ' Under the Windows sandbox, pwsh runs in PowerShell ConstrainedLanguage mode (read-only and '
     + 'workspace-write): prefer cmdlets and core types (`[string]`, `[datetime]`, `[regex]`, `[guid]`); '
     + '.NET static calls (`[System.IO.*]::`, `[math]::`), `Add-Type`, COM objects, and reflection fail '
     + 'with "only core types" errors. `-f` formatting, property access, and core cmdlets work. '
+    + 'In the same modes, programs cannot open named pipes, so a command that captures another '
+    + 'program\'s output through piped stdio (Node.js `child_process.spawn`/`exec` with the default '
+    + '`stdio: \'pipe\'`) fails with EPERM, while `stdio: \'inherit\'` and `stdio: \'ignore\'` spawns '
+    + 'work and PowerShell\'s own pipelines are unaffected. That EPERM is the documented boundary: '
+    + 'do not retry the command another way — escalate the exact command once or restructure it to '
+    + 'avoid capturing output. '
     + 'Attempting a command the sandbox may deny is safe and expected: run it and read the '
     + 'marker rather than assuming the denial. When a command is denied and a wider mode would let it '
     + 'succeed, escalate immediately in the same turn — the one sanctioned exception to a denial: retry '

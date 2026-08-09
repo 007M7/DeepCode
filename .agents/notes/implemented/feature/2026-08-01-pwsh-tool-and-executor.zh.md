@@ -13,7 +13,7 @@ harness 在每个平台只说一种 shell 方言：`bash`。Windows 主机只能
 在 `packages/bash/` 下新增两个包：
 
 - **`@deepseek-ai/dsh-pwsh-local`** —— `ctx.bash` 执行器 seam 的本地实现，基于 `ctx.subprocess`，逐调用镜像 `dsh-bash-local`：`resolve()` 从配置默认化并设上限，`run()` 通过一个 deadline 融合配置夹取的超时与调用方信号，`start()` 返回消费式后台句柄，其进程归属于 subprocess 服务。命令字符串作为 ONE argv 元素传给 `pwsh -NoLogo -NoProfile -NonInteractive -Command`，由 PowerShell 解析，不存在 shell 引号层。可执行文件解析（`resolvePwshPath`）是 `(configured, env, platform)` 的纯函数：先显式配置，再在 Windows 上探测 PowerShell 7 安装位置、PATH 条目（剥离引号）与 Windows PowerShell 5.1，否则经 PATH 解析裸 `pwsh`。
-- **`@deepseek-ai/dsh-tool-pwsh`** —— 基于 `ctx.bash` 的面向模型工具，契约是 PowerShell 方言，逐调用镜像 `dsh-tool-bash`：经通用任务运行时执行前台与 `run_in_background`，经共享 [`dsh-bash-env`](../feature/2026-08-02-pwsh-tool-bash-parity.md) 注册表管理 `DSH_*` 环境，bash 的 marker/截断渲染故事（干净退出不产生 marker），以及——自 Windows ACL sandbox 决策以来——沙箱拒绝渲染与 `sandbox_permissions` 升级面，外加工具描述中的 Windows 专属 ConstrainedLanguage 契约。parity 决策取代了本 note 的最小画像工具描述。
+- **`@deepseek-ai/dsh-tool-pwsh`** —— 基于 `ctx.bash` 的面向模型工具，契约是 PowerShell 方言，逐调用镜像 `dsh-tool-bash`：经通用任务运行时执行前台与 `run_in_background`，经共享 [`dsh-bash-env`](../feature/2026-08-02-pwsh-tool-bash-parity.md) 注册表管理 `DSH_*` 环境，bash 的 marker/截断渲染故事（干净退出不产生 marker），以及——自 Windows ACL sandbox 决策以来——沙箱拒绝渲染与 `sandbox_permissions` 升级面，外加工具描述中的 Windows 专属 ConstrainedLanguage 与 named-pipe 契约。parity 决策取代了本 note 的最小画像工具描述。
 
 Windows vitest 覆盖率刻意不属本次改动：仓库的 Windows CI 通道负责构建/静态门禁，单元覆盖在 Linux 上运行，两个包的套件在那里以真实 `pwsh` 运行（GitHub 托管 runner 预装）或缺失时自行跳过。vitest 的 `windowsUnsupportedPackages` 排除从 `packages/bash/*` 收窄为真正需要 bash 的包，使 pwsh 套件也能在 Windows 开发机上原生运行。
 
@@ -30,6 +30,6 @@ Windows vitest 覆盖率刻意不属本次改动：仓库的 Windows CI 通道�
 ## 后果
 
 - bash 执行器 seam 有了第二个、Windows 原生的实现，请求/规范契约一致，因此 `tool-pwsh` 之外的面向模型消费方（hooks 桥、进程内插件）无需方言垫片即可运行 PowerShell。
-- `tool-pwsh` 是模型可见的 Windows 优先 shell 工具：在前台、后台与沙箱化工作上与 bash 工具行为可互换——包括经 `ctx.approval` 的同轮次 `sandbox_permissions` 升级——提示词指导精确陈述 marker 契约、沙箱拒绝/升级词汇与 ConstrainedLanguage 边界。
+- `tool-pwsh` 是模型可见的 Windows 优先 shell 工具：在前台、后台与沙箱化工作上与 bash 工具行为可互换——包括经 `ctx.approval` 的同轮次 `sandbox_permissions` 升级——提示词指导精确陈述 marker 契约、沙箱拒绝/升级词汇，以及 ConstrainedLanguage 与 named-pipe 边界。
 - Windows 语义在平台差异处不同：强制终止报告退出码 1 且无信号（因此 `signal`/`killed` 状态实情仅限 POSIX），PowerShell 输出 CRLF，测试做归一化。
 - CLI 增加两个 workspace 依赖与两个 tsconfig 工程，但不挂载任一插件——组合决策留给 Windows 默认提案。

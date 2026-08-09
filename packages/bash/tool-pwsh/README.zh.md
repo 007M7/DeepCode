@@ -120,7 +120,7 @@ ack 是固定短行；任务输出按读取有界。
 
 ## Known Limitations and Deferred Work
 
-- **Windows sandbox 下的 ConstrainedLanguage** — 当 [Windows ACL sandbox](../../sandbox/sandbox-windows-acl/README.md) 隔离某次调用（read-only 或 workspace-write）时，受限令牌使 pwsh 进入 ConstrainedLanguage 模式：`Add-Type`、非核心 .NET 静态调用（`[System.IO.*]::`、`[math]::`）、COM 对象与反射都会以“only core types”错误失败，且该模式无法从内部解除。工具描述把这一契约教给模型；后端 README 负责完整的限制说明。
+- **Windows sandbox 下的 ConstrainedLanguage 与 named-pipe 捕获** — 当 [Windows ACL sandbox](../../sandbox/sandbox-windows-acl/README.md) 隔离某次调用（read-only 或 workspace-write）时，受限令牌使 pwsh 进入 ConstrainedLanguage 模式：`Add-Type`、非核心 .NET 静态调用（`[System.IO.*]::`、`[math]::`）、COM 对象与反射都会以“only core types”错误失败，且该模式无法从内部解除。这两种模式同样会拒绝 named-pipe 打开，因此受限命令内的管道 stdio spawn 以 EPERM 失败。工具描述把这两个契约教给模型；后端 README 负责完整的限制说明。
 - **无持久 shell 或 PTY** — 每次调用都启动全新的 `pwsh -Command`；PTY 后端目前仅限 Linux/macOS，Windows ConPTY 持久 shell 属于路线图工作。
 - **PowerShell 方言契约** — 模型必须写 PowerShell（原生路径、`$env:` 变量），而不是 bash；没有方言翻译。
 - **会话 cwd 身份不做规范化** — workdir 基座直接取会话头 cwd 原值，不同于 bash 工具经 sandbox-root 规范化的身份。在隔离执行器下，策略的工作区根**会**被规范化（由共享的策略服务完成），因此当原始会话 cwd 与其规范化形态不同时，workdir 与隔离根可能不一致——这一 parity 差距留待共享 shell 工具基座提取时解决。
