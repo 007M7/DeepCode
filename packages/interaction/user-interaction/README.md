@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-Abstract user-interaction seam. It owns `ctx.userInteraction`, the service a model-facing tool or permission plugin uses when it needs to pause work and ask the human for a decision.
+User-interaction Service Definition. It owns `ctx.userInteraction`, the service a model-facing tool or permission plugin uses when it needs to pause work and ask the human for a decision.
 
 ## Service: `UserInteractionService` (ctx key: `userInteraction`)
 
@@ -30,7 +30,7 @@ When a request carries an agent, `ask()` authenticates its exact identity throug
 
 ## Role
 
-This is the interface package. Model-facing consumers such as `@deepseek-ai/dsh-tool-ask-user` depend on this seam; the Web host runtime provides the shipped interactive implementation. The loop stays unchanged: a tool call awaits a promise, and the tool result resumes the normal agent loop.
+This is the Service Definition package. Consumers such as `@deepseek-ai/dsh-tool-ask-user` depend on this service; the Web host runtime supplies the shipped Service provider. The loop stays unchanged: a tool call awaits a promise, and the tool result resumes the normal agent loop.
 
 ## Model Experience
 

@@ -2,17 +2,17 @@
 
 English | [中文](README.zh.md)
 
-The **spill storage seam**: an abstract `SpillStore` service (`ctx.spillStore`) defining WHAT a spill backend does — persist a tool's oversized text and return a model-facing locator plus retrieval guidance — without saying HOW.
+The **`SpillStore`** (`ctx.spillStore`) defines WHAT a spill backend does — persist a tool's oversized text and return a model-facing locator plus retrieval guidance — without saying HOW.
 
 This package is one third of the spill capability, split so each concern evolves (and swaps) independently:
 
 | Package | Role |
 |---|---|
-| `@deepseek-ai/dsh-spill` (this) | the interface: abstract service + vocabulary types |
-| `@deepseek-ai/dsh-spill-local` | an implementation: private session-scoped files on the host filesystem |
-| `@deepseek-ai/dsh-spill-policy` | the tool-result policy that spills oversized final results |
+| `@deepseek-ai/dsh-spill` (this) | Service Definition: abstract service + vocabulary types |
+| `@deepseek-ai/dsh-spill-local` | Service provider: private session-scoped files on the host filesystem |
+| `@deepseek-ai/dsh-spill-policy` | Consumer: the tool-result policy that spills oversized final results |
 
-The split mirrors the bash/fs seams. A future remote or virtual backend (e.g. a `spill://…` URI, a database key, or a backend-specific retrieval tool) implements this interface without touching the policy plugin.
+The split mirrors the bash/fs seams. A future remote or virtual backend (e.g. a `spill://…` URI, a database key, or a backend-specific retrieval tool) implements this Service Definition without touching the policy plugin.
 
 ## Service API (`ctx.spillStore`)
 

@@ -56,7 +56,7 @@ export class LocalFileSystem extends FileSystem {
 
   /** Validated config (schemastery applied the defaults before construction). */
   readonly config: ResolvedConfig
-  /** Test seam forwarded to fsio (force streaming path, pin temp names). */
+  /** Test hook forwarded to fsio (force streaming path, pin temp names). */
   internals: FsIoInternals = {}
   /** Per-targetKey tail promise: serializes mutating ops so the read→guard→write
    * window can't interleave, making concurrent writes/edits deterministically

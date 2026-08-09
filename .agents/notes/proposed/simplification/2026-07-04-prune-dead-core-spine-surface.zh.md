@@ -23,7 +23,7 @@ Status: proposed
 | `PersistenceCoordinator.inits`、后端 `inits` 访问器、`seedCoversPrefix` 与 `assertSerializable` | 访问器为白盒测试而存在；`seedCoversPrefix` 没有包外生产导入者；`assertSerializable` 没有生产调用者，且与 coordinator append 边界的无损快照重复。 | 通过 `session/flush` 观察初始化，将 `seedCoversPrefix` 改为源码私有，删除 `assertSerializable`。保留两个后端、`SessionHeader` 和 SQLite 的版本约定。 |
 | `LlmError.status` 与回放 status | 适配器/回放填充它，但生产分支基于稳定的错误码/消息判断，从不读取原始 status。 | 移除未读字段和回放管道，保留错误分类。 |
 | `BlockAssembler.push()` 返回值 | 两个生产调用者都忽略返回的已完成块。 | 返回 `void`；保留有意公开的 `blocks()`/`message()` 约定。 |
-| `compactRegion` 的独立 `session` 参数 | 固定调用方传入的对象就是 `agent.session` 中已有的对象；模型可见的 mount API 也可以调用该方法，但同时接受两个独立对象，会让挂载的插件传入不一致的组合。 | 保留手动 region seam，同时有意将其收窄为以 `agent.session` 为唯一真源。 |
+| `compactRegion` 的独立 `session` 参数 | 固定调用方传入的对象就是 `agent.session` 中已有的对象；模型可见的 mount API 也可以调用该方法，但同时接受两个独立对象，会让挂载的插件传入不一致的组合。 | 保留手动 region API，同时有意将其收窄为以 `agent.session` 为唯一真源。 |
 | `CompactionResult.startSeq`、`summarySeq`、`endSeq` 与 `summary` | 生产消费方只读取 shadowed range/seq/token 统计；持久日志拥有 summary 和事件标识。 | 移除四个结果回显，保留两个共享的 transcript（文本记录）渲染器。 |
 | `BasicCompactService` 的估算/摘要方法可见性 | 没有包外生产调用者调用这五个方法；已实现的 Agent Note 只将 `estimateContentTokens()` 和 `summarize()` 命名为子类钩子。 | 将这两个方法改为 `protected`，其余三个编排专用的估算器改为 private。 |
 | `CodeLogEntry.source`/`level` 与 `RunCodeMeta.dispatches` | 每个生产消费方都将日志映射为文本；没有 presenter/模型路径读取其他字段或持久化的 dispatch 计数。 | 将 code-runtime 日志改为字符串（或纯文本条目），移除 result-meta 的 dispatch 管道；保留用于生成确定性 dispatch id 的本地计数器。 |
@@ -43,7 +43,7 @@ Status: proposed
 
 ## 提案
 
-以一次有界的、协调的公开接口清理，移除或降级上述每一行。同步更新包 README、JSDoc、生成的 API/事件 catalog、type-equiv 记录、必要的 exports map 以及测试，使测试通过所属的公开 seam 验证行为，而非保留仅为测试而存在的入口。不折叠任何能力 seam、LLM（大语言模型）适配器、持久化后端或生命周期完全停稳约定。
+以一次有界的、协调的公开接口清理，移除或降级上述每一行。同步更新包 README、JSDoc、生成的 API/事件 catalog、type-equiv 记录、必要的 exports map 以及测试，使测试通过所属的公开约定验证行为，而非保留仅为测试而存在的入口。不折叠任何能力 seam、LLM（大语言模型）适配器、持久化后端或生命周期完全停稳约定。
 
 ## 曾考虑的替代方案
 
@@ -60,4 +60,4 @@ Status: proposed
 
 ## 风险
 
-大多数移除在编译时可见但对运行时无影响。上下文压缩参数清理有意禁止会话/上下文不匹配，同时保留手动 region seam。外部预发布嵌入者和现有模型编写的 mount 可能导入更少的辅助函数、传递更少的参数或接收更窄的结果形状；这是有意的产品接口收缩，而非仅仅是生成 catalog 的清理。仓库尚未发布，因此承载不受支持的接口才是更大的基础成本。
+大多数移除在编译时可见但对运行时无影响。上下文压缩参数清理有意禁止会话/上下文不匹配，同时保留手动 region API。外部预发布嵌入者和现有模型编写的 mount 可能导入更少的辅助函数、传递更少的参数或接收更窄的结果形状；这是有意的产品接口收缩，而非仅仅是生成 catalog 的清理。仓库尚未发布，因此承载不受支持的接口才是更大的基础成本。

@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-A cordis plugin that runs the supported subset of a user's existing **Codex** hook config on the harness's canonical interception seams. The **Codex dialect** half of the hooks subsystem. The dialect-agnostic primitives come from [`@deepseek-ai/dsh-hook-protocol`](../hook-protocol/README.md); this bridge owns the Codex-shaped payloads, matcher mode, and decision mapping.
+A cordis plugin that runs the supported subset of a user's existing **Codex** hook config on the harness's canonical interception points. The **Codex dialect** half of the hooks subsystem. The dialect-agnostic primitives come from [`@deepseek-ai/dsh-hook-protocol`](../hook-protocol/README.md); this bridge owns the Codex-shaped payloads, matcher mode, and decision mapping.
 
 This bridge implements a deliberate subset of Codex's current hook protocol:
 
@@ -12,7 +12,7 @@ This bridge implements a deliberate subset of Codex's current hook protocol:
 - **No Codex plugin env injection and no config-time placeholder substitution** (the command still receives the executor's environment and runs through its shell).
 - **No pre-tool approval or rewrite path** — a hook can block, but the bridge does not pre-approve or replace tool input.
 
-A native cordis plugin could do everything this bridge does, more powerfully; the bridge exists only as a compatibility path for the mapped Codex subset (see [the interception-seams Agent Note](../../../.agents/notes/implemented/feature/2026-06-30-interception-seams.md)).
+A native cordis plugin could do everything this bridge does, more powerfully; the bridge exists only as a compatibility path for the mapped Codex subset (see [the interception extension-points Agent Note](../../../.agents/notes/implemented/feature/2026-06-30-interception-extension-points.md)).
 
 ## Config
 
@@ -38,9 +38,9 @@ The config is parsed **once** at load. `configPath` is **process-level** — a r
 
 The hooks themselves run in the agent's session workspace: for the agent-scoped points the bridge passes the session's `cwd` as the hook process's working directory, so a hook operates in the user's project tree, not the server launch dir.
 
-## Hook points → seam Decisions
+## Hook points → typed Decisions
 
-| Codex hook | Harness seam | Mapping |
+| Codex hook | Harness point | Mapping |
 |---|---|---|
 | `SessionStart` | `agent/session-start` (emit) | a plain-stdout hook's output → additionalContext → `agent.inject()` |
 | `UserPromptSubmit` | `agent/pre-step` (waterfall) | `block` (exit 2) → `PreStepDecision.reject`; additionalContext-only → delegate via `next()` then append a separately sourced message to a downstream `enter` decision |

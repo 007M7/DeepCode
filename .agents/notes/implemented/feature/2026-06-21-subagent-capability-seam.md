@@ -14,18 +14,18 @@ The distinctive requirement — the one that shapes the whole design — is that
 
 - **in-process** — a child concrete `Agent` on the same `Context` (the cheapest, and nearly free given the existing agent factory);
 - **ACP** — act as an ACP *client* driving another agent process (which can be another instance of ourselves);
-- **Codex app-server and Claude Code Agent SDK** — current one-shot siblings that apply the same named-provider seam to official product processes ([product-provider Agent Note](2026-08-04-claude-code-and-codex-subagent-backends.md));
+- **Codex app-server and Claude Code Agent SDK** — current one-shot siblings that apply the same named-provider contract to official product processes ([product-provider Agent Note](2026-08-04-claude-code-and-codex-subagent-backends.md));
 - later: **A2A** using the same out-of-process "start a child, prompt it, settle, cancel" shape.
 
 ## Alternatives considered
 
 ### Why not the bash seam shape
 
-The bash seam ([capability seams](../architecture/2026-06-13-capability-seams.md)) registers exactly one `BashExecutor` per context; loading a second throws. That is correct for bash (one machine, one way to run a command) but wrong here: coexistence is the requirement. So the subagent service is a **named-provider registry** — each implementation registers under a unique name and a caller picks one by name — mirroring the **LLM adapter registry** (`LlmService.registerAdapter`), not the single-service bash executor. The seam is still three-package (interface / implementation / consumer); only the "one vs. many implementations" axis differs.
+The bash seam ([capability seams](../architecture/2026-06-13-capability-seams.md)) registers exactly one `BashExecutor` per context; loading a second throws. That is correct for bash (one machine, one way to run a command) but wrong here: coexistence is the requirement. So the subagent service is a **named-provider registry** — each implementation registers under a unique name and a caller picks one by name — mirroring the **LLM adapter registry** (`LlmService.registerAdapter`), not the single-service bash executor. The seam is still three-package (Service Definition / Service provider / Consumer); only the "one vs. many implementations" axis differs.
 
 ## Decision
 
-### The three-package seam
+### The three-package boundary
 
 A new package group `packages/subagent/`:
 

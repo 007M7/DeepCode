@@ -1,5 +1,5 @@
 /**
- * Vocabulary for the spill storage seam. Types only — the abstract service
+ * Vocabulary for the spill storage Service Definition. Types only — the abstract service
  * lives in `./index.ts`, implementations in sibling packages
  * (`@deepseek-ai/dsh-spill-local` first).
  *

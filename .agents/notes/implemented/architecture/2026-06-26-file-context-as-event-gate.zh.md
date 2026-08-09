@@ -26,7 +26,7 @@ tool          dsh-tool-fs       executor: resolves, reads windows, writes/edits 
 policy        dsh-fs-policy  plugin: listens to fs/write-intent +
                                 fs/edit-intent (single-slot waterfall) and fs/observed
                                 (emit) events; adds observed-state + freshness.
-provider seam dsh-fs            ctx.fs: text IO + ATOMIC mutation primitives whose version
+provider contract dsh-fs            ctx.fs: text IO + ATOMIC mutation primitives whose version
                                 guard is OPTIONAL; owns the fs policy event vocabulary
 provider      dsh-fs-local      local implementation of ctx.fs
 ```
@@ -72,7 +72,7 @@ editText(target: FsTarget, edit: FsEditRequest, expected?: { version: FsVersion 
 
 **两个 `fs/*` 决策事件是单槽、先到先得的 waterfall。** `dsh-fs-policy` 不调用 `next()` 直接返回，因此在默认部署中它占据该槽位；更早注册或使用 `prepend` 的监听器会替代该策略。权限、审计和沙箱关注点仍留在可组合的 `tools/execute` waterfall 上。
 
-actor 在 `dsh-fs` 中类型为 `object`——一个纯粹的不透明载体，提供方 seam 从不读取或收窄它。owner 的推导（`actor.agent?.session`）和 `{ agent?: { session? } }` 结构形状完全留在 `dsh-fs-policy` 内部，由其在监听器中将 `object` actor 收窄为该形状。`dsh-fs` 拥有事件名和 fs 词汇；它不拥有策略层的运行时 owner 结构。
+actor 在 `dsh-fs` 中类型为 `object`——一个纯粹的不透明载体，提供方约定从不读取或收窄它。owner 的推导（`actor.agent?.session`）和 `{ agent?: { session? } }` 结构形状完全留在 `dsh-fs-policy` 内部，由其在监听器中将 `object` actor 收窄为该形状。`dsh-fs` 拥有事件名和 fs 词汇；它不拥有策略层的运行时 owner 结构。
 
 ```ts
 import type { FsTarget, FsVersion, FsWriteIntent } from '@deepseek-ai/dsh-fs'
@@ -136,7 +136,7 @@ interface Events {
 
 一条观测状态条目是**先前观测记录**：成功的 `read`、`write` 或 `edit` 都会 emit `fs/observed` 并记录 `{ version }`，因此条目的存在意味着「此 owner 在此版本观测过此目标」，而非狭义的「已读取过」。这使得 create-then-edit 或 edit-then-edit 序列无需中间重新读取即可工作：mutation 将记录的版本刷新为自身的结果，因此下一次编辑的基准就是它刚产出的版本。`FS_NOT_OBSERVED` 只拒绝完全没有任何先前观测的编辑。owner 从 `{ agent?: { session? } }` 结构化推导；dispose 时丢弃所有状态（HMR 安全）。
 
-`dsh-fs-policy` 现在是一个纯策略/记录插件，没有服务面——它只通过事件 seam 影响外界。这正是移除 `dsh-tool-fs` 方法耦合的关键。
+`dsh-fs-policy` 现在是一个纯策略/记录插件，没有服务面——它只通过事件门控影响外界。这正是移除 `dsh-tool-fs` 方法耦合的关键。
 
 ## 裸提供方行为（无 `dsh-fs-policy`）
 
@@ -166,6 +166,6 @@ interface Events {
 
 - **事件间接层取代方法调用。** 一次 waterfall + emit 不如 `await ctx.fileContext.edit(...)` 直接。收益是移除了工具到策略的方法依赖，同时保留默认策略插件；代价是多一套事件词汇需要学习。通过保持三个事件的窄小范围并在每个事件上记录 default-thunk 语义来缓解。
 - **策略事件位于存储 seam 中。** `dsh-fs` 增加了两个版本决策事件和一个记录事件，尽管它「只是存储」。这是解耦的代价（发射方不能依赖策略插件）。这些事件只携带 `dsh-fs` 词汇加一个不透明的 `object` actor，不携带面向模型的概念，因此 seam 不沾染行窗口/观测策略类型，也不沾染 agent/会话所有者结构。
-- **单一策略占位者，按约定先到先得。** `fs/write-intent`/`fs/edit-intent` 槽位恰好容纳一个决策者；先注册（或 `prepend`）的监听器获胜，其余被短路。`dsh-fs-policy` 占据该槽位是部署约定，而非事件系统强制的不变式——一个先注册的第二决策者会绕过它。这是可接受的，因为第二个 fs 版本策略决策者是配置错误，而非功能。如果未来出现*分层* fs 版本策略的需求，那是一个新 Agent Note（可组合的值传递 seam），而非在这些事件上静默添加第二个监听器。分层的权限/审计/沙箱拦截已有其归属：`tools/execute`。
+- **单一策略占位者，按约定先到先得。** `fs/write-intent`/`fs/edit-intent` 槽位恰好容纳一个决策者；先注册（或 `prepend`）的监听器获胜，其余被短路。`dsh-fs-policy` 占据该槽位是部署约定，而非事件系统强制的不变式——一个先注册的第二决策者会绕过它。这是可接受的，因为第二个 fs 版本策略决策者是配置错误，而非功能。如果未来出现*分层* fs 版本策略的需求，那是一个新 Agent Note（可组合的值传递 waterfall），而非在这些事件上静默添加第二个监听器。分层的权限/审计/沙箱拦截已有其归属：`tools/execute`。
 - **移除读后确认 stat** 使后续*有守卫*的编辑在 read/write 竞争下偶尔为安全起见拒绝写入（`FS_STALE_VERSION` → 重新读取）。这是丢失的 UX 便利，绝非正确性漏洞；提供方锁仍阻止基于错误版本的写入。
 - **裸提供方不做先读后写/编辑，也不做版本检查。** 没有 `dsh-fs-policy` 的部署允许模型无条件覆写或编辑任何已有文件。这正是保持工具独立于策略服务的有意含义：安全纪律存在于 `dsh-fs-policy` 插件中。省略它的部署是有意选择无约束的文件系统；对于发布 fs 工具的配置而言，这不是预期的姿态。

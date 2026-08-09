@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-harness 需要面向模型的 web 工具，但不能将模型约定绑定到某一家厂商的 API 形状上。搜索是当前的压力点：从一开始就同时支持 Exa 搜索和 Perplexity 搜索——两种刻意不同的提供方形状（Exa 返回扁平的 `results[]`，每项包含 `{title, url, highlights, publishedDate}`；Perplexity 返回一段生成式回答加引用列表）——正是用来证明归一化的 seam 并非只是镜像某一家厂商。Fetch 是另一项独立能力：匿名公开 HTTP(S) fetch 后端涉及传输、安全、重定向、解码和大小限制等关注点，与提供方支撑的搜索并不相同。
+harness 需要面向模型的 web 工具，但不能将模型约定绑定到某一家厂商的 API 形状上。搜索是当前的压力点：从一开始就同时支持 Exa 搜索和 Perplexity 搜索——两种刻意不同的提供方形状（Exa 返回扁平的 `results[]`，每项包含 `{title, url, highlights, publishedDate}`；Perplexity 返回一段生成式回答加引用列表）——正是用来证明归一化的 web 约定并非只是镜像某一家厂商。Fetch 是另一项独立操作：匿名公开 HTTP(S) fetch 后端涉及传输、安全、重定向、解码和大小限制等关注点，与提供方支撑的搜索并不相同。
 
 面向模型的接口必须保持稳定，而后端可以更换。更换搜索提供方不应改变模型发起查询的方式；更换 fetch 实现不应改变模型请求 URL 的方式。反过来，提供方包也不应仅仅因为自己有额外的提供方特有旋钮就暴露自己的面向模型工具 schema。
 
@@ -38,7 +38,7 @@ Web 访问是一个一等能力 seam，遵循[能力 seam Agent Note](2026-06-13
 
 ## 包拓扑
 
-由三个包构成的接口/实现/消费方拆分沿用 bash 和 filesystem 的模式，但*接口*包更接近 LLM（大语言模型） seam。`LlmService`（`packages/llm/llm/src/index.ts`）是一个按名称键控的提供方注册表：`registerAdapter(models, adapter)` 将适配器存入 `Map`、返回 disposer、对重复键抛出 `DUPLICATE_ADAPTER`、在解析时抛出 `NO_ADAPTER`。`ctx.web` 沿用该注册表形状，但有两种能力类别和更丰富的选择策略（配置的提供方 id，或在恰好只有一个可用提供方注册时自动选择），因此执行时抛出的 `WebError` 能解释搜索或 fetch 能力为何无法运行。
+由三个包构成的 Service Definition / Service provider / Consumer 拆分沿用 bash 和 filesystem 的模式，但*接口*包更接近 LLM（大语言模型） seam。`LlmService`（`packages/llm/llm/src/index.ts`）是一个按名称键控的提供方注册表：`registerAdapter(models, adapter)` 将适配器存入 `Map`、返回 disposer、对重复键抛出 `DUPLICATE_ADAPTER`、在解析时抛出 `NO_ADAPTER`。`ctx.web` 沿用该注册表形状，但有两种能力类别和更丰富的选择策略（配置的提供方 id，或在恰好只有一个可用提供方注册时自动选择），因此执行时抛出的 `WebError` 能解释搜索或 fetch 能力为何无法运行。
 
 依赖方向与 bash 和 filesystem 一致：
 
@@ -280,7 +280,7 @@ SSRF/私有网络防护（阻断私有、回环、链路本地、多播及其他
 
 ## 测试
 
-每一层在自己的 seam 处固定：`dsh-web` 中的注册/选择/截断/abort 约定与 `WebError` 码；每个提供方基于录制的 fixture（测试前置数据）的请求/响应映射（Perplexity fixture 包含纯 URL 引用，以保持可选 source 字段的诚实性），加上每个真实提供方的自跳过带密钥冒烟测试；`web-fetch-local` 中的真实本地 HTTP 行为；`dsh-tool-web` 中通过真实工具注册表的启用驱动注册、结构化执行错误和结果格式化。一个真实 Loader 冒烟测试守护两种导出形状（[事故复盘（postmortem） 0001](../../../../docs/postmortem/0001-acp-default-export-drops-inject.md)）：`dsh-web` 是默认导出的服务，而提供方和 `tool-web` 是命名空间插件，误加 `export default` 会丢失 `inject`。
+每一层在自己的边界处固定：`dsh-web` 中的注册/选择/截断/abort 约定与 `WebError` 码；每个提供方基于录制的 fixture（测试前置数据）的请求/响应映射（Perplexity fixture 包含纯 URL 引用，以保持可选 source 字段的诚实性），加上每个真实提供方的自跳过带密钥冒烟测试；`web-fetch-local` 中的真实本地 HTTP 行为；`dsh-tool-web` 中通过真实工具注册表的启用驱动注册、结构化执行错误和结果格式化。一个真实 Loader 冒烟测试守护两种导出形状（[事故复盘（postmortem） 0001](../../../../docs/postmortem/0001-acp-default-export-drops-inject.md)）：`dsh-web` 是默认导出的服务，而提供方和 `tool-web` 是命名空间插件，误加 `export default` 会丢失 `inject`。
 
 ## 曾考虑的替代方案
 
@@ -302,7 +302,7 @@ SSRF/私有网络防护（阻断私有、回环、链路本地、多播及其他
 
 ### 将 Firecrawl/Exa/Tavily/Parallel 提取视为 fetch
 
-在第一版中否决。这些提供方通常返回提取或摘要后的内容，而非具体的 HTTP 响应。如果产品需要提取，日后设计 `web_extract` 或刻意扩展 fetch seam。
+在第一版中否决。这些提供方通常返回提取或摘要后的内容，而非具体的 HTTP 响应。如果产品需要提取，日后设计 `web_extract` 或刻意扩展 fetch 操作。
 
 ### 镜像 Claude Code 的 `url + prompt` WebFetch 形状
 

@@ -2,7 +2,7 @@
 
 [English](skills.md) | 中文
 
-[skill（技能）能力族](../../packages/skill) 包含注册表（[dsh-skill](../../packages/skill/skill)，`ctx.skills`）、本地提供方（[dsh-skill-local](../../packages/skill/skill-local)）、可选的随包徽章提供方（[dsh-skill-badge](../../packages/skill/skill-badge)）和消费方（[dsh-tool-skill](../../packages/skill/tool-skill)）。注册表合并各提供方的目录；提供方贡献本地或随包 skill；消费方拥有初始目录和替换目录，以及面向模型的 `skill` 工具。skill 是可选的指令而非会话事件，因此其词汇定义在此处而非 [core.md](core.md)。
+[skill（技能）能力族](../../packages/skill) 包含 Service Definition（[dsh-skill](../../packages/skill/skill)，`ctx.skills`）、本地 Service provider（[dsh-skill-local](../../packages/skill/skill-local)）、可选的随包徽章提供方（[dsh-skill-badge](../../packages/skill/skill-badge)）和 Consumer（[dsh-tool-skill](../../packages/skill/tool-skill)）。注册表合并各提供方的目录；提供方贡献本地或随包 skill；Consumer 拥有初始目录和替换目录，以及面向模型的 `skill` 工具。skill 是可选的指令而非会话事件，因此其词汇定义在此处而非 [core.md](core.md)。
 
 源码：[`packages/skill/skill/src/index.ts`](../../packages/skill/skill/src/index.ts)、[`packages/skill/skill-local/src/index.ts`](../../packages/skill/skill-local/src/index.ts)、[`packages/skill/skill-badge/src/index.ts`](../../packages/skill/skill-badge/src/index.ts) 与 [`packages/skill/tool-skill/src/index.ts`](../../packages/skill/tool-skill/src/index.ts)。
 
@@ -283,7 +283,7 @@ async snapshot(options: SkillLookupOptions = {}): Promise<SkillCatalogSnapshot>
 async get(name: string, options: SkillLookupOptions = {}): Promise<SkillDefinition | undefined>
 ```
 
-Source: [`packages/skill/skill/src/index.ts:304`](../../packages/skill/skill/src/index.ts)
+Source: [`packages/skill/skill/src/index.ts:305`](../../packages/skill/skill/src/index.ts)
 
 <a id="skills-events"></a>
 
@@ -306,5 +306,5 @@ A skill provider, runtime contribution, or provider-backed catalog may have chan
 'skills/change'(): void
 ```
 
-Source: [`packages/skill/skill/src/index.ts:283`](../../packages/skill/skill/src/index.ts)
+Source: [`packages/skill/skill/src/index.ts:284`](../../packages/skill/skill/src/index.ts)
 <!-- END GENERATED cordis-surface -->

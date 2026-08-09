@@ -17,7 +17,7 @@ export const inject = ['invariants']
 /**
  * No runtime invariant: mode selection changes capture handoff, SDK setup, and
  * local diagnostics without mutating session or service state an independent
- * companion can compare. Export remains inside the SDK past the seam boundary.
+ * companion can compare. Export remains inside the SDK past the backend boundary.
  */
 const install: InvariantInstaller = () => {}
 

@@ -24,7 +24,7 @@ Status: implemented
 ```text
 tool          dsh-tool-fs       model-facing schemas + read windowing + text rendering; the EXECUTOR (reads/writes/edits via ctx.fs, dispatches the fs/* events)
 policy        dsh-fs-policy  observed-state + read-before-edit + write/edit freshness, contributed through the fs/* event gate (no service)
-provider seam dsh-fs            ctx.fs: text IO + atomic mutation primitives (optional version guard)
+provider contract dsh-fs            ctx.fs: text IO + atomic mutation primitives (optional version guard)
 provider      dsh-fs-local      local implementation of ctx.fs
 ```
 
@@ -61,7 +61,7 @@ type FsWriteIntent =
 
 `writeText` 通过临时文件 + rename 实现原子写入，并带有显式的写入期望。`createIfAbsent` 创建不存在的目标，对已存在的目标以 `FS_NOT_OBSERVED` 拒绝；这是 owner 没有先前读取时使用的路径。`replaceIfVersion` 仅在目标以观测到的版本存在时替换；目标不存在或版本不匹配时抛出 `FS_STALE_VERSION`。
 
-`editText` 是提供方级别的受保护文本变更。启用守卫时，它首先验证目标仍以 `expected.version` 存在，然后读取当前文本、应用字面替换并原子写入。陈旧检查必须在字面匹配之前发生，这样基于旧读取的编辑会报告 `FS_STALE_VERSION`，而不是对更新内容进行匹配后报告 `FS_EDIT_NOT_FOUND` 或 `FS_AMBIGUOUS_EDIT`。将此原语保留在提供方 seam 上，保持了后端本地锁定的能力，也让未来的远程后端能够实现原生的 compare-and-edit，而无需策略层拉取整个文件。
+`editText` 是提供方级别的受保护文本变更。启用守卫时，它首先验证目标仍以 `expected.version` 存在，然后读取当前文本、应用字面替换并原子写入。陈旧检查必须在字面匹配之前发生，这样基于旧读取的编辑会报告 `FS_STALE_VERSION`，而不是对更新内容进行匹配后报告 `FS_EDIT_NOT_FOUND` 或 `FS_AMBIGUOUS_EDIT`。将此原语保留在提供方约定上，保持了后端本地锁定的能力，也让未来的远程后端能够实现原生的 compare-and-edit，而无需策略层拉取整个文件。
 
 这是一个*文本存储* seam，刻意比字节级 fsspec（`cat`/`open` 返回原始字节）高半个层次。UTF-8 解码、二进制/NUL 拒绝、受保护的全文件写入和受保护的字面文本编辑都在提供方内完成，因此策略层从不接触原始字节、不重新实现跨分片解码、也不将陈旧检查与变更临界区分离。面向模型的概念仍然不下沉到提供方：行窗口、带行号的行、渲染的页脚、观测状态存储都不会泄漏下去。
 
@@ -105,7 +105,7 @@ type FsWriteIntent =
 - 文本读取不再返回后端编号的行记录或 `full`/`partial` 视图；授权基于版本新鲜度，因此窗口化读取在文件未变时即可授权编辑。
 - 字面编辑不再位于旧的 `applyEdit` API 之后（该 API 混合了后端变更与 seam 拥有的观测策略）。它作为 `editText` 保留为提供方原语，因为版本守卫 + 字面匹配 + 原子重写必须留在提供方的变更临界区内。
 
-保留的内容：接口/实现/消费方纪律、消费方不导入后端规则、后端定义的 target/version/display 元数据、原子本地写入，以及共享的 `FsError` 分类体系。
+保留的内容：Service Definition / Service provider / Consumer 纪律、消费方不导入后端规则、后端定义的 target/version/display 元数据、原子本地写入，以及共享的 `FsError` 分类体系。
 
 ## 验证
 
@@ -123,8 +123,8 @@ type FsWriteIntent =
 
 ## 后果
 
-- 新增第四个 fs 包和一个新的插件层。这是有意为之：它是此前推迟的策略层，而非第二个抽象后端 seam。
+- 新增第四个 fs 包和一个新的插件层。这是有意为之：它是此前推迟的策略层，而非第二个抽象后端约定。
 - 直接使用 `ctx.fs` 会绕过策略：直接 `ctx.fs.readText` 不发出 `fs/observed`，因此在默认策略下，后续 `edit` 会以 `FS_NOT_OBSERVED` 拒绝，直到通过 `read` 工具读取该文件。这一失败是显式且有文档记录的。
 - 大文件行窗口化从后端移至 `dsh-tool-fs` 中的 `read` 工具；文本解码和二进制拒绝留在 `ctx.fs.streamText` 中，因此这只是窗口化逻辑的迁移，而非第二套文本 IO 实现。
-- 将 `editText` 保留在提供方 seam 上意味着每个后端都必须实现字面替换约定。这是有意为之：该操作不是纯存储，但陈旧守卫 + 字面匹配 + 原子重写是必须保持在一起的单元，以确保正确的错误归因和并发行为。该约定应保持窄且仅限文本，以便未来后端可以原生实现或通过全文件重写实现。
+- 将 `editText` 保留在提供方约定上意味着每个后端都必须实现字面替换约定。这是有意为之：该操作不是纯存储，但陈旧守卫 + 字面匹配 + 原子重写是必须保持在一起的单元，以确保正确的错误归因和并发行为。该约定应保持窄且仅限文本，以便未来后端可以原生实现或通过全文件重写实现。
 - 新鲜度允许在窗口化读取后进行全文件 `write`。这比旧的视图检查更弱，但避免了大文件无法编辑的问题；提示词引导仍然不鼓励盲目的全文件替换。

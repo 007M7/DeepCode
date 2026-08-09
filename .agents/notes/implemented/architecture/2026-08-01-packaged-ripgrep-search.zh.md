@@ -22,7 +22,7 @@ Status: implemented
 
 **保留 bash seam 与探针，仅把 `rg` 记为必需宿主依赖。** 否决：宿主依赖正是本次改动要消除的失败模式，而让发现工具支持 Windows 正是此举的目的；写进文档的依赖仍是依赖。
 
-**让 `rgPath` 可注入（配置字段或环境变量覆盖），让测试与快照继续替换替身二进制。** 否决：这会新增一个只有测试 seam 会消费的公开部署面，而真实二进制本身足够确定——通过 fixture mtime 即可直接钉住；打包二进制就是部署形态，测试应当拿它来测。
+**让 `rgPath` 可注入（配置字段或环境变量覆盖），让测试与快照继续替换替身二进制。** 否决：这会新增一个只有测试钩子会消费的公开部署面，而真实二进制本身足够确定——通过 fixture mtime 即可直接钉住；打包二进制就是部署形态，测试应当拿它来测。
 
 **改用纯 JS 的 glob/搜索引擎（如 `picomatch`/`tinyglobby`）。** 否决：[依赖替换审计](../../rejected/simplification/2026-07-26-dependency-swaps-rejected-by-nih-audit.md) 已基于"不存在 glob 引擎"的证据否决过该方向；ripgrep 语义（`--sort=modified`、VCS 剪枝、JSON 传输、正则方言）就是工具约定。
 

@@ -226,7 +226,7 @@ After post-execute or outer pipeline normalization, the registry losslessly snap
 
 SystemPrompt first resolves the global-plus-agent sections, variables, and tool providers into a deterministic registry contribution. The scope-filtered `system-prompt/assemble` waterfall may then reorder, replace, add, or remove any section, variable, or schema. Its returned assembly is authoritative; there is no later restoration pass and no finality metadata on ordinary prompt sections, tool definitions, or provider results.
 
-This is a trusted same-process extension seam, not an authority boundary. A listener that changes Code Mode's `run_code` schema or `tools:sdk` instructions, or a structured child's capture schema or instruction, owns preserving a coherent protocol in the assembly it returns. ToolRegistry still reserves `run_code` against ordinary tool registration and restriction because those are registry invariants, but assembly middleware remains free to transform the final model-visible surface.
+This is a trusted same-process extension point, not an authority boundary. A listener that changes Code Mode's `run_code` schema or `tools:sdk` instructions, or a structured child's capture schema or instruction, owns preserving a coherent protocol in the assembly it returns. ToolRegistry still reserves `run_code` against ordinary tool registration and restriction because those are registry invariants, but assembly middleware remains free to transform the final model-visible surface.
 
 Scope solves the real isolation problem directly. Structured-output contributions register in the child's exact scope, while Code Mode derives its transport and SDK from the same resolved tool view. A second named-protection system would need another ownership and collision rule across arbitrary schema providers—including providers that intentionally contribute duplicate names—without creating a new trust boundary.
 
@@ -360,7 +360,7 @@ This splits provider acceptance from publication and forces every consumer to re
 
 ### Restore selected prompt or tool contributions after assembly
 
-A post-waterfall restoration pass would create a second composition rule after the documented cooperative seam. Correctly assigning canonical presence or absence would also require provider ownership and collision rules for arbitrary tool-schema providers, whose ordinary output may contain duplicate names. Scoped registration already supplies the required per-agent isolation, and trusted assembly listeners own the protocol consistency of what they return, so named restoration adds machinery without establishing an independent boundary.
+A post-waterfall restoration pass would create a second composition rule after the documented cooperative waterfall. Correctly assigning canonical presence or absence would also require provider ownership and collision rules for arbitrary tool-schema providers, whose ordinary output may contain duplicate names. Scoped registration already supplies the required per-agent isolation, and trusted assembly listeners own the protocol consistency of what they return, so named restoration adds machinery without establishing an independent boundary.
 
 ### Remove worker/process lifecycle guards with same-process hardening
 

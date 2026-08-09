@@ -4,7 +4,7 @@ Status: implemented
 
 English | [中文](2026-07-26-code-dispatch-ui-foundation.zh.md)
 
-> Scope: the host-side contract changes that let a UI render a Code Mode turn with the same fidelity as native tool calls — the first PR of the Code Mode web-UI stack. The [Code Mode foundation](2026-06-15-code-mode.md) owns the transport design; this note owns the model-visible `description` parameter, the full-content `tool/code-dispatch` payload, and the temporary `DSH_TOOLS_MODE` enablement seam for the `dsh` config tree.
+> Scope: the host-side contract changes that let a UI render a Code Mode turn with the same fidelity as native tool calls — the first PR of the Code Mode web-UI stack. The [Code Mode foundation](2026-06-15-code-mode.md) owns the transport design; this note owns the model-visible `description` parameter, the full-content `tool/code-dispatch` payload, and the temporary `DSH_TOOLS_MODE` enablement switch for the `dsh` config tree.
 
 ## Problem
 
@@ -16,7 +16,7 @@ Three changes, one per obstacle:
 
 1. **`run_code` gains a required `description` parameter** (bash's exact contract: active voice, 5-10 words, shown in the UI; whitespace-only rejected at execute). `presentCall` now titles the card with the description and moves the program to `rawInput`. The prompt-side cost is a few tokens per call; the return is that every surface — TUI card, ACP title, web row — gets a human-readable label without parsing TypeScript.
 2. **`tool/code-dispatch` logs the sub-call's complete model-facing outcome** — `content: ContentBlock[]` + `isError`, the `tool/result` vocabulary — replacing `resultSummary` and deleting the summarize/cwd-normalization machinery outright. A UI renders a sub-call through the identical code path as a native result, including error text and non-text blocks. The event stays log-only (`deriveMessages()` ignores it): nothing about model context changes.
-3. **`DSH_TOOLS_MODE` env var on the `dsh` config tree** (`native`|`code`|`both`; unset keeps the schema default): the `tools` row reads it via `!!js`, and the worker code runtime is mounted unconditionally (Loader metadata is static, so no conditional row exists; a native boot only registers the service — workers spawn per run). This is an explicitly temporary seam: per-session tool-mode selection owned by the web UI is the design goal, and the env var dies when that lands.
+3. **`DSH_TOOLS_MODE` env var on the `dsh` config tree** (`native`|`code`|`both`; unset keeps the schema default): the `tools` row reads it via `!!js`, and the worker code runtime is mounted unconditionally (Loader metadata is static, so no conditional row exists; a native boot only registers the service — workers spawn per run). This is an explicitly temporary configuration hook: per-session tool-mode selection owned by the web UI is the design goal, and the env var dies when that lands.
 
 ## Alternatives considered
 

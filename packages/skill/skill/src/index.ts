@@ -1,7 +1,8 @@
 /**
  * Agent skill provider registry.
  *
- * This package is the interface third of the skill capability seam. Concrete
+ * This package owns the Service Definition role of the skill capability seam.
+ * Concrete
  * providers such as `@deepseek-ai/dsh-skill-local` decide where skills come
  * from; this service only merges provider catalogs, resolves the winning skill
  * for a name, and exposes the winning summaries and definitions to consumers.

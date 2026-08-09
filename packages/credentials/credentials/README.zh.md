@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-抽象凭据 seam（`ctx.credentials`）。一条准则，三个推论：
+凭据 Service Definition（`ctx.credentials`）。一条准则，三个推论：
 
 **配置只携带对机密的引用，绝不携带机密本身。** settings 分节或 `cordis.yml` 条目写 `apiKeyEnv: DEEPSEEK_API_KEY`，引用背后的值归凭据提供方所有。于是设置文档可以放心同步、放心渲染进配置界面；`describe()` 无需持有值就能回答「配置了吗、来自哪层、能否写入」；轮换机密不触碰任何配置文件。
 

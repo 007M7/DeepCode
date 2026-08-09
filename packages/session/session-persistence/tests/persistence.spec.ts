@@ -1279,7 +1279,7 @@ describe('PersistenceCoordinator observation cancellation', () => {
       }
       const suffix = await coordinator.readFrom(id, 3)
       expect(suffix.events).toEqual(log.slice(3))
-      // The hook's undefined is the seam's not-found.
+      // The hook's `undefined` is the backend contract's not-found result.
       await expect(coordinator.readFrom(SessionId('missing-seek'), 0)).rejects.toThrow('not found')
 
       // A hook failure with no cancellation in play propagates as-is.

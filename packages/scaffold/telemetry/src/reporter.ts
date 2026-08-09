@@ -45,7 +45,7 @@ interface TelemetryEnvelope extends TelemetryPayload {
   sentAt: string
 }
 
-/** Injectable seams for {@link TelemetryReporter}; every field has a default. */
+/** Injectable dependencies for {@link TelemetryReporter}; every field has a default. */
 export interface TelemetryReporterOptions {
   /** Collection endpoint; defaults to {@link DSH_TELEMETRY_ENDPOINT}. */
   endpoint?: string
@@ -71,7 +71,7 @@ export class TelemetryReporter {
   readonly #now: () => number
   readonly #inflight = new Set<Promise<DeliveryOutcome>>()
 
-  /** @param options - endpoint, transport, id provider, and timing seams. */
+  /** @param options - endpoint, transport, id provider, and timing dependencies. */
   constructor(options: TelemetryReporterOptions = {}) {
     this.#endpoint = options.endpoint ?? DSH_TELEMETRY_ENDPOINT
     this.#fetch = options.fetch ?? globalThis.fetch

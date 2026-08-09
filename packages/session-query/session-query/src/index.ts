@@ -1,5 +1,5 @@
 /**
- * Combined session-history reads, traces, filters, and full-text search seam.
+ * Service Definition for combined session-history reads, traces, filters, and full-text search.
  *
  * @module @deepseek-ai/dsh-session-query
  */

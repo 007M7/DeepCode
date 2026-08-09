@@ -2,7 +2,7 @@
  * The model-facing `web_fetch` tool. This module owns its schema, validation, and presentation;
  * `ctx.web` owns retrieval. Timeout is deployment policy, not a model argument: config becomes
  * `ToolDefinition.timeoutMs`, timeout policy enforces it, and this tool forwards the resulting
- * signal. A provider timeout remains a backstop for direct seam callers.
+ * signal. A provider timeout remains a backstop for direct service callers.
  */
 
 import type { Context } from 'cordis'

@@ -60,7 +60,7 @@ function assertNever(value: never): never {
 /**
  * Open the modern Win32 folder picker off the event loop.
  * @param signal - caller lifetime; abort closes the dialog and rejects.
- * @param internals - worker/window seams for deterministic tests.
+ * @param internals - Worker/window hooks for deterministic tests.
  * @returns the selected path, or null when the user cancels.
  */
 export async function pickWin32Directory(

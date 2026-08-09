@@ -39,7 +39,7 @@ Status: implemented
 ## 后果
 
 - 每个由注册表构建的组装在任何宿主上都以确定性工具顺序开始；在没有专家监听器刻意改变的情况下，每个 `request/header` 事件和模型请求都继承该顺序。CI 与本地之间的注册顺序翻转从结构上被消除，默认为字典序。
-- 初始 `PromptAssembly.tools` 是权威的，因此 waterfall 监听器从模型侧顺序开始；提供方注册顺序在该协作 seam 之前无处可观测。
+- 初始 `PromptAssembly.tools` 是权威的，因此 waterfall 监听器从模型侧顺序开始；提供方注册顺序在该协作扩展点之前无处可观测。
 - 快照套件中唯一锁定请求头的 fixture（`text-turn`）携带新的权威工具顺序；按照锁定请求头的设计，其他 ACP 快照仍将大段 header 替换为 `{{system}}`/`{{tools}}`。
 - 步骤之间的纯工具重排与其他 header 变更一样记录：一份原因是 `'change'` 的完整 `request/header` 快照。稳定的权威顺序会防止注册时序在普通路径上制造这类变化。
 - `toolOrder` 键沿 app → `agent-core` → `SystemPrompt` 的转发链传递，因此部署时将其放在 app 配置中 `persona` 旁边即可；`dsh-llm` 和 agent loop 无需改动。

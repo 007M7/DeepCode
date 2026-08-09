@@ -4,7 +4,7 @@
 // a route keeps deriving from its own log — the tier order the gateway
 // resolves on every read.
 // Zero model calls: the switch is settings/llm-domain traffic only, so there
-// is no fixture and a stray stream would fail loud on the open seam. Both
+// is no fixture and a stray stream would fail loud because the adapter registry is empty. Both
 // routes are declared host-side (not through the UI, which has its own
 // scenario) through the pi-ai adapter the shipped tree already mounts: a
 // fixture-less scaffold registers no adapter at all, so the routes the

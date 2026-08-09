@@ -625,7 +625,7 @@ export interface Config {
 需要：`agents`
 
 ```ts config-catalog
-/** JSON-RPC deployment config plus runtime-only test seams. */
+/** JSON-RPC deployment config plus runtime-only test hooks. */
 export interface JsonRpcConfig {
   /** Report max-token turn/subagent termination as a successful SDK result. */
   maxTokensAsSuccess?: boolean
@@ -1517,7 +1517,7 @@ export interface Config {
 }
 ```
 
-来源：[`packages/skill/skill/src/index.ts:265`](../packages/skill/skill/src/index.ts)
+来源：[`packages/skill/skill/src/index.ts:266`](../packages/skill/skill/src/index.ts)
 
 ## `@deepseek-ai/dsh-skill-local`
 

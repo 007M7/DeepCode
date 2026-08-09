@@ -1,5 +1,5 @@
 /**
- * Model-facing `bash` tool over the `ctx.bash` executor seam. Background calls
+ * Model-facing Consumer of the `ctx.bash` capability seam. Background calls
  * register process handles with `ctx.tasks`; their work uses task cancellation
  * rather than the tool-call signal after an id is returned.
  *
@@ -155,7 +155,7 @@ function resolveWorkdir(
   return modelWorkdir
 }
 
-/** Detach the executor DTO from readonly seam interfaces into plain JSON data. */
+/** Detach the executor DTO from readonly Service Definition types into plain JSON data. */
 function canonicalBashResult(result: BashRunResult) {
   const output = (stream: BashRunResult['stdout']) => ({
     text: stream.text,

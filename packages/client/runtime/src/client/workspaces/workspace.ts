@@ -59,7 +59,7 @@ export class Workspace implements ObservableSnapshot<WorkspaceSnapshot> {
   }
 
   /**
-   * Materialize this local Workspace through the Host create seam.
+   * Materialize this local Workspace through the Host create API.
    * Re-entry shares the in-flight completion; a materialized instance returns undefined.
    * @returns the Host result, or undefined when this Workspace is already materialized.
    */

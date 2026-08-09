@@ -35,7 +35,7 @@ Status: implemented
 
 pi-ai 把没有推理元数据的模型报告为只支持 `off` 一档，而适配器此前原样透传。它抵达 seam 时是一个单元素的 effort 列表，任何界面都会把它渲染成一个只有一项可选控件的选择器——而这个控件在撒谎：`off` 在派发时变成被*省略*的 reasoning 选项，与「不点名任何档位」产出的请求逐字节相同。自身默认就在思考的提供方会继续思考，界面却显示 `off` 已选中。
 
-因此只要 `model.reasoning` 为假，`reasoningInfo` 就省略 seam 的 `reasoning` 字段。判据是模型自身的元数据，而非模型的来源，所以它覆盖条目未声明 `reasoningEfforts` 的每一个手工声明模型（[[2026-08-08-pi-ai-per-model-reasoning-declarations]] 让声明的档位携带这份元数据）**以及** pi-ai 标记为不具备推理能力的那 251 个已安装 catalog 模型。它们此前提供那个孤零零的 `off`，现在什么也不提供，界面只剩提供方默认。携带推理元数据的模型不受影响——其档位列表仍不经筛选地穿过 seam、`off` 也在内，因为在那里它是在真实备选之间做选择。
+因此只要 `model.reasoning` 为假，`reasoningInfo` 就省略 Service Definition 的 `reasoning` 字段。判据是模型自身的元数据，而非模型的来源，所以它覆盖条目未声明 `reasoningEfforts` 的每一个手工声明模型（[[2026-08-08-pi-ai-per-model-reasoning-declarations]] 让声明的档位携带这份元数据）**以及** pi-ai 标记为不具备推理能力的那 251 个已安装 catalog 模型。它们此前提供那个孤零零的 `off`，现在什么也不提供，界面只剩提供方默认。携带推理元数据的模型不受影响——其档位列表仍不经筛选地穿过 seam、`off` 也在内，因为在那里它是在真实备选之间做选择。
 
 ### 凭据留在 pi-ai 之外
 

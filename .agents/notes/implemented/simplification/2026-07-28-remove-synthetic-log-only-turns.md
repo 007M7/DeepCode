@@ -10,7 +10,7 @@ The session store exposed `appendOutOfBand()` so a plugin could publish a late l
 
 That rule was introduced when persistence recovery treated the last `turn/end` as the only committed boundary. The persistence scanners now preserve every valid contiguous event, and crash repair reacts only to an actually open turn. Retaining synthetic turns for title updates therefore inflated turn counts, produced execution outcomes for work that never ran the model, and let a late metadata write consume the next turn number.
 
-The generic seam also duplicated domain policy. Its marker map said which plugin events were eligible, while the title capability already owned cancellation, liveness, and stale-result rules. Replacing it with another generic or title-specific append wrapper would preserve the same type indirection for two literal event types.
+The generic helper also duplicated domain policy. Its marker map said which plugin events were eligible, while the title capability already owned cancellation, liveness, and stale-result rules. Replacing it with another generic or title-specific append wrapper would preserve the same type indirection for two literal event types.
 
 ## Decision
 
