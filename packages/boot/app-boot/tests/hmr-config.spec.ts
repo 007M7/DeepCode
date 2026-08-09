@@ -42,7 +42,8 @@ describe('HMR exact config paths', () => {
       for (let generation = 1; !observed.includes(expected); generation += 1) {
         if (Date.now() >= deadline) throw new Error('HMR did not observe a module change through the alias')
         writeFileSync(filename, `export const generation = ${generation}\n`)
-        await new Promise(resolve => setTimeout(resolve, 20))
+        // Leave Chokidar's atomic-write window idle so one coalesced change can publish.
+        await new Promise(resolve => setTimeout(resolve, 250))
       }
       expect(cacheHas).toHaveBeenCalledWith(expected)
     } finally {
