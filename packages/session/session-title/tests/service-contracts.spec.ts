@@ -436,12 +436,12 @@ describe('SessionTitleService provider validation and stale scheduling', () => {
       { value: { title: 'valid', messageSeqs: [999] }, error: /unique, ordered seqs/ },
       { value: { title: 'valid', messageSeqs: [first.seq, first.seq] }, error: /unique, ordered seqs/ },
       { value: { title: 'valid', messageSeqs: [second.seq, first.seq] }, error: /unique, ordered seqs/ },
-      { value: { title: 'valid', messageSeqs: [first.seq], model: null }, error: /model provenance/ },
-      { value: { title: 'valid', messageSeqs: [first.seq], model: 'route' }, error: /model provenance/ },
-      { value: { title: 'valid', messageSeqs: [first.seq], model: { provider: 1, model: 'm' } }, error: /model provenance/ },
-      { value: { title: 'valid', messageSeqs: [first.seq], model: { provider: '', model: 'm' } }, error: /model provenance/ },
-      { value: { title: 'valid', messageSeqs: [first.seq], model: { provider: 'p', model: 1 } }, error: /model provenance/ },
-      { value: { title: 'valid', messageSeqs: [first.seq], model: { provider: 'p', model: '' } }, error: /model provenance/ },
+      { value: { title: 'valid', messageSeqs: [first.seq], model: null }, error: /provider result model/ },
+      { value: { title: 'valid', messageSeqs: [first.seq], model: 'route' }, error: /provider result model/ },
+      { value: { title: 'valid', messageSeqs: [first.seq], model: { provider: 1, model: 'm' } }, error: /provider result model/ },
+      { value: { title: 'valid', messageSeqs: [first.seq], model: { provider: '', model: 'm' } }, error: /provider result model/ },
+      { value: { title: 'valid', messageSeqs: [first.seq], model: { provider: 'p', model: 1 } }, error: /provider result model/ },
+      { value: { title: 'valid', messageSeqs: [first.seq], model: { provider: 'p', model: '' } }, error: /provider result model/ },
     ]
     for (const item of cases) {
       result = item.value

@@ -1,8 +1,8 @@
 # Agent Note: Workspace UI 完整产品动线
 
-[English](2026-07-25-workspace-ui-product-flow.md) | 中文
-
 Status: implemented
+
+[English](2026-07-25-workspace-ui-product-flow.md) | 中文
 
 ## Problem
 
@@ -25,11 +25,11 @@ Host 在 Workspace entity 上提供以下 GUI 接线：
 | `session.create({ workspaceId, sessionId? })` | 从 Workspace 解析 cwd，以可选预分配 id 幂等创建 Session 并 attach |
 | `session.create({ cwd })` | 保留给非 Workspace 调用方，创建 Ungrouped Session |
 
-`workspaceRoot` 是独立 Host 配置，未配置时回退到 Host cwd；它与保存 Workspace domain 数据的 `storageRoot` 无关。Host stream 推送 Workspace 与 Session 增量，包括 `host/workspace-removed`；Client 重连后分别刷新 `workspace.list` 与 `session.list` 基线。删除注册记录的所有权与安全边界由 [Workspace 注册记录删除 Agent Note](2026-07-27-workspace-registration-deletion.md)定义。
+`workspaceRoot` 是独立 Host 配置，未配置时回退到 Host cwd；它与保存 Workspace domain 数据的 `storageRoot` 无关。Host 流推送 Workspace 与 Session 增量，包括 `host/workspace-removed`；Client 重连后分别刷新 `workspace.list` 与 `session.list` 基线。删除注册记录的所有权与安全边界由 [Workspace 注册记录删除 Agent Note](2026-07-27-workspace-registration-deletion.md)定义。
 
-Workspace 的 `sessionIds` 是有序候选索引。成员投影同时要求 id 位于索引且对应 `SessionHeader.cwd` canonical 后等于 Workspace path；SessionHeader 不增加 `workspaceId`。cwd 匹配但未入索引的 Session 保持 Ungrouped，索引命中但 header 缺失、cwd 无效或 cwd 不匹配的 id 被过滤。同一 Session 被两个 Workspace 索引占用属于损坏状态并 fail loud。
+Workspace 的 `sessionIds` 是有序候选索引。成员投影同时要求 id 位于索引且对应 `SessionHeader.cwd` canonical 后等于 Workspace path；SessionHeader 不增加 `workspaceId`。cwd 匹配但未入索引的 Session 保持 Ungrouped，索引命中但 header 缺失、cwd 无效或 cwd 不匹配的 id 被过滤。同一 Session 被两个 Workspace 索引占用属于损坏状态并明确报错。
 
-Workspace domain 以 durable marker 区分“从未初始化”和“已初始化但为空”。marker 未设置时，Registry 只调用 `SessionPersistence.list()` 读取 header 元数据，不调用 `load`、`inspect`、history 或解析事件正文；有效 cwd 按 canonical path 分组，组内 Session 与 Workspace 组均按 header `createdAt` 降序初始化。Bootstrap 可重入，最后才写 marker；marker 写入后，绕过 `workspaceId` 的新 Session 不再被自动收编。
+Workspace domain 以 durable marker 区分「从未初始化」和「已初始化但为空」。marker 未设置时，注册表只调用 `SessionPersistence.list()` 读取 header 元数据，既不调用 `load` 或 `inspect`，也不读取历史数据或解析事件正文；有效 cwd 按 canonical path 分组，组内 Session 与 Workspace 组均按 header `createdAt` 降序初始化。Bootstrap 可重入，最后才写 marker；marker 写入后，绕过 `workspaceId` 的新 Session 不再被自动收编。
 
 ### Client 对象模型
 
@@ -56,15 +56,15 @@ Session 自己持有首条输入并驱动一条内部流水线：必要时以预
 
 ### 首次发送与恢复
 
-前端 Session 的 `pendingPrompt` 在 Host 接受消息前始终保留原文。首次发送按 Workspace materialize、Session attach、prompt send 顺序推进：
+前端 Session 的 `pendingPrompt` 在 Host 接受消息前始终保留原文。首次发送按 Workspace materialize、Session attach、提示词发送顺序推进：
 
 1. Workspace 创建失败时，Workspace Intent 保留输入与错误，Session 仍指向该对象。
 2. Session 创建在发布前失败时，Session Intent 回到可编辑状态，以同一预分配 SessionId 重试。
-3. `workspace-attach-failed` 证明 Session 已发布；同一 Session 对象进入真实列表并保留 prompt，后续重试 attach。
-4. prompt 失败时，Session 保留 prompt 并只重试 send，不重复创建 Workspace 或 Session。
-5. Session 创建期间若页面切换到另一个 Intent，旧 Session 即使随后发布也不自动发送；它保留原 prompt 和可见错误。
+3. `workspace-attach-failed` 证明 Session 已发布；同一 Session 对象进入真实列表并保留提示词，后续重试 attach。
+4. 提示词发送失败时，Session 保留提示词并只重试发送，不重复创建 Workspace 或 Session。
+5. Session 创建期间若页面切换到另一个 Intent，旧 Session 即使随后发布也不自动发送；它保留原提示词和可见错误。
 
-RPC lost response、Host frame 先于 completion 和 completion 先于 Host frame 都通过预分配 SessionId 与对象身份收敛。Manager 对 Host view 做有序 upsert，本地 materialize 时优先保留原对象身份，不生成同 id 的临时第二行。
+RPC 响应丢失、Host frame 先于 completion 和 completion 先于 Host frame 都通过预分配 SessionId 与对象身份收敛。Manager 对 Host view 做有序 upsert，本地 materialize 时优先保留原对象身份，不生成同 id 的临时第二行。
 
 ### Sidebar 与排序
 
@@ -72,7 +72,7 @@ Workspace 组严格使用 Host 返回的持久顺序。Bootstrap 一次性确定
 
 组内严格使用 `Workspace.sessionIds`。新 attach 的 Session 放在首位，后续某个 Session 活跃时 Host 只前移该 id 并持久化。Client 不在 Session list 到达后按时间整体重排，因此不会先显示一套 Workspace 顺序再因 hydration 瞬间跳动。
 
-前端 Session Intent 只有在目标是真实 Workspace 时才作为 “New session” 行显示，并临时计入该组 Session 数量；目标是 Workspace Intent 时，Workspace 与 Session 都不进入 sidebar。Intent 发布后由同一预分配 id 对应的真实行接替，刷新后 Intent 行和临时计数一起消失。搜索模式不保存或筛选 Intent 行。
+前端 Session Intent 只有在目标是真实 Workspace 时才作为 「New session」 行显示，并临时计入该组 Session 数量；目标是 Workspace Intent 时，Workspace 与 Session 都不进入 sidebar。Intent 发布后由同一预分配 id 对应的真实行接替，刷新后 Intent 行和临时计数一起消失。搜索模式不保存或筛选 Intent 行。
 
 无法归入任何 Workspace 的真实 Session 进入 Ungrouped。Host `session-added` 与 `workspace-changed` 可以任意顺序到达，列表合并不依赖 frame 顺序。
 
@@ -80,19 +80,19 @@ Workspace 组严格使用 Host 返回的持久顺序。Bootstrap 一次性确定
 
 ### React 与 slot 边界
 
-React 组件只消费 `useSessions`、`useWorkspaces` 与 session-scoped hooks，不拥有实体生命周期。Zustand store 只保留布局、当前 view、普通真实 Session 的 composer 文本和其他纯呈现状态；Session/Workspace Intent、materialize phase、错误和 retained prompt 位于 React-free runtime 对象层。
+React 组件只消费 `useSessions`、`useWorkspaces` 与 session-scoped 钩子，不拥有实体生命周期。Zustand store 只保留布局、当前 view、普通真实 Session 的 composer 文本和其他纯呈现状态；Session/Workspace Intent、materialize phase、错误和 retained prompt 位于 React-free 运行时对象层。
 
-Sidebar 与 conversation empty hero 通过 slot 获得标准化动作：`startSession`、`updateSessionPrompt`、`sendSession`、`open` 与 `toggleSidebar`。Workspace picker 复用同一组件与 `createWorkspace` seam；owner 只提供 popover 开关、锚点和选中回调。呈现层不直接发送 `host/workspace-changed`，Host event 只由 Host mutation 与 stream adapter 产生。
+Sidebar 与 conversation empty hero 通过 slot 获得标准化动作：`startSession`、`updateSessionPrompt`、`sendSession`、`open` 与 `toggleSidebar`。Workspace picker 复用同一组件与 `createWorkspace` 动作；owner 只提供 popover 开关、锚点和选中回调。呈现层不直接发送 `host/workspace-changed`，Host 事件只由 Host mutation 与流适配器产生。
 
 ## Alternatives considered
 
 **为待创建 Workspace 与 Session 保存独立页面记录。** 该方案在 materialize 后需要替换身份并转交输入、错误、焦点和 sidebar 行；对象自身的 Intent 状态可以保持身份连续。
 
-**由呈现层或 root Zustand store 编排对象生命周期。** 该方案会重复 Manager/Service 的职责，并把领域状态带回 React。标准化动作由 runtime service 提供，slot 只注入呈现所需的窄接口。
+**由呈现层或 root Zustand store 编排对象生命周期。** 该方案会重复 Manager 与服务的职责，并把领域状态带回 React。标准化动作由 runtime service 提供，slot 只注入呈现所需的窄接口。
 
-**零态立即创建 Host Session 或 Host persistence intent。** 未输入页面会进入 Host 生命周期，并改变刷新语义；前端 Session 在首次发送前只保留 page-local Intent。
+**零态立即创建 Host Session 或 Host 持久化 Intent。** 未输入页面会进入 Host 生命周期，并改变刷新语义；前端 Session 在首次发送前只保留 page-local Intent。
 
-**显式 Create Workspace 延迟到首次发送。** 用户确认后 sidebar 仍看不到真实空 Workspace，“创建 Workspace”与“准备 Session”语义混合；只有系统自动产生的零 Workspace Intent 延迟 materialize。
+**显式 Create Workspace 延迟到首次发送。** 用户确认后 sidebar 仍看不到真实空 Workspace，「创建 Workspace」与「准备 Session」语义混合；只有系统自动产生的零 Workspace Intent 延迟 materialize。
 
 **持续按 cwd 动态派生 Workspace。** 该方案无法表达空 Workspace、稳定显示名和显式顺序，也会自动收编非 Workspace 调用方；cwd 只用于一次历史 bootstrap 与成员双向校验。
 
@@ -104,7 +104,7 @@ Sidebar 与 conversation empty hero 通过 slot 获得标准化动作：`startSe
 
 - 完全无 Workspace 的零态不写 Host 且允许输入；显式 Create Workspace 立即创建并显示空 Workspace。
 - 前端 Session 与 Workspace 在 materialize 前后保持对象身份，输入、错误、焦点和 sidebar 投影始终来自对象层。
-- 首发按 Workspace、Session、prompt 顺序推进，各成功阶段不回滚，输入在 prompt 接受前不丢失，创建重试使用同一 SessionId。
+- 首发按 Workspace、Session、提示词顺序推进，各成功阶段不回滚，输入在提示词被接受前不丢失，创建重试使用同一 SessionId。
 - Workspace list 只读取 header 完成一次可重入 bootstrap；initialized 的空 registry 重启不重复初始化，成员读取同时校验索引与 canonical cwd。
 - 初始默认目标只在两份基线 ready 后确定一次；Workspace 组不因 hydration 或 Session 活跃整体重排，单个活跃 Session 只前移自身。
 - 真实 Workspace 下的前端 Session 临时计入 sidebar 数量，Workspace Intent 保持隐藏，发布与刷新都不会留下重复行或重复计数。

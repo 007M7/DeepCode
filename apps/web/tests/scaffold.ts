@@ -154,7 +154,7 @@ export interface WebScaffold {
   mode: WebSnapshotMode
   /** Browser-facing origin for the bound test server. */
   baseUrl: string
-  /** Settled root context (the in-process barrier seam; headless event subscription is its sanctioned use). */
+  /** Settled root context (the in-process readiness barrier; headless event subscription is its sanctioned use). */
   ctx: Context
   /** Temp project directory sessions run in (bash/fs tool cwd). */
   workspaceCwd: string

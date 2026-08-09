@@ -20,7 +20,7 @@ The pointer surface is the column, not the list. A pointer heading for the bar c
 
 `transparent` is what makes the reveal free of layout. `scrollbar-gutter: stable` on the list exists so rows never move ([the gutter note](../bug-fix/2026-07-28-themed-scrollbars-and-reserved-gutter.md)); rebinding a colour leaves that reservation in force, so the thumb appears in space the list was already holding for it.
 
-The indirection pair rather than a rule on the list, because that pair is ui-theme's documented rebinding seam: one declaration reaches both rendering paths (the WebKit pseudo-elements and Firefox's `scrollbar-color`), and custom properties inherit, which is what makes the column — rather than each scroll region in it — the thing that owns the state.
+The indirection pair rather than a rule on the list, because that pair is ui-theme's documented rebinding contract: one declaration reaches both rendering paths (the WebKit pseudo-elements and Firefox's `scrollbar-color`), and custom properties inherit, which is what makes the column — rather than each scroll region in it — the thing that owns the state.
 
 That widens the rebinding contract, so its gate states the new shape rather than accepting it by silence: `ui-theme/tests/scrollbar-styles.spec.ts` admits exactly two rebind targets, the l2 pair or `transparent`, and judges the *rule* rather than each declaration — a mixed rule (`thumb: transparent` beside an l2 hover) would repaint the bar the moment the pointer reached it while passing a per-declaration check. The elevation half compares whole values against the pair's canonical spelling, which is also what rejects a crossed pair and a token wrapped in a literal expression; an l1 rebind and a bare colour were already out.
 

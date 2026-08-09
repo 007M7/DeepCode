@@ -4,7 +4,7 @@
 // its singular/plural, the head/tail height cap and its expand control, the
 // empty-diffs null render, and the copy control writing the prefixed diff text
 // on both the accepted and the refused clipboard paths. writeClipboard's own
-// return contract is pinned in terminal-block.spec.tsx (the shared seam), so
+// return contract is pinned in terminal-block.spec.tsx (the shared return contract), so
 // only its DOM consequence is asserted here.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'

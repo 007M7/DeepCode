@@ -14,13 +14,13 @@ Status: implemented
 
 `SessionPreparation` 持有一个精确的未发布 `Session`，直至发布或回滚。它属于 Session 生命周期，不属于 agent 生命周期或激活机制。新建流程包装 `SessionStore.prepare()` 的结果；持久化恢复则从 `SessionPersistence.prepare()` 取得准备对象。
 
-agent loop（智能体循环）通过同一条设置与发布流水线消费这两种形式：先取得准备对象，围绕 `preparation.session` 构建私有 agent 上下文，等待可选设置完成，再发布该精确 Session 和 agent，并在所有退出路径上 dispose 准备对象。发布后，实时生命周期由现有 Session 与 agent 存储接管；`SessionPreparation` 本身不负责任何 agent 行为。
+agent loop（智能体循环）通过同一条设置与发布流水线消费这两种形式：先取得准备对象，围绕 `preparation.session` 构建私有 agent 上下文，等待可选设置完成，再发布该精确 Session 和 agent，并在所有退出路径上对准备对象执行 dispose（资源释放）。发布后，实时生命周期由现有 Session 与 agent 存储接管；`SessionPreparation` 本身不负责任何 agent 行为。
 
-该机制细化了 [agent 生命周期与所有权决策](2026-06-18-agent-lifecycle-and-ownership-seams.md)中的发布边界，但不替换其所有权模型。
+该机制细化了 [agent 生命周期与所有权决策](2026-06-18-agent-lifecycle-and-ownership-contracts.md)中的发布边界，但不替换其所有权模型。
 
 ## 持久化准备生命周期
 
-使用协调器的持久化实现会将一个冷源加载为准备完成的 Session。后端转移新鲜、彼此无别名的元数据和事件，以及标识这些精确值的来源限定 revision；Session 恢复路径直接验证并冻结这些对象图，不再复制。协调器计算中断轮次的 closer，并且只构造一次精确的未发布 Session。其不可变 header 与平衡逻辑事件日志构成读取方借用的 `SessionInspection`，revision 则保留在持久化内部。
+使用协调器的持久化实现会将一个冷源加载为准备完成的 Session。后端转移新鲜、彼此无别名的元数据和事件，以及标识这些精确值的来源限定 revision；Session 恢复路径直接验证并冻结这些对象图，不再复制。协调器计算中断轮次的 closer，并且只构造一次精确的未发布 Session。其不可变 header 与已配平的逻辑事件日志构成读取方借用的 `SessionInspection`，revision 则保留在持久化内部。
 
 `inspect(id, signal?)` 不修改存储。合成 closer 只存在于准备完成的内存视图中，撕裂的物理尾部保持不变。同 id 调用方共享进行中的冷读。准备完成后，该对象可以进入每个协调器自己的 LRU；第一方后端可配置容量，默认保留五个。协调器复用保留源之前会读取该 id 的当前 revision；如果不匹配，就淘汰处于就绪阶段的源并重新完成冷实体化。已经进入提交或为恢复而预留的源仍由其所有者独占，因此并发检查会借用该不可变视图，直至发布或释放。
 

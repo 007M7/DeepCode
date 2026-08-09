@@ -10,7 +10,7 @@ export const name = 'bash-invariant'
 /** Service required before the companion can reserve package ownership. */
 export const inject = ['invariants']
 
-/** No runtime invariant: this stateless seam owns request/result types, while executors and policy own observations. */
+/** No runtime invariant: this stateless Service Definition owns request/result types, while executors and policy own observations. */
 const install: InvariantInstaller = () => {}
 
 /**

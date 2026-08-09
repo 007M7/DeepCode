@@ -6,7 +6,7 @@
  * table's relevant cells + the real SessionInput machine (scoped-event
  * listeners wired the way the hub does) + the real InputBar. ui-command
  * itself is not a dependency of this package; the source below is the
- * decision-table contract at the SlashSource seam.
+ * decision-table contract at the `SlashSource` boundary.
  */
 import { Context } from 'cordis'
 import { afterEach, describe, expect, it, vi } from 'vitest'

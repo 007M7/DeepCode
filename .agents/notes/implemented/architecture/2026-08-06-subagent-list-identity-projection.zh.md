@@ -149,7 +149,7 @@ export type SubagentListEntry =
 
 **projection-cache 阶梯（v3 稿：`cachedSnapshot ?? coldSnapshot` 加 fail-soft 写回）。** 机制成立——session-projection-cache 的 checkpoint 阶梯本就为冷读设计。但 checkpoint 写回是一套由列表驱动的派生数据持久化与失效编排（floor/identity/putSoft）；被否的是这套编排作为主机制。定稿的第三级阶梯后来以只读方式机会性复用该缓存作第二级——无写回、无编排、缺席即跳过。
 
-**给 persistence 加有界读原语抢救存量。** 为一次性问题新开 seam 原语；被读时 `inspect` 整读取代——存量第一次被列表时的整读就是取值本身。
+**给 persistence 加有界读原语抢救存量。** 为一次性问题新开 persistence 原语；被读时 `inspect` 整读取代——存量第一次被列表时的整读就是取值本身。
 
 **list 行 mode/label 可选化（v4 一稿）。** 健康数据必然可算；可选化只是把垃圾数据的处理复杂度外溢给全部消费方——每个消费面都要长出过滤分支和 unknown 展示态。强约定加算不出即 omit 更干净。
 

@@ -386,7 +386,7 @@ export class SubagentContinuationManager {
    * @param parent - the exact live direct parent authorizing this delivery.
    * @param childId - the durable child session id.
    * @param content - the user-role content to deliver.
-   * @param options - durable provenance and caller cancellation.
+   * @param options - the message source fields and caller cancellation.
    * @returns the accepted message's inbox id.
    * @throws when parent authority, availability, or admission rejects the delivery.
    */
@@ -826,7 +826,7 @@ export class SubagentContinuationManager {
    * Submit to a freshly materialized Activation or roll it back completely.
    * @param activation - the just-published Activation to admit or release.
    * @param content - the initial or resumed message content.
-   * @param source - durable provenance for the accepted message.
+   * @param source - durable fields naming who supplied the accepted message.
    * @param parent - the live direct parent authorizing admission.
    * @param signal - caller cancellation owning admission until acceptance.
    * @returns the accepted inbox message id.

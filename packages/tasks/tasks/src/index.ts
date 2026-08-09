@@ -1,5 +1,5 @@
 /**
- * The background task registry seam (`ctx.tasks`). It owns the contract for
+ * The background-task Service Definition (`ctx.tasks`). It owns the contract for
  * task ids, session-scoped access, lifecycle state, completion listeners, and
  * owner cleanup while producers retain their execution resources. The
  * process-local registry lives in `@deepseek-ai/dsh-tasks-local`.

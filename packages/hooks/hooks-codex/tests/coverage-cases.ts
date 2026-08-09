@@ -395,7 +395,7 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
     })
 
     it('a {"continue":false} hook is RECORDED as "stop" but does not halt the run (TODO(hook-continue-false))', async () => {
-    // Honoring `continue:false` is deferred — the seams have no hard-halt
+    // Honoring `continue:false` is deferred — the extension points have no hard-halt
     // primitive. Assert the LOG records the halt request AND that the run is not
     // actually halted (the tool still runs, the turn completes).
       const d = dir()

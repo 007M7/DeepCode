@@ -6,7 +6,7 @@ import type { RunHookOptions } from '@deepseek-ai/dsh-hook-protocol'
 /**
  * A minimal stand-in for the bits of {@link BashExecutor} that {@link runHook}
  * actually calls (`resolve` then `run`). `runHook` is pure plumbing over those
- * two methods, so a duck-typed recorder is the right test seam — the REAL
+ * two methods, so a duck-typed recorder is the right test hook — the REAL
  * executor (dsh-bash-local) is exercised end-to-end by the hook-bridge plugins
  * that consume this library, not here.
  */

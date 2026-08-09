@@ -485,7 +485,7 @@ describe('Agent.cancel()', () => {
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     // A step/start session-event listener fires AFTER step/start is appended
-    // (and after the pre-step seam), so cancelling there lands in the SECOND
+    // (and after the pre-step extension point), so cancelling there lands in the SECOND
     // cancel check (the one that must closeStep() to balance the already-open
     // step) — distinct from a turn-start cancel, caught before the step opens.
     let streamed = false

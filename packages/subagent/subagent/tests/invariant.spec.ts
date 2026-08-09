@@ -80,7 +80,7 @@ describe('subagent invariants', () => {
       .toThrow(/identity diverges/)
   })
 
-  it('accepts historical provider provenance after registration ends', async () => {
+  it('accepts the recorded provider name after registration ends', async () => {
     const ctx = await setup()
     const historical = provider('historical')
     ctx.emit('subagent/provider-added', historical)

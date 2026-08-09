@@ -71,7 +71,7 @@ sequenceDiagram
   Driver-->>SDK: <code>agent/status</code> idle
 ```
 
-The `assistant/message` edge records every successful provider call, including content-less and `max-tokens` finishes. Empty content stays out of derived history while the durable anchor retains usage and exact chunk provenance, including an explicit empty source set.
+The `assistant/message` event records every successful provider call, including content-less and `max-tokens` finishes. Empty content stays out of derived history, while the durable event keeps usage and `sourceEventSeqs` listing the exact `assistant/chunk` events, including an explicit empty list.
 
 `dsh-compact-basic` uses `agent/pre-step` for pressure before request derivation and `agent/request-error` only for canonical context overflow. Once either trigger qualifies, optional tool-result pruning runs before summary selection. Recovery works between the closed failed step and failed turn close, and opens a fresh retry turn only when pruning or summarization advances the surface replacement generation; otherwise the original request error remains authoritative.
 

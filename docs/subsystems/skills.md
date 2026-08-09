@@ -2,7 +2,7 @@
 
 English | [中文](skills.zh.md)
 
-The [skill capability family](../../packages/skill) includes the registry ([dsh-skill](../../packages/skill/skill), `ctx.skills`), the local provider ([dsh-skill-local](../../packages/skill/skill-local)), the optional packaged badge provider ([dsh-skill-badge](../../packages/skill/skill-badge)), and the consumer ([dsh-tool-skill](../../packages/skill/tool-skill)). The registry merges provider catalogs; providers contribute local or packaged skills; the consumer owns the initial and replacement catalogs plus the model-facing `skill` tool. Skills are optional instructions, not session events, so their vocabulary lives here rather than in [core.md](core.md).
+The [skill capability family](../../packages/skill) includes the Service Definition ([dsh-skill](../../packages/skill/skill), `ctx.skills`), the local Service provider ([dsh-skill-local](../../packages/skill/skill-local)), the optional packaged badge provider ([dsh-skill-badge](../../packages/skill/skill-badge)), and the Consumer ([dsh-tool-skill](../../packages/skill/tool-skill)). The registry merges provider catalogs; providers contribute local or packaged skills; the Consumer owns the initial and replacement catalogs plus the model-facing `skill` tool. Skills are optional instructions, not session events, so their vocabulary lives here rather than in [core.md](core.md).
 
 Source: [`packages/skill/skill/src/index.ts`](../../packages/skill/skill/src/index.ts), [`packages/skill/skill-local/src/index.ts`](../../packages/skill/skill-local/src/index.ts), [`packages/skill/skill-badge/src/index.ts`](../../packages/skill/skill-badge/src/index.ts), and [`packages/skill/tool-skill/src/index.ts`](../../packages/skill/tool-skill/src/index.ts).
 
@@ -283,7 +283,7 @@ async snapshot(options: SkillLookupOptions = {}): Promise<SkillCatalogSnapshot>
 async get(name: string, options: SkillLookupOptions = {}): Promise<SkillDefinition | undefined>
 ```
 
-Source: [`packages/skill/skill/src/index.ts:304`](../../packages/skill/skill/src/index.ts)
+Source: [`packages/skill/skill/src/index.ts:305`](../../packages/skill/skill/src/index.ts)
 
 <a id="skills-events"></a>
 
@@ -306,5 +306,5 @@ A skill provider, runtime contribution, or provider-backed catalog may have chan
 'skills/change'(): void
 ```
 
-Source: [`packages/skill/skill/src/index.ts:283`](../../packages/skill/skill/src/index.ts)
+Source: [`packages/skill/skill/src/index.ts:284`](../../packages/skill/skill/src/index.ts)
 <!-- END GENERATED cordis-surface -->

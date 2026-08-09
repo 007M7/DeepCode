@@ -2,7 +2,7 @@
 
 [English](session-query.md) | 中文
 
-本文定义逻辑会话语料库的查询词汇；当 live 数据存在时，该语料库优先使用 live 数据。[接口包](../../packages/session-query/session-query)负责精确读取、来源优先级、关系追踪、语义提取，以及与提供方无关的过滤器；[SQLite 包](../../packages/session-query/session-query-sqlite)负责具体全文索引的生命周期。
+本文定义逻辑会话语料库的查询词汇；当 live 数据存在时，该语料库优先使用 live 数据。[Service Definition 包](../../packages/session-query/session-query)负责精确读取、来源优先级、关系追踪、语义提取，以及与提供方无关的过滤器；[SQLite 提供方](../../packages/session-query/session-query-sqlite)负责具体全文索引的生命周期。
 
 源码：[`packages/session-query/session-query/src/types.ts`](../../packages/session-query/session-query/src/types.ts)
 
@@ -292,10 +292,10 @@ interface SessionEventWindow {
 
 ## 事件关系
 
-事件追踪会区分位置替换与日志中记录的来源关系。除 `replacementChain` 外，每个 seq 列表都只包含直接链接；该链从目标沿直接 replacer 追踪到最终的位置替换。
+事件追踪会区分位置替换与被引用为来源的事件。除 `replacementChain` 外，每个 seq 列表都只包含直接链接；该链从目标沿直接 replacer 追踪到最终的位置替换。
 
 ```ts type-equiv
-/** Request for direct surface and provenance relationships around one event. */
+/** Request for direct surface replacements and relationships to cited source events around one event. */
 interface SessionEventTraceRequest {
   /** Session that owns the target event. */
   sessionId: SessionId
@@ -305,7 +305,7 @@ interface SessionEventTraceRequest {
 ```
 
 ```ts type-equiv
-/** Direct surface and provenance relationships for one event. */
+/** Direct surface replacements and relationships to cited source events for one event. */
 interface SessionEventTrace {
   /** Lightweight target record. */
   target: SessionEventRecord
@@ -315,9 +315,9 @@ interface SessionEventTrace {
   replacementChain: number[]
   /** Surface nodes directly removed when the target itself performed a replacement. */
   replacedEventSeqs: number[]
-  /** Direct logged provenance sources in their recorded order. */
+  /** Earlier events cited directly as sources, in their recorded order. */
   sourceEventSeqs: number[]
-  /** Later events that directly name the target as a provenance source, in log order. */
+  /** Later events that directly cite the target as a source, in log order. */
   derivedEventSeqs: number[]
 }
 ```
@@ -471,11 +471,11 @@ async readSurface(sessionId: SessionId): Promise<SessionSurfaceSnapshot>
 async traceSession(sessionId: SessionId, signal?: AbortSignal): Promise<SessionLineageTrace>
 
 /**
- * Trace one event's direct positional and provenance relationships.
+ * Trace one event's direct positional replacements and cited source events.
  * @param request - target session id and event seq.
  * @param signal - optional cancellation for persisted source resolution.
  * @returns source header, direct links, and the target's positional replacement chain.
- * @throws when source resolution fails, the target is absent, or surface/provenance validation fails.
+ * @throws when source resolution fails, the target is absent, or surface/source-event validation fails.
  */
 async traceEvent(request: SessionEventTraceRequest, signal?: AbortSignal): Promise<SessionEventTraceObservation>
 

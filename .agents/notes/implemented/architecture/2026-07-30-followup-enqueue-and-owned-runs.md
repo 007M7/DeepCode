@@ -8,7 +8,7 @@ English | [中文](2026-07-30-followup-enqueue-and-owned-runs.zh.md)
 
 `Agent.followup()` identifies and queues a user message, but one follow-up does not own the activity that follows it. Steering, injected context, tool continuations, recovery, and later queued messages can all contribute before the agent next becomes idle. A `MessageId` can therefore prove inbox admission, but it cannot identify which assistant message or `turn/end` is the result of that input.
 
-The [one-send-one-turn decision](../simplification/2026-07-17-one-send-one-turn.md) already rejects a per-send completion handle at the core seam. Protocol and SDK layers that pair one prompt request with a turn result manufacture that missing relationship downstream. The pairing becomes ambiguous as soon as activity admits more input, and it exposes turn mechanics as if they were a prompt-level outcome.
+The [one-send-one-turn decision](../simplification/2026-07-17-one-send-one-turn.md) already rejects a per-send completion handle in the core API. Protocol and SDK layers that pair one prompt request with a turn result manufacture that missing relationship downstream. The pairing becomes ambiguous as soon as activity admits more input, and it exposes turn mechanics as if they were a prompt-level outcome.
 
 ## Decision
 

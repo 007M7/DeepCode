@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-这是用于持久保存会话的抽象 seam（`ctx.sessionPersistence`）。它定义持久化后端做什么：持久存储、重新加载和列出会话，而不规定如何实现。它与 `dsh-bash` 能力 seam 模板一致（见[能力 seam](../../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md)）：本包提供抽象服务，同级包提供具体实现，消费方注入接口。
+这是用于持久保存会话的 Service Definition（`ctx.sessionPersistence`）。它定义持久化后端做什么：持久存储、重新加载和列出会话，而不规定如何实现。它与 `dsh-bash` 能力 seam 模板一致（见[能力 seam](../../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md)）：本包提供抽象服务，同级包提供 Service provider，Consumer 注入服务。
 
 持久化单元就是现有 `SessionEvent`（事件溯源模型：日志是唯一真源），因此不存在另一套并行的「持久消息」类型。不属于可回放对话状态的元数据（格式版本、cwd、血缘、种子边界、origin、委托深度）作为 `SessionHeader` 单独传输，该类型归 `dsh-session` 所有，并在此重新导出。
 
@@ -35,13 +35,13 @@
 
 崩溃修复只适用于冷状态。对于实时 id，`load(id)` 为权威内存日志制作快照，等待该快照持久，并只在平衡时返回；开放实时轮次会被拒绝，而不会收到合成中断 closer。对于冷 id，检查只读取、验证、冻结并构造一次未发布 Session；只有来源修订值仍然是当前值时，重复检查才会复用该对象图。`prepare(id)` 在修复前执行相同校验，预留该 Session 本身，提交任何待处理的撕裂尾部或中断轮次修复，并将其返回用于发布。HMR 接管通过 `loadStored` 读取，应用协调器 cwd 检查，并绝不关闭活动轮次。
 
-后端读取会在当前形状验证前，规范化明确受支持的同版本形状。消息标识机制引入前的消息会获得确定性的 id `legacy-message:<session-id>:<event-seq>`；工具结果的内容替换会继承其目标导入后的 id。react-loop 引入前的 `turn/start` 会移除过时的 trigger，已移除的 steering（中途引导）事件 `steering/message` 会转换为同一条带标识的 `user/message`；旧版 `turn/end` 会在不虚构无法获得的取消来源的前提下映射终止原因。协调器对 `load`、`inspect`、`readFrom`、无所有者状态的认领和 HMR 前缀接管使用同一份规范化视图。存储仍然仅追加：读取不会重写旧记录，此后追加的事件使用当前形状。这些是[消息标识机制引入前的消息](../../../.agents/notes/implemented/bug-fix/2026-07-28-load-pre-identity-session-messages.md)与 [react-loop 引入前会话](../../../.agents/notes/implemented/bug-fix/2026-08-04-load-pre-react-loop-sessions.md)决策所规定的范围受限的导入例外，并不构成通用的 v0 迁移承诺。
+后端读取会在当前形状验证前，规范化明确受支持的同版本形状。消息标识机制引入前的消息会获得确定性的 id `legacy-message:<session-id>:<event-seq>`；工具结果的内容替换会继承其目标导入后的 id。react-loop 引入前的 `turn/start` 会移除过时的 trigger，已移除的 steering（中途引导）事件 `steering/message` 会转换为同一条带标识的 `user/message`；旧版 `turn/end` 会在不虚构旧记录中未命名调用方的前提下映射终止原因。协调器对 `load`、`inspect`、`readFrom`、无所有者状态的认领和 HMR 前缀接管使用同一份规范化视图。存储仍然仅追加：读取不会重写旧记录，此后追加的事件使用当前形状。这些是[消息标识机制引入前的消息](../../../.agents/notes/implemented/bug-fix/2026-07-28-load-pre-identity-session-messages.md)与 [react-loop 引入前会话](../../../.agents/notes/implemented/bug-fix/2026-08-04-load-pre-react-loop-sessions.md)决策所规定的范围受限的导入例外，并不构成通用的 v0 迁移承诺。
 
 实时会话发出 `session/disposed` 时，协调器等待其 controller，串行化最终 drain，然后释放该精确 `Session` 对象拥有的状态。失败退役会将 controller 保留在实时会话 map 中，使后端拆卸可重试。后端拆卸先停止事件接纳，flush 每个剩余 controller，等待每 id 操作，最后才关闭存储句柄。
 
 无副作用 `locate`、轻量 `listSnapshots` 和按 id 查询的 `readStoredRevision` 仍由后端负责，因为它们描述存储拓扑和修订身份，而非写入编排。`listSnapshots(signal?)` 将调用方传入的同一个信号传给后端发现流程，使观察者可在不脱离该工作的情况下取消。
 
-`PersistenceBackend<TornMarker>` 钩子（协调器与存储之间的唯一 seam）：
+`PersistenceBackend<TornMarker>` 钩子（协调器与存储之间的唯一约定）：
 
 | 钩子 | 职责 |
 |---|---|

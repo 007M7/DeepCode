@@ -1,5 +1,5 @@
 /**
- * Capture coordinator: the seam's upstream half. Live capture subscribes to
+ * Capture coordinator for the telemetry capability. Live capture subscribes to
  * the session firehose plus the one live-bus relay (`agent/error`). Both
  * capture paths apply the fixed chunk projection, build logical records, and
  * run each through the
@@ -159,7 +159,7 @@ export class TelemetryCoordinator {
    * at or below the start still feed the projection state (first-chunk
    * tracking) without being re-handed, so a resumed fiber drops mid-step
    * chunk continuations exactly like the fiber that saw the step begin. The
-   * cost, accepted with the seam's at-most-once stance: a resume no longer
+   * cost, accepted with the capture contract's at-most-once stance: a resume no longer
    * backfills records a previous process failed to deliver.
    * @param session - the live session to adopt; a second adoption is a no-op.
    */
@@ -204,7 +204,7 @@ export class TelemetryCoordinator {
 
   /**
    * Run the `telemetry/record` waterfall at capture time. The innermost `next`
-   * passes the record through unchanged — the seam ships no rules; exported
+   * passes the record through unchanged — this package ships no rules; exported
    * data is as clean as the listeners a deployment mounts. Callers run inside
    * {@link contain}, so a throwing rule withholds the record instead of
    * reaching the loop (fail-closed). On-demand capture invokes this waterfall
@@ -289,7 +289,7 @@ function severityOf(event: SessionEvent): TelemetrySeverity {
     case 'turn/end':
       return event.data.reason.kind === 'error' ? 'error' : 'info'
     default:
-      // Merge-extensible fall-through (no assertNever): event types this seam
+      // Merge-extensible fall-through (no assertNever): event types this coordinator
       // does not depend on — including plugin-merged ones it never heard of —
       // pass through as info; their owners' outcome semantics stay theirs.
       return 'info'

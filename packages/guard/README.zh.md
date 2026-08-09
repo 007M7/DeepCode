@@ -1,8 +1,8 @@
-# guard/ — 循环健康 guard 家族
+# guard/ — 循环卫生 guard 家族
 
 [English](README.md) | 中文
 
-行为 guard 插件监视 agent loop（智能体循环）中的无效模式，并强制执行单次调用预算。guard 是核心 seam 的自包含消费方，而非可替换能力。
+行为 guard 插件监视 agent loop（智能体循环）中的无效模式，并强制执行单次调用预算。guard 是核心服务和扩展点的自包含消费方，而非可替换能力。
 
 | 包 | 职责 | ctx key |
 |---|---|---|

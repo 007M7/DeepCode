@@ -12,15 +12,15 @@ harness 使用 `Branded<B> = string & { readonly [BRAND]: B }` 机制，为 `Cal
 
 bash **owner token** 是相关的子情形：`BashExecRequest.owner?: string` 和 `BashExecSpec.owner: string | undefined`（`packages/bash/bash/src/types.ts`）被文档描述为刻意*不透明*的隔离键，但在所有实际调用方中，该值就是所属 agent（智能体）共享的 `Agent.id`/`SessionId`（`callerToken = (exec) => exec.agent?.id`，位于 `packages/bash/tool-bash/src/index.ts`），只是披着另一个 seam 本地名称。它被用于访问控制比较（`owner !== callerToken(exec)`），因此一个不匹配但类型正确的 string 在此处就是跨会话隔离 bug，而当前类型系统无法捕获。这正是[统一 agent/session 标识决策](../simplification/2026-06-20-unify-agent-and-session-id.md)覆盖的共享 id 别名。
 
-**缺口 2：*已经 brand* 的 ID 在 seam 处被侵蚀。** 就连 `CallId` 和 `SessionId` 也恰好在最容易混淆的地方退化为裸 `string`：注册表/store 键类型和公开方法参数。代表性位置包括会话存储、agent 注册表（二者都以共享的 `SessionId` 为键）、工具展示层的 call-id map、ACP（Agent Client Protocol）的会话记录，以及持久化协调器。在集合键处丢弃 brand，会让既有 brand 在查找时毫无价值；它们的价值只实现了一部分。
+**缺口 2：*已经 brand* 的 ID 在边界处被侵蚀。** 就连 `CallId` 和 `SessionId` 也恰好在最容易混淆的地方退化为裸 `string`：注册表/store 键类型和公开方法参数。代表性位置包括会话存储、agent 注册表（二者都以共享的 `SessionId` 为键）、工具展示层的 call-id map、ACP（Agent Client Protocol）的会话记录，以及持久化协调器。在集合键处丢弃 brand，会让既有 brand 在查找时毫无价值；它们的价值只实现了一部分。
 
 ## 决策
 
 纯类型变更。Brand 是零开销 cast；运行时行为、序列化、比较和协议格式（wire format）均不变。工作分三部分，全部遵循既有的「不是每个 string 都需要」策略。
 
-- **为 bash task id 加 brand。** 在 `packages/bash/bash/src/types.ts`（*拥有*该 id 的包）中添加 `BashTaskId = Branded<'BashTaskId'>` 及其同名工厂，从 `@deepseek-ai/dsh-brand` 导入 `Branded`，方式与 `SessionId` 完全一致。brand 原语位于无依赖的 `dsh-brand` 工具包中，正是为了让 `dsh-bash` 仅依赖它就能为自己的 id 加 brand，而无需引入 `dsh-llm`（或 `dsh-session`）来获取 `Branded`。将其贯穿 `BashTask.id`、`BashExecutor` seam 方法（`get`/`ownerOf`/`readOutput`/`kill`）、`dsh-bash-local` 中的生成点（在创建时对计数器输出做一次 brand），以及 `dsh-tool-bash` 的校验/访问面（`validateTaskId` 返回 `BashTaskId`；`task_id` 在模型 string 到达的工具边界处被 brand）。
+- **为 bash task id 加 brand。** 在 `packages/bash/bash/src/types.ts`（*拥有*该 id 的包）中添加 `BashTaskId = Branded<'BashTaskId'>` 及其同名工厂，从 `@deepseek-ai/dsh-brand` 导入 `Branded`，方式与 `SessionId` 完全一致。brand 原语位于无依赖的 `dsh-brand` 工具包中，正是为了让 `dsh-bash` 仅依赖它就能为自己的 id 加 brand，而无需引入 `dsh-llm`（或 `dsh-session`）来获取 `Branded`。将其贯穿 `BashTask.id`、`BashExecutor` Service Definition 方法（`get`/`ownerOf`/`readOutput`/`kill`）、`dsh-bash-local` 中的生成点（在创建时对计数器输出做一次 brand），以及 `dsh-tool-bash` 的校验/访问面（`validateTaskId` 返回 `BashTaskId`；`task_id` 在模型 string 到达的工具边界处被 brand）。
 
-- **铸造独立的 `OwnerToken` brand。** 在 `packages/bash/bash/src/types.ts` 中添加 `OwnerToken = Branded<'OwnerToken'>`；将 `BashExecRequest.owner` / `BashExecSpec.owner` / `BashExecutor.ownerOf` 的类型标注为 `OwnerToken | undefined`。`dsh-tool-bash` 消费方在边界处将 agent 共享的 `id`（`SessionId`）cast 为 `OwnerToken`——这是两套词汇唯一交汇的地方。bash seam 从不导入 `dsh-session`。（理由见下一节。）
+- **铸造独立的 `OwnerToken` brand。** 在 `packages/bash/bash/src/types.ts` 中添加 `OwnerToken = Branded<'OwnerToken'>`；将 `BashExecRequest.owner` / `BashExecSpec.owner` / `BashExecutor.ownerOf` 的类型标注为 `OwnerToken | undefined`。`dsh-tool-bash` 消费方在边界处将 agent 共享的 `id`（`SessionId`）cast 为 `OwnerToken`——这是两套词汇唯一交汇的地方。bash Service Definition 从不导入 `dsh-session`。（理由见下一节。）
 
 - **阻止 brand 侵蚀。** 将既有 brand 传播到缺口 2 列出的 `Map` 键类型和公开方法参数中：`Map<SessionId, Session>`、`Map<SessionId, Agent>`、`get(id: SessionId)`、`Map<CallId, …>`、ACP 的 `SessionId` surface、协调器的 `Map<SessionId, …>`。这是 diff 中机械量最大的部分，也是让*既有* brand 在查找处真正发挥作用（而不仅仅标注在结构体字段上）的关键。
 
@@ -46,7 +46,7 @@ export function OwnerToken(id: string): OwnerToken {
 
 ### 为什么不把 `owner` 类型标注为 `SessionId`？
 
-显而易见的捷径是直接把 `owner` 类型标注为 `SessionId`——它确实*总是*一个会话 id。我们否决这个方案。bash 执行器 seam 是能力 seam（接口 `dsh-bash`、实现 `dsh-bash-local`、消费方 `dsh-tool-bash`），其 owner token 被*明确记录为刻意不透明*：执行器「从不解释它（seam 中没有访问策略——那是消费方的职责）」（`packages/bash/bash/src/types.ts`）。把 seam 字段类型标注为 `SessionId`，会把 `dsh-session` 的词汇引入一个不应知道 owner token *含义*的包——这会让通用执行后端耦合会话模型，并违背不透明 token 的设计。取代 `dsh-bash-local` 的沙箱或远程执行器不应继承会话依赖。独立的 `OwnerToken` brand 使 seam 保持解耦：`dsh-bash` 只知道「owner 是某种带 brand 的不透明 token」，而已经决定访问策略的 `dsh-tool-bash` 消费方，是把其 `SessionId` cast 为 `OwnerToken` 的唯一边界。该 brand 仍带来安全收益（不能把 `BashTaskId` 或裸 string 传到 owner 位置），且不引入耦合。
+显而易见的捷径是直接把 `owner` 类型标注为 `SessionId`——它确实*总是*一个会话 id。我们否决这个方案。bash 执行器 seam 是能力 seam（Service Definition `dsh-bash`、Service provider `dsh-bash-local`、Consumer `dsh-tool-bash`），其 owner token 被*明确记录为刻意不透明*：执行器「从不解释它（seam 中没有访问策略——那是消费方的职责）」（`packages/bash/bash/src/types.ts`）。把 Service Definition 的字段类型标注为 `SessionId`，会把 `dsh-session` 的词汇引入一个不应知道 owner token *含义*的包——这会让通用执行后端耦合会话模型，并违背不透明 token 的设计。取代 `dsh-bash-local` 的沙箱或远程执行器不应继承会话依赖。独立的 `OwnerToken` brand 使 seam 保持解耦：`dsh-bash` 只知道「owner 是某种带 brand 的不透明 token」，而已经决定访问策略的 `dsh-tool-bash` 消费方，是把其 `SessionId` cast 为 `OwnerToken` 的唯一边界。该 brand 仍带来安全收益（不能把 `BashTaskId` 或裸 string 传到 owner 位置），且不引入耦合。
 
 ## 不在范围内 / 可能的扩展
 
@@ -60,10 +60,10 @@ export function OwnerToken(id: string): OwnerToken {
 
 ## 验证
 
-已落地的不变式：`BashTaskId` 和 `OwnerToken` 定义在 `dsh-bash` 中，并端到端贯穿执行器 seam、`dsh-bash-local` 生成点与 `dsh-tool-bash` 面向模型的 surface，且 `dsh-bash` 未添加对 `dsh-session` 的依赖；没有任何以范围内 brand id（`CallId`/`SessionId`/`BashTaskId`）为键的集合使用裸 `string`；公开方法参数和导出签名保留 brand；每个原始 string 进入的边界（提供方 call id、ACP 会话 id、模型提供的 `task_id`）都通过 cast 工厂构造 brand，而不是散落的 `as` cast。
+已落地的不变式：`BashTaskId` 和 `OwnerToken` 定义在 `dsh-bash` 中，并端到端贯穿 Service Definition、`dsh-bash-local` 生成点与 `dsh-tool-bash` 面向模型的 surface，且 `dsh-bash` 未添加对 `dsh-session` 的依赖；没有任何以范围内 brand id（`CallId`/`SessionId`/`BashTaskId`）为键的集合使用裸 `string`；公开方法参数和导出签名保留 brand；每个原始 string 进入的边界（提供方 call id、ACP 会话 id、模型提供的 `task_id`）都通过 cast 工厂构造 brand，而不是散落的 `as` cast。
 
 ## 后果
 
-- **两个接口面的机械性改动。** 传播 brand 涉及 bash seam（接口 + 实现 + 消费方）以及 ACP 会话 id 接口和持久化协调器。改动面广但严重度低：遗漏的位置是编译错误而非静默 bug。变更可观察地为纯类型变更——无快照或 e2e 行为差异。它与[统一 agent/会话标识决策](../simplification/2026-06-20-unify-agent-and-session-id.md)相邻，因为二者都触及会话 id / owner-token 边界；`OwnerToken` 出于上述解耦理由仍与统一后的 id 保持独立。
+- **两个接口面的机械性改动。** 传播 brand 涉及 bash seam（Service Definition + Service provider + Consumer）以及 ACP 会话 id 接口和持久化协调器。改动面广但严重度低：遗漏的位置是编译错误而非静默 bug。变更可观察地为纯类型变更——无快照或 e2e 行为差异。它与[统一 agent/会话标识决策](../simplification/2026-06-20-unify-agent-and-session-id.md)相邻，因为二者都触及会话 id / owner-token 边界；`OwnerToken` 出于上述解耦理由仍与统一后的 id 保持独立。
 - **Brand 不做校验。** Brand 是混淆防护，不是正确性证明：一个*错误的*会话 id 只要仍是格式正确的 string，就和以前一样能通过类型检查器。本 Agent Note 不关闭这个缺口（见「不在范围内」）——它只阻止这类*类别*错误：传入错误*种类*的 id。
 - **「在哪里停下」仍是判断题。** 为 `BashTaskId` 加 brand 但不为 `ToolName` 加，为 `OwnerToken` 加但不为 `ModelId` 加，是对哪些 string「可能被混淆」的品味判断。合理的评审者可能想要更多或更少；`brand.ts` 中的策略是裁决依据，本 Agent Note 倾向于面向模型或用于访问控制的 id。

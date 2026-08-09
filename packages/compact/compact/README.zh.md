@@ -2,21 +2,21 @@
 
 [English](README.md) | 中文
 
-**压缩（compaction） seam**：抽象 `CompactService`（`ctx.compact`）定义压缩做什么，即判定历史记录是否过大，并将较早范围摘要为单个表层节点，但不规定如何实现。
+**`CompactService`**（`ctx.compact`）定义压缩做什么，即判定历史记录是否过大，并将较早范围摘要为单个表层节点，但不规定如何实现。
 
-这个包是压缩能力的接口层，因此各项职责均可独立演进，也可独立替换：
+本包承担压缩能力的 Service Definition 角色，因此各角色均可独立演进，也可独立替换：
 
 | 包 | 职责 |
 |---|---|
-| `@deepseek-ai/dsh-compact`（本包） | 接口：抽象服务 + `compact/*` 事件 + `CompactionResult` + 规范检查点源 + 工具配对边界 helper |
-| `@deepseek-ai/dsh-compact-basic` | 后端：`ctx.tokenMeter` 压力 + token 预算保留 + `llm.stream()` 摘要 |
-| `@deepseek-ai/dsh-command-compact` | 面向用户的 `/compact` 命令，基于 `ctx.compact.compactNow()` 实现 |
+| `@deepseek-ai/dsh-compact`（本包） | Service Definition：抽象服务 + `compact/*` 事件 + `CompactionResult` + 规范检查点源 + 工具配对边界 helper |
+| `@deepseek-ai/dsh-compact-basic` | Service provider：`ctx.tokenMeter` 压力 + token 预算保留 + `llm.stream()` 摘要 |
+| `@deepseek-ai/dsh-command-compact` | Consumer：面向人类的 `/compact` 命令，基于 `ctx.compact.compactNow()` 实现 |
 
-与 bash seam 不同，该接口依赖 `@deepseek-ai/dsh-session` 和 `@deepseek-ai/dsh-llm`。约定的动词基于 `Session` 定义，其输出使用 `ContentBlock` 词汇，因此无法在不指名这些包的情况下表达。这项对「接口只依赖 cordis」指引的偏离是有意的，并记录在 [压缩能力 seam Agent Note](../../../.agents/notes/implemented/feature/2026-06-18-compaction-capability-seam.md) 中。
+与 bash seam 不同，该 Service Definition 依赖 `@deepseek-ai/dsh-session` 和 `@deepseek-ai/dsh-llm`。约定的动词基于 `Session` 定义，其输出使用 `ContentBlock` 词汇，因此无法在不指名这些包的情况下表达。这项对「Service Definition 只依赖 cordis」指引的偏离是有意的，并记录在 [压缩能力 seam Agent Note](../../../.agents/notes/implemented/feature/2026-06-18-compaction-capability-seam.md) 中。
 
 ## 服务 API（`ctx.compact`）
 
-三个操作都是**抽象方法**：触发策略、保留、事件顺序与摘要均属于后端。可复用的请求测量是独立服务 [`ctx.tokenMeter`](../../llm/token-meter/README.md)，而非本接口的一部分。
+三个操作都是**抽象方法**：触发策略、保留、事件顺序与摘要均属于后端。可复用的请求测量是独立服务 [`ctx.tokenMeter`](../../llm/token-meter/README.md)，而非本 Service Definition 的一部分。
 
 | 成员 | 语义 |
 |---|---|
@@ -32,7 +32,7 @@
 
 ## 工具配对边界
 
-该接口导出 `toolPairingBalancedBefore(session, seq)` 与 `toolPairingBalancedAfter(session, seq)`，用于对齐和验证压缩边界。安全边界不会被尚未回答的 assistant 工具调用跨越。每个 helper 都会验证给定事件 seq 位于当前表层，并根据按表层顺序缓存的各切分点配对状态返回结果。
+该 Service Definition 导出 `toolPairingBalancedBefore(session, seq)` 与 `toolPairingBalancedAfter(session, seq)`，用于对齐和验证压缩边界。安全边界不会被尚未回答的 assistant 工具调用跨越。每个 helper 都会验证给定事件 seq 位于当前表层，并根据按表层顺序缓存的各切分点配对状态返回结果。
 
 每个会话的私有 cache 以 `session.surface.replaceGeneration` 和已处理表层条目数为 key。generation 未变时，只需将尚未处理的尾部条目纳入累计结果；仅向日志追加、但未新增表层条目时，不会读取事件。replace generation 变化时则会重建当前成员关系与配对状态。事件 seq 缺失以及 `tool/result` 没有对应的先前未闭合调用，均会被视为表层状态损坏并遭拒绝。
 
@@ -42,7 +42,7 @@
 
 1. 追加 `compact/start`（仅日志）：获取锁；
 2. 摘要该范围；
-3. 追加 `compact/summary`（仅日志）：溯源信息包括摘要、范围、已遮蔽 seq、token 数与提供方／模型调用 envelope；
+3. 追加 `compact/summary`（仅日志），其中记录摘要、范围、已遮蔽 seq、token 数与提供方／模型调用 envelope；
 4. 追加单个 `user/message`，其携带 `source: COMPACT_CHECKPOINT_SOURCE` 和包含摘要的 `surfaceOp: { op: 'replace', start, end }`：这是**本操作唯一的表层变更**；
 5. 追加 `compact/end`（仅日志）：释放锁。
 
@@ -80,7 +80,7 @@
 
 #### Token 影响
 
-该接口不会直接产生 token。后端用一份摘要换取多个原本保留的历史 token，并保持近期尾部不变。
+该 Service Definition 不会直接产生 token。后端用一份摘要换取多个原本保留的历史 token，并保持近期尾部不变。
 
 #### KV Cache 影响
 

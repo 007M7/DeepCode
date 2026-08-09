@@ -296,7 +296,7 @@ function assertCurrentLlmShape(event: Record<string, unknown>, index: number): v
 
 const allowedAdapterKeys = new Set(['reasoningEffort', 'maxTokens'])
 
-/** Validate adapter-default provenance imported from a durable request header. */
+/** Validate adapter-default markers imported from a durable request header. */
 function assertAdapterDefaults(
   value: unknown,
   config: Record<string, unknown>,
@@ -595,8 +595,8 @@ export class Session {
    * @param type - The event type (key of {@link SessionEventMap}).
    * @param data - The event payload; must be JSON-serializable.
    * @param opts - Surface metadata: `surfaceOp` controls how the event enters
-   *   the ordered surface; `sourceEventSeqs` records provenance (the seq
-   *   numbers of events this one derives from). REQUIRED for
+   *   the ordered surface; `sourceEventSeqs` lists the seq numbers of earlier
+   *   events this one derives from. REQUIRED for
    *   {@link SurfaceEventType} events (every message-producing event must
    *   declare how it joins the surface, the sole source of derived model
    *   history) and
@@ -610,7 +610,7 @@ export class Session {
    *   circular reference, sparse array, or an exotic object such as
    *   Map/Set/Date/class instance), or when the candidate violates the
    *   canonical surface contract (marker shape and eligibility, unique
-   *   earlier provenance, positional replacement validity, and complete
+   *   earlier source-event references, positional replacement validity, and complete
    *   shadowed-node coverage). One recursive pass reads, validates, and
    *   copies each nested value once, so a stateful getter cannot supply one value
    *   to validation and another to storage. The event log is the durable source
@@ -919,7 +919,7 @@ export class SessionStore extends Service {
    * another create) between them, so a stale prepared session must NOT overwrite
    * a live store entry of the same id — its detach disposer would later delete
    * the REAL session. The {@link create} convenience and the agent factory call
-   * the two back-to-back so they never trip this, but the public seam cannot
+   * the two back-to-back so they never trip this, but the public API cannot
    * assume that.
    *
    * @param session - a {@link prepare}d session not yet in the store.

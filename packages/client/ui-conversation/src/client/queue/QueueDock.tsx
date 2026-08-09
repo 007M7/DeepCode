@@ -214,7 +214,7 @@ export function QueueDock({ useSession, updateQueue, notify, t }: QueueDockProps
 
 /**
  * The dock entry as a plain registrant plugin. The conversation service is
- * the action seam; the slot declaration is its independent lifecycle seam.
+ * the action contract; the slot declaration has an independent lifecycle boundary.
  */
 export const queueDockEntry = {
   name: 'conversation-queue-dock',

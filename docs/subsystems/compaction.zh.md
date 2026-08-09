@@ -2,21 +2,21 @@
 
 [English](compaction.md) | 中文
 
-压缩 seam 是一个[能力 seam](../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md)，与 bash 一样分为接口（[dsh-compact](../../packages/compact/compact)，`ctx.compact`）、实现（例如 [dsh-compact-basic](../../packages/compact/compact-basic) 后端）和面向用户的消费方（[dsh-command-compact](../../packages/compact/command-compact)）。压缩是**一项可选能力**，不属于 agent loop（智能体循环）主干，因此其词汇定义在此而非 [core.md](core.md) 中。基于 tokenizer 或模板的后端是实现同一接口的兄弟包。与 bash 不同，该接口必然依赖 `dsh-session` 和 `dsh-llm`：其动词作用于 agent 所有的 `Session`，而其持久摘要事件使用 `ContentBlock` 词汇（见[压缩能力 seam Agent Note](../../.agents/notes/implemented/feature/2026-06-18-compaction-capability-seam.md)）。
+压缩 seam 是一个[能力 seam](../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md)，与 bash 一样分为 Service Definition（[dsh-compact](../../packages/compact/compact)，`ctx.compact`）、Service provider（例如 [dsh-compact-basic](../../packages/compact/compact-basic) 后端）和面向用户的 Consumer（[dsh-command-compact](../../packages/compact/command-compact)）。压缩是**一项可选能力**，不属于 agent loop（智能体循环）主干，因此其词汇定义在此而非 [core.md](core.md) 中。基于 tokenizer 或模板的后端是实现同一接口的兄弟包。与 bash 不同，该接口必然依赖 `dsh-session` 和 `dsh-llm`：其动词作用于 agent 所有的 `Session`，而其持久摘要事件使用 `ContentBlock` 词汇（见[压缩能力 seam Agent Note](../../.agents/notes/implemented/feature/2026-06-18-compaction-capability-seam.md)）。
 
 源码：[`packages/compact/compact/src/types.ts`](../../packages/compact/compact/src/types.ts)
 
 ## `compact/*` 会话事件
 
-压缩通过声明合并为 [`SessionEventMap`](session.md) 扩展三种事件类型。三者都**仅写入日志**——记录压缩锁及其 provenance，绝不进入 surface。这里有意不扩展 `SurfaceEventType`（只有产生消息的事件才到达模型），因此摘要本身承载在另一条带有 `surfaceOp: { op: 'replace', start, end }` 的 `user/message` 上——这是摘要压缩执行的唯一 surface 变更。关于复用 `user/message` 为何是如实建模而非权宜之计，见对应 Agent Note。
+压缩通过声明合并为 [`SessionEventMap`](session.md) 扩展三种事件类型。三者都**仅写入日志**——它们记录锁、摘要、选中范围、被遮蔽事件 seq、token 数以及模型调用，绝不进入 surface。这里有意不扩展 `SurfaceEventType`（只有产生消息的事件才到达模型），因此摘要本身承载在另一条带有 `surfaceOp: { op: 'replace', start, end }` 的 `user/message` 上——这是摘要压缩执行的唯一 surface 变更。关于复用 `user/message` 为何是如实建模而非权宜之计，见对应 Agent Note。
 
 | 事件 | 载荷 | 作用 |
 |---|---|---|
 | `compact/start` | `{ turn }` | 获取日志记录的锁；数字标识打开的自动轮次，`null` 标识独立手动尝试 |
-| `compact/summary` | `{ summary, rawOutput?, llmStreamCall?, shadowedRange, shadowedSeqs, shadowedTokenCount, provider, model, maxTokens?, usage? }` | provenance：安全摘要投影、可选的完整 provider 输出与 usage、生成结果时恰好通过此上下文的 `ctx.llm.stream()` 发起一次调用所带的 `llmStreamCall: true` 标记（此时必须提供完整的 `rawOutput`）、被遮蔽的 surface 边界对（`start`/`end` seq——位置跨度，而非数值区间）、按 surface 顺序排列的被遮蔽 seq、估算 token 数，以及摘要调用的 envelope（`provider`、`model`，若有生成上限则还包括该上限）——写入日志后，该一次性请求可由日志 + 代码重建（见可重建性 Agent Note）；未带标记的 `rawOutput` 并不能判定调用路径 |
+| `compact/summary` | `{ summary, rawOutput?, llmStreamCall?, shadowedRange, shadowedSeqs, shadowedTokenCount, provider, model, maxTokens?, usage? }` | 安全摘要投影、可选的完整 provider 输出与 usage、生成结果时恰好通过此上下文的 `ctx.llm.stream()` 发起一次调用所带的 `llmStreamCall: true` 标记（此时必须提供完整的 `rawOutput`）、被遮蔽的 surface 边界对（`start`/`end` seq——位置跨度，而非数值区间）、按 surface 顺序排列的被遮蔽 seq、估算 token 数，以及摘要调用的 envelope（`provider`、`model`，若有生成上限则还包括该上限）——写入日志后，该一次性请求可由日志 + 代码重建（见可重建性 Agent Note）；未带标记的 `rawOutput` 并不能判定调用路径 |
 | `compact/end` | `{ turn, error? }` | 使用相同的数字或 `null` 归属值释放锁（`error` 记录失败尝试） |
 
-锁括住**整个**操作：先追加 `compact/start`，然后执行摘要生成、写入 `compact/summary` 来源记录与 `user/message` 替换，最后才追加 `compact/end`。最后释放锁意味着操作中途崩溃会表现为可检测的遗留锁（有 `compact/start` 而无匹配的 `compact/end`），而非一个虚假声称压缩已完成的 `compact/end`。
+锁括住**整个**操作：先追加 `compact/start`，然后执行摘要生成、写入 `compact/summary` 记录与 `user/message` 替换，最后才追加 `compact/end`。最后释放锁意味着操作中途崩溃会表现为可检测的遗留锁（有 `compact/start` 而无匹配的 `compact/end`），而非一个虚假声称压缩已完成的 `compact/end`。
 
 这些标记表示锁的时间点，而不是排他的容器。摘要等待期间，不相关的空闲注入可以出现在独立的手动 start 与 end 之间。手动路径只重新验证所选位置 span，因此替换检查点之后仍保留该注入上下文。活动的未匹配 start 会阻塞所有入口点；较新 `session/end-seed` 之前的未匹配 start 是先前生命周期留下的陈旧证据，会被忽略。
 
@@ -81,14 +81,14 @@ type ManualCompactionErrorCode =
 
 压力压缩在串行 `agent/pre-step` 中运行，先于请求推导。一旦压力或规范化溢出满足条件，compact-basic 会在选择范围前调用可选的 [`ctx.toolResultPrune`](../../packages/compact/compact-tool-result-prune/README.md)，再通过 `ctx.tokenMeter` 重新测量，并且可以在不生成摘要的情况下推进 surface。失败请求的恢复在失败的步骤关闭后通过 `agent/request-error` 运行；仅当 surface replacement generation 前进时才返回重试动作，即便后续摘要工作在剪枝后抛异常亦如此；取消仍然优先。区域边界保持工具调用/结果配对，但不保持整个轮次，因此一个过大轮次中较早关闭的步骤可以被压缩。`dsh-compact-basic` 拥有阈值、保留尾部策略、溢出上限与失败处理。
 
-该 seam 导出 `toolPairingBalancedBefore(session, seq)` 与 `toolPairingBalancedAfter(session, seq)`，用于这些边缘检查。两者都会验证当前 surface 成员关系，并拒绝缺失的 seq 与遗留结果；其缓存语义由[包约定](../../packages/compact/compact/README.md#tool-pairing-boundaries)规定。
+该 Service Definition 导出 `toolPairingBalancedBefore(session, seq)` 与 `toolPairingBalancedAfter(session, seq)`，用于这些边缘检查。两者都会验证当前 surface 成员关系，并拒绝缺失的 seq 与遗留结果；其缓存语义由[包约定](../../packages/compact/compact/README.md#tool-pairing-boundaries)规定。
 
 ## 工具结果剪枝产出
 
 可选的工具结果剪枝服务会报告每次持久内容替换以及 Unicode code point 的总减少量。其公开结果类型位于 [`compact-tool-result-prune/src/types.ts`](../../packages/compact/compact-tool-result-prune/src/types.ts)。
 
 ```ts type-equiv
-/** Provenance and size accounting for one landed surface replacement. */
+/** Cited source event and size accounting for one landed surface replacement. */
 interface PrunedEntry {
   /** Full-fidelity tool-result event shadowed by the replacement. */
   readonly originalSeq: number
@@ -212,7 +212,7 @@ pruneContent(blocks: readonly ContentBlock[]): ContentBlock[] | null
 /**
  * Prune every over-budget tool result from one stable current-surface snapshot.
  * Each replacement preserves the complete event data except for `content`,
- * points at the shadowed node for durable provenance and replay, and is
+ * cites the shadowed node so replay can recover the replacement input, and is
  * immediately preceded by a `compact/prune` shadow-price event pricing the
  * shadowed node through the injected token meter, so pure consumers can
  * subtract it without per-node state.

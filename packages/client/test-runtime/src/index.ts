@@ -40,7 +40,7 @@ export type { SessionBehaviorOverrides, SessionFixture, Stabilizer } from './fix
 export { makeTranslate } from './translate.ts'
 export { usePinnedBrowserLanguages } from './locale-env.ts'
 
-/** Erased register face for the internal root call (the public declare seam holds the typing). */
+/** Erased register face for the internal root call (the public declaration contract holds the typing). */
 type ErasedRegister = (options: object, component: unknown) => () => void
 
 /**
@@ -80,7 +80,7 @@ export interface FeatureHandle {
 /**
  * Owner-props cell behind the auto frame: one external store the frame
  * subscribes to, so {@link SlotTestRuntime.renderSlot} and
- * {@link SlotView.update} drive React through the standard uSES seam.
+ * {@link SlotView.update} drive React through the standard uSES boundary.
  */
 class OwnerPropsCell {
   private readonly owners = new Map<string, object>()
@@ -146,7 +146,7 @@ export class TestRoot {
   ): Promise<void> {
     await this.stabilize(() => {
       // Erased hop (same pattern as SlotsService's own implementation arm);
-      // the declare signature above is the typed seam.
+      // the declaration signature above is the typed contract.
       this.disposeEntry = (this.slots.register as unknown as ErasedRegister)({ name: 'root', children }, frame)
     })
   }
@@ -267,7 +267,7 @@ export class SlotTestRuntime {
 
   /**
    * Render the root slot tree through the ctx-level entry (the shell's own
-   * seam): `ctx.slots.renderSlot('root', {})` under Testing Library.
+   * entry point): `ctx.slots.renderSlot('root', {})` under Testing Library.
    * @returns the Testing Library view.
    */
   renderRoot(): RenderResult {

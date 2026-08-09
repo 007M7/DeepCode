@@ -53,6 +53,6 @@ Both replay keyless in the default gate.
 ## Consequences
 
 - The `TODO(subagent-snapshots)` deferral is resolved: nested-agent transcripts are now a first-class snapshot shape.
-- `GenerateOptions.sessionId` is a small, honest core-seam addition useful beyond replay (telemetry, request routing).
+- `GenerateOptions.sessionId` is a small, honest core API addition useful beyond replay (telemetry, request routing).
 - The `subagent` tool is bound to a single provider, so both children in `subagent-multi` are spawn (fresh). The keying routes by session, not by backend, so it is already correct for fork. The script *derivation* was not: a fork child's log begins with the seeded parent prefix (the parent's `assistant/chunk` events), so deriving its script from the whole log would replay the parent's responses as the child's. That correctness gap is closed by persisting a seed boundary — see [Persist the seed boundary so fork-child replay routes correctly](2026-06-22-fork-child-replay-seed-boundary.md) — and recorded fork + mixed spawn+fork scenarios now exercise both transports through one transcript (see [Record fork and mixed spawn+fork snapshot scenarios](../../archived/testing/2026-06-22-fork-snapshot-scenarios.md)).
 - Out-of-process (ACP) subagents are a different replay shape entirely (each child is its own PROCESS with its own replay), tracked as `TODO(acp-subagent-replay)` in the PR3 plan.

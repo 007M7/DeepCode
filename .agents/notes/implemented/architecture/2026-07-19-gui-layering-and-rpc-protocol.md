@@ -31,7 +31,7 @@ Directories layer as follows:
     - **Fetch-arrival plugin packages** (`ui-layout`, `ui-sidebar`, `ui-conversation`, `ui-trajectory`): dual-entry — the root index is the node half (an empty `apply`, existing so the host Loader governs lifecycle and the web plugin registry discovers the package.json `dshClient` declaration); the implementation lives under `src/client/`, shipped as the `./client` subpath (a tsdown closure-factory bundle). Cross-plugin consumption of `/client` is type-only; value cooperation goes through cordis services.
 - `apps/` holds the externally exported application shapes, assembled from Client / Host mixtures.
     - `apps/web` (`dsh-frontend`) is the vite application: a thin `main.ts` over the shell surface exported by `dsh-client-web`.
-    - `apps/cli` (`@deepseek-ai/dsh`) dispatches shapes: `dsh web` = startHost + webserver + the built `dsh-frontend` dist; `dsh run` = headless in-process calls, zero HTTP.
+    - `apps/cli` (`@deepseek-ai/dsh`) dispatches shapes: `dsh web` = Host + webserver + the built `dsh-frontend` dist; `dsh run` = [a direct core Agent/Session front door](2026-08-09-headless-direct-core-front-door.md), with zero Host, HTTP, or browser layer.
     - A future Electron shape reuses the same web client packages over an IPC fetch carrier.
 
 ```
@@ -79,7 +79,7 @@ Packages under `packages/host/*` and `packages/client/*` **must carry the direct
 2. **Write an assembly module under `apps/`**: `startHost()` + a client subclass + the shape's private signal/print/exit semantics; a mixture never becomes a package — assembly is written in the app.
 3. **Import `dsh-host-webserver` only if you need HTTP carriage**, otherwise zero ports.
 
-The two existing shapes are the template: `apps/cli/src/web.ts` (startHost + dist location + startWebServer + signal shutdown) and `headless.ts` (startHost + InProcessApiClient isomorphic direct calls, zero HTTP zero ports). ACP-class protocol bridges do not follow this checklist: they expose core to the external ecosystem, mount via `ctx.plugin(front-door plugin)` directly, and wear no fetch.
+The two existing shapes preserve the boundary: the Web shape mounts Host, carrier, and browser composition, while `dsh run` mounts a direct core runner with zero Host, HTTP, or ports. ACP-class protocol bridges do not follow the client-carrier checklist: they expose core to the external ecosystem, mount via `ctx.plugin(front-door plugin)` directly, and wear no fetch.
 
 ## Message protocol
 
@@ -175,7 +175,7 @@ Two logical streams: the mux stream (`/api/events.mux`, all-session aggregate) a
 |---|---|---|
 | `session/event` | `{ sessionId; event: SessionEvent }` | core passthrough: core events pass verbatim, `assistant/chunk` IS the token stream, no separate delta frame |
 
-The remaining frame types are not re-copied here; the full unions are `MuxFrame`/`HostFrame` in `api/events.ts`. Three semantic points to know: `session/subscribed` carries lastSeq for history seam-race detection; the `approval/question` requested frames are answerable (stable rpcId) and the resolved frames are the convergence surface; `host/agent-error` is the only outlet for live failures with no turn position.
+The remaining frame types are not re-copied here; the full unions are `MuxFrame`/`HostFrame` in `api/events.ts`. Three semantic points to know: `session/subscribed` carries lastSeq for history-race detection; the `approval/question` requested frames are answerable (stable rpcId) and the resolved frames are the convergence surface; `host/agent-error` is the only outlet for live failures with no turn position.
 
 **Passthrough discipline**: events/messages/content blocks on the wire ARE the core types (`SessionEvent`/`ContentBlock`) — no second DTO set; types reach the browser through the `import type` dependency chain. `SessionEventMap` is merge-extensible: the client applies its documented default (ignore) to unknown types, and the event schema keeps a "valid envelope + unknown type" branch — the envelope stays strict; this is not field-level passthrough.
 
@@ -183,11 +183,11 @@ The remaining frame types are not re-copied here; the full unions are `MuxFrame`
 
 - **History = event replay**: one fold (client side); history pagination and live increments share one code path; the server maintains no second materialized-snapshot system. History **page boundaries align to message boundaries** (never cut mid-message; chunks group with their finalized message), and the tail page includes the in-flight partial's chunks.
 - **Prompt correlation**: the prompt's rpcId rides MessageSource (`'user-rpc'`) into the `user/message` event; the client uses it to promote the optimistic echo.
-- **Reconnect = rebuild**: no resume cursor (`mux`'s `since` signature is a reserved seat, ignored if passed); on disconnect reopen the stream + refetch history; compare `subscribed.lastSeq` with the history tail seq and backfill once if there is a seam.
+- **Reconnect = rebuild**: no resume cursor (`mux`'s `since` signature is a reserved seat, ignored if passed); on disconnect reopen the stream + refetch history; compare `subscribed.lastSeq` with the history tail seq and backfill once if there is a gap.
 - **Cold session handling follows ownership**: `session.history` and the source read for `session.fork` inspect persistence without an Agent, while Agent-bound ordinary-session methods such as `prompt` resume through a deduplicated in-flight table. Session-backed subagents reject that generic resume path, and attachment status is not exposed to clients (`running` already covers it).
 - **Approvals/questions**: the requested frame mints a stable rpcId on acceptance; first answer wins, and the host's in-memory pending table (keyed by rpcId) is the only referee; after a mux reopen, still-pending requested frames replay after the subscribed frame (rpcId reused verbatim — refresh recovery). The audit events `approval/asked`/`decided` continue through the durable log — frames = the live control plane, events = the durable audit. **Status**: the contract and frame types are shipped; the host-side pending table/wire answerer is unimplemented (`respond` in `api-proxy.ts` is a stub, always `not-pending`); PendingCard v1 is display-only.
 - **No protocol version**: client and host release bound together; `host.describe` has no protocolVersion field; introduce one when an independently released client appears.
-- **Reserved-seam discipline**: the map holds only implemented methods; an unknown method fails loud at envelope parse (`bad-request`) — no not-implemented fallback code. The reservation list (implementing = copy the signature into the domain interface + add the map row + add the schema pair): `session.fork`, `prompt.mode` gaining `'inject'`, `task.list`, `host.listModels`, describe gaining `hostInstanceId`. (`session.rename` graduated from this list: it appends a user-source `session/title` event.)
+- **Reserved-method discipline**: the map holds only implemented methods; an unknown method fails loud at envelope parse (`bad-request`) — no not-implemented fallback code. The reservation list (implementing = copy the signature into the domain interface + add the map row + add the schema pair): `session.fork`, `prompt.mode` gaining `'inject'`, `task.list`, `host.listModels`, describe gaining `hostInstanceId`. (`session.rename` graduated from this list: it appends a user-source `session/title` event.)
 
 ## The client carrier: the AbstractApiClient class family (`fetch/client.ts`)
 
@@ -215,7 +215,7 @@ All four quadrant full forms pass through `onEnvelope`; the base implementation 
 
 | Subclass | Package | doFetch | Purpose |
 |---|---|---|---|
-| `InProcessApiClient` | apiproxy itself | the injected `{ fetch }` handler | **The isomorphic point**: `new InProcessApiClient(toFetchHandler(api))` never touches the network yet runs the real wire serialization/zod/SSE framing — `dsh run` headless is the protocol's second real consumer |
+| `InProcessApiClient` | apiproxy itself | the injected `{ fetch }` handler | **The isomorphic point**: `new InProcessApiClient(toFetchHandler(api))` never touches the network yet runs the real wire serialization/zod/SSE framing; carrier tests and callers can exercise the protocol without opening a port, while product `dsh run` drives core directly |
 | `WebApiClient` | dsh-client-connection | `globalThis.fetch` uplink + one same-origin WebSocket downlink per logical stream | the browser shape; physical boundary in the [WebSocket downlink carrier](2026-08-04-websocket-downlink-carrier.md) |
 | `FixtureApiClient` | dsh-client-connection | unused (protocol-layer override) | serverless UI development (`?fixture`): overrides the `callUnary`/`openMux`/`openHost`/`respond` virtuals and is itself the fake server (frame rpcIds minted by it, semantics self-consistent) |
 | (future) IPC bridge subclass | apps/electron | IPC serialization round trip | swaps only doFetch; contract and base class unchanged |
@@ -230,11 +230,11 @@ All four quadrant full forms pass through `onEnvelope`; the base implementation 
 
 **Plug in a new carrier**: subclass `AbstractApiClient` implementing only `doFetch`; to intercept at the protocol layer (like the fixture), override the `callUnary`/`openMux`/`openHost` virtuals instead. Contract and base class stay unchanged.
 
-**Promote a reserved seam**: copy the reserved signature into the domain interface → add the map row → add the schema pair → add the UNARY_ROUTES row → implement.
+**Promote a reserved method**: copy the reserved signature into the domain interface → add the map row → add the schema pair → add the UNARY_ROUTES row → implement.
 
 ## Consequences
 
-Every client shape consumes one contract: adding a unary method is a five-step mechanical change radiating from a single signature, swapping a carrier touches only a `doFetch` subclass, and every wire message is zod-validated, observable through the envelope tap, and reconcilable by rpcId. Ordinary unary calls remain bounded, while `host.pickDirectory` and `command.execute` may stay pending until the operation finishes or caller/connection cancellation arrives; this accepts that a non-cooperative user-paced operation can hang its request rather than treating valid operation duration as transport failure. The other accepted costs: two groups of packages need explicit tsconfig paths entries, and the reserved seams (fork/inject/task.list/listModels/hostInstanceId) stay dormant until a real consumer arrives.
+Every client shape consumes one contract: adding a unary method is a five-step mechanical change radiating from a single signature, swapping a carrier touches only a `doFetch` subclass, and every wire message is zod-validated, observable through the envelope tap, and reconcilable by rpcId. Ordinary unary calls remain bounded, while `host.pickDirectory` and `command.execute` may stay pending until the operation finishes or caller/connection cancellation arrives; this accepts that a non-cooperative user-paced operation can hang its request rather than treating valid operation duration as transport failure. The other accepted costs: two groups of packages need explicit tsconfig paths entries, and the reserved methods (fork/inject/task.list/listModels/hostInstanceId) stay dormant until a real consumer arrives.
 
 ## Alternatives considered
 
@@ -242,7 +242,7 @@ Every client shape consumes one contract: adding a unary method is a five-step m
 |---|---|
 | Packaging by "product shape" (a web family, an electron family) | What shapes share is host/client capability, not the shape itself; capability-provider layering means a new shape needs zero new packages |
 | A package per mixture (e.g. a standalone headless package) | A mixture has exactly one consumer (its own app); packaging it is ownerless abstraction, while assembly in the app is readable and disposable |
-| Consuming clients connecting to ctx directly (skipping the apiproxy layer) | A second command plane bypasses the contract, losing wire validation/observability/multi-client consistency; ctx keeps exactly two formal uses — front doors and headless event subscription |
+| Consuming clients connecting to ctx directly (skipping the apiproxy layer) | Client shapes require wire validation, observability, and multi-client consistency. Direct headless is a local front door with no client boundary and uses the public Agent/Session seams rather than a client command plane |
 | webserver depending on runtime (saving the handler injection) | Structural-typing injection keeps webserver reusable by sidecars/tests with zero workspace deps; a package dependency would drag assembly knowledge into the carrier layer |
 | Package names without the group prefix (continuing dsh-<tail>) | `dsh-runtime`/`dsh-web-ui` lose their belonging in the flat npm namespace; the cost is one explicit paths entry per package |
 | Reusing the in-repo JSON-RPC 2.0 (dsh-jsonrpc) | Numeric error codes degrade to a single fallback code, contracts get aligned by hand in two copies, and naming drifts without a convention |

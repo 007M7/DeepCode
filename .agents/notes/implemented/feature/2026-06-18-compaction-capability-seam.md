@@ -8,13 +8,13 @@ English | [中文](2026-06-18-compaction-capability-seam.zh.md)
 
 A long-running agent conversation grows without bound. As the event log accumulates turns, the derived message history eventually approaches the model's context window — the model then truncates mid-response (`max-tokens`) or degrades. **Compaction** is the mitigation: replace a run of older history with a concise summary, keeping recent context intact.
 
-The [session surface](../architecture/2026-06-18-session-surface.md) was built as the foundation for exactly this — an ordered projection over the event log with a `surfaceOp: { op: 'replace', start, end }` operation purpose-built to shadow a range of entries and insert a replacement, with `sourceEventSeqs` recording provenance so the decision replays deterministically. What remained was the plugin that *decides what to compact and produces the summary*.
+The [session surface](../architecture/2026-06-18-session-surface.md) was built as the foundation for exactly this — an ordered projection over the event log with a `surfaceOp: { op: 'replace', start, end }` operation purpose-built to shadow a range of entries and insert a replacement, with `sourceEventSeqs` listing every source event so replay can validate that the replacement cites every event it removes. What remained was the plugin that *decides what to compact and produces the summary*.
 
 Two forces shape the design. First, compaction policy and reusable token measurement vary independently: measurement belongs to the LLM-family [`ctx.tokenMeter` service](../architecture/2026-07-15-replay-token-meter-service.md), while summarization can be a model call, a template, or a remote service. Second, `SurfaceEventType` is closed to the message-producing event types (`user/message`, `assistant/message`, `tool/result`); only those may carry `surfaceOp`. A bespoke `compaction/*` event therefore **cannot** itself appear on the surface — the compiler and Session's always-on append/seed boundary reject `surfaceOp` on it.
 
 ## Decision
 
-### Compaction is a capability seam, split interface / implementation
+### Compaction is a capability seam with separate Service Definition and Service provider roles
 
 Per the [capability-seams Agent Note](../architecture/2026-06-13-capability-seams.md), compaction ships as separate packages so the contract, the algorithm, and (later) the consumer surface evolve independently:
 
@@ -25,7 +25,7 @@ Per the [capability-seams Agent Note](../architecture/2026-06-13-capability-seam
 
 ### The contract depends on `dsh-session` and `dsh-llm` — a deliberate deviation
 
-The capability-seams Agent Note states the interface package "depends only on cordis" (true of `dsh-bash`, whose vocabulary is self-contained). Compaction **cannot** honor that: its verbs act on an agent-owned `Session` (`compactRegion(start, end, agent)`) and its output uses the content vocabulary (`CompactionResult.summary: ContentBlock[]`). There is no way to express the contract without naming `Session`/`SessionEvent` (from `dsh-session`) and `ContentBlock` (from `dsh-llm`).
+The capability-seams Agent Note states the Service Definition package "depends only on cordis" (true of `dsh-bash`, whose vocabulary is self-contained). Compaction **cannot** honor that: its verbs act on an agent-owned `Session` (`compactRegion(start, end, agent)`) and its output uses the content vocabulary (`CompactionResult.summary: ContentBlock[]`). There is no way to express the contract without naming `Session`/`SessionEvent` (from `dsh-session`) and `ContentBlock` (from `dsh-llm`).
 
 This is not a coupling smell — it is the contract's domain. The "only cordis" guidance was always shorthand for "the interface depends only on what the contract genuinely names, and never on an implementation." `dsh-session` and `dsh-llm` are themselves interface/vocabulary packages, not implementations; `dsh-compact` still imports no backend. The seam's real invariant — *consumers and implementations evolve independently behind an abstract service* — holds intact.
 
@@ -71,12 +71,12 @@ Auto-compaction always starts at the surface head, merging the prior checkpoint 
 
 ### Surface replacement: `compact/*` events are log-only; one `user/message` carries the summary
 
-Because `SurfaceEventType` is closed, the summary cannot ride on a `compact/*` event. The backend instead appends a **single `user/message`** with `source: COMPACT_CHECKPOINT_SOURCE` and `surfaceOp: { op: 'replace', start, end }` whose `content` is the (framed) summary and whose `sourceEventSeqs` covers the shadowed entries *and* the bookkeeping events. The interface exports that source and `isCompactCheckpointSource()` so consumers recognize a persisted or cloned checkpoint without depending on backend package identity. The `compact/*` events are pure log records (lock + provenance). The surface mutation sits **inside** the lock — `compact/end` is the last event appended:
+Because `SurfaceEventType` is closed, the summary cannot ride on a `compact/*` event. The backend instead appends a **single `user/message`** with `source: COMPACT_CHECKPOINT_SOURCE` and `surfaceOp: { op: 'replace', start, end }` whose `content` is the (framed) summary and whose `sourceEventSeqs` covers the shadowed entries *and* the bookkeeping events. The interface exports that source and `isCompactCheckpointSource()` so consumers recognize a persisted or cloned checkpoint without depending on backend package identity. The `compact/*` events record the lock, summary, selected range, shadowed seqs, token count, and model call without joining the surface. The surface mutation sits **inside** the lock — `compact/end` is the last event appended:
 
 ```
 compact/start    → log-only. Acquires the lock.
 [summarize older range via the backend]
-compact/summary  → log-only. Provenance: raw summary, local-call marker, range, shadowed seqs, token count.
+compact/summary  → log-only. Records the raw summary, local-call marker, range, shadowed seqs, and token count.
 user/message     → canonical checkpoint source + surfaceOp { op:'replace', start, end }.
                    THE surface mutation (framed summary).
                    deriveMessages() renders it as a user-role message.
@@ -93,7 +93,7 @@ The basic backend wraps the summary as established checkpoint context and tags i
 
 The `compact/start … compact/end` bracket is justified by two roles:
 
-1. **Crash-detectable orphan + provenance** (primary). Summarization is a slow model call persisted *after* `compact/start`. A crash mid-summarization leaves a `compact/start` with no matching `compact/end` — a detectable orphan. Releasing the lock last (rather than first) converts the crash window from *silent corruption* into that detectable orphan.
+1. **Crash-detectable orphan plus recorded summary inputs** (primary). Summarization is a slow model call persisted *after* `compact/start`. A crash mid-summarization leaves a `compact/start` with no matching `compact/end` — a detectable orphan. Releasing the lock last (rather than first) converts the crash window from *silent corruption* into that detectable orphan.
 2. **Prevents concurrent compaction.** Every automatic, manual, and explicit-range entry point refuses a live unmatched `compact/start`. The bracket is the single lock; no process-local mutex duplicates it.
 
 The lock excludes another compaction, not unrelated facts. Its markers are time points rather than an exclusive container, so durable inbox splices may appear between a standalone manual start and end. Automatic work requires whole-surface stability inside its turn. Manual work revalidates only the selected positional span, letting append-only context outside it remain visible after replacement.
@@ -119,10 +119,10 @@ The lifecycle boundary makes crash state unambiguous:
 ## Consequences
 
 - **Packages**: `packages/compact/compact` supplies the interface, `compact-basic` supplies the backend, `compact-tool-result-prune` supplies optional deterministic rewriting, and `command-compact` supplies human `/compact`. `packages/llm/token-meter` owns replay-aware measurement independently.
-- **Automatic seams**: `agent/pre-step` (`@mode waterfall`) handles pressure before request derivation and `agent/request-error` (`@mode waterfall`) handles final request failures after the failed step closes. The pre-step payload carries the claimed batch, turn, step, and signal (see the [payload-object events decision](../architecture/2026-08-06-agent-event-payload-objects.md)), with no compaction-only prompt/prefix payload.
+- **Automatic extension points**: `agent/pre-step` (`@mode waterfall`) handles pressure before request derivation and `agent/request-error` (`@mode waterfall`) handles final request failures after the failed step closes. The pre-step payload carries the claimed batch, turn, step, and signal (see the [payload-object events decision](../architecture/2026-08-06-agent-event-payload-objects.md)), with no compaction-only prompt/prefix payload.
 - **`SessionEventMap`** gains `compact/start` / `compact/summary` / `compact/end` by declaration merging (merge-extensible); `SurfaceEventType` is **not** touched. These are session events, not cordis `Events`, so the event-taxonomy gate needs no entry.
 - **`dsh-compact`** owns `COMPACT_CHECKPOINT_SOURCE`, `isCompactCheckpointSource(source)`, `toolPairingBalancedBefore(session, seq)`, and `toolPairingBalancedAfter(session, seq)`. The marker identifies replacement summaries across backend implementations. The cached surface-edge checks prevent `compactRegion` and `compactIfNeeded` from splitting a tool-call/result pair, validate current membership by seq, answer both edges from one per-cut balance sequence, and reject stale or missing seqs and orphan results.
-- **`dsh-session`** validates positional replacement, complete provenance, and content-only single-node `tool/result` rewrites through its one surface manager. Its invariant companion treats fresh appended tool results as executions that require an open step and pending call, while the compaction companion owns numeric-turn versus standalone-null bracket relations.
+- **`dsh-session`** validates positional replacement, complete cited source-event coverage, and content-only single-node `tool/result` rewrites through its one surface manager. Its invariant companion treats fresh appended tool results as executions that require an open step and pending call, while the compaction companion owns numeric-turn versus standalone-null bracket relations.
 - **Wiring**: `examples/tui-agent/cordis.yml` loads zero-config `dsh-token-meter`, `dsh-compact-tool-result-prune`, `dsh-compact-basic`, then `dsh-command-compact`; service-wide defaults make the composition usable without repeated numeric policy.
 
 ## Testing

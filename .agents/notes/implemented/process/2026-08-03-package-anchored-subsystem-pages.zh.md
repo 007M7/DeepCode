@@ -20,7 +20,7 @@ Status: implemented
 
 ## Alternatives considered
 
-**保留主干-vs-seam 界定规则。**它逐类型回答「这个类型是核心吗？」，这正是首页积累了四个包的类型、却缺失 `packages/core/agent` 一半公开 surface 的原因。按仓库布局可预测性胜出。
+**保留主干-vs-子系统界定规则。**它逐类型回答「这个类型是核心吗？」，这正是首页积累了四个包的类型、却缺失 `packages/core/agent` 一半公开 surface 的原因。按仓库布局可预测性胜出。
 
 **扁平的单文档目录。**在[原目录 note](2026-06-20-core-data-structures-catalog.md) 中已被否决；增长到四十一页证实了该结论。
 
