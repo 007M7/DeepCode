@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-07-26-todo-parallel-in-progress.md
 2026-07-26-todo-parallel-in-progress.md: 8d047f33ab1aebd8c0de2a0a5e90e7efb1b28154
-2026-07-26-todo-parallel-in-progress.zh.md: 64047e8b27e779e6ca23ea6c435bcdfecf38066d
+2026-07-26-todo-parallel-in-progress.zh.md: ebd4b1567eba637493956993b43b1ec56df14c39

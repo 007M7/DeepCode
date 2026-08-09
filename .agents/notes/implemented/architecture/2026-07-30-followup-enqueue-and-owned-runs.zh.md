@@ -18,7 +18,7 @@ Status: implemented
 
 只有明确拥有一个活动区间时，高层自动化 API 才返回 `RunResult`。TypeScript 和 Python SDK 的 `run()` 方法从已提交消息的持久 inbox 回执开始收集，直至整个 agent 下一次进入 `idle`；其 `finalResponse` 是该区间内最后一条已提交的 assistant 消息，而不是按因果关系归属于已提交提示词的响应。单次 CLI（命令行界面）拥有相应的 idle 到 idle 区间。隔离的子 agent 运行可以报告结果，因为调用方拥有完整的子级生命周期，任何 steering 都属于该运行。
 
-ACP（Agent Client Protocol）必须返回协议规定的 `stopReason`。其桥接层串行处理每个 ACP 会话中唯一一个正在处理的提示词，等待整个 agent 进入 idle，其他情况均报告通用的 `end_turn`。token 上限的轮次结束不归因于提示词：它们以 `end_turn` 结算。与该提示词关联的轮次上的模型错误会立即以该错误拒绝提示词（错误按其所属轮次归因），而 turnless 槽位（准入已丢弃提示词）会在 idle 时以 `cancelled` 结算，与显式 ACP 取消或dispose（资源释放）并列。
+ACP（Agent Client Protocol）必须返回协议规定的 `stopReason`。其桥接层串行处理每个 ACP 会话中唯一一个正在处理的提示词，等待整个 agent 进入 idle，其他情况均报告通用的 `end_turn`。token 上限的轮次结束不归因于提示词：它们以 `end_turn` 结算。与该提示词关联的轮次上的模型错误会立即以该错误拒绝提示词（错误按其所属轮次归因），而 turnless 槽位（准入已丢弃提示词）会在 idle 时以 `cancelled` 结算，与显式 ACP 取消或 dispose（资源释放）并列。
 
 Goal 续行只保留 `MessageId`，用于识别持久排队和已准入的 goal 消息。它在整个 agent 进入 idle 时根据持久 goal 状态推进，不把消息映射到轮次结果。
 

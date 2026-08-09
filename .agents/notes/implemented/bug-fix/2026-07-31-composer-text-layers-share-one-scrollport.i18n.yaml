@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-07-31-composer-text-layers-share-one-scrollport.md
 2026-07-31-composer-text-layers-share-one-scrollport.md: ba11384409714d6a64a964d63197705acf39d213
-2026-07-31-composer-text-layers-share-one-scrollport.zh.md: cf0ce7bc344f6566d56a9e3cd81a63be5f68d614
+2026-07-31-composer-text-layers-share-one-scrollport.zh.md: 7a2500a6253c7cf50a57458b66c9b80503414ace

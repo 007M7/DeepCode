@@ -320,6 +320,7 @@ export function requiresSourceLanguageSwitcher(source: string): boolean {
     'docs/cordis-api/context.md',
     'docs/cordis-api/events.md',
     'docs/cordis-api/fiber.md',
+    // Excluded from pairing, but kept here for generated-category completeness and direct spec coverage.
     'docs/cordis-api/inherited.md',
     'docs/cordis-api/registry.md',
     'docs/cordis-api/service.md',

@@ -330,6 +330,7 @@ describe('docsPages locale routes', () => {
   })
 
   it('projects reviewed generated counterparts into root locale routes', () => {
+    // module-graph, event-producer-consumer, and graph-atlas are paired but intentionally unpublished.
     const routes = [
       'reference/capability-seams.md',
       'reference/agent-lifecycle.md',
