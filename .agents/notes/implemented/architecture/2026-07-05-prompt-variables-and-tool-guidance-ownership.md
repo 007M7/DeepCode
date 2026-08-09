@@ -18,7 +18,7 @@ The assembled system prompt had four defects, all of one family: facts the harne
 
 ## Decision
 
-**One principle: every fact in the prompt has exactly one owner.** The model name and workspace are config/session facts → the harness exposes them as variables and the persona references them. Per-tool semantics and when-to-use → the tool's `description`. Cross-call habits a description cannot carry → the tool package's prompt section. Harness provenance → the static `harness:identity` section. Deployment role and behavior → the deployment's persona.
+**One principle: every fact in the prompt has exactly one owner.** The model name and workspace are config/session facts → the harness exposes them as variables and the persona references them. Per-tool semantics and when-to-use → the tool's `description`. Cross-call habits a description cannot carry → the tool package's prompt section. The product name and SDK identity line → the static `harness:identity` section. Deployment role and behavior → the deployment's persona.
 
 ### Assemble context
 

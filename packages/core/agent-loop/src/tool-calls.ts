@@ -130,7 +130,7 @@ async function runGroup(
   const { session } = ctx.agents.requireInitiator()
   const { maxParallelToolCalls } = ctx.agentLoop.config
   const slots: (Slot | undefined)[] = group.map(() => undefined)
-  // Started slots retain their tool/call seq for result provenance.
+  // Started slots retain their `tool/call` seq so the result can cite it.
   const callSeqs: number[] = group.map(() => -1)
   let nextToStart = 0
   let committed = 0
@@ -258,7 +258,7 @@ function appendSkippedToolCall(session: Session, turn: number, step: number, blo
   }, callSeq)
 }
 
-/** Append a started call and return its provenance sequence. */
+/** Append a started call and return the event seq that its result must cite. */
 function appendToolCall(session: Session, turn: number, step: number, block: ToolCallBlock): number {
   const event = session.append('tool/call', { turn, step, callId: block.id, name: block.name, arguments: block.arguments })
   return event.seq

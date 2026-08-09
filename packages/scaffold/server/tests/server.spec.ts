@@ -664,7 +664,7 @@ describe('HarnessSdkServer', () => {
     }
   })
 
-  it('uses explicit local provenance when start was missed and ignores remote runs', async () => {
+  it('uses the recorded local flag when start was missed and ignores remote runs', async () => {
     const storageDir = await mkdtemp(join(tmpdir(), 'dsh-jsonrpc-subagent-fallback-'))
     const ctx = await makeHarness(storageDir)
     let parentHandle: AgentHandle | undefined

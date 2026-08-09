@@ -283,11 +283,11 @@ export abstract class SessionQueryService extends Service {
   }
 
   /**
-   * Trace one event's direct positional and provenance relationships.
+   * Trace one event's direct positional replacements and cited source events.
    * @param request - target session id and event seq.
    * @param signal - optional cancellation for persisted source resolution.
    * @returns source header, direct links, and the target's positional replacement chain.
-   * @throws when source resolution fails, the target is absent, or surface/provenance validation fails.
+   * @throws when source resolution fails, the target is absent, or surface/source-event validation fails.
    */
   async traceEvent(request: SessionEventTraceRequest, signal?: AbortSignal): Promise<SessionEventTraceObservation> {
     const loaded = await this._corpus.load(request.sessionId, signal)

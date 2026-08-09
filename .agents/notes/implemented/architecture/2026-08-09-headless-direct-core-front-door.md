@@ -24,7 +24,7 @@ This note owns the headless transport and completion contracts. [`dsh run` owns 
 
 ## Verification
 
-Package tests use the real Session store and Agent registry around a scripted Agent factory to pin idle-to-idle aggregation, late asynchronous completion, terminal model diagnostics, other non-completed exits, direct failures, Loader-time disposal, and flush-before-exit ordering. The keyless assembled snapshots drive `dsh run` through a replayed tool round trip, record direct user-message provenance, and expose a terminal model failure on stderr. Built-bin acceptance reaches a mock provider through the published entry and requires final text on stdout, exit 0, and empty stderr. Config-dump acceptance excludes every Host, Web, and Client package from the shipped headless tree; PTY shutdown coverage requires no observation line and bounded disposal.
+Package tests use the real Session store and Agent registry around a scripted Agent factory to pin idle-to-idle aggregation, late asynchronous completion, terminal model diagnostics, other non-completed exits, direct failures, Loader-time disposal, and flush-before-exit ordering. The keyless assembled snapshots drive `dsh run` through a replayed tool round trip, record a `user/message` with `source.kind: 'user'`, and expose a terminal model failure on stderr. Built-bin acceptance reaches a mock provider through the published entry and requires final text on stdout, exit 0, and empty stderr. Config-dump acceptance excludes every Host, Web, and Client package from the shipped headless tree; PTY shutdown coverage requires no observation line and bounded disposal.
 
 ## Alternatives considered
 
@@ -39,6 +39,6 @@ Package tests use the real Session store and Agent registry around a scripted Ag
 
 ## Consequences
 
-`dsh run` provides a local Agent task rather than browser observation, Host APIs, or HTTP. Users who need those capabilities choose `dsh web`. Successful stderr is empty, completion follows durable flush, and the persisted Session remains available to later tooling. Its initial user message has direct user provenance and therefore carries no ApiProxy `rpcId`.
+`dsh run` provides a local Agent task rather than browser observation, Host APIs, or HTTP. Users who need those capabilities choose `dsh web`. Successful stderr is empty, completion follows durable flush, and the persisted Session remains available to later tooling. Its initial user message records `source.kind: 'user'` and therefore carries no ApiProxy `rpcId`.
 
 ApiProxy carrier coverage stays in the ApiProxy package. Custom one-shot profiles may include Host or Web bundles explicitly, while the shipped profile and the recognized installation-owned tuple are Web-free.

@@ -8,7 +8,7 @@
 
 ## 保存请求
 
-`saveText` 是整个 seam：原样持久保存 `content`，并返回不透明的定位符、后端提供的检索提示和准确字节数。请求携带保存时的存储命名空间（`owner`）、内容来源（`source`，用于命名和检查的描述性来源信息，而非访问控制）以及后端可用作命名提示的 `suggestedName`（它不是路径）。
+`saveText` 是整个 seam：原样持久保存 `content`，并返回不透明的定位符、后端提供的检索提示和准确字节数。请求携带保存时的存储命名空间（`owner`）、生成内容的工具和调用（`source`，用于命名和检查，而非访问控制）以及后端可用作命名提示的 `suggestedName`（它不是路径）。
 
 ```ts type-equiv
 /** One request to persist text to a spill artifact. */
@@ -42,7 +42,7 @@ interface SpillOwner {
 
 ```ts type-equiv
 /**
- * Provenance of one spilled artifact — recorded by the backend for a readable
+ * Tool and call that produced one spilled artifact — recorded by the backend for a readable
  * filename and inspection. Not interpreted for access control; purely
  * descriptive.
  */
@@ -107,7 +107,7 @@ Semantics every implementation must honor:
 ```ts cordis-catalog
 /**
  * Persist `input.content` to a session-scoped spill artifact.
- * @param input - the owner, provenance, suggested name, and full text to save.
+ * @param input - the owner, caller-supplied source fields, suggested name, and full text to save.
  * @returns the saved artifact's {@link SpillRef}; rejects on a storage failure.
  */
 abstract saveText(input: SaveTextSpill): Promise<SpillRef>

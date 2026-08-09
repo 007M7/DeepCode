@@ -8,7 +8,7 @@
 declare module '@deepseek-ai/dsh-session' {
   interface SessionEventMap {
     /**
-     * A hook command was invoked at a hook point — log-only provenance (like
+     * A hook command was invoked at a hook point — a log-only record (like
      * `compact/*`; NOT a {@link SurfaceEventType}, carries no `surfaceOp`).
      * `dialect` is the bridge that ran it (`claude`/`codex`), `point`
      * the hook point (`PreToolUse`, `Stop`, …), `matcher` the matcher-group
@@ -43,7 +43,7 @@ declare module '@deepseek-ai/dsh-session' {
 /**
  * The bridge that ran a hook — the CC bridge stamps `'claude'`, the Codex
  * bridge `'codex'`. A native plugin on the interception seams is not a bridge
- * and writes no `hook/*` provenance (see the interception-seams Agent Note).
+ * and writes no `hook/*` invocation/result records (see the interception-seams Agent Note).
  */
 export type HookDialect = 'claude' | 'codex'
 

@@ -24,7 +24,7 @@ interface Config {
 
 `InvariantError` 扩展 `Error`，携带稳定 `code: 'INVARIANT'`，并公开所属 `packageName`，而不向服务添加产品依赖。
 
-在每个组合中，Session 自身负责不可变且通过对外接口校验的日志存储：它对每个候选项制作一份无损 JSON 快照，验证完整来源和位置替换，将 `tool/result` 替换限制为一个当前结果的 `content`，深度冻结已接受记录，并通过不可变数组快照公开日志。`dsh-session` 不变量配套入口检查 Session 不负责的其余跨记录规则。
+在每个组合中，Session 自身负责不可变且通过对外接口校验的日志存储：它对每个候选项制作一份无损 JSON 快照，验证引用的源事件是否齐全以及位置替换是否合法，将 `tool/result` 替换限制为一个当前结果的 `content`，深度冻结已接受记录，并通过不可变数组快照公开日志。`dsh-session` 不变量配套入口检查 Session 不负责的其余跨记录规则。
 
 ## 包配套入口
 
