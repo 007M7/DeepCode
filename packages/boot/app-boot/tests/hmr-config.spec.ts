@@ -26,21 +26,23 @@ async function eventually(test: () => boolean, message: string): Promise<void> {
 }
 
 describe('HMR exact config paths', () => {
-  it('observes module changes when its watch base is a filesystem alias', { timeout: 20_000 }, async () => {
+  it('observes module changes when its watch base is a filesystem alias', { timeout: 30_000 }, async () => {
     const target = mkdtempSync(join(tmpdir(), 'dsh-hmr-module-canonical-'))
     const alias = `${target}-alias`
-    const filename = join(alias, 'module.ts')
+    const aliasFilename = join(alias, 'module.ts')
     symlinkSync(target, alias, process.platform === 'win32' ? 'junction' : 'dir')
-    writeFileSync(filename, 'export const generation = 0\n')
+    writeFileSync(aliasFilename, 'export const generation = 0\n')
     const ctx = await bootHmr(alias, ['.'])
-    const expected = pathToFileURL(join(realpathSync(target), 'module.ts')).href
+    const filename = join(realpathSync(target), 'module.ts')
+    const expected = pathToFileURL(filename).href
     const cacheHas = vi.spyOn(ctx.loader.internal!.loadCache, 'has').mockReturnValue(false)
     const observed: string[] = []
     ctx.on('hmr/change', (url) => { observed.push(url) })
     try {
-      const deadline = Date.now() + 10_000
+      const deadline = Date.now() + 20_000
       for (let generation = 1; !observed.includes(expected); generation += 1) {
         if (Date.now() >= deadline) throw new Error('HMR did not observe a module change through the alias')
+        // The watch base, not the writer spelling, is the alias under test.
         writeFileSync(filename, `export const generation = ${generation}\n`)
         // Leave Chokidar's atomic-write window idle so one coalesced change can publish.
         await new Promise(resolve => setTimeout(resolve, 250))

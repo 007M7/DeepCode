@@ -166,7 +166,12 @@ describe('RepositoryCache', () => {
     await writeFile(join(repository, '.dsh-plugin', 'package.json'), `${JSON.stringify({
       name: 'repository-plugin-fixture',
       version: '1.0.0',
-      scripts: { prepack: 'repository-build-helper && dsh-plugin-prepare' },
+      scripts: {
+        prepack: [
+          'node ./node_modules/repository-build-helper/index.js',
+          'node ./node_modules/repository-prepare-helper/index.js',
+        ].join(' && '),
+      },
       dependencies: {
         'repository-build-helper': 'file:./build-helper',
         'repository-prepare-helper': 'file:./prepare-helper',
