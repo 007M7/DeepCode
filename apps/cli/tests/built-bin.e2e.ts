@@ -243,7 +243,7 @@ describe.skipIf(!existsSync(dshBin))('dsh BUILT bin (node lib/bin.js, no tsx)', 
       })
       expect(result.code, result.stderr).toBe(0)
       expect(result.stdout).toBe('published dsh run reached the mock')
-      expect(result.stderr).toMatch(/^dsh: observing at http:\/\/127\.0\.0\.1:\d+$/u)
+      expect(result.stderr).toBe('')
       expect(server.requests.length).toBeGreaterThan(0)
       expect(server.requests.every(request => request.path === '/chat/completions')).toBe(true)
       expect(JSON.stringify(server.requests.map(request => request.body))).toContain('answer from the published entry')
@@ -489,6 +489,20 @@ describe.skipIf(!existsSync(dshBin))('dsh BUILT bin (node lib/bin.js, no tsx)', 
       expect(stdout).toContain('agents: []')
       expect(stdout).toContain('# == @deepseek-ai/dsh-base')
       expect(stdout).toContain("name: '@deepseek-ai/dsh-host-webserver'")
+    }, 30_000)
+
+    it('prints a headless profile with no Host, HTTP, or browser rows', async () => {
+      const { stdout, code, stderr } = await runBuiltBin(
+        ['--profile', 'headless', '--dump-default-config'],
+        { DSH_HOME: home },
+      )
+      expect(code).toBe(0)
+      expect(stderr).toBe('')
+      expect(stdout).toContain("name: '@deepseek-ai/dsh-agent-default-model'")
+      expect(stdout).toContain("name: '@deepseek-ai/dsh-headless'")
+      expect(stdout).not.toContain("name: '@deepseek-ai/dsh-host-")
+      expect(stdout).not.toContain("name: '@deepseek-ai/dsh-web-app'")
+      expect(stdout).not.toContain("name: '@deepseek-ai/dsh-client-")
     }, 30_000)
 
     it('composes the profile user layer and a --patch overlay in order', async () => {

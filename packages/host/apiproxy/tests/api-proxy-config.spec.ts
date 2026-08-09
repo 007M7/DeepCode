@@ -22,9 +22,10 @@ import type { CredentialInfo, CredentialRef, ResolvedCredential } from '@deepsee
 import type { HostFrame } from '../src/api/index.ts'
 import type { RpcRequest, RpcResponse } from '../src/api/rpc.ts'
 import { RpcId } from '../src/api/rpc.ts'
-import { API_GATEWAY_SETTINGS_NAMESPACE, createApiProxy } from '../src/api-proxy.ts'
+import { AGENT_DEFAULT_MODEL_SETTINGS_NAMESPACE } from '@deepseek-ai/dsh-agent-default-model'
+import { createApiProxy } from '../src/api-proxy.ts'
 
-const DEFAULTS = { defaultTarget: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp', workspaceRoot: '/tmp' }
+const DEFAULTS = { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp', workspaceRoot: '/tmp' }
 
 let nextRpc = 1
 function request<P>(payload: P): RpcRequest<P> {
@@ -398,21 +399,21 @@ describe('settings domain', () => {
     expect(frames).toEqual([{ type: 'host/settings-changed', ns: 'permission' }])
   })
 
-  it('invalidates the model catalog when the gateway default route changes', async () => {
+  it('invalidates the model catalog when the Agent default selection changes', async () => {
     const ctx = await harness()
-    const route = ctx.settings.register(API_GATEWAY_SETTINGS_NAMESPACE, z.object({
+    const defaultModel = ctx.settings.register(AGENT_DEFAULT_MODEL_SETTINGS_NAMESPACE, z.object({
       provider: z.string().required(),
       model: z.string().required(),
     }), { base: { provider: 'deepseek-official', model: 'deepseek-v4-flash' } })
     const api = createApiProxy(ctx, DEFAULTS)
-    // The gateway's own section names the route every session with no logged
-    // one resolves to, so an externally edited default — another tab, a
+    // The shared section names the selection every blank session resolves to,
+    // so an externally edited default — another tab, a
     // hand-edited settings.yaml — has to reach an open selector as well.
     const frames = await collectHost(api, ['host/settings-changed', 'host/models-changed'], 2, async () => {
-      await route.replace({ provider: 'deepseek-official', model: 'deepseek-reasoner' })
+      await defaultModel.replace({ provider: 'deepseek-official', model: 'deepseek-reasoner' })
     })
     expect(frames).toEqual([
-      { type: 'host/settings-changed', ns: 'api-gateway' },
+      { type: 'host/settings-changed', ns: 'agent-default-model' },
       { type: 'host/models-changed' },
     ])
   })

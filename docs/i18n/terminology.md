@@ -137,6 +137,7 @@
 | message | 消息 | | | |
 | mod | 模组 | | | |
 | model provider | 模型提供方 | | | |
+| model selection | 模型选择 | | 模型目标 | 面向 Agent 的提供方、模型和可选推理强度选择。 |
 | module | 模块 | | | |
 | non-escalation | 非升权 | | 非升级、不可升级 | 仅用于安全与权限语境，指主体不得获得超出既有授权的权限；普通升级不适用此行 |
 | npm dependency | NPM 依赖 | | | `package.json` 中的包关系；`dependencies`、`devDependencies` 等字段保持原样 |
