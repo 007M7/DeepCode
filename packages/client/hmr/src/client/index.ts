@@ -3,7 +3,7 @@
  *
  * Listens on the host's system SSE channel (`GET /plugins/events`); on a
  * `rebuilt` frame it reloads the entry's bundle and swaps the cordis
- * fiber in place. Every graph entry is a plugin bundle under the web2 model
+ * fiber in place. Every graph entry is a plugin bundle
  * — `immediately` rows differ only in stage-one prefetch (a boot
  * optimization), so all rostered plugin packages share these reload semantics;
  * normal packages (react family, cordis, shell, pure libs) are not entries
@@ -35,8 +35,7 @@
  * that arrival's task and may materialize the pre-rebuild bytes; the next
  * rebuilt frame self-heals.
  *
- * Why not the naive `entry.fiber.dispose()` → `entry.refresh()` path —
- * confirmed against vendor sources:
+ * Why not the naive `entry.fiber.dispose()` → `entry.refresh()` path:
  * 1. `Entry.fiber` is never cleared on dispose (vendor/loader/src/config/
  *    entry.ts assigns it only in `_init`), so `refresh()` hits its
  *    `if (this.fiber) return` guard and no-ops.
@@ -46,7 +45,7 @@
  *    `disabled: true` — permanently.
  * vendor/hmr's reload skeleton documents the fix: delete the runtime record
  * FIRST (`registry.delete` → case 4 returns early, the entry stays enabled),
- * then rebuild. We additionally clear `entry.fiber` ourselves so
+ * then rebuild. `entry.fiber` is additionally cleared so
  * `entry.refresh()` re-imports and re-plugins through the Loader's own
  * `_init` (entry-resolved config, automatic `fiber.entry` rebinding) instead
  * of hand-rolling `registry.plugin`. Client entries have exactly one fiber

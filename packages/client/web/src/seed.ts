@@ -2,7 +2,7 @@
  * Platform-singleton module-table. These are the ONLY entities the shell
  * shares into the frozen module table — fetch bundles resolve their externals
  * against exactly this set through the loader's require. Keys come from the
- * platform constant module ({@link ./platform.ts}, contract C1: single source
+ * platform constant module ({@link ./platform.ts}, the single source
  * of truth with the tsdown client externals); values stay shell-static
  * imports so every bundle sees the same instance.
  */

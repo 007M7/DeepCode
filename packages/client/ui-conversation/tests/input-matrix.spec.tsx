@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * Impact-matrix projection tests (design §5.2 影响矩阵, row by row): what each
+ * Impact-matrix projection tests (row by row): what each
  * phase projects onto the InputBar — enter routing, visuals (token color /
  * hint / pending), edit freedom, and the published currency's claim seat.
  * React over jsdom per the client testing discipline; the machine is real.

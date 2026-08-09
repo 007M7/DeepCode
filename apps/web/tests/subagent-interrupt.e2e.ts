@@ -4,7 +4,7 @@
 // proves from the real session state that the turn aborted, the follow-up
 // parked without auto-starting a new turn, and a later waking send resumed the
 // preserved FIFO order. No browser: the RPC surface is the product surface
-// under test, and PR-stacked UI coverage owns the composer interaction.
+// under test, and subagent-interrupt-ui.e2e.ts owns the composer interaction.
 import { existsSync } from 'node:fs'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'

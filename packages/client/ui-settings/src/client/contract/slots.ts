@@ -62,7 +62,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * OnboardingSurface primitive (mask, opaque stage, `#root` inert) and
      * renders null while its private facts are still loading — the shell
      * paints no chrome of its own, so a mounted-but-deciding step shows and
-     * blocks nothing (the reload white-flash fix; a bare unwrapped step
+     * blocks nothing (prevents a white flash on reload: a bare unwrapped step
      * would render without mask or stage).
      */
     'settings.onboarding': { kind: 'list'; scope: 'root'; owner: SettingsOnboardingOwnerProps }
@@ -87,7 +87,7 @@ export interface SettingsHeaderOwnerProps {
  * arrives through their own inject faces and stores).
  */
 export interface SettingsSectionOwnerProps {
-  /** Marker field: section owner props are intentionally empty for now. */
+  /** Marker field: section owner props are intentionally empty. */
   children?: never
 }
 

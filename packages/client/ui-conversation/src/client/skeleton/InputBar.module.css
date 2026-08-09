@@ -395,7 +395,7 @@
   cursor: pointer;
 }
 
-/* Plain-text reference highlight (decision 21): a pure range mark over the
+/* Plain-text reference highlight: a pure range mark over the
    draft's own glyphs — advance untouched, so the two layers cannot drift.
    Chip family colors; clone keeps rounded ends on soft-wrap fragments. */
 .textRef {

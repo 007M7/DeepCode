@@ -65,7 +65,7 @@ The design ships as a new backend `dsh-compact-recallable` on the existing `ctx.
 
 ### Follow-ups
 
-Specified during review, deferred until observation calls for them:
+Deferred until observation calls for them:
 
 - Guard degradation ladder (code-only rollup of the oldest stub prefix, footers preserved, rolled-up ids remain recall targets; then one summary after the frozen boundary) — on observed guard livelock or stub-region pressure.
 - Echo detection on stub outputs (sentence-scale n-grams, short literals exempt, retry then strip) — on observed division-of-labor leakage.

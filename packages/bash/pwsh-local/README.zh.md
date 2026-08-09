@@ -23,7 +23,7 @@
     pwshPath: C:\Program Files\PowerShell\7\pwsh.exe  # explicit executable; else well-known locations, then PATH
 ```
 
-## 行为（及其由来）
+## 行为
 
 作为 `dsh-bash-local` 的 Windows 对应物，逐调用地镜像其语义：
 

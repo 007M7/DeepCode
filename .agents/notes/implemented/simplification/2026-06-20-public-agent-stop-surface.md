@@ -4,13 +4,11 @@ Status: implemented
 
 English | [中文](2026-06-20-public-agent-stop-surface.zh.md)
 
-> **Implementation note:** Only `abort()` was removed. `whenIdle()` remains because it is the public quiescence signal and safely handles waiter settlement and replacement-turn races; consumers should not reconstruct that behavior from status transitions.
-
 ## Problem
 
 The public `Agent` handle exposed two overlapping ways to stop in-flight work: step-only `abort()` and queue-aware `cancel()`. The former preserved queued input while the latter originally only exposed its broad default, which clears queued and steering work while aborting the active turn. `cancel(cause, { keepInbox: true })` now covers the production Web stop policy without exposing the private turn holder; ACP retains broad cancellation, while lifecycle owners tear down agents through `AgentHandle.dispose()`. No production caller needs a bare step-only abort.
 
-The behavioral distinction is real, but no shipping code needs a separate narrower verb. AgentLoop owns one private cancellation holder for the whole turn. `cancel(cause, options?)` carries an explicit typed `user` or `parent` cause; its broad default drops pending input, while `keepInbox` preserves pending work for later turns. Disposal remains a separate lifecycle interruption. The complete ownership and propagation contract lives in the [explicit turn cancellation RFC](../architecture/2026-07-16-explicit-turn-cancellation.md).
+The behavioral distinction is real, but no shipping code needs a separate narrower verb. AgentLoop owns one private cancellation holder for the whole turn. `cancel(cause, options?)` carries an explicit typed `user` or `parent` cause; its broad default drops pending input, while `keepInbox` preserves pending work for later turns. Disposal remains a separate lifecycle interruption. The complete ownership and propagation contract lives in the [explicit turn cancellation note](../architecture/2026-07-16-explicit-turn-cancellation.md).
 
 The extra surface area made the loop carry a public verb that was mostly a teardown internal. An options-bearing `cancel()` expresses caller policy without exposing a second holder-shaped operation.
 
@@ -24,7 +22,7 @@ Public `abort()` is absent, and the disposer remains async and waits for the loo
 
 ## Alternatives considered
 
-**Removing `whenIdle()` too** — the original proposal's shape, reversed on validating the premise against the code (the implementation note above carries the full record): it is a load-bearing quiescence primitive, and pushing consumers onto hand-observed `running`→`idle` transitions is exactly the brittle path the defensive patterns warn against.
+**Removing `whenIdle()` too** — the original proposal's shape, reversed on validating the premise against the code: it is a load-bearing quiescence primitive that safely handles waiter settlement and replacement-turn races, and pushing consumers onto hand-observed `running`→`idle` transitions is exactly the brittle path the defensive patterns warn against.
 
 ## Verification
 

@@ -46,9 +46,9 @@ Status: implemented
 
 - **循环自行组合一行 identity 文本**：在必须保持精简的那个包（「用插件，不改循环」）中硬编码面向模型的行文，且在 section 流水线之外构成第二条组合路径。（identity 确实以代码字面量交付——但作为 `dsh-system-prompt` 注册的普通 section，其 `system-prompt/assemble` waterfall 仍是部署需要移除它时的逃生阀。）
 - **通过 `agent/request` waterfall 注入模型名称**：提示词文本会在两处组合，更早渲染的 persona 也可能与最终已路由 header 不一致。拥有延迟路由的请求插件还必须拥有该模型在提示词中更早出现的声明。
-- **在每个 persona 中手写模型名称**：与上方一行的 `model:` 键重复，配置修改后静默失实；正是本 Agent Note 要治愈的病症。
+- **在每个 persona 中手写模型名称**：与上方一行的 `model:` 键重复，配置修改后静默失实；正是本决策要治愈的病症。
 - **宽松插值（未知引用保留原样或替换为空）**：一个拼写错误 `{{modle}}`（或一个空洞）会被发送给模型，直到 transcript（文本记录）审查时才会被发现。
-- **在配置中为每个 subagent 实例编写措辞**：面向模型的行文回到每个部署 × 实例中，重蹈 P2 病症。**根据提供方名称选择措辞**：`providerName` 本身是配置，重命名提供方后会静默获得错误的措辞。
+- **在配置中为每个 subagent 实例编写措辞**：面向模型的行文回到每个部署 × 实例中，重蹈在 leaf YAML 中手写指导的漂移。**根据提供方名称选择措辞**：`providerName` 本身是配置，重命名提供方后会静默获得错误的措辞。
 - **在 `apply` 时解析提供方（加载顺序要求）**与**仅用 section 承载 subagent 措辞（在 assemble 时惰性解析）**：提供方生命周期事件的替代方案；两者均在[提供方生命周期事件 Agent Note](2026-07-05-subagent-provider-lifecycle-events.md)中被否决。
 
 ## 不在范围内

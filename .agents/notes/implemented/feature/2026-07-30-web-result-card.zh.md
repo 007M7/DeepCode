@@ -22,7 +22,7 @@ Status: implemented
 
 ## Consequences
 
-前端消费方由后续独立 PR 交付：本次生产者变更新增约定分支并让两个工具发出它，不含客户端渲染。其唯一可观察的变化是 `web_search`/`web_fetch` 的 `tool/result` 事件持久化一个 `data.meta` 载荷（`web-fetch` keyless 快照当时随之刷新）；面向模型的 render 文本与 generic 回退内容保持不变。渲染 `web` 卡片的组装应用 transcript 快照属于渲染它的消费方变更。任何做穷尽 switch 的 `ToolResultView` 消费方都必须新增一个 `web` 分支；非穷尽消费方可以使用原始结果回退。`apiproxy` 的会话 schema 已接受任意 `card` 字符串（`packages/host/apiproxy/src/api/sessions.schema.ts`），因此新视图无需 schema 变更即可跨 wire。
+前端消费方归 [Web result card 前端 note](2026-07-30-web-result-card-frontend.md) 所有：本次生产者变更新增约定分支并让两个工具发出它，不含客户端渲染。其唯一可观察的变化是 `web_search`/`web_fetch` 的 `tool/result` 事件持久化一个 `data.meta` 载荷（`web-fetch` keyless 快照当时随之刷新）；面向模型的 render 文本与 generic 回退内容保持不变。渲染 `web` 卡片的组装应用 transcript 快照属于渲染它的消费方变更。任何做穷尽 switch 的 `ToolResultView` 消费方都必须新增一个 `web` 分支；非穷尽消费方可以使用原始结果回退。`apiproxy` 的会话 schema 已接受任意 `card` 字符串（`packages/host/apiproxy/src/api/sessions.schema.ts`），因此新视图无需 schema 变更即可跨 wire。
 
 未来想用此卡片的 web 工具，声明一个返回带自有 `kind` 的 `card: 'web'` 视图的 `presentResult`；新增第三个 `kind` 是一次联合类型编辑加前端的分岔，而非一个新的 card 标签。
 
@@ -41,4 +41,4 @@ Status: implemented
 ## Related
 
 - [标签化的工具调用渲染意图联合类型](../architecture/2026-07-02-tool-render-intent-union.md) —— 本卡片以 `web` 分支扩展的 `card` 标签词汇表。
-- [Web terminal card](2026-07-28-web-terminal-card.md) —— 把 bash `terminal` 渲染意图带到浏览器的先例；本分支的 web 前端消费者是它的对应物，推迟到后续 PR。
+- [Web terminal card](2026-07-28-web-terminal-card.md) —— 把 bash `terminal` 渲染意图带到浏览器的先例；[Web result card 前端](2026-07-30-web-result-card-frontend.md)是它在本分支上的对应物。

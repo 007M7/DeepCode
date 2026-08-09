@@ -4,13 +4,13 @@ Status: implemented
 
 [English](2026-07-30-credential-boundaries-and-atomic-registration.md) | 中文
 
-> 范围：对[请求级 LLM（大语言模型）配置边界](2026-07-29-request-level-llm-config-credentials.md)的第三轮评审——存下来的凭据落在哪里、谁能读到它，一次请求的事实如何保持为同一代，以及一组路由如何在不留空窗的前提下更换。本 note 与 [settings 写路径 note](2026-07-30-settings-write-path-integrity.md) 配套：本轮把那篇 note 的提供方修复套用到 `credentials-local`，并把其中的写锁提升进 `dsh-atomic-write`。
+> 范围：对[请求级 LLM（大语言模型）配置边界](2026-07-29-request-level-llm-config-credentials.md)的边界加固——存下来的凭据落在哪里、谁能读到它，一次请求的事实如何保持为同一代，以及一组路由如何在不留空窗的前提下更换。本 note 与 [settings 写路径 note](2026-07-30-settings-write-path-integrity.md) 配套：它把那篇 note 的提供方修复套用到 `credentials-local`，并把其中的写锁提升进 `dsh-atomic-write`。
 
 ## 问题
 
-评审发现，凭据路径正在越过它自己划下的边界泄漏。已交付的各个面在 Cordis 启动之前就把 `$DSH_HOME/.env` 提升进了 `process.env`，于是下一次运行时，`credentials-local` 会把它自己存下的每个键都判成来自环境的只读启动覆盖：`describe()` 报告 `source: 'env'` 且 `writable: false`，`set`/`unset` 以被遮蔽为由拒绝，从 web 页面或 TUI 存入的密钥既无法轮换也无法删除，而适配器还在继续使用启动时捕获的那个值。
+凭据路径越过它自己划下的边界发生了泄漏。已交付的各个面在 Cordis 启动之前就把 `$DSH_HOME/.env` 提升进了 `process.env`，于是下一次运行时，`credentials-local` 会把它自己存下的每个键都判成来自环境的只读启动覆盖：`describe()` 报告 `source: 'env'` 且 `writable: false`，`set`/`unset` 以被遮蔽为由拒绝，从 web 页面或 TUI 存入的密钥既无法轮换也无法删除，而适配器还在继续使用启动时捕获的那个值。
 
-存储自身的写路径重演了同一轮评审在 settings-local 修掉的那些缺陷（两条相互独立的链、从陈旧缓存渲染整份文件），还叠加了编辑器自己的缺陷：另一个键的带引号多行值内部的一条物理行会被读成赋值，CRLF 行尾会退化成 LF，多行条目报告 `writable: true` 而 `set` 总是抛错，`credentials/updated` 又在提交之后裸发，于是一个出错的观察者就能让一次已经落盘的写入看起来失败。
+存储自身的写路径重演了 settings 写路径 note 在 settings-local 修掉的那些缺陷（两条相互独立的链、从陈旧缓存渲染整份文件），还叠加了编辑器自己的缺陷：另一个键的带引号多行值内部的一条物理行会被读成赋值，CRLF 行尾会退化成 LF，多行条目报告 `writable: true` 而 `set` 总是抛错，`credentials/updated` 又在提交之后裸发，于是一个出错的观察者就能让一次已经落盘的写入看起来失败。
 
 在读取一侧，文件的 `0600` 权限挡得住其他 OS 用户，却挡不住模型：它的 bash 与文件系统工具就以同一个用户身份运行。
 
@@ -32,8 +32,8 @@ Status: implemented
 
 - **用沙箱点名拒读 `$DSH_HOME/.env`**——已按 `readDenyPaths` 策略字段实现过（末尾一条 SBPL `deny file-read* file-write*`、一条 `/dev/null` 的 bwrap bind），又被它自己的证据推翻。bwrap 必须在自己 profile 已经置为只读的目录树内部创建该 bind 的挂载点，因此只要父目录不存在，它就会拒绝整次约束——那是每一台还没有存过凭据的主机，包括全新安装；Landlock 无法从它自己对 `/` 的读取授权中减去任何东西，于是每一次受限调用都会为一个它其实从未藏起的文件报 `partial`。一项在生效之处破坏约束、在不生效之处误报的保护，比一条写明的「没有保护」更糟。至于拒掉整个 harness home，早先另有理由被否：它同时覆盖 `sessions/`，而 `DSH_SESSION_JSONL` 是一项成文的、模型可见的能力。
 - **把 `DSH_HOME` 从模型的 bash 环境中移除**——作为纵深防御考虑过，最终按「有真实代价的表演」不予采纳：默认 home 是 agent（智能体）能自行重建的成文约定，而这个变量正是正当工具链定位 harness 状态的途径。这里并不存在一条需要它来补强的边界，藏起指针只会让这份缺席更难被看见。
-- **本轮就交付 OS 钥匙串提供方**——只有这个设计能让模型的进程真正读不到机密，而它是一个带三种平台后端的兄弟包。把它与本轮评审的其余工作放在一起评估体量，会拖慢其他每一项修复；它被记录为那个延后的答案，而不是一个「也许」。
-- **做成 `replaceRegistration(previous, next)` 服务方法**——这是评审给出的形状，但它要求调用方自行携带上一个句柄，也允许它传入一个不匹配的句柄。把 `replace` 挂在注册句柄上，让归属关系变成结构性的：只有持有路由的那一项注册才能替换它们。
+- **现在就交付 OS 钥匙串提供方**——只有这个设计能让模型的进程真正读不到机密，而它是一个带三种平台后端的兄弟包。把它与其余这些修复放在一起评估体量，会拖慢其他每一项；它被记录为那个延后的答案，而不是一个「也许」。
+- **做成 `replaceRegistration(previous, next)` 服务方法**——不予采纳：它要求调用方自行携带上一个句柄，也允许它传入一个不匹配的句柄。把 `replace` 挂在注册句柄上，让归属关系变成结构性的：只有持有路由的那一项注册才能替换它们。
 
 ## 后果
 

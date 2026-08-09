@@ -24,13 +24,13 @@ The card is **resident** under the summary row in the chat rows, the same reside
 
 `WebBlock` reads only the web view's fields, so it stays a pure function of what the render intent carries — no session lookups, replay-safe like the presenters that produce the view, and unlike the terminal card it needs no cwd resolution because a web view carries no path. A UI without the `web` capability (the TUI) still gets the contract's fallback `content`; nothing about the tools' result shape changed. `MarkdownText` is reused for the answer, so the answer's own untrusted-link handling and GFM rendering come for free.
 
-A separate later PR unifies the whole-row collapse/expand interaction and will flip every resident card (terminal, diff, web) to expand-gated at once; this card follows the current resident convention rather than pre-empting that change.
+The whole-row collapse/expand interaction shared by every resident card (terminal, diff, web) is owned by the [unified expand-and-inspect note](2026-07-30-web-tool-row-unified-expand-and-inspect.md); this card follows the resident convention rather than pre-empting that interaction.
 
 ## Alternatives considered
 
 **Two components, one per kind.** Rejected: the two shapes share their card chrome, their safe-link handling, and their truncation indicator, and the contract already expresses their difference as a `kind` discriminant under one `card` tag; two components would duplicate the shared surface and split the safe-link logic.
 
-**Reparse the model-facing render text instead of consuming the structured view.** Rejected for the same reason the contract note gives: `web_search`'s render collapses each source's fields into one free-text line labelled by title OR hostname, so reparsing cannot recover `{url, title?, snippet?, publishedAt?}`. The structured `resultView` is the only faithful source, which is why the backend PR added it.
+**Reparse the model-facing render text instead of consuming the structured view.** Rejected for the same reason the contract note gives: `web_search`'s render collapses each source's fields into one free-text line labelled by title OR hostname, so reparsing cannot recover `{url, title?, snippet?, publishedAt?}`. The structured `resultView` is the only faithful source, which is why the backend contract adds it.
 
 **Render plain anchors without the protocol allowlist.** Rejected: the URL is model-authored and unverified at this presentation boundary, so an unfiltered href would let a `javascript:` URL execute on click. The allowlist is the http(s) subset of MarkdownText's (which also permits `mailto:`), so untrusted retrieval links behave identically wherever they render.
 
@@ -44,7 +44,7 @@ The fixture (`packages/client/connection/src/client/fixture.ts`) adds turns 66 (
 
 ## Related
 
-- [Web result card](2026-07-30-web-result-card.md) — the backend PR that added the `card: 'web'` result arm and made the two tools emit it; this is its deferred frontend consumer.
+- [Web result card](2026-07-30-web-result-card.md) — the backend contract that added the `card: 'web'` result arm and made the two tools emit it; this note owns its frontend consumer.
 - [Web search source card scrolls instead of collapsing](2026-08-03-web-search-source-scroll.md) — replaces this note's source-list head/tail collapse with a fixed-height scroll container and removes `CHAT_WEB_MAX_SOURCES` and the primitive's own source cap; every other decision here still holds.
 - [Web terminal card](2026-07-28-web-terminal-card.md) — the precedent this mirrors: a `ui-primitives` block, a single card-model derivation, keyed and fallback chat rows, and a details-panel arm, for the `terminal` render intent.
 - [Tagged render-intent union for tool-call presentation](../architecture/2026-07-02-tool-render-intent-union.md) — the `card`-tagged vocabulary; the Web client is now a full consumer of the `web` arm.

@@ -1,5 +1,5 @@
-/** The default composer body: the 'conversation.composer.bar' slot entry
- * (decision 20). Machine state arrives through the standard provide channel
+/** The default composer body: the 'conversation.composer.bar' slot entry.
+ * Machine state arrives through the standard provide channel
  * (useInput + inputActions); the keyboard/DOM command face and stop arrive
  * through this entry's own inject, whose hooks compartment binds
  * useNotices/useLexicon; layout-phase inputs (variant, placeholder,
@@ -385,7 +385,7 @@ export function InputBar({
   const backdrop: ReactNode[] = []
   {
     // Segment boundaries: the token range end, every chip offset, and every
-    // text-ref range (decision 21) — merged in draft order (the sources never
+    // text-ref range — merged in draft order (the sources never
     // overlap: chips sit on placeholders, text-refs on plain tokens, the
     // claim token only leads).
     let cursor = 0
@@ -430,7 +430,7 @@ export function InputBar({
         )
         cursor = chip.offset + 1 // the placeholder char the chip stands for
       } else {
-        // Plain-range highlight (decision 21): the glyphs stay the
+        // Plain-range highlight: the glyphs stay the
         // textarea's (advance untouched); the mark paints the chip look.
         backdrop.push(
           <mark key={`ref-${b.ref.start}`} className={css.textRef} data-decoration="text-ref">
@@ -529,7 +529,6 @@ export function InputBar({
             {rightItems}
             {renderSlot('conversation.input.model', { locked: modelSeatLocked })}
             <ContextMeter useProjection={useProjection} t={t} />
-            {/* {machineBusy && <span className={css.pending} data-input-pending aria-label="处理中" />} */}
             {interruptible && (
               <Tooltip label={t('input.stop')} side="top" delayMs={500}>
                 <button

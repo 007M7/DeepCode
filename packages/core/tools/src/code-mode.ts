@@ -38,10 +38,10 @@ interface RunCodeFlavor {
 }
 
 /**
- * The TypeScript flavor: the historical default, and the fallback for a schema
- * read with no runtime mounted ({@link resolveFlavor} owns which readers reach
- * that). A real assembly always resolves a runtime first, so the model never
- * sees this fallback outside its own language.
+ * The TypeScript flavor: the fallback for a schema read with no runtime
+ * mounted ({@link resolveFlavor} owns which readers reach that). A real
+ * assembly always resolves a runtime first, so the model never sees this
+ * fallback outside its own language.
  */
 const TYPESCRIPT_FLAVOR: RunCodeFlavor = {
   description:

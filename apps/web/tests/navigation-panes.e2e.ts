@@ -331,7 +331,7 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
     // Real layout, not jsdom's stub (which computes no geometry at all):
     // squeeze the output pane below its content width and the line must keep
     // its single row and overflow sideways instead of folding. Soft-wrapping
-    // here is what shredded the column alignment this card exists to hold.
+    // here shreds the column alignment this card exists to hold.
     const layout = await card.locator('[class*="_output_"]').first().evaluate((node) => {
       const pane = node as HTMLElement
       const row = pane.querySelector<HTMLElement>('[class*="_line_"]')

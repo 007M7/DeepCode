@@ -48,7 +48,7 @@ export interface Config {
    * Process-level: read once at load, a relative path resolves against the process
    * launch cwd, so one config applies to the whole process.
    * TODO(per-session-hook-config): per-session discovery of a project-local
-   * `hooks.json` from each `session/new.cwd` is not yet implemented.
+   * `hooks.json` from each `session/new.cwd`.
    */
   configPath: string
   /**

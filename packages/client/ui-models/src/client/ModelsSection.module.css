@@ -435,12 +435,12 @@
   line-height: 18px;
 }
 
-/* Model list, shared with the pi-ai provider form (PR #1368): one bordered
+/* Model list, shared with the pi-ai provider form: one bordered
    entry per model, id and display name on the row, capacities behind the
-   row's own disclosure. The token names are this file's, not that branch's —
+   row's own disclosure. The rules use this stylesheet's token vocabulary —
    `--dsw-alias-border-subtle`, `--dsw-alias-text-tertiary`, and
-   `--dsw-alias-text-primary` are undefined here and resolve to their
-   light-mode literals, which is the defect this section was just moved off. */
+   `--dsw-alias-text-primary` are undefined here and would resolve to their
+   light-mode literals. */
 .modelList {
   display: flex;
   flex-direction: column;

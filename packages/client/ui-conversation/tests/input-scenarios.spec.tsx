@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * Scenario-chain integration (design §8 A/C/D/H/I): the real per-session
+ * Scenario-chain integration (scenarios A/C/D/H/I): the real per-session
  * SlashController pipeline over a real session scope (SessionsService over
  * a listed host session) + a command source implementing the decision
  * table's relevant cells + the real SessionInput machine (scoped-event

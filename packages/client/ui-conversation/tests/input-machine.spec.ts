@@ -1,6 +1,6 @@
 /**
- * InputMachine unit account (design §9.1, eng. plan §3.9-3.12): the submit
- * plane carried over from the InputCore era (adjudication, span CAS, drift
+ * InputMachine unit account: the submit
+ * plane (adjudication, span CAS, drift
  * guard, anti-backwash), plus the occurrence table (shift / whole-chip
  * deletion / same-name independence), the self-managed undo log (typing
  * coalescing, paste two-stage undo, redo chain), consume-token guards, the
@@ -625,7 +625,7 @@ describe('input-machine: projectClipboard', () => {
   })
 })
 
-describe('decorations: scanTextRefs (decision 21)', () => {
+describe('decorations: scanTextRefs', () => {
   const LEX: ReadonlyMap<'/' | '@', readonly string[]> = new Map([
     ['/', ['commit-helper', 'fixture-demo']],
     ['@', ['worker-1']],

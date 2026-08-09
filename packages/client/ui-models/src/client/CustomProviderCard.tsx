@@ -118,7 +118,7 @@ export function CustomProviderCard(props: CustomProviderCardProps): ReactNode {
     // next unmet gate — which is satisfied, and reads as a second, false fault.
     || keyFailure !== undefined
     // Same for the route id, and it must be tested rather than assumed: the
-    // fallback arm below reads "no models yet", so an unmet route gate used to
+    // fallback arm below reads "no models yet", so an unmet route gate would
     // fall through to it and contradict the filled-in list right above.
     || route.length === 0 || routeInvalid || routeTaken
     ? undefined
