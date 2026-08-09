@@ -87,11 +87,13 @@ export interface SessionProvideInfo extends SessionMaybeProvideInfo {
   hooks: Record<string, HostObservable<unknown>>
 }
 
-/** renderSlot dispatch options at the machinery level: keyed dispatch key, list filtering, empty fallback. */
+/** renderSlot dispatch options at the machinery level. */
 export interface RenderOpts {
   entryKey?: string
   only?: string
   fallback?: ReactNode
+  /** Opaque occurrence context consumed only by function-valued injected Hooks. */
+  hookContext?: unknown
 }
 
 /** Host surface the runtime SlotsService presents to the installed renderer. */

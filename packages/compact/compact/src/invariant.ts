@@ -1,8 +1,12 @@
 /** Package-owned compaction log-stream invariants. @module @deepseek-ai/dsh-compact/invariant */
 
 import type { Context } from 'cordis'
+import { isReplacementSurfaceEvent } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type { InvariantFailure, InvariantInstaller } from '@deepseek-ai/dsh-invariants'
+import type { CompactionId } from './brand.ts'
+import { isCompactCheckpointSource } from './checkpoint.ts'
+import type { CompactCheckpointSource } from './checkpoint.ts'
 import type {} from './types.ts'
 
 const PACKAGE_NAME = '@deepseek-ai/dsh-compact'
@@ -13,6 +17,8 @@ export const name = 'compact-invariant'
 export const inject = ['invariants']
 
 interface CompactionTrace {
+  compactionId: CompactionId
+  sourceCommandId: string | undefined
   startSeq: number
   turn: number | null
   summarized: boolean
@@ -24,10 +30,47 @@ interface SessionTrace {
 }
 
 type CompactionTransition =
-  | { kind: 'start'; startSeq: number; turn: number | null }
-  | { kind: 'summary'; startSeq: number; turn: number | null }
+  | { kind: 'start'; compactionId: CompactionId; sourceCommandId: string | undefined; startSeq: number; turn: number | null }
+  | { kind: 'summary'; compactionId: CompactionId; sourceCommandId: string | undefined; startSeq: number; turn: number | null }
   | { kind: 'end' }
   | { kind: 'end-seed' }
+
+/** Require a durable opaque identity to be a non-empty string. */
+function validateId(value: unknown, label: string, fail: InvariantFailure): asserts value is string {
+  if (typeof value !== 'string' || value.length === 0) fail(`${label} must be a non-empty string`)
+}
+
+/** Keep the optional initiating command identity stable across one transaction. */
+function validateSourceCommandId(
+  eventType: string,
+  value: unknown,
+  expected: string | undefined,
+  fail: InvariantFailure,
+): void {
+  if (value !== undefined) validateId(value, `${eventType} sourceCommandId`, fail)
+  if (value !== expected) {
+    fail(`${eventType} sourceCommandId ${String(value)} does not match compact/start sourceCommandId ${String(expected)}`)
+  }
+}
+
+/** Validate one replacement checkpoint against its open compaction transaction. */
+function validateCheckpoint(
+  trace: SessionTrace,
+  event: SessionEvent<'user/message'>,
+  fail: InvariantFailure,
+): void {
+  const source = event.data.source as typeof event.data.source & Partial<CompactCheckpointSource>
+  validateId(source.compactionId, 'compaction checkpoint compactionId', fail)
+  if (source.sourceCommandId !== undefined) {
+    validateId(source.sourceCommandId, 'compaction checkpoint sourceCommandId', fail)
+  }
+  const open = trace.compaction
+  if (open === undefined) fail('compaction checkpoint has no matching compact/start')
+  if (source.compactionId !== open.compactionId) {
+    fail(`compaction checkpoint id ${source.compactionId} does not match compact/start id ${open.compactionId}`)
+  }
+  validateSourceCommandId('compaction checkpoint', source.sourceCommandId, open.sourceCommandId, fail)
+}
 
 /** Compaction starts still unmatched when a later seed boundary made them stale. */
 function inheritedOrphanStartSeqs(
@@ -99,20 +142,44 @@ function validateCompactionEvent(
   fail: InvariantFailure,
 ): CompactionTransition | undefined {
   if (event.type === 'session/end-seed') return { kind: 'end-seed' }
+  if (event.type === 'user/message'
+    && isReplacementSurfaceEvent(event)
+    && isCompactCheckpointSource(event.data.source)) {
+    validateCheckpoint(trace, event, fail)
+    return undefined
+  }
   if (event.type !== 'compact/start' && event.type !== 'compact/summary' && event.type !== 'compact/end') {
     return undefined
   }
   const open = trace.compaction
   if (event.type === 'compact/start') {
+    validateId(event.data.compactionId, 'compact/start compactionId', fail)
+    if (event.data.sourceCommandId !== undefined) {
+      validateId(event.data.sourceCommandId, 'compact/start sourceCommandId', fail)
+    }
     if (open !== undefined) {
       const owner = open.turn === null ? 'standalone compaction' : `turn ${open.turn}`
       fail(`compact/start while ${owner} is still compacting`)
     }
     validateOwner(event.data.turn, trace.openTurn, event.type, fail)
-    return { kind: 'start', startSeq: event.seq, turn: event.data.turn }
+    return {
+      kind: 'start',
+      compactionId: event.data.compactionId,
+      sourceCommandId: event.data.sourceCommandId,
+      startSeq: event.seq,
+      turn: event.data.turn,
+    }
   }
   if (event.type === 'compact/summary') {
+    validateId(event.data.compactionId, 'compact/summary compactionId', fail)
+    if (event.data.sourceCommandId !== undefined) {
+      validateId(event.data.sourceCommandId, 'compact/summary sourceCommandId', fail)
+    }
     if (open === undefined) fail('compact/summary has no matching compact/start')
+    if (event.data.compactionId !== open.compactionId) {
+      fail(`compact/summary id ${event.data.compactionId} does not match compact/start id ${open.compactionId}`)
+    }
+    validateSourceCommandId('compact/summary', event.data.sourceCommandId, open.sourceCommandId, fail)
     validateOwner(open.turn, trace.openTurn, event.type, fail)
     if (open.summarized) fail('compact/summary repeated within one compaction')
     const seqs = event.data.shadowedSeqs
@@ -123,9 +190,23 @@ function validateCompactionEvent(
     if (!Number.isSafeInteger(event.data.shadowedTokenCount) || event.data.shadowedTokenCount < 0) {
       fail('compact/summary shadowedTokenCount must be a non-negative safe integer')
     }
-    return { kind: 'summary', startSeq: open.startSeq, turn: open.turn }
+    return {
+      kind: 'summary',
+      compactionId: open.compactionId,
+      sourceCommandId: open.sourceCommandId,
+      startSeq: open.startSeq,
+      turn: open.turn,
+    }
+  }
+  validateId(event.data.compactionId, 'compact/end compactionId', fail)
+  if (event.data.sourceCommandId !== undefined) {
+    validateId(event.data.sourceCommandId, 'compact/end sourceCommandId', fail)
   }
   if (open === undefined) fail('compact/end has no matching compact/start')
+  if (event.data.compactionId !== open.compactionId) {
+    fail(`compact/end id ${event.data.compactionId} does not match compact/start id ${open.compactionId}`)
+  }
+  validateSourceCommandId('compact/end', event.data.sourceCommandId, open.sourceCommandId, fail)
   if (event.data.turn !== open.turn) {
     fail(`compact/end owner ${String(event.data.turn)} does not match compact/start owner ${String(open.turn)}`)
   }
@@ -142,6 +223,8 @@ function applyCompactionTransition(
 ): CompactionTrace | undefined {
   if (transition.kind === 'start') {
     return {
+      compactionId: transition.compactionId,
+      sourceCommandId: transition.sourceCommandId,
       startSeq: transition.startSeq,
       turn: transition.turn,
       summarized: false,
@@ -149,6 +232,8 @@ function applyCompactionTransition(
   }
   if (transition.kind === 'summary') {
     return {
+      compactionId: transition.compactionId,
+      sourceCommandId: transition.sourceCommandId,
       startSeq: transition.startSeq,
       turn: transition.turn,
       summarized: true,

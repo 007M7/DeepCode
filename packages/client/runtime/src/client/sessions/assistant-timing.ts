@@ -1,7 +1,6 @@
-// Shared assistant step-timing fold: both transcript projections (the live
-// window adapter and the trajectory history fold) derive AssistantTiming from
-// the same step/start -> first token delta -> assistant/message sequence, so
-// the derivation lives once here instead of drifting per projection.
+// Shared assistant step-timing fold: Chat Definitions and the Trajectory
+// history fold derive AssistantTiming from the same step/start -> first token
+// delta -> assistant/message sequence.
 
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import type { AssistantTiming } from './conversation.ts'

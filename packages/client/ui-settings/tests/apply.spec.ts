@@ -44,8 +44,8 @@ describe('ui-settings apply', () => {
     declare(before.slots)
     await before.ctx.plugin({ inject: [...inject], apply }).await()
     expect(before.slots.entries('sidebar.settings')[0]!.component).toBe(SettingsRoot)
-    for (const [name, spec] of Object.entries(CHILD_SPECS)) {
-      expect(before.slots.spec(name as never)).toEqual(spec)
+    for (const name of Object.keys(CHILD_SPECS) as Array<keyof typeof CHILD_SPECS>) {
+      expect(before.slots.spec(name)).toEqual(CHILD_SPECS[name])
     }
 
     const after = await bench()
@@ -120,8 +120,8 @@ describe('ui-settings apply', () => {
     declare(b.slots)
     await Promise.resolve()
     expect(b.slots.entries('sidebar.settings')[0]!.component).toBe(SettingsRoot)
-    for (const [name, spec] of Object.entries(CHILD_SPECS)) {
-      expect(b.slots.spec(name as never)).toEqual(spec)
+    for (const name of Object.keys(CHILD_SPECS) as Array<keyof typeof CHILD_SPECS>) {
+      expect(b.slots.spec(name)).toEqual(CHILD_SPECS[name])
     }
   })
 
@@ -132,8 +132,8 @@ describe('ui-settings apply', () => {
     await fiber.await()
     await fiber.dispose()
     expect(b.slots.entries('sidebar.settings')).toHaveLength(0)
-    for (const name of Object.keys(CHILD_SPECS)) {
-      expect(b.slots.spec(name as never)).toBeUndefined()
+    for (const name of Object.keys(CHILD_SPECS) as Array<keyof typeof CHILD_SPECS>) {
+      expect(b.slots.spec(name)).toBeUndefined()
     }
   })
 })

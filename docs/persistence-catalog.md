@@ -3,7 +3,7 @@
 
 # Session Persistence Event Catalog
 
-Every event type that can appear in a session's durable event log: the complete persisted `SessionEvent` envelope and each member of the merge-extensible `SessionEventMap` — the owning vocabulary in `@deepseek-ai/dsh-session` plus every plugin declaration merge in this repo — with source JSDoc, full payload declaration, surface badge, and declaration site. It complements [session.md](subsystems/session.md) (surface ordering and the `deriveMessages()` projection), [persistence.md](subsystems/persistence.md) (how the log is made durable), and the generated region of [session.md](subsystems/session.md#cordis-surface) (the live bus wiring — a log event is NOT a cordis event; it reaches listeners via the single `session/event` emit).
+Every event type that can appear in a session's durable event log: the complete persisted `SessionEvent` envelope and each member of the merge-extensible `SessionEventMap` — the owning vocabulary in `@deepseek-ai/dsh-session` plus every plugin declaration merge into `@deepseek-ai/dsh-session/types` in this repo — with source JSDoc, full payload declaration, surface badge, and declaration site. It complements [session.md](subsystems/session.md) (surface ordering and the `deriveMessages()` projection), [persistence.md](subsystems/persistence.md) (how the log is made durable), and the generated region of [session.md](subsystems/session.md#cordis-surface) (the live bus wiring — a log event is NOT a cordis event; it reaches listeners via the single `session/event` emit).
 
 This file is GENERATED from source (`scripts/gen-persistence-catalog.ts`) and verified fresh by `pnpm run verify-persistence-catalog` (part of `doc-sync`) — do not edit it by hand. Declaration blocks retain the source declaration and nested property JSDoc, removing only the indentation imposed by a containing interface/module, and use a `ts persistence-catalog` fence (skipped by doc-typecheck because declarations reference types from their owning modules). Type names in a payload link to the page that documents them. See [the persistence-log-catalog Agent Note](../.agents/notes/archived/process/2026-07-04-persistence-log-catalog.md).
 
@@ -101,7 +101,7 @@ Sources: [`packages/core/session/src/types.ts:316`](../packages/core/session/src
 }
 ```
 
-Source: [`packages/core/agent/src/types.ts:300`](../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:19`](../packages/core/agent/src/types.ts)
 
 ### `approval/*`
 
@@ -212,7 +212,7 @@ Source: [`packages/core/session/src/types.ts:253`](../packages/core/session/src/
 }
 ```
 
-Source: [`packages/interaction/commands/src/index.ts:151`](../packages/interaction/commands/src/index.ts)
+Source: [`packages/interaction/commands/src/types.ts:41`](../packages/interaction/commands/src/types.ts)
 
 #### `command/run` — log-only
 
@@ -230,7 +230,7 @@ Source: [`packages/interaction/commands/src/index.ts:151`](../packages/interacti
 'command/run': { commandId: CommandId; name: string; args?: string; source: CommandSource }
 ```
 
-Source: [`packages/interaction/commands/src/index.ts:144`](../packages/interaction/commands/src/index.ts)
+Source: [`packages/interaction/commands/src/types.ts:34`](../packages/interaction/commands/src/types.ts)
 
 ### `compact/*`
 
@@ -241,10 +241,10 @@ Source: [`packages/interaction/commands/src/index.ts:144`](../packages/interacti
  * Marks the end of a compaction — log-only, releases the lock. Its owner
  * matches `compact/start`; `error` records an unsuccessful attempt.
  */
-'compact/end': { turn: number | null; error?: string }
+'compact/end': { compactionId: CompactionId; sourceCommandId?: CommandId; turn: number | null; error?: string }
 ```
 
-Source: [`packages/compact/compact/src/types.ts:65`](../packages/compact/compact/src/types.ts)
+Source: [`packages/compact/compact/src/types.ts:71`](../packages/compact/compact/src/types.ts)
 
 #### `compact/prune` — log-only
 
@@ -268,7 +268,7 @@ Source: [`packages/compact/compact/src/types.ts:65`](../packages/compact/compact
 }
 ```
 
-Source: [`packages/compact/compact/src/types.ts:75`](../packages/compact/compact/src/types.ts)
+Source: [`packages/compact/compact/src/types.ts:81`](../packages/compact/compact/src/types.ts)
 
 #### `compact/start` — log-only
 
@@ -278,10 +278,10 @@ Source: [`packages/compact/compact/src/types.ts:75`](../packages/compact/compact
  * `compact/end`. A numbered owner is strictly enclosed by that open turn;
  * `null` identifies a standalone manual transaction between turns.
  */
-'compact/start': { turn: number | null }
+'compact/start': { compactionId: CompactionId; sourceCommandId?: CommandId; turn: number | null }
 ```
 
-Source: [`packages/compact/compact/src/types.ts:19`](../packages/compact/compact/src/types.ts)
+Source: [`packages/compact/compact/src/types.ts:23`](../packages/compact/compact/src/types.ts)
 
 #### `compact/summary` — log-only
 
@@ -296,6 +296,8 @@ Source: [`packages/compact/compact/src/types.ts:19`](../packages/compact/compact
  * before it (`compact/prune` documents the shared protocol).
  */
 'compact/summary': {
+  compactionId: CompactionId
+  sourceCommandId?: CommandId
   summary: ContentBlock[]
   shadowedRange: { start: number; end: number }
   shadowedSeqs: number[]
@@ -331,7 +333,7 @@ Source: [`packages/compact/compact/src/types.ts:19`](../packages/compact/compact
 
 Types: [ContentBlock](subsystems/core.md) · [TokenUsage](subsystems/llm-streaming.md)
 
-Source: [`packages/compact/compact/src/types.ts:29`](../packages/compact/compact/src/types.ts)
+Source: [`packages/compact/compact/src/types.ts:33`](../packages/compact/compact/src/types.ts)
 
 ### `feedback/*`
 
@@ -412,29 +414,19 @@ Source: [`packages/hooks/hook-protocol/src/types.ts:31`](../packages/hooks/hook-
 
 ```ts persistence-catalog
 /** Durable, non-surface record of one provider-routed retry scheduled after a failed request attempt. */
-'llm/retry': {
-  turn: number
-  step: number
-  provider: string
-  mode: 'normal'
-  policyKey: string
-  retry: number
-  maxRetries: number
-  delayMs: number
-  failure: LlmFailure
-} | {
-  turn: number
-  step: number
-  provider: string
-  mode: 'always'
-  policyKey: string
-  retry: number
-  delayMs: number
-  failure: LlmFailure
-}
+'llm/retry': LlmRetryEventData
 ```
 
-Source: [`packages/llm/llm-retry/src/index.ts:17`](../packages/llm/llm-retry/src/index.ts)
+Source: [`packages/llm/llm-retry/src/types.ts:9`](../packages/llm/llm-retry/src/types.ts)
+
+#### `llm/retry-started` — log-only
+
+```ts persistence-catalog
+/** Durable transition written after a retry wait succeeds and before the next request attempt starts. */
+'llm/retry-started': LlmRetryStartedEventData
+```
+
+Source: [`packages/llm/llm-retry/src/types.ts:11`](../packages/llm/llm-retry/src/types.ts)
 
 ### `permission/*`
 
@@ -656,12 +648,10 @@ Source: [`packages/core/session/src/types.ts:259`](../packages/core/session/src/
  * before returning), so its execution-enclosure relation holds by
  * construction.
  */
-'tool/code-dispatch': { parentCallId: CallId; subCallId: CallId; name: string; arguments: unknown; isError: boolean; content: ContentBlock[] }
+'tool/code-dispatch': CodeDispatchEventData
 ```
 
-Types: [CallId](subsystems/core.md) · [ContentBlock](subsystems/core.md)
-
-Source: [`packages/core/tools/src/code-mode.ts:49`](../packages/core/tools/src/code-mode.ts)
+Source: [`packages/core/tools/src/types.ts:56`](../packages/core/tools/src/types.ts)
 
 #### `tool/code-dispatch-start` — log-only
 
@@ -679,12 +669,10 @@ Source: [`packages/core/tools/src/code-mode.ts:49`](../packages/core/tools/src/c
  * with `tool/code-dispatch` by `subCallId` (timing = the two events'
  * `time` fields).
  */
-'tool/code-dispatch-start': { parentCallId: CallId; subCallId: CallId; name: string; arguments: unknown }
+'tool/code-dispatch-start': CodeDispatchStartEventData
 ```
 
-Types: [CallId](subsystems/core.md)
-
-Source: [`packages/core/tools/src/code-mode.ts:33`](../packages/core/tools/src/code-mode.ts)
+Source: [`packages/core/tools/src/types.ts:40`](../packages/core/tools/src/types.ts)
 
 #### `tool/result` — surface
 

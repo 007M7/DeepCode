@@ -5,6 +5,9 @@
 import type { ContentBlock, TokenUsage, ToolSchema } from '@deepseek-ai/dsh-llm/types'
 import type { HistoryEntry } from '@deepseek-ai/dsh-client-connection/client'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
+import type {} from '@deepseek-ai/dsh-compact/types'
+import type {} from '@deepseek-ai/dsh-llm-retry/types'
+import type {} from '@deepseek-ai/dsh-tools/types'
 import type {
   AssistantProvenanceView, AssistantRequestConfig,
 } from './conversation.ts'
@@ -109,48 +112,6 @@ export function inspectRequests(
   }
 }
 
-interface RetryEvent {
-  type: 'llm/retry'
-  seq: number
-  time: number
-  data: {
-    turn: number
-    step: number
-    retry: number
-    maxRetries: number
-    delayMs: number
-    failure: { message: string }
-  }
-}
-
-interface CompactionStartEvent {
-  type: 'compact/start'
-  seq: number
-  time: number
-  data: { turn: number | null }
-}
-
-interface CompactionSummaryEvent {
-  type: 'compact/summary'
-  seq: number
-  time: number
-  data: {
-    summary: readonly ContentBlock[]
-    rawOutput?: readonly ContentBlock[]
-    provider: string
-    model: string
-    maxTokens?: number
-    usage?: unknown
-  }
-}
-
-interface CompactionEndEvent {
-  type: 'compact/end'
-  seq: number
-  time: number
-  data: { turn: number | null; error?: string }
-}
-
 function requestKey(turn: number, step: number): string {
   return `${turn}\u0000${step}`
 }
@@ -205,10 +166,8 @@ function deriveCallSchemas(
       capture(String(event.data.callId), event.data.name)
       continue
     }
-    const type = event.type as string
-    if (type === 'tool/code-dispatch-start' || type === 'tool/code-dispatch') {
-      const data = event.data as unknown as { subCallId: string; name: string }
-      capture(data.subCallId, data.name)
+    if (event.type === 'tool/code-dispatch-start' || event.type === 'tool/code-dispatch') {
+      capture(String(event.data.subCallId), event.data.name)
     }
   }
   return calls
@@ -351,14 +310,14 @@ function deriveRequests(events: readonly SessionEvent[]): readonly RequestView[]
       if (activeStep === key) activeStep = undefined
       continue
     }
-    if ((sourceEvent.type as string) === 'llm/retry') {
-      const event = sourceEvent as unknown as RetryEvent
-      updateAssistant(ordinaryByStep.get(requestKey(event.data.turn, event.data.step)), {
+    if (sourceEvent.type === 'llm/retry') {
+      const data = sourceEvent.data
+      updateAssistant(ordinaryByStep.get(requestKey(data.turn, data.step)), {
         status: 'error',
-        error: displayFailureMessage(event.data.failure),
-        retry: event.data.retry,
-        maxRetries: event.data.maxRetries,
-        retryDelayMs: event.data.delayMs,
+        error: displayFailureMessage(data.failure),
+        retry: data.retry,
+        ...data.mode === 'normal' ? { maxRetries: data.maxRetries } : {},
+        retryDelayMs: data.delayMs,
       })
       continue
     }
@@ -374,8 +333,7 @@ function deriveRequests(events: readonly SessionEvent[]): readonly RequestView[]
       continue
     }
 
-    const type = sourceEvent.type as string
-    if (type === 'session/end-seed' && activeCompaction !== undefined) {
+    if (sourceEvent.type === 'session/end-seed' && activeCompaction !== undefined) {
       updateCompaction(activeCompaction, {
         completedAt: sourceEvent.time,
         status: 'error',
@@ -384,37 +342,36 @@ function deriveRequests(events: readonly SessionEvent[]): readonly RequestView[]
       activeCompaction = undefined
       continue
     }
-    if (type === 'compact/start') {
-      const event = sourceEvent as unknown as CompactionStartEvent
+    if (sourceEvent.type === 'compact/start') {
       activeCompaction = requests.length
       requests.push({
         purpose: 'compaction',
-        startSeq: event.seq,
-        turn: event.data.turn,
+        startSeq: sourceEvent.seq,
+        turn: sourceEvent.data.turn,
         step: 0,
-        startedAt: event.time,
+        startedAt: sourceEvent.time,
         completedAt: null,
         status: 'running',
       })
       continue
     }
-    if (type === 'compact/summary' && activeCompaction !== undefined) {
-      const event = sourceEvent as unknown as CompactionSummaryEvent
+    if (sourceEvent.type === 'compact/summary' && activeCompaction !== undefined) {
+      const data = sourceEvent.data
       updateCompaction(activeCompaction, {
-        resultSeq: event.seq,
-        summary: event.data.summary,
-        ...(event.data.rawOutput === undefined ? {} : { rawOutput: event.data.rawOutput }),
+        resultSeq: sourceEvent.seq,
+        summary: data.summary,
+        ...(data.rawOutput === undefined ? {} : { rawOutput: data.rawOutput }),
         provenance: {
-          provider: event.data.provider,
-          model: event.data.model,
+          provider: data.provider,
+          model: data.model,
         },
         requestConfig: {
-          provider: event.data.provider,
-          model: event.data.model,
+          provider: data.provider,
+          model: data.model,
           purpose: 'compaction',
-          ...(event.data.maxTokens === undefined ? {} : { maxTokens: event.data.maxTokens }),
+          ...(data.maxTokens === undefined ? {} : { maxTokens: data.maxTokens }),
         },
-        ...(event.data.usage === undefined ? {} : { usage: event.data.usage }),
+        ...(data.usage === undefined ? {} : { usage: data.usage }),
       })
       continue
     }
@@ -426,12 +383,11 @@ function deriveRequests(events: readonly SessionEvent[]): readonly RequestView[]
       updateCompaction(activeCompaction, { replacementSeq: sourceEvent.seq })
       continue
     }
-    if (type !== 'compact/end' || activeCompaction === undefined) continue
-    const event = sourceEvent as unknown as CompactionEndEvent
+    if (sourceEvent.type !== 'compact/end' || activeCompaction === undefined) continue
     updateCompaction(activeCompaction, {
-      completedAt: event.time,
-      status: event.data.error === undefined ? 'complete' : 'error',
-      ...(event.data.error === undefined ? {} : { error: event.data.error }),
+      completedAt: sourceEvent.time,
+      status: sourceEvent.data.error === undefined ? 'complete' : 'error',
+      ...(sourceEvent.data.error === undefined ? {} : { error: sourceEvent.data.error }),
     })
     activeCompaction = undefined
   }

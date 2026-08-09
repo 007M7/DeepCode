@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-Client Tool 展示插件。`ui-conversation` 通过 `conversation.chat.tool` 交付一个已经排好位置的 root call；本包渲染该 root 及其 Code Dispatch 子调用，并把每个原子调用通过 keyed slot `tool.call.toolview` 分发。没有注册的 Tool 名称使用通用卡片。
+Client Tool 展示插件。`ui-conversation` 通过 `conversation.chat.node` 的同名 key 分发每个已排序的 `tool-call` Conversation Node；本包渲染其中的 root 及其 Code Dispatch 子调用，并把每个原子调用通过 keyed slot `tool.call.toolview` 分发。没有注册的 Tool 名称使用通用卡片。
 
 业务 UI 包只注册 wire Tool 名称和原子视图，不配对 Session Event、不重建 transcript，也不拥有 root/subcall 拓扑。Runtime 继续负责 call/result 配对、生命周期和递归 `subCalls` 投影；conversation view 继续负责 ChatFlow 位置。
 
@@ -10,7 +10,7 @@ Client Tool 展示插件。`ui-conversation` 通过 `conversation.chat.tool` 交
 
 `ToolCallTree` 接收一个已经包含递归 `subCalls` 的 root `ToolCallBlock`、selection 状态、会话 `cwd`，以及用于打开文件和检查调用的 Host 回调。它递归遍历标准 call block，让 root 与任意深度的 child 经过同一条原子分发路径，不再订阅独立的 parent-to-children map。
 
-每个 root 和 child wrapper 都保留 `conversation.chat.tool` 的 call-anchor DOM 约定，供分页和 selection 使用。
+每个 root 和 child wrapper 都保留 `data-chat-anchor-key="call:<id>"` 与 `data-chat-call-id` DOM 约定，供分页和 selection 使用。
 
 本包还通过 `ToolDetails` 填充 `conversation.details.tool`。行 renderer 与详情 renderer 为 `terminal`、`read`、`diff`、`search` 和 `web` render intent 共用同一组纯 card model。本版本不认识的 intent 标签和格式错误的 wire card 数据都会回退为压平的 Tool result 文本。
 
