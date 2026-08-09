@@ -253,7 +253,7 @@ const TOOL_PACKAGES: ToolPackage[] = [
     dir: 'tool-str-replace-editor',
     source: 'packages/fs/tool-str-replace-editor/src/index.ts',
     requires: ['ctx.tools', 'ctx.fs'],
-    writes: ['tool/call', 'fs/observed after view presence/absence or successful mutation', 'tool/result'],
+    writes: ['tool/call', 'fs/observed after view presence/absence, edit absence, or successful mutation', 'tool/result'],
     async mount(ctx) {
       await ctx.plugin(LocalFileSystem)
       await ctx.plugin(ToolStrReplaceEditor)

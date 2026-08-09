@@ -76,7 +76,7 @@ export class SandboxedFileSystem extends LocalFileSystem {
    * @param target - the resolved target to write.
    * @param content - the full new file content.
    * @param expected - the write intent guarding the write; omit for unconditional.
-   * @param signal - aborts before the atomic rename takes effect.
+   * @param signal - aborts before atomic publication takes effect.
    * @param sandboxPolicy - the per-call mode and workspace root; omit to use
    *   the deployment fallback.
    * @returns the write outcome from the inherited backend.
@@ -97,7 +97,7 @@ export class SandboxedFileSystem extends LocalFileSystem {
    * @param target - the resolved target to edit.
    * @param edit - the literal search/replace request.
    * @param expected - the version guard; omit for an unconditional edit.
-   * @param signal - aborts before the atomic rename takes effect.
+   * @param signal - aborts before atomic publication takes effect.
    * @param sandboxPolicy - the per-call mode and workspace root; omit to use
    *   the deployment fallback.
    * @returns the edit outcome from the inherited backend.
