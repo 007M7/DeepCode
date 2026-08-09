@@ -49,6 +49,8 @@ The adapter owns cancellation and passes the exact target agent. `rawInput` begi
 ```ts type-equiv
 /** Invocation passed to one registered command handler. */
 interface CommandInvocation {
+  /** Pairing id already written to this invocation's `command/run` event. */
+  readonly commandId: CommandId
   /** Exact agent whose human-facing surface received the command. */
   readonly agent: Agent
   /** Exact text following the registered command name, including separator whitespace. */
@@ -159,7 +161,7 @@ async execute( agent: Agent, line: string, signal: AbortSignal, ): Promise<Comma
 
 Types: [Agent](core.md)
 
-Source: [`packages/interaction/commands/src/index.ts:305`](../../packages/interaction/commands/src/index.ts)
+Source: [`packages/interaction/commands/src/index.ts:267`](../../packages/interaction/commands/src/index.ts)
 
 <a id="commands-events"></a>
 
@@ -181,5 +183,5 @@ A command was registered or unregistered. This is an unfiltered registry notific
 'commands/change'(): void
 ```
 
-Source: [`packages/interaction/commands/src/index.ts:172`](../../packages/interaction/commands/src/index.ts)
+Source: [`packages/interaction/commands/src/index.ts:134`](../../packages/interaction/commands/src/index.ts)
 <!-- END GENERATED cordis-surface -->

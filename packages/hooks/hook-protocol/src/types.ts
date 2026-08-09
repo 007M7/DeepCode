@@ -5,7 +5,7 @@
  * @module @deepseek-ai/dsh-hook-protocol/types
  */
 
-declare module '@deepseek-ai/dsh-session' {
+declare module '@deepseek-ai/dsh-session/types' {
   interface SessionEventMap {
     /**
      * A hook command was invoked at a hook point — a log-only record (like

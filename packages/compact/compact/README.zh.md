@@ -8,7 +8,7 @@
 
 | 包 | 职责 |
 |---|---|
-| `@deepseek-ai/dsh-compact`（本包） | Service Definition：抽象服务 + `compact/*` 事件 + `CompactionResult` + 规范检查点源 + 工具配对边界 helper |
+| `@deepseek-ai/dsh-compact`（本包） | Service Definition：抽象服务 + `compact/*` 事件 + `CompactionResult` + 关联检查点源构造函数 + 工具配对边界 helper |
 | `@deepseek-ai/dsh-compact-basic` | Service provider：`ctx.tokenMeter` 压力 + token 预算保留 + `llm.stream()` 摘要 |
 | `@deepseek-ai/dsh-command-compact` | Consumer：面向人类的 `/compact` 命令，基于 `ctx.compact.compactNow()` 实现 |
 
@@ -22,7 +22,7 @@
 |---|---|
 | `compactIfNeeded(agent, trigger, signal)` | 根据 `trigger: 'pressure' \| 'context-overflow'` 判断是否需要自动压缩。压力触发可应用后端的阈值与保留尾部策略；已确认溢出可强制进行有效的平衡缩减。返回 `CompactionResult`，无安全范围时则返回 `null`。后端摘要请求是直接的 `ctx.llm.stream()` 调用（不是 agent loop 步骤），因此每次调用都可在 `llm/stream` 处拦截。 |
 | `compactNow(agent, signal)` | 即使未达到自动压力，也显式压缩一段有效、平衡的较早范围。该操作会在让出控制权前同步预留空闲轮次接纳；没有有效范围时不写入任何内容；在摘要前记录独立的 `compact/* { turn: null }` 尝试；释放预留前等待其持久性检查点。预期操作失败使用 `ManualCompactionError`；取消会原样重新抛出 abort 原因。 |
-| `compactRegion(start, end, agent, signal?)` | 强制将表层节点 `[start, end]`（包含两端 seq）从 `agent.session` 摘要为单个替换节点，其源为 `COMPACT_CHECKPOINT_SOURCE`。如果压缩已在进行、`start`／`end` 不是表层节点，或 `start` 在表层上位于 `end` 之后，则**抛出异常**。该范围是表层位置范围，不是数值 seq 区间：在之前的 replace 将新生成的高 seq 摘要节点放到已遮蔽范围的位置之后，表层顺序不再跟随 seq 顺序。 |
+| `compactRegion(start, end, agent, signal?)` | 强制将表层节点 `[start, end]`（包含两端 seq）从 `agent.session` 摘要为单个替换节点，其源由 `compactCheckpointSource(compactionId)` 创建。如果压缩已在进行、`start`／`end` 不是表层节点，或 `start` 在表层上位于 `end` 之后，则**抛出异常**。该范围是表层位置范围，不是数值 seq 区间：在之前的 replace 将新生成的高 seq 摘要节点放到已遮蔽范围的位置之后，表层顺序不再跟随 seq 顺序。 |
 
 `CompactionResult` 向调用方保留原始摘要与记录操作过程的事件 seq，同时保留已遮蔽范围与 token 计量；其结构由漂移检查保障，定义见 [压缩数据结构参考](../../../docs/subsystems/compaction.md#compactionresult)。
 
@@ -43,7 +43,7 @@
 1. 追加 `compact/start`（仅日志）：获取锁；
 2. 摘要该范围；
 3. 追加 `compact/summary`（仅日志），其中记录摘要、范围、已遮蔽 seq、token 数与提供方／模型调用 envelope；
-4. 追加单个 `user/message`，其携带 `source: COMPACT_CHECKPOINT_SOURCE` 和包含摘要的 `surfaceOp: { op: 'replace', start, end }`：这是**本操作唯一的表层变更**；
+4. 追加单个 `user/message`，其携带 `source: compactCheckpointSource(compactionId, sourceCommandId?)` 和包含摘要的 `surfaceOp: { op: 'replace', start, end }`：这是**本操作唯一的表层变更**；
 5. 追加 `compact/end`（仅日志）：释放锁。
 
 表层变更（第 4 步）位于锁的起止范围**内**：`compact/end` 是最后一个事件，因此表层变更落地前绝不会释放锁。如果在 `compact/start` 与 `compact/end` 之间崩溃，会留下可检测的遗留锁（一个 `compact/start` 没有匹配的 `compact/end`），而不是虚假声称压缩已完成、但表层从未被遮蔽的 `compact/end`。
@@ -64,11 +64,11 @@
 
 ## 实现后端
 
-继承 `CompactService`，实现 `compactIfNeeded`、`compactNow` 与 `compactRegion`，再将子类作为插件加载：它会注册为 `ctx.compact`。每个成功后端都在替换 user 消息上使用 `COMPACT_CHECKPOINT_SOURCE`；`isCompactCheckpointSource()` 可在持久化或克隆后识别该标记，无需依赖后端身份。基于模板或模型的实现可以放在同级包中，不需更改调用方或共享 token meter。
+继承 `CompactService`，实现 `compactIfNeeded`、`compactNow` 与 `compactRegion`，再将子类作为插件加载：它会注册为 `ctx.compact`。每个成功后端都使用 `compactCheckpointSource(compactionId, sourceCommandId?)` 创建替换 user 消息的源；必填的 `compactionId` 将检查点与对应 `compact/*` 事务关联，而 `isCompactCheckpointSource()` 可在持久化或克隆后识别该标记，无需依赖后端身份。基于模板或模型的实现可以放在同级包中，不需更改调用方或共享 token meter。
 
 ## 在 host 程序之外识别检查点（`./checkpoint`）
 
-`COMPACT_CHECKPOINT_SOURCE` 与 `isCompactCheckpointSource()` 声明在 `@deepseek-ai/dsh-compact/checkpoint` 子路径上，并由包根重新导出，因此 host 侧消费方仍从根读取它们。该叶子不导入 cordis、也不声明任何模块增强（即 [`dsh-commands/brand`](../../interaction/commands/README.md) 的形状），这正是客户端或 wire 程序能够命名该检查点来源的原因：包的**根**根本无法进入这类程序，因为它会到达 `dsh-session` 的根，而那处 `Context` 合并会让 host 的 `sessions` 服务与客户端自己的冲突（`TS2717`——每侧一个程序，见 [development.md](../../../docs/development.md#typescript-project-layout)）。Web 客户端的对话记录适配器用仅类型导入把它的插件字面量钉在该叶子上，因此在此处改插件 id 会让那边编译失败。
+`compactCheckpointSource()`、`CompactCheckpointSource` 与 `isCompactCheckpointSource()` 声明在 `@deepseek-ai/dsh-compact/checkpoint` 子路径上，并由包根重新导出，因此 host 侧消费方仍从根读取它们。构造函数要求传入所属 `CompactionId`，防止后端写入缺少关联关系、必然被包不变量拒绝的标记。该叶子不导入 cordis、也不声明任何模块增强（即 [`dsh-commands/brand`](../../interaction/commands/README.md) 的形状），这正是客户端或 wire 程序能够命名该检查点来源的原因：包的**根**根本无法进入这类程序，因为它会到达 `dsh-session` 的根，而那处 `Context` 合并会让 host 的 `sessions` 服务与客户端自己的冲突（`TS2717`——每侧一个程序，见 [development.md](../../../docs/development.md#typescript-project-layout)）。Web 客户端的对话记录适配器用仅类型导入把它的插件字面量钉在该叶子的源类型上，因此在此处改插件 id 会让那边编译失败。
 
 ## 模型体验
 

@@ -13,6 +13,7 @@ import type { Session } from '@deepseek-ai/dsh-session'
 import { CONTEXT_WINDOW_EXCEEDED_CODE, assertNever } from '@deepseek-ai/dsh-llm'
 import type { LlmCallConfig } from '@deepseek-ai/dsh-llm'
 import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
+import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
 // Type-only: makes the optional sibling service available to `ctx.get()`.
 import type {} from '@deepseek-ai/dsh-compact-tool-result-prune'
 import {
@@ -361,9 +362,14 @@ export class BasicCompactService extends CompactService {
    * resolve only after its standalone marker pair is durably checkpointed.
    * @param agent - idle agent whose next-turn admission this call reserves.
    * @param signal - cancellation scoped to this compaction request.
+   * @param sourceCommandId - initiating command identity for presentation correlation.
    * @returns the committed result, or `null` when no safe useful range exists.
    */
-  override compactNow(agent: Agent, signal: AbortSignal): Promise<CompactionResult | null> {
+  override compactNow(
+    agent: Agent,
+    signal: AbortSignal,
+    sourceCommandId?: CommandId,
+  ): Promise<CompactionResult | null> {
     signal.throwIfAborted()
     try {
       return agent.runMaintenance(async (agentSignal) => {
@@ -385,6 +391,7 @@ export class BasicCompactService extends CompactService {
             {
               owner: null,
               stability: 'selected-span',
+              ...sourceCommandId === undefined ? {} : { sourceCommandId },
               flush: async () => {
                 await this.ctx.sessions.flush(agent.session)
               },

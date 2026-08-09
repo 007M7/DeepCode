@@ -109,6 +109,7 @@ describe.skipIf(MODE === 'record')('web e2e: user-explicit skill invocation thro
       { timeout: 10_000 },
     ).toBe(1)
 
+    const settled = scaffold.whenTurnSettled()
     await composer.fill(`/${SKILL_NAME} ${ARGS_TEXT}`)
     await composer.press('Enter')
 
@@ -135,6 +136,7 @@ describe.skipIf(MODE === 'record')('web e2e: user-explicit skill invocation thro
 
     // The injection started a turn; the replay adapter answers it.
     await page.getByText('USER_INVOKE_REPLY', { exact: false }).first().waitFor({ timeout: 20_000 })
+    await settled
 
     const snapshot = await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd)
     await compareOrRefreshGolden(UI_EXPECTED, snapshot, MODE)

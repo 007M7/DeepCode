@@ -31,6 +31,7 @@ import { createSnapshotStore } from '../contract/store.ts'
 import type { SessionFace } from '../contract/session.ts'
 import type { AgentContext, ISessions } from '../contract/sessions.ts'
 import { createScope, scopeOf as scopeTagOf } from '../agents/scope.ts'
+import type { ConversationRuntime } from './conversation-assembler.ts'
 import { SessionManager } from './manager.ts'
 import type { SessionListPhase, SessionSearchResultItem, SubagentCatalogSnapshot } from './manager.ts'
 import type { PendingInteractionStatus } from './pending.ts'
@@ -265,16 +266,30 @@ export class SessionsService implements ISessions {
   /**
    * @param ctx - client root context (scope fibers mount under it).
    * @param api - wire client shared with every Session.
+   * @param conversationRuntime - same-pass registry instances, when runtime apply owns them.
    */
   constructor(
     private readonly rootCtx: Context,
     api: IApiClient,
+    conversationRuntime?: ConversationRuntime,
   ) {
     this.selection = createSnapshotStore<SessionSelection>(
       {},
       { persist: { name: 'dsh.sessions.current' } })
     const restored = this.selection.getSnapshot()
-    this.manager = new SessionManager(api, restored.sessionId, restored.subagentAddress)
+    const conversationEvents = rootCtx.get('conversationEvents')
+    const conversationViews = rootCtx.get('conversationViews')
+    const conversation = conversationRuntime ?? (
+      conversationEvents === undefined || conversationViews === undefined
+        ? undefined
+        : { events: conversationEvents, views: conversationViews }
+    )
+    this.manager = new SessionManager(
+      api,
+      restored.sessionId,
+      restored.subagentAddress,
+      conversation,
+    )
     this.list = createSnapshotStore<SessionListState>({
       ids: [], byId: {}, current: undefined, phase: 'pending',
       subagentsByParent: {}, currentAddress: undefined,
@@ -302,6 +317,25 @@ export class SessionsService implements ISessions {
       resolveCurrent: () => this.maybeProvideInfo(this.list.getSnapshot().current),
     })
     this.currentProvideInfo = this.provideChannel.currentProvideInfo
+    let registryRebuildQueued = false
+    const scheduleRegistryRebuild = (): void => {
+      if (registryRebuildQueued) return
+      registryRebuildQueued = true
+      queueMicrotask(() => {
+        registryRebuildQueued = false
+        this.manager.rebuildConversationRegistry()
+      })
+    }
+    if (conversation !== undefined) {
+      rootCtx.effect(() => {
+        const disposeEvents = conversation.events.subscribe(scheduleRegistryRebuild)
+        const disposeViews = conversation.views.subscribe(scheduleRegistryRebuild)
+        return () => {
+          disposeEvents()
+          disposeViews()
+        }
+      }, 'sessions: conversation registry rebuild')
+    }
     rootCtx.reflect.provide('sessions', this, undefined)
   }
 

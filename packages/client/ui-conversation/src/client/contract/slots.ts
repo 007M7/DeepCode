@@ -1,15 +1,21 @@
 /** Conversation slot declarations and their composed component props. */
 import type { ReactNode, RefObject } from 'react'
 import type {
-  InjectFace, MaybeSnapshotSelectorHook, PropsLocale, PropsRenderSlots, PropsRuntime, PropsStore, SnapshotSelectorHook,
+  InjectFace, MaybeSnapshotSelectorHook, PropsLocale, PropsRenderSlots, PropsRuntime, PropsStore,
+  SlotHookFactory, SnapshotSelectorHook,
 } from '@deepseek-ai/dsh-client-ui-slots'
-import type { CommandNode, CompactionSummaryNode, ConversationNode, ConversationSnapshot, ObservableSnapshot, PendingInteraction, PendingWait, SessionId, ToolCallBlock, WorkspaceId } from '@deepseek-ai/dsh-client-runtime/client'
+import type {
+  CommandNode, CompactionSummaryNode, ConversationSnapshot, ConversationTurnDataMap,
+  ObservableSnapshot, PendingInteraction, PendingWait, SessionId, ToolCallBlock,
+  TurnLocation, WorkspaceId,
+} from '@deepseek-ai/dsh-client-runtime/client'
 import type { MarkdownFileMentions } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { ComposerBlock } from '../input/blocks.ts'
 import type { ComposerKeyboard, EditSelection, InputActions, InputNotice, InputState } from '../input/contract.ts'
 import type { createChatStore } from '../stores.ts'
 import type { ComposerSubmitGesture, InputSubmitMode } from './composer-submission.ts'
+import type { ChatNode, ChatNodeKind } from './chat-nodes.ts'
 import type { CallId, SelectionTarget, ViewTab } from './views.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
@@ -31,13 +37,15 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * conversation snapshot through the standard kit.
      */
     'conversation.view': { kind: 'list'; scope: 'session'; owner: ConvViewOwnerProps }
-    /**
-     * One root Tool call at its ordered ChatFlow position. The chat view owns
-     * placement; ui-tool owns root/subcall composition and keyed dispatch.
-     * The filler preserves the call-anchor DOM contract documented by
-     * {@link ToolTreeOwnerProps} for every root and child wrapper.
-     */
-    'conversation.chat.tool': { kind: 'single'; scope: 'session'; owner: ToolTreeOwnerProps }
+    /** Final business node renderer, dispatched by `ChatConversationViewNode.kind`. */
+    'conversation.chat.node': {
+      kind: 'keyed'
+      scope: 'session'
+      owner: ChatNodeOwnerProps
+      keyProps: { [Kind in ChatNodeKind]: { node: ChatNode<Kind> } }
+      hookContext: string
+      inject: ChatNodeTurnDataInjected
+    }
     /**
      * The chat view's per-command row hole: keyed dispatch on the command
      * name (`command/run.name`; a run-less cross-window node has none and
@@ -48,11 +56,10 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      */
     'conversation.chat.commandview': { kind: 'keyed'; scope: 'session'; owner: CommandRowOwnerProps }
     /**
-     * The chat view's turn-tail chain: rendered between a closing assistant
-     * message's body and its IconActions footer, once per turn (the render
-     * site elects the closing seq). Entries derive a match from the owner
-     * currency before mounting, so presentation components never mount only
-     * to return null; an all-declined chain renders nothing.
+     * The completed Turn Node's extension chain, rendered before that Node's
+     * IconActions. Entries derive a match from the engine-owned Turn and
+     * closing seq before mounting, so presentation components never mount
+     * only to return null; an all-declined chain renders nothing.
      */
     'conversation.chat.turnTail': { kind: 'chain'; scope: 'session'; owner: TurnTailOwnerProps }
     /** Selected Tool call output inside the details panel. */
@@ -177,7 +184,7 @@ export interface ConvViewOwnerProps {
 export interface ChatFileMentions {
   /**
    * Mention vocabulary for the closing message the owner currency names.
-   * @param owner - Turn-tail owner currency (nodes, closing seq, opener).
+   * @param owner - Turn-tail owner currency (Turn data, closing seq, opener).
    * @returns The resolver MarkdownText consumes, or undefined when the turn
    * produced nothing worth linking.
    */
@@ -192,14 +199,13 @@ declare module 'cordis' {
 }
 
 /**
- * Owner currency of the chat view's turn-tail hole: the finalized snapshot
- * and the closing assistant's anchor. Registrants derive their own facts
- * from the nodes (the owner never pre-chews a feature's vocabulary), and
- * open files through the same opener the tool rows use.
+ * Owner currency of the chat view's turn-tail hole: the engine-owned Turn and
+ * the closing assistant's anchor. Registrants read their own typed Turn data
+ * and open files through the same opener the tool rows use.
  */
 export interface TurnTailOwnerProps {
-  /** Finalized snapshot nodes in surface order. */
-  nodes: readonly ConversationNode[]
+  /** Engine-owned closing Turn boundary. */
+  turn: TurnLocation
   /** The closing assistant's seq — the anchor the tail renders under. */
   seq: number
   /**
@@ -209,33 +215,33 @@ export interface TurnTailOwnerProps {
   openFile: (path: string) => void
 }
 
-/**
- * Owner currency of the chat view's whole-Tool rendering seat. The filler
- * wraps every rendered root and child with `data-chat-anchor-key="call:<id>"`
- * and `data-chat-call-id="<id>"`, plus `data-selected="true"` for the selected
- * call. ChatView consumes those anchors to restore prepend/paging position.
- */
-export interface ToolTreeOwnerProps {
-  /** Root Tool call identity, stable across running → settled. */
-  callId: CallId
-  /** Root wire Tool name. */
-  toolName: string
-  /** Frozen root call slice: running call or settled result node. */
-  block: ToolCallBlock
-  /** Selected call id; the Tool owner resolves whether it is root or child. */
-  selectedCallId?: CallId | undefined
-  /** Session workspace root; path summaries display relative to it. */
-  cwd?: string | undefined
-  /**
-   * Open a tool-arg filesystem path with the host OS default application.
-   * The conversation owner resolves relative paths against the session cwd.
-   */
-  openFile: (path: string) => void
-  /**
-   * Jump to any call in this tree in the trajectory view.
-   */
-  inspectCall: (callId: CallId) => void
+/** Hook constrained to business data published on the current Chat Node's Turn. */
+export type UseChatNodeTurnData = <Key extends Extract<keyof ConversationTurnDataMap, string>>(
+  key: Key,
+) => Readonly<ConversationTurnDataMap[Key]> | undefined
+
+/** Slot-level Hook factory used by renderers reading their Node's Turn data. */
+export interface ChatNodeTurnDataInjected {
+  hooks: {
+    turnData: SlotHookFactory<'conversation.chat.node', UseChatNodeTurnData>
+  }
 }
+
+/** Stable owner currency delivered to one keyed Chat business renderer. */
+export interface ChatNodeOwnerProps {
+  /** Selected Tool call, when the shared details store names one. */
+  selectedCallId?: CallId | undefined
+  /** Session workspace root; Tool summaries display paths relative to it. */
+  cwd?: string | undefined
+  openFile: (path: string) => void
+  inspectCall: (callId: CallId) => void
+  forkAt: (seq: number) => void
+  fileMentions: (owner: TurnTailOwnerProps) => MarkdownFileMentions | undefined
+}
+
+/** Full props of one registered keyed Chat business renderer. */
+export type ChatNodeViewProps<Kind extends ChatNodeKind = ChatNodeKind> =
+  PropsRuntime<'conversation.chat.node', Kind> & PropsLocale<'conversation'>
 
 /** Owner currency of the details panel's Tool output renderer. */
 export interface DetailsToolOwnerProps {
@@ -561,7 +567,7 @@ export interface ChatViewInjected {
 
 /** Full chat-view component props: runtime & its Tool/command/tail render shares & store & injected & locale seat. */
 export type ChatViewSlotProps =
-  PropsRuntime<'conversation.view'> & PropsRenderSlots<'conversation.chat.tool' | 'conversation.chat.commandview' | 'conversation.chat.turnTail'>
+  PropsRuntime<'conversation.view'> & PropsRenderSlots<'conversation.chat.node'>
   & PropsStore<ChatStore> & ChatViewInjected & PropsLocale<'conversation'>
 
 /**
