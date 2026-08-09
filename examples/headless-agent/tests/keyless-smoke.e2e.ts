@@ -9,6 +9,7 @@ import { LOADER_SMOKE_TEST_TIMEOUT_MS, runLoaderSmoke } from '@deepseek-ai/dsh-l
 import {
   PREPARED_ENTRY_FILENAME,
   REPOSITORY_PLUGIN_PREPARE_COMMAND,
+  REPOSITORY_PLUGIN_PACKAGE_NAME,
   prepareDshPlugin,
 } from '@deepseek-ai/dsh-repository-plugin'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
@@ -77,6 +78,7 @@ describe('headless-agent keyless smoke', () => {
         name: 'headless-repository-fixture',
         version: '0.0.0',
         scripts: { prepack: REPOSITORY_PLUGIN_PREPARE_COMMAND },
+        devDependencies: { [REPOSITORY_PLUGIN_PACKAGE_NAME]: '0.0.1' },
         dsh: { skills: ['../skills'] },
       }, undefined, 2)}\n`)
       await prepareDshPlugin(plugin)
