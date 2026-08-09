@@ -17,7 +17,7 @@ Status: implemented
 
 结构化 `FsError` 错误码保持不变，使重试/权限/UI 层继续基于它路由；原始错误作为 `cause` 链入。提供方消息保持面向机器且不变。
 
-在 `edit.ts` 中，`fs/edit-intent` waterfall（瀑布式事件）现在与提供方变更位于同一个 `try` 内，因此策略插件从 intent slot抛出的 `FS_NOT_OBSERVED` 拒绝也会获得恢复指令——两条拒绝路径都以相同的恢复措辞到达模型。
+在 `edit.ts` 中，`fs/edit-intent` waterfall（瀑布式事件）现在与提供方变更位于同一个 `try` 内，因此策略插件从 intent slot 抛出的 `FS_NOT_OBSERVED` 拒绝也会获得恢复指令——两条拒绝路径都以相同的恢复措辞到达模型。
 
 ## 考虑过的替代方案
 

@@ -12,7 +12,7 @@ Status: implemented
 
 ## 决策
 
-`rewriteMarkdown` 新增可选的 `placeImage(absPath): string`。当页面引用了一张manifest 未作为页面发布的图片时，投影把该文件复制进生成树中该页面的旁边，并把引用改写为 `./<basename>`；随后 Vite 会像处理其他站点资源一样打包它。仓库可见性再也影响不到已发布页面。
+`rewriteMarkdown` 新增可选的 `placeImage(absPath): string`。当页面引用了一张 manifest 未作为页面发布的图片时，投影把该文件复制进生成树中该页面的旁边，并把引用改写为 `./<basename>`；随后 Vite 会像处理其他站点资源一样打包它。仓库可见性再也影响不到已发布页面。
 
 副本落在页面旁边，而不是某个共享资源目录。每个 locale 的路由树各持一份副本，因此同一个相对 URL 在 `guide/` 与 `en/guide/` 下都正确，无需按 locale 计算前缀；manifest 撤下某页时，它的资源也随之消失。一张表登记所有被投影的路径——页面与图片一视同仁——同一路径出现第二个来源就抛错，与既有的重复路由检查同一个立场，而不是让最后写入的那个静默胜出。
 
