@@ -39,10 +39,14 @@ function scrubEnvironment(environment: NodeJS.ProcessEnv = process.env): NodeJS.
 function installEnvironment(commandDirectory: string): NodeJS.ProcessEnv {
   const scrubbed = scrubEnvironment()
   const path = Object.entries(scrubbed).find(([name]) => name.toUpperCase() === 'PATH')?.[1]
-  const withoutPath = Object.fromEntries(Object.entries(scrubbed).filter(([name]) => name.toUpperCase() !== 'PATH'))
+  const withoutOverrides = Object.fromEntries(Object.entries(scrubbed).filter(([name]) => {
+    return name.toUpperCase() !== 'PATH' && name.toUpperCase() !== 'NPM_CONFIG_IGNORE_WORKSPACE'
+  }))
   return {
-    ...withoutPath,
+    ...withoutOverrides,
     PATH: [commandDirectory, ...(path === undefined ? [] : [path])].join(delimiter),
+    // pnpm prepends its own command directory to lifecycle PATH on Windows.
+    NPM_CONFIG_IGNORE_WORKSPACE: 'true',
   }
 }
 
