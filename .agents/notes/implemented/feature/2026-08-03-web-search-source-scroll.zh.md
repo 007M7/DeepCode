@@ -16,7 +16,7 @@ Status: implemented
 
 模型侧不变：seam 仍在 `searchMaxResults` 处封顶来源，面向模型的 render 文本未动，`truncated` 标志及其 `来源列表已截断` 指示保留。卡片完整且可滚动地画出 seam 产出的这份列表，而非折叠其中段。
 
-只要工具下游没有单独改写结果 content，这份列表就是模型读到的那份。挂载了 `dsh-spill-policy` 的部署会对超限结果打破这一对应：`tools/post-execute` 把面向模型的 `content` 替换为预览加 spill 定位符，而 `presentationMeta` 原样保留，因此卡片仍画出全部来源，模型读到的却是一段有界摘录。所以卡片的契约是它收到的 view，不是模型的上下文。
+只要工具下游没有单独改写结果 content，这份列表就是模型读到的那份。挂载了 `dsh-spill-policy` 的部署会对超限结果打破这一对应：`tools/post-execute` 把面向模型的 `content` 替换为预览加 spill 定位符，而 `presentationMeta` 原样保留，因此卡片仍画出全部来源，模型读到的却是一段有界摘录。所以卡片的约定是它收到的 view，不是模型的上下文。
 
 `CHAT_WEB_MAX_SOURCES` 与该 primitive 的 `DEFAULT_WEB_MAX_SOURCES` 被移除：有了滚动，聊天行与详情面板展示同一份完整列表，仅以各自的容器高度区分。`<li value={ordinal}>` 仍钉住每条来源从 1 起算的引用序号；没有了折叠造成的间断，这些序号如今就是连续的。
 

@@ -22,13 +22,13 @@
 
 `.mcp.json` 中的每个 server 都变成一个现有 `dsh-mcp-client` 子级。适配层接受通用根对象 `{ "mcpServers": ... }`；stdio 定义只允许可选的 `type: "stdio"`、`command`、`args` 与 `env`，HTTP 定义只允许 `type: "http"`、`url` 与 `headers`。严格的 `${NAME}` 进程环境变量引用在运行时、cache 准备之后展开；缺失变量会使 Plugin 加载失败。HTTP 映射到 client 的 Streamable HTTP transport，stdio 使用已准备 package 目录作为 `cwd`。只有现有 client 负责连接尝试、失败日志、远端工具同步、工具调用和断开。Repository 实例会启用严格启动，因此初始连接、发现或工具注册失败会拒绝 repository Loader generation；非严格的独立 client 则保留“记录日志、Plugin 成功但不注册工具”的行为。
 
-未知 MCP 字段会被拒绝。这里有意排除 OAuth、`auth` 对象、`CLAUDE_PLUGIN_ROOT` 和更广泛的 Claude 兼容契约。命令、hook、agent（智能体）、规则和其他外来 manifest 约定不会从静态 repository 布局中推断出来；DSH 原生行为使用显式的受信任 Cordis 入口。Repository 子目录选择与 GitHub 源配置属于[独立应用集成](../feature/2026-07-30-config-only-repository-plugins.md)，而不是本静态适配器。
+未知 MCP 字段会被拒绝。这里有意排除 OAuth、`auth` 对象、`CLAUDE_PLUGIN_ROOT` 和更广泛的 Claude 兼容约定。命令、hook、agent（智能体）、规则和其他外来 manifest 约定不会从静态 repository 布局中推断出来；DSH 原生行为使用显式的受信任 Cordis 入口。Repository 子目录选择与 GitHub 源配置属于[独立应用集成](../feature/2026-07-30-config-only-repository-plugins.md)，而不是本静态适配器。
 
 ## 考虑过的替代方案
 
 **从 `main`、`exports` 或 repository 布局中发现入口。** 拒绝，因为静态资源并不表示包的普通入口就是 Cordis 插件。受信任代码通过 `dsh.entry` 显式加载，不属于该静态适配器的职责。
 
-**让生成包装模块直接实现 skills 和 MCP。** 拒绝，因为复制的运行时代码会与 `dsh-skill-local` 和 `dsh-mcp-client` 漂移，尤其是提供方失效、工具同步、失败和 teardown 契约。
+**让生成包装模块直接实现 skills 和 MCP。** 拒绝，因为复制的运行时代码会与 `dsh-skill-local` 和 `dsh-mcp-client` 漂移，尤其是提供方失效、工具同步、失败和 teardown 约定。
 
 **让每个生成包装模块 import Harness package。** 拒绝，因为 repository package 不应解析或锁定应用的内部依赖图。Loader builtin 提供一份由 app 所有的实现，并让生成包装模块保持无 import。
 

@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-模型可见的 `bash(command)`，底层复用一个按所有者隔离的 `ctx.pty` shell。该包拥有工具契约和 shell 复用；PTY 后端与沙箱策略由部署选择。
+模型可见的 `bash(command)`，底层复用一个按所有者隔离的 `ctx.pty` shell。该包拥有工具约定和 shell 复用；PTY 后端与沙箱策略由部署选择。
 
 ## 配置
 
@@ -11,7 +11,7 @@
 | `backendType` | `shell` | 每个 Agent shell 使用的已注册 PTY 后端。 |
 | `timeoutMs` | `300000` | 单条命令的墙钟时间上限；超时会关闭 shell。 |
 | `maxOutputChars` | `16000` | 命令输出最多保留的字符数；固定诊断会在此后追加。 |
-| `description` | 持久 shell 描述 | 面向模型的环境契约。 |
+| `description` | 持久 shell 描述 | 面向模型的环境约定。 |
 
 ## 模型体验
 

@@ -10,7 +10,7 @@ dsh 浏览器表层组合包。[`cordis.patch.yml`](cordis.patch.yml) 叠加在 
 
 #### 模型看到的内容
 
-当 `surfaceContext` 为 true 时，全局段落 `app:web-surface`（顺序 −98）向模型说明 GUI：规范的本地 URL、「this page」指代什么、当前模式下 HMR（热模块替换）／重建的更新契约，以及不要启动替代服务器的指令。`DSH_WEB_URL` 与 `DSH_WEB_MODE` 还会连同各自描述出现在受管 bash 环境中，每次调用时从运行中的服务器解析。当它为 false 时，该提示词段和这些变量都不会注册。
+当 `surfaceContext` 为 true 时，全局段落 `app:web-surface`（顺序 −98）向模型说明 GUI：规范的本地 URL、「this page」指代什么、当前模式下 HMR（热模块替换）／重建的更新约定，以及不要启动替代服务器的指令。`DSH_WEB_URL` 与 `DSH_WEB_MODE` 还会连同各自描述出现在受管 bash 环境中，每次调用时从运行中的服务器解析。当它为 false 时，该提示词段和这些变量都不会注册。
 
 #### Token 影响
 

@@ -8,7 +8,7 @@ Status: implemented
 
 `grep` 与 `glob` 返回结构化的 canonical 值 —— `grep` 是扁平的 `{ matches: [{ path, lineNumber, line }] }`，`glob` 是 `{ paths: string[] }` —— 但每个 UI 只见过它们面向模型的渲染文本：`grep` 把匹配按文件头分组、每行 `Line N:`，`glob` 打印换行连接的路径列表，两者在内联上限（`grepMaxMatches`，默认 250；`globMaxResults`，默认 100）把后续结果落到 spill 文件时都追加一个 spill 脚注。想把搜索结果渲染成可展开的按文件匹配组、或可选择的路径列表的 web 前端，只能去重新解析那段文本。两个工具都已声明调用时的[渲染意图](../architecture/2026-07-02-tool-render-intent-union.md)（`GenericCallView`，`kind: 'search'`），但没有结果时视图，所以已完成的调用回退到渲染原始文本的 generic 卡片。
 
-结构化 canonical 值不跨线传输：只有面向模型的渲染文本、以及当工具声明了 `output.presentationMeta` 时的一份 JSON 元数据，会经 `tool/result` 事件到达客户端（[canonical-output 契约](../architecture/2026-07-20-canonical-tool-output-contract.md)）。因此携带结构化数据的结果时视图必须把数据投影进 `presentationMeta`，再在 `presentResult` 里读回 —— 与 `write`/`edit` 的 diff 卡片走同一条路。
+结构化 canonical 值不跨线传输：只有面向模型的渲染文本、以及当工具声明了 `output.presentationMeta` 时的一份 JSON 元数据，会经 `tool/result` 事件到达客户端（[canonical-output 约定](../architecture/2026-07-20-canonical-tool-output-contract.md)）。因此携带结构化数据的结果时视图必须把数据投影进 `presentationMeta`，再在 `presentResult` 里读回 —— 与 `write`/`edit` 的 diff 卡片走同一条路。
 
 ## 决定
 
@@ -30,7 +30,7 @@ Status: implemented
 
 `SearchMeta` 的成员形状是对象字面量 `type` 别名，而非视图暴露的 `SearchFileMatches`/`SearchLineMatch` 接口，因为只有 type 别名可赋给 `presentationMeta` 返回的 `JsonValue` 索引签名；两者结构等价，所以投影值仍读回为 `SearchResultView`。
 
-没有专用 `search` 分支的消费方会回退到同一个 generic body，并从原始结果中读取面向模型的文本。因为搜索视图不带自己的 `content`，而本 PR 之前 grep/glob 返回的是 generic 卡片，所以该回退与引入 search 卡片之前的路径逐字节一致。渲染结构化 `files`/`paths` 形状的前端独立于这个后端契约及其两个生产者。
+没有专用 `search` 分支的消费方会回退到同一个 generic body，并从原始结果中读取面向模型的文本。因为搜索视图不带自己的 `content`，而本 PR 之前 grep/glob 返回的是 generic 卡片，所以该回退与引入 search 卡片之前的路径逐字节一致。渲染结构化 `files`/`paths` 形状的前端独立于这个后端约定及其两个生产者。
 
 ## 考虑过的备选
 
@@ -40,7 +40,7 @@ Status: implemented
 
 **把面向模型的文本作为视图的 `content` 附上。** 否决：对每个当前消费方是 no-op，且把整段搜索文本第二次序列化进持久化视图。视图是结构化形状；文本回退读原始结果内容。
 
-**在 `PostToolDecision` 上加 meta 通道，让 `dsh-spill-policy` 像约束 `content` 那样约束 `meta`。** 本 PR 否决：它为一个工具的载荷改动核心工具决策契约与 spill-policy 插件。投影在配置字节上限处约束自己的 `meta` 是自包含的，且保持 seam 不变。
+**在 `PostToolDecision` 上加 meta 通道，让 `dsh-spill-policy` 像约束 `content` 那样约束 `meta`。** 本 PR 否决：它为一个工具的载荷改动核心工具决策约定与 spill-policy 插件。投影在配置字节上限处约束自己的 `meta` 是自包含的，且保持 seam 不变。
 
 **镜像 terminal 卡片双侧对称的调用时 `SearchCallView`。** 否决：搜索调用在 `execute` 前没有匹配或路径，视图只会携带 `GenericCallView` 已有的标题。
 
@@ -57,5 +57,5 @@ Status: implemented
 ## 相关
 
 - [工具调用呈现的带标签渲染意图联合](../architecture/2026-07-02-tool-render-intent-union.md) —— 本 PR 用 `search` 结果标签扩展的 `card` 标签词汇。
-- [Canonical 工具输出契约](../architecture/2026-07-20-canonical-tool-output-contract.md) —— 本投影所乘的 value/render/`presentationMeta` 划分；结构化值留在执行本地，卡片乘 `meta`。
+- [Canonical 工具输出约定](../architecture/2026-07-20-canonical-tool-output-contract.md) —— 本投影所乘的 value/render/`presentationMeta` 划分；结构化值留在执行本地，卡片乘 `meta`。
 - [Web terminal 卡片](2026-07-28-web-terminal-card.md) —— 本 PR 在后端镜像的先例：工具把结果投影进 `presentationMeta` 与一个 `presentResult` 视图；搜索卡片的 web 消费方是与之类比的后续。

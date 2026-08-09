@@ -37,7 +37,7 @@
 
 ## 稳定注册
 
-工具注册遵循产品**启用状态**，而非后端可用性。即使选中的提供方缺失、错误配置、存在歧义或暂时不可用，工具仍保持可见；seam 在执行时解析提供方，执行以结构化 `WebError`（例如 `WEB_PROVIDER_UNAVAILABLE`、`WEB_PROVIDER_AMBIGUOUS`）失败，`ToolRegistry.execute()` 会把它转为模型可读、钩子／UI 可路由的错误工具结果。这样无需把插件加载顺序、凭据状态或 HMR（热模块替换）时机纳入面向模型契约，也能保持模型 schema 稳定。要彻底移除 web 工具，请在此处通过配置将其禁用。
+工具注册遵循产品**启用状态**，而非后端可用性。即使选中的提供方缺失、错误配置、存在歧义或暂时不可用，工具仍保持可见；seam 在执行时解析提供方，执行以结构化 `WebError`（例如 `WEB_PROVIDER_UNAVAILABLE`、`WEB_PROVIDER_AMBIGUOUS`）失败，`ToolRegistry.execute()` 会把它转为模型可读、钩子／UI 可路由的错误工具结果。这样无需把插件加载顺序、凭据状态或 HMR（热模块替换）时机纳入面向模型约定，也能保持模型 schema 稳定。要彻底移除 web 工具，请在此处通过配置将其禁用。
 
 工具绝不会调用提供方的 `available()`，也不会枚举提供方；唯一执行路径是 `ctx.web.search()`／`ctx.web.fetch()`，提供方不可用时，选择机制会在执行阶段抛出结构化 `WebError`，其错误码由工具接收。提供方选择完全留在 seam 内，由单一主体负责。
 

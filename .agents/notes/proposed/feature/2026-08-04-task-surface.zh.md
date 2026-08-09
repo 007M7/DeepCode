@@ -10,7 +10,7 @@ Status: proposed
 
 这两种变通方案的职责归属都不合理。产品专用组件要求每种任务形态都新增触发方式并发布新版本。对于只需一个轮次的表单，生成代码所拥有的权限和生命周期成本都远超实际需要。这样做还会把展示界面而非用户结论变成持久产物。
 
-目前缺少这样一份契约：用有界、可回放的描述来定义临时 UI，并让它只属于一个会话和一次工具调用实例。产品应当负责校验、放置、交互机制和提交；agent 应当负责特定任务的文案、数据，以及从受支持组件中作出选择。
+目前缺少这样一份约定：用有界、可回放的描述来定义临时 UI，并让它只属于一个会话和一次工具调用实例。产品应当负责校验、放置、交互机制和提交；agent 应当负责特定任务的文案、数据，以及从受支持组件中作出选择。
 
 ## 提案
 
@@ -77,13 +77,13 @@ interface TaskSurfaceOption { id: string; label: string; detail?: string }
 
 Task Surface 服务通过受 schema 校验的配置定义限制。初始默认值为：规范化模型不超过 64 KiB、块不超过 64 个、字段不超过 32 个、表格行不超过 200 行、提交内容不超过 32 KiB。模型内的 ID 必须唯一；字段值必须符合其声明；未知字段会被拒绝。这些限制约束日志、DOM 和提示词成本，但不改变协议。
 
-## 工具与呈现契约
+## 工具与呈现约定
 
 `show_task_surface` 接收 `{ model: TaskSurfaceModelV1 }`。Host 解析并规范化完整模型；若该会话已有一个打开的 Task Surface，则拒绝调用；否则生成 `surfaceId`，并返回带规范化模型的规范值 `{ surfaceId, model }`。`presentationMeta` 持久化 `value.model`，使投影器和执行器不会对规范化结果产生分歧。Native 结果会指明该 Surface，并说明客户端无法渲染面板时，可以通过普通消息绕过它。随后工具调用 `exec.concludeTurn()`，防止 agent 越过所要求的人工检查点继续执行。
 
-工具定义省略 `isConcurrencySafe`。根据现有工具注册表契约，省略该字段会将每次调用归类为独占排序屏障，无需新增 `ToolDefinition` 字段。该工具只会组装到同时挂载 Host 服务和 Web 渲染器的 Web profile 中。版本 1 支持 `native` 和 `both` 工具模式；仅支持 `code` 的 profile 不会向模型公布该工具，因为 Code Mode 分发属于嵌套调用，无法把呈现元数据传到外层结果。
+工具定义省略 `isConcurrencySafe`。根据现有工具注册表约定，省略该字段会将每次调用归类为独占排序屏障，无需新增 `ToolDefinition` 字段。该工具只会组装到同时挂载 Host 服务和 Web 渲染器的 Web profile 中。版本 1 支持 `native` 和 `both` 工具模式；仅支持 `code` 的 profile 不会向模型公布该工具，因为 Code Mode 分发属于嵌套调用，无法把呈现元数据传到外层结果。
 
-浏览器安全的领域包从 `@deepseek-ai/dsh-brand` 以仅类型方式导入 `Branded` 原语，并拥有全部三个 Task Surface ID。根据[规范工具输出契约](../../implemented/architecture/2026-07-20-canonical-tool-output-contract.md)，规范值仅存在于本次执行中。因此，回放通过 `output.presentationMeta(args, value)` 将以下带标签的载荷随 `tool/result.meta` 一并持久化：
+浏览器安全的领域包从 `@deepseek-ai/dsh-brand` 以仅类型方式导入 `Branded` 原语，并拥有全部三个 Task Surface ID。根据[规范工具输出约定](../../implemented/architecture/2026-07-20-canonical-tool-output-contract.md)，规范值仅存在于本次执行中。因此，回放通过 `output.presentationMeta(args, value)` 将以下带标签的载荷随 `tool/result.meta` 一并持久化：
 
 ```ts
 import type { Branded } from '@deepseek-ai/dsh-brand'
@@ -102,13 +102,13 @@ interface TaskSurfacePresentationMeta {
 
 该工具保留通用 [render intent](../../implemented/architecture/2026-07-02-tool-render-intent-union.md)。带 key 的 Web 行读取 `ToolResultNode` 上已经保留的带标签元数据，无需新增 render-intent 分支或呈现注册表。不支持 Task Surface 的客户端会渲染普通结果内容。
 
-Web 插件按照 [toolview](../../implemented/architecture/2026-07-23-toolview-dissolution.md) 和 [slot 注册](../../implemented/architecture/2026-07-22-slot-type-chain-implementation.md)契约，提供两个静态的会话作用域注册项。一个以 `show_task_surface` 为 key 的 `conversation.chat.toolview` 条目将持久 transcript（文本记录）调用实例渲染为简洁摘要和只读回放。现有 `conversation.input.dock` 中的一个 `TaskSurfaceDock` 条目是唯一可操作的挂载点：它读取活动投影，针对确切身份调用 `getActive`，并拥有字段、草稿、提交和关闭操作。Dock 与 transcript 分页相互独立，因此即使 `ToolResultNode` 位于已加载历史窗口之外，活动 Surface 仍可操作。
+Web 插件按照 [toolview](../../implemented/architecture/2026-07-23-toolview-dissolution.md) 和 [slot 注册](../../implemented/architecture/2026-07-22-slot-type-chain-implementation.md)约定，提供两个静态的会话作用域注册项。一个以 `show_task_surface` 为 key 的 `conversation.chat.toolview` 条目将持久 transcript（文本记录）调用实例渲染为简洁摘要和只读回放。现有 `conversation.input.dock` 中的一个 `TaskSurfaceDock` 条目是唯一可操作的挂载点：它读取活动投影，针对确切身份调用 `getActive`，并拥有字段、草稿、提交和关闭操作。Dock 与 transcript 分页相互独立，因此即使 `ToolResultNode` 位于已加载历史窗口之外，活动 Surface 仍可操作。
 
 Dock 遵循现有 composer chain 的回退语义。任何 `conversation.composer` 接管都会隐藏包括 `TaskSurfaceDock` 在内的回退 composer 栈，但不会将其卸载；接管结束后，同一个草稿所有者会重新出现。接管方不会获得 Task Surface 操作，也不会创建另一个编辑器。
 
 模型不能选择会话标签页、Dock 顺序、详情栏、模态框、像素位置或 z-index。以后即使改变放置位置，也只是渲染器的决策，不会改变日志中记录的模型。transcript 行绝不会成为第二个编辑器，因此同一个 Surface 不会出现相互竞争的草稿或提交所有者。
 
-## 提交契约
+## 提交约定
 
 Task Surface 领域通过 Host 传输层公开三个操作。只有 `submit` 会接纳用户消息：
 
@@ -227,14 +227,14 @@ Web 插件将未提交值保存在一个有界、按会话持久化的 slot stor
 | 包 | 职责 |
 |---|---|
 | `packages/core/agent` 和 `packages/core/agent-loop` | 为已认领的下一轮 inbox 调用实例提供通用终态结果，让 Host 观察方无需使用 Task Surface 专用类型，即可区分持久接纳和丢弃 |
-| `packages/task-surface/task-surface` | 浏览器安全的模型、带品牌类型的 ID、关联和待处理类型、解析器、限制、提交校验器／格式化器、会话事件扩展、投影单元，以及 Host 服务契约 |
+| `packages/task-surface/task-surface` | 浏览器安全的模型、带品牌类型的 ID、关联和待处理类型、解析器、限制、提交校验器／格式化器、会话事件扩展、投影单元，以及 Host 服务约定 |
 | `packages/task-surface/tool-task-surface` | `show_task_surface`、规范输出、呈现元数据、通用 render intent、活动 Surface 检查和 `concludeTurn()` 行为 |
 | `packages/client/runtime` | 通用排队消息 `source` 投影和会话作用域的活动投影访问 |
 | `packages/client/ui-primitives` | 与 Task Surface 无关的 `MarkdownText.remoteImages` 策略，包括 `alt-only` 图片分支和 URL 策略测试 |
 | `packages/client/ui-task-surface` | 静态且可操作的 `TaskSurfaceDock`、带 key 的只读 transcript 行、消费 Task Surface 模型并以 `alt-only` 模式使用 `MarkdownText` 的声明式 Web 渲染器、按会话划分的草稿 store，以及提交客户端 |
 | `packages/host/apiproxy` | 类型化的活动 Surface 读取／提交／关闭传输、用户消息来源扩展与传递、队列操作限制，以及认领和终态结果的路由；将校验、待处理协调和接纳委托给 Task Surface 服务 |
 
-`ui-task-surface` 依赖浏览器安全的 Task Surface 领域包、客户端连接与运行时、locale、`ui-conversation` 所声明的 slot 契约、用于注册的 `ui-slots`，以及 `ui-primitives`；`ui-primitives` 不反向依赖 Task Surface。ApiProxy 依赖 Task Surface 服务契约和通用 AgentLoop 终态结果。核心 Agent 包不导入 Task Surface 类型。
+`ui-task-surface` 依赖浏览器安全的 Task Surface 领域包、客户端连接与运行时、locale、`ui-conversation` 所声明的 slot 约定、用于注册的 `ui-slots`，以及 `ui-primitives`；`ui-primitives` 不反向依赖 Task Surface。ApiProxy 依赖 Task Surface 服务约定和通用 AgentLoop 终态结果。核心 Agent 包不导入 Task Surface 类型。
 
 该实现依赖现有的消息日志、规范工具输出、带标签的 render intent、会话投影、按会话作用域声明的 slot store 和 slot 生命周期，不依赖在运行时创建客户端插件。Generated Client Plugin 工作流可以使用 Task Surface 展示审阅表单，但两个协议都不拥有或激活另一个协议。
 
@@ -250,7 +250,7 @@ Web 插件将未提交值保存在一个有界、按会话持久化的 slot stor
 
 **从工具调用中渲染任意 HTML、CSS 或 JavaScript。**不予采用，因为这会把临时交互变成可执行的客户端插件代码，却不具备代码所需的构建、预览、评估、批准或回滚生命周期。
 
-**使用大型表单扩展 `userInteraction.ask()`。**本契约不采用这种做法。`ask()` 是一种阻塞式请求／响应操作，适用于正在运行的工具必须先获得简短答案才能继续执行的情况。Task Surface 会结束当前轮次，可以在刷新后继续保持打开，并把结果提交为下一条可见用户消息。
+**使用大型表单扩展 `userInteraction.ask()`。**本约定不采用这种做法。`ask()` 是一种阻塞式请求／响应操作，适用于正在运行的工具必须先获得简短答案才能继续执行的情况。Task Surface 会结束当前轮次，可以在刷新后继续保持打开，并把结果提交为下一条可见用户消息。
 
 **每次调用都注册一个动态 `conversation.view`。**不予采用，因为视图账本是全局的，而其渲染作用域按会话划分；同时，临时任务身份会变成注册身份。一个静态的会话作用域 Dock 负责交互，一个静态带 key 的行概述已记录的调用实例；两个注册项都不使用调用实例身份。
 

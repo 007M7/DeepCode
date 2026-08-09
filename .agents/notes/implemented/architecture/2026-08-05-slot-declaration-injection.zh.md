@@ -20,7 +20,7 @@ slot 级热替换还要求两个相互独立的所有者。移除声明方插件
 
 动态重载代码使用普通 Cordis 插件 fiber 作为替换单元：通过 `ctx.plugin()` 激活新模块；挂载替换模块之前，先 dispose 并等待旧 fiber；该 fiber 的 `slots.inject` 与 `slots.register` effect 会随之退出。renderer 订阅会观察到账本移除并卸载组件；无需建立 slot 自有的 fiber 树。
 
-## 失败与生命周期契约
+## 失败与生命周期约定
 
 如果注入创建时声明已经存在，回调 setup 失败会同步上报。延迟声明出现后发生的回调失败，会先取消订阅并回滚已收集的 effect，再在 slot 通知刷新之外上报，避免一个注册方使其他 listener 得不到执行机会。直接调用 `slots.register()` 向未声明 slot 注册仍会抛出异常：注入是显式机制，不会削弱加载时验证。
 
