@@ -3,7 +3,7 @@
 
 # Agent Turn And Step Lifecycle
 
-This sequence is the visual companion to [architecture.md](architecture.md#loop-lifecycle-session--turn--step). It keeps durable replay facts on `session/event` and live control/status on `agent/*`.
+This sequence is the visual companion to [architecture.md](architecture.md#default-loop-lifecycle). It keeps durable replay facts on `session/event` and live control/status on `agent/*`.
 
 ```mermaid
 sequenceDiagram
