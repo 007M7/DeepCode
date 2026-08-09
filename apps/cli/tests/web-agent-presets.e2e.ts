@@ -10,6 +10,8 @@ import type { PatchOptions } from '@cordisjs/plugin-include'
 import { beforeAll, describe, expect, it } from 'vitest'
 import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { SETTINGS_NAMESPACE } from '@deepseek-ai/dsh-agent-presets'
+import { CallId } from '@deepseek-ai/dsh-llm'
+import type {} from '@deepseek-ai/dsh-skill'
 import type {} from '@deepseek-ai/dsh-tools'
 
 const CONFIG_DIR = fileURLToPath(new URL('../config/', import.meta.url))
@@ -41,6 +43,10 @@ async function bootWeb(settingsFile: string): Promise<Context> {
     // Waits for `httpServer`, which the disabled webserver above provides.
     { id: 'web-runtime', disabled: true },
     { id: 'telemetry-otel', disabled: true },
+    // A deployment-level skill on the host registry's GLOBAL layer — the same
+    // registration shape a repository plugin's skill root uses. The layered
+    // skills test below proves it reaches preset-composed agents.
+    { id: 'skill-badge', disabled: false },
     { id: 'modules', disabled: true },
     { id: 'connection', disabled: true },
     // NOT a side-effect row: the api-proxy cannot mount in THIS layer at all,
@@ -158,6 +164,65 @@ describe('the shipped Web composition', () => {
       expect(toolNames(ctx)).toEqual([])
     } finally {
       await full.dispose()
+    }
+  })
+
+  it('merges the global skill layer into a preset agent\'s catalog, keeping local discovery preset-side', async () => {
+    const proj = await mkdtemp(join(tmpdir(), 'dsh-preset-skill-proj-'))
+    await mkdir(join(proj, '.dsh', 'skills', 'project-proof'), { recursive: true })
+    await writeFile(join(proj, '.dsh', 'skills', 'project-proof', 'SKILL.md'), [
+      '---',
+      'name: project-proof',
+      'description: Proves the preset layer discovers project skills beside global ones.',
+      '---',
+      '',
+      'Project proof body.',
+      '',
+    ].join('\n'))
+
+    const handle = await ctx.agents.create({
+      sessionId: SessionId('preset-skills-standard'),
+      setup: agentCtx => ctx.agentPresets.mount(agentCtx, 'standard').then(() => undefined),
+    })
+    try {
+      // The host (global) view carries the deployment-level provider alone:
+      // local discovery moved behind the presets with `skill-local`.
+      expect((await ctx.skills.list({ cwd: proj })).map(skill => skill.name)).toEqual(['dsh-badge'])
+
+      // The standard agent's view merges the global layer with its preset's
+      // own local discovery over the session cwd.
+      const scoped = (await ctx.skills.list({ cwd: proj, scope: handle.agent })).map(skill => skill.name)
+      expect(scoped).toContain('dsh-badge')
+      expect(scoped).toContain('project-proof')
+
+      // The preset's own loader tool resolves the global-layer skill.
+      const loaded = await ctx.tools.execute({
+        callId: CallId('preset-skills-load'),
+        name: 'skill',
+        arguments: { name: 'dsh-badge' },
+        signal: new AbortController().signal,
+        agent: handle.agent,
+      })
+      expect(loaded.isError).toBe(false)
+      expect(JSON.stringify(loaded.content)).toContain('powered by dsh')
+    } finally {
+      await handle.dispose()
+    }
+  })
+
+  it('shows a core-web agent the global layer but no loader tool', async () => {
+    const handle = await ctx.agents.create({
+      sessionId: SessionId('preset-skills-core-web'),
+      setup: agentCtx => ctx.agentPresets.mount(agentCtx, 'core-web').then(() => undefined),
+    })
+    try {
+      // Layer visibility is the registry's; whether an agent can USE skills
+      // stays the preset's choice — core-web mounts no `tool-skill`, so its
+      // tool table has no loader even though the global layer is readable.
+      expect((await ctx.skills.list({ scope: handle.agent })).map(skill => skill.name)).toContain('dsh-badge')
+      expect(toolNames(ctx, handle.agent)).toEqual(['bash', 'str_replace_editor'])
+    } finally {
+      await handle.dispose()
     }
   })
 
