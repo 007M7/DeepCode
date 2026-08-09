@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-`@deepseek-ai/dsh-invariants` 与各包（package）拥有的 `./invariant` 伴随插件是可选的开发诊断。交付的 TUI 挂载了该服务和四个有状态伴随插件，而交付的 Web 配置树省略了这些条目，导致两个产品 surface 的诊断成本和失败行为不同。即使始终启用的产品边界仍负责会话验证与不可变历史，关系断言失败也可能终止普通的 TUI 运行。
+`@deepseek-ai/dsh-invariants` 与各包拥有的 `./invariant` 伴随插件是可选的开发诊断。交付的 TUI 挂载了该服务和四个有状态伴随插件，而交付的 Web 配置树省略了这些条目，导致两个产品 surface 的诊断成本和失败行为不同。即使始终启用的产品边界仍负责会话验证与不可变历史，关系断言失败也可能终止普通的 TUI 运行。
 
 ## 决策
 

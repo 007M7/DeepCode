@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/bundle/headless/README.md
 README.md: fbdf80be3d587b0ef526c1a36952a761035f7312
-README.zh.md: 833737e08643e0ad6b585f93fdc6ae018242b937
+README.zh.md: fa1b5ac280eb9020d71035cc6b09ab2508bff45d

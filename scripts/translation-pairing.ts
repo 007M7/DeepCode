@@ -311,6 +311,28 @@ export function linksTo(tree: Nodes, target: string): boolean {
   return found
 }
 
+/** Generated English sources cannot carry a switcher without making their generator stale. */
+export function requiresSourceLanguageSwitcher(source: string): boolean {
+  return ![
+    'docs/agent-lifecycle.md',
+    'docs/capability-seams.md',
+    'docs/config-catalog.md',
+    'docs/cordis-api/context.md',
+    'docs/cordis-api/events.md',
+    'docs/cordis-api/fiber.md',
+    // Excluded from pairing, but kept here for generated-category completeness and direct spec coverage.
+    'docs/cordis-api/inherited.md',
+    'docs/cordis-api/registry.md',
+    'docs/cordis-api/service.md',
+    'docs/event-producer-consumer.md',
+    'docs/graph-atlas.md',
+    'docs/module-graph.md',
+    'docs/persistence-catalog.md',
+    'docs/tool-catalog.md',
+    'docs/tool-execution-pipeline.md',
+  ].includes(source)
+}
+
 /** Collect the ordered structural signature, skipping one switcher target. */
 export function translationStructureSignature(tree: Nodes, switcherTarget: string): TranslationStructureSignature {
   const sig: TranslationStructureSignature = { headings: [], code: [], tables: [], lists: [], links: [] }

@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-`headless` 的产品契约是一个本地任务：最终 assistant 文本写入 stdout，退出状态反映成功与否，成功时 stderr 为空，并且不打开监听端口。包含 Workspace Host 服务、ApiProxy、HTTP、Web 运行时或浏览器插件的组合违背这一契约，也使本地完成状态依赖无关的传输树。
+`headless` 的产品约定是一个本地任务：最终 assistant 文本写入 stdout，退出状态反映成功与否，成功时 stderr 为空，并且不打开监听端口。包含 Workspace Host 服务、ApiProxy、HTTP、Web 运行时或浏览器插件的组合违背这一约定，也使本地完成状态依赖无关的传输树。
 
 直接前门仍需要与 Web 所创建 Agent 相同的部署模型状态。独立的提供方／模型默认值会让同一部署产生两种答案，而在 Agent 与会话持久化完全停稳之前推导完成状态，会让 stdout 与退出状态观察到不完整状态。
 
@@ -20,7 +20,7 @@ Status: implemented
 
 `loadProfile` 识别安装过程拥有的精确 headless 元组（`dsh-base`、`dsh-web-app`、`dsh-headless`），将其规范化为随附的 headless 模板，并保留 manifest（元数据清单）的其他所有字段。带额外项、缺少项或顺序不同的组合包列表归用户所有，保持不变。
 
-本 Agent Note 负责 headless 的传输与完成契约。[`dsh run` 负责一次性 headless 执行](../feature/2026-08-08-dsh-run-headless-command.md)负责命令语法，[GUI 分层与 RPC 协议](2026-07-19-gui-layering-and-rpc-protocol.md)负责浏览器网关边界，[Web 配置树启动与传输分层](2026-07-24-web-config-tree-boot-and-transport-layering.md)负责 Web 插件树，[默认模型跟随选择器](../feature/2026-08-07-default-model-follows-the-picker.md)负责共享 Agent 默认值的持久化。
+本 Agent Note 负责 headless 的传输与完成约定。[`dsh run` 负责一次性 headless 执行](../feature/2026-08-08-dsh-run-headless-command.md)负责命令语法，[GUI 分层与 RPC 协议](2026-07-19-gui-layering-and-rpc-protocol.md)负责浏览器网关边界，[Web 配置树启动与传输分层](2026-07-24-web-config-tree-boot-and-transport-layering.md)负责 Web 插件树，[默认模型跟随选择器](../feature/2026-08-07-default-model-follows-the-picker.md)负责共享 Agent 默认值的持久化。
 
 ## 验证
 
@@ -28,7 +28,7 @@ Status: implemented
 
 ## 考虑过的替代方案
 
-| 替代方案 | 契约不匹配之处 |
+| 替代方案 | 约定不匹配之处 |
 |---|---|
 | 保留 `dsh-web-app`，但隐藏观察行 | 进程仍会打开端口并携带 Host、Web 与浏览器插件树。 |
 | 围绕 ApiProxy 构建纯 Host 一次性组合包 | ApiProxy 是客户端协议网关，而本地一次性前门没有客户端边界。 |

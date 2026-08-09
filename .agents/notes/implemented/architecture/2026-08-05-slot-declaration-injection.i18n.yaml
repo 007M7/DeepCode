@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-08-05-slot-declaration-injection.md
 2026-08-05-slot-declaration-injection.md: cb15125977c060144553d7cf75e3c2c26fb1b23b
-2026-08-05-slot-declaration-injection.zh.md: 4b1fd40c26c6f055bb296807df4c888138ce7a64
+2026-08-05-slot-declaration-injection.zh.md: e93ba5e62bbfc76b242a7383bac0e93c1bcc8ff6

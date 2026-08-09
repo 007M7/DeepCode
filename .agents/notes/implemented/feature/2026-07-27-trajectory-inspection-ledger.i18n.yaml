@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-07-27-trajectory-inspection-ledger.md
 2026-07-27-trajectory-inspection-ledger.md: a905e65942365c17b7513028b275288c82428221
-2026-07-27-trajectory-inspection-ledger.zh.md: 70fcdcdb0d2f26d120325a76a3e1f49ae6350c57
+2026-07-27-trajectory-inspection-ledger.zh.md: a8dcfa97a89f3adc6ab540f3d6cc5020cbefb53f

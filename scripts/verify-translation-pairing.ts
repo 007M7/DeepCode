@@ -24,6 +24,7 @@ import {
   parseTranslationPairingCliArgs,
   parseTranslationPairingManifest,
   partitionGeneratedRegions,
+  requiresSourceLanguageSwitcher,
   isTranslationScopeFile,
   TRANSLATION_SCOPE_GLOB_EXCLUDES,
   translationStructureDiff,
@@ -254,7 +255,7 @@ for (const source of [...pairAnchors].sort()) {
   if (!linksTo(zhTree, basename(source))) {
     errors.push(`${zh}: missing language switcher — no link to ${basename(source)}`)
   }
-  if (!linksTo(sourceTree, basename(zh))) {
+  if (requiresSourceLanguageSwitcher(source) && !linksTo(sourceTree, basename(zh))) {
     errors.push(`${source}: missing language switcher — no link back to ${basename(zh)}`)
   }
   for (const divergence of translationStructureDiff(

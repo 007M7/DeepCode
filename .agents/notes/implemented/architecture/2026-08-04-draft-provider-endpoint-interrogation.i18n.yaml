@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-08-04-draft-provider-endpoint-interrogation.md
 2026-08-04-draft-provider-endpoint-interrogation.md: 65545098cd1063c40081481c1ac8f0afdb4fb390
-2026-08-04-draft-provider-endpoint-interrogation.zh.md: cb09042904f4ab1558c0c214d275a934234955ac
+2026-08-04-draft-provider-endpoint-interrogation.zh.md: 6300e357182e0e81028c6d01026ea93c4fc5202f
