@@ -1,7 +1,7 @@
 /**
  * Client module system: the browser peer of Node's internal ESM loader, built
  * as a lazy CJS table. The vendored cordis Loader consumes this object
- * through its `internal` seam (the only call site is `EntryTree.import` →
+ * through its `internal` contract (the only call site is `EntryTree.import` →
  * `internal.import`), which keeps entry governance (fiber lifecycle, inject
  * waiting, update/refresh) entirely on the vendored side while this package
  * owns code arrival.
@@ -25,7 +25,7 @@
  * imports are a build error anyway.
  *
  * This file is the browser-safe contract face (zero node imports): the
- * `__DSH_BOOT__` wire types, the boot-manifest parser, and the seams around
+ * `__DSH_BOOT__` wire types, the boot-manifest parser, and the boundaries around
  * {@link ClientModuleSystem}. The package root is the host-side service that
  * composes the wire.
  */
@@ -170,7 +170,7 @@ export interface DshWindow {
   __DSH_MODULES__?: ClientModuleSystem
 }
 
-/** Per-module bookkeeping in {@link ClientModuleLoader.loadCache} (module-graph seam, flat today). */
+/** Per-module bookkeeping in {@link ClientModuleLoader.loadCache} (module-graph boundary, flat today). */
 export interface ClientModuleRecord {
   /** Module id (entry name / package name). */
   id: string
@@ -178,12 +178,12 @@ export interface ClientModuleRecord {
   surface: unknown
   /** Owned `<style data-plugin>` tag ids (`data-plugin-css` values) injected during materialization. */
   styles: string[]
-  /** Observed `require()` edges (module-graph seam; only table words can appear today). */
+  /** Observed `require()` edges (module-graph boundary; only table words can appear today). */
   edges: Set<string>
 }
 
 /**
- * The internal-seam subset the vendored Loader and the client HMR plugin
+ * The internal-contract subset the vendored Loader and the client HMR plugin
  * consume. Mounted on `ctx.loader.internal` by the shell boot and provided
  * as `ctx.modules` (contract C5).
  */
@@ -193,12 +193,12 @@ export interface ClientModuleLoader {
   /** Materialized-module registry: id → record. The governance-side read face for entry export surfaces. */
   loadCache: Map<string, ClientModuleRecord>
   /**
-   * Internal seam consumed by the vendored Loader's `tree.import`. Resolves
+   * Internal contract consumed by the vendored Loader's `tree.import`. Resolves
    * `specifier` through the branch order documented on the module, fetching
    * and executing a bundle when needed.
    * @param specifier - module specifier (entry name or table word).
    * @param parentURL - importer URL (unused — the client module graph is flat).
-   * @param attrs - import attributes (unused; interface parity with Node's seam).
+   * @param attrs - Import attributes (unused; interface parity with Node's loader contract).
    * @returns the module's export surface.
    */
   import(specifier: string, parentURL: string, attrs: Record<string, unknown>): Promise<unknown>
@@ -232,6 +232,6 @@ export interface ClientModuleSystemOptions {
   modules: BootModuleRow[]
   /** Module-table seed: platform-singleton specifier → shell instance. */
   staticModules: Record<string, unknown>
-  /** Bundle-load seam. Defaults to a same-origin classic `<script src>` element. */
+  /** Bundle-load hook. Defaults to a same-origin classic `<script src>` element. */
   loadBundle?: (url: string) => Promise<void>
 }

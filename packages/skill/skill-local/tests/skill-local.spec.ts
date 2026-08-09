@@ -496,7 +496,7 @@ describe('LocalSkillProvider', () => {
     ctx.emit(
       'fs/observed',
       { targetKey: path as never, displayPath: path },
-      FsVersion('failed-read'),
+      { kind: 'present', version: FsVersion('failed-read') },
       { name: 'edit' },
     )
     expect(await ctx.skills.snapshot()).toEqual({ skills: [], complete: false })
@@ -526,7 +526,7 @@ describe('LocalSkillProvider', () => {
       ctx.emit(
         'fs/observed',
         { targetKey: path as never, displayPath: path },
-        FsVersion('entry-failure'),
+        { kind: 'present', version: FsVersion('entry-failure') },
         { name: 'write' },
       )
     }
@@ -674,7 +674,7 @@ describe('LocalSkillProvider', () => {
       ctx.emit(
         'fs/observed',
         { targetKey: displayPath as never, displayPath },
-        FsVersion('observed'),
+        { kind: 'present', version: FsVersion('observed') },
         actor,
       )
     }
@@ -689,7 +689,7 @@ describe('LocalSkillProvider', () => {
     ctx.emit(
       'fs/observed',
       { targetKey: path as never, displayPath: path },
-      FsVersion('observed'),
+      { kind: 'present', version: FsVersion('observed') },
       { name: 'edit' },
     )
 

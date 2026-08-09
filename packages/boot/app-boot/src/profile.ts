@@ -114,6 +114,11 @@ export function resolveProfileDir(name: string, home: string = resolveDshHome())
 /** The shipped profile templates auto-initialized on first use, by name. */
 export const PROFILE_TEMPLATES: Record<string, readonly string[]> = {
   web: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app'],
+  headless: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-headless'],
+}
+
+/** Installation-owned bundle tuples normalized to the shipped template. */
+const INSTALLATION_OWNED_PROFILE_TUPLES: Record<string, readonly string[]> = {
   headless: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', '@deepseek-ai/dsh-headless'],
 }
 
@@ -203,10 +208,10 @@ function ensureSymlink(link: string, target: string): void {
  * directory after the profile's own `node_modules`, so every in-box plugin
  * resolves without pnpm ever managing it — the exact "bundles come from the
  * installation" contract. The closure (not just direct dependencies) is
- * required for out-of-tree plugins: their peer dependencies name seam
- * packages (`dsh-compact`, `dsh-invariants`, ...) that the app reaches only
- * through its implementation packages. Symlinked packages resolve their own
- * dependencies from their real directories (Node's default
+ * required for out-of-tree plugins: their peer dependencies name Service
+ * Definition packages (`dsh-compact`, `dsh-invariants`, ...) that the app
+ * reaches only through its Service provider packages. Symlinked packages
+ * resolve their own dependencies from their real directories (Node's default
  * symlink-following), so each package needs only its one flat link.
  * Idempotent: correct links are kept and moved installations are
  * re-pointed; a stale link to a vanished package stays until its name is
@@ -226,7 +231,7 @@ export function healProfilesModuleFallback(installAnchor: string, home: string =
   // map itself (first resolution wins, matching Node's own nearest-wins).
   const queue: { anchor: string; manifest: ProfileManifest }[] = [{ anchor: installAnchor, manifest: appManifest }]
   for (let next = queue.shift(); next !== undefined; next = queue.shift()) {
-    // Peer dependencies participate: seam packages (dsh-subprocess,
+    // Peer dependencies participate: Service Definition packages (dsh-subprocess,
     // dsh-compact, ...) are peers of their implementations, never plain
     // dependencies, yet out-of-tree plugins import them directly.
     /* v8 ignore next -- a real app manifest always declares dependencies */
@@ -277,6 +282,32 @@ export function readProfileManifest(binName: string, dir: string): ProfileManife
  */
 export function writeProfileManifest(dir: string, manifest: ProfileManifest): void {
   writeFileSync(join(dir, 'package.json'), JSON.stringify(manifest, undefined, 2) + '\n')
+}
+
+/** Return whether two bundle lists have the same values in the same order. */
+function sameBundles(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index])
+}
+
+/**
+ * Normalize an exact installation-owned bundle tuple to its shipped template
+ * while preserving every other manifest field. Any other list is user-owned.
+ */
+function normalizeShippedProfile(name: string, dir: string, manifest: ProfileManifest): ProfileManifest {
+  const installationOwned = INSTALLATION_OWNED_PROFILE_TUPLES[name]
+  const current = PROFILE_TEMPLATES[name]
+  const bundles = manifest.dsh?.profile?.bundles
+  if (installationOwned === undefined || current === undefined || bundles === undefined
+    || !sameBundles(bundles, installationOwned)) return manifest
+  const normalized: ProfileManifest = {
+    ...manifest,
+    dsh: {
+      ...manifest.dsh,
+      profile: { ...manifest.dsh?.profile, bundles: [...current] },
+    },
+  }
+  writeProfileManifest(dir, normalized)
+  return normalized
 }
 
 /**
@@ -350,7 +381,7 @@ export function loadProfile(
     }
     initProfile(dir, template)
   }
-  const manifest = readProfileManifest(binName, dir)
+  const manifest = normalizeShippedProfile(name, dir, readProfileManifest(binName, dir))
   // A hand-written profile manifest may omit the dsh section entirely.
   const bundles = manifest.dsh?.profile?.bundles ?? []
   const layers = bundles.map((packageName): ProfileLayer => {

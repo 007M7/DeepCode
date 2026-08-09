@@ -12,7 +12,7 @@ const at = (seq: number, event: Record<string, unknown>): SessionEvent =>
 describe('projectConversationHistory', () => {
   it('names an injected context node from its durable source, like the live adapter', () => {
     // The fold declares its own node mapping (jscpd:ignore in the source), so
-    // the provenance projection is pinned on both sides independently.
+    // the source projection is pinned on both sides independently.
     const injected = at(0, {
       type: 'user/message',
       surfaceOp: 'append',

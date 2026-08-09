@@ -15,7 +15,7 @@ export const name = 'session-telemetry-invariant'
 export const inject = ['invariants']
 
 /**
- * No runtime invariant: the seam's whole output is the backend handoff — a
+ * No runtime invariant: the package's whole output is the backend handoff — a
  * synchronous `emit()` call outside every authoritative event stream — and its
  * capture side never appends session events, so no event/data relation exists
  * for an independent companion to observe.

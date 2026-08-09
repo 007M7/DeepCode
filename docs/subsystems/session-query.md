@@ -2,7 +2,7 @@
 
 English | [中文](session-query.zh.md)
 
-Query vocabulary over the live-preferred logical session corpus. The [interface package](../../packages/session-query/session-query) owns exact reads, source precedence, relationship tracing, semantic extraction, and provider-independent filters, while the [SQLite package](../../packages/session-query/session-query-sqlite) owns the concrete full-text index lifecycle.
+Query vocabulary over the live-preferred logical session corpus. The [Service Definition package](../../packages/session-query/session-query) owns exact reads, source precedence, relationship tracing, semantic extraction, and provider-independent filters, while the [SQLite provider](../../packages/session-query/session-query-sqlite) owns the concrete full-text index lifecycle.
 
 Source: [`packages/session-query/session-query/src/types.ts`](../../packages/session-query/session-query/src/types.ts)
 
@@ -292,10 +292,10 @@ interface SessionEventWindow {
 
 ## Event relationships
 
-Event traces distinguish positional surface replacement from logged provenance. Every seq list contains direct links except `replacementChain`, which follows immediate replacers from the target to the final positional replacement.
+Event traces distinguish positional surface replacement from events cited as sources. Every seq list contains direct links except `replacementChain`, which follows immediate replacers from the target to the final positional replacement.
 
 ```ts type-equiv
-/** Request for direct surface and provenance relationships around one event. */
+/** Request for direct surface replacements and relationships to cited source events around one event. */
 interface SessionEventTraceRequest {
   /** Session that owns the target event. */
   sessionId: SessionId
@@ -305,7 +305,7 @@ interface SessionEventTraceRequest {
 ```
 
 ```ts type-equiv
-/** Direct surface and provenance relationships for one event. */
+/** Direct surface replacements and relationships to cited source events for one event. */
 interface SessionEventTrace {
   /** Lightweight target record. */
   target: SessionEventRecord
@@ -315,9 +315,9 @@ interface SessionEventTrace {
   replacementChain: number[]
   /** Surface nodes directly removed when the target itself performed a replacement. */
   replacedEventSeqs: number[]
-  /** Direct logged provenance sources in their recorded order. */
+  /** Earlier events cited directly as sources, in their recorded order. */
   sourceEventSeqs: number[]
-  /** Later events that directly name the target as a provenance source, in log order. */
+  /** Later events that directly cite the target as a source, in log order. */
   derivedEventSeqs: number[]
 }
 ```
@@ -471,11 +471,11 @@ async readSurface(sessionId: SessionId): Promise<SessionSurfaceSnapshot>
 async traceSession(sessionId: SessionId, signal?: AbortSignal): Promise<SessionLineageTrace>
 
 /**
- * Trace one event's direct positional and provenance relationships.
+ * Trace one event's direct positional replacements and cited source events.
  * @param request - target session id and event seq.
  * @param signal - optional cancellation for persisted source resolution.
  * @returns source header, direct links, and the target's positional replacement chain.
- * @throws when source resolution fails, the target is absent, or surface/provenance validation fails.
+ * @throws when source resolution fails, the target is absent, or surface/source-event validation fails.
  */
 async traceEvent(request: SessionEventTraceRequest, signal?: AbortSignal): Promise<SessionEventTraceObservation>
 

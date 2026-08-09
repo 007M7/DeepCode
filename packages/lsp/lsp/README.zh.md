@@ -4,13 +4,13 @@
 
 **LSP 能力 seam**：抽象 `LspService`（`ctx.lsp`）定义 harness 具备哪些语义代码导航能力（转到定义、查找引用、查找实现、悬停），并通过语言服务器提供方实现，不把模型约定绑定到本地子进程。
 
-该包是 LSP 能力中负责接口的三分之一：
+本包承担 LSP 能力的 Service Definition 角色：
 
 | 包 | 职责 |
 |---|---|
-| `@deepseek-ai/dsh-lsp`（本包） | 接口：服务、以品牌化 id + 扩展名映射为 key 的提供方注册表、逐查询选择、请求／结果词汇、`LspError` 分类体系 |
-| `@deepseek-ai/dsh-lsp-local` | 通用本地后端，注册已配置的 stdio 语言服务器提供方 |
-| `@deepseek-ai/dsh-tool-lsp` | 面向模型的 `lsp` 工具，基于 `ctx.lsp` |
+| `@deepseek-ai/dsh-lsp`（本包） | Service Definition：服务、以品牌化 id + 扩展名映射为 key 的提供方注册表、逐查询选择、请求／结果词汇、`LspError` 分类体系 |
+| `@deepseek-ai/dsh-lsp-local` | Service provider：通用本地后端，注册已配置的 stdio 语言服务器提供方 |
+| `@deepseek-ai/dsh-tool-lsp` | Consumer：面向模型的 `lsp` 工具，基于 `ctx.lsp` |
 
 该 seam 恰好公开四种语义操作：`goToDefinition`、`findReferences`、`goToImplementation`、`hover`，且没有通用 JSON-RPC 逃生口，因此任何协议载荷或未经评审的命令／修改都无法通过 `ctx.lsp` 到达提供方。
 

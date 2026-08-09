@@ -13,4 +13,4 @@ This family persists application data other than session event logs through name
 
 Consumers use a data form rather than accessing a backend directly. The [domain storage decision](../../.agents/notes/proposed/architecture/2026-07-24-domain-kv-storage-and-workspace.md) records the family design.
 
-The subsystem reference — the backend seam, `StorageForms`, `DomainSpec`/`Domain`, `domain/changed` — is [docs/subsystems/storage.md](../../docs/subsystems/storage.md).
+The subsystem reference — the backend contract, `StorageForms`, `DomainSpec`/`Domain`, `domain/changed` — is [docs/subsystems/storage.md](../../docs/subsystems/storage.md).

@@ -39,7 +39,7 @@ This closes the routing correctness gap, and two recorded fork scenarios exercis
 
 ## Alternatives considered
 
-- **Derive the boundary heuristically in `llm-replay`** (the seeded prefix is contiguous parent events ending at the last `turn/end` before the child's first `user/message`). Rejected: a brittle heuristic in the test harness that re-derives a fact the producer already knows. Persisting the boundary at its source (the fork backend) is the "explicit > implicit at package seams" rule applied across the persistence boundary — the reader of a child fixture never has to reconstruct where the inheritance ended.
+- **Derive the boundary heuristically in `llm-replay`** (the seeded prefix is contiguous parent events ending at the last `turn/end` before the child's first `user/message`). Rejected: a brittle heuristic in the test harness that re-derives a fact the producer already knows. Persisting the boundary at its source (the fork backend) is the "explicit > implicit at package boundaries" rule applied across the persistence boundary — the reader of a child fixture never has to reconstruct where the inheritance ended.
 - **Pin the format version instead of bumping** (the `SESSION_FORMAT_VERSION = 0` "unstable" stance the event log uses). Rejected for the SQLite *table* layout: `SCHEMA_VERSION` is the monotonic bump-and-reject knob (a small enumerable set of revisions worth telling apart), distinct from the event-vocabulary `version`. Adding a column is precisely the breaking table change it versions, so it bumps.
 
 ## Consequences

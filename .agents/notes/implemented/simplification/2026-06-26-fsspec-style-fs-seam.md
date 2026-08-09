@@ -24,7 +24,7 @@ Split the stack into four layers:
 ```text
 tool          dsh-tool-fs       model-facing schemas + read windowing + text rendering; the EXECUTOR (reads/writes/edits via ctx.fs, dispatches the fs/* events)
 policy        dsh-fs-policy  observed-state + read-before-edit + write/edit freshness, contributed through the fs/* event gate (no service)
-provider seam dsh-fs            ctx.fs: text IO + atomic mutation primitives (optional version guard)
+provider contract dsh-fs            ctx.fs: text IO + atomic mutation primitives (optional version guard)
 provider      dsh-fs-local      local implementation of ctx.fs
 ```
 
@@ -61,7 +61,7 @@ type FsWriteIntent =
 
 `writeText` is atomic temp-file + rename with an explicit write expectation. `createIfAbsent` creates a missing target and rejects an existing target with `FS_NOT_OBSERVED`; it is the path used when the owner has no prior read. `replaceIfVersion` replaces only when the target exists at the observed version; a missing target or version mismatch throws `FS_STALE_VERSION`.
 
-`editText` is a provider-level guarded text mutation. When guarded it first verifies the target still exists at `expected.version`, then reads the current text, applies literal replacement, and writes atomically. The stale check must happen before literal matching so an edit based on an old read reports `FS_STALE_VERSION`, not `FS_EDIT_NOT_FOUND` or `FS_AMBIGUOUS_EDIT` from matching against newer content. Keeping this primitive on the provider seam preserves backend-local locking and lets a future remote backend implement native compare-and-edit without forcing the policy layer to pull the whole file through it.
+`editText` is a provider-level guarded text mutation. When guarded it first verifies the target still exists at `expected.version`, then reads the current text, applies literal replacement, and writes atomically. The stale check must happen before literal matching so an edit based on an old read reports `FS_STALE_VERSION`, not `FS_EDIT_NOT_FOUND` or `FS_AMBIGUOUS_EDIT` from matching against newer content. Keeping this primitive on the provider contract preserves backend-local locking and lets a future remote backend implement native compare-and-edit without forcing the policy layer to pull the whole file through it.
 
 This is a *text-storage* seam, deliberately half a level above byte-level fsspec (`cat`/`open` hand back raw bytes). UTF-8 decoding, binary/NUL rejection, guarded full-file writes, and guarded literal text edits live in the provider so the policy layer never touches raw bytes, reimplements cross-chunk decoding, or separates stale checks from the mutation critical section. Model-facing concepts still stay out of the provider: no line windows, numbered lines, rendered footers, or observed-state store leak down.
 
@@ -105,7 +105,7 @@ This Agent Note reverses two decisions from [filesystem-capability-seam](../arch
 - Text reads no longer return backend-numbered line records or `full`/`partial` views; authorization is based on version freshness, so a windowed read can authorize edit when the file is unchanged.
 - Literal edit no longer sits behind the old `applyEdit` API that mixed backend mutation with seam-owned observation policy. It remains a provider primitive as `editText`, because version guard + literal match + atomic rewrite must stay inside the provider's mutation critical section.
 
-It keeps the interface/implementation/consumer discipline, consumer-never-imports-backend rule, backend-defined target/version/display metadata, atomic local writes, and the shared `FsError` taxonomy.
+It keeps the Service Definition / Service provider / Consumer discipline, consumer-never-imports-backend rule, backend-defined target/version/display metadata, atomic local writes, and the shared `FsError` taxonomy.
 
 ## Verification
 
@@ -123,8 +123,8 @@ The seam was later extended with direct directory listing by [Add direct directo
 
 ## Consequences
 
-- Adds a fourth fs package and a new plugin layer. This is intentional: it is the previously deferred policy layer, not a second abstract backend seam.
+- Adds a fourth fs package and a new plugin layer. This is intentional: it is the previously deferred policy layer, not a second abstract backend contract.
 - Direct `ctx.fs` use bypasses the policy: a direct `ctx.fs.readText` emits no `fs/observed`, so under the default policy a later `edit` rejects with `FS_NOT_OBSERVED` until the file is read through the `read` tool. The failure is explicit and documented.
 - Large-file line windowing moves from the backend to the `read` tool in `dsh-tool-fs`; text decoding and binary rejection stay in `ctx.fs.streamText`, so this is relocation of windowing only, not a second text-IO implementation.
-- Keeping `editText` in the provider seam means every backend must implement the literal replacement contract. This is intentional: the operation is not pure storage, but stale guard + literal match + atomic rewrite is the unit that must stay together for correct error attribution and concurrency behavior. The contract should stay narrow and text-only so future backends can implement it natively or by whole-file rewrite.
+- Keeping `editText` in the provider contract means every backend must implement the literal replacement contract. This is intentional: the operation is not pure storage, but stale guard + literal match + atomic rewrite is the unit that must stay together for correct error attribution and concurrency behavior. The contract should stay narrow and text-only so future backends can implement it natively or by whole-file rewrite.
 - Freshness permits full-file `write` after a windowed read. That is weaker than the old view check, but avoids making large files impossible to edit; prompt guidance still discourages blind full replaces.

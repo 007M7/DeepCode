@@ -18,7 +18,7 @@ const COMMAND_NAME = /^[a-z][a-z0-9_-]*$/u
 
 /**
  * Producer record for one command invocation (the `command/run` event's
- * provenance slot). Merge-extensible sum type mirroring `MessageSourceMap`'s
+ * source slot). Merge-extensible sum type mirroring `MessageSourceMap`'s
  * shape; minimal today because every executor caller is a human-facing UI
  * surface dispatching a human-typed line, so the sole variant is `user`.
  */

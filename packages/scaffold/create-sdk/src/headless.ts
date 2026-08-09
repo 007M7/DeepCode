@@ -62,7 +62,7 @@ function parseHeadlessSpec(text: string, source: string): HeadlessCreateSpec {
  * Load a headless spec from `--config-json` (inline) or `--config` (a JSON file),
  * returning `undefined` when neither is supplied.
  * @param args - parsed create args.
- * @param readFileText - file reader seam for tests.
+ * @param readFileText - File-reader hook for tests.
  * @returns the resolved args + feature plan, or `undefined` for interactive runs.
  */
 export async function resolveHeadless(

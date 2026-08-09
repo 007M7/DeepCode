@@ -2,19 +2,19 @@
 
 [English](README.md) | 中文
 
-所有客户端形态共用的 API 网关：TS 约定（`src/api/`，不依赖 Node，可从浏览器导入）、fetch 载体对（`src/fetch/`：宿主侧的 `toFetchHandler`，以及客户端侧的 `AbstractApiClient` 与平台子类）和宿主侧实现（`src/api-proxy.ts`：`createApiProxy` 加上默认导出的 `ApiProxyService` 网关插件，其配置为 `{provider, model, reasoningEffort?, workspaceRoot?}`，提供 `ctx.apiProxy`）。该包在设计上与传输方式无关，不注册任何路由；HTTP 等载体自行包装 `ctx.apiProxy`。已发布的核心组合位于 [`packages/bundle/base/cordis.patch.yml`](../../bundle/base/cordis.patch.yml)。
+所有客户端形态共用的 API 网关：TS 约定（`src/api/`，不依赖 Node，可从浏览器导入）、fetch 载体对（`src/fetch/`：宿主侧的 `toFetchHandler`，以及客户端侧的 `AbstractApiClient` 与平台子类）和宿主侧实现（`src/api-proxy.ts`：`createApiProxy` 加上默认导出的 `ApiProxyService` 网关插件，其配置为 `{workspaceRoot?}`，提供 `ctx.apiProxy`）。该包在设计上与传输方式无关，不注册任何路由；HTTP 等载体自行包装 `ctx.apiProxy`。随发行版交付的 Web 组合位于 [`packages/bundle/web-app/cordis.patch.yml`](../../bundle/web-app/cordis.patch.yml)，其默认 Agent（智能体）模型选择属于 base 组合包中的 [`@deepseek-ai/dsh-agent-default-model`](../../core/agent-default-model/README.md)。
 
-## 默认路由（`api-gateway` 设置段）
+## 共享 Agent 默认值（`agent-default-model` Settings 分节）
 
-`{provider, model, reasoningEffort?}` 同时是网关的用户设置段，注册在 `api-gateway` 之下：组合条目是 `base` 层，`settings.yaml` 把用户自己的选择叠加其上。`workspaceRoot` 刻意不在段内——它是启动器事实，不是偏好。
+`ApiProxyService` 消费 `ctx.agentDefaultModel`；它不持有提供方／模型配置或 Settings 分节。共享服务在 `agent-default-model` 下注册 `{provider, model, reasoningEffort?}`：base 组合包的组合条目是底层，`settings.yaml` 把用户选择叠加其上。`workspaceRoot` 仍属于 ApiProxy 配置，因为它是 Host 启动器事实，而不是模型偏好。
 
-会话按三级解析自己的路由，且每次读取都重新解析，而不是只在创建时种一次：本进程内的显式选择，其次是该会话自己最新记录的 `request/header`，最后才是这个默认值。重新解析正是让两个方向都成立的原因——已经跑过一轮的会话此后永远从自己的日志推导路由，改默认值不会重定向它；而仍然空白的会话（新建会话会复用一个，而不是再开一个）则会用上它创建之后才保存的默认值。
+会话每次访问时都按三级解析模型选择：本进程内作出的选择，其次是该会话日志中最新的 `request/header`，最后是这个默认值。已经跑过一轮的会话从自己的日志推导选择，空白会话则能观察到创建之后保存的默认值。
 
-`session.selectModel` 会把被接受的切换记录为新的默认值，实践中默认值就是这样选定的，没有另一个单独的手势。它存下来的是**解析后**的目标，因此适配器实体化出来的默认推理等级会按用户当时看到的样子钉住，日后适配器改了自己的默认值也不会悄悄移动已存的默认路由。写入是整段替换而非合并，因为切到一个不带推理等级的模型必须清掉已存的等级；存储失败只记日志，不会撤销这次切换——它对自己所在的会话已经生效。没有设置提供方的部署保留组合条目，切换只停留在进程内。
+`session.selectModel` 会把接受的切换保存为部署默认值；没有单独的选择动作。它存储已解析的 `ModelSelection`，包括适配器实体化的默认推理强度。完整分节写入会在所选模型没有推理强度时清除已存值。存储失败只记日志，不会撤销会话选择。没有设置提供方的部署保留组合条目，切换只对当前会话生效。
 
-设置段里的 `reasoningEffort` 在插件配置中刻意没有对应字段：seam 是按字段把用户层合并到组合条目之上的，缺席的键覆盖不了存在的键，因此组合层设的推理等级会在此后每一次切到不带推理等级的模型时继续存活。推理等级的部署级默认值属于适配器 profile，那里是按模型解析的。
+Settings 分节中的 `reasoningEffort` 在 agent-default-model 插件配置中刻意没有对应字段：seam 按字段把用户层合并到组合条目之上，因此缺席的键无法覆盖已有键，组合层中的推理强度会在以后选择没有推理强度的模型时继续存在。推理强度的部署默认值属于按模型解析的适配器 profile。
 
-存下来的路由不做注册表校验，两个方向都不做。默认值指向一个已在模型页删除的路由时，它照样作为会话的 `current` 送到 `session.models`——匹配不到任何已公布的分组，而这恰恰是让选择器提示重新选择、而不是显示一个部署根本够不着的模型的原因。静默修复它还会破坏刻意保留的反面情形：适配器可以服务一个自己目录未公布的模型。
+存储的选择独立于目录成员关系。默认值指向不可用的提供方时，它仍会作为会话的 `current` 送到 `session.models`，让选择器请求用户重新选择，而不是静默选用其他模型。反过来，适配器也可以服务其目录中未公布的模型。
 
 ## 约定层（`/api`）
 
@@ -24,15 +24,15 @@
 
 首个回答认领待处理请求之前，系统会对照该请求校验问题响应。多选题的回答项可以同时携带 `selected` 中的请求选项标签与非空 `custom` 文本；单选题的回答项必须二选一。标签重复、标签未知、id 不匹配、批次不完整以及自定义文本为空都会以 `bad-response` 拒绝。
 
-`session.history` 会读取已附加 Session 的内存状态，或通过持久化检查冷日志，而不会恢复或发布 agent（智能体），然后按追加来源的消息边界分页：`maxMessages` 统计以追加方式进入 surface 的 `user/message` 和 `assistant/message` 事件，因此仅供模型使用的替换副本不占用配额。每一页仍是一段连续的原始事件区间，从而让压缩（compaction）的仅日志溯源信息与引用它的替换留在同一页。
+`session.history` 会读取已附加 Session 的内存状态，或通过持久化检查冷日志，而不会恢复或发布 agent，然后按追加来源的消息边界分页：`maxMessages` 统计以追加方式进入 surface 的 `user/message` 和 `assistant/message` 事件，因此仅供模型使用的替换副本不占用配额。每一页仍是一段连续的原始事件区间，从而让压缩（compaction）的仅日志 `compact/summary` 记录与引用它的替换留在同一页。
 
 `session.history` 的尾页（不带 `beforeSeq`）额外携带一个可选的 `projections` 块——`ctx.sessionProjections`（`@deepseek-ai/dsh-session-projection`）上每个已注册单元的水位线快照，`asOfSeq` = 这些值共同反映到的最后一个事件 seq（空日志为 `-1`）。网关还订阅注册表的变更流，为每个状态发生变化的单元生成一个 `session/projection` mux 帧（`{sessionId, key, value, seq}`——实时推送状态，绝不入日志；客户端按 seq 高者胜维护一个按会话的通用值仓）。载体不持有任何领域知识（每个值在注册表内部已过其单元自己的 schema；协议 schema 对 `values`/`value` 保持宽松）；loadOlder 页永不携带该块，未装注册表的组合则两个面都不提供。
 
 会话标题与其他所有领域一样搭乘这对通用投影机制——历史尾页的 `projections` 块外加 `title` 键下的 `session/projection` 帧（专设的 `session/title` 帧已下线）。标题不会加入 `session.list`；冷会话在其中仍只有元数据，直到打开或恢复操作附加其日志。`session.rename` 接受用户显式标题（冷会话先恢复），委托给 `ctx.sessionTitle.rename`——被接受的 `session/title` 事件将标题钉住、不再被自动生成覆盖——并返回规范化后的标题及其事件 seq，让 client 在推送帧到达前就结算自己的 `title` 投影格；规范化后为空的标题返回 `title-invalid`。
 
-`session.fork` 将可选事件锚点映射到该锚点处或其后的首个 `turn/end`，使消息操作可包含该消息所在的完整轮次。锚点省略或超过末尾时，选择最后一个已完成轮次；若锚点已在日志中，而其所在轮次仍开放，则返回 `fork-unavailable`，不会向较早位置裁剪。发布后的子会话会先继承源会话的种子历史、cwd、日志中最新的提供方／模型／推理（reasoning）目标及谱系，再加入源 Workspace。如果附加到 Workspace 失败，`workspace-attach-failed` 会携带已发布的子会话 id，供客户端对账。[SessionStore fork 决策](../../../.agents/notes/implemented/feature/2026-06-30-session-store-fork-api.md)给出边界设计的理由。
+`session.fork` 将可选事件锚点映射到该锚点处或其后的首个 `turn/end`，使消息操作可包含该消息所在的完整轮次。锚点省略或超过末尾时，选择最后一个已完成轮次；若锚点已在日志中，而其所在轮次仍开放，则返回 `fork-unavailable`，不会向较早位置裁剪。发布后的子会话会先继承源会话的种子历史、cwd、日志中最新的 `ModelSelection` 及谱系，再加入源 Workspace。如果附加到 Workspace 失败，`workspace-attach-failed` 会携带已发布的子会话 id，供客户端对账。[SessionStore fork 决策](../../../.agents/notes/implemented/feature/2026-06-30-session-store-fork-api.md)给出边界设计的理由。
 
-会话模型路由属于会话领域约定。`session.models` 将选中的提供方／模型／推理目标，与按提供方分组的建议性模型、精确路由推理元数据和逐提供方查询失败记录分开返回。当前目标可能不在这些分组中，也绝不会作为合成行注入；客户端可以提示用户选择替代目标，而无需把目录变成路由白名单。`session.selectModel` 校验由适配器持有的可选推理强度，并替换将在下一提示词组装边界使用的完整目标。目录成员关系不构成校验：适配器可以解析未列出的模型，而不可用路由或不受支持的推理强度会返回 `model-unavailable`。`session.models` 还会报告 `routable`：当前目标的路由是否有适配器在服务。这一点刻意不由分组推导——一条仍在服务、只是不再公布该模型的路由不在分组里，却完全可用；而适配器已经消失的路由什么都服务不了。`session.prompt` 依据同一个事实以 `model-unavailable` 拒绝，而不是把整条 pre-step 路径走完再在适配器内部失败；客户端禁用输入框只是提示性设计，这个方法始终可被调用。
+会话模型选择属于会话领域约定。`session.models` 将当前 `ModelSelection` 与按提供方分组的建议性模型、精确模型的推理（reasoning）元数据和逐提供方查询失败记录分开返回。该选择可能不在这些分组中，也绝不会作为合成行注入；客户端可以提示用户作出另一项选择，而无需把目录变成路由白名单。`session.selectModel` 校验由适配器持有的可选推理强度，并指定将在下一提示词组装边界使用的完整选择。目录成员关系不构成校验：适配器可以解析未列出的模型，而不可用的提供方或不受支持的推理强度会返回 `model-unavailable`。`session.models` 还会报告 `routable`，即当前是否有适配器为所选提供方提供服务。该值刻意不从分组推导，因为适配器可以服务未公布的模型。`session.prompt` 会依据同一事实，在开启轮次之前以 `model-unavailable` 拒绝；客户端禁用 composer 只是提示性设计，这个方法始终可被调用。
 
 待处理的 queued 输入属于实时控制平面约定，而非对话历史。网关根据持久 `agent/inbox/spliced` 变更派生完整的 `next-turn` 队列，并在每次变更后及重连时广播权威 `session/queue` 快照；待处理的 `next-step` steering（中途引导）不进入此 Web 投影。在 `next-step` 内，用户来源的消息携带 `steering` placement，而注入上下文（审批通知、任务完成、附加快照）携带 `context`，领取前不对外呈现。面向单条消息的 `agent/inbox/inserted`、`claimed` 与 `discarded` 通知仍供生命周期观察方使用，但不用于构建队列视图。`session.updateQueue` 通过 `MessageId` 寻址单个项；编辑和移除经已挂载 Agent 的 `Inbox.splice()` 修改队列。claim 的纯删除 splice 会在 pre-step 准入前赢得竞态，因此之后的操作返回 `queue-item-not-found`。`session.cancel` 仅中止活动轮次并保留待处理 inbox 工作；取消达到完全停稳且结束中的轮次完成 flush 后，AgentLoop 按 FIFO 顺序认领下一条可唤醒消息，浏览器绝不重发或提升它。队列操作绝不恢复冷会话，客户端也绝不根据轮次或状态事件推断某项已退出队列。
 
@@ -52,7 +52,7 @@ Workspace 列表与 Session 列表是相互独立的重连基线。`workspace.cr
 
 ## 载体层（`/client` + 根路径）
 
-`AbstractApiClient` 持有全部协议不变量：签发 rpcId、包装／解包信封、Zod 解析、SSE 帧解码、一元请求超时，以及按微任务批处理的信封观测（`subscribeEnvelopes`）；平台子类只提供 `doFetch` 传输环节。`InProcessApiClient` 以 `toFetchHandler(api)` 为基础，是同构接点：它运行完整的协议序列化与校验路径而不经过网络，供 `dsh run` headless 模式使用。
+`AbstractApiClient` 持有全部协议不变量：签发 rpcId、包装／解包信封、Zod 解析、SSE 帧解码、一元请求超时，以及按微任务批处理的信封观测（`subscribeEnvelopes`）；平台子类只提供 `doFetch` 传输环节。`InProcessApiClient` 以 `toFetchHandler(api)` 为基础，仍是同构接点：它运行完整的协议序列化与校验路径而不经过网络，供需要该路径的调用方和载体测试使用。产品的 `dsh run` 是直连 core 的入口，不挂载本包。
 
 ## 模型体验
 

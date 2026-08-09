@@ -1,5 +1,5 @@
 /**
- * Workflow capability seam. Implementations execute orchestration scripts;
+ * Service Definition for the workflow capability seam. Service providers execute orchestration scripts;
  * observe-only lifecycle events never expose run control.
  * @module @deepseek-ai/dsh-workflow
  */
@@ -150,7 +150,7 @@ export function isFatalWorkflowError(error: unknown): boolean {
 }
 
 /**
- * Workflow execution seam. Invalid requests throw before publication; a live
+ * Workflow Service Definition contract. Invalid requests throw before publication; a live
  * run is holder-owned, its result never rejects, cancellation and disposal are
  * bounded, and disposal waits for child cleanup within that bound. Lifecycle
  * listener failures are contained, and `workflow/end` fires exactly once as the

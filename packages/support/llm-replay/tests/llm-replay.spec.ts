@@ -23,7 +23,7 @@ import {
 /**
  * Unit tests for the replay llm/stream plugin. These drive the listener through
  * the REAL LlmService waterfall (not a hand-rolled stub) so they verify the
- * actual seam the snapshot harness depends on, plus the pure
+ * actual LLM capability seam the snapshot harness depends on, plus the pure
  * derive/parse/load helpers that turn a recorded session JSONL into a script.
  */
 
@@ -267,7 +267,7 @@ describe('deriveReplayScript', () => {
         seq: 1,
         time: 0,
         data: {
-          summary: [{ type: 'text', text: 'incomplete provenance' }],
+          summary: [{ type: 'text', text: 'missing source events' }],
           llmStreamCall: true,
           shadowedRange: { start: 1, end: 1 },
           shadowedSeqs: [1],

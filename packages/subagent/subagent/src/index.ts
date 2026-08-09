@@ -1,5 +1,5 @@
 /**
- * The subagent seam (`ctx.subagents`): a named-provider registry plus a
+ * Service Definition for the subagent capability seam (`ctx.subagents`): a named-provider registry plus a
  * capability-validating asynchronous start surface. Providers establish a
  * child before returning its run, so fulfillment is the single publication and
  * ownership-transfer boundary.
@@ -9,7 +9,7 @@
  * one by name. The shape mirrors the LLM adapter registry
  * (`LlmService.registerAdapter`), not the single-service bash executor.
  *
- * This package is the INTERFACE third of the capability seam. Implementations
+ * This package owns the Service Definition role of the capability seam. Service providers
  * (`@deepseek-ai/dsh-subagent-spawn`, `-fork`, `-acp`) and the model-facing
  * consumer (`@deepseek-ai/dsh-tool-subagent`) are separate packages.
  *
@@ -218,7 +218,7 @@ export class SubagentService extends Service {
    * @param parent - the exact live direct parent authorizing this delivery.
    * @param childId - durable child session id.
    * @param content - user-role content to deliver.
-   * @param options - durable provenance and caller cancellation, which stops the
+   * @param options - the message source fields and caller cancellation, which stops the
    *   operation only before inbox acceptance.
    * @returns the accepted message's inbox id.
    * @throws when continuation services are unavailable, parent authority is
@@ -306,7 +306,7 @@ export class SubagentService extends Service {
 
   /**
    * Enumerate the parent's direct session-backed subagents without loading or
-   * resuming an Agent and without any query seam: the listing merges the live
+   * resuming an Agent and without any query service: the listing merges the live
    * session store with optional session persistence (live-preferred) and
    * serves each child's durable mode/label from the registered `subagent`
    * projection unit down a three-rung ladder — the registry's watermark

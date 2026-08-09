@@ -27,11 +27,11 @@ export const ANONYMOUS_ID_FILE_NAME = 'telemetry.json'
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
-/** Ambient seams for locating and generating the id; every field has a default. */
+/** Ambient hooks for locating and generating the id; every field has a default. */
 export interface AnonymousIdOptions {
   /** Environment consulted for `DSH_HOME`; defaults to `process.env`. */
   env?: NodeJS.ProcessEnv
-  /** UUID generator; defaults to `crypto.randomUUID` (test seam). */
+  /** UUID generator; defaults to `crypto.randomUUID` (test hook). */
   randomUUID?: () => string
 }
 
@@ -40,7 +40,7 @@ export interface AnonymousIdOptions {
  * Delegates to {@link resolveDshHome} so telemetry shares the harness's one
  * home-resolution policy (`DSH_HOME` > `~/.dsh`) instead of maintaining a
  * second config-directory convention.
- * @param options - environment seam.
+ * @param options - Environment hook.
  * @returns absolute harness home path.
  */
 export function globalConfigDir(options: AnonymousIdOptions = {}): string {
@@ -74,7 +74,7 @@ async function readPersistedId(file: string): Promise<AnonymousId | undefined> {
  * Return the harness home's anonymous id, creating and persisting one on first use.
  * Persistence is best-effort: a write failure still returns a usable id for the
  * current run so telemetry is never blocked by config-dir permissions.
- * @param options - config-location and UUID-generation seams.
+ * @param options - config-location and UUID-generation hooks.
  * @returns the stable per-harness-home anonymous id.
  */
 export async function getOrCreateAnonymousId(options: AnonymousIdOptions = {}): Promise<AnonymousId> {

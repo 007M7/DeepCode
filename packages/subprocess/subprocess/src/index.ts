@@ -1,5 +1,5 @@
 /**
- * The subprocess seam (`ctx.subprocess`): execution-world executable lookup,
+ * Service Definition for the subprocess capability seam (`ctx.subprocess`): execution-world executable lookup,
  * fully specified managed process trees with raw or
  * collected stdio, and one terminal-process primitive. Command defaulting,
  * shell semantics, deadlines, protocol framing, terminal readiness, and

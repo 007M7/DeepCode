@@ -49,7 +49,7 @@
 - **非本地 skill 提供方**：组合包交付 skill 注册表、本地文件系统提供方和 `skill` 工具；部署可以把嵌入式目录或远程目录等其他提供方作为同级插件添加。
 - **前端入口与各应用基础设施**：无头、ACP（Agent Client Protocol）和 JSON-RPC 应用包负责传输、stdout 与重新加载选择。`timer` 保留在主干中，因为它是共有组件且不写 stdout。
 
-这把[接口／实现／消费方 seam](../../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md) 提升到组合层：组合包拥有共享主干，叶节点拥有后端，应用包拥有前端入口。
+这里在组合层应用 [Service Definition／Service provider／Consumer 的职责分离](../../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md)：组合包拥有共享主干，叶节点拥有后端，应用包拥有前端入口。
 
 ## 配置
 
@@ -80,4 +80,4 @@ YAML include 可以去重配置，却无法拥有 bin 或提供前端入口默�
 ## 已知限制与暂缓事项
 
 - **大部分主干集合固定在代码中**：`apply()` 始终挂载核心服务；配置可以省略组合包内的目标、skill、bash 与任务控制工具，但要替换循环或删除其他主干成员，就必须组合另一个组合包。
-- **不变式 seam 与配套插件仍是固定成员**：`invariants.enabled: false` 或包筛选器会抑制检查，但不会移除服务或配套插件注册；Session 始终启用的校验与冻结是另一套机制。
+- **不变式服务与配套插件仍是固定成员**：`invariants.enabled: false` 或包筛选器会抑制检查，但不会移除服务或配套插件注册；Session 始终启用的校验与冻结是另一套机制。

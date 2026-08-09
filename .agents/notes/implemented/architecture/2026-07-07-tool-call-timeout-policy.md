@@ -32,7 +32,7 @@ ctx.tools.execute(exec)
 
 The default behavior is conservative: a tool that declares no `timeoutMs` receives no `TOOL_TIMEOUT` deadline from the plugin.
 
-### The `tools/execute` around seam
+### The `tools/execute` around-dispatch extension point
 
 `@deepseek-ai/dsh-tools` declares a `tools/execute` waterfall whose base `next()` is the dispatch-with-normalization thunk — the same inner `try`/`catch` that turns a thrown tool (or unknown tool) into an `isError` `ToolExecutionResult`. A listener receives `(exec, next)`: it calls `next()` to delegate to dispatch (returning its result, optionally wrapped) or returns a replacement result to short-circuit dispatch. The whole pipeline still sits inside `execute`'s outer try/catch, so a throwing listener becomes an `isError` result, never a turn failure.
 
@@ -101,13 +101,13 @@ A future model-facing grep/glob tool can be implemented on top of `ctx.bash` wit
 
 **Let `timeout-policy` match tool arguments itself.** A rule engine such as "disable timeout when `bash.run_in_background` is true" would make the policy plugin know tool-specific argument semantics. Avoided by not migrating bash to tool-call timeout.
 
-**Use `tools/pre-execute` plus `tools/post-execute` instead of a new around seam.** A pre listener could arm a deadline and mutate `exec.signal`; a post listener could classify and replace. That loses because the deadline lifetime would cross two independent waterfalls: a call-id map, cleanup on every pre-deny/tool-throw/post-throw/dispose path, and ordering rules with every other listener. `tools/pre-execute` is also the allow/deny gate, not an execution wrapper. `tools/execute` gives the timeout one lexical scope: arm, delegate, classify, dispose.
+**Use `tools/pre-execute` plus `tools/post-execute` instead of a new around-dispatch extension point.** A pre listener could arm a deadline and mutate `exec.signal`; a post listener could classify and replace. That loses because the deadline lifetime would cross two independent waterfalls: a call-id map, cleanup on every pre-deny/tool-throw/post-throw/dispose path, and ordering rules with every other listener. `tools/pre-execute` is also the allow/deny gate, not an execution wrapper. `tools/execute` gives the timeout one lexical scope: arm, delegate, classify, dispose.
 
 **Use `Promise.race` to enforce timeouts for non-cooperative tools.** Rejected for the same reason as the timeout-library Agent Note: it returns control to the caller while the underlying process, fetch, or provider operation may still be running. The plugin only sends a signal; termination remains the implementation's responsibility.
 
 ## Consequences
 
-- `@deepseek-ai/dsh-tools` gains an around-dispatch surface after the interception seams deliberately split pre/post tool hooks. Its contract is narrow — wrap registry dispatch, not replace the pre-gate or post-result policy — and the base `next()` is dispatch-with-normalization so a wrapper never sees a raw tool throw.
+- `@deepseek-ai/dsh-tools` gains an around-dispatch surface after the interception points deliberately split pre/post tool hooks. Its contract is narrow — wrap registry dispatch, not replace the pre-gate or post-result policy — and the base `next()` is dispatch-with-normalization so a wrapper never sees a raw tool throw.
 - Multiple `tools/execute` listeners compose by ordinary Cordis waterfall order: a listener that calls `next()` wraps downstream listeners plus dispatch; one that returns without `next()` short-circuits them. A deployment combining timeout with a future retry/sandbox/metrics wrapper chooses semantics by registration order ("timeout covers the whole retry" vs "timeout covers each attempt").
 - Opt-in by declaration is a deliberate misconfiguration risk: a tool can declare a `timeoutMs` without honoring `exec.signal`, and that tool will not stop on timeout. The registry awaits that non-quiescent body rather than racing it, while the plugin contract states that declaring a budget means cooperative; the web tools prove the pattern on tools that already forward the signal.
 - During the transition `bash` and the migrated web tools use different timeout paths on purpose: `TOOL_TIMEOUT` is the model-facing tool-call budget, while `BASH_TIMEOUT` remains the bash backend timeout used by bash and hooks.

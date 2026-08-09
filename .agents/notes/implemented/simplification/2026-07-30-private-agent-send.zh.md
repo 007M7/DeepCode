@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-公开的 `Agent.send()` 方法暴露了实体循环的路由矩阵，但生产调用方只使用语义明确的 `followup()`、`steer()` 和 `inject()` 操作。第四种组合，即 `next-turn` 配合 `wakeup: false`，除测试外没有消费方。将这项潜在能力保留为公开接口，还会迫使其他 `Agent` 实现和测试替身接受实现层的路由策略。
+公开的 `Agent.send()` 方法暴露了具体循环实现的路由矩阵，但生产调用方只使用语义明确的 `followup()`、`steer()` 和 `inject()` 操作。第四种组合，即 `next-turn` 配合 `wakeup: false`，除测试外没有消费方。将这项潜在能力保留为公开接口，还会迫使其他 `Agent` 实现和测试替身接受实现层的路由策略。
 
 ## 决策
 

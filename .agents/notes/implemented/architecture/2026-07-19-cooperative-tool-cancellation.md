@@ -42,7 +42,7 @@ The registry first creates the call token, snapshots the visible definition's op
 
 Once a tool body starts, the registry awaits it. Cancellation reaches the body through the fused signal but never races or abandons its promise. A cooperative implementation stops or forwards cancellation and settles after its owned work reaches quiescence; an uncooperative same-process implementation can keep the registry pending indefinitely. Process, worker, network, and provider layers retain responsibility for their own termination mechanisms.
 
-This decision requires cancellation at the tool invocation seam only. Making signals required on asynchronous capabilities reachable from tool bodies is a separate migration proposed in [Required cancellation through tool-reachable capability seams](../../proposed/architecture/2026-07-19-required-cancellation-through-tool-capability-seams.md).
+This decision requires cancellation at the tool invocation boundary only. Making signals required on asynchronous capabilities reachable from tool bodies is a separate migration proposed in [Required cancellation through tool-reachable capability seams](../../proposed/architecture/2026-07-19-required-cancellation-through-tool-capability-seams.md).
 
 ## Verification
 
@@ -54,7 +54,7 @@ No registry test can prove that arbitrary third-party same-process code observes
 
 **Keep the signal optional and synthesize a fallback.** Rejected because a registry-owned fallback has no caller lifetime to represent and preserves the exact omission the type should prevent.
 
-**Validate `AbortSignal` at runtime.** Rejected because this is a typed same-process seam, not a serialization boundary. Runtime checks would duplicate the static contract without making cooperative use enforceable.
+**Validate `AbortSignal` at runtime.** Rejected because this is a typed same-process boundary, not a serialization boundary. Runtime checks would duplicate the static contract without making cooperative use enforceable.
 
 **Add `supportsCancellation` metadata, callback-arity checks, or signal-use linting.** Rejected because none proves that asynchronous work observes or correctly forwards cancellation. Availability is a type contract; behavior remains a tool and capability responsibility.
 

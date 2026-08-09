@@ -1,16 +1,16 @@
-# Agent Note: Agent lifecycle and ownership seams
+# Agent Note: Agent lifecycle and ownership contracts
 
 Status: implemented
 
-English | [中文](2026-06-18-agent-lifecycle-and-ownership-seams.zh.md)
+English | [中文](2026-06-18-agent-lifecycle-and-ownership-contracts.zh.md)
 
 ## Problem
 
-Several ACP and tool-bash limitations were symptoms of the same missing seam: plugins could create or resume agents through `ctx.agents`, but they could not own and dispose one agent independently, and long-running bash tasks carried no stable owner in the executor itself. ACP aborted and awaited agents on disconnect but could not unregister just that session's agent; `session/cancel` could not cancel queued-but-not-yet-started work; and `tool-bash` kept task ownership in a plugin-local `Map`, so an HMR reload could make an old task look unowned.
+Several ACP and tool-bash limitations were symptoms of the same missing ownership contract: plugins could create or resume agents through `ctx.agents`, but they could not own and dispose one agent independently, and long-running bash tasks carried no stable owner in the executor itself. ACP aborted and awaited agents on disconnect but could not unregister just that session's agent; `session/cancel` could not cancel queued-but-not-yet-started work; and `tool-bash` kept task ownership in a plugin-local `Map`, so an HMR reload could make an old task look unowned.
 
 ## Decision
 
-Three seams: the queue-aware cancel, the `AgentHandle` disposer, and the bash owner token.
+Three contract changes: the queue-aware cancel, the `AgentHandle` disposer, and the bash owner token.
 
 ### 1. Queue-aware `Agent.cancel(cause?)`
 
@@ -22,9 +22,9 @@ A new `cancel()` verb on the `Agent` interface — the single public stop primit
 
 **Teardown ORDER is load-bearing for durability**, and the implementation folds the session lifecycle into the agent's SINGLE composite cordis effect (`SessionStore.prepare`/`enter`/`announce`, replacing a sibling-effect split). A fiber unload disposes sibling effects concurrently (`Promise.all`), which would race removing the session store's append publication hooks against the loop's closing `session/flush` and drop the closing `turn/end`; inside one effect the disposers run as an ordered LIFO chain (loop stopped + `await agent.done` BEFORE the session detaches), so the loop's final flush is captured on BOTH the handle's `dispose()` and a fiber unload. The contained `agent/disposed` and `session/disposed` notifications cannot reject the chain or skip later teardown.
 
-### 3. Bash owner token in the seam
+### 3. Bash owner token in the Service Definition
 
-Background-task ownership moved from a `tool-bash` plugin-local `Map<string, Agent>` into the executor. `BashExecRequest` gains an optional `owner?: string`; the resolved `BashExecSpec` carries it as required-but-nullable `owner: string | undefined` (a forgotten owner is a visible `undefined`, never a silently-absent property). The executor stores the token on its task and exposes it via a new `BashExecutor.ownerOf(id): string | undefined` seam (NOT on the public `BashTask` — one read path, no redundant API). `tool-bash` deletes its `Map` entirely: it stamps `exec.agent?.id` (the shared registry/session id) as the owner at `start`, and `bash_output`/`bash_kill` compare `ctx.bash.ownerOf(id)` to the caller's token with `!== undefined` semantics (an empty-string token is still a real owner). The completion notice finds the live agent by scanning `ctx.get('agents')?.list()` for `agent.id === ownerToken` (read via `ctx.get` — `onTaskDone` runs on the bash fiber, a foreign fiber, where the `ctx.agents` proxy would throw). Because ownership now lives on the task in the executor (disposed with the `dsh-bash` fiber), it SURVIVES a `tool-bash` HMR reload — closing the old `XXX(tool-bash-owner-hmr)` gap. (The `onTaskDone` listener is still effect-scoped to `tool-bash`'s `apply`, so a completion landing during the reload gap still drops its one notice — the pre-existing reload-gap drop — but the ownership fence itself is HMR-proof.)
+Background-task ownership moved from a `tool-bash` plugin-local `Map<string, Agent>` into the executor. `BashExecRequest` gains an optional `owner?: string`; the resolved `BashExecSpec` carries it as required-but-nullable `owner: string | undefined` (a forgotten owner is a visible `undefined`, never a silently-absent property). The executor stores the token on its task and exposes it via a new `BashExecutor.ownerOf(id): string | undefined` method (NOT on the public `BashTask` — one read path, no redundant API). `tool-bash` deletes its `Map` entirely: it stamps `exec.agent?.id` (the shared registry/session id) as the owner at `start`, and `bash_output`/`bash_kill` compare `ctx.bash.ownerOf(id)` to the caller's token with `!== undefined` semantics (an empty-string token is still a real owner). The completion notice finds the live agent by scanning `ctx.get('agents')?.list()` for `agent.id === ownerToken` (read via `ctx.get` — `onTaskDone` runs on the bash fiber, a foreign fiber, where the `ctx.agents` proxy would throw). Because ownership now lives on the task in the executor (disposed with the `dsh-bash` fiber), it SURVIVES a `tool-bash` HMR reload — closing the old `XXX(tool-bash-owner-hmr)` gap. (The `onTaskDone` listener is still effect-scoped to `tool-bash`'s `apply`, so a completion landing during the reload gap still drops its one notice — the pre-existing reload-gap drop — but the ownership fence itself is HMR-proof.)
 
 ## Verification
 
@@ -37,11 +37,11 @@ These invariants hold and are pinned by tests:
 
 ## Session owner tokens are unique among live agents
 
-The bash owner-token comparison relies on the shared `Agent.id`/`SessionId` being unique among live agents. Concurrent same-ID operations may both prepare privately, but publication enters the session and agent in order; `SessionStore.enter()` rejects a duplicate live session id, and every losing transaction rolls its private state back. A programmatic caller therefore cannot publish two live agents with one session token. The access *policy* (token comparison) stays in `tool-bash` (the consumer); the bash seam stores only an opaque `owner` string and never interprets it — the correct interface/implementation/consumer split.
+The bash owner-token comparison relies on the shared `Agent.id`/`SessionId` being unique among live agents. Concurrent same-ID operations may both prepare privately, but publication enters the session and agent in order; `SessionStore.enter()` rejects a duplicate live session id, and every losing transaction rolls its private state back. A programmatic caller therefore cannot publish two live agents with one session token. The access *policy* (token comparison) stays in `tool-bash` (the Consumer); the bash capability keeps `owner` opaque and never interprets it — the correct Service Definition / Service provider / Consumer split.
 
 ## Alternatives considered
 
-- **A public `BashTask.owner` field** instead of the `BashExecutor.ownerOf(id)` seam — rejected: one read path, no redundant API.
+- **A public `BashTask.owner` field** instead of the `BashExecutor.ownerOf(id)` Service Definition method — rejected: one read path, no redundant API.
 - **Sibling cordis effects for the agent's session lifecycle** — rejected: a fiber unload disposes sibling effects concurrently (`Promise.all`), racing removal of the store-owned append publication hooks against the loop's closing `session/flush`; the single composite effect's ordered LIFO chain is what captures the closing `turn/end` on both disposal paths.
 - **A separate step-only `abort()` beside `cancel()`** — shipped originally, then removed as unused; `cancel()` is the single public stop primitive ([the public-stop-surface Agent Note](../simplification/2026-06-20-public-agent-stop-surface.md)).
 

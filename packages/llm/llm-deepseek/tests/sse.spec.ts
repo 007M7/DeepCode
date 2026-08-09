@@ -31,6 +31,16 @@ describe('parseSse', () => {
     expect(events).toEqual(['{"a":1}', DONE])
   })
 
+  it('reports comments out of band without yielding them', async () => {
+    const comments: string[] = []
+    const events = await collect(parseSse(
+      bytes(': keep-alive\n\ndata: {"a":1}\n\ndata: [DONE]\n\n'),
+      (comment) => { comments.push(comment) },
+    ))
+    expect(comments).toEqual(['keep-alive'])
+    expect(events).toEqual(['{"a":1}', DONE])
+  })
+
   it('stops yielding after DONE even when more data follows', async () => {
     const events = await collect(parseSse(bytes('data: [DONE]\n\ndata: {"late":1}\n\n')))
     expect(events).toEqual([DONE])

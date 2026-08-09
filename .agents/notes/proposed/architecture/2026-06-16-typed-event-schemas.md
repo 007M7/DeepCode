@@ -42,7 +42,7 @@ This is a repository-wide vocabulary redesign, not a persistence implementation 
 Keep the compile-time pattern. Persistence stays opaque-JSON + serializability guard. Plugins extend via declaration merging; correctness of event *shape* is the producer's responsibility and is enforced by TypeScript at compile time. Package-owned invariant companions check selected cross-record relationships when enabled but do not provide general runtime shape schemas.
 
 - **Pros**: zero churn; plugin extension is a one-line `interface` augmentation with full type inference and no runtime registration ceremony; no new runtime dependency; the `defineTool` DSL and `assertNever` exhaustiveness keep working.
-- **Cons**: no runtime structural validation at the persistence boundary or at plugin seams; a malformed-but-JSON datum is caught late.
+- **Cons**: no runtime structural validation at the persistence boundary or at plugin boundaries; a malformed-but-JSON datum is caught late.
 
 ### B. Header/closed-shape validation only (schemastery), events stay opaque
 Tighten only the genuinely-closed shapes that already have hand-rolled type guards — e.g. the JSONL `HeaderLine` guard (`isHeaderLine`) — using **schemastery** (the repo's existing schema library, already used for every plugin `static Config`). Leave the merge-extensible event union as-is.
@@ -53,7 +53,7 @@ Tighten only the genuinely-closed shapes that already have hand-rolled type guar
 ### C. Runtime schema registry for the whole vocabulary (Zod or schemastery)
 Replace the merge-extensible maps with a runtime registry the producers contribute to and the persistence/consumer paths validate against.
 
-- **Pros**: real runtime validation at the durable boundary and at plugin seams; one source of truth; enables generic tooling (auto-generated docs, fuzzing, wire-format checks).
+- **Pros**: real runtime validation at the durable boundary and at plugin boundaries; one source of truth; enables generic tooling (auto-generated docs, fuzzing, wire-format checks).
 - **Cons**: the full blast radius above; **Zod is not currently a direct dependency** (only a transitive dep of `@earendil-works/pi-ai`) and the repo's chosen schema lib is **schemastery** — adopting Zod broadly is itself a dependency decision; declaration-merge ergonomics (one-line plugin extension, full inference) are replaced by runtime registration + manual type wiring; the `assertNever` exhaustiveness guarantee weakens (runtime variants aren't statically exhaustive).
 
 ## Proposal

@@ -1,5 +1,5 @@
 /**
- * Web runtime glue behavior: dist resolution through the bundle's own seam,
+ * Web runtime glue behavior: dist resolution through the bundle's own hook,
  * the frontend-static child claiming the fallback seat, the web-surface
  * prompt section and bash runtime variables, and URL-line printing with the
  * launcher's LAN snapshot.
@@ -184,7 +184,7 @@ describe('web-app runtime glue', () => {
   })
 
   it('resolves the real built frontend dist through the package exports, failing loud unbuilt', () => {
-    // The production resolver (not the test seam). A built checkout resolves
+    // The production resolver (not the test hook). A built checkout resolves
     // the frontend package's index.html; a dist-less one (the CI coverage
     // lane runs before any build) must fail with the build hint, never a
     // silent fallback.

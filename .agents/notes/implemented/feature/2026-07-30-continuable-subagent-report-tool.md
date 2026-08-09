@@ -28,7 +28,7 @@ The tool uses generic rendering with no locations. Its acknowledgement includes 
 
 ### Service authority
 
-The subagent seam exposes `ctx.subagents.reportFrom(child, content, { delivery, signal }): Promise<MessageId>`. The exact live child Agent is the sender credential. The continuation manager accepts only an Activation whose `handle.agent === child`, derives its direct parent from the child's durable header, and requires that id to resolve to a live parent Agent in the final synchronous authorization-and-send span. The API accepts no caller-selected recipient, ancestor, or provenance.
+The subagent seam exposes `ctx.subagents.reportFrom(child, content, { delivery, signal }): Promise<MessageId>`. The exact live child Agent is the sender credential. The continuation manager accepts only an Activation whose `handle.agent === child`, derives its direct parent from the child's durable header, and requires that id to resolve to a live parent Agent in the final synchronous authorization-and-send span. The API accepts no caller-selected recipient, ancestor, or sender fields.
 
 Roots, one-shot children, forged objects, stale Agents, and same-id replacements fail with `UNAUTHORIZED`. A closing child Activation fails with `ACTIVATION_CLOSING`; manager drain and pre-acceptance cancellation retain their existing lifecycle errors. A missing or send-rejecting direct parent fails with `PARENT_UNAVAILABLE` and `direct parent is not live; report was not delivered`. Failure returns no id, cold-resumes no parent, writes no offline mailbox, and mutates no absent-parent Session.
 
@@ -42,7 +42,7 @@ Quiet delivery calls `parent.inject()`. It adds model-visible context without st
 
 Waking delivery calls `parent.followup()`. It creates one ordinary FIFO parent turn, wakes a parked parent driver, and never steers an open turn. When that parent is itself a continuable Activation, the send uses the manager's existing admission accounting so the parent cannot settle between synchronous enqueue and the admission microtask.
 
-Both modes frame one user-role message as `Background subagent <child-id> reported:` followed by the exact `output`. Durable provenance is `{ kind: 'subagent-report', senderSessionId: child.id }`. Normal Agent ordering governs concurrent sends; the subagent layer creates no second queue.
+Both modes frame one user-role message as `Background subagent <child-id> reported:` followed by the exact `output`. The durable message source is `{ kind: 'subagent-report', senderSessionId: child.id }`. Normal Agent ordering governs concurrent sends; the subagent layer creates no second queue.
 
 ### Acknowledgement and recovery
 
@@ -106,7 +106,7 @@ A post-creation revocation check can reject the Activation only after the Agent 
 - Quiet delivery is the validated default and never starts a parent request. Wakeup creates exactly one later FIFO turn and never steers an open turn.
 - Child cancellation or disposal after parent acceptance does not retract the report. Before acceptance, child disposal, drain, parent loss, or caller cancellation rejects the operation.
 - Fresh and resumed Activations compose current setup contributions before publication. Grants wait for the next Activation; revocation is immediate for resident children.
-- Unit coverage pins visibility, allow-list behavior, both delivery modes, stable identity and provenance, nested routing, invalid senders, absent parents, cancellation, drain, revocation races, and the absence of Tasks or implicit final reporting.
+- Unit coverage pins visibility, allow-list behavior, both delivery modes, stable message and sender identities, nested routing, invalid senders, absent parents, cancellation, drain, revocation races, and the absence of Tasks or implicit final reporting.
 - The keyless assembled snapshot proves the real child tool, quiet non-wakeup behavior, durable parent framing, and later parent consumption.
 
 ### Accepted risks

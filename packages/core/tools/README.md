@@ -54,7 +54,7 @@ The live registry pipeline has three transformable waterfalls, then the definiti
 
 - Tool plugins call `ctx.tools.register()` — schemas flow into the assembly automatically.
 - `tools/pre-execute` is the reorderable allow/deny/ask gate; `ctx.tools.guard()` adds monotonic owner policy after it.
-- `tools/execute` wraps normalized canonical dispatch for timeout, retry, or metrics. Wrappers may replace only the operational signal; a wrapper-authored success is normalized through the resolved tool's output declaration. Canonical-result provenance belongs to one immutable dispatch token, so a cached result from another call or tool is revalidated under the active declaration.
+- `tools/execute` wraps normalized canonical dispatch for timeout, retry, or metrics. Wrappers may replace only the operational signal; a wrapper-authored success is normalized through the resolved tool's output declaration. Each canonical result belongs to one immutable dispatch token, so a cached result from another call or tool is revalidated under the active declaration.
 - `tools/post-execute` may replace presentation content, replace the canonical value, block with feedback, or attach ordered contexts. A definition's optional `finalizeContent` then owns its last content-only invariant across normal results and outer pipeline failures; `tools/result` observes the immutable final outcome. Content replacement is not a confidentiality boundary: block or replace the value when programmatic consumers must not receive it.
 - Exact signatures and ordering live in the generated region of [tools.md](../../../docs/subsystems/tools.md#cordis-surface) and [pipeline](../../../docs/tool-execution-pipeline.md).
 - MCP servers: one plugin per server, discover tools, call `ctx.tools.register()` with the server's schemas.
@@ -186,7 +186,7 @@ Append-only; newly visible content follows the reusable request prefix and does 
 
 ## Known Limitations and Deferred Work
 
-- **Concurrency policy is not an event seam** — `executionMode()` reads the resolved tool definition directly; plugins can only declare a classifier on definitions they own.
+- **Concurrency policy is not an event gate** — `executionMode()` reads the resolved tool definition directly; plugins can only declare a classifier on definitions they own.
 - **`tools/pre-execute` deliberately cannot rewrite `exec.arguments`** — logged and rendered args would desync from what ran; the rewrite design is [a proposed Agent Note](../../../.agents/notes/proposed/feature/2026-06-30-pre-tool-input-rewrite.md).
 - **Caller-defined subagent and workflow structured outputs remain object-rooted** — this is a consumer-level guard; the shared schema vocabulary and tool outputs support every JSON root.
 - **`timeoutMs` on a definition is declarative only** — the registry never enforces deadlines; enforcement requires the `@deepseek-ai/dsh-timeout-policy` wrapper.

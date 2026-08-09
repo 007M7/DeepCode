@@ -6,17 +6,17 @@
  * either entry is what the other shows next.
  */
 import type {
-  IApiClient, ModelCatalogFailure, ModelProviderGroup, ModelTarget, SessionId, SessionModels,
+  IApiClient, ModelCatalogFailure, ModelProviderGroup, ModelSelection, SessionId, SessionModels,
 } from '@deepseek-ai/dsh-client-connection/client'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 
 /** Directory snapshot both entries render from. */
 export interface ModelDirectoryState {
-  /** Target the host reports for the next assembled step; null before the first load. */
-  current: ModelTarget | null
+  /** Model selection the host reports for the next assembled step; null before the first load. */
+  current: ModelSelection | null
   /**
-   * Whether an adapter serves the current target's route, as the host reports
+   * Whether an adapter serves the current selection's provider, as the host reports
    * it — null before the first load, which is NOT the same as blocked. Read
    * this rather than "current matches no group": catalog membership is
    * advisory, so a route serving a model it stopped advertising is missing
@@ -57,7 +57,7 @@ export class ModelDirectory {
 
   /**
    * Refresh the advisory directory (both entries call this on open).
-   * Failure preserves the last good groups and current target.
+   * Failure preserves the last good groups and current selection.
    * @returns the fresh directory value.
    */
   async load(): Promise<SessionModels> {
@@ -86,22 +86,22 @@ export class ModelDirectory {
   }
 
   /**
-   * Select the complete provider/model/reasoning target (both entries submit through here). Success
+   * Select the complete provider/model/reasoning selection (both entries submit through here). Success
    * updates the shared current; failure surfaces on the store and throws so
    * each entry's own retry surface engages.
-   * @param target - provider, provider-owned model id, and optional adapter-owned effort.
-   */
-  async select(target: ModelTarget): Promise<void> {
+   * @param selection - provider, provider-owned model id, and optional adapter-owned effort.
+ */
+  async select(selection: ModelSelection): Promise<void> {
     this.assertAvailable()
     const generation = ++this.generation
     this.store.update((s) => { s.status = 'selecting'; s.error = null })
     const { result } = await this.sessions.selectModel({
       sessionId: this.sessionId,
-      provider: target.provider,
-      model: target.model,
-      ...target.reasoningEffort === undefined
+      provider: selection.provider,
+      model: selection.model,
+      ...selection.reasoningEffort === undefined
         ? {}
-        : { reasoningEffort: target.reasoningEffort },
+        : { reasoningEffort: selection.reasoningEffort },
     })
     if (this.disposed || generation !== this.generation) {
       if (!result.ok) throw new Error(`${result.error.code}: ${result.error.message}`)
@@ -124,7 +124,7 @@ export class ModelDirectory {
   /**
    * Drop the previous Host generation's projection and repull it. Clearing
    * first prevents an unconsumed process-local selection from being displayed
-   * while the restarted Host has restored the last logged request target.
+   * while the restarted Host has restored the last logged model selection.
    */
   resetConnected(): void {
     if (this.disposed) return

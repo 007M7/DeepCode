@@ -32,7 +32,7 @@ An identical specifier permanently reuses its published entry. The caller change
 
 **Disable repository lifecycle scripts.** Rejected because common plugin repositories need a declarative `prepare` step to validate and package their plugin subdirectory. The trust boundary is explicit configuration of executable source, not an incomplete illusion that only static files can run.
 
-**Introduce a Cordis repository service.** Rejected because cache lookup has no runtime contribution registry or provider variation. A small helper lets the later host own Cordis lifecycle and HMR without adding a service seam prematurely.
+**Introduce a Cordis repository service.** Rejected because cache lookup has no runtime contribution registry or provider variation. A small helper lets the later host own Cordis lifecycle and HMR without adding a service contract prematurely.
 
 ## Consequences
 

@@ -72,13 +72,9 @@
       name: '@deepseek-ai/dsh-host-directory-picker-auto'
 
     # The API gateway: the transport-agnostic dispatch face every client shape
-    # shares. provider/model are the host default routing — the profile json's
-    # mapping target (user config overrides these engineering defaults).
+    # shares. The base layer's agent-default-model service owns the default model.
     - id: api-gateway
       name: '@deepseek-ai/dsh-host-apiproxy'
-      config:
-        provider: deepseek-official
-        model: deepseek-v4-flash
 
     # ── layer 2: transport/service ──────────────────────────────────────────────
 

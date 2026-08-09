@@ -226,7 +226,7 @@ describe('MessageItem arms', () => {
     expect(disclosure.getAttribute('aria-expanded')).toBe('true')
     // An unknown form renders the opaque body: the model-facing text keeps its
     // real line breaks instead of being escaped into one JSON line, and the
-    // remaining provenance follows it as fields.
+    // remaining source data follows it as fields.
     expect(ctxView.container.querySelector('[data-context-text]')?.textContent)
       .toBe('line one\n\nline two')
     const fields = [...ctxView.container.querySelectorAll('[data-context-fields] dt')].map(node => node.textContent)
@@ -418,7 +418,7 @@ describe('MessageItem arms', () => {
     expect(view.container.querySelector('[data-context-text]')?.textContent).toBe('firstsecond')
   })
 
-  it('bounds an oversized provenance field, not only the model-facing text', () => {
+  it('bounds an oversized source field, not only the model-facing text', () => {
     const view = render(
       <MessageItem t={t} node={{
         kind: 'context',
@@ -708,7 +708,7 @@ describe('MessageItem arms', () => {
     expect(row.getAttribute('aria-expanded')).toBe('false')
   })
 
-  it('a marker whose provenance fell outside the window is not expandable', () => {
+  it('a marker whose cited summary event fell outside the window is not expandable', () => {
     const view = render(<MessageItem t={t} node={{
       kind: 'compaction', seq: 6, time: 1_000, summary: null,
       summaryEventSeq: null, shadowedItemCount: null, shadowedTokenCount: null,

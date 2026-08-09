@@ -4,13 +4,13 @@ English | [中文](README.zh.md)
 
 The **LSP capability seam**: an abstract `LspService` (`ctx.lsp`) defining WHAT semantic code navigation the harness has — go to definition, find references, find implementations, hover — over language-server providers, without binding the model contract to local subprocesses.
 
-This package is the interface third of the LSP capability:
+This package owns the Service Definition role of the LSP capability:
 
 | Package | Role |
 |---|---|
-| `@deepseek-ai/dsh-lsp` (this) | the interface: the service, provider registry keyed by branded id + extension mapping, per-query selection, request/result vocabulary, the `LspError` taxonomy |
-| `@deepseek-ai/dsh-lsp-local` | a generic local backend that registers configured stdio language-server providers |
-| `@deepseek-ai/dsh-tool-lsp` | the model-facing `lsp` tool over `ctx.lsp` |
+| `@deepseek-ai/dsh-lsp` (this) | Service Definition: the service, provider registry keyed by branded id + extension mapping, per-query selection, request/result vocabulary, the `LspError` taxonomy |
+| `@deepseek-ai/dsh-lsp-local` | Service provider: a generic local backend that registers configured stdio language-server providers |
+| `@deepseek-ai/dsh-tool-lsp` | Consumer: the model-facing `lsp` tool over `ctx.lsp` |
 
 The seam exposes exactly four semantic operations — `goToDefinition`, `findReferences`, `goToImplementation`, `hover` — and no generic JSON-RPC escape hatch, so no protocol payload or unreviewed command/mutation reaches a provider through `ctx.lsp`.
 

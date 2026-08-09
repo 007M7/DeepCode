@@ -20,11 +20,11 @@ Tool 成为 Client UI 的一级概念，并由 `@deepseek-ai/dsh-client-ui-tool`
 
 `ui-tool` 占据这个整体 Tool 席位。`ToolCallTree` 直接递归遍历 root block 的 `subCalls`，并让每一层调用都通过同一个 keyed/session 的 `'tool.call.toolview'` 子 slot，以 `entryKey: toolName` 分发。业务未注册时渲染 `GenericToolCard`。它不读取 Session，也不维护第二份调用拓扑。
 
-业务插件只对 `'tool.call.toolview'` 注册原子 view。其 owner payload 是标准 Tool call block 加 identity、cwd 与宿主动作，不携带 Session projector 或 conversation service。Skill 仍是普通 Tool，`ui-skill` 通过该 seam 注册 `skill` key。现有第一方 view 暂留在 `ui-tool`，直到某个业务包确有理由独立拥有它。
+业务插件只对 `'tool.call.toolview'` 注册原子 view。其 owner payload 是标准 Tool call block 加 identity、cwd 与宿主动作，不携带 Session projector 或 conversation service。Skill 仍是普通 Tool，`ui-skill` 通过该 slot 注册 `skill` key。现有第一方 view 暂留在 `ui-tool`，直到某个业务包确有理由独立拥有它。
 
 details panel 是第二个 Tool 展示点，但不是调用树所有者。`ui-conversation` 通过 single/session 的 `'conversation.details.tool'` 席位委托 selected output body；`ui-tool` 渲染能够识别 card 的输出，插件缺席时由席位 fallback 保留 raw result text。因此 card model 只有一个生产代码所有者，也不需要引入反向实现依赖。
 
-Runtime 仍是 Tool 生命周期与调用拓扑的权威。Code Dispatch 作为官方顶级概念改变 parent/child identity；私有 `ToolCallTree` 对 live 与 history 共用同一套 fold，并把索引投影成标准递归 call block。普通 Tool 业务差异停留在 keyed 展示 seam，这个包边界不会增加 Tool projector/fold registry。
+Runtime 仍是 Tool 生命周期与调用拓扑的权威。Code Dispatch 作为官方顶级概念改变 parent/child identity；私有 `ToolCallTree` 对 live 与 history 共用同一套 fold，并把索引投影成标准递归 call block。普通 Tool 业务差异停留在 keyed 展示约定，这个包边界不会增加 Tool projector/fold registry。
 
 ## Runtime 与渲染链路
 
@@ -102,4 +102,4 @@ ctx.slots.inject('tool.call.toolview', () =>
 
 ## Consequences
 
-`ui-conversation` 不再依赖 Tool 名称对应的业务展示，同时保留 ChatFlow、selection 与宿主交互责任。root call 与 subcall 不会漂移到不同分发路径，业务包无需修改 Session 即可拥有原子 Tool 展示。代价是新增一个 Client package 与两个跨包 slot seam；`ui-tool` 也明确依赖 conversation 声明的席位与 locale namespace。因此组装后的 Web bundle 会挂载 `ui-tool`；省略该插件时，chat Tool 席位为空，details 席位则保留 raw-result fallback，且 Session 重建不受影响。
+`ui-conversation` 不再依赖 Tool 名称对应的业务展示，同时保留 ChatFlow、selection 与宿主交互责任。root call 与 subcall 不会漂移到不同分发路径，业务包无需修改 Session 即可拥有原子 Tool 展示。代价是新增一个 Client package 与两份跨包 slot 约定；`ui-tool` 也明确依赖 conversation 声明的席位与 locale namespace。因此组装后的 Web bundle 会挂载 `ui-tool`；省略该插件时，chat Tool 席位为空，details 席位则保留 raw-result fallback，且 Session 重建不受影响。

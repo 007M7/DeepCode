@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-会话投影 seam。它拥有 `ctx.sessionProjections`：该注册表在已提交的会话事件上驱动每个已注册的投影单元，并向载体提供完整的最终值，目前包括 api-proxy 历史尾页和 `session/projection` 推送帧。领域注册的只是纯数学；驱动权归框架。[session-projection RFC](../../../.agents/notes/proposed/architecture/2026-07-27-session-projection-and-command-log.md) 记录了设计理由。
+会话投影 Service Definition 与驱动注册表。它拥有 `ctx.sessionProjections`：该注册表在已提交的会话事件上驱动每个已注册的投影单元，并向载体提供完整的最终值，目前包括 api-proxy 历史尾页和 `session/projection` 推送帧。领域注册的只是纯数学；驱动权归框架。[session-projection RFC](../../../.agents/notes/proposed/architecture/2026-07-27-session-projection-and-command-log.md)记录了设计理由。
 
 ## 服务：`SessionProjectionRegistry`（ctx 键：`sessionProjections`）
 
@@ -25,11 +25,11 @@
 - **单元的同步纪律。**`init`/`apply`/`view` 必须是同步的；载体在切出页面切片的同一 tick 内读取 `snapshot()`，`asOfSeq` 之所以是一个一致切面正系于此。误写成异步的 `view` 会返回 Promise，让边界的 `schema.parse` 当场大声失败。
 - **状态是纯 JSON，`stateVersion` 是其失效锚点。** 持久投影缓存（persisted projection cache）存储 `(sessionId, key, ver, seq, val)` 行；状态形状或折叠语义一旦变化就递增 `stateVersion`，使陈旧行被丢弃，而不是被正向 apply 成垃圾。
 - **本层没有协议词汇。** 注册表只暴露变更流与快照读取面；载体（api-proxy）据此自铸各自的帧（`session/projection`）与块。
-- **可选 seam。** 领域插件在 `ctx.inject(['sessionProjections'], …)` 下注册，因此不带注册表的 headless 组装完全不受影响；载体使用 `ctx.get('sessionProjections')`，注册表缺席时完全省略自己的块与帧。
+- **可选能力。** 领域插件在 `ctx.inject(['sessionProjections'], …)` 下注册，因此不带注册表的 headless 组装完全不受影响；载体使用 `ctx.get('sessionProjections')`，注册表缺席时完全省略自己的块与帧。
 
 ## 职责
 
-这是能力 seam 拆分中「接口 + 驱动」的那个包：领域 host 插件（如 `dsh-tool-todo`）贡献单元，载体（`dsh-host-apiproxy`）消费快照与变更流，两侧互不相识。
+本包承担能力 seam 的 Service Definition 与驱动角色：领域 host 插件（如 `dsh-tool-todo`）贡献单元，载体（`dsh-host-apiproxy`）消费快照与变更流，两侧互不相识。
 
 ## 模型体验
 

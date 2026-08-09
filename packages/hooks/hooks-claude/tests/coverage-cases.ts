@@ -416,7 +416,7 @@ export function defineCoverageCases(group: CoverageGroup): void {
 
   if (group === 'context') describe('hooks-claude coverage — continue:false, context arm, no-cwd', () => {
     it('a {"continue":false} hook is RECORDED as decision "stop" but does not halt the run (TODO(hook-continue-false))', async () => {
-    // The seams cannot yet honor `continue:false` as a hard halt. The log must still record the
+    // The extension points cannot yet honor `continue:false` as a hard halt. The log must still record the
     // stop decision while execution and the turn continue normally.
       const d = dir()
       const s = sh(d, 'stop.sh', '#!/usr/bin/env bash\necho \'{"continue":false,"stopReason":"halt"}\'\n')
