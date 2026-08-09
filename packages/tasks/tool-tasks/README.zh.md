@@ -18,7 +18,7 @@
 
 ## 完成通知
 
-一项尚未报告的完成会把 `background task <id> (<kind>: <label>) finished [status: ...]. Read its output with task_output.` 注入到确切所有者的 next-step 收件箱。应用上限时，即使采用 PTY 支持的 64 字节下限，稳定 id 前缀和收集命令的优先级也高于可变 label/detail，因此通知仍可操作。注入是等待后续 pre-step 领取的持久上下文，并非唤醒；取消或 owner 释放可能在领取前丢弃它。kill 或针对已终止任务的 read/wait 会把交付标为已报告，并抑制重复通知。
+一项尚未报告的完成会把 `background task <id> (<kind>: <label>) finished [status: ...]. Read its output with task_output.` 注入到确切所有者的 next-step inbox。应用上限时，即使采用 PTY 支持的 64 字节下限，稳定 id 前缀和收集命令的优先级也高于可变 label/detail，因此通知仍可操作。注入是等待后续 pre-step 领取的持久上下文，并非唤醒；取消或 owner 释放可能在领取前丢弃它。kill 或针对已终止任务的 read/wait 会把交付标为已报告，并抑制重复通知。
 
 ## 配置
 
