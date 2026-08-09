@@ -554,7 +554,7 @@ async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult>
 
 Types: [ScopeKey](scope.md)
 
-Source: [`packages/core/tools/src/index.ts:746`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:747`](../../packages/core/tools/src/index.ts)
 
 <a id="tools-events"></a>
 
@@ -579,7 +579,7 @@ A tool was registered or unregistered, or a scoped restriction changed (the avai
 'tools/change'(): void
 ```
 
-Source: [`packages/core/tools/src/index.ts:191`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:192`](../../packages/core/tools/src/index.ts)
 
 <a id="toolscode-dispatch-log--waterfall"></a>
 
@@ -605,7 +605,7 @@ Shape the DURABLE LOG COPY of one `run_code` sub-dispatch outcome before the bri
 
 Types: [ContentBlock](llm-streaming.md) · [Scoped](scope.md)
 
-Source: [`packages/core/tools/src/index.ts:173`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:174`](../../packages/core/tools/src/index.ts)
 
 <a id="toolsexecute--waterfall"></a>
 
@@ -629,7 +629,7 @@ Around-dispatch waterfall for timeout, retry, or metrics. `next()` returns a nor
 
 Types: [Scoped](scope.md)
 
-Source: [`packages/core/tools/src/index.ts:148`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:149`](../../packages/core/tools/src/index.ts)
 
 <a id="toolspost-execute--waterfall"></a>
 
@@ -654,7 +654,7 @@ Accept, replace, enrich, or block a normalized dispatch result. `next()` accepts
 
 Types: [Scoped](scope.md)
 
-Source: [`packages/core/tools/src/index.ts:160`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:161`](../../packages/core/tools/src/index.ts)
 
 <a id="toolspre-execute--waterfall"></a>
 
@@ -677,7 +677,7 @@ Allow, deny, or ask before dispatch. `next()` delegates to allow; missing approv
 
 Types: [Scoped](scope.md)
 
-Source: [`packages/core/tools/src/index.ts:137`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:138`](../../packages/core/tools/src/index.ts)
 
 <a id="toolsresult--emit"></a>
 
@@ -698,5 +698,5 @@ Observe the frozen, lossless-JSON final outcome. Listener failures are contained
 
 Types: [Scoped](scope.md)
 
-Source: [`packages/core/tools/src/index.ts:181`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:182`](../../packages/core/tools/src/index.ts)
 <!-- END GENERATED cordis-surface -->
