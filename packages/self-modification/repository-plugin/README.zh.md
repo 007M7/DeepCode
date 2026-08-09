@@ -122,6 +122,7 @@ Namespace 插件：具名导出 `name`／`inject`／`apply`、准备阶段常量
 
 ## 已知限制与暂缓事项
 
+- **skill 贡献到达不了由 preset 组装的会话**：`dsh.skills` 会把一个宿主面 provider 挂进宿主 `skills` 注册表，而 agent 面移入 agent preset 的组合把该注册表搬进了每个 preset 的私有 realm：此时包装层没有可等待的宿主注册表，即便注册进宿主目录也到不了任何会话面向模型的 skill 面。在 skills 注册表获得 tools 注册表那样的宿主＋按作用域分层（或 repository skill 改为以目录交付、由 preset 的 provider 扫描）之前，preset 组装的部署不应声明 `dsh.skills`；MCP 与入口贡献不受影响，因为 tools 注册表在宿主面且分层。
 - **没有代码沙箱**：`dsh.entry`、NPM 依赖和包生命周期脚本以 DSH 宿主权限执行；必须信任该 repository。
 - **入口专用服务依赖不会预先门控**：生成的包装层无法在导入入口模块前声明其 `inject`。除 skill 或 MCP 隐含的服务外，其他任何服务在包装层挂载入口时都必须已经存在，否则该 repository generation 会被拒绝。
 - **没有 MCP 认证协议**：静态 header 可以使用环境变量展开，但带 OAuth 的定义会被拒绝，私有 server 登录流程不在此实现。

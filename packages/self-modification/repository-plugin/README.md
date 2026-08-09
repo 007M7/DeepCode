@@ -122,6 +122,7 @@ Stable registrations preserve the owning surface's normal prefix behavior. Loadi
 
 ## Known Limitations and Deferred Work
 
+- **Skill contributions do not reach preset-composed sessions** — `dsh.skills` mounts a host-plane provider into the host `skills` registry, but a composition whose agent plane lives behind agent presets moves that registry into each preset's private realm: the wrapper then has no host registry to wait on, and a host-registered catalog would not reach any session's model-facing skill surface either. Until the skills registry grows the host+per-scope layering the tools registry has (or repository skills are delivered as directories a preset's provider scans), a preset-composed deployment should not declare `dsh.skills`; MCP and entry contributions are unaffected because the tools registry is host-plane and layered.
 - **No code sandbox** — `dsh.entry`, npm dependencies, and package lifecycle scripts execute with the DSH host's authority; repository trust is mandatory.
 - **Entry-only service dependencies are not pre-gated** — the generated wrapper cannot declare an entry module's `inject` before importing it. Any service beyond those implied by Skills or MCP must already exist when the wrapper mounts the entry, or that repository generation rejects.
 - **No MCP authentication protocol** — static headers may use environment expansion, but OAuth-bearing definitions reject and private-server login flows are not implemented here.

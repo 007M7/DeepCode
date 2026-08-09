@@ -125,7 +125,11 @@ async function startPublishedPackageRegistry(root: string): Promise<PublishedPac
 }
 
 describe.skipIf(!enabled)('dsh run GitHub repository Plugin installation', () => {
-  it('installs the published prepare dependency, then builds and runs skill, MCP, and TypeScript Plugin contributions from a private exact GitHub source', async () => {
+  // The fixture deliberately carries no skill root: this composition's agent
+  // plane lives behind agent presets, whose per-preset `skills` realm has no
+  // seam for a deployment-level provider yet — see the repository-plugin
+  // README's Known Limitations.
+  it('installs the published prepare dependency, then builds and runs MCP and TypeScript Plugin contributions from a private exact GitHub source', async () => {
     expect(existsSync(dshBin), 'the repository Plugin acceptance must run the built dsh entry').toBe(true)
     expect(source, 'DSH_GITHUB_REPOSITORY_PLUGIN_SOURCE is required by this CI lane').toMatch(
       /^github:[^/\s#&]+\/[^/\s#&]+#[0-9a-f]{40}&path:\/.*\/\.dsh-plugin$/u,
@@ -201,9 +205,6 @@ describe.skipIf(!enabled)('dsh run GitHub repository Plugin installation', () =>
       expect(registry.requests, runtimeDiagnostic).toContain('GET /@deepseek-ai/dsh-repository-plugin/-/dsh-repository-plugin-0.0.1.tgz')
       const firstRequest = JSON.stringify(server.requests[0]!.body)
       const secondRequest = JSON.stringify(server.requests[1]!.body)
-      expect(firstRequest, runtimeDiagnostic).toContain(
-        'Proves that dsh installed a private repository Plugin from an exact GitHub source.',
-      )
       expect(firstRequest, runtimeDiagnostic).toContain('mcp__github_repository__proof')
       expect(firstRequest, runtimeDiagnostic).toContain('Proves that an MCP server compiled from the exact GitHub repository package is active.')
       expect(secondRequest, runtimeDiagnostic).toContain('MCP_FROM_GITHUB_REPOSITORY')
@@ -221,7 +222,6 @@ describe.skipIf(!enabled)('dsh run GitHub repository Plugin installation', () =>
           prepack: 'tsc --noEmit && tsdown src/plugin.ts src/mcp-server.ts --no-config --tsconfig tsconfig.json --out-dir lib --platform node --target es2024 --clean && dsh-plugin-prepare',
         },
         dsh: {
-          skills: ['../skills'],
           mcpServers: './.mcp.json',
           entry: './lib/plugin.mjs',
         },
@@ -235,8 +235,6 @@ describe.skipIf(!enabled)('dsh run GitHub repository Plugin installation', () =>
           typescript: '6.0.3',
         },
       })
-      expect(readFileSync(join(installed, 'dsh-plugin-assets/skills/0/github-source-proof/SKILL.md'), 'utf8'))
-        .toContain('This skill exists only in the GitHub repository source fixture.')
       expect(readFileSync(join(installed, 'dsh-plugin-assets/.mcp.json'), 'utf8')).toContain('lib/mcp-server.mjs')
       expect(readFileSync(join(installed, 'lib/plugin.mjs'), 'utf8')).toContain('TS_PLUGIN_FROM_GITHUB_REPOSITORY')
       expect(readFileSync(join(installed, 'lib/mcp-server.mjs'), 'utf8')).toContain('MCP_FROM_GITHUB_REPOSITORY')
