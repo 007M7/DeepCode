@@ -12,6 +12,9 @@
     "prepack": "tsc --noEmit && tsdown src/plugin.ts src/mcp-server.ts --no-config --tsconfig tsconfig.json --out-dir lib --platform node --target es2024 --clean && dsh-plugin-prepare"
   },
   "dsh": {
+    "skills": [
+      "../skills"
+    ],
     "mcpServers": "./.mcp.json",
     "entry": "./lib/plugin.mjs"
   },
