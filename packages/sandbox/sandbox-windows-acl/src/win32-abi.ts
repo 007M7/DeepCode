@@ -70,6 +70,15 @@ export const FILE_DELETE_CHILD = 0x0040
  */
 export const GRANT_MASK = (FILE_GENERIC_WRITE | DELETE | FILE_DELETE_CHILD) & ~STANDARD_RIGHTS_WRITE // 0x00110156
 
+/**
+ * FILE_ALL_ACCESS (winnt.h line ~2789: STANDARD_RIGHTS_REQUIRED | SYNCHRONIZE
+ * | 0x1FF): full file-object access. The mask of the ACE merged into the
+ * restricted token's DEFAULT DACL — the token holder must keep full access to
+ * every NEW object it creates (pipes included), and the ACE must name a
+ * restricting SID so the write pass-2 check passes at creation.
+ */
+export const FILE_ALL_ACCESS = 0x1F01FF
+
 // CreateRestrictedToken flags (winnt.h lines ~4284)
 /** DISABLE_MAX_PRIVILEGE: strip the token's maximum-privilege elevation so the confined child cannot escalate. */
 export const DISABLE_MAX_PRIVILEGE = 0x1
@@ -85,6 +94,8 @@ export const WinWorldSid = 1
 // TOKEN_INFORMATION_CLASS (winnt.h line ~3963: TokenUser=1, TokenGroups=2)
 /** TokenGroups: GetTokenInformation class returning the token's group SIDs. */
 export const TokenGroups = 2
+/** TokenDefaultDacl: the token's default DACL — the DACL every NEW object created without an explicit SD takes. */
+export const TokenDefaultDacl = 6
 
 // SECURITY_INFORMATION (winnt.h line ~4293)
 /** DACL_SECURITY_INFORMATION: read/write only the DACL of a security descriptor. */

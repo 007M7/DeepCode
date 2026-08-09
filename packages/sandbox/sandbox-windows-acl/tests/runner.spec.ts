@@ -189,6 +189,37 @@ describe.skipIf(!isWin32 || !pwshAvailable())('windows-acl runner', () => {
     }
   }, 30_000)
 
+  it('confined children spawn grandchildren with inherited stdio; piped capture stays denied (named-pipe default SD template)', () => {
+    // Two-layer pin of the grandchild-spawn boundary:
+    //  - the token default DACL carries a restricting-SID ACE (set in init),
+    //    so ANONYMOUS pipe creation (CreatePipe — the token-default-DACL
+    //    consumer) works and inherited/ignored stdio spawns succeed;
+    //  - libuv's pipe-stdio uses NAMED pipes, whose default security
+    //    descriptor is the kernel's PUBLIC template (owner/SYSTEM/Admins
+    //    full, Everyone read-only) — NOT the token default DACL — so the
+    //    client-end open requests write access no restricting SID is
+    //    granted: ERROR_ACCESS_DENIED, surfaced as spawn EPERM. That is the
+    //    POC-documented "no output redirection" boundary of WRITE_RESTRICTED
+    //    tokens; piped capture cannot work and is pinned as DENIED.
+    const probe = [
+      "const { spawnSync } = require('child_process');",
+      "const t = (name, opts) => { const s = spawnSync(process.execPath, ['-e', '1'], { encoding: 'utf8', ...opts }); console.log(name + ':' + (s.status === 0 ? 'OK' : 'DENIED')); };",
+      "t('inherit', { stdio: 'inherit' });",
+      "t('ignore', { stdio: 'ignore' });",
+      "t('pipe', { stdio: 'pipe' });",
+    ].join('')
+    for (const mode of ['workspace-write', 'read-only'] as const) {
+      const result = runRunner([
+        '--workspace', writableDir, '--temp', isolatedTemp, '--mode', mode,
+        '--', 'node', '-e', probe,
+      ])
+      expect(result.status, `stderr: ${result.stderr}`).toBe(0)
+      expect(result.stdout, `mode: ${mode}`).toContain('inherit:OK')
+      expect(result.stdout, `mode: ${mode}`).toContain('ignore:OK')
+      expect(result.stdout, `mode: ${mode}`).toContain('pipe:DENIED')
+    }
+  }, 30_000)
+
   it('mode-downgrade leak regression: a STANDING workspace grant is inert under read-only and effective again on re-upgrade', () => {
     // The reported defect: a session that materialized its grant in
     // workspace-write keeps the ACE standing for the server lifetime. After

@@ -43,7 +43,7 @@ runner 创建受限令牌，在它之下 spawn 包装后的 argv，调用者的 
 
 模式（令牌的 restricting-SID 列表随模式而变；保活组登录 SID + Everyone 在**两种**模式下都存在——没有它们早期 DLL 初始化会以 `0xC0000142` 死亡、CNG 会让 pwsh 以 `0xE0434352` 崩溃）：
 - `workspace-write`（登录 SID、Everyone、写入 SID）：工作区与会话的**私有**临时子目录携带写入 SID 的 Write 授权；其余写全部被令牌交集拒绝。
-- `read-only`（登录 SID、Everyone——**不含**写入 SID）：**严格零授权**——没有任何可写位置。写入 SID 有意留在列表**之外**：先前 workspace-write 时期留下的常驻授权 ACE（`/permission` 降级，或崩溃后恢复的会话）在 read-only 下保持**失效**，因为 write-restricted 的 pass-2 检查只授予 restricting 列表所携带的内容——而常驻 ACE 让重新升级免于重新传播。NUL 设备是带安全描述符的对象，同样不被授权（区别于 Linux 的 `/dev/null` sink）：`Set-Content NUL` 与原生 `> NUL` 写会以 access denied 失败，而 PowerShell 的 `> $null` 重定向不受影响（它直接丢弃、不打开 NUL）。
+- `read-only`（登录 SID、Everyone——**不含**写入 SID）：**严格零授权**——没有任何可写位置。写入 SID 有意留在列表**之外**：先前 workspace-write 时期留下的常驻授权 ACE（`/permission` 降级，或崩溃后恢复的会话）在 read-only 下保持**失效**，因为 write-restricted 的 pass-2 检查只授予 restricting 列表所携带的内容——而常驻 ACE 让重新升级免于重新传播。NUL 写入是**环境性**的、不是被授权的：设备 DACL 授予 Everyone 读+写+执行（`0x1201BF`），因此访问掩码落在其内的打开者（cmd 的 `> NUL`、node 的 `\\.\NUL`）在**两种**模式下都能写——只要 Everyone 还在保活组里，沙盒就无法把 NUL 设备归零。`Set-Content NUL` 在两种模式下都失败（PowerShell/.NET 层效应，由 read-only 套件钉住——拒绝方不是设备 DACL）；PowerShell 的 `> $null` 重定向不受影响（它直接丢弃、不打开 NUL）。
 
 Authenticated Users 在**两种**列表中都不存在——WMI 命名空间安全检查失败（`0x80041003`），因此 CIM cmdlet 与 `Get-ComputerInfo`（它静默返回不完整结果而非报错）在**所有**受限模式下都不可用，且 C:\-root 树创建逃逸（常驻的 `AU:(AD)` + `AU:(OI)(CI)(IO)(M)` ACE）在两种模式下都被关闭——面向模型的表面记录的是该契约，而不是提示词承诺。INTERACTIVE/LOCAL 在两种列表中同样不存在：宿主的 Public 树向 INTERACTIVE 授予写权限，因此 Public 写入被拒绝——由 runner 的环境可写 Public 探针回归测试钉住（见设计笔记）。
 
@@ -83,6 +83,7 @@ koffi 结构体定义在模块加载时对照探针断言其大小，因此头�
 - **清理尽力而为** —— `dispose()` 会尝试全部临时撤销并把失败聚合为 `AggregateError`；清理失败只会留下仅含写入 SID 的临时 ACE，本进程下次 `init()`/`dispose()` 循环或 `icacls`（按 ACE 而非受托者名）仍可清除。
 - **常驻工作区 ACE 是不可见残留。** 工作区改名会派生新的 SID；旧路径上的旧 ACE 留在原地（失效、仅含写入 SID）。未来的清理命令可以回收它们；它们不会引起任何重新传播。
 - **NULL-DACL 目录在 grant+revoke 往返下不保持身份。** 带 NULL DACL 的目录（罕见——Windows 创建的目录都带真实 DACL）意味着「所有人完全控制」；`grantWrite` 从该 null 构建新 ACL，撤销往返后留下的是 EMPTY（全部拒绝）DACL 而非原始 NULL DACL。POC 行为相同；真实工作区与临时目录都带真实 DACL，因此这仍是记录在案的边界情形而非守护路径。
+- **受限孙进程的管道 stdio 捕获不可用（named pipe 的默认 SD 模板）。** libuv 的管道 stdio 用的是 NAMED pipe；不带安全属性调用 `CreateNamedPipeW` 时，其默认安全描述符是内核的**公共模板**（owner/SYSTEM/Admins 全权，Everyone/ANONYMOUS 只读）——**不是**令牌默认 DACL——因此 client 端打开所请求的写访问没有任何 restricting SID 被授予：受限进程内 `spawn(..., { stdio: 'pipe' })` 以 EPERM 失败，这是 POC 记载的 WRITE_RESTRICTED「无法重定向输出」边界。继承（`inherit`/fd）与忽略（`ignore`）stdio 的 spawn 可用；匿名管道（CreatePipe——令牌默认 DACL 的消费者，例如 PowerShell 的管道）因受限令牌默认 DACL 携带 restricting SID 全权 ACE（init 时写入）而可用。受限进程因此无法用管道捕获孙进程输出；必须捕获输出的工具无法在受限下运行。
 - **授权物化是急切的全树传播。** 在带可继承 ACE 的目录上调用 `SetNamedSecurityInfoW` 会立即遍历每个后代（**不是**按访问惰性进行——大型工作区树上实测数十秒，加上真实临时根目录）。按工作区身份每台机器每个工作区只付一次（在首次受限执行时惰性进行，之后每次供给在精确 ACE 常驻时完全跳过）。如果工作区巨大，该主机上的第一次受限写入相应变慢。
 - **两个服务器进程并发恢复同一会话会竞争记录。** 持久记录在会话日志中；两个进程独立读取或供给它——派生出的写入 SID 相同，每路径锁保持 DACL 合并一致，私有临时目录的竞争以后写记录对后续恢复生效而解决。单写者会话用法（常规部署）永远不会遇到。
 - **读侧隔离与网络策略不在范围内** —— `WRITE_RESTRICTED` 只交叉检查写访问；将此后端与读侧策略配对以获得更强隔离。

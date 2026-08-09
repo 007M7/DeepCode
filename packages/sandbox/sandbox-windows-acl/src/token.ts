@@ -9,6 +9,7 @@
 
 import { allocBytes, allocPtrSlot, allocUint32, decodePtr, decodePtrAt, decodeUint32, encodeUint32, isNullPtr, ptrAddress, throwLastError, throwWin32 } from './ffi.ts'
 import type { NativePtr, Win32Bindings } from './ffi.ts'
+import { buildExplicitAccess } from './acl.ts'
 import * as abi from './win32-abi.ts'
 
 /**
@@ -90,6 +91,57 @@ export function makeWellKnownSid(api: Win32Bindings, type: number): NativePtr {
   }
   if (api.isValidSid(sid) === 0) throwLastError(api, 'IsValidSid', `CreateWellKnownSid type ${type}`)
   return sid
+}
+
+/**
+ * Merge one full-access allow ACE for `sidPtr` into the token's DEFAULT DACL
+ * — the DACL every NEW object the token holder creates (without an explicit
+ * security descriptor) takes. The restricted token inherits the user's
+ * default DACL verbatim, which names no restricting SID: a new anonymous pipe
+ * (child stdio) therefore fails the write pass-2 check at creation
+ * (ERROR_ACCESS_DENIED; Node surfaces it as spawn EPERM), breaking every
+ * piped-stdio grandchild spawn. The merged ACE names a RESTRICTING SID (the
+ * write SID under workspace-write, Everyone under read-only), so each new
+ * object's own DACL passes pass-2 while object creation itself stays gated by
+ * the parent container's DACL (files outside the granted trees remain
+ * uncreatable). Fails closed: any Win32 failure throws before the spawn.
+ * @param api - the binding table.
+ * @param token - the restricted token to adjust (requires TOKEN_ADJUST_DEFAULT).
+ * @param sidPtr - the restricting SID whose full-access ACE joins the default DACL.
+ */
+export function setTokenDefaultDaclGrant(api: Win32Bindings, token: NativePtr, sidPtr: NativePtr): void {
+  const neededSlot = allocUint32()
+  api.getTokenInformation(token, abi.TokenDefaultDacl, null, 0, neededSlot) // expected to fail with ERROR_INSUFFICIENT_BUFFER
+  const needed = decodeUint32(neededSlot)
+  if (needed === 0) throwLastError(api, 'GetTokenInformation', 'TokenDefaultDacl size query')
+  const buffer = Buffer.alloc(needed)
+  if (api.getTokenInformation(token, abi.TokenDefaultDacl, buffer, buffer.length, neededSlot) === 0) {
+    throwLastError(api, 'GetTokenInformation', 'TokenDefaultDacl')
+  }
+  const currentDacl = decodePtrAt(buffer, 0)
+  if (currentDacl === null) {
+    throw new Error('setTokenDefaultDaclGrant: the token carries no default DACL to extend')
+  }
+  const newDaclSlot = allocPtrSlot()
+  const result = api.setEntriesInAclW(
+    1,
+    buildExplicitAccess(sidPtr, abi.GRANT_ACCESS, abi.FILE_ALL_ACCESS),
+    currentDacl,
+    newDaclSlot,
+  )
+  if (result !== abi.ERROR_SUCCESS) throwWin32(api, 'SetEntriesInAclW', result, 'default DACL merge')
+  const newDacl = decodePtr(newDaclSlot)
+  if (newDacl === null) throwWin32(api, 'SetEntriesInAclW', result, 'null merged default DACL')
+  // TOKEN_DEFAULT_DACL { PACL DefaultDacl; } — the struct is exactly the
+  // pointer; SetTokenInformation copies the ACL before returning.
+  const info = Buffer.alloc(8)
+  info.writeBigUInt64LE(newDacl, 0)
+  if (api.setTokenInformation(token, abi.TokenDefaultDacl, info, info.length) === 0) {
+    const win32Code = api.getLastError()
+    api.localFree(newDacl)
+    throwWin32(api, 'SetTokenInformation', win32Code, 'TokenDefaultDacl')
+  }
+  api.localFree(newDacl)
 }
 
 /** Pack `SID_AND_ATTRIBUTES[count]` (16-byte stride; Attributes stay 0). */

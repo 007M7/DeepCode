@@ -76,6 +76,7 @@ export interface Win32Bindings {
   copySid(length: number, destination: NativePtr, source: NativePtr): number
   // ---- token information ---------------------------------------------------
   getTokenInformation(token: NativePtr, cls: number, info: Buffer | null, length: number, needed: NativePtr): number
+  setTokenInformation(token: NativePtr, cls: number, info: Buffer, length: number): number
   // ---- restricted token ----------------------------------------------------
   createRestrictedToken(
     existing: NativePtr, flags: number,
@@ -392,6 +393,7 @@ function bindings(): Win32Bindings {
     getLengthSid: bind(advapi32, 'GetLengthSid', 'uint32', [PVOID]),
     copySid: bind(advapi32, 'CopySid', 'int', ['uint32', PVOID, PVOID]),
     getTokenInformation: bind(advapi32, 'GetTokenInformation', 'int', [PVOID, 'int', PVOID, 'uint32', koffi.pointer('uint32')]),
+    setTokenInformation: bind(advapi32, 'SetTokenInformation', 'int', [PVOID, 'int', PVOID, 'uint32']),
     createRestrictedToken: bind(advapi32, 'CreateRestrictedToken', 'int', [PVOID, 'uint32', 'uint32', PVOID, 'uint32', PVOID, 'uint32', PVOID, PPVOID]),
     setEntriesInAclW: bind(advapi32, 'SetEntriesInAclW', 'uint32', ['uint32', PVOID, PVOID, PPVOID]),
     setNamedSecurityInfoW: bind(advapi32, 'SetNamedSecurityInfoW', 'uint32', ['str16', 'int', 'uint32', PVOID, PVOID, PVOID, PVOID]),

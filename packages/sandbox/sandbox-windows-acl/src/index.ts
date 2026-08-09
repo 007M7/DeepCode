@@ -47,7 +47,7 @@ import { Win32Error } from './errors.ts'
 import { allocPtrSlot, decodePtr, getTempPath, isNullPtr, throwLastError, win32 } from './ffi.ts'
 import type { NativePtr, Win32Bindings } from './ffi.ts'
 import { drainPipe, spawnSandboxed, spawnSandboxedInherited, waitForExit } from './spawn.ts'
-import { createRestrictedToken, findLogonSid, makeWellKnownSid, openCurrentProcessToken } from './token.ts'
+import { createRestrictedToken, findLogonSid, makeWellKnownSid, openCurrentProcessToken, setTokenDefaultDaclGrant } from './token.ts'
 import * as abi from './win32-abi.ts'
 
 export { quoteArg } from './spawn.ts'
@@ -61,8 +61,9 @@ export interface AclSandboxOptions {
   writableDirs: readonly string[]
   /**
    * Temp directory to also grant; defaults to GetTempPathW() at init time.
-   * Pass null for read-only confinement: NO temp grant (strict zero write
-   * allowance — not even the NUL device is writable, see README).
+   * Pass null for read-only confinement: NO temp grant (strict zero grant on
+   * the filesystem; the NUL device stays ambient-writable via Everyone — see
+   * README).
    */
   tempDir?: string | null
   /**
@@ -232,6 +233,16 @@ export class AclSandbox {
         { world: worldSid },
         this.mode,
       )
+      // The restricted token's default DACL still names only the user's
+      // ambient SIDs — none of the restricting SIDs. Every NEW object the
+      // confined process creates (anonymous stdio pipes, sync objects) takes
+      // its DACL from that default, so the write pass-2 check would deny
+      // pipe creation (ERROR_ACCESS_DENIED; Node EPERM) and break every
+      // piped-stdio grandchild spawn. Merge a full-access ACE for a
+      // restricting SID (the write SID under workspace-write, Everyone under
+      // read-only): new-object creation stays gated by the parent object's
+      // DACL, while the new object's own DACL passes pass-2.
+      setTokenDefaultDaclGrant(api, restricted, writeSidPtr ?? worldSid)
       this.token = restricted
       if (api.closeHandle(currentToken) === 0) throwLastError(api, 'CloseHandle', 'current process token')
       this.api = api
