@@ -28,7 +28,7 @@ One repo-wide purge applied these rules across the prose surfaces, including the
 
 ## Verification
 
-The audit's grep batteries (English and Chinese, comments and prose, `--hidden` for `.agents/`) return no design-ordinal citations outside recorded fixtures, archived notes, and the trim skill's own calibration examples; `verify-type-equiv`, the `gen-*` freshness checks, and `verify-translation-pairing` pin the regenerated and re-recorded surfaces. Coverage gap: no gate rejects a new ordinal citation — review owns the rule.
+The audit's grep batteries (English and Chinese, comments and prose, `--hidden` for `.agents/`) return no design-ordinal citations outside recorded fixtures, archived notes, the trim skill's own files, and this note's quoted evidence; `verify-type-equiv`, the `gen-*` freshness checks, and `verify-translation-pairing` pin the regenerated and re-recorded surfaces. Coverage gap: no gate rejects a new ordinal citation — review owns the rule.
 
 ## Consequences
 
