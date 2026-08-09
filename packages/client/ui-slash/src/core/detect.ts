@@ -1,5 +1,5 @@
 /**
- * Trigger detection pure core (design §5.1, plan §1.2). Scans backward from
+ * Trigger detection pure core. Scans backward from
  * the caret for a live trigger char under the guard tier and applies the
  * word-boundary rules. Zero React / DOM / cordis.
  */

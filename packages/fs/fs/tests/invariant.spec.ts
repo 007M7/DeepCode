@@ -28,17 +28,28 @@ describe('filesystem invariants', () => {
       ctx as never, 'fs/edit-intent', target(), undefined,
       () => Promise.resolve(undefined),
     )).resolves.toBeUndefined()
-    expect(() => { ctx.emit('fs/observed', target(), FsVersion('v1'), undefined) }).not.toThrow()
+    expect(() => {
+      ctx.emit('fs/observed', target(), { kind: 'present', version: FsVersion('v1') }, undefined)
+    }).not.toThrow()
+    expect(() => { ctx.emit('fs/observed', target(), { kind: 'absent' }, undefined) }).not.toThrow()
     expect(() => { ctx.emit('tools/change') }).not.toThrow()
   })
 
   it('rejects empty target and version identities', async () => {
     const ctx = await setup()
-    expect(() => { ctx.emit('fs/observed', target(''), FsVersion('v1'), undefined) })
+    expect(() => {
+      ctx.emit('fs/observed', target(''), { kind: 'present', version: FsVersion('v1') }, undefined)
+    })
       .toThrow(/targetKey must be non-empty/)
-    expect(() => { ctx.emit('fs/observed', target('file:1', ''), FsVersion('v1'), undefined) })
+    expect(() => {
+      ctx.emit('fs/observed', target('file:1', ''), { kind: 'present', version: FsVersion('v1') }, undefined)
+    })
       .toThrow(/displayPath must be non-empty/)
-    expect(() => { ctx.emit('fs/observed', target(), FsVersion(''), undefined) })
-      .toThrow(/version must be non-empty/)
+    expect(() => {
+      ctx.emit('fs/observed', target(), { kind: 'present', version: FsVersion('') }, undefined)
+    }).toThrow(/present version must be non-empty/)
+    expect(() => {
+      ctx.emit('fs/observed', target(), { kind: 'unknown' } as never, undefined)
+    }).toThrow(/kind must be present or absent/)
   })
 })

@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-钩子子系统以 Claude Code 和 Codex 的方式运行外部钩子命令：钩子是一条 shell 命令，通过 **stdin 上的 JSON** 接收事件载荷，并从若干**环境变量**（`CLAUDE_PROJECT_DIR`、`CLAUDE_PLUGIN_ROOT`、`PLUGIN_ROOT`……）读取上下文。harness 已经在 `ctx.bash` 能力 seam 后面有一个完善的命令执行器（[dsh-bash](../../../../packages/bash/bash) → [dsh-bash-local](../../../../packages/bash/bash-local)），具备进程组终止、输出截断/溢出处理和凭证擦除功能。复用它来执行钩子意味着钩子桥接层无需重新实现子进程管道——但该 seam 此前无法写入 stdin 或设置额外 env。本 Agent Note 添加这两个输入。
+钩子子系统以 Claude Code 和 Codex 的方式运行外部钩子命令：钩子是一条 shell 命令，通过 **stdin 上的 JSON** 接收事件载荷，并从若干**环境变量**（`CLAUDE_PROJECT_DIR`、`CLAUDE_PLUGIN_ROOT`、`PLUGIN_ROOT`……）读取上下文。harness 已经在 `ctx.bash` 能力 seam 后面有一个完善的命令执行器（[dsh-bash](../../../../packages/bash/bash) → [dsh-bash-local](../../../../packages/bash/bash-local)），具备进程组终止、输出截断/溢出处理和凭证擦除功能。复用它来执行钩子意味着钩子桥接层无需重新实现子进程管道——但该 seam 此前无法写入 stdin 或设置额外 env。本次变更添加这两个输入。
 
 `stdin` 和 `env` 不构成新的模型能力，因为普通 shell 语法已经能提供两者。环境凭证由 `dsh-bash-local` 的子环境擦除机制保护，而非靠隐藏这些 Service Definition 字段；模型工具参数是静态 JSON，不会展开 shell 变量。因此这些字段服务于受信的进程内调用方（如钩子桥接层），它们需要传递结构化输入和 `CLAUDE_*` 变量，而不必将其嵌入模型可见的 shell 文本。环境变量规则见 [defensive-patterns.md](../../../../docs/defensive-patterns.md)。
 

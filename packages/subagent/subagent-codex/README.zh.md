@@ -12,7 +12,7 @@
 
 对于命令与文件审批，无人值守的提供方会从请求给出的决策选项中选择一项不予批准的决策，并优先选择 `cancel`；稳定的 0.146.0 请求形态没有决策选项列表，因此回退到 `decline`。它对权限请求返回作用域限于当前轮次的空权限集，不向用户输入请求提供任何答案，并拒绝 MCP elicitation。若请求在无人值守模式下没有合法响应，或是未知服务器请求，此次运行就会失败。
 
-本地取消会在结果竞态中胜出并映射为 `aborted`。失败轮次的 `codexErrorInfo` 若为 `contextWindowExceeded`，则映射为 `max-tokens`；其他任何远端中断或失败轮次都映射为 `error`，且本版本不会产生 `refusal`。`dispose()` 具有幂等性：如果当前的两个标识符均已知，它会尽力请求 `turn/interrupt`，关闭 JSON-RPC 通信链路，结束标准输入，调用共享的进程树逐级终止机制，并等待整棵进程树退出。结果失败与独立的清理失败仍彼此分离。
+本地取消会在结果竞态中胜出并映射为 `aborted`。失败轮次的 `codexErrorInfo` 若为 `contextWindowExceeded`，则映射为 `max-tokens`；其他任何远端中断或失败轮次都映射为 `error`，且该提供方不会产生 `refusal`。`dispose()` 具有幂等性：如果当前的两个标识符均已知，它会尽力请求 `turn/interrupt`，关闭 JSON-RPC 通信链路，结束标准输入，调用共享的进程树逐级终止机制，并等待整棵进程树退出。结果失败与独立的清理失败仍彼此分离。
 
 ## 能力与上下文
 
@@ -47,7 +47,7 @@
 
 ## 产品兼容性与证据
 
-生产环境的协议层有意只实现这一单次执行约定所需的 app-server 方法。开发证据锁定在 `@openai/codex@0.146.0` / `codex-cli 0.146.0`：无密钥真实产品测试使用非空的伪密钥，驱动官方二进制程序连接回环 Responses 服务，并证明任务、身份验证、精确回答、取消、审批与进程树退出。独立的 Loader 装配 e2e 会在没有可用 `codex` 命令时启动与 README 同形的用户配置，验证固定提供方与只支持前台执行的工具 schema，并记录零次子级启动。带密钥 e2e 会启动生产提供方和真实 Codex，再通过一个仅限回环、将 Responses 转为 Chat Completions 的测试桥接层，从固定的 DeepSeek 官方服务获得唯一答案；该桥接层既不属于生产功能，也不代表 Codex 原生支持 DeepSeek 的 Chat Completions API。该 NPM 包仅作为测试依赖；部署环境仍需通过 `PATH` 提供 `codex`。
+生产环境的协议层有意只实现这一单次执行约定所需的 app-server 方法。开发证据锁定在 `@openai/codex@0.146.0` / `codex-cli 0.146.0`；该 NPM 包仅作为测试依赖，部署环境仍需通过 `PATH` 提供 `codex`。
 
 ## 模型体验
 

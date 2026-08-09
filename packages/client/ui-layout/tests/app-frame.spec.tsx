@@ -164,7 +164,7 @@ describe('AppFrame', () => {
   })
 
   it('renders both column occupants before baselines settle (no loading gate)', () => {
-    // User ruling: the bare loading status looked worse than the shell's own
+    // No loading gate: a bare loading status reads worse than the shell's own
     // pending rendering — both occupants mount from first paint.
     baselinesReady.current = false
     const { slotCalls } = mountFrame()

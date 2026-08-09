@@ -12,7 +12,7 @@ Web 插件表：[dsh-client-modules](../../packages/client/modules) 中 client �
 
 ```ts type-equiv
 /**
- * One composed client entry pushed by the host (web2 §0 graph row). Wire
+ * One composed client entry pushed by the host (a graph row). Wire
  * single source: the host node half (package root) produces this same shape.
  * `immediately` marks stage-one prefetch; `inject` is informational graph
  * metadata (the authoritative edges live in each package's dshClient

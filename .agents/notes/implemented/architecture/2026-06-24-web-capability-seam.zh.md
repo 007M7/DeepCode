@@ -329,10 +329,10 @@ SSRF/私有网络防护（阻断私有、回环、链路本地、多播及其他
 - `web_fetch` 的 SSRF/私有网络防护：阻断私有、回环、链路本地、多播及其他非公开目的地，使 `web_fetch` 不再是 SSRF 原语。正确实现不仅仅是 URL 字符串检查——需要先 DNS 解析再连接到已验证的 IP（防御 DNS rebinding/TOCTOU）、跨重定向的每跳重新验证，以及 IPv6 边缘处理（私有范围、IPv4 映射地址）。所调研的参考实现均未做 IP 级阻断（OpenCode 做前缀检查后直接 fetch；Claude Code 依赖集中式主机名黑名单加「私有 URL 会失败」的提示词），因此没有可复制的实现，且这是 harness 唯一的 SSRF 防线——值得一次专门的设计/spike。在其落地之前，`web_fetch` 只能在无法触达敏感内部目标的部署中启用。
 - `pdf` `WebFetchBody` 类别：`local-http` 提供方将可文本提取的 PDF 解码（尽力而为、有上限、`truncated`）为 `{ kind: 'pdf'; content; pageCount? }` 分支，`tool-web` 渲染它。这是 fetch 而非 `web_extract`——PDF 获取是具体的 HTTP 200 加确定性的本地解码，不是提供方侧对非 HTTP 资源的提取。添加它是跨 `dsh-web`（声明分支）、提供方（解码 + 将「二进制拒绝」收窄为「拒绝二进制，但可文本提取的 PDF 除外」；需要 OCR 的扫描/图片 PDF 不在范围内）和 `tool-web`（渲染）的协调变更。封闭的 `WebFetchBody` 联合类型使消费方在新分支被处理之前编译失败。
 - 提供方支撑的提取作为独立的 `web_extract` 能力，而非静默扩展 `web_fetch`。
-- 推迟的权限系统落地后的权限策略集成。
+- 权限策略集成：权限系统现已存在（[沙箱与审批](../feature/2026-07-06-sandbox.md)、[web 权限预设](../feature/2026-07-23-web-permission-and-approval.md)），但只捆绑了沙箱模式与审批策略；web 权限策略仍未集成。
 - `query` 和 `maxResults` 之外的提供方无关搜索控制，待 Exa 和 Perplexity 都能诚实遵守时再添加。
 
 ## 开放问题
 
 - 产品应用包是否应在启动时探测 web 配置（当 web 被显式配置时将 `WEB_PROVIDER_CONFIGURED_MISSING`、`WEB_PROVIDER_CONFIGURED_UNAVAILABLE` 和 `WEB_PROVIDER_AMBIGUOUS` 视为致命错误），还是将配置错误留到首次执行时浮出？
-- 推迟的权限系统落地后，公开 web 访问的权限策略应放在哪里：`tools/execute` 上的专用 web 权限插件、提供方配置，还是两者兼有？
+- 在已交付的权限系统（[沙箱与审批](../feature/2026-07-06-sandbox.md)、[web 权限预设](../feature/2026-07-23-web-permission-and-approval.md)）中，公开 web 访问的权限策略应放在哪里：`tools/execute` 上的专用 web 权限插件、提供方配置，还是两者兼有？

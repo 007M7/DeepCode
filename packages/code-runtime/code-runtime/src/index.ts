@@ -21,8 +21,7 @@ export type {
  * Binding globals EVERY backend refuses because SOME backend owns the slot in
  * the program's namespace: `console` (the worker's log capture), and
  * `__dsh_main__`/`__builtins__`/`__name__` (the Python backend's bootstrap
- * wrapper and seeded module globals — that backend is a later PR in this
- * stack, see the [portable-identifier Agent
+ * wrapper and seeded module globals; see the [portable-identifier Agent
  * Note](../../../../.agents/notes/implemented/architecture/2026-07-31-code-runtime-portable-identifier-seam.md)),
  * and `__debug__`. One shared set — rather than each backend refusing only its
  * own slots — keeps the portability promise real: a namespace list valid on
@@ -68,12 +67,11 @@ export const DUNDER_MEMBER = /^__.+__$/
  * Reserved words of every portable target language (ECMAScript ∪ Python),
  * refused as {@link CodeBindingNamespace.global} / error-class names by all
  * backends. Python is a portability target here even though only the
- * TypeScript worker ships in this PR (the CPython backend is a later PR in the
- * stack). The portable-identifier contract promises a namespace list valid
- * on one backend is valid on every backend; a per-language check would let
- * `lambda` pass the TypeScript backend and fail the Python one. Extending the
- * seam with a new language means widening this union (a breaking review of
- * existing binding names, by design).
+ * TypeScript worker has a published backend. The portable-identifier contract
+ * promises a namespace list valid on one backend is valid on every backend; a
+ * per-language check would let `lambda` pass the TypeScript backend and fail
+ * the Python one. Extending the seam with a new language means widening this
+ * union (a breaking review of existing binding names, by design).
  */
 export const PORTABLE_RESERVED_WORDS: ReadonlySet<string> = new Set([
   // ECMAScript reserved words and reserved-in-strict-mode names.

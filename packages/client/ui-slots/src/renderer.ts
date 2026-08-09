@@ -70,8 +70,9 @@ export interface SessionMaybeProvideInfo {
   /** Static plain-member roster; values are undefined with the session. */
   props: Record<string, unknown>
   /**
-   * Key-addressed projection value sources (the useProjection framework seat,
-   * session-projection RFC). Unlike `hooks`, the key space is open — values
+   * Key-addressed projection value sources (the useProjection framework seat;
+   * session-projection subsystem page: docs/subsystems/session-projection.md).
+   * Unlike `hooks`, the key space is open — values
    * arrive from host-computed push frames — so the render side binds per
    * resolved key instead of per static roster member. Faces are always
    * defined per key (absence is an `undefined` snapshot); the whole member is
@@ -87,11 +88,13 @@ export interface SessionProvideInfo extends SessionMaybeProvideInfo {
   hooks: Record<string, HostObservable<unknown>>
 }
 
-/** renderSlot dispatch options at the machinery level: keyed dispatch key, list filtering, empty fallback. */
+/** renderSlot dispatch options at the machinery level. */
 export interface RenderOpts {
   entryKey?: string
   only?: string
   fallback?: ReactNode
+  /** Opaque occurrence context consumed only by function-valued injected Hooks. */
+  hookContext?: unknown
 }
 
 /** Host surface the runtime SlotsService presents to the installed renderer. */

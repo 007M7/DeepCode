@@ -294,7 +294,7 @@ export interface SubagentProvider {
   /**
    * OPTIONAL (continuable-creation capability): contribute the detached
    * creation inputs that distinguish this provider's continuable children —
-   * today only whether the child session is seeded with parent history. Method
+   * only whether the child session is seeded with parent history. Method
    * presence IS the capability: the service rejects continuable starts on
    * providers without it, while a provider that has it may still serve
    * ordinary one-shot delegations.

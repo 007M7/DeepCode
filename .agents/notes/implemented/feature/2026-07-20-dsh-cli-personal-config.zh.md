@@ -30,7 +30,7 @@ TUI 和 Web 启动后通过 Cordis HMR（热模块替换）注册确切的个人
 
 **另设一个 `bin/dsh` 包装脚本并由其占用 `dsh` 名称。** 否决，因为 `apps/cli` 是统一的产品 CLI，负责分发默认 TUI、无头和 Web 界面。两个相互竞争的入口会在 `$PATH` 和产品身份上冲突。
 
-**pi 风格的类型化设置文件（`defaultProvider`/`defaultModel`/`providers`）。** 用户否决，选择补丁语义：个人文件是叠加在随仓库提供的默认配置之上的 cordis overlay，而不是需要另行拥有和翻译的第二套配置词汇。
+**pi 风格的类型化设置文件（`defaultProvider`/`defaultModel`/`providers`）。** 否决，选择补丁语义（产品负责人决策）：个人文件是叠加在随仓库提供的默认配置之上的 cordis overlay，而不是需要另行拥有和翻译的第二套配置词汇。
 
 **个人完整 `cordis.yml` 去 include 请求的配置。** 否决：个人文件将不得不写死叶子配置的路径，而该路径随 checkout 变化；补丁反转了依赖方向，bin 仍然选择配置树，个人层只做修正。
 

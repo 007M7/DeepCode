@@ -8,6 +8,7 @@ import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
 import { SlotTestRuntime, usePinnedBrowserLanguages } from '@deepseek-ai/dsh-client-test-runtime'
 import { apply as applyConversation, inject as injectConversation } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { apply as applyTool, inject as injectTool } from '../src/client/apply.ts'
+import { toolChatSnapshot } from './tool-details-render.tsx'
 
 // The service reads its initial locale from the browser; these specs assert
 // the shipped Chinese copy, so they state the browser they assume.
@@ -74,7 +75,7 @@ async function bench(nodes: ToolResultNode[]) {
   await runtime.sessions.add({
     id: SID,
     summary: { title: 'S', displayTitle: 'S', cwd: '/proj' },
-    snapshot: { nodes },
+    snapshot: { nodes, chat: toolChatSnapshot(nodes) },
     session: {
       loadOlder: vi.fn<ISession['loadOlder']>(),
       prompt: vi.fn<ISession['prompt']>(async () => ({ ok: true, value: { accepted: true } })),

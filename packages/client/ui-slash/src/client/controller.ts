@@ -47,7 +47,8 @@ export class SlashController {
    */
   readonly launcher: SnapshotStore<string | null> = createSnapshotStore<string | null>(null)
   /**
-   * Aggregated hot reference lexicon, grouped by trigger (decision 21):
+   * Aggregated hot reference lexicon, grouped by trigger (plain-text-reference decision;
+   * see .agents/notes/implemented/architecture/2026-07-25-web-input-machine-and-slash-pipeline.md):
    * sources implementing the lexicon hook are polled with the session
    * projection; undefined answers (roll not hot yet) are skipped; multiple
    * sources on one trigger concatenate in registration order. A snapshot
@@ -225,7 +226,7 @@ export class SlashController {
 
   /**
    * Serialize one reference occurrence to its model form via the owning
-   * source's codec (design §9.1 prompt serialization: registry → explicit
+   * source's codec (prompt serialization: registry → explicit
    * call → await). Owner missing or codec-less rejects — the submit attempt
    * blocks instead of silently downgrading to the clipboard text.
    * @param source - owning source name.

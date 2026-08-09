@@ -33,14 +33,16 @@ provider      dsh-fs-local      local implementation of ctx.fs
 
 该模型是叠加式的：裸 `ctx.fs` 执行原子化、无约束的文本 I/O，而 `dsh-fs-policy` 叠加观测状态、先读后编辑和版本守卫。因此移除策略层后工具仍可用，只是不受约束。正式发布的 agent 配置会加载策略；裸模式的存在是为了让策略在服务边界保持可选，而非作为正常部署姿态。
 
+[文件系统缺失观测后续决策](../bug-fix/2026-08-09-filesystem-absence-observation.md)把记录载荷从仅表示成功的版本细化为显式的存在/缺失状态，并要求带防护的创建以不替换方式发布。事件门禁归属与无 I/O 策略边界保持不变。
+
 `dsh-tool-fs` 不再注入 `fileContext`。它注入 `fs` 和 `tools`/`systemPrompt`。
 
 ## 策略由提供方 CAS 强制执行，而非 `dsh-fs-policy` 的 stat
 
 `dsh-fs-policy` 强制执行「你必须基于你读到的版本来写入/编辑」，**自身从不调用 `stat` 或比较版本**。它将观测到的版本作为 CAS 基准提供，让提供方的 mutation 临界区检测陈旧性：
 
-- 「你读过这个文件吗？」是 `dsh-fs-policy` 在本地决定的唯一事项——一次 `WeakMap` 查找，无 I/O。无记录 ⇒ `FS_NOT_OBSERVED`。
-- 「你读到的版本是否仍为最新？」由 **`ctx.fs.editText`/`writeText` 内部**决定，在执行 read-match-rename 的同一个原子锁中完成。`dsh-fs-policy` 将 `vObserved` 作为期望值传入；如果文件已变更，提供方抛出 `FS_STALE_VERSION`。
+- 「该所有者最近观测到了什么？」是 `dsh-fs-policy` 在本地决定的唯一事项——一次 `WeakMap` 查找，无 I/O。无记录表示未见；缺失记录只允许带防护的创建；存在记录携带替换/编辑基准。
+- 「版本是否仍然有效，或者创建目标是否仍然缺失？」由**提供方的原子变更边界内部**决定。`dsh-fs-policy` 提供 `replaceIfVersion` 或 `createIfAbsent`；对于已经变化的版本，提供方抛出 `FS_STALE_VERSION`；带防护的创建若败给另一个创建者，则抛出 `FS_NOT_OBSERVED`。
 
 这是有意为之的。如果 `dsh-fs-policy` 在其 waterfall（瀑布式事件）处理器中 stat 并比较版本，该检查与工具实际写入之间会存在 TOCTOU 间隙——文件可能在此期间变化，因此该检查只是一个虚假保证，提供方的锁无论如何都要兜底。将版本检查放在提供方的临界区中既无竞态又无额外 `stat`。所以 `dsh-fs-policy` **不做**任何文件系统 I/O；「必须基于最近一次读取」的保证由 CAS *实现*，`dsh-fs-policy` 只负责选择基准（`vObserved`）并对先前观测进行门控。
 
@@ -68,14 +70,14 @@ editText(target: FsTarget, edit: FsEditRequest, expected?: { version: FsVersion 
 
 事件定义在 `@deepseek-ai/dsh-fs` 中，而非 `dsh-fs-policy` 中。这是解耦约定所迫：`dsh-tool-fs` 是发射方，因此它必须引用事件类型，且即使 `dsh-fs-policy` 不再提供方法服务，它也必须能编译通过。`dsh-fs` 是 `dsh-tool-fs` 和 `dsh-fs-policy` 都已依赖的包，因此它是唯一能让发射方和策略监听方共享词汇而不让发射方依赖策略插件的归属地。
 
-这些事件携带既有的 `dsh-fs` 词汇（`FsTarget`、`FsVersion`、`FsWriteIntent`）加一个不透明的 actor——不携带面向模型的概念（行窗口、行号或渲染后的页脚不会泄漏到此层）。
+这些事件携带既有的 `dsh-fs` 词汇（`FsTarget`、`FsVersion`、`FsObservation`、`FsWriteIntent`）加一个不透明的 actor——不携带面向模型的概念（行窗口、行号或渲染后的页脚不会泄漏到此层）。
 
 **两个 `fs/*` 决策事件是单槽、先到先得的 waterfall。** `dsh-fs-policy` 不调用 `next()` 直接返回，因此在默认部署中它占据该槽位；更早注册或使用 `prepend` 的监听器会替代该策略。权限、审计和沙箱关注点仍留在可组合的 `tools/execute` waterfall 上。
 
 actor 在 `dsh-fs` 中类型为 `object`——一个纯粹的不透明载体，提供方约定从不读取或收窄它。owner 的推导（`actor.agent?.session`）和 `{ agent?: { session? } }` 结构形状完全留在 `dsh-fs-policy` 内部，由其在监听器中将 `object` actor 收窄为该形状。`dsh-fs` 拥有事件名和 fs 词汇；它不拥有策略层的运行时 owner 结构。
 
 ```ts
-import type { FsTarget, FsVersion, FsWriteIntent } from '@deepseek-ai/dsh-fs'
+import type { FsObservation, FsTarget, FsVersion, FsWriteIntent } from '@deepseek-ai/dsh-fs'
 
 interface Events {
   /**
@@ -95,14 +97,14 @@ interface Events {
    */
   'fs/edit-intent'(target: FsTarget, actor: object | undefined, next: () => { version: FsVersion } | undefined | Promise<{ version: FsVersion } | undefined>): Promise<{ version: FsVersion } | undefined>
   /**
-   * Record that an actor observed a target at a version, after a successful
-   * read/write/edit. Fire-and-forget (plain emit). Listeners MUST be
+   * Record that an actor observed a target as present at a version or absent.
+   * Fire-and-forget (plain emit). Listeners MUST be
    * synchronous, side-effect-only recorders (`dsh-fs-policy`'s is a WeakMap
    * write); the tool does not guard the emit, so a throwing listener surfaces as
    * the tool's isError result. No listener ⇒ nothing recorded.
    * @mode emit
    */
-  'fs/observed'(target: FsTarget, version: FsVersion, actor: object | undefined): void
+  'fs/observed'(target: FsTarget, observation: FsObservation, actor: object | undefined): void
 }
 ```
 
@@ -110,7 +112,7 @@ interface Events {
 
 ## 工具约定（`dsh-tool-fs`）
 
-工具保留其面向模型的 schema（`read`/`write`/`edit`，逐字节不变）和提示词段落。提示词引导仍以策略优先，因为加载 fs 工具的部署预期也会加载 `dsh-fs-policy`：模型仍被告知在覆写或编辑前先读取，任何声称「后端」要求如此的措辞应修正为 fs-policy 插件要求如此。裸提供方回退不改变提示词立场。
+工具保留其面向模型的 schema（`read`/`write`/`edit`，逐字节不变）和提示词段落。提示词引导仍以策略优先，因为加载 fs 工具的部署预期也会加载 `dsh-fs-policy`：模型仍被告知在覆写或编辑前先读取，而该要求来自 fs-policy 插件，并非后端。裸提供方回退不改变提示词立场。
 
 `dsh-tool-fs` 获得从旧 `fileContext` 方法服务迁移来的执行器职责，包括**读取渲染**（`read-render.ts`：`buildWindow` + `formatReadOutput`、`READ_MAX_BYTES`、`READ_MAX_LINE_LENGTH`、`FileReadOutcome`/`FileTextLine`，以及 `read.ts` 中的 `STREAM_MIN_SIZE`），这些现在是工具的渲染细节，因为读取已由工具拥有。这些读取渲染类型和辅助函数移入 `dsh-tool-fs`；策略插件不得继续作为工具的类型依赖。
 
@@ -118,23 +120,23 @@ interface Events {
 
 通过让 waterfall 惰性产出期望值来最小化 `stat` 预算——裸默认返回 `undefined`（无守卫），从不 stat：
 
-- **read**——一次 `stat`（类型 + 大小路由 + 版本），然后 `readText`/`streamText`，然后 `buildWindow`，然后 `emit('fs/observed', target, info.version, exec)`。旧 `fileContext.read` 中读后确认的 `stat` 被移除；在路由 stat 和读取之间竞争的写入者最多只能使*后续*有守卫的编辑误报 `FS_STALE_VERSION`（为安全起见拒绝写入：模型会重新读取；由于 `editText` 会在其锁内复查，模型绝不会基于错误版本写入）。
-- **write**——`expectation = await ctx.waterfall('fs/write-intent', target, exec, () => undefined)`，然后 `ctx.fs.writeText(target, content, expectation)`，然后 `emit('fs/observed', target, outcome.version, exec)`。无论是否有 `dsh-fs-policy`，**工具内零 stat**。
-- **edit**——`expectation = await ctx.waterfall('fs/edit-intent', target, exec, () => undefined)`，然后 `ctx.fs.editText(target, edit, expectation)`，然后 `emit('fs/observed', target, outcome.version, exec)`。两种情况下**工具内零 stat**：裸默认为 `undefined`（无条件编辑），因此工具从不 stat 来制造基准。如果目标不存在，提供方即使在无守卫路径上也报告 `FS_STALE_VERSION`。
+- **read**——一次 `stat`；元数据未命中时，在返回 `FS_NOT_FOUND` 前 emit `{ kind: 'absent' }`；目标为文件时，则依次执行 `readText`/`streamText`、`buildWindow`，再 emit `{ kind: 'present', version: info.version }`。旧 `fileContext.read` 中读后确认的 `stat` 仍保持移除；在路由 stat 和读取之间竞争的写入者最多只能使后续带防护的编辑误报陈旧。
+- **write**——`expectation = await ctx.waterfall('fs/write-intent', target, exec, () => undefined)`，然后 `ctx.fs.writeText(target, content, expectation)`，再 emit 表示存在的结果版本。无论是否有 `dsh-fs-policy`，**工具内零 stat**。
+- **edit**——`expectation = await ctx.waterfall('fs/edit-intent', target, exec, () => undefined)`，然后 `ctx.fs.editText(target, edit, expectation)`，再 emit 表示存在的结果版本。两种情况下**工具内零 stat**：裸默认为 `undefined`（无条件编辑），因此工具从不 stat 来制造基准。如果裸路径上的目标不存在，提供方报告 `FS_STALE_VERSION`；策略已持有缺失观测时，则直接返回 `FS_NOT_FOUND`。
 
 工具在每次分发时将 `exec`（工具执行上下文）作为 `actor` 参数传入，以便 `dsh-fs-policy` 推导其观测状态的 owner。工具不知道策略插件是否存在：它始终在 `next` thunk 中提供裸默认行为，而 `dsh-fs-policy` 在默认部署中会在 thunk 运行前短路它。
 
-**`fs/observed` 在操作成功后触发。** 其监听器必须是同步、不抛异常的记录器；工具不对 plain emit 做保护，因此抛异常的监听器会在 mutation 已成功后报告失败。异步或可失败的观测需要另一份事件约定。
+**`fs/observed` 在操作成功后，以及元数据探测确认缺失后触发。** 其监听器必须是同步、不抛异常的记录器；工具不对 plain emit 做保护，因此抛异常的监听器可能取代待返回的读取错误，或在 mutation 已成功后报告失败。异步或可失败的观测需要另一份事件约定。
 
 ## 策略插件约定（`dsh-fs-policy`）
 
-`dsh-fs-policy` 是插件，不是服务。它不注册 `ctx.fileContext`，没有公开方法面，不暴露 `read`/`write`/`edit`/`resolve` 方法。它通过 `ctx.on()` 注册三个监听器（每个返回一个 disposer 用于 HMR）。它维护观测状态 `WeakMap<owner, Map<targetKey, { version }>>`，以及结构化的 owner 推导（将事件中不透明的 `object` actor 收窄为自己的 `{ agent?: { session? } }` 形状），但不注入 `fs`——每个处理器只操作自己的 `WeakMap`，从不操作 `ctx.fs`。
+`dsh-fs-policy` 是插件，不是服务。它不注册 `ctx.fileContext`，没有公开方法面，不暴露 `read`/`write`/`edit`/`resolve` 方法。它通过 `ctx.on()` 注册三个监听器（每个返回一个 disposer 用于 HMR）。它维护观测状态 `WeakMap<owner, Map<targetKey, FsObservation>>`，以及结构化的 owner 推导（将事件中不透明的 `object` actor 收窄为自己的 `{ agent?: { session? } }` 形状），但不注入 `fs`——每个处理器只操作自己的 `WeakMap`，从不操作 `ctx.fs`。
 
-- `fs/write-intent` 监听器：`prior = getObserved(owner, key)`；返回 `prior ? { kind: 'replaceIfVersion', version: prior.version } : { kind: 'createIfAbsent' }`。它不调用 `next()`：完全占据单一决策槽位。
-- `fs/edit-intent` 监听器：`prior = getObserved(owner, key)`；如果无 `owner` 或无 `prior`，抛出 `FS_NOT_OBSERVED`；否则返回 `{ version: prior.version }`。同样不调用 `next()`。
-- `fs/observed` 监听器：`record(owner, key, version)`。
+- `fs/write-intent` 监听器：未见/缺失 ⇒ `createIfAbsent`；存在 ⇒ `replaceIfVersion`。它不调用 `next()`：完全占据单一决策槽位。
+- `fs/edit-intent` 监听器：未见 ⇒ `FS_NOT_OBSERVED`；缺失 ⇒ `FS_NOT_FOUND`；存在 ⇒ 返回其版本守卫。同样不调用 `next()`。
+- `fs/observed` 监听器：记录存在/缺失的可辨识值。
 
-一条观测状态条目是**先前观测记录**：成功的 `read`、`write` 或 `edit` 都会 emit `fs/observed` 并记录 `{ version }`，因此条目的存在意味着「此 owner 在此版本观测过此目标」，而非狭义的「已读取过」。这使得 create-then-edit 或 edit-then-edit 序列无需中间重新读取即可工作：mutation 将记录的版本刷新为自身的结果，因此下一次编辑的基准就是它刚产出的版本。`FS_NOT_OBSERVED` 只拒绝完全没有任何先前观测的编辑。owner 从 `{ agent?: { session? } }` 结构化推导；dispose 时丢弃所有状态（HMR 安全）。
+一条观测状态条目是**先前观测记录**，但其可辨识字段会影响决策。成功的 read/write/edit 会记录存在状态及版本，使 create-then-edit 或 edit-then-edit 序列无需中间重新读取即可工作。确认缺失的 read/view 会用缺失状态取代旧的正向版本，因此只允许带防护的创建；随后成功的创建会再用新的存在版本取代缺失状态。只有条目不存在才表示未见，并使 edit 返回 `FS_NOT_OBSERVED`。owner 从 `{ agent?: { session? } }` 结构化推导；dispose 时丢弃所有状态（HMR 安全）。
 
 `dsh-fs-policy` 现在是一个纯策略/记录插件，没有服务面——它只通过事件门控影响外界。这正是移除 `dsh-tool-fs` 方法耦合的关键。
 
@@ -154,7 +156,7 @@ interface Events {
 
 ## 验证
 
-测试固定了两条路径：无 `dsh-fs-policy` 时，根工具插件对 `dsh-fs-local` 启动，read、create、overwrite 和未读 edit 均成功；有策略时，未读 edit 返回 `FS_NOT_OBSERVED`，未读 overwrite 被 `createIfAbsent` 门控。策略决定后，后注册的 intent 监听器不会被触达。陈旧编辑通过提供方 CAS 失败，而策略不执行 `stat`；工具预算在两条路径上保持 read 一次 `stat`，write 或 edit 均为零次。面向模型的 schema 逐字节不变，因此快照不变。
+测试固定了两条路径：无 `dsh-fs-policy` 时，根工具插件对 `dsh-fs-local` 启动，read、create、overwrite 和未读 edit 均成功；有策略时，未读 edit 返回 `FS_NOT_OBSERVED`，未读 overwrite 被 `createIfAbsent` 门控。策略决定后，后注册的 intent 监听器不会被触达。陈旧编辑通过提供方 CAS 失败，而策略不执行 `stat`；工具预算在两条路径上保持 read 一次 `stat`，write 或 edit 均为零次。测试也组装了删除恢复路径：陈旧变更、重新读取时确认缺失、带防护的重新创建。面向模型的 schema 逐字节不变，但恢复后的结果 transcript（文本记录）发生变化。
 
 ## 曾考虑的替代方案
 

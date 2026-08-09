@@ -411,7 +411,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/credentials/credentials-local/src/index.ts:54`](../packages/credentials/credentials-local/src/index.ts)
+Source: [`packages/credentials/credentials-local/src/index.ts:55`](../packages/credentials/credentials-local/src/index.ts)
 
 ## `@deepseek-ai/dsh-e2b`
 
@@ -513,7 +513,7 @@ export interface Config {
    * Process-level: read once at load, a relative path resolves against the process
    * launch cwd, so one config applies to the whole process.
    * TODO(per-session-hook-config): per-session discovery of a project-local
-   * `hooks.json` from each `session/new.cwd` is not yet implemented.
+   * `hooks.json` from each `session/new.cwd`.
    */
   configPath: string
   /**
@@ -548,7 +548,7 @@ export interface Config {
    * Path to a Codex `hooks.json`. Process-level: read once at load, a relative
    * path resolves against the process launch cwd.
    * TODO(per-session-hook-config): per-session project-local discovery from each
-   * `session/new.cwd` is not yet implemented.
+   * `session/new.cwd`.
    */
   configPath: string
   /** The model name stamped on every payload (Codex includes `model` on each event). */
@@ -846,8 +846,7 @@ type PiThinkingFormat = NonNullable<OpenAICompletionsCompat['thinkingFormat']>
 
 /**
  * pi-ai thinking formats a profile cannot name: both drive the request through
- * `chatTemplateKwargs`, which this configuration does not expose, so offering
- * them would hand back a format with nothing to say.
+ * `chatTemplateKwargs`, which this configuration does not expose.
  */
 type WithheldThinkingFormat = 'chat-template' | 'qwen-chat-template'
 ```
@@ -917,7 +916,7 @@ Requires: `agents`
 export type Config = Readonly<Record<string, never>>
 ```
 
-Source: [`packages/llm/llm-retry/src/index.ts:46`](../packages/llm/llm-retry/src/index.ts)
+Source: [`packages/llm/llm-retry/src/index.ts:24`](../packages/llm/llm-retry/src/index.ts)
 
 ## `@deepseek-ai/dsh-lsp-local`
 
@@ -1689,7 +1688,7 @@ export interface Config {
   /**
    * How to auto-answer the child's `session/request_permission` prompts:
    * `reject` (default — decline every prompt) or `allow` (approve via the first
-   * allow-shaped option). The first cut surfaces no prompt to a human.
+   * allow-shaped option). No prompt is surfaced to a human.
    */
   permission: PermissionPolicy
   /**
@@ -2137,7 +2136,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/fs/tool-str-replace-editor/src/index.ts:496`](../packages/fs/tool-str-replace-editor/src/index.ts)
+Source: [`packages/fs/tool-str-replace-editor/src/index.ts:497`](../packages/fs/tool-str-replace-editor/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-subagent`
 
@@ -2325,7 +2324,7 @@ export interface Config {
 export type ToolPresentationMode = 'native' | 'code' | 'both'
 ```
 
-Source: [`packages/core/tools/src/index.ts:616`](../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:624`](../packages/core/tools/src/index.ts)
 
 ## `@deepseek-ai/dsh-typert-loader`
 
@@ -2360,8 +2359,7 @@ export interface Config {
  * ask BEFORE any interactive answerer sees it:
  *
  * - `'ask'` (the default) — delegate to the composed answerers; with none
- *   composed the chain falls through to the fail-closed `'unavailable'`
- *   (exactly today's behavior).
+ *   composed the chain falls through to the fail-closed `'unavailable'`.
  * - `'never'` — never prompt anyone: every ask resolves `'rejected'`
  *   deterministically. The strict headless stance (CI, unattended runs) and
  *   the policy whose outcome is knowable without asking.
@@ -2369,7 +2367,7 @@ export interface Config {
 export type ApprovalPolicy = 'ask' | 'never'
 ```
 
-Source: [`packages/interaction/user-approval/src/index.ts:178`](../packages/interaction/user-approval/src/index.ts)
+Source: [`packages/interaction/user-approval/src/index.ts:177`](../packages/interaction/user-approval/src/index.ts)
 
 ## `@deepseek-ai/dsh-web`
 

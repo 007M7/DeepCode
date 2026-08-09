@@ -7,6 +7,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface SlotMap {
     'surface.a': { kind: 'single'; scope: 'root' }
     'surface.b': { kind: 'single'; scope: 'root' }
+    'surface.injected': { kind: 'single'; scope: 'root'; inject: { token: string } }
   }
 }
 
@@ -26,6 +27,16 @@ describe('dynamic-key escape hatch', () => {
     core.register({ name: 'root', children: { 'surface.a': { kind: 'single', scope: 'root' } } }, Comp as never)
     expect(core.spec('surface.a')).toEqual({ kind: 'single', scope: 'root' })
     expect(core.spec('surface.b')).toBeUndefined()
+  })
+
+  it('records the parent-declared Slot inject on the runtime spec', () => {
+    const core = new SlotCore()
+    const inject = { token: 'shared' }
+    core.register({
+      name: 'root',
+      children: { 'surface.injected': { kind: 'single', scope: 'root', inject } },
+    }, Comp as never)
+    expect(core.spec('surface.injected')?.inject).toBe(inject)
   })
 
   it('entries/getVersion on an untouched key return the frozen empty array and 0', () => {

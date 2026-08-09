@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-06-26-file-context-as-event-gate.md
-2026-06-26-file-context-as-event-gate.md: df1a43e252cff02b287497210664c3d14dcd35a9
-2026-06-26-file-context-as-event-gate.zh.md: 3d784c9e150430c8054f6b08ccc5c66fa85e09b4
+2026-06-26-file-context-as-event-gate.md: 743c8f150a83f2452cb0ff672860b8462a56f762
+2026-06-26-file-context-as-event-gate.zh.md: cd79b44dd3f3b75c5e5addc5be10c02bd1ce0151

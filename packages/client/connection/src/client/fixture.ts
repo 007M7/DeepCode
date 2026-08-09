@@ -96,7 +96,7 @@ function sgr(code: number, body: string): string {
 }
 
 /**
- * Terminal output sample for fixture turn 65, authored to carry every feature
+ * Terminal output sample for fixture turn 66, authored to carry every feature
  * the terminal card draws that turn 60's two prompt rows cannot reach:
  * basic-16 SGR foreground runs (green, red, bright-black) that must resolve to
  * `--dsw-*` tokens, a bold run, column-aligned table rows that must scroll
@@ -141,7 +141,7 @@ const TERMINAL_EXIT_STATUS: Record<string, { exitCode: number } | { signal: stri
 }
 
 /**
- * Structured grep result for the search sample (turn 66): matches grouped by
+ * Structured grep result for the search sample (turn 67): matches grouped by
  * file, authored inline because the client-side fixture cannot import the tool
  * that produces the canonical value. `truncated` with a larger `total` than the
  * retained match count exercises the search card's capped indicator; the file
@@ -191,7 +191,7 @@ const SEARCH_MATCHES_TEXT = [
 ].join('\n')
 
 /**
- * Structured glob result for the search sample (turn 67): a flat path list,
+ * Structured glob result for the search sample (turn 68): a flat path list,
  * truncated with a larger `total` so the path card shows its capped indicator.
  */
 const SEARCH_PATHS_FIXTURE = [
@@ -426,19 +426,19 @@ function buildAlphaLog(): SessionEvent[] {
   toolTurn(61, 'fx-write', '{"path":"notes/demo.txt","content":"hello fixture\\n"}', 'wrote notes/demo.txt')
   toolTurn(62, 'edit', '{"file_path":"notes/demo.txt","old_string":"hello","new_string":"hello fixture"}', '已编辑')
   toolTurn(63, 'write', '{"file_path":"notes/new-demo.txt","content":"hello fixture\\n"}', '已写入')
-  // Turn 67: a multi-hunk edit — two scattered replacements in one file. Named
+  // Turn 64: a multi-hunk edit — two scattered replacements in one file. Named
   // `edit` so it lands on the keyed FileMutationRow (the resident diff card the
   // single-hunk turn 62 also uses), and file_path `src/config.ts` is the marker
   // the presenter reads to emit the two-hunk sample: the card draws one path
   // header, the first hunk, a `⋯` gap, then the second (the same-file
   // second-hunk arm turns 62/63 cannot reach).
-  toolTurn(67, 'edit', '{"file_path":"src/config.ts","old_string":"const timeout = 30","new_string":"const timeout = 60"}', '已编辑')
-  // Turn 64: one run_code turn with three logged sub-dispatches — the Code
+  toolTurn(64, 'edit', '{"file_path":"src/config.ts","old_string":"const timeout = 30","new_string":"const timeout = 60"}', '已编辑')
+  // Turn 65: one run_code turn with three logged sub-dispatches — the Code
   // Mode acceptance surface (parent code row + nested native-identical rows,
   // including an isError sub-call and a bash sub-call that must hit the same
   // keyed registration a top-level bash row uses).
   {
-    const turn = 64
+    const turn = 65
     const callId = `fx-call-${turn}`
     const program = 'const listing = await tools.bash({ command: "ls notes", description: "List notes" })\n'
       + 'const demo = await tools.read({ file_path: "notes/demo.txt" })\n'
@@ -456,12 +456,12 @@ function buildAlphaLog(): SessionEvent[] {
     const dispatchPair = (n: number, name: string, dispatchArgs: Record<string, unknown>, resultText: string, isError = false): void => {
       push({
         type: 'tool/code-dispatch-start',
-        data: { parentCallId: callId, subCallId: `${callId}:code:${n}`, name, arguments: dispatchArgs },
+        data: { rootCallId: callId, parentCallId: callId, subCallId: `${callId}:code:${n}`, name, arguments: dispatchArgs },
       })
       push({
         type: 'tool/code-dispatch',
         data: {
-          parentCallId: callId, subCallId: `${callId}:code:${n}`, name,
+          rootCallId: callId, parentCallId: callId, subCallId: `${callId}:code:${n}`, name,
           arguments: dispatchArgs, isError, content: [{ type: 'text', text: resultText }],
         },
       })
@@ -476,7 +476,7 @@ function buildAlphaLog(): SessionEvent[] {
     push({ type: 'step/end', data: { turn, step: 0 } })
     push({ type: 'turn/end', data: { turn, reason: { kind: 'completed' } } })
   }
-  // Turn 71: todo_write sample — the TodoRow toolview in the flow plus the
+  // Turn 72: todo_write sample — the TodoRow toolview in the flow plus the
   // todo/write snapshot event feeding the TodoPanel plan strip. Two items are
   // in_progress: this fixture chooses the parallel policy, so both surfaces
   // must render a parallel plan rather than the first active item alone.
@@ -486,7 +486,7 @@ function buildAlphaLog(): SessionEvent[] {
     { content: '跑后台构建', status: 'in_progress' },
     { content: '浏览器验收', status: 'pending' },
   ]
-  // Turn 65: the terminal sample turn 60's two clean prompt rows cannot cover —
+  // Turn 66: the terminal sample turn 60's two clean prompt rows cannot cover —
   // ANSI SGR coloring, output past the terminal card's height cap, a nested cwd
   // whose prompt label is its last segment, and a non-zero exit authored beside
   // the sample in TERMINAL_EXIT_STATUS — its body deliberately carries no
@@ -498,45 +498,45 @@ function buildAlphaLog(): SessionEvent[] {
   // Ordered BEFORE the todo turn deliberately: the standing plan retires at the
   // next `turn/start`, so a turn appended after it would leave the dock's plan
   // strip empty and take the todo surfaces' own coverage with it.
-  toolTurn(65, 'bash', '{"command":"pnpm run check","cwd":"/tmp/fixture/deep/nested"}', TERMINAL_OUTPUT_FIXTURE)
+  toolTurn(66, 'bash', '{"command":"pnpm run check","cwd":"/tmp/fixture/deep/nested"}', TERMINAL_OUTPUT_FIXTURE)
 
-  // Turns 66-67: the search card's two shapes. `grep` emits a `card: 'search'`
+  // Turns 67-68: the search card's two shapes. `grep` emits a `card: 'search'`
   // `shape: 'matches'` result view (grouped-by-file matches, truncated with a
   // larger `total`), `glob` emits `shape: 'paths'` (a flat path list, likewise
   // truncated). Both ride the keyed SearchRow registration under their own
   // names; the render-site fallback row is covered by the model derivation
   // tests, since every fixture search tool has a keyed row. Ordered before the
   // todo turn for the same standing-plan reason the bash turn is.
-  toolTurn(66, 'grep', '{"pattern":"SEARCH_MAX_LINES","path":"packages/client"}', SEARCH_MATCHES_TEXT)
-  toolTurn(67, 'glob', '{"pattern":"**/SearchBlock*","path":"packages/client"}', SEARCH_PATHS_TEXT)
+  toolTurn(67, 'grep', '{"pattern":"SEARCH_MAX_LINES","path":"packages/client"}', SEARCH_MATCHES_TEXT)
+  toolTurn(68, 'glob', '{"pattern":"**/SearchBlock*","path":"packages/client"}', SEARCH_PATHS_TEXT)
 
-  // Turn 68: the read sample — a WINDOW past an offset so the card draws file
+  // Turn 69: the read sample — a WINDOW past an offset so the card draws file
   // line numbers starting above 1 and a "showing N of M" note (the window is
   // shorter than READ_SAMPLE_TOTAL), with a `ts` language hint the shiki path
   // highlights. Named `read`, so it exercises the keyed ReadRow registration.
   // The render-site fallback ROW SHAPE (a read call on the generic flattened
-  // path) is covered by the turn 64 run_code read sub-dispatches, which
+  // path) is covered by the turn 65 run_code read sub-dispatches, which
   // session.ts folds with resultView: null; the fallback-row + read-CARD
   // combination is pinned by the web_fetch case in read-card.spec.tsx, not by
   // this fixture. The read render intent is result-side only, so its pending
   // call stays a generic `kind: 'read'` card; presentResult carries the
   // structured window.
-  toolTurn(68, 'read', `{"file_path":${JSON.stringify(READ_SAMPLE_PATH)},"offset":${READ_SAMPLE_FIRST_LINE}}`, READ_SAMPLE_TEXT)
+  toolTurn(69, 'read', `{"file_path":${JSON.stringify(READ_SAMPLE_PATH)},"offset":${READ_SAMPLE_FIRST_LINE}}`, READ_SAMPLE_TEXT)
 
-  // Turns 69-70: the web render intent — a web_search whose result view carries
+  // Turns 70-71: the web render intent — a web_search whose result view carries
   // structured sources plus an answer (the citation list, one source lacking a
   // title so its hostname labels the link, the capped indicator on), and a
   // web_fetch whose result view carries the fetched URL and its HTTP status.
   // Both keep a generic pending call view and add the `web` card only at
   // result time, which is the contract's result-only web shape. Named after
   // the real tools so they hit the keyed WebRow registration. Ordered BEFORE
-  // the todo turn for the same reason turn 65 is: the standing plan retires at
+  // the todo turn for the same reason turn 66 is: the standing plan retires at
   // the next turn/start, so a turn after it would empty the dock's plan strip.
-  toolTurn(69, 'web_search', '{"query":"deepseek harness architecture"}', 'Search results for deepseek harness architecture.')
-  toolTurn(70, 'web_fetch', '{"url":"https://www.deepseek.com/blog/harness-architecture"}', '# Harness architecture\n\nEverything is a plugin.')
+  toolTurn(70, 'web_search', '{"query":"deepseek harness architecture"}', 'Search results for deepseek harness architecture.')
+  toolTurn(71, 'web_fetch', '{"url":"https://www.deepseek.com/blog/harness-architecture"}', '# Harness architecture\n\nEverything is a plugin.')
 
   const todoArgs = JSON.stringify({ todos: fixtureTodos })
-  toolTurn(71, 'todo_write', todoArgs, 'Updated todo list: 1 pending, 2 in progress, 1 completed.')
+  toolTurn(72, 'todo_write', todoArgs, 'Updated todo list: 1 pending, 2 in progress, 1 completed.')
   // The real tool appends the snapshot mid-execution — between tool/call and
   // tool/result — so the fixture reproduces that exact ordering (the last
   // toolTurn events run ... tool/call, tool/result, step/end, turn/end).
@@ -578,7 +578,7 @@ function presentCall(name: string, argsRaw: string): ToolCallView | undefined {
     case 'read':
       return { card: 'generic', title: `Read ${str(args.file_path)}`, kind: 'read', locations: [{ path: str(args.file_path) }] }
     case 'edit':
-      // The multi-hunk sample (turn 67) is keyed on its file_path, so the two
+      // The multi-hunk sample (turn 64) is keyed on its file_path, so the two
       // scattered hunks share one path header and the card draws the `⋯` gap.
       if (str(args.file_path) === 'src/config.ts') {
         return {
@@ -1284,7 +1284,7 @@ export interface FixtureOptions {
 
 /** Inbox pump shared by both stream generators (FrameQueue pattern: ONE abort listener hung
  *  outside the loop — a per-iteration {once:true} listener never fires for non-final rounds and
- *  piles up for the stream's lifetime, audit C5). breakNow force-ends the stream without the
+ *  piles up for the stream's lifetime). breakNow force-ends the stream without the
  *  client's signal (timing hook: simulated connection loss). */
 class FxInbox<F> implements StreamConn<F> {
   private readonly inbox: RpcRequest<F>[] = []
@@ -1658,7 +1658,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
 
   /** history transit delay (timing hooks below); the page snapshot is taken at request time, like a real host. */
   let historyDelayMs = 0
-  /** One-shot history failure (timing hook: the doomed in-flight request of the S4 reconnect scenario). */
+  /** One-shot history failure (timing hook: a pre-disconnect history request already doomed when reconnect lands). */
   let failNextHistory = false
   /** Force-enders for currently open stream generators (timing hook: simulated connection loss). */
   const streamBreakers = new Set<() => void>()
@@ -1667,8 +1667,8 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
   /** The single opt-in browser stress producer; normal fixture journeys never start it. */
   let activeReasoningChunkStorm: ReasoningChunkStormState | null = null
 
-  // Timing-acceptance hooks (browser test backdoor): the in-memory fixture is ideally timed, which
-  // is exactly what masked the open-window and reconnect-gap bugs (audit S1/S3). These let
+  // Timing-acceptance hooks (browser test backdoor): the in-memory fixture is
+  // ideally timed. These let
   // browser acceptance runs create slow-history, lost-frame, and reconnect
   // windows a real host produces naturally.
   const timingHooks = {
@@ -2691,8 +2691,8 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
  * Fixture platform subclass: there is no HTTP at all, so instead of a doFetch transport it
  * overrides the protocol-level virtuals (callUnary/openMux/openHost/respond) to dispatch
  * straight into the in-memory ApiProxy — while still minting rpcIds, fabricating the four
- * named full forms, and feeding the same tap as a real carrier. Delete when the fixture moves
- * to the isomorphic pipeline (InProcessApiClient over toFetchHandler(fixtureImpl)).
+ * named full forms, and feeding the same tap as a real carrier. TODO: delete when the fixture
+ * moves to the isomorphic pipeline (InProcessApiClient over toFetchHandler(fixtureImpl)).
  */
 export class FixtureApiClient extends AbstractApiClient {
   private readonly api: ApiProxy

@@ -5,7 +5,7 @@
 
 [English](persistence-catalog.md) | 中文
 
-会话持久事件日志中可能出现的所有事件类型：完整持久化的 `SessionEvent` 信封，以及可通过合并扩展的 `SessionEventMap` 中的每个成员，包括 `@deepseek-ai/dsh-session` 所属的词汇和本仓库中每个插件的声明合并，并附有源 JSDoc、完整 payload 声明、surface 标记和声明位置。本文档是 [session.md](subsystems/session.md)（surface 排序与 `deriveMessages()` 投影）、[persistence.md](subsystems/persistence.md)（如何让日志持久化）和 [session.md](subsystems/session.md#cordis-surface) 中生成区域（实时总线接线；日志事件**不是** cordis 事件，它通过唯一一次 `session/event` emit 到达监听器）的补充。
+会话持久事件日志中可能出现的所有事件类型：完整持久化的 `SessionEvent` 信封，以及可通过合并扩展的 `SessionEventMap` 中的每个成员，包括 `@deepseek-ai/dsh-session` 所属的词汇和本仓库中每个插件对 `@deepseek-ai/dsh-session/types` 的声明合并，并附有源 JSDoc、完整 payload 声明、surface 标记和声明位置。本文档是 [session.md](subsystems/session.md)（surface 排序与 `deriveMessages()` 投影）、[persistence.md](subsystems/persistence.md)（如何让日志持久化）和 [session.md](subsystems/session.md#cordis-surface) 中生成区域（实时总线接线；日志事件**不是** cordis 事件，它通过唯一一次 `session/event` emit 到达监听器）的补充。
 
 英文源文件根据源码生成（`scripts/gen-persistence-catalog.ts`），并由 `pnpm run verify-persistence-catalog`（`doc-sync`（文档同步门禁）的一部分）验证新鲜度；本中文文件作为经评审对侧通过双语配对维护。声明块保留源码声明和嵌套属性的 JSDoc，只移除其所在接口／模块带来的缩进，并使用 `ts persistence-catalog` 围栏（doc-typecheck 会跳过这些围栏，因为声明引用了其所属模块中的类型）。payload 中的类型名称会链接到记录该类型的页面。参见 [persistence-log-catalog Agent Note](../.agents/notes/archived/process/2026-07-04-persistence-log-catalog.md)。
 
@@ -37,7 +37,8 @@ export type SurfaceEventType =
  *   (inclusive) through `end` (inclusive) with this node. Both must exist as
  *   surface nodes in the current surface. `start === end` replaces a single
  *   node. The node's {@link SessionEvent.sourceEventSeqs} must include every
- *   shadowed surface node. Used by compaction and possible other manipulations.
+ *   shadowed surface node. Used by compaction; any surface-replacing producer
+ *   may use it.
  */
 export type SurfaceOp =
   | 'append'
@@ -80,7 +81,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 }[T]
 ```
 
-来源：[`packages/core/session/src/types.ts:308`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:315`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:343`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:375`](../packages/core/session/src/types.ts)
+来源：[`packages/core/session/src/types.ts:308`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:315`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:344`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:376`](../packages/core/session/src/types.ts)
 
 ## 事件
 
@@ -103,7 +104,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 }
 ```
 
-来源：[`packages/core/agent/src/types.ts:300`](../packages/core/agent/src/types.ts)
+来源：[`packages/core/agent/src/types.ts:19`](../packages/core/agent/src/types.ts)
 
 ### `approval/*`
 
@@ -214,7 +215,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 }
 ```
 
-来源：[`packages/interaction/commands/src/index.ts:151`](../packages/interaction/commands/src/index.ts)
+来源：[`packages/interaction/commands/src/types.ts:41`](../packages/interaction/commands/src/types.ts)
 
 #### `command/run` — log-only
 
@@ -232,7 +233,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 'command/run': { commandId: CommandId; name: string; args?: string; source: CommandSource }
 ```
 
-来源：[`packages/interaction/commands/src/index.ts:144`](../packages/interaction/commands/src/index.ts)
+来源：[`packages/interaction/commands/src/types.ts:34`](../packages/interaction/commands/src/types.ts)
 
 ### `compact/*`
 
@@ -243,10 +244,10 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
  * Marks the end of a compaction — log-only, releases the lock. Its owner
  * matches `compact/start`; `error` records an unsuccessful attempt.
  */
-'compact/end': { turn: number | null; error?: string }
+'compact/end': { compactionId: CompactionId; sourceCommandId?: CommandId; turn: number | null; error?: string }
 ```
 
-来源：[`packages/compact/compact/src/types.ts:65`](../packages/compact/compact/src/types.ts)
+来源：[`packages/compact/compact/src/types.ts:71`](../packages/compact/compact/src/types.ts)
 
 #### `compact/prune` — log-only
 
@@ -270,7 +271,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 }
 ```
 
-来源：[`packages/compact/compact/src/types.ts:75`](../packages/compact/compact/src/types.ts)
+来源：[`packages/compact/compact/src/types.ts:81`](../packages/compact/compact/src/types.ts)
 
 #### `compact/start` — log-only
 
@@ -280,10 +281,10 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
  * `compact/end`. A numbered owner is strictly enclosed by that open turn;
  * `null` identifies a standalone manual transaction between turns.
  */
-'compact/start': { turn: number | null }
+'compact/start': { compactionId: CompactionId; sourceCommandId?: CommandId; turn: number | null }
 ```
 
-来源：[`packages/compact/compact/src/types.ts:19`](../packages/compact/compact/src/types.ts)
+来源：[`packages/compact/compact/src/types.ts:23`](../packages/compact/compact/src/types.ts)
 
 #### `compact/summary` — log-only
 
@@ -298,6 +299,8 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
  * before it (`compact/prune` documents the shared protocol).
  */
 'compact/summary': {
+  compactionId: CompactionId
+  sourceCommandId?: CommandId
   summary: ContentBlock[]
   shadowedRange: { start: number; end: number }
   shadowedSeqs: number[]
@@ -333,7 +336,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 
 类型：[ContentBlock](subsystems/core.md) · [TokenUsage](subsystems/llm-streaming.md)
 
-来源：[`packages/compact/compact/src/types.ts:29`](../packages/compact/compact/src/types.ts)
+来源：[`packages/compact/compact/src/types.ts:33`](../packages/compact/compact/src/types.ts)
 
 ### `feedback/*`
 
@@ -414,29 +417,19 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 
 ```ts persistence-catalog
 /** Durable, non-surface record of one provider-routed retry scheduled after a failed request attempt. */
-'llm/retry': {
-  turn: number
-  step: number
-  provider: string
-  mode: 'normal'
-  policyKey: string
-  retry: number
-  maxRetries: number
-  delayMs: number
-  failure: LlmFailure
-} | {
-  turn: number
-  step: number
-  provider: string
-  mode: 'always'
-  policyKey: string
-  retry: number
-  delayMs: number
-  failure: LlmFailure
-}
+'llm/retry': LlmRetryEventData
 ```
 
-来源：[`packages/llm/llm-retry/src/index.ts:17`](../packages/llm/llm-retry/src/index.ts)
+来源：[`packages/llm/llm-retry/src/types.ts:9`](../packages/llm/llm-retry/src/types.ts)
+
+#### `llm/retry-started` — log-only
+
+```ts persistence-catalog
+/** Durable transition written after a retry wait succeeds and before the next request attempt starts. */
+'llm/retry-started': LlmRetryStartedEventData
+```
+
+来源：[`packages/llm/llm-retry/src/types.ts:11`](../packages/llm/llm-retry/src/types.ts)
 
 ### `permission/*`
 
@@ -658,12 +651,10 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
  * before returning), so its execution-enclosure relation holds by
  * construction.
  */
-'tool/code-dispatch': { parentCallId: CallId; subCallId: CallId; name: string; arguments: unknown; isError: boolean; content: ContentBlock[] }
+'tool/code-dispatch': CodeDispatchEventData
 ```
 
-类型：[CallId](subsystems/core.md) · [ContentBlock](subsystems/core.md)
-
-来源：[`packages/core/tools/src/code-mode.ts:49`](../packages/core/tools/src/code-mode.ts)
+来源：[`packages/core/tools/src/types.ts:56`](../packages/core/tools/src/types.ts)
 
 #### `tool/code-dispatch-start` — log-only
 
@@ -681,12 +672,10 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
  * with `tool/code-dispatch` by `subCallId` (timing = the two events'
  * `time` fields).
  */
-'tool/code-dispatch-start': { parentCallId: CallId; subCallId: CallId; name: string; arguments: unknown }
+'tool/code-dispatch-start': CodeDispatchStartEventData
 ```
 
-类型：[CallId](subsystems/core.md)
-
-来源：[`packages/core/tools/src/code-mode.ts:33`](../packages/core/tools/src/code-mode.ts)
+来源：[`packages/core/tools/src/types.ts:40`](../packages/core/tools/src/types.ts)
 
 #### `tool/result` — surface
 

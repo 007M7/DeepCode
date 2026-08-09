@@ -84,7 +84,7 @@ function useAbsentSnapshot<S>(_selector: (snapshot: never) => S, _equal?: (a: S,
 }
 
 /**
- * The useProjection framework seat (session-projection RFC), one bound
+ * The useProjection framework seat (docs/subsystems/session-projection.md), one bound
  * function per provide bundle (cached by info identity — components may hold
  * it across renders). Key-addressed: the key resolves a per-session value
  * face off the projection store; the bound selector hook comes from the same

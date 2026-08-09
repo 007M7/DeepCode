@@ -4,7 +4,7 @@ Status: implemented
 
 English | [中文](2026-07-26-code-dispatch-log-spill.zh.md)
 
-> Scope: the fourth PR of the Code Mode UI stack — bounding the `tool/code-dispatch` event's content with the existing spill machinery. The [host foundation note](2026-07-26-code-dispatch-ui-foundation.md) accepted the unbounded log deliberately and named this PR as the payoff point; the [live-parallel note](2026-07-26-code-mode-live-parallel-dispatch.md) settled the event pair this shaping hooks into.
+> Scope: bounding the `tool/code-dispatch` event's content with the existing spill machinery. The [host foundation note](2026-07-26-code-dispatch-ui-foundation.md) accepted the unbounded log deliberately with this spill integration as the payoff point; the [live-parallel note](2026-07-26-code-mode-live-parallel-dispatch.md) settled the event pair this shaping hooks into.
 
 ## Problem
 

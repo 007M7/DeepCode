@@ -12,7 +12,9 @@ import type { ChatFileMentions } from '@deepseek-ai/dsh-client-ui-conversation/c
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import { ProducedFiles } from './ProducedFiles.tsx'
 import { en, NS, zh, type DeliverablesKey } from './locales.ts'
-import { producedFileMentions, selectProducedFiles } from './turn-deliverables.ts'
+import {
+  deliverablesDefinition, producedFileMentions, selectProducedFiles,
+} from './turn-deliverables.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
@@ -25,13 +27,14 @@ export { ProducedFiles, type ProducedFilesProps } from './ProducedFiles.tsx'
 export { producedForClosing } from './turn-deliverables.ts'
 
 /** Required services for the tail-slot registration and its dictionaries. */
-export const inject = ['slots', 'locale']
+export const inject = ['slots', 'locale', 'conversationEvents']
 
 /**
  * Client plugin body: register the dictionaries and the turn-tail entry.
  * @param ctx - client root context.
  */
 export function apply(ctx: ClientContext): void {
+  ctx.conversationEvents.register(deliverablesDefinition)
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-deliverables: dictionaries')
   ctx.slots.inject(
     'conversation.chat.turnTail',

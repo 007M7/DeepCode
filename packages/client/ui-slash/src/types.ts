@@ -80,7 +80,9 @@ export interface SubmitOutcome {
 /**
  * Unified pick return. `undefined` = miss → default sink; `'handled'` = the
  * source dealt with it internally (e.g. opened its popup shell). The `text`
- * arm is the plain-text reference path (decision 21): the token span is
+ * arm is the plain-text reference path (decision recorded in
+ * .agents/notes/implemented/architecture/2026-07-25-web-input-machine-and-slash-pipeline.md):
+ * the token span is
  * replaced with literal text — no occurrence identity, no placeholder; any
  * chip visual is derived downstream by scanning the draft against the
  * source lexicons.
@@ -159,8 +161,8 @@ export interface SlashSource {
    */
   warm?(session: ClientSessionContext): void
   /**
-   * Synchronous hot-snapshot name roll for plain-text reference decoration
-   * (decision 21). Implementing IS the participation claim: the render side
+   * Synchronous hot-snapshot name roll for plain-text reference decoration.
+   * Implementing IS the participation claim: the render side
    * scans the draft for `<trigger><name>` tokens and decorates exact matches.
    * `undefined` = backing data not warm yet — no decoration, never a fetch
    * (the render path must stay synchronous and side-effect free).
@@ -211,7 +213,7 @@ export interface ConsumeTokenRequest {
     | { readonly kind: 'bare-token'; readonly token: string }
 }
 
-/** Request payload of the scoped insert-text input event (decision 21). */
+/** Request payload of the scoped insert-text input event (the plain-text reference path). */
 export interface InsertTextRequest {
   /** Literal replacement for the trigger token span (e.g. `/name `). */
   readonly text: string
@@ -245,7 +247,7 @@ declare module 'cordis' {
     'slash/input-consume-token'(request: ConsumeTokenRequest): true | undefined
     /**
      * Replaces the trigger token span with literal text — the plain-text
-     * reference path (decision 21). Same carrier routing and applied-truth
+     * reference path. Same carrier routing and applied-truth
      * contract; the draft gains ordinary characters, no occurrence entry.
      * @param request - Replacement text and menu-time span CAS.
      * @mode bail

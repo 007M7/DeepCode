@@ -25,7 +25,7 @@ Status: implemented
 
 ## 曾考虑的替代方案
 
-**把进程管道留在 `dsh-bash-local` 里（维持现状）。**否决的理由与[任务注册表拆分](2026-07-26-task-registry-seam.md)得以落地的理由相同：这条边界既稳定，也早已记录在代码里（`run.ts` 的模块文档曾写明「this layer reacts to an abort signal; the executor owns deadlines and classifies causes」），而若继续将它保持私有，未来每个非 shell 运行器就只能要么 fork 这套机制，要么为非 bash 工作去依赖一个以 bash 命名的包。这组堆叠变更对用户可见的动因正是这一拆分。
+**把进程管道留在 `dsh-bash-local` 里（维持现状）。**否决的理由与[任务注册表拆分](2026-07-26-task-registry-seam.md)得以落地的理由相同：这条边界既稳定，也早已记录在代码里（`run.ts` 的模块文档曾写明「this layer reacts to an abort signal; the executor owns deadlines and classifies causes」），而若继续将它保持私有，未来每个非 shell 运行器就只能要么 fork 这套机制，要么为非 bash 工作去依赖一个以 bash 命名的包。本次变更对用户可见的动因正是这一拆分。
 
 **保留最初只支持批量的接口，让流式消费方继续各自实现。**否决：已观察到的 LSP、ACP 与 PTY 形状表明，这会继续保留重复的私有进程树信号与环境清除。Node 形状的处置方式覆盖这些消费方，又不缓冲管道化流。
 

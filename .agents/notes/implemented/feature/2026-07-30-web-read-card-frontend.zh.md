@@ -18,11 +18,11 @@ Status: implemented
 
 聊天行把卡片**常驻**渲染在摘要行之下，上限 `CHAT_READ_MAX_LINES`（8，是 primitive 默认值的一半），与 `BashRow` 对终端卡片的姿态相同 —— block 的内部展开器让长读取不会占据整个消息流。两个渲染点承载它：keyed `ReadRow`（经 `ctx.slots.inject` 以 `read` 键注册，与 bash 样例完全一致），其摘要是作为可打开的宿主链接的文件路径；以及 `GenericToolCard` 对没有自己 keyed 行的读取声明工具（例如归到 `read` 变体的 `web_fetch`）的回退。详情面板以 primitive 自己的全高上限（16）渲染同一张卡片，因为面板是单次调用的阅读界面。
 
-整行折叠/展开（把每个工具调用默认折叠）是一个单独的后续改动，它会一次性翻转每张常驻卡片；本 note 的卡片是常驻的，与它旁边的终端卡片一致。
+整行折叠/展开（把每个工具调用默认折叠）归[统一展开与检视 note](2026-07-30-web-tool-row-unified-expand-and-inspect.md)所有，它已一次性翻转每张常驻卡片；本 note 的卡片是常驻的，与它旁边的终端卡片一致。
 
 **读取卡片的语法按需 lazy 加载，只有 boot 三种保持 eager。** `highlight.ts` 是 `ui-primitives` 在每次 Web 启动都加载的平台 seed，其预热会无条件构建 shiki 单例。读取卡片的 `langFromPath` 提示覆盖完整的源码/配置/标记扩展集（python、rust、yaml、html……）；把它们全部 eager 注册会给启动 chunk 增加约 1.6 MB 的语法模块、并把它们的同步初始化摊给每个会话，包括从不打开读取卡片的会话。因此只有每个会话本就渲染的三种语法 —— TypeScript、shell、JSON（markdown 围栏与 `run_code` 语言）—— 在 boot 时加载。每种读取卡片扩展语法置于 `LAZY_GRAMMARS` 中一个动态 `import()` 之后，以其别名解析到的语法 id 为键。对某个 lazy 语言首次调用 `highlightLines`/`highlightToHtml` 时，`ensureGrammar` 启动 import（仅一次）并返回未就绪，于是卡片该帧渲染纯文本；import 解析后用 `loadLanguageSync` 注册该语法、递增一个加载计数、并通知订阅者。`ReadBlock` 与 `CodeBlock` 通过 `useSyncExternalStore(subscribeGrammarLoaded, grammarLoadCount)` 订阅，因此语法就绪的那一刻卡片就重渲染带上高亮。未知/缺省语言仍同步返回 undefined（纯文本，绝不报错）。
 
-**空窗口的复制控件被隐藏，与 `TerminalBlock` 对齐。** 成功读取一个空文件会返回 `lines: []`、`totalLines: 0`，且 `presentResult` 仍投出 `card: 'read'`，因此空窗口分支是可达的 —— 读取卡片并非如早前草稿所假设的对空结果不可达。故 `ReadBlock` 在 `lines` 为空时隐藏复制控件，正如 `TerminalBlock` 对空输出隐藏复制，使按钮绝不会用空字符串清空剪贴板。
+**空窗口的复制控件被隐藏，与 `TerminalBlock` 对齐。** 成功读取一个空文件会返回 `lines: []`、`totalLines: 0`，且 `presentResult` 仍投出 `card: 'read'`，因此空窗口分支是可达的。故 `ReadBlock` 在 `lines` 为空时隐藏复制控件，正如 `TerminalBlock` 对空输出隐藏复制，使按钮绝不会用空字符串清空剪贴板。
 
 ## Alternatives considered
 

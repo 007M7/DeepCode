@@ -33,19 +33,19 @@ surface 顺序还让另外两个问题成为结构性的。一次替换之后它
 本仓库对这一情形的既有答案是不含 cordis 的叶子子路径，本次变更就新增了一个：`COMPACT_CHECKPOINT_SOURCE` 与 `isCompactCheckpointSource` 现在住在 `packages/compact/compact/src/checkpoint.ts`，它不导入 cordis、也不增强任何模块（即 `dsh-commands/brand` / `dsh-llm/message` 的形状），而包根重新导出两者，因此每个宿主侧消费方——终端的 chat helper、`dsh-session-reference` 的投影——都不需改动。适配器用仅类型导入把它的字面量钉在该声明上：
 
 ```ts
-import type { COMPACT_CHECKPOINT_SOURCE } from '@deepseek-ai/dsh-compact/checkpoint'
-const COMPACT_PLUGIN: typeof COMPACT_CHECKPOINT_SOURCE.plugin = 'compact'
+import type { CompactCheckpointSource } from '@deepseek-ai/dsh-compact/checkpoint'
+const COMPACT_PLUGIN: CompactCheckpointSource['plugin'] = 'compact'
 ```
 
 重命名 Service Definition 的插件 id 现在会在客户端产生编译错误：`TS2322: Type '"compact"' is not assignable to type '"compaction"'`。该导入必须保持**仅类型**——任何既非平台模块又非 inline-safe wire 层的 `@deepseek-ai` 包值导入都会被客户端纯度门禁（`packages/client/tsdown.client.ts`）拒绝，而它自己的报错信息就记录着仅类型导入会被擦除、永不抵达该门禁。仅类型的叶子导入同时需要 `tsconfig.base.json` 的一条 `paths` 条目和 `packages/client/runtime/tsconfig.json` `references` 中的 `{"path": "../../compact/compact"}`：composite 的 `rootDir` 规则同样适用于被擦除的导入，缺少该引用时的诊断是 `TS6059`/`TS6307`。
 
-`packages/client/runtime/tests/compact-checkpoint-pin.spec.ts` 作为行为侧的另一半保留，用由权威**值**构造的检查点驱动适配器。该测试以值导入方式从不含 cordis 的 `@deepseek-ai/dsh-compact/checkpoint` 叶子路径取得该值，并刻意不加载 compact 包根或经由它可达的宿主侧 `Context` 合并。
+`packages/client/ui-conversation/tests/conversation-node-definitions.spec.ts` 是行为侧的另一半，用检查点与溯源记录驱动压缩 Definition，并证明后续加载的旧分页可以补齐缺失的摘要数据。Definition 仅类型导入该叶子路径，使客户端继续与 compact 包根及经由它可达的宿主侧 `Context` 合并隔离。
 
 因此与终端的分歧很窄：两个前端都从同一份声明识别检查点——终端在宿主侧值导入 `isCompactCheckpointSource`（那里不适用任何门禁），客户端钉住类型。
 
 ## #835 的位置锚点是为什么而存在，以及为什么它是被溶解而非丢失
 
-尚未合并的排队式手动压缩分支用另一种方式修同一个交错缺陷：为每个事件记录一个锚点——追加时的 surface 尾部——并把被遮蔽的锚点重定向到检查点上。该机制的存在是为了让位置锚点在 surface **重排**中存活。人类对话记录永不被重排，因此锚点没有任何东西需要重定向：前提被移除，修复并未被丢弃。该机制在本基线上并不存在，本次也不撰写它。
+尚未合并的排队式手动压缩分支用另一种方式修同一个交错缺陷：为每个事件记录一个锚点——追加时的 surface 尾部——并把被遮蔽的锚点重定向到检查点上。该机制的存在是为了让位置锚点在 surface **重排**中存活。人类对话记录永不被重排，因此锚点没有任何东西需要重定向：前提被移除，修复并未被丢弃。该机制在本代码库中并不存在。
 
 ## Alternatives considered
 

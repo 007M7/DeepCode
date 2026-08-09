@@ -122,7 +122,7 @@ Under `dsh`, references resolve from the inherited environment, the Models page'
 
 ## Point an agent at the new provider
 
-A configured route appears in the web model picker and can be switched at any time, which is how most people use it.
+A configured route appears in the web model picker and can be switched at any time.
 
 Switching there also sets the default: the model you pick becomes the one the next new session starts on, recorded in `settings.yaml` under `agent-default-model`. There is no separate gesture.
 

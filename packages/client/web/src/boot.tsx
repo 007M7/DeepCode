@@ -1,15 +1,15 @@
 /**
  * Web shell boot kernel — the face consumed by the apps/web entry. Everything
  * here is machinery that cannot itself be a loader entry, and none of it
- * value-imports a plugin package (web2 shell self-sufficiency rule: the
+ * value-imports a plugin package (shell self-sufficiency rule: the
  * loading page must work while — especially when — plugins fail). The one
- * sanctioned exception is the modules package (design §4.7 bootstrap
+ * sanctioned exception is the modules package (bootstrap
  * identity): the module system cannot arrive through itself, so its class
  * and its client-half wrapper are shell-bundled and the kernel adopts its
  * plugin entry once cordis is up.
  *
  * AppWebEntry.run(), module face first, then plugin face: parse
- * `window.__DSH_BOOT__` into the two-view BootManifest (wire boundary, D16)
+ * `window.__DSH_BOOT__` into the two-view BootManifest (wire boundary)
  * → build the module system over the module-view rows → render the loading
  * page → prefetch every `immediately` row in parallel with mounting the
  * vendored cordis Loader (`internal` contract injection BEFORE any entry exists —
@@ -101,9 +101,9 @@ export class AppWebEntry {
       modules: this.manifest.modules, staticModules: getStaticModules(), ...this.seams,
     })
     // The app-shell assembly is the only shell-own module: every other graph
-    // row is a plugin bundle arriving through fetch (web2 single package form).
+    // row is a plugin bundle arriving through fetch.
     this.modules.registerStatic(APP_SHELL_ID, AppShell)
-    // Adoption handoff, supply side (design §4.7): register the modules
+    // Adoption handoff, supply side: register the modules
     // package's own client half under its bare package name (= graph row id
     // = entry name — a suffixed key would miss the statics branch and
     // trigger a real fetch), and put the instance on the kernel slot the

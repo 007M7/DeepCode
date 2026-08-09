@@ -277,12 +277,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Consider automatic compaction for one explicit trigger. Pressure policy\n * uses the latest durable routed request, while context-overflow policy may\n * force a useful balanced reduction even below the normal threshold. Return\n * `null` when no safe range can be compacted. A single oversized retained\n * unit or request envelope cannot be repaired through surface compaction.\n *\n * @param agent - agent context owning the session surface and routing options.\n * @param trigger - normal pressure or provider-confirmed context overflow.\n * @param signal - cancellation signal; model-backed implementations must forward it.\n * @returns the compaction result, or `null` if no compaction was needed.\n */',
       },
       {
-        signature: 'abstract compactNow( agent: ManualCompactAgentContext, signal: AbortSignal, ): Promise<CompactionResult | null>',
-        jsDoc: '/**\n * Explicitly compact useful history even below automatic pressure thresholds.\n * Implementations synchronously start an idle task before any asynchronous\n * work, select a useful range without writing on a no-op, then\n * append a standalone `compact/start` before summarization. That durable\n * marker is the compaction lock until one `compact/end` attempt. Later waking\n * prompts remain accepted in FIFO order and start only after the optional\n * durability checkpoint and idle-task settlement. Context injected while the\n * summary runs may sit between the marker pair; only the selected span must\n * remain stable.\n *\n * @param agent - idle agent whose durable history should be compacted.\n * @param signal - cancellation scoped to this compaction request.\n * @returns the compaction result, or `null` when no safe useful range exists.\n * @throws {@link ManualCompactionError} for expected busy, agent-cancellation,\n * changed-span, summarization/shrink, commit-stage, or persistence failures;\n * an aborted request preserves its exact abort reason. Failed attempts remain\n * visible in the log.\n */',
+        signature: 'abstract compactNow( agent: ManualCompactAgentContext, signal: AbortSignal, sourceCommandId?: CommandId, ): Promise<CompactionResult | null>',
+        jsDoc: '/**\n * Explicitly compact useful history even below automatic pressure thresholds.\n * Implementations synchronously start an idle task before any asynchronous\n * work, select a useful range without writing on a no-op, then\n * append a standalone `compact/start` before summarization. That durable\n * marker is the compaction lock until one `compact/end` attempt. Later waking\n * prompts remain accepted in FIFO order and start only after the optional\n * durability checkpoint and idle-task settlement. Context injected while the\n * summary runs may sit between the marker pair; only the selected span must\n * remain stable.\n *\n * @param agent - idle agent whose durable history should be compacted.\n * @param signal - cancellation scoped to this compaction request.\n * @param sourceCommandId - initiating command identity for a manual compaction.\n * @returns the compaction result, or `null` when no safe useful range exists.\n * @throws {@link ManualCompactionError} for expected busy, agent-cancellation,\n * changed-span, summarization/shrink, commit-stage, or persistence failures;\n * an aborted request preserves its exact abort reason. Failed attempts remain\n * visible in the log.\n */',
       },
       {
         signature: 'abstract compactRegion( start: number, end: number, agent: CompactAgentContext, signal?: AbortSignal, ): Promise<CompactionResult>',
-        jsDoc: '/**\n * Forcibly compact a range of surface nodes into a single summary node.\n * `start` and `end` name an inclusive span by surface position, not numeric seq\n * order; replacements can make visible seqs non-monotonic. Both edges must be\n * balanced so assistant tool calls remain paired with their results. A model-\n * backed implementation forwards cancellation and rejects active, missing,\n * reversed, or unbalanced ranges. The target session is `agent.session`.\n * Its replacement user message must use {@link COMPACT_CHECKPOINT_SOURCE}.\n * Use {@link toolPairingBalancedBefore} and {@link toolPairingBalancedAfter}\n * for the edge checks.\n *\n * @param start - first surface seq, inclusive.\n * @param end - last surface seq, inclusive.\n * @param agent - context whose session is mutated and whose routing options guide summarization.\n * @param signal - optional cancellation; model-backed implementations must forward it.\n * @throws when compaction is active or the range is missing, reversed, or unbalanced.\n * @returns the appended event seqs, summary, replaced range, and token accounting.\n */',
+        jsDoc: '/**\n * Forcibly compact a range of surface nodes into a single summary node.\n * `start` and `end` name an inclusive span by surface position, not numeric seq\n * order; replacements can make visible seqs non-monotonic. Both edges must be\n * balanced so assistant tool calls remain paired with their results. A model-\n * backed implementation forwards cancellation and rejects active, missing,\n * reversed, or unbalanced ranges. The target session is `agent.session`.\n * Its replacement user message must use {@link compactCheckpointSource} with\n * the transaction\'s `CompactionId`.\n * Use {@link toolPairingBalancedBefore} and {@link toolPairingBalancedAfter}\n * for the edge checks.\n *\n * @param start - first surface seq, inclusive.\n * @param end - last surface seq, inclusive.\n * @param agent - context whose session is mutated and whose routing options guide summarization.\n * @param signal - optional cancellation; model-backed implementations must forward it.\n * @throws when compaction is active or the range is missing, reversed, or unbalanced.\n * @returns the appended event seqs, summary, replaced range, and token accounting.\n */',
       },
     ],
   },
@@ -370,11 +370,11 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'abstract writeText( target: FsTarget, content: string, expected?: FsWriteIntent, signal?: AbortSignal, sandboxPolicy?: SandboxExecutionPolicy, ): Promise<FsWriteOutcome>',
-        jsDoc: '/**\n * Atomically create or replace UTF-8 text. `expected` guards intent and\n * staleness; omission allows unconditional overwrite.\n * @param target - the resolved target to write.\n * @param content - the full new file content.\n * @param expected - the write intent guarding the write; omit for unconditional.\n * @param signal - aborts before the atomic rename takes effect.\n * @param sandboxPolicy - the per-call mode and workspace root this write\n *   runs under; a sandboxing backend fences the write by it, the bare backend\n *   ignores it. Omit to leave the backend its own default.\n * @returns the outcome, including the version the write produced.\n */',
+        jsDoc: '/**\n * Atomically create or replace UTF-8 text. `expected` guards intent and\n * staleness; omission allows unconditional overwrite.\n * @param target - the resolved target to write.\n * @param content - the full new file content.\n * @param expected - the write intent guarding the write; omit for unconditional.\n * @param signal - aborts before atomic publication takes effect.\n * @param sandboxPolicy - the per-call mode and workspace root this write\n *   runs under; a sandboxing backend fences the write by it, the bare backend\n *   ignores it. Omit to leave the backend its own default.\n * @returns the outcome, including the version the write produced.\n */',
       },
       {
         signature: 'abstract editText( target: FsTarget, edit: FsEditRequest, expected?: { version: FsVersion }, signal?: AbortSignal, sandboxPolicy?: SandboxExecutionPolicy, ): Promise<FsEditOutcome>',
-        jsDoc: '/**\n * Atomically edit literal text. When supplied, the version guard is checked\n * before matching so stale content reports `FS_STALE_VERSION`; omission edits\n * the current content without a freshness precondition.\n * @param target - the resolved target to edit.\n * @param edit - the literal search/replace request.\n * @param expected - the version guard; omit for an unconditional edit.\n * @param signal - aborts before the atomic rename takes effect.\n * @param sandboxPolicy - the per-call mode and workspace root this edit runs\n *   under; a sandboxing backend fences the edit by it, the bare backend\n *   ignores it. Omit to leave the backend its own default.\n * @returns the outcome, including the version the edit produced.\n */',
+        jsDoc: '/**\n * Atomically edit literal text. When supplied, the version guard is checked\n * before matching so stale content reports `FS_STALE_VERSION`; omission edits\n * the current content without a freshness precondition.\n * @param target - the resolved target to edit.\n * @param edit - the literal search/replace request.\n * @param expected - the version guard; omit for an unconditional edit.\n * @param signal - aborts before atomic publication takes effect.\n * @param sandboxPolicy - the per-call mode and workspace root this edit runs\n *   under; a sandboxing backend fences the edit by it, the bare backend\n *   ignores it. Omit to leave the backend its own default.\n * @returns the outcome, including the version the edit produced.\n */',
       },
     ],
   },
@@ -1012,7 +1012,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     methods: [
       {
         signature: 'abstract resolveExecutable( command: string, env?: Readonly<Record<string, string>>, signal?: AbortSignal, ): Promise<string>',
-        jsDoc: '/**\n * Resolve one configured executable in this provider\'s execution world.\n * Absolute paths are verified; bare names use the provider\'s scrubbed PATH\n * plus explicit environment overrides. Relative paths containing separators\n * are rejected: no current consumer defines which directory they would\n * resolve against, so providers fail loud instead of guessing.\n * @param command - absolute executable path or bare PATH name.\n * @param env - explicit environment entries used for lookup.\n * @param signal - aborts remote or local lookup.\n * @returns a canonical executable path.\n */',
+        jsDoc: '/**\n * Resolve one configured executable in this provider\'s execution world.\n * Absolute paths are verified; bare names use the provider\'s scrubbed PATH\n * plus explicit environment overrides. Relative paths containing separators\n * are rejected: the resolution base is undefined, so providers fail loud\n * instead of guessing.\n * @param command - absolute executable path or bare PATH name.\n * @param env - explicit environment entries used for lookup.\n * @param signal - aborts remote or local lookup.\n * @returns a canonical executable path.\n */',
       },
       {
         signature: 'abstract spawn(spec: SubprocessSpawnSpec): SubprocessHandle',
@@ -1425,9 +1425,9 @@ export const EVENT_API: readonly EventApiEntry[] = [
   {
     name: 'fs/observed',
     mode: 'emit',
-    signature: '\'fs/observed\'(target: FsTarget, version: FsVersion, actor: object | undefined): void',
-    jsDoc: '/**\n * Record a successful observation. Listeners must be synchronous recorders:\n * throws fail the tool call and returned promises are not awaited.\n * @param target - the target that was read/written/edited.\n * @param version - the version the actor now holds as its observation.\n * @param actor - the observing tool-execution context; undefined records nothing useful.\n * @mode emit\n */',
-    summary: 'Record a successful observation.',
+    signature: '\'fs/observed\'(target: FsTarget, observation: FsObservation, actor: object | undefined): void',
+    jsDoc: '/**\n * Record an authoritative positive or negative observation. Listeners must\n * be synchronous recorders: throws fail the tool call and returned promises\n * are not awaited.\n * @param target - the target whose presence or absence was observed.\n * @param observation - present with its version, or confirmed absent.\n * @param actor - the observing tool-execution context; undefined records nothing useful.\n * @mode emit\n */',
+    summary: 'Record an authoritative positive or negative observation.',
   },
   {
     name: 'fs/write-intent',
@@ -1841,7 +1841,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'CommandInvocation',
-    declaration: 'export interface CommandInvocation {\n    readonly agent: Agent;\n    readonly rawInput: string;\n    readonly signal: AbortSignal;\n}',
+    declaration: 'export interface CommandInvocation {\n    readonly commandId: CommandId;\n    readonly agent: Agent;\n    readonly rawInput: string;\n    readonly signal: AbortSignal;\n}',
   },
   {
     name: 'CommandResult',
@@ -1852,8 +1852,12 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface CompactAgentContext {\n    session: Session;\n    options: {\n        provider?: string;\n        model?: string;\n    };\n}',
   },
   {
+    name: 'CompactionId',
+    declaration: 'export type CompactionId = Branded<\'CompactionId\'>;',
+  },
+  {
     name: 'CompactionResult',
-    declaration: 'export interface CompactionResult {\n    startSeq: number;\n    summarySeq: number;\n    endSeq: number;\n    summary: ContentBlock[];\n    shadowedRange: {\n        start: number;\n        end: number;\n    };\n    shadowedSeqs: number[];\n    shadowedTokenCount: number;\n}',
+    declaration: 'export interface CompactionResult {\n    compactionId: CompactionId;\n    sourceCommandId?: CommandId;\n    startSeq: number;\n    summarySeq: number;\n    endSeq: number;\n    summary: ContentBlock[];\n    shadowedRange: {\n        start: number;\n        end: number;\n    };\n    shadowedSeqs: number[];\n    shadowedTokenCount: number;\n}',
   },
   {
     name: 'CompactionTrigger',
@@ -3065,7 +3069,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ToolExecution',
-    declaration: 'export interface ToolExecution extends ToolExecutionInput {\n    readonly token: ToolExecutionToken;\n}',
+    declaration: 'export interface ToolExecution extends ToolExecutionInput {\n    readonly rootCallId: CallId;\n    readonly token: ToolExecutionToken;\n}',
   },
   {
     name: 'ToolExecutionFailure',
@@ -3073,7 +3077,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ToolExecutionInput',
-    declaration: 'export interface ToolExecutionInput {\n    readonly callId: CallId;\n    readonly name: string;\n    readonly arguments: unknown;\n    readonly agent?: Agent;\n    readonly parent?: ToolExecutionToken;\n    readonly signal: AbortSignal;\n}',
+    declaration: 'export interface ToolExecutionInput {\n    readonly callId: CallId;\n    readonly rootCallId?: CallId;\n    readonly name: string;\n    readonly arguments: unknown;\n    readonly agent?: Agent;\n    readonly parent?: ToolExecutionToken;\n    readonly signal: AbortSignal;\n}',
   },
   {
     name: 'ToolExecutionMode',

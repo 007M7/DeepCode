@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-Windows 目录选择器的主层此前是围绕 WinForms `FolderBrowserDialog` spawn 出的 PowerShell 脚本：只有恰好安装了 PowerShell 7 的机器才有现代对话框；review 指出的回归——PowerShell 6 可解析却没有 WinForms（退出码 1 而非 `ENOENT`，5.1 回退永远不会触发）；`SetProcessDPIAware` 只有系统 DPI 的上限；选择器的行为取决于机器装了哪些 shell，而不是取决于 Windows 本身。
+Windows 目录选择器的主层此前是围绕 WinForms `FolderBrowserDialog` spawn 出的 PowerShell 脚本：只有恰好安装了 PowerShell 7 的机器才有现代对话框；一处回归——PowerShell 6 可解析却没有 WinForms（退出码 1 而非 `ENOENT`，5.1 回退永远不会触发）；`SetProcessDPIAware` 只有系统 DPI 的上限；选择器的行为取决于机器装了哪些 shell，而不是取决于 Windows 本身。
 
 ## 决策
 
