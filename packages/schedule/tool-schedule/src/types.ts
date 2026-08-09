@@ -35,7 +35,7 @@ export interface AtScheduleRecord {
   readonly scheduledAt: string
 }
 
-/** Durable fixed-rate reminder whose next target remains anchor-aligned. */
+/** Durable fixed-rate reminder whose next target remains creation-anchor-aligned. */
 export interface EveryScheduleRecord {
   /** Session-local stable identity. */
   readonly id: ScheduleId
@@ -45,23 +45,7 @@ export interface EveryScheduleRecord {
   readonly prompt: string
   /** Fixed safe-integer interval, never below five minutes. */
   readonly everySeconds: number
-  /** Earliest anchor-aligned occurrence not yet accepted. */
-  readonly scheduledAt: string
-}
-
-/** Durable calendar reminder evaluated in one explicit IANA time zone. */
-export interface CronScheduleRecord {
-  /** Session-local stable identity. */
-  readonly id: ScheduleId
-  /** Rule discriminator for a calendar recurring reminder. */
-  readonly kind: 'cron'
-  /** Trimmed user-authored reminder content. */
-  readonly prompt: string
-  /** Canonical restricted five-field cron expression. */
-  readonly cron: string
-  /** Canonical IANA time-zone name used for future evaluation. */
-  readonly timeZone: string
-  /** Earliest calendar occurrence not yet accepted. */
+  /** Earliest anchor-aligned occurrence not yet dispatched. */
   readonly scheduledAt: string
 }
 
@@ -81,11 +65,8 @@ export type AtInput = string | LocalAtInput
 /** One-shot record variants that terminate on an id-only dispatch. */
 export type OneShotScheduleRecord = AfterScheduleRecord | AtScheduleRecord
 
-/** Recurring record variants that share one model-turn gate. */
-export type RecurringScheduleRecord = EveryScheduleRecord | CronScheduleRecord
-
 /** The v1 durable reminder record union. */
-export type ScheduleRecord = OneShotScheduleRecord | RecurringScheduleRecord
+export type ScheduleRecord = OneShotScheduleRecord | EveryScheduleRecord
 
 /** Creates one durable reminder record. */
 export interface ScheduleCreateChange {
@@ -108,33 +89,17 @@ export interface OneShotScheduleDispatchChange {
   readonly id: ScheduleId
 }
 
-/** Records one fixed-rate batch decision without copying its derived occurrence or next target. */
+/** Records one fixed-rate decision and advances directly past missed occurrences. */
 export interface EveryScheduleDispatchChange {
   readonly version: 1
   readonly operation: 'dispatch'
   readonly id: ScheduleId
-  /** Shared recurring-batch decision time as canonical UTC. */
+  /** Wall-clock decision time used to select the latest due occurrence. */
   readonly acceptedAt: string
-}
-
-/** Freezes one calendar decision against the live evaluator and tzdata. */
-export interface CronScheduleDispatchChange {
-  readonly version: 1
-  readonly operation: 'dispatch'
-  readonly id: ScheduleId
-  /** Latest accepted calendar occurrence as canonical UTC. */
-  readonly occurrenceAt: string
-  /** Shared recurring-batch decision time as canonical UTC. */
-  readonly acceptedAt: string
-  /** First future calendar occurrence, omitted only at four-digit-year exhaustion. */
-  readonly nextScheduledAt?: string
 }
 
 /** Durable dispatch shapes supported by the current rule set. */
-export type ScheduleDispatchChange =
-  | OneShotScheduleDispatchChange
-  | EveryScheduleDispatchChange
-  | CronScheduleDispatchChange
+export type ScheduleDispatchChange = OneShotScheduleDispatchChange | EveryScheduleDispatchChange
 
 /** Strict version-1 durable Schedule mutation union. */
 export type ScheduleChange = ScheduleCreateChange | ScheduleDeleteChange | ScheduleDispatchChange
@@ -151,18 +116,6 @@ export type ScheduleView = ScheduleRecord & {
   readonly state: ScheduleState
   /** Reminder delivery never leaves the owning session. */
   readonly deliveryMode: ScheduleDeliveryMode
-  /** Earliest recurring batch admission while an overdue record is gate-blocked. */
-  readonly deliveryNotBefore?: string
-}
-
-/** JSON-compatible Web receipt derived from one durable dispatch. */
-export interface ScheduleReminderPresentation {
-  /** Session-local reminder identity. */
-  readonly scheduleId: ScheduleId
-  /** Original user-authored reminder content. */
-  readonly prompt: string
-  /** Scheduled occurrence represented by the dispatch. */
-  readonly occurrenceAt: string
 }
 
 /** Management operations whose persistence barrier may be uncertain. */
@@ -204,15 +157,9 @@ export interface TimeOutOfRangeError {
   readonly message: string
 }
 
-/** Stable error returned when a recurring rule exceeds the fixed model-turn frequency. */
+/** Stable error returned when a fixed-rate rule runs more often than supported. */
 export interface FrequencyTooHighError {
   readonly code: 'frequency_too_high'
-  readonly message: string
-}
-
-/** Stable error returned when a recurring rule has no representable future occurrence. */
-export interface NoFutureOccurrenceError {
-  readonly code: 'no_future_occurrence'
   readonly message: string
 }
 
@@ -245,7 +192,6 @@ export type ScheduleToolError =
   | NotFutureError
   | TimeOutOfRangeError
   | FrequencyTooHighError
-  | NoFutureOccurrenceError
   | CorruptScheduleLogError
   | PersistenceUncertainError
   | InternalScheduleError

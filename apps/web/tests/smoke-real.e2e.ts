@@ -27,9 +27,6 @@ import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import { REPO_ROOT, connectFreshWorkspace, newEnglishPage, probeFreePort, requireDist, saveFailureShot } from './support.ts'
 
 const DEVELOPMENT_PROMPT = fileURLToPath(new URL('./snapshots/web-runtime-context/development-prompt.expected.md', import.meta.url))
-const WEB_TIME_ZONE = 'UTC'
-const SCHEDULE_OVERLAY = fileURLToPath(new URL('../../../examples/web-schedule/cordis.yml', import.meta.url))
-const REAL_SCHEDULE_PROMPT = 'REAL_MODEL_SCHEDULE_PROBE'
 
 function waitForReadyLine(child: ChildProcess): Promise<string> {
   return new Promise((resolveReady, reject) => {
@@ -72,7 +69,7 @@ async function rpc<T>(baseUrl: string, method: string, payload: unknown): Promis
 }
 
 interface HistoryPage {
-  events: { event: { type: string; data: unknown }; view?: unknown }[]
+  events: { event: { type: string; data: unknown } }[]
   hasMore: boolean
 }
 
@@ -102,8 +99,8 @@ function hasAssistantMarker(page: HistoryPage, marker: string): boolean {
   })
 }
 
-async function history(baseUrl: string, sessionId: string, maxMessages = 10): Promise<HistoryPage> {
-  return rpc<HistoryPage>(baseUrl, 'session.history', { sessionId, maxMessages })
+async function history(baseUrl: string, sessionId: string): Promise<HistoryPage> {
+  return rpc<HistoryPage>(baseUrl, 'session.history', { sessionId, maxMessages: 10 })
 }
 
 async function waitForProviderTitle(baseUrl: string, sessionId: string): Promise<string> {
@@ -244,14 +241,11 @@ describe('dsh web keyless CLI smoke', () => {
     )
     try {
       const baseUrl = await waitForReadyLine(child)
-      const created = await rpc<{ sessionId: string }>(baseUrl, 'session.create', {
-        timeZone: WEB_TIME_ZONE,
-      })
+      const created = await rpc<{ sessionId: string }>(baseUrl, 'session.create', {})
       await rpc<{ accepted: true }>(baseUrl, 'session.prompt', {
         sessionId: created.sessionId,
         mode: 'queue',
         content: [{ type: 'text', text: 'go' }],
-        clientTimeZone: WEB_TIME_ZONE,
       })
       const capturedRequests = await Promise.race([
         providerRequests,
@@ -359,14 +353,11 @@ describe('dsh web keyless CLI smoke', () => {
     )
     try {
       const baseUrl = await waitForReadyLine(child)
-      const created = await rpc<{ sessionId: string }>(baseUrl, 'session.create', {
-        timeZone: WEB_TIME_ZONE,
-      })
+      const created = await rpc<{ sessionId: string }>(baseUrl, 'session.create', {})
       await rpc<{ accepted: true }>(baseUrl, 'session.prompt', {
         sessionId: created.sessionId,
         mode: 'queue',
         content: [{ type: 'text', text: promptMarker }],
-        clientTimeZone: WEB_TIME_ZONE,
       })
       let page: HistoryPage | undefined
       await expect.poll(async () => {
@@ -446,14 +437,11 @@ describe('dsh web keyless CLI smoke', () => {
     )
     try {
       const baseUrl = await waitForReadyLine(child)
-      const created = await rpc<{ sessionId: string }>(baseUrl, 'session.create', {
-        timeZone: WEB_TIME_ZONE,
-      })
+      const created = await rpc<{ sessionId: string }>(baseUrl, 'session.create', {})
       await rpc<{ accepted: true }>(baseUrl, 'session.prompt', {
         sessionId: created.sessionId,
         mode: 'queue',
         content: [{ type: 'text', text: 'go' }],
-        clientTimeZone: WEB_TIME_ZONE,
       })
       const captured = await Promise.race([
         providerRequest,
@@ -475,85 +463,6 @@ describe('dsh web keyless CLI smoke', () => {
       rmSync(workspace, { recursive: true, force: true })
     }
   })
-})
-
-describe.skipIf(!process.env.DEEPSEEK_API_KEY)('web Schedule smoke (real model)', () => {
-  it('creates and dispatches a reminder with durable tool and receipt evidence', async () => {
-    requireDist()
-    const sessionsDir = mkdtempSync(join(tmpdir(), 'dsh-web-schedule-real-'))
-    const tsxLoader = pathToFileURL(createRequire(join(REPO_ROOT, 'package.json')).resolve('tsx')).href
-    const child = spawn(
-      process.execPath,
-      [
-        '--import', tsxLoader, join(REPO_ROOT, 'apps/cli/src/bin.ts'),
-        'web', '--port', '0', '--patch', SCHEDULE_OVERLAY,
-      ],
-      {
-        cwd: sessionsDir,
-        env: {
-          ...process.env,
-          DSH_HOME: join(sessionsDir, '.dsh'),
-          DSH_AGENTS_HOME: join(sessionsDir, '.agents'),
-          TSX_TSCONFIG_PATH: join(REPO_ROOT, 'tsconfig.json'),
-        },
-        stdio: ['ignore', 'pipe', 'pipe'],
-      },
-    )
-    try {
-      const baseUrl = (await waitForReadyLine(child)).replace('0.0.0.0', '127.0.0.1')
-      const created = await rpc<{ sessionId: string }>(baseUrl, 'session.create', {
-        timeZone: WEB_TIME_ZONE,
-      })
-      await rpc<{ accepted: true }>(baseUrl, 'session.prompt', {
-        sessionId: created.sessionId,
-        mode: 'queue',
-        content: [{
-          type: 'text',
-          text: `Call schedule_create now with exactly {"prompt":"${REAL_SCHEDULE_PROMPT}","after_seconds":1}. Do not answer without using the tool.`,
-        }],
-        clientTimeZone: WEB_TIME_ZONE,
-      })
-
-      await expect.poll(async () => {
-        const page = await history(baseUrl, created.sessionId, 50)
-        const call = page.events.find(({ event }) =>
-          event.type === 'tool/call' && isRecord(event.data) && event.data.name === 'schedule_create')
-        const callId = isRecord(call?.event.data) ? call.event.data.callId : undefined
-        if (typeof callId !== 'string') return false
-        const result = page.events.find(({ event }) => {
-          if (event.type !== 'tool/result' || !isRecord(event.data) || !isRecord(event.data.message)) return false
-          const source = event.data.message.source
-          return isRecord(source) && source.callId === callId
-        })
-        const create = page.events.find(({ event }) => {
-          if (event.type !== 'schedule/change' || !isRecord(event.data)
-            || event.data.operation !== 'create' || !isRecord(event.data.schedule)) return false
-          return event.data.schedule.prompt === REAL_SCHEDULE_PROMPT
-        })
-        const schedule = isRecord(create?.event.data) && isRecord(create.event.data.schedule)
-          ? create.event.data.schedule
-          : undefined
-        const scheduleId = schedule?.id
-        if (typeof scheduleId !== 'string' || result === undefined
-          || !JSON.stringify(result.event.data).includes(scheduleId)) return false
-        const dispatch = page.events.find(({ event }) =>
-          event.type === 'schedule/change' && isRecord(event.data)
-          && event.data.operation === 'dispatch' && event.data.id === scheduleId)
-        if (dispatch === undefined || !isRecord(dispatch.view) || !isRecord(dispatch.view.view)) return false
-        return dispatch.view.for === 'event'
-          && dispatch.view.view.scheduleId === scheduleId
-          && dispatch.view.view.prompt === REAL_SCHEDULE_PROMPT
-      }, { timeout: 240_000, interval: 1_000 }).toBe(true)
-    } finally {
-      const closed = child.exitCode === null
-        ? new Promise<void>((resolveClose) => { child.once('close', () => { resolveClose() }) })
-        : Promise.resolve()
-      if (child.exitCode === null) child.kill('SIGTERM')
-      await Promise.race([closed, new Promise(resolve => setTimeout(resolve, 10_000).unref())])
-      if (child.exitCode === null) child.kill('SIGKILL')
-      rmSync(sessionsDir, { recursive: true, force: true })
-    }
-  }, 300_000)
 })
 
 describe.skipIf(!process.env.DEEPSEEK_API_KEY || notReady.length > 0)('web smoke (real host, real key, W5)', () => {

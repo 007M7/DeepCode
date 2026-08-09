@@ -4,7 +4,7 @@ import InvariantService, { InvariantError } from '@deepseek-ai/dsh-invariants'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import * as scheduleInvariant from '../src/invariant.ts'
-import { createCronScheduleRecord, resolveCronOccurrence, ScheduleId } from '../src/domain.ts'
+import { ScheduleId } from '../src/domain.ts'
 import type { ScheduleChange } from '../src/types.ts'
 
 function event(data: unknown, seq: number): SessionEvent {
@@ -21,6 +21,20 @@ function create(id: string): ScheduleChange {
       prompt: 'check logs',
       afterSeconds: 1,
       scheduledAt: '2026-08-05T12:00:01.000Z',
+    },
+  }
+}
+
+function createEvery(id: string): ScheduleChange {
+  return {
+    version: 1,
+    operation: 'create',
+    schedule: {
+      id: ScheduleId(id),
+      kind: 'every',
+      prompt: 'check metrics',
+      everySeconds: 300,
+      scheduledAt: '2026-08-05T12:05:00.000Z',
     },
   }
 }
@@ -53,161 +67,22 @@ describe('Schedule package invariant', () => {
     await ctx.fiber.dispose()
   })
 
-  it('validates live Cron records and dispatches with current calendar data', async () => {
+  it('requires a decision time for Every dispatch and advances the live stream', async () => {
     const { ctx } = await harness()
-    const session = ctx.sessions.create(SessionId('schedule-live-cron-invariant'))
-    expect(() => session.append('schedule/change', {
-      version: 1,
-      operation: 'create',
-      schedule: {
-        id: ScheduleId('schedule-invalid-live-cron'),
-        kind: 'cron',
-        prompt: 'invalid current target',
-        cron: '0 9 * * *',
-        timeZone: 'UTC',
-        scheduledAt: '2026-08-06T12:00:00.000Z',
-      },
-    })).toThrow(InvariantError)
-    expect(() => session.append('schedule/change', {
-      version: 1,
-      operation: 'create',
-      schedule: {
-        id: ScheduleId('schedule-alias-live-cron'),
-        kind: 'cron',
-        prompt: 'noncanonical zone',
-        cron: '0 9 * * *',
-        timeZone: 'US/Eastern',
-        scheduledAt: '2026-08-06T13:00:00.000Z',
-      },
-    })).toThrow(InvariantError)
-    expect(() => session.append('schedule/change', {
-      version: 1,
-      operation: 'create',
-      schedule: {
-        id: ScheduleId('schedule-fast-live-cron'),
-        kind: 'cron',
-        prompt: 'too frequent',
-        cron: '* * * * *',
-        timeZone: 'UTC',
-        scheduledAt: '2026-08-06T12:00:00.000Z',
-      },
-    })).toThrow(InvariantError)
-
-    const record = createCronScheduleRecord(
-      ScheduleId('schedule-valid-live-cron'),
-      'valid current target',
-      '0 9 * * *',
-      'UTC',
-      Date.parse('2026-08-06T08:00:00.000Z'),
-    )
-    session.append('schedule/change', { version: 1, operation: 'create', schedule: record })
-    const acceptedAt = '2026-08-07T12:00:00.000Z'
-    const expected = resolveCronOccurrence(record, Date.parse(acceptedAt))
+    const session = ctx.sessions.create(SessionId('schedule-every-invariant'))
+    session.append('schedule/change', createEvery('schedule-every'))
     expect(() => session.append('schedule/change', {
       version: 1,
       operation: 'dispatch',
-      id: record.id,
-      occurrenceAt: record.scheduledAt,
-      acceptedAt,
-      nextScheduledAt: expected.nextScheduledAt,
+      id: ScheduleId('schedule-every'),
     })).toThrow(InvariantError)
-    expect(session.events).toHaveLength(1)
     session.append('schedule/change', {
       version: 1,
       operation: 'dispatch',
-      id: record.id,
-      occurrenceAt: expected.occurrenceAt,
-      acceptedAt,
-      nextScheduledAt: expected.nextScheduledAt,
+      id: ScheduleId('schedule-every'),
+      acceptedAt: '2026-08-05T12:17:34.000Z',
     })
     expect(session.events).toHaveLength(2)
-    await ctx.fiber.dispose()
-  })
-
-  it('keeps existing Cron replay structural across time-zone data changes', async () => {
-    const ctx = new Context()
-    await ctx.plugin(SessionStore)
-    await ctx.plugin(InvariantService)
-    ctx.sessions.create(SessionId('schedule-historical-cron-invariant'), {
-      seed: [event({
-        version: 1,
-        operation: 'create',
-        schedule: {
-          id: 'schedule-historical-cron',
-          kind: 'cron',
-          prompt: 'historical target',
-          cron: '0 9 * * *',
-          timeZone: 'UTC',
-          scheduledAt: '2026-08-06T12:00:00.000Z',
-        },
-      }, 0)],
-    })
-    const fiber = await ctx.plugin(scheduleInvariant)
-    const alias = ctx.sessions.create(SessionId('schedule-historical-zone-alias'), {
-      seed: [event({
-        version: 1,
-        operation: 'create',
-        schedule: {
-          id: 'schedule-historical-zone-alias',
-          kind: 'cron',
-          prompt: 'historical zone alias',
-          cron: '0 9 * * *',
-          timeZone: 'US/Eastern',
-          scheduledAt: '2026-08-06T13:00:00.000Z',
-        },
-      }, 0)],
-    })
-    expect(() => alias.append('schedule/change', {
-      version: 1,
-      operation: 'dispatch',
-      id: ScheduleId('schedule-historical-zone-alias'),
-      occurrenceAt: '2026-08-07T13:00:00.000Z',
-      acceptedAt: '2026-08-07T14:00:00.000Z',
-      nextScheduledAt: '2026-08-08T13:00:00.000Z',
-    })).not.toThrow()
-    const invalidLiveRules = [
-      {
-        id: 'schedule-historical-fast-cron',
-        cron: '* * * * *',
-        scheduledAt: '2026-08-06T12:00:00.000Z',
-        occurrenceAt: '2026-08-06T12:01:00.000Z',
-        acceptedAt: '2026-08-06T12:01:00.000Z',
-        nextScheduledAt: '2026-08-06T12:02:00.000Z',
-      },
-      {
-        id: 'schedule-historical-impossible-cron',
-        cron: '0 0 31 2 *',
-        scheduledAt: '2026-02-01T00:00:00.000Z',
-        occurrenceAt: '2026-02-01T00:00:00.000Z',
-        acceptedAt: '2026-02-01T00:00:00.000Z',
-        nextScheduledAt: undefined,
-      },
-    ] as const
-    for (const invalid of invalidLiveRules) {
-      const replay = ctx.sessions.create(SessionId(invalid.id), {
-        seed: [event({
-          version: 1,
-          operation: 'create',
-          schedule: {
-            id: invalid.id,
-            kind: 'cron',
-            prompt: 'historical rule',
-            cron: invalid.cron,
-            timeZone: 'UTC',
-            scheduledAt: invalid.scheduledAt,
-          },
-        }, 0)],
-      })
-      expect(() => replay.append('schedule/change', {
-        version: 1,
-        operation: 'dispatch',
-        id: ScheduleId(invalid.id),
-        occurrenceAt: invalid.occurrenceAt,
-        acceptedAt: invalid.acceptedAt,
-        ...(invalid.nextScheduledAt === undefined ? {} : { nextScheduledAt: invalid.nextScheduledAt }),
-      })).toThrow(InvariantError)
-    }
-    await fiber.dispose()
     await ctx.fiber.dispose()
   })
 

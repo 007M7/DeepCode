@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import AgentRegistry, { Inbox } from '@deepseek-ai/dsh-agent'
 import type { Agent, AgentCancelCause, InboxTarget } from '@deepseek-ai/dsh-agent'
-import { CallId, createUserMessage } from '@deepseek-ai/dsh-llm'
+import { CallId } from '@deepseek-ai/dsh-llm'
 import type { UserMessage } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -22,10 +22,8 @@ interface ToolHarness {
   readonly disposeTools: () => void
 }
 
-function stubAgent(ctx: Context, id: string, timeZone?: string): Agent {
-  const session = ctx.sessions.create(SessionId(id), {
-    ...(timeZone === undefined ? {} : { meta: { timeZone } }),
-  })
+function stubAgent(ctx: Context, id: string): Agent {
+  const session = ctx.sessions.create(SessionId(id))
   const inbox = new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} })
   return {
     id: session.id,
@@ -35,23 +33,23 @@ function stubAgent(ctx: Context, id: string, timeZone?: string): Agent {
     status: 'idle',
     ctx: new Context(),
     send(_message: UserMessage, _target: InboxTarget, _wakeup: boolean) {},
+    runMaintenance: task => task(signal),
     cancel(_cause: AgentCancelCause) {},
     whenIdle: () => Promise.resolve(),
-    runMaintenance: task => task(signal),
     followup(_message: UserMessage) {},
     steer(_message: UserMessage) {},
     inject(_message: UserMessage) {},
   }
 }
 
-async function harness(withPersistence = true, timeZone?: string): Promise<ToolHarness> {
+async function harness(withPersistence = true): Promise<ToolHarness> {
   const ctx = new Context()
   contexts.push(ctx)
   await ctx.plugin(SessionStore)
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(SystemPrompt, {})
   await ctx.plugin(ToolRegistry)
-  const agent = stubAgent(ctx, `schedule-tools-${Math.random()}`, timeZone)
+  const agent = stubAgent(ctx, `schedule-tools-${Math.random()}`)
   ctx.agents.register(agent)
   const flushes = { count: 0, outcomes: [] as Array<'resolve' | 'reject' | Promise<'resolve' | 'reject'>> }
   if (withPersistence) {
@@ -89,25 +87,6 @@ function value(result: ToolExecutionResult): unknown {
   if (block?.type !== 'text') throw new Error('expected deterministic text content')
   expect(JSON.parse(block.text)).toEqual(result.value)
   return result.value
-}
-
-function appendRequestContext(agent: Agent, clientTimeZones: readonly string[]): void {
-  for (const [index, clientTimeZone] of clientTimeZones.entries()) {
-    agent.session.append('user/message', createUserMessage({
-      content: [{ type: 'text', text: `request ${index + 1}` }],
-      source: { kind: 'user', rpcId: `request-zone-${String(index + 1)}`, clientTimeZone } as never,
-    }), { surfaceOp: 'append' })
-  }
-  const text = 'time context'
-  agent.session.append('user/message', createUserMessage({
-    content: [{ type: 'text', text }],
-    source: {
-      kind: 'plugin',
-      plugin: 'time-context',
-      form: 'snapshot',
-      sections: [{ name: 'time-context', text }],
-    },
-  }), { surfaceOp: 'append' })
 }
 
 beforeEach(() => {
@@ -173,22 +152,12 @@ describe('Schedule tool protocol', () => {
     expect(value(await execute(test, 'schedule_create', { prompt: 'x', after_seconds: 1, at: 'later' })))
       .toEqual({
         code: 'invalid_selector',
-        message: 'schedule_create accepts exactly one of after_seconds, at, every_seconds, or cron with time_zone.',
+        message: 'schedule_create accepts exactly one of after_seconds, at, or every_seconds.',
       })
     expect(value(await execute(test, 'schedule_create', { prompt: 'x', every_seconds: 1.5 })))
       .toEqual({ code: 'invalid_rule', message: 'every_seconds must be a safe integer.' })
     expect(value(await execute(test, 'schedule_create', { prompt: 'x', every_seconds: 299 })))
       .toEqual({ code: 'frequency_too_high', message: 'every_seconds must be at least 300.' })
-    for (const args of [
-      { prompt: 'x', cron: '0 9 * * *' },
-      { prompt: 'x', time_zone: 'UTC' },
-      { prompt: 'x', every_seconds: 300, cron: '0 9 * * *', time_zone: 'UTC' },
-    ]) {
-      expect(value(await execute(test, 'schedule_create', args))).toEqual({
-        code: 'invalid_selector',
-        message: 'schedule_create accepts exactly one of after_seconds, at, every_seconds, or cron with time_zone.',
-      })
-    }
     expect(test.flushes.count).toBe(0)
     expect(test.agent.session.events.filter(event => event.type === 'schedule/change')).toEqual([])
   })
@@ -239,7 +208,7 @@ describe('Schedule tool protocol', () => {
     expect(test.flushes.count).toBe(0)
   })
 
-  it('creates explicit-offset and explicit-zone at records without persisting their interpretation', async () => {
+  it('creates offset and explicit-zone at records without persisting their input interpretation', async () => {
     const test = await harness()
     expect(value(await execute(test, 'schedule_create', {
       prompt: 'join meeting', at: '2026-08-06T09:00:00+08:00',
@@ -286,7 +255,7 @@ describe('Schedule tool protocol', () => {
     ])
   })
 
-  it('creates and lists a fixed-rate record without persisting a separate anchor', async () => {
+  it('creates and lists a fixed-rate record', async () => {
     const test = await harness()
     expect(value(await execute(test, 'schedule_create', {
       prompt: '  check metrics  ', every_seconds: 300,
@@ -308,292 +277,6 @@ describe('Schedule tool protocol', () => {
         state: 'overdue',
       }),
     ])
-    const create = test.agent.session.events.find(event => event.type === 'schedule/change')
-    expect(create?.data).not.toHaveProperty('anchorAt')
-  })
-
-  it('creates and lists a canonical explicit-zone Cron record', async () => {
-    const test = await harness()
-    expect(value(await execute(test, 'schedule_create', {
-      prompt: '  workday review  ',
-      cron: '00 09 * * 1,2,3,4,5',
-      time_zone: 'US/Eastern',
-    }))).toEqual({
-      id: 'schedule-1',
-      kind: 'cron',
-      prompt: 'workday review',
-      cron: '0 9 * * 1,2,3,4,5',
-      timeZone: 'America/New_York',
-      scheduledAt: '2026-08-05T13:00:00.000Z',
-      state: 'scheduled',
-      deliveryMode: 'session-local',
-    })
-    expect(value(await execute(test, 'schedule_list', {}))).toEqual([
-      expect.objectContaining({
-        id: 'schedule-1',
-        kind: 'cron',
-        cron: '0 9 * * 1,2,3,4,5',
-        timeZone: 'America/New_York',
-      }),
-    ])
-  })
-
-  it('rejects Cron creation after the shared gate exhausts despite a wall-clock rollback', async () => {
-    const test = await harness()
-    test.agent.session.append('schedule/change', {
-      version: 1,
-      operation: 'create',
-      schedule: {
-        id: 'schedule-final',
-        kind: 'every',
-        prompt: 'final batch',
-        everySeconds: 300,
-        scheduledAt: '9999-12-31T23:55:00.000Z',
-      },
-    } as never)
-    test.agent.session.append('schedule/change', {
-      version: 1,
-      operation: 'dispatch',
-      id: 'schedule-final',
-      acceptedAt: '9999-12-31T23:57:30.000Z',
-    } as never)
-    vi.setSystemTime(new Date('9999-12-31T23:50:00.000Z'))
-
-    expect(value(await execute(test, 'schedule_create', {
-      prompt: 'rolled back', cron: '55 23 * * *', time_zone: 'UTC',
-    }))).toEqual({
-      code: 'time_out_of_range',
-      message: 'No compliant recurring delivery time remains representable within the four-digit-year range.',
-    })
-    expect(test.agent.session.events.filter(event => event.type === 'schedule/change')).toHaveLength(2)
-  })
-
-  it('rejects Every creation after the shared gate exhausts despite a wall-clock rollback', async () => {
-    const test = await harness()
-    test.agent.session.append('schedule/change', {
-      version: 1,
-      operation: 'create',
-      schedule: {
-        id: 'schedule-final',
-        kind: 'every',
-        prompt: 'final batch',
-        everySeconds: 300,
-        scheduledAt: '9999-12-31T23:55:00.000Z',
-      },
-    } as never)
-    test.agent.session.append('schedule/change', {
-      version: 1,
-      operation: 'dispatch',
-      id: 'schedule-final',
-      acceptedAt: '9999-12-31T23:57:30.000Z',
-    } as never)
-    vi.setSystemTime(new Date('9999-12-31T23:50:00.000Z'))
-
-    expect(value(await execute(test, 'schedule_create', {
-      prompt: 'rolled back', every_seconds: 300,
-    }))).toEqual({
-      code: 'time_out_of_range',
-      message: 'No compliant recurring delivery time remains representable within the four-digit-year range.',
-    })
-    expect(test.agent.session.events.filter(event => event.type === 'schedule/change')).toHaveLength(2)
-    expect(value(await execute(test, 'schedule_list', {}))).toEqual([])
-  })
-
-  it('fails closed when local at lacks confirmed request-zone context', async () => {
-    const test = await harness()
-    expect(value(await execute(test, 'schedule_create', {
-      prompt: 'ambiguous', at: { date: '2026-08-06', time: '09:00:00' },
-    }))).toEqual({
-      code: 'timezone_confirmation_required',
-      message: 'Local at requires an explicit time_zone for this request.',
-      sessionTimeZone: 'unavailable',
-      clientTimeZones: [],
-    })
-    expect(test.flushes.count).toBe(1)
-    expect(test.agent.session.events.filter(event => event.type === 'schedule/change')).toEqual([])
-
-    const unmarked = await harness(true, 'Asia/Shanghai')
-    unmarked.agent.session.append('turn/start', { turn: 1 })
-    unmarked.agent.session.append('step/start', { turn: 1, step: 1 })
-    unmarked.agent.session.append('user/message', createUserMessage({
-      content: [{ type: 'text', text: 'request without time reading' }],
-      source: { kind: 'user', rpcId: 'unmarked-request', clientTimeZone: 'Asia/Shanghai' } as never,
-    }), { surfaceOp: 'append' })
-    expect(value(await execute(unmarked, 'schedule_create', {
-      prompt: 'unmarked', at: { date: '2026-08-06', time: '09:00:00' },
-    }))).toMatchObject({
-      code: 'timezone_confirmation_required',
-      sessionTimeZone: 'Asia/Shanghai',
-      clientTimeZones: [],
-    })
-  })
-
-  it('uses the current turn request zones behind a current-step time-context marker', async () => {
-    const test = await harness(true, 'Asia/Shanghai')
-    test.agent.session.append('turn/start', { turn: 1 })
-    test.agent.session.append('step/start', { turn: 1, step: 1 })
-    appendRequestContext(test.agent, ['Asia/Shanghai'])
-
-    expect(value(await execute(test, 'schedule_create', {
-      prompt: 'implicit local', at: { date: '2026-08-06', time: '09:00:00' },
-    }))).toMatchObject({
-      kind: 'at',
-      scheduledAt: '2026-08-06T01:00:00.000Z',
-    })
-  })
-
-  it('reports the actual Session and request zones when implicit local at needs confirmation', async () => {
-    const mismatch = await harness(true, 'Asia/Shanghai')
-    mismatch.agent.session.append('turn/start', { turn: 1 })
-    mismatch.agent.session.append('step/start', { turn: 1, step: 1 })
-    appendRequestContext(mismatch.agent, ['America/New_York'])
-    expect(value(await execute(mismatch, 'schedule_create', {
-      prompt: 'mismatch', at: { date: '2026-08-06', time: '09:00:00' },
-    }))).toEqual({
-      code: 'timezone_confirmation_required',
-      message: 'Local at requires an explicit time_zone for this request.',
-      sessionTimeZone: 'Asia/Shanghai',
-      clientTimeZones: ['America/New_York'],
-    })
-
-    const mixed = await harness(true, 'Asia/Shanghai')
-    mixed.agent.session.append('turn/start', { turn: 1 })
-    mixed.agent.session.append('step/start', { turn: 1, step: 1 })
-    appendRequestContext(mixed.agent, ['Asia/Shanghai', 'America/New_York'])
-    expect(value(await execute(mixed, 'schedule_create', {
-      prompt: 'mixed', at: { date: '2026-08-06', time: '09:00:00' },
-    }))).toMatchObject({
-      sessionTimeZone: 'Asia/Shanghai',
-      clientTimeZones: ['America/New_York', 'Asia/Shanghai'],
-    })
-
-    const unavailable = await harness()
-    unavailable.agent.session.append('turn/start', { turn: 1 })
-    unavailable.agent.session.append('step/start', { turn: 1, step: 1 })
-    appendRequestContext(unavailable.agent, ['America/New_York'])
-    expect(value(await execute(unavailable, 'schedule_create', {
-      prompt: 'legacy', at: { date: '2026-08-06', time: '09:00:00' },
-    }))).toMatchObject({
-      sessionTimeZone: 'unavailable',
-      clientTimeZones: ['America/New_York'],
-    })
-  })
-
-  it('reuses a same-turn snapshot marker across an empty continuation and ignores a malformed source', async () => {
-    const test = await harness(true, 'Asia/Shanghai')
-    test.agent.session.append('turn/start', { turn: 1 })
-    test.agent.session.append('step/start', { turn: 1, step: 1 })
-    appendRequestContext(test.agent, ['Asia/Shanghai'])
-    test.agent.session.append('step/end', { turn: 1, step: 1 })
-    test.agent.session.append('step/start', { turn: 1, step: 2 })
-    test.agent.session.append('user/message', createUserMessage({
-      content: [{ type: 'text', text: 'malformed authority' }],
-      source: {
-        kind: 'plugin',
-        plugin: 'time-context',
-        authority: { turn: 1, step: 2, session: { kind: 'unavailable' }, client: { kind: 'future' } },
-      } as never,
-    }), { surfaceOp: 'append' })
-
-    expect(value(await execute(test, 'schedule_create', {
-      prompt: 'same-turn local', at: { date: '2026-08-06', time: '09:00:00' },
-    }))).toMatchObject({
-      kind: 'at',
-      scheduledAt: '2026-08-06T01:00:00.000Z',
-    })
-  })
-
-  it('does not let an array-like snapshot marker authorize an implicit local at', async () => {
-    const test = await harness(true, 'Asia/Shanghai')
-    test.agent.session.append('turn/start', { turn: 1 })
-    test.agent.session.append('step/start', { turn: 1, step: 1 })
-    test.agent.session.append('user/message', createUserMessage({
-      content: [{ type: 'text', text: 'request' }],
-      source: { kind: 'user', rpcId: 'array-like-request', clientTimeZone: 'Asia/Shanghai' } as never,
-    }), { surfaceOp: 'append' })
-    const text = 'time context'
-    test.agent.session.append('user/message', createUserMessage({
-      content: [{ type: 'text', text }],
-      source: {
-        kind: 'plugin',
-        plugin: 'time-context',
-        form: 'snapshot',
-        sections: { 0: { name: 'time-context', text }, length: 1 },
-      } as never,
-    }), { surfaceOp: 'append' })
-
-    expect(value(await execute(test, 'schedule_create', {
-      prompt: 'malformed marker', at: { date: '2026-08-06', time: '09:00:00' },
-    }))).toMatchObject({
-      code: 'timezone_confirmation_required',
-      sessionTimeZone: 'Asia/Shanghai',
-      clientTimeZones: [],
-    })
-  })
-
-  it.each([
-    ['a non-object text block', 7, [{ name: 'time-context', text: 'time context' }]],
-    ['matched non-string text', { type: 'text', text: 7 }, [{ name: 'time-context', text: 7 }]],
-    ['extra text-block field', { type: 'text', text: 'time context', extra: true }, [{ name: 'time-context', text: 'time context' }]],
-    ['extra section field', { type: 'text', text: 'time context' }, [{ name: 'time-context', text: 'time context', extra: true }]],
-  ] as const)(
-    'does not let snapshot provenance with %s authorize an implicit local at',
-    async (_name, block, sections) => {
-      const test = await harness(true, 'Asia/Shanghai')
-      test.agent.session.append('turn/start', { turn: 1 })
-      test.agent.session.append('step/start', { turn: 1, step: 1 })
-      test.agent.session.append('user/message', createUserMessage({
-        content: [{ type: 'text', text: 'request' }],
-        source: { kind: 'user', rpcId: 'malformed-marker-request', clientTimeZone: 'Asia/Shanghai' } as never,
-      }), { surfaceOp: 'append' })
-      test.agent.session.append('user/message', createUserMessage({
-        content: [block as never],
-        source: { kind: 'plugin', plugin: 'time-context', form: 'snapshot', sections } as never,
-      }), { surfaceOp: 'append' })
-
-      expect(value(await execute(test, 'schedule_create', {
-        prompt: 'malformed marker', at: { date: '2026-08-06', time: '09:00:00' },
-      }))).toMatchObject({
-        code: 'timezone_confirmation_required',
-        sessionTimeZone: 'Asia/Shanghai',
-        clientTimeZones: [],
-      })
-    },
-  )
-
-  it.each(['step/end', 'turn/end'] as const)(
-    'fails closed after the current %s boundary',
-    async (boundary) => {
-      const test = await harness(true, 'Asia/Shanghai')
-      test.agent.session.append('turn/start', { turn: 1 })
-      test.agent.session.append('step/start', { turn: 1, step: 1 })
-      appendRequestContext(test.agent, ['Asia/Shanghai'])
-      test.agent.session.append('step/end', { turn: 1, step: 1 })
-      if (boundary === 'turn/end') {
-        test.agent.session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
-      }
-
-      expect(value(await execute(test, 'schedule_create', {
-        prompt: `closed ${boundary}`,
-        at: { date: '2026-08-06', time: '09:00:00' },
-      }))).toMatchObject({
-        sessionTimeZone: 'Asia/Shanghai',
-        clientTimeZones: [],
-      })
-    },
-  )
-
-  it('fails closed when an open step has no owning turn boundary', async () => {
-    const test = await harness(true, 'Asia/Shanghai')
-    test.agent.session.append('step/start', { turn: 1, step: 1 })
-    appendRequestContext(test.agent, ['Asia/Shanghai'])
-
-    expect(value(await execute(test, 'schedule_create', {
-      prompt: 'missing turn', at: { date: '2026-08-06', time: '09:00:00' },
-    }))).toMatchObject({
-      sessionTimeZone: 'Asia/Shanghai',
-      clientTimeZones: [],
-    })
   })
 
   it('returns stable at validation errors after persistence preflight', async () => {
@@ -617,36 +300,6 @@ describe('Schedule tool protocol', () => {
       message: 'The scheduled time must be strictly in the future.',
     })
     expect(test.flushes.count).toBe(3)
-    expect(test.agent.session.events.filter(event => event.type === 'schedule/change')).toEqual([])
-  })
-
-  it('returns stable Cron validation errors after persistence preflight', async () => {
-    const test = await harness()
-    expect(value(await execute(test, 'schedule_create', {
-      prompt: 'too frequent', cron: '*/4 * * * *', time_zone: 'UTC',
-    }))).toEqual({
-      code: 'frequency_too_high',
-      message: 'cron occurrences must be at least five minutes apart.',
-    })
-    expect(value(await execute(test, 'schedule_create', {
-      prompt: 'bad zone', cron: '0 9 * * *', time_zone: 'CST',
-    }))).toEqual({
-      code: 'invalid_time_zone',
-      message: 'time_zone must be UTC or a valid IANA Area/Location name.',
-    })
-    expect(value(await execute(test, 'schedule_create', {
-      prompt: 'bad weekday step', cron: '0 0 * * */8', time_zone: 'UTC',
-    }))).toEqual({
-      code: 'invalid_rule',
-      message: 'cron day-of-week has an unsupported value.',
-    })
-    expect(value(await execute(test, 'schedule_create', {
-      prompt: 'impossible', cron: '* * 31 2 *', time_zone: 'UTC',
-    }))).toEqual({
-      code: 'no_future_occurrence',
-      message: 'The cron rule has no future four-digit-year occurrence.',
-    })
-    expect(test.flushes.count).toBe(4)
     expect(test.agent.session.events.filter(event => event.type === 'schedule/change')).toEqual([])
   })
 

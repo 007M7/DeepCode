@@ -1,5 +1,5 @@
 /**
- * Agent-scoped durable one-shot, fixed-rate, and calendar reminders over the session event log.
+ * Agent-scoped durable one-shot and fixed-rate reminders over the session event log.
  * @module @deepseek-ai/dsh-tool-schedule
  */
 
@@ -12,15 +12,19 @@ import { registerScheduleTools } from './tools.ts'
 export type * from './types.ts'
 export {
   SCHEDULE_CHANGE_VERSION,
+  MIN_EVERY_INTERVAL_SECONDS,
   ScheduleId,
   ScheduleInputError,
   ScheduleLogError,
   allocateScheduleId,
   createAfterScheduleRecord,
   createAtScheduleRecord,
+  createEveryScheduleRecord,
   decodeScheduleChange,
   foldScheduleEvents,
   renderReminderFraming,
+  renderEveryReminderBatchFraming,
+  resolveEveryOccurrence,
   scheduleView,
 } from './domain.ts'
 export { registerScheduleTools } from './tools.ts'

@@ -15,7 +15,7 @@ function event(data: unknown, seq: number): SessionEvent {
 }
 
 describe('fixed-rate recurrence properties', () => {
-  it('keeps runtime calculation and durable folding on the same anchor sequence', () => {
+  it('keeps latest-only runtime calculation and durable folding on the creation anchor', () => {
     fc.assert(fc.property(
       fc.integer({ min: 300, max: 86_400 }),
       fc.integer({ min: 0, max: 10_000 }),
@@ -48,7 +48,6 @@ describe('fixed-rate recurrence properties', () => {
           }, 1),
         ])
         expect(folded.active).toEqual([{ ...record, scheduledAt: expectedNext }])
-        expect(folded.lastRecurringAcceptedAt).toBe(new Date(accepted).toISOString())
       },
     ), { numRuns: 300 })
   })

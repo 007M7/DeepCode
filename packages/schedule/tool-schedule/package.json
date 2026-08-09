@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-tool-schedule",
-  "description": "Agent-scoped durable one-shot, fixed-rate, and calendar reminders over the session event log",
+  "description": "Agent-scoped durable one-shot and fixed-rate reminders over the session event log",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -48,8 +48,5 @@
     "@deepseek-ai/dsh-system-prompt": "workspace:^",
     "@deepseek-ai/dsh-tools": "workspace:^",
     "cordis": "^4.0.0-rc.7"
-  },
-  "dependencies": {
-    "croner": "10.0.1"
   }
 }

@@ -528,7 +528,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 'schedule/change': ScheduleChange
 ```
 
-来源：[`packages/schedule/tool-schedule/src/types.ts:183`](../packages/schedule/tool-schedule/src/types.ts)
+来源：[`packages/schedule/tool-schedule/src/types.ts:219`](../packages/schedule/tool-schedule/src/types.ts)
 
 ### `session/*`
 

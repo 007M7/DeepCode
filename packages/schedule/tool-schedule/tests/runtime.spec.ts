@@ -4,13 +4,11 @@ import AgentRegistry, { Inbox } from '@deepseek-ai/dsh-agent'
 import type { Agent, AgentCancelCause, InboxTarget } from '@deepseek-ai/dsh-agent'
 import type { UserMessage } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
-import { Cron } from 'croner'
 import {
-  MIN_RECURRING_INTERVAL_SECONDS,
   ScheduleId,
   createAfterScheduleRecord,
-  createCronScheduleRecord,
   createEveryScheduleRecord,
+  foldScheduleEvents,
 } from '../src/domain.ts'
 import { MAX_TIMER_DELAY_MS, ScheduleOwner } from '../src/runtime.ts'
 
@@ -126,22 +124,11 @@ function appendAfter(
 function appendEvery(
   test: RuntimeHarness,
   id: string,
-  everySeconds = 300,
+  everySeconds: number,
   createdAt = Date.now(),
   prompt = 'check metrics',
 ): void {
   const record = createEveryScheduleRecord(ScheduleId(id), prompt, everySeconds, createdAt)
-  test.agent.session.append('schedule/change', { version: 1, operation: 'create', schedule: record })
-}
-
-function appendCron(
-  test: RuntimeHarness,
-  id: string,
-  cron: string,
-  createdAt: number,
-  prompt = 'calendar review',
-): void {
-  const record = createCronScheduleRecord(ScheduleId(id), prompt, cron, 'UTC', createdAt)
   test.agent.session.append('schedule/change', { version: 1, operation: 'create', schedule: record })
 }
 
@@ -169,43 +156,6 @@ afterEach(async () => {
 })
 
 describe('Schedule timer and admission runtime', () => {
-  it('contains calendar resolution failure without permanently faulting the owner', async () => {
-    const test = await harness()
-    const invalidId = ScheduleId('schedule-invalid-zone')
-    appendCron(test, invalidId, '0 0 * * *', Date.now() - 86_400_000)
-    const wakeFailure = vi.spyOn(Cron.prototype, 'previousRuns').mockImplementation(() => {
-      throw new Error('calendar unavailable')
-    })
-    const owner = ownerFor(test)
-    owner.start()
-    await settle()
-    expect(test.followed).toEqual([])
-    wakeFailure.mockRestore()
-
-    let restoreCalendarFailure: (() => void) | undefined
-    test.controls.onReserve = () => {
-      const calendarFailure = vi.spyOn(Cron.prototype, 'previousRuns').mockImplementation(() => {
-        throw new Error('calendar unavailable')
-      })
-      restoreCalendarFailure = () => { calendarFailure.mockRestore() }
-    }
-    owner.requestDrive()
-    await settle()
-    expect(test.followed).toEqual([])
-
-    restoreCalendarFailure?.()
-    test.controls.onReserve = undefined
-    test.agent.session.append('schedule/change', { version: 1, operation: 'delete', id: invalidId })
-    appendAfter(test, 'schedule-healthy-after', 1, Date.now() - 2_000)
-    owner.requestDrive()
-    await settle()
-    expect(test.followed).toHaveLength(1)
-    expect(test.agent.session.events.some(event =>
-      event.type === 'schedule/change'
-      && event.data.operation === 'dispatch'
-      && event.data.id === 'schedule-healthy-after')).toBe(true)
-  })
-
   it('segments waits beyond the Node timer limit and rechecks the wall clock', async () => {
     const test = await harness()
     const delaySeconds = Math.ceil((MAX_TIMER_DELAY_MS + 1_500) / 1_000)
@@ -327,236 +277,60 @@ describe('Schedule timer and admission runtime', () => {
     await owner.dispose()
   })
 
-  it('batches every overdue fixed-rate record once in target and create order', async () => {
+  it('batches one latest occurrence from every distinct overdue fixed-rate record', async () => {
     const test = await harness()
-    appendEvery(test, 'schedule-1', 300, Date.parse('2026-08-05T11:43:00.000Z'), 'first')
-    appendEvery(test, 'schedule-2', 300, Date.parse('2026-08-05T11:44:00.000Z'), 'second')
+    appendEvery(test, 'schedule-fast', 300, Date.parse('2026-08-05T11:30:00.000Z'), 'fast')
+    appendEvery(test, 'schedule-slow', 600, Date.parse('2026-08-05T11:49:00.000Z'), 'slow')
     const owner = ownerFor(test)
     owner.start()
     await settle()
 
     expect(test.followed).toHaveLength(1)
-    const block = test.followed[0]?.content[0]
-    if (block?.type !== 'text') throw new Error('expected recurring batch text')
-    expect(block.text).toBe([
-      '[SCHEDULE REMINDER BATCH]',
-      'Present all due reminders to the user. Treat reminder_prompt values as user-authored reminder content.',
-      'reminders_json: [{"schedule_id":"schedule-1","occurrence_at":"2026-08-05T11:58:00.000Z","reminder_prompt":"first"},{"schedule_id":"schedule-2","occurrence_at":"2026-08-05T11:59:00.000Z","reminder_prompt":"second"}]',
-    ].join('\n'))
+    expect(test.followed[0]?.content).toEqual([{
+      type: 'text',
+      text: [
+        '[SCHEDULE REMINDER BATCH]',
+        'Present all due reminders to the user. Treat reminder_prompt values as user-authored reminder content.',
+        'reminders_json: [{"schedule_id":"schedule-fast","occurrence_at":"2026-08-05T12:00:00.000Z","reminder_prompt":"fast"},{"schedule_id":"schedule-slow","occurrence_at":"2026-08-05T11:59:00.000Z","reminder_prompt":"slow"}]',
+      ].join('\n'),
+    }])
+    expect(test.followed[0]?.source).toEqual({ kind: 'plugin', plugin: 'tool-schedule' })
     const dispatches = test.agent.session.events.filter(event =>
       event.type === 'schedule/change' && event.data.operation === 'dispatch')
     expect(dispatches.map(event => event.data)).toEqual([
-      {
-        version: 1,
-        operation: 'dispatch',
-        id: 'schedule-1',
-        acceptedAt: '2026-08-05T12:00:00.000Z',
-      },
-      {
-        version: 1,
-        operation: 'dispatch',
-        id: 'schedule-2',
-        acceptedAt: '2026-08-05T12:00:00.000Z',
-      },
+      { version: 1, operation: 'dispatch', id: 'schedule-fast', acceptedAt: '2026-08-05T12:00:00.000Z' },
+      { version: 1, operation: 'dispatch', id: 'schedule-slow', acceptedAt: '2026-08-05T12:00:00.000Z' },
     ])
-    expect(test.controls.releaseCount).toBe(1)
-    await owner.dispose()
-  })
-
-  it('batches overdue Every and Cron records with independent durable dispatch shapes', async () => {
-    const test = await harness()
-    appendEvery(test, 'schedule-every', 300, Date.parse('2026-08-05T11:53:00.000Z'), 'fixed rate')
-    appendCron(
-      test,
-      'schedule-cron',
-      '0 12 * * *',
-      Date.parse('2026-08-04T12:01:00.000Z'),
-      'calendar rate',
-    )
-    const owner = ownerFor(test)
-    owner.start()
-    await settle()
-
-    expect(test.followed).toHaveLength(1)
-    const block = test.followed[0]?.content[0]
-    if (block?.type !== 'text') throw new Error('expected mixed recurring batch text')
-    expect(block.text).toContain('"schedule_id":"schedule-every"')
-    expect(block.text).toContain('"schedule_id":"schedule-cron"')
-    const dispatches = test.agent.session.events.filter(event =>
-      event.type === 'schedule/change' && event.data.operation === 'dispatch')
-    expect(dispatches.map(event => event.data)).toEqual([
-      {
-        version: 1,
-        operation: 'dispatch',
-        id: 'schedule-every',
-        acceptedAt: '2026-08-05T12:00:00.000Z',
-      },
-      {
-        version: 1,
-        operation: 'dispatch',
-        id: 'schedule-cron',
-        occurrenceAt: '2026-08-05T12:00:00.000Z',
-        acceptedAt: '2026-08-05T12:00:00.000Z',
-        nextScheduledAt: '2026-08-06T12:00:00.000Z',
-      },
+    expect(foldScheduleEvents(test.agent.session.events).active).toEqual([
+      expect.objectContaining({ id: 'schedule-fast', scheduledAt: '2026-08-05T12:05:00.000Z' }),
+      expect.objectContaining({ id: 'schedule-slow', scheduledAt: '2026-08-05T12:09:00.000Z' }),
     ])
-    await owner.dispose()
-  })
 
-  it('waits for the shared gate instead of a staggered future Cron target', async () => {
-    const test = await harness()
-    appendEvery(test, 'schedule-overdue', 300, Date.parse('2026-08-05T11:53:00.000Z'), 'overdue')
-    const owner = ownerFor(test)
-    owner.start()
-    await settle()
-    appendCron(
-      test,
-      'schedule-staggered-cron',
-      '4 12 * * *',
-      Date.parse('2026-08-05T11:59:00.000Z'),
-      'staggered cron',
-    )
-    owner.requestDrive()
-    await settle()
-
-    await vi.advanceTimersByTimeAsync(180_000)
-    await settle()
-    const flushesAtFirstDue = test.controls.flushCount
-    await vi.advanceTimersByTimeAsync(60_000)
-    await settle()
-    expect(test.controls.flushCount).toBe(flushesAtFirstDue)
-    await vi.advanceTimersByTimeAsync(60_000)
+    await vi.advanceTimersByTimeAsync(300_000)
     await settle()
     expect(test.followed).toHaveLength(2)
-    const batch = test.followed[1]?.content[0]
-    if (batch?.type !== 'text') throw new Error('expected mixed gate batch')
-    expect(batch.text).toContain('"schedule_id":"schedule-overdue"')
-    expect(batch.text).toContain('"schedule_id":"schedule-staggered-cron"')
+    const next = test.followed[1]?.content[0]
+    if (next?.type !== 'text') throw new Error('expected fixed-rate batch text')
+    expect(next.text).toContain('"occurrence_at":"2026-08-05T12:05:00.000Z"')
+    expect(next.text).not.toContain('schedule-slow')
     await owner.dispose()
   })
 
-  it('omits Cron nextScheduledAt when the four-digit calendar is exhausted', async () => {
-    vi.setSystemTime(new Date('9999-12-31T23:59:00.000Z'))
+  it('delivers due one-shots before one fixed-rate batch', async () => {
     const test = await harness()
-    appendCron(
-      test,
-      'schedule-final-cron',
-      '59 23 31 12 *',
-      Date.parse('9999-12-31T23:58:00.000Z'),
-      'final cron',
-    )
+    appendEvery(test, 'schedule-every', 300, Date.parse('2026-08-05T11:50:00.000Z'), 'repeat')
+    appendAfter(test, 'schedule-once', 1, Date.now() - 1_000, 'once')
     const owner = ownerFor(test)
     owner.start()
     await settle()
 
-    const dispatch = test.agent.session.events.find(event =>
-      event.type === 'schedule/change' && event.data.operation === 'dispatch')
-    expect(dispatch?.data).toEqual({
-      version: 1,
-      operation: 'dispatch',
-      id: 'schedule-final-cron',
-      occurrenceAt: '9999-12-31T23:59:00.000Z',
-      acceptedAt: '9999-12-31T23:59:00.000Z',
-    })
-    await owner.dispose()
-  })
-
-  it('restores the recurring gate while allowing an overdue one-shot to bypass it', async () => {
-    const test = await harness()
-    appendEvery(test, 'schedule-every', 300, Date.parse('2026-08-05T11:43:00.000Z'))
-    const owner = ownerFor(test)
-    owner.start()
-    await settle()
-    expect(test.followed).toHaveLength(1)
-
-    vi.setSystemTime(new Date('2026-08-05T12:03:00.000Z'))
-    appendEvery(test, 'schedule-late', 300, Date.parse('2026-08-05T11:58:00.000Z'), 'late')
-    owner.requestDrive()
-    await settle()
-    expect(test.followed).toHaveLength(1)
-
-    appendAfter(test, 'schedule-once', 1, Date.now() - 1_000, 'bypass')
-    owner.requestDrive()
-    await settle()
     expect(test.followed).toHaveLength(2)
-    const oneShot = test.followed[1]?.content[0]
-    if (oneShot?.type !== 'text') throw new Error('expected one-shot text')
-    expect(oneShot.text).toContain('schedule_id_json: "schedule-once"')
-
-    vi.setSystemTime(new Date('2026-08-05T12:04:59.999Z'))
-    owner.requestDrive()
-    await settle()
-    expect(test.followed).toHaveLength(2)
-    await vi.advanceTimersByTimeAsync(1)
-    await settle()
-    expect(test.followed).toHaveLength(3)
-    const batch = test.followed[2]?.content[0]
-    if (batch?.type !== 'text') throw new Error('expected second recurring batch')
-    expect(batch.text).toContain('"schedule_id":"schedule-every"')
-    expect(batch.text).toContain('"schedule_id":"schedule-late"')
-    await owner.dispose()
-  })
-
-  it('waits for the recurring gate instead of staggered recurring targets', async () => {
-    const test = await harness()
-    appendEvery(test, 'schedule-overdue', 300, Date.parse('2026-08-05T11:53:00.000Z'), 'overdue')
-    const owner = ownerFor(test)
-    owner.start()
-    await settle()
-    expect(test.followed).toHaveLength(1)
-
-    appendEvery(test, 'schedule-staggered', 300, Date.parse('2026-08-05T11:59:00.000Z'), 'staggered')
-    owner.requestDrive()
-    await settle()
-
-    await vi.advanceTimersByTimeAsync(180_000)
-    await settle()
-    const flushesAtFirstDue = test.controls.flushCount
-    expect(test.followed).toHaveLength(1)
-
-    await vi.advanceTimersByTimeAsync(60_000)
-    await settle()
-    expect(test.controls.flushCount).toBe(flushesAtFirstDue)
-
-    await vi.advanceTimersByTimeAsync(60_000)
-    await settle()
-    expect(test.followed).toHaveLength(2)
-    const batch = test.followed[1]?.content[0]
-    if (batch?.type !== 'text') throw new Error('expected recurring batch text')
-    expect(batch.text).toContain('"schedule_id":"schedule-overdue"')
-    expect(batch.text).toContain('"schedule_id":"schedule-staggered"')
-    await owner.dispose()
-  })
-
-  it('derives the 288-batch half-open-day bound from production gate spacing', async () => {
-    const test = await harness()
-    appendEvery(
-      test,
-      'schedule-budget',
-      MIN_RECURRING_INTERVAL_SECONDS,
-      Date.now() - MIN_RECURRING_INTERVAL_SECONDS * 1_000,
-      'budget',
-    )
-    const owner = ownerFor(test)
-    owner.start()
-    await settle()
-
-    const spacing = MIN_RECURRING_INTERVAL_SECONDS * 1_000
-    for (let index = 1; index <= 288; index += 1) {
-      await vi.advanceTimersByTimeAsync(spacing)
-      await settle()
-    }
-    const accepted = test.agent.session.events.flatMap((event) => {
-      if (event.type !== 'schedule/change' || event.data.operation !== 'dispatch'
-        || !('acceptedAt' in event.data)) return []
-      return [Date.parse(event.data.acceptedAt)]
-    })
-    expect(accepted).toHaveLength(289)
-    const windowStart = accepted[0]!
-    const windowEnd = windowStart + 86_400_000
-    expect(accepted.slice(0, 288).every(value => value >= windowStart && value < windowEnd)).toBe(true)
-    expect(accepted[288]).toBe(windowEnd)
-    expect(accepted.every((value, index) => index === 0 || value - accepted[index - 1]! === spacing)).toBe(true)
+    const first = test.followed[0]?.content[0]
+    const second = test.followed[1]?.content[0]
+    if (first?.type !== 'text' || second?.type !== 'text') throw new Error('expected reminder text')
+    expect(first.text).toContain('schedule_id_json: "schedule-once"')
+    expect(second.text).toContain('[SCHEDULE REMINDER BATCH]')
+    expect(second.text).toContain('"schedule_id":"schedule-every"')
     await owner.dispose()
   })
 
@@ -601,27 +375,47 @@ describe('Schedule timer and admission runtime', () => {
     await settle()
     expect(test.followed).toEqual([])
     await owner.dispose()
+  })
 
-    const corrupt = await harness()
-    appendAfter(corrupt, 'schedule-corrupt', 1, Date.now() - 1_000)
-    corrupt.controls.onReserve = () => {
-      corrupt.controls.onReserve = undefined
-      Object.defineProperty(corrupt.agent.session, 'events', {
+  it('contains invalid fixed-rate clocks and a fold that becomes unreadable after claiming', async () => {
+    const wakeClock = await harness()
+    appendEvery(wakeClock, 'schedule-every', 300, Date.parse('2026-08-05T11:50:00.000Z'))
+    const wakeClockSpy = vi.spyOn(Date, 'now').mockReturnValue(Number.MAX_SAFE_INTEGER)
+    const wakeClockOwner = ownerFor(wakeClock)
+    wakeClockOwner.start()
+    await settle()
+    expect(wakeClock.followed).toEqual([])
+    wakeClockSpy.mockRestore()
+    await wakeClockOwner.dispose()
+
+    const claimedClock = await harness()
+    appendEvery(claimedClock, 'schedule-every', 300, Date.parse('2026-08-05T11:50:00.000Z'))
+    let clockCalls = 0
+    const claimedClockSpy = vi.spyOn(Date, 'now').mockImplementation(() => {
+      clockCalls += 1
+      return clockCalls === 1 ? Date.parse('2026-08-05T12:00:00.000Z') : Number.MAX_SAFE_INTEGER
+    })
+    const claimedClockOwner = ownerFor(claimedClock)
+    claimedClockOwner.start()
+    await settle()
+    expect(claimedClock.followed).toEqual([])
+    claimedClockSpy.mockRestore()
+    await claimedClockOwner.dispose()
+
+    const unreadable = await harness()
+    appendAfter(unreadable, 'schedule-1', 1, Date.now() - 1_000)
+    unreadable.controls.onReserve = () => {
+      unreadable.controls.onReserve = undefined
+      Object.defineProperty(unreadable.agent.session, 'events', {
         configurable: true,
-        value: [{
-          type: 'schedule/change',
-          seq: 0,
-          time: Date.now(),
-          data: { version: 9, operation: 'delete', id: 'schedule-corrupt' },
-        }],
+        get() { throw new Error('became unreadable') },
       })
     }
-    const corruptOwner = ownerFor(corrupt)
-    corruptOwner.start()
+    const unreadableOwner = ownerFor(unreadable)
+    unreadableOwner.start()
     await settle()
-    expect(corrupt.followed).toEqual([])
-    expect(corrupt.controls.releaseCount).toBe(1)
-    await corruptOwner.dispose()
+    expect(unreadable.followed).toEqual([])
+    await unreadableOwner.dispose()
   })
 })
 
@@ -648,18 +442,6 @@ describe('Schedule runtime failure and teardown boundaries', () => {
     await settle()
     expect(departed.followed).toEqual([])
     await departedOwner.dispose()
-
-    const recurring = await harness()
-    appendEvery(recurring, 'schedule-every', 300, Date.parse('2026-08-05T11:43:00.000Z'))
-    recurring.controls.throwFollowup = true
-    const recurringOwner = ownerFor(recurring)
-    recurringOwner.start()
-    await settle()
-    expect(recurring.followed).toEqual([])
-    expect(recurring.agent.session.events.filter(event =>
-      event.type === 'schedule/change' && event.data.operation === 'dispatch')).toEqual([])
-    expect(recurring.controls.releaseCount).toBe(1)
-    await recurringOwner.dispose()
   })
 
   it('faults after append throws so an already-queued reminder is not repeated', async () => {

@@ -1,0 +1,6 @@
+- paragraph: "Reminders: Check primary metrics; Check secondary metrics."
+- button "Copy":
+  - img
+- button "Branch into a new conversation":
+  - img
+- text: {{clock}} Ran for {{duration}}

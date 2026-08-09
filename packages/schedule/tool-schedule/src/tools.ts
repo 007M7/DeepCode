@@ -6,19 +6,15 @@
 import type { Context } from 'cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
-import type { SessionEvent } from '@deepseek-ai/dsh-session'
-import { deriveClientTimeZoneContext } from '@deepseek-ai/dsh-time-context'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { GenericCallView } from '@deepseek-ai/dsh-tools'
 import {
   allocateScheduleId,
   createAfterScheduleRecord,
   createAtScheduleRecord,
-  createCronScheduleRecord,
   createEveryScheduleRecord,
   foldScheduleEvents,
-  isRecurringGateExhausted,
-  MIN_RECURRING_INTERVAL_SECONDS,
+  MIN_EVERY_INTERVAL_SECONDS,
   ScheduleId,
   ScheduleInputError,
   ScheduleLogError,
@@ -73,25 +69,10 @@ const EVERY_VIEW_SCHEMA = {
     ...SHARED_VIEW_PROPERTIES,
     kind: { type: 'string', required: true, const: 'every' },
     everySeconds: { type: 'integer', required: true },
-    deliveryNotBefore: { type: 'string' },
   },
 } as const
 
-const CRON_VIEW_SCHEMA = {
-  type: 'object',
-  additionalProperties: false,
-  properties: {
-    ...SHARED_VIEW_PROPERTIES,
-    kind: { type: 'string', required: true, const: 'cron' },
-    cron: { type: 'string', required: true },
-    timeZone: { type: 'string', required: true },
-    deliveryNotBefore: { type: 'string' },
-  },
-} as const
-
-const VIEW_SCHEMA = {
-  oneOf: [AFTER_VIEW_SCHEMA, AT_VIEW_SCHEMA, EVERY_VIEW_SCHEMA, CRON_VIEW_SCHEMA],
-} as const
+const VIEW_SCHEMA = { oneOf: [AFTER_VIEW_SCHEMA, AT_VIEW_SCHEMA, EVERY_VIEW_SCHEMA] } as const
 
 /** Build one exact two-field error schema while preserving its literal code. */
 function basicErrorSchema<const C extends string>(code: C) {
@@ -113,21 +94,9 @@ const BASIC_ERROR_SCHEMAS = [
   basicErrorSchema('not_future'),
   basicErrorSchema('time_out_of_range'),
   basicErrorSchema('frequency_too_high'),
-  basicErrorSchema('no_future_occurrence'),
   basicErrorSchema('corrupt_schedule_log'),
   basicErrorSchema('internal_error'),
 ] as const
-
-const TIME_ZONE_CONFIRMATION_SCHEMA = {
-  type: 'object',
-  additionalProperties: false,
-  properties: {
-    code: { type: 'string', required: true, const: 'timezone_confirmation_required' },
-    message: { type: 'string', required: true },
-    sessionTimeZone: { type: 'string', required: true },
-    clientTimeZones: { type: 'array', required: true, items: { type: 'string' } },
-  },
-} as const
 
 const PERSISTENCE_ERROR_SCHEMA = {
   type: 'object',
@@ -142,7 +111,6 @@ const PERSISTENCE_ERROR_SCHEMA = {
 
 const ERROR_SCHEMAS = [
   ...BASIC_ERROR_SCHEMAS,
-  TIME_ZONE_CONFIRMATION_SCHEMA,
   PERSISTENCE_ERROR_SCHEMA,
 ] as const
 
@@ -179,8 +147,9 @@ const DELETE_OUTPUT_SCHEMA = {
 const CREATE_DESCRIPTION =
   'Create one reminder in the current session. Supply a non-empty prompt and exactly one selector: '
   + 'a positive safe-integer after_seconds delay, at as a strict offset date-time or local '
-  + `date/time object, safe-integer every_seconds of at least ${MIN_RECURRING_INTERVAL_SECONDS}, `
-  + 'or a restricted five-field cron paired with an explicit IANA time_zone. '
+  + `date/time object, or safe-integer every_seconds of at least ${MIN_EVERY_INTERVAL_SECONDS}. `
+  + 'Fixed-rate reminders stay creation-aligned, skip missed occurrences, and batch one latest '
+  + 'occurrence per overdue rule. '
   + 'Delivery is session-local: the reminder runs on time only while this session '
   + 'is live and otherwise becomes overdue until the session is resumed.'
 
@@ -191,14 +160,6 @@ const LIST_DESCRIPTION =
 const DELETE_DESCRIPTION =
   'Delete one active reminder in the current session by the exact id returned by schedule_create '
   + 'or schedule_list. Unknown or already-finished ids return deleted false.'
-
-const CRON_DESCRIPTION =
-  'Five numeric fields in order: minute 0-59, hour 0-23, day-of-month 1-31, month 1-12, '
-  + 'day-of-week 0-7 (0 and 7 are Sunday). Each field is *, one integer, a strictly increasing '
-  + 'integer list, an increasing a-b range, */s, or a-b/s. Day-of-month or day-of-week must be *. '
-  + 'Steps are positive and at most the field cardinality (7 for day-of-week). Names, macros, '
-  + 'seconds, years, ?, L, W, and # are unsupported; nominal matches must be at '
-  + 'least five minutes apart. Requires time_zone.'
 
 /** Deterministic model content for every canonical Schedule value. */
 function renderValue(_args: unknown, value: unknown): ContentBlock[] {
@@ -252,103 +213,8 @@ function persistenceError(
   }
 }
 
-/** Request-local zone evidence returned with an implicit-local confirmation failure. */
-interface AtTimeZoneContext {
-  readonly implicitTimeZone?: string
-  readonly sessionTimeZone: string
-  readonly clientTimeZones: string[]
-}
-
-/** Whether one durable message is the exact time-context snapshot marker. */
-function isTimeContextReading(event: SessionEvent): boolean {
-  if (event.type !== 'user/message') return false
-  const source = event.data.source
-  if (source.kind !== 'plugin'
-    || source.plugin !== 'time-context'
-    || Object.keys(source).length !== 4
-    || source.form !== 'snapshot') return false
-  const blockValue: unknown = event.data.content[0]
-  const block = typeof blockValue === 'object' && blockValue !== null
-    ? blockValue as Record<string, unknown>
-    : undefined
-  const sections: unknown = source.sections
-  const sectionValue: unknown = Array.isArray(sections) ? sections[0] : undefined
-  const section = typeof sectionValue === 'object' && sectionValue !== null
-    ? sectionValue as Record<string, unknown>
-    : undefined
-  return event.data.content.length === 1
-    && block !== undefined
-    && Object.keys(block).length === 2
-    && block.type === 'text'
-    && typeof block.text === 'string'
-    && Array.isArray(sections)
-    && sections.length === 1
-    && section !== undefined
-    && Object.keys(section).length === 2
-    && section.name === 'time-context'
-    && section.text === block.text
-}
-
-/** Derive request zones only while the current open turn contains a time-context reading. */
-function currentClientTimeZoneContext(agent: Agent): ReturnType<typeof deriveClientTimeZoneContext> | undefined {
-  const events = agent.session.events
-  let stepStart = -1
-  let turn = 0
-  for (let index = events.length - 1; index >= 0; index--) {
-    const event = events[index]
-    /* v8 ignore next -- the loop bounds index to the dense Session event array. */
-    if (event === undefined) continue
-    if (event.type === 'step/end' || event.type === 'turn/end') return undefined
-    if (event.type === 'step/start') {
-      stepStart = index
-      turn = event.data.turn
-      break
-    }
-  }
-  if (stepStart < 0) return undefined
-  const turnStart = events.findLastIndex(event => event.type === 'turn/start' && event.data.turn === turn)
-  if (turnStart < 0) return undefined
-  const hasReading = events.slice(turnStart + 1).some(isTimeContextReading)
-  if (!hasReading) return undefined
-  const messages = events.slice(turnStart + 1)
-    .flatMap(event => event.type === 'user/message' ? [event.data] : [])
-  return deriveClientTimeZoneContext(messages)
-}
-
-/** Resolve the only request state that may supply an omitted local time zone. */
-function atTimeZoneContext(agent: Agent): AtTimeZoneContext {
-  const sessionTimeZone = agent.session.header.timeZone ?? 'unavailable'
-  const client = currentClientTimeZoneContext(agent)
-  const clientTimeZones = client === undefined || client.kind === 'missing'
-    ? []
-    : client.kind === 'resolved'
-      ? [client.timeZone]
-      : [...client.timeZones]
-  const implicitTimeZone = sessionTimeZone !== 'unavailable'
-    && client?.kind === 'resolved'
-    && client.timeZone === sessionTimeZone
-    ? sessionTimeZone
-    : undefined
-  return {
-    ...(implicitTimeZone === undefined ? {} : { implicitTimeZone }),
-    sessionTimeZone,
-    clientTimeZones,
-  }
-}
-
 /** Translate one contained input failure to the closed tool union. */
-function inputError(error: ScheduleInputError, timeZone?: AtTimeZoneContext): ScheduleToolError {
-  if (error.code === 'timezone_confirmation_required') {
-    // The domain emits this code only for the omitted-zone local-at arm,
-    // whose request context is computed immediately before decoding.
-    const requestTimeZone = timeZone as AtTimeZoneContext
-    return {
-      code: error.code,
-      message: error.message,
-      sessionTimeZone: requestTimeZone.sessionTimeZone,
-      clientTimeZones: requestTimeZone.clientTimeZones,
-    }
-  }
+function inputError(error: ScheduleInputError): ScheduleToolError {
   return { code: error.code, message: error.message }
 }
 
@@ -389,25 +255,18 @@ function validateCreateArgs(args: {
   after_seconds?: number
   at?: AtInput
   every_seconds?: number
-  cron?: string
-  time_zone?: string
 }): ScheduleToolError | undefined {
   const keys = Object.keys(args as unknown as Record<string, unknown>)
-  const hasCronSelector = args.cron !== undefined || args.time_zone !== undefined
   if (keys.some(key => key !== 'prompt'
     && key !== 'after_seconds'
     && key !== 'at'
-    && key !== 'every_seconds'
-    && key !== 'cron'
-    && key !== 'time_zone')
+    && key !== 'every_seconds')
     || Number(args.after_seconds !== undefined)
     + Number(args.at !== undefined)
-    + Number(args.every_seconds !== undefined)
-    + Number(hasCronSelector) !== 1
-    || (hasCronSelector && (args.cron === undefined || args.time_zone === undefined))) {
+    + Number(args.every_seconds !== undefined) !== 1) {
     return {
       code: 'invalid_selector',
-      message: 'schedule_create accepts exactly one of after_seconds, at, every_seconds, or cron with time_zone.',
+      message: 'schedule_create accepts exactly one of after_seconds, at, or every_seconds.',
     }
   }
   if (args.prompt.trim().length === 0) {
@@ -420,10 +279,10 @@ function validateCreateArgs(args: {
   if (args.every_seconds !== undefined && !Number.isSafeInteger(args.every_seconds)) {
     return { code: 'invalid_rule', message: 'every_seconds must be a safe integer.' }
   }
-  if (args.every_seconds !== undefined && args.every_seconds < MIN_RECURRING_INTERVAL_SECONDS) {
+  if (args.every_seconds !== undefined && args.every_seconds < MIN_EVERY_INTERVAL_SECONDS) {
     return {
       code: 'frequency_too_high',
-      message: `every_seconds must be at least ${MIN_RECURRING_INTERVAL_SECONDS}.`,
+      message: `every_seconds must be at least ${MIN_EVERY_INTERVAL_SECONDS}.`,
     }
   }
   return undefined
@@ -470,18 +329,10 @@ export function registerScheduleTools(
         },
         every_seconds: {
           type: 'number',
-          description: `Fixed-rate safe-integer interval in seconds, at least ${MIN_RECURRING_INTERVAL_SECONDS}.`,
-        },
-        cron: {
-          type: 'string',
-          description: CRON_DESCRIPTION,
-        },
-        time_zone: {
-          type: 'string',
-          description: 'Explicit UTC or IANA Area/Location for cron evaluation.',
+          description: `Fixed-rate safe-integer interval in seconds, at least ${MIN_EVERY_INTERVAL_SECONDS}.`,
         },
         at: {
-          description: 'Absolute target as strict offset RFC 3339 or local date/time with optional IANA zone.',
+          description: 'Absolute target as strict offset RFC 3339 or local date/time with an explicit IANA zone.',
           oneOf: [
             { type: 'string' },
             {
@@ -490,7 +341,7 @@ export function registerScheduleTools(
               properties: {
                 date: { type: 'string', required: true },
                 time: { type: 'string', required: true },
-                time_zone: { type: 'string' },
+                time_zone: { type: 'string', required: true },
               },
             },
           ],
@@ -507,49 +358,23 @@ export function registerScheduleTools(
           notifyDurableChange()
           const folded = foldForTool(agent)
           if (isToolError(folded)) return folded
-          if ((args.every_seconds !== undefined || args.cron !== undefined)
-            && isRecurringGateExhausted(folded.lastRecurringAcceptedAt)) {
-            return {
-              code: 'time_out_of_range',
-              message: 'No compliant recurring delivery time remains representable within the four-digit-year range.',
-            }
-          }
           const id = allocateScheduleId(folded)
           let record: ScheduleRecord
-          let timeZone: AtTimeZoneContext | undefined
           try {
             if (args.at !== undefined) {
-              const at = args.at
-              timeZone = typeof at === 'string' || at.time_zone !== undefined
-                ? undefined
-                : atTimeZoneContext(agent)
-              record = createAtScheduleRecord(
-                id,
-                args.prompt,
-                at,
-                Date.now(),
-                timeZone?.implicitTimeZone,
-              )
+              record = createAtScheduleRecord(id, args.prompt, args.at, Date.now())
             } else if (args.after_seconds !== undefined) {
               record = createAfterScheduleRecord(id, args.prompt, args.after_seconds, Date.now())
-            } else if (args.every_seconds !== undefined) {
+            } else {
               record = createEveryScheduleRecord(
                 id,
                 args.prompt,
-                args.every_seconds,
-                Date.now(),
-              )
-            } else {
-              record = createCronScheduleRecord(
-                id,
-                args.prompt,
-                args.cron as string,
-                args.time_zone as string,
+                args.every_seconds as number,
                 Date.now(),
               )
             }
           } catch (error: unknown) {
-            return error instanceof ScheduleInputError ? inputError(error, timeZone) : internalError()
+            return error instanceof ScheduleInputError ? inputError(error) : internalError()
           }
           const cancelledBeforeAppend = cancellationPlaceholder(exec.signal)
           if (cancelledBeforeAppend !== undefined) return cancelledBeforeAppend
@@ -565,7 +390,7 @@ export function registerScheduleTools(
           const barrier = await preflight(rootCtx, agent, 'create', id)
           if (barrier !== undefined) return barrier
           notifyDurableChange()
-          return scheduleView(record, Date.now(), folded.lastRecurringAcceptedAt)
+          return scheduleView(record, Date.now())
         })
       },
       presentCall: args => present('Create reminder', 'other', args.prompt),
@@ -585,7 +410,7 @@ export function registerScheduleTools(
           const folded = foldForTool(agent)
           if (isToolError(folded)) return folded
           const now = Date.now()
-          return folded.active.map(record => scheduleView(record, now, folded.lastRecurringAcceptedAt))
+          return folded.active.map(record => scheduleView(record, now))
         })
       },
       presentCall: () => present('List reminders', 'read'),

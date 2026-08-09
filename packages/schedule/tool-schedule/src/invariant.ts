@@ -6,7 +6,7 @@
 import type { Context } from 'cordis'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type { InvariantFailure, InvariantInstaller } from '@deepseek-ai/dsh-invariants'
-import { foldScheduleEvents, ScheduleLogError, validateLiveScheduleChange } from './domain.ts'
+import { foldScheduleEvents, ScheduleLogError } from './domain.ts'
 
 const PACKAGE_NAME = '@deepseek-ai/dsh-tool-schedule'
 
@@ -15,20 +15,15 @@ export const name = 'tool-schedule-invariant'
 /** Service required before reserving this package's invariant ownership. */
 export const inject = ['invariants']
 
-/** Convert an owned Schedule validation failure into the invariant service's failure channel. */
-function report(run: () => void, fail: InvariantFailure): void {
+/** Validate a complete exact-session stream under its fork suffix policy. */
+function validate(events: readonly SessionEvent[], seedLength: number, fail: InvariantFailure): void {
   try {
-    run()
+    foldScheduleEvents(events, seedLength)
   } catch (error: unknown) {
-    /* v8 ignore next -- owned Schedule validators normalize failures to ScheduleLogError. */
+    /* v8 ignore next -- foldScheduleEvents normalizes every rejected stream to ScheduleLogError. */
     if (!(error instanceof ScheduleLogError)) throw error
     fail(error.message)
   }
-}
-
-/** Validate a complete exact-session stream under its fork suffix policy. */
-function validate(events: readonly SessionEvent[], seedLength: number, fail: InvariantFailure): void {
-  report(() => { foldScheduleEvents(events, seedLength) }, fail)
 }
 
 /* jscpd:ignore-start -- package companions share replay and dispatch plumbing */
@@ -45,9 +40,6 @@ const install: InvariantInstaller = Object.assign((ctx: Context, fail: Invariant
     const [session, event] = args as [Session, SessionEvent]
     if (event.type !== 'schedule/change') return
     validate([...session.events, event], session.header.seedLength ?? 0, fail)
-    report(() => {
-      validateLiveScheduleChange(session.events, event.data, session.header.seedLength ?? 0)
-    }, fail)
   }, { global: true })
 }, { inject: ['sessions'] })
 /* jscpd:ignore-end */
