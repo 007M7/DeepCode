@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-07-27-web-session-fork-actions.md
 2026-07-27-web-session-fork-actions.md: 578e59ec92e003fe5c8cdfe951a595f3a7371ecf
-2026-07-27-web-session-fork-actions.zh.md: d90124f6e6e164b0a1e0fce734f52976630cd848
+2026-07-27-web-session-fork-actions.zh.md: 30c6fbbe7930ab17ca707d8a8fa0d4fc288d150e

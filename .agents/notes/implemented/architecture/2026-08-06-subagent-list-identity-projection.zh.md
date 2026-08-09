@@ -10,19 +10,19 @@ Status: implemented
 
 同一根因还有第二个症状：host 侧的 `hasSubagentDescriptor()` 在每次 Agent 绑定 RPC 的属主判定上扫描目标会话的 own suffix，即便 `SessionHeader.origin` 已经回答了同一个问题的绝大部分。
 
-根因在于 [durable-subagent-catalog 决策](../feature/2026-07-22-durable-subagent-catalog-and-list-agents.md)把描述符事件（`subagent/descriptor`）定为目录的唯一持久权威，却没有为描述符读取配任何缓存层，并把逐 child 双读明确接受为"无索引的正确性基线"。[web subagent conversations](../feature/2026-07-27-web-subagent-conversations.md)（#1569）已把"是不是 subagent"放进了 header（`SessionHeader.origin`），身份判定不再读日志；mode 与 label 仍然要扫。
+根因在于 [durable-subagent-catalog 决策](../feature/2026-07-22-durable-subagent-catalog-and-list-agents.md)把描述符事件（`subagent/descriptor`）定为目录的唯一持久权威，却没有为描述符读取配任何缓存层，并把逐 child 双读明确接受为「无索引的正确性基线」。[web subagent conversations](../feature/2026-07-27-web-subagent-conversations.md)（#1569）已把「是不是 subagent」放进了 header（`SessionHeader.origin`），身份判定不再读日志；mode 与 label 仍然要扫。
 
 ## 决策
 
-mode 与 label 由新的 `subagent` projection unit（纯身份两臂）折叠，unit 是折叠规则的唯一权威；`listChildren` 不再依赖 session-query——枚举是 subagent 自管的 live-preferred 合并，取值走三级"算完即止"阶梯：live child 同步读注册表的既有水位缓存（零日志读）；cold child 先问可选的 `sessionProjectionCache` checkpoint，取到过 seq 门的身份即定值；否则一次 `persistence.inspect` 整读加 `registry.restore` 折叠。无索引、不自建缓存、无回写。
+mode 与 label 由新的 `subagent` projection unit（纯身份两臂）折叠，unit 是折叠规则的唯一权威；`listChildren` 不再依赖 session-query——枚举是 subagent 自管的 live-preferred 合并，取值走三级「算完即止」阶梯：live child 同步读注册表的既有水位缓存（零日志读）；cold child 先问可选的 `sessionProjectionCache` checkpoint，取到过 seq 门的身份即定值；否则一次 `persistence.inspect` 整读加 `registry.restore` 折叠。无索引、不自建缓存、无回写。
 
 消除逐 child 扫描的出路有三类：把 mode/label 提升进 header（写路承担）；为投影建持久派生（checkpoint 阶梯，或随查询索引重建落值、读端对账）；读时现算（live 走水位缓存，cold 一次整读）。本记录取第三条。"值随查询索引落库"曾是本记录的定稿方向并一度施工，最终整体退役：查询基础设施被迫认识领域词汇，而唯一消费方读时现算即可满足——live child 的零读由 session-projection 既有水位缓存白拿，cold child 的一次整读被"算完即止"显式接受。前两条与退役理由详见考虑过的替代方案一节。
 
 要点：
 
 - **subagent 列表不依赖 session-query**：枚举由 subagent 自管的 live-preferred 合并完成，mode/label 经 `ctx.sessionProjections` 取值；没有 query backend 的部署照常列表。
-- **取值三级"算完即止"阶梯**：live child 读 `sessionProjections.snapshot()`（注册表既有水位缓存，零日志读）；cold child 先读可选 `sessionProjectionCache.cachedSnapshot(header)`，values 含非 null 且过 seq 门（`seq >= seedLength ?? 0`）的 `subagent` 身份即直接用；否则一次 `persistence.inspect` 整读加 `registry.restore({}, events, 0)` 折叠；再没有就没有——不自建缓存、无回写、无索引。
-- **`subagent` projection unit 是折叠规则唯一权威**：live snapshot、cold restore、GUI history 的 detached 折叠全部经 registry 计算，不存在第二份描述符解释逻辑。
+- **取值三级「算完即止」阶梯**：live child 读 `sessionProjections.snapshot()`（注册表既有水位缓存，零日志读）；cold child 先读可选 `sessionProjectionCache.cachedSnapshot(header)`，values 含非 null 且过 seq 门（`seq >= seedLength ?? 0`）的 `subagent` 身份即直接用；否则一次 `persistence.inspect` 整读加 `registry.restore({}, events, 0)` 折叠；再没有就没有——不自建缓存、无回写、无索引。
+- **`subagent` projection unit 是折叠规则唯一权威**：live 快照、cold restore、GUI history 的 detached 折叠全部经注册表计算，不存在第二份描述符解释逻辑。
 - **header、描述符（v2）、session-persistence、session-projection(-cache)、session-query(-sqlite) 全部零改动**；存量数据第一次被列表时一次 `inspect` 现算获得精确值，无 unknown 降级态、无迁移。
 
 与既有记录的关系：
@@ -62,7 +62,7 @@ declare module '@deepseek-ai/dsh-session-projection/types' {
 - **persistence 缺席退为 live-only 枚举，不报错**：没有 persistence 的部署，cold child 本就无法 resume，列出 live child 仍然有意义。（对照：旧实现在 sessionQuery 缺失时整体拒绝。）
 - persistence 列表失败使整次枚举失败；per-child 隔离只作用于逐 child 的冷读。
 
-### 取值：三级"算完即止"阶梯
+### 取值：三级「算完即止」阶梯
 
 对每个枚举出的 child，mode/label 取值走三级阶梯——算完即止，不自建缓存、无回写（第三级与 apiproxy `session.history` 的冷读同款）：
 
@@ -78,12 +78,12 @@ declare module '@deepseek-ai/dsh-session-projection/types' {
 - 冷路径的生命周期见证：preparation 的结果必须仍指向枚举时的那个生命周期——见证字段集与旧 SOURCE_CONFLICT 检查同款七字段（version、id、createdAt、cwd、parentSession、seedLength、delegationDepth）；同 id 删除后重新发布的会话对旧 parent 的目录降级为 `corrupt` 行，不外漏新 owner 的 child。
 - 冷读并发以常数 4 有界——它约束的是本地介质的一次只读扫描而非部署行为；出现联网 persistence backend 时提升为验证过的 `Config` 字段。
 - 冷读成本如实记录：cache 未挂载或未命中时，cold child 每次列表才付一次整读，成本与其 transcript 大小成正比；定案"算完即止"，不自建缓存。整读经 `inspect()` 走 [Session 准备阶段](2026-08-05-session-preparation.md)的冷读，同 id 短期重复读取可命中其 LRU 复用，但列表不依赖此。live child 全程零日志读。
-- 取消：每次 persistence 读前后检查调用方 signal，abort 之后才结算的读拒绝归一化为稳定错误码 `CANCELLED`。
+- 取消：每次持久化读前后检查调用方 signal，abort 之后才结算的读拒绝归一化为稳定错误码 `CANCELLED`。
 
 ### 权威模型
 
 - session log 是唯一权威；本方案不新增任何派生持久化——没有索引值、没有自己的 checkpoint、没有进程 memo；第二级读取的 `sessionProjectionCache` checkpoint 是既有组合项的派生数据，本方案只读不写。取值现算现弃，值的新鲜度就是读取时点的 live 状态或持久化 revision（own descriptor 一经追加不可变——缓存身份过 seq 门后无陈旧性问题，门防的是种子回放的祖先身份）。
-- Session 与 persistence 写路完全不感知列表与投影消费：没有事件监听回写，没有写时折叠。
+- Session 与持久化写路完全不感知列表与投影消费：没有事件监听回写，没有写时折叠。
 - 枚举与取值不构成第二个鉴权来源，也不让尚未发布的 child 可见——两个来源只见已发布的 live 记录与已落盘的持久化记录，与 durable-subagent-catalog 记录对派生读面立下的规则一致。
 
 ### `listChildren` 行形状与消费面
@@ -124,7 +124,7 @@ export type SubagentListEntry =
 已知边界偏差（有意接受，随本记录留档）：
 
 - 死于发布窗口的 fork child，seed 里若有祖先描述符，last-wins 会给出祖先身份，误现为 child 行；恢复仍按 own-suffix 折叠权威失败（`NOT_RESUMABLE`）。旧实现靠 `seedLength` 过滤将其 omit；projection unit 看不到 header，接受此残骸级偏差（`subagentTiming` 有同类既有暴露）。
-- own suffix 出现多个描述符，旧实现判 corrupt，现 last-wins 取末者（provider 契约本就保证恰一）。
+- own suffix 出现多个描述符，旧实现判 corrupt，现 last-wins 取末者（提供方约定本就保证恰一）。
 - live/persisted header 冲突，旧实现是 per-child corrupt；现枚举 live 优先、不做一致性校验，冲突不再被察觉，以 live 记录成行。
 - 损坏存储的源读失败（如坏 surface 被冷读整读拒收），旧实现映射 per-child `corrupt`，现统一成 `unavailable` 行（读侧无从区分成因）。
 - 未知 parent，旧实现经 session-query 抛 not-found（'parent session … was not found'）；现自管合并对不存在的 parent 得到空子集，枚举返回空列表，wire 上后续操作落到 child 级 subagent-not-found——语义与文案的静默变化，显式接受。
@@ -147,13 +147,13 @@ export type SubagentListEntry =
 
 **mode/label 进 SessionHeader。** 零读保证最强——列表只看 header 就能成行。但 header 形状变更传导两个 persistence backend 与 header 兼容检查；SQLite 存量直接拒收，JSONL 存量只能 unknown 降级或 backfill。读时现算对存量的答案是"第一次列表一次 `inspect` 现算"，不碰持久格式。
 
-**projection-cache 阶梯（v3 稿：`cachedSnapshot ?? coldSnapshot` 加 fail-soft 写回）。** 机制成立——session-projection-cache 的 checkpoint 阶梯本就为冷读设计。但 checkpoint 写回是一套由列表驱动的派生数据持久化与失效编排（floor/identity/putSoft）；被否的是这套编排作为主机制。定稿的第三级阶梯后来以只读方式机会性复用该缓存作第二级——无写回、无编排、缺席即跳过。
+**projection-cache 阶梯（v3 稿：`cachedSnapshot ?? coldSnapshot` 加 fail-soft 写回）。** 机制成立——session-projection-cache 的 checkpoint 阶梯本就为冷读设计。但 checkpoint 写回是一套由列表驱动的派生数据持久化与失效编排（floor/identity/putSoft）；被否的是这套编排作为主机制。定稿的三级阶梯后来以只读方式机会性复用该缓存作第二级——无写回、无编排、缺席即跳过。
 
 **给 persistence 加有界读原语抢救存量。** 为一次性问题新开 seam 原语；被读时 `inspect` 整读取代——存量第一次被列表时的整读就是取值本身。
 
 **list 行 mode/label 可选化（v4 一稿）。** 健康数据必然可算；可选化只是把垃圾数据的处理复杂度外溢给全部消费方——每个消费面都要长出过滤分支和 unknown 展示态。强契约加算不出即 omit 更干净。
 
-**彻底删除 diagnostic 行（v5 一稿）。** 删除把库损坏的可见性外溢为行静默消失，wire/tool/GUI 反要各自承担契约与快照变更；而保留只需列表侧按投影值缺席与 activity 派生分类，零成本。库里的坏、死子会话必须可见是 diagnostic 存在的原始动机，保留后消费面整体零改动。
+**彻底删除 diagnostic 行（v5 一稿）。** 删除会让库损坏不再可见、让行静默消失，wire/tool/GUI 反要各自承担契约与快照变更；而保留只需列表侧按投影值缺席与 activity 派生分类，零成本。库里的坏、死子会话必须可见是 diagnostic 存在的原始动机，保留后消费面整体零改动。
 
 **registry 计算失败通道（per-unit 容错加 `failures` 附加字段）。** 为把损坏、版本不认识报告给消费方，曾考虑让 registry 捕获 unit 异常并在 snapshot 旁附 per-key 失败态。被否：failure 不是值，也不必是通道——unit 永不抛错，缺席本身就是信号，"大不了算出来没有"，如何呈现是消费方要考虑的事。该路线讨论顺带留下一个独立观察：vendor cordis 的 `emit`（[vendor/cordis/src/events.ts](../../../../vendor/cordis/src/events.ts)）对 listener 抛错零捕获，投影驱动挂在 `session/event` 上时 unit 异常会沿 emit 逃逸——这加重了"unit 永不抛错"纪律的分量，但 emit 容错的修复不属于本记录范围。
 

@@ -43,9 +43,11 @@ The gate's limit, stated plainly: **a green gate means the pair was confirmed co
 
 **Scope**: every non-vendor README, plus every active document under `.agents/notes/**`, `docs/**`, and `python/**`. README matching is case-insensitive on the basename and covers future directories without another manifest edit. Dependency and ignored build-output trees and the frozen `.agents/notes/archived/` tree are discovery exclusions, not evolving translation source.
 
+Generated English references and graphs participate in pairing when a reviewed Chinese counterpart is available. Their generators remain the English source of truth and their freshness gates run before pairing; regeneration that changes English leaves the pair out of sync until the reviewed Chinese counterpart is updated and re-recorded. Generated English sources omit the language switcher that ordinary authored sources carry, because adding it would make the generator stale; their Chinese counterparts still link back to the English source.
+
 **Excluded** (never paired, and the gate rejects a `.zh.md` or `.i18n.yaml` for them):
 
-- `docs/cordis-catalog/`, `docs/tool-catalog/`, `docs/config-catalog.md`, `docs/persistence-catalog.md`, `docs/module-graph.md`, `docs/agent-lifecycle.md`, `docs/capability-seams.md`, `docs/event-producer-consumer.md`, `docs/graph-atlas.md`, and `docs/tool-execution-pipeline.md` — generated files whose generators emit English only; a hand-written translation would go stale on regeneration.
+- [cordis-api/inherited.md](../cordis-api/inherited.md) — generated without a reviewed Chinese counterpart, so both website locales project the English source.
 - `docs/AGENTS.md`, `.agents/notes/**/AGENTS.md`, and their `CLAUDE.md` instruction symlinks — agent instructions, maintained in English only like the root `AGENTS.md`.
 - `docs/i18n/terminology.md` and [style-samples.md](style-samples.md) — both are bilingual by construction.
 - [translation-prompt.md](translation-prompt.md) — the automated pipeline's prompt template; its body is machine-consumed verbatim, so a paired translation would change pipeline behavior.

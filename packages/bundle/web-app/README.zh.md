@@ -10,7 +10,7 @@ dsh 浏览器表层组合包。[`cordis.patch.yml`](cordis.patch.yml) 叠加在 
 
 #### 模型看到的内容
 
-当 `surfaceContext` 为 true 时，全局段落 `app:web-surface`（顺序 −98）向模型说明 GUI：规范的本地 URL、「this page」指代什么、当前模式下 HMR（热模块替换）／重建的更新契约，以及不要启动替代服务器的指令。`DSH_WEB_URL` 与 `DSH_WEB_MODE` 还会连同各自描述出现在受管 bash 环境中，每次调用时从运行中的服务器解析。当它为 false 时，该提示词段和这些变量都不会注册。
+当 `surfaceContext` 为 true 时，全局段落 `app:web-surface`（顺序 −98）向模型说明 GUI：规范的本地 URL、「this page」指代什么、当前模式下 HMR（热模块替换）／重建的更新约定，以及不要启动替代服务器的指令。`DSH_WEB_URL` 与 `DSH_WEB_MODE` 还会连同各自描述出现在受管 bash 环境中，每次调用时从运行中的服务器解析。当它为 false 时，该提示词段和这些变量都不会注册。
 
 #### Token 影响
 
@@ -22,5 +22,5 @@ dsh 浏览器表层组合包。[`cordis.patch.yml`](cordis.patch.yml) 叠加在 
 
 ## 已知限制与延期工作
 
-- **前端 dist 必须已构建**：对 dist 的 `require.resolve` 在激活时大声失败并给出构建提示；没有从源码直接服务的回退路径。
+- **前端 dist 必须已构建**：对 dist 的 `require.resolve` 在激活时明确报错并给出构建提示；没有从源码直接服务的回退路径。
 - **`lanAddresses` 是启动期快照**：启动后的网卡变化不会重新公告；打印的 LAN URL 始终与配置的信任栅栏一致。

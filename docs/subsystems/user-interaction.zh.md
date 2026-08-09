@@ -2,7 +2,7 @@
 
 [English](user-interaction.md) | 中文
 
-[dsh-user-interaction](../../packages/interaction/user-interaction) 的用户交互 seam。它是工具或权限插件需要人类回答后 agent（智能体）才能继续时所使用的、提供方无关的词汇。UI surface 提供活跃的 `UserInteractionProvider`；host 运行时把请求转发给它连接的客户端。
+[dsh-user-interaction](../../packages/interaction/user-interaction) 的用户交互 seam。它是工具或权限插件需要人类回答后 agent（智能体）才能继续时所使用的、提供方无关的词汇。UI 界面提供活跃的 `UserInteractionProvider`；host 运行时把请求转发给其连接的客户端。
 
 源码：[`packages/interaction/user-interaction/src/index.ts`](../../packages/interaction/user-interaction/src/index.ts)
 
@@ -70,7 +70,7 @@ interface AskUserQuestionItem {
 
 ## 提问请求
 
-`AskUserQuestionRequest` 是跨包（package）的请求。`questions` 是数组，这样 UI 可以在一个流程中呈现相关提示，同时保持每个回答有稳定的 id。如提供 `agent`，它必须与存活调用方是同一实例；只有当当前注册表将该实例识别为运行时根时，交互 seam 才会接纳该 agent。
+`AskUserQuestionRequest` 是跨包请求。`questions` 是数组，这样 UI 可以在一个流程中呈现相关提示，同时保持每个回答有稳定的 id。如提供 `agent`，它必须与存活调用方是同一实例；只有当当前注册表将该实例识别为运行时根时，交互 seam 才会接纳该 agent。
 
 ```ts type-equiv
 /** Request for a human answer. */

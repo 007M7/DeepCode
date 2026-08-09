@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-02-pwsh-tool-bash-parity.md
 2026-08-02-pwsh-tool-bash-parity.md: e35a903892d5d50a0d3ca12b23daa53f26d6aade
-2026-08-02-pwsh-tool-bash-parity.zh.md: d7a68f0cab5281b25c3321e7ffff61c358b21a0a
+2026-08-02-pwsh-tool-bash-parity.zh.md: f4ee10484b6e49ebbaeb0b8ed4b0b30c5ac17e5c

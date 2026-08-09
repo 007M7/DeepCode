@@ -15,4 +15,4 @@ dsh 一次性任务组合包。[`cordis.patch.yml`](cordis.patch.yml) 叠加在 
 ## 已知限制与延期工作
 
 - **只运行一个轮次**：runner 锚定第一个由消息触发的轮次，并在其结束时退出；排队的后续消息与多轮任务不在范围内。
-- **`ctx.headlessIo` 由启动器持有**：在 `dsh` 启动器之外启动 headless profile 会在激活时大声失败，直到宿主提供该 seam。
+- **`ctx.headlessIo` 由启动器持有**：在 `dsh` 启动器之外启动 headless profile 会在激活时明确报错，直到宿主提供该 seam。

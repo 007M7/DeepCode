@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/cookbook/adding-a-package.md
 adding-a-package.md: 8ab603ea7b235bd2a582c9232afaca281a969448
-adding-a-package.zh.md: 8c0bc9dbd02b18a388f8e6ce91af10753c0210a2
+adding-a-package.zh.md: c076a58280aef8b218bc16af33eab233724bd57f

@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-06-token-surface-unpriced-replace-compatibility.md
 2026-08-06-token-surface-unpriced-replace-compatibility.md: 77b778fba695f560eb68af6da2f416e61ccff181
-2026-08-06-token-surface-unpriced-replace-compatibility.zh.md: dd4c5883c4c6d37809c2f8100f266655d8ba600c
+2026-08-06-token-surface-unpriced-replace-compatibility.zh.md: 1a18551b1e0c1e7e78f32d69caec1d0956a4075d

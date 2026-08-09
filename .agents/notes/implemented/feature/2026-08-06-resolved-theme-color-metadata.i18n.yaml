@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-06-resolved-theme-color-metadata.md
 2026-08-06-resolved-theme-color-metadata.md: 2f7a6f0bde5e75aeb6769939cae54d5319aa5bae
-2026-08-06-resolved-theme-color-metadata.zh.md: a6d530f841d5c744fc88831f9cb685d1ab5027b6
+2026-08-06-resolved-theme-color-metadata.zh.md: 30d5aa3c68db090ff33f8dde0e70804d0d699459

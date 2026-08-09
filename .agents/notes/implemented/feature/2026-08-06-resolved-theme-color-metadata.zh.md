@@ -10,13 +10,13 @@ Web 客户端可以独立于操作系统偏好解析主题，因此 manifest（�
 
 ## 决策
 
-ui-layout 的 `ThemePresenter` 拥有一个 `<meta name="theme-color">`，与根元素上的 `color-scheme`、深色调色板属性和内联 token 写入并列。在应用解析后快照的调色板与 token 覆盖值之后，呈现器读取 body 计算样式中的 `background-color`，写入该元数据元素，再将该节点插入 document head。后续快照会更新同一节点，资源释放时则移除它。
+ui-layout 的 `ThemePresenter` 拥有一个 `<meta name="theme-color">`，与根元素上的 `color-scheme`、深色调色板属性和内联 token 写入并列。在应用解析后快照的调色板与 token 覆盖值之后，呈现器读取 body 计算样式中的 `background-color`，写入该元数据元素，再将该节点插入 document head。后续快照会更新同一节点，dispose（资源释放）时则移除它。
 
 渲染后的 body 背景仍是颜色真源。PWA manifest 不包含静态 `theme_color` 或 `background_color`，`ThemeDefinition` 也不新增可能与 token 调色板偏离的第二个颜色字段。这样一来，注册主题的基础背景 token 也能通过页面界面使用的同一条应用路径作用于浏览器界面。
 
 ## 验证
 
-呈现器的单元测试契约覆盖浅色和深色模式下的计算颜色、节点复用及资源释放。ui-layout 组合测试覆盖初始插入、事件驱动的复用和 fiber 清理。Web 浏览器设置场景通过实际交付的组合依次驱动 Light、Dark、System、操作系统偏好变化和重新加载，并断言页面始终只有一个元数据元素，其内容等于计算后的 body 背景且控制台无错误。这项元数据变更不会出现在渲染后的无障碍树输出中，因此场景现有的预期输出保持不变。
+呈现器的单元测试约定覆盖浅色和深色模式下的计算颜色、节点复用及 dispose。ui-layout 组合测试覆盖初始插入、事件驱动的复用和 fiber 清理。Web 浏览器设置场景通过实际交付的组合依次驱动 Light、Dark、System、操作系统偏好变化和重新加载，并断言页面始终只有一个元数据元素，其内容等于计算后的 body 背景且控制台无错误。这项元数据变更不会出现在渲染后的无障碍树输出中，因此场景现有的预期输出保持不变。
 
 ## 曾考虑的替代方案
 

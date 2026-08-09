@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-07-28-web-gui-feedback-loop.md
 2026-07-28-web-gui-feedback-loop.md: aa488e1df087722c072d98c67d47cdf63a42f6b8
-2026-07-28-web-gui-feedback-loop.zh.md: d9de988e5a2cc57794ff628b65eb050dee610747
+2026-07-28-web-gui-feedback-loop.zh.md: 17d25eaf8ec49423b554b7993ff7f9e267f7c91c

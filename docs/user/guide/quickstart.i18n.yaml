@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/user/guide/quickstart.md
 quickstart.md: 9d1a04f0a094919bb008a7e94564a6612e10732d
-quickstart.zh.md: 7182f63586f4f08524c643a7c6c1ad599b2de098
+quickstart.zh.md: 4c62b0a9deda3559f29ad214903ca55aea8b970e

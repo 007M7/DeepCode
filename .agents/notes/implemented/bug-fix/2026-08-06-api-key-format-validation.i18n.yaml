@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-06-api-key-format-validation.md
 2026-08-06-api-key-format-validation.md: 2174cb466c6af72f15005ce1ba3dec8100de6f2f
-2026-08-06-api-key-format-validation.zh.md: f9b7d6518fedc42e5264c46beaa1a78619139c58
+2026-08-06-api-key-format-validation.zh.md: 540239c34637eb5940be105127f3367e0969acfa

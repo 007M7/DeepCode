@@ -2,7 +2,7 @@
 
 [English](core.md) | 中文
 
-**核心**子系统即 [`packages/core`](../../packages/core/README.md)——每个组合都会启动的控制主干：事件溯源的会话日志、系统提示词组装、工具注册表、agent 词汇，以及驱动它们的具体循环。本页拥有 `agent`/`agent-loop` 这对包所声明的内容——agent 如何被创建与拥有，以及 `Agent` 句柄及其投递、取消与拦截契约——外加每个子系统都遵循的两个类型模式；该组的专属页面与目录其余部分见[子系统 README](README.md)。
+**核心**子系统即 [`packages/core`](../../packages/core/README.md)——每个组合都会启动的控制主干：事件溯源的会话日志、系统提示词组装、工具注册表、agent 词汇，以及驱动它们的具体循环。本页拥有 `agent`/`agent-loop` 这对包所声明的内容——agent 如何被创建与拥有，以及 `Agent` 句柄及其投递、取消与拦截约定——外加每个子系统都遵循的两个类型模式；该组的专属页面与目录其余部分见[子系统 README](README.md)。
 
 ## 主干逐包速览
 
@@ -14,7 +14,7 @@
 | `system-prompt/` | 提示词段落与工具 schema 组装（`ctx.systemPrompt`） | [system-prompt.md](system-prompt.md) |
 | `tools/` | 带作用域的工具注册表与受保护的执行流水线（`ctx.tools`） | [tools.md](tools.md) |
 | `agent/` | `Agent` 接口、实时注册表、发起者作用域与 `agent/*` 事件词汇（`ctx.agents`） | 本页 |
-| `agent-loop/` | 实现公开 `Agent` 契约的具体 driver（`ctx.agentLoop`） | 本页 |
+| `agent-loop/` | 实现公开 `Agent` 约定的具体 driver（`ctx.agentLoop`） | 本页 |
 | `scope/` | 注册表与循环用于构建按 agent 作用域的注册原语 | [scope.md](scope.md) |
 
 `scope/` 是这里唯一的非服务包：一个零依赖库（`createScope`/`scopeOf`/`scopeTarget`），在模块图中位于 `session/` 与 `system-prompt/` 之下，正是为了让它们消费它而不形成环。`agent-loop` 是 `agent` seam 的唯一具体实现，放在这里因为它是 harness 的默认产品循环；它在 `ctx.agents.withInitiator()` 内运行每个 driver。扩展插件依赖 `agent`——包括需要发起 Agent 时——而绝不直接依赖 `agent-loop`，因此循环保持可替换。把这条主干接成可运行 agent 的默认组合是 [`examples/agent-spine-demo`](../../packages/examples/agent-spine-demo/README.md)。
@@ -50,7 +50,7 @@ interface AgentHandle {
 
 `CreateAgentOptions` 携带共享标识以及新 agent 发布前所需的一切：会话元数据（`meta`——已校验的 `cwd`、fork 谱系、seed 边界、来源分类、委派深度）、fork 用的可选 `seed` 回放前缀、按 agent 的 `AgentOptions`、仅创建期有效的取消 `signal`，以及 `setup`。`ResumeAgentOptions` 是持久标识的对应物：`resumeSessionId`、`agentOptions`、`signal` 与 `setup`。`setup` 回调（`AgentSetup`）在两个 id 都尚未发布时组装 agent 的作用域世界——凡经 `agentCtx` 注册的内容都先于 `agent/created` 与第一次提示词组装存在——并可返回一个在发布前一刻调用的同步 commit；setup 拒绝、commit 抛出或所有者 dispose 都会回滚事务，两个 id 均不发布。
 
-`AgentFactory` 是注册表背后的创建 seam：循环经 `ctx.agents.setFactory()` 注册其工厂，因此消费方面向 `ctx.agents` 编程，无需依赖具体循环包。确切的 `create`/`resume` 签名及其回滚契约见下方[生成区块](#ctxagents--agentregistry)。
+`AgentFactory` 是注册表背后的创建 seam：循环经 `ctx.agents.setFactory()` 注册其工厂，因此消费方面向 `ctx.agents` 编程，无需依赖具体循环包。确切的 `create`/`resume` 签名及其回滚约定见下方[生成区块](#ctxagents--agentregistry)。
 
 <a id="the-agent-handle"></a>
 
@@ -206,7 +206,7 @@ type AgentCancelCause =
 
 cause 是由 TypeScript 强制约束的同进程输入。活跃的取消持有者会将它复制到仅运行时的 `AbortSignal.reason`；signal 不授予协作监听器任何分类权限。持久 `turn/end` 保留粗粒度 `{ kind: 'aborted' }` 结果；若需记录请求 provenance，应使用单独的持久事件，而不是让终态结果承担额外含义。
 
-[事件分类](../architecture.md#event)拥有 `agent/*` 生命周期、检查点与 waterfall（瀑布式事件）契约。轮次和步骤边界是持久会话事件，而不是 agent emit。
+[事件分类](../architecture.md#event)拥有 `agent/*` 生命周期、检查点与 waterfall（瀑布式事件）约定。轮次和步骤边界是持久会话事件，而不是 agent emit。
 
 <a id="initiating-agent"></a>
 
@@ -255,7 +255,7 @@ type SessionStartSource = 'startup' | 'resume' | 'clear' | 'compact'
 
 ## `ToolDefinition`
 
-唯一属于核心的流水线编写类型：每个已注册工具*是什么*——一个面向模型的 `ToolSchema` 加上一个 `execute` 函数，以及可选的最终内容回调与 UI 回调。工具作者很少手动构造它（`defineTool` DSL 会用类型化参数构建），但它是注册表持有、循环分发所经过的契约。
+唯一属于核心的流水线编写类型：每个已注册工具*是什么*——一个面向模型的 `ToolSchema` 加上一个 `execute` 函数，以及可选的最终内容回调与 UI 回调。工具作者很少手动构造它（`defineTool` DSL 会用类型化参数构建），但它是注册表持有、循环分发所经过的约定。
 
 其完整字段、`defineTool`/`ValueSchemaSpec`/`ParameterSchemaSpec` 类型化 schema DSL、`ToolExecution`/`ToolExecutionResult` waterfall 形状，以及工具展示 UI 词汇在 **[tools.md](tools.md)** 中。
 
@@ -265,7 +265,7 @@ type SessionStartSource = 'startup' | 'resume' | 'clear' | 'compact'
 
 ### `…Map → derived-union` 模式
 
-harness 中几乎所有可扩展的和类型都遵循同一形状：一个以判别标签为键的接口（`…Map`），联合类型由 `keyof` 派生。插件通过**声明合并**添加变体——无需修改拥有该类型的包（package）。
+harness 中几乎所有可扩展的和类型都遵循同一形状：一个以判别标签为键的接口（`…Map`），联合类型由 `keyof` 派生。插件通过**声明合并**添加变体——无需修改拥有该类型的包。
 
 ```ts ignore-check
 // The pattern, schematically:

@@ -12,19 +12,19 @@ Status: implemented
 
 已交付的 TUI 和 Web／无头 `cordis.yml` 配置树包含一个空的 `repository-plugins` 配置项。用户只需修改 `$DSH_HOME/config.yaml`，用 `repositories` 列表替换该配置项的配置。每一项采用 `github:owner/repository#<ref>`，并可追加 `&path:/.../.dsh-plugin`；省略时选择 `/.dsh-plugin`。必须显式指定 ref；路径是仓库内的绝对路径，并以 `.dsh-plugin` 结尾；重复的规范化说明符在安装前即被拒绝。不提供插件市场、发现索引、HTTPS URL 词汇或隐式的最新版本。
 
-`@deepseek-ai/dsh-repository-plugin` 校验并规范化每个源，再通过 vendor 中的通用 [`RepositoryCache`](../architecture/2026-07-30-package-manager-native-repository-cache.md) 解析。默认缓存位于 `$DSH_HOME/cache/repository-plugins`；`cacheDir` 是显式的部署覆盖项。随应用提供的 pnpm 选择配置的仓库子包（package），运行包括 `prepare` 在内的普通生命周期，并原子发布该精确说明符。DSH 宿主只导入生成的 `dsh-plugin.mjs` 包装模块并将其挂载为子 fiber，因此 skill（技能）与 MCP 仍沿用格式包定义的所有者、失败契约和清理行为。
+`@deepseek-ai/dsh-repository-plugin` 校验并规范化每个源，再通过 vendor 中的通用 [`RepositoryCache`](../architecture/2026-07-30-package-manager-native-repository-cache.md) 解析。默认缓存位于 `$DSH_HOME/cache/repository-plugins`；`cacheDir` 是显式的部署覆盖项。随应用提供的 pnpm 选择配置的仓库子包，运行包括 `prepare` 在内的普通生命周期，并原子发布该精确说明符。DSH 宿主只导入生成的 `dsh-plugin.mjs` 包装层并将其挂载为子 fiber，因此 skill（技能）与 MCP 仍沿用格式包定义的所有者、失败约定和清理行为。
 
 ## 实时更新与失败
 
-`dsh-app-boot` 通过一个辅助函数挂载根 Include，并保留其确切的 Loader `Entry`。TUI 和 Web 通过 Cordis HMR（热模块替换）注册 `$DSH_HOME/config.yaml`；无头界面在启动时读取同一文件，但不保留监视器。监视器更新会重新构建 Include 补丁列表，先放置不可变的应用自有补丁，再放置新解析的个人补丁。因此，Web 生成的端口、会话根目录、信任和前端值会在每次个人编辑后保留，除非后续个人补丁有意替换相应配置项。
+`dsh-app-boot` 通过一个辅助函数挂载根 Include，并保留其确切的 Loader `Entry`。TUI 和 Web 通过 Cordis HMR（热模块替换）注册 `$DSH_HOME/config.yaml`；无头模式在启动时读取同一文件，但不保留监视器。监视器更新会重新构建 Include 补丁列表，先放置不可变的应用自有补丁，再放置新解析的个人补丁。因此，Web 生成的端口、会话根目录、信任和前端值会在每次个人编辑后保留，除非后续个人补丁有意替换相应配置项。
 
-Cordis 会串行处理并合并该确切路径上的变更。Include 与 Loader 以事务方式协调候选配置：成功时提交新源列表；拉取、准备、包装模块导入、格式或子插件失败时拒绝候选配置，并保留或恢复最后一个可用树。HMR 会把捕获的值规范化为 `Error`，记录错误，并广播并行的 `hmr/config-update-failed(filename, error)` 事件；观察者失败不会中断刷新处理。MCP 传输连接失败仍沿用现有 MCP 客户端所收束的「插件成功加载但无工具」结果，因此不会被重新分类为配置更新失败。
+Cordis 会串行处理并合并该确切路径上的变更。Include 与 Loader 以事务方式协调候选配置：成功时提交新源列表；拉取、准备、包装层导入、格式或子插件失败时拒绝候选配置，并保留或恢复最后一个可用树。HMR 会把捕获的值规范化为 `Error`，记录错误，并广播相应的 `hmr/config-update-failed(filename, error)` 事件；观察者失败不会中断刷新处理。MCP 传输连接失败仍沿用现有 MCP 客户端所收束的「插件成功加载但无工具」结果，因此不会被重新分类为配置更新失败。
 
 相同说明符会永久复用同一个缓存版本。HMR 监视配置，而非已缓存的仓库代码；用户必须改变 ref、路径或源列表，才能选择另一个版本。
 
 ## 信任边界
 
-配置仓库即授权该仓库及其依赖中的包管理器生命周期代码以用户的文件系统权限运行。pnpm 子进程会移除名称中含有 `KEY`、`PASSWORD`、`SECRET` 或 `TOKEN` 的环境变量，但这只会减少凭据暴露，并非沙箱。固定的运行时包装模块会阻止仓库作者提供的 Cordis 入口成为受支持插件格式的一部分；它无法让包准备过程安全执行不受信任的代码。
+配置仓库即授权该仓库及其依赖中的包管理器生命周期代码以用户的文件系统权限运行。pnpm 子进程会移除名称中含有 `KEY`、`PASSWORD`、`SECRET` 或 `TOKEN` 的环境变量，但这只会减少凭据暴露，并非沙箱。固定的运行时包装层会阻止仓库作者提供的 Cordis 入口成为受支持插件格式的一部分；它无法让包准备过程安全执行不受信任的代码。
 
 ## 考虑过的替代方案
 
@@ -36,7 +36,7 @@ Cordis 会串行处理并合并该确切路径上的变更。Include 与 Loader 
 
 **监视缓存内容，或自动刷新相同 ref。** 否决，因为一个配置值必须标识一个不可变的已准备版本。后台远端解析会在没有配置差异的情况下改变可执行代码，并使回滚依赖可变的远端状态。
 
-**广播 `unknown` 失败载荷。** 在 HMR 边界否决。JavaScript 内部可以抛出任意值，但公开事件始终接收规范化的 `Error`，从而为观察者提供稳定契约，并在需要时把原始值保留为错误原因。
+**广播 `unknown` 失败载荷。** 在 HMR 边界否决。JavaScript 内部可以抛出任意值，但公开事件始终接收规范化的 `Error`，从而为观察者提供稳定约定，并在需要时把原始值保留为错误原因。
 
 ## 后果
 
@@ -47,4 +47,4 @@ Cordis 会串行处理并合并该确切路径上的变更。Include 与 Loader 
 
 ## 测试
 
-仓库包测试固定源规范化、默认和嵌套 `.dsh-plugin` 路径、缓存根解析、重复项拒绝、已准备包装模块加载及资源释放。App-boot 测试通过真实 HMR／Include／Loader 路径驱动确切路径的新增、两类失败、恢复、移除、失败事件及生成补丁保留。一个无密钥 PTY 冒烟测试仅通过个人配置启动已交付的 `dsh` 组合，并从预置的不可变缓存版本中调用一个 skill。
+仓库包测试固定源规范化、默认和嵌套 `.dsh-plugin` 路径、缓存根解析、重复项拒绝、已准备包装层加载及资源释放。App-boot 测试通过真实 HMR／Include／Loader 路径驱动确切路径的新增、两类失败、恢复、移除、失败事件及生成补丁保留。一个无密钥 PTY 冒烟测试仅通过个人配置启动已交付的 `dsh` 组合，并从预置的不可变缓存版本中调用一个 skill。

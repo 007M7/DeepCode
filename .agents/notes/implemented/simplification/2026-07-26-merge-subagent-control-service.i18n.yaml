@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/simplification/2026-07-26-merge-subagent-control-service.md
 2026-07-26-merge-subagent-control-service.md: ae7214f7c8c28f8a4b7d754839acbc938270f125
-2026-07-26-merge-subagent-control-service.zh.md: dc05e03c5d38df0317291aee2ffc1395dab8e362
+2026-07-26-merge-subagent-control-service.zh.md: f1fe90e4d8f289d30a7d1c8623ea95931c029bf3

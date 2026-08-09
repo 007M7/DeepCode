@@ -2,16 +2,16 @@
 
 [English](README.md) | 中文
 
-模型可见的 `bash(command)`，底层复用一个按所有者隔离的 `ctx.pty` shell。该包拥有工具契约和 shell 复用；PTY 后端与沙箱策略由部署选择。
+模型可见的 `bash(command)`，底层复用一个按所有者隔离的 `ctx.pty` shell。该包负责工具约定和 shell 复用；PTY 后端与沙箱策略由部署选择。
 
 ## 配置
 
 | 键 | 默认值 | 含义 |
 |---|---:|---|
-| `backendType` | `shell` | 每个 Agent shell 使用的已注册 PTY 后端。 |
+| `backendType` | `shell` | 每个 agent（智能体）的 shell 使用的已注册 PTY 后端。 |
 | `timeoutMs` | `300000` | 单条命令的墙钟时间上限；超时会关闭 shell。 |
 | `maxOutputChars` | `16000` | 命令输出最多保留的字符数；固定诊断会在此后追加。 |
-| `description` | 持久 shell 描述 | 面向模型的环境契约。 |
+| `description` | 持久 shell 描述 | 面向模型的环境约定。 |
 
 ## 模型体验
 
@@ -19,7 +19,7 @@
 
 #### 模型所见
 
-生成的 [`bash` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-bash-persistent)，其中包含配置的 `description`。本插件不贡献独立系统提示词段；persona 与环境指导由部署负责。
+生成的 [`bash` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-bash-persistent)，其中包含配置的 `description`。本插件不贡献独立系统提示词段；角色设定与环境指导由部署负责。
 
 #### Token 影响
 
@@ -33,7 +33,7 @@
 
 #### 模型所见
 
-每个 Agent 的命令共享一个 shell，因此 cwd、导出的环境变量、已激活环境、函数和后台任务会跨调用保留。结果不包含私有完成标记和 shell 提示符。经封装的命令以非零状态结束时，结果会追加 `[exit code: N]`；若 shell 在报告该状态前退出，则改为追加 `[shell exited: code N]`、`[shell killed by signal: SIG]`，或在后端既未提供退出码也未提供信号时追加 `[shell exited]`；随后重置 shell，并告知模型下次调用从新 shell 开始。长输出保留仍可读取的最早前缀并追加截断提示；若 PTY 已丢弃真正的开头，结果会明确说明，而不是把尾部伪装成完整输出。超时返回有界的部分输出、关闭状态不确定的 shell，并报告该重置。
+每个 agent 的命令共享一个 shell，因此 cwd、导出的环境变量、已激活环境、函数和后台任务会跨调用保留。结果不包含私有完成标记和 shell 提示符。经封装的命令以非零状态结束时，结果会追加 `[exit code: N]`；若 shell 在报告该状态前退出，则改为追加 `[shell exited: code N]`、`[shell killed by signal: SIG]`，或在后端既未提供退出码也未提供信号时追加 `[shell exited]`；随后重置 shell，并告知模型下次调用从新 shell 开始。长输出保留仍可读取的最早前缀并追加截断提示；若 PTY 已丢弃真正的开头，结果会明确说明，而不是把尾部伪装成完整输出。超时返回有界的部分输出、关闭状态不确定的 shell，并报告该重置。
 
 #### Token 影响
 
@@ -45,6 +45,6 @@
 
 ## 已知限制与延后工作
 
-- 工具需要拥有它的 Agent 和真实 PTY 后端。
+- 工具需要拥有它的 agent 和真实 PTY 后端。
 - 显式 `exit` 与超时会丢弃 shell 状态。取消同样会重置 shell 并丢弃结果，即使已经能观察到完整状态标记也是如此；下次调用创建新 shell。
-- 网络访问、软件包镜像等环境事实应写入配置的 `description`，而非包默认描述。
+- 网络访问、包镜像等环境事实应写入配置的 `description`，而非包默认描述。

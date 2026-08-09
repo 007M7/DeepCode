@@ -10,7 +10,7 @@ LLM（大语言模型）适配器可以序列化显式的 `GenerateOptions.maxTo
 
 ## Decision
 
-`LlmResolvedModelInfo.defaultMaxTokens` 携带一条确切提供方／模型路由的可选单次请求输出上限，该值由适配器配置。`LlmService` 将其校验为正安全整数，并且仅在调用方省略值时才填入 `LlmCallConfig.maxTokens`。准备后的调用会将已填入的 `maxTokens` 和 `reasoningEffort` 字段标记为适配器默认值；显式请求值或 Agent 选项不带该标记，因此优先且不会被自动调整。
+`LlmResolvedModelInfo.defaultMaxTokens` 携带一条确切提供方／模型路由的可选单次请求输出上限，该值由适配器配置。`LlmService` 将其校验为正的安全整数，并且仅在调用方省略值时才填入 `LlmCallConfig.maxTokens`。准备后的调用会将已填入的 `maxTokens` 和 `reasoningEffort` 字段标记为适配器默认值；显式请求值或 agent 选项不带该标记，因此优先且不会被自动调整。
 
 agent loop 仍在记录 `request/header` 前准备调用，因此生效配置及其适配器默认值来源会在分派前成为持久请求事实。下一次 `agent/request` waterfall（瀑布式事件）前，agent loop 会从提议中移除带标记字段，随后精确模型解析会再次填入当前路由的默认值。因此，切换提供方／模型不会把前一个适配器的默认值误当成显式覆盖，而显式对话值则会保留。直接调用 `LlmService.stream()` 时，也会在最终适配器边界解析同一默认值。该字段是请求默认值，而非模型输出硬上限；保留提供方持有默认值的适配器会省略它。
 

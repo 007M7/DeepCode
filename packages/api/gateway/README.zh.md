@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-为 Host 与 Client 两侧的 Cordis 环境提供 TypeRT RPC endpoint。Host 入口提供 `ctx.typertGateway`，`@deepseek-ai/dsh-api-gateway/client` 则提供 `ctx.remote`；两者使用同一份生成的 `InvocationDescriptor` 契约，并将业务选择交给 API Remotes，将传输、请求关联、信任和响应封装交给 Connection。
+为 Host 与 Client 两侧的 Cordis 环境提供 TypeRT RPC endpoint。Host 入口提供 `ctx.typertGateway`，`@deepseek-ai/dsh-api-gateway/client` 则提供 `ctx.remote`；两者使用同一份生成的 `InvocationDescriptor` 契约产物，并将业务选择交给 API Remotes，将传输、请求关联、信任和响应封装交给 Connection。
 
 ## Host 服务：`TypertGatewayService`（ctx key：`typertGateway`）
 
@@ -20,7 +20,7 @@ Connection 可用时，Host 入口会在 Connection 共享的 `/api` FetchHandle
 
 每次调用都会校验位置参数，构造与描述符完全匹配的具名 `args`，再通过 `ctx.connection.rpc.call('/api', endpoint, ...)` 发送。生成的支持取消的方法接受最后一个可选 `AbortSignal`；Client 会在调用 Connection 前将它与贡献项的挂载生命周期合并。返回值经过校验后才会交给应用代码。撤回贡献项会同时移除其描述符和方法、中止正在进行的调用，并使外部仍持有的方法句柄在调用时返回拒绝。
 
-生成的声明合并通过共享的 `TypeRTClientRemote` 契约提供 TypeScript API。Client 入口不包含 Host 服务或 Host Cordis 接口合并；方法查找和调用使用普通对象与函数，而不使用 JavaScript Proxy。
+生成的声明合并通过共享的 `TypeRTClientRemote` 约定提供 TypeScript API。Client 入口不包含 Host 服务或 Host Cordis 接口合并；方法查找和调用使用普通对象与函数，而不使用 JavaScript Proxy。
 
 ## 模型体验
 

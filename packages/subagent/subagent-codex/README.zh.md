@@ -2,11 +2,11 @@
 
 [English](README.md) | 中文
 
-本包（package）注册固定的 `codex` subagent 提供方。每次接受运行请求后，它都会在发起委托的会话工作区中启动官方 `codex app-server --stdio` 命令，创建一个临时 Codex 线程，提交一个自包含的文本任务，并通过共享的 [`dsh-subagent`](../subagent/README.md) 结果契约仅返回最终答案。
+本包注册固定的 `codex` subagent 提供方。每次接受运行请求后，它都会在发起委托的会话工作区中启动官方 `codex app-server --stdio` 命令，创建一个临时 Codex 线程，提交一个自包含的文本任务，并通过共享的 [`dsh-subagent`](../subagent/README.md) 结果约定仅返回最终答案。
 
 ## 启动与所有权
 
-`start(request)` 只接受非空的文本块序列，并根据父会话确定子级 cwd。随后，它通过 [`dsh-subprocess`](../../subprocess/subprocess/README.md) spawn 固定命令，依次执行 `initialize` → `initialized` → `thread/start { cwd, ephemeral: true }`，且仅在 Codex 返回有效的临时线程后才发布此次运行。若在发布前发生失败或取消，它会关闭通信链路、终止受管进程树并等待其退出，然后拒绝 `start()` 调用。
+`start(request)` 只接受非空的文本块序列，并根据父会话确定子级 cwd。随后，它通过 [`dsh-subprocess`](../../subprocess/subprocess/README.md) 派生固定命令，依次执行 `initialize` → `initialized` → `thread/start { cwd, ephemeral: true }`，且仅在 Codex 返回有效的临时线程后才发布此次运行。若在发布前发生失败或取消，它会关闭通信链路、终止受管进程树并等待其退出，然后拒绝 `start()` 调用。
 
 已发布的 `run.result` 恰好启动一个轮次。它只接受与此次运行的线程和轮次匹配的通知，随后等待权威的终止通知 `turn/completed`。以最后一条 `phase: "final_answer"` 的 `agentMessage` 为准；若 Codex 没有发出明确的最终阶段，则以最后一条 `phase: null` 的消息作为兼容性回退。过程说明绝不会取代上述任一答案；成功完成的轮次若没有非空白答案，结果也会判为错误。
 
@@ -16,7 +16,7 @@
 
 ## 能力与上下文
 
-本提供方不声明任何可选的启动时能力，并报告 `inheritsParentContext: false`。Codex 会接收独立文本任务和父会话 cwd，但不会接收父会话的对话、角色设定、工具筛选器、深度策略或结构化输出契约。临时 Codex 线程 ID 与轮次 ID 仅在此次运行内部可见，绝不会持久化到父会话。
+本提供方不声明任何可选的启动时能力，并报告 `inheritsParentContext: false`。Codex 会接收独立文本任务和父会话 cwd，但不会接收父会话的对话、角色设定、工具筛选器、深度策略或结构化输出约定。临时 Codex 线程 ID 与轮次 ID 仅在此次运行内部可见，绝不会持久化到父会话。
 
 ## 配置
 
@@ -27,7 +27,7 @@
 
 生产环境会从 `PATH` 中解析 `codex`，并使用宿主机原生的 Codex 配置与身份验证。本插件不安装 Codex、不选择模型、不创建 `CODEX_HOME`、不执行登录，也不探测版本。子进程 seam 会移除具有凭证特征的环境变量，因此供子进程使用的 API 密钥必须在 `env` 中显式提供；除非被覆盖，`PATH` 和 `HOME` 等普通环境变量值仍然可用。
 
-请安装此包，并将以下配置项添加到你自己的 `cordis.yml`。正式 CLI 配置默认不会加载此提供方，也不会暴露 `subagent_codex`。
+请安装此包，并将以下配置项添加到你自己的 `cordis.yml`。随附的 CLI（命令行界面）配置默认不会加载此提供方，也不会暴露 `subagent_codex`。
 
 ```yaml
 - id: subagent-codex
@@ -47,7 +47,7 @@
 
 ## 产品兼容性与证据
 
-生产环境的协议层有意只实现这一单次执行契约所需的 app-server 方法。开发证据锁定在 `@openai/codex@0.146.0` / `codex-cli 0.146.0`：无密钥真实产品测试使用非空的伪密钥，驱动官方二进制程序连接回环 Responses 服务，并证明任务、身份验证、精确回答、取消、审批与进程树退出。独立的 Loader 装配 e2e 会在没有可用 `codex` 命令时启动与 README 同形的用户配置，验证固定提供方与只支持前台执行的工具 schema，并记录零次子级启动。带密钥 e2e 会启动生产提供方和真实 Codex，再通过一个仅限回环、将 Responses 转为 Chat Completions 的测试桥接层，从固定的 DeepSeek 官方服务获得唯一答案；该桥接层既不属于生产功能，也不代表 Codex 原生支持 DeepSeek 的 Chat Completions API。该 NPM 包仅作为测试依赖；部署环境仍需通过 `PATH` 提供 `codex`。
+生产环境的协议层有意只实现这一单次执行约定所需的 app-server 方法。开发证据锁定在 `@openai/codex@0.146.0` / `codex-cli 0.146.0`：无密钥真实产品测试使用非空的伪密钥，驱动官方二进制程序连接回环 Responses 服务，并证明任务、身份验证、精确回答、取消、审批与进程树退出。独立的 Loader 装配 e2e 会在没有可用 `codex` 命令时启动与 README 同形的用户配置，验证固定提供方与只支持前台执行的工具 schema，并记录零次子级启动。带密钥 e2e 会启动生产提供方和真实 Codex，再通过一个仅限回环、将 Responses 转为 Chat Completions 的测试桥接层，从固定的 DeepSeek 官方服务获得唯一答案；该桥接层既不属于生产功能，也不代表 Codex 原生支持 DeepSeek 的 Chat Completions API。该 npm 包仅作为测试依赖；部署环境仍需通过 `PATH` 提供 `codex`。
 
 ## 模型体验
 
@@ -69,7 +69,7 @@ Codex 子任务会在一个全新的临时线程中，以单个轮次接收这�
 
 #### 模型看到的内容
 
-通过 `dsh-tool-subagent`，父级模型只会看到选定的 Codex 最终答案，或者在结果未完成时看到消费方给出的原样错误。Codex 的过程说明、推理（reasoning）、工具活动、stderr、工作区差异和产品标识符均不会复制到父会话。
+通过 `dsh-tool-subagent`，父级模型只会看到选定的 Codex 最终答案，或者在结果未完成时看到消费方给出的确切错误。Codex 的过程说明、推理（reasoning）、工具活动、stderr、工作区差异和产品标识符均不会复制到父会话。
 
 #### 对 token 的影响
 
@@ -83,7 +83,7 @@ Codex 子任务会在一个全新的临时线程中，以单个轮次接收这�
 
 - **每次运行均新建一个进程、一个线程和一个轮次**：不支持续接、恢复、池化、进度流或产品会话持久化。
 - **产品安装和账户状态由宿主管理**：`codex` 缺失或不兼容、配置错误或身份验证失败，都会呈现为启动错误或运行错误；本插件不提供安装程序、登录流程或运行时版本门禁。
-- **兼容性由开发证据锁定**：若要从已验证的 0.146.0 协议基线升级，必须重新生成上游 schema 证据，并重新运行握手、答案选择、审批、取消、无密钥真实产品以及带密钥的 DeepSeek 随机数测试。
+- **兼容性由开发证据锁定**：若要从已验证的 0.146.0 协议基线升级，必须重新生成上游 schema 证据，并重新运行握手、答案选择、审批、取消、无密钥真实产品以及带密钥的 DeepSeek 唯一值测试。
 - **没有人工审批路径**：已知的无人值守审批请求会被拒绝，未知服务器请求会以默认拒绝方式使运行失败；部署方无法通过本包配置允许策略。
 - **仅返回最终文本**：推理、过程说明、中间消息、工具通信、用量信息、stderr 和工作区差异仍只保留在产品内部。
 - **没有可选的共享能力**：对于本提供方，共享服务会拒绝输出 schema、子任务角色设定、工具筛选和 harness 深度强制约束。

@@ -6,7 +6,7 @@ Status: rejected — 下列每一项替换在证据上都未达到净简化门�
 
 ## 问题
 
-一次仓库级的「Not Invented Here（非我发明）」审计（2026-07-26，十路并行普查，覆盖每个包（package）分组、scripts/、native/、vendor/ 边界、python/、测试基础设施与 CI）对每一处手写接口面追问同一个问题：在[依赖政策](../../implemented/process/2026-07-26-dependencies-over-hand-rolling.md)之下，是否有持续维护的外部包或 Node 内置能力能以净收益把它删除？得出肯定结论的发现已各自写成独立的提案 Agent Note（agent 决策记录）。否定裁定的价值不相上下——每一条都点名了一个看似可行、实则手写形态在承重的替换——但否则它们只会留存在某个 PR（Pull Request）正文里。本 note 将它们固化在案。
+一次仓库级的「Not Invented Here（非我发明）」审计（2026-07-26，十路并行普查，覆盖每个包分组、scripts/、native/、vendor/ 边界、python/、测试基础设施与 CI）对每一处手写接口面追问同一个问题：在[依赖政策](../../implemented/process/2026-07-26-dependencies-over-hand-rolling.md)之下，是否有持续维护的外部包或 Node 内置能力能以净收益把它删除？得出肯定结论的发现已各自写成独立的提案 Agent Note。否定裁定的价值不相上下——每一条都点名了一个看似可行、实则手写形态在承重的替换——但否则它们只会留存在某个 PR（Pull Request）正文里。本 Agent Note 将它们固化在案。
 
 ## 提案
 
@@ -24,7 +24,7 @@ Status: rejected — 下列每一项替换在证据上都未达到净简化门�
 
 - **以 `p-retry`/`exponential-backoff` 替换 `llm-retry`**：执行模型不对——该插件是一个返回决策的 waterfall（瀑布式事件）监听器，重新执行由 agent loop（智能体循环）依据持久日志负责；根本不存在可供重新调用的函数，而那恰是这些库的全部 API。提供方 `Retry-After` 覆写、依据先前失败代码计算预算、持久化的 `llm/retry` 事件、HMR（热模块替换）完全停稳式中止，全都无从覆盖。[LLM（大语言模型）请求受限恢复决策](../../implemented/architecture/2026-06-21-bounded-llm-request-recovery.md)已经否决了由 SDK 持有的重试。
 - **以 `p-timeout`/`AbortSignal.timeout` 替换 `dsh-timeout`**：内置能力无法提前解除，抛出的是通用 `TimeoutError`，而不是能区分嵌套截止时限、按能力编码的 `TimeoutReason`；`idleWatchdog` 按需逐次重新装定的能力没有等价物。设计归[超时库决策](../../implemented/architecture/2026-07-06-timeout-deadline-library.md)所有。
-- **以 `p-limit`/`p-queue` 替换 agent-loop 的工具调用池**：池的簿记只有约 25 行；实质部分（按模型顺序提交、组中途重新分类、排他屏障、带合成持久结果的中止排空）根本不是并发限制器的形状。
+- **以 `p-limit`/`p-queue` 替换 agent loop 的工具调用池**：池的簿记只有约 25 行；实质部分（按模型顺序提交、组中途重新分类、排他屏障、带合成持久结果的中止排空）根本不是并发限制器的形状。
 - **以 `p-queue`/`async-mutex` 替换按 key 的 promise 链串行器**（`fs-local`、`storage-domain`）：串行器只有 8–14 行；这些包严格大于它们所能删除的代码。
 - **以 `events.once` + `AbortSignal.timeout` 替换 subagent-subprocess 的 `exitsWithin`**：`error` 先触发时 `events.once` 会 reject，而手写实现有意忽略 `error`（由 spawn 失败路径单独捕获）；这次替换恰恰会在语义本身就是拆除竞态的那段代码里改变拆除竞态行为。
 
@@ -35,7 +35,7 @@ Status: rejected — 下列每一项替换在证据上都未达到净简化门�
 - **以 `fast-deep-equal` 替换会话接口面的 `isDeepEqualJson`**、**以 `safe-stable-stringify` 承担 repeat-tool-guard 的规范化**：两项替换在机械层面都可行，但每一项都是拿约 17–20 行带注释、有测试的代码，去换一个核心包的第一个外部运行时依赖——在这个体量上是净亏损。
 - **以 zod/valibot 承担持久事件的严格解码器**（goal fold、tool-ralph、session）：它们是位于持久化边界、键集精确匹配、失败即大声报错、带事件专属报错信息的解码器；在仓库标准 schemastery 之外再放一个 schema 库是政策变更，不是删除。
 - **以 `gpt-tokenizer`/tiktoken 替换 token-meter**：[回放 token 计量决策](../../implemented/architecture/2026-07-15-replay-token-meter-service.md)已明确否决分词器后端；GPT 的 BPE 对 DeepSeek 模型来说也是错误的分词器，而且这个包约 350 行是回放折叠簿记，任何分词器都覆盖不了。
-- **以 `partial-json` 处理流式工具调用参数**：无可替换——按已记录的契约，参数端到端保持为原始 JSON 字符串；`JSON.parse` 只在完整载荷上运行。
+- **以 `partial-json` 处理流式工具调用参数**：无可替换——按已记录的约定，参数端到端保持为原始 JSON 字符串；`JSON.parse` 只在完整载荷上运行。
 
 **文件系统、子进程与终端：**
 
@@ -46,14 +46,14 @@ Status: rejected — 下列每一项替换在证据上都未达到净简化门�
 - **以 `shell-quote` 承担 POSIX 单引号包裹**：两个各 1 行、测试详尽的引号辅助函数，对上一个处于维护模式、有 CVE 历史、转义输出还不一样的包——安全边界不是省一行代码的地方。
 - **以 `strip-ansi` 承担 pty 净化**：pty 净化器是一台流式状态机，带跨分片的断裂序列续接和 OSC `133;D` 提示符标记提取（shell 就绪信号）；无状态的剥离器只能替掉约 20 行内层代码，全部状态机构件原样保留。`stripVTControlCharacters` 还被实证会泄漏未终止的 OSC 载荷，会话标题归一化器必须剥除它们（反欺骗）。
 - **以 `pidtree`/`ps-tree` 承担 pty 进程巡检器**：它们只给裸 PID 树；这段代码需要对抗 PID 复用的启动时间身份校验，加上 `/proc` stdin 等待检测，没有包做这些。
-- **以 `execa` 承担 subagent-subprocess 的 dispose（资源释放）阶梯**：`forceKillAfterDelay` 覆盖 SIGTERM→SIGKILL，但覆盖不了先发 stdin EOF 的协作层级，也覆盖不了「无退出沿即 reject」契约；在这里采用它意味着重写各 spawn 调用点、同时阶梯照旧保留。（测试基础设施的 spawn 管线是另一回事——见[已归档的 execa 测试基础设施决策](../../archived/testing/2026-07-26-execa-for-test-subprocess-plumbing.md)。）
+- **以 `execa` 承担 subagent-subprocess 的 dispose（资源释放）阶梯**：`forceKillAfterDelay` 覆盖 SIGTERM→SIGKILL，但覆盖不了先发 stdin EOF 的协作层级，也覆盖不了「无退出沿即 reject」约定；在这里采用它意味着重写各 spawn 调用点、同时阶梯照旧保留。（测试基础设施的 spawn 管线是另一回事——见[已归档的 execa 测试基础设施决策](../../archived/testing/2026-07-26-execa-for-test-subprocess-plumbing.md)。）
 - **以 `tree-kill` 承担 acp-snapshot 拆除与 lsp 进程终止**：那些代码行做的是排空顺序与错误传播，不是进程树遍历；lsp/bash 已经使用分离的进程组加 taskkill。
 - **在 TUI 测试驱动器上到处使用 node-pty**：已归档的 [Windows TUI 决策](../../archived/feature/2026-07-20-windows-tui-support.md)明确否决了在每个宿主上都使用 node-pty；它当时已经是 Windows 那一条腿。
 
 **服务器与 HTTP：**
 
 - **以 `msw` 替换 llm-mock-server**：这个服务器的存在意义就是在线路上制造故障——socket 销毁、SSE（Server-Sent Events）中途断连、停滞、监听前拒绝——服务对象是真实的 HTTP 适配器和子进程；进程内拦截一样都表达不了。设计归[线路故障服务器决策](../../implemented/testing/2026-07-25-scriptable-llm-wire-fault-server.md)所有。
-- **以 `hono`/`sirv` 承担 host/webserver**：核心是基于 disposer 的动态路由注册表（「注册即效果」契约、HMR 反注册）加 index HTML 变换挂点；hono 的路由器只增不减，静态中间件也无法伺服变换后的 index。总共约 244 行，确实很小。
+- **以 `hono`/`sirv` 承担 host/webserver**：核心是基于 disposer 的动态路由注册表（「注册即效果」约定、HMR 反注册）加 index HTML 变换挂点；hono 的路由器只增不减，静态中间件也无法伺服变换后的 index。总共约 244 行，确实很小。
 - **以 `@mozilla/readability`/`iconv-lite` 承担 web-fetch-local**：该提供方返回原始 HTML；字符集处理已经是内置的 `TextDecoder`；MIME 解析约 11 行；重定向跟随是同源安全策略。
 
 **SQLite 与存储：**
@@ -74,5 +74,5 @@ Status: rejected — 下列每一项替换在证据上都未达到净简化门�
 ## 曾考虑的替代方案
 
 - **什么都不记录，让 PR 正文承载这些裁定。** 不予采纳：PR 正文不属于受维护的记录，而普查的全部意义就在于下一次审计从这些裁定出发，而不是重新推导。
-- **每一项各写一份 rejected note。** 不予采纳：为共享同一套证据标准、同一种命运的裁定制造约 30 个文件的仪式感；只有当某一项带着新证据被重新提出时，逐项 note 才有必要。
-- **把每条裁定并入拥有该 seam 的 implemented note。** 部分已做——凡是持有方 note 已经否决过该替代方案的（重试、token 计量、schema DSL、zstd、沙箱、node-pty），本 note 一律援引而不重复。其余各项没有持有方 note，这正是它们记录于此的原因。
+- **每一项各写一份 rejected note。** 不予采纳：为共享同一套证据标准、同一种命运的裁定制造约 30 个文件的仪式感；只有当某一项带着新证据被重新提出时，逐项 Agent Note 才有必要。
+- **把每条裁定并入拥有该 seam 的 implemented note。** 部分已做——凡是持有方 Agent Note 已经否决过该替代方案的（重试、token 计量、schema DSL、zstd、沙箱、node-pty），本 note 一律援引而不重复。其余各项没有持有方 note，这正是它们记录于此的原因。
