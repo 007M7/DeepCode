@@ -85,7 +85,7 @@ describe('Oxlint repository rule fingerprint', () => {
   const overrides: readonly unknown[] = parsed.overrides
 
   it('pins the complete override shape', () => {
-    expect(overrides).toHaveLength(6)
+    expect(overrides).toHaveLength(8)
   })
 
   it.each(Object.entries(profiles))('pins the %s rule profile', (_name, profile) => {

@@ -548,6 +548,40 @@ describe('DeepSeekAdapter against a mock server', () => {
       fetchSpy.mockRestore()
     }
   })
+
+  it('keeps an idle provider read alive through SSE comments', async () => {
+    vi.useFakeTimers()
+    const encoder = new TextEncoder()
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(() => {
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          setTimeout(() => { controller.enqueue(encoder.encode(': keep-alive\n\n')) }, 75)
+          setTimeout(() => { controller.enqueue(encoder.encode(': keep-alive\n\n')) }, 150)
+          setTimeout(() => {
+            controller.enqueue(encoder.encode(textEvents.map(event => `data: ${event}\n\n`).join('')))
+            controller.close()
+          }, 225)
+        },
+      })
+      return Promise.resolve(new Response(body, { status: 200 }))
+    })
+    const adapter = adapterOf({ baseURL: 'https://example.invalid', streamIdleTimeoutMs: 100 })
+    try {
+      const chunks: string[] = []
+      const drain = (async () => {
+        for await (const chunk of adapter.stream({ provider: 'deepseek-official', model: 'm', messages: [] })) {
+          chunks.push(chunk.type)
+        }
+      })()
+      await vi.advanceTimersByTimeAsync(75)
+      await vi.advanceTimersByTimeAsync(75)
+      await vi.advanceTimersByTimeAsync(75)
+      await expect(drain).resolves.toBeUndefined()
+      expect(chunks).toEqual(['block-start', 'text-delta', 'block-end', 'usage', 'finish'])
+    } finally {
+      fetchSpy.mockRestore()
+    }
+  })
 })
 
 describe('plugin registration and config', () => {
