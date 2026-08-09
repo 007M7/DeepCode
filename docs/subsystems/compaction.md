@@ -66,7 +66,7 @@ Automatic callers state why policy is running; implementations may treat confirm
 type CompactionTrigger = 'pressure' | 'context-overflow'
 ```
 
-`CompactService` exposes `compactIfNeeded(agent, trigger, signal)` for automatic `pressure` or `context-overflow` policy, `compactNow(agent, signal)` for one useful idle-session reduction even below pressure, and `compactRegion(...)` for an explicit inclusive surface range. `compactNow()` runs as agent maintenance between turns, returns `null` without writing when no useful range exists, records a standalone `turn: null` bracket before summarization, and flushes a closed attempt before later queued prompts may derive from the new surface. Every backend marks its replacement `user/message` with `COMPACT_CHECKPOINT_SOURCE`; client and wire consumers import that value and `isCompactCheckpointSource()` from the cordis-free `@deepseek-ai/dsh-compact/checkpoint` subpath, while the package root re-exports both for host consumers. The predicate keeps checkpoint recognition independent of any one backend. Implementations must forward the supplied signal to summarization. The seam owns no pricing API: the singleton [`ctx.tokenMeter`](token-meter.md) directly owns estimation and replay, while `dsh-compact-basic` owns retention, event sequencing, routed summarization calls, and their configuration.
+`CompactService` exposes `compactIfNeeded(agent, trigger, signal)` for automatic `pressure` or `context-overflow` policy, `compactNow(agent, signal)` for one useful idle-session reduction even below pressure, and `compactRegion(...)` for an explicit inclusive surface range. `compactNow()` runs as agent maintenance between turns, returns `null` without writing when no useful range exists, records a standalone `turn: null` bracket before summarization, and flushes a closed attempt before later queued prompts may derive from the new surface. Every backend creates its replacement `user/message` source with `compactCheckpointSource(compactionId, sourceCommandId?)`; client and wire consumers import that constructor, `CompactCheckpointSource`, and `isCompactCheckpointSource()` from the cordis-free `@deepseek-ai/dsh-compact/checkpoint` subpath, while the package root re-exports them for host consumers. The required transaction identity correlates the replacement checkpoint, while the predicate keeps recognition independent of any one backend. Implementations must forward the supplied signal to summarization. The seam owns no pricing API: the singleton [`ctx.tokenMeter`](token-meter.md) directly owns estimation and replay, while `dsh-compact-basic` owns retention, event sequencing, routed summarization calls, and their configuration.
 
 Expected manual failures use `ManualCompactionErrorCode`:
 
@@ -129,7 +129,7 @@ Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnp
 
 ### `ctx.compact` — `CompactService` (abstract seam)
 
-Abstract compaction service. Implementations own trigger policy, retention, and summarization, and may consume a separate measurement service. A successful run replaces the selected surface span with one summary node and prevents concurrent compaction of the same session. The replacement user message uses COMPACT_CHECKPOINT_SOURCE so consumers recognize it independently of the backend. Load one implementation per context as `ctx.compact`.
+Abstract compaction service. Implementations own trigger policy, retention, and summarization, and may consume a separate measurement service. A successful run replaces the selected surface span with one summary node and prevents concurrent compaction of the same session. The replacement user message uses compactCheckpointSource with the transaction identity so consumers recognize and correlate it independently of the backend. Load one implementation per context as `ctx.compact`.
 
 ```ts cordis-catalog
 /**
@@ -175,7 +175,8 @@ abstract compactNow( agent: ManualCompactAgentContext, signal: AbortSignal, sour
  * balanced so assistant tool calls remain paired with their results. A model-
  * backed implementation forwards cancellation and rejects active, missing,
  * reversed, or unbalanced ranges. The target session is `agent.session`.
- * Its replacement user message must use {@link COMPACT_CHECKPOINT_SOURCE}.
+ * Its replacement user message must use {@link compactCheckpointSource} with
+ * the transaction's `CompactionId`.
  * Use {@link toolPairingBalancedBefore} and {@link toolPairingBalancedAfter}
  * for the edge checks.
  *

@@ -1,9 +1,7 @@
 /** Reconstruct durable steering identity from the event-sourced agent inbox. */
 
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
-import type {} from '@deepseek-ai/dsh-agent/types'
-
-type InboxTarget = 'next-turn' | 'next-step'
+import type { InboxTarget } from '@deepseek-ai/dsh-agent/types'
 
 /** Minimal pending identity retained while replaying durable inbox splices. */
 interface PendingIdentity {

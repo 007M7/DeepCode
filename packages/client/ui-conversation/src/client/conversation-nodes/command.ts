@@ -4,7 +4,7 @@ import type {
   ConversationNodeDefinition,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import { isReplacementSurfaceEvent } from '@deepseek-ai/dsh-client-runtime/client'
-import type { COMPACT_CHECKPOINT_SOURCE } from '@deepseek-ai/dsh-compact/checkpoint'
+import type { CompactCheckpointSource } from '@deepseek-ai/dsh-compact/checkpoint'
 import type {} from '@deepseek-ai/dsh-compact/types'
 import type {} from '@deepseek-ai/dsh-commands/types'
 import type { ManualCompactionChatData } from '../contract/chat-nodes.ts'
@@ -21,7 +21,7 @@ declare module '@deepseek-ai/dsh-client-ui-conversation/client' {
 
 type CommandId = CommandNode['commandId']
 
-const COMPACT_PLUGIN: typeof COMPACT_CHECKPOINT_SOURCE.plugin = 'compact'
+const COMPACT_PLUGIN: CompactCheckpointSource['plugin'] = 'compact'
 
 interface CommandState {
   readonly command: CommandNode

@@ -1,12 +1,12 @@
 /**
- * The compaction seam's canonical checkpoint source: the plugin marker every
- * backend stamps on the replacement user message that lands a checkpoint, plus
- * the predicate that recognizes it.
+ * Compaction checkpoint provenance: the correlated source constructor and type
+ * every backend uses for its replacement user message, plus the predicate that
+ * recognizes persisted checkpoints.
  *
- * The seam itself lives in `@deepseek-ai/dsh-compact`, which re-exports both of
- * these; this module is a pure value/predicate outlet (no cordis imports, no
- * module augmentation) so client and wire programs can name the checkpoint
- * source without loading the host plugin's Context merges — the
+ * The seam itself lives in `@deepseek-ai/dsh-compact`, which re-exports these
+ * contracts; this module is a pure type/value/predicate outlet (no cordis
+ * imports, no module augmentation) so client and wire programs can name the
+ * checkpoint source without loading the host plugin's Context merges — the
  * `dsh-commands/brand` shape.
  *
  * @module @deepseek-ai/dsh-compact/checkpoint
@@ -16,11 +16,10 @@ import type { MessageSource } from '@deepseek-ai/dsh-llm/message'
 import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
 import type { CompactionId } from './brand.ts'
 
-/** Canonical source for the replacement user message produced by every compaction backend. */
-export const COMPACT_CHECKPOINT_SOURCE = Object.freeze({ kind: 'plugin', plugin: 'compact' } as const)
+const COMPACT_CHECKPOINT_MARKER = Object.freeze({ kind: 'plugin', plugin: 'compact' } as const)
 
 /** Message provenance carried by a concrete compaction checkpoint. */
-export type CompactCheckpointSource = typeof COMPACT_CHECKPOINT_SOURCE & {
+export type CompactCheckpointSource = typeof COMPACT_CHECKPOINT_MARKER & {
   readonly compactionId: CompactionId
   readonly sourceCommandId?: CommandId
 }
@@ -36,7 +35,7 @@ export function compactCheckpointSource(
   sourceCommandId?: CommandId,
 ): CompactCheckpointSource {
   return Object.freeze({
-    ...COMPACT_CHECKPOINT_SOURCE,
+    ...COMPACT_CHECKPOINT_MARKER,
     compactionId,
     ...sourceCommandId === undefined ? {} : { sourceCommandId },
   })
@@ -48,5 +47,5 @@ export function compactCheckpointSource(
  * @returns whether the source carries the backend-independent checkpoint marker.
  */
 export function isCompactCheckpointSource(source: MessageSource): boolean {
-  return source.kind === 'plugin' && source.plugin === COMPACT_CHECKPOINT_SOURCE.plugin
+  return source.kind === 'plugin' && source.plugin === COMPACT_CHECKPOINT_MARKER.plugin
 }

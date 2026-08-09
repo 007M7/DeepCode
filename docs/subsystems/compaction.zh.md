@@ -66,7 +66,7 @@ interface CompactionResult {
 type CompactionTrigger = 'pressure' | 'context-overflow'
 ```
 
-`CompactService` 暴露 `compactIfNeeded(agent, trigger, signal)` 以执行自动 `pressure` 或 `context-overflow` 策略，暴露 `compactNow(agent, signal)` 以便即使未达到压力也对空闲会话进行一次有效缩减，还针对显式、两端均包含的 surface 范围暴露 `compactRegion(...)`。`compactNow()` 作为轮次之间的 agent maintenance 运行；没有有效范围时返回 `null` 且不写入；在摘要前记录独立的 `turn: null` 标记对，并在后续排队提示词能够从新表层派生前 flush 已闭合尝试。每个后端都使用 `COMPACT_CHECKPOINT_SOURCE` 标记其替换用的 `user/message`；client 与 wire 消费方从无 cordis 的 `@deepseek-ai/dsh-compact/checkpoint` 子路径导入该值和 `isCompactCheckpointSource()`，包根则为 host 消费方重新导出两者。该判定函数使检查点识别不依赖任一特定后端。实现必须把传入的 signal 转发给摘要流程。该 seam 不拥有计价 API：单例 [`ctx.tokenMeter`](token-meter.md) 直接拥有估算与回放，而 `dsh-compact-basic` 拥有保留策略、事件排序、按路由执行的摘要调用及其配置。
+`CompactService` 暴露 `compactIfNeeded(agent, trigger, signal)` 以执行自动 `pressure` 或 `context-overflow` 策略，暴露 `compactNow(agent, signal)` 以便即使未达到压力也对空闲会话进行一次有效缩减，还针对显式、两端均包含的 surface 范围暴露 `compactRegion(...)`。`compactNow()` 作为轮次之间的 agent maintenance 运行；没有有效范围时返回 `null` 且不写入；在摘要前记录独立的 `turn: null` 标记对，并在后续排队提示词能够从新表层派生前 flush 已闭合尝试。每个后端都使用 `compactCheckpointSource(compactionId, sourceCommandId?)` 创建替换用 `user/message` 的源；client 与 wire 消费方从无 cordis 的 `@deepseek-ai/dsh-compact/checkpoint` 子路径导入该构造函数、`CompactCheckpointSource` 和 `isCompactCheckpointSource()`，包根则为 host 消费方重新导出它们。必填的事务身份会关联替换检查点，而该判定函数使检查点识别不依赖任一特定后端。实现必须把传入的 signal 转发给摘要流程。该 seam 不拥有计价 API：单例 [`ctx.tokenMeter`](token-meter.md) 直接拥有估算与回放，而 `dsh-compact-basic` 拥有保留策略、事件排序、按路由执行的摘要调用及其配置。
 
 预期的手动失败使用 `ManualCompactionErrorCode`：
 
@@ -129,7 +129,7 @@ Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnp
 
 ### `ctx.compact` — `CompactService` (abstract seam)
 
-Abstract compaction service. Implementations own trigger policy, retention, and summarization, and may consume a separate measurement service. A successful run replaces the selected surface span with one summary node and prevents concurrent compaction of the same session. The replacement user message uses COMPACT_CHECKPOINT_SOURCE so consumers recognize it independently of the backend. Load one implementation per context as `ctx.compact`.
+Abstract compaction service. Implementations own trigger policy, retention, and summarization, and may consume a separate measurement service. A successful run replaces the selected surface span with one summary node and prevents concurrent compaction of the same session. The replacement user message uses compactCheckpointSource with the transaction identity so consumers recognize and correlate it independently of the backend. Load one implementation per context as `ctx.compact`.
 
 ```ts cordis-catalog
 /**
@@ -175,7 +175,8 @@ abstract compactNow( agent: ManualCompactAgentContext, signal: AbortSignal, sour
  * balanced so assistant tool calls remain paired with their results. A model-
  * backed implementation forwards cancellation and rejects active, missing,
  * reversed, or unbalanced ranges. The target session is `agent.session`.
- * Its replacement user message must use {@link COMPACT_CHECKPOINT_SOURCE}.
+ * Its replacement user message must use {@link compactCheckpointSource} with
+ * the transaction's `CompactionId`.
  * Use {@link toolPairingBalancedBefore} and {@link toolPairingBalancedAfter}
  * for the edge checks.
  *
