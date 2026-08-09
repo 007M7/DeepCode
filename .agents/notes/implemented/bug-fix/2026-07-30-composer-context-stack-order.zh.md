@@ -10,11 +10,11 @@ Goal、Todo 与 Queue 独立注册到同一个 `conversation.input.dock` 列表�
 
 ## 决策
 
-[Todo 优先的对齐决策](2026-08-02-todo-first-composer-context-order.md)规定当前的升序排列。本记录保留围绕该顺序的堆栈契约：数值间隔使未来条目可以声明预期位置，不必依赖插件激活顺序；composer bar 位于列表之后。
+[Todo 优先的对齐决策](2026-08-02-todo-first-composer-context-order.md)规定当前的升序排列。本记录保留围绕该顺序的堆栈约定：数值间隔使未来条目可以声明预期位置，不必依赖插件激活顺序；composer bar 位于列表之后。
 
 `ConversationRoot` 负责独立上下文卡片之间的 6px 间距。Goal 是一张独立的 752×36px 卡片，折叠后的 Todo 是一张独立的 752×44px 卡片。Queue 是末端 dock 条目：其 776px 包装层包含相同的 752px 面板列，并减去共享间距与具名的 5px 布局重叠量，因此后渲染的 composer 卡片只覆盖 Queue 边缘。空条目渲染为 null，不占用间距。
 
-顺序与重叠是两项独立契约。注册顺序定义语义层级，stack 上的 CSS 变量定义共享几何。系统不能仅因 Queue 是最后一个可见条目，就推断它可以与 composer 重叠，因为没有 Queue 时，Goal 或 Todo 可能成为最后一个可见上下文卡片，而它们必须与 composer 保持间隔。
+顺序与重叠是两项独立约定。注册顺序定义语义层级，stack 上的 CSS 变量定义共享几何。系统不能仅因 Queue 是最后一个可见条目，就推断它可以与 composer 重叠，因为没有 Queue 时，Goal 或 Todo 可能成为最后一个可见上下文卡片，而它们必须与 composer 保持间隔。
 
 ## 验证
 

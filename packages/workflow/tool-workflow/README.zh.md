@@ -6,7 +6,7 @@
 
 ## 模型看到的内容
 
-工具有三个参数：`meta`（必需的身份数据：`name`、`description` 和可选的进度注解）、`script`（必需的纯 JavaScript 脚本体，不含 `export const meta` 语句；工具描述包含完整的编写契约）以及 `args`（可选 JSON 对象，作为全局变量 `args` 向脚本公开；裸列表应包装到字段中，使协议 schema 如实表达形态）。插件还会贡献一个 `tool:<toolName>` 系统提示词段，其中包含使用策略：只有用户明确要求工作流／大型编排时才使用该工具；一两项委派优先使用普通 subagent 调用。这遵循工具指导随工具插件交付、绝不放入部署 persona 的约定。
+工具有三个参数：`meta`（必需的身份数据：`name`、`description` 和可选的进度注解）、`script`（必需的纯 JavaScript 脚本体，不含 `export const meta` 语句；工具描述包含完整的编写约定）以及 `args`（可选 JSON 对象，作为全局变量 `args` 向脚本公开；裸列表应包装到字段中，使协议 schema 如实表达形态）。插件还会贡献一个 `tool:<toolName>` 系统提示词段，其中包含使用策略：只有用户明确要求工作流／大型编排时才使用该工具；一两项委派优先使用普通 subagent 调用。这遵循工具指导随工具插件交付、绝不放入部署 persona 的约定。
 
 ## 生命周期
 
@@ -49,7 +49,7 @@ Use the <toolName> tool ONLY when the user explicitly asks for a workflow or for
 
 #### 模型看到的内容
 
-工具可见时，已生成的默认 [`workflow` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-workflow) 包含完整的 JavaScript 钩子与元数据契约；`toolName` 可以重命名该定义，模型会提交脚本、元数据和可选 args。
+工具可见时，已生成的默认 [`workflow` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-workflow) 包含完整的 JavaScript 钩子与元数据约定；`toolName` 可以重命名该定义，模型会提交脚本、元数据和可选 args。
 
 #### Token 影响
 

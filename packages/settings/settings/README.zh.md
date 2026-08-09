@@ -18,7 +18,7 @@
 - 解析值是深冻结快照。每次提交后观察者收到 `(next, prev)`：同一回调的调用异步、逐次、按提交顺序执行（慢的旧调用绝不会覆盖更新的结果），异常——同步抛出与异步拒绝——均被隔离。watch 的 disposer 返回后不再启动新的调用（已排队的那一次会被跳过）；已启动的调用仍会结算。`settings/updated` 事件逐 listener 扇出，一个抛错的 listener 不会饿死其余 listener；异步 listener 的拒绝会被隔离并记入日志，这正是 `INVARIANT` 编码的失败只从同步 listener 重新抛出的原因。
 - 服务卸载先拒绝新写入与观察者调用的启动，再排干全部排队写入与已启动的观察者调用后才完成；registrant fiber 在写入途中被 dispose 时，该写入仍到达存储，但不向任何人提交或通知。
 
-## 提供方契约
+## 提供方约定
 
 子类实现 `writable`、`load()`、`persist(ns, section)`，可选择为一个本地用户可编辑文件重写 `documentPath` 与 `prepareDocument()`，并通过受保护的 `publish(doc)` 推入外部观察到的文档。基类 service init 在服务可注入前加载并发布一次文档；自有 init（watcher、连接）的 provider 先经 `yield* super[Service.init]()` 委托。publish 时每个已注册 namespace 独立重解析：非法分节保留该 namespace 的最后可用值并告警——热重载绝不拖垮进程；启动期与注册期校验则立即报错。
 

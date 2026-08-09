@@ -8,7 +8,7 @@ Status: implemented
 
 Client Runtime 已经把 Tool 调用投影成稳定的生命周期：它按 `callId` 配对 call/result 事件，保留 running 与 settled 两种形态，并按 root call 索引 Code Dispatch 子调用。但 chat view 仍拥有整套展示链路：它在 ChatFlow 中放置 root call，把每个 root 与 subcall 编排在一起，按 Tool 名称分发每个原子调用，携带通用 fallback 与 card model，注册第一方 Tool view，并在 details panel 中复用这些 model。
 
-这种所有权迫使 `ui-conversation` 解释业务 Tool 名称；一旦原子 Tool view 被迁走，subcall 就会成为无主的遗留关注点。`ui-skill` 等业务包虽能注册一行视图，仍依赖 conversation 的 Tool 专属编排契约。增加 Tool 专属 Session projection 会重复 Runtime 已拥有的数据模型，而只移动单个 React 组件则会把编排与 model 耦合留在原地。
+这种所有权迫使 `ui-conversation` 解释业务 Tool 名称；一旦原子 Tool view 被迁走，subcall 就会成为无主的遗留关注点。`ui-skill` 等业务包虽能注册一行视图，仍依赖 conversation 的 Tool 专属编排约定。增加 Tool 专属 Session projection 会重复 Runtime 已拥有的数据模型，而只移动单个 React 组件则会把编排与 model 耦合留在原地。
 
 ## Decision
 
@@ -60,13 +60,13 @@ Runtime 的 [`ToolCallTree`](../../../../packages/client/runtime/src/client/sess
 | 业务 Tool 插件 | [`ui-skill` 注册例](../../../../packages/client/ui-skill/src/client/index.ts) | 一个或多个 wire Tool name 的原子 view | root/subcall 位置与生命周期配对 |
 | details 路径 | [`DetailsPanel.tsx`](../../../../packages/client/ui-conversation/src/client/skeleton/DetailsPanel.tsx)、[`ToolDetails.tsx`](../../../../packages/client/ui-tool/src/client/tool/ToolDetails.tsx) | selected call 定位、card-aware output 与 raw fallback | chat 调用树编排 |
 
-## Slot 与 owner 契约
+## Slot 与 owner 约定
 
 slot 声明同时限定渲染所有权。conversation chat entry 通过 `children` 声明 `'conversation.chat.tool'`，因此只有 `ChatView` 放置整体 Tool 席位；`ui-tool` 注册该席位时再通过 `children` 声明 `'tool.call.toolview'`，因此只有 `ToolCallTree` 渲染原子 Tool 席位。业务插件只注册 keyed entry，不参与 root/subcall 编排，也不建立与 slot 平行的 registry。
 
 整体席位的 `ToolTreeOwnerProps` 携带 root `callId`、`toolName`、`ToolCallBlock`、`selectedCallId`、session `cwd`、`openFile(path)` 与 `inspectCall(callId)`。`ToolCallTree` 把 root 或 child 转成相同的 `ToolCallOwnerProps`，并把 inspect 收窄成当前 call 的回调。原子 owner 不携带 `ReactNode`、Cordis `Context`、Session service 或 projector；业务 view 只消费一个标准调用块和宿主动作。
 
-席位填充方还要在每个 root 和 child wrapper 上保留 conversation DOM 契约：`data-chat-anchor-key="call:<callId>"`、`data-chat-call-id`，以及 selected call 上的 `data-selected="true"`。`ChatView` 用 anchor key 恢复 prepend/paging 位置；child wrapper 由 Tool owner 独自编排，因此这些属性也由它输出。
+席位填充方还要在每个 root 和 child wrapper 上保留 conversation DOM 约定：`data-chat-anchor-key="call:<callId>"`、`data-chat-call-id`，以及 selected call 上的 `data-selected="true"`。`ChatView` 用 anchor key 恢复 prepend/paging 位置；child wrapper 由 Tool owner 独自编排，因此这些属性也由它输出。
 
 业务插件遵循同一个注册形态：
 
@@ -86,7 +86,7 @@ ctx.slots.inject('tool.call.toolview', () =>
 
 ## Verification
 
-测试归属跟随生产所有权。`ui-conversation` 的测试安装本地整体 Tool 席位替身，只验证 ChatFlow 位置、owner payload 与 selection、open-file、inspect 等宿主契约；它们不导入 `ui-tool` 的生产实现或测试 helper。`ui-tool` 的测试挂载真实 conversation 宿主，验证 root/subcall 编排、keyed dispatch、generic fallback、具体 Tool UI 与插件生命周期。
+测试归属跟随生产所有权。`ui-conversation` 的测试安装本地整体 Tool 席位替身，只验证 ChatFlow 位置、owner payload 与 selection、open-file、inspect 等宿主约定；它们不导入 `ui-tool` 的生产实现或测试 helper。`ui-tool` 的测试挂载真实 conversation 宿主，验证 root/subcall 编排、keyed dispatch、generic fallback、具体 Tool UI 与插件生命周期。
 
 ## Alternatives considered
 

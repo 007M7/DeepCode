@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-06-30-hook-bridges.md
 2026-06-30-hook-bridges.md: a31116818c57e18d04e656f371efd1101a63b6af
-2026-06-30-hook-bridges.zh.md: 8827408b67e2dd19f867a8658309f00231ba06c5
+2026-06-30-hook-bridges.zh.md: 0fa76c0cee0f74101e70f44d442daa2fb46e6649

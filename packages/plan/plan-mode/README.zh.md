@@ -8,7 +8,7 @@
 
 `plan/mode`（`{ active: boolean }`）是一个仅存在于日志中、每次以完整值替换的 `SessionEventMap` 成员。`foldPlanMode(events)` 返回最后记录的值，如果没有则返回 `false`，因此恢复、fork 和压缩（compaction）都能直接从会话日志恢复 plan 状态。UI 通过 `session/event` 观察已提交的切换。
 
-`ctx.planMode.set(agent, active)` 在 agent 空闲时立即提交——下一个 prompt 之前不会有任何边界到来，因此独立的 `plan/mode` 事件当场落账——在 agent 运行中则持有待生效选择、等下一个被接受的轮内 pre-step；返回值说明发生了哪种（`committed`/`queued`）、一次 `cancelled` 反转或 `noop`。`get(agent)` 返回 `{ active, pending? }`，将塑造当前步骤的日志状态与用户的轮中选择分开。初始与续步 pre-step 边界都在覆盖范围内；同一步骤的请求恢复重试会复用已冻结的 assembly，并将该选择保留到下一个 pre-step。当最后记录的请求头描述了另一状态时，用户选择的变更会贡献一条插件来源的 `user/message` 通知（两条提交路径皆然）。
+`ctx.planMode.set(agent, active)` 在 agent 空闲时立即提交——下一个 prompt 之前不会有任何边界到来，因此独立的 `plan/mode` 事件当场落账——在 agent 运行中则持有待生效选择，并等待下一个被接受的轮内 pre-step；返回值区分 `committed`、`queued`、表示反转的 `cancelled` 和 `noop`。`get(agent)` 返回 `{ active, pending? }`，将塑造当前步骤的日志状态与用户的轮中选择分开。初始与续步 pre-step 边界都在覆盖范围内；同一步骤的请求恢复重试会复用已冻结的 assembly，并将该选择保留到下一个 pre-step。当最后记录的请求头描述了另一状态时，用户选择的变更会贡献一条插件来源的 `user/message` 通知（两条提交路径皆然）。
 
 ## 模型与人类交互
 

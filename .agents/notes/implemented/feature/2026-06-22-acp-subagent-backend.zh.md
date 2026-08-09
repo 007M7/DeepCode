@@ -30,7 +30,7 @@ subagent seam（[seam Agent Note](2026-06-21-subagent-capability-seam.md)）的�
 
 ### StopReason 映射
 
-ACP `StopReason` → harness `SubagentStopReason`：`end_turn`→`completed`、`max_tokens`→`max-tokens`、`refusal`→`refusal`、`cancelled`→`aborted`、`max_turn_requests`→`error`（无对等语义，任务未完成）、未知→`error`。spawn/传输/RPC 失败时，结果为 `error`（如果已请求取消则为 `aborted`）；按 seam 契约，`result` 在子 agent 级别失败时从不 reject。
+ACP `StopReason` → harness `SubagentStopReason`：`end_turn`→`completed`、`max_tokens`→`max-tokens`、`refusal`→`refusal`、`cancelled`→`aborted`、`max_turn_requests`→`error`（无对等语义，任务未完成）、未知→`error`。spawn/传输/RPC 失败时，结果为 `error`（如果已请求取消则为 `aborted`）；按 seam 约定，`result` 在子 agent 级别失败时从不 reject。
 
 ### 安全：清洗子进程环境
 

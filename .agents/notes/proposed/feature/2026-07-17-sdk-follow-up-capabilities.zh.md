@@ -8,7 +8,7 @@ Status: proposed
 
 首个 SDK 版本通过[开发者工程 Agent Note](2026-07-14-sdk-developer-projects.md) 和 [SDK 工程编辑架构](../architecture/2026-07-15-sdk-project-editing-architecture.md)定义的共享模型创建和编辑开发者拥有的 Cordis 工程。create 和 config 工作流仅支持交互调用，接入外部 Cordis 插件需要手工修改依赖和配置，命令行遥测没有明确的所属边界，交互分支也缺少稳定的测试策略。
 
-这些缺口彼此关联。create 和 config 已经共享问题、功能配置和 `ProjectEditSession`；若另建自动化路径，就会复制领域逻辑。安装外部插件必须同时修改包管理器文件和 `cordis.yml`。遥测需要观察 create、build 等不会启动 Cordis 的命令。交互测试需要覆盖 Harness 自身行为，同时避免把终端渲染固化成脆弱的产品契约。
+这些缺口彼此关联。create 和 config 已经共享问题、功能配置和 `ProjectEditSession`；若另建自动化路径，就会复制领域逻辑。安装外部插件必须同时修改包管理器文件和 `cordis.yml`。遥测需要观察 create、build 等不会启动 Cordis 的命令。交互测试需要覆盖 Harness 自身行为，同时避免把终端渲染固化成脆弱的产品约定。
 
 ## 提案
 
@@ -33,7 +33,7 @@ Create 和 config 使用相同的功能计划形状。create 通过上述命令�
 
 ### Prompt 与工程编辑边界
 
-`PromptPort` 仍是 SDK 问题与交互实现之间的唯一边界。`ClackPromptPort` 负责终端交互。`HeadlessPromptPort` 使用问题契约公开的默认值，否则通过未回答问题快速失败；预填值通常会让流程根本不调用该 port。
+`PromptPort` 仍是 SDK 问题与交互实现之间的唯一边界。`ClackPromptPort` 负责终端交互。`HeadlessPromptPort` 使用问题约定公开的默认值，否则通过未回答问题快速失败；预填值通常会让流程根本不调用该 port。
 
 两条路径使用相同的 `Question` 对象、`FeatureConfigurator`、`SdkProject` 和 `ProjectEditSession`。因此，headless 路径只改变答案的到达方式，不改变功能解释或文件提交方式。
 
@@ -97,12 +97,12 @@ Create 和 config 测试向现有工作流注入 `PromptPort` 和脚本化输入
 ## 验收标准
 
 - Create 能依据完整结构化输入在没有 TTY 时运行；使用 `--json` 时 stdout 只输出 NDJSON；缺少必答输入时通过 `action-required` 报告，且不写入部分工程。
-- Create 和 config 通过共享的问题、功能配置和工程编辑代码路径解析相同的功能计划契约。
+- Create 和 config 通过共享的问题、功能配置和工程编辑代码路径解析相同的功能计划约定。
 - `dsh-sdk create <source>` 使用工程选定的包管理器，挂载该操作实际新增的依赖名；无法识别新增依赖时快速失败。
 - 初始化命令与每个 `dsh-sdk` 命令都进入同一条尽力而为的遥测收尾路径；明确禁用的配置项、`DO_NOT_TRACK` 或 CI 会阻止传输，遥测失败绝不改变命令结果。
 - 遥测绝不读取 `.env`；没有 `cordis.yml` 时不发送无关的 `package.json` 内容；两个符合条件的文本都经过脱敏；匿名标识符与 git 元数据无关。
 - 交互测试通过注入交互覆盖 create 和 config 决策，并断言已提交的工程文件；真实 PTY 覆盖只作为窄范围冒烟层。
-- Agent skill 说明公开的结构化输入与事件契约，不依赖包的私有导出。
+- Agent skill 说明公开的结构化输入与事件约定，不依赖包的私有导出。
 
 ## 风险
 
@@ -110,7 +110,7 @@ Create 和 config 测试向现有工作流注入 `PromptPort` 和脚本化输入
 - 没有遥测配置项时默认上报可能让开发者意外；发布前 CLI 必须让关闭方法易于发现。
 - 在 `ProjectEditSession` 挂载插件前，包管理器的 add 操作已经可能修改 `package.json`、lockfile 和安装文件；后续挂载失败会留下需要手工恢复的依赖改动。
 - GitHub 依赖可能按包管理器策略执行 preparation 或 lifecycle script；尚未解决的构建策略会带来供应链与可复现性风险。
-- 注入提示词交互的测试无法证明真实终端中的 raw mode、signal 或重绘行为；可选冒烟层只应覆盖这些残余契约。
+- 注入提示词交互的测试无法证明真实终端中的 raw mode、signal 或重绘行为；可选冒烟层只应覆盖这些残余约定。
 
 ## 参考资料
 

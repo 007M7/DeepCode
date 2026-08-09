@@ -22,7 +22,7 @@ WebSocket 只承担 host→browser 下行。所有 client→host unary 调用和
 
 ## Verification
 
-webserver 契约测试钉住 upgrade pathname 分发、重复注册拒绝、disposer 与 teardown；connection 的真实网络测试钉住两条 WebSocket 各自的信任检查、open、schema 信封、frame 顺序、stream error 与 close cancellation；客户端测试同时证明下行创建 `ws:`／`wss:` URL，而 unary 与 `respond` 仍调用 HTTP `fetch`。组装后的 keyless browser replay 继续覆盖 Chromium、真实 host、HTTP 上行与 WebSocket 下行整链。
+webserver 约定测试钉住 upgrade pathname 分发、重复注册拒绝、disposer 与 teardown；connection 的真实网络测试钉住两条 WebSocket 各自的信任检查、open、schema 信封、frame 顺序、stream error 与 close cancellation；客户端测试同时证明下行创建 `ws:`／`wss:` URL，而 unary 与 `respond` 仍调用 HTTP `fetch`。组装后的 keyless browser replay 继续覆盖 Chromium、真实 host、HTTP 上行与 WebSocket 下行整链。
 
 ## Alternatives considered
 

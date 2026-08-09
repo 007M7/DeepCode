@@ -26,7 +26,7 @@
 
 `LlmService` 将最终适配器选择、同步 dispatch、iterator 构造与迭代中的失败规范化为流协议唯一的终止形式：`finish { kind: 'error' | 'aborted', failure }`。部分增量输出后发生失败时，内容块可能仍未闭合；消费方会丢弃这些不完整输出。`llm/stream` middleware、嵌套调用、适配器清理和下游消费方的错误仍会抛出，因为它们属于插件或消费方失败，而非模型请求结果。已准备调用会暴露随其确切适配器注册一同捕获的不可变重试策略；完全由 middleware 处理的路由没有服务策略。
 
-询问端点属于配置期针对**草稿**的操作，因此以 settings namespace 而非提供方路由为键：界面正在新增的提供方还不存在，也就没有路由可点名。但请求仍可**点名**它正在编辑的路由，而已经描述该路由的适配器应当用自己的知识作答——元数据更好，且无需联网——这正是 `baseURL` 可选、两者必居其一的原因。除此之外，请求携带端点、协议，以及一条 harness 只用于这一次询问、绝不存储的凭据——这里既不读也不写 settings 与 credentials，回复是界面可供用户采纳的候选元数据，而不是已注册的 catalog。`LlmDiscoveredModel` 除 `id` 外每个字段都是可选的，因为大多数提供方列表只公布 id；采纳其中一条的界面仍要补上其适配器所需的容量。重复与不可用的 id 会被丢弃，无人服务的 namespace 以 `NO_DISCOVERY` 失败，既不点名路由也不给端点的请求以 `INVALID_DISCOVERY` 失败。
+询问端点属于配置期针对**草稿**的操作，因此以 settings namespace 而非提供方路由为键：界面正在新增的提供方还不存在，也就没有路由可点名。但请求仍可**点名**它正在编辑的路由，而已经描述该路由的适配器应当用自己的知识作答——元数据更好，且无需联网——这正是 `baseURL` 可选、两者至少要有一个的原因。除此之外，请求携带端点、协议，以及一条 harness 只用于这一次询问、绝不存储的凭据——这里既不读也不写 settings 与 credentials，回复是界面可供用户采纳的候选元数据，而不是已注册的 catalog。`LlmDiscoveredModel` 除 `id` 外每个字段都是可选的，因为大多数提供方列表只公布 id；采纳其中一条的界面仍要补上其适配器所需的容量。重复与不可用的 id 会被丢弃，无人服务的 namespace 以 `NO_DISCOVERY` 失败，既不点名路由也不给端点的请求以 `INVALID_DISCOVERY` 失败。
 
 提供方与模型元数据是发现接口，不是路由白名单。`registerAdapter()` 仍拥有提供方排他性，并为每条路由捕获适配器的重试策略；适配器则可以接受 `listModels()` 中不存在的模型 id，消费方禁止因模型未列出而拒绝请求。返回的 selector 元数据与输入脱离，无效或重复适配器配置项会以 `INVALID_ADAPTER` 或 `INVALID_CATALOG` 失败。
 
@@ -97,5 +97,5 @@
 - **`GenerateOptions` 采样只包含 `temperature`／`maxTokens`／`stop`**：没有 `tool_choice`、`top_p` 或 penalty 字段；有产生方落地时词汇才会增长（见 [已删除惰性旋钮](../../../.agents/notes/archived/simplification/2026-07-04-drop-inert-request-knobs.md)）。
 - **受产生方约束的变体在实际产生前不会加入**：`prefill`、每工具 `strict`、块 `cache` 提示与 `agent` 消息源变体因没有产生方而被剪除（见 [Agent Note](../../../.agents/notes/archived/simplification/2026-07-04-prune-producerless-vocabulary-variants.md)）。
 - **`BlockAssembler` 只处理核心块类型**：如果插件添加块类型的流从未由 `block-end` 关闭，`blocks()` 会抛出异常。
-- **`APP_IDENTITY.url` 指向一个尚不存在的仓库**：该公开主页必须在首次发布前可访问。
+- **`APP_IDENTITY.url` 指向一个尚不存在的仓库**：该公开主页必须在发布前可访问。
 - **`GenerateOptions.sessionId` 是本地声明的品牌类型**：导入 dsh-session 的 `SessionId` 会产生循环；未来拥有 id 的包可以消除该权宜之计。
