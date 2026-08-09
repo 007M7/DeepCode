@@ -12,16 +12,7 @@ import type { Agent, RequestErrorAction } from '@deepseek-ai/dsh-agent'
 import type { LlmFailure, ResolvedRetryPolicy } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { RetryId } from './brand.ts'
-import type { LlmRetryEventData, LlmRetryStartedEventData } from './types.ts'
-
-declare module '@deepseek-ai/dsh-session' {
-  interface SessionEventMap {
-    /** Durable, non-surface record of one provider-routed retry scheduled after a failed request attempt. */
-    'llm/retry': LlmRetryEventData
-    /** Durable transition written after a retry wait succeeds and before the next request attempt starts. */
-    'llm/retry-started': LlmRetryStartedEventData
-  }
-}
+import type { LlmRetryEventData } from './types.ts'
 
 export type { LlmRetryEventData, LlmRetryStartedEventData } from './types.ts'
 export { RetryId } from './brand.ts'
@@ -132,7 +123,7 @@ export function apply(ctx: Context, config: Config = {}, internals: RetryInterna
   ): Promise<RequestErrorAction> {
     const fusedSignal = AbortSignal.any([signal, lifetime.signal])
     if (fusedSignal.aborted) return
-    const eventData = policy.mode === 'normal'
+    const eventData: LlmRetryEventData = policy.mode === 'normal'
       ? {
         retryId,
         turn,
