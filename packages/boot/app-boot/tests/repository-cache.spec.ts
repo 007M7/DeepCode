@@ -159,7 +159,7 @@ describe('RepositoryCache', () => {
       "mkdirSync('dsh-plugin-assets/skills', { recursive: true })",
       "cpSync('../skills', 'dsh-plugin-assets/skills/0', { recursive: true })",
       "writeFileSync('dsh-plugin.mjs', 'export function apply() {}\\n')",
-      "writeFileSync('prepared.txt', `${process.env.REPOSITORY_TEST_VISIBLE ?? 'absent'}|${process.env.REPOSITORY_TEST_TOKEN ?? 'absent'}\\n`)",
+      "writeFileSync('prepared.txt', `${process.env.REPOSITORY_TEST_VISIBLE ?? 'absent'}|${process.env.REPOSITORY_TEST_TOKEN ?? 'absent'}|${process.env.PNPM_CONFIG_IGNORE_WORKSPACE ?? 'absent'}\\n`)",
       '',
     ].join('\n'), { mode: 0o700 })
     await writeFile(join(repository, 'skills', 'fixture', 'SKILL.md'), 'repository skill source\n')
@@ -187,7 +187,7 @@ describe('RepositoryCache', () => {
 
     const installed = await new RepositoryCache(join(root, 'cache')).resolve(specifier)
     await expect(readFile(join(installed, 'dependency-built.txt'), 'utf8')).resolves.toBe('dependency available\n')
-    await expect(readFile(join(installed, 'prepared.txt'), 'utf8')).resolves.toBe('visible|absent\n')
+    await expect(readFile(join(installed, 'prepared.txt'), 'utf8')).resolves.toBe('visible|absent|true\n')
     await expect(readFile(join(installed, 'dsh-plugin.mjs'), 'utf8')).resolves.toContain('export function apply')
     expect(lf(await readFile(join(installed, 'dsh-plugin-assets/skills/0/fixture/SKILL.md'), 'utf8')))
       .toBe('repository skill source\n')

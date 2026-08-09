@@ -40,13 +40,13 @@ function installEnvironment(commandDirectory: string): NodeJS.ProcessEnv {
   const scrubbed = scrubEnvironment()
   const path = Object.entries(scrubbed).find(([name]) => name.toUpperCase() === 'PATH')?.[1]
   const withoutOverrides = Object.fromEntries(Object.entries(scrubbed).filter(([name]) => {
-    return name.toUpperCase() !== 'PATH' && name.toUpperCase() !== 'NPM_CONFIG_IGNORE_WORKSPACE'
+    return name.toUpperCase() !== 'PATH' && name.toUpperCase() !== 'PNPM_CONFIG_IGNORE_WORKSPACE'
   }))
   return {
     ...withoutOverrides,
     PATH: [commandDirectory, ...(path === undefined ? [] : [path])].join(delimiter),
     // pnpm prepends its own command directory to lifecycle PATH on Windows.
-    NPM_CONFIG_IGNORE_WORKSPACE: 'true',
+    PNPM_CONFIG_IGNORE_WORKSPACE: 'true',
   }
 }
 
