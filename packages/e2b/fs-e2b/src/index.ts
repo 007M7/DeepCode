@@ -332,7 +332,13 @@ export class E2BFileSystem extends FileSystem {
       }
       this.checkWriteIntent(existing, expected, target)
       const before = existing === undefined ? null : await this.readForDiff(target, signal)
-      const version = await this.writeAtomic(target, content, existing, signal)
+      const version = await this.writeAtomic(
+        target,
+        content,
+        existing,
+        expected?.kind === 'createIfAbsent',
+        signal,
+      )
       return {
         operation: existing === undefined ? 'create' : 'update',
         version,
@@ -363,7 +369,7 @@ export class E2BFileSystem extends FileSystem {
       const before = normalizeLineEndings(raw)
       const after = literalEdit(before, edit, target.displayPath)
       const storage = restoreLineEndings(after, detectsCrlf(raw))
-      const version = await this.writeAtomic(target, storage, existing, signal)
+      const version = await this.writeAtomic(target, storage, existing, false, signal)
       return { version, before, after }
     })
   }
@@ -450,6 +456,7 @@ export class E2BFileSystem extends FileSystem {
     target: FsTarget,
     content: string,
     existing: EntryInfo | undefined,
+    createIfAbsent: boolean,
     signal?: AbortSignal,
   ): Promise<ReturnType<typeof FsVersion>> {
     assertNotAborted(signal, 'write')
@@ -476,7 +483,28 @@ export class E2BFileSystem extends FileSystem {
         commandOpts(signal),
       )
       assertNotAborted(signal, 'write')
-      const committed = await sandbox.files.rename(temporary, targetPath)
+      let committed: EntryInfo
+      if (createIfAbsent) {
+        const staged = await sandbox.files.getInfo(temporary, signalOpts(signal))
+        assertNotAborted(signal, 'write')
+        const targetArg = quoteE2BShellArg(targetPath)
+        const publication = await sandbox.commands.run(
+          `if ln -T -- ${quoteE2BShellArg(temporary)} ${targetArg}; then printf created; elif test -e ${targetArg} || test -L ${targetArg}; then printf exists; else exit 1; fi`,
+          commandOpts(undefined),
+        )
+        if (publication.stdout === 'exists') {
+          throw new FsError(
+            `cannot overwrite existing "${target.displayPath}" without reading it first`,
+            'FS_NOT_OBSERVED',
+          )
+        }
+        if (publication.stdout !== 'created') {
+          throw new Error('guarded create returned an invalid publication result')
+        }
+        committed = { ...staged, name: posix.basename(targetPath), path: targetPath }
+      } else {
+        committed = await sandbox.files.rename(temporary, targetPath)
+      }
       try {
         await sandbox.files.remove(stagingDirectory)
       } catch (_committedStagingCleanupFailure) {

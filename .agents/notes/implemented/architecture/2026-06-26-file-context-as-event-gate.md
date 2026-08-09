@@ -33,14 +33,16 @@ provider      dsh-fs-local      local implementation of ctx.fs
 
 The model is additive: bare `ctx.fs` performs atomic, unconstrained text I/O, while `dsh-fs-policy` adds observed state, read-before-edit, and version guards. Removing the policy therefore leaves the tools usable but unconstrained. Shipped agent configs load the policy; the bare mode exists to keep policy optional at the service boundary, not as the normal deployment stance.
 
+The [filesystem absence-observation follow-up](../bug-fix/2026-08-09-filesystem-absence-observation.md) refines the recording payload from a success-only version to explicit present/absent state and requires guarded creation to publish without replacement. The event-gate ownership and no-I/O policy boundary remain unchanged.
+
 `dsh-tool-fs` no longer injects `fileContext`. It injects `fs` and `tools`/`systemPrompt`.
 
 ## The policy is enforced by provider CAS, not by `dsh-fs-policy` stat
 
 `dsh-fs-policy` enforces "you must write/edit based on the version you read" **without ever calling `stat` or comparing versions itself**. It supplies the observed version as the CAS basis and lets the provider's mutation critical section detect staleness:
 
-- "Have you read this file?" is the one thing `dsh-fs-policy` decides locally — a `WeakMap` lookup, no I/O. No record ⇒ `FS_NOT_OBSERVED`.
-- "Is the version you read still current?" is decided **inside `ctx.fs.editText`/`writeText`**, in the same atomic lock that performs the read-match-rename. `dsh-fs-policy` passes `vObserved` as the expectation; the provider raises `FS_STALE_VERSION` if the file has moved on.
+- "What did this owner last observe?" is the one thing `dsh-fs-policy` decides locally — a `WeakMap` lookup, no I/O. No record means unseen; an absent record permits only guarded creation; a present record carries the replacement/edit basis.
+- "Is the version still current, or is the create target still absent?" is decided **inside the provider's atomic mutation boundary**. `dsh-fs-policy` supplies `replaceIfVersion` or `createIfAbsent`; the provider raises `FS_STALE_VERSION` for a moved version and `FS_NOT_OBSERVED` when a guarded create loses to another creator.
 
 This is deliberate. If `dsh-fs-policy` stat-ed and compared versions in its waterfall handler, there would be a TOCTOU gap between that check and the tool's actual write — the file could change in between, so the check would be a false guarantee that the provider's lock has to back up anyway. Putting the version check in the provider's critical section is both race-free and zero extra `stat`. So `dsh-fs-policy` does **no** filesystem I/O; the "must be based on the latest read" guarantee is *realized* by CAS, and `dsh-fs-policy` only chooses the basis (`vObserved`) and gates on prior observation.
 
@@ -68,14 +70,14 @@ The `FsWriteIntent` union itself does not change — the third "unconditional" s
 
 The events live in `@deepseek-ai/dsh-fs`, not in `dsh-fs-policy`. This is forced by the decoupling contract: `dsh-tool-fs` is the emitter, so it must reference the event types, and it must keep compiling even though `dsh-fs-policy` no longer provides a method service. `dsh-fs` is the package both `dsh-tool-fs` and `dsh-fs-policy` already depend on, so it is the only home that lets the emitter and the policy listener share a vocabulary without the emitter depending on the policy plugin.
 
-These events carry existing `dsh-fs` vocabulary (`FsTarget`, `FsVersion`, `FsWriteIntent`) plus an opaque actor — not model-facing concepts (no line windows, numbered lines, or rendered footers leak down).
+These events carry existing `dsh-fs` vocabulary (`FsTarget`, `FsVersion`, `FsObservation`, `FsWriteIntent`) plus an opaque actor — not model-facing concepts (no line windows, numbered lines, or rendered footers leak down).
 
 **The two `fs/*` decision events are single-slot, first-wins waterfalls.** `dsh-fs-policy` returns without calling `next()`, so it owns the slot in the default deployment; a listener registered earlier or with `prepend` would replace that policy. Permission, audit, and sandbox concerns remain on the composable `tools/execute` waterfall.
 
 The actor is typed `object` in `dsh-fs` — a pure opaque carrier the provider contract never reads or narrows. The owner-derivation (`actor.agent?.session`) and the `{ agent?: { session? } }` structural shape stay entirely inside `dsh-fs-policy`, which narrows the `object` actor to that shape in its listeners. `dsh-fs` owns the event names and the fs vocabulary; it does NOT own the policy layer's runtime owner structure.
 
 ```ts
-import type { FsTarget, FsVersion, FsWriteIntent } from '@deepseek-ai/dsh-fs'
+import type { FsObservation, FsTarget, FsVersion, FsWriteIntent } from '@deepseek-ai/dsh-fs'
 
 interface Events {
   /**
@@ -95,14 +97,14 @@ interface Events {
    */
   'fs/edit-intent'(target: FsTarget, actor: object | undefined, next: () => { version: FsVersion } | undefined | Promise<{ version: FsVersion } | undefined>): Promise<{ version: FsVersion } | undefined>
   /**
-   * Record that an actor observed a target at a version, after a successful
-   * read/write/edit. Fire-and-forget (plain emit). Listeners MUST be
+   * Record that an actor observed a target as present at a version or absent.
+   * Fire-and-forget (plain emit). Listeners MUST be
    * synchronous, side-effect-only recorders (`dsh-fs-policy`'s is a WeakMap
    * write); the tool does not guard the emit, so a throwing listener surfaces as
    * the tool's isError result. No listener ⇒ nothing recorded.
    * @mode emit
    */
-  'fs/observed'(target: FsTarget, version: FsVersion, actor: object | undefined): void
+  'fs/observed'(target: FsTarget, observation: FsObservation, actor: object | undefined): void
 }
 ```
 
@@ -118,23 +120,23 @@ The tool keeps its model-facing schemas (`read`/`write`/`edit`, byte-for-byte un
 
 `stat` budget is minimized by letting the waterfall produce the expectation lazily — the bare default returns `undefined` (no guard) and never stats:
 
-- **read** — one `stat` (type + size routing + version), then `readText`/`streamText`, then `buildWindow`, then an `emit('fs/observed', target, info.version, exec)`. The post-read confirming `stat` from the old `fileContext.read` is dropped; a writer racing between the routing stat and the read can at worst make a *later* guarded edit spuriously `FS_STALE_VERSION` (fail-closed: the model re-reads, never writes against the wrong version, since `editText` re-checks in its lock).
-- **write** — `expectation = await ctx.waterfall('fs/write-intent', target, exec, () => undefined)`, then `ctx.fs.writeText(target, content, expectation)`, then an `emit('fs/observed', target, outcome.version, exec)`. **Zero stat in the tool** with or without `dsh-fs-policy`.
-- **edit** — `expectation = await ctx.waterfall('fs/edit-intent', target, exec, () => undefined)`, then `ctx.fs.editText(target, edit, expectation)`, then an `emit('fs/observed', target, outcome.version, exec)`. **Zero stat in the tool** in both cases: the bare default is `undefined` (unconditional edit), so the tool never stats to manufacture a basis. If the target is absent, the provider reports `FS_STALE_VERSION` even on the unguarded path.
+- **read** — one `stat`; a metadata miss emits `{ kind: 'absent' }` before returning `FS_NOT_FOUND`, while a file routes through `readText`/`streamText`, `buildWindow`, then emits `{ kind: 'present', version: info.version }`. The post-read confirming `stat` from the old `fileContext.read` stays dropped; a writer racing between the routing stat and the read can at worst make a later guarded edit spuriously stale.
+- **write** — `expectation = await ctx.waterfall('fs/write-intent', target, exec, () => undefined)`, then `ctx.fs.writeText(target, content, expectation)`, then emit the present outcome version. **Zero stat in the tool** with or without `dsh-fs-policy`.
+- **edit** — `expectation = await ctx.waterfall('fs/edit-intent', target, exec, () => undefined)`, then `ctx.fs.editText(target, edit, expectation)`, then emit the present outcome version. **Zero stat in the tool** in both cases: the bare default is `undefined` (unconditional edit), so the tool never stats to manufacture a basis. If the target is absent on the bare path, the provider reports `FS_STALE_VERSION`; the policy returns `FS_NOT_FOUND` directly when it already holds an absent observation.
 
 The tool passes `exec` (the tool-execution context) as the `actor` argument on every dispatch, so `dsh-fs-policy` can derive its observed-state owner. The tool does not know whether the policy plugin is present: it always provides the bare default behavior in the `next` thunk, and `dsh-fs-policy` short-circuits the thunk before it runs in the default deployment.
 
-**`fs/observed` fires after a successful operation.** Its listeners must be synchronous, non-throwing recorders; the tool does not guard the plain emit, so a throwing listener would report failure after a mutation already succeeded. Async or fallible observation needs a separate event contract.
+**`fs/observed` fires after a successful operation and after a metadata probe confirms absence.** Its listeners must be synchronous, non-throwing recorders; the tool does not guard the plain emit, so a throwing listener can replace the pending read error or report failure after a mutation already succeeded. Async or fallible observation needs a separate event contract.
 
 ## Policy plugin contract (`dsh-fs-policy`)
 
-`dsh-fs-policy` is a plugin, not a service. It does not register `ctx.fileContext`, has no public method surface, and exposes no `read`/`write`/`edit`/`resolve` methods. It attaches three listeners via `ctx.on()` registrations (each returning a disposer for HMR). It keeps the observed-state `WeakMap<owner, Map<targetKey, { version }>>` and the structural owner derivation (narrowing the event's opaque `object` actor to its own `{ agent?: { session? } }` shape), but does not inject `fs` — every handler operates only on its own `WeakMap`, never on `ctx.fs`.
+`dsh-fs-policy` is a plugin, not a service. It does not register `ctx.fileContext`, has no public method surface, and exposes no `read`/`write`/`edit`/`resolve` methods. It attaches three listeners via `ctx.on()` registrations (each returning a disposer for HMR). It keeps the observed-state `WeakMap<owner, Map<targetKey, FsObservation>>` and the structural owner derivation (narrowing the event's opaque `object` actor to its own `{ agent?: { session? } }` shape), but does not inject `fs` — every handler operates only on its own `WeakMap`, never on `ctx.fs`.
 
-- `fs/write-intent` listener: `prior = getObserved(owner, key)`; return `prior ? { kind: 'replaceIfVersion', version: prior.version } : { kind: 'createIfAbsent' }`. It does NOT call `next()`: it fully owns the single decision slot.
-- `fs/edit-intent` listener: `prior = getObserved(owner, key)`; if no `owner` or no `prior`, throw `FS_NOT_OBSERVED`; else return `{ version: prior.version }`. Also does not call `next()`.
-- `fs/observed` listener: `record(owner, key, version)`.
+- `fs/write-intent` listener: unseen/absent ⇒ `createIfAbsent`; present ⇒ `replaceIfVersion`. It does NOT call `next()`: it fully owns the single decision slot.
+- `fs/edit-intent` listener: unseen ⇒ `FS_NOT_OBSERVED`; absent ⇒ `FS_NOT_FOUND`; present ⇒ its version guard. It does NOT call `next()`.
+- `fs/observed` listener: record the present/absent discriminated value.
 
-An observed-state entry is the **prior-observation record**: a successful `read`, `write`, OR `edit` all emit `fs/observed` and record `{ version }`, so the entry's presence means "this owner has observed this target at this version", not narrowly "has read it". This is what lets a create-then-edit or edit-then-edit sequence work without an intervening re-read: the mutation refreshes the recorded version to its own result, so the next edit's basis is the version it just produced. `FS_NOT_OBSERVED` rejects only an edit with NO prior observation of any kind. The owner is derived structurally from `{ agent?: { session? } }`; disposal drops all state (HMR safety).
+An observed-state entry is the **prior-observation record**, but its discriminant matters. Successful read/write/edit records present at a version, allowing create-then-edit or edit-then-edit without an intervening read. A read/view that confirms absence replaces any old positive version with absent, allowing only a guarded create; a later successful create replaces it with the new present version. Missing entry alone means unseen and produces `FS_NOT_OBSERVED` for edit. The owner is derived structurally from `{ agent?: { session? } }`; disposal drops all state (HMR safety).
 
 `dsh-fs-policy` is now a pure policy/recording plugin with no service surface — it influences the world only through the event gate. That is what removes the method coupling from `dsh-tool-fs`.
 
@@ -154,7 +156,7 @@ This amends — does not reverse — [the split-fs-seam Agent Note](../simplific
 
 ## Verification
 
-Tests pin both paths: without `dsh-fs-policy`, the root tool plugin boots against `dsh-fs-local`, and read, create, overwrite, and unread edit succeed; with the policy, unread edit returns `FS_NOT_OBSERVED` and unread overwrite is gated by `createIfAbsent`. A later intent listener is not reached after the policy decides. Stale edits fail through provider CAS while the policy performs no `stat`; the tool budgets remain one `stat` for read and zero for write or edit on either path. Model-facing schemas remain byte-for-byte unchanged, so snapshots do not change.
+Tests pin both paths: without `dsh-fs-policy`, the root tool plugin boots against `dsh-fs-local`, and read, create, overwrite, and unread edit succeed; with the policy, unread edit returns `FS_NOT_OBSERVED` and unread overwrite is gated by `createIfAbsent`. A later intent listener is not reached after the policy decides. Stale edits fail through provider CAS while the policy performs no `stat`; the tool budgets remain one `stat` for read and zero for write or edit on either path. The deletion recovery path is also assembled: stale mutation, missing reread, guarded recreation. Model-facing schemas remain byte-for-byte unchanged, while the recovered result transcript changes.
 
 ## Alternatives considered
 
