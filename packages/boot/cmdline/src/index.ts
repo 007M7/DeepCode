@@ -98,9 +98,28 @@ export function provideCmdline(ctx: Context, host: CmdlineHost): void {
  * adding the same injection its startup plugin already requires.
  * @param rows - the composed Loader rows.
  * @returns whether this composition has a command-line owner.
+ * @throws when more than one active row claims the command line.
  */
 export function hasCmdlineConsumer(rows: readonly EntryOptions[]): boolean {
-  return rows.some(row => row.disabled !== true && waitsForAny(row.inject, ['cmdlineArgs']))
+  const consumers: string[] = []
+  const visit = (entries: readonly EntryOptions[], ancestorDisabled = false, prefix = ''): void => {
+    for (const row of entries) {
+      const id = prefix + row.id
+      // Loader group containers stay active when disabled, but their children
+      // inherit that disabled state.
+      const active = row.group === true || (!ancestorDisabled && row.disabled !== true)
+      if (active && waitsForAny(row.inject, ['cmdlineArgs'])) consumers.push(id)
+      if (row.group === true && Array.isArray(row.config)) {
+        visit(row.config, ancestorDisabled || row.disabled === true, `${id}:`)
+      }
+    }
+  }
+  visit(rows)
+  if (consumers.length > 1) {
+    const ids = consumers.map(id => JSON.stringify(id)).join(', ')
+    throw new Error(`dsh-cmdline: multiple active rows inject cmdlineArgs (${ids}); disable all but one startup row`)
+  }
+  return consumers.length === 1
 }
 
 /** The process streams commander output is written to; production writes to the process. */

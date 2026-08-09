@@ -35,7 +35,7 @@ The Loader-row injection is also its discovery declaration, so no bundle manifes
   inject: [cmdlineArgs]
 ```
 
-The launcher uses that injection only to reject arguments for a composition with no command-line owner. Loader mounts the composition once and holds each row until its own injections are active.
+The launcher uses that injection only to reject arguments for a composition with no command-line owner, and to reject a composition with multiple owners. Loader mounts the composition once and holds each row until its own injections are active.
 
 Every row the app configures from flags then reads what the startup row resolved, naming the key it takes and the value it falls back to:
 

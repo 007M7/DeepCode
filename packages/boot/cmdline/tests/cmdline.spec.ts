@@ -130,6 +130,40 @@ describe('hasCmdlineConsumer', () => {
       { id: 'ordinary', name: 'ordinary' },
       { id: 'disabled-startup', name: 'disabled-startup', inject: ['cmdlineArgs'], disabled: true },
     ])).toBe(false)
+    expect(() => hasCmdlineConsumer([
+      { id: 'web-startup', name: 'web-startup', inject: ['cmdlineArgs'] },
+      { id: 'tui-startup', name: 'tui-startup', inject: ['cmdlineArgs'] },
+    ])).toThrow('multiple active rows inject cmdlineArgs ("web-startup", "tui-startup")')
+  })
+
+  it('walks nested groups and ignores consumers disabled by an ancestor', () => {
+    expect(hasCmdlineConsumer([{
+      id: 'app',
+      name: 'cordis:group',
+      group: true,
+      config: [{ id: 'startup', name: 'startup', inject: ['cmdlineArgs'] }],
+    }])).toBe(true)
+    expect(hasCmdlineConsumer([{
+      id: 'app',
+      name: 'cordis:group',
+      group: true,
+      disabled: true,
+      config: [{ id: 'startup', name: 'startup', inject: ['cmdlineArgs'] }],
+    }])).toBe(false)
+    expect(() => hasCmdlineConsumer([
+      {
+        id: 'first',
+        name: 'cordis:group',
+        group: true,
+        config: [{ id: 'startup', name: 'startup', inject: ['cmdlineArgs'] }],
+      },
+      {
+        id: 'second',
+        name: 'cordis:group',
+        group: true,
+        config: [{ id: 'startup', name: 'startup', inject: ['cmdlineArgs'] }],
+      },
+    ])).toThrow('multiple active rows inject cmdlineArgs ("first:startup", "second:startup")')
   })
 })
 
@@ -187,9 +221,9 @@ describe('runStartup', () => {
       .toThrow('absentStartup: no row injects this startup service')
   })
 
-  it('provides an empty value when the app declares no plan', async () => {
+  it('accepts a service-name list when the app declares no plan', async () => {
     const { ctx } = await bootFixture([], demoPlan, { withoutStartup: true })
-    runStartup(ctx, 'demoStartup', demoCommand())
+    runStartup(ctx, ['demoStartup'], demoCommand())
     expect(ctx.get('demoStartup')).toEqual({})
   })
 })
