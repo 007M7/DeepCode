@@ -1111,7 +1111,7 @@ export interface StreamableHttpConfig {
 }
 ```
 
-来源：[`packages/mcp/mcp-client/src/index.ts:100`](../packages/mcp/mcp-client/src/index.ts)
+来源：[`packages/mcp/mcp-client/src/index.ts:94`](../packages/mcp/mcp-client/src/index.ts)
 
 ## `@deepseek-ai/dsh-permission`
 
