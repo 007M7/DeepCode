@@ -292,8 +292,8 @@ describe('web e2e: seeded history renders through cold resume', () => {
     const toolRows = page.locator('[data-variant], [data-sample]')
     await expect.poll(() => toolRows.count(), { timeout: 10_000 }).toBeGreaterThanOrEqual(2)
     expect(await page.getByText('a.txt', { exact: false }).count()).toBeGreaterThan(0)
-    // The bug this fixes: the compaction shadowed the whole recorded surface on
-    // the model side, and the prompt and full tool output are still on screen.
+    // The pinned hazard: compaction shadows the surface on the model side
+    // only — the prompt and full tool output must stay on screen.
     expect(await page.getByText(PROMPT, { exact: true }).count()).toBe(1)
 
     const agent = scaffold.ctx.agents.get(SessionId(SEED_ID))

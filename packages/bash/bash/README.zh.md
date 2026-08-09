@@ -13,7 +13,7 @@
 | `@deepseek-ai/dsh-bash-sandbox` | Service provider：沿用 `dsh-bash-local` 的机制，但通过 [`ctx.sandbox`](../../sandbox/sandbox/) 限制每次 spawn，并将拒绝报告为结果事实 |
 | `@deepseek-ai/dsh-tool-bash` | 基于 `ctx.bash`、面向模型的工具 schema |
 
-该拆分与 LLM（大语言模型） seam（`LlmService`／`LlmAdapter`）及 agent（智能体）工具调研结果一致：pi 将执行隐藏在 `BashOperations` 接口之后（本地 shell／SSH／VM 后端），Codex 则隐藏在 exec-server 协议之后。`dsh-bash-sandbox` 正是这种替换的实际应用：沙箱执行器位于同一 Service Definition 之后；Consumer 检测其 `sandboxMode` 能力并添加升权字段，无需导入提供方。容器化或远程执行器也可以同样接入。
+该拆分是一个标准的能力 seam（[capability-seams Agent Note](../../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md)）：`dsh-bash-sandbox` 是位于同一 Service Definition 之后的沙箱执行器——Consumer 检测其 `sandboxMode` 能力并添加升权字段，无需导入提供方——容器化或远程执行器也可以同样接入。
 
 ## 服务 API（`ctx.bash`）
 

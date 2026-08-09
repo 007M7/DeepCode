@@ -10,8 +10,7 @@
 // buttons must be reachable no matter how long the command is.
 // One-shot: the buttons disable
 // after a click and the panel leaves (the InputBar returns) on the broadcast
-// resolved frame. The draft's "Always allow this type" is deferred with
-// grant storage.
+// resolved frame.
 
 import { useMemo, useState } from 'react'
 import { Button } from '@deepseek-ai/dsh-client-ui-primitives'

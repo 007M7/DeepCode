@@ -650,7 +650,7 @@ function SlotOutlet({ slotKey, ownerProps, opts }: {
   const spec = host.specOf(slotKey)
   // Undeclared (or no-longer-declared) keys render empty: a declaring entry's
   // unload returns the slot to the undeclared state while retained elements
-  // may still be mounted — natural empty, not an ownership failure (§9).
+  // may still be mounted — natural empty, not an ownership failure.
   if (!spec) return null
   const strictSessionAbsent = spec.scope === 'session' && sessionInfo.sessionId === undefined
   if (strictSessionAbsent && (spec.kind !== 'chain' || !opts?.overlay)) {
@@ -776,7 +776,7 @@ function SlotOutlet({ slotKey, ownerProps, opts }: {
   return <>{list.map(item => guarded(item.entry, entryKeyOf(item.entry)))}</>
 }
 
-/** Root outlet: the shell's single ctx-level render entry — an unregistered 'root' is a boot-order failure, never a silent blank (§1). */
+/** Root outlet: the shell's single ctx-level render entry — an unregistered 'root' is a boot-order failure, never a silent blank. */
 function RootOutlet({ ownerProps }: { ownerProps: object }) {
   const host = useHost()
   useSyncExternalStore(

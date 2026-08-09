@@ -26,7 +26,8 @@ export interface WebSearchRequest {
 
 /**
  * Normalized search outcome. `content` is optional provider-generated answer
- * text or summary (Exa returns none; Perplexity returns a generated answer).
+ * text or summary (Exa and DeepSeek return none; Perplexity returns a
+ * generated answer).
  * `sources[]` is the portable citation surface. `truncated` is set by the seam
  * when it cut `sources[]` down to `maxResults`.
  */
@@ -86,8 +87,8 @@ export interface WebFetchResult {
  * new kind is a coordinated change across known packages, not a plugin
  * extension. Consumers `switch` on `kind` ending in `default: assertNever(...)`
  * so adding a kind breaks compilation at every consumer until handled. Each arm
- * stays its own object literal even where fields coincide today, leaving room
- * for arm-specific fields later (a `pdf` body's `pageCount`).
+ * stays its own object literal even where fields coincide, so an arm can gain
+ * fields the others lack.
  */
 export type WebFetchBody =
   | { readonly kind: 'html'; readonly content: string }

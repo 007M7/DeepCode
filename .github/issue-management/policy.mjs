@@ -20,7 +20,7 @@ const PR_KINDS = new Set([
   'kind/cleanup',
   'kind/dependency',
 ])
-// Aliases removed by the unified taxonomy migration remain reserved so they cannot be recreated.
+// Retired label aliases stay reserved so they cannot be recreated.
 const LEGACY_LABELS = new Set([
   'kind/bug',
   'kind/documentation',

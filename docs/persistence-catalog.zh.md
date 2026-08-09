@@ -37,7 +37,8 @@ export type SurfaceEventType =
  *   (inclusive) through `end` (inclusive) with this node. Both must exist as
  *   surface nodes in the current surface. `start === end` replaces a single
  *   node. The node's {@link SessionEvent.sourceEventSeqs} must include every
- *   shadowed surface node. Used by compaction and possible other manipulations.
+ *   shadowed surface node. Used by compaction; any surface-replacing producer
+ *   may use it.
  */
 export type SurfaceOp =
   | 'append'
@@ -80,7 +81,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 }[T]
 ```
 
-来源：[`packages/core/session/src/types.ts:316`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:323`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:351`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:383`](../packages/core/session/src/types.ts)
+来源：[`packages/core/session/src/types.ts:316`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:323`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:352`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:384`](../packages/core/session/src/types.ts)
 
 ## 事件
 
@@ -574,7 +575,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 'step/end': { turn: number; step: number }
 ```
 
-来源：[`packages/core/session/src/types.ts:244`](../packages/core/session/src/types.ts)
+来源：[`packages/core/session/src/types.ts:236`](../packages/core/session/src/types.ts)
 
 #### `step/start` — log-only
 

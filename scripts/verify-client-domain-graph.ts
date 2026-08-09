@@ -1,16 +1,16 @@
 /**
  * Enforce intra-package domain layering inside `packages/client/*\/src/client/`.
  * verify-module-graph covers package-level edges; this gate covers the
- * directory level the future package split will land on: domain directories
- * may import `contract/` and never each other, and only the assembly point
- * (`apply.ts` / `index.ts`) may import across domains.
+ * directory level: domain directories may import `contract/` and never each
+ * other, and only the assembly point (`apply.ts` / `index.ts`) may import
+ * across domains.
  *
  * Layer model (lower may not import higher):
  *   0  contract/            shared contract surface (types + slot declarations)
  *   1  <domain>/ + service  domain implementations (skeleton/, chat/, ...)
  *   2  apply.ts, index.ts   assembly point and re-export shell
  *
- * Not yet wired into the gate sequence (loose-gate window); run directly:
+ * Run directly:
  *   pnpm exec tsx scripts/verify-client-domain-graph.ts
  */
 

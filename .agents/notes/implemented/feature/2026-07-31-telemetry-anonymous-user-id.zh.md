@@ -10,7 +10,7 @@ session telemetry 已默认挂载（[默认挂载 Note](2026-07-31-web-telemetry
 
 ## Decision
 
-`session-telemetry-otel` 包内模块 `src/user-id.ts` 是 OTel 回流用户身份的属主：`getOrCreateAnonymousUserId()` 返回 `$DSH_HOME/.userid`（`resolveDshHome` 解析，`$DSH_HOME` > `~/.dsh`）中的裸 UUID 行，首用生成随机 UUID v4 并落盘；backend 构造时把它作为 Resource 的 `user.id`（OTel semconv 标准用户属性）随每批导出携带一次。该身份只属于 OTel 回流；dsh-sdk launcher telemetry 保留自己的匿名 id 存储（`telemetry.json`），两者不共享（初版曾做公用 util 包统一两条回流，用户复议后收回：在有第二个真实消费者之前不抽公共包，回流关联需求出现时再议）。
+`session-telemetry-otel` 包内模块 `src/user-id.ts` 是 OTel 回流用户身份的属主：`getOrCreateAnonymousUserId()` 返回 `$DSH_HOME/.userid`（`resolveDshHome` 解析，`$DSH_HOME` > `~/.dsh`）中的裸 UUID 行，首用生成随机 UUID v4 并落盘；backend 构造时把它作为 Resource 的 `user.id`（OTel semconv 标准用户属性）随每批导出携带一次。该身份只属于 OTel 回流；dsh-sdk launcher telemetry 保留自己的匿名 id 存储（`telemetry.json`），两者不共享（初版曾做公用 util 包统一两条回流——在有第二个真实消费者之前不抽公共包，回流关联需求出现时再议）。
 
 | 裁定 | 取值 | 理由 |
 |---|---|---|

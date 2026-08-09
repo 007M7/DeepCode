@@ -6,7 +6,7 @@ English | [中文](2026-08-02-pwsh-tool-bash-parity.zh.md)
 
 ## Problem
 
-The first Windows-native foundation shipped `dsh-tool-pwsh` as a deliberately minimal profile — foreground only (a fresh process per call; no persistent PTY session), no managed-environment parity beyond three hardcoded `DSH_*` keys, and a marker story ("always `[exit code: N]`") that diverged from the bash tool's rendering without being declared. Review of that change found the model-visible contract drifting from the implementation: the description promised spill-path reporting the renderer never performed, the README claimed exports that did not exist and rendering the tool did not do, and the tool's own tests pinned the lossy behavior. The minimal profile also left the `DSH_*` contributor seam duplicated-by-absence: plugins contributing environment facts to `ctx.bashEnv` had no effect on pwsh calls.
+The first Windows-native foundation shipped `dsh-tool-pwsh` as a deliberately minimal profile — foreground only (a fresh process per call; no persistent PTY session), no managed-environment parity beyond three hardcoded `DSH_*` keys, and a marker story ("always `[exit code: N]`") that diverged from the bash tool's rendering without being declared. The model-visible contract drifted from the implementation: the description promised spill-path reporting the renderer never performed, the README claimed exports that did not exist and rendering the tool did not do, and the tool's own tests pinned the lossy behavior. The minimal profile also left the `DSH_*` contributor seam duplicated-by-absence: plugins contributing environment facts to `ctx.bashEnv` had no effect on pwsh calls.
 
 ## Decision
 
@@ -20,7 +20,7 @@ The first Windows-native foundation shipped `dsh-tool-pwsh` as a deliberately mi
 
 ## Alternatives considered
 
-**Keep the minimal profile and fix only the claims.** Rejected: the review's core finding was that text contracts copied from bash drift without the corresponding implementation; a minimal tool plus accurate claims still leaves pwsh calls without background execution, without contributor parity, and with a divergent marker story that must be re-justified forever.
+**Keep the minimal profile and fix only the claims.** Rejected: text contracts copied from bash drift without the corresponding implementation; a minimal tool plus accurate claims still leaves pwsh calls without background execution, without contributor parity, and with a divergent marker story that must be re-justified forever.
 
 **Reject a mismatched executor dialect at load.** Attempted and reverted before merge: a `ShellDialect` marker (`bash` | `powershell`) on `BashExecutor`, with both shell tools throwing when the mounted executor speaks another shell. It forced every executor implementation — including each test and example fake — to declare a dialect, adding noise to every shell-tool test for a guard with no in-repo or plausible deployment to catch (shipped compositions always pair tool-pwsh with `dsh-pwsh-local` and tool-bash with `dsh-bash-local`). The pairing contract stays documented in each tool's README instead.
 
@@ -28,7 +28,7 @@ The first Windows-native foundation shipped `dsh-tool-pwsh` as a deliberately mi
 
 ## Consequences
 
-- The bash and pwsh tools are now behaviorally interchangeable for foreground and background shell work (minus sandbox), and the pwsh prompt/description sentences are each backed by the renderer — the reviewer's grep-against-code check passes.
+- The bash and pwsh tools are now behaviorally interchangeable for foreground and background shell work (minus sandbox), and the pwsh prompt/description sentences are each backed by the renderer.
 - Parity ran BOTH ways once: the pwsh tool's structured foreground abort (`HarnessError('tool call aborted', TOOL_ABORTED)` with name `AbortError`) was backported to the bash tool, replacing its uncoded `Error('command aborted')` — a model-visible/logged change pinned by exact-shape tests on both sides and by the cancel-tool-calls fixture.
 - `@deepseek-ai/dsh-bash-env` is a new shipped package; `dsh-tool-bash`'s `dshHome` config moved there, so compositions mounting the shell tools must also mount `bash-env` (the spine bundles do).
 - Windows-only semantics (CRLF normalization, forced-termination exit-1/signal-null, POSIX-only self-signal) remain pinned by tests as before.

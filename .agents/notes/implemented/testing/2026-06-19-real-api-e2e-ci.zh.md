@@ -10,11 +10,9 @@ Status: implemented
 
 默认门禁（[.github/workflows/ci.yml](../../../../.github/workflows/ci.yml)）刻意无密钥：不携带 secret，可供 fork 运行。`test:e2e` 在无密钥时自动跳过（`describe.skipIf(!process.env.DEEPSEEK_API_KEY)`），因此将其加入该工作流只会报绿而不会真正执行真实套件。要让真实 API 覆盖率成为合并信号，需要一个独立的、携带 secret 的工作流。
 
-本 Agent Note 记下了新增**第二条消费 secret 的工作流**以在 CI 中运行真实 API 套件的决策；由于向未来可能公开的仓库引入第一个 CI secret 属于安全/隔离决策，本文也记录其依赖的威胁模型，以及仓库公开时需要做出的变更。
-
 ## 决策
 
-添加一个专用工作流 [.github/workflows/e2e.yml](../../../../.github/workflows/e2e.yml)，与 ci.yml 分离。它仅使用 repo secret 对外部 API 运行 `pnpm run test:e2e`，仅在可信事件上触发，并带有一个 preflight 检查：将缺失的 secret 转化为明确的失败而非虚假的绿色。无密钥工作流保持独立，使可 fork 的质量门禁与消费 secret 的真实 API 门禁各自拥有不同的触发和凭证策略。
+一个与 ci.yml 分离的专用工作流 [.github/workflows/e2e.yml](../../../../.github/workflows/e2e.yml) 仅使用 repo secret 对外部 API 运行 `pnpm run test:e2e`，仅在可信事件上触发，并带有一个 preflight 检查：将缺失的 secret 转化为明确的失败而非虚假的绿色。无密钥工作流保持独立，使可 fork 的质量门禁与消费 secret 的真实 API 门禁各自拥有不同的触发和凭证策略。
 
 ### 独立工作流，而非 ci.yml 中的一个 job
 

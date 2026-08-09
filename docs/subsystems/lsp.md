@@ -14,7 +14,7 @@ The seam and model expose exactly four semantic queries; the union is closed, so
 /**
  * The four semantic queries the seam and model expose. A closed union: adding an operation is a
  * compile-enforced change across the seam, providers, and the tool. Symbols and call hierarchy are
- * deliberately deferred (they need different schemas).
+ * not operations here; they need different schemas.
  */
 type LspOperation = 'goToDefinition' | 'findReferences' | 'goToImplementation' | 'hover'
 ```

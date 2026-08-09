@@ -6,9 +6,10 @@
 // client; THIS spec pins the same flow through HTTP RPC + SSE + the host
 // gateway), reload replays everything from the log (zero further model
 // calls), and the theme scenario proves the shipped dark palette actually
-// cascades: attribute -> alias token flip -> painted surface change. Per the
-// lane's scope ruling there is no theme/layout golden (aria is color-blind);
-// the hero's waiting state gets the one golden here.
+// cascades: attribute -> alias token flip -> painted surface change. No
+// theme/layout golden: aria snapshots are color-blind (lane scope: the
+// browser-e2e-lane Agent Note); the hero's waiting state gets the one golden
+// here.
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
@@ -112,8 +113,8 @@ describe('web e2e: lifecycle & chrome (workspace flow / reload / dark mode)', ()
       const planButton = activePage.getByRole('button', { name: 'Plan mode on, press to turn off' })
       await planButton.waitFor({ timeout: 10_000 })
       // The golden encodes an empty composer, and the button arriving does not
-      // mean the submitted text is gone yet: under load the capture caught a
-      // textbox still holding `/plan`.
+      // mean the submitted text is gone yet: under load the capture can catch
+      // a textbox still holding `/plan`.
       await expect.poll(() => input.inputValue(), { timeout: 10_000 }).toBe('')
       const planSnapshot = await captureStableAria(activePage, '[class*="frame"]', activeScaffold.workspaceCwd)
       await compareOrRefreshGolden(PLAN_ACTIVE_EXPECTED, planSnapshot, MODE)

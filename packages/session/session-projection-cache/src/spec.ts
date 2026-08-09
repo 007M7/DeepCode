@@ -61,8 +61,7 @@ export type CheckpointRecord = z.infer<typeof checkpointRecord>
 /**
  * The session-projcache domain spec. Version bumps discard the whole medium
  * (cache semantics: a stale or unreadable cache costs a longer tail replay,
- * never a wrong value). v2 added the record's log-identity binding; v3
- * renamed the row fields to `ver`/`seq`/`val`.
+ * never a wrong value).
  */
 export const projectionCacheDomainSpec = defineDomain({
   name: 'session_projcache',

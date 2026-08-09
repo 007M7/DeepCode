@@ -14,8 +14,8 @@
  * set with all current entries and flushes synchronously, so first scan and
  * steady state share one implementation. Package metadata (including the
  * negative "not a client package" verdict) is cached per name and never
- * expires — plugin-set changes take effect on restart per the config-source
- * ruling; bundle content changes reach the graph only through
+ * expires — plugin-set changes take effect on restart; bundle content
+ * changes reach the graph only through
  * {@link ClientModuleHostService.rebuilt}.
  * @module @deepseek-ai/dsh-client-modules
  */
