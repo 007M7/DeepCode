@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-07-20-dsh-cli-personal-config.md
 2026-07-20-dsh-cli-personal-config.md: c00432ba2b75cc42caf23e405c24acb33d839e7a
-2026-07-20-dsh-cli-personal-config.zh.md: b2fbd4b68acd92496ca2b087b172504dd93abd88
+2026-07-20-dsh-cli-personal-config.zh.md: 91d2c938b345a7f2233da1566ac6db5b934c3148

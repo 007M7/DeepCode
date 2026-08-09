@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/proposed/feature/2026-07-17-sdk-follow-up-capabilities.md
 2026-07-17-sdk-follow-up-capabilities.md: 88d5d2f9bd1ce01c20177bcaee5bbe6b434bb978
-2026-07-17-sdk-follow-up-capabilities.zh.md: 083890a88fbb580aafe2e71bef9202f037089d1f
+2026-07-17-sdk-follow-up-capabilities.zh.md: d54dc4d0635ef37d7196ff5cecbdd6ed093c98e3

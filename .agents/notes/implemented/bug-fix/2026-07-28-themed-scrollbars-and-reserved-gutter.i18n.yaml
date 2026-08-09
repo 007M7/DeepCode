@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-07-28-themed-scrollbars-and-reserved-gutter.md
 2026-07-28-themed-scrollbars-and-reserved-gutter.md: ba3d9d3c94cf9a775c43c14e292187b3a43935fe
-2026-07-28-themed-scrollbars-and-reserved-gutter.zh.md: c0577e158e111651c917a43b7aa65f1d904d7af1
+2026-07-28-themed-scrollbars-and-reserved-gutter.zh.md: 1cf505e96122a66705fe42fc79757ac390ebf0ef

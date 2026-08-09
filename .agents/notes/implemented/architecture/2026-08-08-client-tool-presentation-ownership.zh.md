@@ -1,4 +1,4 @@
-# Agent Note: Client 工具展示所有权
+# Agent Note: Client Tool 展示所有权
 
 Status: implemented
 
@@ -6,25 +6,25 @@ Status: implemented
 
 ## Problem
 
-Client 运行时已经把工具调用投影成稳定的生命周期：它按 `callId` 配对 call/result 事件，保留 running 与 settled 两种形态，并按 root call 索引 Code Dispatch 子调用。但 chat view 仍拥有整套展示链路：它在 ChatFlow 中放置 root call，把每个 root 与 subcall 编排在一起，按 Tool 名称分发每个原子调用，携带通用 fallback 与 card model，注册第一方 Tool view，并在 details panel 中复用这些 model。
+Client Runtime 已经把 Tool 调用投影成稳定的生命周期：它按 `callId` 配对 call/result 事件，保留 running 与 settled 两种形态，并按 root call 索引 Code Dispatch 子调用。但 chat view 仍拥有整套展示链路：它在 ChatFlow 中放置 root call，把每个 root 与 subcall 编排在一起，按 Tool 名称分发每个原子调用，携带通用 fallback 与 card model，注册第一方 Tool view，并在 details panel 中复用这些 model。
 
-这种所有权迫使 `ui-conversation` 解释业务 Tool 名称；一旦原子 Tool view 被迁走，subcall 就会成为无主的遗留关注点。`ui-skill` 等业务包虽能注册一行视图，仍依赖 conversation 的工具专属编排约定。增加工具专属会话 projection 会重复运行时已拥有的数据模型，而只移动单个 React 组件则会把编排与 model 耦合留在原地。
+这种所有权迫使 `ui-conversation` 解释业务 Tool 名称；一旦原子 Tool view 被迁走，subcall 就会成为无主的遗留关注点。`ui-skill` 等业务包虽能注册一行视图，仍依赖 conversation 的 Tool 专属编排约定。增加 Tool 专属 Session projection 会重复 Runtime 已拥有的数据模型，而只移动单个 React 组件则会把编排与 model 耦合留在原地。
 
 ## Decision
 
-工具成为 Client UI 的一级概念，并由 `@deepseek-ai/dsh-client-ui-tool` 统一拥有展示。运行时将 Code Dispatch 规范化为递归 `ToolCallBlock`：每个 root 或 child 通过自己的 `subCalls` 拥有下一层调用，`ConversationSnapshot` 不再公开单独的 parent-to-children map。
+Tool 成为 Client UI 的一级概念，并由 `@deepseek-ai/dsh-client-ui-tool` 统一拥有展示。Runtime 将 Code Dispatch 规范化为递归 `ToolCallBlock`：每个 root 或 child 通过自己的 `subCalls` 拥有下一层调用，`ConversationSnapshot` 不再公开单独的 parent-to-children map。
 
-这里的「一级概念」只描述 UI 所有权，不增加运行时数据种类。`ConversationNode` 仍是 transcript（文本记录）projection，`ChatFlowItem` 仍是 conversation 对节点进行排序与分组后得到的渲染单元，`ToolCallBlock` 仍是单次调用的标准数据，而 `ToolCallTree` 只负责 Tool 内部的 root/subcall 展示编排。Command 继续通过独立的 `'conversation.chat.commandview'` 席位渲染，不并入 Tool。
+这里的“一级概念”只描述 UI 所有权，不增加 Runtime 数据种类。`ConversationNode` 仍是 transcript projection，`ChatFlowItem` 仍是 conversation 对节点进行排序与分组后得到的渲染单元，`ToolCallBlock` 仍是单次调用的标准数据，而 `ToolCallTree` 只负责 Tool 内部的 root/subcall 展示编排。Command 继续通过独立的 `'conversation.chat.commandview'` 席位渲染，不并入 Tool。
 
 `ui-conversation` 拥有有序放置。`deriveChatFlow()` 仍决定 settled Tool group 在哪里出现，`ChatView` 仍追加 running call、维护滚动 anchor 与 selection，并提供宿主动作。对于每个 root call，它使用 root block、selected call id、session cwd 以及 open-file/inspect 回调渲染 single/session 的 `'conversation.chat.tool'` 席位。它不读取 Code Dispatch child、不按 Tool 名称分支，也不导入 Tool 专属 view 或 card model。
 
 `ui-tool` 占据这个整体 Tool 席位。`ToolCallTree` 直接递归遍历 root block 的 `subCalls`，并让每一层调用都通过同一个 keyed/session 的 `'tool.call.toolview'` 子 slot，以 `entryKey: toolName` 分发。业务未注册时渲染 `GenericToolCard`。它不读取 Session，也不维护第二份调用拓扑。
 
-业务插件只对 `'tool.call.toolview'` 注册原子 view。其 owner payload 是标准 Tool call block 加 identity、cwd 与宿主动作，不携带 Session projector 或 conversation service。skill（技能）仍是普通工具，`ui-skill` 通过该 seam 注册 `skill` key。现有第一方 view 暂留在 `ui-tool`，直到某个业务包确有理由独立拥有它。
+业务插件只对 `'tool.call.toolview'` 注册原子 view。其 owner payload 是标准 Tool call block 加 identity、cwd 与宿主动作，不携带 Session projector 或 conversation service。Skill 仍是普通 Tool，`ui-skill` 通过该 seam 注册 `skill` key。现有第一方 view 暂留在 `ui-tool`，直到某个业务包确有理由独立拥有它。
 
 details panel 是第二个 Tool 展示点，但不是调用树所有者。`ui-conversation` 通过 single/session 的 `'conversation.details.tool'` 席位委托 selected output body；`ui-tool` 渲染能够识别 card 的输出，插件缺席时由席位 fallback 保留 raw result text。因此 card model 只有一个生产代码所有者，也不需要引入反向实现依赖。
 
-运行时仍是工具生命周期与调用拓扑的权威。Code Dispatch 因会改变 parent/child identity 而成为官方顶级概念；私有 `ToolCallTree` 对 live 与 history 共用同一套 fold，并把索引投影成标准递归 call block。普通 Tool 业务差异停留在 keyed 展示 seam，这个包边界不会增加 Tool projector/fold registry。
+Runtime 仍是 Tool 生命周期与调用拓扑的权威。Code Dispatch 作为官方顶级概念改变 parent/child identity；私有 `ToolCallTree` 对 live 与 history 共用同一套 fold，并把索引投影成标准递归 call block。普通 Tool 业务差异停留在 keyed 展示 seam，这个包边界不会增加 Tool projector/fold registry。
 
 ## Runtime 与渲染链路
 
@@ -46,7 +46,7 @@ ConversationSnapshot.runningCalls     |
                                                                `- GenericToolCard fallback
 ```
 
-Runtime 的 [`ToolCallTree`](../../../../packages/client/runtime/src/client/sessions/tool-call-tree.ts) 私下按 parent callId 索引 child lifecycle，并供实时 [`Session.buildSnapshot()`](../../../../packages/client/runtime/src/client/sessions/session.ts) 与历史 [`projectConversationHistory()`](../../../../packages/client/runtime/src/client/session-history/history-fold.ts) 共用。它把 children 递归投影到 root `ToolCallBlock`，child 变化时只复制所属祖先路径；未变化的 sibling、其他 root，以及没有 Tool 拓扑变化的 snapshot 引用保持稳定，供 React selector 与 memo 跳过无关更新。Tool UI 直接消费这两个路径统一后的树，不重复 call/result 配对、历史 replay 或缓存索引。
+Runtime 的 [`ToolCallTree`](../../../../packages/client/runtime/src/client/sessions/tool-call-tree.ts) 私下按 parent callId 索引 child lifecycle，并供 Live [`Session.buildSnapshot()`](../../../../packages/client/runtime/src/client/sessions/session.ts) 与历史 [`projectConversationHistory()`](../../../../packages/client/runtime/src/client/session-history/history-fold.ts) 共用。它把 children 递归投影到 root `ToolCallBlock`，child 变化时只复制所属祖先路径；未变化的 sibling、其他 root，以及没有 Tool 拓扑变化的 snapshot 引用保持稳定，供 React selector 与 memo 跳过无关更新。Tool UI 直接消费这两个路径统一后的树，不重复 call/result 配对、历史 replay 或缓存索引。
 
 [`ChatView`](../../../../packages/client/ui-conversation/src/client/chat/ChatView.tsx) 只在 `nodes` 引用变化时重新执行 [`deriveChatFlow()`](../../../../packages/client/ui-conversation/src/client/chat/chat-flow.ts)，把连续 settled Tool result 合为 `tool-group`；running root call 则追加在 flow tail。两条路径最终都进入同一个 `ToolSeat`，因此 settled/running 形态共享整体 Tool 席位。selection 只传给包含该 call 的 root，`ToolCallTree` 再沿该 root 的局部树递归渲染。
 
@@ -54,7 +54,7 @@ Runtime 的 [`ToolCallTree`](../../../../packages/client/runtime/src/client/sess
 
 | 所有者 | 主要代码 | 拥有的责任 | 明确不拥有 |
 |---|---|---|---|
-| Client Runtime | [`Session`](../../../../packages/client/runtime/src/client/sessions/session.ts)、[`ToolCallTree`](../../../../packages/client/runtime/src/client/sessions/tool-call-tree.ts)、[`history-fold.ts`](../../../../packages/client/runtime/src/client/session-history/history-fold.ts) | call/result 配对、running/settled 生命周期、递归 parent/child 树、快照结构共享 | Tool 名称对应的业务视图 |
+| Client Runtime | [`Session`](../../../../packages/client/runtime/src/client/sessions/session.ts)、[`ToolCallTree`](../../../../packages/client/runtime/src/client/sessions/tool-call-tree.ts)、[`history-fold.ts`](../../../../packages/client/runtime/src/client/session-history/history-fold.ts) | call/result 配对、running/settled 生命周期、递归 parent/child 树、snapshot 结构共享 | Tool 名称对应的业务视图 |
 | `ui-conversation` | [`chat-flow.ts`](../../../../packages/client/ui-conversation/src/client/chat/chat-flow.ts)、[`ChatView.tsx`](../../../../packages/client/ui-conversation/src/client/chat/ChatView.tsx)、[`slots.ts`](../../../../packages/client/ui-conversation/src/client/contract/slots.ts) | ChatFlow 顺序、settled group、running tail、scroll anchor、selection 与宿主动作、整体 Tool 席位声明 | subcall 组合、按 `toolName` 分发、Generic fallback、Tool card model |
 | `ui-tool` | [`apply.ts`](../../../../packages/client/ui-tool/src/client/apply.ts)、[`ToolCallTree.tsx`](../../../../packages/client/ui-tool/src/client/tool/ToolCallTree.tsx)、[`slots.ts`](../../../../packages/client/ui-tool/src/client/contract/slots.ts) | root/subcall 组合、原子 keyed dispatch、Generic fallback、Tool card model 与内置 Tool view | ChatFlow 排序、Session Event fold |
 | 业务 Tool 插件 | [`ui-skill` 注册例](../../../../packages/client/ui-skill/src/client/index.ts) | 一个或多个 wire Tool name 的原子 view | root/subcall 位置与生命周期配对 |
@@ -94,7 +94,7 @@ ctx.slots.inject('tool.call.toolview', () =>
 
 **只移动 Tool React 组件与 card model。** 拒绝：`ChatView` 仍会拥有 Tool 名称分发与 Code Dispatch 编排，只是改变文件路径，没有改变责任。
 
-**增加业务专属 Session projector 或 fold。** 拒绝：普通 Tool view 消费 Runtime 已重建的标准 call block。第二套 registry 会为 call identity 与历史 replay 建立两个权威。只有会改变日志拓扑或生命周期的功能才应获得运行时级扩展。
+**增加业务专属 Session projector 或 fold。** 拒绝：普通 Tool view 消费 Runtime 已重建的标准 call block。第二套 registry 会为 call identity 与历史 replay 建立两个权威。只有会改变日志拓扑或生命周期的能力才应获得 Runtime 级扩展。
 
 **让每个原子 Tool view 递归渲染自己的 subcall。** 拒绝：原子注册方只接收一个 Tool call，不应知道自己是 root 还是 child。递归 root/child 编排统一归 `ui-tool` 的 `ToolCallTree`。
 

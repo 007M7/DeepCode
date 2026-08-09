@@ -1,4 +1,4 @@
-# Agent Note: code-runtime seam 拥有可移植标识符排除集
+# Agent Note：code-runtime seam 拥有可移植标识符排除集
 
 Status: implemented
 
@@ -8,7 +8,7 @@ Status: implemented
 
 code-runtime seam 承诺：在一个后端上有效的绑定命名空间列表，在每个后端上都有效，因此 Code Mode 消费方可以把同一组绑定交给任何已注册的运行时，而不必知道它的语言。首个后端 `dsh-code-runtime-worker` 私自拥有了执行这项承诺一部分的标识符规则：一个允许 JS 专有 `$` 的 `IDENTIFIER` 正则、一个只含 ECMAScript 关键字的 `RESERVED_WORDS` 集合，以及一个含三个 JS `Error` 槽位的 `RESERVED_ERROR_PROPERTIES` 集合。这些规则描述的是 worker 自身的语言，而非 seam 的可移植性约定。
 
-一个针对不同语言（CPython，将在本 stack 后续 PR（Pull Request） 中到来）编写的第二后端，要么重新声明自己的规则——让 `lambda` 通过 worker 却在 Python 上失败，或让 `$tools` 通过 worker 却在每个非 JS 后端上失败——要么导入 worker 的规则，从而反转依赖，使 seam 的一个实现伸手进入另一个兄弟实现。二者都无法让可移植承诺成真：它只对调用方恰好测试过的那个后端成立。
+一个针对不同语言（CPython，将在本 stack 后续 PR 中到来）编写的第二后端，要么重新声明自己的规则——让 `lambda` 通过 worker 却在 Python 上失败，或让 `$tools` 通过 worker 却在每个非 JS 后端上失败——要么导入 worker 的规则，从而反转依赖，使 seam 的一个实现伸手进入另一个兄弟实现。二者都无法让可移植承诺成真：它只对调用方恰好测试过的那个后端成立。
 
 ## Decision
 
@@ -21,7 +21,7 @@ seam 包（`@deepseek-ai/dsh-code-runtime`）以四个具名常量导出可移�
 
 seam 同时把可移植标识符子集收窄为 `[A-Za-z_][A-Za-z0-9_]*`（记录在 `CodeBindingNamespace.global` 与 `CodeBindingErrorClass` 上），去掉 JS 专有的 `$`。worker 直接以 seam 名消费这些共享常量——binding-global 与 error-class 名称用 `PORTABLE_RESERVED_WORDS`、后端拥有槽位用 `RESERVED_BINDING_GLOBALS`、error member 用 `RESERVED_ERROR_MEMBERS` 加 `DUNDER_MEMBER`——不再本地起别名；其 `IDENTIFIER` 正则去掉 `$`。
 
-尽管本 PR 只交付一个后端，这些常量仍置于 seam：要点正是该约定与语言无关，且拥有权在任何单一语言之上。违反它的后端才是 bug，而共享集合正是复审者查看「可移植」含义的地方。
+尽管本 PR 只交付一个后端，这些常量仍置于 seam：要点正是该约定与语言无关，且拥有权在任何单一语言之上。违反它的后端才是 bug，而共享集合正是复审者查看"可移植"含义的地方。
 
 ## Scope
 
@@ -41,4 +41,4 @@ seam 同时把可移植标识符子集收窄为 `[A-Za-z_][A-Za-z0-9_]*`（记�
 
 获得：一个地方——seam 包——定义什么是可移植绑定名称，每个后端通过导入执行同一约定。在一个后端上有效的命名空间列表在所有后端上都有效，这是可验证的，而非取决于调用方测试了哪个后端的巧合。
 
-代价：现有使用含 `$` global 的 worker 调用方现在会在标识符校验时失败。在预发布立场下这是修正后的基础，而非需要 shim 的兼容性破坏。worker 的 seam-misuse 测试新增了 `$tools`、Python 异常成员（`args`）、dunder（`__dict__`）与一个 Python 拥有的 global（`__dsh_main__`）等用例，证明 worker 侧会依据共享集合执行排除规则。
+代价：现有使用含 `$` global 的 worker 调用方现在会在标识符校验时失败。在预发布立场下这是一次被纠正的地基，而非需要 shim 的兼容性破坏。worker 的 seam-misuse 测试新增了 `$tools`、Python 异常成员（`args`）、dunder（`__dict__`）与一个 Python 拥有的 global（`__dsh_main__`）等用例，从 worker 侧证明共享集合被执行。

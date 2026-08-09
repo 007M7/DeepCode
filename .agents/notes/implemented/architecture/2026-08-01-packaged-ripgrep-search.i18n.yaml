@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-08-01-packaged-ripgrep-search.md
 2026-08-01-packaged-ripgrep-search.md: 7c515618a18b61bd90177a6fdf19bbd52e564209
-2026-08-01-packaged-ripgrep-search.zh.md: 4acf4eeb6f9153b8181ba493bf566cd7387a1984
+2026-08-01-packaged-ripgrep-search.zh.md: d06841b220603d832048d1c76784f0e1d283679c

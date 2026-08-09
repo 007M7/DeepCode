@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-本包注册固定的 `claude-code` subagent 提供方。每次接受运行请求后，它都会在发起委托的会话工作区中调用官方 Claude Agent SDK，通过共享子进程服务启动 SDK 分发的 Claude Code CLI，提交一个自包含的文本任务，并通过共享的 [`dsh-subagent`](../subagent/README.md) 结果约定仅返回最终答案。
+本包（package）注册固定的 `claude-code` subagent 提供方。每次接受运行请求后，它都会在发起委托的会话工作区中调用官方 Claude Agent SDK，通过共享子进程服务启动 SDK 分发的 Claude Code CLI，提交一个自包含的文本任务，并通过共享的 [`dsh-subagent`](../subagent/README.md) 结果约定仅返回最终答案。
 
 ## 启动与所有权
 
@@ -31,7 +31,7 @@ SDK 接收由文本块原样拼接成的任务。提供方会完整迭代 SDK �
 
 生产环境使用 `@anthropic-ai/claude-agent-sdk` 提供的 Claude Code CLI，以及宿主机原生设置与身份验证。本插件不安装另一份 CLI、不选择模型、不创建产品主目录、不执行登录，也不探测账户。具有凭证特征的环境变量会在显式 `env` 覆盖生效前被清除，因此供子进程使用的 API 密钥或 token 必须在该配置中显式提供。除非被覆盖，`ANTHROPIC_BASE_URL` 等非凭证端点变量以及 `PATH` 和 `HOME` 等普通环境变量仍会被继承。
 
-请安装此包，并将以下配置项添加到你自己的 `cordis.yml`。随附的 CLI 配置默认不会加载此提供方，也不会暴露 `subagent_claude_code`。
+请安装此包，并将以下配置项添加到你自己的 `cordis.yml`。正式 CLI 配置默认不会加载此提供方，也不会暴露 `subagent_claude_code`。
 
 ```yaml
 - id: subagent-claude-code
@@ -51,7 +51,7 @@ SDK 接收由文本块原样拼接成的任务。提供方会完整迭代 SDK �
 
 ## 产品兼容性与证据
 
-运行时依赖精确锁定为 `@anthropic-ai/claude-agent-sdk@0.3.220`，其平台可选依赖提供 Claude Code 2.1.220。所需证据会通过无密钥回环产品路径与带密钥 DeepSeek 路径运行该官方发行版，而 Loader 组合则证明两个选择性启用的产品包能够共存，且不会启动任一产品。
+运行时依赖精确锁定为 `@anthropic-ai/claude-agent-sdk@0.3.220`，其平台可选依赖提供 Claude Code 2.1.220。强制证据会通过无密钥回环产品路径与带密钥 DeepSeek 路径运行该官方发行版，而 Loader 组合则证明两个选择启用的产品包能够共存，且不会启动任一产品。
 
 项目所有者按身份范围授权分发官方 SDK 及每个 SDK 版本声明的官方 CLI／平台载荷。[`THIRD_PARTY_NOTICES.md`](../../../THIRD_PARTY_NOTICES.md) 会披露当前可选载荷闭包，但不会把其声明条款归类为宽松许可证；其他无关的非宽松运行时依赖仍会使第三方声明门禁失败。
 
@@ -75,7 +75,7 @@ Claude Code 子任务会在一个全新的 SDK query 中接收独立文本任务
 
 #### 模型看到的内容
 
-通过 `dsh-tool-subagent`，父级模型只会看到符合严格成功条件的 Claude Code 最终答案，或者在结果未完成时看到消费方给出的确切错误。Claude Code 的推理、工具活动、中间消息、stderr、工作区差异、用量信息和产品标识符均不会复制到父会话。
+通过 `dsh-tool-subagent`，父级模型只会看到符合严格成功条件的 Claude Code 最终答案，或者在结果未完成时看到消费方给出的原样错误。Claude Code 的推理、工具活动、中间消息、stderr、工作区差异、用量信息和产品标识符均不会复制到父会话。
 
 #### 对 token 的影响
 

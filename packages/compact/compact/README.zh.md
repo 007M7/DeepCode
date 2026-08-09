@@ -12,7 +12,7 @@
 | `@deepseek-ai/dsh-compact-basic` | 后端：`ctx.tokenMeter` 压力 + token 预算保留 + `llm.stream()` 摘要 |
 | `@deepseek-ai/dsh-command-compact` | 面向用户的 `/compact` 命令，基于 `ctx.compact.compactNow()` 实现 |
 
-与 bash seam 不同，该接口依赖 `@deepseek-ai/dsh-session` 和 `@deepseek-ai/dsh-llm`。契约的动词基于 `Session` 定义，其输出使用 `ContentBlock` 词汇，因此无法在不指名这些包的情况下表达。这项对「接口只依赖 cordis」指引的偏离是有意的，并记录在 [压缩能力 seam Agent Note](../../../.agents/notes/implemented/feature/2026-06-18-compaction-capability-seam.md) 中。
+与 bash seam 不同，该接口依赖 `@deepseek-ai/dsh-session` 和 `@deepseek-ai/dsh-llm`。约定的动词基于 `Session` 定义，其输出使用 `ContentBlock` 词汇，因此无法在不指名这些包的情况下表达。这项对「接口只依赖 cordis」指引的偏离是有意的，并记录在 [压缩能力 seam Agent Note](../../../.agents/notes/implemented/feature/2026-06-18-compaction-capability-seam.md) 中。
 
 ## 服务 API（`ctx.compact`）
 
@@ -36,7 +36,7 @@
 
 每个会话的私有 cache 以 `session.surface.replaceGeneration` 和已处理表层条目数为 key。generation 未变时，只需将尚未处理的尾部条目纳入累计结果；仅向日志追加、但未新增表层条目时，不会读取事件。replace generation 变化时则会重建当前成员关系与配对状态。事件 seq 缺失以及 `tool/result` 没有对应的先前未闭合调用，均会被视为表层状态损坏并遭拒绝。
 
-## 表层契约
+## 表层约定
 
 `SurfaceEventType` 是封闭联合：只有 `user/message`、`assistant/message` 和 `tool/result` 可以携带 `surfaceOp`。因此 `compact/*` 事件**不能**出现在表层上。成功压缩改为：
 
@@ -89,5 +89,5 @@
 ## 已知限制与暂缓事项
 
 - **面向用户的命令，而非模型工具**：`@deepseek-ai/dsh-command-compact` 通过 `ctx.commands` 暴露无参数 `/compact`；不会注册面向模型的压缩工具。
-- **部分单元溢出不在契约内**：平衡摘要压缩无法拆分一个不可分单元。当闭合工具对中可移除的主要部分是承载文本的工具结果时，可选剪枝配套服务仍可修复该工具对；无法压缩大型非工具节点，或不可剪枝剩余部分过大的工具单元。
+- **部分单元溢出不在约定内**：平衡摘要压缩无法拆分一个不可分单元。当闭合工具对中可移除的主要部分是承载文本的工具结果时，可选剪枝配套服务仍可修复该工具对；无法压缩大型非工具节点，或不可剪枝剩余部分过大的工具单元。
 - **单独接近窗口大小的 envelope 不属于表层压缩工作**：压缩缩减派生历史，绝不缩减系统提示词、工具或会话前缀。

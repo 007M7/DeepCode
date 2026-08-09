@@ -16,7 +16,7 @@
 
 > This document covers **behavior**; type shapes live in [subsystems/](../subsystems/core.md), the per-event/service reference in the generated regions of [subsystems/](../subsystems/core.md), per-package contracts in the package READMEs ([map](../../packages/README.md)).
 
-本文档描述整体行为逻辑；类型定义存放于 [subsystems/](../subsystems/core.md)；各类事件、服务的详细参考见 [subsystems/](../subsystems/core.md) 中的生成区块；各包的对外约定写在相应的 README 中（[索引](../../packages/README.md)）。
+本文档描述整体行为逻辑；类型定义存放于 [subsystems/](../subsystems/core.md)；各类事件、服务的详细参考见 [subsystems/](../subsystems/core.md) 中的生成区块；各包（package）的对外约定写在相应的 README 中（[索引](../../packages/README.md)）。
 
 ## ② 防御模式规则
 

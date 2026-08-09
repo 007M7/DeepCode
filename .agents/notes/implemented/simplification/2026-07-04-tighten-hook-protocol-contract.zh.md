@@ -1,4 +1,4 @@
-# Agent Note: 收紧 hook-protocol 契约——dialect、被丢弃的字段、双重默认值与 lib 拥有的 `hook/result` 语义
+# Agent Note: 收紧 hook-protocol 约定——dialect、被丢弃的字段、双重默认值与 lib 拥有的 `hook/result` 语义
 
 Status: implemented
 
@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-`dsh-hook-protocol`/bridge 契约中有四部分没有遵守 [subagent observe/enrich Agent Note](../../archived/feature/2026-06-30-subagent-observe-enrich.md)记下的准则——后者因缺少消费方而删除 `agentType` 生命周期字段，以下各项没有通过同一检验：
+`dsh-hook-protocol`/bridge 约定中有四部分没有遵守 [subagent observe/enrich Agent Note](../../archived/feature/2026-06-30-subagent-observe-enrich.md)记下的准则——后者因缺少消费方而删除 `agentType` 生命周期字段，以下各项没有通过同一检验：
 
 1. **`HookDialect` 的 `'native'` 变体**（`packages/hooks/hook-protocol/src/types.ts`）没有生产者——bridge 会标记 `'claude'` 和 `'codex'`；所有位置中唯一构造 `'native'` 的是该库自己的单元测试。字段自身的 JSDoc 将 `dialect` 定义为“运行它的 bridge”，而 native 不是 bridge：[拦截 seam Agent Note](../feature/2026-06-30-interception-seams.md) 记载 native 钩子不是一个包，并且“native 插件无需持久钩子日志即可使用类型化 Decision”；旗舰 native 插件实践示例恰好断言了这一点（完全没有 `hook/*` 事件）。
 2. **`HookOutput.suppressOutput`**（同一文件）被 codec 解析后在所有路径上均被丢弃：没有 bridge 分支处理它、没有合并 fold、没有 warn、没有 deferred-list 行——在所有「被解析但未兑现」的同类字段中它是唯一没有明确延期声明的（`updatedInput` → 一条 warn 日志加 [pre-tool-input-rewrite 提案](../../proposed/feature/2026-06-30-pre-tool-input-rewrite.md)；`systemMessage` → 一条 warn 日志加 README deferred 行；`continue`/`stopReason` → 一个 `TODO(hook-continue-false)` 锚点加 `'stop'` decision 记录）。从结构上看根本无物可抑制：钩子 stdout 从不进入任何 transcript（文本记录）；上下文仅通过 `additionalContext` 流入，日志也只记录 `decision`/`stderrSummary`。因此，钩子作者设置 `suppressOutput: true` 得到的是无声的空操作，且无任何警告。

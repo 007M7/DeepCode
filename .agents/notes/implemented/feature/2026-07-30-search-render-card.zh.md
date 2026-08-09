@@ -1,4 +1,4 @@
-# Agent Note: 搜索渲染意图 —— grep 与 glob 产出结构化搜索卡片
+# Agent Note：搜索渲染意图 —— grep 与 glob 产出结构化搜索卡片
 
 Status: implemented
 
@@ -30,7 +30,7 @@ Status: implemented
 
 `SearchMeta` 的成员形状是对象字面量 `type` 别名，而非视图暴露的 `SearchFileMatches`/`SearchLineMatch` 接口，因为只有 type 别名可赋给 `presentationMeta` 返回的 `JsonValue` 索引签名；两者结构等价，所以投影值仍读回为 `SearchResultView`。
 
-没有专用 `search` 分支的消费方会回退到同一个 generic body，并从原始结果中读取面向模型的文本。因为搜索视图不带自己的 `content`，而本 PR（Pull Request）之前 grep/glob 返回的是 generic 卡片，所以该回退与引入 search 卡片之前的路径逐字节一致。渲染结构化 `files`/`paths` 形状的前端独立于这个后端约定及其两个生产者。
+没有专用 `search` 分支的消费方会回退到同一个 generic body，并从原始结果中读取面向模型的文本。因为搜索视图不带自己的 `content`，而本 PR 之前 grep/glob 返回的是 generic 卡片，所以该回退与引入 search 卡片之前的路径逐字节一致。渲染结构化 `files`/`paths` 形状的前端独立于这个后端约定及其两个生产者。
 
 ## 考虑过的备选
 
@@ -57,5 +57,5 @@ Status: implemented
 ## 相关
 
 - [工具调用呈现的带标签渲染意图联合](../architecture/2026-07-02-tool-render-intent-union.md) —— 本 PR 用 `search` 结果标签扩展的 `card` 标签词汇。
-- [Canonical 工具输出约定](../architecture/2026-07-20-canonical-tool-output-contract.md) —— 本投影所依托的 value/render/`presentationMeta` 划分；结构化值留在执行本地，卡片通过 `meta` 传输。
+- [Canonical 工具输出约定](../architecture/2026-07-20-canonical-tool-output-contract.md) —— 本投影所乘的 value/render/`presentationMeta` 划分；结构化值留在执行本地，卡片乘 `meta`。
 - [Web terminal 卡片](2026-07-28-web-terminal-card.md) —— 本 PR 在后端镜像的先例：工具把结果投影进 `presentationMeta` 与一个 `presentResult` 视图；搜索卡片的 web 消费方是与之类比的后续。

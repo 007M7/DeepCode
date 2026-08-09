@@ -23,7 +23,7 @@ Cordis 是 DeepSeek Harness SDK 底层以 vendor 方式引入的插件框架。�
 | `parallel` | 是 | 所有监听器并行观察事件 | 否 |
 | `serial` | 是 | 监听器按注册顺序观察 | 是 |
 
-分发模式是事件公开契约的一部分。新的 harness 事件通过 `@mode` 标签记录模式，以便生成的目录可以将声明与分发调用点做交叉校验。
+分发模式是事件公开约定的一部分。新的 harness 事件通过 `@mode` 标签记录模式，以便生成的目录可以将声明与分发调用点做交叉校验。
 
 <a id="cordis-waterfall-semantics"></a>
 

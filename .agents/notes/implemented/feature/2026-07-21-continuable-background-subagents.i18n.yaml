@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-07-21-continuable-background-subagents.md
 2026-07-21-continuable-background-subagents.md: e37abdd798242bc1086754e86a85ef46c08e59a3
-2026-07-21-continuable-background-subagents.zh.md: 33bf9a1b7e4568ba0e4b2ea99ac590df9440c93f
+2026-07-21-continuable-background-subagents.zh.md: 729ec62d9d3511661638144cdef6e31bf98ecdb7

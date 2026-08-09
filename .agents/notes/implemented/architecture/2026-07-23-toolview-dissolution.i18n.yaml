@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-07-23-toolview-dissolution.md
 2026-07-23-toolview-dissolution.md: be1bd9d161714194855988d76a632c667fae8c84
-2026-07-23-toolview-dissolution.zh.md: afe5e03e8345fca2a0f097d86873974f6d417ff2
+2026-07-23-toolview-dissolution.zh.md: c3f301002aac4c443dedc76fa747d8b45be6577a

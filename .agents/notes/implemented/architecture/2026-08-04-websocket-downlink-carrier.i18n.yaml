@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-08-04-websocket-downlink-carrier.md
 2026-08-04-websocket-downlink-carrier.md: b41ad687725c55acb8517fe7e93d645f007a0453
-2026-08-04-websocket-downlink-carrier.zh.md: 054b91d6b5b8c061eab32e79c4353f6183bd200f
+2026-08-04-websocket-downlink-carrier.zh.md: c8c8c34c7b7365bc3099cb33a5861051e015b226

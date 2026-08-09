@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-07-06-approval-seam.md
 2026-07-06-approval-seam.md: a286e07d51a70232f9aab0af5d8a19622cd222d4
-2026-07-06-approval-seam.zh.md: 6656cfe46de663f0e89eacc78dcfb3425812f9e0
+2026-07-06-approval-seam.zh.md: b15fcb2f6ed52ee591082770d68e265b5a703ff8

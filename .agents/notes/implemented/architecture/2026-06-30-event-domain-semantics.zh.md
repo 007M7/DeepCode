@@ -21,7 +21,7 @@ harness 通过 Cordis 事件分类体系扩展 agent loop（智能体循环）�
 **三个域，各司其职，以一条边界规则统一。**
 
 - **`session/*`——持久的、可回放的事实日志。** 拥有 `SessionEventMap`；每条记录仅含 JSON（无活对象）。每次追加触发一次 `session/event` emit，加上 `session/flush` 并行持久性检查点。它同时也是实时 transcript（文本记录）源：想渲染或响应已发生事件的消费方在此订阅，因此实时渲染与回放投影共享同一路径。
-- **`agent/*`——运行时实时表面。** 始终携带活的 `Agent`。拦截 waterfall（瀑布式事件）（`agent/pre-step`、`agent/request`、`agent/request-error`）负责变换、拒绝或恢复；awaited `agent/turn-stopping` 观察停止边界；瞬态 emit 报告生命周期、状态、inbox 插入／领取／丢弃与错误。轮次和步骤边界不在此处——它们是持久的会话事件，从 `session/event` 读取；token 流（`assistant/chunk`）和中途 steering（以 `user/message` 呈现）同理。
+- **`agent/*`——运行时实时表面。** 始终携带活的 `Agent`。拦截 waterfall（瀑布式事件）（`agent/pre-step`、`agent/request`、`agent/request-error`）负责变换、拒绝或恢复；awaited `agent/turn-stopping` 观察停止边界；瞬态 emit 报告生命周期、状态、inbox 插入／领取／丢弃与错误。轮次和步骤边界不在此处——它们是持久的会话事件，从 `session/event` 读取；token 流（`assistant/chunk`）和作为一条 `user/message` 的轮次中途 steering（中途引导）同理。
 - **`tools/*`——工具注册表与执行 seam。**
 
 **边界规则：** 持久的、可回放的事实是 `SessionEvent`；实时拦截或瞬态/活对象信号是 `agent`/`tools` Cordis 事件。轮次或步骤边界是持久事实，因此存在于会话日志中并从 `session/event` 源读取——不会被镜像为 `agent/*` emit。

@@ -1,4 +1,4 @@
-# Agent Note: agent 作用域事件 dispatch 单个 payload 对象
+# Agent Note: Agent 作用域事件 dispatch 单个 payload 对象
 
 Status: implemented
 
@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-agent（智能体）作用域事件历来采用位置参数：开头的 `agent` 主体、事件专属字段，以及末尾用于 waterfall（瀑布式事件）/serial 事件的 `next`。新增字段或退役上下文类型（如 `PreStepContext` 与 `RequestFailureContext`）都会迫使跨包重写每个监听器和 emitter，约定也一直分散在参数列表中，而不是集中在一个具名 payload 中。
+Agent 作用域事件历来采用位置参数：开头的 `agent` 主体、事件专属字段，以及末尾用于 waterfall（瀑布式事件）/serial 事件的 `next`。新增字段或退役上下文类型（如 `PreStepContext` 与 `RequestFailureContext`）都会迫使跨包重写每个监听器和 emitter，约定也一直分散在参数列表中，而不是集中在一个具名 payload 中。
 
 ## 决策
 

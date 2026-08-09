@@ -101,7 +101,7 @@
 | counterpart | 对侧文件 | | 对应物、配对物 | 双语配对语境；泛指"另一侧"时可写「另一侧」 |
 | configurable-provider directory | 可配置提供方目录 | | | llm seam 中 `registerConfigurableProviders()` 维护的目录；沿用 Service Catalog →「服务目录」先例 |
 | context compaction | 上下文压缩 | 上下文压缩（context compaction） | | |
-| contract | 约定 | | | 新文本使用「约定」，如 `pairing contract` →`配对约定`；既有复合名称中的「契约」暂保留，待专项校准 |
+| contract | 约定 | | | 如：`pairing contract` →`配对约定` |
 | Cordis config entry | Cordis 配置项 | | | 指 `cordis.yml` 插件列表中的一项；插件实现本身写`Cordis 插件` |
 | Cordis plugin | Cordis 插件 | | | Cordis 加载的插件实现，不指 `cordis.yml` 中的一项配置 |
 | crash recovery | 崩溃恢复 | | | |

@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-注册在 `ctx.bash` 执行器 seam 之上的模型可见 `pwsh` 工具。面向由 PowerShell 执行器（如 `@deepseek-ai/dsh-pwsh-local`）支撑 `ctx.bash` 的 Windows 组合；工具约定使用 PowerShell 方言：原生 `C:\...` 路径与 `$env:NAME` 变量。行为与 `dsh-tool-bash` 逐调用对齐、减去 sandbox 面——通过通用任务运行时执行前台与 `run_in_background`、通过共享 `bash-env` 注册表管理 `DSH_*` 环境、以及 bash 的 marker/截断渲染故事（干净退出不产生 marker）。
+注册在 `ctx.bash` 执行器 seam 之上的模型可见 `pwsh` 工具。面向由 PowerShell 执行器（如 `@deepseek-ai/dsh-pwsh-local`）支撑 `ctx.bash` 的 Windows 组合；工具约定是 PowerShell 方言：原生 `C:\...` 路径与 `$env:NAME` 变量。行为与 `dsh-tool-bash` 逐调用对齐、减去 sandbox 面——通过通用任务运行时执行前台与 `run_in_background`、通过共享 `bash-env` 注册表管理 `DSH_*` 环境、以及 bash 的 marker/截断渲染故事（干净退出不产生 marker）。
 
 需要已加载的执行器实现与 `bash-env` 插件；两者都存在前工具保持 pending（`inject: ['tools', 'bash', 'systemPrompt', 'bashEnv']`）。
 
@@ -24,7 +24,7 @@
 
 `command`、`workdir` 与 `timeoutMs` 在执行前经 `ctx.bash.resolve()` 按执行器配置默认值解析。workdir 默认值在工具层于 `resolve()` 之前从调用 agent 的 `session.header.cwd` 取得——每次会话的 cwd 必须来自 `exec.agent`，因为 N 个会话共享一个执行器；仅当没有会话 cwd 时执行器才回退到自己的配置 / `process.cwd()`。
 
-### 受管 shell 环境
+### Managed shell environment
 
 每次前台与后台模型 pwsh 调用都会通过共享的 [`dsh-bash-env`](../bash-env/) 注册表收到一份新收集的受信任 `DSH_*` 环境：`DSH_HOME`（Harness 主目录绝对路径）、`DSH_SHELL=1`、agent 的 `DSH_SESSION_ID`，以及活跃持久化后端定位到 JSONL 时的 `DSH_SESSION_JSONL`。向 `ctx.bashEnv` 贡献 `DSH_*` 事实的插件对 pwsh 调用与 bash 调用一视同仁。快照通过专用的 `BashExecRequest.dshEnv` 通道传递；`process.env` 永不被修改。描述只教授通用的 `$env:DSH_*` 约定，而不是点名持久化相关的变量。
 
@@ -34,15 +34,15 @@
 
 当 `run_in_background` 为 true 时，本插件在 spawn 前预检 `ctx.tasks.start()`，把调用 agent 注册为 owner，并将返回的 `BashProcess` 句柄适配为通用的 cancel/done/增量输出钩子。任务运行时拥有 id、跨会话隔离、完成通知、等待与清理；本插件只把 pwsh 退出事实映射进任务输出与结果明细。`enableRunInBackground: false` 会移除参数并在执行时拒绝强制的后台调用。
 
-## UI 展示
+## UI presentation
 
 工具拥有自己的 `presentCall`/`presentResult` 呈现意图。前台调用是携带命令、描述与可选 cwd 的 `terminal` 卡；`run_in_background` 调用是携带原始命令的 `generic` 卡，镜像 bash 工具的后台呈现。完成的前台结果同样是 `terminal` 卡：退出 marker 变成卡片的退出状态 pill（`exitCode`/`signal`），去 marker 的正文成为卡片输出——与 bash 工具的 terminal 卡故事完全一致，经由 `@deepseek-ai/dsh-bash` 的共享退出状态解析。后台 ack 与执行错误保持 `generic` 卡，以 `console` 围栏包裹渲染输出。这些 presenter 是纯函数且可重放。
 
-## 模型体验
+## Model Experience
 
-### 系统提示词
+### System prompt
 
-#### 模型看到的内容
+#### What the model sees
 
 本插件注册作用域内的每个请求都包含下面的 pwsh 指引。作用域工具限制可以隐藏 schema，但不会移除这个独立注册的段落。
 
@@ -52,7 +52,7 @@
 Non-zero exits are reported as `[exit code: N]` markers; investigate failures before moving on. On Windows a killed process settles as `[exit code: 1]` without a signal marker; treat a bare exit 1 after an interruption as a termination, not a command failure.
 ```
 
-#### Token 影响
+#### Token effect
 
 插件激活期间每次请求的固定小额输入成本。
 
@@ -60,13 +60,13 @@ Non-zero exits are reported as `[exit code: N]` markers; investigate failures be
 
 注册作用域与 prompt 文本不变时前缀稳定。插件激活或释放可能使该 prompt 段落的复用失效。
 
-### 工具 schema
+### Tool schemas
 
-#### 模型看到的内容
+#### What the model sees
 
-模型看到生成的 [`pwsh` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-pwsh)。agent 作用域的工具限制可以移除该 agent 的定义。
+模型看到生成的 [`pwsh` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-pwsh)。按 agent 作用域的工具限制可以移除该 agent 的定义。
 
-#### Token 影响
+#### Token effect
 
 工具可见的每个请求上的固定 schema 成本。
 
@@ -74,13 +74,13 @@ Non-zero exits are reported as `[exit code: N]` markers; investigate failures be
 
 可见性与工具定义不变时前缀稳定。限制或配置变更可能从首个变化 token 起使复用失效。
 
-### 前台结果
+### Foreground result
 
-#### 模型看到的内容
+#### What the model sees
 
 渲染器输出数据相关的 stdout 尾部，然后是可选的 `[stderr]` 与 stderr 尾部。条件行精确为 `[output truncated; full output: <path>]`、`[timed out after <timeoutMs>ms]`、`[killed by signal: <signal>]` 与 `[exit code: <exitCode>]`（仅非零退出）；空体渲染为 `(no output)`。
 
-#### Token 影响
+#### Token effect
 
 调用前零结果 token。每个流的输出有界，而每条已发出的行保留在历史中直到压缩。
 
@@ -88,13 +88,13 @@ Non-zero exits are reported as `[exit code: N]` markers; investigate failures be
 
 仅追加；新出现的内容跟随可复用的请求前缀，不会使既有 KV-cache 条目失效。
 
-### 后台结果
+### Background result
 
-#### 模型看到的内容
+#### What the model sees
 
 后台启动精确渲染为 `started background task <id>`；随后的读取与状态通过通用 `task_output`/`task_kill` 工具流转，包括内存截断丢弃未读字节时的 lossy 读取 spill 通知。
 
-#### Token 影响
+#### Token effect
 
 ack 是固定短行；任务输出按读取有界。
 
@@ -102,13 +102,13 @@ ack 是固定短行；任务输出按读取有界。
 
 仅追加；新出现的内容跟随可复用的请求前缀，不会使既有 KV-cache 条目失效。
 
-### 工具错误
+### Tool errors
 
-#### 模型看到的内容
+#### What the model sees
 
 校验与基础设施失败规范化为 `Error: <message>`。本包的稳定消息包括 `invalid command: expected a non-empty string`、`invalid description: expected a non-empty string`、`invalid timeoutMs: expected a positive number, got <value>`、`run_in_background is disabled for this deployment (enableRunInBackground: false)`、`background tasks unavailable: load @deepseek-ai/dsh-tasks and @deepseek-ai/dsh-tool-tasks` 与 `tool call aborted`。
 
-#### Token 影响
+#### Token effect
 
 只有失败的调用会新增这些保留 token；被中止的调用不产生命令输出。
 
@@ -116,7 +116,7 @@ ack 是固定短行；任务输出按读取有界。
 
 仅追加；新出现的内容跟随可复用的请求前缀，不会使既有 KV-cache 条目失效。
 
-## 已知限制与延期工作
+## Known Limitations and Deferred Work
 
 - **无 sandbox 升级** — 没有 `sandbox_permissions`/`justification`；升级等待 Windows-confining 执行器（bash 工具的 sandbox 面不被镜像）。
 - **无持久 shell 或 PTY** — 每次调用都启动全新的 `pwsh -Command`；PTY 后端目前仅限 Linux/macOS，Windows ConPTY 持久 shell 属于路线图工作。
