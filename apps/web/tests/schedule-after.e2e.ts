@@ -10,6 +10,7 @@ import { CallId, LlmAdapter } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import { RpcId } from '@deepseek-ai/dsh-host-apiproxy/api/rpc'
+import { conversationContextKey } from '@deepseek-ai/dsh-client-runtime/client'
 import {
   assertFixtureInventory,
   captureStableAria,
@@ -50,14 +51,14 @@ function assistantText(event: Extract<SessionEvent, { type: 'assistant/message' 
     .join('')
 }
 
-/** Wait for the exact scheduled assistant reply and return its durable sequence. */
-async function waitForReply(handle: AgentHandle, timeoutMs: number): Promise<number> {
+/** Wait for and return the exact durable scheduled assistant reply. */
+async function waitForReply(handle: AgentHandle, timeoutMs: number): Promise<SessionEvent<'assistant/message'>> {
   const deadline = Date.now() + timeoutMs
   while (true) {
     const event = handle.agent.session.events.find((candidate): candidate is SessionEvent<'assistant/message'> => (
       candidate.type === 'assistant/message' && assistantText(candidate) === REPLY
     ))
-    if (event !== undefined) return event.seq
+    if (event !== undefined) return event
     if (Date.now() >= deadline) throw new Error(`scheduled assistant reply did not arrive within ${timeoutMs}ms`)
     await new Promise<void>(resolve => setTimeout(resolve, 20))
   }
@@ -69,7 +70,7 @@ describe.skipIf(MODE === 'record')('web e2e: conversational after reminder', () 
   let adapter: ReminderAdapter
   let browser: Browser
   let page: Page
-  let assistantSeq = -1
+  let assistantReply: SessionEvent<'assistant/message'> | undefined
   let tripwire: ReturnType<typeof watchConsole>
 
   beforeAll(async () => {
@@ -118,7 +119,7 @@ describe.skipIf(MODE === 'record')('web e2e: conversational after reminder', () 
       state: 'scheduled',
       deliveryMode: 'session-local',
     })
-    assistantSeq = await waitForReply(agentHandle, 15_000)
+    assistantReply = await waitForReply(agentHandle, 15_000)
     await agentHandle.agent.whenIdle()
     const reminder = adapter.requests.at(-1)?.messages.find(message => (
       message.source.kind === 'plugin' && message.source.plugin === 'tool-schedule'
@@ -162,10 +163,15 @@ describe.skipIf(MODE === 'record')('web e2e: conversational after reminder', () 
     await session.waitFor({ timeout: 15_000 })
     await session.click()
 
-    const selector = `[data-chat-anchor-key="node:${String(assistantSeq)}"]`
+    if (assistantReply === undefined) throw new Error('scheduled assistant reply was not captured')
+    const key = conversationContextKey(
+      'assistant-step',
+      `${String(assistantReply.data.turn)}:${String(assistantReply.data.step)}`,
+    )
+    const selector = `[data-chat-anchor-key="${key}"]`
     const row = page.locator(selector)
     await row.waitFor({ timeout: 15_000 })
-    expect(await row.getAttribute('data-chat-flow-kind')).toBe('assistant')
+    expect(await row.getAttribute('data-chat-flow-kind')).toBe('assistant-step')
     expect(await row.textContent()).toContain(REPLY)
     await compareOrRefreshGolden(
       CONVERSATION_EXPECTED,
