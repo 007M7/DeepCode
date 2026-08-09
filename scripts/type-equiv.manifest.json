@@ -228,6 +228,21 @@
     },
     {
       "doc": "docs/subsystems/schedule.md",
+      "symbol": "AtScheduleRecord",
+      "source": "packages/schedule/tool-schedule/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/schedule.md",
+      "symbol": "LocalAtInput",
+      "source": "packages/schedule/tool-schedule/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/schedule.md",
+      "symbol": "AtInput",
+      "source": "packages/schedule/tool-schedule/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/schedule.md",
       "symbol": "ScheduleRecord",
       "source": "packages/schedule/tool-schedule/src/types.ts"
     },
