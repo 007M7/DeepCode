@@ -238,7 +238,7 @@ export class ConversationNodeAssembler {
     }
     this.applyPendingMatches(pending, affected)
     this.replayContexts(affected)
-    if ((fresh.length > 0 || previousHasMore !== hasMore) && this.replayDependencies()) {
+    if ((this.revised.size > 0 || previousHasMore !== hasMore) && this.replayDependencies()) {
       publication = 'immediate'
     }
     if (changedLocations.size > 0) publication = 'immediate'
@@ -563,18 +563,18 @@ export class ConversationNodeAssembler {
 
   private replayRevisedDependents(): boolean {
     const pending = [...this.revised]
-    const replayed = new Set<InternalContext>()
+    const affected = new Set<InternalContext>()
     for (let index = 0; index < pending.length; index++) {
       const dependency = pending[index]
       if (dependency === undefined) continue
       for (const dependent of this.dependents.get(dependency.key) ?? []) {
-        if (replayed.has(dependent)) continue
-        replayed.add(dependent)
-        this.replayContext(dependent)
+        if (affected.has(dependent)) continue
+        affected.add(dependent)
         pending.push(dependent)
       }
     }
-    return replayed.size > 0
+    this.replayContexts(affected)
+    return affected.size > 0
   }
 
   private readerFor(

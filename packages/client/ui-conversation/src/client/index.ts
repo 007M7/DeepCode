@@ -3,19 +3,18 @@
  * between the independently implemented skeleton and chat domains; `apply.ts`
  * owns their slot assembly.
  */
+export type {} from './conversation-nodes/assistant.ts'
+export type {} from './conversation-nodes/command.ts'
+export type {} from './conversation-nodes/compaction.ts'
+export type {} from './conversation-nodes/fallback.ts'
+export type {} from './conversation-nodes/message.ts'
+export type {} from './conversation-nodes/retry.ts'
+export type {} from './conversation-nodes/tool.ts'
+export type {} from './conversation-nodes/turn-error.ts'
+export type {} from './conversation-nodes/turn-tail.ts'
+
 export { apply, inject } from './apply.ts'
 export { ConversationService } from './service.ts'
-export { registerAssistantConversationNode } from './conversation-nodes/assistant.ts'
-export { registerChatConversationView } from './conversation-nodes/chat-snapshot-builder.ts'
-export { registerCommandConversationNode } from './conversation-nodes/command.ts'
-export { registerCompactionConversationNode } from './conversation-nodes/compaction.ts'
-export { registerUnknownConversationFallback } from './conversation-nodes/fallback.ts'
-export { registerInboxConversationNodes } from './conversation-nodes/inbox.ts'
-export { registerMessageConversationNode } from './conversation-nodes/message.ts'
-export { registerRetryConversationNode } from './conversation-nodes/retry.ts'
-export { registerToolConversationNode } from './conversation-nodes/tool.ts'
-export { registerTurnErrorConversationNode } from './conversation-nodes/turn-error.ts'
-export { registerTurnTailConversationNode } from './conversation-nodes/turn-tail.ts'
 export type { IConversation } from './service.ts'
 
 export type {

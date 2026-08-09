@@ -344,6 +344,7 @@ export class Session implements SessionFace {
         // §D.2 continuity assertion: on violation drop the page fail-soft rather than render an out-of-order stream.
         console.error(`[web-runtime] history page discontinuous: tail seq ${tail?.event.seq} vs baseSeq ${this.baseSeq}`)
         this.hasMore = false
+        this.conversation.prepend([], false)
         return
       }
       this.events = [...older.map(e => e.event), ...this.events]

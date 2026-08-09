@@ -458,6 +458,73 @@ describe('ConversationNodeAssembler', () => {
     expect([...chatSnapshot(assembler)?.nodes.values() ?? []][0]?.data).toBe(2)
   })
 
+  it('replays a transitive dependency closure in start order', () => {
+    const sourceA: ConversationNodeDefinition<number> = {
+      kind: 'diamond-a',
+      match: (event) => {
+        if (event.type === 'user/message') return { id: 'one', role: 'start' }
+        if ((event.type as string) === 'diamond/a') return { id: 'one', role: 'update' }
+        return null
+      },
+      start: () => 1,
+      update: (_context, match) => (match.event.data as unknown as { value: number }).value,
+      buildViewNode: () => null,
+    }
+    const sourceX: ConversationNodeDefinition<number> = {
+      kind: 'diamond-x',
+      match: (event) => {
+        if (event.type === 'turn/start') return { id: 'one', role: 'start' }
+        if ((event.type as string) === 'diamond/x') return { id: 'one', role: 'update' }
+        return null
+      },
+      start: () => 10,
+      update: (_context, match) => (match.event.data as unknown as { value: number }).value,
+      buildViewNode: () => null,
+    }
+    const middle: ConversationNodeDefinition<number> = {
+      kind: 'diamond-b',
+      match: event => event.type === 'assistant/message'
+        ? { id: 'one', role: 'start' }
+        : null,
+      start: (_context, _match, reader) => (
+        (reader.previous<number>('diamond-a')?.state ?? 0)
+        + (reader.previous<number>('diamond-x')?.state ?? 0)
+      ),
+      update: context => context.state,
+      buildViewNode: context => node(context, context.state),
+    }
+    const consumer: ConversationNodeDefinition<number> = {
+      kind: 'diamond-c',
+      match: event => event.type === 'tool/call'
+        ? { id: 'one', role: 'start' }
+        : null,
+      start: (_context, _match, reader) => (
+        (reader.previous<number>('diamond-a')?.state ?? 0) * 100
+        + (reader.previous<number>('diamond-b')?.state ?? 0)
+      ),
+      update: context => context.state,
+      buildViewNode: context => node(context, context.state),
+    }
+    const assembler = new ConversationNodeAssembler(
+      new TestEventDefinitions([sourceA, sourceX, middle, consumer]),
+      new TestViewDefinitions([testView()]),
+    )
+    assembler.replaceWindow([
+      input(at(1, 'user/message', { id: 'source', content: [], source: { kind: 'user' } })),
+      input(at(2, 'turn/start', { turn: 1 })),
+      input(at(3, 'assistant/message', { turn: 1, step: 1, message: { role: 'assistant', content: [] } })),
+      input(at(4, 'tool/call', { turn: 1, step: 1, callId: 'call', name: 'x', arguments: '{}' })),
+    ], false)
+
+    assembler.append(input(at(5, 'diamond/x', { value: 20 })))
+    assembler.append(input(at(6, 'diamond/a', { value: 2 })))
+    assembler.flush()
+
+    const value = [...chatSnapshot(assembler)?.nodes.values() ?? []]
+      .find(candidate => candidate.kind === 'diamond-c')
+    expect(value?.data).toBe(222)
+  })
+
   it('replays Location-derived State and rebuilds only owned Nodes when a step closes', () => {
     const apply = vi.fn()
     const starts = vi.fn((

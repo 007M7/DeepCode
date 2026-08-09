@@ -122,14 +122,26 @@ function tailData(context: ConversationNodeContext<TurnTailState>): TurnTailChat
     .filter((candidate): candidate is Readonly<FinalAssistantChatData> => candidate.finalNode !== undefined)
     .sort((left, right) => left.finalNode.seq - right.finalNode.seq)
   const closing = finalized.findLast(hasText) ?? null
-  const latest = finalized.at(-1)
+  let latestTranscriptSeq = finalized.at(-1)?.finalNode.seq
+  for (const match of context.matches) {
+    const event = match.event
+    const candidate = event.type === 'tool/call'
+      || (event.type === 'tool/result' && isAppendSurfaceEvent(event))
+      || (event.type === 'turn/end' && event.data.reason.kind === 'error')
+      || (event.type as string) === 'llm/retry'
+      ? event.seq
+      : undefined
+    if (candidate !== undefined && (latestTranscriptSeq === undefined || candidate > latestTranscriptSeq)) {
+      latestTranscriptSeq = candidate
+    }
+  }
   const metrics = deriveTurnMetrics(finalized.map(candidate => candidate.finalNode)).get(end.event.data.turn)
   return {
     turn: end.event.data.turn,
     seq: end.event.seq,
     time: end.event.time,
     closing,
-    branchUnavailable: closing === null || latest?.finalNode.seq !== closing.finalNode.seq,
+    branchUnavailable: closing === null || latestTranscriptSeq !== closing.finalNode.seq,
     ...metrics?.ttftMs === undefined ? {} : { ttftMs: metrics.ttftMs },
     ...metrics?.tokensPerSecond === undefined ? {} : { tokensPerSecond: metrics.tokensPerSecond },
   }
@@ -141,6 +153,9 @@ export const turnTailDefinition: ConversationNodeDefinition<TurnTailState> = {
   match: (event) => {
     if (event.type === 'turn/start') return { id: String(event.data.turn), role: 'start' }
     if (event.type === 'turn/end') return { id: String(event.data.turn), role: 'update' }
+    if (event.type === 'tool/call' || event.type === 'tool/result') {
+      return { id: String(event.data.turn), role: 'update' }
+    }
     const coordinates = turnCoordinates(event)
     if (coordinates !== undefined) return { id: String(coordinates.turn), role: 'update' }
     return null

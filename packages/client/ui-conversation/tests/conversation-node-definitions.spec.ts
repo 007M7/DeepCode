@@ -16,7 +16,7 @@ import { toolDefinition } from '../src/client/conversation-nodes/tool.ts'
 import { turnErrorDefinition } from '../src/client/conversation-nodes/turn-error.ts'
 import { turnTailDefinition } from '../src/client/conversation-nodes/turn-tail.ts'
 import type {
-  AssistantChatData, ManualCompactionChatData, RetryChatData, ToolChatData,
+  AssistantChatData, ManualCompactionChatData, RetryChatData, ToolChatData, TurnTailChatData,
 } from '../src/client/contract/chat-nodes.ts'
 
 const DEFINITIONS: readonly ConversationNodeDefinition[] = [
@@ -411,6 +411,30 @@ describe('built-in conversation node Definitions', () => {
     expect(after.order.map(key => after.nodes.get(key)?.kind)).toEqual([
       'user', 'assistant-step', 'turn-tail', 'user',
     ])
+  })
+
+  it('keeps branching unavailable when a tool result follows the closing Assistant', () => {
+    const value = assembler([
+      at(1, 'turn/start', { turn: 1 }),
+      at(2, 'step/start', { turn: 1, step: 1 }),
+      at(3, 'assistant/message', {
+        turn: 1,
+        step: 1,
+        message: assistantMessage('assistant-before-tool', 'running a tool'),
+      }, { surfaceOp: 'append' }),
+      at(4, 'tool/call', { turn: 1, step: 1, callId: 'late-tool', name: 'read', arguments: '{}' }),
+      at(5, 'tool/result', {
+        turn: 1,
+        step: 1,
+        message: toolResult('late-tool', 'done'),
+      }, { surfaceOp: 'append' }),
+      at(6, 'step/end', { turn: 1, step: 1 }),
+      at(7, 'turn/end', { turn: 1, reason: { kind: 'completed' } }),
+    ])
+
+    const tail = node(snapshot(value), 'turn-tail')?.data as TurnTailChatData
+    expect(tail.closing?.finalNode.seq).toBe(3)
+    expect(tail.branchUnavailable).toBe(true)
   })
 
   it('replays inbox predecessors after prepend and reclassifies the dependent message as steering', () => {
