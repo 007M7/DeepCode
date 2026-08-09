@@ -9,8 +9,8 @@
 // model content as the question composer: the turn cannot complete without it).
 //
 // Geometry is the point of the scenario. The command is unbounded model text,
-// and before the cap a long one grew the card until the refuse/allow buttons
-// left the viewport — an approval the user could see and not answer.
+// and an uncapped card grows with it until the refuse/allow buttons leave the
+// viewport — an approval the user could see and not answer.
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
@@ -36,8 +36,8 @@ const MODE = webSnapshotMode()
 
 // Irreducible payload: the command has to be long enough to pass the card's
 // height cap, which is the only shape that reproduces an action row pushed off
-// screen. Unrelated tokens, not a repeated word — a repeated word is what the
-// model compressed into `printf 'alpha %.0s' {1..400}` while recording, and a
+// screen. Unrelated tokens, not a repeated word — the model compresses a
+// repeated word into `printf 'alpha %.0s' {1..400}` when recording, and a
 // short command proves nothing here. The formula keeps the source small; the
 // model receives the expanded literal it has to put in the command.
 const TOKENS = Array.from({ length: 220 }, (_, index) => `tok${((index + 1) * 7919 % 99991).toString(36)}`).join(' ')
@@ -115,9 +115,8 @@ describe('web e2e: approval takeover keeps its actions reachable', () => {
       const snapshot = await captureStableAria(page, '[data-approval-key]', scaffold.workspaceCwd)
       await compareOrRefreshGolden(UI_EXPECTED, snapshot, MODE)
 
-      // The regression this scenario exists for: an uncapped card grew with
-      // the command until the action row left the viewport. Measured at the
-      // lane baseline and at a short viewport, on the live panel.
+      // The uncapped-card hazard the header names, measured at the lane
+      // baseline and at a short viewport, on the live panel.
       const original = page.viewportSize() ?? { width: 1680, height: 1000 }
       for (const height of [1000, 700]) {
         await page.setViewportSize({ width: 900, height })

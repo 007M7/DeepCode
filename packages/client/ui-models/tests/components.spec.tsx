@@ -655,7 +655,7 @@ describe('ModelsSection', () => {
     expect((ids[0] as HTMLInputElement).value).toBe('deepseek-v4-flash')
 
     // An id that is only whitespace is as absent as an empty one, and a padded
-    // id no longer slips past the duplicate check against its own twin.
+    // id is a duplicate of its trimmed twin.
     expect(validateDeepSeekModels([{ id: '   ' }])).toEqual({ index: 0, key: 'modelIdRequired' })
     expect(validateDeepSeekModels([{ id: 'model' }, { id: 'model ' }]))
       .toEqual({ index: 1, key: 'modelIdDuplicate' })
@@ -714,7 +714,7 @@ describe('ModelsSection', () => {
   })
 
   it('clears an inherited override with an unset op, never a whole-section replace', async () => {
-    // The old path rebuilt the whole user section to clear one inherited field.
+    // A whole-section replace would clobber sibling overrides to clear one field.
     const { replace, update, mutate } = await mountSection()
     fireEvent.click(screen.getByText(en.customized))
     const url = screen.getByLabelText<HTMLInputElement>(en.baseUrl)

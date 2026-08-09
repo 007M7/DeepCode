@@ -6,7 +6,7 @@
 
 ## 配置
 
-估算器没有配置项。它有意使用一项固定启发式规则：每个 token 按四个字符估算，再加上角色、块与请求 envelope 字段的结构开销。任何配置键都会被拒绝，包括已废弃的全局 `contextWindow`；模型容量属于拥有精确提供方／模型路由的适配器，可通过 `ctx.llm.resolveModelInfo().context` 获取。
+估算器没有配置项。它有意使用一项固定启发式规则：每个 token 按四个字符估算，再加上角色、块与请求 envelope 字段的结构开销。任何配置键都会被拒绝；模型容量属于拥有精确提供方／模型路由的适配器，可通过 `ctx.llm.resolveModelInfo().context` 获取。
 
 ## 测量约定
 
@@ -41,7 +41,7 @@ fold 跟踪完整请求标头快照、步骤边界、表层追加与替换、成
 
 这是刻意的选择。占用率百分比是面向用户的参考数字，既不是计费记录，也不是门控输入：harness 中没有任何环节依据它做决策，压缩改为直接读取 `measure()`。UI 用测得的压力除以为所选模型单独解析出的容量来计算占用率。
 
-让这对值保持原子已经尝试过并被否决：它需要一个临时且不可回放的协议帧，进而需要针对跨流重排序的生命周期栅栏，还会让占用率在每次重连后变为空白。[Agent Note](../../../.agents/notes/implemented/architecture/2026-07-29-projected-token-usage-and-request-context.md)记录了这项对比。需要同一边界精确数字的消费方应在自己的请求边界调用 `measure()`，而不是读取该投影。
+[Agent Note](../../../.agents/notes/implemented/architecture/2026-07-29-projected-token-usage-and-request-context.md)记录了否决「让这对值保持原子」方案的那次对比。需要同一边界精确数字的消费方应在自己的请求边界调用 `measure()`，而不是读取该投影。
 
 ## 组合
 

@@ -5,10 +5,9 @@
  * changed Markdown units, heading sections, whole document), the terminology
  * rows those changes touch, first-occurrence movement notes, and a digest of
  * the binding update rules. The unit mapping, mechanical code splice, and
- * first-occurrence tracking adopt the planner mechanics validated in the
- * incremental-pipeline work (PR #684). The CLI wrapper is
- * `scripts/gen-translation-brief.ts`; the workflow that consumes the
- * briefing is `.agents/skills/dsh-translate-docs/SKILL.md`.
+ * first-occurrence tracking follow the incremental-pipeline planner mechanics.
+ * The CLI wrapper is `scripts/gen-translation-brief.ts`; the workflow that
+ * consumes the briefing is `.agents/skills/dsh-translate-docs/SKILL.md`.
  */
 
 import type { Nodes } from 'mdast'

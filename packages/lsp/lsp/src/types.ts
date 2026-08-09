@@ -12,7 +12,7 @@ import type { LspProviderId } from './brand.ts'
 /**
  * The four semantic queries the seam and model expose. A closed union: adding an operation is a
  * compile-enforced change across the seam, providers, and the tool. Symbols and call hierarchy are
- * deliberately deferred (they need different schemas).
+ * not operations here; they need different schemas.
  */
 export type LspOperation = 'goToDefinition' | 'findReferences' | 'goToImplementation' | 'hover'
 

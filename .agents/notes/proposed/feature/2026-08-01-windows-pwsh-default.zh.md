@@ -10,7 +10,7 @@ harness 交付的执行配置在每个平台都是 bash 优先。Windows 主机�
 
 ## 提案
 
-两个阶段，各自可独立交付。原阶段 2（bash 工具对等孪生）已随 [pwsh 工具与 bash 对齐决策](../../implemented/feature/2026-08-02-pwsh-tool-bash-parity.md) 交付：`tool-pwsh` 现在除 sandbox 接口外，在前台与后台工作方面均与 `tool-bash` 对齐，通过 `dsh-bash-env` 共享 `DSH_*` 环境，并携带其组装后形态的 keyless 应用快照。
+两个阶段，各自可独立交付。bash 工具对等孪生已随 [pwsh 工具与 bash 对齐决策](../../implemented/feature/2026-08-02-pwsh-tool-bash-parity.md) 交付：`tool-pwsh` 现在除 sandbox 接口外，在前台与后台工作方面均与 `tool-bash` 对齐，通过 `dsh-bash-env` 共享 `DSH_*` 环境，并携带其组装后形态的 keyless 应用快照。
 
 1. **Windows 默认组合**——交付的 CLI（命令行界面）组合在 Windows 主机上挂载 `dsh-pwsh-local` 作为 `ctx.bash` 执行器、`dsh-tool-pwsh` 作为面向模型的 shell 工具（那里不挂载 bash），POSIX 主机保持 bash 栈。这是 `base.cordis.yml` 与 surface 覆盖层里按平台门控的组合/清单决策；它让交付的 Windows 体验端到端 PowerShell 原生。
 2. **pwsh GUI 渲染**——Web 界面使用 bash 风格的终端呈现来渲染 pwsh 调用（带胶囊状退出状态标签的终端卡片），与 bash 终端卡片相对应。已随 [pwsh UI 呈现与 bash 对齐决策](../../implemented/feature/2026-08-05-pwsh-ui-bash-parity.md) 及 keyless web 通道交付；TUI 已移除，不再有对应的终端界面。超出 bash 对齐的 PowerShell 感知呈现（原生路径显示、`$env:` 信息）仍无人认领。

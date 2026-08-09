@@ -76,9 +76,9 @@ occurrence 表与 chip 三投影：
 - blank Hero 改选 Workspace 时，外壳调用 `connectWorkspace`；目标 session 不同时把非空 draft 从当前 shell 搬到目标 shell，再 open 新 id，旧 blank session 留存但不再 current。
 - Notifier 双位约定：`dirty`（快照新鲜度，`ensureFresh` 拉取可清）与 `notifyPending`（通知欠账，只有 flush 清）各自独立——拉取不得吞推送，对象层推订阅者（watchTransaction）依赖这一保证。
 
-### 纯文本引用（决策 21）：text outcome 与 lexicon 装饰
+### 纯文本引用：text outcome 与 lexicon 装饰
 
-skill/@subagent 引用不走占位符 + occurrence 身份链——pick 直接把 `/name ` `@name ` 原文插进 draft，chip 视觉纯派生：
+skill/@subagent 引用不走占位符 + occurrence 身份链——纯文本引用决策：pick 直接把 `/name ` `@name ` 原文插进 draft，chip 视觉纯派生：
 
 - PickOutcome 增 `{text}` arm；新 scoped bail 事件 `slash/input-insert-text` `{text, span}`（与另三个同约定：draftRev CAS、返回 true ⟺ 实际改写）；facade.insertText 走 setDraft 拼接，机器零改动。
 - source 可选 `lexicon?(session)` 钩子：同步热快照名录，`undefined` = 数据未热——零装饰、永不触发 fetch（渲染路径保持同步无副作用）；配对的可选 `subscribeLexicon?(session, listener)` 钩子是名录在 warm 之后仍会变化（目录 settle、子代生灭）时的失效通道。controller 把各名录聚合进自己的 `lexicon` snapshot store（每次 source 通知重拉）；scope 出生后才注册的 source 由 service 广播给活 controller，补 warm 并并入名录。
@@ -125,7 +125,7 @@ skill/@subagent 引用不走占位符 + occurrence 身份链——pick 直接把
 | 占位 select 常驻工具行 | 具名 slot 在注册前保持为空；占位件与真实现冲突时是双真相源 |
 | 始终可见的 Plan 开／关切换 | 入口已归共享 Command source 所有；第二个入口会把状态 seat 变成冗余的 mode chrome |
 | 第二套加号菜单组件／controller，或在 Command 上方增加 Add/File 分组 | 这会重复异步候选、键盘高亮、焦点保留与 pick 状态；加号控件只是既有 MenuView 按 source 过滤的 launcher，且此 scope 没有文件能力 |
-| 引用一律走 U+FFFC chip（决策 21 前旧线） | 纯文本 + 派生装饰零身份状态；原文即模型投影，undo/剪贴板免特判；chip 链保留给需要不可分原子性的场景 |
+| 引用一律走 U+FFFC chip（纯文本引用决策所取代的旧线） | 纯文本 + 派生装饰零身份状态；原文即模型投影，undo/剪贴板免特判；chip 链保留给需要不可分原子性的场景 |
 
 ## 后果
 

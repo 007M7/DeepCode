@@ -15,7 +15,7 @@ Status: implemented
 
 这还造成了一个真实的用户体验死胡同：窗口化读取记录 `view: partial`，而 partial 视图无法授权 `edit`。一个模型读取了大文件的第 100-150 行，如果想编辑第 120 行，就必须先获取一次 `full` 读取，而对于超过读取上限的文件这可能做不到。字面编辑实际上只需要新鲜度：被匹配的字节仍然来自模型所读取的那个版本即可。
 
-旧 Agent Note 已经推迟了独立的 `@deepseek-ai/dsh-fs-policy` 包。本 Agent Note 构建该层，使 `ctx.fs` 保持接近 fsspec 风格的存储原语（`info`/`cat`/`open`），但不把它变成完整的 fsspec。
+旧 Agent Note 已经推迟了独立的 `@deepseek-ai/dsh-fs-policy` 包。本决策构建该层，使 `ctx.fs` 保持接近 fsspec 风格的存储原语（`info`/`cat`/`open`），但不把它变成完整的 fsspec。
 
 ## 决策
 
@@ -69,7 +69,7 @@ type FsWriteIntent =
 
 ## 策略约定
 
-`@deepseek-ai/dsh-fs-policy` 是插件，而非服务：它不注册任何 `ctx.*` 键，也不注入任何内容。它拥有不应位于 `FileSystem` 提供方基类上的写入/编辑新鲜度策略和 observed state（否则沙箱/远程后端会继承不该由其承载的面向模型观察策略）。它通过执行器分派的 `fs/*` 事件门禁贡献该策略。（本 Agent Note 最初提议带有 `read`/`write`/`edit` 方法的具体 `ctx.fileContext` 服务；[事件门禁 Agent Note](../architecture/2026-06-26-file-context-as-event-gate.md) 将其细化为本文所述插件，使工具永远不会在方法层与策略耦合。）
+`@deepseek-ai/dsh-fs-policy` 是插件，而非服务：它不注册任何 `ctx.*` 键，也不注入任何内容。它拥有不应位于 `FileSystem` 提供方基类上的写入/编辑新鲜度策略和 observed state（否则沙箱/远程后端会继承不该由其承载的面向模型观察策略）。它通过执行器分派的 `fs/*` 事件门禁贡献该策略。
 
 观测状态以 `WeakMap<owner, Map<targetKey, FsVersion>>` 的形式存放于此。当且仅当 owner 读取、写入或编辑过该目标时，条目才存在（每次成功都会发出 `fs/observed`），因此条目的存在*本身就是*先前观测的记录——没有单独的 `hasRead` 标志。owner 从不透明的事件 actor（`{ agent?: { session? } }`）结构化派生，该形状定义在 `dsh-fs-policy` 中而非 `dsh-fs` 中。
 
@@ -113,7 +113,7 @@ type FsWriteIntent =
 
 ## 后续扩展
 
-后来，[为文件系统 seam 添加直接目录列表](../../archived/architecture/2026-07-03-filesystem-directory-listing-seam.md)进一步扩展了该 seam。该后续工作单独跟踪，使本 Agent Note 的验收标准继续描述最初落地的 fsspec 风格改造。
+后来，[为文件系统 seam 添加直接目录列表](../../archived/architecture/2026-07-03-filesystem-directory-listing-seam.md)进一步扩展了该 seam。该后续工作单独记录，使本文继续描述最初落地的 fsspec 风格改造。
 
 ## 曾考虑的替代方案
 

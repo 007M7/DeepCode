@@ -111,7 +111,7 @@ export interface TelemetryBackend {
    * leave this unimplemented and let their SDK's own batching cadence govern
    * export timing: a backend that does implement it owns the interaction
    * between its concurrent flushes and {@link shutdown}'s drain (the OTel
-   * backend removed its implementation for exactly that hazard — see the
+   * backend leaves it unimplemented for exactly that hazard — see the
    * revival Agent Note).
    */
   flush?(): void

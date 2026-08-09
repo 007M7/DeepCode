@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * Scenario-chain integration (design §8 A/C/D/H/I): the real per-session
+ * Scenario-chain integration (scenarios A/C/D/H/I): the real per-session
  * SlashController pipeline over a real session scope (SessionsService over
  * a listed host session) + a command source implementing the decision
  * table's relevant cells + the real SessionInput machine (scoped-event
@@ -34,7 +34,7 @@ interface FakeCommand {
   input?: { hint: string }
 }
 
-/** T6 decision-table source over an in-memory directory (menu/space/enter columns for leadingInput + execute). */
+/** Decision-table source over an in-memory directory (menu/space/enter columns for leadingInput + execute). */
 function commandSource(commands: FakeCommand[], execute: (line: string) => Promise<SubmitOutcome>) {
   const resolve = (name: string): FakeCommand | undefined => commands.find(c => c.name === name)
   const leadingClaim = (desc: FakeCommand): CommandClaim => ({

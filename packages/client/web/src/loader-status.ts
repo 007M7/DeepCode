@@ -4,8 +4,8 @@
  * cordis fiber states (display the truth, not a retelling) — the boot chain
  * subscribes `internal/status` and recomputes one row per loader entry.
  *
- * The store is hand-rolled here because of the shell self-sufficiency rule
- * (web2 §0): the snapshot-store machinery lives in the runtime PLUGIN
+ * The store is hand-rolled here because of the shell self-sufficiency rule:
+ * the snapshot-store machinery lives in the runtime PLUGIN
  * package, and the shell kernel must not value-import any plugin package —
  * the loading page has to work while (and especially when) plugins fail.
  * @module @deepseek-ai/dsh-client-web/src/loader-status

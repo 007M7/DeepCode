@@ -49,8 +49,8 @@ export function SearchRow({ toolName, block, inspect, t }: SearchRowProps) {
       // sub-dispatch, legacy generic result) has its text nowhere else to go;
       // ToolRow's Output section carries it, and errorSummary its first line.
       // When a card is present ToolRow renders it instead of the output, so
-      // passing model.output unconditionally is safe and keeps the four card
-      // rows symmetric.
+      // model.output passes unconditionally and the four card rows stay
+      // symmetric.
       output={model.output}
       errorSummary={model.errorSummary}
       search={search}

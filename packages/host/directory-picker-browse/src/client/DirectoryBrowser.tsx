@@ -773,8 +773,7 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
         onKeyDown={(event) => {
           if (event.key !== 'Escape' || pathDraft === null) return
           // stopPropagation keeps the card-scope Escape from the Modal's
-          // document listener — the same containment the input previously
-          // provided for itself.
+          // document listener.
           event.stopPropagation()
           // Escape while the input holds focus is about to unmount it; with
           // focus already parked on a row, that row survives the cancel and

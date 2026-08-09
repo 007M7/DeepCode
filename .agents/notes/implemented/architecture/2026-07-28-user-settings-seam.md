@@ -26,9 +26,9 @@ User-editable configuration had no owner: `dsh web` read a cwd-anchored profile 
 
 - **Include write-back as the user layer** (per-plugin config pages writing loader entry files, cordis-webui style): write-back would target per-composition files, binding user preferences to one `cordis.yml`; a per-user layer must survive template upgrades and serve TUI and web from one document.
 - **Loader-reactive `fiber.update` as the propagation channel**: constructor-time reads observe nothing; the seam's explicit `watch()` makes hot-update a consumer contract instead of framework magic.
-- **A domain-aware settings service** (getters per product area): the coupling objection from design review stands; the service stores, validates, and publishes — domain meaning stays with the registrant that owns the schema.
+- **A domain-aware settings service** (getters per product area): rejected as coupling; the service stores, validates, and publishes — domain meaning stays with the registrant that owns the schema.
 - **Multi-layer precedence now** (system/managed/project tiers à la Codex/Claude Code): deferred until a real second layer exists; the resolve step is the single place layering would extend.
-- **A cross-process lockfile now** (Pi's proper-lockfile): initially deferred as "atomic replace plus watcher convergence until real contention shows up" — review showed convergence loses unobserved sibling namespaces, so the deferral is superseded by the [write-path integrity note](2026-07-30-settings-write-path-integrity.md)'s hand-rolled writer lock.
+- **A cross-process lockfile now** (Pi's proper-lockfile): initially deferred as "atomic replace plus watcher convergence until real contention shows up" — but convergence loses unobserved sibling namespaces, so the deferral is superseded by the [write-path integrity note](2026-07-30-settings-write-path-integrity.md)'s hand-rolled writer lock.
 
 ## Consequences
 
