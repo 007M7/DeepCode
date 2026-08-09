@@ -19,16 +19,22 @@ import { allocPtrSlot, decodePtr, isNullPtr, throwLastError, win32Sync } from '.
 import type { NativePtr, Win32Bindings } from './ffi.ts'
 
 /**
- * One orphan write SID's server-lifetime grant materialization: the parsed
- * SID pointer plus every directory whose DACL currently carries its ACE.
- * Create with {@link AclWriteGrant.create}; dispose revokes all.
+ * One write SID's server-lifetime grant materialization: the parsed SID
+ * pointer plus every directory whose DACL currently carries its ACE.
+ * Workspace paths are added STANDING (their ACEs are the cross-session reuse
+ * cache and outlive the grant — dispose() skips revoking them, or the next
+ * provision would re-propagate the whole tree); temp paths are revocable
+ * (dispose() revokes them — an inheritable ACE must not outlive its
+ * session's temp directory). Create with {@link AclWriteGrant.create};
+ * dispose revokes the revocable paths and frees the SID.
  */
 export class AclWriteGrant {
-  /** The orphan write SID in SDDL string form. */
+  /** The write SID in SDDL string form. */
   readonly writeSid: string
   private readonly api: Win32Bindings
   private readonly sidPtr: NativePtr
-  private readonly grantedPaths: string[] = []
+  private readonly revocablePaths: string[] = []
+  private readonly standingPaths: string[] = []
 
   private constructor(api: Win32Bindings, sidPtr: NativePtr, writeSid: string) {
     this.api = api
@@ -57,28 +63,31 @@ export class AclWriteGrant {
   /**
    * Grant the write ACE on one directory (idempotent: an already-standing
    * exact ACE skips the eager full-tree re-propagation — see
-   * {@link grantWrite}) and record the path for {@link dispose}. The path is
-   * recorded BEFORE the grant: a post-apply throw (a LocalFree failure after
-   * SetNamedSecurityInfoW succeeded) must still revoke it, and revoking an
-   * ungranted path is a no-op merge. Callers treat a throw as a failed
-   * materialization and dispose the instance to revoke the paths granted so
-   * far.
+   * {@link grantWrite}) and record the path for {@link dispose} unless it is
+   * standing. The path is recorded BEFORE the grant: a post-apply throw (a
+   * LocalFree failure after SetNamedSecurityInfoW succeeded) must still
+   * revoke it, and revoking an ungranted path is a no-op merge. Callers
+   * treat a throw as a failed materialization and dispose the instance to
+   * revoke the paths granted so far.
    * @param path - the directory whose DACL gains the grant.
+   * @param standing - the ACE outlives this grant (the workspace reuse
+   *   cache; dispose() skips revoking it). Default false (revoked on
+   *   dispose — the temp-directory lifecycle).
    */
-  add(path: string): void {
-    this.grantedPaths.push(path)
+  add(path: string, standing = false): void {
+    ;(standing ? this.standingPaths : this.revocablePaths).push(path)
     grantWrite(this.api, path, this.sidPtr)
   }
 
   /** Every directory currently carrying the grant, in grant order. */
   get paths(): readonly string[] {
-    return this.grantedPaths
+    return [...this.standingPaths, ...this.revocablePaths]
   }
 
-  /** Revoke every standing grant and free the SID; reports every cleanup failure. */
+  /** Revoke every revocable grant (standing ACEs stay) and free the SID; reports every cleanup failure. */
   dispose(): void {
     const failures: unknown[] = []
-    for (const path of this.grantedPaths) {
+    for (const path of this.revocablePaths) {
       try {
         revokeWrite(this.api, path, this.sidPtr)
       } catch (error) {

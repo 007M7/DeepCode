@@ -5,12 +5,16 @@
  * classification facts. Missing or unusable confinement fails closed rather
  * than returning the original argv.
  *
- * The windows-acl rung additionally owns the per-session write grant: one
- * orphan write SID and one private temp subdirectory per session (durable
- * record in the session log — see `./acl-session.ts`), ACEs materialized
- * lazily at the session's first confined execution and held for the SERVER
- * process's lifetime (revoked on dispose). The runner receives `--write-sid`
- * and stops managing DACLs itself.
+ * The windows-acl rung additionally owns the write grants: the write SID is
+ * the per-WORKSPACE identity derived from the canonical workspace path
+ * (`workspaceWriteSid`), and one private temp subdirectory per session
+ * (durable record in the session log — see `./acl-session.ts`). The
+ * workspace-root ACE materializes once per workspace per server lifetime
+ * and STANDS (the cross-session reuse cache — the exact-ACE skip makes
+ * every later provision O(1) instead of re-propagating the tree per
+ * session); the private-temp ACEs are revoked on dispose. The runner
+ * receives `--write-sid` (the derived identity; its presence marks the
+ * seam-managed contract) and stops managing DACLs itself.
  * @module @deepseek-ai/dsh-sandbox-local
  */
 
@@ -30,7 +34,7 @@ import { assertNever } from '@deepseek-ai/dsh-llm'
 import { SandboxProvider, SandboxUnavailableError } from '@deepseek-ai/dsh-sandbox'
 import type { ConfinedArgv, ConfinedSandboxMode, RunnerFailureRule, SandboxEnforcement, SandboxPolicy } from '@deepseek-ai/dsh-sandbox'
 import type { SessionId } from '@deepseek-ai/dsh-session'
-import { AclWriteGrant } from '@deepseek-ai/dsh-sandbox-windows-acl'
+import { AclWriteGrant, workspaceWriteSid } from '@deepseek-ai/dsh-sandbox-windows-acl'
 import { provisionAclSession, sessionAclRecord } from './acl-session.ts'
 import type { AclSessionRecord } from './acl-session.ts'
 import { bwrapProfileArgs, landlockProfileArgs, seatbeltProfileArgs } from './profiles.ts'
@@ -227,9 +231,10 @@ const RUNNER_FAILURE_RULES = {
 
 /**
  * Local process-sandbox provider. Registers as `ctx.sandbox`. Caches the
- * chain verdict and, on the windows-acl rung, the per-session write grants
- * ({@link AclWriteGrant}, one per session, revoked on provider dispose); the
- * one-time probes spawn nothing else.
+ * chain verdict and, on the windows-acl rung, the write grants
+ * ({@link AclWriteGrant}: the standing workspace-root grant per workspace
+ * and the revocable private-temp grant per session, the latter revoked on
+ * provider dispose); the one-time probes spawn nothing else.
  */
 export class LocalSandboxProvider extends SandboxProvider {
   // Inline schema call: the config catalog walks `static Config` statically.
@@ -248,11 +253,15 @@ export class LocalSandboxProvider extends SandboxProvider {
   /** Cached chain verdict; undefined until the first confined wrap needs it. */
   private selectedRunner: SelectedRunner | 'unavailable' | undefined
   /**
-   * Server-lifetime per-session write grants (windows-acl rung), keyed by the
-   * session's orphan write SID — the native half of the per-session reuse;
-   * the durable half lives in the session log (`./acl-session.ts`).
+   * Server-lifetime write grants (windows-acl rung): the STANDING
+   * workspace-root grant per workspace (its ACE is the cross-session reuse
+   * cache and outlives the provider — never revoked) and the REVOCABLE
+   * private-temp grant per session (revoked on provider dispose); the
+   * durable half (workspace binding + private temp dir) lives in the
+   * session log (`./acl-session.ts`).
    */
-  private readonly aclGrants = new Map<string, AclWriteGrant>()
+  private readonly workspaceGrants = new Map<string, AclWriteGrant>()
+  private readonly tempGrants = new Map<string, AclWriteGrant>()
 
   constructor(ctx: Context, config: Config) {
     super(ctx)
@@ -274,9 +283,10 @@ export class LocalSandboxProvider extends SandboxProvider {
     this.configuredRunnerFailureSignatures = runnerFailureSignatures
     this.probeTimeoutMs = config.probeTimeoutMs as number
     assertPositiveFinite('probeTimeoutMs', this.probeTimeoutMs)
-    // Standing ACL grants are revoked with the provider: a clean server
-    // shutdown leaves no orphan-SID ACEs behind (an unclean one leaves ACEs
-    // the session's durable record re-grants idempotently on resume).
+    // The temp grants are revoked with the provider: a clean server
+    // shutdown leaves no temp ACEs behind (workspace ACEs stand by design —
+    // the reuse cache; an unclean shutdown leaves them for the next
+    // provision's exact-ACE skip).
     ctx.effect(() => () => {
       this.revokeAclGrants()
     })
@@ -357,10 +367,11 @@ export class LocalSandboxProvider extends SandboxProvider {
       // Workspace-write sessions confine their temp writes to the PRIVATE
       // per-session subdirectory (bwrap --tmpfs /tmp semantics); read-only
       // runs pass the ambient temp root — the runner validates it exists
-      // but grants nothing.
+      // but grants nothing. The derived write SID is the per-workspace
+      // identity; the flag's presence marks the seam-managed DACL contract.
       '--temp', policy.mode === 'workspace-write' ? record.tempDir : tmpdir(),
       '--mode', policy.mode,
-      '--write-sid', record.writeSid,
+      '--write-sid', workspaceWriteSid(record.workspace),
     ]
   }
 
@@ -399,8 +410,8 @@ export class LocalSandboxProvider extends SandboxProvider {
     // Immediate durability kick: the append is write-behind (bounded
     // coordinator window); flush now so the record is durable as close to
     // its ACE materialization as the synchronous confine seam allows. The
-    // residual window (a crash inside the flush latency) can strand inert
-    // orphan-SID ACEs — documented in the README.
+    // residual window (a crash inside the flush latency) strands the
+    // private temp directory unrecorded — documented in the README.
     void store.flush(session)
     return record
   }
@@ -408,29 +419,49 @@ export class LocalSandboxProvider extends SandboxProvider {
   /**
    * Materialize the record's ACEs once per server lifetime: lazily at the
    * session's first confined execution, reused for every later call (the map
-   * hit is the whole call). Workspace-write grants the workspace root and
-   * the private temp subdirectory — created here EXCLUSIVELY (the name is
-   * random and unguessable, a pre-existing entry throws EEXIST, and a
-   * reparse point is rejected, so the grant never lands on an
-   * attacker-placed object); read-only materializes NOTHING — its token
-   * alone restricts every write, and a standing grant from an earlier
-   * workspace-write period is KEPT through a downgrade (never revoked): the
-   * read-only restricted token carries no orphan SID (the read-only list),
-   * so the ACE is inert there, while the map hit keeps the re-upgrade free
-   * of re-propagation. Fail-closed: a half-materialized grant is revoked
-   * before the error propagates.
+   * hits are the whole call). The write SID is the per-workspace identity
+   * derived from the record's workspace. Workspace-write grants the
+   * workspace root STANDING (the ACE outlives every session — the reuse
+   * cache) and the private temp subdirectory REVOCABLY — created here
+   * EXCLUSIVELY (the name is random and unguessable, a pre-existing entry
+   * throws EEXIST, and a reparse point is rejected, so the grant never
+   * lands on an attacker-placed object); read-only materializes NOTHING —
+   * its token alone restricts every write, and the standing grant from an
+   * earlier workspace-write period is KEPT through a downgrade (never
+   * revoked): the read-only restricted token carries no write SID (the
+   * read-only list), so the ACE is inert there, while the map hit keeps the
+   * re-upgrade free of re-propagation. Fail-closed: a half-materialized
+   * temp grant is revoked before the error propagates.
    * @param record - the session's durable record.
    * @param mode - the policy mode (grants exist only under workspace-write).
    */
   private materializeAclGrant(record: AclSessionRecord, mode: ConfinedSandboxMode): void {
-    if (this.aclGrants.has(record.writeSid) || mode === 'read-only') return
-    const grant = AclWriteGrant.create(record.writeSid)
+    if (mode === 'read-only') return
+    const writeSid = workspaceWriteSid(record.workspace)
+    if (!this.workspaceGrants.has(record.workspace)) {
+      const grant = AclWriteGrant.create(writeSid)
+      try {
+        grant.add(record.workspace, true)
+      } catch (error) {
+        // Free the SID; a standing ACE (if the apply succeeded before a
+        // post-apply throw) is the intended end state, not an error
+        // artifact — nothing to revoke.
+        try {
+          grant.dispose()
+        } catch (cleanupError) {
+          throw new AggregateError([error, cleanupError], 'sandbox-local windows-acl workspace grant failed and its cleanup also failed')
+        }
+        throw error
+      }
+      this.workspaceGrants.set(record.workspace, grant)
+    }
+    if (this.tempGrants.has(record.sessionId)) return
+    const grant = AclWriteGrant.create(writeSid)
     try {
       // Exclusive creation (no `recursive`): a pre-existing entry OR a
       // reparse point both fail EEXIST — the grant never lands on a foreign
       // object.
       mkdirSync(record.tempDir)
-      grant.add(record.workspace)
       grant.add(record.tempDir)
     } catch (error) {
       // Revoke whatever stands and free the SID — never leave a half-grant
@@ -438,30 +469,32 @@ export class LocalSandboxProvider extends SandboxProvider {
       try {
         grant.dispose()
       } catch (cleanupError) {
-        throw new AggregateError([error, cleanupError], 'sandbox-local windows-acl grant materialization failed and its cleanup also failed')
+        throw new AggregateError([error, cleanupError], 'sandbox-local windows-acl temp grant materialization failed and its cleanup also failed')
       }
       throw error
     }
-    this.aclGrants.set(record.writeSid, grant)
+    this.tempGrants.set(record.sessionId, grant)
   }
 
   /**
-   * Revoke every standing per-session grant and free every SID (provider
-   * dispose). Cleanup failures are reported, not thrown: cordis teardown
-   * must not be aborted by grant revocation, and the durable records make a
-   * missed revocation self-healing on the next resume.
+   * Dispose every write grant (provider dispose): the revocable temp ACEs
+   * are revoked and every SID allocation freed; the standing workspace ACEs
+   * stay (the reuse cache). Cleanup failures are reported, not thrown:
+   * cordis teardown must not be aborted by grant cleanup, and the durable
+   * records make a missed revocation self-healing on the next resume.
    */
   private revokeAclGrants(): void {
-    if (this.aclGrants.size === 0) return
+    if (this.workspaceGrants.size === 0 && this.tempGrants.size === 0) return
     const failures: unknown[] = []
-    for (const grant of this.aclGrants.values()) {
+    for (const grant of [...this.workspaceGrants.values(), ...this.tempGrants.values()]) {
       try {
         grant.dispose()
       } catch (error) {
         failures.push(error)
       }
     }
-    this.aclGrants.clear()
+    this.workspaceGrants.clear()
+    this.tempGrants.clear()
     if (failures.length > 0) {
       this.ctx.logger.warn(`sandbox-local: windows-acl grant cleanup completed with ${failures.length} failure(s)`)
       for (const error of failures) this.ctx.logger.warn(error)

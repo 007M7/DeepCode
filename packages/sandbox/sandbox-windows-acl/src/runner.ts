@@ -1,9 +1,10 @@
 /**
  * The windows-acl confinement runner: the argv-prefix wrapper the sandbox
  * seam spawns in place of the caller's command. It creates the
- * WRITE_RESTRICTED token with the orphan-SID allowlist, spawns the wrapped
- * argv under it with the CALLER'S stdio inherited (bytes flow straight
- * through), mirrors the child's exit code, and revokes all grants on exit.
+ * WRITE_RESTRICTED token with the workspace write-SID allowlist, spawns the
+ * wrapped argv under it with the CALLER'S stdio inherited (bytes flow
+ * straight through), mirrors the child's exit code, and revokes its temp
+ * grant on exit (workspace ACEs stay standing as the reuse cache).
  *
  * Stable argv contract (the seam builds it; a native-exe replacement would
  * keep the same contract):
@@ -22,19 +23,23 @@
  *    Public tree writes are denied); the two lists share the keep-alive group
  *    (logon SID, EVERYONE) and differ only by the orphan.
  *
- * `--write-sid`: the seam's per-session grant contract — the CALLER has
- * already materialized the orphan-SID ACEs (once per session, server
- * lifetime) and owns their revocation, so the runner neither grants nor
- * revokes (manageDacls: false). Absent `--write-sid` (standalone/test use)
- * the runner self-manages grants per invocation as before. With
- * `--write-sid` in workspace-write mode, the runner rewrites the TMP/TEMP
- * entries of its OWN environment (SetEnvironmentVariableW) to the `--temp`
- * directory — a PRIVATE per-session temp subdirectory the seam provisions
- * (bwrap `--tmpfs /tmp` semantics) — and the child inherits the rewritten
- * block (lpEnvironment NULL; an explicit block through koffi trips
- * ERROR_INVALID_PARAMETER in CreateProcessAsUserW, verified empirically).
- * Read-only leaves the ambient temp entries untouched (writes there are
- * denied anyway).
+ * `--write-sid`: the seam's grant contract — the CALLER has already
+ * materialized the write-SID ACEs (the seam's workspace + private-temp
+ * grants, server lifetime) and owns their revocation, so the runner neither
+ * grants nor revokes (manageDacls: false). The carried SID is the
+ * per-workspace identity ({@link workspaceWriteSid}) — the seam derives it
+ * from the policy root; the flag's PRESENCE is the seam-managed marker (its
+ * value must equal the workspace-derived SID). Absent `--write-sid`
+ * (standalone/test use) the runner self-manages grants per invocation with
+ * the same workspace-derived SID (its workspace ACEs are standing — the
+ * reuse cache — and its temp ACE is revoked on exit). With `--write-sid` in
+ * workspace-write mode, the runner rewrites the TMP/TEMP entries of its OWN
+ * environment (SetEnvironmentVariableW) to the `--temp` directory — a
+ * PRIVATE per-session temp subdirectory the seam provisions (bwrap `--tmpfs
+ * /tmp` semantics) — and the child inherits the rewritten block (lpEnvironment
+ * NULL; an explicit block through koffi trips ERROR_INVALID_PARAMETER in
+ * CreateProcessAsUserW, verified empirically). Read-only leaves the ambient
+ * temp entries untouched (writes there are denied anyway).
  *
  * Failure contract: every runner-side failure (bad args, missing
  * directories, token/grant/spawn errors) prints `windows-acl-run: <detail>`
@@ -47,6 +52,7 @@ import { existsSync, statSync } from 'node:fs'
 
 import { win32 } from './ffi.ts'
 import { AclSandbox } from './index.ts'
+import { workspaceWriteSid } from './workspace-sid.ts'
 
 const RUNNER_SIGNATURE = 'windows-acl-run'
 const RUNNER_FAILURE_EXIT = 127
@@ -121,13 +127,17 @@ async function main(): Promise<number> {
     fail(`SetConsoleCtrlHandler failed (Win32 ${api.getLastError()})`)
   }
 
+  // The write SID is the per-workspace identity in BOTH flows; the flag's
+  // presence (seam-derived, or the self-managed derivation) selects who
+  // owns the DACLs below.
+  const writeSid = parsed.mode === 'workspace-write' ? parsed.writeSid ?? workspaceWriteSid(parsed.workspace) : undefined
   const sandbox = new AclSandbox({
     writableDirs: parsed.mode === 'workspace-write' ? [parsed.workspace] : [],
     tempDir: parsed.mode === 'workspace-write' ? parsed.temp : null,
     mode: parsed.mode,
-    ...parsed.writeSid === undefined ? {} : { writeSid: parsed.writeSid },
-    // With --write-sid the seam owns the DACLs (per-session grants): this
-    // invocation must neither add nor revoke ACEs.
+    ...writeSid === undefined ? {} : { writeSid },
+    // With --write-sid the seam owns the DACLs (workspace + private-temp
+    // grants): this invocation must neither add nor revoke ACEs.
     manageDacls: parsed.writeSid === undefined,
   })
   await sandbox.init()

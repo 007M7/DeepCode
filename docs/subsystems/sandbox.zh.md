@@ -56,8 +56,9 @@ interface SandboxExecutionPolicy {
   /**
    * Opaque identity of the calling session (the branded `dsh-session`
    * SessionId). Backends key per-session state off it (e.g. the windows-acl
-   * per-session write grant and private temp subdirectory); absent for
-   * agentless calls, which fall back to per-call backend state.
+   * per-session private temp subdirectory — the write grant itself is
+   * per-workspace, derived from the workspace root); absent for agentless
+   * calls, which fall back to per-call backend state.
    */
   sessionId?: SessionId
 }
@@ -183,7 +184,7 @@ Abstract process-sandbox service. confine must return enforcing argv or fail clo
 abstract confine(argv: readonly string[], policy: SandboxPolicy): ConfinedArgv
 ```
 
-Source: [`packages/sandbox/sandbox/src/index.ts:157`](../../packages/sandbox/sandbox/src/index.ts)
+Source: [`packages/sandbox/sandbox/src/index.ts:158`](../../packages/sandbox/sandbox/src/index.ts)
 
 <a id="ctxsandboxpolicy--sandboxpolicyservice"></a>
 

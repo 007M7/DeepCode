@@ -51,7 +51,7 @@ describe.skipIf(!isWin32 || !pwshAvailable())('AclSandbox write restriction', ()
     // block, which host runtimes (vitest worker pools) may not keep in sync
     // with process.env — and a real-temp grant would inherit over every
     // temp subdirectory, including this test's scratch dir.
-    sandbox = new AclSandbox({ writableDirs: [writableDir], tempDir: isolatedTemp, mode: 'workspace-write' })
+    sandbox = new AclSandbox({ writableDirs: [writableDir], tempDir: isolatedTemp, writeSid: 'S-1-4-9000-4', mode: 'workspace-write' })
     await sandbox.init()
   })
 

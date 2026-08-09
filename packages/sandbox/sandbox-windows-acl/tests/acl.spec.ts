@@ -17,6 +17,7 @@ import koffi from 'koffi'
 
 import { buildExplicitAccess, grantWrite, lockFilePath, revokeWrite, withPathLock } from '../src/acl.ts'
 import { AclSandbox } from '../src/index.ts'
+import { createRestrictedToken } from '../src/token.ts'
 import { allocOverlapped, allocPtrSlot, decodePtr, isInvalidHandle, isNullPtr, win32 } from '../src/ffi.ts'
 import type { NativePtr, Win32Bindings } from '../src/ffi.ts'
 import * as abi from '../src/win32-abi.ts'
@@ -170,18 +171,42 @@ describe.skipIf(!isWin32)('ACL editing', () => {
     }
   })
 
-  it('interleaved sandbox instances: A.init → B.init → A.dispose → B.dispose leaves neither ACE', async () => {
+  it('interleaved sandbox instances: A.init → B.init → A.dispose → B.dispose leaves BOTH standing workspace ACEs (the per-workspace reuse cache)', async () => {
     const api = await win32()
     const dir = scratch()
     const sandboxA = new AclSandbox({ writableDirs: [dir], tempDir: null, writeSid: 'S-1-4-9000-1', mode: 'workspace-write' })
     const sandboxB = new AclSandbox({ writableDirs: [dir], tempDir: null, writeSid: 'S-1-4-9000-2', mode: 'workspace-write' })
     await sandboxA.init()
     await sandboxB.init()
+    // Workspace ACEs are STANDING: dispose frees the instance's SID
+    // allocations but deliberately leaves the ACEs — they are the reuse
+    // cache the next provision's exact-ACE skip consumes.
     sandboxA.dispose()
     sandboxB.dispose()
     const aces = readDirectAces(api, dir)
-    expect(aces.some(ace => ace.sid === 'S-1-4-9000-1')).toBe(false)
-    expect(aces.some(ace => ace.sid === 'S-1-4-9000-2')).toBe(false)
+    expect(aces.some(ace => ace.sid === 'S-1-4-9000-1')).toBe(true)
+    expect(aces.some(ace => ace.sid === 'S-1-4-9000-2')).toBe(true)
+  })
+
+  it('dispose revokes the revocable temp ACE and keeps the standing workspace ACE (self-managed flow)', async () => {
+    const api = await win32()
+    const workspaceDir = scratch()
+    const tempDir = scratch()
+    const sandbox = new AclSandbox({ writableDirs: [workspaceDir], tempDir, writeSid: 'S-1-4-9000-3', mode: 'workspace-write' })
+    await sandbox.init()
+    sandbox.dispose()
+    const workspaceAces = readDirectAces(api, workspaceDir)
+    expect(workspaceAces.some(ace => ace.sid === 'S-1-4-9000-3')).toBe(true)
+    const tempAces = readDirectAces(api, tempDir)
+    expect(tempAces.some(ace => ace.sid === 'S-1-4-9000-3')).toBe(false)
+  })
+
+  it('workspace-write without a write SID fails at construction; the token layer guards the same contract', () => {
+    const dir = scratch()
+    expect(() => new AclSandbox({ writableDirs: [dir], tempDir: null, mode: 'workspace-write' }))
+      .toThrow(/requires a write SID/)
+    expect(() => createRestrictedToken({} as never, 0n as never, 0n as never, undefined, { world: 0n as never }, 'workspace-write'))
+      .toThrow(/requires the write SID/)
   })
 
   it('the per-path lock is exclusive: a second immediate lock attempt fails with ERROR_LOCK_VIOLATION until release', async () => {

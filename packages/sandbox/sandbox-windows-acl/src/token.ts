@@ -114,13 +114,13 @@ export interface RestrictingSidSet {
  *
  * The logon SID + EVERYONE keep-alive group is shared by both modes: early
  * DLL init dies with 0xC0000142 and CNG (`\Device\CNG` write trustee —
- * pwsh crashes 0xE0434352) fails without them. The orphan SID joins ONLY
- * workspace-write — read-only carries no orphan, so a standing grant ACE
+ * pwsh crashes 0xE0434352) fails without them. The write SID joins ONLY
+ * workspace-write — read-only carries no write SID, so a standing grant ACE
  * from an earlier workspace-write period (a `/permission` mode downgrade, or
  * a crash-resumed session) stays INERT under read-only: the WRITE_RESTRICTED
  * pass-2 check grants only what the restricting list carries, keeping
  * read-only strictly zero-grant even with stale ACEs standing, while the
- * unrevoked ACE keeps the re-upgrade free (the seam's grant map hits it — no
+ * unrevoked ACE keeps the re-upgrade free (the grant's exact-ACE skip — no
  * re-propagation). Authenticated Users is absent from BOTH lists: the WMI
  * namespace security check fails (0x80041003), so CIM is unavailable in
  * every confined mode, and the C:\-root tree-creation escape (standing
@@ -133,22 +133,24 @@ export interface RestrictingSidSet {
  * @param api - the binding table.
  * @param currentToken - the process token to restrict.
  * @param logonSid - the copied logon session SID.
- * @param writeSid - the orphan SID forming the write allowlist (workspace-write only).
+ * @param writeSid - the write SID forming the write allowlist (workspace-write only; absent under read-only).
  * @param known - the well-known SIDs entering the restricting list.
- * @param mode - selects the restricting list (workspace-write adds the orphan).
+ * @param mode - selects the restricting list (workspace-write adds the write SID).
  * @returns the restricted token handle.
  */
 export function createRestrictedToken(
   api: Win32Bindings,
   currentToken: NativePtr,
   logonSid: NativePtr,
-  writeSid: NativePtr,
+  writeSid: NativePtr | undefined,
   known: RestrictingSidSet,
   mode: 'read-only' | 'workspace-write',
 ): NativePtr {
   const restrictingSids = buildRestrictingSids(mode === 'read-only'
     ? [logonSid, known.world]
-    : [logonSid, known.world, writeSid])
+    : writeSid === undefined
+      ? (() => { throw new Error('createRestrictedToken: workspace-write restricting list requires the write SID') })()
+      : [logonSid, known.world, writeSid])
   const tokenSlot = allocPtrSlot()
   const created = api.createRestrictedToken(
     currentToken,

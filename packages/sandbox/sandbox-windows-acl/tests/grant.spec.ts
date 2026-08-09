@@ -1,8 +1,10 @@
 /**
- * AclWriteGrant tests: the server-side per-session grant materialization —
- * SID parsing fail-closed, ACE add/dispose round-trip against the REAL
- * directory DACL (observed through icacls, the operator's own tool), and
- * the recorded path order. Win32-only, like the other real-FFI suites.
+ * AclWriteGrant tests: the server-side grant materialization — SID parsing
+ * fail-closed, ACE add/dispose round-trip against the REAL directory DACL
+ * (observed through icacls, the operator's own tool), the recorded path
+ * order, and the standing/revocable lifecycle split (workspace ACEs outlive
+ * dispose as the reuse cache; temp ACEs revoke). Win32-only, like the other
+ * real-FFI suites.
  */
 
 import { spawnSync } from 'node:child_process'
@@ -38,18 +40,24 @@ describe.skipIf(!isWin32)('AclWriteGrant (server-side materialization)', () => {
     expect(() => AclWriteGrant.create('S-1-4-abc-1')).toThrow(/ConvertStringSidToSidW/u)
   })
 
-  it('add materializes the ACE (idempotently), paths report the grant order, dispose revokes it', () => {
+  it('add materializes the ACE (idempotently) and reports grant order; dispose revokes revocable paths and keeps standing paths standing', () => {
     const dir = scratch()
+    const standingDir = scratch()
     const grant = AclWriteGrant.create('S-1-4-9000-77')
-    grant.add(dir)
-    expect(grant.paths).toEqual([dir])
+    grant.add(dir) // revocable: the session-temp lifecycle
+    grant.add(standingDir, true) // standing: the workspace reuse cache
+    expect(grant.paths).toEqual([standingDir, dir])
     expect(icaclsText(dir)).toContain('S-1-4-9000-77')
+    expect(icaclsText(standingDir)).toContain('S-1-4-9000-77')
     // A second add over the standing exact ACE is a DACL-read no-op: the
-    // grant stays exactly one ACE (per-session reuse after a restart).
+    // grant stays exactly one ACE (the reuse across sessions/restarts).
     grant.add(dir)
+    grant.add(standingDir, true)
     expect(icaclsText(dir)).toContain('S-1-4-9000-77')
+    expect(icaclsText(standingDir)).toContain('S-1-4-9000-77')
     grant.dispose()
     expect(icaclsText(dir)).not.toContain('S-1-4-9000-77')
+    expect(icaclsText(standingDir)).toContain('S-1-4-9000-77')
   })
 
   it('two grants with different SIDs coexist and revoke independently', () => {

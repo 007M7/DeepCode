@@ -1,18 +1,24 @@
 /**
- * The windows-acl per-session write identity — the DURABLE half of the seam's
- * per-session grant reuse. Each session owns exactly one record (one orphan
- * write SID, one private temp subdirectory), stored as a log-only
+ * The windows-acl session write record — the DURABLE half of the seam's
+ * grant lifecycle. Each session owns exactly one record (its workspace
+ * binding plus one private temp subdirectory), stored as a log-only
  * `sandbox/acl-session` event on the session log (the `sandbox/mode`
  * precedent): replayable, never in the model transcript, and no external
- * config store. The ACE half is server-lifetime state owned by the provider
- * ({@link AclWriteGrant} materialization, revoked on dispose); the record
- * survives restarts so a resumed session reuses the SAME SID — re-granting
- * idempotently merges into (or skips) the standing ACEs instead of leaking a
- * fresh dead SID's ACEs per restart. The record is BOUND to its owning
- * session id, so a fork (which copies the parent's events, record included)
- * never inherits the parent's identity — it provisions a fresh one. The
- * record's payload is durable input and is validated at the fold (orphan-SID
- * shape, well-formed temp path); a matching-but-tampered record fails loud.
+ * config store. The record carries NO SID: the write SID is the
+ * per-WORKSPACE identity derived from the workspace path
+ * (`workspaceWriteSid`) — deterministic across sessions and server
+ * restarts, so the workspace-root ACE materializes once per workspace per
+ * machine (the grant's exact-ACE skip makes every later provision O(1))
+ * instead of once per session. The ACE half is server-lifetime state owned
+ * by the provider ({@link AclWriteGrant}: workspace ACEs standing, temp ACEs
+ * revocable); the record survives restarts so a resumed session reuses the
+ * SAME private temp subdirectory and the same derived SID — re-granting
+ * idempotently merges into (or skips) the standing ACEs. The record is
+ * BOUND to its owning session id, so a fork (which copies the parent's
+ * events, record included) never inherits the parent's temp identity — it
+ * provisions a fresh one. The record's payload is durable input and is
+ * validated at the fold (well-formed workspace/temp paths); a
+ * matching-but-tampered record fails loud.
  *
  * @module dsh-sandbox-local/acl-session
  */
@@ -20,22 +26,21 @@
 import { randomBytes } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { randomWriteSid } from '@deepseek-ai/dsh-sandbox-windows-acl'
 import type { Session, SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 
 declare module '@deepseek-ai/dsh-session' {
   interface SessionEventMap {
     /**
-     * The session's windows-acl write identity was provisioned — log-only
+     * The session's windows-acl write record was provisioned — log-only
      * (like `sandbox/mode`; NOT a surface event, carries no `surfaceOp`):
      * durable and replayable, never in the model transcript. The LAST such
      * event owned by the session is its record ({@link sessionAclRecord});
      * the provider appends exactly one on the session's first Windows
-     * confined execution.
+     * confined execution. The write SID itself is NOT stored — it is the
+     * per-workspace identity derived from `workspace`
+     * (`workspaceWriteSid`).
      */
     'sandbox/acl-session': {
-      /** The orphan write SID (`S-1-4-x-y`) whose ACEs form the session's write allowlist. */
-      writeSid: string
       /** The owning session — the binding a fork's copied event cannot satisfy. */
       sessionId: SessionId
       /** The workspace root the grant applies to (the session's immutable cwd, as resolved). */
@@ -48,24 +53,19 @@ declare module '@deepseek-ai/dsh-session' {
 
 /** The durable per-session record carried by one `sandbox/acl-session` event. */
 export interface AclSessionRecord {
-  /** The orphan write SID whose ACEs form the session's write allowlist. */
-  writeSid: string
   /** The owning session id (binds the record against fork inheritance). */
   sessionId: SessionId
-  /** The workspace root the record was provisioned for. */
+  /** The workspace root the record was provisioned for (the write SID derives from it). */
   workspace: string
   /** The session's private temp subdirectory. */
   tempDir: string
 }
 
-/** Orphan shape `S-1-4-x-y` — a replayed `Everyone` SID would widen the grant to every token. */
-const ORPHAN_SID_PATTERN = /^S-1-4-\d+-\d+$/u
-
 /**
  * The session's record: the last `sandbox/acl-session` event owned by it, or
  * undefined (never confined / a fork). Durable-input validation: tampered
- * SID or temp path fails loud. @param events/@param sessionId/@returns as
- * below.
+ * workspace or temp path fails loud. @param events/@param sessionId/@returns
+ * as below.
  * @param events - session events (other types skipped).
  * @param sessionId - owning session (fork binding).
  * @returns the last owned record, or undefined without one.
@@ -77,12 +77,6 @@ export function sessionAclRecord(events: readonly SessionEvent[], sessionId: Ses
     const data = event.data
     // Fork copies the parent's record: skip non-owned records (fork mints fresh).
     if (data.sessionId !== sessionId) continue
-    if (typeof data.writeSid !== 'string' || !ORPHAN_SID_PATTERN.test(data.writeSid)) {
-      throw new Error(
-        `sandbox-local: session "${sessionId}" acl record carries a malformed write SID ${JSON.stringify(data.writeSid)} `
-        + '(expected the orphan shape S-1-4-x-y)',
-      )
-    }
     if (typeof data.workspace !== 'string' || data.workspace.length === 0) {
       throw new Error(`sandbox-local: session "${sessionId}" acl record carries an empty workspace`)
     }
@@ -112,18 +106,17 @@ export function sessionTempDir(): string {
 
 /**
  * Provision the record for a session that has none (its first Windows
- * confined execution): a fresh write SID plus the private temp subdirectory,
- * appended as exactly one log-only `sandbox/acl-session` event — the
- * provision IS its event, nothing mutates record state out of band. Fork
- * (whose copied parent record is not its own) provisions a fresh record;
- * resume replays the stored one.
+ * confined execution): the workspace binding plus the private temp
+ * subdirectory, appended as exactly one log-only `sandbox/acl-session`
+ * event — the provision IS its event, nothing mutates record state out of
+ * band. Fork (whose copied parent record is not its own) provisions a fresh
+ * record; resume replays the stored one.
  * @param session - the session the record belongs to.
  * @param workspaceRoot - the resolved policy root (the session's immutable cwd).
  * @returns the provisioned record.
  */
 export function provisionAclSession(session: Session, workspaceRoot: string): AclSessionRecord {
   const record: AclSessionRecord = {
-    writeSid: randomWriteSid(),
     sessionId: session.id,
     workspace: workspaceRoot,
     tempDir: sessionTempDir(),
