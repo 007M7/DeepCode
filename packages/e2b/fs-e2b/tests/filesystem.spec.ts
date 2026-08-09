@@ -52,7 +52,10 @@ class FakeRemote {
   nextRemoveError: unknown
   canonicalOutput: string | undefined
   abortAfterRename: AbortController | undefined
-  competitorBeforeLink: { path: string; data: string } | undefined
+  competitorBeforeLink:
+    | { path: string; kind: 'file'; data: string }
+    | { path: string; kind: 'directory' }
+    | undefined
   guardedLinkOutput: string | undefined
   disappearOnInfo = new Set<string>()
   private clock = 1
@@ -257,7 +260,7 @@ class FakeRemote {
         const chmod = /^chmod ([0-7]+) -- '([^']+)'$/.exec(command)
         if (chmod !== null) this.required(chmod[2]!).mode = Number.parseInt(chmod[1]!, 8)
         const guardedLink = new RegExp(
-          "^if ln -- '([^']+)' '([^']+)'; then printf created; "
+          "^if ln -T -- '([^']+)' '([^']+)'; then printf created; "
           + "elif test -e '[^']+' \\|\\| test -L '[^']+'; then printf exists; else exit 1; fi$",
         ).exec(command)
         if (guardedLink !== null) {
@@ -269,7 +272,8 @@ class FakeRemote {
             return { exitCode: 0, stdout, stderr: '' }
           }
           if (this.competitorBeforeLink?.path === to) {
-            this.file(to, this.competitorBeforeLink.data)
+            if (this.competitorBeforeLink.kind === 'directory') this.dir(to)
+            else this.file(to, this.competitorBeforeLink.data)
             this.competitorBeforeLink = undefined
           }
           if (this.nodes.has(to)) return { exitCode: 0, stdout: 'exists', stderr: '' }
@@ -555,7 +559,7 @@ describe('E2BFileSystem atomic writes and edits', () => {
 
   it('preserves a competitor created after the guarded-create probe', async () => {
     const remote = new FakeRemote()
-    remote.competitorBeforeLink = { path: '/workspace/race.txt', data: 'competitor' }
+    remote.competitorBeforeLink = { path: '/workspace/race.txt', kind: 'file', data: 'competitor' }
     const { fs } = await setup(remote)
 
     await expectCode(
@@ -563,6 +567,21 @@ describe('E2BFileSystem atomic writes and edits', () => {
       'FS_NOT_OBSERVED',
     )
     expect(new TextDecoder().decode(remote.nodes.get('/workspace/race.txt')?.data)).toBe('competitor')
+    expect(remote.links).toHaveLength(0)
+    expect(remote.removals).toHaveLength(1)
+  })
+
+  it('preserves a competing directory during guarded-create publication', async () => {
+    const remote = new FakeRemote()
+    remote.competitorBeforeLink = { path: '/workspace/race-dir', kind: 'directory' }
+    const { fs } = await setup(remote)
+
+    await expectCode(
+      fs.writeText(await fs.resolve('race-dir'), 'ours', { kind: 'createIfAbsent' }),
+      'FS_NOT_OBSERVED',
+    )
+    expect(remote.nodes.get('/workspace/race-dir')?.type).toBe(FileType.DIR)
+    expect(remote.nodes.has('/workspace/race-dir/content')).toBe(false)
     expect(remote.links).toHaveLength(0)
     expect(remote.removals).toHaveLength(1)
   })

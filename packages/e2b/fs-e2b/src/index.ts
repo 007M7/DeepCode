@@ -489,7 +489,7 @@ export class E2BFileSystem extends FileSystem {
         assertNotAborted(signal, 'write')
         const targetArg = quoteE2BShellArg(targetPath)
         const publication = await sandbox.commands.run(
-          `if ln -- ${quoteE2BShellArg(temporary)} ${targetArg}; then printf created; elif test -e ${targetArg} || test -L ${targetArg}; then printf exists; else exit 1; fi`,
+          `if ln -T -- ${quoteE2BShellArg(temporary)} ${targetArg}; then printf created; elif test -e ${targetArg} || test -L ${targetArg}; then printf exists; else exit 1; fi`,
           commandOpts(undefined),
         )
         if (publication.stdout === 'exists') {

@@ -91,6 +91,10 @@ export interface FsIoInternals {
   replaceFile?: (replaced: string, replacement: string) => Promise<void>
   /** Override the hard-link no-replace publication boundary. */
   linkFile?: (existingPath: string, newPath: string) => Promise<void>
+  /** Override target inspection after guarded publication fails. */
+  inspectPublicationTarget?: (path: string) => Promise<BigIntStats>
+  /** Override staging-directory removal for commit-point failure coverage. */
+  removeStagingDir?: (stagingDir: string) => Promise<void>
   /** Test hook after the temp file is written/synced but before final chmod+publication. */
   inspectTemp?: (paths: { stagingDir: string; tempPath: string }) => void | Promise<void>
 }
@@ -413,14 +417,55 @@ export async function* streamWholeText(target: LocalTarget, signal?: AbortSignal
 
 // --- Writing ---
 
-async function removeStagingDirOrThrow(stagingDir: string, originalError: unknown): Promise<never> {
+async function removeStagingDirOrThrow(
+  stagingDir: string,
+  originalError: unknown,
+  removeStagingDir: (path: string) => Promise<void>,
+): Promise<never> {
   try {
-    await rm(stagingDir, { recursive: true, force: true })
+    await removeStagingDir(stagingDir)
   } catch (cleanupError: unknown) {
     /* v8 ignore next 1 -- cleanup failure here needs a second filesystem fault after the primary write failure. */
     throw new FsError(`write failed (${errorMessage(originalError)}) and temp cleanup failed (${errorMessage(cleanupError)})`, 'FS_NOT_FOUND', { cause: originalError })
   }
   throw originalError
+}
+
+async function throwGuardedCreateFailure(
+  error: unknown,
+  absolutePath: string,
+  displayPath: string,
+  inspectPublicationTarget: (path: string) => Promise<BigIntStats>,
+): Promise<never> {
+  let existing: BigIntStats | undefined
+  try {
+    existing = await inspectPublicationTarget(absolutePath)
+  } catch (metadataError: unknown) {
+    if (!isENOENT(metadataError) && !isENOTDIR(metadataError)) {
+      throw new FsError(`cannot write "${displayPath}": ${errorMessage(metadataError)}`, 'FS_IO_ERROR', { cause: metadataError })
+    }
+  }
+
+  // Link errno values vary by platform and filesystem. Inspect the target entry
+  // after failure so a collision is not confused with missing hard-link support.
+  if (existing !== undefined) {
+    if (!existing.isFile()) {
+      throw new FsError(`cannot write "${displayPath}": not a regular file`, 'FS_NOT_REGULAR_FILE', { cause: error })
+    }
+    throw new FsError(
+      `cannot overwrite existing "${displayPath}" without reading it first`,
+      'FS_NOT_OBSERVED',
+      { cause: error },
+    )
+  }
+  if (isEEXIST(error)) {
+    throw new FsError(
+      `cannot overwrite existing "${displayPath}" without reading it first`,
+      'FS_NOT_OBSERVED',
+      { cause: error },
+    )
+  }
+  throw new FsError(`cannot write "${displayPath}": ${errorMessage(error)}`, 'FS_IO_ERROR', { cause: error })
 }
 
 /**
@@ -434,8 +479,9 @@ async function removeStagingDirOrThrow(stagingDir: string, originalError: unknow
  * inert as a mode on Windows but identifies replacement security semantics.
  * @param signal - cancellation checked before final publication.
  * @param internals - Test hook for pinning temp names and observing the staged file.
- * @param createIfAbsent - publish with a hard-link no-replace primitive; a
- *   concurrent creator is preserved and rejected with `FS_NOT_OBSERVED`.
+ * @param createIfAbsent - when provided, publish with a hard-link no-replace
+ * primitive; a concurrent creator's file is preserved and this write is
+ * rejected with `FS_NOT_OBSERVED` using the supplied display path.
  */
 export async function writeFileAtomic(
   absolutePath: string,
@@ -443,7 +489,7 @@ export async function writeFileAtomic(
   mode: number | undefined,
   signal: AbortSignal | undefined,
   internals: FsIoInternals = {},
-  createIfAbsent = false,
+  createIfAbsent?: { displayPath: string },
 ): Promise<void> {
   throwIfAborted(signal, 'write')
   const directory = dirname(absolutePath)
@@ -458,6 +504,10 @@ export async function writeFileAtomic(
   const copyFileDacl = internals.copyFileDacl ?? copyFileDaclWin32
   const replaceFile = internals.replaceFile ?? replaceFileWin32
   const linkFile = internals.linkFile ?? link
+  const inspectPublicationTarget = internals.inspectPublicationTarget
+    ?? (path => lstat(path, { bigint: true }))
+  const removeStagingDir = internals.removeStagingDir
+    ?? (path => rm(path, { recursive: true, force: true }))
   let handle: Awaited<ReturnType<typeof open>> | undefined
   let stagingCreated = false
   try {
@@ -478,16 +528,11 @@ export async function writeFileAtomic(
     handle = undefined
 
     throwIfAborted(signal, 'write')
-    if (createIfAbsent) {
+    if (createIfAbsent !== undefined) {
       try {
         await linkFile(tempPath, absolutePath)
       } catch (error: unknown) {
-        if (!isEEXIST(error)) throw error
-        throw new FsError(
-          `cannot overwrite existing "${absolutePath}" without reading it first`,
-          'FS_NOT_OBSERVED',
-          { cause: error },
-        )
+        await throwGuardedCreateFailure(error, absolutePath, createIfAbsent.displayPath, inspectPublicationTarget)
       }
     } else if (platform === 'win32' && mode !== undefined) {
       try {
@@ -501,7 +546,11 @@ export async function writeFileAtomic(
     } else {
       await rename(tempPath, absolutePath)
     }
-    await rm(stagingDir, { recursive: true, force: true })
+    try {
+      await removeStagingDir(stagingDir)
+    } catch (_committedStagingCleanupFailure) {
+      // The target is committed; owner-only staging residue cannot turn that write into a failure.
+    }
   } catch (error: unknown) {
     /* v8 ignore next -- abort-mid-write needs a writeFile/signal race; the non-abort (rename/open) side is tested. */
     let failure: unknown = isAbortError(error) ? new FsError('write aborted', 'FS_ABORTED') : error
@@ -514,7 +563,7 @@ export async function writeFileAtomic(
       }
     }
     if (!stagingCreated) throw failure
-    return removeStagingDirOrThrow(stagingDir, failure)
+    return removeStagingDirOrThrow(stagingDir, failure, removeStagingDir)
   }
 }
 

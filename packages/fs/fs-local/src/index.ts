@@ -173,7 +173,7 @@ export class LocalFileSystem extends FileSystem {
         existing?.mode,
         signal,
         this.internals,
-        expected?.kind === 'createIfAbsent',
+        expected?.kind === 'createIfAbsent' ? { displayPath: target.displayPath } : undefined,
       )
       const after = await probe(target.targetKey)
       return {
