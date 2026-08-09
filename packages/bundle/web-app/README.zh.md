@@ -22,5 +22,5 @@ dsh 浏览器表层组合包。[`cordis.patch.yml`](cordis.patch.yml) 叠加在 
 
 ## 已知限制与延期工作
 
-- **前端 dist 必须已构建**：对 dist 的 `require.resolve` 在激活时大声失败并给出构建提示；没有从源码直接服务的回退路径。
+- **前端 dist 必须已构建**：对 dist 的 `require.resolve` 在激活时明确报错并给出构建提示；没有从源码直接服务的回退路径。
 - **`lanAddresses` 是启动期快照**：启动后的网卡变化不会重新公告；打印的 LAN URL 始终与配置的信任栅栏一致。

@@ -8,8 +8,8 @@ Status: implemented
 
 ## Problem
 
-需要提供 UI 对接层，除已有 ACP/stdio基础版本外，还需要 Web(server) 、 Electron 、等其他产品 UI 形态。我们把这些形态统一称为 Client。希望有如下能力支持:
-- 以 `dsh` 进程，同时支持 `dsh web`(启动) 和 `dsh run`(headless) ，一个进程两种模式（设计预留）
+需要提供 UI 对接层，除已有 ACP（Agent Client Protocol）/stdio 基线外，还需要 Web（server）、Electron 等其他产品 UI 形态。我们把这些形态统一称为 Client。希望具备以下能力：
+- 一个 `dsh` 进程同时支持 `dsh web`（启动）和 `dsh run`（headless），一个进程两种模式（设计预留）
 - 以与 `dsh web` 同构的 Web 技术形态，在 Electron 中启动
 
 那么当前的工程代码需要稳定的分层职责模型，便于以后接入各类 client 形态。
@@ -20,7 +20,7 @@ Status: implemented
 
 ### 分层
 
-目录按照如下分层:
+目录按照如下分层：
 - `packages/host/*`: 包只提供 Host 侧能力（代表了以现在 Harness 实体插件系统为主体的 Node.js 代码核心工程），除此之外，还包含
     - 统一后端协议（fetch、HTTP、流式接口等）定义和支持，见本篇「消息协议」起各节
 - `packages/client/*`：包只提供 Client 侧能力，每包单边不混。这里住三类包（两条轴归 [client 插件装载 RFC](2026-07-23-client-plugin-loading-model.md) 所有）：

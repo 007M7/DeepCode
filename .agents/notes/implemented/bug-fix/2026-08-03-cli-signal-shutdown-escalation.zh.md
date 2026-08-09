@@ -1,6 +1,6 @@
-# Agent Note：Web 与 headless 的有界信号关闭和重复信号强制退出
+# Agent Note: Web 与 headless 的有界信号关闭和重复信号强制退出
 
-状态：已实现
+Status: implemented
 
 [English](2026-08-03-cli-signal-shutdown-escalation.md) | 中文
 
