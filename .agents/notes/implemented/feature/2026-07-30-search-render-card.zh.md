@@ -56,6 +56,6 @@ Status: implemented
 
 ## 相关
 
-- [工具调用呈现的带标签渲染意图联合](../architecture/2026-07-02-tool-render-intent-union.md) —— 本 PR 用 `search` 结果标签扩展的 `card` 标签词汇。
+- [工具调用呈现的带标签渲染意图联合](../architecture/2026-07-02-tool-render-intent-union.md) —— 本变更用 `search` 结果标签扩展的 `card` 标签词汇。
 - [Canonical 工具输出约定](../architecture/2026-07-20-canonical-tool-output-contract.md) —— 本投影所乘的 value/render/`presentationMeta` 划分；结构化值留在执行本地，卡片乘 `meta`。
-- [Web terminal 卡片](2026-07-28-web-terminal-card.md) —— 本 PR 在后端镜像的先例：工具把结果投影进 `presentationMeta` 与一个 `presentResult` 视图；搜索卡片的 web 消费方是与之类比的后续。
+- [Web terminal 卡片](2026-07-28-web-terminal-card.md) —— 本变更在后端镜像的先例：工具把结果投影进 `presentationMeta` 与一个 `presentResult` 视图；搜索卡片的 web 消费方是与之类比的后续。

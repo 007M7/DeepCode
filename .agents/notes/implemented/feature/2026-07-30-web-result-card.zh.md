@@ -41,4 +41,4 @@ Status: implemented
 ## Related
 
 - [标签化的工具调用渲染意图联合类型](../architecture/2026-07-02-tool-render-intent-union.md) —— 本卡片以 `web` 分支扩展的 `card` 标签词汇表。
-- [Web terminal card](2026-07-28-web-terminal-card.md) —— 把 bash `terminal` 渲染意图带到浏览器的先例；[Web result card 前端](2026-07-30-web-result-card-frontend.md)是它在本分支上的对应物。
+- [Web terminal card](2026-07-28-web-terminal-card.md) —— 把 bash `terminal` 渲染意图带到浏览器的先例；[Web result card 前端](2026-07-30-web-result-card-frontend.md)是它在这一支上的对应物。
