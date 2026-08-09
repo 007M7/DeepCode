@@ -578,8 +578,14 @@ describe('installLlmReplay (through the real LlmService)', () => {
             backoff: { initialDelayMs: 1, maxDelayMs: 1, jitterRatio: 0 },
           },
           models: [
-            { id: 'flash', contextWindow: 128_000 },
-            { id: 'pro', name: 'Pro', description: 'Larger model' },
+            {
+              id: 'flash',
+              contextWindow: 128_000,
+              defaultMaxTokens: 64_000,
+              reasoningEfforts: ['off', 'max'],
+              defaultReasoningEffort: 'max',
+            },
+            { id: 'pro', name: 'Pro', description: 'Larger model', reasoningEfforts: ['high'] },
           ],
         },
         { id: 'empty' },
@@ -597,8 +603,18 @@ describe('installLlmReplay (through the real LlmService)', () => {
     await expect(ctx.llm.listModels('empty')).resolves.toEqual([])
     await expect(ctx.llm.resolveModelInfo('deepseek', 'flash')).resolves.toMatchObject({
       context: { contextWindow: 128_000 },
+      defaultMaxTokens: 64_000,
+      reasoning: {
+        efforts: [{ id: 'off', name: 'off' }, { id: 'max', name: 'max' }],
+        defaultEffort: 'max',
+      },
     })
     await expect(ctx.llm.resolveModelInfo('deepseek', 'pro')).resolves.not.toHaveProperty('context')
+    // Efforts without a configured default preserve the provider's own default.
+    await expect(ctx.llm.resolveModelInfo('deepseek', 'pro')).resolves.toMatchObject({
+      reasoning: { efforts: [{ id: 'high', name: 'high' }] },
+    })
+    await expect(ctx.llm.resolveModelInfo('deepseek', 'pro')).resolves.not.toHaveProperty('defaultMaxTokens')
     await expect(ctx.llm.resolveModelInfo('deepseek', 'unlisted')).resolves.not.toHaveProperty('context')
     await expect(ctx.llm.resolveModelInfo('empty', 'unlisted')).resolves.not.toHaveProperty('context')
     expect(ctx.llm.providerRetryPolicy('deepseek')).toMatchObject({
