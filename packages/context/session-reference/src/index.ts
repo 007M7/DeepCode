@@ -199,6 +199,7 @@ export class SessionReferenceService extends Service {
     const prompt = renderPrompt(rendered.map(source => source.data))
     const source: SessionReferenceSource = {
       kind: 'session-reference',
+      form: 'recall',
       version: 1,
       references: rendered.map((source, index) => ({
         sessionId: source.data.sessionId,

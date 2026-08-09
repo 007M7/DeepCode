@@ -2,9 +2,9 @@
 
 [English](README.md) | 中文
 
-具体 `ctx.sessionQuery` 后端。`SessionQuerySqlite` 从接口包（package）继承精确读取、跟踪和提供方无关的过滤，并使用 SQLite FTS5 实现其两个全文方法。搜索使用实时优先的逻辑会话语料库，并按每个会话中匹配度最高的事件对跨会话结果分组。
+具体 `ctx.sessionQuery` 后端。`SessionQuerySqlite` 从接口包继承精确读取、跟踪和提供方无关的过滤，并使用 SQLite FTS5 实现其两个全文方法。搜索使用实时优先的逻辑会话语料库，并按每个会话中匹配度最高的事件对跨会话结果分组。
 
-## 搜索契约
+## 搜索约定
 
 `searchSessions(request, exec?)` 返回跨语料库的 `SessionSearchHit` 分页结果；`searchEvents(request, exec?)` 返回单个会话内的 `SessionEventSearchHit` 分页结果。查询不得省略，首尾空白会被移除，内部空白会被规范化，并按字面短语处理。引号、`OR`、`NEAR` 和 `*` 等 FTS5 语法被视为数据，而非可执行 MATCH 语法。元数据过滤器是在排名前应用的参数化 SQL 谓词。为使 SQLite FTS5 MATCH 保持在受支持的外层谓词上下文中，跨会话请求最多可编译 14 个组合会话与事件过滤谓词；会话内请求最多可编译 13 个过滤谓词，因为固定目标会话谓词占用一个槽位。每个范围端点编译为一个谓词。请求超过任一谓词预算，或超过 SQLite 可移植的 32,766 总绑定上限（包括固定查询和分页值）时，会在准备语句前以 `SESSION_QUERY_INVALID_FILTER` 失败。
 
@@ -24,7 +24,7 @@
 
 ## 配置
 
-| 键 | 默认值 | 契约 |
+| 键 | 默认值 | 约定 |
 |---|---:|---|
 | `path` | 必填 | 专用派生索引 SQLite 路径；支持 `:memory:`。在 POSIX 文件系统上，缺失的文件系统路径会以仅所有者可访问的方式创建。 |
 | `openAt` | `startup` | `startup` 会在服务激活完成前打开；`first-search` 把 SQLite 模块与句柄推迟到搜索时再加载和打开。 |

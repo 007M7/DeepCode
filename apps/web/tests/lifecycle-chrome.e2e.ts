@@ -26,6 +26,7 @@ const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/lifecycle-chrome', impor
 const FIXTURE = join(SNAPSHOT_DIR, 'session.jsonl')
 const HERO_EXPECTED = join(SNAPSHOT_DIR, 'hero.expected.md')
 const COMMAND_MENU_EXPECTED = join(SNAPSHOT_DIR, 'command-menu.expected.md')
+const FUZZY_COMMAND_MENU_EXPECTED = join(SNAPSHOT_DIR, 'command-menu-fuzzy.expected.md')
 const PLAN_ACTIVE_EXPECTED = join(SNAPSHOT_DIR, 'plan-active.expected.md')
 // Post-reload golden: the same settled conversation rebuilt purely from
 // persistence + history — byte-equal rendering is exactly the recovery claim.
@@ -33,6 +34,7 @@ const RELOADED_EXPECTED = join(SNAPSHOT_DIR, 'reloaded.expected.md')
 const MODE = webSnapshotMode()
 
 const PROMPT = 'Reply with the single word LIGHTHOUSE and stop.'
+const REPLAY_PACE_MS = 100
 
 describe('web e2e: lifecycle & chrome (workspace flow / reload / dark mode)', () => {
   let scaffold: WebScaffold
@@ -42,7 +44,7 @@ describe('web e2e: lifecycle & chrome (workspace flow / reload / dark mode)', ()
   const sessionEvents: SessionEvent[] = []
 
   beforeAll(async () => {
-    scaffold = await launchWebScaffold(MODE === 'record' ? {} : { replayFixture: FIXTURE, paceMs: 15 })
+    scaffold = await launchWebScaffold(MODE === 'record' ? {} : { replayFixture: FIXTURE, paceMs: REPLAY_PACE_MS })
     scaffold.ctx.on('session/event', (_session, event: SessionEvent) => { sessionEvents.push(event) })
     browser = await chromium.launch()
     page = await newEnglishPage(browser)
@@ -82,6 +84,12 @@ describe('web e2e: lifecycle & chrome (workspace flow / reload / dark mode)', ()
     expect(Math.abs(
       launchedBox!.y + launchedBox!.height - typedBox!.y - typedBox!.height,
     )).toBeLessThan(1)
+    await input.fill('/cpt')
+    await expect.poll(() => menu.getByRole('option').allTextContents()).toEqual([
+      'compactCompact older conversation history',
+    ])
+    const fuzzySnapshot = await captureStableAria(page, '[role="listbox"]', scaffold.workspaceCwd)
+    await compareOrRefreshGolden(FUZZY_COMMAND_MENU_EXPECTED, fuzzySnapshot, MODE)
     await input.fill('')
     await expect.poll(() => menu.count()).toBe(0)
   })
@@ -103,6 +111,10 @@ describe('web e2e: lifecycle & chrome (workspace flow / reload / dark mode)', ()
       await input.press('Enter')
       const planButton = activePage.getByRole('button', { name: 'Plan mode on, press to turn off' })
       await planButton.waitFor({ timeout: 10_000 })
+      // The golden encodes an empty composer, and the button arriving does not
+      // mean the submitted text is gone yet: under load the capture caught a
+      // textbox still holding `/plan`.
+      await expect.poll(() => input.inputValue(), { timeout: 10_000 }).toBe('')
       const planSnapshot = await captureStableAria(activePage, '[class*="frame"]', activeScaffold.workspaceCwd)
       await compareOrRefreshGolden(PLAN_ACTIVE_EXPECTED, planSnapshot, MODE)
       const planStyle = await planButton.evaluate((element) => {
@@ -147,7 +159,7 @@ describe('web e2e: lifecycle & chrome (workspace flow / reload / dark mode)', ()
     }
     // The blank frame renders the hero, not the resident composer: the
     // headline plus the guidance placeholder are the empty state's anchors.
-    await expect.poll(() => page.getByText("Let's start building", { exact: false }).count(), { timeout: 15_000 }).toBe(1)
+    await expect.poll(() => page.getByText('Into the Unknown', { exact: false }).count(), { timeout: 15_000 }).toBe(1)
     const input = page.locator('textarea').first()
     await input.waitFor({ timeout: 10_000 })
     if (MODE !== 'record') {
@@ -253,7 +265,7 @@ describe('web e2e: lifecycle & chrome (workspace flow / reload / dark mode)', ()
   it.skipIf(MODE === 'record')('keeps the fixture inventory closed', async () => {
     expect(tripwire.warnings).toEqual([])
     await assertFixtureInventory(SNAPSHOT_DIR, [
-      'session.jsonl', 'command-menu.expected.md', 'hero.expected.md', 'plan-active.expected.md', 'reloaded.expected.md',
+      'session.jsonl', 'command-menu.expected.md', 'command-menu-fuzzy.expected.md', 'hero.expected.md', 'plan-active.expected.md', 'reloaded.expected.md',
     ])
   })
 })

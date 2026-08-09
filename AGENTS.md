@@ -12,34 +12,39 @@ DeepSeek Harness SDK is a plugin-based agent harness on vendored Cordis: **every
 vendor/      Vendored Cordis source — manifest + sync procedure in vendor/README.md
 packages/    @deepseek-ai/dsh-<pkg> workspaces at packages/<group>/<pkg>/
   core/        product API spine: session, system-prompt, tools, agent, agent-loop
+  api/         Remote BFF assembly and TypeRT RPC gateway
   typert/      type graph generator, loader, and runtime registry
   llm/         LLM seam + DeepSeek adapters (direct-fetch + pi-ai design twin)
-  bash/        bash executor seam + local impl + model-facing bash tools
+  e2b/         E2B POC: sandbox + FS/subprocess adapters
+  bash/        bash executor seam + local/pwsh impls + model-facing shell tools
   subprocess/  subprocess seam + local process-tree impl
   pty/         persistent PTY seam/backend/tools
-  fs/          filesystem seam + local impl + policy gate + read/write/edit tools
-  lsp/         language-server seam + local stdio provider + model-facing lsp tool
+  fs/          filesystem seam/backends/policy/tools
+  lsp/         language-server seam/local backend/tool
   skill/       skill provider registry + local impl + catalog/loader tool
   web/         web seam + search/fetch providers + model-facing web tools
   compact/     compaction seam + basic backend
   context/     request-context plugins
-  subagent/    subagent seam + spawn/fork/ACP backends + delegation tool
+  subagent/    subagent seam + spawn/fork/ACP backends + tool
+  bundle/      installable dsh --profile patch-layer bundles
   workflow/    workflow seam + worker-thread engine + workflow tool
   todo/        todo_write tool
-  plan/        plan mode as logged per-agent collaboration state
-  guard/       loop-hygiene plugins
-  cordis/      self-referential toolset: the agent inspects/mounts plugins in its own runtime
-  hooks/       Claude Code/Codex hook bridges + shared wire-protocol library
-  session-persistence/  persistence seam + JSONL/SQLite backends
-  settings/    user-settings seam + file-backed provider
-  credentials/ credential-reference seam + env-over-.env provider
+  plan/        plan mode as logged state
+  guard/       loop-hygiene + tool-timeout plugins
+  self-modification/  the agent inspects/mounts its own plugins
+  hooks/       Claude Code/Codex hook bridges + wire-protocol library
+  session/     durable session data: persistence, projection, titles, telemetry
+  settings/    user-settings seam + file provider
+  credentials/ credential-reference seam + env/.env provider
   acp/         automation-only Agent Client Protocol server
-  ui/          TUI/JSON-RPC bridges; boot, approval, interaction plugins
-  examples/    demo bundles (agent-spine + TUI/CLI/ACP/JSON-RPC bins) leaves load
+  interaction/ approval/interaction seams, permission, commands, ask-user
+  boot/        shared app-bin glue
+  scaffold/    project tooling: helper, launcher, initializer, SDK protocol
+  examples/    demo bundles (agent-spine + CLI/ACP/JSON-RPC bins)
   support/     dev/test infrastructure
   util/        zero-dependency utilities
 python/      Python SDK and bundled runtime (see python/README.md)
-native/      node-addon-landlock-run source of record (see native/README.md)
+native/      @deepseek-ai/node-addon-landlock-run source of record (see native/README.md)
 examples/    Runnable cordis.yml leaves over packages/examples bundles (see examples/AGENTS.md)
 .agents/     Agent workflows and Agent Notes (`notes/`)
 docs/        architecture, generated catalogs, postmortems, cookbook (see docs/AGENTS.md)
@@ -57,7 +62,7 @@ pnpm run clean           # remove build outputs and safe residue from deleted pa
 pnpm run test           # vitest unit tests
 pnpm run test:coverage  # CI coverage gate: per-file 100% on packages/*/*/src
 pnpm run test:e2e       # real-API tests; self-skip without DEEPSEEK_API_KEY
-pnpm run test:snapshot  # keyless ACP/headless/TUI replay vs expected outputs; filter: -t <name>
+pnpm run test:snapshot  # keyless ACP/headless replay vs expected outputs; filter: -t <name>
 pnpm run test:snapshot:record  # re-record expected outputs (needs key)
 pnpm run typecheck
 pnpm run lint
@@ -68,7 +73,6 @@ pnpm run hygiene        # knip + publint + workspace constraints + NodeNext cons
 pnpm run doc-sync       # all documentation gates; leaf list in scripts/run-gates.ts
 pnpm run website:build  # VitePress build (doubles as dead-link check)
 pnpm run demo:headless "task" # one-shot agent (needs DEEPSEEK_API_KEY)
-pnpm run demo:tui       # full-screen TUI coding agent (needs DEEPSEEK_API_KEY)
 pnpm run demo:cordis    # the agent modifies its own runtime (needs key)
 pnpm run demo:acp       # ACP automation server (needs DEEPSEEK_API_KEY)
 ```
@@ -92,12 +96,12 @@ Real-API tests and demos read `DEEPSEEK_API_KEY`, optional `DEEPSEEK_BASE_URL`, 
 ## Conventions
 
 - Every npm package is `@deepseek-ai/dsh-<name>`; vendored packages keep upstream names and are `private: true`. `cordis` is a peerDependency (+ dev) of every harness package.
-- ESM everywhere (`"type": "module"`). Cross-package imports use package names; in-package relative imports include `.ts`. Config subprocesses run built `lib/` under plain Node; source regressions use their declared launcher ([testing policy](docs/testing.md#test-subprocess-launch-modes)). The `dsh` CLI source launch runs through tsx's ESM-only hook (`node --import tsx/esm`); modules it reaches must stay ESM (no CJS-only shapes) — Node's native TypeScript modes are unavailable across the engines range ([source-launch contract](.agents/notes/implemented/architecture/2026-07-29-dsh-source-launch-tsx-esm.md)). TUI/Web `cordis.yml` bare plugins must appear in their resolver manifest's `dependencies`; `verify-cordis-config` enforces it.
+- ESM everywhere (`"type": "module"`). Cross-package imports use package names; in-package relative imports include `.ts`. Config subprocesses run built `lib/` under plain Node; source regressions use their declared launcher ([testing policy](docs/testing.md#test-subprocess-launch-modes)). The `dsh` CLI source launch runs through tsx's ESM-only hook (`node --import tsx/esm`); modules it reaches must stay ESM (no CJS-only shapes) — Node's native TypeScript modes are unavailable across the engines range ([source-launch contract](.agents/notes/implemented/architecture/2026-07-29-dsh-source-launch-tsx-esm.md)). Raw/Web `cordis.yml` bare plugins must appear in their resolver manifest's `dependencies`; `verify-cordis-config` enforces it.
 - **Registrations are effects**: every contribution goes through `ctx.effect()` / `ctx.on()`; a registry's `register()` returns the disposer.
 - **Runtime invariants assert owned relationships.** Check authoritative event streams or mutable data, not service or method presence, plugin metadata or effects, or fixed pure examples. If a package has no plausible relationship, an explained empty companion is correct ([package contract](packages/AGENTS.md)).
 - **Typed events use declaration merging** and merge-extensible maps. Event JSDoc needs `@mode` and payload `@param`; scoped keys absent from payloads need `@dshScopeScan unsupported`. Public service methods document parameters and non-void returns.
 - **Switch on discriminant tags.** Closed unions end in `assertNever`; merge-extensible unions fall through a documented default.
-- **Waterfall listeners MUST call `next()`** to delegate; returning without it is the veto ([semantics](docs/cordis-primer.md#cordis-waterfall-semantics)).
+- **Waterfall listeners MUST call `next()`** to delegate; returning without it short-circuits the chain ([semantics](docs/cordis-primer.md#cordis-waterfall-semantics)).
 - **Model-visible ⟺ logged**: anything that reaches a model request must be reconstructable from the session log; a new model-visible input requires a session event.
 - **Plugins, not loop changes**: new behavior goes on the documented extension seams; changing `agent-loop` requires updating docs/architecture.md.
 - **Capability seams are three packages** — interface / implementation / consumer; don't split preemptively.
@@ -108,7 +112,7 @@ Real-API tests and demos read `DEEPSEEK_API_KEY`, optional `DEEPSEEK_BASE_URL`, 
 - **Opaque cross-boundary ids are branded** (`Branded<B>` from `dsh-brand`), never bare `string`.
 - **Trust TypeScript at typed same-process seams.** Do not add runtime validation, fallback behavior, or hostile-input tests solely for values the static interface requires; validate at parser/config, queued, model/tool JSON, durable/file, worker, process, and wire boundaries.
 - **Source plane vs artifact plane, never mixed.** Static gates and tests resolve workspace imports through tsconfig `paths` to `src` and pass on a clean tree; gates consuming built `lib/` declare that dependency ([layout](docs/development.md#typescript-project-layout)).
-- **`ts.Program` consumers seed `tsconfig.host.json` or `tsconfig.client.json`, never the root solution** — one program holding both sides collides the cordis `Context` merges ([layout](docs/development.md#typescript-project-layout)).
+- **Keep compiler faces explicit.** Each package uses one aggregate except `api/remotes`; repo-wide programs seed a face config, never the root solution ([layout](docs/development.md#typescript-project-layout)).
 - **An empty `catch` names what it swallows** and why nothing else can reach it; keep the `try` to one statement.
 - **Prefer symmetry for parallel values**; unexplained asymmetry usually signals a missed extraction.
 - **Tests describe behavior, not correctness.** Change obsolete behavior with its tests; explain why in the PR.
@@ -117,7 +121,7 @@ Real-API tests and demos read `DEEPSEEK_API_KEY`, optional `DEEPSEEK_BASE_URL`, 
 - **A tool's UI render intent is part of its design**, decided up front (`generic`/`terminal`/`diff`, `locations`); presentation methods are pure functions of `args` ([cookbook](docs/cookbook/adding-a-tool.md)).
 - **Plan unit, e2e, and snapshot coverage** for new seams, lifecycle shapes, and transcript surfaces; missing snapshot-harness support is part of the implementation, not deferred follow-up.
 - **Choose PR history deliberately.** Split independent changes; fix the introducing PR before propagation. Standalone PRs and official stacks may merge-forward or rebase after review. Rewrites use `--force-with-lease`, abort on remote movement, never raw `--force`; an in-progress merge-forward preserves its checkpoint before taking a newer base ([rationale](.agents/notes/implemented/process/2026-08-02-native-github-stacks-and-optional-rebases.md)).
-- **Label PRs:** one kind (`feature`/`bug-fix`/`doc`/`testing`/`cleanup`), each matching area; the [taxonomy](.agents/notes/implemented/process/2026-07-25-semantic-pr-label-taxonomy.md) is extensible.
+- **Labels:** one PR `kind/*`, all material `area/*`, and native Issue Type ([taxonomy](.agents/notes/implemented/process/2026-08-08-unified-github-label-taxonomy.md)).
 - TODO markers: `FIXME`/`TODO`/`XXX` by urgency ([semantics](docs/development.md)).
 - Files end with exactly one trailing newline; `git diff --cached --check` (pre-commit) gates it.
 

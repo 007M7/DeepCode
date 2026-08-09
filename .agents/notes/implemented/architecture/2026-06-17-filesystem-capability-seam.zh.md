@@ -10,11 +10,11 @@ harness 已有一个具体的 `bash` 能力 seam（`dsh-bash` / `dsh-bash-local`
 
 这把三个独立变化的关注点耦合在了一起：
 
-1. 文件系统契约：插件可以请求哪些操作。
+1. 文件系统约定：插件可以请求哪些操作。
 2. 后端：当前是本地磁盘，未来可能是沙箱/远程/项目作用域的文件系统。
 3. 消费方接口：面向模型的 `read` / `write` / `edit` schema 与结果格式化。
 
-如果没有 `ctx.fs` 接口，将本地文件系统访问替换为沙箱或远程后端时，即使面向模型的契约应当保持稳定，工具 schema、演示和提示词引导也会被迫变动。这还使权限/沙箱边界更难推理：一个 `cwd` 选项看起来像沙箱，但除非有显式的后端或 `tools/execute` 策略强制隔离，否则它只是一个基础路径。
+如果没有 `ctx.fs` 接口，将本地文件系统访问替换为沙箱或远程后端时，即使面向模型的约定应当保持稳定，工具 schema、演示和提示词引导也会被迫变动。这还使权限/沙箱边界更难推理：一个 `cwd` 选项看起来像沙箱，但除非有显式的后端或 `tools/execute` 策略强制隔离，否则它只是一个基础路径。
 
 我们需要文件系统工具在成为公开包（package）接口之前，以与 bash 相同的能力 seam 形态落地。
 
@@ -55,15 +55,16 @@ harness 已有一个具体的 `bash` 能力 seam（`dsh-bash` / `dsh-bash-local`
 
 根 `tool-fs` 插件通过组合各工具的注册辅助函数来注册完整的文件系统工具套件（`read`、`write` 和 `edit`）。它注入 `fs`，从不导入实现包。
 
-## `ctx.fs` 契约
+## `ctx.fs` 约定
 
 `@deepseek-ai/dsh-fs` 拥有一个语义文件系统服务。它比 `readFile` / `writeFile` 更高层，这样 `tool-fs` 就不必重新实现路径解析、版本管理、文本解码、二进制拒绝、分页、原子替换、符号链接行为或字面编辑语义。
 
 该接口涵盖以下语义操作：
 
 - 将模型/插件提供的路径解析为后端定义的目标。
+- 将解析后的目标转换为同一执行环境的规范进程路径或 `file:` URI，并在不解析其不透明键的情况下检查包含关系。
 - 获取目标元数据而不读取文件内容。
-- 从目标读取有界的 UTF-8 文本页。
+- 读取完整或流式 UTF-8 文本；消费方执行各自的视图与保留上限。
 - 创建或替换一个 UTF-8 文本文件。
 - 通过字面替换编辑一个已有的 UTF-8 文本文件。
 
@@ -83,9 +84,11 @@ harness 已有一个具体的 `bash` 能力 seam（`dsh-bash` / `dsh-bash-local`
 - 不透明的 `targetKey`，用于陈旧守护和文件状态查找。本地后端可能使用类似 realpath 的键；远程后端可能使用工作区 URI 或文件 id。消费方禁止解析或假设它是本地绝对路径。
 - `displayPath`，用于面向模型/UI 的输出。根据后端不同，它可能是本地绝对路径、工作区相对路径或远程 URI。
 
+即使另一项能力共享提供方的执行环境，`targetKey` 仍保持不透明。这类消费方通过提供方的 `processPath(target)`、`fileUrl(target)` 或 `contains(parent, child)` 获取所需事实；[可移植执行环境决策](2026-07-28-portable-execution-world-consumers.md)说明这些事实为何属于文件系统 seam。
+
 读取和变更结果必须包含不透明的文件 `version`。本地后端从 bigint stat 元数据（`dev`、`ino`、`size`、`mtimeNs` 和 `ctimeNs`）派生令牌，因此同大小重写和 inode 替换都会可靠地使消费方失效；远程后端可以使用 revision id 或类似 hash 的令牌。`dsh-fs-policy` 插件记录版本用于陈旧检查；消费方可以展示相关元数据但禁止解释版本令牌。
 
-提供方返回已解码的文本：`readText` 返回整个常规文本文件，`streamText` 为大文件流式传输相同的文本语义。两者负责常规文件检查；有界的行/输出处理不是它们的职责——行窗口化、带行号渲染和总行数统计位于执行器（`dsh-tool-fs`）中，执行器通过 `ctx.fs` 读取并渲染面向模型的窗口。提供方负责 UTF-8 解码和二进制/NUL 拒绝；它不知道行窗口或视图。
+提供方返回已解码的文本：`readText` 返回整个普通文本文件，`streamText` 为大文件或消费方自有的保留上限流式传输相同的文本语义。行窗口化、字节上限、带行号渲染和总行数统计归 `dsh-tool-fs`、`dsh-lsp-local` 等消费方所有。提供方负责普通文件检查、UTF-8 解码和二进制／NUL 拒绝；它不知道行窗口、协议上限或视图。
 
 观测状态记录不在 `ctx.fs` 上：成功读取后，执行器发出 `fs/observed`，`dsh-fs-policy` 插件为推导出的 owner 记录 `{ version }`。没有 `full`/`partial` 视图——任何窗口的读取都记录版本，新鲜度（而非视图完整性）授权后续的写入/编辑。
 
@@ -95,7 +98,7 @@ harness 已有一个具体的 `bash` 能力 seam（`dsh-bash` / `dsh-bash-local`
 
 策略插件（而非 `ctx.fs`）对先前观测进行门控：`edit` 要求 owner 有先前观测（否则报 `FS_NOT_OBSERVED`），记录的版本作为 CAS 基础传给 `editText`。在策略插件缺席时，`ctx.fs` 本身是一个完整的无约束 seam（无条件写入/编辑）；工具从不与策略方法耦合。
 
-文件系统契约失败以 `FsError extends HarnessError` 抛出，工具注册表将其转换为带结构化 `{ name, code }` 元数据的 `isError` 工具结果。`dsh-fs` 拥有此词汇，而非由每个工具各自发明消息。错误码包括 `FS_NOT_FOUND`、`FS_NOT_TEXT`、`FS_STALE_VERSION`、`FS_NOT_OBSERVED`、`FS_NOT_REGULAR_FILE`、`FS_AMBIGUOUS_EDIT`、`FS_EDIT_NOT_FOUND` 和 `FS_ABORTED`。（早期草案包含 `FS_PARTIAL_OBSERVATION`；基于新鲜度的授权没有 partial/full 区分，因此已删除。目录列表相关的错误码后来由[为文件系统 seam 添加直接目录列举能力](../../archived/architecture/2026-07-03-filesystem-directory-listing-seam.md)添加。）
+文件系统约定失败以 `FsError extends HarnessError` 抛出，工具注册表将其转换为带结构化 `{ name, code }` 元数据的 `isError` 工具结果。`dsh-fs` 拥有此词汇，而非由每个工具各自发明消息。错误码包括 `FS_NOT_FOUND`、`FS_NOT_TEXT`、`FS_STALE_VERSION`、`FS_NOT_OBSERVED`、`FS_NOT_REGULAR_FILE`、`FS_AMBIGUOUS_EDIT`、`FS_EDIT_NOT_FOUND` 和 `FS_ABORTED`。（早期草案包含 `FS_PARTIAL_OBSERVATION`；基于新鲜度的授权没有 partial/full 区分，因此已删除。目录列表相关的错误码后来由[为文件系统 seam 添加直接目录列举能力](../../archived/architecture/2026-07-03-filesystem-directory-listing-seam.md)添加。）
 
 ## 工具消费方行为
 
@@ -116,7 +119,7 @@ harness 已有一个具体的 `bash` 能力 seam（`dsh-bash` / `dsh-bash-local`
 
 该包通过 `ctx.systemPrompt.section(...)` 注册提示词引导，通过 `ctx.tools.register(...)` 注册 schema。工具 schema 仍通过 `SystemPrompt.assemble()` 和 `ToolRegistry.schemas()` 流入正常的提示词组装路径；无需改动 agent loop（智能体循环）。
 
-工具包在后端变化时保持面向模型的契约稳定：本地后端和远程后端内部可能以不同方式解析路径，但 `read` / `write` / `edit` schema 不会仅因后端变化而改变。
+工具包在后端变化时保持面向模型的约定稳定：本地后端和远程后端内部可能以不同方式解析路径，但 `read` / `write` / `edit` schema 不会仅因后端变化而改变。
 
 默认部署要求在用 `write` 或 `edit` 更新已有文件之前先 `read`。`tool-fs` 不通过检查是否运行过名为 `read` 的工具来实现这一点：它分发 `fs/write-intent`/`fs/edit-intent` 事件（将执行上下文作为不透明 actor 传递），`dsh-fs-policy` 插件推导 owner、对先前观测进行门控并提供版本期望。任何窗口化读取都能授权后续的写入/编辑，只要文件未变。用 `write` 创建新文件不要求先前观测。
 
@@ -141,9 +144,9 @@ harness 已有一个具体的 `bash` 能力 seam（`dsh-bash` / `dsh-bash-local`
 
 ## 后果
 
-**`cwd` 可能被误认为沙箱。** 本地后端的基目录是解析默认值，而非自动的隔离边界。如果需要隔离，必须由后端契约或 `tools/execute` 上的权限/沙箱插件强制执行。
+**`cwd` 可能被误认为沙箱。** 本地后端的基目录是解析默认值，而非自动的隔离边界。如果需要隔离，必须由后端约定或 `tools/execute` 上的权限/沙箱插件强制执行。
 
-**接口可能变得过于本地化。** 如果 `ctx.fs` 返回 `absolutePath` 之类的字段，远程、沙箱或虚拟后端会变得尴尬。契约应暴露显示元数据，而不要求消费方理解宿主路径。
+**接口可能变得过于本地化。** 如果 `ctx.fs` 返回 `absolutePath` 之类的字段，远程、沙箱或虚拟后端会变得尴尬。约定应暴露显示元数据，而不要求消费方理解宿主路径。
 
 **接口可能变得过于薄。** 如果 `ctx.fs` 只镜像 `node:fs` 原语，`tool-fs` 将重新实现二进制检测、分页、原子写入和编辑语义，重新制造本 Agent Note 试图避免的耦合。
 
@@ -151,7 +154,7 @@ harness 已有一个具体的 `bash` 能力 seam（`dsh-bash` / `dsh-bash-local`
 
 **观测状态不属于 `ctx.fs`。** 记录执行上下文看到了什么是工作流策略，而非原始文件系统 I/O。本 Agent Note 最初将其放在文件系统 seam 内部；拆分文件系统 seam Agent Note 随后确立了沙箱/远程后端不应继承面向模型的观测策略，并将其移入 `dsh-fs-policy` 插件。提供方 seam 只保留写入/编辑安全在存储层真正需要的东西——后端铸造的版本令牌和可选的版本守护变更——而策略插件拥有 owner 推导、观测状态和基于 `fs/*` 事件的读后编辑门控。
 
-**`resolve` 然后操作的形态每次调用多一次往返。** 每个工具可能先将路径解析为 `FsTarget`，再以单独的 `ctx.fs` 调用发起读取/写入/编辑。对本地后端来说这可以忽略（解析是内存中的路径规范化），但远程/沙箱后端可能将每步变成独立请求，使单次 `read` 变为两次网络往返。往返开销重要的后端可以在内部缓存或折叠解析，同时保持可观测契约不变。
+**`resolve` 然后操作的形态每次调用多一次往返。** 每个工具可能先将路径解析为 `FsTarget`，再以单独的 `ctx.fs` 调用发起读取/写入/编辑。对本地后端来说这可以忽略（解析是内存中的路径规范化），但远程/沙箱后端可能将每步变成独立请求，使单次 `read` 变为两次网络往返。往返开销重要的后端可以在内部缓存或折叠解析，同时保持可观测约定不变。
 
 **观测状态持久化被推迟。** 观测状态存在于内存中（`dsh-fs-policy` 内部的 `WeakMap`），因此恢复的会话保守地要求文件在写入/编辑前重新读取，直到未来的会话事件或持久化机制使观测可回放。
 

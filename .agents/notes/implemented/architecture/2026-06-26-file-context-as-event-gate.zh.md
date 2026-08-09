@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-[拆分文件系统 seam Agent Note（agent 决策记录）](../simplification/2026-06-26-fsspec-style-fs-seam.md) 在面向模型的工具与 `ctx.fs` 提供方之间放置了 `ctx.fileContext`：`dsh-tool-fs` 注入 `fileContext`，并将每次 `read`/`write`/`edit` 路由到它的方法。这使得 `fileContext` **位于关键路径上且不可省略**。工具不经过它就无法访问 `ctx.fs`，策略层掌控着 fs I/O 和读取窗口，而一个不需要观测状态策略的部署也无法简单地移除该包——`dsh-tool-fs` 会因无法解析 `ctx.fileContext` 而失败。
+[拆分文件系统 seam Agent Note](../simplification/2026-06-26-fsspec-style-fs-seam.md) 在面向模型的工具与 `ctx.fs` 提供方之间放置了 `ctx.fileContext`：`dsh-tool-fs` 注入 `fileContext`，并将每次 `read`/`write`/`edit` 路由到它的方法。这使得 `fileContext` **位于关键路径上且不可省略**。工具不经过它就无法访问 `ctx.fs`，策略层掌控着 fs I/O 和读取窗口，而一个不需要观测状态策略的部署也无法简单地移除该包——`dsh-tool-fs` 会因无法解析 `ctx.fileContext` 而失败。
 
 这把三件本应可分离的事情耦合在了一起：
 
@@ -44,7 +44,7 @@ provider      dsh-fs-local      local implementation of ctx.fs
 
 这是有意为之的。如果 `dsh-fs-policy` 在其 waterfall（瀑布式事件）处理器中 stat 并比较版本，该检查与工具实际写入之间会存在 TOCTOU 间隙——文件可能在此期间变化，因此该检查只是一个虚假保证，提供方的锁无论如何都要兜底。将版本检查放在提供方的临界区中既无竞态又无额外 `stat`。所以 `dsh-fs-policy` **不做**任何文件系统 I/O；「必须基于最近一次读取」的保证由 CAS *实现*，`dsh-fs-policy` 只负责选择基准（`vObserved`）并对先前观测进行门控。
 
-## 提供方契约变更：版本守卫变为可选
+## 提供方约定变更：版本守卫变为可选
 
 为使裸提供方不受约束，其两个 mutation 上的版本守卫变为**可选**——传入则守卫，省略则无条件执行：
 
@@ -66,7 +66,7 @@ editText(target: FsTarget, edit: FsEditRequest, expected?: { version: FsVersion 
 
 ## 事件词汇（由 `dsh-fs` 拥有）
 
-事件定义在 `@deepseek-ai/dsh-fs` 中，而非 `dsh-fs-policy` 中。这是解耦契约所迫：`dsh-tool-fs` 是发射方，因此它必须引用事件类型，且即使 `dsh-fs-policy` 不再提供方法服务，它也必须能编译通过。`dsh-fs` 是 `dsh-tool-fs` 和 `dsh-fs-policy` 都已依赖的包，因此它是唯一能让发射方和策略监听方共享词汇而不让发射方依赖策略插件的归属地。
+事件定义在 `@deepseek-ai/dsh-fs` 中，而非 `dsh-fs-policy` 中。这是解耦约定所迫：`dsh-tool-fs` 是发射方，因此它必须引用事件类型，且即使 `dsh-fs-policy` 不再提供方法服务，它也必须能编译通过。`dsh-fs` 是 `dsh-tool-fs` 和 `dsh-fs-policy` 都已依赖的包，因此它是唯一能让发射方和策略监听方共享词汇而不让发射方依赖策略插件的归属地。
 
 这些事件携带既有的 `dsh-fs` 词汇（`FsTarget`、`FsVersion`、`FsWriteIntent`）加一个不透明的 actor——不携带面向模型的概念（行窗口、行号或渲染后的页脚不会泄漏到此层）。
 
@@ -108,7 +108,7 @@ interface Events {
 
 `fs/*` 决策事件是**由工具分发的无绑定 waterfall**（类似 `agent/request`，由循环分发且无 `this`），而非服务绑定的 waterfall（如 `llm/stream`）。分发者是 `dsh-tool-fs` 插件，它不是一个服务。
 
-## 工具契约（`dsh-tool-fs`）
+## 工具约定（`dsh-tool-fs`）
 
 工具保留其面向模型的 schema（`read`/`write`/`edit`，逐字节不变）和提示词段落。提示词引导仍以策略优先，因为加载 fs 工具的部署预期也会加载 `dsh-fs-policy`：模型仍被告知在覆写或编辑前先读取，任何声称「后端」要求如此的措辞应修正为 fs-policy 插件要求如此。裸提供方回退不改变提示词立场。
 
@@ -124,9 +124,9 @@ interface Events {
 
 工具在每次分发时将 `exec`（工具执行上下文）作为 `actor` 参数传入，以便 `dsh-fs-policy` 推导其观测状态的 owner。工具不知道策略插件是否存在：它始终在 `next` thunk 中提供裸默认行为，而 `dsh-fs-policy` 在默认部署中会在 thunk 运行前短路它。
 
-**`fs/observed` 在操作成功后触发。** 其监听器必须是同步、不抛异常的记录器；工具不对 plain emit 做保护，因此抛异常的监听器会在 mutation 已成功后报告失败。异步或可失败的观测需要另一份事件契约。
+**`fs/observed` 在操作成功后触发。** 其监听器必须是同步、不抛异常的记录器；工具不对 plain emit 做保护，因此抛异常的监听器会在 mutation 已成功后报告失败。异步或可失败的观测需要另一份事件约定。
 
-## 策略插件契约（`dsh-fs-policy`）
+## 策略插件约定（`dsh-fs-policy`）
 
 `dsh-fs-policy` 是插件，不是服务。它不注册 `ctx.fileContext`，没有公开方法面，不暴露 `read`/`write`/`edit`/`resolve` 方法。它通过 `ctx.on()` 注册三个监听器（每个返回一个 disposer 用于 HMR）。它维护观测状态 `WeakMap<owner, Map<targetKey, { version }>>`，以及结构化的 owner 推导（将事件中不透明的 `object` actor 收窄为自己的 `{ agent?: { session? } }` 形状），但不注入 `fs`——每个处理器只操作自己的 `WeakMap`，从不操作 `ctx.fs`。
 
@@ -150,7 +150,7 @@ interface Events {
 
 ## 取代关系
 
-本 Agent Note 修正——而非推翻——[拆分文件系统 seam Agent Note](../simplification/2026-06-26-fsspec-style-fs-seam.md)。四层拆分、提供方契约和新鲜度*策略*均保留。变更的是**工具与策略层之间的耦合方式**：强制性方法服务变为插件拥有的事件门控，fs I/O + 读取窗口从 `fileContext` 上移至 `dsh-tool-fs`。拆分文件系统 seam Agent Note 中关于 `dsh-tool-fs` 注入 `fileContext` 以及 `fileContext` 拥有 `read`/`write`/`edit` 的描述已在同一变更中更新。
+本 Agent Note 修正——而非推翻——[拆分文件系统 seam Agent Note](../simplification/2026-06-26-fsspec-style-fs-seam.md)。四层拆分、提供方约定和新鲜度*策略*均保留。变更的是**工具与策略层之间的耦合方式**：强制性方法服务变为插件拥有的事件门控，fs I/O + 读取窗口从 `fileContext` 上移至 `dsh-tool-fs`。拆分文件系统 seam Agent Note 中关于 `dsh-tool-fs` 注入 `fileContext` 以及 `fileContext` 拥有 `read`/`write`/`edit` 的描述已在同一变更中更新。
 
 ## 验证
 

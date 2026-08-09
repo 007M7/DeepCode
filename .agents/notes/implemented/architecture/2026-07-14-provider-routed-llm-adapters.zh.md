@@ -84,7 +84,7 @@ JSON-RPC 运行时显式接收 provider 与 model。仅当 `deepseek` 提供方�
 
 - 单元测试覆盖注册表冲突、请求重建、会话验证、配置解析、单次请求的选项转发、包括 OpenAI Responses 在内的原生 API 选择、转换、回放验证、错误映射、调用方取消、空闲超时导致的传输终止、内容重写，以及同一实例与不同实例间的回放分发。
 - 无密钥的 agent loop/会话测试和 ACP 快照覆盖持久化 provider/model 元数据、恢复与 fork 传播、工作流/subagent 覆盖，以及不变的用户可见 transcript（文本记录）；密钥门控的 DeepSeek e2e 测试保留真实提供方的流式输出与工具后续调用覆盖率。
-- 公共 JSDoc、package README、架构与核心数据结构文档、生成目录、示例、会话 fixture（测试前置数据）和 Python SDK 配对文档统一使用 provider/model 目标，并由仓库文档与类型等价门禁校验。
+- 公共 JSDoc、package README、架构与子系统文档、生成目录、示例、会话 fixture（测试前置数据）和 Python SDK 配对文档统一使用 provider/model 目标，并由仓库文档与类型等价门禁校验。
 
 ## 风险
 

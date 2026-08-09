@@ -1,6 +1,6 @@
 # Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
-#   pnpm run verify-translation-pairing --write
-2026-06-18-agent-lifecycle-and-ownership-seams.md: f190b4ba2b7f22d29f473c8a2725401ff371488e
-2026-06-18-agent-lifecycle-and-ownership-seams.zh.md: dcaa319232baa8951a4f515abc6bce5611da5576
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-06-18-agent-lifecycle-and-ownership-seams.md
+2026-06-18-agent-lifecycle-and-ownership-seams.md: 93247a6da7446a5a67db33423d2b766ce4cf3308
+2026-06-18-agent-lifecycle-and-ownership-seams.zh.md: e17650c7789764dfb4240132f5903795e6f86381

@@ -2,9 +2,9 @@
 
 [English](README.md) | 中文
 
-面向用户的 `/goal` 控制，基于 [`ctx.goals`](../goal/README.md) 实现。该插件通过 [`ctx.commands`](../../ui/commands/README.md) 注册一个全局命令，因此每个已组合的命令适配器都能发现它；随附 TUI 无需模型轮次即可执行。[用户 goal 命令 Agent Note（agent 决策记录）](../../../.agents/notes/implemented/feature/2026-07-19-human-goal-command.md) 负责用户体验与组合决策。
+面向用户的 `/goal` 控制，基于 [`ctx.goals`](../goal/README.md) 实现。该插件通过 [`ctx.commands`](../../interaction/commands/README.md) 注册一个全局命令，因此每个已组合的命令适配器都能发现并执行它，无需模型轮次。[用户 goal 命令 Agent Note](../../../.agents/notes/implemented/feature/2026-07-19-human-goal-command.md) 负责用户体验与组合决策。
 
-## 命令契约
+## 命令约定
 
 | 输入 | 结果 |
 |---|---|
@@ -17,7 +17,7 @@
 
 只有控制词占据完整输入时才不区分大小写。其他任何非空后缀都属于目标，因此 `/goal pause after verification` 会创建该字面目标。goal 领域会去除目标首尾空白并进行验证。由于通用命令平面没有模态编辑器或确认原语，`edit` 会内联接收替换内容；若试图替换未完成的 goal，则直接返回错误，提示用户执行 edit 或 clear。
 
-可预期的领域拒绝会变成稳定的直接命令错误，不公开带品牌类型的 id 或 revision。意外实现失败仍会 reject 分发，使适配器能将其报告为命令失败。通用命令文本和输出仍属于实时 UI 状态；每项已接受变更都由 `dsh-goal` 持久化并提供给模型，而不是由此插件完成。
+可预期的领域拒绝会变成稳定的直接命令错误，不公开带品牌类型的 id 或 revision。意外实现失败仍会 reject 分发，使适配器能将其报告为命令失败。通用命令文本和输出仍属于实时 UI 状态；`dsh-goal` 通过自有的持久 `goal/change` 事件记录每项已接受变更。
 
 ## 组合
 
@@ -32,7 +32,7 @@
   name: '@deepseek-ai/dsh-command-goal'
 ```
 
-TUI 应用默认启用完整的持久 goal 栈和此命令。ACP（Agent Client Protocol）自动化应用会启用领域与模型工具，但不挂载命令注册表；`goals: false` 会移除该栈。无 UI 的 `agent-spine-demo` 必须显式配置 `goals: {}`，避免无头单次调用方在不知情时从一个物理轮次变为包含多个 Round 的操作。
+随附 `dsh` 基础配置启用持久 goal 栈和此命令；Web 客户端提供其交互适配器。ACP（Agent Client Protocol）自动化应用启用领域与模型工具，但不挂载命令适配器；`goals: false` 会移除该栈。无 UI 的 `agent-spine-demo` 必须显式配置 `goals: {}`，避免无头单次调用方在不知情时从一个物理轮次变为包含多个 Round 的操作。
 
 ## 模型体验
 
@@ -40,19 +40,19 @@ TUI 应用默认启用完整的持久 goal 栈和此命令。ACP（Agent Client 
 
 #### 模型看到的内容
 
-斜杠输入与直接状态／错误输出不会进入模型请求。已接受的变更稍后会通过 goal 领域的原始 `<goal_state>` 快照或 clear tombstone 出现；这样既满足模型可见内容必须记录日志的不变量，也无需记录呈现文本。
+斜杠输入、变更以及直接状态／错误输出不会进入模型请求。goal 领域把变更记录为 `goal/change`；已启用的同会话驱动器可以在后续继续执行提示词中暴露结果状态。呈现文本绝不会记录到日志中。
 
 #### Token 影响
 
-读取状态或收到直接命令错误不会增加模型 token。每项已接受变更都会增加 goal 领域保留的完整快照；已启用的同会话驱动器还可能增加后续 Goal Round 提示词。
+读取状态、变更 goal 或收到直接命令错误不会增加模型 token。已启用的同会话驱动器可能增加后续 Goal Round 提示词。
 
 #### KV Cache 影响
 
-命令发现与直接输出不会影响缓存。变更会追加到可复用历史前缀之后；后续压缩可能替换派生历史后缀。
+命令发现、变更与直接输出不会影响缓存。后续继续执行提示词遵循驱动器的普通请求历史。
 
 ## 已知限制与暂缓事项
 
 - **仅纯文本交互**：通用命令注册表没有模态编辑表单或替换确认回调；内联 edit 与显式 clear 能在不同适配器中保持明确且一致的破坏性意图。
 - **没有逐命令 Round 上限参数**：`defaultMaxGoalRounds` 仍是部署配置；用户直接请求时，可以要求模型通过另行授权的 goal 工具编辑 `max_goal_rounds`。
 - **没有持续状态组件**：裸 `/goal` 是可移植的观察接口；适配器专用徽标和重连后可恢复的命令输出仍属于未来 UI 工作。
-- **随附应用中只有 TUI 使用此命令**：无头 CLI（命令行界面）、ACP 自动化和 JSON-RPC 适配器不消费 `ctx.commands`。如果组合中包含面向模型的 goal 工具，普通提示词仍能授权它们。
+- **随附应用中只有 Web 命令适配器使用此命令**：无头、ACP 自动化和 JSON-RPC 适配器不消费 `ctx.commands`。如果组合中包含面向模型的 goal 工具，普通提示词仍能授权它们。

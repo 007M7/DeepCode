@@ -24,7 +24,7 @@ All three operations are **abstract** — the backend owns trigger policy, reten
 | `compactNow(agent, signal)` | Explicitly compact one useful balanced older span even below automatic pressure. It synchronously reserves idle turn admission before yielding, writes nothing when no useful span exists, records a standalone `compact/* { turn: null }` attempt before summarization, and awaits its durability checkpoint before release. Expected operational failures use `ManualCompactionError`; cancellation rethrows the exact abort reason. |
 | `compactRegion(start, end, agent, signal?)` | Forcibly summarize surface nodes `[start, end]` (inclusive seqs) from `agent.session` into a single replacement node whose source is `COMPACT_CHECKPOINT_SOURCE`. **Throws** if a compaction is already in progress, if `start`/`end` aren't surface nodes, or if `start` is positioned after `end` on the surface. The range is a SURFACE-POSITION span, not a numeric seq interval — after a prior replace lands a fresh high-seq summary node at the shadowed range's position, surface order no longer tracks seq order. |
 
-`CompactionResult` keeps the raw summary and bookkeeping-event seqs available to callers alongside the shadowed range and token accounting; its drift-checked shape lives in the [compaction data-structure reference](../../../docs/core-data-structures/compaction.md#compactionresult).
+`CompactionResult` keeps the raw summary and bookkeeping-event seqs available to callers alongside the shadowed range and token accounting; its drift-checked shape lives in the [compaction data-structure reference](../../../docs/subsystems/compaction.md#compactionresult).
 
 `compactIfNeeded` and `compactNow` take a required `signal`; `compactRegion`'s is optional. A backend that summarizes via `ctx.llm.stream()` **must** forward it into the call's `GenerateOptions.signal`, so an abort or fiber dispose tears down the in-flight summarization. Automatic and explicit-region brackets recover their numeric owner from the currently open turn. Manual brackets require no open turn and stamp `turn: null`.
 
@@ -38,7 +38,7 @@ The private per-session cache is keyed by `session.surface.replaceGeneration` an
 
 ## Surface contract
 
-`SurfaceEventType` is a closed union — only `user/message`, `assistant/message`, `tool/result`, and `steering/message` may carry `surfaceOp`. A `compact/*` event therefore **cannot** appear on the surface. A successful compaction instead:
+`SurfaceEventType` is a closed union — only `user/message`, `assistant/message`, and `tool/result` may carry `surfaceOp`. A `compact/*` event therefore **cannot** appear on the surface. A successful compaction instead:
 
 1. appends `compact/start` (log-only) — acquires the lock,
 2. summarizes the range,
@@ -68,7 +68,7 @@ Subclass `CompactService`, implement `compactIfNeeded`, `compactNow`, and `compa
 
 ## Recognizing a checkpoint outside the host program (`./checkpoint`)
 
-`COMPACT_CHECKPOINT_SOURCE` and `isCompactCheckpointSource()` are declared on the `@deepseek-ai/dsh-compact/checkpoint` subpath and re-exported from the root, so host-side consumers keep reading them from the root. The leaf imports no cordis and declares no module augmentation (the [`dsh-commands/brand`](../../ui/commands/README.md) shape), which is what lets a client or wire program name the checkpoint source: the package **root** cannot enter such a program at all, because it reaches `dsh-session`'s root and that `Context` merge declares the host `sessions` service against the client's own (`TS2717` — one program per side, per [development.md](../../../docs/development.md#typescript-project-layout)). The web client's transcript adapter pins its plugin literal to this leaf with a type-only import, so renaming the plugin id here is a compile error there.
+`COMPACT_CHECKPOINT_SOURCE` and `isCompactCheckpointSource()` are declared on the `@deepseek-ai/dsh-compact/checkpoint` subpath and re-exported from the root, so host-side consumers keep reading them from the root. The leaf imports no cordis and declares no module augmentation (the [`dsh-commands/brand`](../../interaction/commands/README.md) shape), which is what lets a client or wire program name the checkpoint source: the package **root** cannot enter such a program at all, because it reaches `dsh-session`'s root and that `Context` merge declares the host `sessions` service against the client's own (`TS2717` — one program per side, per [development.md](../../../docs/development.md#typescript-project-layout)). The web client's transcript adapter pins its plugin literal to this leaf with a type-only import, so renaming the plugin id here is a compile error there.
 
 ## Model Experience
 

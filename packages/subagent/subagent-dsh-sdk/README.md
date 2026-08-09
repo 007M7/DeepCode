@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-The SDK provider runs each subagent as a complete DeepSeek Harness runtime in a fresh subprocess, driven over stdio JSON-RPC through the [TypeScript SDK client](../../sdk/sdk-client/README.md). It is the second out-of-process backend beside [`subagent-acp`](../subagent-acp/README.md), differing in the wire and the child contract: the ACP backend drives any Agent Client Protocol agent; this backend drives specifically a harness SDK runtime (`dsh-jsonrpc-agent` bin or packaged executable), so the child is a full peer harness — own `cordis.yml`-decided composition, session persistence, model route, and tools.
+The SDK provider runs each subagent as a complete DeepSeek Harness runtime in a fresh subprocess, driven over stdio JSON-RPC through the [TypeScript SDK client](../../scaffold/client/README.md). It is the second out-of-process backend beside [`subagent-acp`](../subagent-acp/README.md), differing in the wire and the child contract: the ACP backend drives any Agent Client Protocol agent; this backend drives specifically a harness SDK runtime (`dsh-jsonrpc-agent` bin or packaged executable), so the child is a full peer harness — own `cordis.yml`-decided composition, session persistence, model route, and tools.
 
 ## Start and ownership
 
@@ -10,13 +10,13 @@ The SDK provider runs each subagent as a complete DeepSeek Harness runtime in a 
 
 The working directory resolves exactly like the ACP backend, through the seam's shared out-of-process helpers ([`dsh-subagent`](../subagent/README.md)): the configured `cwd` override when set (validated once at load), else the delegating parent session's cwd — never the server process's own cwd. The resolved path becomes the child process cwd and the workspace cwd of its SDK session.
 
-The returned run id is minted in the parent namespace; the child runtime's session id exists only inside the child process. After publication the provider runs one SDK turn and reads the child's answer from its session events: the last complete `assistant/message`, or the `text-delta` stream accumulated so far when the turn was cut short — a partial answer survives cancel and error paths.
+The returned run id is minted in the parent namespace; the child runtime's session id exists only inside the child process. After publication the provider owns one SDK activity and reads the child's answer from its session events: the last complete `assistant/message`, or the `text-delta` stream accumulated before the activity was cut short — a partial answer survives cancel and error paths.
 
 `dispose()` is idempotent: it settles the result locally as `aborted` (there is no wire-level prompt cancel), then closes the runtime — a bounded protocol `shutdown` request followed by the shared stdin-EOF → SIGTERM → SIGKILL ladder to actual exit.
 
 ## Stop-reason mapping
 
-The child reports its turn outcome as a structured `TurnEndReason` on `session.finished`; the provider maps it into the seam vocabulary. `completed` → `completed`, `max-tokens` → `max-tokens`, `aborted` → `aborted`; everything else — `error`, `interrupted`, `disposed`, a future variant, or a turn that never ran — maps to `error`, so an unclean stop is never reported as success. Transport-level failures after publication flatten to `stopReason: 'error'` through the `onError` diagnostic sink (wired to `ctx.logger.warn`); the seam contract forbids `result` rejecting.
+The SDK client returns an owned child activity rather than a prompt result. The provider reads the last durable `turn/end` inside that activity and maps it into the seam vocabulary: `completed` → `completed`, `max-tokens` → `max-tokens`, `aborted` → `aborted`; everything else — `error`, `interrupted`, `disposed`, a future variant, or an activity with no turn — maps to `error`, so an unclean stop is never reported as success. Transport-level failures after publication flatten to `stopReason: 'error'` through the `onError` diagnostic sink (wired to `ctx.logger.warn`); the seam contract forbids `result` rejecting.
 
 ## Capabilities and context
 
@@ -58,8 +58,6 @@ The provider advertises no start-time capabilities (`outputSchema`/`depthLimit`/
 The child environment is the [`dsh-subprocess`](../../subprocess/README.md) seam's `scrubbedParentEnv()` base — ambient credential-shaped and `DSH_*` names dropped — with explicit `config.env` values merged after the scrub. The child is spawned by the SDK client rather than through `ctx.subprocess` (the subprocess README's documented exception for SDK-managed transports), which is why this backend applies the scrub itself. The JSON-RPC wire is the real serialization boundary.
 
 The package has no default export. Cordis loader unwrapping would otherwise hide the named `inject` metadata; see [postmortem 0001](../../../docs/postmortem/0001-acp-default-export-drops-inject.md).
-
-Keyless tests drive the SDK client package's scripted fake runtime over real stdio, including a Loader-composed e2e where the child is a real second harness runtime proving parent-session cwd inheritance end to end (`tests/loader-composition.e2e.ts`).
 
 ## Model Experience
 

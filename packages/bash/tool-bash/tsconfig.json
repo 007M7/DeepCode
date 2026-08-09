@@ -27,13 +27,7 @@
       "path": "../../core/agent"
     },
     {
-      "path": "../../session-persistence/session-persistence"
-    },
-    {
       "path": "../../bash/bash"
-    },
-    {
-      "path": "../../util/paths"
     },
     {
       "path": "../../tasks/tasks"
@@ -42,7 +36,10 @@
       "path": "../../core/system-prompt"
     },
     {
-      "path": "../../ui/user-approval"
+      "path": "../../bash/bash-env"
+    },
+    {
+      "path": "../../interaction/user-approval"
     },
     {
       "path": "../../sandbox/sandbox"

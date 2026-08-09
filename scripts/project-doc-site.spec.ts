@@ -1,12 +1,14 @@
 /** Tests for the documentation website projection adapter. */
 
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, globSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { basename, join, resolve } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { docsPages, type DocsPage } from '../website/docs.ts'
-import { addProjectionFrontmatter, projectedPageContent, rewriteMarkdown } from './project-doc-site.ts'
+import {
+  addProjectionFrontmatter, projectedPageContent, publishableImage, rewriteMarkdown,
+} from './project-doc-site.ts'
 
 const roots: string[] = []
 const repositoryRoot = resolve(import.meta.dirname, '..')
@@ -63,6 +65,32 @@ describe('website source layout', () => {
   })
 })
 
+describe('publishableImage', () => {
+  it('accepts a regular file inside the repository', () => {
+    const { root } = fixture()
+    const real = realpathSync(join(root, 'packages/logo.svg'))
+    expect(publishableImage(join(root, 'packages/logo.svg'), realpathSync(root))).toBe(real)
+  })
+
+  it('refuses a target whose real path escapes the repository', () => {
+    // Publication copies the bytes onto the site, so a reference reaching a
+    // build-machine file must not be treated as an image the repository owns.
+    const { root } = fixture()
+    const outside = mkdtempSync(join(tmpdir(), 'dsh-doc-site-outside-'))
+    roots.push(outside)
+    writeFileSync(join(outside, 'secret.png'), 'not really a png\n')
+    symlinkSync(join(outside, 'secret.png'), join(root, 'packages/linked.png'))
+
+    expect(publishableImage(join(root, 'packages/linked.png'), realpathSync(root))).toBeUndefined()
+    expect(publishableImage(join(outside, 'secret.png'), realpathSync(root))).toBeUndefined()
+  })
+
+  it('refuses a directory', () => {
+    const { root } = fixture()
+    expect(publishableImage(join(root, 'packages'), realpathSync(root))).toBeUndefined()
+  })
+})
+
 describe('rewriteMarkdown', () => {
   it('maps published pages and pins unpublished source links', () => {
     const { root, pages } = fixture()
@@ -76,7 +104,7 @@ describe('rewriteMarkdown', () => {
       repositoryRef: 'abc123',
     })).toBe(
       '[B](./reference/b.md#part) '
-      + '[source](https://github.com/deepseek-harness/deepseek-harness/blob/abc123/packages/tool.ts#L2) '
+      + '[source](https://github.com/deepseek-ai/deepseek-harness-sdk/blob/abc123/packages/tool.ts#L2) '
       + '[web](https://example.com)\n',
     )
   })
@@ -93,7 +121,7 @@ describe('rewriteMarkdown', () => {
     })).toBe('[B](./reference-root/b.md)\n')
   })
 
-  it('uses raw GitHub content for unpublished images', () => {
+  it('uses raw GitHub content for unpublished images when nothing places them', () => {
     const { root, pages } = fixture()
     expect(rewriteMarkdown('![logo](../packages/logo.svg)\n', {
       locale: 'en',
@@ -102,7 +130,58 @@ describe('rewriteMarkdown', () => {
       pages,
       repoRoot: root,
       repositoryRef: 'abc123',
-    })).toBe('![logo](https://raw.githubusercontent.com/deepseek-harness/deepseek-harness/abc123/packages/logo.svg)\n')
+    })).toBe('![logo](https://raw.githubusercontent.com/deepseek-ai/deepseek-harness-sdk/abc123/packages/logo.svg)\n')
+  })
+
+  it('hands an image to the placer and uses the URL it returns', () => {
+    // A raw GitHub URL cannot serve a private repository, so the site build
+    // carries images itself; the placer is what puts them there. The stand-in
+    // derives its URL the way the real one does, so a placer that stopped
+    // returning the basename would fail here rather than pass on a constant.
+    const { root, pages } = fixture()
+    const placed: string[] = []
+    expect(rewriteMarkdown('![logo](../packages/logo.svg)\n', {
+      locale: 'en',
+      sourcePath: 'docs/a.md',
+      route: 'en/a.md',
+      pages,
+      repoRoot: root,
+      repositoryRef: 'abc123',
+      placeImage: (absPath) => {
+        const name = absPath.split('/').pop() ?? ''
+        placed.push(name)
+        return `./${name}`
+      },
+    })).toBe('![logo](./logo.svg)\n')
+    expect(placed).toEqual(['logo.svg'])
+  })
+
+  it('keeps a placed image\u2019s query or fragment', () => {
+    // An SVG view fragment and a Vite query both change what the reference
+    // means, and the GitHub branch has always carried them.
+    const { root, pages } = fixture()
+    expect(rewriteMarkdown('![logo](../packages/logo.svg#view)\n', {
+      locale: 'en',
+      sourcePath: 'docs/a.md',
+      route: 'en/a.md',
+      pages,
+      repoRoot: root,
+      repositoryRef: 'abc123',
+      placeImage: absPath => `./${absPath.split('/').pop() ?? ''}`,
+    })).toBe('![logo](./logo.svg#view)\n')
+  })
+
+  it('leaves a published page link to the route even when a placer exists', () => {
+    const { root, pages } = fixture()
+    expect(rewriteMarkdown('[B](b.md)\n', {
+      locale: 'en',
+      sourcePath: 'docs/a.md',
+      route: 'en/a.md',
+      pages,
+      repoRoot: root,
+      repositoryRef: 'abc123',
+      placeImage: () => { throw new Error('a page link must not be placed as an asset') },
+    })).toBe('[B](./reference/b.md)\n')
   })
 
   it('does not rewrite Markdown-looking text inside code fences', () => {
@@ -130,7 +209,7 @@ describe('rewriteMarkdown', () => {
       repositoryRef: 'abc123',
     })).toBe(
       '[title](./reference/b.md "b.md") '
-      + '[escaped](https://github.com/deepseek-harness/deepseek-harness/blob/abc123/docs/x(y).md)\n',
+      + '[escaped](https://github.com/deepseek-ai/deepseek-harness-sdk/blob/abc123/docs/x(y).md)\n',
     )
   })
 
@@ -190,28 +269,41 @@ describe('docsPages locale routes', () => {
     }
   })
 
-  it('projects translated core-data pages while retaining explicit English fallbacks', () => {
+  it('indexes every subsystem page in both sides of the folder README', () => {
+    const pages = globSync(join(repositoryRoot, 'docs/subsystems/*.md'))
+      .map(page => basename(page))
+      .filter(page => !page.endsWith('.zh.md') && page !== 'README.md')
+      .sort()
+    expect(pages.length).toBeGreaterThan(0)
+    for (const readme of ['README.md', 'README.zh.md']) {
+      const rows = readFileSync(join(repositoryRoot, 'docs/subsystems', readme), 'utf8')
+      const missing = pages.filter(page => !rows.includes(`| [${page}](${page}) |`))
+      expect(missing, `${readme} must carry one table row per subsystem page`).toEqual([])
+    }
+  })
+
+  it('projects translated subsystem pages while retaining explicit English fallbacks', () => {
     const rootPages = docsPages.filter(page => (
-      page.locale === 'root' && page.route.startsWith('reference/core-data-structures/')
+      page.locale === 'root' && page.route.startsWith('reference/subsystems/')
     ))
     const translated = rootPages.filter(page => page.contentLocale === 'zh-CN')
     const fallbacks = rootPages.filter(page => page.contentLocale === 'en-US')
 
-    expect(translated).toHaveLength(20)
+    expect(translated).toHaveLength(39)
     expect(translated.every(page => page.source.endsWith('.zh.md'))).toBe(true)
     expect(fallbacks.map(page => page.source).sort()).toEqual([
-      'docs/core-data-structures/commands.md',
-      'docs/core-data-structures/goal.md',
-      'docs/core-data-structures/pty.md',
+      'docs/subsystems/commands.md',
+      'docs/subsystems/goal.md',
+      'docs/subsystems/pty.md',
     ])
   })
 
   it('publishes the Cordis core API under matching locale structures', () => {
-    const files = ['context.md', 'events.md', 'fiber.md', 'registry.md', 'service.md']
+    const files = ['context.md', 'events.md', 'fiber.md', 'registry.md', 'service.md', 'inherited.md']
     for (const file of files) {
       const root = docsPages.find(page => page.route === `reference/cordis-api/${file}`)
       const english = docsPages.find(page => page.route === `en/reference/cordis-api/${file}`)
-      expect(root?.source).toBe(`docs/cordis-catalog/core/${file}`)
+      expect(root?.source).toBe(`docs/cordis-api/${file}`)
       expect(root?.section).toBe('Cordis API')
       expect(english?.source).toBe(root?.source)
       expect(english?.section).toBe('Cordis Core API')

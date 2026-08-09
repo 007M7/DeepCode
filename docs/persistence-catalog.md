@@ -3,11 +3,11 @@
 
 # Session Persistence Event Catalog
 
-Every event type that can appear in a session's durable event log: the complete persisted `SessionEvent` envelope and each member of the merge-extensible `SessionEventMap` — the owning vocabulary in `@deepseek-ai/dsh-session` plus every plugin declaration merge in this repo — with source JSDoc, full payload declaration, surface badge, and declaration site. It complements [session.md](core-data-structures/session.md) (surface ordering and the `deriveMessages()` projection), [persistence.md](core-data-structures/persistence.md) (how the log is made durable), and the [cordis events catalog](cordis-catalog/events.md) (the live bus wiring — a log event is NOT a cordis event; it reaches listeners via the single `session/event` emit).
+Every event type that can appear in a session's durable event log: the complete persisted `SessionEvent` envelope and each member of the merge-extensible `SessionEventMap` — the owning vocabulary in `@deepseek-ai/dsh-session` plus every plugin declaration merge in this repo — with source JSDoc, full payload declaration, surface badge, and declaration site. It complements [session.md](subsystems/session.md) (surface ordering and the `deriveMessages()` projection), [persistence.md](subsystems/persistence.md) (how the log is made durable), and the generated region of [session.md](subsystems/session.md#cordis-surface) (the live bus wiring — a log event is NOT a cordis event; it reaches listeners via the single `session/event` emit).
 
 This file is GENERATED from source (`scripts/gen-persistence-catalog.ts`) and verified fresh by `pnpm run verify-persistence-catalog` (part of `doc-sync`) — do not edit it by hand. Declaration blocks retain the source declaration and nested property JSDoc, removing only the indentation imposed by a containing interface/module, and use a `ts persistence-catalog` fence (skipped by doc-typecheck because declarations reference types from their owning modules). Type names in a payload link to the page that documents them. See [the persistence-log-catalog Agent Note](../.agents/notes/archived/process/2026-07-04-persistence-log-catalog.md).
 
-The envelope declarations below compose each event's `type`, monotonic `seq`, epoch-ms `time`, `data`, and the conditional `surfaceOp`/`sourceEventSeqs` fields. **surface** marks a `SurfaceEventType` member: it produces an LLM message and declares how it joins the surface list. **log-only** marks everything else: a durable, replayable record with no derived-history contribution. Every payload is JSON-serializable (enforced at `Session.append`), and the whole format is pinned at `SESSION_FORMAT_VERSION = 0` — pre-release, no compatibility implied ([the version stance](core-data-structures/persistence.md)). Scope: the packages in this repo; a downstream plugin can merge further event types, which are outside this catalog by construction.
+The envelope declarations below compose each event's `type`, monotonic `seq`, epoch-ms `time`, `data`, and the conditional `surfaceOp`/`sourceEventSeqs` fields. **surface** marks a `SurfaceEventType` member: it produces an LLM message and declares how it joins the surface list. **log-only** marks everything else: a durable, replayable record with no derived-history contribution. Every payload is JSON-serializable (enforced at `Session.append`), and the whole format is pinned at `SESSION_FORMAT_VERSION = 0` — pre-release, no compatibility implied ([the version stance](subsystems/persistence.md)). Scope: the packages in this repo; a downstream plugin can merge further event types, which are outside this catalog by construction.
 
 ## Event envelope
 
@@ -24,13 +24,12 @@ export type SurfaceEventType =
   | 'user/message'
   | 'assistant/message'
   | 'tool/result'
-  | 'steering/message'
 
 /**
  * How a session event entered the ordered surface. Only valid on
  * {@link SurfaceEventType} events.
  *
- * - `'append'`: added to the tail — normal path for user/assistant/tool/steering
+ * - `'append'`: added to the tail — normal path for user/assistant/tool
  *   messages.
  * - `{ op: 'replace', start, end }`: replaces surface nodes from `start`
  *   (inclusive) through `end` (inclusive) with this node. Both must exist as
@@ -50,7 +49,7 @@ export type SurfaceOp =
  *
  * The {@link sourceEventSeqs} and {@link surfaceOp} fields are conditional:
  * they only exist on {@link SurfaceEventType} variants (`user/message`,
- * `assistant/message`, `tool/result`, `steering/message`).
+ * `assistant/message`, `tool/result`).
  * Non-surface events (boundary markers, chunks, usage, errors) never carry
  * surface metadata — the compiler enforces this at `Session.append()`
  * call sites.
@@ -78,9 +77,30 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 }[T]
 ```
 
-Sources: [`packages/core/session/src/types.ts:314`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:321`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:350`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:382`](../packages/core/session/src/types.ts)
+Sources: [`packages/core/session/src/types.ts:308`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:315`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:343`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:375`](../packages/core/session/src/types.ts)
 
 ## Events
+
+### `agent/*`
+
+#### `agent/inbox/spliced` — log-only
+
+```ts persistence-catalog
+/**
+ * One normalized mutation of an agent's durable pending-message lists.
+ * Live dispatch precedes projection mutation, so synchronous observers may
+ * read the pre-splice inbox to recover the removed messages.
+ */
+'agent/inbox/spliced': {
+  target: InboxTarget
+  start: number
+  removedCount?: number
+  inserted: UserMessage[]
+  outcome?: 'canceled'
+}
+```
+
+Source: [`packages/core/agent/src/types.ts:300`](../packages/core/agent/src/types.ts)
 
 ### `approval/*`
 
@@ -103,9 +123,9 @@ Sources: [`packages/core/session/src/types.ts:314`](../packages/core/session/src
 }
 ```
 
-Types: [CallId](core-data-structures/core.md)
+Types: [CallId](subsystems/core.md)
 
-Source: [`packages/ui/user-approval/src/index.ts:44`](../packages/ui/user-approval/src/index.ts)
+Source: [`packages/interaction/user-approval/src/index.ts:44`](../packages/interaction/user-approval/src/index.ts)
 
 #### `approval/decided` — log-only
 
@@ -121,7 +141,7 @@ Source: [`packages/ui/user-approval/src/index.ts:44`](../packages/ui/user-approv
 }
 ```
 
-Source: [`packages/ui/user-approval/src/index.ts:55`](../packages/ui/user-approval/src/index.ts)
+Source: [`packages/interaction/user-approval/src/index.ts:55`](../packages/interaction/user-approval/src/index.ts)
 
 #### `approval/policy` — log-only
 
@@ -129,8 +149,8 @@ Source: [`packages/ui/user-approval/src/index.ts:55`](../packages/ui/user-approv
 /**
  * The session's approval policy was switched — log-only, durable,
  * replayable, never in the model transcript (the model learns the policy
- * from the cache-safe runtime-context snapshot). The LAST such
- * event is the session's override ({@link effectiveApprovalPolicy}).
+ * from the runtime-context snapshot and live switch notices). The LAST
+ * such event is the session's override ({@link effectiveApprovalPolicy}).
  * `source: 'delegation'` marks an override seeded into a child; an absent
  * source is a runtime switch.
  */
@@ -141,7 +161,7 @@ Source: [`packages/ui/user-approval/src/index.ts:55`](../packages/ui/user-approv
 }
 ```
 
-Source: [`packages/ui/user-approval/src/index.ts:67`](../packages/ui/user-approval/src/index.ts)
+Source: [`packages/interaction/user-approval/src/index.ts:67`](../packages/interaction/user-approval/src/index.ts)
 
 ### `assistant/*`
 
@@ -152,9 +172,9 @@ Source: [`packages/ui/user-approval/src/index.ts:67`](../packages/ui/user-approv
 'assistant/chunk': { turn: number; step: number; chunk: StreamChunk }
 ```
 
-Types: [StreamChunk](core-data-structures/llm-streaming.md)
+Types: [StreamChunk](subsystems/llm-streaming.md)
 
-Source: [`packages/core/session/src/types.ts:235`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:238`](../packages/core/session/src/types.ts)
 
 #### `assistant/message` — surface
 
@@ -168,9 +188,9 @@ Source: [`packages/core/session/src/types.ts:235`](../packages/core/session/src/
 'assistant/message': { turn: number; step: number; message: AssistantMessage; usage?: TokenUsage }
 ```
 
-Types: [TokenUsage](core-data-structures/llm-streaming.md)
+Types: [TokenUsage](subsystems/llm-streaming.md)
 
-Source: [`packages/core/session/src/types.ts:242`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:245`](../packages/core/session/src/types.ts)
 
 ### `command/*`
 
@@ -180,12 +200,18 @@ Source: [`packages/core/session/src/types.ts:242`](../packages/core/session/src/
 /**
  * The paired command settled. `kind`/`text` carry the handler's verbatim
  * outcome (a thrown/aborted handler settles as `kind: 'error'` with the
- * rendered failure); presentation stays client-computed at render time.
+ * rendered failure). A successful command may identify the earlier
+ * authoritative domain event for a richer client-computed presentation.
  */
-'command/done': { commandId: CommandId; kind: 'success' | 'error'; text?: string }
+'command/done': {
+  commandId: CommandId
+  kind: 'success' | 'error'
+  text?: string
+  sourceEventSeq?: number
+}
 ```
 
-Source: [`packages/ui/commands/src/index.ts:138`](../packages/ui/commands/src/index.ts)
+Source: [`packages/interaction/commands/src/index.ts:151`](../packages/interaction/commands/src/index.ts)
 
 #### `command/run` — log-only
 
@@ -197,12 +223,13 @@ Source: [`packages/ui/commands/src/index.ts:138`](../packages/ui/commands/src/in
  * and `args` are `parseCommand`'s own split (name and verbatim rawInput,
  * separator whitespace included), so a consumer (a projection unit
  * folding its own command records, a rich command card) never re-parses
- * a line.
+ * a line. `args` is absent when the definition sets `recordInput: false`
+ * because an authoritative domain event owns the input payload.
  */
-'command/run': { commandId: CommandId; name: string; args: string; source: CommandSource }
+'command/run': { commandId: CommandId; name: string; args?: string; source: CommandSource }
 ```
 
-Source: [`packages/ui/commands/src/index.ts:132`](../packages/ui/commands/src/index.ts)
+Source: [`packages/interaction/commands/src/index.ts:144`](../packages/interaction/commands/src/index.ts)
 
 ### `compact/*`
 
@@ -216,7 +243,31 @@ Source: [`packages/ui/commands/src/index.ts:132`](../packages/ui/commands/src/in
 'compact/end': { turn: number | null; error?: string }
 ```
 
-Source: [`packages/compact/compact/src/types.ts:51`](../packages/compact/compact/src/types.ts)
+Source: [`packages/compact/compact/src/types.ts:65`](../packages/compact/compact/src/types.ts)
+
+#### `compact/prune` — log-only
+
+```ts persistence-catalog
+/**
+ * Shadow price of one model-free prune replacement — log-only, no
+ * surfaceOp. The shared shadow-price protocol: a surface `replace` event
+ * is priced by the metering event immediately before it (`compact/summary`
+ * for a summarizing compaction, this event for a prune), which states the
+ * heuristic token price of the exact replaced range so a pure consumer
+ * can subtract it without retaining per-node prices. The replacement MUST
+ * be appended synchronously right after this event.
+ */
+'compact/prune': {
+  /** The replaced range's first and last surface-node seqs (a surface-position span, like {@link CompactionResult.shadowedRange}). */
+  shadowedRange: { start: number; end: number }
+  /** The seqs of all shadowed surface nodes, in surface order. */
+  shadowedSeqs: number[]
+  /** Heuristic price of the shadowed content under the token-meter's fixed estimator. */
+  shadowedTokenCount: number
+}
+```
+
+Source: [`packages/compact/compact/src/types.ts:75`](../packages/compact/compact/src/types.ts)
 
 #### `compact/start` — log-only
 
@@ -237,13 +288,14 @@ Source: [`packages/compact/compact/src/types.ts:19`](../packages/compact/compact
 /**
  * Provenance record of a completed summarization — log-only, no surfaceOp.
  * The summary content is in `data.summary`; the actual surface replacement
- * is performed by a subsequent `user/message` event that shadows the
- * compacted range.
+ * is performed by the immediately following `user/message` event that
+ * shadows the compacted range. That adjacency is contractual — the
+ * shadowed pricing fields are the replacement's shadow price, so a
+ * consumer may pair a replacement with the metering event directly
+ * before it (`compact/prune` documents the shared protocol).
  */
 'compact/summary': {
   summary: ContentBlock[]
-  /** Complete provider output before the backend's safe summary projection. */
-  rawOutput?: ContentBlock[]
   shadowedRange: { start: number; end: number }
   shadowedSeqs: number[]
   shadowedTokenCount: number
@@ -260,12 +312,52 @@ Source: [`packages/compact/compact/src/types.ts:19`](../packages/compact/compact
   maxTokens?: number
   /** Provider-reported token usage for the summarization request, when emitted. */
   usage?: TokenUsage
-}
+} & (
+  | {
+    /** Complete provider output before the backend's safe summary projection. */
+    rawOutput: ContentBlock[]
+    /** Identifies exactly one call through this context's `ctx.llm.stream()`. */
+    llmStreamCall: true
+  }
+  | {
+    /** Optional complete output from an unmarked template, remote, or other summarizer. */
+    rawOutput?: ContentBlock[]
+    /** An unmarked summary does not identify a call through this context's LLM seam. */
+    llmStreamCall?: never
+  }
+)
 ```
 
-Types: [ContentBlock](core-data-structures/core.md) · [TokenUsage](core-data-structures/llm-streaming.md)
+Types: [ContentBlock](subsystems/core.md) · [TokenUsage](subsystems/llm-streaming.md)
 
-Source: [`packages/compact/compact/src/types.ts:26`](../packages/compact/compact/src/types.ts)
+Source: [`packages/compact/compact/src/types.ts:29`](../packages/compact/compact/src/types.ts)
+
+### `feedback/*`
+
+#### `feedback/record` — log-only
+
+```ts persistence-catalog
+/**
+ * One recorded human remark about this session. Log-only and independent
+ * of its trigger; it never enters the model surface or derived history.
+ */
+'feedback/record': { text: string }
+```
+
+Source: [`packages/feedback/command-feedback/src/index.ts:24`](../packages/feedback/command-feedback/src/index.ts)
+
+### `goal/*`
+
+#### `goal/change` — log-only
+
+```ts persistence-catalog
+/**
+ * Complete post-mutation goal state or clear tombstone.
+ */
+'goal/change': GoalChangeMeta
+```
+
+Source: [`packages/goal/goal/src/domain.ts:66`](../packages/goal/goal/src/domain.ts)
 
 ### `hook/*`
 
@@ -318,7 +410,7 @@ Source: [`packages/hooks/hook-protocol/src/types.ts:31`](../packages/hooks/hook-
 #### `llm/retry` — log-only
 
 ```ts persistence-catalog
-/** Durable, non-surface record of one provider-routed retry scheduled after a closed failed step. */
+/** Durable, non-surface record of one provider-routed retry scheduled after a failed request attempt. */
 'llm/retry': {
   turn: number
   step: number
@@ -341,7 +433,7 @@ Source: [`packages/hooks/hook-protocol/src/types.ts:31`](../packages/hooks/hook-
 }
 ```
 
-Source: [`packages/llm/llm-retry/src/index.ts:18`](../packages/llm/llm-retry/src/index.ts)
+Source: [`packages/llm/llm-retry/src/index.ts:17`](../packages/llm/llm-retry/src/index.ts)
 
 ### `permission/*`
 
@@ -357,7 +449,7 @@ Source: [`packages/llm/llm-retry/src/index.ts:18`](../packages/llm/llm-retry/src
 'permission/preset': { preset: string }
 ```
 
-Source: [`packages/ui/permission/src/index.ts:50`](../packages/ui/permission/src/index.ts)
+Source: [`packages/interaction/permission/src/index.ts:50`](../packages/interaction/permission/src/index.ts)
 
 ### `plan/*`
 
@@ -372,7 +464,7 @@ Source: [`packages/ui/permission/src/index.ts:50`](../packages/ui/permission/src
 'plan/mode': { active: boolean }
 ```
 
-Source: [`packages/plan/plan-mode/src/index.ts:51`](../packages/plan/plan-mode/src/index.ts)
+Source: [`packages/plan/plan-mode/src/index.ts:52`](../packages/plan/plan-mode/src/index.ts)
 
 ### `request/*`
 
@@ -380,18 +472,13 @@ Source: [`packages/plan/plan-mode/src/index.ts:51`](../packages/plan/plan-mode/s
 
 ```ts persistence-catalog
 /**
- * Registration-bound context metadata for the route a request resolved to,
- * appended inside its step beside `request/header` and only when the route
- * or capacity differs from the last record. It is log-only and deliberately
- * NOT part of {@link EpochHeader}: capacity is adapter metadata about a
- * route, not an input the request was built from, so it must not participate
- * in request reconstruction or header equality. `contextWindow` is absent
- * when the route's adapter advertises no capacity.
+ * Route metadata for the next request, logged only when the route or capacity
+ * changes. It does not participate in request reconstruction or header equality.
  */
 'request/context': RequestContext
 ```
 
-Source: [`packages/core/session/src/types.ts:285`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:281`](../packages/core/session/src/types.ts)
 
 #### `request/header` — log-only
 
@@ -403,7 +490,7 @@ Source: [`packages/core/session/src/types.ts:285`](../packages/core/session/src/
 'request/header': { header: EpochHeader; reason: RequestHeaderReason }
 ```
 
-Source: [`packages/core/session/src/types.ts:275`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:276`](../packages/core/session/src/types.ts)
 
 ### `sandbox/*`
 
@@ -434,9 +521,7 @@ Source: [`packages/sandbox/sandbox-policy/src/session-mode.ts:33`](../packages/s
 /**
  * Marks the end of a constructor seed. Events before it have smaller seq
  * values and came from the seed (resume, fork, or replay); this lifecycle
- * produced none of them. An explicitly supplied empty seed puts the marker
- * at seq 0, distinguishing an empty resumed session from a fresh session.
- * This log-only event is the durable projection of
+ * produced none of them. This log-only event is the durable projection of
  * {@link Session.firstLiveSeq}. Its payload is empty — position and `time`
  * carry the meaning.
  *
@@ -458,7 +543,7 @@ Source: [`packages/sandbox/sandbox-policy/src/session-mode.ts:33`](../packages/s
 'session/end-seed': Record<string, never>
 ```
 
-Source: [`packages/core/session/src/types.ts:310`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:304`](../packages/core/session/src/types.ts)
 
 #### `session/title` — log-only
 
@@ -470,9 +555,9 @@ Source: [`packages/core/session/src/types.ts:310`](../packages/core/session/src/
 'session/title': SessionTitleEventData
 ```
 
-Types: [SessionTitleEventData](core-data-structures/session-title.md)
+Types: [SessionTitleEventData](subsystems/session-title.md)
 
-Source: [`packages/session-title/session-title/src/index.ts:100`](../packages/session-title/session-title/src/index.ts)
+Source: [`packages/session/session-title/src/index.ts:100`](../packages/session/session-title/src/index.ts)
 
 #### `session/title-llm-request` — log-only
 
@@ -481,20 +566,9 @@ Source: [`packages/session-title/session-title/src/index.ts:100`](../packages/se
 'session/title-llm-request': SessionTitleLlmRequestEventData
 ```
 
-Types: [SessionTitleLlmRequestEventData](core-data-structures/session-title.md)
+Types: [SessionTitleLlmRequestEventData](subsystems/session-title.md)
 
-Source: [`packages/session-title/session-title-llm/src/index.ts:43`](../packages/session-title/session-title-llm/src/index.ts)
-
-### `steering/*`
-
-#### `steering/message` — surface
-
-```ts persistence-catalog
-/** Steering content injected between steps of a running turn. */
-'steering/message': { turn: number; message: UserMessage }
-```
-
-Source: [`packages/core/session/src/types.ts:268`](../packages/core/session/src/types.ts)
+Source: [`packages/session/session-title-llm/src/index.ts:43`](../packages/session/session-title-llm/src/index.ts)
 
 ### `step/*`
 
@@ -505,7 +579,7 @@ Source: [`packages/core/session/src/types.ts:268`](../packages/core/session/src/
 'step/end': { turn: number; step: number }
 ```
 
-Source: [`packages/core/session/src/types.ts:224`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:228`](../packages/core/session/src/types.ts)
 
 #### `step/start` — log-only
 
@@ -514,7 +588,7 @@ Source: [`packages/core/session/src/types.ts:224`](../packages/core/session/src/
 'step/start': { turn: number; step: number }
 ```
 
-Source: [`packages/core/session/src/types.ts:222`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:226`](../packages/core/session/src/types.ts)
 
 ### `subagent/*`
 
@@ -542,9 +616,9 @@ Source: [`packages/subagent/subagent/src/descriptor.ts:37`](../packages/subagent
 'todo/write': { todos: TodoItem[] }
 ```
 
-Types: [TodoItem](core-data-structures/session.md)
+Types: [TodoItem](subsystems/session.md)
 
-Source: [`packages/core/session/src/types.ts:270`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:271`](../packages/core/session/src/types.ts)
 
 ### `tool/*`
 
@@ -559,9 +633,9 @@ Source: [`packages/core/session/src/types.ts:270`](../packages/core/session/src/
 'tool/call': { turn: number; step: number; callId: CallId; name: string; arguments: string }
 ```
 
-Types: [CallId](core-data-structures/core.md)
+Types: [CallId](subsystems/core.md)
 
-Source: [`packages/core/session/src/types.ts:248`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:251`](../packages/core/session/src/types.ts)
 
 #### `tool/code-dispatch` — log-only
 
@@ -584,7 +658,7 @@ Source: [`packages/core/session/src/types.ts:248`](../packages/core/session/src/
 'tool/code-dispatch': { parentCallId: CallId; subCallId: CallId; name: string; arguments: unknown; isError: boolean; content: ContentBlock[] }
 ```
 
-Types: [CallId](core-data-structures/core.md) · [ContentBlock](core-data-structures/core.md)
+Types: [CallId](subsystems/core.md) · [ContentBlock](subsystems/core.md)
 
 Source: [`packages/core/tools/src/code-mode.ts:49`](../packages/core/tools/src/code-mode.ts)
 
@@ -607,7 +681,7 @@ Source: [`packages/core/tools/src/code-mode.ts:49`](../packages/core/tools/src/c
 'tool/code-dispatch-start': { parentCallId: CallId; subCallId: CallId; name: string; arguments: unknown }
 ```
 
-Types: [CallId](core-data-structures/core.md)
+Types: [CallId](subsystems/core.md)
 
 Source: [`packages/core/tools/src/code-mode.ts:33`](../packages/core/tools/src/code-mode.ts)
 
@@ -634,7 +708,7 @@ Source: [`packages/core/tools/src/code-mode.ts:33`](../packages/core/tools/src/c
 }
 ```
 
-Source: [`packages/core/session/src/types.ts:260`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:263`](../packages/core/session/src/types.ts)
 
 ### `turn/*`
 
@@ -642,30 +716,33 @@ Source: [`packages/core/session/src/types.ts:260`](../packages/core/session/src/
 
 ```ts persistence-catalog
 /**
- * Closes turn `turn` with the {@link TurnEndReason} that ended it. The loop
- * awaits `session/flush` after an ordinary turn ends before claiming the next
- * queued item. Success commits the turn; rejection is reported live and does
- * not prevent later work.
+ * Closes turn `turn` with the {@link TurnEndReason} that ended it. A turn
+ * with no entered step has no `step/start` or `step/end`. The loop does not await a
+ * flush at turn boundaries: `dsh-session-checkpoint-policy` owns the
+ * per-request durability checkpoint, and consumers that read storage after
+ * `whenIdle()` flush themselves. Success commits the turn; rejection is
+ * reported live and does not prevent later work.
  */
 'turn/end': { turn: number; reason: TurnEndReason }
 ```
 
-Types: [TurnEndReason](core-data-structures/session.md)
+Types: [TurnEndReason](subsystems/session.md)
 
-Source: [`packages/core/session/src/types.ts:220`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:224`](../packages/core/session/src/types.ts)
 
 #### `turn/start` — log-only
 
 ```ts persistence-catalog
 /**
- * Opens turn `turn`. `trigger` records what started the model loop.
+ * Opens turn `turn` before the loop claims queued input or runs pre-step.
+ * Rejection, empty input, cancellation, or failure may close it with no
+ * step; otherwise the following identified `user/message` event or batch
+ * records the messages entering the step.
  */
-'turn/start': { turn: number; trigger: TurnTrigger }
+'turn/start': { turn: number }
 ```
 
-Types: [TurnTrigger](core-data-structures/session.md)
-
-Source: [`packages/core/session/src/types.ts:213`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:215`](../packages/core/session/src/types.ts)
 
 ### `user/*`
 
@@ -676,14 +753,13 @@ Source: [`packages/core/session/src/types.ts:213`](../packages/core/session/src/
  * A user-role message on the model-visible surface: a direct human prompt
  * (the queued message claimed for this turn), a synthetic `agent.inject()`
  * context (file-change notices, subdir AGENTS.md, skill content, cron
- * notifications, …), or an admitted goal continuation round. All three
- * project their `content` verbatim; `source` tells them apart. An idle
- * injection may append this event between turns without running the model.
+ * notifications, …), or an entered goal continuation round. All three
+ * project their `content` verbatim; `source` tells them apart.
  */
 'user/message': UserMessage
 ```
 
-Source: [`packages/core/session/src/types.ts:233`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:236`](../packages/core/session/src/types.ts)
 
 ### `web/*`
 

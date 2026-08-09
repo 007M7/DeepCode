@@ -4,18 +4,18 @@ Status: implemented
 
 English | [中文](2026-07-19-gui-layering-and-rpc-protocol.zh.md)
 
-> Division of labor: this document = the layering model + the channel-independent RPC protocol; the protocol's Web implementation (HTTP+SSE) is in the [web client architecture RFC](2026-07-19-gui-web-client-architecture.md).
+> Division of labor: this document = the layering model + the channel-independent RPC protocol; the protocol's Web implementation combines HTTP uplink with the [WebSocket downlink carrier](2026-08-04-websocket-downlink-carrier.md), while the browser object layer is in the [web client architecture RFC](2026-07-19-gui-web-client-architecture.md).
 
 ## Problem
 
 We need a UI integration layer. Beyond the existing ACP/stdio baseline, more product UI shapes are coming — Web (server), Electron, and others. We call these shapes Clients, uniformly, and want the following capabilities:
 
-- One `dsh` process supporting both `dsh web` (serve) and `dsh -p` (headless) — one process, two modes (a design reservation)
+- One `dsh` process supporting both `dsh web` (serve) and `dsh run` (headless) — one process, two modes (a design reservation)
 - Launching inside Electron with the same Web technology shape as `dsh web`
 
 That demands a stable layered responsibility model in the engineering codebase, so future client shapes plug in cleanly.
 
-At the same time the physical channels differ per consumer (HTTP/SSE, in-process direct calls, IPC later), so we also need a channel-independent message model and a single contract source of truth — "adding a method" and "swapping a carrier" must not entangle each other, and every message on the wire must be type-validatable, observable, and reconcilable.
+At the same time the physical channels differ per consumer (browser HTTP/WebSocket, in-process fetch/SSE, IPC later), so we also need a channel-independent message model and a single contract source of truth — "adding a method" and "swapping a carrier" must not entangle each other, and every message on the wire must be type-validatable, observable, and reconcilable.
 
 ## Decision
 
@@ -31,7 +31,7 @@ Directories layer as follows:
     - **Fetch-arrival plugin packages** (`ui-layout`, `ui-sidebar`, `ui-conversation`, `ui-trajectory`): dual-entry — the root index is the node half (an empty `apply`, existing so the host Loader governs lifecycle and the web plugin registry discovers the package.json `dshClient` declaration); the implementation lives under `src/client/`, shipped as the `./client` subpath (a tsdown closure-factory bundle). Cross-plugin consumption of `/client` is type-only; value cooperation goes through cordis services.
 - `apps/` holds the externally exported application shapes, assembled from Client / Host mixtures.
     - `apps/web` (`dsh-frontend`) is the vite application: a thin `main.ts` over the shell surface exported by `dsh-client-web`.
-    - `apps/cli` (`@deepseek-ai/dsh`) dispatches shapes: `dsh web` = startHost + webserver + the built `dsh-frontend` dist; `dsh -p` = headless in-process calls, zero HTTP.
+    - `apps/cli` (`@deepseek-ai/dsh`) dispatches shapes: `dsh web` = Host + webserver + the built `dsh-frontend` dist; `dsh run` = [a direct core Agent/Session front door](2026-08-09-headless-direct-core-front-door.md), with zero Host, HTTP, or browser layer.
     - A future Electron shape reuses the same web client packages over an IPC fetch carrier.
 
 ```
@@ -64,7 +64,7 @@ On the protocol side: TS interfaces (`packages/host/apiproxy/src/api/`, zero Nod
 |---|---|---|---|
 | Front layer | `dsh-host-apiproxy` | TS/zod definitions (api/) + the fetch abstraction (fetch/: handler + client base class) | Keep it simple — every consumer needs it; importable from Node and browser alike; protocol content in the "Message protocol" sections below; clients must not bypass api through ctx |
 | Assembly layer | `dsh-host-runtime` | Plugin composition + ApiProxy integration + the web UI plugin mount (in-memory Loader tree over the eight dshClient packages); home of host-level configuration (defaults/persistenceRoot, future user profile) | Which plugins mount and with what defaults is decided only here; shells must not alter the assembly |
-| Carrier layer | `dsh-host-webserver` | Web-shape HTTP: static serving + `/api/*`→handler forwarding + SSE write-out + close semantics; plugin bundle endpoint + `__DSH_BOOT__` manifest injection (fed by the web plugin registry) | Web (browser access) only; zero workspace dependencies (the registry arrives by structural injection); Electron does not reuse it |
+| Carrier layer | `dsh-host-webserver` | Web-shape HTTP and upgrade: static serving + `/api/*`→handler forwarding + WebSocket upgrade route + close semantics; plugin bundle endpoint + `__DSH_BOOT__` manifest injection (fed by the web plugin registry) | Web (browser access) only; zero workspace dependencies (the registry arrives by structural injection); Electron does not reuse it |
 | Client libraries | `dsh-client-ui-slots` / `dsh-client-web-react` / `dsh-client-ui-primitives` | Slot registry core / ctx↔React glue / pure React atoms | Zero cordis runtime dependency in components; seeded into the loader module table by the shell |
 | Client plugins | `dsh-client-connection` / `dsh-client-runtime` / `dsh-client-ui-theme` / `dsh-client-i18n` / `dsh-client-ui-layout` / `dsh-client-ui-sidebar` / `dsh-client-ui-conversation` / `dsh-client-ui-trajectory` | Browser-side cordis plugin tree (wire consumer, core services, theme, i18n, layout, sidebar, conversation, trajectory) — see the web client architecture RFC | Dual entry (node half = empty apply; implementation in `src/client/`); the consumption face goes exclusively through ApiProxy |
 | Application shape | `@deepseek-ai/dsh` (apps/cli) + `dsh-frontend` (apps/web, the vite application) | Coarse bin dispatch + one assembly module per shape (web.ts / headless.ts); the vite app is a thin main over the `dsh-client-web` shell surface | Shapes dynamic-import so they never load each other; workspace knowledge like dist location stays in the app |
@@ -79,7 +79,7 @@ Packages under `packages/host/*` and `packages/client/*` **must carry the direct
 2. **Write an assembly module under `apps/`**: `startHost()` + a client subclass + the shape's private signal/print/exit semantics; a mixture never becomes a package — assembly is written in the app.
 3. **Import `dsh-host-webserver` only if you need HTTP carriage**, otherwise zero ports.
 
-The two existing shapes are the template: `apps/cli/src/web.ts` (startHost + dist location + startWebServer + signal shutdown) and `headless.ts` (startHost + InProcessApiClient isomorphic direct calls, zero HTTP zero ports). ACP-class protocol bridges do not follow this checklist: they expose core to the external ecosystem, mount via `ctx.plugin(front-door plugin)` directly, and wear no fetch.
+The two existing shapes preserve the boundary: the Web shape mounts Host, carrier, and browser composition, while `dsh run` mounts a direct core runner with zero Host, HTTP, or ports. ACP-class protocol bridges do not follow the client-carrier checklist: they expose core to the external ecosystem, mount via `ctx.plugin(front-door plugin)` directly, and wear no fetch.
 
 ## Message protocol
 
@@ -88,7 +88,7 @@ The sections from here down are the protocol body carried by the front layer (`d
 ```
                  client 发起                      server 发起
   request   ① ClientRequest                 ③ ServerRequest
-            （POST /api/<method> body）      （SSE 帧：session 事件、审批/问答 requested）
+            （POST /api/<method> body）      （WebSocket message：session 事件、审批/问答 requested）
   response  ② ServerResponse                ④ ClientResponse
             （该 POST 的 HTTP 应答体）        （POST /api/respond body，回填 ③ 的 rpcId）
 ```
@@ -99,7 +99,7 @@ The sections from here down are the protocol body carried by the front layer (`d
 |---|---|---|---|---|
 | `ClientRequest` | `'client-request'` | `rpcId` `method` `payload` | client mints | `POST /api/<method>` body |
 | `ServerResponse` | `'server-response'` | `rpcId` `result` | echoes ① | that POST's response body (always HTTP 200) |
-| `ServerRequest` | `'server-request'` | `rpcId` `method` `payload` | server mints | SSE `data:` line |
+| `ServerRequest` | `'server-request'` | `rpcId` `method` `payload` | server mints | WebSocket text message |
 | `ClientResponse` | `'client-response'` | `rpcId` `result` | echoes ③ | `POST /api/respond` body |
 
 `RpcMessage = ClientRequest | ServerResponse | ServerRequest | ClientResponse`, narrowed via `switch (message.type)`.
@@ -169,7 +169,7 @@ The remaining methods (`session.create`/`session.history`/`session.rename`/`sess
 
 ### Frames (server→client, named unions)
 
-Two SSE streams: the mux stream (`GET /api/events.mux`, all-session aggregate) and the host stream (`GET /api/events.host`, host-level events). One example frame row:
+Two logical streams: the mux stream (`/api/events.mux`, all-session aggregate) and the host stream (`/api/events.host`, host-level events). The browser consumes one downlink WebSocket per stream, while the in-process fetch carrier retains SSE to preserve the same shape; see the [WebSocket downlink carrier](2026-08-04-websocket-downlink-carrier.md) for the physical boundary. One example frame row:
 
 | frame type | payload | when |
 |---|---|---|
@@ -215,8 +215,8 @@ All four quadrant full forms pass through `onEnvelope`; the base implementation 
 
 | Subclass | Package | doFetch | Purpose |
 |---|---|---|---|
-| `InProcessApiClient` | apiproxy itself | the injected `{ fetch }` handler | **The isomorphic point**: `new InProcessApiClient(toFetchHandler(api))` never touches the network yet runs the real wire serialization/zod/SSE framing — `dsh -p` headless is the protocol's second real consumer |
-| `WebApiClient` | dsh-client-connection | `globalThis.fetch` (same-origin `/api/*`) | the browser shape; HTTP+SSE carriage details in the web client architecture RFC |
+| `InProcessApiClient` | apiproxy itself | the injected `{ fetch }` handler | **The isomorphic point**: `new InProcessApiClient(toFetchHandler(api))` never touches the network yet runs the real wire serialization/zod/SSE framing; carrier tests and callers can exercise the protocol without opening a port, while product `dsh run` drives core directly |
+| `WebApiClient` | dsh-client-connection | `globalThis.fetch` uplink + one same-origin WebSocket downlink per logical stream | the browser shape; physical boundary in the [WebSocket downlink carrier](2026-08-04-websocket-downlink-carrier.md) |
 | `FixtureApiClient` | dsh-client-connection | unused (protocol-layer override) | serverless UI development (`?fixture`): overrides the `callUnary`/`openMux`/`openHost`/`respond` virtuals and is itself the fake server (frame rpcIds minted by it, semantics self-consistent) |
 | (future) IPC bridge subclass | apps/electron | IPC serialization round trip | swaps only doFetch; contract and base class unchanged |
 
@@ -242,7 +242,7 @@ Every client shape consumes one contract: adding a unary method is a five-step m
 |---|---|
 | Packaging by "product shape" (a web family, an electron family) | What shapes share is host/client capability, not the shape itself; capability-provider layering means a new shape needs zero new packages |
 | A package per mixture (e.g. a standalone headless package) | A mixture has exactly one consumer (its own app); packaging it is ownerless abstraction, while assembly in the app is readable and disposable |
-| Consuming clients connecting to ctx directly (skipping the apiproxy layer) | A second command plane bypasses the contract, losing wire validation/observability/multi-client consistency; ctx keeps exactly two formal uses — front doors and headless event subscription |
+| Consuming clients connecting to ctx directly (skipping the apiproxy layer) | Client shapes require wire validation, observability, and multi-client consistency. Direct headless is a local front door with no client boundary and uses the public Agent/Session seams rather than a client command plane |
 | webserver depending on runtime (saving the handler injection) | Structural-typing injection keeps webserver reusable by sidecars/tests with zero workspace deps; a package dependency would drag assembly knowledge into the carrier layer |
 | Package names without the group prefix (continuing dsh-<tail>) | `dsh-runtime`/`dsh-web-ui` lose their belonging in the flat npm namespace; the cost is one explicit paths entry per package |
 | Reusing the in-repo JSON-RPC 2.0 (dsh-jsonrpc) | Numeric error codes degrade to a single fallback code, contracts get aligned by hand in two copies, and naming drifts without a convention |

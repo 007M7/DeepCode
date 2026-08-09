@@ -24,7 +24,10 @@
       "path": "../../core/session"
     },
     {
-      "path": "../../session-projection/session-projection"
+      "path": "../../compact/compact"
+    },
+    {
+      "path": "../../session/session-projection"
     },
     {
       "path": "../../support/invariants"

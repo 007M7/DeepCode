@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-07-29-human-transcript-append-origin.md
-2026-07-29-human-transcript-append-origin.md: a47dd49dd831cdd32d520137417bf47d2c056a09
-2026-07-29-human-transcript-append-origin.zh.md: 31639bd9aac5d6dace80392004f37c747bff2c36
+2026-07-29-human-transcript-append-origin.md: 9804d3d8d67a4ad00c3d395c2081fd47e03c254a
+2026-07-29-human-transcript-append-origin.zh.md: 030be076bec9c64ffc97957bbc0fc2b6084d2030

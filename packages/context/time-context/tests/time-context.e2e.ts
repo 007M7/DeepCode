@@ -54,9 +54,16 @@ describe('time-context through a real headless cordis.yml', () => {
     expect(contexts).toHaveLength(2)
     expect(starts).toHaveLength(2)
     for (let index = 0; index < contexts.length; index += 1) {
-      expect(contexts[index]!.seq).toBeLessThan(starts[index]!.seq)
+      expect(contexts[index]!.seq).toBeGreaterThan(starts[index]!.seq)
       expect(contexts[index]!.surfaceOp).toBe('append')
-      expect(contexts[index]!.data.source).toEqual({ kind: 'plugin', plugin: 'time-context' })
+      // `snapshot` form: one named contribution whose text is exactly what the
+      // model read, so a consumer attributes it without re-splitting prose.
+      expect(contexts[index]!.data.source).toMatchObject({
+        kind: 'plugin',
+        plugin: 'time-context',
+        form: 'snapshot',
+        sections: [{ name: 'time-context' }],
+      })
     }
     const contextText = contexts.map(event => event.data.content
       .filter(block => block.type === 'text')
@@ -65,10 +72,11 @@ describe('time-context through a real headless cordis.yml', () => {
     expect(contextText[0]).toMatch(
       /Time sampled while preparing turn 1, step 1: \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+08:00\[Asia\/Shanghai\]/,
     )
-    expect(contextText[0]).toMatch(
+    expect(contextText[0]).toContain('Elapsed since the preceding model-visible message: unavailable.')
+    expect(contextText[1]).toMatch(/Time sampled while preparing turn 2, step 1:/)
+    expect(contextText[1]).toMatch(
       /Elapsed since the preceding model-visible message: (?:\d+d )?(?:\d+h )?(?:\d+m )?\d+s\./,
     )
-    expect(contextText[1]).toMatch(/Time sampled while preparing turn 2, step 1:/)
 
     const headers = events.filter(event => event.type === 'request/header')
     expect(JSON.stringify(headers)).not.toContain('Time sampled while preparing')

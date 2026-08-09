@@ -1,16 +1,11 @@
-// View-ring + toolview-hole type-chain samples, slot form: both are declared
-// slots, so the register→inject→render chain and its compile-time locks are
-// the slot system's (ui-slots/tests/type-chain.spec.tsx owns the generic
-// duals). This spec pins the package-specific surface: the SlotMap rows
-// (kind/scope/owner), list- and keyed-kind registration shapes, the ChatView
-// and tool-row composed-props contracts, and the runtime dual — a real
-// SlotsService ledger driving registration/order/disposal the way
-// ConversationRoot's tab projection consumes it.
+// View-ring type-chain samples. This spec pins the conversation-owned SlotMap
+// row, list-kind registration shape, composed view props, and the runtime
+// ledger projection consumed by ConversationRoot.
 import { Context } from 'cordis'
 import { describe, expect, it } from 'vitest'
 import type { ReactNode } from 'react'
 import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
-import type { ChatViewSlotProps, ConvViewProps, ToolRowProps } from '../src/client/contract/slots.ts'
+import type { ChatViewSlotProps, ConvViewProps } from '../src/client/contract/slots.ts'
 
 describe('view-ring type negatives (compile-time; body never runs)', () => {
   it('holds the negative samples as expect-error sites', () => {
@@ -54,30 +49,6 @@ describe('view-ring type negatives (compile-time; body never runs)', () => {
         return null
       }
       void chatProps
-      // 7. Keyed hole registration requires the key shape field.
-      // @ts-expect-error missing `key` on a keyed-slot registration
-      slots.register({ name: 'conversation.chat.toolview' }, (_p: ToolRowProps) => null)
-      // 8. A list-kind shape field is rejected on the keyed hole.
-      slots.register(
-        // @ts-expect-error `id`/`order` belong to list slots, not the keyed hole
-        { name: 'conversation.chat.toolview', key: 'k', order: 1 },
-        (_p: ToolRowProps) => null)
-      // 9. Tool-row components stay within their composed contract: the
-      //    owner share + standard kit supply no chat-view members.
-      const overreaching = (props: ToolRowProps): ReactNode => {
-        // @ts-expect-error loadOlder lives on ChatViewSlotProps, not the row contract
-        void props.loadOlder
-        return null
-      }
-      void overreaching
-      // 10. Owner-share drift is red at the row component seam: block is the
-      //     call union, not arbitrary payload.
-      const drifted = (props: ToolRowProps): ReactNode => {
-        // @ts-expect-error the block union has no `argsParsed` member
-        void props.block.argsParsed
-        return null
-      }
-      void drifted
       return null as ReactNode
     }
     expect(negatives).toBeTypeOf('function')

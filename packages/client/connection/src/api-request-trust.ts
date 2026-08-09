@@ -4,7 +4,7 @@
  * the attacker's domain while the socket reaches this server) and cross-site
  * requests fired from a malicious page. The Host fence binds every request,
  * browser-looking or not: over plain HTTP a browser attaches neither Origin
- * nor Fetch-Metadata to reads (EventSource, images, navigations — those
+ * nor Fetch-Metadata to reads (images and navigations — those
  * headers go only to trustworthy destinations), so an unmarked request may
  * still be a rebound browser read and Host is the one header rebinding cannot
  * forge. Non-browser and remote clients pass the same fence via loopback, the
@@ -16,12 +16,13 @@
 import type { IncomingHttpHeaders } from 'node:http'
 import { isLoopbackHostname } from './loopback-hostname.ts'
 
-/** The request facts the fence reads (structural subset of IncomingMessage). */
+/** The request facts the fence reads from either HTTP representation. */
 interface ApiTrustRequest {
-  headers: IncomingHttpHeaders
+  headers: IncomingHttpHeaders | Headers
 }
 
-function header(headers: IncomingHttpHeaders, name: string): string | undefined {
+function header(headers: IncomingHttpHeaders | Headers, name: string): string | undefined {
+  if (headers instanceof Headers) return headers.get(name) ?? undefined
   const value = headers[name]
   return typeof value === 'string' ? value : undefined
 }
@@ -88,7 +89,7 @@ function isTrustedAuthority(hostUrl: URL, trustedHosts: readonly string[]): bool
 
 /**
  * Decide whether one /api request may reach the RPC bridge.
- * @param request - node HTTP request facts (headers).
+ * @param request - Node HTTP or Fetch request facts (headers).
  * @param trustedHosts - non-loopback authorities this deployment serves: exact `host:port`, or port-less `host` matching any port.
  * @returns true when the Host is ours (loopback or trusted) and any attached browser markers are same-origin.
  */
@@ -97,7 +98,7 @@ export function isTrustedApiRequest(request: ApiTrustRequest, trustedHosts: read
   // fills Host from the URL it believes it is talking to, so a rebound page
   // carries the attacker's domain here even though the socket lands on this
   // server. There is no marker shortcut — a browser read over plain HTTP
-  // (EventSource, images, navigations) arrives with neither Origin nor
+  // (images and navigations) arrives with neither Origin nor
   // Fetch-Metadata, indistinguishable from curl, and its response is readable
   // by the rebound page.
   const host = header(request.headers, 'host')

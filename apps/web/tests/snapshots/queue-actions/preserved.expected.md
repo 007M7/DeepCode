@@ -7,35 +7,35 @@
 - text: Reply with a one-sentence description of event sourcing, then stop. {{clock}}
 - button "Copy":
   - img
-- button "Branch into a new conversation" [disabled]:
-  - img
-- text: Available only on the last message of a completed turn
-- button "Context injection":
+- button "Context injection @deepseek-ai/dsh-system-prompt":
   - img
   - img
-  - text: Context injection
+  - text: Context injection @deepseek-ai/dsh-system-prompt
 - paragraph: partial
 - text: Stopped
 - button "Copy":
   - img
 - button "Branch into a new conversation":
   - img
-- text: {{clock}} Edited queue item {{clock}}
-- button "Copy":
-  - img
-- button "Branch into a new conversation" [disabled]:
-  - img
-- text: Available only on the last message of a completed turn
-- paragraph: partial
-- status: Deep diving...
+- text: {{clock}} Ran for {{duration}}
+- button "2 queued messages" [expanded]
 - list:
+  - listitem:
+    - text: Edited queue item
+    - button "Edit queued message":
+      - img
+    - tooltip "Edit queued message"
+    - button "Remove queued message":
+      - img
+    - button "Steer queued message" [disabled]:
+      - img
   - listitem:
     - text: Queue item preserved after stop
     - button "Edit queued message":
       - img
     - button "Remove queued message":
       - img
-    - button "Steer queued message":
+    - button "Steer queued message" [disabled]:
       - img
 - textbox "Message the agent"
 - button "Commands":
@@ -44,5 +44,5 @@
 - button "Select model, current DeepSeek-V4-Flash":
   - text: DeepSeek-V4-Flash
   - img
-- button "Stop generating"
+- button "Send message" [disabled]
 - text: 1 turns · 1 steps Input 0 tok · Output 0 tok

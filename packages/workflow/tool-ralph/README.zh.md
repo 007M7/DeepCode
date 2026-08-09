@@ -2,9 +2,9 @@
 
 [English](README.md) | 中文
 
-面向模型的 `ralph` 工具运行固定的前台工作流，把一个不可变目标依次交给多个全新子 agent（智能体）。它展示如何把专用编排策略实现为基于 [`ctx.workflows`](../workflow/README.md) 和 [`ctx.subagents`](../../subagent/subagent/README.md) 的普通插件：不会向 `agent-loop` 添加 Ralph 模式或全新 agent loop（智能体循环），同会话的[目标领域](../../goal/goal/README.md)也保持独立。策略和暂缓事项由 [Ralph Agent Note（agent 决策记录）](../../../.agents/notes/implemented/feature/2026-07-19-fresh-agent-ralph-workflow-tool.md)负责。
+面向模型的 `ralph` 工具运行固定的前台工作流，把一个不可变目标依次交给多个全新子 agent（智能体）。它展示如何把专用编排策略实现为基于 [`ctx.workflows`](../workflow/README.md) 和 [`ctx.subagents`](../../subagent/subagent/README.md) 的普通插件：不会向 `agent-loop` 添加 Ralph 模式或全新 agent loop（智能体循环），同会话的[目标领域](../../goal/goal/README.md)也保持独立。策略和暂缓事项由 [Ralph Agent Note](../../../.agents/notes/implemented/feature/2026-07-19-fresh-agent-ralph-workflow-tool.md)负责。
 
-## 契约
+## 约定
 
 `ralph({ objective, maxRounds? })` 会等待整个运行完成。部署配置中的 `maxRounds` 既是默认值，也是调用覆盖值的上限。每个 Ralph Round 通过 `subagentProvider` 启动一个子 agent；该提供方必须存在、支持结构化输出，并报告 `inheritsParentContext: false`。已配置的提供方以 `WorkflowStartRequest.subagentProvider` 传递，使固定脚本无法检查或更改路由，普通的模型编写 `workflow` 工具也不会因此获得提供方选择器。解析后的 Round 上限还会作为 `WorkflowStartRequest.maxTotalAgents` 传递，使固定循环与引擎的子 agent 总数后备上限协同；Ralph 上限超过引擎部署上限时，引擎会在发布运行前拒绝。
 
@@ -73,7 +73,7 @@ Use the ralph tool ONLY when the direct human explicitly asks for a Ralph loop o
 
 #### 模型看到的内容
 
-每个子 agent 都会看到独立的固定 Round 提示词和结构化输出捕获契约。父级只看到原始调用和一个终态结果，其中包含 worker 报告的状态、Round 数量及经过美化打印的最终报告；中间子 agent 消息和报告不会进入父级对话。普通子 agent 失败时会改为产生错误，其中包含对应 Round 编号；从第二个 Round 起，还会包含上一次成功交接。
+每个子 agent 都会看到独立的固定 Round 提示词和结构化输出捕获约定。父级只看到原始调用和一个终态结果，其中包含 worker 报告的状态、Round 数量及经过美化打印的最终报告；中间子 agent 消息和报告不会进入父级对话。普通子 agent 失败时会改为产生错误，其中包含对应 Round 编号；从第二个 Round 起，还会包含上一次成功交接。
 
 #### Token 影响
 

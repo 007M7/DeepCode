@@ -1,6 +1,6 @@
 # Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
-#   pnpm run verify-translation-pairing --write
-2026-07-16-explicit-turn-cancellation.md: 15085a1da2cf183bace9957a4bedb3ea466aa472
-2026-07-16-explicit-turn-cancellation.zh.md: e945b0fea51bdbfee38048573c643b0fb8ecb685
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.md
+2026-07-16-explicit-turn-cancellation.md: 2b7cb8cc77184edf1331764d28aefe748c1614a1
+2026-07-16-explicit-turn-cancellation.zh.md: 0b9a06c0ae340a41eab9d6bff6126996bfc63bcf

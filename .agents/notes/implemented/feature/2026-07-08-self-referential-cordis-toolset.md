@@ -12,7 +12,7 @@ First, model-written registration must be validated where it happens: a malforme
 
 ## Decision
 
-The toolset ships as [`@deepseek-ai/dsh-tool-cordis`](../../../../packages/cordis/tool-cordis/README.md) and is demoed by `examples/web-cordis`. It gives the model three tools over the live Cordis runtime in the current DSH process: inspect it, mount an in-memory temporary Plugin, and unmount that Plugin to quiescence.
+The toolset ships as [`@deepseek-ai/dsh-tool-cordis`](../../../../packages/self-modification/tool-cordis/README.md) and is demoed by `examples/web-cordis`. It gives the model three tools over the live Cordis runtime in the current DSH process: inspect it, mount an in-memory temporary Plugin, and unmount that Plugin to quiescence.
 
 The vm isolates accidental global pollution, and the context façade hides framework internals. Neither restricts the authority of exposed services: a temporary Plugin can call `ctx.bash` with the host executor's privileges and reach the real filesystem and web services. It runs in the shared DSH runtime and may affect other sessions in that process. This is an opt-in development tool with bash-equivalent trust, not a security boundary or product default.
 
@@ -81,4 +81,4 @@ The correctness investment therefore goes where it pays for every capability at 
 
 ## Consequences
 
-The toolset is a deliberate opt-in with a fully-privileged `ctx`, so a deployment adopts it as consciously as a bash tool. Several facts follow that the tool descriptions warn the model about directly: a waterfall listener (e.g. `tools/pre-execute`) that returns without calling `next()` vetoes the chain, so a mounted listener can lobotomize the agent's own tool dispatch ([waterfall semantics](../../../../docs/cordis-primer.md#cordis-waterfall-semantics)); mount code runs inside a tool call of the current turn, so awaiting anything that resolves only after the turn deadlocks; `vmTimeoutMs` bounds synchronous evaluation only; and mounts do not survive session resume.
+The toolset is a deliberate opt-in with a fully-privileged `ctx`, so a deployment adopts it as consciously as a bash tool. Several facts follow that the tool descriptions warn the model about directly: a waterfall listener (e.g. `tools/pre-execute`) that returns without calling `next()` short-circuits the chain, so a mounted listener can stop the agent's own tool dispatch ([waterfall semantics](../../../../docs/cordis-primer.md#cordis-waterfall-semantics)); mount code runs inside a tool call of the current turn, so awaiting anything that resolves only after the turn deadlocks; `vmTimeoutMs` bounds synchronous evaluation only; and mounts do not survive session resume.

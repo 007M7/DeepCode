@@ -3,10 +3,10 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
-import { decodeGoalChange, renderGoalChange } from '@deepseek-ai/dsh-goal'
+import { decodeGoalChange } from '@deepseek-ai/dsh-goal'
 import { LOADER_SMOKE_TEST_TIMEOUT_MS, runLoaderSmoke } from '@deepseek-ai/dsh-loader-smoke'
 
-const binScript = fileURLToPath(new URL('../../../examples/cli-demo/src/bin.ts', import.meta.url))
+const binScript = fileURLToPath(new URL('../../../../examples/headless-agent/tests/fixtures/headless-driver.ts', import.meta.url))
 const configPath = fileURLToPath(new URL(
   '../../../../examples/headless-agent/tests/fixtures/goal-domain/cordis.yml',
   import.meta.url,
@@ -30,8 +30,9 @@ describe('goal domain through a real cordis.yml and headless process', () => {
       label: 'goal-domain',
       tempDirPrefix: 'goal-domain-e2e-',
       binScript,
+      libBinScript: binScript,
       configPath,
-      binArgs: ['--config', configPath, '--output-format', 'json', 'prove the persisted goal domain'],
+      binArgs: [configPath, 'prove the persisted goal domain'],
       tsconfigPath: repoTsconfig,
       inspect: async (cwd) => {
         const logs = await jsonlFiles(join(cwd, '.sessions'))
@@ -41,23 +42,19 @@ describe('goal domain through a real cordis.yml and headless process', () => {
       },
     })
     expect(stderr).toBe('')
-    const result = JSON.parse(stdout) as Record<string, unknown>
+    const result = JSON.parse(stdout.trimEnd().split('\n').at(-1) ?? '') as Record<string, unknown>
     expect(result).toMatchObject({
       type: 'result',
-      success: true,
     })
-    expect(result['result']).toBeTypeOf('string')
-    expect(result['result']).toContain('CLI tool round trip complete')
+    expect(result['output']).toBeTypeOf('string')
+    expect(result['output']).toContain('CLI tool round trip complete')
     expect(events.filter(event => event.type === 'turn/end')).toHaveLength(1)
 
-    const contexts = events.filter(event => event.type === 'user/message'
-      && event.data.source.kind === 'goal')
-    expect(contexts).toHaveLength(1)
-    const context = contexts[0]
-    if (context?.type !== 'user/message') throw new Error('expected goal context event')
-    const change = context.data.source.kind === 'goal'
-      ? decodeGoalChange(context.data.source.change)
-      : undefined
+    const changes = events.filter(event => event.type === 'goal/change')
+    expect(changes).toHaveLength(1)
+    const context = changes[0]
+    if (context?.type !== 'goal/change') throw new Error('expected goal change event')
+    const change = decodeGoalChange(context.data)
     if (change === undefined) throw new Error('expected durable goal change')
     expect(change).toMatchObject({
       operation: 'create',
@@ -69,10 +66,9 @@ describe('goal domain through a real cordis.yml and headless process', () => {
         maxGoalRounds: 7,
       },
     })
-    expect(context.data.content).toEqual(renderGoalChange(change))
     expect(JSON.stringify(context)).not.toContain('activation')
-    // No admitted continuation round ran (the snapshot mounts without starting
-    // a round); the round-zero state change from create is expected above.
+    // No admitted continuation round ran; the goal change itself is independent
+    // from model-visible user messages.
     expect(events.filter(event => event.type === 'user/message'
       && event.data.source.kind === 'goal' && event.data.source.round > 0)).toHaveLength(0)
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)

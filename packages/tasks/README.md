@@ -1,13 +1,15 @@
-# tasks/ — background task capability family
+# tasks/ — background-task capability family
 
 English | [中文](README.zh.md)
 
-The shared home for background-task ids, owner isolation, reads, cancellation, waiting, and completion notices. Bash, subagents, and future long-running tools use one model-facing protocol. See the [background-task runtime Agent Note](../../.agents/notes/implemented/architecture/2026-06-20-generic-long-running-tool-runtime.md) and the [task-registry seam Agent Note](../../.agents/notes/implemented/architecture/2026-07-26-task-registry-seam.md).
+This family gives long-running tools one owner-isolated background-task protocol for observation, cancellation, waiting, and completion notices.
 
-| Package | ctx key | Role |
+| Package | Role | ctx key |
 |---|---|---|
-| [`tasks`](tasks/README.md) (`@deepseek-ai/dsh-tasks`) | `ctx.tasks` | The registry seam: branded `<kind>-N` ids, the owner-fenced read/kill/wait/list contract, snapshot vocabulary, the `attachSurface` misconfiguration fence, and the snapshot invariant companion |
-| [`tasks-local`](tasks-local/README.md) (`@deepseek-ai/dsh-tasks-local`) | — | The process-local registry implementation: in-memory records, first-wins settlement bookkeeping, and the awaited owner-cleanup and teardown paths |
-| [`tool-tasks`](tool-tasks/README.md) (`@deepseek-ai/dsh-tool-tasks`) | — | The model-facing control surface: `task_output`, `task_list`, `task_kill`, the completion-notice injection, and the background-habit prompt section |
+| [`tasks/`](tasks/README.md) | Defines the task registry and lifecycle contract | `ctx.tasks` |
+| [`tasks-local/`](tasks-local/README.md) | Implements the process-local task registry | registers on `ctx.tasks` |
+| [`tool-tasks/`](tool-tasks/README.md) | Exposes task control and completion notices to the model | registers on `ctx.tools` |
 
-The registry owns state across producer or surface reloads; the tool package owns presentation. Producers register execution hooks through `ctx.tasks.start` and own whether their config exposes `run_in_background`.
+See the [background-task runtime](../../.agents/notes/implemented/architecture/2026-06-20-generic-long-running-tool-runtime.md) and [task-registry](../../.agents/notes/implemented/architecture/2026-07-26-task-registry-seam.md) decisions.
+
+The subsystem reference — the id scheme, the owner-fenced contract, snapshots — is [docs/subsystems/tasks.md](../../docs/subsystems/tasks.md); design in the [background-task runtime](../../.agents/notes/implemented/architecture/2026-06-20-generic-long-running-tool-runtime.md) and [task-registry seam](../../.agents/notes/implemented/architecture/2026-07-26-task-registry-seam.md) Agent Notes.

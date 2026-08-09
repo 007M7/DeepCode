@@ -2,11 +2,11 @@
 
 [English](02-lifecycle-and-effects.md) | 中文
 
-Cordis 插件可能因配置编辑、热重载、显式资源释放或所需服务消失而卸载。通过 Cordis API 建立的注册属于 effect，会在所属插件卸载时撤销；在这些 API 之外管理的资源必须包装在 `ctx.effect()` 中。
+Cordis 插件可能因修改配置、热重载、显式资源释放或所需服务消失而卸载。通过 Cordis API 建立的注册属于 effect，会在所属插件卸载时撤销；在这些 API 之外管理的资源必须包装在 `ctx.effect()` 中。
 
 ## Effect
 
-对于 Cordis 尚未管理的资源，例如定时器、连接或 watcher，应将其包装在 `ctx.effect()` 中并返回 disposer（dispose（资源释放）函数）：
+对于 Cordis 尚未管理的资源，例如定时器、连接或 watcher，应将其包装在 `ctx.effect()` 中并返回 disposer（资源释放函数）：
 
 创建 `lifecycle.ts`，将它放在 `tmp/cordis-tutorial` 中：
 
@@ -67,7 +67,7 @@ disposed
 
 ## Fiber 状态机
 
-每个已加载插件实例都拥有一个 fiber，并依次经过以下状态：
+每个已加载插件实例都拥有一个 fiber，并在以下状态之间转换：
 
 ```
 PENDING → LOADING → ACTIVE → UNLOADING → DISPOSED
@@ -86,8 +86,8 @@ PENDING → LOADING → ACTIVE → UNLOADING → DISPOSED
 你很少需要亲自编写 `ctx.effect()`，因为内置注册 API 本身已经是 effect：
 
 - `ctx.on(event, listener)`：监听器会在卸载时移除（[第 4 章](04-events.md)）。
-- `ctx.plugin(child)`：子插件会随父插件一同 dispose。
-- 服务注册属于 effect。`ctx.tools.register(...)` 等 harness 注册表也会把返回的 disposer 附着到调用插件上，因此会自动回卷（[第 7 章](07-into-the-harness.md)）。
+- `ctx.plugin(child)`：子插件会随父插件一同 dispose（资源释放）。
+- 服务注册属于 effect。`ctx.tools.register(...)` 等 harness 注册表也会把返回的 disposer 附着到调用插件上，因此会自动撤销（[第 7 章](07-into-the-harness.md)）。
 
 对于 Cordis 不管理的资源，应在 `ctx.effect()` 内获取它，并返回用于释放资源的 disposer。此后 Cordis 会在卸载期间调用该释放逻辑，热重载时也不例外。
 
@@ -95,4 +95,4 @@ PENDING → LOADING → ACTIVE → UNLOADING → DISPOSED
 
 下一章：[服务](03-services.md)：插件如何共享功能。
 
-[![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-harness/deepseek-harness)
+[![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness-sdk)

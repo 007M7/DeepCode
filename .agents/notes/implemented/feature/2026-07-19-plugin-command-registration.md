@@ -12,7 +12,7 @@ A shared mechanism must remain a UI concern rather than a model tool or agent-lo
 
 ## Decision
 
-`@deepseek-ai/dsh-commands` in `packages/ui/commands/` is the product command registry. The TUI app bundle mounts it beside its consuming front door; the [automation-only ACP app](../simplification/2026-07-23-acp-automation-only-protocol.md) and the executor-less, UI-less agent spine omit it. TUI injects the service, while command producers depend only on the registry and any domain they operate.
+`@deepseek-ai/dsh-commands` in `packages/interaction/commands/` is the product command registry. The TUI app bundle mounts it beside its consuming front door; the [automation-only ACP app](../simplification/2026-07-23-acp-automation-only-protocol.md) and the executor-less, UI-less agent spine omit it. TUI injects the service, while command producers depend only on the registry and any domain they operate.
 
 ### Registry contract
 
@@ -36,7 +36,7 @@ Expected handler failures return `CommandResult.error`. Thrown or malformed resu
 
 ### TUI mapping
 
-The TUI registers its built-in slash commands as agent-scoped command definitions instead of switching on strings. Its autocomplete and help view read the live catalog, so plugin commands appear and disappear with their effects. Any submitted line beginning with `/` stays in the command plane; unknown input produces a terminal warning rather than falling through to `Agent.send()` or `Agent.steer()`.
+The TUI registers its built-in slash commands as agent-scoped command definitions instead of switching on strings. Its autocomplete and help view read the live catalog, so plugin commands appear and disappear with their effects. Any submitted line beginning with `/` stays in the command plane; unknown input produces a terminal warning rather than falling through to `Agent.steer()`.
 
 Each submitted command owns an `AbortController`. TUI disposal aborts outstanding dispatches, removes the local definitions, and waits for the command-producing fiber before completing teardown.
 

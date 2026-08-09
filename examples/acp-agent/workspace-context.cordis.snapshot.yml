@@ -28,3 +28,5 @@
       - insert:
           - id: llm-replay
             name: '@deepseek-ai/dsh-llm-replay'
+          - id: workspace-context-compaction
+            name: './tests/fixtures/workspace-context-compaction.ts'

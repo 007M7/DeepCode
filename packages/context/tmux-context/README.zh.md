@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-可选启用的持久上下文，记录本 agent 进程所在的 tmux session、window、pane，以及该 window 的 pane 树布局。在准备模型请求时每轮采样一次。已交付的 TUI 会挂载它；`dsh-agent-spine-demo` 与 Web／无头界面均不挂载。决策记录见：[tmux-context Agent Note](../../../.agents/notes/implemented/feature/2026-07-27-tmux-location-context.md)。
+可选启用的持久上下文，记录本 agent（智能体）进程所在的 tmux session、window、pane，以及该 window 的 pane 树布局。在准备模型请求时每轮采样一次；随附 Web／无头组合不包含它。决策记录见：[tmux-context Agent Note](../../../.agents/notes/implemented/feature/2026-07-27-tmux-location-context.md)。
 
 ## 配置
 
@@ -17,7 +17,7 @@
 
 ## 如何读取 tmux
 
-插件前置注册一个 `agent/step` 监听器，仅在每轮的第一个 step 运行。当需要注入时，它通过 `ctx.bash` 执行器 seam 运行一条只读命令：
+插件前置注册一个 `agent/pre-step` 监听器，仅在每轮的第一个 step 运行。当需要注入时，它通过 `ctx.bash` 执行器 seam 运行一条只读命令：
 
 ```sh
 [ -n "$TMUX_PANE" ] || exit 1
@@ -33,7 +33,7 @@ exec tmux display-message -t "$TMUX_PANE" -p '<format>'
 
 ## 时序语义
 
-当需要注入时，插件在 `step/start` 之前通过 `agent.inject()` 追加一条注入的 `user/message`，来源为 `{ kind: 'plugin', plugin: 'tmux-context' }`。变化抑制与间隔调度会扫描原始持久会话事件中该来源的最近一次注入，因此调度可跨压缩与恢复的进程存续，无需进程内缓存状态；各会话独立调度。该读数记录的是一次请求准备尝试，而非已提交的 step；由于监听器最先运行，当后续 pre-step 监听器取消或失败时，它的追加可能仍会保留（日志只追加，插件不做回滚）。
+该插件会前置一个 `agent/pre-step` 监听器。需要注入且下游决策进入拟议步骤时，它会向返回的批次前置添加一条带来源的 `UserMessage`。AgentLoop 会在 `step/start` 之后记录该上下文，其来源为 `{ kind: 'plugin', plugin: 'tmux-context' }`。变化抑制与间隔调度会扫描原始持久会话事件中该来源的最近一次注入，因此调度可跨压缩与恢复的进程存续，无需进程内缓存状态；各会话独立调度。下游 pre-step 监听器拒绝或失败时，该读数不会被记录。
 
 ## 模型体验
 
@@ -55,9 +55,9 @@ window active=<0|1>, pane active=<0|1>, layout <window-layout>
 
 每条两行读数会累积，直到压缩将其遮蔽。位置未变化以及间隔抑制不会新增内容。
 
-#### KV 缓存影响
+#### KV Cache 影响
 
-只追加；新增可见内容位于可复用的请求前缀之后，不会使已有 KV 缓存条目失效。
+只追加；新增可见内容位于可复用的请求前缀之后，不会使已有 KV Cache 条目失效。
 
 ## 已知限制与后续工作
 

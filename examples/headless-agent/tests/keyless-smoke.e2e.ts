@@ -6,10 +6,15 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { LOADER_SMOKE_TEST_TIMEOUT_MS, runLoaderSmoke } from '@deepseek-ai/dsh-loader-smoke'
-import { PREPARED_ENTRY_FILENAME, prepareDshPlugin } from '@deepseek-ai/dsh-repository-plugin'
+import {
+  PREPARED_ENTRY_FILENAME,
+  REPOSITORY_PLUGIN_PREPARE_COMMAND,
+  REPOSITORY_PLUGIN_PACKAGE_NAME,
+  prepareDshPlugin,
+} from '@deepseek-ai/dsh-repository-plugin'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 
-const binScript = fileURLToPath(new URL('../../../packages/examples/cli-demo/src/bin.ts', import.meta.url))
+const binScript = fileURLToPath(new URL('./fixtures/headless-driver.ts', import.meta.url))
 const configPath = fileURLToPath(new URL('./fixtures/cli.cordis.yml', import.meta.url))
 const tsconfigPath = fileURLToPath(new URL('../../../tsconfig.json', import.meta.url))
 const decompress = promisify(zstdDecompress)
@@ -21,8 +26,9 @@ describe('headless-agent keyless smoke', () => {
       label: 'headless-agent',
       tempDirPrefix: 'headless-agent-smoke-',
       binScript,
+      libBinScript: binScript,
       configPath,
-      binArgs: ['--config', configPath, '--output-format', 'stream-json', 'prove the tool path'],
+      binArgs: [configPath, 'prove the tool path'],
       tsconfigPath,
       inspect: async (cwd) => {
         const files = await readdir(cwd, { recursive: true })
@@ -39,8 +45,7 @@ describe('headless-agent keyless smoke', () => {
     expect(stderr).toBe('')
     expect(events.some(event => event.type === 'tool/call' && event.data.name === 'bash')).toBe(true)
     const catalogMessage = events.find(event => event.type === 'user/message'
-      && event.data.source.kind === 'plugin'
-      && event.data.source.plugin === 'dsh-tool-skill')
+      && event.data.source.kind === 'skill-catalog')
     const catalog = catalogMessage?.type === 'user/message'
       ? catalogMessage.data.content.filter(block => block.type === 'text').map(block => block.text).join('\n')
       : ''
@@ -53,12 +58,9 @@ describe('headless-agent keyless smoke', () => {
     expect(JSON.stringify(toolResult)).toContain('CLI_TOOL_ROUND_TRIP')
     expect(result).toMatchObject({
       type: 'result',
-      success: true,
-      turn: 1,
-      reason: { kind: 'completed' },
       usage: { inputTokens: 18, outputTokens: 8, cacheReadTokens: 2, reasoningTokens: 1 },
     })
-    expect(String(result?.['result'])).toContain('CLI_TOOL_ROUND_TRIP')
+    expect(String(result?.['output'])).toContain('CLI_TOOL_ROUND_TRIP')
     expect(persistedHeader).toMatchObject({ type: 'session' })
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 
@@ -75,6 +77,8 @@ describe('headless-agent keyless smoke', () => {
       await writeFile(join(plugin, 'package.json'), `${JSON.stringify({
         name: 'headless-repository-fixture',
         version: '0.0.0',
+        scripts: { prepack: REPOSITORY_PLUGIN_PREPARE_COMMAND },
+        devDependencies: { [REPOSITORY_PLUGIN_PACKAGE_NAME]: '0.0.1' },
         dsh: { skills: ['../skills'] },
       }, undefined, 2)}\n`)
       await prepareDshPlugin(plugin)

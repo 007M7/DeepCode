@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-Human-facing `/compact` control over [`ctx.compact`](../compact/README.md). The plugin registers one global command through [`ctx.commands`](../../ui/commands/README.md), so every composed command adapter discovers it; the shipped TUI executes it without a model turn. The [queued manual compaction Agent Note](../../../.agents/notes/implemented/feature/2026-07-30-queued-manual-compaction.md) owns the admission, lock, and durability decisions.
+Human-facing `/compact` control over [`ctx.compact`](../compact/README.md). The plugin registers one global command through [`ctx.commands`](../../interaction/commands/README.md), so every composed command adapter discovers and executes it without a model turn. The [queued manual compaction Agent Note](../../../.agents/notes/implemented/feature/2026-07-30-queued-manual-compaction.md) owns the admission, lock, and durability decisions.
 
 ## Command contract
 
@@ -12,7 +12,7 @@ Human-facing `/compact` control over [`ctx.compact`](../compact/README.md). The 
 | `/compact` with no compactable history | `No compactable history yet.` — no marker or surface mutation is written. |
 | `/compact <anything>` | `Usage: /compact (no arguments)` — the command takes no arguments and calls no compaction backend. |
 
-The command is backend-independent: it depends only on `compactNow(agent, signal)`. The invoking agent is the exact target, and the dispatching UI's cancellation signal is forwarded through the seam. Every resolved invocation records the executor-owned log-only pair `command/run` / `command/done`; neither event joins model history.
+The command is backend-independent: it depends only on `compactNow(agent, signal)`. The invoking agent is the exact target, and the dispatching UI's cancellation signal is forwarded through the seam. Every resolved invocation records the executor-owned log-only pair `command/run` / `command/done`; neither event joins model history. On success, `command/done.sourceEventSeq` names the transaction's `compact/summary` event so a presentation can fold the command lifecycle into its checkpoint without parsing result text or assuming adjacent rows.
 
 Expected `ManualCompactionError` codes become stable direct errors:
 
@@ -41,7 +41,7 @@ The producer injects `commands` and `compact`. Mount the command registry, one b
   name: '@deepseek-ai/dsh-command-compact'
 ```
 
-The TUI example and CLI host mount it beside `compact-basic`. Automation surfaces that compose no command registry keep automatic compaction only.
+The shipped `dsh` base mounts it beside `compact-basic`, and the Web client provides the command adapter. Automation surfaces that compose no command adapter keep automatic compaction only.
 
 ## Model Experience
 

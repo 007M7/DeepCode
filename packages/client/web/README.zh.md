@@ -8,7 +8,7 @@ Web 外壳内核：`new AppWebEntry(el, seams?).run()` 通过两阶段启动（w
 
 `PLATFORM_MODULES`（src/platform.ts）是共享模块表层的唯一真源：种子表 key、tsdown 客户端 external 和 vite alias 集都是它的投影。
 
-可选 `seams` 参数会转发模块系统的 `fetchBundle`／`executeBundle` 传输覆盖（`BootSeams`）；生产调用方省略此参数。它用于 `<script>` 执行无法到达页面上下文的测试环境（jsdom）。
+可选 `seams` 参数会为外部 `<script>` 执行无法到达页面上下文的环境转发模块系统的 `loadBundle` 传输覆盖（`BootSeams`）；普通浏览器调用方省略此参数。
 
 外壳拥有浏览器标题投影。选中带有持久标题的会话时，它会渲染 `<session title> — <existing HTML title>` 并响应后续标题修订；未选择会话或选中无标题会话时，会保留现有标题；外壳卸载时恢复标题。现有 HTML 标题仍是可配置的产品后缀。
 
@@ -23,4 +23,4 @@ Web 外壳内核：`new AppWebEntry(el, seams?).run()` 通过两阶段启动（w
 ## 已知限制与暂缓事项
 
 - **有意采用一次性渲染**：UI 等待启动 settle；只要一个配置项失败，加载页面就会保留并逐项显示醒目的报告，不提供部分可用性（渐进式渲染将作为独立项目恢复）。
-- **窄窗口验收暂缓**：ui-layout 已实现让步链，但外壳级窄视口演练是 P-II 验收项。
+- **窄窗口外壳行为缺少组装后演练**：ui-layout 已实现让步链，但该包没有外壳级窄视口验收用例。

@@ -584,6 +584,55 @@ describe('runScenario', () => {
     expect(result.sessionLogs[0]?.content).toContain('"type":"turn/end"')
   })
 
+  it('waitForInboxMessage holds the app through a matching durable insertion', { timeout: 20_000 }, async () => {
+    const { fixtureFile } = await scenario({
+      prompt: 'hang-until-cancel',
+      persistLogsOnCancel: true,
+      logs: [{
+        file: 'project/main/session.jsonl',
+        lines: [
+          { type: 'session', version: 0, id: '{{SID}}', createdAt: 1, delegationDepth: 0 },
+          {
+            type: 'agent/inbox/spliced',
+            seq: 0,
+            time: 2,
+            data: {
+              target: 'next-turn',
+              start: 0,
+              inserted: [{ role: 'user', content: [{ type: 'text', text: 'durable marker' }] }],
+            },
+          },
+        ],
+      }],
+    })
+    const result = await runScenario(
+      { steps: [...boot, { op: 'promptAndCancel', text: 'hang' }, { op: 'waitForInboxMessage', text: 'marker' }] },
+      { agent: AGENT, mode: 'replay', fixtureFile },
+    )
+    expect(result.sessionLogs[0]?.content).toContain('durable marker')
+  })
+
+  it('waitForInboxMessage times out when the session log or matching insertion is absent', { timeout: 20_000 }, async () => {
+    const absent = await scenario({ prompt: 'hang-until-cancel', persistLogsOnCancel: true })
+    await expect(runScenario(
+      { steps: [...boot, { op: 'promptAndCancel', text: 'hang' }, { op: 'waitForInboxMessage', text: 'missing', timeoutMs: 20 }] },
+      { agent: AGENT, mode: 'replay', fixtureFile: absent.fixtureFile },
+    )).rejects.toThrow(/did not persist expected inbox message within 20ms/)
+
+    const unmatched = await scenario({
+      prompt: 'hang-until-cancel',
+      persistLogsOnCancel: true,
+      logs: [{
+        file: 'project/main/session.jsonl',
+        lines: [{ type: 'session', version: 0, id: '{{SID}}', createdAt: 1, delegationDepth: 0 }],
+      }],
+    })
+    await expect(runScenario(
+      { steps: [...boot, { op: 'promptAndCancel', text: 'hang' }, { op: 'waitForInboxMessage', text: 'missing', timeoutMs: 20 }] },
+      { agent: AGENT, mode: 'replay', fixtureFile: unmatched.fixtureFile },
+    )).rejects.toThrow(/did not persist expected inbox message within 20ms/)
+  })
+
   it('waitForTitleAfterTurnEnd holds the app through a standalone durable title', { timeout: 20_000 }, async () => {
     const { fixtureFile } = await scenario({
       prompt: 'hang-until-cancel',
@@ -742,6 +791,38 @@ describe('runScenario', () => {
     )).rejects.toThrow(/did not persist turn\/end within 20ms/)
   })
 
+  it('waitForGoalPhase requires the requested durable goal phase', { timeout: 20_000 }, async () => {
+    const reached = await scenario({
+      prompt: 'hang-until-cancel',
+      persistLogsOnCancel: true,
+      logs: [{
+        file: 'project/main/session.jsonl',
+        lines: [
+          { type: 'session', version: 0, id: '{{SID}}', createdAt: 1, delegationDepth: 0 },
+          { type: 'goal/change', seq: 1, time: 2, data: {} },
+          { type: 'goal/change', seq: 2, time: 3, data: { goal: { phase: 'active' } } },
+        ],
+      }],
+    })
+    const result = await runScenario(
+      {
+        steps: [
+          ...boot,
+          { op: 'promptAndCancel', text: 'hang' },
+          { op: 'waitForGoalPhase', phase: 'active' },
+        ],
+      },
+      { agent: AGENT, mode: 'replay', fixtureFile: reached.fixtureFile },
+    )
+    expect(result.sessionLogs[0]?.content).toContain('"phase":"active"')
+
+    const missing = await scenario({})
+    await expect(runScenario(
+      { steps: [...boot, { op: 'waitForGoalPhase', phase: 'blocked', timeoutMs: 20 }] },
+      { agent: AGENT, mode: 'replay', fixtureFile: missing.fixtureFile },
+    )).rejects.toThrow(/did not persist goal phase "blocked" within 20ms/)
+  })
+
   it('waitForSubagentTurnEnd requires a closed child work turn', { timeout: 20_000 }, async () => {
     const closed = await scenario({
       prompt: 'hang-until-cancel',
@@ -777,6 +858,16 @@ describe('runScenario', () => {
       { agent: AGENT, mode: 'replay', fixtureFile: closed.fixtureFile },
     )
     expect(result.sessionLogs[1]?.parentSession).toBe(result.sessionId)
+    await expect(runScenario(
+      {
+        steps: [
+          ...boot,
+          { op: 'promptAndCancel', text: 'hang' },
+          { op: 'waitForSubagentTurnEnd', minimumTurn: 2, timeoutMs: 20 },
+        ],
+      },
+      { agent: AGENT, mode: 'replay', fixtureFile: closed.fixtureFile },
+    )).rejects.toThrow(/subagent child #1 did not persist closed turn 2 within 20ms/)
 
     const seedOnly = await scenario({
       prompt: 'hang-until-cancel',
@@ -810,13 +901,13 @@ describe('runScenario', () => {
         ],
       },
       { agent: AGENT, mode: 'replay', fixtureFile: seedOnly.fixtureFile },
-    )).rejects.toThrow(/subagent child #1 did not persist a closed work turn within 20ms/)
+    )).rejects.toThrow(/subagent child #1 did not persist closed turn 1 within 20ms/)
 
     const missing = await scenario({})
     await expect(runScenario(
       { steps: [...boot, { op: 'waitForSubagentTurnEnd', child: 2, timeoutMs: 20 }] },
       { agent: AGENT, mode: 'replay', fixtureFile: missing.fixtureFile },
-    )).rejects.toThrow(/subagent child #2 did not persist a closed work turn within 20ms/)
+    )).rejects.toThrow(/subagent child #2 did not persist closed turn 1 within 20ms/)
   })
 
   it('waitForTitleAfterTurnEnd times out when the title precedes the boundary', { timeout: 20_000 }, async () => {
@@ -842,6 +933,55 @@ describe('runScenario', () => {
       },
       { agent: AGENT, mode: 'replay', fixtureFile },
     )).rejects.toThrow(/did not persist session\/title after turn\/end within 20ms/)
+  })
+
+  it('waitForEventAfterTurnEnd holds the app for a typed post-boundary record and times out otherwise', { timeout: 20_000 }, async () => {
+    const late = await scenario({
+      prompt: 'hang-until-cancel',
+      persistLogsOnCancel: true,
+      logs: [{
+        file: 'project/main/session.jsonl',
+        lines: [
+          { type: 'session', version: 0, id: '{{SID}}', createdAt: 1, delegationDepth: 0 },
+          { type: 'turn/end', seq: 1, time: 2, data: { turn: 1, reason: { kind: 'aborted' } } },
+          { type: 'user/message', seq: 2, time: 3, data: { content: [{ type: 'text', text: 'late goal state' }], source: { kind: 'user' } } },
+        ],
+      }],
+    })
+    const result = await runScenario(
+      {
+        steps: [
+          ...boot,
+          { op: 'promptAndCancel', text: 'hang' },
+          { op: 'waitForEventAfterTurnEnd', type: 'user/message' },
+        ],
+      },
+      { agent: AGENT, mode: 'replay', fixtureFile: late.fixtureFile },
+    )
+    expect(result.sessionLogs[0]?.content).toMatch(/"turn\/end"[\s\S]*"user\/message"/)
+
+    const early = await scenario({
+      prompt: 'hang-until-cancel',
+      persistLogsOnCancel: true,
+      logs: [{
+        file: 'project/main/session.jsonl',
+        lines: [
+          { type: 'session', version: 0, id: '{{SID}}', createdAt: 1, delegationDepth: 0 },
+          { type: 'user/message', seq: 1, time: 1, data: { content: [{ type: 'text', text: 'early' }], source: { kind: 'user' } } },
+          { type: 'turn/end', seq: 2, time: 2, data: { turn: 1, reason: { kind: 'aborted' } } },
+        ],
+      }],
+    })
+    await expect(runScenario(
+      {
+        steps: [
+          ...boot,
+          { op: 'promptAndCancel', text: 'hang' },
+          { op: 'waitForEventAfterTurnEnd', type: 'user/message', timeoutMs: 20 },
+        ],
+      },
+      { agent: AGENT, mode: 'replay', fixtureFile: early.fixtureFile },
+    )).rejects.toThrow(/did not persist user\/message after turn\/end within 20ms/)
   })
 
   it('promptExpectError swallows a model-error response as the expected outcome', { timeout: 20_000 }, async () => {
@@ -962,7 +1102,10 @@ describe('runScenario', () => {
     [{ op: 'promptAndCancel', text: 'x' }, /promptAndCancel before newSession/],
     [{ op: 'waitForTurnStart' }, /waitForTurnStart before newSession/],
     [{ op: 'waitForTurnEnd' }, /waitForTurnEnd before newSession/],
+    [{ op: 'waitForGoalPhase', phase: 'active' }, /waitForGoalPhase before newSession/],
+    [{ op: 'waitForInboxMessage', text: 'marker' }, /waitForInboxMessage before newSession/],
     [{ op: 'waitForTitleAfterTurnEnd' }, /waitForTitleAfterTurnEnd before newSession/],
+    [{ op: 'waitForEventAfterTurnEnd', type: 'user/message' }, /waitForEventAfterTurnEnd before newSession/],
     [{ op: 'cancel' }, /cancel before newSession/],
   ] as [InputStep, RegExp][])('rejects %j before newSession', { timeout: 20_000 }, async (step, message) => {
     const { fixtureFile } = await scenario({})

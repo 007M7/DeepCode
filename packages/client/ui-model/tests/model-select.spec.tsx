@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { ModelTarget } from '@deepseek-ai/dsh-client-connection/client'
+import type { ModelSelection } from '@deepseek-ai/dsh-client-connection/client'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ComponentProps } from 'react'
 import type { ModelDirectoryState } from '../src/client/directory.ts'
@@ -32,6 +32,7 @@ const reasoning = {
 function state(overrides: Partial<ModelDirectoryState> = {}): ModelDirectoryState {
   return {
     current: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+    routable: true,
     groups: [{
       id: 'deepseek-official',
       name: 'DeepSeek',
@@ -47,10 +48,10 @@ function state(overrides: Partial<ModelDirectoryState> = {}): ModelDirectoryStat
 afterEach(cleanup)
 
 describe('ModelSelect reasoning effort', () => {
-  it('renders adapter metadata and submits the effort as part of the session target', async () => {
+  it('renders adapter metadata and submits the effort as part of the session selection', async () => {
     const directory = createSnapshotStore<ModelDirectoryState>(state())
-    const select = vi.fn(async (target: ModelTarget) => {
-      directory.set(state({ current: target }))
+    const select = vi.fn(async (selection: ModelSelection) => {
+      directory.set(state({ current: selection }))
       return true
     })
     render(<ModelSelect
@@ -109,6 +110,29 @@ describe('ModelSelect reasoning effort', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: /推理等级/ }))
     expect(screen.getAllByRole('menuitemradio').map(item => item.textContent))
       .toEqual(['Default', 'Standard'])
+  })
+
+  it('prompts for a selection when the current model is no longer advertised', () => {
+    const directory = createSnapshotStore(state({
+      current: { provider: 'deepseek-official', model: 'removed-model' },
+    }))
+    const select = vi.fn().mockResolvedValue(true)
+    render(<ModelSelect
+      locked={false}
+      available
+      directory={directory}
+      load={vi.fn()}
+      select={select}
+      t={t}
+    />)
+
+    const trigger = screen.getByRole('button', { name: '选择模型' })
+    expect(trigger.textContent).toContain('选择模型')
+    fireEvent.click(trigger)
+    expect(screen.queryByRole('menuitem', { name: /推理等级/ })).toBeNull()
+    fireEvent.click(screen.getByRole('menuitem', { name: /模型/ }))
+    expect(screen.queryByText('removed-model')).toBeNull()
+    expect(screen.getByRole('menuitemradio', { name: 'DeepSeek-V4-Flash' })).toBeTruthy()
   })
 
   it('renders no Agent-bound control for an addressed subagent session', () => {

@@ -51,14 +51,16 @@ import {
   goalClearRequestSchema,
 } from '../api/goals.schema.ts'
 import {
-  settingsDescribeRequestSchema, settingsMutateRequestSchema, settingsReplaceRequestSchema, settingsUpdateRequestSchema,
+  settingsDescribeRequestSchema, settingsMutateRequestSchema, settingsOpenDocumentRequestSchema,
+  settingsReplaceRequestSchema, settingsUpdateRequestSchema,
 } from '../api/settings.schema.ts'
 import {
   credentialsDescribeRequestSchema, credentialsSetRequestSchema, credentialsUnsetRequestSchema,
 } from '../api/credentials.schema.ts'
-import { llmModelsRequestSchema, llmProvidersRequestSchema } from '../api/llm.schema.ts'
+import { llmDiscoverModelsRequestSchema, llmModelsRequestSchema, llmProvidersRequestSchema } from '../api/llm.schema.ts'
 import {
   subagentHistoryRequestSchema,
+  subagentInterruptRequestSchema,
   subagentListRequestSchema,
   subagentPromptRequestSchema,
 } from '../api/subagents.schema.ts'
@@ -69,9 +71,8 @@ import {
  * payload type — a schema pasted onto the wrong row is a type error, not a runtime surprise.
  * Schemas anchor to the Wire<> widening (the repo-wide exactOptionalPropertyTypes accommodation
  * documented on Wire); the dispatch point carries the one Wire→exact cast.
- * Every invoke receives the carrier Request's signal; methods whose contract
- * declares a signal parameter (session.search and command.execute) forward it,
- * the rest ignore it.
+ * Every invoke receives the carrier Request's signal; routes whose contract
+ * declares a signal parameter forward it, and the rest ignore it.
  */
 type UnaryRoutes = {
   [K in keyof RpcMethodMap]: {
@@ -95,6 +96,7 @@ const UNARY_ROUTES: UnaryRoutes = {
   'subagent.list': { schema: subagentListRequestSchema, invoke: (api, r, signal) => api.subagents.list(r, signal) },
   'subagent.history': { schema: subagentHistoryRequestSchema, invoke: (api, r, signal) => api.subagents.history(r, signal) },
   'subagent.prompt': { schema: subagentPromptRequestSchema, invoke: (api, r, signal) => api.subagents.prompt(r, signal) },
+  'subagent.interrupt': { schema: subagentInterruptRequestSchema, invoke: (api, r) => api.subagents.interrupt(r) },
   'host.describe': { schema: hostDescribeRequestSchema, invoke: (api, r) => api.host.describe(r) },
   'host.pickDirectory': { schema: hostPickDirectoryRequestSchema, invoke: (api, r, signal) => api.host.pickDirectory(r, signal) },
   'host.listDirectory': { schema: hostListDirectoryRequestSchema, invoke: (api, r, signal) => api.host.listDirectory(r, signal) },
@@ -116,6 +118,7 @@ const UNARY_ROUTES: UnaryRoutes = {
   'goal.complete': { schema: goalCompleteRequestSchema, invoke: (api, r) => api.goals.complete(r) },
   'goal.clear': { schema: goalClearRequestSchema, invoke: (api, r) => api.goals.clear(r) },
   'settings.describe': { schema: settingsDescribeRequestSchema, invoke: (api, r) => api.settings.describe(r) },
+  'settings.openDocument': { schema: settingsOpenDocumentRequestSchema, invoke: (api, r, signal) => api.settings.openDocument(r, signal) },
   'settings.update': { schema: settingsUpdateRequestSchema, invoke: (api, r) => api.settings.update(r) },
   'settings.replace': { schema: settingsReplaceRequestSchema, invoke: (api, r) => api.settings.replace(r) },
   'settings.mutate': { schema: settingsMutateRequestSchema, invoke: (api, r) => api.settings.mutate(r) },
@@ -124,6 +127,7 @@ const UNARY_ROUTES: UnaryRoutes = {
   'credentials.unset': { schema: credentialsUnsetRequestSchema, invoke: (api, r) => api.credentials.unset(r) },
   'llm.providers': { schema: llmProvidersRequestSchema, invoke: (api, r) => api.llm.providers(r) },
   'llm.models': { schema: llmModelsRequestSchema, invoke: (api, r) => api.llm.models(r) },
+  'llm.discoverModels': { schema: llmDiscoverModelsRequestSchema, invoke: (api, r, signal) => api.llm.discoverModels(r, signal) },
 }
 
 /** Route lookup that narrows an arbitrary path segment to a map key (single cast point for the string→key refinement). */

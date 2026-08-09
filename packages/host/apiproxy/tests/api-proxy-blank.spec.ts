@@ -35,7 +35,7 @@ async function harness(): Promise<{ ctx: Context; api: ApiProxy; attach: (sessio
   await ctx.plugin(AgentRegistry)
   return {
     ctx,
-    api: createApiProxy(ctx, { provider: 'p', model: 'm', cwd: '/tmp', workspaceRoot: '/tmp' }),
+    api: createApiProxy(ctx, { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp', workspaceRoot: '/tmp' }),
     attach: (session) => {
       ctx.agents.register({ id: session.id, session, status: 'idle', ctx } as Agent)
     },
@@ -79,7 +79,7 @@ describe('summary blank = conversation not started', () => {
     const session = ctx.sessions.create()
     attach(session)
     appendStandalone(session)
-    session.append('turn/start', { turn: 0, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 0 })
     expect(await listBlank(api, session.id)).toBe(false)
   })
 })

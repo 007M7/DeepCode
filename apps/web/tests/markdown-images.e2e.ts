@@ -82,11 +82,9 @@ async function stopServer(server: Server): Promise<void> {
 
 /** Build one closed, invariant-checked session fixture with remote and local image Markdown. */
 function markdownImageFixture(remoteUrl: string): string {
-  const session = new Session(SessionId('markdown-image-source'))
-  session.append('turn/start', {
-    turn: 1,
-    trigger: { kind: 'message', source: { kind: 'user' } },
-  })
+  const session = Session.create(SessionId('markdown-image-source'))
+  const eventTimeOrigin = new Date().setHours(12, 0, 0, 0)
+  session.append('turn/start', { turn: 1 })
   const user = session.append('user/message', createUserMessage({
     content: [{ type: 'text', text: 'Show the Markdown image policy.' }],
     source: { kind: 'user' },
@@ -129,7 +127,14 @@ function markdownImageFixture(remoteUrl: string): string {
   }
   return [
     JSON.stringify(header),
-    ...session.events.map(event => JSON.stringify(event)),
+    // Spaced event times, exactly as the sibling markdown fixtures pin them:
+    // the stats line renders its LLM segment only while the step's measured
+    // milliseconds exceed zero, so a fixture that leaves the times unset lets
+    // the replay's own speed decide whether the golden matches.
+    ...session.events.map(event => JSON.stringify({
+      ...event,
+      time: eventTimeOrigin + event.seq * 1_000,
+    })),
     '',
   ].join('\n')
 }

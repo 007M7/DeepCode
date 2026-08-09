@@ -8,7 +8,7 @@ import Loader from '@cordisjs/plugin-loader'
 import Include from '@cordisjs/plugin-include'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
-import AgentRegistry, {} from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { Inbox } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
@@ -16,6 +16,7 @@ import PtyService from '@deepseek-ai/dsh-pty'
 import SandboxProvider from '@deepseek-ai/dsh-sandbox'
 import type { ConfinedArgv, SandboxPolicy } from '@deepseek-ai/dsh-sandbox'
 import SandboxPolicyService from '@deepseek-ai/dsh-sandbox-policy'
+import LocalSubprocessService from '@deepseek-ai/dsh-subprocess-local'
 import * as PtyLocal from '@deepseek-ai/dsh-pty-local'
 import * as ToolPty from '@deepseek-ai/dsh-tool-pty'
 
@@ -31,16 +32,22 @@ afterEach(async () => {
 
 class PassthroughSandbox extends SandboxProvider {
   confine(argv: readonly string[], _policy: SandboxPolicy): ConfinedArgv {
-    return { argv: [...argv], enforcement: 'full', denialSignatures: [], runnerFailureSignatures: [] }
+    return { argv: [...argv], enforcement: 'full', denialSignatures: [], runnerFailureRules: [] }
   }
 }
 
 function agent(ctx: Context): Agent {
   const scope = ctx.plugin(() => {})
   const id = SessionId('pty-loader-agent')
+  const session = Session.create(id)
   const value: Agent = {
-    id, options: {}, session: new Session(id), status: 'idle', acceptsNextStep: false, ctx: scope.ctx,
-    followup: () => {}, steer: () => ({ outcome: Promise.resolve({ status: 'rejected' as const }) }), inject: () => {}, send: () => {}, updateInbox: () => 'not-found', reserveTurnAdmission: () => undefined, cancel() {}, whenIdle: () => Promise.resolve(),
+    id, options: {}, session, inbox: new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} }),
+    status: 'idle',
+    ctx: scope.ctx,
+    send: () => {},
+    followup: () => {}, steer: () => {}, inject: () => {}, cancel() {},
+    runMaintenance: task => task(new AbortController().signal),
+    whenIdle: () => Promise.resolve(),
   }
   ctx.agents.register(value)
   return value
@@ -66,6 +73,7 @@ suite('terminal real Loader composition through cordis.yml', () => {
       '  config:',
       '    mode: danger-full-access',
       `    workspaceRoot: ${JSON.stringify(root)}`,
+      "- name: '@deepseek-ai/dsh-subprocess-local'",
       "- name: '@deepseek-ai/dsh-pty-local'",
       '  config:',
       '    pollIntervalMs: 10',
@@ -89,6 +97,7 @@ suite('terminal real Loader composition through cordis.yml', () => {
       ['@deepseek-ai/dsh-pty', PtyService],
       ['@deepseek-ai/dsh-test-sandbox', PassthroughSandbox],
       ['@deepseek-ai/dsh-sandbox-policy', SandboxPolicyService],
+      ['@deepseek-ai/dsh-subprocess-local', LocalSubprocessService],
       ['@deepseek-ai/dsh-pty-local', PtyLocal],
       ['@deepseek-ai/dsh-tool-pty', ToolPty],
     ])

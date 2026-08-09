@@ -8,6 +8,15 @@
   gap: 6px;
 }
 
+/* Steering caption above the bubble: mid-turn interjections carry the same
+   bubble as a turn-opening prompt, so the transcript names which one this is. */
+.steeringMark {
+  padding-right: 4px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 16px;
+}
+
 .bubble {
   /* 525px cap inside the 736 column; percentage keeps narrow windows sane. */
   max-width: min(525px, 82%);
@@ -24,9 +33,9 @@
   padding: 2px 0;
 }
 
-/* Compaction marker: one dim 24px row with a chevron disclosure for the
-   summary body. Dimmed title (not label-primary) — the row is a boundary
-   notice, not conversation content. */
+/* Compaction marker: one dim 24px row with a context icon at rest and a
+   hover/focus disclosure for the summary body. Dimmed title (not
+   label-primary) — the row is a boundary notice, not conversation content. */
 .compactionRow {
   padding: 2px 0;
 }
@@ -56,13 +65,34 @@
 
 .compactionLeading {
   flex: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+  display: inline-grid;
+  place-items: center;
   width: 16px;
   height: 16px;
   margin-right: 6px;
   color: var(--dsw-alias-label-secondary);
+}
+
+.compactionContextIcon,
+.compactionDisclosureIcon {
+  display: inline-flex;
+  grid-area: 1 / 1;
+  align-items: center;
+  justify-content: center;
+}
+
+.compactionDisclosureIcon {
+  opacity: 0;
+}
+
+.compactionButton:not(:disabled):hover .compactionContextIcon,
+.compactionButton:not(:disabled):focus-visible .compactionContextIcon {
+  opacity: 0;
+}
+
+.compactionButton:not(:disabled):hover .compactionDisclosureIcon,
+.compactionButton:not(:disabled):focus-visible .compactionDisclosureIcon {
+  opacity: 1;
 }
 
 .compactionTitle {

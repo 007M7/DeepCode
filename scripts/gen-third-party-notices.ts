@@ -39,15 +39,27 @@ const DEV_ONLY_AREAS = [
   'native/',
 ] as const
 
-/**
- * First-party packages released from sibling repositories under the project's
- * own license: reachable from workspace manifests but not third-party.
- */
+/** First-party public native packages: reachable at runtime but not third-party. */
 const FIRST_PARTY = new Set([
-  'node-addon-landlock-run',
-  'node-addon-landlock-run-linux-arm64',
-  'node-addon-landlock-run-linux-x64',
+  '@deepseek-ai/node-addon-landlock-run',
+  '@deepseek-ai/node-addon-landlock-run-linux-arm64',
+  '@deepseek-ai/node-addon-landlock-run-linux-x64',
 ])
+
+/** Official SDK identity covered by the project's narrow owner authorization. */
+export const CLAUDE_AGENT_SDK_PACKAGE = '@anthropic-ai/claude-agent-sdk'
+const CLAUDE_PLATFORM_PACKAGE_PREFIX = `${CLAUDE_AGENT_SDK_PACKAGE}-`
+const CLAUDE_PLATFORM_DECLARED_LICENSE = 'SEE LICENSE IN LICENSE.md'
+
+/**
+ * Whether a non-permissive runtime declaration has an identity-scoped owner
+ * authorization. This does not reclassify its terms as permissive.
+ * @param name - exact npm package identity.
+ * @returns true only for the official Claude Agent SDK package.
+ */
+export function isOwnerAuthorizedRuntime(name: string): boolean {
+  return name === CLAUDE_AGENT_SDK_PACKAGE
+}
 
 /**
  * Metadata overrides where the installed manifest is wrong or unreachable.
@@ -92,6 +104,7 @@ const BUILD_TIME_TOOLS = [
 /** The `package.json` fields this generator reads. */
 export interface Manifest {
   name?: string
+  version?: string
   private?: boolean
   license?: string
   dependencies?: Record<string, string>
@@ -119,16 +132,13 @@ function readManifest(rel: string): Manifest {
  * here, so a new member area (`tools/*`) is read the day it is declared.
  * @returns one glob per manifest-bearing location, repository-relative.
  */
-export function manifestPatterns(rootMembers: readonly string[], nativeMembers: readonly string[]): string[] {
+export function manifestPatterns(rootMembers: readonly string[]): string[] {
   return [
     'package.json',
     ...rootMembers.map(member => `${member}/package.json`),
     // The demo leaves join the workspace through `examples/package.json`, so
     // their own manifests are members of nothing and no glob above reaches them.
     'examples/*/package.json',
-    // `native/landlock-run` is a nested workspace with its own lock file.
-    'native/landlock-run/package.json',
-    ...nativeMembers.map(member => `native/landlock-run/${member}/package.json`),
   ]
 }
 
@@ -149,7 +159,7 @@ function workspaceMembers(rel: string): string[] {
  * would silently push dev-area manifests into the runtime tier.
  */
 function loadWorkspaceManifests(): { manifests: Map<string, Manifest>; names: Set<string> } {
-  const patterns = manifestPatterns(workspaceMembers('pnpm-workspace.yaml'), workspaceMembers('native/landlock-run/pnpm-workspace.yaml'))
+  const patterns = manifestPatterns(workspaceMembers('pnpm-workspace.yaml'))
   const manifests = new Map<string, Manifest>()
   const names = new Set<string>()
   for (const pattern of patterns) {
@@ -164,7 +174,74 @@ function loadWorkspaceManifests(): { manifests: Map<string, Manifest>; names: Se
   return { manifests, names }
 }
 
-type VirtualManifest = Manifest & { license?: string; repository?: string | { url?: string }; homepage?: string }
+type VirtualManifest = Manifest & {
+  claudeCodeVersion?: string
+  license?: string
+  repository?: string | { url?: string }
+  homepage?: string
+}
+
+/** One platform payload declared by the official Claude Agent SDK. */
+export interface ClaudePlatformPayload {
+  readonly name: string
+  readonly version: string
+}
+
+/** Current SDK and CLI distribution facts derived from the installed SDK manifest. */
+export interface ClaudeDistribution {
+  readonly sdkVersion: string
+  readonly claudeCodeVersion: string
+  readonly payloads: ClaudePlatformPayload[]
+}
+
+function requiredManifestString(
+  value: string | undefined,
+  field: string,
+): string {
+  if (value === undefined || value.length === 0) {
+    throw new Error(`gen-third-party-notices: ${CLAUDE_AGENT_SDK_PACKAGE} has no ${field}.`)
+  }
+  return value
+}
+
+/**
+ * Derive the official platform payload set without a version or platform
+ * allowlist. Only identities in the SDK's own package namespace are covered.
+ * @param manifest - installed official SDK manifest.
+ * @returns current SDK, CLI, and optional platform payload facts.
+ */
+export function claudeDistributionFromManifest(
+  manifest: VirtualManifest,
+): ClaudeDistribution {
+  if (manifest.name !== CLAUDE_AGENT_SDK_PACKAGE) {
+    throw new Error(
+      `gen-third-party-notices: expected ${CLAUDE_AGENT_SDK_PACKAGE} manifest, got ${JSON.stringify(manifest.name)}.`,
+    )
+  }
+  const sdkVersion = requiredManifestString(manifest.version, 'version')
+  const claudeCodeVersion = requiredManifestString(
+    manifest.claudeCodeVersion,
+    'claudeCodeVersion',
+  )
+  const entries = Object.entries(manifest.optionalDependencies ?? {})
+  if (entries.length === 0) {
+    throw new Error(
+      `gen-third-party-notices: ${CLAUDE_AGENT_SDK_PACKAGE} declares no optional platform payloads.`,
+    )
+  }
+  const payloads = entries.map(([name, version]) => {
+    if (!name.startsWith(CLAUDE_PLATFORM_PACKAGE_PREFIX)) {
+      throw new Error(
+        `gen-third-party-notices: ${CLAUDE_AGENT_SDK_PACKAGE} optional dependency ${name} is outside its authorized platform-payload identity.`,
+      )
+    }
+    return {
+      name,
+      version: requiredManifestString(version, `${name} optional dependency version`),
+    }
+  }).sort((left, right) => left.name.localeCompare(right.name))
+  return { sdkVersion, claudeCodeVersion, payloads }
+}
 
 /**
  * Resolve one package's manifest inside a pnpm virtual store. The prefix scan
@@ -193,12 +270,11 @@ export function virtualManifest(virtual: string, name: string): VirtualManifest 
   return undefined
 }
 
-/** License and repository URL for an installed external package, from the pnpm store. */
-function installedMetadata(name: string): { license: string; repo: string } {
-  const override = OVERRIDES[name]
+/** Resolve one installed external package manifest from either pnpm store. */
+function installedManifest(name: string): VirtualManifest | undefined {
   let manifest: (Manifest & { license?: string; repository?: string | { url?: string }; homepage?: string }) | undefined
-  // The nested Landlock workspace installs into its own store, so a package
-  // only that workspace depends on is unreachable from the root one.
+  // Workspace-local link farms can expose a dependency that is not linked at
+  // the repository root; both are backed by the root workspace's lockfile.
   for (const store of ['node_modules', 'native/landlock-run/node_modules']) {
     const direct = resolve(root, store, name, 'package.json')
     if (existsSync(direct)) {
@@ -210,13 +286,51 @@ function installedMetadata(name: string): { license: string; repo: string } {
     manifest = virtualManifest(virtual, name)
     if (manifest !== undefined) break
   }
+  return manifest
+}
+
+/** License and repository URL for an installed external package, from the pnpm store. */
+function installedMetadata(name: string): { license: string; repo: string } {
+  const override = OVERRIDES[name]
+  const manifest = installedManifest(name)
   const license = override?.license ?? manifest?.license
   const rawRepo = typeof manifest?.repository === 'string' ? manifest.repository : manifest?.repository?.url ?? manifest?.homepage
   const repo = override?.repo ?? normalizeRepo(rawRepo)
   if (license === undefined || repo === undefined) {
-    throw new Error(`gen-third-party-notices: cannot resolve ${license === undefined ? 'license' : 'repository'} for ${name}; run \`pnpm install\` (or, for a Landlock-only dependency, \`pnpm --dir native/landlock-run install\`), or add an OVERRIDES entry.`)
+    throw new Error(`gen-third-party-notices: cannot resolve ${license === undefined ? 'license' : 'repository'} for ${name}; run \`pnpm install\`, or add an OVERRIDES entry.`)
   }
   return { license, repo }
+}
+
+function collectClaudeDistribution(): ClaudeDistribution {
+  const manifest = installedManifest(CLAUDE_AGENT_SDK_PACKAGE)
+  if (manifest === undefined) {
+    throw new Error(
+      `gen-third-party-notices: cannot resolve ${CLAUDE_AGENT_SDK_PACKAGE}; run \`pnpm install\`.`,
+    )
+  }
+  const distribution = claudeDistributionFromManifest(manifest)
+  let installedPayloads = 0
+  for (const payload of distribution.payloads) {
+    const installed = installedManifest(payload.name)
+    if (installed === undefined) continue
+    installedPayloads += 1
+    if (
+      installed.name !== payload.name
+      || installed.version !== payload.version
+      || installed.license !== CLAUDE_PLATFORM_DECLARED_LICENSE
+    ) {
+      throw new Error(
+        `gen-third-party-notices: installed ${payload.name} does not match its SDK-declared version and ${CLAUDE_PLATFORM_DECLARED_LICENSE} license field.`,
+      )
+    }
+  }
+  if (installedPayloads === 0) {
+    throw new Error(
+      'gen-third-party-notices: no SDK-declared Claude platform payload is installed; install optional dependencies before regenerating.',
+    )
+  }
+  return distribution
 }
 
 /** Normalize a manifest repository/homepage value to a browsable https URL. */
@@ -519,6 +633,26 @@ function renderNpmTable(deps: ExternalDep[]): string {
   return lines.join('\n')
 }
 
+function renderClaudeDistribution(
+  distribution: ClaudeDistribution | undefined,
+): string {
+  if (distribution === undefined) return ''
+  const rows = distribution.payloads.map(payload =>
+    `| [\`${payload.name}\`](https://www.npmjs.com/package/${payload.name}) | ${payload.version} | ${CLAUDE_PLATFORM_DECLARED_LICENSE} |`,
+  )
+  return `
+## Official Claude Code platform payloads
+
+The project owner authorizes distribution of every version of the official \`${CLAUDE_AGENT_SDK_PACKAGE}\` package and the official Claude Code CLI/platform payloads that each version declares through \`optionalDependencies\`. This identity-scoped authorization does not classify their declared terms as permissive and does not cover any unrelated runtime package; version, declared-license, and payload-set changes still require the ordinary dependency, lockfile, compatibility, terms, and notices review.
+
+The installed SDK ${distribution.sdkVersion} declares the following optional platform packages. Each carries the official Claude Code ${distribution.claudeCodeVersion} executable; the package identities and versions come from the SDK manifest, while the declared license field is verified against the platform payload installed for the current host.
+
+| Optional platform package | Version | Declared license |
+| --- | --- | --- |
+${rows.join('\n')}
+`
+}
+
 /**
  * Render the complete notices document.
  * @returns the exact bytes `THIRD_PARTY_NOTICES.md` must hold.
@@ -531,11 +665,19 @@ export function render(): string {
   const vendored = collectVendored()
   const python = collectPython()
   const patched = collectPatched()
+  const claudeDistribution = runtimeDeps.some(
+    dep => dep.name === CLAUDE_AGENT_SDK_PACKAGE,
+  )
+    ? collectClaudeDistribution()
+    : undefined
 
   const nonPermissiveDev = devDeps.filter(dep => !isPermissive(dep.license))
   // A copyleft license reaching a shipped surface is a distribution decision,
   // not a rendering detail; the notices cannot quietly absorb it.
-  const nonPermissiveRuntime = runtimeDeps.filter(dep => !isPermissive(dep.license))
+  const nonPermissiveRuntime = runtimeDeps.filter(dep =>
+    !isPermissive(dep.license)
+    && !isOwnerAuthorizedRuntime(dep.name),
+  )
   if (nonPermissiveRuntime.length > 0) {
     throw new Error(`gen-third-party-notices: runtime ${nonPermissiveRuntime.map(dep => `${dep.name} (${dep.license})`).join(', ')} is not a permissive license; review the distribution terms and record the decision before regenerating.`)
   }
@@ -546,11 +688,11 @@ export function render(): string {
 
 # Third-Party Notices
 
-DeepSeek Harness is licensed under [BSD 3-Clause](LICENSE). It depends on the third-party open-source software listed below. Each project remains under its own license; nothing in this file changes those terms.
+DeepSeek Harness is licensed under [BSD 3-Clause](LICENSE). It depends on the third-party software listed below. Each project remains under its own license; nothing in this file changes those terms.
 
-This file lists **direct** dependencies declared by the workspace. It is generated from the workspace manifests by \`scripts/gen-third-party-notices.ts\`: a pre-commit hook regenerates it whenever a staged file changes one of its inputs, and \`scripts/gen-third-party-notices.spec.ts\` asserts in the test lane that the committed bytes match. Deleting a manifest runs no hook, so that case is caught by the assertion instead. Run \`pnpm run verify-third-party-notices\` for the standalone check.
+This file lists **direct** dependencies declared by the workspace and the explicitly disclosed official Claude platform payload closure. It is generated from the workspace manifests by \`scripts/gen-third-party-notices.ts\`: a pre-commit hook regenerates it whenever a staged file changes one of its inputs, and \`scripts/gen-third-party-notices.spec.ts\` asserts in the test lane that the committed bytes match. Deleting a manifest runs no hook, so that case is caught by the assertion instead. Run \`pnpm run verify-third-party-notices\` for the standalone check.
 
-The complete npm transitive closure, with exact pinned versions, is recorded in [\`pnpm-lock.yaml\`](pnpm-lock.yaml) — inspect it with \`pnpm licenses list\`. The Python closure is recorded in [\`python/sdk/uv.lock\`](python/sdk/uv.lock), and the Landlock launcher workspace keeps its own in [\`native/landlock-run/pnpm-lock.yaml\`](native/landlock-run/pnpm-lock.yaml).
+The complete npm transitive closure, including the Landlock launcher workspace, is recorded with exact pinned versions in [\`pnpm-lock.yaml\`](pnpm-lock.yaml) — inspect it with \`pnpm licenses list\`. The Python closure is recorded separately in [\`python/sdk/uv.lock\`](python/sdk/uv.lock).
 
 ## Vendored source (\`vendor/\`)
 
@@ -562,13 +704,14 @@ ${vendored.map(row => `| \`${row.npmName}\` | [${row.upstream.replace('https://'
 
 ## Runtime npm dependencies
 
-External packages that a workspace package resolves at runtime. \`scripts/install.sh\` installs this repository itself, so the tier covers every plugin a user can mount from \`cordis.yml\` — not only what the \`dsh\` CLI/TUI, the Web UI, and the Python SDK runtime load by default.
+External packages that a workspace package resolves at runtime. \`scripts/install.sh\` installs this repository itself, so the tier covers every plugin a user can mount from \`cordis.yml\` — not only what the \`dsh\` CLI, Web UI, and Python SDK runtime load by default.
 
 ${renderNpmTable(runtimeDeps)}
 
 pnpm applies local patches to the following packages at install time, so shipped artifacts carry modified copies; each patch file is the complete record of the modification:
 
 ${patchedLines.join('\n')}
+${renderClaudeDistribution(claudeDistribution)}
 
 ## Development-only npm dependencies
 
@@ -591,9 +734,9 @@ ${python.map(dep => `| [\`${dep.name}\`](${dep.repo}) | ${dep.license} | ${dep.r
 | --- | --- | --- |
 ${BUILD_TIME_TOOLS.map(tool => `| [\`${tool.name}\`](${tool.repo}) | ${tool.license} | ${tool.role} |`).join('\n')}
 
-## First-party sibling releases
+## First-party native packages
 
-\`node-addon-landlock-run\` (and its platform packages) is released from a DeepSeek Harness sibling repository under BSD 3-Clause. It is listed here for completeness; it is first-party, not third-party.
+\`@deepseek-ai/node-addon-landlock-run\` (and its platform packages) is built and released from this repository under BSD 3-Clause. It is listed here for completeness; it is first-party, not third-party.
 `
 }
 

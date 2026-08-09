@@ -31,7 +31,7 @@ async function harness(adapter: LlmAdapter): Promise<Harness> {
 
 function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
   return new Promise((resolve) => {
-    const dispose = ctx.on('agent/status', (subject, status) => {
+    const dispose = ctx.on('agent/status', ({ agent: subject, status }) => {
       if (subject === agent && status === 'idle') {
         dispose()
         resolve()
@@ -153,7 +153,7 @@ describe('AgentLoop initiator scope', () => {
     const { ctx } = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('signal-owner'), { provider: 'mock', model: 'mock' })
     let signals: AbortSignal[] = []
-    let admissionSignals: AbortSignal[] = []
+    let preStepSignals: AbortSignal[] = []
     const capture = (signal: AbortSignal | undefined): void => {
       if (signal === undefined) throw new Error('turn seam omitted its explicit signal')
       expect(ctx.agents.requireInitiator()).toBe(agent)
@@ -164,21 +164,18 @@ describe('AgentLoop initiator scope', () => {
       if (context.agent === agent) capture(context.signal)
       return next()
     })
-    ctx.on('agent/prompt-submit', async (subject, _message, signal, next) => {
+    ctx.on('agent/pre-step', async ({ agent: subject, signal }, next) => {
       if (subject === agent) {
         expect(ctx.agents.requireInitiator()).toBe(agent)
-        admissionSignals.push(signal)
+        preStepSignals.push(signal)
       }
       return next()
     })
-    ctx.on('agent/step', (subject, _turn, _step, signal) => {
-      if (subject === agent) capture(signal)
-    })
-    ctx.on('agent/request', async (subject, _turn, _step, signal, next) => {
+    ctx.on('agent/request', async ({ agent: subject, signal }, next) => {
       if (subject === agent) capture(signal)
       return next()
     })
-    ctx.on('agent/turn-stopping', (subject, _turn, signal) => {
+    ctx.on('agent/turn-stopping', ({ agent: subject, signal }) => {
       if (subject === agent) capture(signal)
     })
     ctx.tools.register(defineContentToolFixture({
@@ -197,19 +194,19 @@ describe('AgentLoop initiator scope', () => {
     const firstSignal = signals[0]
     expect(firstSignal).toBeDefined()
     expect(new Set([...signals, ...adapter.requests.slice(0, 2).map(request => request.signal!)])).toEqual(new Set([firstSignal]))
-    expect(admissionSignals).toHaveLength(1)
-    expect(admissionSignals[0]).not.toBe(firstSignal)
+    expect(preStepSignals).toHaveLength(2)
+    expect(new Set(preStepSignals)).toEqual(new Set([firstSignal]))
 
     signals = []
-    admissionSignals = []
+    preStepSignals = []
     const secondIdle = waitForIdle(ctx, agent)
     send(agent, 'second')
     await secondIdle
     const secondSignal = signals[0]
     expect(secondSignal).toBeDefined()
     expect(new Set([...signals, adapter.requests[2]!.signal!])).toEqual(new Set([secondSignal]))
-    expect(admissionSignals).toHaveLength(1)
-    expect(admissionSignals[0]).not.toBe(secondSignal)
+    expect(preStepSignals).toHaveLength(1)
+    expect(preStepSignals[0]).toBe(secondSignal)
     expect(secondSignal).not.toBe(firstSignal)
     expect(ctx.agents.currentInitiator()).toBeUndefined()
     await ctx.fiber.dispose()

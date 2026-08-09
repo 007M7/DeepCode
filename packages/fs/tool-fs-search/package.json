@@ -21,9 +21,7 @@
   "files": [
     "lib/index.js",
     "lib/invariant.js",
-    "lib/types/**/*.d.ts",
-    "lib/types/**/*.d.ts.map",
-    "src"
+    "lib/types/**/*.d.ts"
   ],
   "license": "BSD-3-Clause",
   "dependencies": {
@@ -38,6 +36,7 @@
     "@deepseek-ai/dsh-spill": "^0.0.1",
     "@deepseek-ai/dsh-subprocess": "^0.0.1",
     "@deepseek-ai/dsh-system-prompt": "^0.0.1",
+    "@deepseek-ai/dsh-timeout": "^0.0.1",
     "@deepseek-ai/dsh-tools": "^0.0.1",
     "cordis": "^4.0.0-rc.6"
   },
@@ -51,6 +50,7 @@
     "@deepseek-ai/dsh-session": "workspace:^",
     "@deepseek-ai/dsh-spill": "workspace:^",
     "@deepseek-ai/dsh-system-prompt": "workspace:^",
+    "@deepseek-ai/dsh-timeout": "workspace:^",
     "@deepseek-ai/dsh-tools": "workspace:^",
     "cordis": "^4.0.0-rc.6"
   }

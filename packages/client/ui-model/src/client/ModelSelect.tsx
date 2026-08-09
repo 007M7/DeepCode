@@ -14,7 +14,7 @@ import {
   type KeyboardEvent, type FocusEvent,
 } from 'react'
 import clsx from 'clsx'
-import type { ModelReasoningEffort, ModelTarget } from '@deepseek-ai/dsh-client-connection/client'
+import type { ModelReasoningEffort, ModelSelection } from '@deepseek-ai/dsh-client-connection/client'
 import {
   IconCheckOutline16, IconChevronDownOutline14, IconChevronRightOutline14,
 } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -58,17 +58,17 @@ export function ModelSelect(
     group.models.map(model => ({
       group,
       model,
-      target: {
+      selection: {
         provider: group.id,
         model: model.id,
         ...model.reasoning?.defaultEffort === undefined
           ? {}
           : { reasoningEffort: model.reasoning.defaultEffort },
-      } satisfies ModelTarget,
+      } satisfies ModelSelection,
     }))), [state.groups])
   const selectedIndex = state.current === null
     ? -1
-    : choices.findIndex(c => c.target.provider === state.current?.provider && c.target.model === state.current.model)
+    : choices.findIndex(c => c.selection.provider === state.current?.provider && c.selection.model === state.current.model)
   const currentChoice = choices[selectedIndex]
   const reasoning = currentChoice?.model.reasoning
   const effectiveEffort = state.current?.reasoningEffort ?? reasoning?.defaultEffort
@@ -148,12 +148,12 @@ export function ModelSelect(
     close()
   }
 
-  const choose = (target: ModelTarget): void => {
-    if (state.current?.provider === target.provider && state.current.model === target.model) {
+  const choose = (selection: ModelSelection): void => {
+    if (state.current?.provider === selection.provider && state.current.model === selection.model) {
       close(true)
       return
     }
-    void select(target).then((accepted) => {
+    void select(selection).then((accepted) => {
       if (accepted && rootRef.current !== null) close(true)
     })
   }
@@ -164,18 +164,23 @@ export function ModelSelect(
       close(true)
       return
     }
-    const target: ModelTarget = {
+    const selection: ModelSelection = {
       provider: state.current.provider,
       model: state.current.model,
       ...effort === undefined ? {} : { reasoningEffort: effort },
     }
-    void select(target).then((accepted) => {
+    void select(selection).then((accepted) => {
       if (accepted && rootRef.current !== null) close(true)
     })
   }
 
-  const modelLabel = choices[selectedIndex]?.model.name ?? state.current?.model ?? t('trigger.fallback')
+  const modelLabel = currentChoice?.model.name ?? t('trigger.fallback')
   const triggerLabel = effortLabel === undefined ? modelLabel : `${modelLabel} · ${effortLabel}`
+  const triggerAria = currentChoice === undefined
+    ? t('trigger.selectAria')
+    : effortLabel === undefined
+      ? t('trigger.aria', { model: modelLabel })
+      : t('trigger.ariaEffort', { model: modelLabel, effort: effortLabel })
   itemRefs.current = []
   let itemIndex = 0
   const itemRef = () => {
@@ -189,9 +194,7 @@ export function ModelSelect(
         ref={triggerRef}
         type="button"
         className={css.trigger}
-        aria-label={effortLabel === undefined
-          ? t('trigger.aria', { model: modelLabel })
-          : t('trigger.ariaEffort', { model: modelLabel, effort: effortLabel })}
+        aria-label={triggerAria}
         aria-haspopup="menu"
         aria-expanded={open}
         aria-controls={open ? `${id}-menu` : undefined}
@@ -276,9 +279,6 @@ export function ModelSelect(
                               <span className={css.modelName}>{model.name}</span>
                               {model.description !== undefined && (
                                 <span className={css.description}>{model.description}</span>
-                              )}
-                              {model.unlisted === true && (
-                                <span className={css.unlisted}>{t('option.currentUnlisted')}</span>
                               )}
                             </span>
                             <span className={css.check}>

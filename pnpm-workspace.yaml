@@ -1,6 +1,10 @@
 packages:
   - vendor/*
   - packages/*/*
+  # The Landlock launcher is developed with its harness consumers but keeps
+  # its native build and publication scripts under native/landlock-run.
+  - native/landlock-run
+  - native/landlock-run/packages/*
   # Product assemblies over the package tier; apps/cli owns the `dsh` bin.
   - apps/*
   - website
@@ -32,8 +36,7 @@ peerDependencyRules:
 allowBuilds:
   esbuild: true
   lefthook: true
-  # Cross-platform PTY boundary for the TUI process smoke and persistent PTY backend,
-  # including ConPTY on Windows.
+  # Cross-platform boundary for the persistent PTY backend, including ConPTY on Windows.
   node-pty: true
   # Pulled in by @earendil-works/pi-ai (optional LLM API backend). pnpm lists
   # them only because they ship lifecycle scripts, but those are no-ops we don't
@@ -47,14 +50,7 @@ allowBuilds:
   # restores the executable bit on node-pty's macOS spawn helper.
   '@deepseek-ai/dsh-pty-local@file:packages/pty/pty-local': true
 
-# The Landlock launcher family is our own sibling-repo release, consumed
-# fresh (hours old at each coordinated bump) — the release-age quarantine
-# would block every such bump, so the family is exempted BY NAME, not by
-# pinned version.
 minimumReleaseAgeExclude:
-  - node-addon-landlock-run
-  - node-addon-landlock-run-linux-arm64
-  - node-addon-landlock-run-linux-x64
   # Cordis release candidates are source-vendored and pinned in vendor/README.md
   # during the same-day sync that updates package manifests and the lockfile.
   - '@cordisjs/plugin-loader@1.0.0-rc.5'
@@ -62,7 +58,15 @@ minimumReleaseAgeExclude:
   # Fresh pi-ai releases carry the model catalog updates that are the whole
   # point of bumping it; waiting out the release age would defeat that.
   - '@earendil-works/pi-ai@0.82.1'
+  - node-addon-native-custom-loader@0.1.4
+  - node-addon-require-builtin-darwin-arm64@0.1.4
+  - node-addon-require-builtin-darwin-x64@0.1.4
+  - node-addon-require-builtin-linux-arm64-gnu@0.1.4
+  - node-addon-require-builtin-linux-x64-gnu@0.1.4
+  - node-addon-require-builtin-win32-arm64-msvc@0.1.4
+  - node-addon-require-builtin-win32-ia32-msvc@0.1.4
+  - node-addon-require-builtin-win32-x64-msvc@0.1.4
+  - node-addon-require-builtin@0.1.4
 
 patchedDependencies:
-  '@earendil-works/pi-tui@0.80.7': patches/@earendil-works__pi-tui@0.80.7.patch
   node-pty@1.1.0: patches/node-pty@1.1.0.patch

@@ -2,15 +2,15 @@
 
 [English](README.md) | 中文
 
-基于一个已配置 `ctx.subagents` 提供方、面向模型的委派工具。更换提供方只会改变传输，不会改变执行契约。
+基于一个已配置 `ctx.subagents` 提供方、面向模型的委派工具。更换提供方只会改变传输，不会改变执行约定。
 
 ## 提供方选择与生命周期
 
-每个插件实例把一个 `provider` 绑定到一个 `toolName`；模型不会收到提供方选择器。如需公开另一种传输，请加载另一个名称不同的实例。工具只在其提供方存在时注册，从而避免对同级加载顺序和提供方重新加载的依赖。工具描述遵循 `provider.inheritsParentContext`：全新子 agent（智能体）需要独立提示词，而 fork 子 agent 已能看到父级已完成轮次。
+每个插件实例把一个 `provider` 绑定到一个 `toolName`；模型不会收到提供方选择器。如需公开另一种传输，请加载另一个名称不同的实例。工具只在其提供方存在时注册，从而避免对同级加载顺序和提供方重新加载的依赖。工具描述遵循 `provider.inheritsParentContext`：新建子 agent（智能体）需要独立提示词，而 fork 子 agent 已能看到父级已完成轮次。
 
-前台调用会让执行信号贯穿启动和执行，等待 `run.result`，并且在返回前总会等待 `run.dispose()`。只有 `completed` 会返回规范值 `{ kind: 'foreground', runId, output: JsonValue[] }`，并渲染为相同的最终文本；中止、拒绝、token 上限和其他失败都会变成出错的工具结果，不包含局部输出。如果结果收集与 dispose 都 reject，出错的结果会保留两项 diagnostic。
+前台调用会让执行信号贯穿启动和执行，等待 `run.result`，并且在返回前总会等待 `run.dispose()`。只有 `completed` 会返回规范值 `{ kind: 'foreground', runId, output: JsonValue[] }`，并渲染为相同的最终文本；中止、拒绝、token 上限和其他失败都会变成出错的工具结果，不包含局部输出。如果结果收集与 dispose（资源释放）都 reject，出错的结果会保留两项诊断信息。
 
-设置 `run_in_background: true` 后，`backgroundMode` 会选择路由。`one-shot` 会注册一个普通的父级所有 Task，并返回规范值 `{ kind: 'background', taskId }`，渲染为 `started background subagent task <id>`，即使提供方支持可继续子 agent 也不例外；通用 Task 工具负责其后续状态、收集、取消和通知。`continuable` 要求提供方具备 `prepareContinuable` 能力，调用 `ctx.subagents.startContinuable()`，并返回 `{ kind: 'continuable', subagentId }`，渲染为 `started subagent <childId>`。可继续路由在 inbox 接受时兑现：子 agent 自此拥有自己的轮次，因此该调用既不等待也不收集结果，而且子 agent 不会回报——通过该 id 查看其 transcript 即是其输出来源，可选的全局 `send_message` 工具则向其发送更多工作。启动可继续工作不要求加载 `send_message`。见[后台 subagent Agent Note](../../../.agents/notes/implemented/feature/2026-07-08-background-subagent-tasks.md)、[可继续的 subagent Agent Note](../../../.agents/notes/implemented/feature/2026-07-28-continuable-subagent-conversations.md)和[服务合并 Agent Note](../../../.agents/notes/implemented/simplification/2026-07-26-merge-subagent-control-service.md)。
+设置 `run_in_background: true` 后，`backgroundMode` 会选择路由。`one-shot` 会注册一个归父级所有的普通 Task，并返回规范值 `{ kind: 'background', taskId }`，渲染为 `started background subagent task <id>`，即使提供方支持可继续子 agent 也不例外；通用 Task 工具负责其后续状态、收集、取消和通知。`continuable` 要求提供方具备 `prepareContinuable` 能力，调用 `ctx.subagents.startContinuable()`，并返回 `{ kind: 'continuable', subagentId }`，渲染为 `started subagent <childId>`。可继续路由在 inbox 接受时结算：子 agent 自此拥有自己的轮次，因此该调用既不等待也不收集结果，而且子 agent 不会回报——通过该 id 查看其 transcript（文本记录）即是其输出来源，可选的全局 `send_message` 工具则向其发送更多工作。启动可继续工作不要求加载 `send_message`。见 [后台 subagent Agent Note](../../../.agents/notes/implemented/feature/2026-07-08-background-subagent-tasks.md)、[可继续的 subagent Agent Note](../../../.agents/notes/implemented/feature/2026-07-28-continuable-subagent-conversations.md)和[服务合并 Agent Note](../../../.agents/notes/implemented/simplification/2026-07-26-merge-subagent-control-service.md)。
 
 `toolFilter` 会改变子 agent 的全局工具层，但不是从父级派生的权限上限。见 [agent 作用域的安全非目标](../../../.agents/notes/implemented/architecture/2026-07-08-agent-scope-contexts.md#security-and-authority-are-non-goals)。
 
@@ -29,7 +29,7 @@
 
 ## 并发
 
-前台调用和后台调用均互斥。子 agent 可能共享父级工作区或外部资源，一元分类器无法证明同级委派的效果彼此不相交。见[并行工具调用 Agent Note](../../../.agents/notes/implemented/feature/2026-07-10-parallel-tool-call-execution.md)。
+前台调用和后台调用均互斥。子 agent 可能共享父级工作区或外部资源，一元分类器无法证明同级委派的效果彼此不相交。见 [并行工具调用 Agent Note](../../../.agents/notes/implemented/feature/2026-07-10-parallel-tool-call-execution.md)。
 
 ## 模型体验
 
@@ -55,17 +55,17 @@
 
 #### Token 影响
 
-提示词和结果会留在父级历史中，直到上下文压缩（compaction）；子 agent 工作上下文留在子 agent 中。
+提示词和结果会留在父级历史中，直到上下文压缩（context compaction）；子 agent 工作上下文留在子 agent 中。
 
 #### KV Cache 影响
 
-仅追加；新增可见内容位于可复用请求前缀之后，不会使现有 KV-cache 条目失效。
+仅追加；新增可见内容位于可复用请求前缀之后，不会使现有 KV Cache 条目失效。
 
 ### 后台结果
 
 #### 模型看到的内容
 
-在配置的可继续模式下，启动时精确返回 `started subagent <childId>`；在配置的一次性模式下，则返回 `started background subagent task <id>`。一次性模式下，通用 Task 接口提供后续状态、最终输出、取消响应和通知。可继续模式下，子 agent 不会回报；独立加载的 `send_message` 工具会投递后续消息，而通过其 id 查看子 agent 的 transcript 即是其输出来源。
+在配置的可继续模式下，启动时返回内容恰为 `started subagent <childId>`；在配置的一次性模式下，则返回 `started background subagent task <id>`。一次性模式下，通用 Task 接口提供后续状态、最终输出、取消响应和通知。可继续模式下，子 agent 不会回报；独立加载的 `send_message` 工具会投递后续消息，而通过其 id 查看子 agent 的 transcript 即是其输出来源。
 
 #### Token 影响
 
@@ -73,7 +73,7 @@
 
 #### KV Cache 影响
 
-仅追加；新增可见内容位于可复用请求前缀之后，不会使现有 KV-cache 条目失效。
+仅追加；新增可见内容位于可复用请求前缀之后，不会使现有 KV Cache 条目失效。
 
 ## 已知限制与暂缓事项
 

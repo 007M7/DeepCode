@@ -2,20 +2,22 @@
 
 English | [中文](README.zh.md)
 
-The subagent seam: an agent delegating work to a child agent. Like the [bash](../bash/README.md) and [llm](../llm/README.md) families this is a capability seam (see [capability seams](../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md)) — but with one defining difference: **multiple provider implementations coexist in one context**, registered by name, rather than the single-implementation bash shape. The registry mirrors the LLM adapter registry.
+This family lets an agent delegate work to child agents. Multiple named providers may coexist in one context.
 
 | Package | Role | ctx key |
 |---|---|---|
-| `subagent/` | Subagent service: named-provider registry, vocabulary, durable descriptor, and continuable-child orchestration | `ctx.subagents` |
-| `subagent-inprocess/` | Shared in-process run driver (no provider; one cleanup effect per run) | — |
-| `subagent-spawn/` | In-process backend: a fresh child agent, with cold resume | (registers on `ctx.subagents`) |
-| `subagent-fork/` | In-process backend: a child seeded with the parent's completed-turn prefix, with cold resume | (registers on `ctx.subagents`) |
-| `subagent-acp/` | Out-of-process backend: a child agent in a spawned subprocess, driven over ACP (one-shot) | (registers on `ctx.subagents`) |
-| `subagent-dsh-sdk/` | Out-of-process backend: a child harness runtime in a spawned subprocess, driven over stdio JSON-RPC through the TypeScript SDK client | (registers on `ctx.subagents`) |
-| `tool-subagent/` | Model-facing `subagent` delegation tool over `ctx.subagents` | (registers on `ctx.tools`) |
-| `tool-subagent-control/` | The optional, globally named `send_message` and `list_agents` tools over `ctx.subagents` | (registers on `ctx.tools`) |
-| `tool-subagent-report/` | Child-scoped `report` return channel for continuable in-process children | (registers in each child scope) |
+| [`subagent/`](subagent/README.md) | Defines provider registration, delegation, and continuation | `ctx.subagents` |
+| [`subagent-inprocess/`](subagent-inprocess/README.md) | Provides the shared in-process run driver | — |
+| [`subagent-spawn/`](subagent-spawn/README.md) | Starts a fresh in-process child | registers on `ctx.subagents` |
+| [`subagent-fork/`](subagent-fork/README.md) | Starts an in-process child from the parent's completed history | registers on `ctx.subagents` |
+| [`subagent-acp/`](subagent-acp/README.md) | Starts an out-of-process child over ACP | registers on `ctx.subagents` |
+| [`subagent-codex/`](subagent-codex/README.md) | Starts a real Codex app-server child | registers on `ctx.subagents` |
+| [`subagent-claude-code/`](subagent-claude-code/README.md) | Starts a real Claude Code child through the official Claude Agent SDK | registers on `ctx.subagents` |
+| [`subagent-dsh-sdk/`](subagent-dsh-sdk/README.md) | Starts an out-of-process Harness child through the TypeScript SDK | registers on `ctx.subagents` |
+| [`tool-subagent/`](tool-subagent/README.md) | Exposes delegation to the model | registers on `ctx.tools` |
+| [`tool-subagent-control/`](tool-subagent-control/README.md) | Exposes child messaging and listing to the model | registers on `ctx.tools` |
+| [`tool-subagent-report/`](tool-subagent-report/README.md) | Provides the child-to-parent report channel | registers in child scopes |
 
-The interface and continuation orchestration live at `subagent/subagent/`. One-shot provider `start` dispatch stays independent of persistence; an internal continuation manager owns each durable continuable child as one Session plus at most one process-local Activation, binding no Task, and exists only while the Agent service is present, resolving persistence per continuation operation. The in-process `subagent-spawn` / `subagent-fork` backends share the `subagent-inprocess` driver (a library with no provider of its own — both depend on it, neither on the other), and the out-of-process `subagent-acp` / `subagent-dsh-sdk` backends spawn their children through the [`subprocess/`](../subprocess/README.md) seam (the shared credential scrub, tree-scoped teardown, and dispose ladder). Tests replace only the child boundary with package-local fixtures.
+See the decisions for the [capability family](../../.agents/notes/implemented/feature/2026-06-21-subagent-capability-seam.md), [continuable children](../../.agents/notes/implemented/feature/2026-07-21-continuable-background-subagents.md), and [control tools](../../.agents/notes/implemented/simplification/2026-07-26-merge-subagent-control-service.md).
 
-The design rationale: [.agents/notes/implemented/feature/2026-06-21-subagent-capability-seam.md](../../.agents/notes/implemented/feature/2026-06-21-subagent-capability-seam.md), [.agents/notes/implemented/feature/2026-07-21-continuable-background-subagents.md](../../.agents/notes/implemented/feature/2026-07-21-continuable-background-subagents.md), and [.agents/notes/implemented/simplification/2026-07-26-merge-subagent-control-service.md](../../.agents/notes/implemented/simplification/2026-07-26-merge-subagent-control-service.md).
+The subsystem reference — start requests, results, live runs, the provider seam, continuable background children — is [docs/subsystems/subagent.md](../../docs/subsystems/subagent.md); design rationale in the [subagent capability seam](../../.agents/notes/implemented/feature/2026-06-21-subagent-capability-seam.md), [continuable background subagents](../../.agents/notes/implemented/feature/2026-07-21-continuable-background-subagents.md), and [merged subagent control service](../../.agents/notes/implemented/simplification/2026-07-26-merge-subagent-control-service.md) Agent Notes.

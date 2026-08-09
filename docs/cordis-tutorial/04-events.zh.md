@@ -79,7 +79,7 @@ export function apply(ctx: Context) {
 
 ## 分发模式
 
-`emit` 是 5 种分发模式之一。事件采用哪种模式是其契约的一部分，决定了监听器能否返回值、能否并发运行，以及能否彼此短路：
+`emit` 是 5 种分发模式之一。事件采用哪种模式是其约定的一部分，决定了监听器能否返回值、能否并发运行，以及能否彼此短路：
 
 | 模式 | 调用 | 语义 |
 |---|---|---|
@@ -89,9 +89,9 @@ export function apply(ctx: Context) {
 | bail | `ctx.bail(name, ...args)` | serial 的同步版本。 |
 | waterfall（瀑布式事件） | `ctx.waterfall(name, ...args, next)` | 环绕中间件，见下文。 |
 
-每个 harness 事件都会在生成的[事件目录](../cordis-catalog/events.md)中记录其模式。
+每个 harness 事件都会在其所属[子系统页面](../subsystems/core.md)的生成参考中记录其模式。
 
-## Waterfall：转换或短路
+## waterfall：转换或短路
 
 waterfall 是实现拦截的模式。每个监听器都会收到参数和一个 `next()` continuation；它可以转换 `next()` 的返回值，也可以不调用 `next()` 就直接返回，从而短路链条的其余部分。Cordis 文档把后一种行为称为否决。创建 `waterfall-demo.ts`：
 
@@ -137,8 +137,8 @@ HELLO
 
 由此得到一项纪律：**只负责观察或标注的 waterfall 监听器必须调用 `next()`**；不调用就直接返回代表有意短路。如果日志监听器忘记调用 `next()`，会悄无声息地吞掉所有下游的默认行为。这一点极其重要，已成为本仓库的常设规则（[waterfall 语义](../cordis-primer.md#cordis-waterfall-semantics)）。
 
-harness 使用 waterfall 处理协作插件可以包装或回答的决策：[`agent/request`](../cordis-catalog/events.md#agentrequest--waterfall) 允许插件替换模型调用配置，[`approval/request`](../cordis-catalog/events.md#approvalrequest--waterfall) 允许策略代替用户作答。
+harness 使用 waterfall 处理协作插件可以包装或回答的决策：[`agent/request`](../subsystems/core.md#agentrequest--waterfall) 允许插件替换模型调用配置，[`approval/request`](../subsystems/approval.md#approvalrequest--waterfall) 允许策略代替用户作答。
 
 下一章：[配置](05-config.md)：来自 `cordis.yml` 的插件选项。
 
-[![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-harness/deepseek-harness)
+[![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness-sdk)

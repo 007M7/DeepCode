@@ -10,7 +10,7 @@ import uuid
 from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Literal, TypeAlias, TypeVar
+from typing import Callable, TypeAlias, TypeVar
 
 from pydantic import BaseModel
 
@@ -142,9 +142,9 @@ class HarnessClient:
         *,
         on_notification: Callable[[Notification], None] | None = None,
         notification_subscription: "NotificationSubscription | None" = None,
-    ) -> None:
+    ) -> str:
         payload: JsonObject = {"sessionId": session_id, "contentBlocks": content_blocks}
-        self.request(
+        response = self.request(
             "session/prompt",
             payload,
             response_model=_SessionPromptResponse,
@@ -152,6 +152,7 @@ class HarnessClient:
             notification_filter=self._notification_belongs_to_session_tree(session_id),
             notification_subscription=notification_subscription,
         )
+        return response.messageId
 
     def request(
         self,
@@ -536,7 +537,7 @@ class NotificationSubscription:
 
 
 class _SessionPromptResponse(BaseModel):
-    accepted: Literal[True]
+    messageId: str
 
 
 class _ShutdownResponse(BaseModel):

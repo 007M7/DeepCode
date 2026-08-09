@@ -18,7 +18,7 @@ The discriminant is `shape`, not `kind`, deliberately: the same presentation mod
 
 One view with two shapes rather than two cards, because both tools are the same visual object — a search result — and a web consumer switches on one `card` value, then on `shape` for the row layout. The discriminated `shape` keeps each variant's fields non-optional (a matches view always has `files`, a paths view always has `paths`) instead of a single interface where every shape-specific field is optional.
 
-The view carries **no** result text. An earlier revision attached the model-facing `result.content` to the view; that was a no-op for every consumer (the TUI already falls back to `result.content`, and web fallbacks read the raw `tool/result` content), and it serialized the whole search text a second time into the persisted view. The view is the structured shape only; a UI without a search card falls back to the raw `tool/result` content.
+The view carries **no** result text. An earlier revision attached the model-facing `result.content` to the view; that was a no-op because consumer fallbacks already read the raw `tool/result` content, and it serialized the whole search text a second time into the persisted view. The view is the structured shape only; a UI without a search card falls back to the raw result content.
 
 The card tag is result-time only. A search call stays a `GenericCallView` (`kind: 'search'`): the pending state has no matches or paths to show, so there is nothing a `SearchCallView` would carry that the generic title does not. This is the asymmetry with the terminal card, whose call view carries the command, cwd, and description that exist before execution; a search's structured content exists only after `execute`.
 
@@ -30,7 +30,7 @@ The card tag is result-time only. A search call stays a `GenericCallView` (`kind
 
 The `SearchMeta` member shapes are object-literal `type` aliases, not the `SearchFileMatches`/`SearchLineMatch` interfaces the view exposes, because only a type alias is assignable to the `JsonValue` index signature `presentationMeta` returns; the two are structurally identical, so the projected value still reads back as a `SearchResultView`.
 
-The TUI (`packages/ui/tui/src/components/transcript.ts`) needs no dedicated arm: its result-view switch handles `terminal` and `diff` explicitly, and a `search` view falls through to the same dim generic body, reading the model-facing text from `this.result?.content`. Because the search view carries no `content` of its own and grep/glob returned a generic card before this PR, the TUI output stays byte-identical to the pre-search-card fallback. The web frontend that renders the structured `files`/`paths` shape is a separate later PR; this PR is the backend contract and its two producers.
+A consumer without a dedicated `search` arm falls back to the same generic body and reads the model-facing text from the raw result. Because the search view carries no `content` of its own and grep/glob returned a generic card before this PR, that fallback stays byte-identical to the pre-search-card path. The frontend that renders the structured `files`/`paths` shape is independent of this backend contract and its two producers.
 
 ## Alternatives considered
 
@@ -48,7 +48,7 @@ The TUI (`packages/ui/tui/src/components/transcript.ts`) needs no dedicated arm:
 
 `grep` and `glob` now compute `presentationMeta` on every non-nested successful call, a bounded projection over the already-retained matches or paths — the same retention outcome the render consumes, so there is no second retention pass and no doubled search text on the wire. The serialized meta is bounded by `searchMetaMaxBytes`, so a broad search no longer persists an unbounded structured copy into the session log.
 
-A UI without a search card renders the raw `tool/result` content, so no consumer regresses, and the TUI stays byte-identical. The web consumer that renders the structured shape reads `truncated`/`total` and the per-file groups; because the view carries only the retained, byte-bounded page, a UI wanting the complete result follows the spill locator in the model-facing text, exactly as the model does.
+A UI without a search card renders the raw `tool/result` content, so no consumer regresses. A consumer that renders the structured shape reads `truncated`/`total` and the per-file groups; because the view carries only the retained, byte-bounded page, a UI wanting the complete result follows the spill locator in the model-facing text, exactly as the model does.
 
 ## Testing
 

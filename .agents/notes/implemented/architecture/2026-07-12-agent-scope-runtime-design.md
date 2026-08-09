@@ -34,7 +34,7 @@ The [July 8 Agent Note](2026-07-08-agent-scope-contexts.md) remains the contribu
 
 ## Cordis model: context, fiber, effect, receiver, and waterfall
 
-Five Cordis ideas are required to understand the implementation. A context selects services and registration ownership; a fiber is one live plugin or child lifecycle; an effect attaches cleanup to a fiber; an event receiver selects listeners; and a waterfall lets listeners transform or veto an operation in sequence.
+Five Cordis ideas are required to understand the implementation. A context selects services and registration ownership; a fiber is one live plugin or child lifecycle; an effect attaches cleanup to a fiber; an event receiver selects listeners; and a waterfall lets listeners transform or short-circuit an operation in sequence.
 
 ### A context is an ownership path through one service graph
 
@@ -56,7 +56,7 @@ Cordis filters listeners using the dispatch receiver (`this`), while harness lis
 
 Product helpers therefore construct the carrier and pass the domain subject separately. This prevents listener routing from becoming an alternate object model and keeps event signatures understandable without knowledge of carrier internals.
 
-A Cordis waterfall is middleware-style dispatch. Each listener receives `next()`: calling it delegates to the remaining listeners and base operation, while returning without it vetoes or replaces the downstream result. Waterfalls power prompt assembly and tool policy; ordinary emit events notify synchronously, and parallel events await all listeners without a veto result.
+A Cordis waterfall is middleware-style dispatch. Each listener receives `next()`: calling it delegates to the remaining listeners and base operation, while returning without it short-circuits or replaces the downstream result. Waterfalls power prompt assembly and tool policy; ordinary emit events notify synchronously, and parallel events await all listeners without a veto result.
 
 ## Scope routing: one opaque key selects one layer
 
@@ -150,7 +150,7 @@ sequenceDiagram
 Every teardown request joins one memoized path. The order is:
 
 1. Deactivate creation or driving and let synchronous publication finish.
-2. Stop and drain the driver, including idle injection flushes.
+2. Stop and drain the driver, discarding any injection that remains pending.
 3. Detach the agent.
 4. Detach the session.
 5. Dispose the agent scope.
@@ -238,7 +238,7 @@ For a native call, the observer deletes the stage and commits its value only whe
 
 For a Code Mode SDK call, the inner successful result records `{ parentToken, value }` rather than committing. The observer waits for the `run_code` execution whose token matches `parentToken` and commits only if that outer final result also succeeds. Program failure, runtime abort, or outer post-policy denial discards the pending value.
 
-Once a value is pending or committed, a scoped monotonic guard denies later tool calls. After commit, the ordinary serial `agent/turn-stop` listener returns a stop decision after continuation and steering have already folded. A schema-validation failure remains an ordinary `INVALID_ARGS` tool error and leaves the child able to retry within the same turn.
+Once a value is pending or committed, a scoped monotonic guard denies later tool calls. The successful structured-output execution calls `exec.concludeTurn()`, so its own immutable result carries `concludesTurn: true` and the loop ends the tool loop at that step. A schema-validation failure remains an ordinary `INVALID_ARGS` tool error and leaves the child able to retry within the same turn.
 
 Pure Code Mode's registry contribution omits `structured_output` from native wire schemas and exposes it through the generated SDK. The assembly waterfall may deliberately change that presentation; execution still validates against the child-scoped definition, and the listener owns the consistency of any alternate model-visible route it creates.
 
@@ -250,9 +250,9 @@ Prompt assembly is intentionally cooperative, but three execution facts need one
 |---|---|---|
 | Tool pre-policy | Deny monotonically | A later listener must not re-allow an already denied call |
 | Tool result | Observe the immutable committed outcome | Structured output must commit only the result that actually escaped the pipeline |
-| Turn continuation | Stop after ordinary continuation folding | A committed terminal output must end the turn |
+| Turn continuation | Conclude through the committed tool result | A committed terminal output must end the turn |
 
-`ToolGuard` is the monotonic policy registry. Committed tool observation is the contained `tools/result` point described above. Terminal structured output listens on the ordinary serial `agent/turn-stop` fold after normal continuation and steering decisions; no public `strictSerial()` dispatcher is needed for the typed listener contract.
+`ToolGuard` is the monotonic policy registry. Committed tool observation is the contained `tools/result` point described above. Terminal structured output marks its own execution with `concludesTurn`, so terminality is data on the authoritative result rather than a separate hook decision.
 
 ### Skill and approval services trust typed callers
 

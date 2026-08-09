@@ -12,10 +12,10 @@ Status: implemented
 
 纯 Cordis 事件分类体系。agent loop（智能体循环）的扩展 seam 是带类型的事件，具有明确的分发模式：
 
-- **waterfall（瀑布式事件）**（around-middleware）：插件可变换、否决、恢复或包装：`agent/prompt-submit`、`agent/request`、`agent/request-error`、`agent/step-result`、`agent/turn-continuation`、`tools/pre-execute`、`tools/execute`、`tools/post-execute`、`llm/stream`、`system-prompt/assemble`。
-- **serial**（按监听器顺序依次 await；bail 值会阻止后续监听器执行）：用于有序检查点。所有 `agent/pre-step` 和 `agent/post-step` 监听器在全部弃权时才继续运行，而 `agent/turn-stop` 返回的第一个 stop 值即为最终的终止决策。
+- **waterfall（瀑布式事件）**（around-middleware）：插件可变换、短路、恢复或包装：`agent/pre-step`、`agent/request`、`agent/request-error`、`tools/pre-execute`、`tools/execute`、`tools/post-execute`、`llm/stream`、`system-prompt/assemble`。
+- **serial**（按监听器顺序依次 await）：用于 `agent/turn-stopping` 等有序检查点。
 - **parallel**（await 扇出）：每个监听器都必须获得独立执行的机会：`session/flush` 持久性检查点。
-- **emit**（同步 fire-and-forget）：用于通知：轮次/步骤边界、流分片、生命周期、错误，以及包含不可变 `tools/result` 观测的事件。
+- **emit**（同步 fire-and-forget）：用于通知：inbox 转换、生命周期、错误，以及受错误隔离的 `tools/result` 观测；该观测接收不可变的最终结果。轮次与步骤边界由持久会话事件拥有。
 
 事件词汇定义在接口包中（dsh-agent 声明 agent/* 事件）；`@deepseek-ai/dsh-agent-loop` 是唯一的具体循环插件，且自身可替换——外部不得依赖它。
 

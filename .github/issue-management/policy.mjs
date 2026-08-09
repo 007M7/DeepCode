@@ -12,6 +12,35 @@ const AUDIT_MARKER = '<!-- dsh-issue-policy -->'
 const OWNER_LINE = /^Owner: @([A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?)$/
 const TYPES = new Set(['Idea', 'Feature', 'Bug', 'Research', 'Task'])
 const PRIORITIES = ['p0', 'p1', 'p2', 'p3']
+const PR_KINDS = new Set([
+  'kind/feature',
+  'kind/bug-fix',
+  'kind/doc',
+  'kind/testing',
+  'kind/cleanup',
+  'kind/dependency',
+])
+// Aliases removed by the unified taxonomy migration remain reserved so they cannot be recreated.
+const LEGACY_LABELS = new Set([
+  'kind/bug',
+  'kind/documentation',
+  'feature',
+  'bug-fix',
+  'doc',
+  'cleanup',
+  'testing',
+  'dependencies',
+  'ci',
+  'cli',
+  'llm',
+  'web-search',
+])
+const TERMINAL_STATUSES = new Set(['Done', 'No action'])
+const ACTIVE_STATUS_ORDER = config.statuses.filter((status) => !TERMINAL_STATUSES.has(status))
+
+for (const status of ['In progress', 'In review']) {
+  if (!ACTIVE_STATUS_ORDER.includes(status)) throw new Error(`config.statuses 缺少 ${status}`)
+}
 
 /**
  * Return Markdown outside balanced details elements.
@@ -129,6 +158,22 @@ export function requiresPullRequestPolicy({
   return !isDraft && !automated && (reviewRequestCount > 0 || reviewCount > 0)
 }
 
+/**
+ * Derive a forward-only Issue status from the current PR phase.
+ * @param {string|null} currentStatus Current Project status.
+ * @param {{isDraft: boolean, reviewRequestCount: number, reviewCount: number}} pull PR phase.
+ * @returns {string|null} Status to write, or null when no forward transition exists.
+ */
+export function nextResolvingIssueStatus(currentStatus, pull) {
+  const target =
+    !pull.isDraft && (pull.reviewRequestCount > 0 || pull.reviewCount > 0)
+      ? 'In review'
+      : 'In progress'
+  const currentIndex = ACTIVE_STATUS_ORDER.indexOf(currentStatus)
+  const targetIndex = ACTIVE_STATUS_ORDER.indexOf(target)
+  return currentIndex >= 0 && currentIndex < targetIndex ? target : null
+}
+
 function stripIgnoredMarkdown(body) {
   const lines = body.replace(/<!--[\s\S]*?-->/g, '').split(/\r?\n/)
   const kept = []
@@ -202,8 +247,14 @@ export function retainIssueReferences(references, issues) {
 export function validateIssue(issue) {
   const errors = validateBody(issue)
   const status = issue.status
+  const invalidLabels = issue.labels.filter(
+    (label) => label.startsWith('kind/') || LEGACY_LABELS.has(label),
+  )
 
   if (!/\p{Script=Han}/u.test(issue.title)) errors.push('Issue 标题必须包含中文')
+  if (invalidLabels.length > 0) {
+    errors.push(`Issue 不得使用 PR kind 或旧版标签：${invalidLabels.join(', ')}`)
+  }
   if (
     /^\s*(?:\[(?:Idea|Feature|Bug|Research|Task|P[0-3]|Inbox|Backlog|Ready|In progress|In review|Done|No action|Owner|area\/[^\]]+)[^\]]*\]|(?:Idea|Feature|Bug|Research|Task|P[0-3]|Inbox|Backlog|Ready|In progress|In review|Done|No action|Owner|area\/[^:： ]+)\s*[:：-])/iu.test(
       issue.title,
@@ -239,12 +290,24 @@ export function validateIssue(issue) {
 export function validatePullRequest(input) {
   if (!requiresPullRequestPolicy(input)) return []
   const errors = []
-  const kinds = input.labels.filter((label) => label.startsWith('kind/'))
+  const kinds = input.labels.filter((label) => PR_KINDS.has(label))
+  const unknownKinds = input.labels.filter(
+    (label) => label.startsWith('kind/') && !PR_KINDS.has(label) && !LEGACY_LABELS.has(label),
+  )
+  const legacyLabels = input.labels.filter((label) => LEGACY_LABELS.has(label))
+  const sourceLabels = input.labels.filter((label) => label.startsWith('source/'))
   const priorities = input.labels.filter((label) => PRIORITIES.includes(label))
   const areas = input.labels.filter((label) => label.startsWith('area/'))
 
   if (input.references.all.length === 0) errors.push('PR 正文必须引用至少一个同仓库 Issue')
-  if (kinds.length !== 1) errors.push(`PR 必须恰好有一个 kind/*，当前为 ${kinds.length}`)
+  if (kinds.length !== 1) {
+    errors.push(`PR 必须恰好有一个允许的 kind/*，当前为 ${kinds.length}`)
+  }
+  if (unknownKinds.length > 0) {
+    errors.push(`PR 含不支持的 kind/*：${unknownKinds.join(', ')}`)
+  }
+  if (legacyLabels.length > 0) errors.push(`PR 含旧版标签：${legacyLabels.join(', ')}`)
+  if (sourceLabels.length > 0) errors.push(`source/* 仅用于 Issue：${sourceLabels.join(', ')}`)
   if (priorities.length > 1) errors.push(`PR 最多有一个 p0–p3，当前为 ${priorities.length}`)
   if (areas.length === 0) errors.push('PR 必须至少有一个 area/*')
   for (const number of input.references.all) {
@@ -401,8 +464,7 @@ async function ensureProjectItem(number) {
   }
 }
 
-async function setStatus(number, status) {
-  const context = await ensureProjectItem(number)
+async function updateStatus(context, status) {
   const option = context.statusField.options.find((candidate) => candidate.name === status)
   if (!option) throw new Error(`Status 不存在：${status}`)
   if (context.item.fieldValueByName?.name === status) return
@@ -422,6 +484,10 @@ async function setStatus(number, status) {
       optionId: option.id,
     },
   )
+}
+
+async function setStatus(number, status) {
+  await updateStatus(await ensureProjectItem(number), status)
 }
 
 async function upsertAudit(number, errors) {
@@ -491,11 +557,14 @@ async function pullRequestSnapshot(number) {
   }
 }
 
-async function moveResolvingIssues(pull, from, to) {
+async function advanceResolvingIssues(pull) {
   for (const number of pull.references.resolving) {
-    const current = await issueSnapshot(number)
-    if (!current || current.status !== from) continue
-    await setStatus(number, to)
+    const context = await projectContext(number)
+    const target = nextResolvingIssueStatus(context.item?.fieldValueByName?.name ?? null, pull)
+    if (!target) continue
+    // TODO: Replace this latest-state guard with per-Issue serialization or a
+    // conditional ProjectV2 update; GraphQL currently has no compare-and-swap.
+    await updateStatus(context, target)
     await auditIssue(number)
   }
 }
@@ -530,12 +599,7 @@ async function runLifecycle(eventName, event) {
 
   if (eventName === 'pull_request' || eventName === 'pull_request_review') {
     const pull = await pullRequestSnapshot(event.pull_request.number)
-    const errors = validatePullRequest(pull)
-    if (errors.length > 0) return
-    await moveResolvingIssues(pull, 'Ready', 'In progress')
-    if (pull.reviewRequestCount > 0 || pull.reviewCount > 0) {
-      await moveResolvingIssues(pull, 'In progress', 'In review')
-    }
+    await advanceResolvingIssues(pull)
   }
 }
 

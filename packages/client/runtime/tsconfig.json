@@ -24,16 +24,16 @@
       "path": "../../host/apiproxy"
     },
     {
-      "path": "../../ui/commands"
+      "path": "../../interaction/commands"
     },
     {
       "path": "../../compact/compact"
     },
     {
-      "path": "../../session-projection/session-projection"
+      "path": "../../session/session-projection"
     },
     {
-      "path": "../../session-title/session-title"
+      "path": "../../session/session-title"
     },
     {
       "path": "../../llm/llm"
@@ -43,6 +43,12 @@
     },
     {
       "path": "../../support/invariants"
+    },
+    {
+      "path": "../../typert/type-meta"
+    },
+    {
+      "path": "../../typert/registry"
     }
   ],
   "exclude": [

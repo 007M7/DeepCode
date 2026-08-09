@@ -23,7 +23,7 @@ const summary = (overrides: Record<string, unknown> = {}) => ({
 })
 
 function startTurn(session: ReturnType<Context['sessions']['create']>, turn = 1): void {
-  session.append('turn/start', { turn, trigger: { kind: 'message', source: { kind: 'user' } } })
+  session.append('turn/start', { turn })
 }
 
 describe('compaction invariants', () => {
@@ -56,7 +56,7 @@ describe('compaction invariants', () => {
   it('clears an inherited open compaction trace at end-seed during replay', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
-    const source = new Session(SessionId('stale-compaction-source'))
+    const source = Session.create(SessionId('stale-compaction-source'))
     source.append('compact/start', { turn: null })
     const replayed = ctx.sessions.create(SessionId('stale-compaction-replay'), {
       seed: source.events,
@@ -76,7 +76,7 @@ describe('compaction invariants', () => {
   it('allows repair turn boundaries after end-seed clears a seeded numbered orphan', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
-    const source = new Session(SessionId('stale-numbered-compaction-source'))
+    const source = Session.create(SessionId('stale-numbered-compaction-source'))
     startTurn(source)
     source.append('compact/start', { turn: 1 })
     const replayed = ctx.sessions.create(SessionId('stale-numbered-compaction-replay'), {
@@ -97,7 +97,7 @@ describe('compaction invariants', () => {
   it('accepts inherited repair boundaries before the end-seed that clears a standalone orphan', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
-    const source = new Session(SessionId('stale-repaired-compaction-source'))
+    const source = Session.create(SessionId('stale-repaired-compaction-source'))
     source.append('compact/start', { turn: null })
     startTurn(source)
     source.append('turn/end', { turn: 1, reason: { kind: 'interrupted' } })
@@ -123,7 +123,7 @@ describe('compaction invariants', () => {
   it('rejects a closed standalone bracket that contains a turn before end-seed', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
-    const source = new Session(SessionId('closed-nested-compaction-source'))
+    const source = Session.create(SessionId('closed-nested-compaction-source'))
     source.append('compact/start', { turn: null })
     startTurn(source)
     source.append('turn/end', { turn: 1, reason: { kind: 'interrupted' } })
@@ -142,7 +142,7 @@ describe('compaction invariants', () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     const session = ctx.sessions.create()
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     session.append('compact/start', { turn: 1 })
     await ctx.plugin(InvariantService)
     await ctx.plugin(CompactInvariant)
@@ -152,11 +152,11 @@ describe('compaction invariants', () => {
 
   it('adopts a bare session and ignores unrelated committed events', async () => {
     const ctx = await setup()
-    const session = new Session(SessionId('bare-compaction-session'))
+    const session = Session.create(SessionId('bare-compaction-session'))
     expect(() => {
       ctx.emit('session/event', session, {
         type: 'turn/start', seq: 0, time: 0,
-        data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } },
+        data: { turn: 1 },
       })
       ctx.emit('session/event', session, {
         type: 'step/start', seq: 1, time: 1, data: { turn: 1, step: 1 },

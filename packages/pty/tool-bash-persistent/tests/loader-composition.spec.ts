@@ -8,13 +8,14 @@ import Loader from '@cordisjs/plugin-loader'
 import Include from '@cordisjs/plugin-include'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
-import AgentRegistry from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { Inbox } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import PtyService from '@deepseek-ai/dsh-pty'
 import * as PtyLocal from '@deepseek-ai/dsh-pty-local'
 import SandboxProvider from '@deepseek-ai/dsh-sandbox'
 import type { ConfinedArgv, SandboxPolicy } from '@deepseek-ai/dsh-sandbox'
 import SandboxPolicyService from '@deepseek-ai/dsh-sandbox-policy'
+import LocalSubprocessService from '@deepseek-ai/dsh-subprocess-local'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
 import * as ToolBashPersistent from '@deepseek-ai/dsh-tool-bash-persistent'
@@ -31,27 +32,27 @@ afterEach(async () => {
 
 class PassthroughSandbox extends SandboxProvider {
   confine(argv: readonly string[], _policy: SandboxPolicy): ConfinedArgv {
-    return { argv: [...argv], enforcement: 'full', denialSignatures: [], runnerFailureSignatures: [] }
+    return { argv: [...argv], enforcement: 'full', denialSignatures: [], runnerFailureRules: [] }
   }
 }
 
 function agent(ctx: Context, cwd: string): Agent {
   const id = SessionId('persistent-bash-loader-agent')
   const scope = ctx.plugin(() => {})
+  const session = Session.create(id, [], { version: 0, id, createdAt: 0, cwd })
   const value: Agent = {
     id,
     options: {},
-    session: new Session(id, [], { version: 0, id, createdAt: 0, cwd }),
+    session,
+    inbox: new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} }),
     status: 'idle',
-    acceptsNextStep: false,
     ctx: scope.ctx,
+    send: () => {},
     followup: () => {},
     steer: () => ({ outcome: Promise.resolve({ status: 'rejected' as const }) }),
     inject: () => {},
-    send: () => {},
-    updateInbox: () => 'not-found',
-    reserveTurnAdmission: () => undefined,
     cancel() {},
+    runMaintenance: task => task(new AbortController().signal),
     whenIdle: () => Promise.resolve(),
   }
   ctx.agents.register(value)
@@ -78,6 +79,7 @@ suite('persistent Bash through a real cordis.yml Loader composition', () => {
       '  config:',
       '    mode: danger-full-access',
       `    workspaceRoot: ${JSON.stringify(root)}`,
+      "- name: '@deepseek-ai/dsh-subprocess-local'",
       "- name: '@deepseek-ai/dsh-pty-local'",
       '  config:',
       '    pollIntervalMs: 10',
@@ -104,6 +106,7 @@ suite('persistent Bash through a real cordis.yml Loader composition', () => {
       ['@deepseek-ai/dsh-pty', PtyService],
       ['@deepseek-ai/dsh-test-sandbox', PassthroughSandbox],
       ['@deepseek-ai/dsh-sandbox-policy', SandboxPolicyService],
+      ['@deepseek-ai/dsh-subprocess-local', LocalSubprocessService],
       ['@deepseek-ai/dsh-pty-local', PtyLocal],
       ['@deepseek-ai/dsh-tool-bash-persistent', ToolBashPersistent],
     ])

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import CommandService from '@deepseek-ai/dsh-commands'
+import CommandService, { type CommandResult } from '@deepseek-ai/dsh-commands'
 import {
   CompactService,
   ManualCompactionError,
@@ -15,9 +15,9 @@ import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import * as commandCompact from '@deepseek-ai/dsh-command-compact'
 
 const RESULT: CompactionResult = {
-  startSeq: 10,
-  summarySeq: 11,
-  endSeq: 13,
+  startSeq: 1,
+  summarySeq: 2,
+  endSeq: 3,
   summary: [{ type: 'text', text: 'summary' }],
   shadowedRange: { start: 1, end: 7 },
   shadowedSeqs: [1, 3, 7],
@@ -49,9 +49,23 @@ class StubCompactService extends CompactService {
     this.calls.push({ agent, signal })
     if (this.operation !== undefined) return this.operation()
     return this.failure === undefined
-      ? Promise.resolve(this.result)
+      ? Promise.resolve(this.result === null ? null : this.appendResult(agent, this.result))
       // oxlint-disable-next-line typescript/prefer-promise-reject-errors -- exercise arbitrary backend rejection values.
       : Promise.reject(this.failure)
+  }
+
+  private appendResult(agent: ManualCompactAgentContext, result: CompactionResult): CompactionResult {
+    agent.session.append('compact/start', { turn: null })
+    agent.session.append('compact/summary', {
+      summary: result.summary,
+      shadowedRange: result.shadowedRange,
+      shadowedSeqs: result.shadowedSeqs,
+      shadowedTokenCount: result.shadowedTokenCount,
+      provider: 'command-test',
+      model: 'command-test',
+    })
+    agent.session.append('compact/end', { turn: null })
+    return result
   }
 }
 
@@ -67,7 +81,7 @@ async function harness(): Promise<Harness> {
   await ctx.plugin(CommandService)
   const compact = new StubCompactService(ctx)
   const plugin = await ctx.plugin(commandCompact)
-  const session = new Session(SessionId('command-compact'))
+  const session = Session.create(SessionId('command-compact'))
   const agent = {
     session,
     status: 'idle',
@@ -91,9 +105,11 @@ async function run(
 function expectLastLifecycle(
   test: Harness,
   args: string,
-  outcome: { readonly kind: 'success' | 'error'; readonly text?: string },
+  outcome: CommandResult,
 ): string {
-  const lifecycle = test.agent.session.events.slice(-2)
+  const lifecycle = test.agent.session.events
+    .filter(event => event.type === 'command/run' || event.type === 'command/done')
+    .slice(-2)
   const runEvent = lifecycle[0]
   const doneEvent = lifecycle[1]
   if (runEvent?.type !== 'command/run' || doneEvent?.type !== 'command/done') {
@@ -149,6 +165,7 @@ describe('/compact human command', () => {
     expect(execution.result).toEqual({
       kind: 'success',
       text: 'Compacted 3 history items (~42 tokens).',
+      sourceEventSeq: RESULT.summarySeq,
     })
     expect(execution.commandId).toBe(expectLastLifecycle(test, '', execution.result))
     expect(test.compact.calls).toEqual([{ agent: test.agent, signal: controller.signal }])
@@ -175,6 +192,7 @@ describe('/compact human command', () => {
 
   it.each([
     ['busy', 'Compaction is unavailable because this process has an active compaction, or the agent is not idle.'],
+    ['cancelled', 'Compaction cancelled.'],
     ['changed', 'The history selected for compaction changed before it could be replaced. The conversation is unchanged; the attempt is recorded in the session log.'],
     ['summary', 'Compaction could not produce a useful summary. The conversation is unchanged; the attempt is recorded in the session log.'],
     ['commit', 'Compaction did not finish cleanly; some session history may have changed. Inspect the current session state before retrying.'],

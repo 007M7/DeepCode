@@ -22,9 +22,9 @@ Status: implemented
 
 `--config <path>` 现在应用一个 overlay 来**取代**个人 overlay，因此 demo 或测试用的树绝不会继承用户的 provider 与 model。`--config-replace <path>` 则把某个文件作为整棵树启动，同时绕过 base、surface overlay 与个人 overlay；这正是旧 `--config` 的行为，所以像 `examples/web-cordis` 这样的树改用了新 flag。两个 flag 都会在 `/resume` 的 execve 交接中保留，否则 resume 会静默更换 agent。
 
-patch 会整体替换目标配置项的 `config` 而不合并，这决定了拆分方式：取值因 surface 而异的配置项住在 overlay 中，绝不住在 base 里，从而没有任何配置项会被三层同时 patch。因此会话身份根本不能经由配置键传递——它迁移到了 `dsh-agent-loop` 的 `CONFIGURED_AGENT_IDENTITIES_KEY`，如[启动器持有身份的 note](../architecture/2026-07-28-launcher-owned-resume-identity.md) 现在所记录。
+patch 会整体替换目标配置项的 `config` 而不合并，这决定了拆分方式：取值因 surface 而异的配置项住在 overlay 中，绝不住在 base 里，从而没有任何配置项会被三层同时 patch。因此会话身份根本不能经由配置键传递——它迁移到了 `dsh-agent-loop` 的 `CONFIGURED_AGENT_IDENTITIES_KEY`，正如启动器持有身份的记录所述。
 
-`examples/tui-agent`、`examples/cordis-agent`、`examples/code-mode` 与 `packages/examples/tui-demo` 均被删除。TUI 测试迁往 `apps/cli/tests/`，cordis 工具集的 e2e 迁入 `packages/cordis/tool-cordis/tests/`，受支持的 Code Mode demo 则保留为 `examples/acp-agent/code-mode.cordis.yml` 中的 ACP overlay。
+`examples/tui-agent`、`examples/cordis-agent`、`examples/code-mode` 与 `packages/examples/tui-demo` 均被删除。TUI 测试迁往 `apps/cli/tests/`，cordis 工具集的 e2e 迁入 `packages/self-modification/tool-cordis/tests/`，受支持的 Code Mode demo 则保留为 `examples/acp-agent/code-mode.cordis.yml` 中的 ACP overlay。
 
 ## 备选方案
 
@@ -48,6 +48,6 @@ patch 会整体替换目标配置项的 `config` 而不合并，这决定了拆�
 
 组合的正确性通过用真实 Loader 启动每棵树并检查已就绪的条目来核对，而不是靠阅读 YAML：两个界面都能稳定完成且没有未加载项；Web 会以沙箱化 Bash 与文件系统提供方启动 `httpServer`。Code Mode 继续由 ACP overlay 与程序化 TUI 快照覆盖，而不再维护独立交付的 TUI 应用。
 
-全部八个终端快照场景在迁移后逐字节重放一致，14 个用例的 PTY 冒烟测试全部通过，其中两个用例断言个人 overlay 能触达一个 **insert 进来的**配置项——这正是 vendored `plugin-include` 修复所启用的行为（[`vendor/README.md`](../../../../vendor/README.md) 本地修改第 8 条，由 `packages/ui/app-boot/tests/config-reload.spec.ts` 覆盖）。
+全部八个终端快照场景在迁移后逐字节重放一致，14 个用例的 PTY 冒烟测试全部通过，其中两个用例断言个人 overlay 能触达一个 **insert 进来的**配置项——这正是 vendored `plugin-include` 修复所启用的行为（[`vendor/README.md`](../../../../vendor/README.md) 本地修改第 8 条，由 `packages/boot/app-boot/tests/config-reload.spec.ts` 覆盖）。
 
 平铺过程暴露出三处潜伏缺陷，均在此一并修复：TUI 曾在构造时一次性捕获可选的 `sessionQuery` 服务，因此在挂载竞争中胜出时会永久禁用 `/resume`；交付的会话存储根目录曾静默退回项目本地的 `./.sessions`；`--config-replace` 曾在 resume 交接中被丢弃。

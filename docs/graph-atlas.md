@@ -3,7 +3,7 @@
 
 # Documentation Graph Index
 
-These diagrams are the relationship layer above the generated catalogs. Use them to navigate package topology, capability seams, event flow, model-facing tools, app composition, and runtime lifecycle paths. Exact signatures and type shapes still live in the generated [events](cordis-catalog/events.md) / [services](cordis-catalog/services.md) catalogs, [tool-catalog.md](tool-catalog.md), and [core-data-structures/](core-data-structures/core.md).
+These diagrams are the relationship layer above the generated catalogs. Use them to navigate package topology, capability seams, event flow, model-facing tools, app composition, and runtime lifecycle paths. Exact signatures and type shapes still live in the [subsystem pages](subsystems/core.md) (types + the generated `cordis-surface` regions) and [tool-catalog.md](tool-catalog.md).
 
 The process decision behind this index is recorded in [the documentation graph Agent Note](../.agents/notes/archived/process/2026-07-03-documentation-graph-atlas.md).
 
@@ -12,7 +12,7 @@ The process decision behind this index is recorded in [the documentation graph A
 | [module dependency graph](module-graph.md) | `generated` |
 | [tool schema catalog and package map](tool-catalog.md) | `generated` |
 | [capability seams and core services](capability-seams.md) | `hybrid generated` |
-| [../apps/cli/composition.md](../apps/cli/composition.md) | `generated` |
+| [dsh shared base composition](../apps/cli/composition.md) | `hybrid generated` |
 | [headless-agent app composition](../examples/headless-agent/composition.md) | `hybrid generated` |
 | [acp-agent app composition](../examples/acp-agent/composition.md) | `hybrid generated` |
 | [event producer/consumer matrix](event-producer-consumer.md) | `hybrid generated` |

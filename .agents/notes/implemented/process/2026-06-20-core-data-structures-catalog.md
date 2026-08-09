@@ -1,4 +1,4 @@
-# Agent Note: Core-data-structures catalog and the `ts type-equiv` drift gate
+# Agent Note: Subsystems catalog and the `ts type-equiv` drift gate
 
 Status: implemented
 
@@ -8,24 +8,26 @@ English | [中文](2026-06-20-core-data-structures-catalog.zh.md)
 
 A reader trying to understand the harness could find its *behavior* in [architecture.md](../../../../docs/architecture.md) (the service map, the session/turn/step lifecycle, the event taxonomy) but had no single place describing its *vocabulary* — the data structures that behavior moves around. The type shapes lived only in source, scattered across `packages/*/src/types.ts`, so understanding "what is a `Message`, a `SessionEvent`, a `StreamChunk`" meant reading the declarations directly. A prose catalog would help, but a catalog that paraphrases or paste-copies type definitions rots the instant a field changes — and an out-of-sync type doc is worse than none, because a reader trusts it.
 
-So the work had two intertwined questions: **what belongs in such a catalog** (the scoping problem — a harness has dozens of cross-package types and dumping all of them helps no one), and **how to keep pasted type definitions from drifting** (the durability problem). This Agent Note records both decisions. Its sibling, [the generated cordis events + services catalog](2026-06-20-generated-cordis-catalog.md), is the *wiring*-axis complement: this one catalogs the data structures, that one the events and services that move them.
+So the work had two intertwined questions: **what belongs in such a catalog** (the scoping problem — a harness has dozens of cross-package types and dumping all of them helps no one), and **how to keep pasted type definitions from drifting** (the durability problem). This Agent Note records both decisions. Its historical sibling, [the archived generated Cordis events + services catalog decision](../../archived/process/2026-06-20-generated-cordis-catalog.md), is the *wiring*-axis complement: this one catalogs the data structures, that one the events and services that move them.
 
 ## Decision
 
-A new `docs/core-data-structures/` folder catalogs the vocabulary, with a new `verify-type-equiv` doc-sync gate that keeps every pasted type declaration and its JSDoc synchronized with source.
+A new `docs/subsystems/` folder catalogs the vocabulary, with a new `verify-type-equiv` doc-sync gate that keeps every pasted type declaration and its JSDoc synchronized with source.
 
 ### What counts as "core" — the spine-vs-seam line
 
-The scoping line was not picked top-down; it was discovered by testing candidate definitions against concrete borderline types until one rule survived every case. The decisive test was `BashExecRequest`/`BashExecSpec`/`BashRunResult`: bash is a capability *seam*, not part of the agent-loop spine, so if those are "core" then "core" means *all cross-package vocabulary* and the catalog is a flat dump; if they are not, "core" means *the central spine* and bash vocabulary belongs on a sub-page. The latter won, which set the whole structure: a **tiered folder**, not a flat document.
+> **Superseded as the page-scoping rule** by [package-anchored subsystem pages](2026-08-03-package-anchored-subsystem-pages.md): each page now anchors to the package group that declares its vocabulary. The `ts type-equiv` mechanism below remains current.
 
-The rule that settled the remaining cases: ***the type you write, hold, or receive is core; the machinery that types it, renders it, or persists it is a sub-page detail.*** Worked through:
+The scoping line was not picked top-down; it was discovered by testing candidate definitions against concrete borderline types until one rule survived every case. The decisive test was `BashExecRequest`/`BashExecSpec`/`BashRunResult`: bash is a capability *seam*, not part of the agent-loop spine, so if those are "core" then "core" means *all cross-package vocabulary* and the catalog is a flat dump; if they are not, "core" means *the central spine* and bash vocabulary belongs on its own seam page. The latter won, which set the whole structure: a **tiered folder**, not a flat document.
+
+The rule that settled the remaining cases: ***the type you write, hold, or receive is core; the machinery that types it, renders it, or persists it is a seam-page detail.*** Worked through:
 
 - A data structure is **core** if it flows through the agent-loop spine — the loop holds, derives, streams, or logs it on every turn regardless of which plugins load (`Message`, `StreamChunk`, `SessionEvent`, the `Agent` handle) — **or** it is the single headline type a plugin author writes against a pipeline (`ToolDefinition`).
-- `ToolDefinition` is core (it is what every tool author writes) **even though the loop never holds one** — authoring-importance overrides the strict flows-through-spine rule for this one headline type. But its typing machinery — `ValueSchemaSpec`, `ParameterSchemaSpec`, `InferValue`, and `InferArgs` — is a sub-page detail. That is the spine-vs-seam line made sharp.
+- `ToolDefinition` is core (it is what every tool author writes) **even though the loop never holds one** — authoring-importance overrides the strict flows-through-spine rule for this one headline type. But its typing machinery — `ValueSchemaSpec`, `ParameterSchemaSpec`, `InferValue`, and `InferArgs` — is a seam-page detail. That is the spine-vs-seam line made sharp.
 - `ToolSchema` is core (it is a field of `GenerateOptions`, the model request that flows through every step) even though it is conceptually part of the tool pipeline — *flows through the spine* wins over *conceptual home* when they conflict.
-- The tool-presentation vocabulary (`ToolCallView`/`ToolResultView`, …), the `SessionPersistence` durability seam, and bash vocabulary are sub-pages.
+- The tool-presentation vocabulary (`ToolCallView`/`ToolResultView`, …), the `SessionPersistence` durability seam, and bash vocabulary are seam pages.
 
-`core.md` is a **self-contained spine doc**: it states the exact type definition of each spine structure with minimal prose and links to sub-pages for the per-seam detail. The sub-pages are `llm-streaming.md`, `session.md`, `persistence.md` (split from session along the in-memory-model vs. durability-seam line), `tools.md`, and `bash.md`.
+`core.md` is a **self-contained spine doc**: it states the exact type definition of each spine structure with minimal prose and links to sibling seam pages for the per-seam detail; the folder's [README](../../../../docs/subsystems/README.md) indexes every page. The original seam pages are `llm-streaming.md`, `session.md`, `persistence.md` (split from session along the in-memory-model vs. durability-seam line), `tools.md`, and `bash.md`.
 
 ### The `ts type-equiv` mechanism — literal AND drift-proof
 
@@ -50,7 +52,7 @@ The durability requirement was specific: the doc shows the **literal** current t
 
 The spine-vs-seam rule was tested against `BashExecRequest`, tool schemas and definitions, the schema DSL, presentation types, and the session/persistence split before adoption.
 
-`verify-type-equiv` must scan the complete Markdown scope, not only manifest-named documents. Otherwise an unmanifested `type-equiv` block escapes the claimed one-to-one check. The gate therefore reports such blocks as orphans. This Agent Note records that fail-closed scan rule together with the spine-vs-seam and verbatim-match decisions; the generated Cordis catalog has the symmetric design record in [its Agent Note](2026-06-20-generated-cordis-catalog.md).
+`verify-type-equiv` must scan the complete Markdown scope, not only manifest-named documents. Otherwise an unmanifested `type-equiv` block escapes the claimed one-to-one check. The gate therefore reports such blocks as orphans. This Agent Note records that fail-closed scan rule together with the spine-vs-seam and verbatim-match decisions; the generated Cordis catalog has the symmetric design record in [its archived Agent Note](../../archived/process/2026-06-20-generated-cordis-catalog.md).
 
 ## Consequences
 
@@ -58,3 +60,4 @@ The spine-vs-seam rule was tested against `BashExecRequest`, tool schemas and de
 - The spine-vs-seam line is a reusable scoping tool, not a one-off: the same "the thing you write/hold/receive is core; the machinery that types/renders/persists it is a detail" rule is what later scoped the events/services catalog's harness-vs-inherited tiering.
 - The `ts type-equiv` fence is a third doc-block category alongside ` ```ts ` (compiled) and ` ```ts ignore-check ` (sketch). A later sibling added a fourth, ` ```ts cordis-catalog ` (generated signature), reusing the same skip-and-exclude treatment.
 - Adding or reshaping a core type now carries a documentation obligation the author must honor (the gate cannot detect a missing *new* type), backstopped by the `dsh-code-review` checklist.
+- Since 2026-07-27 the seam-page tier spans every service-bearing subsystem: nine lean pages (permission presets, plan mode, runtime invariants, the HTTP carrier, storage — owning both `ctx.storage` and `ctx.storageDomain` — TUI extensions, workspaces, client modules, telemetry) cover the ten `ctx` services that had none, so each harness service and event scope has exactly one owning subsystems page — the precondition for generating per-subsystem service/event reference into these pages instead of flat catalogs.

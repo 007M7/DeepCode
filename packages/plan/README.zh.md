@@ -2,10 +2,12 @@
 
 [English](README.md) | 中文
 
-Plan mode 是一种按 agent（智能体）分开记录到日志的协作状态。它是单一**产品**包（package），而非通用模式注册表或能力 seam 三包组合。
+Plan mode 是按 agent（智能体）记录的协作状态，而不是通用模式注册表或能力 seam。
 
 | 包 | 职责 | ctx 键 |
 |---|---|---|
-| `plan-mode/` | `plan/mode` 词汇与折叠、在边界生效的状态、`plan:policy` 引导段、`/plan [message]` 进入命令与 `/plan off` 退出命令，以及面向模型的 `exit_plan_mode` 评审工具 | `ctx.planMode` |
+| [`plan-mode/`](plan-mode/README.md) | 负责 plan mode 状态、指引、命令和评审流程 | `ctx.planMode` |
 
-活跃状态是会话日志的纯函数，因此恢复和 fork 无需额外机制即可还原该状态。部署通过 Cordis 配置提供 plan 引导内容，而 `exit_plan_mode` 在 Plan mode 未激活时仍保持注册，以稳定请求工具目录。交互式适配器使用插件拥有的 `/plan` 命令；沙箱模式和审批策略仍是独立的强制执行设置。设计详见 [plan 专用协作状态](../../.agents/notes/implemented/simplification/2026-07-22-plan-specific-collaboration-state.md)。
+[plan 专用协作状态](../../.agents/notes/implemented/simplification/2026-07-22-plan-specific-collaboration-state.md)决策记录了该家族的设计。
+
+子系统参考——`plan/mode` 折叠、步骤边界刷写、配置、退出工具——见 [docs/subsystems/plan.md](../../docs/subsystems/plan.md)；设计见[计划专属协作状态](../../.agents/notes/implemented/simplification/2026-07-22-plan-specific-collaboration-state.md)。

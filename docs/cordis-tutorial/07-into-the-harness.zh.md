@@ -46,7 +46,7 @@ export function apply(ctx: Context) {
 }
 ```
 
-这里的每个模式都来自前几章：`inject: ['tools']`（[第 3 章](03-services.md)）会让插件等待工具注册表就绪；`ctx.tools.register(...)` 会把注册 disposer 附着到插件（[第 2 章](02-lifecycle-and-effects.md)），因此卸载时会注销工具。`defineTool` 将 `parameters` 规约转换为向模型展示的 JSON Schema，推导 `args` 的类型，并在 `execute` 运行前校验模型提供的参数。工具返回由 `output.schema` 声明的规范值；`output.render` 则另行生成原生且持久的结果内容。
+这里的每个模式都来自前几章：`inject: ['tools']`（[第 3 章](03-services.md)）会让插件等待工具注册表就绪；`ctx.tools.register(...)` 会把注册 disposer 附着到插件（[第 2 章](02-lifecycle-and-effects.md)），因此卸载时会注销工具。`defineTool` 将 `parameters` 规约转换为向模型展示的 JSON Schema，推导 `args` 的类型，并在 `execute` 运行前校验模型提供的参数。工具返回由 `output.schema` 声明的规范值；`output.render` 则作为 Native renderer（原生渲染器），另行生成可持久化的结果内容。
 
 ## 观察插件
 
@@ -91,7 +91,7 @@ node --import tsx ../../vendor/cordis/bin.js
 tool replied: [{"type":"text","text":"Hello, Cordis!"}]
 ```
 
-logger 会先触发：`tools/result` 在结果物化过程中发出，早于 `execute` 的 promise 向调用方返回结果。两个插件都不知道另一个插件存在，它们由注册表服务和事件连接。
+logger 会先触发：`tools/result` 在结果物化过程中发出，发生在 `execute` 向调用方返回的 promise 兑现之前。两个插件都不知道另一个插件存在，它们由注册表服务和事件连接。
 
 ## 从这里走向完整 agent（智能体）
 
@@ -100,8 +100,8 @@ logger 会先触发：`tools/result` 在结果物化过程中发出，早于 `ex
 后续可以阅读：
 
 - [构建工具](../user/develop/basic/tool.md)：深入了解 `defineTool`，包括呈现和更丰富的 schema。
-- [三层功能设计](../user/develop/practice/index.md)：harness 如何组织可替换功能。
-- 生成的[服务](../cordis-catalog/services.md)与[事件](../cordis-catalog/events.md)目录：可以注入和监听的所有内容。
+- [三层能力设计](../user/develop/practice/index.md)：harness 如何组织可替换能力。
+- [子系统页面](../subsystems/core.md)上生成的 `cordis-surface` 区块：可以注入和监听的所有内容，各在其所属页面上。
 - [架构](../architecture.md)：这些插件所处的系统地图。
 
-[![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-harness/deepseek-harness)
+[![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness-sdk)

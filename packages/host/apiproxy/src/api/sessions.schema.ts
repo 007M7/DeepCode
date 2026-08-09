@@ -7,12 +7,12 @@
 
 import { z } from 'zod'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session/types'
-import type { InboxItemId } from '@deepseek-ai/dsh-agent/brand'
+import type { MessageId } from '@deepseek-ai/dsh-llm/brand'
 import type { RequestPayload, ResponseValue } from './rpc-map.ts'
 import type { Wire } from './rpc.schema.ts'
 import type {
   HistoryEntry, ModelCatalogFailure, ModelCatalogModel, ModelProviderGroup, ModelReasoning,
-  ModelReasoningEffort, ModelTarget, SessionProjectionsBlock, SessionSearchItem, SessionSummary,
+  ModelReasoningEffort, ModelSelection, SessionProjectionsBlock, SessionSearchItem, SessionSummary,
 } from './sessions.ts'
 import type { ToolEventView } from './events.ts'
 import type { WorkspaceId } from './workspace.ts'
@@ -25,8 +25,8 @@ import {
 /** SessionId: one brand cast after shape validation (the only cast point in this domain). */
 export const sessionIdSchema = z.string().min(1) as unknown as z.ZodType<SessionId>
 
-/** InboxItemId: one brand cast after non-empty string validation. */
-export const inboxItemIdSchema = z.string().min(1) as unknown as z.ZodType<InboxItemId>
+/** MessageId: one brand cast after non-empty string validation. */
+export const messageIdSchema = z.string().min(1) as unknown as z.ZodType<MessageId>
 
 /**
  * WorkspaceId: the workspace domain's one brand cast. Hosted here rather
@@ -140,12 +140,12 @@ export const sessionHistoryRequestSchema = z.object({
   maxMessages: z.number().int().positive().optional(),
 }) satisfies z.ZodType<Wire<RequestPayload<'session.history'>>>
 
-/** Complete provider/model target. */
-export const modelTargetSchema = z.object({
+/** Complete provider/model selection. */
+export const modelSelectionSchema = z.object({
   provider: z.string().min(1),
   model: z.string().min(1),
   reasoningEffort: z.string().min(1).optional(),
-}) satisfies z.ZodType<Wire<ModelTarget>>
+}) satisfies z.ZodType<Wire<ModelSelection>>
 
 /** One adapter-owned reasoning effort. */
 export const modelReasoningEffortSchema = z.object({
@@ -165,7 +165,6 @@ export const modelCatalogModelSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
   description: z.string().optional(),
-  unlisted: z.literal(true).optional(),
   reasoning: modelReasoningSchema.optional(),
 }) satisfies z.ZodType<Wire<ModelCatalogModel>>
 
@@ -225,7 +224,8 @@ export const sessionModelsRequestSchema = z.object({
 
 /** session.models response value. */
 export const sessionModelsValueSchema = z.object({
-  current: modelTargetSchema,
+  current: modelSelectionSchema,
+  routable: z.boolean(),
   groups: z.array(modelProviderGroupSchema),
   failures: z.array(modelCatalogFailureSchema),
 }) satisfies z.ZodType<Wire<ResponseValue<'session.models'>>>
@@ -240,7 +240,7 @@ export const sessionSelectModelRequestSchema = z.object({
 
 /** session.selectModel response value. */
 export const sessionSelectModelValueSchema = z.object({
-  selected: modelTargetSchema,
+  selected: modelSelectionSchema,
 }) satisfies z.ZodType<Wire<ResponseValue<'session.selectModel'>>>
 
 /** ContentBlock passthrough: core is merge-extensible — the type discriminant envelope is strict, the rest stays wide. */
@@ -265,7 +265,7 @@ export const sessionPromptValueSchema = z.object({
 /** session.updateQueue request payload. */
 export const sessionUpdateQueueRequestSchema = z.object({
   sessionId: sessionIdSchema,
-  itemId: inboxItemIdSchema,
+  itemId: messageIdSchema,
   action: z.discriminatedUnion('kind', [
     z.object({ kind: z.literal('edit'), content: z.array(contentBlockSchema) }),
     z.object({ kind: z.literal('remove') }),

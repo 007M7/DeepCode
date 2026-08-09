@@ -254,10 +254,6 @@ class SingleExeBuild {
       '--config.node-linker=hoisted',
       '--config.auto-install-peers=false',
       '--config.link-workspace-packages=true',
-      // The production closure intentionally omits the patched dev-only
-      // @earendil-works/pi-tui package. The root frozen install still validates
-      // every patch; this exception is scoped only to the production deploy.
-      '--config.allow-unused-patches=true',
       this.staging,
     ])
     if (this.cli.dryRun) {
@@ -330,7 +326,7 @@ class SingleExeBuild {
     if (this.cli.dryRun) console.log(`build-exe-for-python-sdk: [dry-run] rm -rf ${stagedBuild}`)
     else await rm(stagedBuild, { recursive: true, force: true })
     if (target.platform !== 'linux') return
-    const source = join(root, 'packages', 'pty', 'pty-local', 'node_modules', 'node-pty', 'build', 'Release', 'pty.node')
+    const source = join(root, 'packages', 'subprocess', 'subprocess-local', 'node_modules', 'node-pty', 'build', 'Release', 'pty.node')
     const destination = join(stagedBuild, 'Release', 'pty.node')
     if (this.cli.dryRun) {
       console.log(`build-exe-for-python-sdk: [dry-run] cp ${source} ${destination}`)

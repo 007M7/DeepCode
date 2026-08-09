@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-Event-sourced same-session goal state. The service retains one current completion objective in an agent's existing session while keeping permission to continue as process-local activation. The [goal-domain Agent Note](../../../.agents/notes/implemented/feature/2026-07-19-persisted-same-session-goal-domain.md) owns the design rationale; the [goal type catalog](../../../docs/core-data-structures/goal.md) records the literal data shapes.
+Event-sourced same-session goal state. The service retains one current completion objective in an agent's existing session while keeping permission to continue as process-local activation. The [goal-domain Agent Note](../../../.agents/notes/implemented/feature/2026-07-19-persisted-same-session-goal-domain.md) owns the design rationale; the [goal type catalog](../../../docs/subsystems/goal.md) records the literal data shapes.
 
 ## Config
 
@@ -17,17 +17,17 @@ Event-sourced same-session goal state. The service retains one current completio
 
 ## Service contract
 
-`ctx.goals` accepts only the exact live `Agent` instance registered under its id. `get()` returns a detached `GoalView`; mutations use a `GoalRef { id, revision }` compare-and-set fence and reject stale refs. The service exposes create, edit, pause, resume, complete, block, and clear verbs through the generated [service catalog](../../../docs/cordis-catalog/services.md). Creation default resolution is internal. `disarm()` is the lifecycle-only exception: it removes process-local continuation authority without writing a revision or emitting a mutation.
+`ctx.goals` accepts only the exact live `Agent` instance registered under its id. `get()` returns a detached `GoalView`; mutations use a `GoalRef { id, revision }` compare-and-set fence and reject stale refs. The service exposes create, edit, pause, resume, complete, block, and clear verbs through the generated region of [goal.md](../../../docs/subsystems/goal.md#cordis-surface). Creation default resolution is internal. `disarm()` is the lifecycle-only exception: it removes process-local continuation authority without writing a revision or emitting a mutation.
 
 At most one goal is current. Creation produces an active revision-one goal and arms it. A non-complete goal must be edited, transitioned, or cleared; a completed goal may be replaced by a globally fresh id. Edits retain phase, blocker reason, and activation. Pause, completion, blocking, and clear disarm activation. A block records a policy-owned lower-kebab-case code plus a normalized free-form explanation; provider limits, configured budgets, execution errors, and requests for human input all use this one durable phase rather than multiplying lifecycle states. Resume accepts a stopped phase or a disarmed active goal only while the configured round cap has remaining capacity; it clears any former blocker reason. An active armed goal rejects the redundant operation.
 
-Every non-clear mutation appends a complete versioned snapshot through `agent.inject()`; clear appends a revisioned tombstone. The model-visible `user/message` content and its typed `{ kind: 'goal', change }` source must agree exactly. Replay rejects malformed shapes, source/content drift, discontinuous revisions, illegal lifecycle transitions, non-monotonic per-goal timestamps, and non-sequential goal rounds. Mutation timestamps clamp against the preceding goal update when wall time moves backward.
+Every mutation appends a durable `goal/change` event carrying the complete post-mutation snapshot; clear uses a revisioned tombstone. Goal state therefore does not depend on inbox placement, claim, admission, or discard. The session log is the only durable authority.
 
-Injection may append immediately or wait in an active tool-batch FIFO. The service overlays accepted pending changes in memory and reconciles each exact payload when it enters the log, so consecutive model-tool mutations see their own latest revisions without treating an unlogged cache as durable state. Reentrant append observers see each accepted mutation exactly once, and incremental replay retains its cursor at the first corrupt event. `goal/changed` fires after the append or enqueue succeeds; listener failures are contained.
+Strict replay derives lifecycle mutations only from `goal/change` and rejects malformed shapes, discontinuous revisions, illegal lifecycle transitions, non-monotonic per-goal timestamps, and non-sequential admitted goal rounds. Positive rounds advance only on admitted goal-sourced `user/message` events. Mutation timestamps clamp against the preceding goal update when wall time moves backward. Incremental replay retains its cursor at the first corrupt event, and `goal/changed` fires after the durable event commits with listener failures contained.
 
 Activation is never persisted. A fresh cache and every `agent/session-start` edge disarm it even when replay finds an active durable phase. A continuation driver also calls `disarm()` before unload or after durability uncertainty. Session resume, fork, and driver replacement therefore retain the objective, phase, revisions, and admitted-round count without initiating work; a later explicit resume mutation must arm continuation.
 
-The separately published `./invariant` companion maintains an independent fold of each attached session. It rejects malformed goal source changes, model-visible content drift, discontinuous revisions, illegal lifecycle transitions, timestamp regressions, and non-sequential admitted rounds before the candidate event enters the durable log.
+The separately published `./invariant` companion maintains an independent fold of each attached session. It rejects malformed goal changes, discontinuous revisions, illegal lifecycle transitions, timestamp regressions, and non-sequential admitted rounds before the candidate event enters the durable log.
 
 ## Extension points
 
@@ -39,15 +39,15 @@ Policy plugins call the service verbs and react to the scoped `goal/changed` eve
 
 #### What the model sees
 
-Each mutation is one raw user-role context block. A snapshot is rendered as `<goal_state>{"goal":...,"roundsStarted":...,"createdAt":...,"updatedAt":...}</goal_state>`; a clear renders the tombstone id/revision and `clearedAt`. There is no hidden state summary outside the log. The descriptive XML delimiter follows this repository's existing `<workspace_context>` convention and [Anthropic's published XML-tag prompting guidance](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/claude-prompting-best-practices#structure-prompts-with-xml-tags); it is public model-experience prior art, not a claim about any provider's proprietary training corpus.
+Goal mutations do not inject model context. Tools such as `get_goal` return the current state, and a continuation consumer may render the objective and round state when it schedules model work. A future always-visible goal context belongs in a separate context plugin rather than the persistence path.
 
 #### Token effect
 
-Every retained mutation adds one full snapshot to derived history until compaction shadows it. Full snapshots make each record independently inspectable but repeat the objective and lifecycle fields.
+Goal mutation events add no model tokens by themselves. Tool results and scheduled continuation prompts account for their own visible state.
 
 #### KV Cache effect
 
-Append-only within an epoch: each mutation follows the reusable request prefix and preceding history. Compaction may replace the derived-history suffix and move the reusable boundary.
+There is no KV-cache effect until another component exposes goal state in model-visible input.
 
 ## Known Limitations and Deferred Work
 
@@ -55,4 +55,4 @@ Append-only within an epoch: each mutation follows the reusable request prefix a
 - **Round-count budget only** — `maxGoalRounds` does not meter tokens, currency, wall time, or provider quotas.
 - **No independent evaluator** — the caller that records completion or blocking is authoritative; evaluator-backed certification is deferred to a separate policy layer.
 - **One current goal** — parallel objectives and a separate goal database are intentionally absent; history remains available in the session log after replacement or clear.
-- **Trusted in-process producers** — a plugin with direct `Session` access can append counterfeit goal source data. Strict replay detects malformed or inconsistent records and leaves goal access failed at that record until the log is repaired; this is integrity detection, not plugin isolation.
+- **Trusted in-process producers** — a plugin with direct `Session` access can append counterfeit `goal/change` data. Strict replay detects malformed or inconsistent records and leaves goal access failed at that record until the log is repaired; this is integrity detection, not plugin isolation.

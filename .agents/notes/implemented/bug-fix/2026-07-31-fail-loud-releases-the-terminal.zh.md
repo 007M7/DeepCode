@@ -52,7 +52,7 @@ Loader 并发挂载各个条目，因此条目失败的顺序并不等于启动�
 
 ## Testing
 
-`packages/ui/app-boot/tests/app-boot.spec.ts` 覆盖 release 契约：退出提交前会等待该回调；回调 rejection 时仍退出 1；永不结算的回调会在 `FAIL_LOUD_RELEASE_TIMEOUT_MS` 后退出；以及一连串 rejection 只报告第一个，同时 release 仍能跑完。
+`packages/boot/app-boot/tests/app-boot.spec.ts` 覆盖 release 约定：退出提交前会等待该回调；回调 rejection 时仍退出 1；永不结算的回调会在 `FAIL_LOUD_RELEASE_TIMEOUT_MS` 后退出；以及一连串 rejection 只报告第一个，同时 release 仍能跑完。
 
 这些基于假进程的测试无法观测到最关键的两种失败形态——真实事件循环下的进程退出码，以及退出之后的终端状态——因此回归用例放在 `apps/cli/tests/tui-keyless-smoke.e2e.ts`。它在真实 PTY 中以 `fixtures/tui-invalid-provider.cordis.yml`（`providers` 为列表形状，正是用户真实会犯的错误）启动出厂配置树，期望退出码为 1，并断言捕获到的字节流同时包含带标签的启动 rejection（`dsh: plugin tree failed to load:`）与 `ESC[?2004l`。同一用例端到端钉住了启动路径：正是它发现了以 13 静默退出、终端状态被残留的 [HMR 初始扫描启动死锁](2026-08-03-hmr-initial-scan-boot-deadlock.md)。
 

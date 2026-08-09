@@ -2,10 +2,12 @@
 
 English | [中文](README.zh.md)
 
-Plan mode is one logged, per-agent collaboration state. It is a single **product** package, not a generic mode registry or a capability-seam trio.
+Plan mode is logged, per-agent collaboration state rather than a generic mode registry or capability seam.
 
 | Package | Role | ctx key |
 |---|---|---|
-| `plan-mode/` | `plan/mode` vocabulary + fold, boundary-applied state, the `plan:policy` guidance section, `/plan [message]` entry and `/plan off` exit, and the model-facing `exit_plan_mode` review tool | `ctx.planMode` |
+| [`plan-mode/`](plan-mode/README.md) | Owns plan-mode state, guidance, commands, and review flow | `ctx.planMode` |
 
-The active state is a pure function of the session log, so resume and fork restore it without extra machinery. The deployment supplies plan instructions through Cordis config, while `exit_plan_mode` stays registered when planning is inactive to keep the request tool catalog stable. Interactive adapters use the plugin-owned `/plan` command; sandbox mode and approval policy remain independent enforcement settings. Design: [plan-specific collaboration state](../../.agents/notes/implemented/simplification/2026-07-22-plan-specific-collaboration-state.md).
+The [plan-specific collaboration state](../../.agents/notes/implemented/simplification/2026-07-22-plan-specific-collaboration-state.md) decision records the family design.
+
+The subsystem reference — the `plan/mode` fold, the step-boundary flush, configuration, the exit tool — is [docs/subsystems/plan.md](../../docs/subsystems/plan.md); design in [plan-specific collaboration state](../../.agents/notes/implemented/simplification/2026-07-22-plan-specific-collaboration-state.md).

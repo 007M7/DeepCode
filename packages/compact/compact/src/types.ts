@@ -20,13 +20,14 @@ declare module '@deepseek-ai/dsh-session' {
     /**
      * Provenance record of a completed summarization — log-only, no surfaceOp.
      * The summary content is in `data.summary`; the actual surface replacement
-     * is performed by a subsequent `user/message` event that shadows the
-     * compacted range.
+     * is performed by the immediately following `user/message` event that
+     * shadows the compacted range. That adjacency is contractual — the
+     * shadowed pricing fields are the replacement's shadow price, so a
+     * consumer may pair a replacement with the metering event directly
+     * before it (`compact/prune` documents the shared protocol).
      */
     'compact/summary': {
       summary: ContentBlock[]
-      /** Complete provider output before the backend's safe summary projection. */
-      rawOutput?: ContentBlock[]
       shadowedRange: { start: number; end: number }
       shadowedSeqs: number[]
       shadowedTokenCount: number
@@ -43,12 +44,42 @@ declare module '@deepseek-ai/dsh-session' {
       maxTokens?: number
       /** Provider-reported token usage for the summarization request, when emitted. */
       usage?: TokenUsage
-    }
+    } & (
+      | {
+        /** Complete provider output before the backend's safe summary projection. */
+        rawOutput: ContentBlock[]
+        /** Identifies exactly one call through this context's `ctx.llm.stream()`. */
+        llmStreamCall: true
+      }
+      | {
+        /** Optional complete output from an unmarked template, remote, or other summarizer. */
+        rawOutput?: ContentBlock[]
+        /** An unmarked summary does not identify a call through this context's LLM seam. */
+        llmStreamCall?: never
+      }
+    )
     /**
      * Marks the end of a compaction — log-only, releases the lock. Its owner
      * matches `compact/start`; `error` records an unsuccessful attempt.
      */
     'compact/end': { turn: number | null; error?: string }
+    /**
+     * Shadow price of one model-free prune replacement — log-only, no
+     * surfaceOp. The shared shadow-price protocol: a surface `replace` event
+     * is priced by the metering event immediately before it (`compact/summary`
+     * for a summarizing compaction, this event for a prune), which states the
+     * heuristic token price of the exact replaced range so a pure consumer
+     * can subtract it without retaining per-node prices. The replacement MUST
+     * be appended synchronously right after this event.
+     */
+    'compact/prune': {
+      /** The replaced range's first and last surface-node seqs (a surface-position span, like {@link CompactionResult.shadowedRange}). */
+      shadowedRange: { start: number; end: number }
+      /** The seqs of all shadowed surface nodes, in surface order. */
+      shadowedSeqs: number[]
+      /** Heuristic price of the shadowed content under the token-meter's fixed estimator. */
+      shadowedTokenCount: number
+    }
   }
 }
 

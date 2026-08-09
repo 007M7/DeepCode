@@ -18,13 +18,16 @@
       "path": "../../../vendor/schemastery"
     },
     {
+      "path": "../../../native/landlock-run/packages/entry"
+    },
+    {
       "path": "../../llm/llm"
     },
     {
       "path": "../../core/session"
     },
     {
-      "path": "../../session-title/session-title"
+      "path": "../../session/session-title"
     },
     {
       "path": "../../core/system-prompt"
@@ -67,6 +70,9 @@
     },
     {
       "path": "../../util/paths"
+    },
+    {
+      "path": "../../bash/bash-env"
     },
     {
       "path": "../../bash/tool-bash"

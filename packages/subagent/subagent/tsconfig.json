@@ -27,13 +27,13 @@
       "path": "../../core/scope"
     },
     {
-      "path": "../../session-persistence/session-persistence"
+      "path": "../../session/session-persistence"
     },
     {
-      "path": "../../session-query/session-query"
+      "path": "../../session/session-projection"
     },
     {
-      "path": "../../session-projection/session-projection"
+      "path": "../../session/session-projection-cache"
     },
     {
       "path": "../../tasks/tasks"

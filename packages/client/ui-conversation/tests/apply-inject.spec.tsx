@@ -21,7 +21,8 @@ import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
 import type { ISession, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import { apply, inject } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {
-  ChatViewInjected, ComposerBarInjected, ConversationInjected, ConversationSessionInjected, DetailsInjected,
+  ChatViewInjected, ComposerBarInjected, ConversationInjected, ConversationSessionHeaderInjected,
+  ConversationSessionInjected, DetailsInjected,
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { createChatStore } from '../src/client/stores.ts'
 
@@ -70,13 +71,20 @@ async function bench() {
   // The host face (store resolution) exists only inside the installed
   // renderer, so materialize it the way the shell does.
   runtime.renderRoot()
-  const entryOf = (key: 'conversation' | 'conversation.session' | 'conversation.composer.bar' | 'conversation.view' | 'details') =>
+  const entryOf = (key: 'conversation' | 'conversation.session' | 'conversation.session.header' | 'conversation.composer.bar' | 'conversation.view' | 'details') =>
     runtime.slots.entries(key)[0]!
   /** Resolve store instance + call the inject the way the outlet would. */
   const conversationSurface = (id: SessionId) => {
     const entry = entryOf('conversation.session')
     const instance = runtime.storeOf('conversation.session', id) as ChatInstance
     const injected = (entry.inject as unknown as (sessionId: SessionId, actions: ChatActions) => ConversationSessionInjected)(
+      id, instance.actions)
+    return { instance, injected }
+  }
+  const conversationHeaderSurface = (id: SessionId) => {
+    const entry = entryOf('conversation.session.header')
+    const instance = runtime.storeOf('conversation.session.header', id) as ChatInstance
+    const injected = (entry.inject as unknown as (sessionId: SessionId, actions: ChatActions) => ConversationSessionHeaderInjected)(
       id, instance.actions)
     return { instance, injected }
   }
@@ -111,7 +119,7 @@ async function bench() {
   }
   return {
     runtime, feature, slots: runtime.slots, entryOf,
-    conversationSurface, residentSurface, composerSurface, chatViewSurface, inputSurface,
+    conversationSurface, conversationHeaderSurface, residentSurface, composerSurface, chatViewSurface, inputSurface,
     sessionFake, layoutFake,
   }
 }

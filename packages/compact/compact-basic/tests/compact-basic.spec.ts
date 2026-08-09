@@ -1,9 +1,9 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, expectTypeOf, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import BasicCompactService from '@deepseek-ai/dsh-compact-basic'
 import type { BasicCompactConfig } from '@deepseek-ai/dsh-compact-basic'
 import { selectCompactableRange } from '@deepseek-ai/dsh-compact-basic/src/region.ts'
-import type { SummarizationInput } from '@deepseek-ai/dsh-compact-basic/src/summarizer.ts'
+import type { SummarizationInput, SummaryResult } from '@deepseek-ai/dsh-compact-basic/src/summarizer.ts'
 import { toolPairingBalancedAfter, toolPairingBalancedBefore } from '@deepseek-ai/dsh-compact'
 import {
   resolveCompactSpec,
@@ -103,9 +103,9 @@ function promptInput(text: string): SummarizationInput {
 
 /** Closed two-message turns followed by one open turn for durable compaction events. */
 function conversation(turns = 4, text = 'fixture '.repeat(40).trim()): Session {
-  const session = new Session(SessionId(`conversation-${turns}`))
+  const session = Session.create(SessionId(`conversation-${turns}`))
   for (let turn = 1; turn <= turns; turn += 1) {
-    session.append('turn/start', { turn, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn })
     session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: `${text} user ${turn}` }],
       source: { kind: 'user' },
@@ -134,16 +134,15 @@ function conversation(turns = 4, text = 'fixture '.repeat(40).trim()): Session {
   }
   session.append('turn/start', {
     turn: turns + 1,
-    trigger: { kind: 'message', source: { kind: 'user' } },
   })
   return session
 }
 
 function toolConversation(): Session {
-  const session = new Session(SessionId('tools'))
+  const session = Session.create(SessionId('tools'))
   for (let turn = 1; turn <= 3; turn += 1) {
     const callId = CallId(`call-${turn}`)
-    session.append('turn/start', { turn, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn })
     session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: `request ${turn} `.repeat(300) }],
       source: { kind: 'user' },
@@ -183,15 +182,15 @@ function toolConversation(): Session {
     session.append('step/end', { turn, step: 1 })
     session.append('turn/end', { turn, reason: { kind: 'completed' } })
   }
-  session.append('turn/start', { turn: 4, trigger: { kind: 'message', source: { kind: 'user' } } })
+  session.append('turn/start', { turn: 4 })
   return session
 }
 
 /** One closed routed tool step followed by an open turn for rewrite events. */
 function oversizedToolResult(chars = 3_000, withCompactablePrompt = false): Session {
-  const session = new Session(SessionId(`oversized-tool-${chars}`))
+  const session = Session.create(SessionId(`oversized-tool-${chars}`))
   const callId = CallId('oversized')
-  session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+  session.append('turn/start', { turn: 1 })
   if (withCompactablePrompt) {
     session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'older history '.repeat(200) }],
@@ -228,7 +227,7 @@ function oversizedToolResult(chars = 3_000, withCompactablePrompt = false): Sess
   }, { surfaceOp: 'append' })
   session.append('step/end', { turn: 1, step: 1 })
   session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
-  session.append('turn/start', { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } })
+  session.append('turn/start', { turn: 2 })
   return session
 }
 
@@ -485,8 +484,8 @@ describe('pressure measurement and retention', () => {
 
   it('skips when no durable routed model exists instead of using AgentOptions fallback', async () => {
     const compact = service(compactConfig)
-    const session = new Session(SessionId('headerless'))
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    const session = Session.create(SessionId('headerless'))
+    session.append('turn/start', { turn: 1 })
     await expect(compact.compactIfNeeded(agent(session, MODEL), 'pressure', SIGNAL))
       .resolves.toBeNull()
     expect(compact.calls).toHaveLength(0)
@@ -567,9 +566,9 @@ describe('pressure measurement and retention', () => {
 
   it('declines forced overflow when the whole surface is one indivisible tool pair', async () => {
     const compact = service(compactConfig)
-    const session = new Session(SessionId('single-tool-pair'))
+    const session = Session.create(SessionId('single-tool-pair'))
     const callId = CallId('single-call')
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     session.append('step/start', { turn: 1, step: 1 })
     session.append('request/header', {
       header: { config: { provider: MODEL, model: MODEL } },
@@ -658,8 +657,8 @@ describe('pressure measurement and retention', () => {
 
   it('declines when envelope pressure is high but the surface has no compactable range', async () => {
     const compact = service(compactConfig)
-    const empty = new Session(SessionId('empty'))
-    empty.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    const empty = Session.create(SessionId('empty'))
+    empty.append('turn/start', { turn: 1 })
     empty.append('request/header', {
       header: { config: { provider: MODEL, model: MODEL }, system: 'x'.repeat(100_000) },
       reason: 'initial',
@@ -733,9 +732,9 @@ describe('pressure measurement and retention', () => {
 
   it('declines when rounding a cut would consume the only tool pair', () => {
     const ctx = createContext()
-    const session = new Session(SessionId('one-tool-pair'))
+    const session = Session.create(SessionId('one-tool-pair'))
     const callId = CallId('only')
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     session.append('step/start', { turn: 1, step: 1 })
     session.append('assistant/message', {
       turn: 1,
@@ -869,12 +868,13 @@ describe('compaction region transaction', () => {
       rawOutput: compact.rawOutput,
       usage: compact.usage,
     })
+    expect(summary?.data).not.toHaveProperty('llmStreamCall')
     const head = session.deriveMessages()[0]!
     expect(head.content[0]?.type).toBe('text')
     expect(head.content[0]?.type === 'text' ? head.content[0].text : '').toContain('<compacted-summary>')
     expect(head.content.at(-1)).toEqual({ type: 'text', text: '</compacted-summary>' })
 
-    const replay = new Session(SessionId('replay'), [...session.events])
+    const replay = Session.create(SessionId('replay'), [...session.events])
     expect(replay.deriveMessages()).toEqual(session.deriveMessages())
   })
 
@@ -956,7 +956,7 @@ describe('compaction region transaction', () => {
 
   it('rejects a session with no turn boundary at all', async () => {
     const compact = service()
-    const session = new Session(SessionId('turnless'))
+    const session = Session.create(SessionId('turnless'))
     session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'orphan' }],
       source: { kind: 'user' },
@@ -1076,8 +1076,8 @@ describe('compaction region transaction', () => {
 
   it('lets a model-independent custom summarizer compact without a conversation model', async () => {
     const compact = service()
-    const session = new Session(SessionId('model-less-region'))
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    const session = Session.create(SessionId('model-less-region'))
+    session.append('turn/start', { turn: 1 })
     session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'history '.repeat(100) }],
       source: { kind: 'user' },
@@ -1166,6 +1166,15 @@ async function summarizerHarness(
 }
 
 describe('default one-shot summarizer', () => {
+  it('requires complete raw output when a subclass marks one local LLM stream call', () => {
+    expectTypeOf<{
+      summary: ContentBlock[]
+      llmStreamCall: true
+      provider: string
+      model: string
+    }>().not.toExtend<SummaryResult>()
+  })
+
   it('uses configured model/default cap, forwards cancellation, and keeps only safe text', async () => {
     const { adapter, compact } = await summarizerHarness([
       { type: 'reasoning', text: 'private' },
@@ -1188,6 +1197,7 @@ describe('default one-shot summarizer', () => {
         { type: 'text', text: 'public summary' },
         { type: 'tool-call', id: CallId('unexpected'), name: 'x', arguments: '{}' },
       ],
+      llmStreamCall: true,
       provider: MODEL,
       model: MODEL,
       maxTokens: 321,
@@ -1301,6 +1311,7 @@ describe('default one-shot summarizer', () => {
     await compact.compactRegion(nodes[0]!, nodes[3]!, agent(session, MODEL), SIGNAL)
     expect(session.events.findLast(event => event.type === 'compact/summary')?.data).toMatchObject({
       summary: [{ type: 'text', text: 'routed summary' }],
+      llmStreamCall: true,
       provider: 'routed-summary-provider',
       model: 'routed-summary-model',
     })
@@ -1313,13 +1324,13 @@ describe('default one-shot summarizer', () => {
     await ctx.plugin(LlmService)
     void new TokenMeterService(ctx)
     const compact = new ExposedCompactService(ctx, { auto: false })
-    await expect(compact.runSummarize(promptInput('history'), agent(new Session(SessionId('model-less')))))
+    await expect(compact.runSummarize(promptInput('history'), agent(Session.create(SessionId('model-less')))))
       .rejects.toThrow(/no provider\/model available for summarization/)
   })
 
   it('uses a complete AgentOptions target when no durable route exists', async () => {
     const { adapter, compact } = await summarizerHarness([{ type: 'text', text: 'summary' }])
-    const session = new Session(SessionId('headerless-summary'))
+    const session = Session.create(SessionId('headerless-summary'))
 
     await expect(compact.runSummarize(promptInput('history'), agent(session, MODEL))).resolves.toMatchObject({
       provider: MODEL,
@@ -1335,7 +1346,7 @@ describe('default one-shot summarizer', () => {
   ])('rejects incomplete AgentOptions target %#', async (options) => {
     const { compact } = await summarizerHarness([{ type: 'text', text: 'unused' }])
     const owner = {
-      session: new Session(SessionId(`incomplete-${String(options.model)}`)),
+      session: Session.create(SessionId(`incomplete-${String(options.model)}`)),
       options,
     } as Agent
     await expect(compact.runSummarize(promptInput('history'), owner))
@@ -1371,8 +1382,11 @@ describe('default one-shot summarizer', () => {
 })
 
 describe('automatic listener and loader composition', () => {
-  function postStep(ctx: Context, owner: Agent, signal = SIGNAL): Promise<unknown> {
-    return agentEvents(ctx, owner).serial('agent/step', 1, 1, signal)
+  function preStep(ctx: Context, owner: Agent, signal = SIGNAL) {
+    return agentEvents(ctx, owner).waterfall(
+      'agent/pre-step', { messages: [], turn: 1, step: 1, signal },
+      () => Promise.resolve({ kind: 'enter' as const, messages: [] }),
+    )
   }
 
   function recover(
@@ -1385,7 +1399,9 @@ describe('automatic listener and loader composition', () => {
     const failure: LlmFailure = { message: error.message, code: error.code ?? 'UNKNOWN' }
     const turn = owner.session.events.findLast(event => event.type === 'turn/start')?.data.turn ?? 1
     return agentEvents(ctx, owner).waterfall(
-      'agent/request-error', turn, 1, error, failure, [], undefined, signal, next,
+      'agent/request-error',
+      { turn, step: 1, provider: 'test', failure, retryPolicy: undefined, signal },
+      next,
     ).then(action => action?.kind === 'retry')
   }
 
@@ -1393,23 +1409,23 @@ describe('automatic listener and loader composition', () => {
     return Object.assign(new Error(message), { code: CONTEXT_WINDOW_EXCEEDED_CODE })
   }
 
-  it('compacts post-step above threshold using the durable routed model and remains idle below it', async () => {
+  it('compacts before a step above threshold using the durable routed model and remains idle below it', async () => {
     const ctx = createContext()
     const compact = new TestCompactService(ctx, {
       thresholdRatio: 0.5,
       retainTokens: 180,
     })
     const pressured = conversation(4)
-    await postStep(ctx, agent(pressured, 'unconfigured-agent-fallback'))
+    await preStep(ctx, agent(pressured, 'unconfigured-agent-fallback'))
     expect(pressured.events.some(event => event.type === 'compact/summary')).toBe(true)
 
     const small = conversation(1)
-    await postStep(ctx, agent(small, MODEL))
+    await preStep(ctx, agent(small, MODEL))
     expect(small.events.some(event => event.type === 'compact/start')).toBe(false)
     expect(compact.calls).toHaveLength(1)
   })
 
-  it('skips post-step pressure when the step signal is already aborted', async () => {
+  it('skips pre-step pressure when the step signal is already aborted', async () => {
     const ctx = createContext()
     const compact = new TestCompactService(ctx, {
       thresholdRatio: 0.5,
@@ -1418,8 +1434,8 @@ describe('automatic listener and loader composition', () => {
     const pressured = conversation(4)
     const compactIfNeeded = vi.spyOn(compact, 'compactIfNeeded')
 
-    await expect(postStep(ctx, agent(pressured, MODEL), AbortSignal.abort('step aborted')))
-      .resolves.toBeUndefined()
+    await expect(preStep(ctx, agent(pressured, MODEL), AbortSignal.abort('step aborted')))
+      .resolves.toEqual({ kind: 'enter', messages: [] })
 
     expect(compactIfNeeded).not.toHaveBeenCalled()
     expect(pressured.events.some(event => event.type === 'compact/start')).toBe(false)
@@ -1436,7 +1452,7 @@ describe('automatic listener and loader composition', () => {
     compact.error = 'temporary failure'
     const session = conversation(4)
 
-    await expect(postStep(ctx, agent(session, MODEL))).resolves.toBeUndefined()
+    await expect(preStep(ctx, agent(session, MODEL))).resolves.toEqual({ kind: 'enter', messages: [] })
     expect(warnings).toContainEqual(expect.stringContaining('temporary failure'))
     expect(session.events.some(event => event.type === 'compact/summary')).toBe(false)
   })
@@ -1456,8 +1472,8 @@ describe('automatic listener and loader composition', () => {
     })
     const session = conversation(4)
 
-    await postStep(ctx, agent(session, MODEL))
-    await postStep(ctx, agent(session, MODEL))
+    await preStep(ctx, agent(session, MODEL))
+    await preStep(ctx, agent(session, MODEL))
 
     expect(warnings).toEqual([
       expect.stringContaining(`no context capacity for ${MODEL}/${MODEL}`),
@@ -1474,8 +1490,8 @@ describe('automatic listener and loader composition', () => {
     })
     const session = conversation(4)
 
-    await postStep(ctx, agent(session, MODEL))
-    await postStep(ctx, agent(session, MODEL))
+    await preStep(ctx, agent(session, MODEL))
+    await preStep(ctx, agent(session, MODEL))
 
     expect(warnings).toEqual([
       expect.stringContaining('retainTokens (500) must be less than threshold tokens 500'),
@@ -1698,10 +1714,9 @@ describe('automatic listener and loader composition', () => {
   it('delegates canonical overflow when no durable routed target exists', async () => {
     const ctx = createContext()
     void new TestCompactService(ctx)
-    const session = new Session(SessionId('headerless-overflow'))
+    const session = Session.create(SessionId('headerless-overflow'))
     session.append('turn/start', {
       turn: 1,
-      trigger: { kind: 'message', source: { kind: 'user' } },
     })
 
     await expect(recover(ctx, agent(session, MODEL), overflow())).resolves.toBe(false)
@@ -1759,7 +1774,7 @@ describe('automatic listener and loader composition', () => {
       retainTokens: 180,
     })
     const session = conversation(4)
-    await postStep(ctx, agent(session, MODEL))
+    await preStep(ctx, agent(session, MODEL))
     const summaries = session.events.filter(event => event.type === 'compact/summary').length
     expect(summaries).toBe(1)
     expect(await recover(ctx, agent(session, MODEL), overflow())).toBe(false)
@@ -1774,7 +1789,7 @@ describe('automatic listener and loader composition', () => {
       retainTokens: 180,
     })
     const session = conversation(4)
-    await postStep(ctx, agent(session, MODEL))
+    await preStep(ctx, agent(session, MODEL))
     expect(session.events.some(event => event.type === 'compact/start')).toBe(false)
     expect(await recover(ctx, agent(session, MODEL), overflow())).toBe(false)
   })
@@ -1804,7 +1819,7 @@ describe('automatic listener and loader composition', () => {
     await fiber.dispose()
 
     const session = conversation(4)
-    await postStep(ctx, agent(session, MODEL))
+    await preStep(ctx, agent(session, MODEL))
     expect(session.events.some(event => event.type === 'compact/start')).toBe(false)
     expect(await recover(ctx, agent(session, MODEL), overflow())).toBe(false)
   })

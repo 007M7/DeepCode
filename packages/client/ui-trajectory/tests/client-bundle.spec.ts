@@ -38,15 +38,15 @@ describe('tsdown client artifact', () => {
   async function loadArtifact() {
     let handoff: Handoff | undefined
     ;(window as Win).__ModuleLoader__ = { load: (h) => { handoff = h } }
-    // Same execution form the loader uses (inline script eval, window scope) —
-    // the implied-eval ban targets accidental string execution, not this
-    // deliberate bundle-execution fixture.
+    // The implied-eval ban targets accidental string execution, not this
+    // deliberate built-bundle fixture running in the window scope.
     // oxlint-disable-next-line typescript/no-implied-eval, typescript/no-unsafe-call
     new Function(code!)()
     expect(handoff).toBeDefined()
     const modules = new Map<string, unknown>([
       ['react', await import('react')],
       ['react/jsx-runtime', await import('react/jsx-runtime')],
+      ['react-dom', await import('react-dom')],
       ['@deepseek-ai/dsh-client-runtime/client', await import('@deepseek-ai/dsh-client-runtime/client')],
       ['@deepseek-ai/dsh-client-ui-primitives', await import('@deepseek-ai/dsh-client-ui-primitives')],
     ])
@@ -61,7 +61,7 @@ describe('tsdown client artifact', () => {
     const { handoff, surface } = await loadArtifact()
     expect(handoff.id).toBe(PLUGIN_ID)
     expect(surface.apply).toBeTypeOf('function')
-    expect(surface.inject).toEqual(['slots', 'conversation', 'sessionHistory'])
+    expect(surface.inject).toEqual(['slots', 'sessionHistory'])
   })
 
   it.skipIf(code === undefined)('mounted as an object plugin, apply registers the view tab on the real ring', async () => {
@@ -73,10 +73,8 @@ describe('tsdown client artifact', () => {
       name: 'root',
       children: { 'conversation.view': { kind: 'list', scope: 'session' } },
     }, (_p: { renderSlot?: unknown }) => null)
-    // The plugin injects 'conversation' as an ordering edge and
-    // 'sessionHistory' for its per-session history source; this bench
-    // supplies both.
-    ctx.provide('conversation', {})
+    // The plugin reads sessionHistory for its per-session history source;
+    // slot availability is tracked by slots.inject.
     ctx.provide('sessionHistory', {})
     const fiber = ctx.plugin(surface as { apply: (ctx: Context) => void })
     await fiber.await()

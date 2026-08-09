@@ -1,4 +1,4 @@
-# Agent Note: 向工具与钩子公开 agent（智能体）会话标识和 JSONL 位置
+# Agent Note: 向工具与钩子公开 agent 会话标识和 JSONL 位置
 
 Status: implemented
 
@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-agent 可以通过 `session.header.cwd` 识别其工作区，但使用 bash 的模型无法可靠识别当前调用所属的会话，也无法找到记录该调用的持久 transcript（文本记录）。搜索 `./.sessions` 等同于猜测部署配置和 JSONL 布局；自定义根目录、替代持久化后端、恢复、fork，以及并发运行的父子 agent，都会让这种猜测失效。钩子同样需要 transcript 位置，而未来的插件也可能需要向 shell 命令公开其他由 harness 所有的环境事实。
+agent（智能体）可以通过 `session.header.cwd` 识别其工作区，但使用 bash 的模型无法可靠识别当前调用所属的会话，也无法找到记录该调用的持久 transcript（文本记录）。搜索 `./.sessions` 等同于猜测部署配置和 JSONL 布局；自定义根目录、替代持久化后端、恢复、fork，以及并发运行的父子 agent，都会让这种猜测失效。钩子同样需要 transcript 位置，而未来的插件也可能需要向 shell 命令公开其他由 harness 所有的环境事实。
 
 这项边界必须维持两个属性：事实的所有者决定如何解析该事实；每个子进程接收每次执行的快照，而不是进程级可变全局状态。尤其是嵌套 harness 不能把环境中的 `DSH_*` 值泄漏给当前 agent、持久化后端或配置均可能不同的子进程。
 
@@ -27,9 +27,9 @@ interface SessionPersistence {
 }
 ```
 
-`path` 是指向该后端为 `meta` 保留的专用日志的绝对本地路径；`kind` 标识其表示形式。JSONL 使用解析后的根目录和路径辅助函数返回 `{ kind: 'jsonl', path }`。SQLite 以及任何无法诚实提供逐会话本地产物的后端均返回 `undefined`。该查询不会创建或刷写任何内容，因此即使文件尚不存在，也可以报告延迟创建的目标路径。
+`path` 是该后端为 `meta` 保留的专用日志的本地绝对路径；`kind` 标识其表示形式。JSONL 使用解析后的根目录和路径辅助函数返回 `{ kind: 'jsonl', path }`。SQLite 以及任何无法诚实提供逐会话本地产物的后端均返回 `undefined`。该查询不会创建或刷写任何内容，因此即使文件尚不存在，也可以报告按需创建的目标路径。
 
-面向模型的 bash 包（package）拥有一个 `ctx.bashEnv` 注册表。贡献方声明稳定名称、它可能返回的每个 `DSH_*` 键、每个键的说明，以及 `resolve(execution: ToolExecution)`。贡献方名称重复、键所有权重复、使用保留键、声明格式错误、运行时输出未声明或输出不是字符串时，系统都会明确失败。注册属于 Cordis effect，并随贡献插件的 fiber 一同移除。`list()` 无需运行解析器即可公开声明，从而让环境接口可供诊断工具和未来的提示词／UI 消费方枚举。
+面向模型的 bash 包拥有一个 `ctx.bashEnv` 注册表。贡献方声明稳定名称、它可能返回的每个 `DSH_*` 键、每个键的说明，以及 `resolve(execution: ToolExecution)`。贡献方名称重复、键所有权重复、使用保留键、声明格式错误、运行时输出未声明或输出不是字符串时，系统都会明确失败。注册属于 Cordis effect，并随贡献插件的 fiber 一同移除。`list()` 无需运行解析器即可公开声明，从而让环境接口可供诊断工具和未来的提示词／UI 消费方枚举。
 
 注册表会为每次前台和后台 bash `ToolExecution` 重新构建受信任的覆盖层：
 
@@ -60,9 +60,9 @@ bash 工具说明只讲解持久约定：当前 harness 环境事实通过受管
 
 ## 测试
 
-单元测试覆盖注册表声明校验、effect 释放、逐次执行收集、`dshHome` 优先级，以及本地执行器清理并重建 `DSH_*` 的顺序。请求录制测试覆盖前台／后台快照、无 agent 调用、持久化不存在或为 JSONL、忽略模型 `env`，以及父子隔离。JSONL／SQLite 定位器契约测试与两套钩子桥接测试均锁定 transcript 可用和不可用两种方言。
+单元测试覆盖注册表声明校验、effect 释放、逐次执行收集、`dshHome` 优先级，以及本地执行器清理并重建 `DSH_*` 的顺序。请求录制测试覆盖前台／后台快照、无 agent 调用、持久化不存在或为 JSONL、忽略模型 `env`，以及父子隔离。JSONL／SQLite 定位器约定测试与两套钩子桥接测试均锁定 transcript 可用和不可用两种方言。
 
-一项无密钥的完整循环集成测试会在第一个轮次驱动真实的 agent loop、JSONL 持久化、tool-bash 与 bash-local。子进程打印 `DSH_HOME`、`DSH_SHELL`、会话 id、JSONL 目标和继承的陈旧哨兵值；测试校验当前值、陈旧变量不存在、刷写前文件不存在，并最终检查持久化 header。快照覆盖会锁定录制请求 header 中的通用 bash 说明。该契约属于确定性的本地执行，不涉及模型选择，因此无需带密钥测试。
+一项无密钥的完整循环集成测试会在第一个轮次驱动真实的 agent loop、JSONL 持久化、tool-bash 与 bash-local。子进程打印 `DSH_HOME`、`DSH_SHELL`、会话 id、JSONL 目标和继承的陈旧哨兵值；测试校验当前值、陈旧变量不存在、刷写前文件不存在，并最终检查持久化 header。快照测试会固定录制请求 header 中的通用 bash 说明。该约定属于确定性的本地执行，不涉及模型选择，因此无需带密钥测试。
 
 ## 考虑过的替代方案
 

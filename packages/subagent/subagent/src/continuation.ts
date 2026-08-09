@@ -47,6 +47,8 @@ import type SubagentActivationSetupRegistry from './activation-setup-registry.ts
 /** Attribution for a model coordinator's follow-up to one of its children. */
 export interface CoordinatorMessageSource {
   readonly kind: 'coordinator'
+  /** A message another agent addressed to this one (`relay` context form). */
+  readonly form: 'relay'
   /** Session id of the agent whose tool call produced the follow-up. */
   readonly senderSessionId: SessionId
 }
@@ -54,6 +56,8 @@ export interface CoordinatorMessageSource {
 /** Durable attribution for a continuable child's explicit parent report. */
 export interface SubagentReportMessageSource {
   readonly kind: 'subagent-report'
+  /** A message another agent addressed to this one (`relay` context form). */
+  readonly form: 'relay'
   /** Session id of the reporting child. */
   readonly senderSessionId: SessionId
 }
@@ -98,6 +102,15 @@ export interface ContinuableStart {
   /** The accepted initial prompt's inbox message id. */
   readonly messageId: MessageId
 }
+
+/**
+ * Authority under which one interrupt request is admitted. `user` carries the
+ * durable direct-parent address a human client presented; `ancestor` carries
+ * the exact live Agent object whose recorded lineage must contain the caller.
+ */
+export type SubagentInterruptAuthority =
+  | { readonly kind: 'user'; readonly parentSessionId: SessionId }
+  | { readonly kind: 'ancestor'; readonly agent: Agent }
 
 /** Options for following up with one continuable child. */
 export interface SubagentFollowupOptions {
@@ -283,7 +296,7 @@ export class SubagentContinuationManager {
     // child-first ordering.
     const scope = ctx.plugin(function activationOwner() {})
     this.ownerCtx = scope.ctx
-    ctx.on('agent/disposed', (agent) => {
+    ctx.on('agent/disposed', ({ agent }) => {
       this.closingScopes.delete(agent)
     })
     ctx.effect(function* (this: SubagentContinuationManager) {
@@ -409,6 +422,69 @@ export class SubagentContinuationManager {
   }
 
   /**
+   * Interrupt one live continuable child's current turn. Admission is
+   * synchronous and the effect is asynchronous: this authorizes the caller,
+   * requests `Agent.cancel(cause, { keepInbox: true })` on the target, and
+   * returns without waiting for the target to observe the signal or reach
+   * quiescence. The Activation, its handle, accepted unclaimed inbox work, and
+   * already-published descendants are untouched; work already claimed into the
+   * interrupted turn is not requeued. Once the interrupted driver is idle, a
+   * waking send resumes the parked queue.
+   *
+   * An absent target is an accepted no-op, which uniformly covers natural
+   * completion races, repeated requests, one-shot ids, and unknown ids without
+   * consulting the durable catalog. A target whose disposal transaction is
+   * already open is likewise an accepted no-op after authorization.
+   * @param targetSessionId - the durable child session id to interrupt.
+   * @param authority - the human parent address or exact live ancestor Agent.
+   * @throws {SubagentError} `UNAUTHORIZED` when the presented authority does
+   *   not own the live target: a stale or self-targeting ancestor caller, a
+   *   parent address that is not the live target's durable direct parent, or
+   *   an ancestor outside the target's recorded live lineage.
+   */
+  interrupt(targetSessionId: SessionId, authority: SubagentInterruptAuthority): void {
+    if (authority.kind === 'ancestor') {
+      const caller = authority.agent
+      // A stale caller is rejected even when the target is absent, so a
+      // replaced same-id Agent can never probe this manager's state.
+      if (this.ctx.agents.get(caller.id) !== caller) {
+        throw new SubagentError(
+          `interrupting "${targetSessionId}" requires the exact live ancestor agent`,
+          'UNAUTHORIZED',
+        )
+      }
+      if (caller.id === targetSessionId) {
+        throw new SubagentError(
+          `agent "${caller.id}" cannot interrupt itself`,
+          'UNAUTHORIZED',
+        )
+      }
+    }
+    const activation = this.activations.get(targetSessionId)
+    if (activation === undefined) return
+    if (authority.kind === 'user') {
+      if (activation.handle.agent.session.header.parentSession !== authority.parentSessionId) {
+        throw new SubagentError(
+          `subagent "${targetSessionId}" belongs to another parent session`,
+          'UNAUTHORIZED',
+        )
+      }
+    } else if (!activation.ancestry.has(authority.agent)) {
+      throw new SubagentError(
+        `subagent "${targetSessionId}" is not a live descendant of agent "${authority.agent.id}"`,
+        'UNAUTHORIZED',
+      )
+    }
+    // Disposal already stopped the target with a whole-Activation teardown;
+    // a second cancel would be a redundant signal on a closing handle.
+    if (activation.disposal !== undefined) return
+    activation.handle.agent.cancel(
+      authority.kind === 'user' ? { kind: 'user' } : { kind: 'parent' },
+      { keepInbox: true },
+    )
+  }
+
+  /**
    * Deliver explicitly selected content from one resident continuable child to
    * its durable direct parent. Sender authorization, parent resolution, and
    * send acceptance share one no-await span. Reporting neither concludes the
@@ -481,6 +557,7 @@ export class SubagentContinuationManager {
       ],
       source: {
         kind: 'subagent-report' as const,
+        form: 'relay' as const,
         senderSessionId: activation.childId,
       },
     })
@@ -688,7 +765,7 @@ export class SubagentContinuationManager {
   }
 
   /**
-   * Cold-resume a persisted child: load and authorize its Session, fold the
+   * Cold-resume a persisted child: inspect and authorize its Session, fold the
    * generic descriptor, create the Activation through `ctx.agents.resume()`,
    * and submit the waiting turn. This never dispatches through a subagent
    * provider — the persisted Session already holds the initial prefix and the
@@ -701,13 +778,13 @@ export class SubagentContinuationManager {
     options: SubagentFollowupOptions,
   ): Promise<MessageId> {
     const persistence = this.requirePersistence()
-    let loaded: Awaited<ReturnType<typeof persistence.load>>
+    let loaded: Awaited<ReturnType<typeof persistence.inspect>>
     try {
-      loaded = await persistence.load(childId)
+      loaded = await persistence.inspect(childId, options.signal)
     } catch (error: unknown) {
+      options.signal.throwIfAborted()
       throw new SubagentError(`subagent "${childId}" is unavailable`, 'NOT_RESUMABLE', { cause: error })
     }
-    // The persistence seam takes no signal; recheck before any child work.
     options.signal.throwIfAborted()
     this.assertAdmitting(parent)
     // Authorize the persisted header before folding: only the durable child's
@@ -724,17 +801,24 @@ export class SubagentContinuationManager {
         'NOT_RESUMABLE',
       )
     }
-    const activation = await this.materialize({
-      childId,
-      provider: descriptor.provider,
-      parent,
-      agentOptions: {
-        ...descriptor.agentProvider !== undefined ? { provider: descriptor.agentProvider } : {},
-        ...descriptor.agentModel !== undefined ? { model: descriptor.agentModel } : {},
-      },
-      composition: { persona: descriptor.persona, toolFilter: descriptor.toolFilter },
-      signal: options.signal,
-    })
+    let activation: Activation
+    try {
+      activation = await this.materialize({
+        childId,
+        provider: descriptor.provider,
+        parent,
+        agentOptions: {
+          ...descriptor.agentProvider !== undefined ? { provider: descriptor.agentProvider } : {},
+          ...descriptor.agentModel !== undefined ? { model: descriptor.agentModel } : {},
+        },
+        composition: { persona: descriptor.persona, toolFilter: descriptor.toolFilter },
+        signal: options.signal,
+      })
+    } catch (error: unknown) {
+      options.signal.throwIfAborted()
+      if (error instanceof SubagentError) throw error
+      throw new SubagentError(`subagent "${childId}" is unavailable`, 'NOT_RESUMABLE', { cause: error })
+    }
     return this.submitMaterialized(activation, content, options.source, parent, options.signal)
   }
 
@@ -847,16 +931,13 @@ export class SubagentContinuationManager {
       // quiet Agent from one whose accepted turn has not been admitted yet.
       // Registered through the child's own scoped context, so scope filtering
       // already restricts both listeners to this exact agent.
-      handle.agent.ctx.on('agent/inbox/dequeue', (_agent, item) => {
-        /* v8 ignore next -- a dequeue of an id this manager never admitted needs
+      handle.agent.ctx.on('agent/inbox/claimed', ({ message }) => {
+        /* v8 ignore next -- a claim of an id this manager never admitted needs
          * another sender on the same child, which no current path allows. */
-        if (activation.accepted.delete(item.message.id)) this.wake(activation)
+        if (activation.accepted.delete(message.id)) this.wake(activation)
       })
-      handle.agent.ctx.on('agent/inbox/discard', (_agent, items) => {
-        // Deleting every id in the batch is unconditional; waking once afterwards
-        // costs nothing and avoids branching on which ids this manager admitted.
-        for (const item of items) activation.accepted.delete(item.message.id)
-        this.wake(activation)
+      handle.agent.ctx.on('agent/inbox/discarded', ({ message }) => {
+        if (activation.accepted.delete(message.id)) this.wake(activation)
       })
       // Agent creation committed setup at its publication boundary;
       // revocations from here on are immediate live revocation.

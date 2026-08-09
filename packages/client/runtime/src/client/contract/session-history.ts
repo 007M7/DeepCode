@@ -9,6 +9,8 @@ export interface SessionHistorySnapshot {
   state: 'cold' | 'loading' | 'ready' | 'error'
   error: RpcError | null
   hasMore: boolean
+  /** Absolute sequence of the first loaded raw event, or zero for an empty window. */
+  baseSeq: number
   inspection: SessionHistoryInspection
 }
 
@@ -17,11 +19,17 @@ export interface SessionHistoryFace
   extends ObservableSnapshot<SessionHistorySnapshot> {
   readonly sessionId: SessionId
   /**
-   * Load the tail and exhaust every available older page.
-   * @param signal - Consumer lifetime; abort is observed between page requests.
-   * @returns When the available ledger is complete or stops advancing.
+   * Load the current tail without reading older pages.
+   * @param signal - Consumer lifetime.
+   * @returns When the tail is ready or loading fails.
    */
-  loadAll(signal?: AbortSignal): Promise<void>
+  loadTail(signal?: AbortSignal): Promise<void>
+  /**
+   * Prepend one older page when the current window has a predecessor.
+   * @param signal - Consumer lifetime.
+   * @returns Whether the loaded window advanced.
+   */
+  loadOlder(signal?: AbortSignal): Promise<boolean>
 }
 
 /** Runtime service resolving independent history sources. */

@@ -26,15 +26,11 @@
 
 通过 Python SDK 的 `cordis` 选项或 `DSH_CORDIS_CONFIG` 传入配置路径。内置可执行文件已携带此文件中指定的每个插件；目标机器无需 Node.js。
 
-## 持久工具变体
+## 持久化工具变体
 
 [`persistent-tools.cordis.yml`](persistent-tools.cordis.yml) 是一个最小可运行变体，面向模型的能力严格只有：
 
-- agent 独占、状态持久的 `bash`
+- 所有者作用域内持久化的 `bash`
 - 提供 `view`、`create`、`str_replace` 与 `insert` 的 `str_replace_editor`
 
-它组合真实本地 PTY、文件系统 intent 策略与 session 沙箱策略。无密钥 SDK 快照会通过正式 JSON-RPC runtime 驱动这两个工具，验证 shell 的 cwd 与环境变量能跨调用保留，并锁定通知流、轮次结果与已持久化的 JSONL：
-
-```bash
-pnpm exec vitest run --config vitest.snapshot.config.ts -t persistent-tools
-```
+它组合了本地 PTY、文件系统意图策略与会话沙箱策略。

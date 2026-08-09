@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-07-28-load-pre-identity-session-messages.md
 2026-07-28-load-pre-identity-session-messages.md: 2901527658421b37576bdf5b49e66829104a3b41
-2026-07-28-load-pre-identity-session-messages.zh.md: 61d57ac9f3318299b63faa659b6d155e8e89fae3
+2026-07-28-load-pre-identity-session-messages.zh.md: bf6e58d8a895f41012449a1212533902e1211e99

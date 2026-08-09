@@ -22,6 +22,10 @@ import type { COMPACT_CHECKPOINT_SOURCE } from '@deepseek-ai/dsh-compact/checkpo
 import type { ToolCallView, ToolEventView, ToolResultView } from '@deepseek-ai/dsh-client-connection/client'
 import type { CommandNode, CompactionSummaryNode, ConversationNode } from './conversation.ts'
 import { toAssistantBlocks } from './conversation.ts'
+import { contextForm, contextProvenance } from './context-provenance.ts'
+import { SteeringHistory } from './steering-history.ts'
+import type { AssistantStepMetadata } from './assistant-timing.ts'
+import { indexAssistantStepTiming, settledAssistantTiming } from './assistant-timing.ts'
 
 /**
  * The compaction seam's checkpoint plugin, pinned to the seam's own declaration
@@ -29,7 +33,6 @@ import { toAssistantBlocks } from './conversation.ts'
  * import stays type-only because a value import would fail the client purity
  * gate (`packages/client/tsdown.client.ts`) — cross-plugin value imports are
  * forbidden in a browser bundle — while an erased type never reaches it.
- * `tests/compact-checkpoint-pin.spec.ts` covers the same drift behaviorally.
  */
 const COMPACT_PLUGIN: typeof COMPACT_CHECKPOINT_SOURCE.plugin = 'compact'
 
@@ -45,20 +48,32 @@ interface CallIndexEntry {
   callView: ToolCallView | null
 }
 
-/** One event -> UI node (pure function; the eight-variant ConversationNode union). */
+/** One event -> UI node (pure function; the ten-variant ConversationNode union). */
 function materializeNode(
   event: SessionEvent,
   callIndex: ReadonlyMap<string, CallIndexEntry>,
   resultView: ToolResultView | null,
+  steering: boolean,
+  stepTimings: ReadonlyMap<string, AssistantStepMetadata>,
 ): ConversationNode {
   switch (event.type) {
-    case 'user/message':
-      // Injected context (plugin/goal source) folds to a context node, not a
-      // user message; only a direct human prompt is a user node. A compaction
-      // checkpoint never reaches here (isCompactCheckpoint routes it away).
+    case 'user/message': {
+      // Injected context (plugin/goal/skill-invocation source) folds to a
+      // context node, not a user message; only a direct human prompt is a
+      // user node. A compaction checkpoint never reaches here
+      // (isCompactCheckpoint routes it away).
       if (event.data.source.kind !== 'user') {
         return {
           kind: 'context', seq: event.seq, time: event.time,
+          content: event.data.content, source: event.data.source,
+          provenance: contextProvenance(event.data.source),
+          form: contextForm(event.data.source),
+        }
+      }
+      if (steering) {
+        return {
+          kind: 'steering', messageId: event.data.id,
+          seq: event.seq, time: event.time,
           content: event.data.content, source: event.data.source,
         }
       }
@@ -66,17 +81,13 @@ function materializeNode(
         kind: 'user', seq: event.seq, time: event.time,
         content: event.data.content, source: event.data.source,
       }
+    }
     case 'assistant/message':
       return {
         kind: 'assistant', seq: event.seq, time: event.time,
         turn: event.data.turn, step: event.data.step,
         blocks: toAssistantBlocks(event.data.message.content), usage: event.data.usage,
-      }
-    case 'steering/message':
-      return {
-        kind: 'steering', messageId: event.data.message.id,
-        seq: event.seq, time: event.time, turn: event.data.turn,
-        content: event.data.message.content, source: event.data.message.source,
+        timing: settledAssistantTiming(stepTimings, event.data.turn, event.data.step, event.time),
       }
     case 'tool/result': {
       const result = event.data.message.content[0]
@@ -92,6 +103,7 @@ function materializeNode(
         meta: event.data.meta,
         callView: call?.callView ?? null,
         resultView,
+        subCalls: [],
       }
     }
     /* v8 ignore next 2 -- defensive arm: only the four surface-eligible types
@@ -147,6 +159,29 @@ function compactSummaryText(event: SessionEvent): string | null {
   return text.trim() === '' ? null : text
 }
 
+interface CompactSummaryDetails {
+  readonly summary: string | null
+  readonly shadowedItemCount: number | null
+  readonly shadowedTokenCount: number | null
+}
+
+/** Recover human-facing summary material from one structurally narrowed wire event. */
+function compactSummaryDetails(event: SessionEvent): CompactSummaryDetails {
+  const data = event.data as unknown as { shadowedSeqs?: unknown; shadowedTokenCount?: unknown }
+  const shadowedSeqs = data.shadowedSeqs
+  const tokenCount = data.shadowedTokenCount
+  return {
+    summary: compactSummaryText(event),
+    shadowedItemCount: Array.isArray(shadowedSeqs)
+      && shadowedSeqs.every((seq: unknown) => Number.isSafeInteger(seq) && (seq as number) >= 0)
+      ? shadowedSeqs.length
+      : null,
+    shadowedTokenCount: Number.isSafeInteger(tokenCount) && (tokenCount as number) >= 0
+      ? tokenCount as number
+      : null,
+  }
+}
+
 /**
  * One landed checkpoint -> the human-facing compaction marker. The summary text
  * comes from the checkpoint's own provenance (`sourceEventSeqs` names the
@@ -161,13 +196,28 @@ function materializeCompaction(
 ): CompactionSummaryNode {
   const sources = (checkpoint as SessionEvent & { sourceEventSeqs?: number[] }).sourceEventSeqs
   let summary: string | null = null
+  let summaryEventSeq: number | null = null
+  let shadowedItemCount: number | null = null
+  let shadowedTokenCount: number | null = null
   for (const seq of sources ?? []) {
     const candidate = eventIndex.get(seq)
     if (candidate === undefined || (candidate.type as string) !== 'compact/summary') continue
-    summary = compactSummaryText(candidate)
+    const details = compactSummaryDetails(candidate)
+    summary = details.summary
+    summaryEventSeq = candidate.seq
+    shadowedItemCount = details.shadowedItemCount
+    shadowedTokenCount = details.shadowedTokenCount
     break
   }
-  return { kind: 'compaction', seq: checkpoint.seq, time: checkpoint.time, summary }
+  return {
+    kind: 'compaction',
+    seq: checkpoint.seq,
+    time: checkpoint.time,
+    summary,
+    summaryEventSeq,
+    shadowedItemCount,
+    shadowedTokenCount,
+  }
 }
 
 /** Log-ordered human transcript over a paged raw event window (never consults surface order). */
@@ -177,8 +227,12 @@ export class TranscriptAdapter {
   /** Transcript nodes in log order; copy-on-write so a published array never mutates. */
   private projected: ConversationNode[] = []
   private callIdx = new Map<string, CallIndexEntry>()
+  /** Per-step timing boundaries (step/start + first token delta), consumed when the step's assistant/message materializes. */
+  private stepTimings = new Map<string, AssistantStepMetadata>()
   /** Wire result views keyed by the tool/result event's seq (views ride the envelope, not the event). */
   private resultViews = new Map<number, ToolResultView>()
+  /** Durable inbox replay used to distinguish next-step human input from queued prompts. */
+  private readonly steeringHistory = new SteeringHistory()
   /**
    * Command lifecycle nodes by commandId (insertion = run order). The
    * `command/run`/`command/done` pair is log-only, so it is not a surface
@@ -207,6 +261,9 @@ export class TranscriptAdapter {
     this.callIdx = new Map()
     this.resultViews.clear()
     this.commandIdx = new Map()
+    this.steeringHistory.reset()
+    const steeringSeqs = new Set<number>()
+    this.stepTimings = new Map()
     for (let i = 0; i < events.length; i++) {
       const event = events[i]
       /* v8 ignore next -- dense-array guard: i stays within events.length, so the undefined arm needs a sparse array no caller builds. */
@@ -214,12 +271,14 @@ export class TranscriptAdapter {
       this.eventIndex.set(event.seq, event)
       this.indexCall(event, views?.[i])
       this.indexCommand(event)
+      if (this.steeringHistory.apply(event)) steeringSeqs.add(event.seq)
+      indexAssistantStepTiming(this.stepTimings, event)
     }
     // Indexes first, then project: a tool/result materializes against the
     // complete call index, and a checkpoint against the complete event index.
     const projected: ConversationNode[] = []
     for (const event of events) {
-      if (isTranscriptEvent(event)) projected.push(this.materialize(event))
+      if (isTranscriptEvent(event)) projected.push(this.materialize(event, steeringSeqs.has(event.seq)))
     }
     this.projected = projected
   }
@@ -236,9 +295,11 @@ export class TranscriptAdapter {
   append(event: SessionEvent, view?: ToolEventView): void {
     this.eventIndex.set(event.seq, event)
     this.indexCall(event, view)
+    const steering = this.steeringHistory.apply(event)
+    indexAssistantStepTiming(this.stepTimings, event)
     if (this.indexCommand(event)) this.rev++
     if (!isTranscriptEvent(event)) return
-    this.projected = [...this.projected, this.materialize(event)]
+    this.projected = [...this.projected, this.materialize(event, steering)]
     this.rev++
   }
 
@@ -271,10 +332,16 @@ export class TranscriptAdapter {
   }
 
   /** Materialize one transcript event against the complete current indexes. */
-  private materialize(event: SessionEvent): ConversationNode {
+  private materialize(event: SessionEvent, steering: boolean): ConversationNode {
     return isCompactCheckpoint(event)
       ? materializeCompaction(event, this.eventIndex)
-      : materializeNode(event, this.callIdx, this.resultViews.get(event.seq) ?? null)
+      : materializeNode(
+        event,
+        this.callIdx,
+        this.resultViews.get(event.seq) ?? null,
+        steering,
+        this.stepTimings,
+      )
   }
 
   /**
@@ -287,17 +354,30 @@ export class TranscriptAdapter {
     // enter the client program, so this wire consumer narrows structurally
     // (the same posture as tool/code-dispatch in session.ts).
     if ((event.type as string) === 'command/run') {
-      const data = event.data as unknown as { commandId: CommandId; name: string; args: string }
+      const data = event.data as unknown as { commandId: CommandId; name: string; args?: string }
       this.commandIdx.set(data.commandId, {
         kind: 'command', seq: event.seq, time: event.time,
-        commandId: data.commandId, name: data.name, args: data.args, outcome: null,
+        commandId: data.commandId, name: data.name, args: data.args ?? null, outcome: null,
       })
       return true
     }
     if ((event.type as string) !== 'command/done') return false
-    const data = event.data as unknown as { commandId: CommandId; kind: 'success' | 'error'; text?: string }
+    const data = event.data as unknown as {
+      commandId: CommandId
+      kind: 'success' | 'error'
+      text?: string
+      sourceEventSeq?: number
+    }
     const run = this.commandIdx.get(data.commandId)
-    const outcome = { kind: data.kind, ...data.text === undefined ? {} : { text: data.text } }
+    const sourceEventSeq = data.kind === 'success'
+      && Number.isSafeInteger(data.sourceEventSeq) && (data.sourceEventSeq as number) >= 0
+      ? data.sourceEventSeq as number
+      : undefined
+    const outcome = {
+      kind: data.kind,
+      ...data.text === undefined ? {} : { text: data.text },
+      ...sourceEventSeq === undefined ? {} : { sourceEventSeq },
+    }
     if (run === undefined) {
       // Cross-window cut: the run page fell out of the window — build the
       // node from the done alone (same soft-fall as a call-less tool result).

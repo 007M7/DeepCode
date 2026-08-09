@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-07-30-web-queue-steer-action.md
-2026-07-30-web-queue-steer-action.md: b5bc3547e0f72ba8211f4338fb4c1f5223a3d0cc
-2026-07-30-web-queue-steer-action.zh.md: 6edde8e2cc2bee0a52a0b05df8f62f77b3d9ccfa
+2026-07-30-web-queue-steer-action.md: b04095b81f499982c8680a2d3627d8e98a70d8ac
+2026-07-30-web-queue-steer-action.zh.md: af13292574b7f130fe858369c746ff2b8911984e

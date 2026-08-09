@@ -1,11 +1,29 @@
 import type { ToolSchema } from '@deepseek-ai/dsh-llm/types'
 import type { HistoryEntry } from '@deepseek-ai/dsh-client-connection/client'
 import type {
-  CodeSubCall, ConversationNode, PartialAssistant, RunningToolCall,
+  ConversationNode, PartialAssistant, RunningToolCall,
 } from './conversation.ts'
 import type { ConversationContext } from './conversation-context.ts'
 import { projectConversationHistory } from '../session-history/history-fold.ts'
 import { inspectRequests, type RequestView } from './request-inspection.ts'
+
+function assistantStepKey(turn: number, step: number): string {
+  return `${turn}\u0000${step}`
+}
+
+function isFirstTokenCandidate(entry: HistoryEntry): boolean {
+  const event = entry.event
+  if (event.type !== 'assistant/chunk') return false
+  switch (event.data.chunk.type) {
+    case 'text-delta':
+    case 'reasoning-delta':
+      return event.data.chunk.text !== ''
+    case 'tool-call-delta':
+      return event.data.chunk.argumentsDelta !== '' || event.data.chunk.name !== undefined
+    default:
+      return false
+  }
+}
 
 /** Lazily derived inspection data for one immutable session-history window. */
 export interface SessionHistoryInspection {
@@ -16,7 +34,47 @@ export interface SessionHistoryInspection {
   interruptedNodes: readonly ConversationNode[]
   partial: PartialAssistant | null
   runningCalls: readonly RunningToolCall[]
-  codeDispatches: ReadonlyMap<string, readonly CodeSubCall[]>
+}
+
+/**
+ * Remove completed-step token payloads that no inspection projection reads.
+ * The first visible token preserves timing, usage chunks preserve accounting,
+ * and unfinished steps retain every chunk for live or interrupted content.
+ * @param entries - Contiguous raw history entries in sequence order.
+ * @returns A projection-equivalent, usually much smaller entry ledger.
+ */
+export function compactHistoryInspectionEntries(
+  entries: readonly HistoryEntry[],
+): readonly HistoryEntry[] {
+  const completedSteps = new Set<string>()
+  for (const { event } of entries) {
+    if (event.type === 'assistant/message') {
+      completedSteps.add(assistantStepKey(event.data.turn, event.data.step))
+    }
+  }
+
+  const firstTokenSteps = new Set<string>()
+  const compacted: HistoryEntry[] = []
+  let changed = false
+  for (const entry of entries) {
+    const event = entry.event
+    if (event.type !== 'assistant/chunk') {
+      compacted.push(entry)
+      continue
+    }
+    const key = assistantStepKey(event.data.turn, event.data.step)
+    if (!completedSteps.has(key) || event.data.chunk.type === 'usage') {
+      compacted.push(entry)
+      continue
+    }
+    if (isFirstTokenCandidate(entry) && !firstTokenSteps.has(key)) {
+      firstTokenSteps.add(key)
+      compacted.push(entry)
+    } else {
+      changed = true
+    }
+  }
+  return changed ? compacted : entries
 }
 
 /**
@@ -52,9 +110,6 @@ export function createHistoryInspection(
     },
     get runningCalls() {
       return conversationProjection().runningCalls
-    },
-    get codeDispatches() {
-      return conversationProjection().codeDispatches
     },
     get requests() {
       return requestProjection().requests

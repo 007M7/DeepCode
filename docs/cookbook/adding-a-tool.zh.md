@@ -1,8 +1,8 @@
-# 实操手册：添加工具
+# 工具编写参考
 
 [English](adding-a-tool.md) | 中文
 
-如何为模型赋予一项新能力。下文的最小形态展示这项契约；`packages/bash/tool-bash` 是生产级、由三个包（package）构成的 seam。
+面向模型的工具必须满足哪些约定，均以本文为准。如需按步骤构建第一个工具，请阅读[构建工具](../user/develop/basic/tool.md)。`packages/bash/tool-bash` 是生产级的三包示例。
 
 ## 最小形态
 
@@ -35,9 +35,9 @@ export function apply(ctx: Context) {
 }
 ```
 
-注册基于副作用：dispose（资源释放）插件 fiber 即注销该工具（请编写 HMR（热模块替换）测试）。schema 会自动流入系统提示词的组装过程。
+注册基于副作用：dispose（资源释放）插件 fiber 即注销该工具。schema 会自动流入系统提示词的组装过程。
 
-## execute() 契约的规则
+## execute() 约定的规则
 
 - **参数已为你校验。** `defineTool` 在 `execute` 运行前，会根据统一的 `ParameterSchemaSpec` 校验模型生成的 `arguments`（类型、必填键、字面量约束、恰好匹配一个分支的联合以及嵌套值——见[运行时参数校验](../../.agents/notes/implemented/architecture/2026-06-11-runtime-arg-validation.md)），因此 `execute` 内的 args 会匹配 `InferArgs`。显式对象节点必须声明 `additionalProperties: true | false`；隐式参数根对象保持开放。你仍需手动检查 schema DSL 无法表达的约束，例如非空字符串、正数或跨字段规则。直接注册的原始 JSON Schema 工具自行负责输入校验。
 - **注册借用你的只读定义。** 类型化的同进程贡献不是序列化边界；注册后不要修改其 schema 或替换回调。`schemas()` 只物化显式的模型可见投影。如需热替换工具，请 dispose 其所属副作用并注册替代品；回调闭包内的可变状态仍是普通的插件状态。
@@ -52,11 +52,11 @@ export function apply(ctx: Context) {
 
 通过 producer 配置控制 `run_in_background`，然后使用 `ctx.tasks.start({ kind, label, owner: exec.agent, run })` 注册任务。注册表会在进入 producer 主体前将已预先中止的调用判为失败；运行时会在 `run()` 启动工作前校验 owner 和控制面是否可用，随后提供 id、会话围栏、通用控制工具、通知和 owner cleanup。成功的后台分支会返回类型化的规范句柄，如 `{ kind: 'background', taskId }`；其 Native 渲染器可以保留 `started background task bash-1` 这类供人阅读的自然语言，但 Code Mode 绝不能通过解析该文本取得 id。
 
-producer 提供同步的 `cancel`、在资源清理后 settle 且不 reject 的 `done`，以及可选的消费式 `readOutput`（负责有界输出的格式化）。预先中止的调用属于失败，因为此时没有任务，其 id 无法满足成功输出 schema。`ctx.tasks.start()` 发布 id 后，应使用任务自有的取消信号，而不是 `exec.signal`：之后取消外层调用只会停止等待本次调用，不会终止已经发布的工作；该生命周期归 `task_kill`、owner dispose 和服务 teardown 所有。前台工作仍与 `exec.signal` 耦合。流式 producer 的示例和完整契约见[后台 task 运行时 Agent Note](../../.agents/notes/implemented/architecture/2026-06-20-generic-long-running-tool-runtime.md)与 `dsh-tool-bash`。
+producer 提供同步的 `cancel`、在资源清理后 settle 且不 reject 的 `done`，以及可选的消费式 `readOutput`（负责有界输出的格式化）。预先中止的调用属于失败，因为此时没有任务，其 id 无法满足成功输出 schema。`ctx.tasks.start()` 发布 id 后，应使用任务自有的取消信号，而不是 `exec.signal`：之后取消外层调用只会停止等待本次调用，不会终止已经发布的工作；该生命周期归 `task_kill`、owner dispose 和服务 teardown 所有。前台工作仍与 `exec.signal` 耦合。流式 producer 的示例和完整约定见[后台 task 运行时 Agent Note](../../.agents/notes/implemented/architecture/2026-06-20-generic-long-running-tool-runtime.md)与 `dsh-tool-bash`。
 
 ## 执行策略与观测
 
-尽量不要把部署策略内建到工具中。使用 `tools/pre-execute` 实现可扩展的允许／拒绝／询问策略（见[权限门禁示例](extension-cookbook.md#a-hook-plugin-permission-gate-example)）；使用 `ctx.tools.guard()` 设置最终的单调拒绝，后续监听器无法撤销；使用 `tools/execute` 为规范分发包装截止时间／重试／指标作用域；使用 `tools/post-execute` 替换展示内容或规范值、阻止调用，或附加模型可见上下文；使用 `tools/result` 观测不可变的归一化结果而不改变它。替换内容不会阻止程序化访问 `value`；保密策略必须阻止调用或替换值。沙箱实现也可以位于工具执行器的能力 seam 之后；确切契约见 [`dsh-tools` README](../../packages/core/tools/README.md#extension-points)。
+尽量不要把部署策略内建到工具中。使用 `tools/pre-execute` 实现可扩展的允许／拒绝／询问策略（见[权限门禁示例](extension-cookbook.md#a-hook-plugin-permission-gate-example)）；使用 `ctx.tools.guard()` 设置最终的单调拒绝，后续监听器无法撤销；使用 `tools/execute` 为规范分发包装截止时间／重试／指标作用域；使用 `tools/post-execute` 替换展示内容或规范值、阻止调用，或附加模型可见上下文；使用 `tools/result` 观测不可变的归一化结果而不改变它。替换内容不会阻止程序化访问 `value`；保密策略必须阻止调用或替换值。沙箱实现也可以位于工具执行器的能力 seam 之后；确切约定见 [`dsh-tools` README](../../packages/core/tools/README.md#extension-points)。
 
 ## Code Mode 自动触达你的工具
 
@@ -87,8 +87,8 @@ producer 提供同步的 `cancel`、在资源清理后 settle 且不 reject 的 
 - **UI 格式不进入模型结果。** 围栏 ` ```console ` 块、diff、相对化路径均不应仅为服务 UI 而进入规范值或 Native 内容。`output.render` 负责模型可见的自然语言；`presentationMeta` 和卡片展示器负责可回放的 UI 状态。`terminal` 结果视图携带原始输出，由适配器按需添加回退格式。
 - **`defineTool` 对展示路径做软校验。** 格式错误或旧版日志中的 arg 形态会使包装器返回 `undefined`（通用回退）而非抛异常——展示绝不能导致回放崩溃。
 
-中性词汇定义在 `dsh-tools` 中；工具绝不导入 UI 或传输类型。TUI 和 host/client 运行时将每个 `card` 映射到各自的视图。设计与原因见[渲染意图联合体 Agent Note](../../.agents/notes/implemented/architecture/2026-07-02-tool-render-intent-union.md)；`dsh-tool-fs`（generic/diff）和 `dsh-tool-bash`（terminal）是参考实现。
+中性词汇定义在 `dsh-tools` 中；工具绝不导入 UI 或传输类型。host/client 运行时将每个 `card` 映射到各自的视图。设计与原因见[渲染意图联合体 Agent Note](../../.agents/notes/implemented/architecture/2026-07-02-tool-render-intent-union.md)；`dsh-tool-fs`（generic/diff）和 `dsh-tool-bash`（terminal）是参考实现。
 
-## 每个工具必须的测试
+## 验证
 
-覆盖参数拒绝、每种规范值和 Native 渲染形态、输出 schema 拒绝以及 HMR dispose。对于有副作用的工具，使用脚本化的 `MockAdapter` 驱动真实工具通过 agent loop（智能体循环），并断言其 `tool/call` 和投影后的 `tool/result` 会话事件；同时证明规范值本身未被持久化。对于 UI 卡片，断言 `presentCall` 和 `presentResult` 的精确视图，并实际运行所属 TUI 或 host/client 投影。如果工具改变了已交付的模型或 UI 行为，请添加组装应用快照。
+遵循[仓库测试策略](../testing.md)和所属包的测试文档。已交付且面向模型或 UI 的变更必须提供其中规定的组装覆盖。

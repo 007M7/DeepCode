@@ -6,7 +6,6 @@
  * packages/client/AGENTS.md.
  */
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
-import { deferRegistration } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 // Type-only: pulls the shell's SlotMap merge (the 'settings.section' entry).
@@ -47,7 +46,7 @@ export function refreshIfLoaded(controller: ModelsSettingsStore): void {
 /**
  * Required services (cordis fiber inject). The target slot is declared by
  * ui-settings' apply, whose activation order relative to this one is NOT
- * constrained; registration goes through declaration-aware deferral.
+ * constrained; registration depends on each slot through `slots.inject()`.
  */
 export const inject = ['slots', 'locale', 'connection']
 
@@ -91,29 +90,17 @@ export function apply(ctx: ClientContext): void {
     return () => { for (const dispose of disposers) dispose() }
   }, 'ui-models: pushed invalidations')
 
-  ctx.effect(() => {
-    const section = deferRegistration(ctx.slots, 'settings.section', ModelsSection, () =>
-      ctx.slots.register({
-        name: 'settings.section',
-        id: 'models',
-        order: 10,
-        label: () => t('nav'),
-        inject: injected,
-      }, ModelsSection))
-    const onboarding = deferRegistration(
-      ctx.slots,
-      'settings.onboarding',
-      DeepSeekOnboardingDialog,
-      () => ctx.slots.register({
-        name: 'settings.onboarding',
-        id: 'deepseek-official',
-        order: 0,
-        inject: onboardingInjected,
-      }, DeepSeekOnboardingDialog),
-    )
-    return () => {
-      section.dispose()
-      onboarding.dispose()
-    }
-  }, 'ui-models: settings registrations')
+  ctx.slots.inject('settings.section', () => ctx.slots.register({
+    name: 'settings.section',
+    id: 'models',
+    order: 10,
+    label: () => t('nav'),
+    inject: injected,
+  }, ModelsSection))
+  ctx.slots.inject('settings.onboarding', () => ctx.slots.register({
+    name: 'settings.onboarding',
+    id: 'deepseek-official',
+    order: 0,
+    inject: onboardingInjected,
+  }, DeepSeekOnboardingDialog))
 }

@@ -6,9 +6,11 @@ A compaction capability family (see [capability seams](../../.agents/notes/imple
 
 | Package | Role | ctx key |
 |---|---|---|
-| `compact/` | Abstract compaction seam (interface + `compact/*` events + `CompactionResult`) | `ctx.compact` |
-| `compact-basic/` | A backend: `ctx.tokenMeter` pressure + token-budget retention + `llm.stream()` summarization | (registers `ctx.compact`) |
-| `compact-tool-result-prune/` | Optional model-free head/middle/tail rewriting before summary compaction | `ctx.toolResultPrune` |
-| `command-compact/` | Human `/compact` command over the backend-independent `compactNow()` seam | (registers on `ctx.commands`) |
+| [`compact/`](compact/README.md) | Compaction seam and event vocabulary | `ctx.compact` |
+| [`compact-basic/`](compact-basic/README.md) | Token-pressure and summarization backend | registers `ctx.compact` |
+| [`compact-tool-result-prune/`](compact-tool-result-prune/README.md) | Optional model-free tool-result pruning | `ctx.toolResultPrune` |
+| [`command-compact/`](command-compact/README.md) | Human compaction command | registers on `ctx.commands` |
 
-The interface lives at `compact/compact/`, the backend at `compact/compact-basic/`, deterministic pruning at `compact/compact-tool-result-prune/`, and the command at `compact/command-compact/`. Unlike the bash seam, the interface depends on `dsh-session` and `dsh-llm` because its verbs are defined over a `Session` and its output uses `ContentBlock`. That deviation is recorded in the [compaction capability-seam Agent Note](../../.agents/notes/implemented/feature/2026-06-18-compaction-capability-seam.md). Token measurement remains a reusable LLM-family service; a template- or model-backed compactor can replace `compact-basic` without changing the meter, pruner, command, or automatic callers.
+The backend, optional pruner, and human command compose through the seam; token measurement remains a separate LLM-family service. The [compaction capability-seam Agent Note](../../.agents/notes/implemented/feature/2026-06-18-compaction-capability-seam.md) owns the dependency rationale.
+
+The subsystem reference — the `compact/*` events, `CompactionResult`, the service, pruning outcomes — is [docs/subsystems/compaction.md](../../docs/subsystems/compaction.md); the seam's deliberate `dsh-session`/`dsh-llm` dependency is recorded in the [compaction capability-seam Agent Note](../../.agents/notes/implemented/feature/2026-06-18-compaction-capability-seam.md).

@@ -22,13 +22,13 @@ session-query 与 session-persistence 的任何表面都未改变。随附的 TU
 
 ## Alternatives considered
 
-**通过通用批量投影（`projectSessions`）保留每行的路由/轮次/目标列。** 先实现后否决：它仍在每次 `/resume` 时解压并解析全部日志，浏览开销依旧是 O(日志总字节数)，且为单一消费者扩大了 session-query 公开 API。该公开接缝已回退；`readTitleSnapshots` 继续使用内部 `projectMany`，保持不变。
+**通过通用批量投影（`projectSessions`）保留每行的路由/轮次/目标列。** 先实现后否决：它仍在每次 `/resume` 时解压并解析全部日志，浏览开销依旧是 O(日志总字节数)，且为单一消费者扩大了 session-query 公开 API。该公开 seam 已回退；`readTitleSnapshots` 继续使用内部 `projectMany`，保持不变。
 
 **只修复 `SessionCorpus.load()` 内部的 O(N²) 列表查询。** 作为主要修复被否决：在大日志上，按候选行执行的完整解压、回放验证和三重克隆才是主要开销。`load()` 中的冗余预列表查询仍是一个候选清理项，但涉及错误语义。
 
-**通过 `listSnapshots`/`SessionRecord` 暴露最后修改时间。** 从接缝角度最干净，但要触碰持久化契约、两个后端和查询记录形状，而 TUI 已能用 `locate()` 加一次 stat 得到同样的信息。若出现第二个需要元数据活动时间的消费者再引入。
+**通过 `listSnapshots`/`SessionRecord` 暴露最后修改时间。** 从 seam 角度最干净，但要触碰持久化约定、两个后端和查询记录形状，而 TUI 已能用 `locate()` 加一次 stat 得到同样的信息。若出现第二个需要元数据活动时间的消费者再引入。
 
-**专门的持久化标题索引或 TUI 本地标题缓存。** 否决：session-projection 缓存本身就是自有的持久 checkpoint 系统，并已带失效契约（`stateVersion`、身份绑定、日志收缩锚定）；挂载它优于再造一套并行缓存。
+**专门的持久化标题索引或 TUI 本地标题缓存。** 否决：session-projection 缓存本身就是自有的持久 checkpoint 系统，并已带失效约定（`stateVersion`、身份绑定、日志收缩锚定）；挂载它优于再造一套并行缓存。
 
 ## Consequences
 

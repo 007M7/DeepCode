@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/session-query/session-query-sqlite/README.md
 README.md: 4bf4d979f2d2954cd6280c80bf7f5988d8121fd1
-README.zh.md: 6eb1f3bca034a974128eb33381b5d3c383b55d12
+README.zh.md: 56f7dfa8bad3a04a6bf17eac08b62a1a11f4d53f

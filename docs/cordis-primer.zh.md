@@ -2,7 +2,7 @@
 
 [English](cordis-primer.md) | 中文
 
-Cordis 是 DeepSeek Harness SDK 底层以 vendor 方式引入的插件框架。本文介绍 harness 插件作者在阅读生成的[事件](cordis-catalog/events.md)与[服务](cordis-catalog/services.md)目录之前需要了解的 Cordis 核心概念；[Cordis 教程](cordis-tutorial/index.md)则通过实践逐一讲解这些概念。vendor 源码与同步流程见 [vendor/README.md](../vendor/README.md)。
+Cordis 是 DeepSeek Harness SDK 底层以 vendor 方式引入的插件框架。本文介绍 harness 插件作者在阅读[子系统页面](subsystems/core.md)上生成的服务/事件参考之前需要了解的 Cordis 核心概念；[Cordis 教程](cordis-tutorial/index.md)则通过实践逐一讲解这些概念。vendor 源码与同步流程见 [vendor/README.md](../vendor/README.md)。
 
 ## 五个核心概念
 
@@ -10,7 +10,7 @@ Cordis 是 DeepSeek Harness SDK 底层以 vendor 方式引入的插件框架。�
 - **上下文是服务的容器。** 一个服务占据一个稳定的 `ctx.<key>`（如 `ctx.tools`、`ctx.llm`、`ctx.sessions`）；其他插件通过 key 查找服务，而非导入具体实现。
 - **通过 `inject` 声明服务依赖。** 插件声明所需的服务后，会等待这些服务就绪才启动；加载顺序通过服务依赖表达，而非手动编排启动序列。
 - **类型化事件用于通信。** 服务通过 TypeScript 声明合并注册事件名，然后以 `emit`、`waterfall`（瀑布式事件）、`parallel` 或 `serial` 方式分发，分别对应监听者观察、包装、并行扇出或按序执行。
-- **注册是可逆的副作用。** 提示词片段、工具 schema、适配器、提供方和监听器通过 `ctx.effect()` 或 `ctx.on()` 安装，reload 和 teardown 时可预期地回卷。
+- **注册是可逆的副作用。** 提示词片段、工具 schema、适配器、提供方和监听器通过 `ctx.effect()` 或 `ctx.on()` 安装，reload 和 teardown 时会按预期撤销。
 
 ## 分发模式
 
@@ -23,7 +23,7 @@ Cordis 是 DeepSeek Harness SDK 底层以 vendor 方式引入的插件框架。�
 | `parallel` | 是 | 所有监听器并行观察事件 | 否 |
 | `serial` | 是 | 监听器按注册顺序观察 | 是 |
 
-分发模式是事件公开契约的一部分。新的 harness 事件通过 `@mode` 标签记录模式，以便生成的目录可以将声明与分发调用点做交叉校验。
+分发模式是事件公开约定的一部分。新的 harness 事件通过 `@mode` 标签记录模式，以便生成的目录可以将声明与分发调用点做交叉校验。
 
 <a id="cordis-waterfall-semantics"></a>
 
@@ -45,4 +45,4 @@ Cordis 是 DeepSeek Harness SDK 底层以 vendor 方式引入的插件框架。�
 
 将行为封装为插件：工具流水线事件属于 `ctx.tools`，模型流式输出属于 `ctx.llm`，实时 agent（智能体）协调属于 `ctx.agents`。拦截和策略优先使用事件；直接能力调用优先使用服务方法。
 
-每个注册都应有对应的 disposer（dispose（资源释放）函数）：要么从 `ctx.effect()` 返回一个，要么使用 Cordis 提供的辅助方法自动处理。如果 teardown 顺序有要求，请将相关工作放在同一个 effect 中，以确保资源释放按预期顺序回卷。
+每个注册都应有对应的 disposer（资源释放函数）：要么从 `ctx.effect()` 返回一个，要么使用 Cordis 提供的辅助方法自动处理。如果 teardown 顺序有要求，请将相关工作放在同一个 effect 中，以确保资源按预期顺序释放。

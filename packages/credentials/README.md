@@ -1,14 +1,14 @@
-# credentials/
+# credentials/ — credential references
 
 English | [中文](README.zh.md)
 
-The credential capability seam, as three-package shape dictates (interface / implementation / consumers):
+The credential capability family separates reference resolution from its provider:
 
-| Package | Role |
-|---|---|
-| [`credentials/`](credentials/README.md) | Abstract `ctx.credentials`: branded `CredentialRef` references, per-operation `resolve`, UI-safe `describe`, fail-loud `set`/`unset`, the `credentials/updated` commit event |
-| [`credentials-local/`](credentials-local/README.md) | File/environment provider: the live process environment (read-only, wins) layered over `$DSH_HOME/.env` (writable, byte-preserving line edits, hot-reloaded) |
+| Package | Role | ctx key |
+|---|---|---|
+| [`credentials/`](credentials/README.md) | Credential-reference seam | `ctx.credentials` |
+| [`credentials-local/`](credentials-local/README.md) | Environment and local-file provider | registers `ctx.credentials` |
 
-Configuration files carry *references* to secrets (`apiKeyEnv: DEEPSEEK_API_KEY`), never the secrets: the settings document stays safe to sync and render, and rotating a value touches no configuration. The LLM adapters are the first consumers — they resolve their reference once per model request, which is what makes a key stored moments ago reach the very next request without restarting anything.
+Configuration carries references, not secret values. Consumers resolve those references at their operation boundary; the child READMEs own mutation, precedence, and storage semantics.
 
-The seam shape leaves room for keyring-, helper-command-, and KMS-backed providers.
+The subsystem reference — `CredentialRef`, per-operation resolution, UI-safe `CredentialInfo`, provider layers — is [docs/subsystems/credentials.md](../../docs/subsystems/credentials.md).

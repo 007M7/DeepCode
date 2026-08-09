@@ -11,7 +11,7 @@ import type { Wire } from './rpc.schema.ts'
 import { rpcErrorSchema, rpcIdSchema } from './rpc.schema.ts'
 import { approvalRequestIdSchema } from './approvals.schema.ts'
 import {
-  contentBlockSchema, inboxItemIdSchema, sessionEventSchema, sessionIdSchema, toolEventViewSchema,
+  contentBlockSchema, messageIdSchema, sessionEventSchema, sessionIdSchema, toolEventViewSchema,
 } from './sessions.schema.ts'
 import { workspaceIdSchema, workspaceViewSchema } from './workspace.schema.ts'
 
@@ -53,8 +53,8 @@ export const muxFrameSchema = z.discriminatedUnion('type', [
     type: z.literal('session/queue'),
     sessionId: sessionIdSchema,
     items: z.array(z.object({
-      id: inboxItemIdSchema,
-      placement: z.union([z.literal('queued'), z.literal('steering')]),
+      id: messageIdSchema,
+      placement: z.union([z.literal('queued'), z.literal('steering'), z.literal('context')]),
       message: messageSchema,
     })),
   }),

@@ -7,7 +7,7 @@
     "docs/agent-lifecycle.md",
     "docs/capability-seams.md",
     "docs/config-catalog.md",
-    "docs/cordis-catalog/",
+    "docs/cordis-api/",
     "docs/event-producer-consumer.md",
     "docs/graph-atlas.md",
     "docs/i18n/style-samples.md",

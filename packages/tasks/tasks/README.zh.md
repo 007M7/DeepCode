@@ -2,9 +2,9 @@
 
 [English](README.md) | 中文
 
-后台任务注册表 seam（`ctx.tasks`）。抽象的 `TaskService` 及其词汇类型在同一份契约下为长时间运行的生产方提供共享 id、owner 隔离、读取、取消、等待、通知和清理；进程局部注册表位于 [`dsh-tasks-local`](../tasks-local/README.md)。生产方插件使用其不透明 id namespace 扩展 `TaskKindMap`。
+后台任务注册表 seam（`ctx.tasks`）。抽象的 `TaskService` 及其词汇类型在同一份约定下为长时间运行的生产方提供共享 id、owner 隔离、读取、取消、等待、通知和清理；进程局部注册表位于 [`dsh-tasks-local`](../tasks-local/README.md)。生产方插件使用其不透明 id namespace 扩展 `TaskKindMap`。
 
-## 服务契约
+## 服务约定
 
 - `start(spec): TaskId` 验证控制表层、spec、确切且仍存活的 owner，以及可选的 `outputLimitBytes`（如提供则须为正数），然后只调用生产方的 `run()` 一次。启动方抛出异常时不注册任何内容；成功返回会直接提交，不再执行其他可能失败的步骤。
 - `get(id, caller?)` 和 `list(caller?)` 返回非消费式快照。列表只包含调用方拥有及无 owner 的任务。
@@ -18,9 +18,9 @@
 
 `outputLimitBytes` 是生产方拥有的模型呈现策略，会原样携带到快照中。控制表层在添加状态或通知元数据后应用它；注册表不会重写生产方输出，也不会为省略此字段的生产方虚构默认值。
 
-实现还必须兑现契约的生命周期语义：注册的存续期长于生产方 fiber 与控制表层 fiber，owner 释放和服务释放会取消仍在运行的工作并等待守约的生产方，结算遵循首次结果优先（一条终止记录、一轮异常受到隔离的监听器通知，然后释放等待方）。
+实现还必须兑现约定的生命周期语义：注册的存续期长于生产方 fiber 与控制表层 fiber，owner 释放和服务释放会取消仍在运行的工作并等待守约的生产方，结算遵循首次结果优先（一条终止记录、一轮异常受到隔离的监听器通知，然后释放等待方）。
 
-参见[任务类型目录](../../../docs/core-data-structures/tasks.md)、[运行时 Agent Note（agent 决策记录）](../../../.agents/notes/implemented/architecture/2026-06-20-generic-long-running-tool-runtime.md)和 [seam Agent Note](../../../.agents/notes/implemented/architecture/2026-07-26-task-registry-seam.md)。
+参见[任务类型目录](../../../docs/subsystems/tasks.md)、[运行时 Agent Note](../../../.agents/notes/implemented/architecture/2026-06-20-generic-long-running-tool-runtime.md)和 [seam Agent Note](../../../.agents/notes/implemented/architecture/2026-07-26-task-registry-seam.md)。
 
 ## 模型体验
 
@@ -34,4 +34,4 @@
 
 - **流输出只有一个消费游标**：独立观察者需要游标或快照 API。
 - **前台工作无法转为后台**：生产方在启动前选择前台或后台。
-- **契约是进程内的**：`TaskStart.run()` 传入回调和确切的 `Agent` 对象；持久化或跨进程后端必须先重塑身份、重启、所有权与观察语义，才能实现此 seam。
+- **约定是进程内的**：`TaskStart.run()` 传入回调和确切的 `Agent` 对象；持久化或跨进程后端必须先重塑身份、重启、所有权与观察语义，才能实现此 seam。

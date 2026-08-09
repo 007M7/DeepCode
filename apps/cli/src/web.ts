@@ -1,137 +1,143 @@
 /**
- * `dsh web` — thin bin over the config-tree boot: run AppCLIEntry with the
- * already-parsed host/port/dev, print the URL line, wire signals. All
- * composition lives in the shared base plus Web overlay; all boot glue lives in AppCLIEntry. Host and
- * port are unvalidated pass-through overrides — the `dsh-host-webserver` schema
- * gates them at boot.
+ * `dsh web` — the browser-surface alias over the profile boot: `--profile web`
+ * plus the Web flag family (`--host/--port/--dev/--workspace-root/
+ * --trusted-host`), each flag becoming a patch over the composed profile
+ * tree. All web runtime glue (dist serving, prompt section, URL line) lives
+ * in the `@deepseek-ai/dsh-web-app` bundle; this launcher only derives
+ * flag patches and the LAN-trust snapshot.
+ * @module @deepseek-ai/dsh/web
  */
 
+import { networkInterfaces } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import type { Context } from 'cordis'
-import { addHarnessSourceSection, resolveConfigPath } from '@deepseek-ai/dsh-app-boot'
-import type {} from '@deepseek-ai/dsh-host-webserver'
-import type {} from '@deepseek-ai/dsh-system-prompt'
-import type {} from '@deepseek-ai/dsh-tool-bash'
-import { AppCLIEntry } from './app-cli-entry.ts'
+import type { PatchOptions } from '@cordisjs/plugin-include'
+import { addHarnessSourceSection } from '@deepseek-ai/dsh-app-boot'
+import type { EnvironmentSnapshot } from '@deepseek-ai/dsh-environment'
+import { runProfile, type ProfileRows } from './profile-boot.ts'
 
-// The shared core every `dsh` surface mounts, plus this surface's overlay over it.
-const BASE_CONFIG = fileURLToPath(new URL('../config/base.cordis.yml', import.meta.url))
-const WEB_OVERLAY = fileURLToPath(new URL('../config/web.cordis.yml', import.meta.url))
 const SOURCE_ROOT = fileURLToPath(new URL('../../..', import.meta.url))
 
-const DSH_WEB_URL = 'DSH_WEB_URL' as const
-const DSH_WEB_MODE = 'DSH_WEB_MODE' as const
+/** The webserver schema's all-interfaces bind literal: gates LAN-authority derivation. */
+const ALL_INTERFACES_HOST = '0.0.0.0'
 
-type WebMode = 'production' | 'development'
-
-// Display-only mirror of the webserver schema's loopback host: the address the
-// local URL always prints. Not a source of truth — the schema is.
-const LOOPBACK_HOST = '127.0.0.1'
-
-/** Model-visible orientation and acceptance boundary for sessions created through `dsh web`. */
-function webSurfacePrompt(webUrl: string, mode: WebMode): string {
-  const updateContract = mode === 'development'
-    ? 'This Web process was launched with `dsh web --dev`, so its client-plugin HMR receiver is active. '
-      + 'No-refresh updates occur only when `pnpm run dev:web` is also running from this same checkout to rebuild client-plugin bundles; verify that watcher before promising automatic updates. '
-      + 'Client-plugin changes then reload automatically, while apps/web shell and other plain-package changes still require a rebuild and page refresh. '
-    : 'This Web process was launched without `--dev`, so HMR is inactive: rebuild the affected Web artifacts and verify this existing URL after a page refresh. '
-      + 'If the user wants no-refresh client-plugin updates, explain that this GUI must be restarted with `dsh web --dev` and `pnpm run dev:web` must also run from this same checkout; do not present either command alone as sufficient. '
-  return `You are interacting with the user through the DeepSeek Harness Web GUI at ${webUrl}. `
-    + 'When the user refers to "this page", "this GUI", or "this app" without naming another target, they mean this GUI. '
-    + 'The browser provides no implicit DOM, route, or screenshot context. '
-    + updateContract
-    + 'Starting another server does not update this GUI. '
-    + 'The apps/web Vite entry builds the shell but is not a standalone application because only dsh web injects window.__DSH_BOOT__. '
-    + 'Do not start a replacement server unless the user asks; if one is needed, use a managed background task and verify its exact URL.'
-}
-
-/** Resolve the canonical loopback URL from the active Web server. */
-function localWebUrl(ctx: Context): string {
-  const port = ctx.get('httpServer')?.port
-  if (port === undefined) throw new Error('dsh web: httpServer service missing while resolving Web runtime')
-  return `http://${LOOPBACK_HOST}:${String(port)}`
+/**
+ * Non-internal IPv4 interface addresses of this machine — the IP-literal
+ * authorities an all-interfaces bind is reachable by on the LAN.
+ * @returns the addresses in interface order (possibly empty).
+ */
+function lanIPv4Addresses(): string[] {
+  return Object.values(networkInterfaces()).flat()
+    .filter((iface): iface is NonNullable<typeof iface> => iface !== undefined && iface.family === 'IPv4' && !iface.internal)
+    .map(iface => iface.address)
 }
 
 /**
- * Register the launcher-owned prompt and shell runtime context before the
- * shared config tree mounts. The earlier injections install the prompt
- * sections and managed Bash contributor when their owning services activate;
- * dynamic values read the bound server only when consumed.
- * @param ctx - Web root context with Loader installed but no config tree mounted.
- * @param sourceRoot - absolute checkout root resolved from the launcher module.
- * @param mode - whether this process mounted the client-plugin HMR receiver.
+ * One LAN-trust resolution for one invocation, sampled exactly once: the
+ * machine's LAN IP literals when the effective bind is all-interfaces, and
+ * the `trustedHosts` value built from them plus the explicit extras. The
+ * single sample is deliberate — display must advertise only addresses the
+ * fence was configured with, so the web-app row receives this same snapshot.
+ * Derived entries are port-less IP literals: DNS rebinding needs an
+ * attacker-controlled name, so an IP-literal Host is safe on any port, and
+ * the bound port may be OS-assigned, unknowable pre-boot.
+ * @param bindHost - the effective webserver bind host (CLI flag, else the composed row value).
+ * @param extra - `--trusted-host` values, in argv order.
+ * @returns the sampled LAN addresses and the connection row's `trustedHosts` value (each possibly empty).
  */
-export function prepareWebRuntimeContext(ctx: Context, sourceRoot: string, mode: WebMode): void {
-  ctx.inject(['systemPrompt'], (promptCtx) => {
-    addHarnessSourceSection(promptCtx, sourceRoot)
-    promptCtx.systemPrompt.section({
-      name: 'app:web-surface',
-      order: -98,
-      text: () => webSurfacePrompt(localWebUrl(promptCtx), mode),
-    })
-  })
-  ctx.inject(['bashEnv'], (runtimeCtx) => {
-    runtimeCtx.bashEnv.register({
-      name: 'web-runtime',
-      variables: {
-        [DSH_WEB_URL]: { description: 'Canonical local URL of the DeepSeek Harness Web GUI serving this session.' },
-        [DSH_WEB_MODE]: { description: 'Web runtime mode: production, or development when the client-plugin HMR receiver is active.' },
-      },
-      resolve: () => ({ [DSH_WEB_URL]: localWebUrl(runtimeCtx), [DSH_WEB_MODE]: mode }),
-    })
-  })
+export function resolveLanTrust(
+  bindHost: string | undefined,
+  extra: readonly string[],
+): { lanAddresses: string[]; trustedHosts: string[] } {
+  const lanAddresses = bindHost === ALL_INTERFACES_HOST ? lanIPv4Addresses() : []
+  return { lanAddresses, trustedHosts: [...lanAddresses, ...extra] }
+}
+
+/** The `dsh web` flag family, already parsed by the argument adapter. */
+export interface WebFlags {
+  patches: string[]
+  host?: string
+  port?: number
+  dev: boolean
+  workspaceRoot?: string
+  trustedHosts?: string[]
 }
 
 /**
- * Serve the browser UI from the shipped config tree. `host`/`port` are passed
- * through only when the flag was given; absent, the shipped Web overlay value stands.
- * @param host - the bind host, or `undefined` to keep the config default.
- * @param port - the listen port (`0` requests an OS-assigned port), or `undefined` to keep the config default.
- * @param dev - mount the client HMR receiver; `pnpm run dev:web` separately rebuilds watched plugin bundles.
- * @param workspaceRoot - parent directory for name-created workspaces, or `undefined` for the gateway's cwd fallback.
- * @param trustedHosts - extra authorities for the /api browser-trust fence, or `undefined` for the derived LAN literals alone.
- * @param config - an overlay of loader patches applied over the shipped web
- * composition instead of `$DSH_HOME/config.yaml`, or `undefined` to use the
- * personal overlay; already parsed from `--config`.
+ * Derive the web alias's flag patches over an already-composed profile tree.
+ * Patches replace a row's whole config, so each patched row's composed values
+ * are re-read and merged under the overrides.
+ * @param rows - the composed row index from {@link composeProfile}.
+ * @param flags - the parsed flag family.
+ * @returns the flag patch list, in application order.
  */
-export async function runWeb(
-  host: string | undefined,
-  port: number | undefined,
-  dev: boolean,
-  workspaceRoot: string | undefined,
-  trustedHosts: string[] | undefined,
-  config?: string,
-): Promise<void> {
-  const mode: WebMode = dev ? 'development' : 'production'
-  const entry = new AppCLIEntry({
-    configPath: BASE_CONFIG,
-    overlayPath: WEB_OVERLAY,
-    ...config !== undefined && { extraOverlayPath: resolveConfigPath(config, undefined) },
-    dev,
-    prepare: (ctx) => { prepareWebRuntimeContext(ctx, SOURCE_ROOT, mode) },
-    watchPersonalConfig: true,
-    ...host !== undefined && { host },
-    ...port !== undefined && { port },
-    ...workspaceRoot !== undefined && { workspaceRoot },
-    ...trustedHosts !== undefined && { trustedHosts },
-  })
-  const { ctx, port: boundPort } = await entry.run()
-  const resolvedLocalWebUrl = localWebUrl(ctx)
-
-  let exiting = false
-  const shutdown = (code: number): void => {
-    if (exiting) return
-    exiting = true
-    void Promise.resolve(ctx.fiber.dispose()).finally(() => { process.exit(code) })
+function deriveWebFlagPatches(
+  rows: ProfileRows,
+  flags: WebFlags,
+): PatchOptions[] {
+  const overrides = new Map<string, Record<string, unknown>>()
+  const put = (entryId: string, key: string, value: unknown): void => {
+    const bag = overrides.get(entryId) ?? {}
+    bag[key] = value
+    overrides.set(entryId, bag)
   }
+  if (flags.host !== undefined) put('webserver', 'host', flags.host)
+  if (flags.port !== undefined) put('webserver', 'port', flags.port)
+  if (flags.workspaceRoot !== undefined) put('api-gateway', 'workspaceRoot', flags.workspaceRoot)
+  const composedHost = (rows.get('webserver')?.config as { host?: string } | undefined)?.host
+  const { lanAddresses, trustedHosts } = resolveLanTrust(flags.host ?? composedHost, flags.trustedHosts ?? [])
+  if (trustedHosts.length > 0) {
+    // Additive over the composed value: a cordis.patch.yml-configured fence
+    // authority must survive the derived LAN literals and flag extras — a
+    // silent drop of security-relevant fence configuration.
+    const composedTrusted = (rows.get('connection')?.config as { trustedHosts?: string[] } | undefined)?.trustedHosts ?? []
+    put('connection', 'trustedHosts', [...composedTrusted, ...trustedHosts])
+  }
+  // mode and lanAddresses are launcher-derived on every boot (--dev also
+  // inserts the client-hmr row), never pass-throughs of composed values.
+  put('web-runtime', 'mode', flags.dev ? 'development' : 'production')
+  put('web-runtime', 'lanAddresses', lanAddresses)
+  const patches = [...overrides.entries()].map(([id, bag]): PatchOptions => {
+    const composed = rows.get(id)
+    if (composed === undefined) throw new Error(`dsh: patch target row "${id}" not found in the web profile composition`)
+    return { id, config: { ...(composed.config ?? {}) as Record<string, unknown>, ...bag } }
+  })
+  if (flags.dev) patches.push({ insert: [{ id: 'client-hmr', name: '@deepseek-ai/dsh-client-hmr' }] })
+  return patches
+}
 
-  // Install shutdown handling before publishing readiness: supervisors may
-  // send a signal as soon as they observe the URL line.
-  process.on('SIGTERM', () => { shutdown(0) })
-  process.on('SIGINT', () => { shutdown(130) })
+/**
+ * Whether the composed Web runtime keeps its model- and shell-visible surface
+ * context. The bundle schema defaults the field to true, so only an explicit
+ * false suppresses both the bundle contributions and the launcher-owned
+ * source-checkout section.
+ * @param rows - the composed Web profile rows before launcher flag patches.
+ * @returns true unless the web-runtime row explicitly disables surface context.
+ */
+export function webSurfaceContextEnabled(rows: ProfileRows): boolean {
+  return (rows.get('web-runtime')?.config as { surfaceContext?: boolean } | undefined)?.surfaceContext !== false
+}
 
-  // The entry's boot-time snapshot, not a fresh sample: the printed LAN URL
-  // must name an address the /api trust fence was configured with.
-  const lanCandidate = entry.lanAddresses[0]
-  console.log(`dsh web: ${resolvedLocalWebUrl}${lanCandidate === undefined ? '' : ` (LAN: http://${lanCandidate}:${boundPort})`}`)
+/**
+ * Serve the browser UI from the web profile. Host/port/workspace-root flags
+ * are passed through only when given (absent, the composed profile values
+ * stand); `web-runtime.mode` and `lanAddresses` are launcher-derived on
+ * every boot. The URL line is printed by the web-app bundle's runtime row
+ * after Loader settlement.
+ * @param flags - the parsed `dsh web` flag family.
+ * @param environment - this run's frozen environment snapshot.
+ */
+export async function runWeb(flags: WebFlags, environment: EnvironmentSnapshot): Promise<void> {
+  await runProfile({
+    environment,
+    profile: 'web',
+    patchFiles: flags.patches,
+    deriveFlagPatches: rows => deriveWebFlagPatches(rows, flags),
+    prepare: (ctx: Context, rows: ProfileRows) => {
+      if (!webSurfaceContextEnabled(rows)) return
+      ctx.inject(['systemPrompt'], (promptCtx) => {
+        addHarnessSourceSection(promptCtx, SOURCE_ROOT)
+      })
+    },
+  })
 }

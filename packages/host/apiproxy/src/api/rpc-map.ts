@@ -36,6 +36,7 @@ export interface RpcMethodMap {
   'subagent.list': SubagentsApi['list']
   'subagent.history': SubagentsApi['history']
   'subagent.prompt': SubagentsApi['prompt']
+  'subagent.interrupt': SubagentsApi['interrupt']
   'host.describe': HostApi['describe']
   'host.pickDirectory': HostApi['pickDirectory']
   'host.listDirectory': HostApi['listDirectory']
@@ -57,6 +58,7 @@ export interface RpcMethodMap {
   'goal.complete': GoalsApi['complete']
   'goal.clear': GoalsApi['clear']
   'settings.describe': SettingsApi['describe']
+  'settings.openDocument': SettingsApi['openDocument']
   'settings.update': SettingsApi['update']
   'settings.replace': SettingsApi['replace']
   'settings.mutate': SettingsApi['mutate']
@@ -65,6 +67,7 @@ export interface RpcMethodMap {
   'credentials.unset': CredentialsApi['unset']
   'llm.providers': LlmApi['providers']
   'llm.models': LlmApi['models']
+  'llm.discoverModels': LlmApi['discoverModels']
 }
 
 /** Business request payload of method K (reaches through the RpcRequest narrow form to payload). */

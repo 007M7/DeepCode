@@ -12,9 +12,9 @@ Fast hooks still need to reject cheap, high-confidence defects before work leave
 
 ## Decision
 
-[lefthook.yml](../../../../lefthook.yml) keeps both hooks as bounded local checkpoints. Pre-commit runs sequentially: a formatting-only ESLint config fixes and re-stages changed JavaScript and TypeScript, [Oxlint](2026-07-29-oxlint-linter.md) validates those files and applies native safe fixes, `git diff --cached --check` rejects staged whitespace errors, and the vendor manifest guard checks vendored-source metadata. Pre-push invokes the repository TypeScript binary directly in incremental build mode.
+[lefthook.yml](../../../../lefthook.yml) keeps both hooks as bounded local checkpoints. Pre-commit runs sequentially: a formatting-only ESLint config fixes and re-stages changed JavaScript and TypeScript, a project-free [Oxlint](2026-07-29-oxlint-linter.md) profile validates those files and applies native safe fixes, `git diff --cached --check` rejects staged whitespace errors, and the vendor manifest guard checks vendored-source metadata. Pre-push runs `pnpm run typecheck`, which prepares the generated Host TypeRT contracts before the Client incremental typecheck.
 
-Neither hook runs tests, snapshots, documentation checks, builds, hygiene, or the gate scheduler. The opt-in `check:all` package script selects the `check-all` scheduler inventory in [scripts/run-gates.ts](../../../../scripts/run-gates.ts) independently of the hooks; it is a contributor command, not an agent instruction.
+Pre-commit does not run type analysis, tests, snapshots, documentation checks, builds, hygiene, or the gate scheduler. Pre-push adds only the Host contract build required by repository typecheck. The opt-in `check:all` package script selects the `check-all` scheduler inventory in [scripts/run-gates.ts](../../../../scripts/run-gates.ts) independently of the hooks; it is a contributor command, not an agent instruction.
 
 Agents inspect the outgoing diff and run the narrowest tests and checks that cover its behavior once. CI owns exhaustive coverage, built-artifact checks, and the platform matrix. A complete local rehearsal is reserved for an explicit request, CI diagnosis, or a repository-wide change that cannot be validated credibly by narrower evidence.
 
@@ -31,6 +31,6 @@ This decision supersedes the local-hook portion of [Parallel pre-push gates](202
 
 ## Consequences
 
-Normal commits take the staged formatter-and-lint critical path, and warm pushes take the incremental typecheck critical path. Contributors retain a one-command opt-in rehearsal without widening the hook critical paths or the agent-required validation set. Hook latency is observed in development and PR evidence rather than enforced by a timing test whose result would depend on host load and cache state.
+Normal commits take the project-free staged formatter-and-lint critical path, and warm pushes take the prepared incremental typecheck critical path. Contributors retain a one-command opt-in rehearsal without widening the hook critical paths or the agent-required validation set. Hook latency is observed in development and PR evidence rather than enforced by a timing test whose result would depend on host load and cache state.
 
 Local publication no longer proves the exhaustive repository matrix. Agents must select relevant behavioral evidence, reviewers must evaluate whether that selection matches the diff, and CI supplies the comprehensive signal once per pushed revision.

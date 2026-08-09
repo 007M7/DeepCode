@@ -201,6 +201,53 @@ describe('WorkspaceAnalyzer', { timeout: 60_000 }, () => {
     expect(batched).toEqual(direct)
   })
 
+  it('discovers an explicitly keyed service implementation without a Context merge', () => {
+    const root = copyFixture('explicit-service-')
+    addExplicitServicePackage(root, 'service detached')
+    const analyzer = new WorkspaceAnalyzer({ root })
+
+    expect(analyzer.discoverPackages()).toContainEqual({
+      package: '@fixture/explicit-service',
+      root: 'packages/explicit-service',
+      faces: ['host'],
+    })
+    const model = new WorkspaceAnalyzer({ root, packages: ['@fixture/explicit-service'] }).analyze()
+    const service = model.faces[0]?.packages[0]?.services[0]
+    expect(service).toMatchObject({ key: 'detached', export: { name: 'DetachedService' } })
+  })
+
+  it('prefers an explicitly keyed implementation over its protocol Context merge', () => {
+    const root = copyFixture('explicit-service-protocol-')
+    addExplicitServicePackage(root, 'service detached', true)
+    const model = new WorkspaceAnalyzer({
+      root,
+      packages: ['@fixture/explicit-service'],
+    }).analyze()
+    const service = model.faces[0]?.packages[0]?.services[0]
+
+    expect(service).toMatchObject({
+      key: 'detached',
+      export: { name: 'DetachedService' },
+      location: { file: 'packages/explicit-service/src/index.ts' },
+    })
+  })
+
+  it('rejects an explicit service implementation without one valid key', () => {
+    const missing = copyFixture('explicit-service-missing-')
+    addExplicitServicePackage(missing, 'service')
+    expect(() => new WorkspaceAnalyzer({
+      root: missing,
+      packages: ['@fixture/explicit-service'],
+    }).analyze()).toThrow('@typert service requires exactly one nonempty Cordis service key')
+
+    const invalid = copyFixture('explicit-service-invalid-')
+    addExplicitServicePackage(invalid, 'service bad/key')
+    expect(() => new WorkspaceAnalyzer({
+      root: invalid,
+      packages: ['@fixture/explicit-service'],
+    }).analyze()).toThrow('@typert service requires exactly one nonempty Cordis service key')
+  })
+
   it('indexes authored top-level exports without promoting them to graph roots', () => {
     const declarations = new WorkspaceAnalyzer({ root: fixtureRoot }).indexSourceDeclarations()
     const agent = declarations.find(declaration => declaration.name === 'Agent')
@@ -372,7 +419,7 @@ describe('WorkspaceAnalyzer', { timeout: 60_000 }, () => {
 
   it('rejects relative imports across face boundaries', () => {
     const root = copyFixture('typert-relative-face-')
-    const sourcePath = join(root, 'packages/client/src/index.ts')
+    const sourcePath = join(root, 'packages/client', 'src/index.ts')
     const source = readFileSync(sourcePath, 'utf8')
       .replace("from '@fixture/host'", "from '../../host/src/index.ts'")
     writeFileSync(sourcePath, source)
@@ -388,7 +435,7 @@ describe('WorkspaceAnalyzer', { timeout: 60_000 }, () => {
       join(root, 'packages/host/src/private.ts'),
       'export interface PrivateHost { readonly value: string }\n',
     )
-    const sourcePath = join(root, 'packages/client/src/index.ts')
+    const sourcePath = join(root, 'packages/client', 'src/index.ts')
     const source = readFileSync(sourcePath, 'utf8')
       .replace(
         "import type { HostAgent, Payload } from '@fixture/host'",
@@ -411,7 +458,7 @@ describe('WorkspaceAnalyzer', { timeout: 60_000 }, () => {
       join(root, 'packages/host/src/private.ts'),
       'export interface PrivateHost { readonly value: string }\n',
     )
-    const sourcePath = join(root, 'packages/client/src/index.ts')
+    const sourcePath = join(root, 'packages/client', 'src/index.ts')
     writeFileSync(sourcePath, [
       readFileSync(sourcePath, 'utf8'),
       "export type { PrivateHost } from '@fixture/host/private'",
@@ -425,7 +472,7 @@ describe('WorkspaceAnalyzer', { timeout: 60_000 }, () => {
 
   it('rejects cross-face namespace re-exports until the model has a namespace target', () => {
     const root = copyFixture('typert-namespace-reexport-')
-    const sourcePath = join(root, 'packages/client/src/index.ts')
+    const sourcePath = join(root, 'packages/client', 'src/index.ts')
     writeFileSync(sourcePath, [
       readFileSync(sourcePath, 'utf8'),
       "export type * as HostNamespace from '@fixture/host'",
@@ -440,10 +487,10 @@ describe('WorkspaceAnalyzer', { timeout: 60_000 }, () => {
   it('ignores cross-face namespace exports that are not package exports', () => {
     const root = copyFixture('typert-private-namespace-reexport-')
     writeFileSync(
-      join(root, 'packages/client/src/internal.ts'),
+      join(root, 'packages/client', 'src/internal.ts'),
       "export type * as HiddenHostNamespace from '@fixture/host'\n",
     )
-    const sourcePath = join(root, 'packages/client/src/index.ts')
+    const sourcePath = join(root, 'packages/client', 'src/index.ts')
     writeFileSync(sourcePath, [
       "import './internal.ts'",
       readFileSync(sourcePath, 'utf8'),
@@ -456,7 +503,7 @@ describe('WorkspaceAnalyzer', { timeout: 60_000 }, () => {
 
   it('records public symbols from explicit cross-face star re-exports', () => {
     const root = copyFixture('typert-star-reexport-')
-    const sourcePath = join(root, 'packages/client/src/index.ts')
+    const sourcePath = join(root, 'packages/client', 'src/index.ts')
     writeFileSync(
       sourcePath,
       readFileSync(sourcePath, 'utf8')
@@ -817,6 +864,31 @@ describe('WorkspaceAnalyzer', { timeout: 60_000 }, () => {
       .toEqual(['@fixture/host'])
   })
 
+  it('keeps both runtime faces for an ordinary dshClient project', () => {
+    const root = copyFixture('typert-dual-runtime-')
+    configureDualRuntimeClient(root, false)
+
+    expect(new WorkspaceAnalyzer({ root }).discoverPackages()).toContainEqual({
+      package: '@fixture/client',
+      root: 'packages/client',
+      faces: ['client', 'host'],
+    })
+  })
+
+  it('confines explicit face projects to their selected TypeRT face', () => {
+    const root = copyFixture('typert-split-project-')
+    configureDualRuntimeClient(root, true)
+
+    const markers = new WorkspaceAnalyzer({ root }).indexSourceDeclarations()
+      .filter(declaration => declaration.package === '@fixture/client'
+        && declaration.name.endsWith('OnlyMarker'))
+      .map(declaration => ({ face: declaration.face, name: declaration.name }))
+    expect(markers).toEqual([
+      { face: 'client', name: 'ClientOnlyMarker' },
+      { face: 'host', name: 'HostOnlyMarker' },
+    ])
+  })
+
   it('accepts package export forms while skipping artifact-only rows and unexported packages', { timeout: 180_000 }, () => {
     const root = copyFixture('typert-export-forms-')
     const hostRoot = join(root, 'packages/host')
@@ -1066,7 +1138,7 @@ describe('WorkspaceTypertGenerator', { timeout: 60_000 }, () => {
 
   it('rejects a public Typert subpath that points outside the root-level face artifact', () => {
     const root = copyFixture('typert-artifact-path-')
-    const manifestPath = join(root, 'packages/client/package.json')
+    const manifestPath = join(root, 'packages/client', 'package.json')
     const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as {
       exports: Record<string, { types: string; default: string }>
     }
@@ -1082,7 +1154,7 @@ describe('WorkspaceTypertGenerator', { timeout: 60_000 }, () => {
 
   it('rejects absent Typert exports and package file entries', () => {
     const noSubpathRoot = copyFixture('typert-missing-artifact-export-')
-    const noSubpathManifest = join(noSubpathRoot, 'packages/client/package.json')
+    const noSubpathManifest = join(noSubpathRoot, 'packages/client', 'package.json')
     const noSubpath = JSON.parse(readFileSync(noSubpathManifest, 'utf8')) as Record<string, unknown>
     noSubpath.exports = './lib/index.js'
     writeFileSync(noSubpathManifest, `${JSON.stringify(noSubpath, null, 2)}\n`)
@@ -1091,7 +1163,7 @@ describe('WorkspaceTypertGenerator', { timeout: 60_000 }, () => {
     )
 
     const invalidSubpathRoot = copyFixture('typert-invalid-artifact-export-')
-    const invalidSubpathManifest = join(invalidSubpathRoot, 'packages/client/package.json')
+    const invalidSubpathManifest = join(invalidSubpathRoot, 'packages/client', 'package.json')
     const invalidSubpath = JSON.parse(readFileSync(invalidSubpathManifest, 'utf8')) as {
       exports: Record<string, unknown>
     }
@@ -1102,7 +1174,7 @@ describe('WorkspaceTypertGenerator', { timeout: 60_000 }, () => {
     )
 
     const noFilesRoot = copyFixture('typert-missing-artifact-files-')
-    const noFilesManifest = join(noFilesRoot, 'packages/client/package.json')
+    const noFilesManifest = join(noFilesRoot, 'packages/client', 'package.json')
     const noFiles = JSON.parse(readFileSync(noFilesManifest, 'utf8')) as Record<string, unknown>
     delete noFiles.files
     writeFileSync(noFilesManifest, `${JSON.stringify(noFiles, null, 2)}\n`)
@@ -1146,6 +1218,63 @@ function copyFixture(prefix: string): string {
   return root
 }
 
+function configureDualRuntimeClient(root: string, splitProjects: boolean): void {
+  const packageRoot = join(root, 'packages/client')
+  const manifestPath = join(packageRoot, 'package.json')
+  const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as {
+    dshClient?: object
+    exports: Record<string, unknown>
+  }
+  manifest.dshClient = {}
+  manifest.exports['./client'] = {
+    types: './lib/types/client.d.ts',
+    default: './lib/client.js',
+  }
+  writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
+  writeFileSync(join(packageRoot, 'src/client.ts'), [
+    "import { Service } from 'cordis'",
+    'export interface ClientOnlyMarker { readonly client: true }',
+    'export class BrowserBridge extends Service {}',
+    "declare module 'cordis' { interface Context { browserBridge: BrowserBridge } }",
+    '',
+  ].join('\n'))
+  const indexPath = join(packageRoot, 'src/index.ts')
+  writeFileSync(indexPath, `${readFileSync(indexPath, 'utf8')}\nexport interface HostOnlyMarker { readonly host: true }\n`)
+  if (!splitProjects) return
+
+  const project = JSON.parse(readFileSync(join(packageRoot, 'tsconfig.json'), 'utf8')) as Record<string, unknown>
+  delete project.include
+  writeFileSync(join(packageRoot, 'tsconfig.host.json'), `${JSON.stringify({
+    ...project,
+    files: ['src/index.ts'],
+  }, null, 2)}\n`)
+  writeFileSync(join(packageRoot, 'tsconfig.client.json'), `${JSON.stringify({
+    ...project,
+    files: ['src/client.ts'],
+  }, null, 2)}\n`)
+  writeFileSync(join(packageRoot, 'tsconfig.json'), `${JSON.stringify({
+    files: [],
+    references: [
+      { path: './tsconfig.host.json' },
+      { path: './tsconfig.client.json' },
+    ],
+  }, null, 2)}\n`)
+
+  const hostAggregatePath = join(root, 'tsconfig.host.json')
+  const hostAggregate = JSON.parse(readFileSync(hostAggregatePath, 'utf8')) as {
+    references: { path: string }[]
+  }
+  hostAggregate.references.push({ path: ['.', 'packages', 'client', 'tsconfig.host.json'].join('/') })
+  writeFileSync(hostAggregatePath, `${JSON.stringify(hostAggregate, null, 2)}\n`)
+
+  const clientAggregatePath = join(root, 'tsconfig.client.json')
+  const clientAggregate = JSON.parse(readFileSync(clientAggregatePath, 'utf8')) as {
+    references: { path: string }[]
+  }
+  clientAggregate.references = [{ path: ['.', 'packages', 'client', 'tsconfig.client.json'].join('/') }]
+  writeFileSync(clientAggregatePath, `${JSON.stringify(clientAggregate, null, 2)}\n`)
+}
+
 function addSameFacePackage(root: string, specifier: string, importedName: string): void {
   const packageRoot = join(root, 'packages/consumer')
   mkdirSync(join(packageRoot, 'src'), { recursive: true })
@@ -1175,6 +1304,57 @@ function addSameFacePackage(root: string, specifier: string, importedName: strin
   const aggregatePath = join(root, 'tsconfig.host.json')
   const aggregate = JSON.parse(readFileSync(aggregatePath, 'utf8')) as { references: { path: string }[] }
   aggregate.references.push({ path: './packages/consumer' })
+  writeFileSync(aggregatePath, `${JSON.stringify(aggregate, null, 2)}\n`)
+}
+
+function addExplicitServicePackage(root: string, annotation: string, withProtocol = false): void {
+  const packageRoot = join(root, 'packages/explicit-service')
+  mkdirSync(join(packageRoot, 'src'), { recursive: true })
+  writeFileSync(join(packageRoot, 'package.json'), JSON.stringify({
+    name: '@fixture/explicit-service',
+    private: true,
+    type: 'module',
+    exports: {
+      '.': {
+        types: './lib/types/index.d.ts',
+        default: './lib/index.js',
+      },
+    },
+  }, null, 2))
+  writeFileSync(join(packageRoot, 'tsconfig.json'), JSON.stringify({
+    extends: '../../tsconfig.base.json',
+    compilerOptions: { rootDir: 'src', outDir: 'lib/types' },
+    include: ['src'],
+  }, null, 2))
+  if (withProtocol) {
+    writeFileSync(join(packageRoot, 'src/types.ts'), [
+      '/** Public detached Service protocol. */',
+      'export interface DetachedProtocol {',
+      '  /** Report protocol readiness. */',
+      '  ready(): boolean',
+      '}',
+      "declare module 'cordis' {",
+      '  interface Context { detached: DetachedProtocol }',
+      '}',
+      '',
+    ].join('\n'))
+  }
+  writeFileSync(join(packageRoot, 'src/index.ts'), [
+    "import { Service } from 'cordis'",
+    ...(withProtocol ? ["export type { DetachedProtocol } from './types.ts'"] : []),
+    '/**',
+    ' * Service implementation discovered independently of its protocol package.',
+    ` * @typert ${annotation}`,
+    ' */',
+    'export class DetachedService extends Service {',
+    '  /** Report readiness. */',
+    '  ready(): boolean { return true }',
+    '}',
+    '',
+  ].join('\n'))
+  const aggregatePath = join(root, 'tsconfig.host.json')
+  const aggregate = JSON.parse(readFileSync(aggregatePath, 'utf8')) as { references: { path: string }[] }
+  aggregate.references.push({ path: './packages/explicit-service' })
   writeFileSync(aggregatePath, `${JSON.stringify(aggregate, null, 2)}\n`)
 }
 

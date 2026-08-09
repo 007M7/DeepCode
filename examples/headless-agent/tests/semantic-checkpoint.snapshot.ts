@@ -14,7 +14,7 @@ const replayFixture = join(fixtureDir, 'replay.jsonl')
 const replayOverride = join(fixtureDir, 'replay.override.json')
 const sessionExpected = join(fixtureDir, 'session.expected.jsonl')
 const configPath = fileURLToPath(new URL('../semantic-checkpoint.cordis.snapshot.yml', import.meta.url))
-const binScript = fileURLToPath(new URL('../../../packages/examples/cli-demo/src/bin.ts', import.meta.url))
+const binScript = fileURLToPath(new URL('./fixtures/headless-driver.ts', import.meta.url))
 const tsconfigPath = fileURLToPath(new URL('../../../tsconfig.json', import.meta.url))
 const sessionId = SessionId('semantic-checkpoint-unknown-outcome')
 const refreshing = process.env.DSH_SNAPSHOT === 'refresh'
@@ -32,7 +32,7 @@ async function seedInterruptedSession(root: string, cwd: string): Promise<string
     delegationDepth: 0,
   }
   const events: SessionEvent[] = [
-    { type: 'turn/start', seq: 0, time: 10, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
+    { type: 'turn/start', seq: 0, time: 10, data: { turn: 1 } },
     { type: 'user/message', seq: 1, time: 11, data: createUserMessage({
       content: [{ type: 'text', text: 'Perform one side-effecting remote mutation.' }], source: { kind: 'user' },
     }), surfaceOp: 'append' },
@@ -87,8 +87,9 @@ describe('semantic checkpoint recovery snapshot', () => {
       label: 'semantic checkpoint headless stream-json snapshot',
       tempDirPrefix: 'dsh-semantic-snapshot-',
       binScript,
+      libBinScript: binScript,
       configPath,
-      binArgs: ['--config', configPath, '--output-format', 'stream-json', task],
+      binArgs: [configPath, task],
       tsconfigPath,
       env: {
         DSH_SNAPSHOT_FILE: replayFixture,
@@ -112,10 +113,8 @@ describe('semantic checkpoint recovery snapshot', () => {
     const records = result.stdout.trimEnd().split('\n').map(line => JSON.parse(line) as Record<string, unknown>)
     expect(records.at(-1)).toMatchObject({
       type: 'result',
-      success: true,
       sessionId,
-      result: 'I will verify the external state before deciding whether to retry the side-effecting operation.',
-      reason: { kind: 'completed' },
+      output: 'I will verify the external state before deciding whether to retry the side-effecting operation.',
     })
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 })

@@ -5,12 +5,17 @@
  * platform subclasses on the client side), and the host-side implementation
  * (api-proxy.ts: createApiProxy + the ApiProxyService gateway plugin providing
  * `ctx.apiProxy`). Transport-agnostic by design: this package registers no
- * routes — carriers (HTTP today, IPC later) wrap `ctx.apiProxy` themselves.
+ * routes — physical carriers wrap `ctx.apiProxy` themselves.
+ *
+ * The gateway consumes `ctx.agentDefaultModel`, the transport-independent default
+ * shared with direct front doors. Switching models persists through that
+ * service; sessions that have already logged a selection remain unchanged.
  */
 
 import { resolve } from 'node:path'
 import { Context, Service } from 'cordis'
 import z from 'schemastery'
+import type {} from '@deepseek-ai/dsh-agent-default-model'
 import type { ApiProxy } from './api/index.ts'
 import { createApiProxy } from './api-proxy.ts'
 
@@ -29,12 +34,8 @@ declare module 'cordis' {
   }
 }
 
-/** Gateway plugin config: host-level agent routing and Workspace creation root. */
+/** Gateway plugin config: the Host-only Workspace creation root. */
 export interface Config {
-  /** Default provider route for created/resumed agents. */
-  provider: string
-  /** Default model id. */
-  model: string
   /** Parent directory for name-created Workspaces; defaults to the Host cwd. */
   workspaceRoot?: string
 }
@@ -46,13 +47,11 @@ export interface Config {
  */
 export class ApiProxyService extends Service implements ApiProxy {
   static inject = [
-    'agents', 'directoryPicker', 'llm', 'sessions', 'subagents', 'sessionQuery',
+    'agentDefaultModel', 'agents', 'directoryPicker', 'llm', 'sessions', 'subagents', 'sessionQuery',
     'tools', 'userInteraction', 'workspace',
   ]
 
   static Config: z<Config> = z.object({
-    provider: z.string().required(),
-    model: z.string().required(),
     workspaceRoot: z.string(),
   })
 
@@ -73,8 +72,8 @@ export class ApiProxyService extends Service implements ApiProxy {
     super(ctx, 'apiProxy')
     const cwd = process.cwd()
     const api = createApiProxy(ctx, {
-      provider: config.provider,
-      model: config.model,
+      defaultModelSelection: () => ctx.agentDefaultModel.currentSelection(),
+      saveDefaultModelSelection: selection => ctx.agentDefaultModel.saveSelection(selection),
       cwd,
       workspaceRoot: resolve(config.workspaceRoot ?? cwd),
     })

@@ -3,8 +3,10 @@
  * Unassigned Sessions trail under Ungrouped; only the selected blank Session
  * remains visible.
  */
-import type {
-  SessionId, SessionListState, SessionSearchResultItem, SessionSummary, WorkspaceId, WorkspaceView,
+import {
+  indexSubagentDescendants, type PendingInteractionStatus, type SessionId, type SessionListState,
+  type SessionSearchResultItem, type SessionSummary, type SubagentDescendantSummary,
+  type WorkspaceId, type WorkspaceView,
 } from '@deepseek-ai/dsh-client-runtime/client'
 
 /** Group key for Sessions outside every Workspace. */
@@ -20,9 +22,13 @@ export interface SessionNode {
   title: string
   /** The provisional blank session (renderer shows the localized New Session title). */
   blank: boolean
-  /** The runtime Session list reports a pending approval request for this Session. */
-  waitingApproval: boolean
+  /** The runtime Session list reports an interaction awaiting this user. */
+  pendingInteraction?: PendingInteractionStatus
   running: boolean
+  /** Running descendants connected through uninterrupted subagent-origin lineage. */
+  runningSubagentCount: number
+  /** Finished running while not selected and not yet opened (the green "done" reminder dot). */
+  completed: boolean
   updatedAt: number
 }
 
@@ -50,7 +56,13 @@ export interface SearchResultNode {
   id: SessionId
   title: string
   workspace: string
+  /** The runtime Session list reports an interaction awaiting this user. */
+  pendingInteraction?: PendingInteractionStatus
   running: boolean
+  /** Running descendants connected through uninterrupted subagent-origin lineage. */
+  runningSubagentCount: number
+  /** Finished running while not selected and not yet opened (the green "done" reminder dot). */
+  completed: boolean
   snippet?: string
 }
 
@@ -166,14 +178,19 @@ function groupByWorkspace(
   return groups
 }
 
-function sessionNode(s: SessionSummary): SessionNode {
+function sessionNode(
+  s: SessionSummary,
+  descendants: ReadonlyMap<SessionId, SubagentDescendantSummary>,
+): SessionNode {
   return {
     id: s.id,
     title: sessionTitle(s),
     blank: s.blank,
-    waitingApproval: s.waitingApproval,
     running: s.running,
+    runningSubagentCount: descendants.get(s.id)?.runningCount ?? 0,
+    completed: s.completed === true,
     updatedAt: s.updatedAt,
+    ...(s.pendingInteraction === undefined ? {} : { pendingInteraction: s.pendingInteraction }),
   }
 }
 
@@ -199,6 +216,7 @@ export function deriveGroups(
 ): GroupNode[] {
   const archived = new Set(archivedSessionIds)
   const expandedProjects = new Set(view.expandedProjects)
+  const descendants = indexSubagentDescendants(list.byId)
   const currentGroup = list.current === undefined
     ? undefined
     : (workspaces.find(w => w.sessionIds.includes(list.current as SessionId))?.workspaceId as string | undefined)
@@ -215,7 +233,7 @@ export function deriveGroups(
       sessionCount: g.sessions.length,
       expanded,
       containsCurrent: g.key === currentGroup,
-      sessions: expanded ? g.sessions.map(sessionNode) : [],
+      sessions: expanded ? g.sessions.map(session => sessionNode(session, descendants)) : [],
     })
   }
   return groups
@@ -232,6 +250,7 @@ export function deriveGroups(
  */
 export function deriveFlat(list: SessionListState, archivedSessionIds: readonly SessionId[]): SessionNode[] {
   const archived = new Set(archivedSessionIds)
+  const descendants = indexSubagentDescendants(list.byId)
   const rows: SessionSummary[] = []
   for (const id of list.ids) {
     const s = list.byId[id]
@@ -239,7 +258,7 @@ export function deriveFlat(list: SessionListState, archivedSessionIds: readonly 
     rows.push(s)
   }
   rows.sort(byRecency)
-  return rows.map(sessionNode)
+  return rows.map(session => sessionNode(session, descendants))
 }
 
 /** Relative-time bucket of a session row's trailing label. */
@@ -274,6 +293,7 @@ export function deriveSearchResults(
   const q = query.trim().toLowerCase()
   if (q === '') return { items: [], hasMore: false }
   const archived = new Set(archivedSessionIds)
+  const descendants = indexSubagentDescendants(list.byId)
 
   const workspaceBySession = new Map<SessionId, string>()
   for (const workspace of workspaces) {
@@ -324,6 +344,11 @@ export function deriveSearchResults(
         title: sessionTitle(summary),
         workspace: labelOf(summary),
         running: summary.running,
+        runningSubagentCount: descendants.get(summary.id)?.runningCount ?? 0,
+        ...(summary.pendingInteraction === undefined
+          ? {}
+          : { pendingInteraction: summary.pendingInteraction }),
+        completed: summary.completed === true,
         ...match === undefined ? {} : { snippet: match.snippet },
       }
     }),

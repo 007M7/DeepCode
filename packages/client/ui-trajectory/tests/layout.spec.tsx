@@ -11,7 +11,9 @@ import type {
 import { TrajectoryGroupHeader } from '../src/client/TrajectoryGroupHeader.tsx'
 import { TrajectoryTurn } from '../src/client/TrajectoryTurn.tsx'
 import { TrajectoryTurnHeader } from '../src/client/TrajectoryTurnHeader.tsx'
-import { deriveTrajectoryLayout } from '../src/client/layout.ts'
+import {
+  appendTrajectoryPartialLayout, deriveTrajectoryLayout,
+} from '../src/client/layout.ts'
 
 afterEach(cleanup)
 
@@ -72,7 +74,7 @@ describe('deriveTrajectoryLayout', () => {
         content: [{ type: 'text', text: 'a.txt' }], isError: false, callView: null, resultView: null,
       },
     ] as unknown as ConversationSnapshot['nodes']
-    const turns = deriveTrajectoryLayout({ codeDispatches: new Map(), nodes, partial: null, runningCalls: [] })
+    const turns = deriveTrajectoryLayout({ nodes, partial: null, runningCalls: [] })
     expect(turns).toHaveLength(1)
     expect(turns[0]?.turn).toBe(1)
     const kinds = turns[0]?.groups.flatMap(g => g.cells.map(c => c.kind))
@@ -88,18 +90,79 @@ describe('deriveTrajectoryLayout', () => {
 
   it('adds runningCalls not already present and leaves their time blank', () => {
     const turns = deriveTrajectoryLayout({
-      codeDispatches: new Map(),
       nodes: [],
       partial: null,
       runningCalls: [{
         callId: 'r1', name: 'bash', argsRaw: '{"command":"pwd"}',
-        turn: 1, step: 2, time: 9_000, callView: null,
+        turn: 1, step: 2, time: 9_000, callView: null, subCalls: [],
       }],
     })
     expect(turns[0]?.groups.map(g => g.title)).toEqual(['Step 2'])
     expect(turns[0]?.groups[0]?.cells[0]).toMatchObject({
       kind: 'tool', text: 'bash · {"command":"pwd"}', timeSeconds: null,
     })
+  })
+
+  it('appends a streaming partial without rebuilding unaffected finalized turns', () => {
+    const nodes = [{
+      kind: 'assistant', seq: 2, time: 2_000, turn: 1, step: 1,
+      blocks: [{ kind: 'text', text: 'finalized' }],
+    }] as unknown as ConversationSnapshot['nodes']
+    const partial = {
+      turn: 2,
+      step: 1,
+      blocks: [{ kind: 'reasoning' as const, text: 'streaming' }],
+    }
+    const request = {
+      purpose: 'assistant', startSeq: 3, turn: 2, step: 1,
+      startedAt: 3_000, completedAt: null, status: 'running',
+    } as unknown as RequestView
+    const base = deriveTrajectoryLayout({
+      nodes,
+      partial: { ...partial, blocks: [] },
+      requests: [request],
+      runningCalls: [],
+    })
+    expect(base).toHaveLength(1)
+
+    const streamed = appendTrajectoryPartialLayout(base, partial, 1)
+
+    expect(streamed[0]).toBe(base[0])
+    expect(streamed).toHaveLength(2)
+    expect(streamed[1]?.groups[0]?.cells).toMatchObject([{
+      index: 2,
+      kind: 'message',
+      text: 'streaming',
+      timeSeconds: null,
+    }])
+    expect(streamed[1]?.groups[0]?.cells[0]?.requestOnly).toBeUndefined()
+  })
+
+  it('replaces a running-call placeholder with the matching streamed tool call', () => {
+    const partial = {
+      turn: 1,
+      step: 1,
+      blocks: [{
+        kind: 'tool-call' as const,
+        callId: 'c1',
+        name: 'bash',
+        argsRaw: '{"command":"pwd"}',
+      }],
+    }
+    const base = deriveTrajectoryLayout({
+      nodes: [],
+      partial: { ...partial, blocks: [] },
+      runningCalls: [{
+        callId: 'c1', name: 'bash', argsRaw: '{"command":"pwd"}',
+        turn: 1, step: 1, time: 9_000, callView: null, subCalls: [],
+      }],
+    })
+
+    const streamed = appendTrajectoryPartialLayout(base, partial, 1)
+    const cells = streamed[0]?.groups[0]?.cells ?? []
+
+    expect(cells.map(cell => cell.kind)).toEqual(['message', 'tool'])
+    expect(cells.filter(cell => cell.callId === 'c1')).toHaveLength(1)
   })
 
   it('omits duration when node times are missing instead of rendering NaN', () => {
@@ -114,7 +177,7 @@ describe('deriveTrajectoryLayout', () => {
         usage: { inputTokens: 1, outputTokens: 2, reasoningTokens: 3 },
       },
     ] as unknown as ConversationSnapshot['nodes']
-    const turns = deriveTrajectoryLayout({ codeDispatches: new Map(), nodes, partial: null, runningCalls: [] })
+    const turns = deriveTrajectoryLayout({ nodes, partial: null, runningCalls: [] })
     const cells = turns[0]?.groups.flatMap(g => g.cells) ?? []
     expect(cells.find(c => c.kind === 'message')?.timeSeconds).toBeNull()
     expect(turns[0]?.groups.find(g => g.title === 'Step 1')?.description).toBeUndefined()
@@ -140,8 +203,8 @@ describe('deriveTrajectoryLayout', () => {
         content: [], isError: false, callView: null, resultView: null,
       },
     ] as unknown as ConversationSnapshot['nodes']
-    const turns = deriveTrajectoryLayout({ codeDispatches: new Map(), nodes, partial: null, runningCalls: [] })
-    expect(turns[0]?.groups[0]?.description).toBe('3 s bash×2')
+    const turns = deriveTrajectoryLayout({ nodes, partial: null, runningCalls: [] })
+    expect(turns[0]?.groups[0]?.description).toBe('3,000 ms bash×2')
   })
 
   it('assigns each user message to its enclosing turn instead of pooling into Turn 1', () => {
@@ -157,7 +220,7 @@ describe('deriveTrajectoryLayout', () => {
         blocks: [{ kind: 'text', text: 'ok2' }],
       },
     ] as unknown as ConversationSnapshot['nodes']
-    const turns = deriveTrajectoryLayout({ codeDispatches: new Map(), nodes, partial: null, runningCalls: [] })
+    const turns = deriveTrajectoryLayout({ nodes, partial: null, runningCalls: [] })
     expect(turns.map(t => t.turn)).toEqual([1, 2])
     expect(turns[0]?.groups.flatMap(g => g.cells.map(c => c.text))).toEqual(['first', 'ok1'])
     expect(turns[1]?.groups.flatMap(g => g.cells.map(c => c.text))).toEqual(['second', 'ok2'])
@@ -188,7 +251,6 @@ describe('deriveTrajectoryLayout', () => {
     }
 
     const turns = deriveTrajectoryLayout({
-      codeDispatches: new Map(),
       nodes,
       partial: null,
       runningCalls: [],
@@ -214,7 +276,7 @@ describe('deriveTrajectoryLayout', () => {
         usage: { inputTokens: 11, outputTokens: 22, reasoningTokens: 3 },
       },
     ] as unknown as ConversationSnapshot['nodes']
-    const turns = deriveTrajectoryLayout({ codeDispatches: new Map(), nodes, partial: null, runningCalls: [] })
+    const turns = deriveTrajectoryLayout({ nodes, partial: null, runningCalls: [] })
     const message = turns[0]?.groups.flatMap(g => g.cells).find(c => c.kind === 'message')
     expect(message).toMatchObject({
       text: '…', input: 11, output: 22, think: 3,
@@ -229,7 +291,7 @@ describe('deriveTrajectoryLayout', () => {
     }] as unknown as ConversationSnapshot['nodes']
 
     const turns = deriveTrajectoryLayout({
-      codeDispatches: new Map(), nodes, partial: null, runningCalls: [],
+      nodes, partial: null, runningCalls: [],
     })
     const message = turns[0]?.groups.flatMap(group => group.cells)
       .find(cell => cell.kind === 'message')
@@ -258,13 +320,16 @@ describe('deriveTrajectoryLayout', () => {
       },
       // A landed compaction renders no cell, but is still a real log position,
       // so it moves the cursor after the visible context row.
-      { kind: 'compaction', seq: 5, time: 9_500, summary: 'checkpoint facts' },
+      {
+        kind: 'compaction', seq: 5, time: 9_500, summary: 'checkpoint facts',
+        summaryEventSeq: 4, shadowedItemCount: 2, shadowedTokenCount: 100,
+      },
       {
         kind: 'assistant', seq: 6, time: 10_000, turn: 1, step: 0,
         blocks: [{ kind: 'text', text: 'done' }],
       },
     ] as unknown as ConversationSnapshot['nodes']
-    const turns = deriveTrajectoryLayout({ codeDispatches: new Map(), nodes, partial: null, runningCalls: [] })
+    const turns = deriveTrajectoryLayout({ nodes, partial: null, runningCalls: [] })
     const cells = turns[0]?.groups.flatMap(g => g.cells) ?? []
     const message = cells.find(c => c.kind === 'message' && c.text === 'done')
     // From the compaction marker at 9.5s, not from context at 9s or the earlier surfaces.
@@ -283,7 +348,7 @@ describe('deriveTrajectoryLayout', () => {
       },
     ] as unknown as ConversationSnapshot['nodes']
     const turns = deriveTrajectoryLayout({
-      codeDispatches: new Map(), nodes, partial: null, runningCalls: [],
+      nodes, partial: null, runningCalls: [],
     })
     const message = turns[0]?.groups.flatMap(group => group.cells)
       .find(cell => cell.kind === 'message')
@@ -303,6 +368,7 @@ describe('run_code sub-dispatch cells', () => {
       kind: 'tool-result', seq: 3, time: 9_000, callId: 'p1',
       call: { name: 'run_code', argsRaw: '{"code":"…","description":"批量读取"}' }, callTime: 6_200,
       content: [{ type: 'text', text: 'done' }], isError: false, callView: null, resultView: null,
+      subCalls: [],
     },
   ] as unknown as ConversationSnapshot['nodes']
 
@@ -311,14 +377,18 @@ describe('run_code sub-dispatch cells', () => {
     callId: `p1:code:${n}`,
     call: { name, argsRaw: '{"x":1}' }, callTime: start,
     content: [{ type: 'text' as const, text: 'ok' }], isError: false, callView: null, resultView: null,
+    subCalls: [],
   })
 
+  const withSubCalls = (subCalls: readonly ReturnType<typeof settledSub>[] | readonly object[]) =>
+    runCodeNodes.map(node => node.kind === 'tool-result' ? { ...node, subCalls } : node) as ConversationSnapshot['nodes']
+
   it('nests settled sub-cells after their parent Tool cell with real durations', () => {
-    const codeDispatches = new Map([['p1', [
+    const subCalls = [
       settledSub(1, 'bash', 6_300, 7_300),
       settledSub(2, 'read', 7_300, 7_800),
-    ]]]) as unknown as ConversationSnapshot['codeDispatches']
-    const turns = deriveTrajectoryLayout({ codeDispatches, nodes: runCodeNodes, partial: null, runningCalls: [] })
+    ]
+    const turns = deriveTrajectoryLayout({ nodes: withSubCalls(subCalls), partial: null, runningCalls: [] })
     const cells = turns[0]!.groups.flatMap(g => g.cells)
     expect(cells.map(c => c.kind)).toEqual(['message', 'tool', 'subtool', 'subtool'])
     expect(cells[0]?.text).toBe('Tool call only')
@@ -331,11 +401,29 @@ describe('run_code sub-dispatch cells', () => {
   it('a running (unsettled) sub-call renders a subtool cell with blank time', () => {
     const running = {
       callId: 'p1:code:1', name: 'grep', argsRaw: '{"pattern":"x"}',
-      turn: 0, step: 0, time: 6_400, callView: null,
+      turn: 0, step: 0, time: 6_400, callView: null, subCalls: [],
     }
-    const codeDispatches = new Map([['p1', [running]]]) as unknown as ConversationSnapshot['codeDispatches']
-    const turns = deriveTrajectoryLayout({ codeDispatches, nodes: runCodeNodes, partial: null, runningCalls: [] })
+    const turns = deriveTrajectoryLayout({ nodes: withSubCalls([running]), partial: null, runningCalls: [] })
     const sub = turns[0]!.groups.flatMap(g => g.cells).find(c => c.kind === 'subtool')
     expect(sub).toMatchObject({ text: 'grep · {"pattern":"x"}', timeSeconds: null })
+  })
+
+  it('recursively flattens nested child calls immediately after their parent', () => {
+    const leaf = {
+      ...settledSub(2, 'read', 7_300, 7_800),
+      callId: 'p1:code:1:code:1',
+    }
+    const child = {
+      ...settledSub(1, 'run_code', 6_300, 8_000),
+      subCalls: [leaf],
+    }
+    const turns = deriveTrajectoryLayout({ nodes: withSubCalls([child]), partial: null, runningCalls: [] })
+    const cells = turns[0]!.groups.flatMap(group => group.cells)
+    expect(cells.map(cell => cell.kind)).toEqual(['message', 'tool', 'subtool', 'subtool'])
+    expect(cells.slice(2).map(cell => cell.callId)).toEqual([
+      'p1:code:1',
+      'p1:code:1:code:1',
+    ])
+    expect(cells.map(cell => cell.index)).toEqual([1, 2, 3, 4])
   })
 })

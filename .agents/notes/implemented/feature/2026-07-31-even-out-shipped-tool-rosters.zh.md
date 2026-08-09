@@ -12,7 +12,7 @@ Status: implemented
 
 ## 决策
 
-那些并非 surface 专属的行移入 [`base.cordis.yml`](../../../../apps/cli/config/base.cordis.yml),另有三行加入:`tool-session-query`、`tool-str-replace-editor` 和 `repeat-tool-guard`。Web 搜索也一并移入；其[部署决策](2026-07-31-web-default-search.md)负责安全边界，共享 base 则负责与 surface 无关的挂载。两个 surface 组装同一份清单：每台宿主上都有二十二个工具——二十个共享行加上 `glob` 和 `grep`，它们成为固定成员，因为 `dsh-tool-fs-search` 直接 spawn [打包的 ripgrep 二进制](../architecture/2026-08-01-packaged-ripgrep-search.md)。`tool-session-query` 加入后又退出了——[session-search-not-shipped-default 决策](2026-08-02-session-search-not-shipped-default.md)让面向模型的消费方保持需显式启用——而这份清单的其余部分保持不变。
+那些并非 surface 专属的行移入 [`base.cordis.yml`](../../../../packages/bundle/base/cordis.patch.yml),另有三行加入:`tool-session-query`、`tool-str-replace-editor` 和 `repeat-tool-guard`。Web 搜索也一并移入；其[部署决策](2026-07-31-web-default-search.md)负责安全边界，共享 base 则负责与 surface 无关的挂载。两个 surface 组装同一份清单：每台宿主上都有二十二个工具——二十个共享行加上 `glob` 和 `grep`，它们成为固定成员，因为 `dsh-tool-fs-search` 直接 spawn [打包的 ripgrep 二进制](../architecture/2026-08-01-packaged-ripgrep-search.md)。`tool-session-query` 加入后又退出了——[session-search-not-shipped-default 决策](2026-08-02-session-search-not-shipped-default.md)让面向模型的消费方保持需显式启用——而这份清单的其余部分保持不变。
 
 有两行仍是 surface 专属。`tmux-context` 只在 TUI,因为浏览器 surface 没有终端复用器可描述。`session-reference` 只在 TUI,因为它以 launcher 的进程本地路径驱动共享的 session-query 索引,而浏览器侧边栏会在自己的首次搜索里重建该索引。
 
@@ -22,7 +22,7 @@ Status: implemented
 
 有三项能力基于其自身包所记录的证据保持在外,列在这里是为了让「我们忘了」和「我们决定不要」保持可区分。
 
-**`dsh-tool-cordis`** 让模型写一段 JavaScript 并挂成临时插件。它的 README 写明了这个界限:「The sandbox is containment for honest code, not a security boundary — host-realm helpers on the sandbox global are reachable, so mount code can reach Node」([Known limitations](../../../../packages/cordis/tool-cordis/README.md))。`node:vm` 的 realm 就在 harness 进程内,而 `dsh-sandbox-local` 只约束它 spawn 出去的 argv,因此在 Web surface 上,沙箱与批准接缝是被绕过而非被执行。
+**`dsh-tool-cordis`** 让模型写一段 JavaScript 并挂成临时插件。它的 README 写明了这个界限:「The sandbox is containment for honest code, not a security boundary — host-realm helpers on the sandbox global are reachable, so mount code can reach Node」([Known limitations](../../../../packages/self-modification/tool-cordis/README.md))。`node:vm` 的 realm 就在 harness 进程内,而 `dsh-sandbox-local` 只约束它 spawn 出去的 argv,因此在 Web surface 上,沙箱与批准接缝是被绕过而非被执行。
 
 **`dsh-web-fetch-local`** 保持不挂,`dsh-tool-web` 保持 `fetch: false`。SSRF 防护在实现中是 deferred 状态([`policy.ts`](../../../../packages/web/web-fetch-local/src/policy.ts) 只校验协议、凭据与长度),包里也直说了:「this provider is an SSRF primitive and **must not be enabled** in a deployment that can reach sensitive internal network targets」([README](../../../../packages/web/web-fetch-local/README.md))。目标由模型选择,其中包括 harness 自己跑在环回地址上的网关、内网段和云元数据端点。
 
@@ -38,9 +38,9 @@ Status: implemented
 
 ## 测试
 
-[`apps/cli/tests/shipped-composition.e2e.ts`](../../../../apps/cli/tests/shipped-composition.e2e.ts) 在伪终端中通过真实 Loader 启动交付树,并从会话日志持久化的 `request/header` 中读出工具名,因此断言的正是模型实际收到的目录。它传入的 `--config` overlay [`composition-keyless-tail.cordis.yml`](../../../../apps/cli/tests/fixtures/composition-keyless-tail.cordis.yml) 只做测试隔离:一个无网络适配器,以及落在工作区内的会话产物。
+`apps/cli/tests/shipped-composition.e2e.ts` 曾在伪终端中通过真实 Loader 启动交付树，并从会话日志持久化的 `request/header` 中读出工具名，因此断言的是模型实际收到的目录。它传入的 `--config` overlay `composition-keyless-tail.cordis.yml` 只用于测试隔离：一个无网络适配器，以及落在工作区内的会话产物。
 
-该尾部还插入了 [`composition-settled.ts`](../../../../apps/cli/tests/fixtures/composition-settled.ts),它在终端字节流上宣告 Loader 激活已 settle。TUI 在自己的 fiber 一启动就渲染,因此在 banner 处敲下的提示词可能在工具行与持久化仍在激活时就抵达循环,从而组装出不完整的目录;把冒烟的首个提示词 gate 在该标记上,正是断言得以确定的原因。
+该尾部还曾插入 `composition-settled.ts`，用于在终端字节流上宣告 Loader 激活已 settle。TUI 在自己的 fiber 一启动就渲染，因此在 banner 处敲下的提示词可能在工具行与持久化仍在激活时就抵达循环，从而组装出不完整的目录；把冒烟的首个提示词 gate 在该标记上，正是断言得以确定的原因。
 
 同一份冒烟还根据同一份产物固定 TUI 的执行姿态。那些沙箱 schema 与初始权限断言归[workspace-write 默认值决策](2026-07-31-workspace-write-surface-default.md)所有，独立于本工具清单决策。
 

@@ -1,14 +1,16 @@
-# context/：请求上下文扩展
+# context/ — 请求上下文扩展
 
 [English](README.md) | 中文
 
-这些产品插件无需定义工具，即可增加模型可见的请求上下文。`workspace-context` 包含在默认的 `dsh-agent-spine-demo` 组合包中，且可通过组合包配置将其禁用；`time-context` 与 `tmux-context` 均需显式启用，标准 TUI 组合包则会显式组合 `session-reference`。
+在不定义工具的情况下添加面向模型请求上下文的产品插件。`workspace-context` 包含在默认 `dsh-agent-spine-demo` 组合包中，可通过组合包配置禁用；`time-context`、`tmux-context` 和 `session-reference` 需主动启用。
 
 | 包 | 职责 | ctx key |
 |---|---|---|
-| `session-reference/` | 其他会话当前表层的有界快照 | `ctx.sessionReferences` |
-| `time-context/` | 持久化的逐步骤当前时间与已用时上下文 | （无） |
-| `tmux-context/` | 持久化的逐轮次上下文，记录本 agent 所在的 tmux pane/window 位置 | （监听 `agent/step`，读取 `ctx.bash`） |
-| `workspace-context/` | `AGENTS.md`／`CLAUDE.md` 工作区上下文 loader | （监听 `agent/step` + `tools/post-execute`） |
+| [`session-reference/`](session-reference/README.md) | 其他会话的有界快照 | `ctx.sessionReferences` |
+| [`time-context/`](time-context/README.md) | 当前时间与耗时上下文 | — |
+| [`tmux-context/`](tmux-context/README.md) | tmux 位置上下文 | — |
+| [`workspace-context/`](workspace-context/README.md) | 工作区指令上下文 | — |
 
-[`workspace-context` 决策记录](../../.agents/notes/implemented/feature/2026-06-24-workspace-context.md)解释了每个 agent（智能体）和会话各自隔离的方式，以及相应的生命周期拆分。
+[`workspace-context` 决策记录](../../.agents/notes/implemented/feature/2026-06-24-workspace-context.md)解释其逐 agent（智能体）／会话隔离和生命周期拆分。
+
+会话引用见 [docs/subsystems/session-reference.md](../../docs/subsystems/session-reference.md)；[`workspace-context` 决策记录](../../.agents/notes/implemented/feature/2026-06-24-workspace-context.md)拥有其按 agent/会话隔离与生命周期拆分。

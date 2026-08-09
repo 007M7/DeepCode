@@ -32,7 +32,7 @@ async function harness(config: Config = {}): Promise<Context> {
 }
 
 function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
-  return new Promise((resolve) => { const d = ctx.on('agent/status', (s, st) => { if (s === agent && st === 'idle') { d(); resolve() } }) })
+  return new Promise((resolve) => { const d = ctx.on('agent/status', ({ agent: s, status: st }) => { if (s === agent && st === 'idle') { d(); resolve() } }) })
 }
 
 /** Every injected-context user message in the agent's log, flattened to joined text + source for terse assertions. */
@@ -45,7 +45,14 @@ function reminders(agent: Agent): { text: string; source: unknown }[] {
     }))
 }
 
-const GUARD_SOURCE = { kind: 'plugin', plugin: 'repeat-tool-guard' }
+// The reminder is a `notice`-form context; its summary names the repeated
+// call so a reader sees it without expanding the row.
+const guardSource = (tool: string, count: number) => ({
+  kind: 'plugin',
+  plugin: 'repeat-tool-guard',
+  form: 'notice',
+  summary: `${tool} × ${count}`,
+})
 
 describe('threshold escalation', () => {
   it('reminds gently at the first default threshold (3) and in detail at the second (5)', async () => {
@@ -62,11 +69,11 @@ describe('threshold escalation', () => {
     const found = reminders(agent)
     expect(found).toHaveLength(2)
     expect(found[0]!.text).toContain('repeating the exact same tool call')
-    expect(found[0]!.source).toEqual(GUARD_SOURCE)
+    expect(found[0]!.source).toEqual(guardSource('probe', 3))
     expect(found[1]!.text).toContain('consecutive_calls: 5')
     expect(found[1]!.text).toContain('- tool: probe')
     expect(found[1]!.text).toContain('{"q":"same"}')
-    expect(found[1]!.source).toEqual(GUARD_SOURCE)
+    expect(found[1]!.source).toEqual(guardSource('probe', 5))
   })
 
   it('keys the gentle text to thresholds[0], not the literal 3', async () => {
@@ -327,7 +334,7 @@ describe('fold onto the downstream decision', () => {
     expect(found[0]!.text).toBe('downstream-ctx')
     expect(found[0]!.source).toEqual({ kind: 'plugin', plugin: 'test' })
     expect(found[1]!.text).toContain('repeating the exact same tool call')
-    expect(found[1]!.source).toEqual(GUARD_SOURCE)
+    expect(found[1]!.source).toEqual(guardSource('probe', 2))
     expect(found[2]).toEqual({ text: 'downstream-ctx', source: { kind: 'plugin', plugin: 'test' } })
     // The block's feedback reached the tool result unchanged.
     const results = [...agent.session.events].filter((e): e is SessionEvent<'tool/result'> => e.type === 'tool/result')

@@ -21,7 +21,7 @@ const FIXTURE = join(SNAPSHOT_DIR, 'session.jsonl')
 // Two goldens pin the transient Host projection and its durable handoff: the
 // mid-turn state renders accepted steering from session/queue while the
 // question blocks admission, then the settled state renders the same message
-// from steering/message beside the reply that obeys it.
+// from user/message beside the reply that obeys it.
 const MID_EXPECTED = join(SNAPSHOT_DIR, 'mid-steer.expected.md')
 const SETTLED_EXPECTED = join(SNAPSHOT_DIR, 'settled.expected.md')
 const MODE = webSnapshotMode()
@@ -43,6 +43,12 @@ function assistantText(events: SessionEvent[]): string {
       return chunk.type === 'text-delta' ? chunk.text ?? '' : ''
     })
     .join('')
+}
+
+/** Claimed user messages whose payload contains the exact scenario text. */
+function claimedMessages(events: readonly SessionEvent[], text: string): SessionEvent<'user/message'>[] {
+  return events.filter((event): event is SessionEvent<'user/message'> =>
+    event.type === 'user/message' && JSON.stringify(event.data.content).includes(text))
 }
 
 describe('web e2e: mid-turn steering lands durably and visibly', () => {
@@ -74,8 +80,9 @@ describe('web e2e: mid-turn steering lands durably and visibly', () => {
   it('strictly steers one queued row; the interjection is logged, rendered, and obeyed', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-steering'))
     if (MODE !== 'record') {
-      // The steer must NOT be a user/message — it lands as steering/message.
-      expect(fixtureUserPrompts(await readFile(FIXTURE, 'utf8'))).toEqual([PROMPT])
+      // The steer lands as a durable user/message, so the inventory holds
+      // both the opening prompt and the later same-turn steer.
+      expect(fixtureUserPrompts(await readFile(FIXTURE, 'utf8'))).toEqual([PROMPT, STEER])
     }
     const input = page.locator('textarea').first()
     await input.waitFor({ timeout: 10_000 })
@@ -112,7 +119,7 @@ describe('web e2e: mid-turn steering lands durably and visibly', () => {
     }
 
     // Answer the composer; the tool result closes the step, the loop drains
-    // the steer as steering/message, and the steered continuation runs the
+    // the steer as user/message, and the steered continuation runs the
     // final model call.
     await composer.getByRole('radio', { name: 'Yes' }).click()
     await composer.getByRole('radio', { name: 'Yes' }).press('Enter')
@@ -124,15 +131,14 @@ describe('web e2e: mid-turn steering lands durably and visibly', () => {
       // Fixture honesty: a recording where the live model ignored the steer
       // would replay as a vacuous scenario — reject it and re-record instead.
       const recorded = parseSessionLog(await readFile(FIXTURE, 'utf8'))
-      expect(recorded.filter(e => e.type === 'steering/message')).toHaveLength(1)
+      expect(claimedMessages(recorded, STEER)).toHaveLength(1)
       expect(assistantText(recorded)).toContain('BANANA')
       return
     }
 
-    // Durable: exactly one steering/message, inside turn 1, carrying the text.
-    const steerEvents = sessionEvents.filter(e => e.type === 'steering/message')
+    // Durable: exactly one claimed user/message carrying the steering text.
+    const steerEvents = claimedMessages(sessionEvents, STEER)
     expect(steerEvents).toHaveLength(1)
-    expect((steerEvents[0] as SessionEvent & { data: { turn: number } }).data.turn).toBe(1)
     expect(JSON.stringify(steerEvents[0])).toContain('BANANA')
     const turnEnds = sessionEvents.filter(e => e.type === 'turn/end')
     expect(turnEnds).toHaveLength(1)
@@ -182,7 +188,7 @@ describe('web e2e: composer shortcut steers directly', () => {
 
   it.skipIf(MODE === 'record')('uses Cmd+Enter without creating a Queue row', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-composer-steering'))
-    expect(fixtureUserPrompts(await readFile(FIXTURE, 'utf8'))).toEqual([PROMPT])
+    expect(fixtureUserPrompts(await readFile(FIXTURE, 'utf8'))).toEqual([PROMPT, STEER])
     const input = page.locator('textarea').first()
     await input.waitFor({ timeout: 10_000 })
     const settled = scaffold.whenTurnSettled(30_000)
@@ -203,9 +209,8 @@ describe('web e2e: composer shortcut steers directly', () => {
     await composer.getByRole('radio', { name: 'Yes' }).press('Enter')
     await settled
 
-    const steerEvents = sessionEvents.filter(event => event.type === 'steering/message')
+    const steerEvents = claimedMessages(sessionEvents, STEER)
     expect(steerEvents).toHaveLength(1)
-    expect((steerEvents[0] as SessionEvent & { data: { turn: number } }).data.turn).toBe(1)
     await expect.poll(() => page.getByText(STEER, { exact: true }).count(), { timeout: 15_000 }).toBe(1)
     expect(await pendingSteering.count()).toBe(0)
     await expect.poll(() => page.getByText('BANANA', { exact: false }).count(), { timeout: 10_000 })
@@ -259,7 +264,7 @@ describe('web e2e: composer shortcut follows the swapped busy behavior', () => {
     const queuedRow = page.locator('[data-queue-dock]').getByRole('listitem').filter({ hasText: queuedText })
     await queuedRow.getByText(queuedText, { exact: true }).waitFor({ timeout: 10_000 })
     expect(await page.locator('[data-pending-steering]').filter({ hasText: queuedText }).count()).toBe(0)
-    expect(sessionEvents.filter(event => event.type === 'steering/message')).toHaveLength(0)
+    expect(claimedMessages(sessionEvents, queuedText)).toHaveLength(0)
 
     // Remove the asserted Queue row, then finish the recorded question turn
     // so replay teardown still proves that every fixture call was consumed.

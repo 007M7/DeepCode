@@ -23,9 +23,10 @@ export const LAUNCHER_BIN = 'landlock-run'
 
 /**
  * The exit code for every launcher-level failure (usage error, unenforcing
- * kernel, unopenable grant root, failed exec) — chosen because the wrapped
- * command itself is unlikely to use it, so a consumer can tell launcher
- * failures from command failures. Part of the CLI contract.
+ * kernel, unopenable grant root, failed exec). After a successful `exec`, the
+ * wrapped command may also return 125, so consumers also require a matching
+ * launcher-owned fatal diagnostic to attribute launcher failure. Part of the
+ * CLI contract.
  */
 export const LAUNCHER_FAILURE_EXIT = 125
 
@@ -52,7 +53,7 @@ export interface LauncherGrants {
 
 /**
  * Path of the launcher binary for this host: resolved from the per-platform
- * npm package `node-addon-landlock-run-<platform>-<arch>` (npm's
+ * npm package `@deepseek-ai/node-addon-landlock-run-<platform>-<arch>` (npm's
  * `os`/`cpu` fields make installers fetch only the matching one). When the
  * package is not resolvable — a platform without one, or an install that
  * skipped the optional dependency — the returned fallback path points inside
@@ -68,7 +69,7 @@ export interface LauncherGrants {
 export function launcherPath(
   resolvePackageJson: (specifier: string) => string = createRequire(import.meta.url).resolve,
 ): string {
-  const platformPackage = `node-addon-landlock-run-${process.platform}-${process.arch}`
+  const platformPackage = `@deepseek-ai/node-addon-landlock-run-${process.platform}-${process.arch}`
   try {
     return join(dirname(resolvePackageJson(`${platformPackage}/package.json`)), 'bin', LAUNCHER_BIN)
   } catch {

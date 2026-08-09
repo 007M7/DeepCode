@@ -73,21 +73,21 @@ export function PlanReviewPanel({ pending, review, t }: PlanReviewPanelProps) {
           <div className={css.feedback} role="status">{error}</div>
           <div className={css.actions}>
             <Button
-              size="sm" variant="ghost" icon={<IconEditOutline16 />}
+              variant="ghost" className={css.discuss} icon={<IconEditOutline16 size={14} />}
               disabled={busy} onClick={() => { settle(() => pending.cancel()) }}
             >
               {t('plan.discuss')}
             </Button>
             {decline !== undefined && (
               <Button
-                size="sm" variant="outline" {...tooltip(decline.description)}
+                variant="outline" {...tooltip(decline.description)}
                 disabled={busy} onClick={() => { decide(decline.label) }}
               >
                 {t('plan.decline')}
               </Button>
             )}
             <Button
-              size="sm" variant="primary" {...tooltip(review.approve.description)}
+              variant="primary" {...tooltip(review.approve.description)}
               disabled={busy} onClick={() => { decide(review.approve.label) }}
             >
               {t('plan.approve')}

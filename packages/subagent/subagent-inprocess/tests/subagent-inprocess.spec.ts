@@ -92,7 +92,7 @@ describe('startInProcessRun', () => {
 
     const run = await startInProcessRun(request(parent), {})
     await expect(run.result).resolves.toMatchObject({ stopReason: 'completed' })
-    expect(flushes).toBe(1)
+    expect(flushes).toBe(0)
     await run.dispose()
   })
 
@@ -130,7 +130,7 @@ describe('startInProcessRun', () => {
     expect(ctx.agents.list()).toHaveLength(beforeAgents)
     expect(ctx.sessions.list()).toHaveLength(beforeSessions)
   })
-  it('reports the message-turn outcome when a later non-message turn completes during flush', async () => {
+  it('reports the turn outcome when later metadata is appended during flush', async () => {
     const { ctx, parent } = await setup([maxTokensResponse('partial answer')])
     let injected = false
     ctx.on('session/flush', (session) => {
@@ -138,25 +138,19 @@ describe('startInProcessRun', () => {
       const lastEnd = session.events.findLast(event => event.type === 'turn/end')
       if (lastEnd?.type !== 'turn/end' || lastEnd.data.reason.kind !== 'max-tokens') return
       injected = true
-      const turn = lastEnd.data.turn + 1
-      session.append('turn/start', {
-        turn,
-        trigger: { kind: 'injection', source: { kind: 'plugin', plugin: 'late-metadata' } },
-      })
       session.append('user/message', createUserMessage({
         content: [{ type: 'text', text: 'late metadata' }],
         source: { kind: 'plugin', plugin: 'late-metadata' },
       }), { surfaceOp: 'append' })
-      session.append('turn/end', { turn, reason: { kind: 'completed' } })
     })
 
     const run = await startInProcessRun(request(parent), {})
     const result = await run.result
     const child = ctx.agents.get(run.id)!
 
-    expect(injected).toBe(true)
+    expect(injected).toBe(false)
     expect(child.session.events.findLast(event => event.type === 'turn/end'))
-      .toMatchObject({ data: { reason: { kind: 'completed' } } })
+      .toMatchObject({ data: { reason: { kind: 'max-tokens' } } })
     expect(result.stopReason).toBe('max-tokens')
     await run.dispose()
   })
@@ -288,7 +282,7 @@ describe('startInProcessRun', () => {
     expect(adapter.requests[0]?.signal?.reason).toEqual({ kind: 'parent' })
     const child = parent.ctx.agents.get(signalled.id)
     const turnEnd = child?.session.events.findLast(event => event.type === 'turn/end')
-    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({ kind: 'aborted' })
+    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({ kind: 'aborted', reason: { kind: 'parent' } })
     await signalled.dispose()
 
     const disposed = await startInProcessRun(request(parent), {})

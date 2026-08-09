@@ -15,9 +15,6 @@
       "path": "../../../vendor/cordis"
     },
     {
-      "path": "../../util/brand"
-    },
-    {
       "path": "../../core/scope"
     },
     {
@@ -31,6 +28,9 @@
     },
     {
       "path": "../../support/invariants"
+    },
+    {
+      "path": "../../typert/type-meta"
     }
   ]
 }

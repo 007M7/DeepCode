@@ -22,7 +22,13 @@ export { COMPACT_CHECKPOINT_SOURCE, isCompactCheckpointSource } from './checkpoi
 export type CompactionTrigger = 'pressure' | 'context-overflow'
 
 /** Expected failure classes for an explicit idle-session compaction request. */
-export type ManualCompactionErrorCode = 'busy' | 'changed' | 'summary' | 'commit' | 'persistence'
+export type ManualCompactionErrorCode =
+  | 'busy'
+  | 'cancelled'
+  | 'changed'
+  | 'summary'
+  | 'commit'
+  | 'persistence'
 
 /**
  * Expected manual-compaction failure suitable for a direct human-command result.
@@ -59,7 +65,14 @@ export interface CompactAgentContext {
  * other compaction transactions.
  */
 export interface ManualCompactAgentContext extends CompactAgentContext {
-  reserveTurnAdmission(): (() => void) | undefined
+  /**
+   * Run a non-turn maintenance operation only while the agent is idle, withholding later
+   * waking input until it settles.
+   * @param task - operation whose fulfillment or rejection is preserved, with an agent-owned cancellation signal.
+   * @throws synchronously when the agent is already active.
+   * @returns the task promise.
+   */
+  runMaintenance<T>(task: (signal: AbortSignal) => Promise<T>): Promise<T>
 }
 
 declare module 'cordis' {
@@ -102,21 +115,22 @@ export abstract class CompactService extends Service {
 
   /**
    * Explicitly compact useful history even below automatic pressure thresholds.
-   * Implementations reserve idle turn admission synchronously before any
-   * asynchronous work, select a useful range without writing on a no-op, then
+   * Implementations synchronously start an idle task before any asynchronous
+   * work, select a useful range without writing on a no-op, then
    * append a standalone `compact/start` before summarization. That durable
    * marker is the compaction lock until one `compact/end` attempt. Later waking
    * prompts remain accepted in FIFO order and start only after the optional
-   * durability checkpoint and admission release. Context injected while the
+   * durability checkpoint and idle-task settlement. Context injected while the
    * summary runs may sit between the marker pair; only the selected span must
    * remain stable.
    *
    * @param agent - idle agent whose durable history should be compacted.
-   * @param signal - command-owned cancellation forwarded to summarization.
+   * @param signal - cancellation scoped to this compaction request.
    * @returns the compaction result, or `null` when no safe useful range exists.
-   * @throws {@link ManualCompactionError} for expected busy, changed-span,
-   * summarization/shrink, commit-stage, or persistence failures, and the exact
-   * abort reason when cancelled. Failed attempts remain visible in the log.
+   * @throws {@link ManualCompactionError} for expected busy, agent-cancellation,
+   * changed-span, summarization/shrink, commit-stage, or persistence failures;
+   * an aborted request preserves its exact abort reason. Failed attempts remain
+   * visible in the log.
    */
   abstract compactNow(
     agent: ManualCompactAgentContext,

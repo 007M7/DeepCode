@@ -36,7 +36,7 @@ Status: implemented
 
 ## Alternatives considered
 
-**由持久化协调器的冷加载路径写入边界。** 最先实现的方案，即 [`session/resumed` 边界](../../rejected/architecture/2026-07-29-session-resumed-log-boundary.md)，在合并前被放弃。它完全覆盖不到 fork，而 fork 恰恰是继承括号的所有方可能仍然存活的那一种情形。由于标记是在加载时铸造的，它还必须在读取路径上做持久写入，这把成本铺开到整个 seam：每次冷加载都递增 revision、对一份无需修复的平衡日志也要走 `commitRepair`、需要一个已存储时间下限来维持钳制的单调性，以及加载在只读存储上会失败。
+**由持久化协调器的冷加载路径写入边界。** 最初将其实现为 `session/resumed` 边界，并在合并前放弃。它完全覆盖不到 fork，而 fork 恰恰是继承括号的所有方可能仍然存活的那一种情形。由于标记是在加载时铸造的，它还必须在读取路径上做持久写入，这把成本铺开到整个 seam：每次冷加载都递增 revision、对一份无需修复的平衡日志也要走 `commitRepair`、需要一个已存储时间下限来维持钳制的单调性，以及加载在只读存储上会失败。
 
 **在 loop 启动时追加边界。** loop 调用 `resumeWith`，因此覆盖恢复路径，但完全漏掉 `fork()` 与 `adopt()`，而且事件不得不在 `'startup'` 上触发——那是 fork 子会话发布的来源——于是 `SessionStartSource` 将不再具有区分力。它还会在追加标记之前就发布会话，因此 `session/created` 监听方可能观察到一份没有边界的带种子日志。
 

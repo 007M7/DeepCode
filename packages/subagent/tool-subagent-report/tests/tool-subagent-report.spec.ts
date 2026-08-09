@@ -96,14 +96,15 @@ function callReport(ctx: Context, child: Agent, output: string, signal = testSig
   })
 }
 
-/** Reports durably visible in one Agent's Session. */
+/** Reports already visible or still pending in one Agent. */
 function reports(agent: Agent): { id: string; text: string; sender: string }[] {
-  return agent.session.events.flatMap((event) => {
-    if (event.type !== 'user/message' || event.data.source.kind !== 'subagent-report') return []
+  const visible = agent.session.events.flatMap(event => event.type === 'user/message' ? [event.data] : [])
+  return [...visible, ...agent.inbox.nextStep].flatMap((message) => {
+    if (message.source.kind !== 'subagent-report') return []
     return [{
-      id: event.data.id,
-      text: event.data.content.flatMap(block => block.type === 'text' ? [block.text] : []).join('\n'),
-      sender: event.data.source.senderSessionId,
+      id: message.id,
+      text: message.content.flatMap(block => block.type === 'text' ? [block.text] : []).join('\n'),
+      sender: message.source.senderSessionId,
     }]
   })
 }
@@ -163,8 +164,10 @@ describe('dsh-tool-subagent-report', () => {
     const { started, child } = await startChild(ctx, parent)
     const parentRequests = adapter.requests.filter(request => request.sessionId === parent.id).length
     const enqueues: string[] = []
-    ctx.on('agent/inbox/enqueue', (agent, item) => {
-      if (agent === parent) enqueues.push(item.placement)
+    ctx.on('agent/inbox/inserted', ({ agent, message }) => {
+      if (agent === parent) {
+        enqueues.push(agent.inbox.nextTurn.some(queued => queued.id === message.id) ? 'queued' : 'steering')
+      }
     })
 
     const result = await callReport(ctx, child, 'CHILD_FINDING')
@@ -178,7 +181,7 @@ describe('dsh-tool-subagent-report', () => {
       text: `Background subagent ${started.childId} reported:\nCHILD_FINDING`,
       sender: started.childId,
     }])
-    expect(enqueues).toEqual([])
+    expect(enqueues).toEqual(['steering'])
     expect(parent.status).toBe('idle')
     expect(adapter.requests.filter(request => request.sessionId === parent.id)).toHaveLength(parentRequests)
   })
@@ -187,8 +190,10 @@ describe('dsh-tool-subagent-report', () => {
     const { ctx, parent, adapter } = await setup({ config: { reportDelivery: 'wakeup' } })
     const { child } = await startChild(ctx, parent)
     const enqueues: string[] = []
-    ctx.on('agent/inbox/enqueue', (agent, item) => {
-      if (agent === parent) enqueues.push(item.placement)
+    ctx.on('agent/inbox/inserted', ({ agent, message }) => {
+      if (agent === parent) {
+        enqueues.push(agent.inbox.nextTurn.some(queued => queued.id === message.id) ? 'queued' : 'steering')
+      }
     })
 
     const result = await callReport(ctx, child, 'WAKE_UP')
@@ -227,9 +232,9 @@ describe('dsh-tool-subagent-report', () => {
 
     expect((await callReport(ctx, grandchild, 'FROM_GRANDCHILD')).isError).toBe(false)
     expect(reports(parent)).toEqual([])
-    // The intermediate parent's turn is open, so quiet context is staged until
-    // that turn reaches its next safe log boundary.
-    expect(reports(child)).toEqual([])
+    // The intermediate parent's turn is open, so quiet context is pending in
+    // its inbox until that turn reaches its next safe log boundary.
+    expect(reports(child)).toHaveLength(1)
     adapter.release()
     await vi.waitFor(() => { expect(reports(child)).toHaveLength(1) })
     expect(reports(child)[0]?.sender).toBe(grandchildStart.childId)

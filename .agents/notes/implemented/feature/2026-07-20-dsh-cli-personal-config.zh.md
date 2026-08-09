@@ -10,9 +10,11 @@ Status: implemented
 
 ## Decision
 
+下文的各入口模式，以及个人文件的名称与位置，已被 [profile 插件组合包决策](../architecture/2026-08-05-profile-plugin-bundles.md)取代：`dsh` 启动 profile，个人层变成逐 profile 与 home 级的 `cordis.patch.yml`。保留不变的是本笔记的实质：以 Harness home 作为机器级层的根目录、在随附组合之上使用 patch 语义，以及解析时的大声失败。
+
 两个耦合的部分，与 `dsh web` PR（#443）提出的 `apps/` 装配层对齐：
 
-**`dsh` CLI（`apps/cli`，npm 名 `@deepseek-ai/dsh`）。** `apps/*` 是位于 `packages/*` 库之上的产品组装层。一个 bin 负责分发默认交互式 TUI、`-p`/`--prompt` 无头轮次和 `web` 界面。TUI 以调用目录为 workspace，启动 `examples/tui-agent/cordis.yml`（或 `--config` 指定的配置）。已提交的 `bin/dsh` 启动器通过自身真实路径解析 checkout，并使用 tsx 的 ESM hook 运行应用；该契约由[源码启动决策](../architecture/2026-07-29-dsh-source-launch-tsx-esm.md)维护。`pnpm run demo:tui` 运行同一入口。
+**`dsh` CLI（`apps/cli`，npm 名 `@deepseek-ai/dsh`）。** `apps/*` 是位于 `packages/*` 库之上的产品组装层。一个 bin 负责分发默认交互式 TUI、`-p`/`--prompt` 无头轮次和 `web` 界面。TUI 以调用目录为 workspace，启动 `examples/tui-agent/cordis.yml`（或 `--config` 指定的配置）。已提交的 `bin/dsh` 启动器通过自身真实路径解析 checkout，并使用 tsx 的 ESM hook 运行应用；该约定由[源码启动决策](../architecture/2026-07-29-dsh-source-launch-tsx-esm.md)维护。`pnpm run demo:tui` 运行同一入口。
 
 **个人配置（`dsh-app-boot`）。** 个人 overlay 存放在 Harness home——`$DSH_HOME`，否则 `~/.dsh`——由共享的 [`resolveDshHome`](../architecture/2026-07-24-single-harness-home-resolver.md)（`@deepseek-ai/dsh-paths`）解析，与 skills、AGENTS.md 解析所依据的单一根目录相同。dsh 的 TUI、Web 和无头界面使用其中两个可选文件；各示例 bin 仍然逐字节按已提交的配置树启动：
 
@@ -32,18 +34,18 @@ TUI 和 Web 启动后通过 Cordis HMR（热模块替换）注册确切的个人
 
 **个人完整 `cordis.yml` 去 include 请求的配置。** 否决：个人文件将不得不写死叶子配置的路径，而该路径随 checkout 变化；补丁反转了依赖方向，bin 仍然选择配置树，个人层只做修正。
 
-**把个人补丁深合并进配置项配置。** 否决：会使补丁语义与已提交 overlay 和 vendor 的 include 分叉；整个 `config` 替换已是成文契约。
+**把个人补丁深合并进配置项配置。** 否决：会使补丁语义与已提交 overlay 和 vendor 的 include 分叉；整个 `config` 替换已是成文约定。
 
 **用环境变量开关代替存在性判断。** 否决：默认关闭的个人配置永远不会被用起来；存在即生效加上每个测试的显式隔离，让实际运行获得 overlay、测试获得封闭性。
 
 ## Consequences
 
 - 在任意目录运行 `dsh`（以及 `pnpm run demo:tui`），无需修改 checkout，即可应用个人提供方、模型、仓库插件和其他 Loader 配置项；已针对个人 Anthropic 代理与 Opus 4.8 端到端验证，包括一次 bash 工具往返。
-- 由于按 id 定位的补丁替换整个 `config`，个人覆盖必须复述它保留的基础字段，并可能随基础配置项形态变化而漂移；诊断手段是 loader 的「配置项未找到/名称不匹配」警告和 [`dsh --dump-config`](2026-07-30-dsh-dump-config.md)（打印这些补丁合成出的配置树）。
+- 由于按 id 定位的补丁替换整个 `config`，个人覆盖必须复述它保留的基础字段，并可能随基础配置项形态变化而漂移；诊断手段是 loader 的「配置项未找到/名称不匹配」警告和 [`dsh --dump-config`](../../../../apps/cli/README.md#profiles)（打印这些补丁合成出的配置树）。
 - 个人补丁只在被启动文件自身的树里解析 id，因此嵌套 include 的 overlay（Code Mode）不会被个性化；这些叶子的实际运行等价性暂缓。
 - `dsh-app-boot` 依赖 `js-yaml`，并直接导入 include 的 `!!js` YAML 方言（`entryListSchema`）；与 `apps/cli` 一样依赖 `@deepseek-ai/dsh-paths` 以获取 `resolveDshHome`。
 - 只有长时间运行的 TUI 和 Web 进程进行实时监视。无头自动化使用确定性的启动配置，退出时不会保留 watcher。
 
 ## Testing
 
-`packages/ui/app-boot/tests/personal-config.spec.ts` 固定解析、启动时应用、确切路径的新增／失败／恢复／移除、最后可用状态回滚、失败广播以及应用自有 patch 的保留。`examples/tui-agent/tests/tui-keyless-smoke.e2e.ts` 启动真实 dsh bin，覆盖无 overlay、个人环境与 UI patch、纯配置的缓存 repository skill，以及无效个人 YAML。测试启动器会隔离 `$DSH_HOME`，因此开发者的真实 overlay 不会泄漏进 fixture。
+`packages/boot/app-boot/tests/user-patches.spec.ts` 固定解析、启动时应用、确切路径的新增／失败／恢复／移除、最后可用状态回滚、失败广播以及应用自有 patch 的保留。`apps/cli/tests/built-bin.e2e.ts` 启动真实 dsh bin 并基于 profile 端到端验证实时 patch 层。测试启动器会隔离 `$DSH_HOME`，因此开发者的真实 overlay 不会泄漏进 fixture。

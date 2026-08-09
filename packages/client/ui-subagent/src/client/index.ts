@@ -36,14 +36,18 @@ export type {
 } from './SubagentReadOnlyComposer.tsx'
 
 /** Required services for references, conversation slots, and session navigation. */
-export const inject = ['slash', 'sessions', 'conversation', 'slots', 'locale']
+export const inject = ['slash', 'sessions', 'slots', 'locale']
 
 /** Claim the composer for one-shot history or an unavailable continuation owner. */
 function selectReadOnlySubagent(owner: ComposerChainProps): SubagentReadOnlyMatch | null {
   const subagent = owner.session?.subagent
   if (subagent === undefined || subagent === null) return null
   if (subagent.address.mode === 'one-shot') return { reason: 'one-shot' }
-  return subagent.parentAvailable ? null : { reason: 'parent-unavailable' }
+  if (subagent.parentAvailable) return null
+  // A RUNNING parent-offline continuable child keeps the default composer:
+  // its input is disabled there, but the same primary Stop stays available so
+  // the child can be interrupted. Once it stops, this takeover returns.
+  return owner.session?.running === true ? null : { reason: 'parent-unavailable' }
 }
 
 /**
@@ -103,7 +107,8 @@ export function apply(ctx: ClientContext): void {
       sessions.setSubagentCatalogOpen(parentSessionId, open)
     },
   })
-  ctx.effect(
+  ctx.slots.inject(
+    'conversation.session.header.actions',
     () => ctx.slots.register({
       name: 'conversation.session.header.actions',
       id: 'subagent-catalog',
@@ -111,15 +116,14 @@ export function apply(ctx: ClientContext): void {
       locale: NS,
       inject: catalogActions,
     }, SubagentCatalogAction),
-    'ui-subagent: lazy descendant catalog action',
   )
-  ctx.effect(
+  ctx.slots.inject(
+    'conversation.composer',
     () => ctx.slots.register({
       name: 'conversation.composer',
       priority: -10,
       locale: NS,
       select: selectReadOnlySubagent,
     }, SubagentReadOnlyComposer),
-    'ui-subagent: read-only addressed composer',
   )
 }

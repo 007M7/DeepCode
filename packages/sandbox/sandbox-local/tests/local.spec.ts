@@ -12,6 +12,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
+import { LAUNCHER_FAILURE_EXIT } from '@deepseek-ai/node-addon-landlock-run'
 import { SANDBOX_UNAVAILABLE, SandboxUnavailableError } from '@deepseek-ai/dsh-sandbox'
 import type { SandboxPolicy } from '@deepseek-ai/dsh-sandbox'
 import {
@@ -35,7 +36,7 @@ async function setup(config: Config = {}, internals: LocalSandboxProvider['inter
 function fakeLauncher(report = 'landlock: fully enforced'): string {
   const dir = mkdtempSync(join(tmpdir(), 'dsh-fake-landlock-'))
   const launcher = join(dir, 'landlock-run')
-  writeFileSync(launcher, `#!/bin/sh\nif [ "$1" = "--probe" ]; then echo "${report}"; exit 0; fi\nexit 125\n`, { mode: 0o755 })
+  writeFileSync(launcher, `#!/bin/sh\nif [ "$1" = "--probe" ]; then echo "${report}"; exit 0; fi\nexit ${LAUNCHER_FAILURE_EXIT}\n`, { mode: 0o755 })
   return launcher
 }
 
@@ -111,16 +112,7 @@ describe('runnerCommand config', () => {
       // An operator runner's kernel mechanism is unknown: both Linux
       // file-denial dialects, never bare EPERM.
       denialSignatures: ['read-only file system', 'permission denied'],
-      // The runner's own dialect is unknown, but the consumer re-joins the
-      // wrap through an outer `bash -c 'exec …'` — a missing or
-      // unexecutable runner fails with the OUTER shell's argv0-scoped
-      // shapes, and those classify as sandbox failures like any rung.
-      runnerFailureSignatures: [
-        'fake-runner: profile rejected',
-        'exec: fake-runner: not found',
-        'fake-runner: No such file or directory',
-        'fake-runner: Permission denied',
-      ],
+      runnerFailureRules: [{ fatalSignatures: ['fake-runner: profile rejected'] }],
     })
     expect(probeBwrap).not.toHaveBeenCalled()
     expect(probeLandlock).not.toHaveBeenCalled()
@@ -146,11 +138,14 @@ describe('runnerCommand config', () => {
     )
   })
 
-  it('rejects blank configured-runner failure signatures', async () => {
-    await expect(setup({ runnerCommand: ['fake-runner'], runnerFailureSignatures: ['  '] })).rejects.toThrow(
-      'runnerFailureSignatures entries must be non-empty',
-    )
-  })
+  it.each(['  ', 'fatal\ncontinued', 'fatal\rcontinued'])(
+    'rejects an unusable configured-runner failure signature %j',
+    async (signature) => {
+      await expect(setup({ runnerCommand: ['fake-runner'], runnerFailureSignatures: [signature] })).rejects.toThrow(
+        'runnerFailureSignatures entries must be non-empty single-line strings',
+      )
+    },
+  )
 })
 
 describe('the platform chains', () => {
@@ -163,7 +158,7 @@ describe('the platform chains', () => {
       argv: ['bwrap', ...bwrapProfileArgs(RO), '--', 'true'],
       enforcement: 'full',
       denialSignatures: ['read-only file system'],
-      runnerFailureSignatures: ['bwrap: '],
+      runnerFailureRules: [{ fatalSignatures: ['bwrap: '] }],
     })
     expect(probeLandlock).not.toHaveBeenCalled()
   })
@@ -178,14 +173,18 @@ describe('the platform chains', () => {
       argv: [launcher, ...landlockProfileArgs(WW), '--', 'bash', '-c', 'echo hi'],
       enforcement: 'full',
       denialSignatures: ['permission denied'],
-      runnerFailureSignatures: ['landlock-run: '],
+      runnerFailureRules: [{
+        allowedExitCodes: [LAUNCHER_FAILURE_EXIT],
+        fatalSignatures: ['landlock-run: '],
+        informationalLines: ['landlock-run: partial enforcement (older Landlock ABI)'],
+      }],
     })
     expect(probeLandlock).toHaveBeenCalledWith(launcher)
   })
 
   it('darwin selects its sole candidate WITHOUT probing: nothing to arbitrate', async () => {
     // The safety property moves to execution time: an unusable sandbox-exec
-    // refuses to run the command, and the wrap's runnerFailureSignatures let
+    // refuses to run the command, and the wrap's runnerFailureRules let
     // the consumer classify that as a sandbox failure, not a task failure.
     const probeSeatbelt = vi.fn(() => true)
     const { sandbox } = await setup({}, { platform: 'darwin', probeSeatbelt })
@@ -194,7 +193,7 @@ describe('the platform chains', () => {
       argv: ['sandbox-exec', ...seatbeltProfileArgs(RO), '--', 'bash', '-c', 'echo hi'],
       enforcement: 'full',
       denialSignatures: ['operation not permitted'],
-      runnerFailureSignatures: ['sandbox-exec: '],
+      runnerFailureRules: [{ fatalSignatures: ['sandbox-exec: '] }],
     })
     expect(probeSeatbelt).not.toHaveBeenCalled()
   })
@@ -311,7 +310,7 @@ describe('the default landlock probe (launcher CLI contract)', () => {
   it('reads a failing launcher as unusable: the chain ends and fails closed', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'dsh-fake-landlock-'))
     const launcher = join(dir, 'landlock-run')
-    writeFileSync(launcher, '#!/bin/sh\nexit 125\n', { mode: 0o755 })
+    writeFileSync(launcher, `#!/bin/sh\nexit ${LAUNCHER_FAILURE_EXIT}\n`, { mode: 0o755 })
     const { sandbox } = await setup({}, { platform: 'linux', probeBwrap: () => false, landlockLauncher: launcher })
     expect(() => sandbox.confine(['true'], RO)).toThrow(expect.objectContaining({ code: SANDBOX_UNAVAILABLE }))
   })
@@ -360,7 +359,7 @@ describe('the default seatbelt probe (sandbox-exec contract)', () => {
       argv: [exec, ...seatbeltProfileArgs(RO), '--', 'true'],
       enforcement: 'full',
       denialSignatures: ['operation not permitted'],
-      runnerFailureSignatures: ['sandbox-exec: '],
+      runnerFailureRules: [{ fatalSignatures: ['sandbox-exec: '] }],
     })
   })
 

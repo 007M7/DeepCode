@@ -1,4 +1,4 @@
-# Agent Note：用户设置 seam（`ctx.settings`）与文件 provider
+# Agent Note: 用户设置 seam（`ctx.settings`）与文件 provider
 
 Status: implemented
 
@@ -12,7 +12,7 @@ Status: implemented
 
 ## 决策
 
-**两个面，一条判定。**`cordis.yml`（+ Include patches）仍是组合面：有哪些插件、接线、部署配置，归 orchestrator 所有并随产品升级。settings namespace 只承载用户可编辑子集；判定是"个人配置页应该能改它吗？"值可同时存在于两个面而不歧义，因为分层就是契约：schema 默认值，然后注册方的组合 `base`（其 entry 配置子集），最后用户文档分节。
+**两个面，一条判定。**`cordis.yml`（+ Include patches）仍是组合面：有哪些插件、接线、部署配置，归 orchestrator 所有并随产品升级。settings namespace 只承载用户可编辑子集；判定是"个人配置页应该能改它吗？"值可同时存在于两个面而不歧义，因为分层就是约定：schema 默认值，然后注册方的组合 `base`（其 entry 配置子集），最后用户文档分节。
 
 **镜像 `session-persistence/` 的三包 seam。**`dsh-settings` 拥有抽象 `Settings` 服务：namespace 注册表、分层解析、schema 校验、按 namespace 深相等变更检测，以及 `settings/updated` 提交事件。provider 只实现 `writable`/`load()`/`persist(ns, section)`，并通过受保护的 `publish(doc)` 推入外部观察到的文档——因此热更新语义对所有 provider 一致，网络配置中心后端（nacos 类，可能只读）只是一个平级包的距离。`dsh-settings-local` 是文件 provider：`resolveSpec` 显式默认到 `<DSH_HOME>/settings.yaml` 的 YAML/JSON、chokidar 监听、跨进程写锁下以 `0600` tmp+rename 原子提交的读-改-写 persist、对被写 namespace 的叶子级 diff 修补（未触碰节点的注释得以保留）、按内容相等抑制自写（[write-path integrity note](2026-07-30-settings-write-path-integrity.md)）。
 
@@ -25,7 +25,7 @@ Status: implemented
 ## Alternatives considered
 
 - **以 Include 写回为用户层**（cordis-webui 式的按插件配置页写 loader entry 文件）：写回目标是按组合的文件，会把用户偏好绑死在某个 `cordis.yml` 上；用户层必须在模板升级中存活，并以同一文档服务 TUI 与 web。
-- **以 Loader reactive `fiber.update` 为传导通道**：构造期读取毫无感知；seam 的显式 `watch()` 把热更新变成消费者契约而非框架魔法。
+- **以 Loader reactive `fiber.update` 为传导通道**：构造期读取毫无感知；seam 的显式 `watch()` 把热更新变成消费者约定而非框架魔法。
 - **领域化的 settings 服务**（按产品域的 getter）：设计评审中的耦合反对成立；服务只做存储、校验、发布——领域含义留给拥有 schema 的注册方。
 - **现在就做多层优先级**（Codex/Claude Code 式 system/managed/project 层级）：延后到真实第二层出现；resolve 步骤是分层未来唯一的扩展点。
 - **现在就上跨进程锁**（Pi 的 proper-lockfile）：最初以"原子替换加 watcher 收敛，真实冲突出现再说"为由延后——评审发现收敛会丢失未观察到的同级 namespace，因此该延后已被 [write-path integrity note](2026-07-30-settings-write-path-integrity.md) 的手写写锁取代。

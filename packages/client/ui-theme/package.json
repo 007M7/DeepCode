@@ -19,7 +19,7 @@
       "types": "./lib/types/client/index.d.ts",
       "default": "./lib/client.js"
     },
-    "./styles/*": "./src/styles/*",
+    "./styles/*": "./lib/styles/*",
     "./src/*": "./src/*",
     "./package.json": "./package.json"
   },
@@ -56,9 +56,8 @@
     "lib/index.js",
     "lib/invariant.js",
     "lib/client.js",
-    "lib/types/**/*.d.ts",
-    "lib/types/**/*.d.ts.map",
-    "src"
+    "lib/styles",
+    "lib/types/**/*.d.ts"
   ],
   "scripts": {
     "bundle": "tsdown",

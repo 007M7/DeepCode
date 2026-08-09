@@ -16,7 +16,7 @@ function histResponse(events: SessionEvent[], hasMore = false) {
 }
 
 describe('SessionHistorySource', () => {
-  it('loads every older page without changing a Chat session', async () => {
+  it('loads the tail first and prepends older pages on demand', async () => {
     const pages = [
       plainTurn(0, 0, '最早问', '最早答'),
       plainTurn(6, 1, '中间问', '中间答'),
@@ -30,10 +30,21 @@ describe('SessionHistorySource', () => {
     }
     const source = new SessionHistorySource(SID, api)
 
-    await source.loadAll()
+    await source.loadTail()
+
+    expect(api.callsOf('session.history')).toHaveLength(1)
+    expect(source.getSnapshot().hasMore).toBe(true)
+    expect(source.getSnapshot().baseSeq).toBe(12)
+    expect(source.getSnapshot().inspection.eventNodes.map(node => node.seq))
+      .toEqual([13, 15])
+
+    expect(await source.loadOlder()).toBe(true)
+    expect(await source.loadOlder()).toBe(true)
+    expect(await source.loadOlder()).toBe(false)
 
     expect(api.callsOf('session.history')).toHaveLength(3)
     expect(source.getSnapshot().hasMore).toBe(false)
+    expect(source.getSnapshot().baseSeq).toBe(0)
     expect(source.getSnapshot().inspection.eventNodes.map(node => node.seq))
       .toEqual([1, 3, 7, 9, 13, 15])
   })
@@ -42,7 +53,7 @@ describe('SessionHistorySource', () => {
     const api = new FakeApiClient()
     api.onHistory = () => histResponse(plainTurn(0, 0, '问', '答'))
     const source = new SessionHistorySource(SID, api)
-    await source.loadAll()
+    await source.loadTail()
     const before = source.getSnapshot()
 
     source.handleMuxFrame({
@@ -60,7 +71,7 @@ describe('SessionHistorySource', () => {
     const api = new FakeApiClient()
     api.onHistory = () => histResponse(plainTurn(0, 0, '问', '答'))
     const source = new SessionHistorySource(SID, api)
-    await source.loadAll()
+    await source.loadTail()
     const frames: FrameRequestCallback[] = []
     vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
       frames.push(callback)
@@ -132,13 +143,14 @@ describe('SessionHistorySource', () => {
       }))
     const source = new SessionHistorySource(SID, api)
 
-    await source.loadAll()
+    await source.loadTail()
+    expect(await source.loadOlder()).toBe(false)
 
     expect(api.callsOf('session.history')).toHaveLength(2)
     expect(source.getSnapshot().hasMore).toBe(true)
   })
 
-  it('observes consumer cancellation between older pages', async () => {
+  it('finishes an already started older page after consumer cancellation', async () => {
     const middle = deferred<Awaited<ReturnType<FakeApiClient['onHistory']>>>()
     const olderStarted = deferred<undefined>()
     const api = new FakeApiClient()
@@ -151,7 +163,8 @@ describe('SessionHistorySource', () => {
     }
     const source = new SessionHistorySource(SID, api)
     const controller = new AbortController()
-    const complete = source.loadAll(controller.signal)
+    await source.loadTail(controller.signal)
+    const complete = source.loadOlder(controller.signal)
     await olderStarted.promise
     controller.abort()
     middle.resolve(ok({
@@ -159,7 +172,7 @@ describe('SessionHistorySource', () => {
       hasMore: true,
     }))
 
-    await complete
+    expect(await complete).toBe(true)
 
     expect(api.callsOf('session.history')).toHaveLength(2)
     expect(source.getSnapshot().hasMore).toBe(true)

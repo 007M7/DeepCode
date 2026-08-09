@@ -8,13 +8,13 @@ Requires `ctx.agents`, `ctx.tools`, and `ctx.skills` (`inject: ['agents', 'tools
 
 ## Catalog lifecycle
 
-At every `agent/step`, the plugin calls `ctx.skills.snapshot()` for the calling session's cwd, forwards the step abort signal to discovery, applies exact `skill` tool visibility, and renders the ordered `name` and `description` entries. When no prior catalog exists and that view is non-empty, it injects an initial durable user-role `<system-reminder>` before the request. Catalog messages contain only those summaries; skill bodies, paths, sources, providers, and `whenToUse` hints remain outside the catalog.
+At every eligible `agent/pre-step`, the plugin calls `ctx.skills.snapshot()` for the calling session's cwd, forwards the pre-step abort signal to discovery, applies exact `skill` tool visibility, and renders the ordered `name` and `description` entries. When no prior catalog exists and that view is non-empty, it adds an initial durable user-role `<system-reminder>` to a downstream `enter` decision. Catalog messages contain only those summaries; skill bodies, paths, sources, providers, and `whenToUse` hints remain outside the catalog.
 
-The digest covers the exact rendered text between the `<available_skills>` tags. The plugin scans durable session events backwards without copying them and derives the comparison baseline from the newest recognizable visible catalog message it sourced. When the digest changes, `agent.inject()` records a durable user-role message containing the complete replacement catalog; an empty replacement explicitly retires earlier names. If no catalog remains visible but a recognizable historical catalog exists, compaction hid it and the next complete observation re-establishes the current catalog. An incomplete provider snapshot emits nothing and preserves the last-good model view for retry on the next step. If no prior catalog exists and the current view is empty, no tombstone is necessary.
+Every catalog message carries the `skill-catalog` source: a `catalog`-form context whose `entries` record exactly the `name` and `description` pairs it published, plus `update` on a replacement. The digest covers those durable entries, not the rendered prose, so the surrounding `<system-reminder>` framing cannot decide whether a republish is needed and consumers never re-parse the `<available_skills>` block. The plugin scans durable session events backwards without copying them and derives the comparison baseline from the newest visible `skill-catalog` message it can read; unreadable and foreign records are skipped. When the digest changes, the downstream `enter` decision receives a durable user-role message containing the complete replacement catalog; an empty replacement explicitly retires earlier names. If no catalog remains visible but a recognizable historical catalog exists, compaction hid it and the next complete observation re-establishes the current catalog. An incomplete provider snapshot emits nothing and preserves the last-good model view for retry at the next pre-step. If no prior catalog exists and the current view is empty, no tombstone is necessary.
 
 The catalog is omitted when no model-invocable skills are initially available, and also when that agent's tool view restricts away the shipped `skill` tool or resolves a same-name scoped shadow instead. Visibility changes participate in the digest, keeping prompt guidance, model-visible schema, and executable dispatch aligned.
 
-`catalogDescriptionMaxLength` controls normalized, XML-escaped catalog descriptions. Its default is `500` and values must be integers of at least `3`, which reserves room for a truncation ellipsis. The [skill catalog hot-refresh Agent Note](../../../.agents/notes/implemented/feature/2026-07-27-skill-catalog-hot-refresh.md) owns the durable initial catalog and replacement lifecycle.
+`catalogDescriptionMaxLength` controls normalized catalog descriptions; rendering XML-escapes them. Its default is `500` and values must be integers of at least `3`, which reserves room for a truncation ellipsis. The [skill catalog hot-refresh Agent Note](../../../.agents/notes/implemented/feature/2026-07-27-skill-catalog-hot-refresh.md) owns the durable initial catalog and replacement lifecycle.
 
 ## Tool: `skill`
 
@@ -28,7 +28,7 @@ Resource guidance resolves only paths or URLs explicitly referenced by the instr
 
 An unresolved name reports that the skill is unknown or no longer available. Invalid names and skills whose `invocation.modelInvocable` is `false` produce distinct error results. `invocation.userInvocable` does not restrict this model-facing surface.
 
-Tool execution does not call `agent.inject()`. Its freshly loaded result is already recorded as the tool result and becomes available to the next model step without duplicating the body as synthetic context. Only the catalog projection injects replacement summaries.
+Tool execution does not add a synthetic context message. Its freshly loaded result is already recorded as the tool result and becomes available to the next model step without duplicating the body. Only the catalog projection adds replacement summaries.
 
 ## Model Experience
 
@@ -36,7 +36,7 @@ Tool execution does not call `agent.inject()`. Its freshly loaded result is alre
 
 #### What the model sees
 
-If model-invocable skills exist and this exact `skill` tool is visible, the agent receives the catalog template below as a durable user-role message before the first request, with one data-dependent entry per sorted skill. Later membership, description, or visibility changes append a complete replacement using the same `<available_skills>` envelope; deleting every skill appends an empty envelope with an explicit instruction not to use older names.
+If model-invocable skills exist and this exact `skill` tool is visible, the agent receives the catalog template below as a durable user-role message before the first request, with one data-dependent entry per sorted skill. Later membership, description, or visibility changes append a complete replacement using the same `<available_skills>` envelope; deleting every skill appends an empty envelope with an explicit instruction not to use older names. The template's closing sentence is the seam rule against double-loading: the user-explicit gesture boundary (the pre-step listener below) injects the same `renderSkillContent` output (shared from `@deepseek-ai/dsh-skill`) inline, and the catalog tells the model to follow that block instead of re-loading the skill through the tool; the replacement-catalog template carries the same sentence in both arms, including the emptied catalog.
 
 ##### Skill catalog template
 
@@ -49,6 +49,7 @@ A skill is a reusable set of task-specific instructions. The following skills ar
 </available_skills>
 
 If the user names a skill, or the task clearly matches a skill's description, call the `skill` tool with the exact skill name before taking task actions. Load all applicable skills, then follow their full instructions. This catalog contains summaries only; do not infer or follow a skill's instructions until it has been loaded.
+A user may also invoke a skill directly; its <skill_content> block then appears in this conversation. Follow it, and do not call the `skill` tool again for that skill.
 </system-reminder>
 ```
 
@@ -143,6 +144,20 @@ Only a failing call adds these retained tokens.
 #### KV Cache effect
 
 Append-only; newly visible content follows the reusable request prefix and does not invalidate existing KV-cache entries.
+
+### User-explicit invocation injection
+
+#### What the model sees
+
+A whitespace-bounded `/name` token anywhere in a claimed user message, naming a user-invocable skill in the workspace catalog, injects that skill's full `<skill_content>` rendering (the exact result-template shape above) as a `user`-role instructions context appended after every other injection of that step — background first, the material to act on last. Only direct user input is scanned, the check runs on the loaded definition, and unknown or user-disabled names stay ordinary prose. This is the sole entry point for `disable-model-invocation` skills, which the catalog and the `skill` tool never expose; the catalog's closing sentence tells the model to follow the injected block instead of re-loading it.
+
+#### Token effect
+
+Each gesture adds one rendered skill body to that turn as injected context — the same size as the tool result for the same skill, paid deterministically at the user's request instead of at the model's discretion. Repeated gestures for one skill within one step inject once.
+
+#### KV Cache effect
+
+Append-only; the injection lands after the reusable request prefix inside the step's message batch and does not invalidate existing KV-cache entries.
 
 ## Known Limitations and Deferred Work
 

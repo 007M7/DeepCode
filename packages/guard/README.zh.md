@@ -1,11 +1,12 @@
-# guard/：循环健康 guard 家族
+# guard/ — 循环健康 guard 家族
 
 [English](README.md) | 中文
 
-这组行为 guard 插件会监视 agent loop（智能体循环）中的低效模式，并提醒模型调整方向。这里只有一个**产品**包（package），不设接口／实现 seam：guard 是现有核心 seam（`tools/post-execute`、`agent/prompt-submit`、`agent/status`）的自包含消费方，并非可替换能力。
+行为 guard 插件监视 agent loop（智能体循环）中的无效模式，并强制执行单次调用预算。guard 是核心 seam 的自包含消费方，而非可替换能力。
 
-| 包 | 职责 | ctx 键 |
+| 包 | 职责 | ctx key |
 |---|---|---|
-| `repeat-tool-guard/` | 当 agent 对完全相同的工具调用反复循环时给出提示 | （监听 `ctx.tools` 的 waterfall，即瀑布式事件） |
+| [`repeat-tool-guard/`](repeat-tool-guard/README.md) | 针对重复工具调用的建议性提醒 | 监听工具和 agent 事件 |
+| [`timeout-policy/`](timeout-policy/README.md) | 以部署策略形式设置单次工具调用截止时间 | 注册 `tools/execute` 监听器 |
 
-提示以 `additionalContexts` 形式附在 `tools/post-execute` 决策中传递；agent loop 会在该步骤的工具结果之后，将其追加为有日志记录、来源为插件的 `user/message` 事件（参见[工具包](../core/tools)）。因此，guard 告诉模型的所有内容都能从会话日志中重建。
+提醒作为 `additionalContexts` 随 `tools/post-execute` 决策传递，并以插件来源的 `user/message` 事件记录（[工具](../../docs/subsystems/tools.md)）；跨 `dsh-timeout`、能力方终止与本策略层的超时拆分记录在[超时库 Agent Note](../../.agents/notes/implemented/architecture/2026-07-06-timeout-deadline-library.md)。

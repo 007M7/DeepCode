@@ -31,13 +31,13 @@ Status: implemented
 
 ## 版本固定、存储与身份
 
-| 提供方 | 已测试契约 |
+| 提供方 | 已测试约定 |
 |---|---|
 | Memorix | npm `1.3.0`，tag commit `500792cad3144142293bfbb20acb4841c9f7fcfa` |
 | MCP Reference Memory | npm `2026.7.4`，package commit `6dd0a683e198783e30feabf7abaf42f925bd18b1` |
 | Engram | tag `v1.20.0`，commit `ba9e46ced152c37a7cb9e576153c41995873e2fc` |
 
-存储仍由提供方负责。Memorix 默认使用 `~/.memorix/data`，Engram 默认使用 `~/.engram`。Reference Memory 示例设置稳定的 `$HOME/.dsh-mcp-reference-memory.jsonl` 路径，而不是写入已安装的 npm 包（package）目录。每个提供方自己的环境变量都可以在 DSH 启动前覆盖这些位置。
+存储仍由提供方负责。Memorix 默认使用 `~/.memorix/data`，Engram 默认使用 `~/.engram`。Reference Memory 示例设置稳定的 `$HOME/.dsh-mcp-reference-memory.jsonl` 路径，而不是写入已安装的 npm 包目录。每个提供方自己的环境变量都可以在 DSH 启动前覆盖这些位置。
 
 项目身份仍由提供方负责：Memorix 和 Engram 使用 DSH 工作目录中的 Git 项目，其中 Engram 还可以选择接受 `ENGRAM_PROJECT`。
 
@@ -49,7 +49,7 @@ Status: implemented
 
 提供方的工具描述仍然是权威定义。
 
-## 验证契约
+## 验证约定
 
 远程 CI 不会访问第三方服务或消耗密钥。无密钥套件解析全部三份 overlay 文件，检查其通用桥接器和密钥边界，将上游端点替换为包自带的 MCP fixture（测试前置数据）服务器，通过真实 Cordis Loader 启动，并验证工具发现。
 

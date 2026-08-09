@@ -18,9 +18,11 @@ Node order is seq-monotonic by construction, and three things follow. The log-on
 
 `foldDegraded` is gone from `ConversationSnapshot`, and with it the padding sentinels, the `baseSeq` arithmetic they needed, and `degradedSeqs()`. They existed only to satisfy the core fold's `seq === index` assertion and to survive its throw; the fold they describe is no longer run. Deleting the flag is part of the fix, not cleanup after it — `degradedSeqs()` was already almost the log-ordered projection, reached after a thrown error instead of intended.
 
-The marker's summary text comes from the checkpoint's own `compact/summary` provenance, never from the framed checkpoint payload, which is an instruction envelope written for the model. A window cut that left the provenance outside makes the row non-expandable rather than empty, the same soft-fall as a call-less tool result, and a later page supplying the provenance resolves the text.
+The marker's summary text, replaced-item count, and estimated shadowed-token count come from the checkpoint's own `compact/summary` provenance, never from the framed checkpoint payload, which is an instruction envelope written for the model. A window cut that left the provenance outside makes those fields unavailable, the same soft-fall as a call-less tool result, and a later page supplying the provenance resolves them.
 
-No persisted event, RPC envelope, compaction transaction, or model-visible surface changed, and no migration is required.
+The [manual compaction command](../feature/2026-07-30-queued-manual-compaction.md) returns the summary event's seq as the successful `CommandResult.sourceEventSeq`, and `command/done` persists that optional reference. Chat pairs only a successful named `/compact` command whose reference equals exactly one loaded `CompactionSummaryNode.summaryEventSeq`. The running command first renders `compact · Compacting context…`; after the checkpoint lands, the same React key renders one collapsed `compact` disclosure at the checkpoint's flow position with the count and token estimate. Input rejection, no compactable history, cancellation, and failure remain generic command rows with complete handler-authored text. Automatic compaction has no command reference and keeps the standalone context-compacted marker.
+
+The explicit event reference matters because manual compaction permits durable context injection while its asynchronous summary is running: command and checkpoint rows are not guaranteed to be adjacent. The command lifecycle event gains one optional field, but the compaction transaction, RPC envelope, and model-visible surface do not change; pre-release persisted logs without the field keep the former two-row soft-fall and require no migration.
 
 ## Recognizing a checkpoint: one declaration, pinned at compile time
 
@@ -57,6 +59,10 @@ The unmerged manual-compaction-queueing branch fixes the same interleaving bug b
 
 **Keep `foldDegraded` as a defensive flag.** Rejected: it described a specific failure of a fold that no longer runs. A flag no consumer can act on, reachable only through a `console.error`, is a false contract.
 
+**Pair the nearest `/compact` row with the next checkpoint.** Rejected: context injection may land between them, and concurrent or malformed lifecycle records must degrade without stealing another checkpoint. The command result instead names the authoritative summary event, and ambiguous references pair nothing.
+
+**Parse the English settlement text for item and token counts.** Rejected: handler copy is presentation text, not a stable data contract. The marker reads the structured `compact/summary` payload already owning both values.
+
 ## Consequences
 
 Compaction no longer erases web history; a session compacted several times shows one marker per landed compaction, in log order, and the same window renders identically live and after a cold resume. The pagination hole is closed by construction rather than defended against, and `ConversationSnapshot` loses a published field, which touched thirteen files.
@@ -65,8 +71,8 @@ Compaction no longer erases web history; a session compacted several times shows
 
 The performance contract is unchanged and now simpler to state: one append materializes one node, an event that changes no node keeps the previous array reference — so a chunk storm costs nothing and `nodes()` is not even recomputed — and unchanged nodes keep their object identity. The window still grows with session length rather than with the surface, which is the trade the fix exists to make; a compaction used to bound the projection for exactly the long sessions compaction serves.
 
-The web e2e scenario now seeds a real compaction transaction over its recorded turn, so the aria golden pins both halves of the fix through the real host and a real browser: the recorded prompt and full tool output are still on screen, and one marker sits after them. The seed recording itself is untouched and stays model-authentic — replay derives the compacted turn from the recording's own surface.
+The web e2e scenario now seeds a real manual command lifecycle around a compaction transaction over its recorded turn, so the aria golden pins the complete behavior through the real host and a real browser: the recorded prompt and full tool output are still on screen, exactly one `compact` row reports scale after them, and its disclosure opens the exact summary. The seed recording itself is untouched and stays model-authentic — replay derives the manual compaction from the recording's own surface.
 
 ## Deferred
 
-The terminal's [compaction progress decision](../feature/2026-07-30-compaction-progress-visibility.md) uses the live standalone bracket to drive a one-cell indicator and does not change this browser projection. The marker still carries no **scale**: the checkpoint's `sourceEventSeqs` hold the shadowed count, so a separately justified count or range can be added without coupling it to progress.
+The terminal's [archived compaction progress decision](../../archived/feature/2026-07-30-compaction-progress-visibility.md) uses the live standalone bracket to drive a one-cell indicator and does not change this browser projection.

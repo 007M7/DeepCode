@@ -10,7 +10,9 @@
     { "path": "../../../vendor/cordis" },
     { "path": "../../../vendor/schemastery" },
     { "path": "../../llm/llm" },
+    { "path": "../../llm/token-meter" },
     { "path": "../../core/session" },
+    { "path": "../compact" },
     { "path": "../../support/invariants" }
   ]
 }

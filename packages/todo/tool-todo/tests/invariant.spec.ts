@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import SessionStore, { type Session, type SessionEvent } from '@deepseek-ai/dsh-session'
+import ToolRegistry from '@deepseek-ai/dsh-tools'
+import * as ToolTodo from '@deepseek-ai/dsh-tool-todo'
 import * as TodoInvariant from '@deepseek-ai/dsh-tool-todo/invariant'
 import InvariantService from '@deepseek-ai/dsh-invariants'
 
@@ -17,13 +19,22 @@ function event(todos: unknown): SessionEvent {
 }
 
 describe('todo snapshot invariants', () => {
-  it('accepts a unique whole-list snapshot with one active item', async () => {
-    const ctx = await setup()
-    expect(() => { ctx.emit('session/event', {} as Session, event([
+  it('accepts historical and live parallel snapshots under the single-active tool policy', async () => {
+    const todos = [
       { content: 'Inspect state', status: 'completed' },
       { content: 'Apply fix', status: 'in_progress' },
+      { content: 'Watch background build', status: 'in_progress' },
       { content: 'Run checks', status: 'pending' },
-    ])) }).not.toThrow()
+    ] as const
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(ToolTodo, { allowParallelInProgress: false })
+    ctx.sessions.create().append('todo/write', { todos: [...todos] })
+    await ctx.plugin(InvariantService, { enabled: true })
+
+    await expect(ctx.plugin(TodoInvariant).then(() => undefined)).resolves.toBeUndefined()
+    expect(() => { ctx.emit('session/event', {} as Session, event(todos)) }).not.toThrow()
   })
 
   it.each([
@@ -36,7 +47,6 @@ describe('todo snapshot invariants', () => {
     [[{ content: 'same', status: 'pending' }, { content: 'same', status: 'completed' }], /repeats content/],
     [[{ content: 'task', status: 42 }], /unknown status/],
     [[{ content: 'task', status: 'paused' }], /unknown status/],
-    [[{ content: 'one', status: 'in_progress' }, { content: 'two', status: 'in_progress' }], /at most one/],
   ])('rejects an incoherent durable todo snapshot', async (todos, message) => {
     const ctx = await setup()
     expect(() => { ctx.emit('session/event', {} as Session, event(todos)) }).toThrow(message)
@@ -47,7 +57,7 @@ describe('todo snapshot invariants', () => {
     expect(() => {
       ctx.emit('tools/change')
       ctx.emit('session/event', {} as Session, {
-        type: 'turn/start', seq: 0, time: 0, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } },
+        type: 'turn/start', seq: 0, time: 0, data: { turn: 1 },
       })
     }).not.toThrow()
   })

@@ -4,8 +4,8 @@
  * else references RequestPayload<'session.*'> / ResponseValue<'session.*'>.
  */
 
+import type { MessageId } from '@deepseek-ai/dsh-llm/brand'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
-import type { InboxItemId } from '@deepseek-ai/dsh-agent/brand'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session/types'
 // The pure-type outlet: api/ is browser-importable, and the package root's
 // cordis Context merge (via dsh-agent) must not enter client aggregates.
@@ -53,8 +53,8 @@ export interface SessionProjectionsBlock {
   values: Partial<SessionProjectionMap>
 }
 
-/** Complete model target selected for one session. */
-export interface ModelTarget {
+/** Complete model selection for one session. */
+export interface ModelSelection {
   /** Registered provider route. */
   provider: string
   /** Provider-owned model id. */
@@ -89,8 +89,6 @@ export interface ModelCatalogModel {
   name: string
   /** Optional provider-supplied description. */
   description?: string
-  /** The current model was inserted because the advisory catalog omitted it. */
-  unlisted?: true
   /** Exact-route reasoning metadata when the adapter exposes it. */
   reasoning?: ModelReasoning
 }
@@ -117,8 +115,17 @@ export interface ModelCatalogFailure {
 
 /** Detached model-directory snapshot for one session. */
 export interface SessionModels {
-  /** Target selected for the session's next assembled step. */
-  current: ModelTarget
+  /** Model selection for the session's next assembled step. */
+  current: ModelSelection
+  /**
+   * Whether an adapter currently serves `current.provider`, and therefore
+   * whether this session can start a turn at all. Deliberately NOT derivable
+   * from `groups`: catalog membership is advisory, so a route serving a model
+   * it stopped advertising is absent from the groups yet perfectly usable,
+   * while a route whose adapter is gone can serve nothing. A surface that
+   * blocks input must read this rather than the groups.
+   */
+  routable: boolean
   /** Successfully loaded provider groups. */
   groups: ModelProviderGroup[]
   /** Provider-local failures; successful groups remain usable. */
@@ -233,7 +240,7 @@ export interface SessionsApi {
   models(request: RpcRequest<{ sessionId: SessionId }>): Promise<RpcResponse<SessionModels>>
 
   /**
-   * Selects the complete target for this session. Exact model metadata
+   * Selects the complete model selection for this session. Exact model metadata
    * validates an optional reasoning effort, while catalog membership remains
    * advisory. Session-backed subagents reject with `agent-busy`.
    */
@@ -243,7 +250,7 @@ export interface SessionsApi {
     model: string
     reasoningEffort?: string
   }>):
-  Promise<RpcResponse<{ selected: ModelTarget }>>
+  Promise<RpcResponse<{ selected: ModelSelection }>>
 
   /**
    * Renames a session: appends a `session/title` event with the `user`
@@ -289,7 +296,7 @@ export interface SessionsApi {
    * Edits, removes, or strictly steers one pending queued occurrence on an ordinary session.
    * Session-backed subagents reject with `agent-busy`.
    */
-  updateQueue(request: RpcRequest<{ sessionId: SessionId; itemId: InboxItemId; action: QueueAction }>):
+  updateQueue(request: RpcRequest<{ sessionId: SessionId; itemId: MessageId; action: QueueAction }>):
   Promise<RpcResponse<{ accepted: true }>>
 
   /**

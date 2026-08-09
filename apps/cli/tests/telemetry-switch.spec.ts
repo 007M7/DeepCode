@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { resolveTelemetryPatch } from '../src/app-cli-entry.ts'
+import { resolveTelemetryPatch } from '../src/profile-boot.ts'
 
 describe('resolveTelemetryPatch', () => {
   it('keeps telemetry enabled when the switch is unset or empty', () => {
@@ -13,11 +13,10 @@ describe('resolveTelemetryPatch', () => {
     }
   })
 
-  it('fails loud when the switch is set but the row is absent', () => {
-    expect(() => resolveTelemetryPatch('1', false)).toThrow('DSH_TELEMETRY_DISABLED is set but row "telemetry-otel" is not in this composition')
-  })
-
-  it('ignores a missing row while the switch is unset', () => {
+  it('is trivially satisfied by a composition without the telemetry row', () => {
+    // A custom profile need not mount telemetry: nothing exports, so the
+    // privacy switch has nothing to disable and generates no patch.
+    expect(resolveTelemetryPatch('1', false)).toBeUndefined()
     expect(resolveTelemetryPatch(undefined, false)).toBeUndefined()
   })
 })

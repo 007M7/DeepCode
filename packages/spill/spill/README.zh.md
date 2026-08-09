@@ -4,7 +4,7 @@
 
 **spill 存储 seam**：抽象的 `SpillStore` 服务（`ctx.spillStore`）定义 spill 后端做什么，即持久化某个工具过大的文本，并返回面向模型的定位信息与取回指引；它不规定如何实现。
 
-该包（package）是 spill 能力的三个组成部分之一。拆分后，各项关注点可独立演进和替换：
+该包是 spill 能力的三个组成部分之一。拆分后，各项关注点可独立演进和替换：
 
 | 包 | 职责 |
 |---|---|
@@ -24,9 +24,9 @@
 
 ## 词汇
 
-`SaveTextSpill`（owner、source、suggestedName、content）是请求；`SpillRef`（locator、bytes、retrievalHint）是结果。`SpillLocator` 是[带品牌类型](../../util/brand)的值，并以不透明字符串的形式呈现给模型；对 `dsh-spill-local` 而言它是本地路径，但未来的后端可以返回 URI、键或命令 token，无需修改策略／工具消费方。`SpillOwner.sessionId` 是保存时存储命名空间：fork 后的会话会从种子日志继承现有定位信息，无需复制文件或更改其归属；fork 后新产生的 spill 使用子会话 id。`SpillSource`（toolName、callId、label）是供后端命名和检查使用的描述性来源信息，而非访问控制信息。完整契约见 `src/types.ts`。
+`SaveTextSpill`（owner、source、suggestedName、content）是请求；`SpillRef`（locator、bytes、retrievalHint）是结果。`SpillLocator` 是[带品牌类型](../../util/brand)的值，并以不透明字符串的形式呈现给模型；对 `dsh-spill-local` 而言它是本地路径，但未来的后端可以返回 URI、键或命令 token，无需修改策略／工具消费方。`SpillOwner.sessionId` 是保存时存储命名空间：fork 后的会话会从种子日志继承现有定位信息，无需复制文件或更改其归属；fork 后新产生的 spill 使用子会话 id。`SpillSource`（toolName、callId、label）是供后端命名和检查使用的描述性来源信息，而非访问控制信息。完整约定见 `src/types.ts`。
 
-设计原理见[工具输出 spill Agent Note（agent 决策记录）](../../../.agents/notes/implemented/architecture/2026-07-08-tool-output-spill-files.md)，其中说明了为什么创建操作应由运行时 spill seam 而非面向模型的 `write` 工具承担。
+设计原理见[工具输出 spill Agent Note](../../../.agents/notes/implemented/architecture/2026-07-08-tool-output-spill-files.md)，其中说明了为什么创建操作应由运行时 spill seam 而非面向模型的 `write` 工具承担。
 
 ## 模型体验
 

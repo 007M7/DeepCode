@@ -3,6 +3,7 @@ import { Context } from 'cordis'
 import SkillService, {
   isModelInvocable,
   isUserInvocable,
+  renderSkillContent,
   type SkillCandidate,
   type SkillDefinition,
   type SkillInvocationPolicy,
@@ -1011,5 +1012,67 @@ describe('SkillService registry', () => {
     expect((await ctx.skills.get('same-skill'))?.description).toBe('First')
     disposeFirst()
     expect(await ctx.skills.get('same-skill')).toBeUndefined()
+  })
+})
+
+describe('renderSkillContent', () => {
+  it('renders a directory-based skill with the shared wrapper', () => {
+    const text = renderSkillContent({
+      name: 'demo-skill',
+      provider: 'memory',
+      resourceBase: { kind: 'directory', path: '/tmp/demo' },
+      content: 'Do the thing.',
+    })
+    expect(text).toBe([
+      '<skill_content name="demo-skill">',
+      '<skill_resources>',
+      'Base directory for this skill: /tmp/demo',
+      'Resolve relative paths mentioned by this skill against the base directory before using them. Load referenced resources only as needed.',
+      '</skill_resources>',
+      '',
+      '<skill_instructions>',
+      'Do the thing.',
+      '</skill_instructions>',
+      '</skill_content>',
+    ].join('\n'))
+  })
+
+  it('renders url and opaque resource hints', () => {
+    const url = renderSkillContent({
+      name: 'url-skill',
+      provider: 'memory',
+      resourceBase: { kind: 'url', url: 'https://example.test/base/' },
+      content: 'Body.',
+    })
+    expect(url).toContain('Base URL for this skill: https://example.test/base/')
+    expect(url).toContain('Resolve relative URLs mentioned by this skill against the base URL before using them.')
+
+    const opaque = renderSkillContent({
+      name: 'opaque-skill',
+      provider: 'memory',
+      resourceBase: { kind: 'opaque', description: 'archive <bundle>' },
+      content: 'Body.',
+    })
+    expect(opaque).toContain('Resources for this skill: archive &lt;bundle&gt;')
+  })
+
+  it('falls back to the provider hint without a resource base', () => {
+    const text = renderSkillContent({
+      name: 'provider-skill',
+      provider: 'remote <hub>',
+      content: 'Body.',
+    })
+    expect(text).toContain('Resources for this skill are managed by provider "remote &lt;hub&gt;".')
+  })
+
+  it('escapes hostile attribute names and keeps the body verbatim', () => {
+    const text = renderSkillContent({
+      name: 'x"&<y',
+      provider: 'memory',
+      resourceBase: { kind: 'directory', path: '/tmp' },
+      content: 'Keep </skill_content> and <tags> as-is.',
+    })
+    expect(text).toContain('<skill_content name="x&quot;&amp;&lt;y">')
+    expect(text).toContain('Keep </skill_content> and <tags> as-is.')
   })
 })

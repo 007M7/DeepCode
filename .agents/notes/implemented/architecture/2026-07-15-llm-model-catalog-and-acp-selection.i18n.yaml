@@ -1,6 +1,6 @@
 # Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
-#   pnpm run verify-translation-pairing --write
-2026-07-15-llm-model-catalog-and-acp-selection.md: 9edc723b0dfafeaf395eb9325373835138ddbc41
-2026-07-15-llm-model-catalog-and-acp-selection.zh.md: 677d9e2a200d488fa9fc27fc2a922dc8f1f871d1
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-07-15-llm-model-catalog-and-acp-selection.md
+2026-07-15-llm-model-catalog-and-acp-selection.md: 41174209d2c44bedb5dd0615c5f877ecebd43639
+2026-07-15-llm-model-catalog-and-acp-selection.zh.md: 43442487649f7a552d66bd66b64e0e5072f5e00b
