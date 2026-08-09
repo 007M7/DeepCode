@@ -37,12 +37,11 @@ Then check constraints that make placement expensive or wrong:
 After the structural pass, hunt the standard's slop checklist with the cheapest probes first. Verify and fetch the PR's live base, then run `pnpm --silent run change-scope --base <verified-base-ref>` to identify committed and dirty paths before applying semantic judgment. After a retarget or base merge, rerun the report and audit prose introduced by the new base.
 
 1. Measure: `pnpm run verify-doc-budgets --list`, then `git ls-files '*.md' ':(exclude)vendor/**' | xargs wc -w | sort -rn | head -30` to spot unbudgeted outliers.
-2. Hunt narrated history: `rg -n "no longer|used to|previously|was moved|renamed" --glob '*.md' --glob '*.ts' --glob '!vendor/**'` and keep only contrasts against a live alternative. Keep the vendor exclusion last so include globs cannot override it.
-3. Inspect long comments for reasoning transcripts: control-flow narration, test walkthroughs, proof of obvious branches, review findings, rejected local alternatives, and the same rationale repeated beside sibling methods. Preserve only a non-obvious contract or durable rationale; otherwise delete the comment.
-4. Hunt duplication by grepping distinctive phrases. Keep one home and replace other copies with links.
-5. Replace hand-written catalogs, test/status inventories, and JSDoc restatements with the authoritative tree, script, or generated reference.
-6. In `implemented/` Agent Notes, remove migration plans, acceptance-task checklists, and future-tense spec language. Keep concise verification contracts that identify the behaviors and tiers pinning the shipped decision, plus named coverage gaps.
-7. If removing prose changes a promised behavior rather than its explanation, use a proposed Agent Note first (follow [dsh-find-simplifications](../dsh-find-simplifications/SKILL.md)).
+2. Hunt reasoning-transcript leakage — narrated history, dead design-session citations, review choreography, control-flow narration, test walkthroughs — with [dsh-trim-cot-leakage](../dsh-trim-cot-leakage/SKILL.md), which owns the taxonomy, recall batteries, and the keep/delete boundary. Preserve only a non-obvious contract or durable rationale; the same rationale repeated beside sibling methods keeps one home.
+3. Hunt duplication by grepping distinctive phrases. Keep one home and replace other copies with links.
+4. Replace hand-written catalogs, test/status inventories, and JSDoc restatements with the authoritative tree, script, or generated reference.
+5. In `implemented/` Agent Notes, remove migration plans, acceptance-task checklists, and future-tense spec language. Keep concise verification contracts that identify the behaviors and tiers pinning the shipped decision, plus named coverage gaps.
+6. If removing prose changes a promised behavior rather than its explanation, use a proposed Agent Note first (follow [dsh-find-simplifications](../dsh-find-simplifications/SKILL.md)).
 
 Exclude `.agents/notes/archived/` from corpus audits and edits. Active prose may repair, redirect, or delete an inbound link, but never follow an archive-wide cleanup into the frozen target.
 

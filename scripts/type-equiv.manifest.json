@@ -222,6 +222,66 @@
       "source": "packages/goal/goal/src/domain.ts"
     },
     {
+      "doc": "docs/subsystems/schedule.md",
+      "symbol": "AfterScheduleRecord",
+      "source": "packages/schedule/tool-schedule/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/schedule.md",
+      "symbol": "AtScheduleRecord",
+      "source": "packages/schedule/tool-schedule/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/schedule.md",
+      "symbol": "LocalAtInput",
+      "source": "packages/schedule/tool-schedule/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/schedule.md",
+      "symbol": "AtInput",
+      "source": "packages/schedule/tool-schedule/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/schedule.md",
+      "symbol": "ScheduleRecord",
+      "source": "packages/schedule/tool-schedule/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/schedule.md",
+      "symbol": "ScheduleCreateChange",
+      "source": "packages/schedule/tool-schedule/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/schedule.md",
+      "symbol": "ScheduleDeleteChange",
+      "source": "packages/schedule/tool-schedule/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/schedule.md",
+      "symbol": "ScheduleDispatchChange",
+      "source": "packages/schedule/tool-schedule/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/schedule.md",
+      "symbol": "ScheduleChange",
+      "source": "packages/schedule/tool-schedule/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/schedule.md",
+      "symbol": "ScheduleState",
+      "source": "packages/schedule/tool-schedule/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/schedule.md",
+      "symbol": "ScheduleDeliveryMode",
+      "source": "packages/schedule/tool-schedule/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/schedule.md",
+      "symbol": "ScheduleView",
+      "source": "packages/schedule/tool-schedule/src/types.ts"
+    },
+    {
       "doc": "docs/subsystems/commands.md",
       "symbol": "CommandInputDescriptor",
       "source": "packages/interaction/commands/src/index.ts"
