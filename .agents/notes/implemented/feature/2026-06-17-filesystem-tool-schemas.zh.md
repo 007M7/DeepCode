@@ -66,11 +66,11 @@ schema 不将 `expected_hash`、`expected_version` 或 `create_only` 作为面�
 
 `edit` 要求同一执行上下文先前观测过该文件（任何窗口化的 read 都算——授权取决于观测到的版本是否仍为最新，而不要求查看全文），或该上下文先前对该文件执行过 write/edit。`dsh-fs-policy` 策略插件推导所有者，并将记录的版本作为陈旧版本防护提供；提供方的变更锁会强制执行该防护。
 
-首次实现拒绝 Codex 风格的 patch 语法和多模式 edit API。它使用一种严格的字面替换模式，使面向模型的契约保持简单，并让后端掌控精确匹配、重复匹配、行尾和陈旧版本的语义。
+首次实现拒绝 Codex 风格的 patch 语法和多模式 edit API。它使用一种严格的字面替换模式，使面向模型的约定保持简单，并让后端掌控精确匹配、重复匹配、行尾和陈旧版本的语义。
 
 ## 结果形状
 
-首次实现曾将 `ContentBlock[]` 格式化逻辑放在 `execute` 中。[规范工具输出契约](../architecture/2026-07-20-canonical-tool-output-contract.md)如今将 `ctx.fs` 的结果事实保留为工具经校验的值，并通过 `output.render` 派生相同的模型文本；文件状态的记录/刷新仍归 `ctx.fs` 所有。
+首次实现曾将 `ContentBlock[]` 格式化逻辑放在 `execute` 中。[规范工具输出约定](../architecture/2026-07-20-canonical-tool-output-contract.md)如今将 `ctx.fs` 的结果事实保留为工具经校验的值，并通过 `output.render` 派生相同的模型文本；文件状态的记录/刷新仍归 `ctx.fs` 所有。
 
 默认原生投影：
 
@@ -99,7 +99,7 @@ schema 测试固定每个工具的必填/可选参数集、空 `old_string` 拒�
 
 ## 曾考虑的替代方案
 
-- **Codex 风格的 patch 语法或多模式 edit API**：否决。一种严格的字面替换模式使面向模型的契约保持简单，并让后端掌控精确匹配、重复匹配、行尾和陈旧版本的语义。
+- **Codex 风格的 patch 语法或多模式 edit API**：否决。一种严格的字面替换模式使面向模型的约定保持简单，并让后端掌控精确匹配、重复匹配、行尾和陈旧版本的语义。
 - **camelCase 参数名（OpenCode 风格）**：snake_case 与 Claude Code 及现有 harness 工具 schema 示例一致，且命名一旦发布即成为公开接口。
 - **面向模型的 `expected_hash` / `expected_version` / `create_only` 参数**：否决。陈旧检查由后端产生的版本和策略插件的观测状态驱动，从不依赖模型复制的脆弱令牌。
 
@@ -109,4 +109,4 @@ schema 测试固定每个工具的必填/可选参数集、空 `old_string` 拒�
 
 **v1 中没有显式的面向模型的陈旧版本防护。** schema 不要求模型提供 expected hash/version。这是有意为之：陈旧检查来自后端产生的版本和 `dsh-fs-policy` 插件的观测状态，而非模型复制的脆弱令牌。文件系统安全失败通过 `dsh-fs` 拥有的结构化 `FsError` 代码浮现，而非模型提供的版本字段。
 
-**命名成为公开接口。** 一旦发布，将 `file_path` 改为 `filePath` 或 `old_string` 改为 `oldString` 会导致提示词、示例和下游客户端随之改动。本 Agent Note 预先选择 snake_case，并将其视为稳定的面向模型的契约。
+**命名成为公开接口。** 一旦发布，将 `file_path` 改为 `filePath` 或 `old_string` 改为 `oldString` 会导致提示词、示例和下游客户端随之改动。本 Agent Note 预先选择 snake_case，并将其视为稳定的面向模型的约定。

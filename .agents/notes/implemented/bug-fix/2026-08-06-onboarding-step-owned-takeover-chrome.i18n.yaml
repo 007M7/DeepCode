@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-06-onboarding-step-owned-takeover-chrome.md
 2026-08-06-onboarding-step-owned-takeover-chrome.md: 4b3bbbc03c4494359297ae6e54bcc9a74c387e80
-2026-08-06-onboarding-step-owned-takeover-chrome.zh.md: 548285d285939325a26df3b8d70c43fe952813a9
+2026-08-06-onboarding-step-owned-takeover-chrome.zh.md: ba4f503f7bc318fcb16f4413465a86609fa1bc61

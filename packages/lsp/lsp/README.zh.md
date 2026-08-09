@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-**LSP 能力 seam**：抽象 `LspService`（`ctx.lsp`）定义 harness 具备哪些语义代码导航能力（转到定义、查找引用、查找实现、悬停），并通过语言服务器提供方实现，不把模型契约绑定到本地子进程。
+**LSP 能力 seam**：抽象 `LspService`（`ctx.lsp`）定义 harness 具备哪些语义代码导航能力（转到定义、查找引用、查找实现、悬停），并通过语言服务器提供方实现，不把模型约定绑定到本地子进程。
 
 该包是 LSP 能力中负责接口的三分之一：
 
@@ -27,7 +27,7 @@
 
 ## 词汇
 
-`LspQueryRequest`（`operation`、`filePath`、`position`、`workspaceRoot`）：每个字段都必填，因此没有字段需要实现默认值，也不存在 `resolve()` 步骤。位置与范围使用从零开始的 UTF-16，与协议一致；工具拥有从 1 开始的光标约定。`findReferences` 始终包含声明，提供方在内部强制执行，因此调用方没有 flag。`LspQueryResult` 是封闭的判别联合：导航使用 `{ kind: 'locations'; locations; resolvedWorkspaceUri }`，悬停使用 `{ kind: 'hover'; hover }`（内容或 `null`）；消费方通过 `switch` 实现穷尽检查，因此新增分支会使编译失败，直到完成处理。`resolvedWorkspaceUri` 是提供方的规范工作区 `file:` URI；调用方相对化位置 URI 时以它为基准，而不是对可能含符号链接的请求根应用宿主平台路径规则。完整契约见 `src/types.ts`；`src/index.ts` 给出 `LspError` code，包括 `LSP_DISPOSED` 和 `LSP_MALFORMED_RESPONSE`。
+`LspQueryRequest`（`operation`、`filePath`、`position`、`workspaceRoot`）：每个字段都必填，因此没有字段需要实现默认值，也不存在 `resolve()` 步骤。位置与范围使用从零开始的 UTF-16，与协议一致；工具拥有从 1 开始的光标约定。`findReferences` 始终包含声明，提供方在内部强制执行，因此调用方没有 flag。`LspQueryResult` 是封闭的判别联合：导航使用 `{ kind: 'locations'; locations; resolvedWorkspaceUri }`，悬停使用 `{ kind: 'hover'; hover }`（内容或 `null`）；消费方通过 `switch` 实现穷尽检查，因此新增分支会使编译失败，直到完成处理。`resolvedWorkspaceUri` 是提供方的规范工作区 `file:` URI；调用方相对化位置 URI 时以它为基准，而不是对可能含符号链接的请求根应用宿主平台路径规则。完整约定见 `src/types.ts`；`src/index.ts` 给出 `LspError` code，包括 `LSP_DISPOSED` 和 `LSP_MALFORMED_RESPONSE`。
 
 ## 模型体验
 

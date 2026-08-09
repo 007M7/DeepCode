@@ -41,7 +41,7 @@ repository 包及其运行的每项依赖或生命周期脚本都是受信任代
 
 ## 独立应用配置
 
-每个 profile 都以之为起点的随附 `dsh-base` 组合包包含一个空 `repository-plugins` 配置项。用户可在用户 patch 层中替换该配置项的配置来启用精确指定的 GitHub generation：写入 `$DSH_HOME/profiles/<name>/cordis.patch.yml`，或写入各 profile 共享的 home 级 `$DSH_HOME/cordis.patch.yml`；`--patch` overlay 则只为单次运行 patch 同一配置项：
+随附的 `dsh-base` 组合包是每个 profile 的起点，其中包含一个空 `repository-plugins` 配置项。用户可在用户 patch 层中替换该配置项的配置来启用精确指定的 GitHub generation：写入 `$DSH_HOME/profiles/<name>/cordis.patch.yml`，或写入各 profile 共享的 home 级 `$DSH_HOME/cordis.patch.yml`；`--patch` overlay 则只为单次运行 patch 同一配置项：
 
 ```yaml
 - id: repository-plugins
@@ -110,7 +110,7 @@ Namespace 插件：具名导出 `name`／`inject`／`apply`、准备阶段常量
 
 #### 模型看到什么
 
-取决于数据。受信任的 Cordis 入口可以通过其声明的服务和事件贡献任意可用的 DSH 行为，包括工具、提示词片段、策略、命令和转换。每项模型可见贡献仍受所属 DSH seam 的日志与生命周期契约约束。
+取决于数据。受信任的 Cordis 入口可以通过其声明的服务和事件贡献任意可用的 DSH 行为，包括工具、提示词片段、策略、命令和转换。每项模型可见贡献仍受所属 DSH seam 的日志与生命周期约定约束。
 
 #### Token 影响
 

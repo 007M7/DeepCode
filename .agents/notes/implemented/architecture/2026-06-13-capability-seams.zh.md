@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-harness 具有可替换的能力：当前是 bash 执行，未来会有沙箱化／远程执行器和替代模型提供方。一项能力涉及三个关注点，它们以不同速率、因不同原因变化：*契约*（这项能力是什么）、*实现*（它如何运行）、*消费方接口*（模型和其他插件面向什么编程）。将三者捆绑在一个包中会耦合这些变化速率——把本地执行器换成沙箱化执行器时，模型看到的工具 schema 也会被搅动，尽管面向模型的契约从未改变。
+harness 具有可替换的能力：当前是 bash 执行，未来会有沙箱化／远程执行器和替代模型提供方。一项能力涉及三个关注点，它们以不同速率、因不同原因变化：*约定*（这项能力是什么）、*实现*（它如何运行）、*消费方接口*（模型和其他插件面向什么编程）。将三者捆绑在一个包中会耦合这些变化速率——把本地执行器换成沙箱化执行器时，模型看到的工具 schema 也会被搅动，尽管面向模型的约定从未改变。
 
 这与「谁在运行时提供、谁需要一项能力」是不同的问题，后者 Cordis 已通过服务 + `inject` 解决（提供方注册 `ctx.bash`；消费方声明 `inject: ['bash']`，其 fiber 挂起直到服务存在）。该机制是必要的，但不决定包的边界；本 Agent Note 决定的是包的边界。
 
@@ -29,4 +29,4 @@ harness 具有可替换的能力：当前是 bash 执行，未来会有沙箱化
 
 ## 后果
 
-每项能力需要更多包和更多样板代码（一组 `package.json`/`tsconfig`/README，加上 inject 接线）。换来的是：实现与消费方独立发布和版本管理，新后端永远不会波及面向模型的契约。该规则记录在 [AGENTS.md](../../../../AGENTS.md) § Conventions（「Capability seams are three packages」）和 [architecture.md](../../../../docs/architecture.md) §「Capability seams」中；bash 三件套是参考模板。何时合并、何时拆分是一个判断问题，架构文档对此有详细说明——本 Agent Note 记录的是*为什么*默认选择拆分。
+每项能力需要更多包和更多样板代码（一组 `package.json`/`tsconfig`/README，加上 inject 接线）。换来的是：实现与消费方独立发布和版本管理，新后端永远不会波及面向模型的约定。该规则记录在 [AGENTS.md](../../../../AGENTS.md) § Conventions（「Capability seams are three packages」）和 [architecture.md](../../../../docs/architecture.md) §「Capability seams」中；bash 三件套是参考模板。何时合并、何时拆分是一个判断问题，架构文档对此有详细说明——本 Agent Note 记录的是*为什么*默认选择拆分。

@@ -39,7 +39,7 @@ interface ToolProviderResult {
 
 ## 提示词段落
 
-`PromptSection` 是一份只读的同进程注册契约。其文本可以是静态的，也可以从当前组装上下文动态解析。
+`PromptSection` 是一份只读的同进程注册约定。其文本可以是静态的，也可以从当前组装上下文动态解析。
 
 ```ts type-equiv
 /** One contributed section of the system prompt (registry input). */

@@ -22,7 +22,7 @@ harness 可以运行前台与后台命令、编辑文件和委派工作，但无
 
 | 包 | 角色 | ctx key |
 |---|---|---|
-| `dsh-pty` | `PtyService`、branded `PtySessionId`、后端注册表、按 owner 隔离的会话契约和结果类型 | `ctx.pty` |
+| `dsh-pty` | `PtyService`、branded `PtySessionId`、后端注册表、按 owner 隔离的会话约定和结果类型 | `ctx.pty` |
 | `dsh-pty-local` | 基于 `ctx.subprocess.spawnTerminal()` 的持久 shell 后端：就绪状态、有界终端缓冲、沙箱解析和感知 owner 的会话生命周期 | 在 `ctx.pty` 上注册后端 |
 | `dsh-tool-pty` | 6 个面向模型的工具、后台发送的 task 运行时集成、使用指引和 UI 渲染意图 | 注册到 `ctx.tools` |
 
@@ -58,7 +58,7 @@ agent scope dispose 时先关闭注册，再等待全部所属 PTY 静默退出�
 | `terminal_close` | 关闭一个会话并等待进程树静默退出 | `{ killed }` |
 | `terminal_list` | 列出调用方的活会话 | 按 owner 隔离的会话摘要 |
 
-UI 渲染契约精确且不携带位置信息。`terminal_send` 只为前台发送使用 terminal 调用卡片和结果卡片；后台形式使用通用 `execute` 卡片。`terminal_open`、`terminal_read`、`terminal_signal`、`terminal_close` 和 `terminal_list` 分别使用通用 `execute`、`read`、`execute`、`delete` 和 `read` 卡片。所有 PTY 工具都不发出 `locations`。
+UI 渲染约定精确且不携带位置信息。`terminal_send` 只为前台发送使用 terminal 调用卡片和结果卡片；后台形式使用通用 `execute` 卡片。`terminal_open`、`terminal_read`、`terminal_signal`、`terminal_close` 和 `terminal_list` 分别使用通用 `execute`、`read`、`execute`、`delete` 和 `read` 卡片。所有 PTY 工具都不发出 `locations`。
 
 `terminal_send({ sessionId, text, submit?, run_in_background? })` 将 `text` 视为 UTF-8 字节，并由工具实现在解析阶段把 `submit` 默认成 `true`。`submit` 为 true 时先写入文本，再写入平台 Enter 序列；为 false 时只写文本，使控制字符和 REPL 片段无需隐藏的内容启发式即可发送。取消会在向真实前台进程组发送信号前将排队输入标记为已取消，因此即使异步的写入前检查随后才结算，该输入也无法执行。被取消的发送会保留其预留，直至异步前台信号发送结算，因此后续发送不会成为该信号的目标。`enableRunInBackground` 默认为 true；设为 false 时，schema 中会移除 `run_in_background`，调用方即使强行把这个未声明参数传入执行流程，也会被拒绝。
 
@@ -88,7 +88,7 @@ Tier 2 在持续 `idleSilenceMs` 没有输出后返回 `inferred_idle`，因此 
 
 现有持久化 `tool/call` 与 `tool/result` 事件是模型发送文本和返回给模型的渲染输出的真源。`terminal_open` 通过已记录的工具结果返回 MOTD；前台 `send`/`read`/`list`/`signal`/`close` 结果走同一路径记录。PTY 包不会把原始字节流重复写入自定义会话事件。
 
-后台发送复用现有后台任务完成通知和 `task_output` 结果路径，因此进入后续模型请求的任何输出同样持久化。原始终端字节只作为有界的进程内状态存在，既不持久化也不可恢复。未来的 opt-in transcript sink 必须拥有独立的保留、凭证和隐私契约。
+后台发送复用现有后台任务完成通知和 `task_output` 结果路径，因此进入后续模型请求的任何输出同样持久化。原始终端字节只作为有界的进程内状态存在，既不持久化也不可恢复。未来的 opt-in transcript sink 必须拥有独立的保留、凭证和隐私约定。
 
 ### 进程树 teardown
 
@@ -130,7 +130,7 @@ plugins:
 
 ### 推迟的工作
 
-- 全屏 TUI 支持、命名按键序列、BEL 中断、终端 resize 工具和 alternate-screen 快照需要另行验证面向模型的契约。
+- 全屏 TUI 支持、命名按键序列、BEL 中断、终端 resize 工具和 alternate-screen 快照需要另行验证面向模型的约定。
 - 声明式 per-agent 启动需要 agent-setup 组合点；仍然禁止插件加载期全局会话。
 - harness 进程丢失后的会话恢复需要进程外 owner 和版本化协议。
 - 网络出口策略与外部副作用回滚超出 PTY 范围，继续作为独立安全工作。
@@ -138,9 +138,9 @@ plugins:
 
 ## 备选方案
 
-**用 PTY 替换 `bash`、文件系统工具或 task 工具。**拒绝。一次性工具拥有更强的校验、审批、沙箱、输出上限和回放契约。PTY 只服务交互式状态。
+**用 PTY 替换 `bash`、文件系统工具或 task 工具。**拒绝。一次性工具拥有更强的校验、审批、沙箱、输出上限和回放约定。PTY 只服务交互式状态。
 
-**给 `bash` 增加持久模式。**拒绝。按就绪而不是进程退出返回、跨调用保留进程树、暴露交互式 stdin 会形成不同的所有权和失败契约。
+**给 `bash` 增加持久模式。**拒绝。按就绪而不是进程退出返回、跨调用保留进程树、暴露交互式 stdin 会形成不同的所有权和失败约定。
 
 **要求从 `node-pty` 获取原生 master fd。**拒绝。它的公共 API 不暴露 master fd。本地子进程终端适配器改为从受支持的 OS 进程元数据推导前台组与子孙进程，并把不可读元数据视为 detector miss。
 
@@ -148,7 +148,7 @@ plugins:
 
 **发布可替换注册表 `PtyIdleDetector`。**拒绝。基底专用的前台事实来自挂载的终端进程原语，提示符／静默就绪判定则仍是 `dsh-pty-local` 内部的一项私有策略。替换文件系统／子进程执行环境就是所需扩展点。
 
-**新增 PTY 专用 `sleep` 工具。**拒绝。`ctx.tasks` 已经拥有有界等待、取消、完成通知和面向模型的收集。第二套通用唤醒机制会跨越 agent loop（智能体循环）边界并重复该契约。
+**新增 PTY 专用 `sleep` 工具。**拒绝。`ctx.tasks` 已经拥有有界等待、取消、完成通知和面向模型的收集。第二套通用唤醒机制会跨越 agent loop（智能体循环）边界并重复该约定。
 
 **包含 TUI sequence 与 BEL 处理。**拒绝。源 prototype 将这些路径视为 timing-sensitive，且仍记录未解决的 alternate-screen 和交互失败。行式 PTY 已能证明核心价值，无需把未经验证的行为放进基础层。
 
@@ -160,12 +160,12 @@ plugins:
 - 子进程 fixture 覆盖非 leader 与非主线程的 stdin 等待、僵尸进程完全停稳、不可读进程状态、受支持的 syscall 表、不支持的架构和误报拒绝；同一单元测试套件通过注入覆盖 macOS 检查器逻辑。
 - 真实 `node-pty` 与 PTY 消费方测试共同在受支持宿主上覆盖 shell 状态、共享沙箱策略、环境清洗、raw mode 前台 `SIGINT`、忽略 `SIGTERM` 的后代进程，以及 dispose 返回后立即完全停稳。
 - Loader 驱动的 `cordis.yml` 测试挂载真实三包组合。ACP 与 headless 快照通过 opt-in overlay 固定 6 个 schema、有界结果和错误；TUI 快照固定 terminal 与 generic 卡片展示。
-- 包契约、架构图、子系统页面、生成目录和 website API 描述同一个已发布接口。
+- 包约定、架构图、子系统页面、生成目录和 website API 描述同一个已发布接口。
 - 仓库 CI 等价序列负责类型、lint、覆盖率、快照、文档、构建、hygiene、demo 和 built-entry 验证。
 
 ## 后果
 
-**无需削弱一次性工具即可获得持久终端状态。**Shell 与 REPL 状态可以跨工具调用保留，而 `bash`、`read`、`write` 和 `edit` 继续拥有更窄的校验、审批与回放契约。
+**无需削弱一次性工具即可获得持久终端状态。**Shell 与 REPL 状态可以跨工具调用保留，而 `bash`、`read`、`write` 和 `edit` 继续拥有更窄的校验、审批与回放约定。
 
 **Linux Tier 1 之外的 idle 都是启发式结果。**输出静默无法区分 prompt、sleep 和网络 I/O。类型化结果保留不确定性，有界 timeout、task 等待与信号让模型仍能掌握控制权。
 
