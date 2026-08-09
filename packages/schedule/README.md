@@ -9,3 +9,5 @@ The Schedule family owns reminders whose durable state lives in the original Ses
 | `tool-schedule/` | Versioned Schedule events and fold, model-facing create/list/delete tools, and a live root-Agent timer owner | — |
 
 The package deliberately exposes no public Schedule service or mutable database. Tools and runtime append to the Session stream; due work enters the same conversation through the Agent's ordinary follow-up queue.
+
+See [Session-local Schedule](../../docs/subsystems/schedule.md) for the durable record, transition, view, and delivery contracts.

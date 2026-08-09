@@ -39,6 +39,7 @@ const LINK_MAP: Record<string, string> = {
   CallId: 'core.md',
   ContentBlock: 'core.md',
   MessageSource: 'core.md',
+  ScheduleChange: 'schedule.md',
   StreamChunk: 'llm-streaming.md',
   TokenUsage: 'llm-streaming.md',
   TodoItem: 'session.md',

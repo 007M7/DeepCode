@@ -369,6 +369,7 @@ const reference = [
   }))),
   ...pairedPages(([
     ['goal.md', '目标', 'Goals', 14],
+    ['schedule.md', '定时提醒', 'Scheduled reminders', 15],
     ['pty.md', 'PTY 会话', 'PTY sessions', 26],
     ['commands.md', '命令', 'Human commands', 38],
   ] as const).map(([file, rootLabel, enLabel, order]): PairedPage => ({
