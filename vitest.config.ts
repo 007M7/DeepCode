@@ -37,8 +37,8 @@ const windowsUnsupportedPackages = process.platform === 'win32'
     ]
   : []
 
-// pwsh-local's run/start/lifecycle suites
-// self-skip without a real pwsh (executor.spec.ts hasPwsh), leaving this file
+// pwsh-local's run/start/lifecycle suites self-skip without a real pwsh
+// (executor.spec.ts hasPwsh), leaving this file
 // far below per-file 100% on pwsh-less hosts; the exemption keeps those hosts
 // green while CI runners ship pwsh and still enforce the full bar. The probe
 // runs the suites' own resolution (the dependency-free resolve.ts module),

@@ -22,7 +22,12 @@ import BrowseDirectoryPicker from '@deepseek-ai/dsh-host-directory-picker-browse
 import NativeDirectoryPicker from '@deepseek-ai/dsh-host-directory-picker-native'
 import * as DirectoryPickerAuto from '../src/index.ts'
 
-const renameControl = vi.hoisted(() => ({ attempts: 0, injectedFailures: 0, remainingFailures: 0 }))
+const renameControl = vi.hoisted(() => ({
+  attempts: 0,
+  failureCode: 'EPERM',
+  injectedFailures: 0,
+  remainingFailures: 0,
+}))
 
 vi.mock('node:fs/promises', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs/promises')>()
@@ -33,7 +38,7 @@ vi.mock('node:fs/promises', async (importOriginal) => {
       if (renameControl.remainingFailures > 0) {
         renameControl.remainingFailures--
         renameControl.injectedFailures++
-        throw Object.assign(new Error(`transient rename failure for ${newPath}`), { code: 'EPERM' })
+        throw Object.assign(new Error(`injected rename failure for ${newPath}`), { code: renameControl.failureCode })
       }
       await actual.rename(oldPath, newPath)
     },
@@ -60,6 +65,7 @@ afterEach(async () => {
   root = undefined
   fakeBin = undefined
   renameControl.attempts = 0
+  renameControl.failureCode = 'EPERM'
   renameControl.injectedFailures = 0
   renameControl.remainingFailures = 0
 })
@@ -192,5 +198,22 @@ describe('real Loader composition', () => {
     expect(renameControl.injectedFailures).toBe(1)
     expect(renameControl.remainingFailures).toBe(0)
     expect(renameControl.attempts).toBeGreaterThanOrEqual(2)
+  })
+
+  it('reports a terminal debounced-write failure again to the teardown owner', { timeout: 60_000 }, async () => {
+    stubAttendedHost()
+    const { ctx } = await loadComposition('127.0.0.1')
+    const autoEntry = [...ctx.loader.entries()].find(entry => entry.options.name === AUTO)!
+    const include = [...ctx.loader.entries()]
+      .find(entry => entry.options.name === 'cordis:include')?.subtree as Include | undefined
+    if (include === undefined) throw new Error('expected the root Include tree')
+    renameControl.failureCode = 'EIO'
+    renameControl.remainingFailures = 1
+
+    await autoEntry.fiber!.dispose()
+    await expect.poll(() => renameControl.injectedFailures).toBe(1)
+    await expect(include.stop()).rejects.toMatchObject({ code: 'EIO' })
+    await expect(ctx.fiber.dispose()).resolves.not.toThrow()
+    context = undefined
   })
 })

@@ -9,7 +9,7 @@
  * @module @deepseek-ai/dsh-skill-local
  */
 
-import { access, readdir, readFile, stat } from 'node:fs/promises'
+import { access, lstat, readdir, readFile, stat } from 'node:fs/promises'
 import { unwatchFile, watchFile, type Stats } from 'node:fs'
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { homedir } from 'node:os'
@@ -394,10 +394,9 @@ class SkillWatchManager {
   private async ensureCurrentWatcher(state: RootWatchState): Promise<void> {
     const watcher = state.watcher
     if (watcher !== undefined && !state.unhealthy) {
-      const current = await resolveRootWatchMode(state.root.path)
+      const current = await resolveRootWatchMode(state.root.path, this.config.followSymlinks)
       // A child unlink can publish an empty catalog before root unlinkDir arrives.
       // Discovery therefore revalidates the retained handle independently.
-      // oxlint-disable-next-line typescript/no-unnecessary-condition -- watcher callbacks can mark unhealthy while the probe awaits
       if (!state.unhealthy && sameWatchMode(watcher.mode, current)) return
     }
     await this.replaceWatcher(state)
@@ -414,7 +413,6 @@ class SkillWatchManager {
       /* v8 ignore next -- The loop returns no handle only when teardown wins between awaited probes. */
       if (watcher === undefined) return
       /* v8 ignore start -- Post-open teardown is timing-dependent; the disposal race has an explicit integration test. */
-      // oxlint-disable-next-line typescript/no-unnecessary-condition -- teardown can race awaited watcher startup
       if (this.closing || state.owners.size === 0) {
         await this.closeWatcher(watcher)
         return
@@ -423,7 +421,6 @@ class SkillWatchManager {
       state.watcher = watcher
       state.unhealthy = false
     } catch (error) {
-      // oxlint-disable-next-line typescript/no-unnecessary-condition -- teardown can race awaited watcher startup
       if (!this.closing) {
         state.unhealthy = true
         this.ctx.logger.warn(`skill-local: failed to watch ${state.root.path}: ${errorMessage(error)}`)
@@ -436,11 +433,11 @@ class SkillWatchManager {
   // service; keep skill filtering and invalidation here.
   private async openStableWatcher(state: RootWatchState): Promise<WatchHandle | undefined> {
     while (!this.closing && state.owners.size > 0) {
-      const mode = await resolveRootWatchMode(state.root.path)
+      const mode = await resolveRootWatchMode(state.root.path, this.config.followSymlinks)
       const watcher = mode.kind === 'ancestor'
         ? this.openAncestorWatcher(state, mode)
         : await this.openRootWatcher(state, mode)
-      const current = await resolveRootWatchMode(state.root.path)
+      const current = await resolveRootWatchMode(state.root.path, this.config.followSymlinks)
       /* v8 ignore else -- A host path transition between the two probes is timing-dependent. */
       if (sameWatchMode(mode, current)) return watcher
       /* v8 ignore next -- Covered by the same host path transition guard. */
@@ -472,7 +469,7 @@ class SkillWatchManager {
   ): Promise<void> {
     let current: RootWatchMode
     try {
-      current = await resolveRootWatchMode(state.root.path)
+      current = await resolveRootWatchMode(state.root.path, this.config.followSymlinks)
     } catch (error) {
       /* v8 ignore start -- Non-absence stat failures need a platform permission or I/O fault. */
       if (!this.closing && state.owners.size > 0) this.handleWatcherError(state, error)
@@ -623,13 +620,16 @@ function resolveWatchConfig(config: Config): ResolvedWatchConfig {
   }
 }
 
-async function resolveRootWatchMode(root: string): Promise<RootWatchMode> {
+async function resolveRootWatchMode(root: string, followSymlinks: boolean): Promise<RootWatchMode> {
   let candidate = root
   while (true) {
     try {
       const info = await stat(candidate)
       if (info.isDirectory()) {
-        const anchor = await canonicalizeWatchPath(candidate)
+        const preserveRootLink = candidate === root
+          && !followSymlinks
+          && (await lstat(candidate)).isSymbolicLink()
+        const anchor = preserveRootLink ? resolve(candidate) : await canonicalizeWatchPath(candidate)
         if (candidate === root) return { kind: 'root', anchor }
         const firstSegment = relative(candidate, root).split(sep)[0]
         /* v8 ignore next -- candidate is a strict ancestor of root. */

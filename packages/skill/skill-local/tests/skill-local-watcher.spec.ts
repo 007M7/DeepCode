@@ -136,6 +136,32 @@ describe('skill-local watcher failures', () => {
     await fiber.dispose()
   })
 
+  it('preserves a symlink root when link following is disabled', async () => {
+    const target = await tempDir('skill-watch-link-target')
+    const aliasParent = await tempDir('skill-watch-link-alias')
+    const alias = join(aliasParent, 'skills')
+    await writeSkill(target, 'linked-skill')
+    await symlink(target, alias, process.platform === 'win32' ? 'junction' : 'dir')
+    const ctx = new Context()
+    await ctx.plugin(SkillService)
+    const fiber = await ctx.plugin(SkillLocal, {
+      includeDefaultRoots: false,
+      customSkillDirs: [alias],
+      watch: true,
+      watchFollowSymlinks: false,
+    })
+
+    try {
+      expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['linked-skill'])
+      expect(watcherHarness.watchers[0]?.path).toBe(alias)
+      expect(watcherHarness.watchers[0]?.options.followSymlinks).toBe(false)
+    } finally {
+      await fiber.dispose()
+      await rm(aliasParent, { recursive: true, force: true })
+      await rm(target, { recursive: true, force: true })
+    }
+  })
+
   it('ignores missing-path probes until the observed path actually changes', async () => {
     const home = await tempDir('skill-watch-missing-stable')
     const ctx = new Context()
