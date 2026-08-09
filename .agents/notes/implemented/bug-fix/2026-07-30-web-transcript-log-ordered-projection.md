@@ -33,13 +33,13 @@ What is unreachable from a `packages/client/*` program is `dsh-compact`'s **root
 The repo's answer to exactly this is a cordis-free leaf subpath, and this change adds one: `COMPACT_CHECKPOINT_SOURCE` and `isCompactCheckpointSource` now live in `packages/compact/compact/src/checkpoint.ts`, which imports no cordis and augments no module (the `dsh-commands/brand` / `dsh-llm/message` shape), and the root re-exports both so every host-side consumer — the terminal's chat helpers, `dsh-session-reference`'s projection — is unchanged. The adapter pins its literal to that declaration with a type-only import:
 
 ```ts
-import type { COMPACT_CHECKPOINT_SOURCE } from '@deepseek-ai/dsh-compact/checkpoint'
-const COMPACT_PLUGIN: typeof COMPACT_CHECKPOINT_SOURCE.plugin = 'compact'
+import type { CompactCheckpointSource } from '@deepseek-ai/dsh-compact/checkpoint'
+const COMPACT_PLUGIN: CompactCheckpointSource['plugin'] = 'compact'
 ```
 
 Renaming the Service Definition's plugin id is now a compile error in the client: `TS2322: Type '"compact"' is not assignable to type '"compaction"'`. The import must stay **type-only** — a value import of any `@deepseek-ai` package that is neither a platform module nor an inline-safe wire layer is rejected by the client purity gate (`packages/client/tsdown.client.ts`), whose own message records that type-only imports are erased and never reach it. A type-only leaf import needs both a `tsconfig.base.json` `paths` entry and `{"path": "../../compact/compact"}` in `packages/client/runtime/tsconfig.json` `references`: composite `rootDir` rules apply to erased imports as well, and without the reference the diagnostic is `TS6059`/`TS6307`.
 
-`packages/client/runtime/tests/compact-checkpoint-pin.spec.ts` stays as the behavioral half, driving the adapter with a checkpoint built from the canonical **value**. The test value-imports the cordis-free `@deepseek-ai/dsh-compact/checkpoint` leaf and deliberately never loads the compact package root or the host-side `Context` merges reachable through it.
+`packages/client/ui-conversation/tests/conversation-node-definitions.spec.ts` is the behavioral half, driving the compaction Definition with checkpoint and provenance records and proving that an older page can fill missing summary data. The Definition's type-only leaf import keeps the client isolated from the compact package root and the host-side `Context` merges reachable through it.
 
 The divergence from the terminal is therefore narrow: both frontends recognize a checkpoint from the same declaration — the terminal value-imports `isCompactCheckpointSource` host-side, where no gate applies, and the client pins the type.
 

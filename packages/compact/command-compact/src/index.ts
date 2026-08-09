@@ -63,7 +63,7 @@ async function executeCompact(
     return { kind: 'error', text: USAGE }
   }
   try {
-    const result = await ctx.compact.compactNow(invocation.agent, invocation.signal)
+    const result = await ctx.compact.compactNow(invocation.agent, invocation.signal, invocation.commandId)
     if (result === null) return { kind: 'success', text: 'No compactable history yet.' }
     return {
       kind: 'success',

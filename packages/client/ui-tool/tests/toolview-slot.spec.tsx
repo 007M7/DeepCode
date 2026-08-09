@@ -18,6 +18,7 @@ import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
 import { apply as applyConversation, inject as injectConversation } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { apply as applyTool, inject as injectTool } from '@deepseek-ai/dsh-client-ui-tool/client'
 import type { ToolCallViewProps } from '@deepseek-ai/dsh-client-ui-tool/client'
+import { toolChatSnapshot } from './tool-details-render.tsx'
 
 const SID = 's1' as SessionId
 
@@ -71,7 +72,7 @@ async function bench(nodes: ToolResultNode[]) {
   await runtime.sessions.add({
     id: SID,
     summary: { title: 'S', displayTitle: 'S' },
-    snapshot: { nodes },
+    snapshot: { nodes, chat: toolChatSnapshot(nodes) },
     session: {
       loadOlder: vi.fn<ISession['loadOlder']>(),
       prompt: vi.fn<ISession['prompt']>(async () => ({ ok: true, value: { accepted: true } })),

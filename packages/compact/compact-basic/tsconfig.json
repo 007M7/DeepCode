@@ -28,6 +28,9 @@
       "path": "../../core/agent"
     },
     {
+      "path": "../../interaction/commands"
+    },
+    {
       "path": "../compact"
     },
     {

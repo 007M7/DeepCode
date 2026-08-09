@@ -91,11 +91,15 @@ function withCompaction(raw: string, meter: TokenMeterService): string {
     return taken
   }
   const commandId = 'cmd-seeded-manual-compact'
+  const compactionId = 'compact-seeded-manual-compact'
   at({
     type: 'command/run',
     data: { commandId, name: 'compact', args: '', source: { kind: 'user' } },
   })
-  const startSeq = at({ type: 'compact/start', data: { turn: null } })
+  const startSeq = at({
+    type: 'compact/start',
+    data: { compactionId, sourceCommandId: commandId, turn: null },
+  })
   // Load-bearing exactness: the projections subtract this count verbatim, so
   // it must equal what the host's fold prices for these nodes. The estimator
   // prices message CONTENT only, so a minimal wrapper per storage shape is
@@ -124,6 +128,8 @@ function withCompaction(raw: string, meter: TokenMeterService): string {
   const summarySeq = at({
     type: 'compact/summary',
     data: {
+      compactionId,
+      sourceCommandId: commandId,
       summary: [{
         type: 'text',
         text: '## Cold resume compact summary\n\n- The exact summary remains available.',
@@ -142,12 +148,17 @@ function withCompaction(raw: string, meter: TokenMeterService): string {
         type: 'text',
         text: '<context_checkpoint>Model-only compact checkpoint.</context_checkpoint>',
       }],
-      source: { kind: 'plugin', plugin: 'compact' },
+      source: {
+        kind: 'plugin', plugin: 'compact', compactionId, sourceCommandId: commandId,
+      },
     },
     surfaceOp: { op: 'replace', start: first, end: last },
     sourceEventSeqs: [startSeq, summarySeq, ...surfaceSeqs],
   })
-  at({ type: 'compact/end', data: { turn: null } })
+  at({
+    type: 'compact/end',
+    data: { compactionId, sourceCommandId: commandId, turn: null },
+  })
   at({
     type: 'command/done',
     data: {

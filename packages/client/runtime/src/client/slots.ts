@@ -320,7 +320,7 @@ export class SlotsService extends Service {
     const dispose = (this._core as unknown as ErasedCore).register(erased, component)
     if (store !== undefined) {
       // Register succeeded, so the target's spec is on the ledger.
-      const scope = (this._core.specDynamic(options.name) as SlotSpec<never>).scope
+      const scope = (this._core.specDynamic(options.name) as SlotSpec<SlotEntryDef>).scope
       this._acquire(store, scope)
     }
     let disposed = false
