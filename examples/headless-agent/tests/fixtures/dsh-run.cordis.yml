@@ -1,4 +1,4 @@
-- id: api-gateway
+- id: agent-default-model
   config:
     provider: cli-mock
     model: cli-mock

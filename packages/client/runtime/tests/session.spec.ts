@@ -89,7 +89,7 @@ describe('open', () => {
     gate.resolve(ok({
       events: entries(page) as never[],
       hasMore: false,
-      modelTarget: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+      modelSelection: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
     }))
     await opening
     const seqs = session.getSnapshot().nodes.map(n => n.seq)
@@ -631,7 +631,7 @@ describe('paging', () => {
     gate.resolve(ok({
       events: entries(plainTurn(0, 0, 'a', 'b')) as never[],
       hasMore: false,
-      modelTarget: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+      modelSelection: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
     }))
     await Promise.all([first, second])
     expect(api.callsOf('session.history')).toHaveLength(2) // open + one page, not two
@@ -1018,7 +1018,7 @@ describe('remaining branches', () => {
     stale.resolve(ok({
       events: entries(plainTurn(0, 0, '旧', '代')) as never[],
       hasMore: false,
-      modelTarget: { provider: 'deepseek-official', model: 'stale' },
+      modelSelection: { provider: 'deepseek-official', model: 'stale' },
     })) // success, but its generation is gone
     await Promise.all([opening, resynced])
     expect(session.getSnapshot().nodes.map(n => n.seq)).toEqual([7, 9]) // only the fresh generation's window
@@ -1041,7 +1041,7 @@ describe('remaining branches', () => {
     secondPull.resolve(ok({
       events: entries([...plainTurn(0, 0, 'a', 'b'), ...plainTurn(6, 1, 'c', 'd')]) as never[],
       hasMore: false,
-      modelTarget: { provider: 'deepseek-official', model: 'stale' },
+      modelSelection: { provider: 'deepseek-official', model: 'stale' },
     }))
     await Promise.all([opening, resynced])
     expect(session.getSnapshot().openState).toBe('open')
@@ -1059,7 +1059,7 @@ describe('remaining branches', () => {
     repairPull.resolve(ok({
       events: entries(plainTurn(0, 0, '旧', '页')) as never[],
       hasMore: false,
-      modelTarget: { provider: 'deepseek-official', model: 'stale' },
+      modelSelection: { provider: 'deepseek-official', model: 'stale' },
     })) // repair result: stale, dropped
     await resynced
     expect(session.getSnapshot().nodes.map(n => n.seq)).toEqual([7, 9])
@@ -1104,7 +1104,7 @@ describe('remaining branches', () => {
         { event: ev.toolResult(7, 1, 'h1', 'done'), view: { for: 'result', view: { card: 'generic', title: '历史果' } } },
       ] as never[],
       hasMore: false,
-      modelTarget: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+      modelSelection: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
     }))
     await session.open()
     expect(session.getSnapshot().nodes.at(-1)).toMatchObject({

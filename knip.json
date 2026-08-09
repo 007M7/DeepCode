@@ -751,6 +751,11 @@
         "@cordisjs/.+"
       ]
     },
+    "packages/bundle/headless": {
+      "ignoreDependencies": [
+        "@deepseek-ai/dsh-code-runtime-worker"
+      ]
+    },
     "packages/bundle/web-app": {
       "ignoreDependencies": [
         "@deepseek-ai/.+"

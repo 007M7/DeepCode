@@ -1,5 +1,5 @@
 // Web e2e scenario: switching models in the composer is how this deployment's
-// default is chosen. The gesture writes the `api-gateway` settings section, a
+// default is chosen. The gesture writes the shared `agent-default-model` settings section, a
 // session created afterwards starts from it, and a session that already logged
 // a route keeps deriving from its own log — the tier order the gateway
 // resolves on every read.
@@ -21,7 +21,7 @@ import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { launchWebScaffold, watchConsole, type WebScaffold } from './scaffold.ts'
 import { ZH_BROWSER_LOCALE, connectFreshWorkspaceZh, saveFailureShot } from './support.ts'
 
-/** Points the shipped `api-gateway` default at this scenario's own route. */
+/** Points the shipped shared Agent default at this scenario's own route. */
 const OVERLAY = fileURLToPath(new URL('./default-model.overlay.yml', import.meta.url))
 
 /** The route this scenario starts on, patched over the shipped default. */
@@ -110,12 +110,12 @@ describe('web e2e: the composer model switch is the default for later sessions',
     await page.getByRole('menuitem', { name: /模型/ }).click()
     await page.getByRole('menuitemradio', { name: 'Acme Large' }).click()
 
-    // The switch is what sets the default: the gateway's own settings section
+    // The switch is what sets the default: the shared Agent-route settings section
     // now names it, beside the provider profiles the Models page writes.
     await expect.poll(
       async () => readFile(join(scaffold.harnessHome, 'settings.yaml'), 'utf8'),
       { timeout: 10_000 },
-    ).toContain('api-gateway:')
+    ).toContain('agent-default-model:')
     const document = await readFile(join(scaffold.harnessHome, 'settings.yaml'), 'utf8')
     expect(document).toContain(`provider: ${ROUTE}`)
     expect(document).toContain(`model: ${MODEL}`)
