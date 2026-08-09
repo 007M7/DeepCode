@@ -1,5 +1,5 @@
 /**
- * Restricted repository-plugin runtime for static skills and common MCP definitions.
+ * Trusted repository-package runtime for code, skills, and common MCP definitions.
  * @module @deepseek-ai/dsh-repository-plugin
  */
 
@@ -29,6 +29,8 @@ export {
   PREPARED_ASSET_DIRECTORY,
   PREPARED_ENTRY_FILENAME,
   REPOSITORY_PLUGIN_BUILTIN,
+  REPOSITORY_PLUGIN_PACKAGE_NAME,
+  REPOSITORY_PLUGIN_PREPARE_COMMAND,
   prepareDshPlugin,
   type PreparedPluginManifest,
 } from './format.ts'

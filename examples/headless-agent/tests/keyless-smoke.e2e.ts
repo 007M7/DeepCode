@@ -6,7 +6,12 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { LOADER_SMOKE_TEST_TIMEOUT_MS, runLoaderSmoke } from '@deepseek-ai/dsh-loader-smoke'
-import { PREPARED_ENTRY_FILENAME, prepareDshPlugin } from '@deepseek-ai/dsh-repository-plugin'
+import {
+  PREPARED_ENTRY_FILENAME,
+  REPOSITORY_PLUGIN_PREPARE_COMMAND,
+  REPOSITORY_PLUGIN_PACKAGE_NAME,
+  prepareDshPlugin,
+} from '@deepseek-ai/dsh-repository-plugin'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 
 const binScript = fileURLToPath(new URL('./fixtures/headless-driver.ts', import.meta.url))
@@ -72,6 +77,8 @@ describe('headless-agent keyless smoke', () => {
       await writeFile(join(plugin, 'package.json'), `${JSON.stringify({
         name: 'headless-repository-fixture',
         version: '0.0.0',
+        scripts: { prepack: REPOSITORY_PLUGIN_PREPARE_COMMAND },
+        devDependencies: { [REPOSITORY_PLUGIN_PACKAGE_NAME]: '0.0.1' },
         dsh: { skills: ['../skills'] },
       }, undefined, 2)}\n`)
       await prepareDshPlugin(plugin)

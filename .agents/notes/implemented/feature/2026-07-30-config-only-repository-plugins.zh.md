@@ -6,25 +6,25 @@ Status: implemented
 
 ## 问题
 
-独立 `dsh` 用户没有开发者自有的 SDK 项目，无法由其 `package.json`、lockfile 和 `cordis.yml` 承载外部插件依赖。若要求运行安装命令或维护另一份状态文件，「使用这个仓库」就会变成多步骤流程；若加载任意仓库代码，又会绕过受限的[静态仓库插件格式](../architecture/2026-07-30-static-repository-plugin-format.md)。长时间运行的 TUI 和 Web 进程还必须在编辑失败时保留仍可使用的插件版本，并向观察者说明候选配置被拒绝的原因。
+独立 `dsh` 用户没有开发者自有的 SDK 项目，无法由其 `package.json`、lockfile 和 `cordis.yml` 承载外部插件依赖。若要求运行安装命令或维护另一份状态文件，「使用这个仓库」就会变成多步骤流程；受信任的 repository 代码仍需要由[repository 包格式](../architecture/2026-08-08-trusted-repository-package-code.md)负责一套锁定精确来源且具事务性的生命周期。长时间运行的 TUI 和 Web 进程还必须在编辑失败时保留仍可使用的插件版本，并向观察者说明候选配置被拒绝的原因。
 
 ## 决策
 
 已交付的 TUI 和 Web／无头 `cordis.yml` 配置树包含一个空的 `repository-plugins` 配置项。用户只需修改 `$DSH_HOME/config.yaml`，用 `repositories` 列表替换该配置项的配置。每一项采用 `github:owner/repository#<ref>`，并可追加 `&path:/.../.dsh-plugin`；省略时选择 `/.dsh-plugin`。必须显式指定 ref；路径是仓库内的绝对路径，并以 `.dsh-plugin` 结尾；重复的规范化说明符在安装前即被拒绝。不提供插件市场、发现索引、HTTPS URL 词汇或隐式的最新版本。
 
-`@deepseek-ai/dsh-repository-plugin` 校验并规范化每个源，再通过 vendor 中的通用 [`RepositoryCache`](../architecture/2026-07-30-package-manager-native-repository-cache.md) 解析。默认缓存位于 `$DSH_HOME/cache/repository-plugins`；`cacheDir` 是显式的部署覆盖项。随应用提供的 pnpm 选择配置的仓库子包，运行包括 `prepare` 在内的普通生命周期，并原子发布该精确说明符。DSH 宿主只导入生成的 `dsh-plugin.mjs` 包装层并将其挂载为子 fiber，因此 skill（技能）与 MCP 仍沿用格式包定义的所有者、失败约定和清理行为。
+`@deepseek-ai/dsh-repository-plugin` 校验并规范化每个源，再通过 vendor 中的通用 [`RepositoryCache`](../architecture/2026-07-30-package-manager-native-repository-cache.md) 解析。默认缓存位于 `$DSH_HOME/cache/repository-plugins`；`cacheDir` 是显式的部署覆盖项。随应用提供的 pnpm 选择已配置的 repository 子包，安装其依赖，运行包所定义的 `prepack`，并原子发布该精确说明符。所选包对 `@deepseek-ai/dsh-repository-plugin` 的直接开发依赖通过包内 `node_modules/.bin` 提供 `dsh-plugin-prepare`；该生命周期会在任何包自有构建完成后调用它。DSH 宿主会导入生成的 `dsh-plugin.mjs` 包装层并将其挂载为子 fiber；该包装层组合静态 skill（技能）与 MCP 所有者，并在声明时组合显式的受信任 Cordis 入口。
 
 ## 实时更新与失败
 
 `dsh-app-boot` 通过一个辅助函数挂载根 Include，并保留其确切的 Loader `Entry`。TUI 和 Web 通过 Cordis HMR（热模块替换）注册 `$DSH_HOME/config.yaml`；无头模式在启动时读取同一文件，但不保留监视器。监视器更新会重新构建 Include 补丁列表，先放置不可变的应用自有补丁，再放置新解析的个人补丁。因此，Web 生成的端口、会话根目录、信任和前端值会在每次个人编辑后保留，除非后续个人补丁有意替换相应配置项。
 
-Cordis 会串行处理并合并该确切路径上的变更。Include 与 Loader 以事务方式协调候选配置：成功时提交新源列表；拉取、准备、包装层导入、格式或子插件失败时拒绝候选配置，并保留或恢复最后一个可用树。HMR 会把捕获的值规范化为 `Error`，记录错误，并广播相应的 `hmr/config-update-failed(filename, error)` 事件；观察者失败不会中断刷新处理。MCP 传输连接失败仍沿用现有 MCP 客户端所收束的「插件成功加载但无工具」结果，因此不会被重新分类为配置更新失败。
+Cordis 会串行处理并合并该确切路径上的变更。Include 与 Loader 以事务方式协调候选配置：成功时提交新源列表；拉取、准备、包装模块导入、格式或子插件失败时拒绝候选配置，并保留或恢复最后一个可用树。HMR 会把捕获的值规范化为 `Error`，记录错误，并广播并行的 `hmr/config-update-failed(filename, error)` 事件；观察者失败不会中断刷新处理。Repository MCP 服务器采用严格启动，因此初始连接、发现或工具注册失败会拒绝候选配置，并构成配置更新失败；非严格的独立 MCP 客户端仍保留其所收束的「插件成功加载但无工具」行为。
 
 相同说明符会永久复用同一个缓存版本。HMR 监视配置，而非已缓存的仓库代码；用户必须改变 ref、路径或源列表，才能选择另一个版本。
 
 ## 信任边界
 
-配置仓库即授权该仓库及其依赖中的包管理器生命周期代码以用户的文件系统权限运行。pnpm 子进程会移除名称中含有 `KEY`、`PASSWORD`、`SECRET` 或 `TOKEN` 的环境变量，但这只会减少凭据暴露，并非沙箱。固定的运行时包装层会阻止仓库作者提供的 Cordis 入口成为受支持插件格式的一部分；它无法让包准备过程安全执行不受信任的代码。
+配置仓库即授权该仓库中的包管理器生命周期代码、依赖、显式 `dsh.entry` 和 spawn 的 MCP server 以用户的文件系统权限运行。pnpm 子进程会移除名称中含有 `KEY`、`PASSWORD`、`SECRET` 或 `TOKEN` 的环境变量，但这只会减少凭据暴露，并非沙箱。已准备的包装层会校验组合边界和生命周期状态；当来源不受信任时，它无法让 repository 代码变得可安全运行。
 
 ## 考虑过的替代方案
 
@@ -43,7 +43,7 @@ Cordis 会串行处理并合并该确切路径上的变更。Include 与 Loader 
 - 添加 `.dsh-plugin/package.json` 的仓库只需一次个人配置编辑即可供独立用户使用，无需改变现有 skill 或 `.mcp.json` 布局。
 - 长时间运行的应用无需重启即可新增、替换或移除已配置版本；被拒绝的候选配置会保留最后一个可用运行时，并产生一个通用 Cordis 事件。
 - 首次使用可能需要 Git／网络访问和准备时间。后续启动会复用这份精确的已准备缓存；在另行制定缓存管理政策之前，旧版本会持续占用磁盘空间。
-- 仅支持 skill 和通用 MCP 定义。钩子、命令、agent（智能体）、应用、任意 Cordis 代码、兼容 shim、带 OAuth 的 MCP 定义和插件市场均有意不提供。
+- skill 和通用 MCP 定义保留可移植静态适配器，而显式 `dsh.entry` 可以贡献 DSH 原生 Cordis 行为。格式专用的兼容 shim、带 OAuth 的 MCP 定义和插件市场仍有意不提供。
 
 ## 测试
 

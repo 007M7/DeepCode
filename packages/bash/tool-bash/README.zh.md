@@ -6,7 +6,7 @@
 
 需要加载执行器实现（例如 `@deepseek-ai/dsh-bash-local`）与 [`@deepseek-ai/dsh-bash-env`](../bash-env/README.md) 注册表；在每个注入服务就绪之前，插件会保持等待状态（`inject: ['tools', 'bash', 'systemPrompt', 'bashEnv']`）。工具约定使用 bash 方言——请挂载能解析 bash 的执行器。
 
-包根只公开 Cordis 插件契约（`name`、`inject`、`Config`、`apply`）；结果渲染和后台进程适配仍保留在包内部。
+包根只公开 Cordis 插件约定（`name`、`inject`、`Config`、`apply`）；结果渲染和后台进程适配仍保留在包内部。
 
 插件还会提供 `tool:bash` 提示词段落（顺序 105）：检查每个结果中的 `[exit code: N]` 标记，发现失败时先调查原因再继续。
 

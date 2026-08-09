@@ -64,6 +64,7 @@ async function mountRegistry(): Promise<Context> {
 }
 
 const defaultOpts: ToolBridgeOptions = {
+  registrationFailure: 'contain',
   serverName: 'srv',
   toolCallTimeoutMs: 60_000,
 }
@@ -713,6 +714,7 @@ describe('createTransport', () => {
       env: {},
       cwd: '/tmp',
       toolCallTimeoutMs: 60_000,
+      failOnStartupError: false,
     }
     const transport = createTransport(config)
     expect(transport).toBeDefined()
@@ -727,6 +729,7 @@ describe('createTransport', () => {
       url: 'http://localhost:3000/mcp',
       headers: {},
       toolCallTimeoutMs: 60_000,
+      failOnStartupError: false,
     }
     const transport = createTransport(config)
     expect(transport).toBeDefined()
@@ -741,6 +744,7 @@ describe('createTransport', () => {
       url: 'http://localhost:3000/mcp',
       headers: { Authorization: 'Bearer token' },
       toolCallTimeoutMs: 60_000,
+      failOnStartupError: false,
     }
     const transport = createTransport(config)
     expect(transport).toBeDefined()
@@ -764,6 +768,7 @@ describe('createTransport', () => {
         env: { EXTRA: 'injected' },
         cwd: '',
         toolCallTimeoutMs: 60_000,
+        failOnStartupError: false,
       }
       // createTransport internally calls buildChildEnv; we verify by inspecting
       // the constructed StdioClientTransport. Since we can't inspect private fields
@@ -791,6 +796,7 @@ describe('createTransport', () => {
       env: { CUSTOM: 'value' },
       cwd: '',
       toolCallTimeoutMs: 60_000,
+      failOnStartupError: false,
     }
     const transport = createTransport(config)
     expect(transport).toBeDefined()
