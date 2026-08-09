@@ -18,7 +18,7 @@ Status: implemented
 - 已实现的 Agent Note 陈述已交付的现实：「推迟到后续 PR」的说法若其目标已经交付，就改为点名那篇已交付的 note。
 - 已录制的 fixture（测试前置数据）、快照与已归档的 Agent Note 不受此约束：已录制的模型输出与封存的历史保持原有行文。在 note 的变更故事段落内，历史阶段名称（「首版交付了 X」）属于安全的现状表述；指示性切次戳（"this cut"）在任何地方都仍被禁止。
 
-一次全仓库清理把这些规则应用到了各个行文表面，包括生成器持有的模板（`scripts/gen-doc-graphs.ts`、`scripts/gen-tool-catalog.ts`、typert 生成器的页面提示语，改后重新生成）、type-equiv 源码 JSDoc（改后把文档页重新粘贴）以及双语对侧文件（改后重新记录配对）。
+一次全仓库清理把这些规则应用到了各个行文表面，包括生成器持有的模板（`scripts/gen-doc-graphs.ts`、`scripts/gen-tool-catalog.ts`、typert 生成器的页面提示语，改后重新生成）、type-equiv 源码 JSDoc（改后把文档页重新粘贴）以及双语对侧文件（改后重新记录配对）。[dsh-trim-cot-leakage 技能](../../../skills/dsh-trim-cot-leakage/SKILL.md)把这些规则落地为可执行工作流：审计分类法、已提交的成批召回检索，以及校准保留/删除边界的少样本示例。
 
 ## 曾考虑的替代方案
 
@@ -28,7 +28,7 @@ Status: implemented
 
 ## 验证
 
-审计的成批 grep 检索（英文与中文、注释与行文、对 `.agents/` 加 `--hidden`）在已录制 fixture 与已归档 Agent Note 之外没有命中任何设计序号引用；`verify-type-equiv`、各 `gen-*` 新鲜度检查与 `verify-translation-pairing` 把重新生成与重新记录的表面固定下来。覆盖缺口：没有门禁会拒绝新的序号引用，这条规则由评审把关。
+审计的成批 grep 检索（英文与中文、注释与行文、对 `.agents/` 加 `--hidden`）在已录制 fixture、已归档 Agent Note 与该清理技能自带的校准示例之外没有命中任何设计序号引用；`verify-type-equiv`、各 `gen-*` 新鲜度检查与 `verify-translation-pairing` 把重新生成与重新记录的表面固定下来。覆盖缺口：没有门禁会拒绝新的序号引用，这条规则由评审把关。
 
 ## 后果
 
