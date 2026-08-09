@@ -116,6 +116,6 @@ Sidebar 与 conversation empty hero 通过 slot 获得标准化动作：`startSe
 
 - SessionHeader 不记录最后活跃时间，历史 bootstrap 只能按 `createdAt` 初始化；此后由真实 Session 活跃事件逐项前移。
 - 历史 cwd 缺失、目录无效或 realpath 失败的 Session 留在 Ungrouped；本期没有手动收编入口。
-- 页面刷新会丢弃未 materialize 的 Workspace/Session Intent 和尚未被 Host 接受的输入，这是 page-local 契约。
+- 页面刷新会丢弃未 materialize 的 Workspace/Session Intent 和尚未被 Host 接受的输入，这是 page-local 约定。
 - 显式 Create Workspace 立即落盘，用户不发送就离开也会留下空 Workspace。
 - Host Session 在首个事件前仍遵循现有懒持久化语义；前端 Intent 不改变 Host 重启后的空 Session 行为。

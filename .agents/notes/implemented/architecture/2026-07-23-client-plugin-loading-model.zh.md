@@ -31,7 +31,7 @@ host 侧，cordis 插件装载站在 Node 的模块机制之上——require cac
 - **普通包**是模块系统自身所需的绝对基座，加上尚未转成 DI 的库：react 家族、cordis、`@deepseek-ai/dsh-client-modules`（模块系统本身——它永远不可能是插件，因为模块先于一切模块）、web 壳内核，以及——暂时——ui-slots、web-react、ui-primitives。普通包打进壳 bundle、播种进模块表、对 host 图不可见。
 - **插件包**是其余一切。每个都携带 `dshClient` manifest（元数据清单）声明（`{ platform, inject, immediately? }`）和同一种统一形态：共享 tsdown 预设产出 `lib/client.js`，`exports["./client"]` 指向该 bundle。每个都是 host 独家撰写的图里受治理的 entry。当前包括：connection、runtime、ui-theme、i18n、hmr（仅进 dev 图）、ui-layout、ui-sidebar、ui-conversation、ui-model-selector、ui-question、ui-trajectory。
 
-manifest 拥有包的装载契约：它的 `inject` 依赖边，加可选的 `immediately` 预取标记（缺省即 lazy）。负责组合的 app 只拥有名册与 `--dev` 开关。
+manifest 拥有包的装载约定：它的 `inject` 依赖边，加可选的 `immediately` 预取标记（缺省即 lazy）。负责组合的 app 只拥有名册与 `--dev` 开关。
 
 新增一个插件包：声明 `dshClient`，经共享预设产出 `./client` bundle，把包名加进负责组合的 app 的名册。除此之外无需任何交接。
 

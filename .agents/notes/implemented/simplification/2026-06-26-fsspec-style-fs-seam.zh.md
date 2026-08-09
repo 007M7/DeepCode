@@ -30,9 +30,9 @@ provider      dsh-fs-local      local implementation of ctx.fs
 
 `dsh-tool-fs` 保持相同的面向模型的 `read`/`write`/`edit` schema。它是执行器：注入 `fs`（不是策略服务）并直接访问 `ctx.fs`，拥有读取窗口化逻辑，并分发 `fs/*` 事件以便 `dsh-fs-policy` 进行门控和记录。
 
-本 Agent Note 决定了四层拆分、提供方契约和新鲜度策略。随后，[事件门禁 Agent Note](../architecture/2026-06-26-file-context-as-event-gate.md) 细化了工具↔策略耦合：`dsh-fs-policy` 是通过 `fs/*` 事件参与的门禁插件，而非 `ctx.fileContext` 方法服务，因此工具不会在方法层与其耦合；读取窗口和 fs I/O 位于 `dsh-tool-fs`。本文描述已经落地的事件门禁形状；提供方的版本守卫可选（省略即无条件裸提供方）。
+本 Agent Note 决定了四层拆分、提供方约定和新鲜度策略。随后，[事件门禁 Agent Note](../architecture/2026-06-26-file-context-as-event-gate.md) 细化了工具↔策略耦合：`dsh-fs-policy` 是通过 `fs/*` 事件参与的门禁插件，而非 `ctx.fileContext` 方法服务，因此工具不会在方法层与其耦合；读取窗口和 fs I/O 位于 `dsh-tool-fs`。本文描述已经落地的事件门禁形状；提供方的版本守卫可选（省略即无条件裸提供方）。
 
-## 提供方契约
+## 提供方约定
 
 `@deepseek-ai/dsh-fs` 收缩为提供方文本 IO 加受保护的文本变更：
 
@@ -65,9 +65,9 @@ type FsWriteIntent =
 
 这是一个*文本存储* seam，刻意比字节级 fsspec（`cat`/`open` 返回原始字节）高半个层次。UTF-8 解码、二进制/NUL 拒绝、受保护的全文件写入和受保护的字面文本编辑都在提供方内完成，因此策略层从不接触原始字节、不重新实现跨分片解码、也不将陈旧检查与变更临界区分离。面向模型的概念仍然不下沉到提供方：行窗口、带行号的行、渲染的页脚、观测状态存储都不会泄漏下去。
 
-从 `dsh-fs` 删除：`readPage`、`FsExpectation`、`FsView`、`FsStateSource`、`FsReadRequest`、`FsTextLine`、行/窗口常量、`formatReadBody` 和 observed-state `WeakMap`。`applyEdit` 由更窄的提供方原语 `editText` 取代，其契约是带版本守卫的字面文本变更，而非策略层读取授权。`FS_PARTIAL_OBSERVATION` 错误码也从 `FsErrorCode` 分类体系中移除：新鲜度授权没有部分/完整之分，因此没有任何路径会抛出它。`FsTargetKey` 和 `FsVersion` 按现有[品牌化 id Agent Note](../architecture/2026-06-20-branded-ids.md) 成为品牌化不透明 id。
+从 `dsh-fs` 删除：`readPage`、`FsExpectation`、`FsView`、`FsStateSource`、`FsReadRequest`、`FsTextLine`、行/窗口常量、`formatReadBody` 和 observed-state `WeakMap`。`applyEdit` 由更窄的提供方原语 `editText` 取代，其约定是带版本守卫的字面文本变更，而非策略层读取授权。`FS_PARTIAL_OBSERVATION` 错误码也从 `FsErrorCode` 分类体系中移除：新鲜度授权没有部分/完整之分，因此没有任何路径会抛出它。`FsTargetKey` 和 `FsVersion` 按现有[品牌化 id Agent Note](../architecture/2026-06-20-branded-ids.md) 成为品牌化不透明 id。
 
-## 策略契约
+## 策略约定
 
 `@deepseek-ai/dsh-fs-policy` 是插件，而非服务：它不注册任何 `ctx.*` 键，也不注入任何内容。它拥有不应位于 `FileSystem` 提供方基类上的写入/编辑新鲜度策略和 observed state（否则沙箱/远程后端会继承不该由其承载的面向模型观察策略）。它通过执行器分派的 `fs/*` 事件门禁贡献该策略。（本 Agent Note 最初提议带有 `read`/`write`/`edit` 方法的具体 `ctx.fileContext` 服务；[事件门禁 Agent Note](../architecture/2026-06-26-file-context-as-event-gate.md) 将其细化为本文所述插件，使工具永远不会在方法层与策略耦合。）
 
@@ -81,7 +81,7 @@ type FsWriteIntent =
 
 该插件不做任何文件系统 I/O：「你是否观测过此文件？」是一次 `WeakMap` 查找，而「你读取的版本是否仍然是当前版本？」在 `ctx.fs.editText`/`writeText` 内部、与执行变更相同的原子锁中决定——插件只提供 `vObserved` 作为基础。
 
-## 工具契约
+## 工具约定
 
 `dsh-tool-fs` 保持相同的 schema 和提示词表面。`read` 仍然暴露 `file_path`、`offset` 和 `limit`；`write` 和 `edit` 不变。它是执行器：验证模型参数，通过 `ctx.fs` 直接读取/写入/编辑，拥有行窗口化和结果渲染（`N: text`、页脚、`<path>/<content>` 封装），并分发 `fs/*` 事件。
 
@@ -109,7 +109,7 @@ type FsWriteIntent =
 
 ## 验证
 
-`dsh-fs` 精确暴露 `resolve`/`stat`/`readText`/`streamText`/`writeText`/`editText`（`stat` 返回 `FsInfo | undefined`，`writeText` 接受 `FsWriteIntent`），已删除的类型/原语不再存在；`dsh-fs-local` 不包含行、视图或 `formatReadBody` 逻辑；面向模型的 schema 保持逐字节不变。测试固定了以下行为：窗口化读取授权对未变文件的后续编辑；基于陈旧读取的编辑在尝试字面匹配之前报告 `FS_STALE_VERSION`；版本 CAS 行为得以保留；观测契约成立（`read` 工具的读取记录观测状态；直接 `ctx.fs` 读取不记录）；`dsh-fs-policy` 具有 HMR（热模块替换）/dispose（资源释放）测试覆盖。
+`dsh-fs` 精确暴露 `resolve`/`stat`/`readText`/`streamText`/`writeText`/`editText`（`stat` 返回 `FsInfo | undefined`，`writeText` 接受 `FsWriteIntent`），已删除的类型/原语不再存在；`dsh-fs-local` 不包含行、视图或 `formatReadBody` 逻辑；面向模型的 schema 保持逐字节不变。测试固定了以下行为：窗口化读取授权对未变文件的后续编辑；基于陈旧读取的编辑在尝试字面匹配之前报告 `FS_STALE_VERSION`；版本 CAS 行为得以保留；观测约定成立（`read` 工具的读取记录观测状态；直接 `ctx.fs` 读取不记录）；`dsh-fs-policy` 具有 HMR（热模块替换）/dispose（资源释放）测试覆盖。
 
 ## 后续扩展
 
@@ -126,5 +126,5 @@ type FsWriteIntent =
 - 新增第四个 fs 包和一个新的插件层。这是有意为之：它是此前推迟的策略层，而非第二个抽象后端 seam。
 - 直接使用 `ctx.fs` 会绕过策略：直接 `ctx.fs.readText` 不发出 `fs/observed`，因此在默认策略下，后续 `edit` 会以 `FS_NOT_OBSERVED` 拒绝，直到通过 `read` 工具读取该文件。这一失败是显式且有文档记录的。
 - 大文件行窗口化从后端移至 `dsh-tool-fs` 中的 `read` 工具；文本解码和二进制拒绝留在 `ctx.fs.streamText` 中，因此这只是窗口化逻辑的迁移，而非第二套文本 IO 实现。
-- 将 `editText` 保留在提供方 seam 上意味着每个后端都必须实现字面替换契约。这是有意为之：该操作不是纯存储，但陈旧守卫 + 字面匹配 + 原子重写是必须保持在一起的单元，以确保正确的错误归因和并发行为。该契约应保持窄且仅限文本，以便未来后端可以原生实现或通过全文件重写实现。
+- 将 `editText` 保留在提供方 seam 上意味着每个后端都必须实现字面替换约定。这是有意为之：该操作不是纯存储，但陈旧守卫 + 字面匹配 + 原子重写是必须保持在一起的单元，以确保正确的错误归因和并发行为。该约定应保持窄且仅限文本，以便未来后端可以原生实现或通过全文件重写实现。
 - 新鲜度允许在窗口化读取后进行全文件 `write`。这比旧的视图检查更弱，但避免了大文件无法编辑的问题；提示词引导仍然不鼓励盲目的全文件替换。

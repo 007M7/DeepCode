@@ -27,7 +27,7 @@ Status: implemented
 
 ## Wire and CLI residue
 
-Host 侧的 `workspace.create` 仍接受 `{ name }`，`dsh web --workspace-root` 也仍在为它提供目标目录，但已没有任何产品表层会走到它们。把名称送到 wire 的客户端一段同样如此：`WorkspaceCreateInput`、`WorkspacesService.create` 的 `{ name }` 分支、`intentName` 的名称分支，以及 manager 中"workspaceRoot 下的 name"这一契约。`apps/cli/README.md` 及其中文对照本也仍把 `--workspace-root` 记为"创建具名 Workspace"。这一整套都在 `packages/host/apiproxy/src/api-proxy.ts` 的调用点标记为待删除，并留给后续改动：它横跨 backend、客户端 seam 与 CLI 面，有各自的 reviewer 和各自的测试波及面（api-proxy workspace 套件、runtime workspace 套件、配置目录），而本决定中阻塞发布的部分是 UI。
+Host 侧的 `workspace.create` 仍接受 `{ name }`，`dsh web --workspace-root` 也仍在为它提供目标目录，但已没有任何产品表层会走到它们。把名称送到 wire 的客户端一段同样如此：`WorkspaceCreateInput`、`WorkspacesService.create` 的 `{ name }` 分支、`intentName` 的名称分支，以及 manager 中"workspaceRoot 下的 name"这一约定。`apps/cli/README.md` 及其中文对照本也仍把 `--workspace-root` 记为"创建具名 Workspace"。这一整套都在 `packages/host/apiproxy/src/api-proxy.ts` 的调用点标记为待删除，并留给后续改动：它横跨 backend、客户端 seam 与 CLI 面，有各自的 reviewer 和各自的测试波及面（api-proxy workspace 套件、runtime workspace 套件、配置目录），而本决定中阻塞发布的部分是 UI。
 
 ## Testing
 
@@ -52,6 +52,6 @@ Host 侧的 `workspace.create` 仍接受 `{ name }`，`dsh web --workspace-root`
 ## Consequences
 
 - 从 UI 已无法在操作者选定目录之外创建 Workspace；服务端控制的 `--workspace-root` 目标曾是约束新 workspace 文件夹落点的唯一手段，现在没有替代品。需要该约束的部署必须有意识地重新引入它。
-- 仅存的这条路径会浏览宿主机文件系统，因此选择器的可达范围现在是整台宿主机，而非一个配置好的父目录。这本就是浏览占用者的契约，本改动使它成为唯一的契约。
+- 仅存的这条路径会浏览宿主机文件系统，因此选择器的可达范围现在是整台宿主机，而非一个配置好的父目录。这本就是浏览占用者的约定，本改动使它成为唯一的约定。
 - 挂载了 `ui-workspace` 但未挂任何 directory-picker 包的组合，已完全无法添加 Workspace；现在它通过不渲染按钮来说明这一点，而不是提供一个按名称创建的兜底。
-- 主视觉区的 chip 仍声明 `aria-haspopup="menu"`，而直接拉起的路径实际弹出的是对话框。要让它如实，需要把流程的展示方式经 `conversation.hero.workspace` 的 owner 契约上报——决定权在流程，播报权在 chip，两者分属不同的包——因此这被列为一项具名的后续工作，而不是一处无声的不一致。本次新增的侧边栏按钮完全不作任何 popup 声明。
+- 主视觉区的 chip 仍声明 `aria-haspopup="menu"`，而直接拉起的路径实际弹出的是对话框。要让它如实，需要把流程的展示方式经 `conversation.hero.workspace` 的 owner 约定上报——决定权在流程，播报权在 chip，两者分属不同的包——因此这被列为一项具名的后续工作，而不是一处无声的不一致。本次新增的侧边栏按钮完全不作任何 popup 声明。

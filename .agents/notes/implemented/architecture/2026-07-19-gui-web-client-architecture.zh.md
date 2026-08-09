@@ -4,7 +4,7 @@ Status: implemented
 
 [English](2026-07-19-gui-web-client-architecture.md) | 中文
 
-> 分工线：通道无关的分层模型与 RPC 协议（消息模型/类型体系/契约面/客户端基类）见 [分层与 RPC 协议 RFC](2026-07-19-gui-layering-and-rpc-protocol.md)；本篇 = 浏览器侧：client cordis 树如何装载、UI 插件如何经 slot 与服务组合、React-free 对象层如何以不可变快照供给 React。
+> 分工线：通道无关的分层模型与 RPC 协议（消息模型/类型体系/约定面/客户端基类）见 [分层与 RPC 协议 RFC](2026-07-19-gui-layering-and-rpc-protocol.md)；本篇 = 浏览器侧：client cordis 树如何装载、UI 插件如何经 slot 与服务组合、React-free 对象层如何以不可变快照供给 React。
 
 ## Problem
 
@@ -69,7 +69,7 @@ Notifier 微任务合批 ──► ConversationSnapshot 缓存 ──uSES──�
 ```
 
 - **Session**（session.ts）：懒建、常驻——建成后在后台持续吃帧，切走切回秒显。操作面：`prompt`/`cancel`（RPC 透传；失败落进快照的 `promptError`）、`open`（拉尾页 history，幂等）、`loadOlder`（向上翻页，防重入）、`resync`（重连 = 清窗口重跑 open）。订阅面：`subscribe`/`getSnapshot`（恒返缓存引用）——`implements ObservableSnapshot<ConversationSnapshot>`，构造时挂 `useSelector = bindSnapshotSelector(this)`，Session 本身就是 uSES 源。帧分发是一个 switch：`session/event` 帧按 seq 去重（唯一去重键），open 在途时缓冲，否则追加 + 增量投影；open/缝合按 seq 合并 live 缓冲并去重，`subscribed.lastSeq` 超出窗口尾则回补一次。
-- **ConversationSnapshot**（conversation.ts）：不可变快照契约——`nodes`（人类对话记录，日志序）、`partial`、`runningCalls`、`pending`、`running`、`removed`、`openState`、`hasMore`、`promptError` 等。**引用纪律**（memo 与 uSES 的前提）：顶层对象每变必新；未变化的 nodes 投影保持同一数组引用，消息流变化时返回新数组并复用未变化的元素引用；未变的子结构复用上一快照的引用。
+- **ConversationSnapshot**（conversation.ts）：不可变快照约定——`nodes`（人类对话记录，日志序）、`partial`、`runningCalls`、`pending`、`running`、`removed`、`openState`、`hasMore`、`promptError` 等。**引用纪律**（memo 与 uSES 的前提）：顶层对象每变必新；未变化的 nodes 投影保持同一数组引用，消息流变化时返回新数组并复用未变化的元素引用；未变的子结构复用上一快照的引用。
 - **SessionManager**（manager.ts）：实例簇 + 帧总入口 + 会话列表。带 sessionId 的帧只投已存在实例（mux 广播不得把每个会话都实例化）；例外是审批/问答 `requested` 帧——它们不落 history、open 无法回补，故缓冲进 `pendingBuffers`，实例化时回放。
 - **Notifier**（notifier.ts）：两条通知通道，按变更来源取用。`markDirty()`（默认；帧驱动一律用它）按微任务合批——N 次变更、一次通知、一次重渲染；flush 先重建快照缓存再通知。`notifyNow()`（仅用户手势的直接回响）同 tick 重建并通知——受控输入的回响若延到微任务，DOM 会回滚、光标跳尾。帧驱动代码用 notifyNow 会让合批塌回逐帧渲染；禁。
 - **TranscriptAdapter / PartialAccumulator**：对话记录是按日志顺序投影的 append 来源 surface（`@deepseek-ai/dsh-session/surface` 的 `isAppendSurfaceEvent`），外加每次落地的压缩检查点一个标记——绝不用模型 surface，后者遮蔽被替换的范围，会抹掉读者已经看过的对话。节点顺序天然按 seq 单调，因此既无核心 `seq === index` 断言需要满足，也没有降级分支。分片不贡献任何节点（O(1) 跳过）：累积器把 StreamChunk 折叠成 `AssistantBlock[]`，一次增量只换该块引用；定稿消息到达即在同一批内弃掉累积器（提升无闪烁）。成本模型：一个分片 = 一次字符串拼接 + 一个脏标记；帧风暴下未订阅的 Session 只花那个标记。
@@ -79,8 +79,8 @@ Notifier 微任务合批 ──► ConversationSnapshot 缓存 ──uSES──�
 
 胶水包就是整条 ctx↔React 边界；组件保持零框架依赖。
 
-- 快照 store 引擎**住 runtime 包**（zustand vanilla + 草稿式更新，缺省 `flush: 'sync'`，帧驱动 store 可选 `'raf'` 合批，可选整值 localStorage 持久化，dev 深冻结——全部从 `runtime` 的 `./client` 主出口导出，无子路径）：store 产物是裸的可观察源，不带任何 hook 成员。插件只经 [slot 体系标准](2026-07-22-slot-type-chain-implementation.md) 的 `defineStore` 声明触及引擎。web-react 在绑定处（`bindSnapshotSelector`，按源缓存）从 React 消费的唯一数据契约合成每个 hook：`ObservableSnapshot<T>`（`getSnapshot`/`subscribe`）——Session 对象与快照 store 同构满足它。业务插件包只依赖 runtime 与 ui-slots；web-react 是仅壳可用的胶水。
-- `bindSnapshotSelector(source)`：把一个源绑定为经 uSES-with-selector 的带类型 selector hook。uSES 契约四条按构造成立：getSnapshot 恒返缓存引用；subscribe 是绑定期闭包（引用永稳）；纯 CSR 不传 server snapshot；相等性缺省 `Object.is`，按调用可选 `shallowEqual`。
+- 快照 store 引擎**住 runtime 包**（zustand vanilla + 草稿式更新，缺省 `flush: 'sync'`，帧驱动 store 可选 `'raf'` 合批，可选整值 localStorage 持久化，dev 深冻结——全部从 `runtime` 的 `./client` 主出口导出，无子路径）：store 产物是裸的可观察源，不带任何 hook 成员。插件只经 [slot 体系标准](2026-07-22-slot-type-chain-implementation.md) 的 `defineStore` 声明触及引擎。web-react 在绑定处（`bindSnapshotSelector`，按源缓存）从 React 消费的唯一数据约定合成每个 hook：`ObservableSnapshot<T>`（`getSnapshot`/`subscribe`）——Session 对象与快照 store 同构满足它。业务插件包只依赖 runtime 与 ui-slots；web-react 是仅壳可用的胶水。
+- `bindSnapshotSelector(source)`：把一个源绑定为经 uSES-with-selector 的带类型 selector hook。uSES 约定四条按构造成立：getSnapshot 恒返缓存引用；subscribe 是绑定期闭包（引用永稳）；纯 CSR 不传 server snapshot；相等性缺省 `Object.is`，按调用可选 `shallowEqual`。
 - `useInvoke(fn)`：把异步动作包成引用恒定的触发器加 pending 标志；pending 走 per-hook 外部 store 经 uSES 读出（渲染路径零 setState），并发调用计数，invoke 引用永不变。
 - 相等性协议，全链一致：生产端结构共享；消费端以 `Object.is` 或 `shallowEqual` 短路；`React.memo` 浅比较。深比较全链禁止。
 
@@ -108,7 +108,7 @@ src/client/
 ## 怎么开发
 
 - **新 UI 功能** = 新插件包：package.json 声明 `dshClient`（+ `inject` 拓扑），浏览器半边写在 `src/client/`（apply 挂服务/建 store、注册 slot），无 host 逻辑时 node 半边保持空 apply，用共享预设构建。把插件加进 host 配置；manifest 与装载随之自动跟上。
-- **新 slot**：见 [slot 体系标准 RFC](2026-07-22-slot-type-chain-implementation.md)——契约合并进 `SlotMap`，在父 entry 的 `children` 里声明，经自动注入的 `renderSlot` prop 渲染。永不全局导出组件。
+- **新 slot**：见 [slot 体系标准 RFC](2026-07-22-slot-type-chain-implementation.md)——约定合并进 `SlotMap`，在父 entry 的 `children` 里声明，经自动注入的 `renderSlot` prop 渲染。永不全局导出组件。
 - **消费新帧类型**：带 sessionId → Session 分发 switch 加一个分支；host 级 → Manager 路由表；UI 需要时给 `ConversationSnapshot` 加字段并守住引用纪律。
 - **状态住哪**：业务数据（事件、流式、待答）→ 永远对象层；父知道的 → renderSlot 现场的 owner props；单组件私有（滚动、搜索词、展开集）→ 组件状态；跨 entry 共享或跨重挂载存活（选中、草稿、面板宽）→ entry 声明的 store（[slot 体系标准](2026-07-22-slot-type-chain-implementation.md)）。
 - **通知通道**：帧驱动/异步 = `markDirty` 合批；受控输入需要同 tick 的用户手势直接回响 = `notifyNow`。

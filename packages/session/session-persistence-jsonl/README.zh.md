@@ -26,7 +26,7 @@ JSONL 持久会话存储后端：`SessionPersistence` 的一个具体实现（`d
 | `root` | `string`（必需） | 所有会话文件的根目录。**无默认值**：`process.cwd()` 默认值会随进程 cwd 变更（bash 调用、子进程）而分散文件。现有根必须是可读目录；缺失根在第一次实体化时创建。 |
 | `packChunks` | `boolean`（默认 `true`） | 将符合条件的 delta 分片连续段写为打包行（在真实编码会话上测得逻辑日志约小 60%）。设为 `false` 可用于每事件一行诊断；无论该写入侧开关如何，都能读取打包行。 |
 | `compression` | `'zstd' \| 'none'` | 默认 `'zstd'`；`'none'` 保留换行分隔 UTF-8 文本。 |
-| `preparedSessionCacheSize` | 正整数（默认 `5`） | 冷历史检查后保留、供恢复复用的未发布 Session 数量上限。 |
+| `preparedSessionCacheSize` | 正整数（默认 `5`） | 冷历史检查后保留、供恢复复用的未发布会话数量上限。 |
 | `writeBatchMaxDelayMs` | 正整数（默认 `200`） | 空闲的活动事件队列收到待写入事件后开启的固定合并窗口。后续事件不会重置窗口；flush 与 teardown 会绕过它。该值不限制事件循环、串行化操作或后端延迟。最大值为 Node 计时器上限 `2_147_483_647` ms。 |
 
 `locate(meta)` 返回已解析项目/会话目录内固定 transcript 的 `{ kind: 'jsonl', path }`。它不执行文件系统 I/O：可以在目录或文件存在前返回目标，现有文件也只包含最近一次 flush 完成的前缀。
@@ -42,7 +42,7 @@ JSONL 持久会话存储后端：`SessionPersistence` 的一个具体实现（`d
 - **绑定存储身份。** 查找要求可读项目目录中只有一个匹配会话目录，然后验证 header id 等于请求 id，且 header id/cwd 派生所选 transcript 路径。列表应用同一路径检查，并拒绝重复 id。身份失败发生在修复或 append 前。
 - **延迟实体化。**`create(meta)` 不写入；第一次 `append` 将编码 header 和第一批写入临时文件并执行 `fsync`。POSIX 通过硬链接无覆盖发布，并对父目录 `fsync`。Windows 通过 `MoveFileExW(..., MOVEFILE_WRITE_THROUGH)` 无覆盖发布，并通过同一 write-through pattern 创建缺失目录。已创建但从未 append 的会话不留下磁盘内容，不在 `list` 中。
 - **仅追加。** 已 flush 事件绝不重写。后续原始批次 append 行；压缩批次 append 一个 frame。两条路径都执行 `fsync`，并在捕获到写入或同步失败时回滚到之前字节长度。
-- **崩溃恢复：保留有效尾部工作。**`load` 验证每个完整压缩 frame，并扫描解压 JSONL。最后 frame 结构不完整时，读取器保留其完整解码记录，从 frame 开头截断，并使用共享[持久化契约](../../../.agents/notes/implemented/architecture/2026-06-14-session-persistence.md) 需要的合成工具、步骤和轮次 closer 重新编码这些记录。原始 mode 从第一个不完整行截断。完整 frame 中的 checksum/解压失败，或位于最后已提交的 `turn/end` 处或之前的缺陷属于损坏，会被拒绝。
+- **崩溃恢复：保留有效尾部工作。**`load` 验证每个完整压缩 frame，并扫描解压 JSONL。最后 frame 结构不完整时，读取器保留其完整解码记录，从 frame 开头截断，并使用共享[持久化约定](../../../.agents/notes/implemented/architecture/2026-06-14-session-persistence.md) 需要的合成工具、步骤和轮次 closer 重新编码这些记录。原始 mode 从第一个不完整行截断。完整 frame 中的 checksum/解压失败，或位于最后已提交的 `turn/end` 处或之前的缺陷属于损坏，会被拒绝。
 - **非变更检查。**`inspect()` 返回不可变、平衡的逻辑视图，并可在内存中合成恢复 closer，但不会截断不完整尾部或更改轻量修订。
 - **连续 seq。**`append` 拒绝第一个 `seq` 不继续已存储日志的批次，并拒绝非 JSON 可序列化 `event.data`，同时命名违规事件类型。
 - **轻量修订。**`listSnapshots(signal?)` 使用 device、inode、size 和纳秒时间戳标识日志，避免解析完整日志；该标识会在 append、修复、替换或存储变更后改变。完整前缀读取要求读取字节前后的身份一致，`readStoredRevision()` 使用同一身份校验保留的 preparation，而不加载日志。快照列表通过产物发现转发精确信号，并在每个 `stat` 前后检查取消；由于文件系统 `stat` 不可中断，取消会等待活动调用完成，然后在不启动另一次调用的情况下拒绝。

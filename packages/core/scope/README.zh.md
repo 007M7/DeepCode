@@ -14,14 +14,14 @@
 - `scopeTarget(base: T, key: ScopeKey | undefined): Scoped<T>`：为按作用域筛选的事件构造不透明分发 `thisArg`。它把 `base` 现有的 `Context.filter` 与作用域谓词组合起来（无标签监听器 ⇒ 放行；有标签监听器 ⇒ 仅当标签 === key 时放行；`key === undefined` ⇒ 仅放行无标签监听器）。载体只包含路由状态；真实主体由事件参数携带。带 `{ global: true }` 的监听器绕过筛选（Cordis 语义）。
 - `Scoped<T>`：编译期不透明载体 brand。按作用域筛选的事件要求它作为 `this` 类型，因此使用裸主体分发会产生编译错误。类型参数记录主体类型，但不公开其属性。
 - `isScopeCarrier(value)`/`carrierKeyOf(value)`：运行时载体标记，开发不变式使用它们断言每次按作用域筛选的分发都携带载体，而且载体键与参数所指名的主体一致。
-- `ScopeLayer`：一个注册表的完整全局贡献或精确作用域贡献的聚合契约；`isEmpty()` 控制带作用域层的回收。
+- `ScopeLayer`：一个注册表的完整全局贡献或精确作用域贡献的聚合约定；`isEmpty()` 控制带作用域层的回收。
 - `ScopedLayers<L>`：拥有一个立即创建的全局层和按需创建的精确作用域层。`peek()` 从不创建；`merge()` 物化按插入顺序排列的具名遮蔽项；`effect()` 从同一上下文推导可见性与所有权，同时返回原样 Cordis disposer。
 - `NamedEntries<V>`：按插入顺序排列的具名存储，调用方拥有重复项诊断、查找，以及一个非空表世代内的实时迭代。表清空后，现有迭代器与后续插入项脱离；`insert()` 返回幂等的精确条目撤销函数。
 - `AnonymousEntries<V>`：按插入顺序排列的匿名存储；唯一内部键使相同值仍作为独立注册存在。它使用相同的清空世代迭代器边界；`append()` 返回幂等的精确条目撤销函数。
 
 可选配套包 `@deepseek-ai/dsh-scope/invariant` 拥有该运行时断言。它使用生成的 `scoped-events.generated.ts` 解析器映射，要求每个已声明的带作用域事件都携带载体；当 payload 公开路由主体时，还要求路由主体与载体键严格相等。基于 Program 的生成器根据事件声明和真实的 `scopeTarget(base, key)` 调用生成该映射。
 
-## 设计契约
+## 设计约定
 
 注册上下文同时决定可见性和所有权，防止注册在一个作用域中可见、却随另一个作用域 dispose（资源释放）。作用域用于路由受信任的同进程插件；它们不是沙箱或权限边界。原理与明确排除的安全目标见 [agent 作用域 Agent Note](../../../.agents/notes/implemented/architecture/2026-07-08-agent-scope-contexts.md#security-and-authority-are-non-goals)。
 

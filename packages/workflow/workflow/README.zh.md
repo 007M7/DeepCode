@@ -2,11 +2,11 @@
 
 [English](README.md) | 中文
 
-工作流 seam（`ctx.workflows`）执行由模型编写、可扇出 subagent 的编排脚本。该 seam 定义脚本、运行、结果、错误和事件契约；引擎负责决定如何隔离并执行脚本。
+工作流 seam（`ctx.workflows`）执行由模型编写、可扇出 subagent 的编排脚本。该 seam 定义脚本、运行、结果、错误和事件约定；引擎负责决定如何隔离并执行脚本。
 
 `@deepseek-ai/dsh-workflow-workerthread` 是当前引擎，`@deepseek-ai/dsh-tool-workflow` 是面向模型的消费方。未来的进程或沙箱引擎可以替换实现，而无需更改工具。
 
-## 服务与运行契约
+## 服务与运行约定
 
 `WorkflowService.start(request): WorkflowRun` 会同步完成足够多的校验，在运行创建前拒绝格式错误的 meta 块、无法解析的脚本、不可用的提供方路由或不受支持的单次运行限制。返回后，`WorkflowRun.result` 绝不拒绝：执行失败以 `stopReason: 'error'` 兑现，取消则在引擎有限的宽限时间内以 `cancelled` 兑现。
 
@@ -31,7 +31,7 @@
 `WorkflowError` 携带一个代码和 `fatal` 标志。致命错误总会逸出 `parallel()` 和 `pipeline()`，而不会变成普通的逐项 `null`：
 
 - `SCRIPT_PARSE` / `META_INVALID`：工作流无法启动；
-- `INVALID_ARGUMENT` / `UNSUPPORTED_OPTION` / `UNSUPPORTED_SCHEMA`：钩子调用违反引擎契约；
+- `INVALID_ARGUMENT` / `UNSUPPORTED_OPTION` / `UNSUPPORTED_SCHEMA`：钩子调用违反引擎约定；
 - `AGENT_CAP` / `ITEM_CAP`：超过已配置的安全上限；
 - `AGENT_START`：提供方的异步启动调用被拒绝；
 - `AGENT_RESULT`：已发布子 agent 的结果因基础设施故障而被拒绝；

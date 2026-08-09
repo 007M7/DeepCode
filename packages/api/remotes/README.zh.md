@@ -8,7 +8,7 @@
 
 当前 Client 组合仅挂载 Goal Remote 贡献。该组合卸载时，Cordis effect 的所有权机制会撤回所有贡献；`@deepseek-ai/dsh-api-gateway/client` 负责描述符校验、可追踪 namespace Service、直接与作用域方法、调用与取消。Client 入口通过 Cordis 消费共享的 `TypeRTClientRemote` 接口，不导入具体 Gateway。
 
-本包不包含传输逻辑或 Host 服务发现逻辑。Web 或未来的 TUI 只要提供同一份不依赖 React 的 `ctx.remote` 契约，均可复用其 Client face。
+本包不包含传输逻辑或 Host 服务发现逻辑。Web 或未来的 TUI 只要提供同一份不依赖 React 的 `ctx.remote` 约定，均可复用其 Client face。
 
 ## 构建边界
 

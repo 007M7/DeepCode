@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/session-query/session-query/README.md
 README.md: b75c1f23264cfa7c9323970b3c1a77ddcfe69be0
-README.zh.md: e1b9727ff892047c56d006e02906f3270fb11293
+README.zh.md: 4f1c4749a847326fd9fbc0ffa627651c052ccd71

@@ -143,7 +143,7 @@ interface ConfinedArgv {
 
 ## 提供方与 fail-closed 错误
 
-`ctx.sandbox.confine(argv, policy)` 返回一个 `ConfinedArgv`，或在没有可用后端时抛出 `SandboxUnavailableError`（错误码 `SANDBOX_UNAVAILABLE`）。消费方也可以在 spawn 或观察所返回的 argv 时对失败进行分类；该归因属于消费方契约。对于受限策略，静默的无隔离透传永远不合法。
+`ctx.sandbox.confine(argv, policy)` 返回一个 `ConfinedArgv`，或在没有可用后端时抛出 `SandboxUnavailableError`（错误码 `SANDBOX_UNAVAILABLE`）。消费方也可以在 spawn 或观察所返回的 argv 时对失败进行分类；该归因属于消费方约定。对于受限策略，静默的无隔离透传永远不合法。
 
 提供方选择、探测、缓存和后端专有的强制执行报告归[本地提供方](../../packages/sandbox/sandbox-local/README.md)所有。
 

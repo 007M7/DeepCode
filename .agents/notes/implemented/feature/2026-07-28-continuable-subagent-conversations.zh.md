@@ -54,7 +54,7 @@ inbox 接受消息前发生任何失败，操作都会在不返回任何 id 的�
 
 空闲的历史会话没有 `AgentHandle`。第一条通过鉴权的 `next-turn` 投递会根据持久化会话恢复激活，并将消息提交到其 inbox。冷恢复使用经过身份认证的确切在线 parent Agent 执行鉴权；当该 parent 有激活时，还使用它建立所有权，但绝不使用 parent 执行重建。
 
-激活作为消费方会直接持有已发布的 `AgentHandle` 直至结算，而管理器的私有 activation-owner 作用域则是其 Cordis 结构化所有者。可继续 subagent 路径不创建任何中间的带结果执行包装层，包括 `SubagentRun`；一次性委派保持不变，且不属于该生命周期。远程提供方不在此处的范围内，引入时需要单独的激活所有权契约。激活 dispose 后，历史会话不消耗运行时内存。
+激活作为消费方会直接持有已发布的 `AgentHandle` 直至结算，而管理器的私有 activation-owner 作用域则是其 Cordis 结构化所有者。可继续 subagent 路径不创建任何中间的带结果执行包装层，包括 `SubagentRun`；一次性委派保持不变，且不属于该生命周期。远程提供方不在此处的范围内，引入时需要单独的激活所有权约定。激活 dispose 后，历史会话不消耗运行时内存。
 
 ### 激活生命周期
 
@@ -113,7 +113,7 @@ activation-owner 作用域之所以存在，是因为普通 Cordis owner effect 
 
 ### 报告投递扩展
 
-可选的 child 作用域 `report(output)` 工具不会改变 Activation 驻留状态，也不会增加另一条队列。它每轮可调用零次或多次，不允许指定接收方，而是推导在线的直接 parent；投递采用静默注入还是唤醒 parent follow-up，由部署配置选择。[report 工具 Agent Note](2026-07-30-continuable-subagent-report-tool.md)规定其权限、确认、设置贡献和投递契约。
+可选的 child 作用域 `report(output)` 工具不会改变 Activation 驻留状态，也不会增加另一条队列。它每轮可调用零次或多次，不允许指定接收方，而是推导在线的直接 parent；投递采用静默注入还是唤醒 parent follow-up，由部署配置选择。[report 工具 Agent Note](2026-07-30-continuable-subagent-report-tool.md)规定其权限、确认、设置贡献和投递约定。
 
 ### 延后的 steering（中途引导）
 
@@ -143,7 +143,7 @@ activation-owner 作用域之所以存在，是因为普通 Cordis owner effect 
 
 ### 范围
 
-本版本覆盖可继续的进程内 child，一次性委派保持不变。远程提供方必须具备单独的激活 handle，以及等价的认证控制与 child-first 完全停稳契约，才能支持同样的行为。
+本版本覆盖可继续的进程内 child，一次性委派保持不变。远程提供方必须具备单独的激活 handle，以及等价的认证控制与 child-first 完全停稳约定，才能支持同样的行为。
 
 它不新增 host-user 继续执行、subagent steering 操作、持久化邮箱、跨进程 lease、中断 inbox 工作的自动回放、团队权限、工作流权限、公开驻留查询、新的在线激活数量或后代总数限制，以及运行时缓存；后来的[当前轮次中断](2026-08-06-continuable-subagent-interrupt.md)在此生命周期之上补充了唯一的公开停止操作。现有委派深度策略保持不变。可选的 child 到 parent 报告是后续消费该生命周期的功能，不属于基础可继续能力。
 
@@ -169,7 +169,7 @@ activation-owner 作用域之所以存在，是因为普通 Cordis owner effect 
 
 **在没有 host 消费方的情况下暴露 host-user follow-up。** 公开的权限铸造方法和用户分支可以在没有历史 parent 的情况下实现冷恢复，但没有生产 host 适配器调用该操作。在具体的经认证宿主交互能够收到私有能力之前，该 seam 只接受确切的在线 parent。
 
-**返回 subagent 专属的投递路由。** `started`、`queued` 和 `resumed` 等标签重复了激活与 inbox 状态，却没有给调用方提供独立结果。复用 `MessageId` 和现有 inbox 事件，可以让投递关联继续由其所属的 Agent 契约承载。
+**返回 subagent 专属的投递路由。** `started`、`queued` 和 `resumed` 等标签重复了激活与 inbox 状态，却没有给调用方提供独立结果。复用 `MessageId` 和现有 inbox 事件，可以让投递关联继续由其所属的 Agent 约定承载。
 
 **使用 child 引用计数。** 计数无法识别哪个 child 仍持有拆卸工作，也允许重复递减错误。身份集合会显式保留取消和 dispose 义务。
 

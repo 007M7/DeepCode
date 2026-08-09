@@ -23,4 +23,4 @@ profile 目录包含一个 `package.json`（树外插件依赖，加上 profile 
 
 ## 开发
 
-生产运行需要已构建的包与前端产物。在 checkout 中，`pnpm run dsh` 会运行 TypeScript 入口并转发参数；[源码启动器参考](reference/README.md#source-launcher)说明 PATH 符号链接和模块解析契约。
+生产运行需要已构建的包与前端产物。在 checkout 中，`pnpm run dsh` 会运行 TypeScript 入口并转发参数；[源码启动器参考](reference/README.md#source-launcher)说明 PATH 符号链接和模块解析约定。

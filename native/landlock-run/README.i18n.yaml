@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write native/landlock-run/README.md
 README.md: fcb8e8249e6728d925fd08c938a780b155d3d4ac
-README.zh.md: 8206ab8074d8d80fb9b11cff436bbd10e6dc34dd
+README.zh.md: 6ae8d7d1d5ae4f2bda90cbf6aa74321a0dab3cb9

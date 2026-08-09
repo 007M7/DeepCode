@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/process/2026-07-23-portable-required-pull-request-ci.md
 2026-07-23-portable-required-pull-request-ci.md: b7c637408afa32611c4e70073ddec9aaabfba7f5
-2026-07-23-portable-required-pull-request-ci.zh.md: 78cf1cce55920f7153f6a9ca6673dd172174d8dc
+2026-07-23-portable-required-pull-request-ci.zh.md: ee88412d982da5de613d8dfdbdcdd9977c899d2d

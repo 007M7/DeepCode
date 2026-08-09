@@ -119,8 +119,8 @@ describe('RepositoryCache', () => {
     const root = await temporaryRoot('repository-pnpm')
     const repository = join(root, 'source')
     await mkdir(join(repository, '.dsh-plugin'), { recursive: true })
-    await mkdir(join(repository, 'build-helper'), { recursive: true })
-    await mkdir(join(repository, 'prepare-helper'), { recursive: true })
+    await mkdir(join(repository, '.dsh-plugin', 'build-helper'), { recursive: true })
+    await mkdir(join(repository, '.dsh-plugin', 'prepare-helper'), { recursive: true })
     await mkdir(join(repository, 'skills', 'fixture'), { recursive: true })
     await writeFile(join(repository, 'package.json'), `${JSON.stringify({
       name: 'repository-fixture',
@@ -138,22 +138,22 @@ describe('RepositoryCache', () => {
       '  .: {}',
       '',
     ].join('\n'))
-    await writeFile(join(repository, 'build-helper', 'package.json'), `${JSON.stringify({
+    await writeFile(join(repository, '.dsh-plugin', 'build-helper', 'package.json'), `${JSON.stringify({
       name: 'repository-build-helper',
       version: '1.0.0',
       bin: 'index.js',
     })}\n`)
-    await writeFile(join(repository, 'build-helper', 'index.js'), [
+    await writeFile(join(repository, '.dsh-plugin', 'build-helper', 'index.js'), [
       '#!/usr/bin/env node',
       "require('node:fs').writeFileSync('dependency-built.txt', 'dependency available\\n')",
       '',
     ].join('\n'), { mode: 0o700 })
-    await writeFile(join(repository, 'prepare-helper', 'package.json'), `${JSON.stringify({
+    await writeFile(join(repository, '.dsh-plugin', 'prepare-helper', 'package.json'), `${JSON.stringify({
       name: 'repository-prepare-helper',
       version: '1.0.0',
       bin: { 'dsh-plugin-prepare': 'index.js' },
     })}\n`)
-    await writeFile(join(repository, 'prepare-helper', 'index.js'), [
+    await writeFile(join(repository, '.dsh-plugin', 'prepare-helper', 'index.js'), [
       '#!/usr/bin/env node',
       "const { cpSync, mkdirSync, writeFileSync } = require('node:fs')",
       "mkdirSync('dsh-plugin-assets/skills', { recursive: true })",
@@ -168,8 +168,8 @@ describe('RepositoryCache', () => {
       version: '1.0.0',
       scripts: { prepack: 'repository-build-helper && dsh-plugin-prepare' },
       devDependencies: {
-        'repository-build-helper': 'file:../build-helper',
-        'repository-prepare-helper': 'file:../prepare-helper',
+        'repository-build-helper': 'file:./build-helper',
+        'repository-prepare-helper': 'file:./prepare-helper',
       },
       dsh: { skills: ['../skills'] },
     })}\n`)
