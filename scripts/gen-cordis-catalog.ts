@@ -573,7 +573,9 @@ export interface WalkPartitionMaps {
  * partition maps, fail-closed in both directions for services AND events: a
  * rendered key/scope must be mapped to a page, a mapped key/scope must still
  * render, and — the backstop — a DECLARED key/event the projection cannot see
- * must carry a named walk exemption (a rendered one must not). Pure so the
+ * must carry a named walk exemption (a rendered one must not). A third
+ * direction guards the scan itself: everything rendered must also be declared
+ * to the scan, so a scan blind spot cannot decay silently. Pure so the
  * acceptance paths are provable without running the projection.
  * @param input - rendered surface plus the declared-key/event scans.
  * @param maps - the curated page maps and walk exemptions.
@@ -622,6 +624,17 @@ export function walkPartitionProblems(input: WalkPartitionInput, maps: WalkParti
   for (const name of Object.keys(maps.eventWalkExemptions)) {
     if (!input.declaredEvents.has(name)) problems.push(`EVENT_WALK_EXEMPTIONS names '${name}' but no Events merge declares it; remove the stale exemption.`)
   }
+  // Self-check the scan itself: everything the projection renders is declared
+  // in a Context/Events merge the scan must also reach, so a rendered key or
+  // event the scan cannot see means the SCAN regressed (glob, prefilter, or
+  // block walk) — a partial blind spot that exemption staleness alone would
+  // never surface.
+  for (const key of input.renderedKeys.keys()) {
+    if (!input.declaredKeys.has(key)) problems.push(`ctx.${key} is rendered by the projection but the independent scan finds no Context merge declaring it; the scan has a blind spot (glob, prefilter, or module-block walk) — fix the scan, not the maps.`)
+  }
+  for (const name of input.renderedEventNames) {
+    if (!input.declaredEvents.has(name)) problems.push(`event '${name}' is rendered by the projection but the independent scan finds no Events merge declaring it; the scan has a blind spot (glob, prefilter, or module-block walk) — fix the scan, not the maps.`)
+  }
   return problems
 }
 
@@ -642,7 +655,7 @@ export function computeOutputs(): [string, string][] {
 
   const declaredKeys = new Map<string, string>()
   const declaredEvents = new Map<string, string>()
-  for (const { rel, sf, body } of contextMergeFiles(root, 'packages/*/*/src/**/*.ts')) {
+  for (const { rel, sf, body } of contextMergeFiles(root, ['packages/*/*/src/**/*.ts', 'packages/*/*/src/**/*.tsx'])) {
     for (const key of contextKeyMap(body, sf).keys()) {
       if (!declaredKeys.has(key)) declaredKeys.set(key, rel)
     }

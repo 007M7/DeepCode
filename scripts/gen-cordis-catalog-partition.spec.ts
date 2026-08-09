@@ -61,9 +61,30 @@ describe('walkPartitionProblems', () => {
 
   it('rejects an event exemption whose event the projection renders', () => {
     const { input, maps } = baseline()
-    const rendered = { ...input, renderedEventNames: new Set(['llm/request', 'theme/change']) }
-    expect(walkPartitionProblems(rendered, maps)).toEqual([
+    // A projection that renders theme/change necessarily renders the theme
+    // scope too; the fixture models that and maps the scope so the only
+    // violation is the stale exemption.
+    const rendered = {
+      ...input,
+      renderedScopes: new Set(['llm', 'theme']),
+      renderedEventNames: new Set(['llm/request', 'theme/change']),
+    }
+    const mapped = { ...maps, eventScopePage: { llm: 'llm-streaming.md', theme: 'client-modules.md' } }
+    expect(walkPartitionProblems(rendered, mapped)).toEqual([
       expect.stringContaining("event 'theme/change' is rendered by the projection but still listed in EVENT_WALK_EXEMPTIONS"),
+    ])
+  })
+
+  it('rejects rendered surface the independent scan cannot see, naming the scan as the defect', () => {
+    const { input, maps } = baseline()
+    const blind = {
+      ...input,
+      declaredKeys: new Map([['theme', 'packages/client/ui-theme/src/client/index.ts']]),
+      declaredEvents: new Map([['theme/change', 'packages/client/ui-theme/src/client/index.ts']]),
+    }
+    expect(walkPartitionProblems(blind, maps)).toEqual([
+      expect.stringContaining('ctx.llm is rendered by the projection but the independent scan finds no Context merge declaring it'),
+      expect.stringContaining("event 'llm/request' is rendered by the projection but the independent scan finds no Events merge declaring it"),
     ])
   })
 
@@ -121,6 +142,49 @@ describe('cordis-walk scan reach', () => {
     if (!only) throw new Error('scan returned no merge')
     expect(eventNameList(only.body, only.sf)).toEqual(['x/changed'])
     expect([...contextKeyMap(only.body, only.sf).keys()]).toEqual([])
+  })
+
+  it('yields every merge block of a multi-block file, double-quoted heads, and .tsx sources', () => {
+    const root = mkdtempSync(join(tmpdir(), 'cordis-walk-'))
+    roots.push(root)
+    const dir = join(root, 'packages/client/ui-x/src')
+    mkdirSync(dir, { recursive: true })
+    // The Typert analyzer reads every cordis module block in a file; the
+    // backstop must not stop at the first one, skip the double-quoted legal
+    // form, or ignore .tsx sources.
+    writeFileSync(join(dir, 'split.ts'), [
+      "declare module 'cordis' {",
+      '  interface Context {',
+      '    first: FirstService',
+      '  }',
+      '}',
+      'declare module "cordis" {',
+      '  interface Events {',
+      "    'second/changed'(): void",
+      '  }',
+      '}',
+      'export {}',
+      '',
+    ].join('\n'))
+    writeFileSync(join(dir, 'view.tsx'), [
+      "declare module 'cordis' {",
+      '  interface Context {',
+      '    fromTsx: TsxService',
+      '  }',
+      '}',
+      'export {}',
+      '',
+    ].join('\n'))
+    const merges = contextMergeFiles(root, ['packages/*/*/src/**/*.ts', 'packages/*/*/src/**/*.tsx'])
+    expect(merges.map(m => m.rel)).toEqual([
+      'packages/client/ui-x/src/split.ts',
+      'packages/client/ui-x/src/split.ts',
+      'packages/client/ui-x/src/view.tsx',
+    ])
+    const keys = merges.flatMap(m => [...contextKeyMap(m.body, m.sf).keys()])
+    const events = merges.flatMap(m => eventNameList(m.body, m.sf))
+    expect(keys).toEqual(['first', 'fromTsx'])
+    expect(events).toEqual(['second/changed'])
   })
 
   it('reads string-literal and identifier member names from an Events merge', () => {
