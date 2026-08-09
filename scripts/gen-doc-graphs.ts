@@ -308,6 +308,14 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Owns live Agent handles, the create/resume factory seam, and process-local initiator propagation.',
   },
   {
+    key: 'agentDefaultModel',
+    pkg: 'agent-default-model',
+    title: 'Default Agent model selection',
+    mode: 'core',
+    consumers: ['headless', 'host-apiproxy'],
+    note: 'Layers the default ModelSelection through settings so direct and Host-backed Agent front doors share one state owner.',
+  },
+  {
     key: 'agentLoop',
     pkg: 'agent-loop',
     title: 'Concrete loop driver',

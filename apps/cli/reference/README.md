@@ -10,7 +10,7 @@ This reference defines the profile, one-shot run, web-alias, plugin-management, 
 
 Bundle names resolve from the dsh installation first, then from the profile directory. In-box bundles (`@deepseek-ai/dsh-base`, `@deepseek-ai/dsh-web-app`, `@deepseek-ai/dsh-headless`) therefore always come from the same installation as the running `dsh`; out-of-tree bundles come from the profile's pnpm-managed `node_modules`. A bare plugin `name` in any patch row resolves through the profile directory's Node parent-walk, which reaches the maintained installation fallback `$DSH_HOME/profiles/node_modules` (one symlink per package the installation's app and bundles depend on, healed on every launch).
 
-The `web` and `headless` profiles auto-initialize from shipped templates on first use (`web`: base + web-app; `headless`: base + web-app + headless). Any other missing profile fails loud with a hint to run `dsh plugin --profile <name> add <package>`.
+The `web` and `headless` profiles auto-initialize from shipped templates on first use (`web`: base + web-app; `headless`: base + headless). On load, the exact installation-owned headless tuple (base + web-app + headless) normalizes to the shipped template; extra, missing, or reordered bundle lists are user-owned and remain untouched. Any other missing profile fails loud with a hint to run `dsh plugin --profile <name> add <package>`.
 
 Profile boot accepts no positional task. A profile that mounts the one-shot runner row (`headless-runner`) therefore fails loud with the canonical `dsh run --profile <name> "<task>"` command instead of reaching the row's raw required-field error.
 
@@ -27,7 +27,7 @@ dsh --profile web --patch ./extra.yml --dump-config
 
 `dsh run [--profile <name>] [--patch <path>...] <task...>` joins the task arguments with spaces, rejects a missing or blank task, and defaults `--profile` to `headless`. Repeatable `--patch` overlays occupy the same layer position as profile-boot overlays. A custom selected profile must mount `headless-runner`; otherwise launch fails before boot with a diagnostic naming that missing row.
 
-The launcher patches the task text into the runner row, which drives one fresh persisted session through the in-process API carrier, prints the final assistant text on stdout, and exits 0 on a completed turn, else 1. At the idle boundary, the runner waits until its mux consumer has observed the session's final event sequence before deriving that output and exit reason. The session's Web host runs on an OS-assigned port and is announced on stderr, so the run is observable in a browser.
+The launcher patches the task text into the runner row. After Loader settlement, the runner reads the shared `ctx.agentDefaultModel` default, creates one fresh persisted Agent through `ctx.agents`, submits the task, waits for quiescence, and flushes the Session before deriving the last non-empty assistant text and final `turn/end` reason from its durable interval. It prints the text on stdout and exits 0 for `completed`, else 1. The shipped headless profile mounts no ApiProxy, Host, HTTP server, Web runtime, or browser client; a successful run writes nothing to stderr and opens no listening port.
 
 ## Plugin management
 

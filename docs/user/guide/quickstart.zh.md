@@ -39,7 +39,7 @@ DEEPSEEK_API_KEY=sk-your-key-here
 pnpm run dsh run "summarize the architecture of this workspace"
 ```
 
-`dsh run` 创建并持久化一个新会话，打印最终 assistant 回答，然后退出。运行期间，stderr 会打印可用于观察该会话的本地浏览器 URL。
+`dsh run` 创建并持久化一个新会话，打印最终 assistant 回答，然后退出。它不会启动 Web 服务器或监听端口；成功运行时 stderr 为空。
 
 ## 第三步：使用 Web UI
 
@@ -53,7 +53,7 @@ pnpm run dsh web
 
 ## 回头看
 
-`dsh run` 启动 `headless` profile：[`dsh-base`](../../../packages/bundle/base/cordis.patch.yml)、[`dsh-web-app`](../../../packages/bundle/web-app/cordis.patch.yml) 和 [`dsh-headless`](../../../packages/bundle/headless/cordis.patch.yml) 在空根之上组合。`dsh web` 使用前两层，不包含一次性 runner。二者都会根据各自入口模式选择 DeepSeek 模型和能力插件。
+`dsh run` 启动 `headless` profile：[`dsh-base`](../../../packages/bundle/base/cordis.patch.yml) 和 [`dsh-headless`](../../../packages/bundle/headless/cordis.patch.yml) 在空根之上组合，随后 runner 直接驱动 core Agent 与 Session 服务。`dsh web` 则由 `dsh-base` 与 [`dsh-web-app`](../../../packages/bundle/web-app/cordis.patch.yml) 组合，后者拥有 Host、HTTP 与浏览器层。二者都从 `dsh-base` 读取同一个默认 DeepSeek 模型路由。
 
 ## 下一步
 
