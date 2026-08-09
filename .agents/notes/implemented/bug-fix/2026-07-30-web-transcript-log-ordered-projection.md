@@ -33,8 +33,8 @@ What is unreachable from a `packages/client/*` program is `dsh-compact`'s **root
 The repo's answer to exactly this is a cordis-free leaf subpath, and this change adds one: `COMPACT_CHECKPOINT_SOURCE` and `isCompactCheckpointSource` now live in `packages/compact/compact/src/checkpoint.ts`, which imports no cordis and augments no module (the `dsh-commands/brand` / `dsh-llm/message` shape), and the root re-exports both so every host-side consumer — the terminal's chat helpers, `dsh-session-reference`'s projection — is unchanged. The adapter pins its literal to that declaration with a type-only import:
 
 ```ts
-import type { COMPACT_CHECKPOINT_SOURCE } from '@deepseek-ai/dsh-compact/checkpoint'
-const COMPACT_PLUGIN: typeof COMPACT_CHECKPOINT_SOURCE.plugin = 'compact'
+import type { CompactCheckpointSource } from '@deepseek-ai/dsh-compact/checkpoint'
+const COMPACT_PLUGIN: CompactCheckpointSource['plugin'] = 'compact'
 ```
 
 Renaming the Service Definition's plugin id is now a compile error in the client: `TS2322: Type '"compact"' is not assignable to type '"compaction"'`. The import must stay **type-only** — a value import of any `@deepseek-ai` package that is neither a platform module nor an inline-safe wire layer is rejected by the client purity gate (`packages/client/tsdown.client.ts`), whose own message records that type-only imports are erased and never reach it. A type-only leaf import needs both a `tsconfig.base.json` `paths` entry and `{"path": "../../compact/compact"}` in `packages/client/runtime/tsconfig.json` `references`: composite `rootDir` rules apply to erased imports as well, and without the reference the diagnostic is `TS6059`/`TS6307`.
