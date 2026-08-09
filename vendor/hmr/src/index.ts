@@ -214,6 +214,17 @@ class Hmr extends Service {
 
     const match = picomatch(ignored)
     const watchBaseDir = await realpath(this.baseDir)
+
+    // Collect externals before opening the watcher so every post-ready change
+    // is observed by listeners that already have their classification state.
+    const mainUrl = pathToFileURL(resolve(process.argv[1])).href
+    const mainJob = this.internal.loadCache.get(mainUrl)
+    if (mainJob) {
+      this.externals = await loadDependencies(mainJob)
+    } else {
+      this.externals = new Set()
+    }
+
     this.watcher = watch(root, {
       ...this.config,
       cwd: watchBaseDir,
@@ -227,16 +238,6 @@ class Hmr extends Service {
       // user patch layer present at registration must apply once.
       ignoreInitial: true,
     })
-
-    // Collect externals: framework modules reachable from the main entry.
-    // Changes to these files require a full process restart, not HMR.
-    const mainUrl = pathToFileURL(resolve(process.argv[1])).href
-    const mainJob = this.internal.loadCache.get(mainUrl)
-    if (mainJob) {
-      this.externals = await loadDependencies(mainJob)
-    } else {
-      this.externals = new Set()
-    }
 
     const partialReload = this.ctx.debounce(() => this.partialReload(), this.config.debounce)
 
@@ -271,6 +272,26 @@ class Hmr extends Service {
     this.watcher.on('add', path => onChange('add', path))
     this.watcher.on('change', path => onChange('change', path))
     this.watcher.on('unlink', path => onChange('unlink', path))
+
+    const ready = Promise.withResolvers<void>()
+    let readyState: 'pending' | 'resolved' | 'rejected' = root.length === 0 ? 'resolved' : 'pending'
+    if (root.length === 0) {
+      ready.resolve()
+    } else {
+      this.watcher.once('ready', () => {
+        readyState = 'resolved'
+        ready.resolve()
+      })
+    }
+    this.watcher.on('error', (error) => {
+      if (readyState === 'pending') {
+        readyState = 'rejected'
+        ready.reject(error)
+      } else {
+        this.ctx.logger.warn(error)
+      }
+    })
+    await ready.promise
   }
 
   private refreshConfig(key: object, filename: string, refresh: () => Promise<void> | void) {
