@@ -86,9 +86,8 @@ export default defineConfig({
     // .tsx: client component specs (jsdom via per-file @vitest-environment pragma).
     include: testIncludes,
     exclude: windowsUnsupportedPackages.map(path => `${path}/tests/**/*.spec.ts`),
-    // One coverage invocation aggregates both projects. Regular suites fork on
-    // POSIX for Node stability and use threads on Windows; process-bound suites
-    // always fork.
+    // One coverage invocation aggregates both projects. Every suite forks for
+    // Node stability; process-bound suites stay separate for inventory control.
     projects: [
       {
         plugins: [pathsPlugin(), standardDecoratorPlugin()],
@@ -96,11 +95,9 @@ export default defineConfig({
           name: 'thread-safe',
           execArgv: vitestExecArgv,
           // Node 24 has aborted in its CJS lexer (v8::ToLocalChecked Empty
-          // MaybeLocal in cjs_lexer::Parse) from worker threads on macOS
-          // arm64 and later on Linux. A fork contains that external runtime
-          // failure to the test process; Windows keeps the thread pool, where
-          // the abort has not reproduced and process spawn is costlier.
-          pool: process.platform === 'win32' ? 'threads' : 'forks',
+          // MaybeLocal in cjs_lexer::Parse) from worker threads on macOS,
+          // Linux, and Windows. Forked workers avoid that shared thread path.
+          pool: 'forks',
           setupFiles: ['./scripts/test-invariants.ts'],
           include: testIncludes,
           exclude: [

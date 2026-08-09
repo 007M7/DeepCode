@@ -14,9 +14,11 @@ Status: implemented
 
 [ci.yml](../../../../.github/workflows/ci.yml) 中必需的 `windows` 作业仍是在 `ubuntu-latest` 上运行的 `windows node 24 / wine blocking`。它保留经过校验和验证的 Windows Node、Wine apt 与 pnpm 缓存、仅限工作区快照的 hoisted 安装，以及运行工作区构建与生产网站的[共享 Wine 门禁脚本](../../../../scripts/wine-windows-gates.sh)。稳定的 `windows` 作业 ID 仍是 `all checks passed` 的依赖项。[已归档的 Wine 实验](../../archived/process/2026-07-27-wine-windows-gates-experiment.md)保留其实测取舍，而本文负责当前双通道拓扑。
 
-每个拉取请求还会在 GitHub 标准 `windows-2025` 镜像上启动一个独立的 `windows-native` 作业，名称为 `windows node 24 / native complete`。该作业为工作区符号链接启用开发人员模式，通过 `pnpm/action-setup` 提供仓库固定版本的 pnpm，在不传输 store 归档的情况下执行不可变安装，并在原生 PowerShell 下运行 `pnpm run check:ci:windows-complete`。该作业被刻意排除在 `all-checks-passed.needs` 之外：聚合流程既不等待它，也不会因它改变结论；原生作业则保留自身未被掩盖的成功或失败结果。
+每个拉取请求还会在组织自有的 `dsh-windows-2025-16core` 运行器上启动一个独立的 `windows-native` 作业，名称为 `windows node 24 / native complete`。该作业为工作区符号链接启用开发人员模式，通过 `pnpm/action-setup` 提供仓库固定版本的 pnpm，在不传输 store 归档的情况下执行不可变安装，并在原生 PowerShell 下运行 `pnpm run check:ci:windows-complete`。该作业被刻意排除在 `all-checks-passed.needs` 之外：聚合流程既不等待它，也不会因它改变结论；原生作业则保留自身未被掩盖的成功或失败结果。
 
-`windows-native` 内的工作区构建、生产网站和逐文件 100% 覆盖率故障会导致该作业失败，而更广泛的静态检查、文档、包和构建产物可移植性清单仍作为观测项报告。覆盖率检查的工作线程预算为 1 个，门禁并发数也保持为 1，因此插桩套件不会与免覆盖率的高负载套件重叠执行；同一台运行器在这些门禁之间共享安装结果与构建输出，串行门禁与 publint 工作线程上限使标准镜像的资源使用保持在可预测范围内。重复执行的 lint 与快照强制检查仍由 Linux 负责。
+`windows-native` 内的工作区构建、生产网站和逐文件 100% 覆盖率故障会导致该作业失败，而更广泛的静态检查、文档、包和构建产物可移植性清单仍作为观测项报告。16 核通道把覆盖率的 6 个工作线程拆分为 4 个插桩线程和 2 个免覆盖率高负载线程，同时运行 2 项顶层门禁，并允许 publint 使用 8 个工作线程。所有 Vitest 项目都使用 fork 工作线程，因为 Node 24 的 CJS lexer 致命故障现已在 Windows 和 POSIX 的共享工作线程中复现；2 项门禁的调度也避免免覆盖率的 Oxlint 探针与工作区构建争用其临时契约文件。两项真实进程或延迟语法启动可能超过 Vitest 默认轮询窗口的异步 fixture 使用显式的 5 秒等待，且不改变所断言的结果。重复执行的 lint 与快照强制检查仍由 Linux 负责。
+
+16 核是这份清单实测得到的稳定点。相较此前双核串行作业，完整原生通道从 32 分 11 秒降至 6 分 27 秒，同时 41 项门禁全部通过，逐文件覆盖率阈值也保持不变。32 核运行仅将门禁总耗时再缩短 1.47 秒，却仍在一个 fork 工作线程中触发相同的 CJS lexer 致命故障，因此继续增加核心数没有带来可靠的墙钟时间收益。
 
 首次原生运行暴露出两项被兼容性通道掩盖的故障。文档投影测试此前只按 `/` 拆分来派生图片 basename；现在改为使用 Node 根据平台计算的 basename。Chokidar 消费方收到的 `%TEMP%` 以 `C:\\Users\\RUNNER~1` 这个 8.3 别名表示，而 libuv 返回的是长目录名，导致其 Windows 事件路径断言失败。共享的设置 watcher 与凭据 watcher，以及 Cordis 的模块 HMR（热模块替换）与精确配置 HMR，现在都会在打开 watcher 前规范化现有的原生监听基准路径或层级最深的现有祖先路径，并保留尚不存在的后缀；文件访问和诊断仍使用配置路径。
 
@@ -40,7 +42,7 @@ Status: implemented
 
 该次运行还暴露出语法高亮会受运行器资源争用影响，而不只取决于源文本。Shiki 的 JavaScript 引擎会把超过 3,000 个字符的 TextMate 正则推迟到首次匹配时再编译，Shiki 同时把这段编译时间计入每行 500 毫秒的 tokenization（词元化）预算。繁忙的 Windows 覆盖率工作线程因此可能在首次 TypeScript 行匹配到 `const` 后提前停止，并让剩余内容沿用同一关键字样式。客户端现在仍使用 Shiki 的默认正则转换，但会关闭延迟编译，并在构造单例时以不设启动期截止时间的方式，为每项启动时语法 tokenization 一段代表性样例。因此，scanner（扫描器）创建与模式编译会在用户内容进入仍为每行 500 毫秒的预算前完成。词元边界与 Markdown DOM fixture 会继续要求完整高亮结果，不接受这类部分结果流。
 
-同一次分支头精确托管运行还表明，在标准 Windows 镜像上并发使用 3 个插桩 Vitest 工作线程并不安全：彼此独立的 Git merge 集成用例与 JSON-RPC HTTP 集成用例会同时触及默认的 5 秒上限。原生通道现在只为 Vitest 提供 1 个工作线程；真实 Git 子进程套件与两项真实 HTTP 组合用例则获得显式的 15 秒集成预算，其工作负载与断言均未改变。translation merge fixture 在把 `import.meta.resolve('tsx/esm')` 传给 Node 的 `--import` 时，也会保留其 `file:` URL；此前把它转换为盘符路径会在驱动程序输出自有恢复指引前就失败。纳入最新的 package regrouping（包重组）后，采用 fork 隔离的 JSONL 套件清单会跟随它在 `packages/session/` 下的新位置，而不会悄然把这一进程绑定套件送回共享线程池。
+同一次分支头精确托管运行还表明，在标准 Windows 镜像上并发使用 3 个插桩 Vitest 工作线程并不安全：彼此独立的 Git merge 集成用例与 JSON-RPC HTTP 集成用例会同时触及默认的 5 秒上限。在那个阶段，原生通道曾暂时只为 Vitest 提供 1 个工作线程；真实 Git 子进程套件与两项真实 HTTP 组合用例则获得显式的 15 秒集成预算，其工作负载与断言均未改变。translation merge fixture 在把 `import.meta.resolve('tsx/esm')` 传给 Node 的 `--import` 时，也会保留其 `file:` URL；此前把它转换为盘符路径会在驱动程序输出自有恢复指引前就失败。纳入最新的 package regrouping（包重组）后，采用 fork 隔离的 JSONL 套件清单会跟随它在 `packages/session/` 下的新位置，而不会悄然把这一进程绑定套件送回共享线程池。
 
 项目 skill 组合 fixture 另有一项最终一致性竞态：宿主资源紧张时，agent 可能在 `write` 返回后、Chokidar 使 skill 目录缓存失效前就开始下一次模型步骤，导致替换目录消息落到后续 `skill` 调用之后。现在，fixture 会在写入后的工具边界等待真实注册表观察到 `hot-skill`，然后继续严格断言请求顺序与持久转录。生产代码仍保持异步；测试会显式等待其本来要验证的 watcher 契约，而不是依赖调度时序或接受另一个请求索引。
 
@@ -64,7 +66,9 @@ POSIX 模式位、基于 chmod 的不可读状态和基于 chmod 的 writer lock
 
 **只在合并后运行原生 Windows。** 合并后的参考流程只能在可移植性回归进入 `master` 后进行诊断；它无法向评审者提供分支头精确的原生结果。
 
-**使用组织自有的大型 Windows 运行器。** 更大规格的运行器镜像可以缩短墙钟时间，但诊断路径将因此依赖仓库外部的运行器标签与分配能力。标准 `windows-2025` 具备可移植性；大型运行器仍作为基准测试目标。
+**保留 GitHub 标准 `windows-2025` 运行器。** 这个可移植的双核镜像可以可靠完成同一份清单，但串行结果需要 32 分钟，因此自动原生信号的实用性明显低于最终选择的 16 核运行器。
+
+**使用 32 核或更大的运行器。** 32 核对照仅比 16 核缩短了 1.47 秒门禁总耗时，却在 Node 的 CJS lexer 中失败；此前的高并发 32 核与 64 核实验也以同类故障失败。因此，更多容量只增加了分配成本，没有带来稳定的端到端收益。
 
 ## 后果
 
