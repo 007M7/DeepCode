@@ -167,10 +167,11 @@ describe('RepositoryCache', () => {
       name: 'repository-plugin-fixture',
       version: '1.0.0',
       scripts: { prepack: 'repository-build-helper && dsh-plugin-prepare' },
-      devDependencies: {
+      dependencies: {
         'repository-build-helper': 'file:./build-helper',
         'repository-prepare-helper': 'file:./prepare-helper',
       },
+      bundledDependencies: ['repository-build-helper', 'repository-prepare-helper'],
       dsh: { skills: ['../skills'] },
     })}\n`)
     await execFileAsync('git', ['init', '--quiet'], { cwd: repository })
