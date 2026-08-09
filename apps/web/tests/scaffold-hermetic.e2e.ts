@@ -40,19 +40,18 @@ it('isolates replay skill discovery from every ambient host root', async () => {
   try {
     scaffold = await launchWebScaffold()
     const ctx = scaffold.ctx
-    // The skill registry belongs to one agent's preset, behind an `isolate`
-    // realm the host cannot resolve by name — so the roots under test are only
-    // reachable through a composed agent, which is also the only shape that
-    // ever asks. `serviceFor` is the same addressing the gateway's `skill.list`
-    // uses for a browser request about a session.
+    // Local skill discovery belongs to the agent's preset LAYER of the host
+    // registry, so the roots under test are only reachable through a composed
+    // agent's view — the same scope the gateway's `skill.list` resolves for a
+    // browser request about a session.
     const handle = await ctx.agents.create({
       sessionId: SessionId('hermetic-skills'),
       setup: agentCtx => ctx.agentPresets.mount(agentCtx).then(() => undefined),
     })
     try {
-      const skills = ctx.agentPresets.serviceFor(handle.agent, 'skills')
-      if (skills === undefined) throw new Error('composed agent mounts no skill registry')
-      const names = (await skills.list({ cwd: scaffold.workspaceCwd })).map(skill => skill.name)
+      const skills = ctx.get('skills')
+      if (skills === undefined) throw new Error('the composition mounts no skill registry')
+      const names = (await skills.list({ cwd: scaffold.workspaceCwd, scope: handle.agent })).map(skill => skill.name)
       expect(names).not.toContain('ambient-dsh')
       expect(names).not.toContain('ambient-agents')
       expect(names).not.toContain('ambient-bundled')
