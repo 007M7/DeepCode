@@ -14,7 +14,7 @@ The `web` and `headless` profiles auto-initialize from shipped templates on firs
 
 ### App arguments
 
-The launcher's flags come first and end at the first token it does not recognize; everything from there on is handed to the booted profile verbatim through `ctx.cmdlineArgs`, where that app's own startup row parses it ([`dsh-cmdline`](../../../packages/ui/cmdline/README.md)). `dsh --profile web --port 8080` therefore reaches the web app's `--port`, `dsh --profile web --help` prints that app's help and boots nothing, and `dsh --help` (no profile to hand it to) prints the launcher's own. `-V`/`--version` prints the launcher's version when it appears before the app-argument boundary.
+The launcher's flags come first and end at the first token it does not recognize; everything from there on is handed to the booted profile verbatim through `ctx.cmdlineArgs`, where that app's own startup row parses it ([`dsh-cmdline`](../../../packages/boot/cmdline/README.md)). `dsh --profile web --port 8080` therefore reaches the web app's `--port`, `dsh --profile web --help` prints that app's help and boots nothing, and `dsh --help` (no profile to hand it to) prints the launcher's own. `-V`/`--version` prints the launcher's version when it appears before the app-argument boundary.
 
 A composition mounts once. A Loader row that injects `cmdlineArgs` parses this app's arguments and provides what it resolved as a service; each row configured from flags injects that service, and Loader waits for it before evaluating the row's config (`port: !!js ctx.webStartup.port ?? 3080`). A flag therefore beats the value written beside it. This precedence requires the row to retain that expression; a user patch that replaces the whole `config` with literals removes the runtime read. Help and rejected arguments request exit — nonzero for a rejection, 0 for help — without activating rows that depend on the startup service. A live `cordis.patch.yml` edit re-evaluates expressions against services that are still up, so it cannot reset a served port.
 
@@ -24,7 +24,7 @@ The shipped apps own these command lines:
 
 | Profile | Arguments |
 |---|---|
-| `web` | `--host`, `--port`, `--dev`, `--workspace-root`, repeatable `--trusted-host` |
+| `web` | `--host`, `--port`, `--dev`, repeatable `--trusted-host` |
 | `headless` | the task text, as the positional argument |
 
 A one-shot task (`dsh --profile headless "run the tests"`) creates one fresh persisted Agent through the core registry, submits the task, waits for quiescence, and flushes the Session before deriving the last non-empty assistant text and final `turn/end` reason from its durable interval. It prints the text on stdout and exits 0 for `completed`, else 1. An invocation with no task is a usage error from that app. The shipped headless profile mounts no ApiProxy, Host, HTTP server, Web runtime, or browser client; a successful run writes nothing to stderr and opens no listening port.
@@ -52,7 +52,7 @@ Git-hosted plugins that ship sources build during install through their `prepare
 
 ## Web alias
 
-`dsh web` is a hardcoded alias for `--profile web`; the flags after it belong to the web app, which owns them in its bundle's startup row. `--host`, `--port`, and `--workspace-root` override the composed values of the rows that carry them, repeatable `--trusted-host` adds authorities over the composed fence configuration, and `--dev` switches the web-runtime row to development mode and enables the client-plugin HMR receiver the bundle ships disabled; it expects a separate `pnpm run dev:web` watcher for no-refresh client bundle updates.
+`dsh web` is a hardcoded alias for `--profile web`; the flags after it belong to the web app, which owns them in its bundle's startup row. `--host` and `--port` override the composed values of the rows that carry them, repeatable `--trusted-host` adds authorities over the composed fence configuration, and `--dev` switches the web-runtime row to development mode and enables the client-plugin HMR receiver the bundle ships disabled; it expects a separate `pnpm run dev:web` watcher for no-refresh client bundle updates.
 
 ```sh
 dsh web

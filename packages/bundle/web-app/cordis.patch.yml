@@ -80,9 +80,6 @@
     # shares. The base layer's agent-default-model service owns the default model.
     - id: api-gateway
       name: '@deepseek-ai/dsh-host-apiproxy'
-      inject: [webStartup]
-      config:
-        workspaceRoot: !!js ctx.get('webStartup')?.workspaceRoot
 
     # This app's command-line startup row. It owns the web flag family and its
     # --help, and provides webStartup to the rows that inject it.
@@ -92,9 +89,9 @@
 
     # ── layer 2: transport/service ──────────────────────────────────────────────
 
-    # Plain route-registration carrier; host and port arrive as `dsh web`
-    # flag patches over these defaults. The dist is served by the web-runtime
-    # row below through the fallback seat.
+    # Plain route-registration carrier; host and port come from the app's
+    # startup service, with these deployment fallbacks. The dist is served by
+    # the web-runtime row below through the fallback seat.
     - id: webserver
       name: '@deepseek-ai/dsh-host-webserver'
       inject: [webStartup]
@@ -119,7 +116,7 @@
         lanAddresses: !!js ctx.get('webStartup')?.lanAddresses ?? []
 
     # The client-plugin reload chain: a dev-only row this bundle ships off,
-    # which the entrypoint turns on for `--dev`. It is a row rather than a
+    # which the runtime row turns on for `--dev`. It is a row rather than a
     # child of web-runtime because its node half is a client-side package,
     # which a host-side bundle cannot import.
     - id: client-hmr

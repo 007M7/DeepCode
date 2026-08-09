@@ -21,7 +21,7 @@
       "path": "../../packages/boot/app-boot"
     },
     {
-      "path": "../../packages/ui/cmdline"
+      "path": "../../packages/boot/cmdline"
     },
     {
       "path": "../../packages/bundle/base"
@@ -49,6 +49,9 @@
     },
     {
       "path": "../../packages/core/tools"
+    },
+    {
+      "path": "../../packages/util/environment"
     },
     {
       "path": "../../packages/util/paths"

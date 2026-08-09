@@ -29,7 +29,7 @@ Four framework facts shape the mechanism:
 - **Provider replacement and HMR must preserve the same contract.** Fiber reactivation re-runs the waterfall, HMR carries the raw config to the replacement fiber, and a pending row accepts option changes without prematurely evaluating expressions against absent services.
 - **A row cannot be inserted from inside a mounting plugin** — `tree.create` returns a prefixed id it then fails to resolve — so a conditional row ships `disabled: true` and an active row enables it (`dsh web --dev` and its reload chain); the enabled row then follows ordinary injection ordering.
 
-This puts dependency ordering at the seam that owns it. Rows keep their `inject` and config, Loader mounts the composition once, and the launcher only provides argv and process-lifecycle services.
+This leaves dependency ordering in Cordis activation and Loader interpolation, which own it. Rows keep their `inject` and config, Loader mounts the composition once, and the launcher only provides argv and process-lifecycle services.
 
 ## Alternatives considered
 
@@ -37,7 +37,7 @@ This puts dependency ordering at the seam that owns it. Rows keep their `inject`
 - **Releasing rows by clearing their `inject`**: it worked in isolation and failed on the real web tree, because clearing `inject` is exactly what loses the plugin's static injections. The failure is silent until a plugin reads a service it declared.
 - **Launcher-managed two-pass mounting**: it can make a provider active before readers are applied, but duplicates the composition, makes ordering a launcher concern, and conceals the Loader defect that nested expressions were evaluated in the include context rather than the target row's injected context.
 - **The launcher running each bundle's startup function before boot** (no cordis involvement): strictly earlier than "boot, then help", but it makes app startup a second plugin protocol outside the tree. Using a `cmdlineArgs`-injected startup row keeps one protocol: it is an ordinary row, dumpable and patchable, and a layering bundle disables it like any other.
-- **Both apps parsing the same argv** (the one-shot bundle rides over the web bundle): two parsers cannot both own `-h`. A composition has exactly one command-line owner: the layering bundle disables the underlying startup row and names both startup services, so the absorbed rows start on their composed values.
+- **Both apps parsing the same argv** (a custom composition combines Web and one-shot startup rows): two parsers cannot both own `-h`. A composition has exactly one command-line owner, so a layering bundle disables the startup row it absorbs and provides every startup service its retained rows inject.
 - **`instanceof CommanderError`**: an out-of-tree plugin brings its own commander copy, so the class identity differs and a printed `--help` was rethrown as a fatal load failure. Commander's control-flow errors are detected structurally instead.
 
 ## Consequences

@@ -41,12 +41,12 @@ export type WebMode = 'production' | 'development'
 export interface Config {
   /** Whether this process mounted the client-plugin HMR receiver (`dsh web --dev`). */
   mode: WebMode
-  /** Print the URL line on activation; a headless layer over this bundle turns it off. */
+  /** Print the URL line on activation; a non-interactive layer can turn it off. */
   printUrl: boolean
   /**
    * Register the model-visible surface context (the `app:web-surface` prompt
    * section and the `DSH_WEB_URL`/`DSH_WEB_MODE` bash variables). A one-shot
-   * layer turns it off: its user is not interacting through the GUI, so the
+   * non-interactive layer can turn it off when its user is not in the GUI, so the
    * orientation text would be false.
    */
   surfaceContext: boolean

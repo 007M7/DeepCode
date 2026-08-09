@@ -118,9 +118,19 @@ dsh --profile demo
   inject: [cmdlineArgs]
 ```
 
-该行使用应用自己的 commander program 调用 [`@deepseek-ai/dsh-cmdline`](../../../../packages/ui/cmdline/README.md) 中的 `runStartup`。启动器把自身 flag 之后的所有参数交给它，因此添加应用专属 flag 无需修改启动器。Loader 只挂载一次组合，等待每一行的注入，再基于其已注入的上下文求值该行的 `!!js` 配置。
+该行使用应用自己的 commander program 调用 [`@deepseek-ai/dsh-cmdline`](../../../../packages/boot/cmdline/README.md) 中的 `runStartup`。启动器把自身 flag 之后的所有参数交给它，因此添加应用专属 flag 无需修改启动器。Loader 只挂载一次组合，等待每一行的注入，再基于其已注入的上下文求值该行的 `!!js` 配置。
 
-受这些参数配置的行会注入启动服务，并在自己的 `!!js` 选项中读取它，同时把部署取值写在旁边作为回退。遇到 `--help` 时，该服务不会被提供，所以这些行不会激活。叠加在另一应用之上的应用会禁用下层启动行，因为一套组合只能有一个命令行所有者。
+受这些参数配置的行会注入启动服务，并在自己的 `!!js` 选项中读取它，同时把部署取值写在旁边作为回退：
+
+```yaml
+- id: my-app
+  name: '@example/my-app'
+  inject: [myAppStartup]
+  config:
+    port: !!js ctx.myAppStartup.port ?? 8080
+```
+
+遇到 `--help` 时，该服务不会被提供，所以这些行不会激活。叠加在另一应用之上的应用会禁用下层启动行，因为一套组合只能有一个命令行所有者。
 
 ## 从 GitHub 安装：构建脚本这道坎
 

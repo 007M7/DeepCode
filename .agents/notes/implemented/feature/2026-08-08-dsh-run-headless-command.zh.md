@@ -4,6 +4,8 @@ Status: implemented
 
 [English](2026-08-08-dsh-run-headless-command.md) | 中文
 
+> **命令语法已被取代。** [应用现在持有自己的命令行](../architecture/2026-08-06-app-owned-command-line.md)：headless 启动行从 `dsh --profile headless <task...>` 解析任务，启动器不再包含 `run` 调用，也不再把任务文本 patch 进配置行。本笔记保留被否决的启动器持有设计背景；它选定的直接执行与完成约定仍由 [headless 是直接 core 入口](../architecture/2026-08-09-headless-direct-core-entry-point.md)持有。
+
 ## 问题
 
 通用 profile 启动与一次性任务执行具有不同的生命周期约定。若根语法接受可选任务文本，同一种 argv 形态会表示常驻进程或终止式任务，具体含义取决于组合完成后才发现的插件配置行。它还会把 profile 实现细节暴露成主要用户命令，并使自定义 profile 缺少明确的一次性入口。

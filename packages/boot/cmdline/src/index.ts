@@ -140,10 +140,9 @@ export type StartupPlan<T = unknown> = (program: Command, rows: readonly EntryOp
  * is written, the service is never provided, dependent rows stay pending, and
  * `ctx.appExit` is requested.
  *
- * An app that layers over another one (the one-shot bundle rides over the web
- * bundle) disables the underlying startup row and names both services, because
- * a composition has exactly one command-line owner: the rows of the app it
- * absorbed then start on the values their own fallbacks name.
+ * A custom app that layers over another one disables the underlying startup
+ * row and names every startup service its retained rows inject, because a
+ * composition has exactly one command-line owner.
  * @param ctx - plugin context carrying `cmdlineArgs`, `appExit`, and the Loader.
  * @param services - the service name, or names, this startup row provides.
  * @param program - the app's commander program, with its flags and description already declared.
@@ -186,8 +185,8 @@ export function runStartup<T>(
   } catch (error) {
     // exitOverride turns help, version, a parse error, and a plan's own
     // program.error() into a CommanderError; commander has already written the
-    // text through the output configured above. The app's rows ship disabled,
-    // so leaving them alone is what keeps the app unstarted.
+    // text through the output configured above. With no startup service,
+    // dependent rows remain pending and the app stays unstarted.
     if (!isCommanderError(error)) throw error
     exit(error.exitCode)
     return undefined

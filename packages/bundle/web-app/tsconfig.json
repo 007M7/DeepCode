@@ -18,7 +18,10 @@
       "path": "../../../vendor/loader"
     },
     {
-      "path": "../../ui/cmdline"
+      "path": "../../boot/app-boot"
+    },
+    {
+      "path": "../../boot/cmdline"
     },
     {
       "path": "../../host/frontend-static"

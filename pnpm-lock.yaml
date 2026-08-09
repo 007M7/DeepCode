@@ -168,6 +168,9 @@ importers:
       '@deepseek-ai/dsh-compact-tool-result-prune':
         specifier: workspace:^
         version: link:../../packages/compact/compact-tool-result-prune
+      '@deepseek-ai/dsh-environment':
+        specifier: workspace:^
+        version: link:../../packages/util/environment
       '@deepseek-ai/dsh-goal':
         specifier: workspace:^
         version: link:../../packages/goal/goal
@@ -1492,6 +1495,9 @@ importers:
       '@deepseek-ai/dsh-api-remotes':
         specifier: workspace:^
         version: link:../../api/remotes
+      '@deepseek-ai/dsh-app-boot':
+        specifier: workspace:^
+        version: link:../../boot/app-boot
       '@deepseek-ai/dsh-client-connection':
         specifier: workspace:^
         version: link:../../client/connection

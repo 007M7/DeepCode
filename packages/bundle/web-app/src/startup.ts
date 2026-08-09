@@ -1,10 +1,10 @@
 /**
  * The web app's startup row: it owns the `dsh --profile web` flag family
- * (`--host`, `--port`, `--dev`, `--workspace-root`, `--trusted-host`) and its
- * `--help` text, turns those flags into changes on the rows that inject
- * {@link WEB_STARTUP_SERVICE}, and then provides it. Until it does, no web row
- * starts, so `dsh --profile web --help` prints this command's help and the
- * server never binds.
+ * (`--host`, `--port`, `--dev`, `--trusted-host`) and its `--help` text,
+ * turns those flags into changes on the rows that inject
+ * {@link WEB_STARTUP_SERVICE}, and then provides it. Until it does, no
+ * flag-configured web row starts, so `dsh --profile web --help` prints this
+ * command's help and the server never binds.
  * @module @deepseek-ai/dsh-web-app/startup
  */
 
@@ -33,8 +33,6 @@ export interface WebStartupValues {
   host?: string
   /** `--port`, absent when the invocation did not name one. */
   port?: number
-  /** `--workspace-root`, absent when the invocation did not name one. */
-  workspaceRoot?: string
   /** Web runtime mode; `--dev` selects development, which also mounts the client-plugin reload chain. */
   mode: 'production' | 'development'
   /**
@@ -101,7 +99,6 @@ interface WebOptions {
   host?: string
   port?: string
   dev?: boolean
-  workspaceRoot?: string
   trustedHost?: string[]
 }
 
@@ -117,14 +114,13 @@ function webCommand(): Command {
     .option('--host <host>', 'bind host; pass 0.0.0.0 to reach it from another machine')
     .option('--port <port>', 'listen port; pass 0 to let the OS pick a free one')
     .option('--dev', 'mount the client-plugin HMR receiver (run pnpm run dev:web separately to rebuild bundles)')
-    .option('--workspace-root <path>', 'parent directory for workspaces created from the browser UI')
     .option('--trusted-host <authority...>', 'extra authority the /api browser-trust fence accepts (host or host:port; repeatable)')
     .addHelpText('after', `
 Examples:
-  dsh web                          serve on the composed host and port
-  dsh web --port 8080              serve on another port
-  dsh web --host 0.0.0.0           reach it from another machine on the LAN
-  dsh web --dev                    mount the client-plugin HMR receiver
+  dsh --profile web                          serve on the composed host and port
+  dsh --profile web --port 8080              serve on another port
+  dsh --profile web --host 0.0.0.0           reach it from another machine on the LAN
+  dsh --profile web --dev                    mount the client-plugin HMR receiver
 `)
 }
 
@@ -146,7 +142,6 @@ function planWebStartup(program: Command, rows: readonly EntryOptions[], ctx: Co
     return found
   }
   const webserver = row('webserver')
-  row('api-gateway')
   row('web-runtime')
   const connection = row('connection')
   // Include preserves nested row expressions until their own injections are
@@ -162,7 +157,6 @@ function planWebStartup(program: Command, rows: readonly EntryOptions[], ctx: Co
   return {
     ...options.host !== undefined && { host: options.host },
     ...options.port !== undefined && { port: Number(options.port) },
-    ...options.workspaceRoot !== undefined && { workspaceRoot: options.workspaceRoot },
     // mode and lanAddresses describe this invocation, never the deployment, so
     // they are resolved on every boot.
     mode: options.dev === true ? 'development' : 'production',

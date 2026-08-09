@@ -4,6 +4,8 @@ Status: implemented
 
 English | [中文](2026-08-08-dsh-run-headless-command.zh.md)
 
+> **Superseded command grammar.** [Apps now own their command lines](../architecture/2026-08-06-app-owned-command-line.md): the headless startup row parses the task from `dsh --profile headless <task...>`, and the launcher no longer has a `run` invocation or patches task text into rows. This note remains the rejected launcher-owned design context; the direct execution and completion contract it selected remains current in [headless is a direct core entry point](../architecture/2026-08-09-headless-direct-core-entry-point.md).
+
 ## Problem
 
 Generic profile boot and one-shot task execution have different lifecycle contracts. A root grammar that accepts optional task text makes one argv shape mean either a long-lived process or a terminating task according to a plugin row discovered only after composition. It also exposes a profile implementation detail as the primary user command and gives custom profiles no explicit one-shot entry.

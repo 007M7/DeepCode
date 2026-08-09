@@ -8,7 +8,12 @@ import { evaluate } from './utils.ts'
 /** Static plugin hook for resolving a container config while preserving nested entry configs. */
 export const EntryConfigResolver = Symbol.for('cordis.loader.entry-config-resolver')
 
-/** Resolver installed at {@link EntryConfigResolver}. */
+/**
+ * Resolve a container's own config while preserving any nested entry configs.
+ * @param ctx - the container plugin context.
+ * @param config - the container's raw config.
+ * @returns the config to validate for this activation.
+ */
 export type EntryConfigResolver = (ctx: Context, config: any) => any
 
 /** Serialized plugin entry options stored in loader config files. */

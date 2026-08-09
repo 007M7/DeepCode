@@ -80,10 +80,6 @@ export const apply = ctx => globalThis.__webStartupApply(ctx)
       '  config:',
       `    trustedHosts: !!js ctx.get('${WEB_STARTUP_SERVICE}')?.trustedHosts ?? ${JSON.stringify(trustedHosts)}`,
     ],
-    '- id: api-gateway',
-    `  name: ${rowUrl}`,
-    `  inject: [${WEB_STARTUP_SERVICE}]`,
-    '  disabled: true',
     // A second reader keeps the composition honest when the webserver row is
     // the one under test: the service must still have someone to serve.
     '- id: web-runtime',
@@ -118,10 +114,9 @@ export const apply = ctx => globalThis.__webStartupApply(ctx)
 
 describe('web startup', () => {
   it('resolves each flag into the value its row reads', async () => {
-    const { values } = await bootStartup(['--port', '8080', '--workspace-root', '/w'])
+    const { values } = await bootStartup(['--port', '8080'])
     expect(values).toEqual({
       port: 8080,
-      workspaceRoot: '/w',
       mode: 'production',
       trustedHosts: [],
       lanAddresses: [],

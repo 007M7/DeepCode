@@ -215,7 +215,7 @@ export interface UserPatchWatchOptions {
    * Compose the full patch list for a fresh user-layer generation —
    * the same composition the app booted with, so a reload can interleave the
    * new user patches between app-owned layers (bundle layers below,
-   * overlay/flag patches above). Identity when omitted: the user layer
+   * overlays above). Identity when omitted: the user layer
    * is the whole patch list.
    */
   compose?: (userPatches: PatchOptions[]) => PatchOptions[]

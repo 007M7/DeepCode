@@ -20,11 +20,11 @@ The shipped `headless` profile contains `dsh-base` and `dsh-headless`. The headl
 
 `loadProfile` recognizes the exact installation-owned headless tuple (`dsh-base`, `dsh-web-app`, `dsh-headless`) and normalizes it to the shipped headless template while preserving every other manifest field. Extra, missing, or reordered bundle lists are user-owned and remain untouched.
 
-This note owns the headless transport and completion contracts. [`dsh run` owns one-shot headless execution](../feature/2026-08-08-dsh-run-headless-command.md) owns the command grammar, [GUI layering and RPC protocol](2026-07-19-gui-layering-and-rpc-protocol.md) owns browser gateway boundaries, [web config-tree boot and transport layering](2026-07-24-web-config-tree-boot-and-transport-layering.md) owns the Web tree, and [the default model follows the picker](../feature/2026-08-07-default-model-follows-the-picker.md) owns persistence of the shared Agent default.
+This note owns the headless transport and completion contracts. [Apps own their command lines](2026-08-06-app-owned-command-line.md) owns the current `dsh --profile headless` grammar; the former [`dsh run` decision](../feature/2026-08-08-dsh-run-headless-command.md) records the superseded launcher-owned grammar, [GUI layering and RPC protocol](2026-07-19-gui-layering-and-rpc-protocol.md) owns browser gateway boundaries, [web config-tree boot and transport layering](2026-07-24-web-config-tree-boot-and-transport-layering.md) owns the Web tree, and [the default model follows the picker](../feature/2026-08-07-default-model-follows-the-picker.md) owns persistence of the shared Agent default.
 
 ## Verification
 
-Package tests use the real Session store and Agent registry around a scripted Agent factory to pin idle-to-idle aggregation, late asynchronous completion, terminal model diagnostics, other non-completed exits, direct failures, Loader-time disposal, and flush-before-exit ordering. The keyless assembled snapshots drive `dsh run` through a replayed tool round trip, record a `user/message` with `source.kind: 'user'`, and expose a terminal model failure on stderr. Built-bin acceptance reaches a mock provider through the published entry and requires final text on stdout, exit 0, and empty stderr. Config-dump acceptance excludes every Host, Web, and Client package from the shipped headless tree; PTY shutdown coverage requires no observation line and bounded disposal.
+Package tests use the real Session store and Agent registry around a scripted Agent factory to pin idle-to-idle aggregation, late asynchronous completion, terminal model diagnostics, other non-completed exits, direct failures, Loader-time disposal, and flush-before-exit ordering. The keyless assembled snapshots drive `dsh --profile headless` through a replayed tool round trip, record a `user/message` with `source.kind: 'user'`, and expose a terminal model failure on stderr. Built-bin acceptance reaches a mock provider through the published entry and requires final text on stdout, exit 0, and empty stderr. Config-dump acceptance excludes every Host, Web, and Client package from the shipped headless tree; PTY shutdown coverage requires no observation line and bounded disposal.
 
 ## Alternatives considered
 
@@ -39,6 +39,6 @@ Package tests use the real Session store and Agent registry around a scripted Ag
 
 ## Consequences
 
-`dsh run` provides a local Agent task rather than browser observation, Host APIs, or HTTP. Users who need those capabilities choose `dsh web`. Successful stderr is empty, completion follows durable flush, and the persisted Session remains available to later tooling. Its initial user message records `source.kind: 'user'` and therefore carries no ApiProxy `rpcId`.
+`dsh --profile headless` provides a local Agent task rather than browser observation, Host APIs, or HTTP. Users who need those capabilities choose `dsh web`. Successful stderr is empty, completion follows durable flush, and the persisted Session remains available to later tooling. Its initial user message records `source.kind: 'user'` and therefore carries no ApiProxy `rpcId`.
 
 ApiProxy carrier coverage stays in the ApiProxy package. Custom one-shot profiles may include Host or Web bundles explicitly, while the shipped profile and the recognized installation-owned tuple are Web-free.

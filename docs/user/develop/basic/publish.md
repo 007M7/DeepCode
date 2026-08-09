@@ -118,9 +118,19 @@ A bundle that defines a runnable app marks its startup row through the injection
   inject: [cmdlineArgs]
 ```
 
-That row calls `runStartup` from [`@deepseek-ai/dsh-cmdline`](../../../../packages/ui/cmdline/README.md) with the app's own commander program. The launcher hands it every argument after the launcher flags, so app-specific flags need no launcher change. Loader mounts the composition once, waits for each row's injections, and only then evaluates that row's `!!js` config against its injected context.
+That row calls `runStartup` from [`@deepseek-ai/dsh-cmdline`](../../../../packages/boot/cmdline/README.md) with the app's own commander program. The launcher hands it every argument after the launcher flags, so app-specific flags need no launcher change. Loader mounts the composition once, waits for each row's injections, and only then evaluates that row's `!!js` config against its injected context.
 
-Rows configured by those arguments inject the startup service and read it from their own `!!js` options, with the deployment value beside it as the fallback. On `--help`, the service is not provided, so those rows never activate. An app layered over another app disables the lower startup row, because one composition has one command-line owner.
+Rows configured by those arguments inject the startup service and read it from their own `!!js` options, with the deployment value beside it as the fallback:
+
+```yaml
+- id: my-app
+  name: '@example/my-app'
+  inject: [myAppStartup]
+  config:
+    port: !!js ctx.myAppStartup.port ?? 8080
+```
+
+On `--help`, the service is not provided, so those rows never activate. An app layered over another app disables the lower startup row, because one composition has one command-line owner.
 
 ## Installing from GitHub: the build-script catch
 

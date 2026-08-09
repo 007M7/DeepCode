@@ -574,7 +574,7 @@ export interface Config {
 需要：`agentDefaultModel` · `agents` · `sessions`
 
 ```ts config-catalog
-/** Plugin config: the task, patched in by the launcher. */
+/** Plugin config: the task resolved from this app's injected startup service. */
 export interface Config {
   /** The prompt text for the single run. */
   task: string
@@ -2521,21 +2521,21 @@ export interface WebServiceConfig {
 需要：`httpServer`
 
 ```ts config-catalog
-/** Plugin config: the surface facts the launcher patches over this bundle's defaults. */
+/** Plugin config: composed deployment settings plus per-invocation startup values. */
 export interface Config {
   /** Whether this process mounted the client-plugin HMR receiver (`dsh web --dev`). */
   mode: WebMode
-  /** Print the URL line on activation; a headless layer over this bundle turns it off. */
+  /** Print the URL line on activation; a non-interactive layer can turn it off. */
   printUrl: boolean
   /**
    * Register the model-visible surface context (the `app:web-surface` prompt
    * section and the `DSH_WEB_URL`/`DSH_WEB_MODE` bash variables). A one-shot
-   * layer turns it off: its user is not interacting through the GUI, so the
+   * non-interactive layer can turn it off when its user is not in the GUI, so the
    * orientation text would be false.
    */
   surfaceContext: boolean
   /**
-   * LAN IPv4 addresses sampled once by the launcher when the effective bind
+   * LAN IPv4 addresses sampled once by the app startup row when the effective bind
    * is all-interfaces — the exact snapshot the /api trust fence was
    * configured with, so the printed LAN URL can never name an address the
    * fence rejects. Empty on a loopback bind.
@@ -2547,7 +2547,7 @@ export interface Config {
 export type WebMode = 'production' | 'development'
 ```
 
-来源：[`packages/bundle/web-app/src/index.ts:32`](../packages/bundle/web-app/src/index.ts)
+来源：[`packages/bundle/web-app/src/index.ts:41`](../packages/bundle/web-app/src/index.ts)
 
 ## `@deepseek-ai/dsh-web-fetch-local`
 
@@ -2792,6 +2792,7 @@ export interface Config {
 - `@deepseek-ai/dsh-client-ui-slots`（[`packages/client/ui-slots/src/index.ts`](../packages/client/ui-slots/src/index.ts)）
 - `@deepseek-ai/dsh-client-web`（[`packages/client/web/src/index.ts`](../packages/client/web/src/index.ts)）
 - `@deepseek-ai/dsh-client-web-react`（[`packages/client/web-react/src/index.ts`](../packages/client/web-react/src/index.ts)）
+- `@deepseek-ai/dsh-cmdline`（[`packages/boot/cmdline/src/index.ts`](../packages/boot/cmdline/src/index.ts)）
 - `@deepseek-ai/dsh-environment`（[`packages/util/environment/src/index.ts`](../packages/util/environment/src/index.ts)）
 - `@deepseek-ai/dsh-helper`（[`packages/scaffold/helper/src/index.ts`](../packages/scaffold/helper/src/index.ts)）
 - `@deepseek-ai/dsh-hook-protocol`（[`packages/hooks/hook-protocol/src/index.ts`](../packages/hooks/hook-protocol/src/index.ts)）

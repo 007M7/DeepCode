@@ -60,7 +60,7 @@ Loader defers a row's `!!js` interpolation until that row's declared injections 
 
 ### One command line, one owner
 
-A composition has exactly one command-line owner. An app that layers over another one disables the underlying startup row and names both services, so the rows it absorbed start on the values their own fallbacks name — [`dsh-headless`](../../bundle/headless/README.md) does this over [`dsh-web-app`](../../bundle/web-app/README.md).
+A composition has exactly one command-line owner. An app that layers over another one disables the underlying startup row and provides every startup service its retained rows inject.
 
 An out-of-tree plugin brings its own commander copy, so commander's control-flow errors are detected structurally rather than by class identity; an identity check would rethrow a printed help as a fatal load failure.
 

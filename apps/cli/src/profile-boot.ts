@@ -195,6 +195,11 @@ export interface RunProfileOptions {
   prepare?: (ctx: Context) => Promise<void> | void
 }
 
+/** Re-throw setup failures unless this invocation's signal already owns shutdown. */
+function suppressSignalShutdownError(signal: AbortSignal, error: unknown): void {
+  if (!signal.aborted) throw error
+}
+
 /**
  * Boot one profile invocation end to end and leave process lifetime to the
  * mounted plugins (or to a one-shot runner the composition mounts).
@@ -327,7 +332,7 @@ export async function runProfile(options: RunProfileOptions): Promise<{ ctx: Con
         compose: composeLive,
       })
     } catch (error) {
-      if (!signalShutdown.signal.aborted) throw error
+      suppressSignalShutdownError(signalShutdown.signal, error)
     }
   }
   return { ctx, shutdown }

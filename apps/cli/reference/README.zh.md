@@ -14,7 +14,7 @@
 
 ### 应用参数
 
-启动器自己的 flag 写在最前面，并在它不认识的第一个 token 处结束；从那里开始的一切都通过 `ctx.cmdlineArgs` 原样交给启动起来的 profile，由该应用自己的启动行解析（[`dsh-cmdline`](../../../packages/ui/cmdline/README.md)）。因此 `dsh --profile web --port 8080` 到达的是 web 应用的 `--port`，`dsh --profile web --help` 打印的是该应用的 help 且什么也不启动，而 `dsh --help`（没有可以交付的 profile）打印的是启动器自己的 help。`-V`／`--version` 写在应用参数边界之前时会打印启动器的版本。
+启动器自己的 flag 写在最前面,并在它不认识的第一个 token 处结束;从那里开始的一切都通过 `ctx.cmdlineArgs` 原样交给启动起来的 profile,由该应用自己的启动行解析([`dsh-cmdline`](../../../packages/boot/cmdline/README.md))。因此 `dsh --profile web --port 8080` 到达的是 web 应用的 `--port`,`dsh --profile web --help` 打印的是该应用的 help 且什么也不启动,而 `dsh --help`(没有可以交付的 profile)打印的是启动器自己的 help。`-V`/`--version` 写在应用参数边界之前时会打印启动器的版本。
 
 一套组合只挂载一次。注入 `cmdlineArgs` 的 Loader 行解析本应用的参数，并把结果作为服务提供出去；由 flag 配置的每一行都会注入该服务，Loader 会等服务激活后再求值该行配置（`port: !!js ctx.webStartup.port ?? 3080`），因此 flag 胜过写在它旁边的值。该优先级要求配置行保留这一表达式；若用户 patch 用字面量替换整份 `config`，运行时读取也会随之消失。help 和被拒绝的参数会请求退出——拒绝时以非零状态，help 时以 0——且不会激活依赖启动服务的行。在线编辑 `cordis.patch.yml` 会针对仍然在线的服务重新求值表达式，因此不会重置已在服务的端口。
 
@@ -24,7 +24,7 @@
 
 | Profile | 参数 |
 |---|---|
-| `web` | `--host`、`--port`、`--dev`、`--workspace-root`、可重复的 `--trusted-host` |
+| `web` | `--host`、`--port`、`--dev`、可重复的 `--trusted-host` |
 | `headless` | 任务文本，作为位置参数 |
 
 一次性任务（`dsh --profile headless "run the tests"`）通过核心注册表创建一个全新的持久化 Agent（智能体），提交任务、等待完全停稳并对 Session 执行 flush，再从其持久化事件区间中推导最后一个非空 assistant 文本与最终 `turn/end` 原因。它在 stdout 打印文本，并在原因为 `completed` 时以 0 退出，否则以 1 退出。没有任务的调用是该应用的用法错误。随附 headless profile 不挂载 ApiProxy、Host、HTTP 服务器、Web 运行时或浏览器客户端；成功运行不会向 stderr 写入任何内容，也不会打开监听端口。
@@ -52,7 +52,7 @@ Git 托管、随附源码的插件在安装期间通过其 `prepare` 脚本构�
 
 ## Web 别名
 
-`dsh web` 是 `--profile web` 的硬编码别名；写在它之后的 flag 属于 web 应用，由该应用在其组合包的启动行中持有。`--host`、`--port` 和 `--workspace-root` 覆盖承载它们的那些行的组合取值，可重复的 `--trusted-host` 在组合出的围栏配置之上追加 authority，`--dev` 把 web-runtime 行切换到开发模式并启用组合包以禁用状态交付的客户端插件 HMR（热模块替换）接收器；若要无刷新更新客户端 bundle，还需单独运行 `pnpm run dev:web` watcher。
+`dsh web` 是 `--profile web` 的硬编码别名；写在它之后的 flag 属于 web 应用，由该应用在其组合包的启动行中持有。`--host` 和 `--port` 覆盖承载它们的那些行的组合取值，可重复的 `--trusted-host` 在组合出的围栏配置之上追加 authority，`--dev` 把 web-runtime 行切换到开发模式并启用组合包以禁用状态交付的客户端插件 HMR（热模块替换）接收器；若要无刷新更新客户端 bundle，还需单独运行 `pnpm run dev:web` watcher。
 
 ```sh
 dsh web
