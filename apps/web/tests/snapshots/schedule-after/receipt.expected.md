@@ -1,6 +1,0 @@
-- note:
-  - banner: Scheduled reminder Delivered in this session only
-  - paragraph: Check the deployment log
-  - contentinfo:
-    - text: ID {{scheduleId}}
-    - time: Due at {{occurrenceAt}}

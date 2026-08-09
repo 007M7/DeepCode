@@ -14,8 +14,8 @@
 | [`api/`](api/README.md) | Remote BFF 装配与 TypeRT RPC Gateway | 产品：稳定接口 |
 | [`typert/`](typert/README.md) | 类型图生成、产物加载与运行时注册表 | 产品：稳定接口 |
 | [`goal/`](goal/README.md) | 同会话 goal 的持久化与生命周期 | 产品：稳定接口 |
+| [`schedule/`](schedule/README.md) | 仅限会话内的定时后续轮次 | 产品：稳定接口 |
 | [`feedback/`](feedback/README.md) | 人类反馈 | 产品：稳定接口 |
-| [`schedule/`](schedule/README.md) | 仅限 Session 内的提醒 | 产品：稳定接口 |
 | [`llm/`](llm/README.md) | LLM（大语言模型）能力系列：抽象服务 + 提供方适配器 | 产品：稳定接口 |
 | [`e2b/`](e2b/README.md) | E2B 提供方 | POC |
 | [`subprocess/`](subprocess/README.md) | 进程管理能力系列：Service Definition + 本地进程树提供方 | 产品：稳定接口 |
@@ -56,7 +56,7 @@
 | [`support/`](support/README.md) | 支持基础设施（testkit、不变式、回放、Loader 冒烟测试） | 支持：兼容性预期较低 |
 | [`util/`](util/README.md) | 组间共享的低层零依赖工具（`Branded<B>`、Harness home／路径辅助函数、超时、保留策略） | 支持：小型、稳定、无 harness 依赖 |
 
-新包加入现有组；新组更新此表。
+新包加入现有组；新组更新其 README 和此表。
 
 ## 依赖
 

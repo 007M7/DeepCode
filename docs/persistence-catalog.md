@@ -526,7 +526,7 @@ Source: [`packages/sandbox/sandbox-policy/src/session-mode.ts:33`](../packages/s
 'schedule/change': ScheduleChange
 ```
 
-Source: [`packages/schedule/tool-schedule/src/types.ts:154`](../packages/schedule/tool-schedule/src/types.ts)
+Source: [`packages/schedule/tool-schedule/src/types.ts:144`](../packages/schedule/tool-schedule/src/types.ts)
 
 ### `session/*`
 

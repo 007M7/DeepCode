@@ -1,10 +1,6 @@
-# Opt-in Schedule patch over the shipped Web composition. The Schedule owner
-# only observes roots published after this overlay loads, so this remains an
-# explicit capability rather than changing the default Web tree.
+# Opt-in Schedule patch over the shipped Web composition. The owner observes
+# only roots published after this overlay loads.
 
 - insert:
     - id: tool-schedule
       name: '@deepseek-ai/dsh-tool-schedule'
-
-    - id: ui-schedule
-      name: '@deepseek-ai/dsh-client-ui-schedule'

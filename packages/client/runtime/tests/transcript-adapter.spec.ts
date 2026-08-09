@@ -434,32 +434,6 @@ describe('TranscriptAdapter', () => {
     })
   })
 
-  it('materializes generic presented-event nodes on replay and live append', () => {
-    const replayed = at(0, { type: 'schedule/change', data: { operation: 'dispatch', id: 'schedule-1' } })
-    const live = at(1, { type: 'schedule/change', data: { operation: 'dispatch', id: 'schedule-2' } })
-    const adapter = new TranscriptAdapter()
-    adapter.reset([replayed], [{
-      for: 'event',
-      view: { id: 'schedule-1', prompt: '检查日志' },
-    }])
-    adapter.append(live, {
-      for: 'event',
-      view: { id: 'schedule-2', prompt: '检查发布' },
-    })
-    expect(adapter.nodes()).toEqual([
-      {
-        kind: 'presented-event', seq: 0, time: 1_700_000_000_000,
-        eventType: 'schedule/change',
-        view: { id: 'schedule-1', prompt: '检查日志' },
-      },
-      {
-        kind: 'presented-event', seq: 1, time: 1_700_000_000_001,
-        eventType: 'schedule/change',
-        view: { id: 'schedule-2', prompt: '检查发布' },
-      },
-    ])
-  })
-
   it('leaves callView null when the paired call fell outside the window (cross-page break)', () => {
     const adapter = new TranscriptAdapter()
     const resultView = { for: 'result' as const, view: { card: 'generic' as const, title: '孤儿' } }

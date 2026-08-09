@@ -306,7 +306,6 @@ export function apply(ctx: Context): void {
     locale: NS,
     children: {
       'conversation.chat.tool': { kind: 'single', scope: 'session' },
-      'conversation.chat.eventview': { kind: 'keyed', scope: 'session' },
       'conversation.chat.commandview': { kind: 'keyed', scope: 'session' },
       'conversation.chat.turnTail': { kind: 'chain', scope: 'session' },
     },

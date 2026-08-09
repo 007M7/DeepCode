@@ -17,7 +17,7 @@ export type {
   ComposerChainProps, ConversationInjected,
   ConversationSessionHeaderInjected, ConversationSessionInjected, ConversationSlotProps, ConvViewOwnerProps,
   ConvViewProps, DetailsInjected, DetailsSlotProps, DetailsToolOwnerProps, EmptyWorkspaceOwnerProps,
-  EventRowOwnerProps, EventRowProps, ToolTreeOwnerProps, TurnTailOwnerProps,
+  ToolTreeOwnerProps, TurnTailOwnerProps,
 } from './contract/slots.ts'
 // Export discipline: packages/client/AGENTS.md.
 

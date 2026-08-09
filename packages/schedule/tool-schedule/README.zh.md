@@ -16,8 +16,6 @@
 
 回放会拒绝未知版本、额外字段、重复使用的 id，以及针对非活动记录的 delete 或 dispatch 转换。普通会话折叠完整日志。fork 只折叠 `session.events.slice(session.header.seedLength ?? 0)`，因此不会继承父会话的提醒。此包的 `./invariant` 配套项会对现有日志和候选事件应用相同策略。
 
-`scheduleReminderPresentation(events, dispatchSeq, seedLength)` 是供 Host 使用的纯回执投影。它从 dispatch 之前最近的同 id create 返回 `scheduleId`、prompt 和 occurrence；client renderer 添加固定的 `session-local` 标签。当前 fork 的 `seedLength` 是 child 自有 dispatch 的硬边界，而继承的 dispatch 则会搜索其已持久前缀；因此恢复后的祖先仍可渲染，嵌套 generation 可以复用会话本地 id，presentation 绝不会改变 live ownership。
-
 ## 管理工具
 
 生成的[工具目录](../../../docs/tool-catalog.md)负责 `schedule_create`、`schedule_list` 和 `schedule_delete` 的参数与输出 schema。虽然模型输入使用 `after_seconds`，但其规范值中的记录字段使用 camelCase。
@@ -33,6 +31,8 @@
 live owner 从持久折叠结果派生最早的目标。它会拆分超过 Node timer 范围的等待，并在每次唤醒后重新读取墙钟，因此时钟回拨不会提前触发，时钟前跳则会使记录进入 overdue 状态。
 
 overdue 提醒首先为持久化建立检查点。如果 agent 已被某个轮次或另一项 maintenance task 占用，`runMaintenance()` 会拒绝对 idle phase 的认领；记录会保持活动，owner 会在 `whenIdle()` 后重试。获准执行的 maintenance task 会采样一次决策时间，构造完整 framing，同步将 `followup()` 入队，并在释放 phase 前追加只含 id 的 dispatch。触发唤醒的 input 会保持 parked，直到该 phase 释放；随后 owner 为 dispatch 建立检查点。framing 构造或同步 `followup` 失败不会写入 dispatch。追加失败会使该 owner 进入故障状态，因为消息可能已经入队；barrier 拒绝会把 dispatch 留给后续普通 preflight 处理，而不会启动私有重试 timer。
+
+Agent 完全 idle 后，follow-up 会开启一个普通的后续轮次；它绝不会中途引导或中断当前轮次。assistant 输出通过普通会话 transcript（文本记录）显示。dispatch 表示 follow-up 已入队并被记录，不表示模型成功或用户已读取回答；Schedule 也不会添加独立的 Web 回执。
 
 agent 或插件执行 dispose（资源释放）时，会取消 timer、停止新工作，并等待进行中的 preflight 和 idle wait。清理期间绝不会追加 delete 记录。
 

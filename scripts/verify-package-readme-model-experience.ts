@@ -67,7 +67,6 @@ const SENTENCE_MODEL_EXPERIENCE: Readonly<Record<string, SentenceContract>> = {
   'packages/client/ui-conversation': { kind: 'none', reason: 'Browser-side UI plugin layer; registers no model surface.' },
   'packages/client/ui-tool': { kind: 'none', reason: 'Browser-side Tool presentation layer; renders logged calls without changing model context.' },
   'packages/client/ui-deliverables': { kind: 'none', reason: 'Browser-side UI plugin layer; registers no model surface.' },
-  'packages/client/ui-schedule': { kind: 'none', reason: 'Browser-only Schedule receipt renderer; registers no model surface.' },
   'packages/client/ui-slash': { kind: 'none', reason: 'Browser-side UI plugin layer; registers no model surface.' },
   'packages/client/ui-command': { kind: 'indirect', reason: 'The dispatch paths trigger the host command.execute RPC; each command handler\'s host package owns any model-visible effect.' },
   'packages/client/ui-model': { kind: 'indirect', reason: 'Selection routes session.selectModel; the Host snapshots the selection at the next prompt-assembly boundary and owns the model-visible effect.' },

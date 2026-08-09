@@ -20,7 +20,6 @@ export {
   decodeScheduleChange,
   foldScheduleEvents,
   renderReminderFraming,
-  scheduleReminderPresentation,
   scheduleView,
 } from './domain.ts'
 export { registerScheduleTools } from './tools.ts'

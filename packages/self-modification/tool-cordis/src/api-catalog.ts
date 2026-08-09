@@ -812,7 +812,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'async flush(session: Session): Promise<boolean>',
-        jsDoc: '/**\n * Dispatch the awaited `session/flush` durability checkpoint for `session`,\n * with the carrier captured at {@link enter}. THE flush entry point: the\n * store owns the carrier, so callers (the checkpoint policy\'s per-request\n * barrier, goal-session\'s idle checkpoint, teardown drains, and consumers\n * that flush themselves before reading storage) must come through here\n * rather than dispatch a raw `ctx.parallel(\'session/flush\', …)` — one owner,\n * one spelling, and the scoped-dispatch invariant can pin it.\n * @param session - the session whose buffered events must reach durable storage.\n * @returns whether at least one listener acknowledged completed durability,\n *   after every listener has settled successfully.\n * @throws the first registered listener failure after every listener settles.\n */',
+        jsDoc: '/**\n * Dispatch the awaited `session/flush` durability checkpoint for `session`,\n * with the carrier captured at {@link enter}. THE flush entry point: the\n * store owns the carrier, so callers (the checkpoint policy\'s per-request\n * barrier, goal-session\'s idle checkpoint, teardown drains, and consumers\n * that flush themselves before reading storage) must come through here\n * rather than dispatch a raw `ctx.parallel(\'session/flush\', …)` — one owner,\n * one spelling, and the scoped-dispatch invariant can pin it.\n * @param session - the session whose buffered events must reach durable storage.\n * @returns whether at least one durability listener participated, after every\n *   listener has settled successfully.\n * @throws the first registered listener failure after every listener settles.\n */',
       },
       {
         signature: 'get(id: SessionId): Session | undefined',
@@ -1481,16 +1481,9 @@ export const EVENT_API: readonly EventApiEntry[] = [
   {
     name: 'session/flush',
     mode: 'parallel',
-    signature: '\'session/flush\'(this: Scoped<Session>, session: Session): Promise<true | void> | true | void',
-    jsDoc: '/**\n * Awaited parallel checkpoint: every listener runs and the caller awaits\n * all of them, with no waterfall veto. A listener returns literal `true`\n * only after completing durability work; observe-only listeners return\n * void. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`) reuses the\n * session\'s owner scope.\n * @param session - the session whose buffered events must reach durable storage.\n * @dshScopeScan unsupported\n * @mode parallel\n */',
-    summary: 'Awaited parallel checkpoint: every listener runs and the caller awaits all of them, with no waterfall veto.',
-  },
-  {
-    name: 'session/flushed',
-    mode: 'emit',
-    signature: '\'session/flushed\'(this: Scoped<Session>, session: Session, throughSeq: number): void',
-    jsDoc: '/**\n * Observe a successful durability checkpoint. `throughSeq` is the exclusive\n * event boundary captured when {@link SessionStore.flush} began; events\n * appended while its listeners run require a later successful checkpoint.\n * Concurrent checkpoints may publish their boundaries out of order, so a\n * consumer retaining progress must advance by the maximum observed value.\n * No notification is published when no durability listener participated or\n * any listener failed. Observer failures are logged and contained.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`) reuses the session\'s\n * owner scope.\n * @param session - the session whose prefix completed the checkpoint.\n * @param throughSeq - exclusive event sequence boundary proven by the checkpoint.\n * @dshScopeScan unsupported\n * @mode emit\n */',
-    summary: 'Observe a successful durability checkpoint.',
+    signature: '\'session/flush\'(this: Scoped<Session>, session: Session): Promise<void> | void',
+    jsDoc: '/**\n * Awaited parallel durability checkpoint: every listener runs and the\n * caller awaits all of them, with no waterfall veto. Scope-filtered dispatch\n * (`@deepseek-ai/dsh-scope`) reuses the session\'s owner scope.\n * @param session - the session whose buffered events must reach durable storage.\n * @dshScopeScan unsupported\n * @mode parallel\n */',
+    summary: 'Awaited parallel durability checkpoint: every listener runs and the caller awaits all of them, with no waterfall veto.',
   },
   {
     name: 'settings/document-updated',

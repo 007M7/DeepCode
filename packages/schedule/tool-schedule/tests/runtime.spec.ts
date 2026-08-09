@@ -104,7 +104,6 @@ async function harness(): Promise<RuntimeHarness> {
     order.push('flush')
     if (controls.flushOutcomes.shift() === 'reject') return Promise.reject(new Error('disk unavailable'))
     await controls.flushHandler?.()
-    return true as const
   })
   return { ctx, agent, followed, order, controls, disposeAgent }
 }

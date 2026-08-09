@@ -32,19 +32,6 @@ export type ToolEventView =
   | { for: 'call'; view: ToolCallView }
   | { for: 'result'; view: ToolResultView }
 
-/**
- * Host-computed presentation for one non-surface Session event. The durable
- * event type selects an optional client renderer; the sidecar carries only the
- * JSON-compatible view so the connection package adds no domain vocabulary.
- */
-export interface PresentedEventView {
-  for: 'event'
-  view: unknown
-}
-
-/** Optional non-persistent presentation sidecar for one Session event. */
-export type SessionEventView = ToolEventView | PresentedEventView
-
 /** One pending inbox occurrence in the authoritative `session/queue` snapshot. */
 export interface QueuedInboxItem {
   /** Message identity used by inbox mutations. */
@@ -79,7 +66,7 @@ export interface EventsApi {
  * approval/question frames (requested = answerable server-request, the rest are pure pushes).
  */
 export type MuxFrame =
-  | { type: 'session/event'; sessionId: SessionId; event: SessionEvent; view?: SessionEventView }
+  | { type: 'session/event'; sessionId: SessionId; event: SessionEvent; view?: ToolEventView }
   | { type: 'session/subscribed'; sessionId: SessionId; lastSeq: number }
   | { type: 'approval/requested'; sessionId: SessionId; approvalId: ApprovalRequestId; toolName: string; callId?: CallId; reason?: string }
   | { type: 'approval/resolved'; sessionId: SessionId; approvalId: ApprovalRequestId; outcome: ApprovalOutcome }

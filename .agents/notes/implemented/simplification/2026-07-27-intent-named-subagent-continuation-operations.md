@@ -18,7 +18,7 @@ The durability boundary also exposed both `SessionStore.flush()` and `flushRequi
 
 Caller and provider requests are distinct. `SubagentStartRequest` contains caller-supplied one-shot data; `ResolvedSubagentStartRequest` adds the service-resolved descriptor before `SubagentProvider.start()`. For continuable creation, the manager passes a `ContinuableCreateRequest` to optional `SubagentProvider.prepareContinuable()` and receives detached creation data only. `SubagentService.resume()` and provider resume dispatch are absent: the continuation manager loads the descriptor, authorizes the parent, and owns Agent materialization, prompt delivery, cold resume, and teardown.
 
-`SessionStore.flush(session)` is the single durability barrier and returns `Promise<boolean>`. Every scoped listener settles; a listener returns literal `true` only when it completed durability work. The call resolves `true` when at least one listener gives that acknowledgement, resolves `false` when none does, and rejects with the first registered listener failure after all listeners settle. The acknowledgement does not identify a selected persistence backend when several listeners are present. Ordinary checkpoints may ignore the boolean; the continuation manager also treats its final flush as a best-effort barrier, deliberately ignores it, logs rejection, and still disposes the child and releases ownership.
+`SessionStore.flush(session)` is the single durability barrier and returns `Promise<boolean>`. It resolves `true` after at least one scoped listener participates successfully, resolves `false` for an empty listener snapshot, and rejects with the first registered listener failure after all listeners settle. Participation cannot identify whether a selected persistence backend stored the state. Ordinary checkpoints may ignore the boolean; the continuation manager also treats its final flush as a best-effort barrier, deliberately ignores participation, logs rejection, and still disposes the child and releases ownership.
 
 ## Alternatives considered
 
@@ -26,7 +26,7 @@ Caller and provider requests are distinct. `SubagentStartRequest` contains calle
 
 **Keep `sendMessage` on the service.** The model tool sends a message, but the service operation represents a follow-up that may steer or cold-resume. `followup` aligns with the structural `Agent` interface and does not promise a particular route.
 
-**Keep `flushRequired()`.** A second method hides only a missing-durability-acknowledgement check. Returning that acknowledgement from the existing barrier keeps dispatch in one implementation and lets each caller state whether absence is acceptable.
+**Keep `flushRequired()`.** A second method hides only an empty-listener check. Returning participation from the existing barrier keeps dispatch in one implementation and lets each caller state whether absence is acceptable.
 
 **Fold ordinary and continuable starts together.** A flag would make one method return either an awaited holder-owned one-shot run or immediate durable child and message identities. Separate intent methods preserve the ownership and timing distinction without a return union.
 
@@ -34,5 +34,5 @@ Caller and provider requests are distinct. `SubagentStartRequest` contains calle
 
 - The Cordis service catalog contains only caller operations; a provider can opt into continuable first creation through `SubagentProvider.prepareContinuable?()` without receiving Agent lifecycle authority or a public resume operation.
 - Follow-up source and cancellation travel in one options object, matching the intent-helper shape on `Agent` while retaining the existing live-delivery and cold-resume semantics.
-- Session durability has one barrier operation. Its explicit durability acknowledgement remains observable, but no continuable-child path depends on which backend supplied it.
+- Session durability has one barrier operation. Its participation result remains observable, but no continuable-child path treats arbitrary listener participation as proof that a persistence backend stored the state.
 - The `send_message` and `report` schemas, accepted message identities, `AgentHandle` ownership, durable event vocabulary, and model-visible transcript follow the activation-based realization linked above.

@@ -12,12 +12,6 @@ node 半侧在桥接或 upgrade 前守卫 `/api` 下的每个入口（`src/api-r
 
 `/api/events.mux` 与 `/api/events.host` 各接受一条 WebSocket upgrade，并只向浏览器发送对应的 `ServerRequest` text message；客户端不会在这些 socket 上发送业务数据。任一 socket 结束都会使当前 connection generation 失败并重建两条流，连接就绪仍要求两条 socket open 且 `host.describe` HTTP 调用成功。Host teardown 会终止两条 socket、中止各自的 source，并等待 source 清理完成后再返回。普通网络 GET 这些路径会返回 426，不保留 SSE 回退；`toFetchHandler` 的 SSE 编解码只服务进程内同构载体。
 
-`SessionEventView` 是 `session.history` 条目与实时 `session/event` 帧上的可选、非持久 sidecar。工具 view 保持封闭的 call／result 形状；由 Host presentation 的持久事件则携带 `{ for: 'event', view }`，把兼容 JSON 的 payload 开放给领域插件，并由持久事件类型选择 renderer。同一个 Session event 可以再次投递并带有新增或变化的 sidecar，因此消费方会按完全一致的事件身份与 seq 合并，而不会把第二个帧当作另一次日志 append。
-
-## 无密钥 fixture
-
-任何 `fixture` 查询参数都会选择内存载体。`fixture=empty` 启动时不含 Workspace 或 Session；`fixturePrompt=reject` 在接受前拒绝提示词；`fixtureAttach=fail` 发布 Session 但拒绝将其附加到 Workspace；`fixtureSessionCreate=drop-response` 在丢弃创建响应前发布 Session 并为其发出帧；`fixtureFrames=workspace-first` 则反转默认的 Session 优先创建帧顺序。按名称／路径创建 Workspace 以及由调用方预先分配 SessionId，均具有足够的确定性，组装后的 Web 测试可以据此协调列表与帧的到达。fixture 内容搜索会保留面向生产环境的 `unicode61` 式大小写、变音符号和 token／短语行为，并返回以匹配位置为中心、最多包含 120 个 Unicode 码点的 snippet。
-
 ## 模型体验
 
 无。协议消费层只在浏览器与主机之间搬运已经组合好的消息；这里没有任何内容进入模型请求。
@@ -29,5 +23,3 @@ node 半侧在桥接或 upgrade 前守卫 `/api` 下的每个入口（`src/api-r
 ## 已知限制与暂缓事项
 
 - **History 会恢复未附加的会话**：打开 history 可能创建宿主侧 agent，并增加首次打开的延迟；没有仅从持久化读取的路径。
-- **已附加 history 可能省略 commit-aware event view**：当 persistence inspect 不可用、失败或无法证明 identity-matching prefix 时，Host 仍会返回原始 live event，只会省略这些 sidecar。之后的持久 live 重投或 history 读取仍可补上它们。
-- **工具专属 view 类型仍是过渡表面**：只要 Host 的工具 `viewFor` presenter 仍存在，`ToolEventView`／`ToolCallView`／`ToolResultView` 就继续导出。通用 presented-event 分支与此独立，并保持为领域插件的扩展形状。

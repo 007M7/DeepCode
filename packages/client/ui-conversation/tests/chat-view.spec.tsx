@@ -8,7 +8,7 @@ import { Profiler } from 'react'
 import { act, cleanup, fireEvent, render, within } from '@testing-library/react'
 import type {
   AssistantMessageNode, CommandNode, CompactionSummaryNode, ConversationNode, ConversationSnapshot,
-  ModelRetryNode, PresentedEventNode, RunningToolCall, SessionId, SessionListState, ToolResultNode, TurnErrorNode,
+  ModelRetryNode, RunningToolCall, SessionId, SessionListState, ToolResultNode, TurnErrorNode,
   UserMessageNode, WorkspaceListState,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
@@ -105,13 +105,6 @@ const compaction = (over: Partial<CompactionSummaryNode> = {}): CompactionSummar
   shadowedItemCount: 16,
   shadowedTokenCount: 11_309,
   ...over,
-})
-const presentedEvent = (seq: number): PresentedEventNode => ({
-  kind: 'presented-event',
-  seq,
-  time: seq * 1_000,
-  eventType: 'schedule/change',
-  view: { prompt: 'check logs', scheduleId: 'schedule-1' },
 })
 
 /** Empty sessions-list hook for the global standard-kit seat. */
@@ -958,21 +951,6 @@ describe('ChatView', () => {
     expect(owner.openFile).toBe(h.openFile)
     expect(owner.inspectCall).toBe(h.inspectCall)
     expect(calls[0]?.entryKey).toBeUndefined()
-  })
-
-  it('dispatches presented events by key and keeps a visible JSON fallback', () => {
-    const node = presentedEvent(3)
-    const h = makeHarness({ nodes: [node] })
-    const calls: { key: string; entryKey?: string }[] = []
-    h.props.renderSlot = ((key: string, _owner: object, opts?: { entryKey?: string; fallback?: React.ReactNode }) => {
-      calls.push({ key, ...(opts?.entryKey !== undefined ? { entryKey: opts.entryKey } : {}) })
-      return opts?.fallback ?? null
-    })
-    const view = render(<h.ChatView {...h.props} />)
-    expect(calls).toEqual([{ key: 'conversation.chat.eventview', entryKey: 'schedule/change' }])
-    fireEvent.click(view.getByText('事件：schedule/change'))
-    expect(view.getByText(/"prompt": "check logs"/)).toBeTruthy()
-    expect(view.getByText(/"scheduleId": "schedule-1"/)).toBeTruthy()
   })
 
   it('prepend preserves a semantic row; a trailing user node force-scrolls', () => {

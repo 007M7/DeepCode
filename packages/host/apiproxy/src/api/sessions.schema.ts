@@ -14,7 +14,7 @@ import type {
   HistoryEntry, ModelCatalogFailure, ModelCatalogModel, ModelProviderGroup, ModelReasoning,
   ModelReasoningEffort, ModelSelection, SessionProjectionsBlock, SessionSearchItem, SessionSummary,
 } from './sessions.ts'
-import type { SessionEventView, ToolEventView } from './events.ts'
+import type { ToolEventView } from './events.ts'
 import type { WorkspaceId } from './workspace.ts'
 import {
   SESSION_SEARCH_RESULT_LIMIT,
@@ -193,25 +193,10 @@ export const toolEventViewSchema = z.discriminatedUnion('for', [
   z.object({ for: z.literal('result'), view: z.looseObject({ card: z.string() }) }),
 ]) as unknown as z.ZodType<ToolEventView>
 
-/** Domain-owned presented-event sidecar whose durable event supplies the renderer key. */
-const presentedEventViewSchema = z.object({
-  for: z.literal('event'),
-  view: z.unknown(),
-}).refine(value => Object.hasOwn(value, 'view'), {
-  message: 'presented event view payload is required',
-  path: ['view'],
-})
-
-/** Any optional host-computed sidecar carried with a Session event. */
-export const sessionEventViewSchema = z.union([
-  toolEventViewSchema,
-  presentedEventViewSchema,
-]) as unknown as z.ZodType<SessionEventView>
-
-/** One session.history item: the session event plus its optional host-computed view. */
+/** One session.history item: the session event plus its optional host-computed tool view. */
 export const historyEntrySchema: z.ZodType<Wire<HistoryEntry>> = z.object({
   event: sessionEventSchema,
-  view: sessionEventViewSchema.optional(),
+  view: toolEventViewSchema.optional(),
 }) as unknown as z.ZodType<Wire<HistoryEntry>>
 
 /**

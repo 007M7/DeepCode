@@ -10,8 +10,6 @@
 
 `session/event` 是一个*同步*通知；持久化插件会将事件复制到逐会话控制器，而不阻塞生产方。第一个待处理事件会开启固定批处理窗口，后续事件会加入但不会重置截止时间。窗口到期后会启动一个持久化批次；该次写入期间接纳的事件会获得自己的截止时间，并形成后续批次。`session/flush` 会取消等待并排空至完全停稳，因此循环仍将其用作在领取下一个普通轮次之前的顺序与错误观察检查点。后台写入被拒绝时会保留对应事件并暂停自动重试；新事件会开启新的固定窗口，而显式 flush 会立即重试，并通过 `agent/error` 和 logger 报告失败，绝不会把失败记录成已关闭轮次之后的会话事件。dispose（资源释放）会执行同样的最终排空。配置的最大值只限制有意的批处理等待，不限制事件循环调度或后端完成持久化的延迟（[决策](../../.agents/notes/implemented/architecture/2026-08-08-bounded-session-persistence-write-batching.md)）。
 
-`session/flush` 监听器只有在完成持久性工作后才返回字面量 `true`；仅观察监听器返回 void。每个监听器都结算后，仅当至少一个监听器确认持久性且没有监听器失败时，`SessionStore.flush()` 才返回 `true`，并以失败收容方式发布 `session/flushed(session, throughSeq)`。`throughSeq` 是调用入口捕获的事件排他边界，因此检查点期间追加的事件需要后续另一次成功；并发检查点可能不按顺序发布边界。空检查点或仅观察检查点返回 `false`，出现拒绝时不会发布成功观测。
-
 ## 崩溃恢复保留被中断的轮次
 
 后端重新加载一个在轮次中途崩溃的日志时，会发现一个已打开的 `turn/start` 却没有 `turn/end`。它**不会**截断日志：在长周期任务中，单个轮次可能非常庞大（许多步骤、大量工具输出），而这些事件在崩溃前已被持久追加。后端改为用一个合成的 `turn/end { reason: { kind: 'interrupted' } }` 关闭这个遗留轮次，在不改变其前后任何独立事件的情况下配平被中断的执行。`interrupted` 是唯一一个不由循环发出的 `TurnEndReason`（见 [session.md](session.md#why-a-turn-ended-turnendreasonmap)）。

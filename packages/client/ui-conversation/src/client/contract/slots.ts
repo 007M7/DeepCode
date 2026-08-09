@@ -3,10 +3,7 @@ import type { ReactNode, RefObject } from 'react'
 import type {
   InjectFace, MaybeSnapshotSelectorHook, PropsLocale, PropsRenderSlots, PropsRuntime, PropsStore, SnapshotSelectorHook,
 } from '@deepseek-ai/dsh-client-ui-slots'
-import type {
-  CommandNode, CompactionSummaryNode, ConversationNode, ConversationSnapshot, ObservableSnapshot, PendingInteraction,
-  PendingWait, PresentedEventNode, SessionId, ToolCallBlock, WorkspaceId,
-} from '@deepseek-ai/dsh-client-runtime/client'
+import type { CommandNode, CompactionSummaryNode, ConversationNode, ConversationSnapshot, ObservableSnapshot, PendingInteraction, PendingWait, SessionId, ToolCallBlock, WorkspaceId } from '@deepseek-ai/dsh-client-runtime/client'
 import type { MarkdownFileMentions } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { ComposerBlock } from '../input/blocks.ts'
@@ -41,13 +38,6 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * {@link ToolTreeOwnerProps} for every root and child wrapper.
      */
     'conversation.chat.tool': { kind: 'single'; scope: 'session'; owner: ToolTreeOwnerProps }
-    /**
-     * The chat view's per-event presentation hole: keyed dispatch on the
-     * durable event type. The durable event remains in the
-     * runtime node; a feature plugin may replace the visible JSON fallback
-     * with a domain renderer without entering ui-conversation.
-     */
-    'conversation.chat.eventview': { kind: 'keyed'; scope: 'session'; owner: EventRowOwnerProps }
     /**
      * The chat view's per-command row hole: keyed dispatch on the command
      * name (`command/run.name`; a run-less cross-window node has none and
@@ -248,15 +238,6 @@ export interface DetailsToolOwnerProps {
   /** Session workspace root for card cwd and relative-path display. */
   cwd?: string | undefined
 }
-
-/** Owner share for one Host-presented durable event. */
-export interface EventRowOwnerProps {
-  /** Generic runtime node carrying the durable event identity and keyed sidecar. */
-  node: PresentedEventNode
-}
-
-/** Full props of a registered event-presentation row component. */
-export type EventRowProps = PropsRuntime<'conversation.chat.eventview'>
 
 /**
  * Owner share of the per-command row slot: the frozen {@link CommandNode}
@@ -572,10 +553,9 @@ export interface ChatViewInjected {
   fileMentions: (owner: TurnTailOwnerProps) => MarkdownFileMentions | undefined
 }
 
-/** Full chat-view component props: runtime plus Tool, event, command, and turn-tail render shares. */
+/** Full chat-view component props: runtime & its Tool/command/tail render shares & store & injected & locale seat. */
 export type ChatViewSlotProps =
-  PropsRuntime<'conversation.view'>
-  & PropsRenderSlots<'conversation.chat.tool' | 'conversation.chat.eventview' | 'conversation.chat.commandview' | 'conversation.chat.turnTail'>
+  PropsRuntime<'conversation.view'> & PropsRenderSlots<'conversation.chat.tool' | 'conversation.chat.commandview' | 'conversation.chat.turnTail'>
   & PropsStore<ChatStore> & ChatViewInjected & PropsLocale<'conversation'>
 
 /**

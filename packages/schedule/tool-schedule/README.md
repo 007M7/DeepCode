@@ -16,8 +16,6 @@ The package owns the strict version-1 `schedule/change` create, delete, and disp
 
 Replay rejects unknown versions, extra fields, reused ids, and delete or dispatch transitions against inactive records. Normal sessions fold the complete log. A fork folds only `session.events.slice(session.header.seedLength ?? 0)`, so it does not inherit its parent's reminders. The package's `./invariant` companion applies the same policy to existing logs and candidate events.
 
-`scheduleReminderPresentation(events, dispatchSeq, seedLength)` is the pure Host-facing receipt projection. It returns `scheduleId`, prompt, and occurrence from the dispatch's nearest preceding same-id create; the client renderer adds the fixed `session-local` label. The current fork's `seedLength` is a hard boundary for child-owned dispatches, while inherited dispatches search their persisted prefix; resumed ancestors therefore remain renderable, nested generations may reuse session-local ids, and presentation never changes live ownership.
-
 ## Management tools
 
 The generated [tool catalog](../../../docs/tool-catalog.md) owns the argument and output schemas for `schedule_create`, `schedule_list`, and `schedule_delete`. Their canonical values use camelCase record fields even though model input uses `after_seconds`.
@@ -33,6 +31,8 @@ The closed v1 domain error codes are `invalid_prompt`, `invalid_selector`, `inva
 The live owner derives the earliest target from the durable fold. It splits waits longer than the Node timer range and rereads the wall clock after every wake, so a rollback cannot fire early and a forward jump makes the record overdue.
 
 An overdue reminder first checkpoints persistence. If a turn or another maintenance task already owns the Agent, `runMaintenance()` rejects the idle-phase claim; the record stays active and the owner retries after `whenIdle()`. A successful maintenance task samples one decision time, builds the complete framing, synchronously queues `followup()`, and appends an id-only dispatch before releasing the phase. Waking input remains parked until that release, after which the owner checkpoints dispatch. Framing or synchronous followup failure writes no dispatch. An append failure faults that owner because the message may already be queued; a barrier rejection leaves the dispatch pending for a later ordinary preflight and does not start a private retry timer.
+
+The follow-up opens a normal later turn after the Agent becomes fully idle; it never steers or interrupts the current turn. Its assistant output appears through the ordinary conversation transcript. Dispatch means that the follow-up was queued and recorded, not that the model succeeded or the user read the answer, and Schedule adds no independent Web receipt.
 
 Agent or plugin disposal cancels timers, stops new work, and awaits in-flight preflights and idle waits. It never appends delete records during teardown.
 

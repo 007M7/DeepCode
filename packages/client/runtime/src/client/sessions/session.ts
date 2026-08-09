@@ -6,7 +6,7 @@ import type { LlmRetryEventData } from '@deepseek-ai/dsh-llm-retry/types'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import type {
   HistoryEntry, IApiClient, MessageId, MuxFrame, QueueAction, RpcError,
-  RpcId, RpcResponse, RpcResult, SessionEventView, SessionId, SubagentAddress,
+  RpcId, RpcResponse, RpcResult, SessionId, SubagentAddress, ToolEventView,
 } from '@deepseek-ai/dsh-client-connection/client'
 // Value import from the inline-safe wire layer (not the connection plugin):
 // plugin-to-plugin value imports are a bundle purity error.
@@ -74,36 +74,6 @@ function queueTextOf(content: readonly ContentBlock[]): string | null {
   return content.map(block => block.text).join('')
 }
 
-/** Browser-safe structural equality for JSON-compatible wire values. */
-function sameWireValue(left: unknown, right: unknown): boolean {
-  if (Object.is(left, right)) return true
-  if (left === null || right === null || typeof left !== 'object' || typeof right !== 'object') return false
-  if (Array.isArray(left) || Array.isArray(right)) {
-    if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) return false
-    return left.every((value, index) => sameWireValue(value, right[index]))
-  }
-  const leftRecord = left as Record<string, unknown>
-  const rightRecord = right as Record<string, unknown>
-  const leftKeys = Object.keys(leftRecord).sort()
-  const rightKeys = Object.keys(rightRecord).sort()
-  return leftKeys.length === rightKeys.length
-    && leftKeys.every((key, index) =>
-      key === rightKeys[index] && sameWireValue(leftRecord[key], rightRecord[key]))
-}
-
-/** Same-seq deliveries may add a sidecar, but must carry the identical durable event. */
-function assertSameEvent(left: SessionEvent, right: SessionEvent): void {
-  if (!sameWireValue(left, right)) {
-    throw new Error(`session event identity mismatch at seq ${left.seq}`)
-  }
-}
-
-/** One in-flight older-page request and the late sidecars that may belong to its result. */
-interface OlderPageLoad {
-  readonly beforeSeq: number
-  readonly views: Map<number, { event: SessionEvent; view: SessionEventView }>
-}
-
 /**
  * Owns a session's event window, derived conversation state, and observable
  * snapshot. React bindings remain outside this data layer. Features see only
@@ -115,7 +85,7 @@ export class Session implements SessionFace {
   private events: SessionEvent[] = []
   /** Wire views aligned with `events` by index (envelope-level annotations; undefined = no view).
    *  Kept parallel rather than merged so `events` stays the raw log slice (model-visible ⟺ logged). */
-  private views: (SessionEventView | undefined)[] = []
+  private views: (ToolEventView | undefined)[] = []
   private baseSeq = 0
   private hasMore = false
   private openState: OpenState = 'cold'
@@ -125,7 +95,7 @@ export class Session implements SessionFace {
    *  a pre-disconnect open whose history request is already doomed (audit S4). Stale doOpen
    *  passes drop all writes once the generation moves on. */
   private openGeneration = 0
-  private loadingOlder: OlderPageLoad | null = null
+  private loadingOlder = false
   private readonly transcript = new TranscriptAdapter()
   private partial: PartialAccumulator | null = null
   private openCalls = new Map<string, RunningToolCall>()
@@ -177,7 +147,7 @@ export class Session implements SessionFace {
   private promptError: PromptError | null = null
   private lastAgentError: string | null = null
   /** Live events buffered during open/resync and stitched by sequence once history lands. */
-  private liveBuffer: { event: SessionEvent; view: SessionEventView | undefined }[] = []
+  private liveBuffer: { event: SessionEvent; view: ToolEventView | undefined }[] = []
   /** Gap repair in flight; live events detour to the buffer until the tail page lands. */
   private stitching = false
   /** subscribed.lastSeq baseline (gap detection; null when no subscribed frame arrived — degrade to the liveBuffer dedup path). */
@@ -396,16 +366,11 @@ export class Session implements SessionFace {
 
   /** Page up: pull one earlier page with the window's first seq as beforeSeq and prepend (§D.2). */
   async loadOlder(): Promise<void> {
-    if (this.openState !== 'open' || !this.hasMore || this.loadingOlder !== null) return
-    const loading: OlderPageLoad = { beforeSeq: this.baseSeq, views: new Map() }
-    this.loadingOlder = loading
+    if (this.openState !== 'open' || !this.hasMore || this.loadingOlder) return
+    this.loadingOlder = true
     this.notifier.markDirty()
     try {
-      const { result } = await this.history({ beforeSeq: loading.beforeSeq, maxMessages: PAGE_MESSAGES })
-      if (this.loadingOlder !== loading) return
-      // A concurrent gap repair may replace the window with a newer tail page.
-      // The captured older page no longer adjoins that window and must be dropped.
-      if (this.baseSeq !== loading.beforeSeq) return
+      const { result } = await this.history({ beforeSeq: this.baseSeq, maxMessages: PAGE_MESSAGES })
       if (!result.ok) return // keep the window as-is; do not overwrite openError (open already succeeded)
       const older = result.value.events
       if (older.length === 0) {
@@ -413,42 +378,24 @@ export class Session implements SessionFace {
         return
       }
       const tail = older[older.length - 1]
-      if (tail === undefined || tail.event.seq + 1 !== loading.beforeSeq) {
+      if (tail === undefined || tail.event.seq + 1 !== this.baseSeq) {
         // §D.2 continuity assertion: on violation drop the page fail-soft rather than render an out-of-order stream.
-        console.error(`[web-runtime] history page discontinuous: tail seq ${tail?.event.seq} vs baseSeq ${loading.beforeSeq}`)
+        console.error(`[web-runtime] history page discontinuous: tail seq ${tail?.event.seq} vs baseSeq ${this.baseSeq}`)
         this.hasMore = false
         return
       }
-      let settled: HistoryEntry[]
-      try {
-        settled = older.map((entry): HistoryEntry => {
-          const late = loading.views.get(entry.event.seq)
-          if (late === undefined) return entry
-          assertSameEvent(entry.event, late.event)
-          return { ...entry, view: late.view }
-        })
-      } catch (error) {
-        console.error('[web-runtime] older-page session event failed identity validation:', error)
-        void this.resync()
-        return
-      }
-      this.events = [...settled.map(entry => entry.event), ...this.events]
-      this.views = [...settled.map(entry => entry.view), ...this.views]
-      /* v8 ignore next -- the empty-page branch returned above. */
+      this.events = [...older.map(e => e.event), ...this.events]
+      this.views = [...older.map(e => e.view), ...this.views]
+      /* v8 ignore next -- the ?? arm needs older[0] undefined, but the empty-page branch above already returned. */
       this.baseSeq = older[0]?.event.seq ?? this.baseSeq
       this.hasMore = result.value.hasMore
-      this.transcript.reset(this.events, this.views)
+      this.transcript.reset(this.events, this.views) // prepend forces a rebuild (the window grew at the head)
       this.rebuildDerivedFromWindow()
     } catch (error) {
-      if (this.loadingOlder === loading) {
-        console.error('[web-runtime] loadOlder failed:', error)
-      }
+      console.error('[web-runtime] loadOlder failed:', error)
     } finally {
-      if (this.loadingOlder === loading) {
-        this.loadingOlder = null
-        if (this.liveBuffer.length > 0) void this.repairGap()
-        this.notifier.markDirty()
-      }
+      this.loadingOlder = false
+      this.notifier.markDirty()
     }
   }
 
@@ -476,8 +423,6 @@ export class Session implements SessionFace {
     this.pendingRev++
     this.subscribedLastSeq = null
     this.liveBuffer = []
-    this.loadingOlder = null
-    this.stitching = false
     this.notifier.markDirty()
     await this.open()
   }
@@ -682,9 +627,7 @@ export class Session implements SessionFace {
         if (generation !== this.openGeneration) return
         if (result.ok) this.installWindow(result.value.events, result.value.hasMore, result.value.projections)
       }
-      const { hasGap } = this.mergeWindow()
       this.openState = 'open'
-      if (hasGap) void this.repairGap()
     } catch (error) {
       if (generation !== this.openGeneration) return
       this.openState = 'error'
@@ -696,137 +639,29 @@ export class Session implements SessionFace {
     }
   }
 
-  /**
-   * Install one history window and settle every buffered overlap or safe
-   * contiguous suffix through {@link mergeWindow}. A carried projections
-   * block seeds the value store (higher seq wins, so a stale baseline cannot
-   * overwrite a newer push frame); the window events themselves are never
-   * folded — the host is the only computation site.
-   */
-  private installWindow(
-    entries: HistoryEntry[],
-    hasMore: boolean,
-    projections?: ProjectionsBaseline,
-  ): { changed: boolean; hasGap: boolean } {
-    const merged = this.mergeWindow(entries)
+  /** Install the history window + stitch the liveBuffer (seq is the sole dedup key).
+   *  Stitching MUST NOT route through acceptLiveEvent: openState is still 'loading' here
+   *  (doOpen flips it after install), so recursing would push every buffered event straight
+   *  back into liveBuffer where nothing ever drains it — a silent drop loop (audit S1).
+   *  A carried projections block seeds the value store (higher seq wins, so a stale
+   *  baseline cannot overwrite a newer push frame); the window events themselves are
+   *  never folded — the host is the only computation site. */
+  private installWindow(entries: HistoryEntry[], hasMore: boolean, projections?: ProjectionsBaseline): void {
+    this.events = entries.map(e => e.event)
+    this.views = entries.map(e => e.view)
+    this.baseSeq = this.events[0]?.seq ?? 0
     this.hasMore = hasMore
+    this.transcript.reset(this.events, this.views)
+    this.rebuildDerivedFromWindow()
     if (projections !== undefined) this.projections.seed(projections)
+    const buffered = this.liveBuffer
+    this.liveBuffer = []
+    for (const item of buffered) this.appendLive(item.event, item.view)
     this.notifier.markDirty()
-    return merged
-  }
-
-  /**
-   * Reconcile a history snapshot (when supplied), the current window, and
-   * buffered live deliveries by seq. Same-seq events must be identical;
-   * defined late sidecars upgrade but an absent sidecar never erases an
-   * existing one. Only the contiguous suffix joins the window, leaving a real
-   * gap buffered for the existing repair path.
-   * @param entries - replacement/prepended history window, or undefined to
-   *   settle the current window after an RPC failure or empty page.
-   * @returns whether the visible window changed and whether a true gap remains.
-   */
-  private mergeWindow(entries?: readonly HistoryEntry[]): { changed: boolean; hasGap: boolean } {
-    const current = new Map<number, { event: SessionEvent; view: SessionEventView | undefined }>()
-    for (let index = 0; index < this.events.length; index++) {
-      const event = this.events[index]
-      /* v8 ignore next -- dense-array guard: index stays within events.length. */
-      if (event !== undefined) current.set(event.seq, { event, view: this.views[index] })
-    }
-
-    const events: SessionEvent[] = []
-    const views: (SessionEventView | undefined)[] = []
-    if (entries === undefined) {
-      events.push(...this.events)
-      views.push(...this.views)
-    } else {
-      let previousSeq: number | undefined
-      for (const entry of entries) {
-        if (previousSeq !== undefined && entry.event.seq !== previousSeq + 1) {
-          throw new Error(`history window is not contiguous at seq ${entry.event.seq}`)
-        }
-        previousSeq = entry.event.seq
-        const retained = current.get(entry.event.seq)
-        if (retained !== undefined) assertSameEvent(retained.event, entry.event)
-        events.push(entry.event)
-        views.push(entry.view ?? retained?.view)
-      }
-    }
-
-    const buffered = new Map<number, { event: SessionEvent; view: SessionEventView | undefined }>()
-    for (const item of this.liveBuffer) {
-      const retained = buffered.get(item.event.seq)
-      if (retained !== undefined) {
-        assertSameEvent(retained.event, item.event)
-        if (item.view !== undefined) retained.view = item.view
-      } else {
-        buffered.set(item.event.seq, { ...item })
-      }
-    }
-
-    const bySeq = new Map<number, number>()
-    for (let index = 0; index < events.length; index++) {
-      const event = events[index]
-      /* v8 ignore next -- dense-array guard: index stays within events.length. */
-      if (event !== undefined) bySeq.set(event.seq, index)
-    }
-    const consumed = new Set<number>()
-    let viewChanged = false
-    const baseSeq = events[0]?.seq
-    const tailSeq = events.at(-1)?.seq
-    for (const [seq, item] of buffered) {
-      const index = bySeq.get(seq)
-      if (index !== undefined) {
-        const event = events[index]
-        /* v8 ignore next -- bySeq indexes the dense events array. */
-        if (event === undefined) continue
-        assertSameEvent(event, item.event)
-        if (item.view !== undefined && !sameWireValue(views[index], item.view)) {
-          views[index] = item.view
-          viewChanged = true
-        }
-        consumed.add(seq)
-        continue
-      }
-      // A replay older than the retained tail window is irrelevant to this
-      // page and cannot become a future suffix.
-      if (baseSeq !== undefined && seq < baseSeq) {
-        consumed.add(seq)
-        continue
-      }
-      if (tailSeq !== undefined && seq <= tailSeq) {
-        throw new Error(`history window is missing buffered seq ${seq}`)
-      }
-    }
-
-    const appended: SessionEvent[] = []
-    let expectedSeq = tailSeq === undefined ? 0 : tailSeq + 1
-    for (let item = buffered.get(expectedSeq); item !== undefined; item = buffered.get(++expectedSeq)) {
-      events.push(item.event)
-      views.push(item.view)
-      appended.push(item.event)
-      consumed.add(expectedSeq)
-    }
-
-    const remaining = [...buffered.entries()]
-      .filter(([seq]) => !consumed.has(seq))
-      .sort(([left], [right]) => left - right)
-      .map(([, item]) => item)
-    this.liveBuffer = remaining
-
-    const changed = entries !== undefined || viewChanged || appended.length > 0
-    if (changed) {
-      this.events = events
-      this.views = views
-      this.baseSeq = events[0]?.seq ?? 0
-      this.transcript.reset(events, views)
-      this.rebuildDerivedFromWindow()
-      for (const event of appended) this.handoffPendingSteering(event)
-    }
-    return { changed, hasGap: remaining.length > 0 }
   }
 
   /** Seq-guarded append shared by stitching and the open-state live path. */
-  private appendLive(event: SessionEvent, view?: SessionEventView): void {
+  private appendLive(event: SessionEvent, view?: ToolEventView): void {
     const tailSeq = this.windowTailSeq()
     if (tailSeq !== null && event.seq <= tailSeq) return // replay overlap, drop
     this.events.push(event)
@@ -834,21 +669,6 @@ export class Session implements SessionFace {
     this.transcript.append(event, view)
     this.handoffPendingSteering(event)
     this.applyEventSideEffects(event, view)
-  }
-
-  /** Verify one retained event and apply a defined late sidecar immediately. */
-  private upgradeLiveView(event: SessionEvent, view?: SessionEventView): boolean {
-    const index = this.events.findIndex(candidate => candidate.seq === event.seq)
-    if (index === -1) return false
-    const retained = this.events[index]
-    /* v8 ignore next -- findIndex returned a dense-array position. */
-    if (retained === undefined) return false
-    assertSameEvent(retained, event)
-    if (view === undefined || sameWireValue(this.views[index], view)) return false
-    this.views[index] = view
-    this.transcript.reset(this.events, this.views)
-    this.rebuildDerivedFromWindow()
-    return true
   }
 
   /** Retire the first matching live steering occurrence when its durable message takes over. */
@@ -862,52 +682,21 @@ export class Session implements SessionFace {
     this.queueRev++
   }
 
-  /** Land a live session/event (open/repair in flight -> buffer; retained overlap -> validate
-   *  and upgrade; an overlap below the window waits only for its in-flight older page). A seq gap
-   *  buffers and repulls the tail instead of appending a hole (audit S3: a gap is an expected
-   *  reconnect-window artifact, repaired by refetch). The window stays one contiguous raw range,
-   *  which lets the transcript render every event between its ends and a compaction checkpoint
-   *  find its cited summary event. */
-  private acceptLiveEvent(event: SessionEvent, view?: SessionEventView): void {
-    const loading = this.loadingOlder
-    if (loading !== null && view !== undefined && event.seq < loading.beforeSeq) {
-      try {
-        const retained = loading.views.get(event.seq)
-        if (retained !== undefined) assertSameEvent(retained.event, event)
-        loading.views.set(event.seq, { event, view })
-      } catch (error) {
-        console.error('[web-runtime] older-page late session event failed identity validation:', error)
-        void this.resync()
-      }
-      return
-    }
+  /** Land a live session/event (open/repair in flight -> buffer; overlapping seq -> drop;
+   *  a seq gap -> buffer + tail-page repull instead of appending a hole (audit S3: a gap is an
+   *  expected reconnect-window artifact, repaired by refetch). The window stays one contiguous
+   *  raw range, which is what lets the transcript render every event between its ends and lets a
+   *  compaction checkpoint find its cited summary event. */
+  private acceptLiveEvent(event: SessionEvent, view?: ToolEventView): void {
     if (this.openState === 'loading' || this.stitching) {
       this.liveBuffer.push({ event, view })
       return
     }
     if (this.openState !== 'open') return // cold/error: no window upkeep (history fully backfills on open)
     const tailSeq = this.windowTailSeq()
-    if (tailSeq !== null && event.seq <= tailSeq) {
-      try {
-        if (event.seq < this.baseSeq) {
-          return
-        }
-        const changed = this.upgradeLiveView(event, view)
-        if (changed) this.notifier.markDirty()
-      } catch (error) {
-        console.error('[web-runtime] duplicate session event failed identity validation:', error)
-        void this.resync()
-      }
-      return
-    }
     if (tailSeq !== null && event.seq > tailSeq + 1) {
       this.liveBuffer.push({ event, view })
-      if (this.loadingOlder === null) void this.repairGap()
-      return
-    }
-    if (tailSeq === null && event.seq !== 0) {
-      this.liveBuffer.push({ event, view })
-      if (this.loadingOlder === null) void this.repairGap()
+      void this.repairGap()
       return
     }
     this.appendLive(event, view)
@@ -926,54 +715,22 @@ export class Session implements SessionFace {
     if (this.stitching) return
     this.stitching = true
     const generation = this.openGeneration
-    let retryGap = false
-    let acceptedHistory = false
     try {
       const { result } = await this.history({ maxMessages: PAGE_MESSAGES })
-      if (generation !== this.openGeneration || this.openState !== 'open') return
-      if (result.ok) {
-        acceptedHistory = true
-        const previousTail = this.windowTailSeq()
-        const { hasGap } = this.installWindow(
-          result.value.events,
-          result.value.hasMore,
-          result.value.projections,
-        )
-        const repairedTail = this.windowTailSeq()
-        retryGap = hasGap && repairedTail !== null
-          && (previousTail === null || repairedTail > previousTail)
-      } else {
-        // Keep buffered events for the next live frame or reconnect; retrying
-        // immediately would spin against the same unavailable history endpoint.
-        this.mergeWindow()
+      // Failure or superseded by a full resync: drop — the resync path rebuilds and clears the buffer itself.
+      if (result.ok && generation === this.openGeneration && this.openState === 'open') {
+        this.installWindow(result.value.events, result.value.hasMore, result.value.projections)
       }
     } catch (error) {
-      if (generation === this.openGeneration) {
-        if (acceptedHistory) {
-          console.error('[web-runtime] gap repair snapshot failed validation:', error)
-          void this.resync()
-          return
-        }
-        console.error('[web-runtime] gap repair failed:', error)
-        try {
-          this.mergeWindow()
-        } catch (mergeError) {
-          console.error('[web-runtime] gap repair buffer merge failed:', mergeError)
-          void this.resync()
-        }
-      }
+      console.error('[web-runtime] gap repair failed:', error)
     } finally {
-      if (generation === this.openGeneration) {
-        this.stitching = false
-        this.notifier.markDirty()
-        if (retryGap) void this.repairGap()
-      }
+      this.stitching = false
     }
   }
 
   /** Per-event side effects (right column of the §A.9 dispatch table):
    *  chunk/retry projection and openCalls add-remove. */
-  private applyEventSideEffects(event: SessionEvent, view?: SessionEventView): void {
+  private applyEventSideEffects(event: SessionEvent, view?: ToolEventView): void {
     const eventType = event.type as string
     if (eventType === 'llm/retry') {
       const data = parseRetryEventData(event.data)
@@ -1209,7 +966,7 @@ export class Session implements SessionFace {
       openState: this.openState,
       openError: this.openError,
       hasMore: this.hasMore,
-      loadingOlder: this.loadingOlder !== null,
+      loadingOlder: this.loadingOlder,
       promptError: this.promptError,
       blank: this.blankBit,
       lastAgentError: this.lastAgentError,

@@ -15,7 +15,6 @@ import {
   ScheduleId,
   createAfterScheduleRecord,
   foldScheduleEvents,
-  scheduleReminderPresentation,
 } from '../src/domain.ts'
 
 const roots: string[] = []
@@ -112,19 +111,6 @@ describe('Schedule production JSONL restart', () => {
     const dispatches = dispatchedStored.events.filter(event =>
       event.type === 'schedule/change' && event.data.operation === 'dispatch')
     expect(dispatches).toHaveLength(1)
-    const dispatch = dispatches[0]
-    if (dispatch?.type !== 'schedule/change' || dispatch.data.operation !== 'dispatch') {
-      throw new Error('missing durable Schedule dispatch')
-    }
-    expect(scheduleReminderPresentation(
-      dispatchedStored.events,
-      dispatch.seq,
-      dispatchedStored.meta.seedLength ?? 0,
-    )).toEqual({
-      scheduleId: 'schedule-1',
-      prompt: 'restart reminder',
-      occurrenceAt: pendingRecord.scheduledAt,
-    })
     expect(dispatchingAdapter.requests).toHaveLength(1)
     await handle.dispose()
     await disposeContext(restarted)

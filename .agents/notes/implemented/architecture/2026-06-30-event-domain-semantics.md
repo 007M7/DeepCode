@@ -20,7 +20,7 @@ This vocabulary is the foundation for interception decisions, the durable `hook/
 
 **Three domains, one job each, with a single boundary rule.**
 
-- **`session/*` — the durable, replayable FACT log and its checkpoint signals.** Owns `SessionEventMap`; every entry is JSON-only (no live objects). One `session/event` emit follows each append. The parallel `session/flush` checkpoint and contained `session/flushed` success observer are runtime signals rather than log entries; `session/flushed` carries the exclusive prefix proven durable by a listener's explicit acknowledgement. `session/event` is also the live transcript feed: a consumer that wants to render or react to what happened subscribes here, so live rendering and replay projections share one path.
+- **`session/*` — the durable, replayable FACT log.** Owns `SessionEventMap`; every entry is JSON-only (no live objects). One `session/event` emit per append, plus the `session/flush` parallel durability checkpoint. It is also the live transcript feed: a consumer that wants to render or react to what happened subscribes here, so live rendering and replay projections share one path.
 - **`agent/*` — the LIVE runtime surface.** Always carries the live `Agent`. Interception waterfalls (`agent/pre-step`, `agent/request`, `agent/request-error`) transform, reject, or recover; awaited `agent/turn-stopping` observes the stop boundary; transient emits report lifecycle, status, inbox insertion/claim/discard, and errors. Turn and step BOUNDARIES are NOT here — they are durable session events read off `session/event`, as are the token stream (`assistant/chunk`) and mid-turn steering (a `user/message`).
 - **`tools/*` — the tool registry and execution pipeline.**
 

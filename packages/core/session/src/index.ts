@@ -95,32 +95,14 @@ declare module 'cordis' {
      */
     'session/event'(this: Scoped<Session>, session: Session, event: SessionEvent): void
     /**
-     * Awaited parallel checkpoint: every listener runs and the caller awaits
-     * all of them, with no waterfall veto. A listener returns literal `true`
-     * only after completing durability work; observe-only listeners return
-     * void. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`) reuses the
-     * session's owner scope.
+     * Awaited parallel durability checkpoint: every listener runs and the
+     * caller awaits all of them, with no waterfall veto. Scope-filtered dispatch
+     * (`@deepseek-ai/dsh-scope`) reuses the session's owner scope.
      * @param session - the session whose buffered events must reach durable storage.
      * @dshScopeScan unsupported
      * @mode parallel
      */
-    'session/flush'(this: Scoped<Session>, session: Session): Promise<true | void> | true | void
-    /**
-     * Observe a successful durability checkpoint. `throughSeq` is the exclusive
-     * event boundary captured when {@link SessionStore.flush} began; events
-     * appended while its listeners run require a later successful checkpoint.
-     * Concurrent checkpoints may publish their boundaries out of order, so a
-     * consumer retaining progress must advance by the maximum observed value.
-     * No notification is published when no durability listener participated or
-     * any listener failed. Observer failures are logged and contained.
-     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`) reuses the session's
-     * owner scope.
-     * @param session - the session whose prefix completed the checkpoint.
-     * @param throughSeq - exclusive event sequence boundary proven by the checkpoint.
-     * @dshScopeScan unsupported
-     * @mode emit
-     */
-    'session/flushed'(this: Scoped<Session>, session: Session, throughSeq: number): void
+    'session/flush'(this: Scoped<Session>, session: Session): Promise<void> | void
   }
 }
 
@@ -406,16 +388,6 @@ function assertSupportedRequestHeader(type: string, data: unknown, location: str
 
 type SessionCallback = (...args: unknown[]) => unknown
 
-/** Render any thrown observer value without violating callback containment. */
-function renderSessionObserverError(error: unknown): string {
-  try {
-    return String(error)
-  } catch {
-    // String coercion itself may throw.
-    return '[unrenderable thrown value]'
-  }
-}
-
 /** Resolve one listener snapshot, including Cordis's internal dispatch checks. */
 function collectSessionCallbacks(ctx: Context, args: unknown[]): SessionCallback[] {
   return [...ctx.events.dispatch('emit', args)] as SessionCallback[]
@@ -424,7 +396,7 @@ function collectSessionCallbacks(ctx: Context, args: unknown[]): SessionCallback
 /** Invoke one resolved observe-only listener snapshot with per-listener containment. */
 function invokeContainedSessionObservers(
   ctx: Context,
-  name: 'session/event' | 'session/disposed' | 'session/flushed',
+  name: 'session/event' | 'session/disposed',
   id: SessionId,
   args: unknown[],
   callbacks: SessionCallback[],
@@ -433,10 +405,10 @@ function invokeContainedSessionObservers(
     try {
       const returned: unknown = callback(...args)
       void Promise.resolve(returned).catch((error: unknown) => {
-        ctx.logger.warn(`session "${id}": ${name} listener rejected: ${renderSessionObserverError(error)}`)
+        ctx.logger.warn(`session "${id}": ${name} listener rejected: ${String(error)}`)
       })
     } catch (error: unknown) {
-      ctx.logger.warn(`session "${id}": ${name} listener threw: ${renderSessionObserverError(error)}`)
+      ctx.logger.warn(`session "${id}": ${name} listener threw: ${String(error)}`)
     }
   }
 }
@@ -1028,7 +1000,7 @@ export class SessionStore extends Service {
         // of becoming unhandled.
         const returned: unknown = callback(...callbackArgs)
         void Promise.resolve(returned).catch((error: unknown) => {
-          this.ctx.logger.warn(`session "${entry.id}": session/created listener rejected: ${renderSessionObserverError(error)}`)
+          this.ctx.logger.warn(`session "${entry.id}": session/created listener rejected: ${String(error)}`)
         })
       }
     } finally {
@@ -1044,7 +1016,7 @@ export class SessionStore extends Service {
       const callbacks = collectSessionCallbacks(this.ctx, [entry.carrier, 'session/disposed', entry.session])
       invokeContainedSessionObservers(this.ctx, 'session/disposed', entry.id, callbackArgs, callbacks)
     } catch (error: unknown) {
-      this.ctx.logger.warn(`session "${entry.id}": session/disposed dispatch threw: ${renderSessionObserverError(error)}`)
+      this.ctx.logger.warn(`session "${entry.id}": session/disposed dispatch threw: ${String(error)}`)
     }
   }
 
@@ -1057,13 +1029,12 @@ export class SessionStore extends Service {
    * rather than dispatch a raw `ctx.parallel('session/flush', …)` — one owner,
    * one spelling, and the scoped-dispatch invariant can pin it.
    * @param session - the session whose buffered events must reach durable storage.
-   * @returns whether at least one listener acknowledged completed durability,
-   *   after every listener has settled successfully.
+   * @returns whether at least one durability listener participated, after every
+   *   listener has settled successfully.
    * @throws the first registered listener failure after every listener settles.
    */
   async flush(session: Session): Promise<boolean> {
     const { carrier } = this.liveEntryFor(session)
-    const throughSeq = session.seq
     const callbackArgs: unknown[] = [session]
     const callbacks = collectSessionCallbacks(this.ctx, [carrier, 'session/flush', session])
     const results = await Promise.allSettled(callbacks.map((callback) => {
@@ -1078,27 +1049,7 @@ export class SessionStore extends Service {
     }))
     const failure = results.find((result): result is PromiseRejectedResult => result.status === 'rejected')
     if (failure !== undefined) throw failure.reason
-    const durable = results.some(result => result.status === 'fulfilled' && result.value === true)
-    if (durable) {
-      const flushedArgs: unknown[] = [session, throughSeq]
-      try {
-        const observers = collectSessionCallbacks(this.ctx, [
-          carrier,
-          'session/flushed',
-          ...flushedArgs,
-        ])
-        invokeContainedSessionObservers(
-          this.ctx,
-          'session/flushed',
-          session.id,
-          flushedArgs,
-          observers,
-        )
-      } catch (error: unknown) {
-        this.ctx.logger.warn(`session "${session.id}": session/flushed dispatch threw: ${renderSessionObserverError(error)}`)
-      }
-    }
-    return durable
+    return callbacks.length > 0
   }
 
   /** Return the exact live entry; detached/prepared objects reject. */

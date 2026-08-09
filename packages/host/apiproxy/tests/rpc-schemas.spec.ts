@@ -194,21 +194,6 @@ describe('sessions domain schemas', () => {
       hasMore: false,
       modelSelection: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
     }).hasMore).toBe(false)
-    const presented = {
-      event: { type: 'schedule/change', seq: 2, time: 3, data: { operation: 'dispatch' } },
-      view: {
-        for: 'event',
-        view: { scheduleId: 'schedule-1' },
-      },
-    }
-    const parsedHistory = sessionHistoryValueSchema.parse({ events: [presented], hasMore: false })
-    expect(parsedHistory.events?.at(0)?.view).toEqual(presented.view)
-    for (const view of [{ for: 'event' }]) {
-      expect(() => sessionHistoryValueSchema.parse({
-        events: [{ event: presented.event, view }],
-        hasMore: false,
-      })).toThrow()
-    }
     expect(sessionModelsRequestSchema.parse({ sessionId: 's1' }).sessionId).toBe('s1')
     expect(sessionModelsValueSchema.parse({
       current: { provider: 'deepseek-official', model: 'deepseek-v4-flash', reasoningEffort: 'max' },
@@ -435,11 +420,6 @@ describe('events frame schemas', () => {
   it('accepts every mux frame branch', () => {
     const frames = [
       { type: 'session/event', sessionId: 's', event: { type: 't', seq: 0, time: 1, data: null } },
-      {
-        type: 'session/event', sessionId: 's',
-        event: { type: 'schedule/change', seq: 1, time: 2, data: { operation: 'dispatch' } },
-        view: { for: 'event', view: null },
-      },
       { type: 'session/subscribed', sessionId: 's', lastSeq: -1 },
       { type: 'approval/requested', sessionId: 's', approvalId: 'a', toolName: 'bash', callId: 'c', reason: 'r' },
       { type: 'approval/resolved', sessionId: 's', approvalId: 'a', outcome: 'allowed-once' },

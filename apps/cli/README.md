@@ -24,5 +24,3 @@ The [CLI behavior reference](reference/README.md) owns exact layer precedence, f
 ## Development
 
 Production runs require built package and frontend artifacts. From a checkout, `pnpm run dsh` runs the TypeScript entry and forwards arguments; the [source-launcher reference](reference/README.md#source-launcher) describes the PATH symlink and module-resolution contract.
-
-Schedule reminders are opt-in rather than part of the default Web tree. `dsh web --patch examples/web-schedule/cordis.yml` loads the Schedule tools and receipt renderer over the existing JSONL persistence path; reminders run only while their original Session has a live root Agent and are reported as `session-local`, never as an external notification.

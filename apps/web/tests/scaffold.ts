@@ -167,11 +167,6 @@ export interface WebScaffold {
 
 /** Options for {@link launchWebScaffold}. */
 export interface LaunchOptions {
-  /** Caller-owned workspace and persistence roots reused across process-style restarts. */
-  world?: {
-    workspaceCwd: string
-    persistenceRoot: string
-  }
   /**
    * Optional product overlay applied after the shipped Web surface and before
    * the scaffold's hermetic test patches, matching the launcher's `--patch`
@@ -242,18 +237,11 @@ export interface LaunchOptions {
 }
 
 /** Dispose the booted tree and remove both owned temp roots, reporting every independent cleanup failure. */
-async function cleanupScaffoldWorld(
-  ctx: Context,
-  workspaceCwd: string,
-  persistenceRoot: string,
-  removeWorld: boolean,
-): Promise<unknown[]> {
+async function cleanupScaffoldWorld(ctx: Context, workspaceCwd: string, persistenceRoot: string): Promise<unknown[]> {
   const failures: unknown[] = []
   await Promise.resolve(ctx.fiber.dispose()).catch((error: unknown) => failures.push(error))
-  if (removeWorld) {
-    await rm(workspaceCwd, { recursive: true, force: true }).catch((error: unknown) => failures.push(error))
-    await rm(persistenceRoot, { recursive: true, force: true }).catch((error: unknown) => failures.push(error))
-  }
+  await rm(workspaceCwd, { recursive: true, force: true }).catch((error: unknown) => failures.push(error))
+  await rm(persistenceRoot, { recursive: true, force: true }).catch((error: unknown) => failures.push(error))
   return failures
 }
 
@@ -288,26 +276,19 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
       process.env.DEEPSEEK_API_KEY = originalDeepSeekCredential
     }
   }
-  const ownsWorld = options.world === undefined
-  const workspaceCwd = options.world === undefined
-    ? await realpath(await mkdtemp(join(tmpdir(), 'dsh-web-e2e-ws-')))
-    : await realpath(options.world.workspaceCwd)
+  const workspaceCwd = await realpath(await mkdtemp(join(tmpdir(), 'dsh-web-e2e-ws-')))
   // Isolated harness home: the settings/credentials rows resolve $DSH_HOME
   // paths at load, and an in-process boot must NEVER touch the developer's
   // real ~/.dsh document or credential file.
   const harnessHome = join(workspaceCwd, '.dsh-home')
   let persistenceRoot: string
-  if (options.world !== undefined) {
-    persistenceRoot = await realpath(options.world.persistenceRoot)
-  } else {
-    try {
-      persistenceRoot = await mkdtemp(join(tmpdir(), 'dsh-web-e2e-sessions-'))
-    } catch (error) {
-      const failures: unknown[] = [error]
-      await rm(workspaceCwd, { recursive: true, force: true }).catch((cleanupError: unknown) => failures.push(cleanupError))
-      if (failures.length > 1) throw new AggregateError(failures, 'web scaffold temp-root setup failed')
-      throw error
-    }
+  try {
+    persistenceRoot = await mkdtemp(join(tmpdir(), 'dsh-web-e2e-sessions-'))
+  } catch (error) {
+    const failures: unknown[] = [error]
+    await rm(workspaceCwd, { recursive: true, force: true }).catch((cleanupError: unknown) => failures.push(cleanupError))
+    if (failures.length > 1) throw new AggregateError(failures, 'web scaffold temp-root setup failed')
+    throw error
   }
   if (maskDeepSeekCredential) Reflect.deleteProperty(process.env, 'DEEPSEEK_API_KEY')
 
@@ -466,7 +447,7 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     }
   } catch (error) {
     if (process.cwd() !== originalCwd) process.chdir(originalCwd)
-    const cleanupFailures = await cleanupScaffoldWorld(ctx, workspaceCwd, persistenceRoot, ownsWorld)
+    const cleanupFailures = await cleanupScaffoldWorld(ctx, workspaceCwd, persistenceRoot)
     restoreCredentialEnvironment()
     if (cleanupFailures.length > 0) {
       throw new AggregateError([error, ...cleanupFailures], 'web scaffold setup failed and cleanup was incomplete')
@@ -512,7 +493,7 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
         failures.push(error)
       }
       try {
-        failures.push(...await cleanupScaffoldWorld(ctx, workspaceCwd, persistenceRoot, ownsWorld))
+        failures.push(...await cleanupScaffoldWorld(ctx, workspaceCwd, persistenceRoot))
       } finally {
         restoreCredentialEnvironment()
       }

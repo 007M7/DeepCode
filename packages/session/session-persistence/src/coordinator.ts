@@ -186,8 +186,7 @@ interface SessionState {
 
 /** One live session's initialization and bounded write-behind controller. */
 interface LiveSessionState {
-  /** Initialization settlement; retained after success and cleared only after rejection. */
-  init: Promise<void> | undefined
+  init: Promise<void>
   writes: SessionWriteBehind
 }
 
@@ -1039,11 +1038,8 @@ export class PersistenceCoordinator<TornMarker = unknown> {
       live.writes.enqueue(event)
     })
 
-    // A completed bounded drain acknowledges the caller's durability barrier.
-    ctx.on('session/flush', async (session) => {
-      await this.flush(session)
-      return true as const
-    })
+    // Callers use flush as the immediate durability barrier for buffered writes.
+    ctx.on('session/flush', session => this.flush(session))
 
     // Session disposal is observe-only, so retirement contains its own failure.
     ctx.on('session/disposed', (session) => { this.retire(session) })
@@ -1087,11 +1083,14 @@ export class PersistenceCoordinator<TornMarker = unknown> {
       this.live.set(session, restored)
       return restored
     }
-    const live = this.createLiveState(session)
+    const seed = session.events.map(e => structuredClone(e))
+    const live: LiveSessionState = {
+      init: Promise.resolve(),
+      writes: this.createWriteBehind(session, () => live.init),
+    }
     this.live.set(session, live)
-    void this.ensureInitialized(session, live).catch(() => {
-      /* observed by flush/dispose through the controller or retried by a later barrier */
-    })
+    live.init = this.serialize(session.header.id, () => this.onCreated(session, seed))
+    live.init.catch(() => { /* observed by flush/dispose through the controller */ })
     return live
   }
 
@@ -1109,41 +1108,15 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     const suffix = session.events.slice(state.cursor).map(event => structuredClone(event))
     this.preparations.attach(reservation)
     state.owner = session
-    const live = this.createLiveState(session)
-    if (suffix.length > 0) {
-      const init = this.serialize(session.id, () => this.appendCore(session.id, suffix)).catch((error: unknown) => {
-        live.init = undefined
-        throw error
-      })
-      live.init = init
-      init.catch(() => { /* observed by flush/dispose through the controller */ })
-    } else {
-      live.init = Promise.resolve()
-    }
-    return live
-  }
-
-  /** Build one live controller whose write readiness retries the immutable initial prefix. */
-  private createLiveState(session: Session): LiveSessionState {
     const live: LiveSessionState = {
-      init: undefined,
-      writes: this.createWriteBehind(session, () => this.ensureInitialized(session, live)),
+      init: Promise.resolve(),
+      writes: this.createWriteBehind(session, () => live.init),
+    }
+    if (suffix.length > 0) {
+      live.init = this.serialize(session.id, () => this.appendCore(session.id, suffix))
+      live.init.catch(() => { /* observed by flush/dispose through the controller */ })
     }
     return live
-  }
-
-  /** Start or join one initialization attempt; a retry borrows current Session events and reconciles the durable cursor. */
-  private ensureInitialized(session: Session, live: LiveSessionState): Promise<void> {
-    if (live.init !== undefined) return live.init
-    const init = this.serialize(session.header.id, async () => {
-      const seed = session.events
-      await this.onCreated(session, seed)
-    }).catch((error: unknown) => {
-      live.init = undefined
-      throw error
-    })
-    live.init = init
-    return init
   }
 
   /**
@@ -1178,10 +1151,8 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     const tracked = this.states.get(id)
     if (tracked !== undefined) {
       // case 1: already tracked.
-      if (tracked.owner === session) {
-        await this.reconcileOwnedSeed(session, seed, tracked)
-        return
-      }
+      /* v8 ignore next -- initFor dedupes per session object; same-object re-entry can't occur */
+      if (tracked.owner === session) return
       if (tracked.owner === undefined) {
         // Ownerless state from the public create()/load() API. The FIRST live
         // session claims it — but ONLY if BOTH the cwd scope and the seed match.
@@ -1235,39 +1206,12 @@ export class PersistenceCoordinator<TornMarker = unknown> {
   }
 
   /**
-   * Reconcile a retrying live owner with the backend's actual durable cursor.
-   * An initialization write may have committed before its promise rejected, so
-   * retry from storage rather than from the coordinator's last acknowledged
-   * cursor. This also completes a suffix whose first attempt never committed.
-   */
-  private async reconcileOwnedSeed(
-    session: Session,
-    seed: readonly SessionEvent[],
-    tracked: SessionState,
-  ): Promise<void> {
-    const stored = await this.backend.loadStored(session.header.id)
-    if (stored === undefined) {
-      if (tracked.materialized || tracked.cursor !== 0) {
-        throw new Error(`session "${session.header.id}" lost its persisted artifact during live initialization`)
-      }
-      await this.appendCore(session.header.id, seed)
-      return
-    }
-    await this.adoptLivePrefix(session, seed, stored, tracked)
-  }
-
-  /**
    * Adopt a stored prefix as a live session's history (HMR/reload): verify the
    * seed covers the stored prefix, truncate any torn tail (NOT the open turn —
    * the live Session is still the authority), bind ownership, and persist the
    * live suffix that was ahead of the stored prefix.
    */
-  private async adoptLivePrefix(
-    session: Session,
-    seed: readonly SessionEvent[],
-    stored: StoredPrefix<TornMarker>,
-    tracked?: SessionState,
-  ): Promise<void> {
+  private async adoptLivePrefix(session: Session, seed: readonly SessionEvent[], stored: StoredPrefix<TornMarker>): Promise<void> {
     const { meta, events, tornMarker } = stored
     this.assertStoredId(session.header.id, meta)
     if (meta.cwd !== session.header.cwd) {
@@ -1280,17 +1224,12 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     }
     // Truncate-only repair (no closers): the open turn is NOT closed here.
     if (tornMarker !== undefined) await this.backend.commitRepair(meta, tornMarker, [])
-    const state = tracked ?? {
+    this.states.set(session.header.id, {
       meta: { ...meta },
       cursor: storedEvents.length,
       materialized: true,
       owner: session,
-    }
-    state.meta = { ...meta }
-    state.cursor = storedEvents.length
-    state.materialized = true
-    state.owner = session
-    if (tracked === undefined) this.states.set(session.header.id, state)
+    })
     const suffix = seed.slice(storedEvents.length)
     if (suffix.length > 0) await this.appendCore(session.header.id, suffix)
   }
@@ -1299,7 +1238,7 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     const live = this.initFor(session)
     live.writes.cancelAutomaticWait()
     try {
-      await this.ensureInitialized(session, live)
+      await live.init
     } catch (error: unknown) {
       // Admission is closed during retirement/teardown, but an ordinary flush
       // may have raced one last enqueue while initialization was pending.

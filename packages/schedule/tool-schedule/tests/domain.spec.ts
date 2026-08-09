@@ -9,7 +9,6 @@ import {
   decodeScheduleChange,
   foldScheduleEvents,
   renderReminderFraming,
-  scheduleReminderPresentation,
   scheduleView,
 } from '../src/domain.ts'
 
@@ -88,76 +87,6 @@ describe('version-1 Schedule decoding and folding', () => {
     expect(() => foldScheduleEvents([], -1)).toThrow(/seedLength/)
     expect(() => foldScheduleEvents([], 1)).toThrow(/seedLength/)
     expect(() => foldScheduleEvents([], 0.5)).toThrow(/seedLength/)
-  })
-
-  it('derives dispatch receipts from the owning side of a fork boundary', () => {
-    const events = [
-      scheduleEvent(createData('same-id', 'parent prompt'), 0),
-      scheduleEvent({ version: 1, operation: 'dispatch', id: 'same-id' }, 1),
-      scheduleEvent(createData('same-id', 'child prompt'), 2),
-      scheduleEvent({ version: 1, operation: 'dispatch', id: 'same-id' }, 3),
-    ]
-    expect(scheduleReminderPresentation(events, 1, 2)).toEqual({
-      scheduleId: 'same-id',
-      prompt: 'parent prompt',
-      occurrenceAt: '2026-08-05T12:00:00.000Z',
-    })
-    expect(scheduleReminderPresentation(events, 3, 2)).toEqual({
-      scheduleId: 'same-id',
-      prompt: 'child prompt',
-      occurrenceAt: '2026-08-05T12:00:00.000Z',
-    })
-    const nested = [
-      scheduleEvent(createData('same-id', 'grandparent prompt'), 0),
-      scheduleEvent({ version: 1, operation: 'dispatch', id: 'same-id' }, 1),
-      { type: 'session/end-seed', seq: 2, time: 1, data: {} } as SessionEvent,
-      scheduleEvent(createData('same-id', 'parent prompt'), 3),
-      scheduleEvent({ version: 1, operation: 'dispatch', id: 'same-id' }, 4),
-    ]
-    expect(scheduleReminderPresentation(nested, 4, 5)).toEqual({
-      scheduleId: 'same-id',
-      prompt: 'parent prompt',
-      occurrenceAt: '2026-08-05T12:00:00.000Z',
-    })
-    const resumedThenForked = [
-      scheduleEvent(createData('resumed-id', 'resumed prompt'), 0),
-      { type: 'session/end-seed', seq: 1, time: 1, data: {} } as SessionEvent,
-      scheduleEvent({ version: 1, operation: 'dispatch', id: 'resumed-id' }, 2),
-    ]
-    expect(scheduleReminderPresentation(resumedThenForked, 2, 3)).toEqual({
-      scheduleId: 'resumed-id',
-      prompt: 'resumed prompt',
-      occurrenceAt: '2026-08-05T12:00:00.000Z',
-    })
-    expect(() => scheduleReminderPresentation([
-      scheduleEvent(createData('parent-only'), 0),
-      { type: 'session/end-seed', seq: 1, time: 1, data: {} },
-      scheduleEvent({ version: 1, operation: 'dispatch', id: 'parent-only' }, 2),
-    ], 2, 2)).toThrow(/inactive id/)
-    expect(scheduleReminderPresentation([
-      scheduleEvent(createData('target'), 0),
-      scheduleEvent(createData('other'), 1),
-      scheduleEvent({ version: 1, operation: 'delete', id: 'other' }, 2),
-      scheduleEvent({ version: 1, operation: 'dispatch', id: 'target' }, 3),
-    ], 3)).toMatchObject({ scheduleId: 'target' })
-    expect(() => scheduleReminderPresentation([
-      scheduleEvent(createData('ended'), 0),
-      scheduleEvent({ version: 1, operation: 'delete', id: 'ended' }, 1),
-      scheduleEvent({ version: 1, operation: 'dispatch', id: 'ended' }, 2),
-    ], 2)).toThrow(/inactive id/)
-    expect(scheduleReminderPresentation(events, 2, 2)).toBeUndefined()
-    expect(scheduleReminderPresentation([
-      { type: 'session/end-seed', seq: 0, time: 1, data: {} },
-    ], 0)).toBeUndefined()
-    expect(() => scheduleReminderPresentation(events, -1, 2)).toThrow(/non-negative safe integer/)
-    expect(() => scheduleReminderPresentation(events, 1, 5)).toThrow(/seedLength/)
-    expect(() => scheduleReminderPresentation(events, 4, 2)).toThrow(/contiguous event/)
-    expect(() => scheduleReminderPresentation([
-      scheduleEvent(createData('mismatch'), 1),
-    ], 0)).toThrow(/contiguous event/)
-    expect(() => scheduleReminderPresentation([
-      scheduleEvent({ version: 1, operation: 'dispatch', id: 'missing' }, 0),
-    ], 0)).toThrow(/inactive id/)
   })
 
   it('allocates a readable id without reusing ended or colliding ids', () => {

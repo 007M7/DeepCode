@@ -19,9 +19,7 @@ import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
 // `sessions: ISessions` (TS2717, the one-program-per-side rule in
 // docs/development.md).
 import type { COMPACT_CHECKPOINT_SOURCE } from '@deepseek-ai/dsh-compact/checkpoint'
-import type {
-  PresentedEventView, SessionEventView, ToolCallView, ToolResultView,
-} from '@deepseek-ai/dsh-client-connection/client'
+import type { ToolCallView, ToolEventView, ToolResultView } from '@deepseek-ai/dsh-client-connection/client'
 import type { CommandNode, CompactionSummaryNode, ConversationNode } from './conversation.ts'
 import { toAssistantBlocks } from './conversation.ts'
 import { contextForm, contextProvenance } from './context-provenance.ts'
@@ -50,7 +48,7 @@ interface CallIndexEntry {
   callView: ToolCallView | null
 }
 
-/** One ordinary surface event -> UI node. */
+/** One event -> UI node (pure function; the ten-variant ConversationNode union). */
 function materializeNode(
   event: SessionEvent,
   callIndex: ReadonlyMap<string, CallIndexEntry>,
@@ -116,17 +114,6 @@ function materializeNode(
         kind: 'unknown', seq: event.seq, time: event.time,
         type: event.type, data: (event as { data?: unknown }).data,
       }
-  }
-}
-
-/** One host-presented non-surface event -> generic keyed conversation node. */
-function materializePresented(event: SessionEvent, sidecar: PresentedEventView): ConversationNode {
-  return {
-    kind: 'presented-event',
-    seq: event.seq,
-    time: event.time,
-    eventType: event.type,
-    view: sidecar.view,
   }
 }
 
@@ -268,7 +255,7 @@ export class TranscriptAdapter {
    * @param events - the new window contents (seq-ascending).
    * @param views - per-event wire views aligned with `events` by index (undefined slots for view-less events).
    */
-  reset(events: readonly SessionEvent[], views?: readonly (SessionEventView | undefined)[]): void {
+  reset(events: readonly SessionEvent[], views?: readonly (ToolEventView | undefined)[]): void {
     this.rev++
     this.eventIndex = new Map()
     this.callIdx = new Map()
@@ -290,13 +277,8 @@ export class TranscriptAdapter {
     // Indexes first, then project: a tool/result materializes against the
     // complete call index, and a checkpoint against the complete event index.
     const projected: ConversationNode[] = []
-    for (let index = 0; index < events.length; index++) {
-      const event = events[index]
-      /* v8 ignore next -- dense-array guard: index stays within events.length. */
-      if (event === undefined) continue
-      const view = views?.[index]
-      if (view?.for === 'event') projected.push(materializePresented(event, view))
-      else if (isTranscriptEvent(event)) projected.push(this.materialize(event, steeringSeqs.has(event.seq)))
+    for (const event of events) {
+      if (isTranscriptEvent(event)) projected.push(this.materialize(event, steeringSeqs.has(event.seq)))
     }
     this.projected = projected
   }
@@ -310,17 +292,12 @@ export class TranscriptAdapter {
    * @param event - the live event (seq = window tail + 1).
    * @param view - host-computed tool view paired with the event when it is a tool call/result; indexed for card rendering.
    */
-  append(event: SessionEvent, view?: SessionEventView): void {
+  append(event: SessionEvent, view?: ToolEventView): void {
     this.eventIndex.set(event.seq, event)
     this.indexCall(event, view)
     const steering = this.steeringHistory.apply(event)
     indexAssistantStepTiming(this.stepTimings, event)
     if (this.indexCommand(event)) this.rev++
-    if (view?.for === 'event') {
-      this.projected = [...this.projected, materializePresented(event, view)]
-      this.rev++
-      return
-    }
     if (!isTranscriptEvent(event)) return
     this.projected = [...this.projected, this.materialize(event, steering)]
     this.rev++
@@ -415,7 +392,7 @@ export class TranscriptAdapter {
     return true
   }
 
-  private indexCall(event: SessionEvent, view?: SessionEventView): void {
+  private indexCall(event: SessionEvent, view?: ToolEventView): void {
     if (event.type === 'tool/result') {
       if (view?.for === 'result') this.resultViews.set(event.seq, view.view)
       return

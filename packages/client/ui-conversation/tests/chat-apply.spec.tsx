@@ -53,7 +53,7 @@ describe('apply wiring', () => {
     await b.runtime.dispose()
   })
 
-  it('registers the chat view as the first ring entry with Tool and event seats', async () => {
+  it('registers the chat view as the first ring entry, declaring the whole-Tool seat', async () => {
     const b = await bench()
     const entries = b.slots.entries('conversation.view')
     expect(entries.map(e => e.options.id)).toEqual(['chat'])
@@ -63,7 +63,6 @@ describe('apply wiring', () => {
     // Declaring is claiming: the chat entry's registration put the hole on
     // the ledger with the contract's kind/scope.
     expect(b.slots.spec('conversation.chat.tool')).toEqual({ kind: 'single', scope: 'session' })
-    expect(b.slots.spec('conversation.chat.eventview')).toEqual({ kind: 'keyed', scope: 'session' })
     await b.runtime.dispose()
   })
 
@@ -111,8 +110,6 @@ describe('apply wiring', () => {
     expect(b.slots.entries('conversation.view')).toHaveLength(0)
     expect(b.slots.entries('conversation.chat.tool')).toHaveLength(0)
     expect(b.slots.spec('conversation.chat.tool')).toBeUndefined()
-    expect(b.slots.entries('conversation.chat.eventview')).toHaveLength(0)
-    expect(b.slots.spec('conversation.chat.eventview')).toBeUndefined()
     expect(b.slots.entries('details')).toHaveLength(0)
     expect(b.slots.entries('settings.general.item')).toHaveLength(0)
     expect(b.runtime.ctx.get('conversation')).toBeUndefined()

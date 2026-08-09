@@ -8,7 +8,6 @@ import type {
   AfterScheduleRecord,
   ScheduleChange,
   ScheduleId as ScheduleIdType,
-  ScheduleReminderPresentation,
   ScheduleView,
 } from './types.ts'
 
@@ -285,64 +284,6 @@ export function scheduleView(record: AfterScheduleRecord, now: number): Schedule
     state: now >= Date.parse(record.scheduledAt) ? 'overdue' : 'scheduled',
     deliveryMode: 'session-local',
   })
-}
-
-/**
- * Derive the Web receipt for one dispatch from its owning stream segment.
- * A child-owned dispatch cannot cross the current fork's `seedLength`.
- * An inherited dispatch pairs with its nearest preceding same-id create, so
- * resumed ancestors remain renderable and nested forks may reuse local ids.
- * @param events - Complete contiguous Session log.
- * @param dispatchSeq - Exact event seq to present.
- * @param seedLength - Inherited fork prefix length.
- * @returns The immutable receipt, or `undefined` when the selected event is not a dispatch.
- */
-export function scheduleReminderPresentation(
-  events: readonly SessionEvent[],
-  dispatchSeq: number,
-  seedLength = 0,
-): ScheduleReminderPresentation | undefined {
-  if (!Number.isSafeInteger(dispatchSeq) || dispatchSeq < 0) {
-    throw new ScheduleLogError('schedule presentation seq must be a non-negative safe integer')
-  }
-  if (!Number.isSafeInteger(seedLength) || seedLength < 0 || seedLength > events.length) {
-    throw new ScheduleLogError('schedule seedLength must be within the supplied event log')
-  }
-  const event = events[dispatchSeq]
-  if (event === undefined || event.seq !== dispatchSeq) {
-    throw new ScheduleLogError('schedule presentation seq must identify the matching contiguous event')
-  }
-  if (event.type !== 'schedule/change') return undefined
-  const dispatch = decodeScheduleChange(event.data)
-  if (dispatch.operation !== 'dispatch') return undefined
-
-  const segmentStart = dispatchSeq < seedLength ? 0 : seedLength
-  for (let index = dispatchSeq - 1; index >= segmentStart; index -= 1) {
-    const candidate = events[index]
-    if (candidate?.type !== 'schedule/change') continue
-    const change = decodeScheduleChange(candidate.data)
-    switch (change.operation) {
-      case 'create':
-        if (change.schedule.id !== dispatch.id) break
-        return Object.freeze({
-          scheduleId: change.schedule.id,
-          prompt: change.schedule.prompt,
-          occurrenceAt: change.schedule.scheduledAt,
-        })
-      case 'delete':
-      case 'dispatch':
-        if (change.id === dispatch.id) {
-          throw new ScheduleLogError(`schedule dispatch targets inactive id ${JSON.stringify(dispatch.id)}`)
-        }
-        break
-      /* v8 ignore next 3 -- decodeScheduleChange returns a closed operation union. */
-      default: {
-        const unreachable: never = change
-        throw new ScheduleLogError(`unknown decoded schedule change ${String(unreachable)}`)
-      }
-    }
-  }
-  throw new ScheduleLogError(`schedule dispatch targets inactive id ${JSON.stringify(dispatch.id)}`)
 }
 
 /**

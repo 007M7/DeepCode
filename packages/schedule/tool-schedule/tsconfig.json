@@ -30,10 +30,10 @@
       "path": "../../core/tools"
     },
     {
-      "path": "../../session-persistence/session-persistence"
+      "path": "../../session/session-persistence"
     },
     {
-      "path": "../../session-persistence/session-persistence-jsonl"
+      "path": "../../session/session-persistence-jsonl"
     },
     {
       "path": "../../support/invariants"

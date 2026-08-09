@@ -12,9 +12,8 @@
 
 ### 公共 API
 
-- `ctx.sessions.create(id?, { seed?, meta? }?)` 校验持久种子／头部数据并生成脱离副本，补齐版本和 id，在未提供 `createdAt` 时使用当前时间，发布会话并将其绑定到调用方 fiber。持久化重建会提供原始的 `createdAt`、`seedLength`、`origin` 和 `delegationDepth`。
-- `ctx.sessions.flush(session)` 通过会话捕获的作用域分发受等待的并行检查点。每个监听器都会启动，调用会等待全部结算后才报告失败；仅观察的监听器返回 void，持久化监听器只有在完成持久化工作后才返回字面量 `true`。全部成功且至少有一个此类确认时，调用返回 `true`，并发布受包含的 `session/flushed(session, throughSeq)`，其中 `throughSeq` 是入口处捕获的事件排他边界；没有持久化确认时返回 `false`，未发布、已脱离或陈旧对象会被拒绝。要求持久化存储的调用方应在自己的策略边界拒绝 `false`。
-- `findLastMessageTurnEnd(events)` 将由消息触发的开始与结束配对，并返回最近匹配的 `turn/end`。结果消费方使用该折叠逻辑，而不直接取日志中最近的事件，因为轮次间记录和非消息轮次没有提示词结果。
+- `ctx.sessions.create(id?, { seed?, meta? }?)` 校验持久种子／头部数据并生成脱离副本，补齐版本和 id，在未提供 `createdAt` 时使用当前时间，发布会话并将其绑定到调用方 fiber。持久化重建会提供原始的 `createdAt`、`seedLength` 和 `delegationDepth`。
+- `ctx.sessions.flush(session)` 通过会话捕获的作用域分发受等待的并行持久性检查点。每个监听器都会启动；调用会等待全部结算后才报告失败。未发布、已脱离和陈旧的对象会被拒绝。
 - `ctx.sessions.fork(source, boundary?, childSessionId?): Session`：解析实时会话对象或 id，选取截至 `boundary` 事件序号（含该事件）的种子（默认为当前最后一个事件），要求所选前缀结束时没有开放轮次，再创建带谱系元数据的实时子会话。
 - `ctx.sessions.get(id: SessionId): Session | undefined`
 - `ctx.sessions.list(): Session[]`

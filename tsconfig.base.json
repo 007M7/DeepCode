@@ -164,7 +164,6 @@
       "@deepseek-ai/dsh-client-ui-conversation": ["./packages/client/ui-conversation/src"],
       "@deepseek-ai/dsh-client-ui-tool": ["./packages/client/ui-tool/src"],
       "@deepseek-ai/dsh-client-ui-deliverables": ["./packages/client/ui-deliverables/src"],
-      "@deepseek-ai/dsh-client-ui-schedule": ["./packages/client/ui-schedule/src"],
       "@deepseek-ai/dsh-client-ui-slash": ["./packages/client/ui-slash/src"],
       "@deepseek-ai/dsh-client-ui-command": ["./packages/client/ui-command/src"],
       "@deepseek-ai/dsh-client-ui-model": ["./packages/client/ui-model/src"],

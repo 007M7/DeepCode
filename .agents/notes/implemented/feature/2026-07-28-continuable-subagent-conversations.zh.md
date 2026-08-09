@@ -103,7 +103,7 @@ Agent inbox 是唯一队列。每条继续执行消息都使用 `Agent.followup(
 
 当经过身份认证的 parent 自身是由继续执行管理器管理的激活时，启动 child 或提交由 parent 发起的工作，会在 child 可以运行或消息可以进入其 inbox 前，将 child 会话 id 加入该 parent 的 `ownedChildren`。该集合非空时，这个 parent 不能结算或 dispose。顶层 Agent 或其他非继续执行 Agent 没有激活，也不会加入该等待图。
 
-只有在 child Agent 完全停稳、该 child 持有的每个 child 都已 dispose、best-effort 的最终会话 flush 结算且 child 的 `AgentHandle` 完成 dispose 后，系统才释放 child。管理器会等待 `ctx.sessions.flush(child.session)`，但不要求其持久化确认布尔值：最终生命周期清理保持 best-effort，不能因为没有后端确认就无限保留 child。rejection 会被记录，但不会阻止 handle dispose 或释放所有权，因为保留 child 会让其祖先永久固定在 `waiting`。如果 child 归 parent 所有，管理器随后会通过 `SessionHeader.parentSession` 解析在线 parent，并从其 `ownedChildren` 中移除 child 会话 id。管理器拆卸使用相同的 child-first 顺序。
+只有在 child Agent 完全停稳、该 child 持有的每个 child 都已 dispose、best-effort 的最终会话 flush 结算且 child 的 `AgentHandle` 完成 dispose 后，系统才释放 child。管理器会等待 `ctx.sessions.flush(child.session)`，但不解释其参与布尔值：任意 listener 都无法证明所选持久化后端已存储该状态。rejection 会被记录，但不会阻止 handle dispose 或释放所有权，因为保留 child 会让其祖先永久固定在 `waiting`。如果 child 归 parent 所有，管理器随后会通过 `SessionHeader.parentSession` 解析在线 parent，并从其 `ownedChildren` 中移除 child 会话 id。管理器拆卸使用相同的 child-first 顺序。
 
 系统会一直保留所有权，直至 child 激活完成 dispose。后续改进可以更早释放限定到请求的 lease，但这需要精确关联轮次完成，而本 Task-free 提案特意不增加该机制。
 
@@ -135,7 +135,7 @@ activation-owner 作用域之所以存在，是因为普通 Cordis owner effect 
 
 宿主和管理器拆卸仍是生命周期停止路径。管理器卸载会全局应用它；宿主只会在自己确切拥有的顶层 Agent 之下应用它。两种形式都会关闭适用的准入作用域，停止选中的可见 Activation，等待该作用域中已获准的物化过程，按 child-first 顺序释放，并保留持久化 Session。
 
-每个轮次都会请求执行会话持久性检查点，而 Activation 最终结算还会等待 `ctx.sessions.flush()`，将其作为 best-effort 屏障。管理器特意忽略持久化确认布尔值，因为没有后端确认时生命周期清理仍必须完成。rejection 会被记录，但不会改变生命周期结果或宿主 drain 的结果；管理器仍会 dispose handle 并释放所有权，后续恢复时持久化 child 状态可能缺失或陈旧。
+每个轮次都会请求执行会话持久性检查点，而 Activation 最终结算还会等待 `ctx.sessions.flush()`，将其作为 best-effort 屏障。管理器特意忽略布尔结果，因为 listener 是否参与无法标识持久化后端。rejection 会被记录，但不会改变生命周期结果或宿主 drain 的结果；管理器仍会 dispose handle 并释放所有权，后续恢复时持久化 child 状态可能缺失或陈旧。
 
 只有实际写入 child 会话日志的消息，才能在重建时保留提供它的来源；仅被 inbox 接受并不提供重启保证。
 
@@ -191,7 +191,7 @@ activation-owner 作用域之所以存在，是因为普通 Cordis owner effect 
 - 带有在线所持 child 的空闲 Agent 会产生 `waiting` 激活，其 `AgentHandle` 继续保留。
 - 向 `waiting` 投递 `next-turn` 会唤醒同一个激活；完成 dispose 后投递消息会冷恢复新激活。
 - 每个由继续执行管理器管理的 parent 激活只会在直接持有的所有 child 激活完成 `AgentHandle` dispose 后进行 dispose；顶层 Agent 不加入等待图。
-- Activation 最终结算会等待 `ctx.sessions.flush(child.session)`，将其作为 best-effort 屏障；它会忽略缺失的持久化确认并记录 rejection，然后 dispose child handle 并释放 parent 所有权，使 flush 失败不会泄漏 `waiting` Activation。
+- Activation 最终结算会等待 `ctx.sessions.flush(child.session)`，将其作为 best-effort 屏障；它会记录 rejection，但不会把 listener 参与解释为持久性证明，然后 dispose child handle 并释放 parent 所有权，使 flush 失败不会泄漏 `waiting` Activation。
 - 管理器拆卸会全局关闭准入；拥有选定顶层 Agent 的宿主则只关闭这些确切身份之下的准入，直到这些根离开注册表。两者都会按确切祖先关系跟踪已获准的物化过程，为每个选中的可见 Activation 安装一个记忆化 dispose 截止点，自顶向下传播取消，按 child-first 顺序释放 handle，即使个别分支失败也会等待所有选中分支，之后才 dispose 对应的顶层 Agent 或管理器作用域。
 - 基础生命周期不暴露隐式报告行为；可选的 report 包通过 setup 钩子贡献一个显式的 child 作用域工具。
 - 会话日志只会重建实际写入的消息，并保留每条消息的提供来源；已被 inbox 接受但未写入日志的消息没有重启保证。

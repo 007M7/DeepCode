@@ -57,7 +57,6 @@ async function harness(withPersistence = true): Promise<ToolHarness> {
       flushes.count += 1
       const outcome = await (flushes.outcomes.shift() ?? 'resolve')
       if (outcome === 'reject') return Promise.reject(new Error('disk unavailable'))
-      return true as const
     })
   }
   const changes = { count: 0 }

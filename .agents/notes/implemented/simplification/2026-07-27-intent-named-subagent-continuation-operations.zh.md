@@ -18,7 +18,7 @@ Status: implemented
 
 调用方请求与提供方请求相互分离。`SubagentStartRequest` 包含调用方提供的 one-shot 数据；`ResolvedSubagentStartRequest` 会在调用 `SubagentProvider.start()` 前加入由服务解析的描述符。创建可继续 child 时，管理器将 `ContinuableCreateRequest` 传给可选的 `SubagentProvider.prepareContinuable()`，且只接收分离的创建数据。`SubagentService.resume()` 与提供方恢复分发均不存在：继续执行管理器加载描述符、对 parent 进行鉴权，并负责 Agent 实体化、提示词投递、冷恢复与 teardown。
 
-`SessionStore.flush(session)` 是唯一的持久性屏障，并返回 `Promise<boolean>`。所有作用域内 listener 都会结算；只有在完成持久化工作后，listener 才返回字面量 `true`。至少一个 listener 给出该确认时，调用解析为 `true`；没有 listener 确认时解析为 `false`；所有 listener 结算后，如有失败，则以注册顺序最靠前的错误拒绝。当存在多个 listener 时，该确认不会标识具体由哪个持久化后端提供。普通检查点可以忽略该布尔值；继续执行管理器同样将最终 flush 视为 best-effort 屏障，有意忽略它，记录拒绝日志，并仍会对 child 执行 dispose（资源释放）并释放所有权。
+`SessionStore.flush(session)` 是唯一的持久性屏障，并返回 `Promise<boolean>`。至少一个作用域内监听器成功参与后，它解析为 `true`；监听器快照为空时解析为 `false`；所有监听器结算后，如有失败，则以注册顺序最靠前的监听器错误拒绝。参与结果无法表明所选的持久化后端是否已经存储状态。普通检查点可以忽略该布尔值；继续执行管理器同样将最终 flush 视为 best-effort 屏障，有意忽略参与结果，记录拒绝日志，并仍会对 child 执行 dispose（资源释放）并释放所有权。
 
 ## 已考虑的替代方案
 
@@ -26,7 +26,7 @@ Status: implemented
 
 **在服务上保留 `sendMessage`。** 面向模型的工具发送消息，但服务操作表达的是后续操作，既可能对运行中的激活执行 steering，也可能从持久化存储恢复。`followup` 与结构化 `Agent` 接口保持一致，也不承诺特定路由。
 
-**保留 `flushRequired()`。** 第二个方法只封装了缺少持久化确认的检查。由现有屏障返回该确认，可以让分发只保留一套实现，并让每个调用方自行判定缺少确认是否可接受。
+**保留 `flushRequired()`。** 第二个方法只封装了空监听器检查。由现有屏障返回是否有监听器参与，可以让分发只保留一套实现，并让每个调用方自行判定缺少监听器是否可接受。
 
 **合并普通启动与可继续启动。** 一个标志会让同一方法要么等待由持有方负责的 one-shot run 就绪后返回，要么立即返回持久化 child 与消息标识。按意图拆分的方法无需返回值联合类型即可保留所有权与时序差异。
 
@@ -34,5 +34,5 @@ Status: implemented
 
 - Cordis 服务目录只包含调用方操作；提供方可以通过 `SubagentProvider.prepareContinuable?()` 选择参与可继续 child 的首次创建，但不会获得 Agent 生命周期权限或公开恢复操作。
 - 后续操作的来源与取消信号通过同一个选项对象传递，与 `Agent` 上按意图命名的辅助方法形态一致，同时保留在线投递与从持久化存储恢复的语义。
-- 会话持久性只有一个屏障操作。显式持久化确认仍可观测，但任何可继续 child 路径都不依赖由哪个后端提供确认。
+- 会话持久性只有一个屏障操作。参与结果仍可观测，但任何可继续 child 路径都不会将任意监听器参与视为持久化后端已存储状态的证明。
 - `send_message` 与 `report` schema、已接受的消息标识、`AgentHandle` 所有权、持久化事件词汇与模型可见的 transcript（文本记录）遵循上文链接的基于 Activation 的实现。

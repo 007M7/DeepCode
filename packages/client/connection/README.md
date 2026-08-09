@@ -12,12 +12,6 @@ The node half guards every entry under `/api` before bridging or upgrading (`src
 
 `/api/events.mux` and `/api/events.host` each accept a WebSocket upgrade and send only the corresponding `ServerRequest` text messages to the browser; the client sends no application data over these sockets. If either socket ends, the current connection generation fails and rebuilds both streams; readiness still requires both sockets to be open and the `host.describe` HTTP call to succeed. Host teardown terminates both sockets, aborts their sources, and waits for source cleanup before returning. Ordinary network GETs to these paths return 426 with no SSE fallback; `toFetchHandler`'s SSE codec serves only the isomorphic in-process carrier.
 
-`SessionEventView` is an optional non-persistent sidecar on both `session.history` entries and live `session/event` frames. Tool views keep their closed call/result shapes; a presented durable event instead carries `{ for: 'event', view }`, leaving the JSON-compatible payload open to domain plugins while its durable event type selects the renderer. The same Session event may be delivered again with a new or changed sidecar, so consumers merge it by exact event identity and seq rather than treating the second frame as another log append.
-
-## Keyless fixture
-
-Any `fixture` query parameter selects the in-memory carrier. `fixture=empty` starts with no Workspace or Session; `fixturePrompt=reject` rejects prompts before acceptance; `fixtureAttach=fail` publishes a Session but rejects its Workspace attachment; `fixtureSessionCreate=drop-response` publishes and frames a Session before dropping the create response; and `fixtureFrames=workspace-first` reverses the default session-first create-frame order. Workspace creation by name/path and caller-preallocated SessionIds remain deterministic enough for assembled Web tests to reconcile list and frame arrival. Fixture content search preserves the production-facing `unicode61`-style case, diacritic, and token-phrase behavior and returns a match-centered snippet of at most 120 Unicode code points.
-
 ## Model Experience
 
 None, as the wire consumer layer moves already-composed messages between browser and host; nothing here reaches a model request.
@@ -29,5 +23,3 @@ None; this package neither assembles nor sends a provider request.
 ## Known Limitations and Deferred Work
 
 - **History resumes an unattached session** — opening history may create the host-side agent and add latency to the first open; there is no persistence-only read path.
-- **Attached history may omit commit-aware event views** — when persistence inspection is unavailable, fails, or cannot prove an identity-matching prefix, the Host still serves raw live events and withholds only those sidecars. A later durable live redelivery or history read can add them.
-- **Tool-specific view types remain transitional** — `ToolEventView`/`ToolCallView`/`ToolResultView` stay exported while the Host's tool `viewFor` presenter exists. The generic presented-event branch is independent and remains the domain-plugin extension shape.

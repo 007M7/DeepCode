@@ -185,7 +185,7 @@ describe.skipIf(!existsSync(dshBin))('dsh BUILT bin (node lib/bin.js, no tsx)', 
     expect(help.stdout).toContain('dsh run "run the tests"')
     expect(help.stdout).toContain('dsh plugin --profile')
     expect(help.stdout).not.toMatch(/^\s+(?:tui|meta|upgrade)\b/mu)
-    for (const removed of [['tui'], ['--config', 'x.yml'], ['web', '--config', 'x.yml'], ['-p', 'task'], ['--profile', 'headless', 'task']]) {
+    for (const removed of [['tui'], ['--config', 'x.yml'], ['-p', 'task'], ['--profile', 'headless', 'task']]) {
       const result = await runBuiltBin(removed)
       expect(result.code).toBe(1)
     }

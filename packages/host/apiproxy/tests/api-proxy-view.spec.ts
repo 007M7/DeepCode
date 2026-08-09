@@ -149,8 +149,7 @@ describe('mux live view computation', () => {
 
     expect(byCall.get('tool/call:c-gen')?.view).toEqual({ for: 'call', view: { card: 'generic', title: 'gen call' } })
     expect(byCall.get('tool/call:c-term')?.view).toEqual({ for: 'call', view: { card: 'terminal', title: 'echo hi' } })
-    const diffView = byCall.get('tool/call:c-diff')?.view
-    expect(diffView?.for === 'call' ? diffView.view.card : undefined).toBe('diff')
+    expect(byCall.get('tool/call:c-diff')?.view?.view.card).toBe('diff')
     expect(byCall.get('tool/call:c-call-only')?.view).toEqual({
       for: 'call',
       view: { card: 'generic', title: 'program', kind: 'execute', rawInput: 'return value' },

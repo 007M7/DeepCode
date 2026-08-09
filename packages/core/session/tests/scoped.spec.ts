@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import { createScope, scopeOf } from '@deepseek-ai/dsh-scope'
 import type { Scope, ScopeKey } from '@deepseek-ai/dsh-scope'
-import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
+import SessionStore from '@deepseek-ai/dsh-session'
 import type { Session } from '@deepseek-ai/dsh-session'
 
 async function mount(): Promise<Context> {
@@ -83,41 +83,19 @@ describe('sessions.flush()', () => {
   it('allows an ordinary flush with no listeners', async () => {
     const ctx = await mount()
     const session = ctx.sessions.create()
-    const flushed: number[] = []
-    ctx.on('session/flushed', (_current, throughSeq) => { flushed.push(throughSeq) })
 
     await expect(ctx.sessions.flush(session)).resolves.toBe(false)
-    expect(flushed).toEqual([])
   })
 
-  it('reports a durability listener after it acknowledges success', async () => {
+  it('reports a participating listener after it succeeds', async () => {
     const ctx = await mount()
     const session = ctx.sessions.create()
     const flushed: Session[] = []
-    const checkpoints: number[] = []
-    ctx.on('session/flush', (current) => {
-      flushed.push(current)
-      return true as const
-    })
-    ctx.on('session/flushed', (_current, throughSeq) => { checkpoints.push(throughSeq) })
+    ctx.on('session/flush', current => void flushed.push(current))
 
     await expect(ctx.sessions.flush(session)).resolves.toBe(true)
 
     expect(flushed).toEqual([session])
-    expect(checkpoints).toEqual([0])
-  })
-
-  it('does not treat an observe-only flush listener as durability', async () => {
-    const ctx = await mount()
-    const session = ctx.sessions.create()
-    const observed: Session[] = []
-    const checkpoints: number[] = []
-    ctx.on('session/flush', current => void observed.push(current))
-    ctx.on('session/flushed', (_current, throughSeq) => { checkpoints.push(throughSeq) })
-
-    await expect(ctx.sessions.flush(session)).resolves.toBe(false)
-    expect(observed).toEqual([session])
-    expect(checkpoints).toEqual([])
   })
 
   it('dispatches session/flush with the owning carrier and awaits all listeners', async () => {
@@ -143,13 +121,9 @@ describe('sessions.flush()', () => {
 
   it('propagates a rejecting flush listener (the caller owns the failure policy)', async () => {
     const ctx = await mount()
-    const checkpoints: number[] = []
     ctx.on('session/flush', () => Promise.reject(new Error('disk full')))
-    ctx.on('session/flush', () => true)
-    ctx.on('session/flushed', (_session, throughSeq) => { checkpoints.push(throughSeq) })
     const session = ctx.sessions.create()
     await expect(ctx.sessions.flush(session)).rejects.toThrow('disk full')
-    expect(checkpoints).toEqual([])
   })
 
   it('does not let a synchronous flush failure starve later listeners', async () => {
@@ -184,86 +158,6 @@ describe('sessions.flush()', () => {
     gate.resolve(undefined)
     await expect(flushing).rejects.toThrow('disk full')
     expect(settled).toBe(true)
-  })
-
-  it('publishes the entry prefix while a concurrent suffix waits for a later checkpoint', async () => {
-    const ctx = await mount()
-    const gate = Promise.withResolvers<undefined>()
-    let attempts = 0
-    ctx.on('session/flush', async () => {
-      attempts += 1
-      if (attempts === 1) await gate.promise
-      return true as const
-    })
-    const checkpoints: number[] = []
-    ctx.on('session/flushed', (_session, throughSeq) => { checkpoints.push(throughSeq) })
-    const session = ctx.sessions.create()
-    session.append('turn/start', { turn: 1 })
-
-    const first = ctx.sessions.flush(session)
-    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
-    gate.resolve(undefined)
-    await first
-    await ctx.sessions.flush(session)
-
-    expect(checkpoints).toEqual([1, 2])
-  })
-
-  it('contains successful-checkpoint observers without reversing the barrier', async () => {
-    const ctx = await mount()
-    const checkpoints: number[] = []
-    ctx.on('session/flush', () => true)
-    ctx.on('session/flushed', () => { throw new Error('observer failed') })
-    ctx.on('session/flushed', (_session, throughSeq) => { checkpoints.push(throughSeq) })
-    const session = ctx.sessions.create()
-
-    await expect(ctx.sessions.flush(session)).resolves.toBe(true)
-    expect(checkpoints).toEqual([0])
-  })
-
-  it('contains successful-checkpoint dispatch resolution failure without reversing the barrier', async () => {
-    const ctx = await mount()
-    const warnings: string[] = []
-    ctx.logger.warn = ((message: unknown) => { warnings.push(String(message)) }) as typeof ctx.logger.warn
-    const checkpoints: number[] = []
-    ctx.on('session/flush', () => true)
-    ctx.on('internal/dispatch', (_mode, name) => {
-      if (name === 'session/flushed') throw Object.create(null)
-    })
-    ctx.on('session/flushed', (_session, throughSeq) => { checkpoints.push(throughSeq) })
-    const session = ctx.sessions.create(SessionId('flushed-dispatch'))
-
-    await expect(ctx.sessions.flush(session)).resolves.toBe(true)
-    expect(checkpoints).toEqual([])
-    expect(warnings).toEqual([
-      'session "flushed-dispatch": session/flushed dispatch threw: [unrenderable thrown value]',
-    ])
-  })
-
-  it('may publish overlapping checkpoints out of order without widening either boundary', async () => {
-    const ctx = await mount()
-    const firstGate = Promise.withResolvers<undefined>()
-    const secondGate = Promise.withResolvers<undefined>()
-    const gates = [firstGate, secondGate]
-    ctx.on('session/flush', async () => {
-      const gate = gates.shift()
-      if (gate === undefined) throw new Error('unexpected checkpoint attempt')
-      await gate.promise
-      return true as const
-    })
-    const checkpoints: number[] = []
-    ctx.on('session/flushed', (_session, throughSeq) => { checkpoints.push(throughSeq) })
-    const session = ctx.sessions.create()
-
-    const first = ctx.sessions.flush(session)
-    session.append('turn/start', { turn: 1 })
-    const second = ctx.sessions.flush(session)
-    secondGate.resolve(undefined)
-    await second
-    firstGate.resolve(undefined)
-    await first
-
-    expect(checkpoints).toEqual([1, 0])
   })
 
   it('rejects a never-entered session instead of inventing a carrier', async () => {

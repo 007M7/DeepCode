@@ -18,7 +18,7 @@ async function harness(): Promise<Context> {
   const ctx = new Context()
   await mountAgentLoopTestDependencies(ctx)
   await ctx.plugin(PersistenceProbe)
-  ctx.on('session/flush', () => true)
+  ctx.on('session/flush', () => {})
   await ctx.plugin(AgentLoop, { agents: [] })
   return ctx
 }
