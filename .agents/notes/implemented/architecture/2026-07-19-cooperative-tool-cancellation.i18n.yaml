@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-07-19-cooperative-tool-cancellation.md
 2026-07-19-cooperative-tool-cancellation.md: 4e82452cd6883593d4693766bea803c97fa4c977
-2026-07-19-cooperative-tool-cancellation.zh.md: 1d9fd3dcc8fa65e6f06050be749eec6ac9e996c2
+2026-07-19-cooperative-tool-cancellation.zh.md: aa94fd9f3d32167dc7d6b906ff14a6afd36ccb32

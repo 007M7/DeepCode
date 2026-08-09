@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/simplification/2026-07-24-agent-loop-observable-state-machine.md
 2026-07-24-agent-loop-observable-state-machine.md: b1773fdf7fd3bcbea9c6b9a4a0ce37c715bce4ca
-2026-07-24-agent-loop-observable-state-machine.zh.md: a4ed98117b965b445ec0888c55a1b1b27887532a
+2026-07-24-agent-loop-observable-state-machine.zh.md: ef44e9c058d165bfbbe226e9d0fca1e6f8072f53

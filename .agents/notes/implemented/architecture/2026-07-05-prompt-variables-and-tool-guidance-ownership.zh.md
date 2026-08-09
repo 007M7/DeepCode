@@ -36,7 +36,7 @@ Status: implemented
 
 ### 工具指导归属
 
-每个工具的语义和选择指导放在工具 description 中。提示词 section 只承载跨调用习惯，例如检查 bash 退出标记或优先使用文件系统工具而非 shell 命令。`todo_write` 和 subagent 工具不需要 section，因为它们的 description 包含完整契约。部署 persona 只包含角色和行为。
+每个工具的语义和选择指导放在工具 description 中。提示词 section 只承载跨调用习惯，例如检查 bash 退出标记或优先使用文件系统工具而非 shell 命令。`todo_write` 和 subagent 工具不需要 section，因为它们的 description 包含完整约定。部署 persona 只包含角色和行为。
 
 ### Subagent 对话历史描述符
 

@@ -12,7 +12,7 @@ harness 可以将一个任务委派给一个子 agent（`dsh-tool-subagent`）�
 
 在 `packages/workflow/` 下以 bash seam 的形态（接口／实现／消费方）提供一组工作流能力，以及它在 subagent seam 上所需的结构化输出基础。
 
-### 脚本契约（兼容 Claude Code）
+### 脚本约定（兼容 Claude Code）
 
 一次工作流调用包含 JSON `meta`（`name`、`description`，以及可选的 `whenToUse`/`phases`）和一段支持顶层 `await` 并返回 JSON 值的 JavaScript `script` 正文。元数据作为数据校验，从不被执行。正文接收 `agent(prompt, options)`、`parallel(thunks)`、`pipeline(items, ...stages)`、`phase(title)`、`log(message)` 和 `args`。流水线各阶段接收 `(prev, item, index)`，阶段之间无屏障；失败的子 agent 和普通阶段错误将受影响的 item 结算为 `null` 并跳过其剩余阶段。Claude Code 的确定性限制随日志机制一并延后实现，因此兼容的脚本正文在将 meta 头移入参数后可以使用时钟和随机数。
 
@@ -28,7 +28,7 @@ harness 可以将一个任务委派给一个子 agent（`dsh-tool-subagent`）�
 
 **为何选择 `node:worker_threads`**：每次运行获得一个非池化的 worker。vm 上下文限定了文档中说明的脚本接口范围，而消息端口 RPC 将 `agent()` 桥接到宿主侧的子循环。worker 防止脚本的同步工作阻塞宿主，提供序列化边界，并允许取消后强制终止。`isolated-vm` 因其维护状态和部署要求被否决。
 
-宿主在发布前校验元数据并解析正文。私有枚举键 payload 映射定义协议格式；待启动记录、已发布子记录、单一取消信号、worker 死亡回收、结果优先级与 dispose 完全停稳，在此协议上保持 subagent run 契约。这些竞态算法由 [agent 作用域运行时设计 Agent Note](../architecture/2026-07-12-agent-scope-runtime-design.md#workflow-children-are-pending-starts-or-published-records) 定义。
+宿主在发布前校验元数据并解析正文。私有枚举键 payload 映射定义协议格式；待启动记录、已发布子记录、单一取消信号、worker 死亡回收、结果优先级与 dispose 完全停稳，在此协议上保持 subagent run 约定。这些竞态算法由 [agent 作用域运行时设计 Agent Note](../architecture/2026-07-12-agent-scope-runtime-design.md#workflow-children-are-pending-starts-or-published-records) 定义。
 
 引擎暴露一条进程内 `MessageChannel` 测试路径，因为主进程 V8 覆盖率无法观测 worker 执行。
 
@@ -55,7 +55,7 @@ worker 侧逻辑通过进程内 `MessageChannel` 运行，使 V8 覆盖率能够
 ## 延迟（本轮明确的非目标）
 
 - **后台收集**（启动工具 → run id → 完成通知 → 收集），与 bash/subagent 后台统一一起设计。
-- **日志化 + 恢复**（`resumeFromRunId`、缓存的 agent() 前缀）：实现它会以脚本契约收紧的形式重新引入 CC 的确定性禁令（脚本目前可以读取时钟）。
+- **日志化 + 恢复**（`resumeFromRunId`、缓存的 agent() 前缀）：实现它会以脚本约定收紧的形式重新引入 CC 的确定性禁令（脚本目前可以读取时钟）。
 - **保存/打包的工作流**（`.deepseek/workflows/` 注册表、斜杠命令界面）和**脚本持久化到运行目录**（工具调用事件已经持久记录了脚本）。
 - **嵌套 `workflow()`**、**token `budget`**，以及 `effort`/`isolation`/`agentType` agent 选项（每个都会明确拒绝，并在消息中注明其已延迟实现）。
 - **整体运行的挂钟超时**：取消总能释放调用方（result 在宽限期内 settle），因此总运行时间上限是后台重设计的策略旋钮，不是此处的正确性需求。

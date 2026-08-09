@@ -10,7 +10,7 @@ Status: resolved
 
 ## 概述
 
-原生 launcher 契约区分两类 stderr 行。内核只能部分强制执行时，会精确打印 `landlock-run: partial enforcement (older Landlock ABI)`，然后继续执行子进程。launcher 失败则打印另一行 `landlock-run:` 诊断，在不执行子进程的情况下以 125 退出。
+原生 launcher 约定区分两类 stderr 行。内核只能部分强制执行时，会精确打印 `landlock-run: partial enforcement (older Landlock ABI)`，然后继续执行子进程。launcher 失败则打印另一行 `landlock-run:` 诊断，在不执行子进程的情况下以 125 退出。
 
 harness 用一个不区分大小写的 `landlock-run: ` 子串表示这两种情况。消费方只要发现非零退出同时携带该子串，就会归类为 runner 失败。因此，子进程的退出状态被错误地关联到 launcher 的信息性行：`false`、ripgrep 无匹配时的退出码 1、无效 pattern 的退出码 2，乃至由子进程自行选择的退出码 125，都可能在约束与执行均成功的情况下被错误归因为沙箱故障。
 
@@ -24,8 +24,8 @@ harness 用一个不区分大小写的 `landlock-run: ` 子串表示这两种情
 
 ## 时间线
 
-- 原生 launcher 契约规定：launcher 失败使用退出码 125，每次此类失败都会打印一行致命的 `landlock-run:` 诊断；成功执行子进程时则打印精确的部分强制执行通知。
-- 沙箱提供方把该契约简化为 `runnerFailureSignatures: ['landlock-run: ']`；bash 消费方将此前缀与任意非零退出组合，并报告 stderr 的第一行。
+- 原生 launcher 约定规定：launcher 失败使用退出码 125，每次此类失败都会打印一行致命的 `landlock-run:` 诊断；成功执行子进程时则打印精确的部分强制执行通知。
+- 沙箱提供方把该约定简化为 `runnerFailureSignatures: ['landlock-run: ']`；bash 消费方将此前缀与任意非零退出组合，并报告 stderr 的第一行。
 - 单元测试覆盖了无诊断的成功、拒绝诊断和致命 runner 前缀。真实 runner 测试在没有可用内核时会自行跳过，也没有强制构造「部分强制执行通知后跟非零子进程退出」的情况。
 - 一个最小 POSIX 包装脚本会打印该通知并 `exec` 其负载；它通过 `false` 与 ripgrep 无匹配场景复现了故障。
 - 结构化规则、前台与后台共享的分类逻辑和组装后的回放覆盖共同弥补了仍然存在的沙箱归因缺口。文件系统搜索通过 `ctx.subprocess` 运行打包的 ripgrep；本修复让该路径继续位于沙箱化 bash 之外。

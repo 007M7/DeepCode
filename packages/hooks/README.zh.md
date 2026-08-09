@@ -10,4 +10,4 @@ hooks 子系统让用户像使用 Claude Code 和 Codex 一样，在生命周期
 | [`hooks-claude/`](hooks-claude/README.md) | Claude Code 钩子桥接 | 插件 |
 | [`hooks-codex/`](hooks-codex/README.md) | Codex 钩子桥接 | 插件 |
 
-共享库负责通用协议行为；各桥接负责自身方言的事件映射。子 README 记录这些契约。
+共享库负责通用协议行为；各桥接负责自身方言的事件映射。子 README 记录这些约定。
