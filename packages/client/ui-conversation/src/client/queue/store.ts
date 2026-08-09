@@ -10,7 +10,7 @@ import type { QueuedMessage } from '../input/contract.ts'
 
 /**
  * Project a session's transient inbox rows as a bare observable (subscribe/getSnapshot).
- * The wiring layer (T5) overlays this onto InputState.queue; the runtime
+ * The wiring layer overlays this onto InputState.queue; the runtime
  * QueuedMessage and the input-contract QueuedMessage are structurally
  * identical.
  * @param session - the resident session face.

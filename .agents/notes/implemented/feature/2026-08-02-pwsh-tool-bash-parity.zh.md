@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-首个 Windows 原生基础交付的 `dsh-tool-pwsh` 是刻意最小的画像——仅前台、无后台任务、受管环境只有三个硬编码 `DSH_*` 键、以及一个未声明就偏离 bash 工具的 marker 故事（"恒打 `[exit code: N]`"）。对该变更的 review 发现模型可见约定与实现脱节：描述承诺了渲染器从未执行的 spill 路径报告，README 宣称了不存在的导出与工具未做的渲染，工具自己的测试还钉死了有损行为。最小画像还让 `DSH_*` contributor seam 因缺席而重复：向 `ctx.bashEnv` 贡献环境事实的插件对 pwsh 调用毫无作用。
+首个 Windows 原生基础交付的 `dsh-tool-pwsh` 是刻意最小的画像——仅前台、无后台任务、受管环境只有三个硬编码 `DSH_*` 键、以及一个未声明就偏离 bash 工具的 marker 故事（"恒打 `[exit code: N]`"）。模型可见约定曾与实现脱节：描述承诺了渲染器从未执行的 spill 路径报告，README 宣称了不存在的导出与工具未做的渲染，工具自己的测试还钉死了有损行为。最小画像还让 `DSH_*` contributor seam 因缺席而重复：向 `ctx.bashEnv` 贡献环境事实的插件对 pwsh 调用毫无作用。
 
 ## 决策
 
@@ -20,7 +20,7 @@ Status: implemented
 
 ## 备选方案
 
-**保留最小画像，只修声明。** 否决：review 的核心发现是"从 bash 复制的文本约定在缺少对应实现时会漂移"；最小工具加准确声明仍让 pwsh 调用没有后台执行、没有 contributor 对等、并留下一个必须永远重新辩护的偏离 marker 故事。
+**保留最小画像，只修声明。** 否决：从 bash 复制的文本约定在缺少对应实现时会漂移；最小工具加准确声明仍让 pwsh 调用没有后台执行、没有 contributor 对等、并留下一个必须永远重新辩护的偏离 marker 故事。
 
 **在加载时拒绝不匹配的执行器方言。** 合并前尝试过并撤回：在 `BashExecutor` 上加 `ShellDialect` 标记（`bash` | `powershell`），两个 shell 工具在挂载的执行器说另一种方言时抛错。它迫使每个执行器实现——包括每个测试与示例的 fake——都要声明 dialect，为一道仓内及合理部署中都没有目标可拦的护栏（交付组合总是把 tool-pwsh 配 `dsh-pwsh-local`、tool-bash 配 `dsh-bash-local`）给每个 shell 工具测试添噪。配对约定改由各工具 README 记录。
 
@@ -28,7 +28,7 @@ Status: implemented
 
 ## 后果
 
-- bash 与 pwsh 工具在前台与后台 shell 工作（减 sandbox）上行为可互换，pwsh 的 prompt/描述句每句都有渲染器背书——reviewer 的“拿代码 grep 对证”检查通过。
+- bash 与 pwsh 工具在前台与后台 shell 工作（减 sandbox）上行为可互换，pwsh 的 prompt/描述句每句都有渲染器背书。
 - 对齐也反向发生过一次：pwsh 工具的结构化前台中止（`HarnessError('tool call aborted', TOOL_ABORTED)`，name 为 `AbortError`）被回移到 bash 工具，取代其无码的 `Error('command aborted')`——这是模型可见/入日志的变更，由两侧的精确形状测试与 cancel-tool-calls fixture 钉住。
 - `@deepseek-ai/dsh-bash-env` 成为新的交付包；`dsh-tool-bash` 的 `dshHome` 配置迁往那里，因此挂载 shell 工具的组合也必须挂载 `bash-env`（spine bundle 已如此）。
 - Windows 专属语义（CRLF 归一化、强制终止 exit-1/signal-null、仅 POSIX 的自信号）一如既往由测试钉住。

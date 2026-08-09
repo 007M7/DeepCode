@@ -49,10 +49,9 @@ declare module 'cordis' {
  */
 export abstract class TaskService extends Service {
   constructor(ctx: Context) {
-    // `abstract` erases at runtime, and this package name used to be the
-    // mountable concrete registry — a stale composition row would otherwise
-    // register a ctx.tasks with no method implementations and fail far from
-    // the misconfiguration. Fail loud at load instead.
+    // `abstract` erases at runtime, so a composition row naming this package
+    // would register a ctx.tasks with no method implementations and fail far
+    // from the misconfiguration. Fail loud at load instead.
     if (new.target === TaskService) {
       throw new Error('@deepseek-ai/dsh-tasks is the abstract task registry seam; load an implementation such as @deepseek-ai/dsh-tasks-local instead')
     }

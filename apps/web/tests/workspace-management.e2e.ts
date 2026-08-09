@@ -91,8 +91,8 @@ describe('web e2e: workspace management (create / rename / flat view / hover aff
     ).not.toBeUndefined()
     // First adoption births a blank Session+Agent whose workspace attach must
     // settle before a test may delete the registration; re-registration after
-    // a delete mints a fresh blank Session+Agent too (the old cwd-only reuse
-    // path is gone), so callers opt in only where a fresh attach is possible.
+    // a delete mints a fresh blank Session+Agent too (no cwd-based reuse
+    // exists), so callers opt in only where a fresh attach is possible.
     if (options.waitForAgent === true) {
       await expect.poll(() => scaffold.ctx.agents.list().length, { timeout: 10_000 })
         .toBeGreaterThan(agentsBefore)
@@ -254,7 +254,7 @@ describe('web e2e: workspace management (create / rename / flat view / hover aff
     // a supported reversible flow. It creates a fresh Workspace id and does
     // NOT re-adopt the retained (non-blank) Session; the New Session flow
     // mints a fresh blank session and attaches it to the new registration
-    // (the old cwd-only blank reuse is gone, so the account is never empty).
+    // (no cwd-based blank reuse exists, so the account is never empty).
     await adoptDirectory(scaffold.workspaceCwd)
     await expect.poll(
       () => scaffold.ctx.workspace.resolveByPath(scaffold.workspaceCwd),
@@ -482,7 +482,7 @@ describe('web e2e: workspace management (create / rename / flat view / hover aff
     await expect.poll(() => page.getByText('Idle', { exact: true }).count(), { timeout: 5_000 }).toBeGreaterThanOrEqual(1)
     // The card is REACHABLE: it sits 8px off the row, so getting to it means
     // crossing ground that belongs to neither. Hovering it must not dismiss
-    // it — the regression this scenario guards.
+    // it — the hazard this scenario pins.
     const card = page.getByRole('button', { name: `Copy: ${rowTitle}` })
     await card.hover()
     await page.waitForTimeout(POINTER_HOLD_MS)
@@ -515,10 +515,10 @@ describe('web e2e: workspace management (create / rename / flat view / hover aff
     const item = page.getByRole('menuitem', { name: 'Rename' })
     await item.waitFor({ timeout: 5_000 })
     // Into the list, then back up to the trigger across the 4px gap below it:
-    // that return trip used to fire the list's pointerleave and close the
-    // menu, so a hesitating pointer lost it. Order matters — clicking leaves
-    // the pointer ON the trigger, so entering the list has to come first for
-    // the return to be a real departure.
+    // without the gap-crossing grace, that return trip fires the list's
+    // pointerleave and closes the menu — a hesitating pointer loses it.
+    // Order matters — clicking leaves the pointer ON the trigger, so entering
+    // the list has to come first for the return to be a real departure.
     await item.hover()
     await page.waitForTimeout(POINTER_TRANSIT_MS)
     await trigger.hover()

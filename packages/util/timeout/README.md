@@ -52,7 +52,7 @@ For a streamed transport, create one `idleWatchdog`, pass its stable `signal` in
 
 ## What does NOT get a timeout
 
-Local file `read`/`write`/`edit` take no `timeoutMs`: a syscall is best-effort-abortable at most, a timeout could not force `fsync`/`rename` to stop, and adding one would be an implicit default that violates explicit-over-implicit. See [`fs/`](../../fs/README.md).
+Local file `read`/`write`/`edit` take no `timeoutMs`: file IO runs untimed because a deadline would kill work the OS will still finish. See [the filesystem subsystem page](../../../docs/subsystems/filesystem.md).
 
 ## Model Experience
 

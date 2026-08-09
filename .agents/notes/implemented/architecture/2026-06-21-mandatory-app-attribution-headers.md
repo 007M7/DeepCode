@@ -26,9 +26,9 @@ The immediate prompt came from OpenRouter's [App Attribution](https://openrouter
 
 Provider request attribution is mandatory at the LLM adapter boundary, using the standard `User-Agent` header only. The rule: every product LLM adapter sends a static, non-secret application identity on every provider HTTP request, and every adapter has tests proving that `User-Agent` reaches the wire (a mock server asserting received headers; for a library-backed adapter, the library's header hook feeding the same mock-server assertion).
 
-Do **not** implement OpenRouter app attribution in this Agent Note. `HTTP-Referer`, `X-OpenRouter-Title`, `X-Title`, and `X-OpenRouter-Categories` are OpenRouter-specific product-surface headers, not provider-neutral model-request attribution. They can be proposed later by an OpenRouter adapter or explicit OpenRouter mode, with its own privacy/product decision, tests, and docs. Until then, even requests pointed at OpenRouter send only the shared `User-Agent` attribution from this Agent Note.
+OpenRouter app attribution is deliberately not implemented. `HTTP-Referer`, `X-OpenRouter-Title`, `X-Title`, and `X-OpenRouter-Categories` are OpenRouter-specific product-surface headers, not provider-neutral model-request attribution. They can be proposed later by an OpenRouter adapter or explicit OpenRouter mode, with its own privacy/product decision, tests, and docs. Until then, even requests pointed at OpenRouter send only the shared `User-Agent` attribution from this decision.
 
-The provider-neutral identity is owned by `dsh-llm` (`packages/llm/llm/src/attribution.ts`), not by individual adapters. `AppIdentity` contains only public product facts needed to build `User-Agent`, and the default `APP_IDENTITY` settles the values the proposal left open:
+The provider-neutral identity is owned by `dsh-llm` (`packages/llm/llm/src/attribution.ts`), not by individual adapters. `AppIdentity` contains only public product facts needed to build `User-Agent`, and the default `APP_IDENTITY` values:
 
 - product token for `User-Agent`: `deepseek-harness` (continuity with the pre-Agent Note wire value and the repo/org identity)
 - version: read from the owning package's manifest via `createRequire`, never a hand-copied constant
@@ -42,7 +42,7 @@ Wire mapping (`attributionHeaders`; header names lowercase in code - HTTP field 
 |---|---|
 | All HTTP-based adapters | `User-Agent: {product}/{version} (+{url})` - the parenthesized `+url` comment stays within RFC 9110's conservative product/comment syntax. |
 | Direct DeepSeek endpoint | `User-Agent`; do not send OpenRouter-only headers unless DeepSeek documents an equivalent contract. |
-| OpenRouter endpoints | `User-Agent` only for now. Do not send `HTTP-Referer`, `X-OpenRouter-Title`, `X-Title`, or `X-OpenRouter-Categories` under this Agent Note. |
+| OpenRouter endpoints | `User-Agent` only for now. Do not send `HTTP-Referer`, `X-OpenRouter-Title`, `X-Title`, or `X-OpenRouter-Categories` under this decision. |
 | Future providers | `User-Agent` only unless a later provider-specific Agent Note accepts additional headers. Do not reuse `HTTP-Referer` by analogy. |
 
 Endpoint detection is not part of this Agent Note because no endpoint-specific mapping is accepted here. If OpenRouter support lands later, detection must be explicit: either a dedicated OpenRouter provider package or an explicit `provider: 'openrouter'` / `attributionTarget: 'openrouter'` config, not arbitrary path fragments or model names.
@@ -55,13 +55,13 @@ The landed contract:
 - A shared helper (`attributionHeaders` / `userAgent`) constructs the app identity and the standard `User-Agent` value from package metadata, so adapters do not hand-copy version constants.
 - `dsh-llm-deepseek` sends the shared `User-Agent` on every request and its mock-server suite asserts the exact value.
 - `dsh-llm-pi-ai` sends the same `User-Agent` through pi-ai's `StreamOptions.headers` hook and its mock-server suite asserts the exact value.
-- No adapter sends OpenRouter-specific attribution headers (`HTTP-Referer`, `X-OpenRouter-Title`, `X-Title`, `X-OpenRouter-Categories`) as part of this Agent Note.
+- No adapter sends OpenRouter-specific attribution headers (`HTTP-Referer`, `X-OpenRouter-Title`, `X-Title`, `X-OpenRouter-Categories`) as part of this decision.
 - No app-attribution field carries secrets, local paths, session ids, prompt text, model output, user email, or per-user stable identifiers.
 - The adapter READMEs state the `User-Agent` attribution policy and explicitly avoid documenting OpenRouter app attribution as implemented behavior.
 
 ## Alternatives considered
 
-**OpenRouter app attribution now.** Rejected for this Agent Note. Sending `HTTP-Referer` plus `X-OpenRouter-Title` would satisfy OpenRouter rankings, but those headers are a provider-specific product feature, not the provider-neutral model-request attribution this Agent Note is trying to standardize. Supporting them should be an explicit OpenRouter adapter/mode decision later, not hidden inside the first shared attribution helper.
+**OpenRouter app attribution now.** Rejected for this decision. Sending `HTTP-Referer` plus `X-OpenRouter-Title` would satisfy OpenRouter rankings, but those headers are a provider-specific product feature, not the provider-neutral model-request attribution this decision standardizes. Supporting them should be an explicit OpenRouter adapter/mode decision later, not hidden inside the first shared attribution helper.
 
 **OpenRouter headers everywhere.** Rejected. It would treat a custom OpenRouter contract as a universal standard and send fields with misleading semantics to providers that did not ask for them. It also risks using `HTTP-Referer` as a generic app URL field even though standard HTTP already has `User-Agent` for product identity and `Referer` for a different browsing-context concept.
 

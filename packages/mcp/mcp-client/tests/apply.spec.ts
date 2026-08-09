@@ -175,7 +175,6 @@ describe('apply (plugin lifecycle)', () => {
     expect(ctx.tools.get('mcp__srv__remote')).toBeDefined()
 
     await expect(apply(ctx, stdioConfig)).rejects.toThrow(/serverName "srv" is already in use/)
-    // First instance unaffected.
     expect(ctx.tools.get('mcp__srv__remote')).toBeDefined()
   })
 

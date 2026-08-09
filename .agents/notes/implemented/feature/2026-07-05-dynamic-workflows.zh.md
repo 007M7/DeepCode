@@ -52,7 +52,7 @@ harness 可以将一个任务委派给一个子 agent（`dsh-tool-subagent`）�
 
 worker 侧逻辑通过进程内 `MessageChannel` 运行，使 V8 覆盖率能够度量它。单元测试覆盖脚本辅助函数、fatal 与 nullable 失败、JSON 边界、上限、取消、子 agent 所有权和通过真实循环的结构化输出。构建后二进制文件的冒烟测试在纯 Node 下运行单独打包的 `lib/worker.cjs`，带密钥的 e2e 驱动真实子 agent，面向模型的工作流行为通过其所属示例进行快照覆盖。
 
-## 延迟（本轮明确的非目标）
+## 延迟（明确的非目标）
 
 - **后台收集**（启动工具 → run id → 完成通知 → 收集），与 bash/subagent 后台统一一起设计。
 - **日志化 + 恢复**（`resumeFromRunId`、缓存的 agent() 前缀）：实现它会以脚本约定收紧的形式重新引入 CC 的确定性禁令（脚本目前可以读取时钟）。

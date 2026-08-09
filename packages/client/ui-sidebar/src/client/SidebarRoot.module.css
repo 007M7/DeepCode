@@ -96,7 +96,7 @@
 }
 
 /* Brand group (figma I133:7632): the full wordmark rides the text ink
-   (figma-flows ruling: main-screen instance is black; blue is brand
+   (figma flows: the main-screen instance is black; blue is brand
    emphasis only). A button only in behavior (New Session shortcut): the
    pointer cursor is the sole affordance — no hover chrome on the mark. */
 .brand {
