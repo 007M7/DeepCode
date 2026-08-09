@@ -315,15 +315,14 @@ jobs:
 
   # The required pull-request Windows signal: the two blocking win32 surfaces
   # (workspace build, production site) execute with real, checksum-verified
-  # Windows Node under Wine on standard hosted Linux. The master
-  # serial-windows job below normally keeps the complete native-kernel
-  # inventory — including the observational portability gates this lane does
-  # not run —
+  # Windows Node under Wine on standard hosted Linux. The independent
+  # windows-native job below keeps the complete native-kernel inventory —
+  # including the observational portability gates this lane does not run —
   # on real windows-2025. This job only provisions runner state (caches,
   # apt); scripts/wine-windows-gates.sh owns the gate logic and is the same
   # script the optional local gate `pnpm run check:windows-wine` runs.
-  # Layout, fidelity limits, and measured timings live in
-  # .agents/notes/implemented/process/2026-07-27-wine-windows-gates-experiment.md
+  # Current topology and fidelity limits live in
+  # .agents/notes/implemented/process/2026-08-08-native-windows-pull-request-ci.md
   windows:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
@@ -422,6 +421,48 @@ jobs:
           mkdir -p "$HOME/wine-debs"
           cp /var/cache/apt/archives/*.deb "$HOME/wine-debs/"
           du -sh "$HOME/wine-debs"
+
+  # Every pull request also gets a real Windows-kernel signal. This job keeps
+  # its own unmasked conclusion but is deliberately absent from
+  # all-checks-passed.needs, so it never delays or changes that required verdict.
+  # See the dual Wine/native pull-request CI decision:
+  # .agents/notes/implemented/process/2026-08-08-native-windows-pull-request-ci.md
+  windows-native:
+    if: github.event_name == 'pull_request'
+    runs-on: windows-2025
+    name: windows node 24 / native complete
+    timeout-minutes: 60
+    env:
+      DSH_GATE_CONCURRENCY: '1'
+      DSH_PUBLINT_CONCURRENCY: '1'
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Enable Developer Mode (symlink support)
+        shell: pwsh
+        run: >-
+          reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock"
+          /t REG_DWORD /f /v "AllowDevelopmentWithoutDevLicense" /d "1"
+
+      - uses: pnpm/action-setup@v4
+        with:
+          dest: ${{ runner.temp }}/setup-pnpm
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.PRIMARY_NODE_VERSION }}
+
+      # Extracting the many-file pnpm store cache is slower than a clean install,
+      # and saving it adds more latency after the gates.
+      - name: Install (immutable)
+        shell: pwsh
+        run: pnpm install --frozen-lockfile
+
+      - name: Run complete native Windows gate inventory
+        shell: pwsh
+        run: pnpm run check:ci:windows-complete
 
   # The hosted reference jobs below are temporarily disabled; the self-hosted
   # standby remains active. Each enabled host executes the complete, unsharded
@@ -681,8 +722,8 @@ jobs:
         with:
           dest: ${{ runner.temp }}/setup-pnpm
 
-      # The Windows lanes deliberately skip the store cache like the required
-      # windows job; an empty cache input disables setup-node's caching.
+      # The benchmark's Windows lanes deliberately skip the store cache like
+      # the independent native Windows job; an empty input disables caching.
       - uses: actions/setup-node@v6
         with:
           node-version: ${{ env.PRIMARY_NODE_VERSION }}
@@ -824,9 +865,10 @@ jobs:
   # Single stable required check for branch protection: require "all checks
   # passed" instead of enumerating matrix legs whose names change as lanes and
   # node versions evolve. Every blocking job in THIS workflow must be listed in
-  # `needs`; observational Windows gates share the required Windows job but are
-  # marked non-blocking inside run-gates. (`needs` cannot reach across workflow
-  # files; e2e.yml stays its own check.)
+  # `needs`. The required Wine job is listed as `windows`; `windows-native` is
+  # deliberately absent so its independent result never delays or changes this
+  # verdict. (`needs` cannot reach across workflow files; e2e.yml stays its own
+  # check.)
   # `if: always()` is load-bearing: without it a failed dependency
   # would SKIP this job, and GitHub counts a skipped required check as passing
   # — so this job always runs and fails on any non-success result, including
