@@ -2,9 +2,9 @@
 
 [English](README.md) | 中文
 
-与触发方式无关的会话反馈，以及面向用户的 `/feedback` 采集。本包导出 `recordFeedback(session, text)`，后者追加一个仅写入日志的 `feedback/record` 事件。该插件通过 [`ctx.commands`](../../ui/commands/README.md) 注册一个全局命令，因此每个已组合的命令适配器都能发现它；随附的 Web 客户端无需模型轮次即可执行。
+与触发方式无关的会话反馈，以及面向用户的 `/feedback` 采集。本包导出 `recordFeedback(session, text)`，后者追加一个仅写入日志的 `feedback/record` 事件。该插件通过 [`ctx.commands`](../../interaction/commands/README.md) 注册一个全局命令，因此每个已组合的命令适配器都能发现它；随附的 Web 客户端无需模型轮次即可执行。
 
-## 命令契约
+## 命令约定
 
 | 输入 | 结果 |
 |---|---|
@@ -15,9 +15,9 @@
 
 ## 本插件做什么、不做什么
 
-`recordFeedback(session, text)` 是不依赖命令的写入路径。它拒绝规范化后为空的文本，并追加 `feedback/record { text }`；其他 UI、钩子或 host 集成无需构造斜杠命令即可调用它。`/feedback` 处理器通过该生产方写入，且不启动任何模型工作。可选的 [`dsh-session-telemetry-otel`](../../telemetry/session-telemetry-otel/) 消费方会观察该事件，但不改变它的采集契约。
+`recordFeedback(session, text)` 是不依赖命令的写入路径。它拒绝规范化后为空的文本，并追加 `feedback/record { text }`；其他 UI、钩子或 host 集成无需构造斜杠命令即可调用它。`/feedback` 处理器通过该生产方写入，且不启动任何模型工作。可选的 [`dsh-session-telemetry-otel`](../../session/session-telemetry-otel) 消费方会观察该事件，但不改变它的采集约定。
 
-反馈文本只出现在一个持久载荷中：`feedback/record`。[`dsh-commands`](../../ui/commands/README.md) 仍会追加通用的 `command/run` / `command/done` 配对，但此定义设置了 `recordInput: false`，因此 `command/run` 会省略 `args`；配对的 `command/done` 只携带结果。三个事件都仅写入日志，不出现在有序 surface、`deriveMessages()` 以及模型请求中。这些追加会启动持久化的常规即时排空，但两个生产方都不会强制 `session/flush`，因此确认文本表示反馈已进入日志，而不表示它已经落盘。被拒绝的空输入只会留下以 `kind: 'error'` 结算的命令配对，不会产生 `feedback/record`。
+反馈文本只出现在一个持久载荷中：`feedback/record`。[`dsh-commands`](../../interaction/commands/README.md) 仍会追加通用的 `command/run` / `command/done` 配对，但此定义设置了 `recordInput: false`，因此 `command/run` 会省略 `args`；配对的 `command/done` 只携带结果。三个事件都仅写入日志，不出现在有序 surface、`deriveMessages()` 以及模型请求中。这些追加会启动持久化的常规即时排空，但两个生产方都不会强制 `session/flush`，因此确认文本表示反馈已进入日志，而不表示它已经落盘。被拒绝的空输入只会留下以 `kind: 'error'` 结算的命令配对，不会产生 `feedback/record`。
 
 权威记录是该事件，而不是命令记录，因为反馈可能来自 `/feedback` 之外的触发方式。让载荷不进入 `command/run`，可避免两条记录携带相同文本。
 

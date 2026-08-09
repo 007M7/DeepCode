@@ -313,7 +313,7 @@ describe('replay anchors and surface folds', () => {
     expect(advanced.surfaceDeltaTokens).toBeGreaterThan(0)
   })
 
-  it('distinguishes explicit empty provenance from absent legacy provenance', () => {
+  it('distinguishes an explicit empty source-event list from an absent legacy list', () => {
     const explicit = Session.create(SessionId('explicit-empty'))
     const legacy = Session.create(SessionId('legacy-absent'))
     appendSuccessfulCall(explicit, header('deepseek-v4-flash'), {
@@ -503,7 +503,7 @@ describe('malformed replay and listener lifecycle', () => {
     )
   })
 
-  it('rejects invalid assistant provenance', () => {
+  it('rejects invalid assistant source-event references', () => {
     const cases: Array<{
       name: string
       appendSource(session: Session): number[]
@@ -553,7 +553,7 @@ describe('malformed replay and listener lifecycle', () => {
     }
   })
 
-  it('rejects repeated and non-earlier assistant provenance', () => {
+  it('rejects repeated and non-earlier assistant source-event references', () => {
     const duplicate = Session.create(SessionId('duplicate-source'))
     duplicate.append('step/start', { turn: 1, step: 1 })
     appendHeader(duplicate, header('deepseek-v4-flash'))

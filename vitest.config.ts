@@ -23,8 +23,8 @@ const windowsUnsupportedPackages = process.platform === 'win32'
       // Bash-requiring suites (a real POSIX shell is unavailable on Windows).
       // The pwsh-requiring suites (pwsh-local, tool-pwsh) deliberately stay
       // INCLUDED: PowerShell ships with Windows, so they run natively here.
-      // Replacing the old 'packages/bash/*' glob with this explicit list also
-      // newly INCLUDES packages/bash/bash (the pure seam package) on Windows.
+      // This explicit list (not a 'packages/bash/*' glob) keeps
+      // packages/bash/bash — the Service Definition package — running on Windows.
       'packages/bash/bash-local',
       'packages/bash/bash-sandbox',
       'packages/bash/tool-bash',
@@ -32,8 +32,8 @@ const windowsUnsupportedPackages = process.platform === 'win32'
       'packages/subprocess/*',
       'packages/pty/pty-local',
       'packages/sandbox/sandbox-local',
-      'packages/sdk/create-sdk',
-      'packages/sdk/helper',
+      'packages/scaffold/create-sdk',
+      'packages/scaffold/helper',
     ]
   : []
 
@@ -83,7 +83,7 @@ const processBoundTests = [
   'packages/subprocess/subprocess-local/tests/spawn.spec.ts',
   'packages/context/time-context/tests/time-context.spec.ts',
   'packages/llm/llm-pi-ai/tests/adapter.spec.ts',
-  'packages/ui/app-boot/tests/app-boot.spec.ts',
+  'packages/boot/app-boot/tests/app-boot.spec.ts',
   'packages/workflow/workflow-workerthread/tests/session.spec.ts',
 ]
 
@@ -148,9 +148,9 @@ export default defineConfig({
         'packages/*/*/src/worker.ts',
         // A killed executable lint-contract test can leave a non-product source probe behind.
         'packages/*/*/src/oxlint-contract-*.ts',
-        // GUI step-1 skeleton (PR #500): client/web UI files whose remaining
-        // branches need a browser-grade harness the jsdom lane doesn't cover
-        // yet. TODO(gui): cover and remove as the client test lane matures.
+        // Client/web UI files whose remaining branches need a browser-grade
+        // harness the jsdom lane doesn't cover yet. TODO(gui): cover and
+        // remove as the client test lane matures.
         'packages/client/ui-trajectory/src/*',
         // Trajectory's compact Markdown projection retains deferred branch coverage.
         'packages/client/ui-primitives/src/markdown/plain-text.ts',
@@ -222,9 +222,9 @@ export default defineConfig({
         // Projection/command round: executor lifecycle branches and the
         // registry's drive tails need the same maturing lanes. TODO(gui):
         // cover and remove with the client test lane above.
-        'packages/ui/commands/src/index.ts',
-        'packages/ui/commands/src/invariant.ts',
-        'packages/session-projection/session-projection/src/index.ts',
+        'packages/interaction/commands/src/index.ts',
+        'packages/interaction/commands/src/invariant.ts',
+        'packages/session/session-projection/src/index.ts',
         ...windowsUnsupportedPackages.map(path => `${path}/src/**/*.ts`),
         ...windowsCoverageExclusions,
         ...pwshCoverageExclusions,

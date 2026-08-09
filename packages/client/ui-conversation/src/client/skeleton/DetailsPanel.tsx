@@ -1,7 +1,6 @@
-// DetailsPanel, P-I minimal form: close button + the selected call's args and
+// DetailsPanel: close button + the selected call's args and
 // result — args as JSON, the result raw except for a terminal-card call, whose
-// Output section is the command's terminal card. The three-段 Switch /
-// Prev-Next stepping / See-in-trajectory are deferred (ledger). Reads the
+// Output section is the command's terminal card. Reads the
 // selection from the shared chat
 // store (conversation writes, this panel reads — the cross-registration
 // share the store seat exists for) and derives the call material from the
@@ -12,6 +11,7 @@ import { CodeBlock } from '@deepseek-ai/dsh-client-ui-primitives'
 import { shallowEqual } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ConversationSnapshot, RunningToolCall, ToolCallBlock, ToolResultNode } from '@deepseek-ai/dsh-client-runtime/client'
 import type { DetailsSlotProps } from '../contract/slots.ts'
+import { findToolCall } from '../chat/tool-node-reader.ts'
 import css from './DetailsPanel.module.css'
 
 /** Full props composed by reference from the contract (automatic shares & injected share). */
@@ -41,21 +41,9 @@ function runningMaterial(call: RunningToolCall): CallMaterial {
 }
 
 function materialFor(s: ConversationSnapshot, callId: string): CallMaterial | null {
-  for (const node of s.nodes) {
-    if (node.kind === 'tool-result' && node.callId === callId) return settledMaterial(node, callId)
-  }
-  const open = s.runningCalls.find(c => c.callId === callId)
-  if (open !== undefined) return runningMaterial(open)
-  // run_code sub-dispatches: the native call-block shapes, so a selected
-  // sub-row resolves through the same material as a native call — the
-  // settled ToolResultNode form, or the RunningToolCall form mid-flight.
-  for (const subs of s.codeDispatches.values()) {
-    for (const sub of subs) {
-      if (sub.callId !== callId) continue
-      return 'kind' in sub ? settledMaterial(sub, callId) : runningMaterial(sub)
-    }
-  }
-  return null
+  const found = findToolCall(s, callId)
+  if (found === undefined) return null
+  return 'kind' in found ? settledMaterial(found, callId) : runningMaterial(found)
 }
 
 function pretty(raw: string): string {

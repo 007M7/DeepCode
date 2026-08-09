@@ -18,6 +18,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
     'trt.panel': { kind: 'single'; scope: 'root'; owner: { label?: string } }
     'trt.chat': { kind: 'single'; scope: 'session' }
     'trt.rows': { kind: 'list'; scope: 'root' }
+    'trt.rows.hole': { kind: 'single'; scope: 'root' }
   }
 }
 
@@ -419,7 +420,7 @@ describe('feature mount and disposal', () => {
     await feature.dispose()
     await feature.dispose() // idempotent
     expect(runtime.slots.entries('trt.rows')).toHaveLength(0)
-    expect(runtime.slots.spec('trt.rows.hole' as never)).toBeUndefined()
+    expect(runtime.slots.spec('trt.rows.hole')).toBeUndefined()
     expect(runtime.ctx.get('feature-service')).toBeUndefined()
     expect(view.queryByTestId('row')).toBeNull()
     await runtime.dispose()

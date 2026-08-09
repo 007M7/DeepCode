@@ -1,7 +1,7 @@
 import type { IApiClient, HostFrame, MuxFrame, RpcRequest } from './api.ts'
 
-/** Reconnect/backoff tunables (deployment-varying — no hardcoded tunables; web-cordis §B.1 lists
- *  these as the future `ctx.connection` plugin Config). All fields optional; defaults below. */
+/** Reconnect/backoff tunables (deployment-varying — no hardcoded tunables; these become the
+ *  future `ctx.connection` plugin's Config). All fields optional; defaults below. */
 export interface ConnectionConfig {
   /** First-retry backoff cap in ms (jittered: actual delay is cap/2..cap). */
   backoffBaseMs?: number
@@ -10,9 +10,9 @@ export interface ConnectionConfig {
   /** Upper bound for the backoff cap in ms. */
   backoffMaxMs?: number
   /** Cap on waiting for both streams' onOpen before onConnected, in ms. The strict handshake
-   *  (audit C2) waits for mux+host stream establishment plus describe; a carrier that never
+   *  waits for mux+host stream establishment plus describe; a carrier that never
    *  fires onOpen (misbehaving proxy) must not wedge the connection forever — on timeout the
-   *  generation proceeds as connected and the live-gap repair path (audit S3) covers stragglers. */
+   *  generation proceeds as connected and the live-gap repair path covers stragglers. */
   streamOpenTimeoutMs?: number
 }
 
@@ -35,7 +35,7 @@ function sleep(ms: number, signal: AbortSignal): Promise<void> {
   })
 }
 
-/** Coarse connection state for the UI (audit C1): 'connected' after each generation's handshake,
+/** Coarse connection state for the UI: 'connected' after each generation's handshake,
  *  'reconnecting' the moment the generation fails (covers the whole backoff+retry span). */
 export type ConnectionState = 'connected' | 'reconnecting'
 
@@ -125,7 +125,7 @@ export class ConnectionController {
       })
 
       try {
-        // Strict readiness handshake (audit C2): describe proves unary reachability, onOpen
+        // Strict readiness handshake: describe proves unary reachability, onOpen
         // proves each physical stream is established before any frame —
         // only then may onConnected fire, so the resync it triggers cannot outrun the
         // subscribed baseline. The timeout guards against a carrier that never fires onOpen

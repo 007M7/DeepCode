@@ -10,7 +10,7 @@ import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent
 
 /**
  * Full-loop integration: a scripted mock model drives the REAL todo_write tool
- * through the agent loop, exercising the same seams a live model would — the
+ * through the agent loop, exercising the same execution paths a live model would — the
  * tool/call + tool/result session events AND the todo/write event the tool
  * appends. Only the model is mocked; the tool and the session log are real.
  */

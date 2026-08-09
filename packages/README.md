@@ -6,7 +6,7 @@ Packages use the `@deepseek-ai/dsh-*` scope. Cordis `Service` subclasses and fun
 
 ## Hierarchy
 
-`packages/<group>/<pkg>/` contains `@deepseek-ai/dsh-<pkg>` packages. **Each group README is the canonical package/ctx-key map.**
+Groups hold `packages/<group>/<pkg>/`; names stay `@deepseek-ai/dsh-<pkg>`. **Group READMEs own package/ctx-key maps.**
 
 | Group | Role | Release expectation |
 |---|---|---|
@@ -16,41 +16,39 @@ Packages use the `@deepseek-ai/dsh-*` scope. Cordis `Service` subclasses and fun
 | [`goal/`](goal/README.md) | Same-session goal persistence and lifecycle | Product — stable surface |
 | [`feedback/`](feedback/README.md) | Human feedback | Product — stable surface |
 | [`llm/`](llm/README.md) | LLM capability family: the abstract service + provider adapters | Product — stable surface |
-| [`subprocess/`](subprocess/README.md) | Subprocess capability family: spawn seam + local process-tree implementation | Product — stable surface |
+| [`e2b/`](e2b/README.md) | E2B providers | POC |
+| [`subprocess/`](subprocess/README.md) | Subprocess capability family: Service Definition + local process-tree provider | Product — stable surface |
 | [`bash/`](bash/README.md) | Bash capability family: executor seam, local impl, model-facing tool | Product — stable surface |
-| [`pty/`](pty/README.md) | Persistent PTY capability family: owner-scoped sessions, local impl, model-facing tools | Product — stable surface |
-| [`code-runtime/`](code-runtime/README.md) | Code-execution capability family: runtime seam for model-written programs + worker-thread backend | Product — stable surface |
+| [`pty/`](pty/README.md) | Persistent PTY capability family: owner-scoped sessions, local implementation, and model-facing tools | Product — stable surface |
+| [`code-runtime/`](code-runtime/README.md) | Code-execution capability family: Service Definition + worker-thread provider + Code Mode Consumer | Product — stable surface |
 | [`sandbox/`](sandbox/README.md) | Process-confinement seam; bwrap/Landlock/Seatbelt backends | Product — stable surface |
 | [`fs/`](fs/README.md) | Filesystem capability family: seam, local impl, model-facing file tools, bash-backed discovery tools | Product — stable surface |
 | [`lsp/`](lsp/README.md) | LSP capability family: seam, generic stdio provider, and the `lsp` tool | Product — stable surface |
 | [`skill/`](skill/README.md) | Skill capability family: the provider registry, local provider, and model-facing catalog/loader | Product — stable surface |
-| [`compact/`](compact/README.md) | Compaction capability family: the abstract seam + a basic backend (tool deferred) | Product — stable surface |
+| [`compact/`](compact/README.md) | Compaction capability family: Service Definition + basic provider + command Consumer | Product — stable surface |
 | [`context/`](context/README.md) | Model-visible request context, including workspace instructions and time context | Product — stable surface |
-| [`subagent/`](subagent/README.md) | Subagent capability family: the provider-registry seam and the model-facing delegation tool | Product — stable surface |
+| [`subagent/`](subagent/README.md) | Subagent capability family: the provider-registry contract and the model-facing delegation tool | Product — stable surface |
 | [`tasks/`](tasks/README.md) | Generic background-task runtime and model-facing `task_*` control tools | Product — stable surface |
-| [`workflow/`](workflow/README.md) | Script seam, worker-thread engine, and model-facing `workflow`/`ralph` tools | Product — stable surface |
+| [`workflow/`](workflow/README.md) | Workflow seam, worker-thread engine, and model-facing `workflow`/`ralph` tools | Product — stable surface |
 | [`web/`](web/README.md) | Web capability family: seam, search/fetch provider impls, and the model-facing web tools | Product — stable surface |
-| [`attachment/`](attachment/README.md) | Attachments | Product — stable surface |
+| [`attachment/`](attachment/README.md) | Durable attachment identity, validation, and local content-addressed storage | Product — stable surface |
 | [`spill/`](spill/README.md) | Spill capability family: storage seam, local impl, tool-result spill policy | Product — stable surface |
 | [`todo/`](todo/README.md) | The model-facing `todo_write` tool | Product — stable surface |
 | [`plan/`](plan/README.md) | Plan collaboration state with a direct entry command and reviewed exit | Product — stable surface |
-| [`timeout/`](timeout/README.md) | Tool-call `tools/execute` deadline enforcement | Product — stable surface |
-| [`guard/`](guard/README.md) | Loop-hygiene advisory repeat-call reminders | Product — stable surface |
+| [`guard/`](guard/README.md) | Loop-hygiene guards: advisory repeat-call reminders + the `tools/execute` deadline enforcer | Product — stable surface |
 | [`bundle/`](bundle/README.md) | Installable `dsh --profile` patch layers | Product — stable surface |
-| [`cordis/`](cordis/README.md) | Cordis runtime integration: self-inspection, temporary Plugins, restricted repository Plugin loading | Product — stable surface |
+| [`self-modification/`](self-modification/README.md) | The agent modifies its own runtime: inspect the live runtime's plugins and services, mount/unmount model-written plugins ([design](../.agents/notes/implemented/feature/2026-07-08-self-referential-cordis-toolset.md)) and restricted repository Plugin loading | Product — stable surface |
 | [`hooks/`](hooks/README.md) | Hook bridges + the shared Claude Code / Codex wire-protocol library | Product — stable surface |
-| [`session-persistence/`](session-persistence/README.md) | Persistence seam + JSONL/SQLite backends | Product — stable surface |
-| [`session-projection/`](session-projection/README.md) | Projection seam: domain fold units serve whole values | Product — stable surface |
+| [`session/`](session/README.md) | Durable session data plane: persistence seam + JSONL/SQLite backends, projection seam, log-backed titles, session reporting | Product — stable surface |
 | [`session-query/`](session-query/README.md) | Session retrieval family: logical corpus, bounded reads, lineage, event relationships, semantic filtering, and SQLite full-text search | Product — stable surface |
-| [`session-title/`](session-title/README.md) | Log-backed session titles: fallback service and opt-in LLM providers | Product — stable surface |
 | [`settings/`](settings/README.md) | User-settings seam + file-backed provider | Product — stable surface |
 | [`credentials/`](credentials/README.md) | Credential-reference seam + env-over-`.env` provider | Product — stable surface |
-| [`telemetry/`](telemetry/README.md) | Session reporting: capture/redact seam, OTel backend | Product — stable surface |
 | [`storage/`](storage/README.md) | Non-session storage hub + backends + domain form | Product — stable surface |
 | [`workspace/`](workspace/README.md) | Workspace entity | Product — stable surface |
-| [`sdk/`](sdk/README.md) | Project SDK tooling | Product — stable surface |
+| [`scaffold/`](scaffold/README.md) | Create/launch/drive project tooling: helper, launcher, initializer, wire protocol with both ends, launcher telemetry | Product — stable surface |
 | [`acp/`](acp/README.md) | Automation-only Agent Client Protocol server | Product — stable surface |
-| [`ui/`](ui/README.md) | JSON-RPC integration, approval/interaction seams, ask-user tool | Product — stable surface |
+| [`interaction/`](interaction/README.md) | Human-collaboration plane: approval/interaction seams, permission preset, commands, ask-user tool | Product — stable surface |
+| [`boot/`](boot/README.md) | Shared app-bin boot glue | Product — stable surface |
 | [`host/`](host/README.md) | Web-GUI host half: API gateway + HTTP route server | Product — stable surface |
 | [`client/`](client/README.md) | Web-GUI browser half: shell, wire, object services, slots, `ui-*` plugins | Product — stable surface |
 | [`experimental/`](experimental/README.md) | Prototypes and internal plugins | Unreleased |
@@ -64,6 +62,6 @@ New packages join existing groups; new groups update their README and this table
 
 The dependency graph is generated: [docs/module-graph.md](../docs/module-graph.md) (`pnpm run gen-module-graph`, freshness-gated in CI).
 
-**Extension plugins depend on interfaces, never the concrete loop.** `dsh-agent-loop` is swappable; UI, hook, and tool plugins use `dsh-agent`. Composition bundles, including `dsh-agent-spine-demo`, may depend on spine plugins. Capabilities split into interface / implementation / consumer packages; see [capability seams](../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md).
+**Extension plugins depend on Service Definitions, never concrete providers.** `dsh-agent-loop` is swappable; UI, hook, and tool plugins use `dsh-agent`. Composition bundles, including `dsh-agent-spine-demo`, may depend on spine plugins. Capabilities separate Service Definition / Service provider / Consumer roles when they evolve independently; see [capability seams](../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md).
 
 Package READMEs cover purpose, APIs, extension points, and [Model Experience](../docs/cookbook/adding-a-package.md#4-write-the-package-readme) unless on the model-agnostic [omission allowlist](../scripts/verify-package-readme-model-experience.ts). They also carry `## Known Limitations and Deferred Work` or use its [allowlist](../scripts/verify-package-readme-limitations.ts).

@@ -130,8 +130,8 @@ describe('layer ladder', () => {
       { source: 'user-env', path: '/home/.dsh/.env', values: { DSH_CRED_TEST: 'older-user-env' } },
     ])
     expect(await ctx.credentials.resolve(KEY)).toEqual({ value: 'stored', source: 'file' })
-    // The old dead end is gone: a key sitting in the user's .env no longer
-    // makes the stored one unwritable.
+    // A key sitting in the user's .env does not make the stored one
+    // unwritable.
     expect(await ctx.credentials.describe(KEY)).toEqual({ configured: true, source: 'file', writable: true })
     await expect(ctx.credentials.set(KEY, 'rotated')).resolves.toBeUndefined()
     expect(await ctx.credentials.resolve(KEY)).toEqual({ value: 'rotated', source: 'file' })

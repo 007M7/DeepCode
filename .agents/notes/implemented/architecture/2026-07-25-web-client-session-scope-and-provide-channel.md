@@ -116,7 +116,7 @@ Slot scope is the closed set `root | session-maybe | session`:
 |---|---|
 | A client-local Intent + materialize (published CAS / the pendingPrompt attach transaction / the before-create chain) | The client is forced to simulate the first half-life the host lacks, breeding a pile of state machinery — published CAS, the attach transaction, partial publication |
 | Host-reserved IDs (a draft Map) | The host merely acknowledges a number; the state machine stays on the client untouched |
-| A host draft Session (a Session without an Agent) | Every host surface that looks up the Agent must fork for drafts; core would need an attachAgent seam plus late-written header cwd |
+| A host draft Session (a Session without an Agent) | Every host surface that looks up the Agent must fork for drafts; core would need an `attachAgent` API plus late-written header cwd |
 | Binding an Agent before cwd (ungrouped) | Overturns the readonly header.cwd "created in" invariant, plus the launch-dir side-effect product trap |
 | Passing session context down through React Context | Plugins should hold one mental model across host and client; the scope mechanism is isomorphic to the host dsh-scope |
 | A `scopeTarget` carrier + fused dispatcher (mirroring the host `agentEvents`) | The host wrapper layer guards the business Agent subject against drifting from the scope key; client events have no subject to guard — the filter on the actx plus cordis primitives covers every need |
@@ -133,4 +133,4 @@ Slot scope is the closed set `root | session-maybe | session`:
 - The client object layer converges to a wire mirror: session identity, lifecycle, and capability adjudication all defer to the host entity — the input system (the next layer) always faces a session with a real Agent, and providers like slash/skill uniformly address by sessionId directly.
 - Blank-session governance takes zero dedicated mechanisms: state rides one derived bit, visibility rides the unified list projection (only the current blank shows, as `New Session`), reclamation rides lazy persistence's existing contract (evaporation on restart), and the ordinary ceiling rides same-Workspace reuse.
 - The cost: the id→ctx handoff discipline and provide's Concurrent discipline are conventions rather than type-enforced, pinned by review and tests; fully disabled input while no workspace is picked is an experience cost the product surface accepts (the price of the single state axis).
-- Known gaps: approval/question recovery across prune (TODO); model selection returns in live-mutation shape (the host `selectModel` trio is ready-made, awaiting its own branch).
+- Known gaps: approval/question recovery across prune (TODO); model selection returns in live-mutation shape (the host `selectModel` trio is ready-made, its client consumer not yet built).

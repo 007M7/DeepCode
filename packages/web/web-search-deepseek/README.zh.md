@@ -10,7 +10,7 @@
 
 Exa 和 Perplexity 提供专用搜索端点，DeepSeek 则没有。该提供方改为发起一次携带 `web_search` 服务器工具的**完整 Messages 模型调用**，因此一次搜索会消耗完整模型轮次的延迟与 token，比纯检索端点更重。DeepSeek 在服务器侧执行搜索，返回**结构化** `web_search_tool_result` 块；提供方解析这些块，**绝不会从模型文本中抓取 URL**。
 
-**严格模式**：如果响应不含 `web_search_tool_result` 块（未触发原生搜索），提供方会抛出 `WebError` `WEB_PROVIDER_ERROR`，而非降级为文本抓取；这种行为诚实且可诊断。
+**严格模式**：如果响应不含 `web_search_tool_result` 块（未触发原生搜索），提供方会抛出 `WebError` `WEB_PROVIDER_ERROR`，而非降级为文本抓取。
 
 它复用 `DEEPSEEK_API_KEY` 凭据引用（不增加密钥），但**不会**复用 `$DEEPSEEK_BASE_URL`：搜索端点使用 Anthropic 兼容基址（`https://api.deepseek.com/anthropic/v1`），不同于大语言模型（LLM）适配器使用的 chat-completions 基址（`https://api.deepseek.com`）。已挂载的凭据服务具有权威性；没有该服务时，提供方会回退到启动进程的环境变量。每次搜索都会解析该引用，因此在 Web 的 Models 页中存储或轮换的密钥无需重启，即可用于下一次调用。
 
@@ -79,6 +79,6 @@ DeepSeek 不返回该提供方可作为 `content` 信任的提供方生成答案
 ## 已知限制与暂缓事项
 
 - **一次搜索需要完整的 Messages 模型轮次**：会产生延迟与生成 token，并且最多执行 `maxUses` 次服务器侧搜索；DeepSeek 不公开专用检索端点。
-- **动态凭据的可用性在操作内部解析**：同步的 `available()` 契约可以确认解析器存在，但无法查询异步凭据存储。因此，选中的无密钥提供方会使搜索以 `WEB_PROVIDER_CREDENTIAL_MISSING` 失败；稳定的 `web_search` schema 仍保持注册。调用方取消在本地与该预检存在竞态，但无法强制任意凭据后端自行停止工作。
+- **动态凭据的可用性在操作内部解析**：同步的 `available()` 约定可以确认解析器存在，但无法查询异步凭据存储。因此，选中的无密钥提供方会使搜索以 `WEB_PROVIDER_CREDENTIAL_MISSING` 失败；稳定的 `web_search` schema 仍保持注册。调用方取消在本地与该预检存在竞态，但无法强制任意凭据后端自行停止工作。
 - **超量返回的源仍消耗 token**：协议没有结果数量旋钮，`maxResults` 只能由 seam 在事后截断。
 - **未引用的结果没有 `snippet`**：只有 `text` 块中的引用（`cited_text`）匹配其 URL 时，源才会获得 snippet。

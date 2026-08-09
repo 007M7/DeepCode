@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-客户端 cordis 启动与不依赖 React 的对象服务：SlotsService 包装 SlotCore 并提供 renderer 数据源；SessionsService 拥有 Session 对象以及 Chat 所需的列表、scope 和事件窗口状态；SessionHistoryService 为检查类消费方惰性拥有彼此独立的原始历史账本，先加载当前尾部，并仅在消费方请求时向前补入一页更早历史。每份历史快照都会公开原始窗口的绝对基准序号，因此即使该页没有新增任何 surface 可见节点，消费方仍能检测到向前补页。WorkspacesService 依赖 SessionsService，拥有 Workspace 对象、列表／操作、默认目标派生，以及 New Session 空会话复用入口（`connectWorkspace`）。运行时把共享 Host 流分发给 Session、Workspace 和已激活的历史数据所有者，不让检查状态经过 Session 或 SessionManager，并把注册表失效帧桥接为类型化 ctx 事件（`commands/changed`、`settings/changed`、`credentials/changed`、`models/changed`），使各表面缓存无需触碰流即可重拉。客户端会话一律由 Host 创建（一次 `session.create` 同时产生 Session、agent（智能体）和 cwd）；客户端不持有任何实体化之前的会话状态——agent scope（host dsh-scope 的客户端镜像，以 agent/session 共用 id 为键）在会话行进入列表镜像时创建，并随 prune 销毁。契约：api-contracts v3 §4。每个 `Session` 持有一个通用的 `ProjectionValueStore`，由历史记录尾部的 `projections` 块播种，并经 `session/projection` 帧按 seq 高者胜更新；领域键（含 `todos`）经 `projections.faceOf`／`useProjection` 读取，不经 `ConversationSnapshot`。该 store 还会通过 `SessionSummary.projectionValues` 发布一份引用稳定的完整值映射，使全局列表消费方无需为每个会话创建订阅，即可复用同一组投影。
+客户端 cordis 启动与不依赖 React 的对象服务：SlotsService 包装 SlotCore 并提供 renderer 数据源；SessionsService 拥有 Session 对象以及 Chat 所需的列表、scope 和事件窗口状态；SessionHistoryService 为检查类消费方惰性拥有彼此独立的原始历史账本，先加载当前尾部，并仅在消费方请求时向前补入一页更早历史。每份历史快照都会公开原始窗口的绝对基准序号，因此即使该页没有新增任何 surface 可见节点，消费方仍能检测到向前补页。WorkspacesService 依赖 SessionsService，拥有 Workspace 对象、列表／操作、默认目标派生，以及 New Session 空会话复用入口（`connectWorkspace`）。运行时把共享 Host 流分发给 Session、Workspace 和已激活的历史数据所有者，不让检查状态经过 Session 或 SessionManager，并把注册表失效帧桥接为类型化 ctx 事件（`commands/changed`、`settings/changed`、`credentials/changed`、`models/changed`），使各表面缓存无需触碰流即可重拉。客户端会话一律由 Host 创建（一次 `session.create` 同时产生 Session、agent（智能体）和 cwd）；客户端不持有任何实体化之前的会话状态——agent scope（host dsh-scope 的客户端镜像，以 agent/session 共用 id 为键）在会话行进入列表镜像时创建，并随 prune 销毁。每个 `Session` 持有一个通用的 `ProjectionValueStore`，由历史记录尾部的 `projections` 块播种，并经 `session/projection` 帧按 seq 高者胜更新；领域键（含 `todos`）经 `projections.faceOf`／`useProjection` 读取，不经 `ConversationSnapshot`。该 store 还会通过 `SessionSummary.projectionValues` 发布一份引用稳定的完整值映射，使全局列表消费方无需为每个会话创建订阅，即可复用同一组投影。
 
 ## Slot 声明注入
 
@@ -34,19 +34,23 @@ SlotsService 分别为 renderer 提供 `useSessions` 与 `useWorkspaces` 的裸 
 
 `ConversationSnapshot.queue` 是 Host 提供的 `agent.inbox.nextTurn` 权威瞬态快照；待处理的 next-step steering（中途引导）不进入此投影。每行携带其 `MessageId`、所有内容块均为文本时的完整可编辑文本，以及扁平化预览。Host 根据持久 `agent/inbox/spliced` 变更派生完整 `session/queue` 快照，并在重连时发送基线；面向单条消息的 `agent/inbox/inserted`、`claimed` 与 `discarded` 通知不用于重建该投影。`Session.updateQueue()` 经 Host 侧 `Inbox.splice()` 发送编辑／移除操作，客户端不做乐观变更，因此下一份 Host 快照是唯一可见的提交结果，claim 竞态则会返回 `queue-item-not-found`。
 
-## 面向人的 transcript（文本记录）
+## Conversation 组装
 
-`ConversationSnapshot.nodes` 是面向人的 transcript，不是模型 surface。`TranscriptAdapter` 按日志顺序投影原始窗口。每个 append 来源的 surface 事件（`isAppendSurfaceEvent`）落在它自己的日志位置上，每次落地的压缩（compaction）检查点还会贡献一个 `CompactionSummaryNode` 标记；适配器从不查询 surface 顺序。`SteeringHistory` 会重放该窗口中的持久 `agent/inbox/spliced` 记录：用户来源的消息从 `next-step` 被领取，并以相同身份落成 `user/message` 时，会投影为 `SteeringMessageNode`；从 `next-turn` 领取的消息仍是用户节点，非用户来源的 next-step 输入仍是上下文。`ConversationSnapshot.turnEnds` 把该窗口中的每个已完成轮次映射到其 `turn/end` seq；它独立于 transcript 保留轮次完成状态，使呈现层能够在启用操作前要求存在真实边界。于是一次落地的压缩会保留它在模型侧遮蔽掉的对话：标记报告模型从哪里开始看不见那段历史，而不是把它抹掉。仅模型可见的 replacement 副本不进入记录：被裁剪的 `tool/result` 和重新生成的 `assistant/message` 只为模型重写一个节点，不标记任何边界。检查点是携带压缩 seam 插件来源、且**替换**了一段 surface 范围的 `user/message`；一条 append 的插件来源 `user/message` 是注入上下文，不是压缩。每个上下文节点还携带一份 `provenance` 视图：`contextProvenance()` 只读取持久来源，据此判定该行是 `inject`（注入）还是跨会话的 `recall`（召回），并用该来源已经记录的指令文件路径、被引用会话标题或插件 id 命名其生产者。客户端不保存任何插件 id 表，因此重命名或新挂载的生产者无需客户端发版即可保持可辨识，恢复的会话日志与外部日志的投影结果和实时会话完全一致；没有可读 kind 的来源则降级为无名注入。与之并列的 `contextForm()` 读取生产方声明的 `ContextForm`，这是相互独立的第二根轴：`kind` 说明上下文由谁产生，`form` 说明它是何种形态的信息，因此多个生产方可以共用一种形态。本 UI 版本不呈现的形态投影为 null，按 opaque 渲染。适配器的插件字面量通过对无 cordis 的 [`dsh-compact/checkpoint`](../../compact/compact/README.md) 叶子做仅类型导入，钉在压缩 seam 自己的声明上：在那里改名会让此处 `tsc` 失败；而对该包（package）做**值**导入会被客户端纯度门禁拒绝，包的**根**即便作为类型也无法到达（它会到达 `dsh-session` 的根，其 `Context` 合并会让 host 的 `sessions` 与本程序的冲突）。
+每个 `Session` 都把连续事件窗口交给 `ConversationNodeAssembler`。插件注册业务 Definition，把单个事件映射为稳定的 `{kind, id}`，在唯一 start 事件处创建 State，折叠有关联的 update，再为已注册的视图目标构造最终节点。Assembler 负责 Context 索引、只读前序 Context 查询，以及引用稳定的 Turn/Step Location 索引。实时 append 只对每个 Definition 求值一次，并且只更新命中的 Context；加载更早分页时保留已有 Context 与节点身份，只匹配新 prepend 的事件，并重放前序依赖或 Location 事实发生变化的 Context。完整替换仅用于 open、resync 和 gap repair。
 
-由于投影按日志顺序，节点数组天然按 seq 单调：仅日志的 `command/run` / `command/done` 节点按 seq 插入，`Session` 按分数 seq 归并被打断的冻结节点，而检查点所引范围落在窗口之外的窗口会渲染出标记且不打印任何日志。标记的摘要文本、被替换条目数量和估算的被遮蔽 token 数量都来自检查点的 `compact/summary` 溯源；窗口切分把溯源留在窗口外时这些字段不可用，后续补上溯源的分页会解析出它们。`CommandNode.outcome.sourceEventSeq` 保留成功命令对该摘要事件的显式引用，使呈现层能够配对 `/compact` 与其检查点，而无须解析结算文案或假定两行相邻。性能契约：一次追加最多物化一个节点，并且仅在加入该节点时复制投影；不改变任何节点的事件保持上一次的数组引用（分片风暴零成本），未变化的节点保持其对象标识。
+Definition 作者只根据当前事件完成匹配，为每条关联事件提供稳定业务 id，并保证 update 能按日志 `seq` 回放；renderer 只消费最终 Node data 与受限 Location value，不扫描 Session 或 Chat 集合。完整注册和分页路径见 [Conversation Node 实操手册](../../../docs/cookbook/adding-a-conversation-node.md)。
+
+`ui-conversation` 注册内建 Chat Definition 与 keyed Chat snapshot builder。append 来源的 user、assistant 和 Tool result 构成人类可见记录；仅供模型使用的 replacement 副本不进入 Chat，compaction 检查点除外，它会成为独立标记，并在更早分页补齐 summary 溯源后更新。持久 inbox splice Context 能把 next-step 用户消息判定为 steering，无须让 inbox 状态成为 Session 特例。上下文消息保留生产者 provenance 与 form。StatsLine 读取 `ConversationSnapshot.chat.legacy.nodes`；Session 则把该 legacy slice 镜像到顶层 `nodes`、`partial` 和 `runningCalls` 公共兼容字段，无须运行第二套业务 fold。Trajectory 不消费这两种兼容表面；在它获得独立注册 target 之前，已激活的 `session-history` inspection 继续维护独立 fold。
+
+Chat builder 为每个 Session 保留一个 mutable keyed store。内容更新只通知受影响的 node key；结构变化才重建顺序和 Location 成员关系；prepend 只增加行，不替换既有 keyed value。每个 Assistant chunk 都会更新 Definition State，但最多每个 animation frame 请求一次物化；final message 与 Turn/Step 关闭会立即发布。参见 [Client Tool 展示所有权决策](../../../.agents/notes/implemented/architecture/2026-08-08-client-tool-presentation-ownership.md)。
 
 ## 请求检查
 
 `SessionHistoryInspection.requests` 是一条按时间顺序排列、以用途为判别字段的提供方请求流。助手请求始终携带数值型 `turn` 与 `step`；压缩请求携带 `step: 0`，其 `turn` 所有者可以是 `null`。这个 null 所有者表示手动压缩独立运行在两个轮次之间，并不表示它属于任一相邻轮次。`session/end-seed` 边界会在边界时刻将未匹配的压缩请求以错误状态结束，错误固定为 `Compaction was interrupted before completion.`；后续 start 会投影为独立请求，而不会覆盖这项遗留的未匹配请求。
 
-## Code Mode 子调用索引
+## Code Mode 子调用树
 
-`ConversationSnapshot.codeDispatches` 按父调用的 callId 和启动顺序，用原生调用块形状组织一个 `run_code` 调用的子调用：`tool/code-dispatch-start` 事件落成 `RunningToolCall` 形状（行组件从该形状推导运行中的转圈状态），其 `tool/code-dispatch` 完结事件原位替换为 `ToolResultNode` 形状，`callTime` 携带成对 start 事件的时间。start 落在回放窗口之外的完结事件则直接追加，`callTime: null`（耗时未知——绝不伪造零耗时）。live mux 帧与历史回放构建相同的索引；子调用永不进入 transcript 的 `nodes` 流；无关快照交换不会改变每个父调用对应的数组引用和映射引用，两者均保持 memo 稳定。
+每个 `ToolCallBlock` 都通过 `subCalls` 按启动顺序递归拥有自己的子调用。Chat 的 Tool Definition 按 call id 关联 root call 与 result，把 Code Dispatch 的 start/settlement 记录折叠进该 root Context，并投影为一棵 keyed 递归树；child call 不会成为独立 Chat root。start 落在已加载窗口之外时，其 settlement 仍以 `callTime: null` 渲染。一次 child 更新只复制其祖先链，因此未变化的 sibling 保持对象身份。会引入环或超过固定 256 层深度上限的边会被消费，但不会修改树。独立的 Trajectory history fold 仍通过 Runtime 的 `ToolCallTree` 生成同一种嵌套数据契约。
 
 ## Session 标题投影
 
@@ -54,7 +58,7 @@ SlotsService 分别为 renderer 提供 `useSessions` 与 `useWorkspaces` 的裸 
 
 ## 模型重试投影
 
-Session 对象会在事件 wire 边界依据生产方的完整字段契约，验证由插件负责、按提供方路由的 `llm/retry` 载荷，包括计时器、整数、状态、提供方延迟和非空诊断字段的边界。有效事件会移除对应失败步骤的流式输出片段，并在该事件的序列位置插入一条持久的重试提示。该提示在后续重试轮次开始前为 `scheduled`；源轮次中止或被 dispose 时，会将该提示标记为 `cancelled`，重试轮次则会将其标记为 `started`。normal mode 提示携带其有限上限；always mode 提示则保持显式无界。没有重试的终态 `turn/end` 错误会从持久消息与可选错误码投影出一个 `turn-error` 节点；AUTH 投影会把可能回显凭据片段的提供方文案替换为 `API key is invalid`，原始诊断仍保留在会话日志中。进入重试的失败则只保留该次尝试的重试提示。窗口重建与历史回放应用相同的投影，因此刷新既不会让已丢弃的分片重新出现，也不会丢失终态失败反馈。可见但尚未定稿的输出会在终态错误旁冻结为中断的 assistant 节点。
+Host 所属的 LLM retry invariant 会在持久追加边界验证按提供方路由的 `llm/retry` 与 `llm/retry-started` 记录，包括标识、顺序、计时器、整数、状态、提供方延迟和非空诊断字段约定。客户端的 Retry、Assistant 与 Turn Error Definition 把这些记录和 Assistant、Turn／Step 事件一起折叠：失败步骤的流式输出片段会被移除，并在 retry 事件的序列位置插入一条持久重试提示。该提示在匹配的 started 记录到达前为 `scheduled`；如果所属 Step 或 Turn 先关闭，则标记为 `cancelled`，started 记录到达后则标记为 `started`。normal mode 提示携带其有限上限；always mode 提示保持显式无界。没有重试的终态 `turn/end` 错误会从持久消息与可选错误码投影出一个 `turn-error` 节点；AUTH 投影会把可能回显凭据片段的提供方文案替换为 `API key is invalid`，原始诊断仍保留在会话日志中。进入重试的失败只保留该次尝试的重试提示。窗口重建与历史回放使用同一组 Definition，因此刷新既不会让已丢弃的分片重新出现，也不会丢失终态失败反馈。可见但尚未定稿的输出会在终态错误旁冻结为中断的 Assistant 节点。
 
 ## 会话 fork
 
@@ -76,4 +80,4 @@ Session 对象会在事件 wire 边界依据生产方的完整字段契约，验
 
 - **`loader.unload` 是 stub**：它会抛出 not-implemented；客户端没有从 fiber dispose 到注册与样式移除的卸载链。
 - **scope 拆卸由阶段驱动，目前只能有一个占用者**：已 staged 的会话精确跟随 `list.current`（staging 就是打开信号：事件窗口打开 ⟺ 会话位于 stage）；在 staged 状态下被移除的会话，其 scope 会冻结保留，直到 stage 转向其他会话，而非直到真实观察者数量降为零。解析（`binding()`／`scope()`）只是纯寻址，可安全用于渲染；渲染层经 `currentProvideInfo` observable 读取当前 bundle。并发 pane 落地时，staged 状态可以扩展为多 pane 列表。
-- **插件组合包从该包导入值时必须使用 `/client` 子路径**：裸包名不在 loader externals 表中，会内联第二个模块实例；其私有 scope-tag Symbol 永远无法匹配。这是空状态 P0 的事故复盘（postmortem）所记录的问题。
+- **插件组合包从该包导入值时必须使用 `/client` 子路径**：裸包名不在 loader externals 表中，会内联第二个模块实例；其私有 scope-tag Symbol 永远无法匹配。

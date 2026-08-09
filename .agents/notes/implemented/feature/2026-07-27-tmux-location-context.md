@@ -52,7 +52,7 @@ Unit tests pin: first-step injection and source/surface metadata; the `$TMUX_PAN
 
 - **Push from a tmux hook / background watcher** — rejected: requires installing hooks in the user's tmux and a background process with teardown, to gain mid-step freshness that per-turn context does not need.
 - **Run every step** — rejected: location is stable within a turn; re-querying adds token cost without new information. Gating on `step === 1` yields per-turn readings.
-- **Raw `child_process`** — rejected: bypasses the sandbox/policy seam and hand-rolls subprocess code the `ctx.bash` executor already owns.
+- **Raw `child_process`** — rejected: bypasses the sandbox policy path and hand-rolls subprocess code the `ctx.bash` executor already owns.
 - **Include pane/window pixel sizes** — rejected: sizes churn on every resize and add noise; the layout tree already conveys structure.
 - **Scrape sibling panes with `capture-pane`** — rejected: large, noisy, and privacy-sensitive; out of scope for "own location".
 - **Dynamic system-prompt section** — rejected: replacing a value erases the earlier readings behind prior reasoning and is not reconstructable; one durable attributed message records each location where it became visible.

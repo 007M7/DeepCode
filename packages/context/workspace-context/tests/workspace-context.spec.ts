@@ -75,6 +75,14 @@ class RecordingFileSystem extends FileSystem {
     return { targetKey: FsTargetKey(absolute), displayPath: absolute }
   }
 
+  override processPath(target: FsTarget): string { return String(target.targetKey) }
+
+  override fileUrl(target: FsTarget): string { return `file://${target.targetKey}` }
+
+  override contains(parent: FsTarget, child: FsTarget): boolean {
+    return child.targetKey === parent.targetKey || String(child.targetKey).startsWith(`${parent.targetKey}/`)
+  }
+
   override async stat(target: FsTarget, signal?: AbortSignal): Promise<FsInfo | undefined> {
     if (signal !== undefined) this.signals.push(signal)
     signal?.throwIfAborted()
@@ -188,11 +196,15 @@ function stubAgent(cwd?: string, seed: SessionEvent[] = []): Agent {
 }
 
 function stubToolExecution(
-  input: Omit<ToolExecution, 'token'> & { token?: ToolExecutionToken },
+  input: Omit<ToolExecution, 'token' | 'rootCallId'> & {
+    token?: ToolExecutionToken
+    rootCallId?: ToolExecution['rootCallId']
+  },
 ): ToolExecution {
   return {
     token: input.token ?? Symbol('workspace-context-test-execution') as ToolExecutionToken,
     ...input,
+    rootCallId: input.rootCallId ?? input.callId,
   }
 }
 
@@ -563,7 +575,7 @@ describe('workspace context instruction discovery', () => {
     const emptyHome = await tempRepo()
     // Isolate the default-home fallback: blank DSH_HOME is treated as unset, and
     // HOME points at an empty dir so the default ~/.dsh holds no global scope.
-    // Symlinks are now followed, so a real ~/.dsh/AGENTS.md would otherwise leak in.
+    // Symlinks are followed, so a real ~/.dsh/AGENTS.md would otherwise leak in.
     vi.stubEnv('DSH_HOME', '')
     vi.stubEnv('HOME', emptyHome)
     try {

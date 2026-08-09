@@ -10,7 +10,7 @@
 
 组合包名称先从 dsh 安装解析，再从 profile 目录解析。因此内置组合包（`@deepseek-ai/dsh-base`、`@deepseek-ai/dsh-web-app`、`@deepseek-ai/dsh-headless`）总是来自与正在运行的 `dsh` 相同的安装；树外组合包来自 profile 由 pnpm 管理的 `node_modules`。任何 patch 行中的裸插件 `name` 通过 profile 目录的 Node 父目录逐级查找解析，该查找可达到持续维护的安装后备目录 `$DSH_HOME/profiles/node_modules`（安装的应用和组合包所依赖的每个包对应一个符号链接，每次启动时修复）。
 
-`web` 和 `headless` profile 首次使用时会从随附模板自动初始化（`web`：base + web-app；`headless`：base + web-app + headless）。其他缺失的 profile 会显式报错，并提示运行 `dsh plugin --profile <name> add <package>`。
+`web` 和 `headless` profile 首次使用时会从随附模板自动初始化（`web`：base + web-app；`headless`：base + headless）。加载时，与安装所管理的 headless 元组（base + web-app + headless）完全一致的列表会规范化为随附模板；包含额外项、缺少项或调整过顺序的组合包列表由用户拥有，保持不变。其他缺失的 profile 会显式报错，并提示运行 `dsh plugin --profile <name> add <package>`。
 
 Profile 启动不接受位置参数任务。因此，挂载了一次性运行器行（`headless-runner`）的 profile 会显式报错，并提示规范命令 `dsh run --profile <name> "<task>"`，而不会触发该行原始的必填字段错误。
 
@@ -21,13 +21,13 @@ dsh --profile web --dump-default-config
 dsh --profile web --patch ./extra.yml --dump-config
 ```
 
-`--dump-default-config` 只打印组合包各层；`--dump-config` 额外加上 profile 的 `cordis.patch.yml`、home 级的 `$DSH_HOME/cordis.patch.yml` 和 `--patch` overlay。两者都会按层打印来源注释；`!!js` 表达式保持未求值，找不到目标的 patch 会报告到 stderr。
+`--dump-default-config` 只打印组合包各层；`--dump-config` 额外加上 profile 的 `cordis.patch.yml`、home 级的 `$DSH_HOME/cordis.patch.yml` 和 `--patch` overlay。两者都会打印注释，标明每行由哪个文件提供，以及哪些 overlay 修改过它；`!!js` 表达式保持未求值，找不到目标的 patch 会报告到 stderr。
 
 ## 一次性运行
 
 `dsh run [--profile <name>] [--patch <path>...] <task...>` 会用空格拼接任务参数，拒绝缺失或空白任务，并让 `--profile` 默认为 `headless`。可重复使用的 `--patch` overlay 与 profile 启动的 overlay 位于同一层。所选的自定义 profile 必须挂载 `headless-runner`；否则启动器会在启动前失败，并在诊断中指明缺少该行。
 
-启动器把任务文本 patch 进运行器行，运行器再通过进程内 API 载体驱动一个全新的持久化会话，在 stdout 打印最终 assistant 文本，并在轮次完成时以 0 退出，否则以 1 退出。到达 idle 边界时，运行器会等到 mux 消费方观察到会话的最终事件序号，再生成输出与退出原因。会话的 Web 宿主运行在 OS 分配的端口上并公布到 stderr，因此该次运行可在浏览器中观察。
+启动器把任务文本 patch 进运行器行。Loader 结算后，运行器读取共享的 `ctx.agentDefaultModel` 默认值，通过 `ctx.agents` 创建一个全新的持久化 Agent（智能体），提交任务、等待完全停稳并对 Session 执行 flush，再从其持久化事件区间中推导最后一个非空 assistant 文本与最终 `turn/end` 原因。它在 stdout 打印文本，并在原因为 `completed` 时以 0 退出，否则以 1 退出。随附 headless profile 不挂载 ApiProxy、Host、HTTP 服务器、Web 运行时或浏览器客户端；成功运行不会向 stderr 写入任何内容，也不会打开监听端口。
 
 ## 插件管理
 
@@ -61,7 +61,7 @@ dsh web --dump-config
 
 `DSH_TOOLS_MODE` 为进程选择 `native`、`code` 或 `both`；其他值会导致启动失败。[`config/core-web.cordis.yml`](../config/core-web.cordis.yml) 是可选的 RL 兼容 `--patch` overlay：它固定使用 `native` 模式，仅将 `DSH_SYSTEM_PROMPT` 或 `You are a helpful software engineer assistant.` 渲染为系统提示词，禁用 Workspace 指令与所有 Web 运行时提示词贡献，并且在保留随附宿主、浏览器、workspace、持久化和权限组合的同时，仅暴露持久 `bash` 和 `str_replace_editor`。
 
-`DSH_SYSTEM_PROMPT` 会传给系统提示词的 [`persona`](../../../packages/core/system-prompt/README.md#config)：完整的 `{{…}}` 分组遵循该契约的严格变量插值规则，且无法转义为字面花括号；任何已设置的值（包括空字符串）都具有权威性，因此空值会移除系统提示词，只有未设置该变量时才会选择后备值。
+`DSH_SYSTEM_PROMPT` 会传给系统提示词的 [`persona`](../../../packages/core/system-prompt/README.md#config)：完整的 `{{…}}` 分组遵循该约定的严格变量插值规则，且无法转义为字面花括号；任何已设置的值（包括空字符串）都具有权威性，因此空值会移除系统提示词，只有未设置该变量时才会选择后备值。
 
 ## 共享部署行为
 
@@ -69,7 +69,7 @@ dsh web --dump-config
 
 会话事件默认作为 OTLP/HTTP 日志流式发送。`DSH_TELEMETRY_OTLP_URL` 选择其他 collector。任何非空 `DSH_TELEMETRY_DISABLED` 都会在启动前禁用遥测配置行。随附基础配置没有遥测脱敏规则，因此导出的记录可能包含消息文本、工具参数与结果以及 workspace 路径；该部署决策由[遥测 Agent Note](../../../.agents/notes/implemented/feature/2026-07-31-web-telemetry-default-mount.md)负责。
 
-空 `repository-plugins` 行让 profile 的 patch 层能够挂载已准备的不可变 repository Plugin generation。参见 [repository Plugin 契约](../../../packages/cordis/repository-plugin/README.md#standalone-app-configuration)。CLI 还随附 `@deepseek-ai/dsh-mcp-client` 作为供 patch 层使用的依赖，但默认不启用 MCP 服务器，因为每条服务器命令都是 agent（智能体）沙箱之外的受信任可执行代码。
+空 `repository-plugins` 行让 profile 的 patch 层能够挂载已准备的不可变 repository Plugin generation。参见 [repository Plugin 约定](../../../packages/self-modification/repository-plugin/README.md#standalone-app-configuration)。CLI 还随附 `@deepseek-ai/dsh-mcp-client` 作为供 patch 层使用的依赖，但默认不启用 MCP 服务器，因为每条服务器命令都是 agent（智能体）沙箱之外的受信任可执行代码。
 
 ## 源码启动器
 

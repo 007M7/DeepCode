@@ -8,10 +8,29 @@ import { SessionsService } from './sessions/service.ts'
 import type { SessionListState } from './sessions/service.ts'
 import { SessionHistoryService } from './session-history/service.ts'
 import { WorkspacesService } from './workspaces/service.ts'
-import type { ConversationSnapshot, RunningToolCall, ToolResultNode } from './sessions/conversation.ts'
+import type { ConversationSnapshot } from './sessions/conversation.ts'
 import type { UseProjection } from './sessions/projection-store.ts'
+import { ConversationEventRegistry } from './conversation/event-registry.ts'
+import { ConversationViewRegistry } from './conversation/view-registry.ts'
+
+export { isAppendSurfaceEvent, isReplacementSurfaceEvent } from '@deepseek-ai/dsh-session/surface'
 
 export { SlotsService } from './slots.ts'
+export { ConversationEventRegistry } from './conversation/event-registry.ts'
+export { ConversationViewRegistry } from './conversation/view-registry.ts'
+export { ConversationNodeAssembler } from './sessions/conversation-assembler.ts'
+export { ConversationLocationIndex } from './sessions/conversation-location-index.ts'
+export { conversationContextKey } from './contract/conversation.ts'
+export type {
+  ChatConversationViewNode, ConversationContextReader, ConversationEventInput,
+  ConversationLocationData, ConversationLocationDataScope, ConversationLocationDataStore,
+  ConversationStepDataMap,
+  ConversationLocation, ConversationMatch, ConversationMatchResult,
+  ConversationNodeContext, ConversationNodeDefinition, ConversationPreviousContext,
+  ConversationPublication, ConversationTimelineSnapshot, ConversationTurnDataMap, ConversationViewBuilder,
+  ConversationViewDefinition, ConversationViewNode, StepLocation, TurnLocation,
+} from './contract/conversation.ts'
+export type { ConversationRuntime } from './sessions/conversation-assembler.ts'
 export type { RootOwnerProps } from './slots.ts'
 export { SessionCreateError, SessionsService, scopeOf, workspaceTitleOf } from './sessions/service.ts'
 export { SessionHistoryService } from './session-history/service.ts'
@@ -49,11 +68,17 @@ export type {
 } from './contract/store.ts'
 export type {
   AssistantBlock, AssistantMessageNode, AssistantProvenanceView, AssistantRequestConfig,
-  AssistantTiming, CodeSubCall, CommandNode, CompactionSummaryNode, ComposerPhase,
+  AssistantTiming, ChatLocationNodeIndex, ChatNodeStore, ChatSnapshot,
+  CommandNode, CompactionSummaryNode, ComposerPhase,
   ContextMessageNode, ConversationNode, ConversationSnapshot, ModelRetryNode, QueuedMessage,
-  RunningToolCall,
-  SteeringMessageNode, TodoItem, ToolResultNode, TurnErrorNode, UnknownSurfaceNode, UserMessageNode,
+  LegacyConversationSlice, PartialAssistant, RunningToolCall,
+  SteeringMessageNode, TodoItem, ToolCallBlock, ToolResultNode, TurnErrorNode, UnknownSurfaceNode, UserMessageNode,
 } from './sessions/conversation.ts'
+export { EMPTY_CHAT_SNAPSHOT, toAssistantBlock, toAssistantBlocks } from './sessions/conversation.ts'
+export { emptyAssistantBlock } from './sessions/partial.ts'
+export { isTokenDelta } from './sessions/assistant-timing.ts'
+export { contextForm, contextProvenance } from './sessions/context-provenance.ts'
+export { displayFailureMessage } from './sessions/failure-display.ts'
 export type {
   ConversationContext, ConversationContextOriginKind,
 } from './sessions/conversation-context.ts'
@@ -69,7 +94,8 @@ export { PendingWait } from './sessions/pending.ts'
 export type {
   PendingInteraction, PendingInteractionStatus, PendingKind, PendingPayloads,
 } from './sessions/pending.ts'
-// Projection value store (session-projection RFC, push model): host-computed
+// Projection value store (push model; see the session-projection subsystem
+// page, docs/subsystems/session-projection.md): host-computed
 // whole values per key; domains ship projection support with zero client code.
 export type {
   ProjectionsBaseline, ProjectionValueStore, SessionProjectionMap, UseProjection,
@@ -88,13 +114,6 @@ declare module '@deepseek-ai/dsh-type-meta' {
 
 /** The conversation-snapshot selector hook supplied to session-scoped UI entries. */
 export type UseConversationSession = SnapshotSelectorHook<ConversationSnapshot>
-
-/**
- * One tool call as the chat flow renders it: still-running (spinner card) or
- * settled (result node). The fold produces both shapes; toolview components
- * narrow on the discriminant fields.
- */
-export type ToolCallBlock = RunningToolCall | ToolResultNode
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   /**
@@ -172,6 +191,10 @@ declare module 'cordis' {
   }
   interface Context {
     slots: import('./slots.ts').SlotsService
+    /** Event-to-business-Context Definition registry. */
+    conversationEvents: import('./conversation/event-registry.ts').ConversationEventRegistry
+    /** Per-target Conversation snapshot builder registry. */
+    conversationViews: import('./conversation/view-registry.ts').ConversationViewRegistry
     /** The outward face only; the concrete service stays inside the runtime. */
     sessions: import('./contract/sessions.ts').ISessions
     /** Read-only history sources isolated from Chat sessions and workspace state. */
@@ -189,8 +212,12 @@ export const inject = ['connection', 'typert']
  */
 export function apply(ctx: Context): void {
   ctx.plugin(SlotsService)
+  const conversation = {
+    events: new ConversationEventRegistry(ctx),
+    views: new ConversationViewRegistry(ctx),
+  }
   const connection = ctx.get('connection') as ConnectionHandle
-  const sessions = new SessionsService(ctx, connection.api)
+  const sessions = new SessionsService(ctx, connection.api, conversation)
   ctx.typert.contexts.registerClient('agent', {
     identity: candidate => sessions.scopeOf(candidate),
   })

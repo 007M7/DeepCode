@@ -2,7 +2,7 @@
 
 [English](config.md) | 中文
 
-Harness 使用 `cordis.yml` 描述 agent（智能体）加载哪些插件以及每个插件的参数。配置文件负责组合能力；每个包真正支持的字段和默认值由源码生成的配置目录负责记录，避免两份手写表格逐渐不一致。
+Harness 使用 `cordis.yml` 描述 agent（智能体）加载哪些插件以及每个插件的参数。配置文件负责组合能力；每个包真正支持的字段和默认值由源码生成的配置目录负责记录。
 
 ## 从真实配置开始
 
@@ -47,7 +47,7 @@ Cordis 会并发启动同级配置项。插件通过 `inject` 声明必需服务
 
 ## CLI 补丁层
 
-`dsh --profile <name>` 按该 profile 的 manifest（元数据清单）中 `dsh.profile.bundles` 列表的顺序，在空根之上组合各组合包补丁层，随后依次应用该 profile 自己的 `~/.dsh/profiles/<name>/cordis.patch.yml`、每个 `--patch <path>` overlay，最后是 CLI（命令行界面）标志补丁。同一行以较后的层为准。
+`dsh --profile <name>` 按该 profile 的 manifest（元数据清单）中 `dsh.profile.bundles` 列表的顺序，在空根之上组合各组合包补丁层，随后依次应用该 profile 自己的 `~/.dsh/profiles/<name>/cordis.patch.yml`、home 级 `$DSH_HOME/cordis.patch.yml`、每个 `--patch <path>` overlay，最后是 CLI（命令行界面）标志补丁。同一行以较后的层为准。
 
 补丁会替换目标行的整个 `config` 值，而不是深度合并各个键。例如，只用 `config: { thinking: disabled }` 修补 `llm-deepseek`，也会移除该行原有的 `apiKeyEnv` 与 `baseURL`；因此必须重新写出该行需要保留的全部键。
 
@@ -64,4 +64,4 @@ config:
 
 ## 精确配置参考
 
-每个插件当前支持的字段、类型和默认值见自动生成的[插件配置目录](../../config-catalog.md)。理解插件如何组合可继续阅读[架构说明](../../architecture.md)和[能力接口](../../capability-seams.md)；要创建自己的配置，优先复制并修改[示例目录说明](../../../examples/README.md)中最接近的例子。
+每个插件当前支持的字段、类型和默认值见自动生成的[插件配置目录](../../config-catalog.md)。理解插件如何组合可继续阅读[架构说明](../../architecture.md)和[能力 seam](../../capability-seams.md)；要创建自己的配置，优先复制并修改[示例目录说明](../../../examples/README.md)中最接近的例子。

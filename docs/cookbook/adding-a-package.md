@@ -40,7 +40,7 @@ Covered automatically by globs or package-manifest discovery — no edits needed
 
 ## 3. Decide the package topology
 
-For a swappable capability, split interface / implementation / consumer into separate packages (see docs/architecture.md § "Capability seams" — the bash trio is the template). A single-purpose plugin stays one package.
+For a swappable capability, separate Service Definition / Service provider / Consumer roles into packages when they evolve independently (see docs/architecture.md § "Capability seams" — the bash trio is the template). A single-purpose plugin stays one package.
 
 ## 4. Write the package README
 

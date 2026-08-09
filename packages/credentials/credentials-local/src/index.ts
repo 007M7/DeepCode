@@ -29,8 +29,9 @@
  * The document holds nothing but credentials, which is why it is a strict
  * `CredentialRef`-to-string mapping rather than a dotenv file: a store the
  * Harness owns and never materializes into the environment cannot also serve
- * as the user's environment layer, and conflating the two is what made a
- * non-secret in the old `$DSH_HOME/.env` silently unreachable.
+ * as the user's environment layer; a store that doubled as the environment
+ * layer would shadow non-secret entries behind its precedence, making them
+ * silently unreachable.
  * @module @deepseek-ai/dsh-credentials-local
  */
 
@@ -41,7 +42,7 @@ import { mkdir, readFile, stat } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { Document, parseDocument, type YAMLError } from 'yaml'
 import { withFileLock, writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
-import { resolveDshHome } from '@deepseek-ai/dsh-paths'
+import { canonicalizeWatchPath, resolveDshHome } from '@deepseek-ai/dsh-paths'
 import { environmentOf } from '@deepseek-ai/dsh-environment'
 import { Credentials, credentialRef } from '@deepseek-ai/dsh-credentials'
 import type { CredentialInfo, CredentialRef, ResolvedCredential } from '@deepseek-ai/dsh-credentials'
@@ -270,7 +271,7 @@ export class CredentialsLocal extends Credentials {
     /* jscpd:ignore-start -- same watcher discipline as settings-local by design:
        the serialized-refresh and quiesce-on-dispose shape is the reviewed
        lifecycle contract, not accidental repetition. */
-    const watcher = chokidarWatch(this.spec.filename, {
+    const watcher = chokidarWatch(await canonicalizeWatchPath(this.spec.filename), {
       ignoreInitial: true,
       awaitWriteFinish: {
         stabilityThreshold: this.spec.debounceMs,

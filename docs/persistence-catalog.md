@@ -3,11 +3,11 @@
 
 # Session Persistence Event Catalog
 
-Every event type that can appear in a session's durable event log: the complete persisted `SessionEvent` envelope and each member of the merge-extensible `SessionEventMap` — the owning vocabulary in `@deepseek-ai/dsh-session` plus every plugin declaration merge in this repo — with source JSDoc, full payload declaration, surface badge, and declaration site. It complements [session.md](core-data-structures/session.md) (surface ordering and the `deriveMessages()` projection), [persistence.md](core-data-structures/persistence.md) (how the log is made durable), and the [cordis events catalog](cordis-catalog/events.md) (the live bus wiring — a log event is NOT a cordis event; it reaches listeners via the single `session/event` emit).
+Every event type that can appear in a session's durable event log: the complete persisted `SessionEvent` envelope and each member of the merge-extensible `SessionEventMap` — the owning vocabulary in `@deepseek-ai/dsh-session` plus every plugin declaration merge into `@deepseek-ai/dsh-session/types` in this repo — with source JSDoc, full payload declaration, surface badge, and declaration site. It complements [session.md](subsystems/session.md) (surface ordering and the `deriveMessages()` projection), [persistence.md](subsystems/persistence.md) (how the log is made durable), and the generated region of [session.md](subsystems/session.md#cordis-surface) (the live bus wiring — a log event is NOT a cordis event; it reaches listeners via the single `session/event` emit).
 
 This file is GENERATED from source (`scripts/gen-persistence-catalog.ts`) and verified fresh by `pnpm run verify-persistence-catalog` (part of `doc-sync`) — do not edit it by hand. Declaration blocks retain the source declaration and nested property JSDoc, removing only the indentation imposed by a containing interface/module, and use a `ts persistence-catalog` fence (skipped by doc-typecheck because declarations reference types from their owning modules). Type names in a payload link to the page that documents them. See [the persistence-log-catalog Agent Note](../.agents/notes/archived/process/2026-07-04-persistence-log-catalog.md).
 
-The envelope declarations below compose each event's `type`, monotonic `seq`, epoch-ms `time`, `data`, and the conditional `surfaceOp`/`sourceEventSeqs` fields. **surface** marks a `SurfaceEventType` member: it produces an LLM message and declares how it joins the surface list. **log-only** marks everything else: a durable, replayable record with no derived-history contribution. Every payload is JSON-serializable (enforced at `Session.append`), and the whole format is pinned at `SESSION_FORMAT_VERSION = 0` — pre-release, no compatibility implied ([the version stance](core-data-structures/persistence.md)). Scope: the packages in this repo; a downstream plugin can merge further event types, which are outside this catalog by construction.
+The envelope declarations below compose each event's `type`, monotonic `seq`, epoch-ms `time`, `data`, and the conditional `surfaceOp`/`sourceEventSeqs` fields. **surface** marks a `SurfaceEventType` member: it produces an LLM message and declares how it joins the surface list. **log-only** marks everything else: a durable, replayable record with no derived-history contribution. Every payload is JSON-serializable (enforced at `Session.append`), and the whole format is pinned at `SESSION_FORMAT_VERSION = 0` — pre-release, no compatibility implied ([the version stance](subsystems/persistence.md)). Scope: the packages in this repo; a downstream plugin can merge further event types, which are outside this catalog by construction.
 
 ## Event envelope
 
@@ -35,7 +35,8 @@ export type SurfaceEventType =
  *   (inclusive) through `end` (inclusive) with this node. Both must exist as
  *   surface nodes in the current surface. `start === end` replaces a single
  *   node. The node's {@link SessionEvent.sourceEventSeqs} must include every
- *   shadowed surface node. Used by compaction and possible other manipulations.
+ *   shadowed surface node. Used by compaction; any surface-replacing producer
+ *   may use it.
  */
 export type SurfaceOp =
   | 'append'
@@ -64,11 +65,12 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
     data: SessionEventMap[K]
   } & (K extends SurfaceEventType ? {
     /**
-     * Seq numbers of events that are provenance sources of this event
+     * Seq numbers of earlier events that this event cites as sources
      * (e.g. the `assistant/chunk` seqs that built an `assistant/message`,
      * or the surface nodes shadowed by a compaction replace node). An
      * `assistant/message` may carry a present empty array for a known empty
-     * provider stream; omission means unrecorded provenance.
+     * provider stream; when the field is absent, the event does not record which
+     * earlier events produced the message.
      */
     sourceEventSeqs?: number[]
     /** How this event entered the surface; absent for non-surface events. */
@@ -77,7 +79,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 }[T]
 ```
 
-Sources: [`packages/core/session/src/types.ts:308`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:315`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:343`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:375`](../packages/core/session/src/types.ts)
+Sources: [`packages/core/session/src/types.ts:308`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:315`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:344`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:376`](../packages/core/session/src/types.ts)
 
 ## Events
 
@@ -100,7 +102,7 @@ Sources: [`packages/core/session/src/types.ts:308`](../packages/core/session/src
 }
 ```
 
-Source: [`packages/core/agent/src/types.ts:296`](../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:19`](../packages/core/agent/src/types.ts)
 
 ### `approval/*`
 
@@ -123,9 +125,9 @@ Source: [`packages/core/agent/src/types.ts:296`](../packages/core/agent/src/type
 }
 ```
 
-Types: [CallId](core-data-structures/core.md)
+Types: [CallId](subsystems/core.md)
 
-Source: [`packages/ui/user-approval/src/index.ts:44`](../packages/ui/user-approval/src/index.ts)
+Source: [`packages/interaction/user-approval/src/index.ts:44`](../packages/interaction/user-approval/src/index.ts)
 
 #### `approval/decided` — log-only
 
@@ -141,7 +143,7 @@ Source: [`packages/ui/user-approval/src/index.ts:44`](../packages/ui/user-approv
 }
 ```
 
-Source: [`packages/ui/user-approval/src/index.ts:55`](../packages/ui/user-approval/src/index.ts)
+Source: [`packages/interaction/user-approval/src/index.ts:55`](../packages/interaction/user-approval/src/index.ts)
 
 #### `approval/policy` — log-only
 
@@ -161,7 +163,7 @@ Source: [`packages/ui/user-approval/src/index.ts:55`](../packages/ui/user-approv
 }
 ```
 
-Source: [`packages/ui/user-approval/src/index.ts:67`](../packages/ui/user-approval/src/index.ts)
+Source: [`packages/interaction/user-approval/src/index.ts:67`](../packages/interaction/user-approval/src/index.ts)
 
 ### `assistant/*`
 
@@ -172,7 +174,7 @@ Source: [`packages/ui/user-approval/src/index.ts:67`](../packages/ui/user-approv
 'assistant/chunk': { turn: number; step: number; chunk: StreamChunk }
 ```
 
-Types: [StreamChunk](core-data-structures/llm-streaming.md)
+Types: [StreamChunk](subsystems/llm-streaming.md)
 
 Source: [`packages/core/session/src/types.ts:238`](../packages/core/session/src/types.ts)
 
@@ -188,7 +190,7 @@ Source: [`packages/core/session/src/types.ts:238`](../packages/core/session/src/
 'assistant/message': { turn: number; step: number; message: AssistantMessage; usage?: TokenUsage }
 ```
 
-Types: [TokenUsage](core-data-structures/llm-streaming.md)
+Types: [TokenUsage](subsystems/llm-streaming.md)
 
 Source: [`packages/core/session/src/types.ts:245`](../packages/core/session/src/types.ts)
 
@@ -211,7 +213,7 @@ Source: [`packages/core/session/src/types.ts:245`](../packages/core/session/src/
 }
 ```
 
-Source: [`packages/ui/commands/src/index.ts:151`](../packages/ui/commands/src/index.ts)
+Source: [`packages/interaction/commands/src/types.ts:41`](../packages/interaction/commands/src/types.ts)
 
 #### `command/run` — log-only
 
@@ -229,7 +231,7 @@ Source: [`packages/ui/commands/src/index.ts:151`](../packages/ui/commands/src/in
 'command/run': { commandId: CommandId; name: string; args?: string; source: CommandSource }
 ```
 
-Source: [`packages/ui/commands/src/index.ts:144`](../packages/ui/commands/src/index.ts)
+Source: [`packages/interaction/commands/src/types.ts:34`](../packages/interaction/commands/src/types.ts)
 
 ### `compact/*`
 
@@ -240,10 +242,10 @@ Source: [`packages/ui/commands/src/index.ts:144`](../packages/ui/commands/src/in
  * Marks the end of a compaction — log-only, releases the lock. Its owner
  * matches `compact/start`; `error` records an unsuccessful attempt.
  */
-'compact/end': { turn: number | null; error?: string }
+'compact/end': { compactionId: CompactionId; sourceCommandId?: CommandId; turn: number | null; error?: string }
 ```
 
-Source: [`packages/compact/compact/src/types.ts:65`](../packages/compact/compact/src/types.ts)
+Source: [`packages/compact/compact/src/types.ts:71`](../packages/compact/compact/src/types.ts)
 
 #### `compact/prune` — log-only
 
@@ -267,7 +269,7 @@ Source: [`packages/compact/compact/src/types.ts:65`](../packages/compact/compact
 }
 ```
 
-Source: [`packages/compact/compact/src/types.ts:75`](../packages/compact/compact/src/types.ts)
+Source: [`packages/compact/compact/src/types.ts:81`](../packages/compact/compact/src/types.ts)
 
 #### `compact/start` — log-only
 
@@ -277,16 +279,16 @@ Source: [`packages/compact/compact/src/types.ts:75`](../packages/compact/compact
  * `compact/end`. A numbered owner is strictly enclosed by that open turn;
  * `null` identifies a standalone manual transaction between turns.
  */
-'compact/start': { turn: number | null }
+'compact/start': { compactionId: CompactionId; sourceCommandId?: CommandId; turn: number | null }
 ```
 
-Source: [`packages/compact/compact/src/types.ts:19`](../packages/compact/compact/src/types.ts)
+Source: [`packages/compact/compact/src/types.ts:23`](../packages/compact/compact/src/types.ts)
 
 #### `compact/summary` — log-only
 
 ```ts persistence-catalog
 /**
- * Provenance record of a completed summarization — log-only, no surfaceOp.
+ * Completed summary, its inputs, and its model call facts — log-only, no surfaceOp.
  * The summary content is in `data.summary`; the actual surface replacement
  * is performed by the immediately following `user/message` event that
  * shadows the compacted range. That adjacency is contractual — the
@@ -295,6 +297,8 @@ Source: [`packages/compact/compact/src/types.ts:19`](../packages/compact/compact
  * before it (`compact/prune` documents the shared protocol).
  */
 'compact/summary': {
+  compactionId: CompactionId
+  sourceCommandId?: CommandId
   summary: ContentBlock[]
   shadowedRange: { start: number; end: number }
   shadowedSeqs: number[]
@@ -328,9 +332,9 @@ Source: [`packages/compact/compact/src/types.ts:19`](../packages/compact/compact
 )
 ```
 
-Types: [ContentBlock](core-data-structures/core.md) · [TokenUsage](core-data-structures/llm-streaming.md)
+Types: [ContentBlock](subsystems/core.md) · [TokenUsage](subsystems/llm-streaming.md)
 
-Source: [`packages/compact/compact/src/types.ts:29`](../packages/compact/compact/src/types.ts)
+Source: [`packages/compact/compact/src/types.ts:33`](../packages/compact/compact/src/types.ts)
 
 ### `feedback/*`
 
@@ -365,7 +369,7 @@ Source: [`packages/goal/goal/src/domain.ts:66`](../packages/goal/goal/src/domain
 
 ```ts persistence-catalog
 /**
- * A hook command was invoked at a hook point — log-only provenance (like
+ * A hook command was invoked at a hook point — a log-only record (like
  * `compact/*`; NOT a {@link SurfaceEventType}, carries no `surfaceOp`).
  * `dialect` is the bridge that ran it (`claude`/`codex`), `point`
  * the hook point (`PreToolUse`, `Stop`, …), `matcher` the matcher-group
@@ -411,29 +415,19 @@ Source: [`packages/hooks/hook-protocol/src/types.ts:31`](../packages/hooks/hook-
 
 ```ts persistence-catalog
 /** Durable, non-surface record of one provider-routed retry scheduled after a failed request attempt. */
-'llm/retry': {
-  turn: number
-  step: number
-  provider: string
-  mode: 'normal'
-  policyKey: string
-  retry: number
-  maxRetries: number
-  delayMs: number
-  failure: LlmFailure
-} | {
-  turn: number
-  step: number
-  provider: string
-  mode: 'always'
-  policyKey: string
-  retry: number
-  delayMs: number
-  failure: LlmFailure
-}
+'llm/retry': LlmRetryEventData
 ```
 
-Source: [`packages/llm/llm-retry/src/index.ts:17`](../packages/llm/llm-retry/src/index.ts)
+Source: [`packages/llm/llm-retry/src/types.ts:9`](../packages/llm/llm-retry/src/types.ts)
+
+#### `llm/retry-started` — log-only
+
+```ts persistence-catalog
+/** Durable transition written after a retry wait succeeds and before the next request attempt starts. */
+'llm/retry-started': LlmRetryStartedEventData
+```
+
+Source: [`packages/llm/llm-retry/src/types.ts:11`](../packages/llm/llm-retry/src/types.ts)
 
 ### `permission/*`
 
@@ -449,7 +443,7 @@ Source: [`packages/llm/llm-retry/src/index.ts:17`](../packages/llm/llm-retry/src
 'permission/preset': { preset: string }
 ```
 
-Source: [`packages/ui/permission/src/index.ts:50`](../packages/ui/permission/src/index.ts)
+Source: [`packages/interaction/permission/src/index.ts:50`](../packages/interaction/permission/src/index.ts)
 
 ### `plan/*`
 
@@ -555,9 +549,9 @@ Source: [`packages/core/session/src/types.ts:304`](../packages/core/session/src/
 'session/title': SessionTitleEventData
 ```
 
-Types: [SessionTitleEventData](core-data-structures/session-title.md)
+Types: [SessionTitleEventData](subsystems/session-title.md)
 
-Source: [`packages/session-title/session-title/src/index.ts:100`](../packages/session-title/session-title/src/index.ts)
+Source: [`packages/session/session-title/src/index.ts:100`](../packages/session/session-title/src/index.ts)
 
 #### `session/title-llm-request` — log-only
 
@@ -566,9 +560,9 @@ Source: [`packages/session-title/session-title/src/index.ts:100`](../packages/se
 'session/title-llm-request': SessionTitleLlmRequestEventData
 ```
 
-Types: [SessionTitleLlmRequestEventData](core-data-structures/session-title.md)
+Types: [SessionTitleLlmRequestEventData](subsystems/session-title.md)
 
-Source: [`packages/session-title/session-title-llm/src/index.ts:43`](../packages/session-title/session-title-llm/src/index.ts)
+Source: [`packages/session/session-title-llm/src/index.ts:43`](../packages/session/session-title-llm/src/index.ts)
 
 ### `step/*`
 
@@ -616,7 +610,7 @@ Source: [`packages/subagent/subagent/src/descriptor.ts:37`](../packages/subagent
 'todo/write': { todos: TodoItem[] }
 ```
 
-Types: [TodoItem](core-data-structures/session.md)
+Types: [TodoItem](subsystems/session.md)
 
 Source: [`packages/core/session/src/types.ts:271`](../packages/core/session/src/types.ts)
 
@@ -633,7 +627,7 @@ Source: [`packages/core/session/src/types.ts:271`](../packages/core/session/src/
 'tool/call': { turn: number; step: number; callId: CallId; name: string; arguments: string }
 ```
 
-Types: [CallId](core-data-structures/core.md)
+Types: [CallId](subsystems/core.md)
 
 Source: [`packages/core/session/src/types.ts:251`](../packages/core/session/src/types.ts)
 
@@ -655,12 +649,10 @@ Source: [`packages/core/session/src/types.ts:251`](../packages/core/session/src/
  * before returning), so its execution-enclosure relation holds by
  * construction.
  */
-'tool/code-dispatch': { parentCallId: CallId; subCallId: CallId; name: string; arguments: unknown; isError: boolean; content: ContentBlock[] }
+'tool/code-dispatch': CodeDispatchEventData
 ```
 
-Types: [CallId](core-data-structures/core.md) · [ContentBlock](core-data-structures/core.md)
-
-Source: [`packages/core/tools/src/code-mode.ts:49`](../packages/core/tools/src/code-mode.ts)
+Source: [`packages/core/tools/src/types.ts:56`](../packages/core/tools/src/types.ts)
 
 #### `tool/code-dispatch-start` — log-only
 
@@ -678,12 +670,10 @@ Source: [`packages/core/tools/src/code-mode.ts:49`](../packages/core/tools/src/c
  * with `tool/code-dispatch` by `subCallId` (timing = the two events'
  * `time` fields).
  */
-'tool/code-dispatch-start': { parentCallId: CallId; subCallId: CallId; name: string; arguments: unknown }
+'tool/code-dispatch-start': CodeDispatchStartEventData
 ```
 
-Types: [CallId](core-data-structures/core.md)
-
-Source: [`packages/core/tools/src/code-mode.ts:33`](../packages/core/tools/src/code-mode.ts)
+Source: [`packages/core/tools/src/types.ts:40`](../packages/core/tools/src/types.ts)
 
 #### `tool/result` — surface
 
@@ -726,7 +716,7 @@ Source: [`packages/core/session/src/types.ts:263`](../packages/core/session/src/
 'turn/end': { turn: number; reason: TurnEndReason }
 ```
 
-Types: [TurnEndReason](core-data-structures/session.md)
+Types: [TurnEndReason](subsystems/session.md)
 
 Source: [`packages/core/session/src/types.ts:224`](../packages/core/session/src/types.ts)
 

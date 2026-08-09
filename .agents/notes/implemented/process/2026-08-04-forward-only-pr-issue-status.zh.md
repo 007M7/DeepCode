@@ -10,7 +10,7 @@ Issue Project 状态表示工作所处阶段，同仓库内精确匹配的解决
 
 ## 决策
 
-PR 事件和 PR 评审事件会把当前 PR 阶段投射到同仓库内被精确引用的每个解决型 Issue。草稿 PR，或既没有评审请求也没有已提交评审的非草稿 PR，目标状态为 `In progress`。具备上述任一类评审活动的非草稿 PR，目标状态为 `In review`。
+PR 事件和 PR 评审事件会把当前 PR 阶段投射到同仓库内由解决型关键字精确引用的每个 Issue。草稿 PR，或既没有评审请求也没有已提交评审的非草稿 PR，目标状态为 `In progress`。具备上述任一类评审活动的非草稿 PR，目标状态为 `In review`。
 
 活跃状态依次为 `Inbox`、`Backlog`、`Ready`、`In progress` 和 `In review`。只有目标状态在该顺序中位于当前状态之后时，投射才会写入。投射不会把 Issue 状态向后移动，不会改动 `Done` 或 `No action`，也不会把没有 Project 状态的 Issue 加入 Project。生命周期路径独立于 PR 元数据校验；另行执行的必需 PR 政策检查继续强制落实标签、引用和优先级一致性。
 
@@ -32,7 +32,7 @@ PR 事件和 PR 评审事件会把当前 PR 阶段投射到同仓库内被精确
 
 ## 后果
 
-- PR 事件会自动纠正停留在 `Inbox`、`Backlog` 或 `Ready` 的解决型 Issue。
+- PR 事件会自动纠正由该 PR 解决但仍停留在 `Inbox`、`Backlog` 或 `Ready` 的 Issue。
 - 若 Issue 创建于最后一个相关 PR 事件之后，则必须等待后续 PR 事件或人工更新状态，因为系统不会反向查找或定时扫描。
 - 即使存在历史评审活动，草稿 PR 仍保持 `In progress`；只有非草稿 PR 才会以 `In review` 为目标状态。
 - 终态以及顺序中更靠后的活跃状态不会倒退。

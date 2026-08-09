@@ -44,7 +44,7 @@ export type Config = LocalConfig
 export class SandboxBashExecutor extends LocalBashExecutor {
   static override inject = ['subprocess', 'sandbox', 'sandboxPolicy']
 
-  // No own Config: the sandbox default (mode + workspaceRoot) moved to
+  // No own Config: the sandbox default (mode + workspaceRoot) is owned by
   // ctx.sandboxPolicy, so this executor inherits LocalBashExecutor's Config
   // verbatim (the config catalog walks the inherited static).
 
@@ -124,7 +124,7 @@ export class SandboxBashExecutor extends LocalBashExecutor {
     try {
       proc = this.startArgv(spec, confined.argv)
     } catch (error) {
-      // LocalSubprocessService reports provenanced ENOENT/EACCES through async
+      // LocalSubprocessService reports ENOENT/EACCES with the failed executable path through async
       // `done` rejection; this covers alternatives that throw that shape synchronously.
       if (isRunnerSpawnFailure(error, confined.argv[0], spec.workdir)) {
         throw new SandboxUnavailableError(mode, String(error))

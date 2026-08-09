@@ -20,14 +20,14 @@ Status: implemented
 
 检查范围与其他门禁一致，并额外包含 AGENTS.md 文件对以及 `.agents/skills/` 下仓库自有的 agent skill（技能）Markdown（这些 skill 文件会交叉链接到 docs 目录树，因此本次重组也改写了其中的链接）：`README.md`、`docs/**/*.md`、`packages/*/README.md`、`AGENTS.md`、`packages/AGENTS.md`、`.agents/skills/**/*.md`。系统按真实路径去重（`CLAUDE.md` symlink 会解析到 AGENTS.md 文件）。该检查接入 `doc-sync`，因此相关文档变更与 CI 执行同一套断链检查。
 
-本门禁检查的是*文件存在性*，而非锚点有效性：指向一个真实文件但带有 `#wrong-heading` 片段的链接仍会通过（文件路径可解析；片段被剥除）。
+本门禁现在也检查 Markdown 目标上的 `#fragment` 锚点——包括同文件锚点——对照标题 slug 与显式 `<a id>`；该机制与 slug 规则归 [fragment 锚点决定](2026-08-09-md-fragment-anchor-gate.md)所有。
 
 ## 曾考虑的替代方案
 
-**锚点级有效性检查**：更重且价值更低；实际造成问题的是文件级死链。这一范围裁剪是有意为之：作者在链接到某个锚点时自行验证 `#fragment`。
+**锚点级有效性检查**：当时以更重且价值更低为由推迟（实际咬过人的是文件级死链），把 `#fragment` 验证留给作者人工完成。该人工规则没有守住；[fragment 锚点决定](2026-08-09-md-fragment-anchor-gate.md)后来补上了这项检查。
 
 ## 后果
 
-- 造成交叉链接失效的重命名与移动会直接使 `doc-sync` 和 CI 失败，而不是等读者点击死链才暴露。由此，引入该门禁的 Agent Note 重组具备自校验能力：同一个 PR（Pull Request）在改写 40 条链接的同时，也添加了证明这些链接均未悬空的检查。
+- 造成交叉链接失效的重命名与移动会直接使 `doc-sync` 和 CI 失败，而不是等读者点击死链才暴露。由此，引入该门禁的 Agent Note 重组具备自校验能力：该检查证明其自身改写的链接均未悬空。
 - `doc-sync` 链中多了一个快速 tsx 脚本；无新增依赖（mdast/GFM 技术栈已作为 `verify-md-wrap` 的 devDependencies 存在）。
 - 该门禁强制执行的约定是：文档交叉引用必须使用可机械检查的相对链接，绝不能只写纯文本或编号。[docs/AGENTS.md](../../../../docs/AGENTS.md)记录了这项约定，使作者了解该门禁及其理由。

@@ -20,7 +20,7 @@ import { createChatStore } from '@deepseek-ai/dsh-client-ui-conversation/src/cli
 import { GenericToolCard, type GenericToolCardProps } from '../src/client/tool/toolviews/GenericToolCard.tsx'
 import { DetailsPanel } from '@deepseek-ai/dsh-client-ui-conversation/src/client/skeleton/DetailsPanel.tsx'
 import { FileMutationRow, fileMutationToolview } from '../src/client/tool/toolviews/file-mutation-row.tsx'
-import { renderToolDetails, SessionProviderStub } from './tool-details-render.tsx'
+import { renderToolDetails, SessionProviderStub, toolChatSnapshot } from './tool-details-render.tsx'
 import { zh } from '@deepseek-ai/dsh-client-ui-conversation/src/client/locales.ts'
 
 afterEach(cleanup)
@@ -48,7 +48,7 @@ const resultDiff = (over?: Partial<Extract<ToolResultView, { card: 'diff' }>>): 
 
 const running = (over?: Partial<RunningToolCall>): RunningToolCall => ({
   callId: 'c1', name: 'edit', argsRaw: ARGS,
-  turn: 1, step: 1, time: 1_000, callView: callDiff(), ...over,
+  turn: 1, step: 1, time: 1_000, callView: callDiff(), subCalls: [], ...over,
 })
 
 const settled = (over?: Partial<ToolResultNode>): ToolResultNode => ({
@@ -56,7 +56,7 @@ const settled = (over?: Partial<ToolResultNode>): ToolResultNode => ({
   call: { name: 'edit', argsRaw: ARGS },
   callTime: 1_000,
   content: [{ type: 'text', text: 'The file notes/demo.txt has been updated successfully.' }], isError: false,
-  callView: callDiff(), resultView: resultDiff(), ...over,
+  callView: callDiff(), resultView: resultDiff(), subCalls: [], ...over,
 })
 
 describe('diffCardModel', () => {
@@ -348,8 +348,11 @@ describe('DetailsPanel diff Output section', () => {
   }
 
   function snapshot(over: Partial<ConversationSnapshot> = {}): ConversationSnapshot {
+    const nodes = over.nodes ?? []
+    const runningCalls = over.runningCalls ?? []
     return {
-      sessionId: SID, nodes: [], turnTimings: new Map(), turnEnds: new Map(), partial: null, runningCalls: [], codeDispatches: new Map(),
+      sessionId: SID, chat: over.chat ?? toolChatSnapshot(nodes, runningCalls),
+      nodes: [], turnTimings: new Map(), turnEnds: new Map(), partial: null, runningCalls: [],
       pending: [], queue: [], running: false, composerPhase: 'active', removed: false,
       openState: 'open', openError: null, hasMore: false, loadingOlder: false,
       promptError: null, blank: false, subagent: null, lastAgentError: null, ...over,

@@ -1067,7 +1067,7 @@ describe('LlmService', () => {
     })
   })
 
-  it('strips replay state but preserves provenance when the target uses a different adapter instance', async () => {
+  it('strips replay state but preserves provider and model when the target uses a different adapter instance', async () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)
     ctx.llm.registerAdapter(['historical'], new RecordingAdapter(SCRIPT))

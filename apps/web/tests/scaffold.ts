@@ -151,7 +151,7 @@ export interface WebScaffold {
   mode: WebSnapshotMode
   /** Browser-facing origin for the bound test server. */
   baseUrl: string
-  /** Settled root context (the in-process barrier seam; headless event subscription is its sanctioned use). */
+  /** Settled root context (the in-process readiness barrier; headless event subscription is its sanctioned use). */
   ctx: Context
   /** Temp project directory sessions run in (bash/fs tool cwd). */
   workspaceCwd: string
@@ -437,7 +437,7 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     } else if (mode !== 'record' && options.deepSeekMissingCredential !== true) {
       // No fixture and no shipped adapter would leave the tree with ZERO
       // provider routes — a state no product composition has, and one the
-      // composer now correctly refuses to type into. Register the same routes
+      // composer refuses to type into. Register the same routes
       // a fixture would, with streaming that still fails loud: the scenario
       // issues no model calls, and one that slipped in must not pass quietly.
       ctx.effect(() => ctx.llm.registerAdapter(

@@ -20,14 +20,14 @@ const t: GenericToolCardProps['t'] = makeTranslate(zh, commonZh)
 
 const running = (over?: Partial<RunningToolCall>): RunningToolCall => ({
   callId: 'c1', name: 'bash', argsRaw: '{"command":"ls -la","description":"List files"}',
-  turn: 1, step: 1, time: 1_000, callView: null, ...over,
+  turn: 1, step: 1, time: 1_000, callView: null, subCalls: [], ...over,
 })
 
 const result = (over?: Partial<ToolResultNode>): ToolResultNode => ({
   kind: 'tool-result', seq: 10, time: 2_000, callId: 'c1',
   call: { name: 'bash', argsRaw: '{"command":"ls -la","description":"List files"}' },
   callTime: 1_000,
-  content: [], isError: false, callView: null, resultView: null, ...over,
+  content: [], isError: false, callView: null, resultView: null, subCalls: [], ...over,
 })
 
 describe('tool-call-model', () => {
@@ -71,8 +71,8 @@ describe('tool-call-model', () => {
     expect(toolRowModel('read', running({ name: 'read', argsRaw: '{"path":"/tmp/x.ts"}' })).summary).toBe('/tmp/x.ts')
     expect(toolRowModel('write', running({ name: 'write', argsRaw: '{"file_path":"src/x.ts"}' })).summary).toBe('src/x.ts')
     expect(toolRowModel('edit', running({ name: 'edit', argsRaw: '{"file_path":"src/x.ts"}' })).summary).toBe('src/x.ts')
-    // Others rows prefix the real tool name into the summary slot (figma-flows
-    // ruling: static "Tool call" title, name rides the mutable summary).
+    // Other rows prefix the real tool name into the summary slot (figma
+    // flows: static "Tool call" title, the name rides the mutable summary).
     expect(toolRowModel('x', running({ argsRaw: '{"n":1}' })).summary).toBe('x · {"n":1}')
     expect(toolRowModel('x', running({ argsRaw: 'not json' })).summary).toBe('x · not json')
     expect(toolRowModel('x', running({ argsRaw: '' })).summary).toBe('x · c1')

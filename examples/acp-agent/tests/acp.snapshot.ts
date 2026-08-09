@@ -255,6 +255,7 @@ const SCENARIOS: Scenario[] = [
   { name: 'fs-write-overwrite', hasModelTurn: true, recorded: true },
   { name: 'fs-read-window', hasModelTurn: true, recorded: true },
   { name: 'fs-policy-reject', hasModelTurn: true, recorded: true },
+  { name: 'fs-delete-recreate', hasModelTurn: true, recorded: true },
   { name: 'multi-turn', hasModelTurn: true, recorded: true },
   { name: 'error-finish', hasModelTurn: true, recorded: false, overridden: true },
   // Keyless, authored (like error-finish): a live provider cannot be coaxed
@@ -336,9 +337,10 @@ const SCENARIOS: Scenario[] = [
   },
   // Authored durable-catalog transcript: the snapshot-only lifecycle marker
   // fences the second parent turn behind the child's Activation end, so
-  // `list_agents` deterministically reads the persisted child as complete.
-  // The tool itself executes for real against the control service, session
-  // query, and JSONL persistence; the marker is not model-visible.
+  // `list_agents({ scope: 'descendants' })` deterministically reads the
+  // persisted child as complete, then `interrupt_agent` executes its accepted
+  // no-op against that settled id. Both tools run through the assembled control
+  // service; the marker is not model-visible.
   {
     name: 'subagent-list-agents',
     hasModelTurn: true,
@@ -397,7 +399,7 @@ const SCENARIOS: Scenario[] = [
   // the real Loader/app path, rather than retaining the earlier valid group.
   { name: 'hook-cc-invalid-matcher', hasModelTurn: true, recorded: false },
   { name: 'hook-codex-invalid-matcher', hasModelTurn: true, recorded: false },
-  // The mid-turn seams fire during a real model turn, so each is recorded with its hook active
+  // The mid-turn interception points fire during a real model turn, so each is recorded with its hook active
   // (the model's reaction to a deny/block/force-continue is part of the captured transcript).
   // SessionStart/SubagentStart are excluded because detached injection races log
   // order; SubagentStop writes no transcript, so an expected output could not prove it ran.

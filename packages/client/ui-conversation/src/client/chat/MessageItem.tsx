@@ -7,31 +7,15 @@
 import { memo, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import type {
-  CompactionSummaryNode, ContextMessageNode, ModelRetryNode, SteeringMessageNode,
-  TurnErrorNode, UnknownSurfaceNode, UserMessageNode,
+  ModelRetryNode, TurnErrorNode, UserMessageNode,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import { JsonBlock, MessageText, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { ChatViewSlotProps } from '../contract/slots.ts'
+import type { ChatNodeViewProps, ChatViewSlotProps } from '../contract/slots.ts'
 import { CompactionItem } from './CompactionItem.tsx'
 import { ContextInjectionRow } from './ContextInjectionRow.tsx'
 import { MessageIconActions } from './MessageIconActions.tsx'
-import css from './MessageItem.module.css'
 import { ImageGallery, type ImageLoader } from './MessageImage.tsx'
-
-export interface MessageItemProps {
-  node:
-    | UserMessageNode
-    | SteeringMessageNode
-    | ContextMessageNode
-    | CompactionSummaryNode
-    | ModelRetryNode
-    | TurnErrorNode
-    | UnknownSurfaceNode
-  loadImage?: ImageLoader
-  retryActive?: boolean
-  /** The owning view's locale seat, passed down as a plain prop. */
-  t: ChatViewSlotProps['t']
-}
+import css from './MessageItem.module.css'
 
 type UserImage = Extract<UserMessageNode['content'][number], { type: 'image' }>
 
@@ -150,8 +134,8 @@ function TurnErrorItem({ node, t }: {
  * Display projection of reference forms in a user bubble (free geometry — no
  * textarea alignment constraint here); everything else stays plain text. The
  * logged model text remains the single truth; this is presentation only.
- * Plain-text `/name` / `@name` word-boundary tokens decorate (decision 21:
- * the sent text IS the reference — the bubble uses the same plainest token
+ * Plain-text `/name` / `@name` word-boundary tokens decorate (the sent text
+ * IS the reference — the bubble uses the same plainest token
  * scan as the composer, minus the lexicon: sent tokens were validated at
  * compose time, so shape alone decorates).
  */
@@ -200,9 +184,7 @@ function UserStyleBubble({
         <ImageGallery images={images} load={imageLoader} align="end" t={t} />
         {showBubble && <div className={css.bubble}>
           {projectUserText(text)}
-          {rest.map((block, i) => (
-            <JsonBlock key={i} label={t('message.extraBlock')} payload={block} truncatedLabel={truncated} />
-          ))}
+          {rest.map((block, i) => <JsonBlock key={i} label={t('message.extraBlock')} payload={block} truncatedLabel={truncated} />)}
         </div>}
       </div>
       {actions?.(text)}
@@ -241,52 +223,70 @@ export function PendingSteeringBubble({ content, loadImage, t }: {
   )
 }
 
-export const MessageItem = memo(function MessageItem({
-  node, loadImage, retryActive = false, t,
-}: MessageItemProps) {
-  const imageLoader = loadImage ?? (() => Promise.reject(new Error(t('image.serviceUnavailable'))))
-  const truncated = (total: number): string => t('json.truncated', { total })
-  switch (node.kind) {
-    case 'user':
-    case 'steering':
-      return (
-        <UserStyleBubble
-          content={node.content}
-          imageLoader={imageLoader}
-          steering={node.kind === 'steering'}
-          t={t}
-          actions={text => (
-            <MessageIconActions
-              text={text}
-              time={node.time}
-              clock="start"
-              className={css.actions}
-              t={t}
-            />
-          )}
-        />
-      )
-    case 'context':
-      return (
-        <ContextInjectionRow
-          content={node.content}
-          source={node.source}
-          provenance={node.provenance}
-          form={node.form}
+/** User and admitted-steering keyed Chat renderer. */
+export const UserMessageNodeView = memo(function UserMessageNodeView({
+  node, loadImage, t,
+}: ChatNodeViewProps<'user' | 'steering'>) {
+  const data = node.data
+  return (
+    <UserStyleBubble
+      content={data.content}
+      imageLoader={loadImage}
+      steering={data.kind === 'steering'}
+      t={t}
+      actions={text => (
+        <MessageIconActions
+          text={text}
+          time={data.time}
+          clock="start"
+          className={css.actions}
           t={t}
         />
-      )
-    case 'compaction':
-      return <CompactionItem node={node} t={t} />
-    case 'model-retry':
-      return <ModelRetryItem node={node} active={retryActive} t={t} />
-    case 'turn-error':
-      return <TurnErrorItem node={node} t={t} />
-    default:
-      return (
-        <div className={css.contextRow}>
-          <JsonBlock label={t('message.unknownSurface', { type: node.type })} payload={node.data} truncatedLabel={truncated} />
-        </div>
-      )
-  }
+      )}
+    />
+  )
+})
+
+/** Injected-context keyed Chat renderer. */
+export const ContextMessageNodeView = memo(function ContextMessageNodeView({ node, t }: ChatNodeViewProps<'context'>) {
+  const data = node.data
+  return (
+    <ContextInjectionRow
+      content={data.content}
+      source={data.source}
+      provenance={data.provenance}
+      form={data.form}
+      t={t}
+    />
+  )
+})
+
+/** Automatic compaction keyed Chat renderer. */
+export const CompactionNodeView = memo(function CompactionNodeView({ node, t }: ChatNodeViewProps<'compaction'>) {
+  return <CompactionItem node={node.data} t={t} />
+})
+
+/** Correlated retry-chain keyed Chat renderer. */
+export const RetryNodeView = memo(function RetryNodeView({ node, t }: ChatNodeViewProps<'model-retry'>) {
+  const data = node.data
+  return <ModelRetryItem node={data.current} active={data.current.retryState === 'scheduled'} t={t} />
+})
+
+/** Terminal turn-error keyed Chat renderer. */
+export const TurnErrorNodeView = memo(function TurnErrorNodeView({ node, t }: ChatNodeViewProps<'turn-error'>) {
+  return <TurnErrorItem node={node.data} t={t} />
+})
+
+/** Explicit unknown-surface keyed Chat renderer. */
+export const UnknownNodeView = memo(function UnknownNodeView({ node, t }: ChatNodeViewProps<'unknown'>) {
+  const data = node.data
+  return (
+    <div className={css.contextRow}>
+      <JsonBlock
+        label={t('message.unknownSurface', { type: data.type })}
+        payload={data.data}
+        truncatedLabel={total => t('json.truncated', { total })}
+      />
+    </div>
+  )
 })

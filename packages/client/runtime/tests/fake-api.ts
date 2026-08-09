@@ -3,7 +3,7 @@
 // deferred-controlled timing). Streams are hand pumps: pushMux/pushHost.
 import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
 import type {
-  ClientResponse, CommandDescriptor, HostFrame, IApiClient, ModelTarget, MuxFrame,
+  ClientResponse, CommandDescriptor, HostFrame, IApiClient, ModelSelection, MuxFrame,
   RpcError, RpcReceipt, RpcRequest, RpcResponse, SessionId, SessionModels, SessionSearchItem, SkillEntry,
   WorkspaceId, WorkspaceView,
 } from '@deepseek-ai/dsh-client-connection/client'
@@ -64,7 +64,7 @@ export class FakeApiClient implements IApiClient {
   onSearch: (payload: unknown) => Promise<RpcResponse<{ items: SessionSearchItem[]; hasMore: boolean }>> =
     () => Promise.resolve(ok({ items: [], hasMore: false }))
   onCreate: (payload: unknown) => Promise<RpcResponse<{ sessionId: SessionId }>> = () => Promise.resolve(ok({ sessionId: 'fk-new' as SessionId }))
-  readonly defaultModel: ModelTarget = { provider: 'deepseek-official', model: 'deepseek-v4-flash' }
+  readonly defaultModel: ModelSelection = { provider: 'deepseek-official', model: 'deepseek-v4-flash' }
   onRename: (payload: unknown) => Promise<RpcResponse<{ title: string; seq: number }>> = () => Promise.resolve(ok({ title: 'fk-renamed', seq: 0 }))
   onFork: (payload: unknown) => Promise<RpcResponse<{ sessionId: SessionId }>> = () => Promise.resolve(ok({ sessionId: 'fk-fork' as SessionId }))
   onHistory: (payload: { sessionId: SessionId; beforeSeq?: number; maxMessages?: number })
@@ -82,7 +82,7 @@ export class FakeApiClient implements IApiClient {
     failures: [],
   }))
   onSelectModel: (payload: { provider: string; model: string }) =>
-  Promise<RpcResponse<{ selected: ModelTarget }>> =
+  Promise<RpcResponse<{ selected: ModelSelection }>> =
     payload => Promise.resolve(ok({ selected: { provider: payload.provider, model: payload.model } }))
   onPrompt: (payload: unknown) => Promise<RpcResponse<{ accepted: true }>> = () => Promise.resolve(ok({ accepted: true as const }))
   onAttachment: (payload: unknown) => Promise<RpcResponse<{ attachment: { attachmentId: never; mediaType: 'image/png'; bytes: number; width: number; height: number }; data: string }>> =
@@ -143,10 +143,14 @@ export class FakeApiClient implements IApiClient {
   onSubagentPrompt: (payload: unknown) => Promise<RpcResponse<{ messageId: never }>>
     = () => Promise.resolve(ok({ messageId: 'fake-message' as never }))
 
+  onSubagentInterrupt: (payload: unknown) => Promise<RpcResponse<{ accepted: true }>>
+    = () => Promise.resolve(ok({ accepted: true as const }))
+
   readonly subagents: IApiClient['subagents'] = {
     list: (payload: unknown) => this.record('subagent.list', payload, this.onSubagentList(payload)),
     history: (payload: unknown) => this.record('subagent.history', payload, this.onSubagentHistory(payload)),
     prompt: (payload: unknown) => this.record('subagent.prompt', payload, this.onSubagentPrompt(payload)),
+    interrupt: (payload: unknown) => this.record('subagent.interrupt', payload, this.onSubagentInterrupt(payload)),
   }
 
   readonly host: IApiClient['host'] = {

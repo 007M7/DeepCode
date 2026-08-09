@@ -2,11 +2,11 @@
 
 [English](README.md) | 中文
 
-注册在 `ctx.bash` 执行器 seam 之上的模型可见 `pwsh` 工具。面向由 PowerShell 执行器（如 `@deepseek-ai/dsh-pwsh-local`）支撑 `ctx.bash` 的 Windows 组合；工具契约是 PowerShell 方言：原生 `C:\...` 路径与 `$env:NAME` 变量。行为与 `dsh-tool-bash` 逐调用对齐、减去 sandbox 面——通过通用任务运行时执行前台与 `run_in_background`、通过共享 `bash-env` 注册表管理 `DSH_*` 环境、以及 bash 的 marker/截断渲染故事（干净退出不产生 marker）。
+注册在 `ctx.bash` 执行器 seam 之上的模型可见 `pwsh` 工具。面向由 PowerShell 执行器（如 `@deepseek-ai/dsh-pwsh-local`）支撑 `ctx.bash` 的 Windows 组合；工具约定是 PowerShell 方言：原生 `C:\...` 路径与 `$env:NAME` 变量。行为与 `dsh-tool-bash` 逐调用对齐、减去 sandbox 面——通过通用任务运行时执行前台与 `run_in_background`、通过共享 `bash-env` 注册表管理 `DSH_*` 环境、以及 bash 的 marker/截断渲染故事（干净退出不产生 marker）。
 
 需要已加载的执行器实现与 `bash-env` 插件；两者都存在前工具保持 pending（`inject: ['tools', 'bash', 'systemPrompt', 'bashEnv']`）。
 
-包根只导出 Cordis 插件契约（`name`、`inject`、`Config`、`apply`）；结果渲染（`src/render.ts`）与后台任务适配（`src/background.ts`）镜像 bash 工具的结构，并可通过包的 `./src/*` 导出访问。
+包根只导出 Cordis 插件约定（`name`、`inject`、`Config`、`apply`）；结果渲染（`src/render.ts`）与后台任务适配（`src/background.ts`）镜像 bash 工具的结构，并可通过包的 `./src/*` 导出访问。
 
 插件还贡献 `tool:pwsh` prompt section（order 105）：非零退出以 `[exit code: N]` marker 报告，Windows 上的中断以无 signal 的 exit 1 结算。
 
@@ -119,6 +119,6 @@ ack 是固定短行；任务输出按读取有界。
 ## Known Limitations and Deferred Work
 
 - **无 sandbox 升级** — 没有 `sandbox_permissions`/`justification`；升级等待 Windows-confining 执行器（bash 工具的 sandbox 面不被镜像）。
-- **无持久 shell 或 PTY** — 每次调用都启动全新的 `pwsh -Command`；PTY 后端目前仅限 Linux/macOS，Windows ConPTY 持久 shell 属于路线图工作。
-- **PowerShell 方言契约** — 模型必须写 PowerShell（原生路径、`$env:` 变量），而不是 bash；没有方言翻译。
+- **无持久 shell 或 PTY** — 每次调用都启动全新的 `pwsh -Command`；PTY 后端仅限 Linux/macOS。
+- **PowerShell 方言约定** — 模型必须写 PowerShell（原生路径、`$env:` 变量），而不是 bash；没有方言翻译。
 - **会话 cwd 身份不做规范化** — workdir 基座直接取会话头 cwd 原值，不同于 bash 工具经 sandbox-root 规范化的身份；此处只涉及无 sandbox 场景。

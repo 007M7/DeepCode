@@ -1,4 +1,4 @@
-# 构建工具
+# 开发一个工具
 
 [English](tool.md) | 中文
 
@@ -49,4 +49,4 @@ pnpm run dsh web --patch ./scratch-plugin/cordis.yml
 
 - [插件配置](./config.md) — 让问候语可配置。
 - [工具编写参考](../../../cookbook/adding-a-tool.md) — 查阅嵌套 schema、规范值、后台工作、策略钩子、Code Mode 和 UI 卡片。
-- [能力分层](../practice/) — 将可替换能力拆分为接口、实现和消费方包。
+- [能力分层](../practice/) — 将可替换能力拆分为 Service Definition、Service provider 和 Consumer 包。

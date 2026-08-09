@@ -1,6 +1,6 @@
 # Architecture
 
-This repository owns confinement *mechanism*, not policy: consumers (agent harnesses, sandbox seams) decide which paths a run may read or write; this package family provides the launcher that enforces those grants and the JS seam that resolves and speaks to it. The packaging follows the per-platform-package model of [`node-addon-require-builtin`](https://www.npmjs.com/package/@esplus/node-addon-require-builtin) (and esbuild), adapted from Node addons to standalone static executables.
+This repository owns confinement *mechanism*, not policy: consumers (agent harnesses and sandbox capabilities) decide which paths a run may read or write; this package family provides the launcher that enforces those grants and the JavaScript API that resolves and speaks to it. The packaging follows the per-platform-package model of [`node-addon-require-builtin`](https://www.npmjs.com/package/@esplus/node-addon-require-builtin) (and esbuild), adapted from Node addons to standalone static executables.
 
 ## Two-layer package family
 
@@ -25,7 +25,7 @@ The launcher exits `125` without exec'ing the command on any launcher-level fail
 
 ## Build and release model
 
-Builds are native-only. `scripts/build.ts` compiles the running architecture's binaries with the distro `musl-gcc` (static: no loader or libc expectations on consumers, one binary for glibc and musl distros); CI's per-architecture runners are the builders of record, and no cross toolchain exists in the repo. The audit surface of a tool is its reviewed C source plus CI provenance, enforced by three gates: platform prepack refuses missing/wrong-ELF binaries, entry prepack refuses unbuilt `lib/`, and the release pipeline byte-pins installed binaries against the workspace builds they were packed from.
+Builds are native-only. `scripts/build.ts` compiles the running architecture's binaries with the distro `musl-gcc` (static: no loader or libc expectations on consumers, one binary for glibc and musl distros); CI's per-architecture runners are the builders of record, and no cross toolchain exists in the repo. Review covers the C source and the CI job that built each binary, enforced by three gates: platform prepack refuses missing/wrong-ELF binaries, entry prepack refuses unbuilt `lib/`, and the release pipeline byte-pins installed binaries against the workspace builds they were packed from.
 
 The package matrix is checked-in metadata (`prebuilds.json` + `os`/`cpu` fields); `scripts/github-matrix.mjs` derives the CI and Release matrices from it, so adding a platform extends automation without editing workflows.
 

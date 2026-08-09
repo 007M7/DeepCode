@@ -37,13 +37,14 @@ export interface ApiProxy {
 // ---- Domain interfaces and payload entities ----
 export type {
   HistoryEntry, ModelCatalogFailure, ModelCatalogModel, ModelProviderGroup, ModelReasoning,
-  ModelReasoningEffort, ModelTarget, PromptContentPart, QueueAction, SessionModels, SessionProjectionsBlock,
+  ModelReasoningEffort, ModelSelection, PromptContentPart, QueueAction, SessionModels, SessionProjectionsBlock,
   SessionSearchItem,
   SessionsApi, SessionSummary,
 } from './sessions.ts'
 export type { DirectoryEntry, DirectoryListing, HostApi } from './host.ts'
 export type {
-  SubagentAddress, SubagentCatalog, SubagentListEntry, SubagentPromptReceipt, SubagentsApi,
+  SubagentAddress, SubagentCatalog, SubagentInterruptReceipt, SubagentListEntry,
+  SubagentPromptReceipt, SubagentsApi,
 } from './subagents.ts'
 export type { WorkspaceApi, WorkspaceId, WorkspaceView } from './workspace.ts'
 export type { CommandsApi, CommandDescriptor } from './commands.ts'

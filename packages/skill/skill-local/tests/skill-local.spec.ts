@@ -42,6 +42,14 @@ class TestFileSystem extends FileSystem {
     return { targetKey: path as never, displayPath: path }
   }
 
+  override processPath(target: FsTarget): string { return String(target.targetKey) }
+
+  override fileUrl(target: FsTarget): string { return `file://${target.targetKey}` }
+
+  override contains(parent: FsTarget, child: FsTarget): boolean {
+    return child.targetKey === parent.targetKey || String(child.targetKey).startsWith(`${parent.targetKey}/`)
+  }
+
   override async stat(target: FsTarget, signal?: AbortSignal): Promise<FsInfo | undefined> {
     this.statSignals.push(signal)
     if (this.failStatPaths.has(target.displayPath)) throw new FsError('stat failed', 'FS_NOT_FOUND')
@@ -488,7 +496,7 @@ describe('LocalSkillProvider', () => {
     ctx.emit(
       'fs/observed',
       { targetKey: path as never, displayPath: path },
-      FsVersion('failed-read'),
+      { kind: 'present', version: FsVersion('failed-read') },
       { name: 'edit' },
     )
     expect(await ctx.skills.snapshot()).toEqual({ skills: [], complete: false })
@@ -518,7 +526,7 @@ describe('LocalSkillProvider', () => {
       ctx.emit(
         'fs/observed',
         { targetKey: path as never, displayPath: path },
-        FsVersion('entry-failure'),
+        { kind: 'present', version: FsVersion('entry-failure') },
         { name: 'write' },
       )
     }
@@ -666,7 +674,7 @@ describe('LocalSkillProvider', () => {
       ctx.emit(
         'fs/observed',
         { targetKey: displayPath as never, displayPath },
-        FsVersion('observed'),
+        { kind: 'present', version: FsVersion('observed') },
         actor,
       )
     }
@@ -681,7 +689,7 @@ describe('LocalSkillProvider', () => {
     ctx.emit(
       'fs/observed',
       { targetKey: path as never, displayPath: path },
-      FsVersion('observed'),
+      { kind: 'present', version: FsVersion('observed') },
       { name: 'edit' },
     )
 

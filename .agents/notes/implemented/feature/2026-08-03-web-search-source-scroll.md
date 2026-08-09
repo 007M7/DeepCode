@@ -24,7 +24,7 @@ Making the list a scroll container also makes its `padding-left` a correctness c
 
 ## Alternatives considered
 
-**Raise `searchMaxResults` (or make it unbounded) so more sources reach both the model and the card.** Rejected by the user: it changes model-side behavior (more sources into every request's context, more tokens) and widens the gap between what the model reads and what the card draws. The instruction was explicit — keep the cap and the truncation, add a scrollbar.
+**Raise `searchMaxResults` (or make it unbounded) so more sources reach both the model and the card.** Rejected by the user: it changes model-side behavior (more sources into every request's context, more tokens) and widens the gap between what the model reads and what the card draws.
 
 **Keep the head/tail collapse and add scroll only to the expanded region.** Rejected: two overlapping mechanisms for one concern. Once the whole list is always rendered, the collapse arithmetic, the expand/collapse state, and the button are dead weight; scroll alone bounds the height.
 

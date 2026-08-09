@@ -82,7 +82,6 @@ function historySnapshot(
       interruptedNodes: [],
       partial: null,
       runningCalls: [],
-      codeDispatches: new Map(),
       ...inspection,
     },
   }
@@ -115,7 +114,7 @@ function standaloneDuration(): Pick<
 function fakeSession(nodes: ConversationSnapshot['nodes']) {
   const store = createSnapshotStore({
     nodes, pending: [], partial: null,
-    runningCalls: [] as ConversationSnapshot['runningCalls'], codeDispatches: new Map(),
+    runningCalls: [] as ConversationSnapshot['runningCalls'],
   })
   return { store, useSession: bindSnapshotSelector(store) as unknown as UseSession<ConversationSnapshot> }
 }
@@ -186,7 +185,7 @@ function mount(slots: SlotsService, nodes: ConversationSnapshot['nodes'] = NODES
     running: false, removed: false, promptError: null, nodes,
     pending: [],
     openState: 'open' as const, hasMore: true, loadingOlder: false,
-    partial: null, runningCalls: [] as ConversationSnapshot['runningCalls'], codeDispatches: new Map(),
+    partial: null, runningCalls: [] as ConversationSnapshot['runningCalls'],
   })
   const useSession = bindSnapshotSelector(sessionSnapshot) as unknown as UseSession<ConversationSnapshot>
   const chat = createChatStore().create()

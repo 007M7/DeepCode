@@ -65,6 +65,14 @@
     - id: agent
       name: '@deepseek-ai/dsh-agent'
 
+    # The transport-independent default for Agents created by front doors.
+    # Settings may supply a saved selection; consumers read it at creation time.
+    - id: agent-default-model
+      name: '@deepseek-ai/dsh-agent-default-model'
+      config:
+        provider: deepseek-official
+        model: deepseek-v4-flash
+
     - id: tasks
       name: '@deepseek-ai/dsh-tasks-local'
 

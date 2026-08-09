@@ -39,11 +39,11 @@ This closes the routing correctness gap, and two recorded fork scenarios exercis
 
 ## Alternatives considered
 
-- **Derive the boundary heuristically in `llm-replay`** (the seeded prefix is contiguous parent events ending at the last `turn/end` before the child's first `user/message`). Rejected: a brittle heuristic in the test harness that re-derives a fact the producer already knows. Persisting the boundary at its source (the fork backend) is the "explicit > implicit at package seams" rule applied across the persistence boundary — the reader of a child fixture never has to reconstruct where the inheritance ended.
+- **Derive the boundary heuristically in `llm-replay`** (the seeded prefix is contiguous parent events ending at the last `turn/end` before the child's first `user/message`). Rejected: a brittle heuristic in the test harness that re-derives a fact the producer already knows. Persisting the boundary at its source (the fork backend) is the "explicit > implicit at package boundaries" rule applied across the persistence boundary — the reader of a child fixture never has to reconstruct where the inheritance ended.
 - **Pin the format version instead of bumping** (the `SESSION_FORMAT_VERSION = 0` "unstable" stance the event log uses). Rejected for the SQLite *table* layout: `SCHEMA_VERSION` is the monotonic bump-and-reject knob (a small enumerable set of revisions worth telling apart), distinct from the event-vocabulary `version`. Adding a column is precisely the breaking table change it versions, so it bumps.
 
 ## Consequences
 
-- A new persisted header field across core + both backends; the core-data-structures catalog (`persistence.md`) is updated in the same change (its `SessionHeader` / `CreateSessionOptions` `type-equiv` blocks).
+- A new persisted header field across core + both backends; the subsystems catalog (`persistence.md`) is updated in the same change (its `SessionHeader` / `CreateSessionOptions` `type-equiv` blocks).
 - Existing SQLite databases at schema v2 are rejected on open (no user data pre-release).
 - Spawn replay is unchanged (`seedLength` 0). Fork replay now routes a child to its own script; covered by a regression in `llm-replay`'s tests (a child fixture whose seeded prefix carries a parent chunk — the derived child script must exclude it, proven red without the slice) and a persistence round-trip test (both backends, via the shared coordinator contract).

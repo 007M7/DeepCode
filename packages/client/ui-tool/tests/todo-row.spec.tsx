@@ -61,7 +61,7 @@ describe('planSummary', () => {
 const resultNode = (argsRaw: string, over?: Partial<ToolResultNode>): ToolResultNode => ({
   kind: 'tool-result', seq: 10, time: 2_000, callTime: 1_000, callId: 'c1',
   call: { name: 'todo_write', argsRaw },
-  content: [], isError: false, callView: null, resultView: null, ...over,
+  content: [], isError: false, callView: null, resultView: null, subCalls: [], ...over,
 })
 
 function rowProps(block: unknown): TodoRowProps {
@@ -106,7 +106,7 @@ describe('TodoRow', () => {
 
   it('keeps non-ok execution states visible through the shared row states', () => {
     const args = JSON.stringify({ todos: LIST })
-    const running = render(<TodoRow {...rowProps({ callId: 'c1', name: 'todo_write', argsRaw: args, turn: 1, step: 1, time: 1_000, callView: null })} />)
+    const running = render(<TodoRow {...rowProps({ callId: 'c1', name: 'todo_write', argsRaw: args, turn: 1, step: 1, time: 1_000, callView: null, subCalls: [] })} />)
     expect(running.container.querySelector('[data-state="running"]')).not.toBeNull()
     expect(running.container.querySelector('[data-state="running"] svg')).not.toBeNull()
     running.unmount()

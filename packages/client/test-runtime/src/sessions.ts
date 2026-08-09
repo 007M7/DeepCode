@@ -378,7 +378,7 @@ export class TestSessions implements ISessions {
   }
 
   /**
-   * Read the session scope tag off a context (service-method seam mirror).
+   * Read the session scope tag off a context (service-method boundary mirror).
    * @param ctx - any client context.
    * @returns the session id, or undefined on root contexts.
    */

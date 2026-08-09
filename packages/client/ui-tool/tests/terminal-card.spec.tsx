@@ -20,7 +20,7 @@ import { createChatStore } from '@deepseek-ai/dsh-client-ui-conversation/src/cli
 import { GenericToolCard, type GenericToolCardProps } from '../src/client/tool/toolviews/GenericToolCard.tsx'
 import { DetailsPanel } from '@deepseek-ai/dsh-client-ui-conversation/src/client/skeleton/DetailsPanel.tsx'
 import { BashRow } from '../src/client/tool/toolviews/bash-sample.tsx'
-import { renderToolDetails, SessionProviderStub } from './tool-details-render.tsx'
+import { renderToolDetails, SessionProviderStub, toolChatSnapshot } from './tool-details-render.tsx'
 import { zh } from '@deepseek-ai/dsh-client-ui-conversation/src/client/locales.ts'
 
 type BashRowProps = Parameters<typeof BashRow>[0]
@@ -58,7 +58,7 @@ const resultTerminal = (over?: Partial<Extract<ToolResultView, { card: 'terminal
 
 const running = (over?: Partial<RunningToolCall>): RunningToolCall => ({
   callId: 'c1', name: 'bash', argsRaw: ARGS,
-  turn: 1, step: 1, time: 1_000, callView: callTerminal(), ...over,
+  turn: 1, step: 1, time: 1_000, callView: callTerminal(), subCalls: [], ...over,
 })
 
 const settled = (over?: Partial<ToolResultNode>): ToolResultNode => ({
@@ -66,7 +66,7 @@ const settled = (over?: Partial<ToolResultNode>): ToolResultNode => ({
   call: { name: 'bash', argsRaw: ARGS },
   callTime: 1_000,
   content: [{ type: 'text', text: 'a.ts  b.ts\nc.ts  d.ts\n' }], isError: false,
-  callView: callTerminal(), resultView: resultTerminal(), ...over,
+  callView: callTerminal(), resultView: resultTerminal(), subCalls: [], ...over,
 })
 
 describe('terminalCardModel', () => {
@@ -479,8 +479,11 @@ describe('DetailsPanel Output section', () => {
   }
 
   function snapshot(over: Partial<ConversationSnapshot> = {}): ConversationSnapshot {
+    const nodes = over.nodes ?? []
+    const runningCalls = over.runningCalls ?? []
     return {
-      sessionId: SID, nodes: [], turnTimings: new Map(), turnEnds: new Map(), partial: null, runningCalls: [], codeDispatches: new Map(),
+      sessionId: SID, chat: over.chat ?? toolChatSnapshot(nodes, runningCalls),
+      nodes: [], turnTimings: new Map(), turnEnds: new Map(), partial: null, runningCalls: [],
       pending: [], queue: [], running: false, composerPhase: 'active', removed: false,
       openState: 'open', openError: null, hasMore: false, loadingOlder: false,
       promptError: null, blank: false, subagent: null, lastAgentError: null, ...over,
@@ -568,15 +571,17 @@ describe('DetailsPanel Output section', () => {
   // pins the resolution path with views injected directly, and the arm below
   // pins what the shipped path actually shows today.
   it('a run_code sub-dispatch resolves to its own terminal card once views reach it', () => {
+    const child = settled({ callId: 'c1' })
     const view = mount(snapshot({
-      codeDispatches: new Map([['p1', [settled({ callId: 'c1' })]]]),
+      runningCalls: [running({ callId: 'p1', subCalls: [child] })],
     }), target)
     expect(view.getByText('a.ts  b.ts', RAW)).toBeTruthy()
   })
 
   it('a sub-dispatch as the wire actually delivers it (no views) keeps the flattened form', () => {
+    const child = settled({ callId: 'c1', callView: null, resultView: null })
     const view = mount(snapshot({
-      codeDispatches: new Map([['p1', [settled({ callId: 'c1', callView: null, resultView: null })]]]),
+      runningCalls: [running({ callId: 'p1', subCalls: [child] })],
     }), target)
     // No terminal card: the generic path renders the result text in the Output
     // section's <pre> (the Input section has its own, hence the scoping).
@@ -588,7 +593,10 @@ describe('DetailsPanel Output section', () => {
   it('a running run_code sub-dispatch resolves through the running material', () => {
     const view = mount(snapshot({
       // The leading non-matching sub-call exercises the scan's skip.
-      codeDispatches: new Map([['p1', [running({ callId: 'other' }), running()]]]),
+      runningCalls: [running({
+        callId: 'p1',
+        subCalls: [running({ callId: 'other' }), running()],
+      })],
     }), target)
     expect(view.getByText('ls -la')).toBeTruthy()
   })

@@ -4,12 +4,14 @@
  * fiber-scoped loop teardown.
  */
 import { Context } from 'cordis'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
 import type { ConnectionSinks } from '@deepseek-ai/dsh-client-connection/client'
 import { SESSION_SEARCH_RESULT_LIMIT } from '@deepseek-ai/dsh-host-apiproxy/api'
 import TypertRegistry from '@deepseek-ai/dsh-typert-registry'
 import * as RuntimeClient from '../src/client/index.ts'
+import type { ConversationNodeDefinition } from '../src/client/contract/conversation.ts'
+import { Session } from '../src/client/sessions/session.ts'
 import type { SessionsService } from '../src/client/sessions/service.ts'
 import type { WorkspacesService } from '../src/client/workspaces/service.ts'
 import { FakeApiClient, ok } from './fake-api.ts'
@@ -52,7 +54,7 @@ describe('runtime client apply', () => {
     const bench = await mount()
     expect(bench.ctx.get('slots') !== undefined).toBe(true)
     // The built-in 'root' declaration ships with this package's SlotsService
-    // (the SlotMap 'root' merge lives here since the slot-parity rework).
+    // (the SlotMap 'root' merge lives here).
     expect(bench.ctx.slots.spec('root')).toEqual({ kind: 'single', scope: 'root' })
     const sessions = bench.ctx.get('sessions')
     const workspaces = bench.ctx.get('workspaces')
@@ -110,6 +112,31 @@ describe('runtime client apply', () => {
     await flushMicrotasks()
     expect(sessions.list.getSnapshot().current).toBeUndefined()
     expect(bench.api.callsOf('session.create')).toHaveLength(1)
+  })
+
+  it('wires registry changes into resident Sessions during the runtime apply pass', async () => {
+    const bench = await mount()
+    const sessions = bench.ctx.get('sessions') as SessionsService
+    bench.sinks?.onHostEnvelope?.({
+      rpcId: 'r-registry' as never,
+      payload: { type: 'host/session-added', blank: true, sessionId: 's-registry' } as never,
+    })
+    await flushMicrotasks()
+    expect(sessions.binding('s-registry' as never)).toBeDefined()
+    const rebuild = vi.spyOn(Session.prototype, 'rebuildConversationRegistry')
+    const definition: ConversationNodeDefinition<null> = {
+      kind: 'registry-probe',
+      match: () => null,
+      start: () => null,
+      update: context => context.state,
+      buildViewNode: () => null,
+    }
+
+    bench.ctx.conversationEvents.register(definition)
+    await flushMicrotasks()
+
+    expect(rebuild).toHaveBeenCalledOnce()
+    rebuild.mockRestore()
   })
 
   it('stops the stream loop when the plugin fiber unloads', async () => {

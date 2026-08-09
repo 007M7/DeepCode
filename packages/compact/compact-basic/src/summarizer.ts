@@ -84,7 +84,7 @@ export interface SummarizationInput {
   readonly messages: readonly Message[]
 }
 
-/** Safe summary content plus the exact auxiliary call envelope recorded in provenance. */
+/** Safe summary content plus the exact auxiliary call envelope recorded with it. */
 export type SummaryResult = {
   summary: ContentBlock[]
   provider: string
@@ -116,7 +116,7 @@ export type SummaryResult = {
  * @param input - replayed conversation prefix (system, tools, and leading messages) to condense.
  * @param agent - supplies routed-model history, fallback model, and session id.
  * @param signal - optional cancellation forwarded to the adapter.
- * @returns safe text-only summary blocks and exact call provenance.
+ * @returns safe text-only summary blocks and the exact call envelope and output.
  */
 export async function summarizeWithLlm(
   ctx: Context,

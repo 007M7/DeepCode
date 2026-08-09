@@ -3,7 +3,7 @@
 
 # Plugin Config Catalog
 
-Every `config:` block a `cordis.yml` entry can set: for each loadable harness package, the verbatim config declaration (JSDoc included) its `apply` function or service constructor receives, with every referenced type pasted alongside (package-local types) or linked (everything else). The paste is the plugin's full declared config type — a field the runtime schema deliberately excludes is a runtime-only seam (its own JSDoc says so) and is not settable from `cordis.yml`. This is the **deployment**-axis reference — the wiring a plugin author works against is the cordis [events](cordis-catalog/events.md) + [services](cordis-catalog/services.md) catalogs, the model-facing tool schemas are the [tool catalog](tool-catalog.md), and [core-data-structures/](core-data-structures/core.md) documents the types these declarations reference.
+Every `config:` block a `cordis.yml` entry can set: for each loadable harness package, the verbatim config declaration (JSDoc included) its `apply` function or service constructor receives, with every referenced type pasted alongside (package-local types) or linked (everything else). The paste is the plugin's full declared config type — a field the runtime schema deliberately excludes is a runtime-only seam (its own JSDoc says so) and is not settable from `cordis.yml`. This is the **deployment**-axis reference — the wiring a plugin author works against is the generated `cordis-surface` region on each [subsystem page](subsystems/core.md), the model-facing tool schemas are the [tool catalog](tool-catalog.md), and [subsystems/](subsystems/core.md) documents the types these declarations reference.
 
 This file is GENERATED from source (`scripts/gen-config-catalog.ts`) and verified fresh by `pnpm run verify-config-catalog` (part of `doc-sync`) — do not edit it by hand. Declaration blocks use a `ts config-catalog` fence (skipped by doc-typecheck, since a lone declaration referencing imports is not standalone-compilable). The generator also cross-checks the runtime schemastery schema against the pasted declaration — every schema-validated key, nested keys included, must be locatable on the declared config type — so the paste cannot hide a loader-accepted field.
 
@@ -14,7 +14,7 @@ A `Requires:` line lists the service keys the plugin `inject`s: its `cordis.yml`
 Requires: `agents`
 
 ```ts config-catalog
-/** Plugin config: the provider/model target used for each ACP-created agent. */
+/** Plugin config: the provider/model selection used for each ACP-created agent. */
 export interface AcpConfig {
   /** Provider route for created agents. */
   provider?: string
@@ -76,9 +76,23 @@ export interface Config {
 }
 ```
 
-Depends on: [`agentCore`](../packages/examples/agent-spine-demo/src/index.ts) · [`JsonlCompression`](../packages/session-persistence/session-persistence-jsonl/src/index.ts) · [`ToolsConfig`](#deepseek-aidsh-tools)
+Depends on: [`agentCore`](../packages/examples/agent-spine-demo/src/index.ts) · [`JsonlCompression`](../packages/session/session-persistence-jsonl/src/index.ts) · [`ToolsConfig`](#deepseek-aidsh-tools)
 
 Source: [`packages/examples/acp-demo/src/index.ts:39`](../packages/examples/acp-demo/src/index.ts)
+
+## `@deepseek-ai/dsh-agent-default-model`
+
+```ts config-catalog
+/** Composition entry for the default model selection. */
+export interface Config {
+  /** Registered provider route. */
+  provider: string
+  /** Provider-owned model id. */
+  model: string
+}
+```
+
+Source: [`packages/core/agent-default-model/src/index.ts:41`](../packages/core/agent-default-model/src/index.ts)
 
 ## `@deepseek-ai/dsh-agent-loop`
 
@@ -106,7 +120,7 @@ export interface Config {
 }
 ```
 
-Depends on: [`AgentOptions`](core-data-structures/core.md) · [`SessionId`](core-data-structures/core.md)
+Depends on: [`AgentOptions`](subsystems/core.md) · [`SessionId`](subsystems/core.md)
 
 Source: [`packages/core/agent-loop/src/index.ts:236`](../packages/core/agent-loop/src/index.ts)
 
@@ -419,7 +433,23 @@ export interface Config {
 }
 ```
 
-Source: [`packages/credentials/credentials-local/src/index.ts:54`](../packages/credentials/credentials-local/src/index.ts)
+Source: [`packages/credentials/credentials-local/src/index.ts:55`](../packages/credentials/credentials-local/src/index.ts)
+
+## `@deepseek-ai/dsh-e2b`
+
+```ts config-catalog
+/** Configuration for the shared E2B sandbox owner. */
+export interface Config {
+  /** API key; omission reads `E2B_API_KEY`. It is never forwarded into the sandbox. */
+  apiKey?: string
+  /** Shared remote working directory, created before adapters receive the sandbox. */
+  cwd?: string
+  /** E2B sandbox lifetime in milliseconds; expiry always deletes the sandbox. */
+  timeoutMs?: number
+}
+```
+
+Source: [`packages/e2b/e2b/src/index.ts:43`](../packages/e2b/e2b/src/index.ts)
 
 ## `@deepseek-ai/dsh-frontend-static`
 
@@ -445,7 +475,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/fs/fs-local/src/index.ts:38`](../packages/fs/fs-local/src/index.ts)
+Source: [`packages/fs/fs-local/src/index.ts:39`](../packages/fs/fs-local/src/index.ts)
 
 ## `@deepseek-ai/dsh-fs-sandbox`
 
@@ -481,17 +511,17 @@ Source: [`packages/goal/goal/src/index.ts:116`](../packages/goal/goal/src/index.
 
 ## `@deepseek-ai/dsh-headless`
 
-Requires: `apiProxy` · `httpServer`
+Requires: `agentDefaultModel` · `agents` · `sessions`
 
 ```ts config-catalog
 /** Plugin config: the task, patched in by the launcher. */
 export interface Config {
-  /** The prompt text for the single turn. */
+  /** The prompt text for the single run. */
   task: string
 }
 ```
 
-Source: [`packages/bundle/headless/src/index.ts:32`](../packages/bundle/headless/src/index.ts)
+Source: [`packages/bundle/headless/src/index.ts:29`](../packages/bundle/headless/src/index.ts)
 
 ## `@deepseek-ai/dsh-hooks-claude`
 
@@ -505,7 +535,7 @@ export interface Config {
    * Process-level: read once at load, a relative path resolves against the process
    * launch cwd, so one config applies to the whole process.
    * TODO(per-session-hook-config): per-session discovery of a project-local
-   * `hooks.json` from each `session/new.cwd` is not yet implemented.
+   * `hooks.json` from each `session/new.cwd`.
    */
   configPath: string
   /**
@@ -540,7 +570,7 @@ export interface Config {
    * Path to a Codex `hooks.json`. Process-level: read once at load, a relative
    * path resolves against the process launch cwd.
    * TODO(per-session-hook-config): per-session project-local discovery from each
-   * `session/new.cwd` is not yet implemented.
+   * `session/new.cwd`.
    */
   configPath: string
   /** The model name stamped on every payload (Codex includes `model` on each event). */
@@ -556,32 +586,17 @@ Source: [`packages/hooks/hooks-codex/src/index.ts:44`](../packages/hooks/hooks-c
 
 ## `@deepseek-ai/dsh-host-apiproxy`
 
-Requires: `agents` · `attachments` · `directoryPicker` · `llm` · `sessions` · `subagents` · `sessionQuery` · `tools` · `userInteraction` · `workspace`
+Requires: `agentDefaultModel` · `agents` · `attachments` · `directoryPicker` · `llm` · `sessions` · `subagents` · `sessionQuery` · `tools` · `userInteraction` · `workspace`
 
 ```ts config-catalog
-/**
- * Gateway plugin config: host-level agent routing and Workspace creation root.
- *
- * `reasoningEffort` is deliberately absent, so the section carries one field
- * the composition cannot. The seam resolves a section by MERGING the user
- * layer over the composition entry per field, and an absent key cannot
- * override a present one — so a composition-set effort would survive every
- * later switch to a model that has none, and strand it for the next session
- * to fail on. Effort is a per-model fact anyway: a deployment default belongs
- * on the adapter profile (`llm-pi-ai`'s `reasoning`, `llm-deepseek`'s own),
- * which resolves per model rather than per gateway.
- */
+/** Gateway plugin config: the Host-only Workspace creation root. */
 export interface Config {
-  /** Default provider route for created agents. */
-  provider: string
-  /** Default model id. */
-  model: string
   /** Parent directory for name-created Workspaces; defaults to the Host cwd. */
   workspaceRoot?: string
 }
 ```
 
-Source: [`packages/host/apiproxy/src/index.ts:67`](../packages/host/apiproxy/src/index.ts)
+Source: [`packages/host/apiproxy/src/index.ts:38`](../packages/host/apiproxy/src/index.ts)
 
 ## `@deepseek-ai/dsh-host-directory-picker-browse`
 
@@ -630,7 +645,7 @@ Source: [`packages/support/invariants/src/index.ts:15`](../packages/support/inva
 Requires: `agents`
 
 ```ts config-catalog
-/** JSON-RPC deployment config plus runtime-only test seams. */
+/** JSON-RPC deployment config plus runtime-only test hooks. */
 export interface JsonRpcConfig {
   /** Report max-token turn/subagent termination as a successful SDK result. */
   maxTokensAsSuccess?: boolean
@@ -645,7 +660,7 @@ export interface JsonRpcConfig {
 
 Depends on: `Readable` (`node:stream`) · `Writable` (`node:stream`)
 
-Source: [`packages/ui/jsonrpc/src/index.ts:25`](../packages/ui/jsonrpc/src/index.ts)
+Source: [`packages/scaffold/server/src/index.ts:29`](../packages/scaffold/server/src/index.ts)
 
 ## `@deepseek-ai/dsh-llm-deepseek`
 
@@ -853,8 +868,7 @@ type PiThinkingFormat = NonNullable<OpenAICompletionsCompat['thinkingFormat']>
 
 /**
  * pi-ai thinking formats a profile cannot name: both drive the request through
- * `chatTemplateKwargs`, which this configuration does not expose, so offering
- * them would hand back a format with nothing to say.
+ * `chatTemplateKwargs`, which this configuration does not expose.
  */
 type WithheldThinkingFormat = 'chat-template' | 'qwen-chat-template'
 ```
@@ -924,11 +938,11 @@ Requires: `agents`
 export type Config = Readonly<Record<string, never>>
 ```
 
-Source: [`packages/llm/llm-retry/src/index.ts:46`](../packages/llm/llm-retry/src/index.ts)
+Source: [`packages/llm/llm-retry/src/index.ts:24`](../packages/llm/llm-retry/src/index.ts)
 
 ## `@deepseek-ai/dsh-lsp-local`
 
-Requires: `lsp` · `subprocess`
+Requires: `fs` · `lsp` · `subprocess`
 
 ```ts config-catalog
 /** Plugin configuration: provider id → local language-server configuration. */
@@ -964,7 +978,7 @@ export interface LspLocalServerConfig {
 }
 ```
 
-Source: [`packages/lsp/lsp-local/src/index.ts:87`](../packages/lsp/lsp-local/src/index.ts)
+Source: [`packages/lsp/lsp-local/src/index.ts:82`](../packages/lsp/lsp-local/src/index.ts)
 
 ## `@deepseek-ai/dsh-mcp-client`
 
@@ -994,6 +1008,8 @@ export interface StdioConfig {
   cwd: string
   /** Per-tool-call timeout in milliseconds. */
   toolCallTimeoutMs: number
+  /** Fail plugin activation when the initial connection or tool synchronization fails. */
+  failOnStartupError: boolean
 }
 
 /** Config for connecting to an MCP server over Streamable HTTP (SSE). */
@@ -1012,10 +1028,12 @@ export interface StreamableHttpConfig {
   headers: Record<string, string>
   /** Per-tool-call timeout in milliseconds. */
   toolCallTimeoutMs: number
+  /** Fail plugin activation when the initial connection or tool synchronization fails. */
+  failOnStartupError: boolean
 }
 ```
 
-Source: [`packages/mcp/mcp-client/src/index.ts:96`](../packages/mcp/mcp-client/src/index.ts)
+Source: [`packages/mcp/mcp-client/src/index.ts:100`](../packages/mcp/mcp-client/src/index.ts)
 
 ## `@deepseek-ai/dsh-permission`
 
@@ -1050,9 +1068,9 @@ export interface PresetSpec {
 }
 ```
 
-Depends on: [`ApprovalPolicy`](core-data-structures/approval.md) · [`SandboxMode`](core-data-structures/sandbox.md)
+Depends on: [`ApprovalPolicy`](subsystems/approval.md) · [`SandboxMode`](subsystems/sandbox.md)
 
-Source: [`packages/ui/permission/src/index.ts:140`](../packages/ui/permission/src/index.ts)
+Source: [`packages/interaction/permission/src/index.ts:140`](../packages/interaction/permission/src/index.ts)
 
 ## `@deepseek-ai/dsh-plan-mode`
 
@@ -1070,7 +1088,7 @@ Source: [`packages/plan/plan-mode/src/index.ts:69`](../packages/plan/plan-mode/s
 
 ## `@deepseek-ai/dsh-pty-local`
 
-Requires: `pty` · `sandbox` · `sandboxPolicy`
+Requires: `pty` · `sandboxPolicy` · `subprocess`
 
 ```ts config-catalog
 /** Public plugin configuration. */
@@ -1188,7 +1206,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/cordis/repository-plugin/src/index.ts:42`](../packages/cordis/repository-plugin/src/index.ts)
+Source: [`packages/self-modification/repository-plugin/src/index.ts:44`](../packages/self-modification/repository-plugin/src/index.ts)
 
 ## `@deepseek-ai/dsh-sandbox-local`
 
@@ -1199,9 +1217,10 @@ export interface Config {
    * Override the runner argv; bwrap-shaped profile arguments are appended. A
    * non-empty override asserts full enforcement and skips built-in selection and
    * probing. A runner that starts but refuses its profile must be identifiable by
-   * {@link runnerFailureSignatures}. Consumers classify spawn rejection; only
-   * attributable `ENOENT` or `EACCES` with runner argv[0] provenance becomes an
-   * infrastructure failure.
+   * {@link runnerFailureSignatures}. Consumers classify a spawn rejection only after
+   * confirming the workdir is usable. `ENOENT` or `EACCES` identifies the runner when
+   * `error.path` equals argv[0] and `error.syscall` is `spawn` or `spawn <runner>`, or
+   * when `error.path` is absent and `error.syscall` is exactly `spawn <runner>`.
    */
   runnerCommand?: string[]
   /**
@@ -1240,7 +1259,7 @@ export interface Config {
 }
 ```
 
-Depends on: [`SandboxMode`](core-data-structures/sandbox.md)
+Depends on: [`SandboxMode`](subsystems/sandbox.md)
 
 Source: [`packages/sandbox/sandbox-policy/src/index.ts:67`](../packages/sandbox/sandbox-policy/src/index.ts)
 
@@ -1279,7 +1298,7 @@ export interface Config {
 export type JsonlCompression = 'zstd' | 'none'
 ```
 
-Source: [`packages/session-persistence/session-persistence-jsonl/src/index.ts:59`](../packages/session-persistence/session-persistence-jsonl/src/index.ts)
+Source: [`packages/session/session-persistence-jsonl/src/index.ts:59`](../packages/session/session-persistence-jsonl/src/index.ts)
 
 ## `@deepseek-ai/dsh-session-persistence-sqlite`
 
@@ -1322,7 +1341,7 @@ export interface Config {
 export type JournalMode = 'wal' | 'delete' | 'truncate' | 'persist'
 ```
 
-Source: [`packages/session-persistence/session-persistence-sqlite/src/index.ts:67`](../packages/session-persistence/session-persistence-sqlite/src/index.ts)
+Source: [`packages/session/session-persistence-sqlite/src/index.ts:67`](../packages/session/session-persistence-sqlite/src/index.ts)
 
 ## `@deepseek-ai/dsh-session-projection-cache`
 
@@ -1343,7 +1362,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/session-projection/session-projection-cache/src/index.ts:42`](../packages/session-projection/session-projection-cache/src/index.ts)
+Source: [`packages/session/session-projection-cache/src/index.ts:42`](../packages/session/session-projection-cache/src/index.ts)
 
 ## `@deepseek-ai/dsh-session-query-sqlite`
 
@@ -1443,7 +1462,7 @@ export enum TelemetryMode {
 
 Depends on: `BatchLogRecordProcessorOptions` (`@opentelemetry/sdk-logs`) · `OTLPExporterNodeConfigBase` (`@opentelemetry/otlp-exporter-base`)
 
-Source: [`packages/telemetry/session-telemetry-otel/src/index.ts:80`](../packages/telemetry/session-telemetry-otel/src/index.ts)
+Source: [`packages/session/session-telemetry-otel/src/index.ts:80`](../packages/session/session-telemetry-otel/src/index.ts)
 
 ## `@deepseek-ai/dsh-session-title`
 
@@ -1461,7 +1480,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/session-title/session-title/src/index.ts:79`](../packages/session-title/session-title/src/index.ts)
+Source: [`packages/session/session-title/src/index.ts:79`](../packages/session/session-title/src/index.ts)
 
 ## `@deepseek-ai/dsh-session-title-all-messages-llm`
 
@@ -1472,9 +1491,9 @@ Requires: `sessionTitle` · `llm` · `sessions`
 export type Config = SessionTitleLlmConfig
 ```
 
-Depends on: [`SessionTitleLlmConfig`](../packages/session-title/session-title-llm/src/index.ts)
+Depends on: [`SessionTitleLlmConfig`](../packages/session/session-title-llm/src/index.ts)
 
-Source: [`packages/session-title/session-title-all-messages-llm/src/index.ts:15`](../packages/session-title/session-title-all-messages-llm/src/index.ts)
+Source: [`packages/session/session-title-all-messages-llm/src/index.ts:15`](../packages/session/session-title-all-messages-llm/src/index.ts)
 
 ## `@deepseek-ai/dsh-session-title-first-message-llm`
 
@@ -1485,9 +1504,9 @@ Requires: `sessionTitle` · `llm` · `sessions`
 export type Config = SessionTitleLlmConfig
 ```
 
-Depends on: [`SessionTitleLlmConfig`](../packages/session-title/session-title-llm/src/index.ts)
+Depends on: [`SessionTitleLlmConfig`](../packages/session/session-title-llm/src/index.ts)
 
-Source: [`packages/session-title/session-title-first-message-llm/src/index.ts:15`](../packages/session-title/session-title-first-message-llm/src/index.ts)
+Source: [`packages/session/session-title-first-message-llm/src/index.ts:15`](../packages/session/session-title-first-message-llm/src/index.ts)
 
 ## `@deepseek-ai/dsh-settings-local`
 
@@ -1517,7 +1536,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/skill/skill/src/index.ts:265`](../packages/skill/skill/src/index.ts)
+Source: [`packages/skill/skill/src/index.ts:266`](../packages/skill/skill/src/index.ts)
 
 ## `@deepseek-ai/dsh-skill-local`
 
@@ -1691,7 +1710,7 @@ export interface Config {
   /**
    * How to auto-answer the child's `session/request_permission` prompts:
    * `reject` (default — decline every prompt) or `allow` (approve via the first
-   * allow-shaped option). The first cut surfaces no prompt to a human.
+   * allow-shaped option). No prompt is surfaced to a human.
    */
   permission: PermissionPolicy
   /**
@@ -1835,6 +1854,20 @@ export interface Config {
 
 Source: [`packages/subagent/subagent-spawn/src/index.ts:25`](../packages/subagent/subagent-spawn/src/index.ts)
 
+## `@deepseek-ai/dsh-subprocess-e2b`
+
+Requires: `e2b`
+
+```ts config-catalog
+/** Configuration for the E2B subprocess adapter. */
+export interface Config {
+  /** Remote status/liveness poll cadence in milliseconds; each tick is one control-plane request. */
+  pollMs?: number
+}
+```
+
+Source: [`packages/e2b/subprocess-e2b/src/index.ts:25`](../packages/e2b/subprocess-e2b/src/index.ts)
+
 ## `@deepseek-ai/dsh-system-prompt`
 
 ```ts config-catalog
@@ -1947,7 +1980,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/cordis/tool-cordis/src/index.ts:25`](../packages/cordis/tool-cordis/src/index.ts)
+Source: [`packages/self-modification/tool-cordis/src/index.ts:25`](../packages/self-modification/tool-cordis/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-fs`
 
@@ -2125,7 +2158,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/fs/tool-str-replace-editor/src/index.ts:496`](../packages/fs/tool-str-replace-editor/src/index.ts)
+Source: [`packages/fs/tool-str-replace-editor/src/index.ts:497`](../packages/fs/tool-str-replace-editor/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-subagent`
 
@@ -2185,7 +2218,7 @@ export interface Config {
 }
 ```
 
-Depends on: [`AgentOptions`](core-data-structures/core.md)
+Depends on: [`AgentOptions`](subsystems/core.md)
 
 Source: [`packages/subagent/tool-subagent/src/index.ts:25`](../packages/subagent/tool-subagent/src/index.ts)
 
@@ -2204,7 +2237,7 @@ export interface Config {
 }
 ```
 
-Depends on: [`SubagentReportDelivery`](core-data-structures/subagent.md)
+Depends on: [`SubagentReportDelivery`](subsystems/subagent.md)
 
 Source: [`packages/subagent/tool-subagent-report/src/index.ts:22`](../packages/subagent/tool-subagent-report/src/index.ts)
 
@@ -2313,7 +2346,7 @@ export interface Config {
 export type ToolPresentationMode = 'native' | 'code' | 'both'
 ```
 
-Source: [`packages/core/tools/src/index.ts:616`](../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:624`](../packages/core/tools/src/index.ts)
 
 ## `@deepseek-ai/dsh-typert-loader`
 
@@ -2348,8 +2381,7 @@ export interface Config {
  * ask BEFORE any interactive answerer sees it:
  *
  * - `'ask'` (the default) — delegate to the composed answerers; with none
- *   composed the chain falls through to the fail-closed `'unavailable'`
- *   (exactly today's behavior).
+ *   composed the chain falls through to the fail-closed `'unavailable'`.
  * - `'never'` — never prompt anyone: every ask resolves `'rejected'`
  *   deterministically. The strict headless stance (CI, unattended runs) and
  *   the policy whose outcome is knowable without asking.
@@ -2357,7 +2389,7 @@ export interface Config {
 export type ApprovalPolicy = 'ask' | 'never'
 ```
 
-Source: [`packages/ui/user-approval/src/index.ts:178`](../packages/ui/user-approval/src/index.ts)
+Source: [`packages/interaction/user-approval/src/index.ts:177`](../packages/interaction/user-approval/src/index.ts)
 
 ## `@deepseek-ai/dsh-web`
 
@@ -2594,7 +2626,8 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-command-compact` — requires `commands` · `compact` ([`packages/compact/command-compact/src/index.ts`](../packages/compact/command-compact/src/index.ts))
 - `@deepseek-ai/dsh-command-feedback` — requires `commands` ([`packages/feedback/command-feedback/src/index.ts`](../packages/feedback/command-feedback/src/index.ts))
 - `@deepseek-ai/dsh-command-goal` — requires `commands` · `goals` ([`packages/goal/command-goal/src/index.ts`](../packages/goal/command-goal/src/index.ts))
-- `@deepseek-ai/dsh-commands` ([`packages/ui/commands/src/index.ts`](../packages/ui/commands/src/index.ts))
+- `@deepseek-ai/dsh-commands` ([`packages/interaction/commands/src/index.ts`](../packages/interaction/commands/src/index.ts))
+- `@deepseek-ai/dsh-fs-e2b` — requires `e2b` ([`packages/e2b/fs-e2b/src/index.ts`](../packages/e2b/fs-e2b/src/index.ts))
 - `@deepseek-ai/dsh-fs-policy` ([`packages/fs/fs-policy/src/index.ts`](../packages/fs/fs-policy/src/index.ts))
 - `@deepseek-ai/dsh-goal-session` — requires `agents` · `goals` · `sessions` ([`packages/goal/goal-session/src/index.ts`](../packages/goal/goal-session/src/index.ts))
 - `@deepseek-ai/dsh-host-directory-picker-auto` — requires `httpServer` · `loader` ([`packages/host/directory-picker-auto/src/index.ts`](../packages/host/directory-picker-auto/src/index.ts))
@@ -2603,17 +2636,17 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-lsp` ([`packages/lsp/lsp/src/index.ts`](../packages/lsp/lsp/src/index.ts))
 - `@deepseek-ai/dsh-pty` ([`packages/pty/pty/src/index.ts`](../packages/pty/pty/src/index.ts))
 - `@deepseek-ai/dsh-session` ([`packages/core/session/src/index.ts`](../packages/core/session/src/index.ts))
-- `@deepseek-ai/dsh-session-checkpoint-policy` — requires `llm` · `sessionPersistence` · `sessions` · `tools` ([`packages/session-persistence/session-checkpoint-policy/src/index.ts`](../packages/session-persistence/session-checkpoint-policy/src/index.ts))
-- `@deepseek-ai/dsh-session-projection` ([`packages/session-projection/session-projection/src/index.ts`](../packages/session-projection/session-projection/src/index.ts))
+- `@deepseek-ai/dsh-session-checkpoint-policy` — requires `llm` · `sessionPersistence` · `sessions` · `tools` ([`packages/session/session-checkpoint-policy/src/index.ts`](../packages/session/session-checkpoint-policy/src/index.ts))
+- `@deepseek-ai/dsh-session-projection` ([`packages/session/session-projection/src/index.ts`](../packages/session/session-projection/src/index.ts))
 - `@deepseek-ai/dsh-skill-badge` — requires `skills` ([`packages/skill/skill-badge/src/index.ts`](../packages/skill/skill-badge/src/index.ts))
 - `@deepseek-ai/dsh-storage` ([`packages/storage/storage/src/index.ts`](../packages/storage/storage/src/index.ts))
 - `@deepseek-ai/dsh-subagent` ([`packages/subagent/subagent/src/index.ts`](../packages/subagent/subagent/src/index.ts))
 - `@deepseek-ai/dsh-subprocess-local` ([`packages/subprocess/subprocess-local/src/index.ts`](../packages/subprocess/subprocess-local/src/index.ts))
 - `@deepseek-ai/dsh-tasks-local` ([`packages/tasks/tasks-local/src/index.ts`](../packages/tasks/tasks-local/src/index.ts))
-- `@deepseek-ai/dsh-timeout-policy` — requires `tools` ([`packages/timeout/timeout-policy/src/index.ts`](../packages/timeout/timeout-policy/src/index.ts))
-- `@deepseek-ai/dsh-tool-ask-user` — requires `tools` · `userInteraction` ([`packages/ui/tool-ask-user/src/index.ts`](../packages/ui/tool-ask-user/src/index.ts))
+- `@deepseek-ai/dsh-timeout-policy` — requires `tools` ([`packages/guard/timeout-policy/src/index.ts`](../packages/guard/timeout-policy/src/index.ts))
+- `@deepseek-ai/dsh-tool-ask-user` — requires `tools` · `userInteraction` ([`packages/interaction/tool-ask-user/src/index.ts`](../packages/interaction/tool-ask-user/src/index.ts))
 - `@deepseek-ai/dsh-tool-subagent-control` — requires `tools` · `subagents` ([`packages/subagent/tool-subagent-control/src/index.ts`](../packages/subagent/tool-subagent-control/src/index.ts))
-- `@deepseek-ai/dsh-user-interaction` ([`packages/ui/user-interaction/src/index.ts`](../packages/ui/user-interaction/src/index.ts))
+- `@deepseek-ai/dsh-user-interaction` ([`packages/interaction/user-interaction/src/index.ts`](../packages/interaction/user-interaction/src/index.ts))
 - `@deepseek-ai/dsh-workspace` — requires `storageDomain` · `sessionPersistence` ([`packages/workspace/workspace/src/index.ts`](../packages/workspace/workspace/src/index.ts))
 
 ## Seam packages (not directly loadable)
@@ -2628,7 +2661,7 @@ Abstract service classes — a deployment loads a concrete implementation packag
 - `@deepseek-ai/dsh-fs` — abstract `FileSystem` ([`packages/fs/fs/src/index.ts`](../packages/fs/fs/src/index.ts))
 - `@deepseek-ai/dsh-host-directory-picker` — abstract `DirectoryPicker` ([`packages/host/directory-picker/src/index.ts`](../packages/host/directory-picker/src/index.ts))
 - `@deepseek-ai/dsh-sandbox` — abstract `SandboxProvider` ([`packages/sandbox/sandbox/src/index.ts`](../packages/sandbox/sandbox/src/index.ts))
-- `@deepseek-ai/dsh-session-persistence` — abstract `SessionPersistence` ([`packages/session-persistence/session-persistence/src/index.ts`](../packages/session-persistence/session-persistence/src/index.ts))
+- `@deepseek-ai/dsh-session-persistence` — abstract `SessionPersistence` ([`packages/session/session-persistence/src/index.ts`](../packages/session/session-persistence/src/index.ts))
 - `@deepseek-ai/dsh-session-query` — abstract `SessionQueryService` ([`packages/session-query/session-query/src/index.ts`](../packages/session-query/session-query/src/index.ts))
 - `@deepseek-ai/dsh-settings` — abstract `Settings` ([`packages/settings/settings/src/index.ts`](../packages/settings/settings/src/index.ts))
 - `@deepseek-ai/dsh-spill` — abstract `SpillStore` ([`packages/spill/spill/src/index.ts`](../packages/spill/spill/src/index.ts))
@@ -2640,10 +2673,10 @@ Abstract service classes — a deployment loads a concrete implementation packag
 
 Imported as libraries by other packages; a `cordis.yml` cannot load them.
 
-- `@deepseek-ai/create-sdk` ([`packages/sdk/create-sdk/src/index.ts`](../packages/sdk/create-sdk/src/index.ts))
+- `@deepseek-ai/create-sdk` ([`packages/scaffold/create-sdk/src/index.ts`](../packages/scaffold/create-sdk/src/index.ts))
 - `@deepseek-ai/dsh-acp-snapshot` ([`packages/support/acp-snapshot/src/index.ts`](../packages/support/acp-snapshot/src/index.ts))
 - `@deepseek-ai/dsh-agent-loop-testkit` ([`packages/support/agent-loop-testkit/src/index.ts`](../packages/support/agent-loop-testkit/src/index.ts))
-- `@deepseek-ai/dsh-app-boot` ([`packages/ui/app-boot/src/index.ts`](../packages/ui/app-boot/src/index.ts))
+- `@deepseek-ai/dsh-app-boot` ([`packages/boot/app-boot/src/index.ts`](../packages/boot/app-boot/src/index.ts))
 - `@deepseek-ai/dsh-atomic-write` ([`packages/util/atomic-write/src/index.ts`](../packages/util/atomic-write/src/index.ts))
 - `@deepseek-ai/dsh-base` ([`packages/bundle/base/src/index.ts`](../packages/bundle/base/src/index.ts))
 - `@deepseek-ai/dsh-brand` ([`packages/util/brand/src/index.ts`](../packages/util/brand/src/index.ts))
@@ -2654,7 +2687,7 @@ Imported as libraries by other packages; a `cordis.yml` cannot load them.
 - `@deepseek-ai/dsh-client-web` ([`packages/client/web/src/index.ts`](../packages/client/web/src/index.ts))
 - `@deepseek-ai/dsh-client-web-react` ([`packages/client/web-react/src/index.ts`](../packages/client/web-react/src/index.ts))
 - `@deepseek-ai/dsh-environment` ([`packages/util/environment/src/index.ts`](../packages/util/environment/src/index.ts))
-- `@deepseek-ai/dsh-helper` ([`packages/sdk/helper/src/index.ts`](../packages/sdk/helper/src/index.ts))
+- `@deepseek-ai/dsh-helper` ([`packages/scaffold/helper/src/index.ts`](../packages/scaffold/helper/src/index.ts))
 - `@deepseek-ai/dsh-hook-protocol` ([`packages/hooks/hook-protocol/src/index.ts`](../packages/hooks/hook-protocol/src/index.ts))
 - `@deepseek-ai/dsh-jsonrpc-demo` ([`packages/examples/jsonrpc-demo/src/index.ts`](../packages/examples/jsonrpc-demo/src/index.ts))
 - `@deepseek-ai/dsh-llm-mock-server` ([`packages/support/llm-mock-server/src/index.ts`](../packages/support/llm-mock-server/src/index.ts))
@@ -2663,13 +2696,13 @@ Imported as libraries by other packages; a `cordis.yml` cannot load them.
 - `@deepseek-ai/dsh-paths` ([`packages/util/paths/src/index.ts`](../packages/util/paths/src/index.ts))
 - `@deepseek-ai/dsh-retention` ([`packages/util/retention/src/index.ts`](../packages/util/retention/src/index.ts))
 - `@deepseek-ai/dsh-scope` ([`packages/core/scope/src/index.ts`](../packages/core/scope/src/index.ts))
-- `@deepseek-ai/dsh-scripts` ([`packages/sdk/scripts/src/index.ts`](../packages/sdk/scripts/src/index.ts))
-- `@deepseek-ai/dsh-sdk-client` ([`packages/sdk/sdk-client/src/index.ts`](../packages/sdk/sdk-client/src/index.ts))
-- `@deepseek-ai/dsh-sdk-protocol` ([`packages/sdk/sdk-protocol/src/index.ts`](../packages/sdk/sdk-protocol/src/index.ts))
-- `@deepseek-ai/dsh-session-telemetry` ([`packages/telemetry/session-telemetry/src/index.ts`](../packages/telemetry/session-telemetry/src/index.ts))
-- `@deepseek-ai/dsh-session-title-llm` ([`packages/session-title/session-title-llm/src/index.ts`](../packages/session-title/session-title-llm/src/index.ts))
+- `@deepseek-ai/dsh-scripts` ([`packages/scaffold/scripts/src/index.ts`](../packages/scaffold/scripts/src/index.ts))
+- `@deepseek-ai/dsh-sdk-client` ([`packages/scaffold/client/src/index.ts`](../packages/scaffold/client/src/index.ts))
+- `@deepseek-ai/dsh-sdk-protocol` ([`packages/scaffold/protocol/src/index.ts`](../packages/scaffold/protocol/src/index.ts))
+- `@deepseek-ai/dsh-session-telemetry` ([`packages/session/session-telemetry/src/index.ts`](../packages/session/session-telemetry/src/index.ts))
+- `@deepseek-ai/dsh-session-title-llm` ([`packages/session/session-title-llm/src/index.ts`](../packages/session/session-title-llm/src/index.ts))
 - `@deepseek-ai/dsh-subagent-inprocess` ([`packages/subagent/subagent-inprocess/src/index.ts`](../packages/subagent/subagent-inprocess/src/index.ts))
-- `@deepseek-ai/dsh-telemetry` ([`packages/sdk/telemetry/src/index.ts`](../packages/sdk/telemetry/src/index.ts))
+- `@deepseek-ai/dsh-telemetry` ([`packages/scaffold/telemetry/src/index.ts`](../packages/scaffold/telemetry/src/index.ts))
 - `@deepseek-ai/dsh-timeout` ([`packages/util/timeout/src/index.ts`](../packages/util/timeout/src/index.ts))
 - `@deepseek-ai/dsh-type-meta` ([`packages/typert/type-meta/src/index.ts`](../packages/typert/type-meta/src/index.ts))
 - `@deepseek-ai/dsh-typert-generator` ([`packages/typert/generator/src/index.ts`](../packages/typert/generator/src/index.ts))

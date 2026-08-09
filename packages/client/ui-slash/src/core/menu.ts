@@ -1,5 +1,5 @@
 /**
- * Menu reduction pure core (design §5.1, plan §1.2). One group per source;
+ * Menu reduction pure core. One group per source;
  * generation-gated settlement; empty ready groups auto-close. Zero React /
  * DOM / cordis. Stale or no-op events return the same state reference so
  * store subscribers skip re-renders.

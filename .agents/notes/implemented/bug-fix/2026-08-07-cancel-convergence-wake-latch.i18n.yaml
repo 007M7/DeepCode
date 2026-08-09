@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-07-cancel-convergence-wake-latch.md
+2026-08-07-cancel-convergence-wake-latch.md: de18dce87e28eaf0548eebd0d054d4ca7b59d0a6
+2026-08-07-cancel-convergence-wake-latch.zh.md: bb67785512be9cd7b087d9f6c98f165a2a6468a6

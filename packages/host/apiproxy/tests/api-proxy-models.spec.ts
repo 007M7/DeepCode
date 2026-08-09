@@ -1,6 +1,6 @@
 /**
  * Web session model-directory and selection behavior: dynamic provider grouping,
- * provider-local catalog failures, logged-target restoration without stale
+ * provider-local catalog failures, logged-selection restoration without stale
  * catalog injection, advisory pass-through models, and the prompt-assembly
  * boundary for a running selection change.
  */
@@ -154,7 +154,7 @@ describe('Web session model selection', () => {
     const followup = vi.fn()
     Object.assign(agent, { followup })
     const api = createApiProxy(ctx, {
-      defaultTarget: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }),
+      defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }),
       cwd: '/tmp',
       workspaceRoot: '/tmp',
     })
@@ -201,7 +201,7 @@ describe('Web session model selection', () => {
     const { ctx, agent, sessionId } = await harness()
     registerTextOnly(ctx)
     const api = createApiProxy(ctx, {
-      defaultTarget: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }),
+      defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }),
       cwd: '/tmp',
       workspaceRoot: '/tmp',
     })
@@ -244,7 +244,7 @@ describe('Web session model selection', () => {
     const readImage = vi.fn(() => Promise.resolve({ ref, data: Uint8Array.of(1, 2) }))
     ctx.provide('attachments', { readImage } as never)
     const api = createApiProxy(ctx, {
-      defaultTarget: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }),
+      defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }),
       cwd: '/tmp',
       workspaceRoot: '/tmp',
     })
@@ -271,13 +271,13 @@ describe('Web session model selection', () => {
     expect(readImage).toHaveBeenCalledOnce()
     await ctx.fiber.dispose()
   })
-  it('groups successful providers and leaves an unlisted current target out of the catalog', async () => {
+  it('groups successful providers and leaves an unlisted current selection out of the catalog', async () => {
     const { ctx, sessionId } = await harness({
       provider: 'deepseek-official',
       model: 'private-preview',
       reasoningEffort: ReasoningEffortId('max'),
     })
-    const api = createApiProxy(ctx, { defaultTarget: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }), cwd: '/tmp', workspaceRoot: '/tmp' })
+    const api = createApiProxy(ctx, { defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }), cwd: '/tmp', workspaceRoot: '/tmp' })
 
     const catalog = expectValue(await api.sessions.models(request({ sessionId })))
     expect(catalog.current).toEqual({
@@ -312,7 +312,7 @@ describe('Web session model selection', () => {
 
   it('accepts an advisory-unlisted model, rejects an unavailable provider, and switches only after the next assembly', async () => {
     const { ctx, agent, sessionId } = await harness()
-    const api = createApiProxy(ctx, { defaultTarget: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }), cwd: '/tmp', workspaceRoot: '/tmp' })
+    const api = createApiProxy(ctx, { defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }), cwd: '/tmp', workspaceRoot: '/tmp' })
     const seed: LlmCallConfig = { provider: 'seed', model: 'seed', temperature: 0.2 }
     const signal = new AbortController().signal
 
@@ -378,11 +378,11 @@ describe('Web session model selection', () => {
     await ctx.fiber.dispose()
   })
 
-  it('reads the host default live for a session whose log names no route', async () => {
+  it('reads the Agent default live for a session whose log names no selection', async () => {
     const { ctx, sessionId } = await harness()
     let stored = { provider: 'deepseek-official', model: 'deepseek-chat' }
     const api = createApiProxy(ctx, {
-      defaultTarget: () => stored,
+      defaultModelSelection: () => stored,
       cwd: '/tmp',
       workspaceRoot: '/tmp',
     })
@@ -400,14 +400,14 @@ describe('Web session model selection', () => {
     await ctx.fiber.dispose()
   })
 
-  it('keeps a session that logged a route on it when the host default moves', async () => {
+  it('keeps a session on its logged selection when the Agent default differs', async () => {
     const { ctx, sessionId } = await harness({
       provider: 'deepseek-official',
       model: 'deepseek-chat',
     })
     let stored = { provider: 'deepseek-official', model: 'deepseek-chat' }
     const api = createApiProxy(ctx, {
-      defaultTarget: () => stored,
+      defaultModelSelection: () => stored,
       cwd: '/tmp',
       workspaceRoot: '/tmp',
     })
@@ -423,9 +423,9 @@ describe('Web session model selection', () => {
     const saved: unknown[] = []
     let reject = false
     const api = createApiProxy(ctx, {
-      defaultTarget: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }),
-      persistDefaultTarget: (target) => {
-        saved.push(target)
+      defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }),
+      saveDefaultModelSelection: (selection) => {
+        saved.push(selection)
         return reject ? Promise.reject(new Error('read-only document')) : Promise.resolve()
       },
       cwd: '/tmp',
@@ -458,7 +458,7 @@ describe('Web session model selection', () => {
   it('refuses a prompt no adapter can route, and reports it on the directory', async () => {
     const { ctx, sessionId } = await harness()
     const api = createApiProxy(ctx, {
-      defaultTarget: () => ({ provider: 'deleted-gateway', model: 'deleted-model' }),
+      defaultModelSelection: () => ({ provider: 'deleted-gateway', model: 'deleted-model' }),
       cwd: '/tmp',
       workspaceRoot: '/tmp',
     })
@@ -491,7 +491,7 @@ describe('Web session model selection', () => {
     const api = createApiProxy(ctx, {
       // What a Models-page removal leaves behind: the settings document still
       // names the route the user last picked, and nothing serves it.
-      defaultTarget: () => ({ provider: 'deleted-gateway', model: 'deleted-model' }),
+      defaultModelSelection: () => ({ provider: 'deleted-gateway', model: 'deleted-model' }),
       cwd: '/tmp',
       workspaceRoot: '/tmp',
     })
