@@ -3306,7 +3306,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
 /** The inherited `ctx` surface (cordis core + loader/hmr/timer), in curated order. */
 export const INHERITED_CTX_API: readonly InheritedApiEntry[] = [
   { name: 'ctx.on / ctx.once', summary: 'Register an event listener (disposable).' },
-  { name: 'ctx.emit / ctx.parallel / ctx.serial / ctx.bail / ctx.waterfall', summary: 'Dispatch an event (sync / awaited / first-bail / veto-chain).' },
+  { name: 'ctx.emit / ctx.parallel / ctx.serial / ctx.bail / ctx.waterfall', summary: 'Dispatch an event (sync / awaited / first-bail / short-circuit chain).' },
   { name: 'ctx.plugin / ctx.inject', summary: 'Load a plugin / declare required services.' },
   { name: 'ctx.effect', summary: 'Register a disposable side effect tied to the fiber.' },
   { name: 'ctx.get / ctx.set / ctx.provide / ctx.accessor / ctx.mixin', summary: 'Low-level service-store access and binding.' },
