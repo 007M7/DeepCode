@@ -26,7 +26,7 @@ This note consolidates the removed repository cache, static format, config-only 
 
 **Teach the repository wrapper to load a bundle patch.** Rejected because the repository cache and preparation protocol would still duplicate profile dependency installation. Bundle packages are already accepted from npm, Git, file, and link specifications through pnpm.
 
-**Keep the generic Loader repository cache for possible future consumers.** Rejected because it has no current consumer after the package removal and carries a pinned package-manager runtime in a vendored browser-adjacent package. A future need can choose its cache contract from current consumers rather than preserving this one speculatively.
+**Keep the generic Loader repository cache for possible future consumers.** Rejected because it has no current consumer after the package removal and carries a pinned package-manager runtime in a vendored browser-adjacent package. A dedicated cache is warranted again only if configuration-time activation without an explicit installation becomes a product requirement that profile dependencies cannot satisfy; that consumer can choose its cache contract then.
 
 **Disable repository Plugin but retain its on-disk format for migration.** Rejected under the pre-release stance. Retaining a parser or compatibility loader would keep the removed contract alive without an external compatibility obligation.
 
@@ -34,10 +34,11 @@ This note consolidates the removed repository cache, static format, config-only 
 
 - Third-party packages use one installation and composition model, with ordinary dependency declarations and full patch-level Plugin config.
 - Installing or updating an external bundle is an explicit `dsh plugin` package-manager operation rather than a watched source-list edit. User patch HMR still configures rows contributed by installed bundles.
+- Profile installation requires `pnpm` on the host `PATH`. This is acceptable for an explicit package-management operation and avoids shipping the removed cache's pinned package-manager runtime solely for configuration-time activation.
 - `.dsh-plugin` packages and existing repository source-list patches stop working. Their cache files remain removable by the user but are not migrated or automatically deleted.
 - The dedicated pnpm runtime, preparation executable, wrapper generator, Git credential CI setup, repository cache, and repository-specific tests disappear.
 - Package-relative static assets need a bundle-owned path form so a declarative bundle can point `dsh-skill-local`, `dsh-mcp-client`, or another Plugin at files it ships without custom runtime glue. That capability is owned by the bundle format rather than a repository adapter.
 
 ## Testing
 
-Static gates reject stale package, config, documentation, graph, and workspace references. The existing `dsh plugin` built-CLI acceptance covers profile initialization, package-manager installation, bundle discovery, and layer reconciliation. Bundle-specific tests own declarative asset-path resolution and real Skill/MCP composition.
+Static gates reject stale package, config, documentation, graph, and workspace references. The existing `dsh plugin` built-CLI acceptance covers profile initialization, package-manager installation, bundle discovery, and layer reconciliation. Declarative package-relative Skill and MCP bundle resources remain a named coverage gap in this removal layer.

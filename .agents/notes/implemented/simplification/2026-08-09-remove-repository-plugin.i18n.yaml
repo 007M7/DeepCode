@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/simplification/2026-08-09-remove-repository-plugin.md
-2026-08-09-remove-repository-plugin.md: 8dd2fe95ac97bc2d8ab50043eb6c516f53d3204c
-2026-08-09-remove-repository-plugin.zh.md: 832a69ff206dd91dd312625bd9218e980d890ae2
+2026-08-09-remove-repository-plugin.md: 8ac6fd18b756e227f8dabc82eb4926a51702c5a1
+2026-08-09-remove-repository-plugin.zh.md: 6e504a151a88b87b8093a91a91ede1cb919a0b45
