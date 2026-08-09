@@ -44,35 +44,35 @@ slot 体系有自己的 RFC——[slot 体系标准](2026-07-22-slot-type-chain-
 
 服务是插件对其他插件的唯一 API 面（UI 组件与注入面都不是 API；无人调用的插件不挂服务——ui-trajectory 即最小插件样板：无 ctx 服务，只做视图坑注册）。名册：`ctx.connection`（api client + 流句柄）、`ctx.slots`（注册表包装层，发 `slots/changed`，渲染入口，渲染器安装约定）、`ctx.sessions`（列表 store、当前会话状态、scope 树）、`ctx.loader`、`ctx.theme`、`ctx.i18n`、`ctx.layout`（跨插件视图导航）、`ctx.conversation`（send/cancel/startSession）。过去住在服务 store 里的观看态（面板宽、选中、草稿）现按 [slot 体系标准](2026-07-22-slot-type-chain-implementation.md) 住 entry 声明的 store。
 
-slot 之外不存在第二种注册模型——原视图环与工具环都已溶解进来。会话视图即 ui-conversation 声明的 `'conversation.view'` list 坑的 entry，tab 元数据随注册 options（`id`/`order`/`label`）走，per-view chrome 住视图组件自身。Tool 展示跨越一条显式包边界：运行时把 Code Dispatch 拓扑投影进每个 root 递归的 `subCalls`；ui-conversation 把这个已排序 root 放进 single `'conversation.chat.tool'` seat，不解释 Tool 名称或拓扑；ui-tool 渲染传入的树，并声明 keyed/session 的 `'tool.call.toolview'` 子 slot。key 空间仍在运行时开放（SlotMap 声明 slot、从不声明 key），root 与任意深度的后代都按 `entryKey: toolName` 分发，以 `GenericToolCard` 兜底。业务包通过 `ctx.slots.inject('tool.call.toolview', () => ctx.slots.register({ name: 'tool.call.toolview', key: '<tool>', inject? }, Row))` 注册原子视图；声明本身就是加载与重载依赖（[决策](2026-08-05-slot-declaration-injection.md)）。ui-conversation 还通过 `'conversation.details.tool'` 委托选中调用的详情正文，使 ui-tool 的 card model 保持为唯一展示所有者，同时避免 conversation 导入 Tool 组件。
+slot 之外不存在第二种组件注册模型——原视图环与工具环都已溶解进来。会话视图即 ui-conversation 声明的 `'conversation.view'` list 坑 entry，tab 元数据随注册 options（`id`/`order`/`label`）走，per-view chrome 住视图组件自身。最终 Chat 业务 Node 通过 keyed/session `'conversation.chat.node'` slot 分发；ui-tool 拥有其中的 `tool-call` entry，递归渲染传入的 `subCalls`，并声明 keyed/session `'tool.call.toolview'` 子 slot。key 空间仍在运行时开放（SlotMap 声明 slot、从不声明 key），root 与任意深度的后代都按 `entryKey: toolName` 分发，以 `GenericToolCard` 兜底。业务包通过 `ctx.slots.inject('tool.call.toolview', () => ctx.slots.register({ name: 'tool.call.toolview', key: '<tool>' }, Row))` 注册原子视图；声明本身就是加载与重载依赖（[决策](2026-08-05-slot-declaration-injection.md)）。ui-conversation 还通过 `'conversation.details.tool'` 委托 selected call 的详情正文，使 ui-tool 的 card model 保持为唯一展示所有者，同时避免 conversation 导入 Tool 组件。与 target 无关的事件和 view registry 是数据组装缝，不是平行组件注册表（[决策](2026-08-09-client-conversation-node-assembly.md)）。
 
 **scope 寻址**与 host 侧 agent scope 惯例同构：服务是 root 单例，方法不收 sessionId——它们读调用方 ctx 上的 scope 标（`scopeOf(ctx)`）。在会话 scope 内，`ctx.conversation.send('hi', 'queue')` 自动打到该会话；跨会话调用换 ctx 定向（`ctx.sessions.scope(id)!.conversation.send(...)`）；从 root ctx 直接调 scoped 方法即 throw。client 会话 scope 的铸造方式与 host agent scope 相同（no-op 插件 fiber + scope 键 extend），首次观看时惰性建，只有会话被移除且无人观看才拆——仅 host 会话死亡不拆 scope（冻结为只读视窗）。
 
 ## 数据对象层（`packages/client/runtime/src/client/sessions/`）
 
-帧从这里进、快照从这里出、fold 坐在中间——React-free（零 React import，grep 可断言）：
+帧从这里进、快照从这里出、Conversation assembler 坐在中间——React-free（零 React import，grep 可断言）：
 
 ```
-mux/host 帧（ConnectionController 泵入，sinks 注入）
+mux/host frames (ConnectionController pump, injected sinks)
         │
         ▼
 SessionManager.handleMuxEnvelope / handleHostEnvelope
-        │ 带 sessionId 的帧只投已存在实例（审批/问答 requested 例外：进 pendingBuffers 缓冲）
+        │ session frames target existing instances (requested waits buffer)
         ▼
-Session.handleMuxEnvelope ──► events 窗口（seq 连续升序）
-        │                        │ 定稿事件            │ chunk
-        │                        ▼                    ▼
-        │                TranscriptAdapter     PartialAccumulator
-        │                  （→ nodes）          （→ partial）
+Session.handleMuxEnvelope ──► contiguous Event window
+        │                        │ replace / prepend / append
+        │                        ▼
+        │                ConversationNodeAssembler
+        │                  Definitions -> Contexts -> view builders
         ▼
 Notifier 微任务合批 ──► ConversationSnapshot 缓存 ──uSES──► 组件
 ```
 
 - **Session**（session.ts）：懒建、常驻——建成后在后台持续吃帧，切走切回秒显。操作面：`prompt`/`cancel`（RPC 透传；失败落进快照的 `promptError`）、`open`（拉尾页 history，幂等）、`loadOlder`（向上翻页，防重入）、`resync`（重连 = 清窗口重跑 open）。订阅面：`subscribe`/`getSnapshot`（恒返缓存引用）——`implements ObservableSnapshot<ConversationSnapshot>`，构造时挂 `useSelector = bindSnapshotSelector(this)`，Session 本身就是 uSES 源。帧分发是一个 switch：`session/event` 帧按 seq 去重（唯一去重键），open 在途时缓冲，否则追加 + 增量投影；open/缝合按 seq 合并 live 缓冲并去重，`subscribed.lastSeq` 超出窗口尾则回补一次。
-- **ConversationSnapshot**（conversation.ts）：不可变快照约定——`nodes`（人类对话记录，日志序）、`partial`、`runningCalls`、`pending`、`running`、`removed`、`openState`、`hasMore`、`promptError` 等。**引用纪律**（memo 与 uSES 的前提）：顶层对象每变必新；未变化的 nodes 投影保持同一数组引用，消息流变化时返回新数组并复用未变化的元素引用；未变的子结构复用上一快照的引用。
+- **ConversationSnapshot**（conversation.ts）：顶层不可变快照契约。`chat` 包含结构化 `order`、identity 稳定的 keyed Node reader、Turn/Step index 和 timeline；`nodes`、`partial`、`runningCalls`、`turnTimings`、`turnEnds` 是未迁移 Trajectory 消费者使用的兼容 slice。pending interaction、queue、running、removed、open state、paging 和 prompt error 仍是 Session 信息。**引用纪律**（memo 与 uSES 的前提）：未变化的子结构和 Node value 保持引用；单个业务更新只替换对应 key 的 value，除非它的顺序或 Location 发生变化。React 仍只订阅 Session 这一处 observable source，并由框架提供的 `useSession(selector)` 隔离 Node 与 Location 聚合更新。
 - **SessionManager**（manager.ts）：实例簇 + 帧总入口 + 会话列表。带 sessionId 的帧只投已存在实例（mux 广播不得把每个会话都实例化）；例外是审批/问答 `requested` 帧——它们不落 history、open 无法回补，故缓冲进 `pendingBuffers`，实例化时回放。
 - **Notifier**（notifier.ts）：两条通知通道，按变更来源取用。`markDirty()`（默认；帧驱动一律用它）按微任务合批——N 次变更、一次通知、一次重渲染；flush 先重建快照缓存再通知。`notifyNow()`（仅用户手势的直接回响）同 tick 重建并通知——受控输入的回响若延到微任务，DOM 会回滚、光标跳尾。帧驱动代码用 notifyNow 会让合批塌回逐帧渲染；禁。
-- **TranscriptAdapter / PartialAccumulator**：对话记录是按日志顺序投影的 append 来源 surface（`@deepseek-ai/dsh-session/surface` 的 `isAppendSurfaceEvent`），外加每次落地的压缩检查点一个标记——绝不用模型 surface，后者遮蔽被替换的范围，会抹掉读者已经看过的对话。节点顺序天然按 seq 单调，因此既无核心 `seq === index` 断言需要满足，也没有降级分支。分片不贡献任何节点（O(1) 跳过）：累积器把 StreamChunk 折叠成 `AssistantBlock[]`，一次增量只换该块引用；定稿消息到达即在同一批内弃掉累积器（提升无闪烁）。成本模型：一个分片 = 一次字符串拼接 + 一个脏标记；帧风暴下未订阅的 Session 只花那个标记。
+- **ConversationNodeAssembler**（`runtime/src/client/conversation/`）：Session 拥有的增量引擎在原始事件上运行各自独立注册的 Definition。`match(event)` 无须扫描 Context 即可选出 `(kind, id)`；start/update 构造 Definition state；引擎计算的 Location 携带 Turn/Step 关闭信息；向前查询 Context 时记录依赖，并由后续 prepend 修复；`buildViewNode(target)` 只物化 dirty Context。Chat builder 保留结构顺序和 per-key value identity，`useSession` selector 负责消费隔离，Assistant token 发布则合并到每个 animation frame 一次。[Conversation Node 决策](2026-08-09-client-conversation-node-assembly.md)拥有组装边界，[Tool 展示所有权](2026-08-08-client-tool-presentation-ownership.md)拥有 Tool 递归渲染。
 - **ConnectionController**（在 `packages/client/connection`）：开 mux/host 双流、for-await 泵入，代际围栏之内指数退避重连（500ms 翻倍至 10s 封顶、抖动、无限重试）；sinks 单向注入（Controller 不认识 Session）。重连 = 重建：`onConnected` → 列表刷新 + 各已打开会话 resync。对象层只面向 `IApiClient`；Web 承载以 HTTP POST 载两个 client→server 象限、以[每逻辑流一条 WebSocket](2026-08-04-websocket-downlink-carrier.md)载两个 server→client 象限，客户端类族归分层 RFC 属地。
 
 ## React 面（`packages/client/web-react`）
@@ -95,6 +95,7 @@ src/client/
   contract/    shared slot and cross-domain types
   service.ts   cross-domain orchestration
   skeleton/    conversation shell and details host
+  conversation-nodes/ independently registered business Definitions and Chat builder
   chat/        ordered conversation view
   input/       composer state machine
   queue/       queued-message presentation
@@ -108,14 +109,14 @@ src/client/
 ## 怎么开发
 
 - **新 UI 功能** = 新插件包：package.json 声明 `dshClient`（+ `inject` 拓扑），浏览器半边写在 `src/client/`（apply 挂服务/建 store、注册 slot），无 host 逻辑时 node 半边保持空 apply，用共享预设构建。把插件加进 host 配置；manifest 与装载随之自动跟上。
-- **新 slot**：见 [slot 体系标准 RFC](2026-07-22-slot-type-chain-implementation.md)——约定合并进 `SlotMap`，在父 entry 的 `children` 里声明，经自动注入的 `renderSlot` prop 渲染。永不全局导出组件。
-- **消费新帧类型**：带 sessionId → Session 分发 switch 加一个分支；host 级 → Manager 路由表；UI 需要时给 `ConversationSnapshot` 加字段并守住引用纪律。
+- **新 slot**：见 [slot 体系标准 RFC](2026-07-22-slot-type-chain-implementation.md)——契约合并进 `SlotMap`，在父 entry 的 `children` 里声明，经自动注入的 `renderSlot` prop 渲染。永不全局导出组件。
+- **消费新帧类型**：纯传输 session frame → Session 分发 switch；host 级 frame → Manager 路由表；已记录的 conversation 业务事件 → Definition 加 keyed view renderer，不增加 Session 业务分支。
 - **状态住哪**：业务数据（事件、流式、待答）→ 永远对象层；父知道的 → renderSlot 现场的 owner props；单组件私有（滚动、搜索词、展开集）→ 组件状态；跨 entry 共享或跨重挂载存活（选中、草稿、面板宽）→ entry 声明的 store（[slot 体系标准](2026-07-22-slot-type-chain-implementation.md)）。
 - **通知通道**：帧驱动/异步 = `markDirty` 合批；受控输入需要同 tick 的用户手势直接回响 = `notifyNow`。
 
 ## Consequences
 
-token 流不再震荡渲染树：帧风暴对未订阅会话只花一个脏位，对被订阅视图每微任务一次合批重渲染（帧驱动 store 走 raf 合批）。UI 功能以独立插件的粒度装载、失败、停用——一个崩溃的 slot 注册项只黑一张卡，一个装载失败的 bundle 在 UI 切入之前大声报错。接受的代价：loader/模块表机件是团队端到端自持的定制基建；一次成型启动（无渐进渲染）用首屏粒度换装配简单；双类型 program 让「这个文件归哪个聚合」成为开发者偶尔要回答的问题。
+token 流不再震荡渲染树：Assistant chunk 只更新一个业务 Context，每 animation frame 最多发布一次对应 keyed Node；无关行的 selector 结果保持原引用，因此不会重渲染。UI 功能以独立插件的粒度装载、失败、停用——一个崩溃的 slot 注册项只黑一张卡，一个装载失败的 bundle 在 UI 切入之前大声报错。接受的代价：loader/模块表机件是团队端到端自持的定制基建；一次成型启动（无渐进渲染）用首屏粒度换装配简单；双类型 program 让「这个文件归哪个聚合」成为开发者偶尔要回答的问题。
 
 ## Alternatives considered
 

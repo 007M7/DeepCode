@@ -5,7 +5,7 @@
 import { describe, expect, it } from 'vitest'
 import type { ReactNode } from 'react'
 import type {
-  BoundActions, DefineStore, PropsRenderSlots, PropsRuntime, PropsStore, SlotComponent,
+  BoundActions, DefineStore, PropsRenderSlots, PropsRuntime, PropsStore, SlotComponent, SlotHookFactory,
 } from '@deepseek-ai/dsh-client-ui-slots'
 import { SlotCore } from '@deepseek-ai/dsh-client-ui-slots'
 
@@ -19,6 +19,12 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
     'chain.frame': { kind: 'single'; scope: 'root' }
     'chain.side': { kind: 'single'; scope: 'root'; owner: { collapsed: boolean; width: number } }
     'chain.conv': { kind: 'single'; scope: 'session' }
+    'chain.context': {
+      kind: 'single'
+      scope: 'session'
+      hookContext: string
+      inject: ContextInjected
+    }
     'chain.tools': { kind: 'keyed'; scope: 'session' }
     'chain.takeover': { kind: 'chain'; scope: 'session'; owner: { items: readonly Item[] } }
   }
@@ -62,6 +68,23 @@ type ConvProps =
   & PropsStore<ChatHandle>
   & { send: (t: string) => void }
 
+interface TurnDataMap { tail: string; files: string }
+type UseTurnData = <Key extends keyof TurnDataMap>(key: Key) => TurnDataMap[Key] | undefined
+interface ContextInjected {
+  hooks: {
+    turnData: SlotHookFactory<'chain.context', UseTurnData>
+  }
+}
+type ContextProps = PropsRuntime<'chain.context'>
+const CONTEXT_INJECT: ContextInjected = {
+  hooks: {
+    turnData: (_standard, hookContext) => {
+      const id: string = hookContext
+      return key => id === '' ? undefined : ({ tail: 'tail', files: 'files' })[key]
+    },
+  },
+}
+
 // Component fixtures (never rendered; the register call sites are the test).
 declare function Frame(props: FrameProps): ReactNode
 declare function Conv(props: ConvProps): ReactNode
@@ -72,6 +95,8 @@ declare function NoDecl(props: PropsRuntime<'chain.frame'> & PropsRenderSlots<'c
 declare function Blind(props: PropsRuntime<'chain.frame'>): ReactNode
 declare function WrongStore(props: PropsRuntime<'chain.conv'> & PropsStore<ReturnType<typeof createPanelStore>>): ReactNode
 declare function Needs(props: PropsRuntime<'chain.conv'> & { send: (t: string) => void }): ReactNode
+declare function ContextOwner(props: PropsRuntime<'chain.frame'> & PropsRenderSlots<'chain.context'>): ReactNode
+declare function ContextReader(props: ContextProps): ReactNode
 declare function Takeover(props: PropsRuntime<'chain.takeover'> & { matched: Item }): ReactNode
 declare function WideTakeover(props: PropsRuntime<'chain.takeover'> & { matched: Item | string }): ReactNode
 declare function NarrowTakeover(props: PropsRuntime<'chain.takeover'> & { matched: { kind: 'q'; id: string; extra: number } }): ReactNode
@@ -144,6 +169,24 @@ describe('terminal-design type chain', () => {
       chainSlots.renderSlotChain('chain.takeover', { items: [] }, { fallback: null })
       chainSlots.renderSlot('chain.conv', {})
 
+      // A parent registration declares the Slot inject once; every child
+      // entry receives the same custom Hook, bound to official standard props
+      // and each render occurrence's opaque context.
+      core.register({
+        name: 'chain.frame',
+        children: {
+          'chain.context': { kind: 'single', scope: 'session', inject: CONTEXT_INJECT },
+        },
+      }, ContextOwner)
+      core.register({ name: 'chain.context' }, ContextReader)
+      const contextProps: ContextProps = null as never
+      const tail: string | undefined = contextProps.useTurnData('tail')
+      const contextSlots: PropsRenderSlots<'chain.context'> = null as never
+      contextSlots.renderSlot('chain.context', {}, {
+        hookContext: 'turn:1',
+      })
+      void tail
+
       // ── negatives ──────────────────────────────────────────────────
       // children spec must match the SlotMap entry.
       core.register({
@@ -151,6 +194,11 @@ describe('terminal-design type chain', () => {
         // @ts-expect-error chain.conv is session-scoped in SlotMap
         children: { 'chain.conv': { kind: 'single', scope: 'root' } },
       }, (() => null) as SlotComponent<never>)
+      core.register({
+        name: 'chain.frame',
+        // @ts-expect-error chain.context requires its Slot-level inject declaration
+        children: { 'chain.context': { kind: 'single', scope: 'session' } },
+      }, ContextOwner)
 
       // renderSlot key set ⊄ children declaration.
       // @ts-expect-error component renderSlot keys exceed the declaration
@@ -218,6 +266,16 @@ describe('terminal-design type chain', () => {
       fp.renderSlot('chain.side', { collapsed: false })
       // @ts-expect-error key not in this render share
       fp.renderSlot('chain.tools', {})
+
+      // Contextual hooks preserve both the business key and value type.
+      // @ts-expect-error unknown Turn-data key
+      contextProps.useTurnData('other')
+      // @ts-expect-error a contextual slot requires its occurrence context
+      contextSlots.renderSlot('chain.context', {})
+      // @ts-expect-error hookContext is the slot-declared string
+      const _wrongContextFactory: SlotHookFactory<'chain.context', UseTurnData> =
+        (_standard, _hookContext: number) => () => undefined
+      void _wrongContextFactory
 
       // baked actions strip the draft parameter.
       acts.setDraft('x')

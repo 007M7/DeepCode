@@ -10,6 +10,7 @@ import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import type { StreamChunk } from '@deepseek-ai/dsh-llm'
 import type { ReplayEntry, ReplayOverrideDoc } from '@deepseek-ai/dsh-llm-replay'
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
+import { conversationContextKey } from '@deepseek-ai/dsh-client-runtime/client'
 import { createChatScrollFixture } from './chat-scroll-fixture.ts'
 import {
   launchWebScaffold,
@@ -115,6 +116,18 @@ function requiredEvent<T extends SessionEvent['type']>(
   return event
 }
 
+function messageKey(event: SessionEvent<'user/message'>): string {
+  return conversationContextKey('input-message', String(event.data.id))
+}
+
+function assistantKey(event: SessionEvent<'assistant/message'>): string {
+  return conversationContextKey('assistant-step', `${event.data.turn}:${event.data.step}`)
+}
+
+function turnTailKey(turn: number): string {
+  return conversationContextKey('turn-tail', String(turn))
+}
+
 describe('web e2e: long Chat interaction contract', () => {
   let browser: Browser
   let page: Page
@@ -176,8 +189,10 @@ describe('web e2e: long Chat interaction contract', () => {
     const expectedUserText = textContent(branchUserEvent.data.content)
 
     await wheelUntilMounted(page, `[data-chat-call-id="${TARGET_CALL_2}"]`, -1_100)
-    const toolUserRow = page.locator(`[data-chat-anchor-key="node:${String(toolUserEvent.seq)}"]`)
-    const toolAssistantRow = page.locator(`[data-chat-anchor-key="node:${String(toolAssistantEvent.seq)}"]`)
+    const toolUserKey = messageKey(toolUserEvent)
+    const toolAssistantKey = assistantKey(toolAssistantEvent)
+    const toolUserRow = page.locator(`[data-chat-anchor-key="${toolUserKey}"]`)
+    const toolAssistantRow = page.locator(`[data-chat-anchor-key="${toolAssistantKey}"]`)
     const call1 = page.locator(`[data-chat-call-id="${TARGET_CALL_1}"]`)
     const call2 = page.locator(`[data-chat-call-id="${TARGET_CALL_2}"]`)
 
@@ -186,28 +201,27 @@ describe('web e2e: long Chat interaction contract', () => {
     expect(await call1.count()).toBe(1)
     expect(await call2.count()).toBe(1)
     expect(await toolUserRow.getAttribute('data-chat-flow-kind')).toBe('user')
-    expect(await toolAssistantRow.getAttribute('data-chat-flow-kind')).toBe('assistant')
+    expect(await toolAssistantRow.getAttribute('data-chat-flow-kind')).toBe('assistant-step')
     expect(await toolUserRow.textContent()).toContain(toolUserMarker)
     expect(await toolAssistantRow.textContent()).toContain(toolAssistantMarker)
     expect(await call1.textContent()).toContain(toolMarker1)
     expect(await call2.textContent()).toContain(toolMarker2)
 
     const expectedOrder = [
-      `node:${String(toolUserEvent.seq)}`,
-      `call:${TARGET_CALL_1}`,
-      `call:${TARGET_CALL_2}`,
-      `node:${String(toolAssistantEvent.seq)}`,
+      toolUserKey,
+      conversationContextKey('tool-call', TARGET_CALL_1),
+      conversationContextKey('tool-call', TARGET_CALL_2),
+      toolAssistantKey,
     ]
     const actualOrder = await page.locator('[data-chat-anchor-key]').evaluateAll((rows, keys) => (
       rows.map(row => (row as HTMLElement).dataset.chatAnchorKey)
         .filter((key): key is string => key !== undefined && keys.includes(key))
     ), expectedOrder)
     expect(actualOrder).toEqual(expectedOrder)
-    const groupKeys = await Promise.all([call1, call2].map(row => row.evaluate(element => (
-      element.closest<HTMLElement>('[data-chat-flow-kind="tool-group"]')?.dataset.chatFlowKey ?? null
+    const toolKinds = await Promise.all([call1, call2].map(row => row.evaluate(element => (
+      element.closest<HTMLElement>('[data-chat-flow-kind]')?.dataset.chatFlowKind ?? null
     ))))
-    expect(groupKeys[0]).not.toBeNull()
-    expect(groupKeys[1]).toBe(groupKeys[0])
+    expect(toolKinds).toEqual(['tool-call', 'tool-call'])
 
     const summary1 = call1.locator('[data-sample="bash"]')
     const summary2 = call2.locator('[data-sample="bash"]')
@@ -219,9 +233,12 @@ describe('web e2e: long Chat interaction contract', () => {
     expect(await summary1.getAttribute('aria-expanded')).toBe('false')
     await call2.getByText(`${toolMarker2} output line 12`, { exact: true }).waitFor({ timeout: 10_000 })
 
-    await wheelUntilMounted(page, `[data-chat-anchor-key="node:${String(branchUserEvent.seq)}"]`, -1_100)
-    const userRow = page.locator(`[data-chat-anchor-key="node:${String(branchUserEvent.seq)}"]`)
-    const assistantRow = page.locator(`[data-chat-anchor-key="node:${String(branchAssistantEvent.seq)}"]`)
+    const branchUserKey = messageKey(branchUserEvent)
+    const branchAssistantKey = assistantKey(branchAssistantEvent)
+    await wheelUntilMounted(page, `[data-chat-anchor-key="${branchUserKey}"]`, -1_100)
+    const userRow = page.locator(`[data-chat-anchor-key="${branchUserKey}"]`)
+    const assistantRow = page.locator(`[data-chat-anchor-key="${branchAssistantKey}"]`)
+    const turnTailRow = page.locator(`[data-chat-anchor-key="${turnTailKey(BRANCH_TURN)}"]`)
     expect(await userRow.textContent()).toContain(branchUserMarker)
     expect(await assistantRow.textContent()).toContain(branchAssistantMarker)
     await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])
@@ -230,8 +247,8 @@ describe('web e2e: long Chat interaction contract', () => {
     await expect.poll(() => page.evaluate(() => navigator.clipboard.readText()), { timeout: 5_000 })
       .toBe(expectedUserText)
 
-    await assistantRow.hover()
-    await assistantRow.getByRole('button', { name: 'Branch into a new conversation', exact: true }).click()
+    await turnTailRow.hover()
+    await turnTailRow.getByRole('button', { name: 'Branch into a new conversation', exact: true }).click()
     await expect.poll(
       () => scaffold.ctx.agents.list().find(agent => agent.session.header.parentSession === SessionId(SESSION_ID)),
       { timeout: 15_000 },

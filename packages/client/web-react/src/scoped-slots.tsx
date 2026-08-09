@@ -2,7 +2,7 @@
  * React renderer for declarative slots. Per-entry bindings enforce child
  * authorization, and entry boundaries contain registrant failures.
  */
-import { Component, useState, useSyncExternalStore, type FC, type ReactNode } from 'react'
+import { Component, useMemo, useState, useSyncExternalStore, type FC, type ReactNode } from 'react'
 import {
   SlotOwnershipError, StaleAuthorizationError,
   type ChainRenderOpts, type HostObservable, type LocaleFace, type RenderOpts,
@@ -15,6 +15,14 @@ import {
 } from './session-provider.tsx'
 
 type InjectedProps = Record<string, unknown>
+
+type SlotHookFactory = (standard: InjectedProps, hookContext: unknown) => unknown
+type SlotHookFactories = Readonly<Record<string, SlotHookFactory>>
+
+interface BoundSlotInject {
+  readonly props: InjectedProps
+  readonly slotHookFactories?: SlotHookFactories | undefined
+}
 
 type RenderSlotBinding = (key: string, owner: object, opts?: RenderOpts) => ReactNode
 
@@ -89,9 +97,11 @@ const rootInjectCache = new WeakMap<StoredEntry, InjectedProps>()
 const sessionInjectCache = new WeakMap<StoredEntry, WeakMap<SessionProvideInfo, InjectedProps>>()
 const sessionMaybeInjectCache = new WeakMap<StoredEntry, WeakMap<SessionMaybeProvideInfo, InjectedProps>>()
 
+const EMPTY_INJECTED_PROPS: InjectedProps = {}
+
 function runInject(entry: StoredEntry, info: SessionMaybeProvideInfo | undefined, actions: object | undefined): InjectedProps {
   const inject = entry.inject
-  if (!inject) return {}
+  if (!inject) return EMPTY_INJECTED_PROPS
   // Declaration-derived positional arguments: sessionId for session scope,
   // baked actions when a store is declared.
   const args: unknown[] = []
@@ -101,11 +111,8 @@ function runInject(entry: StoredEntry, info: SessionMaybeProvideInfo | undefined
 }
 
 /**
- * Bind an inject face's reserved `hooks` compartment (bare observable
- * sources, see HooksSources) into `use<Name>` selector hooks — the
- * registrant-private twin of the provide-bundle binding in standardKit.
- * Runs once per cached inject result; hook identity rides observableHook's
- * per-source cache.
+ * Normalize one entry-owned inject face on its existing cache axis. Its hooks
+ * compartment remains the original Observable-only contract.
  */
 function bindInjectHooks(face: InjectedProps): InjectedProps {
   const sources = face['hooks']
@@ -117,6 +124,53 @@ function bindInjectHooks(face: InjectedProps): InjectedProps {
     bound[hookName] = observableHook(source)
   }
   return bound
+}
+
+const slotInjectCache = new WeakMap<object, BoundSlotInject>()
+const EMPTY_SLOT_INJECT: BoundSlotInject = { props: EMPTY_INJECTED_PROPS }
+
+/** Normalize one dispatcher-owned inject face by its stable object identity. */
+function cachedSlotInject(face: object | undefined): BoundSlotInject {
+  if (face === undefined) return EMPTY_SLOT_INJECT
+  let bound = slotInjectCache.get(face)
+  if (bound !== undefined) return bound
+  const definitions = (face as InjectedProps)['hooks']
+  if (definitions === undefined) {
+    bound = { props: face as InjectedProps }
+    slotInjectCache.set(face, bound)
+    return bound
+  }
+  const { hooks: _hooks, ...rest } = face as InjectedProps
+  const props: InjectedProps = rest
+  let factories: Record<string, SlotHookFactory> | undefined
+  for (const [name, definition] of Object.entries(definitions as Record<string, unknown>)) {
+    const hookName = `use${name[0]?.toUpperCase() ?? ''}${name.slice(1)}`
+    if (typeof definition === 'function') {
+      factories ??= {}
+      factories[name] = definition as SlotHookFactory
+    } else {
+      props[hookName] = observableHook(definition as HostObservable<unknown>)
+    }
+  }
+  bound = factories === undefined
+    ? { props }
+    : { props, slotHookFactories: factories }
+  slotInjectCache.set(face, bound)
+  return bound
+}
+
+/** Bind deferred slot-level factories for one stable renderSlot occurrence. */
+function bindSlotHookFactories(
+  factories: SlotHookFactories,
+  standard: InjectedProps,
+  hookContext: unknown,
+): InjectedProps {
+  const hooks: InjectedProps = {}
+  for (const [name, factory] of Object.entries(factories)) {
+    const hookName = `use${name[0]?.toUpperCase() ?? ''}${name.slice(1)}`
+    hooks[hookName] = factory(standard, hookContext)
+  }
+  return hooks
 }
 
 function cachedRootInject(entry: StoredEntry, actions: object | undefined): InjectedProps {
@@ -270,6 +324,54 @@ class SlotErrorBoundary extends Component<
   }
 }
 
+interface StandardPropsCache {
+  readonly root: InjectedProps
+  readonly session: WeakMap<SessionMaybeProvideInfo, InjectedProps>
+  readonly sessionMaybe: WeakMap<SessionMaybeProvideInfo, InjectedProps>
+}
+
+const standardPropsCache = new WeakMap<SlotRendererHost, StandardPropsCache>()
+
+/** Stable official-props object used by contextual Hook factories. */
+function standardProps(
+  host: SlotRendererHost,
+  scope: SlotScope,
+  info: SessionMaybeProvideInfo | undefined,
+): InjectedProps {
+  let cache = standardPropsCache.get(host)
+  if (cache === undefined) {
+    cache = {
+      root: {
+        useSessions: observableHook(host.sessions.list),
+        useWorkspaces: observableHook(host.workspaces.list),
+      },
+      session: new WeakMap(),
+      sessionMaybe: new WeakMap(),
+    }
+    standardPropsCache.set(host, cache)
+  }
+  if (scope === 'root') return cache.root
+  if (info === undefined) throw new SlotAssemblyError(`scope '${scope}' rendered without session provide info`)
+  const byInfo = scope === 'session' ? cache.session : cache.sessionMaybe
+  let standard = byInfo.get(info)
+  if (standard !== undefined) return standard
+  standard = { ...cache.root }
+  for (const [name, source] of Object.entries(info.hooks)) {
+    const hookName = `use${name[0]?.toUpperCase() ?? ''}${name.slice(1)}`
+    if (scope === 'session-maybe') {
+      standard[hookName] = maybeObservableHook(source)
+    } else {
+      if (source === undefined) throw new SlotAssemblyError(`strict session hook '${name}' has no source`)
+      standard[hookName] = observableHook(source)
+    }
+  }
+  Object.assign(standard, info.props)
+  standard['sessionId'] = info.sessionId
+  standard['useProjection'] = projectionHook(info)
+  byInfo.set(info, standard)
+  return standard
+}
+
 /**
  * Standard-kit synthesis shared by both scope branches: the global
  * useSessions/useWorkspaces hooks, the per-session provide bundle (every
@@ -289,28 +391,11 @@ function standardKit(
   info: SessionMaybeProvideInfo | undefined,
 ): {
   kit: InjectedProps
+  standard: InjectedProps
   actions: object | undefined
 } {
-  const kit: InjectedProps = {
-    useSessions: observableHook(host.sessions.list),
-    useWorkspaces: observableHook(host.workspaces.list),
-  }
-  if (scope !== 'root' && info !== undefined) {
-    for (const [name, source] of Object.entries(info.hooks)) {
-      const hookName = `use${name[0]?.toUpperCase() ?? ''}${name.slice(1)}`
-      if (scope === 'session-maybe') {
-        kit[hookName] = maybeObservableHook(source)
-      } else {
-        if (source === undefined) throw new SlotAssemblyError(`strict session hook '${name}' has no source`)
-        kit[hookName] = observableHook(source)
-      }
-    }
-    Object.assign(kit, info.props)
-    kit['sessionId'] = info.sessionId
-    // The useProjection seat (fifth framework hook): key-addressed cell
-    // reader, bound per provide bundle (cached by info identity).
-    kit['useProjection'] = projectionHook(info)
-  }
+  const standard = standardProps(host, scope, info)
+  const kit: InjectedProps = { ...standard }
   if (entry.locale !== undefined) {
     const face = host.locale
     // Loud assembly failure: locale is immediately-tier infrastructure; a
@@ -344,38 +429,98 @@ function standardKit(
       kit['SessionProvider'] = SessionProvider
     }
   }
-  return { kit, actions: store?.actions }
+  return { kit, standard, actions: store?.actions }
 }
 
 /**
- * One rendered entry: standard kit + cached inject + owner props (owner
- * wins). The kit and injected shares are erased at the render boundary — the
- * registration contract already proved the composed type — so each Entry renders
- * through a props-widened view of the component (the design-budgeted
- * composition point, one per scope branch).
+ * One rendered entry: standard kit + cached entry inject + common slot inject
+ * + owner props (owner wins). The shares are erased at this render boundary;
+ * the registration and renderSlot seams already proved their contracts.
  */
-function SessionEntry({ entry, ownerProps, info }: {
+function ContextualEntry({
+  slotKey, Comp, kit, standard, injected, slotInjected, ownerProps, hookContext, hasHookContext,
+}: {
+  slotKey: string
+  Comp: FC<InjectedProps>
+  kit: InjectedProps
+  standard: InjectedProps
+  injected: InjectedProps
+  slotInjected: BoundSlotInject & { readonly slotHookFactories: SlotHookFactories }
+  ownerProps: object
+  hookContext: unknown
+  hasHookContext: boolean
+}) {
+  const contextual = useMemo(
+    () => {
+      if (!hasHookContext) {
+        throw new SlotAssemblyError(`slot '${slotKey}' has contextual injected Hooks but no hookContext`)
+      }
+      return bindSlotHookFactories(slotInjected.slotHookFactories, standard, hookContext)
+    },
+    [hasHookContext, hookContext, slotInjected.slotHookFactories, slotKey, standard],
+  )
+  return <Comp {...kit} {...injected} {...slotInjected.props} {...contextual} {...ownerProps} />
+}
+
+function renderEntry(
+  slotKey: string,
+  Comp: FC<InjectedProps>,
+  kit: InjectedProps,
+  standard: InjectedProps,
+  injected: InjectedProps,
+  slotInjected: BoundSlotInject,
+  ownerProps: object,
+  hookContext: unknown,
+  hasHookContext: boolean,
+): ReactNode {
+  if (slotInjected.slotHookFactories === undefined) {
+    return <Comp {...kit} {...injected} {...slotInjected.props} {...ownerProps} />
+  }
+  return (
+    <ContextualEntry
+      slotKey={slotKey}
+      Comp={Comp}
+      kit={kit}
+      standard={standard}
+      injected={injected}
+      slotInjected={slotInjected as BoundSlotInject & { readonly slotHookFactories: SlotHookFactories }}
+      ownerProps={ownerProps}
+      hookContext={hookContext}
+      hasHookContext={hasHookContext}
+    />
+  )
+}
+
+function SessionEntry({ entry, ownerProps, info, slotKey, slotInjected, hookContext, hasHookContext }: {
   entry: StoredEntry
   ownerProps: object
   info: SessionProvideInfo
+  slotKey: string
+  slotInjected: BoundSlotInject
+  hookContext: unknown
+  hasHookContext: boolean
 }) {
   const host = useHost()
   const Comp = entry.component as FC<InjectedProps>
-  const { kit, actions } = standardKit(host, entry, 'session', info)
+  const { kit, standard, actions } = standardKit(host, entry, 'session', info)
   const injected = cachedSessionInject(entry, info, actions)
-  return <Comp {...kit} {...injected} {...ownerProps} />
+  return renderEntry(slotKey, Comp, kit, standard, injected, slotInjected, ownerProps, hookContext, hasHookContext)
 }
 
-function SessionMaybeEntryBody({ entry, ownerProps, info }: {
+function SessionMaybeEntryBody({ entry, ownerProps, info, slotKey, slotInjected, hookContext, hasHookContext }: {
   entry: StoredEntry
   ownerProps: object
   info: SessionMaybeProvideInfo
+  slotKey: string
+  slotInjected: BoundSlotInject
+  hookContext: unknown
+  hasHookContext: boolean
 }) {
   const host = useHost()
   const Comp = entry.component as FC<InjectedProps>
-  const { kit, actions } = standardKit(host, entry, 'session-maybe', info)
+  const { kit, standard, actions } = standardKit(host, entry, 'session-maybe', info)
   const injected = cachedSessionMaybeInject(entry, info, actions)
-  return <Comp {...kit} {...injected} {...ownerProps} />
+  return renderEntry(slotKey, Comp, kit, standard, injected, slotInjected, ownerProps, hookContext, hasHookContext)
 }
 
 /**
@@ -391,7 +536,14 @@ function SessionMaybeEntryBody({ entry, ownerProps, info }: {
  * that must SURVIVE a switch belongs in session-bound sources (machine,
  * store, hooks) — the existing layering rule, now load-bearing.
  */
-function SessionMaybeEntry({ entry, ownerProps }: { entry: StoredEntry; ownerProps: object }) {
+function SessionMaybeEntry({ entry, ownerProps, slotKey, slotInjected, hookContext, hasHookContext }: {
+  entry: StoredEntry
+  ownerProps: object
+  slotKey: string
+  slotInjected: BoundSlotInject
+  hookContext: unknown
+  hasHookContext: boolean
+}) {
   const info = useSessionMaybeProvideInfo()
   // The child key is an incarnation counter, NOT the session id: adoption
   // must keep the key constant across undefined → first id. Bookkeeping
@@ -416,7 +568,18 @@ function SessionMaybeEntry({ entry, ownerProps }: { entry: StoredEntry; ownerPro
     epoch += 1
     setState({ adopted, epoch })
   }
-  return <SessionMaybeEntryBody key={epoch} entry={entry} ownerProps={ownerProps} info={info} />
+  return (
+    <SessionMaybeEntryBody
+      key={epoch}
+      entry={entry}
+      ownerProps={ownerProps}
+      info={info}
+      slotKey={slotKey}
+      slotInjected={slotInjected}
+      hookContext={hookContext}
+      hasHookContext={hasHookContext}
+    />
+  )
 }
 
 /** Adoption bookkeeping of one session-maybe outlet (see SessionMaybeEntry). */
@@ -429,24 +592,42 @@ interface MaybeIncarnation {
 
 const FIRST_INCARNATION: MaybeIncarnation = { adopted: undefined, epoch: 0 }
 
-function RootEntry({ entry, ownerProps }: { entry: StoredEntry; ownerProps: object }) {
+function RootEntry({ entry, ownerProps, slotKey, slotInjected, hookContext, hasHookContext }: {
+  entry: StoredEntry
+  ownerProps: object
+  slotKey: string
+  slotInjected: BoundSlotInject
+  hookContext: unknown
+  hasHookContext: boolean
+}) {
   const host = useHost()
   const Comp = entry.component as FC<InjectedProps>
-  const { kit, actions } = standardKit(host, entry, 'root', undefined)
+  const { kit, standard, actions } = standardKit(host, entry, 'root', undefined)
   const injected = cachedRootInject(entry, actions)
-  return <Comp {...kit} {...injected} {...ownerProps} />
+  return renderEntry(slotKey, Comp, kit, standard, injected, slotInjected, ownerProps, hookContext, hasHookContext)
 }
 
-function StrictSessionEntry({ slotKey, entry, ownerProps }: {
+function StrictSessionEntry({ slotKey, entry, ownerProps, slotInjected, hookContext, hasHookContext }: {
   slotKey: string
   entry: StoredEntry
   ownerProps: object
+  slotInjected: BoundSlotInject
+  hookContext: unknown
+  hasHookContext: boolean
 }) {
   const info = useSessionMaybeProvideInfo()
   if (info.sessionId === undefined) return null
   return (
     <SlotErrorBoundary slotKey={slotKey} key={info.sessionId}>
-      <SessionEntry entry={entry} ownerProps={ownerProps} info={info as SessionProvideInfo} />
+      <SessionEntry
+        entry={entry}
+        ownerProps={ownerProps}
+        info={info as SessionProvideInfo}
+        slotKey={slotKey}
+        slotInjected={slotInjected}
+        hookContext={hookContext}
+        hasHookContext={hasHookContext}
+      />
     </SlotErrorBoundary>
   )
 }
@@ -478,31 +659,62 @@ function SlotOutlet({ slotKey, ownerProps, opts }: {
   // An absent strict overlay chain follows its ordinary empty-election path,
   // preserving the Fragment/fallback-wrapper shape across session arrival.
   const entries = strictSessionAbsent ? [] : host.entriesOf(slotKey)
+  const slotInjected = cachedSlotInject(spec.inject)
 
   // The boundary must wrap the Entry ELEMENT, not live inside it: inject
   // factories and kit synthesis run in the Entry body and must land in the
   // per-entry fallback rather than escaping to the tree above.
-  const guarded = (entry: StoredEntry, key?: string | number, owner: object = ownerProps) => (
-    spec.scope === 'session'
-      ? <StrictSessionEntry slotKey={slotKey} entry={entry} ownerProps={owner} key={key} />
+  const guarded = (entry: StoredEntry, key?: string | number, owner: object = ownerProps) => {
+    const hasHookContext = opts !== undefined && Object.hasOwn(opts, 'hookContext')
+    const hookContext = opts?.hookContext
+    return spec.scope === 'session'
+      ? (
+        <StrictSessionEntry
+          slotKey={slotKey}
+          entry={entry}
+          ownerProps={owner}
+          slotInjected={slotInjected}
+          hookContext={hookContext}
+          hasHookContext={hasHookContext}
+          key={key}
+        />
+      )
       : (
         <SlotErrorBoundary slotKey={slotKey} key={key}>
           {spec.scope === 'session-maybe'
-            ? <SessionMaybeEntry entry={entry} ownerProps={owner} />
-            : <RootEntry entry={entry} ownerProps={owner} />}
+            ? (
+              <SessionMaybeEntry
+                entry={entry}
+                ownerProps={owner}
+                slotKey={slotKey}
+                slotInjected={slotInjected}
+                hookContext={hookContext}
+                hasHookContext={hasHookContext}
+              />
+            )
+            : (
+              <RootEntry
+                entry={entry}
+                ownerProps={owner}
+                slotKey={slotKey}
+                slotInjected={slotInjected}
+                hookContext={hookContext}
+                hasHookContext={hasHookContext}
+              />
+            )}
         </SlotErrorBoundary>
       )
-  )
+  }
 
   if (spec.kind === 'single') {
     const entry = entries[0]
     if (!entry) return <>{opts?.fallback ?? null}</>
-    return guarded(entry)
+    return guarded(entry, entryKeyOf(entry))
   }
   if (spec.kind === 'keyed') {
     const entry = entries.find(e => e.options.key === opts?.entryKey)
     if (!entry) return <>{opts?.fallback ?? null}</>
-    return guarded(entry)
+    return guarded(entry, entryKeyOf(entry))
   }
   if (spec.kind === 'chain') {
     // Entries arrive priority-sorted from the ledger (the core orders at
@@ -561,7 +773,7 @@ function SlotOutlet({ slotKey, ownerProps, opts }: {
   let list = [...withListOptions].sort((a, b) => a.order - b.order)
   if (opts?.only !== undefined) list = list.filter(item => item.id === opts.only)
   if (list.length === 0) return <>{opts?.fallback ?? null}</>
-  return <>{list.map((item, i) => guarded(item.entry, item.id ?? i))}</>
+  return <>{list.map(item => guarded(item.entry, entryKeyOf(item.entry)))}</>
 }
 
 /** Root outlet: the shell's single ctx-level render entry — an unregistered 'root' is a boot-order failure, never a silent blank (§1). */
@@ -575,8 +787,15 @@ function RootOutlet({ ownerProps }: { ownerProps: object }) {
   const entry = host.entriesOf('root')[0]
   if (!entry) throw new SlotAssemblyError("renderSlot('root') before any 'root' registration (boot order)")
   return (
-    <SlotErrorBoundary slotKey="root">
-      <RootEntry entry={entry} ownerProps={ownerProps} />
+    <SlotErrorBoundary slotKey="root" key={entryKeyOf(entry)}>
+      <RootEntry
+        entry={entry}
+        ownerProps={ownerProps}
+        slotKey="root"
+        slotInjected={EMPTY_SLOT_INJECT}
+        hookContext={undefined}
+        hasHookContext={false}
+      />
     </SlotErrorBoundary>
   )
 }

@@ -9,6 +9,7 @@ import type { AgentHandle } from '@deepseek-ai/dsh-agent'
 import { CallId, createUserMessage, LlmAdapter } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
+import { conversationContextKey } from '@deepseek-ai/dsh-client-runtime/client'
 import {
   assertFixtureInventory,
   captureStableAria,
@@ -153,17 +154,26 @@ function expectReminderFraming(options: GenerateOptions): void {
   )
 }
 
-/** Wait for one exact assistant reply and return its durable sequence. */
-async function waitForReply(handle: AgentHandle, text: string, timeoutMs: number): Promise<number> {
+/** Wait for and return one exact durable assistant reply. */
+async function waitForReply(
+  handle: AgentHandle,
+  text: string,
+  timeoutMs: number,
+): Promise<SessionEvent<'assistant/message'>> {
   const deadline = Date.now() + timeoutMs
   while (true) {
     const event = handle.agent.session.events.find((candidate): candidate is SessionEvent<'assistant/message'> => (
       candidate.type === 'assistant/message' && assistantText(candidate) === text
     ))
-    if (event !== undefined) return event.seq
+    if (event !== undefined) return event
     if (Date.now() >= deadline) throw new Error(`assistant reply did not arrive within ${timeoutMs}ms: ${text}`)
     await new Promise<void>(resolve => setTimeout(resolve, 20))
   }
+}
+
+/** Resolve the semantic assistant-step key owned by the conversation assembler. */
+function assistantKey(event: SessionEvent<'assistant/message'>): string {
+  return conversationContextKey('assistant-step', `${String(event.data.turn)}:${String(event.data.step)}`)
 }
 
 describe.skipIf(MODE === 'record')('web e2e: conversational reminders', () => {
@@ -172,8 +182,8 @@ describe.skipIf(MODE === 'record')('web e2e: conversational reminders', () => {
   let atHandle: AgentHandle
   let browser: Browser
   let page: Page
-  let afterAssistantSeq = -1
-  let atAssistantSeq = -1
+  let afterAssistantReply: SessionEvent<'assistant/message'> | undefined
+  let atAssistantReply: SessionEvent<'assistant/message'> | undefined
   let tripwire: ReturnType<typeof watchConsole>
   const afterAdapter = new ReminderAdapter()
   const atAdapter = new BrowserZoneAtAdapter()
@@ -236,7 +246,7 @@ describe.skipIf(MODE === 'record')('web e2e: conversational reminders', () => {
       state: 'scheduled',
       deliveryMode: 'session-local',
     })
-    afterAssistantSeq = await waitForReply(afterHandle, AFTER_REPLY, 15_000)
+    afterAssistantReply = await waitForReply(afterHandle, AFTER_REPLY, 15_000)
     await afterHandle.agent.whenIdle()
     expect(afterAdapter.requests).toHaveLength(1)
     const afterReminderRequest = afterAdapter.requests[0]
@@ -283,7 +293,7 @@ describe.skipIf(MODE === 'record')('web e2e: conversational reminders', () => {
     await page.getByRole('button', { name: 'Send message', exact: true }).click()
     expect(await settled).toBe(atHandle.agent.id)
     await page.getByText(AT_ACK, { exact: true }).waitFor({ timeout: 15_000 })
-    atAssistantSeq = await waitForReply(atHandle, AT_REPLY, 20_000)
+    atAssistantReply = await waitForReply(atHandle, AT_REPLY, 20_000)
     await atHandle.agent.whenIdle()
     await expect(scaffold.ctx.sessions.flush(atHandle.agent.session)).resolves.toBe(true)
   }, 120_000)
@@ -302,10 +312,11 @@ describe.skipIf(MODE === 'record')('web e2e: conversational reminders', () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-schedule-after'))
     const session = page.getByRole('treeitem', { name: /Scheduled After follow-up/ })
     await session.click()
-    const selector = `[data-chat-anchor-key="node:${String(afterAssistantSeq)}"]`
+    if (afterAssistantReply === undefined) throw new Error('After assistant reply was not captured')
+    const selector = `[data-chat-anchor-key="${assistantKey(afterAssistantReply)}"]`
     const row = page.locator(selector)
     await row.waitFor({ timeout: 15_000 })
-    expect(await row.getAttribute('data-chat-flow-kind')).toBe('assistant')
+    expect(await row.getAttribute('data-chat-flow-kind')).toBe('assistant-step')
     expect(await row.textContent()).toContain(AFTER_REPLY)
     await compareOrRefreshGolden(
       AFTER_EXPECTED,
@@ -373,10 +384,11 @@ describe.skipIf(MODE === 'record')('web e2e: conversational reminders', () => {
 
     const session = page.getByRole('treeitem', { name: /Explicit local-time reminder/ })
     await session.click()
-    const selector = `[data-chat-anchor-key="node:${String(atAssistantSeq)}"]`
+    if (atAssistantReply === undefined) throw new Error('At assistant reply was not captured')
+    const selector = `[data-chat-anchor-key="${assistantKey(atAssistantReply)}"]`
     const row = page.locator(selector)
     await row.waitFor({ timeout: 15_000 })
-    expect(await row.getAttribute('data-chat-flow-kind')).toBe('assistant')
+    expect(await row.getAttribute('data-chat-flow-kind')).toBe('assistant-step')
     expect(await row.textContent()).toContain(AT_REPLY)
     await compareOrRefreshGolden(
       AT_EXPECTED,

@@ -184,10 +184,11 @@ idle inject:
 | 拦截请求、工具或轮次 | 使用相应的 `agent/*` 或 `tools/*` 事件；`agent/turn-stopping` 是停止边界 |
 | 添加模型可见上下文 | 调用 `agent.inject()`，将带来源的上下文排入下一次获准请求 |
 | 添加 UI 或编辑器集成 | 驱动 `ctx.agents` 并从 `session/event` 渲染 |
+| Web Client Chat 节点 | 注册 `ConversationNodeDefinition` + keyed renderer |
 | 添加持久会话状态 | 扩展 `SessionEventMap`；从日志渲染和回放 |
 | 添加异步会话标题生成 | 注册唯一的 `ctx.sessionTitle` 提供方 |
 | 管理同会话目标 | 使用 `ctx.goals`；通过 `Agent` 和 `agent/*` 续跑 |
 | fork 活跃会话 | 调用 `ctx.sessions.fork(source, boundary?, childSessionId?)` |
 | 将注册项限定到单个 agent | 使用其 `agent.ctx`（参见 Agent 作用域） |
 
-[扩展实操手册（cookbook）](cookbook/extension-cookbook.md)将功能映射到能力；指南涵盖[包](cookbook/adding-a-package.md)、[工具](cookbook/adding-a-tool.md)、[LLM 适配器](cookbook/adding-an-llm-adapter.md)和 [vendored 包](cookbook/adding-a-vendored-package.md)。
+[扩展实操手册](cookbook/extension-cookbook.md)将功能映射到能力；指南涵盖[包](cookbook/adding-a-package.md)、[工具](cookbook/adding-a-tool.md)、[LLM 适配器](cookbook/adding-an-llm-adapter.md)、[Chat 节点](cookbook/adding-a-conversation-node.md)和 [vendored 包](cookbook/adding-a-vendored-package.md)。

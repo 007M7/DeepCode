@@ -1,6 +1,1 @@
 - paragraph: "Reminder: Check the deployment log."
-- button "Copy":
-  - img
-- button "Branch into a new conversation":
-  - img
-- text: {{clock}} Ran for {{duration}}
