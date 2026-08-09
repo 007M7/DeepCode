@@ -3,7 +3,7 @@
 
 # Event Producer And Consumer Matrix
 
-This matrix shows which packages dispatch each harness-owned event and which packages listen to it. It is intentionally a table rather than one large graph: events are many-to-many, and dense relation data is easier to review in rows. Receiver and event-name types also cover contained dispatch sites that deliberately bypass `ctx.emit`, such as subagent lifecycle containment.
+This matrix shows which packages dispatch each harness-owned event and which packages listen to it. Events are many-to-many, so the dense relation data is presented as a table rather than one large graph. Receiver and event-name types also cover contained dispatch sites that deliberately bypass `ctx.emit`, such as subagent lifecycle containment.
 
 | Event | Mode | Declared in | Dispatchers | Listeners |
 | --- | --- | --- | --- | --- |
@@ -36,7 +36,7 @@ This matrix shows which packages dispatch each harness-owned event and which pac
 | `session/flush` | `parallel` | [`packages/core/session/src/index.ts:105`](../packages/core/session/src/index.ts) | [`session`](../packages/core/session) (`events.dispatch`) | [`session-persistence`](../packages/session/session-persistence), [`session-telemetry`](../packages/session/session-telemetry) |
 | `settings/document-updated` | `emit` | [`packages/settings/settings/src/index.ts:170`](../packages/settings/settings/src/index.ts) | [`settings`](../packages/settings/settings) (`events.dispatch`) | `apiproxy` |
 | `settings/updated` | `emit` | [`packages/settings/settings/src/index.ts:157`](../packages/settings/settings/src/index.ts) | [`settings`](../packages/settings/settings) (`events.dispatch`) | [`settings`](../packages/settings/settings) |
-| `skills/change` | `emit` | [`packages/skill/skill/src/index.ts:284`](../packages/skill/skill/src/index.ts) | [`skill`](../packages/skill/skill) (`events.dispatch`) | - |
+| `skills/change` | `emit` | [`packages/skill/skill/src/index.ts:297`](../packages/skill/skill/src/index.ts) | [`skill`](../packages/skill/skill) (`events.dispatch`) | - |
 | `subagent/end` | `emit` | [`packages/subagent/subagent/src/index.ts:162`](../packages/subagent/subagent/src/index.ts) | [`subagent`](../packages/subagent/subagent) (`events.dispatch`) | [`hooks-claude`](../packages/hooks/hooks-claude), `server`, [`subagent`](../packages/subagent/subagent) |
 | `subagent/provider-added` | `emit` | [`packages/subagent/subagent/src/index.ts:136`](../packages/subagent/subagent/src/index.ts) | [`subagent`](../packages/subagent/subagent) (`emit`) | [`subagent`](../packages/subagent/subagent), [`tool-subagent`](../packages/subagent/tool-subagent) |
 | `subagent/provider-removed` | `emit` | [`packages/subagent/subagent/src/index.ts:142`](../packages/subagent/subagent/src/index.ts) | [`subagent`](../packages/subagent/subagent) (`events.dispatch`) | [`subagent`](../packages/subagent/subagent), [`tool-subagent`](../packages/subagent/tool-subagent) |

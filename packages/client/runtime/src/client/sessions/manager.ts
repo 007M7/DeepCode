@@ -98,12 +98,12 @@ function questionInteractionStatus(
   return options.some(option => option.label === intent.approve) ? 'plan-review' : 'question'
 }
 
-/** Instance cluster + frame entry + the session list (see the web client architecture RFC). */
+/** Instance cluster + frame entry + the session list. */
 export class SessionManager {
   private readonly sessions = new Map<SessionId, Session>()
   /** Pre-instantiation buffer for answerable requests and the queued-turn snapshot, which history
    *  cannot reconstruct on open. Live requests remain until resolution; queue and replay duplicates
-   *  compact by identity. Instantiation replays and clears it, while removal drops it (audit S7). */
+   *  compact by identity. Instantiation replays and clears it, while removal drops it. */
   private readonly pendingBuffers = new Map<SessionId, RpcRequest<MuxFrame>[]>()
   /** Outstanding answerable interactions per session, keyed by their stable request identity.
    *  Manager-owned rather than read off Session instances because the sidebar must light up for
@@ -142,9 +142,9 @@ export class SessionManager {
   private selected: SessionId | undefined
 
   private listSnapshotCache: SessionListSnapshot
-  /** Entry-identity cache (§C.2 reference stability): list rebuilds reuse the previous entry
+  /** Entry-identity cache (reference stability): list rebuilds reuse the previous entry
    *  object when every field matches — wire refreshes mint all-new summary objects, so identity
-   *  must be recovered by value or every SessionListItem memo misses on every refresh (audit S5). */
+   *  must be recovered by value or every SessionListItem memo misses on every refresh. */
   private entryCache = new Map<SessionId, SessionListEntry>()
   private itemsCache: readonly SessionListEntry[] = []
   private readonly notifier = new Notifier(() => {
@@ -244,7 +244,7 @@ export class SessionManager {
   // ---- Instance management ----
 
   /**
-   * Drop a session instance (scope-prune companion, decision 12: instance
+   * Drop a session instance (scope-prune companion: instance
    * and scope share one lifecycle). The host session log is the durable
    * truth — a later get() lazily rebuilds and open() backfills history.
    * @param sessionId - the session to drop.
@@ -982,7 +982,7 @@ export class SessionManager {
   private buildListSnapshot(): SessionListSnapshot {
     const merged: TitledSessionSummary[] = this.summaries.map((summary) => {
       // List rows read the generic 'title' projection key (host-computed unit
-      // value; the bespoke session/title frame is retired).
+      // value; there is no dedicated title frame).
       const projectionStore = this.projectionStores.get(summary.sessionId)
       const title = projectionStore?.get('title')
       const projectionValues = projectionStore?.values()
@@ -1067,7 +1067,7 @@ function applyMutation(summaries: readonly SessionSummary[], mutation: SessionLi
     case 'remove':
       return summaries.filter(summary => summary.sessionId !== mutation.sessionId)
     case 'status':
-      // running:true doubles as the cross-端 blank flip (a blank session
+      // running:true doubles as the cross-client blank flip (a blank session
       // never runs, so the first running frame proves a message landed).
       return summaries.map(summary => summary.sessionId === mutation.sessionId
         && (summary.running !== mutation.running || (mutation.running && summary.blank))

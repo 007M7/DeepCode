@@ -44,6 +44,6 @@ None. The package is client-only presentation.
 
 ## Known Limitations and Deferred Work
 
-- The Host excludes `run_code` from Code Mode program bindings, so production events currently produce one dispatch level; the recursive Runtime/UI contract is ready for future nested producers.
-- Existing first-party Tool views are initially colocated here and can move to their owning business packages independently through the keyed slot.
-- Tool copy temporarily reuses the `ui-conversation` locale namespace.
+- The Host excludes `run_code` from Code Mode program bindings, so production events produce one dispatch level; the recursive Runtime/UI contract supports nesting.
+- First-party Tool views are colocated here and can move to their owning business packages independently through the keyed slot.
+- Tool copy reuses the `ui-conversation` locale namespace.

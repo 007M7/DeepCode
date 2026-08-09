@@ -1,4 +1,4 @@
-// Terminal-design compile-time samples (design.md §11 item 2): the four-share
+// Terminal-design compile-time samples: the four-share
 // composed register constraint — children spec x SlotMap alignment, renderSlot
 // key-set containment, store share matching, inject face completeness — plus
 // the full positive chain. Bodies with @ts-expect-error sites never run.

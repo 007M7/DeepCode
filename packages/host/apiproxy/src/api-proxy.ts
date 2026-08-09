@@ -1686,8 +1686,8 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     sessions: {
       // Attached sessions summarize from memory; persisted-but-unattached (cold)
       // sessions merge in from the persistence store so history survives restarts.
-      // Legacy logs without a cwd (pre-project stance) are not served — every
-      // session now records its project at create time.
+      // Logs without a cwd are not served; every session records its project
+      // at create time.
       async list(request) {
         return ok(request, { items: await listVisibleSessionSummaries() })
       },
@@ -2478,7 +2478,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
 
     host: {
       describe(request) {
-        // TODO(step2): version should read apps/cli's package.json; placeholder for now.
+        // TODO: version should read apps/cli's package.json; placeholder for now.
         const selection = defaults.defaultModelSelection()
         return Promise.resolve(ok(request, {
           version: '0.0.1',
@@ -2801,9 +2801,9 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     },
 
     skills: {
-      // Skill lookup never touches the Agent registry: the session address
-      // resolves to a canonical cwd from the host-resident session header, so
-      // listing skills cannot create or resume an agent as a side effect.
+      // Skill lookup never creates or resumes an agent: the session address
+      // resolves to a canonical cwd from the host-resident session header, and
+      // the view scope is the live agent or the preset's standing key.
       async list(request) {
         const { sessionId } = request.payload
         const session = ctx.sessions.get(sessionId)
@@ -2820,12 +2820,10 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           return err(request, { code: 'internal', message: `session "${sessionId}" has no project cwd`, details: {} })
         }
         const cwd = session.header.cwd
-        // The registry is per session when a preset mounts one — a preset
-        // ships its own skill directory, so the catalog IS the session's — and
-        // that instance sits behind an `isolate` realm no host context
-        // resolves. Address it through the live agent; `agents.get` keeps the
-        // no-side-effect stance above (a cold session creates nothing and
-        // falls through to whatever the host composes).
+        // The host registry is layered per scope and serves every session. A
+        // composition may still realm-mount its own registry instead; that
+        // instance is invisible to host contexts, so address it through the
+        // live agent (`agents.get` keeps the no-side-effect stance above).
         const live = ctx.agents.get(sessionId)
         const presets = ctx.get('agentPresets')
         const scoped = live === undefined ? undefined : presets?.serviceFor(live, 'skills')
@@ -2837,8 +2835,12 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         if (skillRegistry === undefined) {
           return err(request, { code: 'internal', message: 'skill registry is absent: neither this session\'s agent preset nor the host composition mounts @deepseek-ai/dsh-skill', details: {} })
         }
+        // The scope presenters resolve in — the live agent, else the recorded
+        // preset's standing key, else the global layer — so a cold session's
+        // '/' popup lists the catalog its composition actually serves.
+        const scope = await presenterScopeFor(sessionId, session.header)
         try {
-          const skills = (await skillRegistry.list({ cwd })).filter(isUserInvocable)
+          const skills = (await skillRegistry.list({ cwd, scope })).filter(isUserInvocable)
           return ok(request, {
             skills: skills.map(skill => ({
               name: skill.name,

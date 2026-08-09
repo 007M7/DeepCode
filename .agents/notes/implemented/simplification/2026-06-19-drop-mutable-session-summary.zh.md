@@ -22,7 +22,7 @@ Status: implemented
 
 摘要原本要提供的一切，在消费方真正需要时都**可从仅追加日志中派生**（`firstPrompt` = 第一条 `user/message`；近期度 = 最后一个事件的 `time` 或文件 mtime），或者已经存在于不可变 header 中（`createdAt`、`cwd`）。唯一*不可*派生的是用户*手动编辑*的标题，但它从未实现，纯属 YAGNI；如果未来真有功能需要，它可以作为独立的日志事件或 header 字段回归。
 
-这被记录为一项决策，因为它具有**持久性**（它同时收窄两个后端的公开服务约定和磁盘格式）、**争议性**（summary 是有意为未来设计的结果，而非意外），也具有**反直觉性**（未来读者在原 Agent Note 描述 `SessionMeta` 的位置发现 `SessionHeader` 时，若无此记录便会追问 summary 为何消失）。它还为[共享持久化写入协调器](../architecture/2026-06-18-shared-persistence-write-coordinator.md)扫清障碍：不再有可变 summary 后，协调器的钩子接口不需要 `updateSummary` 钩子，JSONL sidecar 与 SQLite 列之间的持久性分歧也随之消失，使两个后端的写入路径趋于一致。
+这次移除同时收窄两个后端的公开服务约定和磁盘格式；summary 是有意为未来设计的结果，而非意外；如今原 Agent Note 描述 `SessionMeta` 之处已是 `SessionHeader`，这就是 summary 消失的原因。它还为[共享持久化写入协调器](../architecture/2026-06-18-shared-persistence-write-coordinator.md)扫清障碍：不再有可变 summary 后，协调器的钩子接口不需要 `updateSummary` 钩子，JSONL sidecar 与 SQLite 列之间的持久性分歧也随之消失，使两个后端的写入路径趋于一致。
 
 ## 无需迁移
 

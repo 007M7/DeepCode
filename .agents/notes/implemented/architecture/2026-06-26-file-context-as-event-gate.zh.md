@@ -112,7 +112,7 @@ interface Events {
 
 ## 工具约定（`dsh-tool-fs`）
 
-工具保留其面向模型的 schema（`read`/`write`/`edit`，逐字节不变）和提示词段落。提示词引导仍以策略优先，因为加载 fs 工具的部署预期也会加载 `dsh-fs-policy`：模型仍被告知在覆写或编辑前先读取，任何声称「后端」要求如此的措辞应修正为 fs-policy 插件要求如此。裸提供方回退不改变提示词立场。
+工具保留其面向模型的 schema（`read`/`write`/`edit`，逐字节不变）和提示词段落。提示词引导仍以策略优先，因为加载 fs 工具的部署预期也会加载 `dsh-fs-policy`：模型仍被告知在覆写或编辑前先读取，而该要求来自 fs-policy 插件，并非后端。裸提供方回退不改变提示词立场。
 
 `dsh-tool-fs` 获得从旧 `fileContext` 方法服务迁移来的执行器职责，包括**读取渲染**（`read-render.ts`：`buildWindow` + `formatReadOutput`、`READ_MAX_BYTES`、`READ_MAX_LINE_LENGTH`、`FileReadOutcome`/`FileTextLine`，以及 `read.ts` 中的 `STREAM_MIN_SIZE`），这些现在是工具的渲染细节，因为读取已由工具拥有。这些读取渲染类型和辅助函数移入 `dsh-tool-fs`；策略插件不得继续作为工具的类型依赖。
 

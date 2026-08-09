@@ -211,8 +211,7 @@ const decoder = new TextDecoder() // utf-8, non-fatal: internal malformed bytes 
 function trimTrailingPartialUtf8(bytes: Uint8Array): Uint8Array {
   let i = bytes.length - 1
   // Continuation bytes are 0b10xxxxxx; scan back at most 3 (max sequence is 4).
-  // Indices are bounds-checked by the loop guard, so the reads are in range (a
-  // cast, not `!`, per the repo's no-non-null-assertion rule).
+  // Indices are bounds-checked by the loop guard, so the reads are in range.
   while (i >= 0 && ((bytes[i] as number) & 0xc0) === 0x80 && bytes.length - i <= 3) i--
   if (i < 0) return bytes
   const lead = bytes[i] as number
@@ -228,7 +227,7 @@ function trimTrailingPartialUtf8(bytes: Uint8Array): Uint8Array {
  */
 function trimLeadingContinuationUtf8(bytes: Uint8Array): Uint8Array {
   let i = 0
-  // i < length guards the read; cast rather than `!` (no-non-null-assertion).
+  // i < length guards the read.
   while (i < bytes.length && ((bytes[i] as number) & 0xc0) === 0x80) i++
   return bytes.subarray(i)
 }

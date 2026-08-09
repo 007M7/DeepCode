@@ -160,7 +160,7 @@ export function apply(ctx: Context): void {
   // way: this package must not import the plugins that would know.
   const composerBlocks = new ComposerBlockRegistry()
 
-  // Decision 19/20: the input machine feeds every session-scope slot
+  // The input machine feeds every session-scope slot
   // component through the standard provide channel — the 'input' hook plus
   // the two public actions. Materialization is the shell creation trigger
   // (per-session lazy; scope disposer tears down).
@@ -242,7 +242,7 @@ export function apply(ctx: Context): void {
   }, ConversationSessionHeader)
 
   // The default composer body: its own single slot inside the composer
-  // chain's fallback (decision 20). Public machine surface arrives via the
+  // chain's fallback. Public machine surface arrives via the
   // provide channel above; the keyboard command face and the stop/retry
   // verbs ride this inject (package-internal — hub and bar are one plugin).
   // Session-maybe: with no current session the machine faces are absent and
@@ -253,7 +253,7 @@ export function apply(ctx: Context): void {
     locale: NS,
     // The two named control seats in the bar's tool row (plan beside the
     // access control, model right); empty until their owning plugins
-    // register (B ruling).
+    // register.
     children: {
       'conversation.input.plan': { kind: 'single', scope: 'session' },
       'conversation.input.model': { kind: 'single', scope: 'session' },
@@ -383,7 +383,7 @@ export function apply(ctx: Context): void {
   // The plan strip rides the input dock above the queue rows (same posture).
   ctx.plugin(todoDockEntry)
 
-  // The read-only queue dock entry (T9 file territory) rides the same
+  // The read-only queue dock entry rides the same
   // registration path into the input dock declared above.
   ctx.plugin(queueDockEntry)
 

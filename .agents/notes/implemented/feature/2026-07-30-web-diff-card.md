@@ -32,7 +32,7 @@ The chat row renders the diff resident under its path-link summary, capped at `C
 
 **A side-by-side (two-column) diff.** Rejected for now by the owner: it is denser but does not fit the narrow chat row, and the goal was parity with the TUI's single-column unified form. A two-column mode in the details panel is a later props change, not a redesign.
 
-**Git-style line-number gutters.** The `FileDiff` contract carries only `{ path, oldText, newText }` — `structuredPatch`'s hunk start lines are dropped in `diff.ts`, so no line number reaches the client. Rendering a numbered gutter needs a backend contract change (carry `oldStart`/`newStart`) and a matching TUI upgrade to stay consistent; deferred so this PR stays a pure Web consumer of the existing contract.
+**Git-style line-number gutters.** The `FileDiff` contract carries only `{ path, oldText, newText }` — `structuredPatch`'s hunk start lines are dropped in `diff.ts`, so no line number reaches the client. Rendering a numbered gutter needs a backend contract change (carry `oldStart`/`newStart`) and a matching TUI upgrade to stay consistent; deferred so this change stays a pure Web consumer of the existing contract.
 
 **Reuse `CodeBlock`.** Rejected for the same reason the terminal card was: `CodeBlock` soft-wraps and has no per-line `+`/`-` role, no path headers, and no footer. The two share geometry and font tokens, which is the only part where one implementation is correct for both.
 

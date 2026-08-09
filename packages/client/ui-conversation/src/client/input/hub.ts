@@ -1,7 +1,7 @@
 /**
  * InputHub: the InputService implementation (`ctx.conversation.input`) — one
  * SessionInputShell per session, created inside the sessions provide
- * materialization (decision 19: the 'input' standard-kit entry IS the
+ * materialization (the 'input' standard-kit entry IS the
  * creation trigger) and torn down by the scope disposer (instance-and-scope
  * share one lifecycle). The hub registers the three scoped input-mutation
  * listeners on each session's actx (the sole consumer side of the ui-slash
@@ -61,7 +61,7 @@ export class InputHub implements InputService {
     })
     this.shells.set(id, shell)
     // The one teardown axis: listeners, shell, and map entries all ride the
-    // scope fiber (decision 12 — nothing here outlives the scope).
+    // scope fiber (nothing here outlives the scope).
     actx.effect(() => {
       const offs = [
         actx.on('slash/input-begin-command', req =>
@@ -97,7 +97,7 @@ export class InputHub implements InputService {
   }
 
   /**
-   * The InputBar-exclusive keyboard command face (decision 20): the shell
+   * The InputBar-exclusive keyboard command face: the shell
    * satisfies it structurally; package-internal — handed through the
    * composer-bar entry's inject, never across a plugin boundary.
    * @param id - session id.

@@ -8,7 +8,7 @@ Status: implemented
 
 Pull request 的 Windows 通道旨在验证两个阻断性 win32 表面，即 workspace 构建与生产站点。该通道此前运行在托管 `windows-2025` 上，是必需矩阵中最慢的作业：耗时 7–9 分钟，而 Linux 作业耗时 1.5–2.5 分钟，因此 Windows VM 的启动、准备与文件系统开销主导了每个 pull request 的关键路径。
 
-实验回答的问题是：一台普通 Linux runner 能否以 Linux 作业的墙钟时间为这些阻断表面产出等效的 win32 信号，让 pull request 路径上完全没有 Windows VM？
+实验测试了一台普通 Linux runner 能否以 Linux 作业的墙钟时间为这些阻断表面产出等效的 win32 信号，让 pull request 路径上完全没有 Windows VM。
 
 ## 决策
 

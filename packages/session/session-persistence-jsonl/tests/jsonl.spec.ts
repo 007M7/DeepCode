@@ -201,7 +201,6 @@ describe('SessionPersistenceJsonl: durability and crash semantics', () => {
     expect((await ctx.sessionPersistence.list()).map(h => h.id)).not.toContain(m.id)
 
     await ctx.sessionPersistence.append(m.id, oneTurnLog())
-    // now materialized
     expect((await stat(dir)).isDirectory()).toBe(true)
     expect((await stat(rawLogPath(root, '/work', m.id))).isFile()).toBe(true)
     expect((await ctx.sessionPersistence.list()).map(h => h.id)).toContain(m.id)

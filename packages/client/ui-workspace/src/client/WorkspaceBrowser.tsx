@@ -150,8 +150,8 @@ function SessionTree({
         )}
         {groups.map(group => (
           // Group section: header row + expanded top-level session rows. The
-          // inter-group breathing room (former flat-list batch separator)
-          // is the section's own margin (WorkspaceBrowser.module.css).
+          // inter-group breathing room is the section's own margin
+          // (WorkspaceBrowser.module.css).
           <div key={group.key} className={css.groupSection}>
             <ProjectRowItem
               group={group}

@@ -5,7 +5,7 @@
 
 [English](event-producer-consumer.md) | 中文
 
-本矩阵展示哪些包会派发各个 harness 自有事件，以及哪些包会监听这些事件。这里特意采用表格而非一张大型关系图：事件之间存在多对多关系，以表格逐行呈现密集的关系数据更便于评审。接收方和事件名称类型还涵盖有意绕过 `ctx.emit` 的内含派发位置，例如 subagent 生命周期封装。
+本矩阵展示哪些包会派发各个 harness 自有事件，以及哪些包会监听这些事件。事件之间存在多对多关系，因此密集的关系数据以表格而非一张大型关系图呈现。接收方和事件名称类型还涵盖有意绕过 `ctx.emit` 的内含派发位置，例如 subagent 生命周期封装。
 
 | 事件 | 模式 | 声明位置 | 派发方 | 监听方 |
 | --- | --- | --- | --- | --- |
@@ -38,7 +38,7 @@
 | `session/flush` | `parallel` | [`packages/core/session/src/index.ts:105`](../packages/core/session/src/index.ts) | [`session`](../packages/core/session) (`events.dispatch`) | [`session-persistence`](../packages/session/session-persistence), [`session-telemetry`](../packages/session/session-telemetry) |
 | `settings/document-updated` | `emit` | [`packages/settings/settings/src/index.ts:170`](../packages/settings/settings/src/index.ts) | [`settings`](../packages/settings/settings) (`events.dispatch`) | `apiproxy` |
 | `settings/updated` | `emit` | [`packages/settings/settings/src/index.ts:157`](../packages/settings/settings/src/index.ts) | [`settings`](../packages/settings/settings) (`events.dispatch`) | [`settings`](../packages/settings/settings) |
-| `skills/change` | `emit` | [`packages/skill/skill/src/index.ts:284`](../packages/skill/skill/src/index.ts) | [`skill`](../packages/skill/skill) (`events.dispatch`) | - |
+| `skills/change` | `emit` | [`packages/skill/skill/src/index.ts:297`](../packages/skill/skill/src/index.ts) | [`skill`](../packages/skill/skill) (`events.dispatch`) | - |
 | `subagent/end` | `emit` | [`packages/subagent/subagent/src/index.ts:162`](../packages/subagent/subagent/src/index.ts) | [`subagent`](../packages/subagent/subagent) (`events.dispatch`) | [`hooks-claude`](../packages/hooks/hooks-claude), `server`, [`subagent`](../packages/subagent/subagent) |
 | `subagent/provider-added` | `emit` | [`packages/subagent/subagent/src/index.ts:136`](../packages/subagent/subagent/src/index.ts) | [`subagent`](../packages/subagent/subagent) (`emit`) | [`subagent`](../packages/subagent/subagent), [`tool-subagent`](../packages/subagent/tool-subagent) |
 | `subagent/provider-removed` | `emit` | [`packages/subagent/subagent/src/index.ts:142`](../packages/subagent/subagent/src/index.ts) | [`subagent`](../packages/subagent/subagent) (`events.dispatch`) | [`subagent`](../packages/subagent/subagent), [`tool-subagent`](../packages/subagent/tool-subagent) |

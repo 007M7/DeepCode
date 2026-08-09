@@ -382,9 +382,10 @@ describe('settings domain', () => {
 
   it('invalidates the model catalog when a provider namespace changes, and broadcasts a raw-only change', async () => {
     // Editing `models` changes no route, so llm/adapters-updated never fires
-    // and an open model picker kept serving the old catalog. And storing an
-    // override equal to the resolved value emits nothing on settings/updated,
-    // so another tab never learned the field became overridden.
+    // and an open model picker would keep serving the stale catalog. Storing
+    // an override equal to the resolved value emits nothing on
+    // settings/updated, so another tab would never learn the field became
+    // overridden.
     const ctx = await harness()
     ctx.settings.register(NS, AdapterConfig, { base: { baseURL: 'https://base' } })
     const api = createApiProxy(ctx, DEFAULTS)

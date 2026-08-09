@@ -10,7 +10,7 @@ Session telemetry is mounted by default ([default-mount Note](2026-07-31-web-tel
 
 ## Decision
 
-The `session-telemetry-otel` package's own module `src/user-id.ts` owns the OTel feed's user identity: `getOrCreateAnonymousUserId()` returns the bare UUID line in `$DSH_HOME/.userid` (resolved by `resolveDshHome`, `$DSH_HOME` > `~/.dsh`), minting and persisting a random UUID v4 on first use; the backend constructor carries it as the Resource's `user.id` (the OTel semconv user attribute), once per export batch. This identity belongs to the OTel feed alone; the dsh-sdk launcher telemetry keeps its own anonymous-id store (`telemetry.json`), and the two are not shared (the first cut unified both feeds through a shared util package; the user reconsidered and pulled it back — no shared package before a second real consumer exists, revisit when a feed-correlation need appears).
+The `session-telemetry-otel` package's own module `src/user-id.ts` owns the OTel feed's user identity: `getOrCreateAnonymousUserId()` returns the bare UUID line in `$DSH_HOME/.userid` (resolved by `resolveDshHome`, `$DSH_HOME` > `~/.dsh`), minting and persisting a random UUID v4 on first use; the backend constructor carries it as the Resource's `user.id` (the OTel semconv user attribute), once per export batch. This identity belongs to the OTel feed alone; the dsh-sdk launcher telemetry keeps its own anonymous-id store (`telemetry.json`), and the two are not shared (the first cut unified both feeds through a shared util package — no shared package before a second real consumer exists, revisit when a feed-correlation need appears).
 
 | Ruling | Value | Rationale |
 |---|---|---|

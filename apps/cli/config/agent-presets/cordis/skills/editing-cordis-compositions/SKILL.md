@@ -37,23 +37,23 @@ Whether a row publishes a service is not visible from its name. `tool-bash` read
 When a preset genuinely owns a service, wrap the provider **and every consumer that reaches it** in one group carrying an `isolate` realm:
 
 ```yaml
-- id: skills
+- id: tasks
   name: cordis:group
   group: true
   isolate:
-    skills: true
+    tasks: true
   config:
-    - id: skill
-      name: '@deepseek-ai/dsh-skill'
-    - id: skill-local
-      name: '@deepseek-ai/dsh-skill-local'
-    - id: tool-skill
-      name: '@deepseek-ai/dsh-tool-skill'
+    - id: tasks-local
+      name: '@deepseek-ai/dsh-tasks-local'
+    - id: tool-tasks
+      name: '@deepseek-ai/dsh-tool-tasks'
 ```
 
 `true` means a realm private to each mounting session. A string label instead pools one instance across every subtree naming that label — use it only for something genuinely expensive to duplicate.
 
 A consumer left outside the group resolves the host's registry, which the preset did not populate, and then contributes nothing. That is the quietest failure here: the mount succeeds and a tool is simply missing.
+
+Registry-shaped host capabilities need no realm at all: the host `tools` and `skills` registries are layered per scope, so rows like `skill-local` and `tool-skill` sit loose in the preset and their registrations file into this preset's layer automatically — the agent's catalog merges them with whatever the deployment registered globally.
 
 ## Verifying a change
 

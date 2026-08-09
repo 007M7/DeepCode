@@ -18,7 +18,7 @@ Status: implemented
 
 ### TUI 实时路径
 
-TUI 的 `renderEvent` 分支仍在 `turn/start` 清空本地计划面板、在 `todo/write` 替换之（TUI 尚非投影载体）。重建路径在回放日志前重置面板，使冷恢复收敛到同一规则。
+原 TUI 的 `renderEvent` 分支曾在 `turn/start` 清空本地计划面板、在 `todo/write` 替换之，其重建路径在回放前重置面板，使冷恢复收敛到同一规则；该包其后已被移除（[移除 TUI 包](../simplification/2026-08-04-remove-tui-package.md)）。
 
 ## 考虑过的替代方案
 

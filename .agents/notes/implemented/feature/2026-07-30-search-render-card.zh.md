@@ -18,7 +18,7 @@ Status: implemented
 
 用一个带两种形状的视图而非两张卡片，因为两个工具是同一个视觉对象 —— 一个搜索结果 —— web 消费方先在一个 `card` 值上分支，再在 `shape` 上分支决定行布局。判别式 `shape` 让每个变体的字段保持非可选（matches 视图总有 `files`，paths 视图总有 `paths`），而不是一个所有形状相关字段都可选的单一接口。
 
-该视图**不**携带结果文本。早期版本曾把面向模型的 `result.content` 附到视图上；但消费方的回退路径本就读取原始 `tool/result` 内容，因此这不会产生效果，却会把整段搜索文本又序列化进持久化视图一遍。视图只承载结构化形状；无 search 卡片的 UI 回退到原始结果内容。
+该视图**不**携带结果文本。把面向模型的 `result.content` 附到视图上不会产生效果——消费方的回退路径本就读取原始 `tool/result` 内容——却会把整段搜索文本又序列化进持久化视图一遍。视图只承载结构化形状；无 search 卡片的 UI 回退到原始结果内容。
 
 卡片标签只在结果时存在。搜索调用保持为 `GenericCallView`（`kind: 'search'`）：pending 状态没有匹配或路径可展示，所以 `SearchCallView` 能携带的东西不会比 generic 标题更多。这是与 terminal 卡片的不对称之处 —— terminal 的调用视图携带执行前就存在的命令、cwd、description；搜索的结构化内容只在 `execute` 之后才存在。
 
@@ -30,7 +30,7 @@ Status: implemented
 
 `SearchMeta` 的成员形状是对象字面量 `type` 别名，而非视图暴露的 `SearchFileMatches`/`SearchLineMatch` 接口，因为只有 type 别名可赋给 `presentationMeta` 返回的 `JsonValue` 索引签名；两者结构等价，所以投影值仍读回为 `SearchResultView`。
 
-没有专用 `search` 分支的消费方会回退到同一个 generic body，并从原始结果中读取面向模型的文本。因为搜索视图不带自己的 `content`，而本 PR 之前 grep/glob 返回的是 generic 卡片，所以该回退与引入 search 卡片之前的路径逐字节一致。渲染结构化 `files`/`paths` 形状的前端独立于这个后端约定及其两个生产者。
+没有专用 `search` 分支的消费方会回退到同一个 generic body，并从原始结果中读取面向模型的文本。因为搜索视图不带自己的 `content`，而 grep/glob 此前返回的是 generic 卡片，所以该回退与引入 search 卡片之前的路径逐字节一致。渲染结构化 `files`/`paths` 形状的前端独立于这个后端约定及其两个生产者。
 
 ## 考虑过的备选
 
@@ -40,7 +40,7 @@ Status: implemented
 
 **把面向模型的文本作为视图的 `content` 附上。** 否决：对每个当前消费方是 no-op，且把整段搜索文本第二次序列化进持久化视图。视图是结构化形状；文本回退读原始结果内容。
 
-**在 `PostToolDecision` 上加 meta 通道，让 `dsh-spill-policy` 像约束 `content` 那样约束 `meta`。** 本 PR 否决：它为一个工具的载荷改动核心工具决策约定与 spill-policy 插件。投影在配置字节上限处约束自己的 `meta` 是自包含的，且保持 seam 不变。
+**在 `PostToolDecision` 上加 meta 通道，让 `dsh-spill-policy` 像约束 `content` 那样约束 `meta`。** 此处否决：它为一个工具的载荷改动核心工具决策约定与 spill-policy 插件。投影在配置字节上限处约束自己的 `meta` 是自包含的，且保持 seam 不变。
 
 **镜像 terminal 卡片双侧对称的调用时 `SearchCallView`。** 否决：搜索调用在 `execute` 前没有匹配或路径，视图只会携带 `GenericCallView` 已有的标题。
 
@@ -56,6 +56,6 @@ Status: implemented
 
 ## 相关
 
-- [工具调用呈现的带标签渲染意图联合](../architecture/2026-07-02-tool-render-intent-union.md) —— 本 PR 用 `search` 结果标签扩展的 `card` 标签词汇。
+- [工具调用呈现的带标签渲染意图联合](../architecture/2026-07-02-tool-render-intent-union.md) —— 本变更用 `search` 结果标签扩展的 `card` 标签词汇。
 - [Canonical 工具输出约定](../architecture/2026-07-20-canonical-tool-output-contract.md) —— 本投影所乘的 value/render/`presentationMeta` 划分；结构化值留在执行本地，卡片乘 `meta`。
-- [Web terminal 卡片](2026-07-28-web-terminal-card.md) —— 本 PR 在后端镜像的先例：工具把结果投影进 `presentationMeta` 与一个 `presentResult` 视图；搜索卡片的 web 消费方是与之类比的后续。
+- [Web terminal 卡片](2026-07-28-web-terminal-card.md) —— 本变更在后端镜像的先例：工具把结果投影进 `presentationMeta` 与一个 `presentResult` 视图；搜索卡片的 web 消费方是与之类比的后续。
