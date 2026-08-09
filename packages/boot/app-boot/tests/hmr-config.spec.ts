@@ -185,6 +185,9 @@ describe('HMR exact config paths', () => {
       expect(observed.error).toBeInstanceOf(Error)
       expect(observed.error.message).toBe('42')
 
+      // Let Chokidar's atomic-write window close before requiring a distinct
+      // second notification from the same path.
+      await new Promise(resolve => setTimeout(resolve, 250))
       writeFileSync(filename, 'invalid again')
       await eventually(() => failureCount === 2, 'HMR stopped broadcasting after an observer rejected')
     } finally {
