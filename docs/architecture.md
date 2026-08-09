@@ -183,10 +183,11 @@ New behavior attaches to a documented extension point; a loop change updates thi
 | Intercept a request, tool, or turn | use its `agent/*` or `tools/*` event; `agent/turn-stopping` is the stop boundary |
 | Add model-facing context | call `agent.inject()` to queue sourced context for the next admitted request |
 | Add UI or editor integration | drive `ctx.agents` and render from `session/event` |
+| Web Client Chat node | register a `ConversationNodeDefinition` + keyed renderer |
 | Add durable session state | extend `SessionEventMap`; render and replay from the log |
 | Add asynchronous session-title generation | register the sole `ctx.sessionTitle` provider |
 | Manage a same-session objective | use `ctx.goals`; continue through `Agent` and `agent/*` |
 | Fork a live session | call `ctx.sessions.fork(source, boundary?, childSessionId?)` |
 | Scope a registration to one agent | use its `agent.ctx` (see Agent Scope) |
 
-The [extension cookbook](cookbook/extension-cookbook.md) maps features to capabilities; guides cover [packages](cookbook/adding-a-package.md), [tools](cookbook/adding-a-tool.md), [LLM adapters](cookbook/adding-an-llm-adapter.md), and [vendored packages](cookbook/adding-a-vendored-package.md).
+[Extension cookbook](cookbook/extension-cookbook.md) maps features to capabilities; guides cover [packages](cookbook/adding-a-package.md), [tools](cookbook/adding-a-tool.md), [LLM adapters](cookbook/adding-an-llm-adapter.md), [Chat nodes](cookbook/adding-a-conversation-node.md), and [vendored packages](cookbook/adding-a-vendored-package.md).
