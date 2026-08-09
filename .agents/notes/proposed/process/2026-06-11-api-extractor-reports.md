@@ -4,7 +4,7 @@ Status: proposed
 
 English | [中文](2026-06-11-api-extractor-reports.zh.md)
 
-> Split out from the original "Doc-sync and API reports" Agent Note (2026-06-11). Parts 1-2 (doc-block typechecking, event-taxonomy verification) shipped — see [doc-sync enforcement](../../archived/process/2026-06-11-doc-sync-enforcement.md). This is the deferred part 3, kept as a standalone proposal.
+> The doc-block-typechecking and event-taxonomy parts shipped ([doc-sync enforcement](../../archived/process/2026-06-11-doc-sync-enforcement.md)); this remaining API-report part is deferred as a standalone proposal.
 
 ## Problem
 

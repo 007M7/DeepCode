@@ -4,7 +4,7 @@ Status: implemented
 
 [English](2026-06-11-property-based-testing.md) | 中文
 
-> 将原始提案与同一主题的决策记录合并为一篇。首次运行即发现了 BlockAssembler 重复 `block-end` 的真实 bug。
+> 属性测试套件首次运行即发现了 BlockAssembler 重复 `block-end` 的真实 bug。
 
 ## 问题
 
@@ -12,7 +12,7 @@ Status: implemented
 
 ## 决策
 
-引入 `fast-check`（作为根 devDependency），在每个协议形态的包中编写一个 `tests/properties.spec.ts`。生成器调优为*逼真但对抗性*的输入（而非均匀噪声），`numRuns` 控制在本地套件总耗时远低于约 10 秒。失败时打印可复现的 seed。（原始提案还草拟了一个夜间 CI job，以 100 倍迭代运行；该部分未交付。属性测试套件仅在常规的 `push`/`pull_request` CI 中运行，定时高迭代 job 仍属可能的后续工作。）
+`fast-check`（作为根 devDependency）为每个协议形态的包驱动一个 `tests/properties.spec.ts`。生成器调优为*逼真但对抗性*的输入（而非均匀噪声），`numRuns` 控制在本地套件总耗时远低于约 10 秒。失败时打印可复现的 seed。（以 100 倍迭代运行的夜间 CI job 未交付——属性测试套件仅在常规的 `push`/`pull_request` CI 中运行；定时高迭代 job 仍属可能的后续工作。）
 
 - **dsh-llm / BlockAssembler：** 任意分片流（合法 + 畸形：重复索引、滞后分片、缺少 block-start）。不变式：`blocks()` 计数 ≤ 已见到的不同索引数；重组幂等（`blocks()` 在重复调用间稳定，且 `message().content` 与之一致）；`blocks()` 从不抛异常且仅产出合法的 content-block 标签；`finish` 反映最后一个 `finish` 分片，无此类分片时默认为 `{kind:'stop'}`。
 - **dsh-session：** 任意事件日志。不变式：`deriveMessages` 确定性；从 seed 回放结果一致；seq 严格单调递增；非消息事件不影响推导出的历史；推导出的内容与日志解耦。

@@ -16,7 +16,7 @@ The ladder moves to its one consumer. `dsh-subagent-acp` owns `disposeAcpChild(c
 
 **Keep the ladder on the handle as a convenience.** Rejected: a Service Definition method every Service provider must implement is not a convenience, it is contract surface — and this one encodes one consumer's cooperation shape (stdin-EOF-first) as if it were process vocabulary. The seam's own README already had to caveat that children quiescing on other signals need "their own tier-1", which is the admission that the ladder is policy.
 
-**Move the ladder to a shared helper package.** Rejected: one consumer. A second out-of-process backend with the same stdin-EOF cooperation shape can lift `disposeAcpChild` to shared code when it exists; extracting now would recreate `dsh-subagent-subprocess`, the single-purpose library this stack just deleted.
+**Move the ladder to a shared helper package.** Rejected: one consumer. A second out-of-process backend with the same stdin-EOF cooperation shape can lift `disposeAcpChild` to shared code when it exists; extracting now would recreate `dsh-subagent-subprocess`, the single-purpose library this change deleted.
 
 ## Consequences
 

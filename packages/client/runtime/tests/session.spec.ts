@@ -165,7 +165,7 @@ function chatSeqs(snapshot: ConversationSnapshot): number[] {
 }
 
 function histResponse(events: SessionEvent[], hasMore = false) {
-  // history now returns HistoryEntry[] ({event, view?}); these tests are view-less.
+  // history returns HistoryEntry[] ({event, view?}); these tests are view-less.
   return Promise.resolve(ok({ events: entries(events) as never[], hasMore }))
 }
 

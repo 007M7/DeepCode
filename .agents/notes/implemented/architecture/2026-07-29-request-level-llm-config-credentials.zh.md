@@ -4,7 +4,7 @@ Status: implemented
 
 [English](2026-07-29-request-level-llm-config-credentials.md) | 中文
 
-> 范围：`ctx.settings` 的第一批生产消费方（两个 LLM 适配器插件）、新增的 `packages/credentials/` 能力族，以及 `packages/util/atomic-write` 的抽取。后续的 wire 面（`settings.*`/`credentials.*` RPC、secret 角色脱敏、web 设置表单）是单独的 PR，不在本 note 已交付范围内。
+> 范围：`ctx.settings` 的第一批生产消费方（两个 LLM 适配器插件）、新增的 `packages/credentials/` 能力族，以及 `packages/util/atomic-write` 的抽取。后续的 wire 面（`settings.*`/`credentials.*` RPC、secret 角色脱敏、web 设置表单）是另行开展的工作，不在本 note 范围内。
 
 ## 问题
 
@@ -26,4 +26,4 @@ Status: implemented
 
 ## 后果
 
-上手流程端到端免重启（由 `missing-credential` headless 快照与凭据轮换组合测试固定）：无密钥启动、浏览 catalog、存入密钥、再次发起提示。demo 默认挂载 `settings-local` + `credentials-local`，不再内联任何 `!!js` 密钥接线。`runLoaderSmoke` 新增 `expectedExitCode`，使按设计出现的失败面可以被固定而非被掩盖。延后事项：wire/UI 面在任何 RPC 暴露 `describe()` 之前必须对 `role('secret')` 字段脱敏；settings 层的数组仍整体替换（deepseek 的 `models` 列表）；settings 分节无法移除组合提供的 pi-ai 路由（只能覆盖或扩展）。对该 seam 的评审随后改造了存储的所在位置与谁可以读取它，让一个请求解析出一个配置世代，并使路由替换成为原子操作（[credential boundaries note](2026-07-30-credential-boundaries-and-atomic-registration.md)）。
+上手流程端到端免重启（由 `missing-credential` headless 快照与凭据轮换组合测试固定）：无密钥启动、浏览 catalog、存入密钥、再次发起提示。demo 默认挂载 `settings-local` + `credentials-local`，不再内联任何 `!!js` 密钥接线。`runLoaderSmoke` 新增 `expectedExitCode`，使按设计出现的失败面可以被固定而非被掩盖。延后事项：wire/UI 面在任何 RPC 暴露 `describe()` 之前必须对 `role('secret')` 字段脱敏；settings 层的数组仍整体替换（deepseek 的 `models` 列表）；settings 分节无法移除组合提供的 pi-ai 路由（只能覆盖或扩展）。后来的一项决策改造了存储的所在位置与谁可以读取它，让一个请求解析出一个配置世代，并使路由替换成为原子操作（[credential boundaries note](2026-07-30-credential-boundaries-and-atomic-registration.md)）。

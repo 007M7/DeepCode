@@ -258,9 +258,8 @@ function createExecutor(
     }
 
     // Trust boundary: the SDK's return type erases to `any[]` due to the
-    // union of CallToolResult | CompatibilityCallToolResult. We process each
-    // element defensively in extractText (reading only .type/.text/.mimeType
-    // with optional fallbacks).
+    // union of CallToolResult | CompatibilityCallToolResult; extractText
+    // validates each element.
     const content = result.content as unknown as JsonValue[]
     const text = extractText(content, rawName)
 

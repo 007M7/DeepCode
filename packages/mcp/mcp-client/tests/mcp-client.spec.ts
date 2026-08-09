@@ -207,7 +207,6 @@ describe('syncTools', () => {
     const firstDisposers = await syncTools(client as never, ctx, defaultOpts, new Map())
     expect(ctx.tools.get('mcp__srv__old_tool')).toBeDefined()
 
-    // Second sync with different tools should remove old_tool.
     client.listTools.mockResolvedValue({ tools: [{ name: 'new_tool', inputSchema: { type: 'object' } }], nextCursor: undefined })
     const secondDisposers = await syncTools(client as never, ctx, defaultOpts, firstDisposers)
 
@@ -770,13 +769,11 @@ describe('createTransport', () => {
         toolCallTimeoutMs: 60_000,
         failOnStartupError: false,
       }
-      // createTransport internally calls buildChildEnv; we verify by inspecting
-      // the constructed StdioClientTransport. Since we can't inspect private fields
-      // easily, we at least confirm it doesn't throw and returns a transport.
+      // StdioClientTransport keeps its env private; the observable contract is
+      // that createTransport(config) returns a transport without throwing.
       const transport = createTransport(config)
       expect(transport).toBeDefined()
     } finally {
-      // Restore env
       delete process.env.SAFE_VAR
       delete process.env.MY_SECRET
       delete process.env.API_KEY

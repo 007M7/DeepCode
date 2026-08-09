@@ -221,8 +221,8 @@ export function TerminalBlock({
   // Read from the parsed lines the card actually renders, not from the raw text:
   // output that is only escapes or control bytes (a lone reset, an OSC title, an
   // erase) survives `text.trim()` yet parses to nothing visible. Judging it on
-  // the raw text drew an output box of blank rows plus a copy control for
-  // invisible bytes, and hid the placeholder that belongs there.
+  // the raw text would draw an output box of blank rows plus a copy control
+  // for invisible bytes, and hide the placeholder that belongs there.
   const empty = lines.every(line => line.every(span => span.text.trim() === ''))
   const { hidden, capped, headLines, tailLines } = headTailCap(lines.length, maxLines, expanded)
 

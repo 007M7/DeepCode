@@ -244,7 +244,7 @@ export async function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpe
         output.push(acpContentText(update.content))
       }
       // Other updates (thoughts, tool calls, plans) are consumed but not
-      // surfaced in this cut — the subagent returns only its final answer.
+      // surfaced — the subagent returns only its final answer.
       return Promise.resolve()
     },
     requestPermission(params: RequestPermissionRequest): Promise<RequestPermissionResponse> {

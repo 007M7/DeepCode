@@ -6,7 +6,7 @@ English | [中文](2026-07-28-directory-picker-capability-seam.zh.md)
 
 ## Problem
 
-The web GUI's "Open local folder" flow was hardwired to one interaction: `host.pickDirectory` invoked a native OS chooser compiled into `dsh-host-apiproxy` (private module, test-only injection point). That shape cannot serve remote deployments — no OS dialog reaches a browser on another machine — and the planned in-app directory browser (Figma `Harness` 802-56979) needs listing/creation primitives, which are a different interaction contract, not a different implementation of the same one. Swapping interactions required editing gateway source, against the repo's everything-is-a-plugin stance.
+The web GUI's "Open local folder" flow was hardwired to one interaction: `host.pickDirectory` invoked a native OS chooser compiled into `dsh-host-apiproxy` (private module, test-only injection point). That shape cannot serve remote deployments — no OS dialog reaches a browser on another machine — and the in-app directory browser (Figma `Harness` 802-56979) needs listing/creation primitives, which are a different interaction contract, not a different implementation of the same one. Swapping interactions required editing gateway source, against the repo's everything-is-a-plugin stance.
 
 ## Decision
 

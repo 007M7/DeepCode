@@ -8,17 +8,17 @@ Status: implemented
 
 [文件系统能力 seam Agent Note](../architecture/2026-06-17-filesystem-capability-seam.md) 定义了文件系统能力 seam（`ctx.fs`）、包拆分（`dsh-fs`、`dsh-fs-local`、`dsh-tool-fs`，加上 `dsh-fs-policy` 策略插件），以及针对 read-before-write/edit 检查的已观测文件／陈旧版本策略——[拆分文件系统 seam](../simplification/2026-06-26-fsspec-style-fs-seam.md)和[事件门控插件](../architecture/2026-06-26-file-context-as-event-gate.md) Agent Note 后来将其从 `ctx.fs` 移至 `dsh-fs-policy` 插件的 `fs/*` 事件门上。首次文件系统工具交付剩余的决策是面向模型的 schema 接口：模型在 `read`、`write` 和 `edit` 中看到哪些参数。
 
-该 schema 应足够小，以便在 `dsh-tool-fs` 的首次实现中完成，但又足够稳定，使未来的本地/远程/沙箱文件系统后端不需要改动面向模型的接口。同时应避免从参考系统中照搬所有选项。Claude Code 和 OpenCode 暴露了类似的核心文件工具，但在命名风格和额外 flag 上有所不同；本 Agent Note 为原型选择最小的共有接口。
+该 schema 必须足够小，但又要足够稳定，使本地/远程/沙箱文件系统后端不需要改动面向模型的接口，并且必须避免从参考系统中照搬所有选项。Claude Code 和 OpenCode 暴露了类似的核心文件工具，但在命名风格和额外 flag 上有所不同；本决策选择最小的共有接口。
 
 ## 决策
 
 `@deepseek-ai/dsh-tool-fs` 在首个文件系统工具套件中暴露以下三个面向模型的工具：
 
-| 工具 | 我们的 schema | Claude Code | OpenCode | 说明 | 原型包含 |
-|---|---|---|---|---|---|
-| `read` | `read(file_path, offset?, limit?)` | `Read(file_path, offset?, limit?, pages?)` | `read(filePath, offset?, limit?)` | 仅文件；`offset` 从 1 开始；首版不支持图片、PDF 或多模态内容。 | 是 |
-| `write` | `write(file_path, content)` | `Write(file_path, content)` | `write(content, filePath)` | 创建或覆盖 UTF-8 文本。在默认 fs-policy 下，更新现有文件前必须先观测；创建新文件则不需要。 | 是 |
-| `edit` | `edit(file_path, old_string, new_string, replace_all?)` | `Edit(file_path, old_string, new_string, replace_all?)` | `edit(filePath, oldString, newString, replaceAll?)` | 字面字符串替换；默认要求唯一匹配；在默认 fs-policy 下必须先观测（任意窗口读取均算作观测）。 | 是 |
+| 工具 | 我们的 schema | Claude Code | OpenCode | 说明 |
+|---|---|---|---|---|
+| `read` | `read(file_path, offset?, limit?)` | `Read(file_path, offset?, limit?, pages?)` | `read(filePath, offset?, limit?)` | 仅文件；`offset` 从 1 开始；首版不支持图片、PDF 或多模态内容。 |
+| `write` | `write(file_path, content)` | `Write(file_path, content)` | `write(content, filePath)` | 创建或覆盖 UTF-8 文本。在默认 fs-policy 下，更新现有文件前必须先观测；创建新文件则不需要。 |
+| `edit` | `edit(file_path, old_string, new_string, replace_all?)` | `Edit(file_path, old_string, new_string, replace_all?)` | `edit(filePath, oldString, newString, replaceAll?)` | 字面字符串替换；默认要求唯一匹配；在默认 fs-policy 下必须先观测（任意窗口读取均算作观测）。 |
 
 schema 使用 snake_case 字段名（`file_path`、`old_string`、`new_string`、`replace_all`），与 Claude Code 及现有 DeepSeek Harness 工具 schema 示例保持一致。Consumer 包将这些面向模型的名称转换为 `ctx.fs` 调用和 `fs/*` 事件分发。
 

@@ -12,7 +12,7 @@ The published `run.result` starts exactly one turn. It accepts only notification
 
 For command and file approvals, the unattended provider selects a non-approval decision offered by the request, preferring `cancel`; the stable 0.147.0 request shape without an offered-decision list falls back to `decline`. It answers permission requests with an empty turn-scoped permission set, answers user-input requests with no answers, and declines MCP elicitation. A request with no legal unattended response, or any unknown server request, fails the run.
 
-Local cancellation wins the result race and maps to `aborted`. A failed turn whose `codexErrorInfo` is `contextWindowExceeded` maps to `max-tokens`; every other remote interrupted or failed turn maps to `error`, and this version produces no `refusal`. `dispose()` is idempotent: it requests a best-effort `turn/interrupt` with both current ids when they are known, closes the JSON-RPC wire, ends stdin, invokes the shared process-tree termination escalation, and waits for whole-tree exit. Result failure and independent teardown failure remain separate.
+Local cancellation wins the result race and maps to `aborted`. A failed turn whose `codexErrorInfo` is `contextWindowExceeded` maps to `max-tokens`; every other remote interrupted or failed turn maps to `error`, and the provider produces no `refusal`. `dispose()` is idempotent: it requests a best-effort `turn/interrupt` with both current ids when they are known, closes the JSON-RPC wire, ends stdin, invokes the shared process-tree termination escalation, and waits for whole-tree exit. Result failure and independent teardown failure remain separate.
 
 ## Capabilities and context
 
@@ -47,7 +47,7 @@ Install this package and add the following rows to your own `cordis.yml`. Shippe
 
 ## Product compatibility and evidence
 
-The production wire intentionally implements only the app-server methods required by this one-shot contract. Development evidence is pinned to `@openai/codex@0.147.0` / `codex-cli 0.147.0`: the keyless real-product spec drives the official binary against a loopback Responses service with a non-empty fake key and proves the task, authentication, exact answer, cancellation, approvals, and process-tree exit. A separate Loader composition e2e boots the README-shaped user configuration with no `codex` command available, verifies the fixed provider and foreground-only tool schema, and records zero child starts. A credentialed e2e starts the production provider and real Codex, then obtains a unique answer from the fixed official DeepSeek service through a loopback-only test bridge from Responses to Chat Completions; that bridge is not production functionality or native Codex support for DeepSeek's Chat Completions API. The npm package is a test-only dependency; deployments still supply `codex` on `PATH`.
+The production wire intentionally implements only the app-server methods required by this one-shot contract. Development evidence is pinned to `@openai/codex@0.147.0` / `codex-cli 0.147.0`; the npm package is a test-only dependency, and deployments still supply `codex` on `PATH`.
 
 ## Model Experience
 

@@ -16,7 +16,7 @@ Status: implemented
 
 mode 与 label 由新的 `subagent` projection unit（纯身份两臂）折叠，unit 是折叠规则的唯一权威；`listChildren` 不再依赖 session-query——枚举是 subagent 自管的 live-preferred 合并，取值走三级"算完即止"阶梯：live child 同步读注册表的既有水位缓存（零日志读）；cold child 先问可选的 `sessionProjectionCache` checkpoint，取到过 seq 门的身份即定值；否则一次 `persistence.inspect` 整读加 `registry.restore` 折叠。无索引、不自建缓存、无回写。
 
-消除逐 child 扫描的出路有三类：把 mode/label 提升进 header（写路承担）；为投影建持久派生（checkpoint 阶梯，或随查询索引重建落值、读端对账）；读时现算（live 走水位缓存，cold 一次整读）。本记录取第三条。"值随查询索引落库"曾是本记录的定稿方向并一度施工，最终整体退役：查询基础设施被迫认识领域词汇，而唯一消费方读时现算即可满足——live child 的零读由 session-projection 既有水位缓存白拿，cold child 的一次整读被"算完即止"显式接受。前两条与退役理由详见考虑过的替代方案一节。
+消除逐 child 扫描的出路有三类：把 mode/label 提升进 header（写路承担）；为投影建持久派生（checkpoint 阶梯，或随查询索引重建落值、读端对账）；读时现算（live 走水位缓存，cold 一次整读）。本记录取第三条。"值随查询索引落库"已整体退役：查询基础设施被迫认识领域词汇，而唯一消费方读时现算即可满足——live child 的零读由 session-projection 既有水位缓存白拿，cold child 的一次整读被"算完即止"显式接受。前两条与退役理由详见考虑过的替代方案一节。
 
 要点：
 
@@ -147,19 +147,19 @@ export type SubagentListEntry =
 
 **mode/label 进 SessionHeader。** 零读保证最强——列表只看 header 就能成行。但 header 形状变更传导两个 persistence backend 与 header 兼容检查；SQLite 存量直接拒收，JSONL 存量只能 unknown 降级或 backfill。读时现算对存量的答案是"第一次列表一次 `inspect` 现算"，不碰持久格式。
 
-**projection-cache 阶梯（v3 稿：`cachedSnapshot ?? coldSnapshot` 加 fail-soft 写回）。** 机制成立——session-projection-cache 的 checkpoint 阶梯本就为冷读设计。但 checkpoint 写回是一套由列表驱动的派生数据持久化与失效编排（floor/identity/putSoft）；被否的是这套编排作为主机制。定稿的第三级阶梯后来以只读方式机会性复用该缓存作第二级——无写回、无编排、缺席即跳过。
+**projection-cache 阶梯（`cachedSnapshot ?? coldSnapshot` 加 fail-soft 写回）。** 机制成立——session-projection-cache 的 checkpoint 阶梯本就为冷读设计。但 checkpoint 写回是一套由列表驱动的派生数据持久化与失效编排（floor/identity/putSoft）；被否的是这套编排作为主机制。定稿的第三级阶梯后来以只读方式机会性复用该缓存作第二级——无写回、无编排、缺席即跳过。
 
 **给 persistence 加有界读原语抢救存量。** 为一次性问题新开 persistence 原语；被读时 `inspect` 整读取代——存量第一次被列表时的整读就是取值本身。
 
-**list 行 mode/label 可选化（v4 一稿）。** 健康数据必然可算；可选化只是把垃圾数据的处理复杂度外溢给全部消费方——每个消费面都要长出过滤分支和 unknown 展示态。强约定加算不出即 omit 更干净。
+**list 行 mode/label 可选化。** 健康数据必然可算；可选化只是把垃圾数据的处理复杂度外溢给全部消费方——每个消费面都要长出过滤分支和 unknown 展示态。强约定加算不出即 omit 更干净。
 
-**彻底删除 diagnostic 行（v5 一稿）。** 删除把库损坏的可见性外溢为行静默消失，wire/tool/GUI 反要各自承担约定与快照变更；而保留只需列表侧按投影值缺席与 activity 派生分类，零成本。库里的坏、死子会话必须可见是 diagnostic 存在的原始动机，保留后消费面整体零改动。
+**彻底删除 diagnostic 行。** 删除把库损坏的可见性外溢为行静默消失，wire/tool/GUI 反要各自承担约定与快照变更；而保留只需列表侧按投影值缺席与 activity 派生分类，零成本。库里的坏、死子会话必须可见是 diagnostic 存在的原始动机，保留后消费面整体零改动。
 
-**registry 计算失败通道（per-unit 容错加 `failures` 附加字段）。** 为把损坏、版本不认识报告给消费方，曾考虑让 registry 捕获 unit 异常并在 snapshot 旁附 per-key 失败态。被否：failure 不是值，也不必是通道——unit 永不抛错，缺席本身就是信号，"大不了算出来没有"，如何呈现是消费方要考虑的事。该路线讨论顺带留下一个独立观察：vendor cordis 的 `emit`（[vendor/cordis/src/events.ts](../../../../vendor/cordis/src/events.ts)）对 listener 抛错零捕获，投影驱动挂在 `session/event` 上时 unit 异常会沿 emit 逃逸——这加重了"unit 永不抛错"纪律的分量，但 emit 容错的修复不属于本记录范围。
+**registry 计算失败通道（per-unit 容错加 `failures` 附加字段）。** 为把损坏、版本不认识报告给消费方，由 registry 捕获 unit 异常并在 snapshot 旁附 per-key 失败态。被否：failure 不是值，也不必是通道——unit 永不抛错，缺席本身就是信号，"大不了算出来没有"，如何呈现是消费方要考虑的事。一个独立观察：vendor cordis 的 `emit`（[vendor/cordis/src/events.ts](../../../../vendor/cordis/src/events.ts)）对 listener 抛错零捕获，投影驱动挂在 `session/event` 上时 unit 异常会沿 emit 逃逸——这加重了"unit 永不抛错"纪律的分量，但 emit 容错的修复不属于本记录范围。
 
-**值随 query 索引 preparation 落库（v4/v5 定稿，一度施工）。** 投影值在 sqlite backend 的对账重建里折叠落进 session 索引行，读稳态零日志；`projectionsFor` 批量读面、行值随 `(key → stateVersion)` 注册集存储的失效对账与 SCHEMA bump 均已施工过。整体退役：方向反了——查询基础设施被迫认识领域词汇（投影列、注册集对账），而唯一消费方 subagent 列表读时现算即可满足；消费方归零后，这套派生持久化没有存在理由。`SESSION_QUERY_PROJECTIONS_UNAVAILABLE` 随读面一并删除。
+**值随 query 索引 preparation 落库。** 投影值在 sqlite backend 的对账重建里折叠落进 session 索引行，读稳态零日志：`projectionsFor` 批量读面、行值随 `(key → stateVersion)` 注册集存储的失效对账与 SCHEMA bump。整体退役：方向反了——查询基础设施被迫认识领域词汇（投影列、注册集对账），而唯一消费方 subagent 列表读时现算即可满足；消费方归零后，这套派生持久化没有存在理由。`SESSION_QUERY_PROJECTIONS_UNAVAILABLE` 随读面一并删除。
 
-**subagent 手工 parse 加进程 memo 加创建播种（v6 稿）。** 为摘除 session-query 依赖，曾考虑 subagent 自己解析描述符事件、以进程内 memo 避免重复整读、创建时播种初值。被 v7 阶梯取代：live 走 `sessionProjections` 水位缓存、cold 走 `registry.restore`，复用 registry 这一份折叠权威，不再出现第二份描述符解释逻辑，也不引入进程态缓存与播种时序。
+**subagent 手工 parse 加进程 memo 加创建播种。** 为摘除 session-query 依赖，由 subagent 包自己解析描述符事件、以进程内 memo 避免重复整读、创建时播种初值。被已交付的阶梯取代：live 走 `sessionProjections` 水位缓存、cold 走 `registry.restore`，复用 registry 这一份折叠权威，不再出现第二份描述符解释逻辑，也不引入进程态缓存与播种时序。
 
 **session-query 输出面 DeepReadonly（读路径改造实验）。** 公开查询输出深只读化，以在类型层面钉死不可变借用。实证否决：3 处 TS2589（类型实例化过深）加 17 处数组位传染（消费方数组方法与展开处被迫跟改）；深层不可变由 core/session 的运行时深冻结保证，该读路径改造未纳入本记录。
 

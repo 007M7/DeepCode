@@ -5,7 +5,9 @@
  * real ClientSessionContext projections — zero-RPC candidates from the root
  * session list (running children of the projected session, label-contains
  * filtering, childless session → empty), the synchronous lexicon roster,
- * pick → plain-text outcome (decision 21), and the reference codec's two
+ * pick → plain-text outcome (the plain-text-reference decision:
+ * .agents/notes/implemented/architecture/2026-07-25-web-input-machine-and-slash-pipeline.md),
+ * and the reference codec's two
  * projections. Direct driving is deliberate: this spec owns only the
  * source's own contract.
  */
@@ -227,7 +229,7 @@ describe('lexicon', () => {
 })
 
 describe('pick and codec', () => {
-  it('onPick returns the literal @label text with a closing space (decision 21)', async () => {
+  it('onPick returns the literal @label text with a closing space', async () => {
     const source = await bench(FAMILY)
     const outcome = source.onPick({
       candidate: { name: 'worker-1' },
