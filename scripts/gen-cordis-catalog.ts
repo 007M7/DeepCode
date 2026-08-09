@@ -347,6 +347,7 @@ export const LINK_MAP: Readonly<Record<string, string>> = {
   SkillProvider: 'skills.md',
   SkillProviderObservation: 'skills.md',
   SkillRegistration: 'skills.md',
+  SkillViewOptions: 'skills.md',
   SkillSummary: 'skills.md',
   SaveTextSpill: 'spill.md',
   SpillRef: 'spill.md',

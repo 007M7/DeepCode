@@ -1564,7 +1564,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/skill/skill/src/index.ts:266`](../packages/skill/skill/src/index.ts)
+Source: [`packages/skill/skill/src/index.ts:279`](../packages/skill/skill/src/index.ts)
 
 ## `@deepseek-ai/dsh-skill-local`
 

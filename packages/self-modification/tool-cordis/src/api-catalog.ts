@@ -912,27 +912,27 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   },
   {
     key: 'skills',
-    summary: 'Registry of skill providers.',
+    summary: 'Layered registry of skill providers, the host+per-scope shape the tools registry established.',
     methods: [
       {
         signature: 'registerProvider(create: (control: SkillProviderControl) => SkillProvider): () => void',
-        jsDoc: '/**\n * Register a borrowed same-process provider synchronously during plugin apply. Duplicate and\n * reserved names throw; remote initialization belongs in `list()`. Fiber disposal unregisters\n * the provider and invalidates catalog caches.\n * @param create - synchronous factory receiving this registration\'s lifecycle and invalidation control.\n * @returns the exact Cordis effect disposer that unregisters this provider;\n *   composite effects may yield it directly to preserve teardown ordering.\n */',
+        jsDoc: '/**\n * Register a borrowed same-process provider synchronously during plugin\n * apply, into the calling context\'s layer: a scoped context (an agent\n * preset\'s standing mount) registers for that scope alone, an unscoped\n * context registers globally. Duplicate names within one layer and reserved\n * names throw; remote initialization belongs in `list()`. Fiber disposal\n * unregisters the provider and invalidates catalog caches.\n * @param create - synchronous factory receiving this registration\'s lifecycle and invalidation control.\n * @returns the exact Cordis effect disposer that unregisters this provider;\n *   composite effects may yield it directly to preserve teardown ordering.\n */',
       },
       {
         signature: 'register(skill: SkillRegistration): () => void',
-        jsDoc: '/**\n * Register a borrowed readonly runtime skill. Project entries outrank runtime entries, which\n * outrank user entries. Same-name runtime entries are first-wins; a duplicate logs a warning and\n * receives a no-op disposer so it cannot remove the winner.\n * @param skill - the skill definition input; omitted invocation and provider fields receive defaults.\n * @returns the exact Cordis effect disposer, preserving composite teardown order and invalidating caches.\n */',
+        jsDoc: '/**\n * Register a borrowed readonly runtime skill into the calling context\'s\n * layer. Project entries outrank runtime entries, which outrank user\n * entries, within one layer. Same-name runtime entries in one layer are\n * first-wins; a duplicate logs a warning and receives a no-op disposer so\n * it cannot remove the winner.\n * @param skill - the skill definition input; omitted invocation and provider fields receive defaults.\n * @returns the exact Cordis effect disposer, preserving composite teardown order and invalidating caches.\n */',
       },
       {
-        signature: 'async list(options: SkillLookupOptions = {}): Promise<SkillSummary[]>',
-        jsDoc: '/**\n * List invocation-neutral skill summaries for a workspace. Consumers apply\n * model or user invocation policy at their operational boundary. Lookup\n * options and provider candidates are readonly same-process values borrowed\n * throughout discovery.\n * @param options - lookup options; `cwd` selects project roots and `signal` cancels discovery.\n * @returns all sorted winning summaries.\n */',
+        signature: 'async list(options: SkillViewOptions = {}): Promise<SkillSummary[]>',
+        jsDoc: '/**\n * List invocation-neutral skill summaries for a workspace. Consumers apply\n * model or user invocation policy at their operational boundary. Lookup\n * options and provider candidates are readonly same-process values borrowed\n * throughout discovery.\n * @param options - view options; `scope` selects the viewing agent\'s layers, `cwd` selects project roots, and `signal` cancels discovery.\n * @returns all sorted winning summaries.\n */',
       },
       {
-        signature: 'async snapshot(options: SkillLookupOptions = {}): Promise<SkillCatalogSnapshot>',
-        jsDoc: '/**\n * Observe the current invocation-neutral catalog and whether discovery completed within a stable revision.\n * Incomplete observations are never cached, allowing consumers to retain last-good state and\n * retry on their next request boundary.\n * @param options - lookup options; `cwd` selects project roots and `signal` cancels discovery.\n * @returns sorted summaries plus discovery-completeness state.\n */',
+        signature: 'async snapshot(options: SkillViewOptions = {}): Promise<SkillCatalogSnapshot>',
+        jsDoc: '/**\n * Observe the current invocation-neutral catalog and whether discovery completed within a stable revision.\n * Incomplete observations are never cached, allowing consumers to retain last-good state and\n * retry on their next request boundary.\n * @param options - view options; `scope` selects the viewing agent\'s layers, `cwd` selects project roots, and `signal` cancels discovery.\n * @returns sorted summaries plus discovery-completeness state.\n */',
       },
       {
-        signature: 'async get(name: string, options: SkillLookupOptions = {}): Promise<SkillDefinition | undefined>',
-        jsDoc: '/**\n * Load and validate the winning candidate, passing its opaque discovery locator back to the\n * provider. Cancellation is rechecked after selection, including cache hits, and raced against\n * loading so an uncooperative provider cannot hang the caller.\n * @param name - kebab-case skill name.\n * @param options - lookup options; `cwd` selects workspace-sensitive skills and `signal` cancels work.\n * @returns the full skill, including body content, or `undefined`.\n */',
+        signature: 'async get(name: string, options: SkillViewOptions = {}): Promise<SkillDefinition | undefined>',
+        jsDoc: '/**\n * Load and validate the winning candidate, passing its opaque discovery locator back to the\n * provider. Cancellation is rechecked after selection, including cache hits, and raced against\n * loading so an uncooperative provider cannot hang the caller.\n * @param name - kebab-case skill name.\n * @param options - view options; `scope` selects the viewing agent\'s layers,\n *   `cwd` selects workspace-sensitive skills, and `signal` cancels work.\n * @returns the full skill, including body content, or `undefined`.\n */',
       },
     ],
   },
@@ -2844,6 +2844,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SkillSummary',
     declaration: 'export interface SkillSummary {\n    readonly name: string;\n    readonly description: string;\n    readonly whenToUse?: string;\n    readonly invocation: SkillInvocationPolicy;\n    readonly source: SkillSource;\n    readonly provider: string;\n    readonly resourceBase?: SkillResourceBase;\n}',
+  },
+  {
+    name: 'SkillViewOptions',
+    declaration: 'export interface SkillViewOptions extends SkillLookupOptions {\n    readonly scope?: ScopeKey | undefined;\n}',
   },
   {
     name: 'SpillLocator',
