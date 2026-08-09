@@ -30,6 +30,6 @@ ApiProxy 在可配置提供方 namespace 之外，将 `permission` 显式加入 
 
 **创建时只记录 `permission/preset`。** 不予采纳，因为沙箱和审批是由不同组件独立拥有的全量值调节项；固定全部三个事实，可以让其消费方不依赖未来的组合默认值变化。
 
-**暴露所有 Settings 注册，或增加通用的 `local-client` 声明。** 本次变更不予采纳，因为这会扩大安全边界，并使 Settings 契约超出所请求的单项偏好。显式加入 `permission` allowlist 已足够，未来的 namespace 可以各自决定是否暴露。
+**暴露所有 Settings 注册，或增加通用的 `local-client` 声明。** 本次变更不予采纳，因为这会扩大安全边界，并使 Settings 约定超出所请求的单项偏好。显式加入 `permission` allowlist 已足够，未来的 namespace 可以各自决定是否暴露。
 
 **恢复带 seed 的会话时应用最新默认值。** 不予采纳，因为恢复操作必须保留会话先前的有效执行策略；缺失的旧版事实应从该策略中补齐。

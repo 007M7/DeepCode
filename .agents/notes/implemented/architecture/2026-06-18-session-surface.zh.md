@@ -33,7 +33,7 @@ export type SurfaceOp =
 
 ### SurfaceManager：基于增量，而非全量重建
 
-一个 `Session` 拥有一个 `SurfaceManager`，后者维护事件 seq 的有序 `number[]`。管理器会在提交前校验每个种子或追加候选项而不应用它，然后只处理上次同步之后已经提交的事件，而不重新扫描整个日志。`Session.surface` 通过只读的 `SessionSurface` 契约暴露同一个管理器，因此接纳、派生历史、压缩与工作区上下文共享同一份增量状态。Replace 按数组位置定位两个端点（均包含在范围内），并把替换 seq splice 到该范围；不会用第二个管理器、链接对象或 seq 到节点的 map 来重复表达顺序。
+一个 `Session` 拥有一个 `SurfaceManager`，后者维护事件 seq 的有序 `number[]`。管理器会在提交前校验每个种子或追加候选项而不应用它，然后只处理上次同步之后已经提交的事件，而不重新扫描整个日志。`Session.surface` 通过只读的 `SessionSurface` 约定暴露同一个管理器，因此接纳、派生历史、压缩与工作区上下文共享同一份增量状态。Replace 按数组位置定位两个端点（均包含在范围内），并把替换 seq splice 到该范围；不会用第二个管理器、链接对象或 seq 到节点的 map 来重复表达顺序。
 
 无新事件时增量处理为 O(1)，有新事件到达时为 O(新事件数)。
 

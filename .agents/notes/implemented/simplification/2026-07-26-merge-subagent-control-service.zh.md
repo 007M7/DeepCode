@@ -8,7 +8,7 @@ Status: implemented
 
 ## 问题
 
-可继续 child 的编排最初位于原始 `ctx.subagents` 提供方 seam 之上的独立 `ctx.subagentControl` 服务中。该拆分使提供方分发与 Task 和持久化无关，并为模型与人工适配器提供统一的编排契约。实践中，两个服务属于同一组功能，每个可继续调用方都需要二者，而绑定提供方的委派工具必须根据 `provider.resume` 推断策略，并检查控制服务与 `send_message` 工具是否碰巧已加载。如此一来，配套插件是否存在会决定执行语义，并将可继续工作的启动耦合到可选的后续操作接口。
+可继续 child 的编排最初位于原始 `ctx.subagents` 提供方 seam 之上的独立 `ctx.subagentControl` 服务中。该拆分使提供方分发与 Task 和持久化无关，并为模型与人工适配器提供统一的编排约定。实践中，两个服务属于同一组功能，每个可继续调用方都需要二者，而绑定提供方的委派工具必须根据 `provider.resume` 推断策略，并检查控制服务与 `send_message` 工具是否碰巧已加载。如此一来，配套插件是否存在会决定执行语义，并将可继续工作的启动耦合到可选的后续操作接口。
 
 ## 决策
 
@@ -18,7 +18,7 @@ Status: implemented
 
 继续执行的实现仍是内部管理器，不会扩展提供方注册表的核心状态。`SubagentService` 通过 `ctx.inject(['tasks', 'agents'], ...)` 创建该管理器，因此注入的 Cordis child fiber 拥有自身的 Task 完成监听器和拆卸 effect。加载提供方注册表不要求 Task 或持久化。只有 Task 和 Agent 可用时，该管理器才会存在；每项继续执行操作都在需要持久性时解析会话持久化服务。dispose（资源释放）该 fiber 会先取消并结算活跃的继续执行，再释放其关联。
 
-`startContinuable` 与底层 `start` 保持分离，因为二者的所有权与时序契约不同：前者分配持久化 child id、创建 Task，并同步返回两个 id，而启动过程继续在 Task 内运行；底层 `start` 则等待提供方发布，并移交一个由持有方负责的 run。若通过标志或返回值联合类型将该方法并入 `start`，会扩大底层契约，改动反而多于保留现有的显式入口。
+`startContinuable` 与底层 `start` 保持分离，因为二者的所有权与时序约定不同：前者分配持久化 child id、创建 Task，并同步返回两个 id，而启动过程继续在 Task 内运行；底层 `start` 则等待提供方发布，并移交一个由持有方负责的 run。若通过标志或返回值联合类型将该方法并入 `start`，会扩大底层约定，改动反而多于保留现有的显式入口。
 
 每个 `@deepseek-ai/dsh-tool-subagent` 实例都会选择 `backgroundMode: 'one-shot' | 'continuable'`，默认值为 `one-shot`。这项配置表示策略；`provider.resume` 只用于检查所配置的可继续模式是否受提供方支持。因此，可恢复的提供方仍可执行一次性后台工作。`send_message` 工具是独立适配器：加载或省略该工具既不会启用也不会禁用 `startContinuable`。
 
@@ -30,7 +30,7 @@ Status: implemented
 
 **注册继续执行访问入口，或检查后续操作工具。** 注册表可以告诉委派工具继续执行接口是否存在，但启动具备持久性的工作不需要任何后续操作适配器。这样的注册表会把 UI 组合编码进执行策略，并以另一个名称重新建立插件间依赖关系。
 
-**将底层启动与可继续启动合并为一个方法。** `start` 上的标志会使该方法返回已发布的一次性 run，或立即返回 Task 和 child 标识，从而削弱简单的所有权边界。保留 `startContinuable` 改动更小，也能明确保留两项契约。
+**将底层启动与可继续启动合并为一个方法。** `start` 上的标志会使该方法返回已发布的一次性 run，或立即返回 Task 和 child 标识，从而削弱简单的所有权边界。保留 `startContinuable` 改动更小，也能明确保留两项约定。
 
 ## 影响
 

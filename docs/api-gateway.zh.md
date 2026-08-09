@@ -2,7 +2,7 @@
 
 [English](api-gateway.md) | 中文
 
-本文是 TypeRT API Gateway 的当前状态参考。它描述业务 Service 如何声明一元 Remote 方法、构建如何生成 Host 与 Client 契约，以及调用如何复用 Connection 的 RPC 与 `/api` 路由。会话事件、增量数据和其他流协议不属于本文范围；它们可以使用同一个 Connection，但不使用 Remote 方法描述符。
+本文是 TypeRT API Gateway 的当前状态参考。它描述业务 Service 如何声明一元 Remote 方法、构建如何生成 Host 与 Client 约定，以及调用如何复用 Connection 的 RPC 与 `/api` 路由。会话事件、增量数据和其他流协议不属于本文范围；它们可以使用同一个 Connection，但不使用 Remote 方法描述符。
 
 ## 编程模型
 
@@ -75,7 +75,7 @@ await agentCtx.remote.goals.create({ objective: 'ship it' })
 
 Client 应用只装配 `@deepseek-ai/dsh-api-remotes`。该包以运行时值导入被选业务包的 `/remote` 子路径，通过 `ctx.remote.$mount()` 挂载贡献，同时重新导出相同文件中的声明合并。增加一个 Host Remote 包是 Client 组合所有者的显式选择；业务组件不需要分别加载 TypeRT Gateway 或业务包的 Remote JS。
 
-未来的 TUI 可以装配同一个不依赖 React 的 `api-remotes` 与 `ctx.remote` 契约，因此它能看到的 Host 方法同样只限于生成时选择的 Remote 方法。本文不定义或实现 TUI 组合。
+未来的 TUI 可以装配同一个不依赖 React 的 `api-remotes` 与 `ctx.remote` 约定，因此它能看到的 Host 方法同样只限于生成时选择的 Remote 方法。本文不定义或实现 TUI 组合。
 
 ## 组件职责
 
@@ -138,7 +138,7 @@ SRC 只解决 Host 源码进程的分发问题。Client 不会从运行中的 Ho
 
 ## 开发模式
 
-完整构建会先生成 Host 契约，再编译 Host、Client 与 Web，因此是建立或刷新所有产物的确定性入口：
+完整构建会先生成 Host 约定，再编译 Host、Client 与 Web，因此是建立或刷新所有产物的确定性入口：
 
 ```sh
 pnpm run build
@@ -153,18 +153,18 @@ pnpm run dev:web
 
 `dsh` 通过 tsx 启动 Host 源码，所以 Host 可以使用 SRC 回退；`dev:web` 只监听带 `dshClient` 声明的 Client plugin 并重写其 `lib/client.js`，它不会分析 Host decorator，也不会生成 Remote Client DTS。
 
-只修改 Remote 方法实现体而不改变契约时，无需重新生成 TypeRT 文件。新增或删除 decorator、修改导出名、namespace、参数、返回值、lookup、Context 或取消签名时，重新执行有序 lib 构建，让 Host 先生成严格契约，再让 Client 编译并打包新的贡献：
+只修改 Remote 方法实现体而不改变约定时，无需重新生成 TypeRT 文件。新增或删除 decorator、修改导出名、namespace、参数、返回值、lookup、Context 或取消签名时，重新执行有序 lib 构建，让 Host 先生成严格约定，再让 Client 编译并打包新的贡献：
 
 ```sh
 pnpm run build:lib
 ```
 
-运行中的 Client watcher 会在重新打包时消费这些生成文件。若已单独运行 `pnpm run build:lib:host` 刷新 Host 契约，也可再运行 `pnpm run build:lib:client` 完成 Client 侧；干净工作树不能跳过 Host 阶段。仅重新编译前端源码不能从 Host decorator 推导新类型。`pnpm run typecheck` 会执行 Host lib 阶段后再运行 Client tsc，CI 与发布构建也使用同一顺序。
+运行中的 Client watcher 会在重新打包时消费这些生成文件。若已单独运行 `pnpm run build:lib:host` 刷新 Host 约定，也可再运行 `pnpm run build:lib:client` 完成 Client 侧；干净工作树不能跳过 Host 阶段。仅重新编译前端源码不能从 Host decorator 推导新类型。`pnpm run typecheck` 会执行 Host lib 阶段后再运行 Client tsc，CI 与发布构建也使用同一顺序。
 
 ## 边界
 
 Remote 只处理有单个请求与单个结果的一元方法调用。Session event stream、分页、增量 reduce、projection 和实体子流需要独立的数据协议与注册模型；即使它们复用 Connection，也不应伪装成 Remote 方法或放入调用描述符。
 
-API 各层按 `remotes → gateway → connection → webserver` 组织。BFF 与 TypeRT RPC 层位于 `packages/api`；Connection 与 WebServer 仍位于 `packages/client/connection` 和 `packages/host/webserver`，其服务契约允许未来只移动包，将它们放到 `packages/api`。旧 API Proxy 仍位于 `packages/host/apiproxy`，作为尚未迁移到 Remote 的 endpoint 的回退路径。
+API 各层按 `remotes → gateway → connection → webserver` 组织。BFF 与 TypeRT RPC 层位于 `packages/api`；Connection 与 WebServer 仍位于 `packages/client/connection` 和 `packages/host/webserver`，其服务约定允许未来只移动包，将它们放到 `packages/api`。旧 API Proxy 仍位于 `packages/host/apiproxy`，作为尚未迁移到 Remote 的 endpoint 的回退路径。
 
 当前 lookup 策略按 key 配置，因此所有 `agent` 或 `session` 参数共享冷恢复行为。某个 Remote endpoint 若必须只接受 live 对象，需要后续增加显式的逐参数或逐 endpoint 策略，不能通过业务方法内部猜测恢复来源。

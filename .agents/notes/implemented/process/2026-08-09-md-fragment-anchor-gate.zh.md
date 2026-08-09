@@ -6,7 +6,7 @@ Status: implemented
 
 ## Problem
 
-`verify-md-links` 只证明相对链接的目标文件存在，从不检查 `#fragment`，文档标准以一条人工规则补偿：重命名标题前自己 grep 锚点。一次语料扫描发现 15 条链接的 fragment 在目标中没有对应锚点——三种衰变模式：链接写下后标题被改写（`#security-and-authority-are-explicit-non-goals` 对 note 现在的 `Security and authority are non-goals`）、契约搬迁到另一份属主文档（`tool-fs` 链到 seam README，而无超时规则现居 group README）、zh 侧链接其中文标题永远不会生成的英文 slug（`#deferred-work` 对 `## 推迟工作`）。这些都不触发任何 gate，且每条都把读者悄悄丢在目标页顶部。
+`verify-md-links` 只证明相对链接的目标文件存在，从不检查 `#fragment`，文档标准以一条人工规则补偿：重命名标题前自己 grep 锚点。一次语料扫描发现 15 条链接的 fragment 在目标中没有对应锚点——三种衰变模式：链接写下后标题被改写（`#security-and-authority-are-explicit-non-goals` 对 note 现在的 `Security and authority are non-goals`）、约定搬迁到另一份属主文档（`tool-fs` 链到 seam README，而无超时规则现居 group README）、zh 侧链接其中文标题永远不会生成的英文 slug（`#deferred-work` 对 `## 推迟工作`）。这些都不触发任何 gate，且每条都把读者悄悄丢在目标页顶部。
 
 ## Decision
 
@@ -14,7 +14,7 @@ Status: implemented
 
 slug 函数与 `gen-cordis-catalog` 的区块锚点 slugger 不同（后者丢弃下划线）：生成器的标题总能通过其显式 `<a id>` 锚点到达，两者无需共享一条规则。中文侧沿用既有语料惯例（`docs/glossary.zh.md`、`docs/cordis-primer.zh.md`）：链接保留英文 fragment，在中文标题前放置显式 `<a id>`，使两个语言侧暴露相同的锚点。
 
-15 条坏 fragment 在同一变更中修复：陈旧 slug 重定向到当前标题，搬迁的无超时契约改链其属主 group README，四份中文文档补上显式锚点。`docs/AGENTS.md` 与 `dsh-doc-standards` skill 不再为 Markdown 链接开人工 grep 锚点的处方；人工 grep 只对输出从不进入受检 Markdown 的 TypeScript 字符串锚点保留（当下三处全部渲染进受检页面，gate 经由提交的产物覆盖它们）。
+15 条坏 fragment 在同一变更中修复：陈旧 slug 重定向到当前标题，搬迁的无超时约定改链其属主 group README，四份中文文档补上显式锚点。`docs/AGENTS.md` 与 `dsh-doc-standards` skill 不再为 Markdown 链接开人工 grep 锚点的处方；人工 grep 只对输出从不进入受检 Markdown 的 TypeScript 字符串锚点保留（当下三处全部渲染进受检页面，gate 经由提交的产物覆盖它们）。
 
 ## Verification
 

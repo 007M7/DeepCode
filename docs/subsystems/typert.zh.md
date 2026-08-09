@@ -2,7 +2,7 @@
 
 [English](typert.md) | 中文
 
-以下类型由生成的 Remote 产物、Host Gateway 与消费方 API assembly 共用。[TypeRT Gateway Agent Note](../../.agents/notes/implemented/architecture/2026-08-02-typert-remote-method-calls.md) 负责架构与传输决策；本页记录 [`dsh-type-meta`](../../packages/typert/type-meta/src/types.ts) 和 [`dsh-api-gateway`](../../packages/api/gateway/src/types.ts) 中公共契约的字面定义。
+以下类型由生成的 Remote 产物、Host Gateway 与消费方 API assembly 共用。[TypeRT Gateway Agent Note](../../.agents/notes/implemented/architecture/2026-08-02-typert-remote-method-calls.md) 负责架构与传输决策；本页记录 [`dsh-type-meta`](../../packages/typert/type-meta/src/types.ts) 和 [`dsh-api-gateway`](../../packages/api/gateway/src/types.ts) 中公共约定的字面定义。
 
 ## Lookup 与 Context 声明
 

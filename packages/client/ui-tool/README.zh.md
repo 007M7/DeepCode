@@ -6,11 +6,11 @@ Client Tool 展示插件。`ui-conversation` 通过 `conversation.chat.tool` 交
 
 业务 UI 包只注册 wire Tool 名称和原子视图，不配对 Session Event、不重建 transcript，也不拥有 root/subcall 拓扑。Runtime 继续负责 call/result 配对、生命周期和递归 `subCalls` 投影；conversation view 继续负责 ChatFlow 位置。
 
-## 渲染契约
+## 渲染约定
 
 `ToolCallTree` 接收一个已经包含递归 `subCalls` 的 root `ToolCallBlock`、selection 状态、会话 `cwd`，以及用于打开文件和检查调用的 Host 回调。它递归遍历标准 call block，让 root 与任意深度的 child 经过同一条原子分发路径，不再订阅独立的 parent-to-children map。
 
-每个 root 和 child wrapper 都保留 `conversation.chat.tool` 的 call-anchor DOM 契约，供分页和 selection 使用。
+每个 root 和 child wrapper 都保留 `conversation.chat.tool` 的 call-anchor DOM 约定，供分页和 selection 使用。
 
 本包还通过 `ToolDetails` 填充 `conversation.details.tool`。行 renderer 与详情 renderer 为 `terminal`、`read`、`diff`、`search` 和 `web` render intent 共用同一组纯 card model。本版本不认识的 intent 标签和格式错误的 wire card 数据都会回退为压平的 Tool result 文本。
 
@@ -44,6 +44,6 @@ owner 载荷为 `ToolCallOwnerProps`：`callId`、`toolName`、冻结的 `block`
 
 ## 已知限制与后续工作
 
-- Host 不把 `run_code` 暴露为 Code Mode 程序 binding，因此生产事件目前只能产生一层分发；递归的运行时/UI 契约已为未来的嵌套生产者做好准备。
+- Host 不把 `run_code` 暴露为 Code Mode 程序 binding，因此生产事件目前只能产生一层分发；递归的运行时/UI 约定已为未来的嵌套生产者做好准备。
 - 现有第一方 Tool 视图初期仍集中在本包，之后可以通过 keyed slot 独立迁回各自业务包。
 - Tool 文案暂时复用 `ui-conversation` locale namespace。

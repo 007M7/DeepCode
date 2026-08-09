@@ -36,14 +36,14 @@ describe('RepositoryCache', () => {
       calls.push(directory)
       await fakePackage(directory)
     }
-    const cache = new RepositoryCache(root, install)
+    const cache = new RepositoryCache(root, { install })
     const specifier = 'github:owner/repository#0123456789abcdef'
 
     const [first, concurrent] = await Promise.all([cache.resolve(specifier), cache.resolve(specifier)])
     expect(concurrent).toBe(first)
     expect(calls).toHaveLength(1)
 
-    const reopened = new RepositoryCache(root, async () => { throw new Error('cache miss') })
+    const reopened = new RepositoryCache(root, { install: async () => { throw new Error('cache miss') } })
     expect(await reopened.resolve(specifier)).toBe(first)
     expect(JSON.parse(await readFile(join(first, '..', '..', 'package.json'), 'utf8'))).toMatchObject({
       packageManager: `pnpm@${BUNDLED_PNPM_VERSION}`,
@@ -68,8 +68,8 @@ describe('RepositoryCache', () => {
     const specifier = 'github:owner/repository#race'
 
     const [first, second] = await Promise.all([
-      new RepositoryCache(root, install).resolve(specifier),
-      new RepositoryCache(root, install).resolve(specifier),
+      new RepositoryCache(root, { install }).resolve(specifier),
+      new RepositoryCache(root, { install }).resolve(specifier),
     ])
 
     expect(second).toBe(first)
@@ -80,11 +80,11 @@ describe('RepositoryCache', () => {
   it('removes a failed staging tree and permits an exact retry', async () => {
     const root = await temporaryRoot('repository-retry')
     let attempts = 0
-    const cache = new RepositoryCache(root, async (directory) => {
+    const cache = new RepositoryCache(root, { install: async (directory) => {
       attempts += 1
       if (attempts === 1) throw new Error('install failed')
       await fakePackage(directory)
-    })
+    } })
 
     await expect(cache.resolve('github:owner/repository#ref')).rejects.toThrow('failed to prepare repository')
     expect(await readdir(root)).toEqual([])
@@ -94,7 +94,7 @@ describe('RepositoryCache', () => {
 
   it('rejects empty or padded specifiers before touching the cache', async () => {
     const root = await temporaryRoot('repository-input')
-    const cache = new RepositoryCache(root, fakePackage)
+    const cache = new RepositoryCache(root, { install: fakePackage })
     expect(() => cache.resolve('')).toThrow('non-empty unpadded string')
     expect(() => cache.resolve(' github:owner/repository#ref')).toThrow('non-empty unpadded string')
     await expect(readdir(root)).resolves.toEqual([])
@@ -107,35 +107,69 @@ describe('RepositoryCache', () => {
     const entry = join(root, key)
     await mkdir(join(entry, 'node_modules', 'repository'), { recursive: true })
     await writeFile(join(entry, '.repository-cache.json'), '{}\n')
-    const cache = new RepositoryCache(root, async () => { throw new Error('must not reinstall') })
+    const cache = new RepositoryCache(root, { install: async () => { throw new Error('must not reinstall') } })
 
     await expect(cache.resolve(specifier)).rejects.toThrow('repository cache marker is invalid')
   })
 
-  it('selects and prepares a root .dsh-plugin Git subpath through the bundled pnpm', { timeout: 60_000 }, async () => {
+  it('isolates and prepares a .dsh-plugin Git subpath from an enclosing pnpm workspace', { timeout: 60_000 }, async () => {
     const root = await temporaryRoot('repository-pnpm')
     const repository = join(root, 'source')
     await mkdir(join(repository, '.dsh-plugin'), { recursive: true })
+    await mkdir(join(repository, 'build-helper'), { recursive: true })
+    await mkdir(join(repository, 'prepare-helper'), { recursive: true })
     await mkdir(join(repository, 'skills', 'fixture'), { recursive: true })
     await writeFile(join(repository, 'package.json'), `${JSON.stringify({
       name: 'repository-fixture',
+      private: true,
       version: '1.0.0',
+      packageManager: `pnpm@${BUNDLED_PNPM_VERSION}`,
     })}\n`)
+    await writeFile(join(repository, 'pnpm-workspace.yaml'), 'packages: []\n')
+    await writeFile(join(repository, 'pnpm-lock.yaml'), [
+      "lockfileVersion: '9.0'",
+      'settings:',
+      '  autoInstallPeers: true',
+      '  excludeLinksFromLockfile: false',
+      'importers:',
+      '  .: {}',
+      '',
+    ].join('\n'))
+    await writeFile(join(repository, 'build-helper', 'package.json'), `${JSON.stringify({
+      name: 'repository-build-helper',
+      version: '1.0.0',
+      bin: 'index.js',
+    })}\n`)
+    await writeFile(join(repository, 'build-helper', 'index.js'), [
+      '#!/usr/bin/env node',
+      "require('node:fs').writeFileSync('dependency-built.txt', 'dependency available\\n')",
+      '',
+    ].join('\n'), { mode: 0o700 })
+    await writeFile(join(repository, 'prepare-helper', 'package.json'), `${JSON.stringify({
+      name: 'repository-prepare-helper',
+      version: '1.0.0',
+      bin: { 'dsh-plugin-prepare': 'index.js' },
+    })}\n`)
+    await writeFile(join(repository, 'prepare-helper', 'index.js'), [
+      '#!/usr/bin/env node',
+      "const { cpSync, mkdirSync, writeFileSync } = require('node:fs')",
+      "mkdirSync('dsh-plugin-assets/skills', { recursive: true })",
+      "cpSync('../skills', 'dsh-plugin-assets/skills/0', { recursive: true })",
+      "writeFileSync('dsh-plugin.mjs', 'export function apply() {}\\n')",
+      "writeFileSync('prepared.txt', `${process.env.REPOSITORY_TEST_VISIBLE ?? 'absent'}|${process.env.REPOSITORY_TEST_TOKEN ?? 'absent'}\\n`)",
+      '',
+    ].join('\n'), { mode: 0o700 })
     await writeFile(join(repository, 'skills', 'fixture', 'SKILL.md'), 'repository skill source\n')
     await writeFile(join(repository, '.dsh-plugin', 'package.json'), `${JSON.stringify({
       name: 'repository-plugin-fixture',
       version: '1.0.0',
-      scripts: { prepare: 'node prepare.mjs' },
+      scripts: { prepack: 'repository-build-helper && dsh-plugin-prepare' },
+      devDependencies: {
+        'repository-build-helper': 'file:../build-helper',
+        'repository-prepare-helper': 'file:../prepare-helper',
+      },
       dsh: { skills: ['../skills'] },
     })}\n`)
-    await writeFile(join(repository, '.dsh-plugin', 'prepare.mjs'), [
-      "import { cp, mkdir, writeFile } from 'node:fs/promises'",
-      "await mkdir('dsh-plugin-assets/skills', { recursive: true })",
-      "await cp('../skills', 'dsh-plugin-assets/skills/0', { recursive: true })",
-      "await writeFile('dsh-plugin.mjs', 'export function apply() {}\\n')",
-      "await writeFile('prepared.txt', `${process.env.REPOSITORY_TEST_VISIBLE ?? 'absent'}|${process.env.REPOSITORY_TEST_TOKEN ?? 'absent'}\\n`)",
-      '',
-    ].join('\n'))
     await execFileAsync('git', ['init', '--quiet'], { cwd: repository })
     await execFileAsync('git', ['add', '.'], { cwd: repository })
     await execFileAsync('git', [
@@ -149,6 +183,7 @@ describe('RepositoryCache', () => {
     vi.stubEnv('REPOSITORY_TEST_TOKEN', 'hidden')
 
     const installed = await new RepositoryCache(join(root, 'cache')).resolve(specifier)
+    await expect(readFile(join(installed, 'dependency-built.txt'), 'utf8')).resolves.toBe('dependency available\n')
     await expect(readFile(join(installed, 'prepared.txt'), 'utf8')).resolves.toBe('visible|absent\n')
     await expect(readFile(join(installed, 'dsh-plugin.mjs'), 'utf8')).resolves.toContain('export function apply')
     await expect(readFile(join(installed, 'dsh-plugin-assets/skills/0/fixture/SKILL.md'), 'utf8'))

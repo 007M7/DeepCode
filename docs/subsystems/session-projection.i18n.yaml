@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/subsystems/session-projection.md
 session-projection.md: 1df52b5afde0beb1d9eb5c3ad63af8c75ff5076f
-session-projection.zh.md: 8754d590c4b9db71b4475185e26b8cafd9dd7b45
+session-projection.zh.md: 3da2adb8bd399e431895c61ad2c3490584d6e0b4

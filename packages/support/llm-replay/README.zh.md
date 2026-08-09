@@ -8,7 +8,7 @@
 
 ## fixture 的工作方式
 
-fixture 就是持久化的会话日志（`<scenario>/session.jsonl`）。其 `assistant/chunk` 事件包含每个 `StreamChunk`，因此按 `(turn, step)` 分组即可重建每次 agent-loop `stream()` 调用的分片序列。压缩（compaction）摘要器成功时，日志记录方式有所不同：当 `compact/summary` 携带 `llmStreamCall: true` 和完整的 `rawOutput` 时，回放会在该事件的位置重建一条规范成功流，其中每个块各使用一对 `block-start`/`block-end`，带上已记录的 usage（如有），并以 `stop` 终止。提供方增量的精确切分不属于持久压缩结果。不带该标记的 `rawOutput` 并不意味着发生了本地 LLM 调用，因为模板摘要器和远程摘要器即使未使用此上下文的适配器，也可能保留完整输出。
+fixture 就是持久化的会话日志（`<scenario>/session.jsonl`）。其 `assistant/chunk` 事件包含每个 `StreamChunk`，因此按 `(turn, step)` 分组即可重建每次 agent loop（智能体循环）的 `stream()` 调用的分片序列。压缩（compaction）摘要器成功时，日志记录方式有所不同：当 `compact/summary` 携带 `llmStreamCall: true` 和完整的 `rawOutput` 时，回放会在该事件的位置重建一条规范成功流，其中每个块各使用一对 `block-start`/`block-end`，带上已记录的用量（如有），并以 `stop` 终止。提供方增量的精确切分不属于持久压缩结果。不带该标记的 `rawOutput` 并不意味着发生了本地 LLM 调用，因为模板摘要器和远程摘要器即使未使用此上下文的适配器，也可能保留完整输出。
 
 因此，录制就是「运行一次真实 agent 并收集 `.jsonl`」，由快照 harness 完成；该插件本身不录制。fixture 的 `request/header` 内容可能被标记化为 `{{system}}`/`{{tools}}`（harness 会在一个场景中固定该内容，并清除其余场景中的内容）；回放不受影响，因为派生过程只读取 `assistant/chunk` 和 `compact/summary` 事件以及第 0 行的会话 header。
 
@@ -20,7 +20,7 @@ fixture 就是持久化的会话日志（`<scenario>/session.jsonl`）。其 `as
 
 父 agent 委托给进程内 subagent 的场景会记录多个日志：父会话使用 `session.jsonl`，每个子会话各使用一个日志（`session.1.jsonl` 等）。每个 agent 都在同一上下文中作为独立的 `Session` 运行，因此回放必须为每个 agent 提供各自的脚本。
 
-回放根据发起调用的会话 id 为每次调用建立键（`GenerateOptions.sessionId` 由 agent loop（智能体循环）写入）。实时会话 id 每次运行时都会重新随机生成，绝不会等于记录中的 id，因此实时会话按**首次调用顺序**绑定到已记录脚本：脚本按 header 中的 `createdAt` 排序（父会话在前，因为它必须先开始流式输出才能委托）；第一个发起调用的实时会话取得第一个脚本，下一个新会话取得下一个脚本，以此类推。此后每个会话分别推进自己的游标。没有 `sessionId` 的调用视为一个绑定主脚本的匿名会话，因此单会话场景的行为与以前完全相同。不同实时会话的数量超过已记录脚本数时会明确报错。
+回放根据发起调用的会话 id 为每次调用建立键（`GenerateOptions.sessionId` 由 agent loop 写入）。实时会话 id 每次运行时都会重新随机生成，绝不会等于记录中的 id，因此实时会话按**首次调用顺序**绑定到已记录脚本：脚本按 header 中的 `createdAt` 排序（父会话在前，因为它必须先开始流式输出才能委托）；第一个发起调用的实时会话取得第一个脚本，下一个新会话取得下一个脚本，以此类推。此后每个会话分别推进自己的游标。没有 `sessionId` 的调用视为一个绑定主脚本的匿名会话，因此单会话场景的行为与以前完全相同。不同实时会话的数量超过已记录脚本数时会明确报错。
 
 ## 配置
 

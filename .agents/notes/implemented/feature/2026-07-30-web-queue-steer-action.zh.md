@@ -12,7 +12,7 @@ Web composer 原本会在 agent 运行期间把所有 Enter 提交作为 Queue �
 
 ## 决策
 
-### 产品契约
+### 产品约定
 
 普通会话中每个非编辑态的 QueueDock 行都会提供名为“插话发送”的向上箭头操作。仅当会话报告 agent 正在运行时，该操作才会启用；包含混合内容的消息仍可使用，因为 steering 会转发完整且不可变的 `UserMessage`，而非该行的文本投影。已寻址 subagent 的 Queue 投影保持只读，因为其继续执行传输不提供 Queue 变更。
 
@@ -20,7 +20,7 @@ Web composer 原本会在 agent 运行期间把所有 Enter 提交作为 Queue �
 
 running 标志位只用于提示交互状态。在同步变更边界上，AgentLoop 的 `acceptsNextStep` 值才是权威依据。如果该窗口已经关闭，操作会保持 Queue 单次入队项不变并返回类型化的 `steer-unavailable` 错误，随后原唤醒单次入队项会经 Queue 继续执行。如果驱动器已经认领该项，则返回现有的 `queue-item-not-found` 错误，且独立轮次投递已经开始。UI 会把两种竞态都视为已收敛的 Queue 投递，不显示失败通知；传输和未知错误仍会显示。
 
-Composer 对新输入采用另一套尽力而为契约。所寻址会话空闲时，Enter 和 Cmd/Ctrl+Enter 都执行普通 Queue 发送。主会话运行期间，General Settings 偏好会把普通 Enter 分配为 Queue（默认值）或 Steer，Cmd/Ctrl+Enter 则执行另一种行为；Shift+Enter 用于换行。已寻址 subagent 会让这两个手势都使用其仅支持 Queue 的继续执行传输。浏览器会持久化该偏好，并且它只影响支持 steering 的繁忙态手势对。如果 composer 直接发出的 Steer 错过当前 next-step 窗口，AgentLoop 会自动将其接纳为下一条唤醒 Queue 轮次，Web 不显示失败。
+Composer 对新输入采用另一套尽力而为约定。所寻址会话空闲时，Enter 和 Cmd/Ctrl+Enter 都执行普通 Queue 发送。主会话运行期间，General Settings 偏好会把普通 Enter 分配为 Queue（默认值）或 Steer，Cmd/Ctrl+Enter 则执行另一种行为；Shift+Enter 用于换行。已寻址 subagent 会让这两个手势都使用其仅支持 Queue 的继续执行传输。浏览器会持久化该偏好，并且它只影响支持 steering 的繁忙态手势对。如果 composer 直接发出的 Steer 错过当前 next-step 窗口，AgentLoop 会自动将其接纳为下一条唤醒 Queue 轮次，Web 不显示失败。
 
 ### Agent 与生命周期边界
 
@@ -38,11 +38,11 @@ Host 仍以现有 `queuedMirror` 作为唯一的瞬态 inbox 权威。`session/q
 
 AgentLoop 认领待处理 steering 时，会在同步追加持久 `user/message` 之前立即发出 `agent/inbox/dequeue`。Host 会等到下一个微任务才退役该 steering 行，让持久 session 事件先进入线性 mux 流。客户端 Session 接纳该实时事件时，会在发布快照前退役第一个匹配的当前 steering 单次入队项；历史回放不会消费后来复用同一 `MessageId` 的单次入队项。因此，ChatView 无需扫描持久历史就能每次只渲染一份权威，持久投影则会根据已记录的事件时间与序号恢复时钟、复制与 fork 操作。追加失败时，已认领行仍会退役。
 
-现有 `session.prompt(mode: 'steer')` 对主会话新输入仍采用尽力而为的契约：在 next-step 窗口之外，它会变为唤醒 agent 的后续轮次。Composer 会让显式 `queue | steer` 模式经过 slash 裁决与引用序列化，再调用该契约。浏览器本地的提交策略拥有持久化的繁忙态 Enter 偏好，并且只为支持 steering 的会话把普通 Enter 与加速 Enter 解析为互补手势；Settings 行和 InputBar 共享该策略，不重复实现存储或投递窗口权威。只有 Queue 行操作采用严格语义，因为任一种负面结果都会经原 Queue 单次入队项收敛。
+现有 `session.prompt(mode: 'steer')` 对主会话新输入仍采用尽力而为的约定：在 next-step 窗口之外，它会变为唤醒 agent 的后续轮次。Composer 会让显式 `queue | steer` 模式经过 slash 裁决与引用序列化，再调用该约定。浏览器本地的提交策略拥有持久化的繁忙态 Enter 偏好，并且只为支持 steering 的会话把普通 Enter 与加速 Enter 解析为互补手势；Settings 行和 InputBar 共享该策略，不重复实现存储或投递窗口权威。只有 Queue 行操作采用严格语义，因为任一种负面结果都会经原 Queue 单次入队项收敛。
 
 ### 验证
 
-AgentLoop 契约覆盖保持提示词接纳窗口打开，转换一个精确的 queued 单次入队项，并证明替代它的 steering 单次入队项保留消息值和投递回执、以 `user/message` 的形式排空，且绝不启动原本的独立轮次。该覆盖还钉住窗口不可用时保留原项、拒绝已被认领的地址，以及可重入取消下的生命周期守恒。
+AgentLoop 约定覆盖保持提示词接纳窗口打开，转换一个精确的 queued 单次入队项，并证明替代它的 steering 单次入队项保留消息值和投递回执、以 `user/message` 的形式排空，且绝不启动原本的独立轮次。该覆盖还钉住窗口不可用时保留原项、拒绝已被认领的地址，以及可重入取消下的生命周期守恒。
 
 Host schema 和代理测试覆盖新操作、两种类型化错误、带 placement 的快照与重连重放，以及先持久化再退役的顺序。客户端测试覆盖两种语义竞态的静默收敛、真实错误报告、只读 subagent 行和仅支持 Queue 的 subagent 手势。运行时与 ChatView 测试覆盖按单次入队项完成的待处理到持久交接，包括重复的 `MessageId` 值；Web ARIA 快照则覆盖位于运行状态行之后且仅有复制的待处理 steering，以及带时钟、复制和 fork 的持久节点。
 

@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-会话投影 seam。它拥有 `ctx.sessionProjections`：该注册表在已提交的会话事件上驱动每个已注册的投影单元，并向载体提供完整的最终值，目前包括 api-proxy 历史尾页和 `session/projection` 推送帧。领域注册的只是纯数学；驱动权归框架。[session-projection RFC](../../../.agents/notes/proposed/architecture/2026-07-27-session-projection-and-command-log.md)记录了设计理由。
+会话投影 seam。它拥有 `ctx.sessionProjections`：该注册表在已提交的会话事件上驱动每个已注册的投影单元，并向载体提供完整的最终值，目前包括 api-proxy 历史尾页和 `session/projection` 推送帧。领域注册的只是纯数学；驱动权归框架。[session-projection RFC](../../../.agents/notes/proposed/architecture/2026-07-27-session-projection-and-command-log.md) 记录了设计理由。
 
 ## 服务：`SessionProjectionRegistry`（ctx 键：`sessionProjections`）
 
@@ -17,7 +17,7 @@
 - `SessionProjectionMap`——整条链路唯一的 merge-extensible 类型表（host 侧单元、协议块、React 钩子）。值是协议层 JSON 全量值；渲染归 slot 体系管，永远不归本层。
 - `ProjectionDefinition<K, S>`——`{ key, schema, init(), apply(state, event), view(state), stateVersion }`：由三个纯同步函数外加若干声明构成的状态驱动计算单元（state-driven computation unit），绝不是一个不透明的 getter。
 
-## 契约
+## 约定
 
 - **框架负责驱动，领域负责计算。** 注册表只订阅一次 `session/event`；每个已提交事件都会主动经过每个单元的 `apply`。领域不持有任何订阅。cell（每会话每单元一份 `{state, observedSeq}`，以 WeakMap 为键）惰性构建——在事件流过之后才注册的单元，或读取一个早于该注册的会话，都在首次触达时从 `init` 出发在内存日志上折叠。
 - **同引用即无工作。** 对与单元无关的事件，`apply` 必须返回同一个状态引用；驱动以 `Object.is` 把守变更流，因此不匹配的事件只花一次调用，不产生任何下游工作。
@@ -42,6 +42,6 @@
 ## 已知限制与暂缓事项
 
 - **每个尾页携带每个已注册的 key**——尚无逐 key 的 opt-out 或惰性 key 请求形状；在值都是 UI 量级的全量状态（一张 todo 清单、一份 goal 快照）时可以接受，若某领域的值变大再重议。
-- **主动驱动（eager drive）逐事件触达每个单元**——按构造开销很低（全量值规则、同引用闸门），但若出现热点路径，可加按单元的事件类型预过滤，契约不变。
+- **主动驱动（eager drive）逐事件触达每个单元**——按构造开销很低（全量值规则、同引用闸门），但若出现热点路径，可加按单元的事件类型预过滤，约定不变。
 - **注册表 cell 只活在内存里**——重启后首次触达时靠折叠日志重建；挂载了 `dsh-session-projection-cache` 的组合改由持久行播种该折叠。
 - **单元同步纪律只有部分可机械把关**——边界 `schema.parse` 能拒绝返回 Promise 的 `view`，但阻塞的 `apply`、或读取撕裂的非会话状态的 `apply`，只能靠评审把关；invariant 配套记载了为何不存在运行时检查。
