@@ -338,7 +338,7 @@ describe('agent loop', () => {
     expect(adapter.requests[0]!.system).toBe('You are an AI agent powered by the DeepSeek Harness SDK.\n\nYou run on mock.')
   })
 
-  it('omits the system field when a system-prompt/assemble veto empties the assembly', async () => {
+  it('omits the system field when system-prompt/assemble short-circuits with an empty assembly', async () => {
     // The documented escape valve: a deployment that must drop the harness
     // openers short-circuits the assemble waterfall; the request then carries
     // NO system field at all (not an empty string).

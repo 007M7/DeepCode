@@ -81,4 +81,4 @@ vm 隔离了意外的全局污染，上下文门面隐藏了框架内部细节�
 
 ## 后果
 
-该工具集是刻意的显式启用设计，具有完全特权的 `ctx`，因此部署方采用它的意识程度应与 bash 工具相当。以下几个事实由工具描述直接告知模型：一个 waterfall（瀑布式事件）监听器（如 `tools/pre-execute`）如果不调用 `next()` 就返回，会否决整条链，因此一个挂载的监听器可以瘫痪 agent 自身的工具分发（[waterfall 语义](../../../../docs/cordis-primer.md#cordis-waterfall-semantics)）；挂载代码在当前轮次的工具调用内运行，因此 await 任何只在该轮次结束后才 resolve 的东西会导致死锁；`vmTimeoutMs` 仅约束同步执行；挂载不会在会话恢复后存活。
+该工具集是刻意的显式启用设计，具有完全特权的 `ctx`，因此部署方采用它的意识程度应与 bash 工具相当。以下几个事实由工具描述直接告知模型：一个 waterfall（瀑布式事件）监听器（如 `tools/pre-execute`）如果不调用 `next()` 就返回，会短路整条链，因此一个挂载的监听器可以阻止 agent 自身的工具分发（[waterfall 语义](../../../../docs/cordis-primer.md#cordis-waterfall-semantics)）；挂载代码在当前轮次的工具调用内运行，因此 await 任何只在该轮次结束后才 resolve 的东西会导致死锁；`vmTimeoutMs` 仅约束同步执行；挂载不会在会话恢复后存活。

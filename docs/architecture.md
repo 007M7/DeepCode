@@ -63,7 +63,7 @@ Events are the service extension API ([subsystems](subsystems/core.md), [produce
 
 ### Interception Semantics
 
-Waterfalls are around-middleware: listeners delegate with `next()`; returning without it vetoes or takes over ([semantics](cordis-primer.md#cordis-waterfall-semantics)).
+Waterfalls are around-middleware: listeners delegate with `next()`; returning without it short-circuits or takes over ([semantics](cordis-primer.md#cordis-waterfall-semantics)).
 
 ## Default Loop Lifecycle
 
