@@ -11,7 +11,7 @@ import type { LlmCallConfig, LlmFailure, ResolvedRetryPolicy } from '@deepseek-a
 import type { AgentCancelCause, Session, SessionId, UserMessage } from '@deepseek-ai/dsh-session'
 export type { AgentCancelCause } from '@deepseek-ai/dsh-session'
 import type { Inbox } from './inbox.ts'
-import type { InboxTarget } from './session-types.ts'
+import type { InboxTarget } from './types.ts'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 declare module '@deepseek-ai/dsh-system-prompt' {
   interface AssembleContext {

@@ -114,7 +114,7 @@
     {
       "doc": "docs/subsystems/core.md",
       "symbol": "InboxTarget",
-      "source": "packages/core/agent/src/session-types.ts"
+      "source": "packages/core/agent/src/types.ts"
     },
     {
       "doc": "docs/subsystems/core.md",

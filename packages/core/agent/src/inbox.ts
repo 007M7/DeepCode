@@ -6,7 +6,7 @@
 
 import type { MessageId } from '@deepseek-ai/dsh-llm'
 import type { Session, SessionEventMap, UserMessage } from '@deepseek-ai/dsh-session'
-import type { InboxTarget } from './session-types.ts'
+import type { InboxTarget } from './types.ts'
 
 /** Mutable state privately owned by an {@link Inbox}. */
 type InboxState = Record<InboxTarget, UserMessage[]>

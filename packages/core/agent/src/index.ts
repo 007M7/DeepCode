@@ -16,7 +16,7 @@ import type { TypeRTContext, TypeRTLookup } from '@deepseek-ai/dsh-type-meta'
 import type { Agent, AgentOptions } from './runtime-types.ts'
 
 export * from './runtime-types.ts'
-export * from './session-types.ts'
+export * from './types.ts'
 export * from './inbox.ts'
 export * from './model-selection.ts'
 export { agentCarrier, agentEvents, assembleContextFor, emitAgentEvent } from './dispatch.ts'
