@@ -56,7 +56,7 @@ describe('CI workflow', () => {
     expect(windowsNative['timeout-minutes']).toBe(60)
     expect(windowsNative.if).toBe("github.event_name == 'pull_request'")
     expect(windowsNative.env).toMatchObject({
-      DSH_COVERAGE_MAX_WORKERS: '3',
+      DSH_COVERAGE_MAX_WORKERS: '2',
       DSH_GATE_CONCURRENCY: '2',
       DSH_PUBLINT_CONCURRENCY: '8',
     })
