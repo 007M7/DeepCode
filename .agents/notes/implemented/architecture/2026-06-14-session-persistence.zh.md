@@ -17,7 +17,7 @@ Status: implemented
 1. **接口**（`dsh-session-persistence`，`ctx.sessionPersistence`）：一个抽象的 `SessionPersistence` 服务，提供 `locate`/`create`/`append`/`prepare`/`load`/`inspect`/`readFrom`/`list`/`listSnapshots`。其持久化单元就是现有的 `SessionEvent`（`{ type, seq, time, data }`），原样复用，无转换类型。
 2. **实现**（`dsh-session-persistence-jsonl`）：每个会话一个仅追加的逻辑 JSONL 日志：先是一行 `SessionHeader`，随后是无损表示连续 `SessionEvent` 流的存储记录。符合条件的 `assistant/chunk` 增量连续段默认使用打包行；[带校验和的 Zstandard 帧](2026-07-19-zstandard-jsonl-session-logs.md)是默认物理编码，也可通过配置使用原始行。
 
-以下关键选择记录于此，因为它们长期有效、存在争议且出人意料：
+长期有效、存在争议的关键选择：
 
 - **规范的持久日志无损保留每个 `SessionEvent`，包括 `assistant/chunk`。** JSONL 存储可以将一段连续的增量事件编码为一条打包行，但逻辑读取方会重建精确的事件边界、序号与时间戳。`deriveMessages()` 跳过分片，而过滤分片的方案（Codex 的 `policy.rs`）很有吸引力，但 `seq = log.length` 以及 `events[i].seq === i` 验证要求*连续*的逻辑日志；过滤掉分片会留下空洞，同时破坏约定和恢复功能。基于分片过滤的投影可以作为派生视图在后续实现（带有自己的重新编号），但它不是规范日志。
 - **仅追加；崩溃的轮次被关闭，而非截断。** 已刷写的事件永不被重写。[语义检查点策略](../bug-fix/2026-07-21-semantic-session-checkpoints.md)会在模型分发前排空请求、在工具分发前排空已记录的顶层调用，并在步骤结束后排空完整的响应/结果批次；循环则排空最终轮次边界。由于一个被中断的轮次可能包含大量有效工作，冷检查会保留其连续、可解析的事件，并在内存逻辑视图中为未应答的 assistant 调用添加按风险分类的错误结果、补一个缺失的 `step/end`，以及带 `{ kind: 'interrupted' }` 的 `turn/end`。`prepare` 或 `load` 在返回可恢复视图前提交这些 closer；合成结果保证恢复后的提供方 transcript（文本记录）仍然有效。只有不完整的最后一条记录会在提交修复时被丢弃；在最后一个真实 `turn/end` 处或之前出现解析错误或序号间隙，属于数据损坏，会使该会话不可加载。
@@ -29,7 +29,7 @@ Status: implemented
 
 上述每个关键选择都在陈述处记录了被否决的替代方案：**过滤分片的规范日志**（Codex 的 `policy.rs` 形式）破坏连续 seq 约定；**截断崩溃的轮次**会静默销毁长时间自主运行中的真实工作；**日志内 `session/meta` 事件作为第 0 行**——元数据不是可回放状态；**有限的非整数 `createdAt` 值**没有生产方，且与整数 Unix 毫秒存储及查询列不一致；**接受非全新的未版本化 SQLite 文件**可能覆盖无关对象或应用标识；**将 `sessionPersistence` 硬注入循环**会让非持久化的演示永远挂起。
 
-格式版本控制：header 携带一个 `version`；冷读取拒绝任何非当前版本。预发布阶段的会话格式仍固定为 `SESSION_FORMAT_VERSION = 0`，不承诺广泛兼容；当持久化用户数据确有需要时，协调器可以负责显式且范围受限的导入升级（[消息标识机制引入前的消息恢复](../bug-fix/2026-07-28-load-pre-identity-session-messages.md)）。坦率地说：仅追加 + 刷写对部分尾部写入是健壮的（冷准备时容忍），但对行写入中途的无 fsync 断电不健壮；数据库/WAL 后端是后续更强的选项。
+格式版本控制：header 携带一个 `version`；冷读取拒绝任何非当前版本。预发布阶段的会话格式仍固定为 `SESSION_FORMAT_VERSION = 0`，不承诺广泛兼容；当持久化用户数据确有需要时，协调器可以负责显式且范围受限的导入升级（[消息标识机制引入前的消息恢复](../bug-fix/2026-07-28-load-pre-identity-session-messages.md)）。仅追加 + 刷写对部分尾部写入是健壮的（冷准备时容忍），但对行写入中途的无 fsync 断电不健壮；数据库/WAL 后端是该场景下更强的选项。
 
 ## 后果
 

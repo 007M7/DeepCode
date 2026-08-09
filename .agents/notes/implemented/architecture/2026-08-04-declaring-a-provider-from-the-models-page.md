@@ -26,7 +26,7 @@ The protocol choices come from the namespace's **own schema**, read through the 
 
 **Declare a provider through `ProviderEditor` with extra fields.** One card instead of two, but the editor is addressed by `settingsPath`, and a route being named has no path yet. Recomputing the path per keystroke would remount the card and discard the draft; deferring it would mean the editor's whole write path no longer described what it was editing.
 
-**Add a wire field for the protocol list.** Explicit, and the obvious first instinct. But the settings schema already crosses the wire and already contains the union, so a second copy could disagree with the first — and the one the adapter enforces is the schema.
+**Add a wire field for the protocol list.** Explicit. But the settings schema already crosses the wire and already contains the union, so a second copy could disagree with the first — and the one the adapter enforces is the schema.
 
 **Fetch against the stored profile instead of the live form.** No key would leave the form for an unsaved provider. But the flow that needs fetching most is the one where nothing is stored yet, and a form whose endpoint was edited would quietly interrogate the old one.
 

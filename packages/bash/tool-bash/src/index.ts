@@ -206,9 +206,9 @@ export function apply(ctx: Context, config: Config = {}): void {
    * {@link approveEscalation}. This tool contributes only the composition
    * guard (the fields are unadvertised without a sandboxing executor, yet
    * schema validation checks advertised keys only, so an unadvertised
-   * `sandbox_permissions` still reaches execute) and the approval ingredients
-   * The shared policy resolver is required whenever the executor advertises
-   * confinement, so a split composition fails at tool-plugin load.
+   * `sandbox_permissions` still reaches execute) and the approval
+   * ingredients. The shared policy resolver is required whenever the executor
+   * advertises confinement, so a split composition fails at tool-plugin load.
    */
   const approveBashEscalation = (
     mode: string,

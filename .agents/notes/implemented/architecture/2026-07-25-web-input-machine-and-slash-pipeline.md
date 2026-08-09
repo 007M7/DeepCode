@@ -76,9 +76,9 @@ A trigger/menu/pick pipeline with zero knowledge of "commands":
 - When the blank Hero re-picks the Workspace, the shell calls `connectWorkspace`; if the target session differs, the non-empty draft moves from the current shell to the target shell before the new id is opened, and the old blank session survives but is no longer current.
 - The Notifier's two-bit contract: `dirty` (snapshot freshness, clearable by an `ensureFresh` pull) and `notifyPending` (notification debt, cleared only by a flush) are mutually independent — a pull must not swallow a push, and object-layer push subscribers (watchTransaction) depend on this guarantee.
 
-### Plain-text references (Decision 21): text outcomes and lexicon decoration
+### Plain-text references: text outcomes and lexicon decoration
 
-skill/@subagent references skip the placeholder + occurrence identity chain — a pick inserts the literal `/name ` `@name ` text straight into the draft, with the chip visual purely derived:
+skill/@subagent references skip the placeholder + occurrence identity chain — the plain-text-reference decision: a pick inserts the literal `/name ` `@name ` text straight into the draft, with the chip visual purely derived:
 
 - PickOutcome gains a `{text}` arm; the new scoped bail event `slash/input-insert-text` `{text, span}` (the same contract as the other three: draftRev CAS, returning true ⟺ an actual rewrite); facade.insertText goes through setDraft concatenation — zero machine changes.
 - Sources get an optional `lexicon?(session)` hook: a synchronous hot-snapshot name roster, with `undefined` = data not warm — zero decoration, never triggering a fetch (the render path stays synchronous and side-effect-free); the paired optional `subscribeLexicon?(session, listener)` hook is the invalidation channel for rolls that change after warm (catalog settles, children spawn/exit). The controller aggregates the rolls into its `lexicon` snapshot store (re-polling on each source notification); sources registered after scope birth are warmed and folded in via the service's live-controller broadcast.
@@ -125,7 +125,7 @@ The state machine's entire behavior is covered by pure-JS unit tests (event sequ
 | A placeholder select resident in the tool row | Named seats stay empty until registration; a placeholder clashing with the real implementation is two sources of truth |
 | An always-visible Plan on/off toggle | The shared Command source already owns entry; a second entry point turns a status seat into redundant mode chrome |
 | A second plus-menu component/controller, or an Add/File group above Command | It would duplicate async candidates, keyboard highlight, focus retention, and pick state; the plus control is only a source-filtered launcher for the existing MenuView, and this scope has no file capability |
-| All references through U+FFFC chips (the pre-Decision-21 line) | Plain text + derived decoration carries zero identity state; the literal text IS the model projection, sparing undo/clipboard any special cases; the chip chain is kept for scenarios needing indivisible atomicity |
+| All references through U+FFFC chips (the line the plain-text-reference decision replaced) | Plain text + derived decoration carries zero identity state; the literal text IS the model projection, sparing undo/clipboard any special cases; the chip chain is kept for scenarios needing indivisible atomicity |
 
 ## Consequences
 

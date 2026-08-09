@@ -14,7 +14,7 @@ Status: implemented
 
 ## 决策
 
-规则很简单：一次成功的 `send()` 创建一个独立的 FIFO 队列项。该队列项如果运行，就是所在轮次中唯一的普通消息。队列项可能在启动前被丢弃，因此精确保证是最多一个轮次，而不是必定一个轮次；两次 send 绝不会被悄悄合并。
+一次成功的 `send()` 创建一个独立的 FIFO 队列项。该队列项如果运行，就是所在轮次中唯一的普通消息。队列项可能在启动前被丢弃，因此精确保证是最多一个轮次，而不是必定一个轮次；两次 send 绝不会被悄悄合并。
 
 消息插入之前，`send()` 会检查 agent 状态，并接受已有标识且经过深度冻结的值。持久化 splice 与 `agent/inbox/inserted { message }` 会保留其 `MessageId`；在驱动器领取或丢弃该消息之前，可以通过 `Inbox.replace()` 与 `Inbox.remove()` 寻址。当前生命周期由[已领取 pre-step inbox 决策](../architecture/2026-07-31-claimed-pre-step-inbox-lifecycle.md)规定。
 

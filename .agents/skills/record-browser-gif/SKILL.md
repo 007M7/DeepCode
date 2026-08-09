@@ -80,7 +80,7 @@ For a large artifact, reduce `--max-width` first, then `--colors` or `--fps`; re
 
 Perform this step only when the task includes attaching the GIF to a pull request.
 
-Never commit a GIF to the pull request's own branch or any branch that merges into a long-lived branch: binary media committed there bloats the repository history for every future clone. GIFs live on a dedicated orphan assets branch — a branch with no parent commit and nothing but media — and one assets branch serves a whole pull request series (existing branches: `code-mode-ui-assets`, `pr-613-assets`).
+Never commit a GIF to the pull request's own branch or any branch that merges into a long-lived branch: binary media committed there bloats the repository history for every future clone. GIFs live on a dedicated orphan assets branch — a branch with no parent commit and nothing but media — and one assets branch serves a whole pull request series (named `<series>-assets`; list existing ones with `git ls-remote --heads origin '*assets*'`).
 
 Before either workflow below pushes, verify that the assets branch contains media only and that the staged GIF's checksum matches the verified local artifact.
 

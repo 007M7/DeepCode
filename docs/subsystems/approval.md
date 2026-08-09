@@ -38,8 +38,7 @@ type ApprovalOutcome = 'allowed-once' | 'rejected' | 'cancelled' | 'unavailable'
  * ask BEFORE any interactive answerer sees it:
  *
  * - `'ask'` (the default) — delegate to the composed answerers; with none
- *   composed the chain falls through to the fail-closed `'unavailable'`
- *   (exactly today's behavior).
+ *   composed the chain falls through to the fail-closed `'unavailable'`.
  * - `'never'` — never prompt anyone: every ask resolves `'rejected'`
  *   deterministically. The strict headless stance (CI, unattended runs) and
  *   the policy whose outcome is knowable without asking.
@@ -142,7 +141,7 @@ overrideOf(session: Session): ApprovalPolicy | undefined
 
 Types: [Agent](core.md) · [Session](session.md)
 
-Source: [`packages/interaction/user-approval/src/index.ts:193`](../../packages/interaction/user-approval/src/index.ts)
+Source: [`packages/interaction/user-approval/src/index.ts:192`](../../packages/interaction/user-approval/src/index.ts)
 
 <a id="approval-events"></a>
 

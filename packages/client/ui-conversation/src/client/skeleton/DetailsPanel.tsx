@@ -1,7 +1,6 @@
-// DetailsPanel, P-I minimal form: close button + the selected call's args and
+// DetailsPanel: close button + the selected call's args and
 // result — args as JSON, the result raw except for a terminal-card call, whose
-// Output section is the command's terminal card. The three-段 Switch /
-// Prev-Next stepping / See-in-trajectory are deferred (ledger). Reads the
+// Output section is the command's terminal card. Reads the
 // selection from the shared chat
 // store (conversation writes, this panel reads — the cross-registration
 // share the store seat exists for) and derives the call material from the

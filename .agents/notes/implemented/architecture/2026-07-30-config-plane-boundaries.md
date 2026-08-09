@@ -4,7 +4,7 @@ Status: implemented
 
 English | [中文](2026-07-30-config-plane-boundaries.zh.md)
 
-> Scope: the review round over the [web configuration plane](2026-07-30-web-config-plane.md) — which namespaces reach the wire, which callers reach them, and how an editor holding a partial, possibly stale view writes without destroying what it cannot see.
+> Scope: boundary hardening of the [web configuration plane](2026-07-30-web-config-plane.md) — which namespaces reach the wire, which callers reach them, and how an editor holding a partial, possibly stale view writes without destroying what it cannot see.
 
 ## Problem
 
@@ -34,7 +34,7 @@ Three smaller defects sat beside them. `llm/adapters-updated` documented contain
 - **Opt-in metadata at `settings.register()`** — the most honest semantics (the namespace's owner declares its own exposure), and the largest change: the seam's public interface, both LLM plugins, and their docs. Recorded as the shape to adopt if a non-LLM namespace ever needs the plane.
 - **Distinguishing "unregistered" from "registered but unexposed"** — better diagnostics, and a namespace-enumeration oracle. The uniform answer is deliberate.
 - **Detecting conflicts by diffing instead of a revision** — comparing the submitted base against storage would work for whole-section writes, but the editor holds a REDACTED section: it cannot produce a comparable base, which is the same reason it cannot safely `replace`. A counter needs neither.
-- **Fixing the redaction gaps in this round** — `redactSecrets` walks only `object`/`dict`/`array`, so a secret behind a union, intersection, or transform is returned verbatim with an empty `secrets` list; `schema.toJSON()` carries a secret field's `.default(...)`; write-rejection messages return schema text that may quote the input; the client rehydrates the envelope through schemastery's `new Function`; and pi-ai's plain-string `headers` dict can legitimately hold `Authorization`. All confirmed, all deliberately left for a fail-closed `describeForWire()` that refuses a schema it cannot prove safe. They are recorded as `TODO(settings-wire-redaction)` and in the owning READMEs' Known Limitations rather than half-fixed here.
+- **Fixing the redaction gaps here** — `redactSecrets` walks only `object`/`dict`/`array`, so a secret behind a union, intersection, or transform is returned verbatim with an empty `secrets` list; `schema.toJSON()` carries a secret field's `.default(...)`; write-rejection messages return schema text that may quote the input; the client rehydrates the envelope through schemastery's `new Function`; and pi-ai's plain-string `headers` dict can legitimately hold `Authorization`. All real, all deliberately left for a fail-closed `describeForWire()` that refuses a schema it cannot prove safe. They are recorded as `TODO(settings-wire-redaction)` and in the owning READMEs' Known Limitations rather than half-fixed here.
 
 ## Consequences
 

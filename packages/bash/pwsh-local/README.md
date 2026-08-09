@@ -23,7 +23,7 @@ The package root exports the default and named `PwshLocalExecutor` plugin, its `
     pwshPath: C:\Program Files\PowerShell\7\pwsh.exe  # explicit executable; else well-known locations, then PATH
 ```
 
-## Behavior (and where it came from)
+## Behavior
 
 The Windows counterpart of `dsh-bash-local`, deliberately mirroring its semantics call-for-call:
 

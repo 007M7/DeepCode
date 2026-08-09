@@ -14,7 +14,7 @@ This package owns the Service Definition role of the web capability. Unlike bash
 | `@deepseek-ai/dsh-web-fetch-local` | Fetch provider: anonymous public HTTP(S) |
 | `@deepseek-ai/dsh-tool-web` | Consumer: the model-facing `web_search` / `web_fetch` tool schemas over `ctx.web` |
 
-Search and fetch share no request schema and no business logic, but they are deliberately one seam: `ctx.web` is a single web-access middle layer with one provider-selection policy owner, one abort/error vocabulary, and one product-facing "how this harness reaches the web" config surface. The cost is the parallel `Search`/`Fetch` method pairs; that parallelism is intentional, not a missed extraction.
+Search and fetch share no request schema and no business logic, but they are deliberately one seam: `ctx.web` is a single web-access middle layer with one provider-selection policy owner, one abort/error vocabulary, and one product-facing "how this harness reaches the web" config surface. The `Search`/`Fetch` method pairs are deliberately parallel.
 
 ## Service API (`ctx.web`)
 

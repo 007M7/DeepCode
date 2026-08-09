@@ -72,7 +72,7 @@ export class Session implements SessionFace {
   private openError: RpcError | null = null
   private openPromise: Promise<void> | null = null
   /** Bumped by resync to invalidate an in-flight doOpen: a reconnect must rebuild, never adopt
-   *  a pre-disconnect open whose history request is already doomed (audit S4). Stale doOpen
+   *  a pre-disconnect open whose history request is already doomed. Stale doOpen
    *  passes drop all writes once the generation moves on. */
   private openGeneration = 0
   private loadingOlder = false
@@ -107,8 +107,9 @@ export class Session implements SessionFace {
   private subscribedLastSeq: number | null = null
 
   /**
-   * Per-session projection value store (session-projection RFC, push model):
-   * finished whole values computed on the host, seeded by the tail page's
+   * Per-session projection value store (push model; see the session-projection
+   * subsystem page, docs/subsystems/session-projection.md): finished whole
+   * values computed on the host, seeded by the tail page's
    * projections block and updated by `session/projection` frames under the
    * one higher-seq-wins rule. Keys are read via `projections.faceOf(key)`
    * (the useProjection resolution face); the conversation snapshot never
@@ -335,7 +336,7 @@ export class Session implements SessionFace {
     return promise
   }
 
-  /** Page up: pull one earlier page with the window's first seq as beforeSeq and prepend (§D.2). */
+  /** Page up: pull one earlier page with the window's first seq as beforeSeq and prepend. */
   async loadOlder(): Promise<void> {
     if (this.openState !== 'open' || !this.hasMore || this.loadingOlder) return
     this.loadingOlder = true
@@ -351,7 +352,7 @@ export class Session implements SessionFace {
       }
       const tail = older[older.length - 1]
       if (tail === undefined || tail.event.seq + 1 !== this.baseSeq) {
-        // §D.2 continuity assertion: on violation drop the page fail-soft rather than render an out-of-order stream.
+        // Continuity assertion: on violation drop the page fail-soft rather than render an out-of-order stream.
         console.error(`[web-runtime] history page discontinuous: tail seq ${tail?.event.seq} vs baseSeq ${this.baseSeq}`)
         this.hasMore = false
         this.conversation.prepend([], false)
@@ -374,7 +375,7 @@ export class Session implements SessionFace {
   /** Reconnect rebuild (manager calls this on onConnected for instances that were opened):
    *  reset the window and rerun open; pending waits for the baseline replay. Invalidates any
    *  in-flight open first — its history request rode the dead connection and must not settle
-   *  the fresh generation into 'error' (audit S4). */
+   *  the fresh generation into 'error'. */
   async resync(): Promise<void> {
     // The queue mirror is NOT cleared here: onConnected (which drives resync)
     // races the mux frames — the fresh generation's baseline may have landed
@@ -482,7 +483,7 @@ export class Session implements SessionFace {
    */
   handleRunning(running: boolean): void {
     // Turn-start conversion: a blank session never runs, so the first
-    // running:true proves another端's first message landed (设计稿 2.2).
+    // running:true proves another side's first message landed.
     if (running && this.blankBit) {
       this.blankBit = false
       this.notifier.markDirty()
@@ -556,7 +557,7 @@ export class Session implements SessionFace {
     this.scheduleConversation(this.conversation.rebuildRegistry())
   }
 
-  // ---- 私有 ----
+  // ---- Private ----
 
   /** Requested-frame arrival: the wait enters the pending map under its own key. */
   private mint(wait: PendingInteraction): void {
@@ -586,7 +587,7 @@ export class Session implements SessionFace {
         return
       }
       this.installWindow(result.value.events, result.value.hasMore, result.value.projections)
-      // Gap detection (§D.3-4): baseline past the window tail and liveBuffer did not cover it -> pull the tail page once more.
+      // Gap detection: baseline past the window tail and liveBuffer did not cover it -> pull the tail page once more.
       const tailSeq = this.windowTailSeq()
       if (this.subscribedLastSeq !== null && tailSeq !== null && this.subscribedLastSeq > tailSeq) {
         result = (await this.history({ maxMessages: PAGE_MESSAGES })).result
@@ -608,7 +609,7 @@ export class Session implements SessionFace {
   /** Install the history window + stitch the liveBuffer (seq is the sole dedup key).
    *  Stitching MUST NOT route through acceptLiveEvent: openState is still 'loading' here
    *  (doOpen flips it after install), so recursing would push every buffered event straight
-   *  back into liveBuffer where nothing ever drains it — a silent drop loop (audit S1).
+   *  back into liveBuffer where nothing ever drains it — a silent drop loop.
    *  A carried projections block seeds the value store (higher seq wins, so a stale
    *  baseline cannot overwrite a newer push frame); the window events themselves are
    *  never folded — the host is the only computation site. */
@@ -639,7 +640,7 @@ export class Session implements SessionFace {
   }
 
   /** Land a live session/event (open/repair in flight -> buffer; overlapping seq -> drop;
-   *  a seq gap -> buffer + tail-page repull instead of appending a hole (audit S3: a gap is an
+   *  a seq gap -> buffer + tail-page repull instead of appending a hole (a gap is an
    *  expected reconnect-window artifact, repaired by refetch). The window stays one contiguous
    *  raw range, which lets Conversation Definitions correlate every recorded event between its
    *  ends and lets a compaction checkpoint resolve its cited summary event. */
@@ -664,7 +665,7 @@ export class Session implements SessionFace {
     else if (publication === 'animation-frame') this.notifier.markFrameDirty()
   }
 
-  /** Resync-lite (audit S3): repull the tail page and stitch the liveBuffer through the shared
+  /** Resync-lite: repull the tail page and stitch the liveBuffer through the shared
    *  installWindow path. No openState transition — the UI keeps the current window (no loading
    *  flash); events arriving meanwhile detour to liveBuffer via the stitching flag. */
   private async repairGap(): Promise<void> {

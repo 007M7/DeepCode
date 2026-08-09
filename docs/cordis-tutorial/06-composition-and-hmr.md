@@ -18,7 +18,7 @@ A config entry accepts metadata beyond `name` and `config`:
 
 `id` gives the entry a stable identity so the loader can tell an edit to an existing entry apart from a removal plus an addition. `disabled: true` unmounts a plugin without deleting its entry — flip it back and the plugin (and everything PENDING on its services) loads again.
 
-Groups nest a sub-list of entries that load and unload as one unit, and `isolate` gives a group its own instance of a service name — two groups can each see a differently-configured `bash` without affecting each other. Those are worth knowing about before you need them; the [Cordis primer](../cordis-primer.md) and the [service isolation example](../user/develop/framework/service.md#service-isolation) cover the details.
+Groups nest a sub-list of entries that load and unload as one unit, and `isolate` gives a group its own instance of a service name — two groups can each see a differently-configured `bash` without affecting each other. The [Cordis primer](../cordis-primer.md) and the [service isolation example](../user/develop/framework/service.md#service-isolation) cover the details.
 
 ## Hot module replacement
 

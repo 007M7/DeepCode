@@ -32,7 +32,7 @@ The prompt positions LSP as a precision aid: `Use search/read for ordinary navig
 
 The seam exposes one `query(request, signal?)` operation because no fields need implementation defaulting: `workspaceRoot` is required, `languageId` comes from the registration, and consumers own timeouts and result limits. `query()` selects and derives without hidden `??` fallbacks, leaving no executable spec to resolve. `dsh-tool-lsp` validates model arguments and passes only `exec.signal` as a bare `AbortSignal`, matching web and keeping `dsh-lsp` independent of `dsh-tools`. Removal before selection fails as unavailable; later disposal follows the selected provider's cancellation lifecycle without rerouting.
 
-The intended contract shape is:
+The contract shape:
 
 ```ts
 import type { Branded } from '@deepseek-ai/dsh-brand'
@@ -147,7 +147,7 @@ The provider trusts its configured server. Its filesystem visibility and process
 
 ## Alternatives considered
 
-**Copy Claude Code's unified schema.** Its cursor operations validate the core use case, but symbols and call hierarchy need different arguments. Copying all nine operations would freeze speculative surface, so the proposal aligns only on the four semantic queries.
+**Copy Claude Code's unified schema.** Its cursor operations validate the core use case, but symbols and call hierarchy need different arguments. Copying all nine operations would freeze speculative surface, so the seam aligns only on the four semantic queries.
 
 **Let providers register tools.** Loaded servers would then control model schema and prompts, preventing one stable contract across local and remote providers.
 

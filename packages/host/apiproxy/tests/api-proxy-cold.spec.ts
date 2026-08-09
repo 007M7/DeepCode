@@ -365,10 +365,10 @@ describe('subagent ownership fence', () => {
       inspect: () => Promise.resolve({ meta, events }),
       locate: () => undefined,
     } as never)
-    // Pre-#1569 stores classify a child only through the descriptor event and
-    // carry no header `origin`; the pre-release decision stops recognizing
-    // them, so the ownership fence lets generic resume reach the registry
-    // instead of answering `agent-busy`.
+    // Stores whose headers predate `origin` classify a child only through the
+    // descriptor event; the pre-release decision stops recognizing them, so
+    // the ownership fence lets generic resume reach the registry instead of
+    // answering `agent-busy`.
     const resume = vi.spyOn(ctx.agents, 'resume')
       .mockRejectedValue(new Error('registry unavailable in this bench'))
     const api = createApiProxy(ctx, { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp', workspaceRoot: '/tmp' })

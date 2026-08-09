@@ -135,8 +135,8 @@ function makeHost() {
     host,
     list,
     workspaces,
-    // Same driver surface as the old current cell: set(id) publishes the
-    // resolved bundle (or the absent projection) through the provide source.
+    // Driver surface: set(id) publishes the resolved bundle (or the absent
+    // projection) through the provide source.
     current: {
       set: (id: string | undefined) => {
         currentId = id

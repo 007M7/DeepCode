@@ -1,5 +1,6 @@
 /**
- * Projection value store (session-projection RFC, push model): the single
+ * Projection value store (push model; session-projection subsystem page:
+ * docs/subsystems/session-projection.md): the single
  * higher-seq-wins rule on both paths (a stale baseline cannot overwrite a
  * newer push frame; a replayed frame cannot regress), capability absence as
  * undefined, generation truncation, and the Session/manager wiring (tail-page

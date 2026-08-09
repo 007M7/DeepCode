@@ -72,7 +72,7 @@ Surveyed AI-chat/agent web UIs and mocking layers (LibreChat, vercel/ai-chatbot 
 
 **Changing the wire protocol for testability.** Rejected: the contract already has a first-class keyless in-process path (`InProcessApiClient(toFetchHandler(api))`), the per-event unbatched SSE is exactly what makes replay observable in a browser, and testing a wire we no longer ship would invert the tier's purpose.
 
-**Real-model browser tests as the keyless lane.** Rejected: nondeterministic by construction; the surveyed cautionary case (open-webui) grew unbounded timeouts and was deleted. The with-key W5 smoke stays as the live-model complement.
+**Real-model browser tests as the keyless lane.** Rejected: nondeterministic by construction; the surveyed cautionary case (open-webui) grew unbounded timeouts and was deleted. The with-key real-host smoke stays as the live-model complement.
 
 **Running the high-cardinality performance case in the required browser gate.** Rejected: its fixture setup and full-history render add tens of seconds, while wall-clock and memory values vary with the host and cannot supply a stable correctness threshold. The required lane keeps deterministic behavior assertions; contributors run the diagnostic case when investigating or changing large-list and long-history rendering.
 

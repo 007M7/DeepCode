@@ -36,7 +36,8 @@ interface WebSearchRequest {
 ```ts type-equiv
 /**
  * Normalized search outcome. `content` is optional provider-generated answer
- * text or summary (Exa returns none; Perplexity returns a generated answer).
+ * text or summary (Exa and DeepSeek return none; Perplexity returns a
+ * generated answer).
  * `sources[]` is the portable citation surface. `truncated` is set by the seam
  * when it cut `sources[]` down to `maxResults`.
  */
@@ -49,8 +50,6 @@ interface WebSearchResult {
   readonly truncated: boolean
 }
 ```
-
-`content` 是提供方可选生成的回答文本（Exa 和 DeepSeek 不返回；Perplexity 返回生成式回答）。`sources[]` 是一套可跨提供方使用的引用数据结构。每个来源都必须有 `url`；`title`、`snippet` 和 `publishedAt` 为可选字段，因为并非每个提供方都会返回它们——Perplexity 的引用可能只有 URL，强迫适配器编造其余字段会让 seam 说谎。`dsh-tool-web` 渲染时使用 `title ?? hostname(url)`。
 
 ```ts type-equiv
 /**
@@ -103,8 +102,6 @@ interface WebFetchResult {
 }
 ```
 
-`WebFetchBody` 是 `dsh-web` 拥有的**封闭**可辨识联合类型（不是可合并扩展的 map）：提供方解码 kind，`dsh-tool-web` 渲染它，因此新增一个 kind 是已知包之间的协调变更，而非插件扩展。消费方对 `kind` 做 `switch` 并以 `default: assertNever(...)` 结尾，所以新增 kind 会在每个消费方处编译失败，直到被处理。即使各分支当前字段一致，每个分支仍保持独立的对象字面量，为将来分支特有字段留出空间（例如未来 `pdf` body 的 `pageCount`）。
-
 ```ts type-equiv
 /**
  * The decoded body of a fetched resource. A CLOSED discriminated union owned by
@@ -112,8 +109,8 @@ interface WebFetchResult {
  * new kind is a coordinated change across known packages, not a plugin
  * extension. Consumers `switch` on `kind` ending in `default: assertNever(...)`
  * so adding a kind breaks compilation at every consumer until handled. Each arm
- * stays its own object literal even where fields coincide today, leaving room
- * for arm-specific fields later (a `pdf` body's `pageCount`).
+ * stays its own object literal even where fields coincide, so an arm can gain
+ * fields the others lack.
  */
 type WebFetchBody =
   | { readonly kind: 'html'; readonly content: string }
@@ -132,7 +129,7 @@ type WebFetchBody =
 
 ## 服务
 
-`WebService` 注册搜索与抓取提供方，以 `WEB_DUPLICATE_PROVIDER` 拒绝重复 id，并在执行时以结构化的选择错误解析提供方。本地抓取后端仅接受 HTTP(S)、拒绝凭证、限制重定向次数、字节数、字符数和时间、对每一跳同源重定向重新校验，并解码正文；展示由工具负责。SSRF／私有网络防护尚未实现，因此在能够触及敏感内部目标的环境中，禁止启用 `web_fetch`。
+`WebService` 注册搜索与抓取提供方，以 `WEB_DUPLICATE_PROVIDER` 拒绝重复 id，并在执行时以结构化的选择错误解析提供方。本地抓取后端仅接受 HTTP(S)、拒绝凭证、限制重定向次数、字节数、字符数和时间、对每一跳同源重定向重新校验，并解码正文；展示由工具负责。本地后端不会拦截私有网络目标；在能够触及敏感内部目标的环境中，禁止启用 `web_fetch`。
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 

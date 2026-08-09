@@ -12,7 +12,7 @@ harness 通过 Cordis 事件分类体系扩展 agent loop（智能体循环）�
 - `agent/*` 承载运行时实时信号，向插件传递 `Agent` 句柄。
 - `tools/*` 承载工具注册表与执行流水线。
 
-两个问题促使我们固定语义。第一，若干轮次/步骤边界同时作为持久的 `SessionEvent`（`turn/start`、`turn/end`、`step/start`、`step/end`）和镜像的 `agent/*` emit（`agent/turn-start`、`agent/turn-end`、`agent/step-start`、`agent/step-end`）存在。消费方对同一事实有两个真源，每次生命周期变更都必须同时更新两处。第二，即将到来的钩子子系统需要一个连贯且有文档的订阅表面——插件作者（以及基于其上构建的 Claude Code / Codex 钩子桥接）必须在不阅读循环代码的情况下知道应该监听会话事件还是 agent 事件，以及原因。
+两个问题促使我们固定语义。第一，若干轮次/步骤边界同时作为持久的 `SessionEvent`（`turn/start`、`turn/end`、`step/start`、`step/end`）和镜像的 `agent/*` emit（`agent/turn-start`、`agent/turn-end`、`agent/step-start`、`agent/step-end`）存在。消费方对同一事实有两个真源，每次生命周期变更都必须同时更新两处。第二，钩子子系统需要一个连贯且有文档的订阅表面——插件作者（以及基于其上构建的 Claude Code / Codex 钩子桥接）必须在不阅读循环代码的情况下知道应该监听会话事件还是 agent 事件，以及原因。
 
 这套词汇是拦截决策、持久的 `hook/*` 日志，以及 Claude Code 和 Codex 桥接的基础。
 
@@ -34,6 +34,6 @@ harness 通过 Cordis 事件分类体系扩展 agent loop（智能体循环）�
 - 之前通过已移除 emit 观察边界的测试，现在观察持久的 `turn/start`/`turn/end`/`step/start`/`step/end` 会话事件——它们所锁定的行为（边界顺序、步骤计数）不变；只是读取的源移到了规范源。那些测试*抛出异常的轮次边界 emit 监听器*的用例被删除，因为该代码路径不再存在（没有 emit 可供抛出）。按照 [AGENTS.md「测试记录行为，而非黄金真相」](../../../../AGENTS.md)，行为与其测试一同迁移（或一同消亡）。
 - 循环仅在 `append('step/start')` 返回后才标记步骤已打开（`stepOpen = true`）。内部分发校验在日志推入之前运行，可能在不打开步骤的情况下拒绝；post-commit `session/event` observer 的失败被隔离在 `Session.append` 内部。因此该标记精确表示已提交的、欠一个后续 `step/end` 的边界。
 - 完整实现见[简化 Agent Note「停止将持久边界镜像为 agent 事件」](../simplification/2026-06-20-remove-agent-boundary-mirror-events.md)：全部四个边界镜像被移除，所有消费方从 `session/event` 读取边界。`agent/steering`（不是边界镜像）不在该 Agent Note 范围内，由其后续 Agent Note [移除 `agent/steering` 镜像 emit](../../archived/simplification/2026-07-04-remove-agent-steering-mirror.md) 单独移除——它镜像的是持久的中途 steering `user/message`。
-- Cordis 事件目录（`docs/cordis-catalog/events.md`）重新生成以移除镜像事件。
+- 生成的 cordis 事件表面（`docs/subsystems/` 各页）不再列出镜像事件。
 
 <!-- agent-note-format: alternatives-not-recorded (pre-format Agent Note) -->

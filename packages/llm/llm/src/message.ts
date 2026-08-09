@@ -35,8 +35,8 @@ export interface ToolMessageSource {
  *
  * `MessageSource.kind` answers *who produced this*; `form` answers *what kind
  * of thing it is*, and the two axes are deliberately independent — several
- * producers share one form (three snapshot producers today), and one producer
- * may emit more than one form over a session.
+ * producers share one form, and one producer may emit more than one form over
+ * a session.
  *
  * The vocabulary is SEMANTIC, never visual: a value states that the content is
  * a file's instructions or a catalog of available items, and a consumer decides

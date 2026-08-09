@@ -1440,8 +1440,8 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     sessions: {
       // Attached sessions summarize from memory; persisted-but-unattached (cold)
       // sessions merge in from the persistence store so history survives restarts.
-      // Legacy logs without a cwd (pre-project stance) are not served — every
-      // session now records its project at create time.
+      // Logs without a cwd are not served; every session records its project
+      // at create time.
       async list(request) {
         return ok(request, { items: await listVisibleSessionSummaries() })
       },
@@ -2231,7 +2231,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
 
     host: {
       describe(request) {
-        // TODO(step2): version should read apps/cli's package.json; placeholder for now.
+        // TODO: version should read apps/cli's package.json; placeholder for now.
         const selection = defaults.defaultModelSelection()
         return Promise.resolve(ok(request, {
           version: '0.0.1',

@@ -68,7 +68,7 @@ inherited process environment      (read-only, wins)
 
 **审查出一份 `.env` 可设置的 `DSH_*` 白名单。** 否决：每新增一个开关都要重新审查，而遗漏的失败模式是静默的。拒绝整个命名空间是 fail safe。
 
-**把 bootstrap 变量排在 process 层之下，而不是拒绝它。** 否决：`PATH` 和 `NODE_OPTIONS` 没有有意义的「输了之后」行为——把它写进 `.env` 的用户认为它生效，而静默忽略正是整个系列要消除的那种「我的设置没有效果」。
+**把 bootstrap 变量排在 process 层之下，而不是拒绝它。** 否决：`PATH` 和 `NODE_OPTIONS` 没有有意义的「输了之后」行为——把它写进 `.env` 的用户认为它生效，而静默忽略正是本决策要消除的那种「我的设置没有效果」。
 
 **把快照做成三包能力 seam（`environment` / `environment-local` / 消费方）。** 作为过早拆分而否决：生产方在 Cordis 存在之前就运行，也没有第二个实现需要选择。仓库规则是不要预先拆分。
 
