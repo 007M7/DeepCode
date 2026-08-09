@@ -14,7 +14,7 @@ Status: implemented
 
 位于 `packages/goal/tool-goal/` 的 `@deepseek-ai/dsh-tool-goal` 在 `ctx.goals` 之上贡献三个独占工具和一个系统提示词策略段：`get_goal`、`create_goal` 与 `update_goal`。工具名称和读取—创建—更新形态遵循 Codex 的紧凑目标工具表面，而权限规则使用本仓库公共的 agent（智能体）、会话、工具与目标 seam。
 
-### 工具与模型契约
+### 工具与模型约定
 
 `get_goal()` 返回当前目标或 `null`。非空结果包含用于比较并交换的 id 与修订号、目标描述、持久阶段、已接纳和最大 Goal Round 数、可能存在的阻塞原因，以及进程本地激活态观察。`create_goal(objective, max_goal_rounds?)` 创建一个长时间运行的同会话目标。`update_goal(goal_id, revision, action, objective?, max_goal_rounds?, blocked_reason?)` 支持 `edit`、`pause`、`resume`、`complete` 和 `blocked`；替换字段仅对 `edit` 有效，非空的 `blocked_reason` 仅在 `blocked` 时必填，并以稳定代码 `model-reported` 持久化。执行器把值恰好为空字符串的可选字段和值为 0 的 `max_goal_rounds` 视为严格 schema 占位值：这些值等同于省略；编辑时仍必须提供至少一个有实际意义的替换字段；所有非占位值仍受对应操作的限制。
 

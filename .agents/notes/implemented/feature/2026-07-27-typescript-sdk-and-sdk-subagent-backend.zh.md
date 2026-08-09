@@ -34,7 +34,7 @@ stdio JSON-RPC 对外服务接口（`@deepseek-ai/dsh-jsonrpc`，见[单文件�
 
 **让 `subagent-dsh-sdk` 直说裸 JSON-RPC、绕开客户端 SDK。** 会复制 SDK 存在意义所在的请求/通知配对、订阅扇出、超时与拆除逻辑；用户的要求明确是一个*使用* SDK 的后端，分层的回报是后端成为可复用客户端之上约 200 行的纯策略。
 
-**把 SDK 后端折进 `subagent-acp`、用传输开关区分。** 两个后端共享子进程生命周期，但线协议（ACP SDK 连接 vs harness JSON-RPC）、子进程契约（任意 ACP 代理 vs harness 运行时）、结果提取（`agent_message_chunk` 累积 vs 会话事件读取）毫无共享。配置判别子会把两个协议埋进一个包；真正共享的 provider 侧部分移入 subagent seam 的 `out-of-process.ts`，进程机制则住在 `dsh-subprocess` seam。
+**把 SDK 后端折进 `subagent-acp`、用传输开关区分。** 两个后端共享子进程生命周期，但线协议（ACP SDK 连接 vs harness JSON-RPC）、子进程约定（任意 ACP 代理 vs harness 运行时）、结果提取（`agent_message_chunk` 累积 vs 会话事件读取）毫无共享。配置判别子会把两个协议埋进一个包；真正共享的 provider 侧部分移入 subagent seam 的 `out-of-process.ts`，进程机制则住在 `dsh-subprocess` seam。
 
 **给 TS SDK 与 Python 对等的捆绑运行时解析。** Python 的载体解析是为了给没有 Node 的用户发 wheel。TypeScript 消费方按定义就有 Node，且仓库内消费方还有工作区；为尚不存在的消费方编造发行方案违反「只实现当前需求」的规则。推迟到真实的 npm 发行消费方出现时再处理。
 

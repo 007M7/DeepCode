@@ -22,7 +22,7 @@ ctx.emit('event-name', payload)
 
 ## 事件模式
 
-Cordis 提供多种事件模式，适用于不同的交互契约：
+Cordis 提供多种事件模式，适用于不同的交互约定：
 
 ### emit — 广播
 

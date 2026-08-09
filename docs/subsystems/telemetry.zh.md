@@ -2,7 +2,7 @@
 
 [English](telemetry.md) | 中文
 
-对外的会话上报，拆分为一项[能力 seam](../capability-seams.md)：seam 一侧（[dsh-session-telemetry](../../packages/session/session-telemetry)，`ctx.telemetry`）拥有捕获点、固定分片投影、`telemetry/record` 脱敏 waterfall（瀑布式事件）、handoff 游标与最小后端契约；部署方加载的后端（[dsh-session-telemetry-otel](../../packages/session/session-telemetry-otel)）则是原样配置的 OpenTelemetry JS SDK 日志流水线。它是一项可选能力，不属于 agent loop（智能体循环）主干，这里也没有任何内容会进入模型请求。边界公理（harness 的职责止于 `emit()`；批处理、重试、排队与丢失策略都属于上报 SDK）连同被否决的替代方案，均已在[复活 Agent Note（agent 决策记录）](../../.agents/notes/implemented/feature/2026-07-23-session-telemetry-otel-revival.md)中定案；捕获点、游标与投影的契约见 [seam README](../../packages/session/session-telemetry/README.md)。
+对外的会话上报，拆分为一项[能力 seam](../capability-seams.md)：seam 一侧（[dsh-session-telemetry](../../packages/session/session-telemetry)，`ctx.telemetry`）拥有捕获点、固定分片投影、`telemetry/record` 脱敏 waterfall（瀑布式事件）、handoff 游标与最小后端约定；部署方加载的后端（[dsh-session-telemetry-otel](../../packages/session/session-telemetry-otel)）则是原样配置的 OpenTelemetry JS SDK 日志流水线。它是一项可选能力，不属于 agent loop（智能体循环）主干，这里也没有任何内容会进入模型请求。边界公理（harness 的职责止于 `emit()`；批处理、重试、排队与丢失策略都属于上报 SDK）连同被否决的替代方案，均已在[复活 Agent Note（agent 决策记录）](../../.agents/notes/implemented/feature/2026-07-23-session-telemetry-otel-revival.md)中定案；捕获点、游标与投影的约定见 [seam README](../../packages/session/session-telemetry/README.md)。
 
 源码：[`packages/session/session-telemetry/src/index.ts`](../../packages/session/session-telemetry/src/index.ts)
 
@@ -56,7 +56,7 @@ interface TelemetryRecord {
 
 每个 `(turn, step)` 只发出第一条 `assistant/chunk`，即「流已开始」的信号；其余分片在捕获时丢弃，因此导出流中的 `seq` 缺口是常态，绝不是丢失信号。其他所有[会话事件](session.md)类型都会完整透传，包括该 seam 从未听说过、由插件合并进来的事件类型。投递是尽力而为的：游标标记的是「已交接」而非「已送达」，记录可能丢失（崩溃、重载窗口）也可能重复（无游标的重新接管、SDK 重试），因此接收端对 ledger 记录基于 `(session.id, event.seq)` 去重；ops 记录刻意省略这类标识——它们是用于告警的信号，而非用于累加的条目，重复被容忍而非被去重。
 
-## 后端契约
+## 后端约定
 
 ```ts type-equiv
 /**
@@ -105,7 +105,7 @@ interface TelemetryBackend {
 }
 ```
 
-`Telemetry`（`ctx.telemetry`，[签名](#ctxtelemetry--telemetry-abstract-seam)）是该契约的可加载形态：每个上下文只允许一个实现，重复加载会抛出异常；后端在其构造函数中组合 seam 的 `TelemetryCoordinator`，以此装配捕获侧。
+`Telemetry`（`ctx.telemetry`，[签名](#ctxtelemetry--telemetry-abstract-seam)）是该约定的可加载形态：每个上下文只允许一个实现，重复加载会抛出异常；后端在其构造函数中组合 seam 的 `TelemetryCoordinator`，以此装配捕获侧。
 
 ## 脱敏 waterfall：`telemetry/record`
 

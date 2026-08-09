@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-客户端命令业务面（`ctx.command`）：以会话为 key 的命令目录缓存、带 matchSpace／matchEnter 裁决钩子的 `/` 命令 source、三型派发（execute／popupSelect／leadingInput），以及面向业务包的 popupSelect 注册面。契约：[Web 命令业务面 Agent Note](../../../.agents/notes/implemented/architecture/2026-07-25-web-command-surfaces-and-assembly.zh.md)。
+客户端命令业务面（`ctx.command`）：以会话为 key 的命令目录缓存、带 matchSpace／matchEnter 裁决钩子的 `/` 命令 source、三型派发（execute／popupSelect／leadingInput），以及面向业务包的 popupSelect 注册面。约定：[Web 命令业务面 Agent Note](../../../.agents/notes/implemented/architecture/2026-07-25-web-command-surfaces-and-assembly.zh.md)。
 
 `src/client/contract.ts` 是冻结的业务表层：`CommandServiceContract.register(name, spec)` 与 `decorate(name, spec)` 是业务包消费的全部内容；`CommandUiSpec{options, onSelect}` 让 popup 数据自给自足——壳组件归本包所有，业务永远见不到它。contribution 是 client 自有命令（与 host 同名碰撞即 fail-loud）；decoration（装饰）则把裸调用 popup 挂在**已存在的** host 命令上——host 保留目录行、带参 claim（space / 带参 enter）与生命周期记账，被装饰的名字若在会话目录中无 host 行则装饰永不触发。命令三型按每次派发派生，绝不在注册时定型：带 `input` 的 host descriptor 是 leadingInput，注册了 `CommandUiSpec` 的是 popupSelect，其余全部是 execute。
 
@@ -12,7 +12,7 @@
 
 `PopupSelectController`（`src/client/popup.ts`）是无头的壳状态：`PopupSelectView` 自行注册进 `conversation.input.overlay`（SlotMap key 归 ui-conversation 所有；本包只以 type-only 导入引入该声明——没有运行时依赖边）。壳是打开期间持有焦点的瞬态层；onSelect 之后的 token 片段消费在两条分支上都经 `consumeTokenSegment` 执行（菜单路径做 span CAS，回车路径做裸 token 相等比较），作用于接线层经 `bindDraft` 绑定的草稿表层。
 
-`/client` 导出表层是插件主体（`apply`／`inject`）、`CommandService`、目录类和 popup 类及其状态类型，以及冻结的契约类型；壳组件本身是 overlay 注册的内部实现。
+`/client` 导出表层是插件主体（`apply`／`inject`）、`CommandService`、目录类和 popup 类及其状态类型，以及冻结的约定类型；壳组件本身是 overlay 注册的内部实现。
 
 ## 模型体验
 
