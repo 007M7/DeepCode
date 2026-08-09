@@ -14,7 +14,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, extname, join, resolve } from 'node:path'
 import { Document, parseDocument } from 'yaml'
 import { withFileLock, writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
-import { resolveDshHome } from '@deepseek-ai/dsh-paths'
+import { canonicalizeWatchPath, resolveDshHome } from '@deepseek-ai/dsh-paths'
 import { Settings, deepEqualJson, type SettingsNamespace } from '@deepseek-ai/dsh-settings'
 
 /** Plugin config: file location and hot-reload behavior. */
@@ -235,7 +235,7 @@ export class SettingsLocal extends Settings {
     // silently ignored or overwritten.
     yield* super[Service.init]()
     const watcher = this.spec.watch
-      ? chokidarWatch(this.spec.filename, {
+      ? chokidarWatch(await canonicalizeWatchPath(this.spec.filename), {
         ignoreInitial: true,
         awaitWriteFinish: {
           stabilityThreshold: this.spec.debounceMs,
