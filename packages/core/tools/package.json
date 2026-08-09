@@ -15,6 +15,10 @@
       "types": "./lib/types/invariant.d.ts",
       "default": "./lib/invariant.js"
     },
+    "./types": {
+      "types": "./lib/types/types.d.ts",
+      "default": "./lib/types/types.js"
+    },
     "./presentation": {
       "types": "./lib/types/presentation.d.ts",
       "default": "./lib/types/presentation.js"

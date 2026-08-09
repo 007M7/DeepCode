@@ -2,8 +2,9 @@ import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import {
-  COMPACT_CHECKPOINT_SOURCE,
+  CompactionId,
   CompactService,
+  compactCheckpointSource,
   isCompactCheckpointSource,
 } from '@deepseek-ai/dsh-compact'
 import type { CompactionResult, CompactionTrigger } from '@deepseek-ai/dsh-compact'
@@ -52,9 +53,11 @@ class StubCompactService extends CompactService {
     const endIndex = surface.indexOf(end)
     if (startIndex < 0 || endIndex < startIndex) throw new Error('stub compact range is invalid')
     const shadowedSeqs = surface.slice(startIndex, endIndex + 1)
+    const compactionId = CompactionId('stub-compaction')
     // Minimal stub honoring the lock + log-only event contract.
-    const startEvent = session.append('compact/start', { turn: 0 })
+    const startEvent = session.append('compact/start', { compactionId, turn: 0 })
     const summaryEvent = session.append('compact/summary', {
+      compactionId,
       summary,
       shadowedRange: { start, end },
       shadowedSeqs,
@@ -64,13 +67,14 @@ class StubCompactService extends CompactService {
     })
     session.append('user/message', createUserMessage({
       content: summary,
-      source: COMPACT_CHECKPOINT_SOURCE,
+      source: compactCheckpointSource(compactionId),
     }), {
       surfaceOp: { op: 'replace', start, end },
       sourceEventSeqs: [startEvent.seq, summaryEvent.seq, ...shadowedSeqs],
     })
-    const endEvent = session.append('compact/end', { turn: 0 })
+    const endEvent = session.append('compact/end', { compactionId, turn: 0 })
     return {
+      compactionId,
       startSeq: startEvent.seq,
       summarySeq: summaryEvent.seq,
       endSeq: endEvent.seq,
@@ -139,7 +143,8 @@ describe('CompactService seam', () => {
     expect(result.shadowedSeqs).toEqual([original.seq])
     const checkpoint = session.events.find(event => event.type === 'user/message'
       && isCompactCheckpointSource(event.data.source))
-    expect(checkpoint?.type === 'user/message' && checkpoint.data.source).toEqual(COMPACT_CHECKPOINT_SOURCE)
+    expect(checkpoint?.type === 'user/message' && checkpoint.data.source)
+      .toEqual(compactCheckpointSource(result.compactionId))
     expect(isCompactCheckpointSource({ kind: 'plugin', plugin: 'other' })).toBe(false)
     expect(isCompactCheckpointSource({ kind: 'user' })).toBe(false)
     expect(session.events.filter(e => e.type.startsWith('compact/')).map(e => e.type))

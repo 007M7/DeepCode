@@ -29,12 +29,21 @@ function props(
   return {
     useSession,
     renderSlot,
-    callId: block.callId,
-    toolName: block.call?.name ?? '',
-    block,
+    node: {
+      key: `tool:${block.callId}`,
+      kind: 'tool-call',
+      id: block.callId,
+      target: 'chat',
+      anchorSeq: block.seq,
+      location: { kind: 'session' },
+      visibility: 'visible',
+      data: { root: block },
+    },
     selectedCallId,
     openFile: vi.fn(),
     inspectCall: vi.fn(),
+    forkAt: vi.fn(),
+    fileMentions: vi.fn(),
     t,
   } as unknown as ToolTreeProps
 }

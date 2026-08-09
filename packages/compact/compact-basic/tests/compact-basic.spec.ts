@@ -4,7 +4,7 @@ import BasicCompactService from '@deepseek-ai/dsh-compact-basic'
 import type { BasicCompactConfig } from '@deepseek-ai/dsh-compact-basic'
 import { selectCompactableRange } from '@deepseek-ai/dsh-compact-basic/src/region.ts'
 import type { SummarizationInput, SummaryResult } from '@deepseek-ai/dsh-compact-basic/src/summarizer.ts'
-import { toolPairingBalancedAfter, toolPairingBalancedBefore } from '@deepseek-ai/dsh-compact'
+import { CompactionId, toolPairingBalancedAfter, toolPairingBalancedBefore } from '@deepseek-ai/dsh-compact'
 import {
   resolveCompactSpec,
   resolveConfig,
@@ -945,7 +945,10 @@ describe('compaction region transaction', () => {
     )).rejects.toThrow(/no open turn/)
 
     const locked = conversation(1)
-    locked.append('compact/start', { turn: 2 })
+    locked.append('compact/start', {
+      compactionId: CompactionId('locked-compaction'),
+      turn: 2,
+    })
     const lockedNodes = locked.surface.nodes
     await expect(compact.compactRegion(
       lockedNodes[0]!,
@@ -1623,6 +1626,7 @@ describe('automatic listener and loader composition', () => {
     const compact = new TestCompactService(ctx)
     const session = conversation(2)
     const fakeResult: CompactionResult = {
+      compactionId: CompactionId('fake-compaction'),
       startSeq: 1,
       summarySeq: 2,
       endSeq: 3,

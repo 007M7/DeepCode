@@ -17,6 +17,7 @@ import { useMemo, useState } from 'react'
 import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { RunningToolCall } from '@deepseek-ai/dsh-client-runtime/client'
 import { PendingApproval, type ApprovalComposerProps } from '../contract/slots.ts'
+import { rootToolCall } from '../chat/tool-node-reader.ts'
 import css from './ApprovalPanel.module.css'
 
 /** Extract the shell command from an approval's paired running call (bash-family args carry `command`); undefined hides the line. */
@@ -40,8 +41,12 @@ export function commandOf(call: RunningToolCall | undefined): string | undefined
  */
 export function ApprovalPanel(props: ApprovalComposerProps) {
   const approval = useMemo(() => new PendingApproval(props.matched), [props.matched])
-  const command = props.useSession(s => commandOf(
-    approval.callId === undefined ? undefined : s.runningCalls.find(call => call.callId === approval.callId)))
+  const command = props.useSession((snapshot) => {
+    if (approval.callId === undefined) return undefined
+    const root = rootToolCall(snapshot, approval.callId)
+    if (root === undefined) return undefined
+    return root.callId === approval.callId && !('kind' in root) ? commandOf(root) : undefined
+  })
   return <ApprovalFlow key={approval.key} pending={approval} t={props.t} {...command === undefined ? {} : { command }} />
 }
 
