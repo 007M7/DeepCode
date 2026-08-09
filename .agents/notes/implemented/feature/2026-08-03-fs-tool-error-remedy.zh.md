@@ -29,4 +29,4 @@ Status: implemented
 
 两个错误码的模型可见文本发生变化；`fs-policy-reject` 无密钥快照被重新录制，`dsh-tool-fs` 与 `dsh-fs-policy` 的 README 逐字固定追加后的文本。单元测试直接覆盖包装层（恢复指令文本、错误码保留、cause 链、其他错误码与非 `FsError` 值的透传），组装后的工具路径断言两个错误码的恢复指令都到达模型。
 
-恢复指令不是承诺：已观察但被删除的目标无法被解除阻塞，因为重新读取缺失文件会以 `FS_NOT_FOUND` 失败且不记录观察。这一死胡同在集成测试中以 fail-closed 方式固定——在目标重新存在并被重新观察之前，重试的变更以相同方式失败。
+[文件系统缺失观测后续决策](../bug-fix/2026-08-09-filesystem-absence-observation.md)使外部删除场景下的陈旧恢复指令能够生效。失败的重新读取仍返回 `FS_NOT_FOUND`，但会记录确认缺失：随后 edit 返回 `FS_NOT_FOUND`，不再附加陈旧恢复指令；write 则以原子 `createIfAbsent` 重试，并保留任何并发创建者写入的文件。

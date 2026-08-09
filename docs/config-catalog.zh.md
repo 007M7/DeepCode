@@ -2138,7 +2138,7 @@ export interface Config {
 }
 ```
 
-来源：[`packages/fs/tool-str-replace-editor/src/index.ts:496`](../packages/fs/tool-str-replace-editor/src/index.ts)
+来源：[`packages/fs/tool-str-replace-editor/src/index.ts:497`](../packages/fs/tool-str-replace-editor/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-subagent`
 
