@@ -13,7 +13,12 @@ async function bootHmr(dir: string, root: string[] = [], usePolling?: boolean): 
   ctx.baseUrl = pathToFileURL(dir).href + '/'
   await ctx.plugin(Loader)
   await ctx.plugin(Timer)
-  await ctx.plugin(Hmr, { root, ignored: [], debounce: 0, usePolling })
+  await ctx.plugin(Hmr, {
+    root,
+    ignored: [],
+    debounce: 0,
+    ...usePolling === undefined ? {} : { usePolling },
+  })
   return ctx
 }
 
