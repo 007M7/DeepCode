@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/process/2026-07-28-per-subsystem-cordis-surface-regions.md
-2026-07-28-per-subsystem-cordis-surface-regions.md: ef65bfc4c7dadd7dafe1a38f41656e6ecc61ea50
-2026-07-28-per-subsystem-cordis-surface-regions.zh.md: 1df18d7260800b89c95a9d4aeb0301adb0ee56f6
+2026-07-28-per-subsystem-cordis-surface-regions.md: f6d4494d4195ba27f2898eecb27af32b433af88b
+2026-07-28-per-subsystem-cordis-surface-regions.zh.md: ee2a3c9730e6259e9f53d1b722b04b99819af65b

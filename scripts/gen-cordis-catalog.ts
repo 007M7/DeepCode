@@ -21,7 +21,7 @@ import {
 } from '@deepseek-ai/dsh-typert-generator'
 import type { CordisCatalogPolicy } from '@deepseek-ai/dsh-typert-generator'
 import { renderCordisCoreApiPages } from './cordis-core-api.ts'
-import { contextKeyMap, contextMergeFiles } from './cordis-walk.ts'
+import { contextKeyMap, contextMergeFiles, eventNameList } from './cordis-walk.ts'
 import {
   blobHash,
   parsePairMeta,
@@ -98,10 +98,11 @@ export const SERVICE_PAGE: Record<string, string> = {
  * Context keys declared in `interface Context` merges that the rendering
  * projection cannot see, each with the reason and its documentation owner.
  * The scan that enforces this list reads EVERY `declare module 'cordis'`
- * Context merge under `packages/x/x/src/*.ts` — not only root `index.ts`
- * files with a same-named service class — so a new service can never silently
- * join this blind spot: it either enters {@link SERVICE_PAGE} or names itself
- * here.
+ * Context merge under `packages/x/x/src/**` — any depth, not only root
+ * `index.ts` files with a same-named service class — so a new service can
+ * never silently join this blind spot: it either enters {@link SERVICE_PAGE}
+ * or names itself here. Client-face keys (the projection analyzes the host
+ * face only) name the package README that owns their surface.
  * TODO(cordis-catalog-interface-services): the interface-typed and
  * non-index-declared entries would all render once the projection resolves a
  * Context key through its declaring file's imports to the class declaration.
@@ -117,14 +118,27 @@ export const SERVICE_WALK_EXEMPTIONS: Record<string, string> = {
   apiProxy: 'interface-typed (ApiProxy) with the class in api-proxy.ts, not index.ts — packages/host/apiproxy/README.md owns the surface',
   appShell: 'client-side interface-typed browser service — packages/client/web/README.md owns the surface',
   connection: 'client-side interface-typed browser service — packages/client/connection/README.md owns the surface',
+  chatFileMentions: 'client-side slot-contract accessor (ChatFileMentions) — packages/client/ui-conversation/README.md owns the surface',
+  command: 'client-side interface-typed browser service — packages/client/ui-command/README.md owns the surface',
+  conversation: 'client-side interface-typed browser service — packages/client/ui-conversation/README.md owns the surface',
+  layout: 'client-side interface-typed browser service — packages/client/ui-layout/README.md owns the surface',
+  locale: 'client-side interface-typed browser service — packages/client/locale/README.md owns the surface',
+  models: 'client-side interface-typed browser service — packages/client/ui-model/README.md owns the surface',
+  modules: 'client-side interface-typed browser service — packages/client/modules/README.md owns the surface',
+  remote: 'client-side interface-typed gateway accessor (ClientRemote) — packages/api/gateway/README.md owns the surface',
+  sessionHistory: 'client-side interface-typed browser service — packages/client/runtime/README.md owns the surface',
+  slash: 'client-side interface-typed browser service — packages/client/ui-slash/README.md owns the surface',
+  slots: 'client-side interface-typed browser service — packages/client/runtime/README.md owns the surface',
+  theme: 'client-side interface-typed browser service — packages/client/ui-theme/README.md owns the surface',
+  workspaces: 'client-side interface-typed browser service — packages/client/runtime/README.md owns the surface',
 }
 
 /**
  * The owning subsystems page for every harness event scope (the segment
- * before the first `/`). Fail-closed exactly like {@link SERVICE_PAGE}.
- * `slash` lives with the human-command surface: the client slash-input
- * protocol parses toward command invocation and `dsh-ui-slash` owns the
- * declarations, but commands.md owns the cross-package command story.
+ * before the first `/`) the projection renders. Fail-closed exactly like
+ * {@link SERVICE_PAGE}. Client-face events (`slash/*`, `theme/change`, …) are
+ * invisible to the host-face projection and therefore never reach this map;
+ * {@link EVENT_WALK_EXEMPTIONS} names each one with its documentation owner.
  */
 export const EVENT_SCOPE_PAGE: Record<string, string> = {
   'agent': 'core.md',
@@ -144,6 +158,32 @@ export const EVENT_SCOPE_PAGE: Record<string, string> = {
   'telemetry': 'telemetry.md',
   'tools': 'tools.md',
   'workflow': 'workflow.md',
+}
+
+/**
+ * Event names declared in `interface Events` merges that the rendering
+ * projection cannot see, each with the reason and its documentation owner.
+ * The mirror of {@link SERVICE_WALK_EXEMPTIONS} for events: an independent
+ * scan reads EVERY `declare module 'cordis'` Events merge under
+ * `packages/x/x/src/**`, so a declared event either renders onto a subsystems
+ * page (via {@link EVENT_SCOPE_PAGE}) or names itself here — never vanishes
+ * silently. Keys are full event names, not scopes: client-face events share
+ * scopes with rendered host events (`commands/changed` beside `commands/*`),
+ * so a scope-level exemption would mask a host-face regression.
+ */
+export const EVENT_WALK_EXEMPTIONS: Record<string, string> = {
+  'commands/changed': 'client-face registry invalidation signal — packages/client/runtime/README.md owns the surface',
+  'connection/reset': 'client-face transport signal — packages/client/runtime/README.md owns the surface',
+  'credentials/changed': 'client-face registry invalidation signal — packages/client/runtime/README.md owns the surface',
+  'locale/change': 'client-face locale switch signal — packages/client/locale/README.md owns the surface',
+  'models/changed': 'client-face registry invalidation signal — packages/client/runtime/README.md owns the surface',
+  'settings/changed': 'client-face registry invalidation signal — packages/client/runtime/README.md owns the surface',
+  'slash/input-begin-command': 'client-face slash-input protocol — packages/client/ui-slash/README.md owns the surface',
+  'slash/input-consume-token': 'client-face slash-input protocol — packages/client/ui-slash/README.md owns the surface',
+  'slash/input-insert-reference': 'client-face slash-input protocol — packages/client/ui-slash/README.md owns the surface',
+  'slash/input-insert-text': 'client-face slash-input protocol — packages/client/ui-slash/README.md owns the surface',
+  'slots/changed': 'client-face slot invalidation signal — packages/client/runtime/README.md owns the surface',
+  'theme/change': 'client-face theme switch signal — packages/client/ui-theme/README.md owns the surface',
 }
 
 /**
@@ -509,56 +549,135 @@ export function spliceRegion(content: string, region: string): string {
   return [...lines.slice(0, begin), ...region.split('\n'), ...lines.slice(end + 1)].join('\n')
 }
 
+/** The declared-vs-rendered inputs {@link walkPartitionProblems} judges. */
+export interface WalkPartitionInput {
+  /** Service key → source pointer, as the rendering projection produced them. */
+  readonly renderedKeys: ReadonlyMap<string, string>
+  /** Event scopes the rendering projection produced. */
+  readonly renderedScopes: ReadonlySet<string>
+  /** Event names the rendering projection produced. */
+  readonly renderedEventNames: ReadonlySet<string>
+  /** Context key → first declaring file, from the independent AST scan. */
+  readonly declaredKeys: ReadonlyMap<string, string>
+  /** Event name → first declaring file, from the independent AST scan. */
+  readonly declaredEvents: ReadonlyMap<string, string>
+}
+
+/** The curated partition maps {@link walkPartitionProblems} enforces. */
+export interface WalkPartitionMaps {
+  readonly servicePage: Readonly<Record<string, string>>
+  readonly serviceWalkExemptions: Readonly<Record<string, string>>
+  readonly eventScopePage: Readonly<Record<string, string>>
+  readonly eventWalkExemptions: Readonly<Record<string, string>>
+}
+
+/**
+ * Judge the rendered surface and the independent AST scan against the curated
+ * partition maps, fail-closed in both directions for services AND events: a
+ * rendered key/scope must be mapped to a page, a mapped key/scope must still
+ * render, and — the backstop — a DECLARED key/event the projection cannot see
+ * must carry a named walk exemption (a rendered one must not). A third
+ * direction guards the scan itself: everything rendered must also be declared
+ * to the scan, so a scan blind spot cannot decay silently. Pure so the
+ * acceptance paths are provable without running the projection.
+ * @param input - rendered surface plus the declared-key/event scans.
+ * @param maps - the curated page maps and walk exemptions.
+ * @returns one message per violation, empty when the partition holds.
+ */
+export function walkPartitionProblems(input: WalkPartitionInput, maps: WalkPartitionMaps): string[] {
+  const problems: string[] = []
+  for (const [key, source] of input.renderedKeys) {
+    if (!Object.hasOwn(maps.servicePage, key)) problems.push(`service ctx.${key} (${source}) has no SERVICE_PAGE entry; every service maps to exactly one subsystems page.`)
+  }
+  for (const scope of [...input.renderedScopes].sort()) {
+    if (!Object.hasOwn(maps.eventScopePage, scope)) problems.push(`event scope '${scope}/*' has no EVENT_SCOPE_PAGE entry; every event scope maps to exactly one subsystems page.`)
+  }
+  for (const key of Object.keys(maps.servicePage)) {
+    if (!input.renderedKeys.has(key)) problems.push(`SERVICE_PAGE maps 'ctx.${key}' but the projection discovers no such service; remove the stale entry.`)
+  }
+  for (const scope of Object.keys(maps.eventScopePage)) {
+    if (!input.renderedScopes.has(scope)) problems.push(`EVENT_SCOPE_PAGE maps '${scope}/*' but the projection discovers no such scope; remove the stale entry.`)
+  }
+  // The rendering projection only sees a Context key it can resolve to a
+  // documented service class. The independent scan reads EVERY Context merge
+  // so a key the projection cannot render must either be rendered (mapped) or
+  // carry a named SERVICE_WALK_EXEMPTIONS reason — never vanish silently.
+  for (const [key, rel] of input.declaredKeys) {
+    const rendered = input.renderedKeys.has(key)
+    const exempt = Object.hasOwn(maps.serviceWalkExemptions, key)
+    if (!rendered && !exempt) {
+      problems.push(`ctx.${key} (${rel}) is declared in a Context merge but invisible to the rendering projection; map it in SERVICE_PAGE (after making it renderable) or name it in SERVICE_WALK_EXEMPTIONS with its documentation owner.`)
+    }
+    if (rendered && exempt) problems.push(`ctx.${key} is rendered by the projection but still listed in SERVICE_WALK_EXEMPTIONS; remove the stale exemption.`)
+  }
+  for (const key of Object.keys(maps.serviceWalkExemptions)) {
+    if (!input.declaredKeys.has(key)) problems.push(`SERVICE_WALK_EXEMPTIONS names 'ctx.${key}' but no Context merge declares it; remove the stale exemption.`)
+  }
+  // The event mirror of the service backstop: the projection walks only files
+  // reachable from host-face package exports, so a client-face or unreachable
+  // Events merge would otherwise vanish without a trace.
+  for (const [name, rel] of input.declaredEvents) {
+    const rendered = input.renderedEventNames.has(name)
+    const exempt = Object.hasOwn(maps.eventWalkExemptions, name)
+    if (!rendered && !exempt) {
+      problems.push(`event '${name}' (${rel}) is declared in an Events merge but invisible to the rendering projection; make it renderable (mapped via EVENT_SCOPE_PAGE) or name it in EVENT_WALK_EXEMPTIONS with its documentation owner.`)
+    }
+    if (rendered && exempt) problems.push(`event '${name}' is rendered by the projection but still listed in EVENT_WALK_EXEMPTIONS; remove the stale exemption.`)
+  }
+  for (const name of Object.keys(maps.eventWalkExemptions)) {
+    if (!input.declaredEvents.has(name)) problems.push(`EVENT_WALK_EXEMPTIONS names '${name}' but no Events merge declares it; remove the stale exemption.`)
+  }
+  // Self-check the scan itself: everything the projection renders is declared
+  // in a Context/Events merge the scan must also reach, so a rendered key or
+  // event the scan cannot see means the SCAN regressed (glob, prefilter, or
+  // block walk) — a partial blind spot that exemption staleness alone would
+  // never surface.
+  for (const key of input.renderedKeys.keys()) {
+    if (!input.declaredKeys.has(key)) problems.push(`ctx.${key} is rendered by the projection but the independent scan finds no Context merge declaring it; the scan has a blind spot (glob, prefilter, or module-block walk) — fix the scan, not the maps.`)
+  }
+  for (const name of input.renderedEventNames) {
+    if (!input.declaredEvents.has(name)) problems.push(`event '${name}' is rendered by the projection but the independent scan finds no Events merge declaring it; the scan has a blind spot (glob, prefilter, or module-block walk) — fix the scan, not the maps.`)
+  }
+  return problems
+}
+
 /**
  * Compute every generated artifact: the inherited-tier page, the model-facing
  * runtime API module, plus, per mapped subsystems page, the pair's two updated
  * documents with the injected region. Fail-loud partition checks live here: an
  * unmapped service/event scope, a mapping whose page file does not exist, a
- * curated entry whose key/scope the projection no longer discovers, and a
- * mapped page missing its markers are all aggregated errors.
+ * curated entry whose key/scope the projection no longer discovers, a declared
+ * Context key or Events member the projection cannot see without a named walk
+ * exemption, and a mapped page missing its markers are all aggregated errors.
  * @returns `[repo-relative path, exact content]` for every generated artifact.
  */
 export function computeOutputs(): [string, string][] {
   const { projector, model } = projectCordisCatalog(root, CORDIS_CATALOG_POLICY)
   const services = [...model.services]
   const events = [...model.events]
-  const problems: string[] = []
 
-  const discoveredKeys = new Set(services.map(s => s.key))
-  const discoveredScopes = new Set(events.map(e => e.scope))
-  for (const s of services) {
-    if (!Object.hasOwn(SERVICE_PAGE, s.key)) problems.push(`service ctx.${s.key} (${s.source}) has no SERVICE_PAGE entry; every service maps to exactly one subsystems page.`)
-  }
-  for (const scope of discoveredScopes) {
-    if (!Object.hasOwn(EVENT_SCOPE_PAGE, scope)) problems.push(`event scope '${scope}/*' has no EVENT_SCOPE_PAGE entry; every event scope maps to exactly one subsystems page.`)
-  }
-  for (const key of Object.keys(SERVICE_PAGE)) {
-    if (!discoveredKeys.has(key)) problems.push(`SERVICE_PAGE maps 'ctx.${key}' but the projection discovers no such service; remove the stale entry.`)
-  }
-  for (const scope of Object.keys(EVENT_SCOPE_PAGE)) {
-    if (!discoveredScopes.has(scope)) problems.push(`EVENT_SCOPE_PAGE maps '${scope}/*' but the projection discovers no such scope; remove the stale entry.`)
-  }
-  // The rendering projection only sees a Context key it can resolve to a
-  // documented service class. This independent scan reads EVERY Context merge
-  // so a key the projection cannot render must either be rendered (mapped) or
-  // carry a named SERVICE_WALK_EXEMPTIONS reason — never vanish silently.
   const declaredKeys = new Map<string, string>()
-  for (const { rel, sf, body } of contextMergeFiles(root, 'packages/*/*/src/*.ts')) {
+  const declaredEvents = new Map<string, string>()
+  for (const { rel, sf, body } of contextMergeFiles(root, ['packages/*/*/src/**/*.ts', 'packages/*/*/src/**/*.tsx'])) {
     for (const key of contextKeyMap(body, sf).keys()) {
       if (!declaredKeys.has(key)) declaredKeys.set(key, rel)
     }
-  }
-  for (const [key, rel] of declaredKeys) {
-    const rendered = discoveredKeys.has(key)
-    const exempt = Object.hasOwn(SERVICE_WALK_EXEMPTIONS, key)
-    if (!rendered && !exempt) {
-      problems.push(`ctx.${key} (${rel}) is declared in a Context merge but invisible to the rendering projection; map it in SERVICE_PAGE (after making it renderable) or name it in SERVICE_WALK_EXEMPTIONS with its documentation owner.`)
+    for (const name of eventNameList(body, sf)) {
+      if (!declaredEvents.has(name)) declaredEvents.set(name, rel)
     }
-    if (rendered && exempt) problems.push(`ctx.${key} is rendered by the projection but still listed in SERVICE_WALK_EXEMPTIONS; remove the stale exemption.`)
   }
-  for (const key of Object.keys(SERVICE_WALK_EXEMPTIONS)) {
-    if (!declaredKeys.has(key)) problems.push(`SERVICE_WALK_EXEMPTIONS names 'ctx.${key}' but no Context merge declares it; remove the stale exemption.`)
-  }
+  const problems = walkPartitionProblems({
+    renderedKeys: new Map(services.map(s => [s.key, s.source])),
+    renderedScopes: new Set(events.map(e => e.scope)),
+    renderedEventNames: new Set(events.map(e => e.name)),
+    declaredKeys,
+    declaredEvents,
+  }, {
+    servicePage: SERVICE_PAGE,
+    serviceWalkExemptions: SERVICE_WALK_EXEMPTIONS,
+    eventScopePage: EVENT_SCOPE_PAGE,
+    eventWalkExemptions: EVENT_WALK_EXEMPTIONS,
+  })
   if (problems.length > 0) throw new Error(`gen-cordis-catalog: ${problems.length} partition violation(s):\n${problems.map(p => `  ${p}`).join('\n')}`)
 
   const pages = [...new Set([...Object.values(SERVICE_PAGE), ...Object.values(EVENT_SCOPE_PAGE)])].sort()
