@@ -18,8 +18,8 @@
 | `mountRootInclude(ctx, absoluteConfigPath, patches?)` | 挂载静态导入的 Include builtin，并保留用户 patch 层 HMR（热模块替换）使用的确切根配置项 |
 | `watchUserPatches(ctx, options)` | 向现有 Cordis HMR 服务注册指名的 patch 文件；每次新增、变更或移除都会通过调用方的 `compose` 闭包（应用自有层围绕当前用户层）以事务方式重新组合完整 patch 列表，并返回异步清理函数 |
 | `resolveProfileDir` / `initProfile` / `loadProfile` / `readProfileManifest` / `writeProfileManifest` / `resolveBundleDir` / `composeEntries` / `healProfilesModuleFallback` / `PROFILE_TEMPLATES` / `DEFAULT_PROFILE_BUNDLES` / `PROFILES_DIR` / `PROFILE_PATCH_FILENAME` | Profile 机制（见 [Profile](#profiles)） |
-| `boot(binName, absoluteConfigPath, patches?, prepare?)` | 创建根上下文，向 Loader `!!js` 配置表达式暴露 `dshHomePath(...segments)` 并安装 Loader，在配置树条目挂载前执行可选的宿主准备操作（`prepare` 可以使用 Loader，也可以提供由启动器拥有的上下文插槽），再挂载并等待 include 树结算，断言所有条目均已加载并激活，最后返回根上下文——失败时 dispose（资源释放）部分构造的上下文，并返回带标签的拒绝结果 |
-| `renderConfigDump(binName, absoluteConfigPath, layers, warn?)` | 离线合成基础配置与带标签的覆盖层——使用 include 自己的解析器和补丁算法（`entryListSchema`/`applyEntryPatches`），因此结果与 `boot()` 挂载的内容一致——并渲染为 YAML，`!!js` 表达式原样保留；每段来源相同的连续行之前都有一条 `# ==` 注释，标明贡献该段的文件以及修补过它的层，输出仍是一份可加载的文档；未匹配到行的补丁连同其层标签交给 `warn`（默认：一行 stderr），读取／解析／形状失败则抛出 |
+| `boot(binName, absoluteConfigPath, patches?, prepare?)` | 创建根上下文，向 Loader `!!js` 配置表达式暴露 `dshHomePath(...segments)` 并安装 Loader，在配置树条目挂载前执行可选的宿主准备操作（`prepare` 可以使用 Loader，也可以提供由启动器拥有的上下文插槽），再挂载并等待 include 树结算，断言所有条目均已加载并激活，最后返回根上下文——失败时 dispose（资源释放）部分构造的上下文，并以带标签的错误 reject |
+| `renderConfigDump(binName, absoluteConfigPath, layers, warn?)` | 离线合成基础配置与带标签的覆盖层——使用 include 自己的解析器和补丁算法（`entryListSchema`/`applyEntryPatches`），因此结果与 `boot()` 挂载的内容一致——并渲染为 YAML，`!!js` 表达式原样保留；每段来自同一文件且经相同补丁层修改的连续行之前都有一条 `# ==` 注释，标明该文件和这些补丁层，输出仍是一份可加载的文档；未匹配到行的补丁连同其层标签交给 `warn`（默认：一行 stderr），读取／解析／形状失败则抛出 |
 | `addHarnessSourceSection(ctx, sourceRoot)` | 添加全局 `harness:source` 提示词段落（顺序紧随 harness 身份、位于 persona 之前），告知 agent（智能体）DSH 实现代码 checkout 的磁盘路径，同时提醒它不得据此推断当前工作目录，而应使用 `pwd`；如果已启动树没有此项服务，则不执行操作并返回 `undefined`。这里的服务是 `systemPrompt`；该段落注册到它的 fiber，因此开发环境 HMR（热模块替换）重新加载系统提示词后，它会消失直至下次启动 |
 | `HARNESS_SOURCE_SECTION` | `'harness:source'` 段落名称，供 `addHarnessSourceSection` 注册使用 |
 

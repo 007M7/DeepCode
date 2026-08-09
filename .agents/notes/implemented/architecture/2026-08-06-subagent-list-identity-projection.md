@@ -149,7 +149,7 @@ Consuming surfaces: diagnostic handling across wire, tool, and GUI **stays entir
 
 **The projection-cache ladder (v3 draft: `cachedSnapshot ?? coldSnapshot` plus fail-soft write-back).** The mechanism works — session-projection-cache's checkpoint ladder is designed for cold reads in the first place. But checkpoint write-back is a whole list-driven body of derived-data persistence and invalidation orchestration (floor/identity/putSoft); what was rejected is that orchestration as the primary mechanism. The settled three-rung ladder later reuses this cache opportunistically, read-only, as its second rung — no write-back, no orchestration, skipped when absent.
 
-**A bounded-read primitive on persistence to rescue pre-existing data.** Opens a new seam primitive for a one-time problem; superseded by the read-time `inspect` full read — the full read the first time pre-existing data is listed is itself the value retrieval.
+**A bounded-read primitive on persistence to rescue pre-existing data.** Opens a new persistence primitive for a one-time problem; superseded by the read-time `inspect` full read — the full read the first time pre-existing data is listed is itself the value retrieval.
 
 **Optional mode/label on list rows (one v4 draft).** Healthy data is always computable; optionality merely spills garbage-data handling complexity onto every consumer — each consuming surface has to grow filter branches and an unknown display state. The strong contract plus omit-when-uncomputable is cleaner.
 

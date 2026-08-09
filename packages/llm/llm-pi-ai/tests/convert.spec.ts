@@ -102,7 +102,7 @@ describe('toPiContext', () => {
     expect((context.messages[0] as AssistantMessage).stopReason).toBe('stop')
   })
 
-  it('preserves model provenance for foreign assistant messages without replay state', () => {
+  it('preserves provider and model for foreign assistant messages without replay state', () => {
     const context = toPiContext({
       provider: 'openai',
       model: 'new-model',

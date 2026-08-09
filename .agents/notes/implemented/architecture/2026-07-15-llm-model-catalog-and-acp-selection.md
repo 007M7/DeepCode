@@ -8,7 +8,7 @@ English | [中文](2026-07-15-llm-model-catalog-and-acp-selection.zh.md)
 
 ## Problem
 
-Provider-routed adapters let every request choose `provider + model`, but `LlmService` exposed only routing and streaming. A UI could not discover which providers were registered or which models an adapter was prepared to recommend. ACP clients therefore received no `model` session config option, so Zed, JetBrains, and VS Code integrations had no model list even though the request seam already supported runtime switching.
+Provider-routed adapters let every request choose `provider + model`, but `LlmService` exposed only routing and streaming. A UI could not discover which providers were registered or which models an adapter was prepared to recommend. ACP clients therefore received no `model` session config option, so Zed, JetBrains, and VS Code integrations had no model list even though the LLM service already supported runtime switching.
 
 Model discovery cannot become request validation. The hand-written DeepSeek adapter deliberately forwards arbitrary model ids to a public or private endpoint, while pi-ai has a finite installed catalog that is authoritative for its own request resolution. Treating one shared catalog as a whitelist would remove the private-endpoint behavior that provider routing was designed to preserve.
 
@@ -50,7 +50,7 @@ The request header remains the durable source of truth. When a selection is actu
 
 ## Consequences
 
-- Any adapter can expose a dynamic model list without leaking provider-library types into the core seam.
+- Any adapter can expose a dynamic model list without leaking provider-library types into the LLM Service Definition.
 - Catalog consumers must treat absence as “not advertised,” never “invalid request.”
 - pi-ai adapters expose their installed provider catalogs; hand-written DeepSeek deployments list known choices explicitly and retain arbitrary model support.
 - Human-facing catalog consumers own their selection interaction. ACP uses its fixed deployment target and does not widen the protocol with model discovery.

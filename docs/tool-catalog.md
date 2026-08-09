@@ -1021,7 +1021,7 @@ Source: [`packages/session-query/tool-session-query/src/index.ts`](../packages/s
 
 ### `session_event_trace`
 
-Read every direct replacement and provenance relationship for one event in an authorized session.
+Read every direct replacement and relationship to a cited source event for one event in an authorized session.
 
 ```json
 {

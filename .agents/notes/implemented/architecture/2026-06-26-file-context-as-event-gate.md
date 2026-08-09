@@ -26,7 +26,7 @@ tool          dsh-tool-fs       executor: resolves, reads windows, writes/edits 
 policy        dsh-fs-policy  plugin: listens to fs/write-intent +
                                 fs/edit-intent (single-slot waterfall) and fs/observed
                                 (emit) events; adds observed-state + freshness.
-provider seam dsh-fs            ctx.fs: text IO + ATOMIC mutation primitives whose version
+provider contract dsh-fs            ctx.fs: text IO + ATOMIC mutation primitives whose version
                                 guard is OPTIONAL; owns the fs policy event vocabulary
 provider      dsh-fs-local      local implementation of ctx.fs
 ```
@@ -72,7 +72,7 @@ These events carry existing `dsh-fs` vocabulary (`FsTarget`, `FsVersion`, `FsWri
 
 **The two `fs/*` decision events are single-slot, first-wins waterfalls.** `dsh-fs-policy` returns without calling `next()`, so it owns the slot in the default deployment; a listener registered earlier or with `prepend` would replace that policy. Permission, audit, and sandbox concerns remain on the composable `tools/execute` waterfall.
 
-The actor is typed `object` in `dsh-fs` — a pure opaque carrier the provider seam never reads or narrows. The owner-derivation (`actor.agent?.session`) and the `{ agent?: { session? } }` structural shape stay entirely inside `dsh-fs-policy`, which narrows the `object` actor to that shape in its listeners. `dsh-fs` owns the event names and the fs vocabulary; it does NOT own the policy layer's runtime owner structure.
+The actor is typed `object` in `dsh-fs` — a pure opaque carrier the provider contract never reads or narrows. The owner-derivation (`actor.agent?.session`) and the `{ agent?: { session? } }` structural shape stay entirely inside `dsh-fs-policy`, which narrows the `object` actor to that shape in its listeners. `dsh-fs` owns the event names and the fs vocabulary; it does NOT own the policy layer's runtime owner structure.
 
 ```ts
 import type { FsTarget, FsVersion, FsWriteIntent } from '@deepseek-ai/dsh-fs'
@@ -136,7 +136,7 @@ The tool passes `exec` (the tool-execution context) as the `actor` argument on e
 
 An observed-state entry is the **prior-observation record**: a successful `read`, `write`, OR `edit` all emit `fs/observed` and record `{ version }`, so the entry's presence means "this owner has observed this target at this version", not narrowly "has read it". This is what lets a create-then-edit or edit-then-edit sequence work without an intervening re-read: the mutation refreshes the recorded version to its own result, so the next edit's basis is the version it just produced. `FS_NOT_OBSERVED` rejects only an edit with NO prior observation of any kind. The owner is derived structurally from `{ agent?: { session? } }`; disposal drops all state (HMR safety).
 
-`dsh-fs-policy` is now a pure policy/recording plugin with no service surface — it influences the world only through the event seam. That is what removes the method coupling from `dsh-tool-fs`.
+`dsh-fs-policy` is now a pure policy/recording plugin with no service surface — it influences the world only through the event gate. That is what removes the method coupling from `dsh-tool-fs`.
 
 ## Bare-provider behavior (no `dsh-fs-policy`)
 
@@ -166,6 +166,6 @@ Tests pin both paths: without `dsh-fs-policy`, the root tool plugin boots agains
 
 - **Event indirection over a method call.** A waterfall + emit is less direct than `await ctx.fileContext.edit(...)`. The payoff is removing the tool-to-policy method dependency while keeping the default policy plugin; the cost is one more event vocabulary to learn. Mitigated by keeping the three events narrow and documenting the default-thunk semantics on each.
 - **Policy events in the storage seam.** `dsh-fs` gains two version-decision events plus a recording event though it is "just storage". This is the price of decoupling (the emitter cannot depend on the policy plugin). The events carry only `dsh-fs` vocabulary plus an opaque `object` actor and no model-facing concepts, so the seam stays free of line-window/observation policy types and of the agent/session owner structure.
-- **Single policy occupant, first-wins by convention.** The `fs/write-intent`/`fs/edit-intent` slots hold exactly one decider; the first-registered (or `prepend`ed) listener wins and the rest are short-circuited. `dsh-fs-policy` owning the slot is a deployment convention, not an event-enforced invariant — a second decider registered first would bypass it. This is acceptable because a second fs-version-policy decider is a misconfiguration, not a feature. If a future need for *layered* fs version policy appears, it is a new Agent Note (a composable value-passing seam), not a silent second listener on these events. Layered permission/audit/sandbox interception already has its home on `tools/execute`.
+- **Single policy occupant, first-wins by convention.** The `fs/write-intent`/`fs/edit-intent` slots hold exactly one decider; the first-registered (or `prepend`ed) listener wins and the rest are short-circuited. `dsh-fs-policy` owning the slot is a deployment convention, not an event-enforced invariant — a second decider registered first would bypass it. This is acceptable because a second fs-version-policy decider is a misconfiguration, not a feature. If a future need for *layered* fs version policy appears, it is a new Agent Note (a composable value-passing waterfall), not a silent second listener on these events. Layered permission/audit/sandbox interception already has its home on `tools/execute`.
 - **Dropping the post-read confirming stat** makes a follow-up *guarded* edit occasionally fail-closed (`FS_STALE_VERSION` → re-read) under a read/write race. This is a UX nicety lost, never a correctness hole; the provider lock still prevents wrong-version writes.
 - **The bare provider does no read-before-write/edit and no version check.** A deployment without `dsh-fs-policy` lets the model overwrite or edit any existing file unconditionally. This is the deliberate meaning of keeping the tool independent of a policy service: the safety disciplines live in the `dsh-fs-policy` plugin. A deployment that omits it is opting into an unconstrained filesystem on purpose; that is not the intended stance for a config that ships the fs tools.

@@ -1,6 +1,6 @@
 /**
  * Compaction vocabulary: the result type and the `compact/*` session events.
- * Those declaration-merged events are log-only lock/provenance markers, not
+ * Those declaration-merged events record the lock and summary inputs without entering the surface, so they are not
  * surface events; a separate replacement `user/message` carries the summary.
  * Backend packages own configuration and retention policy; see
  * `.agents/notes/implemented/feature/2026-06-18-compaction-capability-seam.md`.
@@ -18,7 +18,7 @@ declare module '@deepseek-ai/dsh-session' {
      */
     'compact/start': { turn: number | null }
     /**
-     * Provenance record of a completed summarization — log-only, no surfaceOp.
+     * Completed summary, its inputs, and its model call facts — log-only, no surfaceOp.
      * The summary content is in `data.summary`; the actual surface replacement
      * is performed by the immediately following `user/message` event that
      * shadows the compacted range. That adjacency is contractual — the

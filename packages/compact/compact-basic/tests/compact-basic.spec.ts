@@ -838,7 +838,7 @@ describe('optional model-free tool-result pruning', () => {
 })
 
 describe('compaction region transaction', () => {
-  it('lands a framed, replayable checkpoint with exact pricing provenance', async () => {
+  it('lands a framed, replayable checkpoint with exact source seqs and token price', async () => {
     const compact = service()
     compact.rawOutput = [
       { type: 'reasoning', text: 'private compact thought' },

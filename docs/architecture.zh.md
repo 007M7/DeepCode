@@ -92,7 +92,7 @@ forever:
       'step/start'
       append the returned batch as separate 'user/message' events
       assemble ordered prompt and tool schemas -> snapshot derived messages
-      agent/request (config only) -> prepare adapter defaults/provenance + context capacity under turn signal -> log request/header (+ request/context on route change) -> llm/stream (frozen, registration-bound)
+      agent/request (config only) -> resolve adapter defaults and mark defaulted fields + context capacity under turn signal -> log request/header (+ request/context on route change) -> llm/stream (frozen, registration-bound)
       'assistant/chunk'
       'assistant/message'
       schedule tool calls by ctx.tools.executionMode:
@@ -144,21 +144,21 @@ idle inject:
 
 持久性由插件负责。后端会将同步的 `session/event` 通知复制到固定窗口的持久化批次中；`session/flush` 会绕过等待，在请求与顶层工具分发之前执行，并在 `turn/end` 之后、另一个轮次或空闲状态之前执行。`SessionPersistence` 存储事件和 header 元数据；JSONL 默认采用带校验和的 Zstandard，SQLite 遵循同一约定（[检查点决策](../.agents/notes/implemented/bug-fix/2026-07-21-semantic-session-checkpoints.md)、[批处理决策](../.agents/notes/implemented/architecture/2026-08-08-bounded-session-persistence-write-batching.md)）。
 
-在轮次之间，事件所有者通过 `Session` 追加纯日志事件，仅为持久性而刷写。`session/title` 依赖有界后台持久化与生命周期排空；手动压缩会在操作完成前 flush 其标记对。标题工作绝不延迟响应；最新标题按后写覆盖并携带来源信息。标题记录是可继承的 fork 边界（[决策](../.agents/notes/implemented/feature/2026-07-21-log-backed-session-titles.md)）。
+在轮次之间，事件所有方通过 `Session` 追加纯日志事件，仅为持久性而刷写。`session/title` 依赖有界后台持久化与生命周期排空；手动压缩会在操作完成前 flush 其标记对。标题工作绝不延迟响应；最新的标题事件生效，并记录来源消息 seq，以及标题由用户、后备逻辑还是提供方提供。标题记录是可继承的 fork 边界（[决策](../.agents/notes/implemented/feature/2026-07-21-log-backed-session-titles.md)）。
 
 ### 模型内容
 
 消息使用从可合并扩展的 `ContentBlockMap` 派生的类型化块；同一模式也为 `MessageSource`、`FinishReason`、`TurnTrigger` 和 `TurnEndReason` 定义类型。新增块会协调适配器、UI、压缩、token 计量和持久化；回放计量见 [token-meter.md](subsystems/token-meter.md)。
 
-流式输出使用原始分片和 `BlockAssembler`。每次 `LlmAdapter.stream()` 调用代表一次提供方尝试；适配器报告标准化的故障事实，负责处理的 `agent/request-error` 插件会返回重试动作。循环会记录分片、成功结果的来源信息和回放状态。远程适配器使用逐次读取空闲看门狗。回放仅通过共用的适配器实例跨路由传递（[约定](subsystems/llm-streaming.md)）。
+流式输出使用原始分片和 `BlockAssembler`。每次 `LlmAdapter.stream()` 调用代表一次提供方尝试；适配器报告标准化的故障事实，负责处理的 `agent/request-error` 插件会返回重试动作。循环会记录分片、成功使用的提供方／模型路由和回放状态。远程适配器使用逐次读取空闲看门狗。回放仅通过共用的适配器实例跨路由传递（[约定](subsystems/llm-streaming.md)）。
 
 ## 扩展与组合
 
 ### 能力模式
 
-能力分为**接口／实现／消费方**三层。文件系统与进程管理提供方共同定义一个执行世界；Bash、PTY 和 LSP 都在其中运行，无需提供方专用 fork。参见[能力图](capability-seams.md)。
+一个 **seam** 是一项包含 **Service Definition**、**Service provider** 和 **Consumer** 三种角色的可替换能力。包可以合并承担多个角色；任何单一角色都不是 seam。文件系统与进程管理提供方共享一个执行世界，Bash、PTY 和 LSP 都在其中运行，无需提供方专用 fork（[能力图](capability-seams.md)）。
 
-例外情况包括 LLM（大语言模型）接口／消费方合并、文件系统策略、web 注册表，以及具名 skill/subagent 提供方。subagent 可以通过 spawn 创建全新实例、fork 一个已完成轮次的前缀、使用 ACP（Agent Client Protocol）子 agent，或将一个独立完整的轮次委派给 Codex 等真实产品提供方（[subagent.md](subsystems/subagent.md)）。
+例外情况包括 LLM（大语言模型）Service Definition／消费方角色合并、文件系统策略、web 注册表，以及 skill/subagent 提供方。subagent 可以通过 spawn 创建全新实例、fork 一个已完成轮次的前缀、使用 ACP（Agent Client Protocol）子 agent，或将一个独立完整的轮次委派给 Codex 或其他产品提供方（[subagent.md](subsystems/subagent.md)）。
 
 `dsh-workspace-context` 在第一次 `agent/pre-step` 组合基线并将它折入最终进入的批次、紧随已领取的直接提示词之后，使其与直接提示词一同抵达第一次请求；reject 则将它留在 next-step inbox。当压缩从可见表层移除该基线时，下一次进入步骤的 pre-step 会组合当前基线，并在同一请求中携带它。工具执行后投影的文件系统变更也会折入下一次进入步骤的 pre-step，而不会另外创建稍后的纯上下文步骤（[决策](../.agents/notes/implemented/feature/2026-06-24-workspace-context.md)）。`dsh-paths` 负责共享路径。
 
@@ -189,4 +189,4 @@ idle inject:
 | fork 活跃会话 | 调用 `ctx.sessions.fork(source, boundary?, childSessionId?)` |
 | 将注册项限定到单个 agent | 使用其 `agent.ctx`（参见 Agent 作用域） |
 
-[扩展实操手册（cookbook）](cookbook/extension-cookbook.md)提供插件骨架和功能到 seam 的映射；指南涵盖[包](cookbook/adding-a-package.md)、[工具](cookbook/adding-a-tool.md)、[LLM 适配器](cookbook/adding-an-llm-adapter.md)和 [vendored 包](cookbook/adding-a-vendored-package.md)。
+[扩展实操手册（cookbook）](cookbook/extension-cookbook.md)将功能映射到能力；指南涵盖[包](cookbook/adding-a-package.md)、[工具](cookbook/adding-a-tool.md)、[LLM 适配器](cookbook/adding-an-llm-adapter.md)和 [vendored 包](cookbook/adding-a-vendored-package.md)。

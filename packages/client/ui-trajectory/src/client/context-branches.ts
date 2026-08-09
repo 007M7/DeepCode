@@ -12,7 +12,7 @@ export interface TrajectoryContextBranch {
   contexts: readonly ConversationContext[]
   latest: ConversationContext
   nodes: readonly ConversationNode[]
-  /** Seq that opened this branch; earlier requests require retained surface provenance. */
+  /** Seq that opened this branch; earlier requests require retained cited surface events. */
   startSeq: number
   /** Exact pre-rewind surface records inherited by this branch. */
   retainedSurfaceSeqs: ReadonlySet<number>
@@ -101,7 +101,7 @@ export function deriveTrajectoryContextBranches(
 
 /**
  * Test whether a provider request belongs to one rewind branch.
- * @param branch - Branch carrying exact inherited surface provenance.
+ * @param branch - Branch carrying the exact inherited surface event seqs.
  * @param request - Provider request to classify.
  * @returns Whether the request began on this branch or produced a retained surface record.
  */

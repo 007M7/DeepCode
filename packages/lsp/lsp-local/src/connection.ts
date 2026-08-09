@@ -1,12 +1,12 @@
 /**
  * A JSON-RPC endpoint over one language server spawned through the subprocess
- * seam. Owns id correlation, outbound requests/notifications, and inbound
+ * capability. Owns id correlation, outbound requests/notifications, and inbound
  * server→client requests: it answers `workspace/configuration` from static
  * config, and rejects `workspace/applyEdit` (this host never applies edits or
  * runs commands). It caps stderr, surfaces framing/decoder failures as a
  * fatal close, and exposes tree-scoped termination through the handle so the
- * instance owns teardown; group/tree mechanics live in the seam's
- * implementation.
+ * instance owns teardown; group/tree mechanics live in the subprocess
+ * Service provider.
  * @module @deepseek-ai/dsh-lsp-local/connection
  */
 

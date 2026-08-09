@@ -70,7 +70,7 @@ function versionOf(info: BigIntStats): FsVersion {
 }
 
 /**
- * Test seam: lets specs pin the atomic-write temp names (to prove
+ * Test hook: lets specs pin the atomic-write temp names (to prove
  * exclusive-open behavior without a name race) and observe the staged temp
  * file before it is renamed over the target.
  */
@@ -427,7 +427,7 @@ async function removeStagingDirOrThrow(stagingDir: string, originalError: unknow
  * @param mode - existing destination's POSIX mode to preserve, or `undefined` for a new file;
  * inert as a mode on Windows but identifies replacement security semantics.
  * @param signal - cancellation checked before the final rename.
- * @param internals - test seam for pinning temp names and observing the staged file.
+ * @param internals - Test hook for pinning temp names and observing the staged file.
  */
 export async function writeFileAtomic(
   absolutePath: string,

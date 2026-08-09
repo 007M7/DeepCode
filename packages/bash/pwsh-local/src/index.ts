@@ -1,5 +1,5 @@
 /**
- * Local PowerShell implementation of the bash executor seam. Each command runs
+ * Local PowerShell Service provider for the bash capability seam. Each command runs
  * as `pwsh -NoLogo -NoProfile -NonInteractive -Command <command>` in a managed
  * process spawned through `ctx.subprocess`; the executor owns command
  * defaulting, deadlines and cause classification, the model-friendly terminal

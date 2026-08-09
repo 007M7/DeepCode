@@ -20,7 +20,7 @@ Each fact has one home: the tier whose job it is. Elsewhere, link to that home.
 |---|---|---|
 | Root `AGENTS.md` | Standing orders: rules an agent needs in context in every session, one to three lines each, linking its home | Stories, worked examples, situational procedures, anything restated from a linked home |
 | Subtree `AGENTS.md` (`packages/`, `examples/`, `docs/`, `.agents/notes/`) | Orders specific to that subtree | Repo-wide rules the root file already carries |
-| [architecture.md](architecture.md) | The system map: services, the loop, extension seams — read before changing `packages/` | Type shapes (→ subsystems), per-package detail (→ package READMEs), decision rationale (→ Agent Notes), implementation-status annotations |
+| [architecture.md](architecture.md) | System map: services, loop, capability seams, extension points — read before changing `packages/` | Type shapes (→ subsystems), per-package detail (→ package READMEs), decision rationale (→ Agent Notes), implementation-status annotations |
 | [subsystems/](subsystems/README.md) | One reference page per subsystem: type shapes, semantics, and the generated Cordis surface | Behavior narration (→ architecture.md) |
 | [Agent Notes](../.agents/notes/README.md) | Active decision records: the why, what-was-given-up, and verification contract; `implemented/` notes describe shipped reality in present tense | Migration plans, acceptance-task checklists, fixture walkthroughs, and spec-speak ("should…") once the decision has shipped; archived notes are frozen history, never current authority |
 | [postmortem/](postmortem/README.md) | Incident stories — the only tier where war-story narrative belongs | — |
@@ -42,7 +42,7 @@ Placement: bugs → postmortems; rationale → Agent Notes; procedures → cookb
 - **The owning [subsystems page](subsystems/README.md) updates in the same change** that reshapes a documented type. `verify-type-equiv` catches drifted pastes, not never-documented new types; a type is documented on its declaring package group's page ([page scoping](../.agents/notes/implemented/process/2026-08-03-package-anchored-subsystem-pages.md)).
 - **Bilingual pairs update together**: editing either side obligates the counterpart and a re-record in the same change ([i18n contract](i18n/README.md)).
 - **Comments and JSDoc state complete contracts, not reasoning transcripts.** Preserve behavior, timing, modality, exceptions, consequences, and non-obvious orientation; delete narration, test walkthroughs, review analysis, and code restatement. Keep the local contract and link its rationale. Use [dsh-prose-standard](../.agents/skills/dsh-prose-standard/SKILL.md) for details.
-- Your audience is professional programmers. Prefer concise and straight-forward English over metaphor. Do not overuse words like "gate", "vocabulary", "surface", "seams".
+- Write directly: name actors and facts plainly ([decision](../.agents/notes/implemented/process/2026-08-09-concrete-prose-names-actors-and-recorded-facts.md)). Reserve `seam` for the defined capability; avoid metaphorical "gate", "vocabulary", and "surface".
 
 ## Wordcount Budgets
 
@@ -65,7 +65,7 @@ Hunt these in any doc; the [dsh-doc-standards](../.agents/skills/dsh-doc-standar
 - Implementation-status annotations in prose or diagrams ("implemented!", "future: …"). Status rots; the repo layout and package manifests carry it.
 - Hand-restated catalogs, JSDoc, or inventories of tests, packages, and status when source or a generator is authoritative.
 - Reasoning transcripts: step-by-step implementation narration, proof of obvious branches, test walkthroughs, or rejected local alternatives. Keep the resulting contract or durable rationale; delete the path used to derive it.
-- Rationale repeated beside sibling methods instead of once at the owning seam or helper.
+- Rationale repeated beside sibling methods instead of once at the owning capability or helper.
 - Paragraph walls: one paragraph carrying several rules and parenthetical asides. Split it, or demote the detail to the linked home.
 - Emphasis inflation: bold, CAPS, or "critically" everywhere means nothing stands out. Reserve emphasis for the clause that changes behavior.
 - Spec-speak in `implemented/` Agent Notes: "should", migration plans, acceptance checklists. An implemented Agent Note describes what is, per the [implemented-note instructions](../.agents/notes/implemented/AGENTS.md).

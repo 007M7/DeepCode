@@ -11,7 +11,7 @@ import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
 import * as jsonrpc from '../src/index.ts'
 
 /**
- * Mount the real namespace plugin with in-memory stdio and exit seams. Covers
+ * Mount the real namespace plugin with in-memory stdio and exit hooks. Covers
  * the full transport/server path, response-before-exit shutdown exactly once,
  * and bare-fiber disposal without process exit.
  */

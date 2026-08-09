@@ -34,11 +34,11 @@ export interface HostObservable<T> {
 }
 
 /**
- * Type-erased store instance face at the render seam (the typed twin is
+ * Type-erased store instance face at the render boundary (the typed twin is
  * {@link StoreInstance}): a bare snapshot source plus the draft-stripped
- * action callbacks. No React hook crosses this seam — the render machinery
+ * action callbacks. No React hook crosses this boundary — the render machinery
  * binds `useStore` from the source at its own side (cached per instance);
- * typing lands at the component seam via {@link PropsStore}.
+ * typing lands at the component boundary via {@link PropsStore}.
  */
 export interface StoreInstanceLike {
   getSnapshot(): unknown
@@ -54,7 +54,7 @@ export interface StoreInstanceLike {
 /**
  * Per-session standard props resolved per session id (identity-stable per
  * session scope; a recreated scope yields a new info). Plugins contribute
- * members through the runtime `sessions.provide` seam; the render side binds
+ * members through the runtime `sessions.provide` contract; the render side binds
  * every `hooks` source into a `use<Name>` selector hook (hooks never appear
  * on the host contract) and spreads `props` verbatim. The runtime itself
  * contributes the first entry (`'session'` → `useSession`).
@@ -161,7 +161,7 @@ export interface SlotRendererHost {
   locale?: LocaleFace | undefined
 }
 
-/** The install seam: runtime owns install()/renderSlot(); web-react implements rendering. */
+/** The installation contract: runtime owns install()/renderSlot(); web-react implements rendering. */
 export interface SlotRenderer {
   /**
    * Render the root slot tree over the host surface (the only ctx-level entry).

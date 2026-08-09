@@ -1,7 +1,7 @@
 /**
  * Read-only enumeration of durable subagent children and descendant trees
  * straight from the live session store and optional session persistence — no
- * query seam. Candidates come from one live-preferred corpus; each child's
+ * query service. Candidates come from one live-preferred corpus; each child's
  * mode/label is the registered `subagent` projection unit's value, resolved
  * down a three-rung ladder: the registry's watermark cache for a live child,
  * a durable projection-cache row when it serves an own-suffix identity (the

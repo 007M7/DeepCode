@@ -91,7 +91,7 @@ function bench(options: {
     locate: () => undefined,
   })
   // The gateway's own projection push feed subscribes at construction; the
-  // no-op disposer keeps that seam quiet while these tests pin history reads.
+  // no-op disposer keeps that feed quiet while these tests pin history reads.
   ctx.provide('sessionProjections', { snapshot, restore, onChanged: () => () => {} })
   ctx.provide('userInteraction', { registerProvider: () => () => {} })
   const api = createApiProxy(ctx, {

@@ -4,7 +4,7 @@
  * registers the factory), materialization on first import/require with
  * memoization and recursive self-sequencing, the resolution branch order,
  * shared in-flight arrival, invalidate-refetch (HMR), style claiming, the
- * default transport seam, and the loud failure modes (duplicate
+ * default transport hook, and the loud failure modes (duplicate
  * registration, cycles, table misses, double boot).
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'

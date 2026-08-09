@@ -165,7 +165,7 @@ function readEnvLayer(
  * Load the product CLI's inherited > invoking-directory `.env` > Harness-home
  * `.env` snapshot. The Harness home resolves before either file; both files
  * are checked before either is applied, and accepted values are materialized
- * without replacing inherited ones. The snapshot preserves source provenance.
+ * without replacing inherited ones. The snapshot preserves which layer supplied each value.
  * @param binName - the diagnostic prefix on the diagnostics.
  * @param cwd - the invoking directory whose `.env` is the project layer.
  * @param warn - sink for the one-line misconfiguration diagnostics.
@@ -335,9 +335,9 @@ function parsePatchList(
   return parsed as PatchOptions[]
 }
 
-/** One overlay patch list with the label provenance comments print for it. */
+/** One overlay patch list with the source label printed in dump comments. */
 export interface ConfigDumpLayer {
-  /** Source name shown in provenance comments (a file basename or path). */
+  /** Source name shown in dump comments (a file basename or path). */
   label: string
   /** The layer's patches, from {@link loadOverlayPatches} / {@link loadOptionalPatches}. */
   patches: PatchOptions[]
@@ -353,10 +353,10 @@ export interface ConfigDumpLayer {
  * sees) compose identically — then render the result as YAML in the same
  * dialect (`!!js` expressions print verbatim, unevaluated).
  *
- * Every run of rows with the same provenance is preceded by a `# ==` comment
+ * Every run of rows from the same file and patch layers is preceded by a `# ==` comment
  * naming the file that contributed the rows and any layers that patched them,
  * so the output stays a loadable YAML document while showing which section
- * comes from which file. Provenance is derived from single-call prefix
+ * comes from which file. The file and patch labels are derived from single-call prefix
  * snapshots (base + layers 1..k), diffed positionally: the patch algorithm
  * only rewrites rows in place or appends, so a top-level index identifies one
  * row across snapshots, and a layer whose addition changes the row (config
@@ -372,7 +372,7 @@ export interface ConfigDumpLayer {
  * @param layers - overlay layers in application order (later wins).
  * @param warn - sink for skipped-patch diagnostics; defaults to stderr.
  * @returns the composed entry list rendered as a YAML document with
- * provenance comment separators.
+ * source comment separators.
  */
 export function renderConfigDump(
   binName: string,
@@ -439,7 +439,7 @@ export function renderConfigDump(
   return groupedDump(composed, provenance)
 }
 
-/** Render the composed rows grouped under one provenance comment per contiguous run. */
+/** Render the composed rows grouped under one source-and-patches comment per contiguous run. */
 function groupedDump(
   composed: readonly unknown[],
   provenance: readonly { origin: string; patchedBy: string[] }[],
@@ -455,7 +455,7 @@ function groupedDump(
   }
   for (let index = 0; index < composed.length; index += 1) {
     const record = provenance[index]
-    /* v8 ignore next -- provenance is index-aligned with composed by construction */
+    /* v8 ignore next -- this array is index-aligned with composed by construction */
     if (record === undefined) continue
     const label = record.patchedBy.length === 0
       ? record.origin

@@ -1,5 +1,5 @@
 /**
- * Model-facing `pwsh` tool over the `ctx.bash` executor seam. Intended for
+ * Model-facing PowerShell Consumer of the `ctx.bash` capability seam. Intended for
  * Windows compositions where a PowerShell executor (e.g.
  * `@deepseek-ai/dsh-pwsh-local`) backs `ctx.bash`; the tool contract is
  * PowerShell-dialect: native `C:\...` paths and `$env:NAME` variables.
@@ -157,7 +157,7 @@ function resolveWorkdir(modelWorkdir: string | undefined, exec: { agent?: Agent 
   return modelWorkdir
 }
 
-/** Detach the executor DTO from readonly seam interfaces into plain JSON data. */
+/** Detach the executor DTO from readonly Service Definition types into plain JSON data. */
 function canonicalPwshResult(result: BashRunResult): PwshForegroundResult {
   const output = (stream: BashRunResult['stdout']) => ({
     text: stream.text,

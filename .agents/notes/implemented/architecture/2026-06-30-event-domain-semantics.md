@@ -10,7 +10,7 @@ The harness extends the agent loop through a Cordis event taxonomy (see [the mic
 
 - `session/*` carries the durable, event-sourced log (`SessionEventMap`).
 - `agent/*` carries live runtime signals that hand a plugin the `Agent` handle.
-- `tools/*` carries the tool registry + execution seam.
+- `tools/*` carries the tool registry and execution pipeline.
 
 Two problems motivated pinning the semantics down. First, several turn/step boundaries existed BOTH as a durable `SessionEvent` (`turn/start`, `turn/end`, `step/start`, `step/end`) AND as a mirrored `agent/*` emit (`agent/turn-start`, `agent/turn-end`, `agent/step-start`, `agent/step-end`). A consumer had two sources of truth for the same fact, and every lifecycle change had to update both. Second, the upcoming Hooks subsystem needs ONE coherent, documented surface to subscribe to — a plugin author (and the Claude Code / Codex hook bridges built on top) must know, without reading the loop, whether to listen on a session event or an agent event, and why.
 
@@ -22,7 +22,7 @@ This vocabulary is the foundation for interception decisions, the durable `hook/
 
 - **`session/*` — the durable, replayable FACT log.** Owns `SessionEventMap`; every entry is JSON-only (no live objects). One `session/event` emit per append, plus the `session/flush` parallel durability checkpoint. It is also the live transcript feed: a consumer that wants to render or react to what happened subscribes here, so live rendering and replay projections share one path.
 - **`agent/*` — the LIVE runtime surface.** Always carries the live `Agent`. Interception waterfalls (`agent/pre-step`, `agent/request`, `agent/request-error`) transform, reject, or recover; awaited `agent/turn-stopping` observes the stop boundary; transient emits report lifecycle, status, inbox insertion/claim/discard, and errors. Turn and step BOUNDARIES are NOT here — they are durable session events read off `session/event`, as are the token stream (`assistant/chunk`) and mid-turn steering (a `user/message`).
-- **`tools/*` — the tool registry + execution seam.**
+- **`tools/*` — the tool registry and execution pipeline.**
 
 **The boundary rule:** a durable, replayable fact is a `SessionEvent`; a live interception or a transient/live-object signal is an `agent`/`tools` Cordis event. A turn or step boundary is a durable fact, so it lives in the session log and is read off the `session/event` feed — it is NOT mirrored as an `agent/*` emit.
 

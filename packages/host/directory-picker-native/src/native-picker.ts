@@ -42,7 +42,7 @@ function rethrowIfAborted(signal: AbortSignal, error: unknown): void {
 /**
  * Open the platform directory picker.
  * @param signal - caller/connection lifetime; abort terminates the native command.
- * @param internals - platform and runner seam for deterministic tests.
+ * @param internals - Platform and runner hooks for deterministic tests.
  * @returns the selected path, or null when the user cancels.
  */
 export async function pickNativeDirectory(

@@ -1068,7 +1068,7 @@ describe('ToolRegistry', () => {
 
     const result = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('c1'), name: 'traced', arguments: { text: 'hi' } })
     expect(result).toEqual({ content: [{ type: 'text', text: 'hi' }], isError: false, value: [{ type: 'text', text: 'hi' }] })
-    // The around seam wraps dispatch; pre gates before it, post runs over its result.
+    // The around-dispatch extension point wraps dispatch; pre gates before it, post runs over its result.
     expect(order).toEqual(['pre', 'execute:before', 'dispatch', 'execute:after', 'post'])
   })
 
@@ -1646,7 +1646,7 @@ describe('ToolRegistry', () => {
     const result = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
     expect(result.isError).toBe(true)
     expect(result.content[0]).toMatchObject({ text: 'Error: nope' })
-    expect(entered).toBe(false) // a denied call never enters the around-dispatch seam
+    expect(entered).toBe(false) // A denied call never enters the around-dispatch extension point.
   })
 
   it('a thrown tool is normalized to an isError result BEFORE a tools/execute listener sees next()', async () => {

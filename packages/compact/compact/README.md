@@ -2,21 +2,21 @@
 
 English | [中文](README.zh.md)
 
-The **compaction seam**: an abstract `CompactService` (`ctx.compact`) defining WHAT compaction does — decide when history is too large and summarize an older range into a single surface node — without saying HOW.
+The **`CompactService`** (`ctx.compact`) defines WHAT compaction does — decide when history is too large and summarize an older range into a single surface node — without saying HOW.
 
-This package is the interface tier of the compaction capability, split so each concern evolves (and swaps) independently:
+This package owns the Service Definition role of the compaction capability, split so each role evolves (and swaps) independently:
 
 | Package | Role |
 |---|---|
-| `@deepseek-ai/dsh-compact` (this) | the interface: abstract service + `compact/*` events + `CompactionResult` + canonical checkpoint source + tool-pairing boundary helpers |
-| `@deepseek-ai/dsh-compact-basic` | a backend: `ctx.tokenMeter` pressure + token-budget retention + `llm.stream()` summarization |
-| `@deepseek-ai/dsh-command-compact` | the human `/compact` command over `ctx.compact.compactNow()` |
+| `@deepseek-ai/dsh-compact` (this) | Service Definition: abstract service + `compact/*` events + `CompactionResult` + canonical checkpoint source + tool-pairing boundary helpers |
+| `@deepseek-ai/dsh-compact-basic` | Service provider: `ctx.tokenMeter` pressure + token-budget retention + `llm.stream()` summarization |
+| `@deepseek-ai/dsh-command-compact` | Consumer: the human `/compact` command over `ctx.compact.compactNow()` |
 
-Unlike the bash seam, this interface depends on `@deepseek-ai/dsh-session` and `@deepseek-ai/dsh-llm` — the contract's verbs are defined over a `Session` and its output is the `ContentBlock` vocabulary, so they cannot be expressed without naming those packages. That deviation from the "interface depends only on cordis" guidance is intentional and recorded in the [compaction capability-seam Agent Note](../../../.agents/notes/implemented/feature/2026-06-18-compaction-capability-seam.md).
+Unlike the bash seam, this Service Definition depends on `@deepseek-ai/dsh-session` and `@deepseek-ai/dsh-llm` — the contract's verbs are defined over a `Session` and its output is the `ContentBlock` vocabulary, so they cannot be expressed without naming those packages. That deviation from the "Service Definition depends only on cordis" guidance is intentional and recorded in the [compaction capability-seam Agent Note](../../../.agents/notes/implemented/feature/2026-06-18-compaction-capability-seam.md).
 
 ## Service API (`ctx.compact`)
 
-All three operations are **abstract** — the backend owns trigger policy, retention, event sequencing, and summarization. Reusable request measurement is a separate service, [`ctx.tokenMeter`](../../llm/token-meter/README.md), rather than part of this interface.
+All three operations are **abstract** — the backend owns trigger policy, retention, event sequencing, and summarization. Reusable request measurement is a separate service, [`ctx.tokenMeter`](../../llm/token-meter/README.md), rather than part of this Service Definition.
 
 | Member | Semantics |
 |---|---|
@@ -32,7 +32,7 @@ All three operations are **abstract** — the backend owns trigger policy, reten
 
 ## Tool-pairing boundaries
 
-The interface exports `toolPairingBalancedBefore(session, seq)` and `toolPairingBalancedAfter(session, seq)` for snapping and validating compaction edges. A safe edge has no unanswered assistant tool call crossing it. Each helper validates that the event sequence is in the current surface and answers from balances cached per cut in surface order.
+The Service Definition exports `toolPairingBalancedBefore(session, seq)` and `toolPairingBalancedAfter(session, seq)` for snapping and validating compaction edges. A safe edge has no unanswered assistant tool call crossing it. Each helper validates that the event sequence is in the current surface and answers from balances cached per cut in surface order.
 
 The private per-session cache is keyed by `session.surface.replaceGeneration` and the processed surface-entry count. An unchanged generation extends the fold with unseen tail entries only; a log-only append with no new surface entry does no event reads, while a replacement generation rebuilds current membership and balances. Missing event seqs and a `tool/result` without a preceding open call reject as corrupt surface state.
 
@@ -42,7 +42,7 @@ The private per-session cache is keyed by `session.surface.replaceGeneration` an
 
 1. appends `compact/start` (log-only) — acquires the lock,
 2. summarizes the range,
-3. appends `compact/summary` (log-only) — provenance: summary, range, shadowed seqs, token count, and provider/model call envelope,
+3. appends `compact/summary` (log-only) with the summary, range, shadowed seqs, token count, and provider/model call envelope,
 4. appends a single `user/message` with `source: COMPACT_CHECKPOINT_SOURCE` and `surfaceOp: { op: 'replace', start, end }` carrying the summary — **the only surface mutation in this operation**,
 5. appends `compact/end` (log-only) — releases the lock.
 
@@ -80,7 +80,7 @@ A successful implementation replaces an older surface range with one user-role s
 
 #### Token effect
 
-Zero direct tokens from this interface. A backend trades many retained history tokens for one summary and leaves the recent tail unchanged.
+Zero direct tokens from this Service Definition. A backend trades many retained history tokens for one summary and leaves the recent tail unchanged.
 
 #### KV Cache effect
 

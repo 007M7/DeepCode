@@ -24,7 +24,7 @@ E2B 默认基础镜像提供该适配器调用的运行时和 Bash/GNU 工具：
 
 ## 模型体验
 
-通过消费方 seam 间接影响模型，例如 `dsh-tool-bash` 背后的 Bash 执行器；这些消费方会渲染远程输出、退出事实、后台增量和 spill 路径。
+通过 Consumer 间接影响模型，例如 `dsh-tool-bash` 背后的 Bash 执行器；这些 Consumer 会渲染远程输出、退出事实、后台增量和 spill 路径。
 
 #### KV Cache 影响
 

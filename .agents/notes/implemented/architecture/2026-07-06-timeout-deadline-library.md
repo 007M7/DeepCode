@@ -97,7 +97,7 @@ The signal only *notifies*; termination is always the listener's job, and the li
 
 ## Consequences
 
-- `runBash`'s outcome no longer independently latches `timedOut` and `aborted`; a timeout and a user abort racing before process close now report a single first-abort cause instead of both being true. The uniform SIGTERM→grace→SIGKILL kill is unchanged, and the seam type `BashRunResult` keeps both booleans (now mutually exclusive), so `dsh-tool-bash`'s result rendering is untouched.
+- `runBash`'s outcome no longer independently latches `timedOut` and `aborted`; a timeout and a user abort racing before process close now report a single first-abort cause instead of both being true. The uniform SIGTERM→grace→SIGKILL kill is unchanged, and the Service Definition type `BashRunResult` keeps both booleans (now mutually exclusive), so `dsh-tool-bash`'s result rendering is untouched.
 - `SpawnSpec.timeoutMs` and `SpawnOutcome.timedOut`/`aborted` were removed rather than kept as always-zero/always-false vestiges: with `runBash` owning no timer and the executor owning classification, they were read nowhere. This is the one deviation from the literal proposal shape (which passed `timeoutMs: 0` into `runBash`); an always-0 field read by nothing is dead weight under the per-file coverage gate.
 - web_fetch shed its bespoke controller/timer/listener/reason-recovery; the classifier now keys off the deadline signal (`timeoutOf` + `aborted`) rather than the thrown error's shape, which is robust across both the request-phase reject-with-reason and the read-phase bare-`AbortError`.
 - `AbortSignal.any` and `using`/`Symbol.dispose` enter the repo for the first time here (Node ≥ 24 baseline, already met).

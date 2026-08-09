@@ -417,7 +417,7 @@ describe('Session', () => {
     }
   })
 
-  it('round-trips adapter-default provenance and rejects invalid durable values', () => {
+  it('round-trips adapter-default markers and rejects invalid durable values', () => {
     const valid = {
       type: 'request/header',
       seq: 0,

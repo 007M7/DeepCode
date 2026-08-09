@@ -30,9 +30,9 @@ Status: implemented
 
 **强制执行。** `dsh-agent-loop/invariant` 配套插件向 `ctx.invariants` 注册，并在被选用时通过一个全新的 `Session` 独立重建每个循环请求，使活跃缓存无法为自身背书，然后在 `llm/stream` 处比较消息和折叠后的 header 字段。循环通过 `dsh-llm` 的 `markAgentLoopRequest()` 记录精确的冻结请求；这一进程内标识让配套插件和其他请求观察者识别对话工作，而直接的一次性调用无论其冻结形状或会话 id 如何都保持排除。正确性依赖于序列有界的重建，而非监听器顺序。带密钥的 e2e 要求首次请求之后有正值的 cache-read token；逐步骤用量是生产信号，header 变更或压缩表现为下一步骤的 cache-read 下降。
 
-### MiniCode 形态：采纳，但溯源箭头反转
+### MiniCode 形态：采纳，以事件日志为真源
 
-与 MiniCode 相同，对话仅追加推进，仅在模型可见状态变更时重置。与 MiniCode 不同，事件日志仍是真源，因为它同时拥有持久化、恢复、边界、工具配对和溯源。`Session` 缓存从日志推导的消息和 header 折叠结果，使每个请求都可独立检查。
+与 MiniCode 相同，对话仅追加推进，仅在模型可见状态变更时重置。与 MiniCode 不同，事件日志仍是真源，因为它同时拥有持久化、恢复、边界、工具配对，并记录派生事件到其输入事件的关联。`Session` 缓存从日志推导的消息和 header 折叠结果，使每个请求都可独立检查。
 
 ## 曾考虑的替代方案
 
@@ -47,9 +47,9 @@ Status: implemented
 ## 后果
 
 - 一个日志无法解释的请求不可能被意外构造——无论是循环还是监听器；变异已构建的请求会抛异常；每个 header 变更都是持久的、可 diff 的日志事件。
-- 模型可见上下文使用已记录消息通道。`agent.inject()` 与工具 `additionalContexts` 进入 inbox，等待后续领取；必须与当前已领取批次一起结算的上下文由 `agent/pre-step` 返回。每个进入步骤的值都是带来源的持久 `user/message`，只付出一次代价，此后即被前缀缓存，代价是会在历史中累积直至压缩。
-- 在提供方处仍需全价计算的内容是固有的且已记录的：压缩（其 `compact/*` 事件和替换条目）、真正的提示词、工具或配置变更（reason 为 `change` 的 `request/header`），或带漂移的进程边界（不同的 `resume` 快照）。提供方自身对思考内容的排除由服务端管理。
-- `agent/pre-step` 是当前请求的消息 seam；直接修改 inbox 则是最终进入后续请求的 seam。
-- 工具结果裁剪（计划中）无需新机制：一个已记录的单条目 surface replace（`start === end`），携带同一 `callId` 下裁剪后的 `tool/result`——属压缩家族，回放正确，缓存失效由相同的压力逻辑批量处理。
+- 模型可见上下文使用已记录消息通道。`agent.inject()` 与工具 `additionalContexts` 进入 inbox，等待后续领取；必须与当前已领取批次一起结算的上下文由 `agent/pre-step` 返回。每个进入步骤的值都是带来源的持久 `user/message`，只付出一次代价并在后续成为可缓存前缀，代价是会在历史中累积直至压缩。
+- 在提供方处仍需全价计算的内容是固有的且已记录的：压缩（其 `compact/*` 事件和替换条目）、真正的提示词、工具或配置变更（reason 为 `change` 的 `request/header`），或带漂移的进程边界（不同的 `resume` 快照）。提供方自身的 reasoning-content 排除由服务端管理。
+- `agent/pre-step` 是当前请求的消息通道；直接修改 inbox 则是最终进入后续请求的通道。
+- 工具结果裁剪（计划中）无需新机制：一个已记录的单条目 surface replace（`start === end`），携带同一 `callId` 下裁剪后的 `tool/result`——属压缩家族，回放正确，缓存击穿由相同的压力逻辑批量处理。
 - 会话日志每个循环实例增长一个 `request/header` 快照，并在真正变更时增加快照。它比 delta 编解码器更大，但相对分片密集型日志仍然很小，并只保留一种回放表示。`SESSION_FORMAT_VERSION` 保持 `0`；旧的 delta 事件被拒绝而非迁移。
 - 快照预期输出变更一次（每个 transcript（文本记录）增加其 header 事件）；写入文件系统的 fixture（测试前置数据）以规范化的撰写形式存储，工具参数使用 cwd 相对路径，因为回放只对 cwd 无关的参数路径做往返。

@@ -12,7 +12,7 @@
  * `window.__DSH_BOOT__` into the two-view BootManifest (wire boundary, D16)
  * → build the module system over the module-view rows → render the loading
  * page → prefetch every `immediately` row in parallel with mounting the
- * vendored cordis Loader (internal-seam injection BEFORE any entry exists —
+ * vendored cordis Loader (`internal` contract injection BEFORE any entry exists —
  * the bare-import fallback in tree.import must never run in a browser) →
  * await the prefetch tier, THEN adopt the modules entry and create one
  * loader entry per plugin-view row plus the shell-own app-shell assembly
@@ -47,7 +47,7 @@ import { getStaticModules } from './seed.ts'
 import { STATE_LABELS, createLoaderStatusStore, createSignal } from './loader-status.ts'
 import './base.css'
 
-/** Module transport seam the shell passes through (jsdom tests replace the <script> path). */
+/** Module transport hook the shell passes through (jsdom tests replace the <script> path). */
 export type BootSeams = Pick<ClientModuleSystemOptions, 'loadBundle'>
 
 /**
@@ -80,7 +80,7 @@ export class AppWebEntry {
   /**
    * Hold the mount point; all work happens in {@link run}.
    * @param el - mount point (the app's #root).
-   * @param seams - optional module transport overrides (test environments).
+   * @param seams - Optional module transport overrides for test environments.
    */
   constructor(el: HTMLElement, seams?: BootSeams) {
     this.el = el
@@ -157,7 +157,7 @@ export class AppWebEntry {
       })))
   }
 
-  /** Plugin face: mount the Loader, inject the internal seam, adopt modules, create the graph entries, settle, sweep. */
+  /** Plugin face: mount the Loader, inject the `internal` contract, adopt modules, create the graph entries, settle, sweep. */
   private async runPluginBoot(prefetching: Promise<void>): Promise<void> {
     const ctx = this.ctx
     await ctx.plugin(Loader)

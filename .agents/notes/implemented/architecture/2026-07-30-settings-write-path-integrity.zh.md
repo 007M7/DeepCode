@@ -8,9 +8,9 @@ Status: implemented
 
 ## 问题
 
-评审发现，提供方的写路径可能销毁它从未观察到的状态，而 seam 的观察者生命周期会泄漏到 dispose 之后。具体而言：watcher 重载与文档写入跑在两条相互独立的 promise 链上，而每次写入都从缓存文本渲染出完整的下一份文档，于是仍处于防抖窗口内的外部编辑会被覆盖——随后的重载又因 rename 后的内容与缓存一致而成为空操作，这次编辑就被无痕抹去。初始 `load()` 与 watcher 自身的建立过程存在竞态，留下一个启动窗口：落在这个窗口内的变更永远不会触发事件。共享同一 harness home 的两个进程各自从独立的缓存渲染，后写者以整个 namespace 为单位胜出。
+评审发现，提供方的写路径可能销毁它从未观察到的状态，而 Service Definition 的观察者生命周期会泄漏到 dispose 之后。具体而言：watcher 重载与文档写入跑在两条相互独立的 promise 链上，而每次写入都从缓存文本渲染出完整的下一份文档，于是仍处于防抖窗口内的外部编辑会被覆盖——随后的重载又因 rename 后的内容与缓存一致而成为空操作，这次编辑就被无痕抹去。初始 `load()` 与 watcher 自身的建立过程存在竞态，留下一个启动窗口：落在这个窗口内的变更永远不会触发事件。共享同一 harness home 的两个进程各自从独立的缓存渲染，后写者以整个 namespace 为单位胜出。
 
-在 seam 一侧，`watch()` 的释放器只把观察者从集合中移除——已经接到 watcher 链尾的调用在 dispose 之后照常运行，服务 dispose 时也没有任何环节排空已启动的调用；`settings/updated` 的手动扇出只捕获同步抛错，异步监听器的 rejection 会以 unhandled rejection 的形式逃逸；`structuredClone` 则放行 Date、Map、BigInt 与循环引用，而 YAML/JSON 存储会在重载往返中悄悄扭曲这些值（Date 会变成时间戳字符串，BigInt 会变成普通数字）。
+在 Service Definition 一侧，`watch()` 的释放器只把观察者从集合中移除——已经接到 watcher 链尾的调用在 dispose 之后照常运行，服务 dispose 时也没有任何环节排空已启动的调用；`settings/updated` 的手动扇出只捕获同步抛错，异步监听器的 rejection 会以 unhandled rejection 的形式逃逸；`structuredClone` 则放行 Date、Map、BigInt 与循环引用，而 YAML/JSON 存储会在重载往返中悄悄扭曲这些值（Date 会变成时间戳字符串，BigInt 会变成普通数字）。
 
 YAML 写入则整体替换 namespace 节点，把分节内的每条注释都删掉——而这个保注释的提供方承诺过要保住它们。
 
@@ -32,7 +32,7 @@ YAML 写入则整体替换 namespace 节点，把分节内的每条注释都删�
 - **用修订号/CAS 取代锁**——rename 表达不了 compare-and-swap，因此 CAS 需要一个版本伴随文件或内容重哈希，外加每个写方里的一个重试循环；锁用一个原语实现同样的串行化，还让读方完全免锁。
 - **把外部编辑合并进正在进行的写入自身的分节**——seam 是在调用时刻可见的状态之上合并 patch 的，因此与写入竞态的同 namespace 外部编辑仍按后写胜出解决；要把外部编辑并进来，需要三方合并语义，而没有任何消费方提出过这种需求。写入会先发布外部状态，落败一方至少在被取代之前被观察到。
 - **宣布不支持异步 `settings/updated` 监听器**——类型签名是 `void`，lint 也会标记误用的 promise，但未经 lint 的 JS 插件仍能注册异步监听器；约定里的一句说明无法收回已经抛出的 unhandled rejection，收容是唯一在运行时守得住的防线。
-- **保留 `structuredClone`、在提供方里做校验**——seam 才是持久化边界的所有者（每个提供方存储的都是 JSON 形态文档），而且在调用时刻拒绝能把违规值的路径给到调用方；提供方侧的检查要到合并之后才拒绝，归咎的是合并后的分节，而不是调用方传入的值。
+- **保留 `structuredClone`、在提供方里做校验**——Service Definition 才是持久化边界的所有者（每个提供方存储的都是 JSON 形态文档），而且在调用时刻拒绝能把违规值的路径给到调用方；提供方侧的检查要到合并之后才拒绝，归咎的是合并后的分节，而不是调用方传入的值。
 
 ## 后果
 

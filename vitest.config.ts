@@ -24,7 +24,7 @@ const windowsUnsupportedPackages = process.platform === 'win32'
       // The pwsh-requiring suites (pwsh-local, tool-pwsh) deliberately stay
       // INCLUDED: PowerShell ships with Windows, so they run natively here.
       // Replacing the old 'packages/bash/*' glob with this explicit list also
-      // newly INCLUDES packages/bash/bash (the pure seam package) on Windows.
+      // newly INCLUDES packages/bash/bash (the Service Definition package) on Windows.
       'packages/bash/bash-local',
       'packages/bash/bash-sandbox',
       'packages/bash/tool-bash',

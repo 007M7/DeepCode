@@ -16,7 +16,7 @@ export const name = 'session-title-invariant'
 export const inject = ['invariants']
 
 /**
- * Durable title-provenance invariant: an automatic title always cites at
+ * Durable title-source invariant: an automatic title always cites at
  * least one human `user/message` seq, and an explicit user rename cites none
  * — `messageSeqs` is empty iff `source.kind` is `user`. Provider revisions
  * are validated by the service before their append; this checks the durable
@@ -32,7 +32,8 @@ const install: InvariantInstaller = Object.assign((ctx: Context, fail: Invariant
     if (event.type !== 'session/title') return
     const { source, messageSeqs } = event.data
     if ((messageSeqs.length === 0) !== (source.kind === 'user')) {
-      fail(`session/title event ${String(event.seq)} breaks provenance: source "${source.kind}" with ${String(messageSeqs.length)} cited message seq(s)`)
+      const requirement = source.kind === 'user' ? 'cite no message seqs' : 'cite at least one message seq'
+      fail(`session/title event ${String(event.seq)} with source "${source.kind}" must ${requirement}; got ${String(messageSeqs.length)}`)
     }
   }, { global: true })
 }, { inject: ['sessions'] })

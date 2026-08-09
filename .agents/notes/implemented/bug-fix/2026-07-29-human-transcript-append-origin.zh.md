@@ -6,7 +6,7 @@ Status: implemented
 
 ## Problem
 
-终端与宿主历史网关都把模型可见的 surface 当作人类可读记录（transcript）。一次成功的压缩（compaction）会用一个检查点节点替换一段 surface 范围，因此该替换一落地，终端就丢弃了它所遮蔽的每条消息——那些是用户已经读过的对话——并在此后任何替换到来时重新执行这次破坏性重建。同样的混淆也波及分页：`maxMessages` 统计窗口内的每个 `user/message` 和 `assistant/message`，于是仅供模型使用的替换副本占用了一个人类从未填充的页面额度，而切分点还可能落在压缩的仅日志溯源信息与引用它的替换之间。
+终端与宿主历史网关都把模型可见的 surface 当作人类可读记录（transcript）。一次成功的压缩（compaction）会用一个检查点节点替换一段 surface 范围，因此该替换一落地，终端就丢弃了它所遮蔽的每条消息——那些是用户已经读过的对话——并在此后任何替换到来时重新执行这次破坏性重建。同样的混淆也波及分页：`maxMessages` 统计窗口内的每个 `user/message` 和 `assistant/message`，于是仅供模型使用的替换副本占用了一个人类从未填充的页面额度，而切分点还可能落在压缩的仅日志 `compact/summary` 事件与引用它的替换之间。
 
 日志本身没有丢失任何内容。`Session.events` 仍保存着每条原始消息和完整的工具结果；surface 只决定接下来发送给模型的内容。缺陷完全在投影层。
 
@@ -18,13 +18,13 @@ Status: implemented
 
 检查点通过压缩接缝自身的约定来识别——`isCompactCheckpointSource`，即 `CompactService` 要求替换用户消息携带的、与后端无关的标记——因此终端依赖的是已声明的词汇，而不是替换的形态。`dsh-session-reference` 已经在用该谓词投影另一个会话的日志；这里只是另一个读者提出同样的问题。其他替换保持静默：被裁剪的 `tool/result` 与重新生成的 `assistant/message` 只是为模型重写一个节点，并不在对话中标出边界。
 
-`session.history` 只把追加来源的消息计入 `maxMessages`。每一页仍是一段连续的原始事件区间，因此压缩的 `compact/summary` 溯源信息会与引用它的替换留在同一页。
+`session.history` 只把追加来源的消息计入 `maxMessages`。每一页仍是一段连续的原始事件区间，因此压缩的 `compact/summary` 事件会与引用它的替换留在同一页。
 
 持久事件、RPC 信封、压缩事务与模型可见的 surface 都没有变化，也不需要迁移。
 
 ## Deferred
 
-浏览器客户端在[Web 记录投影笔记](2026-07-30-web-transcript-log-ordered-projection.md)中单独修复：它按日志顺序投影同一份 append 来源记录并渲染一个标记组件，同时闭合本次变更打开的分页缺口——因为 `session.history` 不再为检查点消耗额度，它永远不会按检查点的溯源分组切分，于是一页可以携带一个引用了窗口之外 `surfaceOp.start` 的检查点，而浏览器的 surface fold 会拒绝该范围。这个缺口早于本次变更（此前计数就可能越过检查点进入它所遮蔽的范围），但旧规则恰好覆盖了这样一种情形：检查点是最旧的被计数消息，其溯源分组把整段被遮蔽的范围一起拉到该页。
+浏览器客户端在[Web 记录投影笔记](2026-07-30-web-transcript-log-ordered-projection.md)中单独修复：它按日志顺序投影同一份 append 来源记录并渲染一个标记组件，同时闭合本次变更打开的分页缺口——因为 `session.history` 不再为检查点消耗额度，它永远不会在检查点与检查点引用的来源事件这个整体内切分，于是一页可以携带一个引用了窗口之外 `surfaceOp.start` 的检查点，而浏览器的 surface fold 会拒绝该范围。这个缺口早于本次变更（此前计数就可能越过检查点进入它所遮蔽的范围），但当检查点是最旧的被计数消息时，旧分页规则会把整段被遮蔽的范围放在同一页。
 
 终端的[已归档实时压缩进度决策](../../archived/feature/2026-07-30-compaction-progress-visibility.md)使用独立标记对中的事件驱动现有的单格指示器。它既不改变本文所负责的完成标记，也不添加规模信息：检查点的 `sourceEventSeqs` 仍可供经另行论证的计数或区间使用。因此，进度显示既不需要修改标记内容，也不以提取 `renderReplacement(event)` 为前置条件。
 

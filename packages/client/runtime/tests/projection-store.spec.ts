@@ -14,7 +14,7 @@ import { SessionManager } from '../src/client/sessions/manager.ts'
 import { FakeApiClient, ok } from './fake-api.ts'
 import { entries, plainTurn } from './event-script.ts'
 
-// Test-domain keys merged into the projection map (the interface package's
+// Test-domain keys merged into the projection map (the Service Definition package's
 // pure-type outlet), the same way domain host plugins merge theirs.
 declare module '@deepseek-ai/dsh-session-projection/types' {
   interface SessionProjectionMap {

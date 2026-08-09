@@ -623,7 +623,7 @@ Source: [`packages/support/invariants/src/index.ts:15`](../packages/support/inva
 Requires: `agents`
 
 ```ts config-catalog
-/** JSON-RPC deployment config plus runtime-only test seams. */
+/** JSON-RPC deployment config plus runtime-only test hooks. */
 export interface JsonRpcConfig {
   /** Report max-token turn/subagent termination as a successful SDK result. */
   maxTokensAsSuccess?: boolean
@@ -1216,9 +1216,10 @@ export interface Config {
    * Override the runner argv; bwrap-shaped profile arguments are appended. A
    * non-empty override asserts full enforcement and skips built-in selection and
    * probing. A runner that starts but refuses its profile must be identifiable by
-   * {@link runnerFailureSignatures}. Consumers classify spawn rejection; only
-   * attributable `ENOENT` or `EACCES` with runner argv[0] provenance becomes an
-   * infrastructure failure.
+   * {@link runnerFailureSignatures}. Consumers classify a spawn rejection only after
+   * confirming the workdir is usable. `ENOENT` or `EACCES` identifies the runner when
+   * `error.path` equals argv[0] and `error.syscall` is `spawn` or `spawn <runner>`, or
+   * when `error.path` is absent and `error.syscall` is exactly `spawn <runner>`.
    */
   runnerCommand?: string[]
   /**
@@ -1534,7 +1535,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/skill/skill/src/index.ts:265`](../packages/skill/skill/src/index.ts)
+Source: [`packages/skill/skill/src/index.ts:266`](../packages/skill/skill/src/index.ts)
 
 ## `@deepseek-ai/dsh-skill-local`
 

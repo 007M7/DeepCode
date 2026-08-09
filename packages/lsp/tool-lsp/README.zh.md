@@ -10,7 +10,7 @@ Namespace 插件（`name`／`inject`／`Config`／`apply`，无默认导出）�
 
 `lsp` 接受 `operation`（`goToDefinition` | `findReferences` | `goToImplementation` | `hover`）、`file_path`、`line` 和 `character`。`line` 与 `character` 是正的、从 1 开始的 UTF-16 光标坐标；工具将其转换为 seam 从零开始的位置，并把渲染位置转换回来。`findReferences` 包含声明，因此影响分析不会遗漏定义位置。提供方、language id、Workspace 根、限制、超时、初始化和可执行文件均不进入模型输入。
 
-该工具要求从会话 `header.cwd` 取得 Workspace 根，没有回退值：缺失时会在查询前以 `LSP_WORKSPACE_REQUIRED` 失败。其规范结果是完整的已规范化 seam 联合：`{ kind: "locations", locations, resolvedWorkspaceUri }` 或 `{ kind: "hover", hover }`；Code Mode 可以直接检查每个已取得的位置和从零开始的范围。原生渲染以提供方的规范工作区 URI 为基准，投影按文件稳定分组的 `path:line:character` 条目，而不对会话 cwd 应用宿主平台路径规则。`file:` URI 落在该工作区 URI 内时成为工作区相对路径，位于其外时成为从 URI 派生的绝对路径；格式错误的 URI 与非 `file:` URI 保持原样。空位置和 `null` hover 都是成功的无结果响应；格式错误的提供方载荷仍是结构化错误。
+该工具要求从会话 `header.cwd` 取得 Workspace 根，没有回退值：缺失时会在查询前以 `LSP_WORKSPACE_REQUIRED` 失败。其规范结果是完整的已规范化 Service Definition 联合：`{ kind: "locations", locations, resolvedWorkspaceUri }` 或 `{ kind: "hover", hover }`；Code Mode 可以直接检查每个已取得的位置和从零开始的范围。原生渲染以提供方的规范工作区 URI 为基准，投影按文件稳定分组的 `path:line:character` 条目，而不对会话 cwd 应用宿主平台路径规则。`file:` URI 落在该工作区 URI 内时成为工作区相对路径，位于其外时成为从 URI 派生的绝对路径；格式错误的 URI 与非 `file:` URI 保持原样。空位置和 `null` hover 都是成功的无结果响应；格式错误的提供方载荷仍是结构化错误。
 
 ## 配置
 
