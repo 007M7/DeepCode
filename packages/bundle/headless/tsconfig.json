@@ -24,10 +24,13 @@
       "path": "../../core/agent-default-model"
     },
     {
+      "path": "../../core/session"
+    },
+    {
       "path": "../../llm/llm"
     },
     {
-      "path": "../../core/session"
+      "path": "../../preset/agent-presets"
     },
     {
       "path": "../../support/invariants"

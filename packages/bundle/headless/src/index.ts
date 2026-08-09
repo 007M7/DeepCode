@@ -13,6 +13,8 @@ import z from 'schemastery'
 import { installModelSelection } from '@deepseek-ai/dsh-agent'
 import type { ModelSelectionRef } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-agent-default-model'
+// Empty type import carries the agentPresets Context merge for the optional roster read.
+import type {} from '@deepseek-ai/dsh-agent-presets'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
@@ -106,13 +108,24 @@ async function run(ctx: Context, task: string, io: HeadlessIo): Promise<void> {
   if (agents === undefined || defaultModel === undefined || sessions === undefined) return
 
   const selection = defaultModel.currentSelection()
+  // A one-shot run composes its agent from the same preset roster `dsh web`
+  // offers: the default preset both lands on the header (the log states what
+  // the agent ran) and mounts in setup, where a broken composition still
+  // fails the creation. A composition with no roster keeps the pre-preset
+  // behavior — the agent runs on the host composition alone.
+  const presets = ctx.get('agentPresets')
+  const presetId = presets === undefined ? undefined : (await presets.resolve()).id
   const { agent } = await agents.create({
     sessionId: SessionId(`session-${randomUUID()}`),
-    meta: { cwd: process.cwd() },
+    meta: {
+      cwd: process.cwd(),
+      ...presetId === undefined ? {} : { agentPreset: presetId },
+    },
     agentOptions: { provider: selection.provider, model: selection.model },
-    setup: (agentCtx) => {
+    setup: async (agentCtx) => {
       const selected: ModelSelectionRef = { current: selection, assembled: undefined }
       installModelSelection(agentCtx, selected)
+      if (presets !== undefined) await presets.mount(agentCtx, presetId)
     },
   })
   await agent.whenIdle()
