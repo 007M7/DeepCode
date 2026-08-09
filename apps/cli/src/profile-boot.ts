@@ -168,6 +168,7 @@ export interface RunProfileOptions {
   environment: EnvironmentSnapshot
 }
 
+/** Re-throw setup failures unless this invocation's signal already owns shutdown. */
 function suppressSignalShutdownError(signal: AbortSignal, error: unknown): void {
   if (!signal.aborted) throw error
 }
@@ -253,9 +254,13 @@ export async function runProfile(options: RunProfileOptions): Promise<{ ctx: Con
   })
   app.current = ctx
   // A surface can dispose the whole tree while startup or this post-boot
-  // watcher setup is still in flight. Fiber state owns liveness; the local
-  // signal fact distinguishes that expected exit race from a real HMR error.
-  if (watchProfilePatch && !signalShutdown.signal.aborted && ctx.fiber.state === FiberState.ACTIVE) {
+  // watcher setup is still in flight. Loader presence and fiber state own
+  // liveness; the local signal fact distinguishes that expected exit race
+  // from a real HMR error.
+  if (watchProfilePatch
+    && !signalShutdown.signal.aborted
+    && ctx.fiber.state === FiberState.ACTIVE
+    && ctx.get('loader') !== undefined) {
     try {
       // Config-only HMR for the live profile patch layer: the web bundle
       // disables the shared module-reload `hmr` row (its reload lifecycle is
