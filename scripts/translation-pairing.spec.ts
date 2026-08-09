@@ -19,6 +19,7 @@ import {
   parseTranslationPairingCliArgs,
   parseTranslationPairingManifest,
   partitionGeneratedRegions,
+  requiresSourceLanguageSwitcher,
   translationStructureDiff,
   translationStructureSignature,
 } from './translation-pairing.ts'
@@ -139,6 +140,16 @@ describe('translation pairing manifest', () => {
     expect(() => parseTranslationPairingManifest(JSON.stringify({
       excluded: [42],
     }))).toThrow('excluded must be an array of strings')
+  })
+})
+
+describe('translation pairing switchers', () => {
+  it('exempts only paired generated English sources from reciprocal switchers', () => {
+    expect(requiresSourceLanguageSwitcher('docs/config-catalog.md')).toBe(false)
+    expect(requiresSourceLanguageSwitcher('docs/cordis-api/context.md')).toBe(false)
+    expect(requiresSourceLanguageSwitcher('docs/cordis-api/inherited.md')).toBe(false)
+    expect(requiresSourceLanguageSwitcher('docs/architecture.md')).toBe(true)
+    expect(requiresSourceLanguageSwitcher('packages/core/session/README.md')).toBe(true)
   })
 })
 

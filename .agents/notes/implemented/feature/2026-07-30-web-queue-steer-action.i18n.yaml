@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-07-30-web-queue-steer-action.md
 2026-07-30-web-queue-steer-action.md: b04095b81f499982c8680a2d3627d8e98a70d8ac
-2026-07-30-web-queue-steer-action.zh.md: af13292574b7f130fe858369c746ff2b8911984e
+2026-07-30-web-queue-steer-action.zh.md: 1b46ec90a27fbc3c8f3660a7cbdccb78a21a2cfa

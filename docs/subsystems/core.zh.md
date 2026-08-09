@@ -265,7 +265,7 @@ type SessionStartSource = 'startup' | 'resume' | 'clear' | 'compact'
 
 ### `…Map → derived-union` 模式
 
-harness 中几乎所有可扩展的和类型都遵循同一形状：一个以判别标签为键的接口（`…Map`），联合类型由 `keyof` 派生。插件通过**声明合并**添加变体——无需修改拥有该类型的包（package）。
+harness 中几乎所有可扩展的和类型都遵循同一形状：一个以判别标签为键的接口（`…Map`），联合类型由 `keyof` 派生。插件通过**声明合并**添加变体——无需修改拥有该类型的包。
 
 ```ts ignore-check
 // The pattern, schematically:

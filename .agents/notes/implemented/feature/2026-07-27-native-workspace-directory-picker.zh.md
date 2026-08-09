@@ -27,7 +27,7 @@ Status: implemented
 
 只有来自回环套接字、且携带同源浏览器元数据的请求才能调用原生对话框 RPC。该 RPC 不使用默认的 30 秒请求超时，因为系统对话框可能无限期保持打开；调用方中止或连接中止仍会传递至平台进程。
 
-平台适配器不经 shell 打开对话框——POSIX 上 spawn 原生工具，Windows 上是子进程 COM 会话：
+平台适配器不经 shell 打开对话框——POSIX 上 spawn 原生工具，Windows 上进行进程内 COM 交互：
 
 - macOS：`osascript` 和系统文件夹选择器。
 - Windows：koffi `IFileOpenDialog` 子进程，使用宿主接受的最佳线程 DPI 感知（可用时为 per-monitor-v2；不支持 PMv2 的主机级联到 per-monitor 或 system-aware）（见[进程内对话框 Note](2026-08-02-win32-in-process-folder-dialog.md)）；该层无回退——失败原样上报（见[PowerShell 链删除](../simplification/2026-08-04-drop-windows-powershell-picker-fallback.md)）。

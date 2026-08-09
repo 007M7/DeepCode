@@ -119,6 +119,12 @@ const otherSource = baseSource.replace('Beta base.', 'Beta other.')
 const otherZh = baseZh.replace('乙基础。', '乙对侧。')
 const mergedSource = currentSource.replace('Beta base.', 'Beta other.')
 const mergedZh = currentZh.replace('乙基础。', '乙对侧。')
+const generatedBaseSource = '# Module graph\n\nAlpha base.\n\nBeta base.\n'
+const generatedBaseZh = '# 模块图\n\n[English](module-graph.md) | 中文\n\n甲基础。\n\n乙基础。\n'
+const generatedCurrentSource = generatedBaseSource.replace('Alpha base.', 'Alpha current.')
+const generatedCurrentZh = generatedBaseZh.replace('甲基础。', '甲当前。')
+const generatedOtherSource = generatedBaseSource.replace('Beta base.', 'Beta other.')
+const generatedOtherZh = generatedBaseZh.replace('乙基础。', '乙对侧。')
 const manualBaseSource = baseSource.replace('guide.zh.md', 'manual.zh.md')
 const manualBaseZh = baseZh.replace('guide.md', 'manual.md')
 const manualCurrentSource = manualBaseSource.replace('Alpha base.', 'Alpha current.')
@@ -255,6 +261,60 @@ describe('translation pairing merge composition', { timeout: 15_000 }, () => {
     expect(result.zhContent.toString('utf8')).toBe(mergedZh)
     expect(result.sourceHash).toBe(gitBlobHash(Buffer.from(mergedSource)))
     expect(result.zhHash).toBe(gitBlobHash(Buffer.from(mergedZh)))
+  })
+
+  it('merges a generated source without an English language switcher', () => {
+    const fixture = createFixture(false)
+    const ancestor = record(fixture.root, 'docs/module-graph.md', generatedBaseSource, generatedBaseZh)
+    const current = record(fixture.root, 'docs/module-graph.md', generatedCurrentSource, generatedCurrentZh)
+    const other = record(fixture.root, 'docs/module-graph.md', generatedOtherSource, generatedOtherZh)
+
+    const result = mergeTranslationPairingRecords(
+      fixture.root,
+      'docs/module-graph.i18n.yaml',
+      ancestor,
+      current,
+      other,
+    )
+
+    expect(result.sourceContent.toString('utf8')).toBe(
+      generatedCurrentSource.replace('Beta base.', 'Beta other.'),
+    )
+    expect(result.zhContent.toString('utf8')).toBe(generatedCurrentZh.replace('乙基础。', '乙对侧。'))
+  })
+
+  it('rejects an authored source without an English language switcher', () => {
+    const fixture = createFixture(false)
+    const source = baseSource.replace('English | [中文](guide.zh.md)\n\n', '')
+    const ancestor = record(fixture.root, 'docs/guide.md', source, baseZh)
+    const current = record(fixture.root, 'docs/guide.md', source, baseZh)
+    const other = record(fixture.root, 'docs/guide.md', source, baseZh)
+
+    expect(() => mergeTranslationPairingRecords(
+      fixture.root,
+      'docs/guide.i18n.yaml',
+      ancestor,
+      current,
+      other,
+    )).toThrow('docs/guide.md clean merge lost its language-switcher link to guide.zh.md')
+  })
+
+  it('rejects generated Chinese content without its English backlink', () => {
+    const fixture = createFixture(false)
+    const zh = generatedBaseZh.replace('[English](module-graph.md) | 中文\n\n', '')
+    const ancestor = record(fixture.root, 'docs/module-graph.md', generatedBaseSource, zh)
+    const current = record(fixture.root, 'docs/module-graph.md', generatedBaseSource, zh)
+    const other = record(fixture.root, 'docs/module-graph.md', generatedBaseSource, zh)
+
+    expect(() => mergeTranslationPairingRecords(
+      fixture.root,
+      'docs/module-graph.i18n.yaml',
+      ancestor,
+      current,
+      other,
+    )).toThrow(
+      'docs/module-graph.zh.md clean merge lost its language-switcher link to module-graph.md',
+    )
   })
 
   it('leaves owner-content conflicts for a human', () => {
