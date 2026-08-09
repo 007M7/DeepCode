@@ -16,7 +16,7 @@ Business events also use different correlation models. Tool has call IDs, Assist
 
 Client Runtime provides a target-neutral Conversation Node assembly engine. Business plugins register Event Definitions, and view plugins register per-Session View Builders. `ui-conversation` registers the first built-in Definitions and the `chat` builder; Session only submits the current contiguous Event window to the engine and publishes its snapshot instead of interpreting individual conversation businesses.
 
-The complete derivation, business-by-business validation, and file-level implementation plan remain in [`business-node assembler version one`](../../../../docs/client-conversation-node-engine-rfc.md), [`follow-up design differences`](../../../../docs/client-conversation-node-engine-follow-up-differences.md), [`business-node and dual-view adaptation analysis`](../../../../docs/client-conversation-node-adaptation-analysis.md), and the [`Chat implementation design`](../../../../docs/client-conversation-node-chat-implementation-plan.md). Those design documents retain the full discussion; this Note fixes the responsibilities, algorithms, and trade-offs that remain relevant after implementation.
+This Note retains the derivation, business-by-business validation, responsibilities, algorithms, and trade-offs that remain relevant after implementation.
 
 ### Responsibility layers
 

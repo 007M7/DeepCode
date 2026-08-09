@@ -2,6 +2,7 @@ import type { Context } from 'cordis'
 import type {
   ConversationLocation, ConversationNodeDefinition, ModelRetryNode,
 } from '@deepseek-ai/dsh-client-runtime/client'
+import type {} from '@deepseek-ai/dsh-llm-retry/types'
 import type { RetryChatData } from '../contract/chat-nodes.ts'
 import { chatNode } from './common.ts'
 
@@ -12,11 +13,6 @@ declare module '@deepseek-ai/dsh-client-ui-conversation/client' {
   }
 }
 
-type WithoutRetryProjection<Node> = Node extends unknown
-  ? Omit<Node, 'kind' | 'seq' | 'time' | 'retryState'>
-  : never
-type RetryEventData = WithoutRetryProjection<ModelRetryNode>
-
 /** Accumulated retry attempts sharing one producer-owned RetryId. */
 export interface RetryState {
   readonly turn: number
@@ -24,31 +20,14 @@ export interface RetryState {
   readonly attempts: readonly ModelRetryNode[]
 }
 
-function retryData(value: unknown): RetryEventData | undefined {
-  if (value === null || typeof value !== 'object') return undefined
-  const data = value as Record<string, unknown>
-  if (typeof data.retryId !== 'string' || data.retryId === ''
-    || !Number.isSafeInteger(data.turn) || (data.turn as number) < 0
-    || !Number.isSafeInteger(data.step) || (data.step as number) < 0
-    || !Number.isSafeInteger(data.retry) || (data.retry as number) <= 0
-    || typeof data.delayMs !== 'number' || !Number.isFinite(data.delayMs) || data.delayMs < 0
-    || typeof data.provider !== 'string' || typeof data.policyKey !== 'string'
-    || (data.mode !== 'normal' && data.mode !== 'always')
-    || data.failure === null || typeof data.failure !== 'object') return undefined
-  if (data.mode === 'normal' && (!Number.isSafeInteger(data.maxRetries) || (data.maxRetries as number) <= 0)) {
-    return undefined
-  }
-  return data as unknown as RetryEventData
-}
-
-function scheduledNode(event: { seq: number; time: number; data: unknown }): ModelRetryNode | undefined {
-  const data = retryData(event.data)
-  return data === undefined ? undefined : {
+function scheduledNode(match: Parameters<ConversationNodeDefinition['start']>[1]): ModelRetryNode | undefined {
+  if (match.event.type !== 'llm/retry') return undefined
+  return {
     kind: 'model-retry',
-    seq: event.seq,
-    time: event.time,
+    seq: match.event.seq,
+    time: match.event.time,
     retryState: 'scheduled',
-    ...data,
+    ...match.event.data,
   }
 }
 
@@ -61,33 +40,30 @@ function isClosed(location: ConversationLocation): boolean {
 export const retryDefinition: ConversationNodeDefinition<RetryState> = {
   kind: 'model-retry',
   match: (event) => {
-    if ((event.type as string) === 'llm/retry') {
-      const data = retryData(event.data)
-      if (data === undefined) return null
-      return { id: String(data.retryId), role: data.retry === 1 ? 'start' : 'update' }
+    if (event.type === 'llm/retry') {
+      return { id: String(event.data.retryId), role: event.data.retry === 1 ? 'start' : 'update' }
     }
-    if ((event.type as string) === 'llm/retry-started') {
-      const data = event.data as unknown as { retryId?: unknown }
-      return typeof data.retryId === 'string' ? { id: data.retryId, role: 'update' } : null
+    if (event.type === 'llm/retry-started') {
+      return { id: String(event.data.retryId), role: 'update' }
     }
     return null
   },
   start: (_context, match) => {
-    const node = scheduledNode(match.event)
+    const node = scheduledNode(match)
     if (node === undefined) throw new Error('model-retry start requires a valid llm/retry event')
     return { turn: node.turn, step: node.step, attempts: [node] }
   },
   update: (context, match) => {
-    if ((match.event.type as string) === 'llm/retry') {
-      const node = scheduledNode(match.event)
+    if (match.event.type === 'llm/retry') {
+      const node = scheduledNode(match)
       return node === undefined ? context.state : { ...context.state, attempts: [...context.state.attempts, node] }
     }
-    if ((match.event.type as string) !== 'llm/retry-started') return context.state
-    const data = match.event.data as unknown as { retry: number }
+    if (match.event.type !== 'llm/retry-started') return context.state
+    const retry = match.event.data.retry
     return {
       ...context.state,
       attempts: context.state.attempts.map(attempt =>
-        attempt.retry === data.retry ? { ...attempt, retryState: 'started' } : attempt),
+        attempt.retry === retry ? { ...attempt, retryState: 'started' } : attempt),
     }
   },
   buildViewNode: (context, target) => {

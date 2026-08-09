@@ -62,7 +62,9 @@ describe('apply wiring', () => {
     expect(entries[0]?.options.order).toBe(0)
     // Declaring is claiming: the chat entry's registration put the hole on
     // the ledger with the contract's kind/scope.
-    expect(b.slots.spec('conversation.chat.node')).toEqual({ kind: 'keyed', scope: 'session' })
+    const nodeSlot = b.slots.spec('conversation.chat.node')
+    expect(nodeSlot).toMatchObject({ kind: 'keyed', scope: 'session' })
+    expect(nodeSlot?.inject?.hooks?.turnData).toBeTypeOf('function')
     await b.runtime.dispose()
   })
 

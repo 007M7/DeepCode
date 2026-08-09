@@ -16,7 +16,7 @@ Client Session 既维护传输窗口、连接状态和待处理交互，也在�
 
 Client Runtime 提供 target-neutral 的 Conversation Node 组装引擎，业务插件注册 Event Definition，视图插件注册 per-Session View Builder。`ui-conversation` 注册第一批内建 Definition 和 `chat` builder；Session 只负责把当前连续事件窗口送入引擎并发布它的 snapshot，不再解释具体 conversation 业务。
 
-详细的方案推导、逐业务适配和逐文件实施设计保留在 [`业务节点组装器第一版`](../../../../docs/client-conversation-node-engine-rfc.md)、[`后续方案差异`](../../../../docs/client-conversation-node-engine-follow-up-differences.md)、[`业务节点与双视图适配论证`](../../../../docs/client-conversation-node-adaptation-analysis.md) 和 [`Chat 链路工程实施设计`](../../../../docs/client-conversation-node-chat-implementation-plan.md)。这些设计稿保留完整讨论过程；本 Note 固定实现后仍需长期维护的职责、算法和取舍。
+本 Note 保留实现后仍有价值的方案推导、逐业务适配、职责、算法和取舍。
 
 ### 责任分层
 

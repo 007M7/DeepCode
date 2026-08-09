@@ -1,5 +1,7 @@
 import type { LlmFailure } from '@deepseek-ai/dsh-llm/types'
-import type { RetryId } from './brand.ts'
+import { RetryId } from './brand.ts'
+
+export { RetryId }
 
 declare module '@deepseek-ai/dsh-session/types' {
   interface SessionEventMap {

@@ -644,6 +644,28 @@ describe('built-in conversation node Definitions', () => {
     })
   })
 
+  it('renders a historical compaction when its start remains outside the loaded window', () => {
+    const value = assembler([
+      at(10, 'compact/summary', {
+        compactionId: 'compact-windowed',
+        summary: [{ type: 'text', text: 'loaded summary' }],
+        shadowedSeqs: [1, 2, 3],
+        shadowedTokenCount: 42,
+      }),
+      at(11, 'user/message', {
+        ...textMessage('checkpoint-windowed', 'checkpoint'),
+        source: { kind: 'plugin', plugin: 'compact', compactionId: 'compact-windowed' },
+      }, { surfaceOp: { op: 'replace', start: 1, end: 3 } }),
+    ], true)
+
+    expect(node(snapshot(value), 'compaction')?.data).toMatchObject({
+      summary: 'loaded summary',
+      summaryEventSeq: 10,
+      shadowedItemCount: 3,
+      shadowedTokenCount: 42,
+    })
+  })
+
   it('suppresses a turn error when the loaded tail contains only a later retry attempt', () => {
     const value = assembler([
       at(5, 'llm/retry', {

@@ -4,6 +4,7 @@ import type {
   RunningToolCall, ToolCallBlock, ToolResultNode,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import { isAppendSurfaceEvent } from '@deepseek-ai/dsh-client-runtime/client'
+import type {} from '@deepseek-ai/dsh-tools/types'
 import type { ToolChatData } from '../contract/chat-nodes.ts'
 import { CHAT_SYNTHETIC_SEQ_OFFSETS, chatNode } from './common.ts'
 
@@ -141,27 +142,30 @@ function acceptsEdge(state: ToolState, parent: string, child: string): boolean {
 }
 
 function updateDispatch(state: ToolState, match: ConversationMatch): ToolState {
-  const data = match.event.data as unknown as DispatchData
-  const siblings = state.children.get(data.parentCallId) ?? []
-  const index = siblings.findIndex(candidate => candidate.callId === data.subCallId)
-  if ((match.event.type as string) === 'tool/code-dispatch-start') {
-    if (index >= 0 || !acceptsEdge(state, data.parentCallId, data.subCallId)) return state
+  const event = match.event
+  if (event.type !== 'tool/code-dispatch-start' && event.type !== 'tool/code-dispatch') return state
+  const data = event.data
+  const parentCallId = String(data.parentCallId)
+  const subCallId = String(data.subCallId)
+  const siblings = state.children.get(parentCallId) ?? []
+  const index = siblings.findIndex(candidate => candidate.callId === subCallId)
+  if (event.type === 'tool/code-dispatch-start') {
+    if (index >= 0 || !acceptsEdge(state, parentCallId, subCallId)) return state
     const children = new Map(state.children)
-    children.set(data.parentCallId, [...siblings, childCall(match, data)])
+    children.set(parentCallId, [...siblings, childCall(match, data)])
     const parents = new Map(state.parents)
-    parents.set(data.subCallId, data.parentCallId)
+    parents.set(subCallId, parentCallId)
     return { ...state, children, parents }
   }
-  if ((match.event.type as string) !== 'tool/code-dispatch') return state
-  if (index < 0 && !acceptsEdge(state, data.parentCallId, data.subCallId)) return state
+  if (index < 0 && !acceptsEdge(state, parentCallId, subCallId)) return state
   const previous = index < 0 ? undefined : siblings[index]
   const settled = childResult(match, data, previous)
   const children = new Map(state.children)
-  children.set(data.parentCallId, index < 0
+  children.set(parentCallId, index < 0
     ? [...siblings, settled]
     : siblings.map((child, at) => at === index ? settled : child))
   const parents = new Map(state.parents)
-  if (index < 0) parents.set(data.subCallId, data.parentCallId)
+  if (index < 0) parents.set(subCallId, parentCallId)
   return { ...state, children, parents }
 }
 
@@ -236,9 +240,8 @@ export const toolDefinition: ConversationNodeDefinition<ToolState> = {
     if (event.type === 'tool/result' && isAppendSurfaceEvent(event)) {
       return { id: String(event.data.message.source.callId), role: 'update' }
     }
-    if ((event.type as string) === 'tool/code-dispatch-start' || (event.type as string) === 'tool/code-dispatch') {
-      const data = event.data as unknown as { rootCallId: string }
-      return { id: data.rootCallId, role: 'update' }
+    if (event.type === 'tool/code-dispatch-start' || event.type === 'tool/code-dispatch') {
+      return { id: String(event.data.rootCallId), role: 'update' }
     }
     return null
   },

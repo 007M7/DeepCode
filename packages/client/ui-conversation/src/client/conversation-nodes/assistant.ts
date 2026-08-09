@@ -6,6 +6,7 @@ import type {
 import {
   emptyAssistantBlock, isAppendSurfaceEvent, isTokenDelta, toAssistantBlock, toAssistantBlocks,
 } from '@deepseek-ai/dsh-client-runtime/client'
+import type {} from '@deepseek-ai/dsh-llm-retry/types'
 import type { AssistantChatData } from '../contract/chat-nodes.ts'
 import { CHAT_SYNTHETIC_SEQ_OFFSETS, chatNode } from './common.ts'
 
@@ -197,7 +198,7 @@ function fallbackState(context: ConversationNodeContext<AssistantState>): Assist
       }
       continue
     }
-    if ((match.event.type as string) === 'llm/retry' && state !== undefined) {
+    if (match.event.type === 'llm/retry' && state !== undefined) {
       state = resetForRetry(state)
     }
   }
@@ -247,9 +248,8 @@ export const assistantDefinition: ConversationNodeDefinition<AssistantState> = {
       || (event.type === 'assistant/message' && isAppendSurfaceEvent(event))) {
       return { id: `${event.data.turn}:${event.data.step}`, role: 'update' }
     }
-    if ((event.type as string) === 'llm/retry') {
-      const data = event.data as unknown as { turn: number; step: number }
-      return { id: `${data.turn}:${data.step}`, role: 'update' }
+    if (event.type === 'llm/retry') {
+      return { id: `${event.data.turn}:${event.data.step}`, role: 'update' }
     }
     return null
   },
@@ -268,7 +268,7 @@ export const assistantDefinition: ConversationNodeDefinition<AssistantState> = {
         usage: match.event.data.usage,
       }
     }
-    if ((match.event.type as string) === 'llm/retry') {
+    if (match.event.type === 'llm/retry') {
       return resetForRetry(context.state)
     }
     return context.state

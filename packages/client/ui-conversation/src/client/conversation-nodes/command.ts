@@ -5,6 +5,8 @@ import type {
 } from '@deepseek-ai/dsh-client-runtime/client'
 import { isReplacementSurfaceEvent } from '@deepseek-ai/dsh-client-runtime/client'
 import type { COMPACT_CHECKPOINT_SOURCE } from '@deepseek-ai/dsh-compact/checkpoint'
+import type {} from '@deepseek-ai/dsh-compact/types'
+import type {} from '@deepseek-ai/dsh-commands/types'
 import type { ManualCompactionChatData } from '../contract/chat-nodes.ts'
 import { chatNode } from './common.ts'
 
@@ -32,21 +34,9 @@ interface CompactionEvidence {
   readonly checkpoint?: ConversationMatch
 }
 
-interface CommandRunData {
-  readonly commandId: CommandId
-  readonly name: string
-  readonly args?: string
-}
-
-interface CommandDoneData {
-  readonly commandId: CommandId
-  readonly kind: 'success' | 'error'
-  readonly text?: string
-  readonly sourceEventSeq?: number
-}
-
 function commandFromRun(match: ConversationMatch): CommandNode {
-  const data = match.event.data as unknown as CommandRunData
+  if (match.event.type !== 'command/run') throw new Error('command start requires command/run')
+  const data = match.event.data
   return {
     kind: 'command',
     seq: match.event.seq,
@@ -59,10 +49,12 @@ function commandFromRun(match: ConversationMatch): CommandNode {
 }
 
 function commandFromDone(match: ConversationMatch, previous?: CommandNode): CommandNode {
-  const data = match.event.data as unknown as CommandDoneData
+  if (match.event.type !== 'command/done') throw new Error('command update requires command/done')
+  const data = match.event.data
   const sourceEventSeq = data.kind === 'success'
-    && Number.isSafeInteger(data.sourceEventSeq) && (data.sourceEventSeq as number) >= 0
-    ? data.sourceEventSeq as number
+    && data.sourceEventSeq !== undefined
+    && Number.isSafeInteger(data.sourceEventSeq) && data.sourceEventSeq >= 0
+    ? data.sourceEventSeq
     : undefined
   return {
     kind: 'command',
@@ -112,28 +104,21 @@ function compactSummary(match: ConversationMatch | undefined, checkpoint: Conver
   let summary: string | null = null
   let shadowedItemCount: number | null = null
   let shadowedTokenCount: number | null = null
-  if (match !== undefined) {
-    const data = match.event.data as unknown as {
-      summary?: unknown
-      shadowedSeqs?: unknown
-      shadowedTokenCount?: unknown
-    }
+  if (match?.event.type === 'compact/summary') {
+    const data = match.event.data
     if (Array.isArray(data.summary)) {
       const text = data.summary
-        .map((block: unknown) => {
-          const value = block as { type?: unknown; text?: unknown }
-          return value.type === 'text' && typeof value.text === 'string' ? value.text : ''
-        })
+        .map(block => block.type === 'text' ? block.text : '')
         .join('')
       summary = text.trim() === '' ? null : text
     }
     shadowedItemCount = Array.isArray(data.shadowedSeqs)
-      && data.shadowedSeqs.every(seq => Number.isSafeInteger(seq) && (seq as number) >= 0)
+      && data.shadowedSeqs.every(seq => Number.isSafeInteger(seq) && seq >= 0)
       ? data.shadowedSeqs.length
       : null
     shadowedTokenCount = Number.isSafeInteger(data.shadowedTokenCount)
-      && (data.shadowedTokenCount as number) >= 0
-      ? data.shadowedTokenCount as number
+      && data.shadowedTokenCount >= 0
+      ? data.shadowedTokenCount
       : null
   }
   return {
@@ -148,9 +133,9 @@ function compactSummary(match: ConversationMatch | undefined, checkpoint: Conver
 }
 
 function fallbackState(context: ConversationNodeContext<CommandState>): CommandState | undefined {
-  const done = context.matches.find(match => (match.event.type as string) === 'command/done')
+  const done = context.matches.find(match => match.event.type === 'command/done')
   const checkpoint = context.matches.find(match => compactSource(match.event) !== undefined)
-  const summary = context.matches.find(match => (match.event.type as string) === 'compact/summary')
+  const summary = context.matches.find(match => match.event.type === 'compact/summary')
   if (checkpoint === undefined) return done === undefined ? undefined : { command: commandFromDone(done) }
   const source = compactSource(checkpoint.event)
   if (source?.sourceCommandId === undefined) return done === undefined ? undefined : { command: commandFromDone(done) }
@@ -182,7 +167,7 @@ export function updateCompactionState<State extends CompactionEvidence>(
   state: State,
   match: ConversationMatch,
 ): State {
-  if ((match.event.type as string) === 'compact/summary') return { ...state, summary: match }
+  if (match.event.type === 'compact/summary') return { ...state, summary: match }
   if (compactSource(match.event) !== undefined) return { ...state, checkpoint: match }
   return state
 }
@@ -191,27 +176,28 @@ export function updateCompactionState<State extends CompactionEvidence>(
 export const commandDefinition: ConversationNodeDefinition<CommandState> = {
   kind: 'command',
   match: (event) => {
-    if ((event.type as string) === 'command/run') {
-      return { id: String((event.data as unknown as CommandRunData).commandId), role: 'start' }
+    if (event.type === 'command/run') {
+      return { id: String(event.data.commandId), role: 'start' }
     }
-    if ((event.type as string) === 'command/done') {
-      return { id: String((event.data as unknown as CommandDoneData).commandId), role: 'update' }
+    if (event.type === 'command/done') {
+      return { id: String(event.data.commandId), role: 'update' }
     }
     const checkpoint = compactSource(event)
     if (checkpoint?.sourceCommandId !== undefined) {
       return { id: String(checkpoint.sourceCommandId), role: 'update' }
     }
-    if ((event.type as string) === 'compact/start'
-      || (event.type as string) === 'compact/summary'
-      || (event.type as string) === 'compact/end') {
-      const data = event.data as unknown as { sourceCommandId?: CommandId }
-      if (data.sourceCommandId !== undefined) return { id: String(data.sourceCommandId), role: 'update' }
+    if (event.type === 'compact/start'
+      || event.type === 'compact/summary'
+      || event.type === 'compact/end') {
+      if (event.data.sourceCommandId !== undefined) {
+        return { id: String(event.data.sourceCommandId), role: 'update' }
+      }
     }
     return null
   },
   start: (_context, match) => ({ command: commandFromRun(match) }),
   update: (context, match) => {
-    if ((match.event.type as string) === 'command/done') {
+    if (match.event.type === 'command/done') {
       return { ...context.state, command: commandFromDone(match, context.state.command) }
     }
     return updateCompactionState(context.state, match)

@@ -5,7 +5,7 @@ import { createUserMessage, ProviderRequestId } from '@deepseek-ai/dsh-llm'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import InvariantService from '@deepseek-ai/dsh-invariants'
 import * as RetryInvariant from '@deepseek-ai/dsh-llm-retry/invariant'
-import { RetryId } from '@deepseek-ai/dsh-llm-retry/brand'
+import { RetryId } from '@deepseek-ai/dsh-llm-retry/types'
 import { providerForOpenStep } from '../src/history.ts'
 
 async function setup(): Promise<Context> {

@@ -89,7 +89,7 @@ describe('gen-persistence-catalog collectLogEvents', () => {
   it('hard-errors on an extends clause (inherited keys would escape the catalog)', () => {
     expect(() => collectLogEvents(make({
       'packages/group/fix/src/types.ts':
-        'interface Extra { \'fix/hidden\': { turn: number } }\ndeclare module \'@deepseek-ai/dsh-session\' {\n  interface SessionEventMap extends Extra {\n    /** Declared directly. */\n    \'fix/direct\': { turn: number }\n  }\n}\n',
+        'interface Extra { \'fix/hidden\': { turn: number } }\ndeclare module \'@deepseek-ai/dsh-session/types\' {\n  interface SessionEventMap extends Extra {\n    /** Declared directly. */\n    \'fix/direct\': { turn: number }\n  }\n}\n',
     }))).toThrow(/uses extends; inherited keys would join keyof SessionEventMap without a catalog row/)
   })
 

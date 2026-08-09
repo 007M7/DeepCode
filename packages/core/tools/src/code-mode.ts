@@ -14,41 +14,7 @@ import type { JsonValue } from '@deepseek-ai/dsh-session'
 import { defineTool, parameterSchemaSpecToJsonSchema } from './schema.ts'
 import { TOOL_REGISTRY_SCHEDULER } from './index.ts'
 import type { CodeDispatchLog, ToolDefinition, ToolExecutionResult, ToolRegistry, ToolRunContext } from './index.ts'
-
-declare module '@deepseek-ai/dsh-session/types' {
-  interface SessionEventMap {
-    /**
-     * One sub-dispatch STARTING inside a `run_code` program: the parent
-     * `run_code` call id, the deterministic sub-call id (`<parent>:code:<n>`,
-     * numbered in submission order), and the tool `name` with its
-     * JSON-normalized `arguments` — the exact value dispatched, normalized
-     * BEFORE dispatch, so this append can never fail on payload shape.
-     * Appended when the scheduler actually starts the call (not at
-     * submission), so a start means the tool body pipeline was entered; a
-     * call abandoned in the queue logs nothing. Log-only: `deriveMessages()`
-     * ignores it; UIs use it for live per-sub-call running state and pair it
-     * with `tool/code-dispatch` by `subCallId` (timing = the two events'
-     * `time` fields).
-     */
-    'tool/code-dispatch-start': { rootCallId: CallId; parentCallId: CallId; subCallId: CallId; name: string; arguments: unknown }
-    /**
-     * One bridged sub-dispatch SETTLING: the pairing ids (matching the
-     * `tool/code-dispatch-start` with the same `subCallId`), the tool `name`
-     * with the same JSON-normalized `arguments`, and the sub-call's complete
-     * model-facing outcome in `tool/result`'s own vocabulary
-     * (`content` + `isError`), so UIs render a sub-call through the exact
-     * code path that renders a native call. Every started sub-call settles
-     * with exactly one of these (abort included: the aborted pipeline result
-     * is an `isError` outcome).
-     * Log-only: `deriveMessages()` ignores it, so sub-calls never re-enter
-     * model context; persistence and UIs get every call. Appended inside the
-     * parent `run_code`'s execution (the bridge drains in-flight dispatches
-     * before returning), so its execution-enclosure relation holds by
-     * construction.
-     */
-    'tool/code-dispatch': { rootCallId: CallId; parentCallId: CallId; subCallId: CallId; name: string; arguments: unknown; isError: boolean; content: ContentBlock[] }
-  }
-}
+import type {} from './types.ts'
 
 /** The model-facing name of the Code Mode tool. */
 export const RUN_CODE_NAME = 'run_code'

@@ -15,13 +15,13 @@
       "types": "./lib/types/invariant.d.ts",
       "default": "./lib/invariant.js"
     },
+    "./types": {
+      "types": "./lib/types/types.d.ts",
+      "default": "./lib/types/types.js"
+    },
     "./checkpoint": {
       "types": "./lib/types/checkpoint.d.ts",
       "default": "./lib/types/checkpoint.js"
-    },
-    "./brand": {
-      "types": "./lib/types/brand.d.ts",
-      "default": "./lib/types/brand.js"
     },
     "./src/*": "./src/*",
     "./package.json": "./package.json"

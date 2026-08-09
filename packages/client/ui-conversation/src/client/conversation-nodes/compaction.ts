@@ -2,6 +2,7 @@ import type { Context } from 'cordis'
 import type {
   CompactionSummaryNode, ConversationMatch, ConversationNodeContext, ConversationNodeDefinition,
 } from '@deepseek-ai/dsh-client-runtime/client'
+import type {} from '@deepseek-ai/dsh-compact/types'
 import { chatNode } from './common.ts'
 import { compactSource, compactSummary, updateCompactionState } from './command.ts'
 
@@ -18,7 +19,7 @@ interface CompactionState {
 }
 
 function fallbackState(context: ConversationNodeContext<CompactionState>): CompactionState {
-  const summary = context.matches.find(match => (match.event.type as string) === 'compact/summary')
+  const summary = context.matches.find(match => match.event.type === 'compact/summary')
   const checkpoint = context.matches.find(match => compactSource(match.event) !== undefined)
   return {
     ...summary === undefined ? {} : { summary },
@@ -34,12 +35,11 @@ export const compactionDefinition: ConversationNodeDefinition<CompactionState> =
     if (checkpoint !== undefined && checkpoint.sourceCommandId === undefined) {
       return { id: checkpoint.compactionId, role: 'update' }
     }
-    if ((event.type as string) === 'compact/start'
-      || (event.type as string) === 'compact/summary'
-      || (event.type as string) === 'compact/end') {
-      const data = event.data as unknown as { compactionId?: unknown; sourceCommandId?: unknown }
-      if (typeof data.compactionId !== 'string' || data.sourceCommandId !== undefined) return null
-      return { id: data.compactionId, role: (event.type as string) === 'compact/start' ? 'start' : 'update' }
+    if (event.type === 'compact/start'
+      || event.type === 'compact/summary'
+      || event.type === 'compact/end') {
+      if (event.data.sourceCommandId !== undefined) return null
+      return { id: String(event.data.compactionId), role: event.type === 'compact/start' ? 'start' : 'update' }
     }
     return null
   },

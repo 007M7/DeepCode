@@ -3,6 +3,7 @@ import type {
   ConversationMatch, ConversationNodeContext, ConversationNodeDefinition, TurnLocation,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import { isAppendSurfaceEvent, toAssistantBlocks } from '@deepseek-ai/dsh-client-runtime/client'
+import type {} from '@deepseek-ai/dsh-llm-retry/types'
 import type {
   AssistantChatData, FinalAssistantChatData, TurnTailChatData,
 } from '../contract/chat-nodes.ts'
@@ -58,9 +59,7 @@ function turnCoordinates(event: Parameters<ConversationNodeDefinition['match']>[
     || event.type === 'step/end') {
     return { turn: event.data.turn, step: event.data.step }
   }
-  if ((event.type as string) === 'llm/retry') {
-    return event.data as unknown as { turn: number; step: number }
-  }
+  if (event.type === 'llm/retry') return { turn: event.data.turn, step: event.data.step }
   return undefined
 }
 
@@ -90,7 +89,7 @@ function closingAnchor(context: ConversationNodeContext<TurnTailState>): number 
       }
       continue
     }
-    if ((event.type as string) === 'llm/retry') {
+    if (event.type === 'llm/retry') {
       steps.set(coordinates.step, { streamedText: false, finalized: false })
       continue
     }
@@ -130,7 +129,7 @@ function tailData(context: ConversationNodeContext<TurnTailState>): TurnTailChat
     const candidate = event.type === 'tool/call'
       || (event.type === 'tool/result' && isAppendSurfaceEvent(event))
       || (event.type === 'turn/end' && event.data.reason.kind === 'error')
-      || (event.type as string) === 'llm/retry'
+      || event.type === 'llm/retry'
       ? event.seq
       : undefined
     if (candidate !== undefined && (latestTranscriptSeq === undefined || candidate > latestTranscriptSeq)) {

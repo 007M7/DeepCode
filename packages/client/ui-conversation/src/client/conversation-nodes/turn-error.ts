@@ -3,6 +3,7 @@ import type {
   ConversationMatch, ConversationNodeContext, ConversationNodeDefinition, TurnErrorNode,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import { displayFailureMessage } from '@deepseek-ai/dsh-client-runtime/client'
+import type {} from '@deepseek-ai/dsh-llm-retry/types'
 import { chatNode } from './common.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-conversation/client' {
@@ -30,9 +31,9 @@ function lastStep(context: ConversationNodeContext<TurnErrorState>): number {
 }
 
 function retryTurn(event: Parameters<ConversationNodeDefinition['match']>[0]): number | undefined {
-  if ((event.type as string) !== 'llm/retry' && (event.type as string) !== 'llm/retry-started') return undefined
-  const turn = (event.data as unknown as { turn?: unknown }).turn
-  return Number.isSafeInteger(turn) && (turn as number) >= 0 ? turn as number : undefined
+  return event.type === 'llm/retry' || event.type === 'llm/retry-started'
+    ? event.data.turn
+    : undefined
 }
 
 function failureFrom(match: ConversationMatch): TurnErrorState['failure'] | undefined {

@@ -2,7 +2,7 @@
  * Public agent types and live-runtime events. Durable transcript facts and
  * turn/step boundaries remain `@deepseek-ai/dsh-session` events.
  *
- * @module @deepseek-ai/dsh-agent/types
+ * @module @deepseek-ai/dsh-agent
  */
 
 import type { Context } from 'cordis'
@@ -10,7 +10,8 @@ import type { Scoped } from '@deepseek-ai/dsh-scope'
 import type { LlmCallConfig, LlmFailure, ResolvedRetryPolicy } from '@deepseek-ai/dsh-llm'
 import type { AgentCancelCause, Session, SessionId, UserMessage } from '@deepseek-ai/dsh-session'
 export type { AgentCancelCause } from '@deepseek-ai/dsh-session'
-import type { Inbox, InboxTarget } from './inbox.ts'
+import type { Inbox } from './inbox.ts'
+import type { InboxTarget } from './session-types.ts'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 declare module '@deepseek-ai/dsh-system-prompt' {
   interface AssembleContext {
@@ -287,22 +288,5 @@ declare module 'cordis' {
      * @mode emit
      */
     'agent/error'(this: Scoped<Agent>, payload: { agent: Agent; turn: number; step: number; error: unknown }): void
-  }
-}
-
-declare module '@deepseek-ai/dsh-session/types' {
-  interface SessionEventMap {
-    /**
-     * One normalized mutation of an agent's durable pending-message lists.
-     * Live dispatch precedes projection mutation, so synchronous observers may
-     * read the pre-splice inbox to recover the removed messages.
-     */
-    'agent/inbox/spliced': {
-      target: InboxTarget
-      start: number
-      removedCount?: number
-      inserted: UserMessage[]
-      outcome?: 'canceled'
-    }
   }
 }

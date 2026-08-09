@@ -1,6 +1,7 @@
 /** Reconstruct durable steering identity from the event-sourced agent inbox. */
 
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
+import type {} from '@deepseek-ai/dsh-agent/types'
 
 type InboxTarget = 'next-turn' | 'next-step'
 
@@ -45,8 +46,8 @@ export class SteeringHistory {
    * @returns true only for a user-origin message previously claimed from `next-step`.
    */
   apply(event: SessionEvent): boolean {
-    if ((event.type as string) === 'agent/inbox/spliced') {
-      this.applySplice(event.data as unknown as InboxSplice)
+    if (event.type === 'agent/inbox/spliced') {
+      this.applySplice(event.data)
       return false
     }
     if (event.type !== 'user/message') return false

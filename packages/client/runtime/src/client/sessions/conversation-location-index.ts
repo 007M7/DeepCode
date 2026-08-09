@@ -139,7 +139,11 @@ export class ConversationLocationIndex {
     return this.timeline
   }
 
-  /** Replace all Definition-owned Location values while preserving reader identities. */
+  /**
+   * Replace all Definition-owned Location values while preserving reader identities.
+   * @param entries - complete current set of Definition-owned Location values.
+   * @returns whether any published Location data changed.
+   */
   replaceData(entries: readonly { readonly owner: string; readonly data: ConversationLocationData }[]): boolean {
     const turns = new Map<number, Map<string, OwnedLocationData>>()
     const steps = new Map<string, Map<string, OwnedLocationData>>()
@@ -165,7 +169,11 @@ export class ConversationLocationIndex {
     return changed
   }
 
-  /** Apply changed Context publications without rebuilding Turn/Step membership. */
+  /**
+   * Apply changed Context publications without rebuilding Turn/Step membership.
+   * @param changes - incremental removals and replacements from published Contexts.
+   * @returns whether any published Location data changed.
+   */
   applyData(changes: readonly ConversationLocationDataChange[]): boolean {
     let changed = false
     for (const change of changes) {

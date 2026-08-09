@@ -2,6 +2,7 @@ import type { Context } from 'cordis'
 import type {
   ConversationNodeDefinition, ConversationPreviousContext,
 } from '@deepseek-ai/dsh-client-runtime/client'
+import type {} from '@deepseek-ai/dsh-agent/types'
 
 type InboxTarget = 'next-turn' | 'next-step'
 
@@ -41,14 +42,14 @@ function inboxDefinition(target: InboxTarget): ConversationNodeDefinition<InboxS
   const kind = `inbox-${target}`
   return {
     kind,
-    match: event => (event.type as string) === 'agent/inbox/spliced'
-      && (event.data as unknown as { target?: unknown }).target === target
+    match: event => event.type === 'agent/inbox/spliced'
+      && event.data.target === target
       ? { id: String(event.seq), role: 'start' }
       : null,
-    start: (_context, match, reader) => applySplice(
-      reader.previous<InboxState>(kind),
-      match.event.data as unknown as InboxSplice,
-    ),
+    start: (_context, match, reader) => {
+      if (match.event.type !== 'agent/inbox/spliced') throw new Error(`${kind} start requires agent/inbox/spliced`)
+      return applySplice(reader.previous<InboxState>(kind), match.event.data)
+    },
     update: context => context.state,
     publication: () => 'none',
     buildViewNode: () => null,
