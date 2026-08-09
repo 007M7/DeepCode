@@ -13,6 +13,7 @@ import { en as commonEn } from '@deepseek-ai/dsh-client-locale/src/locales/en.ts
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import { StatsLine, contextOccupancy, deriveStats, formatDuration, formatTokens, type StatsLineProps } from '../src/client/chat/StatsLine.tsx'
 import { en, zh } from '../src/client/locales.ts'
+import { chatSnapshotFixture } from './chat-snapshot-fixture.ts'
 
 // Mirrors the real lookup chain (conversation namespace, then common).
 const t: StatsLineProps['t'] = makeTranslate(zh, commonZh)
@@ -42,18 +43,39 @@ const assistant = (seq: number, turn: number, usage?: unknown): AssistantMessage
 
 function snapshotBase(): ConversationSnapshot {
   return {
-    sessionId: SID, nodes: [], turnTimings: new Map(), turnEnds: new Map(), partial: null, runningCalls: [],
+    sessionId: SID, chat: chatSnapshotFixture(),
+    nodes: [], turnTimings: new Map(), turnEnds: new Map(), partial: null, runningCalls: [],
     pending: [], queue: [], running: false, composerPhase: 'active', removed: false, openState: 'open', openError: null,
     hasMore: false, loadingOlder: false, promptError: null, blank: false, subagent: null, lastAgentError: null,
   }
 }
 
 function makeSource(init?: Partial<ConversationSnapshot>) {
-  let snap: ConversationSnapshot = { ...snapshotBase(), ...init }
+  const initial = { ...snapshotBase(), ...init }
+  let snap: ConversationSnapshot = {
+    ...initial,
+    chat: init?.chat ?? chatSnapshotFixture({
+      nodes: initial.nodes,
+      partial: initial.partial,
+      runningCalls: initial.runningCalls,
+      turnTimings: initial.turnTimings,
+      turnEnds: initial.turnEnds,
+    }),
+  }
   const subs = new Set<() => void>()
   return {
     set: (next: Partial<ConversationSnapshot>) => {
-      snap = { ...snap, ...next }
+      const merged = { ...snap, ...next }
+      snap = {
+        ...merged,
+        chat: next.chat ?? (next.nodes === undefined ? snap.chat : chatSnapshotFixture({
+          nodes: merged.nodes,
+          partial: merged.partial,
+          runningCalls: merged.runningCalls,
+          turnTimings: merged.turnTimings,
+          turnEnds: merged.turnEnds,
+        })),
+      }
       for (const fn of [...subs]) fn()
     },
     source: {

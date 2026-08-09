@@ -12,6 +12,7 @@ import { CodeBlock } from '@deepseek-ai/dsh-client-ui-primitives'
 import { shallowEqual } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ConversationSnapshot, RunningToolCall, ToolCallBlock, ToolResultNode } from '@deepseek-ai/dsh-client-runtime/client'
 import type { DetailsSlotProps } from '../contract/slots.ts'
+import { findToolCall } from '../chat/tool-node-reader.ts'
 import css from './DetailsPanel.module.css'
 
 /** Full props composed by reference from the contract (automatic shares & injected share). */
@@ -40,30 +41,10 @@ function runningMaterial(call: RunningToolCall): CallMaterial {
   return { name: call.name, argsRaw: call.argsRaw, block: call }
 }
 
-function findCall(block: ToolCallBlock, callId: string): ToolCallBlock | undefined {
-  if (block.callId === callId) return block
-  for (const child of block.subCalls) {
-    const found = findCall(child, callId)
-    if (found !== undefined) return found
-  }
-  return undefined
-}
-
 function materialFor(s: ConversationSnapshot, callId: string): CallMaterial | null {
-  for (const node of s.nodes) {
-    if (node.kind !== 'tool-result') continue
-    const found = findCall(node, callId)
-    if (found !== undefined) {
-      return 'kind' in found ? settledMaterial(found, callId) : runningMaterial(found)
-    }
-  }
-  for (const root of s.runningCalls) {
-    const found = findCall(root, callId)
-    if (found !== undefined) {
-      return 'kind' in found ? settledMaterial(found, callId) : runningMaterial(found)
-    }
-  }
-  return null
+  const found = findToolCall(s, callId)
+  if (found === undefined) return null
+  return 'kind' in found ? settledMaterial(found, callId) : runningMaterial(found)
 }
 
 function pretty(raw: string): string {
