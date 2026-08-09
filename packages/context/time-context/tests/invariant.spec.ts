@@ -1,5 +1,5 @@
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import SessionStore, { Session, SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
@@ -126,6 +126,27 @@ describe('time-context invariants', () => {
         policy,
       )))
     }).toThrow(/rendered timestamp does not match the unique browser zone/)
+  })
+
+  it('reports browser-zone timestamp formatter failures as invariant violations', async () => {
+    const ctx = await setup()
+    const policy = 'Browser time zone for this request: Asia/Shanghai. '
+      + 'Interpret otherwise-unqualified dates and times in this zone.'
+    const formatToParts = vi.spyOn(Intl.DateTimeFormat.prototype, 'formatToParts')
+      .mockImplementationOnce(() => { throw new RangeError('formatter unavailable') })
+    try {
+      expect(() => {
+        ctx.emit('session/event', preparing(1, 1, 'Asia/Shanghai'), event(reading(
+          '1',
+          '1',
+          'model-visible message',
+          '2026-07-14T08:00:00+08:00[Asia/Shanghai]',
+          policy,
+        )))
+      }).toThrow(/browser zone cannot format its durable timestamp: RangeError: formatter unavailable/)
+    } finally {
+      formatToParts.mockRestore()
+    }
   })
 
   it('rejects invalid browser provenance loaded across the durable boundary', async () => {
