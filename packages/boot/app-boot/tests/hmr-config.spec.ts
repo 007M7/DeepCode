@@ -1,4 +1,5 @@
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
+import { realpath } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -40,7 +41,7 @@ describe('HMR exact config paths', () => {
     // This acceptance owns alias-to-cache identity. Other cases below exercise
     // native events; polling keeps Windows fs.watch queue pressure out of it.
     const ctx = await bootHmr(alias, ['.'], true)
-    const filename = join(realpathSync(target), 'module.ts')
+    const filename = join(await realpath(target), 'module.ts')
     const expected = pathToFileURL(filename).href
     const cacheHas = vi.spyOn(ctx.loader.internal!.loadCache, 'has').mockReturnValue(false)
     const observed: string[] = []
@@ -73,7 +74,7 @@ describe('HMR exact config paths', () => {
     const ctx = await bootHmr(alias)
     try {
       await ctx.hmr.registerConfig('plugins.yml', () => {})
-      await expect(ctx.hmr.registerConfig(join(realpathSync(target), 'plugins.yml'), () => {}))
+      await expect(ctx.hmr.registerConfig(join(await realpath(target), 'plugins.yml'), () => {}))
         .rejects.toThrow('config path already registered')
     } finally {
       await ctx.fiber.dispose()

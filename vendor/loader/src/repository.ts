@@ -36,16 +36,35 @@ function scrubEnvironment(environment: NodeJS.ProcessEnv = process.env): NodeJS.
   return Object.fromEntries(Object.entries(environment).filter(([name]) => !SENSITIVE_ENV_PATTERN.test(name)))
 }
 
+function normalizedEnvironmentPath(value: string): string {
+  const unquoted = value.startsWith('"') && value.endsWith('"') ? value.slice(1, -1) : value
+  const normalized = resolve(unquoted)
+  return process.platform === 'win32' ? normalized.toUpperCase() : normalized
+}
+
 function installEnvironment(commandDirectory: string): NodeJS.ProcessEnv {
   const scrubbed = scrubEnvironment()
   const path = Object.entries(scrubbed).find(([name]) => name.toUpperCase() === 'PATH')?.[1]
+  const pathExt = Object.entries(scrubbed).find(([name]) => name.toUpperCase() === 'PATHEXT')?.[1]
+  const pnpmHome = Object.entries(scrubbed).find(([name]) => name.toUpperCase() === 'PNPM_HOME')?.[1]
+  const normalizedPnpmHome = pnpmHome === undefined ? undefined : normalizedEnvironmentPath(pnpmHome)
+  const inheritedPath = path === undefined ? [] : path.split(delimiter).filter((entry) => {
+    return normalizedPnpmHome === undefined || normalizedEnvironmentPath(entry) !== normalizedPnpmHome
+  })
+  const pathExtensions = pathExt?.split(';')
+  const prioritizedPathExt = pathExtensions === undefined ? undefined : [
+    ...pathExtensions.filter(extension => extension.toUpperCase() === '.CMD'),
+    ...pathExtensions.filter(extension => extension.toUpperCase() !== '.CMD'),
+  ].join(';')
   const withoutOverrides = Object.fromEntries(Object.entries(scrubbed).filter(([name]) => {
-    return name.toUpperCase() !== 'PATH' && name.toUpperCase() !== 'PNPM_CONFIG_IGNORE_WORKSPACE'
+    return !['PATH', 'PATHEXT', 'PNPM_CONFIG_IGNORE_WORKSPACE'].includes(name.toUpperCase())
   }))
   return {
     ...withoutOverrides,
-    PATH: [commandDirectory, ...(path === undefined ? [] : [path])].join(delimiter),
-    // pnpm prepends its own command directory to lifecycle PATH on Windows.
+    PATH: [commandDirectory, ...inheritedPath].join(delimiter),
+    // cmd.exe tests PATHEXT before later PATH entries, so the transaction's
+    // pnpm.cmd must precede an inherited pnpm executable from PNPM_HOME.
+    ...(prioritizedPathExt === undefined ? {} : { PATHEXT: prioritizedPathExt }),
     PNPM_CONFIG_IGNORE_WORKSPACE: 'true',
   }
 }

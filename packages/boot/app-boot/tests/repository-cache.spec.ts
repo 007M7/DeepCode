@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { delimiter, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { promisify } from 'node:util'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -122,6 +122,10 @@ describe('RepositoryCache', () => {
     await mkdir(join(repository, '.dsh-plugin', 'build-helper'), { recursive: true })
     await mkdir(join(repository, '.dsh-plugin', 'prepare-helper'), { recursive: true })
     await mkdir(join(repository, 'skills', 'fixture'), { recursive: true })
+    const shadowPnpm = join(root, 'shadow-pnpm')
+    await mkdir(shadowPnpm)
+    await writeFile(join(shadowPnpm, 'pnpm'), '#!/bin/sh\nexit 99\n', { mode: 0o700 })
+    await writeFile(join(shadowPnpm, 'pnpm.bat'), '@exit /b 99\r\n')
     await writeFile(join(repository, 'package.json'), `${JSON.stringify({
       name: 'repository-fixture',
       private: true,
@@ -160,6 +164,7 @@ describe('RepositoryCache', () => {
       "cpSync('../skills', 'dsh-plugin-assets/skills/0', { recursive: true })",
       "writeFileSync('dsh-plugin.mjs', 'export function apply() {}\\n')",
       "writeFileSync('prepared.txt', `${process.env.REPOSITORY_TEST_VISIBLE ?? 'absent'}|${process.env.REPOSITORY_TEST_TOKEN ?? 'absent'}|${process.env.PNPM_CONFIG_IGNORE_WORKSPACE ?? 'absent'}\\n`)",
+      "writeFileSync('environment.json', `${JSON.stringify({ path: process.env.PATH, pathExt: process.env.PATHEXT })}\\n`)",
       '',
     ].join('\n'), { mode: 0o700 })
     await writeFile(join(repository, 'skills', 'fixture', 'SKILL.md'), 'repository skill source\n')
@@ -191,10 +196,19 @@ describe('RepositoryCache', () => {
     const specifier = `git+${pathToFileURL(repository).href}#${stdout.trim()}&path:/.dsh-plugin`
     vi.stubEnv('REPOSITORY_TEST_VISIBLE', 'visible')
     vi.stubEnv('REPOSITORY_TEST_TOKEN', 'hidden')
+    vi.stubEnv('PNPM_HOME', shadowPnpm)
+    vi.stubEnv('PATH', [shadowPnpm, ...(process.env.PATH === undefined ? [] : [process.env.PATH])].join(delimiter))
+    vi.stubEnv('PATHEXT', '.BAT;.CMD;.EXE')
 
     const installed = await new RepositoryCache(join(root, 'cache')).resolve(specifier)
     await expect(readFile(join(installed, 'dependency-built.txt'), 'utf8')).resolves.toBe('dependency available\n')
     await expect(readFile(join(installed, 'prepared.txt'), 'utf8')).resolves.toBe('visible|absent|true\n')
+    const environment = JSON.parse(await readFile(join(installed, 'environment.json'), 'utf8')) as {
+      path: string
+      pathExt: string
+    }
+    expect(environment.path.split(delimiter)).not.toContain(shadowPnpm)
+    expect(environment.pathExt.split(';')[0]?.toUpperCase()).toBe('.CMD')
     await expect(readFile(join(installed, 'dsh-plugin.mjs'), 'utf8')).resolves.toContain('export function apply')
     expect(lf(await readFile(join(installed, 'dsh-plugin-assets/skills/0/fixture/SKILL.md'), 'utf8')))
       .toBe('repository skill source\n')
