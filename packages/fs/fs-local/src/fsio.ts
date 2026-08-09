@@ -1,13 +1,13 @@
 /**
  * Cordis-free local filesystem mechanics. This provider layer returns validated UTF-8 text,
  * streams large files, and rejects binary data; line windows belong to `dsh-tool-fs`. Writes
- * stage an exclusive owner-only file in a private sibling directory and atomically rename it.
+ * stage an exclusive owner-only file in a private sibling directory and atomically publish it.
  * @module @deepseek-ai/dsh-fs-local/fsio
  */
 
 import { randomUUID } from 'node:crypto'
 import { createReadStream } from 'node:fs'
-import { chmod, lstat, mkdir, open, readFile, realpath, readdir, rename, rm, stat } from 'node:fs/promises'
+import { chmod, link, lstat, mkdir, open, readFile, realpath, readdir, rename, rm, stat } from 'node:fs/promises'
 import type { BigIntStats, Dirent, Stats } from 'node:fs'
 import { basename, dirname, join, resolve } from 'node:path'
 import { TextDecoder } from 'node:util'
@@ -18,6 +18,10 @@ const BINARY_SAMPLE_BYTES = 8192
 
 function isENOENT(error: unknown): boolean {
   return error instanceof Error && 'code' in error && error.code === 'ENOENT'
+}
+
+function isEEXIST(error: unknown): boolean {
+  return error instanceof Error && 'code' in error && error.code === 'EEXIST'
 }
 
 /**
@@ -85,7 +89,9 @@ export interface FsIoInternals {
   copyFileDacl?: (source: string, destination: string) => Promise<void>
   /** Override the Win32 security-preserving replacement boundary. */
   replaceFile?: (replaced: string, replacement: string) => Promise<void>
-  /** Test hook after the temp file is written/synced but before final chmod+rename. */
+  /** Override the hard-link no-replace publication boundary. */
+  linkFile?: (existingPath: string, newPath: string) => Promise<void>
+  /** Test hook after the temp file is written/synced but before final chmod+publication. */
   inspectTemp?: (paths: { stagingDir: string; tempPath: string }) => void | Promise<void>
 }
 
@@ -426,8 +432,10 @@ async function removeStagingDirOrThrow(stagingDir: string, originalError: unknow
  * @param content - the full UTF-8 text to write.
  * @param mode - existing destination's POSIX mode to preserve, or `undefined` for a new file;
  * inert as a mode on Windows but identifies replacement security semantics.
- * @param signal - cancellation checked before the final rename.
+ * @param signal - cancellation checked before final publication.
  * @param internals - Test hook for pinning temp names and observing the staged file.
+ * @param createIfAbsent - publish with a hard-link no-replace primitive; a
+ *   concurrent creator is preserved and rejected with `FS_NOT_OBSERVED`.
  */
 export async function writeFileAtomic(
   absolutePath: string,
@@ -435,6 +443,7 @@ export async function writeFileAtomic(
   mode: number | undefined,
   signal: AbortSignal | undefined,
   internals: FsIoInternals = {},
+  createIfAbsent = false,
 ): Promise<void> {
   throwIfAborted(signal, 'write')
   const directory = dirname(absolutePath)
@@ -448,6 +457,7 @@ export async function writeFileAtomic(
   const platform = internals.platform ?? process.platform
   const copyFileDacl = internals.copyFileDacl ?? copyFileDaclWin32
   const replaceFile = internals.replaceFile ?? replaceFileWin32
+  const linkFile = internals.linkFile ?? link
   let handle: Awaited<ReturnType<typeof open>> | undefined
   let stagingCreated = false
   try {
@@ -468,7 +478,18 @@ export async function writeFileAtomic(
     handle = undefined
 
     throwIfAborted(signal, 'write')
-    if (platform === 'win32' && mode !== undefined) {
+    if (createIfAbsent) {
+      try {
+        await linkFile(tempPath, absolutePath)
+      } catch (error: unknown) {
+        if (!isEEXIST(error)) throw error
+        throw new FsError(
+          `cannot overwrite existing "${absolutePath}" without reading it first`,
+          'FS_NOT_OBSERVED',
+          { cause: error },
+        )
+      }
+    } else if (platform === 'win32' && mode !== undefined) {
       try {
         await replaceFile(absolutePath, tempPath)
       } catch (error: unknown) {

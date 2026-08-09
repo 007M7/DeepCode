@@ -496,6 +496,17 @@ describe('writeFileAtomic — temp-file safety', () => {
     expect((await readdir(dir)).filter(name => name.includes('.tmp'))).toEqual([])
   })
 
+  it('surfaces a non-collision guarded-create publication failure and cleans staging', async () => {
+    const file = join(dir, 'a.txt')
+    const denied = Object.assign(new Error('link denied'), { code: 'EACCES' })
+
+    await expect(writeFileAtomic(file, 'ours', undefined, undefined, {
+      linkFile: async () => { throw denied },
+    }, true)).rejects.toBe(denied)
+    await expect(stat(file)).rejects.toMatchObject({ code: 'ENOENT' })
+    expect((await readdir(dir)).filter(name => name.includes('.tmp'))).toEqual([])
+  })
+
   it.skipIf(!posixModes)('creates new files owner-only by default', async () => {
     const file = join(dir, 'a.txt')
     await writeFileAtomic(file, 'hello', undefined, undefined)

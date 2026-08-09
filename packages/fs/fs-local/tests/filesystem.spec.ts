@@ -298,6 +298,16 @@ describe('writeText', () => {
     expect(await readFile(join(dir, 'a.txt'), 'utf8')).toBe('old')
   })
 
+  it('createIfAbsent preserves a competitor created after the initial probe', async () => {
+    const path = join(dir, 'a.txt')
+    const target = await fs.resolve('a.txt')
+    fs.internals.inspectTemp = async () => { await writeFile(path, 'competitor') }
+
+    await expect(fs.writeText(target, 'ours', { kind: 'createIfAbsent' }))
+      .rejects.toMatchObject({ code: 'FS_NOT_OBSERVED' })
+    expect(await readFile(path, 'utf8')).toBe('competitor')
+  })
+
   it('replaceIfVersion replaces when the version matches', async () => {
     await writeFile(join(dir, 'a.txt'), 'old')
     const target = await fs.resolve('a.txt')

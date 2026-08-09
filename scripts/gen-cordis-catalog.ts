@@ -262,6 +262,7 @@ export const LINK_MAP: Readonly<Record<string, string>> = {
   FsEditOutcome: 'filesystem.md',
   FsEditRequest: 'filesystem.md',
   FsInfo: 'filesystem.md',
+  FsObservation: 'filesystem.md',
   FsPathInfo: 'filesystem.md',
   FsPolicyExec: 'filesystem.md',
   FsTarget: 'filesystem.md',

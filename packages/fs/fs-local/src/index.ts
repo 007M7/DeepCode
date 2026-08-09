@@ -167,7 +167,14 @@ export class LocalFileSystem extends FileSystem {
       // Preserve prior text for contextual diffs; null falls back to a whole-file diff.
       // TODO(overwrite-diff-bound): cap this UI-only pre-read for large files.
       const before = existing ? await readTextForDiff(target.targetKey, signal) : null
-      await writeFileAtomic(target.targetKey, content, existing?.mode, signal, this.internals)
+      await writeFileAtomic(
+        target.targetKey,
+        content,
+        existing?.mode,
+        signal,
+        this.internals,
+        expected?.kind === 'createIfAbsent',
+      )
       const after = await probe(target.targetKey)
       return {
         operation: existing ? 'update' : 'create',

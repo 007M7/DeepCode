@@ -253,7 +253,7 @@ const TOOL_PACKAGES: ToolPackage[] = [
     dir: 'tool-str-replace-editor',
     source: 'packages/fs/tool-str-replace-editor/src/index.ts',
     requires: ['ctx.tools', 'ctx.fs'],
-    writes: ['tool/call', 'fs/observed after successful file operations', 'tool/result'],
+    writes: ['tool/call', 'fs/observed after view presence/absence or successful mutation', 'tool/result'],
     async mount(ctx) {
       await ctx.plugin(LocalFileSystem)
       await ctx.plugin(ToolStrReplaceEditor)
@@ -266,7 +266,7 @@ const TOOL_PACKAGES: ToolPackage[] = [
     dir: 'tool-fs',
     source: 'packages/fs/tool-fs/src/index.ts',
     requires: ['ctx.tools', 'ctx.fs', 'ctx.systemPrompt'],
-    writes: ['tool/call', 'fs/write-intent or fs/edit-intent for mutations', 'fs/observed after successful file operations', 'tool/result'],
+    writes: ['tool/call', 'fs/write-intent or fs/edit-intent for mutations', 'fs/observed after read presence/absence or successful mutation', 'tool/result'],
     async mount(ctx) {
       // The tool needs `fs`; the bare provider is sufficient because policy
       // changes behavior, not schema shape.
