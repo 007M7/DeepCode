@@ -74,19 +74,27 @@ trap cleanup EXIT
 mkdir -p "$cache_dir" "$scratch/logs"
 
 # ---- provision Windows Node, boot Wine, snapshot + install concurrently ----
+curl_download_args=(
+  --fail --silent --show-error --location
+  --retry 3 --retry-all-errors --retry-delay 2
+  --connect-timeout 10 --max-time 90 --retry-max-time 240
+)
+
 provision_node() {
   # Latest release of the primary line, checksum-verified against the same
-  # dist directory. Offline runs fall back to the newest cached zip, loudly.
+  # dist directory. Bound and retry every transfer so a stalled nodejs.org
+  # response cannot consume the entire CI job. Offline runs fall back to the
+  # newest cached zip, loudly.
   local version zip
-  version="$(curl -fsSL --max-time 30 https://nodejs.org/dist/index.json 2> /dev/null \
+  version="$(curl "${curl_download_args[@]}" https://nodejs.org/dist/index.json 2> /dev/null \
     | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{const v=JSON.parse(d).find(r=>r.version.startsWith('v$node_major.'));if(v)console.log(v.version)})" \
     || true)"
   if [ -n "$version" ]; then
     zip="$cache_dir/node-$version-win-x64.zip"
     if [ ! -f "$zip" ]; then
-      curl -fsSL -o "$zip.tmp" "https://nodejs.org/dist/$version/node-$version-win-x64.zip"
+      curl "${curl_download_args[@]}" -o "$zip.tmp" "https://nodejs.org/dist/$version/node-$version-win-x64.zip"
       local expected
-      expected="$(curl -fsSL "https://nodejs.org/dist/$version/SHASUMS256.txt" \
+      expected="$(curl "${curl_download_args[@]}" "https://nodejs.org/dist/$version/SHASUMS256.txt" \
         | awk -v a="node-$version-win-x64.zip" '$2 == a { print $1; exit }')"
       [ -n "$expected" ] || { echo "wine-windows-gates: no SHASUMS256 entry for node-$version-win-x64.zip" >&2; exit 1; }
       verify_sha256 "$expected" "$zip.tmp"

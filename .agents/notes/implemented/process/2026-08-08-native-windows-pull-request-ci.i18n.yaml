@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/process/2026-08-08-native-windows-pull-request-ci.md
-2026-08-08-native-windows-pull-request-ci.md: d1518f6a9725e1b9807415a0f822d9f730ecdca8
-2026-08-08-native-windows-pull-request-ci.zh.md: 6cdf0732e7355f03ce8c0e42a4b60b6d241bb19d
+2026-08-08-native-windows-pull-request-ci.md: f3815f7ea55ff852a0e8afaed0902c628f57a62d
+2026-08-08-native-windows-pull-request-ci.zh.md: a6c23006a381a8df41d363ac106d31ca1fe8aee2
