@@ -74,11 +74,28 @@ trap cleanup EXIT
 mkdir -p "$cache_dir" "$scratch/logs"
 
 # ---- provision Windows Node, boot Wine, snapshot + install concurrently ----
-curl_download_args=(
+curl_metadata_args=(
   --fail --silent --show-error --location
   --retry 3 --retry-all-errors --retry-delay 2
-  --connect-timeout 10 --max-time 90 --retry-max-time 240
+  --connect-timeout 10 --max-time 30 --retry-max-time 120
 )
+
+download_node_archive() {
+  local url="$1" output="$2" attempt status=0
+  for attempt in 1 2 3; do
+    if curl --fail --silent --show-error --location \
+      --continue-at - --connect-timeout 10 --max-time 300 \
+      --speed-limit 1024 --speed-time 30 \
+      -o "$output" "$url"; then
+      return 0
+    else
+      status=$?
+    fi
+    (( attempt < 3 )) || break
+    echo "wine-windows-gates: Windows Node archive transfer failed (exit $status) on attempt $attempt; resuming partial download" >&2
+  done
+  return "$status"
+}
 
 provision_node() {
   # Latest release of the primary line, checksum-verified against the same
@@ -86,15 +103,15 @@ provision_node() {
   # response cannot consume the entire CI job. Offline runs fall back to the
   # newest cached zip, loudly.
   local version zip
-  version="$(curl "${curl_download_args[@]}" https://nodejs.org/dist/index.json 2> /dev/null \
+  version="$(curl "${curl_metadata_args[@]}" https://nodejs.org/dist/index.json 2> /dev/null \
     | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{const v=JSON.parse(d).find(r=>r.version.startsWith('v$node_major.'));if(v)console.log(v.version)})" \
     || true)"
   if [ -n "$version" ]; then
     zip="$cache_dir/node-$version-win-x64.zip"
     if [ ! -f "$zip" ]; then
-      curl "${curl_download_args[@]}" -o "$zip.tmp" "https://nodejs.org/dist/$version/node-$version-win-x64.zip"
+      download_node_archive "https://nodejs.org/dist/$version/node-$version-win-x64.zip" "$zip.tmp"
       local expected
-      expected="$(curl "${curl_download_args[@]}" "https://nodejs.org/dist/$version/SHASUMS256.txt" \
+      expected="$(curl "${curl_metadata_args[@]}" "https://nodejs.org/dist/$version/SHASUMS256.txt" \
         | awk -v a="node-$version-win-x64.zip" '$2 == a { print $1; exit }')"
       [ -n "$expected" ] || { echo "wine-windows-gates: no SHASUMS256 entry for node-$version-win-x64.zip" >&2; exit 1; }
       verify_sha256 "$expected" "$zip.tmp"
