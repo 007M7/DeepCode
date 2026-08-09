@@ -151,6 +151,27 @@ describe('headless runner', () => {
     await test.ctx.fiber.dispose()
   })
 
+  it('prints the durable model failure when the final turn ends in error', async () => {
+    const test = await bench({
+      afterPrompt(session, message) {
+        session.append('turn/start', { turn: 1 })
+        session.append('step/start', { turn: 1, step: 1 })
+        session.append('user/message', message, { surfaceOp: 'append' })
+        session.append('step/end', { turn: 1, step: 1 })
+        session.append('turn/end', {
+          turn: 1,
+          reason: { kind: 'error', error: { code: 'SERVER', message: 'provider unavailable' } },
+        })
+      },
+    })
+    expect(await test.run()).toMatchObject({
+      code: 1,
+      out: '\n',
+      err: 'dsh: SERVER: provider unavailable\n',
+    })
+    await test.ctx.fiber.dispose()
+  })
+
   it('exits 1 when the owned interval contains no turn', async () => {
     const test = await bench({ afterPrompt: () => {} })
     expect(await test.run()).toMatchObject({ code: 1, out: '\n', err: '' })

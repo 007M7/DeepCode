@@ -38,7 +38,7 @@ export const Config: z<Config> = z.object({
 /** Outcome of one owned run interval. */
 interface RunOutcome {
   text: string
-  reason: string
+  reason: SessionEvent<'turn/end'>['data']['reason'] | undefined
 }
 
 /**
@@ -63,7 +63,7 @@ declare module 'cordis' {
 function summarize(events: readonly SessionEvent[], firstSeq: number): RunOutcome {
   let started = false
   let text = ''
-  let reason = 'error'
+  let reason: SessionEvent<'turn/end'>['data']['reason'] | undefined
   for (const event of events) {
     if (event.seq < firstSeq) continue
     if (event.type === 'turn/start') {
@@ -78,7 +78,7 @@ function summarize(events: readonly SessionEvent[], firstSeq: number): RunOutcom
         .join('')
       if (joined !== '') text = joined
     }
-    if (event.type === 'turn/end') reason = event.data.reason.kind
+    if (event.type === 'turn/end') reason = event.data.reason
   }
   return { text, reason }
 }
@@ -125,7 +125,10 @@ async function run(ctx: Context, task: string, io: HeadlessIo): Promise<void> {
   await sessions.flush(agent.session)
   const outcome = summarize(agent.session.events, firstSeq)
   io.stdout.write(outcome.text + '\n')
-  io.exit(outcome.reason === 'completed' ? 0 : 1)
+  if (outcome.reason?.kind === 'error') {
+    io.stderr.write(`dsh: ${outcome.reason.error.code}: ${outcome.reason.error.message}\n`)
+  }
+  io.exit(outcome.reason?.kind === 'completed' ? 0 : 1)
 }
 
 /**
