@@ -15,7 +15,7 @@ export interface AfterScheduleRecord {
   readonly id: ScheduleId
   /** Rule discriminator; v1 supports only delayed one-shot reminders. */
   readonly kind: 'after'
-  /** Trimmed user-authored reminder content. */
+  /** Trimmed reminder content supplied at creation. */
   readonly prompt: string
   /** Positive safe-integer delay accepted at creation. */
   readonly afterSeconds: number
@@ -79,7 +79,7 @@ export interface InvalidSelectorError {
   readonly message: string
 }
 
-/** Stable error returned for an invalid after delay. */
+/** Stable error returned for an invalid rule or management argument. */
 export interface InvalidRuleError {
   readonly code: 'invalid_rule'
   readonly message: string

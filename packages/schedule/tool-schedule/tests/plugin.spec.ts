@@ -23,6 +23,10 @@ async function harness(): Promise<Context> {
   return ctx
 }
 
+async function settle(): Promise<void> {
+  for (let index = 0; index < 8; index += 1) await Promise.resolve()
+}
+
 describe('Schedule plugin composition', () => {
   it('has the Loader-safe function-plugin export shape', () => {
     expect('default' in toolSchedule).toBe(false)
@@ -75,6 +79,27 @@ describe('Schedule plugin composition', () => {
     await child.dispose()
     await root.dispose()
     await existing.dispose()
+    await ctx.fiber.dispose()
+  })
+
+  it('does not checkpoint unrelated idle sessions', async () => {
+    const ctx = await harness()
+    const plugin = await ctx.plugin(toolSchedule)
+    const root = await ctx.agents.create({ sessionId: SessionId('schedule-unrelated-idle') })
+    await settle()
+    let flushes = 0
+    const stopFlush = ctx.on('session/flush', (session) => {
+      if (session === root.agent.session) flushes += 1
+    })
+
+    agentEvents(ctx, root.agent).emit('agent/status', { status: 'running' })
+    agentEvents(ctx, root.agent).emit('agent/status', { status: 'idle' })
+    await settle()
+    expect(flushes).toBe(0)
+
+    stopFlush()
+    await root.dispose()
+    await plugin.dispose()
     await ctx.fiber.dispose()
   })
 })

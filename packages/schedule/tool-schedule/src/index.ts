@@ -43,7 +43,9 @@ export function apply(ctx: Context): void {
       const cleanup: OwnerCleanup = agent.ctx.effect(() => {
         const disposeTools = registerScheduleTools(ctx, agent.ctx, agent, () => { owner.requestDrive() })
         const stopStatus = agent.ctx.on('agent/status', ({ status }) => {
-          if (status === 'idle') owner.requestDrive()
+          if (status === 'idle' && agent.session.events.some(event => event.type === 'schedule/change')) {
+            owner.requestDrive()
+          }
         })
         owner.start()
         return async () => {
