@@ -2,7 +2,7 @@
 layout: home
 hero:
   name: DeepSeek Harness
-  text: 插件化 agent（智能体）开发框架
+  text: 插件化 Coding Agent
   tagline: 基于 Cordis 微内核，一切皆插件
   actions:
     - theme: brand
@@ -12,12 +12,12 @@ hero:
       text: 开发插件
       link: /develop/basic/
 features:
-  - title: 插件化架构
-    details: 基于 Cordis 插件系统，所有能力通过插件注册，加载即生效、卸载即还原。
-  - title: 配置即组合
-    details: 一个 cordis.yml 决定整个 agent 的能力组合——换模型、加工具，只需改一行配置。
-  - title: 开箱即用
-    details: 内置 LLM（大语言模型）调用、文件读写、Bash 执行、subagent 委派等完整工具链，复制模板即可运行。
+  - title: 微内核
+    details: 内核只负责插件生命周期、事件通信和依赖管理，不包含具体业务能力。
+  - title: 插件化
+    details: 模型、工具、会话和存储都由插件提供，并通过事件协作。
+  - title: 自由组合
+    details: 通过配置选择、替换或扩展能力，不需要修改 Agent Loop。
 ---
 
 # DeepSeek Harness
