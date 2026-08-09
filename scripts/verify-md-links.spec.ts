@@ -5,11 +5,11 @@
  * external targets stay out of scope.
  */
 
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { documentAnchors, findViolations, githubSlug } from './verify-md-links.ts'
+import { anchorCache, documentAnchors, findViolations, githubSlug } from './verify-md-links.ts'
 
 const roots: string[] = []
 afterEach(() => {
@@ -27,19 +27,11 @@ function layout(files: Record<string, string>): string {
 }
 
 function violationsIn(root: string, rel: string): { url: string; reason: string }[] {
-  const cache = new Map<string, Set<string>>()
-  const anchorsOf = (abs: string): Set<string> => {
-    const hit = cache.get(abs)
-    if (hit) return hit
-    const anchors = documentAnchors(readFileSync(abs, 'utf8'))
-    cache.set(abs, anchors)
-    return anchors
-  }
-  return findViolations(join(root, rel), anchorsOf, root).map(({ url, reason }) => ({ url, reason }))
+  return findViolations(join(root, rel), anchorCache(), root).map(({ url, reason }) => ({ url, reason }))
 }
 
 describe('documentAnchors', () => {
-  it('slugs headings, suffixes repeats, and reads explicit <a id> anchors', () => {
+  it('slugs rendered heading text, suffixes repeats, and reads explicit <a id> anchors', () => {
     const anchors = documentAnchors([
       '# My Doc',
       '## Live `events` — mode!',
@@ -50,6 +42,34 @@ describe('documentAnchors', () => {
     ].join('\n'))
     expect(anchors).toEqual(new Set(['my-doc', 'live-events--mode', 'repeat', 'repeat-1', 'hand-anchor']))
     expect(githubSlug('Security and authority are non-goals')).toBe('security-and-authority-are-non-goals')
+  })
+
+  it('keeps underscores the way GitHub does', () => {
+    expect(githubSlug('Showcase: web_fetch')).toBe('showcase-web_fetch')
+    expect(documentAnchors('## Showcase: web_fetch\n')).toEqual(new Set(['showcase-web_fetch']))
+  })
+
+  it('slugs a heading containing a link from its rendered text', () => {
+    expect(documentAnchors('## [Install](setup.md)\n')).toEqual(new Set(['install']))
+  })
+
+  it('bumps repeat suffixes past occupied slugs, matching GitHub', () => {
+    const anchors = documentAnchors(['## Repeat', '## Repeat-1', '## Repeat', ''].join('\n'))
+    expect(anchors).toEqual(new Set(['repeat', 'repeat-1', 'repeat-2']))
+  })
+
+  it('ignores <a id> inside code fences, inline code, and HTML comments', () => {
+    const anchors = documentAnchors([
+      '# Doc',
+      '```md',
+      '<a id="fenced"></a>',
+      '```',
+      'Inline `<a id="inline"></a>` sample.',
+      '<!-- <a id="commented"></a> -->',
+      '<a id="real"></a>',
+      '',
+    ].join('\n'))
+    expect(anchors).toEqual(new Set(['doc', 'real']))
   })
 })
 
@@ -66,6 +86,11 @@ describe('findViolations fragments', () => {
   it('rejects a same-file fragment that names no heading or <a id>', () => {
     const root = layout({ 'a.md': '# A\n\n[gone](#deferred-work)\n' })
     expect(violationsIn(root, 'a.md')).toEqual([{ url: '#deferred-work', reason: 'anchor' }])
+  })
+
+  it('rejects a case-variant fragment: element ids are case-sensitive', () => {
+    const root = layout({ 'a.md': '# A\n\n## Default Loop\n\n[case](#Default-Loop)\n' })
+    expect(violationsIn(root, 'a.md')).toEqual([{ url: '#Default-Loop', reason: 'anchor' }])
   })
 
   it('rejects a cross-file fragment missing from the target document', () => {

@@ -10,7 +10,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname, relative, resolve } from 'node:path'
 import type { Nodes } from 'mdast'
-import { parseMarkdown, visitMarkdown } from './markdown.ts'
+import { markdownHeadingLines, parseMarkdown, visitMarkdown } from './markdown.ts'
 import { isArchivedAgentNotePath, uniqueRepoFiles } from './repo-files.ts'
 
 const root = resolve(import.meta.dirname, '..')
@@ -88,45 +88,59 @@ function fragmentPart(url: string): string | null {
 
 /**
  * GitHub's heading-slug algorithm (lowercase; drop everything but letters,
- * numbers, spaces, hyphens; spaces become hyphens) — the same rule
- * `gen-cordis-catalog`'s region anchors are built from, kept in sync by the
- * corpus passing this gate rather than by a shared import across the
- * script/package boundary.
- * @param heading - the rendered heading text.
+ * numbers, underscores, spaces, hyphens; spaces become hyphens). Underscores
+ * survive (`## Showcase: web_fetch` → `#showcase-web_fetch`), unlike
+ * `gen-cordis-catalog`'s region-anchor slugs — the generator's headings are
+ * always reachable through its explicit `<a id>` anchors, so the two need not
+ * share one rule.
+ * @param heading - the RENDERED heading text (Markdown syntax already gone).
  * @returns the anchor GitHub assigns the first occurrence of the heading.
  */
 export function githubSlug(heading: string): string {
-  return heading.toLowerCase().replace(/[^\p{L}\p{N} -]/gu, '').replaceAll(' ', '-')
+  return heading.toLowerCase().replace(/[^\p{L}\p{N}_ -]/gu, '').replaceAll(' ', '-')
 }
 
 /**
- * Every anchor one Markdown document exposes: each heading's GitHub slug
- * (repeated headings get the renderer's `-1`, `-2`, … suffixes) plus every
- * explicit `<a id="…">`. Lowercased for case-insensitive fragment matching.
+ * Every anchor one Markdown document exposes: each heading's GitHub slug —
+ * computed from the RENDERED heading text, so links, images, inline code, and
+ * emphasis inside a heading slug the way GitHub renders them — plus every
+ * explicit `<a id="…">` that appears in real HTML flow (a fenced or inline
+ * code sample and a commented-out anchor register nothing). Repeated slugs
+ * get GitHub's occupied-set `-1`, `-2`, … suffixes: each collision bumps the
+ * ORIGINAL slug's counter until a free name is found, so `Repeat`, `Repeat-1`,
+ * `Repeat` yields `repeat`, `repeat-1`, `repeat-2`. Matching is exact —
+ * element ids are case-sensitive.
  * @param source - the document's full Markdown text.
  * @returns the set of valid fragments for links into this document.
  */
 export function documentAnchors(source: string): Set<string> {
   const anchors = new Set<string>()
-  const seen = new Map<string, number>()
-  const tree = parseMarkdown(source)
-  visitMarkdown(tree, (node: Nodes): void => {
-    if (node.type === 'heading') {
-      const text = source.slice(node.position?.start.offset ?? 0, node.position?.end.offset ?? 0)
-        .replace(/^#{1,6}\s+/, '')
-        .replace(/[`*_]/g, '')
-      const base = githubSlug(text)
-      const bump = seen.get(base) ?? 0
-      seen.set(base, bump + 1)
-      anchors.add(bump === 0 ? base : `${base}-${bump}`)
+  const occurrences = new Map<string, number>()
+  for (const heading of markdownHeadingLines(source)) {
+    const base = githubSlug(heading.text)
+    let result = base
+    let bump = occurrences.get(base) ?? 0
+    while (anchors.has(result)) {
+      bump += 1
+      result = `${base}-${bump}`
     }
+    occurrences.set(base, bump)
+    anchors.add(result)
+  }
+  visitMarkdown(parseMarkdown(source), (node: Nodes): void => {
+    if (node.type !== 'html') return
+    const html = node.value.replace(/<!--[\s\S]*?-->/g, '')
+    for (const match of html.matchAll(/<a id="([^"]+)"/g)) anchors.add(match[1] ?? '')
   })
-  for (const match of source.matchAll(/<a id="([^"]+)"/g)) anchors.add((match[1] ?? '').toLowerCase())
   return anchors
 }
 
-/** Lazily collect and cache the anchor set of any existing Markdown file. */
-function anchorCache(): (absPath: string) => Set<string> {
+/**
+ * Lazily collect and cache the anchor set of any existing Markdown file —
+ * shared across all scanned sources so a target parses once.
+ * @returns the memoized absolute-path → anchor-set lookup.
+ */
+export function anchorCache(): (absPath: string) => Set<string> {
   const cache = new Map<string, Set<string>>()
   return (absPath) => {
     const hit = cache.get(absPath)
@@ -169,7 +183,7 @@ export function findViolations(
     }
     const fragment = fragmentPart(url)
     if (fragment === null || !resolved.endsWith('.md')) return
-    if (!anchorsOf(resolved).has(fragment.toLowerCase())) {
+    if (!anchorsOf(resolved).has(fragment)) {
       out.push({ file, line: node.position?.start.line ?? 0, url, reason: 'anchor' })
     }
   }
