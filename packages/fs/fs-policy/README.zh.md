@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-**fs-policy 插件**：它在 `ctx.fs` 提供方 seam（[`@deepseek-ai/dsh-fs`](../fs)）之上增加已观察状态、编辑前读取和版本防护的写入/编辑；它通过 `fs/*` 事件门禁参与，**不是**通过方法服务。该插件**不**注册 `ctx.fsPolicy` 服务，也没有公开的 `read`/`write`/`edit`/`resolve` 方法。它是文件系统栈的策略层：不是可替换 seam，而是不应位于 `FileSystem` 提供方基类上的策略。
+**fs-policy 插件**：它在 `ctx.fs` 提供方约定（[`@deepseek-ai/dsh-fs`](../fs)）之上增加已观察状态、编辑前读取和版本防护的写入/编辑；它通过 `fs/*` 事件门禁参与，**不是**通过方法服务。该插件**不**注册 `ctx.fsPolicy` 服务，也没有公开的 `read`/`write`/`edit`/`resolve` 方法。它是文件系统栈的策略层：不是可替换 seam，而是不应位于 `FileSystem` 提供方基类上的策略。
 
 ```ts
 import type { Context } from 'cordis'
@@ -24,7 +24,7 @@ await ctx.plugin(FsPolicy)
 |---|---|---|
 | 工具/执行器 | `@deepseek-ai/dsh-tool-fs` | 面向模型的 schema、读取窗口和文本渲染；通过 `ctx.fs` 读取/写入/编辑，并分派 `fs/*` 事件 |
 | 策略 | `@deepseek-ai/dsh-fs-policy`（本包） | 通过 `fs/*` 事件门禁提供已观察状态、编辑前读取和版本防护的写入/编辑（无服务） |
-| 提供方 seam | `@deepseek-ai/dsh-fs` | `ctx.fs`：文本 I/O 与原子变更原语（可选版本防护）；拥有 `fs/*` 事件词汇 |
+| 提供方约定 | `@deepseek-ai/dsh-fs` | `ctx.fs`：文本 I/O 与原子变更原语（可选版本防护）；拥有 `fs/*` 事件词汇 |
 | 提供方 | `@deepseek-ai/dsh-fs-local` | `ctx.fs` 的本地实现 |
 
 ## 门禁的参与方式

@@ -1,5 +1,5 @@
 /**
- * Compaction service seam (`ctx.compact`): implementations decide when to
+ * Compaction Service Definition (`ctx.compact`): providers decide when to
  * compact and replace a history range with one summary node by subclassing
  * {@link CompactService}. This interface necessarily depends on session and LLM
  * vocabulary; the rationale is in the

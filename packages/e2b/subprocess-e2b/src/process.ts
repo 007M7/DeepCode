@@ -184,7 +184,7 @@ export class E2BSubprocessHandle implements SubprocessHandle {
   private terminationSignal: NodeJS.Signals | null = null
 
   /**
-   * Begin an E2B command without blocking the synchronous subprocess spawn seam.
+   * Begin an E2B command without blocking the synchronous subprocess spawn call.
    * @param runtime - Shared E2B sandbox owner.
    * @param spec - Fully resolved subprocess request.
    * @param stateDir - Remote directory retaining process identity, status, and valid spills.

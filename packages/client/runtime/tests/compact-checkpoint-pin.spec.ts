@@ -1,12 +1,12 @@
 /**
  * Behavioral half of the compaction-checkpoint drift trap.
  *
- * `TranscriptAdapter` pins its plugin literal to the seam's own declaration at
+ * `TranscriptAdapter` pins its plugin literal to the Service Definition's declaration at
  * compile time through a type-only import of `dsh-compact/checkpoint`, so
- * renaming the seam's plugin already fails `tsc`. This spec covers the same
+ * renaming the Service Definition's plugin already fails `tsc`. This spec covers the same
  * drift from the other side — end to end through the adapter, driving it with a
  * checkpoint built from the canonical `COMPACT_CHECKPOINT_SOURCE` value and
- * checking the seam's own predicate agrees. Both values come from the
+ * checking the Service Definition's predicate agrees. Both values come from the
  * cordis-free checkpoint leaf, so the client test program never loads the host
  * package root or its `Context` merges.
  */
@@ -17,7 +17,7 @@ import { describe, expect, it } from 'vitest'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import { TranscriptAdapter } from '../src/client/sessions/transcript-adapter.ts'
 
-/** A replacement user message stamped with the seam's own canonical source. */
+/** A replacement user message stamped with the Service Definition's canonical source. */
 function canonicalCheckpoint(seq: number): SessionEvent {
   return {
     type: 'user/message',
@@ -43,7 +43,7 @@ describe('compaction checkpoint recognition', () => {
   })
 
   it("agrees with the seam's own predicate on the source it recognizes", () => {
-    // Both sides answer the same question about the same value: if the seam
+    // Both sides answer the same question about the same value: if the Service Definition
     // renames its plugin, this equality is what breaks.
     const checkpoint = canonicalCheckpoint(1)
     expect(checkpoint.type === 'user/message' && isCompactCheckpointSource(checkpoint.data.source)).toBe(true)

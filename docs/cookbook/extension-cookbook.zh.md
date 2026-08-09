@@ -2,7 +2,7 @@
 
 [English](extension-cookbook.md) | 中文
 
-harness 扩展表面的参考形态。代码片段省略了 import 和辅助实现，无法直接复制运行。具体编写路径见[包检查清单](adding-a-package.md)、[第一个工具教程](../user/develop/basic/tool.md)、[工具参考](adding-a-tool.md)和 [LLM（大语言模型）适配器指南](adding-an-llm-adapter.md)；系统与扩展 seam 映射由[架构文档](../architecture.md)负责。
+harness 扩展表面的参考形态。代码片段省略了 import 和辅助实现，无法直接复制运行。具体编写路径见[包检查清单](adding-a-package.md)、[第一个工具教程](../user/develop/basic/tool.md)、[工具参考](adding-a-tool.md)和 [LLM（大语言模型）适配器指南](adding-an-llm-adapter.md)；系统与扩展点映射由[架构文档](../architecture.md)负责。
 
 ## 工具插件
 
@@ -10,7 +10,7 @@ harness 扩展表面的参考形态。代码片段省略了 import 和辅助实�
 
 ## 钩子插件（以权限门禁为例）
 
-这个权限门禁是钩子插件的一个示例。它从 `tools/pre-execute` 门禁返回一个类型化的决策，用于允许或拒绝一次调用；沙箱、权限和 plan-mode 插件都可以使用该 seam。钩子插件也可以拦截其他 seam，本身并不等同于权限门禁。「原生钩子」是在拦截 seam 上运行的普通 Cordis 插件，不需要外部协议。
+这个权限门禁是钩子插件的一个示例。它从 `tools/pre-execute` 门禁返回一个类型化的决策，用于允许或拒绝一次调用；沙箱、权限和 plan-mode 插件都可以使用该扩展点。钩子插件也可以拦截其他扩展点，本身并不等同于权限门禁。「原生钩子」是在拦截点上运行的普通 Cordis 插件，不需要外部协议。
 
 ```ts
 import type { Context } from 'cordis'
@@ -94,13 +94,13 @@ export function apply(ctx: Context) {
 
 ## 功能→机制映射
 
-每个产品功能都映射到一个文档化扩展 seam 上的监听器——微内核声明由此可验证（[微内核 Agent Note](../../.agents/notes/implemented/architecture/2026-06-11-microkernel-event-taxonomy.md)）。没有任何一行修改循环本身。
+每个产品功能都映射到一个文档化扩展点上的监听器——微内核声明由此可验证（[微内核 Agent Note](../../.agents/notes/implemented/architecture/2026-06-11-microkernel-event-taxonomy.md)）。没有任何一行修改循环本身。
 
 `system-prompt/assemble` 是一个专家协作式的整体装配变换：其返回的装配结果具有权威性，因此监听器作者有责任保留活跃的 Code Mode 和结构化输出协议的贡献。对于需要在展示、查找和执行之间保持对齐的工具过滤，优先使用 `ctx.tools.restrict()`。
 
 | 产品功能 | 插件机制 |
 |---|---|
-| 钩子系统（用户级 + 项目级） | `agent/session-start`、`agent/pre-step`、`agent/request`、`tools/pre-execute`、`tools/post-execute` 和 `agent/turn-stopping` 上的监听器；waterfall seam 返回类型化决策，`agent/turn-stopping` 则可通过 steering（中途引导）触发下一步；`dsh-hooks-claude` / `dsh-hooks-codex` 桥接器将钩子配置文件映射到这些 seam 上 |
+| 钩子系统（用户级 + 项目级） | `agent/session-start`、`agent/pre-step`、`agent/request`、`tools/pre-execute`、`tools/post-execute` 和 `agent/turn-stopping` 上的监听器；waterfall 返回类型化决策，`agent/turn-stopping` 则可通过 steering（中途引导）触发下一步；`dsh-hooks-claude` / `dsh-hooks-codex` 桥接器将钩子配置文件映射到这些扩展点上 |
 | `/goal` | `ctx.goals` 管理持久状态，`dsh-goal-session` 通过公共 `Agent` 调度同会话 Round，独立的命令/工具生产方分别提供人类/模型控制 |
 | `/loop` | 在 `turn/end` 会话事件上 `followup()` 下一次迭代；或强制继续 |
 | 动态工作流 | `ctx.workflows` + worker-thread 引擎 + `workflow` 工具；结构化的进程内子任务通过作用域化的提示词/工具注册、单调工具守卫、最终 `tools/result` 提交（包括外层 `run_code`）和结构化输出执行的单调 `concludeTurn()` 标记来强制输出 |

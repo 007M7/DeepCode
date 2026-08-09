@@ -161,7 +161,7 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
   }
 
   // Each backend keeps the typed service surface beside its storage hooks;
-  // extracting these trivial forwards would add an inheritance seam.
+  // extracting these trivial forwards would add an inheritance layer.
   /* jscpd:ignore-start */
   // --- SessionPersistence service surface (delegated to the coordinator) ---
 

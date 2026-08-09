@@ -915,7 +915,7 @@ export class SessionStore extends Service {
    * another create) between them, so a stale prepared session must NOT overwrite
    * a live store entry of the same id — its detach disposer would later delete
    * the REAL session. The {@link create} convenience and the agent factory call
-   * the two back-to-back so they never trip this, but the public seam cannot
+   * the two back-to-back so they never trip this, but the public API cannot
    * assume that.
    *
    * @param session - a {@link prepare}d session not yet in the store.

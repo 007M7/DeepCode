@@ -1,5 +1,5 @@
 /**
- * User-settings seam (`ctx.settings`). Providers store one raw document of
+ * Service Definition for the user-settings capability seam (`ctx.settings`). Providers store one raw document of
  * per-namespace sections; plugins register a namespace schema and read the
  * resolved value, which layers schema defaults, the registrant's composition
  * `base`, and the user document section, in that order.
@@ -69,7 +69,7 @@ export interface SettingsRegisterOptions<T> {
 /** One registered namespace as surfaced to configuration UIs. */
 export interface SettingsDescriptor {
   // TODO(settings-namespace-vocabulary): Rename `ns` to `namespace` across the
-  // public seam, provider contract, implementations, tests, and consumers.
+  // public API, provider contract, implementations, tests, and consumers.
   /** The registered namespace. */
   ns: SettingsNamespace
   /** Serialized schemastery schema (`schema.toJSON()`). */
@@ -173,7 +173,7 @@ declare module 'cordis' {
 
 /**
  * Deep equality over JSON-shaped data (objects, arrays, primitives) — the
- * seam's single change-detection predicate, exported so the invariant
+ * Service Definition's single change-detection predicate, exported so the invariant
  * companion checks exactly the implementation's relation.
  * @param a - one JSON-shaped value.
  * @param b - the other JSON-shaped value.
@@ -195,7 +195,7 @@ export function deepEqualJson(a: unknown, b: unknown): boolean {
 
 /**
  * A write refused because the namespace moved since the caller read it. The
- * seam's serialized write queue orders writes; it cannot tell a fresh writer
+ * Service Definition's serialized write queue orders writes; it cannot tell a fresh writer
  * from one holding a stale snapshot, which is what this reports.
  */
 export class SettingsConflictError extends Error {

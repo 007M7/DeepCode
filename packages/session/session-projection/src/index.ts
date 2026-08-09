@@ -1,5 +1,5 @@
 /**
- * Session-projection seam: the merge-extensible `SessionProjectionMap` type
+ * Service Definition and drive registry for the session-projection capability seam: the merge-extensible `SessionProjectionMap` type
  * table, the `ProjectionDefinition` state-driven computation unit contract,
  * and the `ctx.sessionProjections` registry that DRIVES every registered unit
  * forward eagerly over committed session events. Domain host plugins
@@ -117,7 +117,7 @@ export interface ProjectionCheckpointRow {
 /** Checkpoint rows keyed by projection key (one session's persisted cache value). */
 export type ProjectionCheckpoint = Record<string, ProjectionCheckpointRow>
 
-/** Type-erased unit view the drive machinery works with (the register seam already proved the typed contract). */
+/** Type-erased unit view the drive machinery works with (the registration contract already proved the typed form). */
 interface ErasedDefinition {
   key: string
   schema: { parse(value: unknown): unknown }

@@ -8,7 +8,7 @@ The model is **additive, not subtractive**: `ctx.fs` alone is a complete, uncons
 
 Provider source: [`packages/fs/fs/src/types.ts`](../../packages/fs/fs/src/types.ts) and [`packages/fs/fs/src/index.ts`](../../packages/fs/fs/src/index.ts). Policy source: [`packages/fs/fs-policy/src/types.ts`](../../packages/fs/fs-policy/src/types.ts). Read-rendering source: [`packages/fs/tool-fs/src/read-render.ts`](../../packages/fs/tool-fs/src/read-render.ts).
 
-## Target identity and metadata (provider seam)
+## Target identity and metadata (provider contract)
 
 Every operation resolves a user-supplied path to an opaque backend target first. Consumers may display `displayPath`, but must not parse `targetKey` (a branded opaque id) or assume it is a local absolute path.
 
@@ -111,7 +111,7 @@ interface FsDirEntry {
 }
 ```
 
-## Write and edit guards (provider seam)
+## Write and edit guards (provider contract)
 
 Both `writeText` and `editText` take their version guard OPTIONALLY: omit it for an unconditional (bare-provider) mutation, supply it to guard. `writeText`'s guard is an `FsWriteIntent` — `createIfAbsent` creates a missing target and rejects an existing one with `FS_NOT_OBSERVED`; `replaceIfVersion` replaces only when the target exists at the observed version, else `FS_STALE_VERSION`. Omitting `expected` unconditionally creates-or-overwrites. The union itself carries only the two guarded intents; "no guard" is expressed by omission, so write and edit share one symmetric `expected?` shape.
 
@@ -177,7 +177,7 @@ interface FsEditOutcome {
 }
 ```
 
-## The fs policy events (provider-seam vocabulary)
+## The fs policy events (provider contract vocabulary)
 
 `dsh-fs` owns three events the tool dispatches and the policy plugin listens for, so the emitter (`dsh-tool-fs`) and the listener (`dsh-fs-policy`) share a vocabulary without the emitter depending on the policy plugin. They carry only `dsh-fs` vocabulary plus an opaque `object` actor — no model-facing concepts and no agent/session owner structure.
 
@@ -229,7 +229,7 @@ interface FileReadOutcome {
 
 Observed state is a `WeakMap<owner, Map<targetKey, { version }>>` held inside the `dsh-fs-policy` plugin. An entry exists **iff** the owner has read, written, OR edited that target (every success emits `fs/observed`), so its presence is the prior-observation record — there is no separate `hasRead` flag and no view distinction. The owner is derived from the event actor (normally `exec.agent.session`), treated as opaque and never read. A successful read/write/edit refreshes the recorded version for that owner; disposal drops everything (HMR safety).
 
-## Error taxonomy (provider seam)
+## Error taxonomy (provider contract)
 
 Filesystem failures use stable `FsErrorCode` strings carried by `FsError` (`HarnessError`). The tool registry preserves `{ name, code }` on error results, so retry, permission, and UI layers can branch without parsing text.
 
@@ -258,7 +258,7 @@ type FsErrorCode =
 
 ## No timeouts on file IO
 
-`read`/`write`/`edit` take **no** `timeoutMs`, and the provider seam arms no deadline — unlike bash and web (which consume [`@deepseek-ai/dsh-timeout`](../../packages/util/timeout/README.md)) and the bash-backed `glob`/`grep` (whose declared `timeoutMs` is enforced by `@deepseek-ai/dsh-timeout-policy`): those are process-backed, where a deadline can really kill the work. A local syscall is best-effort-abortable at most — a timeout could not force an in-progress `fsync`/`rename` to stop, so a deadline here would be a knob that cannot deliver on its promise, and an implicit default in the exact place explicit-over-implicit forbids. Both reference agents (Claude Code, Codex) leave file IO untimed for the same reason; cancellation still propagates through the tool-execution signal for best-effort abort at syscall boundaries.
+`read`/`write`/`edit` take **no** `timeoutMs`, and the provider contract arms no deadline — unlike bash and web (which consume [`@deepseek-ai/dsh-timeout`](../../packages/util/timeout/README.md)) and the bash-backed `glob`/`grep` (whose declared `timeoutMs` is enforced by `@deepseek-ai/dsh-timeout-policy`): those are process-backed, where a deadline can really kill the work. A local syscall is best-effort-abortable at most — a timeout could not force an in-progress `fsync`/`rename` to stop, so a deadline here would be a knob that cannot deliver on its promise, and an implicit default in the exact place explicit-over-implicit forbids. Both reference agents (Claude Code, Codex) leave file IO untimed for the same reason; cancellation still propagates through the tool-execution signal for best-effort abort at syscall boundaries.
 
 ## The service and the plugin
 

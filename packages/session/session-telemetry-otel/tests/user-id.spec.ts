@@ -56,7 +56,7 @@ describe('getOrCreateAnonymousUserId', () => {
     const home = tempHome()
     const winner = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'
     const file = join(home, USER_ID_FILE_NAME)
-    // The generator seam runs between the initial read (absent) and the wx
+    // The generator hook runs between the initial read (absent) and the wx
     // write, so planting the winner here simulates the concurrent first launch.
     const id = getOrCreateAnonymousUserId({
       env: { DSH_HOME: home },

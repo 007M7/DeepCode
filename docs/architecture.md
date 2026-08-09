@@ -156,9 +156,9 @@ Streaming uses raw chunks and `BlockAssembler`. Each `LlmAdapter.stream()` is on
 
 ### Capability Pattern
 
-Capabilities separate **interface / implementation / consumer** layers. Filesystem and subprocess providers define one execution world; Bash, PTY, and LSP run there without provider forks. See the [capability graph](capability-seams.md).
+A **seam** is a swappable capability with **Service Definition**, **Service provider**, and **Consumer** roles. Packages may combine roles; individual roles are not seams. Filesystem and subprocess providers share one execution world; Bash, PTY, and LSP need no provider forks ([capability graph](capability-seams.md)).
 
-Exceptions combine LLM interface/consumer, filesystem policy, web registries, and named skill/subagent providers. Subagents spawn fresh, fork a completed-turn prefix, use ACP children, or delegate one self-contained turn to a real product provider such as Codex ([subagent.md](subsystems/subagent.md)).
+Exceptions combine LLM Service Definition/Consumer roles, filesystem policy, web registries, and skill/subagent providers. Subagents spawn fresh, fork a completed-turn prefix, use ACP children, or delegate a self-contained turn to Codex or another product provider ([subagent.md](subsystems/subagent.md)).
 
 `dsh-workspace-context` composes its baseline on the first `agent/pre-step` and folds it into the final entering batch right after the claimed prompt, so it reaches the first request with the direct prompt; rejection keeps it in the next-step inbox. When compaction removes that baseline from the visible surface, the next entering pre-step composes the current baseline and carries it in the same request. Filesystem changes projected after tools are likewise folded into the next entering pre-step instead of creating a later context-only step ([decision](../.agents/notes/implemented/feature/2026-06-24-workspace-context.md)). `dsh-paths` owns shared paths.
 
@@ -189,4 +189,4 @@ New behavior attaches to a documented extension point; a loop change updates thi
 | Fork a live session | call `ctx.sessions.fork(source, boundary?, childSessionId?)` |
 | Scope a registration to one agent | use its `agent.ctx` (see Agent Scope) |
 
-The [extension cookbook](cookbook/extension-cookbook.md) has plugin skeletons and the feature-to-seam map; guides cover [packages](cookbook/adding-a-package.md), [tools](cookbook/adding-a-tool.md), [LLM adapters](cookbook/adding-an-llm-adapter.md), and [vendored packages](cookbook/adding-a-vendored-package.md).
+The [extension cookbook](cookbook/extension-cookbook.md) maps features to capabilities; guides cover [packages](cookbook/adding-a-package.md), [tools](cookbook/adding-a-tool.md), [LLM adapters](cookbook/adding-an-llm-adapter.md), and [vendored packages](cookbook/adding-a-vendored-package.md).

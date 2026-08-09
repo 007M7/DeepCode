@@ -17,9 +17,9 @@ The `tasks/` package group owns background-task semantics:
 - `@deepseek-ai/dsh-tasks` registers running work as `ctx.tasks` and owns task ids, authorization, snapshots, reads, cancellation, waiting, completion listeners, and cleanup.
 - `@deepseek-ai/dsh-tool-tasks` exposes `task_output`, `task_list`, and `task_kill`, injects completion notices, and supplies the background-task system-prompt guidance.
 
-Long-running tools are producers. `dsh-tool-bash` adapts a `BashProcess` into incremental output and process cancellation; `dsh-tool-subagent` adapts a child run into final output and child disposal. The execution seams remain independent of sessions and the task registry.
+Long-running tools are producers. `dsh-tool-bash` adapts a `BashProcess` into incremental output and process cancellation; `dsh-tool-subagent` adapts a child run into final output and child disposal. The bash and subagent capability seams remain independent of sessions and the task registry.
 
-`TaskService` is the abstract seam in `@deepseek-ai/dsh-tasks`; the process-local registry is `LocalTaskService` in `@deepseek-ai/dsh-tasks-local` (the [task-registry seam Agent Note](2026-07-26-task-registry-seam.md) records that split).
+`TaskService` is the Service Definition in `@deepseek-ai/dsh-tasks`; the process-local provider is `LocalTaskService` in `@deepseek-ai/dsh-tasks-local` (the [task-registry contract Agent Note](2026-07-26-task-registry-seam.md) records that split).
 
 ## Runtime contract
 
@@ -103,7 +103,7 @@ Separate bash and subagent output/stop tools duplicate ids, isolation, cleanup, 
 
 ### An immediate abstract task-runtime backend
 
-The current `TaskStart.run()` contract passes in-process callbacks and exact `Agent` objects. A durable backend changes identity, restart, ownership, and observation semantics, so at introduction time the registry stayed one concrete service rather than freezing the wrong boundary. The [task-registry seam Agent Note](2026-07-26-task-registry-seam.md) later separated the contract from the process-local implementation without changing these in-process semantics.
+The current `TaskStart.run()` contract passes in-process callbacks and exact `Agent` objects. A durable backend changes identity, restart, ownership, and observation semantics, so at introduction time the registry stayed one concrete service rather than freezing the wrong boundary. The [task-registry contract Agent Note](2026-07-26-task-registry-seam.md) later separated the contract from the process-local implementation without changing these in-process semantics.
 
 ### Consumer-owned authorization or cleanup events
 

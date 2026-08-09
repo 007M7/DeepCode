@@ -1,6 +1,6 @@
 # Architecture
 
-This repository owns confinement *mechanism*, not policy: consumers (agent harnesses, sandbox seams) decide which paths a run may read or write; this package family provides the launcher that enforces those grants and the JS seam that resolves and speaks to it. The packaging follows the per-platform-package model of [`node-addon-require-builtin`](https://www.npmjs.com/package/@esplus/node-addon-require-builtin) (and esbuild), adapted from Node addons to standalone static executables.
+This repository owns confinement *mechanism*, not policy: consumers (agent harnesses and sandbox capabilities) decide which paths a run may read or write; this package family provides the launcher that enforces those grants and the JavaScript API that resolves and speaks to it. The packaging follows the per-platform-package model of [`node-addon-require-builtin`](https://www.npmjs.com/package/@esplus/node-addon-require-builtin) (and esbuild), adapted from Node addons to standalone static executables.
 
 ## Two-layer package family
 

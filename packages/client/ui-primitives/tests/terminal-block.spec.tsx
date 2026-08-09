@@ -3,7 +3,7 @@
 // arms, the prompt line's run-state dot, the exit-status pill, the head/tail height cap and its expand control,
 // and the copy control writing the raw output on both the accepted and the
 // refused clipboard paths. writeClipboard's own return contract is pinned here
-// too, since it is the seam both copy controls in this package share; the
+// too, since it is the return contract both copy controls in this package share; the
 // resolution of ANSI runs into styles is pinned in ansi.spec.ts, so only its
 // DOM consequence (which runs get a span wrapper) is asserted here.
 

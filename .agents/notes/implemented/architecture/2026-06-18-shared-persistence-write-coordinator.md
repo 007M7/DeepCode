@@ -6,7 +6,7 @@ English | [中文](2026-06-18-shared-persistence-write-coordinator.zh.md)
 
 ## Problem
 
-`dsh-session-persistence-jsonl` and `dsh-session-persistence-sqlite` intentionally prove the same `SessionPersistence` contract over different storage media, but their write-path orchestration was duplicated: per-session state, `session/created` adoption, backend-specific prefix reads, write-behind control, per-id operation serialization, HMR seeding, and dispose drains. The pure seed-prefix collision and serializability guards had already moved into the seam package; the remaining orchestration was still correctness-heavy and received the same fixes twice. Only the storage primitives (write bytes vs. INSERT rows) differed.
+`dsh-session-persistence-jsonl` and `dsh-session-persistence-sqlite` intentionally prove the same `SessionPersistence` contract over different storage media, but their write-path orchestration was duplicated: per-session state, `session/created` adoption, backend-specific prefix reads, write-behind control, per-id operation serialization, HMR seeding, and dispose drains. The pure seed-prefix collision and serializability guards had already moved into the Service Definition package; the remaining orchestration was still correctness-heavy and received the same fixes twice. Only the storage primitives (write bytes vs. INSERT rows) differed.
 
 ## Decision
 

@@ -1,5 +1,5 @@
 /**
- * In-memory settings provider fixture: the smallest real subclass of the seam,
+ * In-memory settings provider fixture: the smallest real subclass of the Service Definition,
  * used by the base-class behavior suite in place of a file- or network-backed
  * provider. Kept in `tests/` because production providers live in their own
  * packages.
@@ -7,7 +7,7 @@
 
 import { Settings, type SettingsNamespace } from '../src/index.ts'
 
-/** In-memory provider exposing the protected seam hooks to tests. */
+/** In-memory provider exposing the protected provider hooks to tests. */
 export class MemorySettings extends Settings {
   /** Raw document the provider "storage" currently holds. */
   doc: Record<string, unknown>

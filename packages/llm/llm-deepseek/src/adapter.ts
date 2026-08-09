@@ -69,7 +69,7 @@ export interface DeepSeekConnectionOptions {
   retryPolicy: ResolvedRetryPolicy
 }
 
-/** Constructor options for {@link DeepSeekAdapter}: the two resolution seams the plugin owns. */
+/** Constructor options for {@link DeepSeekAdapter}: the two resolution hooks the plugin owns. */
 export interface DeepSeekAdapterOptions {
   /** Current validated connection facts; called once per operation. */
   options: () => DeepSeekConnectionOptions
@@ -298,7 +298,7 @@ export class DeepSeekAdapter extends LlmAdapter {
       // fetch wraps every transport failure (DNS, refused connection, TLS,
       // proxy) in a bare `TypeError: fetch failed` whose actionable detail
       // lives on `cause`. Wrapping with the endpoint and chaining the cause
-      // lets `errorChain` render the full diagnosis at every reporting seam.
+      // lets `errorChain` render the full diagnosis at every reporting boundary.
       throw new LlmError(
         `DeepSeek API request to ${connection.baseURL} failed`,
         'TRANSPORT',

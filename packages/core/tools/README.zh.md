@@ -186,7 +186,7 @@ The available tools:
 
 ## 已知限制与暂缓事项
 
-- **并发策略不是事件 seam**：`executionMode()` 直接读取已解析的工具定义；插件只能在自身拥有的定义上声明分类器。
+- **并发策略不是事件门禁**：`executionMode()` 直接读取已解析的工具定义；插件只能在自身拥有的定义上声明分类器。
 - **`tools/pre-execute` 有意不允许改写 `exec.arguments`**：否则日志记录和呈现的参数会与实际运行内容失去同步；改写设计记录在[拟议的 Agent Note](../../../.agents/notes/proposed/feature/2026-06-30-pre-tool-input-rewrite.md)中。
 - **调用方定义的 subagent 与工作流结构化输出仍要求对象根**：这是消费方层面的守卫；共享 schema 词汇和工具输出支持任意 JSON 根。
 - **定义上的 `timeoutMs` 仅为声明**：注册表绝不会强制执行截止时间；要强制执行，必须使用 `@deepseek-ai/dsh-timeout-policy` 包装层。

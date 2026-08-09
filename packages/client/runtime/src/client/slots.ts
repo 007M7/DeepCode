@@ -4,7 +4,7 @@
  * the load-time validations, and the unload cascade). This layer owns what
  * needs the runtime: the 'slots/changed' event bridge, register and
  * declaration injection through the caller's ctx.effect (fiber unload
- * collects both), the renderer install seam (install()/renderSlot('root') +
+ * collects both), the renderer installation contract (install()/renderSlot('root') +
  * the SlotRendererHost face), and the store INSTANCE axis — handle x scope
  * key -> create/cache, dropped with the last holding entry, session instances
  * cleared (with persisted state) on scope death.

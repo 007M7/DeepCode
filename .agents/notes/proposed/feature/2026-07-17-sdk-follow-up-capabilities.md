@@ -12,7 +12,7 @@ These gaps are coupled. Create and config already share questions, feature confi
 
 ## Proposal
 
-The SDK extends the existing prompt and project-editing boundaries instead of creating parallel workflows. A non-interactive prompt port and structured feature plan drive create and config, `dsh-sdk create <source>` delegates dependency resolution to the project package manager before mounting the resolved package through `ProjectEditSession`, launcher-side telemetry wraps `create-sdk` and every `dsh-sdk` command, and injected prompt streams provide the primary interactive-test seam.
+The SDK extends the existing prompt and project-editing boundaries instead of creating parallel workflows. A non-interactive prompt port and structured feature plan drive create and config, `dsh-sdk create <source>` delegates dependency resolution to the project package manager before mounting the resolved package through `ProjectEditSession`, launcher-side telemetry wraps `create-sdk` and every `dsh-sdk` command, and injected prompt streams provide the primary interactive-test hook.
 
 | Capability | Product entrypoint | Owning mechanism | Required outcome |
 |---|---|---|---|

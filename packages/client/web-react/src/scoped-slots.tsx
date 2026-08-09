@@ -350,7 +350,7 @@ function standardKit(
 /**
  * One rendered entry: standard kit + cached inject + owner props (owner
  * wins). The kit and injected shares are erased at the render boundary — the
- * register seam already proved the composed contract — so each Entry renders
+ * registration contract already proved the composed type — so each Entry renders
  * through a props-widened view of the component (the design-budgeted
  * composition point, one per scope branch).
  */
@@ -584,7 +584,7 @@ function RootOutlet({ ownerProps }: { ownerProps: object }) {
 /**
  * Build the renderer the shell installs into the runtime SlotsService
  * (ctx.slots.install(createSlotRenderer()) at boot; the service owns the
- * install/renderSlot seam and the double-install/not-installed throws).
+ * install/renderSlot contract and the double-install/not-installed throws).
  * @returns the renderer.
  */
 export function createSlotRenderer(): SlotRenderer {

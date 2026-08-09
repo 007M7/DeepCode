@@ -58,7 +58,7 @@ const LAYOUT_CHILDREN = {
 
 /**
  * Real-stack bench: SlotTestRuntime with the session/layout doubles at the
- * service seams only (external boundaries), the package apply on its own
+ * service boundaries only, the package apply on its own
  * fiber, and the test AppFrame occupying 'root'.
  */
 async function bench(nodes: ToolResultNode[]) {

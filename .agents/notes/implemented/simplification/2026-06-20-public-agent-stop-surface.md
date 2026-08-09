@@ -18,9 +18,9 @@ The extra surface area made the loop carry a public verb that was mostly a teard
 
 `cancel()` is the only public *stop* primitive on `Agent`. Lifecycle owners use `AgentHandle.dispose()` to stop and unregister an agent; non-owners use broad `cancel()` to abandon current and queued work or `keepInbox` to abort the active turn while retaining pending work. The implementation keeps a private turn cancellation holder, but it is not part of the plugin-facing `Agent` contract. The [Web stop decision](../bug-fix/2026-07-31-web-stop-preserves-queue.md) is the production `keepInbox` consumer.
 
-`whenIdle()` is **retained** as the public quiescence-observation primitive (resolve once the agent settles out of `running`, resolve immediately when already idle, await the loop exit when disposed). It is not a stop verb; it is how a non-owner observes the stop *completing* without disposing the agent. Its live consumers are ACP and agent tests that await settlement through this public seam (`packages/acp/acp/tests`, `packages/core/agent-loop/tests`); the production ACP bridge owns its agents and tears them down through `AgentHandle.dispose()`, so `packages/acp/acp/src` itself has no `whenIdle()` call.
+`whenIdle()` is **retained** as the public quiescence-observation primitive (resolve once the agent settles out of `running`, resolve immediately when already idle, await the loop exit when disposed). It is not a stop verb; it is how a non-owner observes the stop *completing* without disposing the agent. Its live consumers are ACP and agent tests that await settlement through this public contract (`packages/acp/acp/tests`, `packages/core/agent-loop/tests`); the production ACP bridge owns its agents and tears them down through `AgentHandle.dispose()`, so `packages/acp/acp/src` itself has no `whenIdle()` call.
 
-Public `abort()` is absent, and the disposer remains async and waits for the loop to stop. Tests exercise cancellation through the public typed cause and explicit signal seams rather than reaching into the holder.
+Public `abort()` is absent, and the disposer remains async and waits for the loop to stop. Tests exercise cancellation through the public typed cause and explicit signal APIs rather than reaching into the holder.
 
 ## Alternatives considered
 

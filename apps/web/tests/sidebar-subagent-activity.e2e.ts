@@ -27,7 +27,7 @@ const MODE = webSnapshotMode()
 const HOLD_PROVIDER = 'web-test-hold'
 const HOLD_MODEL = 'hold'
 
-/** Model seam that completes the owner turn, then holds its delegated child open. */
+/** Model stub that completes the owner turn, then holds its delegated child open. */
 class StagedAdapter extends LlmAdapter {
   activeCalls = 0
   private calls = 0

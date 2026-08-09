@@ -17,7 +17,7 @@
 | `agent-loop/` | 实现公开 `Agent` 约定的具体 driver（`ctx.agentLoop`） | 本页 |
 | `scope/` | 注册表与循环用于构建按 agent 作用域的注册原语 | [scope.md](scope.md) |
 
-`scope/` 是这里唯一的非服务包：一个零依赖库（`createScope`/`scopeOf`/`scopeTarget`），在模块图中位于 `session/` 与 `system-prompt/` 之下，正是为了让它们消费它而不形成环。`agent-loop` 是 `agent` seam 的唯一具体实现，放在这里因为它是 harness 的默认产品循环；它在 `ctx.agents.withInitiator()` 内运行每个 driver。扩展插件依赖 `agent`——包括需要发起 Agent 时——而绝不直接依赖 `agent-loop`，因此循环保持可替换。把这条主干接成可运行 agent 的默认组合是 [`examples/agent-spine-demo`](../../packages/examples/agent-spine-demo/README.md)。
+`scope/` 是这里唯一的非服务包：一个零依赖库（`createScope`/`scopeOf`/`scopeTarget`），在模块图中位于 `session/` 与 `system-prompt/` 之下，正是为了让它们消费它而不形成环。`agent-loop` 是公开 `Agent` 约定的唯一具体实现，放在这里因为它是 harness 的默认产品循环；它在 `ctx.agents.withInitiator()` 内运行每个 driver。扩展插件依赖 `agent`——包括需要发起 Agent 时——而绝不直接依赖 `agent-loop`，因此循环保持可替换。把这条主干接成可运行 agent 的默认组合是 [`examples/agent-spine-demo`](../../packages/examples/agent-spine-demo/README.md)。
 
 <a id="creation-and-ownership"></a>
 
@@ -50,7 +50,7 @@ interface AgentHandle {
 
 `CreateAgentOptions` 携带共享标识以及新 agent 发布前所需的一切：会话元数据（`meta`——已校验的 `cwd`、fork 谱系、seed 边界、来源分类、委派深度）、fork 用的可选 `seed` 回放前缀、按 agent 的 `AgentOptions`、仅创建期有效的取消 `signal`，以及 `setup`。`ResumeAgentOptions` 是持久标识的对应物：`resumeSessionId`、`agentOptions`、`signal` 与 `setup`。`setup` 回调（`AgentSetup`）在两个 id 都尚未发布时组装 agent 的作用域世界——凡经 `agentCtx` 注册的内容都先于 `agent/created` 与第一次提示词组装存在——并可返回一个在发布前一刻调用的同步 commit；setup 拒绝、commit 抛出或所有者 dispose 都会回滚事务，两个 id 均不发布。
 
-`AgentFactory` 是注册表背后的创建 seam：循环经 `ctx.agents.setFactory()` 注册其工厂，因此消费方面向 `ctx.agents` 编程，无需依赖具体循环包。确切的 `create`/`resume` 签名及其回滚约定见下方[生成区块](#ctxagents--agentregistry)。
+`AgentFactory` 是注册表背后的创建约定：循环经 `ctx.agents.setFactory()` 注册其工厂，因此消费方面向 `ctx.agents` 编程，无需依赖具体循环包。确切的 `create`/`resume` 签名及其回滚约定见下方[生成区块](#ctxagents--agentregistry)。
 
 <a id="the-agent-handle"></a>
 
@@ -409,7 +409,7 @@ currentInitiator(): Agent | undefined
  * Read the initiating Agent and fail when no initiator boundary is active.
  * Use this for private helpers contractually below a driver, or for a
  * deployment-owned outbound request whose contract forbids agentless calls.
- * Generic or direct-call seams use optional lookup or explicit request fields.
+ * Generic or direct-call paths use optional lookup or explicit request fields.
  * @returns the inherited Agent.
  * @throws when no initiator is active or this service instance has been disposed.
  */
@@ -565,12 +565,12 @@ Source: [`packages/core/agent/src/index.ts:253`](../../packages/core/agent/src/i
 
 #### `agent/created` — emit
 
-A fully configured agent and live session were published. Setup is composition-only; `agent/session-start` is the first startup-driving seam. Synchronous listener failure vetoes publication, while returned-promise rejection is reported. Detach requested during dispatch waits until every creation listener has observed the stable entry.
+A fully configured agent and live session were published. Setup is composition-only; `agent/session-start` is the first startup-driving extension point. Synchronous listener failure vetoes publication, while returned-promise rejection is reported. Detach requested during dispatch waits until every creation listener has observed the stable entry.
 
 ```ts cordis-catalog
 /**
  * A fully configured agent and live session were published. Setup is
- * composition-only; `agent/session-start` is the first startup-driving seam.
+ * composition-only; `agent/session-start` is the first startup-driving extension point.
  * Synchronous listener failure vetoes publication, while returned-promise
  * rejection is reported. Detach requested during dispatch waits until every
  * creation listener has observed the stable entry.
@@ -726,14 +726,14 @@ Source: [`packages/core/agent/src/types.ts:230`](../../packages/core/agent/src/t
 
 #### `agent/request` — waterfall
 
-Replace the frozen call configuration. `await next()` yields the config the machine would use (agent options on the first request, the logged header afterwards); return a replacement to switch. Model-visible content must use logged channels; this seam cannot mutate messages.
+Replace the frozen call configuration. `await next()` yields the config the machine would use (agent options on the first request, the logged header afterwards); return a replacement to switch. Model-visible content must use logged channels; this waterfall cannot mutate messages.
 
 ```ts cordis-catalog
 /**
  * Replace the frozen call configuration. `await next()` yields the config
  * the machine would use (agent options on the first request, the logged
  * header afterwards); return a replacement to switch. Model-visible
- * content must use logged channels; this seam cannot mutate messages.
+ * content must use logged channels; this waterfall cannot mutate messages.
  * @param payload.agent - the agent making the model call.
  * @param payload.turn - the open turn number.
  * @param payload.step - the step whose request this is.
