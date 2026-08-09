@@ -10,4 +10,4 @@ Plan mode 是按 agent（智能体）记录的协作状态，而不是通用模�
 
 [plan 专用协作状态](../../.agents/notes/implemented/simplification/2026-07-22-plan-specific-collaboration-state.md)决策记录了该家族的设计。
 
-子系统参考——`plan/mode` 折叠、步边界冲刷、配置、退出工具——见 [docs/subsystems/plan.md](../../docs/subsystems/plan.md)；设计见[计划专属协作状态](../../.agents/notes/implemented/simplification/2026-07-22-plan-specific-collaboration-state.md)。
+子系统参考——`plan/mode` 折叠、步骤边界刷写、配置、退出工具——见 [docs/subsystems/plan.md](../../docs/subsystems/plan.md)；设计见[计划专属协作状态](../../.agents/notes/implemented/simplification/2026-07-22-plan-specific-collaboration-state.md)。

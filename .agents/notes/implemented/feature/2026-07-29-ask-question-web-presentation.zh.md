@@ -38,7 +38,7 @@ Web GUI 已经可以通过 `QuestionComposer` 的输入区接管收集回答，�
 
 行内裁决字符串是问题流程仅剩的硬编码英文面；将其本地化是推迟的后续工作。在审批输入区接管交付之前，`PendingCard` 仍是可见但不可操作的审批占位。
 
-`ui-question` 新增 `dsh-client-locale` 依赖和此前没有的 inject face；其契约（`QuestionComposerInjected`）与消费者一起放在 `contract/slots.ts`。
+`ui-question` 新增 `dsh-client-locale` 依赖和此前没有的 inject face；其约定（`QuestionComposerInjected`）与消费者一起放在 `contract/slots.ts`。
 
 ## 验证
 

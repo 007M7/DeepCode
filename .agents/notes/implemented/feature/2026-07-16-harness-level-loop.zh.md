@@ -42,11 +42,11 @@ Status: implemented
 | `@deepseek-ai/dsh-command-goal` | `packages/goal/command-goal/`，人类命令生产方 | 为 TUI 注册构建在目标领域之上的 `/goal` 状态、创建、编辑、暂停、恢复与清除。 |
 | `@deepseek-ai/dsh-tool-ralph` | `packages/workflow/tool-ralph/`，固定工作流消费方 | 注册 `ralph({ objective, maxRounds? })`，验证全新结构化 provider 与有界 `RalphRoundReport`，并返回 `complete`、`blocked` 或 `budget-limited`。 |
 
-详细契约分别由[目标领域](2026-07-19-persisted-same-session-goal-domain.md)、[Goal 自有事件](../architecture/2026-07-31-goal-owned-durable-events.md)、[模型目标工具](2026-07-19-model-facing-goal-tools.md)、[目标回合驱动器](2026-07-19-same-session-goal-round-driver.md)、[命令注册表](2026-07-19-plugin-command-registration.md)、[人类目标命令](2026-07-19-human-goal-command.md)与 [Ralph 工作流工具](2026-07-19-fresh-agent-ralph-workflow-tool.md) Agent Note 拥有。
+详细约定分别由[目标领域](2026-07-19-persisted-same-session-goal-domain.md)、[目标自有事件](../architecture/2026-07-31-goal-owned-durable-events.md)、[模型目标工具](2026-07-19-model-facing-goal-tools.md)、[目标回合驱动器](2026-07-19-same-session-goal-round-driver.md)、[命令注册表](2026-07-19-plugin-command-registration.md)、[人类目标命令](2026-07-19-human-goal-command.md)与 [Ralph 工作流工具](2026-07-19-fresh-agent-ralph-workflow-tool.md) Agent Note 拥有。
 
 ### 持久目标状态与实时权限
 
-一个会话至多有一个当前 goal。每次变更都通过持久 `goal/change` 事件提交，并携带带版本的完整快照或带修订号的 clear 墓碑；inbox 状态不参与其中。会话日志是唯一持久真源，因此普通持久化、恢复与 `SessionStore.fork()` 会携带 goal，无需第二个数据库或人为取消记录。
+一个会话至多有一个当前目标。每次变更都通过持久的 `goal/change` 事件提交；该事件携带带版本的完整快照或带修订号的清除墓碑，收件箱状态不参与其中。会话日志是唯一持久真源，因此普通持久化、恢复与 `SessionStore.fork()` 会携带目标，无需第二个数据库或人为取消记录。
 
 持久阶段只有 `active`、`paused`、`blocked` 与 `complete`。阻塞目标必须携带 `GoalBlockReason`，其中包含稳定的小写 kebab-case `code` 与非空的人类可读 `message`；用量限制、Round 耗尽、模型失败与策略拒绝都是原因代码，而不是额外生命周期阶段。独立激活态是 `armed` 或 `disarmed`，且永不持久化。创建与显式恢复会激活目标；停止转换、会话启动、fork 回放、驱动器替换和驱动器拆卸都会让目标保持未激活。
 
@@ -58,9 +58,9 @@ fork 会话会继承持久目标前缀，因为这是自然的重放结果。for
 
 ### 同会话续行
 
-Goal Round 驱动器为每个准确实时 agent 至多拥有一个待定预留。只有 goal 处于活跃且已激活状态、agent 空闲、不存在竞争性人类工作、最新变更已经通过持久性检查点、准确 goal id／revision／Round 仍匹配，并且下游 pre-step 策略接受时，它才会接纳预留。其 `agent/pre-step` 围栏会在下游监听器前后检查这些事实，防止编辑、暂停、人类消息或卸载竞争接纳陈旧工作。
+Goal Round 驱动器为每个特定的实时 agent 至多拥有一个待定预留。只有目标处于活跃且已激活状态、agent 空闲、不存在竞争性人类工作、最新变更已经通过持久性检查点、确切的目标 id／修订号／Round 仍匹配，并且下游 pre-step 策略接受时，它才会接纳预留。其 `agent/pre-step` 围栏会在下游监听器前后检查这些事实，防止编辑、暂停、人类消息或卸载竞争接纳过时工作。
 
-只有已准入、Round 为正数且来源为 goal 的 `user/message` 会计入一个 Round。陈旧预留会关闭一个 blocked 的无步骤轮次，不会消耗上限。并发 goal revision 会胜过旧 Round 的结算。
+只有已接纳、Round 为正数且带目标来源的 `user/message` 会计入一个 Round。陈旧预留会结束一个阻塞的零步骤轮次，不会消耗上限。并发目标修订会胜过旧 Round 的结算。
 
 普通 Turn 完成后，只有目标仍活跃、已激活且低于上限时才会安排另一个 Round。取消会暂停。速率限制或配额耗尽以代码 `usage-limited` 阻塞；上限耗尽使用 `round-limit`；队列失败使用 `queue-failed`；Turn 错误、max-token 停止、策略拒绝与未知终止结果使用各自对应的阻塞代码。独立组合的请求恢复插件可以在同一个 Turn 内重试暂时性 provider 失败；目标驱动器绝不会在异常终止结果后凭空发起另一个 Round。人类随后可以通过普通语言或 `/goal resume` 授权恢复。
 
@@ -88,7 +88,7 @@ Ralph 是位于自有插件中的一等模型工具，展示了复杂固定执�
 
 Codex 提供了这里采用的最小可观察目标 UX：一个附着于聊天的持久目标，以及设置、查看、编辑、暂停、恢复与清除控制。本实现采用这种可发现性，但使用本仓库的事件溯源目标记录、插件作用域与运行时权限检查。
 
-当前 [Claude Code goals](https://code.claude.com/docs/en/goal) 进一步验证了“前一 Turn 后启动另一 Turn 的目标”和定时 `/loop` 之间的区别。Claude Code 还会在每个 Turn 后使用独立小模型评估器。本实现采用策略区分，但有意不复制该评估器：评估器输入、工具访问、确定性检查、provider 选择、隔离与权限需要单独设计的插件契约，而不是隐式自我认证层。
+当前 [Claude Code goals](https://code.claude.com/docs/en/goal) 进一步验证了“前一 Turn 后启动另一 Turn 的目标”和定时 `/loop` 之间的区别。Claude Code 还会在每个 Turn 后使用独立小模型评估器。本实现采用策略区分，但有意不复制该评估器：评估器输入、工具访问、确定性检查、provider 选择、隔离与权限需要单独设计的插件约定，而不是隐式自我认证层。
 
 外部产品只是比较对象，不是兼容目标。本地源码研究帮助确定边界，而交付接口遵循本仓库“一切皆插件”、模型可见内容均记入日志、显式解析默认值与完全停稳后拆卸规则。
 
@@ -109,7 +109,7 @@ Codex 提供了这里采用的最小可观察目标 UX：一个附着于聊天�
 
 ## 后果
 
-- 目标式执行在没有单个过载「loop」对象的情况下交付：同会话续行与全新 agent 迭代拥有显式、可独立测试的契约。
+- 目标式执行在没有单个过载「loop」对象的情况下交付：同会话续行与全新 agent 迭代拥有显式、可独立测试的约定。
 - 持久目标历史可以重放和 fork，而进程本地激活态会防止恢复时意外开始工作。
 - 人类获得小型 Codex 形态 UX；模型获得紧凑、带来源检查的工具表面；部署可以独立移除任一能力。
 - Ralph 展示了非平凡固定策略可以完全作为现有 workflow 与 subagent 原语之上的插件实现。
@@ -118,7 +118,7 @@ Codex 提供了这里采用的最小可观察目标 UX：一个附着于聊天�
 
 ## 已知限制与暂缓事项
 
-- **独立评估**——同会话完成/阻塞和 Ralph 终止状态都是模型或工作者声明。独立评估器、评估器驱动反馈 Round、完成证书、确定性检查器、对抗式 verifier 与 criteria/executor/isolation 契约均予以延期。
+- **独立评估**——同会话完成/阻塞和 Ralph 终止状态都是模型或工作者声明。独立评估器、评估器驱动反馈 Round、完成证书、确定性检查器、对抗式 verifier 与 criteria/executor/isolation 约定均予以延期。
 - **聚合预算**——`maxGoalRounds` 与 Ralph `maxRounds` 是唯一聚合工作量限制。token、货币、耗时、provider 用量与逐 Round 价格准入策略均不存在。
 - **没有持久自治运行器**——同会话目标事实会持久化，但激活与调度只存在于进程内，并且有意在恢复后等待人类输入。Ralph 位于前台，进程丢失后无法恢复。后台收集、重启恢复与无人值守常驻执行均予以延期。
 - **没有时间调度器**——间隔 `/loop`、cron、主动维护以及云端或桌面调度不在本决策范围内。

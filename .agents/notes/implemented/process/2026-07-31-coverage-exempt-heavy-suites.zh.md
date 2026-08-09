@@ -17,7 +17,7 @@ CI 覆盖率 lane（`check:ci:coverage`）的墙钟被少数几个重型测试�
 - **插桩 gate**（`test:coverage`）：设 `DSH_COVERAGE_EXEMPT_HEAVY=1`，`vitest.config.ts` 据此从两个 project 的 exclude 中剔除豁免套件，其余全部文件照旧插桩并承担全部阈值证明。经 gate 自带 env 注入（既有 `Gate.env` 机制），不进 workflow 全局环境，因此并排的无插桩 gate 和本地直跑 `vitest run` 都看不到该变量、行为不变。
 - **无插桩 gate**（`test:coverage-exempt-heavy`）：用配对的 positional filter 恰好运行豁免套件，保证正确性信号不缩水。
 
-`scripts/coverage-exempt.ts` 是唯一名单点，集中持有成员资格契约与 filter/exclude 配对，防止两侧漂移。
+`scripts/coverage-exempt.ts` 是唯一名单点，集中持有成员资格约定与 filter/exclude 配对，防止两侧漂移。
 
 ### 豁免名单与逐项对账
 
@@ -29,9 +29,9 @@ CI 覆盖率 lane（`check:ci:coverage`）的墙钟被少数几个重型测试�
 | 其中 tools-catalog.spec 额外 import | `typert-registry`、`tool-cordis` 的 src | 两包各自的测试独立满覆盖（focused coverage 实测无阈值错误） |
 | `scripts/install-lefthook.spec.ts`、`scripts/oxlint-contract.spec.ts`、`scripts/change-scope.spec.ts` | 无——被测对象是 `scripts/` 源码（从不在 coverage.include），执行方式是 spawn 子进程 | 无需接 |
 
-### 成员资格契约
+### 成员资格约定
 
-新增豁免必须同时满足：套件进程内执行的每个被度量文件都已由其他套件满覆盖（或在阈值排除名单内）；filter 与 exclude 选中完全相同的文件集。契约文本随名单同文件维护。
+新增豁免必须同时满足：套件进程内执行的每个被度量文件都已由其他套件满覆盖（或在阈值排除名单内）；filter 与 exclude 选中完全相同的文件集。约定文本随名单同文件维护。
 
 ### 门禁自动守卫名单正确性
 

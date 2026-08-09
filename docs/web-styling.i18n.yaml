@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/web-styling.md
 web-styling.md: 5296cc7f83f712532262eadda6da098ae9f63ec7
-web-styling.zh.md: 6beec368f2f7fd5eb7606acfaae315d56899c739
+web-styling.zh.md: bec623911269cbd7020c26d5574ee88ca074b5d8

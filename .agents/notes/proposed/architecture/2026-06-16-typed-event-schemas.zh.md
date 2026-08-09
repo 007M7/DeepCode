@@ -8,10 +8,10 @@ Status: proposed
 
 harness 将其核心词汇——内容块、消息来源、结束原因、轮次触发器、轮次结束原因与会话事件——建模为 **merge-extensible map**：一个 TypeScript `interface`（如 `SessionEventMap`、`ContentBlockMap`），插件通过声明合并对其扩展，公开联合类型则以 `Map[keyof Map]` 派生。这是本仓库的通用扩展模式，记录在 [docs/architecture.md](../../../../docs/architecture.md) 中（「The same merge-extensible-map pattern is used for `MessageSource`, `FinishReason`, `TurnTrigger`, and `TurnEndReason`」），`defineTool` 的 `InferArgs` DSL 和 `assertNever` 穷举约定都依赖于它。
 
-该模式**仅存在于编译期**。类型在运行时消失：没有 schema 对象可供校验传入值、解析不可信输入或在运行时枚举变体。[会话持久化契约](../../implemented/architecture/2026-06-14-session-persistence.md)暴露了两个后果：
+该模式**仅存在于编译期**。类型在运行时消失：没有 schema 对象可供校验传入值、解析不可信输入或在运行时枚举变体。[会话持久化约定](../../implemented/architecture/2026-06-14-session-persistence.md)暴露了两个后果：
 
 1. **持久化将 `event.data` 视为不透明 JSON。** JSONL/SQLite 后端对每个事件逐字 `JSON.stringify`/`JSON.parse`；唯一的运行时守卫是 `isJsonValue`（往返可序列化性检查：拒绝 BigInt、函数、循环引用、非有限数等），而非结构校验。一个损坏但仍为合法 JSON 的事件数据（字段类型错误、字段缺失）会静默往返，只有在后续消费方的 `switch` 中才可能被捕获。
-2. **插件新增变体没有运行时契约。** 一个通过声明合并添加新 `SessionEventMap` 键的插件，在自身代码中获得了编译期类型，但没有任何机制校验它产出的值是否符合它所声明的形状——无论是在生产者处、持久化边界处还是重新加载时。
+2. **插件新增变体没有运行时约定。** 一个通过声明合并添加新 `SessionEventMap` 键的插件，在自身代码中获得了编译期类型，但没有任何机制校验它产出的值是否符合它所声明的形状——无论是在生产者处、持久化边界处还是重新加载时。
 
 由此引出问题：事件词汇是否应迁移到 **Zod** 或其他运行时 schema 库，使持久化边界和插件边界拥有运行时 schema 而非被擦除的类型。
 

@@ -25,7 +25,7 @@
 
 ### 实时事件
 
-`system-prompt/assemble` 是权威来源；替换条目的监听器必须保留任何活动 Code Mode 或结构化输出协议。筛选需要在呈现、查找与执行之间保持一致时，应使用 [`ToolRegistry.restrict()`](../tools/README.md)。注册表变更通知不经过筛选。[system-prompt.md](../../../docs/subsystems/system-prompt.md#cordis-surface) 的生成区块拥有签名与分发契约。
+`system-prompt/assemble` 是权威来源；替换条目的监听器必须保留任何活动 Code Mode 或结构化输出协议。筛选需要在呈现、查找与执行之间保持一致时，应使用 [`ToolRegistry.restrict()`](../tools/README.md)。注册表变更通知不经过筛选。[system-prompt.md](../../../docs/subsystems/system-prompt.md#cordis-surface) 的生成区块拥有签名与分发约定。
 
 ### 关键类型
 
@@ -38,7 +38,7 @@
 
 ### 扩展点
 
-- 段提供方：工具包（package）拥有跨调用引导（`tool:bash`、`tool:read` 等）；此插件拥有 `harness:identity` 与 `deployment:persona`。
+- 段提供方：工具包拥有跨调用引导（`tool:bash`、`tool:read` 等）；此插件拥有 `harness:identity` 与 `deployment:persona`。
 - 变量提供方：agent loop（智能体循环）注册 `model` 与 `cwd`；任何插件都可以注册自己拥有的事实（未来的 `date`、git 状态等）。
 - 工具 schema 提供方：`ToolRegistry` 自动将自身注册为工具提供方。
 - [`system-prompt/assemble` waterfall](#live-events)：按调用方协作式修改或替换组装结果。

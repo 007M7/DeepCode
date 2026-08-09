@@ -14,7 +14,7 @@ MVP 要求严格的基于事件的追踪，以及完全可回放的会话（严�
 
 追加操作是同步的（热路径从不阻塞于 I/O）；`session/event` 是同步通知；持久化插件在后台缓冲写入，并在每个轮次结束时触发的 `session/flush` 检查点处等待排空。
 
-顺序契约：agent loop（智能体循环）先领取 inbox 消息，再运行 `agent/pre-step`；只有 enter 决策才打开 `step/start`，随后在请求派生前追加返回的 `user/message` 批次。提供方输出组装并以 `assistant/message` 追加后才分派工具，因此持久日志记录工具实际遵循的确切消息。回归测试固定了这一顺序。
+顺序约定：agent loop（智能体循环）先领取 inbox 消息，再运行 `agent/pre-step`；只有 enter 决策才打开 `step/start`，随后在请求派生前追加返回的 `user/message` 批次。提供方输出组装并以 `assistant/message` 追加后才分派工具，因此持久日志记录工具实际遵循的确切消息。回归测试固定了这一顺序。
 
 ## 曾考虑的替代方案
 
