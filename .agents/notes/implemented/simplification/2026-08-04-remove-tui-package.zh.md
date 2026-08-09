@@ -14,7 +14,7 @@ Status: implemented
 
 删除 `packages/ui/tui` 包，不提供兼容包或别名。其源码、包测试、终端快照、依赖声明、已打补丁的 `pi-tui` 产物、workspace 引用、生成的服务目录条目和文档会一并移除。通用宿主能力与 agent loop（智能体循环）能力保持不变。
 
-SDK 的运行接口联合类型现在只包含 `acp` 与 `embed`。`create-sdk` 默认使用 ACP，生成的模板不再包含终端启动、恢复、会话环境或模型参数分支；内置的 `ask-user` 功能也被移除，因为剩余两个生成接口都不提供 `UserInteractionProvider`。宿主应用仍可直接挂载提供方无关的 `dsh-user-interaction`、`dsh-commands` 和呈现 seam。
+SDK 的运行接口联合类型现在只包含 `acp` 与 `embed`。`create-sdk` 默认使用 ACP，生成的模板不再包含终端启动、恢复、会话环境或模型参数分支；内置的 `ask-user` 功能也被移除，因为剩余两个生成接口都不提供 `UserInteractionProvider`。宿主应用仍可直接挂载提供方无关的 `dsh-user-interaction`、`dsh-commands` 和呈现服务。
 
 本决策取代[显式配置 `dsh` 入口决策](../../archived/simplification/2026-08-03-explicit-config-dsh-entrypoint.md)中保留可复用包的决定，也使已归档 TUI 实现记录不再适用于当前状态。这些历史记录继续保持冻结，但不再作为受支持包或应用清单的依据。
 

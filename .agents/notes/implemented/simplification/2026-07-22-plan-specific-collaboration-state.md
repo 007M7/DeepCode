@@ -49,7 +49,7 @@ The tool renders the submitted plan as a generic card titled by its first headin
 
 **Let one presentation transport own plan state.** Rejected because TUI, Web, resume, fork, prompt assembly, and the exit tool need the same logged fact independently of any one transport. Presentation adapters own only their projections.
 
-**Split a capability-seam trio or put the state in the agent loop.** Rejected because plan mode has no swappable backend, while existing session, prompt, tool, command, and lifecycle seams already provide every required hook.
+**Split a capability-seam trio or put the state in the agent loop.** Rejected because plan mode has no swappable backend, while existing session, prompt, tool, command, and lifecycle extension points already provide every required hook.
 
 **Put flips in surface messages or store plans in files.** Rejected because the stance is a log-only fact and the tool argument already records the reviewable plan. Surface duplication spends model context, while a plan directory creates a second durable home.
 

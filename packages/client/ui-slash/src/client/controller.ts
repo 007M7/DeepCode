@@ -22,7 +22,7 @@ export interface SourceRoster {
   all(): readonly SlashSource[]
 }
 
-/** Construction seams of one controller. */
+/** Construction hooks for one controller. */
 export interface SlashControllerDeps {
   /** The owning session scope (event dispatch + teardown registration site). */
   actx: ClientContext

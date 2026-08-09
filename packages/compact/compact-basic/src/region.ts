@@ -403,7 +403,7 @@ function assertSelectedSpanStable(
   }
 }
 
-/** Append one already-summarized provenance and replacement body without yielding. */
+/** Append one completed summary record and replacement body without yielding. */
 function commitCompactionBody(
   session: Session,
   startEvent: SessionEvent<'compact/start'>,

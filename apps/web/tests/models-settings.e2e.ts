@@ -7,7 +7,7 @@
 // provider status. The customized-settings fold writes the curated
 // reasoning field as a merge patch. Zero model calls: configuration is pure
 // settings/credentials/llm-domain traffic, so there is no fixture and a
-// stray stream would fail loud on the open seam. The provider under test is
+// stray stream would fail loud because the adapter registry is empty. The provider under test is
 // minimax-cn so a developer's real ANTHROPIC/OPENAI environment keys can
 // never shadow the derived reference. The deletion dialog distinguishes a
 // reference-free profile from a page-managed key before the credential and

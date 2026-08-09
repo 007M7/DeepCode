@@ -10,7 +10,7 @@ import { BlockAssembler, deepFreeze } from '@deepseek-ai/dsh-llm'
 import type { Message, TokenUsage } from '@deepseek-ai/dsh-llm'
 import type { EpochHeader, Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import { canonicalHeader, headerEquals, isSurfaceEvent } from '@deepseek-ai/dsh-session'
-// Type-only: resolves the optional projection registry Context seam.
+// Type-only: resolves the optional projection registry Context declaration.
 import type {} from '@deepseek-ai/dsh-session-projection'
 import type {
   TokenMeasurement,
@@ -270,9 +270,9 @@ export class TokenMeterService extends Service {
   }
 
   /**
-   * Reassemble provider output from exact chunk provenance for a usage anchor.
-   * Missing legacy provenance conservatively treats the durable output as the
-   * provider output; explicit empty provenance prices a known empty stream.
+   * Reassemble provider output from the exact cited chunk seqs for a usage anchor.
+   * Missing legacy source seqs conservatively treat the durable output as the
+   * provider output; an explicit empty list prices a known empty stream.
    */
   private _estimateProviderAssistant(
     session: Session,

@@ -8,13 +8,13 @@ Status: implemented
 
 长时间运行的 agent（智能体）对话会无限增长。随着事件日志不断累积轮次，派生出的消息历史最终逼近模型的上下文窗口，模型随即截断响应（`max-tokens`）或性能退化。**上下文压缩（context compaction）** 是对此的缓解手段：用一段简洁的摘要替换一批较早的历史，保持近期上下文完整。
 
-[会话接口面](../architecture/2026-06-18-session-surface.md)正是为此而构建的基础设施：一份建立在事件日志之上的有序投影，带有专门设计的 `surfaceOp: { op: 'replace', start, end }` 操作，用于遮蔽一段条目并插入替换内容，`sourceEventSeqs` 记录溯源信息以便决策可确定性地回放。剩下的是那个*决定压缩什么、并产出摘要*的插件。
+[会话接口面](../architecture/2026-06-18-session-surface.md)正是为此而构建的基础设施：一份建立在事件日志之上的有序投影，带有专门设计的 `surfaceOp: { op: 'replace', start, end }` 操作，用于遮蔽一段条目并插入替换内容，`sourceEventSeqs` 列出每个来源事件，使回放可以验证替换是否引用了它移除的每个事件。剩下的是那个*决定压缩什么、并产出摘要*的插件。
 
 两股力量塑造了设计。第一，压缩策略与可复用的 token 测量独立变化：测量归 LLM 系列的 [`ctx.tokenMeter` 服务](../architecture/2026-07-15-replay-token-meter-service.md)所有，摘要生成则可以使用模型调用、模板或远程服务。第二，`SurfaceEventType` 封闭为产生消息的事件类型（`user/message`、`assistant/message`、`tool/result`）；只有这些类型可以携带 `surfaceOp`。因此一个专用的 `compaction/*` 事件**不能**出现在 surface 上，编译器与 Session 始终启用的 append/seed 边界都会拒绝在其上附加 `surfaceOp`。
 
 ## 决策
 
-### 压缩是一个能力 seam，接口与实现分离
+### 压缩是一个能力 seam，Service Definition 与 Service provider 角色分离
 
 遵循[能力 seam Agent Note](../architecture/2026-06-13-capability-seams.md)，压缩以独立包发布，使约定、算法和（后续的）消费方 surface 各自独立演进：
 
@@ -25,7 +25,7 @@ Status: implemented
 
 ### 约定依赖 `dsh-session` 和 `dsh-llm`——有意为之的偏离
 
-能力 seam Agent Note 规定接口包「仅依赖 cordis」（对 `dsh-bash` 成立，因为其词汇是自包含的）。压缩**无法**遵守这一点：它的动词作用于 agent 所有的 `Session`（`compactRegion(start, end, agent)`），其输出使用内容词汇（`CompactionResult.summary: ContentBlock[]`）。不引用 `Session`/`SessionEvent`（来自 `dsh-session`）和 `ContentBlock`（来自 `dsh-llm`），约定就无法表达。
+能力 seam Agent Note 规定 Service Definition 包「仅依赖 cordis」（对 `dsh-bash` 成立，因为其词汇是自包含的）。压缩**无法**遵守这一点：它的动词作用于 agent 所有的 `Session`（`compactRegion(start, end, agent)`），其输出使用内容词汇（`CompactionResult.summary: ContentBlock[]`）。不引用 `Session`/`SessionEvent`（来自 `dsh-session`）和 `ContentBlock`（来自 `dsh-llm`），约定就无法表达。
 
 这不是耦合异味，而是约定的领域所在。「仅 cordis」的指导原则一直是「接口仅依赖约定真正需要命名的东西，绝不依赖实现」的简写。`dsh-session` 和 `dsh-llm` 本身是接口/词汇包，不是实现；`dsh-compact` 仍然不导入任何后端。seam 的真正不变式——*消费方和实现在抽象服务背后独立演进*——完好无损。
 
@@ -33,7 +33,7 @@ Status: implemented
 
 早期草案将完整算法（保留遍历、token 求和、文本提取）作为接口上的具体方法。这会将约定重新耦合到一种策略：想要不同保留策略或事件排序的后端必须与继承来的具体代码对抗。将三个操作都设为抽象，把所有*怎么做*的决策放在后端，并让接口保持为*做什么*的声明。token 测量根本不是压缩钩子；单例服务使多个消费方能够共享逐会话的回放折叠。
 
-`compactIfNeeded(agent, trigger, signal)` 接受显式的 `'pressure' | 'context-overflow'` 触发原因与取消信号。它只读取最新的持久化已路由请求；没有 header 就不执行工作，任何已路由的提供方/模型目标都使用单例估算器。`compactNow(agent, signal)` 要求 agent 处于 idle，即使未达到压力也进行一次有效的平衡缩减；不存在这种范围时返回 `null`，且不写入任何内容。`compactRegion(start, end, agent, signal?)` 将 `agent.session` 作为唯一会话身份，并为显式调用方保留可选 signal。默认摘要器依次从显式配置、最新记录的已路由目标和 agent 选项解析目标，并在任何 `llm/stream` 路由后记录提供方/模型对。它回放已路由请求的前缀，并将压缩指令追加为尾部 user 消息，从而复用提供方的热 KV Cache；见[摘要前缀缓存 Agent Note](../bug-fix/2026-07-21-compaction-summary-prefix-cache-reuse.md)。该结果携带 `llmStreamCall: true`，因为生成它时恰好通过此上下文的 LLM 服务发起了一次调用；只有满足相同条件时，子类才设置该标记，因为单有保留的 `rawOutput` 并不能判定调用路径。该调用将提供方无关的 `GenerateOptions.purpose` 设为 `compaction`；适配器可以将此用途映射为对模型隐藏的传输元数据，DeepSeek 适配器会发送 `x-deepseek-harness-compact: 1`。
+`compactIfNeeded(agent, trigger, signal)` 接受显式的 `'pressure' | 'context-overflow'` 触发原因与取消信号。它只读取最新的持久化已路由请求；没有 header 就不执行工作，任何已路由的提供方/模型目标都使用单例估算器。`compactNow(agent, signal)` 要求 agent 处于 idle，即使未达到压力也进行一次有效的平衡缩减；不存在这种范围时返回 `null`，且不写入任何内容。`compactRegion(start, end, agent, signal?)` 将 `agent.session` 作为唯一会话身份，并为显式调用方保留可选 signal。默认摘要器依次从显式配置、最新记录的已路由目标和 agent 选项解析目标，并在任何 `llm/stream` 路由后记录提供方/模型对。它回放已路由请求的前缀，并将压缩指令追加为尾部 user 消息，从而复用提供方的热 KV cache；见[摘要前缀缓存 Agent Note](../bug-fix/2026-07-21-compaction-summary-prefix-cache-reuse.md)。该结果携带 `llmStreamCall: true`，因为生成它时恰好通过此上下文的 LLM 服务发起了一次调用；只有满足相同条件时，子类才设置该标记，因为单有保留的 `rawOutput` 并不能判定调用路径。该调用将提供方无关的 `GenerateOptions.purpose` 设为 `compaction`；适配器可以将此用途映射为对模型隐藏的传输元数据，DeepSeek 适配器会发送 `x-deepseek-harness-compact: 1`。
 
 ### 成功的持久步骤工作完成后运行自动压力检查
 
@@ -71,12 +71,12 @@ retry → next numbered step/start      ⟵ derives from the replacement surface
 
 ### Surface 替换：`compact/*` 事件仅存在于日志；一条 `user/message` 承载摘要
 
-由于 `SurfaceEventType` 是封闭的，摘要不能搭载在 `compact/*` 事件上。后端改为追加一条**单独的 `user/message`**，带有 `source: COMPACT_CHECKPOINT_SOURCE` 和 `surfaceOp: { op: 'replace', start, end }`；其 `content` 是（带框架的）摘要，`sourceEventSeqs` 覆盖被遮蔽的条目*和*簿记事件。接口导出该来源和 `isCompactCheckpointSource()`，使消费方无需依赖后端包身份，即可识别持久化或克隆得到的检查点。`compact/*` 事件是纯日志记录（锁 + 溯源信息）。surface 变更位于锁**内部**，`compact/end` 是最后追加的事件：
+由于 `SurfaceEventType` 是封闭的，摘要不能搭载在 `compact/*` 事件上。后端改为追加一条**单独的 `user/message`**，带有 `source: COMPACT_CHECKPOINT_SOURCE` 和 `surfaceOp: { op: 'replace', start, end }`；其 `content` 是（带框架的）摘要，`sourceEventSeqs` 覆盖被遮蔽的条目*和*簿记事件。接口导出该来源和 `isCompactCheckpointSource()`，使消费方无需依赖后端包身份，即可识别持久化或克隆得到的检查点。`compact/*` 事件记录锁、摘要、选中区间、被遮蔽的 seq、token 数和模型调用，但不加入 surface。surface 变更位于锁**内部**，`compact/end` 是最后追加的事件：
 
 ```
 compact/start    → log-only. Acquires the lock.
 [summarize older range via the backend]
-compact/summary  → log-only. Provenance: raw summary, local-call marker, range, shadowed seqs, token count.
+compact/summary  → log-only. Records the raw summary, local-call marker, range, shadowed seqs, and token count.
 user/message     → canonical checkpoint source + surfaceOp { op:'replace', start, end }.
                    THE surface mutation (framed summary).
                    deriveMessages() renders it as a user-role message.
@@ -93,7 +93,7 @@ compact/end      → log-only. Releases the lock (carries `error` on a recoverab
 
 `compact/start … compact/end` 标记对承担两项职责：
 
-1. **可检测的崩溃孤儿 + 来源追溯**（首要）。摘要生成是一次慢速模型调用，持久化在 `compact/start` *之后*。摘要生成中途崩溃会留下一个没有匹配 `compact/end` 的 `compact/start`——一个可检测的孤儿。最后释放锁（而非最先）将崩溃窗口从*静默损坏*转变为可检测的孤儿。
+1. **可检测的崩溃孤儿 + 已记录的摘要输入**（首要）。摘要生成是一次慢速模型调用，持久化在 `compact/start` *之后*。摘要生成中途崩溃会留下一个没有匹配 `compact/end` 的 `compact/start`——一个可检测的孤儿。最后释放锁（而非最先）将崩溃窗口从*静默损坏*转变为可检测的孤儿。
 2. **防止并发压缩。** 每个自动、手动和显式范围入口点都会拒绝活动的未匹配 `compact/start`。该标记对就是唯一的锁；没有进程本地 mutex 重复承担同一职责。
 
 该锁只排除另一项压缩，不排除无关事实。其标记是时间点，而不是排他的容器，因此持久 inbox splice 可以出现在独立手动 start 与 end 之间。自动工作要求其轮次内的整个 surface 保持稳定。手动工作只重新验证所选位置 span，使其外部的仅追加上下文在替换后保持可见。
@@ -119,10 +119,10 @@ compact/end      → log-only. Releases the lock (carries `error` on a recoverab
 ## 后果
 
 - **包**：`packages/compact/compact` 提供接口，`compact-basic` 提供后端，`compact-tool-result-prune` 提供可选的确定性重写，`command-compact` 提供面向用户的 `/compact`。`packages/llm/token-meter` 独立拥有回放感知的测量。
-- **自动 seam**：`agent/pre-step`（`@mode waterfall`）在请求派生前处理压力，`agent/request-error`（`@mode waterfall`）处理失败步骤关闭后的最终请求失败。pre-step 的 payload 携带已领取批次、轮次、步骤与 signal（参见 [payload-object 事件决策](../architecture/2026-08-06-agent-event-payload-objects.md)），不携带压缩专属的提示词/前缀 payload。
+- **自动扩展点**：`agent/pre-step`（`@mode waterfall`）在请求派生前处理压力，`agent/request-error`（`@mode waterfall`）处理失败步骤关闭后的最终请求失败。pre-step 的 payload 携带已领取批次、轮次、步骤与 signal（参见 [payload-object 事件决策](../architecture/2026-08-06-agent-event-payload-objects.md)），不携带压缩专属的提示词/前缀 payload。
 - **`SessionEventMap`** 通过可合并扩展的声明合并获得 `compact/start` / `compact/summary` / `compact/end`；`SurfaceEventType` **未被**触及。这些是会话事件，不是 cordis `Events`，因此事件分类门禁无需新增条目。
 - **`dsh-compact`** 拥有 `COMPACT_CHECKPOINT_SOURCE`、`isCompactCheckpointSource(source)`、`toolPairingBalancedBefore(session, seq)` 与 `toolPairingBalancedAfter(session, seq)`。该标记用于跨后端实现识别替换摘要。带缓存的 surface 边缘检查会防止 `compactRegion` 和 `compactIfNeeded` 拆分工具调用/结果对，按 seq 校验当前成员关系，从每个切割点的一条平衡序列回答两侧边缘，并拒绝陈旧或缺失的 seq 与孤立结果。
-- **`dsh-session`** 通过唯一的 surface 管理器校验位置替换、完整溯源信息和仅内容的单节点 `tool/result` 重写。其不变式配套插件将新追加的工具结果视为执行，要求存在已打开的步骤与待处理调用，而压缩配套组件拥有数字轮次归属与独立 `null` 归属标记对之间的关系。
+- **`dsh-session`** 通过唯一的 surface 管理器校验位置替换、引用的来源事件是否覆盖完整，以及仅内容的单节点 `tool/result` 重写。其不变式配套插件将新追加的工具结果视为执行，要求存在已打开的步骤与待处理调用，而压缩配套组件拥有数字轮次归属与独立 `null` 归属标记对之间的关系。
 - **接线**：`examples/tui-agent/cordis.yml` 依次加载零配置的 `dsh-token-meter`、`dsh-compact-tool-result-prune`、`dsh-compact-basic`，然后加载 `dsh-command-compact`；服务级默认值使组合无需重复数值策略即可使用。
 
 ## 测试

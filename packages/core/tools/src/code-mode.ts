@@ -373,7 +373,7 @@ export function createRunCodeTool(registry: ToolRegistry, options: RunCodeBridge
 
       let dispatches = 0
       // The per-run scheduler, reusing the NATIVE concurrency contract through
-      // the registry's staged view (the loop scheduler's own seam) — and the
+      // the registry's staged view (the loop scheduler's own boundary) — and the
       // native loop's SEQUENCING: every ordered stage (the dispatch-start
       // append, prepare = pre-execute/guards, finalize/finish = post-execute,
       // context deferral, the settle append) runs inside ONE driver lane, so

@@ -82,7 +82,7 @@ Workspace 组严格使用 Host 返回的持久顺序。Bootstrap 一次性确定
 
 React 组件只消费 `useSessions`、`useWorkspaces` 与 session-scoped 钩子，不拥有实体生命周期。Zustand store 只保留布局、当前 view、普通真实 Session 的 composer 文本和其他纯呈现状态；Session/Workspace Intent、materialize phase、错误和 retained prompt 位于 React-free 运行时对象层。
 
-Sidebar 与 conversation empty hero 通过 slot 获得标准化动作：`startSession`、`updateSessionPrompt`、`sendSession`、`open` 与 `toggleSidebar`。Workspace picker 复用同一组件与 `createWorkspace` seam；owner 只提供 popover 开关、锚点和选中回调。呈现层不直接发送 `host/workspace-changed`，Host 事件只由 Host mutation 与流适配器产生。
+Sidebar 与 conversation empty hero 通过 slot 获得标准化动作：`startSession`、`updateSessionPrompt`、`sendSession`、`open` 与 `toggleSidebar`。Workspace picker 复用同一组件与 `createWorkspace` 动作；owner 只提供 popover 开关、锚点和选中回调。呈现层不直接发送 `host/workspace-changed`，Host 事件只由 Host mutation 与流适配器产生。
 
 ## Alternatives considered
 

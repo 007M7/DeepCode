@@ -1,6 +1,6 @@
 /**
  * Provider-routed model-request retry policy on the agent loop's request
- * recovery seam. Each scheduled retry is durable before its cancellable wait.
+ * recovery extension point. Each scheduled retry is durable before its cancellable wait.
  *
  * @module @deepseek-ai/dsh-llm-retry
  */
@@ -57,7 +57,7 @@ function validateConfig(config: Config): void {
   throw new Error(`llm-retry: unknown key "${key}"`)
 }
 
-/** Non-serializable seams used to make timing policy deterministic in tests. */
+/** Non-serializable hooks used to make timing policy deterministic in tests. */
 export interface RetryInternals {
   /** Random sample in the inclusive zero-to-one range used for jitter. */
   random?: () => number
@@ -116,7 +116,7 @@ function cancellableDelay(delayMs: number, signal: AbortSignal): Promise<boolean
  * Install provider-routed normal or unbounded request recovery.
  * @param ctx - plugin context that owns the listener and active waits.
  * @param config - empty executor config; provider registrations own policy.
- * @param internals - non-serializable deterministic seams for tests.
+ * @param internals - non-serializable deterministic hooks for tests.
  */
 export function apply(ctx: Context, config: Config = {}, internals: RetryInternals = {}): void {
   validateConfig(config)

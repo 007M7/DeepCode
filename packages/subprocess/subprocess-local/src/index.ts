@@ -1,9 +1,9 @@
 /**
- * Local implementation of the subprocess seam. Each spawn is a detached
+ * Local Service provider for the subprocess capability seam. Each spawn is a detached
  * process tree with the spec's per-stream stdio dispositions; disposal
  * terminates and joins live trees. It has no config: every disposition and
  * limit arrives on the spec, so the deployment-varying choices stay with the
- * calling seam's config (the bash executor's, the LSP host's, …).
+ * caller's config (the bash executor's, the LSP host's, …).
  * @module @deepseek-ai/dsh-subprocess-local
  */
 
@@ -37,9 +37,9 @@ export class LocalSubprocessService extends SubprocessService {
   private live = new Set<SubprocessHandle>()
   /** Live terminal sessions retained through whole-session quiescence. */
   private terminals = new Set<SubprocessTerminalHandle>()
-  /** Test seam: spill and platform knobs forwarded to spawnSubprocess. */
+  /** Test hook: spill and platform knobs forwarded to spawnSubprocess. */
   internals: SpawnInternals = {}
-  /** Test seam for platform process inspection; production resolves lazily on terminal spawn. */
+  /** Test hook for platform process inspection; production resolves lazily on terminal spawn. */
   terminalInspector: ProcessInspector | undefined
 
   constructor(ctx: Context) {
@@ -123,8 +123,8 @@ export class LocalSubprocessService extends SubprocessService {
     return handle
   }
 
-  // Local PTY allocation is synchronous, but the provider seam permits remote asynchronous allocation.
-  // oxlint-disable-next-line typescript/require-await -- Preserve promise rejection semantics at the async provider seam.
+  // Local PTY allocation is synchronous, but the provider contract permits remote asynchronous allocation.
+  // oxlint-disable-next-line typescript/require-await -- Preserve promise rejection semantics at the async provider contract.
   async spawnTerminal(spec: SubprocessTerminalSpawnSpec): Promise<SubprocessTerminalHandle> {
     const file = spec.argv[0]
     if (file === undefined || file.length === 0) {

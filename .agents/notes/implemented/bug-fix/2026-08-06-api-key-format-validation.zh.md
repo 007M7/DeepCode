@@ -42,9 +42,9 @@ Status: implemented
 
 ### 规则住在哪里
 
-`normalizeApiKey` 是 `dsh-llm` seam 的一个模块，与已经承担共享 header 事务的 [attribution.ts](../../../../packages/llm/llm/src/attribution.ts) 并列。两个适配器都依赖该 seam 且都需要这条规则，因此它拥有两个当前消费方而非一个预设消费方。它返回 trim 后的值，或一个原因（`empty`、`illegalCharacters`）。
+`normalizeApiKey` 是 `dsh-llm` Service Definition 的一个模块，与已经承担共享 header 事务的 [attribution.ts](../../../../packages/llm/llm/src/attribution.ts) 并列。两个适配器都依赖该 seam 且都需要这条规则，因此它拥有两个当前消费方而非一个预设消费方。它返回 trim 后的值，或一个原因（`empty`、`illegalCharacters`）。
 
-两个适配器同样都需要那句完全相同的「拒绝一个已存储凭据」的诊断，差别仅在包名前缀。`LlmError` 声明在 seam 的 `index.ts` 中，因此 `assertUsableApiKey(raw, pkg, ref)` 就住在它旁边，两个适配器都不再各留一份。断言模块本身保持零依赖：把 `LlmError` 引入 `api-key.ts` 会与 `index.ts` 对它的再导出成环。
+两个适配器同样都需要那句完全相同的「拒绝一个已存储凭据」的诊断，差别仅在包名前缀。`LlmError` 声明在 Service Definition 的 `index.ts` 中，因此 `assertUsableApiKey(raw, pkg, ref)` 就住在它旁边，两个适配器都不再各留一份。断言模块本身保持零依赖：把 `LlmError` 引入 `api-key.ts` 会与 `index.ts` 对它的再导出成环。
 
 客户端无法引入其中任何一个：client 包只 reference client 包，因此 `packages/client/ui-models` 在自己的 `apiKey.ts` 中镜像这个断言并持有本地化文案，正如 `validateDeepSeekModels` 镜像 host 侧的 `catalogModel` schema。两侧在注释中互相指名。
 
@@ -66,7 +66,7 @@ Status: implemented
 
 **由 client 与 host 共享一个校验模块。** 被 source plane 布局否决：client 包只 reference client 包外加 `vendor/cordis` 与 `support/invariants`，把它放宽到够得着 host 包会撞上这一分割本就要隔开的两份 `Context` 合并。在两侧各镜像一行断言并各配一份测试，是此处的既定形态。
 
-**在 `llm-deepseek` 与 `llm-pi-ai` 中各留一个抛错 helper。** 最初的计划正是各留一份，差别仅在消息中的包名前缀，并配一个重复检测豁免来放行这一对。在实现之前即被否决：`LlmError` 声明在 seam 中，因此 seam 完全可以自己拥有这句诊断，而那里的一个豁免恰恰会掩盖它本要遮掩的重复。
+**在 `llm-deepseek` 与 `llm-pi-ai` 中各留一个抛错 helper。** 最初的计划正是各留一份，差别仅在消息中的包名前缀，并配一个重复检测豁免来放行这一对。在实现之前即被否决：`LlmError` 声明在 Service Definition 中，因此该包完全可以自己拥有这句诊断，而那里的一个豁免恰恰会掩盖它本要遮掩的重复。
 
 **在适配器的 `catch` 中嗅探 `TypeError`。** 这只是事后归类 ByteString 失败，header 构造本身仍无防护。它依赖 Node 错误消息的措辞，因而会随运行时版本静默失效；它也帮不到 `llm-pi-ai`——后者的请求 header 构造在 pi-ai SDK 内部。在交出 Key 之前就拒绝，则对两个适配器与探测路径同时有效。
 

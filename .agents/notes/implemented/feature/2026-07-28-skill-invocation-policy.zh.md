@@ -12,7 +12,7 @@ skill 注册表最初将发现操作视为模型目录：`ctx.skills.list()` 会
 
 ## 决策
 
-`SkillSummary` 包含一个必填且类型明确的 `invocation: SkillInvocationPolicy` 对象，其 `modelInvocable: boolean` 和 `userInvocable: boolean` 字段为正向且对称。只有显式输入 seam 可以省略它：未提供策略的运行时 `SkillRegistration`，以及两个调用键均未提供的本地 frontmatter，都会在生成候选项或定义前解析为 `{ modelInvocable: true, userInvocable: true }`。未来的 frontmatter 键只有在具备消费方和执行约定后，才会进入领域模型；本地提供方仍将 frontmatter 解析为开放的 `Record<string, unknown>`，然后只把已识别字段及其默认值投影到规范化的类型化策略中。
+`SkillSummary` 包含一个必填且类型明确的 `invocation: SkillInvocationPolicy` 对象，其 `modelInvocable: boolean` 和 `userInvocable: boolean` 字段为正向且对称。只有显式输入边界可以省略它：未提供策略的运行时 `SkillRegistration`，以及两个调用键均未提供的本地 frontmatter，都会在生成候选项或定义前解析为 `{ modelInvocable: true, userInvocable: true }`。未来的 frontmatter 键只有在具备消费方和执行约定后，才会进入领域模型；本地提供方仍将 frontmatter 解析为开放的 `Record<string, unknown>`，然后只把已识别字段及其默认值投影到规范化的类型化策略中。
 
 `ctx.skills.list()` 返回所有胜出的摘要，不再替任何调用接口选择策略。`isModelInvocable(skill)` 和 `isUserInvocable(skill)` 分别直接读取对应的正向字段。`ctx.skills.get()` 保持策略无关，因为可信内部调用方可能需要任意定义；对外消费方则必须在展示或加载 skill 之前执行自身对应的判定函数。模型工具和 TUI 会在调用 `get()` 前检查与调用策略无关的摘要，随后再次检查已加载的定义：被拒绝的名称绝不会进入定义加载流程，发现与加载之间发生策略变更也无法暴露该 skill 的正文。
 

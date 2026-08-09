@@ -26,7 +26,7 @@ export const inject = ['agents', 'tools', 'skills']
 
 const DEFAULT_CATALOG_DESCRIPTION_MAX_LENGTH = 500
 /**
- * Durable provenance for one published session skill catalog. The catalog is a
+ * Durable provider and item records for one published session skill catalog. The catalog is a
  * `catalog`-form context, so it records the entries it published beside the
  * model-facing prose: a consumer presenting the list must not re-parse the
  * `<available_skills>` block, whose framing exists for the model.

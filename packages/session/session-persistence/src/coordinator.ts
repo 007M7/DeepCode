@@ -78,7 +78,7 @@ export interface StoredSuffix {
 }
 
 /**
- * The storage seam between {@link PersistenceCoordinator} and a concrete
+ * The storage contract between {@link PersistenceCoordinator} and a concrete
  * backend: the minimal set of durable primitives the orchestration calls. A
  * backend implements these (over files, rows, an object store, …); the
  * coordinator supplies everything else (buffering, serialization, cursors,

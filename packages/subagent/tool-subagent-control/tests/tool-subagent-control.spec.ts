@@ -132,7 +132,7 @@ describe('dsh-tool-subagent-control', () => {
 
     const loaded = await ctx.sessionPersistence.load(started.childId)
     const followUp = loaded.events.findLast(event => event.type === 'user/message')
-    // Durable provenance records the calling agent without granting authority.
+    // The durable message source records the calling agent without granting authority.
     expect(followUp?.type === 'user/message' && followUp.data.source).toEqual({
       kind: 'coordinator',
       form: 'relay',

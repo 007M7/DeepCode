@@ -17,9 +17,9 @@ Status: implemented
 - `@deepseek-ai/dsh-tasks` 将运行中的工作注册为 `ctx.tasks`，并拥有 task id、授权、快照、读取、取消、等待、完成监听器与清理。
 - `@deepseek-ai/dsh-tool-tasks` 暴露 `task_output`、`task_list` 和 `task_kill`，注入完成通知，并提供后台任务的系统提示词指导。
 
-长时间运行工具是生产方。`dsh-tool-bash` 将 `BashProcess` 适配为增量输出与进程取消；`dsh-tool-subagent` 将子运行适配为最终输出与子运行释放。执行 seam 保持独立，不依赖会话或任务注册表。
+长时间运行工具是生产方。`dsh-tool-bash` 将 `BashProcess` 适配为增量输出与进程取消；`dsh-tool-subagent` 将子运行适配为最终输出与子运行释放。bash 与 subagent 能力 seam 保持独立，不依赖会话或任务注册表。
 
-`TaskService` 是 `@deepseek-ai/dsh-tasks` 中的抽象 seam；进程内注册表是 `@deepseek-ai/dsh-tasks-local` 中的 `LocalTaskService`（该拆分记录在[任务注册表 seam Agent Note](2026-07-26-task-registry-seam.md)中）。
+`TaskService` 是 `@deepseek-ai/dsh-tasks` 中的 Service Definition；进程内 Service provider 是 `@deepseek-ai/dsh-tasks-local` 中的 `LocalTaskService`（该拆分记录在[任务注册表约定 Agent Note](2026-07-26-task-registry-seam.md)中）。
 
 ## 运行时约定
 
@@ -103,7 +103,7 @@ bash seam 暴露 `resolve`、`run` 和 `start`。`start(spec)` 返回一个 `Bas
 
 ### 立即抽象任务运行时后端
 
-当前 `TaskStart.run()` 约定传入进程内回调与确切的 `Agent` 对象。持久化后端会改变身份、重启、所有权与观察语义，因此在引入之时注册表保持为单一具体服务，而非固化错误的边界。[任务注册表 seam Agent Note](2026-07-26-task-registry-seam.md)后来在不改变这些进程内语义的前提下，将约定与进程内实现分离。
+当前 `TaskStart.run()` 约定传入进程内回调与确切的 `Agent` 对象。持久化后端会改变身份、重启、所有权与观察语义，因此在引入之时注册表保持为单一具体服务，而非固化错误的边界。[任务注册表约定 Agent Note](2026-07-26-task-registry-seam.md)后来在不改变这些进程内语义的前提下，将约定与进程内实现分离。
 
 ### 由消费方负责授权或清理事件
 

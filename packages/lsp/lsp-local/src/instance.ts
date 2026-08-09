@@ -92,7 +92,7 @@ export class LspInstance {
    */
   query(request: LspProviderQuery, source: HostSource, signal?: AbortSignal): Promise<LspQueryResult> {
     // Serialize behind prior work, but observe abort DURING the queue wait too: if an earlier query
-    // hangs (e.g. a signal-less seam caller), a later tool's timeout must still be able to give up
+    // hangs (e.g. a signal-less service caller), a later tool's timeout must still be able to give up
     // rather than block on the shared tail forever.
     const run = abortable(this.queue, signal)
       .then(() => this.runQuery(request, source, signal))

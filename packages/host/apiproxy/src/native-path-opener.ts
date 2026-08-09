@@ -157,7 +157,7 @@ async function openNativePathWithIntent(
  * with the default browser when the path names a document a browser renders.
  * @param path - absolute or host-resolvable path (caller owns resolution).
  * @param signal - caller/connection lifetime; abort terminates the native command.
- * @param internals - platform, environment, and runner seam for deterministic tests.
+ * @param internals - Platform, environment, and runner hooks for deterministic tests.
  */
 export function openNativePath(
   path: string,
@@ -172,7 +172,7 @@ export function openNativePath(
  * so a YAML association with a browser cannot consume the gesture.
  * @param path - absolute or host-resolvable text-document path.
  * @param signal - caller/connection lifetime; abort terminates the native command.
- * @param internals - platform and runner seam for deterministic tests.
+ * @param internals - Platform and runner hooks for deterministic tests.
  */
 export function openNativeTextFile(
   path: string,

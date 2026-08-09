@@ -167,7 +167,7 @@ export async function disposeClaudeCodeChild(
 
 /**
  * Build the fixed official SDK options for one one-shot provider run.
- * @param spec - workspace, environment, process seam, and disposal policy.
+ * @param spec - Workspace, environment, process service, and disposal policy.
  * @param controller - per-run cancellation owner.
  * @param capture - receives the real managed child synchronously from the SDK hook.
  * @returns options that inherit native settings while disabling persistence and user questions.
@@ -194,7 +194,7 @@ export function claudeQueryOptions(
 /**
  * Start one official Claude Agent SDK query and publish its one-shot run.
  * @param request - resolved shared subagent request.
- * @param spec - workspace, environment, process seam, and diagnostic policy.
+ * @param spec - Workspace, environment, process service, and diagnostic policy.
  * @returns the published run after both Query and real CLI handle exist.
  */
 export async function startClaudeCodeRun(

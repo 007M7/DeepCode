@@ -24,7 +24,7 @@ A state-carrying log event MUST carry the complete post-change state, never a ba
 
 ### Host projection registry (`dsh-session-projection`, new package)
 
-A light interface package: the merge-extensible type map, the registry service, zod at the boundary. Capability-seam three-way split: domain host plugins contribute, carriers consume, neither knows the other.
+A light Service Definition package: the merge-extensible type map, the registry service, zod at the boundary. Capability-seam roles: domain host plugins provide projection units, carriers consume them, and neither knows the other.
 
 What a domain registers is a **state-driven computation unit** — three pure functions plus declarations — never an opaque getter. The framework owns driving it (subscription, watermark, caching, and later checkpointing); the domain owns only the mathematics. Projections serve every business domain (session title, plan, goal, permission, todos); commands are merely one trigger path and hold no special position in this contract.
 
@@ -147,7 +147,7 @@ Infrastructure first; the three in-flight PRs are left untouched and re-target a
 
 **A live-only overlay hook (`live?(agent, base)`) for plan's pending intent** — rejected: it existed solely because the user's plan *selection* was not in the log. Routing the selection through the standard command channel puts `command/run` on the account, pending becomes a pure replay quantity, and the projection contract stays exactly three pure functions.
 
-**Naming the seam `registerFold`** — superseded by the unit contract: the registered object now genuinely is a fold, but `fold*` in this repo names pure `(events) => state` helper functions while this seam registers a keyed, schema'd, versioned unit. Projection remains the event-sourcing term for the read-model role, and both #587's note title and #497's comments already use it.
+**Naming the registration API `registerFold`** — superseded by the unit contract: the registered object now genuinely is a fold, but `fold*` in this repo names pure `(events) => state` helper functions while this registry accepts a keyed, schema'd, versioned unit. Projection remains the event-sourcing term for the read-model role, and both #587's note title and #497's comments already use it.
 
 **Client-side folding (per-domain projection cells with a `fromEvent`)** — rejected after being the second draft: once plan's unit folds two event types, a client cell must duplicate the host's transition logic in the browser — the same fold written twice, evolving separately. Pushing finished values (the title-frame precedent, generalized) keeps one computation site and reduces the client to a generic seq-guarded value store; domains write zero client code.
 

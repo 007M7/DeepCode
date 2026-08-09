@@ -151,7 +151,7 @@ interface TaskRead {
 
 ## Service behavior
 
-The abstract [`TaskService`](../../packages/tasks/tasks/src/index.ts) seam defines atomic `start`, caller-scoped `get` and `list`, `read`, `kill`, bounded `wait`, contained `onTaskDone` listeners, and the `attachSurface` availability fence; [`LocalTaskService`](../../packages/tasks/tasks-local/src/index.ts) is the process-local implementation. Authorization compares owner sessions; owner cleanup selects the exact registered `Agent` instance. See [`dsh-tasks`](../../packages/tasks/tasks/README.md) for the seam contract, [`dsh-tasks-local`](../../packages/tasks/tasks-local/README.md) for the registry lifecycle, and [`dsh-tool-tasks`](../../packages/tasks/tool-tasks/README.md) for the model-facing surface.
+The abstract [`TaskService`](../../packages/tasks/tasks/src/index.ts) Service Definition specifies atomic `start`, caller-scoped `get` and `list`, `read`, `kill`, bounded `wait`, contained `onTaskDone` listeners, and the `attachSurface` availability fence; [`LocalTaskService`](../../packages/tasks/tasks-local/src/index.ts) is the process-local provider. Authorization compares owner sessions; owner cleanup selects the exact registered `Agent` instance. See [`dsh-tasks`](../../packages/tasks/tasks/README.md) for the Service Definition contract, [`dsh-tasks-local`](../../packages/tasks/tasks-local/README.md) for the registry lifecycle, and [`dsh-tool-tasks`](../../packages/tasks/tool-tasks/README.md) for the model-facing Consumer.
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 

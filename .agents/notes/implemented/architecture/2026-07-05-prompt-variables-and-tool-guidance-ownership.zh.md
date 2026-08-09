@@ -18,7 +18,7 @@ Status: implemented
 
 ## 决策
 
-**一条原则：提示词中的每个事实恰好有一个归属方。** 模型名称和工作区是配置/会话事实 → harness 将它们暴露为变量，persona 引用它们。每个工具的语义和何时使用 → 工具的 `description`。description 无法承载的跨调用习惯 → 包的提示词 section。harness 来源标识 → 静态的 `harness:identity` section。部署角色与行为 → 部署的 persona。
+**一条原则：提示词中的每个事实恰好有一个归属方。** 模型名称和工作区是配置/会话事实 → harness 将它们暴露为变量，persona 引用它们。每个工具的语义和何时使用 → 工具的 `description`。description 无法承载的跨调用习惯 → 包的提示词 section。产品名称和 SDK 身份说明 → 静态的 `harness:identity` section。部署角色与行为 → 部署的 persona。
 
 ### 组装上下文
 
