@@ -251,7 +251,7 @@ describe('rewriteMarkdown', () => {
 })
 
 describe('docsPages locale routes', () => {
-  it('publishes every route in both locales and selects paired sources', () => {
+  it('publishes every route in both locales and uses every available Chinese counterpart', () => {
     const byRoute = new Map(docsPages.map(page => [page.route, page]))
     for (const page of docsPages.filter(page => page.locale === 'root')) {
       const counterpart = byRoute.get(`en/${page.route}`)
@@ -265,6 +265,11 @@ describe('docsPages locale routes', () => {
       } else {
         expect(counterpart?.source).toBe(page.source)
         expect(counterpart?.contentLocale).toBe(page.contentLocale)
+        const chineseSource = page.source.replace(/\.md$/, '.zh.md')
+        expect(
+          existsSync(resolve(repositoryRoot, chineseSource)),
+          `${page.route} has a Chinese counterpart but projects English`,
+        ).toBe(false)
       }
     }
   })
@@ -282,20 +287,16 @@ describe('docsPages locale routes', () => {
     }
   })
 
-  it('projects translated subsystem pages while retaining explicit English fallbacks', () => {
+  it('projects every published subsystem page in Chinese', () => {
     const rootPages = docsPages.filter(page => (
       page.locale === 'root' && page.route.startsWith('reference/subsystems/')
     ))
     const translated = rootPages.filter(page => page.contentLocale === 'zh-CN')
     const fallbacks = rootPages.filter(page => page.contentLocale === 'en-US')
 
-    expect(translated).toHaveLength(39)
+    expect(translated).toHaveLength(43)
     expect(translated.every(page => page.source.endsWith('.zh.md'))).toBe(true)
-    expect(fallbacks.map(page => page.source).sort()).toEqual([
-      'docs/subsystems/commands.md',
-      'docs/subsystems/goal.md',
-      'docs/subsystems/pty.md',
-    ])
+    expect(fallbacks).toEqual([])
   })
 
   it('publishes the Cordis core API under matching locale structures', () => {

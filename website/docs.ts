@@ -226,7 +226,7 @@ const develop = pairedPages([
   },
 ])
 
-const cordisTutorial = mirroredPages(([
+const cordisTutorial = pairedPages(([
   ['index.md', 'Cordis 教程', 'Cordis tutorial'],
   ['01-first-plugin.md', '1. 第一个插件', '1. Your first plugin'],
   ['02-lifecycle-and-effects.md', '2. 生命周期与副作用', '2. Lifecycle and effects'],
@@ -235,10 +235,9 @@ const cordisTutorial = mirroredPages(([
   ['05-config.md', '5. 配置', '5. Configuration'],
   ['06-composition-and-hmr.md', '6. 组合与热重载', '6. Composition and HMR'],
   ['07-into-the-harness.md', '7. 进入 Harness', '7. Into the harness'],
-] as const).map(([file, rootLabel, enLabel], order): MirroredPage => ({
+] as const).map(([file, rootLabel, enLabel], order): PairedPage => ({
   source: `docs/cordis-tutorial/${file}`,
   route: `develop/cordis-tutorial/${file}`,
-  contentLocale: 'en-US',
   label: { root: rootLabel, en: enLabel },
   sidebar: { root: 'zh-develop', en: 'en-develop' },
   section: { root: 'Cordis 教程', en: 'Cordis tutorial' },
@@ -308,12 +307,11 @@ const subsystemsReference = pairedPages(([
 })))
 
 const reference = [
-  ...mirroredPages(([
+  ...pairedPages(([
     ['docs/architecture.md', 'reference/index.md', '架构', 'Architecture', 0],
-  ] as const).map(([source, route, rootLabel, enLabel, order]): MirroredPage => ({
+  ] as const).map(([source, route, rootLabel, enLabel, order]): PairedPage => ({
     source,
     route,
-    contentLocale: 'en-US',
     label: { root: rootLabel, en: enLabel },
     sidebar: { root: 'zh-reference', en: 'en-reference' },
     section: { root: '概念', en: 'Concepts' },
@@ -369,28 +367,27 @@ const reference = [
     section: { root: 'Cordis API', en: 'Cordis Core API' },
     order: order + 5,
   }))),
-  ...mirroredPages(([
+  ...pairedPages(([
     ['goal.md', '目标', 'Goals', 14],
+    ['schedule.md', '定时提醒', 'Scheduled reminders', 15],
     ['pty.md', 'PTY 会话', 'PTY sessions', 26],
     ['commands.md', '命令', 'Human commands', 38],
-  ] as const).map(([file, rootLabel, enLabel, order]): MirroredPage => ({
+  ] as const).map(([file, rootLabel, enLabel, order]): PairedPage => ({
     source: `docs/subsystems/${file}`,
     route: `reference/subsystems/${file}`,
-    contentLocale: 'en-US',
     label: { root: rootLabel, en: enLabel },
     sidebar: { root: 'zh-reference', en: 'en-reference' },
     section: { root: '子系统', en: 'Subsystems' },
     order,
   }))),
-  ...mirroredPages(([
+  ...pairedPages(([
     ['adding-a-package.md', '新增 Package', 'Adding a package'],
     ['adding-a-tool.md', '新增 Tool', 'Adding a tool'],
     ['adding-an-llm-adapter.md', '新增 LLM Adapter', 'Adding an LLM adapter'],
     ['extension-cookbook.md', '扩展模式', 'Extension patterns'],
-  ] as const).map(([file, rootLabel, enLabel], order): MirroredPage => ({
+  ] as const).map(([file, rootLabel, enLabel], order): PairedPage => ({
     source: `docs/cookbook/${file}`,
     route: `reference/cookbook/${file}`,
-    contentLocale: 'en-US',
     label: { root: rootLabel, en: enLabel },
     sidebar: { root: 'zh-reference', en: 'en-reference' },
     section: { root: '开发手册', en: 'Cookbook' },
