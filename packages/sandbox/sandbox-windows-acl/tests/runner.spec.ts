@@ -195,9 +195,11 @@ describe.skipIf(!isWin32 || !pwshAvailable())('windows-acl runner', () => {
     //    so ANONYMOUS pipe creation (CreatePipe — the token-default-DACL
     //    consumer) works and inherited/ignored stdio spawns succeed;
     //  - libuv's pipe-stdio uses NAMED pipes, whose default security
-    //    descriptor is the kernel's PUBLIC template (owner/SYSTEM/Admins
-    //    full, Everyone read-only) — NOT the token default DACL — so the
-    //    client-end open requests write access no restricting SID is
+    //    descriptor is the Win32 layer's user-mode default SD template
+    //    (built by KernelBase — owner/SYSTEM/Admins full, Everyone/ANONYMOUS
+    //    read-only) — NOT the token default DACL, which is what the kernel
+    //    applies to a raw SD-null create — so the client-end open requests
+    //    write access no restricting SID is
     //    granted: ERROR_ACCESS_DENIED, surfaced as spawn EPERM. That is the
     //    POC-documented "no output redirection" boundary of WRITE_RESTRICTED
     //    tokens; piped capture cannot work and is pinned as DENIED.
