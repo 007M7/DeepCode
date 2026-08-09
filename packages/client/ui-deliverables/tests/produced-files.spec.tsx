@@ -34,13 +34,16 @@ afterEach(cleanup)
 class TestTurnDataStore implements ConversationLocationDataStore<ConversationTurnDataMap> {
   private readonly values = new Map<string, unknown>()
 
-  get<Key extends keyof ConversationTurnDataMap & string>(
+  get<Key extends Extract<keyof ConversationTurnDataMap, string>>(
     key: Key,
   ): Readonly<ConversationTurnDataMap[Key]> | undefined {
     return this.values.get(key) as Readonly<ConversationTurnDataMap[Key]> | undefined
   }
 
-  set<Key extends keyof ConversationTurnDataMap & string>(key: Key, value: ConversationTurnDataMap[Key]): void {
+  set<Key extends Extract<keyof ConversationTurnDataMap, string>>(
+    key: Key,
+    value: ConversationTurnDataMap[Key],
+  ): void {
     this.values.set(key, value)
   }
 }

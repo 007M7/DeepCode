@@ -20,7 +20,7 @@ export interface ConversationLocationDataChange {
 class MutableLocationDataStore {
   private entries = new Map<string, OwnedLocationData>()
 
-  get<Key extends string>(key: Key): unknown {
+  get(key: string): unknown {
     return this.entries.get(key)?.value
   }
 

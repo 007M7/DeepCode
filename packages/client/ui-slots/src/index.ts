@@ -677,7 +677,10 @@ export class SlotCore {
   >(
     options: BaseOptions<K, EntryKey, D, H, M, N> & { inject?: undefined },
     component: C
-      & SlotComponent<ComposedProps<K, NoInfer<EntryKey>, keyof NoInfer<D> & keyof SlotMap & string, HandleOf<NoInfer<H>>, object, NoInfer<M>, NoInfer<N>>>
+      & SlotComponent<ComposedProps<
+        K, NoInfer<EntryKey>, keyof NoInfer<D> & keyof SlotMap & string,
+        HandleOf<NoInfer<H>>, object, NoInfer<M>, NoInfer<N>
+      >>
       & RendersCheck<C, D>,
   ): () => void
   /**
@@ -702,7 +705,10 @@ export class SlotCore {
   >(
     options: BaseOptions<K, EntryKey, D, H, M, N> & { inject: (...args: InjectParams<K, H>) => I },
     component: C
-      & SlotComponent<ComposedProps<K, NoInfer<EntryKey>, keyof NoInfer<D> & keyof SlotMap & string, HandleOf<NoInfer<H>>, I, NoInfer<M>, NoInfer<N>>>
+      & SlotComponent<ComposedProps<
+        K, NoInfer<EntryKey>, keyof NoInfer<D> & keyof SlotMap & string,
+        HandleOf<NoInfer<H>>, I, NoInfer<M>, NoInfer<N>
+      >>
       & RendersCheck<C, D>,
   ): () => void
   /* jscpd:ignore-end */

@@ -712,9 +712,8 @@ export class ConversationNodeAssembler {
     context: InternalContext,
     scope: ConversationLocationDataScope,
   ): ConversationLocationData | null {
-    const build = context.definition.buildLocationData
-    if (build === undefined) return null
-    const data = build(contextSnapshot(context), scope)
+    if (context.definition.buildLocationData === undefined) return null
+    const data = context.definition.buildLocationData(contextSnapshot(context), scope)
     if (data === null) return null
     if (data.kind !== scope) {
       throw new Error(

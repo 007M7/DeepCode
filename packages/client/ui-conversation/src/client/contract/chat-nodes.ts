@@ -7,7 +7,7 @@ import type {
 export interface ChatNodeDataMap {}
 
 /** Renderer kinds contributed by the currently installed Chat business modules. */
-export type ChatNodeKind = keyof ChatNodeDataMap & string
+export type ChatNodeKind = Extract<keyof ChatNodeDataMap, string>
 
 /** Final Chat Node narrowed to one registered renderer kind and payload. */
 export type ChatNode<Kind extends ChatNodeKind = ChatNodeKind> = {

@@ -181,12 +181,14 @@ function makeHarness(init?: Partial<ConversationSnapshot>) {
     if (key !== 'conversation.chat.node') return opts?.fallback ?? null
     const nodeOwner = owner as RoutedChatNodeOwner
     const nodeKey = opts?.hookContext as string | undefined
-    const useTurnData = ((dataKey: string) => props.useSession((snapshot) => {
-      const location = nodeKey === undefined ? undefined : snapshot.chat.nodes.get(nodeKey)?.location
-      return location?.kind === 'turn' || location?.kind === 'step'
-        ? location.turn.data.get(dataKey as never)
-        : undefined
-    })) as UseChatNodeTurnData
+    const useTurnData = ((dataKey: string) => {
+      return props.useSession((snapshot) => {
+        const location = nodeKey === undefined ? undefined : snapshot.chat.nodes.get(nodeKey)?.location
+        return location?.kind === 'turn' || location?.kind === 'step'
+          ? location.turn.data.get(dataKey as never)
+          : undefined
+      })
+    }) as UseChatNodeTurnData
     const nodeProps = <Kind extends ChatNode['kind']>(): ChatNodeViewProps<Kind> => (
       { ...props, ...nodeOwner, useTurnData } as unknown as ChatNodeViewProps<Kind>
     )
@@ -226,7 +228,7 @@ function makeHarness(init?: Partial<ConversationSnapshot>) {
       case 'unknown':
         return <UnknownNodeView {...nodeProps<'unknown'>()} />
       case 'tool-call': {
-        const block = (nodeOwner.node.data as { readonly root: ToolCallBlock }).root
+        const block = nodeOwner.node.data.root
         const toolName = 'kind' in block ? block.call?.name ?? '' : block.name
         const tool = {
           callId: block.callId,
@@ -843,7 +845,7 @@ describe('ChatView', () => {
         mounted()
         return () => { unmounted() }
       }, [])
-      const root = (node.data as { readonly root: ToolCallBlock }).root
+      const root = node.data.root
       return (
         <div data-testid="stateful-tool" data-state={'kind' in root ? 'settled' : 'running'}>
           {root.callId}

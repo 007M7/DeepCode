@@ -1,6 +1,10 @@
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import type { ToolEventView } from '@deepseek-ai/dsh-client-connection/client'
 
+/* oxlint-disable typescript/no-duplicate-type-constituents, typescript/no-redundant-type-constituents --
+ * The unaugmented declaration-merge maps intentionally resolve to never in the Runtime program;
+ * installed business packages supply their concrete keys in consuming Client programs. */
+
 /** One raw log event plus its optional envelope-level presentation view. */
 export interface ConversationEventInput {
   readonly event: SessionEvent

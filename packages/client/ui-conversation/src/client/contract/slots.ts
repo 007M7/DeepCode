@@ -210,7 +210,7 @@ export interface TurnTailOwnerProps {
 }
 
 /** Hook constrained to business data published on the current Chat Node's Turn. */
-export type UseChatNodeTurnData = <Key extends keyof ConversationTurnDataMap & string>(
+export type UseChatNodeTurnData = <Key extends Extract<keyof ConversationTurnDataMap, string>>(
   key: Key,
 ) => Readonly<ConversationTurnDataMap[Key]> | undefined
 
