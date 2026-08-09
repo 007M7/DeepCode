@@ -29,6 +29,8 @@ sandbox.dispose() // revokes the revocable (temp) grant, keeps the standing work
 
 直接使用 `AclSandbox` 时，工作区 ACE 以**常驻**方式授予（`dispose()` 保留它们——它们是跨实例的复用缓存），临时 ACE 以**可回收**方式授予（`dispose()` 撤销它，这样可继承 ACE 不会在环境临时根目录上比实例活得更久）。服务端复用则是 `AclWriteGrant` 类：每个目录一次 `add(path, standing)`，`dispose()` 撤销可回收路径并释放 SID——见下方 runner 契约。本包中的每个 Win32 API 调用都有检查；失败抛出 `Win32Error`，携带 API 名、精确 Win32 错误码、`FormatMessageW` 系统文本和失败的路径/上下文。这是刻意的：POC 忽略每个返回值，当 `CreateRestrictedToken` 失败时用完整无限制令牌静默运行子进程（fail-open）。本移植从构造上 fail-closed。
 
+<a id="the-confinement-runner"></a>
+
 ## 隔离 runner
 
 面向 seam 的形态是 **runner 入口**（`./runner`）：`@deepseek-ai/dsh-sandbox-local` 在调用者命令的位置 spawn 的 argv 前缀包装——与 bwrap/landlock-run/sandbox-exec 同一架构，因此沙盒 seam 的 `confine()` 契约无需改动。稳定的 argv 契约：
