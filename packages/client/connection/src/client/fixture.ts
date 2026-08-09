@@ -1284,7 +1284,7 @@ export interface FixtureOptions {
 
 /** Inbox pump shared by both stream generators (FrameQueue pattern: ONE abort listener hung
  *  outside the loop — a per-iteration {once:true} listener never fires for non-final rounds and
- *  piles up for the stream's lifetime, audit C5). breakNow force-ends the stream without the
+ *  piles up for the stream's lifetime). breakNow force-ends the stream without the
  *  client's signal (timing hook: simulated connection loss). */
 class FxInbox<F> implements StreamConn<F> {
   private readonly inbox: RpcRequest<F>[] = []
@@ -1658,7 +1658,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
 
   /** history transit delay (timing hooks below); the page snapshot is taken at request time, like a real host. */
   let historyDelayMs = 0
-  /** One-shot history failure (timing hook: the doomed in-flight request of the S4 reconnect scenario). */
+  /** One-shot history failure (timing hook: a pre-disconnect history request already doomed when reconnect lands). */
   let failNextHistory = false
   /** Force-enders for currently open stream generators (timing hook: simulated connection loss). */
   const streamBreakers = new Set<() => void>()
@@ -1667,8 +1667,8 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
   /** The single opt-in browser stress producer; normal fixture journeys never start it. */
   let activeReasoningChunkStorm: ReasoningChunkStormState | null = null
 
-  // Timing-acceptance hooks (browser test backdoor): the in-memory fixture is ideally timed, which
-  // is exactly what masked the open-window and reconnect-gap bugs (audit S1/S3). These let
+  // Timing-acceptance hooks (browser test backdoor): the in-memory fixture is
+  // ideally timed. These let
   // browser acceptance runs create slow-history, lost-frame, and reconnect
   // windows a real host produces naturally.
   const timingHooks = {
@@ -2691,8 +2691,8 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
  * Fixture platform subclass: there is no HTTP at all, so instead of a doFetch transport it
  * overrides the protocol-level virtuals (callUnary/openMux/openHost/respond) to dispatch
  * straight into the in-memory ApiProxy — while still minting rpcIds, fabricating the four
- * named full forms, and feeding the same tap as a real carrier. Delete when the fixture moves
- * to the isomorphic pipeline (InProcessApiClient over toFetchHandler(fixtureImpl)).
+ * named full forms, and feeding the same tap as a real carrier. TODO: delete when the fixture
+ * moves to the isomorphic pipeline (InProcessApiClient over toFetchHandler(fixtureImpl)).
  */
 export class FixtureApiClient extends AbstractApiClient {
   private readonly api: ApiProxy

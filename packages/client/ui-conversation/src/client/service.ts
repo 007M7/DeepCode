@@ -57,7 +57,7 @@ export interface IConversation {
 
 /** Scope-addressed conversation service (root singleton, provided as `conversation`). */
 export class ConversationService extends Service implements IConversation {
-  /** The per-session input machine registry (InputService face, design §5.2). */
+  /** The per-session input machine registry (InputService face). */
   readonly input: InputService
   /** The per-session composer-block registry. */
   readonly blocks: ComposerBlocks

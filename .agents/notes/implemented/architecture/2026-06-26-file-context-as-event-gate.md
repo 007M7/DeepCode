@@ -112,7 +112,7 @@ The `fs/*` decision events are **unbound waterfalls dispatched by the tool** (li
 
 ## Tool contract (`dsh-tool-fs`)
 
-The tool keeps its model-facing schemas (`read`/`write`/`edit`, byte-for-byte unchanged) and prompt sections. The prompt guidance stays policy-first because a deployment loading the fs tools is expected to also load `dsh-fs-policy`: the model is still told to read before overwriting or editing, and any wording that says the "backend" requires that should be corrected to say the fs-policy plugin requires it. The bare-provider fallback does not change the prompt stance.
+The tool keeps its model-facing schemas (`read`/`write`/`edit`, byte-for-byte unchanged) and prompt sections. The prompt guidance stays policy-first because a deployment loading the fs tools is expected to also load `dsh-fs-policy`: the model is still told to read before overwriting or editing, and that requirement is the fs-policy plugin's, not the backend's. The bare-provider fallback does not change the prompt stance.
 
 `dsh-tool-fs` gains the executor responsibilities relocated from the old `fileContext` method service, including **read rendering** (`read-render.ts`: `buildWindow` + `formatReadOutput`, `READ_MAX_BYTES`, `READ_MAX_LINE_LENGTH`, `FileReadOutcome`/`FileTextLine`, plus `STREAM_MIN_SIZE` in `read.ts`), which is the tool's rendering detail now that the tool owns the read. Those read-rendering types and helpers move into `dsh-tool-fs`; the policy plugin must not remain a type dependency for the tool.
 

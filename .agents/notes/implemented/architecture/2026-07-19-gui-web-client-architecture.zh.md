@@ -4,7 +4,7 @@ Status: implemented
 
 [English](2026-07-19-gui-web-client-architecture.md) | 中文
 
-> 分工线：通道无关的分层模型与 RPC 协议（消息模型/类型体系/约定面/客户端基类）见 [分层与 RPC 协议 RFC](2026-07-19-gui-layering-and-rpc-protocol.md)；本篇 = 浏览器侧：client cordis 树如何装载、UI 插件如何经 slot 与服务组合、React-free 对象层如何以不可变快照供给 React。
+> 分工线：通道无关的分层模型与 RPC 协议（消息模型/类型体系/约定面/客户端基类）见 [分层与 RPC 协议笔记](2026-07-19-gui-layering-and-rpc-protocol.md)；本篇 = 浏览器侧：client cordis 树如何装载、UI 插件如何经 slot 与服务组合、React-free 对象层如何以不可变快照供给 React。
 
 ## Problem
 
@@ -30,13 +30,13 @@ Status: implemented
 
 ## client cordis 树与装载链
 
-装载链——两类包（普通包 vs dshClient 插件）、模块系统/插件治理器之分、host 独家撰写的带修订号 entry 图之上的双层 boot、热重载——归 [client 插件装载 RFC](2026-07-23-client-plugin-loading-model.md) 所有。本篇赖以立足的事实：浏览器启动与 host 相同的 vendored `@cordisjs/plugin-loader`，由 client 模块系统（`ctx.modules`，`packages/client/modules`）填上其 `internal` 约定；凡带产品行为的单元都是 host 独家撰写的 `__DSH_BOOT__` 图里的 entry——每个生产插件包（含基础设施）都携带 `dshClient` 声明、以 fetch 到达的 `./client` tsdown 闭包 bundle 供给，`immediately` 行的差别仅在 boot 第一层预取，而普通包（react 家族、cordis、尚未升格的库）保持打进壳、已播种、对图不可见；bundle 执行 `window.__ModuleLoader__.load({ id, factory })`，其 `require` 由 lazy CJS 模块表应答（种子词条 + 已登记工厂，首次 require 时物化并记忆化——跨插件值 import 是构建错误，协作走 cordis 服务）；插件 CSS 内联在 bundle 里、物化时注入为 `<style data-plugin="<id>">`（CSS Modules 哈希 + 归属标记 = 隔离，重载时移除）；热重载已在 dev 图落地——webserver 对自己供给的 bundle 做 stat 轮询并广播 `rebuilt` SSE 帧，`client-hmr` 插件每帧换掉一个 fiber。settled 翻转（`loader.await()` + 一次全 ACTIVE 扫描）依旧让壳从 loading 页一次切换到真 UI——settled 意味着每个 entry 已创建、每个 fiber 都到达 ACTIVE，FAILED/PENDING 的 fiber 被大声列出；不存在部分可用模式（渐进渲染为后置工作）。
+装载链——两类包（普通包 vs dshClient 插件）、模块系统/插件治理器之分、host 独家撰写的带修订号 entry 图之上的双层 boot、热重载——归 [client 插件装载笔记](2026-07-23-client-plugin-loading-model.md) 所有。本篇赖以立足的事实：浏览器启动与 host 相同的 vendored `@cordisjs/plugin-loader`，由 client 模块系统（`ctx.modules`，`packages/client/modules`）填上其 `internal` 约定；凡带产品行为的单元都是 host 独家撰写的 `__DSH_BOOT__` 图里的 entry——每个生产插件包（含基础设施）都携带 `dshClient` 声明、以 fetch 到达的 `./client` tsdown 闭包 bundle 供给，`immediately` 行的差别仅在 boot 第一层预取，而普通包（react 家族、cordis、尚未升格的库）保持打进壳、已播种、对图不可见；bundle 执行 `window.__ModuleLoader__.load({ id, factory })`，其 `require` 由 lazy CJS 模块表应答（种子词条 + 已登记工厂，首次 require 时物化并记忆化——跨插件值 import 是构建错误，协作走 cordis 服务）；插件 CSS 内联在 bundle 里、物化时注入为 `<style data-plugin="<id>">`（CSS Modules 哈希 + 归属标记 = 隔离，重载时移除）；热重载已在 dev 图落地——webserver 对自己供给的 bundle 做 stat 轮询并广播 `rebuilt` SSE 帧，`client-hmr` 插件每帧换掉一个 fiber。settled 翻转（`loader.await()` + 一次全 ACTIVE 扫描）依旧让壳从 loading 页一次切换到真 UI——settled 意味着每个 entry 已创建、每个 fiber 都到达 ACTIVE，FAILED/PENDING 的 fiber 被大声列出；不存在部分可用模式（渐进渲染为后置工作）。
 
 类型宇宙在聚合层拆分——`tsconfig.host.json` 是 host program、`tsconfig.client.json` 是 client program，二者由 solution 根 `tsconfig.json` 引用，因为两侧都在相同键（`sessions`、`loader`）上对 cordis `Context` 做声明合并且服务不同；client 包经纯类型子路径（`@deepseek-ai/dsh-session/types` 等）消费协议词汇，host 侧的声明合并不会搭车进入 client program。
 
 ## slot 体系：页面怎么拼
 
-slot 体系有自己的 RFC——[slot 体系标准](2026-07-22-slot-type-chain-implementation.md)——本文整体移交给它。此处只留一段定位摘要：壳只渲染 `'root'`；插件用单独一次 `register` 调用组合 UI——占坑、声明并授权子坑（`children` spec 对象）、声明 store、注入业务面；组件 props 分四份额自动推导到达（`PropsRuntime<K>` / `PropsRenderSlots<S>` / `PropsStore<H>` / inject），各有唯一真源。`SlotMap` 声明合并仍是类型权威，entry 只携带 owner 份额（「谁注入的，类型归谁」）；每个被渲染的注册项都在 per-entry 错误边界之内。
+slot 体系有自己的笔记——[slot 体系标准](2026-07-22-slot-type-chain-implementation.md)——本文整体移交给它。此处只留一段定位摘要：壳只渲染 `'root'`；插件用单独一次 `register` 调用组合 UI——占坑、声明并授权子坑（`children` spec 对象）、声明 store、注入业务面；组件 props 分四份额自动推导到达（`PropsRuntime<K>` / `PropsRenderSlots<S>` / `PropsStore<H>` / inject），各有唯一真源。`SlotMap` 声明合并仍是类型权威，entry 只携带 owner 份额（「谁注入的，类型归谁」）；每个被渲染的注册项都在 per-entry 错误边界之内。
 
 实现的家：注册表核心与 props 份额类型在 `packages/client/ui-slots`，出口组件/渲染器/uSES 桥在 `packages/client/web-react`。
 
@@ -73,7 +73,7 @@ Notifier 微任务合批 ──► ConversationSnapshot 缓存 ──uSES──�
 - **SessionManager**（manager.ts）：实例簇 + 帧总入口 + 会话列表。带 sessionId 的帧只投已存在实例（mux 广播不得把每个会话都实例化）；例外是审批/问答 `requested` 帧——它们不落 history、open 无法回补，故缓冲进 `pendingBuffers`，实例化时回放。
 - **Notifier**（notifier.ts）：两条通知通道，按变更来源取用。`markDirty()`（默认；帧驱动一律用它）按微任务合批——N 次变更、一次通知、一次重渲染；flush 先重建快照缓存再通知。`notifyNow()`（仅用户手势的直接回响）同 tick 重建并通知——受控输入的回响若延到微任务，DOM 会回滚、光标跳尾。帧驱动代码用 notifyNow 会让合批塌回逐帧渲染；禁。
 - **ConversationNodeAssembler**（`runtime/src/client/conversation/`）：Session 拥有的增量引擎在原始事件上运行各自独立注册的 Definition。`match(event)` 无须扫描 Context 即可选出 `(kind, id)`；start/update 构造 Definition state；引擎计算的 Location 携带 Turn/Step 关闭信息；向前查询 Context 时记录依赖，并由后续 prepend 修复；`buildViewNode(target)` 只物化 dirty Context。Chat builder 保留结构顺序和 per-key value identity，`useSession` selector 负责消费隔离，Assistant token 发布则合并到每个 animation frame 一次。[Conversation Node 决策](2026-08-09-client-conversation-node-assembly.md)拥有组装边界，[Tool 展示所有权](2026-08-08-client-tool-presentation-ownership.md)拥有 Tool 递归渲染。
-- **ConnectionController**（在 `packages/client/connection`）：开 mux/host 双流、for-await 泵入，代际围栏之内指数退避重连（500ms 翻倍至 10s 封顶、抖动、无限重试）；sinks 单向注入（Controller 不认识 Session）。重连 = 重建：`onConnected` → 列表刷新 + 各已打开会话 resync。对象层只面向 `IApiClient`；Web 承载以 HTTP POST 载两个 client→server 象限、以[每逻辑流一条 WebSocket](2026-08-04-websocket-downlink-carrier.md)载两个 server→client 象限，客户端类族归分层 RFC 属地。
+- **ConnectionController**（在 `packages/client/connection`）：开 mux/host 双流、for-await 泵入，代际围栏之内指数退避重连（500ms 翻倍至 10s 封顶、抖动、无限重试）；sinks 单向注入（Controller 不认识 Session）。重连 = 重建：`onConnected` → 列表刷新 + 各已打开会话 resync。对象层只面向 `IApiClient`；Web 承载以 HTTP POST 载两个 client→server 象限、以[每逻辑流一条 WebSocket](2026-08-04-websocket-downlink-carrier.md)载两个 server→client 象限，客户端类族归分层笔记属地。
 
 ## React 面（`packages/client/web-react`）
 
@@ -109,7 +109,7 @@ src/client/
 ## 怎么开发
 
 - **新 UI 功能** = 新插件包：package.json 声明 `dshClient`（+ `inject` 拓扑），浏览器半边写在 `src/client/`（apply 挂服务/建 store、注册 slot），无 host 逻辑时 node 半边保持空 apply，用共享预设构建。把插件加进 host 配置；manifest 与装载随之自动跟上。
-- **新 slot**：见 [slot 体系标准 RFC](2026-07-22-slot-type-chain-implementation.md)——契约合并进 `SlotMap`，在父 entry 的 `children` 里声明，经自动注入的 `renderSlot` prop 渲染。永不全局导出组件。
+- **新 slot**：见 [slot 体系标准笔记](2026-07-22-slot-type-chain-implementation.md)——约定合并进 `SlotMap`，在父 entry 的 `children` 里声明，经自动注入的 `renderSlot` prop 渲染。永不全局导出组件。
 - **消费新帧类型**：纯传输 session frame → Session 分发 switch；host 级 frame → Manager 路由表；已记录的 conversation 业务事件 → Definition 加 keyed view renderer，不增加 Session 业务分支。
 - **状态住哪**：业务数据（事件、流式、待答）→ 永远对象层；父知道的 → renderSlot 现场的 owner props；单组件私有（滚动、搜索词、展开集）→ 组件状态；跨 entry 共享或跨重挂载存活（选中、草稿、面板宽）→ entry 声明的 store（[slot 体系标准](2026-07-22-slot-type-chain-implementation.md)）。
 - **通知通道**：帧驱动/异步 = `markDirty` 合批；受控输入需要同 tick 的用户手势直接回响 = `notifyNow`。
@@ -126,4 +126,4 @@ token 流不再震荡渲染树：Assistant chunk 只更新一个业务 Context�
 | window 全局变量 / import map 供共享依赖 | DI require 表让共享显式、大声失败、可替换；全局变量静默泄漏身份与版本 |
 | 业务数据进 zustand 切片 | 事件窗口/累积器是行为状态机，不是扁平切片；对象层保住快照粒度与合批的可控性 |
 | Tool 行使用平行的字符串键组件注册表 | ui-tool 的 keyed 子 slot 通过唯一的 slot 注册模型承载运行时开放的 Tool 名称集合（[toolview 溶解](2026-07-23-toolview-dissolution.md)） |
-| P-I 就做渐进/Suspense 启动 | 一次成型严格更简单；loader 的按插件状态面已保留，渐进点亮日后可落地而无需重构 |
+| 首个 web 客户端交付就做渐进/Suspense 启动 | 一次成型严格更简单；loader 的按插件状态面已保留，渐进点亮日后可落地而无需重构 |

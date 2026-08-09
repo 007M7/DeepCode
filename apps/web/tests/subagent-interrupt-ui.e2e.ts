@@ -185,7 +185,8 @@ describe.skipIf(MODE === 'record')('web e2e: composer interrupt for a running co
     onTestFailed(() => saveFailureShot(page, 'web-e2e-subagent-interrupt-offline'))
     // Simulate a parent that went offline: the catalog delivers
     // parentAvailable: false while the child Activation stays live (the
-    // interrupt RPC itself needs no live parent — PR 1's host coverage).
+    // interrupt RPC itself needs no live parent — covered host-side by
+    // subagent-interrupt.e2e.ts).
     const pattern = '**/api/subagent.list'
     await page.route(pattern, async (route) => {
       const response = await route.fetch()

@@ -54,7 +54,7 @@ const claimStyles = (id: string): string[] => {
  * The client module system: state tables plus the arrival/materialization
  * machinery implementing {@link ClientModuleLoader} (whose members carry the
  * contract documentation). Construction indexes the boot rows and installs the
- * `window.__ModuleLoader__` registration sink (contract C6) — once per page.
+ * `window.__ModuleLoader__` registration sink — once per page.
  */
 export class ClientModuleSystem implements ClientModuleLoader {
   readonly version = 'client'

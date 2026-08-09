@@ -18,7 +18,7 @@ Status: implemented
 
 - 模型在自身畸形调用上获得可操作的反馈，而非不透明的崩溃，弥合了 `InferArgs` 的承诺与运行时现实之间的鸿沟。
 - 校验器与 `InferArgs` 必须保持一致；一项[属性测试](../testing/2026-06-11-property-based-testing.md)生成满足 spec 的参数并断言它们通过 `validateArgs`（同时断言定向破坏的参数被拒绝），以机械方式封堵漂移风险。
-- `ToolArgsError` 目前是带 `code` 字段的普通 `Error`；如果日后引入 harness 级别的错误分类体系，它将变为子类，但不影响读取 `.message` 的调用方。
+- `ToolArgsError` 是[结构化错误分类体系](2026-06-11-structured-error-taxonomy.md)中 `HarnessError` 的子类，保留其 `code` 字段；读取 `.message` 的调用方不受该层级结构影响。
 - 校验开销相对于一次模型调用可忽略不计。
 
 <!-- agent-note-format: alternatives-not-recorded (pre-format Agent Note) -->

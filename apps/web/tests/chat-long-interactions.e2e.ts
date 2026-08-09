@@ -1,6 +1,7 @@
-// Long-history Chat behavior contract for a future virtualized renderer. Wheel
-// input only navigates to the semantic target; assertions pin content identity
-// and interaction routing rather than scroll geometry or mounted row counts.
+// Long-history Chat behavior contract that stays valid under a virtualized
+// renderer: wheel input only navigates to the semantic target; assertions pin
+// content identity and interaction routing rather than scroll geometry or
+// mounted row counts.
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'

@@ -4,7 +4,7 @@ Status: implemented
 
 English | [中文](2026-07-19-gui-layering-and-rpc-protocol.zh.md)
 
-> Division of labor: this document = the layering model + the channel-independent RPC protocol; the protocol's Web implementation combines HTTP uplink with the [WebSocket downlink carrier](2026-08-04-websocket-downlink-carrier.md), while the browser object layer is in the [web client architecture RFC](2026-07-19-gui-web-client-architecture.md).
+> Division of labor: this document = the layering model + the channel-independent RPC protocol; the protocol's Web implementation combines HTTP uplink with the [WebSocket downlink carrier](2026-08-04-websocket-downlink-carrier.md), while the browser object layer is in the [web client architecture note](2026-07-19-gui-web-client-architecture.md).
 
 ## Problem
 
@@ -25,7 +25,7 @@ Directories layer as follows:
 
 - `packages/host/*`: packages provide host-side capability only (representing the Node.js engineering core built on the existing harness plugin system), and additionally
     - the unified backend protocol (fetch, HTTP, streaming interfaces…) — definitions and support, see the "Message protocol" sections below
-- `packages/client/*`: packages provide client-side capability only; every package stays single-sided. Three kinds live here (the axes are owned by the [client plugin loading RFC](2026-07-23-client-plugin-loading-model.md)):
+- `packages/client/*`: packages provide client-side capability only; every package stays single-sided. Three kinds live here (the axes are owned by the [client plugin loading note](2026-07-23-client-plugin-loading-model.md)):
     - **Pure libraries** (`ui-slots`, `web-react`, `ui-primitives`, plus the `loader` kernel package): ordinary root-index packages, statically bundled into the shell; the first three are seeded into the module table.
     - **Static-arrival entry packages** (`connection`, `runtime`, `ui-theme`, `i18n`, `hmr`): no `dshClient` key and no browser bundle — the shell bundles their `src/client/` half and registers it with `ctx.modules`; they are governed as entries of the host-authored graph like everything else.
     - **Fetch-arrival plugin packages** (`ui-layout`, `ui-sidebar`, `ui-conversation`, `ui-trajectory`): dual-entry — the root index is the node half (an empty `apply`, existing so the host Loader governs lifecycle and the web plugin registry discovers the package.json `dshClient` declaration); the implementation lives under `src/client/`, shipped as the `./client` subpath (a tsdown closure-factory bundle). Cross-plugin consumption of `/client` is type-only; value cooperation goes through cordis services.
@@ -52,7 +52,7 @@ Direction discipline (every rule auditable from package deps):
 - `runtime → apiproxy` is one-way; apiproxy depends only on type definitions.
 - Client-side packages **never import** host-side package runtime (they consume only the two browser-safe subpaths `/api` and `/client`).
 - `webserver` does not depend on `runtime`: it provides a `{ fetch }`-shaped implementation — "webserver ← runtime" is a runtime injection relationship, not a package dependency.
-- Cross-package client imports use the `/client` subpath for plugin packages, and between plugin packages they are type-only — a cross-plugin value import is a build error at the tsdown purity gate (value cooperation goes through cordis services; the [client plugin loading RFC](2026-07-23-client-plugin-loading-model.md) owns the edge rules).
+- Cross-package client imports use the `/client` subpath for plugin packages, and between plugin packages they are type-only — a cross-plugin value import is a build error at the tsdown purity gate (value cooperation goes through cordis services; the [client plugin loading note](2026-07-23-client-plugin-loading-model.md) owns the edge rules).
 
 TypeScript checks in **two aggregate programs** referenced by a solution root (`tsconfig.json` = solution; `tsconfig.host.json` = host side + tests, excluding `packages/client`; `tsconfig.client.json` = client packages and their tests): both sides merge the cordis `Context` interface under the same keys (`sessions`, `loader`) with different services, so one program would see both declaration merges and report a collision. Shared leaves (session/llm/tools/apiproxy…) build once and are referenced by both programs ([topology](../process/2026-07-22-tsconfig-solution-root-two-aggregates.md)).
 
@@ -66,7 +66,7 @@ On the protocol side: TS interfaces (`packages/host/apiproxy/src/api/`, zero Nod
 | Assembly layer | `dsh-host-runtime` | Plugin composition + ApiProxy integration + the web UI plugin mount (in-memory Loader tree over the eight dshClient packages); home of host-level configuration (defaults/persistenceRoot, future user profile) | Which plugins mount and with what defaults is decided only here; shells must not alter the assembly |
 | Carrier layer | `dsh-host-webserver` | Web-shape HTTP and upgrade: static serving + `/api/*`→handler forwarding + WebSocket upgrade route + close semantics; plugin bundle endpoint + `__DSH_BOOT__` manifest injection (fed by the web plugin registry) | Web (browser access) only; zero workspace dependencies (the registry arrives by structural injection); Electron does not reuse it |
 | Client libraries | `dsh-client-ui-slots` / `dsh-client-web-react` / `dsh-client-ui-primitives` | Slot registry core / ctx↔React glue / pure React atoms | Zero cordis runtime dependency in components; seeded into the loader module table by the shell |
-| Client plugins | `dsh-client-connection` / `dsh-client-runtime` / `dsh-client-ui-theme` / `dsh-client-i18n` / `dsh-client-ui-layout` / `dsh-client-ui-sidebar` / `dsh-client-ui-conversation` / `dsh-client-ui-trajectory` | Browser-side cordis plugin tree (wire consumer, core services, theme, i18n, layout, sidebar, conversation, trajectory) — see the web client architecture RFC | Dual entry (node half = empty apply; implementation in `src/client/`); the consumption face goes exclusively through ApiProxy |
+| Client plugins | `dsh-client-connection` / `dsh-client-runtime` / `dsh-client-ui-theme` / `dsh-client-i18n` / `dsh-client-ui-layout` / `dsh-client-ui-sidebar` / `dsh-client-ui-conversation` / `dsh-client-ui-trajectory` | Browser-side cordis plugin tree (wire consumer, core services, theme, i18n, layout, sidebar, conversation, trajectory) — see the web client architecture note | Dual entry (node half = empty apply; implementation in `src/client/`); the consumption face goes exclusively through ApiProxy |
 | Application shape | `@deepseek-ai/dsh` (apps/cli) + `dsh-frontend` (apps/web, the vite application) | Coarse bin dispatch + one assembly module per shape (web.ts / headless.ts); the vite app is a thin main over the `dsh-client-web` shell surface | Shapes dynamic-import so they never load each other; workspace knowledge like dist location stays in the app |
 
 #### Naming rule
@@ -218,11 +218,11 @@ All four quadrant full forms pass through `onEnvelope`; the base implementation 
 | `InProcessApiClient` | apiproxy itself | the injected `{ fetch }` handler | **The isomorphic point**: `new InProcessApiClient(toFetchHandler(api))` never touches the network yet runs the real wire serialization/zod/SSE framing; carrier tests and callers can exercise the protocol without opening a port, while product `dsh run` drives core directly |
 | `WebApiClient` | dsh-client-connection | `globalThis.fetch` uplink + one same-origin WebSocket downlink per logical stream | the browser shape; physical boundary in the [WebSocket downlink carrier](2026-08-04-websocket-downlink-carrier.md) |
 | `FixtureApiClient` | dsh-client-connection | unused (protocol-layer override) | serverless UI development (`?fixture`): overrides the `callUnary`/`openMux`/`openHost`/`respond` virtuals and is itself the fake server (frame rpcIds minted by it, semantics self-consistent) |
-| (future) IPC bridge subclass | apps/electron | IPC serialization round trip | swaps only doFetch; contract and base class unchanged |
+| IPC bridge subclass (hypothetical example — no such shell exists) | an Electron shell | IPC serialization round trip | would swap only doFetch; contract and base class unchanged |
 
 ## How to extend (operational checklists)
 
-**Add a unary method (5 steps)**: ① add the method signature to the domain interface (parameters/return inline — this is the single source of truth); ② add one `RpcMethodMap` row; ③ add the request/value schema pair in `<domain>.schema.ts` (anchored `Wire<RequestPayload<'…'>>`); ④ add one handler `UNARY_ROUTES` row (the handler's Web carriage is in the web client architecture RFC); ⑤ implement in the impl (echo `request.rpcId`). On the client side, add the passthrough row to the `IApiClient`/`AbstractApiClient` domain method tables.
+**Add a unary method (5 steps)**: ① add the method signature to the domain interface (parameters/return inline — this is the single source of truth); ② add one `RpcMethodMap` row; ③ add the request/value schema pair in `<domain>.schema.ts` (anchored `Wire<RequestPayload<'…'>>`); ④ add one handler `UNARY_ROUTES` row (the handler's Web carriage is in the web client architecture note); ⑤ implement in the impl (echo `request.rpcId`). On the client side, add the passthrough row to the `IApiClient`/`AbstractApiClient` domain method tables.
 
 **Add a frame type (3 steps)**: ① add a branch to the `MuxFrame`/`HostFrame` union (answerable frames must note the stable-rpcId semantics); ② add a frame-schema branch; ③ the consumers' fold/routing documented-default already covers unknown types — add an explicit branch as needed.
 

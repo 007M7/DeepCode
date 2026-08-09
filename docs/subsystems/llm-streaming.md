@@ -87,8 +87,8 @@ Producer identity and content shape are independent. `kind` answers *who produce
  *
  * `MessageSource.kind` answers *who produced this*; `form` answers *what kind
  * of thing it is*, and the two axes are deliberately independent — several
- * producers share one form (three snapshot producers today), and one producer
- * may emit more than one form over a session.
+ * producers share one form, and one producer may emit more than one form over
+ * a session.
  *
  * The vocabulary is SEMANTIC, never visual: a value states that the content is
  * a file's instructions or a catalog of available items, and a consumer decides
@@ -209,10 +209,8 @@ Every adapter MUST obey these, and every consumer may rely on them:
 - **Provider stalls are bounded at the transport.** Both shipping remote adapters expose positive finite `streamIdleTimeoutMs` with a five-minute default. The watchdog arms only while iterator `next()` is outstanding, uses one stable signal for the whole request, maps its own expiry to `TIMEOUT`, and keeps an earlier caller abort as `ABORTED`.
 - **Context overflow has one canonical code.** Both DeepSeek adapters classify explicit provider detail through `isContextWindowExceededError()` and surface `CONTEXT_WINDOW_EXCEEDED`, whether the failure arrives as a thrown HTTP `LlmError` or an in-band finish error. Consumers route on the code, never provider text.
 - **An empty completion is a retryable error, not a silent success.** Both adapters map a terminal `stop` finish that carried no content blocks to `finish {kind:'error'}` with the canonical `EMPTY_RESPONSE` code, and `dsh-llm-retry` retries it by default; see [empty model responses are retryable](../../.agents/notes/implemented/bug-fix/2026-07-24-empty-model-response-is-retryable.md).
-- **Every provider HTTP request carries the app-attribution header.** Adapters send `attributionHeaders()` (below) - the `User-Agent` baseline - and prove it with a wire-level test (mock server asserting the received header, or the library's header hook for a library-backed adapter).
+- **Every provider HTTP request carries the app-attribution header.** Adapters send `attributionHeaders()` (below) - the `User-Agent` baseline - and prove it with a wire-level test.
 - **Replay state is adapter-owned.** A successful `finish` may carry lossless-JSON state needed to reconstruct a native provider response. The loop stores it with the assembled assistant message. On a later request, `LlmService` passes the state only when the historical provider and target provider are currently registered to the exact same adapter instance. That adapter validates the state and owns any cross-model or cross-provider conversion; other adapters receive the provider-neutral content plus provider/model fields without the private state.
-
-This contract is pinned down by two deliberately independent implementations: `dsh-llm-deepseek` (direct fetch, SSE framing via `eventsource-parser`) and `dsh-llm-pi-ai` (a generic multi-provider adapter through `@earendil-works/pi-ai`). The library-backed adapter exercises the finish-chunk error path, while transport-boundary tests prove each idle watchdog stops its actual request.
 
 ## `ResolvedRetryPolicy`
 

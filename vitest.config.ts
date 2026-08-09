@@ -23,8 +23,8 @@ const windowsUnsupportedPackages = process.platform === 'win32'
       // Bash-requiring suites (a real POSIX shell is unavailable on Windows).
       // The pwsh-requiring suites (pwsh-local, tool-pwsh) deliberately stay
       // INCLUDED: PowerShell ships with Windows, so they run natively here.
-      // Replacing the old 'packages/bash/*' glob with this explicit list also
-      // newly INCLUDES packages/bash/bash (the Service Definition package) on Windows.
+      // This explicit list (not a 'packages/bash/*' glob) keeps
+      // packages/bash/bash — the Service Definition package — running on Windows.
       'packages/bash/bash-local',
       'packages/bash/bash-sandbox',
       'packages/bash/tool-bash',
@@ -140,9 +140,9 @@ export default defineConfig({
         'packages/*/*/src/worker.ts',
         // A killed executable lint-contract test can leave a non-product source probe behind.
         'packages/*/*/src/oxlint-contract-*.ts',
-        // GUI step-1 skeleton (PR #500): client/web UI files whose remaining
-        // branches need a browser-grade harness the jsdom lane doesn't cover
-        // yet. TODO(gui): cover and remove as the client test lane matures.
+        // Client/web UI files whose remaining branches need a browser-grade
+        // harness the jsdom lane doesn't cover yet. TODO(gui): cover and
+        // remove as the client test lane matures.
         'packages/client/ui-trajectory/src/*',
         // Trajectory's compact Markdown projection retains deferred branch coverage.
         'packages/client/ui-primitives/src/markdown/plain-text.ts',

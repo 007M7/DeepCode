@@ -45,7 +45,7 @@ The divergence from the terminal is therefore narrow: both frontends recognize a
 
 ## What #835's positional anchors were for, and why they are dissolved rather than lost
 
-The unmerged manual-compaction-queueing branch fixes the same interleaving bug by recording a per-event anchor — the surface tail at append time — and retargeting shadowed anchors onto the checkpoint. That mechanism exists to make positional anchors survive surface **reordering**. The human transcript is never re-ordered, so anchors have nothing to retarget: the precondition is removed, not the fix discarded. The mechanism is absent from this base and is not authored here.
+The unmerged manual-compaction-queueing branch fixes the same interleaving bug by recording a per-event anchor — the surface tail at append time — and retargeting shadowed anchors onto the checkpoint. That mechanism exists to make positional anchors survive surface **reordering**. The human transcript is never re-ordered, so anchors have nothing to retarget: the precondition is removed, not the fix discarded. The mechanism does not exist in this codebase.
 
 ## Alternatives considered
 

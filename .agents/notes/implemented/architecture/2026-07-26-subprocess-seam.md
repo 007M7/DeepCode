@@ -25,7 +25,7 @@ Observed stream and lifecycle needs then moved the eligible process consumers on
 
 ## Alternatives considered
 
-**Leave the process plumbing inside `dsh-bash-local` (status quo).** Rejected for the same reason the [task registry split](2026-07-26-task-registry-seam.md) landed: the boundary is stable and already documented in-code (`run.ts`'s module doc said "this layer reacts to an abort signal; the executor owns deadlines and classifies causes"), and keeping it private makes every future non-shell runner either fork the mechanics or depend on a bash-named package for non-bash work. The user-visible driver for this stack was exactly this split.
+**Leave the process plumbing inside `dsh-bash-local` (status quo).** Rejected for the same reason the [task registry split](2026-07-26-task-registry-seam.md) landed: the boundary is stable and already documented in-code (`run.ts`'s module doc said "this layer reacts to an abort signal; the executor owns deadlines and classifies causes"), and keeping it private makes every future non-shell runner either fork the mechanics or depend on a bash-named package for non-bash work. The user-visible driver for this change was exactly this split.
 
 **Keep the original batch-only interface and leave stream consumers bespoke.** Rejected after the observed LSP, ACP, and PTY shapes showed that private process-tree signalling and environment scrubs would otherwise remain duplicated. The Node-shaped dispositions cover those consumers without buffering piped streams.
 

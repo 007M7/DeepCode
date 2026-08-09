@@ -132,7 +132,7 @@ describe('llm-deepseek real dynamic composition', () => {
   })
 
   it('keeps a stored key writable and rotatable across a real restart', async () => {
-    // No ambient DEEPSEEK_API_KEY: the shipped surfaces no longer hoist
+    // No ambient DEEPSEEK_API_KEY: the shipped surfaces do not hoist
     // the credentials document into process.env, so a stored key must stay file-sourced.
     vi.stubEnv('DEEPSEEK_API_KEY', '')
     const first = await mockServer([{ kind: 'sse', events: textEvents }])

@@ -12,7 +12,7 @@ The human command arrives between turns and must summarize asynchronously. A pro
 
 Compaction also needs one mutual-exclusion fact shared by manual, pressure, overflow, and explicit-range entry points. A process-local flag alone cannot explain a crash-recovered log, while a summarize-first transaction leaves no durable evidence during the expensive interval. Conversely, treating marker pairs as exclusive containers would forbid valid idle injection even though injection is explicitly non-waking and immediate between turns.
 
-This note extends the [compaction capability seam](2026-06-18-compaction-capability-seam.md), the [session end-seed boundary](../architecture/2026-07-30-session-end-seed-log-boundary.md), and the [removal of synthetic log-only turns](../simplification/2026-07-28-remove-synthetic-log-only-turns.md). The supersession audit found partial overlap only: each remains active and owns its broader decision.
+This note extends the [compaction capability seam](2026-06-18-compaction-capability-seam.md), the [session end-seed boundary](../architecture/2026-07-30-session-end-seed-log-boundary.md), and the [removal of synthetic log-only turns](../simplification/2026-07-28-remove-synthetic-log-only-turns.md). Each remains active and owns its broader decision; the overlap is partial only.
 
 ## Decision
 

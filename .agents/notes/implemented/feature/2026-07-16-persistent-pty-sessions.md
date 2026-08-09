@@ -161,7 +161,6 @@ The package ships concise tool guidance explaining persistent state, owner isola
 - Real `node-pty` and PTY-consumer tests jointly exercise shell state, shared sandbox policy, environment scrubbing, raw-mode foreground `SIGINT`, a TERM-ignoring descendant, and immediate post-disposal quiescence on supported hosts.
 - A Loader-driven `cordis.yml` test mounts the real three-package composition. ACP and headless snapshots pin the six schemas, bounded results, and errors through opt-in overlays; TUI snapshots pin terminal and generic card presentation.
 - Package contracts, the architecture map, subsystem pages, generated catalogs, and the website API describe the same shipped surface.
-- The repository CI-equivalent sequence owns type, lint, coverage, snapshot, documentation, build, hygiene, demo, and built-entry verification.
 
 ## Consequences
 

@@ -148,6 +148,6 @@ Append-only; newly visible content follows the reusable request prefix and does 
 
 ## Known Limitations and Deferred Work
 
-- **No model-facing directory listing ships** — `ctx.fs.listDir` serves provider code such as skill discovery, while the sibling [`dsh-tool-fs-search`](../tool-fs-search/) package supplies bash-backed `glob` and `grep` rather than extending the filesystem seam.
+- **No model-facing directory listing ships** — `ctx.fs.listDir` serves provider code such as skill discovery, while the sibling [`dsh-tool-fs-search`](../tool-fs-search/) package supplies ripgrep-backed `glob` and `grep` rather than extending the filesystem seam.
 - **`read` handles UTF-8 text files only** — binary-safe reads and PDF/image/multimodal content are deferred; a directory target is `FS_NOT_REGULAR_FILE`.
 - **No timeout surface** — `read`/`write`/`edit` take no timeout argument and declare no `timeout-policy` budget; cancellation rides `exec.signal` only ([provider rationale](../README.md#no-timeouts-on-file-io)).

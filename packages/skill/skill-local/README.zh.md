@@ -52,7 +52,7 @@
 
 ## skill 格式
 
-skill 可以是单层目录 bundle（`<name>/SKILL.md`），也可以是平铺 Markdown 文件（`<name>.md`）。v1 刻意不支持发现嵌套的 `**/SKILL.md`。Frontmatter 使用 `yaml` 包解析为开放的 YAML 对象；该提供方目前解析必填的 `name` 和 `description`，以及可选的 `whenToUse`、`metadata`、`disable-model-invocation` 和 `user-invocable`。名称必须使用 kebab-case。
+skill 可以是单层目录 bundle（`<name>/SKILL.md`），也可以是平铺 Markdown 文件（`<name>.md`）。刻意不支持发现嵌套的 `**/SKILL.md`。Frontmatter 使用 `yaml` 包解析为开放的 YAML 对象；该提供方解析必填的 `name` 和 `description`，以及可选的 `whenToUse`、`metadata`、`disable-model-invocation` 和 `user-invocable`。名称必须使用 kebab-case。
 
 这两个调用字段接受 YAML 布尔值，以及不区分大小写的 `true`/`false`、`yes`/`no`、`on`/`off` 和 `1`/`0`。`disable-model-invocation: true` 会从面向模型的目录和 loader 中排除该 skill；`user-invocable: false` 会从面向用户的命令中排除该 skill。每个省略的字段都默认为允许对应接口调用；提供方始终输出两个正向内部策略值，即使两个键都不存在也不例外。若使用驼峰拼写或提供非布尔调用值，系统会记录警告并从发现结果中排除整个 skill，而不是只丢弃该字段或回退到宽松的默认值。调用策略校验遵循失败时默认拒绝原则，因为忽略无效数据可能会在已禁用的接口上暴露 skill；类型错误的可选 `whenToUse` 和 `metadata` 值则会被省略，因为这两个字段目前都不授予调用权限。
 

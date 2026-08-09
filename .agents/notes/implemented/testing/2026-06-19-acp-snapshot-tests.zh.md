@@ -8,9 +8,7 @@ Status: implemented
 
 单元测试不会覆盖组装后的完整 agent（智能体）子进程及其 ACP（Agent Client Protocol）自动化协议格式，而真实 API 测试不具确定性且受密钥门控。因此，即使单元测试覆盖率检查通过，Loader 接线、后端行为和协议输出仍可能回归，[默认导出事故复盘（postmortem）](../../../../docs/postmortem/0001-acp-default-export-drops-inject.md)已经证明了这一点。
 
-完整 transcript（文本记录）测试的阻塞因素在于模型：agent 的输出由非确定性的 LLM（大语言模型）驱动，而每次运行都命中真实 API 的密钥门控测试既不确定也无法在 CI 中运行。我们需要真实运行的保真度与 fixture（测试前置数据）的确定性兼得。
-
-本 Agent Note 记下了新增第三层测试——**快照测试**——的决策，以及让它具备确定性、在 CI 中无需密钥、且维护成本低廉的设计选择。
+完整 transcript（文本记录）测试的阻塞因素在于模型：agent 的输出由非确定性的 LLM（大语言模型）驱动，而每次运行都命中真实 API 的密钥门控测试既不确定也无法在 CI 中运行。该测试层级需要真实运行的保真度与 fixture（测试前置数据）的确定性兼得。
 
 ## 决策
 
