@@ -63,7 +63,7 @@ await ctx.serial('setup-phase', context)
 
 ### waterfall — pipeline
 
-Each listener may wrap the downstream result to form a processing chain. A listener **must call `next()` to delegate downstream**; omitting the call vetoes the pipeline:
+Each listener may wrap the downstream result to form a processing chain. A listener **must call `next()` to delegate downstream**; omitting the call short-circuits the pipeline:
 
 ```ts ignore-check
 // Dispatch
@@ -77,7 +77,7 @@ ctx.on('my-plugin/transform', async (_input, next) => {
 ```
 
 ::: warning
-A waterfall listener **must call `next()`**. Omitting it vetoes the pipeline by design, enabling interception and gateway behavior.
+A waterfall listener **must call `next()`**. Omitting it short-circuits the pipeline by design, enabling interception and gateway behavior.
 :::
 
 ## Typed events

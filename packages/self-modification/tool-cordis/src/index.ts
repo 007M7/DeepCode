@@ -154,7 +154,7 @@ export function apply(ctx: Context, config: Config): void {
       + 'Write PLAIN JavaScript, not TypeScript (no `as`, no type annotations). '
       + 'Cautions: (1) waterfall events (e.g. tools/pre-execute) hand the listener a '
       + 'trailing `next` callback which MUST be called — returning without `next()` '
-      + 'VETOES the call; prefer plain notification events unless you intend to '
+      + 'SHORT-CIRCUITS the call; prefer plain notification events unless you intend to '
       + 'intercept. (2) Never await something that only resolves after the current '
       + 'turn (your code runs INSIDE a tool call of that turn — it would deadlock). '
       + '(3) Your `ctx` is a restricted façade: you can register tools, observe '

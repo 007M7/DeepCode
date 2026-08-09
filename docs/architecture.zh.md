@@ -63,7 +63,7 @@
 
 ### 拦截语义
 
-waterfall（瀑布式事件）是环绕中间件：监听器通过 `next()` 委托；不调用它而直接返回会否决或接管（[语义](cordis-primer.md#cordis-waterfall-semantics)）。
+waterfall（瀑布式事件）是环绕中间件：监听器通过 `next()` 委托；不调用它而直接返回会短路或接管（[语义](cordis-primer.md#cordis-waterfall-semantics)）。
 
 ## 默认循环生命周期
 
