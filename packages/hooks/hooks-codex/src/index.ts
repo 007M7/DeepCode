@@ -46,7 +46,7 @@ export interface Config {
    * Path to a Codex `hooks.json`. Process-level: read once at load, a relative
    * path resolves against the process launch cwd.
    * TODO(per-session-hook-config): per-session project-local discovery from each
-   * `session/new.cwd` is not yet implemented.
+   * `session/new.cwd`.
    */
   configPath: string
   /** The model name stamped on every payload (Codex includes `model` on each event). */

@@ -73,10 +73,13 @@ const BOOT_GRAMMAR_FILES: readonly string[] = [
   'dist/json.mjs',
 ]
 
-/** Font asset extensions routed to assets/fonts/ (KaTeX's woff2/woff/ttf faces today). */
+/** Font asset extensions routed to assets/fonts/ (KaTeX's woff2/woff/ttf faces). */
 const FONT_EXTENSIONS: readonly string[] = ['.woff2', '.woff', '.ttf']
 
-/** npm package name of a resolved module id (the segment after the LAST `node_modules/` — pnpm nests the real package under an inner node_modules). */
+/**
+ * npm package name of a resolved module id (the segment after the LAST
+ * `node_modules/` — pnpm nests the real package under an inner node_modules).
+ */
 function npmPackageOf(id: string): string | undefined {
   const parts = id.split('/node_modules/')
   if (parts.length === 1) return undefined
@@ -94,7 +97,7 @@ export default defineConfig({
       output: {
         // Output layout: the two main chunks stay at assets/ root; lazy
         // @shikijs/langs grammar chunks group under assets/langs/; fonts
-        // (today all KaTeX faces referenced by vendor.css) group under
+        // (all KaTeX faces referenced by vendor.css) group under
         // assets/fonts/. Sourcemaps need no arrangement: rollup writes each
         // .map next to its js and references it by bare relative filename.
         chunkFileNames(chunk): string {
@@ -128,7 +131,8 @@ export default defineConfig({
     // for Node/type consumers, but the browser bundle must compile src directly
     // so CSS rides vite's pipeline instead of the CSS-externalized lib bundle.
     // Only the shell's normal-package surface is aliased — plugin packages are
-    // NEVER bundled here (web2 shell self-sufficiency); they arrive as runtime
+    // NEVER bundled here (shell self-sufficiency — see
+    // packages/client/web/README.md); they arrive as runtime
     // bundles through the client module system. Order matters — subpath
     // aliases must win over bare-name prefixes.
     alias: [

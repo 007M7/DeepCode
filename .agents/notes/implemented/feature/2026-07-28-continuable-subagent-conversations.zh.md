@@ -105,7 +105,7 @@ Agent inbox 是唯一队列。每条继续执行消息都使用 `Agent.followup(
 
 只有在 child Agent 完全停稳、该 child 持有的每个 child 都已 dispose、best-effort 的最终会话 flush 结算且 child 的 `AgentHandle` 完成 dispose 后，系统才释放 child。管理器会等待 `ctx.sessions.flush(child.session)`，但不解释其参与布尔值：任意 listener 都无法证明所选持久化后端已存储该状态。rejection 会被记录，但不会阻止 handle dispose 或释放所有权，因为保留 child 会让其祖先永久固定在 `waiting`。如果 child 归 parent 所有，管理器随后会通过 `SessionHeader.parentSession` 解析在线 parent，并从其 `ownedChildren` 中移除 child 会话 id。管理器拆卸使用相同的 child-first 顺序。
 
-系统会一直保留所有权，直至 child 激活完成 dispose。后续改进可以更早释放限定到请求的 lease，但这需要精确关联轮次完成，而本 Task-free 提案特意不增加该机制。
+系统会一直保留所有权，直至 child 激活完成 dispose。后续改进可以更早释放限定到请求的 lease，但这需要精确关联轮次完成，而本 Task-free 设计特意不增加该机制。
 
 顶层拆卸由宿主负责，而不表示为另一次激活。管理器卸载会调用其内部的管理器全局 drain，同步关闭准入，等待每个已获准的物化过程完成发布或回滚，停止稳定的在线森林，并按 child-first 顺序释放。拥有选定顶层 Agent 的宿主使用 `drainContinuableDescendants(parents)`：确切的 Agent 身份只关闭这些根之下的准入，直到每个身份离开注册表，而无关森林和管理器全局准入保持在线；管理器会在第一次 await 之前停止其可见后代，只等待这些根之下已获准的物化过程，并且只释放选定分支。每个已物化的 start 和在线投递都会在与 inbox 提交相同的同步区间内重新检查调用方取消、适用的 draining 作用域、Activation dispose 和确切的 parent 权限，因此只要拆卸或 parent 替换先于接受发生，就会阻止向正在关闭的 handle 投递。只有适用的 drain 结算后，宿主才能 dispose 自己的顶层 Agent；只有管理器全局 drain 会先于管理器作用域 dispose。
 
@@ -149,7 +149,7 @@ activation-owner 作用域之所以存在，是因为普通 Cordis owner effect 
 
 ## 曾考虑的替代方案
 
-**保留由 Task 支撑的激活。** Task 可以提供通用状态、结果收集和取消，但使用 Task 投递会话会产生第二条队列，并重复轮次所有权。本提案放弃这些通用 Task 控制，让 Agent inbox 成为唯一执行顺序。
+**保留由 Task 支撑的激活。** Task 可以提供通用状态、结果收集和取消，但使用 Task 投递会话会产生第二条队列，并重复轮次所有权。本设计放弃这些通用 Task 控制，让 Agent inbox 成为唯一执行顺序。
 
 **每个 `next-turn` 创建一次激活。** 这会恢复独立的结果与取消边界，但需要在 Agent inbox 旁维护管理器 FIFO，还会使所保留的 Agent 跨越人为划分的激活边界。每个驻留周期对应一次激活更小，也直接跟随 `AgentHandle` 生命周期。
 

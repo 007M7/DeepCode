@@ -76,7 +76,7 @@ Manual-driving caveat: the bin treats stdin EOF as "the client is gone" and disp
 
 **jsonrpc-agent carrying the full closure dependencies.** The app bin would declare 53+ dependencies it never imports — a "packaging manifest" masquerading as real dependency relationships — and would force constraints to open two exceptions for it, cordis-in-dependencies and a files wildcard. With the closure manifest landing on the python-side manifest package, constraints needs no exception at all and the bin keeps the normal package shape isomorphic to acp-agent.
 
-**An open plugin set (loading user plugins from disk).** This round ships a closed set; the PoC incidentally confirmed that on-disk ESM import outside the VFS works (through the `ctx.baseUrl` relative-path channel). It is listed as a future evolution, which must separately solve sharing the cordis instance inside the exe with external plugins.
+**An open plugin set (loading user plugins from disk).** The shipped set is closed; the PoC incidentally confirmed that on-disk ESM import outside the VFS works (through the `ctx.baseUrl` relative-path channel). It is listed as a future evolution, which must separately solve sharing the cordis instance inside the exe with external plugins.
 
 ## Consequences
 

@@ -6,7 +6,9 @@
  * real ClientSessionContext projections — sessionId addressing, the
  * session-keyed catalog cache (single-flight per key, scope-birth warm
  * prewarm, connection/reset clear), startsWith filtering, RPC-failure
- * rejection, pick → plain-text outcome (decision 21), the synchronous
+ * rejection, pick → plain-text outcome (the plain-text-reference decision:
+ * .agents/notes/implemented/architecture/2026-07-25-web-input-machine-and-slash-pipeline.md),
+ * the synchronous
  * lexicon reads over the settled cache, and the reference codec's two
  * projections. Direct driving is deliberate: this spec owns only the
  * source's own contract.
@@ -322,7 +324,7 @@ describe('lexicon', () => {
   })
 })
 
-describe('pick lands plain text (decision 21)', () => {
+describe('pick lands plain text', () => {
   it('onPick returns the literal /name text with a closing space', async () => {
     const { source } = await bench(listOk(CATALOG))
     const outcome = source.onPick({

@@ -42,7 +42,7 @@ schema 强制 type/required/enum。在此之上，`execute` 拒绝为空或重�
 
 ## 测试
 
-四个层级，预先设计：
+四个层级：
 - **单元测试**——会话事件（append/snapshot-clone/last-write-wins/not-on-surface）；工具（schema 形状、通过真实 `ctx.tools.execute` 的参数校验、值校验、事件追加与替换、非 agent 拒绝、`presentCall`、HMR（热模块替换）安全性）；以及 TUI 折叠。
 - **真实 Loader 路径**——插件通过 `Loader.unwrapExports` 运行，断言命名空间导出形状存活（它有 `inject`，因此一个意外的 default 导出会在加载时崩溃——事故复盘（postmortem）0001）。
 - **全循环集成**——一个脚本化的 mock 模型通过真实 agent loop（智能体循环）调用 `todo_write`；`todo/write` 事件落地，第二次调用替换它。

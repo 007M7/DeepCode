@@ -71,8 +71,8 @@ describe('tool-call-model', () => {
     expect(toolRowModel('read', running({ name: 'read', argsRaw: '{"path":"/tmp/x.ts"}' })).summary).toBe('/tmp/x.ts')
     expect(toolRowModel('write', running({ name: 'write', argsRaw: '{"file_path":"src/x.ts"}' })).summary).toBe('src/x.ts')
     expect(toolRowModel('edit', running({ name: 'edit', argsRaw: '{"file_path":"src/x.ts"}' })).summary).toBe('src/x.ts')
-    // Others rows prefix the real tool name into the summary slot (figma-flows
-    // ruling: static "Tool call" title, name rides the mutable summary).
+    // Other rows prefix the real tool name into the summary slot (figma
+    // flows: static "Tool call" title, the name rides the mutable summary).
     expect(toolRowModel('x', running({ argsRaw: '{"n":1}' })).summary).toBe('x · {"n":1}')
     expect(toolRowModel('x', running({ argsRaw: 'not json' })).summary).toBe('x · not json')
     expect(toolRowModel('x', running({ argsRaw: '' })).summary).toBe('x · c1')

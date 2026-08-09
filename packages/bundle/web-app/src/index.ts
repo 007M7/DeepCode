@@ -1,7 +1,7 @@
 /**
  * @deepseek-ai/dsh-web-app — the browser-surface bundle's runtime glue plugin
  * plus the bundle patch (`cordis.patch.yml`, declared by the `dsh.bundle.patch`
- * manifest field). The plugin owns what used to be launcher code: it resolves
+ * manifest field). The plugin owns the browser-surface glue: it resolves
  * the built frontend dist (workspace knowledge of this bundle, never user
  * config), mounts the `frontend-static` fallback owner over it, registers the
  * web-surface prompt section and the bash-visible web runtime variables, and

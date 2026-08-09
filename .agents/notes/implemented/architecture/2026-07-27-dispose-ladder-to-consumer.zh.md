@@ -16,7 +16,7 @@ Status: implemented
 
 **把阶梯作为便利方法留在句柄上。**否决：一个每个 Service provider 都必须实现的 Service Definition 方法不是便利，而是约定表面——而这一个把某一消费方的配合形状（stdin EOF 打头）当作进程词汇来编码。seam 自己的 README 早已不得不加注「依赖其他信号才能完全停稳的子进程需要自己的第一阶」，这本身就是承认该阶梯是策略。
 
-**把阶梯移到共享辅助包。**否决：只有一个消费方。当第二个具有相同 stdin EOF 配合形状的进程外后端出现时，可以再把 `disposeAcpChild` 提升为共享代码；现在抽取只会重造 `dsh-subagent-subprocess`——这组堆叠变更刚刚删掉的那个单一用途库。
+**把阶梯移到共享辅助包。**否决：只有一个消费方。当第二个具有相同 stdin EOF 配合形状的进程外后端出现时，可以再把 `disposeAcpChild` 提升为共享代码；现在抽取只会重造 `dsh-subagent-subprocess`——本次变更删掉的那个单一用途库。
 
 ## 后果
 

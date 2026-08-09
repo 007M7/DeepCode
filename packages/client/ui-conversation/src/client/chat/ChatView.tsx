@@ -180,7 +180,7 @@ export function ChatView({
   const lastKeyRef = useRef<string | null>(null)
   const lastSteeringIdRef = useRef<string | null>(null)
   /** Flow tip signature — follow-scroll only when this moves, never on a
-   *  scroll-driven at-bottom chrome re-render (that was snapping inertial
+   *  scroll-driven at-bottom chrome re-render (which would snap inertial
    *  scrolls the rest of the way to the floor). */
   const followSigRef = useRef<string | null>(null)
 

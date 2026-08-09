@@ -1,5 +1,5 @@
 /**
- * SlotsService terminal-design account (design.md §11-3 main landing):
+ * SlotsService terminal-design account:
  * built-in 'root', the three load-time throws (duplicate declaration /
  * undeclared contribution / cross-scope store handle), the renderer installation
  * contract (double install / not installed / non-root key), store instance

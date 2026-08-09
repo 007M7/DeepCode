@@ -6,7 +6,7 @@
  * waiting, update/refresh) entirely on the vendored side while this package
  * owns code arrival.
  *
- * Lazy CJS model (web2 §0): executing a plugin bundle only REGISTERS its
+ * Lazy CJS model: executing a plugin bundle only REGISTERS its
  * factory (`window.__ModuleLoader__.load({id, factory})`); every module body
  * side effect — including CSS injection — lives inside the factory closure
  * and runs at materialization, not at script execution. Materialization
@@ -35,13 +35,13 @@ import type { ClientModuleSystem } from './system.ts'
 
 declare module 'cordis' {
   interface Context {
-    /** The client module system the web shell builds at boot (contract C5; provided by the `./client` wrapper plugin). */
+    /** The client module system the web shell builds at boot (provided by the `./client` wrapper plugin). */
     modules: ClientModuleLoader
   }
 }
 
 /**
- * One composed client entry pushed by the host (web2 §0 graph row). Wire
+ * One composed client entry pushed by the host (a graph row). Wire
  * single source: the host node half (package root) produces this same shape.
  * `immediately` marks stage-one prefetch; `inject` is informational graph
  * metadata (the authoritative edges live in each package's dshClient
@@ -143,7 +143,7 @@ export function parseBootManifest(wire: unknown): BootManifest {
   return { rev: graph.rev, modules, plugins }
 }
 
-/** The shape a client bundle hands to `window.__ModuleLoader__.load` (registration handoff, contract C6). */
+/** The shape a client bundle hands to `window.__ModuleLoader__.load` (registration handoff). */
 export interface ClientPluginHandoff {
   /** Plugin id (package name) — the registration key; must match the graph row being executed. */
   id: string
@@ -159,7 +159,7 @@ export interface ClientPluginHandoff {
 export interface DshWindow {
   /** Host-composed entry graph, injected before the shell bundle runs; wire-boundary raw until {@link parseBootManifest}. */
   __DSH_BOOT__?: unknown
-  /** Bundle registration sink; installed once per page by the {@link ClientModuleSystem} constructor (contract C6). */
+  /** Bundle registration sink; installed once per page by the {@link ClientModuleSystem} constructor. */
   __ModuleLoader__?: { load(handoff: ClientPluginHandoff): void }
   /**
    * Kernel handoff slot: the shell kernel stores the instance here right
@@ -185,7 +185,7 @@ export interface ClientModuleRecord {
 /**
  * The internal-contract subset the vendored Loader and the client HMR plugin
  * consume. Mounted on `ctx.loader.internal` by the shell boot and provided
- * as `ctx.modules` (contract C5).
+ * as `ctx.modules`.
  */
 export interface ClientModuleLoader {
   /** Discriminant against Node's internal loader shapes ('v1'/'v2'). */

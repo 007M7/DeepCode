@@ -4,7 +4,7 @@ Status: implemented
 
 [English](2026-07-23-client-plugin-loading-model.md) | 中文
 
-> 范围：浏览器侧的插件装载机件——什么是插件、代码怎么到达、热重载如何搭在这套模型上。装载链归本篇所有；[Web 客户端架构 RFC](2026-07-19-gui-web-client-architecture.md) 在装载问题上以本篇为准，继续拥有 slot、数据对象层与 React 面。
+> 范围：浏览器侧的插件装载机件——什么是插件、代码怎么到达、热重载如何搭在这套模型上。装载链归本篇所有；[Web 客户端架构笔记](2026-07-19-gui-web-client-architecture.md) 在装载问题上以本篇为准，继续拥有 slot、数据对象层与 React 面。
 
 ## Problem
 
@@ -35,7 +35,7 @@ manifest 拥有包的装载约定：它的 `inject` 依赖边，加可选的 `im
 
 新增一个插件包：声明 `dshClient`，经共享预设产出 `./client` bundle，把包名加进负责组合的 app 的名册。除此之外无需任何交接。
 
-普通包何时升格为插件？升级法则，记录在案让迁移路径保持诚实：**普通包在其消费方改用 cordis DI 之时升格为插件包，绝不提前。**三项升格在排队：ui-slots（将接收现居 runtime 的 slots 机件——SlotsService、渲染器约定、root slot）、web-react（将把渲染器安装收进自己的 `apply`）、ui-primitives（组件经 slot/服务供给之时）。在那之前它们保持普通包身份，符号导出保持普通的静态 import。
+普通包何时升格为插件？升级法则，记录在案让迁移路径保持诚实：**普通包在其消费方改用 cordis DI 之时升格为插件包，绝不提前。**三项升格在排队：ui-slots（现居 runtime 的 slots 机件——SlotsService、渲染器约定、root slot）、web-react（渲染器安装移入自己的 `apply`）、ui-primitives（组件经 slot/服务供给之时）。在那之前它们保持普通包身份，符号导出保持普通的静态 import。
 
 四条边规则治理横跨两类包的 import。没有一条依赖任何单包标记：
 
@@ -126,7 +126,7 @@ wire 两侧跑着同一份治理实现；浏览器特有的表面只是一套模
 
 接受的代价：vendored Loader 在浏览器里背着闲置机件（EntryTree 持久化是 no-op，分组/隔离未用）；开发期每次修改插件都要付一次 bundle 重建加 fiber 重挂；图中 `inject` 行仅是信息性说明——激活的真相在服务层——因此不匹配会在 settled 扫描时浮出，而不是在图校验时被拦下；三个尚未升格的库在各自的 DI 转换落地之前保持静态 import 的导出面；每个 bundle 多出一份 sourcemap 产物，外部脚本失败也只能给出粗粒度的 URL 诊断，不能像显式 fetch 那样报告 HTTP 状态。
 
-名册的终局（2026-07-25 随配置树 boot 迁移落地）：名册位于 `apps/cli/config/web.cordis.yml`，`mountWebPlugins` 与 `CLIENT_PACKAGES` 常量已消失，重组一次部署等于换 yml/overlay。图的组合器从 webserver 侧的注册表迁进 `dsh-client-modules` 的 node 半（该包按本 note 的升级法则升格为双面——其消费方现经 cordis DI 到达），传输拆分同轮落地：webserver 变为朴素路由注册插件，`/api/*` 绑定迁到 connection 的 node 半、走升格后的 `api-gateway` 插件（`dsh-host-apiproxy` 提供 `ctx.apiProxy`），dev 的 bundle 监视与 SSE（Server-Sent Events）通道迁到 hmr 的 node 半。
+名册：住在 web 组合包的配置树里（`packages/bundle/web-app/cordis.patch.yml`）；`mountWebPlugins` 与 `CLIENT_PACKAGES` 常量已消失，重组一次部署等于换 yml/overlay。图的组合器从 webserver 侧的注册表迁进 `dsh-client-modules` 的 node 半（该包按本 note 的升级法则升格为双面——其消费方现经 cordis DI 到达），传输拆分同轮落地：webserver 变为朴素路由注册插件，`/api/*` 绑定迁到 connection 的 node 半、走升格后的 `api-gateway` 插件（`dsh-host-apiproxy` 提供 `ctx.apiProxy`），dev 的 bundle 监视与 SSE（Server-Sent Events）通道迁到 hmr 的 node 半。
 
 ## Alternatives considered
 

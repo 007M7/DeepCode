@@ -88,8 +88,8 @@ export class ApiProxyService extends Service implements ApiProxy {
     this.credentials = api.credentials
     this.llm = api.llm
     this.events = api.events
-    // createApiProxy returns closures (no `this` capture); bind only satisfies
-    // the unbound-method lint without changing behavior.
+    // createApiProxy returns closures (no `this` capture), so the bind is
+    // behavior-neutral.
     this.respond = api.respond.bind(api)
   }
 }

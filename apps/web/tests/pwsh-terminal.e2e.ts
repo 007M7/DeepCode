@@ -2,8 +2,8 @@
 // whose pwsh call/result is presented by the REAL tool-pwsh on replay (the
 // api-proxy recomputes presentation views from logged args/result content)
 // must render as a bash-shaped terminal card with the parsed exit-status
-// pill — not the generic console-fenced card the pwsh presenter used to
-// emit. The seed is authored, not recorded: its header line carries no `cwd`
+// pill — not a generic console-fenced card. The seed is authored, not
+// recorded: its header line carries no `cwd`
 // field (seedSession writes the session cwd itself, and a Windows temp path
 // substituted into the header would not round-trip through its JSON parse),
 // and no event references the workspace, so the lane replays on any host
