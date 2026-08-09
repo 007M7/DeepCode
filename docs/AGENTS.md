@@ -42,7 +42,7 @@ Placement: bugs → postmortems; rationale → Agent Notes; procedures → cookb
 - **The owning [subsystems page](subsystems/README.md) updates in the same change** that reshapes a documented type. `verify-type-equiv` catches drifted pastes, not never-documented new types; a type is documented on its declaring package group's page ([page scoping](../.agents/notes/implemented/process/2026-08-03-package-anchored-subsystem-pages.md)).
 - **Bilingual pairs update together**: editing either side obligates the counterpart and a re-record in the same change ([i18n contract](i18n/README.md)).
 - **Comments and JSDoc state complete contracts, not reasoning transcripts.** Preserve behavior, timing, modality, exceptions, consequences, and non-obvious orientation; delete narration, test walkthroughs, review analysis, and code restatement. Keep the local contract and link its rationale. Use [dsh-prose-standard](../.agents/skills/dsh-prose-standard/SKILL.md) for details.
-- Write for professional programmers. Use concise, direct English without metaphor. Name the actor, source, event, field, or process; use words you would say to a colleague ([decision](../.agents/notes/implemented/process/2026-08-09-concrete-prose-names-actors-and-recorded-facts.md)). Do not overuse "gate", "vocabulary", "surface", or "seam".
+- Write directly without metaphor. Name actors and exact facts; use words you'd say to a colleague ([decision](../.agents/notes/implemented/process/2026-08-09-concrete-prose-names-actors-and-recorded-facts.md)). Avoid "gate", "vocabulary", "surface", or "seam".
 
 ## Wordcount Budgets
 
