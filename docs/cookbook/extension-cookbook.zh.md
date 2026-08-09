@@ -34,7 +34,7 @@ export function apply(ctx: Context) {
 
 ## UI 插件
 
-UI 插件从 `session/event` 事件流渲染（助手 token 流以 `assistant/chunk` 形式到达，加上轮次/步骤边界与工具活动），并通过 `agent.followup()` / `agent.steer()` 将输入驱动回去。
+UI 插件从 `session/event` 事件流渲染（助手 token 流以 `assistant/chunk` 形式到达，加上轮次/步骤边界与工具活动），并通过 `agent.followup()` / `agent.steer()` 将输入驱动回去。如果浏览器插件要向内建 Web Client 贡献业务行，则应注册 `ConversationNodeDefinition` 与 keyed Chat renderer；具体步骤见 [Conversation Node 指南](adding-a-conversation-node.md)。
 
 ```ts
 import type { Context } from 'cordis'
@@ -105,7 +105,7 @@ export function apply(ctx: Context) {
 | `/loop` | 在 `turn/end` 会话事件上 `followup()` 下一次迭代；或强制继续 |
 | 动态工作流 | `ctx.workflows` + worker-thread 引擎 + `workflow` 工具；结构化的进程内子任务通过作用域化的提示词/工具注册、单调工具守卫、最终 `tools/result` 提交（包括外层 `run_code`）和结构化输出执行的单调 `concludeTurn()` 标记来强制输出 |
 | 排队消息 + steering | 核心 `Agent.followup()` / `Agent.steer()` |
-| 上下文压缩（context compaction）（自动 + 手动） | `ctx.compact` seam + `dsh-compact-basic`；自动压力检查运行在串行 `agent/pre-step`，规范化溢出恢复运行在 `agent/request-error`，手动调用方使用同一个压缩服务（[压缩 Agent Note](../../.agents/notes/implemented/feature/2026-06-18-compaction-capability-seam.md)——面向模型的 `/compact` 消费方工具已推迟） |
+| 上下文压缩（context compaction）（自动 + 手动） | `ctx.compact` seam + `dsh-compact-basic`；自动压力检查运行在串行 `agent/pre-step`，规范化溢出恢复运行在 `agent/request-error`，手动调用方使用同一个压缩服务（[压缩 Agent Note](../../.agents/notes/implemented/feature/2026-06-18-compaction-capability-seam.md)） |
 | 系统提示词可配置性 | `ctx.systemPrompt.section()`，支持排序与作用域局部覆盖 |
 | AGENTS.md（根目录） | 一个读取该文件的 section 提供方 |
 | AGENTS.md（子目录，按需触发）+ 文件变更通知 | 从 watcher / 工具结果监听器调用 `agent.inject()` |
@@ -116,13 +116,14 @@ export function apply(ctx: Context) {
 | 单调终端轮次策略 | 从成功的终端工具调用 `ToolExecution.concludeTurn()`；同一响应中后续工具调用仍可由守卫阻止，循环在该步骤后停止 |
 | 子进程沙箱（landlock / sandbox-exec） | 通过 `dsh-bash-sandbox` 使用 `ctx.sandbox` 后端；能力级别的拒绝使用 `tools/pre-execute` |
 | 权限系统 / AskUserQuestion | 从 `tools/pre-execute` 返回 `ask` 并通过 `ctx.approval` 应答；为普通用户提问注册一个独立的面向模型的 ask 工具 |
-| Plan mode | 已交付：[`@deepseek-ai/dsh-plan-mode`](../../packages/plan/plan-mode/README.md)：落日志的 `plan/mode` 状态、`plan:policy` 引导段、`/plan [message]` 入口、`/plan off` 直接退出，以及经用户评审的 `exit_plan_mode` 出口；强制约束留在独立的沙箱/审批轴上 |
+| Plan mode | [`@deepseek-ai/dsh-plan-mode`](../../packages/plan/plan-mode/README.md)：落日志的 `plan/mode` 状态、`plan:policy` 引导段、`/plan [message]` 入口、`/plan off` 直接退出，以及经用户评审的 `exit_plan_mode` 出口；强制约束留在独立的沙箱/审批轴上 |
 | subagent 委派 | `ctx.subagents` 提供方注册表（`dsh-subagent-spawn`/`-fork`/`-acp`/`-codex`/`-claude-code`/`-dsh-sdk`）+ `dsh-tool-subagent` 向模型暴露一个已配置的提供方 |
 | MCP | 每个服务器一个插件：发现工具 → `ctx.tools.register()` |
 | skill（技能） | section + 工具注册；调用时通过 `inject()` 注入 skill 内容 |
 | 记忆 | section 提供方 + 工具 |
 | 定时任务（cron） | 插件注册面向模型的调度工具；定时器触发 → 空闲时 `followup(…, {source: {kind: 'cron', …}})`／忙碌时 `inject()` 通知 |
 | UI（GUI；CLI（命令行界面）输出 JSONL） | 监听 `session/event`（助手分片、边界、工具活动）；输入 → `followup()` |
+| Web Client Chat 业务节点 | 注册 `ConversationNodeDefinition` 与 `conversation.chat.node` keyed renderer |
 | 遥测 / 可回放 trace | `session/event` → JSONL；回放 = `sessions.create(id, { seed })` |
 | 模型适配器 | 通过 `registerAdapter` 注册 `LlmAdapter` 子类（`dsh-llm-deepseek`、`dsh-llm-pi-ai`） |
 | 插件热重载 | 每个注册都是一个 `ctx.effect` → 随仓库提供的 HMR（热模块替换）直接生效 |

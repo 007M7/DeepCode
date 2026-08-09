@@ -1,5 +1,5 @@
 /**
- * Wire-to-typed-event bridge (web input-triggers cut 1): host/commands-changed
+ * Wire-to-typed-event bridge: host/commands-changed
  * → ctx 'commands/changed'; each established connection generation →
  * ctx 'connection/reset' (the forced cache-invalidation broadcast).
  */

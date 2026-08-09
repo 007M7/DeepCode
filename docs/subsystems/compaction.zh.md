@@ -8,7 +8,7 @@
 
 ## `compact/*` 会话事件
 
-压缩通过声明合并为 [`SessionEventMap`](session.md) 扩展三种事件类型。三者都**仅写入日志**——它们记录锁、摘要、选中范围、被遮蔽事件 seq、token 数以及模型调用，绝不进入 surface。这里有意不扩展 `SurfaceEventType`（只有产生消息的事件才到达模型），因此摘要本身承载在另一条带有 `surfaceOp: { op: 'replace', start, end }` 的 `user/message` 上——这是摘要压缩执行的唯一 surface 变更。关于复用 `user/message` 为何是如实建模而非权宜之计，见对应 Agent Note。
+压缩通过声明合并为 [`SessionEventMap`](session.md) 扩展三种事件类型。三者都**仅写入日志**——它们记录锁、摘要、选中范围、被遮蔽事件 seq、token 数以及模型调用，绝不进入 surface。这里有意不扩展 `SurfaceEventType`（只有产生消息的事件才到达模型），因此摘要本身承载在另一条带有 `surfaceOp: { op: 'replace', start, end }` 的 `user/message` 上——这是摘要压缩执行的唯一 surface 变更。[Agent Note](../../.agents/notes/implemented/feature/2026-06-18-compaction-capability-seam.md) 负责复用 `user/message` 的决策依据。
 
 | 事件 | 载荷 | 作用 |
 |---|---|---|
@@ -20,7 +20,7 @@
 
 这些标记表示锁的时间点，而不是排他的容器。摘要等待期间，不相关的空闲注入可以出现在独立的手动 start 与 end 之间。手动路径只重新验证所选位置 span，因此替换检查点之后仍保留该注入上下文。活动的未匹配 start 会阻塞所有入口点；较新 `session/end-seed` 之前的未匹配 start 是先前生命周期留下的陈旧证据，会被忽略。
 
-这些变体在 `declare module '@deepseek-ai/dsh-session'` 块内合并，因此——与其他子系统页面上的顶层类型不同——它们不以漂移检查的 ` ```ts type-equiv ` 块粘贴（`verify-type-equiv` 提取器只按名称匹配顶层声明）。上方的载荷表即为目录条目；权威形状请循源码链接查看。
+这些变体在 `declare module '@deepseek-ai/dsh-session/types'` 块内合并，因此——与其他子系统页面上的顶层类型不同——它们不以漂移检查的 ` ```ts type-equiv ` 块粘贴（`verify-type-equiv` 提取器只按名称匹配顶层声明）。上方的载荷表即为目录条目；权威形状请循源码链接查看。
 
 ## `CompactionResult`
 
@@ -29,6 +29,10 @@
 ```ts type-equiv
 /** Result of a successful compaction operation. */
 interface CompactionResult {
+  /** Stable identity shared by this compaction's complete durable lifecycle. */
+  compactionId: CompactionId
+  /** Human command that initiated this compaction, when it was manual. */
+  sourceCommandId?: CommandId
   /** The seq of the appended `compact/start` event. */
   startSeq: number
   /** The seq of the appended `compact/summary` event. */
@@ -62,7 +66,7 @@ interface CompactionResult {
 type CompactionTrigger = 'pressure' | 'context-overflow'
 ```
 
-`CompactService` 暴露 `compactIfNeeded(agent, trigger, signal)` 以执行自动 `pressure` 或 `context-overflow` 策略，暴露 `compactNow(agent, signal)` 以便即使未达到压力也对空闲会话进行一次有效缩减，还针对显式、两端均包含的 surface 范围暴露 `compactRegion(...)`。`compactNow()` 作为轮次之间的 agent maintenance 运行；没有有效范围时返回 `null` 且不写入；在摘要前记录独立的 `turn: null` 标记对，并在后续排队提示词能够从新表层派生前 flush 已闭合尝试。每个后端都使用 `COMPACT_CHECKPOINT_SOURCE` 标记其替换用的 `user/message`；client 与 wire 消费方从无 cordis 的 `@deepseek-ai/dsh-compact/checkpoint` 子路径导入该值和 `isCompactCheckpointSource()`，包根则为 host 消费方重新导出两者。该判定函数使检查点识别不依赖任一特定后端。实现必须把传入的 signal 转发给摘要流程。该 seam 不拥有计价 API：单例 [`ctx.tokenMeter`](token-meter.md) 直接拥有估算与回放，而 `dsh-compact-basic` 拥有保留策略、事件排序、按路由执行的摘要调用及其配置。
+`CompactService` 暴露 `compactIfNeeded(agent, trigger, signal)` 以执行自动 `pressure` 或 `context-overflow` 策略，暴露 `compactNow(agent, signal)` 以便即使未达到压力也对空闲会话进行一次有效缩减，还针对显式、两端均包含的 surface 范围暴露 `compactRegion(...)`。`compactNow()` 作为轮次之间的 agent maintenance 运行；没有有效范围时返回 `null` 且不写入；在摘要前记录独立的 `turn: null` 标记对，并在后续排队提示词能够从新表层派生前 flush 已闭合尝试。每个后端都使用 `compactCheckpointSource(compactionId, sourceCommandId?)` 创建替换用 `user/message` 的源；client 与 wire 消费方从无 cordis 的 `@deepseek-ai/dsh-compact/checkpoint` 子路径导入该构造函数、`CompactCheckpointSource` 和 `isCompactCheckpointSource()`，包根则为 host 消费方重新导出它们。必填的事务身份会关联替换检查点，而该判定函数使检查点识别不依赖任一特定后端。实现必须把传入的 signal 转发给摘要流程。该 seam 不拥有计价 API：单例 [`ctx.tokenMeter`](token-meter.md) 直接拥有估算与回放，而 `dsh-compact-basic` 拥有保留策略、事件排序、按路由执行的摘要调用及其配置。
 
 预期的手动失败使用 `ManualCompactionErrorCode`：
 
@@ -125,7 +129,7 @@ Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnp
 
 ### `ctx.compact` — `CompactService` (abstract seam)
 
-Abstract compaction service. Implementations own trigger policy, retention, and summarization, and may consume a separate measurement service. A successful run replaces the selected surface span with one summary node and prevents concurrent compaction of the same session. The replacement user message uses COMPACT_CHECKPOINT_SOURCE so consumers recognize it independently of the backend. Load one implementation per context as `ctx.compact`.
+Abstract compaction service. Implementations own trigger policy, retention, and summarization, and may consume a separate measurement service. A successful run replaces the selected surface span with one summary node and prevents concurrent compaction of the same session. The replacement user message uses compactCheckpointSource with the transaction identity so consumers recognize and correlate it independently of the backend. Load one implementation per context as `ctx.compact`.
 
 ```ts cordis-catalog
 /**
@@ -155,13 +159,14 @@ abstract compactIfNeeded( agent: CompactAgentContext, trigger: CompactionTrigger
  *
  * @param agent - idle agent whose durable history should be compacted.
  * @param signal - cancellation scoped to this compaction request.
+ * @param sourceCommandId - initiating command identity for a manual compaction.
  * @returns the compaction result, or `null` when no safe useful range exists.
  * @throws {@link ManualCompactionError} for expected busy, agent-cancellation,
  * changed-span, summarization/shrink, commit-stage, or persistence failures;
  * an aborted request preserves its exact abort reason. Failed attempts remain
  * visible in the log.
  */
-abstract compactNow( agent: ManualCompactAgentContext, signal: AbortSignal, ): Promise<CompactionResult | null>
+abstract compactNow( agent: ManualCompactAgentContext, signal: AbortSignal, sourceCommandId?: CommandId, ): Promise<CompactionResult | null>
 
 /**
  * Forcibly compact a range of surface nodes into a single summary node.
@@ -170,7 +175,8 @@ abstract compactNow( agent: ManualCompactAgentContext, signal: AbortSignal, ): P
  * balanced so assistant tool calls remain paired with their results. A model-
  * backed implementation forwards cancellation and rejects active, missing,
  * reversed, or unbalanced ranges. The target session is `agent.session`.
- * Its replacement user message must use {@link COMPACT_CHECKPOINT_SOURCE}.
+ * Its replacement user message must use {@link compactCheckpointSource} with
+ * the transaction's `CompactionId`.
  * Use {@link toolPairingBalancedBefore} and {@link toolPairingBalancedAfter}
  * for the edge checks.
  *
@@ -184,7 +190,9 @@ abstract compactNow( agent: ManualCompactAgentContext, signal: AbortSignal, ): P
 abstract compactRegion( start: number, end: number, agent: CompactAgentContext, signal?: AbortSignal, ): Promise<CompactionResult>
 ```
 
-Source: [`packages/compact/compact/src/index.ts:93`](../../packages/compact/compact/src/index.ts)
+Types: [CommandId](commands.md)
+
+Source: [`packages/compact/compact/src/index.ts:96`](../../packages/compact/compact/src/index.ts)
 
 <a id="ctxtoolresultprune--toolresultpruneservice"></a>
 

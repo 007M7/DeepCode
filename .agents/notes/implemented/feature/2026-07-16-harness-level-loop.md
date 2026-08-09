@@ -14,7 +14,7 @@ The repository therefore needs goal-based execution above the turn/step loop, bu
 
 ## Decision
 
-This proposal is implemented in amended form as two explicit plugin policies over existing seams:
+Two explicit plugin policies over existing seams:
 
 1. **Same-session goals** retain one durable objective in the current session and admit goal-attributed continuation turns only while live activation is armed.
 2. **Fresh-agent Ralph runs** execute a fixed foreground workflow whose rounds each spawn a new structured child with no conversation seed.

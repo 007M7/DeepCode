@@ -706,11 +706,11 @@ describe('hand-declared providers', () => {
   })
 
   it('scopes each card to fields a provider can actually own', async () => {
-    // Reasoning effort used to sit here. It is a per-MODEL capability and the
+    // Reasoning effort is a per-MODEL capability and the
     // models under one provider disagree about it, so a provider-scoped
-    // control could only be set to a value some of them reject — which took
-    // the whole provider out of the picker. The composer's model picker owns
-    // the choice, and a switch there records provider+model+effort together.
+    // control could only be set to a value some of them reject — which would
+    // take the whole provider out of the picker. The composer's model picker
+    // owns the choice, and a switch there records provider+model+effort together.
     const fields = () => [...document.querySelectorAll('input,select')]
       .map(el => el.getAttribute('aria-label')).filter(Boolean)
 
@@ -804,8 +804,8 @@ describe('hand-declared providers', () => {
     const routeField = screen.getByLabelText(en.customRoute)
     fireEvent.change(routeField, { target: { value: 'https://acme.test/v1' } })
 
-    // A digit-leading id used to pass every check this card makes and then
-    // fail at the credential seam with a raw regular expression: the
+    // Without this check a digit-leading id passes the card and fails at the
+    // credential seam with a raw regular expression: the
     // reference derives as `123_API_KEY`, and a credential reference is a
     // POSIX shell identifier, which cannot start with a digit.
     fireEvent.change(routeField, { target: { value: '123' } })

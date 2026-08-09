@@ -16,7 +16,7 @@ const icons = Object.fromEntries(
 const iconNames = Object.keys(icons)
 
 describe('ic_ds_ icon set', () => {
-  it('exports the full P-I set (46 deepsuite + 17 figma extracts + three product glyphs outside those sets)', () => {
+  it('exports the full icon set (46 deepsuite + 17 figma extracts + three product glyphs outside those sets)', () => {
     expect(iconNames.length).toBe(66)
   })
 

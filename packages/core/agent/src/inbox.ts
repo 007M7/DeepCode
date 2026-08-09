@@ -6,9 +6,7 @@
 
 import type { MessageId } from '@deepseek-ai/dsh-llm'
 import type { Session, SessionEventMap, UserMessage } from '@deepseek-ai/dsh-session'
-
-/** One of the two ordered pending-message lists owned by an agent. */
-export type InboxTarget = 'next-turn' | 'next-step'
+import type { InboxTarget } from './types.ts'
 
 /** Mutable state privately owned by an {@link Inbox}. */
 type InboxState = Record<InboxTarget, UserMessage[]>

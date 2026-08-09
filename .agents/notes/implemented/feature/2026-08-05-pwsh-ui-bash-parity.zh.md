@@ -22,7 +22,7 @@ Web UI 的卡片本身不需要任何按工具编写的代码：客户端的 ter
 
 **新建专用呈现包（如 `@deepseek-ai/dsh-shell-present`）。** 否决：为一个纯函数新建包要付出 manifest、module-graph/目录再生成与 README 面的成本；`@deepseek-ai/dsh-bash` 已在两个工具的闭包中，且已拥有该解析重建的 `BashRunResult` 事实。
 
-**把解析复制进 `tool-pwsh` 的 render 模块（第三个孪生）。** 否决：parity 评审的核心发现正是"复制的文本约定缺少共享实现就会漂移"；解析与 marker 发出必须在同一处共同演化，而解析恰恰是 UI pill 依赖的约定。
+**把解析复制进 `tool-pwsh` 的 render 模块（第三个孪生）。** 否决：复制的文本约定缺少共享实现就会漂移（[pwsh 工具与 bash 对齐](2026-08-02-pwsh-tool-bash-parity.md)）；解析与 marker 发出必须在同一处共同演化，而解析恰恰是 UI pill 依赖的约定。
 
 ## Consequences
 

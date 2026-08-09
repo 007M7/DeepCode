@@ -22,7 +22,7 @@ The Web UI needs no per-tool code for the card itself: the client's terminal-car
 
 **A new dedicated presentation package (e.g. `@deepseek-ai/dsh-shell-present`).** Rejected: a new package costs manifests, module-graph/catalog regeneration, and README surface for a single pure function; `@deepseek-ai/dsh-bash` is already in both tools' closures and already owns the `BashRunResult` facts the parse reconstructs.
 
-**Duplicate the parse into `tool-pwsh`'s render module (a third twin).** Rejected: the parity review's core finding was that copied text contracts drift without a shared implementation; the parse and the marker emission must co-evolve in one place, and the parse is exactly the contract the UI pill depends on.
+**Duplicate the parse into `tool-pwsh`'s render module (a third twin).** Rejected: copied text contracts drift without a shared implementation ([pwsh tool bash parity](2026-08-02-pwsh-tool-bash-parity.md)); the parse and the marker emission must co-evolve in one place, and the parse is exactly the contract the UI pill depends on.
 
 ## Consequences
 

@@ -494,11 +494,11 @@ describe('dsh-tool-skill', () => {
   })
 
   it('resumes from the durable entries of the latest visible catalog', async () => {
-    // Catalog identity moved onto `source.entries` when the catalog became a
-    // `catalog`-form context: the model-facing prose no longer decides whether
-    // a republish is needed, so a seeded message is recognized by its source
-    // alone and malformed prose can no longer hide (or fake) a published
-    // catalog. A foreign-sourced message is not this plugin's catalog at all.
+    // Catalog identity lives on `source.entries`: the model-facing prose does
+    // not decide whether a republish is needed, so a seeded message is
+    // recognized by its source alone and malformed prose cannot hide (or fake)
+    // a published catalog. A foreign-sourced message is not this plugin's
+    // catalog at all.
     const home = await tempDir('tool-catalog-resume')
     const ctx = await setup(home)
     ctx.skills.register({

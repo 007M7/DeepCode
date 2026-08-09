@@ -447,9 +447,9 @@ describe('headless stream-json snapshots', () => {
       binArgs: [credentialsConfigPath, 'say pong'],
       tsconfigPath,
       env: {
-        // A key that exists but no HTTP header can carry — the paste this
-        // change exists for. Before it, `fetch` refused to build the header
-        // and the turn ended on a retried ByteString TypeError.
+        // A key that exists but no HTTP header can carry — the paste the
+        // credential guard exists for: without it, `fetch` refuses to build
+        // the header and the turn ends on a retried ByteString TypeError.
         DEEPSEEK_API_KEY: 'sk-\u{1F600}pasted-from-a-chat-window',
         DEEPSEEK_BASE_URL: '',
         NODE_OPTIONS: [process.env.NODE_OPTIONS, '--disable-warning=ExperimentalWarning'].filter(Boolean).join(' '),
@@ -466,8 +466,8 @@ describe('headless stream-json snapshots', () => {
     // page at all.
     expect(normalized).toContain('the API key resolved from DEEPSEEK_API_KEY contains characters')
     expect(normalized).toContain('the web Models page writes it')
-    // Neither the key nor the transport-level symptom it used to produce may
-    // reach the user: the code point of one character is still the key.
+    // Neither the key nor its transport-level symptom (the ByteString error)
+    // may reach the user: the code point of one character is still the key.
     expect(normalized).not.toContain('pasted-from-a-chat-window')
     expect(normalized).not.toContain('ByteString')
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)

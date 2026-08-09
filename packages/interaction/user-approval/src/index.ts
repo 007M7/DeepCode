@@ -31,7 +31,7 @@ declare module 'cordis' {
   }
 }
 
-declare module '@deepseek-ai/dsh-session' {
+declare module '@deepseek-ai/dsh-session/types' {
   interface SessionEventMap {
     /**
      * An approval question was put to the answerer chain — log-only audit
@@ -86,8 +86,7 @@ const OUTCOMES: readonly ApprovalOutcome[] = ['allowed-once', 'rejected', 'cance
  * ask BEFORE any interactive answerer sees it:
  *
  * - `'ask'` (the default) — delegate to the composed answerers; with none
- *   composed the chain falls through to the fail-closed `'unavailable'`
- *   (exactly today's behavior).
+ *   composed the chain falls through to the fail-closed `'unavailable'`.
  * - `'never'` — never prompt anyone: every ask resolves `'rejected'`
  *   deterministically. The strict headless stance (CI, unattended runs) and
  *   the policy whose outcome is knowable without asking.

@@ -196,11 +196,15 @@ function stubAgent(cwd?: string, seed: SessionEvent[] = []): Agent {
 }
 
 function stubToolExecution(
-  input: Omit<ToolExecution, 'token'> & { token?: ToolExecutionToken },
+  input: Omit<ToolExecution, 'token' | 'rootCallId'> & {
+    token?: ToolExecutionToken
+    rootCallId?: ToolExecution['rootCallId']
+  },
 ): ToolExecution {
   return {
     token: input.token ?? Symbol('workspace-context-test-execution') as ToolExecutionToken,
     ...input,
+    rootCallId: input.rootCallId ?? input.callId,
   }
 }
 
@@ -571,7 +575,7 @@ describe('workspace context instruction discovery', () => {
     const emptyHome = await tempRepo()
     // Isolate the default-home fallback: blank DSH_HOME is treated as unset, and
     // HOME points at an empty dir so the default ~/.dsh holds no global scope.
-    // Symlinks are now followed, so a real ~/.dsh/AGENTS.md would otherwise leak in.
+    // Symlinks are followed, so a real ~/.dsh/AGENTS.md would otherwise leak in.
     vi.stubEnv('DSH_HOME', '')
     vi.stubEnv('HOME', emptyHome)
     try {

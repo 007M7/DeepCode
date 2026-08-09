@@ -29,8 +29,9 @@
  * The document holds nothing but credentials, which is why it is a strict
  * `CredentialRef`-to-string mapping rather than a dotenv file: a store the
  * Harness owns and never materializes into the environment cannot also serve
- * as the user's environment layer, and conflating the two is what made a
- * non-secret in the old `$DSH_HOME/.env` silently unreachable.
+ * as the user's environment layer; a store that doubled as the environment
+ * layer would shadow non-secret entries behind its precedence, making them
+ * silently unreachable.
  * @module @deepseek-ai/dsh-credentials-local
  */
 

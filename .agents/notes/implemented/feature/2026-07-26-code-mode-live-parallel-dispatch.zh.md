@@ -4,11 +4,11 @@ Status: implemented
 
 [English](2026-07-26-code-mode-live-parallel-dispatch.md) | 中文
 
-> 范围：Code Mode UI 堆叠 PR（Pull Request）链的第三个 PR，涵盖 `tool/code-dispatch-start` 事件、Web chat 中每个子调用的运行状态，以及桥接层调度器对原生并发约定的复用。构建在[宿主侧基础](2026-07-26-code-dispatch-ui-foundation.md)与 [chat 子调用行](2026-07-26-code-mode-chat-subcall-rows.md)之上；原生约定本身归[并行工具调用 Agent Note](2026-07-10-parallel-tool-call-execution.md) 所有。
+> 范围：`tool/code-dispatch-start` 事件、Web chat 中每个子调用的运行状态，以及桥接层调度器对原生并发约定的复用。构建在[宿主侧基础](2026-07-26-code-dispatch-ui-foundation.md)与 [chat 子调用行](2026-07-26-code-mode-chat-subcall-rows.md)之上；原生约定本身归[并行工具调用 Agent Note](2026-07-10-parallel-tool-call-execution.md) 所有。
 
 ## 问题
 
-前两个 PR 之后仍留有两个缺口。子调用行过去只在每次分发*结算*后才出现：某次分发运行期间，UI 对它毫无展示，于是一个慢的子调用看上去就像父调用卡住了。而桥接层过去把每一次绑定调用都串行化（「即使 `Promise.all` 也一次只执行一个」），这是工具尚未携带并发元数据时留下的占位实现：如今 `isConcurrencySafe` 已经存在，agent loop（智能体循环）调度器早已在有界并发池中运行原生兄弟调用，而一个等待三个独立读取的 Code Mode 程序，付出的延迟却是原生路径的 3 倍。
+宿主侧基础与 chat 子调用行交付之后仍留有两个缺口。子调用行过去只在每次分发*结算*后才出现：某次分发运行期间，UI 对它毫无展示，于是一个慢的子调用看上去就像父调用卡住了。而桥接层过去把每一次绑定调用都串行化（「即使 `Promise.all` 也一次只执行一个」），这是工具尚未携带并发元数据时留下的占位实现：如今 `isConcurrencySafe` 已经存在，agent loop（智能体循环）调度器早已在有界并发池中运行原生兄弟调用，而一个等待三个独立读取的 Code Mode 程序，付出的延迟却是原生路径的 3 倍。
 
 ## 决策
 
@@ -29,4 +29,4 @@ Status: implemented
 
 ## 后果
 
-程序不需要任何新的模型侧 API，独立读取就获得了原生级的延迟：`Promise.all` 直接变得更好用，提示词指引也随之修改。Web UI 实时显示每个子调用的运行指示环：fixture（测试前置数据）发出成对的 start/settle 事件；jsdom 锁定运行中形状；运行时测试锁定原位结算、乱序完成与 callTime 配对。PR6（trajectory/waterfall 的 span）现在可以依据这对事件的计时绘制如实的 span。spill PR（下一个）则继承结算事件，作为自己唯一施加边界的位置。
+程序不需要任何新的模型侧 API，独立读取就获得了原生级的延迟：`Promise.all` 直接变得更好用，提示词指引也随之修改。Web UI 实时显示每个子调用的运行指示环：fixture（测试前置数据）发出成对的 start/settle 事件；jsdom 锁定运行中形状；运行时测试锁定原位结算、乱序完成与 callTime 配对。trajectory/waterfall 的子调用 span 从这对事件取得如实的计时。spill 边界施加（[code-dispatch 日志 spill](2026-07-26-code-dispatch-log-spill.md)）则继承结算事件，作为自己唯一施加边界的位置。

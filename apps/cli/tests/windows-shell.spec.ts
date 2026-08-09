@@ -60,8 +60,10 @@ describe('resolveWindowsShellLayer', () => {
   it('fails loud when the base bundle ships no Windows shell patch', () => {
     const base = tempBase()
     mkdirSync(base, { recursive: true })
+    // The overlay loader owns the fail-loud contract: the caller named this
+    // file, so its absence is a misconfiguration, not "no overlay".
     expect(() => resolveWindowsShellLayer('win32', [fakeLayer(BASE_BUNDLE, base)], 'dsh'))
-      .toThrow(/@deepseek-ai\/dsh-base ships no windows\.cordis\.patch\.yml/)
+      .toThrow(/dsh: failed to read overlay .*windows\.cordis\.patch\.yml/)
   })
 })
 

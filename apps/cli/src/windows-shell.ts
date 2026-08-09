@@ -10,7 +10,6 @@
  * @module @deepseek-ai/dsh/windows-shell
  */
 
-import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import type { PatchOptions } from '@cordisjs/plugin-include'
 import { loadOverlayPatches, type ProfileLayer } from '@deepseek-ai/dsh-app-boot'
@@ -36,8 +35,9 @@ export interface WindowsShellLayer {
  * @param binName - the diagnostic prefix on thrown errors (`dsh`).
  * @returns the pwsh layer on win32, else `undefined`. A custom profile that
  *   mounts no base bundle is skipped (it owns its shell stack); a base
- *   bundle that ships no Windows shell patch fails loud — the shipped
- *   package always carries it, so a miss is a broken installation.
+ *   bundle whose Windows shell patch is missing fails loud in
+ *   {@link loadOverlayPatches} — the shipped package always carries it, so
+ *   a miss is a broken installation.
  */
 export function resolveWindowsShellLayer(
   platform: NodeJS.Platform,
@@ -48,8 +48,5 @@ export function resolveWindowsShellLayer(
   const base = layers.find(layer => layer.packageName === BASE_BUNDLE)
   if (base === undefined) return undefined
   const label = join(base.packageDir, WINDOWS_SHELL_PATCH_FILENAME)
-  if (!existsSync(label)) {
-    throw new Error(`${binName}: ${BASE_BUNDLE} ships no ${WINDOWS_SHELL_PATCH_FILENAME}`)
-  }
   return { label, patches: loadOverlayPatches(binName, label) }
 }

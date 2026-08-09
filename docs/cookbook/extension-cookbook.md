@@ -34,7 +34,7 @@ This waterfall is the reorderable policy layer. Use `ctx.tools.guard()` when an 
 
 ## A UI plugin
 
-A UI plugin renders from the `session/event` feed (the assistant token stream as `assistant/chunk`, plus turn/step boundaries and tool activity), and drives input back in via `agent.followup()` / `agent.steer()`.
+A UI plugin renders from the `session/event` feed (the assistant token stream as `assistant/chunk`, plus turn/step boundaries and tool activity), and drives input back in via `agent.followup()` / `agent.steer()`. A browser plugin contributing a business row to the built-in Web Client instead registers a `ConversationNodeDefinition` and keyed Chat renderer; follow the [Conversation Node guide](adding-a-conversation-node.md).
 
 ```ts
 import type { Context } from 'cordis'
@@ -105,7 +105,7 @@ Every product feature maps to a listener on a documented extension point — the
 | `/loop` | on the `turn/end` session event, `followup()` the next iteration; or force-continue |
 | Dynamic workflow | `ctx.workflows` + the worker-thread engine + the `workflow` tool; structured in-process children enforce output with scoped prompt/tool registrations, a monotonic tool guard, final `tools/result` commit (including enclosing `run_code`), and the structured-output execution's monotonic `concludeTurn()` marker |
 | Queued + steering messages | core `Agent.followup()` / `Agent.steer()` |
-| Context compaction (auto + manual) | the `ctx.compact` seam + `dsh-compact-basic`; automatic pressure runs on serial `agent/pre-step`, canonical overflow recovery runs on `agent/request-error`, and manual callers use the same compact service ([compaction Agent Note](../../.agents/notes/implemented/feature/2026-06-18-compaction-capability-seam.md) — the model-facing `/compact` consumer tool is deferred) |
+| Context compaction (auto + manual) | the `ctx.compact` seam + `dsh-compact-basic`; automatic pressure runs on serial `agent/pre-step`, canonical overflow recovery runs on `agent/request-error`, and manual callers use the same compact service ([compaction Agent Note](../../.agents/notes/implemented/feature/2026-06-18-compaction-capability-seam.md)) |
 | System prompt configurability | `ctx.systemPrompt.section()` with ordering and scope-local shadowing |
 | AGENTS.md (root) | a section provider reading the file |
 | AGENTS.md (subdir, on-touch) + file-change notices | `agent.inject()` from a watcher / tool-result listener |
@@ -116,13 +116,14 @@ Every product feature maps to a listener on a documented extension point — the
 | Monotonic terminal turn policy | call `ToolExecution.concludeTurn()` from the successful terminal tool; later tool calls in the same response remain guardable, and the loop stops after the step |
 | Subprocess sandbox (landlock / sandbox-exec) | use a `ctx.sandbox` backend through `dsh-bash-sandbox`; use `tools/pre-execute` for capability-level denial |
 | Permission system / AskUserQuestion | return `ask` from `tools/pre-execute` and answer through `ctx.approval`; register a separate model-facing ask tool for ordinary user questions |
-| Plan mode | Shipped: [`@deepseek-ai/dsh-plan-mode`](../../packages/plan/plan-mode/README.md) — logged `plan/mode` state, the `plan:policy` guidance section, `/plan [message]` entry, `/plan off` direct exit, and the user-reviewed `exit_plan_mode` exit; enforcement stays on the independent sandbox/approval axes |
+| Plan mode | [`@deepseek-ai/dsh-plan-mode`](../../packages/plan/plan-mode/README.md) — logged `plan/mode` state, the `plan:policy` guidance section, `/plan [message]` entry, `/plan off` direct exit, and the user-reviewed `exit_plan_mode` exit; enforcement stays on the independent sandbox/approval axes |
 | Sub-agent delegation | the `ctx.subagents` provider registry (`dsh-subagent-spawn`/`-fork`/`-acp`/`-codex`/`-claude-code`/`-dsh-sdk`) + `dsh-tool-subagent` exposing one configured provider to the model |
 | MCP | one plugin per server: discover tools → `ctx.tools.register()` |
 | Skills | section + tool registration; `inject()` skill content on invocation |
 | Memory | section provider + tool |
 | Scheduled tasks (cron) | a plugin registers model-callable scheduling tools; timer fires → `followup(…, {source: {kind: 'cron', …}})` when idle / `inject()` notification when busy |
 | UI (GUI; CLI emits JSONL) | listen `session/event` (assistant chunks, boundaries, tool activity); input → `followup()` |
+| Web Client Chat business node | register a `ConversationNodeDefinition` and `conversation.chat.node` keyed renderer |
 | Telemetry / replayable trace | `session/event` → JSONL; replay = `sessions.create(id, { seed })` |
 | Model adapters | `LlmAdapter` subclass via `registerAdapter` (`dsh-llm-deepseek`, `dsh-llm-pi-ai`) |
 | Plugin hot-reload | every registration is a `ctx.effect` → vendored HMR just works |

@@ -28,7 +28,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import type { Session, SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 
-declare module '@deepseek-ai/dsh-session' {
+declare module '@deepseek-ai/dsh-session/types' {
   interface SessionEventMap {
     /**
      * The session's windows-acl write record was provisioned — log-only

@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
+import { CompactionId } from '@deepseek-ai/dsh-compact'
 import LlmService, { CallId, createUserMessage, GenerateOptions, LlmAdapter, StreamChunk } from '@deepseek-ai/dsh-llm'
 import {
   type ReplayEntry,
@@ -34,6 +35,8 @@ const TEXT_CHUNKS: StreamChunk[] = [
   { type: 'usage', usage: { inputTokens: 1, outputTokens: 1 } },
   { type: 'finish', reason: { kind: 'stop' } },
 ]
+
+const COMPACTION_ID = CompactionId('replay-compaction')
 
 /** Build a minimal session-JSONL string: a header line + the given events. */
 function sessionJsonl(events: SessionEvent[], header?: { id?: string; createdAt?: number; seedLength?: number }): string {
@@ -194,12 +197,18 @@ describe('deriveReplayScript', () => {
     let seq = 1
     const events: SessionEvent[] = [
       ...overflow.map(chunk => chunkEvent(seq++, 1, 2, chunk)),
-      { type: 'compact/start', seq: seq++, time: 0, data: { turn: 1 } },
+      {
+        type: 'compact/start',
+        seq: seq++,
+        time: 0,
+        data: { compactionId: COMPACTION_ID, turn: 1 },
+      },
       {
         type: 'compact/summary',
         seq: seq++,
         time: 0,
         data: {
+          compactionId: COMPACTION_ID,
           summary: rawOutput,
           rawOutput,
           llmStreamCall: true,
@@ -227,6 +236,7 @@ describe('deriveReplayScript', () => {
       seq: 1,
       time: 0,
       data: {
+        compactionId: COMPACTION_ID,
         summary: [{ type: 'text', text: 'template result' }],
         shadowedRange: { start: 1, end: 1 },
         shadowedSeqs: [1],
@@ -246,6 +256,7 @@ describe('deriveReplayScript', () => {
       seq: 1,
       time: 0,
       data: {
+        compactionId: COMPACTION_ID,
         summary: [block],
         rawOutput: [block],
         shadowedRange: { start: 1, end: 1 },
@@ -267,6 +278,7 @@ describe('deriveReplayScript', () => {
         seq: 1,
         time: 0,
         data: {
+          compactionId: COMPACTION_ID,
           summary: [{ type: 'text', text: 'missing source events' }],
           llmStreamCall: true,
           shadowedRange: { start: 1, end: 1 },
@@ -289,6 +301,7 @@ describe('deriveReplayScript', () => {
       seq: 1,
       time: 0,
       data: {
+        compactionId: COMPACTION_ID,
         summary: [block],
         rawOutput: [block],
         llmStreamCall: true,
@@ -343,6 +356,7 @@ describe('deriveReplayScript', () => {
         seq: 2,
         time: 0,
         data: {
+          compactionId: COMPACTION_ID,
           summary: [{ type: 'text', text: 'external checkpoint' }],
           shadowedRange: { start: 1, end: 1 },
           shadowedSeqs: [1],

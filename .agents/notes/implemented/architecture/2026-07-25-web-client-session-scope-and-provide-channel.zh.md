@@ -133,4 +133,4 @@ slot scope 是闭集 `root | session-maybe | session`：
 - client 对象层收敛为 wire 镜像：会话身份、生命周期、能力判别全部以 host 实体为准——输入体系（下一层）面对的永远是「有真 Agent 的会话」，slash/skill 等提供方一律以 sessionId 直接寻址。
 - 空会话治理零专用机制：状态靠一个派生位，可见性靠统一列表投影（仅 current blank 以 `New Session` 展示），回收靠 lazy persistence 的既有约定（重启蒸发），常规上限靠同 Workspace 复用。
 - 代价：id→ctx 换乘纪律、provide 的 Concurrent 纪律都是约定而非类型强制，靠 review 与测试钉住；「未选 workspace」期间输入全禁是产品面接受的体验代价（单一状态轴换来的）。
-- 已知欠账：approval/question 跨 prune 恢复（TODO）；模型选择以 live-mutation 形状回归（host `selectModel` 三件套现成，等独立分支）。
+- 已知欠账：approval/question 跨 prune 恢复（TODO）；模型选择以 live-mutation 形状回归（host `selectModel` 三件套现成，其 client 消费方尚未构建）。

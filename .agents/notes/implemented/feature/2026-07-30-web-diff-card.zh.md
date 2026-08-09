@@ -32,7 +32,7 @@ chat 行把 diff 常驻渲染在路径链接摘要之下，上限 `CHAT_DIFF_MAX
 
 **并排（双栏）diff。** owner 目前拒绝：它更密但不适合狭窄的 chat 行，目标是与 TUI 单栏统一形式对齐。详情面板里的双栏模式是后续的 props 改动，不是重设计。
 
-**git 式行号槽。** `FileDiff` 约定只携带 `{ path, oldText, newText }` —— `structuredPatch` 的 hunk 起始行在 `diff.ts` 里被丢弃，所以没有行号抵达客户端。渲染行号槽需要后端约定改动（携带 `oldStart`/`newStart`）并同步升级 TUI 以保持一致；推迟，使本 PR（Pull Request）保持为对既有约定的纯 Web 消费。
+**git 式行号槽。** `FileDiff` 约定只携带 `{ path, oldText, newText }` —— `structuredPatch` 的 hunk 起始行在 `diff.ts` 里被丢弃，所以没有行号抵达客户端。渲染行号槽需要后端约定改动（携带 `oldStart`/`newStart`）并同步升级 TUI 以保持一致；推迟，使本变更保持为对既有约定的纯 Web 消费。
 
 **复用 `CodeBlock`。** 因与 terminal 卡片相同的理由拒绝：`CodeBlock` 会折行，且没有每行 `+`/`-` 角色、没有路径头、没有页脚。两者共享几何与字体 token，那是唯一一处一个实现对两者都正确的部分。
 

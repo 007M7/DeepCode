@@ -7,7 +7,7 @@
 import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
-import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
+import { createSnapshotStore, EMPTY_CHAT_SNAPSHOT } from '@deepseek-ai/dsh-client-runtime/client'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import type { ClientContext, ConversationSnapshot, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
@@ -35,7 +35,8 @@ const SID = 's1' as SessionId
 
 function snapshotOf(overrides: Partial<ConversationSnapshot> = {}): ConversationSnapshot {
   return {
-    sessionId: SID, nodes: [], turnTimings: new Map(), turnEnds: new Map(), partial: null, runningCalls: [],
+    sessionId: SID, chat: EMPTY_CHAT_SNAPSHOT,
+    nodes: [], turnTimings: new Map(), turnEnds: new Map(), partial: null, runningCalls: [],
     pending: [], queue: [], running: false, composerPhase: 'active', removed: false,
     openState: 'open', openError: null, hasMore: false, loadingOlder: false,
     promptError: null, blank: false, subagent: null, lastAgentError: null,
@@ -225,10 +226,10 @@ describe('Enter semantics', () => {
   })
 })
 
-describe('running and lock semantics (queue cut 1)', () => {
+describe('running and lock semantics', () => {
   it('running keeps the input free (typing + Enter queue) while the primary turns stop', () => {
     const { textarea, button, stop, sink } = bench({ running: true, draft: '排队消息' })
-    expect(textarea.disabled).toBe(false) // running no longer locks
+    expect(textarea.disabled).toBe(false)
     fireEvent.change(textarea, { target: { value: '排队消息2' } })
     fireEvent.keyDown(textarea, { key: 'Enter' })
     expect(sink).toHaveBeenCalledWith('排队消息2', 'queue')
@@ -428,8 +429,8 @@ describe('running and lock semantics (queue cut 1)', () => {
     // scrollport element holds both layers.
     expect(scroll.contains(textarea)).toBe(true)
     expect(scroll.contains(backdrop)).toBe(true)
-    // The glyph layer carries the draft and nothing else: with one scrollport
-    // it no longer pads its own height to match a second box's scroll extent.
+    // The glyph layer carries the draft and nothing else — no height padding
+    // to a second box's scroll extent.
     expect(backdrop.textContent).toBe('line\n'.repeat(40))
   })
 
@@ -658,7 +659,7 @@ describe('decorations', () => {
     expect(shell.snapshot.draft).toBe('参考 \uFFFC 内容')
   })
 
-  it('a lexicon-matched plain token renders the text-ref mark (decision 21)', () => {
+  it('a lexicon-matched plain token renders the text-ref mark', () => {
     const lexicon = new Map<'/' | '@', readonly string[]>([['/', ['fixture-demo']]])
     const { view, shell } = bench({ lexicon })
     act(() => { shell.setDraft('use /fixture-demo now') })
@@ -670,7 +671,7 @@ describe('decorations', () => {
   })
 })
 
-describe('insertText (decision 21 scoped event body)', () => {
+describe('insertText (scoped event body)', () => {
   it('splices plain text over the span and reports success as true', () => {
     const { shell } = bench({ draft: '/fix' })
     const ok = shell.insertText('/fixture-demo ', { start: 0, end: 4, draftRev: shell.snapshot.draftRev })
@@ -720,7 +721,7 @@ describe('strips and variants', () => {
 })
 
 describe('command launcher chrome and control seats', () => {
-  it('renders the command launcher; the Access chip is absent without the permissions projection; plan/model seats render EMPTY without entries (B ruling)', () => {
+  it('renders the command launcher; the Access chip is absent without the permissions projection; plan/model seats render EMPTY without entries', () => {
     const { view, slotCalls } = bench()
     expect(view.getByLabelText('命令')).toBeTruthy()
     // Capability absent (no projection value): the chip renders nothing.

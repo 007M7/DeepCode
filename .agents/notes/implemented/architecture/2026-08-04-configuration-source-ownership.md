@@ -66,7 +66,7 @@ The line is that these take effect with no user action, before any turn, outside
 
 **Audit an allowlist of `DSH_*` variables a `.env` may set.** Rejected: the list would have to be re-audited on every new switch, and the failure mode of forgetting is silent. Denying the namespace fails safe.
 
-**Rank a bootstrap variable below the process layer instead of rejecting it.** Rejected: `PATH` and `NODE_OPTIONS` have no meaningful "loser" behavior — a user who put one in a `.env` believes it applies, and silently ignoring it is the "my setting has no effect" failure this whole series exists to remove.
+**Rank a bootstrap variable below the process layer instead of rejecting it.** Rejected: `PATH` and `NODE_OPTIONS` have no meaningful "loser" behavior — a user who put one in a `.env` believes it applies, and silently ignoring it is the "my setting has no effect" failure this decision exists to remove.
 
 **Build the snapshot as a three-package capability seam (`environment` / `environment-local` / consumers).** Rejected as premature: the producer runs before Cordis exists and there is no second implementation to select. The repository rule is to not split preemptively.
 

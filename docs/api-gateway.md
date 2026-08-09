@@ -75,7 +75,7 @@ await agentCtx.remote.goals.create({ objective: 'ship it' })
 
 Client applications assemble only `@deepseek-ai/dsh-api-remotes`. That package imports the `/remote` subpaths of selected business packages as runtime values, mounts their contributions through `ctx.remote.$mount()`, and re-exports the declaration merges from the same files. Adding a Host Remote package is an explicit choice by the Client composition owner; business components do not need to load the TypeRT Gateway or the business package's Remote JS separately.
 
-A future TUI can assemble the same React-independent `api-remotes` and `ctx.remote` contract, so the Host methods visible to it are likewise limited to the Remote methods selected at generation time. This document does not define or implement the TUI composition.
+The `api-remotes` assembly and the `ctx.remote` contract are React-independent; the Host methods visible to any Client assembly are limited to the Remote methods selected at generation time.
 
 ## Component responsibilities
 
@@ -88,7 +88,7 @@ A future TUI can assemble the same React-independent `api-remotes` and `ctx.remo
 | Host | `@deepseek-ai/dsh-api-gateway` | Provides `ctx.typertGateway`, claims Remote endpoints, resolves objects or Contexts, invokes live Cordis services, and validates boundaries |
 | Client | `@deepseek-ai/dsh-api-gateway/client` | Provides `ctx.remote` and `remote.<namespace>` child Services, mounts generated descriptors as concrete methods, and initiates, validates, and cancels calls through the Connection |
 | Client | `@deepseek-ai/dsh-api-remotes/client` | Explicitly selects and mounts the `/remote` contributions allowed by the application and brings the corresponding declaration merges into business code |
-| Both | `@deepseek-ai/dsh-client-connection` | Provides the RPC carrier, request correlation, trust boundary, cancellation, response envelope, and current `/api` HTTP bridge |
+| Both | `@deepseek-ai/dsh-client-connection` | Provides the RPC carrier, request correlation, trust boundary, cancellation, response envelope, and the `/api` HTTP bridge |
 
 The API Gateway package owns the Host dispatcher and Client Remote endpoint as peer entries, but the two builds never enter the same `ts.Program`. The Host entry does not import the Client Cordis `Context` merge, and the Client entry does not import the Host Gateway service.
 
@@ -118,7 +118,7 @@ Strict analysis requires a Remote to be a public, non-static instance method wit
 
 ## Runtime invocation
 
-Remote and API Proxy currently share the Connection's `/api` route; there is no separate `/api2` server or second Connection. The Client Remote calls `connection.rpc.call('/api', '<namespace>/<method>', { args }, signal)`; the current HTTP carrier maps this to `POST /api/<namespace>/<method>`, with a payload containing only a named `args` object.
+Remote and API Proxy share the Connection's `/api` route. The Client Remote calls `connection.rpc.call('/api', '<namespace>/<method>', { args }, signal)`; the HTTP carrier maps this to `POST /api/<namespace>/<method>`, with a payload containing only a named `args` object.
 
 The Connection performs the unified trust check for `/api` before the HTTP bridge, then dispatches inside the shared FetchHandler in interceptor order. The TypeRT Gateway claims only two-segment endpoints that have a strict descriptor or active SRC marker; unclaimed requests fall back to the existing API Proxy. The Connection owns transport, RPC ids, response envelopes, and request cancellation, while the Gateway owns only the Remote data protocol and business dispatch. Replacing the Connection carrier in the future does not require changes to Remote descriptors or the Client programming interface.
 
@@ -165,6 +165,6 @@ The running Client watcher consumes these generated files when it rebundles. If 
 
 Remote handles only unary method calls with one request and one result. Session event streams, pagination, incremental reduce, projection, and entity substreams require a separate data protocol and registration model; even when they reuse the Connection, they must not masquerade as Remote methods or enter invocation descriptors.
 
-The API layers are organized as `remotes → gateway → connection → webserver`. The BFF and TypeRT RPC layers live under `packages/api`; Connection and WebServer remain at `packages/client/connection` and `packages/host/webserver`, with service contracts that permit a later package-only move to `packages/api`. The legacy API Proxy remains at `packages/host/apiproxy` as the fallback for endpoints not yet migrated to Remote.
+The API layers are organized as `remotes → gateway → connection → webserver`. The BFF and TypeRT RPC layers live under `packages/api`; Connection and WebServer live at `packages/client/connection` and `packages/host/webserver`. The API Proxy at `packages/host/apiproxy` handles endpoints without Remote descriptors.
 
-Lookup policy is currently configured per key, so all `agent` or `session` parameters share the cold-resume behavior. If a Remote endpoint must accept live objects only, an explicit per-parameter or per-endpoint policy must be added later; the business method must not guess whether the object came from restoration.
+Lookup policy is configured per key, so all `agent` or `session` parameters share the cold-resume behavior. Accepting live objects only would require an explicit per-parameter or per-endpoint policy, which does not exist; the business method must not guess whether the object came from restoration.

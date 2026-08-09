@@ -45,6 +45,15 @@ export function FsVersion(v: string): FsVersion {
 }
 
 /**
+ * One authoritative observation of a target. A present observation carries the
+ * version used by guarded replacement; an absent observation authorizes only a
+ * guarded create, never an edit.
+ */
+export type FsObservation =
+  | { readonly kind: 'present'; readonly version: FsVersion }
+  | { readonly kind: 'absent' }
+
+/**
  * A path resolved by a backend into a stable identity. `resolve()` produces
  * this; every other operation takes it.
  */
