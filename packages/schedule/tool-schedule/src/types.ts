@@ -41,7 +41,7 @@ export interface EveryScheduleRecord {
   readonly id: ScheduleId
   /** Rule discriminator for a fixed-rate recurring reminder. */
   readonly kind: 'every'
-  /** Trimmed user-authored reminder content. */
+  /** Trimmed reminder content supplied at creation. */
   readonly prompt: string
   /** Fixed safe-integer interval, never below five minutes. */
   readonly everySeconds: number
