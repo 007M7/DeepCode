@@ -34,7 +34,7 @@ This waterfall is the reorderable policy layer. Use `ctx.tools.guard()` when an 
 
 ## A UI plugin
 
-A UI plugin renders from the `session/event` feed (the assistant token stream as `assistant/chunk`, plus turn/step boundaries and tool activity), and drives input back in via `agent.followup()` / `agent.steer()`.
+A UI plugin renders from the `session/event` feed (the assistant token stream as `assistant/chunk`, plus turn/step boundaries and tool activity), and drives input back in via `agent.followup()` / `agent.steer()`. A browser plugin contributing a business row to the built-in Web Client instead registers a `ConversationNodeDefinition` and keyed Chat renderer; follow the [Conversation Node guide](adding-a-conversation-node.md).
 
 ```ts
 import type { Context } from 'cordis'
@@ -123,6 +123,7 @@ Every product feature maps to a listener on a documented extension point — the
 | Memory | section provider + tool |
 | Scheduled tasks (cron) | a plugin registers model-callable scheduling tools; timer fires → `followup(…, {source: {kind: 'cron', …}})` when idle / `inject()` notification when busy |
 | UI (GUI; CLI emits JSONL) | listen `session/event` (assistant chunks, boundaries, tool activity); input → `followup()` |
+| Web Client Chat business node | register a `ConversationNodeDefinition` and `conversation.chat.node` keyed renderer |
 | Telemetry / replayable trace | `session/event` → JSONL; replay = `sessions.create(id, { seed })` |
 | Model adapters | `LlmAdapter` subclass via `registerAdapter` (`dsh-llm-deepseek`, `dsh-llm-pi-ai`) |
 | Plugin hot-reload | every registration is a `ctx.effect` → vendored HMR just works |

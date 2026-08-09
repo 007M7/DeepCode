@@ -58,7 +58,7 @@ declare module '@deepseek-ai/dsh-llm' {
   }
 }
 
-declare module '@deepseek-ai/dsh-session' {
+declare module '@deepseek-ai/dsh-session/types' {
   interface SessionEventMap {
     /**
      * Complete post-mutation goal state or clear tombstone.
