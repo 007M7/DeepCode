@@ -26,9 +26,9 @@ harness 已有一个具体的 `bash` 能力 seam（`dsh-bash` / `dsh-bash-local`
 2. `@deepseek-ai/dsh-fs-local`（`packages/fs/fs-local`）提供第一个实现，以本地文件系统为后端。
 3. `@deepseek-ai/dsh-tool-fs`（`packages/fs/tool-fs`）通过 `ctx.fs` 提供面向模型的 `read`、`write` 和 `edit` 工具，是分发 `fs/*` 事件的执行器。
 
-消费方包仅依赖接口包，从不依赖 `dsh-fs-local`。需要不同后端的部署只需为 `ctx.fs` 加载不同的提供方，无需改动工具 schema 或面向模型的提示词引导。
+Consumer 包仅依赖 Service Definition 包，从不依赖 `dsh-fs-local`。需要不同后端的部署只需为 `ctx.fs` 加载不同的提供方，无需改动工具 schema 或面向模型的提示词引导。
 
-读后写/编辑与观测状态策略是第四个包 `@deepseek-ai/dsh-fs-policy`（`packages/fs/fs-policy`），通过 `fs/*` 事件门控贡献，而非挂在 `ctx.fs` 上；加载 `dsh-tool-fs` 的部署同时加载 `dsh-fs-policy` 以获得读后写/编辑能力。本 Agent Note 确立了由三个包构成的 seam；策略从提供方基类拆出的决策由 [拆分文件系统 seam Agent Note](../simplification/2026-06-26-fsspec-style-fs-seam.md) 做出，其以事件门控插件（而非方法服务）实现的方式由 [事件门控 Agent Note](2026-06-26-file-context-as-event-gate.md) 做出。本文已更新为描述最终落地的四包形态。
+读后写/编辑与观测状态策略是第四个包 `@deepseek-ai/dsh-fs-policy`（`packages/fs/fs-policy`），通过 `fs/*` 事件门控贡献，而非挂在 `ctx.fs` 上；加载 `dsh-tool-fs` 的部署同时加载 `dsh-fs-policy` 以获得读后写/编辑能力。本 Agent Note 确立了由三个包构成的边界；策略从提供方基类拆出的决策由 [拆分文件系统 seam Agent Note](../simplification/2026-06-26-fsspec-style-fs-seam.md) 做出，其以事件门控插件（而非方法服务）实现的方式由 [事件门控 Agent Note](2026-06-26-file-context-as-event-gate.md) 做出。本文已更新为描述最终落地的四包形态。
 
 第一个后端有意仅限本地：`dsh-fs-local` 基于宿主文件系统实现 `ctx.fs`。未来的兄弟后端可在同一接口之后提供沙箱、远程、虚拟或项目作用域的文件系统。
 
@@ -53,7 +53,7 @@ harness 已有一个具体的 `bash` 能力 seam（`dsh-bash` / `dsh-bash-local`
 
 `@deepseek-ai/dsh-tool-fs` 依赖 `@deepseek-ai/dsh-fs`、`@deepseek-ai/dsh-tools`、`@deepseek-ai/dsh-system-prompt` 和 `cordis`。它注册面向模型的工具和提示词段落。它禁止导入 `node:fs`、`node:path` 或 `@deepseek-ai/dsh-fs-local`；文件系统执行始终通过 `ctx.fs`。如果实现需要具体的 agent 或会话辅助类型，这些依赖属于 `tool-fs`；它们禁止回漏到 `dsh-fs` 中。
 
-根 `tool-fs` 插件通过组合各工具的注册辅助函数来注册完整的文件系统工具套件（`read`、`write` 和 `edit`）。它注入 `fs`，从不导入实现包。
+根 `tool-fs` 插件通过组合各工具的注册辅助函数来注册完整的文件系统工具套件（`read`、`write` 和 `edit`）。它注入 `fs`，从不导入 Service provider 包。
 
 ## `ctx.fs` 约定
 
@@ -68,7 +68,7 @@ harness 已有一个具体的 `bash` 能力 seam（`dsh-bash` / `dsh-bash-local`
 - 创建或替换一个 UTF-8 文本文件。
 - 通过字面替换编辑一个已有的 UTF-8 文本文件。
 
-提供方 seam 还携带策略所依赖的新鲜度钩子——但观测状态存储和 owner 推导位于 `dsh-fs-policy` 插件中，而非 `ctx.fs` 上：
+提供方约定还携带策略所依赖的新鲜度钩子——但观测状态存储和 owner 推导位于 `dsh-fs-policy` 插件中，而非 `ctx.fs` 上：
 
 - 后端为每个目标铸造一个不透明的 `version` 令牌（在 `stat` 以及每次读取/变更结果中）。
 - `writeText`/`editText` 接受一个可选的版本期望：省略它表示无条件的裸提供方变更；提供它则在后端的原子临界区内守护变更。
@@ -127,7 +127,7 @@ harness 已有一个具体的 `bash` 能力 seam（`dsh-bash` / `dsh-bash-local`
 
 ## 测试
 
-测试遵循包边界，而不仅是用户可见的工具：`dsh-fs` 中的服务 seam；`dsh-fs-local` 中通过 `ctx.fs` 接口测试的真实文件系统行为（解析、符号链接、流式传输、二进制/UTF-8 拒绝、无条件和版本守护的写入、字面编辑语义、行尾保留、结构化 `FsError` 错误码）；`dsh-tool-fs` 中基于真实本地提供方的消费方接口（只 mock 模型/时钟，从不 mock 协作者）；以及通过 `ctx.tools.execute()` 在有和没有 `dsh-fs-policy` 的情况下进行集成测试，通过从磁盘回读文件来验证世界状态，既不信任规范值，也不信任渲染内容。观测状态/owner 推导策略在 `dsh-fs-policy` 中测试，不在此处。
+测试遵循包边界，而不仅是用户可见的工具：`dsh-fs` 中的服务约定；`dsh-fs-local` 中通过 `ctx.fs` 接口测试的真实文件系统行为（解析、符号链接、流式传输、二进制/UTF-8 拒绝、无条件和版本守护的写入、字面编辑语义、行尾保留、结构化 `FsError` 错误码）；`dsh-tool-fs` 中基于真实本地提供方的消费方接口（只 mock 模型/时钟，从不 mock 协作者）；以及通过 `ctx.tools.execute()` 在有和没有 `dsh-fs-policy` 的情况下进行集成测试，通过从磁盘回读文件来验证世界状态，既不信任规范值，也不信任渲染内容。观测状态/owner 推导策略在 `dsh-fs-policy` 中测试，不在此处。
 
 本仓库曾踩过的防御性模式类别被直接固定：
 
@@ -139,7 +139,7 @@ harness 已有一个具体的 `bash` 能力 seam（`dsh-bash` / `dsh-bash-local`
 ## 曾考虑的替代方案
 
 - **面向模型的工具直接基于 `node:fs`**：工具包将同时承担执行策略、路径解析、原子写入、文本解码和编辑语义，耦合问题部分所列的三个独立变化的关注点，且任何后端替换都会搅动 schema。
-- **单一合并包 `dsh-fs-tools`**：seam 之前的形态；以与 bash 相同的接口/实现/消费方拆分理由否决，且合并名称从未成为公开接口。
+- **单一合并包 `dsh-fs-tools`**：seam 之前的形态；以与 bash 相同的 Service Definition / Service provider / Consumer 拆分理由否决，且合并名称从未成为公开接口。
 - **观测状态放在 `ctx.fs` 上**：本 Agent Note 最初落地的形态；被 [拆分文件系统 seam Agent Note](../simplification/2026-06-26-fsspec-style-fs-seam.md) 和 [事件门控 Agent Note](2026-06-26-file-context-as-event-gate.md) 取代：沙箱/远程后端不应继承面向模型的观测策略，因此提供方只保留版本令牌和可选的版本守护变更。
 
 ## 后果
@@ -152,7 +152,7 @@ harness 已有一个具体的 `bash` 能力 seam（`dsh-bash` / `dsh-bash-local`
 
 **编辑语义天然易受竞争影响。** 字面编辑是读-改-写操作；守护手段是后端的原子变更临界区加上可选的版本期望，因此并发编辑确定性地收敛——一个赢，另一个得到 `FS_STALE_VERSION`。
 
-**观测状态不属于 `ctx.fs`。** 记录执行上下文看到了什么是工作流策略，而非原始文件系统 I/O。本 Agent Note 最初将其放在文件系统 seam 内部；拆分文件系统 seam Agent Note 随后确立了沙箱/远程后端不应继承面向模型的观测策略，并将其移入 `dsh-fs-policy` 插件。提供方 seam 只保留写入/编辑安全在存储层真正需要的东西——后端铸造的版本令牌和可选的版本守护变更——而策略插件拥有 owner 推导、观测状态和基于 `fs/*` 事件的读后编辑门控。
+**观测状态不属于 `ctx.fs`。** 记录执行上下文看到了什么是工作流策略，而非原始文件系统 I/O。本 Agent Note 最初将其放在文件系统 seam 内部；拆分文件系统 seam Agent Note 随后确立了沙箱/远程后端不应继承面向模型的观测策略，并将其移入 `dsh-fs-policy` 插件。提供方约定只保留写入/编辑安全在存储层真正需要的东西——后端铸造的版本令牌和可选的版本守护变更——而策略插件拥有 owner 推导、观测状态和基于 `fs/*` 事件的读后编辑门控。
 
 **`resolve` 然后操作的形态每次调用多一次往返。** 每个工具可能先将路径解析为 `FsTarget`，再以单独的 `ctx.fs` 调用发起读取/写入/编辑。对本地后端来说这可以忽略（解析是内存中的路径规范化），但远程/沙箱后端可能将每步变成独立请求，使单次 `read` 变为两次网络往返。往返开销重要的后端可以在内部缓存或折叠解析，同时保持可观测约定不变。
 

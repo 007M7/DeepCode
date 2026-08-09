@@ -1,7 +1,7 @@
 /**
  * Dialect-neutral vocabulary and log-only events shared by the Claude Code and
  * Codex hook bridges. Payload construction, matching differences, environment,
- * and seam-specific decision mapping remain owned by each bridge.
+ * and extension-point-specific decision mapping remain owned by each bridge.
  * @module @deepseek-ai/dsh-hook-protocol/types
  */
 
@@ -42,8 +42,8 @@ declare module '@deepseek-ai/dsh-session' {
 
 /**
  * The bridge that ran a hook — the CC bridge stamps `'claude'`, the Codex
- * bridge `'codex'`. A native plugin on the interception seams is not a bridge
- * and writes no `hook/*` invocation/result records (see the interception-seams Agent Note).
+ * bridge `'codex'`. A native plugin at the interception points is not a bridge
+ * and writes no `hook/*` invocation/result records (see the interception extension-points Agent Note).
  */
 export type HookDialect = 'claude' | 'codex'
 
@@ -81,7 +81,7 @@ export type MatcherMode = 'claude' | 'codex'
 /**
  * The dialect-neutral OUTCOME a hook produced, parsed from its exit code +
  * stdout JSON + stderr by {@link parseHookOutput}. A bridge maps this onto a
- * seam-specific typed Decision (PreToolDecision, PreStepDecision, …). Every field
+ * extension-point-specific typed Decision (PreToolDecision, PreStepDecision, …). Every field
  * is OPTIONAL because a hook may exercise any subset; the bridge decides which
  * fields are meaningful for its hook point and which it ignores (faithful-but-
  * degraded — e.g. Codex ignores `allow`/`ask`).
@@ -130,7 +130,7 @@ export interface HookOutput {
   systemMessage?: string
   /**
    * A tool-input rewrite a hook requested (CC `updatedInput`). PARSED but NOT
-   * honored — input rewrite is deferred (see the interception-seams Agent Note); a
+   * honored — input rewrite is deferred (see the interception extension-points Agent Note); a
    * bridge logs + warns when this is present.
    */
   updatedInput?: Record<string, unknown>

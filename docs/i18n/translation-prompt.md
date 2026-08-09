@@ -91,7 +91,7 @@ A lower-priority rule may refine but never override a higher-priority requiremen
 - Avoid repeating the same ordinary verb in close proximity when a natural equivalent preserves the exact meaning. Never vary a terminology-table form, defined concept, or contract verb merely for stylistic variety.
 
 #### When translating into Chinese
-- When a number modifies a noun, include a natural Chinese classifier or measure word when Chinese grammar requires one. For example: "three-package seam" → "由三个包构成的 seam", not "三包 seam". Do not add classifiers to code, identifiers, versions, units, or fixed names.
+- When a number modifies a noun, include a natural Chinese classifier or measure word when Chinese grammar requires one. For example: "three-role capability seam" → "包含三种角色的能力 seam", not "三角色 seam". Do not add classifiers to code, identifiers, versions, units, or fixed names.
 
 ### Punctuation
 

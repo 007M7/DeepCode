@@ -97,7 +97,7 @@ export function timeoutOf(x: AbortSignal | { reason?: unknown }, code?: string):
 
 ## 后果
 
-- `runBash` 的结果不再独立锁存 `timedOut` 和 `aborted`；超时与用户中止在进程关闭前竞争时，现在报告单一的首个 abort 原因，而非两者同时为 true。统一的 SIGTERM→宽限期→SIGKILL 终止路径不变，seam 类型 `BashRunResult` 保留两个布尔值（现在互斥），因此 `dsh-tool-bash` 的结果渲染不受影响。
+- `runBash` 的结果不再独立锁存 `timedOut` 和 `aborted`；超时与用户中止在进程关闭前竞争时，现在报告单一的首个 abort 原因，而非两者同时为 true。统一的 SIGTERM→宽限期→SIGKILL 终止路径不变，Service Definition 类型 `BashRunResult` 保留两个布尔值（现在互斥），因此 `dsh-tool-bash` 的结果渲染不受影响。
 - `SpawnSpec.timeoutMs` 和 `SpawnOutcome.timedOut`/`aborted` 被移除，而非作为始终为零/始终为 false 的残余保留：由于 `runBash` 不再拥有定时器且执行器负责分类，这些字段无处被读取。这是与字面提案形状（向 `runBash` 传入 `timeoutMs: 0`）的唯一偏差；一个始终为 0 且无处读取的字段在逐文件覆盖率门禁下属于死代码。
 - web_fetch 去除了其定制的 controller/timer/listener/reason-recovery；分类器现在基于 deadline 信号（`timeoutOf` + `aborted`）而非抛出错误的形状来判断，这在请求阶段的 reject-with-reason 和读取阶段的裸 `AbortError` 两种情况下都是健壮的。
 - `AbortSignal.any` 和 `using`/`Symbol.dispose` 在此首次进入本仓库（Node ≥ 24 基线，已满足）。

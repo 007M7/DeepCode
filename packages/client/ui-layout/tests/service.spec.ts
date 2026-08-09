@@ -1,7 +1,7 @@
 /**
  * LayoutService behavior: the cross-plugin panel-action face. Geometry
  * lives in the entry store (layout-store.spec.ts) — here we assert the
- * delegation seam: attachPanels wiring, the three actions forwarding, the
+ * delegation contract: attachPanels wiring, the three actions forwarding, the
  * unwired fail-loud, and re-attach overwriting a stale action set.
  */
 import { describe, expect, it, vi } from 'vitest'

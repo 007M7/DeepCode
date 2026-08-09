@@ -19,7 +19,7 @@ The tool calls `ctx.userInteraction.ask()` and returns canonical `{ answers: [{ 
 
 ## Role
 
-This is the consumer package for the user-interaction seam. It does not render UI and does not know how input is collected; it only translates model arguments into `AskUserQuestionRequest` and returns the human answer to the agent loop.
+This is the Consumer package for the user-interaction seam. It does not render UI and does not know how input is collected; it only translates model arguments into `AskUserQuestionRequest` and returns the human answer to the agent loop.
 
 ## Model Experience
 

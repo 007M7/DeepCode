@@ -1,5 +1,5 @@
 /**
- * E2B implementation of the filesystem provider seam. Paths, contents, and
+ * E2B provider for the filesystem capability seam. Paths, contents, and
  * atomic staging files remain inside the shared remote sandbox.
  * @module @deepseek-ai/dsh-fs-e2b
  */

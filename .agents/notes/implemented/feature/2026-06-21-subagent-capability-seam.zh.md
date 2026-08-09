@@ -14,18 +14,18 @@ harness 有一个长期搁置的 seam 用于 **subagent**：一个 agent 将工�
 
 - **进程内**：在同一个 `Context` 上创建一个具体的子 `Agent`（最廉价，且鉴于现有 agent 工厂几乎零成本）；
 - **ACP**：作为 ACP *客户端*驱动另一个 agent 进程（可以是自身的另一个实例）；
-- **Codex app-server 与 Claude Code Agent SDK**：当前的一次性同类提供方，将同一个命名提供方 seam 应用于官方产品进程（[产品提供方 Agent Note](2026-08-04-claude-code-and-codex-subagent-backends.md)）；
+- **Codex app-server 与 Claude Code Agent SDK**：当前的一次性同类提供方，将同一个命名提供方约定应用于官方产品进程（[产品提供方 Agent Note](2026-08-04-claude-code-and-codex-subagent-backends.md)）；
 - 后续：**A2A**，采用同样的进程外形态：「启动子 agent、发送提示词、结算、取消」。
 
 ## 曾考虑的替代方案
 
 ### 为何不采用 bash seam 的形状
 
-bash seam（[能力 seam](../architecture/2026-06-13-capability-seams.md)）在每个上下文中只注册恰好一个 `BashExecutor`；加载第二个会抛异常。这对 bash 是正确的（一台机器、一种执行命令的方式），但对这里是错误的：共存才是需求。因此 subagent 服务是一个**命名提供方注册表**——每个实现以唯一名称注册，调用方按名称选择——镜像 **LLM（大语言模型）适配器注册表**（`LlmService.registerAdapter`），而非单服务的 bash 执行器。seam 仍然是由三个包构成的结构（接口、实现、消费方）；只是「一个 vs. 多个实现」这个维度不同。
+bash seam（[能力 seam](../architecture/2026-06-13-capability-seams.md)）在每个上下文中只注册恰好一个 `BashExecutor`；加载第二个会抛异常。这对 bash 是正确的（一台机器、一种执行命令的方式），但对这里是错误的：共存才是需求。因此 subagent 服务是一个**命名提供方注册表**——每个实现以唯一名称注册，调用方按名称选择——镜像 **LLM（大语言模型）适配器注册表**（`LlmService.registerAdapter`），而非单服务的 bash 执行器。seam 仍然是由三个包构成的结构（Service Definition / Service provider / Consumer）；只是「一个 vs. 多个实现」这个维度不同。
 
 ## 决策
 
-### 由三个包构成的 seam
+### 由三个包构成的边界
 
 新建包组 `packages/subagent/`：
 

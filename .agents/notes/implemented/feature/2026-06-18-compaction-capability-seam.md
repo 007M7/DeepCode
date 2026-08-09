@@ -14,7 +14,7 @@ Two forces shape the design. First, compaction policy and reusable token measure
 
 ## Decision
 
-### Compaction is a capability seam, split interface / implementation
+### Compaction is a capability seam with separate Service Definition and Service provider roles
 
 Per the [capability-seams Agent Note](../architecture/2026-06-13-capability-seams.md), compaction ships as separate packages so the contract, the algorithm, and (later) the consumer surface evolve independently:
 
@@ -25,7 +25,7 @@ Per the [capability-seams Agent Note](../architecture/2026-06-13-capability-seam
 
 ### The contract depends on `dsh-session` and `dsh-llm` — a deliberate deviation
 
-The capability-seams Agent Note states the interface package "depends only on cordis" (true of `dsh-bash`, whose vocabulary is self-contained). Compaction **cannot** honor that: its verbs act on an agent-owned `Session` (`compactRegion(start, end, agent)`) and its output uses the content vocabulary (`CompactionResult.summary: ContentBlock[]`). There is no way to express the contract without naming `Session`/`SessionEvent` (from `dsh-session`) and `ContentBlock` (from `dsh-llm`).
+The capability-seams Agent Note states the Service Definition package "depends only on cordis" (true of `dsh-bash`, whose vocabulary is self-contained). Compaction **cannot** honor that: its verbs act on an agent-owned `Session` (`compactRegion(start, end, agent)`) and its output uses the content vocabulary (`CompactionResult.summary: ContentBlock[]`). There is no way to express the contract without naming `Session`/`SessionEvent` (from `dsh-session`) and `ContentBlock` (from `dsh-llm`).
 
 This is not a coupling smell — it is the contract's domain. The "only cordis" guidance was always shorthand for "the interface depends only on what the contract genuinely names, and never on an implementation." `dsh-session` and `dsh-llm` are themselves interface/vocabulary packages, not implementations; `dsh-compact` still imports no backend. The seam's real invariant — *consumers and implementations evolve independently behind an abstract service* — holds intact.
 
@@ -119,7 +119,7 @@ The lifecycle boundary makes crash state unambiguous:
 ## Consequences
 
 - **Packages**: `packages/compact/compact` supplies the interface, `compact-basic` supplies the backend, `compact-tool-result-prune` supplies optional deterministic rewriting, and `command-compact` supplies human `/compact`. `packages/llm/token-meter` owns replay-aware measurement independently.
-- **Automatic seams**: `agent/pre-step` (`@mode waterfall`) handles pressure before request derivation and `agent/request-error` (`@mode waterfall`) handles final request failures after the failed step closes. The pre-step payload carries the claimed batch, turn, step, and signal (see the [payload-object events decision](../architecture/2026-08-06-agent-event-payload-objects.md)), with no compaction-only prompt/prefix payload.
+- **Automatic extension points**: `agent/pre-step` (`@mode waterfall`) handles pressure before request derivation and `agent/request-error` (`@mode waterfall`) handles final request failures after the failed step closes. The pre-step payload carries the claimed batch, turn, step, and signal (see the [payload-object events decision](../architecture/2026-08-06-agent-event-payload-objects.md)), with no compaction-only prompt/prefix payload.
 - **`SessionEventMap`** gains `compact/start` / `compact/summary` / `compact/end` by declaration merging (merge-extensible); `SurfaceEventType` is **not** touched. These are session events, not cordis `Events`, so the event-taxonomy gate needs no entry.
 - **`dsh-compact`** owns `COMPACT_CHECKPOINT_SOURCE`, `isCompactCheckpointSource(source)`, `toolPairingBalancedBefore(session, seq)`, and `toolPairingBalancedAfter(session, seq)`. The marker identifies replacement summaries across backend implementations. The cached surface-edge checks prevent `compactRegion` and `compactIfNeeded` from splitting a tool-call/result pair, validate current membership by seq, answer both edges from one per-cut balance sequence, and reject stale or missing seqs and orphan results.
 - **`dsh-session`** validates positional replacement, complete cited source-event coverage, and content-only single-node `tool/result` rewrites through its one surface manager. Its invariant companion treats fresh appended tool results as executions that require an open step and pending call, while the compaction companion owns numeric-turn versus standalone-null bracket relations.

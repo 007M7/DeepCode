@@ -44,7 +44,7 @@ function expectErr<T>(response: RpcResponse<T>): { code: string; message: string
   return response.result.error
 }
 
-/** In-memory settings provider: the seam base class owns all tested behavior. */
+/** In-memory settings provider: the Service Definition base class owns all tested behavior. */
 class MemorySettings extends Settings {
   doc: Record<string, unknown>
 

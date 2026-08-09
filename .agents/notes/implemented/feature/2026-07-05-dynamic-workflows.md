@@ -10,7 +10,7 @@ The harness can delegate ONE task to ONE child (`dsh-tool-subagent`), but work t
 
 ## Decision
 
-A workflow capability family at `packages/workflow/` in the bash seam shape (interface / implementation / consumer), plus the structured-output foundation it needs on the subagent seam.
+A workflow capability family at `packages/workflow/` in the bash seam shape (Service Definition / Service provider / Consumer), plus the structured-output foundation it needs on the subagent seam.
 
 ### The script contract (Claude Code-compatible)
 
@@ -36,7 +36,7 @@ The engine exposes an in-process `MessageChannel` test path because main-process
 
 **Value boundary**: `materializeFromRealm` copies outbound values and rejects functions, symbols, nested `undefined`, exotic prototypes, cycles, sparse arrays, and non-finite numbers. Data-property copies make `"__proto__"` safe; getters are read normally and a throwing getter fails loudly. `args` crosses through `workerData` and is cloned again before exposure. Realm functions are invoked rather than copied, and thrown values use a total renderer so `result` cannot reject. Hook errors are host-realm `WorkflowError`s, so scripts branch on `name` or `code` rather than `instanceof Error`, as documented in the engine README. Concurrency, total-agent, item, timeout, and grace limits are validated config.
 
-### The consumer (dsh-tool-workflow)
+### The Consumer (`dsh-tool-workflow`)
 
 A `workflow` tool mirroring `dsh-tool-subagent`'s synchronous shape: start, await, `try/finally` dispose, abort-bridge `exec.signal`, non-`completed` → `isError`. Render intent: a `generic` card titled by the call's `meta.name` parameter (presentation is a pure function of args). The tool description IS the model-facing authoring spec. The usage policy ships with the tool as its own `tool:<toolName>` prompt section (explicit-ask-only guidance — tool guidance lives in tool plugins, never in the deployment persona); the harness has no ultracode-style effort gate.
 

@@ -18,10 +18,10 @@ The project is pre-1.0. Prefer the correct public shape over compatibility shims
 ## Repository layout
 
 ```text
-packages/entry/     Published entry package: JS seam (resolve/probe/grants) + the C source.
+packages/entry/     Published entry package: JavaScript API (resolve/probe/grants) + the C source.
 packages/linux-*/   Published per-platform packages: one prebuilt static binary, no JavaScript.
 scripts/            Build, matrix derivation, prepack gates, and release orchestration.
-test/               Plain-node behavioral tests (entry seam + real-kernel launcher proofs).
+test/               Plain-node behavioral tests (entry API + real-kernel launcher proofs).
 docs/               Architecture, packaging, CLI contract, release, support matrix, naming.
 ```
 

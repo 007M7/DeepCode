@@ -26,7 +26,7 @@ Status: implemented
 
 ## 考虑过的替代方案
 
-**默认不挂载，部署方自行加行（SDK 立场的延续）。** 当前阶段不采用：本仓的 web/headless 组合就是内部部署本身，「上报默认开」是这个部署的产品要求；SDK 立场仍由 seam 包保持（不挂 = 零外发）。
+**默认不挂载，部署方自行加行（SDK 立场的延续）。** 当前阶段不采用：本仓的 web/headless 组合就是内部部署本身，「上报默认开」是这个部署的产品要求；SDK 立场仍由 Service Definition 包保持（不挂 = 零外发）。
 
 **开关做成 config 字段而非 env patch。** 不可行：cordis 行没有 config 层的 disable 语义，且 `exporter.url` 校验在插件构造期 fail-loud，开关必须在 Loader 之前生效——AppCLIEntry patch 层是唯一落点。
 

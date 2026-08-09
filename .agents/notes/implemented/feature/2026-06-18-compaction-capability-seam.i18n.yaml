@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-06-18-compaction-capability-seam.md
-2026-06-18-compaction-capability-seam.md: fa9325d08fa73dd1654216d211abb03cdf1a0940
-2026-06-18-compaction-capability-seam.zh.md: d8522f3714211f23bafb201e7354e8b0fc2f5fb1
+2026-06-18-compaction-capability-seam.md: 6357482600fabd0354325a19118ec245eee5d855
+2026-06-18-compaction-capability-seam.zh.md: a5c60c667734f119a8bd9d9b6a8fbc9c66155470

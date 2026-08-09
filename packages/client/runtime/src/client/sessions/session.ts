@@ -198,7 +198,7 @@ export class Session implements SessionFace {
   /**
    * Bind the Agent-scoped context minted by SessionsService (single write;
    * a second bind is a wiring error and throws). Direction stays one-way at
-   * the seam: consumers still reach the Session via `sessions.sessionOf`,
+   * this binding boundary: consumers still reach the Session via `sessions.sessionOf`,
    * while the Session holds its own dispatch point (host Agent.loopCtx
    * mirror).
    * @param actx - the agent's scoped context.

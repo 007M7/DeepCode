@@ -147,7 +147,7 @@ declare module 'cordis' {
     // ---- lifecycle (emit) ----
     /**
      * A fully configured agent and live session were published. Setup is
-     * composition-only; `agent/session-start` is the first startup-driving seam.
+     * composition-only; `agent/session-start` is the first startup-driving extension point.
      * Synchronous listener failure vetoes publication, while returned-promise
      * rejection is reported. Detach requested during dispatch waits until every
      * creation listener has observed the stable entry.
@@ -215,7 +215,7 @@ declare module 'cordis' {
      */
     'agent/session-start'(this: Scoped<Agent>, payload: { agent: Agent; source: SessionStartSource }): void
 
-    // ---- the machine's extension seams ----
+    // ---- the machine's extension points ----
     /**
      * Reject a proposed step or replace the messages that enter it. Calling
      * `next()` preserves the current messages.
@@ -232,7 +232,7 @@ declare module 'cordis' {
      * Replace the frozen call configuration. `await next()` yields the config
      * the machine would use (agent options on the first request, the logged
      * header afterwards); return a replacement to switch. Model-visible
-     * content must use logged channels; this seam cannot mutate messages.
+     * content must use logged channels; this waterfall cannot mutate messages.
      * @param payload.agent - the agent making the model call.
      * @param payload.turn - the open turn number.
      * @param payload.step - the step whose request this is.

@@ -1,5 +1,5 @@
 /**
- * Tests for the local backend through the `ctx.fs` provider seam: stat, whole-
+ * Tests for the local backend through the `ctx.fs` Service Definition: stat, whole-
  * file/streamed text reads, atomic guarded writes (createIfAbsent /
  * replaceIfVersion), version-guarded literal edits, concurrency races, symlink
  * identity, and HMR/disposal. Read WINDOWING is policy and lives in
@@ -55,7 +55,7 @@ describe('registration', () => {
 describe('resolve', () => {
   it('resolves a relative path against opts.cwd, not config.cwd', async () => {
     // config.cwd is `dir`; a call supplying a DIFFERENT cwd bases the relative
-    // path there (the per-session-workspace seam — mirrors tool-bash workdir).
+    // path there (the per-session workspace mapping — mirrors tool-bash workdir).
     const other = await mkdtemp(join(tmpdir(), 'dsh-fs-other-'))
     try {
       await writeFile(join(other, 'x.txt'), 'in other')

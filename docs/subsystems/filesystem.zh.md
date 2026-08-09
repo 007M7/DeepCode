@@ -8,7 +8,7 @@
 
 提供方源码：[`packages/fs/fs/src/types.ts`](../../packages/fs/fs/src/types.ts) 与 [`packages/fs/fs/src/index.ts`](../../packages/fs/fs/src/index.ts)。策略源码：[`packages/fs/fs-policy/src/types.ts`](../../packages/fs/fs-policy/src/types.ts)。读取渲染源码：[`packages/fs/tool-fs/src/read-render.ts`](../../packages/fs/tool-fs/src/read-render.ts)。
 
-## 目标标识与元数据（提供方 seam）
+## 目标标识与元数据（提供方约定）
 
 每个操作首先将用户提供的路径解析为不透明的后端目标。消费方可以显示 `displayPath`，但禁止解析 `targetKey`（一个品牌化的不透明 id），也不得假设它是本地绝对路径。
 
@@ -111,7 +111,7 @@ interface FsDirEntry {
 }
 ```
 
-## 写入与编辑守卫（提供方 seam）
+## 写入与编辑守卫（提供方约定）
 
 `writeText` 和 `editText` 的版本守卫都是可选的：省略守卫时执行无条件的裸提供方变更，提供守卫时则执行相应的条件检查。`writeText` 的守卫是 `FsWriteIntent`：`createIfAbsent` 在目标缺失时创建，目标已存在时以 `FS_NOT_OBSERVED` 拒绝；`replaceIfVersion` 仅在目标存在且版本匹配时替换，否则报 `FS_STALE_VERSION`。省略 `expected` 则无条件创建或覆盖。联合类型本身只包含两种有守卫的意图；「无守卫」通过省略表达，因此 write 和 edit 共享同一个对称的 `expected?` 形状。
 
@@ -177,7 +177,7 @@ interface FsEditOutcome {
 }
 ```
 
-## fs 策略事件（提供方 seam 词汇）
+## fs 策略事件（提供方约定词汇）
 
 `dsh-fs` 拥有三个事件，由工具分发、策略插件监听，使发射方（`dsh-tool-fs`）与监听方（`dsh-fs-policy`）共享词汇，而发射方无需依赖策略插件。它们只携带 `dsh-fs` 词汇加一个不透明的 `object` actor，不含面向模型的概念，也不含 agent/会话所有者结构。
 
@@ -229,7 +229,7 @@ interface FileReadOutcome {
 
 已观测状态是 `dsh-fs-policy` 插件内部持有的 `WeakMap<owner, Map<targetKey, { version }>>`。**当且仅当**所有者已读取、写入或编辑过该目标时（每次成功都 emit `fs/observed`），条目才存在，因此其存在本身就是先前观测的记录——没有单独的 `hasRead` 标志，也没有视图区分。所有者从事件 actor 推导（通常是 `exec.agent.session`），被视为不透明且从不读取。成功的 read/write/edit 会刷新该所有者对应的已记录版本；dispose（资源释放）时丢弃全部数据（HMR（热模块替换）安全）。
 
-## 错误分类体系（提供方 seam）
+## 错误分类体系（提供方约定）
 
 文件系统故障使用稳定的 `FsErrorCode` 字符串，由 `FsError`（`HarnessError`）携带。工具注册表在错误结果上保留 `{ name, code }`，使重试、权限和 UI 层可以按 code 分支而无需解析文本。
 
@@ -258,7 +258,7 @@ type FsErrorCode =
 
 ## 文件 IO 不设超时
 
-`read`/`write`/`edit` **不**接受 `timeoutMs`，提供方 seam 也不设置截止时间——不同于 bash 与 web（它们消费 [`@deepseek-ai/dsh-timeout`](../../packages/util/timeout/README.md)）以及 bash 支撑的 `glob`/`grep`（其声明的 `timeoutMs` 由 `@deepseek-ai/dsh-timeout-policy` 强制执行）：那些是进程支撑的，截止时间可以真正终止工作。本地系统调用至多是尽力中止——超时无法迫使进行中的 `fsync`/`rename` 停下，因此这里的截止时间会成为无法兑现承诺的旋钮，而且恰好落在"显式优于隐式"禁止隐式默认值的位置。两个参照 agent（Claude Code、Codex）出于同样原因不给文件 IO 计时；取消仍通过工具执行 signal 传播，在系统调用边界尽力中止。
+`read`/`write`/`edit` **不**接受 `timeoutMs`，提供方约定也不设置截止时间——不同于 bash 与 web（它们消费 [`@deepseek-ai/dsh-timeout`](../../packages/util/timeout/README.md)）以及 bash 支撑的 `glob`/`grep`（其声明的 `timeoutMs` 由 `@deepseek-ai/dsh-timeout-policy` 强制执行）：那些是进程支撑的，截止时间可以真正终止工作。本地系统调用至多是尽力中止——超时无法迫使进行中的 `fsync`/`rename` 停下，因此这里的截止时间会成为无法兑现承诺的旋钮，而且恰好落在"显式优于隐式"禁止隐式默认值的位置。两个参照 agent（Claude Code、Codex）出于同样原因不给文件 IO 计时；取消仍通过工具执行 signal 传播，在系统调用边界尽力中止。
 
 ## 服务与插件
 

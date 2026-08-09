@@ -7,12 +7,12 @@
 | 页面 | 负责内容 |
 |---|---|
 | [core.md](core.md) | `packages/core` 控制主干：逐包循环地图、agent 创建与所有权（`AgentHandle`）、`Agent` 句柄及其投递/取消/拦截约定，以及全仓通用类型模式（`…Map → 派生联合`、品牌化 id） |
-| [llm-streaming.md](llm-streaming.md) | `packages/llm` 的对话词汇——`Message`/`ContentBlock`、组装完成的模型请求、`StreamChunk` 协议格式（wire format）+ 适配器约定（adapter contract）、`BlockAssembler`、`LlmAdapter` seam |
+| [llm-streaming.md](llm-streaming.md) | `packages/llm` 的对话词汇——`Message`/`ContentBlock`、组装完成的模型请求、`StreamChunk` 协议格式（wire format）+ 适配器约定（adapter contract）、`BlockAssembler`、`LlmAdapter` 提供方约定 |
 | [token-meter.md](token-meter.md) | 不可变的标量与位置回放度量，附带已消费日志修订号 |
 | [scope.md](scope.md) | 作用域注册标识、dispatch 载体，以及拥有的 `Scope` 上下文 |
-| [typert.md](typert.md) | 远程调用描述符、lookup/Context 声明、TypeRT 注册表，以及 Host Gateway/Client API seam |
+| [typert.md](typert.md) | 远程调用描述符、lookup/Context 声明、TypeRT 注册表，以及 Host Gateway/Client API 边界 |
 | [goal.md](goal.md) | 持久 goal 标识、生命周期快照、激活、变更记录与 Round 归属 |
-| [commands.md](commands.md) | 人类命令 seam：定义、适配器发现、直接调用、结果与解析视图 |
+| [commands.md](commands.md) | 人类命令注册表服务：定义、适配器发现、直接调用、结果与解析视图 |
 | [session.md](session.md) | 完整的 `SessionEventMap` 变体目录、`TurnTrigger`/`TurnEndReason`、`deriveMessages()`、执行封闭与独立事件 |
 | [persistence.md](persistence.md) | 持久性 seam：`SessionPersistence`、JSONL + SQLite 后端、`session/flush`、崩溃恢复、`SessionHeader` |
 | [settings.md](settings.md) | 用户设置 seam：`SettingsNamespace` 注册、分层解析（默认值 → 组合 `base` → 用户文档）、owner scope、热提交 |
@@ -42,10 +42,10 @@
 | [plan.md](plan.md) | 计划模式：仅记日志的 `plan/mode` 状态、待定选择的冲刷、`PlanModeConfig`、`exit_plan_mode` 审阅流程 |
 | [invariants.md](invariants.md) | 运行时不变式注册表：选择配置 `Config`、`InvariantInstaller`/`InvariantFailure`、空配套插件约定 |
 | [http-server.md](http-server.md) | HTTP 载体：`WebRouteKind`/`WebRoute`、匹配顺序、可认领的回退席位、index 转换 |
-| [storage.md](storage.md) | 存储子系统：后端 seam（`StorageBackend`）、`StorageForms`、`DomainSpec`/`Domain`、`domain/changed` |
+| [storage.md](storage.md) | 存储子系统：后端约定（`StorageBackend`）、`StorageForms`、`DomainSpec`/`Domain`、`domain/changed` |
 | [workspace.md](workspace.md) | 工作区注册表：`Workspace`/`WorkspaceId`、注册与解析、与会话 `cwd` 的关系 |
 | [client-modules.md](client-modules.md) | Web 插件表：`dshClient` 声明、`WebBootGraph` 线上组合、bundle 路由与 index 转换 |
 | [session-projection.md](session-projection.md) | 投影 seam：`SessionProjectionMap`、纯函数 `ProjectionDefinition` 单元、`ProjectionSnapshot` 的一致切面、变更馈送 |
-| [telemetry.md](telemetry.md) | 对外上报 seam：`TelemetryRecord`/`TelemetrySeverity`、`TelemetryBackend` 约定、`telemetry/record` 脱敏 waterfall |
+| [telemetry.md](telemetry.md) | 会话遥测能力 seam：`TelemetryRecord`/`TelemetrySeverity`、`TelemetryBackend` 约定、`telemetry/record` 脱敏 waterfall |
 
 > 这些页面上的类型声明及其 JSDoc 与源码等价，并由 `pnpm run verify-type-equiv` 检查漂移（见 [development.md](../development.md#documenting-types-verbatim-ts-type-equiv)）。普通块保留完整声明；`public-api` 块保留去除实现体的公开 class 声明。Cordis 服务与事件使用每页生成的 **Cordis surface** 小节。

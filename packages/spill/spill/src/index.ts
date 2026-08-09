@@ -1,11 +1,11 @@
 /**
- * The spill storage seam (`ctx.spillStore`): an abstract service defining WHAT a
+ * Service Definition for the spill storage capability seam (`ctx.spillStore`): an abstract service defining WHAT a
  * spill backend does — persist a tool's oversized text and return a model-facing
  * locator plus retrieval guidance — without saying HOW. Implementations
  * subclass {@link SpillStore} and register as the `spillStore` service;
  * `@deepseek-ai/dsh-spill-local` (host filesystem) is the first.
  *
- * The seam is deliberately minimal: `saveText` and nothing else. It owns NO
+ * The Service Definition is deliberately minimal: `saveText` and nothing else. It owns NO
  * retention policy (that is `@deepseek-ai/dsh-retention`), NO tool-result
  * replacement (that is `@deepseek-ai/dsh-spill-policy`), and NO retrieval or
  * search API. The backend supplies the locator and retrieval hint appropriate

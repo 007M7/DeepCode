@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/proposed/feature/2026-07-17-sdk-follow-up-capabilities.md
-2026-07-17-sdk-follow-up-capabilities.md: 88d5d2f9bd1ce01c20177bcaee5bbe6b434bb978
-2026-07-17-sdk-follow-up-capabilities.zh.md: d54dc4d0635ef37d7196ff5cecbdd6ed093c98e3
+2026-07-17-sdk-follow-up-capabilities.md: 9a17f07139014f95666789e41cacb7af180ef5d8
+2026-07-17-sdk-follow-up-capabilities.zh.md: 2431c5c3d9e45605223d9bb1843e48a3c711759e
