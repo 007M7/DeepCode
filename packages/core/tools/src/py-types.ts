@@ -41,8 +41,8 @@ const IDENTIFIER = /^[\p{XID_Start}_]\p{XID_Continue}*$/u
  * that normalize together would collapse into one declaration. Those names
  * take the subscript path, which carries their exact bytes.
  *
- * `IDENTIFIER` is equivalent to `str.isidentifier()` on Node 22.23.1 vs
- * CPython 3.9.6 tables: the equivalence holds inside the two versions' shared
+ * `IDENTIFIER` matches `str.isidentifier()` (measured on Node 22.23.1 vs
+ * CPython 3.9.6 tables): the equivalence holds inside the two versions' shared
  * tables, and the skew characters below are exactly where that pair diverges.
  * The predicate as a whole is deliberately stricter than `isidentifier()`,
  * which does not test NFKC stability: `'ﬁeld'.isidentifier()` is True and

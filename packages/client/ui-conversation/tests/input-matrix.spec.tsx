@@ -184,7 +184,7 @@ describe('matrix row: locked (session disabled)', () => {
     expect(shell.snapshot.phase).toBe('plain')
   })
 
-  it('running does NOT lock (queue cut 1): typing and enter-queue stay live', () => {
+  it('running does NOT lock: typing and enter-queue stay live', () => {
     const { textarea, sink } = bench({ running: true })
     expect((textarea).disabled).toBe(false)
     fireEvent.change(textarea, { target: { value: '排队' } })

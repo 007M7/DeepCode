@@ -12,8 +12,8 @@ Large design and review sessions leave working shorthand — decision ordinals, 
 
 Durable prose — comments, JSDoc, docs, notes, test comments and titles — cites only committed artifacts, resolvable in-repo without grep archaeology:
 
-- Name the owning Agent Note (its path at least once per file, a searchable name inline), the doc page path, or a GitHub issue number. PR, commit, branch, and stack positions stay banned per the documentation standard; issues are durable and citable.
-- A design-session ordinal with a committed owner is replaced by the owner's name — decision 21 lives in the [web input-machine note](../architecture/2026-07-25-web-input-machine-and-slash-pipeline.md) as the plain-text-reference decision. An ordinal without an owner is deleted and its factual clause restated to stand alone.
+- Name the owning Agent Note (its path at least once per file, a searchable name inline), the doc page path, or a GitHub issue number. PR, commit, branch, and stack positions stay banned in docs and code per the documentation standard; issues are durable and citable, and Agent Notes may cite merged PRs as evidence anchors — the standard routes change stories to commits, PRs, Agent Notes, and postmortems, and a note is that home.
+- A design-session ordinal whose decision has a committed owner is replaced by the decision's name — the ordinal once logged as "decision 21" is now "the plain-text-reference decision", owned by the [web input-machine note](../architecture/2026-07-25-web-input-machine-and-slash-pipeline.md); the ordinal itself resolves nowhere in-repo and was dropped everywhere. An ordinal without an owner is deleted and its factual clause restated to stand alone.
 - Fixed regressions are pinned as present-tense counterfactuals ("without X, Y happens"; "a naive X would…"), never as repo history ("used to Y").
 - Implemented notes state shipped reality: a "deferred to a later PR" claim whose target shipped names the shipped note instead.
 - Recorded fixtures, snapshots, and archived notes are exempt: recorded model output and sealed history keep their original voice.
@@ -23,7 +23,7 @@ One repo-wide purge applied these rules across the prose surfaces, including the
 ## Alternatives considered
 
 - **Commit the design ledgers and audit documents so the ordinals resolve.** Rejected: session transcripts are working artifacts, not maintained references; committing them would create a parallel, ungated decision corpus beside Agent Notes, and their internal numbering would still drift.
-- **A mechanical gate for the banned vocabulary.** Deferred: the vocabulary is unbounded natural language, and the audit's recall batteries need judgment to separate leakage from legitimate prose ("wait" the noun, contrastive "actually", runtime old/new states). A narrow high-precision gate (for example `\(decision \d` and `\(audit [A-Z]\d`) is the candidate if the pattern recurs.
+- **A mechanical gate for the banned vocabulary.** Deferred: the vocabulary is unbounded natural language, and the audit's recall batteries need judgment to separate leakage from legitimate prose ("wait" the noun, contrastive "actually", runtime old/new states). A narrow high-precision gate (for example `\(decision \d`, `\(audit [A-Z]\d`, `\bcut \d`, `this cut`, a bare `\bT\d\b`, and `P-I`) is the candidate if the pattern recurs; review of the purge itself caught residuals in exactly those last four shapes, so they lead the candidate list.
 - **Delete the rationale that cited dead artifacts.** Rejected: the factual clauses were preserved or restated; only citations, review choreography, and derivation transcripts were removed, per the prose standard's complete-proposition rule.
 
 ## Verification

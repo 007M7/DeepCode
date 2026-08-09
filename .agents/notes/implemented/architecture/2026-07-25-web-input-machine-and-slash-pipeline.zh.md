@@ -78,7 +78,7 @@ occurrence 表与 chip 三投影：
 
 ### 纯文本引用：text outcome 与 lexicon 装饰
 
-skill/@subagent 引用不走占位符 + occurrence 身份链——纯文本引用决策（外部记录为决策 21）：pick 直接把 `/name ` `@name ` 原文插进 draft，chip 视觉纯派生：
+skill/@subagent 引用不走占位符 + occurrence 身份链——纯文本引用决策：pick 直接把 `/name ` `@name ` 原文插进 draft，chip 视觉纯派生：
 
 - PickOutcome 增 `{text}` arm；新 scoped bail 事件 `slash/input-insert-text` `{text, span}`（与另三个同约定：draftRev CAS、返回 true ⟺ 实际改写）；facade.insertText 走 setDraft 拼接，机器零改动。
 - source 可选 `lexicon?(session)` 钩子：同步热快照名录，`undefined` = 数据未热——零装饰、永不触发 fetch（渲染路径保持同步无副作用）；配对的可选 `subscribeLexicon?(session, listener)` 钩子是名录在 warm 之后仍会变化（目录 settle、子代生灭）时的失效通道。controller 把各名录聚合进自己的 `lexicon` snapshot store（每次 source 通知重拉）；scope 出生后才注册的 source 由 service 广播给活 controller，补 warm 并并入名录。

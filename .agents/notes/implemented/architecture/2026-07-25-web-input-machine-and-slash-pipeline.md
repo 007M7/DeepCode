@@ -78,7 +78,7 @@ A trigger/menu/pick pipeline with zero knowledge of "commands":
 
 ### Plain-text references: text outcomes and lexicon decoration
 
-skill/@subagent references skip the placeholder + occurrence identity chain — the plain-text-reference decision (externally logged as Decision 21): a pick inserts the literal `/name ` `@name ` text straight into the draft, with the chip visual purely derived:
+skill/@subagent references skip the placeholder + occurrence identity chain — the plain-text-reference decision: a pick inserts the literal `/name ` `@name ` text straight into the draft, with the chip visual purely derived:
 
 - PickOutcome gains a `{text}` arm; the new scoped bail event `slash/input-insert-text` `{text, span}` (the same contract as the other three: draftRev CAS, returning true ⟺ an actual rewrite); facade.insertText goes through setDraft concatenation — zero machine changes.
 - Sources get an optional `lexicon?(session)` hook: a synchronous hot-snapshot name roster, with `undefined` = data not warm — zero decoration, never triggering a fetch (the render path stays synchronous and side-effect-free); the paired optional `subscribeLexicon?(session, listener)` hook is the invalidation channel for rolls that change after warm (catalog settles, children spawn/exit). The controller aggregates the rolls into its `lexicon` snapshot store (re-polling on each source notification); sources registered after scope birth are warmed and folded in via the service's live-controller broadcast.

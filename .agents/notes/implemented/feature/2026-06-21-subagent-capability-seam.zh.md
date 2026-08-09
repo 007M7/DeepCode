@@ -62,7 +62,7 @@ bash seam（[能力 seam](../architecture/2026-06-13-capability-seams.md)）在�
 
 ### 提供方选择是配置，不面向模型
 
-`dsh-tool-subagent` 绑定到恰好一个提供方名称（`Config.provider`）；模型只看到 `{ description, prompt }`。若要暴露多种传输方式，请多次加载该工具插件，每次绑定不同的提供方和不同的 `toolName`（工具注册表拒绝重名）。*服务*持有多提供方注册表；*工具*选择其中一个——本版 schema 中没有提供方/type 参数。
+`dsh-tool-subagent` 绑定到恰好一个提供方名称（`Config.provider`）；模型只看到 `{ description, prompt }`。若要暴露多种传输方式，请多次加载该工具插件，每次绑定不同的提供方和不同的 `toolName`（工具注册表拒绝重名）。*服务*持有多提供方注册表；*工具*选择其中一个——schema 中没有提供方/type 参数。
 
 ## 测试
 
@@ -72,5 +72,5 @@ bash seam（[能力 seam](../architecture/2026-06-13-capability-seams.md)）在�
 
 - **递归。** 如果不设限制，进程内子 agent 能看到委派工具并递归调用。进程内后端实现了可选的绝对深度限制和有作用域的实时全局 `toolFilter`；ACP 声明这两项能力为关闭状态，并拒绝此类请求。[subagent 组合控制 Agent Note](2026-07-12-subagent-persona-tool-filter-and-depth.md) 负责定义它们的确切语义和安全边界。
 - **阻塞父轮次。** 前台收集在子 agent 的整个持续时间内保持父 agent 的步骤打开。后台委派使用共享的 `ctx.tasks` 运行时与通用 `task_*` 工具，与后台 bash 共用同一套收集机制；subagent seam 本身仍不感知任务。
-- **实时进度。** 本版仅暴露生命周期事件与最终结果；逐分片的子→父更新流推迟到后台重新设计时一并处理。
+- **实时进度。** 仅暴露生命周期事件与最终结果；逐分片的子→父更新流推迟到后台重新设计时一并处理。
 - **ACP 客户端接口。** 将 ACP 子 agent 的 `fs`/`terminal` 代理回父 agent（共享工作区模式）是后续工作；首版不声明这两项能力，子 agent 在自己的进程中自行服务。

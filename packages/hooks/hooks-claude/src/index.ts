@@ -349,7 +349,7 @@ function stopPayload(ctx: Context, agent: Agent): Record<string, unknown> {
  * Build a SubagentStart/SubagentStop payload from the CC base (the child's
  * `session_id`/`cwd` when the child agent is available) plus the subagent-hook
  * fields. `agent_type` is the CC-default {@link SUBAGENT_TYPE}; `stop_hook_active`
- * is present on SubagentStop only (the loop-guard flag, always false this cut).
+ * is present on SubagentStop only (the loop-guard flag, always false).
  */
 function subagentPayload(ctx: Context, event: 'SubagentStart' | 'SubagentStop', info: { id: string }, child: Agent | undefined): Record<string, unknown> {
   return {
