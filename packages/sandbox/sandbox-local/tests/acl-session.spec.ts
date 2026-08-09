@@ -327,6 +327,20 @@ describe('windows-acl write grants (LocalSandboxProvider)', () => {
       // is the map hit (not recreated) — only the failed temp grant joins.
       expect(mockState.grants).toHaveLength(3)
       expect(mockState.grants[2]!.disposed).toBe(true)
+
+      // Temp-side cleanup failure: the standing workspace grant stays (map
+      // hit), the exclusive mkdir fails, AND the temp grant's dispose also
+      // fails — the temp cleanup AggregateError propagates.
+      mockState.grants = []
+      mockState.disposeFailure = new Error('temp cleanup exploded')
+      const dupTemp = shapedTempPath().replace(/abab$/, 'efef')
+      mkdirSync(dupTemp)
+      scratch.push(dupTemp)
+      const dupRecord = { sessionId: SessionId('temp-cleanup-fail'), workspace: ws, tempDir: dupTemp }
+      ctx.sessions.create(SessionId('temp-cleanup-fail'), { seed: [recordEvent(dupRecord)], meta: { cwd: ws } })
+      const dupPolicy: SandboxPolicy = { mode: 'workspace-write', workspaceRoot: ws, sessionId: SessionId('temp-cleanup-fail') }
+      expect(() => sandbox.confine(['true'], dupPolicy)).toThrow(/temp grant materialization failed and its cleanup also failed/)
+      expect(mockState.grants).toHaveLength(1) // only the failed temp grant (the workspace grant was the map hit)
     } finally {
       cleanup()
     }
