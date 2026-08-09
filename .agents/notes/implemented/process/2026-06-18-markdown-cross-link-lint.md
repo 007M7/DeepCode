@@ -20,11 +20,11 @@ A fourth `doc-sync` gate, `verify-md-links` (`scripts/verify-md-links.ts`), mirr
 
 Scope matches the other gates plus the AGENTS.md pair and the repo-authored agent-skill Markdown under `.agents/skills/` (those skill files cross-link into the docs tree, so this reorg rewrote links in them too): `README.md`, `docs/**/*.md`, `packages/*/README.md`, `AGENTS.md`, `packages/AGENTS.md`, `.agents/skills/**/*.md`, deduped by real path (the `CLAUDE.md` symlinks resolve onto the AGENTS.md files). It is wired into `doc-sync`, so relevant documentation changes and CI exercise the same broken-link check.
 
-This gate checks *existence*, not anchor validity: a link to a real file with a `#wrong-heading` fragment still passes (the file resolves; the fragment is stripped).
+The gate now also checks `#fragment` anchors on Markdown targets — same-file anchors included — against heading slugs and explicit `<a id>`; the [fragment-anchor decision](2026-08-09-md-fragment-anchor-gate.md) owns that mechanism and the slug rules.
 
 ## Alternatives considered
 
-**Anchor-level validity checking** — heavier and lower-value; file-level dead links are the failure that actually bit. The scope cut is deliberate: authors verify `#fragment` anchors themselves when linking to one.
+**Anchor-level validity checking** — deferred here as heavier and lower-value (file-level dead links were the failure that had actually bit), leaving authors to verify `#fragment` anchors themselves. That manual rule did not hold; the [fragment-anchor decision](2026-08-09-md-fragment-anchor-gate.md) later added the check.
 
 ## Consequences
 
