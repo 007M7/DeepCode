@@ -1197,7 +1197,7 @@ export interface Config {
    * non-empty override asserts full enforcement and skips built-in selection and
    * probing. A runner that starts but refuses its profile must be identifiable by
    * {@link runnerFailureSignatures}. Consumers classify spawn rejection; only
-   * attributable `ENOENT` or `EACCES` with runner argv[0] provenance becomes an
+   * attributable `ENOENT` or `EACCES` whose error path equals runner argv[0] becomes an
    * infrastructure failure.
    */
   runnerCommand?: string[]

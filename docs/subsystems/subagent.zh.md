@@ -137,7 +137,7 @@ persisted Session
 
 Agent 收件箱是唯一的队列。每条继续执行消息都会成为一个 `Agent.followup()` FIFO 轮次，因此已接受的消息共享同一个可观测顺序，且后续消息无法改变已在进行中的轮次。投递成功会返回被接受的 `MessageId`；既有的 `agent/inbox/enqueue`、`agent/inbox/dequeue` 与 `agent/inbox/discard` 事件仍是消息生命周期的观测点，继续执行层不定义任何 subagent 专属的投递路由。
 
-后续操作的权限来自确切的在线 Agent 工具上下文。已认证的 Agent 必须是持久化子 agent 在 `SessionHeader.parentSession` 中记录的直接父级。`MessageSource` 与 `senderSessionId` 在准入之后是持久的来源凭据，不授予任何权限；可选的面向模型工具使用 `CoordinatorMessageSource`。
+后续操作的权限来自确切的在线 Agent 工具上下文。已认证的 Agent 必须是持久化子 agent 在 `SessionHeader.parentSession` 中记录的直接父级。`MessageSource` 与 `senderSessionId` 记录谁提供了已准入的消息，但不授予任何权限；可选的面向模型工具使用 `CoordinatorMessageSource`。
 
 对于这两种操作，调用方 signal 仅在收件箱接受之前掌管查找、物化与准入。此后管理器独立掌管该 Activation：之后的调用方取消既不会取消已接受的轮次，也不会 dispose 子 agent，并且该 seam 不对外暴露任何 steering（中途引导）操作。
 
@@ -427,7 +427,7 @@ interface SubagentProvider {
 }
 ```
 
-提供方的 `start()` 会以已发布的 run fulfill。服务铸造唯一的 `runId`，从提供方确切的 `localAgent` 快照 `local`，观察结果，emit `subagent/start`，并返回同一个 run；`start()` rejection 意味着未发布资源已清理，且不会 emit 生命周期事件对，而发布后的结果 rejection 会结束已经 emit 的事件对。每个可继续 Activation 都会为其驻留纪元 emit 相同的仅观察事件对，因此一次冷恢复就是一段拥有自己 `runId` 的新纪元。配对的 `subagent/end` 携带相同标识与最终输出或基础设施失败。两个事件都仅用于观察，且会隔离各自的 listener 异常。其中的 `provider` 字段是 run 或 Activation 时段的来源信息，并不声明该 edge 发出时提供方仍处于注册状态。
+提供方的 `start()` 会以已发布的 run fulfill。服务铸造唯一的 `runId`，从提供方确切的 `localAgent` 快照 `local`，观察结果，emit `subagent/start`，并返回同一个 run；`start()` rejection 意味着未发布资源已清理，且不会 emit 生命周期事件对，而发布后的结果 rejection 会结束已经 emit 的事件对。每个可继续 Activation 都会为其驻留纪元 emit 相同的仅观察事件对，因此一次冷恢复就是一段拥有自己 `runId` 的新纪元。配对的 `subagent/end` 携带相同标识与最终输出或基础设施失败。两个事件都仅用于观察，且会隔离各自的 listener 异常。其中的 `provider` 字段标明了启动 run 或 Activation 时段的提供方，并不声明该 edge 发出时提供方仍处于注册状态。
 
 ## 进程内后端：深度与种子
 
@@ -471,7 +471,7 @@ async startContinuable(spec: ContinuableStartSpec): Promise<ContinuableStart>
  * @param parent - the exact live direct parent authorizing this delivery.
  * @param childId - durable child session id.
  * @param content - user-role content to deliver.
- * @param options - durable provenance and caller cancellation, which stops the
+ * @param options - the message source fields and caller cancellation, which stops the
  *   operation only before inbox acceptance.
  * @returns the accepted message's inbox id.
  * @throws when continuation services are unavailable, parent authority is

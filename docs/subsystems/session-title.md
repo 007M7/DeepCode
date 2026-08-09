@@ -8,7 +8,7 @@ Sources: [`packages/session/session-title/src/index.ts`](../../packages/session/
 
 ## Durable title state
 
-`SessionTitleProviderId` is recorded for provider-produced revisions. `SessionTitleEventData` carries exact human-message provenance, while `SessionTitleSnapshot` adds the durable event envelope facts selected by `foldSessionTitle()`.
+`SessionTitleProviderId` is recorded for provider-produced revisions. `SessionTitleEventData` lists the exact human-message seqs used for the title, while `SessionTitleSnapshot` adds the durable event envelope facts selected by `foldSessionTitle()`.
 
 ```ts type-equiv
 /** Identifies one session-title provider registration. */
@@ -47,7 +47,7 @@ interface SessionTitleEventData {
   readonly title: string
   /** Exact human `user/message` seqs used to derive this title; empty for an explicit user rename. */
   readonly messageSeqs: number[]
-  /** Built-in fallback, registered-provider, or explicit-user provenance. */
+  /** Whether the built-in fallback, a registered provider, or the user supplied the title. */
   readonly source: SessionTitleSource
 }
 ```
@@ -86,7 +86,7 @@ interface SessionTitleLlmRequestEventData {
 
 ## Provider input and output
 
-The service snapshots eligible messages through one revision. A provider returns only seqs from that request; service-owned acceptance verifies ordering, normalizes the title, enforces the byte limit, and appends provenance.
+The service snapshots eligible messages through one revision. A provider returns only seqs from that request; service-owned acceptance verifies ordering, normalizes the title, enforces the byte limit, and appends the title with its source-message seqs and source kind.
 
 ```ts type-equiv
 /** One eligible human text message exposed to title providers. */
@@ -132,14 +132,14 @@ interface SessionTitleProviderResult {
 ```ts type-equiv
 /** One optional asynchronous title implementation registered with the service. */
 interface SessionTitleProvider {
-  /** Stable provider identity recorded in title provenance. */
+  /** Stable id of the provider recorded with the title. */
   readonly id: SessionTitleProviderId
   /** When new human prompts start automatic generation. */
   readonly automatic: SessionTitleAutomaticMode
   /**
    * Produce one title revision.
    * @param request - message snapshot, current route, session, and cancellation.
-   * @returns proposed title plus exact input seqs and optional model provenance.
+   * @returns proposed title plus exact input seqs and the optional provider/model route used to generate it.
    */
   generate(request: SessionTitleProviderRequest): Promise<SessionTitleProviderResult>
 }

@@ -28,7 +28,7 @@ Status: implemented
 
 ### 服务权限
 
-subagent seam 暴露 `ctx.subagents.reportFrom(child, content, { delivery, signal }): Promise<MessageId>`。确切的在线 child Agent 是发送方凭据。继续执行管理器只接受 `handle.agent === child` 的 Activation，从 child 的持久化 header 中推导其直接 parent，并要求该 id 在最终的同步授权与发送区间解析为一个在线 parent Agent。该 API 不接受由调用方选择的接收方、祖先或来源信息。
+subagent seam 暴露 `ctx.subagents.reportFrom(child, content, { delivery, signal }): Promise<MessageId>`。确切的在线 child Agent 是发送方凭据。继续执行管理器只接受 `handle.agent === child` 的 Activation，从 child 的持久化 header 中推导其直接 parent，并要求该 id 在最终的同步授权与发送区间解析为一个在线 parent Agent。该 API 不接受由调用方选择的接收方、祖先或发送方字段。
 
 root、one-shot child、伪造对象、陈旧 Agent 和同 id 替换对象都以 `UNAUTHORIZED` 失败。正在关闭的 child Activation 以 `ACTIVATION_CLOSING` 失败；管理器 drain 和接受前取消保留既有的生命周期错误。直接 parent 不存在或拒绝接受时，以 `PARENT_UNAVAILABLE` 和 `direct parent is not live; report was not delivered` 失败。失败不返回 id，不冷恢复 parent，不写入离线邮箱，也不会修改缺失 parent 的会话。
 
@@ -42,7 +42,7 @@ root、one-shot child、伪造对象、陈旧 Agent 和同 id 替换对象都以
 
 唤醒投递调用 `parent.followup()`。它会创建一个普通的 FIFO parent 轮次，唤醒已驻留的 parent driver，且绝不 steering 已开始的轮次。当该 parent 本身也是可继续 Activation 时，发送会使用管理器现有的准入计数，防止 parent 在同步入队与准入微任务之间结算。
 
-两种模式都会将一条用户角色消息封装为 `Background subagent <child-id> reported:`，后面跟随完全原样的 `output`。持久化来源信息为 `{ kind: 'subagent-report', senderSessionId: child.id }`。并发发送的顺序由 Agent 的常规规则决定；subagent 层不会创建第二条队列。
+两种模式都会将一条用户角色消息封装为 `Background subagent <child-id> reported:`，后面跟随完全原样的 `output`。持久化消息来源为 `{ kind: 'subagent-report', senderSessionId: child.id }`。并发发送的顺序由 Agent 的常规规则决定；subagent 层不会创建第二条队列。
 
 ### 确认与恢复
 
@@ -106,7 +106,7 @@ ACP（Agent Client Protocol）快照 harness 新增 `waitForSubagentTurnEnd`，�
 - 静默投递是校验后的默认模式，绝不会启动 parent 请求。wakeup 会恰好创建一个后续 FIFO 轮次，绝不 steering 已开始的轮次。
 - parent 接受后取消或 dispose child 不会撤回报告。接受前，child dispose、drain、parent 丢失或调用方取消都会拒绝操作。
 - 新建和恢复的 Activation 都会在发布前组合当前设置贡献。新授权等待下一个 Activation 才生效，而已驻留 child 的授权撤销立即生效。
-- 单元覆盖固定可见性、allow-list 行为、两种投递模式、稳定身份与来源信息、嵌套路由、无效发送方、缺失的 parent、取消、drain、撤销竞争，以及不存在 Task 或隐式最终报告。
+- 单元覆盖固定可见性、allow-list 行为、两种投递模式、稳定的消息与发送方身份、嵌套路由、无效发送方、缺失的 parent、取消、drain、撤销竞争，以及不存在 Task 或隐式最终报告。
 - 无密钥整体组装快照证明真实 child 工具、静默且不唤醒的行为、持久化 parent 封装，以及 parent 后续消费。
 
 ### 已接受的风险

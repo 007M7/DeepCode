@@ -109,7 +109,7 @@ export interface Agent {
    * cancel leaves it parked. A wake submitted while already idle always opens
    * its turn boundary, even when its message is cleared before the driver
    * claims ([cancel-convergence wake latch](../../../../.agents/notes/implemented/bug-fix/2026-08-07-cancel-convergence-wake-latch.md)).
-   * @param message - identified content and its producer provenance.
+   * @param message - identified content and the source that supplied it.
    * @param target - the preferred next-turn or next-step inbox boundary.
    * @param wakeup - whether delivery may wake the driver.
    */
@@ -118,7 +118,7 @@ export interface Agent {
   /**
    * Queue an ordinary follow-up turn and wake the driver. The item becomes the
    * sole ordinary message of its own turn.
-   * @param message - identified prompt content and its producer provenance.
+   * @param message - identified prompt content and the source that supplied it.
    */
   followup(message: UserMessage): void
 
@@ -127,7 +127,7 @@ export interface Agent {
    * a running driver consumes it at its next step boundary.
    * A rejected step leaves steering parked in the inbox until the next
    * wake; cancellation or disposal may discard pending steering.
-   * @param message - identified steering content and its producer provenance.
+   * @param message - identified steering content and the source that supplied it.
    */
   steer(message: UserMessage): void
 
@@ -137,7 +137,7 @@ export interface Agent {
    * idle drivers leave it pending until follow-up or steering
    * wakes them. It may miss a request whose pre-step already claimed its
    * batch. Cancellation or disposal may discard pending context.
-   * @param message - identified injected context and its producer provenance.
+   * @param message - identified injected context and the source that supplied it.
    */
   inject(message: UserMessage): void
 }

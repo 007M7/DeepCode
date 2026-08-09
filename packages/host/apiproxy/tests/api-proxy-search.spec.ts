@@ -165,7 +165,7 @@ describe('session.search', () => {
     expect(searchSessions).not.toHaveBeenCalled()
   })
 
-  it('rejects snippets whose provider provenance violates the Host filters', async () => {
+  it('rejects snippets whose recorded provider violates the Host filters', async () => {
     const ctx = await baseContext()
     const visible = hit('visible')
     ctx.sessions.create(visible.header.id, { meta: visible.header })

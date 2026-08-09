@@ -218,7 +218,7 @@ export class SubagentService extends Service {
    * @param parent - the exact live direct parent authorizing this delivery.
    * @param childId - durable child session id.
    * @param content - user-role content to deliver.
-   * @param options - durable provenance and caller cancellation, which stops the
+   * @param options - the message source fields and caller cancellation, which stops the
    *   operation only before inbox acceptance.
    * @returns the accepted message's inbox id.
    * @throws when continuation services are unavailable, parent authority is

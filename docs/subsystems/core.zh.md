@@ -111,7 +111,7 @@ interface Agent {
    * cancel leaves it parked. A wake submitted while already idle always opens
    * its turn boundary, even when its message is cleared before the driver
    * claims ([cancel-convergence wake latch](../../../../.agents/notes/implemented/bug-fix/2026-08-07-cancel-convergence-wake-latch.md)).
-   * @param message - identified content and its producer provenance.
+   * @param message - identified content and the source that supplied it.
    * @param target - the preferred next-turn or next-step inbox boundary.
    * @param wakeup - whether delivery may wake the driver.
    */
@@ -120,7 +120,7 @@ interface Agent {
   /**
    * Queue an ordinary follow-up turn and wake the driver. The item becomes the
    * sole ordinary message of its own turn.
-   * @param message - identified prompt content and its producer provenance.
+   * @param message - identified prompt content and the source that supplied it.
    */
   followup(message: UserMessage): void
 
@@ -129,7 +129,7 @@ interface Agent {
    * a running driver consumes it at its next step boundary.
    * A rejected step leaves steering parked in the inbox until the next
    * wake; cancellation or disposal may discard pending steering.
-   * @param message - identified steering content and its producer provenance.
+   * @param message - identified steering content and the source that supplied it.
    */
   steer(message: UserMessage): void
 
@@ -139,7 +139,7 @@ interface Agent {
    * idle drivers leave it pending until follow-up or steering
    * wakes them. It may miss a request whose pre-step already claimed its
    * batch. Cancellation or disposal may discard pending context.
-   * @param message - identified injected context and its producer provenance.
+   * @param message - identified injected context and the source that supplied it.
    */
   inject(message: UserMessage): void
 }
@@ -204,7 +204,7 @@ type AgentCancelCause =
   | { readonly kind: 'disposed' }
 ```
 
-cause 是由 TypeScript 强制约束的同进程输入。活跃的取消持有者会将它复制到仅运行时的 `AbortSignal.reason`；signal 不授予协作监听器任何分类权限。持久 `turn/end` 保留粗粒度 `{ kind: 'aborted' }` 结果；若需记录请求 provenance，应使用单独的持久事件，而不是让终态结果承担额外含义。
+cause 是由 TypeScript 强制约束的同进程输入。活跃的取消持有者会将它复制到仅运行时的 `AbortSignal.reason`；signal 不授予协作监听器任何分类权限。持久 `turn/end` 保留粗粒度 `{ kind: 'aborted' }` 结果；若需记录谁请求了取消，应使用单独的持久事件，而不是让终态结果承担额外含义。
 
 [事件分类](../architecture.md#event)拥有 `agent/*` 生命周期、检查点与 waterfall（瀑布式事件）约定。轮次和步骤边界是持久会话事件，而不是 agent emit。
 
@@ -216,7 +216,7 @@ cause 是由 TypeScript 强制约束的同进程输入。活跃的取消持有�
 
 ## 拦截决策
 
-pre-step 决策使用与持久 user-role 输入相同、带标识的 `UserMessage` 形状。进入步骤的批次具有权威性，并保留每条消息的标识与 provenance。钩子桥接层把其原生决策字段映射到这一类型化结果上。
+pre-step 决策使用与持久 user-role 输入相同、带标识的 `UserMessage` 形状。进入步骤的批次具有权威性，并保留每条消息的 id 和 source。钩子桥接层把其原生决策字段映射到这一类型化结果上。
 
 源码：[`packages/core/agent/src/types.ts`](../../packages/core/agent/src/types.ts)
 
@@ -249,7 +249,7 @@ type SessionStartSource = 'startup' | 'resume' | 'clear' | 'compact'
 
 ## 会话
 
-`Session` 是一份类型化 `SessionEvent` 的**仅追加日志**——唯一的真源。LLM（大语言模型）消息历史从日志*派生*（`deriveMessages()`），而非单独存储。每个条目携带单调的 `seq`、`time` 与按 `type` 判别的 `data` payload；surface 变体还额外携带 `sourceEventSeqs` provenance 与 `surfaceOp`。
+`Session` 是一份类型化 `SessionEvent` 的**仅追加日志**——唯一的真源。LLM（大语言模型）消息历史从日志*派生*（`deriveMessages()`），而非单独存储。每个条目携带单调的 `seq`、`time` 与按 `type` 判别的 `data` payload；surface 变体还可以在 `sourceEventSeqs` 中列出被引用的较早事件，并携带 `surfaceOp`。
 
 `SessionEvent` 信封的确切条件形状、十二种事件变体（`turn/start`、`turn/end`、`step/start`、`step/end`、`user/message`、`assistant/chunk`、`assistant/message`、`tool/call`、`tool/result`、`steering/message`、`todo/write`、`request/header`）、`deriveMessages()` 投影规则、`TurnTrigger`/`TurnEndReason` 原因以及执行封闭和独立事件规则都在 **[session.md](session.md)** 中。日志如何持久化——`SessionPersistence` seam、JSONL/SQLite 后端、`session/flush` 检查点、崩溃恢复与 `SessionHeader`——则在 **[persistence.md](persistence.md)** 中。
 

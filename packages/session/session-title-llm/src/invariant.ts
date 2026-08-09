@@ -16,7 +16,7 @@ export const inject = ['invariants']
 
 /**
  * No runtime invariant: this stateless helper validates and freezes each auxiliary request before
- * dispatch; deadline, stream, and provenance relationships are checked synchronously and by tests.
+ * dispatch; deadline, stream, cited message seqs, and provider/model fields are checked synchronously and by tests.
  */
 const install: InvariantInstaller = () => {}
 

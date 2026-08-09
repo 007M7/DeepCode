@@ -35,7 +35,7 @@ The durability requirement was specific: the doc shows the **literal** current t
 
 - Complete type declarations and their JSDoc are pasted verbatim into a dedicated ` ```ts type-equiv ` fence. A concise ` ```ts public-api ` fence carries the source-equivalent ambient projection for a class whose implementation bodies do not belong in the catalog. `doc-typecheck` recognizes both and skips them (the bare declarations are not standalone-compilable), and **excludes them from the opt-out ratio** — they are a separately-checked category, not unchecked sketches.
 - A new `scripts/verify-type-equiv.ts` extracts each block via the TypeScript parser and asserts that its declaration structure and every JSDoc comment match the declared symbol, ignoring only formatting whitespace and non-JSDoc comments. Ordinary blocks retain the complete declaration. A `public-api` projection retains a class's public fields, constructor, accessors, and methods with their original JSDoc while removing implementation bodies and private or protected members. This is chosen over a compiled `_Check` assertion because source names and documentation identity, not assignability, are the properties the catalog preserves.
-- Provenance lives in a central `scripts/type-equiv.manifest.json` (`{ doc, symbol, source }` entries), **not** in directive comments in the prose. The script enforces a **1:1 correspondence** between each primary type-equiv block and one manifest entry, so a block can never be silently unchecked and an entry can never rot. A paired `.zh.md` block reuses the unsuffixed sibling's entry only when the complete tracked fence sequence matches in order, kind, and byte-exact body; otherwise the gate checks it independently, finds no manifest entry, and fails.
+- Each type block's document, symbol, and source file are recorded in `scripts/type-equiv.manifest.json` (`{ doc, symbol, source }` entries), **not** in directive comments in the prose. The script enforces a **1:1 correspondence** between each primary type-equiv block and one manifest entry, so a block can never be silently unchecked and an entry can never rot. A paired `.zh.md` block reuses the unsuffixed sibling's entry only when the complete tracked fence sequence matches in order, kind, and byte-exact body; otherwise the gate checks it independently, finds no manifest entry, and fails.
 - Wired into `doc-sync`, so relevant documentation changes run it locally and CI runs it with the other documentation checks.
 
 ### Maintenance is the author's job, with a gate backstop
@@ -46,7 +46,7 @@ The durability requirement was specific: the doc shows the **literal** current t
 
 - **A flat dump of all cross-package vocabulary** — the `BashExecRequest` test case killed it: if seam vocabulary is "core", the catalog helps no one; the tiered spine-vs-seam structure won.
 - **A compiled `_Check` assignability assertion** instead of the source match — rejected because assignability does not preserve names or JSDoc: a renamed field with the same type or a changed contract comment would pass.
-- **Provenance as directive comments in the prose** — rejected for the central manifest, whose enforced 1:1 correspondence means a block can never be silently unchecked and an entry can never rot.
+- **Put each type block's source in a directive comment** — rejected for the central manifest, whose enforced 1:1 correspondence means a block can never be silently unchecked and an entry can never rot.
 
 ## Verification lesson
 

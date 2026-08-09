@@ -64,11 +64,11 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
     data: SessionEventMap[K]
   } & (K extends SurfaceEventType ? {
     /**
-     * Seq numbers of events that are provenance sources of this event
+     * Seq numbers of earlier events that this event cites as sources
      * (e.g. the `assistant/chunk` seqs that built an `assistant/message`,
      * or the surface nodes shadowed by a compaction replace node). An
      * `assistant/message` may carry a present empty array for a known empty
-     * provider stream; omission means unrecorded provenance.
+     * provider stream; omission means the source stream was not recorded.
      */
     sourceEventSeqs?: number[]
     /** How this event entered the surface; absent for non-surface events. */
@@ -286,7 +286,7 @@ Source: [`packages/compact/compact/src/types.ts:19`](../packages/compact/compact
 
 ```ts persistence-catalog
 /**
- * Provenance record of a completed summarization — log-only, no surfaceOp.
+ * Completed summary, its inputs, and its model call facts — log-only, no surfaceOp.
  * The summary content is in `data.summary`; the actual surface replacement
  * is performed by the immediately following `user/message` event that
  * shadows the compacted range. That adjacency is contractual — the
@@ -365,7 +365,7 @@ Source: [`packages/goal/goal/src/domain.ts:66`](../packages/goal/goal/src/domain
 
 ```ts persistence-catalog
 /**
- * A hook command was invoked at a hook point — log-only provenance (like
+ * A hook command was invoked at a hook point — a log-only record (like
  * `compact/*`; NOT a {@link SurfaceEventType}, carries no `surfaceOp`).
  * `dialect` is the bridge that ran it (`claude`/`codex`), `point`
  * the hook point (`PreToolUse`, `Stop`, …), `matcher` the matcher-group

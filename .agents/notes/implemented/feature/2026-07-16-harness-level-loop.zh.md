@@ -36,7 +36,7 @@ Status: implemented
 | 包 | 仓库类别 | 所属结构与动词 |
 |---|---|---|
 | `@deepseek-ai/dsh-goal` | `packages/goal/goal/`，领域服务 | 拥有 `GoalId`、比较并交换 `GoalRef`、`GoalSnapshot`、四状态 `GoalPhase`、结构化 `GoalBlockReason`、进程本地 `GoalActivation`、重放折叠，以及 `get`、`create`、`edit`、`pause`、`resume`、`complete`、`block`、`clear` 与 `disarm` 动词。 |
-| `@deepseek-ai/dsh-tool-goal` | `packages/goal/tool-goal/`，面向模型消费方 | 注册互斥的 `get_goal`、`create_goal` 与 `update_goal`；认证实时 Turn 来源，并把自治 Round 权限收窄到带机器可路由原因代码的完成或阻塞报告。 |
+| `@deepseek-ai/dsh-tool-goal` | `packages/goal/tool-goal/`，面向模型消费方 | 注册互斥的 `get_goal`、`create_goal` 与 `update_goal`；要求实时根 agent Turn 中有一条人类直接发送的消息，并把自治 Round 权限收窄到带机器可路由原因代码的完成或阻塞报告。 |
 | `@deepseek-ai/dsh-goal-session` | `packages/goal/goal-session/`，续行策略 | 在不导入具体 loop 的情况下，预留、设围栏、接纳、归属、结算、取消并排空同会话 Goal Round，直至完全停稳。 |
 | `@deepseek-ai/dsh-commands` | `packages/interaction/commands/`，UI 注册表 | 拥有面向人类专用命令的 `CommandDefinition`、发现、作用域注册、直接分发、`CommandResult` 与请求取消。 |
 | `@deepseek-ai/dsh-command-goal` | `packages/goal/command-goal/`，人类命令生产方 | 为 TUI 注册构建在目标领域之上的 `/goal` 状态、创建、编辑、暂停、恢复与清除。 |
@@ -68,7 +68,7 @@ Goal Round 驱动器为每个特定的实时 agent 至多拥有一个待定预�
 
 人类 UX 遵循 [OpenAI Codex 在提交 `678157a` 时的公开 TUI 分发器](https://github.com/openai/codex/blob/678157acaa819d5510adfe359abb5d0392cfe461/codex-rs/tui/src/chatwidget/slash_dispatch.rs#L750-L805)中的紧凑形态：`/goal` 显示状态，`/goal <objective>` 创建目标，而 `edit`、`pause`、`resume` 或 `clear` 执行直接生命周期操作。该提交永久链接让研究所得语法在 Codex 演进时仍可验证。状态包含持久阶段、已接纳/上限 Round 数以及实时已激活/未激活状态。直接状态与命令输出不会进入模型历史；已接受领域变更仍可重建，因为目标服务会记录它们。
 
-模型只接收 `get_goal`、`create_goal` 和 `update_goal`。当直接人类请求清楚要求大量多 Round 工作时，模型可以创建目标，并且可以从任何语言推断该意图。它不得把日常单 Turn 工作变成目标。直接人类来源由代码强制执行；语义解释仍是模型判断。自治目标 Round 可以为确切的当前 Goal Round 报告 `complete` 或 `blocked`，但不能编辑、暂停、恢复或替换人类目标。
+模型只接收 `get_goal`、`create_goal` 和 `update_goal`。当直接人类请求清楚要求大量多 Round 工作时，模型可以创建目标，并且可以从任何语言推断该意图。它不得把日常单 Turn 工作变成目标。代码要求当前实时根 agent Turn 中有一条人类直接发送的消息；语义解释仍是模型判断。自治目标 Round 可以为确切的当前 Goal Round 报告 `complete` 或 `blocked`，但不能编辑、暂停、恢复或替换人类目标。
 
 TUI 默认挂载共享命令注册表和完整目标栈，并通过一个生产方暴露 `/goal`。ACP（Agent Client Protocol）挂载目标领域、模型工具和同会话驱动器，但有意省略人类命令平面。每条有效已注册命令都能被每个已组合的命令适配器发现和调用；若插件与某应用不兼容，该应用组合会省略其命令生产方，而不是依赖注册表层面的表面掩码。无 UI 的 agent 主干要求显式选择加入，以免单次调用方静默变成多 Round 操作。无头 CLI（命令行界面）与 JSON-RPC 前端不消费命令平面；挂载目标栈后，普通人类文本仍可授权模型目标工具。
 
@@ -111,7 +111,7 @@ Codex 提供了这里采用的最小可观察目标 UX：一个附着于聊天�
 
 - 目标式执行在没有单个过载「loop」对象的情况下交付：同会话续行与全新 agent 迭代拥有显式、可独立测试的约定。
 - 持久目标历史可以重放和 fork，而进程本地激活态会防止恢复时意外开始工作。
-- 人类获得小型 Codex 形态 UX；模型获得紧凑、带来源检查的工具表面；部署可以独立移除任一能力。
+- 人类获得小型 Codex 形态 UX；模型获得一组紧凑工具，其中的修改操作要求当前实时根 agent Turn 中有一条人类直接发送的消息；部署可以独立移除任一能力。
 - Ralph 展示了非平凡固定策略可以完全作为现有 workflow 与 subagent 原语之上的插件实现。
 - Round 上限默认宽裕，但仍由部署控制。它限制迭代次数，不限制 token、价格、耗时或外部副作用。
 - 原始提案中的评估器、预算、反思器、后台任务、CLI 与通用 loop-session 架构有意不进入已实现公开表面。

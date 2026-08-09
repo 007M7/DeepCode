@@ -30,9 +30,9 @@ Each proposed step first claims its inbox batch and runs `agent/pre-step`. Rejec
 
 **Enforcement.** The `dsh-agent-loop/invariant` companion registers with `ctx.invariants` and, when selected, independently rebuilds each loop request through a fresh `Session`, so the live cache cannot vouch for itself, then compares messages and folded header fields at `llm/stream`. The loop records the exact frozen request through `markAgentLoopRequest()` in `dsh-llm`; the process-local identity lets the companion and other request observers recognize conversation work, while direct one-shots remain excluded regardless of their frozen shape or session id. Correctness depends on sequence-bounded reconstruction rather than listener order. A with-key e2e requires positive cache-read tokens after the first request; per-step usage is the production signal, and a header change or compaction appears as a cache-read drop on the next step.
 
-### The MiniCode shape: adopted, with the provenance arrow inverted
+### The MiniCode shape: adopted, with the event log as the source
 
-Like MiniCode, the conversation advances append-only and resets only when model-visible state changes. Unlike MiniCode, the event log remains the source of truth because it also owns persistence, recovery, boundaries, tool pairing, and provenance. `Session` caches message and header folds derived from that log, making every request independently checkable.
+Like MiniCode, the conversation advances append-only and resets only when model-visible state changes. Unlike MiniCode, the event log remains the source of truth because it also owns persistence, recovery, boundaries, tool pairing, and links from derived events to their inputs. `Session` caches message and header folds derived from that log, making every request independently checkable.
 
 ## Alternatives considered
 

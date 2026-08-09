@@ -14,7 +14,7 @@ Status: implemented
 
 该包入口仅作为配置、提示词注册与工具注册的公开组合根。内部模块沿执行边界划分：`input.ts` 负责模型 schema、规范化与过滤条件构造；`service-boundary.ts` 包含提供方调用与面向模型的安全错误转换；`workspace-access.ts` 负责调用者身份、工作区授权、标题访问与谱系投影；`operations.ts` 编排五个服务工作流；`presentation.ts` 渲染工具结果与调用卡片。这样可让策略留在其所属层，同时不改变包约定。
 
-`session_search` 按会话聚合全文匹配，并公开带类型的会话与事件元数据过滤条件。`session_event_search` 搜索一个会话，默认目标为调用者的当前会话。`session_trace` 返回完整的已授权祖先链与递归后代树。`session_event_trace` 返回一个事件所有已知的位置替换关系与直接来源关系。`session_event_read` 以未删节 JSON 返回准确的目标事件，并可选择汇总一个有界的原始事件窗口；省略 `before` 与 `after` 时只返回目标。
+`session_search` 按会话聚合全文匹配，并公开带类型的会话与事件元数据过滤条件。`session_event_search` 搜索一个会话，默认目标为调用者的当前会话。`session_trace` 返回完整的已授权祖先链与递归后代树。`session_event_trace` 返回一个事件所有已知的位置替换关系与直接引用来源事件的关系。`session_event_read` 以未删节 JSON 返回准确的目标事件，并可选择汇总一个有界的原始事件窗口；省略 `before` 与 `after` 时只返回目标。
 
 面向模型的过滤条件使用扁平的 snake-case 字段。工具边界上的时间戳采用带时区的 ISO 8601 字符串，转换为服务使用的闭区间毫秒时间戳，并以 UTC ISO 8601 渲染。同一个过滤条件中的列表值按 OR 组合，不同过滤条件按 AND 组合。请求的父会话 id 会在 FTS 之前去重并按权限过滤，因此只有调用者工作区中的父会话会进入提供方条件；缺失与跨工作区的猜测具有相同行为，而根会话标记仍会独立按 OR 加入该条件。由于 `SessionEventMap` 可通过声明合并扩展，事件类型字符串保持开放；可用状态与事件表层使用封闭取值。
 

@@ -146,7 +146,7 @@ export type SessionTitleLlmMessageSelector = (
  * Register one model-backed provider through the shared configuration and call policy.
  * @param ctx - context exposing the title and LLM services.
  * @param config - untrusted required deployment policy.
- * @param id - stable plugin identity recorded in title provenance.
+ * @param id - stable plugin id recorded with generated titles.
  * @param automatic - provider-owned automatic generation cadence.
  * @param selectMessages - exact source-message selection for one revision.
  */

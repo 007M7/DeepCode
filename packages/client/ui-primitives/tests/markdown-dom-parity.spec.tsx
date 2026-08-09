@@ -7,7 +7,7 @@
 // change and must be reviewed as such — never re-record to silence a
 // refactor.
 //
-// Provenance is reproducible: the replaced pipeline last lived at commit
+// The fixture source is reproducible: the replaced pipeline last lived at commit
 // 9e8101b800 (origin/master before the renderer swap merged). Checking out
 // that ref in a worktree, copying this spec, and running it records all
 // fixtures from react-markdown byte-identical to the ones committed here:

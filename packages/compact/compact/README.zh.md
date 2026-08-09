@@ -42,7 +42,7 @@
 
 1. 追加 `compact/start`（仅日志）：获取锁；
 2. 摘要该范围；
-3. 追加 `compact/summary`（仅日志）：溯源信息包括摘要、范围、已遮蔽 seq、token 数与提供方／模型调用 envelope；
+3. 追加 `compact/summary`（仅日志），其中记录摘要、范围、已遮蔽 seq、token 数与提供方／模型调用 envelope；
 4. 追加单个 `user/message`，其携带 `source: COMPACT_CHECKPOINT_SOURCE` 和包含摘要的 `surfaceOp: { op: 'replace', start, end }`：这是**本操作唯一的表层变更**；
 5. 追加 `compact/end`（仅日志）：释放锁。
 
