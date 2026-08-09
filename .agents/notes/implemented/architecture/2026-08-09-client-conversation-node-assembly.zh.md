@@ -394,6 +394,8 @@ Assembled Web snapshot、GUI 和浏览器场景覆盖真实 plugin graph。浏�
 
 新增业务节点可以局部注册自己的 matcher、State 转换、可选 Location data、最终 target Node 和 renderer，不再修改 Session 的业务 switch。`ChatNodeDataMap` 和 Location data maps 允许业务 package 通过 declaration merging 合入强类型 data；所有相关 Event 仍须暴露可单 Event 推导的稳定 ID。
 
+Host 业务 package 把自己的持久 Event 成员 declaration-merge 到 `@deepseek-ai/dsh-session/types`，Client Definition 则通过对应业务 package 的 `/types` 子路径进行 type-only import。增强实际声明接口而不是重导出 barrel，使 Host 和 Client 的独立 TypeScript Program 都能获得相同的 Event narrowing，同时不把 Host runtime 带入 Client 图。
+
 初始尾页、older prepend 和 live append 共享一套 Context 不变量。缺 start、Reader window gap、Location unknown 以及高频 delta 都是引擎明确表达的状态，不需要业务另建方向相关 cache。
 
 Append 不扫描历史 Context；prepend 只 replay Match、Location 或 Reader 答案真正受影响的 Context。Chat 结构变化仍可能重算 visible order 和索引，但不会重跑无关业务 fold 或替换未变化 Node identity。

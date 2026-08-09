@@ -181,14 +181,12 @@ function makeHarness(init?: Partial<ConversationSnapshot>) {
     if (key !== 'conversation.chat.node') return opts?.fallback ?? null
     const nodeOwner = owner as RoutedChatNodeOwner
     const nodeKey = opts?.hookContext as string | undefined
-    const useTurnData = ((dataKey: string) => {
-      return props.useSession((snapshot) => {
-        const location = nodeKey === undefined ? undefined : snapshot.chat.nodes.get(nodeKey)?.location
-        return location?.kind === 'turn' || location?.kind === 'step'
-          ? location.turn.data.get(dataKey as never)
-          : undefined
-      })
-    }) as UseChatNodeTurnData
+    const useTurnData: UseChatNodeTurnData = dataKey => props.useSession((snapshot) => {
+      const location = nodeKey === undefined ? undefined : snapshot.chat.nodes.get(nodeKey)?.location
+      return location?.kind === 'turn' || location?.kind === 'step'
+        ? location.turn.data.get(dataKey)
+        : undefined
+    })
     const nodeProps = <Kind extends ChatNode['kind']>(): ChatNodeViewProps<Kind> => (
       { ...props, ...nodeOwner, useTurnData } as unknown as ChatNodeViewProps<Kind>
     )
@@ -720,6 +718,28 @@ describe('ChatView', () => {
     expect(buttons[0]!.getAttribute('aria-disabled')).toBeNull()
     fireEvent.click(buttons[0]!)
     expect(h.forkAt.mock.calls).toEqual([[2]])
+  })
+
+  it('disables fork when the indexed Turn has a later steering Node', () => {
+    const base = chatSnapshotFixture({
+      nodes: [user(1, 'question'), assistant(2, 'answer')],
+      turnEnds: new Map([[1, 4]]),
+    })
+    const chat = {
+      ...base,
+      locations: {
+        getTurn: (turn: number) => turn === 1
+          ? [...base.locations.getTurn(turn), 'fixture:steering:later']
+          : base.locations.getTurn(turn),
+        getStep: (turn: number, step: number) => base.locations.getStep(turn, step),
+      },
+    }
+    const h = makeHarness({ chat })
+    const view = render(<h.ChatView {...h.props} />)
+    const branch = view.getByRole('button', { name: '在新对话中分支' })
+    expect(branch.getAttribute('aria-disabled')).toBe('true')
+    fireEvent.click(branch)
+    expect(h.forkAt).not.toHaveBeenCalled()
   })
 
   it('keeps final content actions but disables branch when Tool and interrupted Think follow it', () => {

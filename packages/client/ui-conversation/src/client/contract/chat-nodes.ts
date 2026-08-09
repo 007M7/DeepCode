@@ -57,7 +57,7 @@ export interface TurnTailChatData {
   readonly time: number
   /** Last finalized content-bearing Assistant in this Turn. */
   readonly closing: FinalAssistantChatData | null
-  /** Whether later Assistant/Step material makes the closing seq non-tail. */
+  /** Whether non-rendered later evidence makes the closing seq non-tail. */
   readonly branchUnavailable: boolean
   readonly ttftMs?: number
   readonly tokensPerSecond?: number

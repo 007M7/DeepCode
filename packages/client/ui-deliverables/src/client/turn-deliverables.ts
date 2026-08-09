@@ -36,7 +36,9 @@ interface DeliverablesState extends DeliverablesTurnData {
  * Paths a call view reports having created or changed, by render intent rather
  * than tool name: a diff card, or a generic card whose kind is `edit` (the
  * shape `str_replace_editor`'s insert presents). Every other card produces
- * nothing to open — a read looked, a delete removed, a terminal ran.
+ * nothing to open — a read looked, a delete removed, a terminal ran. Only
+ * root call views enter this Turn accumulator; nested Code Mode dispatches
+ * preserve the pre-assembly behavior and do not contribute independently.
  */
 function producedPaths(view: ToolResultNode['callView']): readonly string[] {
   if (view === null) return []
