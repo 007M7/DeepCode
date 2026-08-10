@@ -28,7 +28,7 @@ macOS 参考流程使用 fork 进程运行常规 Vitest 项目。macOS arm64 上
 
 master 分支的参考作业仅用于诊断，不参与拉取请求所要求的 `all checks passed` 结果。CI 与 Sandbox 工作流把跨平台参考流程保留在 master 推送上。系统根据已完成托管作业的时间戳评估性能，并将其报告为测量结果，而不是写成 `timeout-minutes` 值。
 
-可移植的参考流程使用 GitHub 标准的 `ubuntu-latest`、`macos-latest` 和 `windows-2025` 标签。拉取请求必需的 Windows 作业在正常运行下使用企业级大型运行器，在 `DSH_CI_FAILOVER=selfhosted` 时切换至自托管池；已归档的[双 Windows 决策](../archived/process/2026-08-08-native-windows-pull-request-ci.md)记录此前的 Wine/原生拓扑。依据[必需 CI 决策](2026-07-23-portable-required-pull-request-ci.md)，拉取请求必需作业使用可移植的标准容量。更高核心数的托管运行器仍仅用于手动基准测试，因为正确性路径必须无需仓库外部的运行器配置即可运行。
+可移植的参考流程使用 GitHub 标准的 `ubuntu-latest`、`macos-latest` 和 `windows-2025` 标签。拉取请求必需的 Windows 作业在正常运行下使用企业级大型运行器，在 `DSH_CI_FAILOVER=selfhosted` 时切换至自托管池；已归档的[双 Windows 决策](../../archived/process/2026-08-08-native-windows-pull-request-ci.md)记录此前的 Wine/原生拓扑。依据[必需 CI 决策](2026-07-23-portable-required-pull-request-ci.md)，拉取请求必需作业使用可移植的标准容量。更高核心数的托管运行器仍仅用于手动基准测试，因为正确性路径必须无需仓库外部的运行器配置即可运行。
 
 ## 曾考虑的替代方案
 
