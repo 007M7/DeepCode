@@ -62,7 +62,7 @@ inherited process environment      (read-only, wins)
 
 ## Alternatives considered
 
-**按「来源由谁书写」把凭据并入非机密顺序。** 尝试过并放弃：它读起来很顺，但 settings seam 已经把 composition 固定在用户 section *之下*，因此「由部署方写入」根本不是该 seam 能表达的一层；而把 `.credentials.yaml` 抬到启动环境之上，会夺走 CI、容器和一次性 `DEEPSEEK_API_KEY=…` 所依赖的那唯一一种覆盖。两条各自说清自身形状成因的顺序，好过一条两边都描述不准的顺序。
+**按「来源由谁书写」把凭据并入非机密顺序。** 尝试过并放弃：它读起来很顺，但 settings seam 已经把 composition 固定在用户 section *之下*，因此「由部署方写入」根本不是该 seam 能表达的一层；而把 `.credentials.yaml` 抬到启动环境之上，会夺走 CI、容器和一次性 `DEEPSEEK_API_KEY=…` 所依赖的那唯一一种覆盖。两条各自说明优先顺序的规则，好过一条两边都描述不准的规则。
 
 **在项目被显式信任之前，不给它路由与凭据能力。** 作为产品立场被否决：checkout 默认可信，不询问，也不存储信任记录。残留风险是真实的、值得写明——克隆一个携带 `.env`、其中指定了另一个 endpoint 或密钥的仓库，会让该会话经由它——处理它的地方是日后的 project trust 门禁，而不是一条让常见情形都要走仪式的规则。
 

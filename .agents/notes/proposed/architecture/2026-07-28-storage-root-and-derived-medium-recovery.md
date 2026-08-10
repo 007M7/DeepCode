@@ -35,7 +35,7 @@ Two independent changes, one per gap.
 
 **Launcher patch + a `storageRoot` profile key** — not taken: one `!!js` yml expression reaches the global root with the same layering the session root already has; a launcher patch adds a second rewrite point, and the profile key is an empty seat until a real consumer exists (per-row overrides already have the personal config.yaml patch layer).
 
-**Patch only the projection cache's route to a global root, leave `workspace.json` per-cwd** — rejected: the workspace registry has the identical global-vs-cwd mismatch, and the user decision that shaped the cache placed it deliberately beside `workspace.json` — one hub root keeps the media co-located and the mental model single.
+**Patch only the projection cache's route to a global root, leave `workspace.json` per-cwd** — rejected: the workspace registry has the identical global-vs-cwd mismatch, and the user chose to place the cache beside `workspace.json` — one hub root keeps the media co-located and the mental model single.
 
 **Cache-plugin-local recovery (catch damage errors in `SessionProjectionCache[Service.init]`, delete the file, reopen)** — rejected: the plugin cannot name the medium path without reaching around the backend abstraction, and every future derived domain would re-implement the same catch; the facility is the one place that already classifies open failures.
 

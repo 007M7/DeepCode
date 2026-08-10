@@ -87,9 +87,8 @@ export interface TelemetryRecord {
 }
 
 /**
- * The backend contract the coordinator hands records to — the minimum any
- * reporting SDK satisfies with zero bending. {@link Telemetry} is its
- * service-registered form; tests compose the coordinator with a bare
+ * The minimum backend contract the coordinator requires. {@link Telemetry} is
+ * its service-registered form; tests compose the coordinator with a bare
  * implementation of this interface.
  */
 export interface TelemetryBackend {
@@ -104,8 +103,8 @@ export interface TelemetryBackend {
    */
   emit(record: TelemetryRecord): void
   /**
-   * Optional hint that a natural boundary (turn end) passed — a backend may
-   * forward it to its SDK's flush so records land at turn boundaries. Called
+   * Optional hint that a turn ended. A backend may forward it to its SDK's
+   * flush so records are exported after each turn. Called
    * fire-and-forget; implementations must not block and must not throw
    * meaningfully (the coordinator contains exceptions). Most backends should
    * leave this unimplemented and let their SDK's own batching cadence govern
@@ -132,7 +131,7 @@ export interface TelemetryBackend {
 }
 
 /**
- * The backend contract in its loadable form: one implementation per context —
+ * Loadable form of the backend contract: one implementation per context —
  * the cordis `Service` registration under the `telemetry` key throws on a
  * duplicate, cordis' standard behavior. A backend composes a
  * {@link TelemetryCoordinator} in its constructor to install the capture side.

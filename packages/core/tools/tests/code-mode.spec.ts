@@ -59,7 +59,7 @@ async function setup(options: SetupOptions = {}) {
   return { ctx, tools: ctx.tools, systemPrompt: ctx.systemPrompt, runtime: runtime! }
 }
 
-/** Mint one production-shaped agent scope that can register scoped tool policy. */
+/** Mint an agent scope configured like production that can register scoped tool policy. */
 async function mintAgentScope(ctx: Context, name = 'scoped'): Promise<{ scope: Scope; agent: Agent }> {
   const agent = { id: SessionId(name) } as Agent
   let scope!: Scope
@@ -407,7 +407,7 @@ describe('mode-aware wire contribution', () => {
   })
 
   it('degrades the run_code flavor to TypeScript when no runtime is mounted', async () => {
-    // Any reader of the definition without a mounted runtime lands here; the
+    // Any reader of the definition without a mounted runtime uses this fallback; the
     // shipped one is the tool-catalog generator, which boots the registry under
     // `mode: code` and reads run_code's schema WITHOUT a runtime. peekRuntime
     // returns undefined there, so the flavor getter degrades to the TS default
@@ -663,7 +663,7 @@ describe('the sub-dispatch scheduler (native concurrency contract)', () => {
     expect(stages).toEqual(['post-enter:writer', 'post-exit:writer'])
   })
 
-  it('run settlement drains a commit already in progress: the settle event lands inside the turn', async () => {
+  it('run settlement drains a commit already in progress: the settle event is appended inside the turn', async () => {
     const { ctx, runtime } = await setup({ mode: 'code' })
     const gated = registerGated(ctx, 'safe_read', true)
     const { agent, events } = fakeAgent()
@@ -921,10 +921,10 @@ describe('the run_code dispatch bridge', () => {
     expect(result.content[0]).toEqual({ type: 'text', text: 'caught: deliberate failure' })
   })
 
-  it('a throwing tools/code-dispatch-log listener is contained: the unshaped content is logged', async () => {
+  it('a throwing tools/code-dispatch-log listener is contained: the original settled content is logged', async () => {
     const { ctx, runtime } = await setup({ mode: 'code' })
     registerEcho(ctx)
-    ctx.on('tools/code-dispatch-log', () => { throw new Error('shaper exploded') })
+    ctx.on('tools/code-dispatch-log', () => { throw new Error('log-content listener failed') })
     const { agent, events } = fakeAgent()
     runtime.behavior = async (request) => {
       const value = await request.bindings[0]!.functions.echo!({ value: 'x' })
@@ -1593,7 +1593,7 @@ describe('per-agent presentation', () => {
     const { ctx, systemPrompt } = await setup({ mode: 'native' })
     registerEcho(ctx)
     // The preset's standing scope declares once; the agent only PARENTS to it
-    // (the per-preset standing-mount shape — no per-agent declaration at all).
+    // (the per-preset standing mount configuration has no per-agent declaration).
     const standing = await mintAgentScope(ctx, 'preset:code-like')
     standing.scope.ctx.tools.presentAs('code')
     const joined = await mintAgentScope(ctx, 'joined-agent')

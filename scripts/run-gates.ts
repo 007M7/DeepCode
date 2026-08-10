@@ -341,7 +341,7 @@ function nodeCompatSmokeGates(options: { cliSmoke?: boolean } = {}): Gate[] {
   return gates
 }
 
-/** Active Node major used to scope version-specific compatibility contracts. */
+/** Active Node major used to select version-specific compatibility checks. */
 function runningNodeMajor(): number {
   const major = Number.parseInt(process.versions.node.split('.')[0] ?? '', 10)
   if (!Number.isSafeInteger(major)) {
@@ -473,7 +473,7 @@ function lintGate(options: { needs?: string[] } = {}): Gate {
 // The heavy suites run uninstrumented beside the thresholded gate: their
 // compiler- and subprocess-bound fixtures pay a multiple of their runtime
 // under v8 instrumentation while contributing nothing the thresholds need
-// (membership contract in scripts/coverage-exempt.ts).
+// (membership rules in scripts/coverage-exempt.ts).
 //
 // DSH_COVERAGE_MAX_WORKERS is the lane's worker budget, so the two parallel
 // gates split it instead of each claiming it whole (the failover pool's
