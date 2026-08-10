@@ -47,6 +47,7 @@
         "headless-agent/tests/fixtures/e2b/e2b/bin.ts",
         "acp-agent/tests/snapshots/lsp-definition/workspace/subject.ts",
         "acp-agent/tests/fixtures/child-question-tripwire.ts",
+        "acp-agent/tests/fixtures/parent-sandbox-override.ts",
         "acp-agent/tests/fixtures/partial-landlock-sandbox.ts",
         "acp-agent/tests/fixtures/subagent-durability-failure.ts",
         "acp-agent/tests/fixtures/subagent-settlement-marker.ts",
