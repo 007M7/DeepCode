@@ -26,7 +26,7 @@ The base and local candidates in one directory must stay independent across base
 
 **Keep it opt-in through `instructionFileCandidates`.** Rejected: one directory has a single winner, so a `.local.` name added to that list shadows the base file rather than supplementing it. The packages guidance to keep opt-ins out of shipped defaults is outweighed here by strong prior art and the user-facing expectation that `.local.` files are always read.
 
-**Default at the product `cordis.yml` level instead of the plugin schema.** Rejected: it would enable `.local.` only for whichever front door remembered to opt in, splitting behavior across TUI/ACP/headless and duplicating a value that belongs beside the existing candidate default.
+**Default at the product `cordis.yml` level instead of the plugin schema.** Rejected: it would enable `.local.` only for whichever entry point remembered to opt in, splitting behavior across TUI/ACP/headless and duplicating a value that belongs beside the existing candidate default.
 
 **Reuse the bare directory as the scope key for base and local files.** Rejected: base and local files in one directory would collide in every scope-keyed map, so a change to one would suppress or overwrite the other. A distinct scope key per candidate keeps them independent without widening the persisted metadata shape.
 

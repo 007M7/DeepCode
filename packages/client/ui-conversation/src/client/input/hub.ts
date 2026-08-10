@@ -10,6 +10,7 @@
  */
 import type { ClientContext, ISessions, SessionBinding, SessionFace, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import type { SlashController } from '@deepseek-ai/dsh-client-ui-slash/client'
+import type { TranslateNS } from '@deepseek-ai/dsh-client-locale/client'
 import { queueReadFaceOf } from '../queue/store.ts'
 import type { ComposerKeyboard, InputService, SessionInput } from './contract.ts'
 import type { InputSubmitMode } from '../contract/composer-submission.ts'
@@ -25,8 +26,14 @@ interface CommandFace {
 export class InputHub implements InputService {
   private readonly shells = new Map<SessionId, SessionInputShell>()
 
-  /** @param ctx - client root context (services resolved lazily per call — boot order stays free). */
-  constructor(private readonly rootCtx: ClientContext) {}
+  /**
+   * @param ctx - client root context (services resolved lazily per call — boot order stays free).
+   * @param t - conversation-namespace translate thunk (reads the active locale at call time).
+   */
+  constructor(
+    private readonly rootCtx: ClientContext,
+    private readonly t: TranslateNS<'conversation'>,
+  ) {}
 
   /**
    * Resolve the facade for one session-scope ctx (InputService face).
@@ -58,6 +65,7 @@ export class InputHub implements InputService {
       popup: () => this.popup(actx),
       queue: queueReadFaceOf(session),
       defaultSink: (text, mode) => { this.sink(session, text, mode) },
+      steerQueue: () => { void this.steerQueue(session, shell) },
     })
     this.shells.set(id, shell)
     // The one teardown axis: listeners, shell, and map entries all ride the
@@ -137,6 +145,30 @@ export class InputHub implements InputService {
         if (shell?.snapshot.draft === '') shell.setDraft(text)
       },
     )
+  }
+
+  /**
+   * Steer every still-pending queued message into the running turn, in FIFO
+   * order — the same strict-steer operation as the queue dock's per-row
+   * button. A turn closing mid-way (`steer-unavailable`) or a row already
+   * claimed by the agent (`queue-item-not-found`) converges silently, while a
+   * genuine failure surfaces as one composer notice. Repeated triggers
+   * (e.g. two rapid empty-draft chords) rely on that `queue-item-not-found`
+   * convergence: the snapshot may still list a row the host already steered,
+   * and the duplicate strict steer is a silent no-op.
+   * @param session - the addressed host session.
+   * @param shell - the resident shell (notice outlet).
+   */
+  private async steerQueue(session: SessionFace, shell: SessionInputShell): Promise<void> {
+    const queued = session.getSnapshot().queue.filter(item => item.placement === 'queued')
+    if (queued.length === 0) return
+    for (const item of queued) {
+      const result = await session.updateQueue(item.id, { kind: 'steer' })
+      if (result.ok) continue
+      if (result.error.code === 'steer-unavailable' || result.error.code === 'queue-item-not-found') return
+      shell.notify('error', this.t('queue.steerFailed'))
+      return
+    }
   }
 
   private controller(actx: ClientContext): SlashController | undefined {

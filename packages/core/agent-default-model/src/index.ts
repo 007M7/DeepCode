@@ -92,7 +92,7 @@ export class AgentDefaultModelService extends Service {
   /**
    * Save the complete default model selection. A deployment without a settings
    * provider keeps its composition entry.
-   * @param next - resolved selection accepted by a front door.
+   * @param next - resolved selection accepted by an entry point.
    * @returns fulfillment after the optional settings write settles.
    */
   async saveSelection(next: ModelSelection): Promise<void> {

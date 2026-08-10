@@ -32,7 +32,7 @@
     - tooltip "Save queued message"
     - button "Cancel editing":
       - img
-- textbox "Message the agent"
+- textbox "Cmd/Ctrl+Enter steers all queued messages"
 - button "Commands":
   - img
 - 'button "Access mode, current: Workspace Write"': Workspace Write
