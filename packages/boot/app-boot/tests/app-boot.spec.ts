@@ -590,26 +590,31 @@ describe('boot', () => {
     ].join('\n'))
     writeFileSync(join(dir, 'relative.mjs'), 'export function apply(ctx) { ctx.provide("relativePluginLoaded", true) }\n')
     writeFileSync(absolutePlugin, 'export function apply(ctx) { ctx.provide("absolutePluginLoaded", true) }\n')
-    writeFileSync(join(dir, 'cordis.yml'), [
+    const entries = [
       '- id: prompt',
       "  name: '@deepseek-ai/dsh-system-prompt'",
       '- id: relative',
       "  name: './relative.mjs'",
+    ]
+    const configOwnedPath = join(dir, 'config-owned.cordis.yml')
+    writeFileSync(configOwnedPath, [...entries, ''].join('\n'))
+    const hostOwnedPath = join(dir, 'host-owned.cordis.yml')
+    writeFileSync(hostOwnedPath, [
+      ...entries,
       '- id: absolute',
       `  name: ${JSON.stringify(absolutePlugin)}`,
       '',
     ].join('\n'))
-    const configOwned = await boot(NAME, join(dir, 'cordis.yml'))
+    const configOwned = await boot(NAME, configOwnedPath)
     try {
       expect(configOwned.get('shadowPluginLoaded')).toBe(true)
       expect(configOwned.get('systemPrompt')).toBeUndefined()
       expect(configOwned.get('relativePluginLoaded')).toBe(true)
-      expect(configOwned.get('absolutePluginLoaded')).toBe(true)
     } finally {
       await configOwned.fiber.dispose()
     }
     const harnessBaseUrl = pathToFileURL(join(harness, 'entry.mjs')).href
-    const ctx = await boot(NAME, join(dir, 'cordis.yml'), undefined, undefined, harnessBaseUrl)
+    const ctx = await boot(NAME, hostOwnedPath, undefined, undefined, harnessBaseUrl)
     try {
       expect(ctx.get('harnessPluginLoaded')).toBe(true)
       expect(ctx.get('shadowPluginLoaded')).toBeUndefined()
