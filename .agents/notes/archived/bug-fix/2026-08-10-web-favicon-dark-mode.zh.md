@@ -1,6 +1,7 @@
 # Agent Note: 网页图标随配色方案切换
 
 Status: implemented
+Archived: 2026-08-10
 
 [English](2026-08-10-web-favicon-dark-mode.md) | 中文
 
