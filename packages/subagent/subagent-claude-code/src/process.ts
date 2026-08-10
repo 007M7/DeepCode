@@ -17,6 +17,8 @@ import {
   type SubprocessSpawnSpec,
 } from '@deepseek-ai/dsh-subprocess'
 
+const WINDOWS_BATCH_EXECUTABLE_ENV = 'DSH_CLAUDE_CODE_EXECUTABLE'
+
 function thrown(value: unknown): Error {
   /* v8 ignore next -- the subprocess seam rejects with Error. */
   return value instanceof Error ? value : new Error(String(value))
@@ -53,16 +55,19 @@ export function claudeSpawnSpec(
     throw new Error('subagent-claude-code: SDK spawn request omitted its workspace')
   }
   const extension = extname(options.command).toLowerCase()
-  const argv = platform === 'win32' && (extension === '.cmd' || extension === '.bat')
-    ? ['cmd.exe', '/d', '/s', '/c', options.command, ...options.args]
+  const batchShim = platform === 'win32' && (extension === '.cmd' || extension === '.bat')
+  const env = sdkEnvironmentOverlay(options.env)
+  const argv = batchShim
+    ? ['cmd.exe', '/d', '/s', '/c', `%${WINDOWS_BATCH_EXECUTABLE_ENV}%`, ...options.args]
     : [options.command, ...options.args]
+  if (batchShim) env[WINDOWS_BATCH_EXECUTABLE_ENV] = `"${options.command}"`
   return {
     argv,
     cwd: options.cwd,
     stdio: { stdin: 'pipe', stdout: 'pipe', stderr: 'inherit' },
     graceMs,
     signal: options.signal,
-    env: sdkEnvironmentOverlay(options.env),
+    env,
   }
 }
 
