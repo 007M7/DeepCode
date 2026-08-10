@@ -478,23 +478,21 @@ export class SystemPrompt extends Service {
       collected.push(...schemas)
       for (const name of acceptedKnownNames) knownNames.add(name)
     }
-    const completeSections = [...sectionByName.values()].filter(section => section.complete === true)
+    const sectionDefinitions = [...sectionByName.values()].sort((a, b) => a.order - b.order)
+    const completeSections = sectionDefinitions.filter(section => section.complete === true)
     if (completeSections.length > 1) {
       throw new Error(`multiple complete prompt sections are active: ${completeSections.map(section => JSON.stringify(section.name)).join(', ')}`)
     }
-    const sections = [...sectionByName.values()]
-      .sort((a, b) => a.order - b.order)
-      .map(section => ({
-        name: section.name,
-        text: typeof section.text === 'function' ? section.text(context) : section.text,
-      }))
-    const completeName = completeSections[0]?.name
     let completeSection: AssembledSection | undefined
-    if (completeName !== undefined) {
-      const assembled = sections.find(section => section.name === completeName)
-      if (assembled === undefined) throw new Error(`complete prompt section ${JSON.stringify(completeName)} did not assemble`)
-      completeSection = { ...assembled }
-    }
+    const sections = sectionDefinitions
+      .map((section) => {
+        const assembled = {
+          name: section.name,
+          text: typeof section.text === 'function' ? section.text(context) : section.text,
+        }
+        if (section.complete === true) completeSection = { ...assembled }
+        return assembled
+      })
     const assembly: PromptAssembly = {
       sections,
       contexts: [...contextByName.values()]

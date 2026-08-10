@@ -41,15 +41,14 @@
           * Please avoid commands that may produce a very large amount of output.
           * Please run long lived commands in the background, e.g. 'sleep 10 &' or start a server in the background.
 
-# Absolute paths are unconditional in the current editor; the legacy
-# `requireAbsolutePath` switch is no longer a configuration field.
+# The editor requires absolute paths unconditionally.
 - id: str-replace-editor
   name: '@deepseek-ai/dsh-tool-str-replace-editor'
   config:
     maxOutputChars: 16000
 
-# RL core's fixed 128K window now comes from the routed model metadata rather
-# than compact-basic config. Its remaining policy is preserved explicitly.
+# Model capacity comes from routed model metadata; this block states the
+# compaction policy explicitly.
 - id: compaction
   name: cordis:group
   group: true

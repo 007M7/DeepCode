@@ -59,6 +59,6 @@ export function apply(ctx: Context, config: Config): void {
     name: PERSONA_SECTION,
     order: PERSONA_ORDER,
     text: config.text,
-    complete: config.complete ?? false,
+    ...(config.complete ? { complete: true } : {}),
   }), 'persona.section()')
 }
