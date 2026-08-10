@@ -1,6 +1,6 @@
 import { describe, expect, expectTypeOf, it } from 'vitest'
 import { Context } from 'cordis'
-import { carrierKeyOf, createScope, isScopeCarrier, scopeChainOf, scopeOf, scopeParentOf, scopeTarget, setScopeParent } from '@deepseek-ai/dsh-scope'
+import { bindScopeParent, carrierKeyOf, createScope, isScopeCarrier, scopeChainOf, scopeOf, scopeParentOf, scopeTarget } from '@deepseek-ai/dsh-scope'
 import type { Scope, Scoped } from '@deepseek-ai/dsh-scope'
 
 declare module 'cordis' {
@@ -166,22 +166,30 @@ describe('scope parent chain', () => {
     expect(scopeParentOf(preset)).toBeUndefined()
     expect(scopeChainOf(agent)).toEqual([agent, preset])
     expect(scopeChainOf(undefined)).toEqual([])
-    expect(() => { setScopeParent(preset, agent) }).toThrow(/cycle/)
-    expect(() => { setScopeParent(preset, preset) }).toThrow(/cycle/)
+    expect(() => { bindScopeParent(preset, agent) }).toThrow(/cycle/)
+    expect(() => { bindScopeParent(preset, preset) }).toThrow(/cycle/)
   })
 
-  it('re-links to a different parent (the blank-session recompose path)', () => {
+  it('re-links only through the binding held by the original binder', () => {
     const ctx = new Context()
     const presetA = { id: 'a' }
     const presetB = { id: 'b' }
     const agent = { id: 'agent' }
     createScope(ctx, presetA)
     createScope(ctx, presetB)
-    createScope(ctx, agent, { parent: presetA })
+    const binding = bindScopeParent(agent, presetA)
+    createScope(ctx, agent)
 
-    setScopeParent(agent, presetB)
+    // A bound key cannot be re-bound from the outside; only the binding moves it.
+    expect(() => bindScopeParent(agent, presetB)).toThrow(/already bound/)
+    binding.rebind(presetB)
 
     expect(scopeChainOf(agent)).toEqual([agent, presetB])
+    // The rebind keeps the cycle check: a parent may not adopt its ancestor.
+    const child = { id: 'child' }
+    const childBinding = bindScopeParent(child, agent)
+    void childBinding
+    expect(() => { binding.rebind(child) }).toThrow(/cycle/)
   })
 
   it('admits an ancestor-tagged listener for a descendant dispatch, never the reverse', () => {

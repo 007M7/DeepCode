@@ -10,7 +10,7 @@ Status: implemented
 
 ## Decision
 
-一个 preset 是**每进程**一份组装，而不是每会话一份。roster 在一个合成常驻 scope 下挂载它一次；每个 agent 通过 `setScopeParent(agentKey, standingKey)` 加入。两条 `dsh-scope` 机制承载了一切：注册视图沿父链解析（`agent → preset → global`，近者遮蔽远者），带作用域的分发对标签为载体键祖先的监听器放行——只向上，兄弟 preset 的监听器保持失聪。
+一个 preset 是**每进程**一份组装，而不是每会话一份。roster 在一个合成常驻 scope 下挂载它一次；每个 agent 通过把自己的 scope key 绑定到挂载的 key（`bindScopeParent(agentKey, standingKey)`）加入。两条 `dsh-scope` 机制承载了一切：注册视图沿父链解析（`agent → preset → global`，近者遮蔽远者），带作用域的分发对标签为载体键祖先的监听器放行——只向上，兄弟 preset 的监听器保持失聪。
 
 ## Consequences
 
@@ -25,7 +25,7 @@ Status: implemented
 - **常驻挂载挂在服务未追踪的 `selfCtx` 上。** 经 traceable 代理调用的方法看到的 `this.ctx` 被重绑到调用方并携带 shadow；从它派生的子树里每个 fiber 的 reflect 解析都从 shadow 的 fiber 起步，entry 会在自己 `inject` 声明的服务上失败（`cannot get property "tools" without inject`，而它的 store 里明明有）。`tasks-local` 的 selfCtx 先例，如今有了第二个消费者。
 - **挂载一旦成功即持续供职，直到组装文件的 stamp 变化。** 运行中会话加入的组装必须在其文件被修改或删除后继续存活；每个代际记录文件 stamp（mtime + 大小），发现过期的会话开启下一个代际，因此文件编辑——创作改为仅复制之后唯一的组装编辑器——无需任何创作调用丢弃指针即可达到后续会话。已加入的会话保持其代际，被替代的代际只由整树卸载回收——刻意为之，上限取决于编辑频率，已记入包的 Known Limitations。
 - **`peek()` 保持不看链。** 限制与守卫定位的是单个作用域**自己**的贡献；只有注册**视图**沿链继承。链上的限制求交（链上任一作用域都可为嵌套其内的一切遮蔽某个全局面名字）。
-- **对活 agent 重新认父（`setScopeParent`）是空白会话 recompose 的路径**——仅当旧父之下的产出一概不被保留时才合法，由调用方保证；该关系看不见会话日志。
+- **重新认父只能经由挂载首绑返回的 `ScopeParentBinding`**——roster 私藏该句柄，空白会话 recompose 因此是唯一的重链路径，其他调用方无法挪动已组合的 agent；其合法性仍以旧父之下产出一概不被保留为前提，由持有方保证，因为该关系看不见会话日志。
 
 ## Alternatives considered
 
