@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-默认挂载遥测后，`dsh web` 与 headless 命令（现为 `dsh run`）新增了 SIGINT/SIGTERM 处理器，使进程退出时可以排空 Cordis 插件树，而不是丢弃排队中的遥测数据。每个处理器都使用单向布尔闩锁（latch），并且只有在 `ctx.fiber.dispose()` 结算后才退出。headless 正常完成时同样会无界等待整棵树执行 dispose（资源释放）。
+默认挂载遥测后，`dsh web` 与 headless 命令（现为 `dsh --profile headless`）新增了 SIGINT/SIGTERM 处理器，使进程退出时可以排空 Cordis 插件树，而不是丢弃排队中的遥测数据。每个处理器都使用单向布尔闩锁（latch），并且只有在 `ctx.fiber.dispose()` 结算后才退出。headless 正常完成时同样会无界等待整棵树执行 dispose（资源释放）。
 
 随后有用户复现，headless 命令在打印观察 URL 后立即卡死，重复按 `Ctrl+C` 也没有反应；设置 `DSH_TELEMETRY_DISABLED=1` 后不再卡死，而同一 Linux 沙箱中的独立 Node 信号处理器能够收到 SIGINT。这将待结算的 disposer 定位到遥测，而非终端信号转发。OTel 的 `BatchLogRecordProcessor.shutdown()` 会先等待 `exporter.forceFlush()`，再进入受 `exportTimeoutMillis` 限制的完成 promise；OTLP 导出器的 `forceFlush()` 则直接等待正在进行的 HTTP Promise。因此，代理／沙箱连接始终无法取得 socket 时，即使已经配置两项 SDK 超时，也会让提供方关闭一直待结算。
 
