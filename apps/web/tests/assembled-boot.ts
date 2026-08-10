@@ -71,7 +71,12 @@ let unmount: (() => void) | undefined
 export function installAssembledBootEnv(): void {
   beforeEach(() => {
     localStorage.clear()
-    localStorage.setItem('dsh.locale', 'en')
+    // The locale service derives its provisional locale from the browser and
+    // takes an explicit choice only from Host settings, which this lane's
+    // fixture transport does not serve; pinning the navigator is what selects
+    // English here.
+    Object.defineProperty(navigator, 'languages', { value: ['en-US'], configurable: true })
+    Object.defineProperty(navigator, 'language', { value: 'en-US', configurable: true })
     document.title = 'DeepSeek Harness'
     vi.stubGlobal('ResizeObserver', ResizeObserverStub)
     vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) =>
@@ -89,6 +94,11 @@ export function installAssembledBootEnv(): void {
     document.head.querySelectorAll('style[data-plugin]').forEach((style) => { style.remove() })
     document.title = ''
     history.replaceState(null, '', '/')
+    // Deleting the own properties uncovers jsdom's own accessors again
+    // (Navigator declares both readonly, hence the erased receiver).
+    const ownNavigator = navigator as unknown as Record<string, unknown>
+    delete ownNavigator.languages
+    delete ownNavigator.language
     vi.unstubAllGlobals()
   })
 }
