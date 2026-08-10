@@ -246,6 +246,18 @@ runPersistenceContract('memory', async () => {
   }
 })
 
+describe('the inherited readRaw default', () => {
+  it('answers undefined and honors an aborted signal', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(MemoryPersistence)
+    expect(await ctx.sessionPersistence.readRaw(SessionId('any-session'))).toBeUndefined()
+    await expect(
+      ctx.sessionPersistence.readRaw(SessionId('any-session'), AbortSignal.abort()),
+    ).rejects.toThrow()
+  })
+})
+
 // Each fixture shares one map across mounts. No `corruptTail` is supplied because map writes are
 // atomic; the suite asserts that skip while JSONL and SQLite cover the repair branch.
 runCoordinatorContract('memory', async (): Promise<CoordinatorFixture> => {
