@@ -76,12 +76,14 @@ export async function validateImageFile(input: SaveImageAttachment, limits: Imag
 async function syncDirectory(path: string): Promise<void> {
   /* v8 ignore next -- Windows cannot open directory handles; NTFS metadata journaling owns entry durability there. */
   if (process.platform === 'win32') return
+  /* v8 ignore start -- Windows cannot exercise directory fsync; POSIX behavior tests enforce this peer. */
   const handle = await open(path, constants.O_RDONLY)
   try {
     await handle.sync()
   } finally {
     await handle.close()
   }
+  /* v8 ignore stop */
 }
 
 /**
