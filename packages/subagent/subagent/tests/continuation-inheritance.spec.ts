@@ -28,13 +28,16 @@ import SubagentService from '../src/index.ts'
 type Script = ConstructorParameters<typeof MockAdapter>[0]
 
 const roots: string[] = []
-afterEach(() => {
+const contexts: Context[] = []
+afterEach(async () => {
+  for (const ctx of contexts.splice(0).reverse()) await ctx.fiber.dispose()
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
 })
 
 /** Boot the continuable stack plus both policy services the manager consumes opportunistically. */
 async function setup(script: Script) {
   const ctx = new Context()
+  contexts.push(ctx)
   await mountAgentLoopTestDependencies(ctx)
   const root = mkdtempSync(join(tmpdir(), 'dsh-continuation-inherit-'))
   roots.push(root)
