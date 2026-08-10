@@ -7,10 +7,14 @@
  * composing this plugin out of cordis.yml removes both surfaces entirely;
  * the owning view renders an empty chain and inert prose at zero cost.
  */
+import { createElement, useSyncExternalStore } from 'react'
+import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ChatFileMentions } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
-import { ProducedFiles } from './ProducedFiles.tsx'
+import {
+  ProducedFiles, type ProducedFilesSeatProps,
+} from './ProducedFiles.tsx'
 import { en, NS, zh, type DeliverablesKey } from './locales.ts'
 import {
   deliverablesDefinition, producedFileMentions, selectProducedFiles,
@@ -27,13 +31,24 @@ export { ProducedFiles, type ProducedFilesProps } from './ProducedFiles.tsx'
 export { producedForClosing } from './turn-deliverables.ts'
 
 /** Required services for the tail-slot registration and its dictionaries. */
-export const inject = ['slots', 'locale', 'conversationEvents']
+export const inject = ['slots', 'locale', 'conversationEvents', 'connection']
 
 /**
  * Client plugin body: register the dictionaries and the turn-tail entry.
  * @param ctx - client root context.
  */
 export function apply(ctx: ClientContext): void {
+  const connection = ctx.get('connection') as ConnectionHandle
+  const ProducedFilesSeat = (props: ProducedFilesSeatProps): ReturnType<typeof createElement> => {
+    const description = useSyncExternalStore(
+      listener => connection.hostDescription.subscribe(listener),
+      () => connection.hostDescription.getSnapshot(),
+    )
+    return createElement(ProducedFiles, {
+      ...props,
+      canOpenPath: connection.isLoopback && description?.canOpenPath === true,
+    })
+  }
   ctx.conversationEvents.register(deliverablesDefinition)
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-deliverables: dictionaries')
   ctx.slots.inject(
@@ -42,7 +57,7 @@ export function apply(ctx: ClientContext): void {
       name: 'conversation.chat.turnTail',
       select: selectProducedFiles,
       locale: NS,
-    }, ProducedFiles),
+    }, ProducedFilesSeat),
   )
   // The prose side of the same vocabulary: the chat view reaches this face
   // via ctx.get, so its absence — this plugin composed out — is the off state.

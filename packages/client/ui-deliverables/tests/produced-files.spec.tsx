@@ -6,7 +6,8 @@
  * (HMR safety) against the real SlotsService.
  */
 import { Context } from '@deepseek-ai/cordis'
-import { cleanup, fireEvent, render } from '@testing-library/react'
+import type { ComponentType } from 'react'
+import { act, cleanup, fireEvent, render, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   ConversationEventRegistry, ConversationNodeAssembler, SlotsService,
@@ -19,7 +20,7 @@ import type {
 import { apply as applyLocale } from '@deepseek-ai/dsh-client-locale/client'
 import type { ChatFileMentions, TurnTailOwnerProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
-import { ProducedFiles } from '../src/client/ProducedFiles.tsx'
+import { fitProducedFiles, ProducedFiles, type ProducedFilesSeatProps } from '../src/client/ProducedFiles.tsx'
 import {
   basename, deliverablesDefinition, producedFileMentions, producedForClosing, selectProducedFiles,
   type DeliverablesTurnData,
@@ -27,9 +28,20 @@ import {
 import { apply, inject } from '../src/client/index.ts'
 import { apply as applyNode } from '../src/index.ts'
 import { apply as applyInvariant } from '../src/invariant.ts'
-import { zh } from '../src/client/locales.ts'
+import { en, zh } from '../src/client/locales.ts'
 
-afterEach(cleanup)
+const originalClientWidth = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientWidth')
+
+afterEach(() => {
+  cleanup()
+  vi.restoreAllMocks()
+  vi.unstubAllGlobals()
+  if (originalClientWidth === undefined) {
+    delete (HTMLElement.prototype as { clientWidth?: number }).clientWidth
+  } else {
+    Object.defineProperty(HTMLElement.prototype, 'clientWidth', originalClientWidth)
+  }
+})
 
 class TestTurnDataStore implements ConversationLocationDataStore<ConversationTurnDataMap> {
   private readonly values = new Map<string, unknown>()
@@ -269,21 +281,104 @@ describe('produced-file Turn data', () => {
 describe('ProducedFiles row', () => {
   const t = makeTranslate(zh)
 
-  it('renders capped chips with the full path reachable and opens one on click', () => {
-    // Seven files: six chips plus an explicit remainder — the row bounds what
-    // it shows and says so rather than dropping the rest silently.
+  it('selects the largest prefix using the exact remainder width', () => {
+    expect(fitProducedFiles(230, 8, [70, 60, 60], [55, 55, 55, 55])).toBe(2)
+    expect(fitProducedFiles(145, 8, [70, 60, 60], [55, 55, 55, 55])).toBe(1)
+    expect(fitProducedFiles(300, 8, [70, 60, 60], [55, 55, 55, 55])).toBe(3)
+    // A zero-width lane is a pre-layout test/hidden state, not evidence that
+    // every chip overflowed; keep the bounded initial prefix until measured.
+    expect(fitProducedFiles(0, 8, [70, 60], [60, 50, undefined])).toBe(2)
+    // Candidate-specific suffix widths matter at the 10 -> 9 digit boundary.
+    expect(fitProducedFiles(126, 8, [60], [70, 50])).toBe(1)
+    expect(fitProducedFiles(20, 8, [60], [70, 50])).toBe(0)
+  })
+
+  it('keeps one measured line, updates on resize, and opens a file or the workspace folder', () => {
     const paths = ['deep/a.html', 'b.css', 'c.ts', 'd.ts', 'e.ts', 'f.ts', 'g.ts']
     const openFile = vi.fn<(path: string) => void>()
-    const view = render(<ProducedFiles matched={paths} openFile={openFile} t={t} />)
+    let available = 226
+    let resize: ResizeObserverCallback | undefined
+    const disconnect = vi.fn()
+    vi.stubGlobal('ResizeObserver', class {
+      constructor(callback: ResizeObserverCallback) { resize = callback }
+      observe(): void {}
+      disconnect(): void { disconnect() }
+    })
+    Object.defineProperty(HTMLElement.prototype, 'clientWidth', {
+      configurable: true,
+      get(this: HTMLElement) { return this.hasAttribute('data-produced-files-row') ? available : 0 },
+    })
+    const rect = (width: number): DOMRect => ({
+      x: 0, y: 0, width, height: 22, top: 0, right: width, bottom: 22, left: 0,
+      toJSON: () => ({}),
+    })
+    const bounds = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect')
+      .mockImplementation(function getProbeRect(this: HTMLElement) {
+        if (this.closest('[aria-hidden="true"]') === null) return rect(0)
+        if (this.tagName !== 'BUTTON') return rect(60)
+        return rect(this.textContent === 'a.html' || this.textContent === 'b.css' ? 50 : 100)
+      })
+
+    const view = render(
+      <ProducedFiles matched={paths} openFile={openFile} canOpenPath t={t} />,
+    )
     expect(view.getByText('产物')).toBeTruthy()
-    // Chips carry the basename; the full path stays reachable as the title.
+    const row = view.container.querySelector('[data-produced-files-row]')
+    if (!(row instanceof HTMLElement)) throw new Error('produced row missing')
+    // The third probe is 100px: two chips plus the remainder fit, three do not.
+    expect(within(row).getAllByRole('button')).toHaveLength(2)
+    expect(within(row).getByText('+ 5 个文件')).toBeTruthy()
     const chip = view.getByRole('button', { name: '打开 deep/a.html' })
     expect(chip.textContent).toBe('a.html')
     expect(chip.getAttribute('title')).toBe('deep/a.html')
     expect(view.queryByRole('button', { name: '打开 g.ts' })).toBeNull()
-    expect(view.getByText('还有 1 个')).toBeTruthy()
     fireEvent.click(chip)
     expect(openFile).toHaveBeenCalledWith('deep/a.html')
+
+    const showFolder = view.getByRole('button', { name: '在文件夹中显示' })
+    fireEvent.click(showFolder)
+    expect(openFile).toHaveBeenLastCalledWith('.')
+
+    available = 150
+    act(() => { resize?.([], {} as ResizeObserver) })
+    expect(within(row).getAllByRole('button')).toHaveLength(1)
+    expect(within(row).getByText('+ 6 个文件')).toBeTruthy()
+
+    view.unmount()
+    expect(disconnect).toHaveBeenCalledOnce()
+    bounds.mockRestore()
+  })
+
+  it('keeps the folder action absent without overflow or a local native opener', () => {
+    const openFile = vi.fn<(path: string) => void>()
+    const noOverflow = render(
+      <ProducedFiles matched={['a.md']} openFile={openFile} canOpenPath t={t} />,
+    )
+    expect(noOverflow.queryByRole('button', { name: '在文件夹中显示' })).toBeNull()
+    noOverflow.unmount()
+    const headless = render(
+      <ProducedFiles
+        matched={['a.md', 'b.md', 'c.md', 'd.md', 'e.md', 'f.md', 'g.md']}
+        openFile={openFile}
+        canOpenPath={false}
+        t={t}
+      />,
+    )
+    expect(headless.queryByRole('button', { name: '在文件夹中显示' })).toBeNull()
+  })
+
+  it('uses singular English copy when exactly one file is hidden', () => {
+    const view = render(
+      <ProducedFiles
+        matched={['a.md', 'b.md', 'c.md', 'd.md', 'e.md', 'f.md', 'g.md']}
+        openFile={() => {}}
+        canOpenPath={false}
+        t={makeTranslate(en)}
+      />,
+    )
+    const row = view.container.querySelector('[data-produced-files-row]')
+    if (!(row instanceof HTMLElement)) throw new Error('produced row missing')
+    expect(within(row).getByText('+ 1 file')).toBeTruthy()
   })
 })
 
@@ -340,12 +435,55 @@ describe('plugin registration', () => {
       name: 'root',
       children: { 'conversation.chat.turnTail': { kind: 'chain', scope: 'session' } },
     } as never, () => null)
-    ctx.provide('connection', { api: { settings: {} }, isLoopback: false } as never)
+    const hostDescription = (canOpenPath: boolean) => ({
+      version: 'test', cwd: '/workspace', attachedSessions: 1, canOpenPath,
+    })
+    let description: ReturnType<typeof hostDescription> | undefined = hostDescription(true)
+    const descriptionListeners = new Set<() => void>()
+    const connection = {
+      api: { settings: {} },
+      isLoopback: false,
+      hostDescription: {
+        getSnapshot: () => description,
+        subscribe: (listener: () => void) => {
+          descriptionListeners.add(listener)
+          return () => { descriptionListeners.delete(listener) }
+        },
+      },
+    }
+    ctx.provide('connection', connection as never)
     await ctx.plugin({ inject: ['slots'], apply: applyLocale }).await()
 
     const fiber = ctx.plugin({ inject: [...inject], apply })
     await fiber.await()
     expect(ctx.slots.entries('conversation.chat.turnTail')).toHaveLength(1)
+
+    // The native action needs both independent facts. A Host capability does
+    // not authorize a remote page; loopback without a capable Host does not
+    // render a dead action; reconnect/disconnect retracts the capability.
+    const Entry = ctx.slots.entries('conversation.chat.turnTail')[0]!.component as ComponentType<ProducedFilesSeatProps>
+    const entryProps: ProducedFilesSeatProps = {
+      matched: ['a.md', 'b.md', 'c.md', 'd.md', 'e.md', 'f.md', 'g.md'],
+      openFile: () => {},
+      t: makeTranslate(zh),
+    }
+    const surface = render(<Entry {...entryProps} />)
+    expect(surface.queryByRole('button', { name: '在文件夹中显示' })).toBeNull()
+    connection.isLoopback = true
+    description = hostDescription(false)
+    surface.rerender(<Entry {...entryProps} />)
+    expect(surface.queryByRole('button', { name: '在文件夹中显示' })).toBeNull()
+    act(() => {
+      description = hostDescription(true)
+      for (const listener of descriptionListeners) listener()
+    })
+    expect(surface.getByRole('button', { name: '在文件夹中显示' })).toBeTruthy()
+    act(() => {
+      description = undefined
+      for (const listener of descriptionListeners) listener()
+    })
+    expect(surface.queryByRole('button', { name: '在文件夹中显示' })).toBeNull()
+    surface.unmount()
 
     // The prose face is live while the plugin is: a produced turn yields a
     // resolver whose matches open through the owner-supplied opener.
