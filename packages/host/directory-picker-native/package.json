@@ -57,11 +57,13 @@
     "react": "^18.2.0",
     "tsx": "^4.19.2"
   },
-  "dshClient": {
-    "inject": [
-      "@deepseek-ai/dsh-client-runtime",
-      "@deepseek-ai/dsh-client-ui-workspace"
-    ],
-    "platform": "web"
+  "dsh": {
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-ui-workspace"
+      ],
+      "platform": "web"
+    }
   }
 }

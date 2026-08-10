@@ -19,6 +19,12 @@ import type { ToolRestriction } from '@deepseek-ai/dsh-tools'
 // and merge the `sandbox/mode` / `approval/policy` session-event payloads.
 import type {} from '@deepseek-ai/dsh-sandbox-policy'
 import type {} from '@deepseek-ai/dsh-user-approval'
+// Type-only: make `ctx.get('agentPresets')` resolve to the preset roster when
+// composed — a child inherits its parent's composition opportunistically (the
+// documented `ctx.get` pattern), never as a hard dep. A rosterless deployment
+// keeps its model-facing rows on the host plane, where the child already sees
+// them through the tool registry's global layer.
+import type {} from '@deepseek-ai/dsh-agent-presets'
 import { delegationDepthOf } from './depth.ts'
 
 /** Thrown when starting a child would exceed the requested depth cap. */
@@ -79,8 +85,15 @@ export function resolveChildAgentOptions(
 /**
  * Build the child session's durable creation metadata: the parent's workspace,
  * its direct lineage, coarse product origin, the recursion budget that must
- * survive persistence, and the seed boundary that separates inherited parent
- * history from child work.
+ * survive persistence, the seed boundary that separates inherited parent
+ * history from child work, and the composition the child runs under.
+ *
+ * The preset is read from the parent's LIVE scope chain rather than from its
+ * header, because a parent that switched preset while blank runs on the newer
+ * composition and its header still names the older one. Recording it is what
+ * makes a child's history reconstructable: without it a cold read of the child
+ * resolves the deployment default and rebuilds turns under a tool set the
+ * child never had.
  * @param parent - the delegating parent agent.
  * @param childDepth - the resolved delegation depth to persist.
  * @param lineageSeedLength - how many leading events came from the parent's log.
@@ -92,8 +105,10 @@ export function childSessionMeta(
   lineageSeedLength: number,
 ): NonNullable<CreateAgentOptions['meta']> {
   const parentHeader = parent.session.header
+  const agentPreset = parent.ctx.get('agentPresets')?.composedPreset(parent.ctx)
   return {
     ...parentHeader.cwd !== undefined ? { cwd: parentHeader.cwd } : {},
+    ...agentPreset === undefined ? {} : { agentPreset },
     parentSession: parentHeader.id,
     // Navigation classification only; the descriptor remains the authority
     // for mode and continuation capability.
@@ -124,14 +139,33 @@ export const SUBAGENT_DELEGATION_CONTEXT
     + 'limitation in your reply so the delegating agent can handle it.'
 
 /**
- * Apply one child's scoped composition inside its creation window: the fixed
- * delegation-scope statement, a shadowing persona section, and a tool
- * restriction, all owned by the child's scope and therefore invisible to its
- * parent and siblings. Creation and cold resume both pass through here.
+ * Compose one child inside its creation window: join its parent's preset,
+ * register the fixed delegation-scope statement, then apply the child's own
+ * shadowing persona section and tool restriction, all owned by the child's
+ * scope and therefore invisible to its parent and siblings. Creation and cold
+ * resume both pass through here.
+ *
+ * The join comes first and the child's own registrations second, which is the
+ * order the layering already implies — the nearest scope wins a name, and a
+ * per-child restriction intersects with everything its chain admits — but
+ * stating it here keeps the two steps from being read as independent.
+ *
+ * The join and the per-child registrations live in ONE call because a child
+ * composed without the join is exactly the defect this function exists to
+ * prevent: with every model-facing row on the agent plane, a child that joins
+ * no preset sees an empty tool registry and none of its parent's prompt
+ * sections. Taking the parent as a parameter is what makes that omission
+ * unrepresentable at the call sites.
  * @param childCtx - the child agent's scoped creation context.
- * @param composition - the persona and tool filter to install.
+ * @param parent - the delegating parent whose composition the child joins.
+ * @param composition - the per-child persona and tool filter to install.
  */
-export function applyChildComposition(childCtx: Context, composition: ChildComposition): void {
+export function applyChildComposition(
+  childCtx: Context,
+  parent: Agent,
+  composition: ChildComposition,
+): void {
+  childCtx.get('agentPresets')?.composeFrom(childCtx, parent.ctx)
   // Order 120: after the sandbox:policy (110) and approval:policy (115) sentences.
   childCtx.systemPrompt.context({ name: 'subagent:delegation', order: 120, text: SUBAGENT_DELEGATION_CONTEXT })
   if (composition.persona !== undefined) {

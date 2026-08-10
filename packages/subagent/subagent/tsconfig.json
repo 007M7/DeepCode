@@ -30,6 +30,9 @@
       "path": "../../interaction/user-approval"
     },
     {
+      "path": "../../preset/agent-presets"
+    },
+    {
       "path": "../../sandbox/sandbox"
     },
     {

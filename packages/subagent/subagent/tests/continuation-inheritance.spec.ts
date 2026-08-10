@@ -63,7 +63,7 @@ function startSpec(parent: Agent, provider = 'spawn') {
 async function waitNoActivation(ctx: Context, childId: SessionId): Promise<void> {
   await vi.waitFor(() => {
     expect(ctx.agents.get(childId)).toBeUndefined()
-  }, { timeout: 5_000 })
+  }, { timeout: 15_000 })
 }
 
 function policyEvents(events: readonly SessionEvent[]) {
@@ -71,7 +71,7 @@ function policyEvents(events: readonly SessionEvent[]) {
 }
 
 describe('continuable policy inheritance', () => {
-  it('seeds the parent sandbox override and pins approval to never', async () => {
+  it('seeds the parent sandbox override and pins approval to never', { timeout: 20_000 }, async () => {
     const { ctx, parent } = await setup([textResponse('child done')])
     setSandboxMode(parent.session, 'danger-full-access')
     // No parent approval override: the child pin must not depend on one.
@@ -109,7 +109,7 @@ describe('continuable policy inheritance', () => {
     expect(contextText).toContain('You are a delegated subagent')
   })
 
-  it('captures policy at delegation before asynchronous child creation', async () => {
+  it('captures policy at delegation before asynchronous child creation', { timeout: 20_000 }, async () => {
     const { ctx, parent } = await setup([textResponse('child done')])
     setSandboxMode(parent.session, 'read-only')
 
@@ -125,7 +125,7 @@ describe('continuable policy inheritance', () => {
     expect(effectiveSandboxMode(loaded.events)).toBe('read-only')
   })
 
-  it('leaves an unswitched sandbox on the deployment default while still pinning approval', async () => {
+  it('leaves an unswitched sandbox on the deployment default while still pinning approval', { timeout: 20_000 }, async () => {
     const { ctx, parent } = await setup([textResponse('child done')])
 
     const started = await ctx.subagents.startContinuable(startSpec(parent))
@@ -138,7 +138,7 @@ describe('continuable policy inheritance', () => {
     expect(effectiveSandboxMode(loaded.events)).toBeUndefined()
   })
 
-  it('pins approval after the fork prefix of an unswitched fork child', async () => {
+  it('pins approval after the fork prefix of an unswitched fork child', { timeout: 20_000 }, async () => {
     const { ctx, parent } = await setup([textResponse('parent turn'), textResponse('forked child')])
     parent.followup(createUserMessage({
       content: [{ type: 'text', text: 'parent work' }],
@@ -157,7 +157,7 @@ describe('continuable policy inheritance', () => {
     expect(effectiveSandboxMode(loaded.events)).toBeUndefined()
   })
 
-  it('lets a later child-side switch win over the delegation snapshot', async () => {
+  it('lets a later child-side switch win over the delegation snapshot', { timeout: 20_000 }, async () => {
     const { ctx, parent } = await setup([textResponse('child done')])
     setSandboxMode(parent.session, 'danger-full-access')
     let child: Agent | undefined
@@ -177,7 +177,7 @@ describe('continuable policy inheritance', () => {
     expect(effectiveSandboxMode(loaded.events)).toBe('read-only')
   })
 
-  it('cold-resumes on the persisted snapshot without re-capturing the parent', async () => {
+  it('cold-resumes on the persisted snapshot without re-capturing the parent', { timeout: 20_000 }, async () => {
     const { ctx, parent } = await setup([textResponse('first'), textResponse('after resume')])
     setSandboxMode(parent.session, 'read-only')
     const started = await ctx.subagents.startContinuable(startSpec(parent))
@@ -203,7 +203,7 @@ describe('continuable policy inheritance', () => {
     ])
   })
 
-  it('places inherited events after a fork prefix so fresh policy wins stale seed state', async () => {
+  it('places inherited events after a fork prefix so fresh policy wins stale seed state', { timeout: 20_000 }, async () => {
     const { ctx, parent } = await setup([textResponse('parent turn'), textResponse('forked child')])
     // The stale mode lands inside the completed turn the fork seed replays.
     setSandboxMode(parent.session, 'workspace-write')

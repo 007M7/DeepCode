@@ -11,6 +11,7 @@
 
 import { IconChevronDownOutline14, Menu } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { AgentPresetOption } from './settings-store.ts'
+import { presetDisplayText, type AgentPresetSettingsKey } from './locales.ts'
 
 /** What one surface passes to the shared picker. */
 export interface PresetMenuProps {
@@ -20,8 +21,8 @@ export interface PresetMenuProps {
   selectedId: string
   /** Text on the button; the surfaces word a pending roster differently. */
   label: string
-  /** Suffix marking a locally authored preset in the menu. */
-  userTrustLabel: string
+  /** Active Web locale lookup. */
+  t: (key: AgentPresetSettingsKey) => string
   /** Class for the trigger button, owned by the calling surface. */
   buttonClassName: string | undefined
   /** Class for the chevron, owned by the calling surface. */
@@ -42,22 +43,22 @@ export interface PresetMenuProps {
  * @returns the menu and its trigger.
  */
 export function PresetMenu({
-  options, selectedId, label, userTrustLabel, buttonClassName, chevronClassName,
+  options, selectedId, label, t, buttonClassName, chevronClassName,
   disabled, open, onOpenChange, onSelect,
 }: PresetMenuProps) {
   return (
     <Menu
       open={open}
       onClose={() => { onOpenChange(false) }}
-      items={options.map(option => ({
-        id: option.id,
-        // The metadata name is what every surface shows; the id is addressing,
-        // not a label. A preset that names itself nothing falls back to its id,
-        // which is then all there is to say about it.
-        label: option.trust === 'user'
-          ? `${option.name ?? option.id} · ${userTrustLabel}`
-          : option.name ?? option.id,
-      }))}
+      items={options.map((option) => {
+        const name = presetDisplayText(option, t).name
+        return {
+          id: option.id,
+          // All preset surfaces resolve copy the same way; the id is addressing,
+          // not a label, except where no display name exists.
+          label: option.trust === 'user' ? `${name} · ${t('userTrust')}` : name,
+        }
+      })}
       selectedId={selectedId}
       onSelect={(id) => {
         onOpenChange(false)

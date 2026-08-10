@@ -47,6 +47,15 @@ const windowsOnlyCoverageExclusions = process.platform !== 'win32'
     ]
   : []
 
+// The confinement runner entry executes exclusively as a spawned child
+// process (the sandbox seam's argv-prefix wrapper): its module-level main()
+// would run the confinement in-process if imported, and vitest's v8 coverage
+// never measures child processes. Its behavior is pinned end-to-end by
+// tests/runner.spec.ts, which spawns the real entry through tsx.
+const windowsRunnerCoverageExclusions = process.platform === 'win32'
+  ? ['packages/sandbox/sandbox-windows-acl/src/runner.ts']
+  : []
+
 // pwsh-local's run/start/lifecycle suites self-skip without a real pwsh
 // (executor.spec.ts hasPwsh), leaving this file
 // far below per-file 100% on pwsh-less hosts; the exemption keeps those hosts
@@ -234,6 +243,7 @@ export default defineConfig({
         'packages/session/session-projection/src/index.ts',
         ...windowsUnsupportedPackages.map(path => `${path}/src/**/*.ts`),
         ...windowsOnlyCoverageExclusions,
+        ...windowsRunnerCoverageExclusions,
         ...pwshCoverageExclusions,
       ],
       // 100% or it doesn't merge (docs/testing.md: excessive tests are welcome).

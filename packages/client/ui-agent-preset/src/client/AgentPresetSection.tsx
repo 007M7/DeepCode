@@ -18,7 +18,7 @@ import {
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import { draftBlocker, type AgentPresetSectionState } from './section-store.ts'
-import type { AgentPresetSettingsKey } from './locales.ts'
+import { presetDisplayText, type AgentPresetSettingsKey } from './locales.ts'
 import css from './AgentPresetSection.module.css'
 
 /** Registration-side business face for the management section. */
@@ -77,11 +77,13 @@ function CopyDialog({ state, t, actions }: CopyDialogProps): ReactNode {
   const draft = state.copy
   const blocker = draft === null ? undefined : draftBlocker(draft, state.rows)
   const message = draft === null ? null : draft.error ?? (blocker === undefined ? null : t(blocker))
+  const source = draft === null ? undefined : state.rows.find(row => row.id === draft.from)
+  const sourceTitle = source === undefined ? draft?.fromTitle : presetDisplayText(source, t).name
   return (
     <Modal
       open={draft !== null}
       onClose={() => { actions.cancelCopy() }}
-      title={draft === null ? t('copyTitle') : `${t('copyTitle')} · ${t('copyOf')} ${draft.fromTitle}`}
+      title={draft === null ? t('copyTitle') : `${t('copyTitle')} · ${t('copyOf')} ${sourceTitle}`}
       closeLabel={t('close')}
       description={t('copyIntro')}
       className={css.dialog as string}
@@ -143,6 +145,11 @@ function CopyDialog({ state, t, actions }: CopyDialogProps): ReactNode {
 export function AgentPresetSection(props: AgentPresetSectionProps): ReactNode {
   const { useAgentPresetSection, t, load } = props
   const state = useAgentPresetSection(snapshot => snapshot)
+  const viewedId = state.view?.id
+  const viewedRow = viewedId === undefined ? undefined : state.rows.find(row => row.id === viewedId)
+  const viewedTitle = state.view === null
+    ? ''
+    : viewedRow === undefined ? state.view.title : presetDisplayText(viewedRow, t).name
 
   useEffect(() => {
     void load()
@@ -170,13 +177,15 @@ export function AgentPresetSection(props: AgentPresetSectionProps): ReactNode {
       <p className={css.intro}>{t('sectionIntro')}</p>
       {state.error === null ? null : <p className={css.error} role="alert">{state.error}</p>}
       {([['system', t('builtInGroup')], ['user', t('customGroup')]] as const).map(([trust, heading]) => {
-        const group = state.rows.filter(row => row.trust === trust)
+        const group = state.rows
+          .filter(row => row.trust === trust)
+          .map(row => ({ row, text: presetDisplayText(row, t) }))
         if (group.length === 0) return null
         return (
           <section key={trust} className={css.group}>
             <h3 className={css.groupHead}>{heading}</h3>
             <ul className={css.cards}>
-              {group.map(row => (
+              {group.map(({ row, text }) => (
                 <li
                   key={row.id}
                   className={row.broken !== undefined
@@ -196,12 +205,12 @@ export function AgentPresetSection(props: AgentPresetSectionProps): ReactNode {
                     disabled={row.isDefault || row.broken !== undefined}
                     // Without this the name is the whole card read aloud —
                     // title, badge, description, id.
-                    aria-label={`${row.broken !== undefined ? t('brokenBadge') : row.isDefault ? t('inUse') : t('setDefault')}: ${row.name ?? row.id}`}
+                    aria-label={`${row.broken !== undefined ? t('brokenBadge') : row.isDefault ? t('inUse') : t('setDefault')}: ${text.name}`}
                     title={row.broken ?? (row.isDefault ? t('inUse') : t('setDefault'))}
                     onClick={() => { void props.makeDefault(row.id) }}
                   >
                     <span className={css.cardHead}>
-                      <span className={css.cardName}>{row.name ?? row.id}</span>
+                      <span className={css.cardName}>{text.name}</span>
                       {row.broken !== undefined
                         ? <span className={css.brokenBadge}>{t('brokenBadge')}</span>
                         : null}
@@ -210,7 +219,7 @@ export function AgentPresetSection(props: AgentPresetSectionProps): ReactNode {
                       </span>
                       {row.isDefault ? <span className={css.inUse}>{t('inUse')}</span> : null}
                     </span>
-                    <span className={css.cardDesc}>{row.description ?? t('noDescription')}</span>
+                    <span className={css.cardDesc}>{text.description ?? t('noDescription')}</span>
                     {row.broken === undefined
                       ? null
                       : <span className={css.cardBrokenReason} role="alert">{row.broken}</span>}
@@ -231,7 +240,7 @@ export function AgentPresetSection(props: AgentPresetSectionProps): ReactNode {
                             type="button"
                             className={css.iconButton}
                             data-tip={t('view')}
-                            aria-label={`${t('view')}: ${row.name ?? row.id}`}
+                            aria-label={`${t('view')}: ${text.name}`}
                             onClick={() => { void props.view(row.id) }}
                           >
                             <IconBrowseOutline16 />
@@ -243,7 +252,7 @@ export function AgentPresetSection(props: AgentPresetSectionProps): ReactNode {
                           type="button"
                           className={css.iconButton}
                           data-tip={state.hasDocument ? t('openLocation') : t('showLocation')}
-                          aria-label={`${state.hasDocument ? t('openLocation') : t('showLocation')}: ${row.name ?? row.id}`}
+                          aria-label={`${state.hasDocument ? t('openLocation') : t('showLocation')}: ${text.name}`}
                           onClick={() => { void props.openLocation(row.id) }}
                         >
                           <IconFolderOpenOutline16 />
@@ -256,7 +265,7 @@ export function AgentPresetSection(props: AgentPresetSectionProps): ReactNode {
                       data-tip={row.broken !== undefined
                         ? t('brokenNoCopy')
                         : state.authorable ? t('duplicate') : t('duplicateUnavailable')}
-                      aria-label={`${t('duplicate')}: ${row.name ?? row.id}`}
+                      aria-label={`${t('duplicate')}: ${text.name}`}
                       onClick={() => { props.beginCopy(row.id) }}
                     >
                       <IconCopyOutline16 />
@@ -267,7 +276,7 @@ export function AgentPresetSection(props: AgentPresetSectionProps): ReactNode {
                           type="button"
                           className={`${css.iconButton} ${css.iconDanger}`}
                           data-tip={t('delete')}
-                          aria-label={`${t('delete')}: ${row.name ?? row.id}`}
+                          aria-label={`${t('delete')}: ${text.name}`}
                           onClick={() => { props.confirmDelete(row.id) }}
                         >
                           <IconTrashOutline16 />
@@ -325,7 +334,7 @@ export function AgentPresetSection(props: AgentPresetSectionProps): ReactNode {
       <Modal
         open={state.view !== null}
         onClose={() => { props.closeView() }}
-        title={state.view === null ? '' : `${t('view')} · ${state.view.title}`}
+        title={state.view === null ? '' : `${t('view')} · ${viewedTitle}`}
         closeLabel={t('close')}
         description={t('composition')}
         className={css.dialog as string}
