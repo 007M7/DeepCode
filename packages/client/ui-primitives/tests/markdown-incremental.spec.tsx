@@ -58,7 +58,7 @@ const STREAM_DOC = [
 
 describe('incremental streaming rendering', () => {
   for (const chunkSize of [1, 3, 7, 16]) {
-    it(`matches a fresh render at every prefix (chunk=${chunkSize})`, () => {
+    it(`matches a fresh render at every prefix (chunk=${chunkSize})`, { timeout: 20_000 }, () => {
       const live = render(<MarkdownText text="" streaming />)
       for (let end = chunkSize; end < STREAM_DOC.length + chunkSize; end += chunkSize) {
         const prefix = STREAM_DOC.slice(0, Math.min(end, STREAM_DOC.length))

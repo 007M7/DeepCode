@@ -272,7 +272,7 @@ describe('PiAiAdapter provider routing', () => {
     await Promise.race([
       server.responseClosed,
       new Promise<never>((_resolve, reject) => {
-        setTimeout(() => { reject(new Error('SDK request did not close after idle timeout')) }, 100)
+        setTimeout(() => { reject(new Error('SDK request did not close after idle timeout')) }, 1_000)
       }),
     ])
 

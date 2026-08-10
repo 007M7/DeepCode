@@ -2,11 +2,12 @@
 
 [English](README.md) | 中文
 
-带作用域的注册原语。`createScope(ctx, key)` 创建一个带标签的 Cordis 上下文，其底层 fiber 拥有通过该上下文进行的每项注册。`scopeOf(ctx)` 读取标签；`scopeTarget(base, key)` 将带作用域的事件路由到键相同的监听器，同时让无作用域监听器保持全局可见。agent loop（智能体循环）为每个实时 agent 创建一个作用域，但该机制与键的具体含义无关，因此底层包无需依赖 agent 即可使用。
+带作用域的注册原语。`createScope(ctx, key)` 创建一个带标签的 Cordis 上下文，其底层 fiber 拥有通过该上下文进行的每项注册。`scopeOf(ctx)` 读取标签；`scopeTarget(base, key)` 将带作用域的事件路由到键相同的监听器，同时让无作用域监听器保持全局可见。键可以构成可选的父链（`bindScopeParent`）：注册视图沿链**向下**继承——子作用域看得见祖先各层，近者遮蔽远者——事件放行沿链**向上**扩展——标签为祖先的监听器能收到子孙键的事件，反向永不成立。agent loop（智能体循环）为每个实时 agent 创建一个作用域，agent preset 的常驻挂载则是其 agent 们的父作用域，但该机制与键的具体含义无关，底层包无需依赖两者即可使用。
 
 ## 公开 API
 
-- `createScope(ctx: Context, key: ScopeKey): Scope`：在 `ctx` 的 fiber 下创建作用域。可以同步使用（effect 收集受 uid 门禁约束；服务解析会沿创建该作用域的插件依赖范围继续查找）。同进程、带类型的键受信任；处于非活动状态的创建上下文仍会通过 Cordis 失败（`INACTIVE_EFFECT`）。
+- `createScope(ctx: Context, key: ScopeKey, options?): Scope`：在 `ctx` 的 fiber 下创建作用域。可以同步使用（effect 收集受 uid 门禁约束；服务解析会沿创建该作用域的插件依赖范围继续查找）。同进程、带类型的键受信任；处于非活动状态的创建上下文仍会通过 Cordis 失败（`INACTIVE_EFFECT`）。`options.parent` 在作用域可用之前经 `bindScopeParent` 绑定其外围作用域；绑定句柄不外泄。
+- `bindScopeParent(key, parent): ScopeParentBinding` / `scopeParentOf(key)` / `scopeChainOf(key)`：支撑两条链方向的父关系。绑定仅此一次：已有父级的键直接抛错，只有返回的绑定句柄的 `rebind(parent)` 才能重新认父——即空白会话 recompose 的操作，仅当旧父之下产出的东西一概不被保留时才合法（这是持有方的约定——该关系看不见会话记录了什么）。绑定与每次 rebind 都拒绝会闭环的链接。`scopeChainOf` 返回 `[key, parent, …]`，最近者在前。
 - `Scope.ctx`：带标签的上下文。通过它进行的注册既具备作用域可见性，也服从作用域生命周期。派生上下文（一次 `extend`、挂载于其下的 fiber）继承标签；嵌套作用域会遮蔽外层标签（最近的标签生效）。
 - `Scope.rawDispose`：底层 fiber 的原样 Cordis disposer。组合式（generator）effect 会 yield 此函数，从而把作用域 teardown 嵌套在该 yield 位置（Cordis 按函数标识去重嵌套 effect；yield 一个包装函数会使作用域 teardown 成为并行的同级操作）。
 - `Scope.dispose(): Promise<void>`：通过作用域进行的每项注册所共用的幂等完全停稳边界。竞态调用或重复调用会等待同一次 teardown；即使 `rawDispose` 先调用了底层单次 Cordis disposer 也是如此。
@@ -15,7 +16,7 @@
 - `Scoped<T>`：编译期不透明载体 brand。按作用域筛选的事件要求它作为 `this` 类型，因此使用裸主体分发会产生编译错误。类型参数记录主体类型，但不公开其属性。
 - `isScopeCarrier(value)`/`carrierKeyOf(value)`：运行时载体标记，开发不变式使用它们断言每次按作用域筛选的分发都携带载体，而且载体键与参数所指名的主体一致。
 - `ScopeLayer`：一个注册表的完整全局贡献或精确作用域贡献的聚合约定；`isEmpty()` 控制带作用域层的回收。
-- `ScopedLayers<L>`：拥有一个立即创建的全局层和按需创建的精确作用域层。`peek()` 从不创建；`merge()` 物化按插入顺序排列的具名遮蔽项；`effect()` 从同一上下文推导可见性与所有权，同时返回原样 Cordis disposer。
+- `ScopedLayers<L>`：持有一个立即构造的全局层与惰性的精确作用域层。`peek()` 从不创建且刻意不看链（某作用域**自己**的贡献——限制、守卫——不得悄悄继承祖先的），`chainLayers()` 按最远祖先在前返回已存在的各层，`merge()` 沿链物化按插入序的具名遮蔽，`effect()` 从同一上下文推导可见性与所有权，并返回精确的 Cordis disposer。
 - `NamedEntries<V>`：按插入顺序排列的具名存储，调用方拥有重复项诊断、查找，以及一个非空表世代内的实时迭代。表清空后，现有迭代器与后续插入项脱离；`insert()` 返回幂等的精确条目撤销函数。
 - `AnonymousEntries<V>`：按插入顺序排列的匿名存储；唯一内部键使相同值仍作为独立注册存在。它使用相同的清空世代迭代器边界；`append()` 返回幂等的精确条目撤销函数。
 
@@ -32,5 +33,5 @@
 ## 已知限制与暂缓事项
 
 - **只有感知作用域的表层才会隔离状态**：注册表必须按 `scopeOf()` 归档，事件必须通过 `scopeTarget()` 分发；仅仅通过带作用域的上下文调用任意 Cordis 服务，并不会改变该服务仍为上下文全局这一事实。
-- **一个上下文只携带一个最近的作用域键**：嵌套作用域会遮蔽父作用域的标签，而不会形成层级策略集或多成员策略集。
+- **一个上下文只携带一个最近的作用域键**：层级关系存在于键级父关系中而非上下文标签里；嵌套作用域**上下文**仍遮蔽为单一标签，多成员策略集仍不受支持。
 - **服务可达性来自作用域创建者**：交出 `Scope.ctx` 也会交出创建插件注入的服务表层，因此，若作用域创建者提供的服务范围较宽，持有者之后也无法将其收窄。

@@ -268,6 +268,13 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Folds logged plan/mode state, flushes user selections at turn boundaries, renders deployment-owned guidance, registers /plan, and keeps the plan-exit schema stable across transitions.',
   },
   {
+    key: 'agentPresets',
+    pkg: 'agent-presets',
+    title: 'Per-session agent composition',
+    mode: 'core',
+    note: 'Discovers preset directories over trusted and user-authored roots and mounts one preset cordis.yml under an agent scope during creation, rejecting a row that never activates or that publishes into the root service realm.',
+  },
+  {
     key: 'commands',
     pkg: 'commands',
     title: 'Human command registry',

@@ -28,6 +28,10 @@ const platformPackageName = `@deepseek-ai/node-addon-landlock-run-linux-${proces
 /** The harness closure the consumer needs; native tarballs are packed through their mode-preserving release script. */
 const WORKSPACE_CLOSURE = [
   'packages/sandbox/sandbox-local',
+  // sandbox-local's win32 chain rung is a runtime dependency: a packed
+  // consumer resolves it like any other @deepseek-ai peer (koffi arrives
+  // from the registry).
+  'packages/sandbox/sandbox-windows-acl',
   'packages/sandbox/sandbox',
   'packages/llm/llm',
   'packages/util/brand',

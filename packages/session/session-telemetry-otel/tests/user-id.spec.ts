@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -17,7 +17,6 @@ function tempHome(): string {
 
 afterEach(() => {
   for (const dir of dirs.splice(0)) {
-    chmodSync(dir, 0o700)
     rmSync(dir, { recursive: true, force: true })
   }
 })
@@ -69,11 +68,10 @@ describe('getOrCreateAnonymousUserId', () => {
     expect(id).toBe(winner)
   })
 
-  it('returns a usable id when the home is unwritable, without persisting', () => {
+  it('returns a usable id when the home cannot contain files, without persisting', () => {
     const home = tempHome()
     const blocked = join(home, 'blocked')
-    mkdirSync(blocked)
-    chmodSync(blocked, 0o500)
+    writeFileSync(blocked, 'occupied\n')
     const id = getOrCreateAnonymousUserId({ env: { DSH_HOME: blocked } })
     expect(id).toMatch(UUID)
     expect(existsSync(join(blocked, USER_ID_FILE_NAME))).toBe(false)

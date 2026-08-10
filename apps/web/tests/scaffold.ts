@@ -32,6 +32,7 @@ import { expect } from 'vitest'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import Include, { type PatchOptions } from '@cordisjs/plugin-include'
+import Group from '@cordisjs/plugin-group'
 import { scrubRequestHeaders, stabilizeFixtureMessageIds } from '@deepseek-ai/dsh-acp-snapshot'
 import {
   addHarnessSourceSection,
@@ -85,6 +86,8 @@ const BASE_PATCH_PATH = join(REPO_ROOT, 'packages/bundle/base/cordis.patch.yml')
 const WEB_PATCH_PATH = join(REPO_ROOT, 'packages/bundle/web-app/cordis.patch.yml')
 /** The installation anchor whose dependency surface the profile module fallback mirrors. */
 const INSTALL_ANCHOR = join(REPO_ROOT, 'apps/cli/package.json')
+/** The deployment's own agent-preset root, shipped beside the app's config. */
+const SHIPPED_PRESET_DIR = join(REPO_ROOT, 'apps/cli/config/agent-presets')
 
 // Replay publishes the provider catalog the gateway routes to (providers
 // mode, never catch-all: with llm-deepseek disabled no adapter exists, so a
@@ -226,6 +229,20 @@ export interface LaunchOptions {
     /** Credential reference resolved by the shipped search provider. */
     apiKeyEnv: string
   }
+  /**
+   * Replace the roster the scaffold mounts by default (the shipped directory
+   * at `system` trust, default `standard`). Supply this only to change WHICH
+   * presets a scenario sees — a writable user root, a different default —
+   * never to turn the roster on: without one every session composes an agent
+   * with no tools, no persona, and no token meter, which is not a shape the
+   * product ever boots in. The patch lands after the default, so it wins.
+   */
+  agentPresets?: {
+    /** Roots to discover, in precedence order; the shipped directory is `system`. */
+    roots: { path: string; trust: 'system' | 'user' }[]
+    /** The preset a session that names none is composed from. */
+    default: string
+  }
   /** Leave the current welcome notice unacknowledged; ordinary scenarios publish it as complete before browser boot. */
   welcomeNoticePending?: boolean
   /**
@@ -281,6 +298,31 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
   // paths at load, and an in-process boot must NEVER touch the developer's
   // real ~/.dsh document or credential file.
   const harnessHome = join(workspaceCwd, '.dsh-home')
+  // Skill discovery is model-visible input, and its roots now resolve inside a
+  // PRESET — a subtree this lane's include patches cannot reach, because the
+  // roster mounts it directly per session rather than as a row of the booted
+  // tree. The row's documented fallback is the environment, so pin that: the
+  // whole scaffold lifetime, not just the boot, since presets mount when a
+  // session is created. Without this a developer's real ~/.dsh/skills silently
+  // enters replay requests and goldens while CI sees none.
+  const skillRootEnvironment = {
+    DSH_HOME: join(workspaceCwd, '.dsh-home'),
+    DSH_AGENTS_HOME: join(workspaceCwd, '.agents-home'),
+    DSH_BUNDLED_SKILL_DIR: join(workspaceCwd, '.bundled-skills'),
+  }
+  const originalSkillRootEnvironment = Object.fromEntries(
+    Object.keys(skillRootEnvironment).map(key => [key, process.env[key]]),
+  )
+  let skillRootEnvironmentRestored = false
+  const restoreSkillRootEnvironment = (): void => {
+    if (skillRootEnvironmentRestored) return
+    skillRootEnvironmentRestored = true
+    for (const [key, value] of Object.entries(originalSkillRootEnvironment)) {
+      if (value === undefined) Reflect.deleteProperty(process.env, key)
+      else process.env[key] = value
+    }
+  }
+  Object.assign(process.env, skillRootEnvironment)
   let persistenceRoot: string
   try {
     persistenceRoot = await mkdtemp(join(tmpdir(), 'dsh-web-e2e-sessions-'))
@@ -310,6 +352,18 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     ...basePatches,
     ...surfacePatches,
     ...extraOverlayPatches,
+    // The roster's `roots` is an assembly fact AppCLIEntry resolves and patches
+    // in, exactly like `distIndex` on the webserver row — the shipped preset
+    // directory sits beside the composition that names it, and no config author
+    // chooses it. This lane boots the shipped tree WITHOUT AppCLIEntry, so it
+    // has to supply the same fact or the roster resolves nothing and every
+    // session composes an agent with no tools, no persona, and no token meter.
+    // Only the shipped root: a developer's own `~/.dsh/.agent-presets` must not be
+    // able to change a golden.
+    {
+      id: 'agent-presets',
+      config: { default: 'standard', roots: [{ path: SHIPPED_PRESET_DIR, trust: 'system' }] },
+    },
     { id: 'session-persistence-jsonl', config: { root: persistenceRoot } },
     { id: 'session-query-sqlite', config: { path: ':memory:', openAt: 'first-search' } },
     // storage-json's yml root is anchored to the real $DSH_HOME; pin the row
@@ -360,6 +414,9 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     // disable+insert pair.
     { id: 'directory-picker', disabled: true },
     { insert: [{ id: 'directory-picker-browse', name: '@deepseek-ai/dsh-host-directory-picker-browse' }] },
+    ...options.agentPresets === undefined
+      ? []
+      : [{ id: 'agent-presets', config: options.agentPresets }],
     ...options.toolsMode === undefined ? [] : [{ id: 'tools', config: { mode: options.toolsMode } }],
     ...options.cordisTools === true
       ? [{ insert: [{ id: 'tool-cordis', name: 'cordis:tool-cordis' }] }]
@@ -399,6 +456,11 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     ctx.provide('dshHomePath', dshHomePath)
     await ctx.plugin(Loader)
     ctx.loader.builtins.include = Include
+    // `cordis:group` beside it, exactly as `boot()` registers it: a group row is
+    // how a preset gives one `isolate` realm to a provider and its consumers,
+    // and a preset resolving package names from its own directory cannot reach
+    // `@cordisjs/plugin-group` by name.
+    ctx.loader.builtins.group = Group
     // The shipped CLI deliberately has no dependency on this opt-in package.
     // Keep the Loader row real without broadening the product installation.
     if (options.cordisTools === true) ctx.loader.builtins['tool-cordis'] = ToolCordis
@@ -449,6 +511,7 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     if (process.cwd() !== originalCwd) process.chdir(originalCwd)
     const cleanupFailures = await cleanupScaffoldWorld(ctx, workspaceCwd, persistenceRoot)
     restoreCredentialEnvironment()
+    restoreSkillRootEnvironment()
     if (cleanupFailures.length > 0) {
       throw new AggregateError([error, ...cleanupFailures], 'web scaffold setup failed and cleanup was incomplete')
     }
@@ -496,6 +559,7 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
         failures.push(...await cleanupScaffoldWorld(ctx, workspaceCwd, persistenceRoot))
       } finally {
         restoreCredentialEnvironment()
+        restoreSkillRootEnvironment()
       }
       if (failures.length > 0) throw new AggregateError(failures, 'web scaffold teardown failed')
     },
@@ -562,6 +626,8 @@ export function fixtureUserPrompts(fixtureText: string): string[] {
  * @param scaffold - the target scaffold.
  * @param fixtureText - raw recorded session.jsonl contents.
  * @param id - the seeded session id (stable for deterministic goldens).
+ * @param agentPreset - the preset the recorded session was composed from,
+ *   for scenarios asserting what a resumed session reports running.
  * @returns the seeded id.
  */
 /**
@@ -585,7 +651,12 @@ export function realizeSeedFixture(scaffold: WebScaffold, fixtureText: string, i
     : realized.split(fixtureCwd).join(scaffold.workspaceCwd)
 }
 
-export async function seedSession(scaffold: WebScaffold, fixtureText: string, id: string): Promise<SessionId> {
+export async function seedSession(
+  scaffold: WebScaffold,
+  fixtureText: string,
+  id: string,
+  agentPreset?: string,
+): Promise<SessionId> {
   const events = parseSessionLog(realizeSeedFixture(scaffold, fixtureText, id))
   if (events.length === 0) throw new Error('seed fixture has no events')
   const last = events[events.length - 1]!
@@ -598,6 +669,7 @@ export async function seedSession(scaffold: WebScaffold, fixtureText: string, id
     createdAt: Date.now() - 60_000,
     cwd: scaffold.workspaceCwd,
     delegationDepth: 0,
+    ...agentPreset === undefined ? {} : { agentPreset },
   }
   const seeder = new Context()
   try {

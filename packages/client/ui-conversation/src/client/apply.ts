@@ -152,7 +152,7 @@ export function apply(ctx: Context): void {
 
   // The per-session input machine registry (InputService face; published as
   // ctx.conversation.input by the service below sharing this one instance).
-  const inputHub = new InputHub(ctx)
+  const inputHub = new InputHub(ctx, t)
 
   // The composer-block registry: a plugin that knows a session cannot send —
   // ui-model, when no adapter serves the session's route — raises a block
@@ -192,6 +192,7 @@ export function apply(ctx: Context): void {
       'conversation.input.left': { kind: 'list', scope: 'session' },
       'conversation.input.right': { kind: 'list', scope: 'session' },
       'conversation.hero.workspace': { kind: 'single', scope: 'root' },
+      'conversation.hero.agentPreset': { kind: 'single', scope: 'root' },
     },
     inject: (sessionId: SessionId | undefined): ConversationInjected => ({
       hooks: { composerBlock: sessionId === undefined ? ABSENT_BLOCK : composerBlocks.storeFor(sessionId) },

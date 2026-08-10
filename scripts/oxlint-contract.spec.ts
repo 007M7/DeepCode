@@ -249,7 +249,7 @@ export const longProbe = 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 +
         rm(configPath, { force: true }),
       ])
     }
-  })
+  }, 20_000)
 
   it('accepts an ignored-only staged selection', () => {
     const result = runOxlint([

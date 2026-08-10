@@ -83,6 +83,15 @@ describe('gate graph validation', () => {
     expect(ids).toContain('public-repository-links')
   })
 
+  it('keeps native Windows coverage blocking while portability inventory remains observational', () => {
+    const gates = withPnpmEntrypoint(() => gatesForMode('ci-windows-complete'))
+    const byId = new Map(gates.map(subject => [subject.id, subject]))
+
+    expect(byId.get('coverage')?.allowFailure).not.toBe(true)
+    expect(byId.get('coverage-exempt-heavy')?.allowFailure).not.toBe(true)
+    expect(byId.get('duplication')?.allowFailure).toBe(true)
+  })
+
   it.each([
     ['empty', [], /gate graph has no gates/],
     ['duplicate ids', [gate('same'), gate('same')], /duplicate gate id "same"/],

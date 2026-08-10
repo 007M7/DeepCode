@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { join, sep } from 'node:path'
 import { tmpdir } from 'node:os'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
@@ -416,7 +416,7 @@ describe('dsh-agent-spine-demo bundle', () => {
     await ctx.fiber.dispose()
   })
 
-  it('snapshots a created project skill through catalog refresh and progressive loading', async () => {
+  it('snapshots a created project skill through catalog refresh and progressive loading', { timeout: 15_000 }, async () => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-agent-spine-demo-skill-refresh-'))
     const home = await mkdtemp(join(tmpdir(), 'dsh-agent-spine-demo-skill-refresh-home-'))
     try {
@@ -449,6 +449,15 @@ describe('dsh-agent-spine-demo bundle', () => {
       await ctx.plugin(LocalBashExecutor, {})
       await ctx.plugin(LocalFileSystem, { cwd: root })
       await ctx.plugin(ToolFs)
+      ctx.on('tools/post-execute', async (exec, _result, next) => {
+        const decision = await next()
+        if (exec.callId === 'write-skill') {
+          await vi.waitFor(async () => {
+            expect((await ctx.skills.list({ cwd: root })).map(skill => skill.name)).toContain('hot-skill')
+          }, { timeout: 5_000 })
+        }
+        return decision
+      })
       ctx.llm.registerAdapter(['mock'], adapter)
       const handle = await ctx.agents.create({
         sessionId: SessionId('skill-refresh-session'),
@@ -491,7 +500,8 @@ describe('dsh-agent-spine-demo bundle', () => {
             callId: event.data.message.source.callId,
             isError: result.isError,
             text: result.content.map(block => block.type === 'text' ? block.text : '').join('\n')
-              .replaceAll(root, '{{cwd}}'),
+              .replaceAll(root, '{{cwd}}')
+              .replaceAll(sep, '/'),
           }]
         }
         return []

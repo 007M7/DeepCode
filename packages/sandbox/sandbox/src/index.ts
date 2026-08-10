@@ -7,6 +7,7 @@
 
 import { Context, Service } from 'cordis'
 import { HarnessError } from '@deepseek-ai/dsh-llm'
+import type { SessionId } from '@deepseek-ai/dsh-session'
 
 export {
   ESCALATION_TARGETS,
@@ -40,6 +41,14 @@ export interface SandboxExecutionPolicy {
   mode: SandboxMode
   /** Absolute root directory `workspace-write` may write under. */
   workspaceRoot: string
+  /**
+   * Opaque identity of the calling session (the branded `dsh-session`
+   * SessionId). Backends key per-session state off it (e.g. the windows-acl
+   * per-session private temp subdirectory — the write grant itself is
+   * per-workspace, derived from the workspace root); absent for agentless
+   * calls, which fall back to per-call backend state.
+   */
+  sessionId?: SessionId
 }
 
 /**
@@ -124,8 +133,9 @@ export class SandboxUnavailableError extends HarnessError {
     super(
       `sandbox mode "${mode}" is requested but no sandbox backend is usable on this host; `
       + 'refusing to run the command unconfined. Install bubblewrap or run a Landlock-enforcing '
-      + 'kernel (Linux), ensure sandbox-exec is usable (macOS) — Windows has no confinement '
-      + 'backend yet — or switch the consumer to danger-full-access.'
+      + 'kernel (Linux), ensure sandbox-exec is usable (macOS), or ensure the ACL '
+      + 'restricted-token runner can start (Windows) — otherwise switch the consumer to '
+      + 'danger-full-access.'
       + (detail === undefined ? '' : ` Runner failure: ${detail}`),
       SANDBOX_UNAVAILABLE,
     )
