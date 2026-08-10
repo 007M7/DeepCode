@@ -8,7 +8,7 @@ import { useEffect, useState } from 'react'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { AgentPresetSettingsState } from './settings-store.ts'
-import type { AgentPresetSettingsKey } from './locales.ts'
+import { presetDisplayText, type AgentPresetSettingsKey } from './locales.ts'
 import { PresetMenu } from './PresetMenu.tsx'
 import css from './AgentPresetRow.module.css'
 
@@ -52,11 +52,11 @@ export function AgentPresetRow({ load, select, useAgentPreset, t }: AgentPresetR
   // every session shares the host composition — the row simply does not exist.
   if (state.status === 'unavailable') return null
   const busy = state.status === 'loading' || state.status === 'saving'
-  // The metadata name is what every other surface shows — the id is the
-  // addressing, not the label. A preset that names itself nothing falls back
-  // to its id, which is then all there is to say about it.
+  // Every preset surface applies the same display-copy rule. The id remains
+  // addressing rather than a label, except where no display name exists.
   const chosen = state.options.find(option => option.id === state.currentValue)
-  const label = state.currentValue === '' ? t('loading') : (chosen?.name ?? state.currentValue)
+  const chosenText = chosen === undefined ? undefined : presetDisplayText(chosen, t)
+  const label = state.currentValue === '' ? t('loading') : (chosenText?.name ?? state.currentValue)
   const description: string = state.error ?? t('description')
 
   return (
@@ -69,7 +69,7 @@ export function AgentPresetRow({ load, select, useAgentPreset, t }: AgentPresetR
         options={state.options}
         selectedId={state.currentValue}
         label={label}
-        userTrustLabel={t('userTrust')}
+        t={t}
         buttonClassName={css.selector}
         chevronClassName={css.chevron}
         disabled={busy || !state.writable || state.options.length === 0}
