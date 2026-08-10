@@ -179,6 +179,7 @@ function mount(
             subscribe: () => () => {},
             version: () => 1,
           }}
+          releaseSessionImages={vi.fn()}
           bindDraftMirror={write => wiring.bindMirror(write)}
         />
       )
@@ -198,6 +199,9 @@ function mount(
           useInput={useInput}
           inputActions={inputActions}
           keyboard={wiring}
+          addImages={() => null}
+          removeImage={() => {}}
+          draftImages={() => []}
           resolveSubmitMode={() => 'queue'}
           toggleCommandMenu={vi.fn()}
           useNotices={bindSnapshotSelector(wiring.notices)}
@@ -305,7 +309,7 @@ describe('ConversationRoot resident composer', () => {
     fireEvent.change(box, { target: { value: 'ordinary revised' } })
     expect(b.chat.store.getSnapshot().draft).toBe('ordinary revised')
     fireEvent.keyDown(box, { key: 'Enter' })
-    expect(b.sink).toHaveBeenCalledWith('ordinary revised', 'queue')
+    expect(b.sink).toHaveBeenCalledWith('ordinary revised', [], 'queue')
     expect((b.view.getByRole('button', { name: 'Child' }) as HTMLButtonElement).disabled).toBe(true)
     expect(b.view.queryByText('Root')).toBeNull()
   })

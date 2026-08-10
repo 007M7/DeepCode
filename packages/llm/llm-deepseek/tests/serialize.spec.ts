@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { createUserMessage, CallId, ReasoningEffortId , createMessage } from '@deepseek-ai/dsh-llm'
+import { AttachmentId } from '@deepseek-ai/dsh-attachment'
+import { createUserMessage, CallId, ReasoningEffortId, createMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, GenerateOptions, Message } from '@deepseek-ai/dsh-llm'
 import { serializeMessages, serializeRequest } from '../src/serialize.ts'
 
@@ -130,6 +131,19 @@ describe('serializeMessages', () => {
       }),
     ])
     expect(wire).toEqual([{ role: 'user', content: 'see chart' }])
+  })
+
+  it('rejects image blocks instead of silently flattening them away', () => {
+    expect(() => serializeMessages([createUserMessage({
+      content: [{
+        type: 'image',
+        attachment: {
+          attachmentId: AttachmentId(`sha256:${'a'.repeat(64)}`),
+          mediaType: 'image/png', bytes: 68, width: 1, height: 1,
+        },
+      }],
+      source: { kind: 'plugin', plugin: 'test' },
+    })])).toThrow(expect.objectContaining({ code: 'UNSUPPORTED_CONTENT' }))
   })
 
   it('emits an empty user message rather than dropping block-less messages', () => {

@@ -21,10 +21,10 @@
   - img
   - img
   - text: Ask question 1/1 answered
-- text: "Interjection Interjection: include the word BANANA in your final reply. {{clock}}"
+- text: "Interjection: include the word BANANA in your final reply. {{clock}}"
 - button "Copy":
   - img
-- text: "Interjection Interjection: include the word ORANGE in your final reply. {{clock}}"
+- text: "Interjection: include the word ORANGE in your final reply. {{clock}}"
 - button "Copy":
   - img
 - paragraph: "Got it: BANANA and ORANGE."

@@ -12,7 +12,6 @@
  * service; sessions that have already logged a selection remain unchanged.
  */
 
-import { resolve } from 'node:path'
 import { Context, Service } from 'cordis'
 import z from 'schemastery'
 import type {} from '@deepseek-ai/dsh-agent-default-model'
@@ -34,10 +33,8 @@ declare module 'cordis' {
   }
 }
 
-/** Gateway plugin config: the Host-only Workspace creation root. */
+/** Gateway plugin config for native Host integration. */
 export interface Config {
-  /** Parent directory for name-created Workspaces; defaults to the Host cwd. */
-  workspaceRoot?: string
   /**
    * Whether this deployment can hand paths to a native desktop opener —
    * the `hasDocument` capability the agent-preset roster reports. Absent,
@@ -51,16 +48,15 @@ export interface Config {
 /**
  * The API gateway service: implements the ApiProxy contract over the composed
  * host context and provides it as `ctx.apiProxy`. The Host cwd is the default
- * project directory and the fallback parent for name-created Workspaces.
+ * project directory.
  */
 export class ApiProxyService extends Service implements ApiProxy {
   static inject = [
-    'agentDefaultModel', 'agents', 'directoryPicker', 'llm', 'sessions', 'subagents', 'sessionQuery',
+    'agentDefaultModel', 'agents', 'attachments', 'directoryPicker', 'llm', 'sessions', 'subagents', 'sessionQuery',
     'tools', 'userInteraction', 'workspace',
   ]
 
   static Config: z<Config> = z.object({
-    workspaceRoot: z.string(),
     nativeOpen: z.boolean(),
   })
 
@@ -80,12 +76,10 @@ export class ApiProxyService extends Service implements ApiProxy {
 
   constructor(ctx: Context, config: Config) {
     super(ctx, 'apiProxy')
-    const cwd = process.cwd()
     const api = createApiProxy(ctx, {
       defaultModelSelection: () => ctx.agentDefaultModel.currentSelection(),
       saveDefaultModelSelection: selection => ctx.agentDefaultModel.saveSelection(selection),
-      cwd,
-      workspaceRoot: resolve(config.workspaceRoot ?? cwd),
+      cwd: process.cwd(),
       ...config.nativeOpen === undefined ? {} : { canOpenPath: () => config.nativeOpen as boolean },
     })
     this.sessions = api.sessions
