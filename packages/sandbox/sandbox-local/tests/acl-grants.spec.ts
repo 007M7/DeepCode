@@ -215,7 +215,7 @@ describe('windows-acl write grants (LocalSandboxProvider)', () => {
     }
   })
 
-  it('workspace grant failure disposes its SID and never creates a temp directory', async () => {
+  it('workspace grant failure disposes its SID, aggregates cleanup failure, and never creates a temp directory', async () => {
     try {
       const { sandbox } = await setup()
       const ws = workspaceRoot()
@@ -227,6 +227,12 @@ describe('windows-acl write grants (LocalSandboxProvider)', () => {
       })).toThrow('workspace grant exploded')
       expect(mockState.grants).toHaveLength(1)
       expect(mockState.grants[0]!.disposed).toBe(true)
+
+      mockState.disposeFailure = new Error('workspace cleanup exploded')
+      expect(() => sandbox.confine(['true'], {
+        mode: 'workspace-write', workspaceRoot: ws, sessionId: SessionId('workspace-cleanup-fail'),
+      })).toThrow(/workspace grant failed and its cleanup also failed/u)
+      expect(mockState.grants).toHaveLength(2)
     } finally {
       cleanup()
     }
