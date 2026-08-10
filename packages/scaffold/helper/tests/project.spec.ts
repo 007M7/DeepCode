@@ -209,7 +209,7 @@ describe('SdkProject and ProjectEditSession', () => {
     expect(project.packageManifest().dependencies).not.toHaveProperty('@deepseek-ai/dsh-tasks')
   })
 
-  it('round-trips embed app projects without a front-door Cordis config entry', async () => {
+  it('round-trips embed app projects without an ACP Cordis config entry', async () => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-embed-app-'))
     temporary.push(root)
     const creation = request([], [], 'embed')
