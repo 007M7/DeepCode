@@ -16,9 +16,9 @@
  */
 
 import type { Command } from 'commander'
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 // Empty type import carries the Loader Context merge used by enableRow.
-import type {} from '@cordisjs/plugin-loader'
+import type {} from '@deepseek-ai/cordis-plugin-loader'
 
 /**
  * The invocation's inner arguments: everything after the launcher's own flags,
@@ -42,7 +42,7 @@ export interface AppExit {
   (code: number): void
 }
 
-declare module 'cordis' {
+declare module '@deepseek-ai/cordis' {
   interface Context {
     /** The invocation's inner arguments; provided by a launcher before the tree mounts. */
     cmdlineArgs?: CmdlineArgs
