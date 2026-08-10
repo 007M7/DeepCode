@@ -483,7 +483,7 @@ describe('pick / scoped input events', () => {
     expect(inserts).toEqual([{ reference: insert, span: { start: 0, end: 2, draftRev: 3 } }])
   })
 
-  it('routes a text outcome through the scoped insert-text event (decision 21) and closes the menu', async () => {
+  it('routes a text outcome through the scoped insert-text event and closes the menu', async () => {
     const { controller, actx } = pickBench(() => ({ text: '/goal ' }))
     const texts: Array<{ text: string; span: unknown }> = []
     actx.on('slash/input-insert-text', (req) => {

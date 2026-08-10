@@ -65,7 +65,7 @@
     - id: agent
       name: '@deepseek-ai/dsh-agent'
 
-    # The transport-independent default for Agents created by front doors.
+    # The transport-independent default for Agents created by entry points.
     # Settings may supply a saved selection; consumers read it at creation time.
     - id: agent-default-model
       name: '@deepseek-ai/dsh-agent-default-model'
@@ -106,6 +106,12 @@
       name: '@deepseek-ai/dsh-session-persistence-jsonl'
       config:
         root: !!js dshHomePath('sessions')
+
+    # Durable image bytes live outside the append-only session log. Messages
+    # keep content-addressed references that this shared backend resolves for
+    # provider requests and authorized history reads.
+    - id: attachment-local
+      name: '@deepseek-ai/dsh-attachment-local'
 
     # Raw configs can supply a process-local path or disable this shared session
     # capability. The neutral default is process-local and opens only when used.

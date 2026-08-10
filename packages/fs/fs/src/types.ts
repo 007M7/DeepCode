@@ -1,5 +1,5 @@
 /**
- * Vocabulary for the filesystem provider seam (`ctx.fs`): the opaque target/version
+ * Vocabulary for the filesystem Service Definition (`ctx.fs`): the opaque target/version
  * identities, the metadata `stat` returns, the write-intent and outcome shapes, the
  * literal-edit request/outcome, and the typed error taxonomy.
  * @module @deepseek-ai/dsh-fs/types
@@ -43,6 +43,15 @@ export type FsVersion = Branded<'FsVersion'>
 export function FsVersion(v: string): FsVersion {
   return v as FsVersion
 }
+
+/**
+ * One authoritative observation of a target. A present observation carries the
+ * version used by guarded replacement; an absent observation authorizes only a
+ * guarded create, never an edit.
+ */
+export type FsObservation =
+  | { readonly kind: 'present'; readonly version: FsVersion }
+  | { readonly kind: 'absent' }
 
 /**
  * A path resolved by a backend into a stable identity. `resolve()` produces

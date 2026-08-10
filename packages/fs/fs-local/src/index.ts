@@ -68,7 +68,7 @@ export class LocalFileSystem extends FileSystem {
 
   /** Validated config (schemastery applied the defaults before construction). */
   readonly config: ResolvedConfig
-  /** Test seam forwarded to fsio for atomic-publication boundaries. */
+  /** Test hook forwarded to fsio for atomic-publication boundaries. */
   internals: FsIoInternals = {}
   /** Per-targetKey tail promise: serializes mutating ops so the read→guard→write
    * window can't interleave, making concurrent writes/edits deterministically
@@ -192,7 +192,14 @@ export class LocalFileSystem extends FileSystem {
       const before = diffable
         ? await readTextForDiff(target.targetKey, this.config.diffBasisMaxBytes, signal)
         : null
-      await writeFileAtomic(target.targetKey, content, existing?.mode, signal, this.internals)
+      await writeFileAtomic(
+        target.targetKey,
+        content,
+        existing?.mode,
+        signal,
+        this.internals,
+        expected?.kind === 'createIfAbsent' ? { displayPath: target.displayPath } : undefined,
+      )
       const after = await probe(target.targetKey)
       return {
         operation: existing ? 'update' : 'create',

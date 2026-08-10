@@ -1,0 +1,31 @@
+# The `minimal` agent preset: the two-tool benchmark surface.
+#
+# The native model surface is exactly persistent `bash` plus
+# `str_replace_editor`. Everything else a session could reach — skills, goals,
+# plan mode, delegation, workflows, todo, web — is simply absent rather than
+# disabled, because a preset composes what an agent has instead of subtracting
+# from a shared default.
+#
+# The host composition is unchanged: this agent still runs inside the same
+# sandbox, approval, persistence, and model routing as any other session.
+
+- id: persona
+  name: '@deepseek-ai/dsh-persona'
+  config:
+    text: >-
+      You are a coding agent powered by the {{model}} model. Your working directory is {{cwd}}.
+
+# `bash-env` stays in the HOST composition: `apps/cli/src/web.ts` injects it to
+# publish `DSH_WEB_URL`/`DSH_WEB_MODE`, and a host row that injects a service is
+# the criterion for host-plane ownership — injection resolves before any session
+# exists, so there is no agent to key by. Behind a preset realm those variables
+# never reached the model's shell at all. `tool-bash` consumes the host registry
+# from here; the executor behind it (`bash-sandbox`) is host-plane too, where the
+# sandbox policy owns it.
+- id: tool-bash
+  name: '@deepseek-ai/dsh-tool-bash'
+
+- id: tool-str-replace-editor
+  name: '@deepseek-ai/dsh-tool-str-replace-editor'
+  config:
+    maxOutputChars: 16000

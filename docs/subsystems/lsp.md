@@ -2,7 +2,7 @@
 
 English | [中文](lsp.zh.md)
 
-The LSP seam — a [capability seam](../../.agents/notes/implemented/architecture/2026-07-15-lsp-capability-seam.md) exposing semantic code navigation on one `ctx.lsp` service, split across packages: interface ([dsh-lsp](../../packages/lsp/lsp), `ctx.lsp` + the provider registry), a generic implementation ([dsh-lsp-local](../../packages/lsp/lsp-local), a configured stdio language-server host), and consumer ([dsh-tool-lsp](../../packages/lsp/tool-lsp), the `lsp` tool schema). LSP is **one optional capability**, not part of the agent-loop spine — so its vocabulary lives here, not in [core.md](core.md). A provider swap does not change how the model asks for navigation.
+The LSP seam — a [capability seam](../../.agents/notes/implemented/architecture/2026-07-15-lsp-capability-seam.md) exposing semantic code navigation on one `ctx.lsp` service, split across packages: Service Definition ([dsh-lsp](../../packages/lsp/lsp), `ctx.lsp` + the provider registry), a generic Service provider ([dsh-lsp-local](../../packages/lsp/lsp-local), a configured stdio language-server host), and Consumer ([dsh-tool-lsp](../../packages/lsp/tool-lsp), the `lsp` tool schema). LSP is **one optional capability**, not part of the agent-loop spine — so its vocabulary lives here, not in [core.md](core.md). A provider swap does not change how the model asks for navigation.
 
 Source: [`packages/lsp/lsp/src/types.ts`](../../packages/lsp/lsp/src/types.ts)
 
@@ -14,7 +14,7 @@ The seam and model expose exactly four semantic queries; the union is closed, so
 /**
  * The four semantic queries the seam and model expose. A closed union: adding an operation is a
  * compile-enforced change across the seam, providers, and the tool. Symbols and call hierarchy are
- * deliberately deferred (they need different schemas).
+ * not operations here; they need different schemas.
  */
 type LspOperation = 'goToDefinition' | 'findReferences' | 'goToImplementation' | 'hover'
 ```

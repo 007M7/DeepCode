@@ -24,7 +24,7 @@ The default E2B base image supplies the runtime and Bash/GNU utilities this adap
 
 ## Model Experience
 
-Indirectly, through consumer seams such as the Bash executor behind `dsh-tool-bash`, which render remote output, exit facts, background deltas, and spill paths.
+Indirectly, through Consumers such as the Bash executor behind `dsh-tool-bash`, which render remote output, exit facts, background deltas, and spill paths.
 
 #### KV Cache effect
 

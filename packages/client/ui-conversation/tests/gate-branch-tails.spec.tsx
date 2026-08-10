@@ -3,7 +3,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render } from '@testing-library/react'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
-import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
+import { createSnapshotStore, EMPTY_CHAT_SNAPSHOT } from '@deepseek-ai/dsh-client-runtime/client'
 import type { UseSession } from '@deepseek-ai/dsh-client-web-react'
 import type { ConversationSnapshot, SessionId, SessionListState, WorkspaceListState } from '@deepseek-ai/dsh-client-runtime/client'
 import type { SessionProviderComponent } from '@deepseek-ai/dsh-client-ui-slots'
@@ -15,6 +15,7 @@ import { AssistantMarkdown, type AssistantMarkdownProps } from '../src/client/ch
 import { StatsLine } from '../src/client/chat/StatsLine.tsx'
 import { DetailsPanel } from '../src/client/skeleton/DetailsPanel.tsx'
 import { zh } from '../src/client/locales.ts'
+import { chatSnapshotFixture } from './chat-snapshot-fixture.ts'
 
 // Mirrors the real lookup chain (conversation namespace, then common).
 const t: AssistantMarkdownProps['t'] = makeTranslate(zh, commonZh)
@@ -40,14 +41,15 @@ const SessionProviderStub: SessionProviderComponent = ({ children }) => children
 /** Observe the owner currency without importing the Tool details renderer. */
 function renderToolDetailsProbe(owners?: DetailsToolOwnerProps[]): DetailsSlotProps['renderSlot'] {
   return (_key, owner) => {
-    owners?.push(owner as DetailsToolOwnerProps)
+    owners?.push(owner as unknown as DetailsToolOwnerProps)
     return <div data-testid="tool-details-seat" />
   }
 }
 
 function snapshotBase(): ConversationSnapshot {
   return {
-    sessionId: SID, nodes: [], turnTimings: new Map(), turnEnds: new Map(), partial: null, runningCalls: [],
+    sessionId: SID, chat: EMPTY_CHAT_SNAPSHOT,
+    nodes: [], turnTimings: new Map(), turnEnds: new Map(), partial: null, runningCalls: [],
     pending: [], queue: [], running: false, composerPhase: 'active', removed: false, openState: 'open', openError: null,
     hasMore: false, loadingOlder: false, promptError: null, blank: false, subagent: null, lastAgentError: null,
   }
@@ -69,11 +71,16 @@ describe('render branch tails', () => {
   it('StatsLine counts window nodes but drops every token group without a projection', () => {
     // Node `usage` is deliberately ignored: billing rides the durable
     // tokenUsage projection, so an absent projection leaves counts only.
+    const nodes = [
+      { kind: 'assistant', seq: 1, time: 1, turn: 1, step: 1, blocks: [] },
+      { kind: 'assistant', seq: 2, time: 2, turn: 1, step: 2, blocks: [], usage: { inputTokens: 4, outputTokens: 6 } },
+      { kind: 'assistant', seq: 3, time: 3, turn: 2, step: 1, blocks: [], usage: { inputTokens: 5 } },
+    ] as const
     const snap = {
+      ...snapshotBase(),
+      chat: chatSnapshotFixture({ nodes }),
       nodes: [
-        { kind: 'assistant', seq: 1, turn: 1, step: 1, blocks: [] },
-        { kind: 'assistant', seq: 2, turn: 1, step: 2, blocks: [], usage: { inputTokens: 4, outputTokens: 6 } },
-        { kind: 'assistant', seq: 3, turn: 2, step: 1, blocks: [], usage: { inputTokens: 5 } },
+        ...nodes,
       ],
     }
     const source = { getSnapshot: () => snap, subscribe: () => () => {} }
@@ -115,7 +122,13 @@ describe('render branch tails', () => {
         useWorkspaces={bindSnapshotSelector(emptyWorkspaces)}
         useProjection={(() => undefined)}
         useInput={(() => { throw new Error('unused') })}
-        inputActions={{ setDraft: () => {}, submit: () => {} }}
+        inputActions={{
+          setDraft: () => {},
+          addImages: () => true,
+          removeImage: () => {},
+          pruneImages: () => {},
+          submit: () => {},
+        }}
         useStore={bindSnapshotSelector(chat)}
         actions={chat.actions}
         closeDetails={vi.fn()}
@@ -146,6 +159,7 @@ describe('render branch tails', () => {
         }],
       }],
     }]
+    snap.chat = chatSnapshotFixture({ runningCalls: snap.runningCalls })
     const chat = createChatStore().create()
     chat.actions.select({ turnSeq: 9, callId: 'p1:code:1:code:1', toolName: 'read' } satisfies SelectionTarget)
     const emptyList = createSnapshotStore<SessionListState>(
@@ -165,7 +179,13 @@ describe('render branch tails', () => {
         useWorkspaces={bindSnapshotSelector(emptyWorkspaces)}
         useProjection={(() => undefined)}
         useInput={(() => { throw new Error('unused') })}
-        inputActions={{ setDraft: () => {}, submit: () => {} }}
+        inputActions={{
+          setDraft: () => {},
+          addImages: () => true,
+          removeImage: () => {},
+          pruneImages: () => {},
+          submit: () => {},
+        }}
         useStore={bindSnapshotSelector(chat)}
         actions={chat.actions}
         closeDetails={vi.fn()}

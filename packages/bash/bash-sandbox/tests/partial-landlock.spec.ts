@@ -151,7 +151,7 @@ describe('partial Landlock runner-failure classification', () => {
 
     // Node/libuv may expose execve's ENOEXEC directly (Darwin) or retry a
     // no-shebang executable through /bin/sh (Linux). Neither path supplies the
-    // provenanced ENOENT/EACCES evidence required for runner attribution.
+    // ENOENT/EACCES with the exact failed executable path required for runner attribution.
     const foreground = await bash.run(bash.resolve(request)).catch((value: unknown) => value)
     expect(foreground).not.toBeInstanceOf(SandboxUnavailableError)
 

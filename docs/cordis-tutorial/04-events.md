@@ -135,7 +135,7 @@ HELLO
 
 Walk through the second line: listener 1 runs first, calls `next()`, which invokes listener 2; listener 2 sees `blocked` and returns without calling `next()` — the innermost default (the function passed to `ctx.waterfall`) never runs — and listener 1 uppercases the replacement message on the way out.
 
-The discipline that follows: **a waterfall listener that only observes or annotates must call `next()`**; returning without it is a deliberate short-circuit. Forgetting `next()` in a logging listener silently swallows the default behavior for everyone downstream. This is important enough that it is a standing rule of this repository ([waterfall semantics](../cordis-primer.md#cordis-waterfall-semantics)).
+The discipline that follows: **a waterfall listener that only observes or annotates must call `next()`**; returning without it is a deliberate short-circuit. Forgetting `next()` in a logging listener silently swallows the default behavior for everyone downstream. It is a standing rule of this repository ([waterfall semantics](../cordis-primer.md#cordis-waterfall-semantics)).
 
 The harness uses waterfalls for decisions that cooperating plugins may wrap or answer: [`agent/request`](../subsystems/core.md#agentrequest--waterfall) lets a plugin replace the model-call config, and [`approval/request`](../subsystems/approval.md#approvalrequest--waterfall) lets a policy answer instead of the user.
 

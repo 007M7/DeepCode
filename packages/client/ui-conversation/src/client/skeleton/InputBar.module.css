@@ -102,11 +102,81 @@
   --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
 }
 
+.dragActive {
+  border-color: var(--dsw-alias-state-business-primary);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--dsw-alias-state-business-primary) 24%, transparent), var(--dsw-shadow-lv2);
+}
+
+.dropHint {
+  position: absolute;
+  z-index: 2;
+  inset: 4px;
+  display: grid;
+  place-items: center;
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--dsw-specific-input-major) 88%, var(--dsw-alias-state-business-primary));
+  color: var(--dsw-alias-state-business-primary);
+  font-size: 14px;
+  font-weight: 600;
+  pointer-events: none;
+}
+
 .accessory {
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 10px 12px 0;
+}
+
+.attachments {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+  padding: 12px 12px 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.attachment {
+  position: relative;
+  flex: 0 0 72px;
+  width: 72px;
+  height: 72px;
+}
+
+.thumbnail {
+  width: 72px;
+  height: 72px;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--dsw-alias-border-l2-darkmode-thin);
+  border-radius: 12px;
+  background: var(--dsw-alias-interactive-bg-hover);
+  cursor: zoom-in;
+}
+
+.thumbnail img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.remove {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--dsw-specific-input-major);
+  border-radius: 999px;
+  background: var(--dsw-alias-label-primary);
+  color: var(--dsw-specific-input-major);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
 }
 
 /* Floating overlay anchor (menu / popupSelect shell): entries position
@@ -225,9 +295,9 @@
      so by construction now that all three sit INSIDE .scroll — a scrollbar
      that consumes layout space narrows the scrollport, which is their shared
      containing block, so it costs all three the same width on every engine.
-     Scrolling the textarea itself is what used to break this, and no property
-     fixed it: WebKit reserved gutter space for the overflow-y:auto textarea
-     and not for the overflow:hidden layers beside it, leaving them 8px apart
+     A textarea that scrolls itself would break this, and no property fixes
+     it: WebKit reserves gutter space for an overflow-y:auto textarea and not
+     for the overflow:hidden layers beside it, leaving them 8px apart
      (768 against 776) — worth 2 to 5 wrapped lines on a long draft. */
 }
 
@@ -395,7 +465,7 @@
   cursor: pointer;
 }
 
-/* Plain-text reference highlight (decision 21): a pure range mark over the
+/* Plain-text reference highlight: a pure range mark over the
    draft's own glyphs — advance untouched, so the two layers cannot drift.
    Chip family colors; clone keeps rounded ends on soft-wrap fragments. */
 .textRef {

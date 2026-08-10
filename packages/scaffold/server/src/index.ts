@@ -25,7 +25,7 @@ export const name = 'jsonrpc'
 // Only the agent factory is required; initialize reads the optional LLM seam with ctx.get().
 export const inject = ['agents']
 
-/** JSON-RPC deployment config plus runtime-only test seams. */
+/** JSON-RPC deployment config plus runtime-only test hooks. */
 export interface JsonRpcConfig {
   /** Report max-token turn/subagent termination as a successful SDK result. */
   maxTokensAsSuccess?: boolean
@@ -53,11 +53,11 @@ export function apply(ctx: Context, config: JsonRpcConfig): void {
   // Protocol shutdown owns the complete runtime process, so it must await the
   // root lifecycle (including persistence) before exiting.
   const rootFiber = ctx.root.fiber
-  /* v8 ignore next -- production stdio wiring; tests always inject the runtime seams */
+  /* v8 ignore next -- production stdio wiring; tests always inject the runtime hooks */
   const input = config.input ?? process.stdin
-  /* v8 ignore next -- production stdio wiring; tests always inject the runtime seams */
+  /* v8 ignore next -- production stdio wiring; tests always inject the runtime hooks */
   const output = config.output ?? process.stdout
-  /* v8 ignore next -- production exit wiring; tests always inject the runtime seams */
+  /* v8 ignore next -- production exit wiring; tests always inject the runtime hooks */
   const exit = config.exit ?? ((code: number): void => { process.exit(code) })
 
   const transport = new JsonRpcLineTransport(input, output)

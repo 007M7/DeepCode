@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-具体 `ctx.sessionQuery` 后端。`SessionQuerySqlite` 从接口包继承精确读取、跟踪和提供方无关的过滤，并使用 SQLite FTS5 实现其两个全文方法。搜索使用实时优先的逻辑会话语料库，并按每个会话中匹配度最高的事件对跨会话结果分组。
+具体 `ctx.sessionQuery` 提供方。`SessionQuerySqlite` 从 Service Definition 包继承精确读取、跟踪和提供方无关的过滤，并使用 SQLite FTS5 实现其两个全文方法。搜索使用实时优先的逻辑会话语料库，并按每个会话中匹配度最高的事件对跨会话结果分组。
 
 ## 搜索约定
 
@@ -37,7 +37,7 @@
 
 ## 分词器与限制
 
-该索引使用 FTS5 `unicode61`。在实现实验中，它支持双字符查询 `AI`，产生的索引比 trigram 备选方案小约 2.1 倍。取舍是 token/短语召回而非任意子字符串召回：`AI` 不匹配 token `BRAID`。需要执行字面的空白弹性子字符串扫描时，使用 `ctx.sessionQuery.filterEvents()` 并传入 `text` 子句。查询会拒绝 NUL；文档中的保留高亮标记和 NUL 会在索引前被规范化，使展示标记无法与源文本冲突。
+该索引使用 FTS5 `unicode61`。取舍是 token/短语召回而非任意子字符串召回：`AI` 不匹配 token `BRAID`。需要执行字面的空白弹性子字符串扫描时，使用 `ctx.sessionQuery.filterEvents()` 并传入 `text` 子句。查询会拒绝 NUL；文档中的保留高亮标记和 NUL 会在索引前被规范化，使展示标记无法与源文本冲突。
 
 中止信号会停止已排队工作，并原样流经快照枚举和非修改式检查。来源工作一旦开始，串行化状态机会自行等待该后端 promise，即使后端忽略取消，之后也会在启动任何进一步的枚举、检查、对账或查询工作前检查信号。因此，调用方只会在已启动后端工作完全停稳后观察到取消，而后续搜索在该清理尚未完成时无法进入 serializer。Node 的同步 `DatabaseSync` API 无法中断已在 JavaScript 线程上执行的元数据或 MATCH 语句；系统会在这些不可抢占调用前后立即检查信号。
 

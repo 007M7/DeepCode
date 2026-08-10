@@ -27,7 +27,7 @@ export const TOOL_TIMEOUT = 'TOOL_TIMEOUT'
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'timeout-policy'
 
-/** The tool registry seam this plugin wraps (`tools/execute`) and reads (`get`). */
+/** The tool registry service this plugin wraps (`tools/execute`) and reads (`get`). */
 export const inject = ['tools']
 
 /**

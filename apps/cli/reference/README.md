@@ -21,7 +21,7 @@ dsh --profile web --dump-default-config
 dsh --profile web --patch ./extra.yml --dump-config
 ```
 
-`--dump-default-config` prints only the bundle layers; `--dump-config` adds the profile's `cordis.patch.yml`, the home-level `$DSH_HOME/cordis.patch.yml`, and `--patch` overlays. Both print provenance comments per layer; `!!js` expressions remain unevaluated, and unmatched patch targets are reported on stderr.
+`--dump-default-config` prints only the bundle layers; `--dump-config` adds the profile's `cordis.patch.yml`, the home-level `$DSH_HOME/cordis.patch.yml`, and `--patch` overlays. Both print comments naming the file that supplied each row and every overlay that changed it; `!!js` expressions remain unevaluated, and unmatched patch targets are reported on stderr.
 
 ## One-shot run
 
@@ -43,7 +43,7 @@ Git-hosted plugins that ship sources build during install through their `prepare
 
 ## Web alias
 
-`dsh web` is a hardcoded alias for `--profile web` that additionally accepts the Web flag family. `--host`, `--port`, `--workspace-root`, and repeatable `--trusted-host` values become patches over the composed rows; their owning plugin schemas validate them at boot. `--dev` switches the web-runtime row to development mode and inserts the client-plugin HMR receiver; it expects a separate `pnpm run dev:web` watcher for no-refresh client bundle updates.
+`dsh web` is a hardcoded alias for `--profile web` that additionally accepts the Web flag family. `--host`, `--port`, and repeatable `--trusted-host` values become patches over the composed rows; their owning plugin schemas validate them at boot. `--dev` switches the web-runtime row to development mode and inserts the client-plugin HMR receiver; it expects a separate `pnpm run dev:web` watcher for no-refresh client bundle updates.
 
 ```sh
 dsh web

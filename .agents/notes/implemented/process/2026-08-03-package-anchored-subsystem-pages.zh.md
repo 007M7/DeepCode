@@ -14,13 +14,13 @@ Status: implemented
 
 生成签名引用的每个类型都必须能在目录中某处解析：agent 所有权词汇从生成器的 `TYPE_LINK_EXEMPTIONS` 移入 `LINK_MAP → core.md`，因此豁免只留给真正服务本地或 vendored 的形状。每个粘贴的声明只有一个家（`SessionEvent` 位于 [session.md](../../../../docs/subsystems/session.md)；core.md 概括并链接）。
 
-每个 `packages/<group>/README.md` 配对都是统一形状的轻薄门面：一段以「为什么」开头的介绍、一张包表格（包 / 角色 / ctx 键）、一个指向拥有方子系统页面的收尾指针。超出该形状的承重散文迁移到拥有方子系统页面，而非删除。
+每个 `packages/<group>/README.md` 配对都是统一形状的精简入口：一段以「为什么」开头的介绍、一张包表格（包 / 角色 / ctx 键）、一个指向拥有方子系统页面的收尾指针。超出该形状的承重散文迁移到拥有方子系统页面，而非删除。
 
 [子系统 README](../../../../docs/subsystems/README.md) 在两个语言侧索引目录中的每一页；`scripts/project-doc-site.spec.ts` 强制每页一行表格，因此后续 PR 新增（或合并吸收）的页面无法悄悄缺席索引。
 
 ## Alternatives considered
 
-**保留主干-vs-seam 界定规则。**它逐类型回答「这个类型是核心吗？」，这正是首页积累了四个包的类型、却缺失 `packages/core/agent` 一半公开 surface 的原因。按仓库布局可预测性胜出。
+**保留主干-vs-子系统界定规则。**它逐类型回答「这个类型是核心吗？」，这正是首页积累了四个包的类型、却缺失 `packages/core/agent` 一半公开 surface 的原因。按仓库布局可预测性胜出。
 
 **扁平的单文档目录。**在[原目录 note](2026-06-20-core-data-structures-catalog.md) 中已被否决；增长到四十一页证实了该结论。
 

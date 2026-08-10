@@ -26,7 +26,7 @@ The implementation supports interactive shells and line-oriented REPLs on Linux 
 | `dsh-pty-local` | Persistent-shell backend over `ctx.subprocess.spawnTerminal()`: readiness, bounded terminal buffers, sandbox resolution, and owner-aware session lifecycle | registers a backend on `ctx.pty` |
 | `dsh-tool-pty` | Six model-facing tools, task-runtime integration for background sends, guidance, and UI render intents | registers on `ctx.tools` |
 
-Readiness remains PTY-backend behavior, not a second public seam. The terminal-process provider supplies only substrate facts such as the foreground process group and whether it can prove that group is waiting on input; `dsh-pty-local` combines those facts with prompt and silence evidence into the common send result.
+Readiness remains PTY-backend behavior, not a second public contract. The terminal-process provider supplies only substrate facts such as the foreground process group and whether it can prove that group is waiting on input; `dsh-pty-local` combines those facts with prompt and silence evidence into the common send result.
 
 ### Agent ownership and identity
 
@@ -64,7 +64,7 @@ The UI render contract is exact and location-free. `terminal_send` uses terminal
 
 Foreground sends return a bounded rendered delta and two independent facts: `waitReason` (`stdin_read | inferred_idle | timeout | session_exit`) and `sessionStatus` (`running` or `exited` with exit code or signal). `session_exit` refers to the PTY's top-level shell process, not an arbitrary foreground command whose status the shell consumes. A timeout never implies process exit. `dsh-tool-pty.maxResultBytes` defaults to 262144, rejects values below 64 so creation acknowledgements retain registry-issued ids, and caps each single-text UTF-8 result after normalized tool or pipeline errors, wait, session, pagination, truncation, generic task-status wrappers, policy denials or short-circuits, and post-execute replacements or blocks; the terminal definitions' last-mile `finalizeContent` callback leaves deliberately structured multi-block policy content unchanged. The renderer reserves suffix space and preserves code-point boundaries instead of treating the backend payload cap as the final model bound.
 
-With `run_in_background: true`, `dsh-tool-pty` registers the in-flight send on `ctx.tasks` and returns immediately with `taskId`. The producer places `maxResultBytes` on the task snapshot so `task_output`, terminal kill status, and completion notices enforce the same complete-result cap after generic metadata. `task_output(wait: true)` waits, reads incremental output, and records the final result; `task_kill` resolves the current foreground PGID and delivers a real `SIGINT`, including when the application has disabled terminal `ISIG`, and escalates only through the PTY backend's owned teardown path. If the task surface is absent, background mode fails before writing input. No PTY-specific `sleep` tool or general wake-up seam is added.
+With `run_in_background: true`, `dsh-tool-pty` registers the in-flight send on `ctx.tasks` and returns immediately with `taskId`. The producer places `maxResultBytes` on the task snapshot so `task_output`, terminal kill status, and completion notices enforce the same complete-result cap after generic metadata. `task_output(wait: true)` waits, reads incremental output, and records the final result; `task_kill` resolves the current foreground PGID and delivers a real `SIGINT`, including when the application has disabled terminal `ISIG`, and escalates only through the PTY backend's owned teardown path. If the task surface is absent, background mode fails before writing input. No PTY-specific `sleep` tool or general wake-up API is added.
 
 `terminal_read` pages backward from the newest retained line. The backend enforces both line and UTF-8 byte caps on retained scrollback and the returned page payload, so one oversized line cannot bypass the backend bound; the tool then caps the fully rendered page including pagination and truncation metadata. `truncated` distinguishes retention loss from an ordinary viewport delta.
 
@@ -152,7 +152,7 @@ The package ships concise tool guidance explaining persistent state, owner isola
 
 **Include TUI sequences and BEL handling.** Rejected. The source prototype treats those paths as timing-sensitive and still records unresolved alternate-screen and interaction failures. Line-oriented PTY use proves the core value without making those unverified behaviors foundational.
 
-**Use an out-of-process daemon immediately.** Rejected for the initial in-process capability because current persistent front doors already keep a Cordis context alive. A daemon becomes justified by cross-process restoration or multi-client attachment, both deferred here.
+**Use an out-of-process daemon immediately.** Rejected for the initial in-process capability because current long-lived entry points already keep a Cordis context alive. A daemon becomes justified by cross-process restoration or multi-client attachment, both deferred here.
 
 ## Verification
 
@@ -161,7 +161,6 @@ The package ships concise tool guidance explaining persistent state, owner isola
 - Real `node-pty` and PTY-consumer tests jointly exercise shell state, shared sandbox policy, environment scrubbing, raw-mode foreground `SIGINT`, a TERM-ignoring descendant, and immediate post-disposal quiescence on supported hosts.
 - A Loader-driven `cordis.yml` test mounts the real three-package composition. ACP and headless snapshots pin the six schemas, bounded results, and errors through opt-in overlays; TUI snapshots pin terminal and generic card presentation.
 - Package contracts, the architecture map, subsystem pages, generated catalogs, and the website API describe the same shipped surface.
-- The repository CI-equivalent sequence owns type, lint, coverage, snapshot, documentation, build, hygiene, demo, and built-entry verification.
 
 ## Consequences
 

@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-抽象用户交互 seam。它定义 `ctx.userInteraction`，供面向模型的工具或权限插件在需要暂停工作并询问人类决定时使用。
+用户交互 Service Definition。它定义 `ctx.userInteraction`，供面向模型的工具或权限插件在需要暂停工作并询问人类决定时使用。
 
 ## 服务：`UserInteractionService`（ctx 键：`userInteraction`）
 
@@ -30,7 +30,7 @@
 
 ## 职责
 
-这是接口包。`@deepseek-ai/dsh-tool-ask-user` 等面向模型的消费方依赖此 seam；Web 宿主运行时提供随产品交付的交互式实现。循环保持不变：工具调用等待 Promise，工具结果随后恢复正常的 agent loop（智能体循环）。
+这是 Service Definition 包。`@deepseek-ai/dsh-tool-ask-user` 等 Consumer 依赖此服务；Web 宿主运行时提供随产品交付的 Service provider。循环保持不变：工具调用等待 Promise，工具结果随后恢复正常的 agent loop（智能体循环）。
 
 ## 模型体验
 

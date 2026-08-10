@@ -1,5 +1,5 @@
 /**
- * Tests for the local backend through the `ctx.fs` provider seam: stat, whole-
+ * Tests for the local backend through the `ctx.fs` Service Definition: stat, whole-
  * file/streamed text reads, atomic guarded writes (createIfAbsent /
  * replaceIfVersion), version-guarded literal edits, concurrency races, symlink
  * identity, and HMR/disposal. Read WINDOWING is policy and lives in
@@ -82,7 +82,7 @@ describe('registration', () => {
 describe('resolve', () => {
   it('resolves a relative path against opts.cwd, not config.cwd', async () => {
     // config.cwd is `dir`; a call supplying a DIFFERENT cwd bases the relative
-    // path there (the per-session-workspace seam — mirrors tool-bash workdir).
+    // path there (the per-session workspace mapping — mirrors tool-bash workdir).
     const other = await mkdtemp(join(tmpdir(), 'dsh-fs-other-'))
     try {
       await writeFile(join(other, 'x.txt'), 'in other')
@@ -323,6 +323,51 @@ describe('writeText', () => {
     await expect(fs.writeText(target, 'new', { kind: 'createIfAbsent' }))
       .rejects.toMatchObject({ code: 'FS_NOT_OBSERVED' })
     expect(await readFile(join(dir, 'a.txt'), 'utf8')).toBe('old')
+  })
+
+  it('createIfAbsent preserves a competitor created after the initial probe', async () => {
+    const path = join(dir, 'a.txt')
+    const target = await fs.resolve('a.txt')
+    fs.internals.inspectTemp = async () => { await writeFile(path, 'competitor') }
+
+    await expect(fs.writeText(target, 'ours', { kind: 'createIfAbsent' }))
+      .rejects.toMatchObject({ code: 'FS_NOT_OBSERVED' })
+    expect(await readFile(path, 'utf8')).toBe('competitor')
+  })
+
+  it('reports a createIfAbsent race with the unresolved display path', async () => {
+    const realDirectory = join(dir, 'real-workspace')
+    const linkedDirectory = join(dir, 'linked-workspace')
+    await mkdir(realDirectory)
+    await symlink(realDirectory, linkedDirectory, process.platform === 'win32' ? 'junction' : 'dir')
+    const target = await fs.resolve('linked-workspace/a.txt')
+    fs.internals.inspectTemp = async () => { await writeFile(join(realDirectory, 'a.txt'), 'competitor') }
+
+    await expect(fs.writeText(target, 'ours', { kind: 'createIfAbsent' })).rejects.toMatchObject({
+      code: 'FS_NOT_OBSERVED',
+      message: `cannot overwrite existing "${join(linkedDirectory, 'a.txt')}" without reading it first`,
+    })
+    expect(await readFile(join(realDirectory, 'a.txt'), 'utf8')).toBe('competitor')
+  })
+
+  it('createIfAbsent rejects a competing directory as not a regular file', async () => {
+    const path = join(dir, 'a.txt')
+    const target = await fs.resolve('a.txt')
+    fs.internals.inspectTemp = async () => { await mkdir(path) }
+
+    await expect(fs.writeText(target, 'ours', { kind: 'createIfAbsent' }))
+      .rejects.toMatchObject({ code: 'FS_NOT_REGULAR_FILE' })
+    expect((await stat(path)).isDirectory()).toBe(true)
+  })
+
+  it('createIfAbsent rejects and preserves a dangling symbolic link', async () => {
+    const path = join(dir, 'dangling')
+    await symlink(join(dir, 'missing-target'), path)
+    const target = await fs.resolve('dangling')
+
+    await expect(fs.writeText(target, 'ours', { kind: 'createIfAbsent' }))
+      .rejects.toMatchObject({ code: 'FS_NOT_REGULAR_FILE' })
+    await expect(readFile(path, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
   })
 
   it('replaceIfVersion replaces when the version matches', async () => {

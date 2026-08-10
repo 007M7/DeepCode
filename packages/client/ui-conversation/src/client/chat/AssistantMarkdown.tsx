@@ -11,12 +11,10 @@
 
 import { memo, useMemo } from 'react'
 import type { AssistantBlock } from '@deepseek-ai/dsh-client-runtime/client'
-import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
 import { JsonBlock, MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { MarkdownFileMentions } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { ChatViewSlotProps, ChatViewInjected, TurnTailOwnerProps } from '../contract/slots.ts'
-import { hasContentText } from './chat-flow.ts'
-import { MessageIconActions } from './MessageIconActions.tsx'
+import type { ChatViewSlotProps } from '../contract/slots.ts'
+import { ImageGallery, type ImageLoader } from './MessageImage.tsx'
 import { ReasoningRow } from './ReasoningRow.tsx'
 import css from './AssistantMarkdown.module.css'
 
@@ -25,61 +23,22 @@ export interface AssistantMarkdownProps {
   streaming: boolean
   /** Frozen partial of an aborted turn: rendered with a stopped marker. */
   interrupted?: boolean | undefined
-  /** Unix epoch ms for the IconActions clock; omitted while streaming or when
-   *  the parent withholds chrome (mid-turn content assistants and every node
-   *  of a turn that has not ended). */
-  time?: number | undefined
-  /** Turn wall time in ms for the IconActions run-time label; omitted when the
-   *  turn's triggering input is outside the loaded window. */
-  runMs?: number | undefined
-  /** Turn first-step TTFT in ms for the IconActions label; omitted when unrecorded. */
-  ttftMs?: number | undefined
-  /** Turn decode throughput for the IconActions label; omitted when unrecorded. */
-  tokensPerSecond?: number | undefined
-  /** Event sequence used as the fork boundary; omitted while streaming. */
-  seq?: number | undefined
-  /** Fork the session through this finalized message's completed turn when eligible. */
-  onFork?: ((seq: number) => void) | undefined
-  /** Turn-tail slot dispatch share and owner currency; omitted for a mid-turn assistant. */
-  turnTail?: (Pick<PropsRenderSlots<'conversation.chat.turnTail'>, 'renderSlotChain'> & { owner: TurnTailOwnerProps }) | undefined
-  /** Prose file-mention factory (the injected face); omitted wherever `turnTail` is. */
-  fileMentions?: ChatViewInjected['fileMentions'] | undefined
-  /** The message is not the transcript tail of a completed turn. */
-  forkUnavailable?: boolean | undefined
+  /** Session-authorized durable image loader. */
+  loadImage?: ImageLoader
+  /** Resolved prose file mentions for this Assistant's closing turn. */
+  mentions?: MarkdownFileMentions | undefined
   /** The owning view's locale seat, passed down as a plain prop. */
   t: ChatViewSlotProps['t']
 }
 
-/** Joined text blocks for the copy action (reasoning / tool heads stay out). */
-function copyText(blocks: readonly AssistantBlock[]): string {
-  const parts: string[] = []
-  for (const block of blocks) {
-    if (block.kind === 'text') parts.push(block.text)
-  }
-  return parts.join('')
-}
-
 /** Reasoning block as the Think variant summary row (figma 39:28304). */
 export const AssistantMarkdown = memo(function AssistantMarkdown({
-  blocks, streaming, interrupted, time, runMs, ttftMs, tokensPerSecond, seq, onFork, forkUnavailable, turnTail,
-  fileMentions, t,
+  blocks, streaming, interrupted, loadImage, mentions, t,
 }: AssistantMarkdownProps) {
+  const imageLoader = loadImage ?? (() => Promise.reject(new Error(t('image.serviceUnavailable'))))
   // Stable per locale revision (t identity changes on switch): a fresh object
   // per render would rebuild MarkdownText's component table every chunk.
   const codeLabels = useMemo(() => ({ copyLabel: t('copy'), copiedLabel: t('copied') }), [t])
-  // Mention vocabulary for the closing prose. Keyed on the anchor seq, not the
-  // growing transcript: a settled turn's produced files are final, and a
-  // fresh identity per append would discard MarkdownText's cached parse for
-  // every settled closing message on every stream chunk. The window-prepend
-  // edge (a mid-turn window start later gaining earlier same-turn writes)
-  // leaves a mention unlinked until remount — never a wrong link.
-  const owner = turnTail?.owner
-  const mentions: MarkdownFileMentions | undefined = useMemo(
-    () => (owner === undefined ? undefined : fileMentions?.(owner)),
-    // Deliberately not `owner`: its identity changes per append while the
-    // seq-addressed vocabulary it yields does not.
-    [fileMentions, owner?.seq],
-  )
   const last = blocks.length - 1
   // Tool-call heads render as tool rows in the chat view's grouping pass, so
   // a node that is only those heads (or empty) would paint an empty root
@@ -88,10 +47,8 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
     || interrupted === true
     || blocks.some(block => block.kind !== 'tool-call')
   if (!hasVisible) return null
-  // Footer only under settled content text; Think-only / streaming omit it.
-  const showActions = !streaming && time !== undefined && hasContentText(blocks)
   return (
-    <div className={css.root} data-streaming={streaming || undefined} data-time-hover-root>
+    <div className={css.root} data-streaming={streaming || undefined}>
       <div className={css.body}>
         {blocks.map((block, i) => {
           switch (block.kind) {
@@ -105,6 +62,7 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
               />
             )
             case 'reasoning': return <ReasoningRow key={i} text={block.text} running={streaming && i === last} t={t} />
+            case 'image': return <ImageGallery key={i} images={[block]} load={imageLoader} align="start" t={t} />
             // Grouped into tool rows by ChatView; hasVisible above skips an empty shell.
             case 'tool-call': return null
             default: return (
@@ -119,21 +77,6 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
         })}
         {interrupted && <span className={css.stopped}>{t('message.stopped')}</span>}
       </div>
-      {showActions && turnTail?.renderSlotChain('conversation.chat.turnTail', turnTail.owner)}
-      {showActions && (
-        <MessageIconActions
-          text={copyText(blocks)}
-          time={time}
-          runMs={runMs}
-          ttftMs={ttftMs}
-          tokensPerSecond={tokensPerSecond}
-          clock="end"
-          onBranch={onFork === undefined || seq === undefined ? undefined : () => { onFork(seq) }}
-          branchUnavailable={forkUnavailable}
-          className={css.actions}
-          t={t}
-        />
-      )}
     </div>
   )
 })

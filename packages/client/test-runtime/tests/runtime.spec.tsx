@@ -18,6 +18,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
     'trt.panel': { kind: 'single'; scope: 'root'; owner: { label?: string } }
     'trt.chat': { kind: 'single'; scope: 'session' }
     'trt.rows': { kind: 'list'; scope: 'root' }
+    'trt.rows.hole': { kind: 'single'; scope: 'root' }
   }
 }
 
@@ -220,6 +221,13 @@ describe('sessions', () => {
       .toMatchObject({ displayTitle: 'renamed', running: true })
     runtime.sessions.setSubagentCatalogOpen('s2' as SessionId, true)
     await runtime.sessions.refreshSubagents('s2' as SessionId)
+    // The confirmed-switch write-back lands on the row it names and ignores
+    // one the fixture never added, exactly as production's list upsert does.
+    runtime.sessions.noteAgentPreset('s1' as SessionId, 'minimal')
+    runtime.sessions.noteAgentPreset('missing' as SessionId, 'minimal')
+    await runtime.flush()
+    expect(runtime.sessions.list.getSnapshot().byId['s1' as SessionId])
+      .toMatchObject({ agentPreset: 'minimal' })
     runtime.sessions.open('s1' as SessionId)
     await runtime.flush()
     expect(runtime.sessions.list.getSnapshot().current).toBe('s1')
@@ -419,7 +427,7 @@ describe('feature mount and disposal', () => {
     await feature.dispose()
     await feature.dispose() // idempotent
     expect(runtime.slots.entries('trt.rows')).toHaveLength(0)
-    expect(runtime.slots.spec('trt.rows.hole' as never)).toBeUndefined()
+    expect(runtime.slots.spec('trt.rows.hole')).toBeUndefined()
     expect(runtime.ctx.get('feature-service')).toBeUndefined()
     expect(view.queryByTestId('row')).toBeNull()
     await runtime.dispose()
@@ -512,6 +520,7 @@ describe('fixture session face', () => {
     await runtime.sessions.add({ id: 's1' })
     const bare = runtime.sessions.behavior('s1')
     expect(() => bare.prompt()).toThrow(/prompt is not stubbed/)
+    expect(() => bare.readAttachment('att-1' as Parameters<typeof bare.readAttachment>[0])).toThrow(/readAttachment is not stubbed/)
     expect(() => bare.updateQueue()).toThrow(/updateQueue is not stubbed/)
     expect(() => bare.cancel()).toThrow(/cancel is not stubbed/)
     expect(() => bare.command()).toThrow(/command is not stubbed/)
@@ -559,8 +568,8 @@ describe('workspaces action face', () => {
   it('records every IWorkspaces verb with inert defaults and honors stubs', async () => {
     const runtime = await SlotTestRuntime.create()
     const ws = runtime.workspaces
-    const created = await ws.create({ name: 'alpha' })
-    expect(created.title).toBe('alpha')
+    const created = await ws.create({ path: '/tmp/alpha' })
+    expect(created.title).toBe('/tmp/alpha')
     const registered = await ws.create({ path: '/tmp/beta' })
     expect(registered.path).toBe('/tmp/beta')
     await expect(ws.pickDirectory()).resolves.toBeNull()
@@ -584,7 +593,7 @@ describe('workspaces action face', () => {
     ws.stub('openPath', () => Promise.resolve())
     ws.stub('insertSessionBefore', () => Promise.resolve({ workspaceId: 'w1', title: '', path: '', sessionIds: [] } as never))
     ws.stub('archiveSession', () => Promise.resolve())
-    expect((await ws.create({ name: 'y' })).title).toBe('X')
+    expect((await ws.create({ path: '/y' })).title).toBe('X')
     await expect(ws.pickDirectory()).resolves.toBe('/picked')
     expect((await ws.rename('w1' as WorkspaceId, 'z')).title).toBe('S')
     await ws.delete('w1' as WorkspaceId)

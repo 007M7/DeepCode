@@ -6,7 +6,7 @@
 
 ## 配置
 
-估算器没有配置项。它有意使用一项固定启发式规则：每个 token 按四个字符估算，再加上角色、块与请求 envelope 字段的结构开销。任何配置键都会被拒绝，包括已废弃的全局 `contextWindow`；模型容量属于拥有精确提供方／模型路由的适配器，可通过 `ctx.llm.resolveModelInfo().context` 获取。
+估算器没有配置项。它有意使用一项固定启发式规则：每个 token 按四个字符估算，再加上角色、块与请求 envelope 字段的结构开销。任何配置键都会被拒绝；模型容量属于拥有精确提供方／模型路由的适配器，可通过 `ctx.llm.resolveModelInfo().context` 获取。
 
 ## 测量约定
 
@@ -17,9 +17,9 @@
 
 `measure()` 会同步一次，并返回一个独立且深度不可变的快照。`totalTokens` 是请求与响应压力，`surfaceTokens` 是仅表层启发式总量，等于 `nodes[].tokens` 之和。`requestHeader` 覆盖只影响压力字段；表层字段仍描述当前会话。每次调用都会克隆带位置的节点，因此测量是 O(surface)。
 
-fold 跟踪完整请求标头快照、步骤边界、表层追加与替换、成功 assistant 消息、提供方用量和 assistant 分片溯源。只有当最新成功调用的规范请求 envelope 与已测量 envelope 匹配，且其总量不低于该调用的完整启发式锚点时，才会复用提供方用量；后续成功会替换较早锚点。否则会对当前 envelope 与表层进行完整估算。表层变更保持相对于匹配锚点的带符号值，包括缩减替换后的负 delta。
+fold 跟踪完整请求标头快照、步骤边界、表层追加与替换、成功 assistant 消息、提供方用量，以及每条 assistant 消息引用的分片 seq。只有当最新成功调用的规范请求 envelope 与已测量 envelope 匹配，且其总量不低于该调用的完整启发式锚点时，才会复用提供方用量；后续成功会替换较早锚点。否则会对当前 envelope 与表层进行完整估算。表层变更保持相对于匹配锚点的带符号值，包括缩减替换后的负 delta。
 
-用量计量会求和不重叠的输入、cache-read、cache-write 与输出 bucket；不会再次添加推理（reasoning）。每次成功调用都会记录一个 assistant 锚点，包括无内容调用。显式空溯源列表表示已知空提供方流，而遗留溯源缺失时，fold 会保守地将持久 assistant 输出视为提供方输出。
+用量计量会求和不重叠的输入、cache-read、cache-write 与输出 bucket；不会再次添加推理（reasoning）。每次成功调用都会记录一个 assistant 锚点，包括无内容调用。显式的空 `sourceEventSeqs` 列表表示已知空提供方流；遗留记录缺少该列表时，fold 会保守地将持久 assistant 输出视为提供方输出。
 
 ## 会话投影
 
@@ -41,7 +41,7 @@ fold 跟踪完整请求标头快照、步骤边界、表层追加与替换、成
 
 这是刻意的选择。占用率百分比是面向用户的参考数字，既不是计费记录，也不是门控输入：harness 中没有任何环节依据它做决策，压缩改为直接读取 `measure()`。UI 用测得的压力除以为所选模型单独解析出的容量来计算占用率。
 
-让这对值保持原子已经尝试过并被否决：它需要一个临时且不可回放的协议帧，进而需要针对跨流重排序的生命周期栅栏，还会让占用率在每次重连后变为空白。[Agent Note](../../../.agents/notes/implemented/architecture/2026-07-29-projected-token-usage-and-request-context.md)记录了这项对比。需要同一边界精确数字的消费方应在自己的请求边界调用 `measure()`，而不是读取该投影。
+[Agent Note](../../../.agents/notes/implemented/architecture/2026-07-29-projected-token-usage-and-request-context.md)记录了否决「让这对值保持原子」方案的那次对比。需要同一边界精确数字的消费方应在自己的请求边界调用 `measure()`，而不是读取该投影。
 
 ## 组合
 
@@ -65,4 +65,4 @@ fold 跟踪完整请求标头快照、步骤边界、表层追加与替换、成
 - **固定启发式规则是近似值**：没有可复用提供方用量的内容按字符数加结构开销计价，而不是使用精确提供方 tokenizer 或请求 serializer。
 - **每次测量都会克隆当前表层**：一致且不可变的快照使读取成为 O(surface)，包括低于阈值的压力检查。
 - **提供方用量只能为完全相同的规范 envelope 复用**：提示词、前缀、工具、提供方、模型或调用配置变更都会有意回退到完整启发式估算。
-- **遗留溯源采取保守策略**：没有 `sourceEventSeqs` 的 assistant 消息无法区分提供方输出与 listener 改写，因此 fold 不会声称已知空流或精确分片流。
+- **保守处理缺少源事件 seq 的遗留记录**：没有 `sourceEventSeqs` 的 assistant 消息无法区分提供方输出与 listener 改写，因此 fold 不会声称已知空流或精确分片流。

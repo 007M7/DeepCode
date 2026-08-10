@@ -19,6 +19,7 @@ import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, Message } from '@deepseek-ai/dsh-llm'
 import { deriveEventMessage, SessionId } from '@deepseek-ai/dsh-session'
+import type {} from '@deepseek-ai/dsh-agent-presets'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { TokenMeterService } from '@deepseek-ai/dsh-token-meter'
 import { join } from 'node:path'
@@ -83,7 +84,7 @@ function withCompaction(raw: string, meter: TokenMeterService): string {
   /**
    * Append one event at the next seq/time.
    * @param event - the event body, without seq/time.
-   * @returns the seq it took, so provenance cites the push instead of arithmetic over the push order below.
+   * @returns the assigned seq, so later `sourceEventSeqs` cite the pushed event directly.
    */
   const at = (event: Record<string, unknown>): number => {
     const taken = seq++
@@ -91,11 +92,15 @@ function withCompaction(raw: string, meter: TokenMeterService): string {
     return taken
   }
   const commandId = 'cmd-seeded-manual-compact'
+  const compactionId = 'compact-seeded-manual-compact'
   at({
     type: 'command/run',
     data: { commandId, name: 'compact', args: '', source: { kind: 'user' } },
   })
-  const startSeq = at({ type: 'compact/start', data: { turn: null } })
+  const startSeq = at({
+    type: 'compact/start',
+    data: { compactionId, sourceCommandId: commandId, turn: null },
+  })
   // Load-bearing exactness: the projections subtract this count verbatim, so
   // it must equal what the host's fold prices for these nodes. The estimator
   // prices message CONTENT only, so a minimal wrapper per storage shape is
@@ -124,6 +129,8 @@ function withCompaction(raw: string, meter: TokenMeterService): string {
   const summarySeq = at({
     type: 'compact/summary',
     data: {
+      compactionId,
+      sourceCommandId: commandId,
       summary: [{
         type: 'text',
         text: '## Cold resume compact summary\n\n- The exact summary remains available.',
@@ -142,12 +149,17 @@ function withCompaction(raw: string, meter: TokenMeterService): string {
         type: 'text',
         text: '<context_checkpoint>Model-only compact checkpoint.</context_checkpoint>',
       }],
-      source: { kind: 'plugin', plugin: 'compact' },
+      source: {
+        kind: 'plugin', plugin: 'compact', compactionId, sourceCommandId: commandId,
+      },
     },
     surfaceOp: { op: 'replace', start: first, end: last },
     sourceEventSeqs: [startSeq, summarySeq, ...surfaceSeqs],
   })
-  at({ type: 'compact/end', data: { turn: null } })
+  at({
+    type: 'compact/end',
+    data: { compactionId, sourceCommandId: commandId, turn: null },
+  })
   at({
     type: 'command/done',
     data: {
@@ -175,8 +187,8 @@ describe('web e2e: seeded history renders through cold resume', () => {
     scaffold = await launchWebScaffold({})
     // The workspace-aware flow runs sessions in <workspaceCwd>/workspace
     // (the composer's default draft name); the read-tool targets must live in
-    // that session cwd. Pre-creating the directory is safe: create-by-name
-    // adopts an existing directory.
+    // that session cwd. Pre-creating the directory is safe because the picker
+    // adopts an existing directory by path.
     const sessionCwd = join(scaffold.workspaceCwd, 'workspace')
     await mkdir(sessionCwd, { recursive: true })
     await writeFile(join(sessionCwd, 'a.txt'), 'alpha\n')
@@ -184,10 +196,22 @@ describe('web e2e: seeded history renders through cold resume', () => {
     if (MODE !== 'record') {
       const raw = await readFile(SEED, 'utf8')
       expect(fixtureUserPrompts(raw), 'seed fixture must carry exactly the drive prompt').toEqual([PROMPT])
-      const meter = scaffold.ctx.get('tokenMeter')
-      if (meter === undefined) throw new Error('seeded-history requires the composed token meter')
-      const realized = realizeSeedFixture(scaffold, raw, SEED_ID)
-      await seedSession(scaffold, withCompaction(realized, meter), SEED_ID)
+      // The meter belongs to an agent's preset, not to the process — token
+      // accounting is per session. It is used here as a pure pricing function
+      // over fixture content, so a throwaway composition is enough to reach one.
+      const priced = await scaffold.ctx.agents.create({
+        sessionId: SessionId('seeded-history-pricing'),
+        setup: agentCtx => scaffold.ctx.agentPresets.mount(agentCtx).then(() => undefined),
+      })
+      let realizedWithCompaction: string
+      try {
+        const meter = scaffold.ctx.agentPresets.serviceFor(priced.agent, 'tokenMeter')
+        if (meter === undefined) throw new Error('seeded-history requires the composed token meter')
+        realizedWithCompaction = withCompaction(realizeSeedFixture(scaffold, raw, SEED_ID), meter)
+      } finally {
+        await priced.dispose()
+      }
+      await seedSession(scaffold, realizedWithCompaction, SEED_ID)
     }
     browser = await chromium.launch()
     page = await newEnglishPage(browser)
@@ -234,10 +258,15 @@ describe('web e2e: seeded history renders through cold resume', () => {
     const projections = body.result.value?.projections
     expect(projections).toBeDefined()
     expect(projections?.asOfSeq).toBeGreaterThanOrEqual(0)
-    // The seed carries a session/title event: the title unit must serve it.
+    // The seed carries a session/title event: the title unit is host-plane, so
+    // it folds the detached log and serves the value with nothing composed.
     expect(typeof projections?.values.title).toBe('string')
-    // tool-todo is composed but the seed has no todo/write: whole-value null,
-    // key PRESENT (absence would mean the unit never registered).
+    // `todos` IS here, as its empty fold (null). Its unit is registered by
+    // `tool-todo` inside the default preset's STANDING mount, which the read
+    // itself ensures — deterministically, not because some unrelated session
+    // happens to be composed. A present-but-null key is what keeps the
+    // client's "omitted key = capability absent → clear the row" rule from
+    // wiping preset-owned projections on cold reads.
     expect(projections?.values).toHaveProperty('todos', null)
   })
 
@@ -263,8 +292,8 @@ describe('web e2e: seeded history renders through cold resume', () => {
     const toolRows = page.locator('[data-variant], [data-sample]')
     await expect.poll(() => toolRows.count(), { timeout: 10_000 }).toBeGreaterThanOrEqual(2)
     expect(await page.getByText('a.txt', { exact: false }).count()).toBeGreaterThan(0)
-    // The bug this fixes: the compaction shadowed the whole recorded surface on
-    // the model side, and the prompt and full tool output are still on screen.
+    // The pinned hazard: compaction shadows the surface on the model side
+    // only — the prompt and full tool output must stay on screen.
     expect(await page.getByText(PROMPT, { exact: true }).count()).toBe(1)
 
     const agent = scaffold.ctx.agents.get(SessionId(SEED_ID))

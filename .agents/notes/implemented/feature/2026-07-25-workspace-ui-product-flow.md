@@ -19,13 +19,12 @@ The Host provides the following GUI wiring on the Workspace entity:
 | RPC | Behavior |
 | --- | --- |
 | `workspace.list` | Returns persistent Workspaces in order and filters out Session ids that fail header validation |
-| `workspace.create({ name })` | Creates a directory and Workspace at `workspaceRoot/name`; fails on a display-name conflict |
 | `workspace.create({ path })` | Adopts an existing directory by canonical path; basename-derived display titles may repeat |
 | `workspace.delete({ workspaceId })` | Removes the Workspace registration while retaining its directory and session logs; its Sessions become Ungrouped |
 | `session.create({ workspaceId, sessionId? })` | Resolves cwd from the Workspace, idempotently creates a Session with an optional preallocated id, and attaches it |
 | `session.create({ cwd })` | Remains available to non-Workspace callers and creates an Ungrouped Session |
 
-`workspaceRoot` is an independent Host setting that falls back to the Host cwd when unset; it is unrelated to `storageRoot`, which stores Workspace domain data. The Host stream pushes Workspace and Session deltas, including `host/workspace-removed`, and the Client refreshes the `workspace.list` and `session.list` baselines separately after reconnecting. Registration-deletion ownership and safety are defined in the [Workspace registration deletion Agent Note](2026-07-27-workspace-registration-deletion.md).
+The Host stream pushes Workspace and Session deltas, including `host/workspace-removed`, and the Client refreshes the `workspace.list` and `session.list` baselines separately after reconnecting. Registration-deletion ownership and safety are defined in the [Workspace registration deletion Agent Note](2026-07-27-workspace-registration-deletion.md).
 
 A Workspace's `sessionIds` is an ordered candidate index. A membership projection requires both that an id appear in the index and that the corresponding canonicalized `SessionHeader.cwd` equal the Workspace path; SessionHeader does not gain a `workspaceId`. A Session whose cwd matches but whose id is absent from the index remains Ungrouped, while an indexed id is filtered out if its header is missing, its cwd is invalid, or its cwd does not match. Two Workspace indexes claiming the same Session is corrupt state and fails loudly.
 
@@ -52,7 +51,7 @@ When no Workspace exists, the page creates a frontend Workspace object named `wo
 
 Top-level New Session, the plus button on a Workspace row, and the Workspace picker all invoke the same New Session action. An explicit Workspace id becomes the target directly; when none is specified, the action uses the most recent Workspace, or the Workspace Intent if no real Workspace exists. The Workspace picker's one Add workspace action ([one-route Note](../simplification/2026-07-31-one-route-to-add-a-workspace.md); it was a pair of Use-an-existing-folder and create-by-name actions when this was decided) immediately creates a real Workspace when the user confirms a directory, then retargets the frontend Session to it; an explicitly created empty Workspace remains even if the user sends no message.
 
-A new Workspace takes its display name from the directory it was created in. Distinct canonical paths may share the same basename-derived title ([identity decision](../bug-fix/2026-07-31-same-basename-workspace-adoption.md)); explicit create-by-name and rename operations retain their duplicate-title checks. Moving Sessions across Workspaces, manual adoption from Ungrouped, and separate display-name and directory-name inputs remain outside this flow.
+A new Workspace takes its display name from the directory it was created in. Distinct canonical paths may share the same basename-derived title ([identity decision](../bug-fix/2026-07-31-same-basename-workspace-adoption.md)); the explicit rename operation retains its duplicate-title check. Moving Sessions across Workspaces, manual adoption from Ungrouped, and separate display-name and directory-name inputs remain outside this flow.
 
 ### First send and recovery
 
@@ -82,7 +81,7 @@ Deleting a Workspace registration removes its group without deleting or closing 
 
 React components only consume `useSessions`, `useWorkspaces`, and session-scoped hooks; they do not own entity lifecycles. The Zustand store retains only layout, the current view, composer text for ordinary real Sessions, and other purely presentational state. Session and Workspace Intents, materialization phases, errors, and retained prompts reside in the React-free runtime object layer.
 
-The Sidebar and conversation empty hero receive standardized actions through slots: `startSession`, `updateSessionPrompt`, `sendSession`, `open`, and `toggleSidebar`. The Workspace picker reuses the same component and the `createWorkspace` seam; its owner supplies only popover state, an anchor, and a selection callback. The presentation layer does not send `host/workspace-changed` directly; Host events originate only from Host mutations and the stream adapter.
+The Sidebar and conversation empty hero receive standardized actions through slots: `startSession`, `updateSessionPrompt`, `sendSession`, `open`, and `toggleSidebar`. The Workspace picker reuses the same component and the `createWorkspace` action; its owner supplies only popover state, an anchor, and a selection callback. The presentation layer does not send `host/workspace-changed` directly; Host events originate only from Host mutations and the stream adapter.
 
 ## Alternatives considered
 
@@ -108,7 +107,7 @@ The Sidebar and conversation empty hero receive standardized actions through slo
 - Workspace list performs one reentrant bootstrap using only headers; an initialized empty registry does not initialize again after restart, and membership reads validate both the index and canonical cwd.
 - The initial default target is determined exactly once after both baselines are ready; Workspace groups are not reordered as a whole by hydration or Session activity, and an active Session moves only itself to the front.
 - A frontend Session under a real Workspace temporarily counts toward the sidebar total, while a Workspace Intent remains hidden; neither publication nor refresh leaves duplicate rows or counts.
-- The UI and Host admit distinct same-basename directories as separate Workspaces, while explicit create-by-name and rename operations reject duplicate titles; cwd-only Sessions, Sessions with invalid historical cwd values, and unattached Sessions remain Ungrouped.
+- The UI and Host admit distinct same-basename directories as separate Workspaces, while the explicit rename operation rejects duplicate titles; cwd-only Sessions, Sessions with invalid historical cwd values, and unattached Sessions remain Ungrouped.
 - Confirmed Workspace deletion removes only the registration, retains the current Session, directory, files, and session log, and survives reload; package tests pin unary/frame/baseline races and failure rollback.
 - Keyless runnable snapshots cover the zero state, explicit creation, and the first send; package-level tests cover bootstrap, membership validation, ordering, idempotency, failure recovery, and arbitrary frame order.
 

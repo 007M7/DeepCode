@@ -26,7 +26,7 @@ harness 可以运行前台与后台命令、编辑文件和委派工作，但无
 | `dsh-pty-local` | 基于 `ctx.subprocess.spawnTerminal()` 的持久 shell 后端：就绪状态、有界终端缓冲、沙箱解析和感知 owner 的会话生命周期 | 在 `ctx.pty` 上注册后端 |
 | `dsh-tool-pty` | 6 个面向模型的工具、后台发送的 task 运行时集成、使用指引和 UI 渲染意图 | 注册到 `ctx.tools` |
 
-就绪判定仍属于 PTY 后端行为，不是第二条公共 seam。终端进程提供方只提供基底事实，例如前台进程组，以及能否证明该组正在等待输入；`dsh-pty-local` 将这些事实与提示符和静默证据组合成统一的发送结果。
+就绪判定仍属于 PTY 后端行为，不是第二条公共约定。终端进程提供方只提供基底事实，例如前台进程组，以及能否证明该组正在等待输入；`dsh-pty-local` 将这些事实与提示符和静默证据组合成统一的发送结果。
 
 ### agent 所有权与身份
 
@@ -64,7 +64,7 @@ UI 渲染约定精确且不携带位置信息。`terminal_send` 只为前台发�
 
 前台发送返回有界的渲染增量和两个独立事实：`waitReason`（`stdin_read | inferred_idle | timeout | session_exit`）与 `sessionStatus`（`running`，或携带退出码或信号的 `exited`）。`session_exit` 指 PTY 顶层 shell 进程退出，不指由 shell 消费状态的任意前台命令。timeout 从不意味着进程已经退出。`dsh-tool-pty.maxResultBytes` 默认为 262144；低于 64 的值会被拒绝，以确保创建确认保留 registry 签发的 id；每个单文本 UTF-8 结果在加入规范化的工具或流水线错误、等待、会话、分页、截断、通用 task 状态包装、策略拒绝或短路以及 post-execute 替换或阻断后，仍受该值限制；终端定义自有的末端 `finalizeContent` callback 会原样保留策略刻意返回的结构化多 block 内容。渲染器会为后缀预留空间并保持代码点边界，而不会把后端载荷上限当作面向模型结果的最终上限。
 
-当 `run_in_background: true` 时，`dsh-tool-pty` 在 `ctx.tasks` 上注册进行中的发送，并立即返回 `taskId`。生产方把 `maxResultBytes` 写入 task 快照，使 `task_output`、kill 返回的终态状态和完成通知在加上通用元数据后，仍对完整结果执行同一上限。`task_output(wait: true)` 负责等待、读取增量输出并记录最终结果；`task_kill` 会解析当前前台 PGID 并发送真正的 `SIGINT`，即使应用已禁用终端 `ISIG` 也同样如此，且后续升级仍只通过 PTY 后端拥有的 teardown 路径进行。若 task 对外接口不存在，后台模式必须在写入输入前失败。设计不新增 PTY 专用的 `sleep` 工具或通用唤醒 seam。
+当 `run_in_background: true` 时，`dsh-tool-pty` 在 `ctx.tasks` 上注册进行中的发送，并立即返回 `taskId`。生产方把 `maxResultBytes` 写入 task 快照，使 `task_output`、kill 返回的终态状态和完成通知在加上通用元数据后，仍对完整结果执行同一上限。`task_output(wait: true)` 负责等待、读取增量输出并记录最终结果；`task_kill` 会解析当前前台 PGID 并发送真正的 `SIGINT`，即使应用已禁用终端 `ISIG` 也同样如此，且后续升级仍只通过 PTY 后端拥有的 teardown 路径进行。若 task 对外接口不存在，后台模式必须在写入输入前失败。设计不新增 PTY 专用的 `sleep` 工具或通用唤醒 API。
 
 `terminal_read` 从最新保留行向后分页。后端同时对保留的 scrollback 和返回页载荷执行行数与 UTF-8 字节上限，因此单个超长行无法绕过后端上限；工具随后再限制包含分页与截断元数据的完整渲染页。`truncated` 用于区分保留数据丢失与普通 viewport 增量。
 
@@ -152,7 +152,7 @@ plugins:
 
 **包含 TUI sequence 与 BEL 处理。**拒绝。源 prototype 将这些路径视为 timing-sensitive，且仍记录未解决的 alternate-screen 和交互失败。行式 PTY 已能证明核心价值，无需把未经验证的行为放进基础层。
 
-**立即采用进程外 daemon。**初始的进程内功能不采用，因为当前持久 front door 已能维持 Cordis context。跨进程恢复或多客户端 attach 会让 daemon 变得合理，但两者都已推迟。
+**立即采用进程外 daemon。**初始的进程内功能不采用，因为当前长驻的运行入口已能维持 Cordis context。跨进程恢复或多客户端 attach 会让 daemon 变得合理，但两者都已推迟。
 
 ## 验证
 
@@ -161,7 +161,6 @@ plugins:
 - 真实 `node-pty` 与 PTY 消费方测试共同在受支持宿主上覆盖 shell 状态、共享沙箱策略、环境清洗、raw mode 前台 `SIGINT`、忽略 `SIGTERM` 的后代进程，以及 dispose 返回后立即完全停稳。
 - Loader 驱动的 `cordis.yml` 测试挂载真实三包组合。ACP 与 headless 快照通过 opt-in overlay 固定 6 个 schema、有界结果和错误；TUI 快照固定 terminal 与 generic 卡片展示。
 - 包约定、架构图、子系统页面、生成目录和 website API 描述同一个已发布接口。
-- 仓库 CI 等价序列负责类型、lint、覆盖率、快照、文档、构建、hygiene、demo 和 built-entry 验证。
 
 ## 后果
 

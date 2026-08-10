@@ -2,7 +2,7 @@
 
 [English](bash.md) | 中文
 
-bash 执行 seam 分为接口（[dsh-bash](../../packages/bash/bash)，`ctx.bash`）、实现（[dsh-bash-local](../../packages/bash/bash-local) 与 [dsh-bash-sandbox](../../packages/bash/bash-sandbox)）和消费方（[dsh-tool-bash](../../packages/bash/tool-bash)，即 `bash` schema）。通用后台任务的 task id、所有权与控制位于 [tasks.md](tasks.md)；本 seam 返回一个不含任务概念的进程句柄。原始进程组机制位于[进程管理器 seam](subprocess.md)之后。
+bash 执行 seam 分为 Service Definition（[dsh-bash](../../packages/bash/bash)，`ctx.bash`）、Service provider（[dsh-bash-local](../../packages/bash/bash-local) 与 [dsh-bash-sandbox](../../packages/bash/bash-sandbox)）和 Consumer（[dsh-tool-bash](../../packages/bash/tool-bash)，即 `bash` schema）。通用后台任务的 task id、所有权与控制位于 [tasks.md](tasks.md)；本 seam 返回一个不含任务概念的进程句柄。原始进程组机制位于[进程管理器 seam](subprocess.md)之后。
 
 源码：[`packages/bash/bash/src/types.ts`](../../packages/bash/bash/src/types.ts)
 
@@ -12,7 +12,7 @@ bash 执行 seam 分为接口（[dsh-bash](../../packages/bash/bash)，`ctx.bash
 
 ## 请求与规格：`resolve()` 拆分
 
-该 seam 将**面向模型/插件的请求**（`workdir`/`timeoutMs`/`stdoutMaxBytes` 可选，由配置或请求策略补全）与执行器实际使用的**完全解析后的 spec**（这些字段均为必填）分开。工具层在二者之间调用 `ctx.bash.resolve(request)`——这具体落实了仓库的「包 seam 上显式优于隐式」规则：`BashExecSpec` 的读者不必猜测工作目录或输出预算来自何处。
+该 seam 将**面向模型/插件的请求**（`workdir`/`timeoutMs`/`stdoutMaxBytes` 可选，由配置或请求策略补全）与执行器实际使用的**完全解析后的 spec**（这些字段均为必填）分开。工具层在二者之间调用 `ctx.bash.resolve(request)`（仓库的「包边界处显式优于隐式」规则）；`BashExecSpec` 携带的是已解析的值。
 
 ```ts type-equiv
 /**
@@ -162,7 +162,7 @@ interface BashSandboxInfo {
 }
 ```
 
-最后一项补全了这套词汇：当受限模式没有可用后端时，`ctx.sandbox` 提供方会抛出、执行器会传播由[沙箱 seam](sandbox.md)所有的 `SANDBOX_UNAVAILABLE` 错误码。选定的 runner 拒绝其 profile 时会触达同一个故障关闭的前台错误；已结束的后台任务则记录 `runnerFailed`。模型会在结果中收到拒绝/runner 事实，仅当拒绝标记指出生效模式时才得知该模式，并可通过 `sandbox_permissions` 加 `justification` 请求一次性、严格更宽松的重试；执行任何操作前，`ctx.approval` 必须批准该次确切调用。完整的策略与切换设计见[沙箱 Agent Note](../../.agents/notes/implemented/feature/2026-07-06-sandbox.md)。
+当受限模式没有可用后端时，`ctx.sandbox` 提供方会抛出、执行器会传播由[沙箱 seam](sandbox.md)所有的 `SANDBOX_UNAVAILABLE` 错误码。选定的 runner 拒绝其 profile 时会触达同一个故障关闭的前台错误；已结束的后台任务则记录 `runnerFailed`。模型会在结果中收到拒绝/runner 事实，仅当拒绝标记指出生效模式时才得知该模式，并可通过 `sandbox_permissions` 加 `justification` 请求一次性、严格更宽松的重试；执行任何操作前，`ctx.approval` 必须批准该次确切调用。完整的策略与切换设计见[沙箱 Agent Note](../../.agents/notes/implemented/feature/2026-07-06-sandbox.md)。
 
 ## 后台进程：`BashProcess`
 

@@ -1,6 +1,7 @@
 /**
- * Wire-to-typed-event bridge (web input-triggers cut 1): host/commands-changed
- * → ctx 'commands/changed'; each established connection generation →
+ * Wire-to-typed-event bridge: host/commands-changed
+ * → ctx 'commands/changed'; host/session-preset-changed →
+ * ctx 'session/preset-changed'; each established connection generation →
  * ctx 'connection/reset' (the forced cache-invalidation broadcast).
  */
 import { Context } from 'cordis'
@@ -65,6 +66,17 @@ describe('wire event bridge', () => {
       ['credentials', 'OPENAI_API_KEY'],
       ['models'],
     ])
+  })
+
+  it('broadcasts session/preset-changed with the recomposed session and its new preset', async () => {
+    const bench = await mount()
+    const seen: Array<[string, string]> = []
+    bench.ctx.on('session/preset-changed', (sessionId, agentPreset) => { seen.push([sessionId, agentPreset]) })
+    bench.sinks?.onHostEnvelope?.({
+      rpcId: 'r1' as never,
+      payload: { type: 'host/session-preset-changed', sessionId: 's1' as never, agentPreset: 'minimal' },
+    })
+    expect(seen).toEqual([['s1', 'minimal']])
   })
 
   it('broadcasts connection/reset on every established generation (reconnect invalidation)', async () => {

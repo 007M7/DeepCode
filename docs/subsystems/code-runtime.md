@@ -2,13 +2,13 @@
 
 English | [中文](code-runtime.zh.md)
 
-The code-execution seam — a [capability seam](../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md) whose interface ([dsh-code-runtime](../../packages/code-runtime/code-runtime), `ctx.codeRuntime`) runs one model-written program against host-provided async bindings and reports what it printed and returned. Code execution is **one optional capability**, not part of the agent-loop spine — so its vocabulary lives here, not in [core.md](core.md). Backends differ by execution substrate and source language, both readonly descriptors on the service; the worker-thread backend and tool-registry consumer are specified by the [Code Mode foundation](../../.agents/notes/implemented/feature/2026-06-15-code-mode.md) and [typed-return contract](../../.agents/notes/implemented/feature/2026-07-20-code-mode-typed-tool-returns.md).
+The code-execution seam — a [capability seam](../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md) whose Service Definition ([dsh-code-runtime](../../packages/code-runtime/code-runtime), `ctx.codeRuntime`) runs one model-written program against host-provided async bindings and reports what it printed and returned. Code execution is **one optional capability**, not part of the agent-loop spine — so its vocabulary lives here, not in [core.md](core.md). Backends differ by execution substrate and source language, both readonly descriptors on the service; the worker-thread Service provider and tool-registry Consumer are specified by the [Code Mode foundation](../../.agents/notes/implemented/feature/2026-06-15-code-mode.md) and [typed-return contract](../../.agents/notes/implemented/feature/2026-07-20-code-mode-typed-tool-returns.md).
 
 Source: [`packages/code-runtime/code-runtime/src/types.ts`](../../packages/code-runtime/code-runtime/src/types.ts)
 
 ## The run: request in, result out
 
-A `CodeRunRequest` carries **everything the runtime acts on** — per the "explicit > implicit at package seams" rule, defaulting (time budgets, output caps) is the implementation's validated config, never a hidden `??` inside `run()`:
+A `CodeRunRequest` carries **everything the runtime acts on** — per the "explicit > implicit at package boundaries" rule, defaulting (time budgets, output caps) is the implementation's validated config, never a hidden `??` inside `run()`:
 
 ```ts type-equiv
 /**
@@ -112,7 +112,7 @@ interface CodeBindingNamespace {
 ```
 
 ```ts type-equiv
-/** A lossless JSON value transferable across the dependency-light code-runtime seam. */
+/** A lossless JSON value transferable through the dependency-light Service Definition. */
 type CodeJsonValue = null | boolean | number | string | CodeJsonValue[] | { [key: string]: CodeJsonValue }
 ```
 
@@ -172,13 +172,13 @@ Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnp
 
 ### `ctx.codeRuntime` — `CodeRuntime` (abstract seam)
 
-Registers one `ctx.codeRuntime` implementation. Program, budget, abort, and substrate failures resolve in CodeRunResult; only seam misuse rejects. Implementations bridge structured-cloneable bindings, materialize each declared namespace rejection class, treat programs as hostile peers, isolate runs from one another, and terminate and await in-flight runs during disposal.
+Registers one `ctx.codeRuntime` implementation. Program, budget, abort, and substrate failures resolve in CodeRunResult; only Service Definition contract misuse rejects. Implementations bridge structured-cloneable bindings, materialize each declared namespace rejection class, treat programs as hostile peers, isolate runs from one another, and terminate and await in-flight runs during disposal.
 
 ```ts cordis-catalog
 /**
  * Execute one program against the request's bindings and capture what it
  * emitted. See the class doc for the resolution contract (error is a result
- * field; rejection means seam misuse only).
+ * field; rejection means Service Definition contract misuse only).
  * @param request - the program, its bindings, and the abort signal; the
  *   request carries everything the runtime acts on, with no hidden defaults.
  * @returns the run's outcome: completion value (when transferable), the
@@ -187,5 +187,5 @@ Registers one `ctx.codeRuntime` implementation. Program, budget, abort, and subs
 abstract run(request: CodeRunRequest): Promise<CodeRunResult>
 ```
 
-Source: [`packages/code-runtime/code-runtime/src/index.ts:104`](../../packages/code-runtime/code-runtime/src/index.ts)
+Source: [`packages/code-runtime/code-runtime/src/index.ts:102`](../../packages/code-runtime/code-runtime/src/index.ts)
 <!-- END GENERATED cordis-surface -->

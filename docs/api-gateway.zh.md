@@ -75,7 +75,7 @@ await agentCtx.remote.goals.create({ objective: 'ship it' })
 
 Client 应用只装配 `@deepseek-ai/dsh-api-remotes`。该包以运行时值导入被选业务包的 `/remote` 子路径，通过 `ctx.remote.$mount()` 挂载贡献，同时重新导出相同文件中的声明合并。增加一个 Host Remote 包是 Client 组合所有者的显式选择；业务组件不需要分别加载 TypeRT Gateway 或业务包的 Remote JS。
 
-未来的 TUI 可以装配同一个不依赖 React 的 `api-remotes` 与 `ctx.remote` 约定，因此它能看到的 Host 方法同样只限于生成时选择的 Remote 方法。本文不定义或实现 TUI 组合。
+`api-remotes` 装配与 `ctx.remote` 约定不依赖 React；任何 Client 装配能看到的 Host 方法都只限于生成时选择的 Remote 方法。
 
 ## 组件职责
 
@@ -88,7 +88,7 @@ Client 应用只装配 `@deepseek-ai/dsh-api-remotes`。该包以运行时值导
 | Host | `@deepseek-ai/dsh-api-gateway` | 提供 `ctx.typertGateway`，认领 Remote endpoint，解析对象或 Context，调用实时 Cordis Service 并校验边界 |
 | Client | `@deepseek-ai/dsh-api-gateway/client` | 提供 `ctx.remote` 与 `remote.<namespace>` 子 Service，把生成的描述符挂成具体方法，并通过 Connection 发起、校验和取消调用 |
 | Client | `@deepseek-ai/dsh-api-remotes/client` | 显式选择并挂载本应用允许使用的 `/remote` 贡献，向业务代码带入对应的声明合并 |
-| 双侧 | `@deepseek-ai/dsh-client-connection` | 提供 RPC carrier、请求关联、信任边界、取消、响应 envelope 与当前 `/api` HTTP bridge |
+| 双侧 | `@deepseek-ai/dsh-client-connection` | 提供 RPC carrier、请求关联、信任边界、取消、响应 envelope 与 `/api` HTTP bridge |
 
 API Gateway 包同时拥有 Host dispatcher 与 Client Remote endpoint 两个对等入口，但两侧构建不会进入同一个 `ts.Program`。Host 入口不导入 Client 的 Cordis `Context` 合并，Client 入口也不导入 Host Gateway 服务。
 
@@ -118,7 +118,7 @@ Remote Client 声明中的参数名来自 wire 字段，参数和返回类型则
 
 ## 运行时调用
 
-当前 Remote 与 API Proxy 共用 Connection 的 `/api` 路由，不存在独立 `/api2` server 或第二套 Connection。Client Remote 调用 `connection.rpc.call('/api', '<namespace>/<method>', { args }, signal)`；当前 HTTP carrier 对应 `POST /api/<namespace>/<method>`，payload 只包含一个具名 `args` 对象。
+Remote 与 API Proxy 共用 Connection 的 `/api` 路由。Client Remote 调用 `connection.rpc.call('/api', '<namespace>/<method>', { args }, signal)`；HTTP carrier 对应 `POST /api/<namespace>/<method>`，payload 只包含一个具名 `args` 对象。
 
 Connection 在 HTTP bridge 之前执行 `/api` 的统一信任检查，再在共享 FetchHandler 内按 interceptor 顺序分发。TypeRT Gateway 只认领存在严格描述符或活跃 SRC marker 的两段式 endpoint；未认领的请求回退到既有 API Proxy。Connection 拥有传输、RPC id、响应 envelope 和 request cancellation，Gateway 只拥有 Remote 数据协议和业务分发。未来替换 Connection carrier 不要求改变 Remote 描述符或 Client 编程界面。
 
@@ -165,6 +165,6 @@ pnpm run build:lib
 
 Remote 只处理有单个请求与单个结果的一元方法调用。Session event stream、分页、增量 reduce、projection 和实体子流需要独立的数据协议与注册模型；即使它们复用 Connection，也不应伪装成 Remote 方法或放入调用描述符。
 
-API 各层按 `remotes → gateway → connection → webserver` 组织。BFF 与 TypeRT RPC 层位于 `packages/api`；Connection 与 WebServer 仍位于 `packages/client/connection` 和 `packages/host/webserver`，其服务约定允许未来只移动包，将它们放到 `packages/api`。旧 API Proxy 仍位于 `packages/host/apiproxy`，作为尚未迁移到 Remote 的 endpoint 的回退路径。
+API 各层按 `remotes → gateway → connection → webserver` 组织。BFF 与 TypeRT RPC 层位于 `packages/api`；Connection 与 WebServer 位于 `packages/client/connection` 和 `packages/host/webserver`。位于 `packages/host/apiproxy` 的 API Proxy 处理没有 Remote 描述符的 endpoint。
 
-当前 lookup 策略按 key 配置，因此所有 `agent` 或 `session` 参数共享冷恢复行为。某个 Remote endpoint 若必须只接受 live 对象，需要后续增加显式的逐参数或逐 endpoint 策略，不能通过业务方法内部猜测恢复来源。
+lookup 策略按 key 配置，因此所有 `agent` 或 `session` 参数共享冷恢复行为。只接受 live 对象需要显式的逐参数或逐 endpoint 策略，而这种策略并不存在；不能通过业务方法内部猜测对象是否来自恢复。

@@ -69,7 +69,7 @@ export interface DeepSeekConnectionOptions {
   retryPolicy: ResolvedRetryPolicy
 }
 
-/** Constructor options for {@link DeepSeekAdapter}: the two resolution seams the plugin owns. */
+/** Constructor options for {@link DeepSeekAdapter}: the two resolution hooks the plugin owns. */
 export interface DeepSeekAdapterOptions {
   /** Current validated connection facts; called once per operation. */
   options: () => DeepSeekConnectionOptions
@@ -107,6 +107,7 @@ function modelInfo(provider: string, model: DeepSeekCatalogModel): LlmModelInfo 
     id: model.id,
     name: model.name ?? model.id,
     ...model.description === undefined ? {} : { description: model.description },
+    inputModalities: ['text'],
   }
 }
 
@@ -178,8 +179,12 @@ export class DeepSeekAdapter extends LlmAdapter {
     const contextWindow = configured?.contextWindow
       ?? connection.defaultContextWindow
     return Promise.resolve({
+      // The chat-completions wire route is text-only regardless of catalog
+      // membership, so the uncatalogued fallback declares the same negative
+      // capability — "unknown" here would let the host accept and persist
+      // images the serializer must then reject.
       ...configured === undefined
-        ? { provider, id: model, name: model }
+        ? { provider, id: model, name: model, inputModalities: ['text' as const] }
         : modelInfo(provider, configured),
       context: { contextWindow },
       defaultMaxTokens: configured?.maxTokens ?? connection.maxTokens,
@@ -298,7 +303,7 @@ export class DeepSeekAdapter extends LlmAdapter {
       // fetch wraps every transport failure (DNS, refused connection, TLS,
       // proxy) in a bare `TypeError: fetch failed` whose actionable detail
       // lives on `cause`. Wrapping with the endpoint and chaining the cause
-      // lets `errorChain` render the full diagnosis at every reporting seam.
+      // lets `errorChain` render the full diagnosis at every reporting boundary.
       throw new LlmError(
         `DeepSeek API request to ${connection.baseURL} failed`,
         'TRANSPORT',

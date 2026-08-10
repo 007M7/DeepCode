@@ -9,7 +9,7 @@
  * @module @deepseek-ai/dsh-skill-local
  */
 
-import { access, readdir, readFile, stat } from 'node:fs/promises'
+import { access, lstat, readdir, readFile, stat } from 'node:fs/promises'
 import { unwatchFile, watchFile, type Stats } from 'node:fs'
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { homedir } from 'node:os'
@@ -19,7 +19,7 @@ import z from 'schemastery'
 import type Schema from 'schemastery'
 import { parse as parseYaml } from 'yaml'
 import type { FileSystem, FsDirEntry, FsTarget } from '@deepseek-ai/dsh-fs'
-import { resolveDshHome } from '@deepseek-ai/dsh-paths'
+import { canonicalizeWatchPath, resolveDshHome } from '@deepseek-ai/dsh-paths'
 import {
   BUNDLED_SKILL_RANK,
   isSkillName,
@@ -136,7 +136,7 @@ export function apply(ctx: Context, config: Config = {}): void {
   ctx.effect(function* () {
     yield async () => { await provider.dispose() }
   }, 'skill-local watcher')
-  ctx.on('fs/observed', (target, _version, actor) => {
+  ctx.on('fs/observed', (target, _observation, actor) => {
     if (mutationToolName(actor) === undefined) return
     provider.observeHostMutation(target.displayPath)
   })
@@ -394,7 +394,7 @@ class SkillWatchManager {
   private async ensureCurrentWatcher(state: RootWatchState): Promise<void> {
     const watcher = state.watcher
     if (watcher !== undefined && !state.unhealthy) {
-      const current = await resolveRootWatchMode(state.root.path)
+      const current = await resolveRootWatchMode(state.root.path, this.config.followSymlinks)
       // A child unlink can publish an empty catalog before root unlinkDir arrives.
       // Discovery therefore revalidates the retained handle independently.
       // oxlint-disable-next-line typescript/no-unnecessary-condition -- watcher callbacks can mark unhealthy while the probe awaits
@@ -436,11 +436,11 @@ class SkillWatchManager {
   // service; keep skill filtering and invalidation here.
   private async openStableWatcher(state: RootWatchState): Promise<WatchHandle | undefined> {
     while (!this.closing && state.owners.size > 0) {
-      const mode = await resolveRootWatchMode(state.root.path)
+      const mode = await resolveRootWatchMode(state.root.path, this.config.followSymlinks)
       const watcher = mode.kind === 'ancestor'
         ? this.openAncestorWatcher(state, mode)
         : await this.openRootWatcher(state, mode)
-      const current = await resolveRootWatchMode(state.root.path)
+      const current = await resolveRootWatchMode(state.root.path, this.config.followSymlinks)
       /* v8 ignore else -- A host path transition between the two probes is timing-dependent. */
       if (sameWatchMode(mode, current)) return watcher
       /* v8 ignore next -- Covered by the same host path transition guard. */
@@ -472,7 +472,7 @@ class SkillWatchManager {
   ): Promise<void> {
     let current: RootWatchMode
     try {
-      current = await resolveRootWatchMode(state.root.path)
+      current = await resolveRootWatchMode(state.root.path, this.config.followSymlinks)
     } catch (error) {
       /* v8 ignore start -- Non-absence stat failures need a platform permission or I/O fault. */
       if (!this.closing && state.owners.size > 0) this.handleWatcherError(state, error)
@@ -487,7 +487,9 @@ class SkillWatchManager {
 
   private async openRootWatcher(state: RootWatchState, mode: Extract<RootWatchMode, { kind: 'root' }>): Promise<WatchHandle> {
     const watcher = chokidar.watch(mode.anchor, {
-      persistent: false,
+      // Chokidar owns late native fs.watch errors only for persistent watchers;
+      // this provider's effect explicitly closes every handle at teardown.
+      persistent: true,
       ignoreInitial: true,
       depth: 1,
       followSymlinks: this.config.followSymlinks,
@@ -525,7 +527,7 @@ class SkillWatchManager {
       readiness.resolve(undefined)
     })
     for (const event of ['add', 'addDir', 'change', 'unlink', 'unlinkDir'] as const) {
-      watcher.on(event, (path) => { this.handleWatchEvent(state, event, path) })
+      watcher.on(event, (path) => { this.handleWatchEvent(state, mode, event, path) })
     }
     try {
       await readiness.promise
@@ -540,12 +542,14 @@ class SkillWatchManager {
 
   private handleWatchEvent(
     state: RootWatchState,
+    mode: Extract<RootWatchMode, { kind: 'root' }>,
     event: SkillWatchEvent,
     path: string,
   ): void {
-    if (this.closing || !isRelevantWatchEvent(state.root, event, resolve(path))) return
+    const target = resolve(path)
+    if (this.closing || !isRelevantWatchEvent({ ...state.root, path: mode.anchor }, event, target)) return
     this.queueInvalidation()
-    if (resolve(path) === state.root.path && event === 'unlinkDir') {
+    if (target === mode.anchor && event === 'unlinkDir') {
       state.unhealthy = true
       this.scheduleRewatch(state)
     }
@@ -619,17 +623,21 @@ function resolveWatchConfig(config: Config): ResolvedWatchConfig {
   }
 }
 
-async function resolveRootWatchMode(root: string): Promise<RootWatchMode> {
+async function resolveRootWatchMode(root: string, followSymlinks: boolean): Promise<RootWatchMode> {
   let candidate = root
   while (true) {
     try {
       const info = await stat(candidate)
       if (info.isDirectory()) {
-        if (candidate === root) return { kind: 'root', anchor: root }
+        const preserveRootLink = candidate === root
+          && !followSymlinks
+          && (await lstat(candidate)).isSymbolicLink()
+        const anchor = preserveRootLink ? resolve(candidate) : await canonicalizeWatchPath(candidate)
+        if (candidate === root) return { kind: 'root', anchor }
         const firstSegment = relative(candidate, root).split(sep)[0]
         /* v8 ignore next -- candidate is a strict ancestor of root. */
-        if (firstSegment === undefined || firstSegment.length === 0) return { kind: 'root', anchor: root }
-        return { kind: 'ancestor', anchor: candidate, nextPath: join(candidate, firstSegment) }
+        if (firstSegment === undefined || firstSegment.length === 0) return { kind: 'root', anchor }
+        return { kind: 'ancestor', anchor, nextPath: join(anchor, firstSegment) }
       }
     } catch (error) {
       /* v8 ignore next -- Non-absence stat failures are platform/permission-specific and propagate as incomplete discovery. */

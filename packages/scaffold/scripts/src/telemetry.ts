@@ -25,7 +25,7 @@ export interface CommandTelemetryEvent {
   success: boolean
 }
 
-/** Injectable consent and delivery seams for tests. */
+/** Injectable consent and delivery hooks for tests. */
 export interface CommandTelemetryDeps {
   resolve?: (cwd: string) => Promise<ConsentDecision>
   reporter?: Pick<TelemetryReporter, 'report' | 'flush'>
@@ -36,7 +36,7 @@ export interface CommandTelemetryDeps {
  * telemetry event, draining in-flight sends before returning. Swallows every
  * error so telemetry can never change a command's result.
  * @param event - the command lifecycle facts.
- * @param deps - consent and delivery seams; defaults hit the real endpoint.
+ * @param deps - Consent and delivery hooks; defaults hit the real endpoint.
  */
 export async function reportCommandTelemetry(
   event: CommandTelemetryEvent,

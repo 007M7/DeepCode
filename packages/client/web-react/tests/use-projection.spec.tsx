@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 /**
- * useProjection standard-kit delivery (session-projection RFC): the fifth
+ * useProjection standard-kit delivery (session-projection subsystem page:
+ * docs/subsystems/session-projection.md): the fifth
  * framework hook seat rides the same provide channel as useSession — a
  * session slot component receives `useProjection` in its kit, key-addressed
  * over the bundle's projection face; unresolved keys (no value, no face, no

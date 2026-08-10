@@ -15,8 +15,6 @@ harness 将其核心词汇——内容块、消息来源、结束原因、轮次
 
 由此引出问题：事件词汇是否应迁移到 **Zod** 或其他运行时 schema 库，使持久化边界和插件边界拥有运行时 schema 而非被擦除的类型。
 
-本 Agent Note 界定该问题的范围，不提出具体实现。
-
 ## 为什么这不是一个持久化层的改动
 
 很容易把「用 Zod 做序列化」理解为对 `dsh-session-persistence-jsonl/src/format.ts` 的局部修改。但它不是，原因在于一个结构性事实：**插件无法对 Zod schema 进行声明合并。** 声明合并是 TypeScript 编译期机制；Zod schema 是运行时值。要用 Zod 校验事件，就需要一个**运行时注册表**，每个产出事件的包向其贡献自己的 schema（如 `ctx.sessionEvents.register('compaction/marker', z.object({…}))`），每个消费方从中读取。这个注册表——而非持久化后端——将成为词汇的真源，取代 merge-extensible 接口。
@@ -42,7 +40,7 @@ harness 将其核心词汇——内容块、消息来源、结束原因、轮次
 保留编译期模式。持久化继续使用不透明 JSON + 可序列化性守卫。插件通过声明合并扩展；事件*形状*的正确性由生产者负责，并由 TypeScript 在编译期保证。启用包自有的不变式 companion 后，它们会检查选定的跨记录关系，但不提供通用运行时形状 schema。
 
 - **优点**：零变动；插件扩展只需一行 `interface` 增补，享有完整类型推断，无需运行时注册仪式；无新运行时依赖；`defineTool` DSL 与 `assertNever` 穷举继续工作。
-- **缺点**：持久化边界和插件 seam 处无运行时结构校验；格式错误但仍为合法 JSON 的数据被延迟捕获。
+- **缺点**：持久化边界和插件边界处无运行时结构校验；格式错误但仍为合法 JSON 的数据被延迟捕获。
 
 ### B. 仅对头部/封闭形状做校验（schemastery），事件仍为不透明
 仅对那些已有手写类型守卫的真正封闭形状加以收紧——例如 JSONL 的 `HeaderLine` 守卫（`isHeaderLine`）——使用 **schemastery**（仓库现有的 schema 库，已用于每个插件的 `static Config`）。merge-extensible 事件联合类型保持不变。
@@ -53,7 +51,7 @@ harness 将其核心词汇——内容块、消息来源、结束原因、轮次
 ### C. 为整个词汇建立运行时 schema 注册表（Zod 或 schemastery）
 用运行时注册表替换 merge-extensible map，生产者向其贡献 schema，持久化/消费路径据此校验。
 
-- **优点**：持久化边界和插件 seam 处获得真正的运行时校验；单一真源；可支撑通用工具（自动生成文档、模糊测试、协议格式（wire format）检查）。
+- **优点**：持久化边界和插件边界处获得真正的运行时校验；单一真源；可支撑通用工具（自动生成文档、模糊测试、协议格式（wire format）检查）。
 - **缺点**：上述全部影响范围；**Zod 目前不是直接依赖**（仅作为 `@earendil-works/pi-ai` 的传递依赖），仓库选定的 schema 库是 **schemastery**——广泛引入 Zod 本身就是一个依赖决策；声明合并的易用性（一行插件扩展、完整推断）被运行时注册 + 手动类型接线取代；`assertNever` 穷举保证弱化（运行时变体在静态层面不可穷举）。
 
 ## 提案

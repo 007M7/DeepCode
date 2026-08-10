@@ -2,7 +2,7 @@
 // Assembled search-card snapshot: boots the real built workspace client bundles
 // through AppWebEntry's ModuleLoader path against the keyless
 // FixtureApiClient transport (no API key, no model round), opens the fixture
-// session, and pins the search card the `grep` turn (fixture turn 66) renders in
+// session, and pins the search card the `grep` turn (fixture turn 67) renders in
 // the assembled application. The built-boot smoke proves the graph boots but
 // carries no behavior assertions by contract; this is the assembled-output check
 // that a broken SearchRow registration or a dropped card would fail — the
@@ -51,7 +51,7 @@ describe('assembled search card', () => {
     const tree = await screen.findByRole('tree', { name: 'Sessions' }, { timeout: 10_000 })
     fireEvent.click(await within(tree).findByText('Fixture 历史会话'))
     // Wait for chat content to reach the fixture's later turns (the bash sample
-    // is turn 65, the grep card turn 66).
+    // is turn 66, the grep card turn 67).
     await waitFor(() => {
       expect(document.querySelector('[data-sample="bash"]')).not.toBeNull()
     }, { timeout: 10_000 })

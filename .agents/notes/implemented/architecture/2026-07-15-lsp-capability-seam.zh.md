@@ -32,7 +32,7 @@ harness 已具备文本搜索与文件读取能力，但二者都无法识别程
 
 服务边界只公开 `query(request, signal?)`，因为没有字段需要实现层填充默认值：`workspaceRoot` 是必填项，`languageId` 来自注册映射，超时与结果限制由消费方负责。`query()` 执行选择与推导时不使用隐藏的 `??` 后备逻辑，因此没有需要 resolve 的可执行 spec。`dsh-tool-lsp` 校验模型参数，并只把 `exec.signal` 作为裸 `AbortSignal` 传递，与 web 一致，并使 `dsh-lsp` 不依赖 `dsh-tools`。提供方在选择前被移除时按不可用失败；之后的释放遵循已选提供方的取消生命周期，不改路由。
 
-预期约定如下：
+约定如下：
 
 ```ts
 import type { Branded } from '@deepseek-ai/dsh-brand'
@@ -79,7 +79,7 @@ interface LspService {
 
 映射键规范化为带前导点的小写扩展名，并按 `filePath` 的最后一个扩展名选择；语言 id 仅用于文档同步。服务边界中的位置和范围从零开始按 UTF-16 计数。`findReferences` 始终包含声明：提供方在内部执行该约束，本地映射设置 `context.includeDeclaration: true`，调用方不能配置。封闭结果联合将导航统一为位置，将 `hover` 统一为内容或 `null`；导航结果携带提供方的规范工作区 URI，使消费方在执行世界的命名空间内相对化文件 URI。服务边界不公开协议类型、进程或文档控制，也不提供通用请求逃生口。
 
-`dsh-lsp-local` 负责服务器配置、JSON-RPC、进程与临时文档状态和协议转换。它通过 `ctx.fs` 读取，通过 `ctx.subprocess` 启动，只依赖二者的接口包而非具体提供方；[可移植执行环境决策](2026-07-28-portable-execution-world-consumers.md)负责定义这种配对。服务器表的键是提供方 id。插件在注册前解析每个服务器的本地设置；如果后续映射无效或发生冲突，插件会撤销此前的注册，并为每个提供方保留独立进程池。`dsh-tool-lsp` 在运行时只注入 `tools`、`lsp` 和 `systemPrompt`，通过包内的 `sessionCwd(exec)` 辅助函数从 `exec.agent?.session.header.cwd` 取得工作区，其取值方式与文件系统工具一致，也不导入提供方。
+`dsh-lsp-local` 负责服务器配置、JSON-RPC、进程与临时文档状态和协议转换。它通过 `ctx.fs` 读取，通过 `ctx.subprocess` 启动，只依赖二者的 Service Definition 包而非具体提供方；[可移植执行环境决策](2026-07-28-portable-execution-world-consumers.md)负责定义这种配对。服务器表的键是提供方 id。插件在注册前解析每个服务器的本地设置；如果后续映射无效或发生冲突，插件会撤销此前的注册，并为每个提供方保留独立进程池。`dsh-tool-lsp` 在运行时只注入 `tools`、`lsp` 和 `systemPrompt`，通过包内的 `sessionCwd(exec)` 辅助函数从 `exec.agent?.session.header.cwd` 取得工作区，其取值方式与文件系统工具一致，也不导入提供方。
 
 ## 面向模型的约定
 
@@ -147,7 +147,7 @@ interface LspToolInput {
 
 ## 备选方案
 
-**照搬 Claude Code 的统一 schema。** 它的光标操作验证了核心场景，但符号与调用层级需要不同参数。照搬九种操作会固化尚未验证的接口，因此本提案只对齐四种语义查询。
+**照搬 Claude Code 的统一 schema。** 它的光标操作验证了核心场景，但符号与调用层级需要不同参数。照搬九种操作会固化尚未验证的接口，因此该 seam 只对齐四种语义查询。
 
 **允许提供方注册工具。** 已加载服务器会控制模型 schema 和提示词，无法在本地与远程提供方之间维持统一约定。
 
@@ -155,7 +155,7 @@ interface LspToolInput {
 
 **公开 `resolve(request)` / `query(spec)`。** 没有需要填充默认值的字段时，resolve 只会暴露提供方选择，而公开 spec 可能活过提供方释放或替换。单一操作让选择与调用共用注册生命周期。
 
-**将信号包装为每服务边界的执行上下文对象。** Web 传递裸 `AbortSignal`；仅包装这一个字段会造成无谓的不对称。只有另一个字段确有需要时，`query()` 才引入上下文对象。
+**将信号包装为 LSP 执行上下文对象。** Web 传递裸 `AbortSignal`；仅包装这一个字段会造成无谓的不对称。只有另一个字段确有需要时，`query()` 才引入上下文对象。
 
 **通过面向模型的 `read` 工具读取。**拒绝，因为工具输出带窗口与行号，会进入 transcript 且已被观察。提供方直接通过子进程所用的同一 `ctx.fs` 执行环境消费流式传输的完整文本。
 
@@ -178,7 +178,7 @@ interface LspToolInput {
 - 注册表测试固定原子占用/释放、不受顺序影响的选择，以及结构化的不可用、已释放、冲突和不支持操作错误。
 - 测试用 stdio server 固定精确的初始化能力、四种协议映射、`Location`/`LocationLink` 与 `hover` 归一化，以及 `findReferences` 到 `references.includeDeclaration` 的映射。
 - 同步测试固定 UTF-16 协商与转换、受支持和被拒绝的 `textDocumentSync` 形式、打开写入阻塞与失败、配对的临时打开/关闭、关闭写入失败和错误响应拒绝。
-- 超时测试固定一个 `TOOL_TIMEOUT` 预算、不对上游取消错误分类、服务边界无隐藏截止时间，以及受限且等待完成的清理。
+- 超时测试固定一个 `TOOL_TIMEOUT` 预算、不对上游取消错误分类、LSP 无隐藏截止时间，以及受限且等待完成的清理。
 - 生命周期测试固定启动 single-flight、完整生命周期串行化及排队查询读取最新源文件、跨工作区并行、可取消队列、崩溃后不重放的替换、stdin 失败后的进程拆除，以及释放后完全停稳。
 - 文件系统宿主测试固定 session cwd 要求、提供方自有的 containment 与 URI 渲染、有界文档读取、无格式源文本和不发送 `fs/observed`。
 - 无密钥且固定版本的 TypeScript 真实服务器 e2e 覆盖四种操作；可运行配置使用同一项显式提供方映射。

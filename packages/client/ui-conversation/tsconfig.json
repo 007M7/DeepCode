@@ -9,6 +9,12 @@
   ],
   "references": [
     {
+      "path": "../../attachment/attachment"
+    },
+    {
+      "path": "../../util/brand"
+    },
+    {
       "path": "../../../vendor/cordis"
     },
     {
@@ -24,10 +30,22 @@
       "path": "../runtime"
     },
     {
+      "path": "../../core/agent"
+    },
+    {
+      "path": "../../core/tools"
+    },
+    {
+      "path": "../../interaction/commands"
+    },
+    {
       "path": "../../session/session-projection"
     },
     {
       "path": "../../llm/token-meter"
+    },
+    {
+      "path": "../../llm/llm-retry"
     },
     {
       "path": "../../plan/plan-mode"

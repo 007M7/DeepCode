@@ -29,8 +29,9 @@
  * The document holds nothing but credentials, which is why it is a strict
  * `CredentialRef`-to-string mapping rather than a dotenv file: a store the
  * Harness owns and never materializes into the environment cannot also serve
- * as the user's environment layer, and conflating the two is what made a
- * non-secret in the old `$DSH_HOME/.env` silently unreachable.
+ * as the user's environment layer; a store that doubled as the environment
+ * layer would shadow non-secret entries behind its precedence, making them
+ * silently unreachable.
  * @module @deepseek-ai/dsh-credentials-local
  */
 
@@ -41,7 +42,7 @@ import { mkdir, readFile, stat } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { Document, parseDocument, type YAMLError } from 'yaml'
 import { withFileLock, writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
-import { resolveDshHome } from '@deepseek-ai/dsh-paths'
+import { canonicalizeWatchPath, resolveDshHome } from '@deepseek-ai/dsh-paths'
 import { environmentOf } from '@deepseek-ai/dsh-environment'
 import { Credentials, credentialRef } from '@deepseek-ai/dsh-credentials'
 import type { CredentialInfo, CredentialRef, ResolvedCredential } from '@deepseek-ai/dsh-credentials'
@@ -97,24 +98,27 @@ const GROUP_OTHER_BITS = 0o077
  * here — so the check is skipped rather than faked, and the file's protection
  * there is whatever the create and replace APIs express.
  * @param filename - absolute path of the document.
- * @throws when the file exists with group or other permission bits set.
+ * @throws when the path hierarchy is invalid or the file exists with group or other permission bits set.
  */
 async function assertOwnerOnly(filename: string): Promise<void> {
-  /* v8 ignore next -- native Windows coverage exercises the skip; POSIX covers the check */
-  if (process.platform === 'win32') return
   let mode: number
   try {
     mode = (await stat(filename)).mode
   } catch (error) {
     if (!isENOENT(error)) throw error
+    await canonicalizeWatchPath(filename)
     return
   }
+  /* v8 ignore next -- POSIX coverage cannot take the Windows peer; native Windows coverage does. */
+  if (process.platform === 'win32') return
+  /* v8 ignore start -- Windows has no POSIX mode enforcement; POSIX behavior tests enforce this peer. */
   const offending = mode & GROUP_OTHER_BITS
   if (offending === 0) return
   throw new Error(
     `credentials-local: ${filename} is readable beyond its owner (mode ${(mode & 0o777).toString(8)});`
     + ` run "chmod 600 ${filename}" before starting again`,
   )
+  /* v8 ignore stop */
 }
 
 /** Whether a filesystem error means absence; every non-ENOENT failure must surface. */
@@ -270,7 +274,7 @@ export class CredentialsLocal extends Credentials {
     /* jscpd:ignore-start -- same watcher discipline as settings-local by design:
        the serialized-refresh and quiesce-on-dispose shape is the reviewed
        lifecycle contract, not accidental repetition. */
-    const watcher = chokidarWatch(this.spec.filename, {
+    const watcher = chokidarWatch(await canonicalizeWatchPath(this.spec.filename), {
       ignoreInitial: true,
       awaitWriteFinish: {
         stabilityThreshold: this.spec.debounceMs,

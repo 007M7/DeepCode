@@ -49,6 +49,7 @@ interface ProfileLifecycleFixture {
   ready: string
   settled: string
   disposed: string
+  interrupt: string
 }
 
 /**
@@ -61,16 +62,23 @@ function createProfileLifecycleFixture(): ProfileLifecycleFixture {
   const ready = join(home, 'ready')
   const settled = join(home, 'settled')
   const disposed = join(home, 'disposed')
+  const interrupt = join(home, 'interrupt')
   const bundleDir = join(home, 'lifecycle-bundle')
   mkdirSync(bundleDir, { recursive: true })
   writeFileSync(join(bundleDir, 'plugin.mjs'), [
-    "import { writeFileSync } from 'node:fs'",
+    "import { existsSync, writeFileSync } from 'node:fs'",
     "import { join } from 'node:path'",
     "export const name = 'profile-lifecycle-fixture'",
     'export function apply(ctx, config = {}) {',
     '  let active = true',
     '  // Keep the event loop alive so process lifetime is signal-owned, like a real surface.',
-    '  const heartbeat = setInterval(() => {}, 1000)',
+    '  // Windows has no deliverable SIGTERM; the marker emits the same process event there.',
+    '  let interrupted = false',
+    '  const heartbeat = setInterval(() => {',
+    '    if (interrupted || !existsSync(process.env.RAW_INTERRUPT_FILE)) return',
+    '    interrupted = true',
+    "    process.emit('SIGTERM')",
+    '  }, 20)',
     '  // Echo the mounted generation so the hot-reload e2e can assert both an',
     '  // applied override and its removal reverting to this bundle default.',
     "  writeFileSync(join(process.env.DSH_HOME, 'config-echo'), String(config.generation ?? 'bundle-default'))",
@@ -118,7 +126,7 @@ function createProfileLifecycleFixture(): ProfileLifecycleFixture {
   for (const file of ['package.json', 'cordis.patch.yml', 'plugin.mjs']) {
     writeFileSync(join(linkTarget, file), readFileSync(join(bundleDir, file)))
   }
-  return { home, ready, settled, disposed }
+  return { home, ready, settled, disposed, interrupt }
 }
 
 function startProfileLifecycle(fixture: ProfileLifecycleFixture) {
@@ -131,8 +139,20 @@ function startProfileLifecycle(fixture: ProfileLifecycleFixture) {
       RAW_READY_FILE: fixture.ready,
       RAW_SETTLED_FILE: fixture.settled,
       RAW_DISPOSED_FILE: fixture.disposed,
+      RAW_INTERRUPT_FILE: fixture.interrupt,
     },
   })
+}
+
+function requestProfileShutdown(
+  child: ReturnType<typeof startProfileLifecycle>,
+  fixture: ProfileLifecycleFixture,
+): void {
+  if (process.platform === 'win32') {
+    writeFileSync(fixture.interrupt, 'interrupt')
+    return
+  }
+  child.kill('SIGTERM')
 }
 
 function createEnvironmentProbeProfile(home: string, project: string): void {
@@ -152,7 +172,8 @@ function createEnvironmentProbeProfile(home: string, project: string): void {
     "      if (chunk.type === 'text-delta') text += chunk.text",
     '    }',
     '    process.stdout.write(`${text}\\n`)',
-    "    process.kill(process.pid, 'SIGTERM')",
+    "    if (process.platform === 'win32') process.emit('SIGTERM')",
+    "    else process.kill(process.pid, 'SIGTERM')",
     '  })',
     '}',
     '',
@@ -174,7 +195,7 @@ function createEnvironmentProbeProfile(home: string, project: string): void {
 }
 
 describe.skipIf(!existsSync(dshBin))('dsh BUILT bin (node lib/bin.js, no tsx)', () => {
-  it('requires --profile and rejects removed commands', async () => {
+  it('requires --profile and rejects inputs outside the current grammar', async () => {
     const bare = await runBuiltBin()
     expect(bare.code).toBe(1)
     expect(bare.stdout).toBe('')
@@ -185,8 +206,8 @@ describe.skipIf(!existsSync(dshBin))('dsh BUILT bin (node lib/bin.js, no tsx)', 
     expect(help.stdout).toContain('dsh run "run the tests"')
     expect(help.stdout).toContain('dsh plugin --profile')
     expect(help.stdout).not.toMatch(/^\s+(?:tui|meta|upgrade)\b/mu)
-    for (const removed of [['tui'], ['--config', 'x.yml'], ['-p', 'task'], ['--profile', 'headless', 'task']]) {
-      const result = await runBuiltBin(removed)
+    for (const outsideGrammar of [['tui'], ['--config', 'x.yml'], ['-p', 'task'], ['--profile', 'headless', 'task']]) {
+      const result = await runBuiltBin(outsideGrammar)
       expect(result.code).toBe(1)
     }
   }, 30_000)
@@ -297,9 +318,9 @@ describe.skipIf(!existsSync(dshBin))('dsh BUILT bin (node lib/bin.js, no tsx)', 
   }, 30_000)
 
   it('reports a patch-overlay boot failure without hanging', async () => {
-    // The HMR main watcher's initial scan once refreshed the include
-    // mid-initial-apply, deadlocking the failing apply's rollback against the
-    // refresh drain: dsh exited 13 with no diagnostic instead of settling
+    // An HMR main-watcher initial scan that refreshes the include
+    // mid-initial-apply deadlocks the failing apply's rollback against the
+    // refresh drain: dsh exits 13 with no diagnostic instead of settling
     // ([Agent Note](../../../.agents/notes/implemented/bug-fix/2026-08-03-hmr-initial-scan-boot-deadlock.md)).
     const home = mkdtempSync(join(tmpdir(), 'dsh-invalid-patch-'))
     try {
@@ -321,9 +342,9 @@ describe.skipIf(!existsSync(dshBin))('dsh BUILT bin (node lib/bin.js, no tsx)', 
     const child = startProfileLifecycle(fixture)
     try {
       await waitForFile(fixture.ready)
-      child.kill('SIGTERM')
+      requestProfileShutdown(child, fixture)
       const result = await child
-      expect(result.exitCode).toBe(0)
+      expect(result.exitCode, `${result.stderr}\nstdout:\n${result.stdout}\nsignal: ${String(result.signal)}`).toBe(0)
       expect(result.signal).toBeUndefined()
       expect(existsSync(fixture.disposed)).toBe(true)
     } finally {
@@ -373,9 +394,9 @@ describe.skipIf(!existsSync(dshBin))('dsh BUILT bin (node lib/bin.js, no tsx)', 
       ].join('\n'))
       await waitForFile(fixture.ready)
       expect(readFileSync(configFile, 'utf8')).toBe('home')
-      child.kill('SIGTERM')
+      requestProfileShutdown(child, fixture)
       const result = await child
-      expect(result.exitCode).toBe(0)
+      expect(result.exitCode, `${result.stderr}\nstdout:\n${result.stdout}\nsignal: ${String(result.signal)}`).toBe(0)
       expect(result.signal).toBeUndefined()
       expect(existsSync(fixture.disposed)).toBe(true)
     } finally {
@@ -518,7 +539,7 @@ describe.skipIf(!existsSync(dshBin))('dsh BUILT bin (node lib/bin.js, no tsx)', 
       expect(code).toBe(0)
       expect(stdout).toContain('provider: configured-provider')
       expect(stdout).not.toContain('personal-provider')
-      // Both layers patched the row; provenance lists them in application order.
+      // Both layers patched the row; the comment lists them in application order.
       expect(stdout).toContain(`patched by ${profilePatch}, ${overlay}`)
       expect(stderr).toContain('patch: entry "absent-row" not found')
     }, 30_000)

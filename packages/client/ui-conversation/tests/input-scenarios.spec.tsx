@@ -1,17 +1,17 @@
 // @vitest-environment jsdom
 /**
- * Scenario-chain integration (design §8 A/C/D/H/I): the real per-session
+ * Scenario-chain integration (scenarios A/C/D/H/I): the real per-session
  * SlashController pipeline over a real session scope (SessionsService over
  * a listed host session) + a command source implementing the decision
  * table's relevant cells + the real SessionInput machine (scoped-event
  * listeners wired the way the hub does) + the real InputBar. ui-command
  * itself is not a dependency of this package; the source below is the
- * decision-table contract at the SlashSource seam.
+ * decision-table contract at the `SlashSource` boundary.
  */
 import { Context } from 'cordis'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render } from '@testing-library/react'
-import { SessionsService } from '@deepseek-ai/dsh-client-runtime/client'
+import { EMPTY_CHAT_SNAPSHOT, SessionsService } from '@deepseek-ai/dsh-client-runtime/client'
 import { SlashService } from '@deepseek-ai/dsh-client-ui-slash/client'
 import type { ClientSessionContext, CommandClaim, PickOutcome, SubmitOutcome } from '@deepseek-ai/dsh-client-ui-slash/client'
 import { FakeApiClient, ok } from '../../runtime/tests/fake-api.ts'
@@ -34,7 +34,7 @@ interface FakeCommand {
   input?: { hint: string }
 }
 
-/** T6 decision-table source over an in-memory directory (menu/space/enter columns for leadingInput + execute). */
+/** Decision-table source over an in-memory directory (menu/space/enter columns for leadingInput + execute). */
 function commandSource(commands: FakeCommand[], execute: (line: string) => Promise<SubmitOutcome>) {
   const resolve = (name: string): FakeCommand | undefined => commands.find(c => c.name === name)
   const leadingClaim = (desc: FakeCommand): CommandClaim => ({
@@ -112,7 +112,8 @@ async function scopedBench(register?: (slash: SlashService) => void) {
   actx.on('slash/input-consume-token', req => shell.consumeToken(req.guard) ? true : undefined)
   const wiring = shell
   const sessionStore = createSnapshotStore<ConversationSnapshot>({
-    sessionId, nodes: [], turnTimings: new Map(), turnEnds: new Map(), partial: null, runningCalls: [],
+    sessionId, chat: EMPTY_CHAT_SNAPSHOT,
+    nodes: [], turnTimings: new Map(), turnEnds: new Map(), partial: null, runningCalls: [],
     pending: [], queue: [], running: false, composerPhase: 'active', removed: false,
     openState: 'open', openError: null, hasMore: false, loadingOlder: false,
     promptError: null, blank: false, subagent: null, lastAgentError: null,
@@ -133,6 +134,9 @@ async function scopedBench(register?: (slash: SlashService) => void) {
     useInput: bindSnapshotSelector(shell.state),
     inputActions: shell.actions,
     keyboard: shell,
+    addImages: () => null,
+    removeImage: () => {},
+    draftImages: () => [],
     resolveSubmitMode: () => 'queue',
     toggleCommandMenu: (selection) => {
       const snapshot = shell.snapshot
@@ -236,7 +240,7 @@ describe('scenario D: execute-kind /compact', () => {
     act(() => { b2.shell.setDraft('/compact 现在') })
     fireEvent.keyDown(b2.textarea, { key: 'Enter' })
     // execute with trailing → matchEnter answers undefined → default sink.
-    await vi.waitFor(() => { expect(b2.sink).toHaveBeenCalledWith('/compact 现在', 'queue') })
+    await vi.waitFor(() => { expect(b2.sink).toHaveBeenCalledWith('/compact 现在', [], 'queue') })
     expect(b2.executed).toHaveLength(0)
   })
 })
@@ -290,7 +294,7 @@ describe('scenario I: unknown /xyz + enter', () => {
     const b = await bench()
     act(() => { b.shell.setDraft('/xyz 干点啥') })
     fireEvent.keyDown(b.textarea, { key: 'Enter' })
-    await vi.waitFor(() => { expect(b.sink).toHaveBeenCalledWith('/xyz 干点啥', 'queue') })
+    await vi.waitFor(() => { expect(b.sink).toHaveBeenCalledWith('/xyz 干点啥', [], 'queue') })
     expect(b.shell.snapshot.phase).toBe('plain')
     expect(b.execute).not.toHaveBeenCalled()
   })

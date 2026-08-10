@@ -4,7 +4,7 @@
 #
 # A patch replaces the targeted row's whole `config`, so each row below
 # restates every key it owns. The `dsh web` launcher alias turns --host/--port/
-# --dev/--workspace-root/--trusted-host into further patches over these rows
+# --dev/--trusted-host into further patches over these rows
 # (`--dev` inserts the dsh-client-hmr row).
 
 # ── surface-specific values the base deliberately omits ─────────────────────
@@ -105,8 +105,8 @@
 
     # Dual-face: node half scans this very tree for dshClient rows, composes
     # window.__DSH_BOOT__, serves /plugins/<id>/client.js; browser half is the
-    # module table the shell kernel constructs before cordis exists (§4.7 —
-    # adopted as a plugin entry by the kernel, never fetched).
+    # module table the shell kernel constructs before cordis exists (adopted
+    # as a plugin entry by the kernel, never fetched).
     - id: modules
       name: '@deepseek-ai/dsh-client-modules'
 
@@ -183,6 +183,11 @@
     - id: ui-permission
       name: '@deepseek-ai/dsh-client-ui-permission'
 
+    # The agent-preset row in General settings: the default preset for
+    # sessions created later. Absent a roster it renders nothing.
+    - id: ui-agent-preset
+      name: '@deepseek-ai/dsh-client-ui-agent-preset'
+
     # Plan control: the composer plan seat over the plan projection + /plan channel.
     - id: ui-plan
       name: '@deepseek-ai/dsh-client-ui-plan'
@@ -192,3 +197,136 @@
 
     - id: ui-trajectory
       name: '@deepseek-ai/dsh-client-ui-trajectory'
+
+# ── the agent plane moves behind agent presets ─────────────────────────────
+#
+# Every row below composes what ONE agent contributes to the host registries:
+# its tools, its prompt sections, its delegation backends. The base keeps them
+# for the TUI, which is single-session and composes its agent process-wide; the
+# Web surface disables them here and lets each session mount a preset instead.
+#
+# Disabling rather than deleting is deliberate: the base is shared, and a row
+# absent from a surface overlay would silently reappear the day someone reorders
+# the composition.
+
+# `bash-env` STAYS in the host plane: `apps/cli/src/web.ts` injects it to
+# publish `DSH_WEB_URL`/`DSH_WEB_MODE`, and a host row that injects a service is
+# the criterion for host-plane ownership — injection resolves before any session
+# exists, so there is no agent to key by. Behind a preset realm those variables
+# would never reach the model's shell at all.
+
+- id: tool-bash
+  disabled: true
+
+- id: tool-tasks
+  disabled: true
+
+- id: tasks
+  disabled: true
+
+- id: tool-fs
+  disabled: true
+
+- id: tool-fs-search
+  disabled: true
+
+- id: tool-str-replace-editor
+  disabled: true
+
+# The `skill` REGISTRY stays in the host plane. It is host+per-scope layered
+# (the tools-registry shape): deployment-level providers — repository plugins,
+# a host skill-local row — register into its global layer, while a preset's
+# `skill-local` registers into that preset's layer, and each agent reads the
+# merged catalog its scope chain selects. Only the per-agent rows move behind
+# presets: the base host `skill-local` row is disabled here (presets own local
+# discovery), and `tool-skill` is what a preset mounts to give its agent the
+# catalog and loader at all.
+
+- id: skill-local
+  disabled: true
+
+- id: tool-skill
+  disabled: true
+
+# The goal SERVICE, its session driver, and the `/goal` command STAY on the
+# host plane; only the model-facing tool moves. The Gateway serves the goal
+# domain as Remote endpoints, and a Remote method picks its receiver Service
+# from a generated descriptor — it resolves `goals` on the host, so a
+# per-session realm would answer `service-unavailable` for every browser call.
+# That is the `bash-env` criterion read from the other side: injection is not
+# the only host relationship a Service can have. The registry is keyed by
+# session, so one host instance serves every session exactly as before presets.
+
+- id: tool-goal
+  disabled: true
+
+- id: plan-mode
+  disabled: true
+
+- id: token-meter
+  disabled: true
+
+- id: compact-basic
+  disabled: true
+
+- id: command-compact
+  disabled: true
+
+- id: tool-result-prune
+  disabled: true
+
+# The subagent registry and its backends STAY in the host plane. `subagents` is
+# a process singleton with a cross-session query surface (`listChildren`,
+# `followup`) that the host api-proxy serves to the browser, and a provider
+# registers under a globally unique name, so a per-session copy would both
+# starve that host row and collide on the second session. What a preset
+# chooses is which delegation TOOLS its agent sees, below.
+
+- id: tool-subagent-control
+  disabled: true
+
+- id: tool-subagent-list-agents
+  disabled: true
+
+- id: tool-subagent
+  disabled: true
+
+- id: tool-subagent-fork
+  disabled: true
+
+# `tool-subagent-report` is host-plane for the same reason as the registry, not
+# because a preset may not want it: it registers a CONTINUABLE SETUP on that
+# singleton rather than a tool this agent calls, and the setup list is not
+# scope-aware — one copy per mounted preset means every child gets `report`
+# registered once per live session, which throws on the second.
+
+- id: workflow-workerthread
+  disabled: true
+
+- id: tool-workflow
+  disabled: true
+
+- id: tool-ralph
+  disabled: true
+
+- id: workspace-context
+  disabled: true
+
+- id: tool-todo
+  disabled: true
+
+- id: tool-web
+  disabled: true
+
+# The preset roster. `config/agent-presets/` ships with the deployment and is
+# read-only (its entries carry `system` trust);
+# `$DSH_HOME/.agent-presets` is where a person — or an agent — authors their own, and
+# carries the same trust as shell access because a preset IS a composition.
+# `roots` is an assembly fact, not user config: the shipped preset directory
+# ships beside this file, so AppCLIEntry resolves it and patches it in — the
+# same treatment `distIndex` gets on the webserver row.
+- insert:
+    - id: agent-presets
+      name: '@deepseek-ai/dsh-agent-presets'
+      config:
+        default: standard

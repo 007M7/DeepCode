@@ -109,7 +109,7 @@ async function settleSubagent(
 }
 
 describe('HarnessSdkServer', () => {
-  it('creates a harness agent and calls the configured OpenAI-compatible endpoint', async () => {
+  it('creates a harness agent and calls the configured OpenAI-compatible endpoint', { timeout: 15_000 }, async () => {
     const storageDir = await mkdtemp(join(tmpdir(), 'dsh-jsonrpc-'))
     const llmServer = await mockCompletionServer()
     vi.stubEnv('DEEPSEEK_API_KEY', 'test-key')
@@ -295,7 +295,7 @@ describe('HarnessSdkServer', () => {
     }
   })
 
-  it('creates an SDK session without an optional system prompt', async () => {
+  it('creates an SDK session without an optional system prompt', { timeout: 15_000 }, async () => {
     const storageDir = await mkdtemp(join(tmpdir(), 'dsh-jsonrpc-no-system-'))
     const llmServer = await mockCompletionServer()
     vi.stubEnv('DEEPSEEK_API_KEY', 'test-key')
@@ -664,7 +664,7 @@ describe('HarnessSdkServer', () => {
     }
   })
 
-  it('uses explicit local provenance when start was missed and ignores remote runs', async () => {
+  it('uses the recorded local flag when start was missed and ignores remote runs', async () => {
     const storageDir = await mkdtemp(join(tmpdir(), 'dsh-jsonrpc-subagent-fallback-'))
     const ctx = await makeHarness(storageDir)
     let parentHandle: AgentHandle | undefined

@@ -24,7 +24,7 @@ The group-by menu offers two modes, WorkSpace / In one list. WorkSpace mode rend
 
 ### workspace.rename
 
-`workspace.rename({ workspaceId, title })`: the title is trimmed and must be non-blank; both the same-title no-op and the duplicate check evaluate inside the Host's serialized workspace-operation chain (shared with create-by-name, so concurrent explicit naming operations cannot interleave a duplicate or an out-of-order fake success), and a conflict returns `workspace-name-conflict`. Path adoption may derive a title already present because canonical path, not title, owns identity ([decision](../bug-fix/2026-07-31-same-basename-workspace-adoption.md)). Durability goes through `setTitle`'s mutate path, and the `domain/changed` listener broadcasts the `host/workspace-changed` frame automatically. The UI is a standard modal with a client-side duplicate pre-check.
+`workspace.rename({ workspaceId, title })`: the title is trimmed and must be non-blank; both the same-title no-op and the duplicate check evaluate inside the Host's serialized workspace-operation chain (shared with path adoption and deletion, so concurrent workspace operations cannot interleave a duplicate or an out-of-order fake success), and a conflict returns `workspace-name-conflict`. Path adoption may derive a title already present because canonical path, not title, owns identity ([decision](../bug-fix/2026-07-31-same-basename-workspace-adoption.md)). Durability goes through `setTitle`'s mutate path, and the `domain/changed` listener broadcasts the `host/workspace-changed` frame automatically. The UI is a standard modal with a client-side duplicate pre-check.
 
 ### Manual order: insertSessionBefore replaces activity pinning
 
@@ -44,7 +44,7 @@ ui-sidebar shrinks to the column-geometry shell: brand row, fold state machine, 
 
 **Optimistic reordering on drop** — client-first reordering needs failure rollback, one more entangled state in the object layer; local/LAN round-trips are millisecond-scale, so waiting for the host response is imperceptible. With a single order authority (trust the host completely), the frontend never invents an order.
 
-**Keep the rename dialog in ui-sidebar (smallest change)** — that is the problem itself: workspace-domain dialogs scattered in a borrowed slot, with each addition (the Delete confirmation is coming) repeating the cross-package wiring. Review first considered moving only the rename modal; the ruling was to give the whole browsing region to ui-workspace and leave the shell geometry-only.
+**Keep the rename dialog in ui-sidebar (smallest change)** — that is the problem itself: workspace-domain dialogs scattered in a borrowed slot, with each addition (the Delete confirmation is coming) repeating the cross-package wiring. Moving only the rename modal would repeat that wiring on the next dialog; the whole browsing region goes to ui-workspace and the shell stays geometry-only.
 
 **Nest sessions by fork lineage in WorkSpace mode** — nesting makes the current child visible only while its ancestors are expanded and limits in-group manual ordering to root nodes; `parentId` is lineage data, not a list-navigation structure. Flattening all sessions into peer rows lets each row be opened, searched, and ordered independently; In one list still disables drag because it has no workspace persistence carrier.
 

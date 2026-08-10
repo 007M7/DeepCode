@@ -15,6 +15,7 @@ import {
   linksTo,
   isTranslationScopeFile,
   parseTranslationMarkdown,
+  requiresSourceLanguageSwitcher,
   translationStructureDiff,
   translationStructureSignature,
 } from './translation-pairing.ts'
@@ -163,7 +164,7 @@ function loadRecordOwners(
 function assertMergedPairStructure(paths: TranslationPairPaths, source: Buffer, zh: Buffer): void {
   const sourceTree = parseTranslationMarkdown(source.toString('utf8'))
   const zhTree = parseTranslationMarkdown(zh.toString('utf8'))
-  if (!linksTo(sourceTree, basename(paths.zh))) {
+  if (requiresSourceLanguageSwitcher(paths.source) && !linksTo(sourceTree, basename(paths.zh))) {
     throw new Error(`${paths.source} clean merge lost its language-switcher link to ${basename(paths.zh)}`)
   }
   if (!linksTo(zhTree, basename(paths.source))) {

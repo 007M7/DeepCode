@@ -6,7 +6,9 @@
  * real ClientSessionContext projections — sessionId addressing, the
  * session-keyed catalog cache (single-flight per key, scope-birth warm
  * prewarm, connection/reset clear), startsWith filtering, RPC-failure
- * rejection, pick → plain-text outcome (decision 21), the synchronous
+ * rejection, pick → plain-text outcome (the plain-text-reference decision:
+ * .agents/notes/implemented/architecture/2026-07-25-web-input-machine-and-slash-pipeline.md),
+ * the synchronous
  * lexicon reads over the settled cache, and the reference codec's two
  * projections. Direct driving is deliberate: this spec owns only the
  * source's own contract.
@@ -261,6 +263,21 @@ describe('catalog cache', () => {
     expect(payloads).toHaveLength(2)
   })
 
+  it('session/preset-changed clears only the recomposed session', async () => {
+    const { list, payloads } = countingList()
+    const { ctx, source } = await bench(list)
+    await source.candidates(proj('s1'), req(''))
+    await source.candidates(proj('s2'), req(''))
+    expect(payloads).toHaveLength(2)
+    // The catalog a preset supplies is the preset's; the other session's
+    // composition did not change, so its cached catalog still holds.
+    ctx.emit('session/preset-changed', sid('s1'), 'minimal')
+    await source.candidates(proj('s1'), req(''))
+    await source.candidates(proj('s2'), req(''))
+    expect(payloads).toHaveLength(3)
+    expect(payloads[2]).toEqual({ sessionId: 's1' })
+  })
+
   it('connection/reset clears every cached session', async () => {
     const { list, payloads } = countingList()
     const { ctx, source } = await bench(list)
@@ -322,7 +339,7 @@ describe('lexicon', () => {
   })
 })
 
-describe('pick lands plain text (decision 21)', () => {
+describe('pick lands plain text', () => {
   it('onPick returns the literal /name text with a closing space', async () => {
     const { source } = await bench(listOk(CATALOG))
     const outcome = source.onPick({

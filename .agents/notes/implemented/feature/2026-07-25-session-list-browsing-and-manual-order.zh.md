@@ -24,7 +24,7 @@ group-by 菜单提供 WorkSpace / In one list 两种模式。WorkSpace 模式按
 
 ### workspace.rename
 
-`workspace.rename({ workspaceId, title })`：title trim 后非空；同名 no-op 与重名查重都在 Host 的 Workspace 操作串行链内求值（与按名称创建共链，并发的显式命名操作不能穿插出重名或乱序假成功），冲突返回 `workspace-name-conflict`。按路径收编可以派生出已有 title，因为拥有身份的是 canonical path，而不是 title（见[身份决策](../bug-fix/2026-07-31-same-basename-workspace-adoption.md)）。落盘经 `setTitle` 的 mutate 通道，`domain/changed` 监听自动广播 `host/workspace-changed` 帧。UI 为标准 Modal，client 侧另做重名预检。
+`workspace.rename({ workspaceId, title })`：title trim 后非空；同名 no-op 与重名查重都在 Host 的 Workspace 操作串行链内求值（与按路径收编和删除共链，并发的 Workspace 操作不能穿插出重名或乱序假成功），冲突返回 `workspace-name-conflict`。按路径收编可以派生出已有 title，因为拥有身份的是 canonical path，而不是 title（见[身份决策](../bug-fix/2026-07-31-same-basename-workspace-adoption.md)）。落盘经 `setTitle` 的 mutate 通道，`domain/changed` 监听自动广播 `host/workspace-changed` 帧。UI 为标准 Modal，client 侧另做重名预检。
 
 ### 手动排序:insertSessionBefore 取代活动置顶
 
@@ -44,7 +44,7 @@ ui-sidebar 缩为列几何壳:品牌行、折叠状态机、New Session、Settin
 
 **drop 后乐观重排** —— client 先行重排需失败回滚,对象层多一块纠缠态;本地/局域网往返毫秒级,等 host 响应的简单方案肉眼无感。顺序权威单一化(完全信 host)后,前端永不发明顺序。
 
-**rename 对话框留在 ui-sidebar(最小改动)** —— 正是问题本身:workspace 域的对话框散落在借来的坑里,每加一个(Delete 确认框将至)都重演跨包接线。评审中先议了「只挪 rename Modal」的中间态,最终裁定整个浏览区域归 ui-workspace,壳只留几何。
+**rename 对话框留在 ui-sidebar(最小改动)** —— 正是问题本身:workspace 域的对话框散落在借来的坑里,每加一个(Delete 确认框将至)都重演跨包接线。只挪 rename Modal 会在下一个对话框上重演这份接线;整个浏览区域归 ui-workspace,壳只留几何。
 
 **WorkSpace 模式按 fork 谱系嵌套 session** —— 嵌套会让当前子会话依赖祖先展开态才能可见，也让组内手动序只能移动根节点；`parentId` 是 lineage 数据，不是列表导航结构。所有 session 拍平成同级行后，每行都可独立打开、搜索与排序；In one list 仍因没有 workspace 持久化载体而禁用拖拽。
 

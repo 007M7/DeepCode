@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-The telemetry seam: the capture side of session-event reporting, behind a backend contract any reporting SDK satisfies with zero bending. Capture can follow live session events or replay a canonical session-log prefix on demand. The boundary axiom that shapes everything here: **this package's aspect ends at `emit()`** — batching, retry, queueing, and loss policy belong to the backend's SDK and are neither specified nor wrapped. Rationale and rejected alternatives: [the revival Agent Note](../../../.agents/notes/implemented/feature/2026-07-23-session-telemetry-otel-revival.md), [feedback-gated delivery](../../../.agents/notes/implemented/feature/2026-08-05-feedback-gated-session-telemetry.md), and [buffer-free feedback replay](../../../.agents/notes/implemented/simplification/2026-08-06-buffer-free-feedback-telemetry.md).
+The telemetry Service Definition and capture coordinator sit behind a backend contract any reporting SDK satisfies with zero bending. Capture can follow live session events or replay a canonical session-log prefix on demand. The boundary axiom that shapes everything here: **this package's aspect ends at `emit()`** — batching, retry, queueing, and loss policy belong to the backend's SDK and are neither specified nor wrapped. Rationale and rejected alternatives: [the revival Agent Note](../../../.agents/notes/implemented/feature/2026-07-23-session-telemetry-otel-revival.md), [feedback-gated delivery](../../../.agents/notes/implemented/feature/2026-08-05-feedback-gated-session-telemetry.md), and [buffer-free feedback replay](../../../.agents/notes/implemented/simplification/2026-08-06-buffer-free-feedback-telemetry.md).
 
 ## The backend contract
 
@@ -14,7 +14,7 @@ In `live` mode the coordinator registers, all through the composing fiber's effe
 
 ## The redact waterfall
 
-Every record passes the `telemetry/record` waterfall immediately after projection — the seam's scrubbing extension point. The seam ships NO rules of its own: the innermost `next()` passes the record through unchanged, so with no listener mounted records reach the backend exactly as captured, and exported data is precisely as clean as the rules a deployment mounts. Listeners stack by transforming `next()`'s return value; returning without `next()` replaces everything beneath, and a throwing listener withholds that one record fail-closed inside the coordinator's containment. Live capture runs the waterfall at append time; on-demand capture runs it while replaying the canonical log, using the rules mounted at that time. Redaction applies to the outbound copy only; the canonical session log is never rewritten.
+Every record passes the `telemetry/record` waterfall immediately after projection — the Service Definition's scrubbing extension point. This package ships NO rules of its own: the innermost `next()` passes the record through unchanged, so with no listener mounted records reach the backend exactly as captured, and exported data is precisely as clean as the rules a deployment mounts. Listeners stack by transforming `next()`'s return value; returning without `next()` replaces everything beneath, and a throwing listener withholds that one record fail-closed inside the coordinator's containment. Live capture runs the waterfall at append time; on-demand capture runs it while replaying the canonical log, using the rules mounted at that time. Redaction applies to the outbound copy only; the canonical session log is never rewritten.
 
 ## The handoff cursor
 
@@ -30,7 +30,7 @@ Only the first `assistant/chunk` of each `(turn, step)` ships; the rest are drop
 
 ## Model Experience
 
-None, as the seam only observes the session stream and hands redacted copies to a reporting backend; it never contributes to a model request.
+None, as this package only observes the session stream and hands redacted copies to a reporting backend; it never contributes to a model request.
 
 #### KV Cache effect
 

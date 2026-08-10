@@ -2,7 +2,7 @@
 
 [English](telemetry.md) | 中文
 
-对外的会话上报，拆分为一项[能力 seam](../capability-seams.md)：seam 一侧（[dsh-session-telemetry](../../packages/session/session-telemetry)，`ctx.telemetry`）拥有捕获点、固定分片投影、`telemetry/record` 脱敏 waterfall（瀑布式事件）、handoff 游标与最小后端约定；部署方加载的后端（[dsh-session-telemetry-otel](../../packages/session/session-telemetry-otel)）则是原样配置的 OpenTelemetry JS SDK 日志流水线。它是一项可选能力，不属于 agent loop（智能体循环）主干，这里也没有任何内容会进入模型请求。边界公理（harness 的职责止于 `emit()`；批处理、重试、排队与丢失策略都属于上报 SDK）连同被否决的替代方案，均已在[复活 Agent Note（agent 决策记录）](../../.agents/notes/implemented/feature/2026-07-23-session-telemetry-otel-revival.md)中定案；捕获点、游标与投影的约定见 [seam README](../../packages/session/session-telemetry/README.md)。
+对外的会话上报拆分为一项[能力 seam](../capability-seams.md)：Service Definition 与捕获协调器（[dsh-session-telemetry](../../packages/session/session-telemetry)，`ctx.telemetry`）拥有捕获点、固定分片投影、`telemetry/record` 脱敏 waterfall（瀑布式事件）、handoff 游标与最小后端约定；部署方加载的 Service provider（[dsh-session-telemetry-otel](../../packages/session/session-telemetry-otel)）则是原样配置的 OpenTelemetry JS SDK 日志流水线。它是一项可选能力，不属于 agent loop（智能体循环）主干，这里也没有任何内容会进入模型请求。边界公理（harness 的职责止于 `emit()`；批处理、重试、排队与丢失策略都属于上报 SDK）连同被否决的替代方案，均已在[复活 Agent Note（agent 决策记录）](../../.agents/notes/implemented/feature/2026-07-23-session-telemetry-otel-revival.md)中定案；捕获点、游标与投影的约定见 [Service Definition README](../../packages/session/session-telemetry/README.md)。
 
 源码：[`packages/session/session-telemetry/src/index.ts`](../../packages/session/session-telemetry/src/index.ts)
 
@@ -22,7 +22,7 @@ type TelemetrySeverity = 'info' | 'warn' | 'error'
 
 ```ts type-equiv
 /**
- * One logical record handed to a backend — the seam's whole outbound
+ * One logical record handed to a backend — the capture contract's whole outbound
  * vocabulary. Ledger records mirror session-log events one-to-one;
  * operational records (`channel: 'ops'`) carry the two signals with no log
  * home (`agent-error`, `shutdown`) and deliberately omit `event.seq`-style
@@ -84,7 +84,7 @@ interface TelemetryBackend {
    * leave this unimplemented and let their SDK's own batching cadence govern
    * export timing: a backend that does implement it owns the interaction
    * between its concurrent flushes and {@link shutdown}'s drain (the OTel
-   * backend removed its implementation for exactly that hazard — see the
+   * backend leaves it unimplemented for exactly that hazard — see the
    * revival Agent Note).
    */
   flush?(): void
@@ -127,7 +127,7 @@ The backend contract in its loadable form: one implementation per context — th
 
 ```ts cordis-catalog
 /**
- * See {@link TelemetryBackend.emit} — the seam declaration is the contract's one home.
+ * See {@link TelemetryBackend.emit} — that declaration is the contract's one home.
  * @param record - the logical record to report; owned by the backend after the call.
  */
 abstract emit(record: TelemetryRecord): void
@@ -152,12 +152,12 @@ Source: [`packages/session/session-telemetry/src/index.ts:140`](../../packages/s
 
 #### `telemetry/record` — waterfall
 
-Transform one outbound record before it reaches the backend. This waterfall is the seam's redaction extension point. It ships NO rules of its own: the innermost `next()` passes the record through unchanged, and with no listener mounted records reach the backend as captured, so exported data is exactly as clean as the rules a deployment mounts. Listeners stack by transforming `next()`'s return value; returning without `next()` replaces everything beneath. Dispatched synchronously on the capture hot path inside the coordinator's containment: a throwing listener withholds that one record (fail-closed) and never reaches the agent loop. Live capture dispatches at append time; on-demand capture dispatches while reading the canonical log. Redaction applies to the exported copy only; the canonical session log is never rewritten.
+Transform one outbound record before it reaches the backend. This waterfall is the Service Definition's redaction extension point. It ships NO rules of its own: the innermost `next()` passes the record through unchanged, and with no listener mounted records reach the backend as captured, so exported data is exactly as clean as the rules a deployment mounts. Listeners stack by transforming `next()`'s return value; returning without `next()` replaces everything beneath. Dispatched synchronously on the capture hot path inside the coordinator's containment: a throwing listener withholds that one record (fail-closed) and never reaches the agent loop. Live capture dispatches at append time; on-demand capture dispatches while reading the canonical log. Redaction applies to the exported copy only; the canonical session log is never rewritten.
 
 ```ts cordis-catalog
 /**
  * Transform one outbound record before it reaches the backend. This
- * waterfall is the seam's redaction extension point. It ships NO rules
+ * waterfall is the Service Definition's redaction extension point. It ships NO rules
  * of its own: the
  * innermost `next()` passes the record through unchanged, and with no
  * listener mounted records reach the backend as captured, so exported

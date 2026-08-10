@@ -6,11 +6,11 @@
 
 ## 问题
 
-web GUI 的"打开本地文件夹"流程被焊死在一种交互上：`host.pickDirectory` 调用编译进 `dsh-host-apiproxy` 的原生 OS 选择器（私有模块，仅测试注入缝）。这个形态服务不了远程部署——没有任何 OS 对话框能弹到另一台机器的浏览器里——而计划中的应用内目录浏览器（Figma `Harness` 802-56979）需要列举／创建原语，那是**另一种交互约定**，不是同一约定的另一种实现。想换交互只能改网关源码，违背仓库"一切皆插件"的立场。
+web GUI 的"打开本地文件夹"流程被焊死在一种交互上：`host.pickDirectory` 调用编译进 `dsh-host-apiproxy` 的原生 OS 选择器（私有模块，仅测试注入点）。这个形态服务不了远程部署——没有任何 OS 对话框能弹到另一台机器的浏览器里——而应用内目录浏览器（Figma `Harness` 802-56979）需要列举／创建原语，那是**另一种交互约定**，不是同一约定的另一种实现。想换交互只能改网关源码，违背仓库"一切皆插件"的立场。
 
 ## 决策
 
-在 `packages/host/` 落一个三包能力 seam——`directory-picker`（接口）、`directory-picker-native`、`directory-picker-browse`（后端）——唯一约定方法 `capability()` 返回**可辨识联合**：`{ kind: 'native', pick(signal) }` 或 `{ kind: 'browse', list(path?), createDirectory(path, name) }`。网关（`dsh-host-apiproxy`）注入 `directoryPicker`，提供对应的 RPC，另一种 kind 的调用以 `directory-picker-unavailable` 应答。联合之所以可辨识，是因为后端差异在**交互形态**——压平成统一方法集会逼每个后端伪装另一方的形态。
+在 `packages/host/` 落一个三包能力 seam——`directory-picker`（Service Definition）、`directory-picker-native`、`directory-picker-browse`（后端）——唯一约定方法 `capability()` 返回**可辨识联合**：`{ kind: 'native', pick(signal) }` 或 `{ kind: 'browse', list(path?), createDirectory(path, name) }`。网关（`dsh-host-apiproxy`）注入 `directoryPicker`，提供对应的 RPC，另一种 kind 的调用以 `directory-picker-unavailable` 应答。联合之所以可辨识，是因为后端差异在**交互形态**——压平成统一方法集会逼每个后端伪装另一方的形态。
 
 **client 侧靠 slot 组合，而非按广播分支。** ui-workspace 的两个触发表层各自声明一个 `single` 目录流洞（`conversation.hero.workspace.directoryFlow`／`sidebar.workspaces.directoryFlow`；之所以是两个 key，是因为一个洞只有一个声明它的 slot entry——owner 约定相同、占用者相同）。后端包是**双面包**：browser half 把匹配的交互注册进两个洞——`-native` 是驱动 `host.pickDirectory` 的无渲染占用者，`-browse` 是应用内的选择工作区目录对话框。洞的 owner 会话（`open`/`busy`/`onPicked`/`onCancel`/`onError`）承载整个交换：ui-workspace 保留触发（菜单入口仅在洞被占用时渲染）与接纳（`createWorkspace({path})`、可重试的错误对话框、重新选择），占用者持有从 `open` 到所选路径之间的一切。因此一行 `cordis.yml` 同时切换宿主能力与 client 流程；错配在构造上不可能，同时挂两个流程包会在 client 加载期失败（`single` 洞）。早先的 `host.describe.directoryPicker` 广播与客户端 kind 分支被删除——组合已经接好两侧后，供客户端分支用的 wire 事实不再有任何消费者。洞注册表（`ctx.slots.entries`）取而代之，成为每次打开菜单的占用读取。
 
@@ -30,7 +30,7 @@ web GUI 的"打开本地文件夹"流程被焊死在一种交互上：`host.pick
 ## 曾考虑的替代方案
 
 - **给 `ctx.fs` 增加浏览方法。** 否决：上述权限域耦合；且面向展示的列举约定（hidden 标志、面包屑、home 锚点）不属于存储 seam。
-- **统一方法集的 seam（`pick(): path`）。** 否决：应用内浏览器无法藏在一次宿主侧调用后面——浏览循环在客户端，需要协议上的原语；而对话框实现不了原语。交互差异不可约，故用判别标签。
+- **统一的 Service Definition 方法集（`pick(): path`）。** 否决：应用内浏览器无法藏在一次宿主侧调用后面——浏览循环在客户端，需要协议上的原语；而对话框实现不了原语。交互差异不可约，故用判别标签。
 - **apiproxy 里直接调标准库（不建 seam）。** 否决：换装点仍是改网关源码，失去 fixture／测试后端，与促成这项工作的插件教义相悖。
 - **引入文件管理器／盘符枚举依赖。** 按上文调研否决；依赖政策要求记录于此。
 - **动作标签随状态翻转的"显示隐藏"开关（"隐藏隐藏文件"）。** 否决：会翻转的动作标签在状态与动作之间有歧义，还把否定叠了两层；固定标签加按下态呈现一次说清两者。
@@ -38,7 +38,7 @@ web GUI 的"打开本地文件夹"流程被焊死在一种交互上：`host.pick
 - **在 Miller 视图上方常驻一个路径输入框。** 否决：面包屑本就在回答"我在哪儿"，再常驻一个字段是重复回答，还要从 500px 卡片里挪走一行——那是列需要的高度。图标加悬停亮起的区域，把这个入口放在了已经回答该问题的那一栏上。
 - **每敲一个键就扫描草稿，或只在 Enter 时扫描。** 每键扫描：走完一段路径就是每个字符一次列举，其中多数目录操作者只是路过而非停留。只在 Enter 时扫描（最初落地的行为）：整个编辑过程中各栏与所键入文本各说各话——正是本条所回应的抱怨。250ms 的停顿把扫描收敛为"键入真正停下来的每个目录一次"。
 - **前缀无一匹配时清空该栏（最初落地的行为）。** 否决：名字敲到一半时"无匹配"才是常态，于是恰恰在操作者需要它确认名字时把栏清空了；解除过滤保住了层级的可读性，代价只是短暂的宽松。
-- **在 `DirectoryListing` 上增设线上 `separator` 字段（宿主标注 `path.sep`）。** 延期而非否决：它才是权威形态——含反斜杠的 POSIX 家目录会击穿 `listing.home` 启发式——但它触及 seam 类型与每个后端；browse 客户端的 `separatorOf` 挂着指向本方案的 TODO，直到下次安排线上变更。
+- **在 `DirectoryListing` 上增设线上 `separator` 字段（宿主标注 `path.sep`）。** 延期而非否决：它才是权威形态——含反斜杠的 POSIX 家目录会击穿 `listing.home` 启发式——但它触及 Service Definition 类型与每个后端；browse 客户端的 `separatorOf` 挂着指向本方案的 TODO，直到下次安排线上变更。
 
 ## 后果
 

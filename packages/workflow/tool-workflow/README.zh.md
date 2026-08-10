@@ -10,7 +10,7 @@
 
 ## 生命周期
 
-当前版本采用同步收集（类似 [`dsh-tool-subagent`](../../subagent/tool-subagent/README.md)）：`execute` 启动运行并等待 `run.result`；这些操作位于 `try/finally` 中，该结构总会 dispose（资源释放）运行，使脚本及其子 agent（智能体）在每条路径上完全停稳。`exec.signal` 会桥接到 `run.cancel()`，包括启动前已经中止的情况。非 `completed` 结束原因会映射为报告原因的 `isError` 结果，绝不会把局部输出当作成功；`start()` 同步抛出的解析/meta 失败会变成模型可据以修正的 `isError`。完成时返回规范值 `{ runId, agentsStarted, result }`；Native 渲染器保留 meta 名称、agent 数量和 JSON 值，只会在 `maxResultChars` 处截断该投影。
+收集是同步的（类似 [`dsh-tool-subagent`](../../subagent/tool-subagent/README.md)）：`execute` 启动运行并等待 `run.result`；这些操作位于 `try/finally` 中，该结构总会 dispose（资源释放）运行，使脚本及其子 agent（智能体）在每条路径上完全停稳。`exec.signal` 会桥接到 `run.cancel()`，包括启动前已经中止的情况。非 `completed` 结束原因会映射为报告原因的 `isError` 结果，绝不会把局部输出当作成功；`start()` 同步抛出的解析/meta 失败会变成模型可据以修正的 `isError`。完成时返回规范值 `{ runId, agentsStarted, result }`；Native 渲染器保留 meta 名称、agent 数量和 JSON 值，只会在 `maxResultChars` 处截断该投影。
 
 ## 渲染意图
 

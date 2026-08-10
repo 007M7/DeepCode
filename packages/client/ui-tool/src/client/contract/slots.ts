@@ -30,8 +30,8 @@ export interface ToolCallOwnerProps {
 /** Full props of a registered atomic Tool view. */
 export type ToolCallViewProps = PropsRuntime<'tool.call.toolview'>
 
-/** Full props of the Tool call-tree renderer registered into the chat flow. */
-export type ToolTreeProps = PropsRuntime<'conversation.chat.tool'>
+/** Full props of the Tool call-tree renderer registered as a `tool-call` Chat Node. */
+export type ToolTreeProps = PropsRuntime<'conversation.chat.node', 'tool-call'>
   & PropsRenderSlots<'tool.call.toolview'>
   & PropsLocale<'conversation'>
 

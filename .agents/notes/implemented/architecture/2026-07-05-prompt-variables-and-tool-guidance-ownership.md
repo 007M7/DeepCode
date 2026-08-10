@@ -18,7 +18,7 @@ The assembled system prompt had four defects, all of one family: facts the harne
 
 ## Decision
 
-**One principle: every fact in the prompt has exactly one owner.** The model name and workspace are config/session facts → the harness exposes them as variables and the persona references them. Per-tool semantics and when-to-use → the tool's `description`. Cross-call habits a description cannot carry → the tool package's prompt section. Harness provenance → the static `harness:identity` section. Deployment role and behavior → the deployment's persona.
+**One principle: every fact in the prompt has exactly one owner.** The model name and workspace are config/session facts → the harness exposes them as variables and the persona references them. Per-tool semantics and when-to-use → the tool's `description`. Cross-call habits a description cannot carry → the tool package's prompt section. The product name and SDK identity line → the static `harness:identity` section. Deployment role and behavior → the deployment's persona.
 
 ### Assemble context
 
@@ -46,9 +46,9 @@ Per-tool semantics and selection guidance live in tool descriptions. Prompt sect
 
 - **The loop composes an identity line itself** — hardcodes model-facing prose in the one package that must stay thin ("plugins, not loop changes"), and outside the section pipeline it would be a second composition path. (The identity DOES ship as a code literal — but as an ordinary section registered by `dsh-system-prompt`, whose `system-prompt/assemble` waterfall remains the escape valve for a deployment that must drop it.)
 - **Inject the model name via the `agent/request` waterfall** — prompt text would be composed in two places and the earlier rendered persona could disagree with the final routed header. The request plugin that owns late routing must also own any earlier prompt claim about that model.
-- **Hand-write the model name in each persona** — duplicates the `model:` key one line above and silently lies after a config edit; the exact disease this Agent Note cures.
+- **Hand-write the model name in each persona** — duplicates the `model:` key one line above and silently lies after a config edit; the exact disease this decision cures.
 - **Lenient interpolation (leave unknown refs verbatim, or substitute empty)** — a typo ships `{{modle}}` (or a hole) to the model and nobody notices until transcript review.
-- **Per-instance subagent wording in config** — returns model-facing prose to every deployment × instance, the P2 disease again. **Keying wording off the provider NAME** — `providerName` is itself config, so a renamed provider silently gets the wrong words.
+- **Per-instance subagent wording in config** — returns model-facing prose to every deployment × instance, reviving the hand-written-guidance-in-leaf-YAML drift. **Keying wording off the provider NAME** — `providerName` is itself config, so a renamed provider silently gets the wrong words.
 - **Resolving the provider at `apply` time (a load-order requirement)** and **section-only subagent wording (lazily resolved at assemble)** — the alternatives to the provider-lifecycle events; both rejected in [the provider-lifecycle-events Agent Note](2026-07-05-subagent-provider-lifecycle-events.md).
 
 ## Out of scope

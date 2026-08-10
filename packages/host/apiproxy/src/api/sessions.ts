@@ -5,6 +5,7 @@
  */
 
 import type { MessageId } from '@deepseek-ai/dsh-llm/brand'
+import type { AttachmentIdType, ImageAttachmentRef, ImageMediaType } from '@deepseek-ai/dsh-attachment'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session/types'
 // The pure-type outlet: api/ is browser-importable, and the package root's
@@ -52,6 +53,11 @@ export interface SessionProjectionsBlock {
   /** Whole current value per registered projection key. */
   values: Partial<SessionProjectionMap>
 }
+
+/** Browser-submitted prompt content; the host promotes image bytes to durable references. */
+export type PromptContentPart =
+  | { type: 'text'; text: string }
+  | { type: 'image'; mediaType: ImageMediaType; data: string; name?: string }
 
 /** Complete model selection for one session. */
 export interface ModelSelection {
@@ -166,6 +172,13 @@ export interface SessionSummary {
   /** Session working directory (header.cwd passthrough); absent when unrecorded. */
   cwd?: string
   /**
+   * Agent preset this session's agent was composed from (header passthrough);
+   * absent when the deployment composes no presets. A surface offering a
+   * switch reads this to show what the session actually runs rather than what
+   * the deployment currently defaults to.
+   */
+  agentPreset?: string
+  /**
    * Projection baseline for this row, with zero log loads: attached sessions
    * read the registry's live watermark cut; cold sessions read the persisted
    * projection cache's stored rows — as stale as that session's last durable
@@ -208,15 +221,22 @@ export interface SessionsApi {
    * session, while a different cwd fails with `session-conflict`. Workspace
    * creation attaches the session after publication; an attach failure
    * returns `workspace-attach-failed` with the published session id.
+   *
+   * `agentPreset` names the composition the new session's agent is built
+   * from; omitted, the effective default applies — the user's stored choice
+   * where one exists, else the deployment's own. The resolved id is stored on
+   * the session header, so a later resume rebuilds the same agent. An unknown
+   * id fails with `agent-preset-not-found`, and a preset whose composition
+   * cannot be mounted fails with `agent-preset-invalid`.
    */
-  create(request: RpcRequest<{ workspaceId?: WorkspaceId; cwd?: string; sessionId?: SessionId }>):
-  Promise<RpcResponse<{ sessionId: SessionId }>>
+  create(request: RpcRequest<{ workspaceId?: WorkspaceId; cwd?: string; sessionId?: SessionId; agentPreset?: string }>):
+  Promise<RpcResponse<{ sessionId: SessionId; agentPreset?: string }>>
 
   /**
    * Reads a window of history events; page boundaries align to append-origin message
    * boundaries: one page = all raw events owned by a whole number of such messages (including
    * their chunk / tool events), never cut mid-message. Model-only replacement copies consume no
-   * `maxMessages`, so a compaction's provenance stays on the page of its replacement. The tail
+   * `maxMessages`, so a compaction's `compact/summary` record stays on the page of its replacement. The tail
    * page (beforeSeq absent) additionally carries the in-flight
    * partial — chunk events already emitted for the last unfinalized message.
    * Each entry pairs the raw SessionEvent with the host-computed view (tool events whose
@@ -288,9 +308,13 @@ export interface SessionsApi {
   fork(request: RpcRequest<{ sessionId: SessionId; atSeq?: number }>):
   Promise<RpcResponse<{ sessionId: SessionId }>>
 
-  /** Sends a message to an ordinary session Agent. Session-backed subagents reject with `agent-busy` and use `subagent.prompt`. */
-  prompt(request: RpcRequest<{ sessionId: SessionId; mode: 'queue' | 'steer'; content: ContentBlock[] }>):
+  /** Sends text and temporary image bytes after durable host admission. Session-backed subagents reject with `agent-busy`. */
+  prompt(request: RpcRequest<{ sessionId: SessionId; mode: 'queue' | 'steer'; content: PromptContentPart[] }>):
   Promise<RpcResponse<{ accepted: true; command?: { kind: 'success'; text?: string } }>>
+
+  /** Reads one durable image after proving that this session's log references its id. */
+  attachment(request: RpcRequest<{ sessionId: SessionId; attachmentId: AttachmentIdType }>):
+  Promise<RpcResponse<{ attachment: ImageAttachmentRef; data: string }>>
 
   /**
    * Edits, removes, or strictly steers one pending queued occurrence on an ordinary session.

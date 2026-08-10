@@ -23,7 +23,7 @@ import type {
 
 | 导出项 | 职责 |
 |---|---|
-| `ItemRetainer<T>` | 限制有序逻辑单元（路径、grep 匹配项、来源）。v1 只支持 `head`。`push()` → `PushDecision`；`finish()` → `RetainedItems<T>`。 |
+| `ItemRetainer<T>` | 限制有序逻辑单元（路径、grep 匹配项、来源）。只支持 `head`。`push()` → `PushDecision`；`finish()` → `RetainedItems<T>`。 |
 | `TextRetainer` | 限制面向字节的文本流。`head` / `tail` / `headTail`，并在 `finish()` 时保留 UTF-8 边界。`push()` → `PushDecision`；`finish()` → `RetainedText`。 |
 | `describeOmitted(omitted, unit)` | 标准化的省略子句（`exact` 输出数量；`unknown` 不输出）。 |
 | `formatRetentionNotice(notice, recovery)` | 将标准化的省略子句与工具自有的恢复指引连接起来。 |

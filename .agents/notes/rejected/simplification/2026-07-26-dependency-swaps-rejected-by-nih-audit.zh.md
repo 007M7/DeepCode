@@ -6,7 +6,7 @@ Status: rejected — 下列每一项替换在证据上都未达到净简化门�
 
 ## 问题
 
-一次仓库级的「Not Invented Here（非我发明）」审计（2026-07-26，十路并行普查，覆盖每个包（package）分组、scripts/、native/、vendor/ 边界、python/、测试基础设施与 CI）对每一处手写接口面追问同一个问题：在[依赖政策](../../implemented/process/2026-07-26-dependencies-over-hand-rolling.md)之下，是否有持续维护的外部包或 Node 内置能力能以净收益把它删除？得出肯定结论的发现已各自写成独立的提案 Agent Note（agent 决策记录）。否定裁定的价值不相上下——每一条都点名了一个看似可行、实则手写形态在承重的替换——但否则它们只会留存在某个 PR（Pull Request）正文里。本 note 将它们固化在案。
+一次仓库级的「Not Invented Here（非我发明）」审计（2026-07-26，十路并行普查，覆盖每个包分组、scripts/、native/、vendor/ 边界、python/、测试基础设施与 CI）对每一处手写接口面追问同一个问题：在[依赖政策](../../implemented/process/2026-07-26-dependencies-over-hand-rolling.md)之下，是否有持续维护的外部包或 Node 内置能力能以净收益把它删除？得出肯定结论的发现已各自写成独立的提案 Agent Note。否定裁定的价值不相上下——每一条都点名了一个看似可行、实则手写形态在承重的替换——但否则它们只会留存在某个 PR（Pull Request）正文里。本 Agent Note 将它们固化在案。
 
 ## 提案
 
@@ -24,7 +24,7 @@ Status: rejected — 下列每一项替换在证据上都未达到净简化门�
 
 - **以 `p-retry`/`exponential-backoff` 替换 `llm-retry`**：执行模型不对——该插件是一个返回决策的 waterfall（瀑布式事件）监听器，重新执行由 agent loop（智能体循环）依据持久日志负责；根本不存在可供重新调用的函数，而那恰是这些库的全部 API。提供方 `Retry-After` 覆写、依据先前失败代码计算预算、持久化的 `llm/retry` 事件、HMR（热模块替换）完全停稳式中止，全都无从覆盖。[LLM（大语言模型）请求受限恢复决策](../../implemented/architecture/2026-06-21-bounded-llm-request-recovery.md)已经否决了由 SDK 持有的重试。
 - **以 `p-timeout`/`AbortSignal.timeout` 替换 `dsh-timeout`**：内置能力无法提前解除，抛出的是通用 `TimeoutError`，而不是能区分嵌套截止时限、按能力编码的 `TimeoutReason`；`idleWatchdog` 按需逐次重新装定的能力没有等价物。设计归[超时库决策](../../implemented/architecture/2026-07-06-timeout-deadline-library.md)所有。
-- **以 `p-limit`/`p-queue` 替换 agent-loop 的工具调用池**：池的簿记只有约 25 行；实质部分（按模型顺序提交、组中途重新分类、排他屏障、带合成持久结果的中止排空）根本不是并发限制器的形状。
+- **以 `p-limit`/`p-queue` 替换 agent loop 的工具调用池**：池的簿记只有约 25 行；实质部分（按模型顺序提交、组中途重新分类、排他屏障、带合成持久结果的中止排空）根本不是并发限制器的形状。
 - **以 `p-queue`/`async-mutex` 替换按 key 的 promise 链串行器**（`fs-local`、`storage-domain`）：串行器只有 8–14 行；这些包严格大于它们所能删除的代码。
 - **以 `events.once` + `AbortSignal.timeout` 替换 subagent-subprocess 的 `exitsWithin`**：`error` 先触发时 `events.once` 会 reject，而手写实现有意忽略 `error`（由 spawn 失败路径单独捕获）；这次替换恰恰会在语义本身就是拆除竞态的那段代码里改变拆除竞态行为。
 
@@ -67,12 +67,12 @@ Status: rejected — 下列每一项替换在证据上都未达到净简化门�
 - **以 `syncpack`/`manypkg` 替换 `check-workspace-constraints.ts`**：它们只覆盖约 20 行的版本范围对齐；承重的 200+ 行（计算生成的 `files` 列表、cordis peer=dev 配对、层级形状）是仓库政策，没有通用引擎能表达。
 - **以 `remark-validate-links` 替换 `verify-md-links.ts`**：该门禁搭载仓库共享的 mdast 工具链；采用 remark-cli 等于为删掉一个小文件而增加第二套 markdown 技术栈。
 - **以 `prebuildify`/`node-gyp-build` 承担 landlock 启动器打包**：不适用——那些工具通过 dlopen 加载 `.node` addon；这个启动器交付的是独立 exec 的静态二进制，而按平台划分的 `optionalDependencies` 恰恰*就是*二进制分发的生态惯例。
-- **以 `@landstrip/landstrip` 替换 Landlock 启动器本身**：未通过安全不变式检验——启动器是一个约 300 行、可完整评审、来源逐字节锁定的 C 文件，且早已从一个 Rust 依赖迁移出来；单一维护者的 LGPL Rust 二进制集合是更大的审计面加更弱的来源保障。（尚未构建的 Windows 层级经单独权衡后同样被[驳回](../feature/2026-07-26-evaluate-landstrip-for-windows-sandbox-rung.md)——landstrip 未经实战检验。）
+- **以 `@landstrip/landstrip` 替换 Landlock 启动器本身**：未通过安全不变式检验——启动器是一个约 300 行、可完整评审的 C 文件，其二进制逐字节锁定到原生 CI 构建，且早已从一个 Rust 依赖迁移出来；单一维护者的 LGPL Rust 二进制集合有更大的审计面，其发布更难与已审阅源码对应。（尚未构建的 Windows 层级经单独权衡后同样被[驳回](../feature/2026-07-26-evaluate-landstrip-for-windows-sandbox-rung.md)——landstrip 未经实战检验。）
 - **以 `hatch-nodejs-version` 承担 Python 发布版本号**：代码行数大致持平（一个自定义 metadata 钩子换掉那个正则），却反转了「dev 哨兵值绝不决定发布版本」这条记录在案的决策，还把一个单一维护者的构建插件放进发布供应链。
 - **YAML 归一（`js-yaml` 与 `yaml`）**：仓库同时携带两个解析器，`!!js` 标签在 js-yaml 上定义了四次（vendor 收录的 include、app-boot、apps/cli、`scripts/verify-cordis-config.ts`），在 `yaml` 上定义了两次（sdk-telemetry 的 `ScalarTag`、sdk-helper 的保留注释式 Document 编辑）。方向是被迫的——js-yaml 无法取代 `yaml`（sdk-helper 需要 Document API）——但迁移 js-yaml 各调用点也退休不了这个库（vendor 收录的 include 锁定了它），还会让两个解析器共管一种必须完全一致的方言，违背[个人配置决策](../../implemented/feature/2026-07-20-dsh-cli-personal-config.md)刻意的「仅加载副本」对等性。可删除的：约 20–25 行重复标签定义和两条 `@types/js-yaml` 条目。归一的时机是未来某次 include 同步，不是现在。
 
 ## 曾考虑的替代方案
 
 - **什么都不记录，让 PR 正文承载这些裁定。** 不予采纳：PR 正文不属于受维护的记录，而普查的全部意义就在于下一次审计从这些裁定出发，而不是重新推导。
-- **每一项各写一份 rejected note。** 不予采纳：为共享同一套证据标准、同一种命运的裁定制造约 30 个文件的仪式感；只有当某一项带着新证据被重新提出时，逐项 note 才有必要。
-- **把每条裁定并入拥有该 seam 的 implemented note。** 部分已做——凡是持有方 note 已经否决过该替代方案的（重试、token 计量、schema DSL、zstd、沙箱、node-pty），本 note 一律援引而不重复。其余各项没有持有方 note，这正是它们记录于此的原因。
+- **每一项各写一份 rejected note。** 不予采纳：为共享同一套证据标准、同一种命运的裁定制造约 30 个文件的仪式感；只有当某一项带着新证据被重新提出时，逐项 Agent Note 才有必要。
+- **把每条裁定并入拥有该 seam 的 implemented note。** 部分已做——凡是持有方 Agent Note 已经否决过该替代方案的（重试、token 计量、schema DSL、zstd、沙箱、node-pty），本 note 一律援引而不重复。其余各项没有持有方 note，这正是它们记录于此的原因。

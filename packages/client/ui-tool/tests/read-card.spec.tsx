@@ -24,7 +24,7 @@ import { GenericToolCard, type GenericToolCardProps } from '../src/client/tool/t
 import { zh } from '@deepseek-ai/dsh-client-ui-conversation/src/client/locales.ts'
 import { DetailsPanel } from '@deepseek-ai/dsh-client-ui-conversation/src/client/skeleton/DetailsPanel.tsx'
 import { ReadRow, readToolview } from '../src/client/tool/toolviews/read-row.tsx'
-import { renderToolDetails, SessionProviderStub } from './tool-details-render.tsx'
+import { renderToolDetails, SessionProviderStub, toolChatSnapshot } from './tool-details-render.tsx'
 
 afterEach(cleanup)
 
@@ -278,7 +278,13 @@ describe('DetailsPanel Output section (read)', () => {
         useSessions={bindSnapshotSelector(sessions)}
         useWorkspaces={bindSnapshotSelector(workspaces)}
         useInput={(() => { throw new Error('unused') })}
-        inputActions={{ setDraft: () => {}, submit: () => {} }}
+        inputActions={{
+          setDraft: () => {},
+          addImages: () => true,
+          removeImage: () => {},
+          pruneImages: () => {},
+          submit: () => {},
+        }}
         useProjection={(() => undefined)}
         useStore={bindSnapshotSelector(chat)}
         actions={chat.actions}
@@ -288,8 +294,11 @@ describe('DetailsPanel Output section (read)', () => {
   }
 
   function snapshot(over: Partial<ConversationSnapshot> = {}): ConversationSnapshot {
+    const nodes = over.nodes ?? []
+    const runningCalls = over.runningCalls ?? []
     return {
-      sessionId: SID, nodes: [], turnTimings: new Map(), turnEnds: new Map(), partial: null, runningCalls: [],
+      sessionId: SID, chat: over.chat ?? toolChatSnapshot(nodes, runningCalls),
+      nodes: [], turnTimings: new Map(), turnEnds: new Map(), partial: null, runningCalls: [],
       pending: [], queue: [], running: false, composerPhase: 'active', removed: false,
       openState: 'open', openError: null, hasMore: false, loadingOlder: false,
       promptError: null, blank: false, subagent: null, lastAgentError: null, ...over,

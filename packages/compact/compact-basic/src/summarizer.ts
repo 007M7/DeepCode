@@ -5,7 +5,7 @@
  */
 
 import type { Context } from 'cordis'
-import { createUserMessage, BlockAssembler } from '@deepseek-ai/dsh-llm'
+import { contentHasImage, createUserMessage, BlockAssembler, LlmError } from '@deepseek-ai/dsh-llm'
 import type {
   ContentBlock, FinishReason, GenerateOptions, Message, TokenUsage, ToolSchema,
 } from '@deepseek-ai/dsh-llm'
@@ -84,7 +84,7 @@ export interface SummarizationInput {
   readonly messages: readonly Message[]
 }
 
-/** Safe summary content plus the exact auxiliary call envelope recorded in provenance. */
+/** Safe summary content plus the exact auxiliary call envelope recorded with it. */
 export type SummaryResult = {
   summary: ContentBlock[]
   provider: string
@@ -116,7 +116,7 @@ export type SummaryResult = {
  * @param input - replayed conversation prefix (system, tools, and leading messages) to condense.
  * @param agent - supplies routed-model history, fallback model, and session id.
  * @param signal - optional cancellation forwarded to the adapter.
- * @returns safe text-only summary blocks and exact call provenance.
+ * @returns safe text-only summary blocks and the exact call envelope and output.
  */
 export async function summarizeWithLlm(
   ctx: Context,
@@ -166,7 +166,7 @@ export async function summarizeWithLlm(
   if (error !== undefined) throw error
 
   const rawOutput = assembler.blocks()
-  const summary = textOnly(rawOutput)
+  const summary = summaryText(rawOutput)
   if (!summary.some(block => block.text.trim().length > 0)) {
     throw new Error('summarization produced no text summary content')
   }
@@ -213,9 +213,12 @@ function finishError(finish: FinishReason): Error | undefined {
   }
 }
 
-/** Keep only text blocks before synthesizing a user message. */
-function textOnly(
+/** Reject visual output and keep only text before synthesizing a user message. */
+function summaryText(
   blocks: readonly ContentBlock[],
 ): Array<Extract<ContentBlock, { type: 'text' }>> {
+  if (contentHasImage(blocks)) {
+    throw new LlmError('compaction summary cannot contain image output', 'UNSUPPORTED_CONTENT')
+  }
   return blocks.filter((block): block is Extract<ContentBlock, { type: 'text' }> => block.type === 'text')
 }

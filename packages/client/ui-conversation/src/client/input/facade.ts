@@ -13,7 +13,7 @@ import type {
   ReferenceInsert, SlashController, TokenSpan,
 } from '@deepseek-ai/dsh-client-ui-slash/client'
 import type {
-  EditRange, EditSelection, InputActions, InputEffect, InputNotice, InputState,
+  DraftAttachmentId, EditRange, EditSelection, InputActions, InputEffect, InputNotice, InputState,
   PasteComponent, QueuedMessage, SessionInput, SubmitAttempt,
 } from './contract.ts'
 import type { InputSubmitMode } from '../contract/composer-submission.ts'
@@ -25,7 +25,7 @@ export interface PopupDismissFace {
 }
 
 /**
- * Construction seams of one facade. The slash/popup faces are THUNKS: the
+ * Construction dependencies of one facade. The slash/popup faces are THUNKS: the
  * shell is created inside the sessions provide materialization (before the
  * scope record is queryable), where `slash.sessionOf`/`command.popupFor`
  * cannot resolve yet — resolution defers to first interactive use.
@@ -39,8 +39,13 @@ export interface SessionInputDeps {
   popup?: (() => PopupDismissFace | undefined) | undefined
   /** Queue read face; overlaid onto InputState.queue (absent = empty). */
   queue?: ObservableSnapshot<readonly QueuedMessage[]> | undefined
+  /**
+   * Steer every still-pending queued message into the running turn, in FIFO
+   * order (the empty-draft accelerated-Enter gesture); absent = unsupported.
+   */
+  steerQueue?: (() => void) | undefined
   /** The plain-message sink (send choreography / materialize fork — the hub owns it). */
-  defaultSink(text: string, mode: InputSubmitMode): void
+  defaultSink(text: string, imageIds: readonly DraftAttachmentId[], mode: InputSubmitMode): void
 }
 
 /** Guard tier from the machine phase. */
@@ -66,9 +71,12 @@ export class SessionInputShell implements SessionInput {
   readonly state: SnapshotStore<InputState>
   /** Latest surfaced notice (null after clear); the wiring renders it beside the error strip. */
   readonly notices: SnapshotStore<InputNotice | null> = createSnapshotStore<InputNotice | null>(null)
-  /** The public provide-channel action face (one stable identity per session — decision 20). */
+  /** The public provide-channel action face (one stable identity per session). */
   readonly actions: InputActions = {
     setDraft: (text) => { this.setDraft(text) },
+    addImages: ids => this.addImages(ids),
+    removeImage: (id) => { this.removeImage(id) },
+    pruneImages: (ids) => { this.pruneImages(ids) },
     submit: () => { this.submit('queue') },
   }
 
@@ -77,6 +85,7 @@ export class SessionInputShell implements SessionInput {
   private readonly core = new InputMachine({ now: () => Date.now() })
   private noticeSeq = 0
   private lastDraft = ''
+  private imageIds: readonly DraftAttachmentId[] = []
   private disposed = false
   /** Draft persistence mirror (chat store write; receives the clipboard projection, never raw placeholders). */
   private mirrorFn: ((text: string) => void) | undefined
@@ -98,12 +107,54 @@ export class SessionInputShell implements SessionInput {
     this.run(this.core.dispatch({ type: 'draft-changed', draft: text, ...(editRange !== undefined ? { editRange } : {}) }))
   }
 
+  /** Append ordered image ids unless an admission transaction is locked. */
+  addImages(ids: readonly DraftAttachmentId[]): boolean {
+    if (this.snapshot.phase === 'adjudicating' || this.snapshot.phase === 'submitting') return false
+    if (ids.length === 0) return true
+    this.imageIds = [...this.imageIds, ...ids]
+    this.publish()
+    return true
+  }
+
+  /** Remove one image id from this draft. */
+  removeImage(id: DraftAttachmentId): void {
+    const next = this.imageIds.filter(candidate => candidate !== id)
+    if (next.length === this.imageIds.length) return
+    this.imageIds = next
+    this.publish()
+  }
+
+  /**
+   * Keep only image ids that still resolve in the browser attachment registry.
+   * @param available - live registry ids.
+   */
+  pruneImages(available: readonly DraftAttachmentId[]): void {
+    const keep = new Set(available)
+    const next = this.imageIds.filter(id => keep.has(id))
+    if (next.length === this.imageIds.length) return
+    this.imageIds = next
+    this.publish()
+  }
+
+  /**
+   * Restore a failed attempt before any images added after its admission.
+   * @param ids - failed attempt image ids.
+   */
+  restoreImages(ids: readonly DraftAttachmentId[]): void {
+    const current = new Set(this.imageIds)
+    this.imageIds = [...ids.filter(id => !current.has(id)), ...this.imageIds]
+    this.publish()
+  }
+
   /**
    * Clear the draft as a successful-send commit: no undo unit is recorded and
    * the undo history is cut, so Ctrl/Cmd-Z cannot resurrect sent content
    * (the command path gets the same discipline from submit-settled success).
+   * @param imageIds - admitted image ids to remove from this draft.
    */
-  commitSend(): void {
+  commitSend(imageIds: readonly DraftAttachmentId[]): void {
+    const submitted = new Set(imageIds)
+    this.imageIds = this.imageIds.filter(id => !submitted.has(id))
     this.run(this.core.dispatch({ type: 'send-committed' }))
   }
 
@@ -145,6 +196,10 @@ export class SessionInputShell implements SessionInput {
    * dismisses and the menu tracks frozen.
    */
   submit(mode: InputSubmitMode = 'queue'): void {
+    if (this.snapshot.draft.trim() === '' && this.imageIds.length > 0) {
+      if (this.snapshot.phase === 'plain') this.deps.defaultSink('', [...this.imageIds], mode)
+      return
+    }
     this.run(this.core.dispatch({ type: 'enter', mode }))
     const phase = this.snapshot.phase
     if (phase === 'adjudicating' || phase === 'submitting') {
@@ -174,6 +229,16 @@ export class SessionInputShell implements SessionInput {
   }
 
   /**
+   * Steer every still-pending queued message into the running turn (the
+   * empty-draft accelerated-Enter gesture). Execution belongs to the hub's
+   * queue choreography; absent dep = the gesture falls back to the machine's
+   * empty-draft no-op.
+   */
+  steerQueue(): void {
+    this.deps.steerQueue?.()
+  }
+
+  /**
    * Space adjudication over the controller's hot state.
    * @returns true = a claim/insert was applied — the caller preventDefaults.
    */
@@ -198,7 +263,9 @@ export class SessionInputShell implements SessionInput {
 
   /**
    * Hot plain-text reference lexicon source for the decoration scan
-   * (decision 21): delegates to the controller's aggregated store. Stable
+   * (the plain-text-reference decision;
+   * see .agents/notes/implemented/architecture/2026-07-25-web-input-machine-and-slash-pipeline.md):
+   * delegates to the controller's aggregated store. Stable
    * identity per shell; without a pipeline the snapshot is the empty Map and
    * subscribers never fire.
    */
@@ -253,7 +320,8 @@ export class SessionInputShell implements SessionInput {
 
   /**
    * Insert plain reference text over the pick-time span (scoped insert-text
-   * event listener body, decision 21). Same CAS-then-splice shape as the
+   * event listener body; plain-text-reference decision, web-input-machine
+   * note). Same CAS-then-splice shape as the
    * consume-token span branch: the machine sees an ordinary draft-changed
    * transaction (one undo step), no occurrence is minted — the chip look is
    * a scan-derived decoration, never state.
@@ -339,16 +407,17 @@ export class SessionInputShell implements SessionInput {
   }
 
   /**
-   * Prompt serialization before the sink (design §3.12): expand each
+   * Prompt serialization before the sink: expand each
    * placeholder to its owner's model form via the session controller's
    * codec routing. Owner missing / serialize failure / disposal blocks the
    * send — notice + draft and chips retained, never a silent downgrade to
    * the clipboard text. Chip-free drafts skip the async detour.
    */
   private sinkSerialized(draft: string, mode: InputSubmitMode): void {
+    const imageIds = [...this.imageIds]
     const occurrences = this.core.state.occurrences
     if (occurrences.length === 0) {
-      this.deps.defaultSink(draft.trim(), mode)
+      this.deps.defaultSink(draft.trim(), imageIds, mode)
       return
     }
     const slash = this.deps.slash?.()
@@ -368,7 +437,7 @@ export class SessionInputShell implements SessionInput {
           cursor = part.offset + 1
         }
         out += draft.slice(cursor)
-        this.deps.defaultSink(out.trim(), mode)
+        this.deps.defaultSink(out.trim(), imageIds, mode)
       },
       (error: unknown) => {
         controller.abort()
@@ -426,7 +495,7 @@ export class SessionInputShell implements SessionInput {
 
   private compose(): InputState {
     const core = this.core.state
-    return { ...core, queue: this.deps.queue?.getSnapshot() ?? EMPTY_QUEUE }
+    return { ...core, imageIds: this.imageIds, queue: this.deps.queue?.getSnapshot() ?? EMPTY_QUEUE }
   }
 
   private publish(): void {

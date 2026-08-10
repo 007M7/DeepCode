@@ -24,7 +24,7 @@ The gate dependencies remain explicit. Coverage consumes source and does not wai
 
 The artifact boundary remains explicit. `scripts/publint-all.ts` calls publint's supported API against an in-memory publication view formed from each manifest's declared files plus npm's mandatory metadata, avoiding one package-manager pack process per package. `scripts/verify-built-package-invariants.mjs` stages the declared `lib/` files below the real package and imports its compiled self-reference through plain Node and Cordis Loader normalization; a runtime chunk omitted from the publication contract still fails.
 
-Windows shares one 32-core setup across the blocking build and production site plus observational built-artifact contracts. Linux owns the duplicate lint, coverage, and snapshot inventories because running those observational copies on Windows extends the paid critical path without adding a blocking platform claim.
+Within this enterprise required topology, Windows shares one 32-core setup across the blocking build and production site plus observational built-artifact contracts, while Linux owns the duplicate lint, coverage, and snapshot inventories. The later [dual Windows pull-request topology](2026-08-08-native-windows-pull-request-ci.md) adds a separate non-blocking standard-hosted native job that independently enforces supported-source coverage without extending this paid required path.
 
 An exact-head all-size benchmark ran the complete unsharded primary Node aggregate on every Linux pool before the eager-build correction:
 

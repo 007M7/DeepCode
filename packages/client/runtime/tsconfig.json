@@ -9,6 +9,9 @@
   ],
   "references": [
     {
+      "path": "../../attachment/attachment"
+    },
+    {
       "path": "../../../vendor/cordis"
     },
     {
@@ -25,6 +28,12 @@
     },
     {
       "path": "../../interaction/commands"
+    },
+    {
+      "path": "../../core/agent"
+    },
+    {
+      "path": "../../core/tools"
     },
     {
       "path": "../../compact/compact"

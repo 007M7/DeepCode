@@ -33,8 +33,8 @@ describe('parseDshArgs', () => {
       .toEqual({ mode: 'run', profile: 'headless', patches: [], task: '--profile is task text' })
     expect(parse(['web'])).toEqual({ mode: 'web', dev: false, patches: [] })
     expect(parse(['web', '--patch', 'web.yml'])).toEqual({ mode: 'web', dev: false, patches: ['web.yml'] })
-    expect(parse(['web', '--host', '0.0.0.0', '--port', '8080', '--dev', '--workspace-root', '/w']))
-      .toEqual({ mode: 'web', host: '0.0.0.0', port: 8080, dev: true, workspaceRoot: '/w', patches: [] })
+    expect(parse(['web', '--host', '0.0.0.0', '--port', '8080', '--dev']))
+      .toEqual({ mode: 'web', host: '0.0.0.0', port: 8080, dev: true, patches: [] })
     expect(parse(['web', '--trusted-host', 'harness.internal:3080', 'lab.internal', '--trusted-host', '10.0.0.9']))
       .toEqual({ mode: 'web', dev: false, patches: [], trustedHosts: ['harness.internal:3080', 'lab.internal', '10.0.0.9'] })
   })
@@ -64,11 +64,11 @@ describe('parseDshArgs', () => {
       .toEqual({ mode: 'dump-config', profile: 'web', defaultOnly: true, patches: [] })
   })
 
-  it('rejects missing profile, removed flags, and contradictory inputs', () => {
+  it('rejects missing profile, flags outside the current grammar, and contradictory inputs', () => {
     expect(exitCode([])).toBe(1)
     expect(exitCode(['tui'])).toBe(1) // a bare word is a task without --profile
-    expect(exitCode(['--config', 'c.yml'])).toBe(1) // removed
-    expect(exitCode(['-p', 'task'])).toBe(1) // removed
+    expect(exitCode(['--config', 'c.yml'])).toBe(1) // outside the current grammar
+    expect(exitCode(['-p', 'task'])).toBe(1) // outside the current grammar
     expect(exitCode(['--profile', 'headless', 'task'])).toBe(1) // tasks belong to `run`
     expect(exitCode(['run'])).toBe(1)
     expect(exitCode(['run', ''])).toBe(1)

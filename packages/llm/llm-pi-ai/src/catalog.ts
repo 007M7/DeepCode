@@ -62,8 +62,7 @@ type PiThinkingFormat = NonNullable<OpenAICompletionsCompat['thinkingFormat']>
 
 /**
  * pi-ai thinking formats a profile cannot name: both drive the request through
- * `chatTemplateKwargs`, which this configuration does not expose, so offering
- * them would hand back a format with nothing to say.
+ * `chatTemplateKwargs`, which this configuration does not expose.
  */
 type WithheldThinkingFormat = 'chat-template' | 'qwen-chat-template'
 
@@ -467,10 +466,8 @@ export function resolveRouteModels(request: RouteCatalogRequest): RouteCatalog {
       // The installed entry lays the floor, and the fields below override it.
       // Enumerating instead would silently drop every `Model` field this
       // package does not model — reasoning-level spellings, compatibility
-      // quirks, model headers, and whatever a pi-ai upgrade adds next. That is
-      // not hypothetical: `headers` reached this file only after an nvidia
-      // route lost it, and a rebuild keeps re-earning that bug on every
-      // upgrade.
+      // quirks, model headers, and whatever a pi-ai upgrade adds next. Spread,
+      // never enumerate.
       ...base,
       id: entry.id,
       name: entry.name ?? base?.name ?? entry.id,

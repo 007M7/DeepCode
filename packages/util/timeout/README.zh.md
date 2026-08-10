@@ -52,7 +52,7 @@ export async function runWithDeadline(upstream: AbortSignal | undefined, timeout
 
 ## 哪些操作不设置超时
 
-本地文件 `read`/`write`/`edit` 不接受 `timeoutMs`：中止系统调用至多只能尽力而为，超时无法强制 `fsync`/`rename` 停止，而添加超时会引入一个违反显式优于隐式原则的隐式默认值。详见 [`fs/`](../../fs/README.md)。
+本地文件 `read`/`write`/`edit` 不接受 `timeoutMs`：文件 IO 不设时限地运行，因为截止时间会中止操作系统仍会完成的工作。详见[文件系统子系统页面](../../../docs/subsystems/filesystem.md)。
 
 ## 模型体验
 

@@ -21,7 +21,7 @@ dsh --profile web --dump-default-config
 dsh --profile web --patch ./extra.yml --dump-config
 ```
 
-`--dump-default-config` 只打印组合包各层；`--dump-config` 额外加上 profile 的 `cordis.patch.yml`、home 级的 `$DSH_HOME/cordis.patch.yml` 和 `--patch` overlay。两者都会按层打印来源注释；`!!js` 表达式保持未求值，找不到目标的 patch 会报告到 stderr。
+`--dump-default-config` 只打印组合包各层；`--dump-config` 额外加上 profile 的 `cordis.patch.yml`、home 级的 `$DSH_HOME/cordis.patch.yml` 和 `--patch` overlay。两者都会打印注释，标明每行由哪个文件提供，以及哪些 overlay 修改过它；`!!js` 表达式保持未求值，找不到目标的 patch 会报告到 stderr。
 
 ## 一次性运行
 
@@ -43,7 +43,7 @@ Git 托管、随附源码的插件在安装期间通过其 `prepare` 脚本构�
 
 ## Web 别名
 
-`dsh web` 是 `--profile web` 的硬编码别名，并额外接受 Web flag 系列。`--host`、`--port`、`--workspace-root` 和可重复的 `--trusted-host` 值会成为作用在组合行之上的 patch；负责这些值的插件 schema 会在启动时验证它们。`--dev` 把 web-runtime 行切换到开发模式并插入客户端插件 HMR（热模块替换）接收器；若要无刷新更新客户端 bundle，还需单独运行 `pnpm run dev:web` watcher。
+`dsh web` 是 `--profile web` 的硬编码别名，并额外接受 Web flag 系列。`--host`、`--port` 和可重复的 `--trusted-host` 值会成为作用在组合行之上的 patch；负责这些值的插件 schema 会在启动时验证它们。`--dev` 把 web-runtime 行切换到开发模式并插入客户端插件 HMR（热模块替换）接收器；若要无刷新更新客户端 bundle，还需单独运行 `pnpm run dev:web` watcher。
 
 ```sh
 dsh web

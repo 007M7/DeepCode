@@ -9,7 +9,7 @@
  * ride each entry's own retry surface (popup shell error/retry; seat menu
  * inline error) without forking the state. Addressed subagent sessions expose
  * neither entry because those Agent-bound RPCs would activate persisted
- * history outside the direct-parent continuation seam.
+ * history outside the direct-parent continuation path.
  */
 import type { ModelSelection, SessionModels } from '@deepseek-ai/dsh-client-connection/client'
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'

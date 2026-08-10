@@ -2,19 +2,19 @@
 
 [English](README.md) | 中文
 
-**web 访问 seam**：抽象 `WebService`（`ctx.web`）定义 harness 具备哪些 web 访问能力（搜索 web、抓取 URL），并通过多个提供方实现，不把模型约定绑定到某个厂商的 API 形状。
+**`WebService`**（`ctx.web`）定义 harness 具备哪些 web 访问能力（搜索 web、抓取 URL），并通过多个提供方实现，不把模型约定绑定到某个厂商的 API 形状。
 
-该包是 web 能力中负责接口的三分之一。与 bash/fs 不同，它在一个 seam 上跨越搜索与抓取两种能力，每种能力都可能有多个提供方：
+本包承担 web 能力的 Service Definition 角色。与 bash/fs 不同，它在一个 seam 上跨越搜索与抓取两种操作，每种操作都可能有多个提供方：
 
 | 包 | 职责 |
 |---|---|
-| `@deepseek-ai/dsh-web`（本包） | 接口：服务、提供方注册表、选择策略、请求／结果词汇、`WebError` 分类体系 |
-| `@deepseek-ai/dsh-web-search-exa` | 搜索实现：Exa |
-| `@deepseek-ai/dsh-web-search-perplexity` | 搜索实现：Perplexity |
-| `@deepseek-ai/dsh-web-fetch-local` | 抓取实现：匿名公共 HTTP(S) |
-| `@deepseek-ai/dsh-tool-web` | 面向模型的 `web_search`／`web_fetch` 工具 schema，构建于 `ctx.web` 之上 |
+| `@deepseek-ai/dsh-web`（本包） | Service Definition：服务、提供方注册表、选择策略、请求／结果词汇、`WebError` 分类体系 |
+| `@deepseek-ai/dsh-web-search-exa` | 搜索提供方：Exa |
+| `@deepseek-ai/dsh-web-search-perplexity` | 搜索提供方：Perplexity |
+| `@deepseek-ai/dsh-web-fetch-local` | 抓取提供方：匿名公共 HTTP(S) |
+| `@deepseek-ai/dsh-tool-web` | Consumer：面向模型的 `web_search`／`web_fetch` 工具 schema，构建于 `ctx.web` 之上 |
 
-搜索与抓取没有共享请求 schema 或业务逻辑，但有意共用一个 seam：`ctx.web` 是单一 web 访问中间层，拥有一项提供方选择策略、一套中止／错误词汇和一个面向产品的「该 harness 如何访问 web」配置接口。代价是成对的并行 `Search`／`Fetch` 方法；这种并行是有意设计，并非遗漏了可抽取的共性。
+搜索与抓取没有共享请求 schema 或业务逻辑，但有意共用一个 seam：`ctx.web` 是单一 web 访问中间层，拥有一项提供方选择策略、一套中止／错误词汇和一个面向产品的「该 harness 如何访问 web」配置接口。成对的 `Search`／`Fetch` 方法保持并行是有意为之。
 
 ## 服务 API（`ctx.web`）
 
@@ -58,4 +58,4 @@
 - **没有观测接口**：没有提供方变更事件或能力状态查询；可用性只能通过执行 `search()`／`fetch()` 并按抛出的 `WebError` code 路由来观测，无提供方失败是通用的 `WEB_PROVIDER_UNAVAILABLE`，不会枚举逐提供方原因（见 [Agent Note](../../../.agents/notes/archived/simplification/2026-07-04-drop-unconsumed-web-observation-surface.md)）。
 - **`WebSearchRequest` 只携带 `query` + `maxResults`**：提供方无关的控制项（新近程度、域名过滤条件、区域提示、搜索深度）暂缓至 Exa 与 Perplexity 都能诚实支持时（见 [seam Agent Note](../../../.agents/notes/implemented/architecture/2026-06-24-web-capability-seam.md)）。
 - **`WebFetchBody` 没有 `pdf` 分支**：可提取文本的 PDF 支持属于明确的暂缓工作；封闭联合会使新增该分支成为三个 web 包中由编译强制执行的变更。
-- **提供方支持的页面提取不属于 `fetch()` 范围**：Firecrawl/Tavily 风格的 `web_extract` 能力暂缓，而不会扩展抓取 seam。
+- **提供方支持的页面提取不属于 `fetch()` 范围**：Firecrawl/Tavily 风格的 `web_extract` 能力暂缓，而不会扩展抓取操作。

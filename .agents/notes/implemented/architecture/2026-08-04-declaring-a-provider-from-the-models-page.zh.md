@@ -6,7 +6,7 @@ Status: implemented
 
 ## Problem
 
-下面两层已经让 pi-ai 路由变成[一份声明](2026-08-03-pi-ai-declared-provider-catalog.md)，并给了 host [询问草稿端点](2026-08-04-draft-provider-endpoint-interrogation.md)的能力。但两者都没有抵达不编辑 YAML 的人：Models 页仍然只为每个提供方提供一个 API 密钥输入框和一个装着 API 地址的折叠区，因此接入一个网关意味着打开 `$DSH_HOME/settings.yaml` 并知道 profile 的形状，更正一个过期的上下文窗口也是如此。能力已经存在，界面却没有暴露它。
+下面两层已经让 pi-ai 路由变成[一份声明](2026-08-03-pi-ai-declared-provider-catalog.md)，并给了 host [询问草稿端点](2026-08-04-draft-provider-endpoint-interrogation.md)的能力。但两者都没有抵达不编辑 YAML 的人：Models 页仍然只为每个提供方提供一个 API 密钥输入框和一个装着 API 地址的折叠区，因此接入一个网关意味着打开 `$DSH_HOME/settings.yaml` 并知道 profile 的形状，更正一个陈旧的上下文窗口也是如此。能力已经存在，界面却没有暴露它。
 
 缺的是两件事，而它们的形状并不相同。编辑既有路由的模型，是一张已经存在的卡片上的一个*字段*；声明一条路由则是一次*创建*：路由 id 正在此处被选定，而在选定之前根本没有可编辑的 settings 地址。
 
@@ -26,7 +26,7 @@ Status: implemented
 
 **在 `ProviderEditor` 上加字段来声明提供方。** 两张卡片变一张，但编辑器由 `settingsPath` 寻址，而正在被命名的路由还没有路径。逐次按键重算路径会让卡片重新挂载并丢掉草稿；推迟计算则意味着编辑器的整条写入路径不再描述它正在编辑的东西。
 
-**为协议列表新增一个协议字段。** 显式，也是最直觉的第一反应。但 settings schema 本来就会跨越协议层、本来就含有那个 union，因此第二份副本可能与第一份不一致——而适配器强制执行的是 schema 那一份。
+**为协议列表新增一个协议字段。** 显式。但 settings schema 本来就会跨越协议层、本来就含有那个 union，因此第二份副本可能与第一份不一致——而适配器强制执行的是 schema 那一份。
 
 **针对已存 profile 而非实时表单发起获取。** 对尚未保存的提供方来说，密钥就不会离开表单。但最需要获取的恰恰是「什么都还没存」的那条流程，而端点已修改的表单会悄悄去询问旧地址。
 

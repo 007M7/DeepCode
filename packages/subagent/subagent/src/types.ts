@@ -37,9 +37,10 @@ export interface SubagentRunInfo {
   /** Unique identity shared with the paired terminal event. */
   readonly runId: SubagentRunId
   /**
-   * Provider provenance for this run or Activation epoch. The named provider
-   * may be absent when an accepted run becomes ready or a persisted Activation
-   * cold-resumes, because neither lifecycle depends on continued registration.
+   * Provider name recorded when the child was first created. The provider may
+   * be absent when an accepted one-shot run becomes ready or a persisted
+   * Activation cold-resumes, because neither lifecycle depends on continued
+   * registration.
    */
   readonly provider: string
   /** The child agent's id. */
@@ -55,7 +56,7 @@ export interface SubagentRunInfo {
 export interface SubagentRunEndInfo {
   /** Unique identity shared with the paired start event. */
   readonly runId: SubagentRunId
-  /** The same provider provenance carried by the paired start event. */
+  /** The same provider name carried by the paired start event. */
   readonly provider: string
   /** The child agent's id. */
   readonly id: SessionId
@@ -293,7 +294,7 @@ export interface SubagentProvider {
   /**
    * OPTIONAL (continuable-creation capability): contribute the detached
    * creation inputs that distinguish this provider's continuable children —
-   * today only whether the child session is seeded with parent history. Method
+   * only whether the child session is seeded with parent history. Method
    * presence IS the capability: the service rejects continuable starts on
    * providers without it, while a provider that has it may still serve
    * ordinary one-shot delegations.

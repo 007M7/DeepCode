@@ -1,6 +1,6 @@
 /**
  * ClientModuleSystem — the implementation behind the {@link ClientModuleLoader}
- * seam. The conceptual contract (lazy CJS model, resolution branch order) is
+ * contract. The conceptual contract (lazy CJS model, resolution branch order) is
  * documented on the public interfaces in `./manifest.ts`; this file owns the
  * state tables and the load/materialize machinery.
  */
@@ -9,7 +9,7 @@ import type {
   ClientModuleSystemOptions, ClientPluginHandoff, DshWindow,
 } from './manifest.ts'
 
-/** Default bundle-load seam: same-origin external classic script. */
+/** Default bundle-load hook: same-origin external classic script. */
 const defaultLoadBundle = (url: string): Promise<void> => new Promise((resolve, reject) => {
   const el = document.createElement('script')
   el.async = true
@@ -53,8 +53,8 @@ const claimStyles = (id: string): string[] => {
 /**
  * The client module system: state tables plus the arrival/materialization
  * machinery implementing {@link ClientModuleLoader} (whose members carry the
- * seam contract docs). Construction indexes the boot rows and installs the
- * `window.__ModuleLoader__` registration sink (contract C6) — once per page.
+ * contract documentation). Construction indexes the boot rows and installs the
+ * `window.__ModuleLoader__` registration sink — once per page.
  */
 export class ClientModuleSystem implements ClientModuleLoader {
   readonly version = 'client'
@@ -72,7 +72,7 @@ export class ClientModuleSystem implements ClientModuleLoader {
 
   /**
    * Build the module system over the parsed boot rows.
-   * @param options - module rows, module-table staticModules, and bundle-load seam.
+   * @param options - Module rows, module-table staticModules, and bundle-load hook.
    */
   constructor(options: ClientModuleSystemOptions) {
     this.seed = new Map(Object.entries(options.staticModules))

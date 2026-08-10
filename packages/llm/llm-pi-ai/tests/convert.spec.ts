@@ -1,5 +1,7 @@
-import { describe, expect, it } from 'vitest'
-import { createUserMessage, CallId, CONTEXT_WINDOW_EXCEEDED_CODE, EMPTY_RESPONSE_CODE, LlmError , createMessage } from '@deepseek-ai/dsh-llm'
+import { describe, expect, it, vi } from 'vitest'
+import { AttachmentId } from '@deepseek-ai/dsh-attachment'
+import type { AttachmentStore } from '@deepseek-ai/dsh-attachment'
+import { createUserMessage, CallId, CONTEXT_WINDOW_EXCEEDED_CODE, EMPTY_RESPONSE_CODE, LlmError, createMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, StreamChunk } from '@deepseek-ai/dsh-llm'
 import type { AssistantMessage, AssistantMessageEvent, Usage } from '@earendil-works/pi-ai'
 import { toPiContext } from '../src/context.ts'
@@ -66,6 +68,100 @@ describe('toPiContext', () => {
     expect(context.tools).toBeUndefined()
   })
 
+  it('resolves durable image references into native pi-ai image content', async () => {
+    const attachment = {
+      attachmentId: AttachmentId(`sha256:${'a'.repeat(64)}`),
+      mediaType: 'image/png' as const,
+      bytes: 3,
+      width: 1,
+      height: 1,
+    }
+    const readImage = vi.fn().mockResolvedValue({ ref: attachment, data: Uint8Array.of(1, 2, 3) })
+    const context = await toPiContext({
+      provider: 'openai',
+      model: 'gpt-4.1',
+      messages: [createUserMessage({
+        content: [{ type: 'text', text: 'describe' }, { type: 'image', attachment }],
+        source: { kind: 'plugin', plugin: 'test' },
+      })],
+    }, { readImage } as unknown as AttachmentStore)
+
+    expect(readImage).toHaveBeenCalledWith(attachment)
+    expect(context.messages[0]).toEqual({
+      role: 'user',
+      content: [
+        { type: 'text', text: 'describe' },
+        { type: 'image', data: 'AQID', mimeType: 'image/png' },
+      ],
+      timestamp: 0,
+    })
+  })
+
+  it('flattens nested tool-result images into the enclosing result', async () => {
+    const attachment = {
+      attachmentId: AttachmentId(`sha256:${'c'.repeat(64)}`),
+      mediaType: 'image/png' as const,
+      bytes: 3,
+      width: 1,
+      height: 1,
+    }
+    const readImage = vi.fn().mockResolvedValue({ ref: attachment, data: Uint8Array.of(1, 2, 3) })
+    const context = await toPiContext({
+      provider: 'openai',
+      model: 'gpt-4.1',
+      messages: [createUserMessage({
+        content: [{
+          type: 'tool-result',
+          toolCallId: CallId('outer'),
+          content: [
+            { type: 'tool-result', toolCallId: CallId('empty'), content: [] },
+            { type: 'text', text: 'before' },
+            { type: 'tool-result', toolCallId: CallId('text'), content: [{ type: 'text', text: 'middle' }] },
+            {
+              type: 'tool-result',
+              toolCallId: CallId('inner'),
+              content: [
+                { type: 'image', attachment },
+                { type: 'text', text: 'after' },
+              ],
+            },
+          ],
+        }],
+        source: { kind: 'plugin', plugin: 'test' },
+      })],
+    }, { readImage } as unknown as AttachmentStore)
+
+    expect(context.messages).toEqual([{
+      role: 'toolResult',
+      toolCallId: 'outer',
+      toolName: 'unknown',
+      content: [
+        { type: 'text', text: 'before' },
+        { type: 'text', text: 'middle' },
+        { type: 'image', data: 'AQID', mimeType: 'image/png' },
+        { type: 'text', text: 'after' },
+      ],
+      isError: false,
+      timestamp: 0,
+    }])
+  })
+
+  it('rejects structured image history when no durable resolver is supplied', () => {
+    expect(() => toPiContext({
+      provider: 'openai', model: 'gpt-4.1',
+      messages: [createUserMessage({
+        content: [{
+          type: 'image',
+          attachment: {
+            attachmentId: AttachmentId(`sha256:${'b'.repeat(64)}`),
+            mediaType: 'image/png', bytes: 1, width: 1, height: 1,
+          },
+        }],
+        source: { kind: 'plugin', plugin: 'test' },
+      })],
+    })).toThrow(expect.objectContaining({ code: 'UNSUPPORTED_CONTENT' }))
+  })
+
   it('maps assistant text/reasoning/tool-call blocks', () => {
     const context = toPiContext({
       provider: 'deepseek',
@@ -102,7 +198,7 @@ describe('toPiContext', () => {
     expect((context.messages[0] as AssistantMessage).stopReason).toBe('stop')
   })
 
-  it('preserves model provenance for foreign assistant messages without replay state', () => {
+  it('preserves provider and model for foreign assistant messages without replay state', () => {
     const context = toPiContext({
       provider: 'openai',
       model: 'new-model',
@@ -158,7 +254,15 @@ describe('toPiContext', () => {
           source: { kind: 'plugin', plugin: 'test' },
         }),
         createUserMessage({
-          content: [{ type: 'tool-result', toolCallId: CallId('c1'), content: [{ type: 'text', text: 'Sunny' }] }],
+          content: [{
+            type: 'tool-result',
+            toolCallId: CallId('c1'),
+            content: [
+              { type: 'text', text: 'Sunny' },
+              { type: 'tool-result', toolCallId: CallId('nested'), content: [{ type: 'text', text: '!' }] },
+              { type: 'chart', data: 'ignored' } as unknown as ContentBlock,
+            ],
+          }],
           source: { kind: 'plugin', plugin: 'test' },
         }),
       ],
@@ -167,7 +271,7 @@ describe('toPiContext', () => {
       role: 'toolResult',
       toolCallId: 'c1',
       toolName: 'get_weather',
-      content: [{ type: 'text', text: 'Sunny' }],
+      content: [{ type: 'text', text: 'Sunny!' }],
       isError: false,
       timestamp: 0,
     })

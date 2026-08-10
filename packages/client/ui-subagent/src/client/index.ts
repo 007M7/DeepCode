@@ -3,10 +3,12 @@
  * candidates filtered from the session list snapshot's running children
  * (zero RPC; the list rides the plugin's root-context sessions service, the
  * scoped session comes from the per-call projection), pick inserts the
- * literal `@label ` text (decision 21: the draft carries plain text, chip
+ * literal `@label ` text (plain-text-reference decision, see
+ * .agents/notes/implemented/architecture/2026-07-25-web-input-machine-and-slash-pipeline.md:
+ * the draft carries plain text, chip
  * visuals are derived by scanning against the source lexicon, and the
  * prompt ships the same literal). Consumption semantics stay with future
- * business work (design ledger). No adjudication hooks: subagent
+ * business work. No adjudication hooks: subagent
  * references never enter command adjudication.
  */
 import type {
@@ -80,16 +82,14 @@ export function apply(ctx: ClientContext): void {
       return sessions.list.subscribe(listener)
     },
     onPick({ candidate }) {
-      // Decision 21: plain-text reference — the literal lands in the draft
+      // Plain-text reference: the literal lands in the draft
       // and ships to the model verbatim (trailing space closes the token).
-      // Legacy path (decision 21), retained for the removal cut, no longer reached:
-      // return { insert: { source: 'subagent', ref: candidate.name, label: candidate.name, clipboardText: `@${candidate.name}` } }
       return { text: `@${candidate.name} ` }
     },
     codec: {
       clipboardText: ref => `@${ref}`,
       // TODO: serialize returns the raw label until the '@' consumption
-      // feature defines a model representation (design ledger).
+      // feature defines a model representation.
       serialize: ref => Promise.resolve(`@${ref}`),
     },
   }

@@ -2,7 +2,7 @@
 
 [English](skills.md) | 中文
 
-[skill（技能）能力族](../../packages/skill) 包含注册表（[dsh-skill](../../packages/skill/skill)，`ctx.skills`）、本地提供方（[dsh-skill-local](../../packages/skill/skill-local)）、可选的随包徽章提供方（[dsh-skill-badge](../../packages/skill/skill-badge)）和消费方（[dsh-tool-skill](../../packages/skill/tool-skill)）。注册表合并各提供方的目录；提供方贡献本地或随包 skill；消费方拥有初始目录和替换目录，以及面向模型的 `skill` 工具。skill 是可选的指令而非会话事件，因此其词汇定义在此处而非 [core.md](core.md)。
+[skill（技能）能力族](../../packages/skill) 包含 Service Definition（[dsh-skill](../../packages/skill/skill)，`ctx.skills`）、本地 Service provider（[dsh-skill-local](../../packages/skill/skill-local)）、可选的随包徽章提供方（[dsh-skill-badge](../../packages/skill/skill-badge)）和 Consumer（[dsh-tool-skill](../../packages/skill/tool-skill)）。注册表在其宿主层与各 scope 层之间合并各提供方的目录；提供方贡献本地或随包 skill；Consumer 拥有初始目录和替换目录，以及面向模型的 `skill` 工具。skill 是可选的指令而非会话事件，因此其词汇定义在此处而非 [core.md](core.md)。
 
 源码：[`packages/skill/skill/src/index.ts`](../../packages/skill/skill/src/index.ts)、[`packages/skill/skill-local/src/index.ts`](../../packages/skill/skill-local/src/index.ts)、[`packages/skill/skill-badge/src/index.ts`](../../packages/skill/skill-badge/src/index.ts) 与 [`packages/skill/tool-skill/src/index.ts`](../../packages/skill/tool-skill/src/index.ts)。
 
@@ -10,7 +10,9 @@
 
 `ctx.skills` 组合本地、内嵌、远程或其他提供方。注册是同步的；远程初始化与发现属于 `list()` 的 await 阶段。提供方对象、选项与候选项以只读方式借用，语义字段会被校验。
 
-重名项依次按 rank、提供方顺序和本地顺序确定优先级；摘要按名称排序。提供方的 `list()` 被拒绝时，系统会记录日志，并从不完整观测中省略该提供方的结果；显式的不完整观测会提供可用候选项，但不会使结果变得可缓存；格式错误的候选项快速失败。每个提供方工厂都会接收一项注册作用域内的控制能力；仅当该精确注册仍处于活动状态时，其 `invalidate()` 才会清除已完成目录；注册失败或释放时，其信号会中止。若提供方代次在发现进行期间发生变化，该发现会重试一次；若再次变化，则返回最新候选项，并将结果标为不完整且不予缓存。提供方和运行时变更会发出不带过滤条件的 `skills/change` 失效事件；该事件不携带 diff，因此消费方会使用自身的查找选项重新获取 `snapshot()`。
+注册表采用宿主 + 按 scope 的分层结构，即[工具注册表](tools.md)在 [dsh-scope](../../packages/core/scope) 之上确立的形态：注册会落入调用方上下文 scope 对应的层——宿主行与 repository 插件落入全局层，由 agent preset 常驻组合挂载的插件落入该 preset 的层——提供方名称在每层内唯一，而非进程级唯一。读取时将全局层与观察 scope 的链合并：最近层的条目直接赢得重名 skill，下文的 rank 顺序只在单层内裁决重名。发现缓存以解析后的 scope 链为键，因此重设 scope 父级（空会话重组）无需注册表变更即可被下一次读取看到。
+
+在单层内，重名项依次按 rank、提供方顺序和本地顺序确定优先级；摘要按名称排序。提供方的 `list()` 被拒绝时，系统会记录日志，并从不完整观测中省略该提供方的结果；显式的不完整观测会提供可用候选项，但不会使结果变得可缓存；格式错误的候选项快速失败。每个提供方工厂都会接收一项注册作用域内的控制能力；仅当该精确注册仍处于活动状态时，其 `invalidate()` 才会清除已完成目录；注册失败或释放时，其信号会中止。若提供方代次在发现进行期间发生变化，该发现会重试一次；若再次变化，则返回最新候选项，并将结果标为不完整且不予缓存。提供方和运行时变更会发出不带过滤条件的 `skills/change` 失效事件；该事件不携带 diff，因此消费方会使用自身的查找选项重新获取 `snapshot()`。
 
 `SkillProvider.list()` 返回的数组是完整发现的简写形式。`SkillProviderObservation` 允许提供方公开仍可直接加载的候选项，同时报告该观测不具权威性。
 
@@ -80,7 +82,7 @@ Chokidar 会监视现有根目录中直属 bundle 和平铺条目的添加与移
 
 ## skill 身份
 
-skill 名称为 kebab-case（`^[a-z0-9]+(?:-[a-z0-9]+)*$`）。本地提供方接受目录包（`<name>/SKILL.md`）和扁平 Markdown 文件（`<name>.md`）。嵌套递归的 `**/SKILL.md` 发现有意不在 v1 范围内。
+skill 名称为 kebab-case（`^[a-z0-9]+(?:-[a-z0-9]+)*$`）。本地提供方接受目录包（`<name>/SKILL.md`）和扁平 Markdown 文件（`<name>.md`）。嵌套递归的 `**/SKILL.md` 发现不受支持。
 
 ```ts type-equiv
 /** Origin bucket for a skill contribution. The value is prompt-visible metadata, not precedence by itself. */
@@ -187,7 +189,7 @@ type SkillRegistration = Omit<SkillDefinition, 'invocation' | 'provider'> & {
 
 ## 查找与配置
 
-skill 查找对 cwd 敏感，因为提供方可能暴露工作区本地的 skill；可选的 signal 为调用方取消提供方的工作。提供方接收用于缓存标识和加载的同一个只读选项对象。取消在目录选择前后（包括缓存命中时）都会检查，并与发现和完整定义加载竞争。如果找不到 git root，本地提供方将所提供的 cwd 本身视为项目根目录。
+skill 查找对 cwd 敏感，因为提供方可能暴露工作区本地的 skill；可选的 signal 为调用方取消提供方的工作。注册表读取还通过 `SkillViewOptions` 携带观察 scope——消费方传入调用中的 agent，agent 本身就是自己的 scope key；注册表消费 `scope` 做层选择，提供方只从同一个借用的选项对象中读取其 `SkillLookupOptions` 契约。取消在目录选择前后（包括缓存命中时）都会检查，并与发现和完整定义加载竞争。如果找不到 git root，本地提供方将所提供的 cwd 本身视为项目根目录。
 
 注册表不缓存完整定义。每次调用 `get()` 都会携所选候选项调用胜出提供方，因此本地提供方会重新读取当前正文。名称与该候选项不再匹配的定义会被拒绝，并使该提供方实例失效以便重新发现。
 
@@ -198,6 +200,19 @@ interface SkillLookupOptions {
   readonly cwd?: string | undefined
   /** Abort discovery or loading work for the current caller. */
   readonly signal?: AbortSignal | undefined
+}
+```
+
+```ts type-equiv
+/**
+ * Registry read options: provider lookup context plus the viewing scope.
+ * The registry consumes `scope` to select layers; providers receive the same
+ * borrowed options object and read only their {@link SkillLookupOptions}
+ * contract from it.
+ */
+interface SkillViewOptions extends SkillLookupOptions {
+  /** Viewing scope (the calling agent); omitted reads the global layer alone. */
+  readonly scope?: ScopeKey | undefined
 }
 ```
 
@@ -231,13 +246,16 @@ Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnp
 
 ### `ctx.skills` — `SkillService`
 
-Registry of skill providers. It merges provider catalogs with stable first-wins duplicate handling, exposes sorted invocation-neutral summaries, and loads full skill bodies on demand.
+Layered registry of skill providers, the host+per-scope shape the tools registry established. A registration files into the layer of its calling context's scope (scopeOf): host rows and repository plugins land in the global layer, while a plugin mounted by an agent preset's standing composition lands in that preset's layer. A read merges the global layer with the viewing scope's chain — the nearest layer's entry wins a duplicate name outright, and the rank order decides duplicates only within one layer. It exposes sorted invocation-neutral summaries and loads full skill bodies on demand.
 
 ```ts cordis-catalog
 /**
- * Register a borrowed same-process provider synchronously during plugin apply. Duplicate and
- * reserved names throw; remote initialization belongs in `list()`. Fiber disposal unregisters
- * the provider and invalidates catalog caches.
+ * Register a borrowed same-process provider synchronously during plugin
+ * apply, into the calling context's layer: a scoped context (an agent
+ * preset's standing mount) registers for that scope alone, an unscoped
+ * context registers globally. Duplicate names within one layer and reserved
+ * names throw; remote initialization belongs in `list()`. Fiber disposal
+ * unregisters the provider and invalidates catalog caches.
  * @param create - synchronous factory receiving this registration's lifecycle and invalidation control.
  * @returns the exact Cordis effect disposer that unregisters this provider;
  *   composite effects may yield it directly to preserve teardown ordering.
@@ -245,9 +263,11 @@ Registry of skill providers. It merges provider catalogs with stable first-wins 
 registerProvider(create: (control: SkillProviderControl) => SkillProvider): () => void
 
 /**
- * Register a borrowed readonly runtime skill. Project entries outrank runtime entries, which
- * outrank user entries. Same-name runtime entries are first-wins; a duplicate logs a warning and
- * receives a no-op disposer so it cannot remove the winner.
+ * Register a borrowed readonly runtime skill into the calling context's
+ * layer. Project entries outrank runtime entries, which outrank user
+ * entries, within one layer. Same-name runtime entries in one layer are
+ * first-wins; a duplicate logs a warning and receives a no-op disposer so
+ * it cannot remove the winner.
  * @param skill - the skill definition input; omitted invocation and provider fields receive defaults.
  * @returns the exact Cordis effect disposer, preserving composite teardown order and invalidating caches.
  */
@@ -258,32 +278,33 @@ register(skill: SkillRegistration): () => void
  * model or user invocation policy at their operational boundary. Lookup
  * options and provider candidates are readonly same-process values borrowed
  * throughout discovery.
- * @param options - lookup options; `cwd` selects project roots and `signal` cancels discovery.
+ * @param options - view options; `scope` selects the viewing agent's layers, `cwd` selects project roots, and `signal` cancels discovery.
  * @returns all sorted winning summaries.
  */
-async list(options: SkillLookupOptions = {}): Promise<SkillSummary[]>
+async list(options: SkillViewOptions = {}): Promise<SkillSummary[]>
 
 /**
  * Observe the current invocation-neutral catalog and whether discovery completed within a stable revision.
  * Incomplete observations are never cached, allowing consumers to retain last-good state and
  * retry on their next request boundary.
- * @param options - lookup options; `cwd` selects project roots and `signal` cancels discovery.
+ * @param options - view options; `scope` selects the viewing agent's layers, `cwd` selects project roots, and `signal` cancels discovery.
  * @returns sorted summaries plus discovery-completeness state.
  */
-async snapshot(options: SkillLookupOptions = {}): Promise<SkillCatalogSnapshot>
+async snapshot(options: SkillViewOptions = {}): Promise<SkillCatalogSnapshot>
 
 /**
  * Load and validate the winning candidate, passing its opaque discovery locator back to the
  * provider. Cancellation is rechecked after selection, including cache hits, and raced against
  * loading so an uncooperative provider cannot hang the caller.
  * @param name - kebab-case skill name.
- * @param options - lookup options; `cwd` selects workspace-sensitive skills and `signal` cancels work.
+ * @param options - view options; `scope` selects the viewing agent's layers,
+ *   `cwd` selects workspace-sensitive skills, and `signal` cancels work.
  * @returns the full skill, including body content, or `undefined`.
  */
-async get(name: string, options: SkillLookupOptions = {}): Promise<SkillDefinition | undefined>
+async get(name: string, options: SkillViewOptions = {}): Promise<SkillDefinition | undefined>
 ```
 
-Source: [`packages/skill/skill/src/index.ts:304`](../../packages/skill/skill/src/index.ts)
+Source: [`packages/skill/skill/src/index.ts:357`](../../packages/skill/skill/src/index.ts)
 
 <a id="skills-events"></a>
 
@@ -306,5 +327,5 @@ A skill provider, runtime contribution, or provider-backed catalog may have chan
 'skills/change'(): void
 ```
 
-Source: [`packages/skill/skill/src/index.ts:283`](../../packages/skill/skill/src/index.ts)
+Source: [`packages/skill/skill/src/index.ts:297`](../../packages/skill/skill/src/index.ts)
 <!-- END GENERATED cordis-surface -->

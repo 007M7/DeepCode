@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-The model-facing todo capability. It is a single **product** package because one agent session owns the list; there is no replaceable provider seam.
+The model-facing todo capability. It is a single **product** package because one agent session owns the list; there is no replaceable provider contract.
 
 | Package | Role | ctx key |
 |---|---|---|

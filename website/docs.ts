@@ -226,7 +226,7 @@ const develop = pairedPages([
   },
 ])
 
-const cordisTutorial = mirroredPages(([
+const cordisTutorial = pairedPages(([
   ['index.md', 'Cordis 教程', 'Cordis tutorial'],
   ['01-first-plugin.md', '1. 第一个插件', '1. Your first plugin'],
   ['02-lifecycle-and-effects.md', '2. 生命周期与副作用', '2. Lifecycle and effects'],
@@ -235,10 +235,9 @@ const cordisTutorial = mirroredPages(([
   ['05-config.md', '5. 配置', '5. Configuration'],
   ['06-composition-and-hmr.md', '6. 组合与热重载', '6. Composition and HMR'],
   ['07-into-the-harness.md', '7. 进入 Harness', '7. Into the harness'],
-] as const).map(([file, rootLabel, enLabel], order): MirroredPage => ({
+] as const).map(([file, rootLabel, enLabel], order): PairedPage => ({
   source: `docs/cordis-tutorial/${file}`,
   route: `develop/cordis-tutorial/${file}`,
-  contentLocale: 'en-US',
   label: { root: rootLabel, en: enLabel },
   sidebar: { root: 'zh-develop', en: 'en-develop' },
   section: { root: 'Cordis 教程', en: 'Cordis tutorial' },
@@ -307,41 +306,57 @@ const subsystemsReference = pairedPages(([
   ...(file === 'README.md' ? { sourceAliases: ['docs/subsystems'] } : {}),
 })))
 
-const reference = mirroredPages([
-  ...([
+const reference = [
+  ...pairedPages(([
     ['docs/architecture.md', 'reference/index.md', '架构', 'Architecture', 0],
-    ['docs/capability-seams.md', 'reference/capability-seams.md', '能力服务', 'Capability services', 2],
-    ['docs/agent-lifecycle.md', 'reference/agent-lifecycle.md', 'Agent 生命周期', 'Agent lifecycle', 3],
-    ['docs/tool-execution-pipeline.md', 'reference/tool-execution-pipeline.md', 'Tool 执行', 'Tool execution', 4],
-  ] as const).map(([source, route, rootLabel, enLabel, order]): MirroredPage => ({
+  ] as const).map(([source, route, rootLabel, enLabel, order]): PairedPage => ({
     source,
     route,
-    contentLocale: 'en-US',
     label: { root: rootLabel, en: enLabel },
     sidebar: { root: 'zh-reference', en: 'en-reference' },
     section: { root: '概念', en: 'Concepts' },
     order,
-  })),
-  ...([
+  }))),
+  ...pairedPages(([
+    ['docs/capability-seams.md', 'reference/capability-seams.md', '能力服务', 'Capability services', 2],
+    ['docs/agent-lifecycle.md', 'reference/agent-lifecycle.md', 'Agent 生命周期', 'Agent lifecycle', 3],
+    ['docs/tool-execution-pipeline.md', 'reference/tool-execution-pipeline.md', 'Tool 执行', 'Tool execution', 4],
+  ] as const).map(([source, route, rootLabel, enLabel, order]): PairedPage => ({
+    source,
+    route,
+    label: { root: rootLabel, en: enLabel },
+    sidebar: { root: 'zh-reference', en: 'en-reference' },
+    section: { root: '概念', en: 'Concepts' },
+    order,
+  }))),
+  ...pairedPages(([
     ['docs/config-catalog.md', 'reference/config-catalog.md', '插件配置', 'Plugin configuration'],
     ['docs/tool-catalog.md', 'reference/tool-catalog.md', 'Tool Schema', 'Tool schemas'],
     ['docs/persistence-catalog.md', 'reference/persistence-catalog.md', '持久化事件', 'Persistence events', 'deep'],
-  ] as const).map(([source, route, rootLabel, enLabel, outline], order): MirroredPage => ({
+  ] as const).map(([source, route, rootLabel, enLabel, outline], order): PairedPage => ({
     source,
     route,
-    contentLocale: 'en-US',
     label: { root: rootLabel, en: enLabel },
     sidebar: { root: 'zh-reference', en: 'en-reference' },
     section: { root: '生成参考', en: 'Generated reference' },
     order,
     ...(outline === undefined ? {} : { outline }),
-  })),
-  ...([
+  }))),
+  ...pairedPages(([
     ['context.md', 'Context', 'Context'],
     ['events.md', 'Events', 'Events'],
     ['fiber.md', 'Fiber', 'Fiber'],
     ['registry.md', 'Plugin Registry', 'Plugin Registry'],
     ['service.md', 'Service', 'Service'],
+  ] as const).map(([file, rootLabel, enLabel], order): PairedPage => ({
+    source: `docs/cordis-api/${file}`,
+    route: `reference/cordis-api/${file}`,
+    label: { root: rootLabel, en: enLabel },
+    sidebar: { root: 'zh-reference', en: 'en-reference' },
+    section: { root: 'Cordis API', en: 'Cordis Core API' },
+    order,
+  }))),
+  ...mirroredPages(([
     ['inherited.md', '继承接口面', 'Inherited surface'],
   ] as const).map(([file, rootLabel, enLabel], order): MirroredPage => ({
     source: `docs/cordis-api/${file}`,
@@ -350,36 +365,42 @@ const reference = mirroredPages([
     label: { root: rootLabel, en: enLabel },
     sidebar: { root: 'zh-reference', en: 'en-reference' },
     section: { root: 'Cordis API', en: 'Cordis Core API' },
-    order,
-  })),
-  ...([
+    order: order + 5,
+  }))),
+  ...pairedPages(([
     ['goal.md', '目标', 'Goals', 14],
     ['pty.md', 'PTY 会话', 'PTY sessions', 26],
     ['commands.md', '命令', 'Human commands', 38],
-  ] as const).map(([file, rootLabel, enLabel, order]): MirroredPage => ({
+  ] as const).map(([file, rootLabel, enLabel, order]): PairedPage => ({
     source: `docs/subsystems/${file}`,
     route: `reference/subsystems/${file}`,
-    contentLocale: 'en-US',
     label: { root: rootLabel, en: enLabel },
     sidebar: { root: 'zh-reference', en: 'en-reference' },
     section: { root: '子系统', en: 'Subsystems' },
     order,
-  })),
-  ...([
+  }))),
+  ...pairedPages(([
     ['adding-a-package.md', '新增 Package', 'Adding a package'],
     ['adding-a-tool.md', '新增 Tool', 'Adding a tool'],
     ['adding-an-llm-adapter.md', '新增 LLM Adapter', 'Adding an LLM adapter'],
     ['extension-cookbook.md', '扩展模式', 'Extension patterns'],
-  ] as const).map(([file, rootLabel, enLabel], order): MirroredPage => ({
+  ] as const).map(([file, rootLabel, enLabel], order): PairedPage => ({
     source: `docs/cookbook/${file}`,
     route: `reference/cookbook/${file}`,
-    contentLocale: 'en-US',
     label: { root: rootLabel, en: enLabel },
     sidebar: { root: 'zh-reference', en: 'en-reference' },
     section: { root: '开发手册', en: 'Cookbook' },
     order,
-  })),
-])
+  }))),
+  ...pairedPages([{
+    source: 'docs/cookbook/adding-a-conversation-node.md',
+    route: 'reference/cookbook/adding-a-conversation-node.md',
+    label: { root: '新增 Conversation Node', en: 'Adding a Conversation Node' },
+    sidebar: { root: 'zh-reference', en: 'en-reference' },
+    section: { root: '开发手册', en: 'Cookbook' },
+    order: 4,
+  }]),
+]
 
 /** Every canonical page published by the documentation website. */
 export const docsPages: DocsPage[] = [

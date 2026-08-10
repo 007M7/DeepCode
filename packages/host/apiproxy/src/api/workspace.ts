@@ -46,19 +46,14 @@ export interface WorkspaceApi {
   list(request: RpcRequest<{}>): Promise<RpcResponse<{ items: WorkspaceView[]; archivedSessionIds: SessionId[] }>>
 
   /**
-   * Creates (or idempotently resolves) a workspace. Exactly one of `path` /
-   * `name` (schema-enforced): `path` registers an EXISTING directory (no
-   * mkdir — a missing or non-directory path fails with `workspace-invalid-path`);
-   * `name` is a single path segment the host mkdirs under its default project
-   * root before registering. Either spelling resolving to a directory already
-   * owned by a workspace returns that workspace (`created: false`) for the
-   * existing-folder spelling. Create-by-name rejects an existing title with
-   * `workspace-name-conflict`; path adoption allows distinct canonical paths
-   * whose basenames produce the same display title.
-   * A new name-created workspace uses `name` as both directory name and title;
-   * a path-created workspace uses the registry's basename title default.
+   * Creates (or idempotently resolves) a workspace over an EXISTING directory
+   * (no mkdir — a missing or non-directory path fails with
+   * `workspace-invalid-path`). A path resolving to a directory already owned
+   * by a workspace returns that workspace (`created: false`). Adoption allows
+   * distinct canonical paths whose basenames produce the same display title;
+   * the registry's basename title default names the new workspace.
    */
-  create(request: RpcRequest<{ path?: string; name?: string }>):
+  create(request: RpcRequest<{ path: string }>):
   Promise<RpcResponse<{ workspace: WorkspaceView; created: boolean }>>
 
   /**

@@ -1,5 +1,5 @@
 /**
- * Filesystem provider seam for one execution world. Backends own stable target
+ * Filesystem Service Definition for one execution world. Backends own stable target
  * identity, process paths and file URIs, containment, text reads, decoding,
  * binary rejection, and atomic mutations. Read windows and
  * observed-state policy stay in consumer and policy plugins; `editText`
@@ -16,6 +16,7 @@ import type {
   FsEditRequest,
   FsInfo,
   FsPathInfo,
+  FsObservation,
   FsTarget,
   FsVersion,
   FsWriteIntent,
@@ -33,6 +34,7 @@ export type {
   FsDirEntry,
   FsErrorCode,
   FsInfo,
+  FsObservation,
   FsPathInfo,
   FsTarget,
   FsWriteIntent,
@@ -63,14 +65,15 @@ declare module 'cordis' {
      */
     'fs/edit-intent'(target: FsTarget, actor: object | undefined, next: () => { version: FsVersion } | undefined | Promise<{ version: FsVersion } | undefined>): Promise<{ version: FsVersion } | undefined>
     /**
-     * Record a successful observation. Listeners must be synchronous recorders:
-     * throws fail the tool call and returned promises are not awaited.
-     * @param target - the target that was read/written/edited.
-     * @param version - the version the actor now holds as its observation.
+     * Record an authoritative positive or negative observation. Listeners must
+     * be synchronous recorders: throws fail the tool call and returned promises
+     * are not awaited.
+     * @param target - the target whose presence or absence was observed.
+     * @param observation - present with its version, or confirmed absent.
      * @param actor - the observing tool-execution context; undefined records nothing useful.
      * @mode emit
      */
-    'fs/observed'(target: FsTarget, version: FsVersion, actor: object | undefined): void
+    'fs/observed'(target: FsTarget, observation: FsObservation, actor: object | undefined): void
   }
 }
 
@@ -198,7 +201,7 @@ export abstract class FileSystem extends Service {
    * @param target - the resolved target to write.
    * @param content - the full new file content.
    * @param expected - the write intent guarding the write; omit for unconditional.
-   * @param signal - aborts before the atomic rename takes effect.
+   * @param signal - aborts before atomic publication takes effect.
    * @param sandboxPolicy - the per-call mode and workspace root this write
    *   runs under; a sandboxing backend fences the write by it, the bare backend
    *   ignores it. Omit to leave the backend its own default.
@@ -219,7 +222,7 @@ export abstract class FileSystem extends Service {
    * @param target - the resolved target to edit.
    * @param edit - the literal search/replace request.
    * @param expected - the version guard; omit for an unconditional edit.
-   * @param signal - aborts before the atomic rename takes effect.
+   * @param signal - aborts before atomic publication takes effect.
    * @param sandboxPolicy - the per-call mode and workspace root this edit runs
    *   under; a sandboxing backend fences the edit by it, the bare backend
    *   ignores it. Omit to leave the backend its own default.

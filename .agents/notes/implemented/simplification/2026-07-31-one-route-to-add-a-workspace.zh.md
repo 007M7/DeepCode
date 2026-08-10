@@ -8,7 +8,7 @@ Status: implemented
 
 两处 Workspace 表层——侧边栏区头的 `+` 与会话主视觉区的 chip——都提供了两条获得 Workspace 的路径：**打开本地文件夹…** 拉起组合的目录流程，**新建工作区** 接收一个名称并创建 `<workspaceRoot>/<name>`。两者重叠：浏览占用者自带 **新建文件夹** 能力，因此"选一个目录"本就覆盖了"建一个目录"。两个入口意味着同一结果有两套词汇、一个自带重名规则的名称对话框，以及一个操作者既看不到也选不了的创建位置。
 
-删掉较弱的那个入口后，侧边栏区头只剩一个动作，于是引出了本 Note 一并裁定的展示问题：只有一行的浮层应该长什么样。
+删掉较弱的那个入口后，侧边栏区头只剩一个动作，于是引出了本决策一并裁定的展示问题：只有一行的浮层应该长什么样。
 
 ## Decision
 
@@ -25,9 +25,9 @@ Status: implemented
 
 `WorkspaceCreateFlow` 现更名为 `WorkspacePickFlow`，其 `createOnly` prop 更名为 `addOnly`；注入的 `createWorkspace` 从 `{ name } | { path }` 收窄为 `{ path }`。
 
-## Wire and CLI residue
+## Wire 与 CLI 表层
 
-Host 侧的 `workspace.create` 仍接受 `{ name }`，`dsh web --workspace-root` 也仍在为它提供目标目录，但已没有任何产品表层会走到它们。把名称送到 wire 的客户端一段同样如此：`WorkspaceCreateInput`、`WorkspacesService.create` 的 `{ name }` 分支、`intentName` 的名称分支，以及 manager 中"workspaceRoot 下的 name"这一约定。`apps/cli/README.md` 及其中文对照本也仍把 `--workspace-root` 记为"创建具名 Workspace"。这一整套都在 `packages/host/apiproxy/src/api-proxy.ts` 的调用点标记为待删除，并留给后续改动：它横跨 backend、客户端 seam 与 CLI 面，有各自的 reviewer 和各自的测试波及面（api-proxy workspace 套件、runtime workspace 套件、配置目录），而本决定中阻塞发布的部分是 UI。
+`workspace.create` 只接受 `{ path }`；wire schema 与 `WorkspaceApi` 没有 `name` 成员。网关没有 `workspaceRoot` 配置；客户端约定只通过 `WorkspaceCreateInput`、`WorkspacesService.create` 与 `intentName` 提供按路径接纳，`dsh web` 没有 `--workspace-root` flag。`workspace-name-conflict` 仍保留在 wire 上，作为 `workspace.rename` 的标题重名错误。
 
 ## Testing
 
@@ -39,19 +39,19 @@ Host 侧的 `workspace.create` 仍接受 `{ name }`，`dsh web --workspace-root`
 
 **保留 `打开本地文件夹…` 作为标签。** 否决：合并后该入口既能打开也能创建，用机制命名会恰好对那些入口被我们删掉的用户隐藏创建这一半。反方理由——"本地"二字有效区分了浏览器所在机器与 harness 所在机器——在下一步就由对话框自身的标题和面包屑回答了。
 
-**保留双入口菜单，让 `新建工作区` 也打开同一个流程。** 否决：同一动作两个标签正是我们被要求消除的混淆，而不是它的缩小版。
+**保留双入口菜单，让 `新建工作区` 也打开同一个流程。** 否决：同一动作两个标签正是本次改动所消除的混淆，而不是它的缩小版。
 
 **为了与主视觉区菜单保持一致而保留只有一行的浮层。** 否决：不提供选择的浮层是一次浪费的点击，读起来像半成品。这里要一致的是*规则*（有菜单 ⇔ 存在选择），不是控件。
 
 **为将来可能新增的入口（克隆仓库、远程目录）保留菜单壳。** 否决，依据"require a current owner and need"：这样的入口目前并不存在，而等它到来时再恢复菜单，比现在就发一个空壳的改动更小。
 
-**在同一改动中删除 wire 的按名称创建分支。** 本 PR 否决：那是 backend/CLI 面，reviewer 不同、测试波及面更广，而紧急的决定是 UI。见 residue 一节——它是被标记了，不是被遗忘了。
+**在同一改动中删除 wire 的按名称创建分支。** 否决，因为 UI 决定不依赖后端与 CLI 删除，后两者各自的约定和测试构成一项可独立评审的改动。
 
 **在 e2e scaffold 中经 host 注册 workspace，而不驱动对话框。** 否决：那会让全部 15 个场景与选择器解耦，整条 lane 将无法证明幸存的这条路径能走到可用的 composer。现在每个场景都会走真实对话框来接纳自己的目录；只有"新建文件夹"那一半集中在一个场景里，因为处处重复只会让共享辅助函数失去幂等性，却换不来额外信号。
 
 ## Consequences
 
-- 从 UI 已无法在操作者选定目录之外创建 Workspace；服务端控制的 `--workspace-root` 目标曾是约束新 workspace 文件夹落点的唯一手段，现在没有替代品。需要该约束的部署必须有意识地重新引入它。
-- 仅存的这条路径会浏览宿主机文件系统，因此选择器的可达范围现在是整台宿主机，而非一个配置好的父目录。这本就是浏览占用者的约定，本改动使它成为唯一的约定。
-- 挂载了 `ui-workspace` 但未挂任何 directory-picker 包的组合，已完全无法添加 Workspace；现在它通过不渲染按钮来说明这一点，而不是提供一个按名称创建的兜底。
+- UI 只在操作者选择的目录下创建 Workspace 文件夹。没有服务端控制的配置约束其位置；需要该约束的部署必须明确加入该约束。
+- picker 配置的可达范围决定剩余路径可用的 Host 文件系统；不存在另一个配置好的父目录。
+- 挂载 `ui-workspace` 但没有 directory-picker 包的组合无法添加 Workspace，也不渲染按钮。
 - 主视觉区的 chip 仍声明 `aria-haspopup="menu"`，而直接拉起的路径实际弹出的是对话框。要让它如实，需要把流程的展示方式经 `conversation.hero.workspace` 的 owner 约定上报——决定权在流程，播报权在 chip，两者分属不同的包——因此这被列为一项具名的后续工作，而不是一处无声的不一致。本次新增的侧边栏按钮完全不作任何 popup 声明。

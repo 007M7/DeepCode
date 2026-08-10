@@ -736,6 +736,12 @@ function assistantSourceBlock(block: AssistantBlock): TrajectorySourceBlock {
       callId: block.callId,
       toolName: block.name,
     }
+    // Attachment refs carry no fetchable bytes, so the record shows the
+    // durable metadata instead of an inline preview.
+    case 'image': return {
+      type: 'image',
+      content: stringifySourceValue(block.attachment),
+    }
     case 'other': return sourceBlock(block.block)
   }
 }
@@ -935,8 +941,8 @@ function expandSubCalls(
             isError: sub.isError,
           }
           : {}),
-        // PR3's start/settle pair carries per-sub-call wall time; a running
-        // (unsettled) or pre-pair log entry shows the em dash.
+        // The code-dispatch start/settle pair carries per-sub-call wall time;
+        // a running (unsettled) or pre-pair log entry shows the em dash.
         timeSeconds: settled ? durationSeconds(sub.time, sub.callTime) : null,
         startedAt: settled
           ? finiteTime(sub.callTime)
