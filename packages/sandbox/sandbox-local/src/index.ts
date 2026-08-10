@@ -481,7 +481,7 @@ export class LocalSandboxProvider extends SandboxProvider {
         failures.push(error)
       }
     }
-    const rmTempDir = this.internals.rmTempDir ?? ((dir: string) => rmSync(dir, { recursive: true, force: true }))
+    const rmTempDir = this.internals.rmTempDir ?? ((dir: string) => { rmSync(dir, { recursive: true, force: true }) })
     for (const dir of this.tempDirs.values()) {
       try {
         rmTempDir(dir)
