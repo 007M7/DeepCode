@@ -23,9 +23,22 @@ interface MutableBranch {
   key: string
   contexts: ConversationContext[]
   latest: ConversationContext
-  nodes: Map<number, ConversationNode>
+  nodes: Map<string, ConversationNode>
   startSeq: number
   retainedSurfaceSeqs: Set<number>
+}
+
+/**
+ * Resolve the identity used while coalescing one trajectory branch.
+ * Synthetic tool interruptions share their closing boundary seq, so their
+ * call ids distinguish parallel roots without inventing false event order.
+ * @param node - projected conversation node.
+ * @returns branch-local semantic identity.
+ */
+export function trajectoryNodeIdentity(node: ConversationNode): string {
+  return node.kind === 'tool-result'
+    ? `tool-result\u0000${String(node.seq)}\u0000${node.callId}`
+    : `seq\u0000${String(node.seq)}`
 }
 
 function isCompactionCheckpoint(node: ConversationNode): boolean {
@@ -73,7 +86,7 @@ export function deriveTrajectoryContextBranches(
         latest: context,
         nodes: new Map(
           [...inheritedNodes, ...context.nodes.filter(node => !isCompactionCheckpoint(node))]
-            .map(node => [node.seq, node]),
+            .map(node => [trajectoryNodeIdentity(node), node]),
         ),
         startSeq: context.originSeq ?? Number.NEGATIVE_INFINITY,
         retainedSurfaceSeqs,
@@ -85,7 +98,7 @@ export function deriveTrajectoryContextBranches(
     branch.contexts.push(context)
     branch.latest = context
     for (const node of context.nodes) {
-      if (!isCompactionCheckpoint(node)) branch.nodes.set(node.seq, node)
+      if (!isCompactionCheckpoint(node)) branch.nodes.set(trajectoryNodeIdentity(node), node)
     }
   }
   return mutable.map(branch => ({

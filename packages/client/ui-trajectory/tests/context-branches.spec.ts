@@ -34,6 +34,23 @@ const current = {
   source: { kind: 'plugin', plugin: 'rewind' },
 } as ConversationNode
 
+function interruptedTool(callId: string): ConversationNode {
+  return {
+    kind: 'tool-result',
+    seq: 19.2,
+    time: 20,
+    callId,
+    call: { name: 'parallel', argsRaw: '{}' },
+    callTime: 10,
+    content: [],
+    isError: true,
+    error: { name: 'Interrupted', code: 'interrupted' },
+    callView: null,
+    resultView: null,
+    subCalls: [],
+  }
+}
+
 function request(
   purpose: RequestView['purpose'],
   startSeq: number,
@@ -98,5 +115,15 @@ describe('trajectory context branches', () => {
     }])[0]
 
     expect(branch(1)?.key).toBe(branch(9)?.key)
+  })
+
+  it('retains parallel tool interruptions that share one closing boundary', () => {
+    const branch = deriveTrajectoryContextBranches([{
+      id: 0,
+      nodes: [interruptedTool('call-a'), interruptedTool('call-b')],
+    }])[0]
+
+    expect(branch?.nodes.map(node => node.kind === 'tool-result' ? node.callId : undefined))
+      .toEqual(['call-a', 'call-b'])
   })
 })

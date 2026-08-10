@@ -9,6 +9,7 @@ import type {
 } from '@deepseek-ai/dsh-client-runtime/client'
 import {
   deriveTrajectoryContextBranches, trajectoryBranchContainsRequest,
+  trajectoryNodeIdentity,
 } from './context-branches.ts'
 import {
   TrajectoryTable,
@@ -229,9 +230,9 @@ export function TrajectoryView({
   const currentBranch = branches.at(-1)
   if (currentBranch === undefined) throw new Error('trajectory branch projection must not be empty')
   const selectedNodes = useMemo(() => {
-    const selected = new Map(currentBranch.nodes.map(node => [node.seq, node]))
+    const selected = new Map(currentBranch.nodes.map(node => [trajectoryNodeIdentity(node), node]))
     for (const node of interruptedNodes) {
-      selected.set(node.seq, node)
+      selected.set(trajectoryNodeIdentity(node), node)
     }
     return [...selected.values()].sort((left, right) => left.seq - right.seq)
   }, [currentBranch.nodes, interruptedNodes])
