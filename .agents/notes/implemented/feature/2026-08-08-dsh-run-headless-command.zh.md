@@ -22,7 +22,7 @@ dsh run [--profile <name>] [--patch <path>...] <task...>
 
 `RunInvocation` 是单独的 `DshInvocation` 成员。通用 profile 调用不携带任务状态，也不接受位置参数。两条分派路径都使用 `runProfile`：profile 启动省略 `task`，而 `run` 提供该字段。缺少 `headless-runner` 的一次性 profile 会触发组合行检查；如果启动的 profile 包含该行却未提供任务，错误会指向 `dsh run --profile <name> "<task>"`。
 
-[profile 插件组合包决策](../architecture/2026-08-05-profile-plugin-bundles.md)负责组合。[Headless 是直接 core 前门](../architecture/2026-08-09-headless-direct-core-front-door.md)负责执行约定：一个新的持久化会话、stdout 上的最终 assistant 文本、completed／非 completed 的退出状态映射、成功时为空的 stderr、无监听端口，以及 Agent 完全停稳且会话 flush 后的有界信号关闭。
+[profile 插件组合包决策](../architecture/2026-08-05-profile-plugin-bundles.md)负责组合。[Headless 是直接 core 入口](../architecture/2026-08-09-headless-direct-core-entry-point.md)负责执行约定：一个新的持久化会话、stdout 上的最终 assistant 文本、completed／非 completed 的退出状态映射、成功时为空的 stderr、无监听端口，以及 Agent 完全停稳且会话 flush 后的有界信号关闭。
 
 `run` 动词只负责一次性任务执行。应用文件启动需要不同的命令名。
 

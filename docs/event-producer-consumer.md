@@ -36,7 +36,7 @@ This matrix shows which packages dispatch each harness-owned event and which pac
 | `session/flush` | `parallel` | [`packages/core/session/src/index.ts:105`](../packages/core/session/src/index.ts) | [`session`](../packages/core/session) (`events.dispatch`) | [`session-persistence`](../packages/session/session-persistence), [`session-telemetry`](../packages/session/session-telemetry) |
 | `settings/document-updated` | `emit` | [`packages/settings/settings/src/index.ts:170`](../packages/settings/settings/src/index.ts) | [`settings`](../packages/settings/settings) (`events.dispatch`) | `apiproxy` |
 | `settings/updated` | `emit` | [`packages/settings/settings/src/index.ts:157`](../packages/settings/settings/src/index.ts) | [`settings`](../packages/settings/settings) (`events.dispatch`) | [`settings`](../packages/settings/settings) |
-| `skills/change` | `emit` | [`packages/skill/skill/src/index.ts:284`](../packages/skill/skill/src/index.ts) | [`skill`](../packages/skill/skill) (`events.dispatch`) | - |
+| `skills/change` | `emit` | [`packages/skill/skill/src/index.ts:297`](../packages/skill/skill/src/index.ts) | [`skill`](../packages/skill/skill) (`events.dispatch`) | - |
 | `subagent/end` | `emit` | [`packages/subagent/subagent/src/index.ts:163`](../packages/subagent/subagent/src/index.ts) | [`subagent`](../packages/subagent/subagent) (`events.dispatch`) | [`hooks-claude`](../packages/hooks/hooks-claude), `server`, [`subagent`](../packages/subagent/subagent) |
 | `subagent/provider-added` | `emit` | [`packages/subagent/subagent/src/index.ts:137`](../packages/subagent/subagent/src/index.ts) | [`subagent`](../packages/subagent/subagent) (`emit`) | [`subagent`](../packages/subagent/subagent), [`tool-subagent`](../packages/subagent/tool-subagent) |
 | `subagent/provider-removed` | `emit` | [`packages/subagent/subagent/src/index.ts:143`](../packages/subagent/subagent/src/index.ts) | [`subagent`](../packages/subagent/subagent) (`events.dispatch`) | [`subagent`](../packages/subagent/subagent), [`tool-subagent`](../packages/subagent/tool-subagent) |
@@ -66,10 +66,11 @@ This matrix shows which packages dispatch each harness-owned event and which pac
 | `credentials/changed` | `runtime` (`emit`) | `ui-models` |
 | `internal/dispatch` | - | [`commands`](../packages/interaction/commands), [`compact`](../packages/compact/compact), [`fs`](../packages/fs/fs), [`goal`](../packages/goal/goal), [`goal-session`](../packages/goal/goal-session), [`hook-protocol`](../packages/hooks/hook-protocol), [`llm-retry`](../packages/llm/llm-retry), [`permission`](../packages/interaction/permission), [`plan-mode`](../packages/plan/plan-mode), [`pty-local`](../packages/pty/pty-local), `runtime`, [`sandbox-policy`](../packages/sandbox/sandbox-policy), [`scope`](../packages/core/scope), [`session`](../packages/core/session), [`session-title`](../packages/session/session-title), [`subagent`](../packages/subagent/subagent), [`time-context`](../packages/context/time-context), [`tool-todo`](../packages/todo/tool-todo), [`tools`](../packages/core/tools), [`user-approval`](../packages/interaction/user-approval), [`workflow`](../packages/workflow/workflow) |
 | `internal/plugin` | - | `hmr`, `loader`, [`lsp-local`](../packages/lsp/lsp-local), `modules`, `webserver` |
-| `internal/service` | - | `gateway` |
+| `internal/service` | - | [`agent-presets`](../packages/preset/agent-presets), `gateway` |
 | `internal/status` | - | [`agent`](../packages/core/agent) |
 | `locale/change` | `locale` (`emit`) | `locale` |
 | `models/changed` | `runtime` (`emit`) | `ui-models` |
+| `session/preset-changed` | `runtime` (`emit`) | `ui-command` |
 | `settings/changed` | `runtime` (`emit`) | `ui-models`, `ui-permission`, `ui-settings-general` |
 | `slash/input-begin-command` | - | `ui-conversation` |
 | `slash/input-consume-token` | - | `ui-conversation` |

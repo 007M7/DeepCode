@@ -15,7 +15,7 @@ import { sandboxDefineTool, sandboxRegisterTool } from './guard.ts'
  * A write-through console for one sandbox, tagging every line with the mount
  * id. Write-through (host stdout/stderr), NOT buffered into the tool result:
  * a mounted listener fires long after the mount call returned, and its output
- * must land somewhere the user can see — for a terminal front door, the host terminal.
+ * must land somewhere the user can see — for a terminal entry point, the host terminal.
  */
 function taggedConsole(id: string): Record<'log' | 'info' | 'warn' | 'error' | 'debug', (...args: unknown[]) => void> {
   const tag = `[cordis:${id}]`

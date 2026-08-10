@@ -479,6 +479,17 @@ Tool registry and execution pipeline. Scoped registrations shadow globals; one v
 
 ```ts cordis-catalog
 /**
+ * Present this agent's tools in `mode` instead of the deployment default.
+ *
+ * Scoped only, and one declaration per agent: this is how an agent preset
+ * composes a Code Mode agent beside native ones in the same process, and a
+ * process-global override would be the `mode` config field instead.
+ * @param mode - the presentation this agent's model sees.
+ * @returns the exact disposer that restores the deployment default.
+ */
+presentAs(mode: ToolPresentationMode): () => void
+
+/**
  * Register globally or in the calling agent scope. Scoped tools shadow
  * globals; duplicates within one layer and the reserved `run_code` name fail.
  * @param definition - tool schema, execution, and optional finalization/presentation callbacks.
@@ -554,7 +565,7 @@ async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult>
 
 Types: [ScopeKey](scope.md)
 
-Source: [`packages/core/tools/src/index.ts:747`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:759`](../../packages/core/tools/src/index.ts)
 
 <a id="tools-events"></a>
 

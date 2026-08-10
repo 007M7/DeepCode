@@ -124,6 +124,11 @@ export class CommandService extends Service implements CommandServiceContract {
       warm: (session) => { this.directory.warm(session.sessionId) },
     }), 'command: slash source')
     ctx.on('commands/changed', () => { this.directory.invalidateAll() })
+    // A preset switch changes which commands one session's agent resolves and
+    // registers nothing globally, so the registry-wide signal above never
+    // fires for it: repull that key alone, soft, so the old snapshot serves
+    // the menu until the new one lands.
+    ctx.on('session/preset-changed', (sessionId) => { void this.directory.refresh(sessionId) })
     ctx.on('connection/reset', () => { this.directory.resetConnected() })
   }
 

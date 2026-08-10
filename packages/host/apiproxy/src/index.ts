@@ -8,7 +8,7 @@
  * routes — physical carriers wrap `ctx.apiProxy` themselves.
  *
  * The gateway consumes `ctx.agentDefaultModel`, the transport-independent default
- * shared with direct front doors. Switching models persists through that
+ * shared with direct entry points. Switching models persists through that
  * service; sessions that have already logged a selection remain unchanged.
  */
 
@@ -38,6 +38,14 @@ declare module 'cordis' {
 export interface Config {
   /** Parent directory for name-created Workspaces; defaults to the Host cwd. */
   workspaceRoot?: string
+  /**
+   * Whether this deployment can hand paths to a native desktop opener —
+   * the `hasDocument` capability the agent-preset roster reports. Absent,
+   * the platform is asked (macOS/Windows/WSL yes; Linux only with a display
+   * server); set it explicitly where detection misleads, e.g. `false` in a
+   * container whose DISPLAY points nowhere a user can see.
+   */
+  nativeOpen?: boolean
 }
 
 /**
@@ -53,6 +61,7 @@ export class ApiProxyService extends Service implements ApiProxy {
 
   static Config: z<Config> = z.object({
     workspaceRoot: z.string(),
+    nativeOpen: z.boolean(),
   })
 
   readonly sessions: ApiProxy['sessions']
@@ -62,6 +71,7 @@ export class ApiProxyService extends Service implements ApiProxy {
   readonly commands: ApiProxy['commands']
   readonly goals: ApiProxy['goals']
   readonly skills: ApiProxy['skills']
+  readonly agentPresets: ApiProxy['agentPresets']
   readonly settings: ApiProxy['settings']
   readonly credentials: ApiProxy['credentials']
   readonly llm: ApiProxy['llm']
@@ -76,6 +86,7 @@ export class ApiProxyService extends Service implements ApiProxy {
       saveDefaultModelSelection: selection => ctx.agentDefaultModel.saveSelection(selection),
       cwd,
       workspaceRoot: resolve(config.workspaceRoot ?? cwd),
+      ...config.nativeOpen === undefined ? {} : { canOpenPath: () => config.nativeOpen as boolean },
     })
     this.sessions = api.sessions
     this.subagents = api.subagents
@@ -84,6 +95,7 @@ export class ApiProxyService extends Service implements ApiProxy {
     this.commands = api.commands
     this.goals = api.goals
     this.skills = api.skills
+    this.agentPresets = api.agentPresets
     this.settings = api.settings
     this.credentials = api.credentials
     this.llm = api.llm

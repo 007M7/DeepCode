@@ -68,5 +68,5 @@ The producer suite uses the real command registry, goal service, agent registry,
 - The portable command contract has no modal editor or confirmation interaction; inline edit and explicit clear are intentional until a general cross-surface interaction primitive exists.
 - `/goal` does not accept a per-command round cap. Deployment config owns the default, and the authorized model tool can edit a cap after direct human instruction.
 - TUI renders portable plain text rather than a continuously updated goal status widget. Reconnectable command output and adapter-specific status indicators are deferred.
-- The ACP automation server, headless CLI, and JSON-RPC front doors do not consume the command registry.
+- The ACP automation server, headless CLI, and JSON-RPC entry points do not consume the command registry.
 - The command observes and mutates state but does not certify completion or blockers. Evaluator-backed certification remains deferred to a separate policy layer with an explicit authority and isolation contract.

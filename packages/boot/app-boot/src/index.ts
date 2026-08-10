@@ -14,6 +14,7 @@ import * as yaml from 'js-yaml'
 import { Context, type FiberState } from 'cordis'
 import Loader, { type Entry, type EntryOptions } from '@cordisjs/plugin-loader'
 import Include, { applyEntryPatches, entryListSchema, type PatchOptions } from '@cordisjs/plugin-include'
+import Group from '@cordisjs/plugin-group'
 import { dshHomePath, resolveDshHome } from '@deepseek-ai/dsh-paths'
 import { createEnvironmentSnapshot, type EnvironmentSnapshot } from '@deepseek-ai/dsh-environment'
 import type {} from '@cordisjs/plugin-hmr'
@@ -485,6 +486,12 @@ export async function mountRootInclude(
   patches: readonly PatchOptions[] = [],
 ): Promise<Entry | undefined> {
   ctx.loader.builtins.include = Include
+  // `cordis:group` alongside it: a group row is how a composition gives one
+  // `isolate` realm to a provider and its consumers together, and an agent
+  // preset living outside this workspace cannot resolve `@cordisjs/plugin-group`
+  // by name. Both builtins load through the ambient module pipeline, so neither
+  // depends on the included tree's own specifier resolution.
+  ctx.loader.builtins.group = Group
   // Pinned id: the bootstrap include is app glue, not a config row, and its
   // id appears in Loader failure chains — a random id would make startup
   // diagnostics unstable across runs (and snapshot fixtures).

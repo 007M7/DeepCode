@@ -1319,6 +1319,7 @@ describe('SessionStore', () => {
       { meta: { delegationDepth: '1' }, error: /delegationDepth must be a non-negative safe integer/ },
       { meta: { delegationDepth: 0.5 }, error: /delegationDepth must be a non-negative safe integer/ },
       { meta: { delegationDepth: -1 }, error: /delegationDepth must be a non-negative safe integer/ },
+      { meta: { agentPreset: 1 }, error: /agentPreset must be a string/ },
     ]
 
     for (const [index, { meta, error }] of cases.entries()) {
