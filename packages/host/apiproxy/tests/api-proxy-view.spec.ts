@@ -105,7 +105,7 @@ async function collect(iterable: AsyncIterable<RpcRequest<MuxFrame>>, count: num
 describe('mux live view computation', () => {
   it('attaches the three standard card views, omits view without a presenter, soft-falls on throw', async () => {
     const { ctx } = await harness()
-    const api = createApiProxy(ctx, { provider: 'p', model: 'm', cwd: '/tmp' })
+    const api = createApiProxy(ctx, { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp' })
     const abort = new AbortController()
     const stream = api.events.mux({ rpcId: RpcId('t-mux'), payload: {} }, abort.signal)
     const collected = collect(stream, 9, abort)
@@ -170,7 +170,7 @@ describe('mux live view computation', () => {
 
   it('serves history entries with call/result views, backscan pairing, and soft-falls', async () => {
     const { ctx } = await harness()
-    const api = createApiProxy(ctx, { provider: 'p', model: 'm', cwd: '/tmp' })
+    const api = createApiProxy(ctx, { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp' })
     const session = ctx.sessions.create()
     // history resolves the agent first; a live structural stub is enough (only
     // .session is read on this path).
@@ -236,9 +236,9 @@ describe('mux live view computation', () => {
     expect('view' in (byKey.get('tool/result:h-plain') ?? {})).toBe(false)
   })
 
-  it('counts only append-origin messages toward maxMessages and keeps compaction provenance whole', async () => {
+  it('counts only append-origin messages toward maxMessages and keeps each compaction summary with its replacement', async () => {
     const { ctx } = await harness()
-    const api = createApiProxy(ctx, { provider: 'p', model: 'm', cwd: '/tmp' })
+    const api = createApiProxy(ctx, { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp' })
     const session = ctx.sessions.create()
     ctx.agents.register({ id: session.id, session, status: 'idle', ctx } as Agent)
     session.append('turn/start', { turn: 1 })
@@ -247,7 +247,7 @@ describe('mux live view computation', () => {
     const third = appendUserText(session, 'second prompt')
     appendAssistantText(session, 'second reply', 2)
     const shadowed = [...session.surface.nodes]
-    // A compaction transaction: log-only provenance immediately followed by the
+    // A compaction transaction: a log-only summary record immediately followed by the
     // replacement that shadows the range.
     const summary = appendExtension(session, 'compact/summary', {
       summary: [{ type: 'text', text: 'summary' }],
@@ -277,7 +277,7 @@ describe('mux live view computation', () => {
     expect(messages.map(event => event.seq)).toEqual([third.seq, third.seq + 1, third.seq + 3])
     expect(page.some(event => event.seq === first.seq)).toBe(false)
     expect(response.result.value.hasMore).toBe(true)
-    // The range stays contiguous, so the checkpoint's provenance is readable on
+    // The range stays contiguous, so the checkpoint's summary record is readable on
     // the same page as the checkpoint itself.
     const summaryIndex = page.findIndex(event => event.seq === summary.seq)
     expect(summaryIndex).toBeGreaterThan(-1)
@@ -287,7 +287,7 @@ describe('mux live view computation', () => {
 
   it('drops a disposed session from the live open-call table (result after dispose gets no view)', async () => {
     const { ctx } = await harness()
-    const api = createApiProxy(ctx, { provider: 'p', model: 'm', cwd: '/tmp' })
+    const api = createApiProxy(ctx, { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp' })
     const abort = new AbortController()
     const stream = api.events.mux({ rpcId: RpcId('t-mux3'), payload: {} }, abort.signal)
 
@@ -308,7 +308,7 @@ describe('mux live view computation', () => {
 
   it('pairs a result after turn/end via the in-memory backscan fallback', async () => {
     const { ctx } = await harness()
-    const api = createApiProxy(ctx, { provider: 'p', model: 'm', cwd: '/tmp' })
+    const api = createApiProxy(ctx, { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp' })
     const abort = new AbortController()
     const stream = api.events.mux({ rpcId: RpcId('t-mux2'), payload: {} }, abort.signal)
     const collected = collect(stream, 4, abort)

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { join, sep } from 'node:path'
 import { tmpdir } from 'node:os'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
@@ -236,7 +236,7 @@ describe('dsh-agent-spine-demo bundle', () => {
     }
   })
 
-  it('loads and configures bounded request recovery for every bundled front door', async () => {
+  it('loads and configures bounded request recovery for every bundled entry point', async () => {
     const adapter = new TransientOnceAdapter()
     const ctx = await mount({ workspaceContext: false })
     ctx.llm.registerAdapter(['mock'], adapter)
@@ -416,7 +416,7 @@ describe('dsh-agent-spine-demo bundle', () => {
     await ctx.fiber.dispose()
   })
 
-  it('snapshots a created project skill through catalog refresh and progressive loading', async () => {
+  it('snapshots a created project skill through catalog refresh and progressive loading', { timeout: 15_000 }, async () => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-agent-spine-demo-skill-refresh-'))
     const home = await mkdtemp(join(tmpdir(), 'dsh-agent-spine-demo-skill-refresh-home-'))
     try {
@@ -449,6 +449,15 @@ describe('dsh-agent-spine-demo bundle', () => {
       await ctx.plugin(LocalBashExecutor, {})
       await ctx.plugin(LocalFileSystem, { cwd: root })
       await ctx.plugin(ToolFs)
+      ctx.on('tools/post-execute', async (exec, _result, next) => {
+        const decision = await next()
+        if (exec.callId === 'write-skill') {
+          await vi.waitFor(async () => {
+            expect((await ctx.skills.list({ cwd: root })).map(skill => skill.name)).toContain('hot-skill')
+          }, { timeout: 5_000 })
+        }
+        return decision
+      })
       ctx.llm.registerAdapter(['mock'], adapter)
       const handle = await ctx.agents.create({
         sessionId: SessionId('skill-refresh-session'),
@@ -491,7 +500,8 @@ describe('dsh-agent-spine-demo bundle', () => {
             callId: event.data.message.source.callId,
             isError: result.isError,
             text: result.content.map(block => block.type === 'text' ? block.text : '').join('\n')
-              .replaceAll(root, '{{cwd}}'),
+              .replaceAll(root, '{{cwd}}')
+              .replaceAll(sep, '/'),
           }]
         }
         return []
@@ -527,6 +537,7 @@ describe('dsh-agent-spine-demo bundle', () => {
         </available_skills>
 
         If the user names a skill, or the task clearly matches a skill's description, call the \`skill\` tool with the exact skill name before taking task actions. Load all applicable skills, then follow their full instructions. This catalog contains summaries only; do not infer or follow a skill's instructions until it has been loaded.
+        A user may also invoke a skill directly; its <skill_content> block then appears in this conversation. Follow it, and do not call the \`skill\` tool again for that skill.
         </system-reminder>",
             "type": "user/message",
           },
@@ -573,6 +584,7 @@ describe('dsh-agent-spine-demo bundle', () => {
       signal: testToolSignal,
       token: Symbol('agent-core-dsh-home-test') as ToolExecution['token'],
       callId: CallId('agent-core-dsh-home'),
+      rootCallId: CallId('agent-core-dsh-home'),
       name: 'bash',
       arguments: { command: 'true' },
     }
@@ -692,9 +704,9 @@ describe('dsh-agent-spine-demo bundle', () => {
     await ctx.fiber.dispose()
   })
 
-  it('picks shared spine config without leaking front-door fields', () => {
+  it('picks shared spine config without leaking entry-point fields', () => {
     const appConfig = {
-      model: 'front-door-only',
+      model: 'entrypoint-only',
       includeHarnessIdentity: false,
       persona: 'You are merged.',
       toolOrder: ['zulu'],

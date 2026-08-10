@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-07-26-subprocess-seam.md
-2026-07-26-subprocess-seam.md: ad2f8522be51ba16b0df155aeb334a88f493890f
-2026-07-26-subprocess-seam.zh.md: 575c02e346531824ef409ddc6155aa2b59ce4e63
+2026-07-26-subprocess-seam.md: 7899af56259d39a4e3f924bcba673c8efa99c682
+2026-07-26-subprocess-seam.zh.md: d9cbc0ebf33bc785984b0a9bd58fa8ebc6aab436

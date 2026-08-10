@@ -10,13 +10,13 @@ Code Mode 过去会把每个嵌套工具的结果从 `ContentBlock[]` 重新投�
 
 运行时还把绑定值和程序最终返回值当作展示数据。日志和完成值分别设置上限，导致过大或无法克隆的完成值可能被替换为检查后生成的文本，而中间值本来就不会进入模型上下文。这种设计使程序化组合产生信息损失，也混淆了内存边界与提示词边界。
 
-[规范工具输出契约](../architecture/2026-07-20-canonical-tool-output-contract.md)确立了单一、经过校验的执行期值，并将 Native 渲染器与之分离。Code Mode 应直接消费该值，在跨越 worker 边界时完整保留它，并且只限制程序有意返回给模型的最终输出。
+[规范工具输出约定](../architecture/2026-07-20-canonical-tool-output-contract.md)确立了单一、经过校验的执行期值，并将 Native 渲染器与之分离。Code Mode 应直接消费该值，在跨越 worker 边界时完整保留它，并且只限制程序有意返回给模型的最终输出。
 
 ## 决策
 
 Code Mode 是可见工具注册表的类型化投影。每个成功的绑定调用都会解析为 post-execute 策略处理后的最终规范 `JsonValue`，失败的绑定调用则会以真正的 `ToolCallError` 拒绝 Promise。中间值只存在于本次运行中，并完整跨越 worker 边界。只有外层 `run_code` 的日志、完成值或失败诊断会进入可配置的输出账本以及面向模型的输出落盘流水线。
 
-本文档定义叠加在原始 [Code Mode 基础](2026-06-15-code-mode.md)之上的返回值与失败契约。统一 schema 词汇由 [JSON 值 schema DSL Agent Note](../architecture/2026-07-20-unified-json-value-schema-dsl.md)负责定义；Native 渲染与策略投影仍由规范输出 Agent Note 负责定义。
+本文档定义叠加在原始 [Code Mode 基础](2026-06-15-code-mode.md)之上的返回值与失败约定。统一 schema 词汇由 [JSON 值 schema DSL Agent Note](../architecture/2026-07-20-unified-json-value-schema-dsl.md)负责定义；Native 渲染与策略投影仍由规范输出 Agent Note 负责定义。
 
 ### 生成的 SDK
 
@@ -51,9 +51,9 @@ declare const tools: {
 
 分发前，桥接层会把绑定参数快照为无损 JSON，再对分离后的值生成一次快照，供独立的持久摘要事件使用。宿主侧的值分离、执行数据的不可变处理与输出 schema 投影均采用迭代遍历，而不使用嵌套结构化克隆或递归冻结。`undefined`、非有限数、`-0`、稀疏数组、循环引用、函数和非普通对象都会使该调用在工具运行前被拒绝。成功分发会返回 `ToolExecutionResult.value`；Native `content`、元数据和内部错误信息不会传入程序。
 
-Code Mode 通过运行时请求中的 `{ name: "ToolCallError", memberNameProperty: "toolName" }` 声明其以异常拒绝 Promise 的能力。运行时 seam 只把这些名称视为数据：worker 会动态生成并注入真正用于 `tools` 绑定失败的构造函数，因此无需让通用运行时了解工具，`error instanceof ToolCallError` 也能成立。worker 使用模块初始化时捕获的 Error 构造函数与属性定义内建方法，配合原型为 null 的属性描述符，构造失败对象并定义其公开字段，因此模型代码的修改不会把契约承诺的 reject 变成 worker 失败。该错误包含标准的 `Error` 消息和确切的 `toolName`，并有意省略 `ToolFailure.info`、错误代码与 Native 内容。这是一项用于控制流的异常契约，而不是供程序分类的失败联合。
+Code Mode 通过运行时请求中的 `{ name: "ToolCallError", memberNameProperty: "toolName" }` 声明其以异常拒绝 Promise 的能力。运行时 Service Definition 只把这些名称视为数据：worker 会动态生成并注入真正用于 `tools` 绑定失败的构造函数，因此无需让通用运行时了解工具，`error instanceof ToolCallError` 也能成立。worker 使用模块初始化时捕获的 Error 构造函数与属性定义内建方法，配合原型为 null 的属性描述符，构造失败对象并定义其公开字段，因此模型代码的修改不会把约定承诺的 reject 变成 worker 失败。该错误包含标准的 `Error` 消息和确切的 `toolName`，并有意省略 `ToolFailure.info`、错误代码与 Native 内容。这是一项用于控制流的异常约定，而不是供程序分类的失败联合。
 
-绑定参数与绑定返回值会在不可信 worker 协议的两端重新校验为无损 JSON，且不设字节上限。每个分离后的值在通过结构化克隆跨越边界前，都会编码为扁平的前序 token 流，其传输结构的嵌套深度有界；接收方再以迭代方式重建该值。因此，有效应用数据的嵌套深度既不受 JavaScript 调用栈深度上限限制，也不受特定平台对嵌套结构化克隆施加的上限限制。模块初始化时，worker 会捕获自身 JavaScript 运行域中 `Array.prototype` 和 `Object.prototype` 的引用、仅用于识别其他运行域普通容器原型、可获取原生函数源码的内建函数，以及 JSON 边界用于结构处理和计量的全部内建方法。属性写入使用原型为 null 的属性描述符；内部的数组与集合操作直接调用捕获的方法，不会访问可变的全局或原型槽位。因此，即使模型代码替换 `Object.keys`、`Array.isArray`、集合方法、字符串方法或 `Buffer.byteLength` 等辅助方法，重写内建原型的构造函数槽位，或向 `Object.prototype` 添加形如属性描述符的字段，也不会改变校验、协议传输或字节计量。面向其他运行域的原生函数源码检查仍会拒绝由用户编写、冒充 `Object` 或 `Array` 的构造函数。为保持依赖轻量，运行时 seam 将结构等价类型命名为 `CodeJsonValue`，从而无需依赖会话侧拥有的规范类型；生成的 SDK 和工具 API 则使用 `JsonValue`。这些值不会经过提示词截断、上下文输出落盘或持久化。因此，程序可以完整筛选已经采集的搜索、工作流、任务、文件系统与 MCP 值，同时提供方和执行器的采集上限仍会实际生效。
+绑定参数与绑定返回值会在不可信 worker 协议的两端重新校验为无损 JSON，且不设字节上限。每个分离后的值在通过结构化克隆跨越边界前，都会编码为扁平的前序 token 流，其传输结构的嵌套深度有界；接收方再以迭代方式重建该值。因此，有效应用数据的嵌套深度既不受 JavaScript 调用栈深度上限限制，也不受特定平台对嵌套结构化克隆施加的上限限制。模块初始化时，worker 会捕获自身 JavaScript 运行域中 `Array.prototype` 和 `Object.prototype` 的引用、仅用于识别其他运行域普通容器原型、可获取原生函数源码的内建函数，以及 JSON 边界用于结构处理和计量的全部内建方法。属性写入使用原型为 null 的属性描述符；内部的数组与集合操作直接调用捕获的方法，不会访问可变的全局或原型槽位。因此，即使模型代码替换 `Object.keys`、`Array.isArray`、集合方法、字符串方法或 `Buffer.byteLength` 等辅助方法，重写内建原型的构造函数槽位，或向 `Object.prototype` 添加形如属性描述符的字段，也不会改变校验、协议传输或字节计量。面向其他运行域的原生函数源码检查仍会拒绝由用户编写、冒充 `Object` 或 `Array` 的构造函数。为保持依赖轻量，运行时 Service Definition 将结构等价类型命名为 `CodeJsonValue`，从而无需依赖会话侧拥有的规范类型；生成的 SDK 和工具 API 则使用 `JsonValue`。这些值不会经过提示词截断、上下文输出落盘或持久化。因此，程序可以完整筛选已经采集的搜索、工作流、任务、文件系统与 MCP 值，同时提供方和执行器的采集上限仍会实际生效。
 
 ### 外层结果与输出账本
 
@@ -67,7 +67,7 @@ Code Mode 通过运行时请求中的 `{ name: "ToolCallError", memberNameProper
 
 ### 类型化句柄与生命周期
 
-后台 producer 返回类型化的规范句柄，例如 `{ kind: 'background', taskId }`，同时保留既有的 Native 语句。已预先中止的后台调用仍是失败，因为成功输出承诺返回 id，而此时并未创建任务。`ctx.tasks.start()` 发布 id 后，工作由任务自有的取消机制控制：外围 `run_code` 调用完成，或随后被取消，都不会终止该任务。后续程序可以把返回的 id 传给 `task_output`；任务取消则由 `task_kill`、所有者的 dispose（资源释放）或服务 teardown（拆卸）流程负责。前台执行仍与本次调用的信号耦合。任务生命周期契约由[后台任务运行时 Agent Note](../architecture/2026-06-20-generic-long-running-tool-runtime.md)定义。
+后台 producer 返回类型化的规范句柄，例如 `{ kind: 'background', taskId }`，同时保留既有的 Native 语句。已预先中止的后台调用仍是失败，因为成功输出承诺返回 id，而此时并未创建任务。`ctx.tasks.start()` 发布 id 后，工作由任务自有的取消机制控制：外围 `run_code` 调用完成，或随后被取消，都不会终止该任务。后续程序可以把返回的 id 传给 `task_output`；任务取消则由 `task_kill`、所有者的 dispose（资源释放）或服务 teardown（拆卸）流程负责。前台执行仍与本次调用的信号耦合。任务生命周期约定由[后台任务运行时 Agent Note](../architecture/2026-06-20-generic-long-running-tool-runtime.md)定义。
 
 临时 Cordis Plugin 遵循同一规则：`cordis_mount` 返回 `{ id, pluginName, state, provides, waitingFor }`，因此程序可以直接读取 `mounted.id`，检查 active 或 pending 状态，并把该 id 传给 `cordis_unmount`，无需解析稳定的 Native 语句。
 
@@ -85,11 +85,11 @@ Code Mode 通过运行时请求中的 `{ name: "ToolCallError", memberNameProper
 
 ## 考虑过的替代方案
 
-**返回 Native 文本并附加可选 JSON：**不予采纳。程序会面对两套相互竞争的成功契约；可选值不存在时，仍需使用工具专属的解析规则。规范值才是 API；Native 内容只是它的展示。
+**返回 Native 文本并附加可选 JSON：**不予采纳。程序会面对两套相互竞争的成功约定；可选值不存在时，仍需使用工具专属的解析规则。规范值才是 API；Native 内容只是它的展示。
 
 **让每个绑定返回成功／失败联合：**不予采纳。失败没有稳定的程序化分类体系。reject 保留普通的 `try`／`catch` 控制流，并且只暴露工具名与可供人阅读的消息。
 
-**限制每个中间绑定值：**不予采纳。中间值不会进入模型上下文，任意截断会破坏程序化组合。明确的边界仍是生产方的采集契约与进程内存。
+**限制每个中间绑定值：**不予采纳。中间值不会进入模型上下文，任意截断会破坏程序化组合。明确的边界仍是生产方的采集约定与进程内存。
 
 **静默检查格式化或截断过大的完成值：**不予采纳。把 JSON 值改成字符串既有损又违反类型。显式的 `output-limit` 失败让模型可以选择返回更小的结果，而保留的日志和诊断仍可使用普通的外层输出落盘机制。
 

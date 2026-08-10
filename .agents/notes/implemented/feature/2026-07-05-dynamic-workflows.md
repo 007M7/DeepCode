@@ -10,7 +10,7 @@ The harness can delegate ONE task to ONE child (`dsh-tool-subagent`), but work t
 
 ## Decision
 
-A workflow capability family at `packages/workflow/` in the bash seam shape (interface / implementation / consumer), plus the structured-output foundation it needs on the subagent seam.
+A workflow capability family at `packages/workflow/` in the bash seam shape (Service Definition / Service provider / Consumer), plus the structured-output foundation it needs on the subagent seam.
 
 ### The script contract (Claude Code-compatible)
 
@@ -20,7 +20,7 @@ One deliberate strictness DIVERGENCE from CC: hook misuse — unknown or deferre
 
 ### The seam (dsh-workflow)
 
-`ctx.workflows` is an abstract `WorkflowService` in the bash shape — one engine per context, no named-provider registry (engines are deployment swaps, not co-residents). `start(request)` throws synchronously for a script that cannot begin; a returned `WorkflowRun`'s `result` NEVER rejects (failures resolve as `stopReason: 'error' | 'cancelled'`). The `workflow/*` events are observe-only emits carrying DATA SNAPSHOTS (id + meta; `workflow/end` omits the result value), per-listener contained, mirroring `subagent/start`/`subagent/end` — control stays with the run's holder. Vocabulary details: [core-data-structures/workflow.md](../../../../docs/core-data-structures/workflow.md).
+`ctx.workflows` is an abstract `WorkflowService` in the bash shape — one engine per context, no named-provider registry (engines are deployment swaps, not co-residents). `start(request)` throws synchronously for a script that cannot begin; a returned `WorkflowRun`'s `result` NEVER rejects (failures resolve as `stopReason: 'error' | 'cancelled'`). The `workflow/*` events are observe-only emits carrying DATA SNAPSHOTS (id + meta; `workflow/end` omits the result value), per-listener contained, mirroring `subagent/start`/`subagent/end` — control stays with the run's holder. Vocabulary details: [subsystems/workflow.md](../../../../docs/subsystems/workflow.md).
 
 ### The engine (dsh-workflow-workerthread): one worker thread per run
 
@@ -36,7 +36,7 @@ The engine exposes an in-process `MessageChannel` test path because main-process
 
 **Value boundary**: `materializeFromRealm` copies outbound values and rejects functions, symbols, nested `undefined`, exotic prototypes, cycles, sparse arrays, and non-finite numbers. Data-property copies make `"__proto__"` safe; getters are read normally and a throwing getter fails loudly. `args` crosses through `workerData` and is cloned again before exposure. Realm functions are invoked rather than copied, and thrown values use a total renderer so `result` cannot reject. Hook errors are host-realm `WorkflowError`s, so scripts branch on `name` or `code` rather than `instanceof Error`, as documented in the engine README. Concurrency, total-agent, item, timeout, and grace limits are validated config.
 
-### The consumer (dsh-tool-workflow)
+### The Consumer (`dsh-tool-workflow`)
 
 A `workflow` tool mirroring `dsh-tool-subagent`'s synchronous shape: start, await, `try/finally` dispose, abort-bridge `exec.signal`, non-`completed` → `isError`. Render intent: a `generic` card titled by the call's `meta.name` parameter (presentation is a pure function of args). The tool description IS the model-facing authoring spec. The usage policy ships with the tool as its own `tool:<toolName>` prompt section (explicit-ask-only guidance — tool guidance lives in tool plugins, never in the deployment persona); the harness has no ultracode-style effort gate.
 
@@ -52,7 +52,7 @@ An output schema makes a schema-valid committed capture mandatory for successful
 
 Worker-side logic runs through an in-process `MessageChannel` so V8 coverage measures it. Unit tests cover script helpers, fatal and nullable failures, JSON boundaries, caps, cancellation, child ownership, and structured output through real loops. A built-bin smoke runs the separately bundled `lib/worker.cjs` under plain Node, a with-key e2e drives real child agents, and model-facing workflow behavior is snapshot-covered through its owning example.
 
-## Deferred (documented non-goals of this cut)
+## Deferred (documented non-goals)
 
 - **Background collection** (start tool → run id → completion notice → collect), designed alongside bash/subagent background unification.
 - **Journaling + resume** (`resumeFromRunId`, cached agent() prefixes) — implementing it reintroduces CC's determinism bans as a script-contract tightening (scripts may read the clock today).

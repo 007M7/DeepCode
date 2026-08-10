@@ -1,0 +1,3 @@
+name: 极简模式
+description: 只向模型呈现 bash 与 str_replace_editor，适合 benchmark 与最小复现。
+order: 3

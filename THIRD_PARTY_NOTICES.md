@@ -7,7 +7,7 @@ DeepSeek Harness is licensed under [BSD 3-Clause](LICENSE). It depends on the th
 
 This file lists **direct** dependencies declared by the workspace and the explicitly disclosed official Claude platform payload closure. It is generated from the workspace manifests by `scripts/gen-third-party-notices.ts`: a pre-commit hook regenerates it whenever a staged file changes one of its inputs, and `scripts/gen-third-party-notices.spec.ts` asserts in the test lane that the committed bytes match. Deleting a manifest runs no hook, so that case is caught by the assertion instead. Run `pnpm run verify-third-party-notices` for the standalone check.
 
-The complete npm transitive closure, with exact pinned versions, is recorded in [`pnpm-lock.yaml`](pnpm-lock.yaml) — inspect it with `pnpm licenses list`. The Python closure is recorded in [`python/sdk/uv.lock`](python/sdk/uv.lock), and the Landlock launcher workspace keeps its own in [`native/landlock-run/pnpm-lock.yaml`](native/landlock-run/pnpm-lock.yaml).
+The complete npm transitive closure, including the Landlock launcher workspace, is recorded with exact pinned versions in [`pnpm-lock.yaml`](pnpm-lock.yaml) — inspect it with `pnpm licenses list`. The Python closure is recorded separately in [`python/sdk/uv.lock`](python/sdk/uv.lock).
 
 ## Vendored source (`vendor/`)
 
@@ -39,6 +39,7 @@ External packages that a workspace package resolves at runtime. `scripts/install
 | [`@clack/prompts`](https://github.com/bombshell-dev/clack) | MIT |
 | [`@earendil-works/pi-ai`](https://github.com/earendil-works/pi) | MIT |
 | [`@joplin/turndown-plugin-gfm`](https://github.com/laurent22/joplin-turndown-plugin-gfm) | MIT |
+| [`@jridgewell/gen-mapping`](https://github.com/jridgewell/sourcemaps) | MIT |
 | [`@modelcontextprotocol/sdk`](https://github.com/modelcontextprotocol/typescript-sdk) | MIT |
 | [`@opentelemetry/api`](https://github.com/open-telemetry/opentelemetry-js) | Apache-2.0 |
 | [`@opentelemetry/api-logs`](https://github.com/open-telemetry/opentelemetry-js) | Apache-2.0 |
@@ -56,7 +57,7 @@ External packages that a workspace package resolves at runtime. `scripts/install
 | [`clsx`](https://github.com/lukeed/clsx) | MIT |
 | [`commander`](https://github.com/tj/commander.js) | MIT |
 | [`diff`](https://github.com/kpdecker/jsdiff) | BSD-3-Clause |
-| [`dotenv`](https://github.com/motdotla/dotenv) | BSD-2-Clause |
+| [`e2b`](https://github.com/e2b-dev/e2b) | MIT |
 | [`eventsource-parser`](https://github.com/rexxars/eventsource-parser) | MIT |
 | [`handlebars`](https://github.com/handlebars-lang/handlebars.js) | MIT |
 | [`immer`](https://github.com/immerjs/immer) | MIT |
@@ -138,7 +139,6 @@ External packages **directly declared** only by repository tooling, test infrast
 | [`@types/spdx-expression-parse`](https://github.com/DefinitelyTyped/DefinitelyTyped) | MIT |
 | [`@types/turndown`](https://github.com/DefinitelyTyped/DefinitelyTyped) | MIT |
 | [`@types/ws`](https://github.com/DefinitelyTyped/DefinitelyTyped) | MIT |
-| [`@typescript-eslint/parser`](https://github.com/typescript-eslint/typescript-eslint) | MIT |
 | [`@vitejs/plugin-react`](https://github.com/vitejs/vite-plugin-react) | MIT |
 | [`@vitest/coverage-v8`](https://github.com/vitest-dev/vitest) | MIT |
 | [`@yarnpkg/cli-dist`](https://github.com/yarnpkg/berry) | BSD-2-Clause |
@@ -147,7 +147,6 @@ External packages **directly declared** only by repository tooling, test infrast
 | [`dayjs`](https://github.com/iamkun/dayjs) | MIT |
 | [`debug`](https://github.com/debug-js/debug) | MIT |
 | [`esbuild`](https://github.com/evanw/esbuild) | MIT |
-| [`eslint`](https://github.com/eslint/eslint) | MIT |
 | [`eslint-plugin-sonarjs`](https://github.com/SonarSource/SonarJS) | LGPL-3.0-only |
 | [`execa`](https://github.com/sindresorhus/execa) | MIT |
 | [`fast-check`](https://github.com/dubzzz/fast-check) | MIT |
@@ -191,6 +190,6 @@ Direct dependencies of the `pyproject.toml` manifests, plus `uv` as the developm
 | --- | --- | --- |
 | [`@yao-pkg/pkg`](https://github.com/yao-pkg/pkg) | MIT | invoked by `scripts/build-exe-for-python-sdk.ts` to assemble the single-file SDK runtime executable |
 
-## First-party sibling releases
+## First-party native packages
 
-`node-addon-landlock-run` (and its platform packages) is released from a DeepSeek Harness sibling repository under BSD 3-Clause. It is listed here for completeness; it is first-party, not third-party.
+`@deepseek-ai/node-addon-landlock-run` (and its platform packages) is built and released from this repository under BSD 3-Clause. It is listed here for completeness; it is first-party, not third-party.

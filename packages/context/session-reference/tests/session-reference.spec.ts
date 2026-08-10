@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { COMPACT_CHECKPOINT_SOURCE } from '@deepseek-ai/dsh-compact'
+import { CompactionId, compactCheckpointSource } from '@deepseek-ai/dsh-compact'
 import { createUserMessage, CallId , createMessage, createToolResultMessage } from '@deepseek-ai/dsh-llm'
 import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
 import SessionQueryService from '@deepseek-ai/dsh-session-query'
@@ -48,6 +48,10 @@ function expectCode(code: SessionReferenceErrorCode): Error {
   return expect.objectContaining({ code }) as Error
 }
 
+function checkpointSource(id: string) {
+  return compactCheckpointSource(CompactionId(id))
+}
+
 function appendConversation(session: Session): void {
   const oldUser = session.append(
     'user/message',
@@ -75,7 +79,8 @@ function appendConversation(session: Session): void {
   session.append(
     'user/message',
     createUserMessage({
-      content: [{ type: 'text', text: '<compacted-summary>checkpoint</compacted-summary>' }], source: COMPACT_CHECKPOINT_SOURCE,
+      content: [{ type: 'text', text: '<compacted-summary>checkpoint</compacted-summary>' }],
+      source: checkpointSource('conversation'),
     }),
     {
       surfaceOp: { op: 'replace', start: oldUser.seq, end: oldAssistant.seq },
@@ -534,7 +539,8 @@ describe('session reference discovery and preparation', () => {
       source.append(
         'user/message',
         createUserMessage({
-          content: [{ type: 'text', text: `${id}-${'界'.repeat(400)}` }], source: COMPACT_CHECKPOINT_SOURCE,
+          content: [{ type: 'text', text: `${id}-${'界'.repeat(400)}` }],
+          source: checkpointSource(id),
         }),
         { surfaceOp: 'append' },
       )
@@ -616,7 +622,8 @@ describe('session reference discovery and preparation', () => {
     source.append(
       'user/message',
       createUserMessage({
-        content: [{ type: 'text', text: 'later compact checkpoint' }], source: COMPACT_CHECKPOINT_SOURCE,
+        content: [{ type: 'text', text: 'later compact checkpoint' }],
+        source: checkpointSource('later-source-mutation'),
       }),
       {
         surfaceOp: { op: 'replace', start: original.seq, end: later.seq },

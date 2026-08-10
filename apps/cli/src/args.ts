@@ -1,10 +1,10 @@
 /**
  * Commander adapter for the `dsh` command-line entry. The default command
  * boots a named profile (`--profile <name>`), optionally with extra `--patch`
- * overlays and a positional task (one-shot mode for profiles mounting the
- * headless runner). `web` is a hardcoded alias for `--profile web` that adds
- * the Web flag family; `plugin` manages a profile's plugin dependencies by
- * forwarding to pnpm. Commander owns help, version, and parse errors.
+ * overlays. `run` owns one-shot task execution, defaulting to the headless
+ * profile; `web` is a hardcoded alias for `--profile web` that adds the Web
+ * flag family; `plugin` manages a profile's plugin dependencies by forwarding
+ * to pnpm. Commander owns help, version, and parse errors.
  * @module @deepseek-ai/dsh/args
  */
 
@@ -16,8 +16,16 @@ interface ProfileInvocation {
   profile: string
   /** Extra patch-list overlays applied after the profile's own layer, in argv order. */
   patches: string[]
-  /** Positional task text joined by spaces; non-empty only for one-shot runs. */
-  task?: string
+}
+
+/** Run one task through a profile mounting the headless runner. */
+interface RunInvocation {
+  mode: 'run'
+  profile: string
+  /** Extra patch-list overlays applied after the profile's own layer, in argv order. */
+  patches: string[]
+  /** Non-blank task text joined from the variadic positional arguments. */
+  task: string
 }
 
 /** Print a composed profile tree and exit without booting. */
@@ -53,7 +61,7 @@ interface PluginInvocation {
 }
 
 /** The resolved `dsh` invocation. Help, version, and errors exit inside {@link parseDshArgs}. */
-export type DshInvocation = ProfileInvocation | DumpConfigInvocation | WebInvocation | PluginInvocation
+export type DshInvocation = ProfileInvocation | RunInvocation | DumpConfigInvocation | WebInvocation | PluginInvocation
 
 /** Raw web-subcommand options straight from Commander. */
 interface WebOptions {
@@ -64,6 +72,12 @@ interface WebOptions {
   trustedHost?: string[]
   dumpConfig?: boolean
   dumpDefaultConfig?: boolean
+}
+
+/** Raw run-subcommand options straight from Commander. */
+interface RunOptions {
+  profile: string
+  patch?: string[]
 }
 
 /**
@@ -88,19 +102,19 @@ export function parseDshArgs(argv: readonly string[], version: string): DshInvoc
     .addHelpText('after', `
 Examples:
   dsh --profile web                          boot the web profile (same as: dsh web)
-  dsh --profile headless "run the tests"     answer one task, print the result, and exit
+  dsh run "run the tests"                    answer one task, print the result, and exit
+  dsh run --profile custom "run the tests"   run one task through a custom one-shot profile
   dsh --profile tui --patch ./extra.yml      boot a custom profile with one extra overlay
   dsh plugin --profile tui add <package>     install a plugin into the tui profile
   dsh web --port 8080                        the web alias with its flag family
 `)
     .exitOverride()
     .enablePositionalOptions()
-    .argument('[task...]', 'one-shot task text for profiles mounting the headless runner')
     .option('--profile <name>', 'the profile under $DSH_HOME/profiles to boot')
     .option('--patch <path>', 'extra patch-list overlay applied after the profile layer (repeatable)', collect)
     .option('--dump-config', 'print the composed profile tree and exit')
     .option('--dump-default-config', 'print the profile tree without its user layer or --patch overlays and exit')
-    .action((task: string[], options: {
+    .action((options: {
       profile?: string
       patch?: string[]
       dumpConfig?: boolean
@@ -114,7 +128,6 @@ Examples:
         if (options.dumpConfig === true && options.dumpDefaultConfig === true) {
           program.error('error: --dump-config and --dump-default-config are mutually exclusive')
         }
-        if (task.length > 0) program.error('error: --dump-config/--dump-default-config take no task')
         const defaultOnly = options.dumpDefaultConfig === true
         if (defaultOnly && patches.length > 0) {
           program.error('error: --dump-default-config prints the bundle layers and takes no --patch')
@@ -122,12 +135,7 @@ Examples:
         resolved = { mode: 'dump-config', profile, defaultOnly, patches }
         return
       }
-      resolved = {
-        mode: 'profile',
-        profile,
-        patches,
-        ...task.length > 0 ? { task: task.join(' ') } : {},
-      }
+      resolved = { mode: 'profile', profile, patches }
     })
 
   /** Reject parent options that crossed a subcommand boundary. */
@@ -143,6 +151,22 @@ Examples:
       program.error(`error: ${command} takes none of parent --profile, --patch, --dump-config, or --dump-default-config`)
     }
   }
+
+  const run = program.command('run').description('run one task through a profile mounting the headless runner')
+  run
+    .option('--profile <name>', 'one-shot profile under $DSH_HOME/profiles', 'headless')
+    .option('--patch <path>', 'extra patch-list overlay applied after the profile layer (repeatable)', collect)
+    .argument('<task...>', 'task text')
+    .action((task: string[], options: RunOptions) => {
+      rejectParentOptions('run')
+      const profile = options.profile
+      if (profile === '') program.error('error: --profile needs a name')
+      const patches = options.patch ?? []
+      if (patches.includes('')) program.error('error: --patch needs a path')
+      const joined = task.join(' ')
+      if (joined.trim() === '') program.error('error: run needs a non-blank task')
+      resolved = { mode: 'run', profile, patches, task: joined }
+    })
 
   const web = program.command('web').description('serve the browser UI (alias of --profile web) on the configured host and port')
   web

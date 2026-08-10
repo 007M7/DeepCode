@@ -1,6 +1,6 @@
 /**
  * Web session model-directory and selection behavior: dynamic provider grouping,
- * provider-local catalog failures, logged-target restoration without stale
+ * provider-local catalog failures, logged-selection restoration without stale
  * catalog injection, advisory pass-through models, and the prompt-assembly
  * boundary for a running selection change.
  */
@@ -119,13 +119,13 @@ function expectValue<T>(response: { result: { ok: true; value: T } | { ok: false
 }
 
 describe('Web session model selection', () => {
-  it('groups successful providers and leaves an unlisted current target out of the catalog', async () => {
+  it('groups successful providers and leaves an unlisted current selection out of the catalog', async () => {
     const { ctx, sessionId } = await harness({
       provider: 'deepseek-official',
       model: 'private-preview',
       reasoningEffort: ReasoningEffortId('max'),
     })
-    const api = createApiProxy(ctx, { provider: 'deepseek-official', model: 'deepseek-chat', cwd: '/tmp' })
+    const api = createApiProxy(ctx, { defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }), cwd: '/tmp' })
 
     const catalog = expectValue(await api.sessions.models(request({ sessionId })))
     expect(catalog.current).toEqual({
@@ -160,7 +160,7 @@ describe('Web session model selection', () => {
 
   it('accepts an advisory-unlisted model, rejects an unavailable provider, and switches only after the next assembly', async () => {
     const { ctx, agent, sessionId } = await harness()
-    const api = createApiProxy(ctx, { provider: 'deepseek-official', model: 'deepseek-chat', cwd: '/tmp' })
+    const api = createApiProxy(ctx, { defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }), cwd: '/tmp' })
     const seed: LlmCallConfig = { provider: 'seed', model: 'seed', temperature: 0.2 }
     const signal = new AbortController().signal
 
@@ -223,6 +223,129 @@ describe('Web session model selection', () => {
     })
     expect(expectValue(await api.sessions.models(request({ sessionId }))).current)
       .toEqual({ provider: 'deepseek-official', model: 'private-preview', reasoningEffort: 'max' })
+    await ctx.fiber.dispose()
+  })
+
+  it('reads the Agent default live for a session whose log names no selection', async () => {
+    const { ctx, sessionId } = await harness()
+    let stored = { provider: 'deepseek-official', model: 'deepseek-chat' }
+    const api = createApiProxy(ctx, {
+      defaultModelSelection: () => stored,
+      cwd: '/tmp',
+    })
+
+    expect(expectValue(await api.sessions.models(request({ sessionId }))).current)
+      .toEqual({ provider: 'deepseek-official', model: 'deepseek-chat' })
+    // The default moving after the session exists still reaches it: New
+    // Session reuses a blank session rather than minting another, so a seed
+    // captured at creation would show the superseded model there.
+    stored = { provider: 'deepseek-official', model: 'deepseek-reasoner' }
+    expect(expectValue(await api.sessions.models(request({ sessionId }))).current)
+      .toEqual({ provider: 'deepseek-official', model: 'deepseek-reasoner' })
+    expect(expectValue(await api.host.describe(request({}))))
+      .toMatchObject({ provider: 'deepseek-official', model: 'deepseek-reasoner' })
+    await ctx.fiber.dispose()
+  })
+
+  it('keeps a session on its logged selection when the Agent default differs', async () => {
+    const { ctx, sessionId } = await harness({
+      provider: 'deepseek-official',
+      model: 'deepseek-chat',
+    })
+    let stored = { provider: 'deepseek-official', model: 'deepseek-chat' }
+    const api = createApiProxy(ctx, {
+      defaultModelSelection: () => stored,
+      cwd: '/tmp',
+    })
+
+    stored = { provider: 'duplicate', model: 'same' }
+    expect(expectValue(await api.sessions.models(request({ sessionId }))).current)
+      .toEqual({ provider: 'deepseek-official', model: 'deepseek-chat' })
+    await ctx.fiber.dispose()
+  })
+
+  it('saves an accepted selection as the default and survives a storage failure', async () => {
+    const { ctx, sessionId } = await harness()
+    const saved: unknown[] = []
+    let reject = false
+    const api = createApiProxy(ctx, {
+      defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }),
+      saveDefaultModelSelection: (selection) => {
+        saved.push(selection)
+        return reject ? Promise.reject(new Error('read-only document')) : Promise.resolve()
+      },
+      cwd: '/tmp',
+    })
+
+    expectValue(await api.sessions.selectModel(request({
+      sessionId, provider: 'deepseek-official', model: 'deepseek-reasoner', reasoningEffort: 'max',
+    })))
+    expect(saved).toEqual([
+      { provider: 'deepseek-official', model: 'deepseek-reasoner', reasoningEffort: 'max' },
+    ])
+
+    // A refused selection never becomes anyone's default.
+    await api.sessions.selectModel(request({ sessionId, provider: 'missing', model: 'model' }))
+    expect(saved).toHaveLength(1)
+
+    // Storage failing is not the selection failing: the switch already applies
+    // to this session, so the call still succeeds.
+    reject = true
+    const stillAccepted = expectValue(await api.sessions.selectModel(request({
+      sessionId, provider: 'deepseek-official', model: 'deepseek-chat',
+    })))
+    expect(stillAccepted.selected).toEqual({ provider: 'deepseek-official', model: 'deepseek-chat', reasoningEffort: 'high' })
+    expect(expectValue(await api.sessions.models(request({ sessionId }))).current)
+      .toEqual({ provider: 'deepseek-official', model: 'deepseek-chat', reasoningEffort: 'high' })
+    await ctx.fiber.dispose()
+  })
+
+  it('refuses a prompt no adapter can route, and reports it on the directory', async () => {
+    const { ctx, sessionId } = await harness()
+    const api = createApiProxy(ctx, {
+      defaultModelSelection: () => ({ provider: 'deleted-gateway', model: 'deleted-model' }),
+      cwd: '/tmp',
+    })
+
+    // The client disabling its input is an affordance; this method stays
+    // callable, so the refusal has to live here.
+    const refused = await api.sessions.prompt(request({
+      sessionId, mode: 'queue' as const, content: [{ type: 'text' as const, text: 'hi' }],
+    }))
+    expect(refused.result).toMatchObject({
+      ok: false,
+      error: { code: 'model-unavailable', details: { provider: 'deleted-gateway', model: 'deleted-model' } },
+    })
+    expect(expectValue(await api.sessions.models(request({ sessionId }))).routable).toBe(false)
+
+    // An advisory-unlisted model on a live route is NOT this: the route
+    // serves it, so the prompt goes through and nothing blocks.
+    expectValue(await api.sessions.selectModel(request({
+      sessionId, provider: 'deepseek-official', model: 'unlisted-but-served',
+    })))
+    const catalog = expectValue(await api.sessions.models(request({ sessionId })))
+    expect(catalog.routable).toBe(true)
+    expect(catalog.groups.flatMap(group => group.models.map(model => model.id)))
+      .not.toContain('unlisted-but-served')
+    await ctx.fiber.dispose()
+  })
+
+  it('serves a session and its catalog when the stored default names a route that is gone', async () => {
+    const { ctx, sessionId } = await harness()
+    const api = createApiProxy(ctx, {
+      // What a Models-page removal leaves behind: the settings document still
+      // names the route the user last picked, and nothing serves it.
+      defaultModelSelection: () => ({ provider: 'deleted-gateway', model: 'deleted-model' }),
+      cwd: '/tmp',
+    })
+
+    const catalog = expectValue(await api.sessions.models(request({ sessionId })))
+    // Passed through rather than repaired: matching no group is precisely what
+    // makes the composer seat prompt for a selection instead of naming a model
+    // the deployment cannot reach.
+    expect(catalog.current).toEqual({ provider: 'deleted-gateway', model: 'deleted-model' })
+    expect(catalog.groups.flatMap(group => group.models.map(model => `${group.id}/${model.id}`)))
+      .not.toContain('deleted-gateway/deleted-model')
     await ctx.fiber.dispose()
   })
 })

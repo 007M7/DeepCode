@@ -30,15 +30,17 @@ import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
 import { deriveEventMessage, foldSurface } from '@deepseek-ai/dsh-session/surface'
 import type {
   ApiProxy, ClientRequest, ClientResponse, HistoryEntry, HostFrame, MuxFrame, RpcReceipt,
-  ModelProviderGroup, ModelTarget, RpcRequest, RpcResponse, RpcResult, ServerRequest, ServerResponse, SessionSummary,
+  ModelProviderGroup, ModelSelection, RpcRequest, RpcResponse, RpcResult, ServerRequest, ServerResponse, SessionSummary,
   ToolCallView, ToolEventView, ToolResultView, WorkspaceId, WorkspaceView,
 } from './api.ts'
 import type { RequestPayload, ResponseValue, RpcMethodMap } from '@deepseek-ai/dsh-host-apiproxy/api'
 import { AbstractApiClient, RpcId, SESSION_SEARCH_RESULT_LIMIT } from './api.ts'
+import { randomUuid } from './random-uuid.ts'
+import type { ClientConnectionRpc } from '../rpc.ts'
 
 /** The fake carrier mints like a real one (business code never mints). */
 function rpcRequest<P>(payload: P): RpcRequest<P> {
-  return { rpcId: RpcId(crypto.randomUUID()), payload }
+  return { rpcId: RpcId(randomUuid()), payload }
 }
 
 function text(t: string): ContentBlock[] {
@@ -94,7 +96,7 @@ function sgr(code: number, body: string): string {
 }
 
 /**
- * Terminal output sample for fixture turn 65, authored to carry every feature
+ * Terminal output sample for fixture turn 66, authored to carry every feature
  * the terminal card draws that turn 60's two prompt rows cannot reach:
  * basic-16 SGR foreground runs (green, red, bright-black) that must resolve to
  * `--dsw-*` tokens, a bold run, column-aligned table rows that must scroll
@@ -139,7 +141,7 @@ const TERMINAL_EXIT_STATUS: Record<string, { exitCode: number } | { signal: stri
 }
 
 /**
- * Structured grep result for the search sample (turn 66): matches grouped by
+ * Structured grep result for the search sample (turn 67): matches grouped by
  * file, authored inline because the client-side fixture cannot import the tool
  * that produces the canonical value. `truncated` with a larger `total` than the
  * retained match count exercises the search card's capped indicator; the file
@@ -155,19 +157,19 @@ const SEARCH_MATCHES_FIXTURE: { path: string; matches: { lineNumber: number; lin
     ],
   },
   {
-    path: 'packages/client/ui-conversation/src/client/contract/search-card-model.ts',
+    path: 'packages/client/ui-tool/src/client/tool/models/search-card-model.ts',
     matches: [
-      { lineNumber: 24, line: 'export const CHAT_SEARCH_MAX_LINES = 8' },
-      { lineNumber: 60, line: 'export function searchCardModel(block: ToolCallBlock): SearchCardModel | null {' },
+      { lineNumber: 45, line: 'export const CHAT_SEARCH_MAX_LINES = 8' },
+      { lineNumber: 130, line: 'export function searchCardModel(block: ToolCallBlock): SearchCardModel | null {' },
     ],
   },
   {
-    path: 'packages/client/ui-conversation/src/client/toolviews/search-row.tsx',
+    path: 'packages/client/ui-tool/src/client/tool/toolviews/search-row.tsx',
     matches: [
-      { lineNumber: 33, line: 'export function SearchRow({ toolName, block, inspect, t }: SearchRowProps) {' },
-      { lineNumber: 35, line: '  const search = searchCardModel(block)' },
-      { lineNumber: 52, line: '      search={search}' },
-      { lineNumber: 78, line: "      yield ctx.slots.register({ name: 'conversation.chat.toolview', key: 'grep', locale: NS }, SearchRow)" },
+      { lineNumber: 34, line: 'export function SearchRow({ toolName, block, inspect, t }: SearchRowProps) {' },
+      { lineNumber: 36, line: '  const search = searchCardModel(block)' },
+      { lineNumber: 56, line: '      search={search}' },
+      { lineNumber: 78, line: "      yield ctx.slots.register({ name: 'tool.call.toolview', key: 'grep', locale: NS }, SearchRow)" },
     ],
   },
 ]
@@ -189,15 +191,15 @@ const SEARCH_MATCHES_TEXT = [
 ].join('\n')
 
 /**
- * Structured glob result for the search sample (turn 67): a flat path list,
+ * Structured glob result for the search sample (turn 68): a flat path list,
  * truncated with a larger `total` so the path card shows its capped indicator.
  */
 const SEARCH_PATHS_FIXTURE = [
   'packages/client/ui-primitives/src/SearchBlock.tsx',
   'packages/client/ui-primitives/src/SearchBlock.module.css',
-  'packages/client/ui-conversation/src/client/contract/search-card-model.ts',
-  'packages/client/ui-conversation/src/client/toolviews/search-row.tsx',
-  'packages/client/ui-conversation/tests/search-card.spec.tsx',
+  'packages/client/ui-tool/src/client/tool/models/search-card-model.ts',
+  'packages/client/ui-tool/src/client/tool/toolviews/search-row.tsx',
+  'packages/client/ui-tool/tests/search-card.spec.tsx',
 ]
 
 /**
@@ -424,19 +426,19 @@ function buildAlphaLog(): SessionEvent[] {
   toolTurn(61, 'fx-write', '{"path":"notes/demo.txt","content":"hello fixture\\n"}', 'wrote notes/demo.txt')
   toolTurn(62, 'edit', '{"file_path":"notes/demo.txt","old_string":"hello","new_string":"hello fixture"}', '已编辑')
   toolTurn(63, 'write', '{"file_path":"notes/new-demo.txt","content":"hello fixture\\n"}', '已写入')
-  // Turn 67: a multi-hunk edit — two scattered replacements in one file. Named
+  // Turn 64: a multi-hunk edit — two scattered replacements in one file. Named
   // `edit` so it lands on the keyed FileMutationRow (the resident diff card the
   // single-hunk turn 62 also uses), and file_path `src/config.ts` is the marker
   // the presenter reads to emit the two-hunk sample: the card draws one path
   // header, the first hunk, a `⋯` gap, then the second (the same-file
   // second-hunk arm turns 62/63 cannot reach).
-  toolTurn(67, 'edit', '{"file_path":"src/config.ts","old_string":"const timeout = 30","new_string":"const timeout = 60"}', '已编辑')
-  // Turn 64: one run_code turn with three logged sub-dispatches — the Code
+  toolTurn(64, 'edit', '{"file_path":"src/config.ts","old_string":"const timeout = 30","new_string":"const timeout = 60"}', '已编辑')
+  // Turn 65: one run_code turn with three logged sub-dispatches — the Code
   // Mode acceptance surface (parent code row + nested native-identical rows,
   // including an isError sub-call and a bash sub-call that must hit the same
   // keyed registration a top-level bash row uses).
   {
-    const turn = 64
+    const turn = 65
     const callId = `fx-call-${turn}`
     const program = 'const listing = await tools.bash({ command: "ls notes", description: "List notes" })\n'
       + 'const demo = await tools.read({ file_path: "notes/demo.txt" })\n'
@@ -454,12 +456,12 @@ function buildAlphaLog(): SessionEvent[] {
     const dispatchPair = (n: number, name: string, dispatchArgs: Record<string, unknown>, resultText: string, isError = false): void => {
       push({
         type: 'tool/code-dispatch-start',
-        data: { parentCallId: callId, subCallId: `${callId}:code:${n}`, name, arguments: dispatchArgs },
+        data: { rootCallId: callId, parentCallId: callId, subCallId: `${callId}:code:${n}`, name, arguments: dispatchArgs },
       })
       push({
         type: 'tool/code-dispatch',
         data: {
-          parentCallId: callId, subCallId: `${callId}:code:${n}`, name,
+          rootCallId: callId, parentCallId: callId, subCallId: `${callId}:code:${n}`, name,
           arguments: dispatchArgs, isError, content: [{ type: 'text', text: resultText }],
         },
       })
@@ -474,7 +476,7 @@ function buildAlphaLog(): SessionEvent[] {
     push({ type: 'step/end', data: { turn, step: 0 } })
     push({ type: 'turn/end', data: { turn, reason: { kind: 'completed' } } })
   }
-  // Turn 71: todo_write sample — the TodoRow toolview in the flow plus the
+  // Turn 72: todo_write sample — the TodoRow toolview in the flow plus the
   // todo/write snapshot event feeding the TodoPanel plan strip. Two items are
   // in_progress: this fixture chooses the parallel policy, so both surfaces
   // must render a parallel plan rather than the first active item alone.
@@ -484,7 +486,7 @@ function buildAlphaLog(): SessionEvent[] {
     { content: '跑后台构建', status: 'in_progress' },
     { content: '浏览器验收', status: 'pending' },
   ]
-  // Turn 65: the terminal sample turn 60's two clean prompt rows cannot cover —
+  // Turn 66: the terminal sample turn 60's two clean prompt rows cannot cover —
   // ANSI SGR coloring, output past the terminal card's height cap, a nested cwd
   // whose prompt label is its last segment, and a non-zero exit authored beside
   // the sample in TERMINAL_EXIT_STATUS — its body deliberately carries no
@@ -496,45 +498,45 @@ function buildAlphaLog(): SessionEvent[] {
   // Ordered BEFORE the todo turn deliberately: the standing plan retires at the
   // next `turn/start`, so a turn appended after it would leave the dock's plan
   // strip empty and take the todo surfaces' own coverage with it.
-  toolTurn(65, 'bash', '{"command":"pnpm run check","cwd":"/tmp/fixture/deep/nested"}', TERMINAL_OUTPUT_FIXTURE)
+  toolTurn(66, 'bash', '{"command":"pnpm run check","cwd":"/tmp/fixture/deep/nested"}', TERMINAL_OUTPUT_FIXTURE)
 
-  // Turns 66-67: the search card's two shapes. `grep` emits a `card: 'search'`
+  // Turns 67-68: the search card's two shapes. `grep` emits a `card: 'search'`
   // `shape: 'matches'` result view (grouped-by-file matches, truncated with a
   // larger `total`), `glob` emits `shape: 'paths'` (a flat path list, likewise
   // truncated). Both ride the keyed SearchRow registration under their own
   // names; the render-site fallback row is covered by the model derivation
   // tests, since every fixture search tool has a keyed row. Ordered before the
   // todo turn for the same standing-plan reason the bash turn is.
-  toolTurn(66, 'grep', '{"pattern":"SEARCH_MAX_LINES","path":"packages/client"}', SEARCH_MATCHES_TEXT)
-  toolTurn(67, 'glob', '{"pattern":"**/SearchBlock*","path":"packages/client"}', SEARCH_PATHS_TEXT)
+  toolTurn(67, 'grep', '{"pattern":"SEARCH_MAX_LINES","path":"packages/client"}', SEARCH_MATCHES_TEXT)
+  toolTurn(68, 'glob', '{"pattern":"**/SearchBlock*","path":"packages/client"}', SEARCH_PATHS_TEXT)
 
-  // Turn 68: the read sample — a WINDOW past an offset so the card draws file
+  // Turn 69: the read sample — a WINDOW past an offset so the card draws file
   // line numbers starting above 1 and a "showing N of M" note (the window is
   // shorter than READ_SAMPLE_TOTAL), with a `ts` language hint the shiki path
   // highlights. Named `read`, so it exercises the keyed ReadRow registration.
   // The render-site fallback ROW SHAPE (a read call on the generic flattened
-  // path) is covered by the turn 64 run_code read sub-dispatches, which
+  // path) is covered by the turn 65 run_code read sub-dispatches, which
   // session.ts folds with resultView: null; the fallback-row + read-CARD
   // combination is pinned by the web_fetch case in read-card.spec.tsx, not by
   // this fixture. The read render intent is result-side only, so its pending
   // call stays a generic `kind: 'read'` card; presentResult carries the
   // structured window.
-  toolTurn(68, 'read', `{"file_path":${JSON.stringify(READ_SAMPLE_PATH)},"offset":${READ_SAMPLE_FIRST_LINE}}`, READ_SAMPLE_TEXT)
+  toolTurn(69, 'read', `{"file_path":${JSON.stringify(READ_SAMPLE_PATH)},"offset":${READ_SAMPLE_FIRST_LINE}}`, READ_SAMPLE_TEXT)
 
-  // Turns 69-70: the web render intent — a web_search whose result view carries
+  // Turns 70-71: the web render intent — a web_search whose result view carries
   // structured sources plus an answer (the citation list, one source lacking a
   // title so its hostname labels the link, the capped indicator on), and a
   // web_fetch whose result view carries the fetched URL and its HTTP status.
   // Both keep a generic pending call view and add the `web` card only at
   // result time, which is the contract's result-only web shape. Named after
   // the real tools so they hit the keyed WebRow registration. Ordered BEFORE
-  // the todo turn for the same reason turn 65 is: the standing plan retires at
+  // the todo turn for the same reason turn 66 is: the standing plan retires at
   // the next turn/start, so a turn after it would empty the dock's plan strip.
-  toolTurn(69, 'web_search', '{"query":"deepseek harness architecture"}', 'Search results for deepseek harness architecture.')
-  toolTurn(70, 'web_fetch', '{"url":"https://www.deepseek.com/blog/harness-architecture"}', '# Harness architecture\n\nEverything is a plugin.')
+  toolTurn(70, 'web_search', '{"query":"deepseek harness architecture"}', 'Search results for deepseek harness architecture.')
+  toolTurn(71, 'web_fetch', '{"url":"https://www.deepseek.com/blog/harness-architecture"}', '# Harness architecture\n\nEverything is a plugin.')
 
   const todoArgs = JSON.stringify({ todos: fixtureTodos })
-  toolTurn(71, 'todo_write', todoArgs, 'Updated todo list: 1 pending, 2 in progress, 1 completed.')
+  toolTurn(72, 'todo_write', todoArgs, 'Updated todo list: 1 pending, 2 in progress, 1 completed.')
   // The real tool appends the snapshot mid-execution — between tool/call and
   // tool/result — so the fixture reproduces that exact ordering (the last
   // toolTurn events run ... tool/call, tool/result, step/end, turn/end).
@@ -576,7 +578,7 @@ function presentCall(name: string, argsRaw: string): ToolCallView | undefined {
     case 'read':
       return { card: 'generic', title: `Read ${str(args.file_path)}`, kind: 'read', locations: [{ path: str(args.file_path) }] }
     case 'edit':
-      // The multi-hunk sample (turn 67) is keyed on its file_path, so the two
+      // The multi-hunk sample (turn 64) is keyed on its file_path, so the two
       // scattered hunks share one path header and the card draws the `⋯` gap.
       if (str(args.file_path) === 'src/config.ts') {
         return {
@@ -689,9 +691,9 @@ function viewFor(event: SessionEvent, log: readonly SessionEvent[]): ToolEventVi
 
 /**
  * Fixture parallel of the plan unit's double-event fold: `command/run`
- * records named `plan` set the wanted target (`off` → false, else true);
- * `plan/mode` commits and clears it. `wanted` is exposed for the prompt
- * boundary (the fixture's step/start parallel).
+ * records named `plan` with recorded input set the wanted target (`off` →
+ * false, else true); `plan/mode` commits and clears it. `wanted` is exposed
+ * for the prompt boundary (the fixture's step/start parallel).
  */
 function foldPlan(log: readonly SessionEvent[]): { active: boolean; pending: boolean; wanted: boolean | null } {
   let active = false
@@ -700,7 +702,8 @@ function foldPlan(log: readonly SessionEvent[]): { active: boolean; pending: boo
     const item = event as unknown as { type: string; data?: Record<string, unknown> }
     if (item.type === 'command/run' && item.data?.['name'] === 'plan') {
       const args = item.data['args']
-      wanted = (typeof args === 'string' ? args : '').trim() !== 'off'
+      if (typeof args !== 'string') continue
+      wanted = args.trim() !== 'off'
     } else if (item.type === 'plan/mode') {
       active = item.data?.['active'] === true
       wanted = null
@@ -1007,9 +1010,11 @@ function projectionFramesOf(id: SessionId, log: readonly SessionEvent[], event: 
       seq: event.seq,
     }]
   }
-  // The plan unit advances on its two folded event kinds.
+  // The plan unit advances on its two folded event kinds when the command
+  // lifecycle contains the input that represents a plan selection.
+  const commandData = event as unknown as { data: { name?: string; args?: unknown } }
   if (type === 'plan/mode' || (type === 'command/run'
-    && (event as unknown as { data: { name?: string } }).data.name === 'plan')) {
+    && commandData.data.name === 'plan' && typeof commandData.data.args === 'string')) {
     return [{
       type: 'session/projection',
       sessionId: id,
@@ -1279,7 +1284,7 @@ export interface FixtureOptions {
 
 /** Inbox pump shared by both stream generators (FrameQueue pattern: ONE abort listener hung
  *  outside the loop — a per-iteration {once:true} listener never fires for non-final rounds and
- *  piles up for the stream's lifetime, audit C5). breakNow force-ends the stream without the
+ *  piles up for the stream's lifetime). breakNow force-ends the stream without the
  *  client's signal (timing hook: simulated connection loss). */
 class FxInbox<F> implements StreamConn<F> {
   private readonly inbox: RpcRequest<F>[] = []
@@ -1325,6 +1330,16 @@ class FxInbox<F> implements StreamConn<F> {
  * @returns an ApiProxy backed entirely by in-memory state — no host process, no network.
  */
 export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
+  return createFixtureWorld(options).api
+}
+
+interface FixtureWorld {
+  readonly api: ApiProxy
+  readonly rpc: ClientConnectionRpc
+}
+
+/** Build the fixture's legacy API and Remote RPC faces over one state graph. */
+function createFixtureWorld(options: FixtureOptions): FixtureWorld {
   // The resident fixture sessions all carry history, so none of them is blank.
   const sessions: SessionSummary[] = options.empty ? [] : [
     { sessionId: sid('fx-alpha'), updatedAt: Date.now(), running: true, blank: false, cwd: '/tmp/fixture' },
@@ -1332,7 +1347,7 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
     { sessionId: sid('fx-gamma'), updatedAt: Date.now() - 120_000, running: false, blank: false, cwd: '/tmp/fixture' },
   ]
   const logs = new Map<SessionId, SessionEvent[]>([[sid('fx-alpha'), buildAlphaLog()]])
-  const modelTargets = new Map<SessionId, ModelTarget>(sessions.map(session => [
+  const modelSelections = new Map<SessionId, ModelSelection>(sessions.map(session => [
     session.sessionId,
     { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
   ]))
@@ -1342,6 +1357,17 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
     // DeepSeek route so unrelated GUI journeys do not enter first-run setup.
     ['DEEPSEEK_API_KEY', true],
   ])
+  /**
+   * Preset compositions the fixture serves. Held as state rather than
+   * constants so the settings editor's save and delete are exercisable: the
+   * roster a GUI journey sees after writing is the text it wrote.
+   */
+  const fixturePresets = new Map<string, { trust: 'system' | 'user'; content: string }>([
+    ['standard', { trust: 'system', content: "- id: tool-bash\n  name: '@deepseek-ai/dsh-tool-bash'\n" }],
+    ['minimal', { trust: 'system', content: "- id: tool-web-search\n  name: '@deepseek-ai/dsh-tool-web-search'\n" }],
+    ['my-agent', { trust: 'user', content: "- id: tool-read\n  name: '@deepseek-ai/dsh-tool-read'\n" }],
+  ])
+  let fixtureDefaultPreset = 'standard'
   const nextTurn = new Map<SessionId, number>([[sid('fx-alpha'), 60]])
   let nextSession = 1
   let nextRpc = 1
@@ -1503,37 +1529,147 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
     return backscanGoal(log) as FxGoalProjection
   }
 
-  /** Shared CAS mutation path of the goal verbs (undefined next = invalid transition). */
-  const fxMutateGoal = (
-    request: RpcRequest<{ sessionId: SessionId; ref: { id: string; revision: number } }>,
-    ref: { id: string; revision: number },
-    next: (current: FxGoalProjection) => FxGoalProjection['goal'] | undefined,
-  ): Promise<RpcResponse<{ ref: { id: never; revision: number } }>> => {
-    const missing = requireSession(request)
+  type FxGoalRef = { id: string; revision: number }
+  type FxGoalView = FxGoalProjection['goal'] & {
+    roundsStarted: number
+    createdAt: number
+    updatedAt: number
+    activation: 'armed' | 'disarmed'
+  }
+
+  const goalFailure = <T>(message: string): RpcResult<T> => ({
+    ok: false,
+    error: { code: 'internal', message, details: {} },
+  })
+
+  const requireGoalSession = (id: SessionId): RpcResult<never> | undefined => (
+    summaryOf(id) === undefined
+      ? { ok: false, error: { code: 'session-not-found', message: `no session ${id}`, details: { sessionId: id } } }
+      : undefined
+  )
+
+  const goalView = (projection: FxGoalProjection): FxGoalView => ({
+    ...projection.goal,
+    roundsStarted: projection.roundsStarted,
+    createdAt: projection.createdAt,
+    updatedAt: projection.updatedAt,
+    activation: projection.goal.phase === 'active' ? 'armed' : 'disarmed',
+  })
+
+  /** Canonical fixture implementation of the generated Goal Remote contract. */
+  const goalRemotes = {
+    create(id: SessionId, request: { objective: string; maxGoalRounds?: number }): RpcResult<{ ref: FxGoalRef }> {
+      const missing = requireGoalSession(id)
+      if (missing !== undefined) return missing
+      const current = backscanGoal(logOf(id))
+      if (current !== null && current.goal.phase !== 'complete') {
+        return goalFailure(`goal "${current.goal.id}" already exists`)
+      }
+      const now = Date.now()
+      const projection = appendGoalChange(id, {
+        kind: 'goal/change', version: 1, operation: 'create',
+        goal: {
+          id: `fx-goal-${logOf(id).length}`,
+          revision: 1,
+          objective: request.objective,
+          phase: 'active',
+          maxGoalRounds: request.maxGoalRounds ?? 256,
+        },
+        roundsStarted: 0, createdAt: now, updatedAt: now,
+      })
+      return { ok: true, value: { ref: { id: projection.goal.id, revision: projection.goal.revision } } }
+    },
+    edit(id: SessionId, ref: FxGoalRef, request: { objective?: string; maxGoalRounds?: number }): RpcResult<FxGoalView> {
+      return mutateGoal(id, ref, current => ({
+        ...current.goal,
+        revision: current.goal.revision + 1,
+        ...request.objective === undefined ? {} : { objective: request.objective },
+        ...request.maxGoalRounds === undefined ? {} : { maxGoalRounds: request.maxGoalRounds },
+      }))
+    },
+    pause(id: SessionId, ref: FxGoalRef): RpcResult<FxGoalView> {
+      return mutateGoal(id, ref, current => (
+        current.goal.phase === 'active'
+          ? { ...current.goal, revision: current.goal.revision + 1, phase: 'paused' }
+          : undefined
+      ))
+    },
+    resume(id: SessionId, ref: FxGoalRef): RpcResult<FxGoalView> {
+      return mutateGoal(id, ref, current => (
+        current.goal.phase === 'paused' || current.goal.phase === 'blocked' || current.goal.phase === 'active'
+          ? { ...current.goal, revision: current.goal.revision + 1, phase: 'active' }
+          : undefined
+      ))
+    },
+    complete(id: SessionId, ref: FxGoalRef): RpcResult<FxGoalView> {
+      return mutateGoal(id, ref, current => (
+        current.goal.phase === 'complete'
+          ? undefined
+          : { ...current.goal, revision: current.goal.revision + 1, phase: 'complete' }
+      ))
+    },
+    clear(id: SessionId, ref: FxGoalRef): RpcResult<FxGoalRef> {
+      const resolved = resolveGoal(id, ref)
+      if (!resolved.ok) return resolved
+      const current = resolved.value
+      const tombstone = { id: current.goal.id, revision: current.goal.revision + 1 }
+      appendGoalChange(id, {
+        kind: 'goal/change', version: 1, operation: 'clear', cleared: tombstone, clearedAt: Date.now(),
+      })
+      return { ok: true, value: tombstone }
+    },
+  }
+
+  /** Resolve one current goal revision for a canonical Remote mutation. */
+  function resolveGoal(id: SessionId, ref: FxGoalRef): RpcResult<FxGoalProjection> {
+    const missing = requireGoalSession(id)
     if (missing !== undefined) return missing
-    const id = request.payload.sessionId
     const current = backscanGoal(logOf(id))
     if (current === null || current.goal.id !== ref.id || current.goal.revision !== ref.revision) {
-      return err(request, { code: 'internal', message: 'stale or missing goal revision', details: { goalCode: 'GOAL_STALE_REVISION' } })
+      return goalFailure('stale or missing goal revision')
     }
+    return { ok: true, value: current }
+  }
+
+  /** Shared CAS mutation path behind the canonical Remote verbs. */
+  function mutateGoal(
+    id: SessionId,
+    ref: FxGoalRef,
+    next: (current: FxGoalProjection) => FxGoalProjection['goal'] | undefined,
+  ): RpcResult<FxGoalView> {
+    const resolved = resolveGoal(id, ref)
+    if (!resolved.ok) return resolved
+    const current = resolved.value
     const goal = next(current)
     if (goal === undefined) {
-      return err(request, { code: 'internal', message: `invalid goal transition from "${current.goal.phase}"`, details: { goalCode: 'GOAL_INVALID_TRANSITION' } })
+      return goalFailure(`invalid goal transition from "${current.goal.phase}"`)
     }
     const projection = appendGoalChange(id, {
       kind: 'goal/change', version: 1,
       operation: goal.phase === current.goal.phase ? 'edit' : goal.phase === 'paused' ? 'pause' : goal.phase === 'active' ? 'resume' : 'complete',
       goal, roundsStarted: current.roundsStarted, createdAt: current.createdAt, updatedAt: Date.now(),
     })
-    return ok(request, { ref: { id: projection.goal.id as never, revision: projection.goal.revision } })
+    return { ok: true, value: goalView(projection) }
   }
+
+  const mapGoalResult = <T, U>(result: RpcResult<T>, map: (value: T) => U): RpcResult<U> => (
+    result.ok ? { ok: true, value: map(result.value) } : result
+  )
+
+  const goalRefResult = (result: RpcResult<FxGoalView>): RpcResult<{ ref: { id: never; revision: number } }> => (
+    mapGoalResult(result, view => ({ ref: { id: view.id as never, revision: view.revision } }))
+  )
+
+  const legacyGoalResponse = <P, T>(request: RpcRequest<P>, result: RpcResult<T>): Promise<RpcResponse<T>> => (
+    Promise.resolve({ rpcId: request.rpcId, result })
+  )
 
   /** At most one in-flight replay per session; cancel clears it. */
   const replays = new Map<SessionId, { timer: ReturnType<typeof setTimeout>; finish(aborted: boolean): void }>()
 
   /** history transit delay (timing hooks below); the page snapshot is taken at request time, like a real host. */
   let historyDelayMs = 0
-  /** One-shot history failure (timing hook: the doomed in-flight request of the S4 reconnect scenario). */
+  /** One-shot history failure (timing hook: a pre-disconnect history request already doomed when reconnect lands). */
   let failNextHistory = false
   /** Force-enders for currently open stream generators (timing hook: simulated connection loss). */
   const streamBreakers = new Set<() => void>()
@@ -1542,8 +1678,8 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
   /** The single opt-in browser stress producer; normal fixture journeys never start it. */
   let activeReasoningChunkStorm: ReasoningChunkStormState | null = null
 
-  // Timing-acceptance hooks (browser test backdoor): the in-memory fixture is ideally timed, which
-  // is exactly what masked the open-window and reconnect-gap bugs (audit S1/S3). These let
+  // Timing-acceptance hooks (browser test backdoor): the in-memory fixture is
+  // ideally timed. These let
   // browser acceptance runs create slow-history, lost-frame, and reconnect
   // windows a real host produces naturally.
   const timingHooks = {
@@ -1773,7 +1909,7 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
     replays.set(id, { timer: setTimeout(tick, 80), finish })
   }
 
-  return {
+  const api: ApiProxy = {
     sessions: {
       list: request => ok(request, { items: [...sessions].sort((a, b) => b.updatedAt - a.updatedAt) }),
       search: (request, signal) => {
@@ -1864,7 +2000,7 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
           sessionId: requestedId ?? sid(`fx-${nextSession++}`), updatedAt: Date.now(), running: false, blank: true, cwd,
         }
         sessions.push(created)
-        modelTargets.set(created.sessionId, { provider: 'deepseek-official', model: 'deepseek-v4-flash' })
+        modelSelections.set(created.sessionId, { provider: 'deepseek-official', model: 'deepseek-v4-flash' })
         attachedSessions += 1
         const emitSession = (): void => {
           // Mirrors the host: the frame fires at creation, so blank is constantly true.
@@ -1973,20 +2109,23 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
         return ok(request, { ...page, ...projections === undefined ? {} : { projections } })
       },
       models: request => ok(request, {
-        current: modelTargets.get(request.payload.sessionId)
+        current: modelSelections.get(request.payload.sessionId)
           ?? { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+        // The fixture's routes all serve; a surface exercising the blocked
+        // posture drives it through its own stub.
+        routable: true,
         groups: fixtureModelGroups(),
         failures: [],
       }),
       selectModel: (request) => {
-        const selected: ModelTarget = {
+        const selected: ModelSelection = {
           provider: request.payload.provider,
           model: request.payload.model,
           ...request.payload.reasoningEffort === undefined
             ? {}
             : { reasoningEffort: request.payload.reasoningEffort },
         }
-        modelTargets.set(request.payload.sessionId, selected)
+        modelSelections.set(request.payload.sessionId, selected)
         return ok(request, { selected })
       },
       prompt: (request) => {
@@ -2025,11 +2164,11 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
         // Capacity parallel of the host token-meter's request/context record:
         // log-only, appended inside the open turn, and deduplicated against the
         // route already recorded (the fixture never varies contextWindow).
-        const target = modelTargets.get(id) ?? { provider: 'deepseek', model: 'deepseek-v4-flash' }
-        if (lastRequestContext(logOf(id))?.model !== target.model) {
+        const selection = modelSelections.get(id) ?? { provider: 'deepseek', model: 'deepseek-v4-flash' }
+        if (lastRequestContext(logOf(id))?.model !== selection.model) {
           append(id, {
             type: 'request/context',
-            data: { provider: target.provider, model: target.model, contextWindow: 128_000 },
+            data: { provider: selection.provider, model: selection.model, contextWindow: 128_000 },
           })
         }
         startReply(
@@ -2039,9 +2178,9 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
             ? MARKDOWN_FIXTURE
             : userText === 'report model'
               ? (() => {
-                const target = modelTargets.get(id)
-                return `当前模型：${target?.provider ?? 'unknown'}/${target?.model ?? 'unknown'}`
-                  + (target?.reasoningEffort === undefined ? '' : ` · 推理等级：${target.reasoningEffort}`)
+                const selection = modelSelections.get(id)
+                return `当前模型：${selection?.provider ?? 'unknown'}/${selection?.model ?? 'unknown'}`
+                  + (selection?.reasoningEffort === undefined ? '' : ` · 推理等级：${selection.reasoningEffort}`)
               })()
               : `回声：${userText}。这是 fixture 的流式回复，用于验证打字机增长与定稿切换。`,
         )
@@ -2075,6 +2214,7 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
       prompt: request => Promise.resolve(ok(request, {
         messageId: `fixture-message-${request.payload.childSessionId}` as never,
       })),
+      interrupt: request => Promise.resolve(ok(request, { accepted: true as const })),
     },
     host: {
       describe: request => ok(request, { version: '0.0.0-fixture', cwd: '/tmp/fixture', attachedSessions }),
@@ -2314,72 +2454,139 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
         return ok(request, { matched: true as const, commandId })
       },
     },
+    agentPresets: {
+      // Both trusts appear, because a surface must present a locally authored
+      // preset differently from one the deployment vetted.
+      list: request => ok(request, {
+        presets: [...fixturePresets].map(([id, preset]) => ({
+          id,
+          trust: preset.trust,
+          isDefault: id === fixtureDefaultPreset,
+        })),
+        authorable: true,
+        hasDocument: true,
+      }),
+      select: (request) => {
+        fixtureDefaultPreset = request.payload.agentPreset
+        return ok(request, { agentPreset: request.payload.agentPreset })
+      },
+      read: (request) => {
+        const { agentPreset } = request.payload
+        const preset = fixturePresets.get(agentPreset)
+        if (preset === undefined) {
+          return err(request, {
+            code: 'agent-preset-not-found',
+            message: `unknown agent preset "${agentPreset}"`,
+            details: { agentPreset, available: [...fixturePresets.keys()] },
+          })
+        }
+        return ok(request, {
+          agentPreset,
+          trust: preset.trust,
+          content: preset.content,
+        })
+      },
+      copy: (request) => {
+        const { from, agentPreset } = request.payload
+        const source = fixturePresets.get(from)
+        if (source === undefined) {
+          return err(request, {
+            code: 'agent-preset-not-found',
+            message: `unknown agent preset "${from}"`,
+            details: { agentPreset: from, available: [...fixturePresets.keys()] },
+          })
+        }
+        if (fixturePresets.has(agentPreset)) {
+          return err(request, {
+            code: 'agent-preset-invalid',
+            message: `agent preset "${agentPreset}" already exists`,
+            details: { agentPreset, reason: 'already exists' },
+          })
+        }
+        fixturePresets.set(agentPreset, { trust: 'user', content: source.content })
+        return ok(request, { agentPreset })
+      },
+      // Native opens are deterministic no-op successes in this fixture, so the
+      // open-directory affordance renders and the path-text fallback stays a
+      // component-test concern.
+      openDocument: (request) => {
+        const { agentPreset } = request.payload
+        const existing = fixturePresets.get(agentPreset)
+        if (existing === undefined || existing.trust === 'system') {
+          return err(request, {
+            code: 'agent-preset-read-only',
+            message: `agent preset "${agentPreset}" ships with the deployment`,
+            details: { agentPreset, reason: 'it ships with the deployment' },
+          })
+        }
+        return ok(request, { opened: true as const })
+      },
+      remove: (request) => {
+        const { agentPreset } = request.payload
+        const existing = fixturePresets.get(agentPreset)
+        if (existing?.trust === 'system') {
+          return err(request, {
+            code: 'agent-preset-read-only',
+            message: `agent preset "${agentPreset}" ships with the deployment`,
+            details: { agentPreset, reason: 'it ships with the deployment' },
+          })
+        }
+        fixturePresets.delete(agentPreset)
+        return ok(request, {})
+      },
+    },
+
     skills: {
       list: (request) => {
         const missing = requireSession(request)
         if (missing !== undefined) return missing
         return ok(request, {
           skills: [
-            { name: 'fixture-demo', description: 'fixture 技能样本', whenToUse: '仅供 UI 目录渲染验收' },
+            { name: 'fixture-demo', description: 'fixture 技能样本', whenToUse: '仅供 UI 目录渲染验收', modelInvocable: true },
+            { name: 'fixture-user-only', description: 'fixture 仅用户技能样本', modelInvocable: false },
           ],
         })
       },
     },
     goals: {
-      // Mutation-only mirror of the host handlers: each verb CAS-checks the
-      // projected current goal, appends the whole-value change (the mux
-      // stream and projection frame ride the shared append path), and
-      // acknowledges with the new ref only.
-      create: (request) => {
-        const missing = requireSession(request)
-        if (missing !== undefined) return missing
-        const id = request.payload.sessionId
-        const current = backscanGoal(logOf(id))
-        if (current !== null && current.goal.phase !== 'complete') {
-          return err(request, { code: 'internal', message: `goal "${current.goal.id}" already exists`, details: { goalCode: 'GOAL_ALREADY_EXISTS' } })
-        }
-        const projection = appendGoalChange(id, {
-          kind: 'goal/change', version: 1, operation: 'create',
-          goal: { id: `fx-goal-${logOf(id).length}`, revision: 1, objective: request.payload.objective, phase: 'active', maxGoalRounds: request.payload.maxGoalRounds ?? 256 },
-          roundsStarted: 0, createdAt: Date.now(), updatedAt: Date.now(),
-        })
-        return ok(request, { ref: { id: projection.goal.id as never, revision: projection.goal.revision } })
-      },
-      edit: request => fxMutateGoal(request, request.payload.ref, current => ({
-        ...current.goal,
-        revision: current.goal.revision + 1,
-        ...request.payload.objective === undefined ? {} : { objective: request.payload.objective },
-        ...request.payload.maxGoalRounds === undefined ? {} : { maxGoalRounds: request.payload.maxGoalRounds },
-      })),
-      pause: request => fxMutateGoal(request, request.payload.ref, current => (
-        current.goal.phase === 'active'
-          ? { ...current.goal, revision: current.goal.revision + 1, phase: 'paused' }
-          : undefined
-      )),
-      resume: request => fxMutateGoal(request, request.payload.ref, current => (
-        current.goal.phase === 'paused' || current.goal.phase === 'blocked' || current.goal.phase === 'active'
-          ? { ...current.goal, revision: current.goal.revision + 1, phase: 'active' }
-          : undefined
-      )),
-      complete: request => fxMutateGoal(request, request.payload.ref, current => (
-        current.goal.phase === 'complete'
-          ? undefined
-          : { ...current.goal, revision: current.goal.revision + 1, phase: 'complete' }
-      )),
-      clear: (request) => {
-        const missing = requireSession(request)
-        if (missing !== undefined) return missing
-        const id = request.payload.sessionId
-        const current = backscanGoal(logOf(id))
-        if (current === null || current.goal.id !== request.payload.ref.id || current.goal.revision !== request.payload.ref.revision) {
-          return err(request, { code: 'internal', message: 'stale or missing goal revision', details: { goalCode: 'GOAL_STALE_REVISION' } })
-        }
-        appendGoalChange(id, {
-          kind: 'goal/change', version: 1, operation: 'clear',
-          cleared: { id: current.goal.id, revision: current.goal.revision + 1 }, clearedAt: Date.now(),
-        })
-        return ok(request, { cleared: true as const })
-      },
+      // Compatibility face only: old API Proxy payloads and acknowledgements
+      // adapt to the canonical fixture Remote implementation above.
+      create: request => legacyGoalResponse(
+        request,
+        mapGoalResult(
+          goalRemotes.create(request.payload.sessionId, {
+            objective: request.payload.objective,
+            ...request.payload.maxGoalRounds === undefined ? {} : { maxGoalRounds: request.payload.maxGoalRounds },
+          }),
+          value => ({ ref: { id: value.ref.id as never, revision: value.ref.revision } }),
+        ),
+      ),
+      edit: request => legacyGoalResponse(
+        request,
+        goalRefResult(goalRemotes.edit(request.payload.sessionId, request.payload.ref, {
+          ...request.payload.objective === undefined ? {} : { objective: request.payload.objective },
+          ...request.payload.maxGoalRounds === undefined ? {} : { maxGoalRounds: request.payload.maxGoalRounds },
+        })),
+      ),
+      pause: request => legacyGoalResponse(
+        request,
+        goalRefResult(goalRemotes.pause(request.payload.sessionId, request.payload.ref)),
+      ),
+      resume: request => legacyGoalResponse(
+        request,
+        goalRefResult(goalRemotes.resume(request.payload.sessionId, request.payload.ref)),
+      ),
+      complete: request => legacyGoalResponse(
+        request,
+        goalRefResult(goalRemotes.complete(request.payload.sessionId, request.payload.ref)),
+      ),
+      clear: request => legacyGoalResponse(
+        request,
+        mapGoalResult(
+          goalRemotes.clear(request.payload.sessionId, request.payload.ref),
+          () => ({ cleared: true as const }),
+        ),
+      ),
     },
     events: {
       async *mux(_request, signal) {
@@ -2499,8 +2706,11 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
       providers: request => ok(request, {
         providers: [
           { provider: 'deepseek-official', displayName: 'DeepSeek', settingsNs: 'llm-deepseek', settingsPath: [], active: true },
-          { provider: 'openai', displayName: 'openai', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'openai'], active: true },
-          { provider: 'anthropic', displayName: 'anthropic', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'anthropic'], active: false },
+          { provider: 'openai', displayName: 'openai', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'openai'], active: true, declared: false },
+          { provider: 'anthropic', displayName: 'anthropic', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'anthropic'], active: false, declared: false },
+          // One hand-declared route, so a surface reading this fixture meets
+          // the tagged shape rather than only the shipped one.
+          { provider: 'acme-gateway', displayName: 'Acme Gateway', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'acme-gateway'], active: true, declared: true },
         ],
       }),
       models: request => ok(request, { groups: fixtureModelGroups(), failures: [] }),
@@ -2537,21 +2747,55 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
       return Promise.resolve({ accepted: true })
     },
   }
+
+  const rpc: ClientConnectionRpc = {
+    call(channel, endpoint, payload) {
+      if (channel !== '/api') {
+        return Promise.reject(new Error(`fixture connection RPC channel ${JSON.stringify(channel)} is unavailable`))
+      }
+      const args = (payload as {
+        args: {
+          agentId: SessionId
+          ref?: { id: string; revision: number }
+          request?: { objective?: string; maxGoalRounds?: number }
+        }
+      }).args
+      const sessionId = args.agentId
+      switch (endpoint) {
+        case 'goals/create': return Promise.resolve(goalRemotes.create(sessionId, {
+          objective: args.request?.objective as string,
+          ...args.request?.maxGoalRounds === undefined ? {} : { maxGoalRounds: args.request.maxGoalRounds },
+        }))
+        case 'goals/edit': return Promise.resolve(goalRemotes.edit(sessionId, args.ref as FxGoalRef, args.request ?? {}))
+        case 'goals/pause': return Promise.resolve(goalRemotes.pause(sessionId, args.ref as FxGoalRef))
+        case 'goals/resume': return Promise.resolve(goalRemotes.resume(sessionId, args.ref as FxGoalRef))
+        case 'goals/complete': return Promise.resolve(goalRemotes.complete(sessionId, args.ref as FxGoalRef))
+        case 'goals/clear': return Promise.resolve(goalRemotes.clear(sessionId, args.ref as FxGoalRef))
+        default:
+          return Promise.reject(new Error(`fixture connection RPC endpoint ${JSON.stringify(endpoint)} is unavailable`))
+      }
+    },
+  }
+  return { api, rpc }
 }
 
 /**
  * Fixture platform subclass: there is no HTTP at all, so instead of a doFetch transport it
  * overrides the protocol-level virtuals (callUnary/openMux/openHost/respond) to dispatch
  * straight into the in-memory ApiProxy — while still minting rpcIds, fabricating the four
- * named full forms, and feeding the same tap as a real carrier. Delete when the fixture moves
- * to the isomorphic pipeline (InProcessApiClient over toFetchHandler(fixtureImpl)).
+ * named full forms, and feeding the same tap as a real carrier. TODO: delete when the fixture
+ * moves to the isomorphic pipeline (InProcessApiClient over toFetchHandler(fixtureImpl)).
  */
 export class FixtureApiClient extends AbstractApiClient {
   private readonly api: ApiProxy
+  /** Generic Remote caller backed by the same in-memory state as the legacy fixture API. */
+  readonly rpc: ClientConnectionRpc
 
   constructor() {
     super()
-    this.api = createFixtureApi(fixtureOptionsFromLocation())
+    const world = createFixtureWorld(fixtureOptionsFromLocation())
+    this.api = world.api
+    this.rpc = world.rpc
   }
 
   protected doFetch(): Promise<Response> {
@@ -2597,6 +2841,7 @@ export class FixtureApiClient extends AbstractApiClient {
       case 'subagent.list': return this.api.subagents.list(request)
       case 'subagent.history': return this.api.subagents.history(request)
       case 'subagent.prompt': return this.api.subagents.prompt(request, signal)
+      case 'subagent.interrupt': return this.api.subagents.interrupt(request)
       case 'host.describe': return this.api.host.describe(request)
       case 'host.pickDirectory': return this.api.host.pickDirectory(request, new AbortController().signal)
       case 'host.listDirectory': return this.api.host.listDirectory(request, new AbortController().signal)
@@ -2611,6 +2856,12 @@ export class FixtureApiClient extends AbstractApiClient {
       case 'command.list': return this.api.commands.list(request)
       case 'command.execute': return this.api.commands.execute(request, signal)
       case 'skill.list': return this.api.skills.list(request)
+      case 'agentPreset.list': return this.api.agentPresets.list(request)
+      case 'agentPreset.select': return this.api.agentPresets.select(request)
+      case 'agentPreset.read': return this.api.agentPresets.read(request)
+      case 'agentPreset.copy': return this.api.agentPresets.copy(request)
+      case 'agentPreset.openDocument': return this.api.agentPresets.openDocument(request, new AbortController().signal)
+      case 'agentPreset.remove': return this.api.agentPresets.remove(request)
       case 'goal.create': return this.api.goals.create(request)
       case 'goal.edit': return this.api.goals.edit(request)
       case 'goal.pause': return this.api.goals.pause(request)

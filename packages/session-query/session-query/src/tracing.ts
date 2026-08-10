@@ -60,7 +60,7 @@ export function currentSurfaceEvents(
  * @param sessionId - owner of the event log.
  * @param events - detached raw event log.
  * @param seq - target event seq.
- * @returns direct surface and provenance relationships.
+ * @returns direct surface replacements and relationships to cited source events.
  */
 export function traceEvent(
   sessionId: SessionId,

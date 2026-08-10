@@ -1,7 +1,7 @@
 /**
  * Config-dump entry for `dsh --profile <name> --dump-config`: compose the
  * profile's patch layers through the include plugin's patch algorithm without
- * booting or evaluating `!!js`, with one provenance layer per bundle, the
+ * booting or evaluating `!!js`, with one source layer per bundle, the
  * profile's own patch file, and each `--patch` overlay.
  * @module @deepseek-ai/dsh/dump-config
  */
@@ -15,12 +15,13 @@ import {
   type ConfigDumpLayer,
 } from '@deepseek-ai/dsh-app-boot'
 import { homePatchPath, prepareProfile, PROFILE_ROOT_FILENAME } from './profile-boot.ts'
+import { resolveWindowsShellLayer } from './windows-shell.ts'
 
 const NAME = 'dsh'
 
 /* v8 ignore start -- built-bin acceptance drives this boot-free dispatch */
 /**
- * Print a profile composition with provenance comments.
+ * Print a profile composition with comments naming each source file and patch layer.
  * @param profile - the profile name.
  * @param defaultOnly - omit the profile's user layer and `--patch` overlays
  * (the recovery diagnostic for a broken `cordis.patch.yml`, which is then
@@ -33,6 +34,12 @@ export function runDumpConfig(profile: string, defaultOnly: boolean, patches: re
     label: layer.packageName,
     patches: layer.patches,
   }))
+  // The win32 shell platform layer rides between bundles and user layers,
+  // exactly where the boot applies it.
+  const windowsShellLayer = resolveWindowsShellLayer(process.platform, loaded.layers, NAME)
+  if (windowsShellLayer !== undefined) {
+    layers.push({ label: windowsShellLayer.label, patches: windowsShellLayer.patches })
+  }
   if (!defaultOnly) {
     if (existsSync(loaded.patchPath)) {
       layers.push({ label: loaded.patchPath, patches: loaded.patches })

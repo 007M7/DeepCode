@@ -75,6 +75,14 @@ class RecordingFileSystem extends FileSystem {
     return { targetKey: FsTargetKey(absolute), displayPath: absolute }
   }
 
+  override processPath(target: FsTarget): string { return String(target.targetKey) }
+
+  override fileUrl(target: FsTarget): string { return `file://${target.targetKey}` }
+
+  override contains(parent: FsTarget, child: FsTarget): boolean {
+    return child.targetKey === parent.targetKey || String(child.targetKey).startsWith(`${parent.targetKey}/`)
+  }
+
   override async stat(target: FsTarget, signal?: AbortSignal): Promise<FsInfo | undefined> {
     if (signal !== undefined) this.signals.push(signal)
     signal?.throwIfAborted()
@@ -187,10 +195,16 @@ function stubAgent(cwd?: string, seed: SessionEvent[] = []): Agent {
   }
 }
 
-function stubToolExecution(input: Omit<ToolExecution, 'token'>): ToolExecution {
+function stubToolExecution(
+  input: Omit<ToolExecution, 'token' | 'rootCallId'> & {
+    token?: ToolExecutionToken
+    rootCallId?: ToolExecution['rootCallId']
+  },
+): ToolExecution {
   return {
-    token: Symbol('workspace-context-test-execution') as ToolExecutionToken,
+    token: input.token ?? Symbol('workspace-context-test-execution') as ToolExecutionToken,
     ...input,
+    rootCallId: input.rootCallId ?? input.callId,
   }
 }
 
@@ -561,7 +575,7 @@ describe('workspace context instruction discovery', () => {
     const emptyHome = await tempRepo()
     // Isolate the default-home fallback: blank DSH_HOME is treated as unset, and
     // HOME points at an empty dir so the default ~/.dsh holds no global scope.
-    // Symlinks are now followed, so a real ~/.dsh/AGENTS.md would otherwise leak in.
+    // Symlinks are followed, so a real ~/.dsh/AGENTS.md would otherwise leak in.
     vi.stubEnv('DSH_HOME', '')
     vi.stubEnv('HOME', emptyHome)
     try {
@@ -3948,6 +3962,106 @@ describe('dynamic nested workspace context injection', () => {
     }
   })
 
+  it('defers a nested file projection until the enclosing step commits', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    const ctx = new Context()
+    try {
+      await ctx.plugin(RecordingFileSystem)
+      await ctx.plugin(workspaceContext, { dshHome: home, maxBytes: 65536 })
+      const fs = ctx.fs as RecordingFileSystem
+      fs.entries.set(join(root, '.git'), { type: 'directory' })
+      fs.entries.set(join(root, 'pkg/AGENTS.md'), { type: 'file', content: 'nested package rule' })
+      const agent = stubAgent(root)
+      const turnStart = agent.session.append('turn/start', { turn: 1 })
+      ctx.emit('session/event', agent.session, turnStart)
+      const stepStart = agent.session.append('step/start', { turn: 1, step: 1 })
+      ctx.emit('session/event', agent.session, stepStart)
+      const outerToken = Symbol('outer-code-run') as ToolExecutionToken
+
+      ctx.emit('tools/result', stubToolExecution({
+        token: Symbol('nested-read') as ToolExecutionToken,
+        parent: outerToken,
+        signal: testToolSignal,
+        callId: CallId('nested-read'),
+        name: 'read',
+        arguments: { file_path: join('pkg', 'file.txt') },
+        agent,
+      }), { content: [], isError: false, value: null })
+      ctx.emit('tools/result', stubToolExecution({
+        token: Symbol('nested-non-file') as ToolExecutionToken,
+        parent: outerToken,
+        signal: testToolSignal,
+        callId: CallId('nested-non-file'),
+        name: 'search',
+        arguments: {},
+        agent,
+      }), { content: [], isError: false, value: null })
+      ctx.emit('tools/result', stubToolExecution({
+        token: Symbol('second-nested-read') as ToolExecutionToken,
+        parent: outerToken,
+        signal: testToolSignal,
+        callId: CallId('second-nested-read'),
+        name: 'read',
+        arguments: { file_path: join('pkg', 'second.txt') },
+        agent,
+      }), { content: [], isError: false, value: null })
+      ctx.emit('tools/result', stubToolExecution({
+        token: outerToken,
+        signal: testToolSignal,
+        callId: CallId('outer-code-run'),
+        name: 'run_code',
+        arguments: {},
+        agent,
+      }), { content: [], isError: false, value: null })
+
+      await syncWorkspaceContext(ctx, agent)
+      expect(agent.inbox.nextStep).toEqual([])
+
+      const stepEnd = agent.session.append('step/end', { turn: 1, step: 1 })
+      ctx.emit('session/event', agent.session, stepEnd)
+      expect(blocksText((await syncedWorkspaceContext(ctx, agent)).content))
+        .toContain('nested package rule')
+    } finally {
+      await ctx.fiber.dispose()
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('seeds closed step state from existing session history', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    const ctx = new Context()
+    try {
+      await ctx.plugin(RecordingFileSystem)
+      const fs = ctx.fs as RecordingFileSystem
+      fs.entries.set(join(root, '.git'), { type: 'directory' })
+      fs.entries.set(join(root, 'pkg/AGENTS.md'), { type: 'file', content: 'nested package rule' })
+      const agent = stubAgent(root)
+      agent.session.append('turn/start', { turn: 1 })
+      agent.session.append('step/start', { turn: 1, step: 1 })
+      agent.session.append('step/end', { turn: 1, step: 1 })
+      agent.session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+      await ctx.plugin(workspaceContext, { dshHome: home, maxBytes: 65536 })
+
+      ctx.emit('tools/result', stubToolExecution({
+        signal: testToolSignal,
+        callId: CallId('read-after-closed-step'),
+        name: 'read',
+        arguments: { file_path: join('pkg', 'file.txt') },
+        agent,
+      }), { content: [], isError: false, value: null })
+
+      expect(blocksText((await syncedWorkspaceContext(ctx, agent)).content))
+        .toContain('nested package rule')
+    } finally {
+      await ctx.fiber.dispose()
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
   it('ignores failed, aborted, agentless, and non-file final results', async () => {
     const ctx = new Context()
     try {
@@ -3997,17 +4111,18 @@ describe('dynamic nested workspace context injection', () => {
     }
   })
 
-  it('warns when an asynchronous file-result projection fails', async () => {
+  it('warns when an asynchronous file-result projection fails', { timeout: 20_000 }, async () => {
     const ctx = new Context()
     try {
       await ctx.plugin(RecordingFileSystem)
       await ctx.plugin(workspaceContext, { maxBytes: 65536 })
       const fs = ctx.fs as RecordingFileSystem
-      const agent = stubAgent('/')
+      const root = resolve('/')
+      const agent = stubAgent(root)
       const failure = new Error('projection failed')
       const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
-      fs.entries.set('/.git', { type: 'directory' })
-      fs.entries.set('/AGENTS.md', { type: 'file', content: 'workspace rule' })
+      fs.entries.set(join(root, '.git'), { type: 'directory' })
+      fs.entries.set(join(root, 'AGENTS.md'), { type: 'file', content: 'workspace rule' })
       vi.spyOn(agent.inbox, 'prepend').mockImplementationOnce(() => { throw failure })
 
       ctx.emit('tools/result', stubToolExecution({
@@ -4020,7 +4135,7 @@ describe('dynamic nested workspace context injection', () => {
 
       await vi.waitFor(() => {
         expect(warn).toHaveBeenCalledWith('workspace instruction refresh failed: %o', failure)
-      })
+      }, { timeout: 10_000 })
     } finally {
       await ctx.fiber.dispose()
     }

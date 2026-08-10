@@ -43,6 +43,10 @@ import {
 import { commandExecuteRequestSchema, commandListRequestSchema } from '../api/commands.schema.ts'
 import { skillListRequestSchema } from '../api/skills.schema.ts'
 import {
+  agentPresetCopyRequestSchema, agentPresetListRequestSchema, agentPresetOpenDocumentRequestSchema,
+  agentPresetReadRequestSchema, agentPresetRemoveRequestSchema, agentPresetSelectRequestSchema,
+} from '../api/agent-presets.schema.ts'
+import {
   goalCreateRequestSchema,
   goalEditRequestSchema,
   goalPauseRequestSchema,
@@ -60,6 +64,7 @@ import {
 import { llmDiscoverModelsRequestSchema, llmModelsRequestSchema, llmProvidersRequestSchema } from '../api/llm.schema.ts'
 import {
   subagentHistoryRequestSchema,
+  subagentInterruptRequestSchema,
   subagentListRequestSchema,
   subagentPromptRequestSchema,
 } from '../api/subagents.schema.ts'
@@ -95,6 +100,7 @@ const UNARY_ROUTES: UnaryRoutes = {
   'subagent.list': { schema: subagentListRequestSchema, invoke: (api, r, signal) => api.subagents.list(r, signal) },
   'subagent.history': { schema: subagentHistoryRequestSchema, invoke: (api, r, signal) => api.subagents.history(r, signal) },
   'subagent.prompt': { schema: subagentPromptRequestSchema, invoke: (api, r, signal) => api.subagents.prompt(r, signal) },
+  'subagent.interrupt': { schema: subagentInterruptRequestSchema, invoke: (api, r) => api.subagents.interrupt(r) },
   'host.describe': { schema: hostDescribeRequestSchema, invoke: (api, r) => api.host.describe(r) },
   'host.pickDirectory': { schema: hostPickDirectoryRequestSchema, invoke: (api, r, signal) => api.host.pickDirectory(r, signal) },
   'host.listDirectory': { schema: hostListDirectoryRequestSchema, invoke: (api, r, signal) => api.host.listDirectory(r, signal) },
@@ -109,6 +115,12 @@ const UNARY_ROUTES: UnaryRoutes = {
   'command.list': { schema: commandListRequestSchema, invoke: (api, r) => api.commands.list(r) },
   'command.execute': { schema: commandExecuteRequestSchema, invoke: (api, r, signal) => api.commands.execute(r, signal) },
   'skill.list': { schema: skillListRequestSchema, invoke: (api, r) => api.skills.list(r) },
+  'agentPreset.list': { schema: agentPresetListRequestSchema, invoke: (api, r) => api.agentPresets.list(r) },
+  'agentPreset.select': { schema: agentPresetSelectRequestSchema, invoke: (api, r) => api.agentPresets.select(r) },
+  'agentPreset.read': { schema: agentPresetReadRequestSchema, invoke: (api, r) => api.agentPresets.read(r) },
+  'agentPreset.copy': { schema: agentPresetCopyRequestSchema, invoke: (api, r) => api.agentPresets.copy(r) },
+  'agentPreset.openDocument': { schema: agentPresetOpenDocumentRequestSchema, invoke: (api, r, signal) => api.agentPresets.openDocument(r, signal) },
+  'agentPreset.remove': { schema: agentPresetRemoveRequestSchema, invoke: (api, r) => api.agentPresets.remove(r) },
   'goal.create': { schema: goalCreateRequestSchema, invoke: (api, r) => api.goals.create(r) },
   'goal.edit': { schema: goalEditRequestSchema, invoke: (api, r) => api.goals.edit(r) },
   'goal.pause': { schema: goalPauseRequestSchema, invoke: (api, r) => api.goals.pause(r) },

@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import { FsTargetKey, FsVersion } from '@deepseek-ai/dsh-fs'
-import type { FsTarget, FsWriteIntent } from '@deepseek-ai/dsh-fs'
+import type { FsObservation, FsTarget, FsWriteIntent } from '@deepseek-ai/dsh-fs'
 import * as FsPolicy from '@deepseek-ai/dsh-fs-policy'
 import type { FsPolicyExec } from '@deepseek-ai/dsh-fs-policy'
 
@@ -11,6 +11,8 @@ function target(path: string): FsTarget {
   return { targetKey: FsTargetKey(path), displayPath: path }
 }
 const ownerExec = (session: object): FsPolicyExec => ({ agent: { session } })
+const present = (version: string): FsObservation => ({ kind: 'present', version: FsVersion(version) })
+const absent: FsObservation = { kind: 'absent' }
 
 /** Dispatch the write-intent waterfall with the bare default thunk. */
 function writeIntent(ctx: Context, t: FsTarget, actor: object | undefined): Promise<FsWriteIntent | undefined> {
@@ -64,8 +66,15 @@ describe('write-intent decision', () => {
   it('an observed target decides replaceIfVersion at the observed version', async () => {
     const { ctx } = await setup()
     const exec = ownerExec({})
-    ctx.emit('fs/observed', target('a.txt'), FsVersion('v7'), exec)
+    ctx.emit('fs/observed', target('a.txt'), present('v7'), exec)
     expect(await writeIntent(ctx, target('a.txt'), exec)).toEqual({ kind: 'replaceIfVersion', version: 'v7' })
+  })
+
+  it('a target observed absent decides createIfAbsent', async () => {
+    const { ctx } = await setup()
+    const exec = ownerExec({})
+    ctx.emit('fs/observed', target('a.txt'), absent, exec)
+    expect(await writeIntent(ctx, target('a.txt'), exec)).toEqual({ kind: 'createIfAbsent' })
   })
 })
 
@@ -88,8 +97,15 @@ describe('edit-intent decision', () => {
   it('returns the observed version as the CAS basis after an observation', async () => {
     const { ctx } = await setup()
     const exec = ownerExec({})
-    ctx.emit('fs/observed', target('a.txt'), FsVersion('v3'), exec)
+    ctx.emit('fs/observed', target('a.txt'), present('v3'), exec)
     expect(await editIntent(ctx, target('a.txt'), exec)).toEqual({ version: 'v3' })
+  })
+
+  it('rejects editing a target observed absent with FS_NOT_FOUND', async () => {
+    const { ctx } = await setup()
+    const exec = ownerExec({})
+    ctx.emit('fs/observed', target('a.txt'), absent, exec)
+    await expect(editIntent(ctx, target('a.txt'), exec)).rejects.toMatchObject({ code: 'FS_NOT_FOUND' })
   })
 })
 
@@ -97,7 +113,7 @@ describe('observed-state is the prior-observation record', () => {
   it('a read observation authorizes an in-place write at that version', async () => {
     const { ctx } = await setup()
     const exec = ownerExec({})
-    ctx.emit('fs/observed', target('a.txt'), FsVersion('v0'), exec) // a read
+    ctx.emit('fs/observed', target('a.txt'), present('v0'), exec) // a read
     expect(await writeIntent(ctx, target('a.txt'), exec)).toEqual({ kind: 'replaceIfVersion', version: 'v0' })
   })
 
@@ -105,18 +121,33 @@ describe('observed-state is the prior-observation record', () => {
     const { ctx } = await setup()
     const exec = ownerExec({})
     // A create records v1; the follow-up edit guards against v1 with no read.
-    ctx.emit('fs/observed', target('a.txt'), FsVersion('v1'), exec)
+    ctx.emit('fs/observed', target('a.txt'), present('v1'), exec)
     expect(await editIntent(ctx, target('a.txt'), exec)).toEqual({ version: 'v1' })
     // The edit records v2; a second edit guards against v2.
-    ctx.emit('fs/observed', target('a.txt'), FsVersion('v2'), exec)
+    ctx.emit('fs/observed', target('a.txt'), present('v2'), exec)
     expect(await editIntent(ctx, target('a.txt'), exec)).toEqual({ version: 'v2' })
   })
 
   it('a no-owner observation records nothing', async () => {
     const { ctx } = await setup()
-    ctx.emit('fs/observed', target('a.txt'), FsVersion('v0'), undefined)
+    ctx.emit('fs/observed', target('a.txt'), present('v0'), undefined)
     // Still unobserved for any owner.
     await expect(editIntent(ctx, target('a.txt'), ownerExec({}))).rejects.toMatchObject({ code: 'FS_NOT_OBSERVED' })
+  })
+
+  it('supports present → absent → present transitions for one owner', async () => {
+    const { ctx } = await setup()
+    const exec = ownerExec({})
+    const a = target('a.txt')
+    ctx.emit('fs/observed', a, present('v1'), exec)
+    expect(await writeIntent(ctx, a, exec)).toEqual({ kind: 'replaceIfVersion', version: 'v1' })
+
+    ctx.emit('fs/observed', a, absent, exec)
+    expect(await writeIntent(ctx, a, exec)).toEqual({ kind: 'createIfAbsent' })
+    await expect(editIntent(ctx, a, exec)).rejects.toMatchObject({ code: 'FS_NOT_FOUND' })
+
+    ctx.emit('fs/observed', a, present('v2'), exec)
+    expect(await editIntent(ctx, a, exec)).toEqual({ version: 'v2' })
   })
 })
 
@@ -125,7 +156,7 @@ describe('multi-owner isolation', () => {
     const { ctx } = await setup()
     const a = ownerExec({})
     const b = ownerExec({})
-    ctx.emit('fs/observed', target('a.txt'), FsVersion('v0'), a)
+    ctx.emit('fs/observed', target('a.txt'), present('v0'), a)
     await expect(editIntent(ctx, target('a.txt'), b)).rejects.toMatchObject({ code: 'FS_NOT_OBSERVED' })
     expect(await editIntent(ctx, target('a.txt'), a)).toEqual({ version: 'v0' })
   })
@@ -134,7 +165,7 @@ describe('multi-owner isolation', () => {
     const { ctx } = await setup()
     const a = ownerExec({})
     const b = ownerExec({})
-    ctx.emit('fs/observed', target('a.txt'), FsVersion('v0'), a) // A observed v0
+    ctx.emit('fs/observed', target('a.txt'), present('v0'), a) // A observed v0
     // B never observed → createIfAbsent; A still holds v0 → replaceIfVersion.
     expect(await writeIntent(ctx, target('a.txt'), b)).toEqual({ kind: 'createIfAbsent' })
     expect(await writeIntent(ctx, target('a.txt'), a)).toEqual({ kind: 'replaceIfVersion', version: 'v0' })
@@ -164,7 +195,7 @@ describe('single-slot, first-wins', () => {
       return Promise.resolve(undefined)
     })
     const exec = ownerExec({})
-    ctx.emit('fs/observed', target('a.txt'), FsVersion('v0'), exec)
+    ctx.emit('fs/observed', target('a.txt'), present('v0'), exec)
     await editIntent(ctx, target('a.txt'), exec)
     expect(secondRan).toBe(false)
   })
@@ -186,7 +217,7 @@ describe('disposal releases recorded state (HMR safety)', () => {
     const ctx = new Context()
     const exec = ownerExec({})
     const fiber = await ctx.plugin(FsPolicy)
-    ctx.emit('fs/observed', target('a.txt'), FsVersion('v0'), exec)
+    ctx.emit('fs/observed', target('a.txt'), present('v0'), exec)
     expect(await editIntent(ctx, target('a.txt'), exec)).toEqual({ version: 'v0' })
     await fiber.dispose()
 

@@ -13,7 +13,7 @@
 - `ctx.llm.registerAdapter(providers: string[], adapter: LlmAdapter): AdapterRegistrationHandle` 为给定提供方路由注册一个适配器实例。注册要么全部成功，要么全部不生效，并且会随调用 fiber 一起 dispose（资源释放）。返回的释放器还携带 `replace(providers)`：候选路由集合会在任何东西变动之前完整校验，因此与另一适配器冲突时，当前路由保持注册且继续服务，而替换本身是一个同步区段，不存在可观察的空档。`replace([])` 合法——一个持有零条路由的注册——这与空的初始注册不同。
 - `ctx.llm.listProviders(): LlmProviderInfo[]` 按注册顺序描述已注册提供方路由。
 - `ctx.llm.registerConfigurableProviders(entries: readonly LlmConfigurableProvider[]): DirectoryRegistrationHandle` 声明适配器插件可通过配置激活的提供方路由——无论已注册还是休眠——每个条目指明其所属 settings namespace，以及 profile 在该分节内的路径。要么全部成功，要么全部不生效（`INVALID_DIRECTORY`/`DUPLICATE_DIRECTORY`），并随调用 fiber dispose。该句柄还带 `replace(entries)`：候选集合会先被整体校验，因此其中若有条目已被另一个注册声明，当前集合原封不动；此处允许传空数组。声明集合随配置变化的插件必须使用 `replace`，而不是先 dispose 再重新注册——后者会在新集合被拒时让目录整个落空。
-- `ctx.llm.listConfigurableProviders(): LlmConfigurableProvider[]` 按声明顺序列出已声明的目录；配置界面将其与 `listProviders()` 合并，为每个条目标注存活或休眠。
+- `ctx.llm.listConfigurableProviders(): LlmConfigurableProvider[]` 按声明顺序列出已声明的目录；配置界面将其与 `listProviders()` 合并，为每个条目标注存活或休眠。条目可携带 `declared`——拥有该路由的适配器是否只因配置点名才知道它。只有适配器能回答，因此缺席意味着「这个适配器不作此区分」，绝不等于「内置」。
 - `ctx.llm.registerModelDiscovery(settingsNs: string, discover): () => void` 为本插件拥有的 settings namespace 提供「询问提供方端点」的能力。每个 namespace 只能有一个（`INVALID_DISCOVERY`/`DUPLICATE_DISCOVERY`），并随调用 fiber dispose。
 - `ctx.llm.listModelDiscoveryNamespaces(): string[]` 列出可以询问端点的 namespace，让界面只在可用之处提供该动作。
 - `ctx.llm.discoverModels(settingsNs: string, request: LlmModelDiscoveryRequest): Promise<LlmDiscoveredModel[]>` 询问某个端点它公布了哪些模型。
@@ -21,12 +21,12 @@
 - `ctx.llm.listModels(provider: string): Promise<LlmModelInfo[]>` 发现某个已注册提供方当前公布的模型。
 - `ctx.llm.resolveModelInfo(provider: string, model: string, signal?: AbortSignal): Promise<LlmResolvedModelInfo>` 从拥有精确路由的适配器解析经校验的确切模型身份，以及可用上下文、输出默认值和推理（reasoning）元数据；异步适配器可选地支持取消。
 - `ctx.llm.resolveCallConfig(config: LlmCallConfig, signal?: AbortSignal): Promise<LlmCallConfig>` 校验显式推理强度，并填入适配器配置的调用默认值，但不自动调整。
-- `ctx.llm.prepareCall(config: LlmCallConfig, signal?: AbortSignal): Promise<PreparedLlmCall>` 在一次精确模型查询中解析配置、脱耦的上下文元数据与适配器默认值溯源，再将当前适配器注册和不可变重试策略捕获为一次可取消、一次性调用。
+- `ctx.llm.prepareCall(config: LlmCallConfig, signal?: AbortSignal): Promise<PreparedLlmCall>` 在一次精确模型查询中解析配置、脱耦的上下文元数据以及标明哪些字段由适配器默认值填入的标记，再将当前适配器注册和不可变重试策略捕获为一次可取消、一次性调用。
 - `ctx.llm.stream(options: GenerateOptions): AsyncIterable<StreamChunk>` 将一次模型调用流式输出为原始分片（token 级增量）。消费方使用 `BlockAssembler` 将分片组装为块／消息。
 
 `LlmService` 将最终适配器选择、同步 dispatch、iterator 构造与迭代中的失败规范化为流协议唯一的终止形式：`finish { kind: 'error' | 'aborted', failure }`。部分增量输出后发生失败时，内容块可能仍未闭合；消费方会丢弃这些不完整输出。`llm/stream` middleware、嵌套调用、适配器清理和下游消费方的错误仍会抛出，因为它们属于插件或消费方失败，而非模型请求结果。已准备调用会暴露随其确切适配器注册一同捕获的不可变重试策略；完全由 middleware 处理的路由没有服务策略。
 
-询问端点属于配置期针对**草稿**的操作，因此以 settings namespace 而非提供方路由为键：界面正在新增的提供方还不存在，也就没有路由可点名。但请求仍可**点名**它正在编辑的路由，而已经描述该路由的适配器应当用自己的知识作答——元数据更好，且无需联网——这正是 `baseURL` 可选、两者必居其一的原因。除此之外，请求携带端点、协议，以及一条 harness 只用于这一次询问、绝不存储的凭据——这里既不读也不写 settings 与 credentials，回复是界面可供用户采纳的候选元数据，而不是已注册的 catalog。`LlmDiscoveredModel` 除 `id` 外每个字段都是可选的，因为大多数提供方列表只公布 id；采纳其中一条的界面仍要补上其适配器所需的容量。重复与不可用的 id 会被丢弃，无人服务的 namespace 以 `NO_DISCOVERY` 失败，既不点名路由也不给端点的请求以 `INVALID_DISCOVERY` 失败。
+询问端点属于配置期针对**草稿**的操作，以 settings namespace 而非提供方路由为键——界面正在新增的提供方还不存在，也就没有路由可点名。但请求仍可**点名**它正在编辑的路由，而已经描述该路由的适配器会用自己的知识作答，无需联网；`baseURL` 可选，两者至少要有一个。除此之外，请求携带端点、协议，以及一条 harness 只用于这一次询问、绝不存储的凭据——这里既不读也不写 settings 与 credentials，回复是界面可供用户采纳的候选元数据，而不是已注册的 catalog。`LlmDiscoveredModel` 除 `id` 外每个字段都是可选的，因为大多数提供方列表只公布 id；采纳其中一条的界面仍要补上其适配器所需的容量。重复与不可用的 id 会被丢弃，无人服务的 namespace 以 `NO_DISCOVERY` 失败，既不点名路由也不给端点的请求以 `INVALID_DISCOVERY` 失败。
 
 提供方与模型元数据是发现接口，不是路由白名单。`registerAdapter()` 仍拥有提供方排他性，并为每条路由捕获适配器的重试策略；适配器则可以接受 `listModels()` 中不存在的模型 id，消费方禁止因模型未列出而拒绝请求。返回的 selector 元数据与输入脱离，无效或重复适配器配置项会以 `INVALID_ADAPTER` 或 `INVALID_CATALOG` 失败。
 
@@ -51,13 +51,13 @@
 
 `Message` 是投递、持久历史和模型请求共享的不可变值。每条消息从创建起都必须具有 `MessageId`、角色、内容和带类型的来源。`createMessage(input)` 生成标识，并返回与输入分离且深度冻结的值；`createUserMessage({ content, source })` 固定 user 角色；`createAssistantMessage({ content, source })` 固定 assistant 角色与模型来源类别；`createToolResultMessage({ callId, content, isError })` 固定 user 角色，并将工具来源与其结果块耦合；`freezeMessage(message)` 导入已有标识，绝不将其替换。改写消息时会保留标识，并产生另一个冻结值。浏览器端代码会从依赖最少的 `@deepseek-ai/dsh-llm/message` 入口导入这些值构造函数，而不是从包含服务的包根入口导入。
 
-消息内容是类型化内容块数组：`text`、`reasoning`、`tool-call`、`tool-result`。联合从可合并扩展的 `ContentBlockMap` 派生，因此插件可以通过 declaration merging 添加块类型。assistant 消息使用模型来源，其中携带提供方／模型溯源与可选适配器私有回放状态。dispatch 前，`LlmService` 只在历史提供方路由与目标提供方路由当前由完全相同的适配器实例拥有时才保留该状态；随后由适配器判定能否在模型／提供方间恢复或转换该状态。核心块集只包含每条已发布路径都支持的块。多模态内容（图像、音频等）没有核心块类型；需要它的功能会通过 map 添加，并一并添加相应的适配器／UI／压缩（compaction）支持。
+消息内容是类型化内容块数组：`text`、`reasoning`、`tool-call`、`tool-result`。联合从可合并扩展的 `ContentBlockMap` 派生，因此插件可以通过 declaration merging 添加块类型。assistant 消息使用模型来源，其中携带生成该消息的提供方和模型，以及可选的适配器私有回放状态。dispatch 前，`LlmService` 只在历史提供方路由与目标提供方路由当前由完全相同的适配器实例拥有时才保留该状态；随后由适配器判定能否在模型／提供方间恢复或转换该状态。核心块集只包含每条已发布路径都支持的块。多模态内容（图像、音频等）没有核心块类型；需要它的功能会通过 map 添加，并一并添加相应的适配器／UI／压缩（compaction）支持。
 
 流式输出是原始分片协议（`block-start`、`text-delta`、`reasoning-delta`、`tool-call-delta`、`block-end`、`usage`、`finish`）。每个适配器结果都以一个终止 `finish` 到达消费方；运行故障使用其 `error` 或 `aborted` 原因，而不会跨流 API 抛出。`BlockAssembler` 是将分片组装为块／消息的唯一共享实现。
 
 ### 调用配置（`call-config.ts`）
 
-`LlmCallConfig` 是一个会话中各次请求的提供方、模型、可选的适配器持有推理强度和采样标量（`provider`、`model`、`reasoningEffort`、`temperature`、`maxTokens`、`stop`，每个都与同名 `GenerateOptions` 字段 1:1 映射）。它是作为请求标头一部分记录在会话日志中的每会话状态（见 dsh-session `request/header` 事件），绝不是可静默调整的每次调用旋钮：`agent/request` waterfall 会提议替换，`prepareCall()` 在轮次 signal 控制下校验它并填入适配器默认值，loop 随后记录生效值及适配器默认值来源，再使用已准备调用中与注册绑定的流。下一次提议会省略带标记的默认值，使变更后的路由解析自身的值；未带标记的显式字段会保留。`callConfigEquals(a, b)` 是逐字段真实变更检测器；`deepFreeze(value)` 是 loop 在 dispatch 前对每个已构建请求应用的所有权 helper（`llm/stream` listener 与适配器只读，绝不改写）。`markAgentLoopRequest()` 为该精确对象添加进程本地 loop 溯源，`isAgentLoopRequest()` 让观测方可以将其与同样可能冻结并关联会话、但独立记录的辅助调用区分。`GenerateOptions.purpose` 对已记录辅助压缩与会话标题调用分类，让适配器可以应用目的特定传输策略，而不改变普通会话请求。
+`LlmCallConfig` 是一个会话中各次请求的提供方、模型、可选的适配器持有推理强度和采样标量（`provider`、`model`、`reasoningEffort`、`temperature`、`maxTokens`、`stop`，每个都与同名 `GenerateOptions` 字段 1:1 映射）。它是作为请求标头一部分记录在会话日志中的每会话状态（见 dsh-session `request/header` 事件），绝不是可静默调整的每次调用旋钮：`agent/request` waterfall 会提议替换，`prepareCall()` 在轮次 signal 控制下校验它并填入适配器默认值，loop 随后记录生效值以及标明哪些字段由适配器默认值填入的标记，再使用已准备调用中与注册绑定的流。下一次提议会省略带标记的默认值，使变更后的路由解析自身的值；未带标记的显式字段会保留。`callConfigEquals(a, b)` 是逐字段真实变更检测器；`deepFreeze(value)` 是 loop 在 dispatch 前对每个已构建请求应用的所有权 helper（`llm/stream` listener 与适配器只读，绝不改写）。`markAgentLoopRequest()` 将该精确对象标记为由进程本地 agent loop 创建，`isAgentLoopRequest()` 让观测方可以将其与同样可能冻结并关联会话、但独立记录的辅助调用区分。`GenerateOptions.purpose` 对已记录辅助压缩与会话标题调用分类，让适配器可以应用目的特定传输策略，而不改变普通会话请求。
 
 ### 应用归因（`attribution.ts`）
 
@@ -71,7 +71,7 @@
 
 - `LlmAdapter`：提供方适配器的抽象基类。唯一必需方法是 `stream()`。
 - `BlockAssembler`：将原始分片逐步组装为完整内容块，并能据此创建带标识且冻结的 assistant 消息。agent loop 向它提供原始分片（同时记录以供回放），并读取已组装块以构建历史。
-- `HarnessError`：harness 错误分类体系的基类，包含稳定 `code` 字符串（与面向人的 `message` 不同）加 `cause` 链接。它位于所有其他包都从中导入的叶子包中，因此可以共享单一基类，无需新的依赖边。各包的错误（`LlmError`、`ToolArgsError`、`InvariantError` 等）都继承自它。`isHarnessError(value)` 在 seam 处收窄类型。
+- `HarnessError`：harness 错误分类体系的基类，包含稳定 `code` 字符串（与面向人的 `message` 不同）加 `cause` 链接。它位于所有其他包都从中导入的叶子包中，因此可以共享单一基类，无需新的依赖边。各包的错误（`LlmError`、`ToolArgsError`、`InvariantError` 等）都继承自它。`isHarnessError(value)` 在进程边界处收窄类型。
 - `LlmError`：继承自 `HarnessError`；其稳定 `code` 字符串（`NO_ADAPTER`、`DUPLICATE_ADAPTER` 与 `AUTH`／`RATE_LIMIT` 等适配器 code）与冻结可序列化 `failure.code` 匹配。Payload 还可以保留已验证状态、`Retry-After` 和品牌化提供方请求 id 事实；策略位于错误之外。
 - `errorChain(value)`：渲染抛出值的完整 `cause` 链与 AggregateError 成员，供诊断表层使用，包括 UI 通知、logger 行和持久 `turn/end` 消息。因此 undici 的 `TypeError: fetch failed` 等传输包装层会显示底层 `ECONNREFUSED`／DNS／TLS 详细信息，而不是将其遮蔽。该函数只负责渲染：请按 `code` 路由，绝不解析结果。
 - `CONTEXT_WINDOW_EXCEEDED_CODE`：当请求超过模型上下文窗口时，无论通过 HTTP 异常抛出还是带内 finish 交付，两个 DeepSeek 适配器都使用的提供方无关 code。`isContextWindowExceededError(detail)` 是它们针对 OpenAI 兼容提供方详细信息的共享保守分类器。
@@ -93,9 +93,9 @@
 
 ## 已知限制与暂缓事项
 
-- **本服务不执行重试、缓存或速率限制**：提供方注册会存储重试策略，但 `llm/stream` 仍是单次尝试调用包装 seam。agent loop 会将已验证模型请求失败单独提供给 `agent/request-error`，其默认行为是保留原始失败；`@deepseek-ai/dsh-llm-retry` 是共享示例主干加载的可选执行器。
+- **本服务不执行重试、缓存或速率限制**：提供方注册会存储重试策略，但 `llm/stream` 仍是单次尝试调用包装层。agent loop 会将已验证模型请求失败单独提供给 `agent/request-error`，其默认行为是保留原始失败；`@deepseek-ai/dsh-llm-retry` 是共享示例主干加载的可选执行器。
 - **`GenerateOptions` 采样只包含 `temperature`／`maxTokens`／`stop`**：没有 `tool_choice`、`top_p` 或 penalty 字段；有产生方落地时词汇才会增长（见 [已删除惰性旋钮](../../../.agents/notes/archived/simplification/2026-07-04-drop-inert-request-knobs.md)）。
 - **受产生方约束的变体在实际产生前不会加入**：`prefill`、每工具 `strict`、块 `cache` 提示与 `agent` 消息源变体因没有产生方而被剪除（见 [Agent Note](../../../.agents/notes/archived/simplification/2026-07-04-prune-producerless-vocabulary-variants.md)）。
 - **`BlockAssembler` 只处理核心块类型**：如果插件添加块类型的流从未由 `block-end` 关闭，`blocks()` 会抛出异常。
-- **`APP_IDENTITY.url` 指向一个尚不存在的仓库**：`FIXME`：创建公开 `deepseek-ai/deepseek-harness-sdk` 仓库是首次发布的前置条件。
+- **`APP_IDENTITY.url` 指向一个尚不存在的仓库**：该公开主页必须在发布前可访问。
 - **`GenerateOptions.sessionId` 是本地声明的品牌类型**：导入 dsh-session 的 `SessionId` 会产生循环；未来拥有 id 的包可以消除该权宜之计。

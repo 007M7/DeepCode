@@ -14,11 +14,11 @@ GUI 栈需要考虑多种应用形态，同应用形态内的不同运行环境�
 
 ## Decision（三层结构）
 
-贴架构天然测试缝切三层，自底向上：
+沿架构天然的测试钩子切分为三层，自底向上：
 
 | 层 | 被测物 | 关键手段 | 文件落点 |
 |---|---|---|---|
-| 1 协议同构层 | `AbstractApiClient` + `toFetchHandler`（双向数据/rpcId/ZOD类型/SSE 流/合批/超时） | **同构点全链**：`InProcessApiClient(toFetchHandler(脚本化 impl))` 不过网络但真跑 wire 序列化——零浏览器、纯 node env | `packages/host/apiproxy/tests/client-handler.spec.ts` |
+| 1 协议同构层 | `AbstractApiClient` + `toFetchHandler`（双向数据/rpcId/ZOD 类型/SSE 流/合批/超时） | **同构点全链**：`InProcessApiClient(toFetchHandler(脚本化 impl))` 不过网络但真跑 wire 序列化——零浏览器、纯 node env | `packages/host/apiproxy/tests/client-handler.spec.ts` |
 | 2 对象层编排 | `Session`/`SessionManager`/`ConnectionController`（状态机与时序：缝合/去重/翻页/乐观清稿/pendingBuffers/重连/退避） | **「事件序列进→快照出」黄金路径**：可编程假体 + deferred 控时序 + fake timers 控退避 | `packages/client/{runtime,connection}/tests/` |
 | 3 组装呈现层 | 构建产物 × 真实 client loader 与插件组合 | 归应用所有的语义快照会在 jsdom 下启动全部 8 个已构建的 client 插件，以固定确定性的跨插件状态变化；独立使用 Playwright 裸库的冒烟测试负责验证真实浏览器/承载层边界，真 host 用例在无密钥时自行跳过；无密钥浏览器 e2e 车道会禁用交付配置中的模型适配器行，并通过 `dsh-llm-replay` 在真实进程内 web 组装中回放录制的会话 fixture，与会话区 aria 期望输出比对（[web e2e 车道](../testing/2026-07-24-web-gui-browser-e2e-lane.md)、[必需 CI 门禁](../testing/2026-07-30-web-browser-snapshot-ci-gate.md)） | `apps/web/tests/*.snapshot.ts`、`apps/web/tests/smoke-{fixture,real}.e2e.ts`、`apps/web/tests/{replay-round-trip,seeded-history}.e2e.ts` |
 
@@ -43,7 +43,7 @@ GUI 栈需要考虑多种应用形态，同应用形态内的不同运行环境�
 
 - **修一个 bug 钉一条断言**：浏览器可见的 bug 钉进所属浏览器 spec（smoke 或 e2e 场景）；数据层 bug 钉进对应 spec（先例：res-close 误判钉在 webserver 桥 suite——纯 Node 秒级复现，不再需要 12s 浏览器哨兵作唯一防线）。
 - **fixture 全绿不算完，真 wire 也要过**：fixture 短路的恰是 wire 承载链（node:http 桥 close 语义、真网络时序），两次实证 bug 都藏在那里。改动触及连接/桥/handler/SSE 的，浏览器车道（`pnpm run test:web`）必跑——其无密钥 e2e 场景驱动真实 HTTP/SSE 承载，带密钥的真 host smoke 仍是真模型侧的补充。
-- 落盘代码即答案的对表工作流：行为改动落盘打红既有用例时，当场对表校准（改测试还是改代码以 RFC/契约为裁），不留悬红。
+- 落盘代码即答案的对表工作流：行为改动落盘打红既有用例时，当场对表校准（改测试还是改代码以 RFC/约定为裁），不留悬红。
 
 ## Consequences
 

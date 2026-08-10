@@ -5,7 +5,8 @@
  */
 
 import { Context } from 'cordis'
-import { resolve } from 'node:path'
+import { isAbsolute, relative, resolve, sep } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import z from 'schemastery'
 import { FileSystem, FsError, FsVersion } from '@deepseek-ai/dsh-fs'
 import type {
@@ -55,7 +56,7 @@ export class LocalFileSystem extends FileSystem {
 
   /** Validated config (schemastery applied the defaults before construction). */
   readonly config: ResolvedConfig
-  /** Test seam forwarded to fsio (force streaming path, pin temp names). */
+  /** Test hook forwarded to fsio (force streaming path, pin temp names). */
   internals: FsIoInternals = {}
   /** Per-targetKey tail promise: serializes mutating ops so the read→guard→write
    * window can't interleave, making concurrent writes/edits deterministically
@@ -88,6 +89,19 @@ export class LocalFileSystem extends FileSystem {
     const local = await resolveLocalTarget(opts?.cwd ?? this.config.cwd, path)
     if (opts?.signal?.aborted) throw new FsError('resolve aborted', 'FS_ABORTED')
     return { targetKey: local.targetKey, displayPath: local.displayPath }
+  }
+
+  override processPath(target: FsTarget): string {
+    return String(target.targetKey)
+  }
+
+  override fileUrl(target: FsTarget): string {
+    return pathToFileURL(this.processPath(target)).href
+  }
+
+  override contains(parent: FsTarget, child: FsTarget): boolean {
+    const path = relative(this.processPath(parent), this.processPath(child))
+    return path === '' || (path !== '..' && !path.startsWith(`..${sep}`) && !isAbsolute(path))
   }
 
   override async stat(target: FsTarget, signal?: AbortSignal): Promise<FsInfo | undefined> {
@@ -153,7 +167,14 @@ export class LocalFileSystem extends FileSystem {
       // Preserve prior text for contextual diffs; null falls back to a whole-file diff.
       // TODO(overwrite-diff-bound): cap this UI-only pre-read for large files.
       const before = existing ? await readTextForDiff(target.targetKey, signal) : null
-      await writeFileAtomic(target.targetKey, content, existing?.mode, signal, this.internals)
+      await writeFileAtomic(
+        target.targetKey,
+        content,
+        existing?.mode,
+        signal,
+        this.internals,
+        expected?.kind === 'createIfAbsent' ? { displayPath: target.displayPath } : undefined,
+      )
       const after = await probe(target.targetKey)
       return {
         operation: existing ? 'update' : 'create',

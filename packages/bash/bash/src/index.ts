@@ -1,5 +1,5 @@
 /**
- * The `ctx.bash` executor seam for foreground commands and background process
+ * Service Definition for the `ctx.bash` capability seam, covering foreground commands and background process
  * handles. Task ids, ownership, polling, and notices belong to
  * `@deepseek-ai/dsh-tasks`, keeping executors independent of sessions.
  * @module @deepseek-ai/dsh-bash

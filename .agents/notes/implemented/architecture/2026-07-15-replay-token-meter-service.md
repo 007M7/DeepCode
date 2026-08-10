@@ -8,7 +8,7 @@ English | [中文](2026-07-15-replay-token-meter-service.zh.md)
 
 Context pressure is useful outside compaction. A compaction backend, an overflow guard, or a future request-policy plugin can all need the same answer: how many tokens does the durable request consume? Keeping that fold inside `dsh-compact-basic` duplicates replay logic, makes measurement unavailable without compaction, and encourages callers to reuse stale accounting.
 
-Provider usage is not a complete answer. It describes one successful call under one exact request envelope, while the current surface can grow, shrink, or be replaced afterward. Sessions also switch providers and models, old logs can lack chunk provenance, and usage fields separate input, cache-read, cache-write, output, and reasoning counts. A useful service therefore combines the latest exact anchor with conservative heuristic repricing and exposes the log revision consumed by each result.
+Provider usage is not a complete answer. It describes one successful call under one exact request envelope, while the current surface can grow, shrink, or be replaced afterward. Sessions also switch providers and models, old logs can omit the chunk seqs behind an assistant message, and usage fields separate input, cache-read, cache-write, output, and reasoning counts. A useful service therefore combines the latest exact anchor with conservative heuristic repricing and exposes the log revision consumed by each result.
 
 ## Decision
 
@@ -20,17 +20,17 @@ The service has no configuration. Estimation uses a fixed four-characters-per-to
 
 ### Per-session replay folds
 
-Each session owns one isolated incremental fold. Active folds advance from `session/event`; every read catches up through the durable tail, so listener ordering, seeded sessions, and service reload do not change the answer. The fold tracks canonical full request-header snapshots, step boundaries, surface appends and replacements, assistant usage, and assistant-chunk provenance. A malformed next event fails transactionally and remains unread rather than partially mutating state.
+Each session owns one isolated incremental fold. Active folds advance from `session/event`; every read catches up through the durable tail, so listener ordering, seeded sessions, and service reload do not change the answer. The fold tracks canonical full request-header snapshots, step boundaries, surface appends and replacements, assistant usage, and the chunk seqs cited by each assistant message. A malformed next event fails transactionally and remains unread rather than partially mutating state.
 
 `measure(session, requestHeader?)` synchronizes the fold once and returns scalar pressure together with positional per-node prices. `totalTokens` remains request-and-response pressure; `surfaceTokens` is the surface-only heuristic total and equals the sum of `nodes[].tokens`. A `requestHeader` override changes pressure pricing only, while the surface fields always describe the current session. `estimateMessage(message)` applies the fixed heuristic without session state. Each result is one detached, deeply immutable snapshot carrying one `logRevision`. Every measurement clones the current nodes and is therefore O(surface).
 
 Provider usage is reused only when the measured canonical request envelope equals the latest successful-call anchor. Any provider, model, system, prefix, tool, or call-config change causes complete heuristic repricing. Surface changes remain a signed delta from a matching anchor, including negative values after a shrinking replacement. A later successful request replaces the earlier anchor, including across provider or model switches.
 
-Usage sums the disjoint input, cache-read, cache-write, and output buckets. Reasoning is not added a second time. Every successful model call records an `assistant/message`, including content-less and max-token calls, with its exact earlier chunk seqs. An explicit empty provenance list means a known empty provider stream; absent legacy provenance conservatively treats the durable assistant output as provider output.
+Usage sums the disjoint input, cache-read, cache-write, and output buckets. Reasoning is not added a second time. Every successful model call records an `assistant/message`, including content-less and max-token calls, with its exact earlier chunk seqs. An explicit empty `sourceEventSeqs` list means a known empty provider stream; an absent legacy list conservatively treats the durable assistant output as provider output.
 
 ### Compact-basic consumes, but does not own, measurement
 
-`dsh-compact-basic` requires `ctx.tokenMeter`; `CompactService` gains no token methods or types. Configuration, the region transaction, and summarization stay in separate modules; the service registers automatic listeners itself, while `summarize()` remains its sole subclass hook. The singleton meter consistently prices pressure, retention, shadowed content, provenance, and non-shrinking-summary rejection.
+`dsh-compact-basic` requires `ctx.tokenMeter`; `CompactService` gains no token methods or types. Configuration, the region transaction, and summarization stay in separate modules; the service registers automatic listeners itself, while `summarize()` remains its sole subclass hook. The singleton meter consistently prices pressure, retention, shadowed content, cited source events, and non-shrinking-summary rejection.
 
 Automatic compaction uses one unified measurement for each threshold-and-retention decision. The region transaction measures after appending its durable `compact/start` lock and again after asynchronous summarization, then compares the detached surface-node vectors. An intervening surface mutation prevents replacement; `logRevision` may advance for unrelated log-only facts without invalidating an unchanged selected span.
 

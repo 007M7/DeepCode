@@ -14,7 +14,7 @@ Status: implemented
 - `firstPrompt` 在生产代码中**从未被读取**。
 - 会话标题来自持久的 `session/title` 事件，工具卡片标题来自工具 presenter；二者都不读取可变的会话元数据。
 - 持久化列表的消费方使用不可变 header 中的标识、创建时间、谱系和 cwd 字段。近期排序和预览派生自日志，而非某个 `updatedAt` 摘要。
-- 决定性的一点：活跃的 `Session.header` 类型本来就是 `SessionHeader` 而非 `SessionMeta`——摘要从未存在于活跃会话对象上；它只存在于持久化层，除了自身的契约测试外无人写入、无人读取。
+- 决定性的一点：活跃的 `Session.header` 类型本来就是 `SessionHeader` 而非 `SessionMeta`——摘要从未存在于活跃会话对象上；它只存在于持久化层，除了自身的约定测试外无人写入、无人读取。
 
 ## 决策
 
@@ -22,7 +22,7 @@ Status: implemented
 
 摘要原本要提供的一切，在消费方真正需要时都**可从仅追加日志中派生**（`firstPrompt` = 第一条 `user/message`；近期度 = 最后一个事件的 `time` 或文件 mtime），或者已经存在于不可变 header 中（`createdAt`、`cwd`）。唯一*不可*派生的是用户*手动编辑*的标题，但它从未实现，纯属 YAGNI；如果未来真有功能需要，它可以作为独立的日志事件或 header 字段回归。
 
-这被记录为一项决策，因为它具有**持久性**（它同时收窄两个后端的公开服务契约和磁盘格式）、**争议性**（summary 是有意为未来设计的结果，而非意外），也具有**反直觉性**（未来读者在原 Agent Note 描述 `SessionMeta` 的位置发现 `SessionHeader` 时，若无此记录便会追问 summary 为何消失）。它还为[共享持久化写入协调器](../architecture/2026-06-18-shared-persistence-write-coordinator.md)扫清障碍：不再有可变 summary 后，协调器的钩子接口不需要 `updateSummary` 钩子，JSONL sidecar 与 SQLite 列之间的持久性分歧也随之消失，使两个后端的写入路径趋于一致。
+这次移除同时收窄两个后端的公开服务约定和磁盘格式；summary 是有意为未来设计的结果，而非意外；如今原 Agent Note 描述 `SessionMeta` 之处已是 `SessionHeader`，这就是 summary 消失的原因。它还为[共享持久化写入协调器](../architecture/2026-06-18-shared-persistence-write-coordinator.md)扫清障碍：不再有可变 summary 后，协调器的钩子接口不需要 `updateSummary` 钩子，JSONL sidecar 与 SQLite 列之间的持久性分歧也随之消失，使两个后端的写入路径趋于一致。
 
 ## 无需迁移
 
@@ -30,6 +30,6 @@ Status: implemented
 
 ## 后果
 
-未来的会话选择器现在必须从日志派生预览/排序信息（或重新引入一个类型化字段），而不能直接读取现成的摘要行。这是正确的代价：为一个尚不存在的功能维护缓存，是每个后端都要承担维护成本、每个契约测试都要承担断言成本的无谓负担。这一原则——**通过的测试固定的是当前行为，不一定是正确行为；行为可能是过去妥协的产物**——现已作为独立约定记录在[根 AGENTS.md](../../../../AGENTS.md) 中，本次变更即为其实例。
+未来的会话选择器现在必须从日志派生预览/排序信息（或重新引入一个类型化字段），而不能直接读取现成的摘要行。这是正确的代价：为一个尚不存在的功能维护缓存，是每个后端都要承担维护成本、每个约定测试都要承担断言成本的无谓负担。这一原则——**通过的测试固定的是当前行为，不一定是正确行为；行为可能是过去妥协的产物**——现已作为独立约定记录在[根 AGENTS.md](../../../../AGENTS.md) 中，本次变更即为其实例。
 
 <!-- agent-note-format: alternatives-not-recorded (pre-format Agent Note) -->

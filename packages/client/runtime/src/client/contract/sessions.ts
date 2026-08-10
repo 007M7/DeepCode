@@ -12,12 +12,15 @@ import type {
   RpcResult, SessionId, SubagentAddress,
 } from '@deepseek-ai/dsh-client-connection/client'
 import type { HostObservable, SessionMaybeProvideInfo } from '@deepseek-ai/dsh-client-ui-slots'
+import type { AgentContext } from '../agents/scope.ts'
 import type { SessionSearchResultItem } from '../sessions/manager.ts'
 import type {
   SessionBinding, SessionListState, SessionProvideDescriptor,
 } from '../sessions/service.ts'
 import type { SessionFace } from './session.ts'
 import type { ObservableSnapshot } from './store.ts'
+
+export type { AgentContext } from '../agents/scope.ts'
 
 /** The sessions-service face injected as `ctx.sessions`. */
 export interface ISessions {
@@ -59,6 +62,15 @@ export interface ISessions {
    * @returns completion of the current or newly started refresh.
    */
   refreshSubagents(parentSessionId: SessionId): Promise<void>
+
+  /**
+   * Record the composition one session now runs. The agent-preset seat calls
+   * this after a successful blank-session switch, so the header label moves
+   * with the composition instead of waiting for the next full list refresh.
+   * @param sessionId - the switched session.
+   * @param agentPreset - the preset id the host confirmed.
+   */
+  noteAgentPreset(sessionId: SessionId, agentPreset: string): void
   /** Clear the current selection into the no-session view state. */
   clear(): void
   /**
@@ -95,9 +107,9 @@ export interface ISessions {
    * @param id - session id.
    * @returns scoped ctx, or undefined for a session neither listed nor already scoped.
    */
-  scope(id: SessionId): Context | undefined
+  scope(id: SessionId): AgentContext | undefined
   /**
-   * Read the Agent scope tag off a context (service-method seam: fetch
+   * Read the Agent scope tag off a context (service-method boundary: fetch
    * bundles must reach scope resolution through ctx.sessions).
    * @param ctx - any client context.
    * @returns the session id, or undefined on root contexts.

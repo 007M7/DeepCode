@@ -6,11 +6,11 @@ Status: implemented
 
 ## 问题
 
-仓库此前没有一份统一的参考文档来记录实际暴露给模型的工具名称、描述与 JSON Schema。源码声明分散各处且在运行时组合，而既有的 Cordis 目录和数据结构目录覆盖的是接线与词汇，而非工具。
+仓库此前没有一份统一的参考文档来记录实际暴露给模型的工具名称、描述与 JSON Schema。源码声明分散各处且在运行时组合，而既有的 Cordis 参考和子系统页面覆盖的是接线与词汇，而非工具。
 
 ## 决策
 
-目录通过**启动每个工具插件并读取其已注册 schema** 来生成，而不是解析源码。`scripts/gen-tool-catalog.ts` 在全新的 Cordis `Context` 上挂载每个已发布工具包；该上下文还提供 `SystemPrompt`、`ToolRegistry` 以及插件 `apply` 所读取的注入 seam。生成器调用 `ctx.tools.schemas()`——也就是发送给模型的确切 `ToolSchema[]`——随后 dispose（资源释放）上下文，并为每个包渲染一个 `## <package>` 章节，每个工具附带一个 ` ```json ` `parameters` 块。它与 `gen-cordis-catalog` / `gen-module-graph` 的 CLI 形状一致：默认 `--write` 重新生成；提交副本陈旧时 `--check` 失败；输出具有确定性（按清单排序，工具按名称排序）。`verify-tool-catalog`（即 `--check`）在 `doc-sync` 内运行，因此相关文档变更和 CI 会执行同一项新鲜度检查。
+目录通过**启动每个工具插件并读取其已注册 schema** 来生成，而不是解析源码。`scripts/gen-tool-catalog.ts` 在全新的 Cordis `Context` 上挂载每个已发布工具包；该上下文还提供 `SystemPrompt`、`ToolRegistry` 以及插件 `apply` 所读取的注入服务。生成器调用 `ctx.tools.schemas()`——也就是发送给模型的确切 `ToolSchema[]`——随后 dispose（资源释放）上下文，并为每个包渲染一个 `## <package>` 章节，每个工具附带一个 ` ```json ` `parameters` 块。它与 `gen-cordis-catalog` / `gen-module-graph` 的 CLI 形状一致：默认 `--write` 重新生成；提交副本陈旧时 `--check` 失败；输出具有确定性（按清单排序，工具按名称排序）。`verify-tool-catalog`（即 `--check`）在 `doc-sync` 内运行，因此相关文档变更和 CI 会执行同一项新鲜度检查。
 
 ### 为何启动而非解析（核心要点）
 
@@ -29,7 +29,7 @@ Cordis 目录是纯 TypeScript AST 遍历，因为每个事件/服务名都是�
 
 ### 手动维护的启动 manifest 是不可化约的策略
 
-文件系统负责发现工具包清单，完整性守卫负责拒绝遗漏。`TOOL_PACKAGES` 仍然为每个包持有一份显式的启动配方，因为所需的 seam 实现和配置属于策略，不是能从目录布局或注入名称安全推断的事实。
+文件系统负责发现工具包清单，完整性守卫负责拒绝遗漏。`TOOL_PACKAGES` 仍然为每个包持有一份显式的启动配方，因为所需的 Service provider 和配置属于策略，不是能从目录布局或注入名称安全推断的事实。
 
 ### 范围
 

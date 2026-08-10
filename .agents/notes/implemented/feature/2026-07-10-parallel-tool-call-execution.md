@@ -14,7 +14,7 @@ The session log remains authoritative: every started call has an audit event, or
 
 ## Decision
 
-Each tool may provide an optional `isConcurrencySafe(args)` classifier. It is synchronous and pure: it examines only the current call's parsed arguments and performs no I/O or mutation. Only an explicit `true` opts in; a missing classifier, invalid arguments, a thrown classifier, or any other return value makes the call exclusive. The canonical type contract lives in the [tool data structures](../../../../docs/core-data-structures/tools.md).
+Each tool may provide an optional `isConcurrencySafe(args)` classifier. It is synchronous and pure: it examines only the current call's parsed arguments and performs no I/O or mutation. Only an explicit `true` opts in; a missing classifier, invalid arguments, a thrown classifier, or any other return value makes the call exclusive. The canonical type contract lives in the [tool data structures](../../../../docs/subsystems/tools.md).
 
 The classifier is deliberately unary. Returning `true` is the tool's promise that this call may overlap with any sibling call that also returns `true`; the scheduler does not compare calls or prove that their resource accesses are compatible.
 
@@ -82,7 +82,7 @@ Snapshot coverage pins the visible multi-call transcript: pending calls may over
 
 **Parallelize the complete tool pipeline.** This keeps the loop on the public one-call API but runs pre- and post-execute middleware concurrently. Existing guards and hook bridges may carry ordered state, so only dispatch overlaps.
 
-**Expose staged methods or a scheduling waterfall.** Public `prepare` / `dispatch` / `finalize` methods or a `tools/execution-mode` event add extension surface before another consumer needs it. The loop uses an internal scheduler view, while `executionMode(exec)` leaves an insertion point for a policy seam.
+**Expose staged methods or a scheduling waterfall.** Public `prepare` / `dispatch` / `finalize` methods or a `tools/execution-mode` event add extension surface before another consumer needs it. The loop uses an internal scheduler view, while `executionMode(exec)` leaves an insertion point for a policy hook.
 
 **Convert scheduler failures into tool results.** AgentLoop cannot determine whether a rejected dispatch invoked the tool body; ToolRegistry owns body-invocation state and typed tool outcomes. Internal scheduler failures therefore remain terminal instead of being reclassified as `ABORTED` results.
 

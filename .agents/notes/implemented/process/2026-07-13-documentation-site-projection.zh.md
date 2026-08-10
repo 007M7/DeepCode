@@ -18,7 +18,9 @@ Status: implemented
 
 各 locale 的首页投影只保留权威 YAML frontmatter。面向仓库的正文可以保留其 H1 和双语源文件链接，而 VitePress 首页主题负责渲染 hero 与功能区，网站导航负责切换 locale。
 
-投影器解析 Markdown 链接，但不会重新序列化文档。指向另一个已发布源文件的链接会变成站内相对路由；指向未发布仓库文件的链接会变成 GitHub 源文件链接；仓库图片会被拷贝进生成树并从那里引用（[原因](2026-08-06-doc-site-carries-its-images.md)）。相对目标不存在时，投影会失败。单元测试会锁定这些转换行为，`docs:check` 则运行投影器测试和 VitePress 生产构建，并将二者纳入 `doc-sync` 和并行文档门禁。
+投影器解析 Markdown 链接，但不会重新序列化文档。指向另一个已发布源文件的链接会变成站内相对路由；指向未发布仓库文件的链接会变成公开 `deepseek-ai/deepseek-harness-sdk` 主页下的源文件链接；仓库图片会被拷贝进生成树并从那里引用（[原因](2026-08-06-doc-site-carries-its-images.md)）。相对目标不存在时，投影会失败。单元测试会锁定这些转换行为，`docs:check` 则运行投影器测试和 VitePress 生产构建，并将二者纳入 `doc-sync` 和并行文档门禁。
+
+`verify-public-repository-links` 会拒绝已跟踪文件中的内部仓库远程链接。公开源文件链接使用公开主页，而工作跟踪留在仓库元数据中；只有本地边界对维护者有意义时，源文件才保留 TODO。
 
 `website/AGENTS.md` 是网站子树中唯一维护的 Markdown 文件。投影器测试会枚举所有已跟踪文件和未被忽略的未跟踪文件，并拒绝网站中的任何其他 Markdown，因此网站专用的 locale、路由、API 或生成源文件副本无法绕过发布 manifest。
 
@@ -38,7 +40,7 @@ Mermaid 渲染权威图表。网站工作区显式声明 `vitepress-plugin-merma
 
 **只在部署工作流中构建。** 部署作业可以在合并后发现渲染故障。把生产构建纳入 `doc-sync`，则无论是否存在公开部署，同一个故障都能在本地和常规 CI 中暴露。
 
-**硬编码公开项目路径。** 固定的 `/deepseek-harness/` base 适用于公开项目 URL，却不适用于私有 Pages 站点分配的唯一源站，也不适用于未来的自定义域名。使用 Pages 元数据可让这些目标位置共享同一份构建契约。
+**硬编码公开项目路径。** 固定的 `/deepseek-harness/` base 适用于公开项目 URL，却不适用于私有 Pages 站点分配的唯一源站，也不适用于未来的自定义域名。使用 Pages 元数据可让这些目标位置共享同一份构建约定。
 
 ## 后果
 

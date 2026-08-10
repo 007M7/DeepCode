@@ -7,12 +7,15 @@
  * a key is entered; a blank key materializes a reference-free profile for
  * provider-native authentication);
  * the collapsed 自定义设置 area carries the per-family extras (`baseURL` for
- * both families, `reasoningEffort` for deepseek / `reasoning` for pi-ai, and
- * DeepSeek's id/name/context-window model catalog). Everything else stays
+ * both families and DeepSeek's id/name/context-window model catalog).
+ * Reasoning effort is deliberately absent: it is a per-MODEL capability, and
+ * the models under one provider disagree about it, so a provider-scoped
+ * control can only be set to a value some of them reject. The composer's
+ * model picker offers each model its own levels; `settings.yaml` keeps the
+ * profile field for a deployment that knows its route. Everything else stays
  * owned by `settings.yaml`. Profile edits land as minimal `settings.mutate`
- * path ops against the stored section — the card reads the redacted
- * descriptor, so it names only the fields it can see and a stored literal
- * secret is never collaterally removed.
+ * path ops against the stored section — the card names only the fields it can
+ * see instead of rebuilding the whole subtree from a partial descriptor.
  */
 
 import { useEffect, useMemo, useState } from 'react'
@@ -33,18 +36,6 @@ import styles from './ModelsSection.module.css'
 
 /** Per-adapter-family curated field sets (unknown namespaces get the hint alone). */
 type EditorLayout = 'deepseek' | 'pi-ai' | 'unknown'
-
-/** Reasoning vocabularies per layout; the empty option means "inherit". */
-const EFFORT_CHOICES: Record<'deepseek' | 'pi-ai', readonly string[]> = {
-  deepseek: ['off', 'high', 'max'],
-  'pi-ai': ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'],
-}
-
-/** The draft key the effort select edits, per layout. */
-const EFFORT_FIELD: Record<'deepseek' | 'pi-ai', string> = {
-  deepseek: 'reasoningEffort',
-  'pi-ai': 'reasoning',
-}
 
 /** The public DeepSeek endpoint shown as the deepseek base-URL placeholder. */
 const DEEPSEEK_PUBLIC_BASE_URL = 'https://api.deepseek.com'
@@ -80,10 +71,9 @@ function draftAt(namespace: SettingsNamespaceView, path: readonly string[]): Rec
 
 /**
  * The minimal path ops carrying `after` over `before`, both as the card sees
- * them (that is, redacted). Only keys the card observed are named: a stored
- * `role('secret')` field appears in neither side, so it produces no op and
- * survives the write — the whole reason edits are path-addressed rather than
- * a rebuilt section.
+ * them. Only keys the card observed are named; fields absent from both sides
+ * produce no op, which is why edits are path-addressed rather than a rebuilt
+ * section.
  * @param base - path of the edited subtree inside the user section.
  * @param before - the subtree as loaded, or undefined when it is new.
  * @param after - the subtree as edited.
@@ -205,9 +195,8 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
   /**
    * The write for this card, or a failure message. Every edit travels as
    * path ops against the STORED section: the draft comes from the redacted
-   * descriptor, so a wholesale replace rebuilt from it would delete the
-   * literal secrets the wire never returned. Ops name only the fields this
-   * card can see, so a stored secret is untouched by construction.
+   * descriptor, so a wholesale replace rebuilt from it could delete fields
+   * outside the card. Ops name only the fields this card can see.
    */
   const applyOnce = async (): Promise<string | undefined> => {
     const ns = namespace.ns
@@ -305,7 +294,6 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
    * unknown namespace never reaches this body.
    */
   const curatedFields = (family: 'deepseek' | 'pi-ai'): ReactNode => {
-    const effortField = EFFORT_FIELD[family]
     const customModels = getPath(draft, ['models'])
     const modelsOverridden = hasPath(draft, ['models'])
     const models = modelDrafts(modelsOverridden ? customModels : inheritedModels())
@@ -361,23 +349,6 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
                   setField('baseURL', event.target.value === '' ? undefined : event.target.value)
                 }}
               />
-            </div>
-            <div className={styles['field']}>
-              <span className={styles['fieldLabel']}>{t('effort')}</span>
-              <select
-                className={`${styles['input']} ${styles['selectInput']}`}
-                value={stringAt(draft, effortField) ?? ''}
-                aria-label={t('effort')}
-                disabled={disabled}
-                onChange={(event) => {
-                  setField(effortField, event.target.value === '' ? undefined : event.target.value)
-                }}
-              >
-                <option value="">{t('effortInherit')}</option>
-                {EFFORT_CHOICES[family].map(choice => (
-                  <option key={choice} value={choice}>{choice}</option>
-                ))}
-              </select>
             </div>
             {/* Both families edit the same rows through the same contract; only
                 the extras differ — DeepSeek's inherited capacities, pi-ai's

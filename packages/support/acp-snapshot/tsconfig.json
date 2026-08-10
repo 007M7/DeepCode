@@ -13,6 +13,9 @@
     },
     {
       "path": "../../support/invariants"
+    },
+    {
+      "path": "../../core/session"
     }
   ]
 }

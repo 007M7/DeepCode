@@ -524,7 +524,7 @@ export class AgentLoop extends Service implements AgentFactory {
           assertLive()
           // A synchronous announce/session-start listener may have started
           // teardown; the machine is already live (delivery works from the
-          // session-start seam), so only the liveness recheck is owed.
+          // session-start extension point), so only the liveness recheck is owed.
           emitAgentEvent(loopCtx, agent, 'agent/session-start', { source })
           assertLive()
           return { agent, dispose }

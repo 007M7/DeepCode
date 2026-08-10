@@ -125,7 +125,7 @@ function validateEvent(
       break
     }
     case 'tool/result': {
-      // Session has already validated a provenance-backed content rewrite.
+      // Session has already validated a content rewrite that cites its replaced event.
       // It is durable turn work, not a second execution of the original call.
       if (event.surfaceOp !== 'append') {
         if (trace.openTurn === null) {

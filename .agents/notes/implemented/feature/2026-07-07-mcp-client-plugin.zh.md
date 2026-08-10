@@ -104,7 +104,7 @@ type Config = StdioConfig | StreamableHttpConfig
 
 ### 公开名称规范化
 
-MCP 允许工具名最长 128 字符且可包含 `.`；DeepSeek 的函数名契约允许 `[A-Za-z0-9_-]` 且最多 64 字符。公开名称按确定性规则规范化：非法字符替换为 `_`，当替换或截断改变了名称时，追加 `(serverName, rawName)` 标识的 12 位十六进制 SHA-256 hash，确保不同的 MCP 标识永远不会坍缩为同一个公开名称：
+MCP 允许工具名最长 128 字符且可包含 `.`；DeepSeek 的函数名约定允许 `[A-Za-z0-9_-]` 且最多 64 字符。公开名称按确定性规则规范化：非法字符替换为 `_`，当替换或截断改变了名称时，追加 `(serverName, rawName)` 标识的 12 位十六进制 SHA-256 hash，确保不同的 MCP 标识永远不会坍缩为同一个公开名称：
 
 ```typescript
 function publicToolName(serverName: string, rawName: string): string {
@@ -131,7 +131,7 @@ MCP 仅保证工具名在[单个服务器内](https://modelcontextprotocol.io/sp
 ### 命名不变式
 
 1. 每个 MCP 工具拥有稳定标识 `(serverName, rawName)`；每个活跃标识恰好对应一个公开名称。
-2. 公开名称是确定性的、全局唯一的，且满足 DeepSeek 64 字符 `[A-Za-z0-9_-]` 契约。
+2. 公开名称是确定性的、全局唯一的，且满足 DeepSeek 64 字符 `[A-Za-z0-9_-]` 约定。
 3. MCP `tools/call` 始终接收原始的 raw name。
 4. 连接、断开或重新同步不相关的服务器永远不会重命名已有工具。
 5. 注册顺序永远不决定哪个工具可用。
@@ -206,7 +206,7 @@ v1 否决。它能防止跨服务器冲突，但无法将 MCP 注册与原生 ha
 ## 后果
 
 - 每个 MCP 服务器只需 `cordis.yml` 中的一条配置即完成集成：`serverName: filesystem` 加一条 stdio 命令（或一个 Streamable HTTP URL），就能将 `mcp__filesystem__read_file` 放入模型的工具列表，可调用，协议上使用原始的 `read_file`。
-- 公开名称是会话历史和权限/配置表面的一部分；命名算法是由测试固定的 v1 契约，发布后变更即为破坏性变更。
+- 公开名称是会话历史和权限/配置表面的一部分；命名算法是由测试固定的 v1 约定，发布后变更即为破坏性变更。
 - `mcp__<serverName>__` 限定符在每个名称上消耗 token。已接受：描述和 JSON Schema 在工具定义 token 中占主导，而限定符换来了稳定标识、冲突隔离和 MCP 全局策略匹配模式（`mcp__*`、`mcp__github__*`）。
 - **MCP SDK 稳定性**：`@modelcontextprotocol/sdk` 仍在演进中；破坏性变更需要更新桥接。版本已固定，且该 SDK 被广泛采用（Claude Desktop、Cursor、VS Code），因此破坏性变更不太可能悄然发生。
 - **工具 schema 质量**：MCP 服务器可能暴露描述不佳的工具（模糊的描述、不完整的 JSON Schema）。harness 原样透传——垃圾进垃圾出；这是服务器作者的责任，不是桥接的。

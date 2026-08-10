@@ -2,27 +2,47 @@
  * Skill reference plugin, browser half: registers the '/' skill source —
  * candidates from the skill.list RPC addressed by the per-call session
  * projection's sessionId (sessions are always agent-backed; the host
- * resolves cwd from the session header), pick inserts the literal `/name `
- * text (decision 21: the draft carries plain text, chip visuals are derived
- * by scanning against the source lexicon, and the prompt ships the same
- * literal — no `<skill>` tag). The RPC rides the plugin's root-context
- * connection captured at registration — the source never reads services off
- * a per-call argument. No adjudication hooks: skill references ride
- * ordinary prompts and never enter command adjudication.
+ * resolves cwd from the session header). A pick lands the literal `/name `
+ * text and the prompt ships the same literal (plain-text-reference decision;
+ * see .agents/notes/implemented/architecture/2026-07-25-web-input-machine-and-slash-pipeline.md);
+ * determinism
+ * lives host-side — the pre-step boundary (`dsh-tool-skill`) recognizes a
+ * leading `/name` naming a user-invocable skill and injects the rendered
+ * body for every entry point, including `disable-model-invocation` skills the
+ * model-side catalog never lists (issue #1470). The RPC rides the plugin's
+ * root-context connection captured at registration — the source never reads
+ * services off a per-call argument. Draft chip visuals derive from
+ * the lexicon scan; this source implements no reference codec.
  *
  * Catalog fetches are cached per session (the small twin of the ui-command
  * directory): the per-keystroke candidates re-poll filters a settled
  * snapshot locally, so one session costs one RPC. The scope-birth warm hook
- * prewarms the session's key; connection/reset clears everything — the host
+ * prewarms the session's key; a preset switch drops that one key (the
+ * catalog is the preset's, and a blank session may switch after the warm);
+ * connection/reset clears everything — the host
  * catalog may differ across generations. A shared in-flight fetch
  * deliberately outlives any single menu interaction: closing the menu must
  * not kill the prewarm other consumers will hit, so it carries its own
  * abort (fired only on invalidation/teardown) while a candidates caller
  * with an aborted signal just returns early.
+ *
+ * This browser half also owns the `skill` keyed toolview: a replay-stable
+ * accent row derived only from each logged call/result slice.
  */
 import type { ConnectionHandle, SessionId, SkillEntry } from '@deepseek-ai/dsh-client-connection/client'
 import type { ClientContext, ISessions } from '@deepseek-ai/dsh-client-runtime/client'
 import type { SlashServiceContract, SlashSource } from '@deepseek-ai/dsh-client-ui-slash/client'
+// Type-only: pulls the locale plugin's Context merge (ctx.locale).
+import type {} from '@deepseek-ai/dsh-client-locale/client'
+import { SkillRow } from './SkillRow.tsx'
+import { en, NS, zh, type SkillKey } from './locales.ts'
+
+declare module '@deepseek-ai/dsh-client-ui-slots' {
+  interface LocaleNamespaceMap {
+    /** The dedicated skill tool row's copy. */
+    skill: SkillKey
+  }
+}
 
 /** One session's catalog fetch: the shared promise plus its own abort handle. */
 interface CatalogFetch {
@@ -32,14 +52,20 @@ interface CatalogFetch {
   settled?: readonly SkillEntry[]
 }
 
-/** Required services: slash registry, routed sessions, and the wire face. */
-export const inject = ['slash', 'connection', 'sessions']
+/** Required services: reference source faces plus the tool-row and locale registries. */
+export const inject = ['slash', 'connection', 'sessions', 'slots', 'locale']
 
 /**
- * Client plugin body: register the '/' skill source over the root wire face.
+ * Client plugin body: register the '/' source, dictionaries, and keyed tool row.
  * @param ctx - client root context.
  */
 export function apply(ctx: ClientContext): void {
+  ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-skill: dictionaries')
+  ctx.slots.inject('tool.call.toolview', () => ctx.slots.register(
+    { name: 'tool.call.toolview', key: 'skill', locale: NS },
+    SkillRow,
+  ))
+
   const skills = (ctx.get('connection') as ConnectionHandle).api.skills
   const sessions = ctx.get('sessions') as ISessions
   // Session-keyed catalog cache; single-flight per key. Plugin-closure state:
@@ -99,6 +125,10 @@ export function apply(ctx: ClientContext): void {
     for (const key of [...fetches.keys()]) invalidate(key)
   }
 
+  // The bound translate resolves against the registered dictionaries with the
+  // locale service's own fallback ladder; candidate-time reads stay plain text.
+  const t = ctx.locale.bind(NS)
+
   const source: SlashSource = {
     trigger: '/',
     name: 'skill',
@@ -109,7 +139,12 @@ export function apply(ctx: ClientContext): void {
       if (signal.aborted) return []
       return skills
         .filter(skill => skill.name.startsWith(query))
-        .map(skill => ({ name: skill.name, description: skill.description }))
+        .map(skill => ({
+          name: skill.name,
+          // The user-only marker rides the description (the menu's only
+          // secondary text); `hint` is the claim-state ghost text, not a badge.
+          description: skill.modelInvocable ? skill.description : `${t('menu.userOnly')} · ${skill.description}`,
+        }))
     },
     warm(session) {
       // Fire-and-forget scope-birth prewarm; the shared fetch reports
@@ -130,18 +165,20 @@ export function apply(ctx: ClientContext): void {
       }
     },
     onPick({ candidate }) {
-      // Decision 21: plain-text reference — the literal lands in the draft
-      // and ships to the model verbatim (trailing space closes the token).
-      // Legacy path (decision 21), retained for the removal cut, no longer reached:
-      // return { insert: { source: 'skill', ref: candidate.name, label: candidate.name, clipboardText: `/${candidate.name}` } }
+      // Plain-text-reference decision (web-input-machine note): the pick
+      // lands plain text and the prompt ships the same
+      // literal. Determinism lives host-side — the host's
+      // pre-step boundary (dsh-tool-skill) recognizes the leading /name and
+      // injects the rendered body for every entry point. A name shared with a
+      // host command still resolves to the command: adjudication claims the
+      // line client-side before it ever becomes a prompt.
       return { text: `/${candidate.name} ` }
-    },
-    codec: {
-      clipboardText: ref => `/${ref}`,
-      serialize: ref => Promise.resolve(`<skill>${ref}</skill>`),
     },
   }
   const slash = ctx.get('slash') as SlashServiceContract
+  // A preset decides which skill providers an agent reads, so a switched
+  // session's cached catalog belongs to the composition it no longer runs.
+  ctx.on('session/preset-changed', invalidate)
   ctx.on('connection/reset', clearAll)
   ctx.effect(() => {
     const unregister = slash.registerSource(source)

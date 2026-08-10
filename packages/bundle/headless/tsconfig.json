@@ -18,13 +18,13 @@
       "path": "../../../vendor/schemastery"
     },
     {
-      "path": "../../host/apiproxy"
-    },
-    {
-      "path": "../../host/webserver"
-    },
-    {
       "path": "../../core/agent"
+    },
+    {
+      "path": "../../core/agent-default-model"
+    },
+    {
+      "path": "../../llm/llm"
     },
     {
       "path": "../../core/session"

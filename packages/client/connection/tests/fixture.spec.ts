@@ -168,7 +168,7 @@ describe('createFixtureApi', () => {
     })
   })
 
-  it('serves grouped models and keeps a selected target for later history and fixture requests', async () => {
+  it('serves grouped models and keeps a selection for later history and fixture requests', async () => {
     const api = createFixtureApi()
     const sessionId = sid('fx-alpha')
     const catalog = await api.sessions.models(req({ sessionId }))

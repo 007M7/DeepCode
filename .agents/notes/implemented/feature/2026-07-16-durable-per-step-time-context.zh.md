@@ -12,9 +12,9 @@ Status: implemented
 
 ## 决策
 
-`@deepseek-ai/dsh-time-context` 是位于 `packages/context/time-context/`、需要显式启用的函数插件。`context/` 分组容纳有界的请求上下文增强，这些增强既不定义工具也不定义服务；已交付示例不挂载此插件，因为时区披露与 token 成本属于部署策略。它注册一个前置的 `agent/pre-step` 监听器；需要读数且下游决策 enter 时，返回一条额外的 `UserMessage`。该消息携带来源 `{ kind: 'plugin', plugin: 'time-context' }`；受间隔抑制、reject 或失败的尝试不会追加任何内容。
+`@deepseek-ai/dsh-time-context` 是位于 `packages/context/time-context/`、需要显式启用的函数插件。`context/` 分组容纳有界的请求上下文增强，这些增强既不定义工具也不定义服务；已交付示例不挂载此插件，因为时区披露与 token 成本属于部署策略。它注册一个前置的 `agent/pre-step` 监听器；当应生成读数且下游决策为进入时，返回一条额外的 `UserMessage`。该消息携带来源 `{ kind: 'plugin', plugin: 'time-context' }`；被抑制、被拒绝或失败的尝试不会追加任何内容。
 
-监听器在 `step/start` 之前采样，并只在最终 enter 决策中结算读数。AgentLoop 会在 `step/start` 之后、请求派生之前记录它。因此，下游 reject 或失败会阻止读数进入持久历史。
+监听器在 `step/start` 之前采样，并仅在最终决定进入时确定该读数。AgentLoop 会在 `step/start` 之后、请求派生之前记录它。因此，下游拒绝或失败会阻止读数进入持久历史。
 
 省略可选配置 `timeZone` 时，插件在加载时解析一次 Node 进程的 IANA 时区；显式值由 `Intl.DateTimeFormat` 校验。时间戳包含数字 UTC 偏移和解析后的 IANA 时区。
 
@@ -44,7 +44,7 @@ Elapsed since the preceding step context: <duration-or-unavailable>.
 
 每个读数都作为普通表层节点保留，直至压缩将其隐藏；正数间隔调度绝不会移除已有读数。因此，后续请求会看到影响先前准备过程和步骤且尚未被隐藏的累计读数，而不是一个被原地改写的系统提示词值。
 
-插件不向系统提示词组装贡献任何内容。`request/header` 不包含时间上下文文本；请求重建从每个 `step/start` 取得完整的持久表层前缀。读数与请求无需一一对应，因为间隔抑制可以让请求进入步骤而不追加读数，reject 或失败则两者都不追加。插件通过 agent 注册表使用生命周期监听器，运行时不需要系统提示词服务。
+插件不向系统提示词组装贡献任何内容。`request/header` 不包含时间上下文文本；请求重建从每个 `step/start` 取得完整的持久表层前缀。读数与请求无需一一对应，因为间隔抑制可以让请求进入步骤而不追加读数，拒绝或失败则两者都不追加。插件通过 agent 注册表使用生命周期监听器，运行时不需要系统提示词服务。
 
 ## 测试
 
@@ -66,4 +66,4 @@ Elapsed since the preceding step context: <duration-or-unavailable>.
 - 省略 `refreshIntervalMs` 或设为 `0` 时，每次符合条件的准备尝试都会留下记录；正数间隔会减少追加频率和历史增长，同时使持久调度在恢复后继续生效。
 - 时间上下文仅追加并保留到压缩隐藏旧表层节点为止，其中也包括后续取消或失败所留下的准备读数。
 - 第一个步骤的时长通常从开启轮次的提示词起算，后续步骤的时长则反映自上一条步骤上下文以来的模型与工具处理时间。
-- 省略 `timeZone` 时仍采用部署进程而非远程用户的时区，时长仍采用 harness 的持久追加边界而非客户端来源时间戳。若要支持客户端来源的时间，需要另行建立持久输入契约。
+- 省略 `timeZone` 时仍采用部署进程而非远程用户的时区，时长仍采用 harness 的持久追加边界而非客户端来源时间戳。若要支持客户端来源的时间，需要另行建立持久输入约定。

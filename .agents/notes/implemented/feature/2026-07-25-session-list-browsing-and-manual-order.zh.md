@@ -34,7 +34,7 @@ UI 为组内 session 行的 HTML5 拖拽(仅 workspace 分组、非搜索态；f
 
 ### 壳/区域切分
 
-ui-sidebar 缩为列几何壳:品牌行、折叠状态机、New Session、Settings,以及一个 `sidebar.workspaces` 洞;壳与区域的契约只有两个事实 `{ wide, expandSidebar }`。ui-workspace 全权拥有浏览区域(section header、搜索、分组树与平铺、全部 workspace 对话框、拖拽)及其 groupBy store;rail 态的搜索/添加工作区图标也归区域,经 `expandSidebar()` 请求壳展开。picker 拆为核心件 `WorkspacePickFlow`(区域内直接组件组合;在[单一路径 Note](../simplification/2026-07-31-one-route-to-add-a-workspace.md)之前名为 `WorkspaceCreateFlow`)与薄包装 `WorkspacePicker`(继续填 ui-conversation 的 hero 坑);原 `sidebar.workspace` picker 坑与声明感知延迟注册随之删除。
+ui-sidebar 缩为列几何壳:品牌行、折叠状态机、New Session、Settings,以及一个 `sidebar.workspaces` 洞;壳与区域的约定只有两个事实 `{ wide, expandSidebar }`。ui-workspace 全权拥有浏览区域(section header、搜索、分组树与平铺、全部 workspace 对话框、拖拽)及其 groupBy store;rail 态的搜索/添加工作区图标也归区域,经 `expandSidebar()` 请求壳展开。picker 拆为核心件 `WorkspacePickFlow`(区域内直接组件组合;在[单一路径 Note](../simplification/2026-07-31-one-route-to-add-a-workspace.md)之前名为 `WorkspaceCreateFlow`)与薄包装 `WorkspacePicker`(继续填 ui-conversation 的 hero 坑);原 `sidebar.workspace` picker 坑与声明感知延迟注册随之删除。
 
 ## Alternatives considered
 
@@ -44,14 +44,14 @@ ui-sidebar 缩为列几何壳:品牌行、折叠状态机、New Session、Settin
 
 **drop 后乐观重排** —— client 先行重排需失败回滚,对象层多一块纠缠态;本地/局域网往返毫秒级,等 host 响应的简单方案肉眼无感。顺序权威单一化(完全信 host)后,前端永不发明顺序。
 
-**rename 对话框留在 ui-sidebar(最小改动)** —— 正是问题本身:workspace 域的对话框散落在借来的坑里,每加一个(Delete 确认框将至)都重演跨包接线。评审中先议了「只挪 rename Modal」的中间态,最终裁定整个浏览区域归 ui-workspace,壳只留几何。
+**rename 对话框留在 ui-sidebar(最小改动)** —— 正是问题本身:workspace 域的对话框散落在借来的坑里,每加一个(Delete 确认框将至)都重演跨包接线。只挪 rename Modal 会在下一个对话框上重演这份接线;整个浏览区域归 ui-workspace,壳只留几何。
 
 **WorkSpace 模式按 fork 谱系嵌套 session** —— 嵌套会让当前子会话依赖祖先展开态才能可见，也让组内手动序只能移动根节点；`parentId` 是 lineage 数据，不是列表导航结构。所有 session 拍平成同级行后，每行都可独立打开、搜索与排序；In one list 仍因没有 workspace 持久化载体而禁用拖拽。
 
 ## Consequences
 
-- 手动序是唯一的 workspace 账本序权威:用户排好的顺序不再被活动打乱;代价是「最近活跃浮到最上」的行为消失,活跃感知转由行内状态点与时间标签承担。`WorkspaceView.sessionIds` 的 wire 契约随之改为手动序措辞。
-- 壳/区域两事实契约把 workspace 域的后续功能(Delete 确认、跨组移动、Ungrouped 收编)全部收进 ui-workspace 单包;ui-sidebar 不再随 session 列表功能演进。
+- 手动序是唯一的 workspace 账本序权威:用户排好的顺序不再被活动打乱;代价是「最近活跃浮到最上」的行为消失,活跃感知转由行内状态点与时间标签承担。`WorkspaceView.sessionIds` 的 wire 约定随之改为手动序措辞。
+- 壳/区域两事实约定把 workspace 域的后续功能(Delete 确认、跨组移动、Ungrouped 收编)全部收进 ui-workspace 单包;ui-sidebar 不再随 session 列表功能演进。
 - 平铺模式不支持排序与分组入口(建到指定 workspace 需切回分组视图),是拍板接受的范围收窄。
 - session Delete 的功能接线与状态枚举扩 wire,留待后续迭代。
 

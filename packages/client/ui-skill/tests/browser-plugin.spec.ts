@@ -1,11 +1,14 @@
 /**
- * ui-skill browser half: source registration (duplicate-name proof) +
+ * ui-skill browser half: source and keyed toolview registration +
+ * locale dictionaries + source duplicate-name proof +
  * fiber-teardown removal (HMR safety) against the real SlashService, then
  * the source behavior contract driven directly on the captured source with
  * real ClientSessionContext projections — sessionId addressing, the
  * session-keyed catalog cache (single-flight per key, scope-birth warm
  * prewarm, connection/reset clear), startsWith filtering, RPC-failure
- * rejection, pick → plain-text outcome (decision 21), the synchronous
+ * rejection, pick → plain-text outcome (the plain-text-reference decision:
+ * .agents/notes/implemented/architecture/2026-07-25-web-input-machine-and-slash-pipeline.md),
+ * the synchronous
  * lexicon reads over the settled cache, and the reference codec's two
  * projections. Direct driving is deliberate: this spec owns only the
  * source's own contract.
@@ -13,35 +16,72 @@
 import { Context } from 'cordis'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
+import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
 import { SlashService } from '@deepseek-ai/dsh-client-ui-slash/client'
 import type { ClientSessionContext, SlashSource } from '@deepseek-ai/dsh-client-ui-slash/client'
 import { apply, inject } from '../src/client/index.ts'
+import { SkillRow as SkillToolRow } from '../src/client/SkillRow.tsx'
 
-type SkillRow = { name: string; description: string; whenToUse?: string }
+type SkillRow = { name: string; description: string; whenToUse?: string; modelInvocable?: boolean }
 type ListResult =
   | { ok: true; value: { skills: SkillRow[] } }
   | { ok: false; error: { code: string; message: string; details: object } }
 type ListFn = (payload: object, signal?: AbortSignal) => Promise<{ result: ListResult }>
+type InvokeResult =
+  | { ok: true; value: { accepted: true } }
+  | { ok: false; error: { code: string; message: string; details: object } }
+type InvokeFn = (payload: object) => Promise<{ result: InvokeResult }>
+
+interface PresentationCapture {
+  slots: SlotsService
+  dictionaries: Array<{ namespace: string; dictionaries: unknown }>
+  localeDisposed: boolean
+}
+
+/** Provide the presentation registries and capture the plugin's registrations. */
+function providePresentation(ctx: Context): PresentationCapture {
+  const slots = new SlotsService(ctx)
+  slots.register({
+    name: 'root',
+    children: { 'tool.call.toolview': { kind: 'keyed', scope: 'session' } },
+  } as never, () => null)
+  const capture: PresentationCapture = {
+    slots,
+    dictionaries: [],
+    localeDisposed: false,
+  }
+  ctx.provide('locale', {
+    register(namespace: string, dictionaries: unknown) {
+      capture.dictionaries.push({ namespace, dictionaries })
+      return () => { capture.localeDisposed = true }
+    },
+    // Minimal bound-translate fake: zh dictionary lookup, key passthrough on miss.
+    bind: () => (key: string) => key === 'menu.userOnly' ? '仅用户' : key,
+  })
+  return capture
+}
 
 /** Boot the plugin over fake slash/connection faces; returns the captured source and its ctx. */
-async function bench(list: ListFn, addressed?: SessionId) {
+async function bench(list: ListFn, addressed?: SessionId, invoke?: InvokeFn) {
   const ctx = new Context()
   let captured: SlashSource | undefined
   ctx.provide('slash', { registerSource: (src: SlashSource) => { captured = src; return () => {} } })
-  ctx.provide('connection', { api: { skills: { list } } })
+  const defaultInvoke: InvokeFn = () => Promise.resolve({ result: { ok: true as const, value: { accepted: true as const } } })
+  ctx.provide('connection', { api: { skills: { list, invoke: invoke ?? defaultInvoke } } })
   ctx.provide('sessions', {
     subagentAddress: (id: SessionId) => id === addressed
       ? { parentSessionId: sid('parent'), childSessionId: id, mode: 'continuable' as const }
       : undefined,
   })
+  providePresentation(ctx)
   await ctx.plugin({ inject: [...inject], apply }).await()
   return { ctx, source: captured! }
 }
 
 const CATALOG: SkillRow[] = [
-  { name: 'commit-helper', description: 'commit flow' },
-  { name: 'code-review', description: 'review flow', whenToUse: 'reviews' },
-  { name: 'deploy', description: 'deploy flow' },
+  { name: 'commit-helper', description: 'commit flow', modelInvocable: true },
+  { name: 'code-review', description: 'review flow', whenToUse: 'reviews', modelInvocable: true },
+  { name: 'deploy', description: 'deploy flow', modelInvocable: true },
 ]
 
 const listOk = (skills: SkillRow[]): ListFn => () => Promise.resolve({ result: { ok: true as const, value: { skills } } })
@@ -65,7 +105,38 @@ const req = (query: string, signal?: AbortSignal) =>
 
 describe('apply', () => {
   it('declares the services it binds', () => {
-    expect(inject).toEqual(['slash', 'connection', 'sessions'])
+    expect(inject).toEqual(['slash', 'connection', 'sessions', 'slots', 'locale'])
+  })
+
+  it('registers the dedicated skill row and its locale dictionaries', async () => {
+    const ctx = new Context()
+    ctx.provide('slash', { registerSource: () => () => {} })
+    ctx.provide('connection', { api: { skills: { list: listOk(CATALOG) } } })
+    ctx.provide('sessions', { subagentAddress: () => undefined })
+    const presentation = providePresentation(ctx)
+    await ctx.plugin({ inject: [...inject], apply }).await()
+    const entry = presentation.slots.entries('tool.call.toolview')[0]
+    expect(entry?.options).toMatchObject({ key: 'skill' })
+    expect(entry?.locale).toBe('skill')
+    expect(entry?.component).toBe(SkillToolRow)
+    expect(presentation.dictionaries).toEqual([{
+      namespace: 'skill', dictionaries: {
+        zh: {
+          'row.running': '正在加载 skill',
+          'row.failed': 'skill 加载失败',
+          'row.stopped': 'skill 加载已中止',
+          'row.instructions': '说明',
+          'menu.userOnly': '仅用户',
+        },
+        en: {
+          'row.running': 'Loading skill',
+          'row.failed': 'Skill load failed',
+          'row.stopped': 'Skill load stopped',
+          'row.instructions': 'Instructions',
+          'menu.userOnly': 'user-only',
+        },
+      },
+    }])
   })
 
   it('registers the "/" skill source; disposal frees the name (HMR safety)', async () => {
@@ -74,6 +145,7 @@ describe('apply', () => {
     ctx.provide('sessions', {})
     await ctx.plugin(SlashService).await()
     ctx.provide('connection', { api: { skills: { list: listOk(CATALOG) } } })
+    const presentation = providePresentation(ctx)
     const fiber = ctx.plugin({ inject: [...inject], apply })
     await fiber.await()
     const slash = ctx.get('slash') as SlashService
@@ -88,6 +160,8 @@ describe('apply', () => {
     // …and fiber teardown releases it.
     await fiber.dispose()
     expect(() => slash.registerSource(rival)).not.toThrow()
+    expect(presentation.slots.entries('tool.call.toolview')).toHaveLength(0)
+    expect(presentation.localeDisposed).toBe(true)
   })
 })
 
@@ -189,6 +263,21 @@ describe('catalog cache', () => {
     expect(payloads).toHaveLength(2)
   })
 
+  it('session/preset-changed clears only the recomposed session', async () => {
+    const { list, payloads } = countingList()
+    const { ctx, source } = await bench(list)
+    await source.candidates(proj('s1'), req(''))
+    await source.candidates(proj('s2'), req(''))
+    expect(payloads).toHaveLength(2)
+    // The catalog a preset supplies is the preset's; the other session's
+    // composition did not change, so its cached catalog still holds.
+    ctx.emit('session/preset-changed', sid('s1'), 'minimal')
+    await source.candidates(proj('s1'), req(''))
+    await source.candidates(proj('s2'), req(''))
+    expect(payloads).toHaveLength(3)
+    expect(payloads[2]).toEqual({ sessionId: 's1' })
+  })
+
   it('connection/reset clears every cached session', async () => {
     const { list, payloads } = countingList()
     const { ctx, source } = await bench(list)
@@ -250,8 +339,8 @@ describe('lexicon', () => {
   })
 })
 
-describe('pick and codec', () => {
-  it('onPick returns the literal /name text with a closing space (decision 21)', async () => {
+describe('pick lands plain text', () => {
+  it('onPick returns the literal /name text with a closing space', async () => {
     const { source } = await bench(listOk(CATALOG))
     const outcome = source.onPick({
       candidate: { name: 'commit-helper', description: 'commit flow' },
@@ -263,18 +352,27 @@ describe('pick and codec', () => {
     expect(outcome).toEqual({ text: '/commit-helper ' })
   })
 
-  it('codec projects clipboard `/name` and serializes the model form <skill>name</skill>', async () => {
+  it('keeps the legacy reference codec removed and stays out of adjudication', async () => {
     const { source } = await bench(listOk(CATALOG))
-    expect(source.codec!.clipboardText('deploy')).toBe('/deploy')
-    await expect(source.codec!.serialize('deploy', new AbortController().signal))
-      .resolves.toBe('<skill>deploy</skill>')
+    // Determinism lives host-side (the pre-step gesture boundary), so the
+    // source neither claims lines nor serializes reference markup.
+    expect(source.codec).toBeUndefined()
+    expect(typeof source.matchSpace).toBe('undefined')
+    expect(typeof source.matchEnter).toBe('undefined')
   })
 })
 
-describe('adjudication', () => {
-  it('never participates: no matchSpace/matchEnter hooks on the skill source', async () => {
-    const { source } = await bench(listOk(CATALOG))
-    expect(typeof source.matchSpace).toBe('undefined')
-    expect(typeof source.matchEnter).toBe('undefined')
+describe('user-only marking', () => {
+  it('prefixes the description of candidates the model cannot invoke', async () => {
+    const rows: SkillRow[] = [
+      { name: 'shared-skill', description: 'both surfaces', modelInvocable: true },
+      { name: 'user-only-skill', description: 'user surface only', modelInvocable: false },
+    ]
+    const { source } = await bench(listOk(rows))
+    const candidates = await source.candidates(proj('s1'), req(''))
+    expect(candidates).toEqual([
+      { name: 'shared-skill', description: 'both surfaces' },
+      { name: 'user-only-skill', description: '仅用户 · user surface only' },
+    ])
   })
 })

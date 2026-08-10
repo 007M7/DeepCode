@@ -6,10 +6,15 @@
  * (api-proxy.ts: createApiProxy + the ApiProxyService gateway plugin providing
  * `ctx.apiProxy`). Transport-agnostic by design: this package registers no
  * routes — physical carriers wrap `ctx.apiProxy` themselves.
+ *
+ * The gateway consumes `ctx.agentDefaultModel`, the transport-independent default
+ * shared with direct entry points. Switching models persists through that
+ * service; sessions that have already logged a selection remain unchanged.
  */
 
 import { Context, Service } from 'cordis'
 import z from 'schemastery'
+import type {} from '@deepseek-ai/dsh-agent-default-model'
 import type { ApiProxy } from './api/index.ts'
 import { createApiProxy } from './api-proxy.ts'
 
@@ -28,12 +33,16 @@ declare module 'cordis' {
   }
 }
 
-/** Gateway plugin config: host-level agent routing. */
+/** Gateway plugin config for native Host integration. */
 export interface Config {
-  /** Default provider route for created/resumed agents. */
-  provider: string
-  /** Default model id. */
-  model: string
+  /**
+   * Whether this deployment can hand paths to a native desktop opener —
+   * the `hasDocument` capability the agent-preset roster reports. Absent,
+   * the platform is asked (macOS/Windows/WSL yes; Linux only with a display
+   * server); set it explicitly where detection misleads, e.g. `false` in a
+   * container whose DISPLAY points nowhere a user can see.
+   */
+  nativeOpen?: boolean
 }
 
 /**
@@ -43,13 +52,12 @@ export interface Config {
  */
 export class ApiProxyService extends Service implements ApiProxy {
   static inject = [
-    'agents', 'directoryPicker', 'llm', 'sessions', 'subagents', 'sessionQuery',
+    'agentDefaultModel', 'agents', 'directoryPicker', 'llm', 'sessions', 'subagents', 'sessionQuery',
     'tools', 'userInteraction', 'workspace',
   ]
 
   static Config: z<Config> = z.object({
-    provider: z.string().required(),
-    model: z.string().required(),
+    nativeOpen: z.boolean(),
   })
 
   readonly sessions: ApiProxy['sessions']
@@ -59,6 +67,7 @@ export class ApiProxyService extends Service implements ApiProxy {
   readonly commands: ApiProxy['commands']
   readonly goals: ApiProxy['goals']
   readonly skills: ApiProxy['skills']
+  readonly agentPresets: ApiProxy['agentPresets']
   readonly settings: ApiProxy['settings']
   readonly credentials: ApiProxy['credentials']
   readonly llm: ApiProxy['llm']
@@ -68,9 +77,10 @@ export class ApiProxyService extends Service implements ApiProxy {
   constructor(ctx: Context, config: Config) {
     super(ctx, 'apiProxy')
     const api = createApiProxy(ctx, {
-      provider: config.provider,
-      model: config.model,
+      defaultModelSelection: () => ctx.agentDefaultModel.currentSelection(),
+      saveDefaultModelSelection: selection => ctx.agentDefaultModel.saveSelection(selection),
       cwd: process.cwd(),
+      ...config.nativeOpen === undefined ? {} : { canOpenPath: () => config.nativeOpen as boolean },
     })
     this.sessions = api.sessions
     this.subagents = api.subagents
@@ -79,12 +89,13 @@ export class ApiProxyService extends Service implements ApiProxy {
     this.commands = api.commands
     this.goals = api.goals
     this.skills = api.skills
+    this.agentPresets = api.agentPresets
     this.settings = api.settings
     this.credentials = api.credentials
     this.llm = api.llm
     this.events = api.events
-    // createApiProxy returns closures (no `this` capture); bind only satisfies
-    // the unbound-method lint without changing behavior.
+    // createApiProxy returns closures (no `this` capture), so the bind is
+    // behavior-neutral.
     this.respond = api.respond.bind(api)
   }
 }

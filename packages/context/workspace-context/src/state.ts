@@ -33,7 +33,7 @@ import {
 
 export const name = 'workspace-context'
 
-/** Durable provenance and reconciliation facts for one workspace context. */
+/** Durable producer, file, and reconciliation facts for one workspace context. */
 export interface WorkspaceInstructionSource {
   kind: 'workspace-instructions'
   /** Every workspace context carries instructions read out of a file (the `instructions` context form). */

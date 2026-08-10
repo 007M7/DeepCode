@@ -1,6 +1,6 @@
 # AGENTS.md
 
-This workspace builds `landlock-run`, a Landlock self-restrict-then-exec launcher: a small, auditable confinement binary distributed as prebuilt per-platform npm packages, plus the thin JS entry package that resolves it and speaks its CLI contract. The source of record is the `deepseek-harness` repository's `native/landlock-run/`; the `node-addon-landlock-run` repository is the release mirror this tree is exported to for packing and publishing (procedure: `native/README.md` in the harness repo). Make changes in the source of record, never only in the mirror.
+This directory builds `landlock-run`, a Landlock self-restrict-then-exec launcher: a small, auditable confinement binary distributed as prebuilt per-platform npm packages, plus the thin JS entry package that resolves it and speaks its CLI contract. It belongs to the repository's root pnpm workspace and lockfile. The main repository owns native CI, tarball assembly, verification, and npm publication; keep package-family changes coordinated with harness consumers in the same repository.
 
 ## Pre-release stance
 
@@ -18,10 +18,10 @@ The project is pre-1.0. Prefer the correct public shape over compatibility shims
 ## Repository layout
 
 ```text
-packages/entry/     Published entry package: JS seam (resolve/probe/grants) + the C source.
+packages/entry/     Published entry package: JavaScript API (resolve/probe/grants) + the C source.
 packages/linux-*/   Published per-platform packages: one prebuilt static binary, no JavaScript.
 scripts/            Build, matrix derivation, prepack gates, and release orchestration.
-test/               Plain-node behavioral tests (entry seam + real-kernel launcher proofs).
+test/               Plain-node behavioral tests (entry API + real-kernel launcher proofs).
 docs/               Architecture, packaging, CLI contract, release, support matrix, naming.
 ```
 

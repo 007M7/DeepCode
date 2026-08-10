@@ -10,7 +10,7 @@ export const name = 'subprocess-invariant'
 /** Service required before the companion can reserve package ownership. */
 export const inject = ['invariants']
 
-/** No runtime invariant: this stateless seam owns spawn-spec/handle types, while implementations own observations. */
+/** No runtime invariant: this stateless Service Definition owns spawn-spec/handle types, while Service providers own observations. */
 const install: InvariantInstaller = () => {}
 
 /**

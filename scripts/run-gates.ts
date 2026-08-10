@@ -16,7 +16,7 @@ export type Mode =
   | 'ci-primary'
   | 'ci-linux-primary'
   | 'ci-static'
-  | 'ci-lint'
+  | 'ci-lint-contracts-ready'
   | 'ci-coverage'
   | 'ci-snapshot'
   | 'ci-artifacts'
@@ -101,7 +101,7 @@ function parseMode(raw: string | undefined): Mode {
     case 'ci-primary':
     case 'ci-linux-primary':
     case 'ci-static':
-    case 'ci-lint':
+    case 'ci-lint-contracts-ready':
     case 'ci-coverage':
     case 'ci-snapshot':
     case 'ci-artifacts':
@@ -115,7 +115,7 @@ function parseMode(raw: string | undefined): Mode {
       return raw
     default:
       throw new Error(
-        `run-gates: expected mode ci-primary | ci-linux-primary | ci-static | ci-lint | ci-coverage | ci-snapshot | ci-artifacts | ci-consumers | ci-windows-blocking | ci-windows-complete | ci-windows-observational | node-compat | check-all | doc-sync, got ${JSON.stringify(raw)}.`,
+        `run-gates: expected mode ci-primary | ci-linux-primary | ci-static | ci-lint-contracts-ready | ci-coverage | ci-snapshot | ci-artifacts | ci-consumers | ci-windows-blocking | ci-windows-complete | ci-windows-observational | node-compat | check-all | doc-sync, got ${JSON.stringify(raw)}.`,
       )
   }
 }
@@ -197,7 +197,7 @@ export function gatesForMode(selected: Mode): Gate[] {
       return [...ciPrimaryGates(), webSnapshotGate(['built-package-invariants'])]
     case 'ci-static':
       return ciStaticGates({ ownsBuild: false })
-    case 'ci-lint':
+    case 'ci-lint-contracts-ready':
       return [
         lintGate(),
         pnpmScript('duplication', 'duplication'),
@@ -224,6 +224,7 @@ export function gatesForMode(selected: Mode): Gate[] {
         pnpmScript('cordis-config', 'verify-cordis-config', { label: 'Cordis config' }),
         pnpmScript('client-domain-graph', 'verify-client-domain-graph', { label: 'client domain graph' }),
         pnpmScript('test', 'test'),
+        pnpmScript('issue-management', 'test:issue-management', { label: 'Issue management policy' }),
         pnpmScript('duplication', 'duplication'),
         snapshotGate(),
         pnpmScript('build', 'build'),
@@ -232,6 +233,7 @@ export function gatesForMode(selected: Mode): Gate[] {
         ...docSyncLeafGates({
           docTypecheckNeeds: ['build'],
           docTypecheckEnv: { DSH_DOC_TYPECHECK_USE_BUILD_OUTPUT: '1' },
+          docTypecheckScript: 'doc-typecheck:contracts-ready',
         }),
         pnpmScript('module-graph', 'verify-module-graph', { label: 'module graph' }),
       ]
@@ -240,25 +242,36 @@ export function gatesForMode(selected: Mode): Gate[] {
   }
 }
 
-function ciPrimaryGates(): Gate[] {
+function ciSharedStaticGates(): Gate[] {
   return [
     pnpmScript('runtime-closure', 'verify-runtime-closure', { label: 'runtime closure' }),
     pnpmScript('constraints', 'constraints'),
     pnpmScript('package-invariants', 'verify-package-invariants', { label: 'package invariants' }),
     pnpmScript('cordis-config', 'verify-cordis-config', { label: 'Cordis config' }),
-    pnpmScript('typecheck', 'typecheck'),
-    lintGate(),
+    pnpmScript('issue-management', 'test:issue-management', { label: 'Issue management policy' }),
+  ]
+}
+
+function ciPrimaryGates(): Gate[] {
+  return [
+    ...ciSharedStaticGates(),
+    typertContractsGate(),
+    pnpmScript('typecheck', 'typecheck:contracts-ready', { needs: ['typert-contracts'] }),
+    lintGate({ needs: ['typert-contracts'] }),
     pnpmScript('duplication', 'duplication'),
     ...coverageGates(),
     ...nodeCompatSmokeGates(),
     snapshotGate(),
-    ...docSyncLeafGates(),
+    ...docSyncLeafGates({
+      docTypecheckNeeds: ['typert-contracts'],
+      docTypecheckScript: 'doc-typecheck:contracts-ready',
+    }),
     pnpmScript('module-graph', 'verify-module-graph', { label: 'module graph' }),
     pnpmScript('knip', 'knip'),
-    // typecheck and build now drive the same root solution graph; without the
-    // dependency two concurrent `tsc -b` runs race the same tsbuildinfo files.
-    // The tsc step is an incremental no-op after typecheck.
-    pnpmScript('build', 'build', { needs: ['typecheck'] }),
+    // The prepared typecheck and build both drive Client tsc, while build also
+    // repeats the Host contract pass. Wait for all three consumers so build
+    // neither races tsbuildinfo nor replaces declarations while they are read.
+    pnpmScript('build', 'build', { needs: ['typecheck', 'lint', 'doc-typecheck'] }),
     pnpmScript('publint', 'publint', { needs: ['build'] }),
     pnpmScript('node-next-types', 'verify-node-next-types', {
       label: 'node-next types',
@@ -299,7 +312,7 @@ function nodeCompatSmokeGates(options: { cliSmoke?: boolean } = {}): Gate[] {
     pnpmExec('jsonl-zstd-smoke', [
       'vitest',
       'run',
-      'packages/session-persistence/session-persistence-jsonl/tests/zstd.compat.spec.ts',
+      'packages/session/session-persistence-jsonl/tests/zstd.compat.spec.ts',
     ], { label: 'JSONL Zstandard smoke' }),
     pnpmExec('dsh-source-launch-smoke', [
       'vitest',
@@ -339,10 +352,7 @@ function runningNodeMajor(): number {
 
 function ciStaticGates(options: { ownsBuild: boolean }): Gate[] {
   return [
-    pnpmScript('runtime-closure', 'verify-runtime-closure', { label: 'runtime closure' }),
-    pnpmScript('constraints', 'constraints'),
-    pnpmScript('package-invariants', 'verify-package-invariants', { label: 'package invariants' }),
-    pnpmScript('cordis-config', 'verify-cordis-config', { label: 'Cordis config' }),
+    ...ciSharedStaticGates(),
     ...options.ownsBuild ? [pnpmScript('build', 'build')] : [],
     ...docSyncLeafGates({
       includeDocTypecheck: options.ownsBuild,
@@ -350,6 +360,7 @@ function ciStaticGates(options: { ownsBuild: boolean }): Gate[] {
         ? {
           docTypecheckNeeds: ['build'],
           docTypecheckEnv: { DSH_DOC_TYPECHECK_USE_BUILD_OUTPUT: '1' },
+          docTypecheckScript: 'doc-typecheck:contracts-ready',
         }
         : {},
       docsBuildScript: 'docs:build:mpa',
@@ -380,13 +391,13 @@ function ciConsumerGates(): Gate[] {
     pnpmScript('node-compat', 'check:node-compat', { label: 'Node compatibility' }),
     pnpmScript('publint', 'publint', { needs: builtTree }),
     builtPackageInvariantsGate(['publint']),
-    pnpmScript('lint-and-duplication', 'check:ci:lint', {
+    pnpmScript('lint-and-duplication', 'check:ci:lint:contracts-ready', {
       label: 'lint and duplication',
       needs: validatedBuild,
     }),
     snapshotGate(validatedBuild),
     webSnapshotGate(validatedBuild),
-    pnpmScript('doc-typecheck', 'doc-typecheck', {
+    pnpmScript('doc-typecheck', 'doc-typecheck:contracts-ready', {
       needs: validatedBuild,
       env: { DSH_DOC_TYPECHECK_USE_BUILD_OUTPUT: '1' },
     }),
@@ -395,6 +406,7 @@ function ciConsumerGates(): Gate[] {
       needs: validatedBuild,
     }),
     builtBinSmokeGate(validatedBuild),
+    githubRepositoryPluginE2eGate(validatedBuild),
   ]
 }
 
@@ -423,6 +435,7 @@ function ciWindowsCompleteGates(): Gate[] {
   return [
     pnpmScript('build', 'build'),
     pnpmScript('windows-site', 'docs:build', { label: 'production site' }),
+    ...coverageGates(),
     ...observational,
   ]
 }
@@ -430,7 +443,7 @@ function ciWindowsCompleteGates(): Gate[] {
 function ciWindowsObservationalGates(): Gate[] {
   return [
     ...ciStaticGates({ ownsBuild: true }),
-    // Linux owns required lint, coverage, and snapshots; Windows omits those duplicates.
+    // Linux owns required lint and snapshots; Windows omits those duplicates.
     pnpmScript('duplication', 'duplication'),
     pnpmScript('publint', 'publint', { needs: ['build'] }),
     pnpmScript('node-next-types', 'verify-node-next-types', {
@@ -442,11 +455,19 @@ function ciWindowsObservationalGates(): Gate[] {
   ]
 }
 
-function lintGate(): Gate {
+function typertContractsGate(): Gate {
+  return pnpmScript('typert-contracts', 'build:lib:host', { label: 'TypeRT contracts' })
+}
+
+function lintGate(options: { needs?: string[] } = {}): Gate {
   const raw = process.env.DSH_OXLINT_THREADS
-  return pnpmScript('lint', 'lint', raw === undefined || raw === ''
-    ? {}
-    : { displayCommand: `DSH_OXLINT_THREADS=${raw} pnpm run lint` })
+  const script = 'lint:contracts-ready'
+  return pnpmScript('lint', script, {
+    ...raw === undefined || raw === ''
+      ? {}
+      : { displayCommand: `DSH_OXLINT_THREADS=${raw} pnpm run ${script}` },
+    ...options.needs === undefined ? {} : { needs: options.needs },
+  })
 }
 
 // The heavy suites run uninstrumented beside the thresholded gate: their
@@ -549,6 +570,7 @@ function docSyncLeafGates(options: {
   includeDocTypecheck?: boolean
   docTypecheckNeeds?: string[]
   docTypecheckEnv?: Record<string, string | undefined>
+  docTypecheckScript?: 'doc-typecheck' | 'doc-typecheck:contracts-ready'
   docsBuildScript?: 'docs:build' | 'docs:build:mpa'
 } = {}): Gate[] {
   const docTypecheckOptions: Partial<Gate> = {}
@@ -557,7 +579,7 @@ function docSyncLeafGates(options: {
   return [
     ...options.includeDocTypecheck === false
       ? []
-      : [pnpmScript('doc-typecheck', 'doc-typecheck', docTypecheckOptions)],
+      : [pnpmScript('doc-typecheck', options.docTypecheckScript ?? 'doc-typecheck', docTypecheckOptions)],
     pnpmScript('cordis-catalog', 'verify-cordis-catalog', { label: 'cordis catalog' }),
     pnpmScript('export-jsdoc', 'verify-export-jsdoc', { label: 'export jsdoc' }),
     pnpmScript('tool-catalog', 'verify-tool-catalog', { label: 'tool catalog' }),
@@ -567,8 +589,10 @@ function docSyncLeafGates(options: {
     pnpmScript('scoped-events', 'verify-scoped-events', { label: 'scoped events' }),
     pnpmScript('markdown-wrap', 'verify-md-wrap', { label: 'markdown wrap' }),
     pnpmScript('markdown-links', 'verify-md-links', { label: 'markdown links' }),
+    pnpmScript('public-repository-links', 'verify-public-repository-links', { label: 'public repository links' }),
     pnpmScript('doc-refs', 'verify-doc-refs', { label: 'doc refs' }),
     pnpmScript('package-paths', 'verify-package-paths', { label: 'package paths' }),
+    pnpmScript('config-source-ownership', 'verify-config-source-ownership', { label: 'config source ownership' }),
     pnpmScript('package-readme-model-experience', 'verify-package-readme-model-experience', { label: 'package README model experience' }),
     pnpmScript('mermaid', 'verify-mermaid'),
     pnpmScript('agent-note-classification', 'verify-agent-note-classification', { label: 'agent note classification' }),
@@ -595,21 +619,36 @@ function builtBinSmokeGate(needs: string[] = ['build']): Gate {
     'vitest.e2e.config.ts',
     'examples/headless-agent/tests/keyless-smoke.e2e.ts',
     'apps/cli/tests/built-bin.e2e.ts',
-    'packages/examples/cli-demo/tests/built-bin.e2e.ts',
     'packages/examples/acp-demo/tests/built-bin.e2e.ts',
     'packages/host/directory-picker-native/tests/built-worker.e2e.ts',
-    'packages/ui/jsonrpc/tests/built-scope-carrier.e2e.ts',
+    'packages/scaffold/server/tests/built-scope-carrier.e2e.ts',
     'packages/subagent/subagent-codex/tests/loader-composition.e2e.ts',
     'packages/subagent/subagent-claude-code/tests/loader-composition.e2e.ts',
-    // The worker-entry packages' built bundles: the only automated proof
-    // that lib/index.js resolves its sibling lib/worker.cjs under plain node
-    // (the e2e lane runs unbuilt, so these files self-skip there).
+    'packages/api/remotes/tests/built-lib.e2e.ts',
+    // Built execution consumers: the only automated proof that package-name
+    // imports reach their lib/ entrypoints under plain Node. The e2e lane runs
+    // unbuilt, so these files self-skip there.
     'packages/workflow/workflow-workerthread/tests/built-worker.e2e.ts',
     'packages/code-runtime/code-runtime-worker/tests/built-lib.e2e.ts',
+    'packages/lsp/lsp-local/tests/built-lib.e2e.ts',
   ], {
     label: 'built-bin smoke',
     needs,
     env: { DSH_EXAMPLE_MODE: 'lib' },
+  })
+}
+
+function githubRepositoryPluginE2eGate(needs: string[]): Gate {
+  return pnpmExec('github-repository-plugin-e2e', [
+    'vitest',
+    'run',
+    '--config',
+    'vitest.e2e.config.ts',
+    'apps/cli/tests/github-repository-plugin.built.e2e.ts',
+  ], {
+    label: 'GitHub repository Plugin dsh run',
+    needs,
+    env: { DSH_REQUIRE_GITHUB_REPOSITORY_PLUGIN_E2E: '1' },
   })
 }
 

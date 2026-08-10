@@ -32,6 +32,9 @@ import {
   commandListRequestSchema, commandListValueSchema,
 } from '../src/api/commands.schema.ts'
 import { skillEntrySchema, skillListRequestSchema, skillListValueSchema } from '../src/api/skills.schema.ts'
+import {
+  agentPresetEntrySchema, agentPresetListValueSchema, agentPresetOpenDocumentValueSchema,
+} from '../src/api/agent-presets.schema.ts'
 import { hostFrameSchema, muxFrameSchema, askUserQuestionItemSchema } from '../src/api/events.schema.ts'
 import { approvalRequestIdSchema, approvalResponsePayloadSchema } from '../src/api/approvals.schema.ts'
 import { askUserQuestionAnswerSchema, questionResponsePayloadSchema } from '../src/api/questions.schema.ts'
@@ -192,11 +195,12 @@ describe('sessions domain schemas', () => {
     expect(sessionHistoryValueSchema.parse({
       events: [],
       hasMore: false,
-      modelTarget: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+      modelSelection: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
     }).hasMore).toBe(false)
     expect(sessionModelsRequestSchema.parse({ sessionId: 's1' }).sessionId).toBe('s1')
     expect(sessionModelsValueSchema.parse({
       current: { provider: 'deepseek-official', model: 'deepseek-v4-flash', reasoningEffort: 'max' },
+      routable: true,
       groups: [{
         id: 'deepseek-official',
         name: 'DeepSeek',
@@ -274,8 +278,10 @@ describe('sessions domain schemas', () => {
 describe('host domain schemas', () => {
   it('validates describe request/value', () => {
     expect(hostDescribeRequestSchema.parse({})).toEqual({})
-    const value = hostDescribeValueSchema.parse({ version: '1', cwd: '/x', provider: 'p', model: 'm', attachedSessions: 2 })
-    expect(value.attachedSessions).toBe(2)
+    const value = hostDescribeValueSchema.parse({
+      version: '1', cwd: '/x', provider: 'p', model: 'm', attachedSessions: 2,
+    })
+    expect(value).toMatchObject({ provider: 'p', model: 'm', attachedSessions: 2 })
     expect(hostDescribeValueSchema.parse({ version: '1', cwd: '/x', attachedSessions: 0 }).provider).toBeUndefined()
   })
 
@@ -392,12 +398,15 @@ describe('skills domain schemas', () => {
     expect(() => skillListRequestSchema.parse({})).toThrow()
     expect(skillListValueSchema.parse({ skills: [] }).skills).toEqual([])
     const value = skillListValueSchema.parse({ skills: [
-      { name: 'commit-helper', description: 'Git commits', whenToUse: 'when committing' },
-      { name: 'bare', description: 'No guidance' },
+      { name: 'commit-helper', description: 'Git commits', whenToUse: 'when committing', modelInvocable: true },
+      { name: 'bare', description: 'No guidance', modelInvocable: false },
     ] })
     expect(value.skills[0]?.whenToUse).toBe('when committing')
     expect(value.skills[1]?.whenToUse).toBeUndefined()
-    expect(() => skillEntrySchema.parse({ name: '', description: 'd' })).toThrow()
+    expect(value.skills[1]?.modelInvocable).toBe(false)
+    expect(() => skillEntrySchema.parse({ name: '', description: 'd', modelInvocable: true })).toThrow()
+    // modelInvocable is required wire data: an entry without it fails.
+    expect(() => skillEntrySchema.parse({ name: 'n', description: 'd' })).toThrow()
   })
 })
 
@@ -484,6 +493,7 @@ describe('events frame schemas', () => {
       } },
       { type: 'host/workspace-removed', workspaceId: 'w' },
       { type: 'host/commands-changed' },
+      { type: 'host/session-preset-changed', sessionId: 's', agentPreset: 'minimal' },
       { type: 'stream/error', error: { code: 'internal', message: 'm', details: {} } },
     ]
     for (const frame of frames) expect(hostFrameSchema.parse(frame)).toMatchObject({ type: frame.type })
@@ -500,5 +510,29 @@ describe('respond payload schemas', () => {
     expect(answer.answers[0]?.selected).toEqual(['x'])
     const payload = questionResponsePayloadSchema.parse({ sessionId: 's', answer: { answers: [] } })
     expect(payload.sessionId).toBe('s')
+  })
+})
+
+describe('agent-preset schemas', () => {
+  it('accepts a roster row and rejects an unknown trust', () => {
+    expect(agentPresetEntrySchema.parse({ id: 'standard', trust: 'system', isDefault: true }))
+      .toEqual({ id: 'standard', trust: 'system', isDefault: true })
+    expect(() => agentPresetEntrySchema.parse({ id: 'x', trust: 'root', isDefault: false })).toThrow()
+    expect(() => agentPresetEntrySchema.parse({ id: '', trust: 'user', isDefault: false })).toThrow()
+  })
+
+  it('accepts an empty roster', () => {
+    // A deployment composing no presets still reports its authoring and
+    // native-open capabilities, so a surface knows what to offer.
+    expect(agentPresetListValueSchema.parse({ presets: [], authorable: false, hasDocument: false }))
+      .toEqual({ presets: [], authorable: false, hasDocument: false })
+  })
+
+  it('answers the open-document union by its discriminant', () => {
+    expect(agentPresetOpenDocumentValueSchema.parse({ opened: true })).toEqual({ opened: true })
+    expect(agentPresetOpenDocumentValueSchema.parse({ opened: false, path: '/presets/mine' }))
+      .toEqual({ opened: false, path: '/presets/mine' })
+    // A closed reply must carry the path the surface shows instead.
+    expect(() => agentPresetOpenDocumentValueSchema.parse({ opened: false })).toThrow()
   })
 })

@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/proposed/architecture/2026-07-15-sdk-project-editing-architecture.md
 2026-07-15-sdk-project-editing-architecture.md: 8335af516dbaa85f4adb85286f976ce9be2c9da8
-2026-07-15-sdk-project-editing-architecture.zh.md: 51f0c5e7f4f033d8149a7ae01aae7a8c4755b76c
+2026-07-15-sdk-project-editing-architecture.zh.md: 4c59ac8cdedf0c7fdd1a2e7994135bc89653d55e

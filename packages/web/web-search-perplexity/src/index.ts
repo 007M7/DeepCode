@@ -8,6 +8,7 @@
  */
 
 import type { Context } from 'cordis'
+import { environmentOf } from '@deepseek-ai/dsh-environment'
 import z from 'schemastery'
 import type {} from '@deepseek-ai/dsh-web'
 import { PerplexitySearchProvider, PERPLEXITY_DEFAULT_BASE_URL, PERPLEXITY_DEFAULT_MAX_TOKENS, PERPLEXITY_DEFAULT_MODEL } from './provider.ts'
@@ -52,7 +53,9 @@ export const Config: z<Config> = z.object({
 /** Register the Perplexity search provider with `ctx.web`. */
 export function apply(ctx: Context, config: Config): void {
   ctx.web.registerSearchProvider(new PerplexitySearchProvider({
-    apiKey: config.apiKey ?? process.env.PERPLEXITY_API_KEY ?? '',
+    // Every environment layer may name this key: the product trusts the
+    // project it is launched in, and the managed store is not involved here.
+    apiKey: config.apiKey ?? environmentOf(ctx).get('PERPLEXITY_API_KEY')?.value ?? '',
     baseURL: config.baseURL ?? PERPLEXITY_DEFAULT_BASE_URL,
     model: config.model ?? PERPLEXITY_DEFAULT_MODEL,
     maxTokens: config.maxTokens ?? PERPLEXITY_DEFAULT_MAX_TOKENS,

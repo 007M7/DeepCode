@@ -6,9 +6,9 @@ Status: proposed
 
 ## 问题
 
-host 侧唯一的持久化面是 session 事件日志（`packages/session-persistence`：仅追加、一 session 一文件）。凡是"不属于某个 session"的信息就没有落盘处，眼下有两个真实需求：
+host 侧唯一的持久化面是 session 事件日志（`packages/session/session-persistence`：仅追加、一 session 一文件）。凡是"不属于某个 session"的信息就没有落盘处，眼下有两个真实需求：
 
-- **workspace 实体**。GUI 要把 workspace 做成真实对象：路径、标题、关联 session 清单。归属关系由 workspace 持有——"哪些 session 属于这个 workspace"不是任何单个 session 自己的事实，塞进 session log 语义不成立。此前 workspace 只是 sidebar 上按 cwd 分组的视觉概念，没有实体（该结论已被推翻）。
+- **workspace 实体**。GUI 要把 workspace 做成真实对象：路径、标题、关联 session 清单。归属关系由 workspace 持有——"哪些 session 属于这个 workspace"不是任何单个 session 自己的事实，塞进 session log 语义不成立。在本设计之前，workspace 只是 sidebar 上按 cwd 分组的视觉概念，没有实体。
 - **session 动态元信息**（可预见的第二个消费方）。冷会话列表只读日志首行 header（创建时的不可变快照），title、结束状态这类随会话推进变化的信息拿不到；补齐方向是 sidecar 元数据表——正是一张按 key 高频点更新的 KV 表。
 
 另外，Session 删除需要 `SessionPersistence` 删除原语和 `session.delete` 端点。该空白的设计随本 Note 定案，但实现仍属未来工作。
@@ -26,7 +26,7 @@ host 侧唯一的持久化面是 session 事件日志（`packages/session-persis
 | `@deepseek-ai/dsh-storage-sqlite` | `packages/storage/storage-sqlite/` | 注册后端 `sqlite` | ✓ |
 | `@deepseek-ai/dsh-storage-domain` | `packages/storage/storage-domain/` | 挂载 `ctx.storage.domain` | ✓ |
 | `@deepseek-ai/dsh-workspace` | `packages/workspace/workspace/` | `ctx.workspace` | ✓ |
-| `SessionPersistence.delete` 扩面 + 级联删编排 | `packages/session-persistence/*` | 既有 seam 新方法 | ✗ future work（本期不动 session 侧） |
+| `SessionPersistence.delete` 扩面 + 级联删编排 | `packages/session/*` | 既有 seam 新方法 | ✗ future work（本期不动 session 侧） |
 | `workspace.*` / `session.delete` RPC、GUI 接线、boot 组装 | — | — | ✗ 下期 |
 
 （workspace 放独立组不放 `packages/host/`：host 组命名规则要求 `dsh-host-*` 前缀，而包名定为 `dsh-workspace`；且 workspace 实体是领域概念，不绑定 host 装配层。与既有 `workspace-context` 包无关——那是 AGENTS.md 指令加载器。）
@@ -41,7 +41,7 @@ host 侧唯一的持久化面是 session 事件日志（`packages/session-persis
 
 一个后端是一个**介质 owner**（一棵文件树 root / 一个 db 文件），通过**数据形状 facet** 暴露原语——本期只有 `kv`；session 迁移期加 `log`（见迁移节）。facet 是可选成员，缺席即该后端不支持该形状，解析时 fail loud。`kv` facet 的原语面：`open(descriptor)`（descriptor = 名字/版本/表名清单/有无 global，名字与表名限 `^[a-z][a-z0-9_]*$` 兼作文件名与 SQL 表名段）返回 unit，unit 提供 `loadAll` / `putRecord` / `deleteRecord`（缺 key 为 no-op）/ `setGlobal` / `close`（幂等）；值对后端是不透明 JSON。规范正文（含逐方法 JSDoc）在 `packages/storage/storage/src/backend.ts`。
 
-后端契约（共享契约测试逐条断言，两后端同套件）：
+后端约定（共享约定测试逐条断言，两后端同套件）：
 
 1. `open` 对不存在的介质创建（懒物化允许：可延迟到首写，但 `loadAll` 立即可用返回空表）；对已存在介质载入。
 2. 介质上版本 ≠ descriptor.version → `StorageError('version-mismatch')`，不迁移不重建。
@@ -256,7 +256,7 @@ export class WorkspaceRegistry extends Service {
 
 ### 复用与 session 后端迁移展望
 
-**长期方向**：session-persistence 的 JSONL/SQLite 后端里"纯介质操作"下沉到 `dsh-storage` 后端（session 包不删，`SessionPersistence` seam 与 coordinator 语义不动；动的只是它们脚下的文件/db 操作层）。复用的动机：介质层全是文件系统操作、数据库调用与跨平台兼容的脏活（Windows 权限与原子发布变体、fsync 语义、独占建文件……），这些只应写一遍；业务语义（session 怎么 append、何时 append、append 什么）留在上层——而"底下这次 append 是否正常完成"（持久性/原子性/平台正确性）是底层的责任，责任界面就是 facet 原语的契约。为此后端接口按**介质 owner + 数据形状 facet** 设计：session 日志是仅追加流，与 KV 形状不同——强行统一进 KV 原语会两头变形，所以按 facet 分开（`kv` 本期、`log` 迁移期），介质与生命周期共享。
+**长期方向**：session-persistence 的 JSONL/SQLite 后端里"纯介质操作"下沉到 `dsh-storage` 后端（session 包不删，`SessionPersistence` seam 与 coordinator 语义不动；动的只是它们脚下的文件/db 操作层）。复用的动机：介质层全是文件系统操作、数据库调用与跨平台兼容的脏活（Windows 权限与原子发布变体、fsync 语义、独占建文件……），这些只应写一遍；业务语义（session 怎么 append、何时 append、append 什么）留在上层——而"底下这次 append 是否正常完成"（持久性/原子性/平台正确性）是底层的责任，责任界面就是 facet 原语的约定。为此后端接口按**介质 owner + 数据形状 facet** 设计：session 日志是仅追加流，与 KV 形状不同——强行统一进 KV 原语会两头变形，所以按 facet 分开（`kv` 本期、`log` 迁移期），介质与生命周期共享。
 
 现状复用审计（迁移前就能看清的账）：
 
@@ -275,11 +275,11 @@ export class WorkspaceRegistry extends Service {
 
 | 套件 | 覆盖 | 后端 |
 | --- | --- | --- |
-| 后端契约（共享套件，一次编写两端跑） | 七条契约 + 版本拒绝 + close 幂等 | json、sqlite（`:memory:` + 临时目录） |
+| 后端约定（共享套件，一次编写两端跑） | 七条约定 + 版本拒绝 + close 幂等 | json、sqlite（`:memory:` + 临时目录） |
 | 注册表/mount | 重复注册、未挂载访问、disposer 摘除 | — |
 | domain 层 | open 六步语义、schema 拒绝、update 串行（并发交错压测）、`domain/changed` 逐条、global 初值懒物化、路由与 `facet-unsupported` | 任一（json） |
 | workspace | create/唯一性/realpath、attach 校验（含 sessionPersistence 缺席拒绝）、一致性口径四情形 | mock domain 或 json |
-| session delete 契约（future work，随实施并入 runPersistenceContract） | 未知 id、已删 id 复用、未物化 intent、与在途 append 串行、deleted 事件 | jsonl、sqlite |
+| session delete 约定（future work，随实施并入 runPersistenceContract） | 未知 id、已删 id 复用、未物化 intent、与在途 append 串行、deleted 事件 | jsonl、sqlite |
 
 快照：本期无模型可见面与组装面，不新增；下期 RPC 接线时随 `workspace.*` 域补。
 
@@ -305,7 +305,7 @@ export class WorkspaceRegistry extends Service {
 - **复用 session-persistence 的 coordinator/后端**：事件日志语义（仅追加、turn 崩溃修复、懒物化）与 KV 覆写语义不匹配；只借其分层思想（协调层持写序、后端只实现最小原语）。
 - **workspace 专用存储包，后续再抽 seam**：第二个消费方（session sidecar）已可预见，届时泛化要再动一次接口。
 - **domain 与 storage 合为一层**：后端会被迫接触 schema 校验、变更事件、写串行等领域关切；拆开后 storage 后端只做不透明原语（可替换面最小），domain 单实现收敛全部领域逻辑（zod/事件/串行化只写一遍，不随后端翻倍）。
-- **整库单后端二选一（学 session-persistence 单 slot 模式）**：曾是初版方案；改为多后端并存 + 配置路由，因为存储枢纽要承载多种数据形式，不同形式/域对后端的偏好（肉眼可读 vs 高频点更新）注定分化，单 slot 会逼出"整体换挂 + 手工导数据"的粗粒度动作。代价是按名查找多一步，fail-loud 兜底。
+- **整库单后端二选一（学 session-persistence 单 slot 模式）**：否决——存储枢纽要承载多种数据形式，不同形式/域对后端的偏好（肉眼可读 vs 高频点更新）注定分化，单 slot 会逼出"整体换挂 + 手工导数据"的粗粒度动作。代价是按名查找多一步，fail-loud 兜底。
 - **JSON 后端 jsonl 追加 + 墓碑 + 压实（compaction）**：temp+fsync+rename 的崩溃安全与 append 等价；覆写让文件永远是净值、肉眼可读，免掉折叠／压实／断行容错。域规模下整写与追加一行同量级。
 - **JSON 一表一文件**：覆写下文件粒度不影响写成本，按域合并文件更少，global 单例有落点。
 - **SQLite 整域存单行 blob**：任何一条记录变更都重写整域，失去按 key 精确更新——SQLite 相对 JSON 的唯一优势归零。
@@ -318,7 +318,7 @@ export class WorkspaceRegistry extends Service {
 
 ## 验收标准
 
-- 测试矩阵本期四套件全绿：后端契约共享套件在 json/sqlite 双端、注册表/mount disposer 语义、domain 层（含 open 六步与路由 fail-loud）、workspace 全语义（create/attach 校验/一致性口径）。
+- 测试矩阵本期四套件全绿：后端约定共享套件在 json/sqlite 双端、注册表/mount disposer 语义、domain 层（含 open 六步与路由 fail-loud）、workspace 全语义（create/attach 校验/一致性口径）。
 - `ctx.workspace` 可在测试组装下完成 create → attach → list → 仅删除元数据的 delete 生命周期。
 - session-persistence 包零 diff（本期不动 session 侧的验收线）。
 - 本期无新快照（无模型可见面与组装面）；下期 RPC 接线时补。

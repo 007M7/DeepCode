@@ -13,10 +13,11 @@ import { describe, expect, it } from 'vitest'
 import { createScope } from '@deepseek-ai/dsh-client-runtime/client'
 import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
-import type { ModelTarget } from '@deepseek-ai/dsh-client-connection/client'
+import type { ModelSelection } from '@deepseek-ai/dsh-client-connection/client'
 import type { CommandContribution, SelectOption } from '@deepseek-ai/dsh-client-ui-command/client'
 import type { ModelSelectInjected } from '../src/client/slots.ts'
 import { apply, inject } from '../src/client/index.ts'
+import { zh } from '../src/client/locales.ts'
 
 const sid = (k: string): SessionId => k as SessionId
 
@@ -54,12 +55,14 @@ const GROUPS = [{
 /** Boot the plugin over fake faces + a stateful fake host (current moves on selectModel). */
 async function bench() {
   const ctx = new Context()
-  let current: ModelTarget = { provider: 'deepseek-official', model: 'deepseek-v4-flash' }
+  let current: ModelSelection = { provider: 'deepseek-official', model: 'deepseek-v4-flash' }
   const calls = { models: 0, select: 0 }
   ctx.provide('connection', { api: { sessions: {
     models: () => {
       calls.models += 1
-      return Promise.resolve({ result: { ok: true as const, value: { current, groups: GROUPS, failures: [] } } })
+      return Promise.resolve({
+        result: { ok: true as const, value: { current, routable, groups: GROUPS, failures: [] } },
+      })
     },
     selectModel: (payload: { provider: string; model: string; reasoningEffort?: string }) => {
       calls.select += 1
@@ -73,6 +76,15 @@ async function bench() {
       return Promise.resolve({ result: { ok: true as const, value: { selected: current } } })
     },
   } } })
+  // Whether the Host reports an adapter for the current route; the composer
+  // block follows this, never catalog membership.
+  let routable = true
+  const blocks = new Map<SessionId, { reason: string } | undefined>()
+  ctx.provide('conversation', {
+    blocks: {
+      set: (id: SessionId, block: { reason: string } | undefined) => { blocks.set(id, block) },
+    },
+  })
   let contribution: CommandContribution | undefined
   ctx.provide('command', {
     register(c: CommandContribution) {
@@ -113,8 +125,10 @@ async function bench() {
     contribution: () => contribution!,
     seat: () => seats.get('conversation.input.model')!,
     hostCurrent: () => current,
-    setHostCurrent: (target: ModelTarget) => { current = target },
+    setHostCurrent: (selection: ModelSelection) => { current = selection },
     address: (id: SessionId) => { addressed.add(id) },
+    setRoutable: (next: boolean) => { routable = next },
+    blockOf: (key: string) => blocks.get(sid(key)),
   }
 }
 
@@ -215,6 +229,63 @@ describe('ui-model dual entry', () => {
     b.mint('s1')
     const face2 = b.seat().inject!(sid('s1'))
     expect(face2.directory).not.toBe(face1.directory)
+  })
+
+  it('blocks the composer only once the Host reports the route unservable', async () => {
+    const b = await bench()
+    b.mint('s1')
+    const face = b.seat().inject!(sid('s1'))
+
+    // Before the first load nothing is known. `null` is not `false`: a slow
+    // or unreachable Host must never lock a working composer.
+    expect(b.blockOf('s1')).toBeUndefined()
+    face.load()
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(b.blockOf('s1')).toBeUndefined()
+
+    b.setRoutable(false)
+    b.ctx.emit('models/changed')
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(b.blockOf('s1')?.reason).toBe(zh['blocked.composer'])
+
+    // Recovering clears it without a reload of the surface.
+    b.setRoutable(true)
+    b.ctx.emit('models/changed')
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(b.blockOf('s1')).toBeUndefined()
+  })
+
+  it('never blocks on catalog membership alone', async () => {
+    const b = await bench()
+    b.mint('s1')
+    const face = b.seat().inject!(sid('s1'))
+    // A model the route serves but no longer advertises: the seat prompts for
+    // a selection, the composer stays usable. Blocking here would break a
+    // supported configuration (a narrowed `models` list over a live route).
+    b.setHostCurrent({ provider: 'deepseek-official', model: 'unlisted' })
+    face.load()
+    await Promise.resolve()
+    await Promise.resolve()
+    const snapshot = face.directory.getSnapshot()
+    expect(snapshot.groups.flatMap(group => group.models.map(model => model.id))).not.toContain('unlisted')
+    expect(b.blockOf('s1')).toBeUndefined()
+  })
+
+  it('clears its block when the session scope goes', async () => {
+    const b = await bench()
+    const scope = b.mint('s1')
+    b.setRoutable(false)
+    const face = b.seat().inject!(sid('s1'))
+    face.load()
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(b.blockOf('s1')).toBeDefined()
+
+    await scope.fiber.dispose()
+    expect(b.blockOf('s1')).toBeUndefined()
   })
 
   it('an unknown session fails loud at the seat inject', async () => {

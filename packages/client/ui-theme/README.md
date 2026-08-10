@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-Theme plugin: ThemeService over the --dsw-* token base stylesheets (static scale + alias semantic layers). The service owns the theme preference (`light`/`dark`/`system`, persisted under `dsh.theme`), resolves `system` through `prefers-color-scheme`, and publishes immutable `ThemeSnapshot`s on the `theme/change` event; it never touches the DOM — ui-layout's presenter applies the resolved snapshot (`html { color-scheme }`, `body[data-ds-dark-theme]`, and inline alias tokens). Contract: api-contracts v3 §8.
+Theme plugin: ThemeService over the --dsw-* token base stylesheets (static scale + alias semantic layers). The service owns the theme preference (`light`/`dark`/`system`, persisted under `dsh.theme`), resolves `system` through `prefers-color-scheme`, and publishes immutable `ThemeSnapshot`s on the `theme/change` event; it never touches the DOM — ui-layout's presenter applies the resolved snapshot (`html { color-scheme }`, `body[data-ds-dark-theme]`, and inline alias tokens).
 
 `src/styles/` holds five sheets, all imported by the web shell's `base.css`: `base.css`, `design-platform.css`, `scrollbar.css`, `gradient-shadow-text.css`, and `shiki.css`. `scrollbar.css` is the sole consumer of the `--dsw-alias-scrollbar-*` tokens and must follow `design-platform.css`, which declares them.
 
@@ -21,4 +21,4 @@ None; this package neither assembles nor sends a provider request.
 ## Known Limitations and Deferred Work
 
 - **Third-party themes are a surface, not a product** — registering one means overriding same-named alias variables; no validation exists that an override set is complete.
-- **The token sheets are the sole color authority** — values absent from cssdesign (for example the design's #4176E6 tab blue) are deliberately not appended; the nearest semantic token wins (arbitrated 2026-07-22).
+- **The token sheets are the sole color authority** — values absent from cssdesign (for example the design's #4176E6 tab blue) are deliberately not appended; the nearest semantic token wins. Design-owner-approved additions are the exception and enter as a static step plus a semantic alias in the same change (`--dsw-static-blue-900` / `--dsw-alias-label-primary-bluish`).

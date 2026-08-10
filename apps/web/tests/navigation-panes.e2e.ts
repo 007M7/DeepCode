@@ -78,8 +78,8 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
   beforeAll(async () => {
     scaffold = await launchWebScaffold({})
     // The workspace-aware flow runs sessions in <workspaceCwd>/workspace;
-    // the read targets must live in that session cwd (pre-creation is safe:
-    // create-by-name adopts an existing directory).
+    // the read targets must live in that session cwd (pre-creation is safe
+    // because the picker adopts an existing directory by path).
     const sessionCwd = join(scaffold.workspaceCwd, 'workspace')
     await mkdir(sessionCwd, { recursive: true })
     await writeFile(join(sessionCwd, 'nav-a.md'), '# alpha nav\n')
@@ -331,7 +331,7 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
     // Real layout, not jsdom's stub (which computes no geometry at all):
     // squeeze the output pane below its content width and the line must keep
     // its single row and overflow sideways instead of folding. Soft-wrapping
-    // here is what shredded the column alignment this card exists to hold.
+    // here shreds the column alignment this card exists to hold.
     const layout = await card.locator('[class*="_output_"]').first().evaluate((node) => {
       const pane = node as HTMLElement
       const row = pane.querySelector<HTMLElement>('[class*="_line_"]')

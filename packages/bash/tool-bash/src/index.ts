@@ -1,5 +1,5 @@
 /**
- * Model-facing `bash` tool over the `ctx.bash` executor seam. Background calls
+ * Model-facing Consumer of the `ctx.bash` capability seam. Background calls
  * register process handles with `ctx.tasks`; their work uses task cancellation
  * rather than the tool-call signal after an id is returned.
  *
@@ -155,7 +155,7 @@ function resolveWorkdir(
   return modelWorkdir
 }
 
-/** Detach the executor DTO from readonly seam interfaces into plain JSON data. */
+/** Detach the executor DTO from readonly Service Definition types into plain JSON data. */
 function canonicalBashResult(result: BashRunResult) {
   const output = (stream: BashRunResult['stdout']) => ({
     text: stream.text,
@@ -206,9 +206,9 @@ export function apply(ctx: Context, config: Config = {}): void {
    * {@link approveEscalation}. This tool contributes only the composition
    * guard (the fields are unadvertised without a sandboxing executor, yet
    * schema validation checks advertised keys only, so an unadvertised
-   * `sandbox_permissions` still reaches execute) and the approval ingredients
-   * The shared policy resolver is required whenever the executor advertises
-   * confinement, so a split composition fails at tool-plugin load.
+   * `sandbox_permissions` still reaches execute) and the approval
+   * ingredients. The shared policy resolver is required whenever the executor
+   * advertises confinement, so a split composition fails at tool-plugin load.
    */
   const approveBashEscalation = (
     mode: string,

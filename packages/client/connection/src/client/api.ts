@@ -1,9 +1,9 @@
 // Central contract re-export point: every contract import inside
 // web-runtime goes through this single file.
 // Types and runtime protocol helpers/bounds come from the apiproxy api/ layer
-// (zero Node deps, browser-safe); AbstractApiClient is the client seam.
+// (zero Node deps, browser-safe); AbstractApiClient is the client boundary.
 // NEVER import the package root: it drags bootHost/cordis into the browser bundle.
-// The ./api and ./client subpath exports are the browser-safe channels added for this.
+// The ./api and ./client subpath exports are the browser-safe channels.
 
 export type {
   ApiProxy, SessionsApi, SessionSearchItem, SessionSummary, HostApi, EventsApi, MuxFrame, HostFrame,
@@ -12,7 +12,7 @@ export type {
   WorkspaceApi, WorkspaceId, WorkspaceView,
   CommandsApi, CommandDescriptor, SkillsApi, SkillEntry,
   ModelCatalogFailure, ModelCatalogModel, ModelProviderGroup, ModelReasoning,
-  ModelReasoningEffort, ModelTarget, QueueAction, QueuedInboxItem, SessionModels,
+  ModelReasoningEffort, ModelSelection, QueueAction, QueuedInboxItem, SessionModels,
   GoalsApi, GoalRef,
   SettingsApi, SettingsNamespaceView, SettingsPathOpView, SettingsSecretView,
   CredentialsApi, CredentialView, ConfigurableProviderView, DiscoveredModelView, LlmApi,
@@ -23,9 +23,9 @@ export type {
   RpcRequest, RpcResponse, RpcResult, RpcError, RpcErrorCode,
   ClientRequest, ServerResponse, ServerRequest, ClientResponse, RpcMessage, RpcReceipt,
 } from '@deepseek-ai/dsh-host-apiproxy/api'
-// transportError moved down to the apiproxy api layer (it belongs beside
-// RpcResult, its subject); re-exported here so connection consumers keep one
-// contract entry point.
+// transportError lives in the apiproxy api layer (beside RpcResult, its
+// subject); re-exported here so connection consumers keep one contract
+// entry point.
 export {
   RpcId,
   SESSION_SEARCH_RESULT_LIMIT,

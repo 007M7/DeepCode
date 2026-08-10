@@ -7,7 +7,6 @@
  * @module @deepseek-ai/dsh-lsp-local/instance
  */
 
-import { pathToFileURL } from 'node:url'
 import { LspError } from '@deepseek-ai/dsh-lsp'
 import type {
   LspOperation,
@@ -31,6 +30,8 @@ import {
 
 /** Everything an instance needs beyond the connection spec. */
 export interface InstanceSpec extends ConnectionSpec {
+  /** Canonical workspace file URI supplied by the filesystem provider. */
+  readonly workspaceUri: string
   /** Static `initialize` options forwarded to the server. */
   readonly initializationOptions: unknown
   /** Graceful `shutdown`/`exit` budget before escalation (ms). */
@@ -91,7 +92,7 @@ export class LspInstance {
    */
   query(request: LspProviderQuery, source: HostSource, signal?: AbortSignal): Promise<LspQueryResult> {
     // Serialize behind prior work, but observe abort DURING the queue wait too: if an earlier query
-    // hangs (e.g. a signal-less seam caller), a later tool's timeout must still be able to give up
+    // hangs (e.g. a signal-less service caller), a later tool's timeout must still be able to give up
     // rather than block on the shared tail forever.
     const run = abortable(this.queue, signal)
       .then(() => this.runQuery(request, source, signal))
@@ -108,9 +109,11 @@ export class LspInstance {
 
   private async initialize(): Promise<void> {
     const initializeResult = await this.connection.request('initialize', {
-      processId: process.pid,
-      rootUri: pathToFileURL(this.spec.cwd).href,
-      workspaceFolders: [{ uri: pathToFileURL(this.spec.cwd).href, name: 'workspace' }],
+      // A subprocess provider may run in another PID namespace or machine;
+      // the host PID would let the server monitor an unrelated process.
+      processId: null,
+      rootUri: this.spec.workspaceUri,
+      workspaceFolders: [{ uri: this.spec.workspaceUri, name: 'workspace' }],
       capabilities: CLIENT_CAPABILITIES,
       initializationOptions: this.spec.initializationOptions,
     }) as WireInitializeResult
@@ -147,7 +150,7 @@ export class LspInstance {
       throw new LspError('server does not support the transient textDocument/didOpen this host requires', 'LSP_UNSUPPORTED_OPERATION')
     }
 
-    const uri = pathToFileURL(source.canonicalPath).href
+    const uri = source.fileUrl
     let opened = false
     try {
       /* v8 ignore next -- guards an abort landing between the ready wait and didOpen; not deterministically reproducible. */
@@ -241,10 +244,9 @@ export class LspInstance {
     if (operation === 'hover') {
       return { kind: 'hover', hover: normalizeHover(payload) }
     }
-    // `spec.cwd` is the canonical workspace realpath (the provider canonicalizes before spawning),
-    // and every `file:` location URI is relative to it — so it is the root a caller must relativize
-    // display paths against, not the request's possibly-symlinked workspaceRoot.
-    return { kind: 'locations', locations: normalizeLocations(payload), resolvedWorkspaceRoot: this.spec.cwd }
+    // The filesystem provider owns URI syntax for the execution platform, which may differ from the
+    // harness host. Preserve that coordinate through rendering instead of reparsing `spec.cwd` there.
+    return { kind: 'locations', locations: normalizeLocations(payload), resolvedWorkspaceUri: this.spec.workspaceUri }
   }
 
   private answerServerRequest(method: string, params: unknown): Promise<unknown> {

@@ -26,7 +26,7 @@ The keyless integration test `apps/cli/tests/telemetry-web.e2e.ts` pins the depl
 
 ## Alternatives considered
 
-**No default mount; deployments add the row themselves (continuing the SDK stance).** Rejected for this stage: this repo's web/headless composition IS the internal deployment, and default-on reporting is that deployment's product requirement; the SDK stance survives in the seam packages (unmounted = nothing leaves).
+**No default mount; deployments add the row themselves (continuing the SDK stance).** Rejected for this stage: this repo's web/headless composition IS the internal deployment, and default-on reporting is that deployment's product requirement; the SDK stance survives in the Service Definition packages (unmounted = nothing leaves).
 
 **A config field instead of an env patch for the switch.** Infeasible: cordis rows have no config-level disable semantic, and `exporter.url` validation fails loud at plugin construction, so the switch must take effect before the Loader — AppCLIEntry's patch layer is the only seat.
 

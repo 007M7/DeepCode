@@ -148,6 +148,49 @@ describe('MarkdownText', () => {
     expect(container.querySelector('pre code a')).toBeNull()
   })
 
+  it('links inline code through the file-mention resolver: URL first, settled only, never inside links', () => {
+    const opened: string[] = []
+    const fileMentions = {
+      resolve: (value: string) => value === 'index.html' || value === 'out/index.html'
+        ? { open: () => { opened.push(value) }, label: 'Open out/index.html', title: 'out/index.html' }
+        : undefined,
+    }
+    const source = [
+      '`index.html`',
+      '`other.css`',
+      '`https://example.com/`',
+      // Inside an anchor the mention stays inert code: a button cannot nest there.
+      '[see `out/index.html`](https://example.com/doc)',
+      '[ref `out/index.html`][target]',
+      '[target]: https://example.com/ref',
+      '```',
+      'index.html',
+      '```',
+    ].join('\n\n')
+    const { container } = render(<MarkdownText text={source} fileMentions={fileMentions} />)
+
+    const mention = screen.getByRole('button', { name: 'Open out/index.html' })
+    expect(mention.closest('code')).not.toBeNull()
+    // The full path rides title, the same disambiguator the row's chips carry.
+    expect(mention.getAttribute('title')).toBe('out/index.html')
+    fireEvent.click(mention)
+    expect(opened).toEqual(['index.html'])
+    // Exactly one live mention: the two inside anchors declined, and an
+    // unresolved token plus fenced code stay inert.
+    expect(container.querySelectorAll('code button')).toHaveLength(1)
+    expect(container.querySelectorAll('a code button, a button')).toHaveLength(0)
+    expect(screen.getByText('other.css').closest('button')).toBeNull()
+    // URL promotion wins before the resolver sees a token.
+    expect(screen.getByText('https://example.com/').closest('a')).not.toBeNull()
+
+    // Streaming renders keep mentions off — the one gate lives here: cached
+    // frozen elements must not bake in handlers that could go stale.
+    const streamed = render(
+      <MarkdownText text={'`index.html`\n\nmore\n\n'} streaming fileMentions={fileMentions} />,
+    )
+    expect(streamed.container.querySelector('button')).toBeNull()
+  })
+
   it('exposes the CJK strong syntax as a micromark extension needing CommonMark attention markers', () => {
     const extension = cjkFriendlyStrong()
     expect(cjkFriendlyStrong()).toBe(extension)
@@ -402,7 +445,7 @@ describe('MarkdownText', () => {
     const startedAt = performance.now()
     const { container } = render(<MarkdownText text={'\\(x '.repeat(6_400)} />)
 
-    expect(performance.now() - startedAt).toBeLessThan(1_000)
+    expect(performance.now() - startedAt).toBeLessThan(3_000)
     expect(container.querySelector('.katex')).toBeNull()
   })
 

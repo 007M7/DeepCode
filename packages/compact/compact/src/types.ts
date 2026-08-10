@@ -1,6 +1,6 @@
 /**
  * Compaction vocabulary: the result type and the `compact/*` session events.
- * Those declaration-merged events are log-only lock/provenance markers, not
+ * Those declaration-merged events record the lock and summary inputs without entering the surface, so they are not
  * surface events; a separate replacement `user/message` carries the summary.
  * Backend packages own configuration and retention policy; see
  * `.agents/notes/implemented/feature/2026-06-18-compaction-capability-seam.md`.
@@ -8,17 +8,21 @@
  */
 
 import type { ContentBlock, TokenUsage } from '@deepseek-ai/dsh-llm'
+import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
+import type { CompactionId } from './brand.ts'
 
-declare module '@deepseek-ai/dsh-session' {
+export type { CompactionId }
+
+declare module '@deepseek-ai/dsh-session/types' {
   interface SessionEventMap {
     /**
      * Marks the start of a compaction — log-only, holds the lock until
      * `compact/end`. A numbered owner is strictly enclosed by that open turn;
      * `null` identifies a standalone manual transaction between turns.
      */
-    'compact/start': { turn: number | null }
+    'compact/start': { compactionId: CompactionId; sourceCommandId?: CommandId; turn: number | null }
     /**
-     * Provenance record of a completed summarization — log-only, no surfaceOp.
+     * Completed summary, its inputs, and its model call facts — log-only, no surfaceOp.
      * The summary content is in `data.summary`; the actual surface replacement
      * is performed by the immediately following `user/message` event that
      * shadows the compacted range. That adjacency is contractual — the
@@ -27,9 +31,9 @@ declare module '@deepseek-ai/dsh-session' {
      * before it (`compact/prune` documents the shared protocol).
      */
     'compact/summary': {
+      compactionId: CompactionId
+      sourceCommandId?: CommandId
       summary: ContentBlock[]
-      /** Complete provider output before the backend's safe summary projection. */
-      rawOutput?: ContentBlock[]
       shadowedRange: { start: number; end: number }
       shadowedSeqs: number[]
       shadowedTokenCount: number
@@ -46,12 +50,25 @@ declare module '@deepseek-ai/dsh-session' {
       maxTokens?: number
       /** Provider-reported token usage for the summarization request, when emitted. */
       usage?: TokenUsage
-    }
+    } & (
+      | {
+        /** Complete provider output before the backend's safe summary projection. */
+        rawOutput: ContentBlock[]
+        /** Identifies exactly one call through this context's `ctx.llm.stream()`. */
+        llmStreamCall: true
+      }
+      | {
+        /** Optional complete output from an unmarked template, remote, or other summarizer. */
+        rawOutput?: ContentBlock[]
+        /** An unmarked summary does not identify a call through this context's LLM seam. */
+        llmStreamCall?: never
+      }
+    )
     /**
      * Marks the end of a compaction — log-only, releases the lock. Its owner
      * matches `compact/start`; `error` records an unsuccessful attempt.
      */
-    'compact/end': { turn: number | null; error?: string }
+    'compact/end': { compactionId: CompactionId; sourceCommandId?: CommandId; turn: number | null; error?: string }
     /**
      * Shadow price of one model-free prune replacement — log-only, no
      * surfaceOp. The shared shadow-price protocol: a surface `replace` event
@@ -74,6 +91,10 @@ declare module '@deepseek-ai/dsh-session' {
 
 /** Result of a successful compaction operation. */
 export interface CompactionResult {
+  /** Stable identity shared by this compaction's complete durable lifecycle. */
+  compactionId: CompactionId
+  /** Human command that initiated this compaction, when it was manual. */
+  sourceCommandId?: CommandId
   /** The seq of the appended `compact/start` event. */
   startSeq: number
   /** The seq of the appended `compact/summary` event. */

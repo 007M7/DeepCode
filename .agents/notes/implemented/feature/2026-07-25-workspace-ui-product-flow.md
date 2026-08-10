@@ -81,7 +81,7 @@ Deleting a Workspace registration removes its group without deleting or closing 
 
 React components only consume `useSessions`, `useWorkspaces`, and session-scoped hooks; they do not own entity lifecycles. The Zustand store retains only layout, the current view, composer text for ordinary real Sessions, and other purely presentational state. Session and Workspace Intents, materialization phases, errors, and retained prompts reside in the React-free runtime object layer.
 
-The Sidebar and conversation empty hero receive standardized actions through slots: `startSession`, `updateSessionPrompt`, `sendSession`, `open`, and `toggleSidebar`. The Workspace picker reuses the same component and the `createWorkspace` seam; its owner supplies only popover state, an anchor, and a selection callback. The presentation layer does not send `host/workspace-changed` directly; Host events originate only from Host mutations and the stream adapter.
+The Sidebar and conversation empty hero receive standardized actions through slots: `startSession`, `updateSessionPrompt`, `sendSession`, `open`, and `toggleSidebar`. The Workspace picker reuses the same component and the `createWorkspace` action; its owner supplies only popover state, an anchor, and a selection callback. The presentation layer does not send `host/workspace-changed` directly; Host events originate only from Host mutations and the stream adapter.
 
 ## Alternatives considered
 

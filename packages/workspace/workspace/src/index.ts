@@ -368,7 +368,7 @@ export class WorkspaceRegistry extends Service {
   /**
    * Complete the one mutation explicitly named by durable state. Unexplained
    * order/table divergence still reaches {@link validateStoredState} and
-   * fails loud; this path never infers provenance from shape alone.
+   * fails loud; this path never guesses which operation created a row from its shape alone.
    */
   private async recoverPendingMutation(): Promise<void> {
     const state = this.requireState()
@@ -613,7 +613,7 @@ export class WorkspaceRegistry extends Service {
   private enqueueOperation<T>(operation: () => Promise<T>): Promise<T> {
     const result = this.operationTail.then(async () => {
       // A committed delete may leave only its marker cleanup pending. Retry
-      // recovery before another create/delete can overwrite that provenance.
+      // recovery before another create/delete can overwrite that pending operation record.
       await this.recoverPendingMutation()
       return await operation()
     })

@@ -12,12 +12,22 @@
 - id: time-context
   name: '@deepseek-ai/dsh-time-context'
 
-- id: cli-agent
-  name: '@deepseek-ai/dsh-cli-demo'
+- id: agent-spine
+  name: '@deepseek-ai/dsh-agent-spine-demo'
   config:
-    provider: time-context-mock
-    model: time-context-mock
+    agents:
+      - id: main
+        provider: time-context-mock
+        model: time-context-mock
+        cwd: !!js process.cwd()
     persona: 'Test the time-context plugin.'
-    persistenceRoot: './.sessions'
-    persistenceCompression: 'none'
     workspaceContext: false
+
+- id: persistence
+  name: '@deepseek-ai/dsh-session-persistence-jsonl'
+  config:
+    root: './.sessions'
+    compression: 'none'
+
+- id: checkpoint-policy
+  name: '@deepseek-ai/dsh-session-checkpoint-policy'

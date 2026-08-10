@@ -9,6 +9,7 @@
  * fixtures and rewrites expected outputs.
  */
 
+import { existsSync } from 'node:fs'
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, delimiter, join } from 'node:path'
@@ -19,6 +20,7 @@ import {
   normalizeStdout,
   refreshFixtureReplacements,
   scrubRequestHeaders,
+  stabilizeFixtureMessageIds,
   stabilizeRefreshLog,
   tokenizeSessionFixtureCwd,
   type HarvestedLog,
@@ -319,20 +321,25 @@ describe('TypeScript SDK snapshots over the jsonrpc runtime', () => {
       const { result, notifications, logs, observedFiles, cwd } = await runScenario(scenario)
       const ordered = orderLogs(logs, scenario)
       const actualContext = contextOf(ordered, cwd)
+      const files = fixtureFiles(scenario)
 
       if (recording) {
         // Fixtures carry tokenized request headers; llm-replay reads only
         // assistant output and tool traffic, so scrubbing keeps prompts and
         // schemas out of the corpus without affecting replay.
         await mkdir(scenarioDir, { recursive: true })
-        await Promise.all(ordered.map(async (log, index) => {
-          const file = fixtureFiles(scenario)[index]
+        const existing = await Promise.all(files.map(async file => existsSync(file) ? readFile(file, 'utf8') : ''))
+        const fixtures = stabilizeFixtureMessageIds(
+          ordered.map(log => scrubRequestHeaders(tokenizeSessionFixtureCwd(log.content))),
+          existing,
+        )
+        await Promise.all(fixtures.map(async (fixture, index) => {
+          const file = files[index]
           if (file === undefined) throw new Error(`no fixture path for persisted log ${index}`)
-          await writeFile(file, scrubRequestHeaders(tokenizeSessionFixtureCwd(log.content)))
+          await writeFile(file, fixture)
         }))
       }
 
-      const files = fixtureFiles(scenario)
       let expectedContents = await Promise.all(files.map(file => readFile(file, 'utf8')))
 
       if (refreshing) {
@@ -343,15 +350,18 @@ describe('TypeScript SDK snapshots over the jsonrpc runtime', () => {
           content: log.content,
         }))
         const replacements = refreshFixtureReplacements(harvested, expectedContents)
-        expectedContents = await Promise.all(ordered.map(async (log, index) => {
+        const refreshed = ordered.map((log, index) => {
           const existing = expectedContents[index]
-          const file = files[index]
-          if (existing === undefined || file === undefined) throw new Error(`no fixture for persisted log ${index}`)
-          const stable = scrubRequestHeaders(tokenizeSessionFixtureCwd(
+          if (existing === undefined) throw new Error(`no fixture for persisted log ${index}`)
+          return scrubRequestHeaders(tokenizeSessionFixtureCwd(
             stabilizeRefreshLog(log.content, existing, replacements, actualContext),
           ))
+        })
+        expectedContents = stabilizeFixtureMessageIds(refreshed, expectedContents)
+        await Promise.all(expectedContents.map(async (stable, index) => {
+          const file = files[index]
+          if (file === undefined) throw new Error(`no fixture for persisted log ${index}`)
           await writeFile(file, stable)
-          return stable
         }))
       }
 

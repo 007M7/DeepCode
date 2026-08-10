@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-Local implementation of the `@deepseek-ai/dsh-bash` executor seam over the [`@deepseek-ai/dsh-subprocess`](../../subprocess/subprocess/README.md) service: `LocalBashExecutor` spawns `bash -c <command>` per call as a managed process group through `ctx.subprocess`, and owns everything bash-shaped — command defaulting and caps, timeout/cancel classification, the model-friendly terminal environment, and the model-facing stdout/stderr merge for background reads. Group mechanics (bounded spill-backed output, credential scrub, kill escalation, disposal) are the subprocess service's.
+Local Service provider for the `@deepseek-ai/dsh-bash` executor seam over the [`@deepseek-ai/dsh-subprocess`](../../subprocess/subprocess/README.md) service: `LocalBashExecutor` spawns `bash -c <command>` per call as a managed process group through `ctx.subprocess`, and owns everything bash-shaped — command defaulting and caps, timeout/cancel classification, the model-friendly terminal environment, and the model-facing stdout/stderr merge for background reads. Group mechanics (bounded spill-backed output, credential scrub, kill escalation, disposal) are the subprocess service's.
 
 The package root exports the default and named `LocalBashExecutor` plugin plus its `Config`.
 

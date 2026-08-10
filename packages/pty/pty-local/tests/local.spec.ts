@@ -1,4 +1,4 @@
-import { mkdtempSync, realpathSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -11,6 +11,7 @@ import type { PtySendOperation } from '@deepseek-ai/dsh-pty'
 import SandboxProvider from '@deepseek-ai/dsh-sandbox'
 import type { ConfinedArgv, SandboxPolicy } from '@deepseek-ai/dsh-sandbox'
 import SandboxPolicyService from '@deepseek-ai/dsh-sandbox-policy'
+import LocalSubprocessService from '@deepseek-ai/dsh-subprocess-local'
 import * as ptyLocal from '@deepseek-ai/dsh-pty-local'
 
 const roots: string[] = []
@@ -57,6 +58,7 @@ async function harness(
   await ctx.plugin(PtyService)
   await ctx.plugin(PassthroughSandbox)
   await ctx.plugin(SandboxPolicyService, { mode, workspaceRoot: root })
+  await ctx.plugin(LocalSubprocessService)
   const fiber = await ctx.plugin(ptyLocal, {
     pollIntervalMs: 10,
     exactProbeAfterMs: 20,
@@ -96,6 +98,22 @@ function expectReadyForNextSend(waitReason: string): void {
   expect(['stdin_read', 'inferred_idle']).toContain(waitReason)
 }
 
+function processIsRunning(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+  } catch (_missingProcess) {
+    return false
+  }
+  if (process.platform !== 'linux') return true
+  try {
+    const stat = readFileSync(`/proc/${pid}/stat`, 'utf8')
+    const state = stat.slice(stat.lastIndexOf(')') + 2).split(/\s+/, 1)[0]
+    return !/^[ZXx]$/.test(state ?? '')
+  } catch (_unreadableProcEntry) {
+    return false
+  }
+}
+
 describe('pty-local real shell', () => {
   it('persists cwd and environment across sends, scrubs secrets, and closes', async () => {
     const previous = process.env.DSH_TEST_SECRET
@@ -124,7 +142,7 @@ describe('pty-local real shell', () => {
     const created = await ctx.pty.spawn(agent, { type: 'shell' })
     expect(sandbox.calls).toEqual([{
       argv: ['/bin/bash', '--noprofile', '--norc', '-i'],
-      policy: { mode: 'workspace-write', workspaceRoot: realpathSync.native(root) },
+      policy: { mode: 'workspace-write', workspaceRoot: realpathSync.native(root), sessionId: 'agent-workspace-write' },
     }])
     await fiber.dispose()
     expect(ctx.pty.listBackends()).toEqual([])
@@ -152,6 +170,47 @@ describe('pty-local real shell', () => {
     expect(() => process.kill(pid, 0)).not.toThrow()
     await ctx.pty.kill(agent, created.sessionId)
     expect(() => process.kill(pid, 0)).toThrow()
+  }, 10_000)
+
+  it('quiesces a disowned same-session descendant after the shell exits naturally', async () => {
+    const { ctx, root, agent } = await harness('danger-full-access')
+    const created = await ctx.pty.spawn(agent, { type: 'shell' })
+    const pidFile = join(root, 'disowned.pid')
+    let pid: number | undefined
+    try {
+      const background = ctx.pty.startSend(agent, created.sessionId, {
+        text: `sh -c 'trap "" TERM; printf "%s" "$$" > "$1"; sleep 60' dsh "${pidFile}" & disown`,
+        submit: true,
+      })
+      await background.done
+      const pidDeadline = Date.now() + 2_000
+      let childPid = 0
+      while (childPid === 0 && Date.now() < pidDeadline) {
+        if (existsSync(pidFile)) childPid = Number(readFileSync(pidFile, 'utf8'))
+        if (childPid > 0) break
+        await new Promise(resolve => setTimeout(resolve, 10))
+      }
+      expect(existsSync(pidFile), ctx.pty.read(agent, created.sessionId, { offset: 0, count: 100 }).text).toBe(true)
+      expect(childPid).toBeGreaterThan(0)
+      pid = childPid
+      expect(() => process.kill(childPid, 0)).not.toThrow()
+      await ctx.pty.startSend(agent, created.sessionId, { text: 'exit', submit: true }).done
+      const deadline = Date.now() + 2_000
+      while (ctx.pty.list(agent)[0]?.status.kind !== 'exited' && Date.now() < deadline) {
+        await new Promise(resolve => setTimeout(resolve, 10))
+      }
+      expect(ctx.pty.list(agent)[0]?.status.kind).toBe('exited')
+      await ctx.pty.kill(agent, created.sessionId)
+      expect(processIsRunning(childPid)).toBe(false)
+    } finally {
+      if (pid !== undefined) {
+        try {
+          process.kill(pid, 'SIGKILL')
+        } catch (_alreadyReaped) {
+          // Product cleanup is the expected path; this only contains a failed regression.
+        }
+      }
+    }
   }, 10_000)
 
   it('cancels a slow-starting raw-mode foreground process with a real SIGINT', async () => {

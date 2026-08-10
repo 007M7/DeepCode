@@ -20,7 +20,7 @@ import { cleanupAcpExampleTest } from './cleanup.ts'
  *
  * Keyless smoke: boot the REAL `cordis.yml` through the `dsh-acp-agent` bin as
  * an ACP subprocess and drive initialize + session/new — the real-Loader-path
- * guard (postmortem 0001) for THIS tree's export shapes, which now include the
+ * guard (postmortem 0001) for THIS tree's export shapes, including the
  * sandbox executor AND the approval service. No prompt is sent, so neither the
  * model nor a sandbox runner is ever exercised.
  *

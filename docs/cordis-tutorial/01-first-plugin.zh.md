@@ -28,7 +28,7 @@ export function apply(ctx: Context) {
 - name: './hello.ts'
 ```
 
-该文件是一组 Cordis 配置项的列表。`name` 是模块指定符，可以是相对路径或 NPM 包（package）名；loader 会挂载每个配置项。各项会并发启动，因此它们在列表中的位置不保证插件的加载先后；顺序由服务依赖（`inject`，参见[第 3 章](03-services.md)）决定，而非文件中的位置。
+该文件是一组 Cordis 配置项的列表。`name` 是模块指定符，可以是相对路径或 NPM 包名；loader 会挂载每个配置项。各项会并发启动，因此它们在列表中的位置不保证插件的加载先后；顺序由服务依赖（`inject`，参见[第 3 章](03-services.md)）决定，而非文件中的位置。
 
 ## 运行
 
@@ -86,10 +86,10 @@ export function apply(ctx: Context) {
 }
 ```
 
-再次运行：进程会因该错误而终止。插件加载失败必须明确报错，不会仅跳过该配置项。
+再次运行：进程会因该错误而终止。插件加载失败会明确报错，不会仅跳过该配置项。
 
 还需要尽早了解一个例外：如果某个配置项的模块无法被 **解析**，例如路径或包名拼写错误，Cordis 会通过 logger 服务报告错误，而不会使进程崩溃。在启动阶段，这条报告可能在 console 导出器开始观察之前丢失。如果新增配置项似乎没有任何效果，请先检查拼写。
 
 下一章：[生命周期与 effect](02-lifecycle-and-effects.md)：插件卸载时会发生什么。
 
-[![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-harness/deepseek-harness)
+[![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness-sdk)

@@ -16,7 +16,7 @@ vi.mock('node:child_process', () => ({ execFile: execFileMock }))
 
 import { release as osRelease } from 'node:os'
 import { describe, expect, it, vi } from 'vitest'
-import { openNativePath, openNativeTextFile, type PathOpenerRunner } from '../src/native-path-opener.ts'
+import { canOpenNativePath, openNativePath, openNativeTextFile, type PathOpenerRunner } from '../src/native-path-opener.ts'
 
 const signal = () => new AbortController().signal
 
@@ -165,5 +165,157 @@ describe('native path opener', () => {
       message: 'open failed', cause: commandError, code: 1,
       stdout: 'partial output', stderr: 'failure details',
     })
+  })
+})
+
+describe('browser-renderable documents', () => {
+  const LS_PLIST = `{
+    LSHandlers = (
+        {
+            LSHandlerPreferredVersions =             {
+                LSHandlerRoleAll = "-";
+            };
+            LSHandlerRoleAll = "com.google.chrome";
+            LSHandlerURLScheme = https;
+        }
+    );
+}`
+
+  it('opens a page with the default browser rather than the .html handler on darwin', async () => {
+    const calls: { command: string; args: readonly string[] }[] = []
+    const run = async (command: string, args: readonly string[]) => {
+      calls.push({ command, args })
+      return { stdout: command === 'defaults' ? LS_PLIST : '', stderr: '' }
+    }
+    await openNativePath('/w/page.html', new AbortController().signal, { platform: 'darwin', run })
+    // A developer who bound .html to an editor still gets a rendered page.
+    expect(calls.map(c => [c.command, ...c.args])).toEqual([
+      ['defaults', 'read', 'com.apple.LaunchServices/com.apple.launchservices.secure'],
+      ['open', '-b', 'com.google.chrome', '/w/page.html'],
+    ])
+  })
+
+  it('leaves every other document to the default application', async () => {
+    const calls: string[][] = []
+    const run = async (command: string, args: readonly string[]) => {
+      calls.push([command, ...args])
+      return { stdout: '', stderr: '' }
+    }
+    await openNativePath('/w/report.md', new AbortController().signal, { platform: 'darwin', run })
+    // No LaunchServices read at all: markdown is not a browser document.
+    expect(calls).toEqual([['open', '/w/report.md']])
+  })
+
+  it('falls back to the default application when no browser can be named', async () => {
+    // LaunchServices has no https record (a fresh account), so the system's
+    // own content-type choice is the best answer available.
+    const calls: string[][] = []
+    const run = async (command: string, args: readonly string[]) => {
+      calls.push([command, ...args])
+      if (command === 'defaults') throw new Error('domain not found')
+      return { stdout: '', stderr: '' }
+    }
+    await openNativePath('/w/page.html', new AbortController().signal, { platform: 'darwin', run })
+    expect(calls).toEqual([
+      ['defaults', 'read', 'com.apple.LaunchServices/com.apple.launchservices.secure'],
+      ['open', '/w/page.html'],
+    ])
+
+    // A record without an https handler is the same answer.
+    const bare: string[][] = []
+    await openNativePath('/w/page.html', new AbortController().signal, {
+      platform: 'darwin',
+      run: async (command, args) => {
+        bare.push([command, ...args])
+        return { stdout: '{ LSHandlers = ( ); }', stderr: '' }
+      },
+    })
+    expect(bare[1]).toEqual(['open', '/w/page.html'])
+  })
+
+  it('honors $BROWSER on linux and leaves windows to its association', async () => {
+    const linux: string[][] = []
+    await openNativePath('/w/page.html', new AbortController().signal, {
+      platform: 'linux',
+      osRelease: '6.8.0-generic',
+      env: { BROWSER: 'firefox' },
+      run: async (command, args) => { linux.push([command, ...args]); return { stdout: '', stderr: '' } },
+    })
+    expect(linux).toEqual([['firefox', '/w/page.html']])
+
+    // Unset $BROWSER: xdg-open's association is the fallback.
+    const bare: string[][] = []
+    await openNativePath('/w/page.html', new AbortController().signal, {
+      platform: 'linux',
+      osRelease: '6.8.0-generic',
+      env: {},
+      run: async (command, args) => { bare.push([command, ...args]); return { stdout: '', stderr: '' } },
+    })
+    expect(bare).toEqual([['xdg-open', '/w/page.html']])
+
+    // Windows names no browser without the UserChoice registry.
+    const win: string[][] = []
+    await openNativePath('C:\\w\\page.html', new AbortController().signal, {
+      platform: 'win32',
+      run: async (command, args) => { win.push([command, ...args]); return { stdout: '', stderr: '' } },
+    })
+    expect(win[0]?.[0]).toBe('powershell.exe')
+  })
+
+  it('hands browser-renderable WSL paths to the Windows desktop', async () => {
+    const calls: string[][] = []
+    await openNativePath('/home/test/page.html', new AbortController().signal, {
+      platform: 'linux',
+      osRelease: '5.15.153.1-microsoft-standard-WSL2',
+      env: { BROWSER: 'firefox' },
+      run: async (command, args) => {
+        calls.push([command, ...args])
+        return {
+          stdout: command === 'wslpath' ? 'C:\\workspace\\page.html\n' : '',
+          stderr: '',
+        }
+      },
+    })
+    expect(calls).toEqual([
+      ['wslpath', '-w', '/home/test/page.html'],
+      [
+        'powershell.exe',
+        '-NoProfile',
+        '-Command',
+        "Invoke-Item -LiteralPath 'C:\\workspace\\page.html'",
+      ],
+    ])
+  })
+})
+
+describe('canOpenNativePath', () => {
+  it('always answers yes where the desktop is part of the platform', () => {
+    expect(canOpenNativePath({ platform: 'darwin', env: {} })).toBe(true)
+    expect(canOpenNativePath({ platform: 'win32', env: {} })).toBe(true)
+  })
+
+  it('requires a display server or WSL interop on linux', () => {
+    const linux = { platform: 'linux' as const, osRelease: '6.8.0-generic' }
+    // Headless is the case the capability exists for: `xdg-open` would spawn
+    // into nothing, so a surface should show the path as text instead.
+    expect(canOpenNativePath({ ...linux, env: {} })).toBe(false)
+    expect(canOpenNativePath({ ...linux, env: { DISPLAY: ':0' } })).toBe(true)
+    expect(canOpenNativePath({ ...linux, env: { WAYLAND_DISPLAY: 'wayland-0' } })).toBe(true)
+    expect(canOpenNativePath({
+      platform: 'linux', osRelease: '5.15.153.1-microsoft-standard-WSL2', env: {},
+    })).toBe(true)
+  })
+
+  it('answers no on a platform the opener does not support', () => {
+    expect(canOpenNativePath({ platform: 'freebsd', env: {} })).toBe(false)
+  })
+
+  it('samples the ambient environment when no override is supplied', () => {
+    const env = process.env
+    const marked = (value: string | undefined): boolean => value !== undefined && value !== ''
+    const expected = marked(env.WSL_DISTRO_NAME) || marked(env.WSL_INTEROP)
+      || marked(env.DISPLAY) || marked(env.WAYLAND_DISPLAY)
+
+    expect(canOpenNativePath({ platform: 'linux', osRelease: '6.8.0-generic' })).toBe(expected)
   })
 })
