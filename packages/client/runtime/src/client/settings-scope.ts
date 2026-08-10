@@ -2,7 +2,7 @@
 
 import type { Context } from 'cordis'
 import type {
-  ConnectionHandle, IApiClient, SettingsNamespaceView,
+  ConnectionHandle, IApiClient, SettingsNamespaceView, SettingsPathOpView,
 } from '@deepseek-ai/dsh-client-connection/client'
 import { rehydrateSchema, validateDraft } from '@deepseek-ai/dsh-client-schema-form'
 import { createSnapshotStore, type SnapshotStore } from './contract/store.ts'
@@ -17,6 +17,17 @@ export interface SettingsScopeSnapshot<T> {
   status: 'loading' | 'ready' | 'unavailable'
   /** Last accepted schema-resolved section; undefined before the first acceptance. */
   value: T | undefined
+  /**
+   * Composition layer the Host resolved {@link value} over, when the owning
+   * plugin declared one. What a field reverts to once cleared.
+   */
+  base: unknown
+  /**
+   * Raw user layer as stored, when one exists. A field's PRESENCE here is what
+   * marks it overridden — an override whose value equals the composition
+   * default is still an override, and comparing values could not see it.
+   */
+  user: unknown
   /** Namespace revision fencing the next write; undefined before the first Host view. */
   revision: number | undefined
   /** Whether the Host document accepts writes; memory mode never does. */
@@ -60,6 +71,13 @@ export interface SettingsScope<T> {
    * @returns settlement after the write and any latest-write recovery read.
    */
   set(field: string, value: unknown): Promise<void>
+  /**
+   * Queue one field clear, so the field re-inherits the composition layer.
+   * Shares {@link set}'s ordering, revision, and recovery contract.
+   * @param field - scalar field inside the namespace section.
+   * @returns settlement after the clear and any latest-write recovery read.
+   */
+  unset(field: string): Promise<void>
 }
 
 type SettingsFace = Pick<IApiClient, 'settings'>
@@ -90,6 +108,8 @@ export class SettingsScopeController<T> implements SettingsScope<T> {
     this.store = createSnapshotStore<SettingsScopeSnapshot<T>>({
       status: persistence === 'host' ? 'loading' : 'unavailable',
       value: undefined,
+      base: undefined,
+      user: undefined,
       revision: undefined,
       writable: false,
       mode: persistence,
@@ -127,6 +147,20 @@ export class SettingsScopeController<T> implements SettingsScope<T> {
    * @returns settlement after the write and any latest-write recovery read.
    */
   set(field: string, value: unknown): Promise<void> {
+    return this.write({ op: 'set', path: [field], value })
+  }
+
+  /**
+   * Queue one field clear; see {@link SettingsScope.unset} for the ordering,
+   * revision, and recovery contract.
+   * @param field - scalar field inside the namespace section.
+   * @returns settlement after the clear and any latest-write recovery read.
+   */
+  unset(field: string): Promise<void> {
+    return this.write({ op: 'unset', path: [field] })
+  }
+
+  private write(op: SettingsPathOpView): Promise<void> {
     this.readGeneration += 1
     const generation = ++this.writeGeneration
     return this.enqueue(async () => {
@@ -135,7 +169,7 @@ export class SettingsScopeController<T> implements SettingsScope<T> {
       try {
         response = await this.api.settings.mutate({
           ns: this.spec.namespace,
-          ops: [{ op: 'set', path: [field], value }],
+          ops: [op],
           ...(revision === undefined ? {} : { expectedRevision: revision }),
         })
       } catch (_settingsWriteFailure) {
@@ -200,6 +234,8 @@ export class SettingsScopeController<T> implements SettingsScope<T> {
     const decoded = publish ? this.decode(view) : undefined
     this.store.update((draft) => {
       draft.revision = view.revision
+      draft.base = view.base
+      draft.user = view.user
       if (writable !== undefined) draft.writable = writable
       if (decoded === undefined) return
       draft.status = 'ready'
