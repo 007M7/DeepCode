@@ -130,6 +130,22 @@ export interface AclSandboxChild {
   wait(): Promise<AclSandboxChildResult>
 }
 
+/** Free one optional SID while retaining a failure for best-effort sibling cleanup. */
+function freeSidBestEffort(
+  api: Win32Bindings,
+  sidPtr: NativePtr | undefined,
+  label: string,
+  failures: unknown[],
+): void {
+  if (sidPtr === undefined) return
+  try {
+    const freed = api.localFree(sidPtr)
+    if (!isNullPtr(freed)) throwLastError(api, 'LocalFree', label)
+  } catch (error) {
+    failures.push(error)
+  }
+}
+
 /**
  * One write-restricted sandbox instance: token + write-SID grants + spawn.
  * `init()` is fail-closed — any Win32 failure revokes the revocable (temp)
@@ -297,21 +313,10 @@ export class AclSandbox {
         }
       }
       for (const [label, sidPtr] of [['workspace write SID', this.writeSidPtr], ['temp write SID', this.tempWriteSidPtr]] as const) {
-        if (sidPtr === undefined) continue
-        try {
-          const freed = api.localFree(sidPtr)
-          if (!isNullPtr(freed)) throwLastError(api, 'LocalFree', label)
-        } catch (cleanupError) {
-          cleanupFailures.push(cleanupError)
-        }
+        freeSidBestEffort(api, sidPtr, label, cleanupFailures)
       }
       for (const sidPtr of this.sidAllocations.splice(0)) {
-        try {
-          const freed = api.localFree(sidPtr)
-          if (!isNullPtr(freed)) throwLastError(api, 'LocalFree', 'init SID allocation')
-        } catch (cleanupError) {
-          cleanupFailures.push(cleanupError)
-        }
+        freeSidBestEffort(api, sidPtr, 'init SID allocation', cleanupFailures)
       }
       this.token = undefined
       this.writeSidPtr = undefined
@@ -396,13 +401,7 @@ export class AclSandbox {
       }
     }
     for (const [label, sidPtr] of [['workspace write SID', this.writeSidPtr], ['temp write SID', this.tempWriteSidPtr]] as const) {
-      if (sidPtr === undefined) continue
-      try {
-        const freed = api.localFree(sidPtr)
-        if (!isNullPtr(freed)) throwLastError(api, 'LocalFree', label)
-      } catch (error) {
-        failures.push(error)
-      }
+      freeSidBestEffort(api, sidPtr, label, failures)
     }
     const token = this.token
     if (token !== undefined) {
@@ -413,12 +412,7 @@ export class AclSandbox {
       }
     }
     for (const sidPtr of this.sidAllocations.splice(0)) {
-      try {
-        const freed = api.localFree(sidPtr)
-        if (!isNullPtr(freed)) throwLastError(api, 'LocalFree', 'init SID allocation')
-      } catch (error) {
-        failures.push(error)
-      }
+      freeSidBestEffort(api, sidPtr, 'init SID allocation', failures)
     }
     this.api = undefined
     this.token = undefined
