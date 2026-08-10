@@ -230,13 +230,11 @@ export class TrajectorySnapshotBuilder implements ConversationViewBuilder<
         boundaries.push({ seq: data.seq, time: data.time })
         continue
       }
-      if (data.kind === 'turn-end') {
-        turnEndings.push({
-          turn: data.turn,
-          time: data.time,
-          ...(data.error === undefined ? {} : { error: data.error }),
-        })
-      }
+      turnEndings.push({
+        turn: data.turn,
+        time: data.time,
+        ...(data.error === undefined ? {} : { error: data.error }),
+      })
     }
 
     requests.sort((left, right) => left.startSeq - right.startSeq)
