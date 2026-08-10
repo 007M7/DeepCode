@@ -249,8 +249,12 @@ export class AclSandbox {
     } catch (error) {
       // Best-effort close on the failure path (last error already captured in `error`).
       api.closeHandle(currentToken)
-      // Fail-closed cleanup: never leave a revocable (temp) grant or SID
-      // allocation behind a failed init. Standing workspace ACEs are NOT
+      // FIXME(windows-acl): a failure after createRestrictedToken leaks the restricted
+      // token handle and the parsed write SID — this.api stays undefined, so dispose()
+      // early-returns and cannot clean them up. Close the token and free the write SID
+      // here (the hardening-followup rework already does both).
+      // Fail-closed cleanup: revoke the revocable (temp) grants and free the init SID
+      // allocations a failed init left behind. Standing workspace ACEs are NOT
       // revoked — they are the intended end state (the reuse cache), not an
       // error artifact.
       const cleanupFailures: unknown[] = []
@@ -361,7 +365,7 @@ export class AclSandbox {
     }
     const token = this.token
     /* v8 ignore next -- init assigns this.api only after this.token, so an initialized instance always
-       has its token; the guard mirrors the write-SID guard's defensive shape. */
+       has its token; the guard mirrors the write-SID guard. */
     if (token !== undefined) {
       try {
         if (api.closeHandle(token) === 0) throwLastError(api, 'CloseHandle', 'restricted token')

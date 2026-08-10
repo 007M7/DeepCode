@@ -182,9 +182,21 @@ describe('sameSidAt bounded comparison', () => {
     expect(sameSidAt(left, 0, right, 0)).toBe(false)
   })
 
-  it('accepts identical SIDs at nonzero offsets', () => {
-    const left = craftSid(1, 1, [0, 0, 0, 0, 0, 5], [42])
-    const right = craftSid(1, 1, [0, 0, 0, 0, 0, 5], [42])
+  it('accepts identical SIDs at nonzero offsets over differing leading bytes', () => {
+    const sid = craftSid(1, 1, [0, 0, 0, 0, 0, 5], [42])
+    // Embed the same SID bytes at offset 4 of two buffers whose first four
+    // bytes differ: an offset-ignoring comparison reads the differing
+    // prefixes and must reject.
+    const left = allocBytes(4 + 12)
+    const right = allocBytes(4 + 12)
+    koffi.encode(left, 0, 'uint32', 0x11111111)
+    koffi.encode(right, 0, 'uint32', 0x22222222)
+    for (let offset = 0; offset < 12; offset++) {
+      const byte = koffi.decode(sid, offset, 'uint8') as number
+      koffi.encode(left, 4 + offset, 'uint8', byte)
+      koffi.encode(right, 4 + offset, 'uint8', byte)
+    }
     expect(sameSidAt(left, 4, right, 4)).toBe(true)
+    expect(sameSidAt(left, 0, right, 0)).toBe(false) // the differing prefixes are not a matching SID
   })
 })

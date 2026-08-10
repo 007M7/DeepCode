@@ -72,12 +72,12 @@ function craftSid(revision: number, count: number, authority: number[] = [0, 0, 
 function craftAclWithGrant(sid: NativePtr, match: boolean): NativePtr {
   const acl = allocBytes(32)
   koffi.encode(acl, 'uint8', 2) // AclRevision
-  koffi.encode(acl, 2, 'uint16', 16) // AclSize: header + one 8-byte-SID ACE
+  koffi.encode(acl, 2, 'uint16', 24) // AclSize: 8-byte header + one 16-byte ACE
   koffi.encode(acl, 4, 'uint16', 1) // AceCount
   const ace = 8
   koffi.encode(acl, ace + 0, 'uint8', abi.ACCESS_ALLOWED_ACE_TYPE)
   koffi.encode(acl, ace + 1, 'uint8', abi.SUB_CONTAINERS_AND_OBJECTS_INHERIT)
-  koffi.encode(acl, ace + 2, 'uint16', 8)
+  koffi.encode(acl, ace + 2, 'uint16', 16) // AceSize: header + mask + inline 8-byte SID
   koffi.encode(acl, ace + 4, 'uint32', abi.GRANT_MASK)
   const inlineSid = ace + 8
   for (let offset = 0; offset < 8; offset++) {
