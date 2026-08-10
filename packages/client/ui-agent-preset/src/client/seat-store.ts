@@ -26,10 +26,16 @@ export interface AgentPresetSeatState {
   /** A rejected apply's message, cleared by the next attempt. */
   error: string | null
   busy: boolean
+  /**
+   * One-shot cue that the chip should introduce itself (the creator-draft
+   * entry staged the pick from another screen, so the user never touched the
+   * chip); the renderer clears it via `introduced()` once played.
+   */
+  introduce: boolean
 }
 
 const INITIAL: AgentPresetSeatState = {
-  options: [], current: '', error: null, busy: false,
+  options: [], current: '', error: null, busy: false, introduce: false,
 }
 
 /** One session's identity and whether it has started. */
@@ -121,10 +127,18 @@ export class AgentPresetSeatController {
    * list-change applier, which fires when the started session becomes
    * current.
    * @param id - the preset to stage.
+   * @param introduce - true when the stage came from another screen and the
+   * chip should announce itself on the session it lands on.
    */
-  stage(id: string): void {
+  stage(id: string, introduce = false): void {
     this.staged = id
-    this.set({ current: id, error: null })
+    this.set({ current: id, error: null, introduce })
+  }
+
+  /** Acknowledge the introduction cue once the chip has played it. */
+  introduced(): void {
+    if (!this.store.getSnapshot().introduce) return
+    this.set({ introduce: false })
   }
 
   /**

@@ -41,6 +41,7 @@ const SEAT_READY: AgentPresetSeatState = {
   ],
   busy: false,
   error: null,
+  introduce: false,
 }
 
 function renderRow(state: Partial<AgentPresetSettingsState> = {}) {
@@ -56,7 +57,11 @@ function renderRow(state: Partial<AgentPresetSettingsState> = {}) {
 
 function renderSeat(state: Partial<AgentPresetSeatState> = {}) {
   const store = createSnapshotStore<AgentPresetSeatState>({ ...SEAT_READY, ...state })
-  const actions = { load: vi.fn(() => Promise.resolve()), select: vi.fn(() => Promise.resolve()) }
+  const actions = {
+    load: vi.fn(() => Promise.resolve()),
+    select: vi.fn(() => Promise.resolve()),
+    introduced: vi.fn(),
+  }
   render(<AgentPresetSeat {...({
     ...actions,
     useAgentPresetSeat: bindSnapshotSelector(store),

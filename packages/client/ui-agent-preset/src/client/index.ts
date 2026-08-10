@@ -114,6 +114,7 @@ export function apply(ctx: ClientContext): void {
       hooks: { agentPresetSeat: seat.store },
       load: () => seat.load(),
       select: (id: string) => seat.select(id),
+      introduced: () => { seat.introduced() },
     })
 
     const labelInjected = (): AgentPresetLabelInjected => ({
@@ -146,7 +147,9 @@ export function apply(ctx: ClientContext): void {
       // on: the chip's list-change applier composes the blank session the
       // workspace connect produces or reuses.
       creatorDraft = () => {
-        seat.stage('cordis')
+        // The introduce cue makes the chip announce the pick the user never
+        // made on this screen — the stage happened back in settings.
+        seat.stage('cordis', true)
         scope.workspaces.startSession()
       }
       const chip = scope.slots.register({
