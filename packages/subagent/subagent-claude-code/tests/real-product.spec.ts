@@ -1,6 +1,5 @@
 import { execFile } from 'node:child_process'
 import {
-  copyFileSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -116,14 +115,17 @@ async function realHarness(behavior: MessagesBehavior): Promise<{
   const workspace = join(root, 'workspace')
   const claudeConfig = join(root, 'claude-config')
   const xdgConfig = join(root, 'xdg')
-  const nativeBin = join(root, 'native-bin')
+  const nativeBin = join(root, 'native bin')
   mkdirSync(workspace)
   mkdirSync(claudeConfig)
   mkdirSync(xdgConfig)
   mkdirSync(nativeBin)
-  const executable = join(nativeBin, process.platform === 'win32' ? 'claude.exe' : 'claude')
-  if (process.platform === 'win32') copyFileSync(claudeBin, executable)
-  else symlinkSync(claudeBin, executable)
+  const executable = join(nativeBin, process.platform === 'win32' ? 'claude.cmd' : 'claude')
+  if (process.platform === 'win32') {
+    writeFileSync(executable, `@echo off\r\n"${claudeBin}" %*\r\n`)
+  } else {
+    symlinkSync(claudeBin, executable)
+  }
   writeFileSync(
     join(claudeConfig, 'settings.json'),
     `${JSON.stringify({ model: settingsModel }, null, 2)}\n`,
@@ -207,7 +209,7 @@ describe('real Claude Agent SDK 0.3.220 and Claude Code 2.1.220', {
     expect(sdkPackage.version).toBe('0.3.220')
     expect(sdkPackage.claudeCodeVersion).toBe('2.1.220')
     expect(sdkPackage.optionalDependencies[platformPackage]).toBe('0.3.220')
-    const version = await execFileAsync(harness.executable, ['--version'], {
+    const version = await execFileAsync(process.platform === 'win32' ? claudeBin : harness.executable, ['--version'], {
       env: { ...process.env, ...harness.env },
     })
     expect(version.stdout.trim()).toBe('2.1.220 (Claude Code)')
@@ -224,11 +226,12 @@ describe('real Claude Agent SDK 0.3.220 and Claude Code 2.1.220', {
         message.type === 'system' && message.subtype === 'init',
     )
     expect(initMessage?.claude_code_version).toBe('2.1.220')
-    const spawnedExecutable = harness.spawnSpecs[0]?.argv[0]
-    expect(spawnedExecutable).toBeDefined()
-    if (spawnedExecutable !== undefined) {
-      expect(process.platform === 'win32' ? spawnedExecutable.toLowerCase() : spawnedExecutable)
-        .toBe(process.platform === 'win32' ? harness.executable.toLowerCase() : harness.executable)
+    if (process.platform === 'win32') {
+      expect(harness.spawnSpecs[0]?.argv.slice(0, 5)).toEqual([
+        'cmd.exe', '/d', '/s', '/c', harness.executable,
+      ])
+    } else {
+      expect(harness.spawnSpecs[0]?.argv[0]).toBe(harness.executable)
     }
 
     expect(fixture.requests).toHaveLength(1)

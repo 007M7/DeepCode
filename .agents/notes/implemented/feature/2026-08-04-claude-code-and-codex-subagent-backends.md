@@ -79,10 +79,6 @@ The project owner's distribution authorization is scoped to the official `@anthr
 
 **A model-visible product selector.** Product availability and authentication are deployment facts. Two fixed tools keep each schema and provider binding explicit and avoid adding dynamic selection state to the common service.
 
-**Global product enable settings and a product-specific Web page.** Those controls make Codex and Claude Code exceptions to the Agent Preset composition that already owns one agent's tool set, and one process-wide choice cannot represent two sessions using different presets. The host always supplies the providers; the preset alone decides which fixed tools its agent receives.
-
-**One shipped preset per product combination.** Four preset variants encode a two-boolean choice in preset identities and multiply every future standard-preset change. Independent ordinary rows express the same result in the user's copied preset without adding a roster taxonomy.
-
 **Product doubles as required evidence.** Doubles cover exhaustive private protocol branches but do not prove package exports, official distributions, authentication, or real process behavior. Required evidence drives each official product against a loopback model fixture.
 
 **Plugin-managed login, product home, models, settings, or permissions.** Those choices would create another authority beside each product's native configuration and enlarge a one-shot provider into account management. The providers expose only an explicit environment overlay and teardown grace; unattended interaction fails closed.

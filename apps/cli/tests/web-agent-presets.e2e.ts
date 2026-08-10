@@ -132,24 +132,6 @@ describe('the shipped Web composition', () => {
     expect(ctx.agentPresets.defaultId).toBe('standard')
   })
 
-  it('keeps product providers on the host while shipped presets leave their tools disabled', async () => {
-    expect(ctx.subagents.list()).toEqual(expect.arrayContaining([
-      'spawn', 'fork', 'codex', 'claude-code',
-    ]))
-
-    const handle = await ctx.agents.create({
-      sessionId: SessionId('preset-products-disabled'),
-      setup: agentCtx => ctx.agentPresets.mount(agentCtx, 'standard').then(() => undefined),
-    })
-    try {
-      expect(toolNames(ctx, handle.agent)).not.toEqual(expect.arrayContaining([
-        'subagent_codex', 'subagent_claude_code',
-      ]))
-    } finally {
-      await handle.dispose()
-    }
-  })
-
   it('composes the full agent from `standard`', async () => {
     const handle = await ctx.agents.create({
       sessionId: SessionId('preset-standard'),
