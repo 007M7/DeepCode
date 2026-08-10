@@ -116,8 +116,10 @@ describe('local attachment store', () => {
     })
     expect(second.attachmentId).toBe(first.attachmentId)
     expect(new Uint8Array(await readFile(object))).toEqual(PNG)
-    expect((await stat(object)).mode & 0o777).toBe(0o600)
-    expect((await stat(join(storageRoot, 'objects', sha256.slice(0, 2)))).mode & 0o777).toBe(0o700)
+    if (process.platform !== 'win32') {
+      expect((await stat(object)).mode & 0o777).toBe(0o600)
+      expect((await stat(join(storageRoot, 'objects', sha256.slice(0, 2)))).mode & 0o777).toBe(0o700)
+    }
     await expect(readImageFile(storageRoot, first)).resolves.toEqual({ ref: first, data: PNG })
   })
 
