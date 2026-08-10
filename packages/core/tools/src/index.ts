@@ -1251,6 +1251,19 @@ export class ToolRegistry extends Service {
   }
 
   /**
+   * Whether the `code` mode collapse denies a model-direct call: only the
+   * reserved `run_code` transport may be named. Nested sub-dispatches (a
+   * `parent` token set) bypass the collapse. One home for the
+   * security-relevant predicate, shared by {@link resolveExecution} and
+   * {@link createExecution} so the two can never drift apart.
+   * @param name - the tool name as registered.
+   * @param nested - whether the call is a transport sub-dispatch, not a model-direct call.
+   */
+  private collapses(name: string, nested: boolean): boolean {
+    return !nested && this.defaultMode === 'code' && name !== RUN_CODE_NAME
+  }
+
+  /**
    * Execute through pre-policy, guards, around-dispatch, post-policy,
    * definition-owned content finalization, and final notification. Tool and
    * listener failures resolve as materialized error results; an invisible tool
@@ -1295,8 +1308,15 @@ export class ToolRegistry extends Service {
     const agent = exec.agent
     const parent = exec.parent
     const signal = exec.signal
-    const definition = this.get(name, agent)
-    const finalizeContent = definition?.finalizeContent?.bind(definition)
+    // Distinguish a mode-collapsed call (visible in the scope, denied only by
+    // the `code` collapse) from a genuinely unknown tool. A collapsed call is
+    // deterministically denied, so it terminates BEFORE the extensible policy
+    // pipeline: pre-execute listeners, approval `ask`, and guards must never
+    // observe — or worse, approve — a call that can only fail. An unknown tool
+    // keeps the historical dispatch-stage `UNKNOWN_TOOL` path so policy
+    // listeners still see every name that reaches the registry.
+    const visible = this.get(name, agent)
+    const collapsed = visible !== undefined && this.collapses(name, parent !== undefined)
     const concludingExecutions = this.concludingExecutions
     const base = {
       token,
@@ -1333,7 +1353,7 @@ export class ToolRegistry extends Service {
       }
       const execution: MutableToolRunContext = { ...base, arguments: deepFreeze(detached) }
       this.deferredContexts.set(execution, deferredContexts)
-      this.contentFinalizers.set(execution, finalizeContent)
+      this.contentFinalizers.set(execution, finalizerFor())
       this.cancellationStates.set(execution, {
         callerSignal: signal,
         bodyInvoked: false,
