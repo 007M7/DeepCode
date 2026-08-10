@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest'
 import type { AddressInfo } from 'node:net'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { ApiProxy } from '@deepseek-ai/dsh-host-apiproxy/api'
+import type { AttachmentStore } from '@deepseek-ai/dsh-attachment'
 import { RpcId, type ClientRequest } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { HttpServerService, WebRoute, WebUpgradeRoute } from '@deepseek-ai/dsh-host-webserver'
 import { API_PATH, apply, HOST_EVENTS_PATH, inject, MUX_EVENTS_PATH, type HostConnectionHandle } from '../src/index.ts'
@@ -89,6 +90,19 @@ async function mounted(config?: { trustedHosts?: string[] }): Promise<{
 }
 
 describe('connection node half', () => {
+  it('fails loud when the carrier cap cannot hold the configured image batch', () => {
+    const ctx = new Context()
+    const routes: WebRoute[] = []
+    ctx.provide('httpServer', fakeHttpServer(routes, []) as HttpServerService)
+    ctx.provide('attachments', {
+      imageLimits: { maxMessageImageBytes: 20 * 1024 * 1024 },
+    } as AttachmentStore)
+    ctx.provide('apiProxy', {} as ApiProxy)
+    expect(() => { apply(ctx, { maxRequestBodyBytes: 1024 }) })
+      .toThrow(/must be at least .* aggregate image limit/)
+    expect(routes).toHaveLength(0)
+  })
+
   it('fails the load on a trustedHosts entry that is not a bare authority', async () => {
     const routes: WebRoute[] = []
     const upgrades: WebUpgradeRoute[] = []
