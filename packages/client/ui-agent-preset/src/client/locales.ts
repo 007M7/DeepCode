@@ -4,6 +4,10 @@
 export type AgentPresetSettingsKey =
   | 'title' | 'description' | 'loading' | 'error' | 'userTrust' | 'seatHint' | 'headerHint'
   | 'nav' | 'sectionIntro' | 'builtIn' | 'setDefault' | 'view'
+  | 'presetStandardName' | 'presetStandardDescription'
+  | 'presetCodeName' | 'presetCodeDescription'
+  | 'presetMinimalName' | 'presetMinimalDescription'
+  | 'presetCordisName' | 'presetCordisDescription'
   | 'duplicate' | 'duplicateUnavailable' | 'delete' | 'presetId' | 'presetIdPlaceholder' | 'copyOf'
   | 'displayName' | 'displayNamePlaceholder'
   | 'inUse' | 'noDescription' | 'builtInGroup' | 'customGroup'
@@ -30,6 +34,17 @@ export const en: Record<AgentPresetSettingsKey, string> = {
   builtIn: 'Built-in',
   setDefault: 'Set as default',
   view: 'View',
+  presetStandardName: 'Standard mode',
+  presetStandardDescription: 'Full coding agent with file editing, shell, search, planning, delegation, and workflows.',
+  presetCodeName: 'Code mode',
+  presetCodeDescription:
+    'Presents Standard mode\'s tools through Code Mode: the model writes TypeScript against an SDK and runs it once instead of making multiple tool calls.',
+  presetMinimalName: 'Minimal mode',
+  presetMinimalDescription:
+    'Exposes only bash and str_replace_editor to the model, for benchmarks and minimal reproductions.',
+  presetCordisName: 'Creator mode',
+  presetCordisDescription:
+    'Adds self-inspection tools to Standard mode, so it can read and modify its own running composition and create new presets from it.',
   duplicate: 'Duplicate',
   duplicateUnavailable: 'This deployment has no writable preset directory',
   delete: 'Delete',
@@ -82,6 +97,14 @@ export const zh: Record<AgentPresetSettingsKey, string> = {
   builtIn: '内置',
   setDefault: '设为默认',
   view: '查看',
+  presetStandardName: '标准模式',
+  presetStandardDescription: '完整的编码 agent：文件读写、shell、检索、计划、委派与工作流。',
+  presetCodeName: '代码模式',
+  presetCodeDescription: '标准模式的工具改为 Code Mode 呈现：模型写一段 TypeScript 调用 SDK，一次执行代替多轮工具调用。',
+  presetMinimalName: '极简模式',
+  presetMinimalDescription: '只向模型呈现 bash 与 str_replace_editor，适合 benchmark 与最小复现。',
+  presetCordisName: '创造模式',
+  presetCordisDescription: '标准模式加上自指工具集，可以读改自己运行的这套组装，并据此创作新的预设。',
   duplicate: '复制',
   duplicateUnavailable: '此部署未配置可写的预设目录',
   delete: '删除',
@@ -115,4 +138,54 @@ export const zh: Record<AgentPresetSettingsKey, string> = {
   deleteDescription: '预设目录将被删除。已在其上运行的会话不受影响；新会话将无法再选择它。',
   deleteConfirm: '删除',
   deleting: '正在删除…',
+}
+
+/** Preset roster fields needed to resolve Web display copy. */
+export interface PresetDisplaySource {
+  /** Stable preset id. */
+  readonly id: string
+  /** Whether the deployment ships the preset or the user owns it. */
+  readonly trust: 'system' | 'user'
+  /** Unlocalized name published by the preset. */
+  readonly name?: string
+  /** Unlocalized description published by the preset. */
+  readonly description?: string
+}
+
+/** Display copy resolved for the active Web locale. */
+export interface PresetDisplayText {
+  /** Localized built-in name or the preset's own fallback name. */
+  readonly name: string
+  /** Localized built-in description or the preset's own description. */
+  readonly description?: string
+}
+
+interface PresetLocaleKeys {
+  readonly name: AgentPresetSettingsKey
+  readonly description: AgentPresetSettingsKey
+}
+
+const BUILT_IN_PRESET_KEYS: Readonly<Partial<Record<string, PresetLocaleKeys>>> = {
+  standard: { name: 'presetStandardName', description: 'presetStandardDescription' },
+  code: { name: 'presetCodeName', description: 'presetCodeDescription' },
+  minimal: { name: 'presetMinimalName', description: 'presetMinimalDescription' },
+  cordis: { name: 'presetCordisName', description: 'presetCordisDescription' },
+}
+
+/**
+ * Resolve preset display copy without making user-authored metadata translatable.
+ * @param preset - roster row whose copy is being rendered.
+ * @param t - active Web locale lookup.
+ * @returns localized copy for a known shipped preset, otherwise file metadata.
+ */
+export function presetDisplayText(
+  preset: PresetDisplaySource,
+  t: (key: AgentPresetSettingsKey) => string,
+): PresetDisplayText {
+  const keys = preset.trust === 'system' ? BUILT_IN_PRESET_KEYS[preset.id] : undefined
+  if (keys !== undefined) return { name: t(keys.name), description: t(keys.description) }
+  return {
+    name: preset.name ?? preset.id,
+    ...preset.description === undefined ? {} : { description: preset.description },
+  }
 }
