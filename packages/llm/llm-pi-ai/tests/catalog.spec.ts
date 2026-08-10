@@ -100,7 +100,7 @@ describe('hand-declared providers', () => {
     const ctx = await harness(gateway(`${server.url}/v1`))
 
     expect(await ctx.llm.listModels('acme-gateway')).toEqual([
-      { provider: 'acme-gateway', id: 'acme-large', name: 'Acme Large' },
+      { provider: 'acme-gateway', id: 'acme-large', name: 'Acme Large', inputModalities: ['text'] },
     ])
     const info = await ctx.llm.resolveModelInfo('acme-gateway', 'acme-large')
     expect(info).toMatchObject({

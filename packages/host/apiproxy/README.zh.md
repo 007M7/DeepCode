@@ -2,11 +2,11 @@
 
 [English](README.md) | 中文
 
-所有客户端形态共用的 API 网关：TS 约定（`src/api/`，不依赖 Node，可从浏览器导入）、fetch 载体对（`src/fetch/`：宿主侧的 `toFetchHandler`，以及客户端侧的 `AbstractApiClient` 与平台子类）和宿主侧实现（`src/api-proxy.ts`：`createApiProxy` 加上默认导出的 `ApiProxyService` 网关插件，其配置为 `{workspaceRoot?}`，提供 `ctx.apiProxy`）。该包在设计上与传输方式无关，不注册任何路由；HTTP 等载体自行包装 `ctx.apiProxy`。随发行版交付的 Web 组合位于 [`packages/bundle/web-app/cordis.patch.yml`](../../bundle/web-app/cordis.patch.yml)，其默认 Agent（智能体）模型选择属于 base 组合包中的 [`@deepseek-ai/dsh-agent-default-model`](../../core/agent-default-model/README.md)。
+所有客户端形态共用的 API 网关：TS 约定（`src/api/`，不依赖 Node，可从浏览器导入）、fetch 载体对（`src/fetch/`：宿主侧的 `toFetchHandler`，以及客户端侧的 `AbstractApiClient` 与平台子类）和宿主侧实现（`src/api-proxy.ts`：`createApiProxy` 加上默认导出的 `ApiProxyService` 网关插件，其配置为 `{nativeOpen?}`，提供 `ctx.apiProxy`）。该包在设计上与传输方式无关，不注册任何路由；HTTP 等载体自行包装 `ctx.apiProxy`。随发行版交付的 Web 组合位于 [`packages/bundle/web-app/cordis.patch.yml`](../../bundle/web-app/cordis.patch.yml)，其默认 Agent（智能体）模型选择属于 base 组合包中的 [`@deepseek-ai/dsh-agent-default-model`](../../core/agent-default-model/README.md)。
 
 ## 共享 Agent 默认值（`agent-default-model` Settings 分节）
 
-`ApiProxyService` 消费 `ctx.agentDefaultModel`；它不持有提供方／模型配置或 Settings 分节。共享服务在 `agent-default-model` 下注册 `{provider, model, reasoningEffort?}`：base 组合包的组合条目是底层，`settings.yaml` 把用户选择叠加其上。`workspaceRoot` 仍属于 ApiProxy 配置，因为它是 Host 启动器事实，而不是模型偏好。
+`ApiProxyService` 消费 `ctx.agentDefaultModel`；它不持有提供方／模型配置或 Settings 分节。共享服务在 `agent-default-model` 下注册 `{provider, model, reasoningEffort?}`：base 组合包的组合条目是底层，`settings.yaml` 把用户选择叠加其上。
 
 会话每次访问时都按三级解析模型选择：本进程内作出的选择，其次是该会话日志中最新的 `request/header`，最后是这个默认值。已经跑过一轮的会话从自己的日志推导选择，空白会话则能观察到创建之后保存的默认值。
 
@@ -36,7 +36,7 @@ Settings 分节中的 `reasoningEffort` 在 agent-default-model 插件配置中�
 
 待处理的 queued 输入属于实时控制平面约定，而非对话历史。网关根据持久 `agent/inbox/spliced` 变更派生完整的 `next-turn` 队列，并在每次变更后及重连时广播权威 `session/queue` 快照；待处理的 `next-step` steering（中途引导）不进入此 Web 投影。在 `next-step` 内，用户来源的消息携带 `steering` placement，而注入上下文（审批通知、任务完成、附加快照）携带 `context`，领取前不对外呈现。面向单条消息的 `agent/inbox/inserted`、`claimed` 与 `discarded` 通知仍供生命周期观察方使用，但不用于构建队列视图。`session.updateQueue` 通过 `MessageId` 寻址单个项；编辑和移除经已挂载 Agent 的 `Inbox.splice()` 修改队列。claim 的纯删除 splice 会在 pre-step 准入前赢得竞态，因此之后的操作返回 `queue-item-not-found`。`session.cancel` 仅中止活动轮次并保留待处理 inbox 工作；取消达到完全停稳且结束中的轮次完成 flush 后，AgentLoop 按 FIFO 顺序认领下一条可唤醒消息，浏览器绝不重发或提升它。队列操作绝不恢复冷会话，客户端也绝不根据轮次或状态事件推断某项已退出队列。
 
-Workspace 列表与 Session 列表是相互独立的重连基线。`workspace.create({ name })` 会在配置根目录下创建显示标题唯一的目录，而 `workspace.create({ path })` 会接纳已有的规范目录，并允许由 basename 派生的标题重复。`workspace.delete` 只移除 Workspace 注册记录，`session.create` 接受可选的预分配 Session id，`host/workspace-changed`、`host/workspace-removed` 与 `host/session-added` 则以任意到达顺序携带已提交的增量。`workspace.archiveSession` 向注册表级全局归档集合添加一个会话，并应答完整的更新后集合；`workspace.list` 携带该集合作为重连基线，`host/archived-sessions-changed` 在每次持久变更后推送完整快照。归档只把会话从各分组视图中隐藏，不触碰其日志和 workspace 记账；既非实时也未持久化的会话以 `session-not-found` 失败。删除注册记录会保留目录和会话日志；相关 Session 仍留在 `session.list` 中，并进入 Ungrouped。`SessionSummary.blank` 与 `host/session-added` 帧携带派生的零事件位：客户端隐藏空白会话并按 workspace 复用它们，在首个 `host/session-status(running:true)` 时翻转 blank，并以 `session.list` 作为重连权威；冷会话摘要永远不是空白：惰性持久化让从未追加过事件的会话根本不出现在 `list()` 中。
+Workspace 列表与 Session 列表是相互独立的重连基线。`workspace.create({ path })` 会接纳已有的规范目录，并允许由 basename 派生的标题重复。`workspace.delete` 只移除 Workspace 注册记录，`session.create` 接受可选的预分配 Session id，`host/workspace-changed`、`host/workspace-removed` 与 `host/session-added` 则以任意到达顺序携带已提交的增量。`workspace.archiveSession` 向注册表级全局归档集合添加一个会话，并应答完整的更新后集合；`workspace.list` 携带该集合作为重连基线，`host/archived-sessions-changed` 在每次持久变更后推送完整快照。归档只把会话从各分组视图中隐藏，不触碰其日志和 workspace 记账；既非实时也未持久化的会话以 `session-not-found` 失败。删除注册记录会保留目录和会话日志；相关 Session 仍留在 `session.list` 中，并进入 Ungrouped。`SessionSummary.blank` 与 `host/session-added` 帧携带派生的零事件位：客户端隐藏空白会话并按 workspace 复用它们，在首个 `host/session-status(running:true)` 时翻转 blank，并以 `session.list` 作为重连权威；冷会话摘要永远不是空白：惰性持久化让从未追加过事件的会话根本不出现在 `list()` 中。
 
 `session.search` 是以 `session.list` 所列会话为范围的有界内容搜索投影。网关向可选的 `ctx.sessionQuery` 服务请求全局排序后的当前内容视图中的 user、assistant 和 steering 匹配项，并持续消费该结果流，直到获得至多 20 个可见会话／snippet 对及一个前瞻项；返回前仍会依据从列表推导的授权集合重新校验每个命中。提供方分页初始请求 20 个命中；如果第一页请求因这一上限被拒绝，网关会依次探测 10、5、2、1，并在续传和陈旧世代重启中沿用探测所得的页面大小。返回的 snippet 最多包含 240 个 Unicode 码点，响应 schema 则会在每个客户端边界独立强制执行该上限。将授权集合保留在宿主内存中，可在不削弱可见性或排序的前提下避开有效大型语料库的 SQLite 变量上限。
 

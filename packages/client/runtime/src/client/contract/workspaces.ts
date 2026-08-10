@@ -27,11 +27,11 @@ export interface IWorkspaces {
    */
   startSession(workspaceId?: WorkspaceId): void
   /**
-   * Create a Workspace by name or register an existing path.
-   * @param input - exactly one Host create spelling.
+   * Register an existing path as a Workspace.
+   * @param input - the Host create payload.
    * @returns the created or idempotently resolved Workspace.
    */
-  create(input: { name: string } | { path: string }): Promise<WorkspaceView>
+  create(input: { path: string }): Promise<WorkspaceView>
   /**
    * Open the Host's native directory picker.
    * @returns the selected path, or null when the user cancelled.
