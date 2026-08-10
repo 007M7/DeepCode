@@ -50,7 +50,7 @@ class AppOption extends FeatureOption {
     this.label = label
   }
 
-  /** Identify options by their unique front door, not the shared interaction service. */
+  /** Identify external options by their run interface, not the shared interaction service. */
   override markerConfigEntries(): readonly { id: string; name: string }[] {
     switch (this.id) {
       case 'acp': return [{ id: 'acp', name: '@deepseek-ai/dsh-acp' }]
@@ -58,7 +58,7 @@ class AppOption extends FeatureOption {
     }
   }
 
-  /** Embed is identified by the configured loop with no external front door. */
+  /** Embed is identified by the configured loop and absence of an external entry point. */
   override matchesConfigEntries(entries: readonly { id: string; name: string }[], profile: ProjectProfile): boolean {
     if (this.id !== 'embed') return super.matchesConfigEntries(entries, profile)
     return entries.some(entry => entry.id === 'agent-loop' && entry.name === '@deepseek-ai/dsh-agent-loop')
@@ -93,7 +93,7 @@ export class AppFeature extends ExclusiveOptionFeature {
     new AppOption('embed', 'Embedded context'),
   ]
 
-  /** Default to the profile's already selected front door. */
+  /** Default to the profile's already selected run interface. */
   override defaultOptions(profile: ProjectProfile): readonly string[] {
     return [profile.runInterface]
   }
