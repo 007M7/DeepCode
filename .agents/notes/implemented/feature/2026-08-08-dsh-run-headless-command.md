@@ -22,7 +22,7 @@ dsh run [--profile <name>] [--patch <path>...] <task...>
 
 `RunInvocation` is a distinct `DshInvocation` member. The generic profile invocation carries no task state and accepts no positional arguments. Both dispatch paths use `runProfile`: profile boot omits `task`, while `run` supplies it. A one-shot profile without `headless-runner` fails through the composed-row check, and profile boot containing that row without a task points to `dsh run --profile <name> "<task>"`.
 
-The [profile plugin bundle decision](../architecture/2026-08-05-profile-plugin-bundles.md) owns composition. [Headless is a direct core front door](../architecture/2026-08-09-headless-direct-core-front-door.md) owns the execution contract: one fresh persisted Session, final assistant text on stdout, completed/non-completed exit mapping, empty stderr on success, no listening port, and bounded signal shutdown after Agent quiescence and Session flush.
+The [profile plugin bundle decision](../architecture/2026-08-05-profile-plugin-bundles.md) owns composition. [Headless is a direct core entry point](../architecture/2026-08-09-headless-direct-core-entry-point.md) owns the execution contract: one fresh persisted Session, final assistant text on stdout, completed/non-completed exit mapping, empty stderr on success, no listening port, and bounded signal shutdown after Agent quiescence and Session flush.
 
 The `run` verb belongs only to one-shot task execution. Application-file launch requires a distinct command name.
 
