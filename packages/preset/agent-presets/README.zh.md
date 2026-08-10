@@ -63,7 +63,7 @@ preset 可以在组装文件旁的可选 `preset.yml` 里发布展示文本：
 
 ```yaml
 name: 极简模式
-description: 只向模型呈现 bash 与 str_replace_editor，适合 benchmark 与最小复现。
+description: 仅提供持久 bash 与 str_replace_editor 的双工具编码 Agent。
 ```
 
 它**只**承载展示文本。`id` 是目录名，`trust` 取自 preset 被发现时所在的根目录，两者都不可写在这里——否则本地创作的 preset 就能把自己命名进随附集合。之所以是独立文件：组装是插件行的顶层列表，YAML 无法在其旁携带同级键，而伪造一个元信息行等于递给 Loader 一个要加载的东西。

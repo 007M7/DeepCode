@@ -1,4 +1,4 @@
-# The `minimal` agent preset: the Claude SWE-compatible RL surface.
+# The `minimal` agent preset: a fixed-prompt, two-tool coding surface.
 #
 # The persona is the complete system prompt, so global identity, Web surface,
 # tool guidance, and later assembly listeners cannot add prompt text. The model

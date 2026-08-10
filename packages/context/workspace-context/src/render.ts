@@ -32,6 +32,17 @@ export interface RenderedWorkspaceContext {
   truncated: TruncatedInstruction[]
 }
 
+interface RenderedInstructionContext extends RenderedWorkspaceContext {
+  /**
+   * Original files semantically represented by rendered section text. This is
+   * not the complement of `omitted`: a truncated file may be represented here
+   * and in `truncated`, while a notice-only file appears in neither. A genuinely
+   * empty file counts when its heading survives because that heading conveys
+   * that the instruction exists and has no content.
+   */
+  represented: LoadedInstructionFile[]
+}
+
 /** Structured dynamic state persisted outside model-visible prompt prose. */
 export interface WorkspaceInstructionChange {
   action: 'set' | 'replace' | 'remove'
@@ -56,11 +67,15 @@ function byteLength(value: string): number {
 }
 
 function truncateUtf8(value: string, maxBytes: number): string {
-  let truncated = Buffer.from(value, 'utf8').subarray(0, Math.max(0, maxBytes)).toString('utf8')
-  while (byteLength(truncated) > maxBytes) {
-    truncated = truncated.slice(0, -1)
+  const bytes = Buffer.from(value, 'utf8')
+  if (bytes.length <= maxBytes) return value
+  let end = Math.max(0, Math.trunc(maxBytes))
+  // If the first excluded byte is a UTF-8 continuation byte, the budget cut
+  // through that code point. Back up to its lead byte and exclude it too.
+  while (end > 0 && (bytes.readUInt8(end) & 0xc0) === 0x80) {
+    end -= 1
   }
-  return truncated
+  return bytes.subarray(0, end).toString('utf8')
 }
 
 function escapeInstructionFrameBody(body: string): string {
@@ -143,6 +158,16 @@ function additionalSectionText(file: LoadedInstructionFile): string {
 
 const BASELINE_RENDER_STYLE: RenderStyle = { intro: WORKSPACE_CONTEXT_INTRO, section: sectionText }
 
+function baselineRenderStyle(files: LoadedInstructionFile[], replacePreviousBaseline: boolean | undefined): RenderStyle {
+  if (replacePreviousBaseline !== true) return BASELINE_RENDER_STYLE
+  return {
+    ...BASELINE_RENDER_STYLE,
+    intro: files.length === 0
+      ? EMPTY_REPLACEMENT_WORKSPACE_CONTEXT_INTRO
+      : REPLACEMENT_WORKSPACE_CONTEXT_INTRO,
+  }
+}
+
 function changedSectionText(item: ChangeRenderItem): string {
   const { change, file } = item
   if (change.action === 'set') return additionalSectionText(file)
@@ -178,13 +203,12 @@ export function renderInstructionChanges(
     },
   }
   const rendered = renderInstructionContext(items.map(item => item.file), maxBytes, style)
-  const omitted = new Set(rendered.omitted.map(file => file.absolutePath))
+  const represented = new Set(rendered.represented.map(file => file.absolutePath))
   return {
     text: rendered.text,
-    // TODO(rendered-change-proof): retain a transition only when its semantic
-    // notice survived rendering; a tiny compact budget can currently return
-    // unrelated notice text while still committing the full state transition.
-    changes: items.filter(item => !omitted.has(item.file.absolutePath)).map(item => item.change),
+    changes: items
+      .filter(item => represented.has(item.file.absolutePath))
+      .map(item => item.change),
   }
 }
 
@@ -252,47 +276,75 @@ function renderInstructionContext(
   files: LoadedInstructionFile[],
   maxBytes: number,
   style: RenderStyle,
-): RenderedWorkspaceContext {
-  if (maxBytes <= 0 || !Number.isFinite(maxBytes)) return { text: '', omitted: files, truncated: [] }
+): RenderedInstructionContext {
+  if (maxBytes <= 0 || !Number.isFinite(maxBytes)) {
+    return { text: '', omitted: files, truncated: [], represented: [] }
+  }
 
   const fullText = buildInstructionText(files, maxBytes, [], [], style)
-  if (byteLength(fullText) <= maxBytes) return { text: fullText, omitted: [], truncated: [] }
+  if (byteLength(fullText) <= maxBytes) {
+    return { text: fullText, omitted: [], truncated: [], represented: files }
+  }
 
   for (let start = 1; start < files.length; start += 1) {
     const included = files.slice(start)
     const omitted = files.slice(0, start).map(file => ({ absolutePath: file.absolutePath, displayPath: file.displayPath }))
     const suffixText = buildInstructionText(included, maxBytes, omitted, [], style)
-    if (byteLength(suffixText) <= maxBytes) return { text: suffixText, omitted, truncated: [] }
+    if (byteLength(suffixText) <= maxBytes) return { text: suffixText, omitted, truncated: [], represented: included }
   }
 
   const mostSpecific = files.at(-1)
   /* v8 ignore next -- callers only reach this after a non-empty fullText was built. */
-  if (mostSpecific === undefined) return { text: '', omitted: [], truncated: [] }
+  if (mostSpecific === undefined) return { text: '', omitted: [], truncated: [], represented: [] }
   const omitted = files.slice(0, -1).map(file => ({ absolutePath: file.absolutePath, displayPath: file.displayPath }))
+  const originalBytes = byteLength(mostSpecific.content)
 
   for (const candidateStyle of [style, { ...style, intro: COMPACT_WORKSPACE_CONTEXT_INTRO }]) {
     const truncatedFile = truncateToFit(mostSpecific, [], maxBytes, omitted, candidateStyle)
+    const includedBytes = byteLength(truncatedFile.content)
     const truncated = [{
       displayPath: mostSpecific.displayPath,
-      originalBytes: byteLength(mostSpecific.content),
-      includedBytes: byteLength(truncatedFile.content),
+      originalBytes,
+      includedBytes,
     }]
     const text = buildInstructionText([truncatedFile], maxBytes, omitted, truncated, candidateStyle)
-    if (byteLength(text) <= maxBytes) return { text, omitted, truncated }
+    if (byteLength(text) <= maxBytes) {
+      const represented = includedBytes > 0 || originalBytes === 0 ? [mostSpecific] : []
+      return { text, omitted, truncated, represented }
+    }
   }
 
   const truncated = [{
     displayPath: mostSpecific.displayPath,
-    originalBytes: byteLength(mostSpecific.content),
+    originalBytes,
     includedBytes: 0,
   }]
   const compactNotice = escapeInstructionFrameBody(markerText(maxBytes, omitted, truncated))
   const compactWithHeading = escapeInstructionFrameBody(
     [compactNotice, style.section(withTruncatedContent(mostSpecific, 0))].join('\n\n'),
   )
-  if (byteLength(compactWithHeading) <= maxBytes) return { text: compactWithHeading, omitted, truncated }
+  if (byteLength(compactWithHeading) <= maxBytes) {
+    const represented = originalBytes === 0 ? [mostSpecific] : []
+    return { text: compactWithHeading, omitted, truncated, represented }
+  }
   const text = byteLength(compactNotice) <= maxBytes ? compactNotice : truncateUtf8(compactNotice, maxBytes)
-  return { text, omitted, truncated }
+  return { text, omitted, truncated, represented: [] }
+}
+
+/**
+ * Render a baseline together with the exact source files semantically represented in it.
+ * @param files - loaded files ordered from broadest to most specific.
+ * @param options - rendering byte budget and whether this baseline supersedes a visible predecessor.
+ * @returns bounded public rendering plus files with surviving content, including genuinely empty files.
+ * @internal
+ */
+export function renderWorkspaceInstructionSet(
+  files: LoadedInstructionFile[],
+  options: { maxBytes: number; replacePreviousBaseline?: boolean },
+): { rendered: RenderedWorkspaceContext; included: LoadedInstructionFile[] } {
+  const style = baselineRenderStyle(files, options.replacePreviousBaseline)
+  const { represented, ...rendered } = renderInstructionContext(files, options.maxBytes, style)
+  return { rendered, included: represented }
 }
 
 /**
@@ -305,13 +357,5 @@ export function renderWorkspaceContext(
   files: LoadedInstructionFile[],
   options: { maxBytes: number; replacePreviousBaseline?: boolean },
 ): RenderedWorkspaceContext {
-  const style = options.replacePreviousBaseline === true
-    ? {
-      ...BASELINE_RENDER_STYLE,
-      intro: files.length === 0
-        ? EMPTY_REPLACEMENT_WORKSPACE_CONTEXT_INTRO
-        : REPLACEMENT_WORKSPACE_CONTEXT_INTRO,
-    }
-    : BASELINE_RENDER_STYLE
-  return renderInstructionContext(files, options.maxBytes, style)
+  return renderWorkspaceInstructionSet(files, options).rendered
 }
