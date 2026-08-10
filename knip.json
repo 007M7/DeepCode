@@ -9,7 +9,6 @@
     "musl-gcc",
     "python3",
     "sandbox-exec",
-    "tar",
     "taskkill",
     "where.exe"
   ],
