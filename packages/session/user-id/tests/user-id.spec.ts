@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import {
   USER_ID_FILE_NAME,
   getOrCreateAnonymousUserId,
-} from '../src/user-id.ts'
+} from '../src/index.ts'
 
 const dirs: string[] = []
 

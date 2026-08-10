@@ -1,22 +1,20 @@
 /**
- * Per-harness-home anonymous user id for the OTel Resource.
+ * Per-harness-home anonymous user id shared by telemetry and feedback.
  *
  * The id is a random UUID persisted as a bare line in `.userid` inside the
  * harness home resolved by {@link resolveDshHome} (`$DSH_HOME` > `~/.dsh`),
  * and never derived from the hostname, network address, git remote, or any
- * other identifying source — a derived id would make "anonymous" a fiction.
- * The id is scoped to the harness home, not the machine: every process
- * sharing one `$DSH_HOME` reports the same id, and deleting the file simply
- * mints a fresh identity on the next launch (loss is accepted by design).
- * This identity belongs to the OTel feed alone; the dsh-sdk launcher
- * telemetry keeps its own separate store.
+ * other identifying source. It is scoped to the harness home, not the
+ * machine: every process sharing one `$DSH_HOME` reports the same id, and
+ * deleting the file mints a fresh identity on the next launch. The dsh-sdk
+ * launcher telemetry keeps its own separate store.
  *
- * Reads and writes are synchronous so the backend constructor can call this
- * on its boot path, and the result is memoized per resolved file path: one
- * process touches the disk once, and a file deleted mid-run keeps the
- * process's id until the next launch.
+ * Reads and writes are synchronous so boot-time and command consumers can
+ * use one API. The result is memoized per resolved file path: one process
+ * touches the disk once, and a file deleted mid-run keeps the process's id
+ * until the next launch.
  *
- * @module @deepseek-ai/dsh-session-telemetry-otel/user-id
+ * @module @deepseek-ai/dsh-user-id
  */
 
 import { randomUUID } from 'node:crypto'
@@ -64,8 +62,8 @@ function readPersistedId(file: string): AnonymousUserId | undefined {
  * narrow create-to-write window can still yield two per-process ids for that
  * run; the next launch converges on the persisted one.) Persistence is
  * best-effort — a write failure (read-only home) still returns a usable id
- * for the current run so telemetry is never blocked.
- * @param options - Home-location and UUID-generation hooks.
+ * for the current run so feedback and telemetry are never blocked.
+ * @param options - home-location and UUID-generation seams.
  * @returns the stable per-harness-home anonymous user id.
  */
 export function getOrCreateAnonymousUserId(options: AnonymousUserIdOptions = {}): AnonymousUserId {
