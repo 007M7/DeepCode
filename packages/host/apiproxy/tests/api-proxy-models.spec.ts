@@ -156,7 +156,6 @@ describe('Web session model selection', () => {
     const api = createApiProxy(ctx, {
       defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }),
       cwd: '/tmp',
-      workspaceRoot: '/tmp',
     })
 
     const result = await api.sessions.prompt(request({
@@ -203,7 +202,6 @@ describe('Web session model selection', () => {
     const api = createApiProxy(ctx, {
       defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }),
       cwd: '/tmp',
-      workspaceRoot: '/tmp',
     })
     const image = {
       type: 'image' as const,
@@ -246,7 +244,6 @@ describe('Web session model selection', () => {
     const api = createApiProxy(ctx, {
       defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }),
       cwd: '/tmp',
-      workspaceRoot: '/tmp',
     })
     agent.session.append('agent/inbox/spliced', {
       target: 'next-turn',
