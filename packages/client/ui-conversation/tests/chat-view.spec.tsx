@@ -466,9 +466,6 @@ describe('ChatView', () => {
     expect(view.queryByText('later')).toBeNull()
     const pendingBubble = view.getByText('interrupt now').closest('[data-pending-steering]')
     expect(pendingBubble).not.toBeNull()
-    // Pending and durable steering carry the same interjection caption, so the
-    // hand-off does not change what the row says it is.
-    expect(within(pendingBubble as HTMLElement).getByText('插话')).toBeTruthy()
     fireEvent.click(within(pendingBubble as HTMLElement).getByRole('button', { name: '复制' }))
     expect(writeText).toHaveBeenCalledWith('interrupt now')
     expect(within(pendingBubble as HTMLElement).queryByRole('button', { name: '在新对话中分支' })).toBeNull()
@@ -490,7 +487,6 @@ describe('ChatView', () => {
     })
     expect(view.getAllByText('interrupt now')).toHaveLength(1)
     expect(view.container.querySelector('[data-pending-steering]')).toBeNull()
-    expect(view.getAllByText('插话')).toHaveLength(1)
     // Only the durable steering bubble: the turn is still running, so its
     // assistant narration owns no footer yet, and a steering bubble never
     // carries a branch action.

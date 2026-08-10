@@ -16,16 +16,6 @@
   min-width: 0;
   max-width: min(525px, 82%);
 }
-
-/* Steering caption above the bubble: mid-turn interjections carry the same
-   bubble as a turn-opening prompt, so the transcript names which one this is. */
-.steeringMark {
-  padding-right: 4px;
-  color: var(--dsw-alias-label-tertiary);
-  font-size: 12px;
-  line-height: 16px;
-}
-
 .bubble {
   /* 525px cap inside the 736 column; percentage keeps narrow windows sane. */
   max-width: 100%;
