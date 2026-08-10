@@ -1,7 +1,6 @@
 # Agent Note: Dual Wine and native Windows pull-request CI
 
 Status: implemented
-Archived: 2026-08-10
 
 English | [中文](2026-08-08-native-windows-pull-request-ci.zh.md)
 

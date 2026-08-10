@@ -6,19 +6,15 @@ Status: implemented
 
 ## 问题
 
-[CI](../../../../.github/workflows/ci.yml) 中三个必需的 Linux 工作作业（`node 24 / static`、`node 24 / coverage`、`node 24 / snapshots and artifacts`）运行在托管的企业级 32 核池上；聚合它们的必需判定作业（`all checks passed`）运行在标准 `ubuntu-latest` 上。必需的 Windows 作业（`windows node 24 / native complete`）运行在托管的企业级大型运行器上。当企业池发生故障——作业无限排队或企业标签消失——所有开启的拉取请求都无法合并，而"合并一个修复"这一常规恢复手段本身正被那些无法运行的必需检查死锁。**适用范围：本切换恢复的是企业级 Linux 池故障和托管 Windows 池故障。**判定作业的其余必需依赖（`node-compat`、`python-sdk`）按设计留在标准托管运行器上（可移植边界）；若更大范围的 GitHub 托管容量故障连标准池一并击倒，这些依赖仍会阻塞 `all checks passed`。因此故障需要一个任何具备仓库写权限的响应者都能在不合并任何代码的情况下触发的开关。
+[CI](../../../../.github/workflows/ci.yml) 中三个必需的 Linux 工作作业（`node 24 / static`、`node 24 / coverage`、`node 24 / snapshots and artifacts`）运行在托管的企业级 32 核池上；聚合它们的必需判定作业（`all checks passed`）运行在标准 `ubuntu-latest` 上。当企业池发生故障——作业无限排队或企业标签消失——所有开启的拉取请求都无法合并，而"合并一个修复"这一常规恢复手段本身正被那些无法运行的必需检查死锁。**适用范围：本切换恢复的是企业级 Linux 池故障。**判定作业的其余必需依赖（`node-compat`、`python-sdk`、`windows`）按设计留在标准托管运行器上（可移植边界）；若更大范围的 GitHub 托管容量故障连标准池一并击倒，这些依赖仍会阻塞 `all checks passed`，且只有 Windows 这条腿完全没有自有替代——2026-07-27 的故障中标准池率先恢复，本设计押注的正是这一顺序。因此故障需要一个任何具备仓库写权限的响应者都能在不合并任何代码的情况下触发的开关。
 
 ## 决策
 
-三个必需的 Linux 工作作业、必需的 Windows 作业，以及 `all checks passed` 判定作业（若不随切换，即使全部工作作业通过，它仍会滞留在故障池的队列中）——各自通过仓库变量 `DSH_CI_FAILOVER` 解析运行器池。变量不存在（正常）时它们运行在托管企业池上；由任何具备写权限的协作者设为 `selfhosted` 时，五者全部切换到公司自有的自托管池：Linux 作业与判定位移入 `vm-backup` 池（`[self-hosted, linux, x64, vm-backup]`），覆盖率与快照的并发降到共享虚拟机上限，并跳过托管路径的 pnpm 缓存恢复；Windows 作业移入 `dsh-win-ci` 池（`[self-hosted, dsh-win-ci, windows]`）。这个开关是写者可管理的仓库状态而非一次合并，因此在所有检查都是红色时仍然有效。自有池的就绪状态由 `serial / linux (self-hosted standby)` 和 `serial / windows (self-hosted standby)` 通道持续验证——每次 master 推送都在其上运行完整的未分片聚合流程。
+三个必需的 Linux 工作作业——以及 `all checks passed` 判定作业（若不随切换，即使全部工作作业通过，它仍会滞留在故障池的队列中）——各自通过仓库变量 `DSH_CI_FAILOVER` 解析运行器池。变量不存在（正常）时它们运行在托管企业池上；由任何具备写权限的协作者设为 `selfhosted` 时，四者全部切换到公司自有的自托管 `vm-backup` 池，覆盖率与快照的并发降到共享虚拟机上限，并跳过托管路径的 pnpm 缓存恢复。这个开关是写者可管理的仓库状态而非一次合并，因此在所有检查都是红色时仍然有效。自有池的就绪状态由 `serial / linux (self-hosted standby)` 通道持续验证——每次 master 推送都在其上运行完整的未分片聚合流程。
 
 ### 自有池是什么
 
 `vm-backup`：一台 64 核虚拟机，6 个常驻 systemd 管理的运行器实例。其镜像必须预装 Playwright Chromium 的 Linux 系统软件包；CI 会下载锁文件选定的浏览器，但绝不在这台持久化共享主机上运行 `apt`。切换前先看 `serial / linux (self-hosted standby)` 最近一次运行：其聚合流程包含浏览器回放，因此绿色热备同时验证常规容量和这项浏览器先决条件。
-
-#### Windows 池
-
-`dsh-win-ci`：公司自有 Windows CI 服务器上的 16 个常驻运行器实例。标签：`[self-hosted, dsh-win-ci, windows]`。镜像必须预装 Node 24、pnpm、Git，并启用开发人员模式以支持符号链接；Playwright Chromium 由 `serial / windows (self-hosted standby)` 通道在每次运行时安装。切换前先看 `serial / windows (self-hosted standby)` 最近一次运行：绿色热备验证该池可完整执行 `check:ci:windows-complete`。
 
 ### 切换步骤（任何具备写权限的协作者，约 1 分钟，无需合并）
 

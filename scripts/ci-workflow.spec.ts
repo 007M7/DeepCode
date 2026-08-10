@@ -27,16 +27,20 @@ describe('CI workflow', () => {
     }
   })
 
-  it('keeps a single required native Windows job with failover and a master-only standby', () => {
+  it('keeps a required Wine Windows job, a non-blocking native Windows job with failover, and a master-only standby', () => {
     const workflow = loadWorkflow('.github/workflows/ci.yml')
     if (!isRecord(workflow.jobs)
       || !isRecord(workflow.jobs.windows)
+      || !isRecord(workflow.jobs['windows-native'])
+      || !isRecord(workflow.jobs['wine-apt-cache'])
       || !isRecord(workflow.jobs['serial-windows'])
       || !isRecord(workflow.jobs['all-checks-passed'])) {
-      throw new TypeError('CI workflow must define windows, serial-windows, and all-checks-passed jobs')
+      throw new TypeError('CI workflow must define windows, windows-native, wine-apt-cache, serial-windows, and all-checks-passed jobs')
     }
 
     const windows = workflow.jobs.windows
+    const windowsNative = workflow.jobs['windows-native']
+    const wineAptCache = workflow.jobs['wine-apt-cache']
     const serialWindows = workflow.jobs['serial-windows']
     const aggregate = workflow.jobs['all-checks-passed']
     if (!Array.isArray(windows.steps) || !Array.isArray(aggregate.needs)) {
@@ -46,38 +50,35 @@ describe('CI workflow', () => {
       isRecord(step) && typeof step.run === 'string'
     ))
 
-    // Required PR job: native Windows, failover-able, runs windows-complete.
-    expect(typeof windows['runs-on']).toBe('string')
-    expect(windows['runs-on']).toContain('DSH_CI_FAILOVER')
-    expect(windows['runs-on']).toContain('self-hosted')
-    expect(windows['runs-on']).toContain('dsh-win-ci')
-    expect(windows['runs-on']).toContain('dsh-windows-2025-16core')
-    expect(windows.name).toBe('windows node 24 / native complete')
+    // Required PR job: Wine on ubuntu-latest, runs wine-windows-gates.sh.
+    expect(windows['runs-on']).toBe('ubuntu-latest')
+    expect(windows.name).toBe('windows node 24 / wine blocking')
     expect(windows.if).toBe("github.event_name == 'pull_request'")
-    expect(windows.env).toMatchObject({
-      DSH_COVERAGE_MAX_WORKERS: '2',
-      DSH_GATE_CONCURRENCY: '2',
-      DSH_PUBLINT_CONCURRENCY: '8',
-    })
-    expect(commandSteps.every(step => step.shell === 'pwsh')).toBe(true)
-    expect(commandSteps.map(step => step.run)).toContain('pnpm run check:ci:windows-complete')
-    const developerMode = windows.steps.find((step): step is Record<string, unknown> & { run: string } => (
-      isRecord(step) && typeof step.run === 'string' && step.run.includes('AllowDevelopmentWithoutDevLicense')
-    ))
-    expect(developerMode).toBeDefined()
+    expect(commandSteps.some(step => step.run.includes('wine-windows-gates.sh'))).toBe(true)
 
-    // No Wine or dual-lane remnants.
-    const workflowJson = JSON.stringify(workflow)
-    expect(workflowJson).not.toMatch(/wine/i)
-    expect(workflow.jobs).not.toHaveProperty('windows-native')
-    expect(workflow.jobs).not.toHaveProperty('wine-apt-cache')
+    // windows-native: non-blocking native job with failover, runs windows-complete.
+    expect(typeof windowsNative['runs-on']).toBe('string')
+    expect(windowsNative['runs-on']).toContain('DSH_CI_FAILOVER')
+    expect(windowsNative['runs-on']).toContain('self-hosted')
+    expect(windowsNative['runs-on']).toContain('dsh-win-ci')
+    expect(windowsNative['runs-on']).toContain('dsh-windows-2025-16core')
+    expect(windowsNative.name).toBe('windows node 24 / native complete')
+    expect(windowsNative.if).toBe("github.event_name == 'pull_request'")
+    const nativeCommandSteps = (windowsNative.steps as unknown[]).filter((step): step is Record<string, unknown> & { run: string } => (
+      isRecord(step) && typeof step.run === 'string'
+    ))
+    expect(nativeCommandSteps.map(step => step.run)).toContain('pnpm run check:ci:windows-complete')
+
+    // wine-apt-cache: master-only, seeds the Wine apt cache.
+    expect(wineAptCache.if).toBe("github.event_name == 'push' && github.ref == 'refs/heads/master'")
+    expect(wineAptCache['runs-on']).toBe('ubuntu-latest')
 
     // serial-windows: master-only standby, self-hosted, non-blocking.
     expect(serialWindows.if).toBe("github.event_name == 'push' && github.ref == 'refs/heads/master'")
     expect(serialWindows['runs-on']).toEqual(['self-hosted', 'dsh-win-ci', 'windows'])
     expect(serialWindows.name).toBe('serial / windows (self-hosted standby)')
 
-    // Aggregate: windows required, serial-windows excluded.
+    // Aggregate: Wine `windows` required, native `windows-native` excluded.
     expect(aggregate.needs).toContain('windows')
     expect(aggregate.needs).not.toContain('windows-native')
     expect(aggregate.needs).not.toContain('serial-windows')

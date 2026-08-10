@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/process/2026-07-21-serial-cross-platform-ci-reference.md
-2026-07-21-serial-cross-platform-ci-reference.md: 32e787276628f48c67a76f05c22d7e018590755c
-2026-07-21-serial-cross-platform-ci-reference.zh.md: d31c4343a631723ce2ce4311fe44221347078e7c
+2026-07-21-serial-cross-platform-ci-reference.md: c2ed11d40f7f5487117b5c72f11bc1709042f68a
+2026-07-21-serial-cross-platform-ci-reference.zh.md: bef8c3b640cf43942e380e921d5f62d91723eff8
