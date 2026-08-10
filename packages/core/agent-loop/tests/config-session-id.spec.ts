@@ -113,27 +113,19 @@ describe('config-driven session id', () => {
     const config = { agents: [{ id: 'main', sessionId: SessionId('config-exact-reload'), provider: 'mock', model: 'mock' }] }
 
     const firstLoop = await ctx.plugin(AgentLoop, config)
-    let first: Agent | undefined
-    for (let i = 0; i < 50 && first === undefined; i++) {
-      await new Promise(resolve => setTimeout(resolve, 5))
-      first = ctx.agents.get(SessionId('config-exact-reload'))
-    }
-    expect(first).toBeDefined()
-    first!.followup(createUserMessage({ content: [{ type: 'text', text: 'remember me' }], source: { kind: 'user' } }))
-    await waitForIdle(ctx, first!)
+    await expect.poll(() => ctx.agents.get(SessionId('config-exact-reload')), { timeout: 5_000 }).toBeDefined()
+    const first = ctx.agents.get(SessionId('config-exact-reload'))!
+    first.followup(createUserMessage({ content: [{ type: 'text', text: 'remember me' }], source: { kind: 'user' } }))
+    await waitForIdle(ctx, first)
     await firstLoop.dispose()
 
     const secondLoop = await ctx.plugin(AgentLoop, config)
-    let second: Agent | undefined
-    for (let i = 0; i < 50 && second === undefined; i++) {
-      await new Promise(resolve => setTimeout(resolve, 5))
-      second = ctx.agents.get(SessionId('config-exact-reload'))
-    }
-    expect(second).toBeDefined()
-    expect(JSON.stringify(second!.session.deriveMessages())).toContain('remember me')
-    second!.followup(createUserMessage({ content: [{ type: 'text', text: 'continue' }], source: { kind: 'user' } }))
-    await waitForIdle(ctx, second!)
-    await ctx.sessions.flush(second!.session)
+    await expect.poll(() => ctx.agents.get(SessionId('config-exact-reload')), { timeout: 5_000 }).toBeDefined()
+    const second = ctx.agents.get(SessionId('config-exact-reload'))!
+    expect(JSON.stringify(second.session.deriveMessages())).toContain('remember me')
+    second.followup(createUserMessage({ content: [{ type: 'text', text: 'continue' }], source: { kind: 'user' } }))
+    await waitForIdle(ctx, second)
+    await ctx.sessions.flush(second.session)
     const loaded = await ctx.sessionPersistence.load(SessionId('config-exact-reload'))
     expect(loaded.events.filter(event => event.type === 'turn/start')).toHaveLength(2)
 
@@ -423,18 +415,14 @@ describe('config-driven session id', () => {
     await ctx2.plugin(SessionPersistenceJsonl, { root })
     ctx2.llm.registerAdapter(['mock'], new MockAdapter([textResponse('second')]))
 
-    // The deferred resume runs on a microtask after the backend is available.
-    let resumed: Agent | undefined
-    for (let i = 0; i < 50 && !resumed; i++) {
-      await new Promise(r => setTimeout(r, 5))
-      resumed = ctx2.agents.get(SessionId('sticky-1'))
-    }
-    expect(resumed).toBeDefined()
+    // The deferred resume runs after the backend is available.
+    await expect.poll(() => ctx2.agents.get(SessionId('sticky-1')), { timeout: 5_000 }).toBeDefined()
+    const resumed = ctx2.agents.get(SessionId('sticky-1'))!
     // The live session id IS the resumed id (NOT a fresh ${id}-session-<uuid>),
     // and the prior turn's user message is in the derived history.
-    expect(resumed!.id).toBe(SessionId('sticky-1'))
-    expect(resumed!.session.id).toBe('sticky-1')
-    const derived = resumed!.session.deriveMessages()
+    expect(resumed.id).toBe(SessionId('sticky-1'))
+    expect(resumed.session.id).toBe('sticky-1')
+    const derived = resumed.session.deriveMessages()
     expect(JSON.stringify(derived)).toContain('remember me')
     await ctx2.fiber.dispose()
   })

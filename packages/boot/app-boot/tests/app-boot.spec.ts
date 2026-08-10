@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -699,7 +699,18 @@ describe('boot', () => {
       '}',
       '',
     ].join('\n'))
-    writeFileSync(join(dir, 'cordis.yml'), '- id: exiting\n  name: ./exiting.mjs\n')
+    writeFileSync(join(dir, 'delayed.mjs'), [
+      'await new Promise(resolve => setTimeout(resolve, 10))',
+      'export function apply() {}',
+      '',
+    ].join('\n'))
+    writeFileSync(join(dir, 'cordis.yml'), [
+      '- id: exiting',
+      '  name: ./exiting.mjs',
+      '- id: delayed',
+      '  name: ./delayed.mjs',
+      '',
+    ].join('\n'))
     const ctx = await boot(NAME, join(dir, 'cordis.yml'))
     expect(ctx.get('loader')).toBeUndefined()
   })
@@ -710,6 +721,25 @@ describe('boot', () => {
     await expect(boot(NAME, join(dir, 'cordis.yml'))).rejects.toThrow(
       `${NAME}: plugin tree failed to load: failed to apply loader entry`,
     )
+  })
+
+  it('labels a deferred config failure with its row and leaves the source file unchanged', async () => {
+    const dir = tmp()
+    const configPath = join(dir, 'cordis.yml')
+    const config = [
+      '- id: invalid-config',
+      '  name: ./noop.mjs',
+      '  config:',
+      '    value: !!js "JSON.parse(\'invalid\')"',
+      '',
+    ].join('\n')
+    writeFileSync(join(dir, 'noop.mjs'), 'export function apply() {}\n')
+    writeFileSync(configPath, config)
+
+    await expect(boot(NAME, configPath)).rejects.toThrow(
+      'failed to apply loader entry invalid-config (./noop.mjs)',
+    )
+    expect(readFileSync(configPath, 'utf8')).toBe(config)
   })
 
   it('appends the deepest cause with its original stack to the load failure', async () => {

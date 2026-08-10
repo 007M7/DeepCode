@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-03-cli-signal-shutdown-escalation.md
-2026-08-03-cli-signal-shutdown-escalation.md: 55917400fac2728d13dc2cdd799a7e234b6ed661
-2026-08-03-cli-signal-shutdown-escalation.zh.md: c7897a8d77e8c2ebad43cec4e12170b04c837350
+2026-08-03-cli-signal-shutdown-escalation.md: 173d06482cd8a1fcbb985763cc313e3f9b170bc6
+2026-08-03-cli-signal-shutdown-escalation.zh.md: efa52524199906cf636cb2b55cb4249857dc1348

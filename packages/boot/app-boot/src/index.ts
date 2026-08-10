@@ -199,7 +199,7 @@ export function loadLayeredEnv(
 const bootstrapIncludes = new WeakMap<Context, Entry>()
 
 // The include's YAML dialect (`!!js` scalars become expression nodes the
-// Loader interpolates against each entry's context at mount time), imported
+// Loader interpolates against each entry's injection-ready context), imported
 // from the include itself so patch parsing and config dumping can never drift
 // from what the include mounts. User patch layers share it so they may
 // reference `process.env`.
@@ -215,7 +215,7 @@ export interface UserPatchWatchOptions {
    * Compose the full patch list for a fresh user-layer generation —
    * the same composition the app booted with, so a reload can interleave the
    * new user patches between app-owned layers (bundle layers below,
-   * overlay/flag patches above). Identity when omitted: the user layer
+   * overlays above). Identity when omitted: the user layer
    * is the whole patch list.
    */
   compose?: (userPatches: PatchOptions[]) => PatchOptions[]

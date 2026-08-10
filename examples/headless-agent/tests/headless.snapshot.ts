@@ -52,9 +52,9 @@ const dshBinScript = fileURLToPath(new URL('../../../apps/cli/src/bin.ts', impor
 const tsconfigPath = fileURLToPath(new URL('../../../tsconfig.json', import.meta.url))
 const reasoningConfigPath = fileURLToPath(new URL('./fixtures/cli.cordis.yml', import.meta.url))
 const deepseekDefaultsConfigPath = fileURLToPath(new URL('./fixtures/deepseek-defaults.cordis.yml', import.meta.url))
-const dshRunOverlayPath = fileURLToPath(new URL('./fixtures/dsh-run.cordis.yml', import.meta.url))
-const dshRunSessionExpected = join(snapshotsDir, 'dsh-run', 'session.expected.jsonl')
-const dshRunFailureExpected = join(snapshotsDir, 'dsh-run', 'stderr.expected.txt')
+const headlessOverlayPath = fileURLToPath(new URL('./fixtures/headless-profile.cordis.yml', import.meta.url))
+const headlessSessionExpected = join(snapshotsDir, 'headless-profile', 'session.expected.jsonl')
+const headlessFailureExpected = join(snapshotsDir, 'headless-profile', 'stderr.expected.txt')
 const cliMockLlmPluginPath = fileURLToPath(new URL('./fixtures/cli-mock-llm.ts', import.meta.url))
 const refreshing = process.env.DSH_SNAPSHOT === 'refresh'
 
@@ -217,14 +217,14 @@ async function prepareCliMockFixture(cwd: string): Promise<void> {
 }
 
 describe('headless stream-json snapshots', () => {
-  it('runs one task through the product dsh run command', async () => {
-    const task = 'Prove the product dsh run path with one real tool round trip.'
+  it('runs one task through the product headless profile command', async () => {
+    const task = 'Prove the product headless profile path with one real tool round trip.'
     const result = await runLoaderSmoke({
-      label: 'product dsh run snapshot',
-      tempDirPrefix: 'headless-snapshot-dsh-run-',
+      label: 'product headless profile snapshot',
+      tempDirPrefix: 'headless-snapshot-profile-',
       binScript: dshBinScript,
-      configPath: dshRunOverlayPath,
-      binArgs: ['run', '--patch', dshRunOverlayPath, task],
+      configPath: headlessOverlayPath,
+      binArgs: ['--profile', 'headless', '--patch', headlessOverlayPath, task],
       tsconfigPath,
       env: {
         DSH_PERMISSION_MODE: 'danger-full-access',
@@ -236,11 +236,11 @@ describe('headless stream-json snapshots', () => {
         const logs = await persistedLogs(cwd, join(cwd, '.dsh', 'sessions'))
         expect(logs).toHaveLength(1)
         const actual = logs[0]
-        if (actual === undefined) throw new Error('dsh run did not persist its session')
+        if (actual === undefined) throw new Error('the headless profile did not persist its session')
         const context = contextFromLogs([actual.content])
         const session = scrubRequestHeaders(normalizeSessionLog(actual.content, context))
-        if (refreshing) await writeFile(dshRunSessionExpected, session)
-        expect(session).toBe(await readFile(dshRunSessionExpected, 'utf8'))
+        if (refreshing) await writeFile(headlessSessionExpected, session)
+        expect(session).toBe(await readFile(headlessSessionExpected, 'utf8'))
         expect(session).toContain(task)
         expect(session).toContain('CLI tool round trip complete: CLI_TOOL_ROUND_TRIP')
       },
@@ -250,13 +250,13 @@ describe('headless stream-json snapshots', () => {
     expect(result.stderr).toBe('')
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 
-  it('prints a terminal model failure through the product dsh run command', async () => {
+  it('prints a terminal model failure through the product headless profile command', async () => {
     const result = await runLoaderSmoke({
-      label: 'product dsh run model failure snapshot',
-      tempDirPrefix: 'headless-snapshot-dsh-run-failure-',
+      label: 'product headless profile model failure snapshot',
+      tempDirPrefix: 'headless-snapshot-profile-failure-',
       binScript: dshBinScript,
-      configPath: dshRunOverlayPath,
-      binArgs: ['run', '--patch', dshRunOverlayPath, 'Trigger the keyless model failure.'],
+      configPath: headlessOverlayPath,
+      binArgs: ['--profile', 'headless', '--patch', headlessOverlayPath, 'Trigger the keyless model failure.'],
       tsconfigPath,
       expectedExitCode: 1,
       env: {
@@ -268,7 +268,7 @@ describe('headless stream-json snapshots', () => {
     })
 
     expect(result.stdout).toBe('\n')
-    await expect(result.stderr).toMatchFileSnapshot(dshRunFailureExpected)
+    await expect(result.stderr).toMatchFileSnapshot(headlessFailureExpected)
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 
   it('prints the original Loader activation error through the assembled one-shot app', async () => {
