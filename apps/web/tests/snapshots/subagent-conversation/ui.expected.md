@@ -3,6 +3,8 @@
     - button "Ask a research subagent to"
     - text: /
     - button "event-sourcing researcher" [disabled]
+  - img
+  - text: Standard mode
   - button "1 subagent":
     - text: 1 subagent
     - img

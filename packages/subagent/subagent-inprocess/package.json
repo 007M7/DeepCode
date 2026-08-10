@@ -45,9 +45,12 @@
     }
   },
   "devDependencies": {
+    "@cordisjs/plugin-include": "^1.0.4",
+    "@cordisjs/plugin-loader": "^1.0.0-rc.5",
     "@deepseek-ai/dsh-agent": "workspace:^",
     "@deepseek-ai/dsh-agent-loop": "workspace:^",
     "@deepseek-ai/dsh-agent-loop-testkit": "workspace:^",
+    "@deepseek-ai/dsh-agent-presets": "workspace:^",
     "@deepseek-ai/dsh-fs-sandbox": "workspace:^",
     "@deepseek-ai/dsh-invariants": "workspace:^",
     "@deepseek-ai/dsh-llm": "workspace:^",
