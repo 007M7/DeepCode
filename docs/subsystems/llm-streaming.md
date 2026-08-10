@@ -234,7 +234,7 @@ interface AppIdentity {
   product: string
   /** Product version; sourced from package metadata, never hand-copied. */
   version: string
-  /** Public home URL of the app, used as the `User-Agent` comment. */
+  /** Repository home URL of the app, used as the `User-Agent` comment. */
   url: string
 }
 ```

@@ -30,7 +30,7 @@ python -m pip install deepseek-harness-sdk
 A source build additionally requires Git, Node.js ^22.19 or >= 24, Corepack-enabled pnpm 11, and `uv`. The following commands build the runtime for the current supported host platform, build both wheels, and install them into the active virtual environment:
 
 ```sh
-git clone https://github.com/deepseek-ai/deepseek-harness-sdk.git deepseek-harness
+git clone https://github.com/deepseek-ai/deepseek-harness.git deepseek-harness
 cd deepseek-harness
 python -m pip install uv==0.11.23
 corepack enable
