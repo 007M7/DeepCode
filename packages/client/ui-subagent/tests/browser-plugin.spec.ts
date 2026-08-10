@@ -20,7 +20,7 @@ import {
 import type { ComposerChainProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { SlashService } from '@deepseek-ai/dsh-client-ui-slash/client'
 import type { ClientSessionContext, SlashSource } from '@deepseek-ai/dsh-client-ui-slash/client'
-import { apply as applyLocale } from '@deepseek-ai/dsh-client-locale/client'
+import { apply as applyLocale, inject as localeInject } from '@deepseek-ai/dsh-client-locale/client'
 import {
   SubagentCatalogAction, type SubagentCatalogInjected,
 } from '../src/client/SubagentCatalogAction.tsx'
@@ -86,8 +86,9 @@ async function fullBench(sessions: SessionSummary[]) {
   const face = sessionsWith(sessions)
   ctx.provide('slash', { registerSource: (src: SlashSource) => { captured = src; return () => {} } })
   ctx.provide('sessions', face)
+  ctx.provide('connection', { api: { settings: {} }, isLoopback: false } as never)
   await provideSlotFaces(ctx)
-  await ctx.plugin({ inject: ['slots'], apply: applyLocale }).await()
+  await ctx.plugin({ inject: localeInject, apply: applyLocale }).await()
   await ctx.plugin({ inject: [...inject], apply }).await()
   return { source: captured!, face, ctx }
 }
@@ -121,8 +122,9 @@ describe('apply', () => {
     const ctx = new Context()
     await ctx.plugin(SlashService).await()
     ctx.provide('sessions', sessionsWith(FAMILY))
+    ctx.provide('connection', { api: { settings: {} }, isLoopback: false } as never)
     await provideSlotFaces(ctx)
-    await ctx.plugin({ inject: ['slots'], apply: applyLocale }).await()
+    await ctx.plugin({ inject: localeInject, apply: applyLocale }).await()
     const fiber = ctx.plugin({ inject: [...inject], apply })
     await fiber.await()
     const slash = ctx.get('slash') as SlashService
