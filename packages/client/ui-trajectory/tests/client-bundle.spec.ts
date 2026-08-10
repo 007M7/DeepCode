@@ -61,7 +61,7 @@ describe('tsdown client artifact', () => {
     const { handoff, surface } = await loadArtifact()
     expect(handoff.id).toBe(PLUGIN_ID)
     expect(surface.apply).toBeTypeOf('function')
-    expect(surface.inject).toEqual(['slots', 'sessionHistory'])
+    expect(surface.inject).toEqual(['slots', 'sessionHistory', 'locale'])
   })
 
   it.skipIf(code === undefined)('mounted as an object plugin, apply registers the view tab on the real ring', async () => {
@@ -74,8 +74,11 @@ describe('tsdown client artifact', () => {
       children: { 'conversation.view': { kind: 'list', scope: 'session' } },
     }, (_p: { renderSlot?: unknown }) => null)
     // The plugin reads sessionHistory for its per-session history source;
-    // slot availability is tracked by slots.inject.
+    // slot availability is tracked by slots.inject, and the locale plugin
+    // backs the locale-aware view tab label.
     ctx.provide('sessionHistory', {})
+    const locale = await import('@deepseek-ai/dsh-client-locale/client')
+    ctx.plugin({ inject: [...locale.inject], apply: locale.apply })
     const fiber = ctx.plugin(surface as { apply: (ctx: Context) => void })
     await fiber.await()
     expect(slots.entries('conversation.view').map(e => e.options.id)).toEqual(['trajectory'])

@@ -27,6 +27,7 @@ import {
 } from '@deepseek-ai/dsh-client-ui-conversation/src/client/skeleton/ConversationSession.tsx'
 import { createChatStore } from '@deepseek-ai/dsh-client-ui-conversation/src/client/stores.ts'
 import { zh as conversationZh } from '@deepseek-ai/dsh-client-ui-conversation/src/client/locales.ts'
+import { apply as localeApply, inject as localeInject } from '@deepseek-ai/dsh-client-locale/client'
 import { apply, inject } from '@deepseek-ai/dsh-client-ui-trajectory/client'
 import { apply as nodeApply } from '@deepseek-ai/dsh-client-ui-trajectory'
 import type { TrajectoryTurnModel } from '../src/client/layout.ts'
@@ -111,6 +112,12 @@ function standaloneDuration(): Pick<
   }
 }
 
+function standaloneExport(
+  onExport: () => Promise<void> = vi.fn(() => Promise.resolve()),
+): Pick<ComponentProps<typeof TrajectoryView>, 'exportLog'> {
+  return { exportLog: onExport }
+}
+
 function fakeSession(nodes: ConversationSnapshot['nodes']) {
   const store = createSnapshotStore({
     nodes, pending: [], partial: null,
@@ -168,6 +175,8 @@ async function bench(snapshot = historySnapshot(NODES)) {
   slots.register(
     { name: 'conversation.view', id: 'chat', order: 0, label: 'Chat' } as never, chatBody as never)
   ctx.provide('sessionHistory', { source: () => history })
+  // The locale plugin backs the locale-aware view tab label ('locale' in inject).
+  ctx.plugin({ inject: [...localeInject], apply: localeApply })
   const fiber = ctx.plugin({ inject: [...inject], apply })
   await fiber.await()
   return { ctx, slots, fiber, loadHistoryTail, loadOlderHistory }
@@ -218,6 +227,7 @@ function mount(slots: SlotsService, nodes: ConversationSnapshot['nodes'] = NODES
           loadHistoryTail: trajectory.loadHistoryTail,
           loadOlderHistory: trajectory.loadOlderHistory,
           setActualDuration: trajectory.setActualDuration,
+          exportLog: trajectory.exportLog,
           useHistory: bindSnapshotSelector(trajectory.hooks.history),
           useDuration: bindSnapshotSelector(trajectory.hooks.duration),
         }
@@ -329,6 +339,17 @@ describe('tab switching in ConversationRoot', () => {
     expect(signal?.aborted).toBe(false)
     fireEvent.click(screen.getByRole('tab', { name: 'Chat' }))
     expect(signal?.aborted).toBe(true)
+  })
+
+  it('labels the trajectory tab in the active locale', async () => {
+    const b = await bench()
+    const labelOf = () => tabsOf(b.slots).find(tab => tab.id === 'trajectory')?.label
+    expect(labelOf()).toBe('Trajectory')
+    const locale = b.ctx.get('locale') as { setLocale(id: string): void }
+    locale.setLocale('zh')
+    expect(labelOf()).toBe('轨迹')
+    locale.setLocale('en')
+    expect(labelOf()).toBe('Trajectory')
   })
 
   it('opens a local record inspector and switches payload tabs without opening chat details', async () => {
@@ -1066,10 +1087,60 @@ describe('timeline projection', () => {
         ...standaloneProps([]),
         ...standaloneHistory(historySnapshot([])),
         ...standaloneDuration(),
+        ...standaloneExport(),
       },
     ))
     expect(screen.getByRole('toolbar', { name: 'Trajectory toolbar' })).toBeTruthy()
     expect(screen.queryByRole('row')).toBeNull()
+  })
+})
+
+describe('session log export', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    Reflect.deleteProperty(URL, 'createObjectURL')
+    Reflect.deleteProperty(HTMLAnchorElement.prototype, 'click')
+  })
+
+  it('downloads the host-streamed ZIP with descendants on click', async () => {
+    // exportLog always fetches a URL instance, so the mock's shape stays narrow.
+    const fetchMock = vi.fn(async (input: URL) => {
+      expect(input.pathname).toBe('/api/session.export')
+      expect(input.searchParams.get('sessionId')).toBe(SID)
+      expect(input.searchParams.get('includeDescendants')).toBe('true')
+      return new Response('zip-bytes')
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const createObjectURL = vi.fn(() => 'blob:export')
+    URL.createObjectURL = createObjectURL
+    const clickAnchor = vi.fn()
+    HTMLAnchorElement.prototype.click = clickAnchor
+    const b = await bench(historySnapshot(NODES))
+    mount(b.slots)
+    fireEvent.click(screen.getByRole('tab', { name: 'Trajectory' }))
+    fireEvent.click(screen.getByRole('button', { name: '导出会话日志' }))
+    await vi.waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledOnce()
+    })
+    // The blob download lands a few microtasks after the fetch settles.
+    // The blob download lands a few microtasks after the fetch settles.
+    await vi.waitFor(() => {
+      expect(createObjectURL).toHaveBeenCalled()
+    })
+    expect(clickAnchor).toHaveBeenCalled()
+  })
+
+  it('surfaces the download failure in the visible alert bar', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('boom', { status: 404 })))
+    const b = await bench(historySnapshot(NODES))
+    mount(b.slots)
+    fireEvent.click(screen.getByRole('tab', { name: 'Trajectory' }))
+    fireEvent.click(screen.getByRole('button', { name: '导出会话日志' }))
+    await vi.waitFor(() => {
+      const alert = screen.queryByRole('alert')
+      expect(alert).not.toBeNull()
+      expect(alert!.textContent).toContain('HTTP 404')
+    })
   })
 })
 
@@ -1083,6 +1154,7 @@ describe('TrajectoryView branches', () => {
     const first = render(
       <TrajectoryView
         {...commonProps}
+        {...standaloneExport()}
         useDuration={bindSnapshotSelector(firstDuration)}
         setActualDuration={(value) => { firstDuration.set(value) }}
       />,
@@ -1098,6 +1170,7 @@ describe('TrajectoryView branches', () => {
     render(
       <TrajectoryView
         {...commonProps}
+        {...standaloneExport()}
         useDuration={bindSnapshotSelector(restoredDuration)}
         setActualDuration={(value) => { restoredDuration.set(value) }}
       />,
@@ -1162,6 +1235,7 @@ describe('TrajectoryView branches', () => {
       <TrajectoryView
         {...standaloneProps([])}
         {...standaloneDuration()}
+        {...standaloneExport()}
         useHistory={bindSnapshotSelector(store)}
         loadHistoryTail={vi.fn(() => Promise.resolve())}
         loadOlderHistory={vi.fn(() => Promise.resolve(false))}
@@ -1196,6 +1270,7 @@ describe('TrajectoryView branches', () => {
       <TrajectoryView
         {...standaloneProps([])}
         {...standaloneDuration()}
+        {...standaloneExport()}
         useHistory={bindSnapshotSelector(store)}
         loadHistoryTail={vi.fn(() => Promise.resolve())}
         loadOlderHistory={vi.fn(() => Promise.resolve(false))}
@@ -1225,6 +1300,7 @@ describe('TrajectoryView branches', () => {
       <TrajectoryView
         {...standaloneProps([])}
         {...standaloneDuration()}
+        {...standaloneExport()}
         useHistory={bindSnapshotSelector(store)}
         loadHistoryTail={vi.fn(() => Promise.resolve())}
         loadOlderHistory={vi.fn(() => Promise.resolve(false))}
@@ -1274,6 +1350,7 @@ describe('TrajectoryView branches', () => {
       <TrajectoryView
         {...standaloneProps([])}
         {...standaloneDuration()}
+        {...standaloneExport()}
         useHistory={bindSnapshotSelector(store)}
         loadHistoryTail={vi.fn(() => Promise.resolve())}
         loadOlderHistory={vi.fn(() => Promise.resolve(false))}

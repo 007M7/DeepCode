@@ -24,6 +24,12 @@ export interface TrajectoryToolbarProps {
   searchQuery: string
   /** Update the live ledger search query. */
   onSearchQueryChange: (query: string) => void
+  /** Whether the session-log export is in flight. */
+  exporting: boolean
+  /** Trigger the session-log export download. */
+  onExport: () => void
+  /** Export failure message, shown while set; null while idle or successful. */
+  exportError: string | null
 }
 
 /**
@@ -42,6 +48,9 @@ export function TrajectoryToolbar({
   onToggleAllAssistants,
   searchQuery,
   onSearchQueryChange,
+  exporting,
+  onExport,
+  exportError,
 }: TrajectoryToolbarProps) {
   return (
     <div className={css.root} role="toolbar" aria-label="Trajectory toolbar">
@@ -104,6 +113,20 @@ export function TrajectoryToolbar({
               {allAssistantsCollapsed ? '⊞' : '⊟'}
             </span>
             Calls
+          </button>
+          <button
+            type="button"
+            className={css.export}
+            aria-label="导出会话日志"
+            title={exportError ?? (exporting ? '导出中…' : '导出会话日志（ZIP，含子代理）')}
+            disabled={exporting}
+            onClick={onExport}
+          >
+            <svg className={css.exportIcon} viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <path d="M8 3v7m0 0 3-3m-3 3L5 7" />
+              <path d="M3 11.5V13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-1.5" />
+            </svg>
+            导出
           </button>
         </div>
         <div className={css.search}>
