@@ -14,7 +14,7 @@ installAssembledBootEnv()
 
 /** Open the fixture history session (the alpha log carrying the turn-72 image pair) and wait for its gallery. */
 async function openFixtureSession(): Promise<void> {
-  const tree = await screen.findByRole('tree', { name: '会话' }, { timeout: 10_000 })
+  const tree = await screen.findByRole('tree', { name: 'Sessions' }, { timeout: 10_000 })
   const group = (await within(tree).findAllByText('fixture'))
     .map(el => el.closest<HTMLElement>('[role="treeitem"]'))
     .find(el => el?.getAttribute('aria-expanded') !== null)
@@ -33,7 +33,6 @@ async function openFixtureSession(): Promise<void> {
 }
 
 it('renders the history image pair through the authorized attachment route and opens the lightbox', async () => {
-  localStorage.setItem('dsh.locale', 'zh')
   mountAssembledApp()
   await openFixtureSession()
 
@@ -73,24 +72,23 @@ it('renders the history image pair through the authorized attachment route and o
   fireEvent.doubleClick(frame)
   const lightbox = await screen.findByRole('dialog')
   expect(within(lightbox).getByRole('img').getAttribute('src')?.split(':')[0]).toBe('blob')
-  fireEvent.click(within(lightbox).getByRole('button', { name: /关闭/ }))
+  fireEvent.click(within(lightbox).getByRole('button', { name: /Close/ }))
   await waitFor(() => {
     expect(screen.queryByRole('dialog')).toBeNull()
   })
 })
 
 it('accepts pasted images into the composer rail in order and removes them', async () => {
-  localStorage.setItem('dsh.locale', 'zh')
   mountAssembledApp()
 
-  const tree = await screen.findByRole('tree', { name: '会话' }, { timeout: 10_000 })
-  const start = tree.querySelector<HTMLButtonElement>('button[aria-label="在“fixture”中新建会话"]')
+  const tree = await screen.findByRole('tree', { name: 'Sessions' }, { timeout: 10_000 })
+  const start = tree.querySelector<HTMLButtonElement>('button[aria-label="New session in fixture"]')
   if (start === null) throw new Error('fixture Workspace new-session action missing')
   fireEvent.click(start)
 
   // Image-only send arming is pinned at package level (input-bar.spec.tsx);
   // this assembled lane pins the intake chain over the built graph.
-  const textarea = await screen.findByPlaceholderText('描述你想要构建的内容', {}, { timeout: 10_000 })
+  const textarea = await screen.findByPlaceholderText('Describe what you want to build', {}, { timeout: 10_000 })
   const image = new File([new Uint8Array([137, 80, 78, 71])], 'pasted.png', { type: 'image/png' })
   fireEvent.paste(textarea, {
     clipboardData: {
@@ -102,7 +100,7 @@ it('accepts pasted images into the composer rail in order and removes them', asy
   // The rail is an accessible group holding the draft thumbnail (queried via
   // DOM: jsdom's a11y-visibility computation hides the composer subtree).
   const rail = await waitFor(() => {
-    const el = document.querySelector('[role="group"][aria-label="待发送图片"]')
+    const el = document.querySelector('[role="group"][aria-label="Pending images"]')
     if (el === null) throw new Error('attachment rail missing')
     return el
   }, { timeout: 5_000 })
@@ -129,10 +127,10 @@ it('accepts pasted images into the composer rail in order and removes them', asy
       .toEqual(['pasted.png', 'second.png'])
   })
 
-  const remove = [...rail.querySelectorAll('button[aria-label^="移除图片"]')]
+  const remove = [...rail.querySelectorAll('button[aria-label^="Remove image"]')]
   if (remove.length !== 2) throw new Error('remove buttons missing')
   for (const button of remove) fireEvent.click(button)
   await waitFor(() => {
-    expect(document.querySelector('[role="group"][aria-label="待发送图片"]')).toBeNull()
+    expect(document.querySelector('[role="group"][aria-label="Pending images"]')).toBeNull()
   })
 })

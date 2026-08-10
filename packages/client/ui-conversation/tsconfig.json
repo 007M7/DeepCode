@@ -18,6 +18,9 @@
       "path": "../../../vendor/cordis"
     },
     {
+      "path": "../connection"
+    },
+    {
       "path": "../ui-slots"
     },
     {
@@ -64,6 +67,9 @@
     },
     {
       "path": "../locale"
+    },
+    {
+      "path": "../../settings/settings"
     },
     {
       "path": "../../support/invariants"

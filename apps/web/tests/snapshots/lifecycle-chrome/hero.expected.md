@@ -25,9 +25,9 @@
   - img
   - text: workspace
   - img
-- button "标准模式":
+- button "Standard mode":
   - img
-  - text: 标准模式
+  - text: Standard mode
   - img
 - textbox "Describe what you want to build"
 - button "Commands":

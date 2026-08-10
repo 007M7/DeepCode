@@ -2,7 +2,7 @@
   - navigation "Session hierarchy":
     - button "Begin your reply with the" [disabled]
   - img
-  - text: 标准模式
+  - text: Standard mode
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
