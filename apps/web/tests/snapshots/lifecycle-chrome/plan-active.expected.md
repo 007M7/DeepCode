@@ -25,6 +25,10 @@
   - img
   - text: workspace
   - img
+- button "标准模式":
+  - img
+  - text: 标准模式
+  - img
 - textbox "Describe what you want to build"
 - button "Commands":
   - img

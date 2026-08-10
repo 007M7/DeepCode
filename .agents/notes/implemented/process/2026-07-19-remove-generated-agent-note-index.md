@@ -12,7 +12,7 @@ The centralized chronological list adds little discovery value beyond browsing t
 
 ## Decision
 
-The lifecycle/class filesystem tree is the Agent Note inventory. [README.md](../../README.md) remains the curated front door and contract, while ordinary tree navigation and repository search provide discovery.
+The lifecycle/class filesystem tree is the Agent Note inventory. [README.md](../../README.md) remains the curated entry point and contract, while ordinary tree navigation and repository search provide discovery.
 
 `scripts/agent-note-tree.ts` owns the closed lifecycle/class sets and structural walker. `verify-agent-note-classification` validates that tree and rejects the legacy homes and a root `INDEX.md`; it does not render or freshness-check a centralized list.
 

@@ -41,6 +41,10 @@ import {
 import { commandExecuteValueSchema, commandListValueSchema } from '../api/commands.schema.ts'
 import { skillListValueSchema } from '../api/skills.schema.ts'
 import {
+  agentPresetCopyValueSchema, agentPresetListValueSchema, agentPresetOpenDocumentValueSchema,
+  agentPresetReadValueSchema, agentPresetRemoveValueSchema, agentPresetSelectValueSchema,
+} from '../api/agent-presets.schema.ts'
+import {
   goalCreateValueSchema,
   goalEditValueSchema,
   goalPauseValueSchema,
@@ -121,6 +125,14 @@ export interface IApiClient {
   skills: {
     list(payload: RequestPayload<'skill.list'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'skill.list'>>>
   }
+  agentPresets: {
+    list(payload: RequestPayload<'agentPreset.list'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'agentPreset.list'>>>
+    select(payload: RequestPayload<'agentPreset.select'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'agentPreset.select'>>>
+    read(payload: RequestPayload<'agentPreset.read'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'agentPreset.read'>>>
+    copy(payload: RequestPayload<'agentPreset.copy'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'agentPreset.copy'>>>
+    openDocument(payload: RequestPayload<'agentPreset.openDocument'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'agentPreset.openDocument'>>>
+    remove(payload: RequestPayload<'agentPreset.remove'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'agentPreset.remove'>>>
+  }
   events: {
     mux(payload: Parameters<ApiProxy['events']['mux']>[0]['payload'], signal: AbortSignal, onOpen?: () => void): AsyncIterable<RpcRequest<MuxFrame>>
     host(payload: Parameters<ApiProxy['events']['host']>[0]['payload'], signal: AbortSignal, onOpen?: () => void): AsyncIterable<RpcRequest<HostFrame>>
@@ -188,6 +200,12 @@ const UNARY_VALUE_SCHEMAS: { [K in keyof RpcMethodMap]: z.ZodType<Wire<ResponseV
   'command.list': commandListValueSchema,
   'command.execute': commandExecuteValueSchema,
   'skill.list': skillListValueSchema,
+  'agentPreset.list': agentPresetListValueSchema,
+  'agentPreset.select': agentPresetSelectValueSchema,
+  'agentPreset.read': agentPresetReadValueSchema,
+  'agentPreset.copy': agentPresetCopyValueSchema,
+  'agentPreset.openDocument': agentPresetOpenDocumentValueSchema,
+  'agentPreset.remove': agentPresetRemoveValueSchema,
   'goal.create': goalCreateValueSchema,
   'goal.edit': goalEditValueSchema,
   'goal.pause': goalPauseValueSchema,
@@ -445,6 +463,20 @@ export abstract class AbstractApiClient implements IApiClient {
 
   readonly skills: IApiClient['skills'] = {
     list: (payload, signal) => this.callUnary('skill.list', payload, signal),
+  }
+
+  // Annotated like every sibling, and load-bearing rather than cosmetic:
+  // inferring this member inlines `AgentPresetEntry` into the emitted
+  // declaration by the specifier TS picks — the host `index.ts` — which drags
+  // the whole gateway, and with it the host `Context` merges, into every
+  // Client program that imports this carrier.
+  readonly agentPresets: IApiClient['agentPresets'] = {
+    list: (payload, signal) => this.callUnary('agentPreset.list', payload, signal),
+    select: (payload, signal) => this.callUnary('agentPreset.select', payload, signal),
+    read: (payload, signal) => this.callUnary('agentPreset.read', payload, signal),
+    copy: (payload, signal) => this.callUnary('agentPreset.copy', payload, signal),
+    openDocument: (payload, signal) => this.callUnary('agentPreset.openDocument', payload, signal),
+    remove: (payload, signal) => this.callUnary('agentPreset.remove', payload, signal),
   }
 
   readonly goals: IApiClient['goals'] = {

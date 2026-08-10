@@ -9,7 +9,7 @@ English | [中文](2026-07-20-error-cause-chain-diagnostics.zh.md)
 A TUI run against an unreachable DeepSeek endpoint failed with the single notice `fetch failed` and no further detail. Two independent gaps produced that dead end:
 
 1. undici's `fetch` wraps every transport failure (DNS, refused connection, TLS, proxy) in a bare `TypeError: fetch failed` whose actionable detail — `ECONNREFUSED`, `bad port`, the Happy Eyeballs AggregateError — lives on `error.cause`. Every diagnostic boundary in the harness rendered only `error.message` (or `String(error)`, which is equivalent for Errors), so the wrapper masked the diagnosis in the TUI notice, the durable `turn/end` reason, and every logger line.
-2. The readline front door (`dsh-stdio`) rendered no failure reason at all: a `turn/end` with `reason.kind === 'error'` printed nothing but the next `> ` prompt, so the same failure in `demo:repl` was pure silence.
+2. The readline entry point (`dsh-stdio`) rendered no failure reason at all: a `turn/end` with `reason.kind === 'error'` printed nothing but the next `> ` prompt, so the same failure in `demo:repl` was pure silence.
 
 ## Decision
 

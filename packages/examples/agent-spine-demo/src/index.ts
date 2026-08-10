@@ -165,7 +165,7 @@ export const Config = z.intersect([
 ]) as unknown as z<Config>
 
 /**
- * Copy the bundle-owned fields from an app config without leaking front-door settings.
+ * Copy the bundle-owned fields from an app config without leaking entry-point settings.
  * @param config - App config containing the shared spine fields.
  * @returns The fields accepted by this bundle, preserving optional absence.
  */
