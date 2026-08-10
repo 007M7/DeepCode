@@ -33,8 +33,11 @@ The browser side of the dsh web GUI: shell boot, browser-host communication, sha
 | [`ui-permission/`](ui-permission/README.md) | Configures default permissions and switches the current session's access. |
 | [`ui-plan/`](ui-plan/README.md) | Presents active plan-mode status and its exit control. |
 | [`ui-question/`](ui-question/README.md) | Presents interactive questions requested by the agent. |
+| [`ui-agent-preset/`](ui-agent-preset/README.md) | Selects a session's agent preset and authors preset compositions. |
 | [`ui-settings/`](ui-settings/README.md) | Hosts the settings interface and its extension areas. |
 | [`ui-settings-general/`](ui-settings-general/README.md) | Provides the general settings section. |
 | [`ui-models/`](ui-models/README.md) | Provides model-provider configuration and DeepSeek onboarding. |
 
 Each child reference owns its contract and detailed behavior. The [slot system standard](../../.agents/notes/implemented/architecture/2026-07-22-slot-type-chain-implementation.md) and [web client architecture note](../../.agents/notes/implemented/architecture/2026-07-19-gui-web-client-architecture.md) own the cross-package composition and loading decisions.
+
+The subsystem reference is [client-modules.md](../../docs/subsystems/client-modules.md); the [slot system standard](../../.agents/notes/implemented/architecture/2026-07-22-slot-type-chain-implementation.md) is the definitive slot model, and the [web client architecture note](../../.agents/notes/implemented/architecture/2026-07-19-gui-web-client-architecture.md) owns the loading chain and object layer.

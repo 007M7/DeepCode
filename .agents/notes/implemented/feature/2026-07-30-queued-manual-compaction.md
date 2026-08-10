@@ -12,7 +12,7 @@ The human command arrives between turns and must summarize asynchronously. A pro
 
 Compaction also needs one mutual-exclusion fact shared by manual, pressure, overflow, and explicit-range entry points. A process-local flag alone cannot explain a crash-recovered log, while a summarize-first transaction leaves no durable evidence during the expensive interval. Conversely, treating marker pairs as exclusive containers would forbid valid idle injection even though injection is explicitly non-waking and immediate between turns.
 
-This note extends the [compaction capability seam](2026-06-18-compaction-capability-seam.md), the [session end-seed boundary](../architecture/2026-07-30-session-end-seed-log-boundary.md), and the [removal of synthetic log-only turns](../simplification/2026-07-28-remove-synthetic-log-only-turns.md). The supersession audit found partial overlap only: each remains active and owns its broader decision.
+This note extends the [compaction capability seam](2026-06-18-compaction-capability-seam.md), the [session end-seed boundary](../architecture/2026-07-30-session-end-seed-log-boundary.md), and the [removal of synthetic log-only turns](../simplification/2026-07-28-remove-synthetic-log-only-turns.md). Each remains active and owns its broader decision; the overlap is partial only.
 
 ## Decision
 
@@ -91,7 +91,7 @@ That reference also carried client-side replacement-anchor machinery to preserve
 
 **Hold injection with waking prompts.** Rejected because idle injection is non-waking durable context by contract; delaying it would make plugin ordering depend on a UI command.
 
-**Require the marker interval to contain only compaction events.** Rejected because markers represent lock time points. Provenance names the selected and shadowed seqs exactly; exclusivity would add no correctness and would reject valid injection.
+**Require the marker interval to contain only compaction events.** Rejected because markers represent lock time points. `compact/summary` names the selected range and shadowed seqs exactly; exclusivity would add no correctness and would reject valid injection.
 
 **Treat every unmatched marker as permanently busy.** Rejected because a crash-recovered or forked session would remain wedged. `session/end-seed` is the explicit lifecycle evidence that distinguishes stale history from a live process-local attempt.
 
@@ -105,6 +105,6 @@ The command package pins registration, Loader composition, argument rejection, e
 
 Interactive users can compact useful history without spending a conversation-model turn. A prompt accepted before the command wins; one submitted during the command waits with its original queue identity. Manual compaction consumes session seqs but no turn number.
 
-The log exposes slow, failed, crashed, and successful attempts through the same bracket. A stale pre-boundary orphan no longer wedges a new lifecycle, while a current unmatched start remains a hard busy signal. Marker intervals may contain unrelated events, so consumers use provenance and relative ordering rather than assuming a contiguous compaction-only slice.
+The log exposes slow, failed, crashed, and successful attempts through the same bracket. A stale pre-boundary orphan no longer wedges a new lifecycle, while a current unmatched start remains a hard busy signal. Marker intervals may contain unrelated events, so consumers use the seqs recorded in `compact/summary` and relative ordering rather than assuming a contiguous compaction-only slice.
 
 The shared transaction keeps one ordering and one lock across every entry point. Failure reporting is precise about whether only the log changed, the surface may have partially changed, or the in-memory commit could not be persisted.

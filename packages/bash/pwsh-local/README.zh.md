@@ -2,9 +2,9 @@
 
 [English](README.md) | 中文
 
-`@deepseek-ai/dsh-bash` 执行器 seam 的本地 PowerShell 实现，基于 [`@deepseek-ai/dsh-subprocess`](../../subprocess/subprocess/README.md) 服务：`PwshLocalExecutor` 每次调用以受管进程的方式通过 `ctx.subprocess` spawn `pwsh -NoLogo -NoProfile -NonInteractive -Command <command>`，并拥有所有 PowerShell 形状的职责——可执行文件解析、命令默认化与上限、超时/取消分类、面向模型的终端环境，以及后台读取的 stdout/stderr 合并。进程组机制（有界 spill 输出、凭据清理、终止升级、销毁）属于 subprocess 服务。
+`@deepseek-ai/dsh-bash` 执行器 seam 的本地 PowerShell Service provider，基于 [`@deepseek-ai/dsh-subprocess`](../../subprocess/subprocess/README.md) 服务：`PwshLocalExecutor` 每次调用以受管进程的方式通过 `ctx.subprocess` spawn `pwsh -NoLogo -NoProfile -NonInteractive -Command <command>`，并拥有所有 PowerShell 形状的职责——可执行文件解析、命令默认化与上限、超时/取消分类、面向模型的终端环境，以及后台读取的 stdout/stderr 合并。进程组机制（有界 spill 输出、凭据清理、终止升级、销毁）属于 subprocess 服务。
 
-命令字符串作为 ONE argv 元素传给 `-Command`：由 PowerShell 自己解析文本，不存在中间 shell，因此没有需要转义的 shell 引号层（`bash -c` 字符串域在这里没有对应物）。原生 Win32 路径（`C:\...`）原样通过。
+命令字符串作为 ONE argv 元素传给 `-Command`：由 PowerShell 自己解析文本，不存在中间 shell，因此没有需要转义的 shell 引号层（这里不存在与 `bash -c` 字符串域对应的层）。原生 Win32 路径（`C:\...`）原样通过。
 
 包根导出默认与具名 `PwshLocalExecutor` 插件、其 `Config`、纯函数 `resolvePwshPath`/`candidatePwshPaths` 辅助函数，以及执行器注入每次 spawn 的 `ENV_OVERRIDES`/`ENCODING_PREAMBLE` 常量。
 
@@ -23,7 +23,7 @@
     pwshPath: C:\Program Files\PowerShell\7\pwsh.exe  # explicit executable; else well-known locations, then PATH
 ```
 
-## 行为（及其由来）
+## 行为
 
 作为 `dsh-bash-local` 的 Windows 对应物，逐调用地镜像其语义：
 
@@ -31,7 +31,7 @@
 - **UTF-8 输出固定**——每条命令都先以 UTF-8 设置 `[Console]::OutputEncoding` 与 `$OutputEncoding`，因此 Windows PowerShell 5.1 兜底（或任何控制台代码页非 UTF-8 的主机）不会破坏非 ASCII 输出：subprocess collector 以 UTF-8 解码字节。输入编码保持宿主默认；pwsh 7 默认为 UTF-8，不受影响。
 - **可执行文件解析**——`resolvePwshPath` 优先显式 `pwshPath`，然后在 Windows 上依次探测 PowerShell 7 安装位置、每个 PATH 条目（Microsoft Store 安装；剥离两端引号）以及作为遗留兜底的 Windows PowerShell 5.1，逐一检查 `existsSync`；其他平台回退为通过 PATH 解析的裸 `pwsh`。解析是 `(configured, env, platform)` 的纯函数，在构造时执行一次。
 - **受管进程组之上的配置预算**——`resolve()` 从配置填充 `workdir`/`timeoutMs`/`stdoutMaxBytes`，每次 spawn 都向服务提供显式字节上限、spill 上限与 `graceMs`。该宽限期须为正有限值，且不得大于 [`MAX_TIMER_DELAY_MS`](../../util/timeout/README.md)，这样 Node 就能用一个定时器表示它。进程树终止（Windows 用 taskkill，POSIX 用进程组信号）、退出后管道排空宽限、保尾截断与有界 spill 文件是 [`dsh-subprocess-local`](../../subprocess/subprocess-local/README.md) 的机制。前台 `BashExecRequest.stdoutMaxBytes` 可为单个受信调用方提高 stdout 捕获预算；stderr 与后台运行仍使用 `maxOutputBytes`。
-- **超时与取消分类**——`run()` 通过一个 deadline 融合配置夹取的超时与调用方信号；只有执行器自身超时报告 `timedOut`，上游取消报告 `aborted`，自我终止的命令两者都不报告（见 [timeout 库 Agent Note](../../../.agents/notes/implemented/architecture/2026-07-06-timeout-deadline-library.md)）。Windows 将强制终止报告为退出码 1 且无信号，因此基于信号的实情（`signal`、`killed` 状态）在那里仅限 POSIX；超时/取消分类与平台无关。
+- **超时与取消分类**——`run()` 通过一个 deadline 融合按配置上限截取的超时与调用方信号；只有执行器自身超时报告 `timedOut`，上游取消报告 `aborted`，自我终止的命令两者都不报告（见 [timeout 库 Agent Note](../../../.agents/notes/implemented/architecture/2026-07-06-timeout-deadline-library.md)）。Windows 将强制终止报告为退出码 1 且无信号，因此带信号标记的事实（`signal`、`killed` 状态）在那里仅限 POSIX；超时/取消分类与平台无关。
 - **面向模型的终端环境**——`NO_COLOR=1 PAGER=cat GIT_PAGER=cat`（没有 `TERM=dumb`：那是 POSIX 概念；现代 PowerShell 渲染器遵循 `NO_COLOR`），作为普通 env 在服务的凭据清理与 `DSH_*` 通道规则之下合并；显式调用方条目仍然优先。
 - **后台进程**——`start()` 立即返回存活的 `BashProcess` 句柄，不设超时；句柄的 `readOutput()` 把服务基于偏移的 stdout/stderr 读取合并为带标记分段的增量与消费游标。仍在运行的进程属于 subprocess 服务，因此它跨执行器重载存活，并随服务销毁（被终止并 join）。一切任务形状的职责（id、所有权、轮询、通知）都在通用 [`ctx.tasks` 运行时](../../tasks/tasks/README.md) 中，由工具层把句柄注册进去——本执行器从不接触会话或注册表。
 

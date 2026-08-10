@@ -19,7 +19,7 @@ const testToolSignal = new AbortController().signal
  * misconfiguration rejections, the run_code dispatch bridge (serialization,
  * abort, JSON normalization, error mapping, events, quiescence), and HMR
  * safety — all against an in-repo fake runtime, exactly the
- * interface/implementation/consumer shape the seam promises.
+ * Service Definition / Service provider / Consumer roles the seam promises.
  */
 
 /** A scriptable in-repo CodeRuntime: each test sets `behavior` to drive the bindings however it needs. */
@@ -785,11 +785,11 @@ describe('the run_code dispatch bridge', () => {
     const dispatches = events.filter(event => event.type === 'tool/code-dispatch')
     expect(dispatches.map(event => event.data)).toEqual([
       {
-        parentCallId: 'call-1', subCallId: 'call-1:code:1', name: 'echo',
+        rootCallId: 'call-1', parentCallId: 'call-1', subCallId: 'call-1:code:1', name: 'echo',
         arguments: { value: 'one' }, isError: false, content: [{ type: 'text', text: 'echo:one' }],
       },
       {
-        parentCallId: 'call-1', subCallId: 'call-1:code:2', name: 'echo',
+        rootCallId: 'call-1', parentCallId: 'call-1', subCallId: 'call-1:code:2', name: 'echo',
         arguments: { value: 'two' }, isError: false, content: [{ type: 'text', text: 'echo:two' }],
       },
     ])
@@ -1526,6 +1526,7 @@ describe('the run_code dispatch bridge', () => {
       content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' },
     }), { surfaceOp: 'append' })
     session.append('tool/code-dispatch', {
+      rootCallId: CallId('p1'),
       parentCallId: CallId('p1'),
       subCallId: CallId('p1:code:1'),
       name: 'echo',
@@ -1559,5 +1560,129 @@ describe('the run_code dispatch bridge', () => {
     expect(registry.get(RUN_CODE_NAME)).toBeUndefined()
     const assembly = await ctx.systemPrompt.assemble()
     expect(assembly.sections.some(section => section.name === 'tools:sdk')).toBe(false)
+  })
+})
+
+/**
+ * Presentation is per agent, because an agent preset composes it: one
+ * deployment runs a Code Mode agent beside native ones, and neither may see
+ * the other's catalog. The deployment `mode` is the default those agents
+ * shadow, not a process-wide fact.
+ */
+describe('per-agent presentation', () => {
+  it('gives one agent Code Mode while the deployment stays native', async () => {
+    const { ctx, systemPrompt } = await setup({ mode: 'native' })
+    registerEcho(ctx)
+    const { scope, agent } = await mintAgentScope(ctx)
+
+    scope.ctx.tools.presentAs('code')
+
+    const coded = await systemPrompt.assemble({ scope: agent })
+    expect(coded.tools.map(tool => tool.name)).toEqual([RUN_CODE_NAME])
+    expect(coded.sections.find(section => section.name === 'tools:sdk')?.text)
+      .toContain('echo')
+    // The deployment default is untouched: an agent that declared nothing —
+    // and the global view behind it — still sees the native catalog.
+    const native = await systemPrompt.assemble()
+    expect(native.tools.map(tool => tool.name)).toEqual(['echo'])
+    expect(native.sections.some(section => section.name === 'tools:sdk')).toBe(false)
+  })
+
+  it('inherits a STANDING preset scope\'s mode down the chain, agents beside it unaffected', async () => {
+    const { bindScopeParent } = await import('@deepseek-ai/dsh-scope')
+    const { ctx, systemPrompt } = await setup({ mode: 'native' })
+    registerEcho(ctx)
+    // The preset's standing scope declares once; the agent only PARENTS to it
+    // (the per-preset standing-mount shape — no per-agent declaration at all).
+    const standing = await mintAgentScope(ctx, 'preset:code-like')
+    standing.scope.ctx.tools.presentAs('code')
+    const joined = await mintAgentScope(ctx, 'joined-agent')
+    bindScopeParent(joined.agent, standing.agent)
+    const loner = await mintAgentScope(ctx, 'loner-agent')
+
+    expect(ctx.tools.get(RUN_CODE_NAME, joined.agent)).toBeDefined()
+    const coded = await systemPrompt.assemble({ scope: joined.agent })
+    expect(coded.tools.map(tool => tool.name)).toEqual([RUN_CODE_NAME])
+    // A sibling that never parented stays native, as does the global view.
+    expect(ctx.tools.get(RUN_CODE_NAME, loner.agent)).toBeUndefined()
+    const native = await systemPrompt.assemble({ scope: loner.agent })
+    expect(native.tools.map(tool => tool.name)).toEqual(['echo'])
+  })
+
+  it('keeps run_code out of a native agent\'s dispatch table', async () => {
+    const { ctx } = await setup({ mode: 'native' })
+    registerEcho(ctx)
+    const coded = await mintAgentScope(ctx, 'coded')
+    const plain = await mintAgentScope(ctx, 'plain')
+    coded.scope.ctx.tools.presentAs('code')
+
+    // Not merely hidden from the prompt: the transport one agent presents must
+    // not be dispatchable by another that never presented it.
+    expect(ctx.tools.get(RUN_CODE_NAME, coded.agent)).toBeDefined()
+    expect(ctx.tools.get(RUN_CODE_NAME, plain.agent)).toBeUndefined()
+    expect(ctx.tools.get(RUN_CODE_NAME)).toBeUndefined()
+  })
+
+  it('lets an agent opt out of a code-mode deployment', async () => {
+    const { ctx, systemPrompt } = await setup({ mode: 'code' })
+    registerEcho(ctx)
+    const { scope, agent } = await mintAgentScope(ctx)
+
+    scope.ctx.tools.presentAs('native')
+
+    const assembly = await systemPrompt.assemble({ scope: agent })
+    expect(assembly.tools.map(tool => tool.name)).toEqual(['echo'])
+    // The deployment's global section still reaches this scope; rendering it
+    // empty is what keeps the opted-out agent's prompt free of an SDK.
+    expect(assembly.sections.find(section => section.name === 'tools:sdk')?.text).toBe('')
+  })
+
+  it('restores the deployment default when the agent unloads', async () => {
+    const { ctx, systemPrompt } = await setup({ mode: 'native' })
+    registerEcho(ctx)
+    const { scope, agent } = await mintAgentScope(ctx)
+    const dispose = scope.ctx.tools.presentAs('code')
+
+    dispose()
+
+    const assembly = await systemPrompt.assemble({ scope: agent })
+    expect(assembly.tools.map(tool => tool.name)).toEqual(['echo'])
+    expect(assembly.sections.some(section => section.name === 'tools:sdk')).toBe(false)
+  })
+
+  it('refuses a second declaration for the same agent', async () => {
+    const { ctx } = await setup({ mode: 'native' })
+    const { scope } = await mintAgentScope(ctx)
+    scope.ctx.tools.presentAs('code')
+
+    // Two answers to "which form does the model see" is a contradiction, and
+    // silently keeping either one would make the composition unreadable.
+    expect(() => scope.ctx.tools.presentAs('both'))
+      .toThrow('conflicts with "code" already declared')
+  })
+
+  it('refuses an unscoped declaration', async () => {
+    const { ctx } = await setup({ mode: 'native' })
+
+    expect(() => ctx.tools.presentAs('code'))
+      .toThrow('requires a scoped context')
+  })
+
+  it('reserves run_code even where no agent presents it', async () => {
+    const { ctx } = await setup({ mode: 'native' })
+
+    // The name must stay free under a native deployment too: an agent preset
+    // mounting later would otherwise collide with whatever took it.
+    expect(() => registerEcho(ctx, RUN_CODE_NAME)).toThrow('is reserved')
+  })
+
+  it('reports the missing runtime against the agent\'s own mode', async () => {
+    const { ctx, systemPrompt } = await setup({ mode: 'native', runtime: false })
+    registerEcho(ctx)
+    const { scope, agent } = await mintAgentScope(ctx)
+    scope.ctx.tools.presentAs('both')
+
+    await expect(systemPrompt.assemble({ scope: agent }))
+      .rejects.toThrow('mode "both" requires a code runtime')
   })
 })

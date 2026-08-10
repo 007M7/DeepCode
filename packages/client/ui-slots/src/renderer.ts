@@ -34,11 +34,11 @@ export interface HostObservable<T> {
 }
 
 /**
- * Type-erased store instance face at the render seam (the typed twin is
+ * Type-erased store instance face at the render boundary (the typed twin is
  * {@link StoreInstance}): a bare snapshot source plus the draft-stripped
- * action callbacks. No React hook crosses this seam — the render machinery
+ * action callbacks. No React hook crosses this boundary — the render machinery
  * binds `useStore` from the source at its own side (cached per instance);
- * typing lands at the component seam via {@link PropsStore}.
+ * typing lands at the component boundary via {@link PropsStore}.
  */
 export interface StoreInstanceLike {
   getSnapshot(): unknown
@@ -54,7 +54,7 @@ export interface StoreInstanceLike {
 /**
  * Per-session standard props resolved per session id (identity-stable per
  * session scope; a recreated scope yields a new info). Plugins contribute
- * members through the runtime `sessions.provide` seam; the render side binds
+ * members through the runtime `sessions.provide` contract; the render side binds
  * every `hooks` source into a `use<Name>` selector hook (hooks never appear
  * on the host contract) and spreads `props` verbatim. The runtime itself
  * contributes the first entry (`'session'` → `useSession`).
@@ -70,8 +70,9 @@ export interface SessionMaybeProvideInfo {
   /** Static plain-member roster; values are undefined with the session. */
   props: Record<string, unknown>
   /**
-   * Key-addressed projection value sources (the useProjection framework seat,
-   * session-projection RFC). Unlike `hooks`, the key space is open — values
+   * Key-addressed projection value sources (the useProjection framework seat;
+   * session-projection subsystem page: docs/subsystems/session-projection.md).
+   * Unlike `hooks`, the key space is open — values
    * arrive from host-computed push frames — so the render side binds per
    * resolved key instead of per static roster member. Faces are always
    * defined per key (absence is an `undefined` snapshot); the whole member is
@@ -87,11 +88,13 @@ export interface SessionProvideInfo extends SessionMaybeProvideInfo {
   hooks: Record<string, HostObservable<unknown>>
 }
 
-/** renderSlot dispatch options at the machinery level: keyed dispatch key, list filtering, empty fallback. */
+/** renderSlot dispatch options at the machinery level. */
 export interface RenderOpts {
   entryKey?: string
   only?: string
   fallback?: ReactNode
+  /** Opaque occurrence context consumed only by function-valued injected Hooks. */
+  hookContext?: unknown
 }
 
 /** Host surface the runtime SlotsService presents to the installed renderer. */
@@ -161,7 +164,7 @@ export interface SlotRendererHost {
   locale?: LocaleFace | undefined
 }
 
-/** The install seam: runtime owns install()/renderSlot(); web-react implements rendering. */
+/** The installation contract: runtime owns install()/renderSlot(); web-react implements rendering. */
 export interface SlotRenderer {
   /**
    * Render the root slot tree over the host surface (the only ctx-level entry).

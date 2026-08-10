@@ -30,7 +30,7 @@ The TUI and Web register the exact personal path through Cordis HMR after boot. 
 
 **A separate `bin/dsh` wrapper owning the `dsh` name.** Rejected because `apps/cli` is the single product CLI for default TUI, headless, and Web dispatch. Two competing entrypoints would collide in `$PATH` and product identity.
 
-**A pi-style typed settings file (`defaultProvider`/`defaultModel`/`providers`).** Rejected by the user in favor of patch semantics: the personal file is a cordis overlay over the shipped default config, not a second config vocabulary to own and translate.
+**A pi-style typed settings file (`defaultProvider`/`defaultModel`/`providers`).** Rejected in favor of patch semantics (product-owner decision): the personal file is a cordis overlay over the shipped default config, not a second config vocabulary to own and translate.
 
 **A personal full `cordis.yml` that includes the requested config.** Rejected: the personal file would have to name the leaf config's path, which varies per checkout; patches invert the dependency so the bin keeps choosing the tree and the personal layer only amends it.
 
@@ -48,4 +48,4 @@ The TUI and Web register the exact personal path through Cordis HMR after boot. 
 
 ## Testing
 
-`packages/ui/app-boot/tests/user-patches.spec.ts` pins parsing, startup application, exact-path add/failure/recovery/removal, last-good rollback, failure broadcast, and preservation of app-owned patches. `apps/cli/tests/built-bin.e2e.ts` boots the real dsh bin over a profile and exercises the live patch layer end to end. Test launchers isolate `$DSH_HOME`, so a developer's real overlay cannot leak into fixtures.
+`packages/boot/app-boot/tests/user-patches.spec.ts` pins parsing, startup application, exact-path add/failure/recovery/removal, last-good rollback, failure broadcast, and preservation of app-owned patches. `apps/cli/tests/built-bin.e2e.ts` boots the real dsh bin over a profile and exercises the live patch layer end to end. Test launchers isolate `$DSH_HOME`, so a developer's real overlay cannot leak into fixtures.

@@ -32,6 +32,9 @@ import {
   commandListRequestSchema, commandListValueSchema,
 } from '../src/api/commands.schema.ts'
 import { skillEntrySchema, skillListRequestSchema, skillListValueSchema } from '../src/api/skills.schema.ts'
+import {
+  agentPresetEntrySchema, agentPresetListValueSchema, agentPresetOpenDocumentValueSchema,
+} from '../src/api/agent-presets.schema.ts'
 import { hostFrameSchema, muxFrameSchema, askUserQuestionItemSchema } from '../src/api/events.schema.ts'
 import { approvalRequestIdSchema, approvalResponsePayloadSchema } from '../src/api/approvals.schema.ts'
 import { askUserQuestionAnswerSchema, questionResponsePayloadSchema } from '../src/api/questions.schema.ts'
@@ -192,7 +195,7 @@ describe('sessions domain schemas', () => {
     expect(sessionHistoryValueSchema.parse({
       events: [],
       hasMore: false,
-      modelTarget: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+      modelSelection: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
     }).hasMore).toBe(false)
     expect(sessionModelsRequestSchema.parse({ sessionId: 's1' }).sessionId).toBe('s1')
     expect(sessionModelsValueSchema.parse({
@@ -506,5 +509,29 @@ describe('respond payload schemas', () => {
     expect(answer.answers[0]?.selected).toEqual(['x'])
     const payload = questionResponsePayloadSchema.parse({ sessionId: 's', answer: { answers: [] } })
     expect(payload.sessionId).toBe('s')
+  })
+})
+
+describe('agent-preset schemas', () => {
+  it('accepts a roster row and rejects an unknown trust', () => {
+    expect(agentPresetEntrySchema.parse({ id: 'standard', trust: 'system', isDefault: true }))
+      .toEqual({ id: 'standard', trust: 'system', isDefault: true })
+    expect(() => agentPresetEntrySchema.parse({ id: 'x', trust: 'root', isDefault: false })).toThrow()
+    expect(() => agentPresetEntrySchema.parse({ id: '', trust: 'user', isDefault: false })).toThrow()
+  })
+
+  it('accepts an empty roster', () => {
+    // A deployment composing no presets still reports its authoring and
+    // native-open capabilities, so a surface knows what to offer.
+    expect(agentPresetListValueSchema.parse({ presets: [], authorable: false, hasDocument: false }))
+      .toEqual({ presets: [], authorable: false, hasDocument: false })
+  })
+
+  it('answers the open-document union by its discriminant', () => {
+    expect(agentPresetOpenDocumentValueSchema.parse({ opened: true })).toEqual({ opened: true })
+    expect(agentPresetOpenDocumentValueSchema.parse({ opened: false, path: '/presets/mine' }))
+      .toEqual({ opened: false, path: '/presets/mine' })
+    // A closed reply must carry the path the surface shows instead.
+    expect(() => agentPresetOpenDocumentValueSchema.parse({ opened: false })).toThrow()
   })
 })

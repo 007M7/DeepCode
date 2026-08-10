@@ -1,21 +1,26 @@
-# The dsh-headless bundle patch: one-shot task mode over dsh-base +
-# dsh-web-app. The web composition stays mounted (the session is observable
-# in a browser while it runs); this layer silences the URL line and the
-# GUI-orientation surface context (this user is not in the GUI), moves the
-# webserver to an OS-assigned port so parallel headless runs never collide,
-# and mounts the one-shot runner. The launcher patches the runner's `task`.
+# The dsh-headless bundle patch: one-shot task mode directly over dsh-base.
+# It mounts no Host, HTTP server, Web runtime, or browser plugin. The launcher
+# patches the runner's `task`; the direct driver creates an Agent through the
+# core registry and prints the final durable assistant message.
 
-- id: webserver
+- id: system-prompt
   config:
-    host: 127.0.0.1
-    port: 0
+    persona: >-
+      You are a coding agent powered by the {{model}} model. Your working directory is {{cwd}}.
 
-- id: web-runtime
+# One-shot runs never watch or reload their composition.
+- id: hmr
+  disabled: true
+
+- id: tools
   config:
-    mode: production
-    printUrl: false
-    surfaceContext: false
+    # Keep the same temporary process-wide Code Mode opt-in as the Web surface.
+    mode: !!js process.env.DSH_TOOLS_MODE
 
 - insert:
+    # Code Mode is a core execution capability, not a Web component.
+    - id: code-runtime
+      name: '@deepseek-ai/dsh-code-runtime-worker'
+
     - id: headless-runner
       name: '@deepseek-ai/dsh-headless'

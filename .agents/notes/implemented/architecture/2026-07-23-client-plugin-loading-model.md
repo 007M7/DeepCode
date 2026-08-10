@@ -4,11 +4,11 @@ Status: implemented
 
 English | [中文](2026-07-23-client-plugin-loading-model.zh.md)
 
-> Scope: the browser-side plugin loading machinery — what is a plugin, how code arrives, and how hot reload rides on that model. This note owns the loading chain; the [web client architecture RFC](2026-07-19-gui-web-client-architecture.md) defers to it for loading and keeps owning slots, the data object layer, and the React face.
+> Scope: the browser-side plugin loading machinery — what is a plugin, how code arrives, and how hot reload rides on that model. This note owns the loading chain; the [web client architecture note](2026-07-19-gui-web-client-architecture.md) defers to it for loading and keeps owning slots, the data object layer, and the React face.
 
 ## Problem
 
-On the host, cordis plugin loading stands on Node's module machinery — the require cache and the internal ESM loader own module identity and bytes. The vendored `@cordisjs/plugin-loader` implements plugin governance and hot reload on top of that substrate, and the two meet at one seam: `Loader.internal`.
+On the host, cordis plugin loading stands on Node's module machinery — the require cache and the internal ESM loader own module identity and bytes. The vendored `@cordisjs/plugin-loader` implements plugin governance and hot reload on top of that substrate, and the two meet at one boundary: `Loader.internal`.
 
 The browser client runs the same cordis plugin mechanism, so it needs the same substrate underneath — and the browser has no Node module system.
 
@@ -16,7 +16,7 @@ Conventional frontend engineering digests all dependencies at build time: one bu
 
 The lower layer supplies four capabilities: externals (the platform list), remote arrival (same-origin external classic scripts plus lazy factory registration), versioning (content-hash revs), and hot update (invalidate/prefetch).
 
-Plugin bundles are built independently outside Vite's module graph. Feeding response text into an inline script leaves the browser with a dynamic source execution: no standard source-map chain connects the network resource, generated bundle, and TypeScript/TSX source, so performance profiles and stacks stop at generated `client.js`; the module system must also buffer the complete source and split one arrival responsibility across fetch and execute transport seams.
+Plugin bundles are built independently outside Vite's module graph. Feeding response text into an inline script leaves the browser with a dynamic source execution: no standard source-map chain connects the network resource, generated bundle, and TypeScript/TSX source, so performance profiles and stacks stop at generated `client.js`; the module system must also buffer the complete source and split one arrival responsibility across fetch and execute transport boundaries.
 
 On top of that, client and host plugins register and load consistently: a package declares `dshClient` once, the host scans the declaration into the boot graph, and the same Loader semantics govern entries on both sides.
 
@@ -35,7 +35,7 @@ The manifest owns the package's loading contract: its `inject` dependency edges,
 
 To add a plugin package: declare `dshClient`, emit the `./client` bundle through the shared preset, add the name to the composing app's roster. Nothing else changes hands.
 
-When does a plain package become a plugin? The upgrade law, recorded so the migration path stays honest: **a plain package becomes a plugin package when its consumers switch to cordis DI, not before.** Three promotions are queued: ui-slots (will receive the slots machinery now living in runtime — SlotsService, the renderer seam, the root slot), web-react (will take the renderer install into its own `apply`), and ui-primitives (once components are served through slots/services). Until then they stay plain, and their symbol exports stay ordinary static imports.
+When does a plain package become a plugin? The upgrade law, recorded so the migration path stays honest: **a plain package becomes a plugin package when its consumers switch to cordis DI, not before.** Three promotions are queued: ui-slots (the slots machinery now living in runtime — SlotsService, the renderer contract, the root slot), web-react (the renderer install moving into its own `apply`), and ui-primitives (once components are served through slots/services). Until then they stay plain, and their symbol exports stay ordinary static imports.
 
 Four edge rules govern imports across the two kinds. None of them depends on any per-package mark:
 
@@ -50,7 +50,7 @@ The browser mirrors the host's division of labor. `dsh-client-modules` (`ClientM
 
 `ClientModuleSystem` is a lazy CJS table. Executing a bundle only **registers** its factory — the bundle calls `window.__ModuleLoader__.load({ id, factory })` and nothing else happens. Every module body side effect, CSS injection included, lives inside the factory closure and runs at materialization: the first `require`/import of that id, memoized after that. A factory that requires a registered-but-unmaterialized sibling materializes it recursively, so no sort order exists anywhere. When asked to import an id, the table resolves through a fixed branch order: seed word → memoized record → static registration (shell-own modules, e.g. app-shell) → registered factory → graph-row external classic-script load → loud throw. That final throw is the runtime mirror of the build-time purity gate. The system also keeps per-module bookkeeping — owned `<style data-plugin>` tag ids, observed require edges — and exposes the two verbs HMR needs: `prefetch(id)` (load the script and register its factory; concurrent calls share one in-flight task) and `invalidate(id)` (drop the factory and record so the next arrival reloads it).
 
-The vendored Loader consumes the module system through its `internal` seam — the only call site is `tree.import` — and owns everything entry-shaped: entry creation, fiber activation through cordis service waiting (PENDING until injected services exist, cascading when a service is provided), update/refresh, teardown. The governance code is byte-identical to the host side, per vendor policy. Browserization is compile-time mapping in the shell's vite config: a `node:module` stub alias plus `process.*` defines make `ModuleLoader.fromInternal()` return undefined — exactly the empty slot the shell fills. The module system mounts as `ctx.modules`.
+The vendored Loader consumes the module system through its `internal` contract — the only call site is `tree.import` — and owns everything entry-shaped: entry creation, fiber activation through cordis service waiting (PENDING until injected services exist, cascading when a service is provided), update/refresh, teardown. The governance code is byte-identical to the host side, per vendor policy. Browserization is compile-time mapping in the shell's vite config: a `node:module` stub alias plus `process.*` defines make `ModuleLoader.fromInternal()` return undefined — exactly the empty slot the shell fills. The module system mounts as `ctx.modules`.
 
 ### External-script arrival and source maps
 
@@ -122,11 +122,11 @@ The support boundary, stated honestly. Reload is coarse by design: fresh fiber, 
 
 ## Consequences
 
-One governance implementation runs on both sides of the wire; the browser-specific surface is one module system plus one reload plugin. Plugin packages have one shape, so the purity gate covers them all. Dependency edges and the boot tier live with their owners — the manifests — while the composing app holds only the roster and the `--dev` switch. The drift classes stay structurally closed: share-list hand-sync, load-order coupling, cross-plugin imports, roster/tier double bookkeeping. Browser-native script loading preserves the standard mapping among plugin network resources, generated bundles, and TypeScript/TSX sources, while the module system keeps only one replaceable `loadBundle` seam.
+One governance implementation runs on both sides of the wire; the browser-specific surface is one module system plus one reload plugin. Plugin packages have one shape, so the purity gate covers them all. Dependency edges and the boot tier live with their owners — the manifests — while the composing app holds only the roster and the `--dev` switch. The drift classes stay structurally closed: share-list hand-sync, load-order coupling, cross-plugin imports, roster/tier double bookkeeping. Browser-native script loading preserves the standard mapping among plugin network resources, generated bundles, and TypeScript/TSX sources, while the module system keeps only one replaceable `loadBundle` hook.
 
 Costs accepted: the vendored Loader carries idle machinery in the browser (EntryTree persistence is a no-op, groups/isolation unused); every plugin edit in dev pays a bundle rebuild plus fiber remount; graph `inject` rows are informational — activation truth is service-level — so a mismatch surfaces at the settled sweep, not at graph validation; the three not-yet-promoted libraries keep their static-import export surface until their DI conversions land; every bundle gains a source-map artifact; and external-script failures provide only coarse URL diagnostics instead of the HTTP status available to an explicit fetch.
 
-Roster endgame (landed 2026-07-25 with the config-tree boot move): the roster lives in `apps/cli/config/web.cordis.yml`, `mountWebPlugins` and the `CLIENT_PACKAGES` constant are gone, and recomposing a deployment means swapping the yml/overlay. The graph composer moved from a webserver-side registry into the `dsh-client-modules` node half (the package upgraded to dual-face per this note's promotion rule — its consumer now reaches it through cordis DI), and the transport split landed alongside: the webserver became a plain route-registration plugin, `/api/*` binding moved to the connection node half over the upgraded `api-gateway` plugin (`dsh-host-apiproxy` providing `ctx.apiProxy`), and the dev bundle watch + SSE channel moved to the hmr node half.
+Roster: it lives in the web bundle's config tree (`packages/bundle/web-app/cordis.patch.yml`); `mountWebPlugins` and the `CLIENT_PACKAGES` constant are gone, and recomposing a deployment means swapping the yml/overlay. The graph composer moved from a webserver-side registry into the `dsh-client-modules` node half (the package upgraded to dual-face per this note's promotion rule — its consumer now reaches it through cordis DI), and the transport split landed alongside: the webserver became a plain route-registration plugin, `/api/*` binding moved to the connection node half over the upgraded `api-gateway` plugin (`dsh-host-apiproxy` providing `ctx.apiProxy`), and the dev bundle watch + SSE channel moved to the hmr node half.
 
 ## Alternatives considered
 
@@ -139,5 +139,5 @@ Roster endgame (landed 2026-07-25 with the config-tree boot move): the roster li
 | Import maps | Ruled out earlier; the DI require table is the terminal mechanism |
 | Full ctx-ification now (react and libraries via services, no module table) | The module-axis extreme; parked — the upgrade law walks there one package at a time instead |
 | Eager instantiation with a frozen table | Requires arrival-time ordering; lazy CJS registration makes recursive `require` self-ordering and matches the naive-puller phase split |
-| Fetch response text, then inject an inline `<script>` | Makes the module system buffer the complete source and maintain separate fetch/execute seams; dynamic source execution also breaks the browser-native association among the network resource, source map, and profile |
+| Fetch response text, then inject an inline `<script>` | Makes the module system buffer the complete source and maintain separate fetch/execute paths; dynamic source execution also breaks the browser-native association among the network resource, source map, and profile |
 | Builder-push rebuild channel (`POST /plugins/rebuilt` from the orchestrator's `onSuccess`) | Couples reload to one blessed builder process and a second wire protocol; the webserver already holds every bundle path, and stat polling covers the torn-write race (re-hash on every stat change) that once justified pushing |

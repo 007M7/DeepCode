@@ -1,5 +1,5 @@
-/** The default composer body: the 'conversation.composer.bar' slot entry
- * (decision 20). Machine state arrives through the standard provide channel
+/** The default composer body: the 'conversation.composer.bar' slot entry.
+ * Machine state arrives through the standard provide channel
  * (useInput + inputActions); the keyboard/DOM command face and stop arrive
  * through this entry's own inject, whose hooks compartment binds
  * useNotices/useLexicon; layout-phase inputs (variant, placeholder,
@@ -83,11 +83,15 @@ export function InputBar({
   // (undefined = capability absent → the chip renders nothing).
   const permissions = useProjection('permissions')
 
-  // Queue cut 1: running input stays free; locked = session removed, the
-  // inert no-workspace state, or the machine faces absent (no session). The
-  // transient machine locks (adjudicating pending / submitting) render
-  // read-only — the draft stays visible and focused, keystrokes drop.
-  const disabled = removed || inert || !live || blocked !== undefined
+  // A continuable child without its live parent cannot accept human input,
+  // but its independent Stop below stays available while it runs.
+  const continuable = subagent?.address.mode === 'continuable'
+  const parentOffline = continuable && !subagent.parentAvailable
+  // Running input stays free; locked = session removed, the
+  // inert no-workspace state, the machine faces absent (no session), or a
+  // parent-offline continuable child. An owner block also disables input;
+  // adjudicating and submitting render read-only so the draft stays visible.
+  const disabled = removed || inert || !live || blocked !== undefined || parentOffline
   const locked = disabled
   // The model seat is the ONE control a block leaves live: every block this
   // contract has is cleared by choosing a model, so locking it too would leave
@@ -350,11 +354,14 @@ export function InputBar({
     if (el !== null) toggleCommandMenu?.(selectionOf(el))
   }
 
-  const ordinary = subagent === null
-  const stopping = running && ordinary
-  const primaryLabel = stopping ? t('input.stop') : t('input.send')
+  // Ordinary sessions retain their primary Send/Stop toggle. A continuable
+  // child keeps Send as the primary action and exposes Stop independently so
+  // pointer users can queue follow-ups while its current turn is running.
+  const primaryStops = running && subagent === null
+  const interruptible = running && continuable
+  const primaryLabel = primaryStops ? t('input.stop') : t('input.send')
   const onPrimary = (): void => {
-    if (stopping) {
+    if (primaryStops) {
       stop?.()
       return
     }
@@ -378,7 +385,7 @@ export function InputBar({
   const backdrop: ReactNode[] = []
   {
     // Segment boundaries: the token range end, every chip offset, and every
-    // text-ref range (decision 21) — merged in draft order (the sources never
+    // text-ref range — merged in draft order (the sources never
     // overlap: chips sit on placeholders, text-refs on plain tokens, the
     // claim token only leads).
     let cursor = 0
@@ -423,7 +430,7 @@ export function InputBar({
         )
         cursor = chip.offset + 1 // the placeholder char the chip stands for
       } else {
-        // Plain-range highlight (decision 21): the glyphs stay the
+        // Plain-range highlight: the glyphs stay the
         // textarea's (advance untouched); the mark paints the chip look.
         backdrop.push(
           <mark key={`ref-${b.ref.start}`} className={css.textRef} data-decoration="text-ref">
@@ -478,9 +485,11 @@ export function InputBar({
               disabled={locked}
               readOnly={machineBusy}
               data-phase={input?.phase ?? 'inert'}
-              placeholder={placeholder ?? (disabled
-                ? t('placeholder.unavailable')
-                : planActive ? t('placeholder.plan') : t('placeholder.default'))}
+              placeholder={placeholder ?? (parentOffline
+                ? t('placeholder.parentOffline')
+                : disabled
+                  ? t('placeholder.unavailable')
+                  : planActive ? t('placeholder.plan') : t('placeholder.default'))}
               rows={2}
               onChange={onChange}
               onKeyDown={onKeyDown}
@@ -520,17 +529,32 @@ export function InputBar({
             {rightItems}
             {renderSlot('conversation.input.model', { locked: modelSeatLocked })}
             <ContextMeter useProjection={useProjection} t={t} />
-            {/* {machineBusy && <span className={css.pending} data-input-pending aria-label="处理中" />} */}
+            {interruptible && (
+              <Tooltip label={t('input.stop')} side="top" delayMs={500}>
+                <button
+                  type="button"
+                  className={css.primary}
+                  aria-label={t('input.stop')}
+                  disabled={stop === undefined}
+                  onMouseDown={keepFocus}
+                  onClick={stop}
+                >
+                  <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden>
+                    <rect x="3" y="3" width="10" height="10" rx="3" fill="currentColor" />
+                  </svg>
+                </button>
+              </Tooltip>
+            )}
             <Tooltip label={primaryLabel} side="top" delayMs={500}>
               <button
                 type="button"
                 className={css.primary}
                 aria-label={primaryLabel}
-                disabled={stopping ? stop === undefined : empty || disabled || machineBusy}
+                disabled={primaryStops ? stop === undefined : empty || disabled || machineBusy}
                 onMouseDown={keepFocus}
                 onClick={onPrimary}
               >
-                {stopping ? (
+                {primaryStops ? (
                   <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden>
                     <rect x="3" y="3" width="10" height="10" rx="3" fill="currentColor" />
                   </svg>

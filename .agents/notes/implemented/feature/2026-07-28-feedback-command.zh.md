@@ -14,11 +14,11 @@ Status: implemented
 
 位于 `packages/feedback/command-feedback/` 的 `@deepseek-ai/dsh-command-feedback` 通过 `ctx.commands` 注册一个全局 `feedback` 命令。`/feedback <text>` 给出确认；空输入或仅含空白的输入返回直接用法错误。处理器是同步的，只注入 `commands`，且没有任何配置。
 
-本包（package）声明仅写入日志的 `feedback/record { text }` 会话事件，并导出 `recordFeedback(session, text)`，作为不依赖命令的生产方。该生产方丢弃前后空白，拒绝空结果，并且恰好追加一个事件。`/feedback` 委托给它，因此其他 UI、钩子或 host 集成无需构造斜杠命令也能记录同一个领域事实。
+本包声明仅写入日志的 `feedback/record { text }` 会话事件，并导出 `recordFeedback(session, text)`，作为不依赖命令的生产方。该生产方丢弃前后空白，拒绝空结果，并且恰好追加一个事件。`/feedback` 委托给它，因此其他 UI、钩子或 host 集成无需构造斜杠命令也能记录同一个领域事实。
 
 `dsh-commands` 仍会围绕 `/feedback` 写入 `command/run` / `command/done` 生命周期配对，但该命令设置了 `recordInput: false`。因此，它的 `command/run` 携带命令标识与来源，但不携带 `args`；反馈文本只存在于 `feedback/record` 中，而 `command/done` 携带确认结果。三个记录都仅写入日志且非 surface。它们的追加会进入持久化的常规有界写入路径；没有任何环节强制 flush，因此确认文本报告的是反馈已进入日志，而非已经落盘。
 
-采集对正在运行的 agent 与模型仍不产生后续动作。可选的 OTel 遥测包后续增加了一个基础设施消费方：它在 `FEEDBACK_ONLY` 模式下将 `feedback/record` 作为释放触发器，在 `DISABLED` 模式下将其作为本地警告触发器，且不改变反馈事件或命令路径。见[反馈门控的会话遥测](2026-08-05-feedback-gated-session-telemetry.md)。
+采集对正在运行的 agent（智能体）与模型仍不产生后续动作。可选的 OTel 遥测包后续增加了一个基础设施消费方：它在 `FEEDBACK_ONLY` 模式下将 `feedback/record` 作为释放触发器，在 `DISABLED` 模式下将其作为仅限本地的警告触发器，且不改变反馈事件或命令路径。见[反馈门控的会话遥测](2026-08-05-feedback-gated-session-telemetry.md)。
 
 ### 为何反馈拥有自己的事件
 
@@ -34,7 +34,7 @@ Status: implemented
 
 ### 一个新的分组
 
-`packages/feedback/` 是新分组，因为现有分组都不拥有此职责：`goal/` 负责目标状态，`session-title/` 负责标题，`core/` 是产品主干。该分组只包含一个生产方包；跨领域的消费方留在各自所属的分组，而不是迫使这个包不断膨胀。
+`packages/feedback/` 是新分组，因为现有分组都不拥有此职责：`goal/` 负责目标状态，`session-title/` 负责标题，`core/` 是产品主干。该分组只包含一个生产方包；跨领域的消费方留在各自所属的分组，而不是迫使这个分组不断膨胀。
 
 ## 考虑过的替代方案
 
@@ -46,7 +46,7 @@ Status: implemented
 
 **让 `/feedback` 成为真正的空操作，什么都不记录。** 这是对「什么都不做」最字面的理解。已否决：这会使命令失去意义——明确的要求是让这条评论进入会话日志。
 
-**在现有包中注册该命令**，例如 `packages/ui/commands`。可省去新分组及其双语 README。已否决：`ctx.commands` 是注册表，而不是任意命令实现的归属地；且请求者明确要求独立的包。
+**在现有包中注册该命令**，例如 `packages/interaction/commands`。可省去新分组及其双语 README。已否决：`ctx.commands` 是注册表，而不是任意命令实现的归属地；且请求者明确要求独立的包。
 
 **从文本中解析结构**（类别前缀、严重程度标记）。已否决，属于投机设计：没有消费方需要该结构，而任何控制词语法都会让对应的字面反馈无法记录。原样文本是未来消费方可以收窄的最宽接口；而已被解析的接口无法事后放宽。
 

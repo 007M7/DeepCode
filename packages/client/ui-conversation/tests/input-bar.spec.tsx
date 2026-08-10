@@ -1,13 +1,13 @@
 // @vitest-environment jsdom
 // InputBar behavior over the machine wiring: Enter-send semantics (IME guard,
 // Shift newline, busy Enter policy, Ctrl/Meta steering, repeat suppression), running
-// semantics (input stays free; primary turns stop), the machine pending lock,
+// semantics (input stays free; continuable children keep Send beside Stop), the machine pending lock,
 // decoration backdrop, error/notice strips, and the focus-keeping mousedown.
 
 import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
-import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
+import { createSnapshotStore, EMPTY_CHAT_SNAPSHOT } from '@deepseek-ai/dsh-client-runtime/client'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import type { ClientContext, ConversationSnapshot, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
@@ -35,7 +35,8 @@ const SID = 's1' as SessionId
 
 function snapshotOf(overrides: Partial<ConversationSnapshot> = {}): ConversationSnapshot {
   return {
-    sessionId: SID, nodes: [], turnTimings: new Map(), turnEnds: new Map(), partial: null, runningCalls: [],
+    sessionId: SID, chat: EMPTY_CHAT_SNAPSHOT,
+    nodes: [], turnTimings: new Map(), turnEnds: new Map(), partial: null, runningCalls: [],
     pending: [], queue: [], running: false, composerPhase: 'active', removed: false,
     openState: 'open', openError: null, hasMore: false, loadingOlder: false,
     promptError: null, blank: false, subagent: null, lastAgentError: null,
@@ -143,11 +144,14 @@ function bench(over?: BenchOptions) {
   }
   const view = render(<InputBar {...props} />)
   const textarea = view.container.querySelector('textarea')!
-  const stopping = over?.running === true && over.subagent === undefined
+  const primaryStops = over?.running === true && over.subagent === undefined
   const button = view.container.querySelector<HTMLButtonElement>(
-    `button[aria-label="${stopping ? '停止生成' : '发送消息'}"]`,
+    `button[aria-label="${primaryStops ? '停止生成' : '发送消息'}"]`,
   )!
-  return { view, textarea, button, props, sink, shell, wiring: shell, session, stop, slotCalls, menuLauncher }
+  const interruptButton = view.container.querySelector<HTMLButtonElement>('button[aria-label="停止生成"]')
+  return {
+    view, textarea, button, interruptButton, props, sink, shell, wiring: shell, session, stop, slotCalls, menuLauncher,
+  }
 }
 
 describe('Enter semantics', () => {
@@ -222,10 +226,10 @@ describe('Enter semantics', () => {
   })
 })
 
-describe('running and lock semantics (queue cut 1)', () => {
+describe('running and lock semantics', () => {
   it('running keeps the input free (typing + Enter queue) while the primary turns stop', () => {
     const { textarea, button, stop, sink } = bench({ running: true, draft: '排队消息' })
-    expect(textarea.disabled).toBe(false) // running no longer locks
+    expect(textarea.disabled).toBe(false)
     fireEvent.change(textarea, { target: { value: '排队消息2' } })
     fireEvent.keyDown(textarea, { key: 'Enter' })
     expect(sink).toHaveBeenCalledWith('排队消息2', 'queue')
@@ -250,8 +254,8 @@ describe('running and lock semantics (queue cut 1)', () => {
     expect(ctrl.sink).toHaveBeenCalledWith('also queue', 'queue')
   })
 
-  it('running subagent primary admits a follow-up instead of exposing Stop', () => {
-    const { button, sink, stop } = bench({
+  it('running continuable subagent keeps Send beside an independent Stop', () => {
+    const { button, interruptButton, textarea, sink, stop } = bench({
       running: true,
       draft: '后续消息',
       subagent: {
@@ -264,22 +268,53 @@ describe('running and lock semantics (queue cut 1)', () => {
       },
     })
     expect(button.getAttribute('aria-label')).toBe('发送消息')
+    expect(interruptButton).not.toBeNull()
+    expect(textarea.disabled).toBe(false)
     fireEvent.click(button)
     expect(sink).toHaveBeenCalledWith('后续消息', 'queue')
-    expect(stop).not.toHaveBeenCalled()
+    fireEvent.click(interruptButton!)
+    expect(stop).toHaveBeenCalledTimes(1)
+  })
 
-    const empty = bench({
+  it('parent-offline running continuable locks Send but keeps independent Stop usable', () => {
+    const { button, interruptButton, textarea, stop, view } = bench({
       running: true,
+      draft: '',
       subagent: {
         address: {
           parentSessionId: 'parent' as SessionId,
           childSessionId: SID,
           mode: 'continuable',
         },
+        parentAvailable: false,
+      },
+    })
+    expect(textarea.disabled).toBe(true)
+    expect(textarea.placeholder).toBe('父会话已离线，无法继续发送；仍可停止当前运行')
+    expect((view.getByLabelText('命令') as HTMLButtonElement).disabled).toBe(true)
+    expect(button.getAttribute('aria-label')).toBe('发送消息')
+    expect(button.disabled).toBe(true)
+    expect(interruptButton?.disabled).toBe(false)
+    fireEvent.click(interruptButton!)
+    expect(stop).toHaveBeenCalledTimes(1)
+  })
+
+  it('running one-shot subagent never exposes Stop', () => {
+    const { button, interruptButton, stop } = bench({
+      running: true,
+      draft: '不可停止',
+      subagent: {
+        address: {
+          parentSessionId: 'parent' as SessionId,
+          childSessionId: SID,
+          mode: 'one-shot',
+        },
         parentAvailable: true,
       },
     })
-    expect(empty.button.disabled).toBe(true)
+    expect(button.getAttribute('aria-label')).toBe('发送消息')
+    expect(interruptButton).toBeNull()
+    expect(stop).not.toHaveBeenCalled()
   })
 
   it('keeps both running subagent Enter gestures on Queue transport', () => {
@@ -394,8 +429,8 @@ describe('running and lock semantics (queue cut 1)', () => {
     // scrollport element holds both layers.
     expect(scroll.contains(textarea)).toBe(true)
     expect(scroll.contains(backdrop)).toBe(true)
-    // The glyph layer carries the draft and nothing else: with one scrollport
-    // it no longer pads its own height to match a second box's scroll extent.
+    // The glyph layer carries the draft and nothing else — no height padding
+    // to a second box's scroll extent.
     expect(backdrop.textContent).toBe('line\n'.repeat(40))
   })
 
@@ -624,7 +659,7 @@ describe('decorations', () => {
     expect(shell.snapshot.draft).toBe('参考 \uFFFC 内容')
   })
 
-  it('a lexicon-matched plain token renders the text-ref mark (decision 21)', () => {
+  it('a lexicon-matched plain token renders the text-ref mark', () => {
     const lexicon = new Map<'/' | '@', readonly string[]>([['/', ['fixture-demo']]])
     const { view, shell } = bench({ lexicon })
     act(() => { shell.setDraft('use /fixture-demo now') })
@@ -636,7 +671,7 @@ describe('decorations', () => {
   })
 })
 
-describe('insertText (decision 21 scoped event body)', () => {
+describe('insertText (scoped event body)', () => {
   it('splices plain text over the span and reports success as true', () => {
     const { shell } = bench({ draft: '/fix' })
     const ok = shell.insertText('/fixture-demo ', { start: 0, end: 4, draftRev: shell.snapshot.draftRev })
@@ -686,13 +721,15 @@ describe('strips and variants', () => {
 })
 
 describe('command launcher chrome and control seats', () => {
-  it('renders the command launcher; the Access chip is absent without the permissions projection; plan/model seats render EMPTY without entries (B ruling)', () => {
+  it('renders the command launcher; the Access chip is absent without the permissions projection; the control seats render EMPTY without entries', () => {
     const { view, slotCalls } = bench()
     expect(view.getByLabelText('命令')).toBeTruthy()
     // Capability absent (no projection value): the chip renders nothing.
     expect(view.queryByLabelText(/^访问模式/)).toBeNull()
-    // Both seats dispatched, nothing rendered.
-    expect(slotCalls.map(c => c.key)).toEqual(['conversation.input.plan', 'conversation.input.model'])
+    // Every seat dispatched, nothing rendered.
+    expect(slotCalls.map(c => c.key)).toEqual([
+      'conversation.input.plan', 'conversation.input.model',
+    ])
     expect(view.queryByLabelText('Plan mode')).toBeNull()
     expect(view.queryByLabelText('Model')).toBeNull()
   })

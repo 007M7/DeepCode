@@ -72,6 +72,8 @@ export interface StdioConfig {
   cwd: string
   /** Per-tool-call timeout in milliseconds. */
   toolCallTimeoutMs: number
+  /** Fail plugin activation when the initial connection or tool synchronization fails. */
+  failOnStartupError: boolean
 }
 
 /** Config for connecting to an MCP server over Streamable HTTP (SSE). */
@@ -90,6 +92,8 @@ export interface StreamableHttpConfig {
   headers: Record<string, string>
   /** Per-tool-call timeout in milliseconds. */
   toolCallTimeoutMs: number
+  /** Fail plugin activation when the initial connection or tool synchronization fails. */
+  failOnStartupError: boolean
 }
 
 /** Configuration for one stdio or Streamable HTTP MCP server. */
@@ -104,6 +108,7 @@ export const Config = z.union([
     env: z.dict(String).default({}),
     cwd: z.string().default(''),
     toolCallTimeoutMs: z.number().default(DEFAULT_TOOL_CALL_TIMEOUT_MS),
+    failOnStartupError: z.boolean().default(false),
   }),
   z.object({
     transport: z.const('streamable-http'),
@@ -111,12 +116,21 @@ export const Config = z.union([
     url: z.string().required(),
     headers: z.dict(String).default({}),
     toolCallTimeoutMs: z.number().default(DEFAULT_TOOL_CALL_TIMEOUT_MS),
+    failOnStartupError: z.boolean().default(false),
   }),
 ]) as unknown as z<Config>
 
 // ---- Plugin apply ----
 
-export function apply(ctx: Context, config: Config): void {
+/**
+ * Connect one MCP server and publish its initial tool generation before activation.
+ * This entry remains explicitly `async`: Cordis treats a prototype-bearing
+ * ordinary function as a constructor, whose returned Promise is not startup work.
+ * @param ctx - plugin context carrying the tool registry.
+ * @param config - resolved transport and server namespace configuration.
+ * @returns startup readiness after connection and initial tool discovery settle.
+ */
+export async function apply(ctx: Context, config: Config): Promise<void> {
   // Reserve the namespace first: a duplicate `serverName` fails THIS instance
   // at load with an actionable error and leaves the earlier instance intact.
   ctx.effect(() => {
@@ -141,18 +155,22 @@ export function apply(ctx: Context, config: Config): void {
   )
 
   const opts = {
+    registrationFailure: 'contain' as const,
     serverName: config.serverName,
     toolCallTimeoutMs: config.toolCallTimeoutMs,
   }
 
-  // Connect and set up tools. Errors during connect/first sync are logged,
-  // not thrown (the plugin simply has no tools registered). `ready` resolves
-  // to an accessor for the CURRENT disposer generation, so the effect
-  // disposer below always unregisters the live set, not the first one.
+  // Connect and set up tools. `ready` always settles to an outcome so rollback
+  // can close a partially opened client even when strict startup later rejects.
+  // Its accessor returns the CURRENT disposer generation, so disposal always
+  // unregisters the live set, not the first one.
   const ready = (async () => {
     await client.connect(transport)
 
-    let disposers = await syncTools(client, ctx, opts, new Map())
+    let disposers = await syncTools(client, ctx, {
+      ...opts,
+      registrationFailure: config.failOnStartupError ? 'throw' : 'contain',
+    }, new Map())
 
     client.setNotificationHandler(
       ToolListChangedNotificationSchema,
@@ -168,15 +186,20 @@ export function apply(ctx: Context, config: Config): void {
       },
     )
 
-    return () => disposers
+    return { getDisposers: () => disposers }
   })().catch((error: unknown) => {
-    ctx.logger.error(`mcp-client(${config.serverName}): failed to connect: ${String(error)}`)
-    return () => new Map<string, () => void>()
+    ctx.logger.error(`mcp-client(${config.serverName}): startup failed: ${String(error)}`)
+    return { getDisposers: () => new Map<string, () => void>(), error }
   })
 
   ctx.effect(() => async () => {
-    const live = await ready
-    for (const dispose of live().values()) dispose()
+    const outcome = await ready
+    for (const dispose of outcome.getDisposers().values()) dispose()
     try { await client.close() } catch { /* transport already gone */ }
   }, 'mcp-client.connection')
+
+  const outcome = await ready
+  if ('error' in outcome && config.failOnStartupError) {
+    throw new Error(`mcp-client(${config.serverName}): initial connection or tool synchronization failed`, { cause: outcome.error })
+  }
 }

@@ -368,7 +368,7 @@ export class TestSessions implements ISessions {
   }
 
   /**
-   * Read the session scope tag off a context (service-method seam mirror).
+   * Read the session scope tag off a context (service-method boundary mirror).
    * @param ctx - any client context.
    * @returns the session id, or undefined on root contexts.
    */
@@ -428,6 +428,14 @@ export class TestSessions implements ISessions {
   refreshSubagents(parentSessionId: SessionId): Promise<void> {
     this.calls.push({ method: 'refreshSubagents', args: [parentSessionId] })
     return Promise.resolve()
+  }
+
+  /** Apply a confirmed preset switch into the fixture list, as production does. */
+  noteAgentPreset(sessionId: SessionId, agentPreset: string): void {
+    this.list.update((draft) => {
+      const summary = draft.byId[sessionId]
+      if (summary !== undefined) draft.byId[sessionId] = { ...summary, agentPreset }
+    })
   }
 
   /** Clear the current selection (recorded; the production no-session flow). */

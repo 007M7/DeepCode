@@ -23,6 +23,7 @@ function scriptedApi(overrides: {
   host?: Partial<ApiProxy['host']>
   commands?: Partial<ApiProxy['commands']>
   skills?: Partial<ApiProxy['skills']>
+  agentPresets?: Partial<ApiProxy['agentPresets']>
   events?: Partial<ApiProxy['events']>
   goals?: Partial<ApiProxy['goals']>
   settings?: Partial<ApiProxy['settings']>
@@ -41,7 +42,7 @@ function scriptedApi(overrides: {
       history: r => ok(r, {
         events: [],
         hasMore: false,
-        modelTarget: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+        modelSelection: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
       }),
       models: r => ok(r, {
         current: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
@@ -63,6 +64,7 @@ function scriptedApi(overrides: {
       list: r => ok(r, { entries: [], parentAvailable: false }),
       history: r => ok(r, { events: [], hasMore: false }),
       prompt: r => ok(r, { messageId: 'message-1' as never }),
+      interrupt: r => ok(r, { accepted: true as const }),
       ...overrides.subagents,
     },
     host: {
@@ -87,6 +89,15 @@ function scriptedApi(overrides: {
       ...overrides.commands,
     },
     skills: { list: r => ok(r, { skills: [] }), ...overrides.skills },
+    agentPresets: {
+      list: r => ok(r, { presets: [], authorable: false, hasDocument: false }),
+      select: r => ok(r, { agentPreset: r.payload.agentPreset }),
+      read: r => ok(r, { agentPreset: r.payload.agentPreset, trust: 'user' as const, content: '' }),
+      copy: r => ok(r, { agentPreset: r.payload.agentPreset }),
+      openDocument: r => ok(r, { opened: true as const }),
+      remove: r => ok(r, {}),
+      ...overrides.agentPresets,
+    },
     goals: {
       create: err,
       edit: err,
@@ -221,6 +232,18 @@ describe('unary round trip', () => {
     expect(appended.result.ok).toBe(true)
   })
 
+  it('routes the agent-preset roster and switch through the wire', async () => {
+    const c = client(scriptedApi())
+
+    const listed = await c.agentPresets.list({})
+    expect(listed.result).toEqual({ ok: true, value: { presets: [], authorable: false, hasDocument: false } })
+
+    // The switch carries the session it is about: the host refuses one whose
+    // conversation has started, and it can only know which by id.
+    const selected = await c.agentPresets.select({ sessionId: sid('s1'), agentPreset: 'standard' })
+    expect(selected.result).toEqual({ ok: true, value: { agentPreset: 'standard' } })
+  })
+
   it('passes business errors through as 200 + err result, not a throw', async () => {
     const api = scriptedApi({
       sessions: {
@@ -246,6 +269,32 @@ describe('unary round trip', () => {
       expect(response.result.error.code).toBe('bad-request')
       expect((response.result.error.details as { issues: unknown[] }).issues.length).toBeGreaterThan(0)
     }
+  })
+
+  it('round-trips subagent.interrupt and rejects a one-shot or incomplete address', async () => {
+    const interrupt = vi.fn((r: RpcRequest<unknown>) => ok(r, { accepted: true as const }))
+    const api = scriptedApi({ subagents: { interrupt } })
+    const c = client(api)
+
+    const accepted = await c.subagents.interrupt({
+      parentSessionId: sid('parent'), childSessionId: sid('child'), mode: 'continuable',
+    })
+    expect(accepted.result).toEqual({ ok: true, value: { accepted: true } })
+    expect(interrupt).toHaveBeenCalledTimes(1)
+
+    // The wire schema owns the mode fence: a one-shot address never reaches the impl.
+    const oneShot = await c.subagents.interrupt({
+      parentSessionId: sid('parent'), childSessionId: sid('child'), mode: 'one-shot',
+    } as never)
+    expect(oneShot.result.ok).toBe(false)
+    if (!oneShot.result.ok) expect(oneShot.result.error.code).toBe('bad-request')
+
+    const incomplete = await c.subagents.interrupt({
+      parentSessionId: sid('parent'), mode: 'continuable',
+    } as never)
+    expect(incomplete.result.ok).toBe(false)
+    if (!incomplete.result.ok) expect(incomplete.result.error.code).toBe('bad-request')
+    expect(interrupt).toHaveBeenCalledTimes(1)
   })
 
   it('rejects a method/path mismatch as bad-request', async () => {

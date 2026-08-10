@@ -27,10 +27,22 @@
       "path": "../runtime"
     },
     {
-      "path": "../../session-projection/session-projection"
+      "path": "../../core/agent"
+    },
+    {
+      "path": "../../core/tools"
+    },
+    {
+      "path": "../../interaction/commands"
+    },
+    {
+      "path": "../../session/session-projection"
     },
     {
       "path": "../../llm/token-meter"
+    },
+    {
+      "path": "../../llm/llm-retry"
     },
     {
       "path": "../../plan/plan-mode"
@@ -57,7 +69,7 @@
       "path": "../../support/invariants"
     },
     {
-      "path": "../../ui/permission"
+      "path": "../../interaction/permission"
     }
   ],
   "exclude": [

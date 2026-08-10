@@ -196,7 +196,7 @@ export class LocaleService {
    * the typed form: each dictionary is checked against the namespace's
    * {@link LocaleNamespaceMap} key union (a missing or extra key is a
    * compile error), and every shipped locale is required (bilingual balance
-   * enforced at the seam). Duplicate (ns, locale) throws (single occupant; a
+   * enforced at registration). Duplicate (ns, locale) throws (single occupant; a
    * namespace's texts have one owner). Registration bumps the revision so
    * mounted outlets pick up late-arriving dictionaries.
    * @param ns - a namespace merged into LocaleNamespaceMap.

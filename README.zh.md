@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-DeepSeek Harness（`dsh`）是一款基于 DeepSeek Harness SDK 构建的开源 coding agent（编程智能体）。
+DeepSeek Harness（`dsh`）是一款基于 DeepSeek Harness SDK 构建的开源 coding agent（智能体）。
 
 它采用了**一切皆插件**的架构。
 
@@ -49,7 +49,7 @@ dsh plugin --profile tui add <package>  # install a plugin into a custom profile
 dsh --profile tui                       # boot it
 ```
 
-profile 布局、层语义与配置输出命令详见 [CLI（命令行界面）契约](apps/cli/README.md#profiles)。
+profile 布局、层语义与配置输出命令详见 [CLI（命令行界面）约定](apps/cli/README.md#profiles)。
 
 ### Headless
 
@@ -73,10 +73,10 @@ pnpm run demo:acp
 
 内置功能涵盖文件读取、编辑与搜索、shell 和持久 PTY 执行、可复用 skill（技能）、任务跟踪、目标、计划、待办事项与后台任务、subagent 与工作流、沙箱与审批、设置与凭据、可持久化、恢复、fork 与查询的会话、LSP 与 Web 访问、上下文压缩（context compaction），以及遥测。每个组合只选用适合其使用方式的能力子集。Web UI 包含 Plan Mode。
 
-- **一切皆插件。** 模型、工具、策略、存储、上下文管理和界面均可组合为 [Cordis 插件](docs/user/develop/basic/index.md)，部署方无需 fork agent loop（智能体循环）即可扩展或替换行为。底层设计见[架构文档](docs/architecture.md)。
+- **一切皆插件。** 模型、工具、策略、存储、上下文管理和界面均为可组合的 [Cordis 插件](docs/user/develop/basic/index.md)，部署方无需 fork agent loop（智能体循环）即可扩展或替换行为。底层设计见[架构文档](docs/architecture.md)。
 - **运行可重建。** 凡是模型可见的内容，都会记录在权威会话流中；持久化、恢复／fork／查询、回放、遥测和 UI 均从同一组事件派生。参见[会话日志架构](docs/architecture.md#session-log)。
 - **Code Mode（需显式启用）。** 它会提供 `run_code` 工具和生成的 TypeScript SDK，只有程序输出会重新进入模型上下文。参见 [Code Mode](packages/core/tools/README.md#code-mode)。
-- **自指 Cordis 工具需显式启用。** 这些工具可让 agent 检查自身的实时运行时，并在运行中挂载或卸载插件。参见 [Cordis 工具](packages/cordis/tool-cordis/README.md)。
+- **自指 Cordis 工具需显式启用。** 这些工具可让 agent 检查自身的实时运行时，并在运行中挂载或卸载插件。参见 [Cordis 工具](packages/self-modification/tool-cordis/README.md)。
 
 ## 社区
 

@@ -157,9 +157,9 @@ export interface StatsLineProps {
 }
 
 export const StatsLine = memo(function StatsLine({ useSession, useProjection, t }: StatsLineProps) {
-  const nodes = useSession(s => s.nodes)
+  const settledNodes = useSession(s => s.chat.legacy.nodes)
+  const stats = useMemo(() => deriveStats(settledNodes), [settledNodes])
   const usage = useProjection('tokenUsage')
-  const stats = useMemo(() => deriveStats(nodes), [nodes])
   // Pipe-separated groups (figma stats strip); a group with no data drops out whole.
   const groups: string[] = []
   if (stats.steps > 0) {

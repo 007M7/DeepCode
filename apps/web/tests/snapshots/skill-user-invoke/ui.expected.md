@@ -1,6 +1,8 @@
 - banner:
   - navigation "Session hierarchy":
     - button "/user-invoke-demo and confirm the fixtur" [disabled]
+  - img
+  - text: 标准模式
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"

@@ -317,7 +317,7 @@ describe('web e2e: settings modal and General preferences', () => {
     await selector.click()
     await page.getByRole('menuitem', { name: 'English' }).click()
     // The settings-owned copy re-registers localized: dialog title, nav,
-    // Appearance labels. (Only the settings namespaces are localized today —
+    // Appearance labels. (Only the settings namespaces are localized —
     // the rest of the app's copy is intentionally out of this row's scope.)
     const enDialog = page.getByRole('dialog', { name: 'Settings' })
     await enDialog.waitFor({ timeout: 10_000 })

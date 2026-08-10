@@ -22,8 +22,8 @@ How live data reaches render code, and what may cross a business boundary:
 
 1. **Everything a render reads that can change outside React arrives through a framework hook** (rule 4 above). Event-handler code may read live snapshots (e.g. `keyboard.snapshot`); render code subscribes.
 2. **Business components contain no subscription machinery** — no `useSyncExternalStore`, no manual subscribe wiring, no mirroring an external snapshot into local state or a second store. Give each reactive fact its owning channel instead: registrant-private → the inject `hooks` compartment; cross-entry or remount-surviving → a declared store; per-session standard → `sessions.provide`.
-3. **Data-access ladder** — resolve needs in this order: framework hooks (standing seats + provide/inject-bound `use<Name>`) → a declared store (`useStore`/`actions`) → inject callbacks → anything else is a new framework seam and needs main-thread arbitration.
-4. **Contract currency is JSON-able data and callbacks.** Everything crossing a business boundary (owner props, inject faces, store state, provide contributions) is plain serializable data or a callback over such data; the inject `hooks` compartment is the one sanctioned carrier of bare observables, and components never see those either. ReactNode is not a currency: route render content through a slot; no new ReactNode-valued owner props or inject members (the composer's existing `accessory`/`overlay`/`leftItems`/`rightItems` seats are grandfathered and get migrated to slots progressively).
+3. **Data-access ladder** — resolve needs in this order: framework hooks (standing seats + provide/inject-bound `use<Name>`) → a declared store (`useStore`/`actions`) → inject callbacks → anything else is a new framework extension point and needs main-thread arbitration.
+4. **Contract currency is JSON-able data and callbacks.** Everything crossing a business boundary (owner props, inject faces, store state, provide contributions) is plain serializable data or a callback over such data; the inject `hooks` compartment is the one sanctioned carrier of bare observables, and components never see those either. ReactNode is not a currency: route render content through a slot; no new ReactNode-valued owner props or inject members (the composer's existing `accessory`/`overlay`/`leftItems`/`rightItems` seats are exceptions pending migration to slots).
 5. **An observable source keeps two identities stable**: the source object itself (hook binding is cached per source), and its snapshot between changes (`getSnapshot` returns the same reference until the fact moves).
 6. **Whoever rebuilds a published value republishes it through the same source in the same step**, and a registration path that can run after consumers exist notifies the live consumers as part of registering.
 
@@ -54,6 +54,12 @@ Non-negotiables across the layers:
 - **Notifier publication discipline**: `notifyNow` is only the direct echo of a user gesture; structural updates use microtask-batched `markDirty`, while visible streaming chunks use cumulative `markFrameDirty`. See `runtime/src/client/sessions/notifier.ts`.
 - **The web layer is pure presentation.** Nothing that is "how to draw" (tool-card views, queue states) enters the session log; the host computes such data per frame or pushes it live, and replay recomputes it — falling back to the generic form when it can't. A new *model-visible* input still requires a session event (repo-wide rule).
 
+## Conversation Node discipline
+
+- A Chat business feature registers one `ConversationNodeDefinition` and its keyed `conversation.chat.node` renderer; do not add its event switch or fold to `Session`, `SessionManager`, or a central built-in dispatcher. Follow the [Conversation Node cookbook](../../docs/cookbook/adding-a-conversation-node.md).
+- `match(event)` reads only the current event. Every event in a multi-event Context carries or independently derives the same stable business id; `update` folds one Match into State and remains deterministically replayable by log `seq`.
+- The append hot path and renderers never scan the full event window, Contexts, or Chat Nodes. Accumulate in State, publish same-Turn/Step facts through `buildLocationData()`, and consume final Node data or constrained Location hooks.
+
 ## Directory regime (plugin packages)
 
 One UI feature = one plugin package (`src/client/` browser half). A multi-domain package splits by future package boundaries — ui-conversation is the exemplar: `contract/` (the only shared face), domain directories that never import a sibling domain, and `apply.ts` as the single cross-domain assembly point; `scripts/verify-client-domain-graph.ts` enforces the levels. Registration goes through `slots.register` in `apply` — never module-level side effects.
@@ -83,7 +89,7 @@ If `test:gui` is red on code you did not touch, neither silently fix nor ignore 
 
 ## New plugin package checklist
 
-Bringing up a new `packages/client/<name>` plugin package (ui-workspace is the latest walked example; ui-sidebar/ui-question are good skeletons to copy):
+Bringing up a new `packages/client/<name>` plugin package (ui-workspace is a complete example; ui-sidebar/ui-question are minimal skeletons):
 
 1. **Package skeleton**: `package.json` (`@deepseek-ai/dsh-client-<name>`, exports `.`/`./invariant`/`./client`/`./src/*`/`./package.json`, `dshClient` manifest, `files` list), `tsconfig.json` (extends `tsconfig.base.client.json`, one `references` entry per workspace dependency plus `support/invariants`), `tsdown.config.ts` (`clientBundle(id, ['lib/types/index.js', 'lib/types/invariant.js'])`), `src/index.ts` (empty node-half apply), `src/invariant.ts` (companion with a real reason), `src/css-modules.d.ts` when using CSS Modules, `README.md` with the Model Experience section.
 2. **Three registration surfaces, all required** (missing any one fails at a different, later point): the `tsconfig.client.json` aggregate `references` entry; a `dshClient` row in `packages/bundle/web-app/cordis.patch.yml`; a `packages/bundle/web-app/package.json` dependency (profile boots resolve bare row names through the healed `$DSH_HOME/profiles/node_modules` fallback, which mirrors the app's and each bundle's declared dependencies — a row whose package no manifest declares fails to import). `pnpm-workspace.yaml` already globs `packages/*/*`.

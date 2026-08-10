@@ -30,7 +30,7 @@ import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
 import { deriveEventMessage, foldSurface } from '@deepseek-ai/dsh-session/surface'
 import type {
   ApiProxy, ClientRequest, ClientResponse, HistoryEntry, HostFrame, MuxFrame, RpcReceipt,
-  ModelProviderGroup, ModelTarget, RpcRequest, RpcResponse, RpcResult, ServerRequest, ServerResponse, SessionSummary,
+  ModelProviderGroup, ModelSelection, RpcRequest, RpcResponse, RpcResult, ServerRequest, ServerResponse, SessionSummary,
   ToolCallView, ToolEventView, ToolResultView, WorkspaceId, WorkspaceView,
 } from './api.ts'
 import type { RequestPayload, ResponseValue, RpcMethodMap } from '@deepseek-ai/dsh-host-apiproxy/api'
@@ -96,7 +96,7 @@ function sgr(code: number, body: string): string {
 }
 
 /**
- * Terminal output sample for fixture turn 65, authored to carry every feature
+ * Terminal output sample for fixture turn 66, authored to carry every feature
  * the terminal card draws that turn 60's two prompt rows cannot reach:
  * basic-16 SGR foreground runs (green, red, bright-black) that must resolve to
  * `--dsw-*` tokens, a bold run, column-aligned table rows that must scroll
@@ -141,7 +141,7 @@ const TERMINAL_EXIT_STATUS: Record<string, { exitCode: number } | { signal: stri
 }
 
 /**
- * Structured grep result for the search sample (turn 66): matches grouped by
+ * Structured grep result for the search sample (turn 67): matches grouped by
  * file, authored inline because the client-side fixture cannot import the tool
  * that produces the canonical value. `truncated` with a larger `total` than the
  * retained match count exercises the search card's capped indicator; the file
@@ -191,7 +191,7 @@ const SEARCH_MATCHES_TEXT = [
 ].join('\n')
 
 /**
- * Structured glob result for the search sample (turn 67): a flat path list,
+ * Structured glob result for the search sample (turn 68): a flat path list,
  * truncated with a larger `total` so the path card shows its capped indicator.
  */
 const SEARCH_PATHS_FIXTURE = [
@@ -426,19 +426,19 @@ function buildAlphaLog(): SessionEvent[] {
   toolTurn(61, 'fx-write', '{"path":"notes/demo.txt","content":"hello fixture\\n"}', 'wrote notes/demo.txt')
   toolTurn(62, 'edit', '{"file_path":"notes/demo.txt","old_string":"hello","new_string":"hello fixture"}', '已编辑')
   toolTurn(63, 'write', '{"file_path":"notes/new-demo.txt","content":"hello fixture\\n"}', '已写入')
-  // Turn 67: a multi-hunk edit — two scattered replacements in one file. Named
+  // Turn 64: a multi-hunk edit — two scattered replacements in one file. Named
   // `edit` so it lands on the keyed FileMutationRow (the resident diff card the
   // single-hunk turn 62 also uses), and file_path `src/config.ts` is the marker
   // the presenter reads to emit the two-hunk sample: the card draws one path
   // header, the first hunk, a `⋯` gap, then the second (the same-file
   // second-hunk arm turns 62/63 cannot reach).
-  toolTurn(67, 'edit', '{"file_path":"src/config.ts","old_string":"const timeout = 30","new_string":"const timeout = 60"}', '已编辑')
-  // Turn 64: one run_code turn with three logged sub-dispatches — the Code
+  toolTurn(64, 'edit', '{"file_path":"src/config.ts","old_string":"const timeout = 30","new_string":"const timeout = 60"}', '已编辑')
+  // Turn 65: one run_code turn with three logged sub-dispatches — the Code
   // Mode acceptance surface (parent code row + nested native-identical rows,
   // including an isError sub-call and a bash sub-call that must hit the same
   // keyed registration a top-level bash row uses).
   {
-    const turn = 64
+    const turn = 65
     const callId = `fx-call-${turn}`
     const program = 'const listing = await tools.bash({ command: "ls notes", description: "List notes" })\n'
       + 'const demo = await tools.read({ file_path: "notes/demo.txt" })\n'
@@ -456,12 +456,12 @@ function buildAlphaLog(): SessionEvent[] {
     const dispatchPair = (n: number, name: string, dispatchArgs: Record<string, unknown>, resultText: string, isError = false): void => {
       push({
         type: 'tool/code-dispatch-start',
-        data: { parentCallId: callId, subCallId: `${callId}:code:${n}`, name, arguments: dispatchArgs },
+        data: { rootCallId: callId, parentCallId: callId, subCallId: `${callId}:code:${n}`, name, arguments: dispatchArgs },
       })
       push({
         type: 'tool/code-dispatch',
         data: {
-          parentCallId: callId, subCallId: `${callId}:code:${n}`, name,
+          rootCallId: callId, parentCallId: callId, subCallId: `${callId}:code:${n}`, name,
           arguments: dispatchArgs, isError, content: [{ type: 'text', text: resultText }],
         },
       })
@@ -476,7 +476,7 @@ function buildAlphaLog(): SessionEvent[] {
     push({ type: 'step/end', data: { turn, step: 0 } })
     push({ type: 'turn/end', data: { turn, reason: { kind: 'completed' } } })
   }
-  // Turn 71: todo_write sample — the TodoRow toolview in the flow plus the
+  // Turn 72: todo_write sample — the TodoRow toolview in the flow plus the
   // todo/write snapshot event feeding the TodoPanel plan strip. Two items are
   // in_progress: this fixture chooses the parallel policy, so both surfaces
   // must render a parallel plan rather than the first active item alone.
@@ -486,7 +486,7 @@ function buildAlphaLog(): SessionEvent[] {
     { content: '跑后台构建', status: 'in_progress' },
     { content: '浏览器验收', status: 'pending' },
   ]
-  // Turn 65: the terminal sample turn 60's two clean prompt rows cannot cover —
+  // Turn 66: the terminal sample turn 60's two clean prompt rows cannot cover —
   // ANSI SGR coloring, output past the terminal card's height cap, a nested cwd
   // whose prompt label is its last segment, and a non-zero exit authored beside
   // the sample in TERMINAL_EXIT_STATUS — its body deliberately carries no
@@ -498,45 +498,45 @@ function buildAlphaLog(): SessionEvent[] {
   // Ordered BEFORE the todo turn deliberately: the standing plan retires at the
   // next `turn/start`, so a turn appended after it would leave the dock's plan
   // strip empty and take the todo surfaces' own coverage with it.
-  toolTurn(65, 'bash', '{"command":"pnpm run check","cwd":"/tmp/fixture/deep/nested"}', TERMINAL_OUTPUT_FIXTURE)
+  toolTurn(66, 'bash', '{"command":"pnpm run check","cwd":"/tmp/fixture/deep/nested"}', TERMINAL_OUTPUT_FIXTURE)
 
-  // Turns 66-67: the search card's two shapes. `grep` emits a `card: 'search'`
+  // Turns 67-68: the search card's two shapes. `grep` emits a `card: 'search'`
   // `shape: 'matches'` result view (grouped-by-file matches, truncated with a
   // larger `total`), `glob` emits `shape: 'paths'` (a flat path list, likewise
   // truncated). Both ride the keyed SearchRow registration under their own
   // names; the render-site fallback row is covered by the model derivation
   // tests, since every fixture search tool has a keyed row. Ordered before the
   // todo turn for the same standing-plan reason the bash turn is.
-  toolTurn(66, 'grep', '{"pattern":"SEARCH_MAX_LINES","path":"packages/client"}', SEARCH_MATCHES_TEXT)
-  toolTurn(67, 'glob', '{"pattern":"**/SearchBlock*","path":"packages/client"}', SEARCH_PATHS_TEXT)
+  toolTurn(67, 'grep', '{"pattern":"SEARCH_MAX_LINES","path":"packages/client"}', SEARCH_MATCHES_TEXT)
+  toolTurn(68, 'glob', '{"pattern":"**/SearchBlock*","path":"packages/client"}', SEARCH_PATHS_TEXT)
 
-  // Turn 68: the read sample — a WINDOW past an offset so the card draws file
+  // Turn 69: the read sample — a WINDOW past an offset so the card draws file
   // line numbers starting above 1 and a "showing N of M" note (the window is
   // shorter than READ_SAMPLE_TOTAL), with a `ts` language hint the shiki path
   // highlights. Named `read`, so it exercises the keyed ReadRow registration.
   // The render-site fallback ROW SHAPE (a read call on the generic flattened
-  // path) is covered by the turn 64 run_code read sub-dispatches, which
+  // path) is covered by the turn 65 run_code read sub-dispatches, which
   // session.ts folds with resultView: null; the fallback-row + read-CARD
   // combination is pinned by the web_fetch case in read-card.spec.tsx, not by
   // this fixture. The read render intent is result-side only, so its pending
   // call stays a generic `kind: 'read'` card; presentResult carries the
   // structured window.
-  toolTurn(68, 'read', `{"file_path":${JSON.stringify(READ_SAMPLE_PATH)},"offset":${READ_SAMPLE_FIRST_LINE}}`, READ_SAMPLE_TEXT)
+  toolTurn(69, 'read', `{"file_path":${JSON.stringify(READ_SAMPLE_PATH)},"offset":${READ_SAMPLE_FIRST_LINE}}`, READ_SAMPLE_TEXT)
 
-  // Turns 69-70: the web render intent — a web_search whose result view carries
+  // Turns 70-71: the web render intent — a web_search whose result view carries
   // structured sources plus an answer (the citation list, one source lacking a
   // title so its hostname labels the link, the capped indicator on), and a
   // web_fetch whose result view carries the fetched URL and its HTTP status.
   // Both keep a generic pending call view and add the `web` card only at
   // result time, which is the contract's result-only web shape. Named after
   // the real tools so they hit the keyed WebRow registration. Ordered BEFORE
-  // the todo turn for the same reason turn 65 is: the standing plan retires at
+  // the todo turn for the same reason turn 66 is: the standing plan retires at
   // the next turn/start, so a turn after it would empty the dock's plan strip.
-  toolTurn(69, 'web_search', '{"query":"deepseek harness architecture"}', 'Search results for deepseek harness architecture.')
-  toolTurn(70, 'web_fetch', '{"url":"https://www.deepseek.com/blog/harness-architecture"}', '# Harness architecture\n\nEverything is a plugin.')
+  toolTurn(70, 'web_search', '{"query":"deepseek harness architecture"}', 'Search results for deepseek harness architecture.')
+  toolTurn(71, 'web_fetch', '{"url":"https://www.deepseek.com/blog/harness-architecture"}', '# Harness architecture\n\nEverything is a plugin.')
 
   const todoArgs = JSON.stringify({ todos: fixtureTodos })
-  toolTurn(71, 'todo_write', todoArgs, 'Updated todo list: 1 pending, 2 in progress, 1 completed.')
+  toolTurn(72, 'todo_write', todoArgs, 'Updated todo list: 1 pending, 2 in progress, 1 completed.')
   // The real tool appends the snapshot mid-execution — between tool/call and
   // tool/result — so the fixture reproduces that exact ordering (the last
   // toolTurn events run ... tool/call, tool/result, step/end, turn/end).
@@ -578,7 +578,7 @@ function presentCall(name: string, argsRaw: string): ToolCallView | undefined {
     case 'read':
       return { card: 'generic', title: `Read ${str(args.file_path)}`, kind: 'read', locations: [{ path: str(args.file_path) }] }
     case 'edit':
-      // The multi-hunk sample (turn 67) is keyed on its file_path, so the two
+      // The multi-hunk sample (turn 64) is keyed on its file_path, so the two
       // scattered hunks share one path header and the card draws the `⋯` gap.
       if (str(args.file_path) === 'src/config.ts') {
         return {
@@ -1284,7 +1284,7 @@ export interface FixtureOptions {
 
 /** Inbox pump shared by both stream generators (FrameQueue pattern: ONE abort listener hung
  *  outside the loop — a per-iteration {once:true} listener never fires for non-final rounds and
- *  piles up for the stream's lifetime, audit C5). breakNow force-ends the stream without the
+ *  piles up for the stream's lifetime). breakNow force-ends the stream without the
  *  client's signal (timing hook: simulated connection loss). */
 class FxInbox<F> implements StreamConn<F> {
   private readonly inbox: RpcRequest<F>[] = []
@@ -1347,7 +1347,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
     { sessionId: sid('fx-gamma'), updatedAt: Date.now() - 120_000, running: false, blank: false, cwd: '/tmp/fixture' },
   ]
   const logs = new Map<SessionId, SessionEvent[]>([[sid('fx-alpha'), buildAlphaLog()]])
-  const modelTargets = new Map<SessionId, ModelTarget>(sessions.map(session => [
+  const modelSelections = new Map<SessionId, ModelSelection>(sessions.map(session => [
     session.sessionId,
     { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
   ]))
@@ -1357,6 +1357,17 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
     // DeepSeek route so unrelated GUI journeys do not enter first-run setup.
     ['DEEPSEEK_API_KEY', true],
   ])
+  /**
+   * Preset compositions the fixture serves. Held as state rather than
+   * constants so the settings editor's save and delete are exercisable: the
+   * roster a GUI journey sees after writing is the text it wrote.
+   */
+  const fixturePresets = new Map<string, { trust: 'system' | 'user'; content: string }>([
+    ['standard', { trust: 'system', content: "- id: tool-bash\n  name: '@deepseek-ai/dsh-tool-bash'\n" }],
+    ['minimal', { trust: 'system', content: "- id: tool-web-search\n  name: '@deepseek-ai/dsh-tool-web-search'\n" }],
+    ['my-agent', { trust: 'user', content: "- id: tool-read\n  name: '@deepseek-ai/dsh-tool-read'\n" }],
+  ])
+  let fixtureDefaultPreset = 'standard'
   const nextTurn = new Map<SessionId, number>([[sid('fx-alpha'), 60]])
   let nextSession = 1
   let nextRpc = 1
@@ -1658,7 +1669,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
 
   /** history transit delay (timing hooks below); the page snapshot is taken at request time, like a real host. */
   let historyDelayMs = 0
-  /** One-shot history failure (timing hook: the doomed in-flight request of the S4 reconnect scenario). */
+  /** One-shot history failure (timing hook: a pre-disconnect history request already doomed when reconnect lands). */
   let failNextHistory = false
   /** Force-enders for currently open stream generators (timing hook: simulated connection loss). */
   const streamBreakers = new Set<() => void>()
@@ -1667,8 +1678,8 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
   /** The single opt-in browser stress producer; normal fixture journeys never start it. */
   let activeReasoningChunkStorm: ReasoningChunkStormState | null = null
 
-  // Timing-acceptance hooks (browser test backdoor): the in-memory fixture is ideally timed, which
-  // is exactly what masked the open-window and reconnect-gap bugs (audit S1/S3). These let
+  // Timing-acceptance hooks (browser test backdoor): the in-memory fixture is
+  // ideally timed. These let
   // browser acceptance runs create slow-history, lost-frame, and reconnect
   // windows a real host produces naturally.
   const timingHooks = {
@@ -1989,7 +2000,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
           sessionId: requestedId ?? sid(`fx-${nextSession++}`), updatedAt: Date.now(), running: false, blank: true, cwd,
         }
         sessions.push(created)
-        modelTargets.set(created.sessionId, { provider: 'deepseek-official', model: 'deepseek-v4-flash' })
+        modelSelections.set(created.sessionId, { provider: 'deepseek-official', model: 'deepseek-v4-flash' })
         attachedSessions += 1
         const emitSession = (): void => {
           // Mirrors the host: the frame fires at creation, so blank is constantly true.
@@ -2098,7 +2109,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
         return ok(request, { ...page, ...projections === undefined ? {} : { projections } })
       },
       models: request => ok(request, {
-        current: modelTargets.get(request.payload.sessionId)
+        current: modelSelections.get(request.payload.sessionId)
           ?? { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
         // The fixture's routes all serve; a surface exercising the blocked
         // posture drives it through its own stub.
@@ -2107,14 +2118,14 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
         failures: [],
       }),
       selectModel: (request) => {
-        const selected: ModelTarget = {
+        const selected: ModelSelection = {
           provider: request.payload.provider,
           model: request.payload.model,
           ...request.payload.reasoningEffort === undefined
             ? {}
             : { reasoningEffort: request.payload.reasoningEffort },
         }
-        modelTargets.set(request.payload.sessionId, selected)
+        modelSelections.set(request.payload.sessionId, selected)
         return ok(request, { selected })
       },
       prompt: (request) => {
@@ -2153,11 +2164,11 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
         // Capacity parallel of the host token-meter's request/context record:
         // log-only, appended inside the open turn, and deduplicated against the
         // route already recorded (the fixture never varies contextWindow).
-        const target = modelTargets.get(id) ?? { provider: 'deepseek', model: 'deepseek-v4-flash' }
-        if (lastRequestContext(logOf(id))?.model !== target.model) {
+        const selection = modelSelections.get(id) ?? { provider: 'deepseek', model: 'deepseek-v4-flash' }
+        if (lastRequestContext(logOf(id))?.model !== selection.model) {
           append(id, {
             type: 'request/context',
-            data: { provider: target.provider, model: target.model, contextWindow: 128_000 },
+            data: { provider: selection.provider, model: selection.model, contextWindow: 128_000 },
           })
         }
         startReply(
@@ -2167,9 +2178,9 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
             ? MARKDOWN_FIXTURE
             : userText === 'report model'
               ? (() => {
-                const target = modelTargets.get(id)
-                return `当前模型：${target?.provider ?? 'unknown'}/${target?.model ?? 'unknown'}`
-                  + (target?.reasoningEffort === undefined ? '' : ` · 推理等级：${target.reasoningEffort}`)
+                const selection = modelSelections.get(id)
+                return `当前模型：${selection?.provider ?? 'unknown'}/${selection?.model ?? 'unknown'}`
+                  + (selection?.reasoningEffort === undefined ? '' : ` · 推理等级：${selection.reasoningEffort}`)
               })()
               : `回声：${userText}。这是 fixture 的流式回复，用于验证打字机增长与定稿切换。`,
         )
@@ -2203,6 +2214,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
       prompt: request => Promise.resolve(ok(request, {
         messageId: `fixture-message-${request.payload.childSessionId}` as never,
       })),
+      interrupt: request => Promise.resolve(ok(request, { accepted: true as const })),
     },
     host: {
       describe: request => ok(request, { version: '0.0.0-fixture', cwd: '/tmp/fixture', attachedSessions }),
@@ -2443,6 +2455,88 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
         return ok(request, { matched: true as const, commandId })
       },
     },
+    agentPresets: {
+      // Both trusts appear, because a surface must present a locally authored
+      // preset differently from one the deployment vetted.
+      list: request => ok(request, {
+        presets: [...fixturePresets].map(([id, preset]) => ({
+          id,
+          trust: preset.trust,
+          isDefault: id === fixtureDefaultPreset,
+        })),
+        authorable: true,
+        hasDocument: true,
+      }),
+      select: (request) => {
+        fixtureDefaultPreset = request.payload.agentPreset
+        return ok(request, { agentPreset: request.payload.agentPreset })
+      },
+      read: (request) => {
+        const { agentPreset } = request.payload
+        const preset = fixturePresets.get(agentPreset)
+        if (preset === undefined) {
+          return err(request, {
+            code: 'agent-preset-not-found',
+            message: `unknown agent preset "${agentPreset}"`,
+            details: { agentPreset, available: [...fixturePresets.keys()] },
+          })
+        }
+        return ok(request, {
+          agentPreset,
+          trust: preset.trust,
+          content: preset.content,
+        })
+      },
+      copy: (request) => {
+        const { from, agentPreset } = request.payload
+        const source = fixturePresets.get(from)
+        if (source === undefined) {
+          return err(request, {
+            code: 'agent-preset-not-found',
+            message: `unknown agent preset "${from}"`,
+            details: { agentPreset: from, available: [...fixturePresets.keys()] },
+          })
+        }
+        if (fixturePresets.has(agentPreset)) {
+          return err(request, {
+            code: 'agent-preset-invalid',
+            message: `agent preset "${agentPreset}" already exists`,
+            details: { agentPreset, reason: 'already exists' },
+          })
+        }
+        fixturePresets.set(agentPreset, { trust: 'user', content: source.content })
+        return ok(request, { agentPreset })
+      },
+      // Native opens are deterministic no-op successes in this fixture, so the
+      // open-directory affordance renders and the path-text fallback stays a
+      // component-test concern.
+      openDocument: (request) => {
+        const { agentPreset } = request.payload
+        const existing = fixturePresets.get(agentPreset)
+        if (existing === undefined || existing.trust === 'system') {
+          return err(request, {
+            code: 'agent-preset-read-only',
+            message: `agent preset "${agentPreset}" ships with the deployment`,
+            details: { agentPreset, reason: 'it ships with the deployment' },
+          })
+        }
+        return ok(request, { opened: true as const })
+      },
+      remove: (request) => {
+        const { agentPreset } = request.payload
+        const existing = fixturePresets.get(agentPreset)
+        if (existing?.trust === 'system') {
+          return err(request, {
+            code: 'agent-preset-read-only',
+            message: `agent preset "${agentPreset}" ships with the deployment`,
+            details: { agentPreset, reason: 'it ships with the deployment' },
+          })
+        }
+        fixturePresets.delete(agentPreset)
+        return ok(request, {})
+      },
+    },
+
     skills: {
       list: (request) => {
         const missing = requireSession(request)
@@ -2690,8 +2784,8 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
  * Fixture platform subclass: there is no HTTP at all, so instead of a doFetch transport it
  * overrides the protocol-level virtuals (callUnary/openMux/openHost/respond) to dispatch
  * straight into the in-memory ApiProxy — while still minting rpcIds, fabricating the four
- * named full forms, and feeding the same tap as a real carrier. Delete when the fixture moves
- * to the isomorphic pipeline (InProcessApiClient over toFetchHandler(fixtureImpl)).
+ * named full forms, and feeding the same tap as a real carrier. TODO: delete when the fixture
+ * moves to the isomorphic pipeline (InProcessApiClient over toFetchHandler(fixtureImpl)).
  */
 export class FixtureApiClient extends AbstractApiClient {
   private readonly api: ApiProxy
@@ -2748,6 +2842,7 @@ export class FixtureApiClient extends AbstractApiClient {
       case 'subagent.list': return this.api.subagents.list(request)
       case 'subagent.history': return this.api.subagents.history(request)
       case 'subagent.prompt': return this.api.subagents.prompt(request, signal)
+      case 'subagent.interrupt': return this.api.subagents.interrupt(request)
       case 'host.describe': return this.api.host.describe(request)
       case 'host.pickDirectory': return this.api.host.pickDirectory(request, new AbortController().signal)
       case 'host.listDirectory': return this.api.host.listDirectory(request, new AbortController().signal)
@@ -2762,6 +2857,12 @@ export class FixtureApiClient extends AbstractApiClient {
       case 'command.list': return this.api.commands.list(request)
       case 'command.execute': return this.api.commands.execute(request, signal)
       case 'skill.list': return this.api.skills.list(request)
+      case 'agentPreset.list': return this.api.agentPresets.list(request)
+      case 'agentPreset.select': return this.api.agentPresets.select(request)
+      case 'agentPreset.read': return this.api.agentPresets.read(request)
+      case 'agentPreset.copy': return this.api.agentPresets.copy(request)
+      case 'agentPreset.openDocument': return this.api.agentPresets.openDocument(request, new AbortController().signal)
+      case 'agentPreset.remove': return this.api.agentPresets.remove(request)
       case 'goal.create': return this.api.goals.create(request)
       case 'goal.edit': return this.api.goals.edit(request)
       case 'goal.pause': return this.api.goals.pause(request)

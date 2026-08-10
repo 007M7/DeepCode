@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-07-31-browser-derived-initial-locale.md
 2026-07-31-browser-derived-initial-locale.md: 3fed32ad46f01ef3f88f3182a1cb21f40031ca1b
-2026-07-31-browser-derived-initial-locale.zh.md: d47243fb6c9dc2269e1401454b92a528a0f4476a
+2026-07-31-browser-derived-initial-locale.zh.md: 6cd11797ebc516f78a36f6c8825c4d074a7dd445

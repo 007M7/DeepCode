@@ -1,5 +1,5 @@
 /**
- * Headless popupSelect shell state (design §10): one controller per client
+ * Headless popupSelect shell state: one controller per client
  * session, owned by CommandService's per-session map and torn down by the
  * session scope disposer. The shell is a transient layer (never in the input
  * state machine): it loads options once, filters them locally against the

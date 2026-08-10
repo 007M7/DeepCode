@@ -11,7 +11,9 @@
 import { Context } from 'cordis'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render } from '@testing-library/react'
-import { createSnapshotStore, SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
+import {
+  ConversationEventRegistry, ConversationViewRegistry, createSnapshotStore, SlotsService,
+} from '@deepseek-ai/dsh-client-runtime/client'
 import type {
   ConversationSnapshot, RunningToolCall, SessionId, SessionListState,
   ToolCallBlock, ToolResultNode, WorkspaceListState,
@@ -21,6 +23,7 @@ import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
 import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
 import { apply as applyConversation, inject as injectConversation } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { apply as applyTool, inject as injectTool } from '../src/client/apply.ts'
+import { toolChatSnapshot } from './tool-details-render.tsx'
 
 const SID = 's1' as SessionId
 
@@ -75,7 +78,8 @@ function snapshotWith(
   const nestedNodes = nodes.map(node => ({ ...node, subCalls }))
   const nestedRunningCalls = runningCalls.map(call => ({ ...call, subCalls }))
   return {
-    sessionId: SID, nodes: nestedNodes, turnTimings: new Map(), turnEnds: new Map(), partial: null,
+    sessionId: SID, chat: toolChatSnapshot(nestedNodes, nestedRunningCalls),
+    nodes: nestedNodes, turnTimings: new Map(), turnEnds: new Map(), partial: null,
     runningCalls: nestedRunningCalls,
     pending: [], queue: [], running: runningCalls.length > 0, composerPhase: 'active', removed: false,
     openState: 'open', openError: null,
@@ -89,11 +93,16 @@ function AppRoot({ renderSlot }: AppRootProps) {
   return <>{renderSlot('conversation', {})}</>
 }
 
-/** Same real-stack bench as the toolview-slot spec: SlotsService + renderer + both owning package applies; fakes only at service seams. */
+/**
+ * Same real-stack bench as the toolview-slot spec: SlotsService + renderer +
+ * both owning package applies; fakes only at service boundaries.
+ */
 async function bench(snapshot: ConversationSnapshot) {
   const ctx = new Context()
   const slotsFiber = ctx.plugin(SlotsService)
   await slotsFiber.await()
+  await ctx.plugin(ConversationEventRegistry).await()
+  await ctx.plugin(ConversationViewRegistry).await()
   const slots = ctx.get('slots') as SlotsService
 
   const session = createSnapshotStore<ConversationSnapshot>(snapshot)

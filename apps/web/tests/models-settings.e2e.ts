@@ -7,7 +7,7 @@
 // provider status. The customized-settings fold writes the curated
 // reasoning field as a merge patch. Zero model calls: configuration is pure
 // settings/credentials/llm-domain traffic, so there is no fixture and a
-// stray stream would fail loud on the open seam. The provider under test is
+// stray stream would fail loud because the adapter registry is empty. The provider under test is
 // minimax-cn so a developer's real ANTHROPIC/OPENAI environment keys can
 // never shadow the derived reference. The deletion dialog distinguishes a
 // reference-free profile from a page-managed key before the credential and
@@ -85,8 +85,9 @@ describe('web e2e: Models settings page configures a dormant provider', () => {
     const key = dialog.getByLabel('API 密钥')
     const save = dialog.getByRole('button', { name: '保存', exact: true })
 
-    // The paste that used to save cleanly and then fail the first turn with a
-    // ByteString TypeError now names the field that holds it.
+    // A key no HTTP header can carry would save cleanly and fail the first
+    // turn with a ByteString TypeError; the form names the offending field
+    // instead.
     await key.fill('sk-\u{1F600}minimax')
     await dialog.getByText('该 API 密钥格式错误，请检查。').waitFor({ timeout: 10_000 })
     await expect.poll(async () => save.isEnabled(), { timeout: 10_000 }).toBe(false)

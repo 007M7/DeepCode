@@ -12,6 +12,29 @@ const AUDIT_MARKER = '<!-- dsh-issue-policy -->'
 const OWNER_LINE = /^Owner: @([A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?)$/
 const TYPES = new Set(['Idea', 'Feature', 'Bug', 'Research', 'Task'])
 const PRIORITIES = ['p0', 'p1', 'p2', 'p3']
+const PR_KINDS = new Set([
+  'kind/feature',
+  'kind/bug-fix',
+  'kind/doc',
+  'kind/testing',
+  'kind/cleanup',
+  'kind/dependency',
+])
+// Retired label aliases stay reserved so they cannot be recreated.
+const LEGACY_LABELS = new Set([
+  'kind/bug',
+  'kind/documentation',
+  'feature',
+  'bug-fix',
+  'doc',
+  'cleanup',
+  'testing',
+  'dependencies',
+  'ci',
+  'cli',
+  'llm',
+  'web-search',
+])
 const TERMINAL_STATUSES = new Set(['Done', 'No action'])
 const ACTIVE_STATUS_ORDER = config.statuses.filter((status) => !TERMINAL_STATUSES.has(status))
 
@@ -224,8 +247,14 @@ export function retainIssueReferences(references, issues) {
 export function validateIssue(issue) {
   const errors = validateBody(issue)
   const status = issue.status
+  const invalidLabels = issue.labels.filter(
+    (label) => label.startsWith('kind/') || LEGACY_LABELS.has(label),
+  )
 
   if (!/\p{Script=Han}/u.test(issue.title)) errors.push('Issue 标题必须包含中文')
+  if (invalidLabels.length > 0) {
+    errors.push(`Issue 不得使用 PR kind 或旧版标签：${invalidLabels.join(', ')}`)
+  }
   if (
     /^\s*(?:\[(?:Idea|Feature|Bug|Research|Task|P[0-3]|Inbox|Backlog|Ready|In progress|In review|Done|No action|Owner|area\/[^\]]+)[^\]]*\]|(?:Idea|Feature|Bug|Research|Task|P[0-3]|Inbox|Backlog|Ready|In progress|In review|Done|No action|Owner|area\/[^:： ]+)\s*[:：-])/iu.test(
       issue.title,
@@ -261,12 +290,24 @@ export function validateIssue(issue) {
 export function validatePullRequest(input) {
   if (!requiresPullRequestPolicy(input)) return []
   const errors = []
-  const kinds = input.labels.filter((label) => label.startsWith('kind/'))
+  const kinds = input.labels.filter((label) => PR_KINDS.has(label))
+  const unknownKinds = input.labels.filter(
+    (label) => label.startsWith('kind/') && !PR_KINDS.has(label) && !LEGACY_LABELS.has(label),
+  )
+  const legacyLabels = input.labels.filter((label) => LEGACY_LABELS.has(label))
+  const sourceLabels = input.labels.filter((label) => label.startsWith('source/'))
   const priorities = input.labels.filter((label) => PRIORITIES.includes(label))
   const areas = input.labels.filter((label) => label.startsWith('area/'))
 
   if (input.references.all.length === 0) errors.push('PR 正文必须引用至少一个同仓库 Issue')
-  if (kinds.length !== 1) errors.push(`PR 必须恰好有一个 kind/*，当前为 ${kinds.length}`)
+  if (kinds.length !== 1) {
+    errors.push(`PR 必须恰好有一个允许的 kind/*，当前为 ${kinds.length}`)
+  }
+  if (unknownKinds.length > 0) {
+    errors.push(`PR 含不支持的 kind/*：${unknownKinds.join(', ')}`)
+  }
+  if (legacyLabels.length > 0) errors.push(`PR 含旧版标签：${legacyLabels.join(', ')}`)
+  if (sourceLabels.length > 0) errors.push(`source/* 仅用于 Issue：${sourceLabels.join(', ')}`)
   if (priorities.length > 1) errors.push(`PR 最多有一个 p0–p3，当前为 ${priorities.length}`)
   if (areas.length === 0) errors.push('PR 必须至少有一个 area/*')
   for (const number of input.references.all) {

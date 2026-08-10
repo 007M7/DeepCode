@@ -8,9 +8,7 @@ Status: implemented
 
 单元测试不会覆盖组装后的完整 agent（智能体）子进程及其 ACP（Agent Client Protocol）自动化协议格式，而真实 API 测试不具确定性且受密钥门控。因此，即使单元测试覆盖率检查通过，Loader 接线、后端行为和协议输出仍可能回归，[默认导出事故复盘（postmortem）](../../../../docs/postmortem/0001-acp-default-export-drops-inject.md)已经证明了这一点。
 
-完整 transcript（文本记录）测试的阻塞因素在于模型：agent 的输出由非确定性的 LLM（大语言模型）驱动，而每次运行都命中真实 API 的密钥门控测试既不确定也无法在 CI 中运行。我们需要真实运行的保真度与 fixture（测试前置数据）的确定性兼得。
-
-本 Agent Note 记下了新增第三层测试——**快照测试**——的决策，以及让它具备确定性、在 CI 中无需密钥、且维护成本低廉的设计选择。
+完整 transcript（文本记录）测试的阻塞因素在于模型：agent 的输出由非确定性的 LLM（大语言模型）驱动，而每次运行都命中真实 API 的密钥门控测试既不确定也无法在 CI 中运行。该测试层级需要真实运行的保真度与 fixture（测试前置数据）的确定性兼得。
 
 ## 决策
 
@@ -26,7 +24,7 @@ Status: implemented
 
 `llm-replay` 短路了提供方无关的 `llm/stream` waterfall（瀑布式事件）。`deriveReplayScript()` 在终止的 `finish` 分片处切分已记录的 `assistant/chunk` 事件，并用 `(turn, step)` 变化拒绝前一条未终止的调用。携带 `llmStreamCall: true` 的 `compact/summary` 会在其持久日志位置贡献一次调用：回放根据 `rawOutput` 重建规范块边界，保留已记录的 usage（如有），并提供终止的 `stop`。该标记将这次本地调用与模板摘要或远程摘要区分开；后两者即使保留了 `rawOutput`，也未使用此上下文的适配器。
 
-### 内存中的回放条目遵守完整的 LLM 契约
+### 内存中的回放条目遵守完整的 LLM 约定
 
 `deriveReplayScript` 产出一组 `ReplayEntry`，即回放监听器按位置服务的内存单元：
 
@@ -52,7 +50,7 @@ Status: implemented
 
 快照运行断言**两个**归一化后的表面，因为 harness 的外部表面是不同的：
 
-1. **stdout transcript**——自动化客户端收到的、分帧后的 ACP JSON-RPC 响应与已提交的消息更新。它捕获传输契约的回归，与已提交的 `stdout.expected.jsonl` 比较。
+1. **stdout transcript**——自动化客户端收到的、分帧后的 ACP JSON-RPC 响应与已提交的消息更新。它捕获传输约定的回归，与已提交的 `stdout.expected.jsonl` 比较。
 2. **重新持久化的会话 JSONL**，经过规范化后与 `session.jsonl` 比较。同一 fixture 同时作为回放来源和预期日志。提示词与工具的主体内容会被清理；每种请求头类别由一个场景固定余下的请求头序列。该 pin 默认拥有可读的提示词与工具 schema 伴随文件；当完整的对应序列相同时，也可将另一个 pin 指定为其中任一来源，因此每个不同的伴随文件版本只提交一次。fixture 保护会拒绝重复的伴随文件内容，录制/刷新会拒绝生成不同字节的共享引用方。最初的请求头固定理由保留在[请求头固定 Agent Note](../../archived/testing/2026-07-06-pin-request-header-content-in-one-scenario.md)中。Override 场景仅从其伴随文件派生模型行为。
 
 两个表面互补：stdout 覆盖精简的自动化协议格式，JSONL 覆盖协议格式有意省略的 loop、工具和 boundary 结构。

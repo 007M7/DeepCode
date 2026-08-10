@@ -22,7 +22,7 @@ A thin spill storage seam plus a default spill policy plugin, in a new `packages
 | `@deepseek-ai/dsh-spill-local` | Local backend: private, session-scoped file storage on the host filesystem. |
 | `@deepseek-ai/dsh-spill-policy` | Tool-result policy plugin: wraps final text results after dispatch and replaces oversized results with a retained preview plus a spill locator. |
 
-There is no dedicated model-facing consumer package. The consumer is the existing `ctx.tools` execution pipeline: `dsh-spill-policy` consumes final tool results through the `tools/post-execute` waterfall, and the model follows the backend-supplied retrieval hint for the returned locator.
+There is no dedicated model-facing Consumer package. The Consumer is the existing `ctx.tools` execution pipeline: `dsh-spill-policy` consumes final tool results through the `tools/post-execute` waterfall, and the model follows the backend-supplied retrieval hint for the returned locator.
 
 ### Spill seam
 

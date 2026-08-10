@@ -11,12 +11,12 @@
 // gets an absolutely positioned seat instead, laid out against the padding box,
 // which the scrollbar never reduces.
 //
-// So the two tabs disagreed by exactly the bar's width for as long as the
-// transcript overflowed: the card jumped sideways on every tab switch, and
-// inside Chat alone at the moment a growing transcript started to scroll. The
-// column now reserves the gutter unconditionally (`scrollbar-gutter: stable`)
-// and states the overlay branch as a scroll container on the same axes, so both
-// edges are the same edge.
+// Without a shared reservation the two tabs disagree by exactly the bar's
+// width for as long as the transcript overflows: the card jumps sideways on
+// every tab switch, and inside Chat alone at the moment a growing transcript
+// starts to scroll. The column reserves the gutter unconditionally
+// (`scrollbar-gutter: stable`) and states the overlay branch as a scroll
+// container on the same axes, so both edges are the same edge.
 //
 // Only a real engine can show this. The seat's geometry is layout: jsdom gives
 // every element a zero-sized box and reports no scrollbar at all, so a unit spec
@@ -26,14 +26,14 @@
 //
 // The browser is launched WITHOUT Playwright's default `--hide-scrollbars`,
 // which is load-bearing rather than incidental. Under that argument a scroll
-// container's bar consumes no layout width at all, so the two tabs agree before
-// this change as much as after it and every comparison below holds vacuously —
-// measured: the pre-fix cascade leaves both tabs' bands at 0 there, against 8
-// and 0 with the argument dropped. Dropping it is also the faithful
+// container's bar consumes no layout width at all, so the two tabs agree with
+// and without the reservation and every comparison below holds vacuously —
+// measured: the unreserved cascade leaves both tabs' bands at 0 there, against
+// 8 and 0 with the argument dropped. Dropping it is also the faithful
 // configuration: ui-theme's scrollbar.css gives `::-webkit-scrollbar` a width,
 // and a bar that occupies layout space is what the product actually draws.
 //
-// The scenario runs that pre-fix cascade in the page — `scrollbar-gutter: auto`
+// The scenario runs that unreserved cascade in the page — `scrollbar-gutter: auto`
 // on the scroller, `overflow: hidden` on the overlay branch — and measures the
 // same two tabs through it, which is what keeps the equal rectangles above from
 // being explained by a tab switch that never reached the layout. It is the
@@ -64,7 +64,7 @@ const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/composer-tab-geometry', 
  * that has to be re-recorded per platform. What is recorded is the distance
  * between the two tabs' rectangles, which is zero when the reservation holds and
  * the bar's width when it does not — including under the control, so the golden
- * carries the difference the fix removes rather than only its absence.
+ * carries the shift the unreserved cascade produces rather than only its absence.
  */
 const GEOMETRY_EXPECTED = join(SNAPSHOT_DIR, 'geometry.expected.md')
 const MODE = webSnapshotMode()
@@ -114,10 +114,10 @@ async function setMeasuredViewport(
 }
 
 /**
- * The pre-fix cascade, injected into the page: the reservation dropped and the
- * overlay branch back to a hidden box. `!important` beats the module rules
- * without a rebuild, and the id lets the control be lifted again in the same
- * session.
+ * The unreserved cascade, injected into the page: the reservation dropped and
+ * the overlay branch forced to a hidden box. `!important` beats the module
+ * rules without a rebuild, and the id lets the control be lifted again in the
+ * same session.
  */
 const CONTROL_STYLE_ID = 'composer-tab-geometry-control'
 const CONTROL_CSS = `
@@ -221,9 +221,9 @@ async function compareTabs(page: Page): Promise<TabComparison> {
 }
 
 /**
- * Run the pre-fix cascade in the page for one measurement, then lift it.
+ * Run the unreserved cascade in the page for one measurement, then lift it.
  * @param page - the page under test.
- * @returns the comparison as the column laid out before this change.
+ * @returns the comparison as the column lays out without the reservation.
  */
 async function compareTabsWithoutReservation(page: Page): Promise<TabComparison> {
   await page.evaluate(({ id, css }) => {
@@ -328,7 +328,7 @@ describe('web e2e: input card position across view tabs', () => {
     await expect.poll(async () => (await measureTab(page)).scrolls, { timeout: 10_000 }).toBe(true)
     const comparison = await compareTabs(page)
     expect(comparison.chat.band).toBeGreaterThan(0)
-    // The reservation reaches both states, which is the whole change: the same
+    // The reservation reaches both states, which is the whole point: the same
     // band, on a box that scrolls and on one that only holds a view.
     expect(comparison.chat.gutter).toBe('stable')
     expect(comparison.trajectory.gutter).toBe('stable')
@@ -348,8 +348,8 @@ describe('web e2e: input card position across view tabs', () => {
     await setMeasuredViewport(page, WIDE_VIEWPORT, false)
     const comparison = await compareTabs(page)
     // The reported symptom as a number. At this viewport the card sits at its
-    // width cap, so the pre-fix shift showed up as a centring difference — half
-    // the band on each edge — rather than as a width change.
+    // width cap, so the unreserved cascade's shift shows up as a centring
+    // difference — half the band on each edge — rather than as a width change.
     expect(comparison.leftShift).toBe(0)
     expect(comparison.rightShift).toBe(0)
     expect(comparison.widthShift).toBe(0)
@@ -363,7 +363,7 @@ describe('web e2e: input card position across view tabs', () => {
     await setMeasuredViewport(page, NARROW_VIEWPORT, true)
     const comparison = await compareTabs(page)
     // The other geometry, and a different failure: below the cap the card takes
-    // the column's width, so an unreserved gutter changed its WIDTH by the whole
+    // the column's width, so an unreserved gutter changes its WIDTH by the whole
     // band instead of shifting it by half. Asserted against the capped
     // measurement rather than against the cap's pixel value, which belongs to
     // the stylesheet.
@@ -379,17 +379,17 @@ describe('web e2e: input card position across view tabs', () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-composer-tab-geometry-control'))
     await setMeasuredViewport(page, WIDE_VIEWPORT, false)
     // The control: without it, equal rectangles could also mean the tab switch
-    // never reached the layout. Under the pre-fix cascade the Chat scroller keeps
-    // its bar and the Trajectory branch goes back to a hidden box with none, and
-    // the card moves by half the band on each edge.
+    // never reached the layout. Under the unreserved cascade the Chat scroller
+    // keeps its bar and the Trajectory branch becomes a hidden box with none,
+    // and the card moves by half the band on each edge.
     const comparison = await compareTabsWithoutReservation(page)
     expect(comparison.chat.gutter).toBe('auto')
     expect(comparison.chat.band).toBeGreaterThan(0)
     expect(comparison.trajectory.band).toBe(0)
     expect(comparison.leftShift).toBe(comparison.chat.band / 2)
     expect(comparison.rightShift).toBe(comparison.chat.band / 2)
-    // Restoring the sheet restores the fix, so the control cannot leak into the
-    // remaining measurements.
+    // Restoring the sheet restores the reservation, so the control cannot leak
+    // into the remaining measurements.
     const restored = await compareTabs(page)
     expect(restored.leftShift).toBe(0)
     expect(tripwire.pageErrors).toEqual([])

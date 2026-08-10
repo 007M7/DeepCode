@@ -1,8 +1,7 @@
 /**
  * SessionsService: root sessions service — list snapshot store (manager
  * projection; carries `current`, the persisted selection every
- * session-scoped surface keys off — migrated here from ui-layout per the
- * slot-parity design), Agent scope tree (mintScope pattern: no-op plugin
+ * session-scoped surface keys off), Agent scope tree (mintScope pattern: no-op plugin
  * Fiber + ctx.extend scope tag; one scope per session, agent id === session
  * id), stable SessionBinding cache, breadcrumb-route projection.
  *
@@ -31,6 +30,7 @@ import { createSnapshotStore } from '../contract/store.ts'
 import type { SessionFace } from '../contract/session.ts'
 import type { AgentContext, ISessions } from '../contract/sessions.ts'
 import { createScope, scopeOf as scopeTagOf } from '../agents/scope.ts'
+import type { ConversationRuntime } from './conversation-assembler.ts'
 import { SessionManager } from './manager.ts'
 import type { SessionListPhase, SessionSearchResultItem, SubagentCatalogSnapshot } from './manager.ts'
 import type { PendingInteractionStatus } from './pending.ts'
@@ -45,6 +45,12 @@ export interface SessionSummary {
   /** Human-facing label: durable title, project basename, then session id. */
   displayTitle: string
   cwd?: string
+  /**
+   * Agent preset this session's agent was composed from; absent when the
+   * deployment composes no presets. The session header labels what the
+   * session actually runs rather than the deployment's current default.
+   */
+  agentPreset?: string
   parentId?: SessionId
   /** Coarse durable origin for navigation filtering; not a continuation capability. */
   origin?: 'subagent'
@@ -259,16 +265,30 @@ export class SessionsService implements ISessions {
   /**
    * @param ctx - client root context (scope fibers mount under it).
    * @param api - wire client shared with every Session.
+   * @param conversationRuntime - same-pass registry instances, when runtime apply owns them.
    */
   constructor(
     private readonly rootCtx: Context,
     api: IApiClient,
+    conversationRuntime?: ConversationRuntime,
   ) {
     this.selection = createSnapshotStore<SessionSelection>(
       {},
       { persist: { name: 'dsh.sessions.current' } })
     const restored = this.selection.getSnapshot()
-    this.manager = new SessionManager(api, restored.sessionId, restored.subagentAddress)
+    const conversationEvents = rootCtx.get('conversationEvents')
+    const conversationViews = rootCtx.get('conversationViews')
+    const conversation = conversationRuntime ?? (
+      conversationEvents === undefined || conversationViews === undefined
+        ? undefined
+        : { events: conversationEvents, views: conversationViews }
+    )
+    this.manager = new SessionManager(
+      api,
+      restored.sessionId,
+      restored.subagentAddress,
+      conversation,
+    )
     this.list = createSnapshotStore<SessionListState>({
       ids: [], byId: {}, current: undefined, phase: 'pending',
       subagentsByParent: {}, currentAddress: undefined,
@@ -296,6 +316,25 @@ export class SessionsService implements ISessions {
       resolveCurrent: () => this.maybeProvideInfo(this.list.getSnapshot().current),
     })
     this.currentProvideInfo = this.provideChannel.currentProvideInfo
+    let registryRebuildQueued = false
+    const scheduleRegistryRebuild = (): void => {
+      if (registryRebuildQueued) return
+      registryRebuildQueued = true
+      queueMicrotask(() => {
+        registryRebuildQueued = false
+        this.manager.rebuildConversationRegistry()
+      })
+    }
+    if (conversation !== undefined) {
+      rootCtx.effect(() => {
+        const disposeEvents = conversation.events.subscribe(scheduleRegistryRebuild)
+        const disposeViews = conversation.views.subscribe(scheduleRegistryRebuild)
+        return () => {
+          disposeEvents()
+          disposeViews()
+        }
+      }, 'sessions: conversation registry rebuild')
+    }
     rootCtx.reflect.provide('sessions', this, undefined)
   }
 
@@ -357,6 +396,10 @@ export class SessionsService implements ISessions {
    */
   refreshSubagents(parentSessionId: SessionId): Promise<void> {
     return this.manager.refreshSubagents(parentSessionId)
+  }
+
+  noteAgentPreset(sessionId: SessionId, agentPreset: string): void {
+    this.manager.noteAgentPreset(sessionId, agentPreset)
   }
 
   /**
@@ -488,7 +531,7 @@ export class SessionsService implements ISessions {
   }
 
   /**
-   * Read the Agent scope tag off a context. Service-method seam: fetch
+   * Read the Agent scope tag off a context. Service-method boundary: fetch
    * bundles must reach scope resolution through ctx.sessions — a cross-bundle
    * value import of the standalone helper would inline a second module
    * instance whose private tag Symbol never matches.
@@ -503,7 +546,7 @@ export class SessionsService implements ISessions {
    * Resolve the business Session behind an Agent-scoped context — the one
    * hop every scoped consumer (event listeners, per-session controllers)
    * takes from ctx-space into object-space (the client mirror of host
-   * `agent.session`). Same service-method seam as
+   * `agent.session`). Same service-method boundary as
    * {@link SessionsService.scopeOf}.
    * @param ctx - an Agent-scoped context.
    * @returns the session face, or undefined when the ctx is untagged or its scope was pruned.
@@ -571,7 +614,7 @@ export class SessionsService implements ISessions {
 
   /**
    * Lazily mint the scope + binding for an eligible session. Eligibility and
-   * prune share one predicate (decision 12): listed on the host or selected
+   * prune share one predicate: listed on the host or selected
    * through a retained subagent address. Breadcrumb-only ancestors remain
    * summary data and do not keep scopes alive.
    */
@@ -590,7 +633,7 @@ export class SessionsService implements ISessions {
       ctx,
       binding,
       session,
-      // Sources are bare observables; React binds selector hooks at its own seam.
+      // Sources are bare observables; React binds selector hooks at its own boundary.
       provideInfo: this.provideChannel.materializeInfo(binding),
     }
     this.scopes.set(id, record)
@@ -629,6 +672,7 @@ export class SessionsService implements ISessions {
         ...(entry.cwd !== undefined ? { cwd: entry.cwd } : {}),
         ...(entry.parentSessionId !== undefined ? { parentId: entry.parentSessionId } : {}),
         ...(entry.origin !== undefined ? { origin: entry.origin } : {}),
+        ...(entry.agentPreset !== undefined ? { agentPreset: entry.agentPreset } : {}),
       }
     }
     if (current !== undefined && currentAddress !== undefined) {
@@ -694,7 +738,7 @@ export class SessionsService implements ISessions {
   }
 
   /**
-   * One teardown for the whole per-session axis (decision 12): the scope
+   * One teardown for the whole per-session axis: the scope
    * fiber (cascading every actx-registered effect: input shell, slash
    * controller, popup, plugin stores, listeners), the session-keyed slot
    * stores, and the Session instance itself — the host session log is the

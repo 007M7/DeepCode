@@ -64,11 +64,11 @@ describe('parseDshArgs', () => {
       .toEqual({ mode: 'dump-config', profile: 'web', defaultOnly: true, patches: [] })
   })
 
-  it('rejects missing profile, removed flags, and contradictory inputs', () => {
+  it('rejects missing profile, flags outside the current grammar, and contradictory inputs', () => {
     expect(exitCode([])).toBe(1)
     expect(exitCode(['tui'])).toBe(1) // a bare word is a task without --profile
-    expect(exitCode(['--config', 'c.yml'])).toBe(1) // removed
-    expect(exitCode(['-p', 'task'])).toBe(1) // removed
+    expect(exitCode(['--config', 'c.yml'])).toBe(1) // outside the current grammar
+    expect(exitCode(['-p', 'task'])).toBe(1) // outside the current grammar
     expect(exitCode(['--profile', 'headless', 'task'])).toBe(1) // tasks belong to `run`
     expect(exitCode(['run'])).toBe(1)
     expect(exitCode(['run', ''])).toBe(1)

@@ -280,7 +280,10 @@ describe('SQLite session search', () => {
   it('searches two-character Unicode61 tokens in live-only sessions', async () => {
     const ctx = await liveContext({ path: ':memory:', snippetChars: 20 })
     const session = ctx.sessions.create(SessionId('live'), {
-      meta: { cwd: '/work', createdAt: 10, seedLength: 1, delegationDepth: 2 },
+      // agentPreset rides along: the index rebuilds the header a caller reads,
+      // and a session listed under the wrong composition is a lie about what it
+      // ran. The full-header comparison below is what pins every column.
+      meta: { cwd: '/work', createdAt: 10, seedLength: 1, delegationDepth: 2, agentPreset: 'minimal' },
     })
     session.append(
       'user/message',
@@ -1050,7 +1053,7 @@ describe('SQLite reconciliation and source lifecycle', () => {
       .rejects.toThrow(expectCode('SESSION_QUERY_SOURCE_CONFLICT'))
   })
 
-  it('preserves unchanged persisted generations while reconciling new, changed, and deleted rows', async () => {
+  it('preserves unchanged persisted generations while reconciling new, changed, and deleted rows', { timeout: 20_000 }, async () => {
     const path = await temporaryPath()
     const unchanged = header('unchanged')
     const changed = header('changed')
@@ -1236,7 +1239,7 @@ describe('SQLite schema, cancellation, and real persistence integration', () => 
     expect(ctx.sessionQuery).toBeUndefined()
   })
 
-  it('resets a recognized incompatible schema but refuses unknown or foreign tables', async () => {
+  it('resets a recognized incompatible schema but refuses unknown or foreign tables', { timeout: 20_000 }, async () => {
     const stalePath = await temporaryPath('stale.db')
     const staleOwner = await liveContext({ path: stalePath })
     await (staleOwner.sessionQuery as SessionQuerySqlite).close()

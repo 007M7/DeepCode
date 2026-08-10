@@ -6,7 +6,7 @@ English | [中文](2026-06-30-hook-protocol-lib.zh.md)
 
 ## Problem
 
-The hooks subsystem ships two bridge plugins: one that runs a user's existing Claude Code (CC) hooks, one for Codex hooks. Studying the reference implementations (`~/repos/refs/claude-code`, `~/repos/refs/codex`) surfaced a decisive fact: **Codex deliberately reimplements a SUBSET of the CC hook protocol.** Its engine reads the same `hooks.json`, uses the same matcher-group shape, the same exit-code/structured-stdout output contract, and the same command-hook execution model — Codex's source even names the engine after Claude's and comments where it "intentionally diverges." So the two bridges would otherwise duplicate the bulk of the protocol.
+The hooks subsystem ships two bridge plugins: one that runs a user's existing Claude Code (CC) hooks, one for Codex hooks. The reference implementations (`~/repos/refs/claude-code`, `~/repos/refs/codex`) show a decisive fact: **Codex deliberately reimplements a SUBSET of the CC hook protocol.** Its engine reads the same `hooks.json`, uses the same matcher-group shape, the same exit-code/structured-stdout output contract, and the same command-hook execution model — Codex's source even names the engine after Claude's and comments where it "intentionally diverges." So the two bridges would otherwise duplicate the bulk of the protocol.
 
 This Agent Note introduces `@deepseek-ai/dsh-hook-protocol`, a **library** (not a plugin — it registers and injects nothing) holding the genuinely-identical primitives both bridges build on. The split between shared and per-dialect is the design's center of gravity.
 
@@ -21,7 +21,7 @@ A new `packages/hooks/` group with `hook-protocol` as a pure library. It owns fo
 - **Merge** — `mergeHookOutputs(outputs)`, folding multiple matched hooks into one most-restrictive `MergedHookOutcome`: permission precedence **deny > ask > allow**, halt sticky on the first `continue:false`, block reasons joined `\n\n`, context/system-messages accumulated in order.
 - **`hook/*` session events** — `hook/invoked` / `hook/result`, declaration-merged into `SessionEventMap` (log-only, like `compact/*` — NOT `SurfaceEventType`s), with `appendHookInvoked`/`appendHookResult` helpers so the invoked/result pairing and owner-defined execution relation stay consistent across bridges. `appendHookResult` also owns the durable record's semantics — the decision string (the hook's parsed decision, else `'stop'` on `continue:false`, else `'pass'`) and the 500-character `stderrSummary` truncation derive from the `HookOutput` here, not per-bridge.
 
-**Per-dialect (the bridge plugins):** building each event's stdin payload (CC's base+per-event field sets vs Codex's snake_case with `turn_id`/`model` extras), the dialect's env + `${CLAUDE_PLUGIN_ROOT}` substitution (CC) vs none (Codex), and mapping the neutral `HookOutput`/`MergedHookOutcome` onto the harness's seam-specific typed Decisions (`PreToolDecision`, `PreStepDecision`, `ContinuationDecision`, `PostToolDecision`).
+**Per-dialect (the bridge plugins):** building each event's stdin payload (CC's base+per-event field sets vs Codex's snake_case with `turn_id`/`model` extras), the dialect's env + `${CLAUDE_PLUGIN_ROOT}` substitution (CC) vs none (Codex), and mapping the neutral `HookOutput`/`MergedHookOutcome` onto the harness's extension-point-specific typed Decisions (`PreToolDecision`, `PreStepDecision`, `ContinuationDecision`, `PostToolDecision`).
 
 ## Alternatives considered
 

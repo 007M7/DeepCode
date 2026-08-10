@@ -10,9 +10,9 @@ Status: implemented
 
 `SurfaceManager` 同时在数组、seq map 和可变 `prev`/`next` 链接中存储相同顺序。生产代码从不读取任一链接：compact 的工具配对 balance 根据按 surface 顺序缓存的每个切点 balance 作答。替换已经使用 `indexOf`，因此链接并未使其主导操作成为常数时间。使用线性替换查找的 seq 数组具有相同的渐近替换成本，却只有一种表示需要验证。
 
-请求头子系统实现了一套自定义的系统/工具增量编解码器和传输决策层，尽管其契约声明增量只是编码优化，而非可重建性要求。在每个 agent loop（智能体循环）实例边界保留初始/恢复的完整快照，然后在该实例的组装头发生变化时写入一条规范的完整 `request/header`，即可保留回放能力，同时删除 `SystemDelta`、`ToolsDelta`、往返回退逻辑以及持久化的 `request/header-delta` 变体。编解码器专属的词汇随编解码器一起消失，并非因为其各分支本身无效。
+请求头子系统实现了一套自定义的系统/工具增量编解码器和传输决策层，尽管其约定声明增量只是编码优化，而非可重建性要求。在每个 agent loop（智能体循环）实例边界保留初始/恢复的完整快照，然后在该实例的组装头发生变化时写入一条规范的完整 `request/header`，即可保留回放能力，同时删除 `SystemDelta`、`ToolsDelta`、往返回退逻辑以及持久化的 `request/header-delta` 变体。编解码器专属的词汇随编解码器一起消失，并非因为其各分支本身无效。
 
-实现保留追加与替换操作的 `sourceEventSeqs`、崩溃修复的溯源信息，以及所有 `SessionStartSource` 变体，因为这些字段承担审计/拦截职责，当前没有读取方并不能推翻这一点。
+实现保留追加与替换操作的 `sourceEventSeqs`、崩溃修复结果引用的 `tool/call` seq，以及所有 `SessionStartSource` 变体，因为这些字段承担审计/拦截职责，当前没有读取方并不能推翻这一点。
 
 ## 决策
 

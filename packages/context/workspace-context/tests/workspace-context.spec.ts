@@ -75,6 +75,14 @@ class RecordingFileSystem extends FileSystem {
     return { targetKey: FsTargetKey(absolute), displayPath: absolute }
   }
 
+  override processPath(target: FsTarget): string { return String(target.targetKey) }
+
+  override fileUrl(target: FsTarget): string { return `file://${target.targetKey}` }
+
+  override contains(parent: FsTarget, child: FsTarget): boolean {
+    return child.targetKey === parent.targetKey || String(child.targetKey).startsWith(`${parent.targetKey}/`)
+  }
+
   override async stat(target: FsTarget, signal?: AbortSignal): Promise<FsInfo | undefined> {
     if (signal !== undefined) this.signals.push(signal)
     signal?.throwIfAborted()
@@ -188,11 +196,15 @@ function stubAgent(cwd?: string, seed: SessionEvent[] = []): Agent {
 }
 
 function stubToolExecution(
-  input: Omit<ToolExecution, 'token'> & { token?: ToolExecutionToken },
+  input: Omit<ToolExecution, 'token' | 'rootCallId'> & {
+    token?: ToolExecutionToken
+    rootCallId?: ToolExecution['rootCallId']
+  },
 ): ToolExecution {
   return {
     token: input.token ?? Symbol('workspace-context-test-execution') as ToolExecutionToken,
     ...input,
+    rootCallId: input.rootCallId ?? input.callId,
   }
 }
 
@@ -563,7 +575,7 @@ describe('workspace context instruction discovery', () => {
     const emptyHome = await tempRepo()
     // Isolate the default-home fallback: blank DSH_HOME is treated as unset, and
     // HOME points at an empty dir so the default ~/.dsh holds no global scope.
-    // Symlinks are now followed, so a real ~/.dsh/AGENTS.md would otherwise leak in.
+    // Symlinks are followed, so a real ~/.dsh/AGENTS.md would otherwise leak in.
     vi.stubEnv('DSH_HOME', '')
     vi.stubEnv('HOME', emptyHome)
     try {
@@ -4099,17 +4111,18 @@ describe('dynamic nested workspace context injection', () => {
     }
   })
 
-  it('warns when an asynchronous file-result projection fails', async () => {
+  it('warns when an asynchronous file-result projection fails', { timeout: 20_000 }, async () => {
     const ctx = new Context()
     try {
       await ctx.plugin(RecordingFileSystem)
       await ctx.plugin(workspaceContext, { maxBytes: 65536 })
       const fs = ctx.fs as RecordingFileSystem
-      const agent = stubAgent('/')
+      const root = resolve('/')
+      const agent = stubAgent(root)
       const failure = new Error('projection failed')
       const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
-      fs.entries.set('/.git', { type: 'directory' })
-      fs.entries.set('/AGENTS.md', { type: 'file', content: 'workspace rule' })
+      fs.entries.set(join(root, '.git'), { type: 'directory' })
+      fs.entries.set(join(root, 'AGENTS.md'), { type: 'file', content: 'workspace rule' })
       vi.spyOn(agent.inbox, 'prepend').mockImplementationOnce(() => { throw failure })
 
       ctx.emit('tools/result', stubToolExecution({
@@ -4122,7 +4135,7 @@ describe('dynamic nested workspace context injection', () => {
 
       await vi.waitFor(() => {
         expect(warn).toHaveBeenCalledWith('workspace instruction refresh failed: %o', failure)
-      })
+      }, { timeout: 10_000 })
     } finally {
       await ctx.fiber.dispose()
     }

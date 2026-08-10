@@ -21,7 +21,7 @@ Status: implemented
 
 `assemble()` 在 `system-prompt/assemble` waterfall（瀑布式事件）之前将提供方工具归一为权威顺序，从源头消除注册顺序的差异。waterfall 从这个确定性列表开始；不变的顺序随后流入请求头、冻结的请求和重建检查，无需 loop 特有的排序逻辑。
 
-范围刻意收窄：本 Agent Note 修复的是注册顺序竞态，而非插件行为。`system-prompt/assemble` 的监听器仍然可以添加、移除或重排工具——正如它可以在 section 排序之后编辑 section——并对自身输出的确定性负责；waterfall 契约已经要求监听器是确定性的（可重建性不变式会捕获在构建与回放之间行为不一致的监听器）。
+范围刻意收窄：本 Agent Note 修复的是注册顺序竞态，而非插件行为。`system-prompt/assemble` 的监听器仍然可以添加、移除或重排工具——正如它可以在 section 排序之后编辑 section——并对自身输出的确定性负责；waterfall 约定已经要求监听器是确定性的（可重建性不变式会捕获在构建与回放之间行为不一致的监听器）。
 
 配置传递沿用 `persona` 的先例，`toolOrder` 与之并列：TUI、Headless 和 ACP 应用配置接受该键，并通过 `dsh-agent-spine-demo`（其 schema 是各所有者 schema 的交集）转发给 `SystemPrompt` 子服务。有一个 schemastery 细节至关重要：schemastery 数组默认为 `[]`，但省略的 `toolOrder` 必须保持 ABSENT（= 字典序），而不是变成一个显式配置的空列表（无效——缺少 rest 条目），因此链路上每个 schema 都将默认值强制为 `undefined`。
 
@@ -39,12 +39,12 @@ Status: implemented
 ## 后果
 
 - 每个由注册表构建的组装在任何宿主上都以确定性工具顺序开始；在没有专家监听器刻意改变的情况下，每个 `request/header` 事件和模型请求都继承该顺序。CI 与本地之间的注册顺序翻转从结构上被消除，默认为字典序。
-- 初始 `PromptAssembly.tools` 是权威的，因此 waterfall 监听器从模型侧顺序开始；提供方注册顺序在该协作 seam 之前无处可观测。
+- 初始 `PromptAssembly.tools` 是权威的，因此 waterfall 监听器从模型侧顺序开始；提供方注册顺序在该协作扩展点之前无处可观测。
 - 快照套件中唯一锁定请求头的 fixture（`text-turn`）携带新的权威工具顺序；按照锁定请求头的设计，其他 ACP 快照仍将大段 header 替换为 `{{system}}`/`{{tools}}`。
 - 步骤之间的纯工具重排与其他 header 变更一样记录：一份原因是 `'change'` 的完整 `request/header` 快照。稳定的权威顺序会防止注册时序在普通路径上制造这类变化。
 - `toolOrder` 键沿 app → `agent-core` → `SystemPrompt` 的转发链传递，因此部署时将其放在 app 配置中 `persona` 旁边即可；`dsh-llm` 和 agent loop 无需改动。
 - `toolOrder` 中拼错或未加载的工具名称在提示词组装时使轮次失败，而非启动时：loop 在轮次内部组装（`turn/start` 之后、`step/start` 之前），因此拒绝到达轮次的外层 catch——轮次以 `error` 原因完整结束并携带错误消息，`agent/error` 复现该消息，不打开步骤，不记录 `request/header`，不向适配器发出请求，agent 回到空闲状态。每个轮次都以相同方式失败，直到配置被修正；进程本身保持运行（符合仓库规则：显式配置引用不得被静默忽略——执行点是组装，因为不存在更早的通用时刻）。
-- 工具提供方返回保留的 rest 条目名称时，其提示词组装失败形态与未知的已列名称相同。这防止哨兵值变成一个歧义的真实工具，并保持「从不丢弃工具」的排序契约。
+- 工具提供方返回保留的 rest 条目名称时，其提示词组装失败形态与未知的已列名称相同。这防止哨兵值变成一个歧义的真实工具，并保持「从不丢弃工具」的排序约定。
 
 ## 测试
 
