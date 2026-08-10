@@ -1,7 +1,7 @@
 - menu:
-  - menuitem "标准模式 完整的编码 agent：文件读写、shell、检索、计划、委派与工作流。":
-    - text: 标准模式 完整的编码 agent：文件读写、shell、检索、计划、委派与工作流。
+  - menuitem "Standard mode Full coding agent with file editing, shell, file and web search, skills, planning, goals, subagents, and workflows.":
+    - text: Standard mode Full coding agent with file editing, shell, file and web search, skills, planning, goals, subagents, and workflows.
     - img
-  - menuitem "代码模式 标准模式的工具改为 Code Mode 呈现：模型写一段 TypeScript 调用 SDK，一次执行代替多轮工具调用。"
-  - menuitem "极简模式 只向模型呈现 bash 与 str_replace_editor，适合 benchmark 与最小复现。"
-  - menuitem "创造模式 标准模式加上自指工具集，可以读改自己运行的这套组装，并据此创作新的预设。"
+  - menuitem "Code mode All Standard mode capabilities, with tools exposed through the Code Mode SDK so the model can combine multi-step operations in one TypeScript program."
+  - menuitem "Minimal mode Two-tool coding agent with only bash and str_replace_editor, for benchmarks and minimal reproductions."
+  - menuitem "Creator mode Adds Cordis runtime inspection, temporary-plugin experiments, and preset-authoring guidance to Standard mode for creating new agent presets; experiments are not written back to the active built-in preset."
