@@ -24,6 +24,10 @@ packages:
 # builds must resolve those matching names to this workspace's pinned sources.
 linkWorkspacePackages: true
 
+overrides:
+  '@deepseek-ai/cosmokit': 'link:vendor/cosmokit'
+  '@deepseek-ai/schemastery': 'link:vendor/schemastery'
+
 peerDependencyRules:
   allowedVersions:
     typescript: '>=5 <7'

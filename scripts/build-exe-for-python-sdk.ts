@@ -8,7 +8,7 @@
 
 import { spawn } from 'node:child_process'
 import { existsSync, statSync } from 'node:fs'
-import { chmod, copyFile, cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { chmod, copyFile, cp, lstat, mkdir, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises'
 import { basename, dirname, join, resolve, sep } from 'node:path'
 import { parseArgs } from 'node:util'
 
@@ -259,6 +259,7 @@ class SingleExeBuild {
       this.staging,
     ])
     await this.restoreLegacyHoists()
+    await this.materializeStagedLinks()
     if (this.cli.dryRun) {
       for (const name of DEPLOY_ONLY_DOCS) console.log(`build-exe-for-python-sdk: [dry-run] rm -f ${join(this.staging, name)}`)
     } else {
@@ -309,6 +310,49 @@ class SingleExeBuild {
     if (restored.length > 0) {
       console.log(`build-exe-for-python-sdk: restored legacy deploy hoists: ${restored.join(', ')}`)
     }
+  }
+
+  /** Replace deploy-time package links with files and reject any remaining link. */
+  private async materializeStagedLinks(): Promise<void> {
+    if (this.cli.dryRun) {
+      console.log('build-exe-for-python-sdk: [dry-run] materialize staged package links')
+      return
+    }
+    const nodeModules = join(this.staging, 'node_modules')
+    let remaining = await this.findSymlink(nodeModules)
+    while (remaining !== undefined) {
+      const segments = remaining.slice(nodeModules.length + 1).split(sep)
+      const binIndex = segments.lastIndexOf('.bin')
+      if (binIndex >= 0) {
+        await rm(join(nodeModules, ...segments.slice(0, binIndex + 1)), { recursive: true, force: true })
+        remaining = await this.findSymlink(nodeModules)
+        continue
+      }
+      const destination = remaining
+      const source = await realpath(destination)
+      const nestedNodeModules = join(source, 'node_modules')
+      await rm(destination, { recursive: true, force: true })
+      await cp(source, destination, {
+        recursive: true,
+        dereference: true,
+        filter: path => path !== nestedNodeModules && !path.startsWith(nestedNodeModules + sep),
+      })
+      remaining = await this.findSymlink(nodeModules)
+    }
+  }
+
+  /** Return the first symbolic link below a directory, if one exists. */
+  private async findSymlink(directory: string): Promise<string | undefined> {
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      const path = join(directory, entry.name)
+      const metadata = await lstat(path)
+      if (metadata.isSymbolicLink()) return path
+      if (metadata.isDirectory()) {
+        const nested = await this.findSymlink(path)
+        if (nested !== undefined) return nested
+      }
+    }
+    return undefined
   }
 
   /** Add the executable entry and pkg assets to the staged manifest. */
