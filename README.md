@@ -22,7 +22,7 @@ cd deepseek-harness
 pnpm install
 ```
 
-Set `DEEPSEEK_API_KEY` in the environment or the repository's root `.env`. Run DeepSeek Harness from this checkout through the `pnpm run` commands below.
+Set `DEEPSEEK_API_KEY` in the environment or the repository's root `.env`. Run DeepSeek Harness from this checkout through the root `pnpm` scripts below.
 
 ## Use DeepSeek Harness
 
@@ -31,7 +31,7 @@ Set `DEEPSEEK_API_KEY` in the environment or the repository's root `.env`. Run D
 Start the recommended local interface from the repository root:
 
 ```sh
-pnpm run demo:web
+pnpm dsh web
 ```
 
 The command builds the repository before starting the Web UI, which is served at `http://127.0.0.1:3080` by default.
@@ -41,9 +41,9 @@ The command builds the repository before starting the Web UI, which is served at
 The source CLI boots profiles — ordered stacks of plugin-bundle patch layers under your own overrides in `$DSH_HOME/profiles/<name>`:
 
 ```sh
-pnpm run dsh --profile web                       # the browser UI
-pnpm run dsh plugin --profile tui add <package>  # install a plugin into a custom profile
-pnpm run dsh --profile tui                       # boot it
+pnpm dsh --profile web                       # the browser UI
+pnpm dsh plugin --profile tui add <package>  # install a plugin into a custom profile
+pnpm dsh --profile tui                       # boot it
 ```
 
 The [CLI reference](apps/cli/README.md#profiles) describes profile layout, layer semantics, and config dump commands.
@@ -53,7 +53,7 @@ The [CLI reference](apps/cli/README.md#profiles) describes profile layout, layer
 Run one task, print the final answer, and exit:
 
 ```sh
-pnpm run demo:headless "summarize this workspace"
+pnpm dsh run "summarize this workspace"
 ```
 
 ### Automation and SDKs

@@ -22,7 +22,7 @@ cd deepseek-harness
 pnpm install
 ```
 
-请通过环境变量或仓库根目录的 `.env` 设置 `DEEPSEEK_API_KEY`。使用下方 `pnpm run` 命令从该检出运行 DeepSeek Harness。
+请通过环境变量或仓库根目录的 `.env` 设置 `DEEPSEEK_API_KEY`。使用下方根目录 `pnpm` 脚本从该检出运行 DeepSeek Harness。
 
 ## 使用 DeepSeek Harness
 
@@ -31,7 +31,7 @@ pnpm install
 请从仓库根目录启动推荐的本地界面：
 
 ```sh
-pnpm run demo:web
+pnpm dsh web
 ```
 
 该命令会先构建仓库，再启动 Web UI。Web UI 默认通过 `http://127.0.0.1:3080` 提供服务。
@@ -41,9 +41,9 @@ pnpm run demo:web
 源码 CLI（命令行界面）会启动 profile：按序叠放的插件组合包 patch 层，之上再叠加你在 `$DSH_HOME/profiles/<name>` 中的自有覆盖层：
 
 ```sh
-pnpm run dsh --profile web                       # the browser UI
-pnpm run dsh plugin --profile tui add <package>  # install a plugin into a custom profile
-pnpm run dsh --profile tui                       # boot it
+pnpm dsh --profile web                       # the browser UI
+pnpm dsh plugin --profile tui add <package>  # install a plugin into a custom profile
+pnpm dsh --profile tui                       # boot it
 ```
 
 profile 布局、层语义与配置输出命令详见 [CLI（命令行界面）参考](apps/cli/README.md#profiles)。
@@ -53,7 +53,7 @@ profile 布局、层语义与配置输出命令详见 [CLI（命令行界面）�
 运行一项任务，打印最终答案后退出：
 
 ```sh
-pnpm run demo:headless "summarize this workspace"
+pnpm dsh run "summarize this workspace"
 ```
 
 ### 自动化与 SDK

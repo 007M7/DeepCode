@@ -4,8 +4,8 @@ import { describe, expect, it } from 'vitest'
 
 /**
  * Keyless smoke for SOURCE `dsh` execution: run `apps/cli/src/bin.ts`
- * with the exact production launch vector (`node --import tsx/esm`, the same
- * shape as the root `dsh` script) and assert the
+ * with the exact production runtime vector (`node --import tsx/esm`, the
+ * vector the root `dsh` script invokes after building) and assert the
  * required-config diagnostic. The Node compatibility matrix runs this
  * WHOLE file, so a Node release changing module hooks or TypeScript handling
  * breaks this gate instead of every developer's `pnpm dsh`; the built-bin

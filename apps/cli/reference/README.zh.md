@@ -81,4 +81,4 @@ dsh web --help
 
 ## 源码执行
 
-请从仓库根目录使用 `pnpm run dsh <args...>`。该脚本通过 `node --import tsx/esm` 启动 `apps/cli/src/bin.ts`，并转发所有参数。运行 `pnpm run build` 后，构建形式为 `apps/cli/lib/bin.js`。
+请从仓库根目录使用 `pnpm dsh <args...>`。该脚本会完成整个仓库的构建，通过 `node --import tsx/esm` 启动 `apps/cli/src/bin.ts`，并转发所有参数。安装形式会直接启动构建后的 `apps/cli/lib/bin.js`，不会重新构建仓库。

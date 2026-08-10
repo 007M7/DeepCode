@@ -12,7 +12,7 @@ Status: implemented
 
 ## 决策
 
-仓库通过 `pnpm run` 脚本支持从源码运行。根 README 指示用户克隆仓库、运行 `pnpm install`、通过环境变量或根目录 `.env` 配置凭证，并使用 `pnpm run demo:web`、`pnpm run demo:headless`、`pnpm run demo:acp` 或 `pnpm run dsh` 启动所需接口。
+仓库通过根目录的 `pnpm` 脚本支持从源码运行。`pnpm dsh <args...>` 脚本会先完成整个仓库的构建，再启动源码 CLI（命令行界面）；用户使用 `pnpm dsh web` 选择 Web，使用 `pnpm dsh run` 选择无头执行。独立的 ACP（Agent Client Protocol）示例仍可通过 `pnpm run demo:acp` 运行。
 
 仓库不分发源码安装器、安装器测试套件，也不分发依赖受管理的 `current` 符号链接和带时间戳 staging worktree 的 skill。源码检出的存放位置、Git 更新，以及用户在仓库外创建的任何启动器均由用户负责。
 
@@ -28,4 +28,4 @@ Status: implemented
 
 源码用户通过仓库脚本运行程序，而非使用已安装的 `dsh` 命令。仓库不提供原子升级切换，也不保留 staging 回滚检出；仓库同样不会自动集成个人源码修改或将其发布到上游。未来的分发机制必须说明为何应由其管理安装和升级状态，定义恢复行为，并补充测试与用户文档，同时不得让源码运行路径依赖该机制。未来任何发布工作流都必须隔离出一项获批功能，并在首次推送和创建草稿 PR（Pull Request）前取得明确批准。
 
-验证范围包括仓库内对已移除入口点的所有引用、文档链接、生成的第三方声明文件的新鲜度，以及通过 `pnpm run` 启动源码 CLI（命令行界面）的冒烟测试。
+验证范围包括仓库内对已移除入口点的所有引用、文档链接、生成的第三方声明文件的新鲜度，以及在无构建产物状态下通过 `pnpm dsh` 启动源码 CLI 的冒烟测试。

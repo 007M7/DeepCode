@@ -81,4 +81,4 @@ Install external plugin bundles through `dsh plugin --profile <name> add <packag
 
 ## Source execution
 
-From the repository root, use `pnpm run dsh <args...>`. The script launches `apps/cli/src/bin.ts` with `node --import tsx/esm` and forwards every argument. The built form is `apps/cli/lib/bin.js` after `pnpm run build`.
+From the repository root, use `pnpm dsh <args...>`. The script runs the complete repository build, launches `apps/cli/src/bin.ts` with `node --import tsx/esm`, and forwards every argument. The installed form launches the built `apps/cli/lib/bin.js` without rebuilding the repository.
