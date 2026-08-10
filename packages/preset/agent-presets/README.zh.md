@@ -55,6 +55,8 @@ agent 工厂的 `setup(agentCtx)` 钩子是唯一受支持的调用点。只有�
 
 **相对**路径仍从 preset 自身的目录解析，因此 preset 自带的插件文件与 skill 目录会随它一同迁移。
 
+**绝对**文件系统路径则保留其自身位置。挂载会先将它转换为 `file:` URL 再交给 ESM 导入，从而使 POSIX 路径和 Windows 盘符或 UNC 路径都采用 Node 能够接受的说明符。
+
 ### 展示用元信息
 
 preset 可以在组装文件旁的可选 `preset.yml` 里发布展示文本：
