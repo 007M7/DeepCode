@@ -6,6 +6,7 @@ import ToolRegistry from '@deepseek-ai/dsh-tools'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
+import { bindScopeParent, createScope, scopeOf } from '@deepseek-ai/dsh-scope'
 import { TaskId } from '@deepseek-ai/dsh-tasks'
 import LocalTaskService from '@deepseek-ai/dsh-tasks-local'
 import type { TaskHooks, TaskOutcome, TaskSnapshot, TaskStart } from '@deepseek-ai/dsh-tasks'
@@ -85,7 +86,7 @@ describe('tool-tasks setup', () => {
     const { ctx, toolsFiber } = await setup()
     expect(() => ctx.tasks.start(producer().spec)).not.toThrow()
     await toolsFiber.dispose()
-    expect(() => ctx.tasks.start(producer().spec)).toThrow('no control surface is attached')
+    expect(() => ctx.tasks.start(producer().spec)).toThrow('no control surface serves this agent')
   })
 
   it('rejects a config whose default wait exceeds the cap', async () => {
@@ -442,6 +443,54 @@ describe('tool-owned UI presentation (presentCall)', () => {
       .toEqual({ card: 'generic', title: 'List background tasks', kind: 'read' })
     expect(ctx.tools.get('task_kill')?.presentCall?.({ task_id: 'subagent-2' }))
       .toEqual({ card: 'generic', title: 'Kill background task subagent-2', kind: 'execute', rawInput: 'subagent-2' })
+  })
+})
+
+describe('completion notices across scoped mounts', () => {
+  /**
+   * Two agent presets mounting `tool-tasks` over ONE host registry: each mount
+   * registers its own `onTaskDone` listener on the shared service, and
+   * `settle()` broadcasts one snapshot to every listener with no scope filter.
+   * Only the mount whose scope the owner belongs to may deliver the notice.
+   */
+  it('delivers one notice from the owning scope when two mounts share the registry', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(LocalTaskService)
+
+    const standingA = createScope(ctx, {})
+    const standingB = createScope(ctx, {})
+    await standingA.ctx.plugin(ToolTasks)
+    await standingB.ctx.plugin(ToolTasks)
+
+    // The agent joins preset A exactly as `agentPresets.compose` binds it.
+    const agentKey = {}
+    const agentScope = createScope(ctx, agentKey)
+    bindScopeParent(agentKey, scopeOf(standingA.ctx) as object)
+
+    const inject = vi.fn()
+    const owner = {
+      id: SessionId('sess-scoped'),
+      ctx: agentScope.ctx,
+      inject,
+      session: { id: SessionId('sess-scoped'), header: { version: 0, id: SessionId('sess-scoped'), createdAt: 0 } },
+    } as unknown as Agent
+    const dispose = ctx.agents.register(owner)
+
+    try {
+      // No waiter: `settle()` leaves `reported` false, which is the only path
+      // that reaches the notice listeners at all.
+      const p = producer({ owner, label: 'pnpm test' })
+      ctx.tasks.start(p.spec)
+      p.settle({ status: 'completed', detail: 'exit code: 0' })
+      await tick()
+
+      expect(inject).toHaveBeenCalledTimes(1)
+    } finally {
+      dispose()
+    }
   })
 })
 

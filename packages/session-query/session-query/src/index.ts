@@ -257,7 +257,7 @@ export abstract class SessionQueryService extends Service {
   /**
    * Read one session's complete current model surface from one corpus observation.
    * @param sessionId - live-preferred session id to read.
-   * @returns cloned header, current surface, and raw-log capture boundary.
+   * @returns cloned header, current surface, and the last sequence number included in the raw-log capture.
    * @throws when source resolution fails or the session surface is invalid.
    */
   async readSurface(sessionId: SessionId): Promise<SessionSurfaceSnapshot> {
@@ -273,7 +273,7 @@ export abstract class SessionQueryService extends Service {
    * Trace known ancestry and descendants from one corpus observation.
    * @param sessionId - logical session id to trace.
    * @param signal - optional cancellation for persistence listing.
-   * @returns a complete lineage or an explicit unresolved parent boundary.
+   * @returns a complete lineage or the first parent that could not be resolved.
    * @throws when corpus resolution fails, the target is absent, or its known ancestry cycles.
    */
   async traceSession(sessionId: SessionId, signal?: AbortSignal): Promise<SessionLineageTrace> {

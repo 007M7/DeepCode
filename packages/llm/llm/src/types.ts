@@ -1,10 +1,11 @@
 /**
  * Canonical provider-neutral message and streaming vocabulary for the loop,
- * session log, and plugins. Adapters alone translate provider wire shapes;
+ * session log, and plugins. Adapters alone translate provider wire messages;
  * mapped interfaces make the content, source, and finish unions extensible.
  */
 
 import type { Branded } from '@deepseek-ai/dsh-brand'
+import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { CallId, ProviderRequestId, ReasoningEffortId } from './brand.ts'
 import type { Message } from './message.ts'
 
@@ -20,13 +21,13 @@ export type {
   UserMessage,
 } from './message.ts'
 
-/** Serializable provider-boundary facts; policy decides whether they are retryable. */
+/** Serializable provider or transport failure facts; policy decides whether they are retryable. */
 export interface LlmFailure {
   /** Human-readable provider or transport failure. */
   readonly message: string
   /** Stable provider-neutral machine-routing code. */
   readonly code: string
-  /** HTTP status observed at the provider boundary, when available. */
+  /** HTTP status returned by the provider, when available. */
   readonly status?: number
   /** Provider-requested delay in milliseconds, when valid and available. */
   readonly providerRetryAfterMs?: number
@@ -44,6 +45,18 @@ export interface TextBlock {
 export interface ReasoningBlock {
   type: 'reasoning'
   text: string
+}
+
+/**
+ * A durable raster image reference, valid in user or assistant content. The
+ * block is deliberately role-neutral; assistant-side rendering is forward
+ * compatibility — the current production adapters declare text-only output,
+ * so only user content carries images today.
+ */
+export interface ImageBlock {
+  type: 'image'
+  /** Immutable bytes and intrinsic display metadata owned by the attachment service. */
+  attachment: ImageAttachmentRef
 }
 
 /** A tool invocation requested by the model. */
@@ -71,11 +84,12 @@ export interface ToolResultBlock {
 export interface ContentBlockMap {
   'text': TextBlock
   'reasoning': ReasoningBlock
+  'image': ImageBlock
   'tool-call': ToolCallBlock
   'tool-result': ToolResultBlock
 }
 
-/** The block `type` tag vocabulary; widens as plugins merge new shapes into {@link ContentBlockMap}. */
+/** The block `type` tag vocabulary; widens as plugins add entries to {@link ContentBlockMap}. */
 export type ContentBlockType = keyof ContentBlockMap
 /** Any known content block, derived from {@link ContentBlockMap}; switch on `type` and fall through unknowns (merge-extensible). */
 export type ContentBlock = ContentBlockMap[ContentBlockType]
@@ -118,6 +132,15 @@ export interface LlmProviderInfo {
   /** Human-readable provider name for selectors and diagnostics. */
   name: string
 }
+
+/** Merge-extensible provider model modality vocabulary. */
+export interface ModelModalityMap {
+  text: 'text'
+  image: 'image'
+}
+
+/** Any declared provider model modality. */
+export type ModelModality = ModelModalityMap[keyof ModelModalityMap]
 
 /**
  * One provider route an adapter plugin can activate through configuration,
@@ -201,6 +224,8 @@ export interface LlmModelInfo {
   name: string
   /** Optional user-facing distinction from otherwise similar models. */
   description?: string
+  /** Accepted request modalities; absent means unknown, while an explicit omission is negative capability. */
+  inputModalities?: readonly ModelModality[]
 }
 
 /** Provider-owned context capacity for one exact provider/model route. */

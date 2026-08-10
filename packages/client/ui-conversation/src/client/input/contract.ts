@@ -6,12 +6,16 @@
  * (machine.ts) is package-private and never exported.
  */
 import type { ClientContext, SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
+import type { Branded } from '@deepseek-ai/dsh-brand'
 import type {
   ArbitrateKey, ArbitrateOutcome, CommandClaim, ConsumeTokenRequest, PickOutcome,
   ReferenceInsert, SubmitOutcome, TokenSpan,
 } from '@deepseek-ai/dsh-client-ui-slash/client'
 import type { QueueRow } from '../contract/queue.ts'
 import type { InputSubmitMode } from '../contract/composer-submission.ts'
+
+/** Browser-runtime identity of one unsent image draft. */
+export type DraftAttachmentId = Branded<'DraftAttachmentId'>
 
 /**
  * The scoped-event application verbs: the hub's bail listeners call these,
@@ -29,6 +33,12 @@ export interface InputTarget {
 export interface SessionInput extends InputTarget {
   /** Single write path for draft text (all mutation rides machine events). */
   setDraft(text: string): void
+  /** Append ordered browser-owned image ids; busy admission phases refuse. */
+  addImages(ids: readonly DraftAttachmentId[]): boolean
+  /** Remove one browser-owned image id. */
+  removeImage(id: DraftAttachmentId): void
+  /** Drop ids whose browser-owned objects no longer exist. */
+  pruneImages(ids: readonly DraftAttachmentId[]): void
   /**
    * THE complexity sink: enter adjudication, submit transaction, and the default sink live inside.
    * @param mode - delivery intent retained through asynchronous adjudication and serialization.
@@ -63,6 +73,12 @@ export interface InputService {
 export interface InputActions {
   /** Single public draft write path (full next draft; occurrence math via diff scan). */
   setDraft(text: string): void
+  /** Append ordered browser-owned image ids; busy admission phases refuse. */
+  addImages(ids: readonly DraftAttachmentId[]): boolean
+  /** Remove one browser-owned image id. */
+  removeImage(id: DraftAttachmentId): void
+  /** Drop ids whose browser-owned objects no longer exist. */
+  pruneImages(ids: readonly DraftAttachmentId[]): void
   /** Enter submission (adjudication / claim transaction / default sink inside). */
   submit(): void
 }
@@ -192,6 +208,8 @@ export interface InputMachineOptions {
 /** Published input state (the currency; per-session). */
 export interface InputState {
   readonly draft: string
+  /** Ordered runtime-only image ids; bytes and URLs stay in ConversationService. */
+  readonly imageIds: readonly DraftAttachmentId[]
   /** Monotonic draft revision (span CAS compares against this). */
   readonly draftRev: number
   readonly phase: 'plain' | 'adjudicating' | 'claimed' | 'submitting'

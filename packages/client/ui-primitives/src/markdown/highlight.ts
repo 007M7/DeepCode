@@ -196,7 +196,7 @@ let loadCount = 0
  * Subscribe to lazy-grammar load completions; `listener` fires after a
  * {@link LAZY_GRAMMARS} grammar finishes registering on the singleton, so a
  * caller that rendered its plain fallback while the grammar loaded can
- * re-highlight. Shaped as a `useSyncExternalStore` subscribe: pair it with
+ * re-highlight. Uses the `useSyncExternalStore` subscribe signature; pair it with
  * {@link grammarLoadCount} as the snapshot. Returns an unsubscribe function.
  * @param listener - invoked (no args) on each grammar-load completion.
  * @returns a disposer that removes the listener.

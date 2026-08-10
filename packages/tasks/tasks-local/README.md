@@ -12,6 +12,8 @@ Service disposal closes listeners, cancels all live tasks, awaits their records,
 
 Settlement is first-wins: the earliest terminal outcome — producer settlement, a rejected `done` contained as `failed`, or a teardown force-failure — records once, notifies listeners once with per-listener containment, and releases waiters. Pending waits mark the task reported before listeners run so completion surfaces do not duplicate notices.
 
+Surfaces and listeners are layered by the scope that registered them, in the tools-registry shape: a registration files into its registering context's scope, and a read unions the global layer with the owner's scope chain. One process-wide registry therefore answers per-owner questions per owner — `start()` refuses `background tasks unavailable: no control surface serves this agent (load @deepseek-ai/dsh-tool-tasks in its composition)` for an owner whose own composition attaches none, however many other compositions attach theirs, and a settlement reaches only the listeners its owner's composition registered.
+
 ## Model Experience
 
 Indirectly, through producer plugins and [`dsh-tool-tasks`](../tool-tasks/README.md), which render task ids, output, status, cancellation, and completion notices.

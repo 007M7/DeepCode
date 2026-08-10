@@ -136,7 +136,7 @@ interface BashRunResult {
 }
 ```
 
-Each stream is a `CollectedOutput` — the (possibly truncated) text plus recovery info; when truncated, `text` is the **tail** and the complete stream spills to a private file. The shape is owned by the [subprocess seam](subprocess.md) and re-exported by `dsh-bash`.
+Each stream is a `CollectedOutput` — the (possibly truncated) text plus recovery info; when truncated, `text` is the **tail** and the complete stream spills to a private file. The fields are owned by the [subprocess seam](subprocess.md) and re-exported by `dsh-bash`.
 
 ## File sandbox: `BashSandboxInfo`
 

@@ -33,7 +33,7 @@ export const commandExecuteRequestSchema = z.object({
   line: z.string(),
 }) satisfies z.ZodType<Wire<RequestPayload<'command.execute'>>>
 
-/** CommandId: one brand cast after shape validation (the only cast point in this domain). */
+/** CommandId: one brand cast after schema validation (the only cast point in this domain). */
 export const commandIdSchema = z.string().min(1) as unknown as z.ZodType<CommandId>
 
 /** command.execute response value: pure admission — outcomes ride the logged

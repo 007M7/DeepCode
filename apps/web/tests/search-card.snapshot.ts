@@ -4,7 +4,7 @@
 // FixtureApiClient transport (no API key, no model round), opens the fixture
 // session, and pins the search card the `grep` turn (fixture turn 67) renders in
 // the assembled application. The built-boot smoke proves the graph boots but
-// carries no behavior assertions by contract; this is the assembled-output check
+// intentionally carries no behavior assertions; this is the assembled-output check
 // that a broken SearchRow registration or a dropped card would fail — the
 // per-package suites bench over src and cannot see the bundled wiring.
 //
@@ -13,7 +13,7 @@
 // fixture, not harvested from a live model. The recovery-footer arm is a pure
 // derivation over the result view, pinned at every render site by the
 // ui-conversation suite; here the fixture turn exercises the assembled card
-// shape and its cap.
+// fields and its cap.
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
@@ -24,7 +24,7 @@ const EXPECTED = join(process.cwd(), 'apps/web/tests/snapshots/search-card/grep-
 
 installAssembledBootEnv()
 
-/** Normalize a rendered search card to a stable text shape: the kind, the banner
+/** Normalize a rendered search card to stable text fields: the kind, the banner
  *  summary, each file header (path + count), each visible match line, the expand
  *  control label, and the recovery footer. */
 function cardShape(root: Element): string {
@@ -63,7 +63,7 @@ describe('assembled search card', () => {
     }, { timeout: 10_000 })
 
     // `data-tool` sits on the ToolRow root; the collapsed row is the expand
-    // toggle. Click it so the card and its recovery footer mount, then shape the
+    // toggle. Click it so the card and its recovery footer mount, then serialize the
     // whole row (the card lives inside ToolRow's body wrapper).
     const grepRow = document.querySelector('[data-tool="grep"]')!
     act(() => { fireEvent.click(grepRow.querySelector('[data-expandable]') ?? grepRow) })

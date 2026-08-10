@@ -99,7 +99,7 @@ if (!writeMode) {
 }
 
 if (errors.length > 0) {
-  console.error('verify-archived-agent-notes: archive contract violated:')
+  console.error('verify-archived-agent-notes: archive rules violated:')
   for (const error of errors) console.error(`  ${error}`)
   process.exit(1)
 }

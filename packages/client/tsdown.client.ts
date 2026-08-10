@@ -58,7 +58,7 @@ export const CLIENT_EXTERNALS: readonly string[] = [...PLATFORM_MODULES, RUNTIME
 
 const REPOSITORY_ROOT = fileURLToPath(new URL('../..', import.meta.url))
 
-/** Rebase a physical lib-relative source onto the browser's repository-shaped URL tree. */
+/** Rebase a physical lib-relative source onto a browser URL that mirrors the repository directories. */
 function browserSourcePath(source: string, sourcemapPath: string): string {
   if (!source.startsWith('.')) return source
   const physicalSource = resolvePath(dirname(sourcemapPath), source)
@@ -71,7 +71,7 @@ function browserSourcePath(source: string, sourcemapPath: string): string {
  * plus the browser client bundle. Client packages emit both halves during the
  * Client pass by default; packages needed for Host reflection may opt into the
  * earlier Host pass. A package-level tsdown.config.ts REPLACES the root
- * workspace shape, so the lib half must be restated here — dropping it leaves
+ * workspace layout, so the lib half must be restated here — dropping it leaves
  * the package without lib/index.js and the host Loader cannot import its node
  * half.
  * @param id - plugin id (package name), stamped into the __ModuleLoader__.load
@@ -253,8 +253,8 @@ function clientConfig(id: string, entry: string): UserConfig {
     outputOptions: {
       entryFileNames: 'client.js',
       // The map is served from /plugins/<scoped-package>/client.js.map. The
-      // browser resolves its local sources back into the repository-shaped
-      // /packages/<group>/<package>/src tree; sourcesContent keeps them usable
+      // browser resolves its local sources back into URLs that mirror the
+      // /packages/<group>/<package>/src directories; sourcesContent keeps them usable
       // without exposing that tree as an HTTP route.
       sourcemapPathTransform: browserSourcePath,
       banner: `window.__ModuleLoader__.load({ id: ${JSON.stringify(id)}, factory: (require) => {`,

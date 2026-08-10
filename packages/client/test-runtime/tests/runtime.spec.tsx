@@ -520,6 +520,7 @@ describe('fixture session face', () => {
     await runtime.sessions.add({ id: 's1' })
     const bare = runtime.sessions.behavior('s1')
     expect(() => bare.prompt()).toThrow(/prompt is not stubbed/)
+    expect(() => bare.readAttachment('att-1' as Parameters<typeof bare.readAttachment>[0])).toThrow(/readAttachment is not stubbed/)
     expect(() => bare.updateQueue()).toThrow(/updateQueue is not stubbed/)
     expect(() => bare.cancel()).toThrow(/cancel is not stubbed/)
     expect(() => bare.command()).toThrow(/command is not stubbed/)
@@ -567,8 +568,8 @@ describe('workspaces action face', () => {
   it('records every IWorkspaces verb with inert defaults and honors stubs', async () => {
     const runtime = await SlotTestRuntime.create()
     const ws = runtime.workspaces
-    const created = await ws.create({ name: 'alpha' })
-    expect(created.title).toBe('alpha')
+    const created = await ws.create({ path: '/tmp/alpha' })
+    expect(created.title).toBe('/tmp/alpha')
     const registered = await ws.create({ path: '/tmp/beta' })
     expect(registered.path).toBe('/tmp/beta')
     await expect(ws.pickDirectory()).resolves.toBeNull()
@@ -592,7 +593,7 @@ describe('workspaces action face', () => {
     ws.stub('openPath', () => Promise.resolve())
     ws.stub('insertSessionBefore', () => Promise.resolve({ workspaceId: 'w1', title: '', path: '', sessionIds: [] } as never))
     ws.stub('archiveSession', () => Promise.resolve())
-    expect((await ws.create({ name: 'y' })).title).toBe('X')
+    expect((await ws.create({ path: '/y' })).title).toBe('X')
     await expect(ws.pickDirectory()).resolves.toBe('/picked')
     expect((await ws.rename('w1' as WorkspaceId, 'z')).title).toBe('S')
     await ws.delete('w1' as WorkspaceId)

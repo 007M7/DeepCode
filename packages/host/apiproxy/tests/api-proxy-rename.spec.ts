@@ -68,7 +68,7 @@ function liveAgent(ctx: Context, id: string, turns: number): Session {
   return session
 }
 
-const api = (ctx: Context) => createApiProxy(ctx, { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp', workspaceRoot: '/tmp' })
+const api = (ctx: Context) => createApiProxy(ctx, { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp' })
 
 describe('sessions.rename', () => {
   it('accepts through the composed title service: normalized user-source event, echoed seq', async () => {

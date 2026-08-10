@@ -48,6 +48,7 @@ export const SERVICE_PAGE: Record<string, string> = {
   agentPresets: 'core.md',
   agents: 'core.md',
   approval: 'approval.md',
+  attachments: 'attachment.md',
   bash: 'bash.md',
   bashEnv: 'bash.md',
   clientModuleHost: 'client-modules.md',
@@ -110,16 +111,16 @@ export const SERVICE_PAGE: Record<string, string> = {
  */
 export const SERVICE_WALK_EXEMPTIONS: Record<string, string> = {
   agent: 'not a service: the DX accessor field on Agent.ctx (root accessor defaulting to undefined) — docs/subsystems/core.md owns the Agent handle',
-  configuredAgentIdentities: 'not a service: launcher-provided boot-context value (ConfiguredAgentIdentities | undefined) — packages/core/agent-loop/README.md owns the launcher contract',
-  launcherSessionQueryPath: 'not a service: launcher-provided boot-context value (string | undefined) — packages/session-query/session-query-sqlite/README.md owns the launcher contract',
+  configuredAgentIdentities: 'not a service: launcher-provided boot-context value (ConfiguredAgentIdentities | undefined) — packages/core/agent-loop/README.md owns this launcher contract',
+  launcherSessionQueryPath: 'not a service: launcher-provided boot-context value (string | undefined) — packages/session-query/session-query-sqlite/README.md owns this launcher contract',
   dshHomePath: 'not a service: boot-provided root accessor function (typeof dshHomePath | undefined) for Loader !!js config expressions — packages/boot/app-boot/README.md owns the boot contract',
-  headlessIo: 'not a service: launcher-provided root accessor value (HeadlessIo | undefined) for the headless bundle runner — packages/bundle/headless/README.md owns the launcher contract',
-  launcherEnvironment: 'not a service: launcher-provided root accessor value (EnvironmentSnapshot | undefined) — packages/util/environment/README.md owns the launcher contract',
+  headlessIo: 'not a service: launcher-provided root accessor value (HeadlessIo | undefined) for the headless bundle runner — packages/bundle/headless/README.md owns this launcher contract',
+  launcherEnvironment: 'not a service: launcher-provided root accessor value (EnvironmentSnapshot | undefined) — packages/util/environment/README.md owns this launcher contract',
   lsp: 'interface-typed (LspService); implementing class Lsp is not the declared type name — packages/lsp/lsp/README.md owns the surface',
   apiProxy: 'interface-typed (ApiProxy) with the class in api-proxy.ts, not index.ts — packages/host/apiproxy/README.md owns the surface',
   appShell: 'client-side interface-typed browser service — packages/client/web/README.md owns the surface',
   connection: 'client-side interface-typed browser service — packages/client/connection/README.md owns the surface',
-  chatFileMentions: 'client-side slot-contract accessor (ChatFileMentions) — packages/client/ui-conversation/README.md owns the surface',
+  chatFileMentions: 'client-side slot-contract accessor (ChatFileMentions) — packages/client/ui-conversation/README.md owns the API',
   command: 'client-side interface-typed browser service — packages/client/ui-command/README.md owns the surface',
   conversation: 'client-side interface-typed browser service — packages/client/ui-conversation/README.md owns the surface',
   conversationEvents: 'client-side interface-typed registry — packages/client/runtime/README.md owns the surface',
@@ -244,6 +245,9 @@ export const LINK_MAP: Readonly<Record<string, string>> = {
   ApprovalPolicy: 'approval.md',
   ApprovalRequest: 'approval.md',
   ApprovalService: 'approval.md',
+  ImageAttachmentRef: 'attachment.md',
+  SaveImageAttachment: 'attachment.md',
+  StoredImageAttachment: 'attachment.md',
   BashExecRequest: 'bash.md',
   BashExecSpec: 'bash.md',
   BashProcess: 'bash.md',
@@ -479,13 +483,13 @@ export const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
   'z.core.ToJSONSchemaParams': 'zod projection parameters are owned by the zod v4 API',
   TypeRTDisposer: 'TypeRT lifecycle contract is owned by packages/typert/type-meta/README.md',
   InvokeRemoteRequest: 'gateway invocation contract is owned by packages/api/gateway/README.md',
-  LocaleDict: 'service-local dictionary shape is owned by packages/client/i18n/src/index.ts',
+  LocaleDict: 'service-local dictionary fields are owned by packages/client/i18n/src/index.ts',
   ThemeTokens: 'service-local token dictionary is owned by packages/client/ui-theme/src/index.ts',
   Translate: 'service-local bound translator is owned by packages/client/i18n/src/index.ts',
   WebUpgradeRoute:
     'upgrade route registration contract is owned by packages/host/webserver/src/index.ts',
   InvariantRegistration: 'service-local lifecycle handle is owned by packages/support/invariants/README.md',
-  KnobState: 'projection unit state shape is owned by packages/interaction/permission/README.md',
+  KnobState: 'projection unit state fields are owned by packages/interaction/permission/README.md',
   PermissionSelect: 'permissions projection payload is owned by packages/interaction/permission/src/types.ts',
   PromptAssembly: 'assembly result is owned by packages/core/system-prompt/README.md',
   Sandbox: 'external E2B SDK handle is owned by packages/e2b/e2b/README.md',
@@ -748,7 +752,7 @@ export function maybeRecordPair(pageRel: string, before: Map<string, Buffer>, sc
     // after review, never silently by regeneration.
     return false
   }
-  // The record must be exactly the well-formed two-entry shape for THIS pair;
+  // The record must contain exactly the two valid entries for THIS pair;
   // a malformed or renamed-key sidecar is the pairing gate's problem to
   // report, never something regeneration silently repairs into validity.
   const recorded = parsePairMeta(meta)

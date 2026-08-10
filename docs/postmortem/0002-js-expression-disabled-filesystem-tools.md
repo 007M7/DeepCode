@@ -29,7 +29,7 @@ The live confined default did not gain unintended filesystem access. A naive int
 
 ## Root cause
 
-The implementation assumed `!!js` applied to an entire Loader entry. Its actual boundary is narrower: `Entry._resolveConfig()` interpolates only `entry.options.config`; `Entry.disabled` tests `entry.options.disabled` without interpolation. The YAML tag was syntactically valid, so loading produced no diagnostic.
+The implementation assumed `!!js` applied to an entire Loader entry. It applies only to `entry.options.config`: `Entry._resolveConfig()` interpolates that field, while `Entry.disabled` tests `entry.options.disabled` without interpolation. The YAML tag was syntactically valid, so loading produced no diagnostic.
 
 The snapshot framework treated any deterministic transcript as valid behavior. Header pins verified the composed tool schemas, but the filesystem scenarios shared a pin from the default composition and therefore did not independently prove that their required tools were registered. Refresh rewrote the expected stdout and session logs before any semantic assertion rejected missing tools.
 
@@ -42,6 +42,6 @@ The snapshot framework treated any deterministic transcript as valid behavior. H
 
 ## Lessons
 
-- A syntactically accepted configuration value is not necessarily evaluated at that location; document and verify interpolation boundaries.
+- A syntactically accepted configuration value is not necessarily evaluated at that location; document and verify exactly which fields are interpolated.
 - A snapshot refresh is fixture production, not correctness review. Semantic impossibilities such as a missing registered tool need assertions independent of the expected output.
 - Permission controls must describe only the capabilities they actually govern. Composition-time filesystem access cannot follow a runtime bash-only preset safely.

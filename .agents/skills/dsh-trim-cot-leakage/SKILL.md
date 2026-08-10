@@ -24,7 +24,7 @@ For every suspect passage ask: **could a reader at HEAD, with no access to any s
 
 ## What is not leakage
 
-The citation boundary is where unaided passes fail in both directions — deleting durable references and keeping dead ones. Apply these keeps as written; [examples](references/examples.md) calibrates each:
+Unaided citation passes fail in both directions by deleting durable references and keeping dead ones. Apply these keep rules as written; [examples](references/examples.md) calibrates each:
 
 - **Issue references** — `#1470`, `TODO(name):`, "issue #N owns the follow-up" resolve at HEAD; keep them on any surface, including READMEs. Do not relocate them to Agent Notes.
 - **Merged-PR and issue citations inside Agent Notes and postmortems** — sanctioned evidence per the [documentation standard](../../../docs/AGENTS.md)'s change-story routing.
@@ -39,7 +39,7 @@ The citation boundary is where unaided passes fail in both directions — deleti
 ## Workflow
 
 1. Scope and exclusions per [dsh-prose-standard](../dsh-prose-standard/SKILL.md): require an explicit scope; never touch `vendor/`, `.agents/notes/archived/`, or recorded fixtures and snapshots — recorded model output and sealed history keep their original voice.
-2. Audit read-only first: run the [recall batteries](references/recall-batteries.md) (with `--hidden` so `.agents/` is searched), then judge every hit semantically. The batteries are probes, not the definition — each review round of the original purge surfaced shapes the batteries missed, so also read the densest prose in scope (module JSDoc, READMEs, Agent Notes) without a pattern in hand.
+2. Audit read-only first: run the [recall batteries](references/recall-batteries.md) (with `--hidden` so `.agents/` is searched), then judge every hit semantically. The batteries are probes, not the definition — each review round of the original purge found cases the batteries missed, so also read the densest prose in scope (module JSDoc, READMEs, Agent Notes) without a pattern in hand.
 3. Fix owner-first per surface: generated catalogs → fix the source JSDoc or generator template, then regenerate; type-equivalence fences → fix the source JSDoc, then re-paste both bilingual pages (`verify-type-equiv` pins them); bilingual pairs → update the counterpart and re-record per [dsh-translate-docs](../dsh-translate-docs/SKILL.md); model-visible strings → wording is behavior, so flag for a snapshot-backed change instead of silently rewording.
 4. Before deleting anything, enumerate the passage's propositions (prose-standard) and check the [overcorrection traps](references/examples.md#overcorrection-traps): trims that flip an obligation into an endorsement, promote a hypothetical to a shipped feature, delete a true fact, or drop provenance.
 5. Verify: re-run the batteries expecting only sanctioned keeps, this skill's own directory, and the owning note's quoted evidence; confirm every remaining citation resolves at HEAD; run the gates for touched surfaces (`doc-sync` for docs, `verify-type-equiv`, `verify-translation-pairing`).

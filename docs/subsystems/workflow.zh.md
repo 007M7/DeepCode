@@ -2,7 +2,7 @@
 
 [English](workflow.md) | 中文
 
-工作流 seam 允许 agent（智能体）运行由模型编写的编排脚本，并由该脚本扇出 subagent。与 [subagent](subagent.md) 一样，它是**一项可选能力**，不属于 agent loop（智能体循环）主干，因此其词汇定义在此处而非 [core.md](core.md)。与 subagent 注册表不同，它采用 bash 形态：每个上下文只有一个引擎实现提供 `ctx.workflows`；没有命名提供方注册表（第二个引擎是插件替换，而非共存）。
+工作流 seam 允许 agent（智能体）运行由模型编写、会启动 subagent 的编排脚本。与 [subagent](subagent.md) 一样，它是**一项可选能力**，不属于 agent loop，因此其类型和操作记录在此处，而非 [core.md](core.md)。与 bash 一样，每个上下文只允许一个引擎实现提供 `ctx.workflows`；没有命名提供方注册表（第二个引擎通过插件配置替换第一个，而不与它同时运行）。
 
 Service Definition：[dsh-workflow](../../packages/workflow/workflow)（`ctx.workflows` + 下文词汇）。Service provider 是 [dsh-workflow-workerthread](../../packages/workflow/workflow-workerthread)（一个 `node:worker_threads` 引擎——每个 run 一个 worker，脚本的 vm 上下文位于其中）；面向模型的 Consumer 是 [dsh-tool-workflow](../../packages/workflow/tool-workflow)。提案与设计理由见 [dynamic-workflows Agent Note](../../.agents/notes/implemented/feature/2026-07-05-dynamic-workflows.md)。
 
@@ -10,13 +10,13 @@ Service Definition：[dsh-workflow](../../packages/workflow/workflow)（`ctx.wor
 
 ## 启动请求
 
-本节定义调用方启动一次运行时提交的请求。普通工作流工具会根据模型的 `{ script, meta, args }` 调用和发起调用的 agent 构建该请求；专用消费方还可以为本次运行选择引擎级 `subagentProvider`，并将 `maxTotalAgents` 调低，但脚本无法观察或替换这两项策略。`meta` 与 `args` 是普通 JSON 数据；引擎会校验 `meta` 的形状，并在任何工作开始前大声拒绝无效数据。引擎绝不会通过对脚本文本求值来获取它们。`parent` 是必填字段——脚本生成的每个子 agent 都归属于它（cwd、谱系与深度通过 [subagent seam](subagent.md) 流转）。
+本节定义调用方启动一次运行时提交的请求。普通工作流工具会根据模型的 `{ script, meta, args }` 调用和发起调用的 agent 构建该请求；专用消费方还可以为本次运行选择引擎级 `subagentProvider`，并将 `maxTotalAgents` 调低，但脚本无法观察或替换这两项策略。`meta` 与 `args` 是普通 JSON 数据；引擎会用 schema 校验 `meta`，并在任何工作开始前拒绝无效数据。引擎绝不会通过对脚本文本求值来获取它们。`parent` 是必填字段——脚本启动的每个子 agent 都归属于它，cwd、谱系与深度通过 [subagent seam](subagent.md) 传递。
 
 ```ts type-equiv
 /**
  * What a caller asks for when starting a workflow run. `meta` and `args` are
- * plain JSON DATA by the seam contract (the tool builds both from the model's
- * schema-validated call; the engine validates `meta`'s shape and rejects loud
+ * plain JSON DATA by the seam contract (the tool builds both from the model's schema-validated call;
+ * the engine validates `meta` against its schema and rejects loud
  * before anything runs) — an engine never evaluates script text to obtain
  * them. `parent` is REQUIRED — every `agent()` the script spawns is
  * attributed to it (cwd, lineage, depth flow through the subagent seam).
@@ -24,7 +24,7 @@ Service Definition：[dsh-workflow](../../packages/workflow/workflow)（`ctx.wor
 interface WorkflowStartRequest {
   /** The plain-JS script body (top-level await allowed; ends with `return <json-value>`). */
   script: string
-  /** The workflow's identity block, as plain JSON data (shape-validated by the engine). */
+  /** The workflow's identity fields as plain JSON data, validated by the engine. */
   meta: WorkflowMeta
   /** Optional input exposed verbatim to the script as the `args` global. */
   args?: unknown

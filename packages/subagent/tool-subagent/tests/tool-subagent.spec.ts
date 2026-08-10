@@ -1027,7 +1027,7 @@ describe('background preflight failure (no orphaned child, by construction)', ()
       agent: parent,
     })
     expect(result.isError).toBe(true)
-    expect(text(result)).toContain('no control surface is attached')
+    expect(text(result)).toContain('no control surface serves this agent')
     // Declare-then-execute: the failed preflight means no child ever existed.
     expect(starts).toBe(0)
   })

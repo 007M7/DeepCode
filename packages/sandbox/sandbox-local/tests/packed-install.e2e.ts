@@ -34,6 +34,7 @@ const WORKSPACE_CLOSURE = [
   'packages/sandbox/sandbox-windows-acl',
   'packages/sandbox/sandbox',
   'packages/llm/llm',
+  'packages/attachment/attachment',
   'packages/util/brand',
   'packages/util/timeout',
   'packages/support/invariants',

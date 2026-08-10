@@ -173,7 +173,7 @@ pi-ai 会安装多个提供方 SDK，并延迟加载 catalog 模型所选的 SDK
 
 #### 模型看到的内容
 
-pi-ai 事件会变为 harness 推理、文本、工具调用、usage 与 finish 分片。已解析工具参数以原始 JSON 字符串形式通过 harness 边界传递。
+pi-ai 事件会变为 harness 推理、文本、工具调用、usage 与 finish 分片。适配器把解析后的工具参数作为原始 JSON 字符串传给 harness。
 
 #### Token 影响
 
