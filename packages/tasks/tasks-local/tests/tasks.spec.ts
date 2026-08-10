@@ -3,6 +3,8 @@ import { Context } from 'cordis'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import AgentRegistry, { Inbox } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import { bindScopeParent, createScope, scopeOf } from '@deepseek-ai/dsh-scope'
+import type { ScopeKey } from '@deepseek-ai/dsh-scope'
 import { TaskId } from '@deepseek-ai/dsh-tasks'
 import type { TaskHooks, TaskKind, TaskOutcome, TaskSnapshot, TaskStart } from '@deepseek-ai/dsh-tasks'
 import LocalTaskService from '@deepseek-ai/dsh-tasks-local'
@@ -15,9 +17,18 @@ declare module '@deepseek-ai/dsh-tasks' {
 
 const agentScopeDisposers = new WeakMap<Agent, () => Promise<void>>()
 
-function stubAgent(ctx: Context, rawId: string): Agent {
+function stubAgent(ctx: Context, rawId: string, presetScope?: ScopeKey): Agent {
   const id = SessionId(rawId)
   const scopeFiber = ctx.plugin(() => {})
+  // `presetScope` reproduces what `agentPresets.compose` does: the agent gets
+  // its own key parented to the standing mount's, so the registry's chain walk
+  // reaches that preset's layer.
+  let agentCtx = scopeFiber.ctx
+  if (presetScope !== undefined) {
+    const key = {}
+    bindScopeParent(key, presetScope)
+    agentCtx = createScope(scopeFiber.ctx, key).ctx
+  }
   const session = Session.create(id)
   const agent = {
     id,
@@ -25,7 +36,7 @@ function stubAgent(ctx: Context, rawId: string): Agent {
     session,
     inbox: new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} }),
     status: 'idle' as const,
-    ctx: scopeFiber.ctx,
+    ctx: agentCtx,
     send: () => {},
     followup: () => {},
     steer: () => ({ outcome: Promise.resolve({ status: 'rejected' as const }) }),
@@ -73,6 +84,21 @@ async function harness() {
   return ctx
 }
 
+/**
+ * Attach a control surface the way `tool-tasks` does: from a plugin whose own
+ * `inject` resolves `ctx.tasks`, so the service method binds to the REGISTERING
+ * context and the surface files into that context's scope layer. Reading the
+ * service off a bare scoped context instead throws `cannot get property "tasks"
+ * without inject`, which is the same rule the shipped plugin obeys.
+ * @param ctx - the context whose scope should own the surface.
+ */
+async function attachSurfaceIn(ctx: Context): Promise<void> {
+  await ctx.plugin({
+    inject: ['tasks'],
+    apply(pluginCtx: Context) { pluginCtx.tasks.attachSurface('tool-tasks') },
+  })
+}
+
 /** Let the settlement continuation (a `done.then`) run. */
 const tick = () => new Promise<void>(r => setTimeout(r, 0))
 
@@ -89,11 +115,48 @@ describe('LocalTaskService.start', () => {
     expectTypeOf<TaskSnapshot['ownerSession']>().toEqualTypeOf<SessionId | undefined>()
   })
 
-  it('refuses to register while no control surface is attached', async () => {
+  it('refuses to register while no control surface serves the owner', async () => {
     const ctx = new Context()
     await ctx.plugin(LocalTaskService)
     expect(() => ctx.tasks.start(producer().spec))
-      .toThrow('background tasks unavailable: no control surface is attached (load @deepseek-ai/dsh-tool-tasks)')
+      .toThrow('background tasks unavailable: no control surface serves this agent (load @deepseek-ai/dsh-tool-tasks in its composition)')
+  })
+
+  it('refuses an owner whose own composition attaches no surface', async () => {
+    const ctx = new Context()
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(LocalTaskService)
+    // Two standing preset mounts over one registry; only the first loads the
+    // task controls. The second must not inherit the first's open gate.
+    const withControls = createScope(ctx, {})
+    const withoutControls = createScope(ctx, {})
+    await attachSurfaceIn(withControls.ctx)
+
+    const served = stubAgent(ctx, 'served', scopeOf(withControls.ctx))
+    const unserved = stubAgent(ctx, 'unserved', scopeOf(withoutControls.ctx))
+    ctx.agents.register(served)
+    ctx.agents.register(unserved)
+
+    expect(() => ctx.tasks.start(producer({ owner: served }).spec)).not.toThrow()
+    expect(() => ctx.tasks.start(producer({ owner: unserved }).spec))
+      .toThrow('no control surface serves this agent')
+    // An unowned producer has no chain to walk, so only a global surface serves it.
+    expect(() => ctx.tasks.start(producer().spec))
+      .toThrow('no control surface serves this agent')
+  })
+
+  it('lets a surface attached without a scope serve every owner', async () => {
+    const ctx = new Context()
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(LocalTaskService)
+    // The host-plane composition's own controls: no scope, so the global layer
+    // holds them and every owner's read includes it.
+    await attachSurfaceIn(ctx)
+    const scoped = stubAgent(ctx, 'scoped', scopeOf(createScope(ctx, {}).ctx))
+    ctx.agents.register(scoped)
+
+    expect(() => ctx.tasks.start(producer({ owner: scoped }).spec)).not.toThrow()
+    expect(() => ctx.tasks.start(producer().spec)).not.toThrow()
   })
 
   it('rejects an empty kind, empty label, and invalid output limit', async () => {
@@ -757,6 +820,6 @@ describe('LocalTaskService disposal', () => {
     detachA2()
     expect(() => ctx.tasks.start(producer().spec)).not.toThrow() // b remains
     await fiber.dispose() // detaches b with its fiber (HMR safety)
-    expect(() => ctx.tasks.start(producer().spec)).toThrow('no control surface is attached')
+    expect(() => ctx.tasks.start(producer().spec)).toThrow('no control surface serves this agent')
   })
 })

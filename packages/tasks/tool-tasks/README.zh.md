@@ -20,7 +20,7 @@
 
 一项尚未报告的完成会把 `background task <id> (<kind>: <label>) finished [status: ...]. Read its output with task_output.` 注入到确切所有者的 next-step inbox。应用上限时，即使采用 PTY 支持的 64 字节下限，稳定 id 前缀和收集命令的优先级也高于可变 label/detail，因此通知仍可操作。注入是等待后续 pre-step 领取的持久上下文，并非唤醒；取消或 owner 释放可能在领取前丢弃它。kill 或针对已终止任务的 read/wait 会把交付标为已报告，并抑制重复通知。
 
-一个宿主注册表可能承载本插件的多份挂载——每个 agent preset 一份——而注册表会把每次结算广播给全部挂载。带 scope 的挂载只向在其自身 scope 下组合出的所有者交付，因此无论挂载了多少 preset，一个 agent 每次完成都只读到一条通知；不带 scope 的挂载是宿主平面实例，向每个所有者交付。
+一个宿主注册表可能承载本插件的多份挂载——每个 agent preset 一份。注册表会把每次结算路由给所有者 scope 链所能抵达的监听器，因此某个 preset 下的挂载永远看不到另一个 preset 的 agent，无论挂载了多少 preset，一个 agent 每次完成都只读到一条通知。同一套路由也决定本挂载的控制表层服务哪些 agent：组合中未加载 `tool-tasks` 的 agent 根本无法启动后台工作。
 
 ## 配置
 

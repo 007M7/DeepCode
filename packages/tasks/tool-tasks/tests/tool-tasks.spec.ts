@@ -86,7 +86,7 @@ describe('tool-tasks setup', () => {
     const { ctx, toolsFiber } = await setup()
     expect(() => ctx.tasks.start(producer().spec)).not.toThrow()
     await toolsFiber.dispose()
-    expect(() => ctx.tasks.start(producer().spec)).toThrow('no control surface is attached')
+    expect(() => ctx.tasks.start(producer().spec)).toThrow('no control surface serves this agent')
   })
 
   it('rejects a config whose default wait exceeds the cap', async () => {

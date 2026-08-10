@@ -23,11 +23,11 @@
 # from here; the executor behind it (`bash-sandbox`) is host-plane too, where the
 # sandbox policy owns it.
 #
-# `run_in_background` is off because this preset mounts no `tool-tasks`: the
-# host task registry gates starts on SOME control surface being attached, and
-# that set is process-wide, so another preset's controls would let this agent
-# start work it has no `task_output` to collect. Disabling drops the parameter
-# from the schema too, which is the honest surface for a two-tool benchmark.
+# `run_in_background` is off because this preset mounts no `tool-tasks`. The
+# host registry already refuses a start for an owner no attached control
+# surface serves, so this is not the safety boundary — it is the model-facing
+# one: an agent that could never collect a task should not be offered the
+# parameter at all, and disabling it drops the parameter from the schema.
 - id: tool-bash
   name: '@deepseek-ai/dsh-tool-bash'
   config:

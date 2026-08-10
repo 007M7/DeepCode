@@ -10,7 +10,6 @@ import type { Context } from 'cordis'
 import z from 'schemastery'
 import { boundContextSummary, createUserMessage, type ContentBlock } from '@deepseek-ai/dsh-llm'
 import { TextRetainer } from '@deepseek-ai/dsh-retention'
-import { scopeChainOf, scopeOf } from '@deepseek-ai/dsh-scope'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { GenericCallView, ToolDefinition, ToolExecution } from '@deepseek-ai/dsh-tools'
 import { TaskId } from '@deepseek-ai/dsh-tasks'
@@ -227,21 +226,16 @@ export function apply(ctx: Context, config: Config): void {
     text: 'Track every background task id you start. You are notified in-session when a task finishes — do not busy-poll or sleep on one; keep working on independent steps and do not duplicate a running task\'s work. Before giving a final answer, collect every still-relevant task with task_output (set wait: true only when you are genuinely blocked on it), and task_kill tasks that stopped mattering.',
   })
 
+  // Use the exact lifecycle owner; reusable ids could resolve to a replacement.
   // Delivery targets the exact lifecycle owner. The notice waits in its
   // next-step inbox until another step claims it; disposal before that
   // boundary discards it with the owner.
   //
-  // One host registry can carry SEVERAL mounts of this plugin — one per agent
-  // preset — and `settle()` broadcasts a single snapshot to every registered
-  // listener with no scope filter of its own. Each mount must therefore claim
-  // only the owners composed under it, or every mounted preset injects the
-  // same completion into the same agent and the model reads N copies of one
-  // notice. An unscoped mount is the host-plane instance that serves every
-  // agent, so it claims all of them.
-  const mountScope = scopeOf(ctx)
+  // The registry routes each settlement to the listeners its owner's scope
+  // chain reaches, so a mount under one preset never sees another preset's
+  // agents; this listener owns delivery, not the choice of whom to deliver to.
   ctx.tasks.onTaskDone((snapshot, owner) => {
     if (snapshot.reported || owner === undefined) return
-    if (mountScope !== undefined && !scopeChainOf(scopeOf(owner.ctx)).includes(mountScope)) return
     owner.inject(createUserMessage({
       content: [{
         type: 'text',

@@ -1122,11 +1122,11 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'abstract onTaskDone(listener: TaskDoneListener): () => void',
-        jsDoc: '/**\n * Register an effect-scoped completion listener. Each listener is contained;\n * returned promises are observed but not awaited. No listener runs after\n * service disposal.\n * @param listener - receives each terminal snapshot and its exact owner.\n * @returns disposer that unregisters the listener.\n */',
+        jsDoc: '/**\n * Register an effect-scoped completion listener. It receives the settlements\n * of the owners its registering context\'s scope covers; each listener is\n * contained; returned promises are observed but not awaited. No listener runs\n * after service disposal.\n * @param listener - receives each terminal snapshot and its exact owner.\n * @returns disposer that unregisters the listener.\n */',
       },
       {
         signature: 'abstract attachSurface(name: string): () => void',
-        jsDoc: '/**\n * Attach an effect-scoped surface that can read and stop tasks. {@link start}\n * refuses work while none is attached.\n * @param name - diagnostic label; duplicate names remain independent.\n * @returns disposer that detaches this surface.\n */',
+        jsDoc: '/**\n * Attach an effect-scoped surface that can read and stop tasks. It serves the\n * owners its registering context\'s scope covers, and {@link start} refuses an\n * owner no attached surface serves.\n * @param name - diagnostic label; duplicate names remain independent.\n * @returns disposer that detaches this surface.\n */',
       },
     ],
   },

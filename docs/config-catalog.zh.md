@@ -2333,7 +2333,7 @@ export interface Config {
 }
 ```
 
-来源：[`packages/tasks/tool-tasks/src/index.ts:24`](../packages/tasks/tool-tasks/src/index.ts)
+来源：[`packages/tasks/tool-tasks/src/index.ts:23`](../packages/tasks/tool-tasks/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-todo`
 
