@@ -1,6 +1,7 @@
 # Agent Note: `dsh run` 负责一次性 headless 执行
 
 Status: implemented
+Archived: 2026-08-10
 
 [English](2026-08-08-dsh-run-headless-command.md) | 中文
 

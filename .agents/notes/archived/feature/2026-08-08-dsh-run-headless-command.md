@@ -1,6 +1,7 @@
 # Agent Note: `dsh run` owns one-shot headless execution
 
 Status: implemented
+Archived: 2026-08-10
 
 English | [中文](2026-08-08-dsh-run-headless-command.zh.md)
 
