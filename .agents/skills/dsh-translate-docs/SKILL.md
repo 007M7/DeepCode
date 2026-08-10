@@ -1,9 +1,15 @@
 ---
 name: dsh-translate-docs
-description: Use when creating or updating the bilingual counterpart of a doc in this repo (English ↔ Chinese pairs) — tells the orchestrating agent when to delegate translation to a subagent, and orients the translator to the pairing contract, the terminology source of truth, the translation rules, and the consistency gate that verifies the result
+description: Manually run the extended DeepSeek Harness bilingual-document workflow, including generated briefings, delegated prose translation, whole-document translation, and scoped pairing verification.
+disable-model-invocation: true
+user-invocable: true
 ---
 
 # Translating DeepSeek-Harness docs
+
+## Invocation boundary
+
+Run this extended workflow only when the user explicitly invokes `dsh-translate-docs` by name. Never select or load it for ordinary documentation work, from another skill, or from an inferred translation need; routine translation follows the one-shot, one-pass rule in [docs/AGENTS.md](../../../docs/AGENTS.md).
 
 ## What this skill is
 
@@ -43,6 +49,7 @@ When translations need to be written from scratch, the orchestrating agent does 
 
 - **Pass 1 — write, don't transpose.** Read a semantic unit, then restate it as a native technical author in the nearest [style sample's](../../../docs/i18n/style-samples.md) register. Preserve the required frame without forcing sentence-by-sentence correspondence.
 - **Pass 2 — verify against the source, clause by clause.** Fidelity is checked here, not written in: confirm nothing was added or dropped, every term follows the table, and each code span survived verbatim. Fix by rewriting the sentence natively, not by patching words into it.
+- **Read the completed counterpart alone.** After the source comparison, read the translated file without the source beside it and rewrite phrasing whose awkwardness only becomes visible in isolation.
 - Write only the final text to the file, never drafts or notes.
 - Every term in [terminology.md](../../../docs/i18n/terminology.md) renders exactly as specified. For a Chinese target, use the Chinese and first-occurrence columns; an unlisted term needs a citable Chinese OSS/vendor precedent or stays English under 「待定术语」. For an English target, use the English column and an established English technical term; preserve an ambiguous source term with a short gloss and list it as pending. Never invent a rendering inline.
 - Code blocks are byte-identical across the pair, comments included. Relative links keep their `.md` targets; only the switcher line links `.zh.md`.

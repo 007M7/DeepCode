@@ -24,6 +24,9 @@
       "path": "../connection"
     },
     {
+      "path": "../schema-form"
+    },
+    {
       "path": "../../host/apiproxy"
     },
     {
