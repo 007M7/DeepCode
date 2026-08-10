@@ -331,6 +331,12 @@ export interface Events {
   'internal/plugin'(fiber: Fiber): void
   /** A fiber changed lifecycle state; receives the fiber and its previous state. */
   'internal/status'(fiber: Fiber, oldValue: FiberState): void
+  /**
+   * Resolve raw plugin config after the fiber's injections become active.
+   * @param config - the raw config for this activation.
+   * @mode waterfall
+   */
+  'internal/config'(this: Fiber, config: any, next: () => any): any
   /** Interception hook for a service binding (no core producer). */
   'internal/service'(this: Context, name: string, value: any): void
   /** Waterfall: a fiber config update is being applied; skip `next()` to veto. */

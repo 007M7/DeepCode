@@ -69,6 +69,10 @@ export class EntryGroup {
 
     try {
       const outcomes = await Promise.allSettled(config.map(options => this.create(options)))
+      // Disposal owns termination: sibling starts can still be settling after
+      // the containing tree has gone away, but their failures no longer
+      // describe a live update to roll back.
+      if (this.ctx.fiber.uid === null) return
       const failures = outcomes
         .filter((outcome): outcome is PromiseRejectedResult => outcome.status === 'rejected')
         .map(outcome => outcome.reason)

@@ -5,14 +5,16 @@ import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import { boot, healProfilesModuleFallback, loadOverlayPatches } from '@deepseek-ai/dsh-app-boot'
+import { provideCmdline } from '@deepseek-ai/dsh-cmdline'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { PatchOptions } from '@deepseek-ai/cordis-plugin-include'
-import { beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { resolveSessionPreset, SETTINGS_NAMESPACE } from '@deepseek-ai/dsh-agent-presets'
 import { applyChildComposition, childSessionMeta } from '@deepseek-ai/dsh-subagent'
 import { CallId } from '@deepseek-ai/dsh-llm'
+import type { BasicCompactService } from '@deepseek-ai/dsh-compact-basic'
 import type {} from '@deepseek-ai/dsh-skill'
 import type {} from '@deepseek-ai/dsh-tools'
 
@@ -23,6 +25,15 @@ const BASE_PATCH = join(REPO_ROOT, 'packages/bundle/base/cordis.patch.yml')
 const WEB_PATCH = join(REPO_ROOT, 'packages/bundle/web-app/cordis.patch.yml')
 /** The installation anchor whose dependency surface the preset module fallback mirrors. */
 const INSTALL_ANCHOR = join(REPO_ROOT, 'apps/cli/package.json')
+const MINIMAL_PROMPT = 'You are a helpful software engineer assistant.'
+const MINIMAL_BASH_DESCRIPTION = `Run commands in a bash shell
+* When invoking this tool, the contents of the "command" parameter does NOT need to be XML-escaped.
+* You don't have access to the internet via this tool.
+* You do have access to a mirror of common linux and python packages via apt and pip.
+* State is persistent across command calls and discussions with the user.
+* To inspect a particular line range of a file, e.g. lines 10-25, try 'sed -n 10,25p /path/to/the/file'.
+* Please avoid commands that may produce a very large amount of output.
+* Please run long lived commands in the background, e.g. 'sleep 10 &' or start a server in the background.`
 
 /**
  * Boot the shipped Web composition, minus the rows that would bind a port,
@@ -90,11 +101,25 @@ async function bootWeb(settingsFile: string, extra: PatchOptions[] = []): Promis
   await mkdir(profileDir, { recursive: true })
   const rootConfig = join(profileDir, 'cordis.yml')
   await writeFile(rootConfig, '[]\n')
-  return await boot('dsh-test', rootConfig, patches)
+  return await boot('dsh-test', rootConfig, patches, (bootCtx) => {
+    provideCmdline(bootCtx, { args: [], exit: () => {} })
+  })
 }
 
 const toolNames = (ctx: Context, agent?: Agent): string[] =>
   ctx.tools.schemas(agent).map(schema => schema.name).sort()
+
+function enablePresetTool(composition: string, id: string): string {
+  const row = `    - id: ${id}\n`
+  const start = composition.indexOf(row)
+  if (start < 0) throw new Error(`missing preset row ${id}`)
+  const end = composition.indexOf('\n    - id:', start + row.length)
+  const disabled = composition.indexOf('      disabled: true\n', start)
+  if (disabled < 0 || (end >= 0 && disabled > end)) {
+    throw new Error(`preset row ${id} is not disabled`)
+  }
+  return composition.slice(0, disabled) + composition.slice(disabled + '      disabled: true\n'.length)
+}
 
 let ctx: Context
 beforeAll(async () => {
@@ -135,7 +160,7 @@ describe('the shipped Web composition', () => {
       expect(toolNames(ctx, handle.agent).filter(name => name !== 'glob' && name !== 'grep')).toEqual([
         'ask_user_question', 'bash', 'create_goal', 'edit', 'exit_plan_mode',
         'get_goal', 'interrupt_agent', 'list_agents', 'ralph', 'read', 'send_message', 'skill',
-        'str_replace_editor', 'subagent', 'subagent_fork', 'task_kill',
+        'subagent', 'subagent_fork', 'task_kill',
         'task_list', 'task_output', 'todo_write', 'update_goal', 'web_search',
         'workflow', 'write',
       ])
@@ -144,14 +169,30 @@ describe('the shipped Web composition', () => {
     }
   })
 
-  it('composes exactly two tools from `minimal`', async () => {
+  it('composes the exact RL prompt and two tools from `minimal`', async () => {
     const handle = await ctx.agents.create({
       sessionId: SessionId('preset-minimal'),
       setup: agentCtx => ctx.agentPresets.mount(agentCtx, 'minimal').then(() => undefined),
     })
     try {
-      // Exactly what the preset lists — nothing arrives from the host.
-      expect(toolNames(ctx, handle.agent)).toEqual(['bash', 'str_replace_editor'])
+      const assembly = await ctx.systemPrompt.assemble({ scope: handle.agent })
+      expect(assembly.sections).toEqual([
+        { name: 'deployment:persona', text: MINIMAL_PROMPT },
+      ])
+      expect(assembly.tools.map(tool => tool.name)).toEqual(['bash', 'str_replace_editor'])
+      expect(assembly.tools.find(tool => tool.name === 'bash')?.description).toBe(MINIMAL_BASH_DESCRIPTION)
+      expect(JSON.stringify(assembly.tools.find(tool => tool.name === 'str_replace_editor')?.parameters))
+        .toContain('Absolute path')
+      const compact = ctx.agentPresets.serviceFor(handle.agent, 'compact')
+      expect(compact).toBeDefined()
+      expect((compact as BasicCompactService).config).toMatchObject({
+        thresholdRatio: 0.8,
+        retainTokens: 20480,
+        summarizationProvider: '',
+        summarizationModel: '',
+        maxTokens: 8192,
+        compactionRetries: 1,
+      })
     } finally {
       await handle.dispose()
     }
@@ -191,6 +232,7 @@ describe('the shipped Web composition', () => {
       expect(tools).toEqual(expect.arrayContaining(['cordis_inspect', 'cordis_mount', 'cordis_unmount']))
       // And it keeps the standard agent's own tools rather than replacing them.
       expect(tools).toEqual(expect.arrayContaining(['bash', 'read', 'edit', 'skill']))
+      expect(tools).not.toContain('str_replace_editor')
 
       // The preset's own authoring skill registers into ITS layer of the host
       // registry: the cordis agent's view carries it, the global view does not.
@@ -217,9 +259,9 @@ describe('the shipped Web composition', () => {
       // the capabilities — so the assembly is what carries the claim.
       const assembly = await ctx.systemPrompt.assemble({ scope: coded.agent })
       expect(assembly.tools.map(tool => tool.name)).toEqual(['run_code'])
-      expect(toolNames(ctx, coded.agent)).toContain('str_replace_editor')
+      expect(toolNames(ctx, coded.agent)).not.toContain('str_replace_editor')
       const sdk = assembly.sections.find(section => section.name === 'tools:sdk')?.text ?? ''
-      expect(sdk).toContain('str_replace_editor')
+      expect(sdk).not.toContain('str_replace_editor')
       expect(sdk).toContain('web_search')
 
       // The presentation is this agent's alone: the deployment default is
@@ -340,18 +382,96 @@ describe('the shipped Web composition', () => {
 
     expect(await readFile(path, 'utf8')).toBe(before)
   })
+})
 
-  it('gives each session its own persona', async () => {
-    const handle = await ctx.agents.create({
-      sessionId: SessionId('preset-persona'),
-      setup: agentCtx => ctx.agentPresets.mount(agentCtx, 'minimal').then(() => undefined),
+describe('product subagent rows in user presets', () => {
+  let productCtx: Context
+  const ids = ['products-none', 'products-codex', 'products-claude', 'products-both'] as const
+
+  beforeAll(async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-product-presets-'))
+    const userRoot = join(root, 'presets')
+    const settingsFile = join(root, 'settings.yaml')
+    const standard = await readFile(join(CONFIG_DIR, 'agent-presets', 'standard', 'agent.cordis.yml'), 'utf8')
+    await writeFile(settingsFile, '{}\n')
+    for (const id of ids) {
+      let composition = standard
+      if (id === 'products-codex' || id === 'products-both') {
+        composition = enablePresetTool(composition, 'tool-subagent-codex')
+      }
+      if (id === 'products-claude' || id === 'products-both') {
+        composition = enablePresetTool(composition, 'tool-subagent-claude-code')
+      }
+      const directory = join(userRoot, id)
+      await mkdir(directory, { recursive: true })
+      await writeFile(join(directory, 'agent.cordis.yml'), composition)
+    }
+    productCtx = await bootWeb(settingsFile, [{
+      id: 'agent-presets',
+      config: {
+        default: 'standard',
+        roots: [
+          { path: join(CONFIG_DIR, 'agent-presets'), trust: 'system' },
+          { path: userRoot, trust: 'user' },
+        ],
+      },
+    }])
+  }, 120_000)
+
+  afterAll(async () => {
+    await productCtx.fiber.dispose()
+  })
+
+  it('composes none, either product, or both without changing the shared host registry', async () => {
+    const expected = new Map<string, string[]>([
+      ['products-none', []],
+      ['products-codex', ['subagent_codex']],
+      ['products-claude', ['subagent_claude_code']],
+      ['products-both', ['subagent_claude_code', 'subagent_codex']],
+    ])
+    expect(productCtx.subagents.list()).toEqual(expect.arrayContaining([
+      'spawn', 'fork', 'codex', 'claude-code',
+    ]))
+
+    for (const [id, productTools] of expected) {
+      const handle = await productCtx.agents.create({
+        sessionId: SessionId(`preset-${id}`),
+        setup: agentCtx => productCtx.agentPresets.mount(agentCtx, id).then(() => undefined),
+      })
+      try {
+        const tools = toolNames(productCtx, handle.agent)
+        expect(tools.filter(name => name === 'subagent_codex' || name === 'subagent_claude_code'))
+          .toEqual(productTools)
+      } finally {
+        await handle.dispose()
+      }
+    }
+  })
+
+  it('applies a product-row edit only to later sessions on the preset', async () => {
+    const preset = await productCtx.agentPresets.resolve('products-none')
+    const original = await readFile(preset.path, 'utf8')
+    const existing = await productCtx.agents.create({
+      sessionId: SessionId('preset-product-generation-existing'),
+      setup: agentCtx => productCtx.agentPresets.mount(agentCtx, 'products-none').then(() => undefined),
     })
     try {
-      const assembly = await ctx.systemPrompt.assemble({ scope: handle.agent })
-      expect(assembly.sections.find(section => section.name === 'deployment:persona')?.text)
-        .toContain('You are a coding agent powered by')
+      expect(toolNames(productCtx, existing.agent)).not.toContain('subagent_codex')
+      await writeFile(preset.path, enablePresetTool(original, 'tool-subagent-codex'))
+
+      const later = await productCtx.agents.create({
+        sessionId: SessionId('preset-product-generation-later'),
+        setup: agentCtx => productCtx.agentPresets.mount(agentCtx, 'products-none').then(() => undefined),
+      })
+      try {
+        expect(toolNames(productCtx, existing.agent)).not.toContain('subagent_codex')
+        expect(toolNames(productCtx, later.agent)).toContain('subagent_codex')
+      } finally {
+        await later.dispose()
+      }
     } finally {
-      await handle.dispose()
+      await existing.dispose()
+      await writeFile(preset.path, original)
     }
   })
 })

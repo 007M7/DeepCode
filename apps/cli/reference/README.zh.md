@@ -2,17 +2,32 @@
 
 [English](README.md) | 中文
 
-本参考定义 profile、一次性运行、web 别名、插件管理和配置 dump 命令模式。参数由 [`src/args.ts`](../src/args.ts) 统一解析，[`src/bin.ts`](../src/bin.ts) 只动态导入选中的运行器。
+本参考定义 profile、web 别名、插件管理和配置 dump 命令模式。参数由 [`src/args.ts`](../src/args.ts) 统一解析，[`src/bin.ts`](../src/bin.ts) 只动态导入选中的运行器。
 
 ## Profile 启动
 
-`dsh --profile <name>` 启动位于 `$DSH_HOME/profiles/<name>` 的 profile。生效配置树在空根节点之上按以下顺序逐层组合：profile manifest（元数据清单）的 `dsh.profile.bundles` 列表所列的各个组合包 patch、profile 自身的 `cordis.patch.yml`、home 级的 `$DSH_HOME/cordis.patch.yml`（各 profile 共享的机器本地偏好，因此优先级高于逐 profile 的层）、按 argv 顺序的各个 `--patch <path>` overlay，以及启动器 flag patch。后应用的层按行胜出；patch 替换目标行完整的 `config` 值，而不是深度合并各键，并且可以插入新行。配置解析、schema 校验、模块解析或插件启动失败会得到报告并以非零状态退出。收到 SIGINT 或 SIGTERM 时，挂载的根节点会先 dispose（资源释放）再退出。
+`dsh --profile <name>` 启动位于 `$DSH_HOME/profiles/<name>` 的 profile。生效配置树在空根节点之上按以下顺序逐层组合：profile manifest（元数据清单）的 `dsh.profile.bundles` 列表所列的各个组合包 patch、profile 自身的 `cordis.patch.yml`、home 级的 `$DSH_HOME/cordis.patch.yml`（各 profile 共享的机器本地偏好，因此优先级高于逐 profile 的层）、以及按 argv 顺序的各个 `--patch <path>` overlay。后应用的层按行胜出；patch 替换目标行完整的 `config` 值，而不是深度合并各键，并且可以插入新行。配置解析、schema 校验、模块解析或插件启动失败会得到报告并以非零状态退出。收到 SIGINT 或 SIGTERM 时，挂载的根节点会先 dispose（资源释放）再退出。
 
 组合包名称先从 dsh 安装解析，再从 profile 目录解析。因此内置组合包（`@deepseek-ai/dsh-base`、`@deepseek-ai/dsh-web-app`、`@deepseek-ai/dsh-headless`）总是来自与正在运行的 `dsh` 相同的安装；树外组合包来自 profile 由 pnpm 管理的 `node_modules`。任何 patch 行中的裸插件 `name` 通过 profile 目录的 Node 父目录逐级查找解析，该查找可达到持续维护的安装后备目录 `$DSH_HOME/profiles/node_modules`（安装的应用和组合包所依赖的每个包对应一个符号链接，每次启动时修复）。
 
-`web` 和 `headless` profile 首次使用时会从随附模板自动初始化（`web`：base + web-app；`headless`：base + headless）。加载时，与安装所管理的 headless 元组（base + web-app + headless）完全一致的列表会规范化为随附模板；包含额外项、缺少项或调整过顺序的组合包列表由用户拥有，保持不变。其他缺失的 profile 会显式报错，并提示运行 `dsh plugin --profile <name> add <package>`。
+`web` 和 `headless` profile 首次使用时会从随附模板自动初始化（`web`：base + web-app；`headless`：base + headless）。其他缺失的 profile 会显式报错，并提示运行 `dsh plugin --profile <name> add <package>`。
 
-Profile 启动不接受位置参数任务。因此，挂载了一次性运行器行（`headless-runner`）的 profile 会显式报错，并提示规范命令 `dsh run --profile <name> "<task>"`，而不会触发该行原始的必填字段错误。
+### 应用参数
+
+启动器自己的 flag 写在最前面,并在它不认识的第一个 token 处结束;从那里开始的一切都通过 `ctx.cmdlineArgs` 原样交给启动起来的 profile,任何注入它的应用插件都可以解析([`dsh-cmdline`](../../../packages/boot/cmdline/README.md))。因此 `dsh --profile web --port 8080` 到达的是 web 应用的 `--port`,`dsh --profile web --help` 打印的是该应用的 help 且什么也不启动,而 `dsh --help`(没有可以交付的 profile)打印的是启动器自己的 help。`-V`/`--version` 写在应用参数边界之前时会打印启动器的版本。
+
+一套组合只挂载一次。普通插件注入 `cmdlineArgs`、解析本应用参数，并把结果作为服务提供出去；由 flag 配置的每一行都会注入该服务，Loader 会等服务激活后再求值该行配置（`port: !!js ctx.webStartup.port ?? 3080`），因此 flag 胜过写在它旁边的值。该优先级要求配置行保留这一表达式；若用户 patch 用字面量替换整份 `config`，运行时读取也会随之消失。help 和被拒绝的参数会请求退出——拒绝时以非零状态，help 时以 0——且不会激活依赖提供方服务的行。在线编辑 `cordis.patch.yml` 会针对仍然在线的服务重新求值表达式，因此不会重置已在服务的端口。
+
+启动器的 flag 必须写在应用参数之前，且启动器的解析器会消耗掉一个 `--`：必须以字面量 `--` 送达应用的参数需要写成 `-- --`。如果应用的第一个参数恰好等于 `web` 或 `plugin`，会选择对应的子命令。`ctx.cmdlineArgs.get()` 是共享的不可变读取：多个插件可以解析同一份快照，没有读取方的 profile 则会忽略自己的应用参数。
+
+随附的各应用持有这些命令行：
+
+| Profile | 参数 |
+|---|---|
+| `web` | `--host`、`--port`、`--dev`、可重复的 `--trusted-host` |
+| `headless` | 任务文本，作为位置参数 |
+
+一次性任务（`dsh --profile headless "run the tests"`）通过核心注册表创建一个全新的持久化 Agent（智能体），提交任务、等待完全停稳并对 Session 执行 flush，再从其持久化事件区间中推导最后一个非空 assistant 文本与最终 `turn/end` 原因。它在 stdout 打印文本，并在原因为 `completed` 时以 0 退出，否则以 1 退出。没有任务的调用是该应用的用法错误。随附 headless profile 不挂载 ApiProxy、Host、HTTP 服务器、Web 运行时或浏览器客户端；成功运行不会向 stderr 写入任何内容，也不会打开监听端口。
 
 可在不启动的情况下检查组合出的配置树：
 
@@ -21,13 +36,7 @@ dsh --profile web --dump-default-config
 dsh --profile web --patch ./extra.yml --dump-config
 ```
 
-`--dump-default-config` 只打印组合包各层；`--dump-config` 额外加上 profile 的 `cordis.patch.yml`、home 级的 `$DSH_HOME/cordis.patch.yml` 和 `--patch` overlay。两者都会打印注释，标明每行由哪个文件提供，以及哪些 overlay 修改过它；`!!js` 表达式保持未求值，找不到目标的 patch 会报告到 stderr。
-
-## 一次性运行
-
-`dsh run [--profile <name>] [--patch <path>...] <task...>` 会用空格拼接任务参数，拒绝缺失或空白任务，并让 `--profile` 默认为 `headless`。可重复使用的 `--patch` overlay 与 profile 启动的 overlay 位于同一层。所选的自定义 profile 必须挂载 `headless-runner`；否则启动器会在启动前失败，并在诊断中指明缺少该行。
-
-启动器把任务文本 patch 进运行器行。Loader 结算后，运行器读取共享的 `ctx.agentDefaultModel` 默认值，通过 `ctx.agents` 创建一个全新的持久化 Agent（智能体），提交任务、等待完全停稳并对 Session 执行 flush，再从其持久化事件区间中推导最后一个非空 assistant 文本与最终 `turn/end` 原因。它在 stdout 打印文本，并在原因为 `completed` 时以 0 退出，否则以 1 退出。随附 headless profile 不挂载 ApiProxy、Host、HTTP 服务器、Web 运行时或浏览器客户端；成功运行不会向 stderr 写入任何内容，也不会打开监听端口。
+`--dump-default-config` 只打印组合包各层；`--dump-config` 额外加上 profile 的 `cordis.patch.yml`、home 级的 `$DSH_HOME/cordis.patch.yml` 和 `--patch` overlay。两者都会打印注释，标明每行由哪个文件提供，以及哪些 overlay 修改过它；`!!js` 表达式保持未求值，找不到目标的 patch 会报告到 stderr。dump 从不运行应用命令行提供方，因此它展示的是任何应用参数被解析之前的组合配置树，并拒绝携带应用参数的调用。
 
 ## 插件管理
 
@@ -43,12 +52,13 @@ Git 托管、随附源码的插件在安装期间通过其 `prepare` 脚本构�
 
 ## Web 别名
 
-`dsh web` 是 `--profile web` 的硬编码别名，并额外接受 Web flag 系列。`--host`、`--port` 和可重复的 `--trusted-host` 值会成为作用在组合行之上的 patch；负责这些值的插件 schema 会在启动时验证它们。`--dev` 把 web-runtime 行切换到开发模式并插入客户端插件 HMR（热模块替换）接收器；若要无刷新更新客户端 bundle，还需单独运行 `pnpm run dev:web` watcher。
+`dsh web` 是 `--profile web` 的硬编码别名；写在它之后的 flag 属于 web 应用，由组合包中的普通提供方解析。`--host` 和 `--port` 覆盖承载它们的那些行的组合取值，可重复的 `--trusted-host` 通过 `ctx.webRuntime.trustedHosts` 提供本次调用的 authority（部署表达式会拼接自己的 authority），`--dev` 把 web-runtime 行切换到开发模式并启用组合包以禁用状态交付的客户端插件 HMR（热模块替换）接收器；若要无刷新更新客户端 bundle，还需单独运行 `pnpm run dev:web` watcher。
 
 ```sh
 dsh web
 dsh web --patch ./extra.cordis.yml
 dsh web --dump-config
+dsh web --help
 ```
 
 生产 Web 运行器需要已构建的包和前端产物（`pnpm run build`）。默认服务地址是 `http://127.0.0.1:3080`。绑定所有接口时，还会信任机器自动发现的 LAN IP 字面量；`--trusted-host` 可添加 `/api` 浏览器信任围栏接受的具名 authority。
@@ -59,9 +69,7 @@ dsh web --dump-config
 
 新会话默认使用 `workspace-write` 权限预设。Bash 和文件系统修改仅限于会话 workspace 与平台临时根目录；读取、网络访问和进程可见性不受限制。`DSH_PERMISSION_MODE` 更改进程后备值。General settings 中存储的权限影响后续 Web 会话，不改变已打开的会话。
 
-`DSH_TOOLS_MODE` 为进程选择 `native`、`code` 或 `both`；其他值会导致启动失败。[`config/core-web.cordis.yml`](../config/core-web.cordis.yml) 是可选的 RL 兼容 `--patch` overlay：它固定使用 `native` 模式，仅将 `DSH_SYSTEM_PROMPT` 或 `You are a helpful software engineer assistant.` 渲染为系统提示词，禁用 Workspace 指令与所有 Web 运行时提示词贡献，并且在保留随附宿主、浏览器、workspace、持久化和权限组合的同时，仅暴露持久 `bash` 和 `str_replace_editor`。
-
-`DSH_SYSTEM_PROMPT` 会传给系统提示词的 [`persona`](../../../packages/core/system-prompt/README.md#config)：完整的 `{{…}}` 分组遵循该约定的严格变量插值规则，且无法转义为字面花括号；任何已设置的值（包括空字符串）都具有权威性，因此空值会移除系统提示词，只有未设置该变量时才会选择后备值。
+`DSH_TOOLS_MODE` 为进程选择 `native`、`code` 或 `both`；其他值会导致启动失败。随附的 `minimal` agent preset 会保留该部署的呈现方式，将完整系统提示词固定为 `You are a helpful software engineer assistant.`，并且仅组合持久 `bash` 和 `str_replace_editor`。创建 Web 会话时请选择极简模式；该 agent 不包含任何其他提示词段落或面向模型的插件，而共享的浏览器、workspace、持久化、沙箱与权限宿主保持不变。
 
 ## 共享部署行为
 

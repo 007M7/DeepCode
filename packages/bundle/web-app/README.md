@@ -2,19 +2,19 @@
 
 English | [中文](README.zh.md)
 
-The dsh browser-surface bundle. [`cordis.patch.yml`](cordis.patch.yml) rides over [`dsh-base`](../base/README.md): it sets the coding persona, inserts the Web host rows (webserver, API gateway, workspace, projection cache, storage) and the browser plugin roster, and mounts this package's `web-runtime` glue plugin (config `{mode, printUrl, surfaceContext, lanAddresses}`). That plugin resolves the built frontend dist through `@deepseek-ai/dsh-frontend`'s exports, mounts the [`frontend-static`](../../host/frontend-static/README.md) fallback owner over it, registers the web-surface prompt section and the bash-visible `DSH_WEB_URL`/`DSH_WEB_MODE` runtime variables when `surfaceContext` is true, and prints the `dsh web:` URL line when `printUrl` is true. The `dsh web` launcher alias patches `mode`/`lanAddresses` and the flag family over these rows. [`dsh-headless`](../headless/README.md) is a sibling surface over the same base and does not mount this bundle.
+The dsh browser-surface bundle. [`cordis.patch.yml`](cordis.patch.yml) rides over [`dsh-base`](../base/README.md): it sets the coding persona, inserts the Web host rows (webserver, API gateway, workspace, projection cache, storage) and the browser plugin roster, and mounts this package's `web-runtime` glue plugin (config `{mode, printUrl, surfaceContext, trustedHosts}`). That plugin resolves the built frontend dist through `@deepseek-ai/dsh-frontend`'s exports, enables the optional HMR row before client-module discovery so the first development graph contains its reload receiver, samples bind-dependent LAN trust once, provides it as `webRuntime` to the browser-trust fence and client roster, mounts the [`frontend-static`](../../host/frontend-static/README.md) fallback owner, registers the harness-source and web-surface prompt sections plus the bash-visible `DSH_WEB_URL`/`DSH_WEB_MODE` runtime variables when `surfaceContext` is true, and prints the `dsh web:` URL line when `printUrl` is true, after its Loader tree settles so a sibling failure cannot announce a dead app. This bundle also owns the app command line: the ordinary `web-startup` provider ([`src/startup.ts`](src/startup.ts)) injects `ctx.cmdlineArgs` ([`dsh-cmdline`](../../boot/cmdline/README.md)), parses `--host`, `--port`, `--dev`, repeatable `--trusted-host`, and the app's `--help`, then provides `webStartup`. Flag-configured rows inject that service and read it directly from lazy config, so nothing binds a port before argument resolution and `dsh --profile web --help` starts no server. [`dsh-headless`](../headless/README.md) is a sibling surface over the same base and does not mount this bundle.
 
 ## Model Experience
 
-### Web-surface prompt section and bash runtime variables
+### Harness-source and Web-surface context
 
 #### What the model sees
 
-When `surfaceContext` is true, the `app:web-surface` global section (order −98) orients the model to the GUI: the canonical local URL, the "this page" referent, the HMR/rebuild update contract for the active mode, and the instruction not to start replacement servers. `DSH_WEB_URL` and `DSH_WEB_MODE` additionally appear in the managed bash environment with their descriptions, resolved per invocation from the live server. When it is false, neither the section nor the variables are registered.
+When `surfaceContext` is true, the `harness:source` section identifies the on-disk Harness implementation without claiming it is the working directory, and the `app:web-surface` global section (order −98) orients the model to the GUI: the canonical local URL, the "this page" referent, the HMR/rebuild update contract for the active mode, and the instruction not to start replacement servers. `DSH_WEB_URL` and `DSH_WEB_MODE` additionally appear in the managed bash environment with their descriptions, resolved per invocation from the live server. When it is false, neither section nor the variables are registered.
 
 #### Token effect
 
-One prompt paragraph per session plus two managed-environment variable lines; constant per process.
+One source line and one prompt paragraph per session plus two managed-environment variable lines; constant per process.
 
 #### KV Cache effect
 

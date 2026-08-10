@@ -35,4 +35,4 @@ node-compat CI 矩阵（Node 22.19 与 26）新增 `dsh-source-launch-smoke`（`
 - 整个 engines 范围（包括未来改变原生 TypeScript 支持的 Node 版本线）只有一个启动向量；冒烟门禁按矩阵行强制执行。
 - TypeScript 转换重新委托给 tsx/esbuild，逆转了前一篇 Agent Note「证明 Node 原生转换可用」的目标；在 vendor 源码使用不可擦除语法且 Node 不再提供 transform 模式的情况下，该目标不可达。
 - 源码启动中的运行时依赖声明强制不复存在；未声明的 workspace import 现在只能通过静态门禁或构建模式的解析失败暴露。
-- 启动相比完整 tsx 默认形态快约 0.4s（`demo:headless` 现为同一条 `dsh run` 源码启动命令的别名；ACP 保留 `--import tsx`，因为它的依赖图尚未就 CJS 钩子依赖性做审计，且其启动延迟不在交互路径上）。
+- 启动相比完整 tsx 默认形态快约 0.4s（`demo:headless` 现为同一条 `dsh --profile headless` 源码启动命令的别名；ACP 保留 `--import tsx`，因为它的依赖图尚未就 CJS 钩子依赖性做审计，且其启动延迟不在交互路径上）。
