@@ -126,6 +126,9 @@ const packageFileExtras: Readonly<Record<string, readonly string[]>> = {
   '@deepseek-ai/dsh-headless': ['cordis.patch.yml'],
   '@deepseek-ai/dsh-client-ui-theme': ['lib/styles'],
   '@deepseek-ai/dsh-helper': ['lib/assets'],
+  // The Python runtime uses a distinct closed-resolution bin; the public CLI
+  // keeps config-owned bare-package resolution through lib/bin.js.
+  '@deepseek-ai/dsh-jsonrpc-demo': ['lib/packaged-bin.js'],
   // The argv-prefix runner entry ships beside the lib as its own bundle;
   // sandbox-local resolves it through the package's ./runner export. tsdown
   // also shares its generated FFI code through a hashed runtime chunk.
