@@ -1,5 +1,5 @@
 /** Test-owned sessions face: the SlotsService host contract over declarative fixtures. */
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import type { AttachmentIdType } from '@deepseek-ai/dsh-attachment'
 import { createScope, scopeOf, SessionProvideChannel } from '@deepseek-ai/dsh-client-runtime/client'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'

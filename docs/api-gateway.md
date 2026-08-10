@@ -17,7 +17,7 @@ Services normally extend `GatewayService` so the constructor explicitly binds th
 ```ts
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { GatewayService, Remote, RemoteScope } from '@deepseek-ai/dsh-type-meta'
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 
 export interface CreateGoalRequest {
   objective: string
@@ -60,7 +60,7 @@ The Client uses concrete functions on ordinary objects, not a JavaScript Proxy. 
 ```ts ignore-check
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { AgentContext } from '@deepseek-ai/dsh-client-runtime/client'
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
 
 export const inject = ['remote', 'remote.goals']

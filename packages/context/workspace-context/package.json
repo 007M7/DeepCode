@@ -32,13 +32,13 @@
     "@deepseek-ai/dsh-paths": "^0.0.1",
     "@deepseek-ai/dsh-session": "^0.0.1",
     "@deepseek-ai/dsh-tools": "^0.0.1",
-    "cordis": "^4.0.0-rc.6"
+    "@deepseek-ai/cordis": "^4.0.0-rc.6"
   },
   "dependencies": {
-    "schemastery": "^3.18.0"
+    "@deepseek-ai/schemastery": "^3.18.0"
   },
   "devDependencies": {
-    "@cordisjs/plugin-loader": "workspace:^",
+    "@deepseek-ai/cordis-plugin-loader": "workspace:^",
     "@deepseek-ai/dsh-agent": "workspace:^",
     "@deepseek-ai/dsh-agent-loop": "workspace:^",
     "@deepseek-ai/dsh-fs": "workspace:^",
@@ -51,6 +51,6 @@
     "@deepseek-ai/dsh-system-prompt": "workspace:^",
     "@deepseek-ai/dsh-tool-fs": "workspace:^",
     "@deepseek-ai/dsh-tools": "workspace:^",
-    "cordis": "^4.0.0-rc.6"
+    "@deepseek-ai/cordis": "^4.0.0-rc.6"
   }
 }

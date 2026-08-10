@@ -26,7 +26,7 @@
   "license": "BSD-3-Clause",
   "dependencies": {
     "@vscode/ripgrep": "^1.18.0",
-    "schemastery": "^3.18.0"
+    "@deepseek-ai/schemastery": "^3.18.0"
   },
   "peerDependencies": {
     "@deepseek-ai/dsh-invariants": "^0.0.1",
@@ -38,7 +38,7 @@
     "@deepseek-ai/dsh-system-prompt": "^0.0.1",
     "@deepseek-ai/dsh-timeout": "^0.0.1",
     "@deepseek-ai/dsh-tools": "^0.0.1",
-    "cordis": "^4.0.0-rc.6"
+    "@deepseek-ai/cordis": "^4.0.0-rc.6"
   },
   "devDependencies": {
     "@deepseek-ai/dsh-agent": "workspace:^",
@@ -52,6 +52,6 @@
     "@deepseek-ai/dsh-system-prompt": "workspace:^",
     "@deepseek-ai/dsh-timeout": "workspace:^",
     "@deepseek-ai/dsh-tools": "workspace:^",
-    "cordis": "^4.0.0-rc.6"
+    "@deepseek-ai/cordis": "^4.0.0-rc.6"
   }
 }

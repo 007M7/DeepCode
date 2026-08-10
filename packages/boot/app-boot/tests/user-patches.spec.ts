@@ -9,10 +9,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
-import { Context } from 'cordis'
-import Hmr from '@cordisjs/plugin-hmr'
-import Loader from '@cordisjs/plugin-loader'
-import Timer from '@cordisjs/plugin-timer'
+import { Context } from '@deepseek-ai/cordis'
+import Hmr from '@deepseek-ai/cordis-plugin-hmr'
+import Loader from '@deepseek-ai/cordis-plugin-loader'
+import Timer from '@deepseek-ai/cordis-plugin-timer'
 import {
   boot,
   loadOptionalPatches,

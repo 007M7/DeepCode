@@ -36,7 +36,7 @@ export type {
 } from './contract/slots.ts'
 // Export discipline: packages/client/AGENTS.md.
 
-declare module 'cordis' {
+declare module '@deepseek-ai/cordis' {
   interface Context {
     /** The outward face only; the concrete service stays inside this plugin. */
     conversation: import('./service.ts').IConversation
