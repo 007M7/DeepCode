@@ -64,7 +64,11 @@ export interface SubagentRunEndInfo {
   readonly local: boolean
   /** The terminal stop reason. */
   readonly stopReason: SubagentResult['stopReason']
-  /** The child's final assistant output, absent on infrastructure rejection. */
+  /**
+   * The child's final assistant output, selected by the same rule as
+   * {@link SubagentResult.output}; absent on infrastructure rejection or when
+   * the child produced none.
+   */
   readonly lastAssistantMessage?: ContentBlock[]
 }
 
@@ -213,7 +217,12 @@ export type SubagentStopReason = SubagentStopReasonMap[keyof SubagentStopReasonM
  * The terminal outcome of a subagent run, resolved by {@link SubagentRun.result}.
  */
 export interface SubagentResult {
-  /** The child's final assistant output (the last assistant message's content). */
+  /**
+   * The child's final assistant output: the content of the last NON-EMPTY
+   * assistant message (an empty-content message hosts only usage and is
+   * skipped), else the text streamed before the turn was cut short, or `[]`
+   * when the child produced none.
+   */
   readonly output: ContentBlock[]
   /**
    * The structured result after a requested `outputSchema` was successfully

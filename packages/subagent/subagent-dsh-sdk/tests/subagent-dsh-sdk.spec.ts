@@ -176,6 +176,20 @@ describe('dsh-subagent-dsh-sdk provider', () => {
     await ctx.fiber.dispose()
   })
 
+  it('keeps streamed text when the terminal message is an EMPTY usage-only step', async () => {
+    // The child streams its answer, then emits an empty-content
+    // assistant/message (the harness loop appends one to host usage on a
+    // max-tokens step that assembled no text blocks). The empty message is
+    // not assistant output and must not erase the streamed answer.
+    const ctx = await setup({ FAKE_EMPTY_MESSAGE: '1', FAKE_REASON_KIND: 'max-tokens' })
+    const run = await ctx.subagents.start('dsh-sdk', request())
+    const result = await run.result
+    expect(result.stopReason).toBe('max-tokens')
+    expect(text(result.output)).toBe('hello from fake runtime')
+    await run.dispose()
+    await ctx.fiber.dispose()
+  })
+
   it('reports a settled-without-turn child as an error', async () => {
     const ctx = await setup({ FAKE_REASON_KIND: 'none', FAKE_STATUS: 'error' })
     const run = await ctx.subagents.start('dsh-sdk', request())

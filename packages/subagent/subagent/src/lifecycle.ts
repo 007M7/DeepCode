@@ -20,6 +20,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { findLastMessageTurnEnd } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
+import { finalAssistantOutput } from './assistant-output.ts'
 import { SubagentRunId } from './types.ts'
 import type { SubagentResult, SubagentRun, SubagentRunEndInfo, SubagentRunInfo } from './types.ts'
 
@@ -173,7 +174,7 @@ export function createActivationObserver(
     },
     capture: (child: Agent): void => {
       const own = child.session.events.slice(boundary)
-      const output = lastAssistantOutput(own)
+      const output = finalAssistantOutput(own)
       captured = {
         stopReason: epochStopReason(own),
         ...output === undefined ? {} : { output },
@@ -218,19 +219,6 @@ function epochStopReason(events: readonly SessionEvent[]): SubagentResult['stopR
     default:
       return 'error'
   }
-}
-
-/**
- * The child's last assistant message content, for one Activation's terminal
- * lifecycle edge. Absent when no assistant message reached the log.
- * @param events - this epoch's own event suffix.
- * @returns its final assistant content, or `undefined` when it produced none.
- */
-function lastAssistantOutput(events: readonly SessionEvent[]): ContentBlock[] | undefined {
-  const message = events.findLast(
-    (event): event is SessionEvent<'assistant/message'> => event.type === 'assistant/message',
-  )
-  return message?.data.message.content
 }
 
 /** Render any listener-thrown value without letting coercion escape containment. */

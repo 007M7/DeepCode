@@ -16,7 +16,7 @@ import { DeepSeekHarness, type HarnessNotification } from '@deepseek-ai/dsh-sdk-
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { SessionId, type SessionEvent, type TurnEndReason } from '@deepseek-ai/dsh-session'
 import type { SubagentResult, SubagentRun, SubagentStartRequest, SubagentStopReason } from '@deepseek-ai/dsh-subagent'
-import { settleRunResult, subprocessRunHandle } from '@deepseek-ai/dsh-subagent'
+import { assistantMessageOutput, settleRunResult, subprocessRunHandle } from '@deepseek-ai/dsh-subagent'
 import { scrubbedParentEnv } from '@deepseek-ai/dsh-subprocess'
 
 /** Resolved spawn spec for an SDK runtime child process (no defaults — see Config). */
@@ -163,17 +163,21 @@ export async function startSdkRun(request: SubagentStartRequest, spec: SdkRunSpe
   }
 
   const childSessionId = `session-${randomUUID().replaceAll('-', '')}`
-  // The child's final answer: the last complete assistant message when one
-  // exists, else the text streamed so far (a partial answer surviving cancel).
+  // The child's final answer, folded incrementally under the seam's canonical
+  // rule (`finalAssistantOutput`): the last NON-EMPTY complete assistant
+  // message when one exists, else the text streamed so far (a partial answer
+  // surviving cancel). An empty-content message hosts only usage (a max-tokens
+  // step that assembled no text blocks), so it never erases streamed text.
   let lastMessage: ContentBlock[] | undefined
   const partial: string[] = []
   const observe = (notification: HarnessNotification): void => {
     if (notification.method !== 'session.event' || notification.params.sessionId !== childSessionId) return
     const event = notification.params.event as SessionEvent
-    if (event.type === 'assistant/chunk' && event.data.chunk.type === 'text-delta') {
+    const content = assistantMessageOutput(event)
+    if (content !== undefined) {
+      lastMessage = content
+    } else if (event.type === 'assistant/chunk' && event.data.chunk.type === 'text-delta') {
       partial.push(event.data.chunk.text)
-    } else if (event.type === 'assistant/message') {
-      lastMessage = event.data.message.content
     }
   }
   const collectOutput = (): ContentBlock[] => {

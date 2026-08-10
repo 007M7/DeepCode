@@ -20,6 +20,7 @@ import {
   applyChildComposition,
   assertSubagentMaxDepth,
   childSessionMeta,
+  finalAssistantOutput,
   resolveChildAgentOptions,
   resolveChildDepth,
 } from '@deepseek-ai/dsh-subagent'
@@ -218,9 +219,11 @@ function readResult(
   structured?: { captured?: { value: unknown } | undefined },
 ): SubagentResult {
   const own = child.session.events.slice(boundary)
-  const lastMessage = own.findLast((event): event is SessionEvent<'assistant/message'> => event.type === 'assistant/message')
   const lastEnd = findLastMessageTurnEnd(own)
-  const output: ContentBlock[] = lastMessage?.data.message.content ?? []
+  // Canonical selection (`finalAssistantOutput`): the last non-empty assistant
+  // message, else the text streamed before cancel/error/truncation cut the
+  // turn short — an empty usage-only message never erases real output.
+  const output: ContentBlock[] = finalAssistantOutput(own) ?? []
   const recorded = toStopReason(lastEnd?.data.reason)
   // Disposal can tear the owner down before the loop records its ordinary
   // `aborted` end, yielding `disposed` instead.
