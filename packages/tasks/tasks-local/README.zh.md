@@ -12,6 +12,8 @@
 
 结算遵循首次结算优先原则：最早出现的终止结果（生产方结算、作为 `failed` 隔离处理的 `done` 拒绝，或销毁时的强制失败）只记录一次，也只通知监听器一次；各监听器的故障会单独隔离，随后释放等待方。挂起的等待会在监听器运行前把任务标记为已报告，因此呈现完成情况的表层不会重复发出通知。
 
+表层与监听器按注册方所在的 scope 分层，形状与 tools 注册表一致：一次注册归档到其注册上下文的 scope，一次读取则把全局层与所有者的 scope 链求并集。因此一个进程级注册表能逐所有者地回答逐所有者的问题——对自身组合未附加任何表层的所有者，无论其他组合附加了多少，`start()` 都会拒绝并抛出 `background tasks unavailable: no control surface serves this agent (load @deepseek-ai/dsh-tool-tasks in its composition)`；一次结算也只会抵达其所有者所属组合注册的监听器。
+
 ## 模型体验
 
 通过生产方插件和 [`dsh-tool-tasks`](../tool-tasks/README.md) 间接影响；它们会呈现任务 id、输出、状态、取消和完成通知。
