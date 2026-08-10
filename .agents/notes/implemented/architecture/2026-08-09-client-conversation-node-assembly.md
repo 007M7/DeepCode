@@ -330,7 +330,7 @@ The concrete Tool renderer remains governed by the [`ui-tool ownership decision`
 
 Trajectory registers its own target and business Definitions against the same Assembler and Session event window as Chat. Its target builder preserves the stage-oriented read model without consuming the Chat Builder's legacy slice or running an independent history fold. The Chat Builder retains its legacy slice for StatsLine and the top-level public compatibility fields; target-specific Definitions do not change the shared Context, Reader, or Location contracts.
 
-Trajectory stage/layout processing retains raw summary sources and structural data without parsing Markdown. A stable Record presentation in the Table memoizes each one-line summary by content and shares the result across body text, title, and aria-label; Detail renders only the selected record. Timeline timing labels invoke their formatters only after the delayed Tooltip opens. Search owns an independent per-view `TrajectorySearchIndex` keyed by stable Record identity with each source signature and normalized text. The initial window is indexed immediately, and a three-second throttle commits later new or changed Records in batches. Queries read only the latest committed index version, so a prepended page enters results atomically with the next batch; neither prepend nor append reparses unchanged historical Markdown. Display caching and search indexing do not share lifecycles.
+The target-specific Trajectory Definitions, retained stage model, Steering adaptation, complexity bounds, and presentation hot paths are owned by the [Trajectory Context assembly decision](2026-08-11-trajectory-conversation-context-assembly.md).
 
 ## Runtime and render path
 
