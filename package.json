@@ -77,6 +77,7 @@
     "verify-agent-note-format": "tsx scripts/verify-agent-note-format.ts",
     "verify-archived-agent-notes": "tsx scripts/verify-archived-agent-notes.ts",
     "verify-type-equiv": "tsx scripts/verify-type-equiv.ts",
+    "verify-skill-invocation-metadata": "tsx scripts/verify-skill-invocation-metadata.ts",
     "verify-translation-prompt": "tsx scripts/verify-translation-prompt.ts",
     "verify-translation-pairing": "tsx scripts/verify-translation-pairing.ts",
     "resolve-translation-pairing-conflicts": "tsx scripts/merge-translation-pairing.ts --resolve",
