@@ -3,7 +3,12 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import type { LocaleKeysOf } from '@deepseek-ai/dsh-client-ui-slots'
 import { TrajectoryToolbar, type TrajectoryToolbarProps } from '../src/client/TrajectoryToolbar.tsx'
+import { zh, type TrajectoryKey } from '../src/client/locales.ts'
+
+/** Test translator pinned to the Simplified Chinese dictionary. */
+const zhT = (key: LocaleKeysOf<'trajectory'>): string => zh[key as TrajectoryKey] ?? key
 
 afterEach(() => {
   cleanup()
@@ -25,6 +30,7 @@ function baseProps(overrides: Partial<TrajectoryToolbarProps> = {}): TrajectoryT
     exporting: false,
     onExport: vi.fn(),
     exportError: null,
+    t: zhT,
     ...overrides,
   }
 }

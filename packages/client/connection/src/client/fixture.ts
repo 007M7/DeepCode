@@ -2834,9 +2834,9 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
       })
       return Promise.resolve({ accepted: true })
     },
-    // The host-only streaming download has no in-memory counterpart: fixture
-    // mode answers 404 so the export button's error bar explains the gap
-    // instead of hanging.
+    // Satisfies the ApiProxy contract type only: the browser export button
+    // fetches GET /api/session.export directly (window.fetch), so this stub is
+    // never reached through the fixture's dispatch.
     downloads: {
       sessionLog: () => Promise.resolve(new Response('fixture mode does not serve session export', { status: 404 })),
     },

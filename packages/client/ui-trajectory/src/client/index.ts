@@ -12,7 +12,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { createTrajectoryDurationStore } from './duration-store.ts'
 import { TrajectoryView, type TrajectoryViewInjected } from './TrajectoryView.tsx'
 import { en, NS, zh } from './locales.ts'
-import { downloadBytes, sessionLogZipFilename } from './export-log.ts'
+import { downloadBlob, sessionLogZipFilename } from './export-log.ts'
 
 /** Required services: the conversation view slot, the independent history source, and the locale service. */
 export const inject = ['slots', 'sessionHistory', 'locale']
@@ -33,6 +33,7 @@ export function apply(ctx: Context): void {
     name: 'conversation.view',
     id: 'trajectory',
     order: 10,
+    locale: NS,
     label: () => t('view.trajectory'),
     inject: (sessionId: SessionId): TrajectoryViewInjected => {
       const history = ctx.sessionHistory.source(sessionId)
@@ -44,7 +45,11 @@ export function apply(ctx: Context): void {
         exportLog: async () => {
           // The host streams the ZIP (root + descendant artifacts verbatim)
           // from GET /api/session.export; the browser downloads the response.
-          const url = new URL('/api/session.export', window.location.origin)
+          // A null origin (no-location Node contexts) falls back like the
+          // carrier's resolveBase so the URL stays valid.
+          const loc = (globalThis as { location?: { origin?: string } }).location
+          const origin = loc?.origin !== undefined && loc.origin !== 'null' ? loc.origin : 'http://dsh.internal'
+          const url = new URL('/api/session.export', origin)
           url.searchParams.set('sessionId', sessionId)
           url.searchParams.set('includeDescendants', 'true')
           const response = await fetch(url)
@@ -52,12 +57,7 @@ export function apply(ctx: Context): void {
             const detail = await response.text().catch(() => '')
             throw new Error(`导出失败：HTTP ${response.status}${detail === '' ? '' : ` ${detail}`}`)
           }
-          const blob = await response.blob()
-          downloadBytes(
-            new Uint8Array(await blob.arrayBuffer()),
-            sessionLogZipFilename(sessionId),
-            'application/zip',
-          )
+          downloadBlob(await response.blob(), sessionLogZipFilename(sessionId))
         },
       }
     },

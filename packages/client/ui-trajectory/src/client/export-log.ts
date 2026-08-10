@@ -7,11 +7,13 @@
 
 /**
  * Collapse an untrusted session id into one safe path/filename segment.
+ * Distinct ids may collapse onto one segment (impossible for the host-minted
+ * UUIDs, so no uniqueness suffix is kept).
  * @param id - the raw session id.
  * @returns a filesystem-safe single segment.
  */
 function safeSessionIdSegment(id: string): string {
-  return id.replace(/[^A-Za-z0-9._-]/g, '_')
+  return id.replace(/[^A-Za-z0-9_-]/g, '_')
 }
 
 /**
@@ -25,16 +27,16 @@ export function sessionLogZipFilename(sessionId: string): string {
 }
 
 /**
- * Trigger a browser download of raw bytes.
- * @param bytes - the file content.
+ * Trigger a browser download of a blob response.
+ * @param blob - the response body to save (passed straight through, no copy).
  * @param filename - the download filename.
- * @param type - the MIME type.
  */
-export function downloadBytes(bytes: Uint8Array<ArrayBuffer>, filename: string, type: string): void {
-  const url = URL.createObjectURL(new Blob([bytes], { type }))
+export function downloadBlob(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob)
   const anchor = document.createElement('a')
   anchor.href = url
   anchor.download = filename
   anchor.click()
-  URL.revokeObjectURL(url)
+  // Revoke one tick later: some browsers read the blob URL after click().
+  setTimeout(() => URL.revokeObjectURL(url), 0)
 }

@@ -28,6 +28,8 @@ import {
 import { createChatStore } from '@deepseek-ai/dsh-client-ui-conversation/src/client/stores.ts'
 import { zh as conversationZh } from '@deepseek-ai/dsh-client-ui-conversation/src/client/locales.ts'
 import { apply as localeApply, inject as localeInject } from '@deepseek-ai/dsh-client-locale/client'
+import type { LocaleKeysOf } from '@deepseek-ai/dsh-client-ui-slots'
+import { zh, type TrajectoryKey } from '../src/client/locales.ts'
 import { apply, inject } from '@deepseek-ai/dsh-client-ui-trajectory/client'
 import { apply as nodeApply } from '@deepseek-ai/dsh-client-ui-trajectory'
 import type { TrajectoryTurnModel } from '../src/client/layout.ts'
@@ -142,14 +144,18 @@ function emptyWorkspaces() {
 }
 
 /** Standalone view props: the session-scope standard kit the outlet would bake. */
-function standaloneProps(nodes: ConversationSnapshot['nodes']): ConvViewProps {
+function standaloneProps(
+  nodes: ConversationSnapshot['nodes'],
+): ConvViewProps & { t: (key: LocaleKeysOf<'trajectory'>) => string } {
   return {
     sessionId: SID,
     useSession: fakeSession(nodes).useSession,
     useSessions: emptySessions(),
     useWorkspaces: emptyWorkspaces(),
     useProjection: (() => undefined) as never,
-  } as unknown as ConvViewProps
+    // The locale seat the outlet would inject for the declared namespace.
+    t: (key: LocaleKeysOf<'trajectory'>) => zh[key as TrajectoryKey] ?? key,
+  } as unknown as ConvViewProps & { t: (key: LocaleKeysOf<'trajectory'>) => string }
 }
 
 /** Real-stack bench: root Context + real SlotsService ring + the plugin fiber. */
@@ -230,6 +236,7 @@ function mount(slots: SlotsService, nodes: ConversationSnapshot['nodes'] = NODES
           exportLog: trajectory.exportLog,
           useHistory: bindSnapshotSelector(trajectory.hooks.history),
           useDuration: bindSnapshotSelector(trajectory.hooks.duration),
+          t: (key: TrajectoryKey) => zh[key],
         }
       })()
       : injected
@@ -324,12 +331,12 @@ describe('tab switching in ConversationRoot', () => {
     expect(screen.queryByText(/turns ·/)).toBeNull()
     expect(view.container.querySelectorAll('tr[data-turn-start="true"]')).toHaveLength(2)
     expect(screen.queryByRole('columnheader')).toBeNull()
-    expect(screen.getByRole('toolbar', { name: 'Trajectory toolbar' })).toBeTruthy()
+    expect(screen.getByRole('toolbar', { name: '轨迹工具栏' })).toBeTruthy()
     expect(screen.getByRole('region', { name: 'Trajectory timeline' })).toBeTruthy()
     expect(view.container.querySelector('[data-conversation-composer-overlay]')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: 'Collapse turns' }))
+    fireEvent.click(screen.getByRole('button', { name: '折叠轮次' }))
     expect(view.container.querySelector('[data-collapsed-summary="turn"]')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: 'Expand turns' }))
+    fireEvent.click(screen.getByRole('button', { name: '展开轮次' }))
     expect(screen.getByRole('row', { name: /USER/ })).toBeTruthy()
     expect(screen.queryByTestId('chat-body')).toBeNull()
     await vi.waitFor(() => {
@@ -540,13 +547,13 @@ describe('tab switching in ConversationRoot', () => {
     const b = await bench(historySnapshot([]))
     mount(b.slots)
     fireEvent.click(screen.getByRole('tab', { name: 'Trajectory' }))
-    expect(screen.getByRole('toolbar', { name: 'Trajectory toolbar' })).toBeTruthy()
+    expect(screen.getByRole('toolbar', { name: '轨迹工具栏' })).toBeTruthy()
     expect(screen.getByText('No timing data')).toBeTruthy()
     expect(screen.getByRole<HTMLButtonElement>('button', {
-      name: 'Collapse turns',
+      name: '折叠轮次',
     }).disabled).toBe(false)
     expect(screen.getByRole<HTMLButtonElement>('button', {
-      name: 'Collapse calls',
+      name: '折叠调用',
     }).disabled).toBe(false)
     expect(screen.queryByRole('row')).toBeNull()
     expect(screen.queryByText(/turns ·/)).toBeNull()
@@ -1090,7 +1097,7 @@ describe('timeline projection', () => {
         ...standaloneExport(),
       },
     ))
-    expect(screen.getByRole('toolbar', { name: 'Trajectory toolbar' })).toBeTruthy()
+    expect(screen.getByRole('toolbar', { name: '轨迹工具栏' })).toBeTruthy()
     expect(screen.queryByRole('row')).toBeNull()
   })
 })
@@ -1122,7 +1129,6 @@ describe('session log export', () => {
     await vi.waitFor(() => {
       expect(fetchMock).toHaveBeenCalledOnce()
     })
-    // The blob download lands a few microtasks after the fetch settles.
     // The blob download lands a few microtasks after the fetch settles.
     await vi.waitFor(() => {
       expect(createObjectURL).toHaveBeenCalled()
@@ -1159,7 +1165,7 @@ describe('TrajectoryView branches', () => {
         setActualDuration={(value) => { firstDuration.set(value) }}
       />,
     )
-    const duration = screen.getByRole('button', { name: 'Use actual duration' })
+    const duration = screen.getByRole('button', { name: '使用实际时长' })
 
     expect(duration.getAttribute('aria-pressed')).toBe('false')
     fireEvent.click(duration)
@@ -1175,7 +1181,7 @@ describe('TrajectoryView branches', () => {
         setActualDuration={(value) => { restoredDuration.set(value) }}
       />,
     )
-    expect(screen.getByRole('button', { name: 'Use actual duration' }).getAttribute('aria-pressed'))
+    expect(screen.getByRole('button', { name: '使用实际时长' }).getAttribute('aria-pressed'))
       .toBe('true')
   })
 

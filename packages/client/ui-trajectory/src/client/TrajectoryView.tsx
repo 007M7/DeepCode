@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ConvViewProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
-import type { InjectFace } from '@deepseek-ai/dsh-client-ui-slots'
+import type { InjectFace, PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import type {
   AssistantBlock, AssistantMessageNode, ConversationContext, ConversationSnapshot,
   SessionHistoryFace, SnapshotStore,
@@ -187,8 +187,8 @@ function mergeSearchMatches(
 
 export function TrajectoryView({
   useHistory, useDuration, loadHistoryTail, loadOlderHistory, setActualDuration, exportLog,
-  inspect, onInspectDone,
-}: ConvViewProps & InjectFace<TrajectoryViewInjected>) {
+  inspect, onInspectDone, t,
+}: ConvViewProps & InjectFace<TrajectoryViewInjected> & PropsLocale<'trajectory'>) {
   const [collapsedTurns, setCollapsedTurns] = useState<ReadonlySet<number>>(EMPTY_TURN_IDS)
   const [collapsedAssistants, setCollapsedAssistants] =
     useState<ReadonlySet<string>>(EMPTY_RECORD_IDS)
@@ -563,6 +563,7 @@ export function TrajectoryView({
         exporting={exporting}
         onExport={onExport}
         exportError={exportError}
+        t={t}
       />
       {exportError !== null && (
         <div className={css.exportError} role="alert">

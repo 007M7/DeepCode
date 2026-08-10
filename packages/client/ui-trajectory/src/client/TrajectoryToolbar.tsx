@@ -1,6 +1,8 @@
 /** Trajectory toolbar: timeline and ledger fold controls. */
 
+import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import { IconSearchOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { NS } from './locales.ts'
 import css from './TrajectoryToolbar.module.css'
 
 export interface TrajectoryToolbarProps {
@@ -30,6 +32,8 @@ export interface TrajectoryToolbarProps {
   onExport: () => void
   /** Export failure message, shown while set; null while idle or successful. */
   exportError: string | null
+  /** Translate a toolbar dictionary key. */
+  t: TranslateNS<typeof NS>
 }
 
 /**
@@ -51,17 +55,18 @@ export function TrajectoryToolbar({
   exporting,
   onExport,
   exportError,
+  t,
 }: TrajectoryToolbarProps) {
   return (
-    <div className={css.root} role="toolbar" aria-label="Trajectory toolbar">
+    <div className={css.root} role="toolbar" aria-label={t('toolbar.aria')}>
       <div className={css.inner}>
         <div className={css.actions}>
           <button
             type="button"
             className={css.toggle}
-            aria-label="Use actual duration"
+            aria-label={t('toolbar.useActualDuration')}
             aria-pressed={actualDuration}
-            title={actualDuration ? 'Use equal-width operations' : 'Use actual duration'}
+            title={actualDuration ? t('toolbar.useEqualWidth') : t('toolbar.useActualDuration')}
             onClick={() => { onActualDurationChange(!actualDuration) }}
           >
             <svg
@@ -73,7 +78,7 @@ export function TrajectoryToolbar({
               <circle cx="8" cy="8" r="5.25" />
               <path d="M8 4.75V8l2.25 1.5" />
             </svg>
-            Duration
+            {t('toolbar.duration')}
           </button>
           <button
             type="button"
@@ -83,7 +88,7 @@ export function TrajectoryToolbar({
             hidden
             onClick={() => { onActualTimeChange(!actualTime) }}
           >
-            <span>Actual time</span>
+            <span>{t('toolbar.actualTime')}</span>
             <span className={css.controlTrack} data-on={actualTime || undefined} aria-hidden="true">
               <span className={css.controlThumb} />
             </span>
@@ -91,34 +96,34 @@ export function TrajectoryToolbar({
           <button
             type="button"
             className={css.action}
-            aria-label={allTurnsCollapsed ? 'Expand turns' : 'Collapse turns'}
+            aria-label={allTurnsCollapsed ? t('toolbar.expandTurns') : t('toolbar.collapseTurns')}
             aria-pressed={allTurnsCollapsed}
-            title={allTurnsCollapsed ? 'Expand turns' : 'Collapse turns'}
+            title={allTurnsCollapsed ? t('toolbar.expandTurns') : t('toolbar.collapseTurns')}
             onClick={onToggleAllTurns}
           >
             <span className={css.actionIcon} aria-hidden="true">
               {allTurnsCollapsed ? '⊞' : '⊟'}
             </span>
-            Turns
+            {t('toolbar.turns')}
           </button>
           <button
             type="button"
             className={css.action}
-            aria-label={allAssistantsCollapsed ? 'Expand calls' : 'Collapse calls'}
+            aria-label={allAssistantsCollapsed ? t('toolbar.expandCalls') : t('toolbar.collapseCalls')}
             aria-pressed={allAssistantsCollapsed}
-            title={allAssistantsCollapsed ? 'Expand calls' : 'Collapse calls'}
+            title={allAssistantsCollapsed ? t('toolbar.expandCalls') : t('toolbar.collapseCalls')}
             onClick={onToggleAllAssistants}
           >
             <span className={css.actionIcon} aria-hidden="true">
               {allAssistantsCollapsed ? '⊞' : '⊟'}
             </span>
-            Calls
+            {t('toolbar.calls')}
           </button>
           <button
             type="button"
             className={css.export}
-            aria-label="导出会话日志"
-            title={exportError ?? (exporting ? '导出中…' : '导出会话日志（ZIP，含子代理）')}
+            aria-label={t('toolbar.exportAria')}
+            title={exportError ?? (exporting ? t('toolbar.exporting') : t('toolbar.exportTitle'))}
             disabled={exporting}
             onClick={onExport}
           >
@@ -126,7 +131,7 @@ export function TrajectoryToolbar({
               <path d="M8 3v7m0 0 3-3m-3 3L5 7" />
               <path d="M3 11.5V13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-1.5" />
             </svg>
-            导出
+            {t('toolbar.export')}
           </button>
         </div>
         <div className={css.search}>
@@ -134,8 +139,8 @@ export function TrajectoryToolbar({
           <input
             type="search"
             className={css.searchInput}
-            aria-label="Search trajectory"
-            placeholder="Search"
+            aria-label={t('toolbar.search')}
+            placeholder={t('toolbar.searchPlaceholder')}
             value={searchQuery}
             onChange={(event) => { onSearchQueryChange(event.currentTarget.value) }}
           />
