@@ -11,6 +11,11 @@
   - img
   - img
   - text: Context injection @deepseek-ai/dsh-system-prompt
+- text: Running
+- button "Think The user wants me to ask them a checkpoint question first, then continue with whatever they interject. Let me do exactly that.":
+  - img
+  - img
+  - text: Think The user wants me to ask them a checkpoint question first, then continue with whatever they interject. Let me do exactly that.
 - status: Deep diving...
 - text: "Interjection Interjection: include the word BANANA in your final reply."
 - button "Copy":
