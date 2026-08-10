@@ -10,7 +10,7 @@ Status: implemented
 
 harness 有一个长期搁置的 seam 用于 **subagent**：一个 agent 将工作委派给另一个 agent。这一意图在 `Agent`/`AgentLoop` 接口中已有草案（[packages/core/agent/src/types.ts](../../../../packages/core/agent/src/types.ts)、[packages/core/agent-loop/src/index.ts](../../../../packages/core/agent-loop/src/index.ts)）：一个创建选项引用父 agent（fork = 用父会话的事件日志初始化子会话；spawn = 全新会话），子 agent 以 `Agent` 句柄返回，使 steering（中途引导）和事件订阅可以统一工作。
 
-决定整体设计走向的核心需求是：**多种 subagent 实现必须在运行时共存**。一个父 agent 可能在同一个会话中既需要一个廉价的进程内子 agent 处理有限范围的子任务，又需要一个隔离的进程外子 agent（通过 ACP）。传输方式：
+**多种 subagent 实现必须在运行时共存。**一个父 agent 可能在同一个会话中既需要一个廉价的进程内子 agent 处理有限范围的子任务，又需要一个隔离的进程外子 agent（通过 ACP）。传输方式：
 
 - **进程内**：在同一个 `Context` 上创建一个具体的子 `Agent`（最廉价，且鉴于现有 agent 工厂几乎零成本）；
 - **ACP**：作为 ACP *客户端*驱动另一个 agent 进程（可以是自身的另一个实例）；
@@ -66,7 +66,7 @@ bash seam（[能力 seam](../architecture/2026-06-13-capability-seams.md)）在�
 
 ## 测试
 
-注册表与工具测试仅用包内脚本化提供方替换非确定性的子进程边界，同时运行真实的 `SubagentService`、生命周期、任务集成和面向模型的工具。提供方与消费方的 export 形状仍保留 Loader 回归覆盖，以防止[事故复盘（postmortem）0001](../../../../docs/postmortem/0001-acp-default-export-drops-inject.md) 中描述的失败。注册表测试覆盖重载安全性、重名和启动时能力拒绝；嵌套 agent 场景通过[逐会话快照回放](../testing/2026-06-22-subagent-snapshot-replay.md)进行无密钥回放；进程内后端还有真实循环的单元测试和带密钥的 e2e 测试。
+注册表与工具测试仅用包内脚本化提供方替换非确定性的子 agent，同时运行真实的 `SubagentService`、生命周期、任务集成和面向模型的工具。Loader 回归测试仍覆盖提供方与消费方的 export，以防止[事故复盘（postmortem）0001](../../../../docs/postmortem/0001-acp-default-export-drops-inject.md)中描述的失败。注册表测试覆盖重载安全性、重名和启动时能力拒绝；嵌套 agent 场景通过[逐会话快照回放](../testing/2026-06-22-subagent-snapshot-replay.md)进行无密钥回放；进程内后端还有真实循环的单元测试和带密钥的 e2e 测试。
 
 ## 后果
 

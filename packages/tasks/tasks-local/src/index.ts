@@ -142,8 +142,8 @@ export class LocalTaskService extends TaskService {
     void hooks.done.then(
       (outcome) => { this.settle(task, outcome) },
       (error: unknown) => {
-        // Contain a producer contract violation so cleanup and waiters cannot hang.
-        this.selfCtx.logger.warn(`tasks: task ${task.id} 'done' rejected (producer contract violation): ${String(error)}`)
+        // Contain a producer contract violation (`done` rejected) so cleanup and waiters cannot hang.
+        this.selfCtx.logger.warn(`tasks: task ${task.id} producer done promise rejected (producer contract violation): ${String(error)}`)
         this.settle(task, { status: 'failed', detail: String(error) })
       },
     )

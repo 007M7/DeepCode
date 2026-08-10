@@ -20,7 +20,7 @@ const EXPECTED = join(process.cwd(), 'apps/web/tests/snapshots/todo-row/parallel
 
 installAssembledBootEnv()
 
-/** Normalize the todo row and the plan strip to a stable text shape: the row's
+/** Normalize the todo row and the plan strip to stable text fields: the row's
  *  title, its truncatable summary, its non-shrinking suffix, then the panel's
  *  per-status header and every list item with its status. */
 function todoShape(row: Element, panel: Element): string {

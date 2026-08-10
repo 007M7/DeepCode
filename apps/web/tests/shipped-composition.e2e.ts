@@ -91,7 +91,7 @@ it('assembles the shipped Web catalog with the confined access default', async (
   // `workspace-write` is not "the workspace and nothing else": the shared roots
   // helper always admits the temp directories too. Pinning it against an
   // explicit mode keeps the claim independent of this surface's default, and
-  // keeps a future boundary test from being run inside /tmp — where an
+  // keeps a future sandbox-confinement test from being run inside /tmp — where an
   // "escape" write succeeds by design and reads as a sandbox failure.
   expect(writableRoots(scaffold.ctx.sandboxPolicy.resolve({ mode: 'workspace-write' }))).toEqual(
     expect.arrayContaining([canonicalPath('/tmp'), canonicalPath(tmpdir())]),

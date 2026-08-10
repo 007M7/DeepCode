@@ -138,7 +138,7 @@ Examples:
       resolved = { mode: 'profile', profile, patches }
     })
 
-  /** Reject parent options that crossed a subcommand boundary. */
+  /** Reject parent options supplied before a subcommand. */
   const rejectParentOptions = (command: string): void => {
     const parent = program.opts<{
       profile?: string

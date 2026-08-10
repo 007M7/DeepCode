@@ -54,7 +54,7 @@ export interface GitIndexBlob {
  * @param root - Repository root.
  * @param path - Repository-relative path.
  * @returns The stage-zero blob, or `undefined` when the path is absent.
- * @throws Error when the path is unmerged or has an invalid index shape.
+ * @throws Error when the path is unmerged or its index entries are not a valid merge state.
  */
 export function readGitIndexBlob(root: string, path: string): GitIndexBlob | undefined {
   const output = runGit(

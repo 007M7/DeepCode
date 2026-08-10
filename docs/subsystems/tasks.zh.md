@@ -2,7 +2,7 @@
 
 [English](tasks.md) | 中文
 
-长时间运行的生产方、`ctx.tasks` 与任务控制接口共用的类型。[运行时 Agent Note](../../.agents/notes/implemented/architecture/2026-06-20-generic-long-running-tool-runtime.md)负责设计；本页记录 [`packages/tasks/tasks/src/types.ts`](../../packages/tasks/tasks/src/types.ts) 中的字面形状。
+长时间运行的生产方、`ctx.tasks` 与任务控制命令共用的类型。[运行时 Agent Note](../../.agents/notes/implemented/architecture/2026-06-20-generic-long-running-tool-runtime.md)负责设计；本页记录 [`packages/tasks/tasks/src/types.ts`](../../packages/tasks/tasks/src/types.ts) 中的确切字段和变体。
 
 ## ID 与状态
 
@@ -57,7 +57,7 @@ interface TaskStart {
 }
 ```
 
-`TaskHooks.done` 是完全停稳边界。可选的 `readOutput` 用来区分会消费输出的流式任务和仅有最终输出的任务。
+`TaskHooks.done` 会在生产方释放其资源后 resolve，而不是仅在工作完成时 resolve。可选的 `readOutput` 用来区分会消费输出的流式任务和仅有最终输出的任务。
 
 ```ts type-equiv
 /** Hooks through which the runtime controls and observes producer work. */
@@ -151,7 +151,7 @@ interface TaskRead {
 
 ## 服务行为
 
-抽象的 [`TaskService`](../../packages/tasks/tasks/src/index.ts) Service Definition 规定原子 `start`、限定调用方作用域的 `get` 和 `list`、`read`、`kill`、有界 `wait`、故障隔离的 `onTaskDone` 监听器，以及 `attachSurface` 可用性防线；[`LocalTaskService`](../../packages/tasks/tasks-local/src/index.ts) 是其进程局部提供方。授权会比较拥有者会话；拥有者清理会选择确切的已注册 `Agent` 实例。Service Definition 约定见 [`dsh-tasks`](../../packages/tasks/tasks/README.md)，注册表生命周期见 [`dsh-tasks-local`](../../packages/tasks/tasks-local/README.md)，面向模型的 Consumer 见 [`dsh-tool-tasks`](../../packages/tasks/tool-tasks/README.md)。
+抽象的 [`TaskService`](../../packages/tasks/tasks/src/index.ts) Service Definition 规定原子 `start`、限定调用方作用域的 `get` 和 `list`、`read`、`kill`、有界 `wait`、故障隔离的 `onTaskDone` 监听器，以及 `attachSurface` 何时可用；[`LocalTaskService`](../../packages/tasks/tasks-local/src/index.ts) 是其进程局部 Service provider。授权会比较拥有者会话；拥有者清理会选择确切的已注册 `Agent` 实例。Service Definition 约定见 [`dsh-tasks`](../../packages/tasks/tasks/README.md)，注册表生命周期见 [`dsh-tasks-local`](../../packages/tasks/tasks-local/README.md)，面向模型的 Consumer 见 [`dsh-tool-tasks`](../../packages/tasks/tool-tasks/README.md)。
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 

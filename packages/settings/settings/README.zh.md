@@ -11,7 +11,7 @@
 - `register(ns, schema, { base?, applies? })` — 返回 owner 的 `SettingsScope`（`get`/`watch`/`update`）。注册是调用方插件 fiber 上的 effect：dispose 该 fiber 即移除 namespace 及其观察者。schema 拒绝的存量分节会使注册本身失败；重复 namespace 立即报错。
 - `describe(options?)` — 每个 namespace 一条描述（`schema.toJSON()` 封装、解析值、分离出的 `base`/`user` 层、`applies`），供配置界面使用；字段出现在 `user` 中即标记其被用户覆盖。`describe({ redactSecrets: true })` 从每一层剥离 `role('secret')` 字段，并附加 `secrets` 槽位列表（`{ path, set }`）；每个协议接口都必须传入它，纯遍历器 `redactSecrets(schema, value)` 已导出，供其他 wire 使用。
 - `get(ns)` — 解析值；未注册时为 `undefined`。
-- `update(ns, patch)` — 把普通对象 patch 深合并进用户分节（绝不合并进 `base`），校验解析候选值，经提供方持久化后提交。patch 必须是 JSON 形状的数据：Date、Map、BigInt、非有限数或循环引用会在任何内容持久化前带着以 `$` 为根的路径拒绝（YAML/JSON 存储在重载时会静默扭曲这类值）。校验失败在持久化前拒绝；只读提供方（`writable: false`）拒绝一切写入。同一 namespace 的写入按调用顺序串行。
+- `update(ns, patch)` — 把普通对象 patch 深合并进用户分节（绝不合并进 `base`），校验解析候选值，经提供方持久化后提交。patch 只能包含与 JSON 兼容的数据：Date、Map、BigInt、非有限数或循环引用会在任何内容持久化前带着以 `$` 为根的路径拒绝（YAML/JSON 存储在重载时会静默改变这类值）。校验失败在持久化前拒绝；只读提供方（`writable: false`）拒绝一切写入。同一 namespace 的写入按调用顺序串行。
 - `replace(ns, section)` — 整体替换用户分节：这是刻意的重置（`replace({})` 重新继承 `base` 与 schema 默认值）。
 - `mutate(ns, ops)` — 在写入排到队首那一刻的分节上，按序施加 `{ op: 'set' | 'unset', path }` 编辑。这是任何持有**不完整**视图的调用方的删除路径：配置 UI 读到的是脱敏后的 descriptor，据此重建分节再整体替换，会把 wire 从未回传的每个机密都删掉，而一条 op 只点名它真正要改的那个字段。
 - 每次写入都可携带可选的 `expectedRevision`。每个 descriptor 都带有该 namespace 的 `revision`——一个针对其**原始**分节的单调计数器；期望值不再匹配的写入会以 `SettingsConflictError`（`code: 'SETTINGS_CONFLICT'`，并附上两个 revision）被拒绝，而不是覆盖先完成写入的写入方。写队列只保证写入的先后次序，它本身分辨不出新的写入方与持有陈旧快照的写入方。

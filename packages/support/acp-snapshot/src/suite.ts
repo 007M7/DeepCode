@@ -436,7 +436,7 @@ export function formatToolSchemasSnapshot(initial: readonly unknown[], changes: 
 }
 
 /**
- * Parse and validate the stable top-level shape of a tool-schema sidecar.
+ * Parse and validate the stable top-level fields of a tool-schema sidecar.
  *
  * @param snapshot The JSON sidecar text.
  * @returns Its initial and changed-header schema sets.

@@ -206,7 +206,7 @@ export class TokenMeterService extends Service {
         if (state.stepStart === undefined
           || state.stepStart.turn !== event.data.turn
           || state.stepStart.step !== event.data.step) {
-          throw new Error(`token meter: step/end at seq ${event.seq} has no matching step/start boundary`)
+          throw new Error(`token meter: step/end at seq ${event.seq} has no matching step/start event`)
         }
         nextStepStart = undefined
         break
@@ -223,7 +223,7 @@ export class TokenMeterService extends Service {
       if (stepStart === undefined
         || stepStart.turn !== event.data.turn
         || stepStart.step !== event.data.step) {
-        throw new Error(`token meter: assistant/message at seq ${event.seq} has no matching step/start boundary`)
+        throw new Error(`token meter: assistant/message at seq ${event.seq} has no matching step/start event`)
       }
 
       // assistant/message is surface-mandatory at every append/seed boundary.
