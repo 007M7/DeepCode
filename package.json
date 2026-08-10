@@ -57,7 +57,6 @@
     "check:ci:windows-blocking": "tsx scripts/run-gates.ts ci-windows-blocking",
     "check:ci:windows-complete": "tsx scripts/run-gates.ts ci-windows-complete",
     "check:ci:windows-observational": "tsx scripts/run-gates.ts ci-windows-observational",
-    "check:windows-wine": "bash scripts/wine-windows-gates.sh",
     "check:node-compat": "tsx scripts/run-gates.ts node-compat",
     "knip": "knip --treat-config-hints-as-errors",
     "publint": "tsx scripts/publint-all.ts",
