@@ -11,6 +11,10 @@
       "types": "./lib/types/index.d.ts",
       "default": "./lib/index.js"
     },
+    "./startup": {
+      "types": "./lib/types/startup.d.ts",
+      "default": "./lib/startup.js"
+    },
     "./invariant": {
       "types": "./lib/types/invariant.d.ts",
       "default": "./lib/invariant.js"
@@ -22,6 +26,7 @@
   "files": [
     "lib/index.js",
     "lib/invariant.js",
+    "lib/startup.js",
     "cordis.patch.yml",
     "lib/types/**/*.d.ts"
   ],
@@ -32,10 +37,13 @@
     }
   },
   "dependencies": {
+    "@deepseek-ai/dsh-cmdline": "workspace:^",
     "@deepseek-ai/dsh-code-runtime-worker": "workspace:^",
-    "@deepseek-ai/schemastery": "^3.18.0"
+    "@deepseek-ai/schemastery": "^3.18.0",
+    "commander": "^15.0.0"
   },
   "peerDependencies": {
+    "@deepseek-ai/cordis-plugin-loader": "^1.0.0-rc.5",
     "@deepseek-ai/dsh-agent": "^0.0.1",
     "@deepseek-ai/dsh-agent-default-model": "^0.0.1",
     "@deepseek-ai/dsh-invariants": "^0.0.1",

@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import { boot, healProfilesModuleFallback, loadOverlayPatches } from '@deepseek-ai/dsh-app-boot'
+import { provideCmdline } from '@deepseek-ai/dsh-cmdline'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { PatchOptions } from '@deepseek-ai/cordis-plugin-include'
@@ -100,7 +101,9 @@ async function bootWeb(settingsFile: string, extra: PatchOptions[] = []): Promis
   await mkdir(profileDir, { recursive: true })
   const rootConfig = join(profileDir, 'cordis.yml')
   await writeFile(rootConfig, '[]\n')
-  return await boot('dsh-test', rootConfig, patches)
+  return await boot('dsh-test', rootConfig, patches, (bootCtx) => {
+    provideCmdline(bootCtx, { args: [], exit: () => {} })
+  })
 }
 
 const toolNames = (ctx: Context, agent?: Agent): string[] =>

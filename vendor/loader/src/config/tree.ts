@@ -51,7 +51,7 @@ export abstract class EntryTree {
         continue
       }
       const outcomes = await Promise.allSettled(
-        [...this.entries()].map(entry => entry.fiber?.await()),
+        [...this.entries()].map(entry => entry._await()),
       )
       const failures = outcomes
         .filter((outcome): outcome is PromiseRejectedResult => outcome.status === 'rejected')
