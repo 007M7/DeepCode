@@ -38,23 +38,47 @@ const carrierKeys = new WeakMap<object, ScopeKey | undefined>()
  */
 const scopeParents = new WeakMap<ScopeKey, ScopeKey>()
 
-/**
- * Record `parent` as `key`'s enclosing scope.
- *
- * Ordinarily set once when the child scope is minted ({@link createScope}'s
- * `parent` option). Re-linking an existing key to a different parent is the
- * blank-session recompose operation: valid only while nothing produced under
- * the old parent is retained, which is the caller's contract to uphold — this
- * relation cannot see what a session logged. A link that would close a cycle
- * is rejected, because every chain consumer walks parents to the root.
- * @param key - the child scope key.
- * @param parent - its enclosing scope key.
- */
-export function setScopeParent(key: ScopeKey, parent: ScopeKey): void {
+/** The privileged handle to move one scope key's parent link. */
+export interface ScopeParentBinding {
+  /**
+   * Re-link the bound key to a different parent, with the same cycle check as
+   * the bind. Valid only while nothing produced under the old parent is
+   * retained — the blank-session recompose contract, which the holder upholds
+   * because this relation cannot see what a session logged.
+   * @param parent - the new enclosing scope key.
+   */
+  rebind(parent: ScopeKey): void
+}
+
+/** Cycle-checked write shared by the bind and every rebind. */
+function linkScopeParent(key: ScopeKey, parent: ScopeKey): void {
   for (let cursor: ScopeKey | undefined = parent; cursor !== undefined; cursor = scopeParents.get(cursor)) {
     if (cursor === key) throw new Error('dsh-scope: scope parent link would form a cycle')
   }
   scopeParents.set(key, parent)
+}
+
+/**
+ * Bind `parent` as `key`'s enclosing scope, once.
+ *
+ * A key that already has a parent throws: there is no open re-link path, so a
+ * scope's ancestry cannot be moved by anyone but the original binder, who
+ * alone receives the {@link ScopeParentBinding}. A link that would close a
+ * cycle is rejected, because every chain consumer walks parents to the root.
+ * @param key - the child scope key.
+ * @param parent - its enclosing scope key.
+ * @returns the binding that alone may re-link this key.
+ */
+export function bindScopeParent(key: ScopeKey, parent: ScopeKey): ScopeParentBinding {
+  if (scopeParents.has(key)) {
+    throw new Error('dsh-scope: scope key is already bound to a parent; re-linking requires the binding returned by the original bind')
+  }
+  linkScopeParent(key, parent)
+  return {
+    rebind(next: ScopeKey): void {
+      linkScopeParent(key, next)
+    },
+  }
 }
 
 /**
@@ -98,7 +122,7 @@ function scope(): void {}
 
 /** Options accepted by {@link createScope}. */
 export interface CreateScopeOptions {
-  /** Enclosing scope recorded via {@link setScopeParent} before the scope is usable. */
+  /** Enclosing scope bound via {@link bindScopeParent} before the scope is usable; the binding stays internal. */
   parent?: ScopeKey
 }
 
@@ -111,7 +135,7 @@ export interface CreateScopeOptions {
  * @returns the scoped context and exact/shared disposal boundaries.
  */
 export function createScope(ctx: Context, key: ScopeKey, options?: CreateScopeOptions): Scope {
-  if (options?.parent !== undefined) setScopeParent(key, options.parent)
+  if (options?.parent !== undefined) bindScopeParent(key, options.parent)
   const fiber = ctx.plugin(scope)
   const scoped: Context = fiber.ctx.extend({ [kScope]: key })
   let disposing: Promise<void> | undefined
@@ -134,7 +158,7 @@ export function scopeOf(ctx: Context): ScopeKey | undefined {
 /**
  * Build an opaque receiver that preserves the base filter, admits untagged
  * listeners globally, and admits tagged listeners for a matching key or any
- * of its ancestors ({@link setScopeParent}): a listener owned by an enclosing
+ * of its ancestors ({@link bindScopeParent}): a listener owned by an enclosing
  * scope receives every descendant scope's events, which is what lets one
  * standing composition observe each of the agents composed under it. A tag
  * BELOW the dispatch key stays excluded — events flow up the chain, never
