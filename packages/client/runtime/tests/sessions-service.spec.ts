@@ -35,6 +35,7 @@ type FeedRow = {
   origin?: 'subagent'
   running?: boolean
   blank?: boolean
+  agentPreset?: string
 }
 
 async function feedList(b: Bench, rows: FeedRow[]): Promise<void> {
@@ -44,6 +45,7 @@ async function feedList(b: Bench, rows: FeedRow[]): Promise<void> {
       ...(r.cwd !== undefined ? { cwd: r.cwd } : {}),
       ...(r.parentId !== undefined ? { parentSessionId: sid(r.parentId) } : {}),
       ...(r.origin !== undefined ? { origin: r.origin } : {}),
+      ...(r.agentPreset !== undefined ? { agentPreset: r.agentPreset } : {}),
     })),
   }) as never)
   await b.svc.refresh()
@@ -68,6 +70,21 @@ describe('list store projection', () => {
       displayTitle: 's2', parentId: 's1', origin: 'subagent', running: true,
     })
     expect(state.byId[sid('s2')]?.title).toBeUndefined()
+  })
+
+  it('reprojects a blank session whose composition switched and nothing else moved', async () => {
+    const b = bench()
+    await feedList(b, [{ id: 's1', blank: true, agentPreset: 'standard' }])
+    expect(b.svc.list.getSnapshot().byId[sid('s1')]?.agentPreset).toBe('standard')
+
+    // A confirmed switch moves the preset alone: the row keeps its updatedAt,
+    // title, running, and blank bits, so an identity guard blind to the preset
+    // would serve the old row forever — and every reader (the hero chip's own
+    // no-op check, the header label) would keep the composition it replaced.
+    b.svc.noteAgentPreset(sid('s1'), 'minimal')
+    await Promise.resolve()
+
+    expect(b.svc.list.getSnapshot().byId[sid('s1')]?.agentPreset).toBe('minimal')
   })
 
   it('reflects live increments (host stream via manager) into the store', async () => {

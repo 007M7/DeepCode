@@ -131,6 +131,17 @@ export type HostFrame =
    */
   | { type: 'host/commands-changed' }
   /**
+   * One blank session was recomposed onto another agent preset (the logged
+   * `agent-preset/selected` commit point, read off the session stream). The
+   * registry-wide `host/commands-changed` cannot stand in for it: recomposing
+   * re-parents that agent's scope without registering anything, so a
+   * preset already mounted for another session produces no registry change
+   * at all. Clients refetch the catalogs this session's composition decides
+   * (`command.list`, `skill.list`) for this sessionId alone; the preset id
+   * rides along for surfaces that label the session.
+   */
+  | { type: 'host/session-preset-changed'; sessionId: SessionId; agentPreset: string }
+  /**
    * One settings namespace's resolved value changed (`settings/updated`
    * passthrough) — an RPC write, an external `settings.yaml` edit, or a
    * provider reload all converge here. Clients refetch `settings.describe`;
