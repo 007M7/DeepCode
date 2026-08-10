@@ -57,6 +57,10 @@ interface BenchOptions {
   subagent?: Exclude<ConversationSnapshot['subagent'], null>
   disabled?: boolean
   promptError?: ConversationSnapshot['promptError']
+  /** Authoritative queue rows served to the machine overlay (empty = none). */
+  queue?: ConversationSnapshot['queue']
+  /** The hub's steer-all face (empty-draft accelerated Enter). */
+  steerQueue?: () => void
   variant?: 'hero' | 'composer'
   placeholder?: string
   t?: InputBarProps['t']
@@ -70,14 +74,34 @@ interface BenchOptions {
   toggleCommandMenu?: (selection: { start: number; end: number }) => void
 }
 
+/** One pending queue row (the runtime snapshot shape, as the dock tests build it). */
+function row(id: string): ConversationSnapshot['queue'][number] {
+  return {
+    id: id as never, messageId: `message-${id}` as never, placement: 'queued',
+    content: [{ type: 'text', text: id }], preview: id, text: id,
+  }
+}
+
 /** Real machine behind the bar entry: sink spy, no slash pipeline (plain text goes straight to the sink). */
 function bench(over?: BenchOptions) {
   const sink = vi.fn()
   const lex = over?.lexicon
+  const session = createSnapshotStore<ConversationSnapshot>(snapshotOf({
+    running: over?.running ?? false,
+    subagent: over?.subagent ?? null,
+    removed: over?.disabled ?? false,
+    promptError: over?.promptError ?? null,
+    queue: over?.queue ?? [],
+  }))
   type ShellDeps = ConstructorParameters<typeof SessionInputShell>[0]
   const shell = new SessionInputShell({
     actx: SCTX,
     defaultSink: sink,
+    queue: {
+      getSnapshot: () => session.getSnapshot().queue,
+      subscribe: fn => session.subscribe(fn),
+    },
+    ...(over?.steerQueue !== undefined ? { steerQueue: over.steerQueue } : {}),
     // Lexicon-only stub: adjudication untouched (undefined slash methods are
     // never reached — these benches drive plain-draft flows only).
     ...(lex !== undefined
@@ -89,12 +113,6 @@ function bench(over?: BenchOptions) {
       : {}),
   })
   if (over?.draft !== undefined && over.draft !== '') shell.setDraft(over.draft)
-  const session = createSnapshotStore<ConversationSnapshot>(snapshotOf({
-    running: over?.running ?? false,
-    subagent: over?.subagent ?? null,
-    removed: over?.disabled ?? false,
-    promptError: over?.promptError ?? null,
-  }))
   const stop = vi.fn()
   const menuLauncher = createSnapshotStore<string | null>(over?.commandMenuOpen === true ? 'command' : null)
   const slotCalls: { key: string; owner: unknown }[] = []
@@ -151,10 +169,62 @@ function bench(over?: BenchOptions) {
   const interruptButton = view.container.querySelector<HTMLButtonElement>('button[aria-label="停止生成"]')
   return {
     view, textarea, button, interruptButton, props, sink, shell, wiring: shell, session, stop, slotCalls, menuLauncher,
+    steerQueue: over?.steerQueue,
   }
 }
 
 describe('Enter semantics', () => {
+  it('advertises the empty-draft whole-queue steering gesture when it is available', () => {
+    const { textarea } = bench({ running: true, queue: [row('q-1')], steerQueue: vi.fn() })
+    expect(textarea.placeholder).toBe('Cmd/Ctrl+Enter 插话发送全部排队消息')
+  })
+
+  it('keeps the owning placeholder or ordinary guidance when whole-queue steering is unavailable', () => {
+    expect(bench({ running: true }).textarea.placeholder).toBe('给智能体发消息')
+    expect(bench({ queue: [row('q-1')] }).textarea.placeholder).toBe('给智能体发消息')
+    expect(bench({ running: true, queue: [row('q-1')], draft: '消息' }).textarea.placeholder).toBe('给智能体发消息')
+    expect(bench({
+      running: true,
+      queue: [row('q-1')],
+      subagent: {
+        address: { parentSessionId: 'parent' as SessionId, childSessionId: SID, mode: 'continuable' },
+        parentAvailable: true,
+      },
+    }).textarea.placeholder).toBe('给智能体发消息')
+    expect(bench({
+      running: true,
+      queue: [row('q-1')],
+      placeholder: '上层指定提示',
+    }).textarea.placeholder).toBe('上层指定提示')
+    // The command menu owns Enter while open: neither the hint nor the
+    // gesture may claim the chord.
+    expect(bench({
+      running: true,
+      queue: [row('q-1')],
+      commandMenuOpen: true,
+    }).textarea.placeholder).toBe('给智能体发消息')
+    // The steer hint intentionally outranks the plan placeholder: while it
+    // shows, the whole-queue gesture is genuinely available in plan mode.
+    expect(bench({
+      running: true,
+      queue: [row('q-1')],
+      plan: { active: true, pending: false },
+    }).textarea.placeholder).toBe('Cmd/Ctrl+Enter 插话发送全部排队消息')
+  })
+
+  it('an open command menu withholds the whole-queue steering gesture', () => {
+    const steerQueue = vi.fn()
+    const { textarea, sink } = bench({
+      running: true,
+      queue: [row('q-1')],
+      commandMenuOpen: true,
+      steerQueue,
+    })
+    fireEvent.keyDown(textarea, { key: 'Enter', metaKey: true })
+    expect(steerQueue).not.toHaveBeenCalled()
+    expect(sink).not.toHaveBeenCalled()
+  })
+
   it('plain Enter submits queue mode through the machine; repeat and empty are suppressed', () => {
     const { textarea, sink } = bench({ draft: 'hello' })
     fireEvent.keyDown(textarea, { key: 'Enter' })
@@ -192,6 +262,78 @@ describe('Enter semantics', () => {
     const busyMeta = bench({ running: true, draft: 'steer with cmd' })
     fireEvent.keyDown(busyMeta.textarea, { key: 'Enter', metaKey: true })
     expect(busyMeta.sink).toHaveBeenCalledWith('steer with cmd', 'steer')
+  })
+
+  it('empty-draft Cmd/Ctrl+Enter steers the whole queue instead of submitting', () => {
+    const steerQueue = vi.fn()
+    const queue = [row('q-1'), row('q-2')]
+    const meta = bench({ running: true, queue, steerQueue })
+    fireEvent.keyDown(meta.textarea, { key: 'Enter', metaKey: true })
+    expect(meta.steerQueue).toHaveBeenCalledTimes(1)
+    expect(meta.sink).not.toHaveBeenCalled()
+
+    const ctrl = bench({ running: true, queue, steerQueue: vi.fn() })
+    fireEvent.keyDown(ctrl.textarea, { key: 'Enter', ctrlKey: true })
+    expect(ctrl.steerQueue).toHaveBeenCalledTimes(1)
+    expect(ctrl.sink).not.toHaveBeenCalled()
+  })
+
+  it('queue steering stays gated: idle, subagent, plain Enter, empty queue, or steering-only rows', () => {
+    // Idle: the gesture falls through to the machine's empty-draft no-op.
+    const idle = bench({ queue: [row('q-1')], steerQueue: vi.fn() })
+    fireEvent.keyDown(idle.textarea, { key: 'Enter', metaKey: true })
+    expect(idle.steerQueue).not.toHaveBeenCalled()
+    expect(idle.sink).not.toHaveBeenCalled()
+
+    // Plain Enter never steers the queue, even under the busy Steer preference.
+    const plain = bench({ running: true, busyEnter: 'steer', queue: [row('q-1')], steerQueue: vi.fn() })
+    fireEvent.keyDown(plain.textarea, { key: 'Enter' })
+    expect(plain.steerQueue).not.toHaveBeenCalled()
+    expect(plain.sink).not.toHaveBeenCalled()
+
+    // Subagent sessions keep the queue transport (no steering face).
+    const subagent = {
+      address: {
+        parentSessionId: 'parent' as SessionId,
+        childSessionId: SID,
+        mode: 'continuable' as const,
+      },
+      parentAvailable: true,
+    }
+    const child = bench({ running: true, subagent, queue: [row('q-1')], steerQueue: vi.fn() })
+    fireEvent.keyDown(child.textarea, { key: 'Enter', metaKey: true })
+    expect(child.steerQueue).not.toHaveBeenCalled()
+    expect(child.sink).not.toHaveBeenCalled()
+
+    // No queued rows: the empty draft stays a no-op.
+    const none = bench({ running: true, steerQueue: vi.fn() })
+    fireEvent.keyDown(none.textarea, { key: 'Enter', metaKey: true })
+    expect(none.steerQueue).not.toHaveBeenCalled()
+    expect(none.sink).not.toHaveBeenCalled()
+
+    // Pending steering rows are not the queue: nothing to flush.
+    const steering = bench({
+      running: true,
+      queue: [{ ...row('s-1'), placement: 'steering' }],
+      steerQueue: vi.fn(),
+    })
+    fireEvent.keyDown(steering.textarea, { key: 'Enter', metaKey: true })
+    expect(steering.steerQueue).not.toHaveBeenCalled()
+    expect(steering.sink).not.toHaveBeenCalled()
+  })
+
+  it('draft content outranks the queue: accelerated Enter steers the draft only', () => {
+    const steerQueue = vi.fn()
+    const { textarea, sink } = bench({ running: true, queue: [row('q-1')], draft: '插话', steerQueue })
+    fireEvent.keyDown(textarea, { key: 'Enter', ctrlKey: true })
+    expect(sink).toHaveBeenCalledWith('插话', 'steer')
+    expect(steerQueue).not.toHaveBeenCalled()
+  })
+
+  it('empty-draft accelerated Enter without a steerQueue face stays a silent no-op', () => {
+    const { textarea, sink } = bench({ running: true, queue: [row('q-1')] })
+    fireEvent.keyDown(textarea, { key: 'Enter', metaKey: true })
+    expect(sink).not.toHaveBeenCalled()
   })
 
   it('platform undo/redo chords route to the machine, never the browser stack', () => {
