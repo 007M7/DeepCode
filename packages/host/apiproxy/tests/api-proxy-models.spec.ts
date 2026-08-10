@@ -5,7 +5,7 @@
  * boundary for a running selection change.
  */
 
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import AgentRegistry, { agentEvents } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -13,6 +13,7 @@ import LlmService, { LlmAdapter, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import type {
   GenerateOptions, LlmCallConfig, LlmModelInfo, LlmModelReasoningInfo, LlmProviderInfo,
   LlmResolvedModelInfo, StreamChunk,
+  UserMessage,
 } from '@deepseek-ai/dsh-llm'
 import SessionStore from '@deepseek-ai/dsh-session'
 import type { SessionId } from '@deepseek-ai/dsh-session'
@@ -108,7 +109,8 @@ async function harness(logged?: {
     session,
     status: 'running',
     ctx,
-  } as Agent
+    inbox: { nextTurn: [], nextStep: [] },
+  } as unknown as Agent
   ctx.agents.register(agent)
   return { ctx, agent, sessionId: session.id }
 }
@@ -118,7 +120,157 @@ function expectValue<T>(response: { result: { ok: true; value: T } | { ok: false
   return response.result.value
 }
 
+function registerTextOnly(ctx: Context): void {
+  ctx.llm.registerAdapter(['text-only'], new class extends CatalogAdapter {
+    override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
+      return Promise.resolve({ provider, id: model, name: model, inputModalities: ['text'] })
+    }
+  }('Text Only', []))
+}
+
 describe('Web session model selection', () => {
+  it('validates an ordered image batch before persisting any member', async () => {
+    const { ctx, agent, sessionId } = await harness()
+    const validateImage = vi.fn((_input: { data: Uint8Array }) => Promise.resolve())
+    const saveImage = vi.fn((input: { data: Uint8Array; mediaType: 'image/png'; name?: string }) => Promise.resolve({
+      attachmentId: `att-${String(input.data[0])}`,
+      mediaType: input.mediaType,
+      bytes: input.data.byteLength,
+      width: 1,
+      height: 1,
+      ...input.name === undefined ? {} : { name: input.name },
+    }))
+    ctx.provide('attachments', {
+      imageLimits: {
+        maxImageBytes: 4,
+        maxImagesPerMessage: 2,
+        maxMessageImageBytes: 4,
+        maxImagePixels: 4,
+        mediaTypes: ['image/png'],
+      },
+      validateImage,
+      saveImage,
+    } as never)
+    const followup = vi.fn()
+    Object.assign(agent, { followup })
+    const api = createApiProxy(ctx, {
+      defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }),
+      cwd: '/tmp',
+      workspaceRoot: '/tmp',
+    })
+
+    const result = await api.sessions.prompt(request({
+      sessionId,
+      mode: 'queue' as const,
+      content: [
+        { type: 'image' as const, mediaType: 'image/png' as const, data: 'AQ==', name: 'first.png' },
+        { type: 'text' as const, text: 'compare' },
+        { type: 'image' as const, mediaType: 'image/png' as const, data: 'Ag==' },
+      ],
+    }))
+    expect(result.result.ok).toBe(true)
+    expect(validateImage.mock.calls.map(([input]) => [...input.data])).toEqual([[1], [2]])
+    expect(saveImage.mock.calls.map(([input]) => [...input.data])).toEqual([[1], [2]])
+    expect((followup.mock.calls[0]?.[0] as UserMessage).content).toEqual([
+      {
+        type: 'image',
+        attachment: {
+          attachmentId: 'att-1', mediaType: 'image/png', bytes: 1, width: 1, height: 1, name: 'first.png',
+        },
+      },
+      { type: 'text', text: 'compare' },
+      { type: 'image', attachment: { attachmentId: 'att-2', mediaType: 'image/png', bytes: 1, width: 1, height: 1 } },
+    ])
+
+    const denied = await api.sessions.prompt(request({
+      sessionId,
+      mode: 'queue' as const,
+      content: Array.from({ length: 3 }, () => ({
+        type: 'image' as const, mediaType: 'image/png' as const, data: 'AQ==',
+      })),
+    }))
+    expect(denied.result).toMatchObject({
+      ok: false,
+      error: { code: 'attachment-error', details: { reason: 'TOO_MANY_IMAGES' } },
+    })
+    expect(saveImage).toHaveBeenCalledTimes(2)
+    await ctx.fiber.dispose()
+  })
+
+  it('refuses a text-only selection while durable or pending image content remains visible', async () => {
+    const { ctx, agent, sessionId } = await harness()
+    registerTextOnly(ctx)
+    const api = createApiProxy(ctx, {
+      defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }),
+      cwd: '/tmp',
+      workspaceRoot: '/tmp',
+    })
+    const image = {
+      type: 'image' as const,
+      attachment: { attachmentId: 'att-history', mediaType: 'image/png' as const, bytes: 1, width: 1, height: 1 },
+    }
+    agent.session.append('user/message', {
+      id: 'image-message', role: 'user', source: { kind: 'user' }, content: [image],
+    } as never, { surfaceOp: 'append' })
+    expect((await api.sessions.selectModel(request({
+      sessionId, provider: 'text-only', model: 'plain',
+    }))).result).toMatchObject({ ok: false, error: { code: 'model-unavailable' } })
+
+    agent.session.append('user/message', {
+      id: 'summary', role: 'user', source: { kind: 'plugin', plugin: 'compact' },
+      content: [{ type: 'text', text: 'image summarized' }],
+    } as never, {
+      surfaceOp: { op: 'replace', start: 0, end: agent.session.events.length - 1 },
+      sourceEventSeqs: agent.session.events.map(event => event.seq),
+    })
+    ;(agent.inbox.nextTurn as UserMessage[]).push({
+      id: 'pending-image', role: 'user', source: { kind: 'user' }, content: [image],
+    } as never)
+    expect((await api.sessions.selectModel(request({
+      sessionId, provider: 'text-only', model: 'plain',
+    }))).result.ok).toBe(false)
+    ;(agent.inbox.nextTurn as UserMessage[]).length = 0
+    expect(expectValue(await api.sessions.selectModel(request({
+      sessionId, provider: 'text-only', model: 'plain',
+    }))).selected).toEqual({ provider: 'text-only', model: 'plain' })
+    await ctx.fiber.dispose()
+  })
+
+  it('authorizes attachment bytes only when the session event stream references the id', async () => {
+    const { ctx, agent, sessionId } = await harness()
+    const ref = {
+      attachmentId: 'att-authorized', mediaType: 'image/png' as const, bytes: 2, width: 1, height: 1,
+    }
+    const readImage = vi.fn(() => Promise.resolve({ ref, data: Uint8Array.of(1, 2) }))
+    ctx.provide('attachments', { readImage } as never)
+    const api = createApiProxy(ctx, {
+      defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }),
+      cwd: '/tmp',
+      workspaceRoot: '/tmp',
+    })
+    agent.session.append('agent/inbox/spliced', {
+      target: 'next-turn',
+      start: 0,
+      inserted: [{
+        id: 'queued-image', role: 'user', source: { kind: 'user' },
+        content: [{ type: 'image', attachment: ref }],
+      }],
+    } as never)
+
+    const allowed = await api.sessions.attachment(request({
+      sessionId, attachmentId: 'att-authorized' as never,
+    }))
+    expect(allowed.result).toMatchObject({ ok: true, value: { attachment: ref, data: 'AQI=' } })
+    const denied = await api.sessions.attachment(request({
+      sessionId, attachmentId: 'att-other' as never,
+    }))
+    expect(denied.result).toMatchObject({
+      ok: false,
+      error: { code: 'attachment-error', details: { reason: 'ATTACHMENT_NOT_REFERENCED' } },
+    })
+    expect(readImage).toHaveBeenCalledOnce()
+    await ctx.fiber.dispose()
+  })
   it('groups successful providers and leaves an unlisted current selection out of the catalog', async () => {
     const { ctx, sessionId } = await harness({
       provider: 'deepseek-official',

@@ -10,6 +10,9 @@
   ],
   "references": [
     {
+      "path": "../../attachment/attachment"
+    },
+    {
       "path": "../../llm/llm"
     },
     {
