@@ -66,15 +66,17 @@
     "zod": "^4.4.3"
   },
   "peerDependencies": {
-    "cordis": "^4.0.0-rc.7",
-    "@deepseek-ai/dsh-invariants": "^0.0.1"
+    "@deepseek-ai/dsh-agent-presets": "^0.0.1",
+    "@deepseek-ai/dsh-invariants": "^0.0.1",
+    "cordis": "^4.0.0-rc.7"
   },
   "devDependencies": {
+    "@deepseek-ai/dsh-agent-presets": "workspace:^",
+    "@deepseek-ai/dsh-invariants": "workspace:^",
     "@deepseek-ai/dsh-storage": "workspace:^",
     "@deepseek-ai/dsh-storage-domain": "workspace:^",
     "@deepseek-ai/dsh-type-meta": "workspace:^",
     "@deepseek-ai/dsh-typert-registry": "workspace:^",
-    "cordis": "^4.0.0-rc.7",
-    "@deepseek-ai/dsh-invariants": "workspace:^"
+    "cordis": "^4.0.0-rc.7"
   }
 }

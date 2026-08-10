@@ -817,6 +817,27 @@ describe('SessionPersistenceJsonl: scanLog unit', () => {
     expect(() => scanLog(Buffer.from(log))).toThrow(/session header/)
   })
 
+  it('round-trips the agent preset a session was composed from', () => {
+    const line = toHeaderLine({
+      version: 0,
+      id: SessionId('composed'),
+      createdAt: 1,
+      delegationDepth: 0,
+      agentPreset: 'minimal',
+    })
+    const log = `${JSON.stringify(line)}\n`
+
+    // The preset decides the resumed session's tools and prompt; dropping it
+    // on disk would restore a composition the logged history contradicts.
+    expect(scanLog(Buffer.from(log)).meta.agentPreset).toBe('minimal')
+  })
+
+  it('rejects a session header whose agentPreset is not a string', () => {
+    const log = '{"type":"session","version":0,"id":"bad-preset","createdAt":1,"delegationDepth":0,"agentPreset":7}\n'
+
+    expect(() => scanLog(Buffer.from(log))).toThrow(/session header/)
+  })
+
   it('a seq gap after the last turn/end bounds the preserved tail (torn fragment tolerated)', () => {
     const log = [
       JSON.stringify({ type: 'session', version: 0, id: 'g', createdAt: 1, delegationDepth: 0 }),

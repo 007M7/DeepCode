@@ -56,6 +56,7 @@ export const sessionSummarySchema = z.object({
   parentSessionId: sessionIdSchema.optional(),
   origin: z.literal('subagent').optional(),
   cwd: z.string().optional(),
+  agentPreset: z.string().optional(),
   projections: z.lazy(() => sessionProjectionsBlockSchema).optional(),
 }) as unknown as z.ZodType<Wire<SessionSummary>>
 
@@ -101,6 +102,7 @@ export const sessionCreateRequestSchema = z.object({
   workspaceId: workspaceIdSchema.optional(),
   cwd: z.string().optional(),
   sessionId: sessionIdSchema.optional(),
+  agentPreset: z.string().optional(),
 }).refine(
   payload => payload.workspaceId === undefined || payload.cwd === undefined,
   { message: 'session.create accepts workspaceId or cwd, not both' },
@@ -109,6 +111,7 @@ export const sessionCreateRequestSchema = z.object({
 /** session.create response value. */
 export const sessionCreateValueSchema = z.object({
   sessionId: sessionIdSchema,
+  agentPreset: z.string().optional(),
 }) satisfies z.ZodType<Wire<ResponseValue<'session.create'>>>
 
 /** session.rename request payload (raw title; host-side normalization decides acceptance). */

@@ -166,6 +166,10 @@ Exceptions combine LLM Service Definition/Consumer roles, filesystem policy, web
 
 `dsh-agent-spine-demo` bundles a spine and optional goals. App packages own CLI, ACP automation, and JSON-RPC front doors ([README](../packages/examples/agent-spine-demo/README.md), [acp/](../packages/acp/README.md), [interaction/](../packages/interaction/README.md)). `dsh-jsonrpc-agent` boots external `cordis.yml`; the Python SDK defaults when config is absent ([Python SDK](../python/README.md)). Thin deployments use swappable backends and optional tools ([examples/](../examples/AGENTS.md), [runnable wirings](cookbook/extension-cookbook.md#runnable-wirings), [graph atlas](graph-atlas.md)).
 
+### Agent Presets
+
+A deployment may compose each session's model-facing plugin set separately. An **agent preset** is a directory holding one `agent.cordis.yml`, mounted as an `include` subtree under that agent's scope during `setup(agentCtx)`, so its tool and prompt registrations file into that agent's layer and unwind with it — no new tier in the registries. The host composition keeps what must be shared: the registries themselves, cross-session facilities, the sandbox and approval stack, the model route. `ctx.agentPresets` owns discovery and the guarded mount, rejecting a row that never activates or that publishes into the root service realm. Details: [per-session agent presets](../.agents/notes/implemented/architecture/2026-08-03-per-session-agent-presets.md), [preset/](../packages/preset/README.md).
+
 ### Where New Behavior Goes
 
 New behavior attaches to a documented extension point; a loop change updates this map.
@@ -174,6 +178,7 @@ New behavior attaches to a documented extension point; a loop change updates thi
 |---|---|
 | Add a model provider | register its adapter on `ctx.llm` |
 | Add a model-facing capability | register on `ctx.tools`; schemas join prompt assembly |
+| Give one session a different capability set | compose it in an agent preset; a service row there needs an `isolate` realm |
 | Add shell execution | implement and register a `ctx.bash` backend; the local backend spawns through `ctx.subprocess` |
 | Add persistent terminal execution | register a `ctx.pty` backend plus `dsh-tool-pty` |
 | Add a human command | register on `ctx.commands`; adapters discover and dispatch without a model turn |

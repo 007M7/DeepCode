@@ -124,6 +124,37 @@ Depends on: [`AgentOptions`](subsystems/core.md) · [`SessionId`](subsystems/cor
 
 Source: [`packages/core/agent-loop/src/index.ts:236`](../packages/core/agent-loop/src/index.ts)
 
+## `@deepseek-ai/dsh-agent-presets`
+
+Requires: `loader`
+
+```ts config-catalog
+/** Plugin config: which preset is the default, and where presets live. */
+export interface Config {
+  /** Preset id mounted when a caller names none. Missing at mount time fails loud. */
+  default: string
+  /** Scanned roots in precedence order; an earlier root wins a duplicate id. */
+  roots: PresetRoot[]
+}
+
+/** One directory scanned for preset subdirectories. */
+export interface PresetRoot {
+  /** Directory holding one subdirectory per preset; a leading `~` expands. */
+  path: string
+  /** Trust recorded on every preset discovered under this root. */
+  trust: PresetTrust
+}
+
+/**
+ * Where a preset's composition came from. A `system` preset ships with the
+ * deployment; a `user` preset was authored locally, by a person or by an
+ * agent, and therefore carries the same trust as shell access.
+ */
+export type PresetTrust = 'system' | 'user'
+```
+
+Source: [`packages/preset/agent-presets/src/types.ts:52`](../packages/preset/agent-presets/src/types.ts)
+
 ## `@deepseek-ai/dsh-agent-spine-demo`
 
 ```ts config-catalog
@@ -207,6 +238,28 @@ export interface GoalConfig {
 Depends on: [`AgentLoopConfig`](#deepseek-aidsh-agent-loop) · [`GoalDomainConfig`](#deepseek-aidsh-goal) · [`InvariantConfig`](#deepseek-aidsh-invariants) · [`SessionTitleConfig`](#deepseek-aidsh-session-title) · [`SkillLocal`](../packages/skill/skill-local/src/index.ts) · [`SkillRegistryConfig`](#deepseek-aidsh-skill) · [`SystemPromptConfig`](#deepseek-aidsh-system-prompt) · [`toolBash`](../packages/bash/tool-bash/src/index.ts) · [`toolGoal`](../packages/goal/tool-goal/src/index.ts) · [`ToolsConfig`](#deepseek-aidsh-tools) · [`toolSkill`](../packages/skill/tool-skill/src/index.ts) · [`toolTasks`](../packages/tasks/tool-tasks/src/index.ts) · [`workspaceContext`](../packages/context/workspace-context/src/index.ts)
 
 Source: [`packages/examples/agent-spine-demo/src/index.ts:90`](../packages/examples/agent-spine-demo/src/index.ts)
+
+## `@deepseek-ai/dsh-agent-tool-mode`
+
+Requires: `tools`
+
+```ts config-catalog
+/** Plugin config. */
+export interface Config {
+  /**
+   * The form this agent's model sees. `native` sends every visible schema,
+   * `code` sends only `run_code` plus a generated SDK, `both` sends both.
+   * Required rather than defaulted: the deployment default is what a preset
+   * without this row already gets, so an omitted value would mean the row was
+   * composed for nothing.
+   */
+  mode: ToolPresentationMode
+}
+```
+
+Depends on: [`ToolPresentationMode`](subsystems/tools.md)
+
+Source: [`packages/core/agent-tool-mode/src/index.ts:36`](../packages/core/agent-tool-mode/src/index.ts)
 
 ## `@deepseek-ai/dsh-attachment-local`
 
@@ -593,6 +646,14 @@ Requires: `agentDefaultModel` · `agents` · `attachments` · `directoryPicker` 
 export interface Config {
   /** Parent directory for name-created Workspaces; defaults to the Host cwd. */
   workspaceRoot?: string
+  /**
+   * Whether this deployment can hand paths to a native desktop opener —
+   * the `hasDocument` capability the agent-preset roster reports. Absent,
+   * the platform is asked (macOS/Windows/WSL yes; Linux only with a display
+   * server); set it explicitly where detection misleads, e.g. `false` in a
+   * container whose DISPLAY points nowhere a user can see.
+   */
+  nativeOpen?: boolean
 }
 ```
 
@@ -1072,6 +1133,24 @@ Depends on: [`ApprovalPolicy`](subsystems/approval.md) · [`SandboxMode`](subsys
 
 Source: [`packages/interaction/permission/src/index.ts:140`](../packages/interaction/permission/src/index.ts)
 
+## `@deepseek-ai/dsh-persona`
+
+Requires: `systemPrompt`
+
+```ts config-catalog
+/** Plugin config: the persona text this composition contributes. */
+export interface Config {
+  /**
+   * Persona prose rendered as the `deployment:persona` section. A template:
+   * complete `{{…}}` groups interpolate strictly against registered prompt
+   * variables. Empty text drops the section at render, matching the registry.
+   */
+  text: string
+}
+```
+
+Source: [`packages/preset/persona/src/index.ts:34`](../packages/preset/persona/src/index.ts)
+
 ## `@deepseek-ai/dsh-plan-mode`
 
 Requires: `tools` · `systemPrompt`
@@ -1536,7 +1615,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/skill/skill/src/index.ts:266`](../packages/skill/skill/src/index.ts)
+Source: [`packages/skill/skill/src/index.ts:279`](../packages/skill/skill/src/index.ts)
 
 ## `@deepseek-ai/dsh-skill-local`
 
@@ -1889,7 +1968,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/core/system-prompt/src/index.ts:166`](../packages/core/system-prompt/src/index.ts)
+Source: [`packages/core/system-prompt/src/index.ts:177`](../packages/core/system-prompt/src/index.ts)
 
 ## `@deepseek-ai/dsh-time-context`
 
@@ -2325,11 +2404,16 @@ Requires: `systemPrompt`
 /** Plugin config: how the registered tools are presented to the model. */
 export interface Config {
   /**
-   * Model presentation. `native` (default) sends every visible schema; `code`
-   * sends only `run_code` plus a generated SDK prompt; `both` sends both forms.
-   * Code modes require a `ctx.codeRuntime` whose `language` has a registered
-   * SDK renderer (TypeScript or Python) and fail prompt assembly when it is
-   * absent or has no renderer. Under `code`, native names in `toolOrder` are invalid.
+   * Model presentation for agents that declare none of their own. `native`
+   * (default) sends every visible schema; `code` sends only `run_code` plus a
+   * generated SDK prompt; `both` sends both forms. Code modes require a
+   * `ctx.codeRuntime` whose `language` has a registered SDK renderer
+   * (TypeScript or Python) and fail prompt assembly when it is absent or has
+   * no renderer. Under `code`, native names in `toolOrder` are invalid.
+   *
+   * One agent overrides this for itself with {@link ToolRegistry.presentAs},
+   * which is how an agent preset composes a Code Mode agent beside native
+   * ones in the same process.
    */
   mode?: ToolPresentationMode
   /**
@@ -2603,6 +2687,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-client-locale` ([`packages/client/locale/src/index.ts`](../packages/client/locale/src/index.ts))
 - `@deepseek-ai/dsh-client-modules` — requires `httpServer` · `loader` ([`packages/client/modules/src/index.ts`](../packages/client/modules/src/index.ts))
 - `@deepseek-ai/dsh-client-runtime` ([`packages/client/runtime/src/index.ts`](../packages/client/runtime/src/index.ts))
+- `@deepseek-ai/dsh-client-ui-agent-preset` ([`packages/client/ui-agent-preset/src/index.ts`](../packages/client/ui-agent-preset/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-command` ([`packages/client/ui-command/src/index.ts`](../packages/client/ui-command/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-conversation` ([`packages/client/ui-conversation/src/index.ts`](../packages/client/ui-conversation/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-deliverables` ([`packages/client/ui-deliverables/src/index.ts`](../packages/client/ui-deliverables/src/index.ts))
@@ -2612,7 +2697,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-client-ui-models` ([`packages/client/ui-models/src/index.ts`](../packages/client/ui-models/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-permission` ([`packages/client/ui-permission/src/index.ts`](../packages/client/ui-permission/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-plan` ([`packages/client/ui-plan/src/index.ts`](../packages/client/ui-plan/src/index.ts))
-- `@deepseek-ai/dsh-client-ui-question` — requires `tools` · `userInteraction` ([`packages/client/ui-question/src/index.ts`](../packages/client/ui-question/src/index.ts))
+- `@deepseek-ai/dsh-client-ui-question` ([`packages/client/ui-question/src/index.ts`](../packages/client/ui-question/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-settings` ([`packages/client/ui-settings/src/index.ts`](../packages/client/ui-settings/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-settings-general` ([`packages/client/ui-settings-general/src/index.ts`](../packages/client/ui-settings-general/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-sidebar` ([`packages/client/ui-sidebar/src/index.ts`](../packages/client/ui-sidebar/src/index.ts))

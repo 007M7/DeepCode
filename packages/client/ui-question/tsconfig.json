@@ -30,9 +30,6 @@
       "path": "../ui-slots"
     },
     {
-      "path": "../../interaction/tool-ask-user"
-    },
-    {
       "path": "../../support/invariants"
     }
   ]

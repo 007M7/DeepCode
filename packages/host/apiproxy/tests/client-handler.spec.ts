@@ -23,6 +23,7 @@ function scriptedApi(overrides: {
   host?: Partial<ApiProxy['host']>
   commands?: Partial<ApiProxy['commands']>
   skills?: Partial<ApiProxy['skills']>
+  agentPresets?: Partial<ApiProxy['agentPresets']>
   events?: Partial<ApiProxy['events']>
   goals?: Partial<ApiProxy['goals']>
   settings?: Partial<ApiProxy['settings']>
@@ -92,6 +93,15 @@ function scriptedApi(overrides: {
       ...overrides.commands,
     },
     skills: { list: r => ok(r, { skills: [] }), ...overrides.skills },
+    agentPresets: {
+      list: r => ok(r, { presets: [], authorable: false, hasDocument: false }),
+      select: r => ok(r, { agentPreset: r.payload.agentPreset }),
+      read: r => ok(r, { agentPreset: r.payload.agentPreset, trust: 'user' as const, content: '' }),
+      copy: r => ok(r, { agentPreset: r.payload.agentPreset }),
+      openDocument: r => ok(r, { opened: true as const }),
+      remove: r => ok(r, {}),
+      ...overrides.agentPresets,
+    },
     goals: {
       create: err,
       edit: err,
@@ -224,6 +234,18 @@ describe('unary round trip', () => {
     expect(anchored.result.ok).toBe(true)
     const appended = await c.workspace.insertSessionBefore({ workspaceId: 'w1' as never, sessionId: sid('s1') })
     expect(appended.result.ok).toBe(true)
+  })
+
+  it('routes the agent-preset roster and switch through the wire', async () => {
+    const c = client(scriptedApi())
+
+    const listed = await c.agentPresets.list({})
+    expect(listed.result).toEqual({ ok: true, value: { presets: [], authorable: false, hasDocument: false } })
+
+    // The switch carries the session it is about: the host refuses one whose
+    // conversation has started, and it can only know which by id.
+    const selected = await c.agentPresets.select({ sessionId: sid('s1'), agentPreset: 'standard' })
+    expect(selected.result).toEqual({ ok: true, value: { agentPreset: 'standard' } })
   })
 
   it('passes business errors through as 200 + err result, not a throw', async () => {

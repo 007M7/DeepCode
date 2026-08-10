@@ -175,6 +175,22 @@ export class FakeApiClient implements IApiClient {
     execute: (payload: unknown) => this.record('command.execute', payload, this.onCommandExecute(payload)),
   }
 
+  readonly agentPresets: IApiClient['agentPresets'] = {
+    list: (payload: unknown) => this.record('agentPreset.list', payload, Promise.resolve(ok({ presets: [], authorable: false, hasDocument: false }))),
+    select: (payload: { agentPreset: string }) =>
+      this.record('agentPreset.select', payload, Promise.resolve(ok({ agentPreset: payload.agentPreset }))),
+    read: (payload: { agentPreset: string }) =>
+      this.record('agentPreset.read', payload, Promise.resolve(ok({
+        agentPreset: payload.agentPreset, trust: 'user' as const, content: '',
+      }))),
+    copy: (payload: { agentPreset: string }) =>
+      this.record('agentPreset.copy', payload, Promise.resolve(ok({ agentPreset: payload.agentPreset }))),
+    openDocument: (payload: { agentPreset: string }) =>
+      this.record('agentPreset.openDocument', payload, Promise.resolve(ok({ opened: true as const }))),
+    remove: (payload: { agentPreset: string }) =>
+      this.record('agentPreset.remove', payload, Promise.resolve(ok({}))),
+  }
+
   readonly skills: IApiClient['skills'] = {
     list: (payload: unknown) => this.record('skill.list', payload, this.onSkillList(payload)),
   }

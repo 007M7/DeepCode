@@ -19,6 +19,7 @@ import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, Message } from '@deepseek-ai/dsh-llm'
 import { deriveEventMessage, SessionId } from '@deepseek-ai/dsh-session'
+import type {} from '@deepseek-ai/dsh-agent-presets'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { TokenMeterService } from '@deepseek-ai/dsh-token-meter'
 import { join } from 'node:path'
@@ -195,10 +196,22 @@ describe('web e2e: seeded history renders through cold resume', () => {
     if (MODE !== 'record') {
       const raw = await readFile(SEED, 'utf8')
       expect(fixtureUserPrompts(raw), 'seed fixture must carry exactly the drive prompt').toEqual([PROMPT])
-      const meter = scaffold.ctx.get('tokenMeter')
-      if (meter === undefined) throw new Error('seeded-history requires the composed token meter')
-      const realized = realizeSeedFixture(scaffold, raw, SEED_ID)
-      await seedSession(scaffold, withCompaction(realized, meter), SEED_ID)
+      // The meter belongs to an agent's preset, not to the process — token
+      // accounting is per session. It is used here as a pure pricing function
+      // over fixture content, so a throwaway composition is enough to reach one.
+      const priced = await scaffold.ctx.agents.create({
+        sessionId: SessionId('seeded-history-pricing'),
+        setup: agentCtx => scaffold.ctx.agentPresets.mount(agentCtx).then(() => undefined),
+      })
+      let realizedWithCompaction: string
+      try {
+        const meter = scaffold.ctx.agentPresets.serviceFor(priced.agent, 'tokenMeter')
+        if (meter === undefined) throw new Error('seeded-history requires the composed token meter')
+        realizedWithCompaction = withCompaction(realizeSeedFixture(scaffold, raw, SEED_ID), meter)
+      } finally {
+        await priced.dispose()
+      }
+      await seedSession(scaffold, realizedWithCompaction, SEED_ID)
     }
     browser = await chromium.launch()
     page = await newEnglishPage(browser)
@@ -245,10 +258,15 @@ describe('web e2e: seeded history renders through cold resume', () => {
     const projections = body.result.value?.projections
     expect(projections).toBeDefined()
     expect(projections?.asOfSeq).toBeGreaterThanOrEqual(0)
-    // The seed carries a session/title event: the title unit must serve it.
+    // The seed carries a session/title event: the title unit is host-plane, so
+    // it folds the detached log and serves the value with nothing composed.
     expect(typeof projections?.values.title).toBe('string')
-    // tool-todo is composed but the seed has no todo/write: whole-value null,
-    // key PRESENT (absence would mean the unit never registered).
+    // `todos` IS here, as its empty fold (null). Its unit is registered by
+    // `tool-todo` inside the default preset's STANDING mount, which the read
+    // itself ensures — deterministically, not because some unrelated session
+    // happens to be composed. A present-but-null key is what keeps the
+    // client's "omitted key = capability absent → clear the row" rule from
+    // wiping preset-owned projections on cold reads.
     expect(projections?.values).toHaveProperty('todos', null)
   })
 

@@ -90,6 +90,12 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * reads the global workspace list.
      */
     'conversation.hero.workspace': { kind: 'single'; scope: 'root'; owner: EmptyWorkspaceOwnerProps }
+    /**
+     * The agent-preset chip beside the workspace picker on the new-session
+     * screen. Root scope: no session exists yet, so the choice is staged for
+     * the next one rather than applied to a current one.
+     */
+    'conversation.hero.agentPreset': { kind: 'single'; scope: 'root'; owner: HeroAgentPresetOwnerProps }
     // 'conversation.input.overlay' merges in ui-slash (the dependency
     // direction is the hard constraint — ui-slash cannot import
     // this package, while this package's input contract already imports
@@ -150,6 +156,28 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
     useInput: MaybeSnapshotSelectorHook<InputState>
     inputActions: InputActions | undefined
   }
+}
+
+/** Owner share of the hero agent-preset chip: the shell supplies nothing. */
+export interface HeroAgentPresetOwnerProps {
+  /** Marker field: the chip owns its own roster, staging, and menu state. */
+  children?: never
+}
+
+/** Owner share of the strict session content seat. */
+export interface ConversationSessionOwnerProps {
+  /**
+   * Wrap the view ring in the transcript scrollport that also hosts the
+   * sticky composer seat (whole `'conversation.composer'` chain output).
+   * Supplied for every real session (hero/settling/active) so the composer
+   * keeps one tree seat across the blank → active flip; the header stays
+   * outside that wrapper as ordinary column chrome (`flex: none`), while
+   * active CSS sticks the seat to the bottom of the same scrollport so wheel
+   * over the footer scrolls the flow.
+   * @param view - the session view-ring content (null while blank chrome is hidden).
+   * @returns the scrollport containing `view` and the sticky composer seat.
+   */
+  wrapActiveBody?: (view: ReactNode) => ReactNode
 }
 
 /** Header actions derive their state from the standard session/global kit. */
@@ -451,6 +479,7 @@ export type ConversationSlotProps =
     | 'conversation.input.dock' | 'conversation.composer.dock'
     | 'conversation.input.left' | 'conversation.input.right'
     | 'conversation.hero.workspace'
+    | 'conversation.hero.agentPreset'
   >
   & InjectFace<ConversationInjected>
   & PropsLocale<'conversation'>

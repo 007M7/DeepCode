@@ -89,6 +89,24 @@ export const Config: z<ConnectionConfig> = z.object({
  * keys, or key state — and a LAN client's model picker legitimately needs it.
  */
 const PRIVILEGED_METHODS = new Set([
+  // A preset composition names the plugins a session runs, so reading one is
+  // reconnaissance; copy and remove rearrange what the deployment offers, and
+  // openDocument drives the host desktop — all more than the roster beside
+  // them. (Authoring is copy-only, so no method here accepts composition text
+  // or a path; the pin is about who may manage the roster at all.)
+  //
+  // CHOOSING one is not pinned, and `agentPreset.list` is not either. Picking a
+  // preset looks like escalation — one of them mounts the toolset that edits the
+  // live runtime — but `session.create` already takes an `agentPreset`, so
+  // pinning only the switch would leave the same capability one method over.
+  // The deeper reason is that the capability is not the preset's to grant: the
+  // deployment's own default already carries `bash` and the filesystem tools, so
+  // any caller that may start a session at all can already run commands as this
+  // process. Pinning the switch would be a fence beside an open gate.
+  'agentPreset.read',
+  'agentPreset.copy',
+  'agentPreset.openDocument',
+  'agentPreset.remove',
   'host.pickDirectory',
   'host.openPath',
   'settings.describe',

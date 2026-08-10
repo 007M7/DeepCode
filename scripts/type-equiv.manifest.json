@@ -1087,6 +1087,11 @@
     },
     {
       "doc": "docs/subsystems/skills.md",
+      "symbol": "SkillViewOptions",
+      "source": "packages/skill/skill/src/index.ts"
+    },
+    {
+      "doc": "docs/subsystems/skills.md",
       "symbol": "SkillProviderObservation",
       "source": "packages/skill/skill/src/index.ts"
     },
