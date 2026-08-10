@@ -1,5 +1,5 @@
 {
-  "name": "@cordisjs/plugin-hmr",
+  "name": "@deepseek-ai/cordis-plugin-hmr",
   "description": "Hot Module Replacement Plugin for Cordis",
   "version": "1.0.15",
   "private": true,
@@ -22,7 +22,7 @@
   ],
   "author": "Shigma <shigma10826@gmail.com>",
   "license": "MIT",
-  "cordis": {
+  "@deepseek-ai/cordis": {
     "services": {
       "required": [
         "timer"
@@ -34,15 +34,15 @@
     }
   },
   "peerDependencies": {
-    "@cordisjs/plugin-timer": "^1.1.2",
-    "cordis": "^4.0.0-rc.7"
+    "@deepseek-ai/cordis-plugin-timer": "^1.1.2",
+    "@deepseek-ai/cordis": "^4.0.0-rc.7"
   },
   "dependencies": {
     "@babel/code-frame": "^7.29.0",
     "chokidar": "^4.0.3",
-    "cosmokit": "^1.8.1",
+    "@deepseek-ai/cosmokit": "^1.8.1",
     "picomatch": "^4.0.3",
-    "schemastery": "^3.18.0"
+    "@deepseek-ai/schemastery": "^3.18.0"
   },
   "devDependencies": {
     "@types/babel__code-frame": "^7.27.0",

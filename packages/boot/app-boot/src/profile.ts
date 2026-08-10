@@ -27,8 +27,8 @@ import {
   existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, rmSync, symlinkSync, writeFileSync,
 } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
-import type { EntryOptions } from '@cordisjs/plugin-loader'
-import { applyEntryPatches, type PatchOptions } from '@cordisjs/plugin-include'
+import type { EntryOptions } from '@deepseek-ai/cordis-plugin-loader'
+import { applyEntryPatches, type PatchOptions } from '@deepseek-ai/cordis-plugin-include'
 import { resolveDshHome } from '@deepseek-ai/dsh-paths'
 import { loadOverlayPatches } from './index.ts'
 

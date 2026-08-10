@@ -294,7 +294,7 @@ describe('web toolview registration', () => {
           return () => {}
         },
       },
-    } as unknown as import('cordis').Context
+    } as unknown as import('@deepseek-ai/cordis').Context
     webToolview.apply(ctx)
     expect(registered.map(r => r.key)).toEqual(['web_search', 'web_fetch'])
     // Both keys claim the conversation locale seat ToolRow's body copy needs.

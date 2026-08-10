@@ -1,5 +1,5 @@
 /** Registers the conversation components, shared store, and service callbacks. */
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import { resolveSlotLabel, type BoundActions } from '@deepseek-ai/dsh-client-ui-slots'
 import {
   bindSettingsScope, resolveWorkspacePath, type ISessions, type SessionId,

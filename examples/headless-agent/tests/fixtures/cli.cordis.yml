@@ -2,7 +2,7 @@
   name: './cli-mock-llm.ts'
 
 - id: base
-  name: '@cordisjs/plugin-include'
+  name: '@deepseek-ai/cordis-plugin-include'
   config:
     path: ../../cordis.yml
     patches:
