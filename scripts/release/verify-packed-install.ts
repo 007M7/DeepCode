@@ -15,14 +15,14 @@
  * checkout cannot stand in for a missing file here.
  */
 
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { parseArgs } from 'node:util'
 import { releaseFamily } from './families.ts'
 import { capture, isEntry } from './process.ts'
-import { packedIdentity, readPublishOrder } from './tarball.ts'
+import { packedIdentity } from './tarball.ts'
 
 /**
  * Environment for the installed artifact: no host Node hooks, no host DeepSeek
@@ -44,13 +44,19 @@ function consumerEnvironment(consumerRoot: string): NodeJS.ProcessEnv {
 
 /**
  * Every packed tarball in the given directories, as `file:` dependency entries.
- * @param directories - absolute pack output directories.
+ *
+ * The directories are read by their contents rather than a pack order file: a
+ * directory here can hold tarballs packed only to satisfy a cross-sequence
+ * dependency, which no release order describes.
+ * @param directories - absolute directories holding packed tarballs.
  * @returns Package name to tarball file URL, and the version each carries.
  */
 function packedDependencies(directories: readonly string[]): Map<string, { url: string; version: string }> {
   const dependencies = new Map<string, { url: string; version: string }>()
   for (const directory of directories) {
-    for (const filename of readPublishOrder(directory)) {
+    const tarballs = readdirSync(directory).filter(name => name.endsWith('.tgz')).sort()
+    if (tarballs.length === 0) throw new Error(`${directory} holds no packed tarball`)
+    for (const filename of tarballs) {
       const tarball = join(directory, filename)
       const { name, version } = packedIdentity(tarball)
       dependencies.set(name, { url: pathToFileURL(tarball).href, version })
@@ -92,10 +98,11 @@ function main(): void {
 
     const environment = consumerEnvironment(consumerRoot)
     console.log(`release verify-packed-install: installing ${String(packed.size)} tarball(s) into ${consumerRoot}`)
-    // Optional dependencies are omitted: the platform packages behind them
-    // belong to the native release sequence, this job holds no credentials for
-    // the private scope, and a consumer that cannot install them must still
-    // start — which is what optional means here.
+    // Optional dependencies are omitted: the Landlock platform packages behind
+    // them need a musl toolchain and one build per architecture, and a consumer
+    // that cannot install them must still start — which is what optional means
+    // here. Their entry package is a plain dependency of dsh-sandbox-local, so
+    // its tarball is supplied through --from.
     capture('npm', ['install', '--no-audit', '--no-fund', '--package-lock=false', '--omit=optional'],
       { cwd: consumerRoot, env: environment })
 
