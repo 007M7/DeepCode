@@ -10,7 +10,9 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import { afterEach, describe, expect, it } from 'vitest'
-import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
+import {
+  ConversationEventRegistry, ConversationViewRegistry, SlotsService,
+} from '@deepseek-ai/dsh-client-runtime/client'
 
 const PLUGIN_ID = '@deepseek-ai/dsh-client-ui-trajectory'
 
@@ -61,26 +63,36 @@ describe('tsdown client artifact', () => {
     const { handoff, surface } = await loadArtifact()
     expect(handoff.id).toBe(PLUGIN_ID)
     expect(surface.apply).toBeTypeOf('function')
-    expect(surface.inject).toEqual(['slots', 'sessionHistory'])
+    expect(surface.inject).toEqual([
+      'slots', 'conversationEvents', 'conversationViews', 'sessions',
+    ])
   })
 
   it.skipIf(code === undefined)('mounted as an object plugin, apply registers the view tab on the real ring', async () => {
     const { surface } = await loadArtifact()
     const ctx = new Context()
     const slots = new SlotsService(ctx)
+    await ctx.plugin(ConversationEventRegistry).await()
+    await ctx.plugin(ConversationViewRegistry).await()
     // The conversation entry's role: the ring must be declared before riders land.
     slots.register({
       name: 'root',
       children: { 'conversation.view': { kind: 'list', scope: 'session' } },
     }, (_p: { renderSlot?: unknown }) => null)
-    // The plugin reads sessionHistory for its per-session history source;
-    // slot availability is tracked by slots.inject.
-    ctx.provide('sessionHistory', {})
+    // Paging is session-owned; this registration-only probe never renders the
+    // entry, so the binding stays deliberately empty.
+    ctx.provide('sessions', { binding: () => undefined })
     const fiber = ctx.plugin(surface as { apply: (ctx: Context) => void })
     await fiber.await()
+    const events = ctx.get('conversationEvents') as ConversationEventRegistry
+    const views = ctx.get('conversationViews') as ConversationViewRegistry
     expect(slots.entries('conversation.view').map(e => e.options.id)).toEqual(['trajectory'])
+    expect(events.entries().length).toBeGreaterThan(0)
+    expect(views.entries()).toHaveLength(1)
     await fiber.dispose()
     expect(slots.entries('conversation.view')).toHaveLength(0)
+    expect(events.entries()).toEqual([])
+    expect(views.entries()).toEqual([])
   })
 
   it.skipIf(code === undefined)('injects plugin-tagged module CSS during factory execution', async () => {

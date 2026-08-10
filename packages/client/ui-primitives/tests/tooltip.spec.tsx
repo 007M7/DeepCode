@@ -6,6 +6,27 @@ import { Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 afterEach(cleanup)
 
 describe('Tooltip', () => {
+  it('resolves lazy labels only after the bubble becomes visible', () => {
+    vi.useFakeTimers()
+    try {
+      const label = vi.fn(() => 'Timing details')
+      render(
+        <Tooltip label={label} delayMs={500}>
+          <button type="button">anchor</button>
+        </Tooltip>,
+      )
+      expect(label).not.toHaveBeenCalled()
+      fireEvent.mouseEnter(screen.getByText('anchor'))
+      act(() => { vi.advanceTimersByTime(499) })
+      expect(label).not.toHaveBeenCalled()
+      act(() => { vi.advanceTimersByTime(1) })
+      expect(screen.getByRole('tooltip').textContent).toBe('Timing details')
+      expect(label).toHaveBeenCalledOnce()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('can delay pointer hover without delaying keyboard focus', () => {
     vi.useFakeTimers()
     try {
