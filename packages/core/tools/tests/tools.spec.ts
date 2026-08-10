@@ -1,5 +1,5 @@
 import { describe, expect, expectTypeOf, it } from 'vitest'
-import { Context } from '@deepseek-ai/cordis'
+import { Context } from 'cordis'
 import { createUserMessage, CallId, HarnessError, type ContentBlock  } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -905,6 +905,25 @@ describe('ToolRegistry', () => {
         info: { name: 'HarnessError', code: 'POLICY_FAILED' },
       },
     })
+  })
+
+  it('keeps the normalized content when the final content transform returns undefined', async () => {
+    const ctx = await setup()
+    let finalized = 0
+    ctx.tools.register({
+      ...echoTool,
+      name: 'identity-finalizer',
+      finalizeContent() {
+        finalized += 1
+        return undefined
+      },
+    })
+
+    const result = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('identity-finalizer'), name: 'identity-finalizer', arguments: {} })
+
+    expect(result.isError).toBe(false)
+    expect(result.content).toEqual([{ type: 'text', text: '' }])
+    expect(finalized).toBe(1)
   })
 
   it('a block decision can ALSO attach additionalContexts', async () => {

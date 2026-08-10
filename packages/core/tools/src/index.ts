@@ -4,8 +4,8 @@
  * @module @deepseek-ai/dsh-tools
  */
 
-import { Context, Service } from '@deepseek-ai/cordis'
-import z from '@deepseek-ai/schemastery'
+import { Context, Service } from 'cordis'
+import z from 'schemastery'
 import { AnonymousEntries, NamedEntries, ScopedLayers, scopeOf, scopeTarget } from '@deepseek-ai/dsh-scope'
 import type { ScopeKey, ScopeLayer, Scoped } from '@deepseek-ai/dsh-scope'
 import type { CallId, ContentBlock, ToolSchema } from '@deepseek-ai/dsh-llm'
@@ -120,7 +120,7 @@ export type {
   WebSource,
 } from './presentation.ts'
 
-declare module '@deepseek-ai/cordis' {
+declare module 'cordis' {
   interface Context {
     tools: ToolRegistry
   }
@@ -313,6 +313,10 @@ export interface ToolExecutionInput {
    * Opaque token of the enclosing transport execution, when one exists. Code
    * Mode sets this on SDK sub-dispatches so commit-style observers can wait for
    * the outer `run_code` outcome without receiving its live mutable execution.
+   * The token also marks the call as a transport sub-dispatch rather than a
+   * model-direct call: under `mode: 'code'`, only calls WITH a parent may
+   * execute a native tool name — a model-direct call (no parent) is denied as
+   * `UNKNOWN_TOOL` before the policy pipeline. See {@link ToolRegistry.execute}.
    */
   readonly parent?: ToolExecutionToken
   /** Required caller-owned cancellation for this invocation. */
@@ -647,14 +651,13 @@ export interface Config {
 }
 
 /**
- * Per-scope filter over the tools a scope INHERITS — the global layer and
- * every ancestor layer on its chain. Restrictions intersect, and do not affect
- * the scope's own registrations or the reserved Code Mode transport.
+ * Per-scope filter over global tools. Restrictions intersect and do not affect
+ * scoped registrations or the reserved Code Mode transport.
  */
 export interface ToolRestriction {
-  /** Inherited tool names that stay visible; every other inherited one is removed. */
+  /** Global tool names that stay visible; everything else is removed. */
   readonly allow?: readonly string[]
-  /** Inherited tool names removed from visibility. */
+  /** Global tool names removed from visibility. */
   readonly deny?: readonly string[]
 }
 
@@ -670,7 +673,7 @@ interface ToolView {
   readonly visible: ReadonlyMap<string, ToolDefinition>
   /** Pre-restriction capability names used by prompt-order validation. */
   readonly knownNames: ReadonlySet<string>
-  /** Current inherited names a scoped restriction may name; its own are exempt. */
+  /** Current global names that a scoped restriction may name. */
   readonly restrictableNames: ReadonlySet<string>
 }
 
@@ -708,7 +711,7 @@ class ToolLayer implements ScopeLayer {
       && this.mode === undefined
   }
 
-  /** Whether every compiled restriction in this layer admits an inherited tool name. */
+  /** Whether every compiled restriction in this layer admits a global tool name. */
   admits(name: string): boolean {
     for (const filter of this.restrictions.values()) {
       if ((filter.allow !== undefined && !filter.allow.has(name))
@@ -806,6 +809,17 @@ export class ToolRegistry extends Service {
     ctx.systemPrompt.tools(context => this.wireSchemas(context.scope))
     if (this.defaultMode !== 'native') {
       ctx.systemPrompt.section(this.sdkSection())
+    }
+    // Under `code` mode, filter out tool-specific guidance sections
+    // (`tool:*`) that instruct the model to call native tools directly.
+    // The `tools:sdk` section and SDK types remain — they teach the model
+    // how to call tools through `run_code`.
+    if (this.defaultMode === 'code') {
+      ctx.on('system-prompt/assemble', async (_assembly, _context, next) => {
+        const result = await next()
+        result.sections = result.sections.filter(s => !s.name.startsWith('tool:'))
+        return result
+      })
     }
   }
 
@@ -913,7 +927,6 @@ export class ToolRegistry extends Service {
       // keeps one rule instead of a case analysis.
       if (mode !== 'native') yield ctx.systemPrompt.section(this.sdkSection())
     }.bind(this), 'tools.presentAs()')
-    // oxlint-disable-next-line typescript/no-misused-promises -- synchronous composite teardown; direct return preserves disposer identity
     return dispose
   }
 
@@ -1032,7 +1045,7 @@ export class ToolRegistry extends Service {
     const known = this.view(scope).restrictableNames
     const unknown = [...allow ?? [], ...deny ?? []].filter(name => !known.has(name))
     if (unknown.length > 0) {
-      throw new Error(`tools.restrict() names unknown inherited tool${unknown.length > 1 ? 's' : ''} ${unknown.map(n => `"${n}"`).join(', ')}; a restriction filters what this scope inherits, never what it registers itself. Restrictable tools: ${[...known].sort().join(', ') || '(none)'}`)
+      throw new Error(`tools.restrict() names unknown global tool${unknown.length > 1 ? 's' : ''} ${unknown.map(n => `"${n}"`).join(', ')}; known global tools: ${[...known].sort().join(', ') || '(none)'}`)
     }
     return this.layers.effect(
       this.ctx,
@@ -1073,54 +1086,30 @@ export class ToolRegistry extends Service {
 
   /**
    * Resolve every registry fact one scope needs in one layer traversal. The
-   * visible map applies restrictions to the INHERITED surface, then the
-   * scope's own registrations and the reserved presentation transport; the
-   * other sets retain the pre-restriction facts needed by restriction and
-   * prompt-order validation.
-   *
-   * A restriction filters what a scope inherits — the global layer and every
-   * ancestor layer on its chain — and never what its OWN layer registers.
-   * That exemption is what a per-child capability filter has to keep intact:
-   * the delegation runtime registers a child's reporting and structured-output
-   * tools into the child's own layer, and a filter naming the capabilities the
-   * child may use must not strip the machinery it answers through.
-   *
-   * Reading the exempt set as "the global layer" instead of "not mine" held
-   * only while every model-facing tool sat in the host composition. Once
-   * presets moved them onto the agent plane they became an ANCESTOR
-   * contribution, so a child's filter silently stopped constraining anything
-   * it was given.
+   * visible map applies global restrictions, scoped shadowing, and the reserved
+   * presentation transport; the other sets retain the pre-restriction facts
+   * needed by restriction and prompt-order validation.
    * @param scope - the viewing scope (the agent), or undefined for the global view.
    * @returns the complete derived view for that scope.
    */
   private view(scope?: ScopeKey): ToolView {
     // Scope-chain layers, farthest ancestor first, the exact scope last.
     const layers = this.layers.chainLayers(scope)
-    // Chain-blind on purpose: this is the ONE layer whose registrations the
-    // scope owns rather than inherits, and it is absent until the scope
-    // contributes something.
-    const own = this.layers.peek(scope)
-    // Inherited surface, nearest ancestor last: a nearer scope's same-name
-    // entry shadows a farther one, and the global layer is the farthest.
-    const inherited = new Map<string, ToolDefinition>(this.layers.global.tools.entries())
-    for (const layer of layers) {
-      if (layer === own) continue
-      for (const [name, definition] of layer.tools.entries()) inherited.set(name, definition)
-    }
     const visible = new Map<string, ToolDefinition>()
     const knownNames = new Set<string>()
     const restrictableNames = new Set<string>()
-    for (const [name, definition] of inherited) {
+    for (const [name, definition] of this.layers.global.tools.entries()) {
       knownNames.add(name)
       restrictableNames.add(name)
       // Restrictions intersect across the whole chain: any scope on it may
-      // mask an inherited name for everything nested inside it.
+      // mask a global-surface name for everything nested inside it.
       if (layers.every(layer => layer.admits(name))) visible.set(name, definition)
     }
-    // The scope's own registrations last, shadowing an inherited name and
-    // outside the filter above.
-    if (own !== undefined) {
-      for (const [name, definition] of own.tools.entries()) {
+    // Chain layers second, nearest last: same-name entries REPLACE (shadow)
+    // the global and farther-scope ones, and scope-local registrations are
+    // never part of the global filter above.
+    for (const layer of layers) {
+      for (const [name, definition] of layer.tools.entries()) {
         knownNames.add(name)
         visible.set(name, definition)
       }
