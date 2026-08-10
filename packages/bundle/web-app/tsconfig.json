@@ -15,6 +15,15 @@
       "path": "../../../vendor/schemastery"
     },
     {
+      "path": "../../../vendor/loader"
+    },
+    {
+      "path": "../../boot/app-boot"
+    },
+    {
+      "path": "../../boot/cmdline"
+    },
+    {
       "path": "../../host/frontend-static"
     },
     {

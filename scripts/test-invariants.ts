@@ -6,7 +6,7 @@
  */
 
 import { expect } from 'vitest'
-import { FiberState, Inject, RegistryService } from '@deepseek-ai/cordis'
+import { FiberState, Inject, RegistryService, ValidationError } from '@deepseek-ai/cordis'
 import type { Context, Plugin } from '@deepseek-ai/cordis'
 import { AttachmentStore } from '@deepseek-ai/dsh-attachment'
 import type {
@@ -248,22 +248,25 @@ function withInvariantReadiness(plugin: Plugin, callback: PluginCallback): Plugi
 function joinInvariantStartup(
   fiber: PluginFiber,
   invariantReady: Promise<void>,
-  disposeInitialFailure = false,
+  disposePendingValidationFailure = false,
 ): PluginFiber {
   // RegistryService returns a thenable wrapper whose context still points to
   // the raw Fiber. Calling inherited await() on the wrapper would return and
   // assimilate that thenable, accidentally following later plugin startup.
   const rawFiber = fiber.ctx.fiber
-  const initialized = disposeInitialFailure
-    ? rawFiber.await().catch(async (error: unknown) => {
-      // Config validation is the only failure recorded while a gated fiber
-      // is initially PENDING. Dispose it even if queued readiness publication
-      // changes its state before this rejection handler runs.
-      await rawFiber.dispose()
+  const readiness = invariantReady.then(async () => {
+    try {
+      return await rawFiber.await()
+    } catch (error) {
+      // Config resolves only after the readiness injection activates. Dispose
+      // validation failures owned by an initially pending target; ordinary
+      // callback failures remain inspectable.
+      if (disposePendingValidationFailure && error instanceof ValidationError) {
+        await rawFiber.dispose()
+      }
       throw error
-    })
-    : Promise.resolve()
-  const readiness = initialized.then(() => invariantReady).then(() => rawFiber.await())
+    }
+  })
   const joined = Object.create(fiber) as PluginFiber
   joined.then = readiness.then.bind(readiness)
   return joined

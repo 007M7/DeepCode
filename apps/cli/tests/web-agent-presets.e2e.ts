@@ -5,10 +5,11 @@ import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import { boot, healProfilesModuleFallback, loadOverlayPatches } from '@deepseek-ai/dsh-app-boot'
+import { provideCmdline } from '@deepseek-ai/dsh-cmdline'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { PatchOptions } from '@deepseek-ai/cordis-plugin-include'
-import { beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { resolveSessionPreset, SETTINGS_NAMESPACE } from '@deepseek-ai/dsh-agent-presets'
 import { applyChildComposition, childSessionMeta } from '@deepseek-ai/dsh-subagent'
@@ -100,11 +101,25 @@ async function bootWeb(settingsFile: string, extra: PatchOptions[] = []): Promis
   await mkdir(profileDir, { recursive: true })
   const rootConfig = join(profileDir, 'cordis.yml')
   await writeFile(rootConfig, '[]\n')
-  return await boot('dsh-test', rootConfig, patches)
+  return await boot('dsh-test', rootConfig, patches, (bootCtx) => {
+    provideCmdline(bootCtx, { args: [], exit: () => {} })
+  })
 }
 
 const toolNames = (ctx: Context, agent?: Agent): string[] =>
   ctx.tools.schemas(agent).map(schema => schema.name).sort()
+
+function enablePresetTool(composition: string, id: string): string {
+  const row = `    - id: ${id}\n`
+  const start = composition.indexOf(row)
+  if (start < 0) throw new Error(`missing preset row ${id}`)
+  const end = composition.indexOf('\n    - id:', start + row.length)
+  const disabled = composition.indexOf('      disabled: true\n', start)
+  if (disabled < 0 || (end >= 0 && disabled > end)) {
+    throw new Error(`preset row ${id} is not disabled`)
+  }
+  return composition.slice(0, disabled) + composition.slice(disabled + '      disabled: true\n'.length)
+}
 
 let ctx: Context
 beforeAll(async () => {
@@ -366,6 +381,98 @@ describe('the shipped Web composition', () => {
     await new Promise(resolve => setTimeout(resolve, 50))
 
     expect(await readFile(path, 'utf8')).toBe(before)
+  })
+})
+
+describe('product subagent rows in user presets', () => {
+  let productCtx: Context
+  const ids = ['products-none', 'products-codex', 'products-claude', 'products-both'] as const
+
+  beforeAll(async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-product-presets-'))
+    const userRoot = join(root, 'presets')
+    const settingsFile = join(root, 'settings.yaml')
+    const standard = await readFile(join(CONFIG_DIR, 'agent-presets', 'standard', 'agent.cordis.yml'), 'utf8')
+    await writeFile(settingsFile, '{}\n')
+    for (const id of ids) {
+      let composition = standard
+      if (id === 'products-codex' || id === 'products-both') {
+        composition = enablePresetTool(composition, 'tool-subagent-codex')
+      }
+      if (id === 'products-claude' || id === 'products-both') {
+        composition = enablePresetTool(composition, 'tool-subagent-claude-code')
+      }
+      const directory = join(userRoot, id)
+      await mkdir(directory, { recursive: true })
+      await writeFile(join(directory, 'agent.cordis.yml'), composition)
+    }
+    productCtx = await bootWeb(settingsFile, [{
+      id: 'agent-presets',
+      config: {
+        default: 'standard',
+        roots: [
+          { path: join(CONFIG_DIR, 'agent-presets'), trust: 'system' },
+          { path: userRoot, trust: 'user' },
+        ],
+      },
+    }])
+  }, 120_000)
+
+  afterAll(async () => {
+    await productCtx.fiber.dispose()
+  })
+
+  it('composes none, either product, or both without changing the shared host registry', async () => {
+    const expected = new Map<string, string[]>([
+      ['products-none', []],
+      ['products-codex', ['subagent_codex']],
+      ['products-claude', ['subagent_claude_code']],
+      ['products-both', ['subagent_claude_code', 'subagent_codex']],
+    ])
+    expect(productCtx.subagents.list()).toEqual(expect.arrayContaining([
+      'spawn', 'fork', 'codex', 'claude-code',
+    ]))
+
+    for (const [id, productTools] of expected) {
+      const handle = await productCtx.agents.create({
+        sessionId: SessionId(`preset-${id}`),
+        setup: agentCtx => productCtx.agentPresets.mount(agentCtx, id).then(() => undefined),
+      })
+      try {
+        const tools = toolNames(productCtx, handle.agent)
+        expect(tools.filter(name => name === 'subagent_codex' || name === 'subagent_claude_code'))
+          .toEqual(productTools)
+      } finally {
+        await handle.dispose()
+      }
+    }
+  })
+
+  it('applies a product-row edit only to later sessions on the preset', async () => {
+    const preset = await productCtx.agentPresets.resolve('products-none')
+    const original = await readFile(preset.path, 'utf8')
+    const existing = await productCtx.agents.create({
+      sessionId: SessionId('preset-product-generation-existing'),
+      setup: agentCtx => productCtx.agentPresets.mount(agentCtx, 'products-none').then(() => undefined),
+    })
+    try {
+      expect(toolNames(productCtx, existing.agent)).not.toContain('subagent_codex')
+      await writeFile(preset.path, enablePresetTool(original, 'tool-subagent-codex'))
+
+      const later = await productCtx.agents.create({
+        sessionId: SessionId('preset-product-generation-later'),
+        setup: agentCtx => productCtx.agentPresets.mount(agentCtx, 'products-none').then(() => undefined),
+      })
+      try {
+        expect(toolNames(productCtx, existing.agent)).not.toContain('subagent_codex')
+        expect(toolNames(productCtx, later.agent)).toContain('subagent_codex')
+      } finally {
+        await later.dispose()
+      }
+    } finally {
+      await existing.dispose()
+      await writeFile(preset.path, original)
+    }
   })
 })
 

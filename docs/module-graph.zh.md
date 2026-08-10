@@ -135,6 +135,7 @@ flowchart TD
   end
   subgraph group_boot["packages/boot"]
     pkg_app_boot["app-boot"]
+    pkg_cmdline["cmdline"]
   end
   subgraph group_bundle["packages/bundle"]
     pkg_base["base"]
@@ -315,6 +316,7 @@ flowchart TD
   pkg_timeout --> pkg_invariants
   pkg_scope --> pkg_invariants
   pkg_llm_mock_server --> pkg_invariants
+  pkg_cmdline --> pkg_invariants
   pkg_base --> pkg_invariants
   pkg_client_modules --> pkg_invariants
   pkg_client_schema_form --> pkg_invariants
@@ -1255,6 +1257,7 @@ flowchart TD
 | [`timeout`](../packages/util/timeout) | `util` | [`invariants`](../packages/support/invariants) |
 | [`scope`](../packages/core/scope) | `core` | [`invariants`](../packages/support/invariants) |
 | [`llm-mock-server`](../packages/support/llm-mock-server) | `support` | [`invariants`](../packages/support/invariants) |
+| [`cmdline`](../packages/boot/cmdline) | `boot` | [`invariants`](../packages/support/invariants) |
 | [`base`](../packages/bundle/base) | `bundle` | [`invariants`](../packages/support/invariants) |
 | [`client-modules`](../packages/client/modules) | `client` | [`invariants`](../packages/support/invariants) |
 | [`client-schema-form`](../packages/client/schema-form) | `client` | [`invariants`](../packages/support/invariants) |

@@ -55,6 +55,8 @@ const WEB_CONFIG = fileURLToPath(new URL('../web.cordis.yml', import.meta.url))
 const FS_SEARCH_CONFIG = fileURLToPath(new URL('./fs-search.cordis.yml', import.meta.url))
 const PARTIAL_LANDLOCK_CONFIG = fileURLToPath(new URL('../partial-landlock.cordis.yml', import.meta.url))
 const PWSH_CONFIG = fileURLToPath(new URL('./pwsh.cordis.yml', import.meta.url))
+const PRODUCT_SUBAGENT_CODEX_CONFIG = fileURLToPath(new URL('../product-subagent-codex.cordis.yml', import.meta.url))
+const PRODUCT_SUBAGENT_BOTH_CONFIG = fileURLToPath(new URL('../product-subagent-both.cordis.yml', import.meta.url))
 const FS_DIFF_BOUND_CONFIG = fileURLToPath(new URL('./fs-diff-bound.cordis.yml', import.meta.url))
 const SNAPSHOTS_DIR = join(dirname(fileURLToPath(import.meta.url)), 'snapshots')
 const PACKED_CHUNKS_SOURCE = 'hook-cc-pretool-deny'
@@ -126,6 +128,27 @@ const SCENARIOS: Scenario[] = [
   // text-turn is the default header pin and owns the prompt and tool-schema
   // sidecars reused by alternate classes with identical component sequences.
   { name: 'text-turn', hasModelTurn: true, recorded: true, pinsHeader: true },
+  // Product-subagent scenarios are authored schema-isolation fixtures: they
+  // reuse the stable text-turn transcript so only Loader-composed headers and
+  // tool sidecars vary. Model output and usage are not evidence here, so record
+  // mode must not replace them with live-API output.
+  {
+    name: 'product-subagent-codex',
+    hasModelTurn: true,
+    recorded: false,
+    pinsHeader: true,
+    headerClass: 'product-subagent-codex',
+    configPath: PRODUCT_SUBAGENT_CODEX_CONFIG,
+  },
+  {
+    name: 'product-subagent-both',
+    hasModelTurn: true,
+    recorded: false,
+    pinsHeader: true,
+    headerClass: 'product-subagent-both',
+    systemPromptSource: 'product-subagent-codex',
+    configPath: PRODUCT_SUBAGENT_BOTH_CONFIG,
+  },
   {
     name: 'session-title-after-turn',
     hasModelTurn: true,
