@@ -811,6 +811,8 @@ flowchart TD
   pkg_subagent --> pkg_brand
   pkg_subagent --> pkg_invariants
   pkg_subagent --> pkg_llm
+  pkg_subagent --> pkg_sandbox
+  pkg_subagent --> pkg_sandbox_policy
   pkg_subagent --> pkg_scope
   pkg_subagent --> pkg_session
   pkg_subagent --> pkg_session_persistence
@@ -818,6 +820,7 @@ flowchart TD
   pkg_subagent --> pkg_session_projection_cache
   pkg_subagent --> pkg_tasks
   pkg_subagent --> pkg_tools
+  pkg_subagent --> pkg_user_approval
   pkg_tool_web --> pkg_invariants
   pkg_tool_web --> pkg_llm
   pkg_tool_web --> pkg_system_prompt
@@ -1001,12 +1004,10 @@ flowchart TD
   pkg_subagent_inprocess --> pkg_agent
   pkg_subagent_inprocess --> pkg_invariants
   pkg_subagent_inprocess --> pkg_llm
-  pkg_subagent_inprocess --> pkg_sandbox_policy
   pkg_subagent_inprocess --> pkg_session
   pkg_subagent_inprocess --> pkg_subagent
   pkg_subagent_inprocess --> pkg_system_prompt
   pkg_subagent_inprocess --> pkg_tools
-  pkg_subagent_inprocess --> pkg_user_approval
   pkg_tool_subagent --> pkg_agent
   pkg_tool_subagent --> pkg_invariants
   pkg_tool_subagent --> pkg_llm
@@ -1368,7 +1369,7 @@ flowchart TD
 | [`tool-str-replace-editor`](../packages/fs/tool-str-replace-editor) | `fs` | [`fs`](../packages/fs/fs), [`invariants`](../packages/support/invariants), [`sandbox`](../packages/sandbox/sandbox), [`sandbox-policy`](../packages/sandbox/sandbox-policy), [`tools`](../packages/core/tools) |
 | [`tool-skill`](../packages/skill/tool-skill) | `skill` | [`agent`](../packages/core/agent), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`skill`](../packages/skill/skill), [`tools`](../packages/core/tools) |
 | [`command-compact`](../packages/compact/command-compact) | `compact` | [`commands`](../packages/interaction/commands), [`compact`](../packages/compact/compact), [`invariants`](../packages/support/invariants) |
-| [`subagent`](../packages/subagent/subagent) | `subagent` | [`agent`](../packages/core/agent), [`brand`](../packages/util/brand), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`scope`](../packages/core/scope), [`session`](../packages/core/session), [`session-persistence`](../packages/session/session-persistence), [`session-projection`](../packages/session/session-projection), [`session-projection-cache`](../packages/session/session-projection-cache), [`tasks`](../packages/tasks/tasks), [`tools`](../packages/core/tools) |
+| [`subagent`](../packages/subagent/subagent) | `subagent` | [`agent`](../packages/core/agent), [`brand`](../packages/util/brand), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`sandbox`](../packages/sandbox/sandbox), [`sandbox-policy`](../packages/sandbox/sandbox-policy), [`scope`](../packages/core/scope), [`session`](../packages/core/session), [`session-persistence`](../packages/session/session-persistence), [`session-projection`](../packages/session/session-projection), [`session-projection-cache`](../packages/session/session-projection-cache), [`tasks`](../packages/tasks/tasks), [`tools`](../packages/core/tools), [`user-approval`](../packages/interaction/user-approval) |
 | [`tool-web`](../packages/web/tool-web) | `web` | [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools), [`web`](../packages/web/web) |
 | [`spill-policy`](../packages/spill/spill-policy) | `spill` | [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`retention`](../packages/util/retention), [`session`](../packages/core/session), [`spill`](../packages/spill/spill), [`tools`](../packages/core/tools) |
 | [`tool-todo`](../packages/todo/tool-todo) | `todo` | [`agent`](../packages/core/agent), [`invariants`](../packages/support/invariants), [`session`](../packages/core/session), [`session-projection`](../packages/session/session-projection), [`tools`](../packages/core/tools) |
@@ -1399,7 +1400,7 @@ flowchart TD
 | [`compact-tool-result-prune`](../packages/compact/compact-tool-result-prune) | `compact` | [`compact`](../packages/compact/compact), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`token-meter`](../packages/llm/token-meter) |
 | [`subagent-acp`](../packages/subagent/subagent-acp) | `subagent` | [`agent`](../packages/core/agent), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`subagent`](../packages/subagent/subagent), [`subprocess`](../packages/subprocess/subprocess), [`timeout`](../packages/util/timeout) |
 | [`subagent-claude-code`](../packages/subagent/subagent-claude-code) | `subagent` | [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`subagent`](../packages/subagent/subagent), [`subprocess`](../packages/subprocess/subprocess), [`timeout`](../packages/util/timeout) |
-| [`subagent-inprocess`](../packages/subagent/subagent-inprocess) | `subagent` | [`agent`](../packages/core/agent), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`sandbox-policy`](../packages/sandbox/sandbox-policy), [`session`](../packages/core/session), [`subagent`](../packages/subagent/subagent), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools), [`user-approval`](../packages/interaction/user-approval) |
+| [`subagent-inprocess`](../packages/subagent/subagent-inprocess) | `subagent` | [`agent`](../packages/core/agent), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`subagent`](../packages/subagent/subagent), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools) |
 | [`tool-subagent`](../packages/subagent/tool-subagent) | `subagent` | [`agent`](../packages/core/agent), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`subagent`](../packages/subagent/subagent), [`tasks`](../packages/tasks/tasks), [`tools`](../packages/core/tools) |
 | [`tool-subagent-control`](../packages/subagent/tool-subagent-control) | `subagent` | [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`subagent`](../packages/subagent/subagent), [`tools`](../packages/core/tools) |
 | [`tool-subagent-report`](../packages/subagent/tool-subagent-report) | `subagent` | [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`subagent`](../packages/subagent/subagent), [`tools`](../packages/core/tools) |
