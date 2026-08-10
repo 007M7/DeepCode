@@ -98,4 +98,13 @@ describe.skipIf(!isWin32 || !pwshAvailable())('AclSandbox write restriction', ()
     const broken = new AclSandbox({ writableDirs: [writableDir], tempDir: null, writeSid: 'S-1-4-abc-1', mode: 'workspace-write' })
     await expect(broken.init()).rejects.toThrow(/ConvertStringSidToSidW/u)
   }, 15_000)
+
+  it('failed init clears provisional temp state before a retry', async () => {
+    const broken = new AclSandbox({ writableDirs: [writableDir], tempDir: null, writeSid: 'S-1-4-abc-1', mode: 'workspace-write' })
+    const provisionalState = broken as unknown as { tempDirResolved: string | undefined }
+    provisionalState.tempDirResolved = isolatedTemp
+
+    await expect(broken.init()).rejects.toThrow(/ConvertStringSidToSidW/u)
+    expect(broken.tempDir).toBeUndefined()
+  }, 15_000)
 })

@@ -324,6 +324,7 @@ export class AclSandbox {
       this.token = undefined
       this.writeSidPtr = undefined
       this.tempWriteSidPtr = undefined
+      this.tempDirResolved = undefined
       this.grantedPaths = []
       if (cleanupFailures.length > 0) {
         throw new AggregateError(
