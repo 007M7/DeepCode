@@ -63,7 +63,7 @@ A preset may publish display text in an optional `preset.yml` beside its composi
 
 ```yaml
 name: 极简模式
-description: 只向模型呈现 bash 与 str_replace_editor，适合 benchmark 与最小复现。
+description: 仅提供 bash 与 str_replace_editor 的双工具编码 Agent，用于基准测试和最小复现。
 ```
 
 It carries display text ONLY. `id` is the directory name and `trust` comes from the root the preset was discovered under, so neither is writable here — otherwise a locally authored preset could name itself into the shipped set. It is a separate file because the composition is a top-level list of plugin rows: YAML cannot carry sibling keys beside it, and a fake metadata row would hand the Loader something to load.
