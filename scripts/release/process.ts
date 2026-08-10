@@ -4,6 +4,8 @@
  */
 
 import { spawnSync } from 'node:child_process'
+import { realpathSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 
 /** Where and with what environment a release step runs a command. */
 export interface RunOptions {
@@ -62,4 +64,19 @@ export function run(command: string, args: readonly string[], options: RunOption
   const result = spawnSync(command, [...args], { cwd: options.cwd, env: options.env, stdio: 'inherit' })
   if (result.error !== undefined) throw result.error
   if (result.status !== 0) throw new Error(`${command} ${args.join(' ')} exited with ${String(result.status)}`)
+}
+
+/**
+ * Whether this module is the process entry point.
+ *
+ * The release scripts are both commands and modules: a test imports their pure
+ * logic, and importing a module runs its body, so an unguarded `main()` would
+ * run the wrong command with the wrong arguments.
+ * @param moduleUrl - the caller's `import.meta.url`.
+ * @returns True when Node started this module.
+ */
+export function isEntry(moduleUrl: string): boolean {
+  const invoked = process.argv[1]
+  if (invoked === undefined) return false
+  return realpathSync(invoked) === realpathSync(fileURLToPath(moduleUrl))
 }

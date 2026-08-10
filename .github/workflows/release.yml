@@ -23,8 +23,9 @@ permissions:
   contents: read
 
 concurrency:
-  # dist-tags are shared registry state; never race two release runs.
-  group: ${{ github.workflow }}
+  # Pack runs per ref so concurrent pull requests never displace each
+  # other; the publish job below serializes the shared dist-tag state.
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
 env:
@@ -103,9 +104,11 @@ jobs:
     # Required reviewers and the allowed tags live on the environment; this is
     # the only step in the sequence that can write to the registry.
     environment: npm-publish
+    concurrency:
+      group: Release-publish
+      cancel-in-progress: false
     permissions:
       contents: read
-      id-token: write
     steps:
       # Checkout and install carry the release scripts only. There is no build
       # step: publication uploads the bytes the pack job produced.

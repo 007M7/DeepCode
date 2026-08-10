@@ -6,7 +6,7 @@
  * version whose published tarball has the same integrity is skipped, and a
  * version whose published tarball differs fails the run — that last case means
  * the content changed without a version bump
- * ([rationale](../../.agents/notes/proposed/process/2026-08-10-npm-release-sequences.md)).
+ * ([rationale](../../.agents/notes/implemented/process/2026-08-10-npm-release-sequences.md)).
  *
  * Skipping on identical integrity is what makes re-running the publish step over
  * the same artifact safe.
@@ -17,7 +17,7 @@ import { readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 import { releaseFamily } from './families.ts'
-import { attempt, run } from './process.ts'
+import { attempt, isEntry, run } from './process.ts'
 import { packedIdentity, readPublishOrder } from './tarball.ts'
 
 /** npm access level for every package this repository publishes. */
@@ -98,4 +98,4 @@ function main(): void {
   console.log(`release publish: family ${family.id}, ${String(published)} published, ${String(skipped)} already present`)
 }
 
-main()
+if (isEntry(import.meta.url)) main()

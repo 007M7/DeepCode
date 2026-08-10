@@ -8,7 +8,7 @@
  * and those packages live in another release sequence that this credential-free
  * job cannot fetch from a private registry — so a dsh verification passes the
  * vendored family's pack output too, while publishing only its own
- * ([rationale](../../.agents/notes/proposed/process/2026-08-10-npm-release-sequences.md)).
+ * ([rationale](../../.agents/notes/implemented/process/2026-08-10-npm-release-sequences.md)).
  *
  * What this proves is that `files` selected a complete payload and that the
  * published dependency ranges resolve. A workspace link or a stale `lib/` in the
@@ -21,7 +21,7 @@ import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { parseArgs } from 'node:util'
 import { releaseFamily } from './families.ts'
-import { capture } from './process.ts'
+import { capture, isEntry } from './process.ts'
 import { packedIdentity, readPublishOrder } from './tarball.ts'
 
 /**
@@ -105,4 +105,4 @@ function main(): void {
   }
 }
 
-main()
+if (isEntry(import.meta.url)) main()

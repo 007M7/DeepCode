@@ -3,7 +3,7 @@
  * (`packages/` + `apps/`, `vendor/`, and `native/`) and the two this module
  * owns: `dsh` and `vendor`. Each family carries its own version baseline, tag
  * naming, and publish set, so releasing one never republishes another
- * ([rationale](../../.agents/notes/proposed/process/2026-08-10-npm-release-sequences.md)).
+ * ([rationale](../../.agents/notes/implemented/process/2026-08-10-npm-release-sequences.md)).
  *
  * The family dimension lives here only. A new sequence adds a subclass and a
  * `releaseFamilies()` entry; nothing else in the release scripts branches on it.
@@ -163,11 +163,21 @@ export abstract class ReleaseFamily {
   abstract verifyVersions(members: readonly ReleaseMember[]): void
 
   /**
+   * The tag prefix a member's versions are tagged under. Every tag for that
+   * member starts with it, which is how the last published version is found.
+   * @param member - the member being published.
+   * @returns The prefix, ending in `-v`.
+   */
+  abstract tagPrefixFor(member: ReleaseMember): string
+
+  /**
    * The tag a member publishes from.
    * @param member - the member being published.
    * @returns The full tag name, without `refs/tags/`.
    */
-  abstract tagFor(member: ReleaseMember): string
+  tagFor(member: ReleaseMember): string {
+    return `${this.tagPrefixFor(member)}${member.version}`
+  }
 
   /**
    * Check what a member's packed tarball carries.
@@ -202,12 +212,11 @@ class DshFamily extends ReleaseFamily {
   }
 
   /**
-   * The single family tag.
-   * @param member - any family member; all carry the same version.
-   * @returns `dsh-v<version>`.
+   * The single family prefix: every member shares one version, so one tag names it.
+   * @returns `dsh-v`.
    */
-  tagFor(member: ReleaseMember): string {
-    return `${this.tagPrefix}${member.version}`
+  tagPrefixFor(): string {
+    return this.tagPrefix
   }
 
   /**
@@ -243,12 +252,12 @@ class VendorFamily extends ReleaseFamily {
   }
 
   /**
-   * The member's own tag, because one vendor release can carry several versions.
+   * A prefix per member, because one vendor release can carry several versions.
    * @param member - the member being published.
-   * @returns `vendor-<unscoped name>-v<version>`.
+   * @returns `vendor-<unscoped name>-v`.
    */
-  tagFor(member: ReleaseMember): string {
-    return `${this.tagPrefix}${member.name.replace('@deepseek-ai/', '')}-v${member.version}`
+  tagPrefixFor(member: ReleaseMember): string {
+    return `${this.tagPrefix}${member.name.replace('@deepseek-ai/', '')}-v`
   }
 
   /**

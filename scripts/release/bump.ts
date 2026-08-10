@@ -1,13 +1,13 @@
 /**
  * Bump one release family's version and commit it, so the published version is
  * readable from the repository rather than derived inside CI
- * ([rationale](../../.agents/notes/proposed/process/2026-08-10-npm-release-sequences.md)).
+ * ([rationale](../../.agents/notes/implemented/process/2026-08-10-npm-release-sequences.md)).
  *
- * The dsh family shares one version: `major`, `minor`, `patch`, or an explicit
- * `x.y.z` (including a prerelease such as `0.0.1-rc.1`). The vendored family
- * has one version line per package and publishes only what changed since that
- * package's own `vendor-<package>-v*` tag, which is the record of the commit it
- * last published from.
+ * The dsh family shares one version across its members and the workspace root:
+ * `major`, `minor`, `patch`, or an explicit `x.y.z` (including a prerelease such
+ * as `0.0.1-rc.1`). The vendored family has one version line per package and
+ * publishes only what changed since that package's own `vendor-<package>-v*`
+ * tag, which is the record of the commit it last published from.
  *
  * The version lands in the manifests, the lockfile follows, and a human creates
  * the tag after the commit merges. CI never writes to the repository.
@@ -17,13 +17,38 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { join, matchesGlob } from 'node:path'
 import { parseArgs } from 'node:util'
 import { releaseFamily, type ReleaseFamily, type ReleaseMember } from './families.ts'
-import { capture } from './process.ts'
+import { attempt, capture, isEntry } from './process.ts'
 
 /** Files npm publishes whether or not `files` lists them. */
 const ALWAYS_PUBLISHED = ['package.json', 'README*', 'LICENSE*', 'LICENCE*'] as const
 
+/**
+ * Inputs that decide what a built payload contains. A package whose `files`
+ * selects `lib/` publishes build output that git does not track, so a change to
+ * the sources or the build configuration changes the tarball while no published
+ * path appears in the diff.
+ */
+const BUILD_INPUTS = ['src/**', 'tsconfig*.json', 'tsdown.config.*', 'build.config.*'] as const
+
 /** Release types the dsh family accepts besides an explicit version. */
 const RELEASE_TYPES = ['major', 'minor', 'patch'] as const
+
+/** The workspace root manifest, which carries the dsh family's version. */
+const ROOT_MANIFEST = 'package.json'
+
+/** One manifest the bump rewrites, and the tag its new version will carry. */
+interface PlannedVersion {
+  /** Repository-relative manifest path. */
+  readonly manifestPath: string
+  /** Label for the log line. */
+  readonly label: string
+  /** The version the manifest currently carries. */
+  readonly from: string
+  /** The version to write. */
+  readonly to: string
+  /** The tag this version publishes from, or undefined for the workspace root. */
+  readonly tag: string | undefined
+}
 
 /**
  * Split a version into its release numbers, discarding any prerelease segment.
@@ -34,6 +59,18 @@ function releaseNumbers(version: string): [number, number, number] {
   const match = /^(\d+)\.(\d+)\.(\d+)(?:-[0-9A-Za-z.-]+)?$/.exec(version)
   if (match === null) throw new Error(`cannot read release numbers from version ${version}`)
   return [Number(match[1]), Number(match[2]), Number(match[3])]
+}
+
+/**
+ * Order two versions by their release numbers alone.
+ * @param left - one version.
+ * @param right - the other version.
+ * @returns Negative when `left` is lower, positive when higher, zero when equal.
+ */
+function compareReleaseNumbers(left: string, right: string): number {
+  const [leftMajor, leftMinor, leftPatch] = releaseNumbers(left)
+  const [rightMajor, rightMinor, rightPatch] = releaseNumbers(right)
+  return leftMajor - rightMajor || leftMinor - rightMinor || leftPatch - rightPatch
 }
 
 /**
@@ -56,13 +93,19 @@ function nextSharedVersion(current: string, request: string): string {
 }
 
 /**
- * The version a vendored package publishes next: its release numbers with the
- * patch incremented, which also drops an upstream prerelease segment.
- * @param current - the package's current version.
+ * The version a vendored package publishes next: the higher of its manifest
+ * version and its last published version, with the patch incremented.
+ *
+ * The manifest alone is not the baseline. A vendor re-sync restores upstream's
+ * version, which is lower than what this repository already published, and
+ * incrementing that would name a version the registry already carries.
+ * @param current - the package's manifest version.
+ * @param published - the version its newest tag names, when it has one.
  * @returns The target version.
  */
-function nextVendorVersion(current: string): string {
-  const [major, minor, patch] = releaseNumbers(current)
+export function nextVendorVersion(current: string, published: string | undefined): string {
+  const baseline = published !== undefined && compareReleaseNumbers(published, current) > 0 ? published : current
+  const [major, minor, patch] = releaseNumbers(baseline)
   return `${String(major)}.${String(minor)}.${String(patch + 1)}`
 }
 
@@ -70,57 +113,147 @@ function nextVendorVersion(current: string): string {
  * Whether a repository-relative path reaches the member's published payload.
  * @param member - the member the path belongs to.
  * @param path - repository-relative path.
- * @returns True when `files` (or npm's always-published set) selects it.
+ * @returns True when `files`, npm's always-published set, or a build input selects it.
  */
-function reachesPayload(member: ReleaseMember, path: string): boolean {
+export function reachesPayload(member: ReleaseMember, path: string): boolean {
   const relative = path.slice(member.directory.length + 1)
   const files = member.manifest.files
-  const patterns = [
-    ...ALWAYS_PUBLISHED,
-    ...Array.isArray(files) ? files.filter((entry): entry is string => typeof entry === 'string') : [],
-  ]
+  const selected = Array.isArray(files) ? files.filter((entry): entry is string => typeof entry === 'string') : []
+  const built = selected.some(pattern => pattern.startsWith('lib'))
+  const patterns = [...ALWAYS_PUBLISHED, ...selected, ...built ? BUILD_INPUTS : []]
   return patterns.some(pattern =>
     matchesGlob(relative, pattern) || matchesGlob(relative, `${pattern}/**`) || relative === pattern)
 }
 
 /**
- * The newest tag a member published from, or undefined when it never published.
+ * The newest version a member published, read from its tags.
  * @param family - the member's family.
  * @param member - the member.
- * @returns The tag name.
+ * @returns The version, or undefined when the member never published.
  */
-function lastPublishedTag(family: ReleaseFamily, member: ReleaseMember): string | undefined {
-  const prefix = family.tagFor(member).replace(/-v[^-]*$/, '-v')
-  const tags = capture('git', ['tag', '--list', `${prefix}*`, '--sort=-v:refname']).split('\n').filter(line => line !== '')
-  return tags[0]
-}
-
-/**
- * Whether a member's published payload changed since it last published.
- * @param family - the member's family.
- * @param member - the member.
- * @returns True when the member needs a new version.
- */
-function changedSincePublication(family: ReleaseFamily, member: ReleaseMember): boolean {
-  const tag = lastPublishedTag(family, member)
-  if (tag === undefined) return true
-  const changed = capture('git', ['diff', '--name-only', `${tag}..HEAD`, '--', member.directory])
+function lastPublishedVersion(family: ReleaseFamily, member: ReleaseMember): string | undefined {
+  const prefix = family.tagPrefixFor(member)
+  const [newest] = capture('git', ['tag', '--list', `${prefix}*`, '--sort=-v:refname'])
     .split('\n').filter(line => line !== '')
-  return changed.some(path => reachesPayload(member, path))
+  return newest === undefined ? undefined : newest.slice(prefix.length)
 }
 
 /**
- * Write a version into a member's manifest, preserving formatting and key order.
- * @param root - repository root.
- * @param member - the member to rewrite.
- * @param version - the target version.
+ * Confirm the registry carries the version a tag names.
+ *
+ * A tag is a commit pointer, not proof of publication: a tag pushed for a
+ * publication that then failed would otherwise read as "already published" and
+ * skip the package indefinitely. Querying a private package needs credentials,
+ * so an unauthenticated machine reports the gap instead of failing.
+ * @param name - package name.
+ * @param version - the version the tag names.
  */
-function writeVersion(root: string, member: ReleaseMember, version: string): void {
-  const path = join(root, member.directory, 'package.json')
+function confirmPublished(name: string, version: string): void {
+  const result = attempt('npm', ['view', `${name}@${version}`, 'version'])
+  if (result.status === 0) return
+  const output = `${result.stdout}${result.stderr}`
+  if (output.includes('ENEEDAUTH') || output.includes('E401') || output.includes('E403')) {
+    console.log(`release bump: cannot reach the registry for ${name}@${version}; skipping the tag check`)
+    return
+  }
+  if (output.includes('E404') || output.includes('404 Not Found')) {
+    throw new Error(
+      `${name}@${version} is tagged but absent from the registry.`
+      + '\nThe tag was pushed for a publication that did not complete: re-run that publish, or delete the tag.',
+    )
+  }
+  throw new Error(`npm view ${name}@${version} failed:\n${output}`)
+}
+
+/**
+ * Write a version into a manifest, preserving formatting and key order.
+ * @param root - repository root.
+ * @param manifestPath - repository-relative manifest path.
+ * @param from - the version the manifest currently carries.
+ * @param to - the target version.
+ */
+function writeVersion(root: string, manifestPath: string, from: string, to: string): void {
+  const path = join(root, manifestPath)
   const text = readFileSync(path, 'utf8')
-  const line = `"version": "${member.version}"`
-  if (!text.includes(line)) throw new Error(`${member.directory}: cannot locate ${line}`)
-  writeFileSync(path, text.replace(line, `"version": "${version}"`))
+  const line = `"version": "${from}"`
+  if (!text.includes(line)) throw new Error(`${manifestPath}: cannot locate ${line}`)
+  writeFileSync(path, text.replace(line, `"version": "${to}"`))
+}
+
+/**
+ * Read the workspace root version.
+ * @param root - repository root.
+ * @returns The root manifest version.
+ */
+function rootVersion(root: string): string {
+  const manifest: unknown = JSON.parse(readFileSync(join(root, ROOT_MANIFEST), 'utf8'))
+  const version = (manifest as Record<string, unknown>).version
+  if (typeof version !== 'string') throw new Error('package.json must declare a string version')
+  return version
+}
+
+/**
+ * Plan the dsh family's rewrite: one version for every member and the root.
+ * @param family - the dsh family.
+ * @param root - repository root.
+ * @param members - the family's members.
+ * @param request - `major`, `minor`, `patch`, or an explicit version.
+ * @returns The manifests to rewrite and the shared target version.
+ */
+function planShared(
+  family: ReleaseFamily,
+  root: string,
+  members: readonly ReleaseMember[],
+  request: string,
+): { planned: PlannedVersion[]; version: string } {
+  const [first] = members
+  if (first === undefined) throw new Error(`release family ${family.id} has no members`)
+  const version = nextSharedVersion(first.version, request)
+  // The workspace root carries the family version too: the workspace constraint
+  // requires every member's version to equal the root's.
+  const planned: PlannedVersion[] = [
+    { manifestPath: ROOT_MANIFEST, label: ROOT_MANIFEST, from: rootVersion(root), to: version, tag: undefined },
+  ]
+  for (const member of members) {
+    planned.push({
+      manifestPath: join(member.directory, 'package.json'),
+      label: member.directory,
+      from: member.version,
+      to: version,
+      tag: family.tagFor({ ...member, version }),
+    })
+  }
+  return { planned, version }
+}
+
+/**
+ * Plan the vendored family's rewrite: every package whose payload changed since
+ * it last published.
+ * @param family - the vendored family.
+ * @param members - the family's members.
+ * @returns The manifests to rewrite.
+ */
+function planPerPackage(family: ReleaseFamily, members: readonly ReleaseMember[]): PlannedVersion[] {
+  const planned: PlannedVersion[] = []
+  for (const member of members) {
+    const published = lastPublishedVersion(family, member)
+    if (published !== undefined) {
+      confirmPublished(member.name, published)
+      const since = `${family.tagPrefixFor(member)}${published}`
+      const changed = capture('git', ['diff', '--name-only', `${since}..HEAD`, '--', member.directory])
+        .split('\n').filter(line => line !== '')
+      if (!changed.some(path => reachesPayload(member, path))) continue
+    }
+    const to = nextVendorVersion(member.version, published)
+    planned.push({
+      manifestPath: join(member.directory, 'package.json'),
+      label: member.directory,
+      from: member.version,
+      to,
+      tag: family.tagFor({ ...member, version: to }),
+    })
+  }
+  return planned
 }
 
 /** Bump the family named by `--family` and commit; `--dry-run` only reports the plan. */
@@ -136,21 +269,17 @@ function main(): void {
   const members = family.members(root)
   family.verifyVersions(members)
 
-  const planned: { member: ReleaseMember; version: string }[] = []
+  let planned: PlannedVersion[]
   let sharedVersion: string | undefined
   if (family.id === 'dsh') {
     const request = positionals[0]
     if (request === undefined) throw new Error('usage: release:dsh <major|minor|patch|x.y.z>')
-    const [first] = members
-    if (first === undefined) throw new Error(`release family ${family.id} has no members`)
-    sharedVersion = nextSharedVersion(first.version, request)
-    for (const member of members) planned.push({ member, version: sharedVersion })
+    const shared = planShared(family, root, members, request)
+    planned = shared.planned
+    sharedVersion = shared.version
   } else {
     if (positionals.length > 0) throw new Error('release:vendor takes no version: each package increments its own patch')
-    for (const member of members) {
-      if (!changedSincePublication(family, member)) continue
-      planned.push({ member, version: nextVendorVersion(member.version) })
-    }
+    planned = planPerPackage(family, members)
   }
 
   if (planned.length === 0) {
@@ -160,25 +289,25 @@ function main(): void {
 
   const dryRun = values['dry-run']
   if (!dryRun) {
-    for (const { member, version } of planned) writeVersion(root, member, version)
+    for (const entry of planned) writeVersion(root, entry.manifestPath, entry.from, entry.to)
     capture('pnpm', ['install', '--lockfile-only'])
   }
 
   const summary = sharedVersion
-    ?? planned.map(entry => `${entry.member.name.replace('@deepseek-ai/', '')} ${entry.version}`).join(', ')
+    ?? planned.map(entry => `${entry.label.replace('vendor/', '')} ${entry.to}`).join(', ')
   console.log(`release bump: family ${family.id} -> ${summary}`)
-  for (const { member, version } of planned) console.log(`  ${member.directory}: ${member.version} -> ${version}`)
+  for (const entry of planned) console.log(`  ${entry.label}: ${entry.from} -> ${entry.to}`)
 
   if (dryRun) {
     console.log('release bump: dry run, nothing written')
     return
   }
-  capture('git', ['add', 'pnpm-lock.yaml', ...planned.map(entry => join(entry.member.directory, 'package.json'))])
+  capture('git', ['add', 'pnpm-lock.yaml', ...planned.map(entry => entry.manifestPath)])
   capture('git', ['commit', '-m', `release(${family.id}): ${summary}`])
-  // The dsh family tags once for its shared version; vendor tags each package.
-  const tags = [...new Set(planned.map(entry => family.tagFor({ ...entry.member, version: entry.version })))]
   console.log('release bump: committed. After this merges to master, tag it:')
-  for (const tag of tags) console.log(`  git tag ${tag} <merge commit> && git push origin ${tag}`)
+  for (const tag of [...new Set(planned.map(entry => entry.tag).filter(tag => tag !== undefined))]) {
+    console.log(`  git tag ${tag} <merge commit> && git push origin ${tag}`)
+  }
 }
 
-main()
+if (isEntry(import.meta.url)) main()

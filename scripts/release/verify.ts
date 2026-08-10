@@ -4,10 +4,11 @@
  *
  * Publication happens only from GitHub Actions, so the tag and publishability
  * checks are gates on the workflow, not advisory local warnings
- * ([rationale](../../.agents/notes/proposed/process/2026-08-10-npm-release-sequences.md)).
+ * ([rationale](../../.agents/notes/implemented/process/2026-08-10-npm-release-sequences.md)).
  */
 
 import { parseArgs } from 'node:util'
+import { isEntry } from './process.ts'
 import { releaseFamily, type ReleaseFamily, type ReleaseMember } from './families.ts'
 
 /**
@@ -66,4 +67,4 @@ function main(): void {
   console.log(`release verify: family ${family.id}, ${String(members.length)} member(s), ${summary}${publishing ? ', publish gates passed' : ''}`)
 }
 
-main()
+if (isEntry(import.meta.url)) main()

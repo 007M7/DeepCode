@@ -23,7 +23,9 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}
+  # Pack runs per ref so concurrent pull requests never displace each
+  # other; the publish job below serializes the shared dist-tag state.
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
 env:
@@ -96,9 +98,11 @@ jobs:
     needs: pack
     runs-on: ubuntu-24.04
     environment: npm-publish
+    concurrency:
+      group: Release-publish
+      cancel-in-progress: false
     permissions:
       contents: read
-      id-token: write
     steps:
       # Checkout and install carry the release scripts only; no build step.
       - uses: actions/checkout@v6

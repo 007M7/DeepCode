@@ -378,8 +378,10 @@ function checkHierarchyShape(): string[] {
 }
 
 function checkRepositoryVersion(): string[] {
-  if (repositoryVersion && /^\d+\.\d+\.\d+$/.test(repositoryVersion)) return []
-  return ['package.json: version must be stable X.Y.Z']
+  // The root carries the dsh release family's version, so a prerelease such as
+  // 0.0.1-rc.1 is a valid state between `release:dsh` and its publication.
+  if (repositoryVersion && /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(repositoryVersion)) return []
+  return ['package.json: version must be X.Y.Z with an optional prerelease segment']
 }
 
 /** Dependency sections whose ranges reach a published tarball or a local install. */

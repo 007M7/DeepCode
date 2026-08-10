@@ -130,16 +130,16 @@ importers:
         specifier: workspace:^
         version: link:../../vendor/cordis
       '@deepseek-ai/cordis-plugin-hmr':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../../vendor/hmr
       '@deepseek-ai/cordis-plugin-include':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../../vendor/include
       '@deepseek-ai/cordis-plugin-loader':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../../vendor/loader
       '@deepseek-ai/cordis-plugin-timer':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../../vendor/timer
       '@deepseek-ai/dsh-agent-tool-mode':
         specifier: workspace:^
@@ -1205,10 +1205,10 @@ importers:
   packages/bundle/base:
     dependencies:
       '@deepseek-ai/cordis-plugin-hmr':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../../../vendor/hmr
       '@deepseek-ai/cordis-plugin-timer':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../../../vendor/timer
       '@deepseek-ai/dsh-agent':
         specifier: workspace:^
