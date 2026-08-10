@@ -37,16 +37,6 @@ const windowsUnsupportedPackages = process.platform === 'win32'
     ]
   : []
 
-// These files retain 100% per-file coverage on POSIX, where their process-pipe and terminal timing
-// tests are deterministic; Windows skips those cases and must not fail solely on their uncovered paths.
-const windowsCoverageExclusions = process.platform === 'win32'
-  ? [
-      'packages/lsp/lsp-local/src/connection.ts',
-      'packages/lsp/lsp-local/src/index.ts',
-      'packages/lsp/lsp-local/src/instance.ts',
-    ]
-  : []
-
 // Windows-only packages: their sources execute exclusively on win32 (koffi
 // loads Win32 libraries), so the Linux coverage lane can never cover them.
 // The Windows dev/CI lane exercises them through the probe/runner suites; the
@@ -238,7 +228,6 @@ export default defineConfig({
         'packages/interaction/commands/src/invariant.ts',
         'packages/session/session-projection/src/index.ts',
         ...windowsUnsupportedPackages.map(path => `${path}/src/**/*.ts`),
-        ...windowsCoverageExclusions,
         ...windowsOnlyCoverageExclusions,
         ...pwshCoverageExclusions,
       ],
