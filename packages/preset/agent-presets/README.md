@@ -55,6 +55,8 @@ A row's **package name** resolves from the host composition, not from the preset
 
 A **relative** path still resolves from the preset's own directory, so a preset's own plugin files and skill directories travel with it.
 
+An **absolute** filesystem path keeps its own location. The mount converts it to a `file:` URL before ESM import so POSIX paths and Windows drive-letter or UNC paths use a specifier Node accepts.
+
 ### Display metadata
 
 A preset may publish display text in an optional `preset.yml` beside its composition:

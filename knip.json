@@ -310,6 +310,11 @@
         "src/**/*.ts"
       ]
     },
+    "packages/attachment/attachment": {
+      "project": [
+        "src/**/*.ts"
+      ]
+    },
     "packages/util/timeout": {
       "entry": [
         "tests/**/*.spec.ts"

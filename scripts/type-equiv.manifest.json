@@ -781,6 +781,31 @@
       "source": "packages/interaction/user-approval/src/index.ts"
     },
     {
+      "doc": "docs/subsystems/attachment.md",
+      "symbol": "ImageMediaType",
+      "source": "packages/attachment/attachment/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/attachment.md",
+      "symbol": "ImageAttachmentRef",
+      "source": "packages/attachment/attachment/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/attachment.md",
+      "symbol": "ImageAttachmentLimits",
+      "source": "packages/attachment/attachment/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/attachment.md",
+      "symbol": "SaveImageAttachment",
+      "source": "packages/attachment/attachment/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/attachment.md",
+      "symbol": "StoredImageAttachment",
+      "source": "packages/attachment/attachment/src/types.ts"
+    },
+    {
       "doc": "docs/subsystems/bash.md",
       "symbol": "BashExecRequest",
       "source": "packages/bash/bash/src/types.ts"
