@@ -206,6 +206,40 @@ describe('SessionPersistenceJsonl: format helpers', () => {
     await fiber.dispose()
   })
 
+  it('keeps a non-object header line a corruption, not a format refusal', async () => {
+    const absoluteRoot = await freshRoot()
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const fiber = await ctx.plugin(SessionPersistenceJsonl, { root: absoluteRoot, compression: 'none' })
+    // Valid JSON that is no object carries no version to compare, so the
+    // version guard must pass it through to the corruption diagnostics.
+    const id = SessionId('scalar-header')
+    const path = rawLogPath(resolve(absoluteRoot), '/work', id)
+    await mkdir(dirname(path), { recursive: true })
+    await writeFile(path, '42\n')
+    const failure = await ctx.sessionPersistence.load(id).then(() => undefined, (error: unknown) => error as Error)
+    expect(failure?.name).not.toBe('SessionFormatUnsupportedError')
+    expect(failure?.message).toContain('first line is not a session header')
+    await fiber.dispose()
+  })
+
+  it('names a foreign-version header by its stringified non-string id', async () => {
+    const absoluteRoot = await freshRoot()
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const fiber = await ctx.plugin(SessionPersistenceJsonl, { root: absoluteRoot, compression: 'none' })
+    // A future header's id field is as untrusted as the rest of its shape:
+    // the refusal must still name the session it read, not crash on the type.
+    const id = SessionId('numeric-id')
+    const path = rawLogPath(resolve(absoluteRoot), '/work', id)
+    await mkdir(dirname(path), { recursive: true })
+    await writeFile(path, `${JSON.stringify({ type: 'session', version: 42, id: 123 })}\n`)
+    const failure = await ctx.sessionPersistence.load(id).then(() => undefined, (error: unknown) => error as Error)
+    expect(failure?.name).toBe('SessionFormatUnsupportedError')
+    expect(failure?.message).toContain('session "123" uses log format v42')
+    await fiber.dispose()
+  })
+
   it('points a format refusal at the raw log path', async () => {
     const absoluteRoot = await freshRoot()
     const ctx = new Context()
