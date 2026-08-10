@@ -239,6 +239,8 @@ export class AclSandbox {
       this.tempWriteSidPtr = this.tempWriteSid === undefined ? undefined : parseSid(this.tempWriteSid)
 
       const tempDir = this.mode === 'read-only' || this.tempDirOption === null ? null : this.tempDirOption
+      /* v8 ignore next -- constructor validation requires workspace-write to supply
+         an explicit temp directory or null; the other branches normalize to null. */
       if (tempDir === undefined) throw new Error('AclSandbox workspace-write temp directory was not resolved')
       if (tempDir !== null) {
         if (!existsSync(tempDir) || !statSync(tempDir).isDirectory()) {
