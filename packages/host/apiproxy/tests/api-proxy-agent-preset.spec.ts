@@ -354,11 +354,11 @@ describe('agentPreset.select', () => {
   })
 
   it('records the switch in the log, and the list reads it back', async () => {
-    const { api, ctx } = await harness(['standard', 'core-web'])
+    const { api, ctx } = await harness(['standard', 'minimal'])
     await api.sessions.create(request({ sessionId: SessionId('sel-log'), agentPreset: 'standard' }))
 
     await api.agentPresets.select(
-      request({ sessionId: SessionId('sel-log'), agentPreset: 'core-web' }))
+      request({ sessionId: SessionId('sel-log'), agentPreset: 'minimal' }))
 
     // The header is written once at creation, so the switch lives in the log —
     // this is what a restart replays and what every projection resolves from.
@@ -366,11 +366,11 @@ describe('agentPreset.select', () => {
     const session = ctx.sessions.get(SessionId('sel-log'))
     if (session === undefined) throw new Error('unreachable')
     expect(session.header.agentPreset).toBe('standard')
-    expect(resolveSessionPreset(session)).toBe('core-web')
+    expect(resolveSessionPreset(session)).toBe('minimal')
     const listed = await api.sessions.list(request({}))
     if (!listed.result.ok) throw new Error('unreachable')
     expect(listed.result.value.items.find(item => item.sessionId === 'sel-log')?.agentPreset)
-      .toBe('core-web')
+      .toBe('minimal')
   })
 
   it('frames the committed switch so clients can drop that session\'s catalogs', async () => {
@@ -405,14 +405,14 @@ describe('agentPreset.select', () => {
   })
 
   it('serializes two concurrent selects on one session', async () => {
-    const { api, ctx } = await harness(['standard', 'core-web'])
+    const { api, ctx } = await harness(['standard', 'minimal'])
     await api.sessions.create(request({ sessionId: SessionId('sel-race'), agentPreset: 'standard' }))
 
     // Both pass the blank check; unserialized, the second unmount finds no
     // record because the first already removed it, and two compositions end up
     // in one agent layer. The client's busy flag is not enforcement.
     const [first, second] = await Promise.all([
-      api.agentPresets.select(request({ sessionId: SessionId('sel-race'), agentPreset: 'core-web' })),
+      api.agentPresets.select(request({ sessionId: SessionId('sel-race'), agentPreset: 'minimal' })),
       api.agentPresets.select(request({ sessionId: SessionId('sel-race'), agentPreset: 'standard' })),
     ])
 
@@ -635,7 +635,7 @@ describe('skills over the layered host registry', () => {
   })
 
   it('resolves a cold session to its recorded preset standing key', async () => {
-    const { api, ctx } = await harness(['standard', 'core-web'])
+    const { api, ctx } = await harness(['standard', 'minimal'])
     const seen: unknown[] = []
     ctx.provide('skills', {
       list: (options: { scope?: unknown }) => {
@@ -643,12 +643,12 @@ describe('skills over the layered host registry', () => {
         return Promise.resolve([])
       },
     } as never)
-    ctx.sessions.create(SessionId('h2'), { meta: { cwd: '/workspace/cold', agentPreset: 'core-web' } })
+    ctx.sessions.create(SessionId('h2'), { meta: { cwd: '/workspace/cold', agentPreset: 'minimal' } })
 
     const response = await api.skills.list(request({ sessionId: SessionId('h2') }))
 
     expect(response.result).toMatchObject({ ok: true, value: { skills: [] } })
-    expect(seen).toEqual([standingKeys.get('core-web')])
+    expect(seen).toEqual([standingKeys.get('minimal')])
   })
 
   it('serves the global view when the roster no longer supplies the recorded preset', async () => {
@@ -671,8 +671,8 @@ describe('skills over the layered host registry', () => {
 
 describe('session.history presenter scope', () => {
   it('asks the roster for the RECORDED preset\'s standing key on a cold read', async () => {
-    const { api } = await harness(['standard', 'core-web'])
-    await api.sessions.create(request({ sessionId: SessionId('p1'), agentPreset: 'core-web' }))
+    const { api } = await harness(['standard', 'minimal'])
+    await api.sessions.create(request({ sessionId: SessionId('p1'), agentPreset: 'minimal' }))
     // Cold: creation registered a live agent in this harness, so simulate the
     // cold path by asking for a session only persistence knows... the harness
     // has no persistence, so read the live one and assert no roster query.
