@@ -80,7 +80,7 @@ async function bench(opts: BenchOptions = {}) {
   })
   ctx.provide('connection', { api })
   // CommandService injects `remote`; the directory invalidation arrives on the
-  // same `remote/host-event` signal the connection sink republishes.
+  // same `$dispatch` handoff the connection sink makes.
   new TestRemote(ctx)
   /** Notices the fake conversation face collected (runDetached routing). */
   const notices: Array<{ scope: SessionId | undefined; level: 'info' | 'error'; text: string }> = []
@@ -602,7 +602,7 @@ describe('popupFor', () => {
 })
 
 describe('directory invalidation events', () => {
-  it('commands/changed repulls in the background while the old snapshot serves', async () => {
+  it('commands/change repulls in the background while the old snapshot serves', async () => {
     let round = 0
     const { ctx, source, warm } = await bench({
       commands: () => {
@@ -615,7 +615,7 @@ describe('directory invalidation events', () => {
       },
     })
     await warm(proj('s1'))
-    ctx.emit('remote/host-event', 'commands/change', [])
+    ctx.remote.$dispatch('commands/change', [])
     await new Promise(resolve => setTimeout(resolve, 0))
     expect(source.matchSpace!(proj('s1'), '/fresh')).not.toBeUndefined()
     expect(source.matchSpace!(proj('s1'), '/goal')).toBeUndefined()

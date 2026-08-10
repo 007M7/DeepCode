@@ -6,6 +6,7 @@ import { apply as clientApply, COMMON_NS, LocaleService, inject } from '@deepsee
 import * as LocaleInvariant from '@deepseek-ai/dsh-client-locale/invariant'
 import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
 import InvariantService from '@deepseek-ai/dsh-invariants'
+import { stubSettingsScope } from '@deepseek-ai/dsh-client-test-runtime'
 
 describe('invariant companion', () => {
   it('registers under the package name with an empty installer', async () => {
@@ -20,10 +21,13 @@ describe('invariant companion', () => {
 
   it('client apply provides ctx.locale seeded with the zh/en common namespace', async () => {
     // The feature registers its own Language settings row, hence the slots edge.
-    expect(inject).toEqual(['slots', 'connection'])
+    expect(inject).toEqual(['slots', 'connection', 'remote', 'settingsScope'])
     const ctx = new Context()
     new SlotsService(ctx)
     ctx.provide('connection', { api: { settings: {} }, isLoopback: false } as never)
+    // The settings row's transport and the forwarded-event port.
+    ctx.provide('remote', { $on: () => () => {} } as never)
+    ctx.provide('settingsScope', { bind: () => stubSettingsScope().scope } as never)
     await ctx.plugin({ inject, apply: clientApply }).await()
     const locale = ctx.get('locale')
     expect(locale).toBeInstanceOf(LocaleService)

@@ -211,6 +211,18 @@ export interface TypeRTClientRemote extends TypeRTRemoteNamespaceMap {
    * @returns disposer owned by the calling fiber.
    */
   $on<Event extends TypeRTRemoteEvent>(event: Event, listener: Events[Event]): () => void
+  /**
+   * Hand one decoded forwarded frame to the subscription table. The carrier
+   * owning the Host frame sink calls this; a consumer subscribes with
+   * {@link TypeRTClientRemote.$on} and never calls it.
+   *
+   * `event` is a plain string because this is the wire boundary: the name is
+   * whatever the Host assembly's allowlist selected, and one nobody subscribed
+   * to is dropped silently.
+   * @param event - forwarded Host event name, exactly as the Host emitted it.
+   * @param args - the Host argument list, already JSON-decoded.
+   */
+  $dispatch(event: string, args: readonly unknown[]): void
 }
 
 /**
@@ -451,19 +463,5 @@ export interface TypeRTService {
 declare module '@deepseek-ai/cordis' {
   interface Context {
     typert: TypeRTService
-  }
-
-  interface Events {
-    /**
-     * The carrier received one allowlisted host event forwarded over the wire.
-     * Declared here because both compilation faces share this package; only the
-     * consumer side participates, where the Client half owning the host frame
-     * sink emits it and the Remote service is its only subscriber, turning it
-     * into `$on` callbacks. The Host neither emits nor observes it.
-     * @mode emit
-     * @param event - forwarded host event name, exactly as the Host emitted it.
-     * @param args - the Host argument list, already JSON-decoded.
-     */
-    'remote/host-event'(event: string, args: readonly unknown[]): void
   }
 }

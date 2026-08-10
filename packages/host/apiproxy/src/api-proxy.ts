@@ -6,7 +6,7 @@
 import { randomUUID } from 'node:crypto'
 import { mkdir, stat } from 'node:fs/promises'
 import { dirname } from 'node:path'
-import type { Context, Events } from '@deepseek-ai/cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import { installModelSelection } from '@deepseek-ai/dsh-agent'
 import type { Agent, ModelSelection, ModelSelectionRef, AgentOptions, AgentStatus } from '@deepseek-ai/dsh-agent'
 import { AGENT_DEFAULT_MODEL_SETTINGS_NAMESPACE } from '@deepseek-ai/dsh-agent-default-model'
@@ -418,9 +418,11 @@ function frame<F>(payload: F): RpcRequest<F> {
 /**
  * Narrow one allowlisted host event's argument list to the JSON values the
  * wrapper frame carries. A rejected argument is an allowlist mistake (the
- * forwarded path applies no projection), not hostile input, so it fails loud
- * here rather than degrading to a dropped or lossy frame. Exported for the
- * test that owns this decision: every currently allowlisted event has a
+ * forwarded path applies no projection), not hostile input, so it throws rather
+ * than degrading to a lossy frame. The throw surfaces where the forwarding
+ * listener runs, so the emitter's own listener containment logs it and drops
+ * that frame — loud in the Host log, not at load or at the emit. Exported for
+ * the test that owns this decision: every currently allowlisted event has a
  * statically JSON-safe payload, so a type-legal `ctx.emit` cannot reach the
  * rejection branch.
  * @param event - forwarded host event name, named in the failure.
@@ -3471,18 +3473,17 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           // its `host/models-changed`), which is the order a client sees.
           ...API_REMOTE_FORWARDED_EVENTS.map(name => ctx.on(
             name,
-            // cordis keys `on` by literal event name, so subscribing from a
-            // runtime list erases the handler type once. The erasure is safe
-            // because the allowlist's shape assertion already proves each name
-            // is a real, non-scoped, void-returning event, and assertJsonArgs
-            // proves the payload is JSON-safe before it reaches the queue.
+            // The allowlist's shape assertion proves each name is a real,
+            // non-scoped, void-returning event, so the rest-parameter handler
+            // satisfies every member of the union `on` accepts here;
+            // assertJsonArgs proves the payload is JSON-safe before it queues.
             ((...args: unknown[]) => {
               queue.push(frame({
                 type: 'host/remote-event',
                 event: name,
                 args: assertJsonArgs(name, args),
               }))
-            }) as Events[typeof name],
+            }),
           )),
           // The recompose itself registers nothing (it re-parents the agent's
           // scope onto a standing mount that may already exist), so the

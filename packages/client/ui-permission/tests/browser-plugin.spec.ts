@@ -39,7 +39,7 @@ async function bench() {
   locale.setLocale('en')
   ctx.provide('locale', locale)
   // The plugin injects `remote`; forwarded events reach it through the same
-  // `remote/host-event` signal the connection sink republishes.
+  // `$dispatch` handoff the connection sink makes.
   new TestRemote(ctx)
   ctx.slots.register({
     name: 'root',
@@ -162,8 +162,8 @@ describe('ui-permission browser plugin', () => {
   it('disposal removes the decoration (HMR safety)', async () => {
     const b = await bench()
     expect(b.decoration()).toBeDefined()
-    b.ctx.emit('remote/host-event', 'settings/document-updated', ['another', 1])
-    b.ctx.emit('remote/host-event', 'settings/document-updated', ['permission', 1])
+    b.ctx.remote.$dispatch('settings/document-updated', ['another', 1])
+    b.ctx.remote.$dispatch('settings/document-updated', ['permission', 1])
     b.ctx.emit('connection/reset')
     await b.fiber.dispose()
     expect(b.decoration()).toBeUndefined()

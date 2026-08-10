@@ -76,6 +76,9 @@
     },
     {
       "path": "../../interaction/permission"
+    },
+    {
+      "path": "../ui-settings"
     }
   ],
   "exclude": [

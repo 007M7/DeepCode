@@ -7,6 +7,7 @@
   },
   "files": [
     "src/client/index.ts",
+    "src/remote-events.ts",
     "src/types.ts"
   ],
   "references": [

@@ -1,6 +1,10 @@
 /** Browser runtime services for slots, sessions, workspaces, and connection-stream delivery. */
 import type { Context } from '@deepseek-ai/cordis'
 import type { ConnectionHandle, SessionId } from '@deepseek-ai/dsh-client-connection/client'
+// Type-only: the ctx.remote merge. Deliberately the gateway's Client half rather
+// than api-remotes': that face imports a Host-tsdown-generated artifact, and this
+// project sits in the Host build graph.
+import type {} from '@deepseek-ai/dsh-api-gateway/client'
 import type { TypeRTContext } from '@deepseek-ai/dsh-type-meta'
 import type { MaybeSnapshotSelectorHook, SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
 import { SlotsService } from './slots.ts'
@@ -42,9 +46,12 @@ export type { SessionProvideChannelHost } from './sessions/provide.ts'
 export { createScope } from './agents/scope.ts'
 export type { AgentScopeHandle } from './agents/scope.ts'
 export { DirectoryBrowseError, WorkspaceCreateError, WorkspacesService } from './workspaces/service.ts'
-export { bindSettingsScope, SettingsScopeController } from './settings-scope.ts'
-export type { SettingsScope, SettingsScopeSnapshot, SettingsScopeSpec } from './settings-scope.ts'
 export { resolveWorkspacePath } from './workspaces/path.ts'
+// Contract only: the scope implementation and its Host transport belong to
+// dsh-client-ui-settings (see that package's settings-scope.ts).
+export type {
+  SettingsScope, SettingsScopeSnapshot, SettingsScopeSpec,
+} from './contract/settings-scope.ts'
 export type { Session } from './sessions/session.ts'
 export type { ISession, ProjectionsFace, SessionFace } from './contract/session.ts'
 export type { AgentContext, ISessions } from './contract/sessions.ts'
@@ -190,7 +197,7 @@ declare module '@deepseek-ai/cordis' {
 }
 
 /** Required services: the wire handle and Client TypeRT registry. */
-export const inject = ['connection', 'typert']
+export const inject = ['connection', 'typert', 'remote']
 
 /** Mounts the browser runtime services and connection stream.
  * @param ctx - Client Cordis context.
@@ -219,11 +226,11 @@ export function apply(ctx: Context): void {
       sessions.handleHostEnvelope(envelope)
       workspaces.handleHostEnvelope(envelope)
       // Forwarded-event bridge: the session layer ignores registry frames (no
-      // session routing). This plugin only carries the frame onto the internal
-      // `remote/host-event` plumbing event; the Remote service subscribes there
-      // and fans out to `ctx.remote.$on`, so no consumer reads a frame.
+      // session routing). This plugin owns the frame sink, so it hands the
+      // decoded frame straight to the Remote service, which fans it out to
+      // `ctx.remote.$on` subscribers; no consumer reads a frame.
       const frame = envelope.payload
-      if (frame.type === 'host/remote-event') ctx.emit('remote/host-event', frame.event, frame.args)
+      if (frame.type === 'host/remote-event') ctx.remote.$dispatch(frame.event, frame.args)
       else if (frame.type === 'host/session-preset-changed') {
         ctx.emit('session/preset-changed', frame.sessionId, frame.agentPreset)
       }

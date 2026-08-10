@@ -79,7 +79,7 @@ async function bench() {
   const locale = new LocaleService(ctx)
   ctx.provide('locale', locale)
   // The plugins inject `remote`; forwarded events reach them through the
-  // same `remote/host-event` signal the connection sink republishes.
+  // same `$dispatch` handoff the connection sink makes.
   new TestRemote(ctx)
   const calls: string[] = []
   ctx.provide('connection', {
@@ -253,11 +253,11 @@ describe('ui-agent-preset apply', () => {
     await section.load()
     const before = calls.length
 
-    ctx.emit('remote/host-event', 'settings/document-updated', ['agent-presets', 1])
+    ctx.remote.$dispatch('settings/document-updated', ['agent-presets', 1])
     await vi.waitFor(() => { expect(calls.length).toBe(before + 2) })
     const afterRelevant = calls.length
 
-    ctx.emit('remote/host-event', 'settings/document-updated', ['llm-deepseek', 1])
+    ctx.remote.$dispatch('settings/document-updated', ['llm-deepseek', 1])
     await Promise.resolve()
 
     // Both surfaces re-read on their own namespace; an unrelated one moves
@@ -285,7 +285,7 @@ describe('ui-agent-preset apply', () => {
     await ctx.plugin({ inject: [...inject], apply }).await()
     const before = calls.length
 
-    ctx.emit('remote/host-event', 'settings/document-updated', ['agent-presets', 1])
+    ctx.remote.$dispatch('settings/document-updated', ['agent-presets', 1])
     await vi.waitFor(() => { expect(calls.length).toBeGreaterThan(before) })
 
     // Only the General row reloads: a section nobody opened has nothing to
@@ -336,11 +336,11 @@ describe('ui-agent-preset apply', () => {
     // An unrelated namespace moves nothing: the chip re-reads on its own
     // setting, not on every settings write in the process.
     moveDefault()
-    ctx.emit('remote/host-event', 'settings/document-updated', ['llm-deepseek', 1])
+    ctx.remote.$dispatch('settings/document-updated', ['llm-deepseek', 1])
     await Promise.resolve()
     expect(seat.hooks.agentPresetSeat.getSnapshot().current).toBe('standard')
 
-    ctx.emit('remote/host-event', 'settings/document-updated', ['agent-presets', 1])
+    ctx.remote.$dispatch('settings/document-updated', ['agent-presets', 1])
     await vi.waitFor(() => {
       expect(seat.hooks.agentPresetSeat.getSnapshot().current).toBe('minimal')
     })

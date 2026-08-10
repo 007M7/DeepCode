@@ -1,7 +1,7 @@
 /**
- * Wire-to-typed-event bridge: a `host/remote-event` frame is republished
- * verbatim on the internal `remote/host-event` plumbing event (the Remote
- * service's fan-out to `ctx.remote.$on` is api-gateway's own coverage);
+ * Wire-to-typed-event bridge: a `host/remote-event` frame is handed verbatim to
+ * the Remote service's `$dispatch` (its fan-out to `ctx.remote.$on` is
+ * api-gateway's own coverage);
  * host/session-preset-changed → ctx 'session/preset-changed';
  * `host/models-changed` still broadcasts the typed `models/changed`; each
  * established connection generation → ctx 'connection/reset' (the forced
@@ -43,13 +43,20 @@ void forwardedEventContracts
 interface Bench {
   ctx: Context
   sinks: ConnectionSinks | undefined
+  /** Every `$dispatch` the runtime made, as `[event, ...args]`. */
+  dispatched: unknown[][]
 }
 
 async function mount(): Promise<Bench> {
   const ctx = new Context()
   await ctx.plugin(TypertRegistry)
   const api = new FakeApiClient()
-  const bench: Bench = { ctx, sinks: undefined }
+  const bench: Bench = { ctx, sinks: undefined, dispatched: [] }
+  // Stands in for api-gateway's Remote service: this spec owns the carrier's
+  // handoff, not the fan-out behind it.
+  ctx.reflect.provide('remote', {
+    $dispatch: (event: string, args: readonly unknown[]) => { bench.dispatched.push([event, ...args]) },
+  })
   const handle: ConnectionHandle = {
     api,
     isLoopback: true,
@@ -69,8 +76,7 @@ async function mount(): Promise<Bench> {
 describe('wire event bridge', () => {
   it('republishes a forwarded host event verbatim, and routes no other host frame there', async () => {
     const bench = await mount()
-    const seen: unknown[][] = []
-    bench.ctx.on('remote/host-event', (event, args) => { seen.push([event, ...args]) })
+    const seen = bench.dispatched
     bench.sinks?.onHostEnvelope?.({
       rpcId: 'r1' as never,
       payload: { type: 'host/remote-event', event: 'commands/change', args: [] },
@@ -86,8 +92,7 @@ describe('wire event bridge', () => {
 
   it('carries each forwarded event name with its own argument list, unfiltered', async () => {
     const bench = await mount()
-    const seen: unknown[][] = []
-    bench.ctx.on('remote/host-event', (event, args) => { seen.push([event, ...args]) })
+    const seen = bench.dispatched
 
     bench.sinks?.onHostEnvelope?.({
       rpcId: 'r3' as never,

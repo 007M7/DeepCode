@@ -10,7 +10,7 @@ import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import {
   acknowledgeReloadConnectionLoss, assertFixtureInventory, captureStableAria, compareOrRefreshGolden,
-  WELCOME_NOTICE_SETTINGS_NAMESPACE, WELCOME_NOTICE_ACK_FIELD, 
+  WELCOME_NOTICE_SETTINGS_NAMESPACE, WELCOME_NOTICE_ACK_FIELD,
   WELCOME_NOTICE_VERSION, WELCOME_NOTICE_COPY,
   launchWebScaffold, watchConsole, webSnapshotMode, type WebScaffold,
 } from './scaffold.ts'

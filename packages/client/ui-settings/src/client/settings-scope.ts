@@ -1,66 +1,36 @@
-/** Host-backed settings-namespace synchronization for browser plugins. */
+/**
+ * Host transport for the settings-namespace scope contract. The contract types
+ * live in `dsh-client-runtime` (the common dependency of every feature that
+ * owns a preference); this file owns the wire behavior and the invalidation
+ * subscription, both of which are Settings-surface concerns.
+ */
 
+import { Service } from '@deepseek-ai/cordis'
 import type { Context } from '@deepseek-ai/cordis'
 import type {
   ConnectionHandle, IApiClient, SettingsNamespaceView,
 } from '@deepseek-ai/dsh-client-connection/client'
 import { rehydrateSchema, validateDraft } from '@deepseek-ai/dsh-client-schema-form'
-import { createSnapshotStore, type SnapshotStore } from './contract/store.ts'
-
-/** Client-side sync state of one settings namespace. */
-export interface SettingsScopeSnapshot<T> {
-  /**
-   * `loading` until the first accepted section, `ready` while one stands, and
-   * `unavailable` when the namespace is not exposed to this client or the
-   * connection keeps preferences process-local (memory mode).
-   */
-  status: 'loading' | 'ready' | 'unavailable'
-  /** Last accepted schema-resolved section; undefined before the first acceptance. */
-  value: T | undefined
-  /** Namespace revision fencing the next write; undefined before the first Host view. */
-  revision: number | undefined
-  /** Whether the Host document accepts writes; memory mode never does. */
-  writable: boolean
-  /** `host` syncs with the Host document; `memory` keeps a remote browser process-local. */
-  mode: 'host' | 'memory'
-}
-
-/** Domain-owned description of one settings namespace consumed by a browser plugin. */
-export interface SettingsScopeSpec<T> {
-  /** Settings namespace registered by the owning Host plugin. */
-  namespace: string
-  /**
-   * Narrow one wire section; undefined keeps the last accepted value. The
-   * default validates the section against the namespace's own serialized wire
-   * schema, so domains add a decoder only to narrow beyond that schema.
-   */
-  decode?: (section: unknown) => T | undefined
-}
-
-/**
- * Reactive owner handle over one namespace's durable section — the browser
- * mirror of the Host-side `SettingsScope` owner seam. Domain services read
- * and observe the snapshot and route explicit user choices through `set`.
- */
-export interface SettingsScope<T> {
-  /** @returns the current sync snapshot (stable reference until the next change). */
-  getSnapshot(): SettingsScopeSnapshot<T>
-  /**
-   * Observe snapshot replacements.
-   * @param listener - invoked after each snapshot change.
-   * @returns the disposer removing this listener.
-   */
-  subscribe(listener: () => void): () => void
-  /**
-   * Queue one field write. Rapid writes preserve mutation order, each carries
-   * the latest known namespace revision, and only the latest settlement may
-   * publish; a rejected or failed latest write reloads Host state instead.
-   * @param field - scalar field inside the namespace section.
-   * @param value - JSON-shaped value selected by the user.
-   * @returns settlement after the write and any latest-write recovery read.
-   */
-  set(field: string, value: unknown): Promise<void>
-}
+import {
+  createSnapshotStore, type SettingsScope, type SettingsScopeSnapshot,
+  type SettingsScopeSpec, type SnapshotStore,
+} from '@deepseek-ai/dsh-client-runtime/client'
+// Type-only, and deliberately NOT `@deepseek-ai/dsh-api-remotes/client`: this
+// package is reachable from the Host build graph through its feature-package
+// callers, and api-remotes' Client face imports a Host-tsdown-generated
+// `/remote` artifact, which would deadlock the Host tsc phase. The gateway's
+// Client half declares `ctx.remote` with no generated import, and the
+// allowlist's `types` subpath is a pure-type source file, so the pair supplies
+// `$on` and its key face without dragging a build artifact in. The runtime
+// `remote` injection belongs to whoever calls bindSettingsScope: the
+// subscription is registered on the caller's own context.
+import type {} from '@deepseek-ai/dsh-api-gateway/client'
+import type {} from '@deepseek-ai/dsh-api-remotes/types'
+// The forwarded event's own declaration: `$on`'s key face is
+// `Extract<keyof Events, keyof Selection>`, so the allowlist alone resolves to
+// never — the owning package's client-safe, type-only subpath supplies the
+// cordis `Events` entry (and with it the branded `SettingsNamespace`).
+import type {} from '@deepseek-ai/dsh-settings/types'
 
 type SettingsFace = Pick<IApiClient, 'settings'>
 
@@ -224,38 +194,60 @@ export class SettingsScopeController<T> implements SettingsScope<T> {
   }
 }
 
+declare module '@deepseek-ai/cordis' {
+  interface Context {
+    settingsScope: SettingsScopeService
+  }
+}
+
 /**
- * Bind one namespace scope to settings and connection invalidations on the
- * caller's plugin lifecycle. Listeners exist before the initial background
- * read starts, so activation never blocks on the settings transport.
- * @param ctx - owning browser plugin context.
- * @param spec - domain-owned namespace contract.
- * @returns the bound scope consumed by the domain's services and rows.
+ * The settings domain's base service. Features that own a preference reach the
+ * settings transport through this service rather than a shared function: the
+ * client bundle purity gate forbids cross-plugin value imports and directs
+ * cross-plugin collaboration through cordis services
+ * (`packages/client/tsdown.client.ts`).
  */
-export function bindSettingsScope<T>(
-  ctx: Context,
-  spec: SettingsScopeSpec<T>,
-): SettingsScope<T> {
-  const connection = ctx.get('connection') as ConnectionHandle
-  const controller = new SettingsScopeController<T>(
-    connection.api,
-    spec,
-    connection.isLoopback ? 'host' : 'memory',
-  )
-  ctx.effect(() => {
-    const refresh = (namespace?: string): void => {
-      if (namespace !== undefined && namespace !== spec.namespace) return
+export class SettingsScopeService extends Service {
+  /**
+   * @param ctx - the providing plugin's context.
+   */
+  constructor(ctx: Context) {
+    super(ctx, 'settingsScope')
+  }
+
+  /**
+   * Bind one namespace scope to settings and connection invalidations on the
+   * CALLER's plugin lifecycle — the service proxy binds `this.ctx` to the
+   * caller at call time, so the scope's disposer belongs to the calling fiber.
+   * Listeners exist before the initial background read starts, so activation
+   * never blocks on the settings transport. The caller injects `connection`
+   * for the transport and `remote` for the forwarded settings invalidation.
+   * @param spec - domain-owned namespace contract.
+   * @returns the bound scope consumed by the domain's services and rows.
+   */
+  bind<T>(spec: SettingsScopeSpec<T>): SettingsScope<T> {
+    const ctx = this.ctx
+    const connection = ctx.get('connection') as ConnectionHandle
+    const controller = new SettingsScopeController<T>(
+      connection.api,
+      spec,
+      connection.isLoopback ? 'host' : 'memory',
+    )
+    ctx.effect(() => {
+      const refresh = (namespace?: string): void => {
+        if (namespace !== undefined && namespace !== spec.namespace) return
+        void controller.load()
+      }
+      const disposers = [
+        ctx.remote.$on('settings/document-updated', refresh),
+        ctx.on('connection/reset', () => { refresh() }),
+      ]
       void controller.load()
-    }
-    const disposers = [
-      ctx.on('settings/changed', refresh),
-      ctx.on('connection/reset', () => { refresh() }),
-    ]
-    void controller.load()
-    return async () => {
-      for (const dispose of disposers) dispose()
-      await controller.dispose()
-    }
-  }, `runtime: ${spec.namespace} settings scope`)
-  return controller
+      return async () => {
+        for (const dispose of disposers) dispose()
+        await controller.dispose()
+      }
+    }, `ui-settings: ${spec.namespace} settings scope`)
+    return controller
+  }
 }

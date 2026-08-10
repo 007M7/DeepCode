@@ -122,6 +122,7 @@ export const SERVICE_WALK_EXEMPTIONS: Record<string, string> = {
   apiProxy: 'interface-typed (ApiProxy) with the class in api-proxy.ts, not index.ts — packages/host/apiproxy/README.md owns the API',
   appShell: 'client-side interface-typed browser service — packages/client/web/README.md owns the API',
   connection: 'client-side interface-typed browser service — packages/client/connection/README.md owns the API',
+  settingsScope: 'client-side settings-namespace transport service — packages/client/ui-settings/README.md owns the API',
   chatFileMentions: 'client-side slot-contract accessor (ChatFileMentions) — packages/client/ui-conversation/README.md owns the API',
   command: 'client-side interface-typed browser service — packages/client/ui-command/README.md owns the API',
   conversation: 'client-side interface-typed browser service — packages/client/ui-conversation/README.md owns the API',

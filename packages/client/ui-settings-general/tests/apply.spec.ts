@@ -34,7 +34,7 @@ async function bench(isLoopback = true) {
   const locale = new LocaleService(ctx)
   ctx.provide('locale', locale)
   // The plugins inject `remote`; forwarded events reach them through the
-  // same `remote/host-event` signal the connection sink republishes.
+  // same `$dispatch` handoff the connection sink makes.
   new TestRemote(ctx)
   const settingsDescribe = vi.fn(() => Promise.resolve({
     rpcId: 'settings-general' as never,
@@ -170,9 +170,9 @@ describe('ui-settings-general apply', () => {
     const { controller } = (entry.inject as unknown as () => WelcomeNoticeInjected)()
     await controller.load()
     expect(b.settingsDescribe).toHaveBeenCalledOnce()
-    b.ctx.emit('remote/host-event', 'settings/document-updated', ['unrelated', 1])
+    b.ctx.remote.$dispatch('settings/document-updated', ['unrelated', 1])
     expect(b.settingsDescribe).toHaveBeenCalledOnce()
-    b.ctx.emit('remote/host-event', 'settings/document-updated', [WELCOME_NOTICE_SETTINGS_NAMESPACE, 1])
+    b.ctx.remote.$dispatch('settings/document-updated', [WELCOME_NOTICE_SETTINGS_NAMESPACE, 1])
     await vi.waitFor(() => { expect(b.settingsDescribe).toHaveBeenCalledTimes(2) })
     b.ctx.emit('connection/reset')
     await vi.waitFor(() => { expect(b.settingsDescribe).toHaveBeenCalledTimes(3) })

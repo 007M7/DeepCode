@@ -229,7 +229,10 @@ function forwardedSettings(ns: string): HostFrame {
   return {
     type: 'host/remote-event',
     event: 'settings/document-updated',
-    args: [ns, expect.any(Number) as unknown as number],
+    /* oxlint-disable-next-line typescript/no-unsafe-assignment --
+     * expect.any is typed `any`; the frame's args are JsonValue[]. The
+     * revision is the Host's own counter, so the matcher is the assertion. */
+    args: [ns, expect.any(Number)],
   }
 }
 

@@ -625,11 +625,11 @@ describe('Client TypeRT API', () => {
     ))
     await subscriber
 
-    ctx.emit('remote/host-event', 'fixture/changed', ['settings'])
+    ctx.remote.$dispatch('fixture/changed', ['settings'])
     expect(seen).toEqual(['settings'])
 
     await subscriber.dispose()
-    ctx.emit('remote/host-event', 'fixture/changed', ['after fiber disposal'])
+    ctx.remote.$dispatch('fixture/changed', ['after fiber disposal'])
     expect(seen).toEqual(['settings'])
 
     await client.dispose()
@@ -645,7 +645,7 @@ describe('Client TypeRT API', () => {
     })
     ctx.remote.$on('fixture/changed', (namespace) => { seen.push(namespace) })
     try {
-      ctx.emit('remote/host-event', 'fixture/changed', ['credentials'])
+      ctx.remote.$dispatch('fixture/changed', ['credentials'])
 
       expect(seen).toEqual(['credentials'])
       expect(consoleError).toHaveBeenCalledWith(
@@ -653,7 +653,7 @@ describe('Client TypeRT API', () => {
         expect.any(Error),
       )
       disposeFirst()
-      ctx.emit('remote/host-event', 'fixture/changed', ['commands'])
+      ctx.remote.$dispatch('fixture/changed', ['commands'])
       expect(seen).toEqual(['credentials', 'commands'])
       expect(consoleError).toHaveBeenCalledTimes(1)
     } finally {
@@ -661,9 +661,62 @@ describe('Client TypeRT API', () => {
     }
   })
 
-  it('exposes subscription as the only forwarded-event verb', () => {
+  it('contains an async listener whose promise rejects', async () => {
+    const ctx = await bench(vi.fn<ConnectionHandle['rpc']['call']>())
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const seen: string[] = []
+    // The declared return is void, so nobody awaits an async listener: the
+    // rejection has to be contained here or it escapes as an unhandled one.
+    /* oxlint-disable-next-line typescript/no-misused-promises --
+     * Deliberately the shape the contract does not invite: `$on` declares a void
+     * listener, and this pins what the service does when a caller hands it an
+     * async one anyway. */
+    ctx.remote.$on('fixture/changed', () => Promise.reject(new Error('fixture async failure')))
+    ctx.remote.$on('fixture/changed', (namespace) => { seen.push(namespace) })
+    try {
+      ctx.remote.$dispatch('fixture/changed', ['credentials'])
+      await Promise.resolve()
+      await Promise.resolve()
+
+      expect(seen).toEqual(['credentials'])
+      expect(consoleError).toHaveBeenCalledWith(
+        'client api: Remote event "fixture/changed" listener threw:',
+        expect.any(Error),
+      )
+    } finally {
+      consoleError.mockRestore()
+    }
+  })
+
+  it('retires only its own registration when one listener subscribes twice', async () => {
+    const ctx = await bench(vi.fn<ConnectionHandle['rpc']['call']>())
+    const seen: string[] = []
+    // One function object, two registrations. A table keyed by listener identity
+    // stores it once, so the first frame would reach it once instead of twice
+    // and either disposer would silence both.
+    const listener = (namespace: string): void => { seen.push(namespace) }
+    const disposeFirst = ctx.remote.$on('fixture/changed', listener)
+    ctx.remote.$on('fixture/changed', listener)
+
+    ctx.remote.$dispatch('fixture/changed', ['both'])
+    expect(seen).toEqual(['both', 'both'])
+
+    // The surviving registration keeps receiving after its twin retires.
+    disposeFirst()
+    ctx.remote.$dispatch('fixture/changed', ['survivor'])
+    expect(seen).toEqual(['both', 'both', 'survivor'])
+
+    // Disposing twice is inert: the record is already gone, so the second call
+    // must not splice the surviving twin out from under its own owner.
+    disposeFirst()
+    ctx.remote.$dispatch('fixture/changed', ['still here'])
+    expect(seen).toEqual(['both', 'both', 'survivor', 'still here'])
+  })
+
+  it('separates the consumer verb from the carrier handoff', () => {
     expectTypeOf<ClientRemote>().toHaveProperty('$on')
-    expectTypeOf<ClientRemote>().not.toHaveProperty('$dispatch')
+    // The carrier owning the frame sink calls this; a consumer subscribes instead.
+    expectTypeOf<ClientRemote>().toHaveProperty('$dispatch')
   })
 
   it('drops a forwarded event nobody subscribes to', async () => {
@@ -671,7 +724,7 @@ describe('Client TypeRT API', () => {
     const seen: string[] = []
     ctx.remote.$on('fixture/changed', (namespace) => { seen.push(namespace) })
 
-    ctx.emit('remote/host-event', 'fixture/idle', [1])
+    ctx.remote.$dispatch('fixture/idle', [1])
 
     expect(seen).toEqual([])
   })

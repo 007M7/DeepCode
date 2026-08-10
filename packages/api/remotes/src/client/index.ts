@@ -16,10 +16,9 @@ export type {} from '@deepseek-ai/dsh-commands/types'
 export type {} from '@deepseek-ai/dsh-credentials/types'
 export type {} from '@deepseek-ai/dsh-settings/types'
 /**
- * The Gateway Client face's own declaration merges, type-only: the internal
- * `remote/host-event` delivery event a carrier owner emits and the Remote
- * service subscribes to. Erased at emit, so this facade still carries no
- * runtime edge to the Gateway implementation.
+ * The Gateway Client face's own declaration merges, type-only: `ctx.remote` and
+ * with it the `$on`/`$dispatch` surface. Erased at emit, so this facade still
+ * carries no runtime edge to the Gateway implementation.
  */
 export type {} from '@deepseek-ai/dsh-api-gateway/client'
 

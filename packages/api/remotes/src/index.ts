@@ -1,7 +1,7 @@
 /** Host BFF entry and Loader shell for the Remote contribution assembly. */
 
 import type { TypeRTForwardableEvent } from '@deepseek-ai/dsh-type-meta'
-import { API_REMOTE_FORWARDED_EVENTS } from './types.ts'
+import { API_REMOTE_FORWARDED_EVENTS } from './remote-events.ts'
 
 // The owner packages' client-safe `./types` exports carry the cordis `Events`
 // declarations for every allowlisted event. Pulling them into this face is what
@@ -24,7 +24,7 @@ export type {
   ApiRemoteAgentResult,
   ApiRemoteLookupError,
 } from './agent-lookup.ts'
-export { API_REMOTE_FORWARDED_EVENTS } from './types.ts'
+export { API_REMOTE_FORWARDED_EVENTS } from './remote-events.ts'
 export type { ApiRemoteForwardedEvent } from './types.ts'
 
 // Shape gate over the allowlist, kept in the Host face because the Host's event

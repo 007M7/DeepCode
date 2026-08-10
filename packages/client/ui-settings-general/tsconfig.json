@@ -40,6 +40,9 @@
     },
     {
       "path": "../../api/remotes/tsconfig.client.json"
+    },
+    {
+      "path": "../ui-sidebar"
     }
   ]
 }
