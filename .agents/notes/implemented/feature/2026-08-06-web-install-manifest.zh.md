@@ -10,7 +10,7 @@ Web 构建产物已有文档标题和 favicon，却没有可供浏览器发现�
 
 ## 决策
 
-Web 入口链接 `/manifest.webmanifest`，Vite 会将其从 `apps/web/public/` 复制到生产构建产物。manifest 将产品命名为 `DeepSeek Harness`，为安装后的浏览器界面提供简称 `DSH`，并把 `id`、`start_url` 和 `scope` 固定为 `/`。它请求 `display: "fullscreen"`，使支持这一模式的浏览器能够把可用显示区域交给安装后的编辑器式界面，同时不改变普通标签页；浏览器可以应用用户覆盖设置，或回退到其他显示模式。其图标条目复用 `/favicon.svg`，将它作为尺寸为 `any`、用途为 `any` 的 SVG，并额外提供 32×32 的 PNG 兜底（`/favicon-32x32.png`），供无法渲染 SVG favicon 的浏览器使用，详见[网页图标随配色方案决策](../bug-fix/2026-08-10-web-favicon-dark-mode.md)。
+Web 入口链接 `/manifest.webmanifest`，Vite 会将其从 `apps/web/public/` 复制到生产构建产物。manifest 将产品命名为 `DeepSeek Harness`，为安装后的浏览器界面提供简称 `DSH`，并把 `id`、`start_url` 和 `scope` 固定为 `/`。它请求 `display: "fullscreen"`，使支持这一模式的浏览器能够把可用显示区域交给安装后的编辑器式界面，同时不改变普通标签页；浏览器可以应用用户覆盖设置，或回退到其他显示模式。其图标条目复用 `/favicon.svg`，将它作为尺寸为 `any`、用途为 `any` 的 SVG，并额外提供 32×32 的 PNG 兜底（`/favicon-32x32.png`），供无法渲染 SVG favicon 的 Safari 26 之前版本使用，详见[网页图标随配色方案决策](../bug-fix/2026-08-10-web-favicon-dark-mode.md)。
 
 这一选择沿用了 code-server 的全屏方案，但没有照搬其 `window-controls-overlay` 显示覆盖项。DSH 没有自定义标题栏，也没有围绕原生窗口控件安排布局，因此使用这类覆盖项会在未落实所需安全布局的情况下取代全屏模式。
 
@@ -30,10 +30,10 @@ Web 构建产物测试解析输出的 manifest，并固定完整的元数据对�
 
 **选择一组静态背景色和主题色。** 不予采纳，因为应用会在运行时解析浅色和深色调色板，因此选择任一固定值，都是明知它与其中一种受支持状态不符。
 
-**立即交付光栅和可遮罩图标变体。** 光栅部分已交付：Safari 证明了现有可缩放 favicon 无法满足其要求——它无法渲染 SVG favicon，因此 manifest 现在在 SVG 之外同时携带 32×32 PNG（见[网页图标随配色方案决策](../bug-fix/2026-08-10-web-favicon-dark-mode.md)）。可遮罩变体仍保持不予采纳，直到有受支持的安装目标证明其必要性。
+**立即交付光栅和可遮罩图标变体。** 光栅部分已交付：Safari 证明了现有可缩放 favicon 无法满足其要求——Safari 26 之前的版本无法渲染 SVG favicon，因此 manifest 现在在 SVG 之外同时携带 32×32 PNG（见[网页图标随配色方案决策](../bug-fix/2026-08-10-web-favicon-dark-mode.md)）。可遮罩变体仍保持不予采纳，直到有受支持的安装目标证明其必要性。
 
 **只断言构建产物中的根路径字段和显示字段。** 不予采纳，因为产品名称、简称或图标被删除或更改，同样属于已交付安装体验的回归。任何 manifest 元数据发生变化时，测试都有意要求显式改动。
 
 ## 后果
 
-支持这一机制的浏览器可以发现以根路径为作用域的稳定安装身份和全屏偏好，而应用无需承诺离线行为。在路径前缀下部署该构建产物时，必须同时重新审视绝对路径的 manifest 链接，以及身份、启动、作用域和图标 URL。浏览器特有的图标要求已在 Safari 无法渲染 SVG favicon 时新增了 32×32 PNG 兜底（见[网页图标随配色方案决策](../bug-fix/2026-08-10-web-favicon-dark-mode.md)）；每一项有意的元数据变更都会同步更新精确的构建产物约定。
+支持这一机制的浏览器可以发现以根路径为作用域的稳定安装身份和全屏偏好，而应用无需承诺离线行为。在路径前缀下部署该构建产物时，必须同时重新审视绝对路径的 manifest 链接，以及身份、启动、作用域和图标 URL。manifest 为无法渲染 SVG favicon 的 Safari 26 之前版本携带 32×32 PNG 兜底（见[网页图标随配色方案决策](../bug-fix/2026-08-10-web-favicon-dark-mode.md)）；每一项有意的元数据变更都会同步更新精确的构建产物约定。

@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-10-web-favicon-dark-mode.md
-2026-08-10-web-favicon-dark-mode.md: 45a23ea31d369a7806733edac0c0aff32784a4c9
-2026-08-10-web-favicon-dark-mode.zh.md: 161e12e9d2749fb7dd0b65382be03cf38dd199d0
+2026-08-10-web-favicon-dark-mode.md: 65f41dda72e0fe0251ec43a42a11619b22d79f67
+2026-08-10-web-favicon-dark-mode.zh.md: b783f48a146a91e16157de696b06fc51b16a0e5f
