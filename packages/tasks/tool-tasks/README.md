@@ -20,6 +20,8 @@ When a producer supplies `outputLimitBytes`, `task_output`, terminal `task_kill`
 
 An unreported completion injects `background task <id> (<kind>: <label>) finished [status: ...]. Read its output with task_output.` into the exact owner's next-step inbox. When bounded, the stable id prefix and collection command outrank variable label/detail so the notice remains actionable at PTY's supported 64-byte minimum. Injection is durable pending context for a later pre-step claim, not a wake-up; cancellation or owner disposal may discard it before claim. A kill or terminal read/wait marks delivery reported and suppresses the redundant notice.
 
+One host registry may carry several mounts of this plugin — one per agent preset — and the registry broadcasts each settlement to every mount. A scoped mount delivers only to owners composed under its own scope, so an agent reads exactly one notice per completion however many presets are mounted; an unscoped mount is the host-plane instance and delivers to every owner.
+
 ## Config
 
 | key | default | meaning |
