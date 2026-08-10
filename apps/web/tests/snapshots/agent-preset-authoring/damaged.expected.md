@@ -1,0 +1,93 @@
+- dialog "设置":
+  - navigation:
+    - text: 设置
+    - button "通用设置":
+      - img
+      - text: 通用设置
+    - button "模型":
+      - img
+      - text: 模型
+    - button "Agent 预设":
+      - img
+      - text: Agent 预设
+  - button "打开配置文件"
+  - button "关闭":
+    - img
+    - text: 关闭
+  - heading "Agent 预设" [level=2]
+  - paragraph: 预设即一个会话的 Agent 所运行的插件组装 —— 它的工具、提示词与能力。复制一份既有预设改成自己的，或用「创造模式」让 Agent 帮你创建。
+  - heading "内置" [level=3]
+  - list:
+    - listitem:
+      - 'button "当前使用: 标准模式" [disabled] [pressed]':
+        - text: 标准模式 内置 当前使用 完整的编码 agent：文件读写、shell、检索、计划、委派与工作流。
+        - code: standard
+      - 'button "查看: 标准模式"':
+        - img
+        - text: 查看
+      - 'button "复制: 标准模式"':
+        - img
+        - text: 复制
+    - listitem:
+      - 'button "设为默认: 代码模式"':
+        - text: 代码模式 内置 标准模式的工具改为 Code Mode 呈现：模型写一段 TypeScript 调用 SDK，一次执行代替多轮工具调用。
+        - code: code
+      - 'button "查看: 代码模式"':
+        - img
+        - text: 查看
+      - 'button "复制: 代码模式"':
+        - img
+        - text: 复制
+    - listitem:
+      - 'button "设为默认: 极简模式"':
+        - text: 极简模式 内置 只向模型呈现 bash 与 str_replace_editor，适合 benchmark 与最小复现。
+        - code: minimal
+      - 'button "查看: 极简模式"':
+        - img
+        - text: 查看
+      - 'button "复制: 极简模式"':
+        - img
+        - text: 复制
+    - listitem:
+      - 'button "设为默认: 创造模式"':
+        - text: 创造模式 内置 标准模式加上自指工具集，可以读改自己运行的这套组装，并据此创作新的预设。
+        - code: cordis
+      - 'button "查看: 创造模式"':
+        - img
+        - text: 查看
+      - 'button "复制: 创造模式"':
+        - img
+        - text: 复制
+  - heading "自定义" [level=3]
+  - list:
+    - listitem:
+      - 'button "已损坏: broken-yaml" [disabled]':
+        - text: broken-yaml 已损坏 自定义 暂无描述。
+        - alert: "the composition is not valid YAML: unexpected end of the stream within a flow collection (3:1)"
+        - code: broken-yaml
+      - 'button "查看路径: broken-yaml"':
+        - img
+        - text: 查看路径
+      - 'button "复制: broken-yaml" [disabled]':
+        - img
+        - text: 预设已损坏，无法复制
+      - 'button "删除: broken-yaml"':
+        - img
+        - text: 删除
+    - listitem:
+      - 'button "已损坏: 幽灵预设" [disabled]':
+        - text: 幽灵预设 已损坏 自定义 composition 已被手动删除。
+        - alert: the composition file agent.cordis.yml is missing — the directory still occupies the id; delete it or restore the file
+        - code: ghost
+      - 'button "查看路径: 幽灵预设"':
+        - img
+        - text: 查看路径
+      - 'button "复制: 幽灵预设" [disabled]':
+        - img
+        - text: 预设已损坏，无法复制
+      - 'button "删除: 幽灵预设"':
+        - img
+        - text: 删除
+  - button "用「创造模式」创作自定义预设":
+    - img
+    - text: 用「创造模式」创作自定义预设

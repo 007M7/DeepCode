@@ -78,6 +78,7 @@ for (const file of files) {
 errors.push(...validateExampleResolution())
 errors.push(...validateAppResolution())
 errors.push(...validateSourcePlaneResolution())
+errors.push(...validatePresetPlaneSeparation())
 
 if (errors.length > 0) {
   console.error('verify-cordis-config: invalid Loader metadata or plugin package resolution:')
@@ -85,6 +86,76 @@ if (errors.length > 0) {
   process.exitCode = 1
 } else {
   console.log(`verify-cordis-config: ${files.length} config files passed.`)
+}
+
+/**
+ * No shipped agent preset may repeat a row the host composition still runs.
+ *
+ * A preset contributes what ONE session adds to the host's registries. A row
+ * active on both planes is therefore mounted twice — once per process and once
+ * per session — and what that costs depends on what the row does: a provider
+ * behind an `isolate` realm shadows the host's for its own consumers, so a host
+ * contributor to that service reaches nobody; a row that registers into a host
+ * singleton registers once per live session, so the second one collides.
+ *
+ * Both have happened. `bash-env` in a preset realm left `DSH_WEB_URL` reaching
+ * no shell, and `tool-subagent-report` handed every child `report` once per live
+ * session until the second registration threw. Neither changes a tool catalog,
+ * so no catalog assertion can see them — and the shipped presets are near-copies
+ * of each other, so a fix applied to three of four is the normal failure.
+ * @returns one diagnostic per preset row that is also active on the host plane.
+ */
+function validatePresetPlaneSeparation(): string[] {
+  const problems: string[] = []
+  // The shipped Web surface is two bundle patch layers over an empty root.
+  const hostFile = 'packages/bundle/base/cordis.patch.yml'
+  const overlayFile = 'packages/bundle/web-app/cordis.patch.yml'
+  const hostRows = rowIds(hostFile)
+  const overlay = loadEntries(overlayFile)
+  const disabled = new Set<string>()
+  for (const entry of overlay) {
+    if (!isRecord(entry)) continue
+    if (entry.disabled === true && typeof entry.id === 'string') disabled.add(entry.id)
+  }
+  // The overlay's own inserts are host-plane too; its disables take them back out.
+  const active = new Set([...hostRows, ...rowIds(overlayFile)].filter(id => !disabled.has(id)))
+  for (const file of globSync('apps/cli/config/agent-presets/*/agent.cordis.yml', { cwd: root })) {
+    for (const id of rowIds(file)) {
+      if (!active.has(id)) continue
+      problems.push(
+        `${file}: row "${id}" is also active in the host composition; `
+        + 'a row belongs to exactly one plane',
+      )
+    }
+  }
+  return problems
+}
+
+/** Every entry of one config file, or an empty list when it is not an entry array. */
+function loadEntries(file: string): unknown[] {
+  const document: unknown = yaml.load(readFileSync(resolve(root, file), 'utf8'), { schema })
+  return isUnknownArray(document) ? document : []
+}
+
+/**
+ * Row ids declared anywhere in one config file, including inside group `config`
+ * lists — a preset nests most of its rows in `isolate` groups.
+ * @param file - repository-relative config path.
+ * @returns the declared ids.
+ */
+function rowIds(file: string): Set<string> {
+  const ids = new Set<string>()
+  const walk = (value: unknown): void => {
+    if (isUnknownArray(value)) {
+      for (const item of value) walk(item)
+      return
+    }
+    if (!isRecord(value)) return
+    if (typeof value.id === 'string' && typeof value.name === 'string') ids.add(value.id)
+    for (const child of Object.values(value)) walk(child)
+  }
+  walk(loadEntries(file))
+  return ids
 }
 
 function validateEntry(value: unknown, file: string, path: string): void {
