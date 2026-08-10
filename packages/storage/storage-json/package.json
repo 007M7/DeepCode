@@ -2,7 +2,14 @@
   "name": "@deepseek-ai/dsh-storage-json",
   "description": "JSON file KV storage backend for the DeepSeek Harness storage hub",
   "version": "0.0.1",
-  "private": true,
+  "publishConfig": {
+    "access": "restricted"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/deepseek-ai/deepseek-harness.git",
+    "directory": "packages/storage/storage-json"
+  },
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",

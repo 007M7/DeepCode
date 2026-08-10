@@ -2,7 +2,14 @@
   "name": "@deepseek-ai/dsh-tool-subagent-report",
   "description": "Child-scoped report tool over ctx.subagents continuations",
   "version": "0.0.1",
-  "private": true,
+  "publishConfig": {
+    "access": "restricted"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/deepseek-ai/deepseek-harness.git",
+    "directory": "packages/subagent/tool-subagent-report"
+  },
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",

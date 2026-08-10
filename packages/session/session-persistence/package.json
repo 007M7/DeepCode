@@ -2,7 +2,14 @@
   "name": "@deepseek-ai/dsh-session-persistence",
   "description": "Abstract durable session persistence seam (ctx.sessionPersistence) for the DeepSeek Harness",
   "version": "0.0.1",
-  "private": true,
+  "publishConfig": {
+    "access": "restricted"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/deepseek-ai/deepseek-harness.git",
+    "directory": "packages/session/session-persistence"
+  },
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",

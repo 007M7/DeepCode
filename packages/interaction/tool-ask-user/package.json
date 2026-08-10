@@ -2,7 +2,14 @@
   "name": "@deepseek-ai/dsh-tool-ask-user",
   "description": "Model-facing ask_user_question tool over the ctx.userInteraction seam",
   "version": "0.0.1",
-  "private": true,
+  "publishConfig": {
+    "access": "restricted"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/deepseek-ai/deepseek-harness.git",
+    "directory": "packages/interaction/tool-ask-user"
+  },
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",

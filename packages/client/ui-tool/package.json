@@ -2,7 +2,14 @@
   "name": "@deepseek-ai/dsh-client-ui-tool",
   "description": "Client Tool call-tree renderer and keyed per-tool presentation slot",
   "version": "0.0.1",
-  "private": true,
+  "publishConfig": {
+    "access": "restricted"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/deepseek-ai/deepseek-harness.git",
+    "directory": "packages/client/ui-tool"
+  },
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",

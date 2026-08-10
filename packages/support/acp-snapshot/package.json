@@ -2,7 +2,14 @@
   "name": "@deepseek-ai/dsh-acp-snapshot",
   "description": "ACP test kit: shared subprocess launcher, snapshot scenario harness, expected-output normalizers, and suite factory",
   "version": "0.0.1",
-  "private": true,
+  "publishConfig": {
+    "access": "restricted"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/deepseek-ai/deepseek-harness.git",
+    "directory": "packages/support/acp-snapshot"
+  },
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",

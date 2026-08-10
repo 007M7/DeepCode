@@ -2,7 +2,14 @@
   "name": "@deepseek-ai/dsh-helper",
   "description": "Domain model and infrastructure for creating and editing DeepSeek Harness SDK projects",
   "version": "0.0.1",
-  "private": true,
+  "publishConfig": {
+    "access": "restricted"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/deepseek-ai/deepseek-harness.git",
+    "directory": "packages/scaffold/helper"
+  },
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",

@@ -2,7 +2,14 @@
   "name": "@deepseek-ai/dsh-tool-goal",
   "description": "Model-facing same-session goal tools with execution-time authority checks",
   "version": "0.0.1",
-  "private": true,
+  "publishConfig": {
+    "access": "restricted"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/deepseek-ai/deepseek-harness.git",
+    "directory": "packages/goal/tool-goal"
+  },
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",

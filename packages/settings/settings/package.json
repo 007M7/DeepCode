@@ -2,7 +2,14 @@
   "name": "@deepseek-ai/dsh-settings",
   "description": "Abstract user-settings seam (ctx.settings) for the DeepSeek Harness",
   "version": "0.0.1",
-  "private": true,
+  "publishConfig": {
+    "access": "restricted"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/deepseek-ai/deepseek-harness.git",
+    "directory": "packages/settings/settings"
+  },
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",

@@ -2,7 +2,14 @@
   "name": "@deepseek-ai/dsh-telemetry",
   "description": "Launcher-side dsh-sdk telemetry: secret redaction, consent resolution, anonymous id, payload builder, and fire-and-forget reporter",
   "version": "0.0.1",
-  "private": true,
+  "publishConfig": {
+    "access": "restricted"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/deepseek-ai/deepseek-harness.git",
+    "directory": "packages/scaffold/telemetry"
+  },
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",

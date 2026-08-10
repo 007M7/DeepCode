@@ -41,6 +41,14 @@ const publicationSourceAllowlist: Readonly<Record<string, readonly string[]>> = 
   '@deepseek-ai/node-addon-landlock-run': ['src/main.c'],
 }
 const repositoryUrl = 'git+https://github.com/deepseek-harness/deepseek-harness.git'
+/**
+ * Source home the published packages point consumers at. It differs from
+ * {@link repositoryUrl}, which the Landlock packages keep because npm resolves
+ * their trusted publishing against the repository that runs the workflow.
+ */
+const publishedRepositoryUrl = 'git+https://github.com/deepseek-ai/deepseek-harness.git'
+/** Directories whose packages this repository publishes: one release member each. */
+const releaseMemberDirectory = /^(?:packages\/[^/]+\/[^/]+|apps\/[^/]+|vendor\/[^/]+)$/
 
 const localArtifactDirs = new Set(['node_modules'])
 const appPackageFiles: Readonly<Record<string, readonly string[]>> = {
@@ -232,14 +240,29 @@ function checkWorkspace({ dir, manifest }: WorkspaceManifest): string[] {
     if (manifest.private === true) {
       errors.push(`${label}: published Landlock package must not set "private": true`)
     }
-    if (manifest.publishConfig?.access !== 'public') {
-      errors.push(`${label}: published Landlock package must set publishConfig.access to "public"`)
+    if (manifest.publishConfig?.access !== 'restricted') {
+      errors.push(`${label}: published Landlock package must set publishConfig.access to "restricted"`)
     }
     const expectedDirectory = dir
     if (manifest.repository?.type !== 'git'
       || manifest.repository.url !== repositoryUrl
       || manifest.repository.directory !== expectedDirectory) {
       errors.push(`${label}: published Landlock package repository must use ${repositoryUrl} with directory ${expectedDirectory} for trusted publishing`)
+    }
+  } else if (releaseMemberDirectory.test(dir)) {
+    // Release members state that they are publishable: npm refuses a private
+    // package, the scope is published privately, and the repository field is
+    // how a consumer of a private package finds its source.
+    if (manifest.private === true) {
+      errors.push(`${label}: release member must not set "private": true`)
+    }
+    if (manifest.publishConfig?.access !== 'restricted') {
+      errors.push(`${label}: release member must set publishConfig.access to "restricted"`)
+    }
+    if (manifest.repository?.type !== 'git'
+      || manifest.repository.url !== publishedRepositoryUrl
+      || manifest.repository.directory !== dir) {
+      errors.push(`${label}: release member repository must use ${publishedRepositoryUrl} with directory ${dir}`)
     }
   } else if (manifest.private !== true) {
     errors.push(`${label}: package.json must set "private": true`)

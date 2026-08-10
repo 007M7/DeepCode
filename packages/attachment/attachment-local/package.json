@@ -2,7 +2,14 @@
   "name": "@deepseek-ai/dsh-attachment-local",
   "description": "Private content-addressed DSH_HOME attachment storage",
   "version": "0.0.1",
-  "private": true,
+  "publishConfig": {
+    "access": "restricted"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/deepseek-ai/deepseek-harness.git",
+    "directory": "packages/attachment/attachment-local"
+  },
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",

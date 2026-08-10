@@ -2,7 +2,14 @@
   "name": "@deepseek-ai/dsh-bash-env",
   "description": "Tool-independent managed DSH_* shell environment registry",
   "version": "0.0.1",
-  "private": true,
+  "publishConfig": {
+    "access": "restricted"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/deepseek-ai/deepseek-harness.git",
+    "directory": "packages/bash/bash-env"
+  },
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",

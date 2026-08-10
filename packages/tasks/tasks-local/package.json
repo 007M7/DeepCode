@@ -2,7 +2,14 @@
   "name": "@deepseek-ai/dsh-tasks-local",
   "description": "Process-local implementation of the DeepSeek Harness background task registry seam",
   "version": "0.0.1",
-  "private": true,
+  "publishConfig": {
+    "access": "restricted"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/deepseek-ai/deepseek-harness.git",
+    "directory": "packages/tasks/tasks-local"
+  },
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",
