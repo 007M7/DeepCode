@@ -9,7 +9,7 @@
  * whose per-test lock file is removed in cleanup.
  */
 
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -205,6 +205,26 @@ describe.skipIf(!isWin32)('ACL editing', () => {
     expect(workspaceAces.some(ace => ace.sid === 'S-1-4-9000-3')).toBe(true)
     const tempAces = readDirectAces(api, tempDir)
     expect(tempAces.some(ace => ace.sid === 'S-1-4-9000-3-1')).toBe(false)
+  })
+
+  it('rejects an overlapping private temp directory before applying either capability', async () => {
+    const workspaceDir = scratch()
+    const nestedTemp = join(workspaceDir, 'temp')
+    const writeSid = 'S-1-4-9000-30'
+    const privateTempSid = 'S-1-4-9000-30-1'
+    mkdirSync(nestedTemp)
+    const sandbox = new AclSandbox({
+      writableDirs: [workspaceDir],
+      tempDir: nestedTemp,
+      writeSid,
+      tempWriteSid: privateTempSid,
+      mode: 'workspace-write',
+    })
+
+    await expect(sandbox.init()).rejects.toThrow(/private temp directory must be disjoint/u)
+    const api = await win32()
+    expect(readDirectAces(api, workspaceDir).some(ace => ace.sid === writeSid)).toBe(false)
+    expect(readDirectAces(api, nestedTemp).some(ace => ace.sid === privateTempSid)).toBe(false)
   })
 
   it('workspace-write without a write SID fails at construction; the token layer guards the same contract', () => {

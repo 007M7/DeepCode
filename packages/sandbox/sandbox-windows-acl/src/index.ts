@@ -47,12 +47,14 @@ import { grantWrite, revokeWrite } from './acl.ts'
 import { Win32Error } from './errors.ts'
 import { allocPtrSlot, decodePtr, isNullPtr, throwLastError, win32 } from './ffi.ts'
 import type { NativePtr, Win32Bindings } from './ffi.ts'
+import { assertPrivateTempDisjoint } from './path-boundary.ts'
 import { drainPipe, spawnSandboxed, spawnSandboxedInherited, waitForExit } from './spawn.ts'
 import { createRestrictedToken, findLogonSid, makeWellKnownSid, openCurrentProcessToken, setTokenDefaultDaclGrant } from './token.ts'
 import * as abi from './win32-abi.ts'
 
 export { quoteArg } from './spawn.ts'
 export { AclWriteGrant } from './grant.ts'
+export { assertTempRootOutsideWorkspace } from './path-boundary.ts'
 export { tempWriteSid, workspaceWriteSid } from './workspace-sid.ts'
 export { Win32Error } from './errors.ts'
 
@@ -242,6 +244,7 @@ export class AclSandbox {
         if (!existsSync(tempDir) || !statSync(tempDir).isDirectory()) {
           throw new Error(`AclSandbox temp dir does not exist or is not a directory: ${tempDir}`)
         }
+        assertPrivateTempDisjoint(this.writableDirs, tempDir)
       }
       this.tempDirResolved = tempDir
 

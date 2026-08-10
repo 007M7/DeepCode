@@ -48,7 +48,7 @@ import { existsSync, mkdtempSync, rmSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { win32 } from './ffi.ts'
-import { AclSandbox } from './index.ts'
+import { AclSandbox, assertTempRootOutsideWorkspace } from './index.ts'
 import { tempWriteSid, workspaceWriteSid } from './workspace-sid.ts'
 
 const RUNNER_SIGNATURE = 'windows-acl-run'
@@ -125,6 +125,9 @@ async function main(): Promise<number> {
   }
   if (parsed.mode === 'workspace-write' && (parsed.writeSid === undefined) !== (parsed.tempWriteSid === undefined)) {
     fail('workspace-write requires --write-sid and --temp-write-sid together')
+  }
+  if (parsed.mode === 'workspace-write') {
+    assertTempRootOutsideWorkspace(parsed.workspace, parsed.temp)
   }
 
   const api = await win32()

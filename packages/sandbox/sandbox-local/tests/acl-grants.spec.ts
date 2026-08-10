@@ -5,7 +5,7 @@
  * is mocked; native access checks live in sandbox-windows-acl's runner suite.
  */
 
-import { existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, realpathSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -51,6 +51,13 @@ vi.mock('@deepseek-ai/dsh-sandbox-windows-acl', () => {
   }
   return {
     AclWriteGrant: MockAclWriteGrant,
+    assertTempRootOutsideWorkspace: (workspaceRoot: string, tempRoot: string) => {
+      const workspace = realpathSync.native(workspaceRoot)
+      const temp = realpathSync.native(tempRoot)
+      if (temp === workspace || temp.startsWith(`${workspace}${process.platform === 'win32' ? '\\' : '/'}`)) {
+        throw new Error(`Windows ACL temp root must be outside the workspace: workspace=${workspaceRoot}; temp=${tempRoot}`)
+      }
+    },
     workspaceWriteSid: () => 'S-1-4-42-42',
     tempWriteSid: (path: string) => `TEMP:${path}`,
   }
@@ -236,6 +243,14 @@ describe('windows-acl write grants (LocalSandboxProvider)', () => {
     } finally {
       cleanup()
     }
+  })
+
+  it('rejects a workspace containing the ambient temp root before any ACL mutation', async () => {
+    const { sandbox } = await setup()
+    expect(() => sandbox.confine(['true'], {
+      mode: 'workspace-write', workspaceRoot: realpathSync.native(tmpdir()), sessionId: SessionId('overlap'),
+    })).toThrow(/temp root must be outside the workspace/u)
+    expect(mockState.grants).toHaveLength(0)
   })
 
   it('temp grant creation/add failures remove the random directory; cleanup failures aggregate', async () => {

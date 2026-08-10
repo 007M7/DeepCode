@@ -277,6 +277,22 @@ describe.skipIf(!isWin32 || !pwshAvailable())('windows-acl runner', () => {
     expect(existsSync(tempB)).toBe(false)
   }, 30_000)
 
+  it('agentless workspace-write rejects a temp root inside the workspace before spawning', () => {
+    const overlapWorkspace = join(scratchRoot, 'overlap-workspace')
+    const nestedTempRoot = join(overlapWorkspace, 'temp')
+    const marker = join(overlapWorkspace, 'command-ran.txt')
+    mkdirSync(overlapWorkspace)
+    mkdirSync(nestedTempRoot)
+
+    const result = runRunner([
+      '--workspace', overlapWorkspace, '--temp', nestedTempRoot, '--mode', 'workspace-write',
+      '--', process.execPath, '-e', "require('node:fs').writeFileSync(process.argv[1], 'ran')", marker,
+    ])
+    expect(result.status, `stderr: ${result.stderr}`).toBe(127)
+    expect(result.stderr).toContain('windows-acl-run: Windows ACL temp root must be outside the workspace')
+    expect(existsSync(marker)).toBe(false)
+  }, 15_000)
+
   it('confined children spawn grandchildren with inherited stdio; piped capture stays denied (named-pipe default SD template)', () => {
     // Two-layer pin of the grandchild-spawn boundary:
     //  - the token default DACL carries a restricting-SID ACE (set in init),
