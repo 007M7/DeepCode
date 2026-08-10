@@ -478,6 +478,7 @@ describe('plugin lifecycle', () => {
   it('registers and removes the Definition and keyed renderer with its fiber', async () => {
     const ctx = new Context()
     await ctx.plugin(SlotsService).await()
+    ctx.provide('connection', { api: { settings: {} }, isLoopback: false } as never)
     await ctx.plugin(ConversationEventRegistry).await()
     await ctx.plugin(TestSessions).await()
     ctx.slots.register({
