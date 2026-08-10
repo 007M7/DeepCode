@@ -243,7 +243,7 @@ export async function runProfile(options: RunProfileOptions): Promise<{ ctx: Con
     shutdown.interrupt(code)
   }
   // Signals own teardown throughout the startup window, not only after boot()
-  // settles: an inserted front door can publish readiness before sibling rows
+  // settles: an inserted entry point can publish readiness before sibling rows
   // finish mounting.
   process.on('SIGTERM', () => { interrupt(options.task === undefined ? 0 : 143) })
   process.on('SIGINT', () => { interrupt(130) })
