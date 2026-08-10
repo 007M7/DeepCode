@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-本包（package）注册固定的 `claude-code` subagent 提供方。每次接受运行请求后，它都会在发起委托的会话工作区中调用官方 Claude Agent SDK，通过共享子进程服务启动 SDK 分发的 Claude Code CLI，提交一个自包含的文本任务，并通过共享的 [`dsh-subagent`](../subagent/README.md) 结果约定仅返回最终答案。
+本包（package）注册固定的 `claude-code` subagent 提供方。每次接受运行请求后，它都会在发起委托的会话工作区中调用官方 Claude Agent SDK，通过共享子进程服务解析原生 `claude` 可执行文件，提交一个自包含的文本任务，并通过共享的 [`dsh-subagent`](../subagent/README.md) 结果约定仅返回最终答案。
 
 ## 启动与所有权
 
@@ -29,9 +29,9 @@ SDK 接收由文本块原样拼接成的任务。提供方会完整迭代 SDK �
 | `env` | `{}` | 显式指定的 SDK/CLI 环境，叠加在由共享机制清除凭证后的父环境之上。 |
 | `disposeGraceMs` | `3000` | 共享进程树责任方各终止层级之间的宽限期，单位为毫秒且须为正有限值，并不得大于仓库共享的 [`MAX_TIMER_DELAY_MS`](../../util/timeout/README.md)；随后资源释放会等待整棵进程树退出。 |
 
-生产环境使用 `@anthropic-ai/claude-agent-sdk` 提供的 Claude Code CLI，以及宿主机原生设置与身份验证。本插件不安装另一份 CLI、不选择模型、不创建产品主目录、不执行登录，也不探测账户。具有凭证特征的环境变量会在显式 `env` 覆盖生效前被清除，因此供子进程使用的 API 密钥或 token 必须在该配置中显式提供。除非被覆盖，`ANTHROPIC_BASE_URL` 等非凭证端点变量以及 `PATH` 和 `HOME` 等普通环境变量仍会被继承。
+生产环境从子进程执行世界清除凭证后的 `PATH` 解析 `claude`，再应用显式 `env` 条目，并把所得路径作为 `pathToClaudeCodeExecutable` 交给 SDK。原生设置与身份验证继续是权威来源。本插件不安装另一份 CLI、不选择模型、不创建产品主目录、不执行登录，也不探测账户。具有凭证特征的环境变量会在显式 `env` 覆盖生效前被清除，因此供子进程使用的 API 密钥或 token 必须在该配置中显式提供。除非被覆盖，`ANTHROPIC_BASE_URL` 等非凭证端点变量以及 `PATH` 和 `HOME` 等普通环境变量仍会被继承。
 
-请安装此包，并将以下配置项添加到你自己的 `cordis.yml`。正式 CLI 配置默认不会加载此提供方，也不会暴露 `subagent_claude_code`。
+随附 profile 会在宿主上加载一次该提供方，而且在工具被调用前不会启动 Claude 进程。完整 Agent Preset 携带下列工具行并设置 `disabled: true`；复制一个 preset 后删除该字段，即可只向由该副本组装的 agent 暴露 `subagent_claude_code`。自定义宿主组装仍可直接使用两条配置行。
 
 ```yaml
 - id: subagent-claude-code
@@ -42,6 +42,7 @@ SDK 接收由文本块原样拼接成的任务。提供方会完整迭代 SDK �
 
 - id: tool-subagent-claude-code
   name: '@deepseek-ai/dsh-tool-subagent'
+  disabled: true
   config:
     provider: claude-code
     toolName: subagent_claude_code
@@ -51,7 +52,7 @@ SDK 接收由文本块原样拼接成的任务。提供方会完整迭代 SDK �
 
 ## 产品兼容性与证据
 
-运行时依赖精确锁定为 `@anthropic-ai/claude-agent-sdk@0.3.220`，其平台可选依赖提供 Claude Code 2.1.220。强制证据会通过无密钥回环产品路径与带密钥 DeepSeek 路径运行该官方发行版，而 Loader 组合则证明两个选择启用的产品包能够共存，且不会启动任一产品。
+运行时依赖精确锁定为 `@anthropic-ai/claude-agent-sdk@0.3.220`。生产运行使用原生 `claude` 安装；SDK 的平台可选载荷仍处于当前安装闭包，并作为独立分发后续项跟踪。强制证据会通过无密钥回环路径与带密钥 DeepSeek 路径运行兼容的原生产品，而 Loader 组合则证明两个产品包能够共存且不会启动任一产品。
 
 项目所有者按身份范围授权分发官方 SDK 及每个 SDK 版本声明的官方 CLI／平台载荷。[`THIRD_PARTY_NOTICES.md`](../../../THIRD_PARTY_NOTICES.md) 会披露当前可选载荷闭包，但不会把其声明条款归类为宽松许可证；其他无关的非宽松运行时依赖仍会使第三方声明门禁失败。
 
@@ -89,7 +90,7 @@ Claude Code 子任务会在一个全新的 SDK query 中接收独立文本任务
 
 - **每次运行均新建一个 query 和一个进程**：不支持续接、恢复、池化、进度流或产品会话持久化。
 - **宿主设置有意保持权威**：项目和用户设置可以改变模型、工具与行为；本提供方不提供经过筛选或与宿主环境隔离的生产模式。
-- **产品安装与账户状态仍由原生机制管理**：不兼容的 SDK 载荷、配置错误或身份验证失败都会呈现为启动错误或运行错误；本插件不提供安装程序或登录流程。
+- **产品安装与账户状态仍由原生机制管理**：`claude` 缺失或不兼容、配置错误或身份验证失败都会呈现为启动错误或运行错误；本插件不提供安装程序或登录流程。
 - **没有人工交互路径**：`AskUserQuestion` 被禁用，其他交互回调也不存在，因此需要新审批或输入的任务会失败而不会挂起。
 - **仅返回最终文本**：推理、中间消息、工具通信、用量信息、stderr 和工作区差异仍只保留在产品内部。
 - **没有可选的共享能力**：对于本提供方，共享服务会拒绝输出 schema、子任务角色设定、工具筛选和 harness 深度强制约束。

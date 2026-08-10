@@ -6,6 +6,7 @@
  */
 
 import { EventEmitter } from 'node:events'
+import { extname } from 'node:path'
 import type {
   SpawnedProcess,
   SpawnOptions,
@@ -40,17 +41,23 @@ export function sdkEnvironmentOverlay(
  * Translate one official SDK spawn request to the shared process owner.
  * @param options - command, arguments, workspace, environment, and forwarded signal from the SDK.
  * @param graceMs - process-tree termination grace.
+ * @param platform - host platform selecting the Windows batch-shim boundary.
  * @returns the fully explicit shared subprocess request.
  */
 export function claudeSpawnSpec(
   options: SpawnOptions,
   graceMs: number,
+  platform: NodeJS.Platform = process.platform,
 ): SubprocessSpawnSpec {
   if (options.cwd === undefined || options.cwd.length === 0) {
     throw new Error('subagent-claude-code: SDK spawn request omitted its workspace')
   }
+  const extension = extname(options.command).toLowerCase()
+  const argv = platform === 'win32' && (extension === '.cmd' || extension === '.bat')
+    ? ['cmd.exe', '/d', '/s', '/c', options.command, ...options.args]
+    : [options.command, ...options.args]
   return {
-    argv: [options.command, ...options.args],
+    argv,
     cwd: options.cwd,
     stdio: { stdin: 'pipe', stdout: 'pipe', stderr: 'inherit' },
     graceMs,

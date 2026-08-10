@@ -26,6 +26,34 @@ A preset is a directory holding one `agent.cordis.yml`, optionally beside a `pre
 3. **Rewrite `preset.yml`**: give the copy its own `name` and `description`, and drop any `order` the source declared — that field sorts the shipped roster.
 4. **Edit `agent.cordis.yml`** row by row, keeping the plane rule and realm rule above.
 
+### Native product subagents
+
+Codex and Claude Code providers already live in the host composition. A preset chooses either product by contributing the same ordinary delegation-tool row used for spawn and fork; never move a product provider into the preset and never add a product-specific settings field.
+
+Copy these disabled templates from a shipped full preset and remove `disabled` only for the products the user requested:
+
+```yaml
+- id: tool-subagent-codex
+  name: '@deepseek-ai/dsh-tool-subagent'
+  disabled: true
+  config:
+    provider: codex
+    toolName: subagent_codex
+    enableRunInBackground: false
+    maxDepth: provider-managed
+
+- id: tool-subagent-claude-code
+  name: '@deepseek-ai/dsh-tool-subagent'
+  disabled: true
+  config:
+    provider: claude-code
+    toolName: subagent_claude_code
+    enableRunInBackground: false
+    maxDepth: provider-managed
+```
+
+The two rows are independent. Leaving both disabled preserves the copied preset, enabling one exposes only that product tool, and enabling both exposes both. The host must provide `codex` or `claude` on `PATH`; the preset does not install, authenticate, select a model for, or probe either product.
+
 The shipped preset directories are off-limits: never edit or delete them, and never escalate the sandbox to reach them, even when a change there looks quicker — an upgrade overwrites the install, and corrupting the `cordis` preset disables preset authoring itself. Locally authored presets under the user root are yours to create, edit, and delete.
 
 ## The rule that catches people

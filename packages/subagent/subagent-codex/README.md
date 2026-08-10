@@ -27,7 +27,7 @@ The provider advertises no optional start-time capabilities and reports `inherit
 
 Production resolves `codex` from `PATH` and uses the host's native Codex configuration and authentication. The plugin does not install Codex, select a model, create `CODEX_HOME`, log in, or probe a version. Credential-shaped ambient variables are removed by the subprocess seam, so an API key intended for the child must be supplied explicitly in `env`; ordinary ambient values such as `PATH` and `HOME` remain available unless overridden.
 
-Install this package and add the following rows to your own `cordis.yml`. Shipped CLI configurations do not load this provider or expose `subagent_codex` by default.
+Shipped profiles load this provider once on the host and start no Codex process until a tool call. Full Agent Presets carry the tool row below with `disabled: true`; copy a preset and remove that field to expose `subagent_codex` only to agents composed from the copy. A custom host composition can still use both rows directly.
 
 ```yaml
 - id: subagent-codex
@@ -38,6 +38,7 @@ Install this package and add the following rows to your own `cordis.yml`. Shippe
 
 - id: tool-subagent-codex
   name: '@deepseek-ai/dsh-tool-subagent'
+  disabled: true
   config:
     provider: codex
     toolName: subagent_codex

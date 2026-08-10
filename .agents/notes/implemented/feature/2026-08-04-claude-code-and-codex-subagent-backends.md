@@ -12,7 +12,7 @@ The product integrations must not become second owners for task text, cwd, cance
 
 ## Decision
 
-The harness publishes two sibling one-shot providers as independently installable, opt-in packages. A user loads a provider and the existing common subagent tool in their own `cordis.yml`: `subagent_codex` binds `codex`, while `subagent_claude_code` binds `claude-code`. The shipped CLI dependency closure and base, Web, and headless configurations load neither provider. Each tool accepts only a standalone text task; product selection and background execution are not model arguments.
+The harness publishes two sibling one-shot providers in the shared profile host: `codex` and `claude-code`. Loading the host providers starts no product process. An Agent Preset independently contributes ordinary `dsh-tool-subagent` rows when its agent should see `subagent_codex`, `subagent_claude_code`, both, or neither; the shipped full presets carry both rows disabled so copies have one accurate configuration template without changing the default model schema. Each tool accepts only a standalone text task; product selection and background execution are not model arguments.
 
 Both providers report `inheritsParentContext: false`, advertise no optional start capabilities, and pass the parent Session cwd without copying the parent conversation. Their documented tools disable background execution and use `maxDepth: 'provider-managed'`, leaving recursion policy with the out-of-process product instead of sending a limit the provider cannot enforce. Every call creates a fresh product process and a non-resumable product conversation. The shared subagent service continues to own request resolution, lifecycle events, result settlement, and foreground collection; the shared subprocess service owns credential scrubbing, process-tree termination, and whole-tree exit observation.
 
@@ -47,7 +47,7 @@ Codex 0.146.0 speaks the Responses protocol, while DeepSeek's public OpenAI-comp
 
 ## Claude Code provider
 
-`@deepseek-ai/dsh-subagent-claude-code` registers the fixed `claude-code` provider and invokes `@anthropic-ai/claude-agent-sdk@0.3.220`. The SDK's platform `optionalDependency` supplies the real Claude Code 2.1.220 CLI. The provider uses the official `query()` entrypoint and passes the SDK's `spawnClaudeCodeProcess` command, arguments, cwd, environment, and forwarded signal unchanged to `dsh-subprocess`; its private `SpawnedProcess` adapter exposes only the stream, event, kill, and exit facts the SDK requires.
+`@deepseek-ai/dsh-subagent-claude-code` registers the fixed `claude-code` provider and invokes `@anthropic-ai/claude-agent-sdk@0.3.220`. Before each run, the provider resolves the fixed `claude` name through the host subprocess execution world and passes that exact path as `pathToClaudeCodeExecutable`; the SDK therefore uses the native product that launched DSH rather than selecting its platform `optionalDependency`. The provider uses the official `query()` entrypoint and passes the SDK's `spawnClaudeCodeProcess` arguments, cwd, environment, and forwarded signal to `dsh-subprocess`; its private `SpawnedProcess` adapter exposes only the stream, event, kill, and exit facts the SDK requires.
 
 The public configuration contains the same two deployment-owned values as the Codex sibling: an explicit `env` overlay and a positive finite `disposeGraceMs` no greater than the repository's shared `MAX_TIMER_DELAY_MS`. Each run creates its own `AbortController`, sets `persistSession: false`, and disables `AskUserQuestion`. The provider deliberately omits `settingSources`, so the SDK reads the host's normal user, project, and local Claude settings relative to the parent Session cwd. It neither copies nor filters those settings and does not create or modify login state. It supplies no `canUseTool`, elicitation, or dialog callback, so unattended interactions fail through the SDK rather than waiting for a user interface the provider does not own.
 
@@ -65,7 +65,7 @@ The Codex evidence pins `@openai/codex@0.146.0` and `codex-cli 0.146.0`. Its rea
 
 The Codex credentialed e2e registers the production provider, starts the same real app-server, and requests one random nonce through the test-private bridge described above. It fixes the external endpoint and model, stores no credential or request payload, requires exactly one completed upstream response, compares the trimmed product answer byte-for-byte with the nonce, and waits for every managed handle to exit.
 
-The Claude Code evidence pins Agent SDK 0.3.220 and its platform-distributed Claude Code 2.1.220 CLI. Its real-product spec observes the exact `x-api-key`, original task, byte-exact final answer, inherited temporary host-setting marker, process failure, local cancellation, and whole-tree exit. The Loader e2e resolves both product packages by name while neither product command is available and records zero child starts.
+The Claude Code evidence pins Agent SDK 0.3.220 and a native Claude Code installation compatible with its query protocol. Its real-product spec observes the exact `x-api-key`, original task, byte-exact final answer, inherited temporary host-setting marker, process failure, local cancellation, and whole-tree exit. The Loader and shipped-profile evidence resolve both product packages by name while starting neither product, and the provider suite proves that the SDK receives the executable resolved from the host `PATH`.
 
 The Claude Code credentialed e2e maps the key and fixed official endpoint only in the provider's in-memory environment, uses the documented `deepseek-v4-pro[1m]` and `deepseek-v4-flash` model variables, and traverses the production provider, official SDK, and real CLI. It compares the trimmed result with a random nonce and proves whole-tree exit without calling the Messages API directly from the test.
 
@@ -79,6 +79,10 @@ The project owner's distribution authorization is scoped to the official `@anthr
 
 **A model-visible product selector.** Product availability and authentication are deployment facts. Two fixed tools keep each schema and provider binding explicit and avoid adding dynamic selection state to the common service.
 
+**Global product enable settings and a product-specific Web page.** Those controls make Codex and Claude Code exceptions to the Agent Preset composition that already owns one agent's tool set, and one process-wide choice cannot represent two sessions using different presets. The host always supplies the providers; the preset alone decides which fixed tools its agent receives.
+
+**One shipped preset per product combination.** Four preset variants encode a two-boolean choice in preset identities and multiply every future standard-preset change. Independent ordinary rows express the same result in the user's copied preset without adding a roster taxonomy.
+
 **Product doubles as required evidence.** Doubles cover exhaustive private protocol branches but do not prove package exports, official distributions, authentication, or real process behavior. Required evidence drives each official product against a loopback model fixture.
 
 **Plugin-managed login, product home, models, settings, or permissions.** Those choices would create another authority beside each product's native configuration and enlarge a one-shot provider into account management. The providers expose only an explicit environment overlay and teardown grace; unattended interaction fails closed.
@@ -87,7 +91,7 @@ The project owner's distribution authorization is scoped to the official `@anthr
 
 ## Consequences
 
-Users can install either or both product providers, bind stable foreground tools in their own Cordis configuration, and delegate one self-contained task through the existing subagent contract. Official product integrations preserve native settings and behavior while shared services retain the sole ownership of task settlement and process-tree quiescence.
+Users copy or author an Agent Preset and independently enable either or both stable foreground tools. Every profile host supplies the reusable providers once, while each preset owns only its agent's model-visible tool rows. Official product integrations preserve native settings and behavior while shared services retain the sole ownership of task settlement and process-tree quiescence.
 
 Every delegation pays for a fresh product process and independent model context, and only final text reaches the parent. Product-native configuration makes behavior depend on the deployment's installed product, account state, and workspace settings. Credentialed e2e runs also spend external API quota and depend on the official DeepSeek endpoint; deterministic protocol, failure, cancellation, and approval coverage remains in the keyless tier. The providers do not resume sessions, stream progress, accept new human interaction, roll back tool or file side effects, or impose a wall-clock timeout.
 

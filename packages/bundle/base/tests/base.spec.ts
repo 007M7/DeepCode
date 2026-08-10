@@ -13,7 +13,10 @@ import { entryListSchema } from '@cordisjs/plugin-include'
 describe('dsh-base bundle', () => {
   it('declares a parseable patch list through the dsh.bundle.patch manifest field', () => {
     const root = fileURLToPath(new URL('..', import.meta.url))
-    const manifest = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8')) as { dsh?: { bundle?: { patch?: string } } }
+    const manifest = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8')) as {
+      dependencies?: Record<string, string>
+      dsh?: { bundle?: { patch?: string } }
+    }
     expect(manifest.dsh?.bundle?.patch).toBe('./cordis.patch.yml')
     const parsed = yaml.load(readFileSync(resolve(root, manifest.dsh!.bundle!.patch!), 'utf8'), { schema: entryListSchema })
     expect(Array.isArray(parsed)).toBe(true)
@@ -21,5 +24,11 @@ describe('dsh-base bundle', () => {
     const rows = (parsed as { insert?: { id?: string }[] }[]).flatMap(patch => patch.insert ?? [])
     expect(rows.length).toBeGreaterThan(50)
     expect(rows.some(row => row.id === 'agent-loop')).toBe(true)
+    expect(rows.filter(row => row.id === 'subagent-codex')).toHaveLength(1)
+    expect(rows.filter(row => row.id === 'subagent-claude-code')).toHaveLength(1)
+    expect(manifest.dependencies).toMatchObject({
+      '@deepseek-ai/dsh-subagent-codex': 'workspace:^',
+      '@deepseek-ai/dsh-subagent-claude-code': 'workspace:^',
+    })
   })
 })
