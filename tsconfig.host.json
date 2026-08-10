@@ -222,6 +222,7 @@
     { "path": "./packages/bundle/headless" },
     { "path": "./packages/bundle/web-app" },
     { "path": "./packages/boot/app-boot" },
+    { "path": "./packages/boot/cmdline" },
     { "path": "./packages/scaffold/server" },
     { "path": "./packages/examples/jsonrpc-demo" },
     { "path": "./packages/support/llm-replay" },
