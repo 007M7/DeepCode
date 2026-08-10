@@ -192,21 +192,38 @@ describe.skipIf(!isWin32)('ACL editing', () => {
     const api = await win32()
     const workspaceDir = scratch()
     const tempDir = scratch()
-    const sandbox = new AclSandbox({ writableDirs: [workspaceDir], tempDir, writeSid: 'S-1-4-9000-3', mode: 'workspace-write' })
+    const sandbox = new AclSandbox({
+      writableDirs: [workspaceDir],
+      tempDir,
+      writeSid: 'S-1-4-9000-3',
+      tempWriteSid: 'S-1-4-9000-3-1',
+      mode: 'workspace-write',
+    })
     await sandbox.init()
     sandbox.dispose()
     const workspaceAces = readDirectAces(api, workspaceDir)
     expect(workspaceAces.some(ace => ace.sid === 'S-1-4-9000-3')).toBe(true)
     const tempAces = readDirectAces(api, tempDir)
-    expect(tempAces.some(ace => ace.sid === 'S-1-4-9000-3')).toBe(false)
+    expect(tempAces.some(ace => ace.sid === 'S-1-4-9000-3-1')).toBe(false)
   })
 
   it('workspace-write without a write SID fails at construction; the token layer guards the same contract', () => {
     const dir = scratch()
     expect(() => new AclSandbox({ writableDirs: [dir], tempDir: null, mode: 'workspace-write' }))
       .toThrow(/requires a write SID/)
-    expect(() => createRestrictedToken({} as never, 0n as never, 0n as never, undefined, { world: 0n as never }, 'workspace-write'))
-      .toThrow(/requires the write SID/)
+    expect(() => new AclSandbox({ writableDirs: [dir], writeSid: 'S-1-4-1-1', mode: 'workspace-write' }))
+      .toThrow(/requires an explicit private temp directory or null/)
+    expect(() => new AclSandbox({ writableDirs: [dir], tempDir: dir, writeSid: 'S-1-4-1-1', mode: 'workspace-write' }))
+      .toThrow(/requires a temp write SID/)
+    expect(() => new AclSandbox({
+      writableDirs: [dir],
+      tempDir: dir,
+      writeSid: 'S-1-4-1-1',
+      tempWriteSid: 'S-1-4-1-1',
+      mode: 'workspace-write',
+    })).toThrow(/must be distinct/)
+    expect(() => createRestrictedToken({} as never, 0n as never, 0n as never, [], { world: 0n as never }, 'workspace-write'))
+      .toThrow(/requires at least one write SID/)
   })
 
   it('the per-path lock is exclusive: a second immediate lock attempt fails with ERROR_LOCK_VIOLATION until release', async () => {

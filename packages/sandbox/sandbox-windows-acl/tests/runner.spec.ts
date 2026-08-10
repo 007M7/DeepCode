@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 import { resolvePwshPath } from '@deepseek-ai/dsh-pwsh-local'
-import { AclWriteGrant } from '../src/index.ts'
+import { AclWriteGrant, tempWriteSid, workspaceWriteSid } from '../src/index.ts'
 
 const isWin32 = process.platform === 'win32'
 const runnerEntry = fileURLToPath(new URL('../src/runner.ts', import.meta.url))
@@ -77,12 +77,13 @@ describe.skipIf(!isWin32 || !pwshAvailable())('windows-acl runner', () => {
   it('workspace-write: the confined child writes granted directories only', () => {
     const probe = [
       "$ErrorActionPreference='SilentlyContinue';",
-      // The restricted token puts pwsh into ConstrainedLanguage in BOTH modes
-      // (documented Known Limitation) — pinned here so a token change that
-      // silently restores FullLanguage is caught.
+      // The private-temp capability lets PowerShell complete its startup
+      // AppLocker probe, so without a host policy workspace-write stays in
+      // FullLanguage. Read-only cannot create those scratch files and fails
+      // that probe closed to ConstrainedLanguage (pinned below).
       '\'LANGMODE: \' + $ExecutionContext.SessionState.LanguageMode;',
       `try{Set-Content -Path '${writableDir}\\child-wrote.txt' -Value ok -ErrorAction Stop;'TARGET-WRITE: OK'}catch{'TARGET-WRITE: DENIED'};`,
-      `try{Set-Content -Path '${isolatedTemp}\\child-wrote.txt' -Value ok -ErrorAction Stop;'TEMP-WRITE: OK'}catch{'TEMP-WRITE: DENIED'};`,
+      "try{Set-Content -Path (Join-Path $env:TEMP 'child-wrote.txt') -Value ok -ErrorAction Stop;'TEMP-WRITE: OK'}catch{'TEMP-WRITE: DENIED'};",
       `try{Set-Content -Path '${escapeFile}' -Value ok -ErrorAction Stop;'ESCAPE-WRITE: OK (ESCAPE!)'}catch{'ESCAPE-WRITE: DENIED'};`,
       `try{Get-Content '${secretFile}' -ErrorAction Stop | Out-Null;'SECRET-READ: OK'}catch{'SECRET-READ: DENIED'};`,
       // Authenticated Users is absent from BOTH lists: the WMI namespace
@@ -96,7 +97,7 @@ describe.skipIf(!isWin32 || !pwshAvailable())('windows-acl runner', () => {
       '--', 'pwsh', '/NoLogo', '/NonInteractive', '/NoProfile', '/Command', probe,
     ])
     expect(result.status, `stderr: ${result.stderr}`).toBe(0)
-    expect(result.stdout).toContain('LANGMODE: ConstrainedLanguage')
+    expect(result.stdout).toContain('LANGMODE: FullLanguage')
     expect(result.stdout).toContain('TARGET-WRITE: OK')
     expect(result.stdout).toContain('TEMP-WRITE: OK')
     expect(result.stdout).toContain('ESCAPE-WRITE: DENIED')
@@ -163,38 +164,117 @@ describe.skipIf(!isWin32 || !pwshAvailable())('windows-acl runner', () => {
     expect(existsSync(renamedDir)).toBe(true)
   }, 30_000)
 
-  it('--write-sid: the runner trusts the caller-owned grants — private temp subdir via the TMP/TEMP env rewrite, no grants of its own', () => {
-    const writeSid = 'S-1-4-9000-99'
+  it('paired SIDs: the runner trusts caller-owned private-temp grants and materializes nothing itself', () => {
+    const seamWorkspace = join(scratchRoot, 'seam-workspace')
+    mkdirSync(seamWorkspace)
+    const writeSid = workspaceWriteSid(seamWorkspace)
     const privateTemp = join(isolatedTemp, 'private-subdir')
     mkdirSync(privateTemp)
-    const grant = AclWriteGrant.create(writeSid)
+    const privateTempSid = tempWriteSid(privateTemp)
+    const grant = AclWriteGrant.create(privateTempSid)
     grant.add(privateTemp)
     try {
       const probe = [
         "$ErrorActionPreference='SilentlyContinue';",
-        `try{Set-Content -Path '${writableDir}\\server-granted.txt' -Value ok -ErrorAction Stop;'WORKSPACE-WRITE: OK'}catch{'WORKSPACE-WRITE: DENIED'};`,
+        `try{Set-Content -Path '${seamWorkspace}\\server-granted.txt' -Value ok -ErrorAction Stop;'WORKSPACE-WRITE: OK'}catch{'WORKSPACE-WRITE: DENIED'};`,
         `try{Set-Content -Path '${privateTemp}\\server-granted.txt' -Value ok -ErrorAction Stop;'PRIVATE-TEMP-WRITE: OK'}catch{'PRIVATE-TEMP-WRITE: DENIED'};`,
         "'TEMP-ENV: ' + $env:TEMP;",
         "'TMP-ENV: ' + $env:TMP",
       ].join('')
       const result = runRunner([
-        '--workspace', writableDir, '--temp', privateTemp, '--mode', 'workspace-write', '--write-sid', writeSid,
+        '--workspace', seamWorkspace, '--temp', privateTemp, '--mode', 'workspace-write', '--write-sid', writeSid,
+        '--temp-write-sid', privateTempSid,
         '--', 'pwsh', '/NoLogo', '/NonInteractive', '/NoProfile', '/Command', probe,
       ])
       expect(result.status, `stderr: ${result.stderr}`).toBe(0)
-      // The runner granted nothing (only the caller's private-temp grant
+      // The runner granted nothing (only the caller's temp-SID grant
       // stands): the workspace write is denied, the private temp write lands,
       // and the child's TMP/TEMP point at the private subdirectory.
       expect(result.stdout).toContain('WORKSPACE-WRITE: DENIED')
       expect(result.stdout).toContain('PRIVATE-TEMP-WRITE: OK')
       expect(result.stdout).toContain(`TEMP-ENV: ${privateTemp}`)
       expect(result.stdout).toContain(`TMP-ENV: ${privateTemp}`)
-      expect(existsSync(join(writableDir, 'server-granted.txt'))).toBe(false)
+      expect(existsSync(join(seamWorkspace, 'server-granted.txt'))).toBe(false)
       expect(existsSync(join(privateTemp, 'server-granted.txt'))).toBe(true)
     } finally {
       grant.dispose()
       rmSync(privateTemp, { recursive: true, force: true })
     }
+  }, 30_000)
+
+  it('temp capabilities isolate sibling sessions that share one workspace SID', () => {
+    const writeSid = workspaceWriteSid(writableDir)
+    const tempA = join(isolatedTemp, 'session-a')
+    const tempB = join(isolatedTemp, 'session-b')
+    mkdirSync(tempA)
+    mkdirSync(tempB)
+    const sidA = tempWriteSid(tempA)
+    const sidB = tempWriteSid(tempB)
+    const workspaceGrant = AclWriteGrant.create(writeSid)
+    const grantA = AclWriteGrant.create(sidA)
+    const grantB = AclWriteGrant.create(sidB)
+    workspaceGrant.add(writableDir)
+    grantA.add(tempA)
+    grantB.add(tempB)
+    const sharedWorkspaceFile = join(writableDir, 'shared-between-sessions.txt')
+    const probe = [
+      "const fs = require('node:fs');",
+      "const targets = [['OWN', process.argv[1]], ['SIBLING', process.argv[2]], ['WORKSPACE', process.argv[3]]];",
+      "if (process.argv[4]) targets.push(['SIBLING-EXISTING', process.argv[4]]);",
+      'for (const [name, target] of targets) {',
+      "try { fs.writeFileSync(target, name); console.log(name + ': OK'); } catch { console.log(name + ': DENIED'); }",
+      '}',
+    ].join('')
+    try {
+      const resultA = runRunner([
+        '--workspace', writableDir, '--temp', tempA, '--mode', 'workspace-write',
+        '--write-sid', writeSid, '--temp-write-sid', sidA,
+        '--', process.execPath, '-e', probe, join(tempA, 'a.txt'), join(tempB, 'a-escaped.txt'), sharedWorkspaceFile,
+      ])
+      expect(resultA.status, `stderr: ${resultA.stderr}`).toBe(0)
+      expect(resultA.stdout).toContain('OWN: OK')
+      expect(resultA.stdout).toContain('SIBLING: DENIED')
+      expect(resultA.stdout).toContain('WORKSPACE: OK')
+
+      const resultB = runRunner([
+        '--workspace', writableDir, '--temp', tempB, '--mode', 'workspace-write',
+        '--write-sid', writeSid, '--temp-write-sid', sidB,
+        '--', process.execPath, '-e', probe, join(tempB, 'b.txt'), join(tempA, 'b-escaped.txt'), sharedWorkspaceFile, join(tempA, 'a.txt'),
+      ])
+      expect(resultB.status, `stderr: ${resultB.stderr}`).toBe(0)
+      expect(resultB.stdout).toContain('OWN: OK')
+      expect(resultB.stdout).toContain('SIBLING: DENIED')
+      expect(resultB.stdout).toContain('SIBLING-EXISTING: DENIED')
+      expect(resultB.stdout).toContain('WORKSPACE: OK')
+      expect(existsSync(join(tempB, 'a-escaped.txt'))).toBe(false)
+      expect(existsSync(join(tempA, 'b-escaped.txt'))).toBe(false)
+      expect(readFileSync(join(tempA, 'a.txt'), 'utf8')).toBe('OWN')
+    } finally {
+      workspaceGrant.dispose()
+      grantA.dispose()
+      grantB.dispose()
+      rmSync(tempA, { recursive: true, force: true })
+      rmSync(tempB, { recursive: true, force: true })
+    }
+  }, 30_000)
+
+  it('agentless workspace-write creates a fresh private temp per call and removes it on exit', () => {
+    const captureA = join(writableDir, 'agentless-temp-a.txt')
+    const captureB = join(writableDir, 'agentless-temp-b.txt')
+    for (const capture of [captureA, captureB]) {
+      const result = runRunner([
+        '--workspace', writableDir, '--temp', isolatedTemp, '--mode', 'workspace-write',
+        '--', process.execPath, '-e', "require('node:fs').writeFileSync(process.argv[1], process.env.TEMP)", capture,
+      ])
+      expect(result.status, `stderr: ${result.stderr}`).toBe(0)
+    }
+    const tempA = readFileSync(captureA, 'utf8')
+    const tempB = readFileSync(captureB, 'utf8')
+    expect(tempA).not.toBe(tempB)
+    expect(tempA.startsWith(isolatedTemp)).toBe(true)
+    expect(tempB.startsWith(isolatedTemp)).toBe(true)
+    expect(existsSync(tempA)).toBe(false)
+    expect(existsSync(tempB)).toBe(false)
   }, 30_000)
 
   it('confined children spawn grandchildren with inherited stdio; piped capture stays denied (named-pipe default SD template)', () => {
@@ -238,7 +318,10 @@ describe.skipIf(!isWin32 || !pwshAvailable())('windows-acl runner', () => {
     // it, so the workspace write is denied (previously it LEAKED). The
     // switch back reuses the SAME standing ACE: the re-upgrade write lands
     // without any re-grant.
-    const writeSid = 'S-1-4-9001-7'
+    const writeSid = workspaceWriteSid(writableDir)
+    const privateTemp = join(isolatedTemp, 'mode-switch-temp')
+    mkdirSync(privateTemp)
+    const privateTempSid = tempWriteSid(privateTemp)
     const grant = AclWriteGrant.create(writeSid)
     grant.add(writableDir)
     try {
@@ -247,7 +330,7 @@ describe.skipIf(!isWin32 || !pwshAvailable())('windows-acl runner', () => {
         `try{Set-Content -Path '${writableDir}\\downgraded.txt' -Value ok -ErrorAction Stop;'DOWNGRADE-WRITE: OK (LEAK!)'}catch{'DOWNGRADE-WRITE: DENIED'}`,
       ].join('')
       const downgraded = runRunner([
-        '--workspace', writableDir, '--temp', isolatedTemp, '--mode', 'read-only', '--write-sid', writeSid,
+        '--workspace', writableDir, '--temp', isolatedTemp, '--mode', 'read-only',
         '--', 'pwsh', '/NoLogo', '/NonInteractive', '/NoProfile', '/Command', downgradeProbe,
       ])
       expect(downgraded.status, `stderr: ${downgraded.stderr}`).toBe(0)
@@ -259,7 +342,8 @@ describe.skipIf(!isWin32 || !pwshAvailable())('windows-acl runner', () => {
         `try{Set-Content -Path '${writableDir}\\reupgraded.txt' -Value ok -ErrorAction Stop;'REUPGRADE-WRITE: OK'}catch{'REUPGRADE-WRITE: DENIED'}`,
       ].join('')
       const reupgraded = runRunner([
-        '--workspace', writableDir, '--temp', isolatedTemp, '--mode', 'workspace-write', '--write-sid', writeSid,
+        '--workspace', writableDir, '--temp', privateTemp, '--mode', 'workspace-write', '--write-sid', writeSid,
+        '--temp-write-sid', privateTempSid,
         '--', 'pwsh', '/NoLogo', '/NonInteractive', '/NoProfile', '/Command', reupgradeProbe,
       ])
       expect(reupgraded.status, `stderr: ${reupgraded.stderr}`).toBe(0)
@@ -267,6 +351,7 @@ describe.skipIf(!isWin32 || !pwshAvailable())('windows-acl runner', () => {
       expect(existsSync(join(writableDir, 'reupgraded.txt'))).toBe(true)
     } finally {
       grant.dispose()
+      rmSync(privateTemp, { recursive: true, force: true })
     }
   }, 30_000)
 
@@ -337,5 +422,24 @@ describe.skipIf(!isWin32 || !pwshAvailable())('windows-acl runner', () => {
     const result = runRunner(['--workspace', writableDir, '--temp', isolatedTemp, '--mode', 'workspace-write'])
     expect(result.status).toBe(127)
     expect(result.stderr).toContain('windows-acl-run: ')
+  }, 15_000)
+
+  it('runner-side failure: seam-managed SID flags must be paired and match their owning paths', () => {
+    const writeSid = workspaceWriteSid(writableDir)
+    const tempSid = tempWriteSid(isolatedTemp)
+    const cases = [
+      ['--write-sid', writeSid],
+      ['--write-sid', 'S-1-4-1-2', '--temp-write-sid', tempSid],
+      ['--write-sid', writeSid, '--temp-write-sid', 'S-1-4-1-2-1'],
+    ]
+    for (const args of cases) {
+      const result = runRunner([
+        '--workspace', writableDir, '--temp', isolatedTemp, '--mode', 'workspace-write',
+        ...args,
+        '--', process.execPath, '-e', 'process.exit(99)',
+      ])
+      expect(result.status, `args: ${args.join(' ')}\nstderr: ${result.stderr}`).toBe(127)
+      expect(result.stderr).toContain('windows-acl-run: ')
+    }
   }, 15_000)
 })

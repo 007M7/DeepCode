@@ -25,7 +25,7 @@ async function setup(internals: LocalSandboxProvider['internals']) {
 }
 
 describe('windows-acl win32 chain (LocalSandboxProvider)', () => {
-  it('workspace-write: runner argv prefix, explicit temp, mode flag, partial enforcement, ACL denial dialect', async () => {
+  it('agentless workspace-write: runner argv prefix, temp root, mode flag, partial enforcement, ACL denial dialect', async () => {
     const probeWindowsAcl = vi.fn(() => true)
     const sandbox = await setup({
       platform: 'win32',

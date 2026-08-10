@@ -12,6 +12,8 @@
 
 Seatbelt profile 默认允许，但带 `(deny file-write*)` 和写入 allow-list，因此恰好约束相应模式承诺的文件操作：`read-only` 只授予 `/dev/null` 字面路径；`workspace-write` 另加工作区根目录、`/tmp` 和逐用户 darwin 临时目录（`os.tmpdir()`，即平台供 mkstemp 家族工具使用的真实临时区域）。每个根目录都经过规范化，因为 Seatbelt 匹配解析后的路径（`/tmp` 就是 `/private/tmp`）。Apple 将 `sandbox-exec` CLI（命令行界面）标为 deprecated，但所有 macOS 系统仍会提供它；若情况发生变化，功能探测会使执行被拒绝。
 
+Windows 档为每个工作区保留一个确定性写入 SID 和常驻 ACE，但为每个活跃的会话/工作区对分配一个随机私有临时目录，以及不同的 SID 和可回收 ACE。因此，共享工作区的会话会共享预期的写权限，却不会继承彼此的临时目录权限。新的提供方总会选择新的临时路径和 SID，因此崩溃残留既无法阻止恢复的会话，也无法向其授权；runner 会为无 agent（智能体）的调用提供同样的逐调用隔离。
+
 [`@deepseek-ai/node-addon-landlock-run`](https://www.npmjs.com/package/@deepseek-ai/node-addon-landlock-run)提供平台 launcher、功能探测和 CLI 参数词汇。该提供方只负责模式到授权的映射与 runner 选择。把路径解析和探测解析保留在带版本的 binary 中，可防止约定漂移。
 
 ```yaml

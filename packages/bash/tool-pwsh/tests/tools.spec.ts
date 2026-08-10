@@ -559,6 +559,7 @@ describe('sandbox escalation through ctx.approval', () => {
     expect(properties['sandbox_permissions']?.enum).toEqual(['workspace-write', 'danger-full-access'])
     expect(schema.description).toContain('approval prompt')
     expect(schema.description).toContain('ConstrainedLanguage')
+    expect(schema.description).toContain('workspace-write stays in FullLanguage')
     expect(schema.description).toContain('named pipes')
     expect(schema.description).toContain('fails with EPERM')
 

@@ -7,22 +7,21 @@
  *
  * The windows-acl rung additionally owns the write grants: the write SID is
  * the per-WORKSPACE identity derived from the canonical workspace path
- * (`workspaceWriteSid`), and the private temp subdirectory is DERIVED per
- * session (session id + workspace — nothing stored). The
+ * (`workspaceWriteSid`), while every live session receives a RANDOM private
+ * temp directory and its own derived capability (`tempWriteSid`). The
  * workspace-root ACE materializes once per workspace per server lifetime
  * and STANDS (the cross-session reuse cache — the exact-ACE skip makes
  * every later provision O(1) instead of re-propagating the tree per
  * session); the private-temp ACEs are revoked on dispose. The runner
- * receives `--write-sid` (the derived identity; its presence marks the
- * seam-managed contract) and stops managing DACLs itself. The rung reports
- * partial enforcement because WRITE_RESTRICTED must retain Everyone in its
+ * receives both SIDs (their presence marks the seam-managed contract) and
+ * stops managing DACLs itself. The rung reports partial enforcement because
+ * WRITE_RESTRICTED must retain Everyone in its
  * restricting list and NTFS hard links alias one file object across paths.
  * @module @deepseek-ai/dsh-sandbox-local
  */
 
 import { spawnSync } from 'node:child_process'
-import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -38,7 +37,7 @@ import { assertNever } from '@deepseek-ai/dsh-llm'
 import { SandboxProvider, SandboxUnavailableError } from '@deepseek-ai/dsh-sandbox'
 import type { ConfinedArgv, ConfinedSandboxMode, RunnerFailureRule, SandboxEnforcement, SandboxPolicy } from '@deepseek-ai/dsh-sandbox'
 import type { SessionId } from '@deepseek-ai/dsh-session'
-import { AclWriteGrant, workspaceWriteSid } from '@deepseek-ai/dsh-sandbox-windows-acl'
+import { AclWriteGrant, tempWriteSid, workspaceWriteSid } from '@deepseek-ai/dsh-sandbox-windows-acl'
 import { bwrapProfileArgs, landlockProfileArgs, seatbeltProfileArgs } from './profiles.ts'
 
 /** Plugin config. All optional — `static Config` supplies the defaults. */
@@ -112,25 +111,6 @@ function defaultProbeWindowsAcl(runnerInvocation: string[], timeoutMs: number): 
   return probe.status === 0
 }
 
-/**
- * The session's private temp subdirectory: `<tmpdir>\dsh-<16 hex>`, derived
- * from the session id and its workspace instead of stored. The same session
- * and workspace always name the same directory — a resumed session
- * re-grants it (the exact-ACE skip keeps that O(1)) — while a fork's
- * different session id names a fresh one. The name is predictable to anyone
- * who knows the session id (the confined command sees it as
- * `DSH_SESSION_ID`), so the provider creates the directory EXCLUSIVELY and
- * rejects reparse points: a pre-placed entry fails the first confined run
- * loudly, and cannot redirect the grant onto a foreign object.
- * @param sessionId - the policy's calling-session identity.
- * @param workspaceRoot - the resolved policy root.
- * @returns the session's private temp subdirectory path.
- */
-export function sessionTempDir(sessionId: SessionId, workspaceRoot: string): string {
-  const digest = createHash('sha256').update(String(sessionId)).update('\0').update(workspaceRoot).digest('hex')
-  return join(tmpdir(), `dsh-${digest.slice(0, 16)}`)
-}
-
 /** Test hook: inject probe verdicts / a fake launcher / a platform without real runners. */
 export interface SandboxInternals {
   /** Replaces `process.platform` for chain selection (exercise any platform's chain from any host). */
@@ -159,6 +139,13 @@ export interface SandboxInternals {
 
 /** The chain's verdict: which runner confines, and how completely it enforces. */
 type SelectedRunner = { runner: 'bwrap' | 'landlock' | 'seatbelt' | 'windows-acl'; enforcement: SandboxEnforcement }
+
+/** One live session/workspace pair's private temp directory and capability. */
+interface AclTempCapability {
+  dir: string
+  writeSid: string
+  grant: AclWriteGrant
+}
 
 /**
  * The runner chain per platform — selection is BY PLATFORM first, probes
@@ -256,8 +243,9 @@ const RUNNER_FAILURE_RULES = {
  * Local process-sandbox provider. Registers as `ctx.sandbox`. Caches the
  * chain verdict and, on the windows-acl rung, the write grants
  * ({@link AclWriteGrant}: the standing workspace-root grant per workspace
- * and the revocable private-temp grant per session, the latter revoked on
- * provider dispose); the one-time probes spawn nothing else.
+ * and the revocable private-temp grant per live session/workspace pair, the
+ * latter revoked on provider dispose); the one-time probes spawn nothing
+ * else.
  */
 export class LocalSandboxProvider extends SandboxProvider {
   // Inline schema call: the config catalog walks `static Config` statically.
@@ -279,12 +267,11 @@ export class LocalSandboxProvider extends SandboxProvider {
    * Server-lifetime write grants (windows-acl rung): the STANDING
    * workspace-root grant per workspace (its ACE is the cross-session reuse
    * cache and outlives the provider — never revoked) and the REVOCABLE
-   * private-temp grant per session (revoked on provider dispose).
+   * private-temp grant per live session/workspace pair (revoked on provider
+   * dispose).
    */
   private readonly workspaceGrants = new Map<string, AclWriteGrant>()
-  private readonly tempGrants = new Map<string, AclWriteGrant>()
-  /** Session id → the private temp directory this provider created (removed on dispose). */
-  private readonly tempDirs = new Map<string, string>()
+  private readonly tempCapabilities = new Map<string, AclTempCapability>()
 
   constructor(ctx: Context, config: Config) {
     super(ctx)
@@ -358,20 +345,19 @@ export class LocalSandboxProvider extends SandboxProvider {
 
   /**
    * The windows-acl runner argv for one policy. With a calling session (the
-   * policy's `sessionId`), the write grants are materialized once per server
-   * lifetime — the standing workspace-root grant per workspace and the
-   * revocable private-temp grant per session — and the runner receives
-   * `--write-sid` (the workspace-derived identity; its presence marks the
-   * seam-managed DACL contract) plus, under workspace-write, the session's
-   * PRIVATE temp subdirectory (derived from session id + workspace) — it
-   * grants nothing and revokes nothing. Agentless calls pass the ambient
-   * temp root and no `--write-sid`: the runner self-manages its DACLs.
+   * policy's `sessionId`) under workspace-write, the grants are materialized
+   * once per provider lifetime — the standing workspace-root grant per
+   * workspace and a revocable, RANDOM private-temp capability per live
+   * session/workspace pair. The runner receives `--write-sid` plus
+   * `--temp-write-sid` and grants nothing itself. Agentless workspace-write
+   * calls pass the ambient temp ROOT and no SID flags: the runner creates and
+   * removes a random private child directory for that one invocation.
    * @param policy - the resolved per-call policy.
    * @returns the runner invocation.
    */
   private windowsAclRunnerArgv(policy: SandboxPolicy): string[] {
     const sessionId = policy.sessionId
-    if (sessionId === undefined) {
+    if (sessionId === undefined || policy.mode === 'read-only') {
       return [
         ...this.windowsAclRunnerInvocation(),
         '--workspace', policy.workspaceRoot,
@@ -379,45 +365,32 @@ export class LocalSandboxProvider extends SandboxProvider {
         '--mode', policy.mode,
       ]
     }
-    this.materializeAclGrant(sessionId, policy.workspaceRoot, policy.mode)
+    const temp = this.materializeAclGrant(sessionId, policy.workspaceRoot)
     return [
       ...this.windowsAclRunnerInvocation(),
       '--workspace', policy.workspaceRoot,
-      // Workspace-write sessions confine their temp writes to the PRIVATE
-      // per-session subdirectory (bwrap --tmpfs /tmp semantics); read-only
-      // runs pass the ambient temp root — the runner validates it exists
-      // but grants nothing. The derived write SID is the per-workspace
-      // identity; the flag's presence marks the seam-managed DACL contract.
-      '--temp', policy.mode === 'workspace-write' ? sessionTempDir(sessionId, policy.workspaceRoot) : tmpdir(),
+      '--temp', temp.dir,
       '--mode', policy.mode,
       '--write-sid', workspaceWriteSid(policy.workspaceRoot),
+      '--temp-write-sid', temp.writeSid,
     ]
   }
 
   /**
-   * Materialize the session's ACEs once per server lifetime: lazily at its
-   * first confined execution, reused for every later call (the map hits are
-   * the whole call). The write SID is the per-workspace identity derived
-   * from the workspace. Workspace-write grants the workspace root STANDING
-   * (the ACE outlives every session — the reuse cache) and the session's
-   * private temp subdirectory REVOCABLY — the directory is derived from
-   * session id + workspace, created here EXCLUSIVELY (a pre-existing entry
-   * or a reparse point fails the first confined run loudly, so the grant
-   * never lands on a foreign object); read-only materializes NOTHING — its
-   * token alone restricts every write, and the standing grant from an
-   * earlier workspace-write period is KEPT through a downgrade (never
-   * revoked): the read-only restricted token carries no write SID (the
-   * read-only list), so the ACE is inert there, while the map hit keeps the
-   * re-upgrade free of re-propagation. Fail-closed: a half-materialized
-   * temp grant is revoked before the error propagates.
+   * Materialize one workspace-write policy's ACEs once per provider
+   * lifetime. The workspace SID and standing root grant are shared by the
+   * workspace. The temp directory is random and carries a distinct SID, so
+   * another session on the same workspace cannot use the shared workspace
+   * SID to enter it. A fresh provider always chooses a new path; crash
+   * residue therefore cannot collide with or authorize a resumed session.
+   * Fail-closed: a half-materialized temp grant is revoked and its directory
+   * removed before the error propagates.
    * @param sessionId - the policy's calling-session identity.
    * @param workspaceRoot - the resolved policy root.
-   * @param mode - the policy mode (grants exist only under workspace-write).
+   * @returns the pair's private temp directory and write capability.
    */
-  private materializeAclGrant(sessionId: SessionId, workspaceRoot: string, mode: ConfinedSandboxMode): void {
-    if (mode === 'read-only') return
+  private materializeAclGrant(sessionId: SessionId, workspaceRoot: string): AclTempCapability {
     const writeSid = workspaceWriteSid(workspaceRoot)
-    const tempDir = sessionTempDir(sessionId, workspaceRoot)
     if (!this.workspaceGrants.has(workspaceRoot)) {
       const grant = AclWriteGrant.create(writeSid)
       try {
@@ -435,32 +408,37 @@ export class LocalSandboxProvider extends SandboxProvider {
       }
       this.workspaceGrants.set(workspaceRoot, grant)
     }
-    if (this.tempGrants.has(sessionId)) return
-    const grant = AclWriteGrant.create(writeSid)
-    // The directory is removed again in the catch only when THIS confine
-    // created it — a pre-existing entry (EEXIST) is a foreign object and is
-    // never deleted.
-    let created = false
+    const key = JSON.stringify([String(sessionId), workspaceRoot])
+    const existing = this.tempCapabilities.get(key)
+    if (existing !== undefined) return existing
+    const tempDir = mkdtempSync(join(tmpdir(), 'dsh-'))
+    const tempSid = tempWriteSid(tempDir)
+    let grant: AclWriteGrant | undefined
     try {
-      // Exclusive creation (no `recursive`): a pre-existing entry OR a
-      // reparse point both fail EEXIST — the grant never lands on a foreign
-      // object.
-      mkdirSync(tempDir)
-      created = true
+      grant = AclWriteGrant.create(tempSid)
       grant.add(tempDir)
     } catch (error) {
-      if (created) rmSync(tempDir, { recursive: true, force: true })
-      // Revoke whatever stands and free the SID — never leave a half-grant
-      // behind a failed confine (the runner never runs).
+      const cleanupFailures: unknown[] = []
+      if (grant !== undefined) {
+        try {
+          grant.dispose()
+        } catch (cleanupError) {
+          cleanupFailures.push(cleanupError)
+        }
+      }
       try {
-        grant.dispose()
+        this.removeTempDir(tempDir)
       } catch (cleanupError) {
-        throw new AggregateError([error, cleanupError], 'sandbox-local windows-acl temp grant materialization failed and its cleanup also failed')
+        cleanupFailures.push(cleanupError)
+      }
+      if (cleanupFailures.length > 0) {
+        throw new AggregateError([error, ...cleanupFailures], 'sandbox-local windows-acl temp grant materialization failed and its cleanup also failed')
       }
       throw error
     }
-    this.tempGrants.set(sessionId, grant)
-    this.tempDirs.set(sessionId, tempDir)
+    const capability = { dir: tempDir, writeSid: tempSid, grant }
+    this.tempCapabilities.set(key, capability)
+    return capability
   }
 
   /**
@@ -469,34 +447,38 @@ export class LocalSandboxProvider extends SandboxProvider {
    * removed, and every SID allocation is freed; the standing workspace ACEs
    * stay (the reuse cache). Cleanup failures are reported, not thrown:
    * cordis teardown must not be aborted by grant cleanup. A crash skips all
-   * of it — the next resume then fails loudly at the exclusive creation and
-   * OS temp hygiene (or manual removal) recovers.
+   * of it, but a new provider never reuses the residue's random path or SID;
+   * OS temp hygiene (or manual removal) eventually reclaims it.
    */
   private revokeAclGrants(): void {
-    if (this.workspaceGrants.size === 0 && this.tempGrants.size === 0) return
+    if (this.workspaceGrants.size === 0 && this.tempCapabilities.size === 0) return
     const failures: unknown[] = []
-    for (const grant of [...this.workspaceGrants.values(), ...this.tempGrants.values()]) {
+    for (const grant of [...this.workspaceGrants.values(), ...[...this.tempCapabilities.values()].map(capability => capability.grant)]) {
       try {
         grant.dispose()
       } catch (error) {
         failures.push(error)
       }
     }
-    const rmTempDir = this.internals.rmTempDir ?? ((dir: string) => { rmSync(dir, { recursive: true, force: true }) })
-    for (const dir of this.tempDirs.values()) {
+    for (const { dir } of this.tempCapabilities.values()) {
       try {
-        rmTempDir(dir)
+        this.removeTempDir(dir)
       } catch (error) {
         failures.push(error)
       }
     }
     this.workspaceGrants.clear()
-    this.tempGrants.clear()
-    this.tempDirs.clear()
+    this.tempCapabilities.clear()
     if (failures.length > 0) {
       this.ctx.logger.warn(`sandbox-local: windows-acl grant cleanup completed with ${failures.length} failure(s)`)
       for (const error of failures) this.ctx.logger.warn(error)
     }
+  }
+
+  /** Remove one provider-owned private temp directory (injectable for cleanup tests). */
+  private removeTempDir(dir: string): void {
+    const remove = this.internals.rmTempDir ?? ((path: string) => { rmSync(path, { recursive: true, force: true }) })
+    remove(dir)
   }
 
   /**
