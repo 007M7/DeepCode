@@ -124,6 +124,33 @@ describe('mcp-client plugin module exports', () => {
     } as never)
     expect(resolved.serverName).toBe('github-prod_1')
   })
+
+  it('Config schema materializes reconnect defaults and merges partial overrides', () => {
+    const omitted = ConfigSchema({
+      transport: 'stdio',
+      serverName: 'srv',
+      command: 'echo',
+    } as never)
+    expect(omitted.reconnect).toEqual({ enabled: true, initialDelayMs: 500, maxDelayMs: 30_000, maxAttempts: 10 })
+
+    const partial = ConfigSchema({
+      transport: 'stdio',
+      serverName: 'srv',
+      command: 'echo',
+      reconnect: { initialDelayMs: 100 },
+    } as never)
+    expect(partial.reconnect).toEqual({ enabled: true, initialDelayMs: 100, maxDelayMs: 30_000, maxAttempts: 10 })
+  })
+
+  it('Config schema rejects an invalid reconnect block', () => {
+    // schemastery unions wrap branch errors, so assert the throw only.
+    expect(() => ConfigSchema({
+      transport: 'stdio',
+      serverName: 'srv',
+      command: 'echo',
+      reconnect: { maxAttempts: 0 },
+    } as never)).toThrow()
+  })
 })
 
 describe('apply (plugin lifecycle)', () => {
@@ -216,8 +243,8 @@ describe('apply (plugin lifecycle)', () => {
     expect(mockListTools).not.toHaveBeenCalled()
     expect(ctx.tools.get('mcp__srv__remote')).toBeUndefined()
 
-    // Disposal exercises the empty fallback accessor: nothing to unregister,
-    // close still attempted, no throw.
+    // Disposal cancels the scheduled reconnect attempt: nothing to
+    // unregister, close already attempted by the failed attempt, no throw.
     await ctx.fiber.dispose()
     await sleep(50)
     expect(mockClose).toHaveBeenCalled()
