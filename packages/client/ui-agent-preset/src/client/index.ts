@@ -157,7 +157,7 @@ export function apply(ctx: ClientContext): void {
       const label = scope.slots.register({
         name: 'conversation.session.header.actions',
         id: 'agent-preset',
-        order: 20,
+        order: 0,
         locale: 'settings.agentPreset',
         inject: labelInjected,
       }, AgentPresetLabel)

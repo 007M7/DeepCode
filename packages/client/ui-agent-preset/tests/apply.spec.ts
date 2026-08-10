@@ -304,7 +304,7 @@ describe('ui-agent-preset apply', () => {
     expect(chip.component).toBe(AgentPresetSeat)
     const label = slots.entries('conversation.session.header.actions')[0]!
     expect(label.component).toBe(AgentPresetLabel)
-    expect(label.options).toMatchObject({ id: 'agent-preset', order: 20 })
+    expect(label.options).toMatchObject({ id: 'agent-preset', order: 0 })
     await fiber.dispose()
     expect(slots.entries('conversation.hero.agentPreset')).toHaveLength(0)
     expect(slots.entries('conversation.session.header.actions')).toHaveLength(0)
