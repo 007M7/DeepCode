@@ -2,12 +2,13 @@
  * locale service, declaration-aware Appearance row registration, snapshot
  * projection into the row store, and HMR collapse recovery. */
 import { Context } from 'cordis'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
 import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
 import { usePinnedBrowserLanguages } from '@deepseek-ai/dsh-client-test-runtime'
 import { apply, inject, SETTINGS_NS } from '@deepseek-ai/dsh-client-ui-theme/client'
 import type { AppearanceRowInjected, ThemeService } from '@deepseek-ai/dsh-client-ui-theme/client'
+import { THEME_SETTINGS_NAMESPACE, ThemeSettingsSchema } from '../src/theme-settings.ts'
 import { AppearanceRow } from '../src/client/AppearanceRow.tsx'
 import type { createAppearanceRowStore } from '../src/client/settings-store.ts'
 
@@ -17,12 +18,45 @@ usePinnedBrowserLanguages('zh-CN')
 
 const SLOT = 'settings.general.item'
 
-async function bench() {
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((done) => { resolve = done })
+  return { promise, resolve }
+}
+
+async function bench(isLoopback = true) {
   const ctx = new Context()
   await ctx.plugin(SlotsService).await()
   const locale = new LocaleService(ctx)
   ctx.provide('locale', locale)
-  return { ctx, slots: ctx.get('slots') as SlotsService, locale }
+  let preference = 'system'
+  const namespace = () => ({
+    ns: THEME_SETTINGS_NAMESPACE,
+    schema: ThemeSettingsSchema.toJSON(),
+    value: { preference },
+    applies: 'live' as const,
+    secrets: [],
+    revision: 0,
+  })
+  const describe = vi.fn(() => Promise.resolve({
+    rpcId: 'theme-describe' as never,
+    result: {
+      ok: true as const,
+      value: { writable: true, hasDocument: true, namespaces: [namespace()] },
+    },
+  }))
+  const mutate = vi.fn((request: { ops: { value: string }[] }) => {
+    preference = request.ops[0]!.value
+    return Promise.resolve({
+      rpcId: 'theme-mutate' as never,
+      result: { ok: true as const, value: namespace() },
+    })
+  })
+  ctx.provide('connection', { api: { settings: { describe, mutate } }, isLoopback } as never)
+  return {
+    ctx, slots: ctx.get('slots') as SlotsService, locale, describe, mutate,
+    setHostPreference: (next: string) => { preference = next },
+  }
 }
 
 /** Stand in for the settings shell: declare the General item slot from root. */
@@ -45,7 +79,7 @@ function faceOf(slots: SlotsService) {
 
 describe('ui-theme apply', () => {
   it('declares the slot and locale services', () => {
-    expect(inject).toEqual(['slots', 'locale'])
+    expect(inject).toEqual(['slots', 'locale', 'connection'])
   })
 
   it('provides the service, registers localized copy, and registers the row (declaration before or after apply)', async () => {
@@ -84,6 +118,57 @@ describe('ui-theme apply', () => {
     face.setTheme('system')
     expect(theme.getTheme().preference).toBe('system')
     expect(instance.getSnapshot().preference).toBe('system')
+    await vi.waitFor(() => { expect(b.mutate).toHaveBeenCalledTimes(2) })
+  })
+
+  it('loads Host settings at boot, refreshes its namespace, and keeps remote browsers process-local', async () => {
+    const b = await bench()
+    b.setHostPreference('dark')
+    declareItems(b.slots)
+    await b.ctx.plugin({ inject: [...inject], apply }).await()
+    const theme = b.ctx.get('theme') as ThemeService
+    await vi.waitFor(() => { expect(theme.getTheme().preference).toBe('dark') })
+    b.ctx.emit('settings/changed', 'unrelated')
+    expect(b.describe).toHaveBeenCalledOnce()
+    b.setHostPreference('light')
+    b.ctx.emit('settings/changed', THEME_SETTINGS_NAMESPACE)
+    await vi.waitFor(() => { expect(theme.getTheme().preference).toBe('light') })
+    b.setHostPreference('dark')
+    b.ctx.emit('connection/reset')
+    await vi.waitFor(() => { expect(theme.getTheme().preference).toBe('dark') })
+
+    const remote = await bench(false)
+    declareItems(remote.slots)
+    await remote.ctx.plugin({ inject: [...inject], apply }).await()
+    const remoteTheme = remote.ctx.get('theme') as ThemeService
+    remoteTheme.setTheme('dark')
+    await Promise.resolve()
+    expect(remote.describe).not.toHaveBeenCalled()
+    expect(remote.mutate).not.toHaveBeenCalled()
+  })
+
+  it('activates before a slow initial settings read and converges when it settles', async () => {
+    const b = await bench()
+    b.setHostPreference('dark')
+    const describe = b.describe.getMockImplementation()!
+    const pending = deferred<Awaited<ReturnType<typeof describe>>>()
+    b.describe.mockImplementationOnce(() => pending.promise)
+    const fiber = b.ctx.plugin({ inject: [...inject], apply })
+    await fiber.await()
+    const theme = b.ctx.get('theme') as ThemeService
+    expect(theme.getTheme().preference).toBe('system')
+    pending.resolve(await describe())
+    await vi.waitFor(() => { expect(theme.getTheme().preference).toBe('dark') })
+    await fiber.dispose()
+  })
+
+  it('ignores an invalid preference crossing the settings wire', async () => {
+    const b = await bench()
+    b.setHostPreference('sepia')
+    await b.ctx.plugin({ inject: [...inject], apply }).await()
+    const theme = b.ctx.get('theme') as ThemeService
+    await vi.waitFor(() => { expect(b.describe).toHaveBeenCalledOnce() })
+    expect(theme.getTheme().preference).toBe('system')
   })
 
   it('recovers after an HMR collapse of the declaring entry (stale disposer must not block)', async () => {

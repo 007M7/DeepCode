@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
-// Branch tails the acceptance specs do not reach: the node-half empty apply
-// and AssistantMarkdown reasoning/unknown block arms.
+// Branch tails the acceptance specs do not reach: the node-half apply
+// without a settings service and AssistantMarkdown reasoning/unknown block arms.
 
 import { afterEach, describe, expect, it } from 'vitest'
+import { Context } from 'cordis'
 import { cleanup, render } from '@testing-library/react'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
@@ -16,8 +17,8 @@ const t: AssistantMarkdownProps['t'] = makeTranslate(zh, commonZh)
 afterEach(cleanup)
 
 describe('tails', () => {
-  it('node-half apply is an intentional no-op', () => {
-    expect(() => { nodeApply() }).not.toThrow()
+  it('node-half apply tolerates a Host without settings', () => {
+    expect(() => { nodeApply(new Context()) }).not.toThrow()
   })
 
   it('AssistantMarkdown renders reasoning as a Think row and unknown blocks as JSON fallback', () => {
