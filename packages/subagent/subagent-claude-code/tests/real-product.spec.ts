@@ -115,7 +115,7 @@ async function realHarness(behavior: MessagesBehavior): Promise<{
   const workspace = join(root, 'workspace')
   const claudeConfig = join(root, 'claude-config')
   const xdgConfig = join(root, 'xdg')
-  const nativeBin = join(root, 'native bin')
+  const nativeBin = join(root, 'native&bin')
   mkdirSync(workspace)
   mkdirSync(claudeConfig)
   mkdirSync(xdgConfig)
