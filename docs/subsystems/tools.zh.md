@@ -150,19 +150,20 @@ type InferArgs<S> = InferProperties<S, []>
 
 注册是一项受信任的同进程约定。注册表以 readonly 输入借用已类型化定义，要求它声明 `output`，校验其原始 schema，并检查 `timeoutMs` 必须为正有限值等语义要求；`schemas()` 在构建请求时生成面向模型的投影，使执行和展示共享同一份已解析定义，而不会将回调泄漏到协议上。
 
-## `ToolRestriction` — 单个作用域的实时全局过滤器
+## `ToolRestriction` — 单个作用域对其继承内容的实时过滤器
 
-`ToolRestriction` 仅作用于实时的部署全局工具层。注册表将 readonly 名称编译为私有集合，对多个限制取交集，再叠加作用域本地工具。仅 deny 的过滤器允许后续未列出的全局工具通过，而 allow 列表则排除它们。
+`ToolRestriction` 作用于该作用域继承来的工具：部署全局层，加上其链上的每个祖先作用域。注册表将 readonly 名称编译为私有集合，对多个限制取交集，再叠加该作用域**自身**的注册——后者不受约束，因此被委派的子 agent 会保留其回报所依赖的工具。仅 deny 的过滤器允许后续未列出的继承工具通过，而 allow 列表则排除它们。
 
 ```ts type-equiv
 /**
- * Per-scope filter over global tools. Restrictions intersect and do not affect
- * scoped registrations or the reserved Code Mode transport.
+ * Per-scope filter over the tools a scope INHERITS — the global layer and
+ * every ancestor layer on its chain. Restrictions intersect, and do not affect
+ * the scope's own registrations or the reserved Code Mode transport.
  */
 interface ToolRestriction {
-  /** Global tool names that stay visible; everything else is removed. */
+  /** Inherited tool names that stay visible; every other inherited one is removed. */
   readonly allow?: readonly string[]
-  /** Global tool names removed from visibility. */
+  /** Inherited tool names removed from visibility. */
   readonly deny?: readonly string[]
 }
 ```
@@ -565,7 +566,7 @@ async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult>
 
 Types: [ScopeKey](scope.md)
 
-Source: [`packages/core/tools/src/index.ts:760`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:761`](../../packages/core/tools/src/index.ts)
 
 <a id="tools-events"></a>
 

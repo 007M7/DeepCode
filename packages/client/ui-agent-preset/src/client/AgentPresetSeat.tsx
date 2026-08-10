@@ -19,6 +19,7 @@ import { IconChevronDownOutline14, IconThinkOutline16, Menu } from '@deepseek-ai
 // Type-only: pulls the ui-conversation SlotMap merge (the hero seat).
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { AgentPresetSeatState } from './seat-store.ts'
+import { presetDisplayText } from './locales.ts'
 import css from './AgentPresetSeat.module.css'
 
 /** Registration-side business face for the hero chip. */
@@ -57,22 +58,26 @@ export function AgentPresetSeat({ load, select, useAgentPresetSeat, t }: AgentPr
   if (state.options.length === 0 || state.current === '') return null
 
   const chosen = state.options.find(option => option.id === state.current)
+  const chosenText = chosen === undefined ? undefined : presetDisplayText(chosen, t)
 
   return (
     <Menu
       open={open}
       onClose={() => { setOpen(false) }}
-      items={state.options.map(option => ({
-        id: option.id,
-        // Name and description together: the id alone never said what a
-        // preset does, which is the whole reason the metadata exists.
-        label: (
-          <span className={css.item}>
-            <span className={css.itemName}>{option.name ?? option.id}</span>
-            <span className={css.itemDesc}>{option.description ?? t('noDescription')}</span>
-          </span>
-        ),
-      }))}
+      items={state.options.map((option) => {
+        const text = presetDisplayText(option, t)
+        return {
+          id: option.id,
+          // Name and description together: the id alone never says what a
+          // preset does, which is why the roster carries display copy.
+          label: (
+            <span className={css.item}>
+              <span className={css.itemName}>{text.name}</span>
+              <span className={css.itemDesc}>{text.description ?? t('noDescription')}</span>
+            </span>
+          ),
+        }
+      })}
       selectedId={state.current}
       onSelect={(id) => {
         setOpen(false)
@@ -91,7 +96,7 @@ export function AgentPresetSeat({ load, select, useAgentPresetSeat, t }: AgentPr
           onClick={() => { setOpen(value => !value) }}
         >
           <IconThinkOutline16 className={css.seatIcon} />
-          {chosen?.name ?? state.current}
+          {chosenText?.name ?? state.current}
           <IconChevronDownOutline14 className={css.chevron} />
         </button>
       )}

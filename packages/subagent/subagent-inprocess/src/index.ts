@@ -126,7 +126,7 @@ export async function startInProcessRun(
     if (inheritedPolicy !== undefined) {
       childSession.append('approval/policy', { policy: inheritedPolicy, source: 'delegation' })
     }
-    applyChildComposition(childCtx, {
+    applyChildComposition(childCtx, parent, {
       persona: request.persona,
       toolFilter: request.toolFilter,
     })

@@ -33,14 +33,8 @@ export const inject = ['tools']
 /** Default timeout for individual MCP tool calls (ms). */
 const DEFAULT_TOOL_CALL_TIMEOUT_MS = 60_000
 
-/**
- * Valid `serverName`: 1–32 chars of `[A-Za-z0-9_-]`. Kept well under the
- * 64-char public-name budget so typical raw tool names survive unhashed.
- * Exported so upstream producers of Config inputs (repository-plugin's
- * `.mcp.json` prepare-time validation) reject the same names this registry
- * would.
- */
-export const SERVER_NAME_PATTERN = /^[A-Za-z0-9_-]{1,32}$/
+/** Valid `serverName`, kept below the public tool-name budget. */
+const SERVER_NAME_PATTERN = /^[A-Za-z0-9_-]{1,32}$/
 
 /**
  * Live `serverName` reservations per app, keyed off `ctx.root` (multiple apps

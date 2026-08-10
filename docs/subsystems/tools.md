@@ -150,19 +150,20 @@ type InferArgs<S> = InferProperties<S, []>
 
 Registration is a trusted same-process contract. The registry borrows the typed definition as readonly input, requires `output`, validates its raw schema, and checks semantic requirements such as a positive finite `timeoutMs`; `schemas()` constructs the model-facing projection when building a request, so execution and presentation share one resolved definition without leaking callbacks onto the wire.
 
-## `ToolRestriction` — one scope's live global filter
+## `ToolRestriction` — one scope's live filter over what it inherits
 
-`ToolRestriction` applies only to the live deployment-global tool layer. The registry compiles readonly names into private sets, intersects multiple restrictions, then overlays scope-local tools. A deny-only filter admits later unlisted globals, while an allow-list excludes them.
+`ToolRestriction` applies to the tools a scope inherits: the deployment-global layer plus every ancestor scope on its chain. The registry compiles readonly names into private sets, intersects multiple restrictions, then overlays the scope's OWN registrations, which stay exempt so a delegated child keeps the tools it answers through. A deny-only filter admits later unlisted inherited tools, while an allow-list excludes them.
 
 ```ts type-equiv
 /**
- * Per-scope filter over global tools. Restrictions intersect and do not affect
- * scoped registrations or the reserved Code Mode transport.
+ * Per-scope filter over the tools a scope INHERITS — the global layer and
+ * every ancestor layer on its chain. Restrictions intersect, and do not affect
+ * the scope's own registrations or the reserved Code Mode transport.
  */
 interface ToolRestriction {
-  /** Global tool names that stay visible; everything else is removed. */
+  /** Inherited tool names that stay visible; every other inherited one is removed. */
   readonly allow?: readonly string[]
-  /** Global tool names removed from visibility. */
+  /** Inherited tool names removed from visibility. */
   readonly deny?: readonly string[]
 }
 ```
@@ -565,7 +566,7 @@ async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult>
 
 Types: [ScopeKey](scope.md)
 
-Source: [`packages/core/tools/src/index.ts:760`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:761`](../../packages/core/tools/src/index.ts)
 
 <a id="tools-events"></a>
 

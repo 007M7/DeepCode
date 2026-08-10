@@ -40,6 +40,10 @@ subagent seam 允许一个 agent（智能体）通过具名提供方把工作委
 - `toolFilter`：应用请求的子 agent 工具限制；
 - `persona`：应用每个子 agent 独立的 persona。
 
+每个进程内子 agent 都由一次调用完成组装：`applyChildComposition(childCtx, parent, composition)` 先加入父方的 agent-preset 组装，再应用该子 agent 自己的 persona 与工具限制。加入组装正是子 agent 获得能力的途径：所有面向模型的行都在 agent 平面，没有加入任何组装的子 agent 抵达模型时工具注册表是空的（见 [`dsh-agent-presets`](../../preset/agent-presets/README.md)）。把父方作为参数是刻意的——这让"组装一个子 agent 却不做该加入"在各调用点无法表达，而这正是这一次调用所要杜绝的缺陷。未组装 preset roster 的部署不加入任何组装、也不需要加入：它的面向模型的行位于宿主组装中，子 agent 已经能通过工具注册表的全局层解析到它们。
+
+`childSessionMeta()` 把所加入的 preset id 记在子 agent 的持久化 header 上，理由与顶层会话记录自己的那一个相同：preset 决定了模型所见的工具 schema 与提示段，因此冷读子 agent 的历史时必须重建那份组装，而不是部署默认值。该值从父方**活着的** scope 链读取，而不是从父方 header 读取，因为在空白期切换过 preset 的父方运行在更新的那份组装上，而它的 header 仍写着旧的那个。
+
 可继续创建对应可选的 `SubagentProvider.prepareContinuable?()` 方法：方法是否存在就是能力检查，因此服务会在没有该方法的提供方上拒绝已配置的可继续启动，而具备该方法的提供方仍可服务普通一次性委派。该方法只返回分离的 `ContinuableCreateSpec`（`{ seed? }`）——这是数据，绝非能力：它不携带任何 Agent、`AgentHandle`、提示词投递、结果、dispose 或恢复操作，因为准备之后，继续执行管理器拥有身份预留、组合、Agent 创建、提示词投递、冷恢复、所有权和 dispose。一次性 `SubagentRun` 表示一次可 dispose 的前台委派，只有一个结果，且没有冷恢复操作。
 
 ## 持久化描述符

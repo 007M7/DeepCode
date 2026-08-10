@@ -1,9 +1,6 @@
 - id: cli-mock-llm
   name: './cli-mock-llm.ts'
 
-- id: repository-plugin-fixture
-  name: './repository-plugin/load.mjs'
-
 - id: base
   name: '@cordisjs/plugin-include'
   config:

@@ -22,13 +22,15 @@
     "./src/*": "./src/*",
     "./package.json": "./package.json"
   },
-  "dshClient": {
-    "inject": [
-      "@deepseek-ai/dsh-client-locale",
-      "@deepseek-ai/dsh-client-runtime",
-      "@deepseek-ai/dsh-client-ui-conversation"
-    ],
-    "platform": "web"
+  "dsh": {
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-ui-conversation"
+      ],
+      "platform": "web"
+    }
   },
   "scripts": {
     "bundle": "tsdown",

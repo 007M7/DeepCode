@@ -830,7 +830,7 @@ describe('LocalSkillProvider', () => {
 
       // Isolated providers see only their explicit roots: the environment
       // bundled root is a default root, so includeDefaultRoots: false must
-      // drop it — repository providers never re-claim the app's builtins.
+      // drop it — isolated providers never re-claim the app's builtins.
       const isolated = new Context()
       await isolated.plugin(SkillService)
       const customOnly = join(envHome, 'custom-only')

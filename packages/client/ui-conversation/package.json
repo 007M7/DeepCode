@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-client-ui-conversation",
-  "description": "Conversation domain: skeleton, ordered chat flow, composer, and details host",
+  "description": "Conversation domain: skeleton, ordered chat flow, composer with the Host-backed busy-Enter preference, and details host",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -22,13 +22,16 @@
     "./src/*": "./src/*",
     "./package.json": "./package.json"
   },
-  "dshClient": {
-    "inject": [
-      "@deepseek-ai/dsh-client-locale",
-      "@deepseek-ai/dsh-client-runtime",
-      "@deepseek-ai/dsh-client-ui-layout"
-    ],
-    "platform": "web"
+  "dsh": {
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-connection",
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-ui-layout"
+      ],
+      "platform": "web"
+    }
   },
   "scripts": {
     "bundle": "tsdown",
@@ -36,12 +39,15 @@
   },
   "license": "BSD-3-Clause",
   "dependencies": {
-    "clsx": "^2.0.0"
+    "@deepseek-ai/dsh-settings": "workspace:^",
+    "clsx": "^2.0.0",
+    "schemastery": "^3.18.0"
   },
   "peerDependencies": {
     "@deepseek-ai/dsh-agent": "^0.0.1",
     "@deepseek-ai/dsh-attachment": "^0.0.1",
     "@deepseek-ai/dsh-brand": "^0.0.1",
+    "@deepseek-ai/dsh-client-connection": "^0.0.1",
     "@deepseek-ai/dsh-client-locale": "^0.0.1",
     "@deepseek-ai/dsh-client-runtime": "^0.0.1",
     "@deepseek-ai/dsh-client-ui-primitives": "^0.0.1",
@@ -60,6 +66,7 @@
     "@deepseek-ai/dsh-agent": "workspace:^",
     "@deepseek-ai/dsh-attachment": "workspace:^",
     "@deepseek-ai/dsh-brand": "workspace:^",
+    "@deepseek-ai/dsh-client-connection": "workspace:^",
     "@deepseek-ai/dsh-client-locale": "workspace:^",
     "@deepseek-ai/dsh-client-runtime": "workspace:^",
     "@deepseek-ai/dsh-client-test-runtime": "workspace:^",
