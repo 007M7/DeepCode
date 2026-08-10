@@ -59,7 +59,7 @@ vi.mock('@modelcontextprotocol/sdk/client/streamableHttp.js', () => ({
 // vi.mock is hoisted above static imports, so the modules under test see the
 // mocked SDK even through a static import.
 import { apply } from '@deepseek-ai/dsh-mcp-client/src/index.ts'
-import { RECONNECT_DEFAULTS, resolveReconnectPolicy } from '@deepseek-ai/dsh-mcp-client/src/connection.ts'
+import { RECONNECT_DEFAULTS, resolveReconnectPolicy, startConnection } from '@deepseek-ai/dsh-mcp-client/src/connection.ts'
 
 // ---- Helpers ----
 
@@ -128,7 +128,10 @@ describe('reconnect supervisor', () => {
     vi.clearAllMocks()
     instances.length = 0
     mockConnect.mockResolvedValue(undefined)
-    mockClose.mockResolvedValue(undefined)
+    mockClose.mockImplementation(function (this: { onclose?: () => void }) {
+      this.onclose?.()
+      return Promise.resolve()
+    })
     mockListTools.mockResolvedValue(listing('remote'))
     mockCallTool.mockResolvedValue({ content: [{ type: 'text', text: 'ok' }] })
     ctx = await mountRegistry()
@@ -174,7 +177,10 @@ describe('reconnect supervisor', () => {
 
     mockConnect.mockRejectedValue(new Error('server gone'))
     // A failing close on the failed attempt's cleanup must not break the loop.
-    mockClose.mockRejectedValue(new Error('already closed'))
+    mockClose.mockImplementation(function (this: { onclose?: () => void }) {
+      this.onclose?.()
+      return Promise.reject(new Error('already closed'))
+    })
     instances[0]!.onclose?.()
 
     await vi.waitFor(() => {
@@ -187,6 +193,78 @@ describe('reconnect supervisor', () => {
     expect(warns.some(line => line.includes('connection attempt failed: Error: server gone'))).toBe(true)
     await sleep(30)
     expect(mockConnect).toHaveBeenCalledTimes(3)
+  })
+
+  it('does not start a replacement until a failed generation reports that it closed', async () => {
+    mockConnect.mockRejectedValueOnce(new Error('initialize failed'))
+    // Model the SDK's fire-and-forget close after initialize fails: the
+    // harness's second close call returns, but the child has not exited yet.
+    mockClose.mockResolvedValue(undefined)
+
+    const applying = apply(ctx, stdioConfig({ initialDelayMs: 2, maxDelayMs: 8, maxAttempts: 2 }))
+    await vi.waitFor(() => { expect(mockClose).toHaveBeenCalled() })
+    await sleep(30)
+    expect(instances).toHaveLength(1)
+
+    instances[0]!.onclose?.()
+    await applying
+    await vi.waitFor(() => { expect(instances).toHaveLength(2) })
+  })
+
+  it('stops reconnecting when a failed generation never reports that it closed', async () => {
+    vi.useFakeTimers()
+    try {
+      const { errors } = captureLogs(ctx)
+      mockConnect.mockRejectedValue(new Error('initialize failed'))
+      mockClose.mockResolvedValue(undefined)
+
+      const applying = apply(ctx, stdioConfig({ initialDelayMs: 2, maxDelayMs: 8, maxAttempts: 2 }))
+      await vi.advanceTimersByTimeAsync(5_000)
+      await applying
+
+      expect(instances).toHaveLength(1)
+      expect(errors.some(line => line.includes('reconnect stopped to avoid overlapping server processes'))).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('suppresses retry reporting when disposal owns a pending connect rejection', async () => {
+    const { warns } = captureLogs(ctx)
+    const gate: PromiseWithResolvers<void> = Promise.withResolvers()
+    mockConnect.mockImplementation(() => gate.promise)
+    const handle = startConnection(ctx, stdioConfig(), resolveReconnectPolicy(undefined, 'reconnect'))
+    await vi.waitFor(() => { expect(instances).toHaveLength(1) })
+
+    const disposing = handle.dispose()
+    gate.reject(new Error('disposed connect'))
+    await disposing
+    await handle.ready
+
+    expect(warns.some(line => line.includes('connection attempt failed'))).toBe(false)
+    expect(instances).toHaveLength(1)
+  })
+
+  it('bounds disposal while a resolving generation never reports that it closed', async () => {
+    vi.useFakeTimers()
+    try {
+      const { errors } = captureLogs(ctx)
+      const gate: PromiseWithResolvers<void> = Promise.withResolvers()
+      mockConnect.mockImplementation(() => gate.promise)
+      mockClose.mockResolvedValue(undefined)
+      const handle = startConnection(ctx, stdioConfig(), resolveReconnectPolicy(undefined, 'reconnect'))
+      await vi.advanceTimersByTimeAsync(0)
+
+      const disposing = handle.dispose()
+      await vi.advanceTimersByTimeAsync(5_000)
+      gate.resolve()
+      await disposing
+
+      expect(mockListTools).not.toHaveBeenCalled()
+      expect(errors.some(line => line.includes('server shutdown may be incomplete'))).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('dispose during the backoff wait cancels the pending reconnect', async () => {

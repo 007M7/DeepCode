@@ -159,7 +159,10 @@ describe('apply (plugin lifecycle)', () => {
   beforeEach(async () => {
     vi.clearAllMocks()
     mockConnect.mockResolvedValue(undefined)
-    mockClose.mockResolvedValue(undefined)
+    mockClose.mockImplementation(function (this: { onclose?: () => void }) {
+      this.onclose?.()
+      return Promise.resolve()
+    })
     mockListTools.mockResolvedValue({
       tools: [{ name: 'remote', description: 'A remote tool', inputSchema: { type: 'object' } }],
       nextCursor: undefined,
@@ -338,7 +341,10 @@ describe('apply (plugin lifecycle)', () => {
   })
 
   it('effect disposer handles client.close failure gracefully', async () => {
-    mockClose.mockRejectedValue(new Error('already closed'))
+    mockClose.mockImplementation(function (this: { onclose?: () => void }) {
+      this.onclose?.()
+      return Promise.reject(new Error('already closed'))
+    })
 
     await apply(ctx, stdioConfig)
 
