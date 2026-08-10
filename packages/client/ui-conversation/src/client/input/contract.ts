@@ -104,6 +104,12 @@ export interface ComposerKeyboard {
   setDraft(text: string, editRange?: EditRange): void
   /** Submit with an explicit delivery mode resolved by the keyboard policy. */
   submit(mode: InputSubmitMode): void
+  /**
+   * Steer every still-pending queued message into the running turn (the
+   * empty-draft accelerated-Enter gesture; the queue dock's per-row steer
+   * button is the same operation applied to the whole queue).
+   */
+  steerQueue(): void
   undo(): void
   redo(): void
   /** Paste over the selection (sync components ride the same transaction). */

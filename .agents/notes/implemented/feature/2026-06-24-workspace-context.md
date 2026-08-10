@@ -78,7 +78,7 @@ There is intentionally no watcher. Detection occurs at the next successful struc
 
 ## Consequences
 
-Workspace guidance is isolated per session and shared by the demo front doors, Web Host, and every tool presentation mode. Initial, nested, and changed instructions are durable and replayable. The generic session/agent context contract carries typed source data through inbox-staged and durably entered user messages without flattening entries.
+Workspace guidance is isolated per session and shared by the demo entry points, Web Host, and every tool presentation mode. Initial, nested, and changed instructions are durable and replayable. The generic session/agent context contract carries typed source data through inbox-staged and durably entered user messages without flattening entries.
 
 Repository text remains untrusted input. Lower-authority user-role framing, explicit precedence language, and delimiter escaping reduce risk but do not eliminate prompt injection. Following a candidate symlink to its target widens that surface to off-tree content, so the permission and sandbox layers that confine `ctx.fs` to trusted roots are the boundary that treats workspace files as data rather than authority (the [instruction-symlink follow note](2026-07-21-follow-instruction-symlinks.md) owns the residual risk).
 

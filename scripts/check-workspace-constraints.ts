@@ -119,12 +119,16 @@ function workspaceManifests(): WorkspaceManifest[] {
 }
 
 const packageFileExtras: Readonly<Record<string, readonly string[]>> = {
-  // Profile bundles publish their dsh.bundle.patch layer beside the lib.
-  '@deepseek-ai/dsh-base': ['cordis.patch.yml'],
+  // Profile bundles publish their dsh.bundle.patch layer beside the lib;
+  // dsh-base also ships the win32 shell platform layer the launcher reads.
+  '@deepseek-ai/dsh-base': ['cordis.patch.yml', 'windows.cordis.patch.yml'],
   '@deepseek-ai/dsh-web-app': ['cordis.patch.yml'],
   '@deepseek-ai/dsh-headless': ['cordis.patch.yml'],
   '@deepseek-ai/dsh-client-ui-theme': ['lib/styles'],
   '@deepseek-ai/dsh-helper': ['lib/assets'],
+  // The argv-prefix runner entry ships beside the lib as its own bundle;
+  // sandbox-local resolves it through the package's ./runner export.
+  '@deepseek-ai/dsh-sandbox-windows-acl': ['lib/runner.js'],
   '@deepseek-ai/dsh-skill-badge': ['assets'],
   '@deepseek-ai/dsh-subprocess-local': ['scripts/ensure-spawn-helper.mjs'],
   '@deepseek-ai/dsh-scripts': [

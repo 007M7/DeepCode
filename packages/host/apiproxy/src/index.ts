@@ -8,7 +8,7 @@
  * routes — physical carriers wrap `ctx.apiProxy` themselves.
  *
  * The gateway consumes `ctx.agentDefaultModel`, the transport-independent default
- * shared with direct front doors. Switching models persists through that
+ * shared with direct entry points. Switching models persists through that
  * service; sessions that have already logged a selection remain unchanged.
  */
 
