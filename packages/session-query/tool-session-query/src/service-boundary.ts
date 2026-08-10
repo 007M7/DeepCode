@@ -4,7 +4,7 @@
  * @module @deepseek-ai/dsh-tool-session-query/service-boundary
  */
 
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import { HarnessError } from '@deepseek-ai/dsh-llm'
 import {
   SessionQueryError,

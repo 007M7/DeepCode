@@ -279,10 +279,10 @@ describe('package manager strategies', () => {
     expect(inferPackageManagerName(undefined, 'unknown/1')).toBeUndefined()
     expect(inferPackageManagerName('yarn', undefined)).toBe('yarn')
     expect(() => createPackageManager('npm', 'invalid')).toThrow('invalid package manager version')
-    expect(resolveNpmDependency('cordis', 'devDependencies', '0.0.1')).toEqual({
+    expect(resolveNpmDependency('@deepseek-ai/cordis', 'devDependencies', '0.0.1')).toEqual({
       section: 'devDependencies', spec: '^4.0.0-rc.7',
     })
-    expect(resolveNpmDependency('@cordisjs/plugin-hmr', 'dependencies', '0.0.1').spec).toBe('^1.0.15')
+    expect(resolveNpmDependency('@deepseek-ai/cordis-plugin-hmr', 'dependencies', '0.0.1').spec).toBe('^1.0.15')
     expect(resolveNpmDependency('tsdown', 'devDependencies', '0.0.1').spec).toBe('0.22.2')
     expect(resolveNpmDependency('@deepseek-ai/dsh-tools', 'dependencies', '1.2.3').spec).toBe('^1.2.3')
     expect(() => resolveNpmDependency('unknown', 'dependencies', '0.0.1')).toThrow('no generated-project')
@@ -353,23 +353,23 @@ describe('package manager strategies', () => {
     await mkdir(join(root, 'vendor', 'cordis'), { recursive: true })
     await mkdir(join(root, 'packages', 'sdk', 'scripts'), { recursive: true })
     await mkdir(join(root, 'packages', 'sdk', 'helper'), { recursive: true })
-    await writeFile(join(root, 'vendor', 'cordis', 'package.json'), JSON.stringify({ name: 'cordis' }))
+    await writeFile(join(root, 'vendor', 'cordis', 'package.json'), JSON.stringify({ name: '@deepseek-ai/cordis' }))
     await writeFile(join(root, 'packages', 'sdk', 'helper', 'package.json'), JSON.stringify({ name: '@deepseek-ai/dsh-helper' }))
     await writeFile(join(root, 'packages', 'sdk', 'scripts', 'package.json'), JSON.stringify({
-      name: '@deepseek-ai/dsh-scripts', dependencies: { '@deepseek-ai/dsh-helper': '^0.0.1' }, peerDependencies: { cordis: '^4' },
+      name: '@deepseek-ai/dsh-scripts', dependencies: { '@deepseek-ai/dsh-helper': '^0.0.1' }, peerDependencies: { '@deepseek-ai/cordis': '^4' },
     }))
     const workspace = await LinkWorkspace.open(root)
     expect(workspace.closure(['@deepseek-ai/dsh-scripts'])).toEqual([
-      '@deepseek-ai/dsh-helper', '@deepseek-ai/dsh-scripts', 'cordis',
+      '@deepseek-ai/cordis', '@deepseek-ai/dsh-helper', '@deepseek-ai/dsh-scripts',
     ])
     const manifest = PackageJsonFile.create('{"name":"consumer","description":"test"}')
     manifest.setNpmDependency('dependencies', '@deepseek-ai/dsh-scripts', '^0.0.1')
     const pnpmWorkspace = PnpmWorkspaceFile.create()
     workspace.apply(join(root, 'consumer'), manifest, new PnpmPackageManager('10.0.0'), [pnpmWorkspace])
-    expect(manifest.npmDependency('cordis')?.spec).toMatch(/^link:/)
+    expect(manifest.npmDependency('@deepseek-ai/cordis')?.spec).toMatch(/^link:/)
     expect(pnpmWorkspace.serialize()).toContain('autoInstallPeers: false')
-    expect(workspace.packageDirectory('cordis')).toBe(join(root, 'vendor', 'cordis'))
-    expect(await readFile(join(root, 'vendor', 'cordis', 'package.json'), 'utf8')).toContain('cordis')
+    expect(workspace.packageDirectory('@deepseek-ai/cordis')).toBe(join(root, 'vendor', 'cordis'))
+    expect(await readFile(join(root, 'vendor', 'cordis', 'package.json'), 'utf8')).toContain('@deepseek-ai/cordis')
     expect(workspace.packageDirectory('missing')).toBeUndefined()
     // A generated workspace member resolves its own dependencies: every local name it
     // declares relinks, while a peer keeps the range package managers require there.

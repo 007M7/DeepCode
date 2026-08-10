@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { Context, Service } from 'cordis'
+import { Context, Service } from '@deepseek-ai/cordis'
 import SessionStore, { type Session, type SessionEvent } from '@deepseek-ai/dsh-session'
 import * as PermissionInvariant from '@deepseek-ai/dsh-permission/invariant'
 import InvariantService from '@deepseek-ai/dsh-invariants'

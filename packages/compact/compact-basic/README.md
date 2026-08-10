@@ -49,7 +49,7 @@ An adapter may return no capacity for a valid dynamic route, and resolved capaci
 `BasicCompactService` requires `ctx.llm`, `ctx.tokenMeter`, and `ctx.sessions`. The composition below receives `ctx.llm` from its host and installs the other two services:
 
 ```ts
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import { BasicCompactService } from '@deepseek-ai/dsh-compact-basic'
 import SessionStore from '@deepseek-ai/dsh-session'
 import TokenMeterService from '@deepseek-ai/dsh-token-meter'

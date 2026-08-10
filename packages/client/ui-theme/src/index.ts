@@ -1,6 +1,6 @@
 /** Host registration for the browser theme preference. */
 
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { THEME_SETTINGS_NAMESPACE, ThemeSettingsSchema } from './theme-settings.ts'
 

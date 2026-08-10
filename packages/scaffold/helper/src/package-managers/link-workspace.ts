@@ -73,7 +73,7 @@ export class LinkWorkspace {
       if (packages.has(manifest.name)) throw new Error(`duplicate linked package name: ${manifest.name}`)
       packages.set(manifest.name, { directory, manifest })
     }
-    if (!packages.has('cordis') || !packages.has('@deepseek-ai/dsh-scripts')) {
+    if (!packages.has('@deepseek-ai/cordis') || !packages.has('@deepseek-ai/dsh-scripts')) {
       throw new Error(`not a DeepSeek Harness repository root: ${absolute}`)
     }
     return new LinkWorkspace(absolute, packages)

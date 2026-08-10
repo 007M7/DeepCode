@@ -21,15 +21,15 @@ const workspaceGlobs = [
   { dir: 'apps', depth: 1 },
 ] as const
 const vendoredPackages = new Set([
-  'cordis',
-  'cosmokit',
-  'schemastery',
-  '@cordisjs/plugin-loader',
-  '@cordisjs/plugin-include',
-  '@cordisjs/plugin-group',
-  '@cordisjs/plugin-timer',
-  '@cordisjs/plugin-hmr',
-  '@cordisjs/plugin-logger-console',
+  '@deepseek-ai/cordis',
+  '@deepseek-ai/cosmokit',
+  '@deepseek-ai/schemastery',
+  '@deepseek-ai/cordis-plugin-loader',
+  '@deepseek-ai/cordis-plugin-include',
+  '@deepseek-ai/cordis-plugin-group',
+  '@deepseek-ai/cordis-plugin-timer',
+  '@deepseek-ai/cordis-plugin-hmr',
+  '@deepseek-ai/cordis-plugin-logger-console',
 ])
 const publicLandlockPackages = new Set([
   '@deepseek-ai/node-addon-landlock-run',
@@ -271,13 +271,13 @@ function checkWorkspace({ dir, manifest }: WorkspaceManifest): string[] {
   }
 
   if (dir.startsWith('packages/') && manifest.name?.startsWith('@deepseek-ai/dsh-')) {
-    const peer = manifest.peerDependencies?.cordis
-    const dev = manifest.devDependencies?.cordis
+    const peer = manifest.peerDependencies?.['@deepseek-ai/cordis']
+    const dev = manifest.devDependencies?.['@deepseek-ai/cordis']
 
-    if (!peer) errors.push(`${label}: cordis must be a peerDependency`)
-    if (!dev) errors.push(`${label}: cordis must also be a devDependency`)
+    if (!peer) errors.push(`${label}: @deepseek-ai/cordis must be a peerDependency`)
+    if (!dev) errors.push(`${label}: @deepseek-ai/cordis must also be a devDependency`)
     if (peer && dev && peer !== dev) {
-      errors.push(`${label}: cordis peer (${peer}) and dev (${dev}) ranges must match`)
+      errors.push(`${label}: @deepseek-ai/cordis peer (${peer}) and dev (${dev}) ranges must match`)
     }
     if (manifest.version !== repositoryVersion) {
       errors.push(`${label}: package.json version must match root version ${repositoryVersion ?? '(missing)'}`)

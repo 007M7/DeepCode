@@ -187,12 +187,12 @@ describe('SdkProject and ProjectEditSession', () => {
     expect(project.cordis.entry('scope-invariant')?.name).toBe('@deepseek-ai/dsh-scope/invariant')
     expect(project.cordis.entry('agent-loop-invariant')?.name).toBe('@deepseek-ai/dsh-agent-loop/invariant')
     expect(project.cordis.entry('system-prompt')?.config?.persona).toContain('{{cwd}}')
-    expect(project.packageManifest().dependencies?.['@cordisjs/plugin-timer']).toBe('^1.1.2')
-    expect(project.packageManifest().dependencies?.['@cordisjs/plugin-hmr']).toBe('^1.0.15')
+    expect(project.packageManifest().dependencies?.['@deepseek-ai/cordis-plugin-timer']).toBe('^1.1.2')
+    expect(project.packageManifest().dependencies?.['@deepseek-ai/cordis-plugin-hmr']).toBe('^1.0.15')
     expect(project.packageManifest().dependencies?.['@deepseek-ai/dsh-scope']).toBe('^0.0.1')
     expect(project.packageManifest().dependencies).not.toHaveProperty('@deepseek-ai/dsh-scope/invariant')
     expect(project.packageManifest().dependencies).not.toHaveProperty('node-addon-require-builtin')
-    expect(project.cordis.entry('hmr')).toMatchObject({ name: '@cordisjs/plugin-hmr' })
+    expect(project.cordis.entry('hmr')).toMatchObject({ name: '@deepseek-ai/cordis-plugin-hmr' })
     expect(project.cordis.entry('llm-deepseek')).not.toHaveProperty('config.apiKey')
     expect(project.cordis.entry('llm-deepseek')?.config).not.toHaveProperty('baseURL')
     expect(project.cordis.entry('llm-deepseek')?.config).not.toHaveProperty('models')
@@ -502,7 +502,7 @@ describe('SdkProject and ProjectEditSession', () => {
     internals.applyResource(transient, undefined)
     internals.removeResource(transient)
     internals.replaceContribution(
-      new ProjectContribution([{ kind: 'npm-dependency', key: resourceKey('shared'), name: 'cordis', section: 'dependencies' }]),
+      new ProjectContribution([{ kind: 'npm-dependency', key: resourceKey('shared'), name: '@deepseek-ai/cordis', section: 'dependencies' }]),
       new ProjectContribution([{
         kind: 'cordis-config-entry', key: resourceKey('shared'), entry: { id: 'new', name: 'new' }, ownedConfigKeys: [],
       }]),

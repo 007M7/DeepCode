@@ -5,10 +5,10 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "@cordisjs/plugin-group": "workspace:^",
-    "@cordisjs/plugin-include": "workspace:^",
-    "@cordisjs/plugin-loader": "workspace:^",
-    "@cordisjs/plugin-timer": "workspace:^",
+    "@deepseek-ai/cordis-plugin-group": "workspace:^",
+    "@deepseek-ai/cordis-plugin-include": "workspace:^",
+    "@deepseek-ai/cordis-plugin-loader": "workspace:^",
+    "@deepseek-ai/cordis-plugin-timer": "workspace:^",
     "@deepseek-ai/dsh-acp": "workspace:^",
     "@deepseek-ai/dsh-agent": "workspace:^",
     "@deepseek-ai/dsh-agent-loop": "workspace:^",
@@ -107,7 +107,7 @@
     "@deepseek-ai/dsh-workflow": "workspace:^",
     "@deepseek-ai/dsh-workflow-workerthread": "workspace:^",
     "@deepseek-ai/dsh-workspace-context": "workspace:^",
-    "cordis": "workspace:^",
-    "schemastery": "workspace:^"
+    "@deepseek-ai/cordis": "workspace:^",
+    "@deepseek-ai/schemastery": "workspace:^"
   }
 }

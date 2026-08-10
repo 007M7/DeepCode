@@ -43,8 +43,8 @@
  * @module @deepseek-ai/dsh-spill-policy
  */
 
-import type { Context } from 'cordis'
-import z from 'schemastery'
+import type { Context } from '@deepseek-ai/cordis'
+import z from '@deepseek-ai/schemastery'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { TextRetainer, describeOmitted } from '@deepseek-ai/dsh-retention'
 import type { Omitted } from '@deepseek-ai/dsh-retention'
