@@ -233,9 +233,8 @@ export async function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpe
   let processDisposal: Promise<void> | undefined
   const disposeProcess = (): Promise<void> => (processDisposal ??= disposeAcpChild(child, spec.disposeEofGraceMs))
 
-  // The child's streamed assistant text, accumulated under the seam's
-  // canonical selection rule (`AssistantOutputFold`); ACP surfaces no complete
-  // assistant messages, so only the streamed-fallback half applies.
+  // ACP exposes no complete assistant messages, so the shared fold selects its
+  // accumulated assistant text.
   const fold = new AssistantOutputFold()
   // Shared mutable state keeps cancellation visible across async closures.
   const flags = { cancelled: false }

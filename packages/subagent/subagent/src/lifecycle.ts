@@ -129,8 +129,7 @@ export function observeRun(
       emit('subagent/end', {
         ...identity,
         stopReason: result.stopReason,
-        // One encoding for "no output" across both lifecycle shapes: the
-        // field is absent, matching the continuable epoch edge.
+        // Omit the field when no output exists, matching continuable epochs.
         ...result.output.length === 0 ? {} : { lastAssistantMessage: result.output },
       }, parent)
     },

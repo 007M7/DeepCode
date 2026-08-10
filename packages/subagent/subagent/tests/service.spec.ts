@@ -264,8 +264,8 @@ describe('SubagentService', () => {
       stopReason: 'completed',
     }))
 
-    // "No output" has ONE encoding on the end edge: the field is absent,
-    // never an empty array, matching the continuable epoch edge.
+    // The lifecycle event omits lastAssistantMessage when output is empty,
+    // matching the continuable epoch event.
     const silent = new StubProvider('silent', NO_CAPS, { output: [], stopReason: 'completed' })
     subagents.registerProvider(silent)
     const silentRun = await subagents.start('silent', baseRequest())

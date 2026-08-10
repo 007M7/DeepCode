@@ -26,9 +26,8 @@
  *   array; `FAKE_MESSAGE_WITHOUT_DATA`: assistant/message with no data
  *   member; `FAKE_MALFORMED_REASON`: `session.finished` reason is a bare
  *   string (wire-validation probes).
- * - `FAKE_EMPTY_MESSAGE`: the turn's assistant/message has EMPTY content (a
- *   usage-only max-tokens step) after streaming the text chunk — a consumer
- *   must keep the streamed text instead of the empty message.
+ * - `FAKE_EMPTY_MESSAGE`: the turn streams a text chunk, then records an empty
+ *   assistant/message for a usage-only max-tokens step.
  * - `FAKE_HANG_INIT`: never answer `initialize` (mid-handshake cancel probe).
  * - `FAKE_INIT_READY` + `FAKE_INIT_GO`: touch the READY file when `initialize`
  *   arrives, then poll for the GO file before answering (deterministic
@@ -120,9 +119,8 @@ function runTurn(sessionId: string): void {
     message: {
       id: `fake-assistant-${seq}`,
       role: 'assistant',
-      // FAKE_EMPTY_MESSAGE: a usage-only terminal message (the harness loop
-      // appends one when a max-tokens step assembled no text blocks) whose
-      // empty content must not erase the text streamed above.
+      // Model the usage-only message recorded after a max-tokens step that
+      // assembled no output blocks.
       content: env.FAKE_EMPTY_MESSAGE !== undefined ? [] : [{ type: 'text', text }],
       source: { kind: 'model', provider: 'fake', model: 'fake' },
     },

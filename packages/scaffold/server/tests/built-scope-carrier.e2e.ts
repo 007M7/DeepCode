@@ -106,8 +106,8 @@ describe.skipIf(!existsSync(jsonrpcBundle))('dsh-jsonrpc BUILT scope carrier', (
     })
 
     expect(stderr).not.toContain('listener threw')
-    // A childless result carries NO lastAssistantMessage on the wire: the end
-    // edge encodes "no output" as an absent field, never `[]`.
+    // A result without output omits lastAssistantMessage from the wire; it
+    // never sends `[]`.
     expect(JSON.parse(stdout) as unknown).toEqual([{
       method: 'subagent.finished',
       params: {

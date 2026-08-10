@@ -176,7 +176,7 @@ describe('dsh-subagent-dsh-sdk provider', () => {
     await ctx.fiber.dispose()
   })
 
-  it('keeps streamed text when the terminal message is an EMPTY usage-only step', async () => {
+  it('keeps streamed text when the terminal message is an empty usage-only step', async () => {
     // The child streams its answer, then emits an empty-content
     // assistant/message (the harness loop appends one to host usage on a
     // max-tokens step that assembled no text blocks). The empty message is

@@ -15,6 +15,22 @@ function reasoningDelta(text: string): SessionEvent {
   return { type: 'assistant/chunk', data: { chunk: { type: 'reasoning-delta', text } } } as SessionEvent
 }
 
+function toolResult(text: string): SessionEvent {
+  return {
+    type: 'tool/result',
+    data: {
+      message: {
+        content: [{
+          type: 'tool-result',
+          toolCallId: 'call-1',
+          content: [{ type: 'text', text }],
+          isError: false,
+        }],
+      },
+    },
+  } as SessionEvent
+}
+
 describe('finalAssistantOutput', () => {
   it('selects the last non-empty message past a later empty usage-only message', () => {
     const events = [
@@ -25,19 +41,30 @@ describe('finalAssistantOutput', () => {
     expect(finalAssistantOutput(events)).toEqual([{ type: 'text', text: 'step two' }])
   })
 
-  it('prefers a non-empty message over the streamed text', () => {
+  it('prefers a non-empty message over text streamed before and after it', () => {
     const events = [
-      textDelta('streamed '),
-      textDelta('text'),
+      textDelta('earlier partial'),
       message([{ type: 'text', text: 'complete answer' }]),
+      textDelta('later partial'),
+      message([]),
     ]
     expect(finalAssistantOutput(events)).toEqual([{ type: 'text', text: 'complete answer' }])
   })
 
-  it('falls back to accumulated text deltas when no non-empty message exists', () => {
+  it('treats textless assistant content as a non-empty message', () => {
+    const content: ContentBlock[] = [{ type: 'reasoning', text: 'complete reasoning' }]
+    expect(finalAssistantOutput([
+      textDelta('streamed text'),
+      message(content),
+      textDelta('later partial'),
+    ])).toEqual(content)
+  })
+
+  it('falls back to text deltas without including reasoning or tool-result content', () => {
     const events = [
       reasoningDelta('thinking'),
       textDelta('partial '),
+      toolResult('tool output'),
       textDelta('answer'),
       message([]),
     ]

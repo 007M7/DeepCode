@@ -1,12 +1,11 @@
 /**
- * Canonical selection of a child's final assistant output. Every surface that
- * reports "the child's answer" — backend run results and
- * `subagent/end.lastAssistantMessage` — applies this one rule so observers
- * agree: the last NON-EMPTY assistant message wins; an empty-content message
- * hosts only usage (the loop appends one when a max-tokens step assembled no
- * executable blocks) and never erases real output; without any non-empty
- * message, the text streamed so far is the answer (a partial surviving
- * cancel, error, and truncation paths).
+ * Canonical selection of a child's final assistant output. Backend run results
+ * and `subagent/end.lastAssistantMessage` apply the same rule: select the last
+ * non-empty assistant message. An empty-content message records usage only
+ * when the loop appends it after a max-tokens step with no executable blocks,
+ * so it does not replace earlier output. If no non-empty message exists,
+ * select the accumulated assistant text. Selection is independent of the
+ * run's stop reason.
  *
  * @module @deepseek-ai/dsh-subagent/assistant-output
  */
@@ -35,7 +34,7 @@ export class AssistantOutputFold {
       const content = event.data.message.content
       if (content.length > 0) this.message = content
     } else if (event.type === 'assistant/chunk' && event.data.chunk.type === 'text-delta') {
-      this.partial.push(event.data.chunk.text)
+      this.pushText(event.data.chunk.text)
     }
   }
 
@@ -44,7 +43,7 @@ export class AssistantOutputFold {
    * @param text - the next streamed text piece (an empty piece is a no-op).
    */
   pushText(text: string): void {
-    this.partial.push(text)
+    if (text.length > 0) this.partial.push(text)
   }
 
   /**

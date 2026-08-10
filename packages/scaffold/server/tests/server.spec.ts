@@ -736,8 +736,8 @@ describe('HarnessSdkServer', () => {
         stopReason: 'error',
       })
 
-      // A childless result carries NO lastAssistantMessage on the wire: the
-      // end edge encodes "no output" as an absent field, never `[]`.
+      // A result without output omits lastAssistantMessage from the wire; it
+      // never sends `[]`.
       expect(transport.notifications).toContainEqual({
         method: 'subagent.finished',
         params: {

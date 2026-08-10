@@ -157,10 +157,8 @@ describe('startInProcessRun', () => {
   })
 
   it('keeps earlier streamed text when the final step appends an empty usage-only message', async () => {
-    // Step 1 streams "partial one" plus a tool call; step 2 hits max-tokens
-    // having assembled only a tool-call block, so the loop appends an EMPTY
-    // assistant/message to host usage. The empty message is not assistant
-    // output and must not erase step 1's text from the run's output.
+    // A tool-only max-tokens step records an empty assistant/message for
+    // usage. The result retains the preceding assistant output.
     const { ctx, parent } = await setup([
       toolCallResponse('t1', 'noop', {}, 'partial one'),
       [

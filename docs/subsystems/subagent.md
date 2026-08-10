@@ -294,10 +294,10 @@ The outcome of a one-shot run, resolved by `SubagentRun.result`. `structured` is
  */
 interface SubagentResult {
   /**
-   * The child's final assistant output: the content of the last NON-EMPTY
-   * assistant message (an empty-content message hosts only usage and is
-   * skipped), else the text streamed before the turn was cut short, or `[]`
-   * when the child produced none.
+   * The child's final assistant output is the content of its last non-empty
+   * assistant message. Empty-content messages, including usage-only messages,
+   * are skipped. Without a non-empty message, the output is its accumulated
+   * assistant text stream, or `[]` when the child produced neither.
    */
   readonly output: ContentBlock[]
   /**

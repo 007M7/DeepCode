@@ -1201,10 +1201,9 @@ describe('continuable review regressions', () => {
   })
 
   it('keeps the epoch\'s earlier text past a final empty usage-only message', async () => {
-    // Step 1 streams text plus a tool call; step 2 hits max-tokens having
-    // assembled only a tool-call block, so the loop appends an EMPTY
-    // assistant/message to host usage. The terminal edge reports the epoch's
-    // real answer text, not the internal usage marker.
+    // A tool-only max-tokens step records an empty assistant/message for
+    // usage. The terminal event retains the previous assistant content,
+    // including its tool call but not the intervening tool result.
     const { ctx, parent } = await setup([
       toolCallResponse('t1', 'noop', {}, 'partial one'),
       [
