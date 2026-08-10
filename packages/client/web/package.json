@@ -43,13 +43,13 @@
     "@deepseek-ai/dsh-invariants": "workspace:^",
     "@types/react": "~18.3.1",
     "@types/react-dom": "~18.3.0",
-    "@deepseek-ai/cordis": "^4.0.0-rc.7",
+    "@deepseek-ai/cordis": "workspace:^",
     "typescript": "^6.0.3"
   },
   "peerDependencies": {
-    "@deepseek-ai/cordis-plugin-loader": "^1.0.0-rc.5",
-    "@deepseek-ai/dsh-invariants": "^0.0.1",
-    "@deepseek-ai/cordis": "^4.0.0-rc.7"
+    "@deepseek-ai/cordis-plugin-loader": "workspace:^",
+    "@deepseek-ai/dsh-invariants": "workspace:^",
+    "@deepseek-ai/cordis": "workspace:^"
   },
   "files": [
     "lib/index.js",

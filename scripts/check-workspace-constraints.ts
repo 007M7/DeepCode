@@ -80,6 +80,8 @@ interface PackageManifest {
   repository?: { type?: string; url?: string; directory?: string }
   peerDependencies?: Record<string, string>
   devDependencies?: Record<string, string>
+  dependencies?: Record<string, string>
+  optionalDependencies?: Record<string, string>
 }
 
 /** One workspace manifest and its repo-relative path. */
@@ -380,9 +382,38 @@ function checkRepositoryVersion(): string[] {
   return ['package.json: version must be stable X.Y.Z']
 }
 
+/** Dependency sections whose ranges reach a published tarball or a local install. */
+const dependencySections = ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies'] as const
+
+/**
+ * Require the `workspace:` protocol for every reference to a workspace member.
+ *
+ * A hand-written range says nothing about the version the workspace actually
+ * carries, and `pnpm pack` leaves it alone: `^0.0.1` published from version
+ * `0.0.2` names a version that does not exist. The protocol makes pack
+ * substitute the member's real version, so no release step rewrites ranges.
+ * @param manifests - every workspace manifest.
+ * @returns One error per reference that names a workspace member without the protocol.
+ */
+function checkWorkspaceProtocol(manifests: readonly WorkspaceManifest[]): string[] {
+  const members = new Set(manifests.map(entry => entry.manifest.name).filter(name => name !== undefined))
+  const errors: string[] = []
+  for (const { dir, manifest } of manifests) {
+    for (const section of dependencySections) {
+      for (const [name, range] of Object.entries(manifest[section] ?? {})) {
+        if (!members.has(name) || range.startsWith('workspace:')) continue
+        errors.push(`${manifest.name ?? dir}: ${section}.${name} must use the workspace: protocol, got ${range}`)
+      }
+    }
+  }
+  return errors
+}
+
+const manifests = workspaceManifests()
 const errors = [
   ...checkRepositoryVersion(),
-  ...workspaceManifests().flatMap(checkWorkspace),
+  ...manifests.flatMap(checkWorkspace),
+  ...checkWorkspaceProtocol(manifests),
   ...checkHierarchyShape(),
   ...collectProjectReferenceFaceViolations(root),
 ]

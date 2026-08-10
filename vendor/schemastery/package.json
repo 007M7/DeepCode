@@ -34,6 +34,6 @@
   "license": "MIT",
   "dependencies": {
     "@standard-schema/spec": "^1.1.0",
-    "@deepseek-ai/cosmokit": "^1.8.1"
+    "@deepseek-ai/cosmokit": "workspace:^"
   }
 }

@@ -38,8 +38,8 @@
   ],
   "license": "BSD-3-Clause",
   "peerDependencies": {
-    "@deepseek-ai/dsh-invariants": "^0.0.1",
-    "@deepseek-ai/cordis": "^4.0.0-rc.7"
+    "@deepseek-ai/dsh-invariants": "workspace:^",
+    "@deepseek-ai/cordis": "workspace:^"
   },
   "dependencies": {
     "koffi": "^3.1.0"
@@ -48,6 +48,6 @@
     "@deepseek-ai/dsh-invariants": "workspace:^",
     "@deepseek-ai/dsh-pwsh-local": "workspace:^",
     "@deepseek-ai/dsh-sandbox-local": "workspace:^",
-    "@deepseek-ai/cordis": "^4.0.0-rc.7"
+    "@deepseek-ai/cordis": "workspace:^"
   }
 }
