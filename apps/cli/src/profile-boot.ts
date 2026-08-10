@@ -191,8 +191,6 @@ export interface RunProfileOptions {
   patchFiles: readonly string[]
   /** The invocation's inner arguments, handed to the tree through `ctx.cmdlineArgs`. */
   args: readonly string[]
-  /** Host setup registered after Loader installation and before any config-tree entry mounts. */
-  prepare?: (ctx: Context) => Promise<void> | void
 }
 
 /** Re-throw setup failures unless this invocation's signal already owns shutdown. */
@@ -271,7 +269,7 @@ export async function runProfile(options: RunProfileOptions): Promise<{ ctx: Con
   const watchProfilePatch = !oneShot
   // Cloned for the same insert-aliasing reason as composeLive: the boot
   // application must not mutate the objects later reloads recompose from.
-  const ctx = await boot(NAME, rootConfig, structuredClone(allPatches(composed)), async (hostCtx) => {
+  const ctx = await boot(NAME, rootConfig, structuredClone(allPatches(composed)), (hostCtx) => {
     app.current = hostCtx
     // Before any config-tree entry mounts, so plugins resolve all launch-time
     // environment values from the same immutable provenance snapshot.
@@ -292,7 +290,6 @@ export async function runProfile(options: RunProfileOptions): Promise<{ ctx: Con
       }
       hostCtx.provide('headlessIo', io)
     }
-    await options.prepare?.(hostCtx)
   }).catch((cause: unknown) => {
     bootFailed(cause)
     throw cause
