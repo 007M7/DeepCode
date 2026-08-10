@@ -73,6 +73,46 @@ function useDraft(value: string): [string, (next: string) => void] {
   return [draft, setDraft]
 }
 
+/** Blur the input so its own blur handler is the single commit path. */
+function commitOnEnter(event: KeyboardEvent<HTMLInputElement>): void {
+  if (event.key === 'Enter') event.currentTarget.blur()
+}
+
+/**
+ * The text input both editable fields render: a draft seeded from the
+ * authoritative text, committed on blur and on Enter.
+ */
+function DraftInput(props: {
+  /** Stable id associating the label with this control. */
+  id: string
+  /** Authoritative text the draft re-seeds from. */
+  value: string
+  /** Disables editing. */
+  disabled: boolean
+  /** Placeholder shown while the draft is empty. */
+  placeholder?: string | undefined
+  /** Hints a numeric keypad without narrowing the value type. */
+  numeric?: boolean | undefined
+  /** Settle the draft; the returned text replaces it (a rejected draft restores the value). */
+  onSettle: (draft: string, restore: (text: string) => void) => void
+}) {
+  const [draft, setDraft] = useDraft(props.value)
+  return (
+    <input
+      id={props.id}
+      className={css.input}
+      type="text"
+      {...props.numeric === true ? { inputMode: 'numeric' as const } : {}}
+      value={draft}
+      placeholder={props.placeholder ?? ''}
+      disabled={props.disabled}
+      onChange={(event) => { setDraft(event.target.value) }}
+      onBlur={() => { props.onSettle(draft, setDraft) }}
+      onKeyDown={commitOnEnter}
+    />
+  )
+}
+
 /** A whole-number field committed on blur or Enter. */
 export function NumberField(props: FieldProps & {
   /** Current effective value. */
@@ -80,31 +120,22 @@ export function NumberField(props: FieldProps & {
   /** Commit a parsed value; a draft that is not a finite number is discarded. */
   onCommit: (next: number) => void
 }) {
-  const [draft, setDraft] = useDraft(String(props.value))
-  const commit = () => {
-    const parsed = Number(draft)
-    if (draft.trim() === '' || !Number.isFinite(parsed)) {
-      setDraft(String(props.value))
-      return
-    }
-    if (parsed === props.value) return
-    props.onCommit(parsed)
-  }
-  const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === 'Enter') event.currentTarget.blur()
-  }
   return (
     <FieldFrame {...props}>
-      <input
+      <DraftInput
         id={props.id}
-        className={css.input}
-        type="text"
-        inputMode="numeric"
-        value={draft}
+        value={String(props.value)}
         disabled={props.disabled}
-        onChange={(event) => { setDraft(event.target.value) }}
-        onBlur={commit}
-        onKeyDown={onKeyDown}
+        numeric
+        onSettle={(draft, restore) => {
+          const parsed = Number(draft)
+          if (draft.trim() === '' || !Number.isFinite(parsed)) {
+            restore(String(props.value))
+            return
+          }
+          if (parsed === props.value) return
+          props.onCommit(parsed)
+        }}
       />
     </FieldFrame>
   )
@@ -119,27 +150,18 @@ export function TextField(props: FieldProps & {
   /** Commit the trimmed draft. */
   onCommit: (next: string) => void
 }) {
-  const [draft, setDraft] = useDraft(props.value)
-  const commit = () => {
-    const next = draft.trim()
-    if (next === props.value) return
-    props.onCommit(next)
-  }
-  const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === 'Enter') event.currentTarget.blur()
-  }
   return (
     <FieldFrame {...props}>
-      <input
+      <DraftInput
         id={props.id}
-        className={css.input}
-        type="text"
-        value={draft}
-        placeholder={props.placeholder ?? ''}
+        value={props.value}
         disabled={props.disabled}
-        onChange={(event) => { setDraft(event.target.value) }}
-        onBlur={commit}
-        onKeyDown={onKeyDown}
+        placeholder={props.placeholder}
+        onSettle={(draft) => {
+          const next = draft.trim()
+          if (next === props.value) return
+          props.onCommit(next)
+        }}
       />
     </FieldFrame>
   )
@@ -159,15 +181,6 @@ export function SecretField(props: Omit<FieldProps, 'overridden' | 'onReset'> & 
   onCommit: (next: string) => void
 }) {
   const [draft, setDraft] = useState('')
-  const commit = () => {
-    const next = draft.trim()
-    if (next === '') return
-    setDraft('')
-    props.onCommit(next)
-  }
-  const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === 'Enter') event.currentTarget.blur()
-  }
   return (
     <div className={css.field}>
       <div className={css.head}>
@@ -184,8 +197,13 @@ export function SecretField(props: Omit<FieldProps, 'overridden' | 'onReset'> & 
         value={draft}
         disabled={props.disabled}
         onChange={(event) => { setDraft(event.target.value) }}
-        onBlur={commit}
-        onKeyDown={onKeyDown}
+        onBlur={() => {
+          const next = draft.trim()
+          if (next === '') return
+          setDraft('')
+          props.onCommit(next)
+        }}
+        onKeyDown={commitOnEnter}
       />
       <p className={css.hint}>{props.hint}</p>
     </div>

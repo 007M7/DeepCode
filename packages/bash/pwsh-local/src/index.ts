@@ -13,6 +13,8 @@
  * @module @deepseek-ai/dsh-pwsh-local
  */
 
+/* jscpd:ignore-start -- this executor mirrors dsh-bash-local call-for-call by
+   design (see this package's README), so the two import the same seam surface */
 import { Context } from 'cordis'
 import z from 'schemastery'
 import { BASH_SETTINGS_NAMESPACE, BashExecutor } from '@deepseek-ai/dsh-bash'
@@ -20,6 +22,7 @@ import type { BashExecRequest, BashExecSpec, BashProcess, BashProcessRead, BashR
 import type { SubprocessCollect, SubprocessHandle, SubprocessOutputReader, SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
 import { installSettingsSection } from '@deepseek-ai/dsh-settings'
 import { clampTimeout, deadline, MAX_TIMER_DELAY_MS, timeoutOf } from '@deepseek-ai/dsh-timeout'
+/* jscpd:ignore-end */
 import { resolvePwshPath } from './resolve.ts'
 
 /* jscpd:ignore-start -- deliberate call-for-call mirror of dsh-bash-local (Agent Note: pwsh-tool-and-executor). */

@@ -1235,7 +1235,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/bash/pwsh-local/src/index.ts:55`](../packages/bash/pwsh-local/src/index.ts)
+Source: [`packages/bash/pwsh-local/src/index.ts:58`](../packages/bash/pwsh-local/src/index.ts)
 
 ## `@deepseek-ai/dsh-pwsh-sandbox`
 
