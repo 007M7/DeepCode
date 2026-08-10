@@ -45,7 +45,7 @@ export const en: Record<AgentPresetSettingsKey, string> = {
     'Two-tool coding agent with only bash and str_replace_editor, for benchmarks and minimal reproductions.',
   presetCordisName: 'Creator mode',
   presetCordisDescription:
-    'Adds Cordis runtime inspection, temporary-plugin experiments, and preset-authoring guidance to Standard mode for creating new agent presets; experiments affect only the current runtime and do not modify the built-in preset.',
+    'Built for creating custom agent presets, with all Standard mode capabilities plus runtime inspection, plugin experiments, and preset-authoring guidance.',
   duplicate: 'Duplicate',
   duplicateUnavailable: 'This deployment has no writable preset directory',
   delete: 'Delete',
@@ -105,7 +105,7 @@ export const zh: Record<AgentPresetSettingsKey, string> = {
   presetMinimalName: '极简模式',
   presetMinimalDescription: '仅提供 bash 与 str_replace_editor 的双工具编码 Agent，用于基准测试和最小复现。',
   presetCordisName: '创造模式',
-  presetCordisDescription: '在标准模式上增加 Cordis 运行时检查、临时插件实验和 preset 创作指导，用于创建新的 Agent preset；临时实验仅影响当前运行时，不会修改内置 preset。',
+  presetCordisDescription: '用于创建自定义 Agent preset：具备标准模式的全部能力，并提供运行时检查、插件实验和 preset 创作指导。',
   duplicate: '复制',
   duplicateUnavailable: '此部署未配置可写的预设目录',
   delete: '删除',

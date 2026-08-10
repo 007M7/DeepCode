@@ -4,4 +4,4 @@
     - img
   - menuitem "Code mode All Standard mode capabilities, with tools exposed through the Code Mode SDK so the model can combine multi-step operations in one TypeScript program."
   - menuitem "Minimal mode Two-tool coding agent with only bash and str_replace_editor, for benchmarks and minimal reproductions."
-  - menuitem "Creator mode Adds Cordis runtime inspection, temporary-plugin experiments, and preset-authoring guidance to Standard mode for creating new agent presets; experiments are not written back to the active built-in preset."
+  - menuitem "Creator mode Built for creating custom agent presets, with all Standard mode capabilities plus runtime inspection, plugin experiments, and preset-authoring guidance."

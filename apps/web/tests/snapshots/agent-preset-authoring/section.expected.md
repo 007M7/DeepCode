@@ -50,7 +50,7 @@
         - text: 复制
     - listitem:
       - 'button "设为默认: 创造模式"':
-        - text: 创造模式 内置 在标准模式上增加 Cordis 运行时检查、临时插件实验和 preset 创作指导，用于创建新的 Agent preset；实验不会写回当前内置 preset。
+        - text: 创造模式 内置 用于创建自定义 Agent preset：具备标准模式的全部能力，并提供运行时检查、插件实验和 preset 创作指导。
         - code: cordis
       - 'button "查看: 创造模式"':
         - img
