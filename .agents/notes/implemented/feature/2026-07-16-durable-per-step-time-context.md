@@ -6,7 +6,7 @@ English | [中文](2026-07-16-durable-per-step-time-context.zh.md)
 
 ## Problem
 
-A request-only clock can tell the model the current time, but replacing that value in the system prompt removes the evidence behind earlier time-sensitive reasoning. Multi-step turns need requests to retain the readings that shaped preceding steps. The request must remain reconstructable after restart, and automatic compaction must account for the same timing context the model receives.
+A request-only clock can tell the model the current time, but replacing that value in the system prompt removes the evidence behind earlier time-sensitive reasoning. Multi-step turns need requests to retain the readings used by preceding steps. The request must remain reconstructable after restart, and automatic compaction must account for the same timing context the model receives.
 
 A process-local refresh cache makes displayed time depend on state that cannot survive resume or be reconstructed from the durable session. Durable interval scheduling can reduce append frequency without introducing that hidden state.
 

@@ -9,7 +9,7 @@ The family is one entry package plus per-platform binary packages:
 - **Entry package** (`@deepseek-ai/node-addon-landlock-run`): ESM JavaScript. Owns the tool's CLI contract — path resolution (`launcherPath`), the functional probe (`probe`), grant-argv construction (`grantArgs`), and the contract constants. Ships the C source in its tarball for auditability. Lists every platform package as an `optionalDependency`.
 - **Platform packages** (`@deepseek-ai/node-addon-landlock-run-linux-{x64,arm64}`): one prebuilt static binary under `bin/`, a `prebuilds.json` declaring it, and no JavaScript at all. npm's `os`/`cpu` fields select the matching one at install time; the entry package resolves it to a file path — there is nothing to import.
 
-Because the contract parser and the binary version together in one family, probe-parsing drift against the binary is structurally impossible — the failure mode the split exists to prevent.
+Because the CLI parser and binary are versioned together in one package family, the parser cannot fall behind that binary version. Preventing that mismatch is why the package split exists.
 
 There is no shared loader package: platform packages have nothing to load. If a second tool ever needs shared JS, extract it then, not preemptively.
 

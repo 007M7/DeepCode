@@ -21,8 +21,8 @@ function isAnswer(value: unknown): value is AnswerEntry {
   return typeof value === 'object' && value !== null
 }
 
-/** Answered-count summary off the result JSON (a skipped question has
- *  empty `selected` and no `custom`); null on unexpected shape (generic fallback). */
+/** Answered-count summary from the result JSON (a skipped question has
+ *  empty `selected` and no `custom`); null when answer fields are invalid. */
 function answeredSummary(text: string, t: AskQuestionRowProps['t']): string | null {
   let parsed: unknown
   try {

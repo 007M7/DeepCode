@@ -237,7 +237,7 @@ const SCENARIOS: Scenario[] = [
   // and then `migrate:packed-session-fixtures`, which canonicalizes the live
   // log's eager-drain-packed rows into the maximal-run layout replay produces.
   // The recorded fixture's `request/header` config and `request/context` are
-  // normalized to the replay-produced minimal shape (the live adapter logs
+  // normalized to the minimal fields produced during replay (the live adapter logs
   // model capabilities like maxTokens/reasoningEffort that llm-replay has no
   // data for), and its tool-result paths are canonicalized to `/` separators.
   {

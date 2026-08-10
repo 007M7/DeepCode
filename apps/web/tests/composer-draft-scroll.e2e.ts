@@ -64,12 +64,12 @@ const DRAFT = Array.from({ length: DRAFT_LINES }, (_unused, index) => {
 }).join('\n')
 
 /**
- * A draft ending in a newline: the shape where the two layers reserve their
+ * A draft ending in a newline, where the two layers reserve their
  * final line box on different terms. A textarea keeps one for the caret after a
  * final newline; `white-space: pre-wrap` collapses a text node's trailing
  * newline and generates none. The hidden auto-grow mirror carries the newline
  * and so decides the height for both, which is why the backdrop needs no
- * padding of its own — but only a draft of this shape can show it.
+ * padding of its own — but only a draft with a trailing newline can show it.
  */
 const DRAFT_TRAILING_NEWLINE = `${DRAFT}\n`
 
@@ -381,7 +381,7 @@ describe('web e2e: composer draft scrolling', () => {
       const data = new DataTransfer()
       data.setData('text/plain', text)
       el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }))
-      // Ending in a newline is the shape the engines disagree on: the caret
+      // The engines disagree when the draft ends in a newline: the caret
       // lands on a line with nothing on it, where chromium reports no client
       // rects at all for the collapsed position.
     }, `\n${DRAFT}\n`)
@@ -401,7 +401,7 @@ describe('web e2e: composer draft scrolling', () => {
 
   it('a draft ending in a newline scrolls to its true end, not a line above it', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-composer-draft-scroll-trailing-newline'))
-    // The layers reserve a final line box on different terms, so this shape is
+    // The layers reserve a final line box on different terms, so the trailing-newline case is
     // the one that separates a height every layer agrees on from a box measured
     // one line short of the caret's own last position.
     const input = page.locator('textarea:enabled').first()
@@ -453,7 +453,7 @@ describe('web e2e: composer draft scrolling', () => {
       const data = new DataTransfer()
       data.setData('text/plain', text)
       el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }))
-      // The ordinary shape — not ending in a newline — so the collapsed branch
+      // The ordinary case, without a trailing newline, so the collapsed branch
       // of the reveal keeps a real engine under it; the case above owns the
       // after-newline branch.
     }, `\n${DRAFT}`)

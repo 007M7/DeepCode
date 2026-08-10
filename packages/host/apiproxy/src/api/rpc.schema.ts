@@ -23,8 +23,8 @@ export type Wire<T> = T extends readonly (infer E)[] ? Wire<E>[]
     : T
 
 /**
- * RpcId: one brand cast after shape validation (the only cast point in this
- * file). No min-length: the id is an opaque echo token, and rejecting shapes
+ * RpcId: one brand cast after schema validation (the only cast point in this
+ * file). No min-length: the id is an opaque echo token, and rejecting values
  * here would only turn a correlatable error report into a client-side parse
  * failure (the handler substitutes a sentinel when a request's id is unreadable).
  */

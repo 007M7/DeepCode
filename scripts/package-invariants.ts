@@ -19,7 +19,7 @@ interface PackageManifest {
   devDependencies?: Record<string, string>
 }
 
-/** One package and the files participating in its invariant publication contract. */
+/** One package and the files participating in its invariant publication rules. */
 export interface PackageInvariantOwner {
   readonly dir: string
   readonly manifestPath: string
@@ -53,7 +53,7 @@ export function packageInvariantOwners(root: string): PackageInvariantOwner[] {
     })
 }
 
-/** Return all violations of the package-invariant companion contract. */
+/** Return all violations of the package-invariant companion rules. */
 export function collectPackageInvariantViolations(root: string): PackageInvariantViolation[] {
   const violations: PackageInvariantViolation[] = []
   for (const owner of packageInvariantOwners(root)) {

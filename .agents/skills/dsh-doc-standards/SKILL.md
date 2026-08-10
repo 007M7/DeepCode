@@ -5,25 +5,25 @@ description: 'Use when writing, moving, reviewing, or auditing documentation in 
 
 # Applying the DeepSeek Harness Documentation Standard
 
-The contract lives in [docs/AGENTS.md](../../../docs/AGENTS.md). This workflow covers placement, corpus audits, budgets, and validation across Markdown, JSDoc, and code comments. It is guidance, not a script; use [dsh-prose-standard](../dsh-prose-standard/SKILL.md) for required coverage and editorial judgment, and never treat length alone as a defect.
+The documentation rules live in [docs/AGENTS.md](../../../docs/AGENTS.md). This workflow covers placement, corpus audits, budgets, and validation across Markdown, JSDoc, and code comments. It is guidance, not a script; use [dsh-prose-standard](../dsh-prose-standard/SKILL.md) for required coverage and editorial judgment, and never treat length alone as a defect.
 
 ## Sources of truth (read, don't re-summarize)
 
 - [docs/AGENTS.md](../../../docs/AGENTS.md) — hierarchy, tutorial/reference forms, taxonomy, budgets, and slop checklist.
 - [.agents/notes/README.md](../../notes/README.md) — when a decision earns an Agent Note, how to file it, and what goes inside one (the header block, per-lifecycle skeleton, and Alternatives-considered mandate, gated by `verify-agent-note-format`); [docs/postmortem/README.md](../../../docs/postmortem/README.md) — when an incident earns a postmortem.
-- [docs/i18n/README.md](../../../docs/i18n/README.md) — the bilingual pairing contract; editing either side of a pair obligates the counterpart in the same change.
+- [docs/i18n/README.md](../../../docs/i18n/README.md) — the bilingual pairing rules; editing either side of a pair obligates the counterpart in the same change.
 - Root [AGENTS.md](../../../AGENTS.md) — the standing orders whose budget discipline this skill protects.
 - [Archived Agent Notes](../../notes/archived/AGENTS.md) — frozen historical snapshots excluded from editorial maintenance and evolving documentation gates.
 
 ## Review structure before prose
 
-Apply the standard's authoring order to every human-facing document in scope. Do not apply this structural pass to Agent Notes. Classify a postmortem as a reference scoped to one incident; preserve the chronological evidence required by its contract without treating chronology as a teaching sequence.
+Apply the standard's authoring order to every human-facing document in scope. Do not apply this structural pass to Agent Notes. Classify a postmortem as a reference scoped to one incident; preserve its required chronological evidence without treating chronology as a teaching sequence.
 
 1. Locate the document in the repository and navigation trees. State its own subject and identify its direct children.
-2. Set the detail boundary. Keep full detail about the document's subject, summarize direct children by purpose, responsibility, and high-level behavior, and move deeper explanations to their owning descendants with links. Treat test infrastructure as descendant-owned unless it is the document's subject.
+2. Set the permitted level of detail. Keep full detail about the document's subject, summarize direct children by purpose, responsibility, and high-level behavior, and move deeper explanations to their owning descendants with links. Treat test infrastructure as descendant-owned unless it is the document's subject.
 3. Classify the document from its intended use, not its path or title. A tutorial must lead through ordered work to an observable outcome; a reference must support lookup within an explicit scope without requiring sequential reading.
 4. For a tutorial, privately classify the starting reader and concepts as beginner, intermediate, or advanced. Trace each concept to its prerequisites, reorder premature material, and move optional advanced detail to a later tutorial or reference.
-5. Split substantial mixed forms. Keep a small secondary form only behind a clear structural boundary.
+5. Split substantial mixed forms. Put a small secondary form in a clearly labeled section.
 
 Then check constraints that make placement expensive or wrong:
 
@@ -37,7 +37,7 @@ Then check constraints that make placement expensive or wrong:
 After the structural pass, hunt the standard's slop checklist with the cheapest probes first. Verify and fetch the PR's live base, then run `pnpm --silent run change-scope --base <verified-base-ref>` to identify committed and dirty paths before applying semantic judgment. After a retarget or base merge, rerun the report and audit prose introduced by the new base.
 
 1. Measure: `pnpm run verify-doc-budgets --list`, then `git ls-files '*.md' ':(exclude)vendor/**' | xargs wc -w | sort -rn | head -30` to spot unbudgeted outliers.
-2. Hunt reasoning-transcript leakage — narrated history, dead design-session citations, review choreography, control-flow narration, test walkthroughs — with [dsh-trim-cot-leakage](../dsh-trim-cot-leakage/SKILL.md), which owns the taxonomy, recall batteries, and the keep/delete boundary. Preserve only a non-obvious contract or durable rationale; the same rationale repeated beside sibling methods keeps one home.
+2. Hunt reasoning-transcript leakage — narrated history, dead design-session citations, review choreography, control-flow narration, test walkthroughs — with [dsh-trim-cot-leakage](../dsh-trim-cot-leakage/SKILL.md), which defines the taxonomy, recall batteries, and rules for what to keep or delete. Preserve only a non-obvious contract or durable rationale; the same rationale repeated beside sibling methods keeps one home.
 3. Hunt duplication by grepping distinctive phrases. Keep one home and replace other copies with links.
 4. Replace hand-written catalogs, test/status inventories, and JSDoc restatements with the authoritative tree, script, or generated reference.
 5. In `implemented/` Agent Notes, remove migration plans, acceptance-task checklists, and future-tense spec language. Keep concise verification contracts that identify the behaviors and tiers pinning the shipped decision, plus named coverage gaps.

@@ -1,7 +1,7 @@
 // Keyless browser regression for pwsh UI parity with bash: a seeded session
 // whose pwsh call/result is presented by the REAL tool-pwsh on replay (the
 // api-proxy recomputes presentation views from logged args/result content)
-// must render as a bash-shaped terminal card with the parsed exit-status
+// must render with the same terminal card layout as bash and show the parsed exit-status
 // pill — not a generic console-fenced card. The seed is authored, not
 // recorded: its header line carries no `cwd`
 // field (seedSession writes the session cwd itself, and a Windows temp path
@@ -43,7 +43,7 @@ const HAS_PWSH = MODE === 'record' ? false : spawnSync(
   { encoding: 'utf8' },
 ).status === 0
 
-describe.skipIf(MODE === 'record' || !HAS_PWSH)('web e2e: pwsh calls render as bash-shaped terminal cards', () => {
+describe.skipIf(MODE === 'record' || !HAS_PWSH)('web e2e: pwsh calls use the bash terminal-card layout', () => {
   let scaffold: WebScaffold
   let browser: Browser
   let page: Page
@@ -75,7 +75,7 @@ describe.skipIf(MODE === 'record' || !HAS_PWSH)('web e2e: pwsh calls render as b
     await expect.poll(() => result.count(), { timeout: 15_000 }).toBe(1)
     await result.click()
     await page.getByRole('tab', { name: 'Chat', exact: true }).waitFor({ timeout: 15_000 })
-    // The tool row is expand-gated: the settled bash-shaped row carries the
+    // The tool row is expand-gated: the settled row uses the bash layout and carries the
     // shell-family variant, and the terminal card lives in the expanded body.
     const row = page.locator('[data-tool="pwsh"]').first()
     await row.waitFor({ timeout: 15_000 })

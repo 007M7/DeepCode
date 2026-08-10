@@ -293,7 +293,7 @@ const REPLAY_CHUNK_TYPES = new Set<StreamChunk['type']>([
 const FROM_REQUEST_OPEN = '{{fromRequest:'
 const FROM_REQUEST_CLOSE = '}}'
 
-/** Collect every string leaf of one JSON-shaped value, in traversal order. */
+/** Collect every string leaf of one JSON-compatible value, in traversal order. */
 function collectStrings(value: unknown, out: string[]): void {
   if (typeof value === 'string') {
     out.push(value)
@@ -345,7 +345,7 @@ function substituteString(text: string, corpus: string): string {
   }
 }
 
-/** Deep-copy one JSON-shaped value with scripted placeholders resolved. */
+/** Deep-copy one JSON-compatible value with scripted placeholders resolved. */
 function substituteValue(value: unknown, corpus: string): unknown {
   if (typeof value === 'string') {
     return value.includes(FROM_REQUEST_OPEN) ? substituteString(value, corpus) : value

@@ -211,8 +211,8 @@ export function logPath(
  * `packChunks` on, delta-chunk runs pack into `text-chunks` /
  * `reasoning-chunks` / `tool-call-chunks` storage rows; off writes one event
  * per line, byte-identical to the pre-packing layout. Reading is layout-blind
- * either way ({@link scanLog} always decodes rows), so the switch only shapes
- * NEW bytes.
+ * either way ({@link scanLog} always decodes rows), so the switch changes only
+ * newly written bytes.
  * @param events - the batch to serialize, in log order.
  * @param packChunks - whether to pack delta runs into storage rows.
  * @returns the batch's JSONL text; the writer adds the final newline.
