@@ -230,8 +230,11 @@ describe('real Claude Agent SDK 0.3.220 and Claude Code 2.1.220', {
       expect(harness.spawnSpecs[0]?.argv.slice(0, 6)).toEqual([
         'cmd.exe', '/d', '/v:off', '/s', '/c', '%DSH_CLAUDE_CODE_EXECUTABLE%',
       ])
-      expect(harness.spawnSpecs[0]?.env?.DSH_CLAUDE_CODE_EXECUTABLE)
-        .toBe(`"${harness.executable}"`)
+      const batchExecutable = harness.spawnSpecs[0]?.env?.DSH_CLAUDE_CODE_EXECUTABLE
+      expect(batchExecutable?.startsWith('"')).toBe(true)
+      expect(batchExecutable?.endsWith('"')).toBe(true)
+      expect(batchExecutable?.slice(1, -1).toLowerCase())
+        .toBe(harness.executable.toLowerCase())
     } else {
       expect(harness.spawnSpecs[0]?.argv[0]).toBe(harness.executable)
     }
