@@ -58,7 +58,7 @@ export function claudeSpawnSpec(
   const batchShim = platform === 'win32' && (extension === '.cmd' || extension === '.bat')
   const env = sdkEnvironmentOverlay(options.env)
   const argv = batchShim
-    ? ['cmd.exe', '/d', '/s', '/c', `%${WINDOWS_BATCH_EXECUTABLE_ENV}%`, ...options.args]
+    ? ['cmd.exe', '/d', '/v:off', '/s', '/c', `%${WINDOWS_BATCH_EXECUTABLE_ENV}%`, ...options.args]
     : [options.command, ...options.args]
   if (batchShim) env[WINDOWS_BATCH_EXECUTABLE_ENV] = `"${options.command}"`
   return {

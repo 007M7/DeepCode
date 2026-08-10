@@ -464,7 +464,7 @@ describe('official spawn projection', () => {
     }), 7, 'win32')
 
     expect(spec.argv).toEqual([
-      'cmd.exe', '/d', '/s', '/c', '%DSH_CLAUDE_CODE_EXECUTABLE%',
+      'cmd.exe', '/d', '/v:off', '/s', '/c', '%DSH_CLAUDE_CODE_EXECUTABLE%',
       '--output-format', 'stream-json',
     ])
     expect(spec.env).toEqual(expect.objectContaining({

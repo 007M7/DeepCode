@@ -115,7 +115,7 @@ async function realHarness(behavior: MessagesBehavior): Promise<{
   const workspace = join(root, 'workspace')
   const claudeConfig = join(root, 'claude-config')
   const xdgConfig = join(root, 'xdg')
-  const nativeBin = join(root, 'native&bin')
+  const nativeBin = join(root, 'native&%literal%!bang!bin')
   mkdirSync(workspace)
   mkdirSync(claudeConfig)
   mkdirSync(xdgConfig)
@@ -227,9 +227,11 @@ describe('real Claude Agent SDK 0.3.220 and Claude Code 2.1.220', {
     )
     expect(initMessage?.claude_code_version).toBe('2.1.220')
     if (process.platform === 'win32') {
-      expect(harness.spawnSpecs[0]?.argv.slice(0, 5)).toEqual([
-        'cmd.exe', '/d', '/s', '/c', harness.executable,
+      expect(harness.spawnSpecs[0]?.argv.slice(0, 6)).toEqual([
+        'cmd.exe', '/d', '/v:off', '/s', '/c', '%DSH_CLAUDE_CODE_EXECUTABLE%',
       ])
+      expect(harness.spawnSpecs[0]?.env?.DSH_CLAUDE_CODE_EXECUTABLE)
+        .toBe(`"${harness.executable}"`)
     } else {
       expect(harness.spawnSpecs[0]?.argv[0]).toBe(harness.executable)
     }
