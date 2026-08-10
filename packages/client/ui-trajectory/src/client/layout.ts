@@ -12,7 +12,6 @@ import type {
   ToolCallBlock,
   ToolResultNode,
 } from '@deepseek-ai/dsh-client-runtime/client'
-import { extractMarkdownPlainText } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {
   TrajectoryCellProps,
   TrajectorySourceBlock,
@@ -70,9 +69,6 @@ interface TurnBucket {
 type AssistantRequestView = Extract<RequestView, { purpose: 'assistant' }>
 type CompactionRequestView = Extract<RequestView, { purpose: 'compaction' }>
 
-const PREVIEW_SOURCE_CHARACTERS = 2_048
-const PREVIEW_OUTPUT_CHARACTERS = 512
-
 type InputNode = Extract<
   ConversationSnapshot['nodes'][number],
   { kind: 'user' | 'context' }
@@ -110,10 +106,19 @@ function layoutEntryOrder(entry: OrderedLayoutEntry): number {
 
 function inputCellDetail(node: InputNode): Pick<
   TrajectoryCellProps,
-  'text' | 'sourceSeq' | 'messageSource' | 'inputDetail' | 'sourceBlocks' | 'timeSeconds' | 'startedAt'
+  | 'text'
+  | 'previewMarkdown'
+  | 'sourceSeq'
+  | 'messageSource'
+  | 'inputDetail'
+  | 'sourceBlocks'
+  | 'timeSeconds'
+  | 'startedAt'
 > {
+  const previewMarkdown = previewContent(node.content)
   return {
-    text: summarizeContent(node.content),
+    text: '',
+    ...(previewMarkdown === undefined ? {} : { previewMarkdown }),
     sourceSeq: node.seq,
     messageSource: node.source,
     inputDetail: detailContent(node.content),
@@ -293,7 +298,10 @@ export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly T
             ? request.error ?? 'Compaction failed'
             : request.summary === undefined
               ? 'Context compacted'
-              : summarizeContent(request.summary),
+              : '',
+        ...(request.status === 'complete' && request.summary !== undefined
+          ? previewContentProperty(request.summary)
+          : {}),
         sourceSeq: request.startSeq,
         ...(request.summary === undefined
           ? {}
@@ -377,6 +385,7 @@ export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly T
     if (node.kind === 'tool-result') {
       if (!emittedCallIds.has(node.callId)) {
         const toolName = node.call?.name
+        const resultPreview = summarizeResult(node)
         const laidList: LaidCell[] = [{
           absTime: finiteTime(node.callTime ?? node.time),
           ...(toolName !== undefined ? { toolName } : {}),
@@ -386,13 +395,13 @@ export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly T
             index: ++index,
             kind: 'tool',
             sourceSeq: node.seq,
-            text: node.call !== null
+            ...(node.call !== null
               ? summarizeCall(node.call.name, node.call.argsRaw)
-              : summarizeResult(node),
+              : resultAsText(resultPreview)),
             ...(node.call !== null ? { inputDetail: node.call.argsRaw } : {}),
             outputDetail: detailResult(node),
             outputBlocks: node.content.map(block => sourceBlock(block)),
-            result: summarizeResult(node),
+            ...resultPreview,
             callId: node.callId,
             isError: node.isError,
             timeSeconds: durationSeconds(node.time, node.callTime),
@@ -440,7 +449,7 @@ export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly T
       cell: {
         index: ++index,
         kind: 'tool',
-        text: summarizeCall(call.name, call.argsRaw),
+        ...summarizeCall(call.name, call.argsRaw),
         inputDetail: call.argsRaw,
         callId: call.callId,
         timeSeconds: null,
@@ -650,11 +659,14 @@ function expandAssistant(
     recordId: `assistant\u0000${node.turn}\u0000${node.step}`,
     kind: 'message',
     sourceSeq: node.seq,
-    text: messageText !== ''
-      ? summarizeText(messageText)
+    text: messageText !== '' || thinkingText !== ''
+      ? ''
+      : summarizeAssistantActivity(node.blocks),
+    ...(messageText !== ''
+      ? { previewMarkdown: messageText }
       : thinkingText !== ''
-        ? summarizeText(thinkingText)
-        : summarizeAssistantActivity(node.blocks),
+        ? { previewMarkdown: thinkingText }
+        : {}),
     ...(messageText !== '' ? { outputDetail: messageText } : {}),
     ...(thinkingText !== '' ? { thinkingDetail: thinkingText } : {}),
     sourceBlocks: node.blocks.map(block => assistantSourceBlock(block)),
@@ -681,6 +693,7 @@ function expandAssistant(
       : durationSeconds(result.time, result.callTime)
     const callAbs = finiteTime(callStarts.get(block.callId))
     const call = calls.get(block.callId)
+    const resultPreview = result === undefined ? undefined : summarizeResult(result)
     out.push({
       absTime: callAbs,
       toolName: block.name,
@@ -688,14 +701,14 @@ function expandAssistant(
       ...(call === undefined ? {} : { subCalls: call.subCalls }),
       cell: {
         index: ++index, kind: 'tool',
-        text: summarizeCall(block.name, block.argsRaw),
+        ...summarizeCall(block.name, block.argsRaw),
         inputDetail: block.argsRaw,
         callId: block.callId,
         ...(result !== undefined
           ? {
             outputDetail: detailResult(result),
             outputBlocks: result.content.map(block => sourceBlock(block)),
-            result: summarizeResult(result),
+            ...resultPreview,
             isError: result.isError,
           }
           : {}),
@@ -919,6 +932,7 @@ function expandSubCalls(
   let index = startIndex
   for (const sub of subs) {
     const settled = 'kind' in sub
+    const resultPreview = settled ? summarizeResult(sub) : undefined
     const laid: LaidCell = {
       absTime: settled ? finiteTime(sub.callTime ?? sub.time) : finiteTime(sub.time),
       toolName: settled ? sub.call?.name ?? sub.callId : sub.name,
@@ -927,9 +941,11 @@ function expandSubCalls(
         index: ++index,
         kind: 'subtool',
         callId: sub.callId,
-        text: settled
-          ? (sub.call !== null ? summarizeCall(sub.call.name, sub.call.argsRaw) : summarizeResult(sub))
-          : summarizeCall(sub.name, sub.argsRaw),
+        ...(settled
+          ? (sub.call !== null
+              ? summarizeCall(sub.call.name, sub.call.argsRaw)
+              : resultAsText(resultPreview))
+          : summarizeCall(sub.name, sub.argsRaw)),
         ...(settled
           ? (sub.call !== null ? { inputDetail: sub.call.argsRaw } : {})
           : { inputDetail: sub.argsRaw }),
@@ -937,7 +953,7 @@ function expandSubCalls(
           ? {
             outputDetail: detailResult(sub),
             outputBlocks: sub.content.map(block => sourceBlock(block)),
-            result: summarizeResult(sub),
+            ...resultPreview,
             isError: sub.isError,
           }
           : {}),
@@ -958,22 +974,39 @@ function expandSubCalls(
   return out
 }
 
-function summarizeCall(name: string, argsRaw: string): string {
-  const args = trajectoryPreviewText(argsRaw)
-  if (args === '') return name
-  return `${name} · ${args}`
+function summarizeCall(
+  name: string,
+  argsRaw: string,
+): Pick<TrajectoryCellProps, 'text' | 'previewMarkdown'> {
+  return {
+    text: name,
+    ...(argsRaw === '' ? {} : { previewMarkdown: argsRaw }),
+  }
 }
 
-function summarizeResult(node: ToolResultNode): string {
+function summarizeResult(
+  node: ToolResultNode,
+): Pick<TrajectoryCellProps, 'result' | 'resultPreviewMarkdown'> {
   if (node.isError) {
-    return node.error?.code ?? 'error'
+    return { result: node.error?.code ?? 'error' }
   }
   for (const block of node.content) {
     if (block.type === 'text' && typeof block.text === 'string' && block.text !== '') {
-      return summarizeText(block.text)
+      return { result: '', resultPreviewMarkdown: block.text }
     }
   }
-  return 'No output'
+  return { result: 'No output' }
+}
+
+function resultAsText(
+  result: Pick<TrajectoryCellProps, 'result' | 'resultPreviewMarkdown'> | undefined,
+): Pick<TrajectoryCellProps, 'text' | 'previewMarkdown'> {
+  return {
+    text: result?.result ?? '',
+    ...(result?.resultPreviewMarkdown === undefined
+      ? {}
+      : { previewMarkdown: result.resultPreviewMarkdown }),
+  }
 }
 
 function detailResult(node: ToolResultNode): string {
@@ -1009,28 +1042,18 @@ function detailReasoning(content: readonly { type: string; text?: string }[]): s
     .join('\n')
 }
 
-function summarizeContent(content: readonly { type: string; text?: string }[]): string {
+function previewContent(
+  content: readonly { type: string; text?: string }[],
+): string | undefined {
   for (const block of content) {
-    if (block.type === 'text' && typeof block.text === 'string') return summarizeText(block.text)
+    if (block.type === 'text' && typeof block.text === 'string') return block.text
   }
-  return ''
+  return undefined
 }
 
-function summarizeText(text: string): string {
-  return trajectoryPreviewText(text)
-}
-
-/**
- * Build a bounded one-line ledger preview without parsing the complete Markdown document.
- * Full source remains on the cell for the inspector.
- * @param text - Untrusted message, reasoning, payload, or result text.
- * @returns A compact preview capped independently from the retained source.
- */
-export function trajectoryPreviewText(text: string): string {
-  const source = text.slice(0, PREVIEW_SOURCE_CHARACTERS)
-  const compact = extractMarkdownPlainText(source).replace(/\s+/g, ' ').trim()
-  const preview = compact.slice(0, PREVIEW_OUTPUT_CHARACTERS).trimEnd()
-  return source.length < text.length || preview.length < compact.length
-    ? `${preview}…`
-    : preview
+function previewContentProperty(
+  content: readonly { type: string; text?: string }[],
+): Pick<TrajectoryCellProps, 'previewMarkdown'> {
+  const previewMarkdown = previewContent(content)
+  return previewMarkdown === undefined ? {} : { previewMarkdown }
 }

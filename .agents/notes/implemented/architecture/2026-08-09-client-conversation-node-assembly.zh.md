@@ -330,6 +330,8 @@ Assistant streaming 到 final、Tool running 到 settled 只更新同一个 Seat
 
 Trajectory 针对与 Chat 相同的 Assembler 和 Session 事件窗口注册自己的 target 与业务 Definition。它的 target builder 保留 stage-oriented read model，既不消费 Chat Builder 的 legacy slice，也不运行独立 history fold。Chat Builder 为 StatsLine 和顶层公共兼容字段保留 legacy slice；target 专属 Definition 不改变共享的 Context、Reader 或 Location 契约。
 
+Trajectory 的 stage/layout 只保留原始摘要来源和结构数据，不解析 Markdown。Table 的稳定 Record presentation 按内容 memo 单行摘要，并把同一结果用于正文、title 与 aria-label；Detail 只渲染当前选中记录。Timeline 的时序标签只在延迟 Tooltip 实际打开后执行格式化。搜索拥有独立的 per-view `TrajectorySearchIndex`，按稳定 Record identity 保存来源签名和标准化文本；初始窗口立即建立索引，后续新增或变化的 Record 由三秒 throttle 批量提交。查询只读取最近一次提交的索引版本，分页的新一页随下一批一次性进入结果；prepend 与 append 都不会重复解析未变化的历史 Markdown。展示缓存与搜索索引互不借用生命周期。
+
 ## Runtime and render path
 
 ```text

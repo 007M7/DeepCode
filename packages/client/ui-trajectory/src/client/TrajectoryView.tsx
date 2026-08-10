@@ -1,6 +1,6 @@
 /** Trajectory view: compact summary over a turn-aware event ledger. */
 
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ConvViewProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { InjectFace } from '@deepseek-ai/dsh-client-ui-slots'
 import type {
@@ -24,11 +24,13 @@ import {
   type TrajectoryTimeRange,
 } from './timeline.ts'
 import { trajectoryRecordId } from './trajectory-record.ts'
+import { TrajectorySearchIndex } from './trajectory-search-index.ts'
 import { EMPTY_TRAJECTORY_SNAPSHOT } from './trajectory-snapshot-builder.ts'
 import css from './views.module.css'
 
 const EMPTY_TURN_IDS: ReadonlySet<number> = new Set()
 const EMPTY_RECORD_IDS: ReadonlySet<string> = new Set()
+const SEARCH_INDEX_THROTTLE_MS = 3_000
 
 function lastCellIndex(turns: readonly TrajectoryTurnModel[]): number {
   let last = 0
@@ -115,70 +117,6 @@ function addUsage(
   }
 }
 
-function searchableJson(value: unknown): string {
-  if (value === undefined) return ''
-  try {
-    return JSON.stringify(value)
-  } catch {
-    return ''
-  }
-}
-
-function searchMatches(
-  turns: ReturnType<typeof deriveTrajectoryLayout>,
-  query: string,
-): ReadonlySet<number> | null {
-  const terms = query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean)
-  if (terms.length === 0) return null
-  const matches = new Set<number>()
-  for (const turn of turns) {
-    for (const group of turn.groups) {
-      for (const cell of group.cells) {
-        if (cell.requestOnly === true) continue
-        const blocks = [
-          ...(cell.sourceBlocks ?? []),
-          ...(cell.outputBlocks ?? []),
-        ]
-        const text = [
-          turn.turn === null ? 'between turns' : `turn ${turn.turn}`,
-          group.title,
-          cell.kind,
-          cell.kind === 'message' ? 'assistant' : undefined,
-          cell.text,
-          cell.inputDetail,
-          cell.outputDetail,
-          cell.thinkingDetail,
-          cell.schemaDetail,
-          cell.result,
-          cell.callId,
-          ...blocks.flatMap(block => [
-            block.type,
-            block.content,
-            block.callId,
-            block.toolName,
-            block.imageAlt,
-          ]),
-          searchableJson(cell.messageSource),
-          searchableJson(cell.promptDetail),
-          searchableJson(cell.previousPromptDetail),
-        ].filter((value): value is string => typeof value === 'string')
-          .join('\n')
-          .toLocaleLowerCase()
-        if (terms.every(term => text.includes(term))) matches.add(cell.index)
-      }
-    }
-  }
-  return matches
-}
-
-function mergeSearchMatches(
-  finalized: ReadonlySet<number> | null,
-  partial: ReadonlySet<number> | null,
-): ReadonlySet<number> | null {
-  if (finalized === null || partial === null) return null
-  return new Set([...finalized, ...partial])
-}
-
 export function TrajectoryView({
   useSession, useDuration, loadOlder, setActualDuration,
   inspect, onInspectDone,
@@ -190,6 +128,10 @@ export function TrajectoryView({
   const actualDuration = useDuration(value => value)
   const [actualTime, setActualTime] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
+  const [searchIndex] = useState(() => new TrajectorySearchIndex())
+  const [searchIndexRevision, setSearchIndexRevision] = useState(0)
+  const searchIndexTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const searchIndexInitialized = useRef(false)
   const [selectedTimelineIndex, setSelectedTimelineIndex] = useState<number | null>(null)
   const [timelineRecordSelection, setTimelineRecordSelection] = useState<{
     readonly index: number
@@ -340,28 +282,59 @@ export function TrajectoryView({
   const timelineMode: TrajectoryTimelineMode = actualDuration
     ? actualTime ? 'actual' : 'duration'
     : actualTime ? 'time' : 'sequence'
-  const finalizedSearchMatches = useMemo(
-    () => searchMatches(finalized.turns, searchQuery),
-    [finalized, searchQuery],
-  )
   const partialSearchTurns = useMemo(
     () => appendTrajectoryPartialLayout([], partial, finalized.lastIndex),
     [finalized.lastIndex, partial],
   )
+  const searchLayouts = useMemo(
+    () => [finalized.turns, partialSearchTurns] as const,
+    [finalized, partialSearchTurns],
+  )
+  const latestSearchLayouts = useRef(searchLayouts)
+  latestSearchLayouts.current = searchLayouts
+  useEffect(() => {
+    if (!searchIndexInitialized.current) {
+      searchIndexInitialized.current = true
+      if (searchIndex.update(searchLayouts)) {
+        setSearchIndexRevision(revision => revision + 1)
+      }
+      return
+    }
+    if (searchIndexTimer.current !== null) return
+    searchIndexTimer.current = setTimeout(() => {
+      searchIndexTimer.current = null
+      if (searchIndex.update(latestSearchLayouts.current)) {
+        setSearchIndexRevision(revision => revision + 1)
+      }
+    }, SEARCH_INDEX_THROTTLE_MS)
+  }, [searchIndex, searchLayouts])
+  useEffect(() => () => {
+    if (searchIndexTimer.current !== null) clearTimeout(searchIndexTimer.current)
+  }, [])
   const streamingCells = useMemo(
     () => partialSearchTurns.flatMap(turn =>
       turn.groups.flatMap(group => group.cells),
     ),
     [partialSearchTurns],
   )
-  const partialSearchMatches = useMemo(
-    () => searchMatches(partialSearchTurns, searchQuery),
-    [partialSearchTurns, searchQuery],
+  const searchMatchRecordIds = useMemo(
+    () => searchIndex.search(searchQuery),
+    [searchIndex, searchIndexRevision, searchQuery],
   )
-  const searchMatchIndexes = useMemo(
-    () => mergeSearchMatches(finalizedSearchMatches, partialSearchMatches),
-    [finalizedSearchMatches, partialSearchMatches],
-  )
+  const searchMatchIndexes = useMemo(() => {
+    if (searchMatchRecordIds === null) return null
+    const indexes = new Set<number>()
+    for (const turns of searchLayouts) {
+      for (const turn of turns) {
+        for (const group of turn.groups) {
+          for (const cell of group.cells) {
+            if (searchMatchRecordIds.has(trajectoryRecordId(cell))) indexes.add(cell.index)
+          }
+        }
+      }
+    }
+    return indexes
+  }, [searchLayouts, searchMatchRecordIds])
   const timelineRange = timelineSelection
   const timelineFocusIndexes = useMemo(
     () => timelineRange === null

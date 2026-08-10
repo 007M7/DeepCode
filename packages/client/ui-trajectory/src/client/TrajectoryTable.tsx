@@ -24,7 +24,8 @@ import {
   groupTrajectoryVirtualRows, trajectoryVirtualRecordKey,
 } from './trajectory-virtual-rows.ts'
 import type { TrajectoryVirtualRow } from './trajectory-virtual-rows.ts'
-import { trajectoryPreviewText, type TrajectoryTurnModel } from './layout.ts'
+import type { TrajectoryTurnModel } from './layout.ts'
+import { trajectoryPreviewText } from './trajectory-preview.ts'
 import css from './TrajectoryTable.module.css'
 
 const BOTTOM_FOLLOW_THRESHOLD_PX = 2
@@ -903,6 +904,11 @@ function detailTabs(record: TableRecord): readonly DetailTabItem[] {
 
 function recordDisplayText(cell: TrajectoryCellProps): string {
   if (isToolCallOnly(cell)) return ''
+  if (cell.previewMarkdown !== undefined) {
+    const preview = trajectoryPreviewText(cell.previewMarkdown)
+    if (cell.text === '') return preview
+    return preview === '' ? cell.text : `${cell.text} · ${preview}`
+  }
   if (cell.text !== '') return cell.text
   const markdown = cell.kind === 'user' || cell.kind === 'context'
     ? cell.inputDetail
@@ -910,6 +916,12 @@ function recordDisplayText(cell: TrajectoryCellProps): string {
       ? cell.outputDetail ?? cell.thinkingDetail
       : undefined
   return markdown === undefined ? '' : trajectoryPreviewText(markdown)
+}
+
+function recordResultText(cell: TrajectoryCellProps): string | undefined {
+  return cell.resultPreviewMarkdown === undefined
+    ? cell.result
+    : trajectoryPreviewText(cell.resultPreviewMarkdown)
 }
 
 function toolCallTextParts(
@@ -930,6 +942,71 @@ function isToolCallOnly(cell: TrajectoryCellProps): boolean {
     && !cell.outputDetail
     && !cell.thinkingDetail
     && cell.text === 'Tool call only'
+}
+
+interface RecordPresentationValue {
+  displayText: string
+  listDisplayText: string
+  resultText: string | undefined
+  toolCallOnly: boolean
+  toolCallText: ToolCallTextParts | undefined
+}
+
+function RecordPresentation({
+  cell,
+  children,
+}: {
+  cell: TrajectoryCellProps
+  children: (value: RecordPresentationValue) => ReactNode
+}) {
+  const displayText = useMemo(
+    () => recordDisplayText(cell),
+    [
+      cell.kind, cell.text, cell.previewMarkdown,
+      cell.inputDetail, cell.outputDetail, cell.thinkingDetail,
+    ],
+  )
+  const resultText = useMemo(
+    () => recordResultText(cell),
+    [cell.result, cell.resultPreviewMarkdown],
+  )
+  const toolCallOnly = isToolCallOnly(cell)
+  const toolCallText = toolCallTextParts(cell.kind, displayText)
+  const listDisplayText = toolCallOnly
+    ? '(tool call only)'
+    : toolCallText === undefined
+      ? displayText
+      : [toolCallText.name, toolCallText.args].filter(Boolean).join(' ')
+  return children({
+    displayText,
+    listDisplayText,
+    resultText,
+    toolCallOnly,
+    toolCallText,
+  })
+}
+
+function RecordListText({
+  displayText,
+  toolCallOnly,
+  toolCallText,
+}: Pick<RecordPresentationValue, 'displayText' | 'toolCallOnly' | 'toolCallText'>) {
+  if (toolCallOnly) {
+    return <span className={css.toolCallOnly}>(tool call only)</span>
+  }
+  if (toolCallText === undefined) return displayText || '—'
+  return (
+    <>
+      <span className={css.toolCallNameTypeface}>
+        {toolCallText.name || '—'}
+      </span>
+      {toolCallText.args !== undefined && (
+        <span className={css.toolCallPayload}>
+          {toolCallText.args}
+        </span>
+      )}
+    </>
+  )
 }
 
 function MarkdownFragment({
@@ -2131,15 +2208,12 @@ export function TrajectoryTable({
                 />
               </tr>
             )}
-            {renderedRecords.map(({ record, position, terminalRequestBoundary }) => {
-              const displayText = recordDisplayText(record.cell)
-              const toolCallOnly = isToolCallOnly(record.cell)
-              const toolCallText = toolCallTextParts(record.cell.kind, displayText)
-              const listDisplayText = toolCallOnly
-                ? '(tool call only)'
-                : toolCallText === undefined
-                  ? displayText
-                  : [toolCallText.name, toolCallText.args].filter(Boolean).join(' ')
+            {renderedRecords.map(({ record, position, terminalRequestBoundary }) => (
+              <RecordPresentation
+                key={trajectoryVirtualRecordKey(record)}
+                cell={record.cell}
+              >
+                {({ displayText, listDisplayText, resultText, toolCallOnly, toolCallText }) => {
               const isCollapsedSummary = record.collapsedSummary !== undefined
               const isRequestOnly = record.cell.requestOnly === true
               const isInitialSystem = record.cell.kind === 'system'
@@ -2169,7 +2243,6 @@ export function TrajectoryTable({
                 : activeTurn === record.turn
               return (
                 <tr
-                  key={trajectoryVirtualRecordKey(record)}
                   tabIndex={isRequestOnly ? -1 : 0}
                   aria-rowindex={position + 1}
                   aria-label={isCollapsedSummary
@@ -2348,37 +2421,26 @@ export function TrajectoryTable({
                         )
                         : (
                           <span
-                            className={record.cell.result === undefined ? css.contentText : css.resultPreview}
-                            title={record.cell.result === undefined
+                            className={resultText === undefined ? css.contentText : css.resultPreview}
+                            title={resultText === undefined
                               ? listDisplayText
-                              : `${listDisplayText} → ${record.cell.result}`}
+                              : `${listDisplayText} → ${resultText}`}
                           >
-                            <span className={record.cell.result === undefined ? undefined : css.resultRequest}>
-                              {toolCallOnly
-                                ? <span className={css.toolCallOnly}>(tool call only)</span>
-                                : toolCallText === undefined
-                                  ? listDisplayText || '—'
-                                  : (
-                                    <>
-                                      <span className={css.toolCallNameTypeface}>
-                                        {toolCallText.name || '—'}
-                                      </span>
-                                      {toolCallText.args !== undefined && (
-                                        <span className={css.toolCallPayload}>
-                                          {toolCallText.args}
-                                        </span>
-                                      )}
-                                    </>
-                                  )}
+                            <span className={resultText === undefined ? undefined : css.resultRequest}>
+                              <RecordListText
+                                displayText={displayText}
+                                toolCallOnly={toolCallOnly}
+                                toolCallText={toolCallText}
+                              />
                             </span>
-                            {record.cell.result !== undefined && (
+                            {resultText !== undefined && (
                               <span className={record.cell.isError ? `${css.inlineResult} ${css.error}` : css.inlineResult}>
                                 <span className={css.arrow}>→</span>
-                                <span className={record.cell.result === 'No output'
+                                <span className={resultText === 'No output'
                                   ? `${css.inlineResultText} ${css.noOutputText}`
                                   : css.inlineResultText}
                                 >
-                                  {record.cell.result}
+                                  {resultText}
                                 </span>
                               </span>
                             )}
@@ -2387,7 +2449,9 @@ export function TrajectoryTable({
                   </td>
                 </tr>
               )
-            })}
+                }}
+              </RecordPresentation>
+            ))}
             {virtualBottom > 0 && (
               <tr className={css.virtualSpacer} data-virtual-spacer="bottom" aria-hidden="true">
                 <td
