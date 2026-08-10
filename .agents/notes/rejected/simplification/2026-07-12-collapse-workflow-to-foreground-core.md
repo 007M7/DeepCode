@@ -6,11 +6,15 @@ English | [中文](2026-07-12-collapse-workflow-to-foreground-core.zh.md)
 
 ## Problem
 
-The workflow capability carries an observe-only lifecycle beside its execution handle. That surface can look removable because the script still completes without a UI listener, but it is the only provider-neutral source of the actual members that started, their exact labels and phases, and their paired outcomes.
+The workflow capability executes foreground JavaScript that composes subagents, but it also carries an unconsumed progress-observation system. No production listener subscribes to any of the six `workflow/*` events; listeners exist only in workflow tests. Nevertheless the seam defines run/phase/agent outcome payloads, the worker sends phase/log/agent lifecycle protocol messages, the host forwards them through a `liveAgents` pairing ledger, and the engine maintains run ids solely to correlate those notifications.
 
-The top-level `dsh-tool-workflow` consumer now uses those events to write four minimal `tool-workflow/*` facts into the calling parent Session, and `ui-workflow-run` rebuilds them into a durable Chat node. The consumer deliberately owns the projection because it alone holds the calling Agent, knows whether the tool execution is top-level, and can keep recording failure separate from workflow execution. `WorkflowRun.id` and `meta` therefore correlate live engine events with that exact durable record rather than duplicating presentation state.
+The progress vocabulary is not merely unused; it cannot serve its only named future owner without redesign. `WorkflowRunInfo` contains `{id, meta}` but no parent agent, session, or tool-call identity, while the model-facing tool never exposes the run id. A global ACP listener could not route an event to the correct client session. `meta.phases` is never consulted, `phase(title)` does not validate against it, phase `detail`/`model` and agent `label`/`phase` feed only events, and `whenToUse` is validated and copied but never rendered or selected. `phase()` and `log()` still cross the worker boundary despite having no receiver.
 
-Deleting the event vocabulary, member labels or phases, or run identity would remove the current replay and navigation result rather than merely simplify unused scaffolding. The rejected proposal below remains useful as the contraction to avoid; [durable workflow runs in Chat](../../implemented/feature/2026-08-10-durable-workflow-runs-in-chat.md) owns the present consumer and boundaries.
+The live handle repeats event-era data after those observers disappear. `WorkflowRun.id` has no non-event consumer, while the tool reads `run.meta.name` only to render a value it already owns as `args.meta.name`; neither belongs on the execution/cancellation handle.
+
+Cancellation also has two public channels for one synchronous start. `WorkflowStartRequest.signal` is passed to the worker host, while the sole production caller separately bridges the same signal to `WorkflowRun.cancel()`. Because `start()` returns the run before control can yield, there is no readiness window that requires request-time cancellation; the duplicate signal adds host listener/disarm state without closing a race.
+
+`WorkflowError.fatal` is the same speculative branch in miniature: every production construction is fatal, `fatal: false` exists only in tests, and combinators already distinguish workflow failures with `instanceof`.
 
 ## Proposal
 
@@ -20,7 +24,7 @@ Amend the implemented dynamic-workflow Agent Note and update the seam/tool/worke
 
 ## Alternatives considered
 
-**Move durable recording into the workflow engine.** The engine knows run and member lifecycle but does not own the calling parent Session or the top-level-versus-nested tool boundary. Giving it those facts would couple a provider seam to one consumer and make recording failure part of engine execution. The tool-owned projection adds the missing ownership without widening worker messages or the service contract.
+**Keep the prebuilt observation vocabulary for a future UI.** The current shape resembles Claude Code dynamic-workflow metadata, and the host deliberately pairs each forwarded agent start with either the worker's end or a synthesized terminal end. Removing it gives up compatibility-by-shape and makes progress UI a new design task, but the existing payloads still lack routable ownership, so balanced lifecycles alone cannot make the named ACP owner viable without redesign.
 
 ## Acceptance criteria
 

@@ -28,7 +28,7 @@
 {"type":"assistant/chunk","seq":173,"time":1783600640862,"data":{"turn":1,"step":2,"chunk":{"type":"block-start","index":0,"blockType":"reasoning"}}}
 {"type":"reasoning-chunks","seq0":174,"time0":1783600640862,"data":{"turn":1,"step":2,"index":0,"dt":[0,0,0,0,2,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],"texts":["The"," workflow"," returned"," successfully"," with"," the"," reply"," \"","WF","_CH","ILD","_OK","\"."," Now"," I"," need"," to"," reply"," with"," exactly"," \"","WORK","FL","OW","_D","ONE","\""," and"," stop","."]}}
 {"type":"assistant/chunk","seq":204,"time":1783600640865,"data":{"turn":1,"step":2,"chunk":{"type":"block-start","index":1,"blockType":"text"}}}
-{"type":"text-chunks","seq0":205,"time0":1783600640865,"data":{"turn":1,"step":2,"index":1,"dt":[0,0,1898159500,231656974],"texts":["WORK","FL","OW","_D","ONE"]}}
+{"type":"text-chunks","seq0":205,"time0":1783600640865,"data":{"turn":1,"step":2,"index":1,"dt":[0,0,0,0],"texts":["WORK","FL","OW","_D","ONE"]}}
 {"type":"assistant/chunk","seq":210,"time":1786359246756,"data":{"turn":1,"step":2,"chunk":{"type":"block-end","index":0,"block":{"type":"reasoning","text":"The workflow returned successfully with the reply \"WF_CHILD_OK\". Now I need to reply with exactly \"WORKFLOW_DONE\" and stop."}}}}
 {"type":"assistant/chunk","seq":211,"time":1786359246756,"data":{"turn":1,"step":2,"chunk":{"type":"block-end","index":1,"block":{"type":"text","text":"WORKFLOW_DONE"}}}}
 {"type":"assistant/chunk","seq":212,"time":1786359246756,"data":{"turn":1,"step":2,"chunk":{"type":"usage","usage":{"inputTokens":328,"outputTokens":36,"cacheReadTokens":3072,"reasoningTokens":30}}}}

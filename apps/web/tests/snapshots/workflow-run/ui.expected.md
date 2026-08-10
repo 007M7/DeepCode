@@ -13,12 +13,12 @@
   - img
   - img
   - text: Tool call workflow ·
-- button "snapshot-flow 1 members Completed" [expanded]:
+- button "snapshot-flow 1 member Completed" [expanded]:
   - img
-  - text: snapshot-flow 1 members Completed
-- button "Run 1 members Completed 1" [expanded]:
+  - text: snapshot-flow 1 member Completed
+- button "Run 1 member Completed 1" [expanded]:
   - img
-  - text: Run 1 members Completed 1
+  - text: Run 1 member Completed 1
 - text: Reply with exactly the word WF_CHILD_OK and not… Completed
 - button "Think The workflow returned successfully with the reply \"WF_CHILD_OK\". Now I need to reply with exactly \"WORKFLOW_DONE\" and stop.":
   - img

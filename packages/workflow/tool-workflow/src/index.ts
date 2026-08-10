@@ -289,6 +289,8 @@ export function apply(ctx: Context, config: Config): void {
         signal: exec.signal,
       })
       const recordsRun = exec.parent === undefined
+      // The shipped worker-thread engine publishes member events from later
+      // worker messages, after start() returns and this run record is active.
       if (recordsRun) recorder.start(parent.session, run)
 
       // Bridge the tool's abort signal to the run: if the parent step is aborted while the
@@ -317,8 +319,11 @@ export function apply(ctx: Context, config: Config): void {
           // Keep member listeners alive through disposal: an engine may
           // synthesize cancelled member endings while reaching quiescence.
           await run.dispose()
-          /* v8 ignore next -- WorkflowRun.result never rejects by contract, so result is assigned before finally. */
-          if (recordsRun && result !== undefined) recorder.finish(run.id, result.stopReason)
+          if (recordsRun) {
+            /* v8 ignore next -- WorkflowRun.result never rejects by contract, so result is assigned before finally. */
+            if (result === undefined) throw new Error('workflow run settled without a result')
+            recorder.finish(run.id, result.stopReason)
+          }
         } finally {
           if (recordsRun) recorder.abandon(run.id)
         }

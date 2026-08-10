@@ -6,7 +6,8 @@ export const NS = 'workflowRun'
 /** Simplified Chinese dictionary (the key-set source of truth). */
 export const zh = {
   'run.title': '{name}',
-  'run.members': '{count} 个成员',
+  'run.members.one': '{count} 个成员',
+  'run.members.other': '{count} 个成员',
   'run.empty': '没有启动成员',
   'phase.unassigned': '未分阶段',
   'phase.empty': '空阶段名',
@@ -27,7 +28,8 @@ export const zh = {
 /** English dictionary (same key set). */
 export const en: Record<WorkflowRunKey, string> = {
   'run.title': '{name}',
-  'run.members': '{count} members',
+  'run.members.one': '{count} member',
+  'run.members.other': '{count} members',
   'run.empty': 'No members started',
   'phase.unassigned': 'Unphased',
   'phase.empty': 'Empty phase name',

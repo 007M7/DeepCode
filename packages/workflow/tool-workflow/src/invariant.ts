@@ -128,11 +128,6 @@ function applyEvent(trace: WorkflowTrace, event: SessionEvent, fail: InvariantFa
   }
 }
 
-/** Apply one cold-load or live-append candidate through the package reporter. */
-function applyChecked(trace: WorkflowTrace, event: SessionEvent, fail: InvariantFailure): void {
-  applyEvent(trace, event, fail)
-}
-
 /** Install an independent incremental fold over every attached Session. */
 const install: InvariantInstaller = Object.assign((ctx: Context, fail: InvariantFailure) => {
   const traces = new WeakMap<Session, WorkflowTrace>()
@@ -140,7 +135,7 @@ const install: InvariantInstaller = Object.assign((ctx: Context, fail: Invariant
 
   const seed = (session: Session): WorkflowTrace => {
     const trace: WorkflowTrace = new Map()
-    for (const event of session.events.filter(isWorkflowRecordEvent)) applyChecked(trace, event, fail)
+    for (const event of session.events.filter(isWorkflowRecordEvent)) applyEvent(trace, event, fail)
     traces.set(session, trace)
     return trace
   }
@@ -152,7 +147,7 @@ const install: InvariantInstaller = Object.assign((ctx: Context, fail: Invariant
     if (!isWorkflowRecordEvent(event)) return
     // session/event dispatch follows list() or session/created seeding.
     const trace = cloneTraceForEvent(traces.get(session) as WorkflowTrace, event, fail)
-    applyChecked(trace, event, fail)
+    applyEvent(trace, event, fail)
     staged.set(event, { session, trace })
   }, { global: true })
   ctx.on('session/event', (session, event) => {

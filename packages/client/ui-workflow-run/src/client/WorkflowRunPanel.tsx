@@ -1,9 +1,9 @@
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import {
   DisclosureRow, IconChevronRightOutline14, StateDot, type StateDotState,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
+import { shallowEqual, type SessionId, type SessionListState } from '@deepseek-ai/dsh-client-runtime/client'
 import type { WorkflowRunKey } from './locales.ts'
 import type {
   WorkflowRunMemberData, WorkflowRunPhaseData, WorkflowRunStatus,
@@ -58,6 +58,10 @@ function statusCount(
   return t(`statusCount.${status}`, { count })
 }
 
+function memberCount(count: number, t: WorkflowRunPanelProps['t']): string {
+  return t(count === 1 ? 'run.members.one' : 'run.members.other', { count })
+}
+
 function phaseStatusSummary(members: readonly WorkflowRunMemberData[], t: WorkflowRunPanelProps['t']): string {
   const counts = new Map<WorkflowRunStatus, number>()
   for (const member of members) counts.set(member.status, (counts.get(member.status) ?? 0) + 1)
@@ -69,6 +73,28 @@ function phaseStatusSummary(members: readonly WorkflowRunMemberData[], t: Workfl
     ? ['completed' as const, ...active]
     : active
   return visible.map(status => statusCount(status, count(status), t)).join(' · ')
+}
+
+function navigableMembers(
+  sessions: SessionListState,
+  phases: readonly WorkflowRunPhaseData[],
+  parentId: SessionId,
+): readonly SessionId[] {
+  const ordinary = new Set(sessions.ids)
+  const result: SessionId[] = []
+  for (const phase of phases) {
+    for (const member of phase.members) {
+      const summary = sessions.byId[member.childId]
+      if (member.status === 'running'
+        && ordinary.has(member.childId)
+        && summary?.origin === 'subagent'
+        && summary.parentId === parentId
+        && summary.running) {
+        result.push(member.childId)
+      }
+    }
+  }
+  return result
 }
 
 function RunHeader({ count, name, onToggle, open, status, t }: {
@@ -95,7 +121,7 @@ function RunHeader({ count, name, onToggle, open, status, t }: {
       collapsedContent={(
         <>
           <span className={css.separator} aria-hidden />
-          <span className={css.runSummary}>{t('run.members', { count })}</span>
+          <span className={css.runSummary}>{memberCount(count, t)}</span>
           <span className={css.statusTail} data-status={status}>
             <StateDot state={dotState(status)} />
             <span>{t(STATUS_KEYS[status])}</span>
@@ -138,7 +164,7 @@ function MemberRow({ member, navigable, openSession, t }: {
 
 function PhaseSection({ phase, navigable, openSession, t }: {
   readonly phase: WorkflowRunPhaseData
-  readonly navigable: ReadonlySet<SessionId>
+  readonly navigable: readonly SessionId[]
   readonly openSession: WorkflowRunInjected['openSession']
   readonly t: WorkflowRunPanelProps['t']
 }) {
@@ -161,7 +187,7 @@ function PhaseSection({ phase, navigable, openSession, t }: {
       collapsedContent={(
         <>
           <span className={css.separator} aria-hidden />
-          <span className={css.phaseCount} data-phase-count>{t('run.members', { count: phase.members.length })}</span>
+          <span className={css.phaseCount} data-phase-count>{memberCount(phase.members.length, t)}</span>
           <span className={css.phaseStatus} data-phase-status-text>{phaseStatusSummary(phase.members, t)}</span>
         </>
       )}
@@ -171,7 +197,7 @@ function PhaseSection({ phase, navigable, openSession, t }: {
           <MemberRow
             key={member.seq}
             member={member}
-            navigable={navigable.has(member.childId)}
+            navigable={navigable.includes(member.childId)}
             openSession={openSession}
             t={t}
           />
@@ -184,25 +210,11 @@ function PhaseSection({ phase, navigable, openSession, t }: {
 /** Render one durable workflow run with independent run and phase disclosure. */
 export function WorkflowRunPanel({ node, sessionId, useSessions, openSession, t }: WorkflowRunPanelProps) {
   const [open, setOpen] = useState(() => node.data.status === 'running')
-  const sessions = useSessions(value => value)
   const memberCount = node.data.phases.reduce((count, phase) => count + phase.members.length, 0)
-  const navigable = useMemo(() => {
-    const ordinary = new Set(sessions.ids)
-    const result = new Set<SessionId>()
-    for (const phase of node.data.phases) {
-      for (const member of phase.members) {
-        const summary = sessions.byId[member.childId]
-        if (member.status === 'running'
-          && ordinary.has(member.childId)
-          && summary?.origin === 'subagent'
-          && summary.parentId === sessionId
-          && summary.running) {
-          result.add(member.childId)
-        }
-      }
-    }
-    return result
-  }, [node.data.phases, sessionId, sessions])
+  const navigable = useSessions(
+    sessions => navigableMembers(sessions, node.data.phases, sessionId),
+    shallowEqual,
+  )
   return (
     <section className={css.root} data-workflow-run data-run-status={node.data.status}>
       <RunHeader

@@ -7,7 +7,7 @@ import {
 } from '@deepseek-ai/dsh-client-runtime/client'
 import type {
   ChatConversationViewNode, ConversationEventInput, ConversationMatch, ConversationNodeDefinition,
-  ConversationViewDefinition, ConversationViewNode, SessionId, SessionListState,
+  ConversationViewDefinition, SessionId, SessionListState,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import { apply as applyLocale } from '@deepseek-ai/dsh-client-locale/client'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
@@ -517,5 +517,3 @@ describe('plugin lifecycle', () => {
     expect(registered).toEqual(['@deepseek-ai/dsh-client-ui-workflow-run'])
   })
 })
-
-void ({} as ConversationViewNode)

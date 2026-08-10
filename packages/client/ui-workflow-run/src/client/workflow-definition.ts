@@ -80,8 +80,7 @@ function statusFromOutcome(outcome: WorkflowAgentOutcome): WorkflowRunStatus {
   }
 }
 
-function locationClosed(location: ConversationLocation | undefined): boolean {
-  if (location === undefined) return false
+function locationClosed(location: ConversationLocation): boolean {
   if (location.kind === 'step') {
     return location.step.status === 'closed' || location.turn.status === 'closed'
   }
@@ -90,11 +89,11 @@ function locationClosed(location: ConversationLocation | undefined): boolean {
 
 function projectWorkflow(
   context: ConversationNodeContext<WorkflowState>,
-): WorkflowRunChatData | undefined {
-  const state = context.state
-  if (state === undefined) return undefined
+  location: ConversationLocation,
+): WorkflowRunChatData {
+  const state = context.state as WorkflowState
   const interrupted = state.stopReason === undefined
-    && locationClosed(context.start?.location ?? context.matches[0]?.location)
+    && locationClosed(location)
   const phases = new Map<string, { phase: string | null; members: WorkflowRunMemberData[] }>()
   for (const member of state.members) {
     const phase = member.phase === undefined ? null : member.phase
@@ -177,9 +176,8 @@ export const workflowRunDefinition: ConversationNodeDefinition<WorkflowState> = 
     return context.state
   },
   buildViewNode: (context, target): ChatConversationViewNode | null => {
-    if (target !== 'chat') return null
-    const data = projectWorkflow(context)
-    if (data === undefined || context.start === undefined) return null
+    if (target !== 'chat' || context.start === undefined) return null
+    const data = projectWorkflow(context, context.start.location)
     return {
       key: context.key,
       kind: 'workflow-run',
