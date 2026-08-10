@@ -105,6 +105,8 @@ async function tightenModes(dir: string): Promise<void> {
     if (entry.isDirectory()) {
       await tightenModes(target)
     } else {
+      /* v8 ignore next -- Windows mode bits cannot represent POSIX owner-execute state;
+       * the Windows native gate preserves the DACL while the POSIX suite covers this branch. */
       await chmod(target, ((await stat(target)).mode & 0o100) === 0 ? 0o600 : 0o700)
     }
   }
