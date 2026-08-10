@@ -1589,7 +1589,7 @@ describe('per-agent presentation', () => {
   })
 
   it('inherits a STANDING preset scope\'s mode down the chain, agents beside it unaffected', async () => {
-    const { setScopeParent } = await import('@deepseek-ai/dsh-scope')
+    const { bindScopeParent } = await import('@deepseek-ai/dsh-scope')
     const { ctx, systemPrompt } = await setup({ mode: 'native' })
     registerEcho(ctx)
     // The preset's standing scope declares once; the agent only PARENTS to it
@@ -1597,7 +1597,7 @@ describe('per-agent presentation', () => {
     const standing = await mintAgentScope(ctx, 'preset:code-like')
     standing.scope.ctx.tools.presentAs('code')
     const joined = await mintAgentScope(ctx, 'joined-agent')
-    setScopeParent(joined.agent, standing.agent)
+    bindScopeParent(joined.agent, standing.agent)
     const loner = await mintAgentScope(ctx, 'loner-agent')
 
     expect(ctx.tools.get(RUN_CODE_NAME, joined.agent)).toBeDefined()

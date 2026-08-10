@@ -217,6 +217,13 @@ describe('sqlite backend specifics', () => {
     await chmod(dir, 0o700)
   })
 
+  it('propagates an invalid database filename before opening SQLite', async () => {
+    const path = await freshDbPath()
+    const backend = backendAt(`${path}\0invalid`)
+    await expect(backend.kv.open(DESCRIPTOR)).rejects.toThrow(/null bytes/i)
+    await backend.close()
+  })
+
   it('preserves the mode of an existing database file', async () => {
     if (process.platform === 'win32') return
     const path = await freshDbPath()

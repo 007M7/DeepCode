@@ -16,7 +16,7 @@ import AgentPresets, {
   COMPOSITION_FILE, leakedServices, livePresetMounts, mountPreset, PresetMountError, serviceForAgent,
 } from '@deepseek-ai/dsh-agent-presets'
 import type { Config } from '@deepseek-ai/dsh-agent-presets'
-import { createScope, scopeOf, setScopeParent } from '@deepseek-ai/dsh-scope'
+import { bindScopeParent, createScope, scopeOf } from '@deepseek-ai/dsh-scope'
 
 declare module 'cordis' {
   interface Context {
@@ -216,7 +216,7 @@ describe('rejecting a composition that cannot be used', () => {
     const loner = createScope(ctx, { test: 'loner' })
     expect(serviceForAgent(ctx, { ctx: loner.ctx }, 'fixtureIsolatedSvc')).toBeUndefined()
     const orphan = createScope(ctx, { test: 'orphan' })
-    setScopeParent(scopeOf(orphan.ctx)!, { agentPreset: 'never-mounted' })
+    bindScopeParent(scopeOf(orphan.ctx)!, { agentPreset: 'never-mounted' })
     expect(serviceForAgent(ctx, { ctx: orphan.ctx }, 'fixtureIsolatedSvc')).toBeUndefined()
   })
 
@@ -410,8 +410,9 @@ describe('replacing a composition', () => {
   })
 
   it('composes an agent that had nothing installed', async () => {
-    // An agent created without a preset has no subtree to discard, so the
-    // swap is a plain mount rather than a restore-on-failure path.
+    // An agent created without a preset has no binding to re-link, so the
+    // switch is its first bind — exactly a mount — and once bound only the
+    // roster's kept binding can move it again.
     const handle = await ctx.agents.create({ sessionId: SessionId('sess-bare') })
 
     await ctx.agentPresets.recompose(handle.agent.ctx, 'minimal')

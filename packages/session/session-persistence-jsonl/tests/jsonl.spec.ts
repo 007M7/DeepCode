@@ -62,6 +62,17 @@ async function expectFlushError(promise: Promise<unknown>, message: RegExp): Pro
   throw new Error('expected flush to reject')
 }
 
+async function expectFlushCode(promise: Promise<unknown>, codes: readonly string[]): Promise<void> {
+  try {
+    await promise
+  } catch (error) {
+    expect(error).toBeInstanceOf(Error)
+    expect(codes).toContain((error as NodeJS.ErrnoException).code)
+    return
+  }
+  throw new Error('expected flush to reject')
+}
+
 async function freshRoot(): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), 'dsh-jsonl-'))
   dirs.push(dir)
@@ -1363,7 +1374,7 @@ describe('SessionPersistenceJsonl: edge cases', () => {
       s = inner.sessions.create(SessionId('exists-fault'), { meta: { cwd } })
       appendClosedTurn(s)
     }, { inject: ['sessions'] }))
-    await expect(ctx2.sessions.flush(s)).rejects.toThrow(/EEXIST|ENOTDIR/)
+    await expectFlushCode(ctx2.sessions.flush(s), ['EEXIST', 'ENOTDIR'])
     await ctx2.fiber.dispose()
   })
 

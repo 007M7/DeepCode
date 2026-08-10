@@ -173,7 +173,8 @@ describe('DeepSeekHarness', () => {
   it('resolves a relative launch cwd to an absolute workspace before the handshake', async () => {
     // vitest workers forbid chdir, so derive a RELATIVE path from the real
     // process cwd to a temp worker dir; resolution is lexical either way.
-    const dir = await tempDir('sdk-client-relcwd-')
+    const dir = await mkdtemp(join(process.cwd(), '.dsh-sdk-client-relcwd-'))
+    cleanups.push(() => rm(dir, { recursive: true, force: true }))
     const recordFile = join(dir, 'init.jsonl')
     const inner = join(dir, 'worker')
     await mkdir(inner)
@@ -332,7 +333,11 @@ describe('HarnessClient', () => {
     ))
     await client.initialize({ cwd: process.cwd(), provider: 'p', model: 'm' })
     await client.close()
-    expect((await stat(sigtermFile)).isFile()).toBe(true)
+    if (process.platform === 'win32') {
+      await expect(stat(sigtermFile)).rejects.toMatchObject({ code: 'ENOENT' })
+    } else {
+      expect((await stat(sigtermFile)).isFile()).toBe(true)
+    }
   })
 
   it('escalates to SIGKILL when the runtime traps SIGTERM too', async () => {

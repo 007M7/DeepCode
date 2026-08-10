@@ -10,7 +10,7 @@ Per-session preset mounts made the model-facing registry surface per-agent while
 
 ## Decision
 
-A preset is one composition per PROCESS, not one per session. The roster mounts it once under a synthetic standing scope; each agent joins by `setScopeParent(agentKey, standingKey)`. Two `dsh-scope` mechanisms carry everything: registration views walk the parent chain (`agent → preset → global`, nearest shadowing farthest), and scoped dispatch admits listeners tagged with an ancestor of the carrier key — upward only, so a sibling preset's listeners stay deaf.
+A preset is one composition per PROCESS, not one per session. The roster mounts it once under a synthetic standing scope; each agent joins by binding its scope key to the mount's (`bindScopeParent(agentKey, standingKey)`). Two `dsh-scope` mechanisms carry everything: registration views walk the parent chain (`agent → preset → global`, nearest shadowing farthest), and scoped dispatch admits listeners tagged with an ancestor of the carrier key — upward only, so a sibling preset's listeners stay deaf.
 
 ## Consequences
 
@@ -25,7 +25,7 @@ Standing mounts fix the class, not the instances: the registrations a reader nee
 - **Standing mounts hang off the service's untraced `selfCtx`.** A method invoked through the traceable proxy sees `this.ctx` rebound to the caller with a shadow; reflect resolution for every fiber in a subtree minted from it starts at the shadow's fiber, so entries fail on services their own `inject` declares (`cannot get property "tools" without inject` while the entry's store holds it). The `tasks-local` selfCtx precedent, now with a second consumer.
 - **A settled mount serves until its composition file's stamp changes.** The composition a running session joined must survive its file changing or disappearing; each generation records the file's stamp (mtime + size) and a session that finds it stale starts the next generation, so file edits — the only composition editor once authoring became copy-only — reach later sessions without any authoring call dropping the pointer. Joined sessions keep their generation, and superseded generations are reclaimed only by whole-tree teardown — deliberate, bounded by edit frequency, recorded in the package's Known Limitations.
 - **`peek()` stays chain-blind.** Restrictions and guards address one scope's own contributions; only registration VIEWS inherit. Restrictions along the chain intersect (any scope may mask a global-surface name for everything nested inside it).
-- **Re-linking a key (`setScopeParent` on a live agent) is the blank-session recompose path** — valid only while nothing produced under the old parent is retained, which the caller must uphold; the relation cannot see session logs.
+- **Re-linking runs only through the `ScopeParentBinding` the mount's one bind returned** — the roster holds it privately, so the blank-session recompose path is the sole re-link and no other caller can move a composed agent; it stays valid only while nothing produced under the old parent is retained, which the holder must uphold because the relation cannot see session logs.
 
 ## Alternatives considered
 
