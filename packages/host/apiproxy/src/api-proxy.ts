@@ -1038,7 +1038,9 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
    * common paths — reconnecting, resuming, retrying a create — are unaffected.
    * @param sessionId - the identity being adopted.
    * @param requested - the preset the request named, if any.
-   * @param existing - the preset the session was created under, if any.
+   * @param existing - the preset the session RUNS, if any; both callers resolve
+   * it from the log, which differs from the creation header once a blank
+   * session has switched.
    * @throws when both are present and differ.
    */
   function assertPresetUnchanged(
@@ -1989,12 +1991,16 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             })
           }
         }
-        // Echo the RESOLVED composition so a client can label the session it
-        // just created without waiting for the next list refresh — the create
-        // is the commit point that knows it (a caller that named none gets
-        // the default the header recorded).
+        // Echo the composition the session RUNS so a client can label it
+        // without waiting for the next list refresh — the create is the commit
+        // point that knows it (a caller that named none gets the default).
+        // Resolved from the log for the same reason `sessionListFields()` is:
+        // this handler also adopts an already-live session, and one that
+        // switched while blank runs a preset its header no longer names, so
+        // echoing the header would contradict both the adoption this call just
+        // allowed and the row `session.list` serves for the same session.
         const created = ctx.agents.get(sessionId)
-        const createdPreset = created?.session.header.agentPreset
+        const createdPreset = created === undefined ? undefined : resolveSessionPreset(created.session)
         return ok(request, { sessionId, ...createdPreset === undefined ? {} : { agentPreset: createdPreset } })
       },
 

@@ -38,10 +38,16 @@ Status: implemented
 
 `packages/preset/agent-presets/tests/mount.spec.ts` 用真实 fixture 组装覆盖该加入：子 agent 看到父方的工具与提示段、不会挂载出第二个代际、加入在父方 dispose 后依然成立（活得比父方久的后台子 agent）、上报的 id 一致、没有 preset 的父方不产生加入、以及无 scope 的上下文被拒绝。
 
-`packages/subagent/subagent-inprocess/tests/preset-inheritance.spec.ts` 在一个不含任何面向模型行的宿主组装上，通过 `startInProcessRun()` 断言模型可见的结果：子 agent 自身请求中的 schema、父方的提示段、记录下来的 header preset，以及在空白期切换过 preset 的父方。
+`packages/subagent/subagent-inprocess/tests/preset-inheritance.spec.ts` 在一个不含任何面向模型行的宿主组装上，通过 `startInProcessRun()` 断言模型可见的结果：子 agent 自身请求中的 schema、父方的提示段、记录下来的 header preset，以及在空白期切换过 preset 的父方——切换到**另一个** preset，这样断言才能区分"读父方活 scope 链"与"读父方创建 header"。
+
+组装记录这一层用的是真实 shipped Web 组装的 e2e，而不是无密钥快照。本仓库所有可运行 example 都不组装 preset roster，因此该缺陷在快照 harness 里根本不可观察：要做快照场景，得先有一个既挂载 roster 又发起委派的 example。Web e2e 启动的是真实的 `base` + `web-app` 补丁层与两个 shipped preset，这正是测试政策要求的组装证据；Web 浏览器 lane 的 subagent golden 承载了可见后果——记录了 preset 的子 agent 现在会显示与其父方相同的 preset 徽标。
 
 ## Consequences
 
-委派现在的成本是每个子 agent 一次 scope 认父，再无其他——没有额外的插件实例、没有 roster 读取、没有新的失败模式。子 agent 的能力恰好等于父方的能力，减去它自己的 `toolFilter` 所移除的部分；逐 subagent 的 preset（"agent 类型"）仍未构建，那会是一个新的请求字段，而不是对这次加入的改动。
+委派现在的成本是每个子 agent 一次 scope 认父，再无其他——没有额外的插件实例、没有 roster 读取、没有新的失败模式。子 agent 的能力恰好等于父方的能力——逐子 agent 的 `toolFilter` 并不能收窄它，原因见下方另行跟踪的那条；逐 subagent 的 preset（"agent 类型"）仍未构建，那会是一个新的请求字段，而不是对这次加入的改动。
 
 `applyChildComposition()` 的形态变了，因此将来任何仓库外的进程内驱动都必须提供父方。这是刻意付出的代价：此前的签名允许调用方组装出一个毫无能力的子 agent 而不报任何错。
+
+冷恢复的可继续子 agent 加入的是父方**当前**的组装，而不是它自己 header 所记录的那份。窗口很窄——父方必须先建子、保持空白、切换 preset，之后才唤醒它；驻留中的子 agent 不会重新加入，一次性子 agent 也不会恢复——而替代方案更糟：按子 agent 自己记录的 id 解析会重读 roster，把这次认父刻意规避掉的"preset 已删除"失败模式又请回来。子 agent 的 header 仍记录它启动时的那份，因此这处分歧是可观察的而非静默的。
+
+`toolFilter` 约束不住已加入组装的子 agent，因为 `ToolRegistry` 只按全局层的名字编译限制，随后把 scope 链上的工具无过滤地叠加进来。这不是本次改动带来的——在组装了 roster 的部署里，`tools.restrict()` 本就把每个名字都判为未知全局工具，因此带过滤器的子 agent 在本次改动前后同样起不来——但它是搬到 agent 平面所引入的回归，而非长期存在的限制：同样这批工具注册在全局层时，过滤器能正常校验并生效。现在子 agent 有了父方的全套工具需要被限制，它变得更要紧。该问题另行跟踪；本次改动既未引入也未修复它。

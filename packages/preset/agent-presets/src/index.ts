@@ -250,9 +250,11 @@ export class AgentPresets extends Service {
    * parent's history was produced under (and a preset deleted since would fail
    * the child outright while its parent keeps running).
    *
-   * Synchronous and infallible for that reason, which is what lets a child
+   * Synchronous, and with no composition failure mode of its own — it reads no
+   * roster, mounts nothing, and touches no file — which is what lets a child
    * creation window use it: the two in-process subagent drivers compose their
-   * children inside a synchronous `setup`.
+   * children inside a synchronous `setup`. It still rejects a caller error, as
+   * the `@throws` below record.
    *
    * A parent that joined no preset — a rosterless deployment — yields no join
    * and no error: there, the model-facing rows sit in the host composition and

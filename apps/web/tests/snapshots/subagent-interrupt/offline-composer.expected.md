@@ -3,6 +3,8 @@
     - button "Ask a research subagent to"
     - text: /
     - button "event-sourcing researcher" [disabled]
+  - img
+  - text: 标准模式
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"

@@ -105,12 +105,16 @@ describe('a child agent composed in-process', () => {
 
   it('follows a parent that switched preset while blank', async () => {
     const { ctx, parent } = await setupPresetHost()
-    await ctx.agentPresets.recompose(parent.ctx, 'coding')
+    // A DIFFERENT preset, so the assertion below distinguishes reading the
+    // parent's live scope chain from reading its creation header — re-linking
+    // to the same id would pass either way.
+    await ctx.agentPresets.recompose(parent.ctx, 'reviewing')
 
     const run = await startInProcessRun(spawnRequest(parent), {})
     await run.result
 
-    expect(ctx.tools.schemas(run.localAgent).map(schema => schema.name)).toEqual(['preset_only'])
+    expect(ctx.tools.schemas(run.localAgent).map(schema => schema.name)).toEqual(['reviewing_only'])
+    expect(run.localAgent?.session.header.agentPreset).toBe('reviewing')
     await run.dispose()
   })
 })

@@ -199,6 +199,11 @@ describe('session.create with an agent preset', () => {
     // Comparing against the header would invert both answers: the preset the
     // session actually runs would be refused, and the one it left would pass.
     expect(adopted.result.ok).toBe(true)
+    // The echo has to name the same preset the adoption just accepted, or the
+    // client labels the session with one it has already left — and disagrees
+    // with the row `session.list` serves for it.
+    if (!adopted.result.ok) throw new Error('unreachable')
+    expect(adopted.result.value).toMatchObject({ agentPreset: 'minimal' })
     expect(stale.result.ok).toBe(false)
     if (stale.result.ok) throw new Error('unreachable')
     expect(stale.result.error.details).toMatchObject({ existingPreset: 'minimal' })
