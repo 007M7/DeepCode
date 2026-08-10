@@ -10,9 +10,11 @@ Status: implemented
 
 ## 决策
 
-`dsh-subagent` 在 `src/assistant-output.ts` 中拥有唯一的规范选取规则：最后一条**非空** assistant 消息优先；没有时，累积的 `text-delta` 流就是回答；空内容消息从不参与。`finalAssistantOutput(events)` 把该规则应用于事件后缀（进程内 `readResult` 与 Activation capture），`assistantMessageOutput(event)` 是同一规则的逐事件谓词，供 SDK 后端的增量折叠使用。契约在 `SubagentResult.output` 处声明一次，并由子系统参考文档镜像；`subagent/end.lastAssistantMessage` 声明按同一规则选取。`max-tokens` 或 `aborted` 终止仍然如实上报其终止原因；只有输出选取发生了变化。
+`dsh-subagent` 在 `src/assistant-output.ts` 中拥有唯一的规范选取规则：最后一条**非空** assistant 消息优先；没有时，累积的 `text-delta` 流就是回答；空内容消息从不参与。规则只有一个实现，即增量的 `AssistantOutputFold`（会话事件传输用 `push(event)`，仅分块传输用 `pushText(text)`，`collect()` 完成选取）；`finalAssistantOutput(events)` 把它应用于完整的事件后缀（进程内 `readResult` 与 Activation capture）。SDK 后端折叠通知事件；ACP 后端不产生完整 assistant 消息，因此把原始分块文本折叠进同一个流式兜底。契约在 `SubagentResult.output` 处声明一次，并由子系统参考文档镜像；`subagent/end.lastAssistantMessage` 按同一规则选取，且"无输出"在该边沿只有一种编码——字段缺省，绝不是空数组，一次性与 continuable 两种生命周期形态一致。`max-tokens` 或 `aborted` 终止仍然如实上报其终止原因；只有输出选取发生了变化。
 
-ACP 后端只累积分块，从未受影响。fake SDK runtime 新增 `FAKE_EMPTY_MESSAGE` 模式，使无密钥后端测试能够脚本化一条仅承载 usage 的终止消息。
+前台委派工具观察同一选取结果：非 `completed` 的结果仍是 `isError` 工具结果，但其消息在终止原因标题之后附带子代理保留下来的部分文本，父模型看到的是被截断的回答而不是一句干巴巴的失败。
+
+fake SDK runtime 新增 `FAKE_EMPTY_MESSAGE` 模式，使无密钥后端测试能够脚本化一条仅承载 usage 的终止消息；authored 的 `subagent-max-tokens-partial` ACP snapshot 场景钉住了组装后的 transcript：脚本化的子代理先流式输出文本和一次工具调用，再被仅含工具调用的 max-tokens 步骤截断（空的 usage-only 消息出现在其提交的日志中），父侧工具结果携带部分回答。
 
 ## 考虑过的替代方案
 
@@ -24,4 +26,4 @@ ACP 后端只累积分块，从未受影响。fake SDK runtime 新增 `FAKE_EMPT
 
 ## 后果
 
-被 max-tokens 截断的多步子代理会报告其更早的文本；被取消的进程内子代理保留中止前已流式的文本；一次性与 continuable 的 `subagent/end` 边沿与 `SubagentResult.output` 一致。内容非空但不含文本的消息（例如仅含 reasoning）仍然优先于流式文本——规则针对的是内容为空，而非文本缺失。三个包中的回归测试脚本化了空终止消息与取消路径，并在先前的选取实现下失败。
+被 max-tokens 截断的多步子代理会报告其更早的文本；被取消的进程内子代理保留中止前已流式的文本；一次性与 continuable 的 `subagent/end` 边沿与 `SubagentResult.output` 一致。内容非空但不含文本的消息（例如仅含 reasoning）仍然优先于流式文本——规则针对的是内容为空，而非文本缺失。非空消息同样优先于**其后**才流式出的文本：子代理在流式后续步骤时被取消，报告的是更早那条完整消息，与 SDK 后端文档化的契约一致，截断由终止原因示意。三个包中的回归测试脚本化了空终止消息与取消路径，并在先前的选取实现下失败。

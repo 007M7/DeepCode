@@ -154,6 +154,9 @@ describe('dsh-tool-subagent', () => {
     const result = await callSubagent(ctx, { description: 'd', prompt: 'p' })
     expect(result.isError).toBe(true)
     expect(text(result)).toContain(fragment)
+    // The failure is not partial success, but the child's preserved partial
+    // answer still reaches the parent model inside the error result.
+    expect(text(result)).toContain('scripted subagent reply')
   })
 
   it('registers under a configurable toolName so multiple providers can coexist', async () => {

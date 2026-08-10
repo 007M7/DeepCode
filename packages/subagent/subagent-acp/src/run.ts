@@ -24,6 +24,7 @@ import {
 } from '@agentclientprotocol/sdk'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
+import { AssistantOutputFold } from '@deepseek-ai/dsh-subagent'
 import type { SubagentResult, SubagentRun, SubagentStartRequest, SubagentStopReason } from '@deepseek-ai/dsh-subagent'
 import type { SubprocessHandle, SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
 
@@ -232,8 +233,10 @@ export async function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpe
   let processDisposal: Promise<void> | undefined
   const disposeProcess = (): Promise<void> => (processDisposal ??= disposeAcpChild(child, spec.disposeEofGraceMs))
 
-  // Accumulate the child's streamed assistant text — the SubagentResult output.
-  const output: string[] = []
+  // The child's streamed assistant text, accumulated under the seam's
+  // canonical selection rule (`AssistantOutputFold`); ACP surfaces no complete
+  // assistant messages, so only the streamed-fallback half applies.
+  const fold = new AssistantOutputFold()
   // Shared mutable state keeps cancellation visible across async closures.
   const flags = { cancelled: false }
 
@@ -241,7 +244,7 @@ export async function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpe
     sessionUpdate(params: SessionNotification): Promise<void> {
       const update = params.update
       if (update.sessionUpdate === 'agent_message_chunk') {
-        output.push(acpContentText(update.content))
+        fold.pushText(acpContentText(update.content))
       }
       // Other updates (thoughts, tool calls, plans) are consumed but not
       // surfaced — the subagent returns only its final answer.
@@ -284,13 +287,8 @@ export async function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpe
   const onAbort = (): void => { requestCancel() }
   request.signal.addEventListener('abort', onAbort, { once: true })
 
-  // The accumulated child text as harness ContentBlocks (empty array when the
-  // child streamed nothing). Read at every return so a partial answer survives
-  // a later cancel/error.
-  const collectOutput = (): ContentBlock[] => {
-    const text = output.join('')
-    return text.length > 0 ? [{ type: 'text', text }] : []
-  }
+  // Read at every return so a partial answer survives a later cancel/error.
+  const collectOutput = (): ContentBlock[] => fold.collect() ?? []
 
   // Establish the remote session before publishing a handle. Any failure owns
   // the still-private process and therefore reaps it before rejecting.

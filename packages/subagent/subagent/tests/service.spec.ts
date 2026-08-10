@@ -15,6 +15,7 @@ import SubagentService, {
   type SubagentProvider,
   type SubagentResult,
   type SubagentRun,
+  type SubagentRunEndInfo,
   type SubagentStartRequest,
 } from '@deepseek-ai/dsh-subagent'
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
@@ -262,6 +263,17 @@ describe('SubagentService', () => {
       lastAssistantMessage: [{ type: 'text', text: 'answer' }],
       stopReason: 'completed',
     }))
+
+    // "No output" has ONE encoding on the end edge: the field is absent,
+    // never an empty array, matching the continuable epoch edge.
+    const silent = new StubProvider('silent', NO_CAPS, { output: [], stopReason: 'completed' })
+    subagents.registerProvider(silent)
+    const silentRun = await subagents.start('silent', baseRequest())
+    await silentRun.result
+    await Promise.resolve()
+    const silentEnd = ended.mock.calls.map(call => call[0] as SubagentRunEndInfo).find(info => info.provider === 'silent')
+    expect(silentEnd).toBeDefined()
+    expect('lastAssistantMessage' in silentEnd!).toBe(false)
 
     const failure = Promise.withResolvers<SubagentResult>()
     subagents.registerProvider({

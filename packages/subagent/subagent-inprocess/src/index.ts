@@ -220,9 +220,7 @@ function readResult(
 ): SubagentResult {
   const own = child.session.events.slice(boundary)
   const lastEnd = findLastMessageTurnEnd(own)
-  // Canonical selection (`finalAssistantOutput`): the last non-empty assistant
-  // message, else the text streamed before cancel/error/truncation cut the
-  // turn short — an empty usage-only message never erases real output.
+  // The seam's canonical selection rule; a partial answer survives cancel and truncation.
   const output: ContentBlock[] = finalAssistantOutput(own) ?? []
   const recorded = toStopReason(lastEnd?.data.reason)
   // Disposal can tear the owner down before the loop records its ordinary

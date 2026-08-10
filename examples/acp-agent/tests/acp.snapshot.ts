@@ -299,6 +299,13 @@ const SCENARIOS: Scenario[] = [
   // Windows bash process-tree kill is deferred with the Bash execution domain.
   { name: 'cancel-tool-calls', hasModelTurn: true, recorded: false, overridden: true, posixOnly: true },
   { name: 'subagent-spawn', hasModelTurn: true, recorded: true },
+  // Keyless, authored (like error-finish): a live child cannot be coaxed into
+  // a max-tokens step that assembled ONLY tool-call blocks — the truncation
+  // shape whose usage-only empty assistant/message must not erase the child's
+  // earlier text. The child fixture scripts text + todo_write, then a
+  // tool-only max-tokens cutoff; the parent's subagent tool result must carry
+  // the child's real partial answer with the max-tokens stop reason.
+  { name: 'subagent-max-tokens-partial', hasModelTurn: true, recorded: false },
   { name: 'subagent-multi', hasModelTurn: true, recorded: true },
   { name: 'subagent-fork', hasModelTurn: true, recorded: true },
   { name: 'subagent-mixed', hasModelTurn: true, recorded: true },
