@@ -719,10 +719,103 @@ describe('hand-declared providers', () => {
     expect(fields()).toEqual([en.customRoute, en.customDisplayName, en.baseUrl, en.customApi, en.keyInput])
     cleanup()
 
+    // A shipped route's models each carry their own protocol, so its editor
+    // offers no route-level protocol to override them with.
     await mountSection({ providers: { openai: { apiKeyEnv: 'OPENAI_API_KEY' } } })
     openEditor('openai')
     fireEvent.click(screen.getByText(en.customized))
     expect(fields()).toEqual([en.keyInput, en.baseUrl])
+    cleanup()
+
+    // A hand-declared route named its own protocol at creation, so editing it
+    // reaches the same field the create card asked for.
+    await mountSection({
+      providers: { 'acme-gateway': { api: 'openai-completions', baseURL: 'https://gateway.acme.example/v1' } },
+      declaredRoutes: ['acme-gateway'],
+    })
+    openEditor('acme-gateway')
+    expect(fields()).toEqual([en.keyInput, en.customDisplayName, en.baseUrl, en.customApi])
+  })
+
+  it('renames a declared route and falls back to its id when the name is cleared', async () => {
+    const { mutate } = await mountSection({
+      providers: {
+        'acme-gateway': { displayName: 'Acme Gateway', api: 'openai-completions', baseURL: 'https://acme.test/v1' },
+      },
+      declaredRoutes: ['acme-gateway'],
+    })
+    openEditor('acme-gateway')
+
+    const name = screen.getByLabelText<HTMLInputElement>(en.customDisplayName)
+    expect(name.value).toBe('Acme Gateway')
+    // The route id, not the stored name: it is what the route will be called
+    // the moment the field is cleared.
+    expect(name.placeholder).toBe('acme-gateway')
+    fireEvent.change(name, { target: { value: 'Acme 网关' } })
+    fireEvent.click(screen.getByText(en.apply))
+
+    await waitFor(() => { expect(mutate).toHaveBeenCalledTimes(1) })
+    expect(firstMutate(mutate).ops)
+      .toEqual([{ op: 'set', path: ['providers', 'acme-gateway', 'displayName'], value: 'Acme 网关' }])
+  })
+
+  it('drops the stored name rather than storing an empty one the adapter refuses', async () => {
+    // `llm-pi-ai` rejects an empty displayName outright, so clearing the field
+    // must unset it — which is also what the user means: use the route id.
+    const { mutate } = await mountSection({
+      providers: { 'acme-gateway': { displayName: 'Acme Gateway', api: 'openai-completions' } },
+      declaredRoutes: ['acme-gateway'],
+    })
+    openEditor('acme-gateway')
+
+    fireEvent.change(screen.getByLabelText(en.customDisplayName), { target: { value: '   ' } })
+    fireEvent.click(screen.getByText(en.apply))
+
+    await waitFor(() => { expect(mutate).toHaveBeenCalledTimes(1) })
+    expect(firstMutate(mutate).ops)
+      .toEqual([{ op: 'unset', path: ['providers', 'acme-gateway', 'displayName'] }])
+  })
+
+  it('edits the protocol a declared route was created with', async () => {
+    const { mutate } = await mountSection({
+      providers: {
+        'acme-gateway': {
+          apiKeyEnv: 'ACME_GATEWAY_API_KEY',
+          api: 'openai-completions',
+          baseURL: 'https://gateway.acme.example/v1',
+          models: [{ id: 'acme-large' }],
+        },
+      },
+      declaredRoutes: ['acme-gateway'],
+    })
+    openEditor('acme-gateway')
+
+    const protocol = screen.getByLabelText<HTMLSelectElement>(en.customApi)
+    expect(protocol.value).toBe('openai-completions')
+    fireEvent.change(protocol, { target: { value: 'anthropic-messages' } })
+    fireEvent.click(screen.getByText(en.apply))
+
+    await waitFor(() => { expect(mutate).toHaveBeenCalledTimes(1) })
+    // Only the protocol travels: every other stored field is unchanged, so no
+    // op restates it.
+    expect(firstMutate(mutate)).toEqual({
+      ns: 'llm-pi-ai',
+      ops: [{ op: 'set', path: ['providers', 'acme-gateway', 'api'], value: 'anthropic-messages' }],
+      expectedRevision: 3,
+    })
+  })
+
+  it('selects nothing for a declared route whose profile names no protocol', async () => {
+    // A route hand-written into settings.yaml with no model needs no protocol
+    // to resolve, so the card can be opened over one. The select must not read
+    // as if that route had picked its first choice.
+    await mountSection({
+      providers: { 'acme-gateway': { baseURL: 'https://gateway.acme.example/v1' } },
+      declaredRoutes: ['acme-gateway'],
+    })
+    openEditor('acme-gateway')
+
+    expect(screen.getByLabelText<HTMLSelectElement>(en.customApi).value).toBe('')
   })
 
   it('retries only the key after the profile landed, and reports the provider on cancel', async () => {

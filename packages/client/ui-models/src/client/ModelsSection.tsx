@@ -54,6 +54,8 @@ interface EditorTarget extends ProviderIdentity {
   settingsPath: readonly string[]
   /** Writable credential identified under this page's conventional reference. */
   credentialRef?: string
+  /** The adapter reports this route as one it does not ship (see {@link ProviderEditorProps.declared}). */
+  declared?: boolean
 }
 
 /** Values that vary around the shared provider-editor rendering. */
@@ -71,6 +73,7 @@ function renderProviderEditor({ target, ...props }: ProviderEditorRenderProps): 
       provider={target.provider}
       displayName={target.displayName}
       settingsPath={target.settingsPath}
+      {...target.declared === true ? { declared: true } : {}}
       {...props}
     />
   )
@@ -135,6 +138,10 @@ function targetOf(row: ProviderRow): EditorTarget {
     settingsNs: row.entry.settingsNs,
     settingsPath: row.entry.settingsPath,
     ...credentialRef === undefined ? {} : { credentialRef },
+    // Absent is not "shipped": an adapter that answers nothing leaves the
+    // route-level fields only a declared route owns off the card, exactly as
+    // it leaves the custom tag off the row.
+    ...row.entry.declared === true ? { declared: true } : {},
   }
 }
 
