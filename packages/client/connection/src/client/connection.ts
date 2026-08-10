@@ -131,11 +131,15 @@ export class ConnectionController {
         // subscribed baseline. The timeout guards against a carrier that never fires onOpen
         // (see ConnectionConfig.streamOpenTimeoutMs).
         const timeout = new AbortController()
-        await Promise.all([
+        const [description] = await Promise.all([
           this.api.host.describe({}),
           Promise.race([streamsOpen, sleep(this.config.streamOpenTimeoutMs, timeout.signal)]),
         ])
         timeout.abort()
+        const descriptionResult = description.result
+        if (!descriptionResult.ok) {
+          throw new Error(`host.describe failed: ${descriptionResult.error.code}: ${descriptionResult.error.message}`)
+        }
         if (ac.signal.aborted) throw new Error('generation aborted during readiness handshake')
         this.attempt = 0
         this.emitState('connected')

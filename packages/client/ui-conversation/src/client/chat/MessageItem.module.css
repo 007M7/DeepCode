@@ -8,9 +8,17 @@
   gap: 6px;
 }
 
+.userStack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  min-width: 0;
+  max-width: min(525px, 82%);
+}
 .bubble {
   /* 525px cap inside the 736 column; percentage keeps narrow windows sane. */
-  max-width: min(525px, 82%);
+  max-width: 100%;
   background: var(--dsw-specific-bubble);
   border-radius: 22px;
   /* 44px single-line bubble: 24 line + 10 vertical padding each side. */

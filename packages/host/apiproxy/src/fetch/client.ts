@@ -19,6 +19,7 @@ import {
 } from '../api/host.schema.ts'
 import {
   sessionCancelValueSchema,
+  sessionAttachmentValueSchema,
   sessionCreateValueSchema,
   sessionForkValueSchema,
   sessionHistoryValueSchema,
@@ -94,6 +95,7 @@ export interface IApiClient {
     rename(payload: RequestPayload<'session.rename'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.rename'>>>
     fork(payload: RequestPayload<'session.fork'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.fork'>>>
     prompt(payload: RequestPayload<'session.prompt'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.prompt'>>>
+    attachment(payload: RequestPayload<'session.attachment'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.attachment'>>>
     updateQueue(payload: RequestPayload<'session.updateQueue'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.updateQueue'>>>
     cancel(payload: RequestPayload<'session.cancel'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.cancel'>>>
   }
@@ -180,6 +182,7 @@ const UNARY_VALUE_SCHEMAS: { [K in keyof RpcMethodMap]: z.ZodType<Wire<ResponseV
   'session.rename': sessionRenameValueSchema,
   'session.fork': sessionForkValueSchema,
   'session.prompt': sessionPromptValueSchema,
+  'session.attachment': sessionAttachmentValueSchema,
   'session.updateQueue': sessionUpdateQueueValueSchema,
   'session.cancel': sessionCancelValueSchema,
   'subagent.list': subagentListValueSchema,
@@ -420,6 +423,7 @@ export abstract class AbstractApiClient implements IApiClient {
     rename: (payload, signal) => this.callUnary('session.rename', payload, signal),
     fork: (payload, signal) => this.callUnary('session.fork', payload, signal),
     prompt: (payload, signal) => this.callUnary('session.prompt', payload, signal),
+    attachment: (payload, signal) => this.callUnary('session.attachment', payload, signal),
     updateQueue: (payload, signal) => this.callUnary('session.updateQueue', payload, signal),
     cancel: (payload, signal) => this.callUnary('session.cancel', payload, signal),
   }

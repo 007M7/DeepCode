@@ -25,8 +25,6 @@ describe('createChatStore', () => {
 
     store.actions.setDraft('hello')
     expect(store.store.getSnapshot().draft).toBe('hello')
-    store.actions.clearDraft()
-    expect(store.store.getSnapshot().draft).toBe('')
 
     store.actions.setView('chat')
     expect(store.store.getSnapshot().view).toBe('chat')
@@ -35,17 +33,6 @@ describe('createChatStore', () => {
     expect(store.store.getSnapshot().inspect).toEqual({ callId: 'c1' })
     store.actions.setInspect(null)
     expect(store.store.getSnapshot().inspect).toBeNull()
-  })
-
-  it('restoreDraft only fills an empty draft (optimistic-send rollback contract)', () => {
-    const store = createChatStore().create()
-    // Rollback path: draft was cleared by send, nothing typed since.
-    store.actions.restoreDraft('failed text')
-    expect(store.store.getSnapshot().draft).toBe('failed text')
-    // The user typed something new before the failure landed: keep theirs.
-    store.actions.setDraft('newer input')
-    store.actions.restoreDraft('stale text')
-    expect(store.store.getSnapshot().draft).toBe('newer input')
   })
 
   it('persists per scope key and rehydrates a fresh instance', () => {

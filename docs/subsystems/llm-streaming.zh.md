@@ -22,12 +22,13 @@
 interface ContentBlockMap {
   'text': TextBlock
   'reasoning': ReasoningBlock
+  'image': ImageBlock
   'tool-call': ToolCallBlock
   'tool-result': ToolResultBlock
 }
 ```
 
-各块接口（完整字段见源码）：`TextBlock`（`text`）、`ReasoningBlock`（thinking，区别于可见文本）、`ToolCallBlock`（`id: CallId`、`name`、原始 JSON `arguments`）、`ToolResultBlock`（`toolCallId`、嵌套 `content: ContentBlock[]`、`isError?`）。`ContentBlock = ContentBlockMap[ContentBlockType]`。核心集仅限于每条交付路径都尊重的块——多模态内容（图像、音频等）没有核心块类型；需要的功能通过可合并扩展的 map 添加，同时提供适配器/UI/压缩支持。
+各块接口（完整字段见源码）：`TextBlock`（`text`）、`ReasoningBlock`（thinking，区别于可见文本）、`ImageBlock`（一个持久的[图片附件](attachment.md)）、`ToolCallBlock`（`id: CallId`、`name`、原始 JSON `arguments`），以及 `ToolResultBlock`（`toolCallId`、嵌套 `content: ContentBlock[]`、`isError?`）。`ContentBlock = ContentBlockMap[ContentBlockType]`。仅当适配器、UI、压缩和持久回放路径均支持某种新模态时，才将其纳入可合并扩展的 map。
 
 源码：[`packages/llm/llm/src/message.ts`](../../packages/llm/llm/src/message.ts)
 
@@ -404,6 +405,8 @@ interface LlmModelInfo {
   name: string
   /** Optional user-facing distinction from otherwise similar models. */
   description?: string
+  /** Accepted request modalities; absent means unknown, while an explicit omission is negative capability. */
+  inputModalities?: readonly ModelModality[]
 }
 ```
 
@@ -838,7 +841,7 @@ async prepareCall(config: LlmCallConfig, signal?: AbortSignal): Promise<Prepared
 stream(options: GenerateOptions): AsyncIterable<StreamChunk>
 ```
 
-Source: [`packages/llm/llm/src/index.ts:292`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:294`](../../packages/llm/llm/src/index.ts)
 
 <a id="llm-events"></a>
 
@@ -863,7 +866,7 @@ The provider topology changed: an adapter registered or unregistered routes, or 
 'llm/adapters-updated'(): void
 ```
 
-Source: [`packages/llm/llm/src/index.ts:73`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:75`](../../packages/llm/llm/src/index.ts)
 
 <a id="llmstream--waterfall"></a>
 
@@ -887,5 +890,5 @@ Waterfall around every streaming model call (retry, replay, routing). Bound to t
 'llm/stream'(this: LlmService, options: GenerateOptions, next: () => AsyncIterable<StreamChunk>): AsyncIterable<StreamChunk>
 ```
 
-Source: [`packages/llm/llm/src/index.ts:62`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:64`](../../packages/llm/llm/src/index.ts)
 <!-- END GENERATED cordis-surface -->
