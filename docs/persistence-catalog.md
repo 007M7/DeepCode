@@ -364,7 +364,7 @@ Source: [`packages/compact/compact/src/types.ts:33`](../packages/compact/compact
 'feedback/record': { text: string }
 ```
 
-Source: [`packages/feedback/command-feedback/src/index.ts:24`](../packages/feedback/command-feedback/src/index.ts)
+Source: [`packages/feedback/command-feedback/src/index.ts:25`](../packages/feedback/command-feedback/src/index.ts)
 
 ### `goal/*`
 

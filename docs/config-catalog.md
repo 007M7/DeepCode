@@ -642,10 +642,8 @@ Source: [`packages/hooks/hooks-codex/src/index.ts:44`](../packages/hooks/hooks-c
 Requires: `agentDefaultModel` · `agents` · `attachments` · `directoryPicker` · `llm` · `sessions` · `subagents` · `sessionQuery` · `tools` · `userInteraction` · `workspace`
 
 ```ts config-catalog
-/** Gateway plugin config: the Host-only Workspace creation root. */
+/** Gateway plugin config for native Host integration. */
 export interface Config {
-  /** Parent directory for name-created Workspaces; defaults to the Host cwd. */
-  workspaceRoot?: string
   /**
    * Whether this deployment can hand paths to a native desktop opener —
    * the `hasDocument` capability the agent-preset roster reports. Absent,
@@ -657,7 +655,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/host/apiproxy/src/index.ts:38`](../packages/host/apiproxy/src/index.ts)
+Source: [`packages/host/apiproxy/src/index.ts:37`](../packages/host/apiproxy/src/index.ts)
 
 ## `@deepseek-ai/dsh-host-directory-picker-browse`
 
@@ -2813,3 +2811,4 @@ Imported as libraries by other packages; a `cordis.yml` cannot load them.
 - `@deepseek-ai/dsh-type-meta` ([`packages/typert/type-meta/src/index.ts`](../packages/typert/type-meta/src/index.ts))
 - `@deepseek-ai/dsh-typert-generator` ([`packages/typert/generator/src/index.ts`](../packages/typert/generator/src/index.ts))
 - `@deepseek-ai/dsh-typert-registry` ([`packages/typert/registry/src/index.ts`](../packages/typert/registry/src/index.ts))
+- `@deepseek-ai/dsh-user-id` ([`packages/session/user-id/src/index.ts`](../packages/session/user-id/src/index.ts))
