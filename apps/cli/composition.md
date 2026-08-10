@@ -12,8 +12,6 @@ flowchart LR
   cfg --> plugin_dsh_base_timer
   plugin_dsh_base_hmr["hmr<br/>@cordisjs/plugin-hmr"]
   cfg --> plugin_dsh_base_hmr
-  plugin_dsh_base_repository_plugins["repository-plugins<br/>@deepseek-ai/dsh-repository-plugin"]
-  cfg --> plugin_dsh_base_repository_plugins
   plugin_dsh_base_llm["llm<br/>@deepseek-ai/dsh-llm"]
   cfg --> plugin_dsh_base_llm
   plugin_dsh_base_session["session<br/>@deepseek-ai/dsh-session"]
@@ -172,7 +170,6 @@ flowchart LR
 | --- | --- |
 | `timer` | `@cordisjs/plugin-timer` |
 | `hmr` | `@cordisjs/plugin-hmr` |
-| `repository-plugins` | `@deepseek-ai/dsh-repository-plugin` |
 | `llm` | `@deepseek-ai/dsh-llm` |
 | `session` | `@deepseek-ai/dsh-session` |
 | `typert` | `@deepseek-ai/dsh-typert-registry` |
