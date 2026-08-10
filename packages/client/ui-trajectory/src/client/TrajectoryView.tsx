@@ -1,11 +1,11 @@
 /** Trajectory view: compact summary over a turn-aware event ledger. */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import type { ConvViewProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { InjectFace } from '@deepseek-ai/dsh-client-ui-slots'
 import type {
   AssistantBlock, AssistantMessageNode, ConversationContext, ConversationSnapshot,
-  SessionHistoryFace, SnapshotStore,
+  SnapshotStore,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import {
   deriveTrajectoryContextBranches, trajectoryBranchContainsRequest,
@@ -27,6 +27,7 @@ import {
   type TrajectoryTimeRange,
 } from './timeline.ts'
 import { trajectoryRecordId } from './trajectory-record.ts'
+import { EMPTY_TRAJECTORY_SNAPSHOT } from './trajectory-snapshot-builder.ts'
 import css from './views.module.css'
 
 const EMPTY_TURN_IDS: ReadonlySet<number> = new Set()
@@ -64,14 +65,12 @@ function partialStructureSignature(partial: ConversationSnapshot['partial']): st
     : block.kind).join('\u0000')
 }
 
-/** Session-history paging needed by the event-complete trajectory view. */
+/** Session-bound controls not already supplied by the conversation view slot. */
 export interface TrajectoryViewInjected {
   hooks: {
-    history: SessionHistoryFace
     duration: SnapshotStore<boolean>
   }
-  loadHistoryTail: (signal: AbortSignal) => Promise<void>
-  loadOlderHistory: (signal: AbortSignal) => Promise<boolean>
+  loadOlder: () => Promise<boolean>
   setActualDuration: (actualDuration: boolean) => void
 }
 
@@ -184,7 +183,7 @@ function mergeSearchMatches(
 }
 
 export function TrajectoryView({
-  useHistory, useDuration, loadHistoryTail, loadOlderHistory, setActualDuration,
+  useSession, useDuration, loadOlder, setActualDuration,
   inspect, onInspectDone,
 }: ConvViewProps & InjectFace<TrajectoryViewInjected>) {
   const [collapsedTurns, setCollapsedTurns] = useState<ReadonlySet<number>>(EMPTY_TURN_IDS)
@@ -204,23 +203,15 @@ export function TrajectoryView({
   const [timelineRecordFocus, setTimelineRecordFocus] = useState<{
     readonly index: number
   } | null>(null)
-  const inspection = useHistory(snapshot => snapshot.inspection)
-  const historyLoading = useHistory(snapshot =>
-    snapshot.state === 'cold' || snapshot.state === 'loading')
-  const hasOlderHistory = useHistory(snapshot => snapshot.hasMore)
-  const historyBaseSeq = useHistory(snapshot => snapshot.baseSeq)
+  const inspection = useSession(snapshot =>
+    snapshot.views.get('trajectory') ?? EMPTY_TRAJECTORY_SNAPSHOT)
+  const historyLoading = useSession(snapshot =>
+    snapshot.openState === 'loading' || snapshot.loadingOlder)
+  const hasOlderHistory = useSession(snapshot => snapshot.hasMore)
   const nodes = inspection.eventNodes
+  const historyBaseSeq = nodes[0]?.seq ?? 0
   const partial = inspection.partial
   const runningCalls = inspection.runningCalls
-  const loadHistoryTailRef = useRef(loadHistoryTail)
-  loadHistoryTailRef.current = loadHistoryTail
-  const historyControllerRef = useRef<AbortController | null>(null)
-  useEffect(() => {
-    const controller = new AbortController()
-    historyControllerRef.current = controller
-    void loadHistoryTailRef.current(controller.signal)
-    return () => { controller.abort() }
-  }, [])
   const requests = inspection.requests
   const callSchemas = inspection.callSchemas
   const historyContexts = inspection.contexts
@@ -518,11 +509,8 @@ export function TrajectoryView({
   }
 
   const loadEarlierHistory = useCallback(() => {
-    const signal = historyControllerRef.current?.signal
-    return signal?.aborted === false
-      ? loadOlderHistory(signal)
-      : Promise.resolve(false)
-  }, [loadOlderHistory])
+    return loadOlder()
+  }, [loadOlder])
 
   return (
     <div className={css.root} data-conversation-composer-overlay="">

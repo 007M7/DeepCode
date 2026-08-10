@@ -13,12 +13,15 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { createElement, type ComponentProps, type FC, type ReactNode } from 'react'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import { resolveSlotLabel } from '@deepseek-ai/dsh-client-ui-slots'
-import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
+import {
+  ConversationEventRegistry, ConversationViewRegistry, createSnapshotStore,
+  EMPTY_CHAT_SNAPSHOT,
+} from '@deepseek-ai/dsh-client-runtime/client'
 import type { UseSession } from '@deepseek-ai/dsh-client-web-react'
 import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
 import type {
-  ConversationSnapshot, RequestView, SessionHistoryFace, SessionHistoryInspection,
-  SessionHistorySnapshot, SessionId, SessionListState, WorkspaceListState,
+  ConversationSnapshot, RequestView,
+  SessionId, SessionListState, SnapshotStore, WorkspaceListState,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ConvViewProps, ViewTab } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import {
@@ -35,9 +38,11 @@ import {
   TrajectoryView, type TrajectoryViewInjected,
 } from '../src/client/TrajectoryView.tsx'
 import { createTrajectoryDurationStore } from '../src/client/duration-store.ts'
+import type { TrajectorySnapshot } from '../src/client/trajectory-contract.ts'
 import { deriveTrajectoryTimeline } from '../src/client/timeline.ts'
 
 const SID = 's1' as SessionId
+const sessionSnapshots = new WeakMap<SlotsService, SnapshotStore<ConversationSnapshot>>()
 const tConversation: ConversationSessionHeaderProps['t'] =
   key => (conversationZh as Record<string, string>)[key] ?? key
 
@@ -67,37 +72,55 @@ const NODES = [
 
 function historySnapshot(
   nodes: ConversationSnapshot['nodes'],
-  inspection: Partial<SessionHistoryInspection> = {},
-): SessionHistorySnapshot {
+  inspection: Partial<TrajectorySnapshot> = {},
+): ConversationSnapshot {
+  const trajectory: TrajectorySnapshot = {
+    eventNodes: nodes,
+    contexts: [{ id: 0, nodes }],
+    requests: [],
+    callSchemas: new Map(),
+    interruptedNodes: [],
+    partial: null,
+    runningCalls: [],
+    ...inspection,
+  }
   return {
-    state: 'ready',
-    error: null,
+    sessionId: SID,
+    views: {
+      get: target => target === 'trajectory' ? trajectory : undefined,
+    } as ConversationSnapshot['views'],
+    chat: EMPTY_CHAT_SNAPSHOT,
+    nodes,
+    turnTimings: new Map(),
+    turnEnds: new Map(),
+    partial: trajectory.partial,
+    runningCalls: trajectory.runningCalls,
+    pending: [],
+    queue: [],
+    running: false,
+    subagent: null,
+    composerPhase: 'active',
+    removed: false,
+    openState: 'open',
+    openError: null,
     hasMore: false,
-    baseSeq: nodes[0]?.seq ?? 0,
-    inspection: {
-      eventNodes: nodes,
-      contexts: [{ id: 0, nodes }],
-      requests: [],
-      callSchemas: new Map(),
-      interruptedNodes: [],
-      partial: null,
-      runningCalls: [],
-      ...inspection,
-    },
+    loadingOlder: false,
+    promptError: null,
+    blank: nodes.length === 0,
+    lastAgentError: null,
   }
 }
 
 function standaloneHistory(
-  snapshot: SessionHistorySnapshot,
+  snapshot: ConversationSnapshot,
 ): Pick<
   ComponentProps<typeof TrajectoryView>,
-  'useHistory' | 'loadHistoryTail' | 'loadOlderHistory'
+  'useSession' | 'loadOlder'
 > {
   const store = createSnapshotStore(snapshot)
   return {
-    useHistory: bindSnapshotSelector(store),
-    loadHistoryTail: () => Promise.resolve(),
-    loadOlderHistory: () => Promise.resolve(false),
+    useSession: bindSnapshotSelector(store),
+    loadOlder: () => Promise.resolve(false),
   }
 }
 
@@ -112,11 +135,8 @@ function standaloneDuration(): Pick<
 }
 
 function fakeSession(nodes: ConversationSnapshot['nodes']) {
-  const store = createSnapshotStore({
-    nodes, pending: [], partial: null,
-    runningCalls: [] as ConversationSnapshot['runningCalls'],
-  })
-  return { store, useSession: bindSnapshotSelector(store) as unknown as UseSession<ConversationSnapshot> }
+  const store = createSnapshotStore(historySnapshot(nodes))
+  return { store, useSession: bindSnapshotSelector(store) as UseSession<ConversationSnapshot> }
 }
 
 /** Empty sessions-list hook; breadcrumbs therefore fall back to the raw id. */
@@ -149,16 +169,19 @@ function standaloneProps(nodes: ConversationSnapshot['nodes']): ConvViewProps {
 async function bench(snapshot = historySnapshot(NODES)) {
   const ctx = new Context()
   const slots = new SlotsService(ctx)
-  const loadHistoryTail = vi.fn((_signal: AbortSignal) => Promise.resolve())
-  const loadOlderHistory = vi.fn((_signal: AbortSignal) => Promise.resolve(false))
-  const historyStore = createSnapshotStore(snapshot)
-  const history: SessionHistoryFace = {
-    sessionId: SID,
-    getSnapshot: () => historyStore.getSnapshot(),
-    subscribe: listener => historyStore.subscribe(listener),
-    loadTail: loadHistoryTail,
-    loadOlder: loadOlderHistory,
+  const loadOlder = vi.fn(() => Promise.resolve())
+  const sessionStore = createSnapshotStore(snapshot)
+  const session = {
+    getSnapshot: () => sessionStore.getSnapshot(),
+    subscribe: (listener: () => void) => sessionStore.subscribe(listener),
+    loadOlder,
   }
+  await ctx.plugin(ConversationEventRegistry).await()
+  await ctx.plugin(ConversationViewRegistry).await()
+  ctx.provide('sessions', {
+    binding: () => ({ session }),
+  })
+  sessionSnapshots.set(slots, sessionStore)
   // The conversation entry's role: declare the ring, then seed the chat entry.
   slots.register({
     name: 'root',
@@ -167,10 +190,9 @@ async function bench(snapshot = historySnapshot(NODES)) {
   const chatBody = vi.fn(() => <div data-testid="chat-body" />)
   slots.register(
     { name: 'conversation.view', id: 'chat', order: 0, label: 'Chat' } as never, chatBody as never)
-  ctx.provide('sessionHistory', { source: () => history })
   const fiber = ctx.plugin({ inject: [...inject], apply })
   await fiber.await()
-  return { ctx, slots, fiber, loadHistoryTail, loadOlderHistory }
+  return { ctx, slots, fiber, loadOlder }
 }
 
 /** Tab projection twin of apply's viewTabs (the render-side consumption path). */
@@ -181,13 +203,8 @@ function tabsOf(slots: SlotsService): ViewTab[] {
 
 /** Mount the strict Session header/body over the ring ledger with outlet-faithful render shares. */
 function mount(slots: SlotsService, nodes: ConversationSnapshot['nodes'] = NODES) {
-  const sessionSnapshot = createSnapshotStore({
-    running: false, removed: false, promptError: null, nodes,
-    pending: [],
-    openState: 'open' as const, hasMore: true, loadingOlder: false,
-    partial: null, runningCalls: [] as ConversationSnapshot['runningCalls'],
-  })
-  const useSession = bindSnapshotSelector(sessionSnapshot) as unknown as UseSession<ConversationSnapshot>
+  const sessionSnapshot = sessionSnapshots.get(slots) ?? createSnapshotStore(historySnapshot(nodes))
+  const useSession = bindSnapshotSelector(sessionSnapshot) as UseSession<ConversationSnapshot>
   const chat = createChatStore().create()
   const views = {
     list: () => tabsOf(slots),
@@ -215,10 +232,8 @@ function mount(slots: SlotsService, nodes: ConversationSnapshot['nodes'] = NODES
       ? (() => {
         const trajectory = injected as TrajectoryViewInjected
         return {
-          loadHistoryTail: trajectory.loadHistoryTail,
-          loadOlderHistory: trajectory.loadOlderHistory,
+          loadOlder: trajectory.loadOlder,
           setActualDuration: trajectory.setActualDuration,
-          useHistory: bindSnapshotSelector(trajectory.hooks.history),
           useDuration: bindSnapshotSelector(trajectory.hooks.duration),
         }
       })()
@@ -322,13 +337,9 @@ describe('tab switching in ConversationRoot', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Expand turns' }))
     expect(screen.getByRole('row', { name: /USER/ })).toBeTruthy()
     expect(screen.queryByTestId('chat-body')).toBeNull()
-    await vi.waitFor(() => {
-      expect(b.loadHistoryTail).toHaveBeenCalledOnce()
-    })
-    const signal = b.loadHistoryTail.mock.calls[0]?.[0]
-    expect(signal?.aborted).toBe(false)
+    expect(b.loadOlder).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole('tab', { name: 'Chat' }))
-    expect(signal?.aborted).toBe(true)
+    expect(b.loadOlder).not.toHaveBeenCalled()
   })
 
   it('opens a local record inspector and switches payload tabs without opening chat details', async () => {
@@ -1162,9 +1173,8 @@ describe('TrajectoryView branches', () => {
       <TrajectoryView
         {...standaloneProps([])}
         {...standaloneDuration()}
-        useHistory={bindSnapshotSelector(store)}
-        loadHistoryTail={vi.fn(() => Promise.resolve())}
-        loadOlderHistory={vi.fn(() => Promise.resolve(false))}
+        useSession={bindSnapshotSelector(store)}
+        loadOlder={vi.fn(() => Promise.resolve(false))}
       />,
     )
 
@@ -1196,9 +1206,8 @@ describe('TrajectoryView branches', () => {
       <TrajectoryView
         {...standaloneProps([])}
         {...standaloneDuration()}
-        useHistory={bindSnapshotSelector(store)}
-        loadHistoryTail={vi.fn(() => Promise.resolve())}
-        loadOlderHistory={vi.fn(() => Promise.resolve(false))}
+        useSession={bindSnapshotSelector(store)}
+        loadOlder={vi.fn(() => Promise.resolve(false))}
       />,
     )
     const row = screen.getByRole('row', { name: /stable rewind response/ })
@@ -1225,9 +1234,8 @@ describe('TrajectoryView branches', () => {
       <TrajectoryView
         {...standaloneProps([])}
         {...standaloneDuration()}
-        useHistory={bindSnapshotSelector(store)}
-        loadHistoryTail={vi.fn(() => Promise.resolve())}
-        loadOlderHistory={vi.fn(() => Promise.resolve(false))}
+        useSession={bindSnapshotSelector(store)}
+        loadOlder={vi.fn(() => Promise.resolve(false))}
       />,
     )
     fireEvent.click(screen.getByRole('row', { name: /selected current response/ }))
@@ -1274,9 +1282,8 @@ describe('TrajectoryView branches', () => {
       <TrajectoryView
         {...standaloneProps([])}
         {...standaloneDuration()}
-        useHistory={bindSnapshotSelector(store)}
-        loadHistoryTail={vi.fn(() => Promise.resolve())}
-        loadOlderHistory={vi.fn(() => Promise.resolve(false))}
+        useSession={bindSnapshotSelector(store)}
+        loadOlder={vi.fn(() => Promise.resolve(false))}
       />,
     )
 
