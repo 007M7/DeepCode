@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-scripts",
   "description": "DeepSeek Harness SDK launcher for start, dev, build, and project configuration",
-  "version": "0.0.1",
+  "version": "0.0.1-rc.1",
   "publishConfig": {
     "access": "restricted"
   },

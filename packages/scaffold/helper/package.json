@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-helper",
   "description": "Domain model and infrastructure for creating and editing DeepSeek Harness SDK projects",
-  "version": "0.0.1",
+  "version": "0.0.1-rc.1",
   "publishConfig": {
     "access": "restricted"
   },

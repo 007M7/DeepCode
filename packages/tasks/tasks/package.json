@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-tasks",
   "description": "Background task registry (ctx.tasks) for the DeepSeek Harness — shared ids, owner isolation, polling, cancellation, and completion listeners for long-running tool work",
-  "version": "0.0.1",
+  "version": "0.0.1-rc.1",
   "publishConfig": {
     "access": "restricted"
   },

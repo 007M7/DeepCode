@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-compact-basic",
   "description": "Token-meter-driven compaction policy and LLM summarization backend for the DeepSeek Harness",
-  "version": "0.0.1",
+  "version": "0.0.1-rc.1",
   "publishConfig": {
     "access": "restricted"
   },
