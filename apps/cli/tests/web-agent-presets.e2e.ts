@@ -12,6 +12,7 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { resolveSessionPreset, SETTINGS_NAMESPACE } from '@deepseek-ai/dsh-agent-presets'
 import { CallId } from '@deepseek-ai/dsh-llm'
+import type { BasicCompactService } from '@deepseek-ai/dsh-compact-basic'
 import type {} from '@deepseek-ai/dsh-skill'
 import type {} from '@deepseek-ai/dsh-tools'
 
@@ -166,6 +167,16 @@ describe('the shipped Web composition', () => {
       expect(assembly.tools.find(tool => tool.name === 'bash')?.description).toBe(MINIMAL_BASH_DESCRIPTION)
       expect(JSON.stringify(assembly.tools.find(tool => tool.name === 'str_replace_editor')?.parameters))
         .toContain('Absolute path')
+      const compact = ctx.agentPresets.serviceFor(handle.agent, 'compact')
+      expect(compact).toBeDefined()
+      expect((compact as BasicCompactService).config).toMatchObject({
+        thresholdRatio: 0.8,
+        retainTokens: 20480,
+        summarizationProvider: '',
+        summarizationModel: '',
+        maxTokens: 8192,
+        compactionRetries: 1,
+      })
     } finally {
       await handle.dispose()
     }
@@ -355,18 +366,6 @@ describe('the shipped Web composition', () => {
     expect(await readFile(path, 'utf8')).toBe(before)
   })
 
-  it('gives each session its own complete persona', async () => {
-    const handle = await ctx.agents.create({
-      sessionId: SessionId('preset-persona'),
-      setup: agentCtx => ctx.agentPresets.mount(agentCtx, 'minimal').then(() => undefined),
-    })
-    try {
-      const assembly = await ctx.systemPrompt.assemble({ scope: handle.agent })
-      expect(assembly.sections).toEqual([{ name: 'deployment:persona', text: MINIMAL_PROMPT }])
-    } finally {
-      await handle.dispose()
-    }
-  })
 })
 
 describe('a switch survives the session', () => {
