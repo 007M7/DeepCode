@@ -22,9 +22,10 @@ beforeEach(() => {
 async function bench() {
   const ctx = new Context()
   const slotsFiber = ctx.plugin(SlotsService)
-  // Theme now injects ['slots', 'locale'] (it registers its Appearance
-  // settings row); seat a real locale service so the theme fiber activates.
+  // Theme registers its Appearance settings row and requires the connection
+  // seam for persistence; model this bench as a remote, memory-only browser.
   ctx.provide('locale', new LocaleService(ctx))
+  ctx.provide('connection', { api: { settings: {} }, isLoopback: false } as never)
   await ctx.plugin({ inject: themeInject, apply: themeApply }).await()
   await slotsFiber.await()
   return { ctx, slots: ctx.get('slots') as SlotsService }

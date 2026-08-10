@@ -23,7 +23,7 @@ Always exclude `vendor/` from discovery, review, and edits, even when the reques
 
 Also exclude `.agents/notes/archived/` from prose review and edits. Archived Agent Notes are frozen snapshots; inspect an exact target only to understand a historical inbound citation, never to modernize its prose or outbound links.
 
-Treat generated catalogs, snapshots, and fixtures as derivative. Edit the owning source or scenario first, then regenerate the artifact. When a generator extracts a summary from owner prose, make the extracted sentence complete for that surface. Bilingual pairs have no permanent owner: either language may be the authored side for an update. Update the counterpart minimally and re-record the pair.
+Treat generated catalogs, snapshots, and fixtures as derivative. Edit the owning source or scenario first, then regenerate the artifact. When a generator extracts a summary from owner prose, make the extracted sentence complete for that surface. Bilingual pairs have no permanent owner: either language may be the authored side for an update. Follow the [lightweight routine path](../../../docs/AGENTS.md#writing-rules), update the counterpart minimally, and re-record the pair.
 
 ## Preserve the complete proposition
 
