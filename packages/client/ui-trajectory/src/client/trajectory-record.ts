@@ -116,7 +116,8 @@ export function trajectoryRecordId(cell: TrajectoryCellProps): string {
  */
 export function formatDurationMillis(milliseconds: number | null): string {
   if (milliseconds === null || !Number.isFinite(milliseconds)) return '—'
-  return `${Math.round(milliseconds).toLocaleString('en-US')} ms`
+  const integer = String(Math.round(milliseconds))
+  return `${integer.replace(/\B(?=(\d{3})+(?!\d))/g, ',')} ms`
 }
 
 /**
