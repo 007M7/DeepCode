@@ -1,4 +1,4 @@
-/* Details third column, minimal P-I fill: header (name + close) over a
+/* Details third column, minimal fill: header (name + close) over a
    scrolling body of Input/Output code sections. Panel width/squeeze belongs
    to layout; this fills whatever the column gives. */
 
@@ -91,37 +91,4 @@
 
 .code[data-error] {
   color: var(--dsw-alias-state-error-primary);
-}
-
-/* Above the card, which is where the render-intent contract puts a terminal
-   call's description; the panel has no summary row to carry it. */
-.terminalDescription {
-  margin: 0 0 6px;
-  color: var(--dsw-alias-label-secondary);
-  font: var(--dsw-font-xs-13);
-}
-
-/* A card body (terminal, diff, or search) sits directly under its section
-   label, so it drops the primitive's standalone vertical margin; the section
-   owns the spacing. Card-neutral: no card-kind-specific value. */
-.cardBody {
-  margin: 0;
-}
-
-/* The recovery footer for a capped search: the result text (its `Full … stored
-   at …` locator) below the card in the muted tone, since the card holds only the
-   retained rows. */
-.searchRecovery {
-  margin: 6px 0 0;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  color: var(--dsw-alias-label-tertiary);
-  font: var(--dsw-font-xs-13);
-}
-
-/* The read and web cards sit directly under their section label, same as the
-   terminal card: drop the primitive's standalone vertical margin. */
-.read,
-.web {
-  margin: 0;
 }

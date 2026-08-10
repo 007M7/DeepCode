@@ -4,8 +4,9 @@
 // history RPC, history-page tool views, and the client's log-ordered transcript
 // events — with ZERO model calls in replay (no replay fixture; a stray stream
 // fails loud on the open llm seam). The cold session also carries the one
-// keyless command-row surface: an Access-chip pick runs `/permission` on the
-// host, so the settled row's copy has a golden here. The seed is a recorded
+// keyless command-row surfaces: the seeded manual `/compact` lifecycle folds
+// into its checkpoint, while an Access-chip pick later runs `/permission` on
+// the host. The seed is a recorded
 // fixture under the
 // same record discipline as every other: DSH_SNAPSHOT=record drives the turn
 // live through the composer (real read tool against seeded workspace files)
@@ -39,18 +40,18 @@ const SEED_ID = 'seeded-history-web-e2e'
 const PROMPT = 'Use the read tool twice in one assistant message: read a.txt and b.txt. Then reply with the single word DONE and stop.'
 
 /**
- * Append a complete, valid compaction transaction over the recorded turn's own
- * surface. The recording stays model-authentic and reusable; replay adds this
- * deterministic condition before seeding it cold, so the scenario pins the bug
- * this change fixes — a landed compaction must not erase history the reader
- * already saw — through the real host and the real browser.
+ * Append a complete manual `/compact` lifecycle and valid compaction transaction
+ * over the recorded turn's own surface. The recording stays model-authentic and
+ * reusable; replay adds this deterministic condition before seeding it cold, so
+ * the scenario pins both the log-preserving marker and its single-card command
+ * presentation through the real host and browser.
  * @param raw - the seed fixture text, already realized (placeholder-free) so
  * the shadow price below is computed from the exact strings the host folds.
  * @param meter - the composed token meter; the appended `compact/summary`'s
  * shadow price must be the exact heuristic price of the shadowed nodes, the
  * way compact-basic derives it, because the token-meter projections subtract
  * it verbatim.
- * @returns the fixture with a compacted turn appended.
+ * @returns the fixture with a manual compaction lifecycle appended.
  */
 function withCompaction(raw: string, meter: TokenMeterService): string {
   const lines = raw.trimEnd().split('\n')
@@ -73,28 +74,32 @@ function withCompaction(raw: string, meter: TokenMeterService): string {
   if (first === undefined || last === undefined || tail === undefined) {
     throw new Error('seeded-history compaction requires a non-empty closed surface')
   }
-  // The transaction opens the turn after the recording's last closed one; read
-  // it from the fixture so a re-recording with a different turn count stays
-  // valid instead of appending a duplicate turn number.
   const lastTurn = events.filter(event => event.type === 'turn/end').at(-1)?.data?.turn
   if (typeof lastTurn !== 'number') {
     throw new Error('seeded-history compaction requires a recording ending on a closed turn')
   }
-  const turn = lastTurn + 1
   let seq = tail.seq + 1
   let time = tail.time + 1
   /**
    * Append one event at the next seq/time.
    * @param event - the event body, without seq/time.
-   * @returns the seq it took, so provenance cites the push instead of arithmetic over the push order below.
+   * @returns the assigned seq, so later `sourceEventSeqs` cite the pushed event directly.
    */
   const at = (event: Record<string, unknown>): number => {
     const taken = seq++
     lines.push(JSON.stringify({ ...event, seq: taken, time: time++ }))
     return taken
   }
-  at({ type: 'turn/start', data: { turn } })
-  const startSeq = at({ type: 'compact/start', data: { turn } })
+  const commandId = 'cmd-seeded-manual-compact'
+  const compactionId = 'compact-seeded-manual-compact'
+  at({
+    type: 'command/run',
+    data: { commandId, name: 'compact', args: '', source: { kind: 'user' } },
+  })
+  const startSeq = at({
+    type: 'compact/start',
+    data: { compactionId, sourceCommandId: commandId, turn: null },
+  })
   // Load-bearing exactness: the projections subtract this count verbatim, so
   // it must equal what the host's fold prices for these nodes. The estimator
   // prices message CONTENT only, so a minimal wrapper per storage shape is
@@ -123,6 +128,8 @@ function withCompaction(raw: string, meter: TokenMeterService): string {
   const summarySeq = at({
     type: 'compact/summary',
     data: {
+      compactionId,
+      sourceCommandId: commandId,
       summary: [{
         type: 'text',
         text: '## Cold resume compact summary\n\n- The exact summary remains available.',
@@ -141,13 +148,31 @@ function withCompaction(raw: string, meter: TokenMeterService): string {
         type: 'text',
         text: '<context_checkpoint>Model-only compact checkpoint.</context_checkpoint>',
       }],
-      source: { kind: 'plugin', plugin: 'compact' },
+      source: {
+        kind: 'plugin', plugin: 'compact', compactionId, sourceCommandId: commandId,
+      },
     },
     surfaceOp: { op: 'replace', start: first, end: last },
     sourceEventSeqs: [startSeq, summarySeq, ...surfaceSeqs],
   })
-  at({ type: 'compact/end', data: { turn } })
-  at({ type: 'turn/end', data: { turn, reason: { kind: 'completed' } } })
+  at({
+    type: 'compact/end',
+    data: { compactionId, sourceCommandId: commandId, turn: null },
+  })
+  at({
+    type: 'command/done',
+    data: {
+      commandId,
+      kind: 'success',
+      text: `Compacted ${surfaceSeqs.length} history items (~${shadowedTokenCount} tokens).`,
+      sourceEventSeq: summarySeq,
+    },
+  })
+  // The persistence seed helper requires a terminal turn/end. Keep the manual
+  // command standalone, then add a closed zero-step fixture boundary after it.
+  const closureTurn = lastTurn + 1
+  at({ type: 'turn/start', data: { turn: closureTurn } })
+  at({ type: 'turn/end', data: { turn: closureTurn, reason: { kind: 'completed' } } })
   return `${lines.join('\n')}\n`
 }
 
@@ -239,14 +264,18 @@ describe('web e2e: seeded history renders through cold resume', () => {
     await sessionRow.click()
     // Settled barrier for history: the recorded final assistant text renders.
     await expect.poll(() => page.getByText('DONE', { exact: true }).count(), { timeout: 15_000 }).toBe(1)
-    await expect.poll(() => page.getByText('Context compacted', { exact: true }).count(), { timeout: 10_000 }).toBe(1)
+    await expect.poll(() => page.getByText('compact', { exact: true }).count(), { timeout: 10_000 }).toBe(1)
+    await expect.poll(() => page.getByText(/^Compacted \d+ history items \(~\d+ tokens\)$/).count(), {
+      timeout: 10_000,
+    }).toBe(1)
+    expect(await page.getByText('Context compacted', { exact: true }).count()).toBe(0)
     // Tool cards render from logged tool/call + tool/result alone (views are
     // host-recomputed per page; the generic card is the documented default).
     const toolRows = page.locator('[data-variant], [data-sample]')
     await expect.poll(() => toolRows.count(), { timeout: 10_000 }).toBeGreaterThanOrEqual(2)
     expect(await page.getByText('a.txt', { exact: false }).count()).toBeGreaterThan(0)
-    // The bug this fixes: the compaction shadowed the whole recorded surface on
-    // the model side, and the prompt and full tool output are still on screen.
+    // The pinned hazard: compaction shadows the surface on the model side
+    // only — the prompt and full tool output must stay on screen.
     expect(await page.getByText(PROMPT, { exact: true }).count()).toBe(1)
 
     const agent = scaffold.ctx.agents.get(SessionId(SEED_ID))
@@ -280,10 +309,10 @@ describe('web e2e: seeded history renders through cold resume', () => {
 
   it.skipIf(MODE === 'record')('matches the historical conversation aria golden', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-seeded-aria'))
-    // This scenario deliberately leaves the LLM seam open to prove zero
-    // model calls. History still restores the routed id, but without an
-    // advertised catalog row the selector prompts for a listed replacement.
-    await page.getByRole('button', { name: 'Select model', exact: true })
+    // This scenario issues zero model calls — the scaffold's route-only
+    // adapter serves the catalog and refuses to stream — so history restores
+    // the routed id and the seat resolves it against an advertised row.
+    await page.getByRole('button', { name: /^Select model, current/ })
       .waitFor({ timeout: 10_000 })
     const snapshot = (await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd))
       .split(SEED_ID).join('{{seededId}}')
@@ -363,7 +392,7 @@ describe('web e2e: seeded history renders through cold resume', () => {
 
   it.skipIf(MODE === 'record')('expands the cold-resumed compact summary', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-seeded-compaction'))
-    const marker = page.getByRole('button', { name: /Context compacted/ })
+    const marker = page.getByRole('button', { name: /compact Compacted \d+ history items/ })
     await marker.waitFor({ timeout: 10_000 })
     expect(await marker.getAttribute('aria-expanded')).toBe('false')
     await marker.click()

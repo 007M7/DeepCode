@@ -37,12 +37,13 @@ export interface ApiProxy {
 // ---- Domain interfaces and payload entities ----
 export type {
   HistoryEntry, ModelCatalogFailure, ModelCatalogModel, ModelProviderGroup, ModelReasoning,
-  ModelReasoningEffort, ModelTarget, QueueAction, SessionModels, SessionProjectionsBlock, SessionSearchItem,
+  ModelReasoningEffort, ModelSelection, QueueAction, SessionModels, SessionProjectionsBlock, SessionSearchItem,
   SessionsApi, SessionSummary,
 } from './sessions.ts'
 export type { DirectoryEntry, DirectoryListing, HostApi } from './host.ts'
 export type {
-  SubagentAddress, SubagentCatalog, SubagentListEntry, SubagentPromptReceipt, SubagentsApi,
+  SubagentAddress, SubagentCatalog, SubagentInterruptReceipt, SubagentListEntry,
+  SubagentPromptReceipt, SubagentsApi,
 } from './subagents.ts'
 export type { WorkspaceApi, WorkspaceId, WorkspaceView } from './workspace.ts'
 export type { CommandsApi, CommandDescriptor } from './commands.ts'
@@ -53,6 +54,7 @@ export type { SettingsApi, SettingsNamespaceView, SettingsPathOpView, SettingsSe
 export type { CredentialsApi, CredentialView } from './credentials.ts'
 export type { ConfigurableProviderView, DiscoveredModelView, LlmApi } from './llm.ts'
 export type { ApprovalResponsePayload } from './approvals.ts'
+
 export type { QuestionResponsePayload } from './questions.ts'
 
 // ---- Message layer: narrow forms (domain-signature view) ----
@@ -71,6 +73,11 @@ export type {
 // ---- Errors and ids ----
 export { RpcId, transportError } from './rpc.ts'
 export type { RpcError, RpcErrorCode, RpcErrorDetailsMap, RpcResult } from './rpc.ts'
+export {
+  clientRequestSchema,
+  serverRequestSchema,
+  serverResponseSchema,
+} from './rpc.schema.ts'
 
 // ---- Fixed session-search product bounds ----
 export {

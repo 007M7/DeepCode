@@ -359,10 +359,10 @@ describe('parseAnsiLines: line-end state and column widths', () => {
 
 describe('parseAnsiLines: bounded state and true widths', () => {
   it('emits one canonical sequence per boundary however the state was reached', () => {
-    // Colors that never fully reset used to accumulate raw sequence history per
-    // cell, so every boundary re-emitted the whole chain: 3200 such cells
-    // produced 25 MB and eventually a RangeError. The state is normalized now,
-    // so the emitted text stays linear in the number of cells.
+    // Colors that never fully reset would, under a raw per-cell sequence
+    // history, re-emit the whole chain at every boundary: 3200 such cells
+    // produce 25 MB and eventually a RangeError. Normalized state keeps
+    // the emitted text linear in the number of cells.
     let input = ''
     for (let index = 0; index < 2000; index += 1) input += `${ESC}[3${index % 6 + 1}mx`
     const emitted = parseAnsiLines(`${input}\rz`)[0] ?? []

@@ -126,12 +126,13 @@ function loadFile(abs: string, rel: string, cache: Map<string, FileCtx>): FileCt
 }
 
 /** A type declaration a paste can contain. */
-type TypeDecl = ts.InterfaceDeclaration | ts.TypeAliasDeclaration
+type TypeDecl = ts.InterfaceDeclaration | ts.TypeAliasDeclaration | ts.EnumDeclaration
 
-/** Find an interface/type-alias declaration by name in a file, or null. */
+/** Find a pasteable type declaration by name in a file, or null. */
 function findTypeDecl(ctx: FileCtx, name: string): TypeDecl | null {
   for (const stmt of ctx.sf.statements) {
-    if ((ts.isInterfaceDeclaration(stmt) || ts.isTypeAliasDeclaration(stmt)) && stmt.name.text === name) return stmt
+    if ((ts.isInterfaceDeclaration(stmt) || ts.isTypeAliasDeclaration(stmt) || ts.isEnumDeclaration(stmt))
+      && stmt.name.text === name) return stmt
   }
   return null
 }
@@ -207,7 +208,7 @@ function checkMemberDocs(ctx: FileCtx, decl: TypeDecl, violations: string[]): vo
     else ts.forEachChild(type, (n) => { walkNested(n, path) })
   }
   if (ts.isInterfaceDeclaration(decl)) walkMembers(decl.members, decl.name.text)
-  else walkNested(decl.type, decl.name.text)
+  else if (ts.isTypeAliasDeclaration(decl)) walkNested(decl.type, decl.name.text)
 }
 
 /** Cross-file resolution context for the schema-path check. */
@@ -776,7 +777,7 @@ function requiresLine(inject: string[]): string {
 }
 
 /** Render one reference as a link: another plugin's config type → its section,
- * a curated core-data-structures name → its page, any other workspace type →
+ * a curated subsystems name → its page, any other workspace type →
  * its source file, an external type → named with its module, unlinked. */
 function refLink(ref: TypeRef, byName: Map<string, CatalogEntry>): string {
   const target = byName.get(ref.specifier)
@@ -784,7 +785,7 @@ function refLink(ref: TypeRef, byName: Map<string, CatalogEntry>): string {
     return `[\`${ref.alias}\`](#${slug(target.pkg)})`
   }
   const page = LINK_MAP[ref.imported]
-  if (page) return `[\`${ref.alias}\`](core-data-structures/${page})`
+  if (page) return `[\`${ref.alias}\`](subsystems/${page})`
   if (target) return `[\`${ref.alias}\`](../${target.entry})`
   return `\`${ref.alias}\` (\`${ref.specifier}\`)`
 }
@@ -818,7 +819,7 @@ export function render(entries: CatalogEntry[]): string {
     '',
     '# Plugin Config Catalog',
     '',
-    'Every `config:` block a `cordis.yml` entry can set: for each loadable harness package, the verbatim config declaration (JSDoc included) its `apply` function or service constructor receives, with every referenced type pasted alongside (package-local types) or linked (everything else). The paste is the plugin\'s full declared config type — a field the runtime schema deliberately excludes is a runtime-only seam (its own JSDoc says so) and is not settable from `cordis.yml`. This is the **deployment**-axis reference — the wiring a plugin author works against is the cordis [events](cordis-catalog/events.md) + [services](cordis-catalog/services.md) catalogs, the model-facing tool schemas are the [tool catalog](tool-catalog.md), and [core-data-structures/](core-data-structures/core.md) documents the types these declarations reference.',
+    'Every `config:` block a `cordis.yml` entry can set: for each loadable harness package, the verbatim config declaration (JSDoc included) its `apply` function or service constructor receives, with every referenced type pasted alongside (package-local types) or linked (everything else). The paste is the plugin\'s full declared config type — a field the runtime schema deliberately excludes is a runtime-only seam (its own JSDoc says so) and is not settable from `cordis.yml`. This is the **deployment**-axis reference — the wiring a plugin author works against is the generated `cordis-surface` region on each [subsystem page](subsystems/core.md), the model-facing tool schemas are the [tool catalog](tool-catalog.md), and [subsystems/](subsystems/core.md) documents the types these declarations reference.',
     '',
     'This file is GENERATED from source (`scripts/gen-config-catalog.ts`) and verified fresh by `pnpm run verify-config-catalog` (part of `doc-sync`) — do not edit it by hand. Declaration blocks use a `ts config-catalog` fence (skipped by doc-typecheck, since a lone declaration referencing imports is not standalone-compilable). The generator also cross-checks the runtime schemastery schema against the pasted declaration — every schema-validated key, nested keys included, must be locatable on the declared config type — so the paste cannot hide a loader-accepted field.',
     '',

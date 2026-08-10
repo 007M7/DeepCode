@@ -21,6 +21,7 @@ import { parse as parseYaml } from 'yaml'
 import type { FileSystem, FsDirEntry, FsTarget } from '@deepseek-ai/dsh-fs'
 import { resolveDshHome } from '@deepseek-ai/dsh-paths'
 import {
+  BUNDLED_SKILL_RANK,
   isSkillName,
   type SkillCandidate,
   type SkillDefinition,
@@ -40,7 +41,6 @@ const USER_AGENTS_RANK = 500
 const DEFAULT_WATCH_STABILITY_THRESHOLD_MS = 200
 const DEFAULT_WATCH_POLL_INTERVAL_MS = 100
 const DEFAULT_WATCH_MAX_PROJECTS = 128
-const BUNDLED_RANK = 600
 
 export const name = 'skill-local'
 export const inject = ['skills']
@@ -136,7 +136,7 @@ export function apply(ctx: Context, config: Config = {}): void {
   ctx.effect(function* () {
     yield async () => { await provider.dispose() }
   }, 'skill-local watcher')
-  ctx.on('fs/observed', (target, _version, actor) => {
+  ctx.on('fs/observed', (target, _observation, actor) => {
     if (mutationToolName(actor) === undefined) return
     provider.observeHostMutation(target.displayPath)
   })
@@ -256,7 +256,7 @@ export class LocalSkillProvider implements SkillProvider {
       )
     }
     if (this.bundledSkillDir !== undefined) {
-      roots.push({ path: this.bundledSkillDir, source: 'bundled', rank: BUNDLED_RANK, trustedHost: true })
+      roots.push({ path: this.bundledSkillDir, source: 'bundled', rank: BUNDLED_SKILL_RANK, trustedHost: true })
     }
     return roots
   }

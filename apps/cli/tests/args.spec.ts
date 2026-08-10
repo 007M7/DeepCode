@@ -21,12 +21,16 @@ function exitCode(argv: string[]): number {
 afterEach(() => { vi.restoreAllMocks() })
 
 describe('parseDshArgs', () => {
-  it('routes profile boots, one-shot tasks, and the web alias', () => {
+  it('routes profile boots, one-shot runs, and the web alias', () => {
     expect(parse(['--profile', 'tui'])).toEqual({ mode: 'profile', profile: 'tui', patches: [] })
-    expect(parse(['--profile', 'headless', 'run', 'the', 'tests']))
-      .toEqual({ mode: 'profile', profile: 'headless', patches: [], task: 'run the tests' })
     expect(parse(['--profile', 'tui', '--patch', 'a.yml', '--patch', 'b.yml']))
       .toEqual({ mode: 'profile', profile: 'tui', patches: ['a.yml', 'b.yml'] })
+    expect(parse(['run', 'run', 'the', 'tests']))
+      .toEqual({ mode: 'run', profile: 'headless', patches: [], task: 'run the tests' })
+    expect(parse(['run', '--profile', 'custom', '--patch', 'a.yml', '--patch', 'b.yml', 'run', 'the', 'tests']))
+      .toEqual({ mode: 'run', profile: 'custom', patches: ['a.yml', 'b.yml'], task: 'run the tests' })
+    expect(parse(['run', '--', '--profile', 'is', 'task', 'text']))
+      .toEqual({ mode: 'run', profile: 'headless', patches: [], task: '--profile is task text' })
     expect(parse(['web'])).toEqual({ mode: 'web', dev: false, patches: [] })
     expect(parse(['web', '--patch', 'web.yml'])).toEqual({ mode: 'web', dev: false, patches: ['web.yml'] })
     expect(parse(['web', '--host', '0.0.0.0', '--port', '8080', '--dev', '--workspace-root', '/w']))
@@ -60,11 +64,18 @@ describe('parseDshArgs', () => {
       .toEqual({ mode: 'dump-config', profile: 'web', defaultOnly: true, patches: [] })
   })
 
-  it('rejects missing profile, removed flags, and contradictory inputs', () => {
+  it('rejects missing profile, flags outside the current grammar, and contradictory inputs', () => {
     expect(exitCode([])).toBe(1)
     expect(exitCode(['tui'])).toBe(1) // a bare word is a task without --profile
-    expect(exitCode(['--config', 'c.yml'])).toBe(1) // removed
-    expect(exitCode(['-p', 'task'])).toBe(1) // removed
+    expect(exitCode(['--config', 'c.yml'])).toBe(1) // outside the current grammar
+    expect(exitCode(['-p', 'task'])).toBe(1) // outside the current grammar
+    expect(exitCode(['--profile', 'headless', 'task'])).toBe(1) // tasks belong to `run`
+    expect(exitCode(['run'])).toBe(1)
+    expect(exitCode(['run', ''])).toBe(1)
+    expect(exitCode(['run', '--profile', '', 'task'])).toBe(1)
+    expect(exitCode(['run', '--patch=', 'task'])).toBe(1)
+    expect(exitCode(['--profile', 'headless', 'run', 'task'])).toBe(1)
+    expect(exitCode(['--patch', 'parent.yml', 'run', 'task'])).toBe(1)
     expect(exitCode(['--profile', ''])).toBe(1)
     expect(exitCode(['--profile', 'x', '--patch='])).toBe(1)
     expect(exitCode(['--dump-config'])).toBe(1)
@@ -90,6 +101,7 @@ describe('parseDshArgs', () => {
 
   it('exits 0 for help and version', () => {
     expect(exitCode(['--help'])).toBe(0)
+    expect(exitCode(['run', '--help'])).toBe(0)
     expect(exitCode(['--version'])).toBe(0)
   })
 })

@@ -22,7 +22,7 @@ export function apply(ctx: Context, config: Config) {
 
 注册基于副作用，可安全支持 HMR（热模块替换）；每个提供方路由仅对应一个适配器，重复注册会抛出异常，多路由注册要么全部成功，要么全部失败。`options.provider` 用于选择适配器，`options.model` 是提供方模型 ID，因此动态模型目录适配器无需重新配置生命周期即可提供新模型。密钥采用 Cordis 原生方式管理：schemastery Config 带环境变量回退，通过 cordis.yml 的 `!!js process.env.MY_KEY` 注入。切勿在代码中读取自行约定的密钥文件。
 
-## 协议义务（两个实现共同验证的契约）
+## 协议义务（两个实现共同验证的约定）
 
 - 在 `finish` **之前**发出 `usage`；`finish` 之后**不再发出任何内容**。稳健做法：缓冲 finish/usage 直到提供方的流结束标记，再统一 flush（可处理提供方在末尾发送仅含 usage 的分片的情况）。
 - 工具调用的 `arguments` 全程为原始 JSON 字符串；流式片段以 `argumentsDelta` 发送。如果你的提供方返回已解析的对象，请在 `block-end` 时重新 stringify。
@@ -36,7 +36,7 @@ export function apply(ctx: Context, config: Config) {
 
 ## 实现结构
 
-让协议类型、请求序列化、传输解析、分片转换和适配器类分别承担独立职责；[`llm-deepseek`](../../packages/llm/llm-deepseek/README.md) 是参考布局。
+让协议格式（wire format）类型、请求序列化、传输解析、分片转换和适配器类分别承担独立职责；[`llm-deepseek`](../../packages/llm/llm-deepseek/README.md) 是参考布局。
 
 ## 验证
 

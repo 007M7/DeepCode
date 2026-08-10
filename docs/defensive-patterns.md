@@ -8,9 +8,9 @@ Hard-won bug-class rules: each pattern below is a class of defect that actually 
 
 A result can be several things at once — a process can time out AND exit 0 because it trapped the signal. Surface each independent fact (`timedOut`, `signal`, `exitCode`) on its own; never nest one flag's report inside another's branch, or a caller reads a cut-short run as a clean success.
 
-## Honor cross-seam contracts on BOTH sides
+## Honor public contracts on BOTH sides
 
-When an implementation boundary receives several representations of one outcome, normalize them before crossing the public seam. `LlmAdapter.stream()` implementations may throw or emit `finish {kind:'error'|'aborted'}`, but `LlmService.stream()` exposes model-request failures only as terminal finish chunks; middleware and consumer defects remain thrown. This keeps consumers from guessing whether a caught exception came from the provider, a wrapper, chunk logging, or their own assembly. Document the normalized contract where the type is defined; exercise every source form through the real consumer.
+When an implementation boundary receives several representations of one outcome, normalize them before crossing the public contract. `LlmAdapter.stream()` implementations may throw or emit `finish {kind:'error'|'aborted'}`, but `LlmService.stream()` exposes model-request failures only as terminal finish chunks; middleware and consumer defects remain thrown. This keeps consumers from guessing whether a caught exception came from the provider, a wrapper, chunk logging, or their own assembly. Document the normalized contract where the type is defined; exercise every source form through the real consumer.
 
 ## Async state is not synchronous state
 

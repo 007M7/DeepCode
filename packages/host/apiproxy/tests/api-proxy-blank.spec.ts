@@ -35,7 +35,7 @@ async function harness(): Promise<{ ctx: Context; api: ApiProxy; attach: (sessio
   await ctx.plugin(AgentRegistry)
   return {
     ctx,
-    api: createApiProxy(ctx, { provider: 'p', model: 'm', cwd: '/tmp', workspaceRoot: '/tmp' }),
+    api: createApiProxy(ctx, { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp', workspaceRoot: '/tmp' }),
     attach: (session) => {
       ctx.agents.register({ id: session.id, session, status: 'idle', ctx } as Agent)
     },

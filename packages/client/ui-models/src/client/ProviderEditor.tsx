@@ -7,12 +7,15 @@
  * a key is entered; a blank key materializes a reference-free profile for
  * provider-native authentication);
  * the collapsed 自定义设置 area carries the per-family extras (`baseURL` for
- * both families, `reasoningEffort` for deepseek / `reasoning` for pi-ai, and
- * DeepSeek's id/name/context-window model catalog). Everything else stays
+ * both families and DeepSeek's id/name/context-window model catalog).
+ * Reasoning effort is deliberately absent: it is a per-MODEL capability, and
+ * the models under one provider disagree about it, so a provider-scoped
+ * control can only be set to a value some of them reject. The composer's
+ * model picker offers each model its own levels; `settings.yaml` keeps the
+ * profile field for a deployment that knows its route. Everything else stays
  * owned by `settings.yaml`. Profile edits land as minimal `settings.mutate`
- * path ops against the stored section — the card reads the redacted
- * descriptor, so it names only the fields it can see and a stored literal
- * secret is never collaterally removed.
+ * path ops against the stored section — the card names only the fields it can
+ * see instead of rebuilding the whole subtree from a partial descriptor.
  */
 
 import { useEffect, useMemo, useState } from 'react'
@@ -24,6 +27,7 @@ import {
 import {
   DeepSeekModelsEditor, modelDrafts, validateDeepSeekModels,
 } from './DeepSeekModelsEditor.tsx'
+import { apiKeyFailure } from './apiKey.ts'
 import { EditorFooter } from './EditorFooter.tsx'
 import { ModelListEditor } from './ModelListEditor.tsx'
 import { deriveKeyRef, messageOf } from './store.ts'
@@ -32,18 +36,6 @@ import styles from './ModelsSection.module.css'
 
 /** Per-adapter-family curated field sets (unknown namespaces get the hint alone). */
 type EditorLayout = 'deepseek' | 'pi-ai' | 'unknown'
-
-/** Reasoning vocabularies per layout; the empty option means "inherit". */
-const EFFORT_CHOICES: Record<'deepseek' | 'pi-ai', readonly string[]> = {
-  deepseek: ['off', 'high', 'max'],
-  'pi-ai': ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'],
-}
-
-/** The draft key the effort select edits, per layout. */
-const EFFORT_FIELD: Record<'deepseek' | 'pi-ai', string> = {
-  deepseek: 'reasoningEffort',
-  'pi-ai': 'reasoning',
-}
 
 /** The public DeepSeek endpoint shown as the deepseek base-URL placeholder. */
 const DEEPSEEK_PUBLIC_BASE_URL = 'https://api.deepseek.com'
@@ -79,10 +71,9 @@ function draftAt(namespace: SettingsNamespaceView, path: readonly string[]): Rec
 
 /**
  * The minimal path ops carrying `after` over `before`, both as the card sees
- * them (that is, redacted). Only keys the card observed are named: a stored
- * `role('secret')` field appears in neither side, so it produces no op and
- * survives the write — the whole reason edits are path-addressed rather than
- * a rebuilt section.
+ * them. Only keys the card observed are named; fields absent from both sides
+ * produce no op, which is why edits are path-addressed rather than a rebuilt
+ * section.
  * @param base - path of the edited subtree inside the user section.
  * @param before - the subtree as loaded, or undefined when it is new.
  * @param after - the subtree as edited.
@@ -168,15 +159,26 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
 
   const stringAt = (source: unknown, key: string): string | undefined => {
     const value = getPath(source, [key])
-    return typeof value === 'string' && value.length > 0 ? value : undefined
+    return typeof value === 'string' && value.trim().length > 0 ? value : undefined
   }
   const setField = (key: string, next: string | undefined): void => {
-    setDraft(current => next === undefined ? deletePath(current, [key]) : setPath(current, [key], next))
+    // A value of nothing but whitespace is cleared, not stored: `stringAt`
+    // already reports it as absent, so the field would otherwise render empty
+    // while the draft still carried the spaces into `settings.yaml`, where
+    // both adapters would accept that non-empty string as a real value.
+    const value = next === undefined || next.trim().length === 0 ? undefined : next
+    setDraft(current => value === undefined ? deletePath(current, [key]) : setPath(current, [key], value))
   }
 
   // The model list is validated by the same per-row checker for both families,
   // so a bad row is named by its position rather than by a blanket message.
   const modelFailure = validateDeepSeekModels(getPath(draft, ['models']))
+  const keyFailure = apiKeyFailure(keyDraft)
+  // What a probe or a write must carry: the typed key with paste whitespace
+  // removed. A blank field yields an empty string, which both call sites read
+  // as "no key supplied" rather than as a key — that is how a card whose
+  // provider already has a stored key is edited without re-entering it.
+  const keyValue = keyDraft.trim()
   // What the form currently shows, which is what an interrogation must ask:
   // an edited-but-unsaved endpoint, and a key typed but not yet stored.
   const probeApi = stringAt(draft, 'api') ?? stringAt(fallback, 'api')
@@ -188,22 +190,20 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
     provider: props.provider,
     ...probeBaseURL === undefined ? {} : { baseURL: probeBaseURL },
     ...probeApi === undefined ? {} : { api: probeApi },
-    ...keyDraft.length === 0 ? {} : { apiKey: keyDraft },
+    ...keyValue.length === 0 ? {} : { apiKey: keyValue },
   }
   /**
    * The write for this card, or a failure message. Every edit travels as
    * path ops against the STORED section: the draft comes from the redacted
-   * descriptor, so a wholesale replace rebuilt from it would delete the
-   * literal secrets the wire never returned. Ops name only the fields this
-   * card can see, so a stored secret is untouched by construction.
+   * descriptor, so a wholesale replace rebuilt from it could delete fields
+   * outside the card. Ops name only the fields this card can see.
    */
   const applyOnce = async (): Promise<string | undefined> => {
     const ns = namespace.ns
-    const normalizedKey = keyDraft.trim()
     // A pi-ai profile names the conventional reference only when this page is
     // about to store a key. Otherwise the provider keeps its native auth path.
     const next = layout === 'pi-ai' && stringAt(draft, 'apiKeyEnv') === undefined
-      && stringAt(fallback, 'apiKeyEnv') === undefined && normalizedKey.length > 0
+      && stringAt(fallback, 'apiKeyEnv') === undefined && keyValue.length > 0
       ? setPath(draft, ['apiKeyEnv'], keyRef)
       : draft
     {
@@ -240,8 +240,8 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
       setExpectedRevision(response.result.value.revision)
       setDraft(next)
     }
-    if (normalizedKey.length > 0) {
-      const stored = await api.credentials.set({ ref: keyRef, value: normalizedKey })
+    if (keyValue.length > 0) {
+      const stored = await api.credentials.set({ ref: keyRef, value: keyValue })
       if (!stored.result.ok) return stored.result.error.message
     }
     setKeyDraft('')
@@ -294,7 +294,6 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
    * unknown namespace never reaches this body.
    */
   const curatedFields = (family: 'deepseek' | 'pi-ai'): ReactNode => {
-    const effortField = EFFORT_FIELD[family]
     const customModels = getPath(draft, ['models'])
     const modelsOverridden = hasPath(draft, ['models'])
     const models = modelDrafts(modelsOverridden ? customModels : inheritedModels())
@@ -330,6 +329,7 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
             disabled={disabled || keyLocked}
             onChange={(event) => { setKeyDraft(event.target.value) }}
           />
+          {keyFailure === undefined ? null : <p className={styles['error']}>{t(keyFailure)}</p>}
         </div>
         <details className={styles['customized']}>
           <summary className={styles['customizedSummary']}>{t('customized')}</summary>
@@ -350,23 +350,6 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
                 }}
               />
             </div>
-            <div className={styles['field']}>
-              <span className={styles['fieldLabel']}>{t('effort')}</span>
-              <select
-                className={`${styles['input']} ${styles['selectInput']}`}
-                value={stringAt(draft, effortField) ?? ''}
-                aria-label={t('effort')}
-                disabled={disabled}
-                onChange={(event) => {
-                  setField(effortField, event.target.value === '' ? undefined : event.target.value)
-                }}
-              >
-                <option value="">{t('effortInherit')}</option>
-                {EFFORT_CHOICES[family].map(choice => (
-                  <option key={choice} value={choice}>{choice}</option>
-                ))}
-              </select>
-            </div>
             {/* Both families edit the same rows through the same contract; only
                 the extras differ — DeepSeek's inherited capacities, pi-ai's
                 endpoint interrogation. */}
@@ -380,7 +363,7 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
                   defaultMaxTokens={typeof defaultMaxTokens === 'number' ? defaultMaxTokens : undefined}
                 />
               )
-              : <ModelListEditor {...catalogProps} probe={probe} api={api} />}
+              : <ModelListEditor {...catalogProps} probe={probe} probeBlocked={keyFailure} api={api} />}
           </div>
         </details>
       </>
@@ -413,7 +396,8 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
       <EditorFooter
         t={t}
         busy={busy}
-        submitDisabled={disabled || layout === 'unknown' || modelFailure !== undefined}
+        submitDisabled={disabled || layout === 'unknown' || modelFailure !== undefined
+          || keyFailure !== undefined}
         submitLabel="apply"
         submitBusyLabel="applying"
         onCancel={() => { props.onClose(false) }}

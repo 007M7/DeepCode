@@ -19,11 +19,13 @@
 - `ctx.systemPrompt.section(section: PromptSection): () => void`：贡献一个段。层由调用上下文的作用域决定：`agent.ctx` 只为该 agent 贡献，并在该处遮蔽同名全局段。同一层中的重复名称和非有限顺序会抛出。随调用 fiber 一并 dispose（资源释放）。
 - `ctx.systemPrompt.tools(provider: (context: AssembleContext) => ToolProviderResult): () => void`：贡献工具 schema；每次组装时使用该次组装的上下文求值。`ToolProviderResult` = `{ schemas, knownNames? }`：`schemas` 是限制后的可见集合；`knownNames` 是限制前由 `toolOrder` 使用的全集。提供方不得返回名为 `TOOL_ORDER_REST` 的 schema。带作用域提供方只在其作用域的组装中查询。随调用 fiber 一并 dispose。
 - `ctx.systemPrompt.variable(name: string, provider: (context) => string | undefined): () => void`：贡献提示词变量，在段文本中以 `{{name}}` 引用。带作用域变量会为该 agent 遮蔽同名全局变量。同层重复或无法引用的名称会抛出；`undefined` 表示「本次组装没有值」。随调用 fiber 一并 dispose。
-- `ctx.systemPrompt.assemble(context?: AssembleContext): Promise<PromptAssembly>`：为一个调用方组装提示词：将全局层与 `context.scope` 的层合并，并在变换 seam 前分离工具 schema。它经过按作用域筛选的 `system-prompt/assemble` waterfall，并返回其权威结果。可选的 `context.signal` 显式控制本次组装请求；提供方与监听器可以配合该信号，但不得将它保留给另一轮次。当已配置的 `toolOrder` 指名提供方 `knownNames` 全集以外的工具，或提供方返回保留的其余项名称时，调用会被拒绝。
+- `ctx.systemPrompt.assemble(context?: AssembleContext): Promise<PromptAssembly>`：为一个调用方组装提示词：将全局层与 `context.scope` 的层合并，并在变换 waterfall 前分离工具 schema。它经过按作用域筛选的 `system-prompt/assemble` waterfall，并返回其权威结果。可选的 `context.signal` 显式控制本次组装请求；提供方与监听器可以配合该信号，但不得将它保留给另一轮次。当已配置的 `toolOrder` 指名提供方 `knownNames` 全集以外的工具，或提供方返回保留的其余项名称时，调用会被拒绝。
+
+<a id="live-events"></a>
 
 ### 实时事件
 
-`system-prompt/assemble` 是权威来源；替换条目的监听器必须保留任何活动 Code Mode 或结构化输出协议。筛选需要在呈现、查找与执行之间保持一致时，应使用 [`ToolRegistry.restrict()`](../tools/README.md)。注册表变更通知不经过筛选。生成的[事件目录](../../../docs/cordis-catalog/events.md) 拥有签名与分发契约。
+`system-prompt/assemble` 是权威来源；替换条目的监听器必须保留任何活动 Code Mode 或结构化输出协议。筛选需要在呈现、查找与执行之间保持一致时，应使用 [`ToolRegistry.restrict()`](../tools/README.md)。注册表变更通知不经过筛选。[system-prompt.md](../../../docs/subsystems/system-prompt.md#cordis-surface) 的生成区块拥有签名与分发约定。
 
 ### 关键类型
 
@@ -36,7 +38,7 @@
 
 ### 扩展点
 
-- 段提供方：工具包（package）拥有跨调用引导（`tool:bash`、`tool:read` 等）；此插件拥有 `harness:identity` 与 `deployment:persona`。
+- 段提供方：工具包拥有跨调用引导（`tool:bash`、`tool:read` 等）；此插件拥有 `harness:identity` 与 `deployment:persona`。
 - 变量提供方：agent loop（智能体循环）注册 `model` 与 `cwd`；任何插件都可以注册自己拥有的事实（未来的 `date`、git 状态等）。
 - 工具 schema 提供方：`ToolRegistry` 自动将自身注册为工具提供方。
 - [`system-prompt/assemble` waterfall](#live-events)：按调用方协作式修改或替换组装结果。

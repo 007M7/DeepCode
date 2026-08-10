@@ -1,8 +1,10 @@
 /**
- * Filesystem text-storage provider seam. Backends own stable target identity,
- * text decoding, binary rejection, and atomic mutations. Read windows and
- * observed-state policy stay in consumer and policy plugins; `editText` remains
- * here so version check, literal match, and rewrite share one critical section.
+ * Filesystem Service Definition for one execution world. Backends own stable target
+ * identity, process paths and file URIs, containment, text reads, decoding,
+ * binary rejection, and atomic mutations. Read windows and
+ * observed-state policy stay in consumer and policy plugins; `editText`
+ * remains here so version check, literal match, and rewrite share one critical
+ * section.
  * @module @deepseek-ai/dsh-fs
  */
 
@@ -14,6 +16,7 @@ import type {
   FsEditRequest,
   FsInfo,
   FsPathInfo,
+  FsObservation,
   FsTarget,
   FsVersion,
   FsWriteIntent,
@@ -31,6 +34,7 @@ export type {
   FsDirEntry,
   FsErrorCode,
   FsInfo,
+  FsObservation,
   FsPathInfo,
   FsTarget,
   FsWriteIntent,
@@ -61,14 +65,15 @@ declare module 'cordis' {
      */
     'fs/edit-intent'(target: FsTarget, actor: object | undefined, next: () => { version: FsVersion } | undefined | Promise<{ version: FsVersion } | undefined>): Promise<{ version: FsVersion } | undefined>
     /**
-     * Record a successful observation. Listeners must be synchronous recorders:
-     * throws fail the tool call and returned promises are not awaited.
-     * @param target - the target that was read/written/edited.
-     * @param version - the version the actor now holds as its observation.
+     * Record an authoritative positive or negative observation. Listeners must
+     * be synchronous recorders: throws fail the tool call and returned promises
+     * are not awaited.
+     * @param target - the target whose presence or absence was observed.
+     * @param observation - present with its version, or confirmed absent.
      * @param actor - the observing tool-execution context; undefined records nothing useful.
      * @mode emit
      */
-    'fs/observed'(target: FsTarget, version: FsVersion, actor: object | undefined): void
+    'fs/observed'(target: FsTarget, observation: FsObservation, actor: object | undefined): void
   }
 }
 
@@ -83,7 +88,6 @@ export abstract class FileSystem extends Service {
     super(ctx, 'fs')
   }
 
-  /**
   /**
    * The sandbox mode this backend enforces on mutations BY DEFAULT, or
    * `undefined` when it does not confine at all — the capability fact the tool
@@ -110,6 +114,34 @@ export abstract class FileSystem extends Service {
    * @returns the stable target; the same file yields the same `targetKey`.
    */
   abstract resolve(path: string, opts?: { cwd?: string; signal?: AbortSignal }): Promise<FsTarget>
+
+  /**
+   * Return the canonical absolute path a subprocess in this filesystem's
+   * execution world can open. The path is deliberately separate from
+   * {@link FsTarget.targetKey}: consumers may pass this value to another OS
+   * capability, but must continue treating the target key as opaque.
+   * @param target - the resolved target whose process path is required.
+   * @returns an absolute path in the backend's execution world.
+   */
+  abstract processPath(target: FsTarget): string
+
+  /**
+   * Return the canonical `file:` URI for a target in this filesystem's
+   * execution world. Backends own URI encoding because the host platform may
+   * differ from the execution platform.
+   * @param target - the resolved target to encode.
+   * @returns the target's canonical file URI.
+   */
+  abstract fileUrl(target: FsTarget): string
+
+  /**
+   * Test canonical containment without exposing or parsing backend target
+   * keys. Both targets must come from this provider.
+   * @param parent - canonical directory target.
+   * @param child - canonical candidate target.
+   * @returns true when `child` is `parent` or a descendant of it.
+   */
+  abstract contains(parent: FsTarget, child: FsTarget): boolean
 
   /**
    * Return target metadata, or `undefined` when the target does not exist.
@@ -169,7 +201,7 @@ export abstract class FileSystem extends Service {
    * @param target - the resolved target to write.
    * @param content - the full new file content.
    * @param expected - the write intent guarding the write; omit for unconditional.
-   * @param signal - aborts before the atomic rename takes effect.
+   * @param signal - aborts before atomic publication takes effect.
    * @param sandboxPolicy - the per-call mode and workspace root this write
    *   runs under; a sandboxing backend fences the write by it, the bare backend
    *   ignores it. Omit to leave the backend its own default.
@@ -190,7 +222,7 @@ export abstract class FileSystem extends Service {
    * @param target - the resolved target to edit.
    * @param edit - the literal search/replace request.
    * @param expected - the version guard; omit for an unconditional edit.
-   * @param signal - aborts before the atomic rename takes effect.
+   * @param signal - aborts before atomic publication takes effect.
    * @param sandboxPolicy - the per-call mode and workspace root this edit runs
    *   under; a sandboxing backend fences the edit by it, the bare backend
    *   ignores it. Omit to leave the backend its own default.

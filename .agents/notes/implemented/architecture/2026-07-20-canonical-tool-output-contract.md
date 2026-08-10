@@ -24,7 +24,7 @@ output: {
 
 `defineTool` infers the body return and both projectors from the unified `ValueSchemaSpec`. Raw and dynamic definitions provide the compiled `JsonSchemaNode` form. Registration rejects a missing declaration or unsupported raw schema; there is no content-return compatibility path.
 
-For each successful dispatch the registry snapshots the returned value as lossless `JsonValue`, validates it against `output.schema`, deep-freezes it, then invokes the pure renderer and, for a direct surface call, the optional metadata projector. Renderer, projector, schema, or lossless-JSON failures are contained as ordinary `ToolOutputError` results. An around `tools/execute` wrapper receives and returns the canonical success/failure union; a wrapper-authored success is normalized again through the resolved tool's output declaration instead of trusting independently authored content. Canonical-result provenance is scoped to the immutable dispatch token, so returning a cached result from another call or tool triggers normalization under the active declaration rather than bypassing it.
+For each successful dispatch the registry snapshots the returned value as lossless `JsonValue`, validates it against `output.schema`, deep-freezes it, then invokes the pure renderer and, for a direct surface call, the optional metadata projector. Renderer, projector, schema, or lossless-JSON failures are contained as ordinary `ToolOutputError` results. An around `tools/execute` wrapper receives and returns the canonical success/failure union; a wrapper-authored success is normalized again through the resolved tool's output declaration instead of trusting independently authored content. Each canonical result is tied to the immutable dispatch token that created it, so returning a cached result from another call or tool triggers normalization under the active declaration rather than bypassing it.
 
 ```ts ignore-check
 type ToolExecutionResult =
@@ -46,7 +46,7 @@ The first-party tools preserve their existing Native text while returning domain
 | `glob` | `{ paths: string[] }` |
 | `grep` | `{ matches: [{ path, lineNumber, line }] }` |
 | `web_search` / `web_fetch` | The normalized `WebSearchResult` / `WebFetchResult` |
-| `lsp` | `{ kind: "locations", locations, resolvedWorkspaceRoot }` or `{ kind: "hover", hover }` |
+| `lsp` | `{ kind: "locations", locations, resolvedWorkspaceUri }` or `{ kind: "hover", hover }` |
 | `bash` | `{ kind: "background", taskId }` or `{ kind: "foreground" } & BashRunResult` |
 | `terminal_open` / `terminal_list` / `terminal_send` / `terminal_read` / `terminal_signal` / `terminal_close` | Public session snapshots, bounded read/send DTOs, signal/close outcomes, or a background task handle |
 | `task_output` / `task_list` / `task_kill` | Public task snapshots without owner or notification bookkeeping |

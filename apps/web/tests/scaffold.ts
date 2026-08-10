@@ -32,7 +32,7 @@ import { expect } from 'vitest'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import Include, { type PatchOptions } from '@cordisjs/plugin-include'
-import { scrubRequestHeaders } from '@deepseek-ai/dsh-acp-snapshot'
+import { scrubRequestHeaders, stabilizeFixtureMessageIds } from '@deepseek-ai/dsh-acp-snapshot'
 import {
   addHarnessSourceSection,
   assertEntriesLoaded,
@@ -45,6 +45,10 @@ import {
   WELCOME_NOTICE_ACK_FIELD, WELCOME_NOTICE_SETTINGS_NAMESPACE, WELCOME_NOTICE_VERSION,
 } from '@deepseek-ai/dsh-client-ui-settings-general'
 import { settingsNamespace } from '@deepseek-ai/dsh-settings'
+import { LlmAdapter } from '@deepseek-ai/dsh-llm'
+import type {
+  LlmModelInfo, LlmProviderInfo, LlmResolvedModelInfo, StreamChunk,
+} from '@deepseek-ai/dsh-llm'
 import type { ReplayHandle } from '@deepseek-ai/dsh-llm-replay'
 import { installLlmReplay, parseSessionLog } from '@deepseek-ai/dsh-llm-replay'
 import SessionStore, {
@@ -93,6 +97,46 @@ const REPLAY_PROVIDERS = [{
   models: [{ id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash', contextWindow: 128_000 }],
 }]
 
+/**
+ * The routes a shipped composition always has, with no ability to stream.
+ * A fixture-less keyless scenario issues no model calls, but its tree must
+ * still answer `listProviders()` — surfaces legitimately gate on whether any
+ * adapter serves a session's route, and an empty registry is a test artifact,
+ * not a product state.
+ */
+class RouteOnlyAdapter extends LlmAdapter {
+  constructor(private readonly providers: typeof REPLAY_PROVIDERS) {
+    super()
+  }
+
+  override providerInfo(provider: string): LlmProviderInfo {
+    return { id: provider, name: this.providers.find(entry => entry.id === provider)?.name ?? provider }
+  }
+
+  override listModels(provider: string): Promise<readonly LlmModelInfo[]> {
+    return Promise.resolve((this.providers.find(entry => entry.id === provider)?.models ?? [])
+      .map(model => ({ provider, id: model.id, name: model.name })))
+  }
+
+  override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
+    const listed = this.providers.find(entry => entry.id === provider)?.models
+      .find(entry => entry.id === model)
+    return Promise.resolve({
+      provider,
+      id: model,
+      name: listed?.name ?? model,
+      ...listed?.contextWindow === undefined ? {} : { contextWindow: listed.contextWindow },
+    })
+  }
+
+  override async *stream(): AsyncIterable<StreamChunk> {
+    throw new Error(
+      'web e2e scaffold: a model call was issued by a scenario that declared no replay fixture'
+      + ' — pass replayFixture, or keep the scenario free of model calls',
+    )
+  }
+}
+
 function replayProviders(contextWindow: number | undefined): typeof REPLAY_PROVIDERS {
   if (contextWindow === undefined) return REPLAY_PROVIDERS
   return REPLAY_PROVIDERS.map(provider => ({
@@ -107,7 +151,7 @@ export interface WebScaffold {
   mode: WebSnapshotMode
   /** Browser-facing origin for the bound test server. */
   baseUrl: string
-  /** Settled root context (the in-process barrier seam; headless event subscription is its sanctioned use). */
+  /** Settled root context (the in-process readiness barrier; headless event subscription is its sanctioned use). */
   ctx: Context
   /** Temp project directory sessions run in (bash/fs tool cwd). */
   workspaceCwd: string
@@ -390,6 +434,16 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
         ...(options.replayChildFixtures === undefined ? {} : { childFiles: options.replayChildFixtures }),
         ...(options.paceMs === undefined ? {} : { paceMs: options.paceMs }),
       })
+    } else if (mode !== 'record' && options.deepSeekMissingCredential !== true) {
+      // No fixture and no shipped adapter would leave the tree with ZERO
+      // provider routes — a state no product composition has, and one the
+      // composer refuses to type into. Register the same routes
+      // a fixture would, with streaming that still fails loud: the scenario
+      // issues no model calls, and one that slipped in must not pass quietly.
+      ctx.effect(() => ctx.llm.registerAdapter(
+        replayProviders(options.replayContextWindow).map(provider => provider.id),
+        new RouteOnlyAdapter(replayProviders(options.replayContextWindow)),
+      ), 'web e2e scaffold: route-only adapter')
     }
   } catch (error) {
     if (process.cwd() !== originalCwd) process.chdir(originalCwd)
@@ -474,11 +528,14 @@ function rawSessionLog(session: Session): string {
 export async function recordFixture(scaffold: WebScaffold, sessionId: SessionId, fixturePath: string): Promise<void> {
   const agent = scaffold.ctx.agents.get(sessionId)
   if (agent === undefined) throw new Error(`record harvest: no live agent for ${sessionId}`)
-  const tokenized = scrubRequestHeaders(rawSessionLog(agent.session))
+  const fresh = scrubRequestHeaders(rawSessionLog(agent.session))
     .split(sessionId).join('{{sessionId}}')
     .split(scaffold.workspaceCwd).join('{{cwd}}')
     .replace(/"rpcId":"[^"]+"/g, '"rpcId":"{{rpcId}}"')
-  await writeFile(fixturePath, tokenized)
+  const existing = existsSync(fixturePath) ? await readFile(fixturePath, 'utf8') : ''
+  const stable = stabilizeFixtureMessageIds([fresh], [existing])[0]
+  if (stable === undefined) throw new Error('record harvest: no stabilized fixture')
+  await writeFile(fixturePath, stable)
 }
 
 /**
@@ -563,8 +620,9 @@ export async function seedSession(scaffold: WebScaffold, fixtureText: string, id
 }
 
 /**
- * Normalize an aria snapshot: uuid, cwd, workspace-basename, duration, and
- * decode-throughput volatility collapse to stable tokens.
+ * Normalize an aria snapshot: uuid, cwd, workspace-basename, duration,
+ * decode-throughput, and path-sensitive compaction estimates collapse to
+ * stable tokens.
  *
  * Throughput needs a token for the same reason durations do, and no fixture
  * can supply one: the figure divides a replayed step's output tokens by the
@@ -591,6 +649,9 @@ function normalizeAria(snapshot: string, workspaceCwd: string): string {
       duration => duration.startsWith('约') ? duration : '{{duration}}',
     )
     .replace(/\d+(?:\.\d+)?(?= tok\/s(?!\w))/g, '{{throughput}}')
+    // Seeded compaction prices realized file paths, whose length differs
+    // between local worktrees and CI scratch directories.
+    .replace(/(Compacted \d+ history items \(~)\d+( tokens\))/g, '$1{{tokens}}$2')
     // Message IconActions clocks widen by calendar day/year; collapse every
     // shape so goldens stay stable across midnight and year boundaries.
     .replace(/\d{4}年\d{1,2}月\d{1,2}日 \d{2}:\d{2}/g, '{{clock}}')

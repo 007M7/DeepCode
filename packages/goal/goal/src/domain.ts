@@ -1,29 +1,14 @@
 /**
  * Host-side vocabulary of the goal domain: live views, durable change
  * payloads, message attribution, replay folds, and the scoped `goal/changed`
- * event. Split from ./types.ts (the pure client-safe outlet) because these
- * declarations pull dsh-agent, dsh-llm, and cordis into the program — the
- * one-program-per-side layout forbids that on client aggregates.
+ * event. Kept separate from ./types.ts (the pure client-safe outlet) because
+ * these declarations pull dsh-agent, dsh-llm, and cordis into the program —
+ * the one-program-per-side layout forbids that on client aggregates.
  * @module @deepseek-ai/dsh-goal
  */
 
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import type { GoalId, GoalRef, GoalSnapshot } from './types.ts'
-
-/** Whether this live process may automatically continue an active goal. */
-export type GoalActivation = 'armed' | 'disarmed'
-
-/** Current goal projection, including values derived from the session log. */
-export interface GoalView extends GoalSnapshot {
-  /** Highest admitted round number for this goal. */
-  readonly roundsStarted: number
-  /** Epoch milliseconds of the create mutation. */
-  readonly createdAt: number
-  /** Epoch milliseconds of the latest mutation. */
-  readonly updatedAt: number
-  /** Process-local continuation eligibility; never persisted. */
-  readonly activation: GoalActivation
-}
+import type { GoalId, GoalRef, GoalSnapshot, GoalView } from './types.ts'
 
 /** Goal state-changing verbs recorded in the durable source change. */
 export type GoalOperation =
@@ -73,7 +58,7 @@ declare module '@deepseek-ai/dsh-llm' {
   }
 }
 
-declare module '@deepseek-ai/dsh-session' {
+declare module '@deepseek-ai/dsh-session/types' {
   interface SessionEventMap {
     /**
      * Complete post-mutation goal state or clear tombstone.
@@ -94,18 +79,6 @@ export interface FoldedGoal {
   readonly updatedAt?: number
   /** Latest mutation ref, including a clear tombstone. */
   readonly lastRef?: GoalRef
-}
-
-/** Input whose omitted round cap is resolved by the service configuration. */
-export interface CreateGoalRequest {
-  readonly objective: string
-  readonly maxGoalRounds?: number
-}
-
-/** Fields changed by an edit; at least one must be present. */
-export interface EditGoalRequest {
-  readonly objective?: string
-  readonly maxGoalRounds?: number
 }
 
 /** Live notification after one durable goal mutation commits. */

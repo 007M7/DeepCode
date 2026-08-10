@@ -12,7 +12,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
-import { LAUNCHER_FAILURE_EXIT } from 'node-addon-landlock-run'
+import { LAUNCHER_FAILURE_EXIT } from '@deepseek-ai/node-addon-landlock-run'
 import { SANDBOX_UNAVAILABLE, SandboxUnavailableError } from '@deepseek-ai/dsh-sandbox'
 import type { SandboxPolicy } from '@deepseek-ai/dsh-sandbox'
 import {
@@ -237,7 +237,7 @@ describe('the platform chains', () => {
 
   it('a multi-rung chain probes a seatbelt rung like any other (the walk, not the platform table, decides)', async () => {
     // The product chains reach seatbelt only as darwin's sole (unprobed)
-    // candidate; the chain seam exercises the probing path it would take in
+    // candidate; the probe chain exercises the path it would take in
     // a grown chain, keeping the default seatbelt probe honest.
     const exec = fakeSeatbeltExec(0)
     const probeBwrap = vi.fn(() => false)
@@ -349,8 +349,8 @@ describe('probeTimeoutMs config', () => {
 
 describe('the default seatbelt probe (sandbox-exec contract)', () => {
   // The product chains reach seatbelt only unprobed (darwin's sole
-  // candidate), so the default probe's contract is pinned through the chain
-  // seam: a grown chain must probe it like any other rung.
+  // candidate), so the default probe's contract is pinned through the provider
+  // chain: a grown chain must probe it like any other rung.
   it('selects the rung when the executable applies the read-only profile and exits 0', async () => {
     const exec = fakeSeatbeltExec(0)
     const { sandbox } = await setup({}, { chain: ['bwrap', 'seatbelt'], probeBwrap: () => false, seatbeltExec: exec })

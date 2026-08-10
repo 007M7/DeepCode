@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * MenuView rendering spec, props-direct (slot-parity doctrine): closed store
+ * MenuView rendering spec, props-direct: closed store
  * renders null, groups render in roster order under localized title rows
  * (unknown sources fall back to the raw name) with pending rows as loading,
  * pointer picks route (source, index) back without stealing focus, the

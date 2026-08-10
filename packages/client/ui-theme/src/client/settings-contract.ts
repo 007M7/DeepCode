@@ -1,5 +1,5 @@
 /**
- * Re-export seam for the `settings.general.item` slot type consumed by this
+ * Re-export outlet for the `settings.general.item` slot type consumed by this
  * package's Appearance row. The canonical home is the locale package (the
  * common dependency of every item registrant); this file exists so row
  * modules import the type from within their own package.

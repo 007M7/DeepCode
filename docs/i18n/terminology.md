@@ -55,7 +55,7 @@
 | Round | Round | | 回合、目标回合、Ralph 回合 | 外层策略使用 Round 时，领域层级为 Session > Round > Turn（轮次） > Step（步骤）；Round 是可选的外层策略迭代，并非每个会话轮次都具有的通用层级。Goal Round 与 Ralph Round 均保留英文。一个 Round 承载一个轮次，步骤隶属于该轮次；明确的零步骤轮次仍保持原义。 |
 | schema | schema | | | |
 | schema DSL | schema DSL | | | |
-| seam | seam | | 接缝 | 本仓库的命名架构概念，正文保留英文；与 `extension point` 是不同概念 |
+| seam | seam | | 接缝 | 一个可替换能力的整体，包含 Service Definition / Service provider / Consumer 三种角色；角色需要独立演化时才拆包，也可由同一包承担多个角色。以 `packages/bash` 为范例；Service Definition 是 Cordis `Service`（抽象类或具体 registry 服务），不是 TypeScript interface。任何单一角色、普通边界或扩展点都不能称为 seam。本仓库正文保留英文；与 `extension point` 是不同概念 |
 | skill | skill | skill（技能） | | |
 | slot | slot | | 坑位、孔位 | 客户端架构中的具名可注册位置，保留英文 |
 | spill | spill | | | 工具输出超限落盘机制；组合词写 `spill 文件`、`spill 路径` |
@@ -74,7 +74,7 @@
 | English | 中文 | 首次出现 | 不要译作 | 备注 |
 |---|---|---|---|---|
 | adapter | 适配器 | | | |
-| adapter contract | 适配器契约 | 适配器契约（adapter contract） | | |
+| adapter contract | 适配器约定 | 适配器约定（adapter contract） | | |
 | append-only | 仅追加 | | | |
 | artifact | 产物 | | 制品 | |
 | backend | 后端 | | | |
@@ -84,7 +84,7 @@
 | cancel | 取消 | | | |
 | canary test | canary 测试 | | 金丝雀测试 | 本仓库保留 `canary` |
 | capability | 能力 | | | 必须与 `feature` → `功能` 区分 |
-| capability seam | 能力 seam | | 功能 seam、能力接缝 | 本仓库接口、实现与消费方分离的命名架构概念；普通 `seam` 仍按其词条处理 |
+| capability seam | 能力 seam | | 功能 seam、能力接缝 | 本仓库 Service Definition、Service provider 与 Consumer 三种角色组成完整可替换能力的命名架构概念；普通 `seam` 仍按其词条处理 |
 | feature | 功能 | | 能力 | SDK 产品与工程模型中的可管理产品单元 |
 | feature option | 功能选项 | | variant | 一项 SDK 功能内有限、可选择的实现或配置 |
 | checkpoint | 检查点 | | | |
@@ -101,7 +101,7 @@
 | counterpart | 对侧文件 | | 对应物、配对物 | 双语配对语境；泛指"另一侧"时可写「另一侧」 |
 | configurable-provider directory | 可配置提供方目录 | | | llm seam 中 `registerConfigurableProviders()` 维护的目录；沿用 Service Catalog →「服务目录」先例 |
 | context compaction | 上下文压缩 | 上下文压缩（context compaction） | | |
-| contract | 契约 | | | 如：`pairing contract` →`配对契约` |
+| contract | 约定 | | | 如：`pairing contract` →`配对约定` |
 | Cordis config entry | Cordis 配置项 | | | 指 `cordis.yml` 插件列表中的一项；插件实现本身写`Cordis 插件` |
 | Cordis plugin | Cordis 插件 | | | Cordis 加载的插件实现，不指 `cordis.yml` 中的一项配置 |
 | crash recovery | 崩溃恢复 | | | |
@@ -137,6 +137,7 @@
 | message | 消息 | | | |
 | mod | 模组 | | | |
 | model provider | 模型提供方 | | | |
+| model selection | 模型选择 | | 模型目标 | 面向 Agent 的提供方、模型和可选推理强度选择。 |
 | module | 模块 | | | |
 | non-escalation | 非升权 | | 非升级、不可升级 | 仅用于安全与权限语境，指主体不得获得超出既有授权的权限；普通升级不适用此行 |
 | npm dependency | NPM 依赖 | | | `package.json` 中的包关系；`dependencies`、`devDependencies` 等字段保持原样 |

@@ -53,7 +53,7 @@ subagent 启动有三个独立的组合控制：`persona`、`toolFilter` 和 `ma
 
 有效父级深度取持久 `SessionHeader.delegationDepth` 与运行时 `AgentOptions.subagentDepth` 中的较大值。进程内子 agent 把推导出的深度记录在会话 header 中，恢复时会重新载入该 header，因此重启无法降低递归计数。
 
-每个公开入口都自行验证值域，而非依赖单一的面向模型配置路径。负值、小数、负零、非有限值、不安全整数、格式错误的存储父级深度以及推导溢出均被拒绝。直接的 `SubagentStartRequest` 可以省略上限，让此机制不约束深度；经 loader 解析的 `dsh-tool-subagent` 配置则默认值为 `3`、接受数值覆盖，并使用显式的 `'provider-managed'` 来省略由进程外提供方部署拥有递归预算时的上限。三是一个较小的有限默认值，仍允许 root 加三代后代：[SDK 辅助函数生成的 subagent 条目](../../../../packages/sdk/helper/src/features/builtin/index.ts)和 [JSON-RPC 示例](../../../../examples/jsonrpc-agent/cordis.yml)采用这项通用策略，而已交付的交互式 ACP、headless 和 REPL 示例固定为一。提供方缺少 `depthLimit` 时，数值工具上限会在提供方挂载阶段失败。
+每个公开入口都自行验证值域，而非依赖单一的面向模型配置路径。负值、小数、负零、非有限值、不安全整数、格式错误的存储父级深度以及推导溢出均被拒绝。直接的 `SubagentStartRequest` 可以省略上限，让此机制不约束深度；经 loader 解析的 `dsh-tool-subagent` 配置则默认值为 `3`、接受数值覆盖，并使用显式的 `'provider-managed'` 来省略由进程外提供方部署拥有递归预算时的上限。三是一个较小的有限默认值，仍允许 root 加三代后代：[SDK 辅助函数生成的 subagent 条目](../../../../packages/scaffold/helper/src/features/builtin/index.ts)和 [JSON-RPC 示例](../../../../examples/jsonrpc-agent/cordis.yml)采用这项通用策略，而已交付的交互式 ACP、headless 和 REPL 示例固定为一。提供方缺少 `depthLimit` 时，数值工具上限会在提供方挂载阶段失败。
 
 部署可以组合深度与过滤，但数值上限不会合成过滤器。委派工具在上限处仍然可见，因为授权可能依赖运行时状态；每次尝试启动都会检查调用方 agent 当前的持久与运行时深度，被拒绝的启动返回错误工具结果，且不发布子 agent。可见性策略固定的部署可以另外在子 agent 中 deny 委派工具。两种选择都不改变提供方的对话历史行为。
 
@@ -81,7 +81,7 @@ subagent 启动有三个独立的组合控制：`persona`、`toolFilter` 和 `ma
 
 **为每种人设或工具集创建一个提供方。** 这会使共享相同传输和生命周期实现的提供方成倍增加，使动态部署配置变得笨拙，且仍需要递归机制。提供方的职责是执行传输；请求承载每个子 agent 的组合。
 
-**复制父级的完整工具视图。** 注册作用域设计上是扁平的，生命周期所有权不意味着可见性继承。复制已解析视图还会冻结动态全局注册，并在未完整定义任一契约的情况下混淆组合与授权。
+**复制父级的完整工具视图。** 注册作用域设计上是扁平的，生命周期所有权不意味着可见性继承。复制已解析视图还会冻结动态全局注册，并在未完整定义任一约定的情况下混淆组合与授权。
 
 **在子 agent 创建时快照允许的全局工具。** 冻结的 allow 集合使未来注册统一不可用，但它改变了热注册语义并开启了授权设计。已实现的过滤器保持为活跃的注册表谓词，并直接记录 allow 与 deny 的行为。
 

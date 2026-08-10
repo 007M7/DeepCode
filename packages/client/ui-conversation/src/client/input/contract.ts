@@ -1,5 +1,5 @@
 /**
- * Frozen input-machine contract (design §9.1, eng. plan §3.9-3.12). Types
+ * Frozen input-machine contract. Types
  * only. Three-tier visibility: business packages see InputState via the
  * InputZone currency; the scoped input events carry the mutation verbs; the
  * conversation wiring layer alone sees the full SessionInput. InputMachine
@@ -56,7 +56,7 @@ export interface InputService {
 
 /**
  * The public input action face provided to every session-scope slot
- * component (decision 20): two stable-identity void callbacks, mirroring the
+ * component: two stable-identity void callbacks, mirroring the
  * useStore+actions convention. Command-style handles (track/arbitrate/space/
  * undo/paste/…) stay InputBar-private and never ride this face.
  */
@@ -75,7 +75,7 @@ export interface InputNotice {
 }
 
 /**
- * The InputBar-exclusive keyboard/DOM command face (decision 20): synchronous
+ * The InputBar-exclusive keyboard/DOM command face: synchronous
  * returns and event-handler semantics that must not enter the public provide
  * channel. Handed to the composer-bar entry through its own inject —
  * package-internal, never across a plugin boundary. The session shell
@@ -134,7 +134,7 @@ export interface EditRange extends EditSelection {
 
 /**
  * One reference chip occurrence, backing exactly one U+FFFC placeholder in
- * the draft (design §9.1 底层表示). Identity is occurrenceId — same-named
+ * the draft. Identity is occurrenceId — same-named
  * references stay independently addressable. label/clipboardText are the
  * owner's insert-time projections, cached so the chip survives owner loss
  * (invalid flips instead of dropping the occurrence).
@@ -163,7 +163,7 @@ export interface PasteComponent extends EditSelection {
 
 /**
  * Live paste-match attempt published while async matching may still upgrade
- * pasted tokens (design §9.1 剪贴板 round-trip). Any non-paste transaction,
+ * pasted tokens (the clipboard round-trip). Any non-paste transaction,
  * submit start, invalidate-paste, or release ends it; a paste-upgrade keeps
  * it current (later tokens re-CAS against the advanced draftRev).
  */

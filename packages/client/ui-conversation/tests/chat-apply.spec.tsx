@@ -1,12 +1,9 @@
 // @vitest-environment jsdom
 // apply wiring: the conversation service provided, the chat view registered
-// as the first 'conversation.view' ring entry declaring the keyed toolview
-// hole, the slot registrations land against a root entry's children
-// declarations (the AppFrame role), the shared store handle rides all strict
-// session entries, and the bash sample + todo row mount through declaration
-// injection as keyed entries. Full-chain rendering belongs to the
-// machinery spec (chat-toolview-slot.spec.tsx) and the shell e2e; this spec
-// stops at the assembly surface.
+// as the first 'conversation.view' ring entry declaring the whole-Tool seat,
+// the slot registrations land against a root entry's children declarations
+// (the AppFrame role), and the shared store handle rides all strict session
+// entries. Tool composition belongs to ui-tool and its machinery spec.
 
 import { describe, expect, it, vi } from 'vitest'
 import { SlotTestRuntime, usePinnedBrowserLanguages } from '@deepseek-ai/dsh-client-test-runtime'
@@ -56,7 +53,7 @@ describe('apply wiring', () => {
     await b.runtime.dispose()
   })
 
-  it('registers the chat view as the first ring entry, declaring the keyed toolview hole', async () => {
+  it('registers the chat view and its keyed business-node seat', async () => {
     const b = await bench()
     const entries = b.slots.entries('conversation.view')
     expect(entries.map(e => e.options.id)).toEqual(['chat'])
@@ -65,7 +62,9 @@ describe('apply wiring', () => {
     expect(entries[0]?.options.order).toBe(0)
     // Declaring is claiming: the chat entry's registration put the hole on
     // the ledger with the contract's kind/scope.
-    expect(b.slots.spec('conversation.chat.toolview')).toEqual({ kind: 'keyed', scope: 'session' })
+    const nodeSlot = b.slots.spec('conversation.chat.node')
+    expect(nodeSlot).toMatchObject({ kind: 'keyed', scope: 'session' })
+    expect(nodeSlot?.inject?.hooks?.turnData).toBeTypeOf('function')
     await b.runtime.dispose()
   })
 
@@ -92,14 +91,13 @@ describe('apply wiring', () => {
     await b.runtime.dispose()
   })
 
-  it('mounts the tool rows as keyed entries through declaration injection', async () => {
+  it('leaves per-Tool rows to the ui-tool plugin', async () => {
     const b = await bench()
     // The actual toolview declaration activates every registrant. The
     // file-mutation registrant claims both write and edit for the diff card; the
     // one search row registers under both grep and glob; the web rows register
     // one component under both web tool names.
-    const entries = b.slots.entries('conversation.chat.toolview')
-    expect(entries.map(e => e.options.key)).toEqual(['bash', 'read', 'edit', 'write', 'grep', 'glob', 'web_search', 'web_fetch', 'todo_write', 'ask_user_question'])
+    expect(b.slots.entries('conversation.chat.node').map(entry => entry.options.key)).not.toContain('tool-call')
     // Stats stick with the composer (not inside ChatView).
     expect(b.slots.entries('conversation.composer.dock').map(e => e.options.id)).toEqual(['stats'])
     await b.runtime.dispose()
@@ -112,8 +110,8 @@ describe('apply wiring', () => {
     // The declared ring collapses with its declaring entry, and the chat
     // entry's keyed hole (with the sample's registration) collapses with it.
     expect(b.slots.entries('conversation.view')).toHaveLength(0)
-    expect(b.slots.entries('conversation.chat.toolview')).toHaveLength(0)
-    expect(b.slots.spec('conversation.chat.toolview')).toBeUndefined()
+    expect(b.slots.entries('conversation.chat.node')).toHaveLength(0)
+    expect(b.slots.spec('conversation.chat.node')).toBeUndefined()
     expect(b.slots.entries('details')).toHaveLength(0)
     expect(b.slots.entries('settings.general.item')).toHaveLength(0)
     expect(b.runtime.ctx.get('conversation')).toBeUndefined()

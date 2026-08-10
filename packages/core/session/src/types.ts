@@ -338,23 +338,24 @@ export type SurfaceEvent = SessionEvent<SurfaceEventType> & { surfaceOp: Surface
  *   (inclusive) through `end` (inclusive) with this node. Both must exist as
  *   surface nodes in the current surface. `start === end` replaces a single
  *   node. The node's {@link SessionEvent.sourceEventSeqs} must include every
- *   shadowed surface node. Used by compaction and possible other manipulations.
+ *   shadowed surface node. Used by compaction; any surface-replacing producer
+ *   may use it.
  */
 export type SurfaceOp =
   | 'append'
   | { op: 'replace'; start: number; end: number }
 
 /**
- * Surface placement and provenance for {@link Session.append}. Required on
+ * Surface placement and cited source-event seqs for {@link Session.append}. Required on
  * message-producing events and forbidden on log-only events.
  */
 export interface SurfaceIntent {
   surfaceOp: SurfaceOp
   /**
-   * Complete known provenance source set. `assistant/message` may use a
-   * present empty array for a known empty provider stream; omission means its
-   * provenance was not recorded. Other surface events require a non-empty set
-   * when this field is present.
+   * Complete set of known source-event seqs. `assistant/message` may use a
+   * present empty array for a known empty provider stream; when the field is
+   * absent, the event does not record which earlier events produced the message.
+   * Other surface events require a non-empty set when this field is present.
    */
   sourceEventSeqs?: number[]
 }
@@ -382,11 +383,12 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
     data: SessionEventMap[K]
   } & (K extends SurfaceEventType ? {
     /**
-     * Seq numbers of events that are provenance sources of this event
+     * Seq numbers of earlier events that this event cites as sources
      * (e.g. the `assistant/chunk` seqs that built an `assistant/message`,
      * or the surface nodes shadowed by a compaction replace node). An
      * `assistant/message` may carry a present empty array for a known empty
-     * provider stream; omission means unrecorded provenance.
+     * provider stream; when the field is absent, the event does not record which
+     * earlier events produced the message.
      */
     sourceEventSeqs?: number[]
     /** How this event entered the surface; absent for non-surface events. */

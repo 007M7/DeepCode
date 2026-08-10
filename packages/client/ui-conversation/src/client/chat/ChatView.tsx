@@ -1,42 +1,24 @@
-// ChatView: the default conversation view — message flow with user bubbles,
-// assistant narration, tool summary rows grouped into step runs, pending
-// cards, paging, and bottom-follow. Session stats live on
-// 'conversation.composer.dock' (sticky with the composer). Pure component
-// registered directly; its registration declares the keyed
-// 'conversation.chat.toolview' hole, so tool rows render through the props
-// renderSlot share (entryKey = tool name, GenericToolCard as the render-site
-// fallback).
+// ChatView: the default conversation view — one stable keyed parent list over
+// final business Nodes, plus paging, pending steering and bottom-follow.
+// Each row dispatches through 'conversation.chat.node'; ui-tool owns the
+// tool-call renderer and its recursive root/subcall composition.
 //
 // Scroll: when nested under `[data-conversation-scroll]` (active conversation
 // column), that host is the scrollport and this view is flow content; when
 // mounted alone (unit tests), `.scroll` owns overflow. Bottom-follow and
 // prepend anchoring always target the resolved scrollport.
 //
-// Render economics (architecture RFC performance model): the list parent
-// subscribes to snapshot segments that do NOT change per streaming chunk
-// (nodes/runningCalls/pending keep their references across chunk batches), so
-// during a token storm only StreamingTail re-renders; history rows hold via
-// memo on cache-stable node slices. Selection changes re-render the parent
-// map but only rows whose own selected bit flipped. renderSlot is
-// entry-identity-stable (framework binding cache), so passing it through
-// memoized rows never churns them.
+// Render economics: order changes only when rows enter, leave or move. Each
+// ChatNodeSeat subscribes to one Node key, so Assistant deltas and Tool
+// lifecycle updates replace only their own row without remounting it.
 
-import {
-  memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode,
-} from 'react'
-import type {
-  CodeSubCall, CommandNode, ConversationNode, ConversationSnapshot, RunningToolCall, ToolResultNode,
-} from '@deepseek-ai/dsh-client-runtime/client'
-import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import type { ConversationTimelineSnapshot } from '@deepseek-ai/dsh-client-runtime/client'
 import { IconChevronDownOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ChatViewSlotProps } from '../contract/slots.ts'
-import { assistantActionsSeqs, assistantBranchSeqs, deriveChatFlow, runningTurnStartTime, type ChatFlowItem } from './chat-flow.ts'
-import { AssistantMarkdown } from './AssistantMarkdown.tsx'
-import { GenericCommandCard } from './GenericCommandCard.tsx'
-import { GenericToolCard } from './GenericToolCard.tsx'
-import { MessageItem, PendingSteeringBubble } from './MessageItem.tsx'
+import { PendingSteeringBubble } from './MessageItem.tsx'
+import { ChatNodeSeat } from './ChatNodeSeat.tsx'
 import { formatRunDuration } from './message-chrome.ts'
-import { deriveTurnMetrics } from './turn-metrics.ts'
 import css from './ChatView.module.css'
 
 const FOLLOW_THRESHOLD = 24
@@ -99,29 +81,7 @@ function pagingAnchor(list: HTMLElement, scrollport: HTMLElement): HTMLElement |
   return visibleRows[0] ?? rows[0] ?? null
 }
 
-type OpenFile = (path: string) => void
-
-type InspectCall = (callId: string) => void
-
-/** The declared toolview hole's render share (stable framework binding, passed through memoized rows). */
-type RenderToolRow = ChatViewSlotProps['renderSlot']
-
 type ChatScrollPosition = NonNullable<ReturnType<ChatViewSlotProps['chatScroll']['read']>>
-
-/** ui-slots' UseSession is deliberately wide (dependency direction); the
- *  chat view narrows once to the runtime snapshot the binding actually feeds. */
-type UseConversation = SnapshotSelectorHook<ConversationSnapshot>
-
-function activeRetrySeq(nodes: readonly ConversationNode[], running: boolean): number | null {
-  if (!running) return null
-  for (let index = nodes.length - 1; index >= 0; index -= 1) {
-    const node = nodes[index]
-    if (node === undefined) continue
-    if (node.kind === 'model-retry') return node.retryState === 'cancelled' ? null : node.seq
-    if (node.kind === 'assistant' || node.kind === 'user') return null
-  }
-  return null
-}
 
 /** Capture a reflow-resistant reader position from the current rendered window. */
 function scrollPosition(list: HTMLElement, scrollport: HTMLElement): ChatScrollPosition | null {
@@ -135,153 +95,13 @@ function scrollPosition(list: HTMLElement, scrollport: HTMLElement): ChatScrollP
   }
 }
 
-/** One `run_code` sub-dispatch row: the identical keyed-slot dispatch as a
- *  top-level call (same registrations, same fallback), nested by the parent.
- *  A started-but-unsettled sub-call arrives as the RunningToolCall shape and
- *  renders the running state exactly as a native in-flight row. */
-const SubCallRow = memo(function SubCallRow({ renderSlot, node, openFile, selected, cwd, inspectCall, t }: {
-  renderSlot: RenderToolRow
-  node: CodeSubCall
-  openFile: OpenFile
-  selected: boolean
-  cwd: string | undefined
-  inspectCall: InspectCall
-  t: ChatViewSlotProps['t']
-}) {
-  const settled = 'kind' in node
-  const toolName = settled ? node.call?.name ?? '' : node.name
-  const owner = useMemo(() => ({
-    callId: node.callId, toolName, block: node, openFile, cwd,
-    inspect: () => { inspectCall(node.callId) },
-  }), [node, toolName, openFile, cwd, inspectCall])
-  return (
-    <div
-      className={css.callRow}
-      data-chat-anchor-key={`call:${node.callId}`}
-      data-chat-call-id={node.callId}
-      data-selected={selected || undefined}
-    >
-      {renderSlot('conversation.chat.toolview', owner, {
-        entryKey: toolName,
-        fallback: <GenericToolCard {...owner} t={t} />,
-      })}
-    </div>
-  )
-})
-
-/** One tool call row (result or running): dispatches through the keyed
- *  toolview slot with the owner payload; unregistered tools fall back to
- *  GenericToolCard at this render site. A `run_code` call additionally
- *  renders its logged sub-dispatches as always-visible indented rows —
- *  each one the same keyed-slot dispatch as a native top-level call. */
-const CallRow = memo(function CallRow({
-  renderSlot, callId, toolName, block, openFile, selected, subCalls, selectedCallId, cwd, inspectCall, t,
-}: {
-  renderSlot: RenderToolRow
-  callId: string
-  toolName: string
-  block: ToolResultNode | RunningToolCall
-  openFile: OpenFile
-  selected: boolean
-  /** `run_code` sub-dispatches in dispatch order (reference-stable per
-   *  parent; running entries settle in place); undefined for ordinary calls. */
-  subCalls?: readonly CodeSubCall[] | undefined
-  /** The store's selected callId, matched against sub-rows (undefined when no sub-row here is selected). */
-  selectedCallId?: string | undefined
-  /** Session workspace root for path-relative summaries. */
-  cwd: string | undefined
-  inspectCall: InspectCall
-  t: ChatViewSlotProps['t']
-}) {
-  const owner = useMemo(() => ({
-    callId, toolName, block, openFile, cwd,
-    inspect: () => { inspectCall(callId) },
-  }), [callId, toolName, block, openFile, cwd, inspectCall])
-  return (
-    <div
-      className={css.callRow}
-      data-chat-anchor-key={`call:${callId}`}
-      data-chat-call-id={callId}
-      data-selected={selected || undefined}
-    >
-      {renderSlot('conversation.chat.toolview', owner, {
-        entryKey: toolName,
-        fallback: <GenericToolCard {...owner} t={t} />,
-      })}
-      {subCalls !== undefined && subCalls.length > 0 && (
-        <div className={css.subCalls} data-subcalls>
-          {subCalls.map(node => (
-            <SubCallRow
-              key={node.callId}
-              renderSlot={renderSlot}
-              node={node}
-              openFile={openFile}
-              selected={node.callId === selectedCallId}
-              cwd={cwd}
-              inspectCall={inspectCall}
-              t={t}
-            />
-          ))}
-        </div>
-      )}
-    </div>
-  )
-})
-
-/** Consecutive tool results as one step-run group (uniform 16px rhythm). */
-const ToolGroup = memo(function ToolGroup({ renderSlot, results, openFile, selectedCallId, codeDispatches, cwd, inspectCall, t }: {
-  renderSlot: RenderToolRow
-  results: readonly ToolResultNode[]
-  openFile: OpenFile
-  /** Only set when the selected call lives in THIS group, top-level or nested (memo economy). */
-  selectedCallId: string | undefined
-  /** Sub-dispatch index off the snapshot (map reference is chunk-storm stable). */
-  codeDispatches: ReadonlyMap<string, readonly CodeSubCall[]>
-  /** Session workspace root for path-relative summaries. */
-  cwd: string | undefined
-  inspectCall: InspectCall
-  t: ChatViewSlotProps['t']
-}) {
-  return (
-    <div className={css.toolGroup}>
-      {results.map(node => (
-        <CallRow
-          key={node.callId}
-          renderSlot={renderSlot}
-          callId={node.callId}
-          toolName={node.call?.name ?? ''}
-          block={node}
-          openFile={openFile}
-          selected={node.callId === selectedCallId}
-          subCalls={codeDispatches.get(node.callId)}
-          selectedCallId={selectedCallId}
-          cwd={cwd}
-          inspectCall={inspectCall}
-          t={t}
-        />
-      ))}
-    </div>
-  )
-})
-
-/** One command lifecycle row: keyed dispatch on the command name with the
- *  generic card as the render-site fallback (zero registration required). A
- *  run-less cross-window node has no name and always lands on the fallback. */
-const CommandRow = memo(function CommandRow({ renderSlot, node, t }: {
-  renderSlot: RenderToolRow
-  node: CommandNode
-  t: ChatViewSlotProps['t']
-}) {
-  const owner = useMemo(() => ({ node }), [node])
-  return (
-    <div className={css.callRow}>
-      {renderSlot('conversation.chat.commandview', owner, {
-        entryKey: node.name ?? '',
-        fallback: <GenericCommandCard {...owner} t={t} />,
-      })}
-    </div>
-  )
-})
+function runningTurnStartTime(timeline: ConversationTimelineSnapshot): number | null {
+  let latest: number | null = null
+  for (const turn of timeline.turns.values()) {
+    if (turn.status === 'open' && turn.start !== undefined) latest = turn.start.time
+  }
+  return latest
+}
 
 /** Turn-level model activity label retained across first-token, tool, and streaming phases. */
 function TurnStatus({ startTime, t }: {
@@ -319,52 +139,32 @@ function TurnStatus({ startTime, t }: {
   )
 }
 
-/** The streaming partial, isolated so chunk batches re-render only this tail;
- *  the column ResizeObserver owns bottom-follow when its box grows. */
-function StreamingTail({ useSession, t }: {
-  useSession: UseConversation
-  t: ChatViewSlotProps['t']
-}) {
-  const partial = useSession(s => s.partial)
-  if (partial === null) return null
-  return <AssistantMarkdown blocks={partial.blocks} streaming t={t} />
-}
-
 /**
- * The chat view slot entry: pure component over the composed props (tool rows
- * render through the declared keyed hole's renderSlot share).
+ * The chat view slot entry: pure component over the composed props; each
+ * ordered business Node crosses the keyed renderer seat.
  */
 export function ChatView({
-  useSession, useSessions, useStore, renderSlot, sessionId, openFile, loadOlder, inspectCall, chatScroll, forkAt, t,
+  useSession, useSessions, useStore, renderSlot, sessionId, openFile, loadOlder, inspectCall, chatScroll, forkAt,
+  fileMentions, t,
 }: ChatViewSlotProps) {
-  const nodes = useSession(s => s.nodes)
-  const turnTimings = useSession(s => s.turnTimings)
-  const turnEnds = useSession(s => s.turnEnds)
+  const order = useSession(s => s.chat.order)
+  const nodeStore = useSession(s => s.chat.nodes)
+  const timeline = useSession(s => s.chat.timeline)
   const inbox = useSession(s => s.queue)
   // Workspace root off the session list row: path summaries display relative to it.
   const cwd = useSessions(s => s.byId[sessionId]?.cwd)
   const running = useSession(s => s.running)
-  const runningCalls = useSession(s => s.runningCalls)
-  const codeDispatches = useSession(s => s.codeDispatches)
   const openState = useSession(s => s.openState)
   const openError = useSession(s => s.openError)
   const hasMore = useSession(s => s.hasMore)
   const loadingOlder = useSession(s => s.loadingOlder)
   const selectedCallId = useStore(s => s.selection?.callId)
 
-  const items = useMemo(() => deriveChatFlow(nodes), [nodes])
   const pendingSteering = useMemo(
     () => inbox.filter(item => item.placement === 'steering'),
     [inbox],
   )
-  const activeRetry = useMemo(() => activeRetrySeq(nodes, running), [nodes, running])
-  // Only the last content assistant of each completed turn owns IconActions;
-  // mid-turn text and every node of a running turn omit `time`, so
-  // AssistantMarkdown stays chrome-free until the answer settles.
-  const actionSeqs = useMemo(() => assistantActionsSeqs(nodes, turnEnds), [nodes, turnEnds])
-  const branchSeqs = useMemo(() => assistantBranchSeqs(nodes, turnEnds), [nodes, turnEnds])
-  const runningTurnStart = useMemo(() => runningTurnStartTime(turnTimings), [turnTimings])
-  const turnMetrics = useMemo(() => deriveTurnMetrics(nodes), [nodes])
+  const runningTurnStart = useMemo(() => runningTurnStartTime(timeline), [timeline])
 
   const listRef = useRef<HTMLDivElement | null>(null)
   const columnRef = useRef<HTMLDivElement | null>(null)
@@ -372,9 +172,6 @@ export function ChatView({
   const [atBottom, setAtBottom] = useState(true)
   /** Last position delivered or written on the main thread. */
   const observedTopRef = useRef(0)
-  /** Pre-input position for the current wheel gesture. */
-  const wheelStartRef = useRef<number | null>(null)
-  const wheelEpochRef = useRef(0)
   /** Paging anchor: semantic row/position at click, updated by reader scrolls
    * while the request is pending and restored after the prepend lands. */
   const anchorRef = useRef<PagingAnchor | null>(null)
@@ -383,19 +180,18 @@ export function ChatView({
   const lastKeyRef = useRef<string | null>(null)
   const lastSteeringIdRef = useRef<string | null>(null)
   /** Flow tip signature — follow-scroll only when this moves, never on a
-   *  scroll-driven at-bottom chrome re-render (that was snapping inertial
+   *  scroll-driven at-bottom chrome re-render (which would snap inertial
    *  scrolls the rest of the way to the floor). */
   const followSigRef = useRef<string | null>(null)
 
-  const firstSeq = nodes[0]?.seq ?? null
-  const lastItem = items[items.length - 1]
-  const lastKey = lastItem?.key ?? null
+  const firstKey = order[0]
+  const firstSeq = firstKey === undefined ? null : nodeStore.get(firstKey)?.anchorSeq ?? null
+  const lastKey = order.at(-1) ?? null
+  const lastNode = lastKey === null ? undefined : nodeStore.get(lastKey)
   const lastSteeringId = pendingSteering[pendingSteering.length - 1]?.id ?? null
-  const followSig = `${openState}:${firstSeq}:${lastKey}:${nodes.length}:${running ? 1 : 0}:${runningCalls.length}:${lastSteeringId ?? ''}`
+  const followSig = `${openState}:${firstSeq}:${lastKey}:${order.length}:${running ? 1 : 0}:${lastSteeringId ?? ''}`
 
   const toBottom = (el: HTMLElement): void => {
-    wheelStartRef.current = null
-    wheelEpochRef.current += 1
     anchorRef.current = null
     el.scrollTop = el.scrollHeight
     observedTopRef.current = el.scrollTop
@@ -454,8 +250,7 @@ export function ChatView({
     firstSeqRef.current = firstSeq
     // Own words must be visible: a new trailing user node force-scrolls
     // (send lives in the composer, so arrival is detected here, not armed there).
-    const appendedUser = lastKey !== lastKeyRef.current
-      && lastItem !== undefined && lastItem.kind === 'node' && lastItem.node.kind === 'user'
+    const appendedUser = lastKey !== lastKeyRef.current && lastNode?.kind === 'user'
     const appendedSteering = lastSteeringId !== null && lastSteeringId !== lastSteeringIdRef.current
     const tipMoved = followSigRef.current !== followSig
     lastKeyRef.current = lastKey
@@ -472,17 +267,19 @@ export function ChatView({
     /* v8 ignore next -- ref-null guard: the handler only fires while mounted. */
     if (local === null) return
     const el = scrollerOf(local)
-    // Only wheel input may make raw scroll geometry change follow ownership.
-    // Browser clamping and delayed programmatic scroll events otherwise have
-    // the same event shape and must preserve the current ownership state.
+    // Only reader input may make raw scroll geometry change follow ownership:
+    // a delivered position that deviates from the observed-top ledger (every
+    // programmatic write records itself there synchronously). This covers
+    // wheel, touch, scrollbar, and keyboard alike without naming devices.
+    // Browser shrink-clamps land exactly on the floor min and delayed
+    // programmatic deliveries land on the ledger itself, so both preserve
+    // the current ownership state.
     const floor = Math.max(0, el.scrollHeight - el.clientHeight)
-    const wheelStart = wheelStartRef.current
-    const movedByWheel = wheelStart !== null
-      && Math.abs(el.scrollTop - Math.min(wheelStart, floor)) > 0.5
-    const isAtBottom = movedByWheel
+    const movedByReader = Math.abs(el.scrollTop - Math.min(observedTopRef.current, floor)) > 0.5
+    const isAtBottom = movedByReader
       ? floor - el.scrollTop <= FOLLOW_THRESHOLD + 1
       : atBottomRef.current
-    if (!movedByWheel && isAtBottom) {
+    if (!movedByReader && isAtBottom) {
       toBottom(el)
       return
     }
@@ -501,34 +298,18 @@ export function ChatView({
     observedTopRef.current = el.scrollTop
   }
 
-  // Bind scroll and the wheel provenance needed to distinguish reader input
-  // from layout-driven scrolls on the resolved scrollport once per mount.
+  // Bind the scroll listener on the resolved scrollport once per mount;
+  // reader-input attribution rides the observed-top ledger, not per-device
+  // input listeners.
   useEffect(() => {
     const local = listRef.current
     /* v8 ignore next -- ref-null guard: effect runs after the list node commits. */
     if (local === null) return
     const el = scrollerOf(local)
     const onScroll = (): void => { onScrollRef.current() }
-    const onWheel = (event: WheelEvent): void => {
-      if (event.ctrlKey || event.deltaY === 0) return
-      const startTop = observedTopRef.current
-      const floor = Math.max(0, el.scrollHeight - el.clientHeight)
-      const canMove = event.deltaY < 0 ? startTop > 1 : startTop < floor - 1
-      if (!canMove) return
-      wheelStartRef.current = startTop
-      const epoch = ++wheelEpochRef.current
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          if (wheelEpochRef.current === epoch) wheelStartRef.current = null
-        })
-      })
-    }
     el.addEventListener('scroll', onScroll, { passive: true })
-    el.addEventListener('wheel', onWheel, { capture: true, passive: true })
     return () => {
-      wheelStartRef.current = null
       el.removeEventListener('scroll', onScroll)
-      el.removeEventListener('wheel', onWheel, true)
     }
   }, [])
 
@@ -581,62 +362,6 @@ export function ChatView({
     loadOlder()
   }
 
-  const renderItem = (item: ChatFlowItem): ReactNode => {
-    if (item.kind === 'tool-group') {
-      const inGroup = selectedCallId !== undefined
-        && item.results.some(r => r.callId === selectedCallId
-          || codeDispatches.get(r.callId)?.some(sub => sub.callId === selectedCallId) === true)
-      return (
-        <ToolGroup
-          renderSlot={renderSlot}
-          results={item.results}
-          openFile={openFile}
-          selectedCallId={inGroup ? selectedCallId : undefined}
-          codeDispatches={codeDispatches}
-          cwd={cwd}
-          inspectCall={inspectCall}
-          t={t}
-        />
-      )
-    }
-    const node: ConversationNode = item.node
-    if (node.kind === 'assistant') {
-      const timing = actionSeqs.has(node.seq) ? turnTimings.get(node.turn) : undefined
-      // Metrics gate on the settled in-window timing: turn/start loaded means
-      // every step of the turn is loaded, so first-step TTFT is genuine.
-      const metrics = timing?.endTime === undefined ? undefined : turnMetrics.get(node.turn)
-      return (
-        <AssistantMarkdown
-          blocks={node.blocks}
-          streaming={false}
-          interrupted={node.interrupted}
-          time={actionSeqs.has(node.seq) ? node.time : undefined}
-          runMs={timing?.endTime === undefined
-            ? undefined
-            : Math.max(0, timing.endTime - timing.startTime)}
-          ttftMs={metrics?.ttftMs}
-          tokensPerSecond={metrics?.tokensPerSecond}
-          seq={node.seq}
-          onFork={forkAt}
-          forkUnavailable={!branchSeqs.has(node.seq)}
-          t={t}
-        />
-      )
-    }
-    if (node.kind === 'command') {
-      return <CommandRow renderSlot={renderSlot} node={node} t={t} />
-    }
-    /* v8 ignore next -- tool-result never reaches here: deriveChatFlow folds them into groups. */
-    if (node.kind === 'tool-result') return null
-    return (
-      <MessageItem
-        node={node}
-        retryActive={node.kind === 'model-retry' && node.seq === activeRetry}
-        t={t}
-      />
-    )
-  }
-
   return (
     <div className={css.root}>
       <div ref={listRef} className={css.scroll}>
@@ -654,38 +379,21 @@ export function ChatView({
               </button>
             </div>
           )}
-          {items.map(item => (
-            <div
-              key={item.key}
-              className={css.flowItem}
-              data-chat-anchor-key={item.kind === 'node' ? `node:${String(item.node.seq)}` : undefined}
-              data-chat-flow-key={item.key}
-              data-chat-flow-kind={item.kind === 'node' ? item.node.kind : 'tool-group'}
-            >
-              {renderItem(item)}
-            </div>
+          {order.map(nodeKey => (
+            <ChatNodeSeat
+              key={nodeKey}
+              nodeKey={nodeKey}
+              useSession={useSession}
+              selectedCallId={selectedCallId}
+              cwd={cwd}
+              openFile={openFile}
+              inspectCall={inspectCall}
+              forkAt={forkAt}
+              fileMentions={fileMentions}
+              renderSlot={renderSlot}
+              t={t}
+            />
           ))}
-          <StreamingTail useSession={useSession} t={t} />
-          {runningCalls.length > 0 && (
-            <div className={css.toolGroup}>
-              {runningCalls.map(call => (
-                <CallRow
-                  key={call.callId}
-                  renderSlot={renderSlot}
-                  callId={call.callId}
-                  toolName={call.name}
-                  block={call}
-                  openFile={openFile}
-                  selected={call.callId === selectedCallId}
-                  subCalls={codeDispatches.get(call.callId)}
-                  selectedCallId={selectedCallId}
-                  cwd={cwd}
-                  inspectCall={inspectCall}
-                  t={t}
-                />
-              ))}
-            </div>
-          )}
           {/* No pending placeholders: questions (ui-question) and approvals
               (ApprovalPanel) both take over the composer, so a flow card would
               double-render the same wait. */}

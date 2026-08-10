@@ -59,7 +59,7 @@ interface PiAiSnapshot {
   models: Models
 }
 
-/** Constructor options for {@link PiAiAdapter}: the two resolution seams the plugin owns. */
+/** Constructor options for {@link PiAiAdapter}: the two resolution hooks the plugin owns. */
 export interface PiAiAdapterOptions {
   /** Current validated profiles by provider route; called once per operation. */
   profiles: () => ReadonlyMap<string, ResolvedPiAiProviderProfile>
@@ -92,6 +92,29 @@ function profileOptions(
     // The agent recovery layer owns visible attempts; one adapter call is one SDK attempt.
     maxRetries: 0,
   }
+}
+
+/**
+ * The profile default this exact model can actually take, for DESCRIBING it.
+ * A configured level the model does not support yields none rather than
+ * throwing: `resolveModel` builds the model catalog, and a catalog that fails
+ * takes its whole provider out of every picker — so one mis-set profile field
+ * would hide every model on the route, including the ones that support the
+ * level. The request path still refuses, which is where a bad configuration
+ * belongs: describing what a model can do must not fail because a deployment
+ * asked it for something it cannot.
+ * @param model - the resolved model descriptor.
+ * @param effort - the profile's configured level, if any.
+ * @returns the level when this model supports it, otherwise undefined.
+ */
+function describableReasoningLevel(
+  model: Model<Api>,
+  effort: ReasoningEffortIdType | ModelThinkingLevel | undefined,
+): ModelThinkingLevel | undefined {
+  if (effort === undefined) return undefined
+  return getSupportedThinkingLevels(model).some(level => level === effort)
+    ? effort as ModelThinkingLevel
+    : undefined
 }
 
 /** Validate an explicit Harness/profile effort without invoking pi-ai's clamp. */
@@ -229,7 +252,7 @@ export class PiAiAdapter extends LlmAdapter {
       const snapshot = this.current()
       const profile = this.profileOf(snapshot, provider)
       const resolvedModel = this.modelOf(snapshot, provider, model)
-      const defaultLevel = resolveReasoningLevel(resolvedModel, profile.reasoning)
+      const defaultLevel = describableReasoningLevel(resolvedModel, profile.reasoning)
       // Only a cap the deployment configured is a request default; the
       // catalog's `maxTokens` sizes the model and stops there.
       const configuredMaxTokens = profile.configuredMaxTokens.get(model)

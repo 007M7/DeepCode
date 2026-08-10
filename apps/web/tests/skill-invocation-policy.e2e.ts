@@ -1,5 +1,6 @@
-// Web e2e scenario: the real host filters skill.list to the model-and-user
-// intersection before the browser slash source renders candidates. A real
+// Web e2e scenario: the real host serves every user-invocable skill to the
+// browser slash source — user-only (disable-model-invocation) entries appear
+// with their marker while user-disabled quadrants stay hidden. A real
 // chromium connects a fresh workspace seeded with all four policy quadrants;
 // no model call is issued, so a stray stream fails loud on the open LLM seam.
 import { mkdir, writeFile } from 'node:fs/promises'
@@ -92,7 +93,7 @@ describe('web e2e: skill invocation policy through the real host', () => {
     await scaffold?.close()
   })
 
-  it('renders only the model-and-user intersection in slash candidates', async () => {
+  it('renders every user-invocable skill and marks the user-only entry', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-skill-invocation-policy'))
     const input = page.locator('textarea').first()
     await input.fill('/policy')
@@ -102,8 +103,10 @@ describe('web e2e: skill invocation policy through the real host', () => {
       { timeout: 10_000 },
     ).toBe(1)
 
+    // The user-only quadrant is invocable here — its only entry point — and
+    // wears the user-only marker; both user-disabled quadrants stay hidden.
+    expect(await menu.getByRole('option', { name: /policy-user-only user-only · / }).count()).toBe(1)
     expect(await menu.getByRole('option', { name: /policy-model-only/ }).count()).toBe(0)
-    expect(await menu.getByRole('option', { name: /policy-user-only/ }).count()).toBe(0)
     expect(await menu.getByRole('option', { name: /policy-trusted-only/ }).count()).toBe(0)
 
     const snapshot = await captureStableAria(page, '[role="listbox"]', scaffold.workspaceCwd)

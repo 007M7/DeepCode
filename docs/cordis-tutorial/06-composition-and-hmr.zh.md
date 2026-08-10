@@ -18,7 +18,7 @@ Cordis 配置项除了 `name` 和 `config`，还接受其他元数据：
 
 `id` 为 Cordis 配置项提供稳定标识，使 loader 能区分修改现有 Cordis 配置项与先删除再添加。`disabled: true` 会卸载插件而不删除其 Cordis 配置项；改回原值后，插件以及所有因依赖其服务而处于 PENDING 的插件都会再次加载。
 
-组可以嵌套一份 Cordis 配置项子列表，并将其作为一个单元加载和卸载；`isolate` 则为一个组提供某项服务名称的独立实例，因此两个组可以各自看到配置不同的 `bash`，互不影响。这些概念值得在用到之前先了解；[Cordis 入门](../cordis-primer.md)和[服务隔离示例](../user/develop/framework/service.md#service-isolation)介绍了详细内容。
+组可以嵌套一份 Cordis 配置项子列表，并将其作为一个单元加载和卸载；`isolate` 则为一个组提供某项服务名称的独立实例，因此两个组可以各自看到配置不同的 `bash`，互不影响。[Cordis 入门](../cordis-primer.md)和[服务隔离示例](../user/develop/framework/service.md#service-isolation)介绍了详细内容。
 
 ## 热模块替换
 
@@ -110,4 +110,4 @@ needs-timer is PENDING — a required service is missing
 
 下一章：[进入 harness](07-into-the-harness.md)：把相同模式用于真实的 harness 服务。
 
-[![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-harness/deepseek-harness)
+[![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness-sdk)

@@ -8,9 +8,7 @@ English | [中文](2026-06-19-acp-snapshot-tests.zh.md)
 
 Unit tests do not exercise the complete assembled-agent subprocess or its ACP automation wire, while real-API tests are nondeterministic and key-gated. Loader wiring, backend behavior, and protocol output can therefore regress despite green unit coverage, as the [default-export postmortem](../../../../docs/postmortem/0001-acp-default-export-drops-inject.md) demonstrated.
 
-The blocker for a full-transcript test is the model: the agent's output is driven by a non-deterministic LLM, and a key-gated test that hits the real API on every run is neither deterministic nor CI-runnable. We want the fidelity of a real run with the determinism of a fixture.
-
-This Agent Note records the decision to add a third test tier — **snapshot tests** — and the design choices that make it deterministic, keyless-in-CI, and cheap to maintain.
+The blocker for a full-transcript test is the model: the agent's output is driven by a non-deterministic LLM, and a key-gated test that hits the real API on every run is neither deterministic nor CI-runnable. The tier needs the fidelity of a real run with the determinism of a fixture.
 
 ## Decision
 
@@ -24,7 +22,7 @@ Every committed session-format fixture uses the canonical packed physical layout
 
 ### Replay derives the model script from the log
 
-`llm-replay` short-circuits the provider-agnostic `llm/stream` waterfall. `deriveReplayScript()` groups recorded chunks by `(turn, step)` and serves one group per model call. The loop makes one stream call per step, so the grouping is exact and includes error finish chunks without special handling.
+`llm-replay` short-circuits the provider-agnostic `llm/stream` waterfall. `deriveReplayScript()` splits recorded `assistant/chunk` events at terminal `finish` chunks and uses `(turn, step)` changes to reject an unterminated prior call. A `compact/summary` with `llmStreamCall: true` contributes one call at its durable log position: replay reconstructs canonical block boundaries from `rawOutput`, retains recorded usage when present, and supplies a terminal `stop`. The marker distinguishes that local call from template or remote summaries whose retained `rawOutput` did not consume this context's adapter.
 
 ### The in-memory replay entry honors the full LLM contract
 
@@ -36,7 +34,7 @@ Every committed session-format fixture uses the canonical packed physical layout
 | { kind: 'hang' }
 ```
 
-Logs derive chunk entries. Pre-stream throws and hangs have no reconstructable chunk representation, so those scenarios provide `replay.override.json`. A throw entry may include prefix chunks for mid-stream failure. Explicit overrides avoid inferring adapter behavior from lossy turn-end reasons.
+Logs derive chunk entries from finished assistant streams and explicitly marked compaction calls. Pre-stream throws, hangs, and external summarizer calls have no reconstructable local chunk representation, so those scenarios provide `replay.override.json`. A throw entry may include prefix chunks for mid-stream failure. Explicit overrides avoid inferring adapter behavior from lossy turn-end reasons or provider output alone.
 
 ### Positional replay, one in-flight stream
 
@@ -74,12 +72,13 @@ Tool determinism comes from a generated cwd, scrubbed environment, fresh non-log
 ## Alternatives considered
 
 - **A hand-authored `llm.json` of model chunks** — the earlier draft; reusing the real session log makes the fixture a genuine product of the system rather than a hand-built mock, and doubles it as a behavioral expected output.
+- **A compulsory replay override for every compaction summary** — rejected: the durable summary event already fixes a successful local call's position, complete output, and optional usage. An explicit local-call marker preserves that single-source fixture without inventing a call for template or remote summarizers.
 - **A byte-level HTTP-record library (Polly/nock/MSW)** — rejected: adapter-specific, awkward with streaming SSE, and lower-level than the thing under test.
 - **Synthesizing throw/cancel entries from `turn/end {kind:'error'|'aborted'}`** — rejected: it couples `llm-replay` to loop-internal turn-closing semantics, and the `turn/end` reason is lossy (it cannot distinguish a thrown 401 from a finish-error); the explicit `replay.override.json` sidecar is the cleaner seam.
 - **Copying both request-header sidecars beside every class pin** — rejected: prompt and tool-schema composition vary independently, so a change to one shared component would churn byte-identical files across unrelated class pins. Explicit per-component sources retain one structural pin per class without duplicating content.
 
 ## Consequences
 
-The tier adds reviewed per-scenario input, session, stdout, optional override, and optional workspace fixtures, plus one file for each distinct pinned prompt and tool-schema sequence. Workspace seeds are copied into the generated cwd for both record and replay. In return the tier provides deterministic keyless coverage through the real Loader and tool composition. Most retained scenarios exercise the assembled backend rather than ACP; the [automation-only ACP decision](../simplification/2026-07-23-acp-automation-only-protocol.md#snapshot-boundary) keeps that corpus here and defers any move to a transport-neutral headless suite as an independent testing change (the suite-level FIXME marks it).
+The tier adds reviewed per-scenario input, session, stdout, optional override, and optional workspace fixtures, plus one file for each distinct pinned prompt and tool-schema sequence. Workspace seeds are copied into the generated cwd for both record and replay. In return the tier provides deterministic keyless coverage through the real Loader and tool composition, including an assembled context-overflow recovery whose marked compaction summary supplies the auxiliary call. Most retained scenarios exercise the assembled backend rather than ACP; the [automation-only ACP decision](../simplification/2026-07-23-acp-automation-only-protocol.md#snapshot-boundary) keeps that corpus here until it can move to a transport-neutral headless suite without losing coverage.
 
 This Agent Note relates to but does not supersede the [proposed determinism Agent Note](../../proposed/testing/2026-06-11-deterministic-and-stress-testing.md): that proposal's "universal replay fixture" re-derives session *message history* after every test (an internal-consistency invariant), whereas these snapshots pin assembled behavior plus the external automation output. They are complementary until the backend corpus moves off ACP.

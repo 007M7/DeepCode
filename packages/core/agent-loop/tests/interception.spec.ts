@@ -19,7 +19,7 @@ import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { MockAdapter, textResponse, toolCallResponse } from './mock-adapter.ts'
 
 /**
- * The interception seams introduced by the hooks taxonomy: `agent/pre-step`,
+ * The interception points introduced by the hooks taxonomy: `agent/pre-step`,
  * `agent/session-start`, `agent/turn-stopping`, and the
  * `tools/pre-execute` / `tools/post-execute`
  * split with `additionalContexts` buffering. These verify the canonical event

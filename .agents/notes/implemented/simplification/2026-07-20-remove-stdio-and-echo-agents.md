@@ -19,18 +19,18 @@ The stdio and Echo agents are removed without compatibility packages, modes, com
 The remaining application roles are explicit:
 
 - `@deepseek-ai/dsh-tui` owns terminal-interactive execution. It rejects non-TTY streams before Loader boot; `apps/cli/config/base.cordis.yml` plus the `tui.cordis.yml` overlay own the complete coding composition, with PTY plus terminal-snapshot coverage in `apps/cli/tests/`.
-- [`@deepseek-ai/dsh-cli-demo`](../../../../packages/examples/cli-demo/README.md) owns non-interactive execution, including pipes. `examples/headless-agent` owns the real-model one-shot composition, replay snapshots, generic real-agent suites, and test-only keyless Loader fixtures.
+- [`dsh run`](../../../../apps/cli/README.md) owns non-interactive execution. Its `headless` profile is the product composition; `examples/headless-agent` owns replay snapshots, generic real-agent suites, and an unexported keyless Loader driver.
 - [`@deepseek-ai/dsh-acp-demo`](../../../../packages/examples/acp-demo/README.md) and `@deepseek-ai/dsh-jsonrpc` own their framed protocol integrations.
 
 The SDK project model and create/config workflows replace the `stdio` run-interface option with `tui`; generated TUI projects compose `@deepseek-ai/dsh-tui` and create or resume one exact session. Repository-facing demo documentation requires a DeepSeek API key and leads with the real Headless or TUI agents.
 
-Keyless validation is test-owned. The Headless Loader smoke uses a fixture adapter to exercise a real tool round trip, the CLI built-bin suite pins output, persistence, failure, and signal semantics, and package-specific Loader tests keep deterministic adapters beside their scenarios. None is exposed as a runnable mock agent.
+Keyless validation is test-owned. The Headless Loader smoke uses a fixture adapter to exercise a real tool round trip, the `dsh` built-bin suite pins the published one-shot entry and output, the product Headless snapshot pins persistence, and the Headless PTY shutdown e2e pins signal escalation. Package-specific Loader tests keep deterministic adapters beside their scenarios. None is exposed as a runnable mock agent.
 
 ## Verification
 
 TUI and Headless Loader coverage run the real app packages in source and built modes. PTY-driven subprocess coverage is reserved for the TUI lifecycle; other entry-point smokes use the one-shot pipe protocol. Headless proves its task/result and tool-call contracts. Generated graphs and repository searches reject stale package, command, leaf, SDK-interface, `createStdioChat`, and `StdioRuntime` references.
 
-The built `dsh` bin rejects a piped TUI launch before Loader boot and points at its one-shot `-p` mode; `apps/cli/tests/built-bin.e2e.ts` pins that path, while `cli-demo`'s built-bin suite runs text, JSON, and structurally parsed `stream-json` output under plain Node, persists fresh sessions, and rejects invalid arguments and missing config without contaminating stdout. Code Mode has programmatic TUI snapshots and an ACP overlay demo. Time-context integration uses the real Headless composition for two ordered turns, while its package tests own finer elapsed-time behavior.
+The built `dsh` bin rejects a piped TUI launch before Loader boot and points at `dsh run`; `apps/cli/tests/built-bin.e2e.ts` pins the product one-shot entry under plain Node, including output and invalid arguments. `examples/headless-agent/tests/headless.snapshot.ts` pins product persistence, while `apps/cli/tests/headless-shutdown.e2e.ts` owns bounded signal escalation. The headless example's test-only JSONL driver preserves assembled canonical-event snapshots without creating a second CLI contract. Code Mode has programmatic TUI snapshots and an ACP overlay demo. Time-context integration uses the explicit Headless test composition for two ordered turns, while its package tests own finer elapsed-time behavior.
 
 ## Alternatives considered
 

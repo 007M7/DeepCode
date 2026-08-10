@@ -42,7 +42,7 @@ import type { PlanProjection } from './types.ts'
 // declarations still receive the SessionProjectionMap merge.
 export type * from './types.ts'
 
-declare module '@deepseek-ai/dsh-session' {
+declare module '@deepseek-ai/dsh-session/types' {
   interface SessionEventMap {
     /**
      * Whether plan mode is in force from this point on: log-only, non-surface,
@@ -246,6 +246,7 @@ export class PlanModeService extends Service {
         init: () => ({ active: false, wanted: null }),
         apply: (state, event) => {
           if (event.type === 'command/run' && event.data.name === 'plan') {
+            if (event.data.args === undefined) return state
             const wanted = event.data.args.trim() !== 'off'
             return wanted === state.wanted ? state : { active: state.active, wanted }
           }

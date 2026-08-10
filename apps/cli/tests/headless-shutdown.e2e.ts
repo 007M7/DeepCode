@@ -22,7 +22,7 @@ if pid == 0:
     os.chdir(cwd)
     os.execvpe(node, [node, *json.loads(launch_args_json)], env)
 
-markers = [b"dsh: observing at ", b"dsh-test: never-dispose started"]
+markers = [b"dsh-test: never-dispose ready", b"dsh-test: never-dispose started"]
 output = bytearray()
 marker_index = 0
 deadline = time.monotonic() + float(timeout_seconds)
@@ -66,14 +66,14 @@ async function runHeadlessPtySmoke(): Promise<string> {
   try {
     const home = join(cwd, '.dsh')
     // Pre-initialize the headless profile with the never-dispose row in its
-    // user patch layer (the same file `dsh --profile headless` hot-reloads).
+    // user patch layer (the same file a long-lived profile boot hot-reloads).
     const profileDir = join(home, 'profiles', 'headless')
     await mkdir(profileDir, { recursive: true })
     await writeFile(join(profileDir, 'package.json'), JSON.stringify({
       name: 'dsh-profile-headless',
       private: true,
       dependencies: {},
-      dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', '@deepseek-ai/dsh-headless'] } },
+      dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-headless'] } },
     }, undefined, 2))
     await writeFile(join(profileDir, 'cordis.patch.yml'), [
       '- insert:',
@@ -83,7 +83,7 @@ async function runHeadlessPtySmoke(): Promise<string> {
     ].join('\n'))
     const launch = resolveExampleLaunch({
       srcBin: dshBinScript,
-      configArgs: ['--profile', 'headless', 'never complete'],
+      configArgs: ['run', 'never complete'],
       tsconfigPath,
       env: {
         DSH_HOME: home,
@@ -124,7 +124,8 @@ async function runHeadlessPtySmoke(): Promise<string> {
 describe.skipIf(process.platform === 'win32')('headless process shutdown (real Loader tree in a PTY)', () => {
   it('lets a second Ctrl+C force exit while the first signal is draining', async () => {
     const output = await runHeadlessPtySmoke()
-    expect(output).toContain('dsh: observing at ')
+    expect(output).not.toContain('dsh: observing at ')
+    expect(output).toContain('dsh-test: never-dispose ready')
     expect(output).toContain('dsh-test: never-dispose started')
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 })

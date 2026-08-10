@@ -60,7 +60,7 @@ describe('LocaleService', () => {
     expect(t('own')).toBe('自有')
     // common itself must not recurse: a miss inside common echoes the key.
     // (Wide-string ns hits the untyped bind overload — the typed one rejects
-    // unknown keys at compile time, which is the point of the seam.)
+    // unknown keys at compile time, which is the point of the typed registry contract.)
     expect(svc.bind('common' as string)('nope')).toBe('nope')
   })
 

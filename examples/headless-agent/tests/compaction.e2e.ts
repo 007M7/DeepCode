@@ -11,8 +11,8 @@ import { SessionId } from '@deepseek-ai/dsh-session'
  * Key-gated smoke for mid-session compaction. It verifies the compact event
  * pair, replacement of older surface nodes, and a final answer after compaction.
  */
-// FIXME(compaction-snapshot): this is the only full compaction coverage because
-// replay cannot serve the summarizer's unlogged model call.
+// The keyless headless snapshot pins deterministic overflow recovery; this test
+// remains the independent live-provider smoke for organic pressure and summary quality.
 
 let workdir: string | undefined
 let ctx: Context | undefined
@@ -64,7 +64,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('compaction: a long session compa
     expect(starts.length).toBeGreaterThan(0)
     expect(ends.length).toBe(starts.length) // every start was released
 
-    // It succeeded at least once: a compact/summary provenance event and a
+    // It succeeded at least once: a `compact/summary` event describing the summary and a
     // replace-op user/message (the surface mutation) both landed.
     const summaries = events.filter(e => e.type === 'compact/summary')
     expect(summaries.length).toBeGreaterThan(0)

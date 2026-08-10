@@ -1978,6 +1978,7 @@ describe('trace and exact read rendering', () => {
     )
     const result = await mounted.call('session_event_trace', { session_id: session.id, seq: 0 })
     expect(text(result)).toContain('Replacement chain: 1')
+    expect(text(result)).toContain('Events cited directly as sources: none')
     expect(text(result)).toContain('Direct derived events: 1')
     expect(text(result)).toContain(new Date(session.events[0]?.time ?? 0).toISOString())
   })

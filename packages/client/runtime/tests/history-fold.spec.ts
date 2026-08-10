@@ -12,7 +12,7 @@ const at = (seq: number, event: Record<string, unknown>): SessionEvent =>
 describe('projectConversationHistory', () => {
   it('names an injected context node from its durable source, like the live adapter', () => {
     // The fold declares its own node mapping (jscpd:ignore in the source), so
-    // the provenance projection is pinned on both sides independently.
+    // the source projection is pinned on both sides independently.
     const injected = at(0, {
       type: 'user/message',
       surfaceOp: 'append',
@@ -166,6 +166,37 @@ describe('projectConversationHistory', () => {
       },
       requestConfig: { provider: 'fake', model: 'first' },
     })
+  })
+
+  it('projects nested dispatches onto settled and interrupted history calls', () => {
+    const projection = projectConversationHistory([
+      ev.turnStart(0, 1),
+      ev.toolCall(1, 1, 'settled', 'run_code', '{}'),
+      ev.codeDispatchStart(2, 'settled', 1, 'run_code', { code: 'nested' }),
+      ev.codeDispatchStart(3, 'settled:code:1', 1, 'read', { path: 'a.txt' }),
+      ev.codeDispatch(4, 'settled:code:1', 1, 'read', { path: 'a.txt' }, 'alpha'),
+      ev.codeDispatch(5, 'settled', 1, 'run_code', { code: 'nested' }, 'alpha'),
+      ev.toolResult(6, 1, 'settled', 'done'),
+      ev.turnEnd(7, 1),
+      ev.turnStart(8, 2),
+      ev.toolCall(9, 2, 'interrupted', 'run_code', '{}'),
+      ev.codeDispatchStart(10, 'interrupted', 1, 'bash', { command: 'sleep 1' }),
+      ev.turnEnd(11, 2, 'aborted'),
+    ].map(event => ({ event })))
+
+    const settled = {
+      callId: 'settled',
+      subCalls: [{
+        callId: 'settled:code:1',
+        subCalls: [{ callId: 'settled:code:1:code:1', call: { name: 'read' } }],
+      }],
+    }
+    expect(projection.eventNodes).toMatchObject([settled])
+    expect(projection.contexts[0]?.nodes).toMatchObject([settled])
+    expect(projection.interruptedNodes).toMatchObject([{
+      callId: 'interrupted',
+      subCalls: [{ callId: 'interrupted:code:1', name: 'bash' }],
+    }])
   })
 
   it('drops completed token payloads without changing inspection projections', () => {

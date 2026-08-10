@@ -191,7 +191,7 @@ export class InvariantService extends Service {
       throw error
     }
     // Cordis attaches setup thenability and async teardown to this callable;
-    // the service seam intentionally exposes only the conventional disposer.
+    // the service contract intentionally exposes only the conventional disposer.
     // oxlint-disable-next-line typescript/no-misused-promises -- the extra runtime shape stays private.
     return registration
   }

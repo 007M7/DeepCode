@@ -7,8 +7,9 @@ import { randomUUID } from 'node:crypto'
 import { mkdir, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Context } from 'cordis'
-import { installAgentLlmTarget } from '@deepseek-ai/dsh-agent'
-import type { Agent, AgentLlmTarget, AgentLlmTargetRef, AgentStatus } from '@deepseek-ai/dsh-agent'
+import { installModelSelection } from '@deepseek-ai/dsh-agent'
+import type { Agent, ModelSelection, ModelSelectionRef, AgentOptions, AgentStatus } from '@deepseek-ai/dsh-agent'
+import { AGENT_DEFAULT_MODEL_SETTINGS_NAMESPACE } from '@deepseek-ai/dsh-agent-default-model'
 import { createUserMessage, freezeMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import { errorChain } from '@deepseek-ai/dsh-llm'
 import type { MessageSource } from '@deepseek-ai/dsh-llm'
@@ -18,6 +19,7 @@ import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
 import { SessionQueryError, type SessionSearchCursor } from '@deepseek-ai/dsh-session-query'
 import { SubagentError } from '@deepseek-ai/dsh-subagent'
 import type { SubagentListEntry as CatalogSubagentListEntry } from '@deepseek-ai/dsh-subagent'
+import { isUserInvocable } from '@deepseek-ai/dsh-skill'
 import type { Workspace, WorkspaceRecord } from '@deepseek-ai/dsh-workspace'
 import {
   workspaceDomainState, workspaceRecord, WorkspaceId as brandWorkspaceId,
@@ -26,7 +28,8 @@ import {
 // Type-only: brings the `ctx.tools` Context merge into this program (viewFor reads presenters).
 import type {} from '@deepseek-ai/dsh-tools'
 import type {
-  ApiProxy, CredentialView, GoalRef, HistoryEntry, HostFrame, ModelCatalogFailure, ModelProviderGroup,
+  ApiProxy, ConfigurableProviderView, CredentialView, GoalRef, HistoryEntry, HostFrame,
+  ModelCatalogFailure, ModelProviderGroup,
   ModelReasoning, MuxFrame, QuestionResponsePayload, SessionProjectionsBlock, SessionSearchItem,
   QueuedInboxItem, SessionSummary, SettingsNamespaceView, SubagentAddress, ToolEventView,
   WorkspaceId, WorkspaceView,
@@ -68,6 +71,14 @@ import type {
 } from '@deepseek-ai/dsh-user-interaction'
 import { UserInteractionError } from '@deepseek-ai/dsh-user-interaction'
 import { DirectoryPickerError } from '@deepseek-ai/dsh-host-directory-picker'
+import {
+  ApiRemoteSessionNotFound as SessionNotFound,
+  ApiRemoteSubagentSessionOwnership as SubagentSessionOwnership,
+  apiRemoteSubagentOwnershipError,
+  createApiRemoteAgentResolver,
+  hasApiRemoteSubagentOwner,
+  inspectApiRemoteSession,
+} from '@deepseek-ai/dsh-api-remotes'
 import { openNativePath, openNativeTextFile } from './native-path-opener.ts'
 
 /** Page size when history is called without maxMessages. */
@@ -98,7 +109,7 @@ function isAborted(signal: AbortSignal): boolean {
  * backwards from the window tail. Replacement copies never entered the
  * conversation a reader sees — they restate a shadowed range for the model
  * alone — so they consume no quota; the page stays one contiguous raw range,
- * which keeps a compaction's log-only provenance on the same page as its
+ * which keeps a compaction's log-only `compact/summary` record on the same page as its
  * replacement. The cut is the starting seq of the oldest message group (chunks
  * group via sourceEventSeqs — never cut mid-message). The tail page naturally
  * includes the in-progress partial.
@@ -134,7 +145,7 @@ function ok<T>(request: RpcRequest<unknown>, value: T): RpcResponse<T> {
 /**
  * Build the provider/model catalog over every registered route. Shared by the
  * session-scoped `session.models` and host-scoped `llm.models`. Catalog
- * membership stays advisory: an unlisted session target remains valid for
+ * membership stays advisory: an unlisted session selection remains valid for
  * provider dispatch, but is not injected back into the selector after its
  * owning catalog stops advertising it. Per-provider failures ride `failures`
  * without failing the sound groups; groups that advertise nothing are dropped.
@@ -327,10 +338,23 @@ function directoryError(error: unknown): RpcError {
   return { code: 'internal', message: error instanceof Error ? error.message : String(error), details: {} }
 }
 
-/** Resolved Host routing and project-directory defaults consumed by the API implementation. */
+/** Resolved Agent model and project-directory defaults consumed by the API implementation. */
 export interface ApiProxyDefaults {
-  provider: string
-  model: string
+  /**
+   * The model selection a session starts from when its own log names none. Read on
+   * every access rather than captured, so a default saved during this process
+   * reaches the sessions that have not run a turn yet.
+   */
+  defaultModelSelection: () => ModelSelection
+  /**
+   * Record a selection as the new default. Either absent, or a closure that
+   * may itself decline — the gateway plugin always passes one, and it no-ops
+   * when the deployment mounts no settings provider or when the write races
+   * service teardown. A switch then stays process-local. A rejection is
+   * reported and swallowed: the switch already applies to its own session,
+   * and undoing it because storage failed would be the worse outcome.
+   */
+  saveDefaultModelSelection?: (selection: ModelSelection) => Promise<void>
   /** Default project directory for new sessions whose create request carries no cwd. */
   cwd: string
   /** Parent directory for name-created workspaces. */
@@ -641,19 +665,6 @@ async function catalogChild(
   }
 }
 
-/**
- * Thrown by the cold-resume path when the id names no servable session
- * (absent from the store, or a pre-project legacy log without a cwd).
- */
-class SessionNotFound extends Error {}
-
-/** Session identity whose lifecycle belongs to subagent routing, not generic Host resume. */
-class SubagentSessionOwnership extends Error {
-  constructor(readonly sessionId: SessionId) {
-    super(`session "${sessionId}" is a subagent session; use subagent delivery`)
-  }
-}
-
 /** Requested identity already belongs to a session with another project cwd. */
 class SessionCwdConflict extends Error {
   constructor(
@@ -716,15 +727,17 @@ function changedWorkspaceView(workspaceId: string, value: unknown): WorkspaceVie
 /**
  * Implement ApiProxy over a composed host context.
  * @param ctx - a context with the Host spine and Workspace registry mounted.
- * @param defaults - host routing and project-directory defaults.
+ * @param defaults - Agent model and project-directory defaults.
  * @returns the ApiProxy implementation.
  */
 export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiProxy {
-  const agentOptions = { provider: defaults.provider, model: defaults.model }
-  type WebLlmTargetRef = AgentLlmTargetRef & { current: AgentLlmTarget }
-  const targets = new WeakMap<Agent, WebLlmTargetRef>()
-  /** Implicit resume of cold sessions, deduplicating concurrent calls (follows the jsonrpc sessionCreations precedent). */
-  const resumes = new Map<SessionId, Promise<Agent>>()
+  /** The seed model each create/resume declares; re-read so it never goes stale. */
+  const agentOptions = (): AgentOptions => {
+    const { provider, model } = defaults.defaultModelSelection()
+    return { provider, model }
+  }
+  type WebModelSelectionRef = ModelSelectionRef & { current: ModelSelection }
+  const selections = new WeakMap<Agent, WebModelSelectionRef>()
   /** Client-chosen identity creation/resume, deduplicated across concurrent retries. */
   const sessionCreations = new Map<SessionId, Promise<Agent>>()
   /** Serializes path ownership and explicit title checks with Workspace mutations. */
@@ -734,38 +747,62 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
   const muxQueues = new Set<FrameQueue<RpcRequest<MuxFrame>>>()
 
   /**
-   * Install or return the session-local target that prompt assembly snapshots.
-   * Seed order: latest logged request/header, else the host default routing.
-   * There is no create-time per-session override tier on this wire — if one
-   * returns (a create-options contribution), it must fold in between the two.
+   * Install or return the session-local model selection that prompt assembly snapshots.
+   *
+   * Precedence, resolved on EVERY read rather than seeded once: a selection
+   * made in this process, else the session's own latest logged request/header,
+   * else the live Agent default. Re-reading keeps the two tiers exact in both
+   * directions: a session with a recorded request derives its selection from
+   * its log, while a blank session (New Session reuses one rather than minting
+   * another) reads any default saved after it was created. There is no create-time
+   * per-session override tier on this wire — if one returns (a create-options
+   * contribution), it must fold in between the selection and the log.
    */
-  function targetFor(agent: Agent): WebLlmTargetRef {
-    const installed = targets.get(agent)
+  function selectionFor(agent: Agent): WebModelSelectionRef {
+    const installed = selections.get(agent)
     if (installed !== undefined) return installed
-    const logged = agent.session.requestHeader()?.config
-    const target: WebLlmTargetRef = {
-      current: logged === undefined
-        ? { provider: defaults.provider, model: defaults.model }
-        : {
+    let picked: ModelSelection | undefined
+    const selection: WebModelSelectionRef = {
+      get current(): ModelSelection {
+        if (picked !== undefined) return picked
+        // Incrementally folded by the session, so a per-step read costs
+        // O(new events) rather than a rescan.
+        const logged = agent.session.requestHeader()?.config
+        if (logged === undefined) return defaults.defaultModelSelection()
+        return {
           provider: logged.provider,
           model: logged.model,
           ...logged.reasoningEffort === undefined
             ? {}
             : { reasoningEffort: logged.reasoningEffort },
-        },
+        }
+      },
+      set current(next: ModelSelection) {
+        picked = next
+      },
       assembled: undefined,
     }
-    installAgentLlmTarget(agent.ctx, target)
-    targets.set(agent, target)
-    return target
+    installModelSelection(agent.ctx, selection)
+    selections.set(agent, selection)
+    return selection
   }
 
   /** Pre-publication setup used by both fresh and resumed Web agents. */
-  function installTarget(agentCtx: Context): void {
+  function installSelection(agentCtx: Context): void {
     const agent = agentCtx.agent
     if (agent === undefined) throw new Error('api-proxy: agent setup has no scoped agent')
-    targetFor(agent)
+    selectionFor(agent)
   }
+
+  const hasSubagentOwner = (
+    session: Pick<Session, 'header'>,
+    agent: Agent | undefined,
+  ): boolean => hasApiRemoteSubagentOwner(ctx, session, agent)
+  const subagentOwnershipError = (sessionId: SessionId): RpcError =>
+    apiRemoteSubagentOwnershipError(sessionId)
+  const inspectServable = (sessionId: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }> =>
+    inspectApiRemoteSession(ctx, sessionId)
+  const agentFor = createApiRemoteAgentResolver(ctx, { agentOptions, setup: installSelection })
 
   /** Send one transient frame to every connected mux consumer. */
   function broadcast(payload: MuxFrame): void {
@@ -774,7 +811,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
   }
 
   // Projection change feed → session/projection push frames. The carrier
-  // mints the wire frame (the seam package holds no wire vocabulary); the
+  // mints the wire frame (the Service Definition package holds no wire vocabulary); the
   // child activates only when a projection registry is composed, and the
   // subscription unwinds with this gateway's fiber.
   ctx.inject(['sessionProjections'], (projectionCtx) => {
@@ -948,116 +985,6 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     })
   }
 
-  /**
-   * Generic Host interaction cannot claim a durably classified subagent
-   * (`origin: 'subagent'` in the header) or an Agent runtime-owned by its
-   * live parent.
-   */
-  function hasSubagentOwner(
-    session: Pick<Session, 'header'>,
-    agent: Agent | undefined,
-  ): boolean {
-    if (session.header.origin === 'subagent') return true
-    const parentId = session.header.parentSession
-    if (parentId === undefined || agent === undefined) return false
-    const parent = ctx.agents.get(parentId)
-    return parent !== undefined && ctx.agents.isOwnedBy(agent.id, parent)
-  }
-
-  /** Stable generic-Host error for an identity reserved to subagent routing. */
-  function subagentOwnershipError(sessionId: SessionId): RpcError {
-    return {
-      code: 'agent-busy',
-      message: `session "${sessionId}" is owned by subagent routing`,
-      details: { reason: 'use subagent delivery for this child session' },
-    }
-  }
-
-  /** Inspect one cold served session without repairing, resuming, or publishing it. */
-  async function inspectServable(sessionId: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
-    const persistence = ctx.get('sessionPersistence')
-    if (persistence === undefined) {
-      throw new Error('session persistence is not configured (load a dsh-session-persistence backend)')
-    }
-    const meta = (await persistence.list()).find(m => m.id === sessionId)
-    if (meta === undefined || meta.cwd === undefined) throw new SessionNotFound(`session "${sessionId}" not found`)
-    const inspected = await persistence.inspect(sessionId)
-    if (inspected.meta.cwd === undefined) throw new SessionNotFound(`session "${sessionId}" not found`)
-    return { meta: inspected.meta, events: [...inspected.events] }
-  }
-
-  /**
-   * Resolve one live registered identity through the subagent-ownership
-   * fence: subagent-owned agents answer `agent-busy`, plain agents pass.
-   * Fences the live agent's own session rather than trusting a
-   * "registered ⇒ attached-store" invariant — a registered subagent whose
-   * session is ever absent from the attached store must still not be handed
-   * out through generic Host routing. `undefined` means no live agent.
-   */
-  function fencedLiveAgent(sessionId: SessionId): { agent: Agent } | { error: RpcError } | undefined {
-    const live = ctx.agents.get(sessionId)
-    if (live === undefined) return undefined
-    if (hasSubagentOwner(live.session, live)) return { error: subagentOwnershipError(sessionId) }
-    return { agent: live }
-  }
-
-  async function agentFor(sessionId: SessionId): Promise<{ agent: Agent } | { error: RpcError }> {
-    const fenced = fencedLiveAgent(sessionId)
-    if (fenced !== undefined) return fenced
-    const attached = ctx.sessions.get(sessionId)
-    if (attached !== undefined && hasSubagentOwner(attached, undefined)) {
-      return { error: subagentOwnershipError(sessionId) }
-    }
-    let resume = resumes.get(sessionId)
-    if (resume === undefined) {
-      resume = (async () => {
-        try {
-          const inspected = await inspectServable(sessionId)
-          if (hasSubagentOwner({ header: inspected.meta }, undefined)) {
-            throw new SubagentSessionOwnership(sessionId)
-          }
-          const publishedSession = ctx.sessions.get(sessionId)
-          const publishedAgent = ctx.agents.get(sessionId)
-          if (publishedSession !== undefined && hasSubagentOwner(publishedSession, publishedAgent)) {
-            throw new SubagentSessionOwnership(sessionId)
-          }
-          const handle = await ctx.agents.resume({
-            resumeSessionId: sessionId,
-            agentOptions,
-            setup: installTarget,
-          })
-          return handle.agent
-        } finally {
-          resumes.delete(sessionId)
-        }
-      })()
-      resumes.set(sessionId, resume)
-    }
-    try {
-      return { agent: await resume }
-    } catch (error: unknown) {
-      if (error instanceof SessionNotFound) {
-        return { error: { code: 'session-not-found', message: error.message, details: { sessionId } } }
-      }
-      if (error instanceof SubagentSessionOwnership) {
-        return { error: subagentOwnershipError(error.sessionId) }
-      }
-      // A concurrent publish can win the identity between the pre-resume
-      // re-check and `ctx.agents.resume` publication; the ID-collision
-      // rejection falls through here. Mirror ensureSession's `.catch` in
-      // full: classify a subagent-owned winner into the stable ownership
-      // error, and hand a clean plain-agent winner straight back.
-      const fenced = fencedLiveAgent(sessionId)
-      if (fenced !== undefined) return fenced
-      const attached = ctx.sessions.get(sessionId)
-      if (attached !== undefined && hasSubagentOwner(attached, undefined)) {
-        return { error: subagentOwnershipError(sessionId) }
-      }
-      // The internal details slot is contractually {}; the reason rides the message.
-      return { error: { code: 'internal', message: `resume failed for session "${sessionId}": ${String(error)}`, details: {} } }
-    }
-  }
-
   type SessionReadState = {
     id: SessionId
     header: SessionHeader
@@ -1140,8 +1067,8 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           }
           return (await ctx.agents.resume({
             resumeSessionId: sessionId,
-            agentOptions,
-            setup: installTarget,
+            agentOptions: agentOptions(),
+            setup: installSelection,
           })).agent
         }
 
@@ -1152,9 +1079,9 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         }
         return (await ctx.agents.create({
           sessionId,
-          agentOptions,
+          agentOptions: agentOptions(),
           meta: { cwd },
-          setup: installTarget,
+          setup: installSelection,
         })).agent
       })().catch((error: unknown) => {
         // Another Host entry path may have published the same identity while
@@ -1299,6 +1226,47 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     }
   }
 
+  /**
+   * Whether an adapter currently serves this provider, and therefore whether
+   * a session selecting it can start a turn. Catalog membership cannot answer
+   * it: an adapter may serve a model its own catalog stopped advertising, so
+   * a provider missing from the groups is not the same as one nothing serves.
+   * A composition with no llm registry at all cannot judge and says yes —
+   * the dispatch it would have refused fails on its own terms.
+   */
+  function routeServed(provider: string): boolean {
+    const llm = ctx.get('llm')
+    return llm === undefined || llm.listProviders().some(entry => entry.id === provider)
+  }
+
+  /**
+   * Resolve the addressed agent for a turn-starting method and refuse when no
+   * adapter serves its current selection: a provider nothing serves cannot start a
+   * turn, and letting it try spends the whole pre-step path to fail inside
+   * the adapter with a message about registration. Refusing here names the
+   * model the session is pointed at while the draft is still in the composer.
+   * This is `session.prompt`'s enforcement boundary: a client that disables
+   * its input is an affordance, and the method stays callable regardless.
+   */
+  async function turnAgentFor<T>(
+    request: RpcRequest<unknown>, sessionId: SessionId,
+  ): Promise<{ agent: Agent } | { refused: RpcResponse<T> }> {
+    const found = await agentFor(sessionId)
+    if ('error' in found) return { refused: err(request, found.error) }
+    const agent = found.agent
+    const selection = selectionFor(agent).current
+    if (!routeServed(selection.provider)) {
+      return {
+        refused: err(request, {
+          code: 'model-unavailable',
+          message: `no adapter serves provider "${selection.provider}"; select a model for this session`,
+          details: { provider: selection.provider, model: selection.model },
+        }),
+      }
+    }
+    return { agent }
+  }
+
   /** Missing-service report shared by the settings domain (skills-domain stance). */
   function settingsAbsent(): RpcError {
     return { code: 'internal', message: 'settings service is absent: this deployment does not mount a settings provider (e.g. @deepseek-ai/dsh-settings-local) in its composition', details: {} }
@@ -1351,7 +1319,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     return { code: 'internal', message: 'credentials service is absent: this deployment does not mount a credential provider (e.g. @deepseek-ai/dsh-credentials-local) in its composition', details: {} }
   }
 
-  /** Map one redacted seam descriptor to its wire view. */
+  /** Map one redacted settings descriptor to its wire view. */
   function namespaceView(descriptor: SettingsDescriptor): SettingsNamespaceView {
     return {
       ns: String(descriptor.ns),
@@ -1453,8 +1421,8 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     sessions: {
       // Attached sessions summarize from memory; persisted-but-unattached (cold)
       // sessions merge in from the persistence store so history survives restarts.
-      // Legacy logs without a cwd (pre-project stance) are not served — every
-      // session now records its project at create time.
+      // Logs without a cwd are not served; every session records its project
+      // at create time.
       async list(request) {
         return ok(request, { items: await listVisibleSessionSummaries() })
       },
@@ -1538,9 +1506,10 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
               )
             }
             // Host visibility is the authorization boundary. Consume the
-            // provider's globally ranked stream rather than binding every
-            // visible id into one SQLite statement, then re-check complete
-            // provenance before emitting any snippet.
+            // provider's globally ranked results rather than binding every
+            // visible id into one SQLite statement, then require each hit to
+            // name a visible session and a current message from that same
+            // session before emitting its snippet.
             for (const hit of page.items) {
               if (authorized.length > SESSION_SEARCH_RESULT_LIMIT) continue
               if (
@@ -1667,9 +1636,10 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         const { sessionId } = request.payload
         const found = await agentFor(sessionId)
         if ('error' in found) return err(request, found.error)
-        const current = targetFor(found.agent).current
+        const current = selectionFor(found.agent).current
         const { groups, failures } = await buildModelCatalog(ctx)
-        return ok(request, { current: { ...current }, groups, failures })
+        const routable = routeServed(current.provider)
+        return ok(request, { current: { ...current }, routable, groups, failures })
       },
 
       async selectModel(request) {
@@ -1684,14 +1654,25 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
               ? {}
               : { reasoningEffort: ReasoningEffortId(reasoningEffort) },
           })
-          const selected: AgentLlmTarget = {
+          const selected: ModelSelection = {
             provider: resolved.provider,
             model: resolved.model,
             ...resolved.reasoningEffort === undefined
               ? {}
               : { reasoningEffort: resolved.reasoningEffort },
           }
-          targetFor(found.agent).current = selected
+          selectionFor(found.agent).current = selected
+          // A switch is also how this deployment's default is chosen: the next
+          // session created without one of its own starts here. Sessions that
+          // have already logged a selection are unaffected — they derive from
+          // their own log (see selectionFor).
+          try {
+            await defaults.saveDefaultModelSelection?.(selected)
+          } catch (error: unknown) {
+            ctx.logger.warn(
+              `api-proxy: the model switch applies to this session but was not saved as the default: ${String(error)}`,
+            )
+          }
           return ok(request, { selected: { ...selected } })
         } catch (error: unknown) {
           return err(request, {
@@ -1794,8 +1775,8 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
               parentSession: source.id,
               seedLength: cut,
             },
-            agentOptions,
-            setup: installTarget,
+            agentOptions: agentOptions(),
+            setup: installSelection,
           })
         } catch (error: unknown) {
           return err(request, {
@@ -1823,9 +1804,9 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
 
       async prompt(request) {
         const { sessionId, mode, content } = request.payload
-        const found = await agentFor(sessionId)
-        if ('error' in found) return err(request, found.error)
-        const agent = found.agent
+        const resolved = await turnAgentFor<{ accepted: true }>(request, sessionId)
+        if ('refused' in resolved) return resolved.refused
+        const agent = resolved.agent
         // The rpcId rides MessageSource into user/message (merge declaration in api/sessions.ts; provisional correlation).
         const source: MessageSource = { kind: 'user', rpcId: request.rpcId }
         try {
@@ -2025,6 +2006,31 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           return subagentPromptError(request, error, signal)
         }
       },
+
+      // Deliberately no catalog, history, persistence, or parent Agent lookup:
+      // the core primitive alone authorizes the durable address against the
+      // live Activation, which is what keeps a live child interruptible while
+      // its parent Agent is offline. Absent targets are accepted no-ops there.
+      interrupt(request) {
+        const { parentSessionId, childSessionId } = request.payload
+        try {
+          ctx.subagents.interrupt(childSessionId, { kind: 'user', parentSessionId })
+        } catch (error: unknown) {
+          if (error instanceof SubagentError && error.code === 'UNAUTHORIZED') {
+            return Promise.resolve(err(request, {
+              code: 'subagent-unauthorized',
+              message: 'subagent does not belong to this parent',
+              details: { childSessionId },
+            }))
+          }
+          return Promise.resolve(err(request, {
+            code: 'internal',
+            message: 'subagent interrupt failed',
+            details: {},
+          }))
+        }
+        return Promise.resolve(ok(request, { accepted: true as const }))
+      },
     },
 
     workspace: {
@@ -2042,7 +2048,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       // the Web picker collapsed onto the directory flow
       // (.agents/notes/implemented/simplification/2026-07-31-one-route-to-add-a-workspace.md).
       // Delete it with the wire schema's `name` member, this
-      // `defaults.workspaceRoot`, the client seam that carried the name
+      // `defaults.workspaceRoot`, the client contract that carried the name
       // (`WorkspaceCreateInput`, `WorkspacesService.create`'s `{ name }` arm,
       // `intentName`'s name branch, the manager's "name under workspaceRoot"
       // contract), and the `dsh web --workspace-root` flag plus its apps/cli
@@ -2178,14 +2184,17 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
 
     host: {
       describe(request) {
-        // TODO(step2): version should read apps/cli's package.json; placeholder for now.
+        // TODO: version should read apps/cli's package.json; placeholder for now.
+        const selection = defaults.defaultModelSelection()
         return Promise.resolve(ok(request, {
           version: '0.0.1',
           // Same source as session.create's fallback: the UI's default project
           // must match where an unspecified-cwd session actually lands.
           cwd: defaults.cwd,
-          provider: defaults.provider,
-          model: defaults.model,
+          // Read live for the same reason: this is what the NEXT session will
+          // start from, so a saved default has to be what it reports.
+          provider: selection.provider,
+          model: selection.model,
           attachedSessions: ctx.agents.list().length,
         }))
       },
@@ -2383,13 +2392,13 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           return err(request, { code: 'internal', message: 'skill registry is absent: this deployment does not mount @deepseek-ai/dsh-skill in its composition (cordis.yml or explicit assembly)', details: {} })
         }
         try {
-          const skills = (await skillRegistry.list({ cwd }))
-            .filter(skill => skill.invocation.modelInvocable && skill.invocation.userInvocable)
+          const skills = (await skillRegistry.list({ cwd })).filter(isUserInvocable)
           return ok(request, {
             skills: skills.map(skill => ({
               name: skill.name,
               description: skill.description,
               ...skill.whenToUse === undefined ? {} : { whenToUse: skill.whenToUse },
+              modelInvocable: skill.invocation.modelInvocable,
             })),
           })
         } catch (error: unknown) {
@@ -2514,15 +2523,17 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         const active = new Set(registered.map(provider => provider.id))
         const directory = ctx.llm.listConfigurableProviders()
         const declared = new Set(directory.map(entry => entry.provider))
-        const views = directory.map(entry => ({
+        const views: ConfigurableProviderView[] = directory.map(entry => ({
           provider: entry.provider,
           displayName: entry.displayName,
           settingsNs: entry.settingsNs,
           settingsPath: [...entry.settingsPath],
           active: active.has(entry.provider),
+          ...entry.declared === undefined ? {} : { declared: entry.declared },
         }))
         // Routes registered without a directory declaration still appear —
-        // they exist and serve models — just with no settings address.
+        // they exist and serve models — just with no settings address. No
+        // adapter claimed them, so nothing can say whether they are shipped.
         for (const provider of registered) {
           if (declared.has(provider.id)) continue
           views.push({
@@ -2711,8 +2722,14 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             queue.push(frame({ type: 'host/settings-changed', ns: name }))
             // A provider's own settings carry its model catalog and endpoint,
             // so a change there invalidates the model list even when the route
-            // set is untouched — `llm/adapters-updated` alone misses it.
-            if (modelProviderNamespaces().has(name)) queue.push(frame({ type: 'host/models-changed' }))
+            // set is untouched — `llm/adapters-updated` alone misses it. The
+            // Agent default section is the other such source: it names the
+            // selection every session with no logged one resolves to, so an
+            // externally edited default (another tab, a hand-edited
+            // settings.yaml) has to reach an open selector too.
+            if (modelProviderNamespaces().has(name) || name === String(AGENT_DEFAULT_MODEL_SETTINGS_NAMESPACE)) {
+              queue.push(frame({ type: 'host/models-changed' }))
+            }
           }),
           ctx.on('credentials/updated', (ref) => {
             queue.push(frame({ type: 'host/credentials-changed', ref: String(ref) }))

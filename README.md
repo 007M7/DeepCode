@@ -56,7 +56,7 @@ The [CLI contract](apps/cli/README.md#profiles) describes profile layout, layer 
 Run one task, print the final answer, and exit:
 
 ```sh
-dsh --profile headless "summarize this workspace"
+dsh run "summarize this workspace"
 ```
 
 ### Automation and SDKs
@@ -76,7 +76,7 @@ Built-in capabilities cover file reading, editing, and search; shell and persist
 - **Everything is a plugin.** Models, tools, policies, storage, context management, and interfaces are composable [Cordis plugins](docs/user/develop/basic/index.md), so deployments can extend or replace behavior without forking the agent loop. See the [architecture](docs/architecture.md) for the underlying design.
 - **Runs are reconstructable.** Anything visible to the model is logged in the authoritative session stream; persistence, resume/fork/query, replay, telemetry, and UIs derive from the same events. See the [session-log architecture](docs/architecture.md#session-log).
 - **Code Mode (opt-in).** It exposes a `run_code` tool and a generated TypeScript SDK; only program output re-enters model context. See [Code Mode](packages/core/tools/README.md#code-mode).
-- **Self-referential Cordis tools are opt-in.** They let the agent inspect its live runtime and mount or unmount plugins while it runs. See the [Cordis tools](packages/cordis/tool-cordis/README.md).
+- **Self-referential Cordis tools are opt-in.** They let the agent inspect its live runtime and mount or unmount plugins while it runs. See the [Cordis tools](packages/self-modification/tool-cordis/README.md).
 
 ## Community
 

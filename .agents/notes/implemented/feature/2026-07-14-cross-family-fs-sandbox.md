@@ -49,7 +49,7 @@ The [`examples/acp-agent`](../../../../examples/acp-agent/cordis.yml) compositio
 
 ### The enforcement point: provider, not intent gate
 
-The sandbox Agent Note's original cross-family sketch put fs enforcement on the `fs/write-intent`/`fs/edit-intent` events. This Agent Note enforces in the provider instead, on two mechanical facts: the intent slots are single-decision first-wins (occupied by `dsh-fs-policy`, whose contract names a second decider a misconfiguration), and the intent events are dispatched only by `dsh-tool-fs` — a direct `ctx.fs` caller (a cordis-mounted plugin, a custom tool) bypasses them, where provider-level enforcement covers every caller by construction. The sandbox Agent Note's deferred-phase wording is updated to match in the same change.
+The sandbox Agent Note's original cross-family sketch put fs enforcement on the `fs/write-intent`/`fs/edit-intent` events. This Agent Note enforces in the provider instead, on two mechanical facts: the intent slots are single-decision first-wins (occupied by `dsh-fs-policy`, whose contract names a second decider a misconfiguration), and the intent events are dispatched only by `dsh-tool-fs` — a direct `ctx.fs` caller (a cordis-mounted plugin, a custom tool) bypasses them, where provider-level enforcement covers every caller by construction.
 
 ### Out of scope
 

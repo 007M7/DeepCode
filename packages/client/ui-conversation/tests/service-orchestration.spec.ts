@@ -9,6 +9,7 @@ import { SlotTestRuntime } from '@deepseek-ai/dsh-client-test-runtime'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import type { QueuedMessage } from '@deepseek-ai/dsh-client-runtime/client'
 import { ConversationService } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import { ComposerBlockRegistry } from '../src/client/input/blocks.ts'
 import { InputHub } from '../src/client/input/hub.ts'
 import { zh } from '../src/client/locales.ts'
 
@@ -25,7 +26,10 @@ async function bench() {
   // config.input is required (the apply shares its hub with the inject
   // factories); the bench passes its own instance explicitly.
   const hub = new InputHub(runtime.ctx, makeTranslate(zh, {}))
-  const fiber = runtime.ctx.plugin(ConversationService, { input: hub })
+  const fiber = runtime.ctx.plugin(ConversationService, {
+    input: hub,
+    blocks: new ComposerBlockRegistry(),
+  })
   await fiber.await()
   const root = runtime.ctx.get('conversation') as ConversationService
   const scoped = runtime.sessions.scope('s1')!.get('conversation') as ConversationService
@@ -89,6 +93,7 @@ describe('ConversationService', () => {
     const bare = new Context()
     await bare.plugin(ConversationService, {
       input: new InputHub(bare, makeTranslate(zh, {})),
+      blocks: new ComposerBlockRegistry(),
     }).await()
     const orphan = bare.get('conversation') as ConversationService
     await expect(orphan.send('x')).rejects.toThrow(/sessions service unavailable/)

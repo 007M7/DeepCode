@@ -30,7 +30,7 @@ The TUI and Web register the exact personal path through Cordis HMR after boot. 
 
 **A separate `bin/dsh` wrapper owning the `dsh` name.** Rejected because `apps/cli` is the single product CLI for default TUI, headless, and Web dispatch. Two competing entrypoints would collide in `$PATH` and product identity.
 
-**A pi-style typed settings file (`defaultProvider`/`defaultModel`/`providers`).** Rejected by the user in favor of patch semantics: the personal file is a cordis overlay over the shipped default config, not a second config vocabulary to own and translate.
+**A pi-style typed settings file (`defaultProvider`/`defaultModel`/`providers`).** Rejected in favor of patch semantics (product-owner decision): the personal file is a cordis overlay over the shipped default config, not a second config vocabulary to own and translate.
 
 **A personal full `cordis.yml` that includes the requested config.** Rejected: the personal file would have to name the leaf config's path, which varies per checkout; patches invert the dependency so the bin keeps choosing the tree and the personal layer only amends it.
 
@@ -41,11 +41,11 @@ The TUI and Web register the exact personal path through Cordis HMR after boot. 
 ## Consequences
 
 - `dsh` from any directory (and `pnpm run demo:tui`) can apply personal providers, models, repository Plugins, and other Loader entries with no checkout edit; verified end-to-end against a personal Anthropic proxy with Opus 4.8, including a bash tool round trip.
-- Because an id-targeted patch replaces the whole `config`, a personal override restates the base fields it keeps and can drift when the base entry changes shape; the loader's entry-not-found/name-mismatch warnings and [`dsh --dump-config`](2026-07-30-dsh-dump-config.md) (which prints the composed tree those patches produce) are the diagnostics.
+- Because an id-targeted patch replaces the whole `config`, a personal override restates the base fields it keeps and can drift when the base entry changes shape; the loader's entry-not-found/name-mismatch warnings and [`dsh --dump-config`](../../../../apps/cli/README.md#profiles) (which prints the composed tree those patches produce) are the diagnostics.
 - Personal patches resolve ids against the booted file's own tree, so nested-include overlays (Code Mode) are not personalized; live-run parity for those leaves is deferred.
 - `dsh-app-boot` depends on `js-yaml` and imports the include's `!!js` YAML dialect (`entryListSchema`) directly, and, like `apps/cli`, depends on `@deepseek-ai/dsh-paths` for `resolveDshHome`.
 - Live watching belongs only to long-running TUI and Web processes. Headless automation gets deterministic startup configuration and exits without retaining a watcher.
 
 ## Testing
 
-`packages/ui/app-boot/tests/user-patches.spec.ts` pins parsing, startup application, exact-path add/failure/recovery/removal, last-good rollback, failure broadcast, and preservation of app-owned patches. `apps/cli/tests/built-bin.e2e.ts` boots the real dsh bin over a profile and exercises the live patch layer end to end. Test launchers isolate `$DSH_HOME`, so a developer's real overlay cannot leak into fixtures.
+`packages/boot/app-boot/tests/user-patches.spec.ts` pins parsing, startup application, exact-path add/failure/recovery/removal, last-good rollback, failure broadcast, and preservation of app-owned patches. `apps/cli/tests/built-bin.e2e.ts` boots the real dsh bin over a profile and exercises the live patch layer end to end. Test launchers isolate `$DSH_HOME`, so a developer's real overlay cannot leak into fixtures.

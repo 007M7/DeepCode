@@ -71,6 +71,9 @@ describe('default deployment (with dsh-fs-policy)', () => {
       const result = await call('write', { file_path: 'a.txt', content: 'clobber' })
       expect(result.isError).toBe(true)
       expect(result.error).toMatchObject({ info: { code: 'FS_NOT_OBSERVED' } })
+      // The model-facing text names the remedy, not just the condition.
+      expect(text(result)).toContain('without reading it first')
+      expect(text(result)).toContain('read the file, then retry')
       expect(await readFile(join(dir, 'a.txt'), 'utf8')).toBe('original')
     })
 
@@ -89,6 +92,23 @@ describe('default deployment (with dsh-fs-policy)', () => {
       const result = await call('write', { file_path: 'a.txt', content: 'replaced' })
       expect(result.isError).toBe(true)
       expect(result.error).toMatchObject({ info: { code: 'FS_STALE_VERSION' } })
+      // The model-facing text names the remedy, not just the condition.
+      expect(text(result)).toContain('file changed since it was read')
+      expect(text(result)).toContain('re-read the file, then retry')
+    })
+
+    it('the stale remedy is actionable: re-reading the changed file unblocks the retried write', async () => {
+      await writeFile(join(dir, 'a.txt'), 'original')
+      await call('read', { file_path: 'a.txt' })
+      await writeFile(join(dir, 'a.txt'), 'changed-externally') // out-of-band change
+      const stale = await call('write', { file_path: 'a.txt', content: 'replaced' })
+      expect(stale.isError).toBe(true)
+      expect(stale.error).toMatchObject({ info: { code: 'FS_STALE_VERSION' } })
+      // Follow the remedy: re-read (refreshes the observed version), then retry.
+      expect((await call('read', { file_path: 'a.txt' })).isError).toBe(false)
+      const retried = await call('write', { file_path: 'a.txt', content: 'replaced' })
+      expect(retried.isError).toBe(false)
+      expect(await readFile(join(dir, 'a.txt'), 'utf8')).toBe('replaced')
     })
   })
 
@@ -131,6 +151,9 @@ describe('default deployment (with dsh-fs-policy)', () => {
       const result = await call('edit', { file_path: 'a.txt', old_string: 'world', new_string: 'there' })
       expect(result.isError).toBe(true)
       expect(result.error).toMatchObject({ info: { code: 'FS_NOT_OBSERVED' } })
+      // The policy's refusal reaches the model with the read remedy appended.
+      expect(text(result)).toContain('edit requires reading')
+      expect(text(result)).toContain('read the file, then retry')
       expect(await readFile(join(dir, 'a.txt'), 'utf8')).toBe('hello world')
     })
 
@@ -155,6 +178,23 @@ describe('default deployment (with dsh-fs-policy)', () => {
       const result = await call('edit', { file_path: 'a.txt', old_string: 'world', new_string: 'there' })
       expect(result.isError).toBe(true)
       expect(result.error).toMatchObject({ info: { code: 'FS_STALE_VERSION' } })
+      // The model-facing text names the remedy, not just the condition.
+      expect(text(result)).toContain('file changed since it was read')
+      expect(text(result)).toContain('re-read the file, then retry')
+    })
+
+    it('the stale remedy is actionable: re-reading the changed file unblocks the retried edit', async () => {
+      await writeFile(join(dir, 'a.txt'), 'hello world')
+      await call('read', { file_path: 'a.txt' })
+      await writeFile(join(dir, 'a.txt'), 'hello brave world') // out-of-band change
+      const stale = await call('edit', { file_path: 'a.txt', old_string: 'world', new_string: 'there' })
+      expect(stale.isError).toBe(true)
+      expect(stale.error).toMatchObject({ info: { code: 'FS_STALE_VERSION' } })
+      // Follow the remedy: re-read (refreshes the observed version), then retry.
+      expect((await call('read', { file_path: 'a.txt' })).isError).toBe(false)
+      const retried = await call('edit', { file_path: 'a.txt', old_string: 'world', new_string: 'there' })
+      expect(retried.isError).toBe(false)
+      expect(await readFile(join(dir, 'a.txt'), 'utf8')).toBe('hello brave there')
     })
 
     it('rejects an ambiguous match without replace_all', async () => {
@@ -194,6 +234,39 @@ describe('default deployment (with dsh-fs-policy)', () => {
     })
   })
 
+  describe('deleted observed target', () => {
+    it('a failed reread records absence so write can safely recreate the file', async () => {
+      await writeFile(join(dir, 'a.txt'), 'original')
+      await call('read', { file_path: 'a.txt' })
+      await rm(join(dir, 'a.txt')) // out-of-band deletion
+
+      // The original positive observation still protects the first mutation.
+      const edit = await call('edit', { file_path: 'a.txt', old_string: 'original', new_string: 'x' })
+      expect(edit.isError).toBe(true)
+      expect(edit.error).toMatchObject({ info: { code: 'FS_STALE_VERSION' } })
+      const write = await call('write', { file_path: 'a.txt', content: 'premature' })
+      expect(write.isError).toBe(true)
+      expect(write.error).toMatchObject({ info: { code: 'FS_STALE_VERSION' } })
+
+      // A read-not-found is an authoritative negative observation for this
+      // owner. It still fails as a read, but changes the next write guard.
+      const reread = await call('read', { file_path: 'a.txt' })
+      expect(reread.isError).toBe(true)
+      expect(reread.error).toMatchObject({ info: { code: 'FS_NOT_FOUND' } })
+
+      // Absence never authorizes edit: there is no content/version to edit.
+      const retriedEdit = await call('edit', { file_path: 'a.txt', old_string: 'original', new_string: 'x' })
+      expect(retriedEdit.isError).toBe(true)
+      expect(retriedEdit.error).toMatchObject({ info: { code: 'FS_NOT_FOUND' } })
+
+      // The retried write uses createIfAbsent; the provider remains responsible
+      // for rejecting a concurrent creator at publication time.
+      const recovered = await call('write', { file_path: 'a.txt', content: 'fresh' })
+      expect(recovered.isError).toBe(false)
+      expect(await readFile(join(dir, 'a.txt'), 'utf8')).toBe('fresh')
+    })
+  })
+
   describe('stat budget', () => {
     it('read stats once; write and edit never stat in the tool (the gate stats zero too)', async () => {
       await writeFile(join(dir, 'a.txt'), 'hello world')
@@ -214,6 +287,20 @@ describe('default deployment (with dsh-fs-policy)', () => {
       statSpy.mockClear()
       const written = await call('write', { file_path: 'a.txt', content: 'fresh' })
       expect(written.isError).toBe(false)
+      expect(statSpy).not.toHaveBeenCalled()
+      statSpy.mockRestore()
+    })
+
+    it('a missing read still stats once and its recovery write stats zero times', async () => {
+      const statSpy = vi.spyOn(ctx.fs, 'stat')
+      const missing = await call('read', { file_path: 'missing.txt' })
+      expect(missing.isError).toBe(true)
+      expect(missing.error).toMatchObject({ info: { code: 'FS_NOT_FOUND' } })
+      expect(statSpy).toHaveBeenCalledTimes(1)
+
+      statSpy.mockClear()
+      const created = await call('write', { file_path: 'missing.txt', content: 'fresh' })
+      expect(created.isError).toBe(false)
       expect(statSpy).not.toHaveBeenCalled()
       statSpy.mockRestore()
     })
@@ -264,6 +351,9 @@ describe('bare provider (no dsh-fs-policy)', () => {
     const result = await call('edit', { file_path: 'missing.txt', old_string: 'a', new_string: 'b' })
     expect(result.isError).toBe(true)
     expect(result.error).toMatchObject({ info: { code: 'FS_STALE_VERSION' } })
+    // Even without policy, the stale text carries the re-read remedy.
+    expect(text(result)).toContain('file changed since it was read')
+    expect(text(result)).toContain('re-read the file, then retry')
   })
 
   it('edit still enforces literal-match codes (FS_EDIT_NOT_FOUND), unrelated to freshness', async () => {
@@ -402,7 +492,7 @@ describe('signal, concurrency, and the fs/observed contract', () => {
     expect((await callOwned('read', { file_path: 'a.txt' })).isError).toBe(false)
 
     // Reproduce an older concurrent read winning the observation race.
-    ctx.emit('fs/observed', target, firstInfo.version, { agent: { session } })
+    ctx.emit('fs/observed', target, { kind: 'present', version: firstInfo.version }, { agent: { session } })
 
     const edit = await callOwned('edit', {
       file_path: 'a.txt',

@@ -183,8 +183,8 @@ export function AppFrame({
       </div>
       <>
         {/* Both column occupants stay at fixed tree positions from first
-            paint — no loading gate (user ruling: the bare status line looked
-            worse than the shell's own pending rendering). The conversation
+            paint — no loading gate: a bare status line reads worse than
+            the shell's own pending rendering. The conversation
             is session-maybe; the strict details entry naturally renders
             empty while no session is current. */}
         <CenterColumn>{renderSlot('conversation', {})}</CenterColumn>

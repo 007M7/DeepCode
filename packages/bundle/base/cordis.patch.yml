@@ -34,6 +34,15 @@
     - id: session
       name: '@deepseek-ai/dsh-session'
 
+    - id: typert
+      name: '@deepseek-ai/dsh-typert-registry'
+
+    - id: typert-loader
+      name: '@deepseek-ai/dsh-typert-loader'
+
+    - id: typert-gateway
+      name: '@deepseek-ai/dsh-api-gateway'
+
     - id: session-title
       name: '@deepseek-ai/dsh-session-title'
       config:
@@ -56,6 +65,14 @@
     - id: agent
       name: '@deepseek-ai/dsh-agent'
 
+    # The transport-independent default for Agents created by front doors.
+    # Settings may supply a saved selection; consumers read it at creation time.
+    - id: agent-default-model
+      name: '@deepseek-ai/dsh-agent-default-model'
+      config:
+        provider: deepseek-official
+        model: deepseek-v4-flash
+
     - id: tasks
       name: '@deepseek-ai/dsh-tasks-local'
 
@@ -68,12 +85,10 @@
     - id: settings
       name: '@deepseek-ai/dsh-settings-local'
 
-    # Credential store: the live process environment over `$DSH_HOME/.env`
-    # (owner-only file, hot-reloaded). Adapters resolve their key references
-    # through it at each request, so no key is inlined in this file. The web
-    # Models page's key inputs write it through `credentials.set`; nothing hoists
-    # the document into the process environment, which would make every stored key
-    # read as an unrotatable ambient override.
+    # Credential sources: inherited environment over the managed
+    # `$DSH_HOME/.credentials.yaml`, with project and user `.env` fallbacks.
+    # Adapters resolve references per request; the Models page writes only the
+    # managed document, which is never materialized into the process environment.
     - id: credentials
       name: '@deepseek-ai/dsh-credentials-local'
 
@@ -211,11 +226,18 @@
     - id: skill-local
       name: '@deepseek-ai/dsh-skill-local'
 
+    - id: skill-badge
+      name: '@deepseek-ai/dsh-skill-badge'
+      disabled: true
+
     - id: tool-skill
       name: '@deepseek-ai/dsh-tool-skill'
 
     - id: commands
       name: '@deepseek-ai/dsh-commands'
+
+    - id: command-feedback
+      name: '@deepseek-ai/dsh-command-feedback'
 
     - id: goal
       name: '@deepseek-ai/dsh-goal'
@@ -370,7 +392,6 @@
       name: '@deepseek-ai/dsh-web-search-deepseek'
       config:
         apiKeyEnv: DEEPSEEK_API_KEY
-        baseURL: !!js process.env.DEEPSEEK_SEARCH_BASE_URL
 
     - id: tool-web
       name: '@deepseek-ai/dsh-tool-web'

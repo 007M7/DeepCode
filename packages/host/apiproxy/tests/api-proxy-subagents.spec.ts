@@ -19,6 +19,7 @@ function bench(options: {
   childStatus?: 'idle' | 'running'
   entries?: object[]
   followupError?: Error
+  interruptError?: Error
   listError?: Error
   /** Persistence forgets the child entirely (the vanished-mid-read race). */
   storedChild?: false
@@ -53,6 +54,12 @@ function bench(options: {
   ) => options.followupError === undefined
     ? Promise.resolve('message-1')
     : Promise.reject(options.followupError))
+  const interrupt = vi.fn((
+    _targetSessionId: SessionId,
+    _authority: { kind: 'user'; parentSessionId: SessionId },
+  ) => {
+    if (options.interruptError !== undefined) throw options.interruptError
+  })
   const childHeader = {
     version: 0, id: CHILD, createdAt: 1, cwd: '/proj', parentSession: options.historyParent ?? PARENT,
   } satisfies SessionHeader
@@ -72,7 +79,7 @@ function bench(options: {
   })
   const ctx = new Context()
   ctx.provide('agents', { get: getAgent })
-  ctx.provide('subagents', { listChildren, followup })
+  ctx.provide('subagents', { listChildren, followup, interrupt })
   ctx.provide('sessions', {
     get: (id: SessionId) => options.liveChild === true && id === CHILD
       ? { id: CHILD, header: childHeader, events: childEvents }
@@ -84,13 +91,13 @@ function bench(options: {
     locate: () => undefined,
   })
   // The gateway's own projection push feed subscribes at construction; the
-  // no-op disposer keeps that seam quiet while these tests pin history reads.
+  // no-op disposer keeps that feed quiet while these tests pin history reads.
   ctx.provide('sessionProjections', { snapshot, restore, onChanged: () => () => {} })
   ctx.provide('userInteraction', { registerProvider: () => () => {} })
   const api = createApiProxy(ctx, {
-    provider: 'p', model: 'm', cwd: '/tmp', workspaceRoot: '/tmp',
+    defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp', workspaceRoot: '/tmp',
   })
-  return { api, getAgent, listChildren, inspect, snapshot, restore, followup, parent }
+  return { api, getAgent, listChildren, inspect, snapshot, restore, followup, interrupt, parent }
 }
 
 describe('subagent gateway', () => {
@@ -307,6 +314,50 @@ describe('subagent gateway', () => {
     }), new AbortController().signal)).result).toMatchObject({
       ok: false,
       error: { code: 'internal', message: 'subagent prompt failed' },
+    })
+  })
+
+  it('interrupts through the core primitive alone while the parent Agent is offline', async () => {
+    const { api, interrupt, getAgent, listChildren, inspect } = bench({ parentLive: false })
+    const response = await api.subagents.interrupt(request({
+      parentSessionId: PARENT, childSessionId: CHILD, mode: 'continuable' as const,
+    }))
+    expect(response.rpcId).toBe('subagent-rpc')
+    expect(response.result).toEqual({ ok: true, value: { accepted: true } })
+    expect(interrupt).toHaveBeenCalledExactlyOnceWith(CHILD, { kind: 'user', parentSessionId: PARENT })
+    // No parent-registry, catalog, or history dependency: this is what keeps a
+    // live child interruptible after its parent Agent went offline.
+    expect(getAgent).not.toHaveBeenCalled()
+    expect(listChildren).not.toHaveBeenCalled()
+    expect(inspect).not.toHaveBeenCalled()
+  })
+
+  it('maps interrupt authorization rejection without touching other services', async () => {
+    const { api, listChildren } = bench({
+      interruptError: new SubagentError('secret lineage', 'UNAUTHORIZED'),
+    })
+    const response = await api.subagents.interrupt(request({
+      parentSessionId: PARENT, childSessionId: CHILD, mode: 'continuable' as const,
+    }))
+    expect(response.result).toEqual({
+      ok: false,
+      error: {
+        code: 'subagent-unauthorized',
+        message: 'subagent does not belong to this parent',
+        details: { childSessionId: CHILD },
+      },
+    })
+    expect(listChildren).not.toHaveBeenCalled()
+  })
+
+  it('hides unexpected interrupt failures behind the internal code', async () => {
+    const { api } = bench({ interruptError: new Error('secret activation state') })
+    const response = await api.subagents.interrupt(request({
+      parentSessionId: PARENT, childSessionId: CHILD, mode: 'continuable' as const,
+    }))
+    expect(response.result).toEqual({
+      ok: false,
+      error: { code: 'internal', message: 'subagent interrupt failed', details: {} },
     })
   })
 })

@@ -54,12 +54,12 @@ export const ev = {
   codeDispatchStart: (seq: number, parentCallId: string, n: number, name: string, args: unknown): SessionEvent =>
     at(seq, {
       type: 'tool/code-dispatch-start',
-      data: { parentCallId, subCallId: `${parentCallId}:code:${n}`, name, arguments: args },
+      data: { rootCallId: parentCallId, parentCallId, subCallId: `${parentCallId}:code:${n}`, name, arguments: args },
     }),
   codeDispatch: (seq: number, parentCallId: string, n: number, name: string, args: unknown, body: string, isError = false): SessionEvent =>
     at(seq, {
       type: 'tool/code-dispatch',
-      data: { parentCallId, subCallId: `${parentCallId}:code:${n}`, name, arguments: args, isError, content: text(body) },
+      data: { rootCallId: parentCallId, parentCallId, subCallId: `${parentCallId}:code:${n}`, name, arguments: args, isError, content: text(body) },
     }),
   stepEnd: (seq: number, turn: number, step = 0): SessionEvent =>
     at(seq, { type: 'step/end', data: { turn, step } }),
@@ -90,9 +90,22 @@ export const ev = {
     } }),
   commandRun: (seq: number, commandId: string, name: string, args = ''): SessionEvent =>
     at(seq, { type: 'command/run', data: { commandId, name, args, source: { kind: 'user' } } }),
-  commandDone: (seq: number, commandId: string, kind: 'success' | 'error' = 'success', text?: string): SessionEvent =>
-    at(seq, { type: 'command/done', data: { commandId, kind, ...text === undefined ? {} : { text } } }),
-  /** A compaction's log-only `compact/summary` provenance record. */
+  commandRunWithoutInput: (seq: number, commandId: string, name: string): SessionEvent =>
+    at(seq, { type: 'command/run', data: { commandId, name, source: { kind: 'user' } } }),
+  commandDone: (
+    seq: number,
+    commandId: string,
+    kind: 'success' | 'error' = 'success',
+    text?: string,
+    sourceEventSeq?: number,
+  ): SessionEvent =>
+    at(seq, { type: 'command/done', data: {
+      commandId,
+      kind,
+      ...text === undefined ? {} : { text },
+      ...sourceEventSeq === undefined ? {} : { sourceEventSeq },
+    } }),
+  /** A compaction's log-only `compact/summary` record. */
   compactSummary: (seq: number, summary: string, start: number, end: number): SessionEvent =>
     at(seq, { type: 'compact/summary', data: {
       summary: text(summary),
@@ -127,7 +140,7 @@ export function plainTurn(startSeq: number, turn: number, ask: string, answer: s
   ]
 }
 
-/** Wrap raw events as view-less history entries (the wire shape history now returns). */
+/** Wrap raw events as view-less history entries (the wire shape history returns). */
 export function entries(events: readonly SessionEvent[]): { event: SessionEvent }[] {
   return events.map(event => ({ event }))
 }

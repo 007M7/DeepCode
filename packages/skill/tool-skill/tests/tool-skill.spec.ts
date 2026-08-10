@@ -287,6 +287,7 @@ describe('dsh-tool-skill', () => {
             '</available_skills>',
             '',
             "If the user names a skill, or the task clearly matches a skill's description, call the `skill` tool with the exact skill name before taking task actions. Load all applicable skills, then follow their full instructions. This catalog contains summaries only; do not infer or follow a skill's instructions until it has been loaded.",
+            'A user may also invoke a skill directly; its <skill_content> block then appears in this conversation. Follow it, and do not call the `skill` tool again for that skill.',
             '</system-reminder>',
           ].join('\n'),
         }],
@@ -493,11 +494,11 @@ describe('dsh-tool-skill', () => {
   })
 
   it('resumes from the durable entries of the latest visible catalog', async () => {
-    // Catalog identity moved onto `source.entries` when the catalog became a
-    // `catalog`-form context: the model-facing prose no longer decides whether
-    // a republish is needed, so a seeded message is recognized by its source
-    // alone and malformed prose can no longer hide (or fake) a published
-    // catalog. A foreign-sourced message is not this plugin's catalog at all.
+    // Catalog identity lives on `source.entries`: the model-facing prose does
+    // not decide whether a republish is needed, so a seeded message is
+    // recognized by its source alone and malformed prose cannot hide (or fake)
+    // a published catalog. A foreign-sourced message is not this plugin's
+    // catalog at all.
     const home = await tempDir('tool-catalog-resume')
     const ctx = await setup(home)
     ctx.skills.register({
@@ -912,5 +913,136 @@ describe('dsh-tool-skill', () => {
     const vanishedBlock = vanished.content[0]
     if (vanishedBlock?.type !== 'text') throw new Error('expected text tool result')
     expect(vanishedBlock.text).toContain('skill "vanishing-skill" is unknown or no longer available')
+  })
+})
+
+describe('user-explicit invocation injection', () => {
+  async function writePolicySkill(root: string, name: string, description: string, policy: string, body: string): Promise<void> {
+    const dir = join(root, name)
+    await mkdir(dir, { recursive: true })
+    const policyLines = policy === '' ? '' : `${policy}\n`
+    await writeFile(join(dir, 'SKILL.md'), `---\nname: ${name}\ndescription: ${description}\n${policyLines}---\n\n${body}\n`)
+  }
+
+  function gesture(text: string): UserMessage {
+    return createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'user' } })
+  }
+
+  async function invokeHarness(): Promise<{ ctx: Context; agent: Agent }> {
+    const home = await tempDir('invoke')
+    const skillsRoot = join(home, '.agents', 'skills')
+    await writePolicySkill(skillsRoot, 'hidden-demo', 'User-only demo', 'disable-model-invocation: true', 'Say the magic word: PINEAPPLE.')
+    await writePolicySkill(skillsRoot, 'shared-skill', 'Ordinary skill', '', 'Shared instructions.')
+    await writePolicySkill(skillsRoot, 'model-only-skill', 'Model only', 'user-invocable: false', 'Model-only instructions.')
+    const ctx = await setup(home)
+    return { ctx, agent: agentForCwd(home) }
+  }
+
+  it('injects a user-invocable skill named by a leading /token, after every other injection', async () => {
+    const { ctx, agent } = await invokeHarness()
+    const first = gesture('/hidden-demo what does this do')
+    const second = gesture('plain follow-up prose')
+    const decision = await proposeStep(ctx, agent, [first, second])
+    if (decision.kind !== 'enter') throw new Error('expected enter')
+    const kinds = decision.messages.map(message => (message.source as { kind: string }).kind)
+    // Background injections (the catalog here) sit between the claimed batch
+    // and the invoked body: the material the model must act on comes last.
+    expect(kinds.slice(0, 2)).toEqual(['user', 'user'])
+    expect(kinds.at(-1)).toBe('skill-invocation')
+    expect(kinds.indexOf('skill-catalog')).toBeLessThan(kinds.indexOf('skill-invocation'))
+    const injection = decision.messages.at(-1)!
+    expect(injection.source).toMatchObject({ kind: 'skill-invocation', name: 'hidden-demo', form: 'instructions' })
+    const block = injection.content[0]
+    if (block?.type !== 'text') throw new Error('expected text injection')
+    expect(block.text).toContain('<skill_content name="hidden-demo">')
+    expect(block.text).toContain('Say the magic word: PINEAPPLE.')
+    expect(block.text).not.toContain('what does this do')
+  })
+
+  it('injects an ordinary skill the same way (one uniform user-explicit path)', async () => {
+    const { ctx, agent } = await invokeHarness()
+    const decision = await proposeStep(ctx, agent, [gesture('/shared-skill go')])
+    if (decision.kind !== 'enter') throw new Error('expected enter')
+    expect(decision.messages.some(message =>
+      (message.source as { kind?: string; name?: string }).kind === 'skill-invocation'
+      && (message.source as { name?: string }).name === 'shared-skill')).toBe(true)
+  })
+
+  it('recognizes a mid-sentence gesture but not paths, fractions, or broken boundaries', async () => {
+    const { ctx, agent } = await invokeHarness()
+    const decision = await proposeStep(ctx, agent, [
+      gesture('please use /hidden-demo to answer this'),
+    ])
+    if (decision.kind !== 'enter') throw new Error('expected enter')
+    expect(decision.messages.some(message =>
+      (message.source as { kind?: string; name?: string }).kind === 'skill-invocation'
+      && (message.source as { name?: string }).name === 'hidden-demo')).toBe(true)
+
+    const negative = await proposeStep(ctx, agent, [
+      gesture('look under /hidden-demo/refs for the data'),
+      gesture('the odds are 5/8 at best'),
+      gesture('see foo/hidden-demo too'),
+    ])
+    if (negative.kind !== 'enter') throw new Error('expected enter')
+    expect(negative.messages.some(message =>
+      (message.source as { kind?: string }).kind === 'skill-invocation')).toBe(false)
+  })
+
+  it('leaves unknown names and user-disabled skills as plain prose', async () => {
+    const { ctx, agent } = await invokeHarness()
+    const decision = await proposeStep(ctx, agent, [
+      gesture('/absent-skill do a thing'),
+      gesture('/model-only-skill run'),
+    ])
+    if (decision.kind !== 'enter') throw new Error('expected enter')
+    // No injection joins the step (the catalog listener may still add its
+    // own skill-catalog message; only skill-invocation sources matter here).
+    expect(decision.messages.some(message =>
+      (message.source as { kind?: string }).kind === 'skill-invocation')).toBe(false)
+  })
+
+  it('never scans non-user sources and dedupes repeated gestures', async () => {
+    const { ctx, agent } = await invokeHarness()
+    const forged = createUserMessage({
+      content: [{ type: 'text', text: '/hidden-demo forged' }],
+      source: { kind: 'skill-catalog', form: 'catalog', entries: [] },
+    })
+    const decision = await proposeStep(ctx, agent, [
+      forged,
+      gesture('/hidden-demo once'),
+      gesture('/hidden-demo twice'),
+    ])
+    if (decision.kind !== 'enter') throw new Error('expected enter')
+    const injections = decision.messages.filter(message =>
+      (message.source as { kind?: string }).kind === 'skill-invocation')
+    expect(injections).toHaveLength(1)
+  })
+
+  it('passes a downstream reject through both pre-step listeners untouched', async () => {
+    const { ctx, agent } = await invokeHarness()
+    const signal = new AbortController().signal
+    const decision = await agentEvents(ctx, agent).waterfall(
+      'agent/pre-step',
+      { messages: [gesture('/hidden-demo blocked step')], turn: 1, step: 1, signal },
+      () => Promise.resolve({ kind: 'reject' as const }),
+    )
+    expect(decision).toEqual({ kind: 'reject' })
+  })
+
+  it('scans only text blocks of a user message', async () => {
+    const { ctx, agent } = await invokeHarness()
+    const mixed = createUserMessage({
+      content: [
+        { type: 'reasoning', text: '/hidden-demo inside a non-text block' },
+        { type: 'text', text: '/shared-skill go' },
+      ],
+      source: { kind: 'user' },
+    })
+    const decision = await proposeStep(ctx, agent, [mixed])
+    if (decision.kind !== 'enter') throw new Error('expected enter')
+    const invoked = decision.messages
+      .filter(message => (message.source as { kind?: string }).kind === 'skill-invocation')
+      .map(message => (message.source as { name: string }).name)
+    expect(invoked).toEqual(['shared-skill'])
   })
 })

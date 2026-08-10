@@ -4,7 +4,7 @@
  * and pane this agent process runs in, plus the window's pane-tree layout.
  *
  * The plugin pulls state once per turn, for the first request (`step === 1`), by
- * running one `tmux display-message` through the `ctx.bash` executor seam. It
+ * running one `tmux display-message` through the `ctx.bash` executor service. It
  * confirms this process genuinely runs inside the pane `$TMUX_PANE` names by
  * matching the pane's `#{pane_tty}` against this process's controlling terminal,
  * so a terminal that merely inherited `$TMUX`/`$TMUX_PANE` from a tmux ancestor
@@ -98,7 +98,7 @@ const FIELD_SEP = '\\t'
  * `run()` only promises to resolve for nonzero exits, timeouts, and aborts, so
  * both are contained and reported as a warning.
  *
- * @param bash - the executor seam used to run the read-only tmux/ps commands.
+ * @param bash - The executor service used to run the read-only tmux/ps commands.
  * @param logger - receives a warning when the executor rejects the query.
  * @param processId - this agent process's pid, whose controlling tty must match the pane.
  * @param signal - abort signal forwarded to the executor.

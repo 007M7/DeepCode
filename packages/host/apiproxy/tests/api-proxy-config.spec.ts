@@ -22,9 +22,10 @@ import type { CredentialInfo, CredentialRef, ResolvedCredential } from '@deepsee
 import type { HostFrame } from '../src/api/index.ts'
 import type { RpcRequest, RpcResponse } from '../src/api/rpc.ts'
 import { RpcId } from '../src/api/rpc.ts'
+import { AGENT_DEFAULT_MODEL_SETTINGS_NAMESPACE } from '@deepseek-ai/dsh-agent-default-model'
 import { createApiProxy } from '../src/api-proxy.ts'
 
-const DEFAULTS = { provider: 'p', model: 'm', cwd: '/tmp', workspaceRoot: '/tmp' }
+const DEFAULTS = { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp', workspaceRoot: '/tmp' }
 
 let nextRpc = 1
 function request<P>(payload: P): RpcRequest<P> {
@@ -43,7 +44,7 @@ function expectErr<T>(response: RpcResponse<T>): { code: string; message: string
   return response.result.error
 }
 
-/** In-memory settings provider: the seam base class owns all tested behavior. */
+/** In-memory settings provider: the Service Definition base class owns all tested behavior. */
 class MemorySettings extends Settings {
   doc: Record<string, unknown>
 
@@ -366,9 +367,10 @@ describe('settings domain', () => {
 
   it('invalidates the model catalog when a provider namespace changes, and broadcasts a raw-only change', async () => {
     // Editing `models` changes no route, so llm/adapters-updated never fires
-    // and an open model picker kept serving the old catalog. And storing an
-    // override equal to the resolved value emits nothing on settings/updated,
-    // so another tab never learned the field became overridden.
+    // and an open model picker would keep serving the stale catalog. Storing
+    // an override equal to the resolved value emits nothing on
+    // settings/updated, so another tab would never learn the field became
+    // overridden.
     const ctx = await harness()
     ctx.settings.register(NS, AdapterConfig, { base: { baseURL: 'https://base' } })
     const api = createApiProxy(ctx, DEFAULTS)
@@ -396,6 +398,25 @@ describe('settings domain', () => {
       await permission.update({ defaultPreset: 'workspace-write' })
     })
     expect(frames).toEqual([{ type: 'host/settings-changed', ns: 'permission' }])
+  })
+
+  it('invalidates the model catalog when the Agent default selection changes', async () => {
+    const ctx = await harness()
+    const defaultModel = ctx.settings.register(AGENT_DEFAULT_MODEL_SETTINGS_NAMESPACE, z.object({
+      provider: z.string().required(),
+      model: z.string().required(),
+    }), { base: { provider: 'deepseek-official', model: 'deepseek-v4-flash' } })
+    const api = createApiProxy(ctx, DEFAULTS)
+    // The shared section names the selection every blank session resolves to,
+    // so an externally edited default — another tab, a
+    // hand-edited settings.yaml — has to reach an open selector as well.
+    const frames = await collectHost(api, ['host/settings-changed', 'host/models-changed'], 2, async () => {
+      await defaultModel.replace({ provider: 'deepseek-official', model: 'deepseek-reasoner' })
+    })
+    expect(frames).toEqual([
+      { type: 'host/settings-changed', ns: 'agent-default-model' },
+      { type: 'host/models-changed' },
+    ])
   })
 
   it('maps a stale expectedRevision to settings-conflict carrying both revisions', async () => {

@@ -9,7 +9,7 @@ import { ModelsSection } from '../src/client/ModelsSection.tsx'
 import type { ModelsSectionInjected } from '../src/client/ModelsSection.tsx'
 import { CustomProviderCard } from '../src/client/CustomProviderCard.tsx'
 import { formatCapacity, parseCapacity } from '../src/client/DeepSeekModelsEditor.tsx'
-import { ModelsSettingsStore, protocolChoices } from '../src/client/store.ts'
+import { ModelsSettingsStore, deriveKeyRef, protocolChoices } from '../src/client/store.ts'
 import { en } from '../src/client/locales.ts'
 
 afterEach(cleanup)
@@ -66,6 +66,8 @@ function scriptedFace(options: {
   providers?: Record<string, unknown>
   /** User layer, when it differs from the effective section. */
   userProviders?: Record<string, unknown>
+  /** Routes the adapter reports as hand-declared; the rest come back as shipped. */
+  declaredRoutes?: readonly string[]
   discover?: ReturnType<typeof vi.fn>
   mutate?: ReturnType<typeof vi.fn>
   set?: ReturnType<typeof vi.fn>
@@ -86,6 +88,7 @@ function scriptedFace(options: {
           settingsNs: 'llm-pi-ai',
           settingsPath: ['providers', provider],
           active: true,
+          declared: options.declaredRoutes?.includes(provider) ?? false,
         })),
       }))),
       models: vi.fn(() => Promise.resolve(ok({ groups: [], failures: [] }))),
@@ -599,9 +602,59 @@ describe('endpoint interrogation', () => {
   })
 })
 
+describe('provider rows', () => {
+  it('tags the routes the adapter declared, and only those', async () => {
+    await mountSection({
+      providers: {
+        openai: { apiKeyEnv: 'OPENAI_API_KEY' },
+        'acme-gateway': { apiKeyEnv: 'ACME_GATEWAY_API_KEY', baseURL: 'https://acme.test/v1' },
+      },
+      declaredRoutes: ['acme-gateway'],
+    })
+
+    const rowOf = (provider: string): HTMLElement => {
+      const row = screen.getByText(provider).closest('li')
+      if (row === null) throw new Error(`no row for ${provider}`)
+      return row
+    }
+    expect(rowOf('acme-gateway').textContent).toContain(en.customTag)
+    // `openai` carries a stored profile too — the tag follows the adapter's
+    // catalog, not the presence of settings, so it stays off here.
+    expect(rowOf('openai').textContent).not.toContain(en.customTag)
+  })
+
+  it('shows no tag when the adapter draws no catalog distinction', async () => {
+    const scripted = scriptedFace({ providers: { openai: { apiKeyEnv: 'OPENAI_API_KEY' } } })
+    scripted.face.llm.providers = vi.fn(() => Promise.resolve(ok({
+      providers: [{
+        provider: 'openai',
+        displayName: 'openai',
+        settingsNs: 'llm-pi-ai',
+        settingsPath: ['providers', 'openai'],
+        active: true,
+      }],
+    }))) as never
+    const controller = new ModelsSettingsStore(scripted.face as unknown as WireFace)
+    await controller.load()
+    render(<ModelsSection
+      controller={controller}
+      useSnapshot={bindSnapshotSelector(controller.store)}
+      api={scripted.face as never}
+      t={t}
+    />)
+
+    // Absent is "unknown", never "shipped": an adapter that answers nothing
+    // must not have its routes labelled either way.
+    expect(screen.queryByText(en.customTag)).toBeNull()
+  })
+})
+
 describe('hand-declared providers', () => {
-  function mountCard(overrides: Partial<Parameters<typeof CustomProviderCard>[0]> = {}) {
-    const scripted = scriptedFace()
+  function mountCard(
+    overrides: Partial<Parameters<typeof CustomProviderCard>[0]> = {},
+    wire: Parameters<typeof scriptedFace>[0] = {},
+  ) {
+    const scripted = scriptedFace(wire)
     const onClose = vi.fn()
     render(
       <CustomProviderCard
@@ -650,6 +703,140 @@ describe('hand-declared providers', () => {
       expectedRevision: 7,
     })
     expect(set).toHaveBeenCalledWith({ ref: 'ACME_GATEWAY_API_KEY', value: 'gw-key' })
+  })
+
+  it('scopes each card to fields a provider can actually own', async () => {
+    // Reasoning effort is a per-MODEL capability and the
+    // models under one provider disagree about it, so a provider-scoped
+    // control could only be set to a value some of them reject — which would
+    // take the whole provider out of the picker. The composer's model picker
+    // owns the choice, and a switch there records provider+model+effort together.
+    const fields = () => [...document.querySelectorAll('input,select')]
+      .map(el => el.getAttribute('aria-label')).filter(Boolean)
+
+    mountCard()
+    fireEvent.change(screen.getByLabelText(en.customRoute), { target: { value: 'acme' } })
+    expect(fields()).toEqual([en.customRoute, en.customDisplayName, en.baseUrl, en.customApi, en.keyInput])
+    cleanup()
+
+    await mountSection({ providers: { openai: { apiKeyEnv: 'OPENAI_API_KEY' } } })
+    openEditor('openai')
+    fireEvent.click(screen.getByText(en.customized))
+    expect(fields()).toEqual([en.keyInput, en.baseUrl])
+  })
+
+  it('retries only the key after the profile landed, and reports the provider on cancel', async () => {
+    const set = vi.fn()
+      .mockResolvedValueOnce(fail('credential store is read-only', 'credential-rejected'))
+      .mockResolvedValueOnce(ok({}))
+    const { mutate, onClose } = mountCard({}, { set })
+
+    fireEvent.change(screen.getByLabelText(en.customRoute), { target: { value: 'acme' } })
+    fireEvent.change(screen.getByLabelText(en.baseUrl), { target: { value: 'https://acme.test/v1' } })
+    fireEvent.change(screen.getByLabelText(en.keyInput), { target: { value: '  gw-key  ' } })
+    fireEvent.click(screen.getByRole('button', { name: en.addModel }))
+    fireEvent.change(screen.getByLabelText(`${en.modelId} 1`), { target: { value: 'm' } })
+    fireEvent.click(screen.getByText(en.create))
+
+    // The profile landed; only the key failed. The card says so and stays open.
+    await waitFor(() => { expect(screen.getByText('credential store is read-only')).toBeTruthy() })
+    expect(onClose).not.toHaveBeenCalled()
+    expect(mutate).toHaveBeenCalledTimes(1)
+    // The key is stored trimmed, matching the editor.
+    expect(set).toHaveBeenNthCalledWith(1, { ref: 'ACME_API_KEY', value: 'gw-key' })
+
+    // The provider exists now, so the fields describing it are settled and
+    // only the key can still be corrected.
+    expect(screen.getByLabelText<HTMLInputElement>(en.customRoute).disabled).toBe(true)
+    expect(screen.getByLabelText<HTMLInputElement>(en.baseUrl).disabled).toBe(true)
+    expect(screen.getByLabelText<HTMLInputElement>(en.keyInput).disabled).toBe(false)
+
+    fireEvent.change(screen.getByLabelText(en.keyInput), { target: { value: 'gw-key-2' } })
+    fireEvent.click(screen.getByText(en.create))
+    await waitFor(() => { expect(onClose).toHaveBeenCalledWith(true) })
+    // Re-running the profile write would carry the revision this card's own
+    // first write superseded, so the Host would answer settings-conflict and
+    // the key could never be stored from here at all.
+    expect(mutate).toHaveBeenCalledTimes(1)
+    expect(set).toHaveBeenNthCalledWith(2, { ref: 'ACME_API_KEY', value: 'gw-key-2' })
+  })
+
+  it('reports the created provider when cancelled after its profile landed', async () => {
+    const set = vi.fn().mockResolvedValue(fail('nope', 'credential-rejected'))
+    const { onClose } = mountCard({}, { set })
+
+    fireEvent.change(screen.getByLabelText(en.customRoute), { target: { value: 'acme' } })
+    fireEvent.change(screen.getByLabelText(en.baseUrl), { target: { value: 'https://acme.test/v1' } })
+    fireEvent.change(screen.getByLabelText(en.keyInput), { target: { value: 'gw-key' } })
+    fireEvent.click(screen.getByRole('button', { name: en.addModel }))
+    fireEvent.change(screen.getByLabelText(`${en.modelId} 1`), { target: { value: 'm' } })
+    fireEvent.click(screen.getByText(en.create))
+    await waitFor(() => { expect(screen.getByText('nope')).toBeTruthy() })
+
+    // Walking away leaves a real provider behind; reporting no change would
+    // leave the page without the row it now has.
+    fireEvent.click(screen.getByText(en.cancel))
+    expect(onClose).toHaveBeenCalledWith(true)
+  })
+
+  it('never contradicts a filled-in field with the next gate\u2019s copy', () => {
+    mountCard()
+    const routeField = screen.getByLabelText(en.customRoute)
+    fireEvent.change(routeField, { target: { value: '2' } })
+    fireEvent.change(screen.getByLabelText(en.baseUrl), { target: { value: 'https://acme.test/v1' } })
+    fireEvent.click(screen.getByRole('button', { name: en.addModel }))
+    fireEvent.change(screen.getByLabelText(`${en.modelId} 1`), { target: { value: 'm' } })
+
+    // The route field explains itself right under the input; the shared line
+    // must stay silent rather than falling through to "no models yet" while
+    // the list above plainly has one.
+    expect(screen.getByText(en.customRouteInvalid)).toBeTruthy()
+    expect(screen.queryByText(en.customNeedsModels)).toBeNull()
+
+    // Fixing the route hands the line back to the gate that is actually unmet.
+    fireEvent.change(routeField, { target: { value: 'acme' } })
+    expect(screen.queryByText(en.customNeedsModels)).toBeNull()
+    expect(buttonNamed(en.create).disabled).toBe(false)
+  })
+
+  it('refuses a route id whose derived credential reference would be illegal', () => {
+    mountCard()
+    const routeField = screen.getByLabelText(en.customRoute)
+    fireEvent.change(routeField, { target: { value: 'https://acme.test/v1' } })
+
+    // Without this check a digit-leading id passes the card and fails at the
+    // credential seam with a raw regular expression: the
+    // reference derives as `123_API_KEY`, and a credential reference is a
+    // POSIX shell identifier, which cannot start with a digit.
+    fireEvent.change(routeField, { target: { value: '123' } })
+    expect(screen.getByText(en.customRouteInvalid)).toBeTruthy()
+    expect(buttonNamed(en.create).disabled).toBe(true)
+
+    fireEvent.change(routeField, { target: { value: 'a1' } })
+    expect(screen.queryByText(en.customRouteInvalid)).toBeNull()
+  })
+
+  it('styles a rejected route id as a fault and its guidance as a hint', () => {
+    mountCard()
+    const routeField = screen.getByLabelText(en.customRoute)
+    // Same split the key field makes: what the user got wrong reads as a
+    // fault, what they have yet to do reads as guidance.
+    expect(screen.getByText(en.customRouteHint).className).toMatch(/advancedHint/)
+
+    fireEvent.change(routeField, { target: { value: '2' } })
+    expect(screen.getByText(en.customRouteInvalid).className).toMatch(/error/)
+
+    fireEvent.change(routeField, { target: { value: 'openai' } })
+    expect(screen.getByText(en.customRouteTaken).className).toMatch(/error/)
+  })
+
+  it('derives a reference the credential seam accepts for every id it admits', () => {
+    // The two rules have to stay in step; this is the relation, checked
+    // directly rather than through the DOM.
+    const CREDENTIAL_REF = /^[A-Za-z_][A-Za-z0-9_]*$/
+    for (const id of ['a', 'ds', 'a1', 'acme-gateway', 'x-1-y', 'zz9']) {
+      expect(CREDENTIAL_REF.test(deriveKeyRef(id))).toBe(true)
+    }
   })
 
   it('names the blocked gate under the form, and nothing once it is satisfied', () => {
@@ -815,8 +1002,10 @@ describe('hand-declared providers', () => {
 
     await waitFor(() => { expect(onClose).toHaveBeenCalledWith(true) })
     // No display name configured means none stored; the route id is the name.
+    // No key typed means no reference either, matching the editor: the route
+    // keeps its provider-native auth path instead of resolving a reference
+    // nothing ever sets. The with-key case is covered above.
     expect(firstMutate(mutate).ops[0]?.value).toEqual({
-      apiKeyEnv: 'ACME_API_KEY',
       api: 'anthropic-messages',
       baseURL: 'https://acme.test/v1',
       models: [{ id: 'm' }],
@@ -861,6 +1050,170 @@ describe('hand-declared providers', () => {
     fireEvent.click(screen.getByText(en.cancel))
     await waitFor(() => { expect(screen.queryByText(en.customTitle)).toBeNull() })
     expect(screen.getByRole('button', { name: en.customAdd })).toBeTruthy()
+  })
+
+  it('refuses an unusable key on the field and blocks creation', () => {
+    const { mutate, set } = mountCard()
+
+    fireEvent.change(screen.getByLabelText(en.customRoute), { target: { value: 'acme-gateway' } })
+    fireEvent.change(screen.getByLabelText(en.baseUrl), { target: { value: 'https://gateway.acme.example/v1' } })
+    fireEvent.click(screen.getByRole('button', { name: en.addModel }))
+    fireEvent.change(screen.getByLabelText(`${en.modelId} 1`), { target: { value: 'acme-large' } })
+    fireEvent.change(screen.getByLabelText(en.keyInput), { target: { value: 'sk-\u{1F600}' } })
+
+    // A hand-declared route reaches the same judgement as an edited one, so a
+    // key that no header can carry never becomes a profile plus a bad secret.
+    expect(screen.getByText(en.keyIllegalCharacters)).toBeTruthy()
+    expect(buttonNamed(en.create).disabled).toBe(true)
+    expect(mutate).not.toHaveBeenCalled()
+    expect(set).not.toHaveBeenCalled()
+  })
+
+  it('stays silent about the other gates when only the key is refused', () => {
+    mountCard()
+
+    fireEvent.change(screen.getByLabelText(en.customRoute), { target: { value: 'acme-gateway' } })
+    fireEvent.change(screen.getByLabelText(en.baseUrl), { target: { value: 'https://gateway.acme.example/v1' } })
+    fireEvent.click(screen.getByRole('button', { name: en.addModel }))
+    fireEvent.change(screen.getByLabelText(`${en.modelId} 1`), { target: { value: 'acme-large' } })
+    fireEvent.change(screen.getByLabelText(en.keyInput), { target: { value: 'sk-\u{1F600}' } })
+
+    // Route, endpoint, and models are all satisfied, so answering with the
+    // next unmet gate would print a second, false fault beside the real one.
+    expect(screen.getByText(en.keyIllegalCharacters)).toBeTruthy()
+    expect(screen.queryByText(en.customNeedsModels)).toBeNull()
+    expect(screen.queryByText(en.customNeedsBaseUrl)).toBeNull()
+  })
+
+  it('tells a whitespace-only key what a blank field means on a create card', () => {
+    const { mutate } = mountCard()
+
+    fireEvent.change(screen.getByLabelText(en.customRoute), { target: { value: 'acme-gateway' } })
+    fireEvent.change(screen.getByLabelText(en.baseUrl), { target: { value: 'https://gateway.acme.example/v1' } })
+    fireEvent.click(screen.getByRole('button', { name: en.addModel }))
+    fireEvent.change(screen.getByLabelText(`${en.modelId} 1`), { target: { value: 'acme-large' } })
+    fireEvent.change(screen.getByLabelText(en.keyInput), { target: { value: '   ' } })
+
+    // There is no stored key to keep here, so the blank case says the thing
+    // that is true of a route being declared: it may authenticate elsewhere.
+    expect(screen.getByText(en.keyBlankNew)).toBeTruthy()
+    expect(screen.queryByText(en.keyBlank)).toBeNull()
+    expect(buttonNamed(en.fetchModels).title).toBe(en.keyBlankNew)
+    expect(buttonNamed(en.create).disabled).toBe(true)
+    expect(mutate).not.toHaveBeenCalled()
+  })
+
+  it('creates without a key when the route authenticates some other way', async () => {
+    const { set, onClose } = mountCard()
+
+    fireEvent.change(screen.getByLabelText(en.customRoute), { target: { value: 'ambient-gateway' } })
+    fireEvent.change(screen.getByLabelText(en.baseUrl), { target: { value: 'https://gateway.acme.example/v1' } })
+    fireEvent.click(screen.getByRole('button', { name: en.addModel }))
+    fireEvent.change(screen.getByLabelText(`${en.modelId} 1`), { target: { value: 'acme-large' } })
+    fireEvent.click(screen.getByText(en.create))
+
+    await waitFor(() => { expect(onClose).toHaveBeenCalledWith(true) })
+    expect(set).not.toHaveBeenCalled()
+  })
+})
+
+describe('API key field', () => {
+  it('submits with a blank key field without writing a credential', async () => {
+    const { mutate, set } = await mountSection()
+    openEditor('openai')
+
+    // The field opens empty even for a provider whose key is stored, where it
+    // means "keep that one" — so editing anything else must not require it.
+    fireEvent.change(screen.getByLabelText(en.baseUrl), { target: { value: 'https://moved.example/v1' } })
+    expect(buttonNamed(en.apply).disabled).toBe(false)
+    fireEvent.click(screen.getByText(en.apply))
+
+    await waitFor(() => { expect(mutate).toHaveBeenCalled() })
+    expect(set).not.toHaveBeenCalled()
+  })
+
+  it('clears a whitespace-only base URL instead of writing the spaces', async () => {
+    const { mutate } = await mountSection()
+    openEditor('openai')
+
+    // The field renders this as empty, so the draft must agree: storing the
+    // spaces would hand both adapters a non-empty string they accept as a URL.
+    fireEvent.change(screen.getByLabelText(en.baseUrl), { target: { value: '   ' } })
+    fireEvent.click(screen.getByText(en.apply))
+
+    await waitFor(() => { expect(mutate).toHaveBeenCalled() })
+    const ops = firstMutate(mutate).ops
+    expect(ops.some(op => op.op === 'set' && op.path.includes('baseURL'))).toBe(false)
+    expect(ops.some(op => op.op === 'unset' && op.path.includes('baseURL'))).toBe(true)
+  })
+
+  it('blocks submit and names the field when the key holds only whitespace', async () => {
+    const { mutate, set } = await mountSection()
+    openEditor('openai')
+
+    fireEvent.change(screen.getByLabelText(en.keyInput), { target: { value: '   ' } })
+
+    expect(screen.getByText(en.keyBlank)).toBeTruthy()
+    expect(buttonNamed(en.apply).disabled).toBe(true)
+    expect(mutate).not.toHaveBeenCalled()
+    expect(set).not.toHaveBeenCalled()
+  })
+
+  it('blocks submit when the key contains characters no header can carry', async () => {
+    const { set } = await mountSection()
+    openEditor('openai')
+
+    fireEvent.change(screen.getByLabelText(en.keyInput), { target: { value: 'sk-\u{1F600}' } })
+
+    expect(screen.getByText(en.keyIllegalCharacters)).toBeTruthy()
+    expect(buttonNamed(en.apply).disabled).toBe(true)
+    expect(set).not.toHaveBeenCalled()
+  })
+
+  it('blocks submit when a whole NAME=value line was pasted', async () => {
+    await mountSection()
+    openEditor('openai')
+
+    fireEvent.change(screen.getByLabelText(en.keyInput), { target: { value: 'OPENAI_API_KEY=sk-abc' } })
+
+    expect(screen.getByText(en.keyIllegalCharacters)).toBeTruthy()
+    expect(buttonNamed(en.apply).disabled).toBe(true)
+  })
+
+  it('trims a padded key before storing it', async () => {
+    const { set } = await mountSection()
+    openEditor('openai')
+
+    fireEvent.change(screen.getByLabelText(en.keyInput), { target: { value: '  sk-abc  ' } })
+    expect(buttonNamed(en.apply).disabled).toBe(false)
+    fireEvent.click(screen.getByText(en.apply))
+
+    await waitFor(() => { expect(set).toHaveBeenCalled() })
+    expect((set.mock.calls[0]?.[0] as { value: string }).value).toBe('sk-abc')
+  })
+
+  it('blocks the interrogation too, rather than spending a round trip on a refused key', async () => {
+    const { discover } = await mountSection()
+    openEditor('openai')
+
+    fireEvent.change(screen.getByLabelText(en.keyInput), { target: { value: 'sk-\u{1F600}' } })
+
+    // The host would refuse this before building the header anyway; asking is
+    // a round trip to be told what the field already says.
+    expect(buttonNamed(en.fetchModels).disabled).toBe(true)
+    expect(buttonNamed(en.fetchModels).title).toBe(en.keyIllegalCharacters)
+    expect(discover).not.toHaveBeenCalled()
+  })
+
+  it('carries the trimmed key into an interrogation, not the padded draft', async () => {
+    const { discover } = await mountSection()
+    openEditor('openai')
+
+    fireEvent.change(screen.getByLabelText(en.keyInput), { target: { value: '  sk-abc  ' } })
+    fireEvent.click(screen.getByRole('button', { name: en.fetchModels }))
+
+    await waitFor(() => { expect(discover).toHaveBeenCalled() })
+    expect(firstProbe(discover)).toMatchObject({ apiKey: 'sk-abc' })
   })
 
   it('reloads the section after creating a hand-declared provider', async () => {

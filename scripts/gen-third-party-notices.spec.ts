@@ -70,7 +70,7 @@ describe('tierExternalDeps', () => {
   it('keeps a package runtime when any shipping area declares it, and excludes workspace links', () => {
     const { manifests, names } = workspace({
       'package.json': { devDependencies: { shared: '^1' } },
-      'packages/ui/tui/package.json': { name: '@deepseek-ai/dsh-tui', dependencies: { shared: '^1', '@deepseek-ai/dsh-cli': 'workspace:^' } },
+      'packages/interaction/tui/package.json': { name: '@deepseek-ai/dsh-tui', dependencies: { shared: '^1', '@deepseek-ai/dsh-cli': 'workspace:^' } },
       'apps/cli/package.json': { name: '@deepseek-ai/dsh-cli' },
     })
 
@@ -329,13 +329,13 @@ describe('official Claude distribution authorization', () => {
 
 describe('manifestPatterns', () => {
   it('derives globs from the declared members, so a new member area is read', () => {
-    expect(manifestPatterns(['packages/*/*', 'tools/*'], ['packages/*'])).toEqual([
+    expect(manifestPatterns(['packages/*/*', 'tools/*', 'native/landlock-run', 'native/landlock-run/packages/*'])).toEqual([
       'package.json',
       'packages/*/*/package.json',
       'tools/*/package.json',
-      'examples/*/package.json',
       'native/landlock-run/package.json',
       'native/landlock-run/packages/*/package.json',
+      'examples/*/package.json',
     ])
   })
 })

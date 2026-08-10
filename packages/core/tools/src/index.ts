@@ -39,7 +39,7 @@ import { renderToolsSdkPy } from './py-types.ts'
  * the flavor table is checked against too, so any of the three left out is a
  * typecheck failure. What no check reaches is the prose that names the values
  * instead of deriving them: the seam's `dsh-code-runtime` README pair, its
- * `CodeRuntime.language` JSDoc, and `docs/core-data-structures/code-runtime.md`
+ * `CodeRuntime.language` JSDoc, and `docs/subsystems/code-runtime.md`
  * with its zh pair, plus this package's own README pair and the
  * {@link Config.mode} JSDoc.
  */
@@ -85,6 +85,7 @@ export {
 } from './json-schema.ts'
 
 export type { JsonValue } from '@deepseek-ai/dsh-session'
+export type { CodeDispatchEventData, CodeDispatchStartEventData } from './types.ts'
 
 export { CodeRunFailedError, RUN_CODE_NAME } from './code-mode.ts'
 export { jsonSchemaToTs, renderToolsSdk } from './ts-types.ts'
@@ -148,7 +149,7 @@ declare module 'cordis' {
     'tools/execute'(this: Scoped<ToolRegistry>, exec: ToolDispatchExecution, next: () => Promise<ToolExecutionResult>): Promise<ToolExecutionResult>
     /**
      * Accept, replace, enrich, or block a normalized dispatch result. `next()`
-     * accepts it unchanged; thrown tools still reach this seam as errors. Async
+     * accepts it unchanged; thrown tools still reach this waterfall as errors. Async
      * listeners must observe `exec.signal`; after they settle, caller
      * cancellation replaces only a successful accepted outcome with the code
      * selected by whether the tool body was invoked.
@@ -297,6 +298,11 @@ export type ToolExecutionToken = symbol & { readonly [toolExecutionTokenBrand]: 
  */
 export interface ToolExecutionInput {
   readonly callId: CallId
+  /**
+   * Root model-requested call owning this execution tree. Callers omit it for
+   * a root execution; nested dispatchers propagate the enclosing value.
+   */
+  readonly rootCallId?: CallId
   readonly name: string
   /** Losslessly JSON-serializable parsed arguments (tools validate their own schema). */
   readonly arguments: unknown
@@ -352,6 +358,8 @@ export interface CodeDispatchLog {
  * observers run.
  */
 export interface ToolExecution extends ToolExecutionInput {
+  /** Root model-requested call, resolved for every root and nested execution. */
+  readonly rootCallId: CallId
   /** Registry-assigned identity shared with nested calls only as their opaque `parent` token. */
   readonly token: ToolExecutionToken
 }
@@ -418,7 +426,7 @@ export type ScheduledToolDispatch =
 /**
  * Symbol-keyed scheduler view that keeps pre/post policy ordered while
  * overlapping dispatch. Ordinary callers use {@link ToolRegistry.execute};
- * this is not a plugin seam.
+ * this is not a plugin extension point.
  * @internal
  */
 export interface ToolRegistryScheduler {
@@ -849,8 +857,8 @@ export class ToolRegistry extends Service {
    * bound to a request. Harmless while one published backend exists — both
    * reads return the same flavor — but a reload that swapped in a second
    * language between them would hand a program written against one SDK to the
-   * other. Binding it belongs to the PR that publishes that backend, which is
-   * also the first point it can be tested; recorded in the
+   * other. Binding it is deferred until a second backend ships (the first
+   * point it is testable); rationale in the
    * [language-dispatch note](../../../../.agents/notes/implemented/feature/2026-07-31-code-mode-language-dispatch.md).
    */
   private requireCodeRuntime(): CodeRuntime {
@@ -1069,7 +1077,7 @@ export class ToolRegistry extends Service {
    * shaping must never fail the dispatch or lose the settle event. Private:
    * the ONE consumer is the `run_code` bridge this registry constructs, which
    * receives it as a capability parameter (the `requireRuntime` idiom) — the
-   * waterfall, not this invoker, is the public extension seam.
+   * waterfall, not this invoker, is the public extension point.
    */
   private async shapeDispatchLog(dispatch: CodeDispatchLog): Promise<ContentBlock[]> {
     try {
@@ -1123,6 +1131,7 @@ export class ToolRegistry extends Service {
     const deferredContexts: UserMessage[] = []
     const token = createExecutionToken()
     const callId = exec.callId
+    const rootCallId = exec.rootCallId ?? callId
     const name = exec.name
     const agent = exec.agent
     const parent = exec.parent
@@ -1133,6 +1142,7 @@ export class ToolRegistry extends Service {
     const base = {
       token,
       callId,
+      rootCallId,
       name,
       signal,
       ...agent !== undefined ? { agent } : {},
