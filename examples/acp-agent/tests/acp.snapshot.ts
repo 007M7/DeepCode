@@ -124,6 +124,10 @@ const SCENARIOS: Scenario[] = [
   // text-turn is the default header pin and owns the prompt and tool-schema
   // sidecars reused by alternate classes with identical component sequences.
   { name: 'text-turn', hasModelTurn: true, recorded: true, pinsHeader: true },
+  // Product-subagent scenarios are authored schema-isolation fixtures: they
+  // reuse the stable text-turn transcript so only Loader-composed headers and
+  // tool sidecars vary. Model output and usage are not evidence here, so record
+  // mode must not replace them with live-API output.
   {
     name: 'product-subagent-codex',
     hasModelTurn: true,

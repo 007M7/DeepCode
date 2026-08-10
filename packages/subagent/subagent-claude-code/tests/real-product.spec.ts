@@ -196,7 +196,7 @@ function startRequest(
   })
 }
 
-describe('real Claude Agent SDK 0.3.220 and Claude Code 2.1.220', {
+describe('real Claude Agent SDK 0.3.220 and its distributed Claude Code 2.1.220 fixture', {
   timeout: 60_000,
 }, () => {
   it('inherits host settings and sends the exact task and fake key to local Messages', async () => {

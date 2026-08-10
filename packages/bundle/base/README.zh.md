@@ -19,4 +19,5 @@
 ## 已知限制与延期工作
 
 - **patch 会替换整行 `config`**：profile 覆盖必须重述该行需要保留的每个字段；不存在深度合并层。
+- **Claude SDK 的平台 CLI（命令行界面）仍在 Profile 安装闭包中**：base 组合包依赖 Claude 提供方，其生产路径解析宿主提供的 `claude`；移除 SDK 中未使用的可选载荷，推迟到产品安装闭包后续项处理。
 - **Windows 的临时目录授权是按会话的私有子目录**——`workspace-write` 把写入限制在工作区与会话自己的 temp 子目录（`<temp>\dsh-<hash>`，受限子进程的 TMP/TEMP 被改写）；`read-only` 不授予任何写入。见 `@deepseek-ai/dsh-sandbox-windows-acl`。

@@ -45,6 +45,8 @@ export function sdkEnvironmentOverlay(
  * @param graceMs - process-tree termination grace.
  * @param platform - host platform selecting the Windows batch-shim boundary.
  * @returns the fully explicit shared subprocess request.
+ * @remarks The batch-shim path quotes only the resolved executable. The pinned SDK
+ * supplies fixed flag arguments without cmd metacharacters; cmd reparses that tail.
  */
 export function claudeSpawnSpec(
   options: SpawnOptions,
