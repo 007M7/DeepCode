@@ -118,6 +118,22 @@ interface CreateSessionOptions {
 
 Replay/fork is therefore `ctx.sessions.create(id, { seed: seedEvents })`; resuming a *persisted* session into a live agent is `ctx.agents.resume({ resumeSessionId })`.
 
+## `SessionRawArtifact` — verbatim stored artifact text
+
+A backend's own artifact text for one session, byte-identical to what it durably wrote (decoded from its physical encoding). `readRaw` returns it without reconstructing from parsed events, so backend-specific serialization (chunk packing, key order, line breaks) survives; backends without a per-session artifact, such as SQLite, inherit the `undefined` default.
+
+```ts type-equiv
+/** A backend's own raw artifact text for one session, verbatim. */
+interface SessionRawArtifact {
+  /** The session header parsed from the artifact's own first line. */
+  readonly meta: SessionHeader
+  /** The artifact's base filename on disk, without any physical encoding suffix. */
+  readonly filename: string
+  /** The artifact's full text content, decoded from the backend's physical encoding. */
+  readonly content: string
+}
+```
+
 ## Preparation and restoration ownership
 
 `SessionStore.prepare()` accepts ordinary creation options or fresh persistence graphs transferred through `RestoredSessionOptions`. The restoration branch validates and freezes the transferred header and events in place, so callers must retain no mutable aliases. `SessionPreparation` then owns the exact unpublished Session until publication or rollback; disposal is synchronous and idempotent. Persistence inspection exposes only `SessionInspection`, an immutable logical view borrowed from the same prepared Session.
@@ -250,7 +266,7 @@ abstract locate(meta: SessionHeader): SessionLocation | undefined
  * @returns the raw artifact plus its parsed header, or `undefined` when the
  * session is absent or the backend owns no per-session artifact.
  */
-readRaw(_id: SessionId, signal?: AbortSignal): Promise<SessionRawArtifact | undefined>
+async readRaw(_id: SessionId, signal?: AbortSignal): Promise<SessionRawArtifact | undefined>
 
 /**
  * Register a new session's metadata. A backend MAY defer the physical write

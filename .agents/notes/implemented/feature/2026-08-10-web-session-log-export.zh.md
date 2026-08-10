@@ -1,4 +1,4 @@
-# Agent Note：Web 会话日志导出——session.log RPC + ZIP 下载
+# Agent Note：Web 会话日志导出——宿主流式 ZIP 下载
 
 状态：implemented
 
@@ -10,7 +10,7 @@ Trajectory 视图没有任何方式把调试工件交到人手里：原始会话
 
 ## 决策
 
-- **导出是宿主侧的下载面，不是 RPC**：`GET /api/session.export?sessionId=…&includeDescendants=true` 流式返回一个 ZIP 附件。每个文件都是会话**存储工件的逐字原文**：持久化服务新增的 `readRaw` 读取后端自己的持久化字节（jsonl 后端解码其物理 zstd 帧，或直接返回明文）——绝非从解析后事件重建，因此 chunk 打包、键序、换行全部逐字节保留——放在其原始基础文件名下（根为 `session.jsonl`，子代理为 `subagents/<id>/session.jsonl`）。压缩在宿主侧用 fflate 的流式 `Zip`/`ZipDeflate` API 完成，每个条目按有界分块边产出边压缩，响应随生成分块写出，宿主从不把整个归档放进内存（除预载的根外，最多同时持有一条后代的工件文本）。不写清单——每个文件都与持久化工件逐字节一致，并通过自身 header 行自描述。
+- **导出是宿主侧的下载面，不是 RPC**：`GET /api/session.export?sessionId=…&includeDescendants=true` 流式返回一个 ZIP 附件。每个文件都是会话**存储工件的逐字原文**：持久化服务新增的 `readRaw` 读取后端自己的持久化字节（jsonl 后端解码其物理 zstd 帧，或直接返回明文）——绝非从解析后事件重建，因此 chunk 打包、键序、换行全部逐字节保留——放在其原始基础文件名下（根为 `session.jsonl`，子代理为 `subagents/<id>/session.jsonl`）。压缩在宿主侧用 fflate 的流式 `Zip`/`ZipDeflate` API 完成，每个条目按有界分块边产出边压缩，响应随生成分块写出，宿主从不把整个归档放进单个缓冲区（除预载的根外，最多同时持有一条后代的工件文本），且每当响应队列填满时生产会让出，慢消费者因此只产生有界的积压（fflate 的回调是同步的——让出点是唯一的背压手段）。不写清单——每个文件都与持久化工件逐字节一致，并通过自身 header 行自描述。
 - **错误词汇是 HTTP 原生的**：服务缺失 → 500，根会话缺失 → 404（两者都在任何字节流出前判定），后代缺少存储工件 → 流失败（fail-loud，绝不静默少导出）。载体（`toFetchHandler`）已对 `/api` 应用信任围栏；GET 分支与既有 SSE GET 路由并列，由 `ApiProxy.downloads.sessionLog`（host-only、无 wire 信封、不在 `IApiClient` 上）实现。
 - **UI 只负责下载**：「导出」按钮 fetch 该端点并保存响应；早先迭代发布的 `session.log` RPC 已删除——下载端点是它唯一的消费者，仓库规则是不留无当前所有者的公共接口。客户端 bundle 不再携带 fflate（早先的浏览器入口别名坑随之消失）。
 - 「导出」按钮位于 Trajectory 工具栏；插件通过视图的 inject face 暴露 `exportLog`（组件从不接触 ctx），并通过 locale 服务解析视图标签页标题（中文「轨迹」、英文 "Trajectory"）。进行中状态会禁用按钮；失败会在工具栏下方的可见警示条中显示。
