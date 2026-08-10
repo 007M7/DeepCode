@@ -25,7 +25,7 @@ import {
   type TelemetrySeverity,
 } from '@deepseek-ai/dsh-session-telemetry'
 import { APP_IDENTITY } from '@deepseek-ai/dsh-llm'
-import { getOrCreateAnonymousUserId } from './user-id.ts'
+import { getOrCreateAnonymousUserId } from '@deepseek-ai/dsh-user-id'
 import {
   BatchLogRecordProcessor,
   LoggerProvider,
