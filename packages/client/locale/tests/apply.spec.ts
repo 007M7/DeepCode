@@ -4,8 +4,11 @@
 import { Context } from 'cordis'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
-import { apply, inject, SETTINGS_NS } from '@deepseek-ai/dsh-client-locale/client'
+import {
+  apply, inject, SETTINGS_NS,
+} from '@deepseek-ai/dsh-client-locale/client'
 import type { LanguageRowInjected, LocaleService } from '@deepseek-ai/dsh-client-locale/client'
+import { LOCALE_SETTINGS_NAMESPACE, LocaleSettingsSchema } from '../src/locale-settings.ts'
 import { LanguageRow } from '../src/client/LanguageRow.tsx'
 import type { createLanguageRowStore } from '../src/client/settings-store.ts'
 
@@ -14,7 +17,36 @@ const SLOT = 'settings.general.item'
 async function bench() {
   const ctx = new Context()
   await ctx.plugin(SlotsService).await()
-  return { ctx, slots: ctx.get('slots') as SlotsService }
+  let preference: string | undefined
+  let revision = 0
+  const namespace = () => ({
+    ns: LOCALE_SETTINGS_NAMESPACE,
+    schema: LocaleSettingsSchema.toJSON(),
+    value: preference === undefined ? {} : { preference },
+    applies: 'live' as const,
+    secrets: [],
+    revision,
+  })
+  const describe = vi.fn(async () => ({
+    rpcId: 'locale-describe' as never,
+    result: {
+      ok: true as const,
+      value: { writable: true, hasDocument: true, namespaces: [namespace()] },
+    },
+  }))
+  const mutate = vi.fn(async (request: { ops: { value: string }[] }) => {
+    preference = request.ops[0]!.value
+    revision += 1
+    return {
+      rpcId: 'locale-mutate' as never,
+      result: { ok: true as const, value: namespace() },
+    }
+  })
+  ctx.provide('connection', { api: { settings: { describe, mutate } }, isLoopback: true } as never)
+  return {
+    ctx, slots: ctx.get('slots') as SlotsService, describe, mutate,
+    setHostPreference: (next: string | undefined) => { preference = next; revision += 1 },
+  }
 }
 
 /** Stand in for the settings shell: declare the General item slot from root. */
@@ -47,7 +79,7 @@ describe('locale apply', () => {
   })
 
   it('declares the slot service', () => {
-    expect(inject).toEqual(['slots'])
+    expect(inject).toEqual(['slots', 'connection'])
   })
 
   it('provides the service with base + settings dictionaries and registers the row (declaration before or after apply)', async () => {
@@ -91,6 +123,23 @@ describe('locale apply', () => {
     expect(locale.getLocale().active).toBe('zh')
     expect(instance.getSnapshot().active).toBe('zh')
     expect(locale.bind(SETTINGS_NS)('language.title')).toBe('语言')
+    await vi.waitFor(() => { expect(b.mutate).toHaveBeenCalledTimes(2) })
+  })
+
+  it('loads and refreshes the explicit Host preference after nonblocking activation', async () => {
+    const b = await bench()
+    b.setHostPreference('en')
+    declareItems(b.slots)
+    await b.ctx.plugin({ inject: [...inject], apply }).await()
+    const locale = b.ctx.get('locale') as LocaleService
+    await vi.waitFor(() => { expect(locale.getLocale().active).toBe('en') })
+    b.setHostPreference(undefined)
+    b.ctx.emit('settings/changed', LOCALE_SETTINGS_NAMESPACE)
+    await vi.waitFor(() => { expect(locale.getLocale().active).toBe('zh') })
+    b.setHostPreference('en')
+    b.ctx.emit('settings/changed', LOCALE_SETTINGS_NAMESPACE)
+    await vi.waitFor(() => { expect(locale.getLocale().active).toBe('en') })
+    expect(b.describe).toHaveBeenCalledTimes(3)
   })
 
   it('recovers after an HMR collapse of the declaring entry (stale disposer must not block)', async () => {

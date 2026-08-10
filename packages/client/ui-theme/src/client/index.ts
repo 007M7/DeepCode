@@ -1,24 +1,32 @@
 /**
  * Browser theme registry over the `--dsw-*` token stylesheets. The service
- * owns the theme preference (light/dark/system), resolves `system` through
+ * owns the live theme preference (light/dark/system), resolves `system` through
  * `prefers-color-scheme`, and publishes immutable snapshots; it never touches
- * the DOM — ui-layout's presenter consumes the resolved snapshot. The plugin
- * also registers the Appearance preference row into the settings General
- * section — the theme feature owns its own settings surface.
+ * the DOM — ui-layout's presenter consumes the resolved snapshot. The Host
+ * settings scope loads and stores the preference in the user-settings
+ * document. The plugin also registers the Appearance preference row into the
+ * settings General section — the theme feature owns its own settings surface.
  */
 import type { Context } from 'cordis'
 import type { BoundActions } from '@deepseek-ai/dsh-client-ui-slots'
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import {
+  bindSettingsScope, type ClientContext, type SettingsScope,
+} from '@deepseek-ai/dsh-client-runtime/client'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type { AppearanceRowInjected } from './AppearanceRow.tsx'
 import { AppearanceRow } from './AppearanceRow.tsx'
 import { createAppearanceRowStore } from './settings-store.ts'
 import { en, zh, type ThemeKey } from './locales.ts'
+import {
+  DEFAULT_PREFERENCE, isThemePreference, THEME_PREFERENCE_FIELD, THEME_SETTINGS_NAMESPACE,
+  type ThemePreference, type ThemeSettings,
+} from '../theme-settings.ts'
 
 export type { AppearanceRowComponentProps, AppearanceRowInjected } from './AppearanceRow.tsx'
 export type { AppearanceRowState } from './settings-store.ts'
 export type { ThemeKey } from './locales.ts'
+export type { ThemePreference, ThemeSettings } from '../theme-settings.ts'
 
 /** Namespace owning this feature's settings-row copy. */
 export const SETTINGS_NS = 'settings.theme'
@@ -32,9 +40,6 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 
 /** Theme token dictionary: --dsw-alias-* overrides keyed by variable name. */
 export type ThemeTokens = Record<string, string>
-
-/** Theme preference: a concrete theme id or follow-the-OS. */
-export type ThemePreference = 'light' | 'dark' | 'system'
 
 /** One selectable theme: id, dark/light semantics, and alias-token overrides. */
 export interface ThemeDefinition {
@@ -76,12 +81,6 @@ declare module 'cordis' {
   }
 }
 
-/** localStorage key holding the persisted theme preference. */
-export const STORAGE_KEY = 'dsh.theme'
-
-/** Default preference when nothing (or garbage) is persisted. */
-export const DEFAULT_PREFERENCE: ThemePreference = 'system'
-
 const BUILTIN_THEMES: readonly ThemeDefinition[] = Object.freeze([
   Object.freeze({ id: 'light', colorScheme: 'light' as const, tokens: Object.freeze({}) }),
   Object.freeze({ id: 'dark', colorScheme: 'dark' as const, tokens: Object.freeze({}) }),
@@ -98,6 +97,7 @@ const BUILTIN_THEMES: readonly ThemeDefinition[] = Object.freeze([
  */
 export class ThemeService {
   private readonly ctx: Context
+  private readonly host: SettingsScope<ThemeSettings>
   private themes: ThemeDefinition[] = [...BUILTIN_THEMES]
   private preference: ThemePreference
   private revision = 0
@@ -106,11 +106,13 @@ export class ThemeService {
 
   /**
    * @param ctx - owning context (change events are emitted on it; the
-   * media-query listener is released through ctx.effect on dispose).
+   * media-query and scope listeners are released through ctx.effect on dispose).
+   * @param host - durable preference scope owned by the same plugin.
    */
-  constructor(ctx: Context) {
+  constructor(ctx: Context, host: SettingsScope<ThemeSettings>) {
     this.ctx = ctx
-    this.preference = restorePreference()
+    this.host = host
+    this.preference = DEFAULT_PREFERENCE
     // Non-browser runs (node e2e booting the client tree) have no matchMedia.
     this.media = typeof matchMedia === 'undefined' ? undefined : matchMedia('(prefers-color-scheme: dark)')
     this.snapshot = this.buildSnapshot()
@@ -125,6 +127,8 @@ export class ThemeService {
         return () => { media.removeEventListener('change', onChange) }
       }, 'ui-theme: prefers-color-scheme listener')
     }
+    ctx.effect(() => host.subscribe(() => { this.adopt() }), 'ui-theme: settings scope adoption')
+    this.adopt()
   }
 
   /**
@@ -136,8 +140,9 @@ export class ThemeService {
   }
 
   /**
-   * Switch the theme preference — the only preference write entry. Persists
-   * the preference and emits `theme/change`.
+   * Switch the theme preference — the only user preference write entry.
+   * Built-in preferences are written through the settings scope and every
+   * accepted value emits `theme/change`.
    * @param id - a registered theme id or `system`; unknown ids throw.
    */
   setTheme(id: string): void {
@@ -146,7 +151,15 @@ export class ThemeService {
     }
     if (this.preference === id) return
     this.preference = id as ThemePreference
-    persistPreference(this.preference)
+    if (isThemePreference(id)) void this.host.set(THEME_PREFERENCE_FIELD, id)
+    this.publish()
+  }
+
+  /** Adopt the scope's accepted durable preference without writing it back. */
+  private adopt(): void {
+    const section = this.host.getSnapshot().value
+    if (section === undefined || this.preference === section.preference) return
+    this.preference = section.preference
     this.publish()
   }
 
@@ -170,7 +183,6 @@ export class ThemeService {
       this.themes = this.themes.filter(t => t.id !== definition.id)
       if (this.preference === definition.id) {
         this.preference = DEFAULT_PREFERENCE
-        persistPreference(this.preference)
       }
       this.publish()
     }
@@ -200,32 +212,8 @@ export class ThemeService {
   }
 }
 
-/** Read the persisted preference; unknown or unreadable values fall back to the default. */
-function restorePreference(): ThemePreference {
-  // Non-browser runs (node e2e booting the client tree) have no localStorage.
-  if (typeof localStorage === 'undefined') return DEFAULT_PREFERENCE
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY)
-    if (stored === 'light' || stored === 'dark' || stored === 'system') return stored
-  } catch {
-    // Storage access can throw (privacy mode); the default below covers it.
-  }
-  return DEFAULT_PREFERENCE
-}
-
-/** Persist the preference; storage failures are non-fatal (preference resets next boot). */
-function persistPreference(preference: ThemePreference): void {
-  if (typeof localStorage === 'undefined') return
-  try {
-    localStorage.setItem(STORAGE_KEY, preference)
-  } catch {
-    // Storage access can throw (privacy mode / quota); the preference simply
-    // does not survive the session.
-  }
-}
-
-/** Required services: slots + locale (the feature registers its own settings row with localized copy). */
-export const inject = ['slots', 'locale']
+/** Required services: settings transport plus slots/locale for the Appearance row. */
+export const inject = ['slots', 'locale', 'connection']
 
 /**
  * Client plugin body: provide the theme service and register the
@@ -234,7 +222,8 @@ export const inject = ['slots', 'locale']
  * @param ctx - client cordis context.
  */
 export function apply(ctx: ClientContext): void {
-  const theme = new ThemeService(ctx)
+  const host = bindSettingsScope<ThemeSettings>(ctx, { namespace: THEME_SETTINGS_NAMESPACE })
+  const theme = new ThemeService(ctx, host)
   ctx.provide('theme', theme)
 
   ctx.effect(() => ctx.locale.register(SETTINGS_NS, { zh, en }), 'ui-theme: settings row dictionaries')
