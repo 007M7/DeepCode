@@ -30,14 +30,19 @@ export function fitProducedFiles(
 ): number {
   if (available <= 0) return chipWidths.length
   const prefix = [0]
-  for (const width of chipWidths) prefix.push((prefix.at(-1) ?? 0) + width)
-  for (let shown = chipWidths.length; shown >= 0; shown -= 1) {
+  let prefixWidth = 0
+  for (const width of chipWidths) {
+    prefixWidth += width
+    prefix.push(prefixWidth)
+  }
+  let largestFit = 0
+  for (const [shown, width] of prefix.entries()) {
     const more = moreWidthsByShown[shown]
     const items = shown + (more === undefined ? 0 : 1)
-    const needed = (prefix[shown] ?? 0) + (more ?? 0) + Math.max(0, items - 1) * gap
-    if (needed <= available) return shown
+    const needed = width + (more ?? 0) + Math.max(0, items - 1) * gap
+    if (needed <= available) largestFit = shown
   }
-  return 0
+  return largestFit
 }
 
 /** Matched paths plus the opener and locale seats needed to present them. */
@@ -68,12 +73,14 @@ export function ProducedFiles({ matched: paths, openFile, canOpenPath, t }: Prod
 
   useLayoutEffect(() => {
     const row = rowRef.current
+    /* v8 ignore next -- the row ref is attached before the layout effect runs. */
     if (row === null) return
     const measure = (): void => {
       const styles = getComputedStyle(row)
       const gap = Number.parseFloat(styles.columnGap || styles.gap) || 0
-      const chips = chipProbes.current.slice(0, limit)
-        .map(probe => probe?.getBoundingClientRect().width ?? 0)
+      // React attaches every still-mounted callback ref before layout effects run.
+      const activeChipProbes = chipProbes.current.slice(0, limit) as HTMLButtonElement[]
+      const chips = activeChipProbes.map(probe => probe.getBoundingClientRect().width)
       const more = Array.from({ length: limit + 1 }, (_, candidate) =>
         paths.length === candidate
           ? undefined

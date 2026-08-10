@@ -192,8 +192,7 @@ export class ConnectionController {
   }
 
   /** Sink exception isolation: a business-layer throw is logged only, never affecting pump or reconnect semantics. */
-  private callSink(fn: (() => void) | undefined): void {
-    if (fn === undefined) return
+  private callSink(fn: () => void): void {
     try {
       fn()
     } catch (error) {

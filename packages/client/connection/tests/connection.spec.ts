@@ -180,6 +180,38 @@ describe('connection lifecycle', () => {
     }
   })
 
+  it('rejects a generation whose streams end during readiness and retries', async () => {
+    const api = new FakeApiClient()
+    const firstDescribe = deferred<Awaited<ReturnType<FakeApiClient['onDescribe']>>>()
+    let describeCalls = 0
+    api.onDescribe = () => {
+      describeCalls++
+      return describeCalls === 1
+        ? firstDescribe.promise
+        : Promise.resolve(ok({ version: '0', cwd: '/f', attachedSessions: 0, canOpenPath: true }))
+    }
+    const states: ConnectionState[] = []
+    let connected = 0
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const controller = new ConnectionController(api, {
+      onConnected: () => { connected++ },
+      onStateChange: state => states.push(state),
+    }, FAST)
+    controller.start()
+    try {
+      await vi.waitFor(() => { expect(api.openMuxCount).toBe(1) })
+      api.endStreams()
+      firstDescribe.resolve(ok({ version: '0', cwd: '/f', attachedSessions: 0, canOpenPath: true }))
+
+      await vi.waitFor(() => { expect(describeCalls).toBe(2) })
+      await vi.waitFor(() => { expect(connected).toBe(1) })
+      expect(states).toEqual(['reconnecting', 'connected'])
+    } finally {
+      controller.stop()
+      warnSpy.mockRestore()
+    }
+  })
+
   it('proceeds as connected via the timeout guard when a carrier never fires onOpen', async () => {
     const api = new FakeApiClient()
     api.suppressStreamOpen = true // misbehaving carrier: streams open but onOpen never fires

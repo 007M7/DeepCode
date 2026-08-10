@@ -151,6 +151,42 @@ describe('connection client apply', () => {
     }
   })
 
+  it('retracts the host description while reconnecting and republishes the next generation', async () => {
+    ;(globalThis as Win).location = { hostname: 'localhost', search: '?fixture' }
+    const handle = await mount()
+    const descriptions: Array<boolean | undefined> = []
+    const reconnectSnapshots: Array<boolean | undefined> = []
+    const stopDescription = handle.hostDescription.subscribe(() => {
+      descriptions.push(handle.hostDescription.getSnapshot()?.canOpenPath)
+    })
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const loop = handle.start({
+      onStateChange: (state) => {
+        if (state === 'reconnecting') {
+          reconnectSnapshots.push(handle.hostDescription.getSnapshot()?.canOpenPath)
+        }
+      },
+    }, { backoffBaseMs: 10, backoffFactor: 1, backoffMaxMs: 10, streamOpenTimeoutMs: 500 })
+    try {
+      await vi.waitFor(() => {
+        expect(handle.hostDescription.getSnapshot()?.canOpenPath).toBe(true)
+      })
+      const timing = (globalThis as Record<string, unknown>).__fxTiming as
+        | { breakStreams(): void }
+        | undefined
+      if (timing === undefined) throw new Error('fixture timing hooks missing')
+      timing.breakStreams()
+
+      await vi.waitFor(() => { expect(reconnectSnapshots).toEqual([undefined]) })
+      await vi.waitFor(() => { expect(descriptions).toEqual([true, undefined, true]) })
+      expect(handle.hostDescription.getSnapshot()?.canOpenPath).toBe(true)
+    } finally {
+      stopDescription()
+      loop.stop()
+      warnSpy.mockRestore()
+    }
+  })
+
   it('WebApiClient keeps unary calls and respond on globalThis.fetch', async () => {
     ;(globalThis as Win).location = { hostname: 'localhost', search: '' }
     const handle = await mount()

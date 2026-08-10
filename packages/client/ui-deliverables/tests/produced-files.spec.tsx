@@ -288,6 +288,7 @@ describe('ProducedFiles row', () => {
     // A zero-width lane is a pre-layout test/hidden state, not evidence that
     // every chip overflowed; keep the bounded initial prefix until measured.
     expect(fitProducedFiles(0, 8, [70, 60], [60, 50, undefined])).toBe(2)
+    expect(fitProducedFiles(128, 8, [60, 60], [70, 50, undefined])).toBe(2)
     // Candidate-specific suffix widths matter at the 10 -> 9 digit boundary.
     expect(fitProducedFiles(126, 8, [60], [70, 50])).toBe(1)
     expect(fitProducedFiles(20, 8, [60], [70, 50])).toBe(0)
@@ -299,9 +300,13 @@ describe('ProducedFiles row', () => {
     let available = 226
     let resize: ResizeObserverCallback | undefined
     const disconnect = vi.fn()
+    const observeNode = vi.fn<(target: Element) => void>()
     vi.stubGlobal('ResizeObserver', class {
       constructor(callback: ResizeObserverCallback) { resize = callback }
-      observe(): void {}
+      observe(target: Element): void {
+        expect(target).toBeInstanceOf(Element)
+        observeNode(target)
+      }
       disconnect(): void { disconnect() }
     })
     Object.defineProperty(HTMLElement.prototype, 'clientWidth', {
@@ -344,8 +349,23 @@ describe('ProducedFiles row', () => {
     expect(within(row).getAllByRole('button')).toHaveLength(1)
     expect(within(row).getByText('+ 6 个文件')).toBeTruthy()
 
+    // A missing/unsupported computed gap falls back to zero rather than NaN.
+    vi.stubGlobal('getComputedStyle', () => ({ columnGap: '', gap: '' } as CSSStyleDeclaration))
+    available = 165
+    act(() => { resize?.([], {} as ResizeObserver) })
+    expect(within(row).getAllByRole('button')).toHaveLength(2)
+
+    // Ref callbacks leave nulls in the probe arrays when the candidate set
+    // shrinks; the replacement observer must skip those stale slots.
+    observeNode.mockClear()
+    view.rerender(
+      <ProducedFiles matched={paths.slice(0, 1)} openFile={openFile} canOpenPath t={t} />,
+    )
+    expect(within(row).getAllByRole('button')).toHaveLength(1)
+    expect(observeNode).toHaveBeenCalledTimes(3)
+
     view.unmount()
-    expect(disconnect).toHaveBeenCalledOnce()
+    expect(disconnect).toHaveBeenCalledTimes(2)
     bounds.mockRestore()
   })
 
