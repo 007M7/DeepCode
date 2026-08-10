@@ -7,6 +7,7 @@
 import { existsSync } from 'node:fs'
 import { boot, installFailLoud, loadEnv, resolveConfigPath } from '@deepseek-ai/dsh-app-boot'
 
+/* v8 ignore start -- composition over tested app-boot/jsonrpc and executable acceptance paths */
 const NAME = 'dsh-jsonrpc-agent'
 
 /**
@@ -17,7 +18,6 @@ const NAME = 'dsh-jsonrpc-agent'
  * to stdin and signal events.
  */
 export async function runJsonrpcAgent(bareModuleBaseUrl?: string): Promise<void> {
-  /* v8 ignore start -- composition over tested app-boot/jsonrpc and executable acceptance paths */
   installFailLoud(NAME)
   loadEnv(NAME)
 
@@ -51,5 +51,5 @@ export async function runJsonrpcAgent(bareModuleBaseUrl?: string): Promise<void>
   process.stdin.on('end', () => { void disposeAndExit(0) })
   process.on('SIGTERM', () => { void disposeAndExit(0) })
   process.on('SIGINT', () => { void disposeAndExit(130) })
-  /* v8 ignore stop */
 }
+/* v8 ignore stop */
