@@ -44,7 +44,7 @@ declare module 'cordis' {
  * One composed client entry pushed by the host (a graph row). Wire
  * single source: the host node half (package root) produces this same shape.
  * `immediately` marks stage-one prefetch; `inject` is informational graph
- * metadata (the authoritative edges live in each package's dshClient
+ * metadata (the authoritative edges live in each package's `dsh.client`
  * declaration and reach fibers through entry creation).
  */
 export interface WebBootEntry {

@@ -5,7 +5,7 @@
  * declaration, registration, scope, store, inject, rendering, updates, and
  * disposal without hand-building the machinery per suite.
  *
- * Not part of the product plugin graph (no `dshClient`); feature packages
+ * Not part of the product plugin graph (no `dsh.client`); feature packages
  * depend on it in devDependencies only. It copies no SlotCore/renderer/store
  * machinery — everything mounts the production implementations.
  * @module @deepseek-ai/dsh-client-test-runtime

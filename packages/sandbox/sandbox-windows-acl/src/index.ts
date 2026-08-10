@@ -408,6 +408,8 @@ export class AclSandbox {
       freeSidBestEffort(api, sidPtr, label, failures)
     }
     const token = this.token
+    /* v8 ignore next -- init assigns this.api only after this.token, so an initialized instance always
+       has its token; the guard mirrors the write-SID guard. */
     if (token !== undefined) {
       try {
         if (api.closeHandle(token) === 0) throwLastError(api, 'CloseHandle', 'restricted token')
