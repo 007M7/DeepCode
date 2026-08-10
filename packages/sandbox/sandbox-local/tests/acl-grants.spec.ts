@@ -276,12 +276,16 @@ describe('windows-acl write grants (LocalSandboxProvider)', () => {
       expect(failedTempGrant?.added).toHaveLength(1)
       expect(existsSync(failedTempGrant?.added[0]?.path ?? '')).toBe(false)
 
+      mockState.addFailureStanding = false
+      mockState.addFailure = new Error('temp add exploded')
       sandbox.internals.rmTempDir = () => { throw new Error('temp rm exploded') }
       expect(() => sandbox.confine(['true'], {
         mode: 'workspace-write', workspaceRoot: ws, sessionId: SessionId('rm-fail'),
       })).toThrow(/temp grant materialization failed and its cleanup also failed/u)
       delete sandbox.internals.rmTempDir
 
+      mockState.addFailureStanding = false
+      mockState.addFailure = new Error('temp add exploded')
       mockState.disposeFailure = new Error('temp cleanup exploded')
       expect(() => sandbox.confine(['true'], {
         mode: 'workspace-write', workspaceRoot: ws, sessionId: SessionId('aggregate-fail'),
