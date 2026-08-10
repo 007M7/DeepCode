@@ -36,12 +36,26 @@ export interface AgentPresetSeatInjected {
   introduced: () => void
 }
 
-/* Introduce timeline: the icon eases in first; the name's characters start
-   fading up once the icon has mostly landed, one every stagger tick, each
-   taking the fade duration to settle. The cue clears after the last one. */
-const INTRO_TEXT_DELAY_MS = 300
-const INTRO_CHAR_STAGGER_MS = 60
+/* Introduce timeline: the icon eases in first (the CSS animation shares this
+   duration); the name's characters start fading up the moment it lands, each
+   taking the fade duration to settle. The cue clears after the last one. The
+   stagger is capped twice: per tick for short CJK names, and by one shared
+   reveal window so a long Latin name finishes in the same time as its CJK
+   counterpart instead of dragging the run out per character. */
+const INTRO_TEXT_DELAY_MS = 150
+const INTRO_CHAR_STAGGER_MS = 40
+const INTRO_TEXT_REVEAL_MS = 200
 const INTRO_CHAR_FADE_MS = 400
+
+/**
+ * Per-character start offset for the introduce reveal.
+ * @param count - character count of the shown preset name.
+ * @returns milliseconds between successive character starts.
+ */
+function introStaggerMs(count: number): number {
+  if (count <= 1) return 0
+  return Math.min(INTRO_CHAR_STAGGER_MS, INTRO_TEXT_REVEAL_MS / (count - 1))
+}
 
 /** Full component props. */
 export type AgentPresetSeatProps =
@@ -83,7 +97,7 @@ export function AgentPresetSeat({ load, select, introduced, useAgentPresetSeat, 
     const done = window.setTimeout(() => {
       setIntroducing(false)
       introduced()
-    }, INTRO_TEXT_DELAY_MS + characters.length * INTRO_CHAR_STAGGER_MS + INTRO_CHAR_FADE_MS)
+    }, INTRO_TEXT_DELAY_MS + (characters.length - 1) * introStaggerMs(characters.length) + INTRO_CHAR_FADE_MS)
     return () => { window.clearTimeout(done) }
   }, [state.introduce, ready, label, introduced])
 
@@ -93,14 +107,16 @@ export function AgentPresetSeat({ load, select, introduced, useAgentPresetSeat, 
 
   // One wrapper span: the chip is a flex row with a gap, so loose character
   // spans would each pick up the gap between them.
+  const characters = Array.from(label)
+  const stagger = introStaggerMs(characters.length)
   const shownLabel = introducing
     ? (
       <span className={css.introText}>
-        {Array.from(label).map((character, index) => (
+        {characters.map((character, index) => (
           <span
             key={index}
             className={css.introChar}
-            style={{ animationDelay: `${INTRO_TEXT_DELAY_MS + index * INTRO_CHAR_STAGGER_MS}ms` }}
+            style={{ animationDelay: `${INTRO_TEXT_DELAY_MS + index * stagger}ms` }}
           >
             {character}
           </span>
