@@ -29,7 +29,7 @@ Status: implemented
     - **fetch 到达插件包**（`ui-layout`、`ui-sidebar`、`ui-conversation`、`ui-trajectory`）：双入口——根入口是 node 半边（空 `apply`，其存在是为了让 host Loader 管辖生命周期、让 web 插件注册表发现 package.json 的 `dshClient` 声明）；实现住在 `src/client/` 下，经 `./client` 子路径发布（tsdown 闭包工厂 bundle）。跨插件消费 `/client` 只限类型；值层面的协作走 cordis 服务。
 - `apps/` 作为对外导出的应用形态入口，可以由 Client / Host 混合组装。
     - `apps/web`（`dsh-frontend`）是 vite 应用：`dsh-client-web` 导出的壳表面之上的一层薄 `main.ts`。
-    - `apps/cli`（`@deepseek-ai/dsh`）做形态分发：`dsh web` = Host + webserver + 构建出的 `dsh-frontend` dist；`dsh run` = [直接使用核心 Agent／Session 的前门](2026-08-09-headless-direct-core-front-door.md)，不含 Host、HTTP 或浏览器层。
+    - `apps/cli`（`@deepseek-ai/dsh`）做形态分发：`dsh web` = Host + webserver + 构建出的 `dsh-frontend` dist；`dsh run` = [直接使用核心 Agent／Session 的入口](2026-08-09-headless-direct-core-entry-point.md)，不含 Host、HTTP 或浏览器层。
     - 将来的 Electron 形态经由 IPC fetch 载体复用同一套 web client 包。
 
 ```
@@ -77,7 +77,7 @@ TypeScript 以 solution 根引用的**两个聚合 program** 检查（`tsconfig.
 2. **在 `apps/` 下写拼装模块**：`startHost()` + 客户端子类 + 该形态私有的信号/打印/退出语义；混合体不建包，拼装写在 app 里。
 3. **需要 HTTP 承载才 import `dsh-host-webserver`**，否则零端口。
 
-现有两种形态保持这一边界：Web 形态挂载 Host、载体与浏览器组合，而 `dsh run` 挂载直接使用核心服务的 runner，不包含 Host、HTTP 或端口。ACP 类协议桥不遵循 client 载体清单：它把 core 暴露给外部生态，直接通过 `ctx.plugin(前门插件)` 挂载，不套 fetch。
+现有两种形态保持这一边界：Web 形态挂载 Host、载体与浏览器组合，而 `dsh run` 挂载直接使用核心服务的 runner，不包含 Host、HTTP 或端口。ACP 类协议桥不遵循 client 载体清单：它把 core 暴露给外部生态，直接通过 `ctx.plugin(入口插件)` 挂载，不套 fetch。
 
 ## 消息协议
 
@@ -240,7 +240,7 @@ export type ResponseValue<K> =
 |---|---|
 | 按「产品形态」分包（web 一族、electron 一族） | 形态间共享的是 host/client 两侧能力而非形态本身；能力支持方分层让新形态零新包 |
 | 混合体建包（如 headless 独立包） | 混合体只有一个消费者（它自己的 app），建包是无主抽象；拼装写在 app 里可读可弃 |
-| 消费型 client 直连 ctx（省 apiproxy 一层） | client 形态需要 wire 校验、观测与多 client 一致性。直接 headless 是没有 client 边界的本地前门，使用公开的 Agent／Session seam，而不是 client 命令面 |
+| 消费型 client 直连 ctx（省 apiproxy 一层） | client 形态需要 wire 校验、观测与多 client 一致性。直接 headless 是没有 client 边界的本地入口，使用公开的 Agent／Session seam，而不是 client 命令面 |
 | webserver 依赖 runtime（省 handler 注入） | 结构 typing 注入让 webserver 可被 sidecar/测试复用且零 workspace 依赖；包依赖会把装配知识拖进承载层 |
 | 包名不带组前缀（沿用 dsh-<尾段>） | `dsh-runtime`/`dsh-web-ui` 在扁平 npm 命名空间里失去归属信息；代价只是每包一条显式 paths |
 | 复用仓内 JSON-RPC 2.0（dsh-jsonrpc） | 数字错误码退化成单码兜底、约定双份人肉对齐、命名无 convention 自然漂移 |

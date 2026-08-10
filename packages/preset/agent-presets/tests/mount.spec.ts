@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -11,7 +11,7 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { assembleContextFor, type Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import AgentPresets, {
   COMPOSITION_FILE, leakedServices, livePresetMounts, mountPreset, PresetMountError, serviceForAgent,
 } from '@deepseek-ai/dsh-agent-presets'
@@ -84,6 +84,23 @@ beforeEach(async () => {
 })
 
 describe('composing an agent from a preset', () => {
+  it('hands an absolute plugin path to Node as a file URL', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-preset-absolute-plugin-'))
+    const presetDir = join(root, 'absolute')
+    const plugin = join(FIXTURES, 'plugins', 'contribute.js')
+    await mkdir(presetDir)
+    await writeFile(
+      join(presetDir, COMPOSITION_FILE),
+      `- id: only\n  name: ${plugin}\n  config:\n    tool: absolute\n`,
+    )
+    const scoped = await harness({ default: 'absolute', roots: [{ path: root, trust: 'user' }] })
+    const imported = vi.spyOn(scoped.loader.internal!, 'import')
+
+    await agentOn(scoped, 'sess-absolute-plugin')
+
+    expect(imported).toHaveBeenCalledWith(pathToFileURL(plugin).href, expect.any(String), {})
+  })
+
   it('gives each session only its own preset\'s tools', async () => {
     const alpha = await agentOn(ctx, 'sess-alpha', 'standard')
     const beta = await agentOn(ctx, 'sess-beta', 'minimal')
@@ -523,6 +540,34 @@ describe('editing a composition file', () => {
     expect(toolNames(scoped, left)).toEqual(['afterwards'])
     expect(toolNames(scoped, right)).toEqual(['afterwards'])
     expect(livePresetMounts().filter(mount => mount.presetId === 'raced')).toHaveLength(2)
+  })
+
+  it('keeps a newer generation pointer when a stale refresh loses the swap race', async () => {
+    const { scoped, path } = await editable('guarded-refresh')
+    const preset = await scoped.agentPresets.resolve('guarded-refresh')
+    await agentOn(scoped, 'sess-guarded-refresh-seed', 'guarded-refresh')
+    const service = scoped.agentPresets as unknown as {
+      standing: Map<string, Promise<{
+        key: unknown
+        scope: unknown
+        stamp: { mtimeMs: number; size: number }
+      }>>
+      ensureStanding(current: typeof preset): Promise<unknown>
+    }
+    const stalePromise = service.standing.get(preset.id)!
+    const stale = await stalePromise
+    await writeFile(path, rowFor('afterwards'))
+    const { mtimeMs, size } = await stat(path)
+    const newer = { ...stale, stamp: { mtimeMs, size } }
+    const newerPromise = Promise.resolve(newer)
+
+    // `await pending` yields before the guarded delete, letting the winning
+    // refresher replace the pointer deterministically instead of by timing.
+    const refresh = service.ensureStanding(preset)
+    service.standing.set(preset.id, newerPromise)
+
+    expect(await refresh).toBe(newer)
+    expect(service.standing.get(preset.id)).toBe(newerPromise)
   })
 
   it('hands a host reader the standing key without starting an agent', async () => {

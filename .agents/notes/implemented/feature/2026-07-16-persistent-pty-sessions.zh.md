@@ -152,7 +152,7 @@ plugins:
 
 **包含 TUI sequence 与 BEL 处理。**拒绝。源 prototype 将这些路径视为 timing-sensitive，且仍记录未解决的 alternate-screen 和交互失败。行式 PTY 已能证明核心价值，无需把未经验证的行为放进基础层。
 
-**立即采用进程外 daemon。**初始的进程内功能不采用，因为当前持久 front door 已能维持 Cordis context。跨进程恢复或多客户端 attach 会让 daemon 变得合理，但两者都已推迟。
+**立即采用进程外 daemon。**初始的进程内功能不采用，因为当前长驻的运行入口已能维持 Cordis context。跨进程恢复或多客户端 attach 会让 daemon 变得合理，但两者都已推迟。
 
 ## 验证
 

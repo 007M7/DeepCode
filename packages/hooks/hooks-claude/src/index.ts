@@ -143,7 +143,7 @@ export function apply(ctx: Context, config: Config): void {
     const groups: MatcherGroup[] = parsed[point] ?? []
     const outputs: HookOutput[] = []
     // Run the hook in the agent's session workspace (the `session/new` cwd on the session
-    // header), not the executor or front-door process's launch dir.
+    // header), not the executor or entry-point process's launch dir.
     const workdir = opts.agent?.session.header.cwd
     // CLAUDE_PROJECT_DIR: an explicit config value wins; otherwise default it to the session
     // workspace (the same dir the hook runs in).

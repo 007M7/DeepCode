@@ -8,7 +8,7 @@
  * determinism
  * lives host-side — the pre-step boundary (`dsh-tool-skill`) recognizes a
  * leading `/name` naming a user-invocable skill and injects the rendered
- * body for every front end, including `disable-model-invocation` skills the
+ * body for every entry point, including `disable-model-invocation` skills the
  * model-side catalog never lists (issue #1470). The RPC rides the plugin's
  * root-context connection captured at registration — the source never reads
  * services off a per-call argument. Draft chip visuals derive from
@@ -167,7 +167,7 @@ export function apply(ctx: ClientContext): void {
       // lands plain text and the prompt ships the same
       // literal. Determinism lives host-side — the host's
       // pre-step boundary (dsh-tool-skill) recognizes the leading /name and
-      // injects the rendered body for every front end. A name shared with a
+      // injects the rendered body for every entry point. A name shared with a
       // host command still resolves to the command: adjudication claims the
       // line client-side before it ever becomes a prompt.
       return { text: `/${candidate.name} ` }
