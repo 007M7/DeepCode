@@ -19,9 +19,8 @@ import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { GenericCallView, ToolExecution } from '@deepseek-ai/dsh-tools'
-import { FsError } from '@deepseek-ai/dsh-fs'
 import type {} from '@deepseek-ai/dsh-fs'
-import { sessionResolveOptions } from './session-cwd.ts'
+import { resolveRegularReadTarget } from './read-target.ts'
 
 /** Extensions `read_image` accepts; magic-byte validation at the attachment service stays authoritative. */
 const IMAGE_EXTENSIONS: Readonly<Record<string, ImageMediaType>> = {
@@ -179,13 +178,7 @@ export function applyReadImageTool(ctx: Context): void {
       }
       await assertImageCapableRoute(ctx, exec, args.file_path)
 
-      const target = await ctx.fs.resolve(args.file_path, sessionResolveOptions(exec, args.file_path))
-      const info = await ctx.fs.stat(target, exec.signal)
-      if (!info) {
-        ctx.emit('fs/observed', target, { kind: 'absent' }, exec)
-        throw new FsError(`cannot read "${target.displayPath}": not found`, 'FS_NOT_FOUND')
-      }
-      if (info.type !== 'file') throw new FsError(`cannot read "${target.displayPath}": not a regular file`, 'FS_NOT_REGULAR_FILE')
+      const { target, info } = await resolveRegularReadTarget(ctx, exec, args.file_path)
 
       // The tool result is one message carrying one image, so the per-message
       // aggregate bound applies beside the per-image bound.

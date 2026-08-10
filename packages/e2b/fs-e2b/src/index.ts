@@ -90,6 +90,24 @@ function commandOpts(signal: AbortSignal | undefined): { envs: Record<string, st
   return { envs: e2bControlEnvs(), ...signalOpts(signal) }
 }
 
+async function openReadStream(
+  sandbox: Sandbox,
+  target: FsTarget,
+  signal: AbortSignal | undefined,
+): Promise<ReadableStream<Uint8Array>> {
+  try {
+    // The pinned SDK's stream overload lies for empty files: content-length 0
+    // returns '' instead of a ReadableStream.
+    const read = await sandbox.files.read(String(target.targetKey), { format: 'stream', ...signalOpts(signal) }) as
+      ReadableStream<Uint8Array> | string
+    return typeof read === 'string'
+      ? new ReadableStream<Uint8Array>({ start(controller) { controller.close() } })
+      : read
+  } catch (error: unknown) {
+    throw mapError(error, 'read', target.displayPath, signal)
+  }
+}
+
 function entryType(entry: EntryInfo): FsInfo['type'] {
   switch (entry.type) {
     case FileType.FILE:
@@ -233,18 +251,7 @@ export class E2BFileSystem extends FileSystem {
     if (info.size !== undefined && info.size > maxBytes) {
       throw new FsError(`cannot read "${target.displayPath}": ${info.size} bytes exceeds the ${maxBytes}-byte limit`, 'FS_TOO_LARGE')
     }
-    let stream: ReadableStream<Uint8Array>
-    try {
-      // Same pinned-SDK quirk as streamText: content-length 0 returns ''
-      // instead of a ReadableStream.
-      const read = await sandbox.files.read(String(target.targetKey), { format: 'stream', ...signalOpts(signal) }) as
-        ReadableStream<Uint8Array> | string
-      stream = typeof read === 'string'
-        ? new ReadableStream<Uint8Array>({ start(controller) { controller.close() } })
-        : read
-    } catch (error: unknown) {
-      throw mapError(error, 'read', target.displayPath, signal)
-    }
+    const stream = await openReadStream(sandbox, target, signal)
     const reader = stream.getReader()
     const chunks: Uint8Array[] = []
     let bytes = 0
@@ -288,18 +295,7 @@ export class E2BFileSystem extends FileSystem {
   override async streamText(target: FsTarget, signal?: AbortSignal): Promise<AsyncIterable<string>> {
     const sandbox = await this.ctx.e2b.getSandbox()
     await this.requireRegular(target, signal)
-    let stream: ReadableStream<Uint8Array>
-    try {
-      // The pinned SDK's stream overload lies for empty files: content-length 0
-      // returns '' instead of a ReadableStream.
-      const read = await sandbox.files.read(String(target.targetKey), { format: 'stream', ...signalOpts(signal) }) as
-        ReadableStream<Uint8Array> | string
-      stream = typeof read === 'string'
-        ? new ReadableStream<Uint8Array>({ start(controller) { controller.close() } })
-        : read
-    } catch (error: unknown) {
-      throw mapError(error, 'read', target.displayPath, signal)
-    }
+    const stream = await openReadStream(sandbox, target, signal)
     const displayPath = target.displayPath
     return {
       async *[Symbol.asyncIterator](): AsyncGenerator<string> {
