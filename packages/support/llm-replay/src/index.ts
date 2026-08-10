@@ -765,11 +765,28 @@ export interface Config {
   paceMs?: number
 }
 
+function validateConfiguredModalities(providers: ReplayProviderConfig[] | undefined): void {
+  for (const provider of providers ?? []) {
+    for (const model of provider.models ?? []) {
+      const modalities: unknown = model.inputModalities
+      if (modalities === undefined) continue
+      if (!Array.isArray(modalities)
+        || !modalities.every((modality: unknown) => modality === 'text' || modality === 'image')) {
+        throw new Error(
+          `llm-replay: provider "${provider.id}" model "${model.id}" inputModalities `
+          + 'must be an array containing only "text" and "image"',
+        )
+      }
+    }
+  }
+}
+
 export function apply(ctx: Context, config: Config = {}): void {
   const file = config.file ?? process.env.DSH_SNAPSHOT_FILE
   if (file === undefined || file.length === 0) {
     throw new Error('llm-replay: a fixture path is required (Config.file or $DSH_SNAPSHOT_FILE)')
   }
+  validateConfiguredModalities(config.providers)
   const overrideFile = config.overrideFile ?? process.env.DSH_SNAPSHOT_OVERRIDE
   const childEnv = process.env.DSH_SNAPSHOT_CHILD_FILES
   const childFiles = config.childFiles

@@ -460,11 +460,11 @@ describe('registration surface', () => {
     // Remounting the store restores the conditional registration.
     const remounted = await ctx.plugin(LocalAttachmentStore, { dshHome: home })
     expect(names()).toEqual(['edit', 'read', 'read_image', 'write'])
-    void remounted
 
     // Disposing the whole plugin withdraws every tool, read_image included.
     await toolFsFiber.dispose()
     expect(names()).toEqual([])
+    await remounted.dispose()
   })
 
   it('declares read_image parallel-safe and presents a read-family card', async () => {
