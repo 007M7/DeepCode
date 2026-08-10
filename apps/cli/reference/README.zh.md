@@ -14,11 +14,11 @@
 
 ### 应用参数
 
-启动器自己的 flag 写在最前面,并在它不认识的第一个 token 处结束;从那里开始的一切都通过 `ctx.cmdlineArgs` 原样交给启动起来的 profile,由该应用自己的启动行解析([`dsh-cmdline`](../../../packages/boot/cmdline/README.md))。因此 `dsh --profile web --port 8080` 到达的是 web 应用的 `--port`,`dsh --profile web --help` 打印的是该应用的 help 且什么也不启动,而 `dsh --help`(没有可以交付的 profile)打印的是启动器自己的 help。`-V`/`--version` 写在应用参数边界之前时会打印启动器的版本。
+启动器自己的 flag 写在最前面,并在它不认识的第一个 token 处结束;从那里开始的一切都通过 `ctx.cmdlineArgs` 原样交给启动起来的 profile,任何注入它的应用插件都可以解析([`dsh-cmdline`](../../../packages/boot/cmdline/README.md))。因此 `dsh --profile web --port 8080` 到达的是 web 应用的 `--port`,`dsh --profile web --help` 打印的是该应用的 help 且什么也不启动,而 `dsh --help`(没有可以交付的 profile)打印的是启动器自己的 help。`-V`/`--version` 写在应用参数边界之前时会打印启动器的版本。
 
-一套组合只挂载一次。注入 `cmdlineArgs` 的 Loader 行解析本应用的参数，并把结果作为服务提供出去；由 flag 配置的每一行都会注入该服务，Loader 会等服务激活后再求值该行配置（`port: !!js ctx.webStartup.port ?? 3080`），因此 flag 胜过写在它旁边的值。该优先级要求配置行保留这一表达式；若用户 patch 用字面量替换整份 `config`，运行时读取也会随之消失。help 和被拒绝的参数会请求退出——拒绝时以非零状态，help 时以 0——且不会激活依赖启动服务的行。在线编辑 `cordis.patch.yml` 会针对仍然在线的服务重新求值表达式，因此不会重置已在服务的端口。
+一套组合只挂载一次。普通插件注入 `cmdlineArgs`、解析本应用参数，并把结果作为服务提供出去；由 flag 配置的每一行都会注入该服务，Loader 会等服务激活后再求值该行配置（`port: !!js ctx.webStartup.port ?? 3080`），因此 flag 胜过写在它旁边的值。该优先级要求配置行保留这一表达式；若用户 patch 用字面量替换整份 `config`，运行时读取也会随之消失。help 和被拒绝的参数会请求退出——拒绝时以非零状态，help 时以 0——且不会激活依赖提供方服务的行。在线编辑 `cordis.patch.yml` 会针对仍然在线的服务重新求值表达式，因此不会重置已在服务的端口。
 
-启动器的 flag 必须写在应用参数之前，且启动器的解析器会消耗掉一个 `--`：必须以字面量 `--` 送达应用的参数需要写成 `-- --`。如果应用的第一个参数恰好等于 `web` 或 `plugin`，会选择对应的子命令。若 profile 中没有注入 `cmdlineArgs` 的活跃行，该 profile 不接受应用参数；启动器会在挂载任何行之前拒绝这些参数，而不是静默忽略。若组合中有多个注入 `cmdlineArgs` 的活跃行，启动器总会拒绝该组合，因为两个解析器不能共同持有同一条命令行。
+启动器的 flag 必须写在应用参数之前，且启动器的解析器会消耗掉一个 `--`：必须以字面量 `--` 送达应用的参数需要写成 `-- --`。如果应用的第一个参数恰好等于 `web` 或 `plugin`，会选择对应的子命令。`ctx.cmdlineArgs.get()` 是共享的不可变读取：多个插件可以解析同一份快照，没有读取方的 profile 则会忽略自己的应用参数。
 
 随附的各应用持有这些命令行：
 
@@ -36,7 +36,7 @@ dsh --profile web --dump-default-config
 dsh --profile web --patch ./extra.yml --dump-config
 ```
 
-`--dump-default-config` 只打印组合包各层；`--dump-config` 额外加上 profile 的 `cordis.patch.yml`、home 级的 `$DSH_HOME/cordis.patch.yml` 和 `--patch` overlay。两者都会打印注释，标明每行由哪个文件提供，以及哪些 overlay 修改过它；`!!js` 表达式保持未求值，找不到目标的 patch 会报告到 stderr。dump 从不运行应用的启动行，因此它展示的是任何应用参数被解析之前的组合配置树，并拒绝携带应用参数的调用。
+`--dump-default-config` 只打印组合包各层；`--dump-config` 额外加上 profile 的 `cordis.patch.yml`、home 级的 `$DSH_HOME/cordis.patch.yml` 和 `--patch` overlay。两者都会打印注释，标明每行由哪个文件提供，以及哪些 overlay 修改过它；`!!js` 表达式保持未求值，找不到目标的 patch 会报告到 stderr。dump 从不运行应用命令行提供方，因此它展示的是任何应用参数被解析之前的组合配置树，并拒绝携带应用参数的调用。
 
 ## 插件管理
 
@@ -52,7 +52,7 @@ Git 托管、随附源码的插件在安装期间通过其 `prepare` 脚本构�
 
 ## Web 别名
 
-`dsh web` 是 `--profile web` 的硬编码别名；写在它之后的 flag 属于 web 应用，由该应用在其组合包的启动行中持有。`--host` 和 `--port` 覆盖承载它们的那些行的组合取值，可重复的 `--trusted-host` 在组合出的围栏配置之上追加 authority，`--dev` 把 web-runtime 行切换到开发模式并启用组合包以禁用状态交付的客户端插件 HMR（热模块替换）接收器；若要无刷新更新客户端 bundle，还需单独运行 `pnpm run dev:web` watcher。
+`dsh web` 是 `--profile web` 的硬编码别名；写在它之后的 flag 属于 web 应用，由组合包中的普通提供方解析。`--host` 和 `--port` 覆盖承载它们的那些行的组合取值，可重复的 `--trusted-host` 通过 `ctx.webRuntime.trustedHosts` 提供本次调用的 authority（部署表达式会拼接自己的 authority），`--dev` 把 web-runtime 行切换到开发模式并启用组合包以禁用状态交付的客户端插件 HMR（热模块替换）接收器；若要无刷新更新客户端 bundle，还需单独运行 `pnpm run dev:web` watcher。
 
 ```sh
 dsh web

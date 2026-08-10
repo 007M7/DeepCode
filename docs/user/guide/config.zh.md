@@ -51,7 +51,7 @@ Cordis 会并发启动同级配置项。插件通过 `inject` 声明必需服务
 
 ## CLI 补丁层
 
-`dsh --profile <name>` 按该 profile 的 manifest（元数据清单）中 `dsh.profile.bundles` 列表的顺序，在空根之上组合各组合包补丁层，随后依次应用该 profile 自己的 `~/.dsh/profiles/<name>/cordis.patch.yml`、home 级的 `$DSH_HOME/cordis.patch.yml` 与每个 `--patch <path>` overlay。同一行以较后的层为准。应用 flag 并不是另一层 patch：组合包中注入 `cmdlineArgs` 的启动行把它们解析成服务，而保留了读取该服务的 `!!js` 表达式的行会让本次调用的取值优先。
+`dsh --profile <name>` 按该 profile 的 manifest（元数据清单）中 `dsh.profile.bundles` 列表的顺序，在空根之上组合各组合包补丁层，随后依次应用该 profile 自己的 `~/.dsh/profiles/<name>/cordis.patch.yml`、home 级的 `$DSH_HOME/cordis.patch.yml` 与每个 `--patch <path>` overlay。同一行以较后的层为准。应用 flag 并不是另一层 patch：组合包中的普通插件注入 `cmdlineArgs`，再把解析值作为自身服务提供；注入该服务并保留其 `!!js` 读取的行会让本次调用的取值优先。
 
 补丁会替换目标行的整个 `config` 值，而不是深度合并各个键。例如，只用 `config: { thinking: disabled }` 修补 `llm-deepseek`，也会移除该行原有的 `apiKey` 与 `baseURL`；因此必须重新写出该行需要保留的全部键。
 

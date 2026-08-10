@@ -17,7 +17,7 @@
 
 ## 应用参数
 
-启动器只解析属于自己的 flag,并把其后的一切交给启动起来的 profile,由该应用自己的启动行解析([`dsh-cmdline`](../../packages/boot/cmdline/README.md))。因此启动器的 flag 必须写在前面,而启动器不认识的第一个 token 就是应用参数的起点:
+启动器只解析属于自己的 flag,并把其后的一切交给启动起来的 profile,任何注入它的应用插件都可以解析这份共享的不可变快照([`dsh-cmdline`](../../packages/boot/cmdline/README.md))。因此启动器的 flag 必须写在前面,而启动器不认识的第一个 token 就是应用参数的起点:
 
 ```sh
 dsh --profile web --port 8080       # --port belongs to the web app

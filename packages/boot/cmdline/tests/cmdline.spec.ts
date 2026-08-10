@@ -15,7 +15,7 @@ import Include from '@cordisjs/plugin-include'
 import type { PatchOptions } from '@cordisjs/plugin-include'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
-  enableRow, hasCmdlineConsumer, internals, provideCmdline, runStartup, type StartupPlan,
+  enableRow, internals, parseCmdline, provideCmdline, type CmdlinePlan,
 } from '../src/index.ts'
 
 /** Every value one boot of the fixture tree observed. */
@@ -26,7 +26,7 @@ interface Observed {
   out: string
 }
 
-/** A booted fixture tree: what it observed, and its root for direct startup calls. */
+/** A booted fixture tree: what it observed, and its root for direct parser calls. */
 interface Fixture {
   observed: Observed
   ctx: Context
@@ -46,7 +46,7 @@ function demoCommand(): Command {
 }
 
 /** The fixture app's plan: the resolved values its rows read. */
-const demoPlan: StartupPlan<{ port?: number }> = (program) => {
+const demoPlan: CmdlinePlan<{ port?: number }> = (program) => {
   const port = program.opts<{ port?: string }>().port
   if (port === undefined) return {}
   if (!/^\d+$/.test(port)) program.error(`error: --port must be a number, got ${JSON.stringify(port)}`)
@@ -65,8 +65,8 @@ const expression = (source: string): unknown => ({ __jsExpr: source })
  */
 async function bootFixture(
   args: string[],
-  plan: StartupPlan = demoPlan,
-  options: { objectInject?: boolean; withoutStartup?: boolean } = {},
+  plan: CmdlinePlan = demoPlan,
+  options: { objectInject?: boolean; withoutProvider?: boolean } = {},
 ): Promise<Fixture> {
   const dir = mkdtempSync(join(tmpdir(), 'dsh-cmdline-'))
   const observed: Observed = { exits: [], out: '' }
@@ -81,28 +81,31 @@ export function apply(ctx, config) { globalThis.__observed.started = config }
   writeFileSync(join(dir, 'startup.mjs'), `
 export const name = 'demo-startup'
 export const inject = ['cmdlineArgs']
-export function apply(ctx) { return globalThis.__runStartup(ctx) }
+export function apply(ctx) { return globalThis.__provideDemoArgs(ctx) }
 `)
   writeFileSync(join(dir, 'cordis.yml'), '[]\n')
   const observing = { write: (chunk: string) => { observed.out += chunk; return true } }
   internals.stdout = observing
   internals.stderr = observing
-  const globals = globalThis as unknown as { __observed: Observed; __runStartup: (ctx: Context) => void }
+  const globals = globalThis as unknown as { __observed: Observed; __provideDemoArgs: (ctx: Context) => void }
   globals.__observed = observed
-  globals.__runStartup = (ctx: Context) => { runStartup(ctx, 'demoStartup', demoCommand(), plan) }
+  globals.__provideDemoArgs = (ctx: Context) => {
+    const values = parseCmdline(ctx, demoCommand(), plan)
+    if (values !== undefined) ctx.provide('demoStartup', values)
+  }
 
   // The composition, exactly as a profile delivers one: include patches whose
   // config carries `!!js` expressions.
   const composition: PatchOptions[] = [{
     insert: [
-      ...options.withoutStartup === true
+      ...options.withoutProvider === true
         ? []
-        : [{ id: 'demo-startup', name: pathToFileURL(join(dir, 'startup.mjs')).href, inject: ['cmdlineArgs'] }],
+        : [{ id: 'demo-startup', name: pathToFileURL(join(dir, 'startup.mjs')).href }],
       {
         id: 'reader',
         name: pathToFileURL(join(dir, 'reader.mjs')).href,
         inject: options.objectInject === true ? { demoStartup: { required: true } } : ['demoStartup'],
-        config: { port: expression('ctx.demoStartup?.port ?? 3080') },
+        config: { port: expression('ctx.demoStartup.port ?? 3080') },
       },
     ],
   }]
@@ -119,55 +122,7 @@ export function apply(ctx) { return globalThis.__runStartup(ctx) }
   return { observed, ctx }
 }
 
-describe('hasCmdlineConsumer', () => {
-  it('recognizes active array and object injections', () => {
-    expect(hasCmdlineConsumer([
-      { id: 'ordinary', name: 'ordinary' },
-      { id: 'disabled-startup', name: 'disabled-startup', inject: ['cmdlineArgs'], disabled: true },
-      { id: 'tui-startup', name: 'tui-startup', inject: { cmdlineArgs: { required: true } } },
-    ])).toBe(true)
-    expect(hasCmdlineConsumer([
-      { id: 'ordinary', name: 'ordinary' },
-      { id: 'disabled-startup', name: 'disabled-startup', inject: ['cmdlineArgs'], disabled: true },
-    ])).toBe(false)
-    expect(() => hasCmdlineConsumer([
-      { id: 'web-startup', name: 'web-startup', inject: ['cmdlineArgs'] },
-      { id: 'tui-startup', name: 'tui-startup', inject: ['cmdlineArgs'] },
-    ])).toThrow('multiple active rows inject cmdlineArgs ("web-startup", "tui-startup")')
-  })
-
-  it('walks nested groups and ignores consumers disabled by an ancestor', () => {
-    expect(hasCmdlineConsumer([{
-      id: 'app',
-      name: 'cordis:group',
-      group: true,
-      config: [{ id: 'startup', name: 'startup', inject: ['cmdlineArgs'] }],
-    }])).toBe(true)
-    expect(hasCmdlineConsumer([{
-      id: 'app',
-      name: 'cordis:group',
-      group: true,
-      disabled: true,
-      config: [{ id: 'startup', name: 'startup', inject: ['cmdlineArgs'] }],
-    }])).toBe(false)
-    expect(() => hasCmdlineConsumer([
-      {
-        id: 'first',
-        name: 'cordis:group',
-        group: true,
-        config: [{ id: 'startup', name: 'startup', inject: ['cmdlineArgs'] }],
-      },
-      {
-        id: 'second',
-        name: 'cordis:group',
-        group: true,
-        config: [{ id: 'startup', name: 'startup', inject: ['cmdlineArgs'] }],
-      },
-    ])).toThrow('multiple active rows inject cmdlineArgs ("first:startup", "second:startup")')
-  })
-})
-
-describe('runStartup', () => {
+describe('parseCmdline', () => {
   it('lets a row read the flag value the app resolved', async () => {
     const { observed } = await bootFixture(['--port', '8080'])
     expect(observed.started).toEqual({ port: 8080 })
@@ -179,7 +134,7 @@ describe('runStartup', () => {
     expect(observed.started).toEqual({ port: 3080 })
   })
 
-  it('recognizes the Loader object form of a startup-service injection', async () => {
+  it('recognizes the Loader object form of a provider-service injection', async () => {
     const { observed } = await bootFixture(['--port', '8080'], demoPlan, { objectInject: true })
     expect(observed.started).toEqual({ port: 8080 })
   })
@@ -199,32 +154,24 @@ describe('runStartup', () => {
   })
 
   it('rethrows a plan failure that is not commander asking to exit', async () => {
-    const { ctx } = await bootFixture([], demoPlan, { withoutStartup: true })
-    const plan: StartupPlan = () => { throw new Error('plan exploded') }
-    expect(() => { runStartup(ctx, 'demoStartup', demoCommand(), plan) }).toThrow('plan exploded')
+    const { ctx } = await bootFixture([], demoPlan, { withoutProvider: true })
+    const plan: CmdlinePlan = () => { throw new Error('plan exploded') }
+    expect(() => { parseCmdline(ctx, demoCommand(), plan) }).toThrow('plan exploded')
   })
 
   it('rethrows a thrown value that is not an object at all', async () => {
-    const { ctx } = await bootFixture([], demoPlan, { withoutStartup: true })
-    const plan: StartupPlan = () => {
+    const { ctx } = await bootFixture([], demoPlan, { withoutProvider: true })
+    const plan: CmdlinePlan = () => {
       const thrown: unknown = 'plan threw a string'
       throw thrown
     }
-    expect(() => { runStartup(ctx, 'demoStartup', demoCommand(), plan) }).toThrow('plan threw a string')
+    expect(() => { parseCmdline(ctx, demoCommand(), plan) }).toThrow('plan threw a string')
   })
 
-  it('fails loud when no row injects the service the app provides', async () => {
-    // The bundle patch and its startup row disagree; a silent no-op would leave
-    // every row of the app on its fallbacks with no explanation.
-    const { ctx } = await bootFixture([], demoPlan, { withoutStartup: true })
-    expect(() => { runStartup(ctx, 'absentStartup', demoCommand()) })
-      .toThrow('absentStartup: no row injects this startup service')
-  })
-
-  it('accepts a service-name list when the app declares no plan', async () => {
-    const { ctx } = await bootFixture([], demoPlan, { withoutStartup: true })
-    runStartup(ctx, ['demoStartup'], demoCommand())
-    expect(ctx.get('demoStartup')).toEqual({})
+  it('returns values without inspecting Loader rows or owning a service', async () => {
+    const { ctx } = await bootFixture([], demoPlan, { withoutProvider: true })
+    expect(parseCmdline(ctx, demoCommand())).toEqual({})
+    expect(ctx.get('demoStartup')).toBeUndefined()
   })
 })
 
@@ -302,19 +249,17 @@ describe('provideCmdline', () => {
     expect(ctx.cmdlineArgs?.get()).toEqual(['--resume', 'abc'])
   })
 
-  it('fails loud when a startup row runs without the launcher values', () => {
+  it('fails loud when a parser runs without the launcher values', () => {
     const ctx = new Context()
-    expect(() => { runStartup(ctx, 'demoStartup', demoCommand()) })
+    expect(() => { parseCmdline(ctx, demoCommand()) })
       .toThrow('the launcher must provide ctx.cmdlineArgs and ctx.appExit')
   })
 
-  it('resolves nothing when the tree was disposed while the startup row parsed', () => {
-    // An early SIGTERM takes the Loader with it; there is nothing left to
-    // configure, and the bundle did nothing wrong.
-    const exits: number[] = []
+  it('lets multiple parsers read the same immutable snapshot', () => {
     const ctx = new Context()
-    provideCmdline(ctx, { args: [], exit: code => void exits.push(code) })
-    expect(() => { runStartup(ctx, 'demoStartup', demoCommand()) }).not.toThrow()
-    expect(exits).toEqual([])
+    provideCmdline(ctx, { args: ['--port', '8080'], exit: () => {} })
+    expect(parseCmdline(ctx, demoCommand(), demoPlan)).toEqual({ port: 8080 })
+    expect(parseCmdline(ctx, demoCommand(), demoPlan)).toEqual({ port: 8080 })
+    expect(Object.isFrozen(ctx.cmdlineArgs?.get())).toBe(true)
   })
 })

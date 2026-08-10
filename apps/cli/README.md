@@ -17,7 +17,7 @@ The invoking directory is the default workspace root. The `web` and `headless` p
 
 ## App arguments
 
-The launcher parses only its own flags and hands everything after them to the booted profile, where that app's own startup row parses them ([`dsh-cmdline`](../../packages/boot/cmdline/README.md)). Launcher flags therefore come first, and the first token the launcher does not recognize starts the app's arguments:
+The launcher parses only its own flags and hands everything after them to the booted profile, where any injected app plugin may parse the shared immutable snapshot ([`dsh-cmdline`](../../packages/boot/cmdline/README.md)). Launcher flags therefore come first, and the first token the launcher does not recognize starts the app's arguments:
 
 ```sh
 dsh --profile web --port 8080       # --port belongs to the web app

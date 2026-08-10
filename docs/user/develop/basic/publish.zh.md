@@ -99,7 +99,7 @@ dsh --profile demo
 3. home 级的 `$DSH_HOME/cordis.patch.yml`——各 profile 共享的机器本地偏好。
 4. 每个 `--patch <path>` overlay，按 argv 顺序。
 
-应用参数不是另一层 patch。表层组合包可以通过下文所述的启动服务解析它们。
+应用参数不是另一层 patch。表层组合包可以通过下文所述的普通应用自有服务解析它们。
 
 后应用的层按行胜出，且 patch 会替换目标行的整个 `config` 值，而不是深度合并各键。这给组合包作者带来两个推论：
 
@@ -110,17 +110,16 @@ dsh --profile demo
 
 ## 让表层组合包持有自己的命令行
 
-定义了可运行应用的组合包可以通过启动行本来就需要的注入来标记它：
+定义了可运行应用的组合包挂载一个普通提供方插件：
 
 ```yaml
 - id: hello-startup
   name: 'dsh-hello-plugin/startup'
-  inject: [cmdlineArgs]
 ```
 
-该行使用应用自己的 commander program 调用 [`@deepseek-ai/dsh-cmdline`](../../../../packages/boot/cmdline/README.md) 中的 `runStartup`。启动器把自身 flag 之后的所有参数交给它，因此添加应用专属 flag 无需修改启动器。Loader 只挂载一次组合，等待每一行的注入，再基于其已注入的上下文求值该行的 `!!js` 配置。
+该插件导出 `inject = ['cmdlineArgs']`，使用自己的 commander program 调用 [`@deepseek-ai/dsh-cmdline`](../../../../packages/boot/cmdline/README.md) 中的 `parseCmdline`，再把返回值作为应用自有服务提供出去。启动器把自身 flag 之后的同一份不可变参数交给每个插件，因此添加应用专属 flag 无需修改启动器，多个插件也可以解析该快照。Loader 行不需要启动器标记或特殊类型。
 
-受这些参数配置的行会注入启动服务，并在自己的 `!!js` 选项中读取它，同时把部署取值写在旁边作为回退：
+受这些参数配置的行会注入提供方服务，并在自己的 `!!js` 选项中读取它，同时把部署取值写在旁边作为回退：
 
 ```yaml
 - id: my-app
@@ -130,7 +129,7 @@ dsh --profile demo
     port: !!js ctx.myAppStartup.port ?? 8080
 ```
 
-遇到 `--help` 时，该服务不会被提供，所以这些行不会激活。叠加在另一应用之上的应用会禁用下层启动行，因为一套组合只能有一个命令行所有者。
+遇到 `--help` 时，提供方不会发布该服务，所以这些行不会激活。Loader 只挂载一次组合，等待每一行的普通注入，再基于其已注入的上下文求值该行的 `!!js` 配置。
 
 ## 从 GitHub 安装：构建脚本这道坎
 

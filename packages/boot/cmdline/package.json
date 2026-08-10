@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-cmdline",
-  "description": "Command-line handoff between a dsh launcher and app bundles: cmdlineArgs exposes inner arguments, while injected startup rows parse them into app-owned runtime services",
+  "description": "Immutable command-line handoff from a dsh launcher to any app plugin that injects cmdlineArgs",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -24,9 +24,6 @@
     "lib/types/**/*.d.ts"
   ],
   "license": "BSD-3-Clause",
-  "dependencies": {
-    "commander": "^15.0.0"
-  },
   "peerDependencies": {
     "@deepseek-ai/cordis-plugin-loader": "^1.0.0-rc.5",
     "@deepseek-ai/dsh-invariants": "^0.0.1",
@@ -35,6 +32,7 @@
   "devDependencies": {
     "@deepseek-ai/cordis-plugin-include": "workspace:^",
     "@deepseek-ai/cordis-plugin-loader": "workspace:^",
+    "commander": "^15.0.0",
     "@deepseek-ai/dsh-invariants": "workspace:^",
     "@deepseek-ai/cordis": "^4.0.0-rc.7"
   }

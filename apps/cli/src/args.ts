@@ -3,8 +3,8 @@
  *
  * The launcher parses only what it owns — which profile to boot, which extra
  * patch overlays to apply, and the config dumps — and hands **everything after
- * its own flags** to the booted tree verbatim, where the booted app's startup row
- * parses its own flag family and prints its own `--help` (see
+ * its own flags** to the booted tree verbatim, where injected app plugins parse
+ * their own flag families and print their own `--help` (see
  * `@deepseek-ai/dsh-cmdline`). Launcher flags therefore come first: the first
  * token this parser does not recognize starts the inner arguments, so
  * `dsh --profile tui --resume abc` boots the tui profile with `--resume abc`,
@@ -23,7 +23,7 @@ interface ProfileInvocation {
   profile: string
   /** Extra patch-list overlays applied after the profile's own layer, in argv order. */
   patches: string[]
-  /** Everything after the launcher's own flags, verbatim, for the booted app's startup row. */
+  /** Everything after the launcher's own flags, verbatim, for injected app plugins. */
   args: string[]
 }
 
@@ -89,8 +89,8 @@ function resolveBoot(program: Command, profile: string, options: BootOptions, ar
   if (options.dumpConfig === true && options.dumpDefaultConfig === true) {
     program.error('error: --dump-config and --dump-default-config are mutually exclusive')
   }
-  // The dump is boot-free: it never runs the app's startup row, so it cannot
-  // show what that app's flags would decide, and printing a tree that differs
+  // The dump is boot-free: it never runs app command-line providers, so it
+  // cannot show what those flags would decide, and printing a tree that differs
   // from the same invocation's boot would mislead.
   if (args.length > 0) {
     program.error(`error: config dumps take no app arguments, got ${args.map(argument => JSON.stringify(argument)).join(' ')}`)

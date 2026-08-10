@@ -1,7 +1,7 @@
 /**
- * The one-shot app's startup row over a real Loader tree: the task positional
- * becomes the injected runner config, while help and usage errors leave the
- * runner pending.
+ * The one-shot app's ordinary command-line provider over a real Loader tree:
+ * the task becomes injected runner config, while help and usage errors leave
+ * the consumer pending.
  */
 
 import { mkdtempSync, writeFileSync } from 'node:fs'
@@ -31,15 +31,11 @@ afterEach(async () => {
 })
 
 /**
- * Mount the real startup row over a runner stand-in.
+ * Mount the real provider over a runner stand-in.
  * @param args - the invocation's inner arguments.
- * @param options - fixture knobs for invalid compositions.
- * @returns the resolved startup value and observed runner/process effects.
+ * @returns the resolved service value and observed runner/process effects.
  */
-async function bootStartup(
-  args: string[],
-  options: { withoutRunner?: boolean } = {},
-): Promise<{ task: HeadlessStartupValues | undefined; observed: Observed }> {
+async function bootStartup(args: string[]): Promise<{ task: HeadlessStartupValues | undefined; observed: Observed }> {
   const dir = mkdtempSync(join(tmpdir(), 'dsh-headless-startup-'))
   const observed: Observed = { exits: [], out: '' }
   writeFileSync(join(dir, 'row.mjs'), 'export function apply(_ctx, config) { globalThis.__headlessStartupObserved.runnerConfig = config }\n')
@@ -52,14 +48,13 @@ export const apply = ctx => globalThis.__headlessStartupApply(ctx)
 `)
   const rowUrl = pathToFileURL(join(dir, 'row.mjs')).href
   writeFileSync(join(dir, 'cordis.yml'), [
-    options.withoutRunner === true ? '- id: displaced-runner' : '- id: headless-runner',
+    '- id: headless-runner',
     `  name: ${rowUrl}`,
     `  inject: [${HEADLESS_STARTUP_SERVICE}]`,
     '  config:',
     '    task: !!js ctx.headlessStartup.task',
     '- id: headless-startup',
     `  name: ${pathToFileURL(join(dir, 'startup.mjs')).href}`,
-    '  inject: [cmdlineArgs]',
     '',
   ].join('\n'))
   const observing = { write: (chunk: string) => { observed.out += chunk; return true } }
@@ -85,7 +80,7 @@ export const apply = ctx => globalThis.__headlessStartupApply(ctx)
   }
 }
 
-describe('headless startup', () => {
+describe('headless command-line provider', () => {
   it('joins the task positional into the runner config', async () => {
     const { task, observed } = await bootStartup(['run', 'the', 'tests'])
     expect(task).toEqual({ task: 'run the tests' })
@@ -93,8 +88,8 @@ describe('headless startup', () => {
     expect(observed.exits).toEqual([])
   })
 
-  it('rejects an invocation with no task and leaves the runner pending', async () => {
-    const { task, observed } = await bootStartup([])
+  it.each([{ args: [] }, { args: ['   '] }])('rejects an invocation with no non-whitespace task ($args)', async ({ args }) => {
+    const { task, observed } = await bootStartup(args)
     expect(observed.out).toContain('a task is required')
     expect(task).toBeUndefined()
     expect(observed.runnerConfig).toBeUndefined()
@@ -107,10 +102,5 @@ describe('headless startup', () => {
     expect(task).toBeUndefined()
     expect(observed.runnerConfig).toBeUndefined()
     expect(observed.exits).toEqual([0])
-  })
-
-  it('fails when the composition has no runner row', async () => {
-    await expect(bootStartup(['task'], { withoutRunner: true }))
-      .rejects.toThrow('the composition has no waiting "headless-runner" row')
   })
 })

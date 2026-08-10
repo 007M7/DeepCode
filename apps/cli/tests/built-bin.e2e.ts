@@ -128,8 +128,8 @@ function createProfileLifecycleFixture(): ProfileLifecycleFixture {
   return { home, ready, settled, disposed, interrupt }
 }
 
-function startProfileLifecycle(fixture: ProfileLifecycleFixture) {
-  return execa(process.execPath, [dshBin, '--profile', 'lifecycle'], {
+function startProfileLifecycle(fixture: ProfileLifecycleFixture, args: readonly string[] = []) {
+  return execa(process.execPath, [dshBin, '--profile', 'lifecycle', ...args], {
     cwd: fixture.home,
     input: '',
     reject: false,
@@ -203,9 +203,9 @@ interface StartupFixture {
 }
 
 /**
- * A custom profile whose bundle owns a command line: a startup row whose
- * `cmdlineArgs` injection identifies it to the launcher, and a row that reads
- * what it resolved through a `!!js` config expression. Both plugin modules resolve
+ * A custom profile whose ordinary provider plugin injects `cmdlineArgs`, plus
+ * a row that reads its app-owned service through a `!!js` config expression.
+ * Both plugin modules resolve
  * `@deepseek-ai/dsh-cmdline` and `commander` through the profile module
  * fallback, exactly as an installed out-of-tree bundle does.
  */
@@ -219,12 +219,13 @@ function createStartupFixture(): StartupFixture {
   mkdirSync(bundleDir, { recursive: true })
   writeFileSync(join(bundleDir, 'startup.mjs'), [
     "import { Command } from 'commander'",
-    "import { runStartup } from '@deepseek-ai/dsh-cmdline'",
+    "import { parseCmdline } from '@deepseek-ai/dsh-cmdline'",
     "export const name = 'fixture-startup'",
     "export const inject = ['cmdlineArgs']",
     'export function apply(ctx) {',
     "  const program = new Command().name('fixture').option('--generation <value>', 'echoed generation')",
-    "  return runStartup(ctx, 'fixtureStartup', program, parsed => ({ generation: parsed.opts().generation }))",
+    '  const values = parseCmdline(ctx, program, parsed => ({ generation: parsed.opts().generation }))',
+    '  if (values !== undefined) ctx.provide(\'fixtureStartup\', values)',
     '}',
     '',
   ].join('\n'))
@@ -260,11 +261,10 @@ function createStartupFixture(): StartupFixture {
     `      name: ${pathToFileURL(join(bundleDir, 'waiting.mjs')).href}`,
     '      inject: [fixtureStartup]',
     '      config:',
-    // The flag the startup row resolved wins over the value written beside it.
-    "        generation: !!js ctx.get('fixtureStartup')?.generation ?? 'bundle-default'",
+    // Lazy interpolation runs only after the provider's service is injected.
+    "        generation: !!js ctx.fixtureStartup.generation ?? 'bundle-default'",
     '    - id: fixture-startup',
     `      name: ${pathToFileURL(join(bundleDir, 'startup.mjs')).href}`,
-    '      inject: [cmdlineArgs]',
     '    - id: reload-witness',
     `      name: ${pathToFileURL(join(bundleDir, 'witness.mjs')).href}`,
     '',
@@ -466,21 +466,9 @@ describe.skipIf(!existsSync(dshBin))('dsh BUILT bin (node lib/bin.js, no tsx)', 
     }
   }, 30_000)
 
-  it('rejects arguments when no active row injects the profile command line', async () => {
+  it('lets a profile without a parser ignore app arguments and dispose on a startup-time signal', async () => {
     const fixture = createProfileLifecycleFixture()
-    try {
-      const result = await runBuiltBin(['--profile', 'lifecycle', '--help'], { DSH_HOME: fixture.home })
-      expect(result.code).toBe(1)
-      expect(result.stderr).toContain('takes no app arguments because no active row injects cmdlineArgs')
-      expect(existsSync(fixture.ready)).toBe(false)
-    } finally {
-      rmSync(fixture.home, { recursive: true, force: true })
-    }
-  }, 30_000)
-
-  it('applies a custom profile bundle and disposes it on a startup-time signal', async () => {
-    const fixture = createProfileLifecycleFixture()
-    const child = startProfileLifecycle(fixture)
+    const child = startProfileLifecycle(fixture, ['--unclaimed'])
     try {
       await waitForFile(fixture.ready)
       requestProfileShutdown(child, fixture)
@@ -551,8 +539,8 @@ describe.skipIf(!existsSync(dshBin))('dsh BUILT bin (node lib/bin.js, no tsx)', 
     const child = startStartupProfile(fixture, ['--generation', 'flagged'])
     try {
       await waitForFile(fixture.ready)
-      // The waiting row started once, already carrying the flag value: the
-      // launcher never saw --generation, and the app resolved it first.
+      // The consumer started once, already carrying the flag value: the
+      // launcher never saw --generation, and the app provider resolved it first.
       expect(readFileSync(fixture.echo, 'utf8')).toBe('flagged')
       requestProfileShutdown(child, fixture)
       expect((await child).exitCode).toBe(0)
@@ -562,7 +550,7 @@ describe.skipIf(!existsSync(dshBin))('dsh BUILT bin (node lib/bin.js, no tsx)', 
     }
   }, 30_000)
 
-  it('starts a waiting row on its composed value when the invocation carries no app arguments', async () => {
+  it('starts a consumer on its composed value when the invocation carries no app arguments', async () => {
     const fixture = createStartupFixture()
     const child = startStartupProfile(fixture, [])
     try {
@@ -577,7 +565,7 @@ describe.skipIf(!existsSync(dshBin))('dsh BUILT bin (node lib/bin.js, no tsx)', 
   }, 30_000)
 
   it('keeps the app arguments across a user patch reload', async () => {
-    // A live edit recomposes every row while the startup service remains
+    // A live edit recomposes every row while the provider service remains
     // active, so each config expression reads the same invocation value (a
     // served port does not move back to its composed fallback).
     const fixture = createStartupFixture()

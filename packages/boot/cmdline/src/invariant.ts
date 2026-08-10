@@ -14,14 +14,10 @@ export const name = 'cmdline-invariant'
 export const inject = ['invariants']
 
 /**
- * No runtime invariant: the owned relation is "no row is left waiting for a
- * startup service", which is a property of the whole tree at Loader
- * settlement, and the invariant service carries no settlement signal to
- * evaluate it at. Observing it from the entry stream would fire while startup
- * is still parsing, when every waiting row is legitimately still waiting. The
- * launcher's post-settlement audit (`assertEntriesActivated`) already reports
- * a startup service that was never provided as a pending entry naming it, and
- * the built-bin e2e asserts the apps boot with flag values applied.
+ * No runtime invariant: `cmdlineArgs` is an immutable launcher fact that any
+ * number of ordinary plugins may read. App-owned providers and consumers use
+ * normal Cordis service injection, whose missing dependencies are already
+ * reported by Loader settlement.
  */
 const install: InvariantInstaller = () => {}
 

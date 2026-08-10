@@ -99,7 +99,7 @@ The effective configuration composes over an empty root by applying, in order:
 3. The home-level `$DSH_HOME/cordis.patch.yml` — machine-local preferences shared by every profile.
 4. Each `--patch <path>` overlay, in argv order.
 
-App arguments are not another patch layer. A surface bundle can resolve them through a startup service, described below.
+App arguments are not another patch layer. A surface bundle can resolve them through an ordinary app-owned service, described below.
 
 Later layers win per row, and a patch replaces a row's entire `config` value rather than deep-merging keys. Two consequences for bundle authors:
 
@@ -110,17 +110,16 @@ In-box bundle names always resolve from the dsh installation itself; pnpm manage
 
 ## Give a surface bundle its own command line
 
-A bundle that defines a runnable app marks its startup row through the injection it already requires:
+A bundle that defines a runnable app mounts an ordinary provider plugin:
 
 ```yaml
 - id: hello-startup
   name: 'dsh-hello-plugin/startup'
-  inject: [cmdlineArgs]
 ```
 
-That row calls `runStartup` from [`@deepseek-ai/dsh-cmdline`](../../../../packages/boot/cmdline/README.md) with the app's own commander program. The launcher hands it every argument after the launcher flags, so app-specific flags need no launcher change. Loader mounts the composition once, waits for each row's injections, and only then evaluates that row's `!!js` config against its injected context.
+The plugin exports `inject = ['cmdlineArgs']`, calls `parseCmdline` from [`@deepseek-ai/dsh-cmdline`](../../../../packages/boot/cmdline/README.md) with its own commander program, and provides the returned value as its app-owned service. The launcher hands every plugin the same immutable arguments after launcher flags, so app-specific flags need no launcher change and multiple plugins may parse the snapshot. The Loader row needs no launcher marker or special kind.
 
-Rows configured by those arguments inject the startup service and read it from their own `!!js` options, with the deployment value beside it as the fallback:
+Rows configured by those arguments inject the provider's service and read it from their own `!!js` options, with the deployment value beside it as the fallback:
 
 ```yaml
 - id: my-app
@@ -130,7 +129,7 @@ Rows configured by those arguments inject the startup service and read it from t
     port: !!js ctx.myAppStartup.port ?? 8080
 ```
 
-On `--help`, the service is not provided, so those rows never activate. An app layered over another app disables the lower startup row, because one composition has one command-line owner.
+On `--help`, the provider publishes no service, so those rows never activate. Loader mounts the composition once, waits for each row's ordinary injections, and only then evaluates that row's `!!js` config against its injected context.
 
 ## Installing from GitHub: the build-script catch
 

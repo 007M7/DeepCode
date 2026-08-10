@@ -6,8 +6,8 @@
  * live, and wire fail-loud plus bounded shutdown.
  *
  * App flags are not the launcher's business: the invocation's inner arguments
- * are provided to the tree through `ctx.cmdlineArgs`, and the booted app's
- * startup row parses them and configures its own rows.
+ * are provided to the tree through `ctx.cmdlineArgs`, where any injected app
+ * plugin may read the same immutable snapshot.
  * @module @deepseek-ai/dsh/profile-boot
  */
 
@@ -37,7 +37,7 @@ const SHIPPED_PRESET_ROOT = fileURLToPath(new URL('../config/agent-presets/', im
 /** Harness-home directory holding locally authored agent presets. */
 const USER_PRESET_DIR = '.agent-presets'
 import { DSH_ENVIRONMENT_KEY, type EnvironmentSnapshot } from '@deepseek-ai/dsh-environment'
-import { hasCmdlineConsumer, provideCmdline } from '@deepseek-ai/dsh-cmdline'
+import { provideCmdline } from '@deepseek-ai/dsh-cmdline'
 import type { HeadlessIo } from '@deepseek-ai/dsh-headless'
 import { createProcessShutdown, type ProcessShutdown } from './process-shutdown.ts'
 import { resolveWindowsShellLayer } from './windows-shell.ts'
@@ -206,12 +206,6 @@ function suppressSignalShutdownError(signal: AbortSignal, error: unknown): void 
  */
 export async function runProfile(options: RunProfileOptions): Promise<{ ctx: Context; shutdown: ProcessShutdown }> {
   const composed = composeProfile(options.profile, options.patchFiles)
-  if (!hasCmdlineConsumer([...composed.rows.values()]) && options.args.length > 0) {
-    throw new Error(
-      `${NAME}: profile ${JSON.stringify(options.profile)} takes no app arguments because no active row injects cmdlineArgs; `
-      + `got ${options.args.map(argument => JSON.stringify(argument)).join(' ')}`,
-    )
-  }
   // A one-shot composition ends by itself, which changes what a signal means
   // and makes watching the user's patch layer pointless.
   const headlessRow = composed.rows.get(HEADLESS_ROW_ID)
@@ -225,8 +219,7 @@ export async function runProfile(options: RunProfileOptions): Promise<{ ctx: Con
     shutdown.interrupt(code)
   }
   // Signals own teardown throughout the startup window, not only after boot()
-  // settles: an inserted startup row can publish readiness before sibling rows
-  // finish mounting.
+  // settles: an inserted provider can publish before sibling rows finish mounting.
   process.on('SIGTERM', () => { interrupt(oneShot ? 143 : 0) })
   process.on('SIGINT', () => { interrupt(130) })
   installFailLoud(NAME, process, async () => {
@@ -235,9 +228,9 @@ export async function runProfile(options: RunProfileOptions): Promise<{ ctx: Con
 
   const rootConfig = join(composed.profile.dir, PROFILE_ROOT_FILENAME)
   // Recomposition for the live user layers: bundle layers below, overlays
-  // above, so a user edit can never displace them. What an app's startup row
-  // resolved is not in here at all — it lives in that row's own service, which
-  // survives a recomposition. BOTH
+  // above, so a user edit can never displace them. Parsed app arguments are
+  // not in here at all — they live in app-provided services that survive a
+  // recomposition. BOTH
   // user files are re-read per generation (the HMR watcher hands us only the
   // changed file's patches, which one of the reads duplicates — fresh reads
   // keep the two watchers from stitching in each other's stale copy).
@@ -263,9 +256,8 @@ export async function runProfile(options: RunProfileOptions): Promise<{ ctx: Con
     // Before any config-tree entry mounts, so plugins resolve all launch-time
     // environment values from the same immutable provenance snapshot.
     hostCtx.provide(DSH_ENVIRONMENT_KEY, options.environment)
-    // The command line is a launcher fact every app reads the same way: its
-    // own arguments, and the bounded exit its startup row requests after
-    // printing help or rejecting them.
+    // The command line and bounded exit request are launcher facts available
+    // to every app plugin that injects the argument snapshot.
     provideCmdline(hostCtx, {
       args: options.args,
       exit: code => void shutdown.shutdown(code),
@@ -280,8 +272,8 @@ export async function runProfile(options: RunProfileOptions): Promise<{ ctx: Con
     }
   })
   app.current = ctx
-  // A surface can dispose the whole tree while startup or this post-boot
-  // watcher setup is still in flight. Loader presence and fiber state own
+  // A surface can dispose the whole tree while boot or this post-boot watcher
+  // setup is still in flight. Loader presence and fiber state own
   // liveness; the local signal fact distinguishes that expected exit race
   // from a real HMR error.
   if (watchProfilePatch

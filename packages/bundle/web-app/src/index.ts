@@ -11,6 +11,7 @@
  */
 
 import { createRequire } from 'node:module'
+import { networkInterfaces } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
@@ -28,7 +29,9 @@ export const name = 'web-app'
 /** This dsh installation's root, from either this package's source or built entry. */
 const SOURCE_ROOT = fileURLToPath(new URL('../../../..', import.meta.url))
 const HMR_ROW_ID = 'client-hmr'
-const CLIENT_ROSTER_SERVICE = 'webClientRoster'
+
+/** Runtime service that releases Web rows after bind-dependent values resolve. */
+const WEB_RUNTIME_SERVICE = 'webRuntime'
 
 /** Services required before the web runtime can mount. */
 export const inject = ['httpServer']
@@ -36,7 +39,7 @@ export const inject = ['httpServer']
 /** Web runtime mode: production, or development when the client-plugin HMR receiver is active. */
 export type WebMode = 'production' | 'development'
 
-/** Plugin config: composed deployment settings plus per-invocation startup values. */
+/** Plugin config: composed deployment settings plus per-invocation command-line values. */
 export interface Config {
   /** Whether this process mounted the client-plugin HMR receiver (`dsh web --dev`). */
   mode: WebMode
@@ -49,21 +52,24 @@ export interface Config {
    * orientation text would be false.
    */
   surfaceContext: boolean
-  /**
-   * LAN IPv4 addresses sampled once by the app startup row when the effective bind
-   * is all-interfaces — the exact snapshot the /api trust fence was
-   * configured with, so the printed LAN URL can never name an address the
-   * fence rejects. Empty on a loopback bind.
-   */
-  lanAddresses: string[]
+  /** Explicit `--trusted-host` authorities from this invocation. */
+  trustedHosts: string[]
 }
 
 export const Config: z<Config> = z.object({
   mode: z.union([z.const('production'), z.const('development')]).default('production'),
   printUrl: z.boolean().default(true),
   surfaceContext: z.boolean().default(true),
-  lanAddresses: z.array(String).default([]),
+  trustedHosts: z.array(String).default([]),
 })
+
+/** Bind-dependent Web values shared by the trust fence and URL display. */
+export interface WebRuntimeValues {
+  /** LAN IPv4 literals sampled once when the server binds all interfaces. */
+  lanAddresses: string[]
+  /** LAN literals followed by explicit invocation authorities. */
+  trustedHosts: string[]
+}
 
 /** Environment variable naming the canonical local URL of this Web GUI. */
 const DSH_WEB_URL = 'DSH_WEB_URL' as const
@@ -73,6 +79,27 @@ const DSH_WEB_MODE = 'DSH_WEB_MODE' as const
 // Display-only mirror of the webserver schema's loopback host: the address the
 // local URL always prints. Not a source of truth — the schema is.
 const LOOPBACK_HOST = '127.0.0.1'
+/** The webserver schema's all-interfaces bind literal. */
+const ALL_INTERFACES_HOST = '0.0.0.0'
+
+/**
+ * Resolve one LAN-trust snapshot from the active server bind.
+ *
+ * Derived entries are port-less IP literals: DNS rebinding needs an
+ * attacker-controlled name, while an IP-literal Host is safe on any port and
+ * an OS-assigned port is unknowable before bind.
+ * @param bindHost - the active webserver bind host.
+ * @param extra - explicit `--trusted-host` values, in argument order.
+ * @returns the LAN display addresses and invocation-derived fence authorities.
+ */
+export function resolveLanTrust(bindHost: string, extra: readonly string[]): WebRuntimeValues {
+  const lanAddresses = bindHost === ALL_INTERFACES_HOST
+    ? Object.values(networkInterfaces()).flat()
+      .filter((iface): iface is NonNullable<typeof iface> => iface !== undefined && iface.family === 'IPv4' && !iface.internal)
+      .map(iface => iface.address)
+    : []
+  return { lanAddresses, trustedHosts: [...lanAddresses, ...extra] }
+}
 
 /** Model-visible orientation and acceptance boundary for sessions created through `dsh web`. */
 function webSurfacePrompt(webUrl: string, mode: WebMode): string {
@@ -124,8 +151,10 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   // fiber. Otherwise its first browser graph omits the reload receiver, which
   // cannot use that receiver to discover itself later.
   if (config.mode === 'development') await enableRow(ctx, HMR_ROW_ID)
-  // Release client discovery only after the optional row has a pending fiber.
-  ctx.provide(CLIENT_ROSTER_SERVICE, true)
+  const runtime = resolveLanTrust(ctx.httpServer.host, config.trustedHosts)
+  // Release dependent rows only after the optional row has a pending fiber and
+  // bind-dependent trust has been sampled once.
+  ctx.provide(WEB_RUNTIME_SERVICE, runtime)
   ctx.plugin(FrontendStatic, { distIndex: internals.resolveDistIndex() })
   if (config.surfaceContext) {
     ctx.inject(['systemPrompt'], (promptCtx) => {
@@ -153,9 +182,8 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     // sibling rows (the /api route owner) are still mounting. Await Loader
     // settlement first; a hand-built tree without a Loader prints at once.
     const printUrl = (): void => {
-      // The startup row's boot-time LAN snapshot, not a fresh sample: the printed
-      // LAN URL must name an address the /api trust fence was configured with.
-      const lanCandidate = config.lanAddresses[0]
+      // Reuse the exact LAN snapshot provided to the /api trust fence.
+      const lanCandidate = runtime.lanAddresses[0]
       const port = ctx.httpServer.port
       console.log(`dsh web: ${localWebUrl(ctx)}${lanCandidate === undefined ? '' : ` (LAN: http://${lanCandidate}:${String(port)})`}`)
     }

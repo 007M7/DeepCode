@@ -5,12 +5,11 @@
 # A patch replaces the targeted row's whole `config`, so each row below
 # restates every key it owns.
 #
-# Rows this app configures from flags read them from the `webStartup` service:
-# each names the key it takes and the value it falls back to, so a flag wins
-# over the value written beside it. The web-startup row injects `cmdlineArgs`
-# and provides `webStartup`; Loader delays dependent-row config interpolation
-# until that service is active. `dsh --profile web --help` provides no service,
-# so the server rows never activate.
+# The web-startup plugin injects `cmdlineArgs` and provides `webStartup` as an
+# ordinary Cordis service. Rows configured from flags inject that service, so
+# Loader resolves their expressions only after it exists. The web runtime then
+# provides bind-dependent `webRuntime` values to the trust fence and client
+# roster. `dsh --profile web --help` provides neither service, so no server binds.
 
 # ── surface-specific values the base deliberately omits ─────────────────────
 
@@ -81,39 +80,39 @@
     - id: api-gateway
       name: '@deepseek-ai/dsh-host-apiproxy'
 
-    # This app's command-line startup row. It owns the web flag family and its
-    # --help, and provides webStartup to the rows that inject it.
+    # Ordinary provider for the parsed Web flags. Its plugin-level injection
+    # waits for cmdlineArgs; no launcher metadata or special row kind is needed.
     - id: web-startup
       name: '@deepseek-ai/dsh-web-app/startup'
-      inject: [cmdlineArgs]
 
     # ── layer 2: transport/service ──────────────────────────────────────────────
 
     # Plain route-registration carrier; host and port come from the app's
-    # startup service, with these deployment fallbacks. The dist is served by
+    # webStartup provider, with these deployment fallbacks. The dist is served by
     # the web-runtime row below through the fallback seat.
     - id: webserver
       name: '@deepseek-ai/dsh-host-webserver'
       inject: [webStartup]
       config:
-        host: !!js ctx.get('webStartup')?.host ?? '127.0.0.1'
-        port: !!js ctx.get('webStartup')?.port ?? 3080
+        host: !!js ctx.webStartup.host ?? '127.0.0.1'
+        port: !!js ctx.webStartup.port ?? 3080
 
     # Web glue owned by this bundle: resolves the built frontend dist (an
     # assembly fact of dsh-web-app, never user config), mounts the
     # frontend-static fallback owner, registers the web-surface prompt
-    # section and bash runtime variables, and prints the URL line. `dsh web`
-    # patches mode/lanAddresses over these defaults. A complete agent-preset
+    # section and bash runtime variables, and prints the URL line. The webStartup
+    # provider supplies invocation-only values; after the server binds, this row
+    # samples LAN trust once and provides `webRuntime`. A complete agent-preset
     # persona suppresses the prompt section for that agent while retaining
     # these host-owned shell variables.
     - id: web-runtime
       name: '@deepseek-ai/dsh-web-app'
       inject: [webStartup]
       config:
-        mode: !!js ctx.get('webStartup')?.mode ?? 'production'
+        mode: !!js ctx.webStartup.mode
         printUrl: true
         surfaceContext: true
-        lanAddresses: !!js ctx.get('webStartup')?.lanAddresses ?? []
+        trustedHosts: !!js ctx.webStartup.trustedHosts
 
     # The client-plugin reload chain: a dev-only row this bundle ships off,
     # which the runtime row turns on before client discovery. It is a row rather
@@ -133,18 +132,18 @@
     # (adopted as a plugin entry by the kernel, never fetched).
     - id: modules
       name: '@deepseek-ai/dsh-client-modules'
-      inject: [webClientRoster]
+      inject: [webRuntime]
 
     # Owns both ends of the web transport: node half binds the gateway to the
     # webserver under /api; browser half is the fetch/SSE client.
     - id: connection
       name: '@deepseek-ai/dsh-client-connection'
-      inject: [webStartup]
+      inject: [webRuntime]
       config:
-        # The LAN literals an all-interfaces bind derived plus the
-        # --trusted-host extras. A deployment that configures its own fence
-        # authorities adds them to this list.
-        trustedHosts: !!js ctx.get('webStartup')?.trustedHosts ?? []
+        # LAN literals derived from the active bind plus --trusted-host extras.
+        # A deployment adding authorities keeps this expression and concatenates
+        # its literals, for example: ['app.internal', ...ctx.webRuntime.trustedHosts].
+        trustedHosts: !!js ctx.webRuntime.trustedHosts
 
     - id: api-remotes
       name: '@deepseek-ai/dsh-api-remotes'
