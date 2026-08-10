@@ -8,7 +8,7 @@
 import { randomUUID } from 'node:crypto'
 import { stat } from 'node:fs/promises'
 import { basename } from 'node:path'
-import { Context, Service } from 'cordis'
+import { Context, Service } from '@deepseek-ai/cordis'
 import type { SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-persistence'
 import type { DomainGlobal, KvTable } from '@deepseek-ai/dsh-storage-domain'
@@ -53,7 +53,7 @@ export class WorkspaceUnknownSessionError extends Error {
 }
 
 
-declare module 'cordis' {
+declare module '@deepseek-ai/cordis' {
   interface Context {
     workspace: WorkspaceRegistry
   }

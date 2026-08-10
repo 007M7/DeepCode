@@ -8,7 +8,7 @@
  * itself is not a dependency of this package; the source below is the
  * decision-table contract at the `SlashSource` boundary.
  */
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import { EMPTY_CHAT_SNAPSHOT, SessionsService } from '@deepseek-ai/dsh-client-runtime/client'

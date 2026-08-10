@@ -12,10 +12,10 @@ import { createServer } from 'node:http'
 import type { IncomingMessage, ServerResponse, Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import type { Duplex } from 'node:stream'
-import { Context, Service } from 'cordis'
-import z from 'schemastery'
+import { Context, Service } from '@deepseek-ai/cordis'
+import z from '@deepseek-ai/schemastery'
 
-declare module 'cordis' {
+declare module '@deepseek-ai/cordis' {
   interface Context {
     httpServer: HttpServerService
   }

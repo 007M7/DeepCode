@@ -25,21 +25,21 @@
   ],
   "license": "BSD-3-Clause",
   "peerDependencies": {
-    "@cordisjs/plugin-loader": "^1.0.0-rc.5",
+    "@deepseek-ai/cordis-plugin-loader": "^1.0.0-rc.5",
     "@deepseek-ai/dsh-host-directory-picker-browse": "^0.0.1",
     "@deepseek-ai/dsh-host-directory-picker-native": "^0.0.1",
     "@deepseek-ai/dsh-host-webserver": "^0.0.1",
     "@deepseek-ai/dsh-invariants": "^0.0.1",
-    "cordis": "^4.0.0-rc.7"
+    "@deepseek-ai/cordis": "^4.0.0-rc.7"
   },
   "devDependencies": {
-    "@cordisjs/plugin-include": "workspace:^",
-    "@cordisjs/plugin-loader": "workspace:^",
+    "@deepseek-ai/cordis-plugin-include": "workspace:^",
+    "@deepseek-ai/cordis-plugin-loader": "workspace:^",
     "@deepseek-ai/dsh-host-directory-picker": "workspace:^",
     "@deepseek-ai/dsh-host-directory-picker-browse": "workspace:^",
     "@deepseek-ai/dsh-host-directory-picker-native": "workspace:^",
     "@deepseek-ai/dsh-host-webserver": "workspace:^",
     "@deepseek-ai/dsh-invariants": "workspace:^",
-    "cordis": "^4.0.0-rc.7"
+    "@deepseek-ai/cordis": "^4.0.0-rc.7"
   }
 }

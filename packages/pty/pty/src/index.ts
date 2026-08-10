@@ -4,7 +4,7 @@
  * @module @deepseek-ai/dsh-pty
  */
 
-import { Context, Service } from 'cordis'
+import { Context, Service } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { PtyBackendCleanupError } from './types.ts'
 import type {
@@ -45,7 +45,7 @@ export { PtyBackendCleanupError } from './types.ts'
 /** Opaque identity minted by {@link PtyService} for one live PTY session. */
 export type PtySessionId = PtySessionIdValue
 
-declare module 'cordis' {
+declare module '@deepseek-ai/cordis' {
   interface Context {
     pty: PtyService
   }

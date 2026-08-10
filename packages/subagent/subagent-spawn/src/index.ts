@@ -6,8 +6,8 @@
  * @module @deepseek-ai/dsh-subagent-spawn
  */
 
-import type { Context } from 'cordis'
-import z from 'schemastery'
+import type { Context } from '@deepseek-ai/cordis'
+import z from '@deepseek-ai/schemastery'
 import type {
   ContinuableCreateSpec,
   ResolvedSubagentStartRequest,

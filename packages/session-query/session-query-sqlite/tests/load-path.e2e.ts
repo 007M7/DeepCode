@@ -6,8 +6,8 @@ import { createUserMessage } from '@deepseek-ai/dsh-llm'
  */
 
 import { afterEach, describe, expect, it } from 'vitest'
-import { Context } from 'cordis'
-import Loader from '@cordisjs/plugin-loader'
+import { Context } from '@deepseek-ai/cordis'
+import Loader from '@deepseek-ai/cordis-plugin-loader'
 import { SESSION_FORMAT_VERSION, SessionId } from '@deepseek-ai/dsh-session'
 import SessionStore from '@deepseek-ai/dsh-session'
 import SessionPersistenceSqlite from '@deepseek-ai/dsh-session-persistence-sqlite'

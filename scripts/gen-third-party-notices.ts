@@ -387,6 +387,8 @@ export function tierExternalDeps(manifests: Map<string, Manifest>, names: Set<st
 /** A vendored package row parsed out of the `vendor/README.md` manifest table. */
 export interface VendoredRow {
   npmName: string
+  /** The name this package carries upstream; MIT attribution names the fork's origin, not our scope. */
+  upstreamName: string
   upstream: string
 }
 
@@ -398,11 +400,12 @@ export interface VendoredRow {
 export function parseVendoredRows(text: string): VendoredRow[] {
   const rows: VendoredRow[] = []
   for (const line of text.split('\n')) {
-    const match = /^\| \x60\S+\/\x60 \| \x60([^\x60]+)\x60 \| \S+ \| (https:\/\/\S+?)(?: \([^)]*\))? \| \x60[0-9a-f]+\x60 \|$/.exec(line)
+    const match = new RegExp(String.raw`^\| \x60\S+\/\x60 \| \x60([^\x60]+)\x60 \| \x60([^\x60]+)\x60 \| \S+ \| `
+      + String.raw`(https:\/\/\S+?)(?: \([^)]*\))? \| \x60[0-9a-f]+\x60 \|$`).exec(line)
     if (match === null) continue
-    const [, npmName, upstream] = match
-    if (npmName === undefined || upstream === undefined) continue
-    rows.push({ npmName, upstream })
+    const [, npmName, upstreamName, upstream] = match
+    if (npmName === undefined || upstreamName === undefined || upstream === undefined) continue
+    rows.push({ npmName, upstreamName, upstream })
   }
   return rows
 }
@@ -696,11 +699,11 @@ The complete npm transitive closure, including the Landlock launcher workspace, 
 
 ## Vendored source (\`vendor/\`)
 
-The Cordis framework and its foundation libraries are source-vendored into this repository rather than consumed from npm. All are MIT-licensed; each directory preserves its upstream \`LICENSE\` file. Exact upstream commits and local modifications are recorded in [\`vendor/README.md\`](vendor/README.md).
+The Cordis framework and its foundation libraries are source-vendored into this repository rather than consumed from npm, and republished under the \`@deepseek-ai\` scope. All are MIT-licensed; each directory preserves its upstream \`LICENSE\` file. Exact upstream commits and local modifications are recorded in [\`vendor/README.md\`](vendor/README.md).
 
-| Package | Upstream | License |
-| --- | --- | --- |
-${vendored.map(row => `| \`${row.npmName}\` | [${row.upstream.replace('https://', '')}](${row.upstream}) | MIT |`).join('\n')}
+| Package | Upstream name | Upstream | License |
+| --- | --- | --- | --- |
+${vendored.map(row => `| \`${row.npmName}\` | \`${row.upstreamName}\` | [${row.upstream.replace('https://', '')}](${row.upstream}) | MIT |`).join('\n')}
 
 ## Runtime npm dependencies
 

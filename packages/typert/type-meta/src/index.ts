@@ -4,7 +4,7 @@
  * @module @deepseek-ai/dsh-type-meta
  */
 
-import { Service, type Context } from 'cordis'
+import { Service, type Context } from '@deepseek-ai/cordis'
 import type { TypeRTContextMap } from './types.ts'
 
 const TYPERT_REMOTE_SEGMENT_PATTERN = /^[A-Za-z0-9_$.-]+$/

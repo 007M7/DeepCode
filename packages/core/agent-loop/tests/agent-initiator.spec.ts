@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { Context, type Fiber } from 'cordis'
+import { Context, type Fiber } from '@deepseek-ai/cordis'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import LlmService, { createUserMessage, CallId, LlmAdapter  } from '@deepseek-ai/dsh-llm'

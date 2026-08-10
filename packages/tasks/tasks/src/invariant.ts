@@ -1,6 +1,6 @@
 /** Package-owned background-task snapshot invariants. @module @deepseek-ai/dsh-tasks/invariant */
 
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { InvariantFailure, InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 import type { TaskSnapshot } from './types.ts'
