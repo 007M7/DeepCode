@@ -16,7 +16,7 @@ import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import {
   assertFixtureInventory, captureStableAria, compareOrRefreshGolden, fixtureUserPrompts,
-  launchWebScaffold, watchConsole, webSnapshotMode, type WebScaffold,
+  launchWebScaffold, recordFixture, watchConsole, webSnapshotMode, type WebScaffold,
 } from './scaffold.ts'
 import { connectFreshWorkspace, newEnglishPage, saveFailureShot } from './support.ts'
 
@@ -56,20 +56,32 @@ describe('web e2e: /feedback command acknowledgement', () => {
     await scaffold?.close()
   })
 
-  it('records feedback and renders the acknowledgement with session id and sharing status', async () => {
-    onTestFailed(() => saveFailureShot(page, 'web-e2e-feedback-command'))
+  it('drives the recorded prompt to a settled turn (all modes)', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-feedback-drive'))
     if (MODE !== 'record') {
+      // Drift guard: the committed fixture must carry exactly the drive prompt.
       expect(fixtureUserPrompts(await readFile(FIXTURE, 'utf8'))).toEqual([PROMPT])
     }
-
-    // First send the recorded prompt so the transcript is active — a command
-    // row does not render while a fresh session is still blank.
     const input = page.locator('textarea').first()
+    await input.waitFor({ timeout: 10_000 })
+    // Arm the turn-boundary waiter BEFORE sending, so a burst replay cannot
+    // miss the turn/end that settles the recorded turn.
+    const settled = scaffold.whenTurnSettled()
     await input.fill(PROMPT)
     await input.press('Enter')
-    await scaffold.whenTurnSettled()
-    await page.getByText('LIGHTHOUSE', { exact: true }).waitFor({ timeout: 15_000 })
+    const sessionId = await settled
+    if (MODE === 'record') {
+      await recordFixture(scaffold, sessionId, FIXTURE)
+    }
+  }, 60_000)
 
+  it.skipIf(MODE === 'record')('records feedback and renders the acknowledgement with session id and sharing status', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-feedback-command'))
+    // The drive test settled the recorded turn: the transcript is active (a
+    // command row does not render while a fresh session is still blank) and
+    // the replayed reply is on screen.
+    await page.getByText('LIGHTHOUSE', { exact: true }).waitFor({ timeout: 15_000 })
+    const input = page.locator('textarea').first()
     await input.fill('/feedback the diff view is unreadable')
     await input.press('Enter')
     // The command plane settles without a model turn: the ack row names the
