@@ -1,0 +1,34 @@
+- dialog "设置":
+  - navigation:
+    - text: 设置
+    - button "通用设置":
+      - img
+      - text: 通用设置
+    - button "模型":
+      - img
+      - text: 模型
+    - button "Agent 预设":
+      - img
+      - text: Agent 预设
+    - button "插件":
+      - img
+      - text: 插件
+  - button "打开配置文件"
+  - button "关闭":
+    - img
+    - text: 关闭
+  - heading "插件配置" [level=2]
+  - paragraph: 本部署所组装插件自己拥有的设置。你在这里设的值会覆盖组装默认值，并在下一次使用时生效。
+  - list:
+    - listitem:
+      - button "终端 限制 agent 运行的每一条命令。":
+        - img
+        - text: 终端 限制 agent 运行的每一条命令。
+    - listitem:
+      - button "Agent 循环 Agent 如何派发工具调用。":
+        - img
+        - text: Agent 循环 Agent 如何派发工具调用。
+    - listitem:
+      - button "网页搜索 DeepSeek 搜索提供方。":
+        - img
+        - text: 网页搜索 DeepSeek 搜索提供方。
