@@ -188,6 +188,11 @@
     - id: ui-agent-preset
       name: '@deepseek-ai/dsh-client-ui-agent-preset'
 
+    # Plugin configuration: the host-plane sections a user owns, as expandable
+    # cards. A namespace this deployment does not expose renders nothing.
+    - id: ui-plugin-config
+      name: '@deepseek-ai/dsh-client-ui-plugin-config'
+
     # Plan control: the composer plan seat over the plan projection + /plan channel.
     - id: ui-plan
       name: '@deepseek-ai/dsh-client-ui-plan'
