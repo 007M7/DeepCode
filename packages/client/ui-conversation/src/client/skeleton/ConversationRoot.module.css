@@ -263,8 +263,9 @@
 .composerHero {
   position: relative; /* .heroGlow positioning context */
   align-self: center;
-  /* figma 75:8208: 12 between hero chrome / workspace row / card. */
-  gap: 12px;
+  /* figma 75:8208 drew 12 between all three rows; the workspace row now sits
+     6 above the card (its margin-top restores 12 under the hero chrome). */
+  gap: 6px;
   /* Foot inside the centered box floats the stack a bit above true center. */
   padding-bottom: 32px;
   /* Card cap + both clearances: the hero input card lands at exactly the same
@@ -294,6 +295,7 @@
   align-items: center;
   gap: 2px;
   min-width: 0;
+  margin-top: 6px;
   /* figma drew px 8; nudged +12 so the chip's folder glyph lines up closer to
      the card's inner controls below. */
   padding-left: 20px;
