@@ -120,7 +120,7 @@ describe.skipIf(!isWin32)('ACL editing', () => {
     const api = await win32()
     const dir = scratch()
     const usersSid = sidFromString(api, 'S-1-5-32-545')
-    const orphanSid = sidFromString(api, 'S-1-4-4242-1')
+    const capabilitySid = sidFromString(api, 'S-1-4-4242-1')
     try {
       // Install one explicit ACE (Users + benign read mask) with the
       // package's own bindings, exactly like a pre-existing explicit DACL
@@ -137,37 +137,37 @@ describe.skipIf(!isWin32)('ACL editing', () => {
       expect(applyResult, `SetNamedSecurityInfoW setup (${applyResult})`).toBe(abi.ERROR_SUCCESS)
       expect(isNullPtr(freed)).toBe(true)
 
-      grantWrite(api, dir, orphanSid)
-      revokeWrite(api, dir, orphanSid)
+      grantWrite(api, dir, capabilitySid)
+      revokeWrite(api, dir, capabilitySid)
 
       const aces = readDirectAces(api, dir)
       expect(aces.some(ace => ace.sid === 'S-1-5-32-545')).toBe(true) // explicit ACE preserved
       expect(aces.some(ace => ace.sid === 'S-1-4-4242-1')).toBe(false) // orphan grant fully removed
     } finally {
       if (!isNullPtr(usersSid)) api.localFree(usersSid)
-      if (!isNullPtr(orphanSid)) api.localFree(orphanSid)
+      if (!isNullPtr(capabilitySid)) api.localFree(capabilitySid)
     }
   })
 
   it('grantWrite is idempotent: a second grant over the standing exact ACE skips the SetNamedSecurityInfoW apply (no eager full-tree re-propagation)', async () => {
     const api = await win32()
     const dir = scratch()
-    const orphanSid = sidFromString(api, 'S-1-4-4242-2')
+    const capabilitySid = sidFromString(api, 'S-1-4-4242-2')
     const apply = vi.spyOn(api, 'setNamedSecurityInfoW')
     try {
-      grantWrite(api, dir, orphanSid)
+      grantWrite(api, dir, capabilitySid)
       expect(apply).toHaveBeenCalledTimes(1)
       // The exact ACE now stands (the per-session grant surviving from a
       // previous server lifetime): the second grant is a DACL read only.
-      grantWrite(api, dir, orphanSid)
+      grantWrite(api, dir, capabilitySid)
       expect(apply).toHaveBeenCalledTimes(1)
       const aces = readDirectAces(api, dir)
       expect(aces.filter(ace => ace.sid === 'S-1-4-4242-2')).toHaveLength(1)
-      revokeWrite(api, dir, orphanSid)
+      revokeWrite(api, dir, capabilitySid)
       expect(readDirectAces(api, dir).some(ace => ace.sid === 'S-1-4-4242-2')).toBe(false)
     } finally {
       apply.mockRestore()
-      if (!isNullPtr(orphanSid)) api.localFree(orphanSid)
+      if (!isNullPtr(capabilitySid)) api.localFree(capabilitySid)
     }
   })
 

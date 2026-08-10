@@ -1,7 +1,7 @@
 /**
  * workspaceWriteSid tests: the per-workspace write identity is deterministic
  * (the same canonical path always derives the same SID — the property the
- * cross-session grant reuse rests on), orphan-shaped, distinct across
+ * cross-session grant reuse rests on), capability-shaped, distinct across
  * workspaces, and byte-sensitive (the canonical path is the caller's
  * contract; an alias spelling derives a second identity, self-healing at
  * the cost of one extra tree propagation).
@@ -12,7 +12,7 @@ import { describe, expect, it } from 'vitest'
 import { tempWriteSid, workspaceWriteSid } from '../src/index.ts'
 
 describe('workspaceWriteSid', () => {
-  it('derives a stable orphan-shaped SID per workspace path', () => {
+  it('derives a stable capability-shaped SID per workspace path', () => {
     const first = workspaceWriteSid('C:\\Users\\agent\\repo')
     const second = workspaceWriteSid('C:\\Users\\agent\\repo')
     expect(first).toBe(second)

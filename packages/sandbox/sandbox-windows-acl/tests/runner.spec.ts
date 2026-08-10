@@ -330,7 +330,7 @@ describe.skipIf(!isWin32 || !pwshAvailable())('windows-acl runner', () => {
     // The reported defect: a session that materialized its grant in
     // workspace-write keeps the ACE standing for the server lifetime. After
     // switching to read-only, the restricted token's read-only list must carry NO
-    // orphan SID — the standing ACE stays but the pass-2 check cannot use
+    // capability SID — the standing ACE stays but the pass-2 check cannot use
     // it, so the workspace write is denied (previously it LEAKED). The
     // switch back reuses the SAME standing ACE: the re-upgrade write lands
     // without any re-grant.

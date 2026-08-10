@@ -28,7 +28,7 @@ import { createHash } from 'node:crypto'
 
 /**
  * Derive the workspace's write SID (`S-1-4-x-y`; subauthorities 30-bit,
- * matching the orphan shape the token and ACE layers already carry).
+ * matching the workspace-capability shape the token and ACE layers carry).
  * @param workspaceRoot - the canonical workspace path.
  * @returns the SDDL string form.
  */

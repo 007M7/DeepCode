@@ -42,7 +42,7 @@ export class AclWriteGrant {
   /**
    * Parse the SID string and open the binding table (lazily, once per
    * server). Fail-closed: any failure throws — nothing is granted yet.
-   * @param writeSid - the orphan write SID string (`S-1-4-x-y`).
+   * @param writeSid - the workspace (`S-1-4-x-y`) or temp (`S-1-4-x-y-1`) capability SID string.
    * @param api - optional already-resolved bindings (tests).
    * @returns the ready grant (no ACEs yet).
    */
