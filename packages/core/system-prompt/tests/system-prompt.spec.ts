@@ -264,6 +264,34 @@ describe('SystemPrompt', () => {
     expect(assembly.sections).toHaveLength(0)
   })
 
+  it('restores one complete section after the assembly waterfall', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    ctx.systemPrompt.section({ name: 'complete', order: 10, text: 'Exact prompt.', complete: true })
+    ctx.systemPrompt.section({ name: 'extra', order: 20, text: 'extra' })
+    ctx.on('system-prompt/assemble', async (assembly, _context, next) => {
+      const complete = assembly.sections.find(section => section.name === 'complete')
+      if (complete === undefined) throw new Error('complete section missing before waterfall')
+      complete.text = 'mutated'
+      assembly.sections.push({ name: 'late', text: 'late' })
+      return next()
+    }, { prepend: true })
+
+    expect((await ctx.systemPrompt.assemble()).sections).toEqual([
+      { name: 'complete', text: 'Exact prompt.' },
+    ])
+  })
+
+  it('rejects multiple effective complete sections', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    ctx.systemPrompt.section({ name: 'first', order: 10, text: 'first', complete: true })
+    ctx.systemPrompt.section({ name: 'second', order: 20, text: 'second', complete: true })
+
+    await expect(ctx.systemPrompt.assemble())
+      .rejects.toThrow('multiple complete prompt sections are active: "first", "second"')
+  })
+
   it('assembles snapshots so one-step mutations do not leak into future assemblies', async () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)

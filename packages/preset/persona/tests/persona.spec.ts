@@ -85,4 +85,21 @@ describe('the persona row', () => {
     expect(renderPrompt(await ctx.systemPrompt.assemble({ scope: key })))
       .toContain('You run on deepseek-v4-pro.')
   })
+
+  it('makes a complete persona the exact prompt after every other contribution', async () => {
+    const ctx = await harness('deployment identity')
+    const key: ScopeKey = { agent: 'a1' }
+    const scope = createScope(ctx, key)
+    ctx.systemPrompt.section({ name: 'global:extra', order: 100, text: 'global guidance' })
+
+    await scope.ctx.plugin(Persona, { text: 'Only this.', complete: true })
+    scope.ctx.on('system-prompt/assemble', async (assembly, _context, next) => {
+      assembly.sections.push({ name: 'late:extra', text: 'late guidance' })
+      return next()
+    }, { prepend: true })
+
+    const assembly = await ctx.systemPrompt.assemble({ scope: key })
+    expect(assembly.sections).toEqual([{ name: PERSONA_SECTION, text: 'Only this.' }])
+    expect(renderPrompt(assembly)).toBe('Only this.')
+  })
 })

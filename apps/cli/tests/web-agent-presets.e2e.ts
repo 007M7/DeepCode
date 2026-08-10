@@ -22,6 +22,15 @@ const BASE_PATCH = join(REPO_ROOT, 'packages/bundle/base/cordis.patch.yml')
 const WEB_PATCH = join(REPO_ROOT, 'packages/bundle/web-app/cordis.patch.yml')
 /** The installation anchor whose dependency surface the preset module fallback mirrors. */
 const INSTALL_ANCHOR = join(REPO_ROOT, 'apps/cli/package.json')
+const MINIMAL_PROMPT = 'You are a helpful software engineer assistant.'
+const MINIMAL_BASH_DESCRIPTION = `Run commands in a bash shell
+* When invoking this tool, the contents of the "command" parameter does NOT need to be XML-escaped.
+* You don't have access to the internet via this tool.
+* You do have access to a mirror of common linux and python packages via apt and pip.
+* State is persistent across command calls and discussions with the user.
+* To inspect a particular line range of a file, e.g. lines 10-25, try 'sed -n 10,25p /path/to/the/file'.
+* Please avoid commands that may produce a very large amount of output.
+* Please run long lived commands in the background, e.g. 'sleep 10 &' or start a server in the background.`
 
 /**
  * Boot the shipped Web composition, minus the rows that would bind a port,
@@ -143,14 +152,20 @@ describe('the shipped Web composition', () => {
     }
   })
 
-  it('composes exactly two tools from `minimal`', async () => {
+  it('composes the exact RL prompt and two tools from `minimal`', async () => {
     const handle = await ctx.agents.create({
       sessionId: SessionId('preset-minimal'),
       setup: agentCtx => ctx.agentPresets.mount(agentCtx, 'minimal').then(() => undefined),
     })
     try {
-      // Exactly what the preset lists — nothing arrives from the host.
-      expect(toolNames(ctx, handle.agent)).toEqual(['bash', 'str_replace_editor'])
+      const assembly = await ctx.systemPrompt.assemble({ scope: handle.agent })
+      expect(assembly.sections).toEqual([
+        { name: 'deployment:persona', text: MINIMAL_PROMPT },
+      ])
+      expect(assembly.tools.map(tool => tool.name)).toEqual(['bash', 'str_replace_editor'])
+      expect(assembly.tools.find(tool => tool.name === 'bash')?.description).toBe(MINIMAL_BASH_DESCRIPTION)
+      expect(JSON.stringify(assembly.tools.find(tool => tool.name === 'str_replace_editor')?.parameters))
+        .toContain('Absolute path')
     } finally {
       await handle.dispose()
     }
@@ -340,15 +355,14 @@ describe('the shipped Web composition', () => {
     expect(await readFile(path, 'utf8')).toBe(before)
   })
 
-  it('gives each session its own persona', async () => {
+  it('gives each session its own complete persona', async () => {
     const handle = await ctx.agents.create({
       sessionId: SessionId('preset-persona'),
       setup: agentCtx => ctx.agentPresets.mount(agentCtx, 'minimal').then(() => undefined),
     })
     try {
       const assembly = await ctx.systemPrompt.assemble({ scope: handle.agent })
-      expect(assembly.sections.find(section => section.name === 'deployment:persona')?.text)
-        .toContain('You are a coding agent powered by')
+      expect(assembly.sections).toEqual([{ name: 'deployment:persona', text: MINIMAL_PROMPT }])
     } finally {
       await handle.dispose()
     }
