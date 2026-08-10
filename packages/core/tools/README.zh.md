@@ -66,7 +66,7 @@ tools:
 
 ```ts
 import { readFile } from 'node:fs/promises'
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 
 declare const ctx: Context
