@@ -166,9 +166,8 @@ export class LocalSkillProvider implements SkillProvider {
     this.watchManager = new SkillWatchManager(ctx, control.invalidate, resolveWatchConfig(config))
     control.signal.addEventListener('abort', () => { void this.dispose() }, { once: true })
     // The environment bundled root is a default root: an isolated provider
-    // (includeDefaultRoots: false — repository plugins) must see only its
-    // explicit custom roots, or every such provider would re-discover the
-    // app's bundled skills and claim them under its own provider name.
+    // must see only its explicit roots, or every such provider would
+    // re-discover the app's bundled skills under its own provider name.
     const bundledSkillDir = config.bundledSkillDir
       ?? (this.includeDefaultRoots ? process.env.DSH_BUNDLED_SKILL_DIR : undefined)
     this.bundledSkillDir = bundledSkillDir === undefined ? undefined : resolve(bundledSkillDir)

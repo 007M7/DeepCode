@@ -32,7 +32,6 @@
       "cosmokit": ["./vendor/cosmokit/src"],
       "schemastery": ["./vendor/schemastery/src"],
       "@cordisjs/plugin-loader": ["./vendor/loader/src"],
-      "@cordisjs/plugin-loader/repository": ["./vendor/loader/src/repository.ts"],
       "@cordisjs/plugin-include": ["./vendor/include/src"],
       "@cordisjs/plugin-group": ["./vendor/group/src"],
       "@cordisjs/plugin-timer": ["./vendor/timer/src"],
