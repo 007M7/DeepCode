@@ -120,7 +120,7 @@ export type {
   WebSource,
 } from './presentation.ts'
 
-declare module 'cordis' {
+declare module '@deepseek-ai/cordis' {
   interface Context {
     tools: ToolRegistry
   }
