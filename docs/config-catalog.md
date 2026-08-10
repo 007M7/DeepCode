@@ -525,10 +525,15 @@ Source: [`packages/host/frontend-static/src/index.ts:28`](../packages/host/front
 export interface Config {
   /** Base directory for relative paths. Defaults to `process.cwd()`. */
   cwd?: string
+  /**
+   * Exclusive UTF-8 byte limit on each overwrite-diff side, capped by the
+   * runtime's safe allocation/decode maximum. Defaults to 10 MiB.
+   */
+  diffBasisMaxBytes?: number
 }
 ```
 
-Source: [`packages/fs/fs-local/src/index.ts:39`](../packages/fs/fs-local/src/index.ts)
+Source: [`packages/fs/fs-local/src/index.ts:40`](../packages/fs/fs-local/src/index.ts)
 
 ## `@deepseek-ai/dsh-fs-sandbox`
 
@@ -536,10 +541,10 @@ Requires: `sandboxPolicy`
 
 ```ts config-catalog
 /**
- * Plugin config: the local backend's knobs, verbatim (only `cwd`, the resolve
- * base for relative paths). The sandbox default (mode + `workspace-write`
- * fallback root) is NOT here — `ctx.sandboxPolicy` resolves each calling
- * session for every enforcing capability.
+ * Plugin config: the local backend's knobs verbatim (`cwd` resolution default
+ * and `diffBasisMaxBytes` overwrite-presentation bound). The sandbox default
+ * (mode + `workspace-write` fallback root) is NOT here — `ctx.sandboxPolicy`
+ * resolves each calling session for every enforcing capability.
  */
 export type Config = LocalConfig
 ```
@@ -981,12 +986,24 @@ export interface ReplayModelConfig {
   description?: string
   /** Optional positive integer context capacity published by the replay adapter. */
   contextWindow?: number
+  /**
+   * Optional per-request output cap the replay route materializes when callers
+   * omit one, so replay reconstructs the request header a live catalog produced.
+   */
+  defaultMaxTokens?: number
+  /** Optional reasoning-effort ids the replay route accepts, in display order. */
+  reasoningEfforts?: string[]
+  /**
+   * Optional effort materialized when callers omit one; must appear in
+   * {@link reasoningEfforts} or call resolution rejects the route.
+   */
+  defaultReasoningEffort?: string
 }
 ```
 
 Depends on: [`RetryPolicyConfig`](../packages/llm/llm/src/index.ts)
 
-Source: [`packages/support/llm-replay/src/index.ts:744`](../packages/support/llm-replay/src/index.ts)
+Source: [`packages/support/llm-replay/src/index.ts:769`](../packages/support/llm-replay/src/index.ts)
 
 ## `@deepseek-ai/dsh-llm-retry`
 
