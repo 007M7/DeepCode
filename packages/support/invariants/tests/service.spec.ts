@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from 'vitest'
-import { Context, Service } from 'cordis'
+import { Context, Service } from '@deepseek-ai/cordis'
 import InvariantService, {
   InvariantError,
   type Config,
 } from '@deepseek-ai/dsh-invariants'
 
-declare module 'cordis' {
+declare module '@deepseek-ai/cordis' {
   interface Context {
     invariantProbe: InvariantProbeService
   }

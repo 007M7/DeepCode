@@ -20,7 +20,7 @@
  */
 
 import { isAbsolute, relative, sep } from 'node:path'
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import { HarnessError } from '@deepseek-ai/dsh-llm'
 import { ItemRetainer, TextRetainer } from '@deepseek-ai/dsh-retention'
 import type { RetainedItems } from '@deepseek-ai/dsh-retention'

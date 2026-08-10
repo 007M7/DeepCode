@@ -49,7 +49,7 @@
 `BasicCompactService` 需要 `ctx.llm`、`ctx.tokenMeter` 和 `ctx.sessions`。以下组合从其宿主接收 `ctx.llm`，并安装另外两项服务：
 
 ```ts
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import { BasicCompactService } from '@deepseek-ai/dsh-compact-basic'
 import SessionStore from '@deepseek-ai/dsh-session'
 import TokenMeterService from '@deepseek-ai/dsh-token-meter'

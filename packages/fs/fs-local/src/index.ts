@@ -4,11 +4,11 @@
  * @module @deepseek-ai/dsh-fs-local
  */
 
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import { constants as bufferConstants } from 'node:buffer'
 import { isAbsolute, relative, resolve, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import z from 'schemastery'
+import z from '@deepseek-ai/schemastery'
 import { FileSystem, FsError, FsVersion } from '@deepseek-ai/dsh-fs'
 import type {
   FsDirEntry,

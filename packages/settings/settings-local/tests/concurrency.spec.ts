@@ -3,8 +3,8 @@
 // neither knows the other's cache, so only the read-modify-write cycle under
 // the `<file>.lock` sibling keeps both namespaces alive on disk.
 import { afterEach, describe, expect, it } from 'vitest'
-import { Context } from 'cordis'
-import z from 'schemastery'
+import { Context } from '@deepseek-ai/cordis'
+import z from '@deepseek-ai/schemastery'
 import { chmod, mkdtemp, readFile, rm, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'

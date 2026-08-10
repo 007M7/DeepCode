@@ -5,8 +5,8 @@
  * @module @deepseek-ai/dsh-scope
  */
 
-import type { Context, Fiber } from 'cordis'
-import { Context as CordisContext } from 'cordis'
+import type { Context, Fiber } from '@deepseek-ai/cordis'
+import { Context as CordisContext } from '@deepseek-ai/cordis'
 
 export { AnonymousEntries, NamedEntries, ScopedLayers } from './store.ts'
 export type { ScopeLayer } from './store.ts'

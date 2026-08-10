@@ -22,8 +22,8 @@
  */
 
 import { stat } from 'node:fs/promises'
-import { Context, Service } from 'cordis'
-import z from 'schemastery'
+import { Context, Service } from '@deepseek-ai/cordis'
+import z from '@deepseek-ai/schemastery'
 import { bindScopeParent, createScope, scopeChainOf, scopeOf, type Scope, type ScopeKey, type ScopeParentBinding } from '@deepseek-ai/dsh-scope'
 // Type-only: resolves the `agent/created` lifecycle event this service watches.
 import type {} from '@deepseek-ai/dsh-agent'
@@ -64,7 +64,7 @@ export { resolveSessionPreset, type PresetBearingSession } from './session.ts'
 export { PresetMountError, UnknownPresetError } from './types.ts'
 export type { AgentPreset, Config, PresetRoot, PresetTrust } from './types.ts'
 
-declare module 'cordis' {
+declare module '@deepseek-ai/cordis' {
   interface Context {
     agentPresets: AgentPresets
   }

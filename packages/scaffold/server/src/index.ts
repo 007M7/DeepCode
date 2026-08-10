@@ -13,9 +13,9 @@
  * @module @deepseek-ai/dsh-jsonrpc
  */
 
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import type { Readable, Writable } from 'node:stream'
-import Schema from 'schemastery'
+import Schema from '@deepseek-ai/schemastery'
 import { JsonRpcLineTransport } from '@deepseek-ai/dsh-sdk-protocol'
 import { HarnessSdkServer } from './server.ts'
 

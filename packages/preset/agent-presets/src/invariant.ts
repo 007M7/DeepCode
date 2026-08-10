@@ -3,7 +3,7 @@
  * @module @deepseek-ai/dsh-agent-presets/invariant
  */
 
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 import { scopeChainOf } from '@deepseek-ai/dsh-scope'
 // Type-only: resolves the `system-prompt/assemble` waterfall this companion joins.

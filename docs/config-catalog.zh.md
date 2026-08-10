@@ -1111,7 +1111,7 @@ export interface StreamableHttpConfig {
 }
 ```
 
-来源：[`packages/mcp/mcp-client/src/index.ts:100`](../packages/mcp/mcp-client/src/index.ts)
+来源：[`packages/mcp/mcp-client/src/index.ts:94`](../packages/mcp/mcp-client/src/index.ts)
 
 ## `@deepseek-ai/dsh-permission`
 
@@ -1307,22 +1307,6 @@ export interface Config {
 ```
 
 来源：[`packages/guard/repeat-tool-guard/src/index.ts:28`](../packages/guard/repeat-tool-guard/src/index.ts)
-
-## `@deepseek-ai/dsh-repository-plugin`
-
-需要：`loader`
-
-```ts config-catalog
-/** Repository Plugin runtime and source-list configuration. */
-export interface Config {
-  /** GitHub repository sources with explicit refs and optional `.dsh-plugin` subpaths. */
-  repositories?: string[]
-  /** Persistent generation cache; defaults to `$DSH_HOME/cache/repository-plugins`. */
-  cacheDir?: string
-}
-```
-
-来源：[`packages/self-modification/repository-plugin/src/index.ts:44`](../packages/self-modification/repository-plugin/src/index.ts)
 
 ## `@deepseek-ai/dsh-sandbox-local`
 

@@ -36,10 +36,10 @@
     "@deepseek-ai/dsh-tasks": "^0.0.1",
     "@deepseek-ai/dsh-tools": "^0.0.1",
     "@deepseek-ai/dsh-user-approval": "^0.0.1",
-    "cordis": "^4.0.0-rc.7"
+    "@deepseek-ai/cordis": "^4.0.0-rc.7"
   },
   "dependencies": {
-    "schemastery": "^3.18.0"
+    "@deepseek-ai/schemastery": "^3.18.0"
   },
   "devDependencies": {
     "@deepseek-ai/dsh-agent": "workspace:^",
@@ -61,6 +61,6 @@
     "@deepseek-ai/dsh-tool-tasks": "workspace:^",
     "@deepseek-ai/dsh-tools": "workspace:^",
     "@deepseek-ai/dsh-user-approval": "workspace:^",
-    "cordis": "^4.0.0-rc.7"
+    "@deepseek-ai/cordis": "^4.0.0-rc.7"
   }
 }

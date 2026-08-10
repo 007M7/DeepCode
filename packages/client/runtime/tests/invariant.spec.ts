@@ -3,7 +3,7 @@
  * a fired key must already carry a bumped version (emission follows the
  * applied mutation), bogus payloads fail loud, foreign events pass.
  */
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it } from 'vitest'
 import InvariantService from '@deepseek-ai/dsh-invariants'
 import * as RuntimeInvariant from '../src/invariant.ts'
