@@ -134,8 +134,14 @@ export abstract class TaskService extends Service {
   /**
    * Register an effect-scoped observer of visible-set changes. It fires after
    * every commit that changes what {@link list} returns for that owner —
-   * registration, the stopping transition, settlement, and owner-disposal
-   * removal — so an observer re-reads rather than accumulating deltas.
+   * registration, every stopping transition (including the one teardown
+   * performs before it awaits a slow producer), settlement, owner-disposal
+   * removal, and the emptying that service disposal commits — so an observer
+   * re-reads rather than accumulating deltas.
+   *
+   * The registration binds to the CALLING fiber, so an observer mounted outside
+   * this service still receives the disposal emptying; that is what stops a
+   * consumer from retaining rows after the registry unloads.
    *
    * This is not a superset of {@link onTaskDone}: that one delivers the terminal
    * record under first-wins semantics a control surface couples to notice

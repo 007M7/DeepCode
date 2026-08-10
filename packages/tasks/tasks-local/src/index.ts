@@ -369,11 +369,14 @@ export class LocalTaskService extends TaskService {
     const all = [...this.store.values()]
     this.cancelForTeardown(all, 'tasks service disposed')
     await Promise.all(all.map(task => task.settled))
+    // Distinct owners whose records just disappeared. `onTasksChanged` binds to
+    // the CALLING fiber (the traceable proxy rebinds `this.ctx`), so a consumer
+    // mounted outside this service — the api-proxy carrier reads `ctx.get` from
+    // the mux stream — is still listening here. Without this it keeps the rows
+    // it last received after a registry reload.
+    const emptied = new Set(all.map(task => task.owner))
     this.store.clear()
-    // No change notification here: every `onTasksChanged` registration is an
-    // effect on this service's own fiber, so the listeners are already gone by
-    // the time service teardown reaches this line. An observer learns the
-    // registry left through its own disposal, not through a final empty set.
+    for (const owner of emptied) this.notifyChanged(owner)
     this.changeListeners.clear()
     // Detach cross-fiber owner effects after the shared store is quiescent.
     const ownerCleanups = [...this.ownerCleanups.values()]
@@ -392,6 +395,10 @@ export class LocalTaskService extends TaskService {
       try {
         task.cancel(reason)
         task.status = 'stopping'
+        // Teardown reaches settlement only after the producer releases, which a
+        // slow stop can defer; announcing the transition here is what keeps an
+        // observer from showing `running` for that whole window.
+        this.notifyChanged(task.owner)
       } catch (error: unknown) {
         const detail = `cancel threw during teardown; work may be orphaned: ${String(error)}`
         this.selfCtx.logger.warn(`tasks: cancel of ${task.id} threw during teardown; task record forced failed and work may be orphaned: ${String(error)}`)

@@ -3111,6 +3111,14 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           }),
           ctx.on('session/created', (session: Session) => {
             subscribeSession(queue, session)
+            // The subscribe frame clears the client's task mirror, and a
+            // session born after the stream opened missed the baseline loop.
+            // Unowned tasks are visible to it from birth, so without this it
+            // would show none until the next registry change.
+            const views = tasks === undefined ? [] : taskViews(tasks.list(ctx.agents.get(session.id)))
+            if (views.length > 0) {
+              queue.push(frame({ type: 'session/tasks', sessionId: session.id, tasks: views }))
+            }
           }),
           ctx.on('session/disposed', (session: Session) => {
             openCalls.delete(session.id)

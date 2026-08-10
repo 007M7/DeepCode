@@ -853,3 +853,57 @@ describe('LocalTaskService.onTasksChanged', () => {
     expect(seen).toEqual([1, 2, 2])
   })
 })
+
+describe('LocalTaskService teardown change notifications', () => {
+  it('announces the stopping transition during owner teardown, before settlement', async () => {
+    const ctx = await harness()
+    const owner = stubAgent(ctx, 'alice')
+    ctx.agents.register(owner)
+    const p = producer({ owner })
+    const id = ctx.tasks.start(p.spec)
+
+    const statuses: (string | undefined)[] = []
+    ctx.tasks.onTasksChanged((changed) => {
+      statuses.push(changed === undefined ? undefined : ctx.tasks.list(changed)[0]?.status)
+    })
+
+    // A slow producer keeps teardown parked between cancel and settlement;
+    // an observer must not be left showing `running` for that whole window.
+    const disposal = disposeAgentScope(owner)
+    await tick()
+    expect(statuses).toEqual(['stopping'])
+
+    p.settle({ status: 'killed' })
+    await disposal
+    // Settlement, then the removal that empties the visible set.
+    expect(statuses).toEqual(['stopping', 'killed', undefined])
+    expect(ctx.tasks.list(owner)).toEqual([])
+    void id
+  })
+
+  it('announces the emptied set to a listener registered outside this service (reload safety)', async () => {
+    const ctx = new Context()
+    await ctx.plugin(AgentRegistry)
+    const fiber = await ctx.plugin(LocalTaskService)
+    ctx.tasks.attachSurface('test-surface')
+
+    // The api-proxy carrier registers from its own stream context, not the
+    // registry's fiber, so it is still listening when the registry unloads.
+    const seen: (string | undefined)[] = []
+    ctx.tasks.onTasksChanged(changed => void seen.push(changed?.id))
+    let settle!: (outcome: TaskOutcome) => void
+    ctx.tasks.start({
+      kind: 'bash',
+      label: 'sleep 600',
+      run: () => ({
+        cancel() { settle({ status: 'killed' }) },
+        done: new Promise<TaskOutcome>((resolve) => { settle = resolve }),
+      }),
+    })
+    seen.length = 0
+
+    await fiber.dispose()
+    // stopping (teardown cancel), settlement, then the final empty set.
+    expect(seen).toEqual([undefined, undefined, undefined])
+  })
+})

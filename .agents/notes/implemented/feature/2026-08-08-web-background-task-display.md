@@ -125,7 +125,7 @@ Below it, [`tasks-local`](../../../../packages/tasks/tasks-local/tests/tasks.spe
 
 **Unowned-task fan-out is easy to under-implement.** Pushing only to the changed owner's session is correct for owned tasks and silently wrong for unowned ones, which are visible everywhere. The bug would surface only in compositions that create unowned tasks, which is why the carrier suite covers it directly.
 
-**The UI set is not the registry's set.** An unowned task is invisible in the header while `task_list` still reports it to the model. In practice every tool call carries an agent, so this stays theoretical, but the two surfaces are not interchangeable.
+**The UI set is not the registry's set.** The header shows what one session can see, so a task owned by another session never appears in it even though the registry holds it — and because the registry is process-local, a restart empties every list while the transcript still shows the `run_in_background` cards that started them. Unowned tasks are the opposite case: they reach every session's list, exactly as `list(caller)` reports them to every caller.
 
 **Settled rows accumulate.** The registry retains settled tasks until owner disposal, so a long session with many background commands grows a long list. Capping the settled tail is a presentation change, not a protocol one, if it becomes a real complaint.
 

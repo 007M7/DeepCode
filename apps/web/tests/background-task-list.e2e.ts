@@ -82,8 +82,11 @@ describe.skipIf(MODE === 'record')('web e2e: background task list', () => {
 
   it('shows a running background task in the session header without a refresh', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-background-task-running'))
+    // Point assertion, not a poll: `expect.poll` retries until a predicate
+    // holds, so polling for zero passes at t=0 and proves nothing. The
+    // "renders nothing without a task" branch is owned by the component suite.
     const trigger = page.getByRole('button', { name: '1 background task running' })
-    await expect.poll(() => trigger.count(), { timeout: 5_000 }).toBe(0)
+    expect(await trigger.count()).toBe(0)
 
     const started = await scaffold.ctx.tools.execute({
       signal: new AbortController().signal,

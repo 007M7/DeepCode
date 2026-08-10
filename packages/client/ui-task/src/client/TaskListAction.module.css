@@ -111,6 +111,15 @@
   line-height: 18px;
 }
 
+/* A failed task's detail is the producer's raw error text, so it has no bound;
+   without this it widens the row past the menu instead of eliding like .label. */
+.status {
+  max-width: 40%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
 .duration {
   font-variant-numeric: tabular-nums;
 }

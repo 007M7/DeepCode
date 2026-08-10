@@ -29,15 +29,19 @@ type TaskFrame = Extract<MuxFrame, { type: 'session/tasks' }>
  */
 function producer(label = 'sleep 60') {
   let settle!: (outcome: TaskOutcome) => void
+  // A stream producer, so the carrier CAN consume the cursor if it ever calls
+  // `read()`; `reads` is what proves it never does.
+  const reads = { count: 0 }
   const spec = {
     kind: 'bash' as const,
     label,
     run: () => ({
       cancel: () => {},
       done: new Promise<TaskOutcome>((resolve) => { settle = resolve }),
+      readOutput: () => { reads.count += 1; return 'stolen output' },
     }),
   }
-  return { spec, settle: (outcome: TaskOutcome) => { settle(outcome) } }
+  return { spec, reads, settle: (outcome: TaskOutcome) => { settle(outcome) } }
 }
 
 async function harness(withRegistry: boolean): Promise<{ ctx: Context; session: Session; agent: Agent }> {
@@ -202,5 +206,58 @@ describe('session/tasks without the registry', () => {
     session.append('turn/start', { turn: 1 })
     await drained
     expect(frames.some(frame => frame.type === 'session/tasks')).toBe(false)
+  })
+})
+
+describe('session/tasks never consumes model output', () => {
+  it('drives the whole lifecycle without calling the single consuming cursor', async () => {
+    // `ctx.tasks.read()` consumes the one output cursor, so a carrier read
+    // silently takes bytes the model's `task_output` will never see. The
+    // failure is invisible at the call site, which is why this asserts the
+    // count rather than trusting review.
+    const { ctx, agent } = await harness(true)
+    const proxy = api(ctx)
+    const abort = new AbortController()
+    const stream = proxy.events.mux({ rpcId: RpcId('t-tasks-no-read'), payload: {} }, abort.signal)
+    const collected = collect(stream, 3, abort)
+
+    const p = producer()
+    const id = ctx.tasks.start({ ...p.spec, owner: agent })
+    ctx.tasks.kill(id, agent, 'test')
+    p.settle({ status: 'killed', detail: 'signal: SIGTERM' })
+    await collected
+
+    expect(p.reads.count).toBe(0)
+  })
+
+  it('reads nothing while minting the subscription baseline either', async () => {
+    const { ctx, agent } = await harness(true)
+    const p = producer()
+    ctx.tasks.start({ ...p.spec, owner: agent })
+
+    const abort = new AbortController()
+    const stream = api(ctx).events.mux({ rpcId: RpcId('t-tasks-no-read-baseline'), payload: {} }, abort.signal)
+    const [baseline] = await collect(stream, 1, abort)
+
+    expect(baseline?.tasks).toHaveLength(1)
+    expect(p.reads.count).toBe(0)
+  })
+})
+
+describe('session/tasks baseline for a session born after the stream opened', () => {
+  it('carries the already-visible unowned set to the new session', async () => {
+    const { ctx } = await harness(true)
+    const proxy = api(ctx)
+    const abort = new AbortController()
+    const stream = proxy.events.mux({ rpcId: RpcId('t-tasks-late-session'), payload: {} }, abort.signal)
+
+    // One unowned task exists before the new session is created; the subscribe
+    // frame clears the client mirror, so the baseline has to follow it.
+    ctx.tasks.start(producer('visible to every caller').spec)
+    const created = ctx.sessions.create()
+
+    const frames = await collect(stream, 2, abort)
+    const forNew = frames.filter(frame => frame.sessionId === created.id)
+    expect(forNew.at(-1)?.tasks[0]?.label).toBe('visible to every caller')
   })
 })

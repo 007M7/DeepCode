@@ -21,4 +21,4 @@ None; the package never assembles or sends provider requests.
 ## Known Limitations and Deferred Work
 
 - **Rows are read-only** — a task's streamed output and a human-initiated cancellation are separate phases. Cancellation additionally owes a model-facing decision the seam does not answer today: `kill()` marks terminal delivery reported, so an interrupt written against the current contract would leave the model believing its task is still running.
-- **The list is not the registry's own set** — it shows what the owning session can see through the wire view, so an unowned task (one started without a live `Agent`) is invisible here while `task_list` still reports it to the model.
+- **The list is not the registry's own set** — it shows what one session can see through the wire view, so a task owned by another session never appears here, and a process restart empties the list while the transcript keeps the `run_in_background` cards that started those tasks. An unowned task (one started without a live `Agent`) is the opposite case: it reaches every session's list, matching what `list(caller)` reports to every caller.

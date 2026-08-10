@@ -148,7 +148,14 @@ export function TaskListAction({ sessionId, useSessions, t }: TaskListActionProp
         className={css.trigger}
         aria-expanded={open}
         aria-label={countLabel}
-        onClick={() => { setOpen(current => !current) }}
+        onClick={() => {
+          // Sample the clock in the same commit that opens the list: the
+          // mount-time value predates every task, so the first painted frame
+          // would otherwise clamp a long-running row to zero until the
+          // open effect corrects it a frame later.
+          setNow(Date.now())
+          setOpen(current => !current)
+        }}
       >
         {liveCount > 0 ? <StateDot state="ongoing" className={css.triggerDot} /> : null}
         <span className={css.count}>{countLabel}</span>
@@ -167,7 +174,7 @@ export function TaskListAction({ sessionId, useSessions, t }: TaskListActionProp
                   <StateDot state={dotState(task.status)} className={css.rowDot} />
                   <span className={css.kind}>{task.kind}</span>
                   <span className={css.label} title={task.label}>{task.label}</span>
-                  <span className={css.status}>{task.detail ?? status}</span>
+                  <span className={css.status} title={task.detail ?? status}>{task.detail ?? status}</span>
                   <span
                     className={css.duration}
                     title={t(live ? 'duration.title.live' : 'duration.title.done', { duration })}
