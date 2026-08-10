@@ -297,11 +297,9 @@ describe('provideCmdline', () => {
   it('hands the app a snapshot the caller cannot mutate afterwards', () => {
     const ctx = new Context()
     const args = ['--resume', 'abc']
-    const ready = Promise.resolve()
-    provideCmdline(ctx, { args, exit: () => {}, ready })
+    provideCmdline(ctx, { args, exit: () => {} })
     args.push('--tampered')
     expect(ctx.cmdlineArgs?.get()).toEqual(['--resume', 'abc'])
-    expect(ctx.appReady).toBe(ready)
   })
 
   it('fails loud when a startup row runs without the launcher values', () => {

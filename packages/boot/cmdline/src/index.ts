@@ -53,8 +53,6 @@ declare module 'cordis' {
     cmdlineArgs?: CmdlineArgs
     /** Bounded process-exit request; provided by a launcher before the tree mounts. */
     appExit?: AppExit
-    /** Settles when the launcher has mounted the whole composition; see {@link CmdlineHost.ready}. */
-    appReady?: Promise<void>
   }
 }
 
@@ -64,15 +62,6 @@ export interface CmdlineHost {
   args: readonly string[]
   /** Bounded process-exit request. */
   exit: AppExit
-  /**
-   * Settles when the launcher has finished mounting, which a row that
-   * publishes readiness (a URL line a supervisor waits for) must await.
-   *
-   * Loader mounts sibling rows concurrently, so one row can become active
-   * while another is still mounting or while the whole boot is rolling back.
-   * Rejects with the boot failure.
-   */
-  ready?: Promise<void>
 }
 
 /**
@@ -86,7 +75,6 @@ export function provideCmdline(ctx: Context, host: CmdlineHost): void {
   const snapshot = [...host.args]
   ctx.provide('cmdlineArgs', { get: () => snapshot })
   ctx.provide('appExit', host.exit)
-  if (host.ready !== undefined) ctx.provide('appReady', host.ready)
 }
 
 /**

@@ -159,10 +159,10 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       const port = ctx.httpServer.port
       console.log(`dsh web: ${localWebUrl(ctx)}${lanCandidate === undefined ? '' : ` (LAN: http://${lanCandidate}:${String(port)})`}`)
     }
-    // A launcher tells this row when the whole concurrent composition is up;
-    // this row's own activation can precede a sibling failure. A hand-built
-    // tree falls back to Loader settlement, or prints at once without Loader.
-    const settled = ctx.get('appReady') ?? ctx.get('loader')?.await()
+    // This row's own activation can precede a sibling failure. The app owns
+    // readiness by waiting for its Loader tree, or prints at once in a
+    // hand-built context without Loader.
+    const settled = ctx.get('loader')?.await()
     if (settled === undefined) printUrl()
     else {
       void settled.then(() => {
@@ -170,7 +170,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
         // SIGTERM); a URL line for a dead server would only mislead, and
         // reading the torn-down port would turn a clean shutdown into a crash.
         if (ctx.get('httpServer') !== undefined) printUrl()
-      // A failed boot is reported by the launcher; this row only stays quiet.
+      // Loader reports a failed boot; this row only stays quiet.
       }, () => {})
     }
   }

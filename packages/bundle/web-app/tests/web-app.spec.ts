@@ -149,39 +149,7 @@ describe('web-app runtime glue', () => {
     await ctx.fiber.dispose()
   })
 
-  it('waits for launcher readiness and stays quiet when the whole boot failed', async () => {
-    stageDist()
-    // Launcher readiness covers siblings that may still be mounting after
-    // this row itself has activated.
-    const ready = new Context()
-    ready.provide('httpServer', fakeHttpServer().server)
-    provideHmrRow(ready)
-    let announce: () => void
-    ready.provide('appReady', new Promise<void>((resolve) => { announce = resolve }))
-    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
-    await apply(ready, new Config({ mode: 'production', printUrl: true, surfaceContext: true, lanAddresses: [] }))
-    await new Promise(resolve => setTimeout(resolve, 0))
-    expect(log).not.toHaveBeenCalled()
-    announce!()
-    await new Promise(resolve => setTimeout(resolve, 0))
-    expect(log).toHaveBeenCalledWith('dsh web: http://127.0.0.1:4567')
-    await ready.fiber.dispose()
-
-    // A boot that failed announces nothing: the launcher reports it, and a URL
-    // for a process that is about to exit would only mislead.
-    log.mockClear()
-    const failed = new Context()
-    failed.provide('httpServer', fakeHttpServer().server)
-    const rejection = Promise.reject(new Error('boot failed'))
-    rejection.catch(() => {})
-    failed.provide('appReady', rejection)
-    await apply(failed, new Config({ mode: 'production', printUrl: true, surfaceContext: true, lanAddresses: [] }))
-    await new Promise(resolve => setTimeout(resolve, 0))
-    expect(log).not.toHaveBeenCalled()
-    await failed.fiber.dispose()
-  })
-
-  it('defers the URL line until Loader settlement and drops it when the server is gone', async () => {
+  it('defers the URL line until Loader settlement and drops it on failure or teardown', async () => {
     stageDist()
     // Settlement path: the line waits for loader.await() so supervisors can
     // RPC immediately after observing it.
@@ -198,6 +166,17 @@ describe('web-app runtime glue', () => {
     await new Promise(resolve => setTimeout(resolve, 0))
     expect(log).toHaveBeenCalledWith('dsh web: http://127.0.0.1:4567')
     await settled.fiber.dispose()
+
+    // Failed path: Loader reports the sibling failure; the app prints no URL
+    // for a process that is about to exit.
+    log.mockClear()
+    const failed = new Context()
+    failed.provide('httpServer', fakeHttpServer().server)
+    provideHmrRow(failed, async () => { throw new Error('boot failed') })
+    await apply(failed, new Config({ mode: 'production', printUrl: true, surfaceContext: true, lanAddresses: [] }))
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(log).not.toHaveBeenCalled()
+    await failed.fiber.dispose()
 
     // Torn-down path: settlement resolves after the webserver is gone — no
     // line, no crash.

@@ -12,13 +12,13 @@ profile 落地之后，组合可以安装，命令行却不能。`apps/cli` 仍�
 
 启动器只解析属于自己的部分（`--profile`、`--patch`、配置 dump），并把**自己 flag 之后的一切**原样交给引导起来的配置树。切分按位置进行：启动器不认识的第一个 token 就是应用参数的起点（依靠 commander 的 `passThroughOptions` + `allowUnknownOption` + `helpOption(false)`）。裸的 `dsh -h` 没有可交付的应用，仍然打印启动器自己的 help。
 
-新包 `@deepseek-ai/dsh-cmdline` 持有这次交接。启动器在任何条目挂载之前调用 `provideCmdline(ctx, host)`，提供 `ctx.cmdlineArgs`（其全部接口就是 `get(): readonly string[]`）、`ctx.appExit` 和 `ctx.appReady`。应用从自己的**启动行**消费它们。Loader 行与插件都注入 `cmdlineArgs`；插件以自己的 commander program 调用 `runStartup(ctx, service, program, plan)`，再把解析结果作为自己的服务提供出去。Loader 行的注入同时也是启动器的发现声明，不再需要一份平行的组合包 manifest 字段。启动器会在 boot 前拒绝没有活跃声明却带有非空应用参数的调用，也会拒绝存在多个活跃声明的组合。应用所配置的行注入该服务，再从各自的配置表达式中读取它（`port: !!js ctx.webStartup.port ?? 3080`），因此 flag 胜过写在它旁边的值，也没有任何东西被写回任何一行。
+新包 `@deepseek-ai/dsh-cmdline` 持有这次交接。启动器在任何条目挂载之前调用 `provideCmdline(ctx, host)`，提供 `ctx.cmdlineArgs`（其全部接口就是 `get(): readonly string[]`）与 `ctx.appExit`。应用从自己的**启动行**消费它们。Loader 行与插件都注入 `cmdlineArgs`；插件以自己的 commander program 调用 `runStartup(ctx, service, program, plan)`，再把解析结果作为自己的服务提供出去。Loader 行的注入同时也是启动器的发现声明，不再需要一份平行的组合包 manifest 字段。启动器会在 boot 前拒绝没有活跃声明却带有非空应用参数的调用，也会拒绝存在多个活跃声明的组合。应用所配置的行注入该服务，再从各自的配置表达式中读取它（`port: !!js ctx.webStartup.port ?? 3080`），因此 flag 胜过写在它旁边的值，也没有任何东西被写回任何一行。
 
 boot 只挂载一次整套组合。Cordis 让每一行等待其注入激活；Loader 随后在激活前一刻，基于已注入就绪的插件上下文插值该行的 `!!js`。Include 会保留嵌套的行表达式，直到目标行到达这一时点。`--help` 不提供启动服务，因此依赖行永不激活；活动 patch 重载会针对仍然在线的服务再次插值，所以已经服务中的端口不会被悄悄重置。
 
 已交付的各应用把自己的 flag 搬进了组合包：`dsh-web-app` 持有 Web 家族（并为 `--dev` 启用它如今以禁用状态交付的 `client-hmr` 行），`dsh-headless` 持有任务位置参数，缺少任务时按用法错误拒绝。`apps/cli/src/web.ts` 已删除；`runProfile` 不再知道任何 flag 目标行 id。在树外，turtle-ui 以同样的方式获得了 `--resume <session>` / `--session <id>`，这才是这套设计的真正验证：一个已安装的插件加上了一个 flag，启动器毫无改动。
 
-还有两条后果。Loader 会并发挂载兄弟行，因此一行可能已经激活，而另一行仍在挂载，或整次 boot 正在回滚；所以公布就绪信号的行（web 的 URL 行）会等待 `ctx.appReady`。另外，Web 组合包的运行时插件也持有 harness 源码提示词段，因此 `dsh web` 与 `dsh --profile web` 无需 Web 专用启动器设置即可按完全相同的方式启动。
+还有两条后果。Loader 会并发挂载兄弟行，因此一行可能已经激活，而另一行仍在挂载，或整次 boot 正在回滚；所以 Web 组合包只会在自身的 Loader 配置树结算后公布 URL。另外，Web 组合包的运行时插件也持有 harness 源码提示词段，因此 `dsh web` 与 `dsh --profile web` 无需 Web 专用启动器设置即可按完全相同的方式启动。
 
 ## 为什么由 Loader 持有顺序
 

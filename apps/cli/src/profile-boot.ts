@@ -218,17 +218,6 @@ export async function runProfile(options: RunProfileOptions): Promise<{ ctx: Con
   const oneShot = headlessRow !== undefined && headlessRow.disabled !== true
 
   const app: { current?: Context } = {}
-  // Readiness for rows that publish it (the web URL line): a row can activate
-  // before concurrently mounted siblings finish or fail.
-  let bootSettled: () => void = () => {}
-  let bootFailed: (reason: unknown) => void = () => {}
-  const ready = new Promise<void>((resolve, reject) => {
-    bootSettled = resolve
-    bootFailed = reject
-  })
-  // Nothing awaits `ready` on a composition that publishes no readiness, and
-  // an unobserved rejection must not take the process down on its own.
-  ready.catch(() => {})
   const shutdown = createProcessShutdown(async () => { await app.current?.fiber.dispose() })
   const signalShutdown = new AbortController()
   const interrupt = (code: number): void => {
@@ -280,7 +269,6 @@ export async function runProfile(options: RunProfileOptions): Promise<{ ctx: Con
     provideCmdline(hostCtx, {
       args: options.args,
       exit: code => void shutdown.shutdown(code),
-      ready,
     })
     if (oneShot) {
       const io: HeadlessIo = {
@@ -290,12 +278,8 @@ export async function runProfile(options: RunProfileOptions): Promise<{ ctx: Con
       }
       hostCtx.provide('headlessIo', io)
     }
-  }).catch((cause: unknown) => {
-    bootFailed(cause)
-    throw cause
   })
   app.current = ctx
-  bootSettled()
   // A surface can dispose the whole tree while startup or this post-boot
   // watcher setup is still in flight. Loader presence and fiber state own
   // liveness; the local signal fact distinguishes that expected exit race
