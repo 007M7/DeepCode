@@ -3,9 +3,9 @@ import { execa } from 'execa'
 import { describe, expect, it } from 'vitest'
 
 /**
- * Keyless smoke for the SOURCE `dsh` launcher: run `apps/cli/src/bin.ts`
+ * Keyless smoke for SOURCE `dsh` execution: run `apps/cli/src/bin.ts`
  * with the exact production launch vector (`node --import tsx/esm`, the same
- * executable and arguments as `bin/dsh` and the root `dsh`/`demo:web` scripts) and assert the
+ * shape as the root `dsh` script) and assert the
  * required-config diagnostic. The Node compatibility matrix runs this
  * WHOLE file, so a Node release changing module hooks or TypeScript handling
  * breaks this gate instead of every developer's `pnpm dsh`; the built-bin

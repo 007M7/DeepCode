@@ -14,7 +14,7 @@ Startup latency also mattered: the off-thread `module.register()` hooks worker s
 
 ## Decision
 
-The `dsh` TUI, Web, and headless source launches run `node --import tsx/esm`: tsx's ESM-only hook owns both TypeScript transformation and tsconfig `paths` projection. `bin/dsh`, the root `dsh`/`demo:tui`/`demo:web` scripts, and the Code Mode TUI overlay use the same vector; `bin/dsh` references the hook and tsconfig by absolute checkout paths (bare `tsx/esm` does not resolve from an arbitrary cwd) and pins `TSX_TSCONFIG_PATH` to the root tsconfig. The CJS hook stays off because the CLI source graph is ESM-only; measured TUI time-to-banner is ~0.7s versus ~1.1s under the full tsx default and ~0.75s under the removed native chain.
+The `dsh` TUI, Web, and headless source launches run `node --import tsx/esm`: tsx's ESM-only hook owns both TypeScript transformation and tsconfig `paths` projection. The root `dsh`/`demo:headless`/`demo:web` scripts use the same vector from the repository root. The CJS hook stays off because the CLI source graph is ESM-only; measured TUI time-to-banner is ~0.7s versus ~1.1s under the full tsx default and ~0.75s under the removed native chain.
 
 `scripts/tspath-loader.ts` and `apps/cli/src/tsconfig-paths-loader.ts` are deleted. With them went the loader's runtime rule of mapping a workspace import only for declared runtime dependencies — tsx applies the `paths` map unconditionally. Declaration completeness now rests on the static gates alone: `verify-cordis-config` for configured bare plugins, and workspace constraints for manifests. (That runtime rule found real bugs: `dsh-plan-mode` and `dsh-tool-tasks` imported `@deepseek-ai/dsh-llm` while declaring it only in devDependencies; since fixed.)
 

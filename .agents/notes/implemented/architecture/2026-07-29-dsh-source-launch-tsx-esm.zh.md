@@ -14,7 +14,7 @@ Status: implemented
 
 ## 决策
 
-`dsh` 的 TUI、Web 与无头源码启动运行 `node --import tsx/esm`：由 tsx 的 ESM-only 钩子同时负责 TypeScript 转换与 tsconfig `paths` 投影。`bin/dsh`、根目录的 `dsh`/`demo:tui`/`demo:web` 脚本以及 Code Mode TUI overlay 使用同一向量；`bin/dsh` 以 checkout 的绝对路径引用钩子与 tsconfig（裸的 `tsx/esm` 无法从任意 cwd 解析），并将 `TSX_TSCONFIG_PATH` 固定到根 tsconfig。CJS 钩子保持关闭，因为 CLI 源码图是纯 ESM；实测 TUI 到 banner 约 0.7s，对比完整 tsx 默认形态约 1.1s、已移除的原生链约 0.75s。
+`dsh` 的 TUI、Web 与无头源码启动运行 `node --import tsx/esm`：由 tsx 的 ESM-only 钩子同时负责 TypeScript 转换与 tsconfig `paths` 投影。根目录的 `dsh`/`demo:headless`/`demo:web` 脚本从仓库根目录使用同一启动方式。CJS 钩子保持关闭，因为 CLI 源码图是纯 ESM；实测 TUI 到 banner 约 0.7s，对比完整 tsx 默认形态约 1.1s、已移除的原生链约 0.75s。
 
 `scripts/tspath-loader.ts` 与 `apps/cli/src/tsconfig-paths-loader.ts` 已删除。随之消失的还有该 loader「仅为已声明运行时依赖映射 workspace import」的运行时规则——tsx 无条件应用 `paths` 映射。声明完整性现在仅由静态门禁保障：配置的裸插件走 `verify-cordis-config`，manifest（元数据清单）走 workspace constraints。（该运行时规则确实发现过真实缺陷：`dsh-plan-mode` 与 `dsh-tool-tasks` 导入 `@deepseek-ai/dsh-llm` 却只声明在 devDependencies；后已修复。）
 

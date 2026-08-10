@@ -147,7 +147,7 @@ pnpm run build
 Web development normally starts the source Host after one complete build and runs the Client plugin watcher in another terminal:
 
 ```sh
-pnpm run dsh -- web --dev
+pnpm run dsh web --dev
 pnpm run dev:web
 ```
 

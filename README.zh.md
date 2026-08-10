@@ -12,41 +12,38 @@ DeepSeek Harness 正处于内部测试阶段，功能和接口可能发生变化
 
 为帮助诊断上报的问题，内测版本默认上传所有会话日志。设置 `DSH_TELEMETRY_DISABLED=1` 可关闭遥测。请通过内部企业微信群反馈问题和建议。
 
-## 安装
+## 从源码运行
 
-克隆仓库，然后运行安装器：
+请安装 `git` 和 Node `^22.19 || >=24`，并通过 Corepack 启用 `pnpm`，然后准备源码检出：
 
 ```sh
-git clone <repo-url>
+git clone https://github.com/deepseek-ai/deepseek-harness-sdk.git
 cd deepseek-harness
-scripts/install.sh
+pnpm install
 ```
 
-安装器要求系统已安装 `git` 和 Node `^22.19 || >=24`，缺少 `pnpm` 时可代为安装，并会提示输入 DeepSeek API 密钥，然后构建所需的仓库产物并启动 Web UI。
-
-默认生效的检出位于 `~/.dsh/source/current`，启动器链接到 `~/.local/bin`。再次运行安装器即可更新。其他位置、更新机制和恢复选项由 [`scripts/install.sh`](scripts/install.sh) 负责。
+请通过环境变量或仓库根目录的 `.env` 设置 `DEEPSEEK_API_KEY`。使用下方 `pnpm run` 命令从该检出运行 DeepSeek Harness。
 
 ## 使用 DeepSeek Harness
 
 ### Web UI
 
-推荐在本地使用 Web UI；安装结束时，选择 Web UI 即可。以后需要启动时，或更新当前生效的检出后，请构建仓库并运行：
+请从仓库根目录启动推荐的本地界面：
 
 ```sh
-(cd ~/.dsh/source/current && pnpm run build)
-dsh web
+pnpm run demo:web
 ```
 
-上述路径是安装器的默认位置。如果你设置过 `DSH_SOURCE` 或 `DSH_CURRENT`，或者复用了已有检出，请把 `~/.dsh/source/current` 换成该检出路径；详情见 [`scripts/install.sh`](scripts/install.sh)。Web UI 默认通过 `http://127.0.0.1:3080` 提供服务。
+该命令会先构建仓库，再启动 Web UI。Web UI 默认通过 `http://127.0.0.1:3080` 提供服务。
 
 ### Profile
 
-`dsh` 启动 profile：按序叠放的插件组合包 patch 层，之上再叠加你在 `$DSH_HOME/profiles/<name>` 中的自有覆盖层：
+源码 CLI（命令行界面）会启动 profile：按序叠放的插件组合包 patch 层，之上再叠加你在 `$DSH_HOME/profiles/<name>` 中的自有覆盖层：
 
 ```sh
-dsh --profile web                       # the browser UI (same as: dsh web)
-dsh plugin --profile tui add <package>  # install a plugin into a custom profile
-dsh --profile tui                       # boot it
+pnpm run dsh --profile web                       # the browser UI
+pnpm run dsh plugin --profile tui add <package>  # install a plugin into a custom profile
+pnpm run dsh --profile tui                       # boot it
 ```
 
 profile 布局、层语义与配置输出命令详见 [CLI（命令行界面）参考](apps/cli/README.md#profiles)。
@@ -56,7 +53,7 @@ profile 布局、层语义与配置输出命令详见 [CLI（命令行界面）�
 运行一项任务，打印最终答案后退出：
 
 ```sh
-dsh --profile headless "summarize this workspace"
+pnpm run demo:headless "summarize this workspace"
 ```
 
 ### 自动化与 SDK

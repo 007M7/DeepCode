@@ -147,7 +147,7 @@ pnpm run build
 Web 开发通常在完成一次构建后启动源码 Host，并在另一个终端运行 Client plugin watcher：
 
 ```sh
-pnpm run dsh -- web --dev
+pnpm run dsh web --dev
 pnpm run dev:web
 ```
 

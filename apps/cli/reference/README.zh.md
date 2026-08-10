@@ -79,12 +79,6 @@ dsh web --help
 
 通过 `dsh plugin --profile <name> add <package-or-git-spec>` 安装外部插件组合包。安装的包拥有其依赖，并贡献其声明的 `cordis.patch.yml` 层。CLI 还随附 `@deepseek-ai/dsh-mcp-client` 作为供 patch 层使用的依赖，但默认不启用 MCP 服务器，因为每条服务器命令都是 agent（智能体）沙箱之外的受信任可执行代码。
 
-## 源码启动器
+## 源码执行
 
-把源码运行启动器链接到 PATH：
-
-```sh
-ln -sf "$(pwd)/bin/dsh" ~/.local/bin/dsh
-```
-
-它通过 real path 解析 checkout，并使用 `node --import tsx/esm` 启动 `apps/cli/src/bin.ts`。`TSX_TSCONFIG_PATH` 固定到 checkout 根目录，因此 workspace 包解析不依赖调用目录。`pnpm run dsh` 使用同一入口并转发参数。运行 `pnpm run build` 后，构建形式为 `apps/cli/lib/bin.js`。
+请从仓库根目录使用 `pnpm run dsh <args...>`。该脚本通过 `node --import tsx/esm` 启动 `apps/cli/src/bin.ts`，并转发所有参数。运行 `pnpm run build` 后，构建形式为 `apps/cli/lib/bin.js`。

@@ -12,41 +12,38 @@ DeepSeek Harness is under internal testing. Features and interfaces may change.
 
 The internal build uploads all Session Logs by default to help diagnose reported problems. Set `DSH_TELEMETRY_DISABLED=1` to disable telemetry. Send feedback through the internal WeChat group.
 
-## Install
+## Run from source
 
-Clone the repository, then run the installer:
+Install `git`, Node `^22.19 || >=24`, and Corepack-enabled `pnpm`, then prepare a source checkout:
 
 ```sh
-git clone <repo-url>
+git clone https://github.com/deepseek-ai/deepseek-harness-sdk.git
 cd deepseek-harness
-scripts/install.sh
+pnpm install
 ```
 
-The installer requires `git` and Node `^22.19 || >=24`, offers to install `pnpm` when it is missing, prompts for a DeepSeek API key, builds the required repository artifacts, and launches the Web UI.
-
-The default active checkout is `~/.dsh/source/current`, and the launcher is linked into `~/.local/bin`. Re-run the installer to update. [`scripts/install.sh`](scripts/install.sh) owns alternate locations, update mechanics, and recovery options.
+Set `DEEPSEEK_API_KEY` in the environment or the repository's root `.env`. Run DeepSeek Harness from this checkout through the `pnpm run` commands below.
 
 ## Use DeepSeek Harness
 
 ### Web UI
 
-For the recommended local interface, choose Web UI when the installer finishes. To start it later, or after updating the active checkout, build the repository and run:
+Start the recommended local interface from the repository root:
 
 ```sh
-(cd ~/.dsh/source/current && pnpm run build)
-dsh web
+pnpm run demo:web
 ```
 
-The path above is the installer's default. If you set `DSH_SOURCE` or `DSH_CURRENT`, or reused an existing checkout, replace `~/.dsh/source/current` with that checkout path; see [`scripts/install.sh`](scripts/install.sh) for details. The Web UI is served at `http://127.0.0.1:3080` by default.
+The command builds the repository before starting the Web UI, which is served at `http://127.0.0.1:3080` by default.
 
 ### Profiles
 
-`dsh` boots profiles — ordered stacks of plugin-bundle patch layers under your own overrides in `$DSH_HOME/profiles/<name>`:
+The source CLI boots profiles — ordered stacks of plugin-bundle patch layers under your own overrides in `$DSH_HOME/profiles/<name>`:
 
 ```sh
-dsh --profile web                       # the browser UI (same as: dsh web)
-dsh plugin --profile tui add <package>  # install a plugin into a custom profile
-dsh --profile tui                       # boot it
+pnpm run dsh --profile web                       # the browser UI
+pnpm run dsh plugin --profile tui add <package>  # install a plugin into a custom profile
+pnpm run dsh --profile tui                       # boot it
 ```
 
 The [CLI reference](apps/cli/README.md#profiles) describes profile layout, layer semantics, and config dump commands.
@@ -56,7 +53,7 @@ The [CLI reference](apps/cli/README.md#profiles) describes profile layout, layer
 Run one task, print the final answer, and exit:
 
 ```sh
-dsh --profile headless "summarize this workspace"
+pnpm run demo:headless "summarize this workspace"
 ```
 
 ### Automation and SDKs
