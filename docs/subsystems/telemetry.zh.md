@@ -75,9 +75,8 @@ type TelemetrySharingStatus = 'full' | 'feedback-only' | 'disabled'
 
 ```ts type-equiv
 /**
- * The backend contract the coordinator hands records to — the minimum any
- * reporting SDK satisfies with zero bending. {@link Telemetry} is its
- * service-registered form; tests compose the coordinator with a bare
+ * The minimum backend contract the coordinator requires. {@link Telemetry} is
+ * its service-registered form; tests compose the coordinator with a bare
  * implementation of this interface.
  */
 interface TelemetryBackend {
@@ -92,8 +91,8 @@ interface TelemetryBackend {
    */
   emit(record: TelemetryRecord): void
   /**
-   * Optional hint that a natural boundary (turn end) passed — a backend may
-   * forward it to its SDK's flush so records land at turn boundaries. Called
+   * Optional hint that a turn ended. A backend may forward it to its SDK's
+   * flush so records are exported after each turn. Called
    * fire-and-forget; implementations must not block and must not throw
    * meaningfully (the coordinator contains exceptions). Most backends should
    * leave this unimplemented and let their SDK's own batching cadence govern
@@ -138,7 +137,7 @@ Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnp
 
 ### `ctx.telemetry` — `Telemetry` (abstract seam)
 
-The backend contract in its loadable form: one implementation per context — the cordis `Service` registration under the `telemetry` key throws on a duplicate, cordis' standard behavior. A backend composes a TelemetryCoordinator in its constructor to install the capture side.
+Loadable form of the backend contract: one implementation per context — the cordis `Service` registration under the `telemetry` key throws on a duplicate, cordis' standard behavior. A backend composes a TelemetryCoordinator in its constructor to install the capture side.
 
 ```ts cordis-catalog
 /**
@@ -157,7 +156,7 @@ flush?(): void
 abstract shutdown(): Promise<void>
 ```
 
-Source: [`packages/session/session-telemetry/src/index.ts:149`](../../packages/session/session-telemetry/src/index.ts)
+Source: [`packages/session/session-telemetry/src/index.ts:148`](../../packages/session/session-telemetry/src/index.ts)
 
 <a id="telemetry-events"></a>
 
