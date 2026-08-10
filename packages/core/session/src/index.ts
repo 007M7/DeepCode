@@ -6,7 +6,7 @@
  * @module @deepseek-ai/dsh-session
  */
 
-import { Context, Service } from 'cordis'
+import { Context, Service } from '@deepseek-ai/cordis'
 import { isAbsolute } from 'node:path'
 import { deepFreeze } from '@deepseek-ai/dsh-llm'
 import { scopeOf, scopeTarget } from '@deepseek-ai/dsh-scope'
@@ -54,7 +54,7 @@ export function findLastMessageTurnEnd(
   return latest
 }
 
-declare module 'cordis' {
+declare module '@deepseek-ai/cordis' {
   interface Context {
     sessions: SessionStore
   }

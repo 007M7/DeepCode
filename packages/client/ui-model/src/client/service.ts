@@ -12,13 +12,13 @@
  * strings, and it models global+shadow named registries — this is a
  * per-session singleton with no global layer to merge.
  */
-import { Service } from 'cordis'
-import type { Context } from 'cordis'
+import { Service } from '@deepseek-ai/cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import type { ConnectionHandle, SessionId } from '@deepseek-ai/dsh-client-connection/client'
 import type { SessionsService } from '@deepseek-ai/dsh-client-runtime/client'
 import { ModelDirectory } from './directory.ts'
 
-declare module 'cordis' {
+declare module '@deepseek-ai/cordis' {
   interface Context {
     models: ModelService
   }

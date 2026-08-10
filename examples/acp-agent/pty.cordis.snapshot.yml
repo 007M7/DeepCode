@@ -1,6 +1,6 @@
 # Keyless replay counterpart to pty.cordis.yml.
 - id: base
-  name: '@cordisjs/plugin-include'
+  name: '@deepseek-ai/cordis-plugin-include'
   config:
     path: ./cordis.yml
     patches:

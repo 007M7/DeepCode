@@ -29,10 +29,10 @@ import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import type { Page } from 'playwright'
 import { expect } from 'vitest'
-import { Context } from 'cordis'
-import Loader from '@cordisjs/plugin-loader'
-import Include, { type PatchOptions } from '@cordisjs/plugin-include'
-import Group from '@cordisjs/plugin-group'
+import { Context } from '@deepseek-ai/cordis'
+import Loader from '@deepseek-ai/cordis-plugin-loader'
+import Include, { type PatchOptions } from '@deepseek-ai/cordis-plugin-include'
+import Group from '@deepseek-ai/cordis-plugin-group'
 import { scrubRequestHeaders, stabilizeFixtureMessageIds } from '@deepseek-ai/dsh-acp-snapshot'
 import {
   addHarnessSourceSection,
@@ -464,7 +464,7 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     // `cordis:group` beside it, exactly as `boot()` registers it: a group row is
     // how a preset gives one `isolate` realm to a provider and its consumers,
     // and a preset resolving package names from its own directory cannot reach
-    // `@cordisjs/plugin-group` by name.
+    // `@deepseek-ai/cordis-plugin-group` by name.
     ctx.loader.builtins.group = Group
     // The shipped CLI deliberately has no dependency on this opt-in package.
     // Keep the Loader row real without broadening the product installation.

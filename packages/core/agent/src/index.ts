@@ -5,8 +5,8 @@
  * @module @deepseek-ai/dsh-agent
  */
 
-import { Context, FiberState, getTraceable, Service, symbols } from 'cordis'
-import type { Fiber } from 'cordis'
+import { Context, FiberState, getTraceable, Service, symbols } from '@deepseek-ai/cordis'
+import type { Fiber } from '@deepseek-ai/cordis'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { isPromise } from 'node:util/types'
 import { scopeTarget } from '@deepseek-ai/dsh-scope'
@@ -32,7 +32,7 @@ declare module '@deepseek-ai/dsh-type-meta' {
   }
 }
 
-declare module 'cordis' {
+declare module '@deepseek-ai/cordis' {
   interface Context {
     agents: AgentRegistry
     /**

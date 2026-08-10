@@ -1,4 +1,4 @@
-import { Context, Service } from 'cordis'
+import { Context, Service } from '@deepseek-ai/cordis'
 import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'

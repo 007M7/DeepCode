@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import InvariantService from '@deepseek-ai/dsh-invariants'
 import * as AgentLoopInvariant from '@deepseek-ai/dsh-agent-loop/invariant'

@@ -4,7 +4,7 @@
  * ctx 'session/preset-changed'; each established connection generation →
  * ctx 'connection/reset' (the forced cache-invalidation broadcast).
  */
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it } from 'vitest'
 import type { ConnectionHandle, ConnectionSinks } from '@deepseek-ai/dsh-client-connection/client'
 import TypertRegistry from '@deepseek-ai/dsh-typert-registry'

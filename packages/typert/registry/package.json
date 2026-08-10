@@ -51,10 +51,10 @@
   },
   "peerDependencies": {
     "@deepseek-ai/dsh-invariants": "^0.0.1",
-    "cordis": "^4.0.0-rc.7"
+    "@deepseek-ai/cordis": "^4.0.0-rc.7"
   },
   "devDependencies": {
     "@deepseek-ai/dsh-invariants": "workspace:^",
-    "cordis": "^4.0.0-rc.7"
+    "@deepseek-ai/cordis": "^4.0.0-rc.7"
   }
 }

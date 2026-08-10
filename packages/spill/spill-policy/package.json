@@ -31,10 +31,10 @@
     "@deepseek-ai/dsh-session": "^0.0.1",
     "@deepseek-ai/dsh-spill": "^0.0.1",
     "@deepseek-ai/dsh-tools": "^0.0.1",
-    "cordis": "^4.0.0-rc.6"
+    "@deepseek-ai/cordis": "^4.0.0-rc.6"
   },
   "dependencies": {
-    "schemastery": "^3.18.0"
+    "@deepseek-ai/schemastery": "^3.18.0"
   },
   "devDependencies": {
     "@deepseek-ai/dsh-agent": "workspace:^",
@@ -45,6 +45,6 @@
     "@deepseek-ai/dsh-session": "workspace:^",
     "@deepseek-ai/dsh-spill": "workspace:^",
     "@deepseek-ai/dsh-tools": "workspace:^",
-    "cordis": "^4.0.0-rc.6"
+    "@deepseek-ai/cordis": "^4.0.0-rc.6"
   }
 }

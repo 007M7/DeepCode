@@ -8,7 +8,7 @@
 # falls back to /home/user/workspace while Bash and PTY keep targeting the
 # host path, so every tool call fails with a remote spawn error.
 - id: base
-  name: '@cordisjs/plugin-include'
+  name: '@deepseek-ai/cordis-plugin-include'
   config:
     path: ./advanced.cordis.yml
     patches:

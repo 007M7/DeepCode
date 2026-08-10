@@ -8,7 +8,7 @@
  * @module @deepseek-ai/dsh-credentials
  */
 
-import { Context, Service } from 'cordis'
+import { Context, Service } from '@deepseek-ai/cordis'
 import type { Branded } from '@deepseek-ai/dsh-brand'
 
 /** Nominal reference to one credential: a POSIX-style environment-variable name. */
@@ -46,7 +46,7 @@ export interface CredentialInfo {
   writable: boolean
 }
 
-declare module 'cordis' {
+declare module '@deepseek-ai/cordis' {
   interface Context {
     credentials: Credentials
   }

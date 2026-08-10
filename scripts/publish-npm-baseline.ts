@@ -258,7 +258,9 @@ class WorkspacePackageSet {
       const name = expectString(manifest, 'name', manifestPath)
       const version = expectString(manifest, 'version', manifestPath)
       const isVendored = manifestPath.startsWith('vendor/')
-      if (!isVendored && !name.startsWith('@deepseek-ai/')) {
+      // Vendored packages are rescoped too (vendor/README.md), so publication
+      // never carries an upstream name that would squat it on the registry.
+      if (!name.startsWith('@deepseek-ai/')) {
         throw new Error(`${manifestPath} must name an @deepseek-ai package`)
       }
       if (name === '@deepseek-ai/dsh-root') {

@@ -73,7 +73,7 @@ describe.skipIf(!existsSync(builtScripts))('live-linked generated projects', () 
       })
       await writeFile(join(root, 'plugins/probe/src/index.ts'), `
         import { writeFileSync } from 'node:fs'
-        import type { Context } from 'cordis'
+        import type { Context } from '@deepseek-ai/cordis'
         export const name = 'probe'
         export function apply(_ctx: Context): void {
           writeFileSync(new URL('../../../plugin-loaded', import.meta.url), 'loaded\\n')
@@ -119,7 +119,7 @@ describe.skipIf(!existsSync(builtScripts))('live-linked generated projects', () 
       const manifest = JSON.parse(await readFile(join(root, 'package.json'), 'utf8')) as {
         dependencies: Record<string, string>
       }
-      expect(manifest.dependencies.cordis).toMatch(name === 'npm' ? /^file:/ : name === 'pnpm' ? /^link:/ : /^portal:/)
+      expect(manifest.dependencies['@deepseek-ai/cordis']).toMatch(name === 'npm' ? /^file:/ : name === 'pnpm' ? /^link:/ : /^portal:/)
       expect(manifest.dependencies).not.toHaveProperty('node-addon-require-builtin')
     }, 180_000)
   }

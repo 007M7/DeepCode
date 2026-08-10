@@ -6,8 +6,8 @@ import type {
   SDKResultMessage,
   SpawnOptions,
 } from '@anthropic-ai/claude-agent-sdk'
-import { Context } from 'cordis'
-import Loader from '@cordisjs/plugin-loader'
+import { Context } from '@deepseek-ai/cordis'
+import Loader from '@deepseek-ai/cordis-plugin-loader'
 import {
   afterEach,
   beforeEach,

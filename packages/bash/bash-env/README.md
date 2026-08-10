@@ -22,7 +22,7 @@ Every foreground and background model shell call receives a newly collected trus
 `ctx.bashEnv` owns collection. Other plugins can register an effect-scoped contributor with a stable name, declared keys/descriptions, and `resolve(execution: ToolExecution)`; duplicate ownership and undeclared runtime keys fail loudly, while `list()` enumerates declarations without executing providers. Harness built-ins reserve `DSH_HOME`, `DSH_SHELL`, and `DSH_SESSION_ID`; this plugin's persistence translator owns `DSH_SESSION_JSONL` by reading the backend-neutral `sessionPersistence.locate()` seam.
 
 ```ts
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-bash-env'
 
 export const inject = ['bashEnv']

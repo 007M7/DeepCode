@@ -13,8 +13,8 @@
  * @module @deepseek-ai/dsh-persona
  */
 
-import type { Context } from 'cordis'
-import z from 'schemastery'
+import type { Context } from '@deepseek-ai/cordis'
+import z from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 
 // Imported rather than restated: the registry declares the slot this row
