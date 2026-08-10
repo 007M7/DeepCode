@@ -349,7 +349,7 @@ export const IconThinkOutline16 = ({ size = 16, className }: IconProps) => (
   </svg>
 )
 
-/** ic_ds_agent_preset_outline_16. The three node interiors knock out to transparency via mask so the glyph sits on any background. */
+/** ic_ds_agent_preset_outline_16 (figma extract): node interiors knock out to transparency via mask, so the glyph sits on any fill. */
 export const IconAgentPresetOutline16 = ({ size = 16, className }: IconProps) => (
   <svg width={size} height={size} className={className} viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
     <mask id="mask0_agent_preset_16" maskUnits="userSpaceOnUse" x="0" y="0" width="16" height="16">
