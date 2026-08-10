@@ -42,7 +42,7 @@ transcript 为非提示消息可能承担的三种角色分别命名：注入上
 
 ## 后果
 
-- **部分被取代。** 决策中的 steering 标注条款已不再描述 master：[标注移除决策](../simplification/2026-08-10-web-remove-steering-interjection-caption.md)删除了 `插话` / `Interjection` 标注，轮次中途的 steer 只能靠它在消息流中的位置辨认。下列上下文来源与召回命名仍然有效，`SteeringMessageNode` 投影未变。
+- **部分被取代。** 决策中的 steering 标注条款已不再描述 master：[标注移除决策](../simplification/2026-08-10-web-remove-steering-interjection-caption.md)删除了 `插话` / `Interjection` 标注，轮次中途的 steer 只能靠它在消息流中的位置辨认。决策中的上下文来源与召回命名仍然有效，`SteeringMessageNode` 投影未变。
 - 读者一眼即可归因 transcript 中每一条非提示消息；即便面对本客户端版本从未见过其生产者的日志，标题栏依然如实。
 - 只要来源仅携带插件 id，UI 中的生产者名称就呈现为包名形态（`dsh-tool-skill`、`@deepseek-ai/dsh-system-prompt`）。这是拒绝客户端名称表的代价；想要更好标签的生产者必须在来源字段中记录该标签。
 - `ContextMessageNode` 增加了一个必填字段，因此每一处构造该节点的代码——包括测试 fixture——都必须提供它。

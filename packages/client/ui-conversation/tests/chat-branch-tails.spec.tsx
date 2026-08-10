@@ -242,6 +242,7 @@ describe('MessageItem arms', () => {
       } as never}
       />,
     )
+    expect(view.queryByText('插话')).toBeNull()
     expect(view.getByText('steer!')).toBeTruthy()
     expect(view.getByText(/附加内容块/)).toBeTruthy()
     fireEvent.click(view.getByRole('button', { name: '复制' }))
