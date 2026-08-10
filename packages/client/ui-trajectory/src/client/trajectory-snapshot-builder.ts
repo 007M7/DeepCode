@@ -11,6 +11,8 @@ import type {
 
 const EMPTY_LIST: readonly never[] = []
 const EMPTY_CONTEXTS = [{ id: 0, nodes: EMPTY_LIST }]
+type AssistantRequest = Extract<RequestView, { purpose: 'assistant' }>
+type ToolSchema = ConversationPromptSnapshot['tools'][number]
 
 /** Stable empty target used until a Session has assembled Trajectory records. */
 export const EMPTY_TRAJECTORY_SNAPSHOT: TrajectorySnapshot = {
@@ -23,31 +25,31 @@ export const EMPTY_TRAJECTORY_SNAPSHOT: TrajectorySnapshot = {
   runningCalls: EMPTY_LIST,
 }
 
-function coordinates(
-  header: TrajectoryRequestHeaderState,
-): { turn?: number; step?: number } {
+function stepKey(turn: number, step: number): string {
+  return `${turn}\u0000${step}`
+}
+
+function headerStepKey(header: TrajectoryRequestHeaderState): string | undefined {
   const location = header.location
-  if (location.kind === 'step') return { turn: location.turn.turn, step: location.step.step }
-  if (location.kind === 'turn') return { turn: location.turn.turn }
-  return {}
+  return location.kind === 'step'
+    ? stepKey(location.turn.turn, location.step.step)
+    : undefined
 }
 
 function headerFor(
-  request: Extract<RequestView, { purpose: 'assistant' }>,
-  headers: readonly TrajectoryRequestHeaderState[],
+  request: AssistantRequest,
+  headersByStep: ReadonlyMap<string, TrajectoryRequestHeaderState>,
+  previous: TrajectoryRequestHeaderState | undefined,
 ): TrajectoryRequestHeaderState | undefined {
-  const exact = headers.findLast((header) => {
-    const location = coordinates(header)
-    return location.turn === request.turn && location.step === request.step
-  })
-  return exact ?? headers.findLast(header => header.seq < request.startSeq)
+  return headersByStep.get(stepKey(request.turn, request.step))
+    ?? (previous !== undefined && previous.seq < request.startSeq ? previous : undefined)
 }
 
 function applyHeader(
-  request: Extract<RequestView, { purpose: 'assistant' }>,
+  request: AssistantRequest,
   header: TrajectoryRequestHeaderState | undefined,
   includeChange: boolean,
-): Extract<RequestView, { purpose: 'assistant' }> {
+): AssistantRequest {
   return header === undefined
     ? request
     : {
@@ -67,26 +69,39 @@ function withRequestConfig(
 
 function captureSchemas(
   block: ToolCallBlock,
-  tools: readonly ConversationPromptSnapshot['tools'][number][],
-  output: Map<string, ConversationPromptSnapshot['tools'][number]>,
+  toolsByName: ReadonlyMap<string, ToolSchema>,
+  output: Map<string, ToolSchema>,
 ): void {
   const name = 'kind' in block ? block.call?.name : block.name
-  const schema = name === undefined
-    ? undefined
-    : tools.find(candidate => candidate.name === name)
+  const schema = name === undefined ? undefined : toolsByName.get(name)
   if (schema !== undefined) output.set(block.callId, schema)
-  for (const child of block.subCalls) captureSchemas(child, tools, output)
+  for (const child of block.subCalls) captureSchemas(child, toolsByName, output)
+}
+
+function indexTools(tools: readonly ToolSchema[]): ReadonlyMap<string, ToolSchema> {
+  return new Map(tools.map(tool => [tool.name, tool]))
 }
 
 function interruptCompactions(
   requests: RequestView[],
   boundaries: readonly { seq: number; time: number }[],
 ): void {
+  let nextRequest = 0
+  const runningCompactions: number[] = []
   for (const boundary of boundaries) {
-    const index = requests.findLastIndex(request =>
-      request.purpose === 'compaction'
-      && request.startSeq < boundary.seq
-      && request.status === 'running')
+    while (nextRequest < requests.length) {
+      const request = requests[nextRequest]
+      if (request === undefined || request.startSeq >= boundary.seq) break
+      if (request.purpose === 'compaction' && request.status === 'running') {
+        runningCompactions.push(nextRequest)
+      }
+      nextRequest++
+    }
+    let index = runningCompactions.pop()
+    while (index !== undefined && requests[index]?.status !== 'running') {
+      index = runningCompactions.pop()
+    }
+    if (index === undefined) continue
     const request = requests[index]
     if (request?.purpose !== 'compaction') continue
     requests[index] = {
@@ -102,10 +117,14 @@ function applyTurnErrors(
   requests: RequestView[],
   endings: readonly { turn: number; time: number; error?: string }[],
 ): void {
+  const lastAssistantByTurn = new Map<number, number>()
+  for (const [index, request] of requests.entries()) {
+    if (request.purpose === 'assistant') lastAssistantByTurn.set(request.turn, index)
+  }
   for (const ending of endings) {
     if (ending.error === undefined) continue
-    const index = requests.findLastIndex(request =>
-      request.purpose === 'assistant' && request.turn === ending.turn)
+    const index = lastAssistantByTurn.get(ending.turn)
+    if (index === undefined) continue
     const request = requests[index]
     if (request?.purpose !== 'assistant') continue
     requests[index] = {
@@ -123,6 +142,8 @@ export class TrajectorySnapshotBuilder implements ConversationViewBuilder<
   TrajectorySnapshot
 > {
   private readonly nodes = new Map<string, TrajectoryConversationViewNode>()
+  private readonly positions = new Map<string, number>()
+  private contributions: TrajectoryConversationViewNode[] = []
   readonly empty = EMPTY_TRAJECTORY_SNAPSHOT
 
   replace(input: {
@@ -130,39 +151,62 @@ export class TrajectorySnapshotBuilder implements ConversationViewBuilder<
   }): TrajectorySnapshot {
     this.nodes.clear()
     for (const node of input.nodes) this.nodes.set(node.key, node)
+    this.rebuildContributions()
     return this.snapshot()
   }
 
   apply(input: {
     readonly upserts: readonly TrajectoryConversationViewNode[]
   }): TrajectorySnapshot {
-    for (const node of input.upserts) this.nodes.set(node.key, node)
+    let structural = false
+    for (const node of input.upserts) {
+      const previous = this.nodes.get(node.key)
+      this.nodes.set(node.key, node)
+      if (previous === undefined || previous.anchorSeq !== node.anchorSeq) {
+        structural = true
+        continue
+      }
+      const position = this.positions.get(node.key)
+      if (position === undefined) structural = true
+      else this.contributions[position] = node
+    }
+    if (structural) this.rebuildContributions()
     return this.snapshot()
   }
 
   private snapshot(): TrajectorySnapshot {
-    const contributions = [...this.nodes.values()]
-      .sort((left, right) => left.anchorSeq - right.anchorSeq || left.key.localeCompare(right.key))
-    const headers = contributions.flatMap(node => node.data.kind === 'request-header'
-      ? [node.data.header]
-      : [])
+    const headersByStep = new Map<string, TrajectoryRequestHeaderState>()
+    for (const contribution of this.contributions) {
+      if (contribution.data.kind !== 'request-header') continue
+      const key = headerStepKey(contribution.data.header)
+      if (key !== undefined) headersByStep.set(key, contribution.data.header)
+    }
     const finalized: ConversationNode[] = []
     const requests: RequestView[] = []
     const boundaries: { seq: number; time: number }[] = []
     const turnEndings: { turn: number; time: number; error?: string }[] = []
-    const callSchemas = new Map<string, ConversationPromptSnapshot['tools'][number]>()
+    const callSchemas = new Map<string, ToolSchema>()
     const consumedPromptChanges = new Set<number>()
+    let previousHeader: TrajectoryRequestHeaderState | undefined
+    let previousTools: ReadonlyMap<string, ToolSchema> = new Map()
     let partial: TrajectorySnapshot['partial'] = null
     const runningCalls: TrajectorySnapshot['runningCalls'][number][] = []
 
-    for (const contribution of contributions) {
+    for (const contribution of this.contributions) {
       const data = contribution.data
+      if (data.kind === 'request-header') {
+        previousHeader = data.header
+        previousTools = indexTools(data.header.prompt.tools)
+        continue
+      }
       if (data.kind === 'node') {
         finalized.push(data.node)
         continue
       }
       if (data.kind === 'assistant') {
-        const header = data.request === undefined ? undefined : headerFor(data.request, headers)
+        const header = data.request === undefined
+          ? undefined
+          : headerFor(data.request, headersByStep, previousHeader)
         if (data.node !== undefined) finalized.push(withRequestConfig(data.node, header?.prompt))
         if (data.partial !== null) partial = data.partial
         if (data.request !== undefined) {
@@ -176,8 +220,9 @@ export class TrajectorySnapshotBuilder implements ConversationViewBuilder<
       if (data.kind === 'tool') {
         if ('kind' in data.root) finalized.push(data.root)
         else runningCalls.push(data.root)
-        const header = headers.findLast(candidate => candidate.seq < contribution.anchorSeq)
-        if (header !== undefined) captureSchemas(data.root, header.prompt.tools, callSchemas)
+        if (previousHeader !== undefined && previousHeader.seq < contribution.anchorSeq) {
+          captureSchemas(data.root, previousTools, callSchemas)
+        }
         continue
       }
       if (data.kind === 'compaction') {
@@ -210,6 +255,15 @@ export class TrajectorySnapshotBuilder implements ConversationViewBuilder<
       interruptedNodes: EMPTY_LIST,
       partial,
       runningCalls,
+    }
+  }
+
+  private rebuildContributions(): void {
+    this.contributions = [...this.nodes.values()]
+      .sort((left, right) => left.anchorSeq - right.anchorSeq || left.key.localeCompare(right.key))
+    this.positions.clear()
+    for (const [index, contribution] of this.contributions.entries()) {
+      this.positions.set(contribution.key, index)
     }
   }
 }
