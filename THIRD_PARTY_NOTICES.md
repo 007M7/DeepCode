@@ -59,6 +59,7 @@ External packages that a workspace package resolves at runtime. `scripts/install
 | [`diff`](https://github.com/kpdecker/jsdiff) | BSD-3-Clause |
 | [`e2b`](https://github.com/e2b-dev/e2b) | MIT |
 | [`eventsource-parser`](https://github.com/rexxars/eventsource-parser) | MIT |
+| [`fflate`](https://github.com/101arrowz/fflate) | MIT |
 | [`handlebars`](https://github.com/handlebars-lang/handlebars.js) | MIT |
 | [`immer`](https://github.com/immerjs/immer) | MIT |
 | [`js-yaml`](https://github.com/nodeca/js-yaml) | MIT |

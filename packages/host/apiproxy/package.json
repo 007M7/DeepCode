@@ -62,6 +62,7 @@
     "@deepseek-ai/dsh-user-approval": "workspace:^",
     "@deepseek-ai/dsh-user-interaction": "workspace:^",
     "@deepseek-ai/dsh-workspace": "workspace:^",
+    "fflate": "^0.8.2",
     "schemastery": "^3.18.0",
     "zod": "^4.4.3"
   },
