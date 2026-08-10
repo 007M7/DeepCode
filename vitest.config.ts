@@ -37,18 +37,8 @@ const windowsUnsupportedPackages = process.platform === 'win32'
     ]
   : []
 
-// These files retain 100% per-file coverage on POSIX, where their process-pipe and terminal timing
-// tests are deterministic; Windows skips those cases and must not fail solely on their uncovered paths.
-const windowsCoverageExclusions = process.platform === 'win32'
-  ? [
-      'packages/lsp/lsp-local/src/connection.ts',
-      'packages/lsp/lsp-local/src/index.ts',
-      'packages/lsp/lsp-local/src/instance.ts',
-    ]
-  : []
-
-// Mirrors windowsCoverageExclusions: pwsh-local's run/start/lifecycle suites
-// self-skip without a real pwsh (executor.spec.ts hasPwsh), leaving this file
+// pwsh-local's run/start/lifecycle suites self-skip without a real pwsh
+// (executor.spec.ts hasPwsh), leaving this file
 // far below per-file 100% on pwsh-less hosts; the exemption keeps those hosts
 // green while CI runners ship pwsh and still enforce the full bar. The probe
 // runs the suites' own resolution (the dependency-free resolve.ts module),
@@ -80,6 +70,8 @@ const coverageExemptExcludes = coverageExemptRaw === '1'
 // that worker threads cannot isolate reliably under aggregate gate contention.
 // Keep the narrow exception in forks while the rest of the inventory avoids per-file processes.
 const processBoundTests = [
+  'packages/session/session-persistence-jsonl/tests/jsonl.spec.ts',
+  'packages/subagent/subagent-acp/tests/subagent-acp.spec.ts',
   'packages/subprocess/subprocess-local/tests/spawn.spec.ts',
   'packages/context/time-context/tests/time-context.spec.ts',
   'packages/llm/llm-pi-ai/tests/adapter.spec.ts',
@@ -94,9 +86,8 @@ export default defineConfig({
     // .tsx: client component specs (jsdom via per-file @vitest-environment pragma).
     include: testIncludes,
     exclude: windowsUnsupportedPackages.map(path => `${path}/tests/**/*.spec.ts`),
-    // One coverage invocation aggregates both projects. Regular suites fork on
-    // POSIX for Node stability and use threads on Windows; process-bound suites
-    // always fork.
+    // One coverage invocation aggregates both projects. Every suite forks for
+    // Node stability; process-bound suites stay separate for inventory control.
     projects: [
       {
         plugins: [pathsPlugin(), standardDecoratorPlugin()],
@@ -104,11 +95,9 @@ export default defineConfig({
           name: 'thread-safe',
           execArgv: vitestExecArgv,
           // Node 24 has aborted in its CJS lexer (v8::ToLocalChecked Empty
-          // MaybeLocal in cjs_lexer::Parse) from worker threads on macOS
-          // arm64 and later on Linux. A fork contains that external runtime
-          // failure to the test process; Windows keeps the thread pool, where
-          // the abort has not reproduced and process spawn is costlier.
-          pool: process.platform === 'win32' ? 'threads' : 'forks',
+          // MaybeLocal in cjs_lexer::Parse) from worker threads on macOS,
+          // Linux, and Windows. Forked workers avoid that shared thread path.
+          pool: 'forks',
           setupFiles: ['./scripts/test-invariants.ts'],
           include: testIncludes,
           exclude: [
@@ -226,7 +215,6 @@ export default defineConfig({
         'packages/interaction/commands/src/invariant.ts',
         'packages/session/session-projection/src/index.ts',
         ...windowsUnsupportedPackages.map(path => `${path}/src/**/*.ts`),
-        ...windowsCoverageExclusions,
         ...pwshCoverageExclusions,
       ],
       // 100% or it doesn't merge (docs/testing.md: excessive tests are welcome).
