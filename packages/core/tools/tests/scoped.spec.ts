@@ -190,14 +190,14 @@ describe('restrict()', () => {
     expect(() => scope.ctx.tools.restrict({})).toThrow(/no-op/)
     // A scope's own registration is exempt from its own filter, so naming it
     // is a caller error rather than a silent no-op.
-    expect(() => scope.ctx.tools.restrict({ allow: ['local'] })).toThrow(/unknown inherited tool "local"/)
-    expect(() => scope.ctx.tools.restrict({ allow: ['reall'] })).toThrow(/unknown inherited tool "reall".*Restrictable tools: real/s)
-    expect(() => scope.ctx.tools.restrict({ deny: ['ghost', 'wraith'] })).toThrow(/unknown inherited tools "ghost", "wraith"/)
+    expect(() => scope.ctx.tools.restrict({ allow: ['local'] })).toThrow(/unknown global tool "local"/)
+    expect(() => scope.ctx.tools.restrict({ allow: ['reall'] })).toThrow(/unknown global tool "reall".*known global tools: real/s)
+    expect(() => scope.ctx.tools.restrict({ deny: ['ghost', 'wraith'] })).toThrow(/unknown global tools "ghost", "wraith"/)
 
     const emptyCtx = await mount()
     const { scope: emptyScope } = await mintAgentScope(emptyCtx, 'empty')
     expect(() => emptyScope.ctx.tools.restrict({ deny: ['ghost'] }))
-      .toThrow(/Restrictable tools: \(none\)/)
+      .toThrow(/known global tools: \(none\)/)
   })
 })
 
