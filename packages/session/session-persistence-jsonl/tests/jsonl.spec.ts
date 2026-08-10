@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { appendFile, mkdtemp, mkdir, rm, readFile, writeFile, readdir, stat, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { isAbsolute, join, relative, resolve } from 'node:path'
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
@@ -184,6 +184,25 @@ describe('SessionPersistenceJsonl: format helpers', () => {
       kind: 'jsonl',
       path: rawLogPath(resolve(absoluteRoot), '/work', m.id),
     })
+    await fiber.dispose()
+  })
+
+  it('refuses a structurally foreign future header as unsupported, not corrupt', async () => {
+    const absoluteRoot = await freshRoot()
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const fiber = await ctx.plugin(SessionPersistenceJsonl, { root: absoluteRoot, compression: 'none' })
+    // A future format need not satisfy today's header shape at all (no
+    // createdAt, unknown fields): the version must be refused before shape
+    // validation, so the user sees the upgrade direction.
+    const id = SessionId('future-shape')
+    const path = rawLogPath(resolve(absoluteRoot), '/work', id)
+    await mkdir(dirname(path), { recursive: true })
+    await writeFile(path, `${JSON.stringify({ type: 'session', version: 42, id, futureOnly: true })}\n{"future":"row"}\n`)
+    const failure = await ctx.sessionPersistence.load(id).then(() => undefined, (error: unknown) => error as Error)
+    expect(failure?.name).toBe('SessionFormatUnsupportedError')
+    expect(failure?.message).toMatch(/written by a newer harness.*upgrade the harness/)
+    expect(failure?.message).toContain(`(raw log: ${path})`)
     await fiber.dispose()
   })
 

@@ -64,6 +64,22 @@ export class SessionFormatUnsupportedError extends Error {
   }
 }
 
+/**
+ * Direction-aware refusal text for a stored session whose format version this
+ * build does not read. Shared by the coordinator's load-time check and by
+ * backends that must refuse BEFORE decoding version-dependent structure (a
+ * future format may not satisfy today's structural checks at all, and the
+ * user must see "upgrade the harness", never "corrupt").
+ * @param id - the stored session id, for message context.
+ * @param version - the stored format version.
+ * @returns the stable refusal text, without a raw-log path suffix.
+ */
+export function sessionFormatVersionRefusal(id: string, version: number): string {
+  return version > SESSION_FORMAT_VERSION
+    ? `session "${id}" uses log format v${version}, but this harness reads only v${SESSION_FORMAT_VERSION}: the log was written by a newer harness — upgrade the harness to open it`
+    : `session "${id}" uses log format v${version}, older than the supported v${SESSION_FORMAT_VERSION}, and this build ships no upgrade path for it`
+}
+
 /** Coordinator policy supplied by a concrete persistence backend. */
 export interface PersistenceCoordinatorOptions {
   /** Maximum completed unpublished preparations retained for reuse. */
@@ -147,6 +163,11 @@ export interface PersistenceBackend<TornMarker = unknown> {
    * contains a supported legacy shape whose normalization needs earlier
    * message-identity facts, in which case the coordinator falls back
    * to the complete stored prefix.
+   * Unknown-type refusal follows the same suffix scope: a seek-capable
+   * backend's `readFrom` checks only the returned suffix, while the
+   * sequential fallback parses the whole artifact and refuses on an unknown
+   * required event anywhere in it — over-refusal on the sequential side is
+   * accepted rather than widening the seek read.
    * @param id - persisted session id to resolve.
    * @param fromSeq - first event seq to include (non-negative safe integer,
    *   validated by the coordinator before this hook runs).
@@ -660,9 +681,13 @@ export class PersistenceCoordinator<TornMarker = unknown> {
 
   private async appendCore(id: SessionId, events: readonly SessionEvent[]): Promise<void> {
     // Every append route converges here: the public service, live write-behind
-    // drains, and HMR seed/suffix adoption. Keep vocabulary rejection at that
-    // shared boundary so a stale JavaScript plugin cannot persist an event that
-    // this same backend will refuse to load.
+    // drains, and HMR seed/suffix adoption. Legacy-shape rejection stays at
+    // this shared boundary so a stale JavaScript plugin cannot persist a
+    // retired shape this backend refuses to load. The unknown-type guard is
+    // deliberately read-side only: an append-time refusal would stall a live
+    // session's durability mid-flight, which costs more than a loud refusal at
+    // the log's next load (trade-off owned by the session-log-version-mechanism
+    // Agent Note).
     assertSupportedEvents(events, id)
     if (events.length === 0) return
     this.preparations.assertWritable(id)
@@ -1020,9 +1045,7 @@ export class PersistenceCoordinator<TornMarker = unknown> {
 
   private assertVersion(meta: SessionHeader): void {
     if (meta.version === SESSION_FORMAT_VERSION) return
-    throw this.unsupported(meta, meta.version > SESSION_FORMAT_VERSION
-      ? `session "${meta.id}" uses log format v${meta.version}, but this harness reads only v${SESSION_FORMAT_VERSION}: the log was written by a newer harness — upgrade the harness to open it`
-      : `session "${meta.id}" uses log format v${meta.version}, older than the supported v${SESSION_FORMAT_VERSION}, and this build ships no upgrade path for it`)
+    throw this.unsupported(meta, sessionFormatVersionRefusal(meta.id, meta.version))
   }
 
   /**
@@ -1283,6 +1306,7 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     }
     this.assertVersion(meta)
     const storedEvents = snapshotStoredEvents(events, session.header.id)
+    this.assertEventsSupported(meta, storedEvents)
     if (!seedCoversPrefix(seed, storedEvents)) {
       throw new Error(`session "${session.header.id}" already has a persisted log on disk that does not match this live session (id collision)`)
     }
