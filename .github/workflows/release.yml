@@ -79,6 +79,9 @@ jobs:
       - name: Pack release tarballs
         run: pnpm run release:pack --family dsh --out dist/npm
 
+      - name: Verify packed install
+        run: pnpm run release:verify-packed-install --family dsh --from dist/npm
+
       - uses: actions/upload-artifact@v4
         with:
           name: dsh-npm-tarballs

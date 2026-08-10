@@ -57,6 +57,14 @@ function requireString(manifest: Record<string, unknown>, field: string, context
   return value
 }
 
+/** The executable a family's installed artifacts are driven through. */
+export interface InstalledEntry {
+  /** Package that carries the executable. */
+  readonly packageName: string
+  /** Path to the executable inside that package. */
+  readonly binPath: string
+}
+
 /** A release sequence: its members, its version baseline, and its tag naming. */
 export abstract class ReleaseFamily {
   /** Workflow-facing identifier, also the `--family` argument. */
@@ -167,6 +175,12 @@ export abstract class ReleaseFamily {
    * @param files - every path inside its tarball.
    */
   abstract validatePayload(member: ReleaseMember, files: readonly string[]): void
+
+  /**
+   * The executable that proves this family's artifacts install and run, or
+   * `undefined` for a family that publishes no executable.
+   */
+  abstract readonly installedEntry: InstalledEntry | undefined
 }
 
 /** `packages/*` and `apps/*`: one shared version across the whole family. */
@@ -206,6 +220,8 @@ class DshFamily extends ReleaseFamily {
       typeRTRemoteNavigation: hasTypeRTRemoteNavigation(member.manifest),
     })
   }
+
+  readonly installedEntry = { packageName: '@deepseek-ai/dsh', binPath: 'lib/bin.js' }
 }
 
 /** `vendor/*`: every package keeps its own version line, so every package has its own tag. */
@@ -250,6 +266,9 @@ class VendorFamily extends ReleaseFamily {
   validatePayload(member: ReleaseMember, files: readonly string[]): void {
     if (files.length === 0) throw new Error(`${member.name} packed an empty tarball`)
   }
+
+  /** No installed-entry probe: these are libraries a consumer imports, with no executable. */
+  readonly installedEntry = undefined
 }
 
 /** Every release family this module owns, in workflow order. */
