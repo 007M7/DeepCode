@@ -177,7 +177,18 @@ export function mapAnthropicResponse(response: AnthropicResponse): WebSearchResu
 export class DeepSeekSearchProvider implements WebSearchProvider {
   readonly id = DEEPSEEK_PROVIDER_ID
 
-  constructor(private readonly options: DeepSeekSearchProviderOptions) {}
+  /**
+   * @param resolveOptions - the options for the NEXT operation. A thunk rather
+   * than a value because the plugin's settings section can change between
+   * searches, and re-registering the provider to carry a new endpoint would
+   * make the seam's selection observable to the user as a flicker.
+   */
+  constructor(private readonly resolveOptions: () => DeepSeekSearchProviderOptions) {}
+
+  /** Options resolved per read, so a committed settings change reaches the next search. */
+  private get options(): DeepSeekSearchProviderOptions {
+    return this.resolveOptions()
+  }
 
   available(): boolean {
     return ((this.options.apiKey?.length ?? 0) > 0 || this.options.resolveApiKey !== undefined)

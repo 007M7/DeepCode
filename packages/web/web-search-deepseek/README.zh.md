@@ -34,6 +34,8 @@ Exa 和 Perplexity 提供专用搜索端点，DeepSeek 则没有。该提供方�
     baseURL: https://gateway.internal/anthropic/v1
 ```
 
+上面的条目是 `web-search-deepseek` Settings 段的 base 层：叠加其上的用户层会作用于**下一次**搜索，因为提供方是按次投影该段，而不是在注册时固化它。因此端点或模型变化时，seam 的提供方选择不会闪断。`apiKey` 带有 `role('secret')`，所以它在任何一层都不会出现在 `describe()` 响应中——配置表层只能知道密钥是否已设置。
+
 ## 映射
 
 DeepSeek 不返回该提供方可作为 `content` 信任的提供方生成答案表层，因此省略 `content`。`sources[]` 来自 `web_search_result` 配置项，这些配置项位于 `web_search_tool_result` 块内：`url` ← `url`、`title` ← `title`、`publishedAt` ← `page_age`。`cited_text` 配置项按 URL 标识，单独位于文本块的 `citations[]` 中；提供方会将其作为 snippet 连接，没有摘录时省略 `snippet`。
