@@ -4,7 +4,7 @@
     - text: /
     - button "event-sourcing researcher" [disabled]
   - img
-  - text: 标准模式
+  - text: Standard mode
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
