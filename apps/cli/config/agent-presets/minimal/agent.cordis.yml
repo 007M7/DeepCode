@@ -22,8 +22,16 @@
 # never reached the model's shell at all. `tool-bash` consumes the host registry
 # from here; the executor behind it (`bash-sandbox`) is host-plane too, where the
 # sandbox policy owns it.
+#
+# `run_in_background` is off because this preset mounts no `tool-tasks`: the
+# host task registry gates starts on SOME control surface being attached, and
+# that set is process-wide, so another preset's controls would let this agent
+# start work it has no `task_output` to collect. Disabling drops the parameter
+# from the schema too, which is the honest surface for a two-tool benchmark.
 - id: tool-bash
   name: '@deepseek-ai/dsh-tool-bash'
+  config:
+    enableRunInBackground: false
 
 - id: tool-str-replace-editor
   name: '@deepseek-ai/dsh-tool-str-replace-editor'

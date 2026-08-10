@@ -70,17 +70,15 @@
 
 # ── background tasks ────────────────────────────────────────────────────────
 
-- id: tasks
-  name: cordis:group
-  group: true
-  isolate:
-    tasks: true
-  config:
-    - id: tasks-local
-      name: '@deepseek-ai/dsh-tasks-local'
-
-    - id: tool-tasks
-      name: '@deepseek-ai/dsh-tool-tasks'
+# Only the model-facing controls. The task REGISTRY stays on the host plane:
+# its producers sit outside any realm this file could put it in — `tool-bash`
+# above resolves it with `ctx.get`, and an entry-local realm here is invisible
+# to every sibling row, so `run_in_background` would answer "background tasks
+# unavailable" while these controls sat in the catalog. The registry is keyed by
+# owning agent anyway, so one host instance serves every session. What a preset
+# chooses is whether its agent can collect and stop background work at all.
+- id: tool-tasks
+  name: '@deepseek-ai/dsh-tool-tasks'
 
 # ── skills ──────────────────────────────────────────────────────────────────
 
