@@ -110,6 +110,17 @@ export interface ConversationViewNode {
   readonly data: unknown
 }
 
+/** Merge-extensible immutable snapshots published by registered view targets. */
+export interface ConversationViewSnapshotMap {}
+
+/** Stable reader over the latest snapshot of every registered view target. */
+export interface ConversationViewSnapshotStore {
+  /** @param target - registered view target. @returns its current snapshot. */
+  get<Target extends keyof ConversationViewSnapshotMap & string>(
+    target: Target,
+  ): ConversationViewSnapshotMap[Target] | undefined
+}
+
 /** Final Chat render unit produced directly by a business Definition. */
 export interface ChatConversationViewNode extends ConversationViewNode {
   readonly target: 'chat'
@@ -159,6 +170,8 @@ export type ConversationLocationDataScope = 'step' | 'turn'
 /** One independently registered business Event-to-Node state machine. */
 export interface ConversationNodeDefinition<State = unknown> {
   readonly kind: string
+  /** Sole view target owned by this Definition; omitted for state-only Contexts. */
+  readonly target?: string
   /**
    * Extract this Definition's stable business identity from one event.
    * @param event - raw Session event; no Context or history access is available.
@@ -207,15 +220,11 @@ export interface ConversationNodeDefinition<State = unknown> {
     scope: ConversationLocationDataScope,
   ): ConversationLocationData | null
   /**
-   * Materialize one final Node for a registered view target.
+   * Materialize one final Node for this Definition's declared view target.
    * @param context - latest complete Context.
-   * @param target - registered view target such as `chat`.
    * @returns final Node, or null when this Context is not currently visible.
    */
-  buildViewNode(
-    context: ConversationNodeContext<State>,
-    target: string,
-  ): ConversationViewNode | null
+  buildViewNode?(context: ConversationNodeContext<State>): ConversationViewNode | null
 }
 
 /** Reference-stable Turn/Step facts published beside view Nodes. */

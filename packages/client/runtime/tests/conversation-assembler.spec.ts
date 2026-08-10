@@ -30,10 +30,16 @@ interface TestSnapshot {
 }
 
 class TestEventDefinitions {
+  readonly definitions: readonly ConversationNodeDefinition[]
+  readonly fallback: ConversationNodeDefinition | undefined
+
   constructor(
-    readonly definitions: readonly ConversationNodeDefinition[],
-    readonly fallback?: ConversationNodeDefinition,
-  ) {}
+    definitions: readonly ConversationNodeDefinition[],
+    fallback?: ConversationNodeDefinition,
+  ) {
+    this.definitions = definitions.map(asChatDefinition)
+    this.fallback = fallback === undefined ? undefined : asChatDefinition(fallback)
+  }
 
   entries(): readonly ConversationNodeDefinition[] {
     return this.definitions
@@ -42,6 +48,12 @@ class TestEventDefinitions {
   fallbackEntry(): ConversationNodeDefinition | undefined {
     return this.fallback
   }
+}
+
+function asChatDefinition(definition: ConversationNodeDefinition): ConversationNodeDefinition {
+  return definition.buildViewNode === undefined || definition.target !== undefined
+    ? definition
+    : { ...definition, target: 'chat' }
 }
 
 class TestViewDefinitions {
@@ -93,7 +105,10 @@ function chatSnapshot(assembler: ConversationNodeAssembler): TestSnapshot | unde
   return assembler.snapshot('chat') as TestSnapshot | undefined
 }
 
-function node(context: Parameters<ConversationNodeDefinition['buildViewNode']>[0], data: unknown): ConversationViewNode {
+function node(
+  context: Parameters<NonNullable<ConversationNodeDefinition['buildViewNode']>>[0],
+  data: unknown,
+): ConversationViewNode {
   return {
     key: context.key,
     kind: context.kind,

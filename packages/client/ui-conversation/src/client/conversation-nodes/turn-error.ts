@@ -63,6 +63,7 @@ function fallbackState(context: ConversationNodeContext<TurnErrorState>): TurnEr
 /** Terminal turn failure Definition, suppressed when the turn owns a retry chain. */
 export const turnErrorDefinition: ConversationNodeDefinition<TurnErrorState> = {
   kind: 'turn-error',
+  target: 'chat',
   match: (event) => {
     if (event.type === 'turn/start') return { id: String(event.data.turn), role: 'start' }
     if (event.type === 'turn/end' && event.data.reason.kind === 'error') {
@@ -82,8 +83,7 @@ export const turnErrorDefinition: ConversationNodeDefinition<TurnErrorState> = {
       ? { ...context.state, hidden: true }
       : context.state
   },
-  buildViewNode: (context, target) => {
-    if (target !== 'chat') return null
+  buildViewNode: (context) => {
     const state = context.state ?? fallbackState(context)
     if (state?.failure === undefined) return null
     const failure = state.failure

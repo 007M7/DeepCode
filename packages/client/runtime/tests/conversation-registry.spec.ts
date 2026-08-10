@@ -13,6 +13,7 @@ import { FakeApiClient, ok } from './fake-api.ts'
 function eventDefinition(kind: string): ConversationNodeDefinition<null> {
   return {
     kind,
+    target: 'chat',
     match: () => null,
     start: () => null,
     update: context => context.state,

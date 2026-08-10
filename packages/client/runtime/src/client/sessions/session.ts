@@ -727,6 +727,7 @@ export class Session implements SessionFace {
     const legacy = chat.legacy
     return {
       sessionId: this.sessionId,
+      views: this.conversation,
       chat,
       nodes: legacy.nodes,
       turnTimings: legacy.turnTimings,

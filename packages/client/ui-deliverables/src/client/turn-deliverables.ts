@@ -97,6 +97,7 @@ export function selectProducedFiles(owner: TurnTailOwnerProps): readonly string[
 /** Turn-local successful mutation accumulator; it publishes no view Node. */
 export const deliverablesDefinition: ConversationNodeDefinition<DeliverablesState> = {
   kind: 'deliverables',
+  target: 'chat',
   match: (event) => {
     if (event.type === 'turn/start') return { id: String(event.data.turn), role: 'start' }
     if (event.type === 'tool/call') return { id: String(event.data.turn), role: 'update' }
