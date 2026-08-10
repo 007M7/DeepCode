@@ -97,13 +97,13 @@ export class TrajectorySearchIndex {
             const entry = previous !== undefined && sameSources(previous.sources, sources)
               ? previous
               : {
-                  sources,
-                  text: [
-                    ...sources,
-                    markdownPreview(cell),
-                    resultPreview(cell),
-                  ].join('\n').toLocaleLowerCase(),
-                }
+                sources,
+                text: [
+                  ...sources,
+                  markdownPreview(cell),
+                  resultPreview(cell),
+                ].join('\n').toLocaleLowerCase(),
+              }
             this.entries.set(id, entry)
             seen.add(id)
           }

@@ -943,8 +943,8 @@ function expandSubCalls(
         callId: sub.callId,
         ...(settled
           ? (sub.call !== null
-              ? summarizeCall(sub.call.name, sub.call.argsRaw)
-              : resultAsText(resultPreview))
+            ? summarizeCall(sub.call.name, sub.call.argsRaw)
+            : resultAsText(resultPreview))
           : summarizeCall(sub.name, sub.argsRaw)),
         ...(settled
           ? (sub.call !== null ? { inputDetail: sub.call.argsRaw } : {})
