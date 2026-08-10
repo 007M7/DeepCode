@@ -492,6 +492,21 @@ function requestKey(turn: number | null, group: string): string {
   return `${turn}\u0000${group}`
 }
 
+function indexRequestBoundaries(records: readonly TableRecord[]): ReadonlyMap<string, number> {
+  const boundaries = new Map<string, number>()
+  for (const record of records) {
+    const key = requestKey(record.turn, record.group)
+    if (boundaries.has(key)) continue
+    if (requestStep(record.group) === undefined) {
+      if (record.groupStart) boundaries.set(key, record.cell.index)
+      continue
+    }
+    if (record.cell.kind === 'user' || record.cell.kind === 'context') continue
+    boundaries.set(key, record.cell.index)
+  }
+  return boundaries
+}
+
 function sectionLabel(turn: number | null): string {
   return turn === null ? 'Between turns' : `Turn ${turn}`
 }
@@ -499,16 +514,18 @@ function sectionLabel(turn: number | null): string {
 function indexRequestNumbers(
   records: readonly TableRecord[],
   sessionNumbers: readonly TrajectoryRequestNumber[] | undefined,
+  boundaries: ReadonlyMap<string, number>,
 ): ReadonlyMap<string, number> {
   const numbers = new Map<string, number>()
   for (const request of sessionNumbers ?? []) {
     numbers.set(requestKey(request.turn, request.group), request.number)
   }
   let next = Math.max(0, ...numbers.values()) + 1
-  const boundaries = records
-    .filter(record => record.groupStart && requestStep(record.group) !== undefined)
+  const boundaryRecords = records
+    .filter(record => boundaries.get(requestKey(record.turn, record.group)) === record.cell.index
+      && requestStep(record.group) !== undefined)
     .sort((left, right) => left.cell.index - right.cell.index)
-  for (const record of boundaries) {
+  for (const record of boundaryRecords) {
     const key = requestKey(record.turn, record.group)
     if (!numbers.has(key)) numbers.set(key, next++)
   }
@@ -1731,9 +1748,10 @@ export function TrajectoryTable({
   useEffect(() => {
     onSelectedIndexChange?.(selectedIndex)
   }, [onSelectedIndexChange, selectedIndex])
+  const requestBoundaries = useMemo(() => indexRequestBoundaries(allRecords), [allRecords])
   const requestNumbers = useMemo(
-    () => indexRequestNumbers(allRecords, sessionRequestNumbers),
-    [allRecords, sessionRequestNumbers],
+    () => indexRequestNumbers(allRecords, sessionRequestNumbers, requestBoundaries),
+    [allRecords, requestBoundaries, sessionRequestNumbers],
   )
   const records = useMemo(() => {
     if (searchMatchIndexes !== null) return filterRecords(allRecords, searchMatchIndexes)
@@ -2218,10 +2236,11 @@ export function TrajectoryTable({
                   const isRequestOnly = record.cell.requestOnly === true
                   const isInitialSystem = record.cell.kind === 'system'
                 && record.cell.index === allRecords[0]?.cell.index
-                  const request = record.groupStart
+                  const key = requestKey(record.turn, record.group)
+                  const request = requestBoundaries.get(key) === record.cell.index
                 && !isCollapsedSummary
                 && (record.turn === null || !collapsedTurns.has(record.turn))
-                    ? requestNumbers.get(requestKey(record.turn, record.group))
+                    ? requestNumbers.get(key)
                     : undefined
                   const requestInfo = request === undefined
                     ? undefined

@@ -22,7 +22,11 @@ function contribution(
   anchorSeq: number,
   data: TrajectoryContribution,
 ): TrajectoryConversationViewNode {
-  return { key, kind: key, id: key, target: 'trajectory', anchorSeq, data }
+  return {
+    key, kind: key, id: key, target: 'trajectory', anchorSeq,
+    location: { kind: 'session' },
+    data,
+  }
 }
 
 function stepLocation(turn: number, step: number): TrajectoryRequestHeaderState['location'] {
@@ -72,6 +76,7 @@ describe('TrajectorySnapshotBuilder', () => {
         id: '2',
         target: 'trajectory',
         anchorSeq: 2,
+        location: { kind: 'session' },
         data: {
           kind: 'request-header',
           header: {
@@ -89,6 +94,7 @@ describe('TrajectorySnapshotBuilder', () => {
         id: `1:${request.step}`,
         target: 'trajectory' as const,
         anchorSeq: request.startSeq,
+        location: { kind: 'session' as const },
         data: { kind: 'assistant' as const, partial: null, request },
       })),
     ]

@@ -22,6 +22,7 @@ export function trajectoryNode(
     id: context.id,
     target: 'trajectory',
     anchorSeq,
+    location: context.start?.location ?? { kind: 'unresolved' },
     data,
   }
 }

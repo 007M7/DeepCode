@@ -228,21 +228,9 @@ describe('Trajectory conversation Definitions', () => {
   })
 
   it('classifies claimed inbox input as steering and consumes one inherited prompt change', () => {
-    const current = snapshot(assembler([
-      at(1, 'agent/inbox/spliced', {
-        target: 'next-step', start: 0, removedCount: 0, inserted: [{ id: 'm1' }],
-      }),
-      at(2, 'agent/inbox/spliced', {
-        target: 'next-step', start: 0, removedCount: 1, inserted: [],
-      }),
-      at(3, 'user/message', {
-        id: 'm1',
-        role: 'user',
-        content: [{ type: 'text', text: 'steer here' }],
-        source: { kind: 'user' },
-      }),
-      at(4, 'turn/start', { turn: 1 }),
-      at(5, 'request/header', {
+    const value = assembler([
+      at(1, 'turn/start', { turn: 1 }),
+      at(2, 'request/header', {
         reason: 'initial',
         header: {
           config: { provider: 'test', model: 'test' },
@@ -250,22 +238,45 @@ describe('Trajectory conversation Definitions', () => {
           tools: [],
         },
       }),
-      at(6, 'step/start', { turn: 1, step: 1 }),
-      at(7, 'assistant/message', {
+      at(3, 'step/start', { turn: 1, step: 1 }),
+      at(4, 'assistant/message', {
         turn: 1,
         step: 1,
         message: assistantMessage('assistant-1', 'first'),
       }),
-      at(8, 'step/end', { turn: 1, step: 1 }),
-      at(9, 'step/start', { turn: 1, step: 2 }),
-      at(10, 'assistant/message', {
-        turn: 1,
-        step: 2,
-        message: assistantMessage('assistant-2', 'second'),
+      at(5, 'step/end', { turn: 1, step: 1 }),
+      at(6, 'agent/inbox/spliced', {
+        target: 'next-step', start: 0, removedCount: 0, inserted: [{ id: 'm1' }],
       }),
-    ]))
+      at(7, 'agent/inbox/spliced', {
+        target: 'next-step', start: 0, removedCount: 1, inserted: [],
+      }),
+      at(8, 'step/start', { turn: 1, step: 2 }),
+    ])
+    value.append(at(9, 'user/message', {
+      id: 'm1',
+      role: 'user',
+      content: [{ type: 'text', text: 'steer here' }],
+      source: { kind: 'user' },
+    }))
+    value.flush()
 
-    expect(current.eventNodes.find(node => node.seq === 3)?.kind).toBe('steering')
+    const steering = snapshot(value)
+    expect(steering.eventNodes.find(node => node.seq === 9)?.kind).toBe('steering')
+    expect(steering.eventLocations.get(9)).toMatchObject({
+      kind: 'step',
+      turn: { turn: 1 },
+      step: { step: 2 },
+    })
+
+    value.append(at(10, 'assistant/message', {
+      turn: 1,
+      step: 2,
+      message: assistantMessage('assistant-2', 'second'),
+    }))
+    value.flush()
+    const current = snapshot(value)
+
     expect(current.requests.map(request => request.purpose === 'assistant'
       ? request.prompt?.system
       : undefined)).toEqual(['system prompt', 'system prompt'])

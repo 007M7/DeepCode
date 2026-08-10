@@ -53,12 +53,14 @@ export type TrajectoryContribution =
 export interface TrajectoryConversationViewNode extends ConversationViewNode {
   readonly target: 'trajectory'
   readonly anchorSeq: number
+  readonly location: ConversationLocation
   readonly data: TrajectoryContribution
 }
 
 /** Stage-oriented Trajectory data assembled from registered business Contexts. */
 export interface TrajectorySnapshot {
   readonly eventNodes: readonly ConversationNode[]
+  readonly eventLocations: ReadonlyMap<number, ConversationLocation>
   readonly requests: readonly RequestView[]
   readonly callSchemas: ReadonlyMap<string, ConversationPromptSnapshot['tools'][number]>
   readonly partial: PartialAssistant | null

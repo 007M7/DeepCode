@@ -5,6 +5,7 @@
 import type {
   AssistantBlock,
   AssistantMessageNode,
+  ConversationLocation,
   ConversationSnapshot,
   RequestInspectionSnapshot,
   RequestPromptChange,
@@ -34,6 +35,7 @@ export interface TrajectoryTurnModel {
 /** Snapshot slice the trajectory view folds. */
 export interface TrajectoryLayoutInput {
   nodes: ConversationSnapshot['nodes']
+  eventLocations?: ReadonlyMap<number, ConversationLocation>
   partial: ConversationSnapshot['partial']
   runningCalls: ConversationSnapshot['runningCalls']
   requests?: readonly RequestView[]
@@ -71,7 +73,7 @@ type CompactionRequestView = Extract<RequestView, { purpose: 'compaction' }>
 
 type InputNode = Extract<
   ConversationSnapshot['nodes'][number],
-  { kind: 'user' | 'context' }
+  { kind: 'user' | 'steering' | 'context' }
 >
 
 type OrderedLayoutEntry =
@@ -135,12 +137,13 @@ function inputCellDetail(node: InputNode): Pick<
  */
 export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly TrajectoryTurnModel[] {
   const {
-    nodes, partial, runningCalls, requests = [], callSchemas,
+    nodes, eventLocations, partial, runningCalls, requests = [], callSchemas,
   } = input
   const resultByCall = indexResults(nodes)
   const callById = new Map<string, ToolCallBlock>(resultByCall)
   for (const call of runningCalls) callById.set(call.callId, call)
   const emittedCallIds = indexAssistantCallIds(nodes)
+  const followingAssistants = indexFollowingAssistants(nodes)
   const callStartById = new Map<string, number>()
   for (const result of resultByCall.values()) {
     const startedAt = finiteTime(result.callTime)
@@ -184,6 +187,19 @@ export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly T
       return
     }
     groups.push({ title, laid: [...laid] })
+  }
+  const pushStepInput = (turn: number, step: number, laid: readonly LaidCell[]) => {
+    if (laid.length === 0) return
+    const groups = bucket(turn).groups
+    const title = `Step ${step}`
+    const existing = groups.find(group => group.title === title)
+    if (existing === undefined) {
+      groups.push({ title, laid: [...laid] })
+      return
+    }
+    const request = existing.laid.findIndex(entry => entry.cell.requestOnly === true)
+    if (request === -1) existing.laid.push(...laid)
+    else existing.laid.splice(request, 0, ...laid)
   }
 
   const representedRequests = new Set<string>()
@@ -338,7 +354,7 @@ export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly T
     if (node.kind === 'user') {
       // user/message has no turn on the wire; enclose it in the next assistant
       // (or partial) turn, else open the turn after the last assistant.
-      const turn = enclosingUserTurn(nodes, i, partial, lastAssistantTurn)
+      const turn = enclosingUserTurn(followingAssistants[i], partial, lastAssistantTurn)
       pushMessage(turn, {
         absTime: finiteTime(node.time),
         cell: {
@@ -348,6 +364,26 @@ export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly T
           opensTurn: true,
         },
       })
+      prevAbsTime = finiteTime(node.time) ?? prevAbsTime
+      continue
+    }
+    if (node.kind === 'steering') {
+      const placement = steeringPlacement(
+        followingAssistants[i],
+        partial,
+        lastAssistantTurn,
+        eventLocations?.get(node.seq),
+      )
+      const laid = {
+        absTime: finiteTime(node.time),
+        cell: {
+          index: ++index,
+          kind: 'user' as const,
+          ...inputCellDetail(node),
+        },
+      }
+      if (placement.step === undefined) pushMessage(placement.turn, laid)
+      else pushStepInput(placement.turn, placement.step, [laid])
       prevAbsTime = finiteTime(node.time) ?? prevAbsTime
       continue
     }
@@ -364,7 +400,7 @@ export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly T
       continue
     }
     if (node.kind === 'context') {
-      const turn = enclosingUserTurn(nodes, i, partial, lastAssistantTurn)
+      const turn = enclosingUserTurn(followingAssistants[i], partial, lastAssistantTurn)
       pushMessage(turn, {
         absTime: finiteTime(node.time),
         cell: {
@@ -821,20 +857,51 @@ function stringifySourceValue(value: unknown): string {
  * in-flight partial, else the turn after the last finalized assistant (or 1).
  */
 function enclosingUserTurn(
-  nodes: ConversationSnapshot['nodes'],
-  userIndex: number,
+  followingAssistant: AssistantMessageNode | undefined,
   partial: ConversationSnapshot['partial'],
   lastAssistantTurn: number | null,
 ): number {
-  for (let i = userIndex + 1; i < nodes.length; i++) {
-    const n = nodes[i]
-    /* v8 ignore next -- dense-array guard: i stays within nodes.length, so the undefined arm needs a sparse array no caller builds. */
-    if (n === undefined) continue
-    if (n.kind === 'assistant') return n.turn
-  }
+  if (followingAssistant !== undefined) return followingAssistant.turn
   if (partial !== null) return partial.turn
   if (lastAssistantTurn !== null) return lastAssistantTurn + 1
   return 1
+}
+
+function steeringPlacement(
+  followingAssistant: AssistantMessageNode | undefined,
+  partial: ConversationSnapshot['partial'],
+  lastAssistantTurn: number | null,
+  location: ConversationLocation | undefined,
+): { turn: number; step?: number } {
+  if (location?.kind === 'step') {
+    return { turn: location.turn.turn, step: location.step.step }
+  }
+  const locatedTurn = location?.kind === 'turn' ? location.turn.turn : undefined
+  if (followingAssistant !== undefined
+    && (locatedTurn === undefined || followingAssistant.turn === locatedTurn)) {
+    return {
+      turn: followingAssistant.turn,
+      ...(followingAssistant.step > 0 ? { step: followingAssistant.step } : {}),
+    }
+  }
+  if (partial !== null && (locatedTurn === undefined || partial.turn === locatedTurn)) {
+    return { turn: partial.turn, ...(partial.step > 0 ? { step: partial.step } : {}) }
+  }
+  if (locatedTurn !== undefined) return { turn: locatedTurn }
+  return { turn: lastAssistantTurn ?? 1 }
+}
+
+function indexFollowingAssistants(
+  nodes: ConversationSnapshot['nodes'],
+): readonly (AssistantMessageNode | undefined)[] {
+  const following = new Array<AssistantMessageNode | undefined>(nodes.length)
+  let assistant: AssistantMessageNode | undefined
+  for (let index = nodes.length - 1; index >= 0; index--) {
+    following[index] = assistant
+    const node = nodes[index]
+    if (node?.kind === 'assistant') assistant = node
+  }
+  return following
 }
 
 function enclosingPromptTurn(

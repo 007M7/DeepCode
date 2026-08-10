@@ -75,6 +75,7 @@ function historySnapshot(
 ): ConversationSnapshot {
   const trajectory: TrajectorySnapshot = {
     eventNodes: nodes,
+    eventLocations: new Map(),
     requests: [],
     callSchemas: new Map(),
     partial: null,

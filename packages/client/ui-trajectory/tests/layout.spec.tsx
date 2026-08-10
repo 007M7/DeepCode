@@ -6,7 +6,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { cleanup, render, screen } from '@testing-library/react'
 import type {
-  ConversationSnapshot, RequestView,
+  ConversationLocation, ConversationSnapshot, RequestView,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import { TrajectoryGroupHeader } from '../src/client/TrajectoryGroupHeader.tsx'
 import { TrajectoryTurn } from '../src/client/TrajectoryTurn.tsx'
@@ -237,6 +237,112 @@ describe('deriveTrajectoryLayout', () => {
       'second',
       'ok2',
     ])
+  })
+
+  it('places steering in its resolved step instead of the turn-opening Message group', () => {
+    const nodes = [
+      { kind: 'user', seq: 1, time: 1_000, content: [{ type: 'text', text: 'start' }], source: null },
+      {
+        kind: 'assistant', seq: 2, time: 2_000, turn: 1, step: 1,
+        blocks: [{ kind: 'text', text: 'first step' }],
+      },
+      {
+        kind: 'steering', messageId: 'steer-1', seq: 3, time: 3_000,
+        content: [{ type: 'text', text: 'change direction' }], source: null,
+      },
+      {
+        kind: 'assistant', seq: 4, time: 4_000, turn: 1, step: 2,
+        blocks: [{ kind: 'text', text: 'second step' }],
+      },
+    ] as unknown as ConversationSnapshot['nodes']
+    const data = { get: () => undefined }
+    const step = { turn: 1, step: 2, start: undefined, end: undefined, status: 'open' as const, data }
+    const turn = {
+      turn: 1, start: undefined, end: undefined, status: 'open' as const, steps: [step], data,
+    }
+    const eventLocations = new Map<number, ConversationLocation>([[
+      3,
+      { kind: 'step', turn, step },
+    ]])
+
+    const turns = deriveTrajectoryLayout({
+      nodes,
+      eventLocations,
+      partial: null,
+      runningCalls: [],
+    })
+
+    expect(turns).toHaveLength(1)
+    expect(turns[0]?.groups.map(group => group.title)).toEqual([
+      'Message', 'Step 1', 'Step 2',
+    ])
+    expect(turns[0]?.groups[2]?.cells).toMatchObject([
+      { kind: 'user', previewMarkdown: 'change direction', sourceSeq: 3 },
+      { kind: 'message', previewMarkdown: 'second step', sourceSeq: 4 },
+    ])
+  })
+
+  it('keeps a running request boundary after steering input', () => {
+    const nodes = [{
+      kind: 'steering', messageId: 'steer-1', seq: 3, time: 3_000,
+      content: [{ type: 'text', text: 'change direction' }], source: null,
+    }] as unknown as ConversationSnapshot['nodes']
+    const data = { get: () => undefined }
+    const step = { turn: 1, step: 2, start: undefined, end: undefined, status: 'open' as const, data }
+    const turn = {
+      turn: 1, start: undefined, end: undefined, status: 'open' as const, steps: [step], data,
+    }
+    const eventLocations = new Map<number, ConversationLocation>([[
+      3,
+      { kind: 'step', turn, step },
+    ]])
+
+    const turns = deriveTrajectoryLayout({
+      nodes,
+      eventLocations,
+      partial: null,
+      runningCalls: [],
+      requests: [{
+        purpose: 'assistant',
+        startSeq: 2,
+        turn: 1,
+        step: 2,
+        startedAt: 2_000,
+        completedAt: null,
+        status: 'running',
+      }],
+    })
+
+    expect(turns[0]?.groups[0]?.cells).toMatchObject([
+      { kind: 'user', previewMarkdown: 'change direction', sourceSeq: 3 },
+      { kind: 'message', requestOnly: true, sourceSeq: 2 },
+    ])
+  })
+
+  it('uses the following assistant step while a historical window lacks steering Location', () => {
+    const nodes = [
+      {
+        kind: 'steering', messageId: 'steer-1', seq: 3, time: 3_000,
+        content: [{ type: 'text', text: 'change direction' }], source: null,
+      },
+      {
+        kind: 'assistant', seq: 4, time: 4_000, turn: 2, step: 3,
+        blocks: [{ kind: 'text', text: 'continued' }],
+      },
+    ] as unknown as ConversationSnapshot['nodes']
+
+    const turns = deriveTrajectoryLayout({ nodes, partial: null, runningCalls: [] })
+
+    expect(turns[0]).toMatchObject({
+      turn: 2,
+      groups: [{
+        title: 'Step 3',
+        cells: [
+          { kind: 'user', previewMarkdown: 'change direction' },
+          { kind: 'message', previewMarkdown: 'continued' },
+        ],
+      }],
+    })
   })
 
   it('places standalone compaction chronologically in its own between-turn section', () => {
