@@ -12,8 +12,8 @@
 
 以 Bash 执行能力为例：
 
-- **Service Definition** (`dsh-bash`)：定义 Cordis 服务以及 Bash 请求／结果词汇
-- **Service provider** (`dsh-bash-local`)：提供本地命令执行
+- **Service Definition** (`dsh-bash`)：定义 Cordis 服务以及 Bash 请求和结果类型
+- **Service provider** (`dsh-bash-local`)：在本地计算机上执行命令
 - **Consumer** (`dsh-tool-bash`)：将该能力公开为模型可调用的工具
 
 ```
@@ -43,8 +43,8 @@
 
 ### 独立演进
 
-- Service Definition 的约定稳定后很少改动
-- Service provider 可以独立优化性能和安全性
+- 调用方开始依赖 Service Definition 的约定后，Service Definition 很少改动。
+- Service provider 可以独立优化性能和安全性。
 - Consumer 可以调整能力向模型呈现的方式。
 
 ### 依赖解耦

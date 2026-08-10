@@ -58,7 +58,7 @@ export const Config: z<Config> = z.object({
   fetchMaxOutputChars: z.number().default(DEFAULT_FETCH_MAX_OUTPUT_CHARS),
 })
 
-/** The shape after schemastery applies its defaults to every field. */
+/** Complete config after schemastery applies every field default. */
 type ResolvedConfig = Required<Config>
 
 /** Configured count, timeout, and character caps must be positive integers. */

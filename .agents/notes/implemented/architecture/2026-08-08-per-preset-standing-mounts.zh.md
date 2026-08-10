@@ -16,7 +16,7 @@ Status: implemented
 
 常驻挂载修的是这一类问题而非其中的个例：读取方需要的注册在进程生命周期内始终存在，按 preset id 索引，不需要任何 agent。让它便宜的原因：
 
-- 有状态的 preset 插件（`plan-mode`、`token-meter`、`compact-basic`、`tasks-local`）本就按 `Session`/`Agent` 分键存状态——它们早于 preset 存在。共享一份实例是回归其设计，不是改写。
+- 有状态的 preset 插件（`plan-mode`、`token-meter`、`compact-basic`）本就按 `Session`/`Agent` 分键存状态——它们早于 preset 存在。共享一份实例是回归其设计，不是改写。`tasks-local` 同样具备该性质，且此后已完全离开 preset 平面：realm 之外的生产方（`tool-bash`、`tool-pty`、非 continuable 的 `tool-subagent`）以 `ctx.get` 解析该注册表，而 entry-local realm 对它们不可见，因此它组合在宿主平面，只有面向模型的 `tool-tasks` 行仍留在各 preset 中。
 - preset 的 yml 不变：每 preset 挂一次 = 每 preset 一个 Entry，其 entry 本地 realm（`isolate: <name>: true`）让两个 preset 的同名服务互不相干，正如它从前隔开两个会话。
 - 共享 realm label **不是**选项：`provide()` 对同一 realm 符号下的第二次注册直接抛错，label 池化的是 REALM 而非实例——按会话挂载的世界里共享 label 会让第二次挂载崩溃。
 

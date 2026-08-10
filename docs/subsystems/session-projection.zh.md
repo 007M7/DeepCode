@@ -45,7 +45,7 @@ interface ProjectionDefinition<K extends keyof SessionProjectionMap, S> {
    */
   view(state: S): SessionProjectionMap[K]
   /**
-   * Persisted-cache invalidation anchor: bump whenever the state shape or the
+   * Persisted-cache invalidation version: bump whenever the serialized state fields or the
    * fold semantics change, so persisted `(sessionId, key, ver, seq, val)`
    * rows from an older unit are discarded instead of being forward-applied
    * into garbage. Non-negative integer.
@@ -86,7 +86,7 @@ type ProjectionChangeListener = (
 ) => void
 ```
 
-`snapshot(session)` 是完全同步的：载体在切出页面切片的同一 tick 内读取它，`asOfSeq` 之所以是一个一致切面正系于此；且每个值在离开前都要经过其单元的 schema 校验（误写成异步的 `view` 会返回 Promise，让这道边界解析当场大声失败）。变更流对每个已提交事件、每个状态*引用*发生变化的单元各触发一次：`apply` 的同引用纪律就是那道闸门。
+`snapshot(session)` 完全同步：载体在切出页面切片的同一 tick 内读取它，因此 `asOfSeq` 使两次读取使用同一个序号。每个值在返回前都会通过其单元的 schema 校验；如果 `view` 被误写为异步函数，它会返回 Promise，schema 校验将拒绝该值。对于每个已提交事件，变更流会为每个状态*引用*已变化的单元触发一次；状态未变时，`apply` 必须返回同一引用。
 
 ## 注册表：`ctx.sessionProjections`
 
@@ -162,7 +162,7 @@ Source: [`packages/session/session-projection-cache/src/index.ts:71`](../../pack
  * context's fiber: disposing the fiber (or calling the returned disposer)
  * removes the key — and the unit's cached cells — from subsequent drives
  * and snapshots.
- * @param definition - key, boundary schema, pure unit functions, and stateVersion.
+ * @param definition - key, state schema, pure unit functions, and stateVersion.
  * @returns the exact disposer that unregisters this unit.
  */
 register<K extends keyof SessionProjectionMap, S>(definition: ProjectionDefinition<K, S>): () => void

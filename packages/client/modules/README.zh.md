@@ -20,5 +20,5 @@ Node 侧会扫描已启用的 Loader 配置项以发现 web `dshClient` 包，�
 
 ## 已知限制与暂缓事项
 
-- **有意采用扁平模块图**：每个组合包是一个模块节点，其边只指向表中的叶节点；接口（loadCache/edges/invalidate）按通用模块图塑形，因此可以改变 externalization 粒度而不更改接口。
+- **有意采用扁平模块图**：每个组合包是一个模块节点，其边只指向表中的叶节点；接口（`loadCache`/`edges`/`invalidate`）已经支持通用模块图，因此可以改变 externalization 粒度而不更改接口。
 - **自身不记录卸载账目**：样式移除与 fiber 拆卸顺序属于 HMR 驱动器（`@deepseek-ai/dsh-client-hmr`）；loader 只在每条记录中登记其拥有的样式标签 id。

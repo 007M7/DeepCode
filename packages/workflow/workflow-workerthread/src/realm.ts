@@ -1,7 +1,7 @@
 /**
  * Materializes values leaving the script vm into plain JSON before they cross the worker
  * boundary, and renders thrown script values without rejecting the run. The walk rejects
- * lossy JSON shapes but trusts model-written workflow scripts: getters and proxy traps may
+ * values that JSON cannot preserve but trusts model-written workflow scripts: getters and proxy traps may
  * run, and the vm is not a security boundary. The worker provides host-loop isolation and
  * forced termination, not hostile-value containment. See
  * .agents/notes/implemented/feature/2026-07-05-dynamic-workflows.md for the isolation rationale.
@@ -22,7 +22,7 @@ export class MaterializeError extends Error {
  * fall back to `message`, then `String()`. Reading those properties MAY run
  * script code (a getter, `toString`) — accepted under the module's trust
  * premise; if that code itself throws, a fixed label is returned instead.
- * @param error - the thrown value, of any shape and any realm.
+ * @param error - any value thrown in the host or worker realm.
  * @returns human-readable text for the failure report; prefers the stack.
  */
 export function renderThrown(error: unknown): string {
@@ -40,7 +40,7 @@ export function renderThrown(error: unknown): string {
 }
 
 /**
- * Whether an object's prototype chain is data-shaped: `null`, or a prototype
+ * Whether an object's prototype chain represents a plain data object: `null`, or a prototype
  * whose own prototype is `null` (the realm's `Object.prototype` — which we
  * cannot compare by identity across realms). A `Date`/`Map`/class instance
  * has a longer chain and is rejected.
@@ -87,9 +87,9 @@ function materialize(value: unknown, path: string, seen: Set<object>): unknown {
     case 'bigint':
       throw new MaterializeError(path, 'bigints are not JSON data')
     case 'function':
-      throw new MaterializeError(path, 'functions cannot cross the workflow value boundary')
+      throw new MaterializeError(path, 'functions are not plain JSON data')
     case 'symbol':
-      throw new MaterializeError(path, 'symbols cannot cross the workflow value boundary')
+      throw new MaterializeError(path, 'symbols are not plain JSON data')
     case 'undefined':
       throw new MaterializeError(path, 'undefined is not JSON data')
     case 'object':
@@ -122,7 +122,7 @@ function materializeArray(value: unknown[], path: string, seen: Set<object>): un
     }
   }
   if (Object.getOwnPropertySymbols(value).length > 0) {
-    throw new MaterializeError(path, 'symbol-keyed properties cannot cross the workflow value boundary')
+    throw new MaterializeError(path, 'symbol-keyed properties are not plain JSON data')
   }
   return out
 }
@@ -132,7 +132,7 @@ function materializeObject(value: object, path: string, seen: Set<object>): Reco
     throw new MaterializeError(path, 'only plain objects and arrays are JSON data (exotic prototype)')
   }
   if (Object.getOwnPropertySymbols(value).length > 0) {
-    throw new MaterializeError(path, 'symbol-keyed properties cannot cross the workflow value boundary')
+    throw new MaterializeError(path, 'symbol-keyed properties are not plain JSON data')
   }
   const out: Record<string, unknown> = {}
   // Object.keys = own enumerable string keys, matching JSON.stringify's

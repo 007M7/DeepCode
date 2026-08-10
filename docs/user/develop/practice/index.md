@@ -12,8 +12,8 @@ When a capability is general enough to need replaceable providers, such as Bash 
 
 The Bash execution capability consists of:
 
-- **Service Definition** (`dsh-bash`) — defines the Cordis service and Bash request/result vocabulary
-- **Service provider** (`dsh-bash-local`) — supplies local command execution
+- **Service Definition** (`dsh-bash`) — defines the Cordis service and Bash request and result types
+- **Service provider** (`dsh-bash-local`) — executes commands on the local machine
 - **Consumer** (`dsh-tool-bash`) — exposes the capability as a model-callable tool
 
 ```
@@ -43,7 +43,7 @@ The Service Definition and tool remain unchanged while the provider changes.
 
 ### Evolve independently
 
-- The Service Definition changes rarely after its contract stabilizes.
+- The Service Definition changes rarely after callers depend on its contract.
 - Service providers can improve performance and security independently.
 - Consumers can change how they present the capability to the model.
 

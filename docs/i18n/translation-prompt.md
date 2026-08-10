@@ -70,7 +70,7 @@ A lower-priority rule may refine but never override a higher-priority requiremen
 - The translation must read as if originally written in the target language by a native technical author. If an expression sounds like a word-for-word rendering from the source language, rephrase it.
 - Write in a professional, formal tone appropriate for developer documentation. Never use colloquial or casual expressions.
 - Name an actor when the target language would otherwise obscure an actor that the source states or unambiguously implies. Never invent responsibility merely to avoid a passive construction.
-- Prefer established target-language engineering idiom over literal renderings, and localize metaphors instead of transplanting them.
+- Prefer established target-language engineering terms over literal renderings. Replace metaphors with direct descriptions that preserve the source meaning.
 - Use polite imperative forms where the text instructs the reader to do something. In Chinese, address the reader as `你`, not `您`.
 - Keep the author's register: concise stays concise, detailed stays detailed.
 
@@ -127,7 +127,7 @@ A terminology table is provided below. Follow it strictly:
 
 ## Output Format
 
-Return exactly three raw XML sections in the order shown below. Do not wrap the response in a Markdown code fence and do not add analysis or text before, between, or after the sections. The fence below only displays the required shape; do not reproduce the fence.
+Return exactly three raw XML sections in the order shown below. Do not wrap the response in a Markdown code fence and do not add analysis or text before, between, or after the sections. The fence below only displays the required format; do not reproduce the fence.
 
 The outer section tags are framing. If Markdown inside any section body contains a line consisting only of `<translation>`, `</translation>`, `<review>`, `</review>`, `<final>`, or `</final>`, prefix that line with `\`. If the original line already has one or more backslashes immediately before the tag, add one more. The parser removes exactly one framing escape; tags mentioned inline need no escaping.
 
@@ -152,10 +152,10 @@ The outer section tags are framing. If Markdown inside any section body contains
 
 ## Self-Review Instructions
 
-After writing `<translation>`, verify it in two directions. First re-read it in the target language only, without looking at the source; awkward phrasing is easier to notice without source-language anchoring. Then compare it against the source clause by clause for completeness and exact meaning. Resolve doubts before writing `<review>`; do not include reasoning transcripts, checks that passed, tentative suggestions, retractions, or no-op corrections.
+After writing `<translation>`, verify it in two directions. First re-read it in the target language only without comparing it with the source; this makes awkward phrasing easier to notice. Then compare it against the source clause by clause for completeness and exact meaning. Resolve doubts before writing `<review>`; do not include reasoning transcripts, checks that passed, tentative suggestions, retractions, or no-op corrections.
 
 **Structure**
-- Is the heading hierarchy and order, list shape and count, ordered-list start, table shape, and code block content identical to the source?
+- Are the heading hierarchy and order, list kind and item count, ordered-list start, table dimensions, and code block content identical to the source?
 - Are ALL comments and info strings inside code blocks left untranslated and byte-identical to the source?
 - Are inline code spans and machine-readable tokens verbatim?
 - Is an existing language switcher correctly flipped, and is no switcher or filename invented when the source lacks one?
@@ -169,7 +169,7 @@ After writing `<translation>`, verify it in two directions. First re-read it in 
 
 **Tone & Style**
 - Does every sentence read as if originally written by a native technical author?
-- Is there any colloquial, casual, overly informal, promotional, or transplanted metaphorical phrasing?
+- Is there any colloquial, casual, overly informal, promotional, or metaphorical phrasing?
 - Are actors explicit where the target language needs them, without inventing responsibility?
 
 **Sentence Structure**
@@ -228,9 +228,9 @@ Below are representative examples of common problems and their corrections. Foll
 - Good: `FIXME：应当阻塞新版本发布的问题。除非评审者明确同意该更改可以合并，否则发布版本不应包含未解决的 FIXME。`
 
 ### Overly literal → Meaningful rendering
-- Source: `awkward phrasing is easier to hear without the source anchoring you`
-- Bad: `没有源文锚着，别扭的表述更容易被听出来`
-- Good: `不对照原文时，更容易察觉别扭的表达`
+- Source: `awkward phrasing is easier to notice when you read the translation without comparing it with the source`
+- Bad: `不把译文和原文比较时，尴尬的措辞更容易被注意`
+- Good: `不对照原文阅读译文时，更容易察觉别扭的表达`
 
 ### Terminology — do not translate what should be kept in English
 - Source: `typed service seams, and explicit extension points`

@@ -29,7 +29,7 @@ Cordis Include 将每个 `!!js` 标量解析为一个表达式对象。Loader �
 
 ## 根因
 
-实现时假设 `!!js` 适用于整个 Loader 配置项。其实际边界更窄：`Entry._resolveConfig()` 仅对 `entry.options.config` 进行插值；`Entry.disabled` 直接测试 `entry.options.disabled`，不经过插值。YAML 标签在语法上合法，因此加载过程不产生任何诊断信息。
+实现时假设 `!!js` 适用于整个 Loader 配置项。实际只有 `entry.options.config` 使用它：`Entry._resolveConfig()` 对该字段进行插值，而 `Entry.disabled` 直接测试 `entry.options.disabled`，不经过插值。YAML 标签在语法上合法，因此加载过程不产生任何诊断信息。
 
 快照框架将任何确定性的 transcript（文本记录）视为有效行为。Header pin 验证了组合后的工具 schema，但文件系统场景共享来自默认组合的 pin，因此未独立证明其所需工具已注册。刷新在任何语义断言拒绝缺失工具之前，就已重写了预期的 stdout 和会话日志。
 
@@ -42,6 +42,6 @@ Cordis Include 将每个 `!!js` 标量解析为一个表达式对象。Loader �
 
 ## 教训
 
-- 语法上被接受的配置值不一定在该位置被求值；应记录并验证插值边界。
+- 语法上被接受的配置值不一定在该位置被求值；应记录并验证具体对哪些字段进行插值。
 - 快照刷新是 fixture 的生产过程，不是正确性审查。诸如已注册工具缺失这类语义上不可能的结果，需要独立于预期输出的断言。
 - 权限控制只应描述其实际管辖的能力。组合时的文件系统访问无法安全地跟随运行时的 bash-only 预设。

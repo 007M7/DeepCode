@@ -15,7 +15,7 @@ interface Profile {
 // A one-time audit against eslint.config.mjs blob 696b08282885296830189fdafe7051a356806fc2
 // mapped @typescript-eslint/* to typescript/* and four extension rules to their
 // Oxlint core equivalents. These fingerprints pin the resulting repository
-// contract; they do not re-evaluate that deleted baseline or track its preset.
+// snapshot; they do not re-evaluate that deleted baseline or track its preset.
 const profiles = {
   source: {
     count: 88,
@@ -84,7 +84,7 @@ describe('Oxlint repository rule fingerprint', () => {
   }
   const overrides: readonly unknown[] = parsed.overrides
 
-  it('pins the complete override shape', () => {
+  it('pins every override field', () => {
     expect(overrides).toHaveLength(8)
   })
 
