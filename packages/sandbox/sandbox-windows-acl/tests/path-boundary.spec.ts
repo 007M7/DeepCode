@@ -25,8 +25,12 @@ describe('Windows ACL temp path boundary', () => {
     const nested = join(workspace, 'temp')
     mkdirSync(nested)
 
-    expect(() => assertTempRootOutsideWorkspace(workspace, workspace)).toThrow(/temp root must be outside the workspace/u)
-    expect(() => assertTempRootOutsideWorkspace(workspace, nested)).toThrow(/temp root must be outside the workspace/u)
+    expect(() => {
+      assertTempRootOutsideWorkspace(workspace, workspace)
+    }).toThrow(/temp root must be outside the workspace/u)
+    expect(() => {
+      assertTempRootOutsideWorkspace(workspace, nested)
+    }).toThrow(/temp root must be outside the workspace/u)
   })
 
   it('accepts a temp parent above the workspace because a fresh child is a sibling', () => {
@@ -34,7 +38,9 @@ describe('Windows ACL temp path boundary', () => {
     const workspace = join(tempRoot, 'workspace')
     mkdirSync(workspace)
 
-    expect(() => assertTempRootOutsideWorkspace(workspace, tempRoot)).not.toThrow()
+    expect(() => {
+      assertTempRootOutsideWorkspace(workspace, tempRoot)
+    }).not.toThrow()
   })
 
   it('requires an actual private temp directory to be disjoint in either direction', () => {
@@ -46,8 +52,14 @@ describe('Windows ACL temp path boundary', () => {
     mkdirSync(nestedTemp)
     mkdirSync(siblingTemp)
 
-    expect(() => assertPrivateTempDisjoint([workspace], nestedTemp)).toThrow(/must be disjoint/u)
-    expect(() => assertPrivateTempDisjoint([nestedTemp], workspace)).toThrow(/must be disjoint/u)
-    expect(() => assertPrivateTempDisjoint([workspace], siblingTemp)).not.toThrow()
+    expect(() => {
+      assertPrivateTempDisjoint([workspace], nestedTemp)
+    }).toThrow(/must be disjoint/u)
+    expect(() => {
+      assertPrivateTempDisjoint([nestedTemp], workspace)
+    }).toThrow(/must be disjoint/u)
+    expect(() => {
+      assertPrivateTempDisjoint([workspace], siblingTemp)
+    }).not.toThrow()
   })
 })
