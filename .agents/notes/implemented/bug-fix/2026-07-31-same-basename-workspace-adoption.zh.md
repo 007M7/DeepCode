@@ -14,7 +14,7 @@ Workspace 的身份由其稳定 id 和规范目录路径确定，标题则是可
 
 Host 的 `workspace.create({ path })` 接纳入口沿用该规则。Workspace 管理器、选择器、分组树、选择、重命名、删除和 Session 创建仍使用 `WorkspaceId`，因此相同标签既不会合并记录，也不会把操作指向其他记录。需要区分相同标签时，侧边栏悬停详情卡会显示各自的规范路径。
 
-显式命名仍采用更严格的规则。`workspace.create({ name })` 和 `workspace.rename` 仍会拒绝已注册的标题，具体见[手动 Workspace 命名](../feature/2026-07-25-session-list-browsing-and-manual-order.md)。这既防止用户主动引入另一个难以区分的标签，又允许既有目录名称造成的重名。路径接纳规则仅取代 [Workspace 产品流](../feature/2026-07-25-workspace-ui-product-flow.md)和[原生目录选择器](../feature/2026-07-27-native-workspace-directory-picker.md)中的标题冲突条款。
+显式命名仍采用更严格的规则。`workspace.rename` 仍会拒绝已注册的标题，具体见[手动 Workspace 命名](../feature/2026-07-25-session-list-browsing-and-manual-order.md)。这既防止用户主动引入另一个难以区分的标签，又允许既有目录名称造成的重名。路径接纳规则仅取代 [Workspace 产品流](../feature/2026-07-25-workspace-ui-product-flow.md)和[原生目录选择器](../feature/2026-07-27-native-workspace-directory-picker.md)中的标题冲突条款。
 
 持久化 schema 未变：Workspace 记录本就分别存储 id、path 和 title，引导初始化可以派生出相同的 basename，启动校验检查的是重复路径而非重复标题。
 
@@ -30,7 +30,7 @@ Workspace 注册表与 Host API 测试会在不同父目录下创建两个末级
 
 **将完整路径用作每个 Workspace 的标题。** 这会消除冲突，却使主导航标签不必要地过长。完整路径仍可在悬停详情中查看，而简洁的 basename 仍有价值。
 
-**也允许显式重命名和按名称创建操作产生重名。** 注册表支持这种状态，但这些操作本就是明确要求用户选择显示名称。保留冲突响应可维持现有命名防护，同时不阻止从文件系统选取的路径。
+**也允许显式重命名操作产生重名。** 注册表支持这种状态，但该操作本就是明确要求用户选择显示名称。保留冲突响应可维持现有命名防护，同时不阻止从文件系统选取的路径。
 
 ## 后果
 

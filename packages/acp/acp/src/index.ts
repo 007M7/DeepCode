@@ -166,6 +166,17 @@ export function apply(ctx: Context, config: AcpConfig): void {
                 content: { type: 'text', text: block.text },
               },
             })
+          } else if (block.type === 'image') {
+            notify({
+              sessionId: record.agent.session.id,
+              update: {
+                sessionUpdate: 'agent_message_chunk',
+                content: {
+                  type: 'text',
+                  text: `[image attachment ${block.attachment.attachmentId}]`,
+                },
+              },
+            })
           }
         }
       }

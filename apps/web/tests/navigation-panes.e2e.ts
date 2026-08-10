@@ -78,8 +78,8 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
   beforeAll(async () => {
     scaffold = await launchWebScaffold({})
     // The workspace-aware flow runs sessions in <workspaceCwd>/workspace;
-    // the read targets must live in that session cwd (pre-creation is safe:
-    // create-by-name adopts an existing directory).
+    // the read targets must live in that session cwd (pre-creation is safe
+    // because the picker adopts an existing directory by path).
     const sessionCwd = join(scaffold.workspaceCwd, 'workspace')
     await mkdir(sessionCwd, { recursive: true })
     await writeFile(join(sessionCwd, 'nav-a.md'), '# alpha nav\n')

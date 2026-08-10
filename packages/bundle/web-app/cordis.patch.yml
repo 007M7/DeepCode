@@ -4,7 +4,7 @@
 #
 # A patch replaces the targeted row's whole `config`, so each row below
 # restates every key it owns. The `dsh web` launcher alias turns --host/--port/
-# --dev/--workspace-root/--trusted-host into further patches over these rows
+# --dev/--trusted-host into further patches over these rows
 # (`--dev` inserts the dsh-client-hmr row).
 
 # ── surface-specific values the base deliberately omits ─────────────────────

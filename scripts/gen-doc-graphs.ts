@@ -62,6 +62,7 @@ type EventReceiverKind = 'context' | 'agent-dispatch' | 'events-service'
 
 const GROUP_ORDER = [
   'util',
+  'attachment',
   'llm',
   'core',
   'typert',
@@ -95,6 +96,15 @@ const GROUP_ORDER = [
 ]
 
 const SERVICE_ROLES: ServiceRole[] = [
+  {
+    key: 'attachments',
+    pkg: 'attachment',
+    title: 'Durable binary attachment storage',
+    mode: 'seam',
+    implementations: ['attachment-local'],
+    consumers: ['host-runtime', 'llm-pi-ai'],
+    note: 'The host commits accepted images before session events; provider adapters resolve authorized durable references into provider-native content.',
+  },
   {
     key: 'llm',
     pkg: 'llm',
