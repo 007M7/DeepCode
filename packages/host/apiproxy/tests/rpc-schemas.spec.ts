@@ -493,6 +493,7 @@ describe('events frame schemas', () => {
       } },
       { type: 'host/workspace-removed', workspaceId: 'w' },
       { type: 'host/commands-changed' },
+      { type: 'host/session-preset-changed', sessionId: 's', agentPreset: 'minimal' },
       { type: 'stream/error', error: { code: 'internal', message: 'm', details: {} } },
     ]
     for (const frame of frames) expect(hostFrameSchema.parse(frame)).toMatchObject({ type: frame.type })

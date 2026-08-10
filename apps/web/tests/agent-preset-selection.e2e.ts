@@ -11,6 +11,7 @@
 //
 // Zero model calls: no replay fixture mounts, so a stray stream fails loud.
 import { fileURLToPath } from 'node:url'
+import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Browser, Page } from 'playwright'
 import { chromium } from 'playwright'
@@ -29,6 +30,30 @@ const HEADER_EXPECTED = join(SNAPSHOT_DIR, 'header.expected.md')
 const SHIPPED_PRESETS = fileURLToPath(new URL('../../cli/config/agent-presets', import.meta.url))
 const MODE = webSnapshotMode()
 const SEED_ID = 'agent-preset-selection-web-e2e'
+/** A project skill only a preset that mounts `skill-local` can discover. */
+const SKILL_NAME = 'preset-catalog-demo'
+
+/**
+ * Seed one project skill under the connected workspace.
+ *
+ * Local skill discovery is a PRESET row, so this file is visible through
+ * `standard` and invisible through `minimal` — which makes the '/' menu's
+ * skill group a statement about the session's composition.
+ * @param workspaceCwd - the scaffold's temp project parent.
+ */
+async function seedWorkspaceSkill(workspaceCwd: string): Promise<void> {
+  const directory = join(workspaceCwd, 'workspace', '.agents', 'skills', SKILL_NAME)
+  await mkdir(directory, { recursive: true })
+  await writeFile(join(directory, 'SKILL.md'), [
+    '---',
+    `name: ${SKILL_NAME}`,
+    'description: Prove the slash catalog follows the session composition',
+    '---',
+    '',
+    'Body.',
+    '',
+  ].join('\n'))
+}
 
 /**
  * A settled one-turn session with no model content: this lane asserts chrome
@@ -53,6 +78,35 @@ function seedLog(): string {
   ].join('\n')
 }
 
+/**
+ * The preset the host reports for the blank session the workspace connect
+ * produced. Addressed by id rather than by scanning the serialized list: the
+ * seeded session records `minimal` too, so a substring match over the whole
+ * list answers before the switch has landed.
+ * @param baseUrl - the scaffold's origin.
+ * @returns the live session's preset, or undefined before it is listed.
+ */
+async function livePreset(baseUrl: string): Promise<string | undefined> {
+  const response = await fetch(`${baseUrl}/api/session.list`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      type: 'client-request', rpcId: 'agent-preset-live', method: 'session.list', payload: {},
+    }),
+  })
+  const body = await response.json() as {
+    result: { value?: { items: { sessionId: string; agentPreset?: string }[] } }
+  }
+  return body.result.value?.items.find(item => item.sessionId !== SEED_ID)?.agentPreset
+}
+
+/** Every option label the trigger menu currently lists. */
+async function menuOptions(page: Page): Promise<string[]> {
+  const menu = page.getByRole('listbox', { name: 'Trigger suggestions' })
+  await menu.waitFor({ timeout: 10_000 })
+  return await menu.getByRole('option').allTextContents()
+}
+
 describe('web e2e: agent-preset selection', () => {
   let scaffold: WebScaffold
   let browser: Browser
@@ -67,6 +121,7 @@ describe('web e2e: agent-preset selection', () => {
     // records `minimal` is what makes the header label a claim about the
     // session rather than an echo of the current default.
     await seedSession(scaffold, seedLog(), SEED_ID, 'minimal')
+    await seedWorkspaceSkill(scaffold.workspaceCwd)
     browser = await chromium.launch()
     page = await newEnglishPage(browser)
     tripwire = watchConsole(page)
@@ -114,20 +169,46 @@ describe('web e2e: agent-preset selection', () => {
 
     // The chip stages; the blank session the workspace connect produced is
     // what the stage lands on. The host's own answer is what comes back.
-    await expect.poll(async () => {
-      const response = await fetch(`${scaffold.baseUrl}/api/session.list`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          type: 'client-request', rpcId: 'agent-preset-stage', method: 'session.list', payload: {},
-        }),
-      })
-      const body = await response.json() as {
-        result: { value?: { sessions: { blank: boolean; agentPreset?: string }[] } }
-      }
-      return JSON.stringify(body.result.value?.sessions ?? body.result)
-    }, { timeout: 15_000 }).toContain('minimal')
+    await expect.poll(() => livePreset(scaffold.baseUrl), { timeout: 15_000 }).toBe('minimal')
   })
+
+  it('re-reads the slash catalog through the composition the switch installed', async () => {
+    // Continues the previous case: the chip has already applied `minimal` to
+    // the blank session, and this one reads the menu that switch left behind.
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-agent-preset-slash-catalog'))
+    const composer = page.locator('textarea:enabled').last()
+
+    // `minimal` mounts neither the compaction group nor plan mode nor local
+    // skill discovery, so the catalog the composer warmed under the
+    // deployment default must not survive the switch.
+    await composer.fill('/')
+    await expect.poll(() => menuOptions(page), { timeout: 15_000 })
+      .not.toEqual(expect.arrayContaining([expect.stringContaining(SKILL_NAME)]))
+    const onMinimal = await menuOptions(page)
+    expect(onMinimal.some(option => option.startsWith('compact'))).toBe(false)
+    expect(onMinimal.some(option => option.startsWith('plan'))).toBe(false)
+    // The host-plane commands and the client's own contribution are the
+    // floor: they belong to no preset and never move.
+    expect(onMinimal.some(option => option.startsWith('goal'))).toBe(true)
+    expect(onMinimal.some(option => option.startsWith('model'))).toBe(true)
+    await composer.fill('')
+
+    // Switching back up reaches the host at all — the chip compares the pick
+    // against its list row, so a row that never reprojected the first switch
+    // answers "already standard" and sends nothing — and restores the catalog
+    // instead of leaving the session reading the narrower composition.
+    await page.getByRole('button', { name: '极简模式' }).click()
+    await page.getByRole('menuitem', { name: /^标准模式/ }).first().click()
+    await expect.poll(() => livePreset(scaffold.baseUrl), { timeout: 15_000 }).toBe('standard')
+
+    await composer.fill('/')
+    await expect.poll(() => menuOptions(page), { timeout: 15_000 })
+      .toEqual(expect.arrayContaining([expect.stringContaining(SKILL_NAME)]))
+    const onStandard = await menuOptions(page)
+    expect(onStandard.some(option => option.startsWith('compact'))).toBe(true)
+    expect(onStandard.some(option => option.startsWith('plan'))).toBe(true)
+    await composer.fill('')
+  }, 90_000)
 
   it('labels a resumed session with the preset it was created under', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-agent-preset-header'))

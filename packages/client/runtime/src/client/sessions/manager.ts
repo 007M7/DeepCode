@@ -780,6 +780,14 @@ export class SessionManager {
         }
         return
       }
+      case 'host/session-preset-changed': {
+        // Every connected client observes the switch here; only the tab that
+        // issued it also gets the RPC echo. The merge keeps the row's own
+        // updatedAt and lowers `blank` only, so re-applying the switching
+        // tab's own frame is a no-op.
+        this.noteAgentPreset(frame.sessionId, frame.agentPreset)
+        return
+      }
       case 'host/session-removed': {
         const summary = this.summaries.find(candidate => candidate.sessionId === frame.sessionId)
         const durableSubagent = summary?.origin === 'subagent' || this.addresses.has(frame.sessionId)
@@ -1005,7 +1013,7 @@ export class SessionManager {
       const prev = this.entryCache.get(entry.sessionId)
       if (
         prev !== undefined && prev.updatedAt === entry.updatedAt && prev.running === entry.running
-        && prev.blank === entry.blank
+        && prev.blank === entry.blank && prev.agentPreset === entry.agentPreset
         && prev.parentSessionId === entry.parentSessionId && prev.cwd === entry.cwd
         && prev.origin === entry.origin && prev.title === entry.title && prev.depth === entry.depth
         && prev.pendingInteraction === entry.pendingInteraction
