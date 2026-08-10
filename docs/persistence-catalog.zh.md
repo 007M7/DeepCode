@@ -366,7 +366,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 'feedback/record': { text: string }
 ```
 
-来源：[`packages/feedback/command-feedback/src/index.ts:24`](../packages/feedback/command-feedback/src/index.ts)
+来源：[`packages/feedback/command-feedback/src/index.ts:25`](../packages/feedback/command-feedback/src/index.ts)
 
 ### `goal/*`
 

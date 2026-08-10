@@ -37,15 +37,14 @@ const windowsUnsupportedPackages = process.platform === 'win32'
     ]
   : []
 
-// Windows-only packages: their sources execute exclusively on win32 (koffi
-// loads Win32 libraries), so the Linux coverage lane can never cover them.
-// The Windows dev/CI lane exercises them through the probe/runner suites; the
-// per-file 100% gate must not fail on their Linux-uncovered paths.
-const windowsOnlyCoverageExclusions = process.platform !== 'win32'
-  ? [
-      'packages/sandbox/sandbox-windows-acl/src/**/*.ts',
-    ]
-  : []
+// The ACL package is covered by native functional probes, not aggregate V8:
+// runner.ts executes in a child process and the remaining Win32 error paths
+// depend on external kernel behavior. Keeping those sources out of the
+// in-process per-file gate avoids false negatives while the native Windows
+// job remains blocking and runs the complete package test inventory.
+const sandboxIntegrationCoverageExclusions = [
+  'packages/sandbox/sandbox-windows-acl/src/**/*.ts',
+]
 
 // pwsh-local's run/start/lifecycle suites self-skip without a real pwsh
 // (executor.spec.ts hasPwsh), leaving this file
@@ -228,7 +227,7 @@ export default defineConfig({
         'packages/interaction/commands/src/invariant.ts',
         'packages/session/session-projection/src/index.ts',
         ...windowsUnsupportedPackages.map(path => `${path}/src/**/*.ts`),
-        ...windowsOnlyCoverageExclusions,
+        ...sandboxIntegrationCoverageExclusions,
         ...pwshCoverageExclusions,
       ],
       // 100% or it doesn't merge (docs/testing.md: excessive tests are welcome).
