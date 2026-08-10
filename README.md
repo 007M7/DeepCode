@@ -14,15 +14,11 @@ The internal build uploads all Session Logs by default to help diagnose reported
 
 ## Run from source
 
-Install `git`, Node `^22.19 || >=24`, and Corepack-enabled `pnpm`, then prepare a source checkout:
+Clone this repo, then run:
 
 ```sh
-git clone https://github.com/deepseek-ai/deepseek-harness-sdk.git
-cd deepseek-harness
-pnpm install
+pnpm dsh web
 ```
-
-Set `DEEPSEEK_API_KEY` in the environment or the repository's root `.env`. Run DeepSeek Harness from this checkout through the root `pnpm` scripts below.
 
 ## Use DeepSeek Harness
 

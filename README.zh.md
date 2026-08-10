@@ -14,15 +14,11 @@ DeepSeek Harness 正处于内部测试阶段，功能和接口可能发生变化
 
 ## 从源码运行
 
-请安装 `git` 和 Node `^22.19 || >=24`，并通过 Corepack 启用 `pnpm`，然后准备源码检出：
+克隆本仓库，然后运行：
 
 ```sh
-git clone https://github.com/deepseek-ai/deepseek-harness-sdk.git
-cd deepseek-harness
-pnpm install
+pnpm dsh web
 ```
-
-请通过环境变量或仓库根目录的 `.env` 设置 `DEEPSEEK_API_KEY`。使用下方根目录 `pnpm` 脚本从该检出运行 DeepSeek Harness。
 
 ## 使用 DeepSeek Harness
 
