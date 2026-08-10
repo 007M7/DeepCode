@@ -195,6 +195,32 @@ describe('reconnect supervisor', () => {
     expect(mockConnect).toHaveBeenCalledTimes(3)
   })
 
+  it('gives up behind an in-flight re-sync and removes the generation it publishes', async () => {
+    const { errors } = captureLogs(ctx)
+    await apply(ctx, stdioConfig({ initialDelayMs: 2, maxDelayMs: 8, maxAttempts: 1 }))
+    await vi.waitFor(() => { expect(ctx.tools.get('mcp__srv__remote')).toBeDefined() })
+
+    const gate: PromiseWithResolvers<unknown> = Promise.withResolvers()
+    mockListTools.mockImplementation(() => gate.promise)
+    const handler = mockSetNotificationHandler.mock.calls[0]![1] as () => Promise<void>
+    const resync = handler()
+    await vi.waitFor(() => { expect(mockListTools).toHaveBeenCalledTimes(2) })
+
+    mockConnect.mockRejectedValue(new Error('server gone'))
+    instances[0]!.onclose?.()
+    await vi.waitFor(() => {
+      expect(errors.some(line => line.includes('giving up after 1 consecutive failed reconnect attempts'))).toBe(true)
+    })
+
+    gate.resolve(listing('late'))
+    await resync
+    await vi.waitFor(() => {
+      expect(ctx.tools.get('mcp__srv__remote')).toBeUndefined()
+      expect(ctx.tools.get('mcp__srv__late')).toBeUndefined()
+    })
+    expect(mockConnect).toHaveBeenCalledTimes(2)
+  })
+
   it('does not start a replacement until a failed generation reports that it closed', async () => {
     mockConnect.mockRejectedValueOnce(new Error('initialize failed'))
     // Model the SDK's fire-and-forget close after initialize fails: the
