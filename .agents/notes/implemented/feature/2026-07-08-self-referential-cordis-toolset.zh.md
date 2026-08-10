@@ -40,7 +40,7 @@ vm 隔离了意外的全局污染，上下文门面隐藏了框架内部细节�
 
 每个临时 Plugin 都是工具插件下方内部 `cordis-dynamic` 分组的子节点，因此普通的 fiber 释放即可处理工具集重载和卸载。`cordis_mount` 会等待 settlement；启动失败时在返回错误前释放 fiber。已 settle 但处于 pending 状态的 Plugin 仍然可见，并列出其缺失的注入。`cordis_unmount` 等待 Plugin fiber 的释放完成。
 
-临时 Plugin 只存在于进程内存中。它不会创建 Plugin 文件、安装 package、修改 `cordis.yml` 或个人／项目配置、跨重启存续，也不存在自动保存、转正式或安装路径。若要保留实验结果，应让 Agent 通过常规开发流程实现普通的本地、项目或仓库 Plugin。
+临时 Plugin 只存在于进程内存中。它不会创建 Plugin 文件、安装 package、修改 `cordis.yml` 或个人／项目配置、跨重启存续，也不存在自动保存、转正式或安装路径。若要保留实验结果，应让 Agent 通过常规开发流程实现普通的项目 Plugin 或可安装的 profile 组合包。
 
 ### 通过 provide/inject 实现跨挂载组合
 
