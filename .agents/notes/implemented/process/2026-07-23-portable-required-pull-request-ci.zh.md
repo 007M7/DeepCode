@@ -12,9 +12,9 @@ Status: implemented
 
 ## 决策
 
-[CI](../../../../.github/workflows/ci.yml) 在仅限本仓库使用的企业级 32 核运行器池上运行必需的主 Node 24 作业，以及稳定的 `all checks passed` 聚合流程。该聚合流程不执行代码检出或仓库门禁；但让它与所依赖的实质性作业共用企业级运行器池，可以避免这些作业已经成功后，必需判定结果又引入一项单独的标准托管计费依赖。必需的 Windows 作业在标准 `ubuntu-latest` 上通过 Wine 运行 Windows Node，覆盖阻断性检查范围；一个独立的原生 `windows-2025` 作业会自动启动，但不参与聚合流程（[双 Windows 决策](2026-08-08-native-windows-pull-request-ci.md)）。标准 `ubuntu-latest` 作业保留 Node 22.19、Node 26 和 Python SDK 兼容性，串行参考流程仍是完整且未分片的跨平台定义。这些标准托管作业让可移植执行边界保持可观测，而不必在每个拉取请求中重复主清单。
+[CI](../../../../.github/workflows/ci.yml) 在仅限本仓库使用的企业级 32 核运行器池上运行必需的主 Node 24 作业，以及稳定的 `all checks passed` 聚合流程。该聚合流程不执行代码检出或仓库门禁；但让它与所依赖的实质性作业共用企业级运行器池，可以避免这些作业已经成功后，必需判定结果又引入一项单独的标准托管计费依赖。必需的 Windows 作业在正常运行下使用企业级大型运行器，在 `DSH_CI_FAILOVER=selfhosted` 时切换至自托管池（[统一 Windows CI 笔记](2026-08-10-unified-windows-selfhosted-ci.md)）。标准 `ubuntu-latest` 作业保留 Node 22.19、Node 26 和 Python SDK 兼容性，跨平台串行备援持续验证故障切换目标。这些标准托管作业让可移植执行边界保持可观测，而不必在每个拉取请求中重复主清单。
 
-两项 Linux 主作业、Node 兼容性、Python SDK 和 `windows node 24 / wine blocking` 继续作为 `all checks passed` 的依赖项；`windows node 24 / native complete` 被刻意排除。分支保护继续要求 `e2e` 和 `all checks passed`。剩余的企业级 Linux 运行器标签无法分配运行器时没有自动后备机制：标准作业会继续报告各自的约定，但无法产出缺失的必需结果。
+两项 Linux 主作业、Node 兼容性、Python SDK 和 `windows node 24 / native complete` 继续作为 `all checks passed` 的依赖项；仅 master 触发的 `serial / windows (self-hosted standby)` 被刻意排除，与 Linux 备援模式对称。
 
 当前主拓扑及其测量结果由[大型运行器决策](2026-07-22-evidence-based-larger-hosted-runners.md)记录。[跨平台串行参考流程](2026-07-21-serial-cross-platform-ci-reference.md)继续作为独立的标准托管完整性检查，手动大型运行器套件则保留规格比较，同时不扩大普通必需矩阵。
 
@@ -30,6 +30,6 @@ Status: implemented
 
 ## 后果
 
-普通拉取请求会将企业级运行器容量用于 Linux 关键路径，而 Wine 作业让必需的 Windows 判定继续使用标准 Linux 运行器容量。独立原生作业使用标准 Windows 运行器容量，不会延迟或改变聚合流程。一次实际的分支头精确运行会区分分支保护采用的命令与单独的诊断约定；排队延迟与每个作业从 `startedAt` 到 `completedAt` 的执行区间分开报告。
+普通拉取请求会将企业级运行器容量用于 Linux 关键路径，而原生 Windows 作业在正常运行下使用企业级大型运行器、故障切换时使用自托管池。独立原生作业使用标准 Windows 运行器容量，不会延迟或改变聚合流程。一次实际的分支头精确运行会区分分支保护采用的命令与单独的诊断约定；排队延迟与每个作业从 `startedAt` 到 `completedAt` 的执行区间分开报告。
 
 企业级运行器分配能力下降时，标准兼容性作业、必需的 Wine 作业与诊断性原生 Windows 作业仍能提供有用证据，但无法让受阻的必需 Linux 作业或聚合流程变绿。恢复 Linux 可用性时，可能需要恢复完整的标准托管拓扑；仅改变运行器池定义的状态，不足以证明它可以接收作业。

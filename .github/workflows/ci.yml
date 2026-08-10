@@ -561,13 +561,6 @@ jobs:
         shell: pwsh
         run: pnpm install --frozen-lockfile
 
-      # The persistent VM image owns Playwright's Windows system dependencies;
-      # this step also proves that browser provisioning remains usable for
-      # failover.
-      - name: Install Playwright Chromium
-        shell: pwsh
-        run: pnpm --filter @deepseek-ai/dsh-frontend exec playwright install chromium
-
       - name: Run complete unsharded Windows gate inventory serially
         shell: pwsh
         env:
