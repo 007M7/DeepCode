@@ -100,13 +100,15 @@ export { SubagentError } from './error.ts'
 export { settleRun } from './run-settlement.ts'
 export { assertSubagentMaxDepth, delegationDepthOf } from './depth.ts'
 export {
+  appendDelegatedPolicyOverrides,
   applyChildComposition,
+  captureDelegatedPolicyOverrides,
   childSessionMeta,
   resolveChildAgentOptions,
   resolveChildDepth,
   SubagentDepthError,
 } from './child-agent.ts'
-export type { ChildComposition } from './child-agent.ts'
+export type { ChildComposition, DelegatedPolicyOverrides } from './child-agent.ts'
 export type {
   ContinuableStart,
   ContinuableStartSpec,

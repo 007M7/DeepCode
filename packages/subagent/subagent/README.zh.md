@@ -52,6 +52,10 @@ subagent seam 允许一个 agent（智能体）通过具名提供方把工作委
 
 `inheritsParentContext` 只用于描述，不能强制执行。它仅说明子 agent 是否能看到父级已完成的对话历史（`fork` 可以；`spawn` 和各进程外一次性提供方不可以），不表示是否继承工具、服务或权限。
 
+## 委派策略继承
+
+两条进程内委派路径都会通过共享的子 agent 辅助函数，把父级的显式策略覆盖项作为种子注入子 agent：`captureDelegatedPolicyOverrides(parent)` 在委派边界同步对 `sandboxPolicy.overrideOf()` 与 `approval.overrideOf()` 获取快照（这两个服务都是可选的 `ctx.get` 消费方），`appendDelegatedPolicyOverrides()` 则在未发布的设置阶段、在任何 fork 种子之后，把每个捕获值作为一条 `source: 'delegation'` 的 `sandbox/mode` 或 `approval/policy` 事件写入子 agent 自己的日志：因此新鲜策略压过陈旧的种子状态，子 agent 后续的切换压过该快照，而子 agent 的生效策略始终可以仅凭其日志重建。部署默认值绝不复制：未切换的父级不会记录任何值，其子 agent 会动态跟随部署默认值。可继续启动会在其第一次 await 之前捕获，并且只为新鲜的物化写入种子；冷恢复会重放已持久化的委派事件，而不是重新捕获父级，因此创建之后的父级切换绝不会追溯性地改变持久化子 agent。参见[一次性](../../../.agents/notes/implemented/feature/2026-07-25-subagent-policy-inheritance.md)与[可继续](../../../.agents/notes/implemented/feature/2026-08-10-continuable-subagent-policy-inheritance.md)两篇策略继承 Agent Note。
+
 ## 一次性所有权与生命周期
 
 `provider.start(request): Promise<SubagentRun>` 是所有权转移边界；委派工具也会在其由 Task 支撑的一次性后台路径中使用它。兑现前，提供方拥有设置过程，并且每次失败时都必须取消、回滚并使未发布资源完全停稳。兑现后，调用方拥有该运行，并且必须在每条路径上调用 `dispose()`；剩余提示词和轮次工作属于 `SubagentRun.result`。

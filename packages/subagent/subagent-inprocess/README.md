@@ -20,7 +20,7 @@ The child gets the parent's working-directory/session lineage and inherits the p
 
 This result boundary is valid because the provider owns an isolated child lifecycle from publication through quiescence. Steering submitted during that lifecycle belongs to the child run; the provider does not pretend the initial follow-up alone owns its output.
 
-When the optional sandbox-policy or approval service is composed, the driver snapshots the parent's explicit session override before child creation and appends a source-tagged event during unpublished setup, after any fork history and before session publication. It never copies deployment defaults or one-shot grants; later child switches still win. See the [policy-inheritance decision](../../../.agents/notes/implemented/feature/2026-07-25-subagent-policy-inheritance.md).
+The driver applies the seam's [delegated policy inheritance](../subagent/README.md#delegated-policy-inheritance) through the shared child-agent helpers: it captures the parent's explicit sandbox/approval overrides before child creation and appends the source-tagged events during unpublished setup, after any fork history and before session publication. See the [policy-inheritance decision](../../../.agents/notes/implemented/feature/2026-07-25-subagent-policy-inheritance.md).
 
 ## Cancellation and ownership
 

@@ -10,7 +10,7 @@ Sandbox and approval overrides are per-session log folds. An in-process subagent
 
 ## Decision
 
-The shared in-process driver snapshots `sandboxPolicy.overrideOf(parent.session)` and `approval.overrideOf(parent.session)` before its first await. A later parent switch belongs to the parent's future; cancel-and-redelegate takes a new snapshot. Both services are optional, and only explicit session overrides are copied, never deployment defaults or one-shot grants.
+The delegation boundary snapshots `sandboxPolicy.overrideOf(parent.session)` and `approval.overrideOf(parent.session)` before its first await, through the shared child-agent helpers (`captureDelegatedPolicyOverrides`/`appendDelegatedPolicyOverrides` in `dsh-subagent`), which the one-shot driver and the [continuable start](2026-08-10-continuable-subagent-policy-inheritance.md) both call. A later parent switch belongs to the parent's future; cancel-and-redelegate takes a new snapshot. Both services are optional, and only explicit session overrides are copied, never deployment defaults or one-shot grants.
 
 Each captured value becomes a source-tagged `sandbox/mode` or `approval/policy` event appended during the child factory's unpublished setup. The session constructor has already fixed `Session.firstLiveSeq` at the fork-prefix length, so the inherited facts follow fork history, reach telemetry when the child is announced, and leave `SessionHeader.seedLength` at the prefix length. Existing last-event-wins folds therefore make the delegation snapshot beat stale fork history and let a later child switch beat the snapshot. A grandchild folds its parent's logged state, so the rule composes without another inheritance mechanism.
 
@@ -33,4 +33,4 @@ A confined child gets the ordinary denial marker. No answerer currently owns an 
 
 - Spawn, fork, and nested in-process children retain a parent's explicit sandbox and approval overrides. The focused suite proves real filesystem denial, stale-fork precedence, delegation-time capture, the live-event boundary, default omission, and context disposal.
 - The keyless headless snapshot is the assembled regression: only the parent is `read-only`, the deployment default is `workspace-write`, and the child's persisted event plus denied disk write both fail if capture is removed.
-- Each delegation adds at most two log-only events. `dsh-subagent-inprocess` has optional peer types for the two policy services; compositions without either service behave unchanged. Out-of-process children retain their own deployment policy, and a running child does not follow later parent switches.
+- Each delegation adds at most two log-only events. `dsh-subagent` and `dsh-subagent-inprocess` have optional peer types for the two policy services; compositions without either service behave unchanged. Out-of-process children retain their own deployment policy, and a running child does not follow later parent switches.

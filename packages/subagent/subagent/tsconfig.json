@@ -27,6 +27,15 @@
       "path": "../../core/scope"
     },
     {
+      "path": "../../interaction/user-approval"
+    },
+    {
+      "path": "../../sandbox/sandbox"
+    },
+    {
+      "path": "../../sandbox/sandbox-policy"
+    },
+    {
       "path": "../../session/session-persistence"
     },
     {

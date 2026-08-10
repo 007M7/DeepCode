@@ -1,0 +1,171 @@
+/**
+ * Continuable-child policy inheritance: a fresh continuable start seeds the
+ * parent's explicit sandbox/approval overrides onto the child's own log as
+ * `source: 'delegation'` events, and a cold resume replays that persisted
+ * snapshot instead of re-capturing the parent (the one-shot
+ * `subagent-inprocess/tests/inheritance.spec.ts` counterpart).
+ */
+
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { Context } from 'cordis'
+import type { Agent } from '@deepseek-ai/dsh-agent'
+import AgentLoop from '@deepseek-ai/dsh-agent-loop'
+import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import SandboxPolicyService, { effectiveSandboxMode, setSandboxMode } from '@deepseek-ai/dsh-sandbox-policy'
+import { SessionId } from '@deepseek-ai/dsh-session'
+import type { SessionEvent } from '@deepseek-ai/dsh-session'
+import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
+import * as SubagentFork from '@deepseek-ai/dsh-subagent-fork'
+import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn'
+import ApprovalService, { effectiveApprovalPolicy, setApprovalPolicy } from '@deepseek-ai/dsh-user-approval'
+import { MockAdapter, textResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
+import SubagentService from '../src/index.ts'
+
+type Script = ConstructorParameters<typeof MockAdapter>[0]
+
+const roots: string[] = []
+afterEach(() => {
+  for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
+})
+
+/** Boot the continuable stack plus both policy services the manager consumes opportunistically. */
+async function setup(script: Script) {
+  const ctx = new Context()
+  await mountAgentLoopTestDependencies(ctx)
+  const root = mkdtempSync(join(tmpdir(), 'dsh-continuation-inherit-'))
+  roots.push(root)
+  await ctx.plugin(JsonlSessionPersistence, { root })
+  await ctx.plugin(SandboxPolicyService, { mode: 'workspace-write', workspaceRoot: root })
+  await ctx.plugin(ApprovalService)
+  await ctx.plugin(AgentLoop, { agents: [] })
+  await ctx.plugin(SubagentService)
+  await ctx.plugin(SubagentSpawn, { providerName: 'spawn' })
+  await ctx.plugin(SubagentFork, { providerName: 'fork' })
+  ctx.llm.registerAdapter(['mock'], new MockAdapter(script))
+  const parent = ctx.agentLoop.create(SessionId('parent'), { provider: 'mock', model: 'mock' })
+  return { ctx, parent }
+}
+
+function startSpec(parent: Agent, provider = 'spawn') {
+  return {
+    provider,
+    label: 'child task',
+    request: { prompt: [{ type: 'text' as const, text: 'child task' }], parent },
+    signal: new AbortController().signal,
+  }
+}
+
+/** Wait until a child's Activation is gone, i.e. its handle finished disposal. */
+async function waitNoActivation(ctx: Context, childId: SessionId): Promise<void> {
+  await vi.waitFor(() => {
+    expect(ctx.agents.get(childId)).toBeUndefined()
+  }, { timeout: 5_000 })
+}
+
+function policyEvents(events: readonly SessionEvent[]) {
+  return events.filter(event => event.type === 'sandbox/mode' || event.type === 'approval/policy')
+}
+
+describe('continuable policy inheritance', () => {
+  it('seeds parent overrides into a fresh continuable child', async () => {
+    const { ctx, parent } = await setup([textResponse('child done')])
+    setSandboxMode(parent.session, 'danger-full-access')
+    setApprovalPolicy(parent.session, 'never')
+    let child: Agent | undefined
+    ctx.on('agent/created', ({ agent }) => {
+      if (agent !== parent) child = agent
+    })
+
+    const started = await ctx.subagents.startContinuable(startSpec(parent))
+    // The delegation events are appended in the creation window, so they are
+    // already the child's effective policy at inbox acceptance.
+    if (child === undefined) throw new Error('expected the continuable child to be created')
+    expect(ctx.sandboxPolicy.overrideOf(child.session)).toBe('danger-full-access')
+    expect(ctx.approval.overrideOf(child.session)).toBe('never')
+
+    await waitNoActivation(ctx, started.childId)
+    const loaded = await ctx.sessionPersistence.load(started.childId)
+    expect(policyEvents(loaded.events)).toMatchObject([
+      { type: 'sandbox/mode', data: { mode: 'danger-full-access', source: 'delegation' } },
+      { type: 'approval/policy', data: { policy: 'never', source: 'delegation' } },
+    ])
+    // Durable: a reload folds the same effective policy.
+    expect(effectiveSandboxMode(loaded.events)).toBe('danger-full-access')
+    expect(effectiveApprovalPolicy(loaded.events)).toBe('never')
+  })
+
+  it('captures policy at delegation before asynchronous child creation', async () => {
+    const { ctx, parent } = await setup([textResponse('child done')])
+    setSandboxMode(parent.session, 'read-only')
+
+    const starting = ctx.subagents.startContinuable(startSpec(parent))
+    // A parent switch after the synchronous capture belongs to the parent's
+    // future, not to this child.
+    setSandboxMode(parent.session, 'danger-full-access')
+    const started = await starting
+
+    await waitNoActivation(ctx, started.childId)
+    const loaded = await ctx.sessionPersistence.load(started.childId)
+    expect(ctx.sandboxPolicy.overrideOf(parent.session)).toBe('danger-full-access')
+    expect(effectiveSandboxMode(loaded.events)).toBe('read-only')
+  })
+
+  it('does not freeze deployment defaults into an unswitched child', async () => {
+    const { ctx, parent } = await setup([textResponse('child done')])
+
+    const started = await ctx.subagents.startContinuable(startSpec(parent))
+    await waitNoActivation(ctx, started.childId)
+
+    const loaded = await ctx.sessionPersistence.load(started.childId)
+    expect(policyEvents(loaded.events)).toEqual([])
+  })
+
+  it('cold-resumes on the persisted snapshot without re-capturing the parent', async () => {
+    const { ctx, parent } = await setup([textResponse('first'), textResponse('after resume')])
+    setSandboxMode(parent.session, 'read-only')
+    const started = await ctx.subagents.startContinuable(startSpec(parent))
+    await waitNoActivation(ctx, started.childId)
+
+    // The parent widens AFTER the child was created; the resumed child keeps
+    // the delegation-time snapshot from its own log.
+    setSandboxMode(parent.session, 'danger-full-access')
+    await ctx.subagents.followup(parent, started.childId, [{ type: 'text', text: 'continue please' }], {
+      source: { kind: 'user' },
+      signal: new AbortController().signal,
+    })
+    await waitNoActivation(ctx, started.childId)
+
+    const loaded = await ctx.sessionPersistence.load(started.childId)
+    expect(loaded.events.filter(event => event.type === 'sandbox/mode')).toMatchObject([
+      { data: { mode: 'read-only', source: 'delegation' } },
+    ])
+    expect(effectiveSandboxMode(loaded.events)).toBe('read-only')
+  })
+
+  it('places inherited events after a fork prefix so fresh policy wins stale seed state', async () => {
+    const { ctx, parent } = await setup([textResponse('parent turn'), textResponse('forked child')])
+    // The stale mode lands inside the completed turn the fork seed replays.
+    setSandboxMode(parent.session, 'workspace-write')
+    parent.followup(createUserMessage({
+      content: [{ type: 'text', text: 'parent work' }],
+      source: { kind: 'user' },
+    }))
+    await parent.whenIdle()
+    setSandboxMode(parent.session, 'read-only')
+
+    const started = await ctx.subagents.startContinuable(startSpec(parent, 'fork'))
+    await waitNoActivation(ctx, started.childId)
+
+    const loaded = await ctx.sessionPersistence.load(started.childId)
+    expect(loaded.meta.seedLength).toBeGreaterThan(0)
+    expect(loaded.events.filter(event => event.type === 'sandbox/mode')).toMatchObject([
+      { data: { mode: 'workspace-write' } },
+      { data: { mode: 'read-only', source: 'delegation' } },
+    ])
+    expect(effectiveSandboxMode(loaded.events)).toBe('read-only')
+  })
+})

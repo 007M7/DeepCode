@@ -1,17 +1,23 @@
 /**
  * Shared in-process child composition: the delegation-depth budget, the
- * durable session metadata, the resolved child `AgentOptions`, and the scoped
- * setup a child agent needs. Both the one-shot provider driver and the
- * continuation manager compose children this way, so depth accounting and
- * lineage stamping have one home.
+ * durable session metadata, the resolved child `AgentOptions`, the delegated
+ * policy snapshot, and the scoped setup a child agent needs. Both the one-shot
+ * provider driver and the continuation manager compose children this way, so
+ * depth accounting, lineage stamping, and policy inheritance have one home.
  *
  * @module @deepseek-ai/dsh-subagent/child-agent
  */
 
 import type { Context } from 'cordis'
 import type { Agent, AgentOptions, CreateAgentOptions } from '@deepseek-ai/dsh-agent'
-import type { SessionId } from '@deepseek-ai/dsh-session'
+import type { SandboxMode } from '@deepseek-ai/dsh-sandbox'
+import type { Session, SessionId } from '@deepseek-ai/dsh-session'
 import type { ToolRestriction } from '@deepseek-ai/dsh-tools'
+import type { ApprovalPolicy } from '@deepseek-ai/dsh-user-approval'
+// Type-only: make `ctx.get('sandboxPolicy')` / `ctx.get('approval')` resolve
+// to the policy services when composed — delegation consumes both
+// opportunistically (the documented `ctx.get` pattern), never as a hard dep.
+import type {} from '@deepseek-ai/dsh-sandbox-policy'
 import { delegationDepthOf } from './depth.ts'
 
 /** Thrown when starting a child would exceed the requested depth cap. */
@@ -117,6 +123,51 @@ export function applyChildComposition(childCtx: Context, composition: ChildCompo
     childCtx.systemPrompt.section({ name: 'deployment:persona', order: 0, text: composition.persona })
   }
   if (composition.toolFilter !== undefined) childCtx.tools.restrict(composition.toolFilter)
+}
+
+/** Parent-session policy overrides captured at the delegation boundary. */
+export interface DelegatedPolicyOverrides {
+  /** The parent session's explicit sandbox-mode override, or `undefined` without one. */
+  readonly sandboxMode: SandboxMode | undefined
+  /** The parent session's explicit approval-policy override, or `undefined` without one. */
+  readonly approvalPolicy: ApprovalPolicy | undefined
+}
+
+/**
+ * Capture the parent session's explicit policy overrides for one delegation.
+ * Call synchronously before the child start's first await: a later parent
+ * switch belongs to the parent's future, not to this child. Deployment
+ * defaults and one-shot grants are never captured, so an unswitched parent
+ * leaves the child following the deployment default dynamically.
+ * @param parent - the delegating parent agent.
+ * @returns the overrides to seed into the child, each `undefined` without one.
+ */
+export function captureDelegatedPolicyOverrides(parent: Agent): DelegatedPolicyOverrides {
+  return {
+    sandboxMode: parent.ctx.get('sandboxPolicy')?.overrideOf(parent.session),
+    approvalPolicy: parent.ctx.get('approval')?.overrideOf(parent.session),
+  }
+}
+
+/**
+ * Append captured parent overrides onto the child's own log as
+ * `source: 'delegation'` events inside the unpublished creation window, so the
+ * child's effective policy is reconstructable from its log alone. Appends land
+ * after any fork seed, so fresh policy wins stale seed state; later child
+ * switches still win over these events.
+ * @param childSession - the unpublished child's session.
+ * @param overrides - the overrides captured at delegation.
+ */
+export function appendDelegatedPolicyOverrides(
+  childSession: Session,
+  overrides: DelegatedPolicyOverrides,
+): void {
+  if (overrides.sandboxMode !== undefined) {
+    childSession.append('sandbox/mode', { mode: overrides.sandboxMode, source: 'delegation' })
+  }
+  if (overrides.approvalPolicy !== undefined) {
+    childSession.append('approval/policy', { policy: overrides.approvalPolicy, source: 'delegation' })
+  }
 }
 
 /** Identity and lineage inputs shared by every in-process child creation. */
