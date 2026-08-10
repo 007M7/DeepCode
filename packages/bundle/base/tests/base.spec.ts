@@ -15,7 +15,10 @@ describe('dsh-base bundle', () => {
     const root = fileURLToPath(new URL('..', import.meta.url))
     const manifest = JSON.parse(
       readFileSync(resolve(root, 'package.json'), 'utf8'),
-    ) as { dsh?: { bundle?: { patch?: string } } }
+    ) as {
+      dependencies?: Record<string, string>
+      dsh?: { bundle?: { patch?: string } }
+    }
     expect(manifest.dsh?.bundle?.patch).toBe('./cordis.patch.yml')
     const parsed = yaml.load(
       readFileSync(resolve(root, manifest.dsh!.bundle!.patch!), 'utf8'),
@@ -28,6 +31,12 @@ describe('dsh-base bundle', () => {
     )
     expect(rows.length).toBeGreaterThan(50)
     expect(rows.some(row => row.id === 'agent-loop')).toBe(true)
+    expect(rows.filter(row => row.id === 'subagent-codex')).toHaveLength(1)
+    expect(rows.filter(row => row.id === 'subagent-claude-code')).toHaveLength(1)
+    expect(manifest.dependencies).toMatchObject({
+      '@deepseek-ai/dsh-subagent-codex': 'workspace:^',
+      '@deepseek-ai/dsh-subagent-claude-code': 'workspace:^',
+    })
   })
 
   it('ships the Windows platform layer as the confined pwsh roster over the ACL runner chain', () => {
