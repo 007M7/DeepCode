@@ -517,9 +517,6 @@ importers:
       '@deepseek-ai/dsh-repeat-tool-guard':
         specifier: workspace:*
         version: link:../packages/guard/repeat-tool-guard
-      '@deepseek-ai/dsh-repository-plugin':
-        specifier: workspace:*
-        version: link:../packages/self-modification/repository-plugin
       '@deepseek-ai/dsh-sandbox':
         specifier: workspace:*
         version: link:../packages/sandbox/sandbox
@@ -1263,9 +1260,6 @@ importers:
       '@deepseek-ai/dsh-repeat-tool-guard':
         specifier: workspace:^
         version: link:../../guard/repeat-tool-guard
-      '@deepseek-ai/dsh-repository-plugin':
-        specifier: workspace:^
-        version: link:../../self-modification/repository-plugin
       '@deepseek-ai/dsh-sandbox-local':
         specifier: workspace:^
         version: link:../../sandbox/sandbox-local
@@ -5517,40 +5511,6 @@ importers:
         specifier: ^4.0.0-rc.7
         version: link:../../../vendor/cordis
 
-  packages/self-modification/repository-plugin:
-    dependencies:
-      zod:
-        specifier: ^4.4.3
-        version: 4.4.3
-    devDependencies:
-      '@cordisjs/plugin-loader':
-        specifier: workspace:^
-        version: link:../../../vendor/loader
-      '@deepseek-ai/dsh-invariants':
-        specifier: workspace:^
-        version: link:../../support/invariants
-      '@deepseek-ai/dsh-mcp-client':
-        specifier: workspace:^
-        version: link:../../mcp/mcp-client
-      '@deepseek-ai/dsh-paths':
-        specifier: workspace:^
-        version: link:../../util/paths
-      '@deepseek-ai/dsh-skill':
-        specifier: workspace:^
-        version: link:../../skill/skill
-      '@deepseek-ai/dsh-skill-local':
-        specifier: workspace:^
-        version: link:../../skill/skill-local
-      '@deepseek-ai/dsh-system-prompt':
-        specifier: workspace:^
-        version: link:../../core/system-prompt
-      '@deepseek-ai/dsh-tools':
-        specifier: workspace:^
-        version: link:../../core/tools
-      cordis:
-        specifier: ^4.0.0-rc.7
-        version: link:../../../vendor/cordis
-
   packages/self-modification/tool-cordis:
     dependencies:
       schemastery:
@@ -7987,9 +7947,6 @@ importers:
       node-addon-require-builtin:
         specifier: ^0.1.4
         version: 0.1.4
-      pnpm:
-        specifier: 11.7.0
-        version: 11.7.0
 
   vendor/logger-console:
     dependencies:
@@ -12645,11 +12602,6 @@ packages:
   playwright@1.61.1:
     resolution: {integrity: sha512-DWnY5o3YbLWK4GovuAVwpqL+1VwGNdUGrRr++8j8PtQQzvAVZUIMjKQ90fY689sEJZJBbZVw1rXaOKSTitkzPQ==}
     engines: {node: '>=18'}
-    hasBin: true
-
-  pnpm@11.7.0:
-    resolution: {integrity: sha512-GcyFLBIMcSV2DyRD7mvgyltA+fUFmN4aCaHxd1A+AQ5Xwjx3ZG4B52HeWb+HT7IqM5jDOrlpH8E+uUa28PTWIA==}
-    engines: {node: '>=22.13'}
     hasBin: true
 
   points-on-curve@0.2.0:
@@ -18154,8 +18106,6 @@ snapshots:
       playwright-core: 1.61.1
     optionalDependencies:
       fsevents: 2.3.2
-
-  pnpm@11.7.0: {}
 
   points-on-curve@0.2.0: {}
 
