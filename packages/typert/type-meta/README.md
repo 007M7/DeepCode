@@ -20,6 +20,8 @@ Decorator initializers retain markers in a module-private `WeakMap` keyed by the
 
 Business packages extend `TypeRTLookupMap` and `TypeRTContextMap` to associate Host objects or scoped Contexts with their wire identities. Generated artifacts extend `TypeRTRemoteMap`, `TypeRTRemoteScopeMap`, and `TypeRTRemoteNamespaceMap` so Client imports expose only selected Remote methods. `InvocationDescriptor` is the shared runtime form consumed by the registry, Gateway, and Client Remote.
 
+The Host assembly extends `TypeRTRemoteEventSelection` with the Host events it forwards to consumers, which narrows the `ctx.remote.$on` key face; `TypeRTForwardableEvent` states the shapes a one-way delivery can carry at all, excluding Scope-bound and answered events. The `remote/host-event` Cordis event is declared here because both compilation faces share this package, but only the consumer side participates: the Client half owning the host frame sink emits it and the Client Remote service is its only subscriber.
+
 Lookup and Context packages own both sides of their contract: declaration merging supplies the static association, while runtime providers register identity resolution with `ctx.typert`. A lookup or Host Context provider supplies the stable declaration and default resolver, while Host composition may separately configure a synchronous or asynchronous resolver; policy rejections may use `TypeRTLookupFailure` to carry a failure value owned by the boundary adapter. Strict codecs carry generated schemas; `src-json` codecs identify the weaker source-launch path.
 
 ## Model Experience

@@ -20,6 +20,8 @@ Connection 可用时，Host 入口会在 Connection 共享的 `/api` FetchHandle
 
 每次调用都会校验位置参数，构造与描述符完全匹配的具名 `args`，再通过 `ctx.connection.rpc.call('/api', endpoint, ...)` 发送。生成的支持取消的方法接受最后一个可选 `AbortSignal`；Client 会在调用 Connection 前将它与贡献项的挂载生命周期合并。返回值经过校验后才会交给应用代码。撤回贡献项会同时移除其描述符和方法、中止正在进行的调用，并使外部仍持有的方法句柄在调用时返回拒绝。
 
+`ctx.remote.$on()` 订阅一条被转发的 Host 事件。它的合法键恰好等于 Host 装配声明的转发选择，listener 类型就是事件所属包自己的 Cordis `Events` 声明，因此不存在会与之漂移的第二份签名。每个订阅归属发起调用的 fiber，并随该 fiber 一起消失。投递是单向的，并按注册顺序进行；抛错的 listener 会被记录并与其余 listener 隔离，绝不影响帧泵。投递口不属于 Remote 约定：持有 Host 帧 sink 的 Client 半发射内部 Cordis 事件 `remote/host-event`，Remote 服务是它唯一的订阅方，收到无人订阅的事件名即丢弃，因为 wire 上出现什么取决于 Host 的转发选择。
+
 生成的声明合并通过共享的 `TypeRTClientRemote` 约定提供 TypeScript API。Client 入口不包含 Host 服务或 Host Cordis 接口合并；方法查找和调用使用普通对象与函数，而不使用 JavaScript Proxy。
 
 ## 模型体验
@@ -37,3 +39,4 @@ Connection 可用时，Host 入口会在 Connection 共享的 `/api` FetchHandle
 - Client 侧只能挂载严格模式生成的贡献项。SRC 标记不具备 Client 编解码器或类型投影。
 - 该包只分发一元方法。增量会话数据通过同一个 Connection 上独立的具名流协议传输。
 - lookup resolver 按 key 配置；当前无法让单个 Remote 参数或 endpoint 在同一 `agent`/`session` key 下选择 live-only 策略。
+- 被转发的事件原样到达 `$on`：没有载荷投影或脱敏，不支持 Scope 化订阅，重连后也不重放。
