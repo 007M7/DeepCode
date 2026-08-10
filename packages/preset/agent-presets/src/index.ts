@@ -225,7 +225,10 @@ export class AgentPresets extends Service {
    * and permanent, so the old composition stays for its other agents and the
    * new one is ensured BEFORE the link moves. An unknown or unusable preset
    * therefore throws with the agent exactly as it was — there is no torn-down
-   * state to restore.
+   * state to restore. The re-link runs through the binding this roster kept
+   * from the agent's mount — dsh-scope's only re-link authority. An agent
+   * that never composed one has nothing to re-link: the switch is then the
+   * agent's first bind, exactly a mount.
    * @param agentCtx - the agent's scope context.
    * @param id - the preset to compose the agent from instead.
    * @returns the preset now installed.
@@ -238,7 +241,12 @@ export class AgentPresets extends Service {
     }
     const preset = await this.resolve(id)
     const standing = await this.ensureStanding(preset)
-    setScopeParent(agentKey, standing.key)
+    const binding = this.bindings.get(agentKey)
+    if (binding === undefined) {
+      this.bindings.set(agentKey, bindScopeParent(agentKey, standing.key))
+    } else {
+      binding.rebind(standing.key)
+    }
     return preset
   }
 

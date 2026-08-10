@@ -368,8 +368,18 @@ describe('replacing a composition', () => {
     expect(toolNames(ctx, handle.agent)).toEqual(['alpha'])
   })
 
-  it('leaves an agent that never composed one with nothing to restore', async () => {
+  it('binds an agent that never composed one as its first mount', async () => {
+    // No binding exists to re-link, so the switch is the agent's first bind
+    // — and once bound, only this roster's kept binding can move it again.
     const handle = await ctx.agents.create({ sessionId: SessionId('sess-bare') })
+
+    await ctx.agentPresets.recompose(handle.agent.ctx, 'standard')
+
+    expect(toolNames(ctx, handle.agent)).toEqual(['alpha'])
+  })
+
+  it('leaves an agent that never composed one with nothing to restore', async () => {
+    const handle = await ctx.agents.create({ sessionId: SessionId('sess-bare-broken') })
 
     await expect(ctx.agentPresets.recompose(handle.agent.ctx, 'broken'))
       .rejects.toThrow(/failed to mount/)
