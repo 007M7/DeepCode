@@ -186,6 +186,24 @@ describe('session.create with an agent preset', () => {
     })
   })
 
+  it('adopts a live session under the preset it SWITCHED to', async () => {
+    const { api, ctx } = await harness(['standard', 'minimal'])
+    await api.sessions.create(request({ sessionId: SessionId('s4b'), agentPreset: 'standard' }))
+    // Exactly what `agentPreset.select` leaves behind on a blank session: the
+    // header keeps the creation fact, the log states what the agent runs.
+    ctx.sessions.get(SessionId('s4b'))?.append('agent-preset/selected', { agentPreset: 'minimal' })
+
+    const adopted = await api.sessions.create(request({ sessionId: SessionId('s4b'), agentPreset: 'minimal' }))
+    const stale = await api.sessions.create(request({ sessionId: SessionId('s4b'), agentPreset: 'standard' }))
+
+    // Comparing against the header would invert both answers: the preset the
+    // session actually runs would be refused, and the one it left would pass.
+    expect(adopted.result.ok).toBe(true)
+    expect(stale.result.ok).toBe(false)
+    if (stale.result.ok) throw new Error('unreachable')
+    expect(stale.result.error.details).toMatchObject({ existingPreset: 'minimal' })
+  })
+
   it('adopts a live session unchanged when the caller names no preset', async () => {
     const { api } = await harness(['standard', 'minimal'])
     await api.sessions.create(request({ sessionId: SessionId('s5'), agentPreset: 'minimal' }))
@@ -658,6 +676,27 @@ describe('session.history presenter scope', () => {
     expect(live.result.ok).toBe(true)
     // A live agent IS the presenter scope; the roster is not consulted.
     expect(standingKeyRequests).toEqual([])
+  })
+
+  it('resolves a switched session from the LOG, not its creation header', async () => {
+    // The header is a creation fact; a switch while blank is a logged event,
+    // and every turn after it ran under the newer composition. Reading the
+    // header would render that history through the older preset's layer,
+    // where the tools it is made of have no presenter at all.
+    const meta = { id: SessionId('p4'), createdAt: 1, cwd: '/tmp/p4', agentPreset: 'standard' }
+    const { api } = await harness(['standard', 'minimal'], {
+      list: () => Promise.resolve([meta]),
+      inspect: () => Promise.resolve({
+        meta,
+        events: [{ type: 'agent-preset/selected', seq: 1, time: 0, data: { agentPreset: 'minimal' } }],
+      }),
+    })
+
+    standingKeyRequests.length = 0
+    const response = await api.sessions.history(request({ sessionId: SessionId('p4') }))
+
+    expect(response.result.ok).toBe(true)
+    expect(standingKeyRequests).toEqual(['minimal'])
   })
 
   it('serves a COLD transcript whose standing mount is no longer usable', async () => {

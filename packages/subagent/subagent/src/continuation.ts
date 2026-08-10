@@ -885,7 +885,7 @@ export class SubagentContinuationManager {
     // some other owner holds — a duplicate would reject there with rollback.
     inputs.signal.throwIfAborted()
     const setup = (childCtx: Context): AgentSetupCommit => {
-      applyChildComposition(childCtx, inputs.composition)
+      applyChildComposition(childCtx, parent, inputs.composition)
       return this.setupRegistry.apply(childCtx)
     }
     const observer = this.host.observeActivation(provider, childId, parent)

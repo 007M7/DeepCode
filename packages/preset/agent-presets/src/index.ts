@@ -28,7 +28,7 @@ import { bindScopeParent, createScope, scopeOf, type Scope, type ScopeKey, type 
 import { settingsNamespace, type SettingsScope, type default as SettingsService } from '@deepseek-ai/dsh-settings'
 import { discoverPresets } from './discovery.ts'
 import { copyComposition, deleteComposition, readComposition } from './authoring.ts'
-import { mountPreset, serviceForAgent } from './mount.ts'
+import { mountPreset, serviceForAgent, standingMountFor } from './mount.ts'
 import { PresetExistsError } from './authoring.ts'
 import { PresetMountError, UnknownPresetError, type AgentPreset, type Config } from './types.ts'
 
@@ -51,8 +51,8 @@ export {
   METADATA_FILE, readPresetMetadata, renderPresetMetadata, type PresetMetadata,
 } from './metadata.ts'
 export {
-  inactiveRows, leakedServices, livePresetMounts, mountPreset, serviceForAgent,
-  type PresetMount,
+  inactiveRows, leakedServices, livePresetMounts, mountPreset, serviceForAgent, standingMountFor,
+  type JoinedPresetMount, type PresetMount,
 } from './mount.ts'
 export {
   copyComposition, deleteComposition, InvalidPresetIdError, PresetExistsError,
@@ -236,6 +236,54 @@ export class AgentPresets extends Service {
     // through it under the caller-owned blank-session contract.
     this.bindings.set(agentKey, bindScopeParent(agentKey, standing.key))
     return preset
+  }
+
+  /**
+   * Join one agent to the SAME standing composition another already runs on.
+   *
+   * This is how a child agent inherits its parent's capabilities. It is a bind,
+   * not a mount: the parent's generation is already composed, so the child gets
+   * that exact instance — the same plugin objects, the same tool registrations,
+   * the same prompt sections. Re-resolving the parent's preset by id instead
+   * would re-read the roster, and a composition file edited since the parent
+   * started would hand the child a DIFFERENT generation than the one its
+   * parent's history was produced under (and a preset deleted since would fail
+   * the child outright while its parent keeps running).
+   *
+   * Synchronous and infallible for that reason, which is what lets a child
+   * creation window use it: the two in-process subagent drivers compose their
+   * children inside a synchronous `setup`.
+   *
+   * A parent that joined no preset — a rosterless deployment — yields no join
+   * and no error: there, the model-facing rows sit in the host composition and
+   * the child already sees them through the global layer.
+   * @param agentCtx - the joining agent's scope context.
+   * @param parentCtx - the scope context of the agent whose composition to join.
+   * @returns the preset id joined, or undefined when the parent joined none.
+   * @throws when `agentCtx` carries no scope, or has already joined a preset.
+   */
+  composeFrom(agentCtx: Context, parentCtx: Context): string | undefined {
+    const agentKey = scopeOf(agentCtx)
+    if (agentKey === undefined) {
+      throw new Error('agent-presets: refusing to compose an unscoped context; the scope key is what joins an agent to its preset')
+    }
+    const standing = standingMountFor(parentCtx)
+    if (standing === undefined) return undefined
+    this.bindings.set(agentKey, bindScopeParent(agentKey, standing.key))
+    return standing.presetId
+  }
+
+  /**
+   * The preset one live agent runs on.
+   *
+   * Read from the live scope chain rather than from the session, so it answers
+   * for an agent whose session has not recorded a preset yet — a child agent
+   * whose durable header is being built from its parent's composition.
+   * @param agentCtx - the agent's scope context.
+   * @returns the preset id, or undefined when the agent joined none.
+   */
+  composedPreset(agentCtx: Context): string | undefined {
+    return standingMountFor(agentCtx)?.presetId
   }
 
   /** Whether this deployment configures a root locally authored presets go to. */
