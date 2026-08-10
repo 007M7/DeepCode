@@ -101,6 +101,8 @@ The `pack` job walks the whole release set once, packing each member into one di
 
 A dsh verification installs the vendored family's pack output too. The harness packages declare the vendored framework as a peer, those packages live in another sequence, and the credential-free job cannot fetch them from a private registry — so `release.yml` packs the vendored family for verification while publishing only its own set.
 
+The verification omits optional dependencies. The Landlock platform packages behind them belong to the native sequence, whose pack needs a musl toolchain and one build per architecture, so a job on one runner cannot produce them; a consumer that cannot install them must still start, which is what optional means here.
+
 ### Repository changes this carried
 
 | Item | Content |

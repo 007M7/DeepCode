@@ -34,8 +34,8 @@ describe('release families', () => {
     const dsh = releaseFamily('dsh')
     const members = [member('apps/cli', '@deepseek-ai/dsh'), { ...member('apps/web', '@deepseek-ai/dsh-frontend'), version: '0.0.2' }]
 
-    expect(() => dsh.verifyVersions(members)).toThrow(/must share one version/)
-    expect(() => dsh.verifyVersions([members[0]!])).not.toThrow()
+    expect(() => { dsh.verifyVersions(members) }).toThrow(/must share one version/)
+    expect(() => { dsh.verifyVersions([members[0]!]) }).not.toThrow()
   })
 
   it('accepts independent vendored versions and rejects an unpublishable one', () => {
@@ -45,8 +45,8 @@ describe('release families', () => {
       { ...member('vendor/cosmokit', '@deepseek-ai/cosmokit'), version: '1.8.2' },
     ]
 
-    expect(() => vendor.verifyVersions(members)).not.toThrow()
-    expect(() => vendor.verifyVersions([{ ...members[0]!, version: 'latest' }])).toThrow(/unpublishable version/)
+    expect(() => { vendor.verifyVersions(members) }).not.toThrow()
+    expect(() => { vendor.verifyVersions([{ ...members[0]!, version: 'latest' }]) }).toThrow(/unpublishable version/)
   })
 
   it('publishes a dependency before its consumer, and orders ties by name', () => {
@@ -71,7 +71,7 @@ describe('release families', () => {
       member('packages/a/right', '@deepseek-ai/dsh-right', { dependencies: { '@deepseek-ai/dsh-left': 'workspace:^' } }),
     ]
 
-    expect(() => dsh.publishOrder(members)).toThrow(/dependency cycle/)
+    expect(() => { dsh.publishOrder(members) }).toThrow(/dependency cycle/)
   })
 
   it('applies the harness payload policy to dsh and keeps upstream payloads for vendored packages', () => {
@@ -80,10 +80,10 @@ describe('release families', () => {
     const harness = member('packages/a/library', '@deepseek-ai/dsh-library')
     const vendored = member('vendor/cordis', '@deepseek-ai/cordis')
 
-    expect(() => dsh.validatePayload(harness, ['package/lib/index.js', 'package/src/index.ts']))
+    expect(() => { dsh.validatePayload(harness, ['package/lib/index.js', 'package/src/index.ts']) })
       .toThrow(/publishes source file/)
-    expect(() => vendor.validatePayload(vendored, ['package/lib/index.js', 'package/src/index.ts'])).not.toThrow()
-    expect(() => vendor.validatePayload(vendored, [])).toThrow(/empty tarball/)
+    expect(() => { vendor.validatePayload(vendored, ['package/lib/index.js', 'package/src/index.ts']) }).not.toThrow()
+    expect(() => { vendor.validatePayload(vendored, []) }).toThrow(/empty tarball/)
   })
 
   it('drives the installed entry only for the family that publishes one', () => {
@@ -92,7 +92,7 @@ describe('release families', () => {
   })
 
   it('rejects an unknown family identifier', () => {
-    expect(() => releaseFamily('native')).toThrow(/unknown release family/)
+    expect(() => { releaseFamily('native') }).toThrow(/unknown release family/)
   })
 })
 

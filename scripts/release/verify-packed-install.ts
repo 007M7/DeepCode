@@ -92,7 +92,12 @@ function main(): void {
 
     const environment = consumerEnvironment(consumerRoot)
     console.log(`release verify-packed-install: installing ${String(packed.size)} tarball(s) into ${consumerRoot}`)
-    capture('npm', ['install', '--no-audit', '--no-fund', '--package-lock=false'], { cwd: consumerRoot, env: environment })
+    // Optional dependencies are omitted: the platform packages behind them
+    // belong to the native release sequence, this job holds no credentials for
+    // the private scope, and a consumer that cannot install them must still
+    // start — which is what optional means here.
+    capture('npm', ['install', '--no-audit', '--no-fund', '--package-lock=false', '--omit=optional'],
+      { cwd: consumerRoot, env: environment })
 
     const bin = join(consumerRoot, 'node_modules', ...entry.packageName.split('/'), entry.binPath)
     const version = capture(process.execPath, [bin, '--version'], { cwd: consumerRoot, env: environment })
