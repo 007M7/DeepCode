@@ -75,8 +75,10 @@ describe('tsdown client artifact', () => {
     }, (_p: { renderSlot?: unknown }) => null)
     // The plugin reads sessionHistory for its per-session history source;
     // slot availability is tracked by slots.inject, and the locale plugin
-    // backs the locale-aware view tab label.
+    // backs the locale-aware view tab label (its settings scope needs a
+    // connection handle).
     ctx.provide('sessionHistory', {})
+    ctx.provide('connection', { api: { settings: {} }, isLoopback: false } as never)
     const locale = await import('@deepseek-ai/dsh-client-locale/client')
     ctx.plugin({ inject: [...locale.inject], apply: locale.apply })
     const fiber = ctx.plugin(surface as { apply: (ctx: Context) => void })

@@ -181,7 +181,9 @@ async function bench(snapshot = historySnapshot(NODES)) {
   slots.register(
     { name: 'conversation.view', id: 'chat', order: 0, label: 'Chat' } as never, chatBody as never)
   ctx.provide('sessionHistory', { source: () => history })
-  // The locale plugin backs the locale-aware view tab label ('locale' in inject).
+  // The locale plugin backs the locale-aware view tab label ('locale' in
+  // inject); its settings scope needs a connection handle.
+  ctx.provide('connection', { api: { settings: {} }, isLoopback: false } as never)
   ctx.plugin({ inject: [...localeInject], apply: localeApply })
   const fiber = ctx.plugin({ inject: [...inject], apply })
   await fiber.await()
