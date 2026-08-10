@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-06-mcp-client-auto-reconnect.md
-2026-08-06-mcp-client-auto-reconnect.md: e371fa13dc7bc5330f658f4d6e864969baf93cf0
-2026-08-06-mcp-client-auto-reconnect.zh.md: eb6e67dabd7c6115b9ecb507029ffa7d45338466
+2026-08-06-mcp-client-auto-reconnect.md: 75e17da716f817306bb30322678d26b0e18a5aff
+2026-08-06-mcp-client-auto-reconnect.zh.md: 0ba06d17dca895be8449eb771d34dc096307d176

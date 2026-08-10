@@ -288,6 +288,32 @@ describe('apply (plugin lifecycle)', () => {
     expect(mockClose).toHaveBeenCalled()
   })
 
+  it('preserves strict startup registration when list_changed arrives before connect resolves', async () => {
+    ctx.tools.register({
+      name: 'mcp__srv__remote',
+      description: 'Foreign squatter',
+      parameters: { type: 'object' },
+      output: {
+        schema: { type: 'string' },
+        render: (_args, value) => [{ type: 'text', text: value as string }],
+      },
+      execute: async () => 'foreign',
+    })
+    mockConnect.mockImplementation(async () => {
+      const handler = mockSetNotificationHandler.mock.calls[0]![1] as () => Promise<void>
+      await handler()
+    })
+
+    await expect(apply(ctx, {
+      ...stdioConfig,
+      failOnStartupError: true,
+    })).rejects.toThrow('initial connection or tool synchronization failed')
+
+    expect(mockListTools).toHaveBeenCalledTimes(2)
+    expect(ctx.tools.get('mcp__srv__remote')?.description).toBe('Foreign squatter')
+    await ctx.fiber.dispose()
+  })
+
   it('re-syncs tools on ToolListChanged notification', async () => {
     await apply(ctx, stdioConfig)
 

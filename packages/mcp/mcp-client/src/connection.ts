@@ -133,7 +133,6 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
   const startupOpts: ToolBridgeOptions = config.failOnStartupError
     ? { ...opts, registrationFailure: 'throw' }
     : opts
-  let isFirstSync = true
 
   let disposed = false
   /** Current generation: the connecting or connected client; undefined during backoff waits and after final failure. */
@@ -160,9 +159,7 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
    * generation and leak another).
    */
   let syncChain: Promise<void> = Promise.resolve()
-  function enqueueSync(generation: Client): Promise<void> {
-    const syncOpts = isFirstSync ? startupOpts : opts
-    isFirstSync = false
+  function enqueueSync(generation: Client, syncOpts: ToolBridgeOptions = opts): Promise<void> {
     const run = syncChain.then(async () => {
       if (!isCurrent(generation)) return
       disposers = await syncTools(generation, ctx, syncOpts, disposers)
@@ -219,7 +216,7 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
     ctx.logger.warn(`${label}: connection lost; reconnecting in ${delayMs}ms (attempt ${failedAttempts}/${policy.maxAttempts})`)
     reconnectTimer = setTimeout(() => {
       reconnectTimer = undefined
-      settling = connectGeneration()
+      settling = connectGeneration(false)
     }, delayMs)
     // An armed reconnect timer must never hold the process open on its own.
     reconnectTimer.unref()
@@ -228,10 +225,14 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
   /**
    * One connection attempt: fresh transport + client (the MCP SDK binds a
    * Protocol to one transport for life), connect, then queue the initial tool
-   * sync. Every failure funnels through {@link generationDown}; success arms
-   * the onclose-driven disconnect path. Never rejects.
+   * sync. The startup flag belongs to the attempt rather than the shared sync
+   * queue, so an early notification cannot consume strict startup semantics.
+   * Every failure funnels through {@link generationDown}; success arms the
+   * onclose-driven disconnect path. Never rejects.
+   *
+   * @param startup - Whether this is the plugin's activation attempt.
    */
-  async function connectGeneration(): Promise<void> {
+  async function connectGeneration(startup: boolean): Promise<void> {
     const generation = new Client(
       { name: 'dsh-mcp-client', version: '0.0.1' },
       { capabilities: {} },
@@ -272,7 +273,7 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
         generationDown(generation)
         return
       }
-      await enqueueSync(generation)
+      await enqueueSync(generation, startup ? startupOpts : opts)
     } catch (error) {
       if (firstAttemptError === undefined) firstAttemptError = error
       // Disposal clears current ownership before it closes the generation, so
@@ -302,7 +303,7 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
   }
 
   /** The in-flight (or last settled) connection attempt; dispose awaits it for quiescence. */
-  let settling = connectGeneration()
+  let settling = connectGeneration(true)
 
   // The ready promise settles when the first attempt finishes (regardless of
   // success). If the first attempt fails and reconnect is enabled, the
