@@ -183,6 +183,6 @@ publish 不读 tag、不读任何清单，对发布集里每个包比较 manifes
 
 **私有包的可见性代价。** `--access restricted` 之后，任何消费方（含 CI、沙箱 e2e、外部使用者）都必须持有 scope 凭据才能安装。native 三包一并转 `restricted`；它们尚未发布过，因此没有既有的匿名安装路径被切断。
 
-**`repository` 指向的组织与运行 workflow 的组织不一致。** 发布集写的是 `github.com/deepseek-ai/deepseek-harness`，而 workflow 跑在 `deepseek-harness/deepseek-harness`。用 token 发布不受影响；一旦改用 npm provenance（OIDC），npm 会要求二者一致，届时要么改 `repository`，要么从公开仓库发布。
+**`repository` 指向的组织与运行 workflow 的组织不一致。** 发布集让消费方指向 `github.com/deepseek-ai/deepseek-harness`，而这些 workflow 并不跑在那里。用 token 发布不受影响；一旦改用 npm provenance（OIDC），npm 会要求二者一致，届时要么把 `repository` 改指过去，要么从它指向的组织发布。
 
 **首发一次性放大。** vendor 首发九包、dsh 首发全闭包，任何 payload 缺陷都会在同一次发布里暴露。用 `0.0.1-rc.1` 先跑一遍完整链路是唯一的缓解手段，正式版本号留给验证通过之后。

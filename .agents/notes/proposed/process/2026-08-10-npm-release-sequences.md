@@ -180,6 +180,6 @@ This Agent Note replaces the version scheme and the release-set boundary in [art
 
 **The visibility cost of private packages.** After `--access restricted`, every consumer — CI, sandbox e2e, and outside users — needs scope credentials to install. The three native packages move to `restricted` as well; they have never been published, so no existing anonymous install path is cut off.
 
-**The `repository` organization differs from the one running the workflow.** The release set names `github.com/deepseek-ai/deepseek-harness` while the workflow runs in `deepseek-harness/deepseek-harness`. Token-based publication is unaffected; npm provenance (OIDC) requires the two to agree, so adopting it means either changing `repository` or publishing from the public repository.
+**The `repository` field names a different organization than the one running the workflow.** The release set points consumers at `github.com/deepseek-ai/deepseek-harness`, which is not where these workflows run. Token-based publication is unaffected; npm provenance (OIDC) requires the two to agree, so adopting it means either repointing `repository` or publishing from the organization it names.
 
 **The first publication is one large step.** Nine vendored packages and the whole dsh set publish at once, so any payload defect surfaces in a single release. Driving the complete path with `0.0.1-rc.1` first is the only mitigation, which is why numbered versions wait for that to pass.
