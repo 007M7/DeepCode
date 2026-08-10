@@ -38,6 +38,7 @@
   ],
   "license": "BSD-3-Clause",
   "dependencies": {
+    "@deepseek-ai/dsh-attachment": "workspace:^",
     "@deepseek-ai/dsh-agent": "workspace:^",
     "@deepseek-ai/dsh-agent-default-model": "workspace:^",
     "@deepseek-ai/dsh-api-remotes": "workspace:^",

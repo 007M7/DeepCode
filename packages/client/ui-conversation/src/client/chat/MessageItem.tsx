@@ -7,24 +7,35 @@
 import { memo, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import type {
-  ModelRetryNode, TurnErrorNode,
+  ModelRetryNode, TurnErrorNode, UserMessageNode,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import { JsonBlock, MessageText, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ChatNodeViewProps, ChatViewSlotProps } from '../contract/slots.ts'
 import { CompactionItem } from './CompactionItem.tsx'
 import { ContextInjectionRow } from './ContextInjectionRow.tsx'
 import { MessageIconActions } from './MessageIconActions.tsx'
+import { ImageGallery, type ImageLoader } from './MessageImage.tsx'
 import css from './MessageItem.module.css'
 
-function contentText(content: readonly unknown[]): { text: string; rest: unknown[] } {
+type UserImage = Extract<UserMessageNode['content'][number], { type: 'image' }>
+
+function contentParts(content: readonly unknown[]): {
+  text: string
+  images: { attachment: UserImage['attachment'] }[]
+  rest: unknown[]
+} {
   const texts: string[] = []
+  const images: { attachment: UserImage['attachment'] }[] = []
   const rest: unknown[] = []
   for (const block of content) {
-    const b = block as { type?: string; text?: string }
+    const b = block as { type?: string; text?: string; attachment?: unknown }
     if (b.type === 'text' && typeof b.text === 'string') texts.push(b.text)
+    else if (b.type === 'image' && b.attachment !== undefined) {
+      images.push({ attachment: (b as UserImage).attachment })
+    }
     else rest.push(block)
   }
-  return { text: texts.join(''), rest }
+  return { text: texts.join(''), images, rest }
 }
 
 function retrySeconds(milliseconds: number): number {
@@ -151,9 +162,10 @@ function projectUserText(text: string): ReactNode {
 
 /** Right-aligned bubble shared by user and steering rows. */
 function UserStyleBubble({
-  content, actions, pending = false, steering = false, t,
+  content, imageLoader, actions, pending = false, steering = false, t,
 }: {
   content: readonly unknown[]
+  imageLoader: ImageLoader
   /** Optional IconActions (or similar) below the bubble; receives the joined text. */
   actions?: (text: string) => ReactNode
   /** Whether this is the Host-authoritative pre-admission steering projection. */
@@ -162,14 +174,18 @@ function UserStyleBubble({
   steering?: boolean
   t: ChatViewSlotProps['t']
 }): ReactNode {
-  const { text, rest } = contentText(content)
+  const { text, images, rest } = contentParts(content)
   const truncated = (total: number): string => t('json.truncated', { total })
+  const showBubble = text !== '' || rest.length > 0
   return (
     <div className={css.userRow} data-pending-steering={pending || undefined} data-time-hover-root>
       {steering && <span className={css.steeringMark} data-steering-mark>{t('message.steering')}</span>}
-      <div className={css.bubble}>
-        {projectUserText(text)}
-        {rest.map((block, i) => <JsonBlock key={i} label={t('message.extraBlock')} payload={block} truncatedLabel={truncated} />)}
+      <div className={css.userStack}>
+        <ImageGallery images={images} load={imageLoader} align="end" t={t} />
+        {showBubble && <div className={css.bubble}>
+          {projectUserText(text)}
+          {rest.map((block, i) => <JsonBlock key={i} label={t('message.extraBlock')} payload={block} truncatedLabel={truncated} />)}
+        </div>}
       </div>
       {actions?.(text)}
     </div>
@@ -182,13 +198,16 @@ function UserStyleBubble({
  * @param props - Pending message content and conversation translator.
  * @returns the pending steering bubble.
  */
-export function PendingSteeringBubble({ content, t }: {
+export function PendingSteeringBubble({ content, loadImage, t }: {
   content: readonly unknown[]
+  loadImage?: ImageLoader
   t: ChatViewSlotProps['t']
 }): ReactNode {
+  const imageLoader = loadImage ?? (() => Promise.reject(new Error(t('image.serviceUnavailable'))))
   return (
     <UserStyleBubble
       content={content}
+      imageLoader={imageLoader}
       pending
       steering
       t={t}
@@ -206,12 +225,13 @@ export function PendingSteeringBubble({ content, t }: {
 
 /** User and admitted-steering keyed Chat renderer. */
 export const UserMessageNodeView = memo(function UserMessageNodeView({
-  node, t,
+  node, loadImage, t,
 }: ChatNodeViewProps<'user' | 'steering'>) {
   const data = node.data
   return (
     <UserStyleBubble
       content={data.content}
+      imageLoader={loadImage}
       steering={data.kind === 'steering'}
       t={t}
       actions={text => (

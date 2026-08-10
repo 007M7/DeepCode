@@ -18,7 +18,7 @@ The review question declares the `plan-review` presentation intent, naming `Appr
 
 When `ctx.commands` is composed, the package registers `/plan [message]` and reserves the exact argument `off` for direct exit. Bare `/plan` selects plan mode; any other non-empty argument selects it first and is then submitted through `agent.steer()`, so it becomes the next step's ordinary logged user message under plan guidance. `/plan off` selects inactive without sending model input; it also cancels a pending entry before plan mode reaches a request.
 
-The Web client consumes the plugin-owned `/plan` command; other front doors may drive the same service directly without defining a second mode vocabulary.
+The Web client consumes the plugin-owned `/plan` command; other entry points may drive the same service directly without defining a second mode vocabulary.
 
 ## Session projection
 

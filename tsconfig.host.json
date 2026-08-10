@@ -105,6 +105,8 @@
     { "path": "./packages/util/timeout" },
     { "path": "./packages/util/retention" },
     { "path": "./packages/util/atomic-write" },
+    { "path": "./packages/attachment/attachment" },
+    { "path": "./packages/attachment/attachment-local" },
     { "path": "./packages/llm/llm" },
     { "path": "./packages/llm/token-meter" },
     { "path": "./packages/core/session" },

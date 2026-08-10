@@ -9,7 +9,7 @@ Status: implemented
 TUI 连接不可达的 DeepSeek 端点时，失败只显示一条 `fetch failed` 通知，没有任何进一步细节。两个独立缺口共同造成了这个死胡同：
 
 1. undici 的 `fetch` 把所有传输层失败（DNS、连接被拒、TLS、代理）包装成裸的 `TypeError: fetch failed`，可操作的细节——`ECONNREFUSED`、`bad port`、Happy Eyeballs 的 AggregateError——都在 `error.cause` 上。harness 里的每个诊断边界都只渲染 `error.message`（或对 Error 等价的 `String(error)`），于是包装层在 TUI 通知、持久化的 `turn/end` reason 和所有日志行里都掩盖了诊断信息。
-2. readline 前门（`dsh-stdio`）完全不渲染失败原因：`reason.kind === 'error'` 的 `turn/end` 只打印下一个 `> ` 提示符，同样的失败在 `demo:repl` 里就是纯粹的沉默。
+2. readline 入口（`dsh-stdio`）完全不渲染失败原因：`reason.kind === 'error'` 的 `turn/end` 只打印下一个 `> ` 提示符，同样的失败在 `demo:repl` 里就是纯粹的沉默。
 
 ## 决策
 

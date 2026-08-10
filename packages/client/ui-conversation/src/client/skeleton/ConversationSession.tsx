@@ -121,8 +121,8 @@ export function ConversationSessionHeader({
  * @returns the active view area, or null while the Session remains blank.
  */
 export function ConversationSession({
-  useSession, useInput, inputActions, useStore, actions,
-  renderSlot, views, bindDraftMirror,
+  sessionId, useSession, useInput, inputActions, useStore, actions,
+  renderSlot, views, bindDraftMirror, releaseSessionImages,
 }: ConversationSessionProps) {
   useSyncExternalStore(views.subscribe, views.version)
   const tabs = views.list()
@@ -142,6 +142,10 @@ export function ConversationSession({
     // Mount-only (deps pinned to inputActions): later store writes come from
     // the machine mirror, not this seed effect.
   }, [inputActions])
+
+  useEffect(() => () => {
+    releaseSessionImages(sessionId)
+  }, [releaseSessionImages, sessionId])
 
   if (blank && composerPhase === 'blank') return null
   return (

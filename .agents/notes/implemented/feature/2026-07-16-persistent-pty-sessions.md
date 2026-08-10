@@ -152,7 +152,7 @@ The package ships concise tool guidance explaining persistent state, owner isola
 
 **Include TUI sequences and BEL handling.** Rejected. The source prototype treats those paths as timing-sensitive and still records unresolved alternate-screen and interaction failures. Line-oriented PTY use proves the core value without making those unverified behaviors foundational.
 
-**Use an out-of-process daemon immediately.** Rejected for the initial in-process capability because current persistent front doors already keep a Cordis context alive. A daemon becomes justified by cross-process restoration or multi-client attachment, both deferred here.
+**Use an out-of-process daemon immediately.** Rejected for the initial in-process capability because current long-lived entry points already keep a Cordis context alive. A daemon becomes justified by cross-process restoration or multi-client attachment, both deferred here.
 
 ## Verification
 
