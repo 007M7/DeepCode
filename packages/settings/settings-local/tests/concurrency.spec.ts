@@ -86,7 +86,7 @@ describe('writer lock', () => {
     expect(await readFile(lockPath, 'utf8')).toBe('slow-holder\n')
   }, 10_000)
 
-  it('surfaces a non-contention lock failure as the write error', async () => {
+  it.skipIf(process.platform === 'win32')('surfaces a non-contention lock failure as the write error', async () => {
     const dir = await tempDir()
     const path = join(dir, 'settings.yaml')
     const ctx = await boot({ path, watch: false })

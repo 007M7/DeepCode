@@ -92,11 +92,43 @@ async function importWithFilesystemMove(): Promise<typeof import('../src/win32.t
 
 afterEach(async () => {
   vi.doUnmock('koffi')
+  vi.doUnmock('node:fs/promises')
+  vi.doUnmock('node:path')
   vi.resetModules()
   for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true })
 })
 
 describe('Windows durable namespace helpers', () => {
+  it('keeps drive-root probes native while namespacing descendants', async () => {
+    const probes: string[] = []
+    vi.resetModules()
+    vi.doMock('node:fs/promises', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('node:fs/promises')>()
+      return {
+        ...actual,
+        stat: async (path: string) => {
+          probes.push(path)
+          return { isDirectory: () => true }
+        },
+      }
+    })
+    vi.doMock('node:path', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('node:path')>()
+      return {
+        ...actual,
+        join: (...paths: string[]) => actual.win32.join(...paths),
+        parse: (path: string) => actual.win32.parse(path),
+        resolve: (...paths: string[]) => actual.win32.resolve(...paths),
+        toNamespacedPath: (path: string) => actual.win32.toNamespacedPath(path),
+      }
+    })
+    const { ensureDurableDirectoryWin32 } = await import('../src/win32.ts')
+
+    await ensureDurableDirectoryWin32('C:\\existing')
+
+    expect(probes).toEqual(['C:\\', '\\\\?\\C:\\existing'])
+  })
+
   it('publishes a new file with write-through MoveFileExW semantics', async () => {
     const { publishNewFileWin32 } = await importWithFilesystemMove()
     const root = await tempRoot()

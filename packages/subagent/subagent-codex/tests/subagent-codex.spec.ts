@@ -199,7 +199,7 @@ async function initializeWire(): Promise<{
   wire.start()
   const initializing = wire.initialize(new AbortController().signal)
   const initialize = await child.peer.nextMethod('initialize')
-  child.peer.respond(initialize, { userAgent: 'codex-cli 0.146.0' })
+  child.peer.respond(initialize, { userAgent: 'codex-cli 0.147.0' })
   await initializing
   expect(await child.peer.nextMethod('initialized')).toEqual({
     jsonrpc: '2.0',
@@ -219,7 +219,7 @@ async function publishRun(
 ) {
   const starting = startCodexRun(request(undefined, signal), runSpec(child, specOverrides))
   const initialize = await child.peer.nextMethod('initialize')
-  child.peer.respond(initialize, { userAgent: 'codex-cli 0.146.0' })
+  child.peer.respond(initialize, { userAgent: 'codex-cli 0.147.0' })
   await child.peer.nextMethod('initialized')
   const threadStart = await child.peer.nextMethod('thread/start')
   child.peer.respond(threadStart, { thread: { id: 'thread-1', ephemeral: true } })
@@ -380,7 +380,7 @@ describe('CodexAppServerWire', () => {
         requestAttestation: false,
       },
     })
-    child.peer.respond(initialize, { userAgent: 'codex-cli 0.146.0' })
+    child.peer.respond(initialize, { userAgent: 'codex-cli 0.147.0' })
     await initializing
     await child.peer.nextMethod('initialized')
 
@@ -855,7 +855,7 @@ describe('run lifecycle and quiescence', () => {
     void starting.then(() => { published = true })
     const initialize = await child.peer.nextMethod('initialize')
     expect(published).toBe(false)
-    child.peer.respond(initialize, { userAgent: 'codex-cli 0.146.0' })
+    child.peer.respond(initialize, { userAgent: 'codex-cli 0.147.0' })
     await child.peer.nextMethod('initialized')
     const threadStart = await child.peer.nextMethod('thread/start')
     expect(published).toBe(false)
@@ -962,7 +962,7 @@ describe('run lifecycle and quiescence', () => {
       runSpec(child),
     )
     const initialize = await child.peer.nextMethod('initialize')
-    child.peer.respond(initialize, { userAgent: 'codex-cli 0.146.0' })
+    child.peer.respond(initialize, { userAgent: 'codex-cli 0.147.0' })
     await child.peer.nextMethod('initialized')
     const threadStart = await child.peer.nextMethod('thread/start')
     child.peer.respond(threadStart, { thread: { id: 'thread-1', ephemeral: true } })
@@ -1032,7 +1032,7 @@ describe('run lifecycle and quiescence', () => {
       signal: new AbortController().signal,
     })
     const initialize = await child.peer.nextMethod('initialize')
-    child.peer.respond(initialize, { userAgent: 'codex-cli 0.146.0' })
+    child.peer.respond(initialize, { userAgent: 'codex-cli 0.147.0' })
     await child.peer.nextMethod('initialized')
     const threadStart = await child.peer.nextMethod('thread/start')
     child.peer.respond(threadStart, { thread: { id: 'thread-1', ephemeral: true } })
