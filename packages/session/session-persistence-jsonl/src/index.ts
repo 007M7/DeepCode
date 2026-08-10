@@ -18,7 +18,8 @@ import {
   DEFAULT_PREPARED_SESSION_CACHE_SIZE, DEFAULT_WRITE_BATCH_MAX_DELAY_MS, MAX_WRITE_BATCH_DELAY_MS,
   SessionPersistence, SessionPersistenceRevision, PersistenceCoordinator,
   type PersistenceBackend, type SessionLocation, type SessionPersistenceSnapshot,
-  type SessionInspection, type SessionPersistenceRevision as PersistenceRevision, type StoredPrefix,
+  type SessionInspection, type SessionPersistenceRevision as PersistenceRevision, type SessionRawArtifact,
+  type StoredPrefix,
 } from '@deepseek-ai/dsh-session-persistence'
 import type { SessionEvent, SessionId, SessionHeader, SessionPreparation } from '@deepseek-ai/dsh-session'
 import {
@@ -231,6 +232,61 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
       if (isENOENT(error)) return undefined
       throw error
     }
+  }
+
+  /**
+   * Read a session's stored artifact text verbatim: the durable file bytes
+   * decoded from this backend's physical encoding (complete zstd frames
+   * concatenated, or UTF-8 plaintext). The content is the exact JSONL text the
+   * backend wrote — never a reconstruction from parsed events — so packed-
+   * chunk rows, key order, and line breaks survive byte-for-byte. A torn
+   * final frame is omitted, matching the committed-prefix semantics of every
+   * other read.
+   * @param id - the persisted session to read.
+   * @param signal - optional cancellation for the stat/read/decode work.
+   * @returns the raw artifact text plus the header parsed from its own first
+   * line, or `undefined` when the session has no stored artifact.
+   */
+  override async readRaw(id: SessionId, signal?: AbortSignal): Promise<SessionRawArtifact | undefined> {
+    signal?.throwIfAborted()
+    await this.ensureRootEncoding()
+    signal?.throwIfAborted()
+    const path = await this.findLog(id, signal)
+    if (path === undefined) return undefined
+    let buffer: Buffer
+    // Revision-stable read: a writer appending between stat and readFile
+    // would yield a torn physical file (see readPrefix).
+    for (;;) {
+      signal?.throwIfAborted()
+      const before = fileRevision(await stat(path, { bigint: true }))
+      buffer = await readFile(path, { signal })
+      signal?.throwIfAborted()
+      const after = fileRevision(await stat(path, { bigint: true }))
+      if (before === after) break
+    }
+    let content: string
+    if (this.compression === 'zstd') {
+      const { frames } = scanZstdFrames(buffer)
+      if (frames.length === 0) return undefined
+      const decoder = createZstdFrameDecoder()
+      const plaintexts: Buffer[] = []
+      // The decoder yields views into a reused buffer; copy each frame's
+      // plaintext immediately so a later concat cannot read overwritten memory.
+      for (const plaintext of decoder.decode(buffer, frames)) {
+        signal?.throwIfAborted()
+        plaintexts.push(Buffer.from(plaintext))
+      }
+      content = Buffer.concat(plaintexts).toString('utf8')
+    } else {
+      content = buffer.toString('utf8')
+    }
+    const meta = parseHeaderMeta(content.split('\n', 1)[0] as string)
+    if (meta === undefined || meta.id !== id) {
+      throw new Error(`corrupt session log: invalid header line in "${path}"`)
+    }
+    // The logical artifact name is `session.jsonl` regardless of the physical
+    // encoding suffix (`.jsonl.zstd` marks compression only).
+    return { meta, filename: 'session.jsonl', content }
   }
 
   /**

@@ -217,6 +217,26 @@ describe('SessionPersistenceJsonl: durability and crash semantics', () => {
     expect((await ctx.sessionPersistence.list()).map(h => h.id)).toContain(m.id)
   })
 
+  it('readRaw returns the stored artifact text verbatim with its original filename', async () => {
+    const m = meta('raw-read', '/work')
+    await ctx.sessionPersistence.create(m)
+    await ctx.sessionPersistence.append(m.id, oneTurnLog())
+    const raw = await ctx.sessionPersistence.readRaw(m.id)
+    expect(raw).toBeDefined()
+    expect(raw!.filename).toBe('session.jsonl')
+    expect(raw!.meta.id).toBe(m.id)
+    // Byte-identical to the physical file — never a reconstruction.
+    expect(raw!.content).toBe(await readFile(rawLogPath(root, '/work', m.id), 'utf8'))
+    expect(raw!.content.split('\n')[0]).toBe(JSON.stringify(toHeaderLine(m)))
+    const scanned = scanLog(Buffer.from(raw!.content))
+    expect(scanned.events.map(event => event.type)).toEqual(oneTurnLog().map(event => event.type))
+  })
+
+  it('readRaw is undefined for an absent session', async () => {
+    const m = meta('raw-missing', '/work')
+    expect(await ctx.sessionPersistence.readRaw(m.id)).toBeUndefined()
+  })
+
   it('keeps the same location on resume and gives a fork its own location', async () => {
     const parent = meta('location-parent', '/work')
     const parentLocation = ctx.sessionPersistence.locate(parent)

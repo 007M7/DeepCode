@@ -238,6 +238,21 @@ Durable append-only session storage. Implementations preserve contiguous, lossle
 abstract locate(meta: SessionHeader): SessionLocation | undefined
 
 /**
+ * Read a session's backend-owned artifact text verbatim — the exact durable
+ * bytes the backend wrote (decoded from its physical encoding, e.g. a
+ * decompressed JSONL). The returned `content` is the raw text, not a
+ * reconstruction from parsed events, so it preserves backend-specific
+ * serialization (chunk packing, key order, line breaks). Backends without a
+ * per-session artifact (SQLite) inherit the `undefined` default.
+ * @param _id - the persisted session to read (unused by the default: no
+ * per-session artifact).
+ * @param signal - optional cancellation for backend read work.
+ * @returns the raw artifact plus its parsed header, or `undefined` when the
+ * session is absent or the backend owns no per-session artifact.
+ */
+readRaw(_id: SessionId, signal?: AbortSignal): Promise<SessionRawArtifact | undefined>
+
+/**
  * Register a new session's metadata. A backend MAY defer the physical write
  * until the first {@link append} (lazy materialization), in which case a
  * created-but-never-appended session is absent from {@link list}
@@ -342,5 +357,5 @@ abstract listSnapshots(signal?: AbortSignal): Promise<SessionPersistenceSnapshot
 
 Types: [SessionEvent](session.md) · [SessionId](core.md)
 
-Source: [`packages/session/session-persistence/src/index.ts:72`](../../packages/session/session-persistence/src/index.ts)
+Source: [`packages/session/session-persistence/src/index.ts:82`](../../packages/session/session-persistence/src/index.ts)
 <!-- END GENERATED cordis-surface -->
