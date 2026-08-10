@@ -4,8 +4,9 @@
 // stores it write-only under the derived reference (`MINIMAX_CN_API_KEY`)
 // while the settings document records only that reference. Each saved row
 // appears after route topology invalidation without presenting liveness as
-// provider status. The customized-settings fold writes the curated
-// reasoning field as a merge patch. Zero model calls: configuration is pure
+// provider status. The customized-settings fold writes its curated fields —
+// the endpoint, and a declared route's own name and protocol — as merge
+// patches against the stored profile. Zero model calls: configuration is pure
 // settings/credentials/llm-domain traffic, so there is no fixture and a
 // stray stream would fail loud because the adapter registry is empty. The provider under test is
 // minimax-cn so a developer's real ANTHROPIC/OPENAI environment keys can
@@ -235,6 +236,9 @@ describe('web e2e: Models settings page configures a dormant provider', () => {
     // at the write instead, and a rename that did not re-register would leave
     // the old label on the row.
     await dialog.getByText('Acme 网关', { exact: true }).first().waitFor({ timeout: 10_000 })
+    // The status line names the route as the refreshed directory reports it;
+    // the target captured when the card opened still carries the old name.
+    await dialog.getByText('已保存 Acme 网关 (acme-gateway)。', { exact: true }).waitFor({ timeout: 10_000 })
     const document = await readFile(join(scaffold.harnessHome, 'settings.yaml'), 'utf8')
     expect(document).toContain('api: anthropic-messages')
     expect(document).toContain('displayName: Acme 网关')

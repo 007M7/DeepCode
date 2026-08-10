@@ -8,8 +8,9 @@
  * provider-native authentication);
  * the collapsed 自定义设置 area carries the per-family extras (`baseURL` for
  * both families, DeepSeek's id/name/context-window model catalog, and the
- * wire protocol of a pi-ai route the adapter does not ship — the field the
- * create card asked that route for, editable here for the same reason).
+ * display name and wire protocol of a pi-ai route the adapter does not ship —
+ * the two fields the create card asked that route for, editable here for the
+ * same reason).
  * Reasoning effort is deliberately absent: it is a per-MODEL capability, and
  * the models under one provider disagree about it, so a provider-scoped
  * control can only be set to a value some of them reject. The composer's
@@ -151,7 +152,12 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
   const keyRef = refFor(namespace, settingsPath, props.provider)
   // The same schema read the create card makes, so the choices offered here
   // and there cannot drift apart: both come from the adapter's own `Config`.
-  const protocols = useMemo(() => protocolChoices(namespace), [namespace])
+  // Only the pi-ai layout has a per-route protocol for the read to find, and
+  // it rehydrates the whole section schema, so the other layouts skip it.
+  const protocols = useMemo(
+    () => layout === 'pi-ai' ? protocolChoices(namespace) : [],
+    [layout, namespace],
+  )
 
   useEffect(() => {
     let stale = false
@@ -362,10 +368,15 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
                     className={styles['input']}
                     type="text"
                     value={stringAt(draft, 'displayName') ?? ''}
-                    // The route id, not the stored name: it is what this route
-                    // is called the moment the field is cleared, and clearing
-                    // is the only way back to it.
-                    placeholder={props.provider}
+                    // What this route is called the moment the field is
+                    // cleared, which is the layer beneath the one this field
+                    // edits: a `cordis.yml` may pin a name for a route the
+                    // catalog does not ship, and only when nothing does is
+                    // the answer the route id. Reading the effective value
+                    // instead would echo the stored override back as the
+                    // thing clearing restores.
+                    placeholder={stringAt(getPath(namespace.base, settingsPath), 'displayName')
+                      ?? props.provider}
                     aria-label={t('customDisplayName')}
                     disabled={disabled}
                     onChange={(event) => { setField('displayName', event.target.value) }}
@@ -405,8 +416,10 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
                     {/* A profile naming no protocol — hand-written into
                         settings.yaml with no model to need one — selects
                         nothing rather than reading as if it had picked the
-                        first choice. */}
-                    {probeApi === undefined ? <option value="" /> : null}
+                        first choice. The option is named because a screen
+                        reader announces it either way, and an empty one is
+                        announced as a choice with no identity. */}
+                    {probeApi === undefined ? <option value="">{t('customApiUnset')}</option> : null}
                     {protocols.map(choice => <option key={choice} value={choice}>{choice}</option>)}
                   </select>
                 </div>

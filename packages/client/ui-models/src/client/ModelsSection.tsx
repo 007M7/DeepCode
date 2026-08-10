@@ -184,8 +184,10 @@ function Loaded({ injected }: { injected: ModelsSectionInjected }): ReactNode {
     setAdding(false)
     setDeclaring(false)
     if (changed) {
-      setSavedTarget(target)
-      void controller.load()
+      // Announced only once the refreshed directory is in the snapshot the
+      // notice reads its name from: an apply can rename the route, and the
+      // target captured when the card opened still carries the old name.
+      void controller.load().then(() => { setSavedTarget(target) })
     }
   }
 
@@ -225,6 +227,17 @@ function Loaded({ injected }: { injected: ModelsSectionInjected }): ReactNode {
     )
   }
 
+  // The saved provider as the directory currently names it. The route id is
+  // what the apply cannot change, so it is what the notice is keyed by; a row
+  // the same apply removed keeps the captured identity, since nothing newer
+  // exists to name it with.
+  const savedRow = savedTarget === undefined
+    ? undefined
+    : state.rows.find(row => row.entry.provider === savedTarget.provider)
+  const savedIdentity = savedRow === undefined
+    ? savedTarget
+    : { provider: savedRow.entry.provider, displayName: savedRow.entry.displayName }
+
   const configured = state.rows.filter(row => row.configured)
   const addable = state.rows.filter(row => !row.configured && row.entry.settingsNs !== '')
   const addTarget = adding ? editing : undefined
@@ -239,11 +252,11 @@ function Loaded({ injected }: { injected: ModelsSectionInjected }): ReactNode {
       <h2 className={styles['title']}>{t('title')}</h2>
       <p className={styles['intro']}>{t('intro')}</p>
       {!state.writable && state.status === 'ready' ? <p className={styles['notice']}>{t('readOnly')}</p> : null}
-      {savedTarget === undefined
+      {savedIdentity === undefined
         ? null
         : (
           <p className={styles['savedNotice']} role="status" aria-live="polite">
-            {providerCopy(t('savedProvider'), savedTarget)}
+            {providerCopy(t('savedProvider'), savedIdentity)}
           </p>
         )}
       <ul className={styles['rows']}>
