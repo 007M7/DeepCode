@@ -622,9 +622,13 @@ jobs:
         run: pnpm run check:ci
 
   serial-windows:
-    if: false
+    # Real-Windows signal on the in-house self-hosted Windows pool. This lane
+    # runs the complete primary Node CI on actual Windows (in contrast to the
+    # Wine-emulated `windows` job), so win32-native output is exercised where
+    # it matters. Selector matches our self-hosted runners by label.
+    if: github.event_name == 'pull_request'
     name: serial / windows
-    runs-on: windows-2025
+    runs-on: [self-hosted, dsh-win-ci, windows]
     steps:
       - uses: actions/checkout@v6
 
@@ -885,7 +889,7 @@ jobs:
           && github.event.pull_request.user.login != 'dependabot[bot]'
           && fromJSON('["self-hosted", "linux", "x64", "vm-backup"]')
           || 'ubuntu-latest' }}
-    needs: [node-24, node-24-coverage, node-24-consumers, node-compat, python-sdk, windows]
+    needs: [node-24, node-24-coverage, node-24-consumers, node-compat, python-sdk, windows, serial-windows]
     if: always() && github.event_name == 'pull_request'
     steps:
       - name: Fail if any needed job did not succeed
