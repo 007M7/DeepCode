@@ -266,7 +266,7 @@ abstract run(spec: BashExecSpec): Promise<BashRunResult>
 abstract start(spec: BashExecSpec): BashProcess
 ```
 
-Source: [`packages/bash/bash/src/index.ts:53`](../../packages/bash/bash/src/index.ts)
+Source: [`packages/bash/bash/src/index.ts:65`](../../packages/bash/bash/src/index.ts)
 
 <a id="ctxbashenv--bashenvregistry"></a>
 

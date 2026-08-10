@@ -15,9 +15,10 @@
 
 import { Context } from 'cordis'
 import z from 'schemastery'
-import { BashExecutor } from '@deepseek-ai/dsh-bash'
+import { BASH_SETTINGS_NAMESPACE, BashExecutor } from '@deepseek-ai/dsh-bash'
 import type { BashExecRequest, BashExecSpec, BashProcess, BashProcessRead, BashRunResult, CollectedOutput } from '@deepseek-ai/dsh-bash'
 import type { SubprocessCollect, SubprocessHandle, SubprocessOutputReader, SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
+import { installSettingsSection } from '@deepseek-ai/dsh-settings'
 import { clampTimeout, deadline, MAX_TIMER_DELAY_MS, timeoutOf } from '@deepseek-ai/dsh-timeout'
 import { resolvePwshPath } from './resolve.ts'
 
@@ -97,6 +98,26 @@ function assertPositiveFinite(name: string, value: number): void {
 }
 
 /**
+ * Reject a resolved section this executor could not run with. The schema
+ * expresses neither "positive and finite" nor the timer bound `graceMs` has to
+ * fit, so a stored value is refused where it is written instead of failing at
+ * the next command.
+ * @param config - the resolved section, schema-valid by construction.
+ * @throws Error naming the field that cannot be used.
+ */
+export function assertServiceablePwshConfig(config: Config): void {
+  const resolved = config as ResolvedConfig
+  assertPositiveFinite('timeoutMs', resolved.timeoutMs)
+  assertPositiveFinite('maxTimeoutMs', resolved.maxTimeoutMs)
+  assertPositiveFinite('maxOutputBytes', resolved.maxOutputBytes)
+  assertPositiveFinite('maxSpillBytes', resolved.maxSpillBytes)
+  assertPositiveFinite('graceMs', resolved.graceMs)
+  if (resolved.graceMs > MAX_TIMER_DELAY_MS) {
+    throw new Error(`pwsh-local: graceMs must be no greater than ${MAX_TIMER_DELAY_MS}`)
+  }
+}
+
+/**
  * Local PowerShell executor over `ctx.subprocess`. Bounded output, spill
  * files, and process-tree termination are the subprocess service's mechanics;
  * this executor supplies their configured budgets per spawn.
@@ -114,25 +135,47 @@ export class PwshLocalExecutor extends BashExecutor {
     pwshPath: z.string(),
   })
 
-  /** Validated config (schemastery applied the defaults before construction). */
-  readonly config: ResolvedConfig
+  /** The currently authoritative config: the settings section, or the composition entry. */
+  private source: () => ResolvedConfig
 
-  /** The pwsh executable resolved once at construction. */
-  readonly pwshPath: string
+  /** The declared executable the current {@link pwshPath} was resolved from. */
+  private declaredPwshPath: string | undefined
+
+  /** The pwsh executable resolved from the current config. */
+  private resolvedPwshPath: string
+
+  /** Validated config (schemastery applied the defaults before construction). */
+  get config(): ResolvedConfig {
+    return this.source()
+  }
+
+  /** The pwsh executable every command runs through. */
+  get pwshPath(): string {
+    return this.resolvedPwshPath
+  }
 
   constructor(ctx: Context, config: Config) {
     super(ctx)
     // Schemastery fills these fields before construction; the type does not encode that step.
-    this.config = config as ResolvedConfig
-    assertPositiveFinite('timeoutMs', this.config.timeoutMs)
-    assertPositiveFinite('maxTimeoutMs', this.config.maxTimeoutMs)
-    assertPositiveFinite('maxOutputBytes', this.config.maxOutputBytes)
-    assertPositiveFinite('maxSpillBytes', this.config.maxSpillBytes)
-    assertPositiveFinite('graceMs', this.config.graceMs)
-    if (this.config.graceMs > MAX_TIMER_DELAY_MS) {
-      throw new Error(`pwsh-local: graceMs must be no greater than ${MAX_TIMER_DELAY_MS}`)
-    }
-    this.pwshPath = resolvePwshPath(this.config.pwshPath)
+    const entry = config as ResolvedConfig
+    assertServiceablePwshConfig(entry)
+    this.source = () => entry
+    this.declaredPwshPath = entry.pwshPath
+    this.resolvedPwshPath = resolvePwshPath(entry.pwshPath)
+    installSettingsSection(ctx, BASH_SETTINGS_NAMESPACE, PwshLocalExecutor.Config, entry, {
+      validate: assertServiceablePwshConfig,
+      setSource: (current) => {
+        this.source = current as () => ResolvedConfig
+      },
+      // Probing the filesystem is the one fact derived from the source: every
+      // other field is read through the getter at each command.
+      onChange: () => {
+        const declared = this.source().pwshPath
+        if (declared === this.declaredPwshPath) return
+        this.declaredPwshPath = declared
+        this.resolvedPwshPath = resolvePwshPath(declared)
+      },
+    })
   }
 
   /**

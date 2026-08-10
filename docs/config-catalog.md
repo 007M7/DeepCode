@@ -315,7 +315,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/bash/bash-local/src/index.ts:40`](../packages/bash/bash-local/src/index.ts)
+Source: [`packages/bash/bash-local/src/index.ts:41`](../packages/bash/bash-local/src/index.ts)
 
 ## `@deepseek-ai/dsh-bash-sandbox`
 
@@ -1237,7 +1237,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/bash/pwsh-local/src/index.ts:54`](../packages/bash/pwsh-local/src/index.ts)
+Source: [`packages/bash/pwsh-local/src/index.ts:55`](../packages/bash/pwsh-local/src/index.ts)
 
 ## `@deepseek-ai/dsh-pwsh-sandbox`
 

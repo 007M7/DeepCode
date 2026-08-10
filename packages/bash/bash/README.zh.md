@@ -27,6 +27,8 @@
 
 实现会继承 `BashExecutor` 并实现抽象方法。dispose（资源释放）必须终止每个运行中的进程并等待其退出。
 
+`BASH_SETTINGS_NAMESPACE`（`bash`）由此处导出而非由某个提供方导出，因为它命名的是能力而不是实现。一个宿主只组装一个 `ctx.bash` 提供方——win32 层会把 POSIX 行换成 pwsh 行，同时挂载两者会因服务重复注册而在加载期失败——所以每个提供方都能用自己的 schema 与组装条目注册这同一个命名空间，两者永不相撞；在平台间携带的 `settings.yaml` 也能在两边继续解析。
+
 ## 词汇
 
 `BashExecRequest`（command、workdir?、timeoutMs?、stdoutMaxBytes?、signal?、stdin?、env?、dshEnv?、sandboxPolicy?）在执行前解析为 `BashExecSpec`（command、workdir、timeoutMs、stdoutMaxBytes、signal?、stdin?、env?、dshEnv?、sandboxPolicy）。`stdoutMaxBytes` 是受信任前台运行的捕获预算，用于必须解析完整有界 stdout 的消费方；面向模型的 bash 工具不公开该字段。`sandboxPolicy` 在请求上可选，在已解析 spec 上必填但可为 null：它携带完整的每次调用模式与工作区根目录。沙箱工具路径通过 `ctx.sandboxPolicy` 从调用会话解析它；沙箱执行器的直接调用方回退到部署策略，非沙箱执行器则携带该字段但不作限制。
