@@ -515,6 +515,19 @@ describe('replacing a composition', () => {
     expect(warnings).toEqual([])
   })
 
+  it('says nothing when the deployment configures no roster at all', async () => {
+    // Presets are optional: every surface except the Web bundle keeps its
+    // model-facing rows in the host plane, so an agent with a chain of one is
+    // exactly right there and the diagnostic must stay silent.
+    const rosterless = await harness({ default: 'standard', roots: [] })
+    const warnings: string[] = []
+    rosterless.logger.warn = ((message: unknown) => { warnings.push(String(message)) }) as typeof rosterless.logger.warn
+
+    await rosterless.agents.create({ sessionId: SessionId('sess-no-roster') })
+
+    expect(warnings).toEqual([])
+  })
+
   it('composes an agent that had nothing installed', async () => {
     // An agent created without a preset has no binding to re-link, so the
     // switch is its first bind — exactly a mount — and once bound only the

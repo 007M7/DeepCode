@@ -1329,23 +1329,39 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     return undefined
   }
 
-  /** Read one transcript cut and optional projection baseline without acquiring an Agent owner. */
+  /**
+   * Read one transcript cut without acquiring an Agent owner, plus a DEFERRED
+   * read of the projection baseline.
+   *
+   * The baseline is a thunk rather than a value because the unit table is
+   * process-wide while the units themselves are registered by preset rows: a
+   * key like `todos` exists only once its preset's standing mount is composed.
+   * The caller ensures that mount through {@link presenterScopeFor} — which
+   * needs the header this function returns — so reading the snapshot eagerly
+   * would serve a first cold read a page missing every preset-owned key, and
+   * every later read a complete one.
+   */
   async function historyStateFor(
     sessionId: SessionId,
     includeProjections: boolean,
-  ): Promise<{ header: SessionHeader; events: SessionEvent[]; projections?: SessionProjectionsBlock }> {
+  ): Promise<{
+    header: SessionHeader
+    events: SessionEvent[]
+    readProjections: () => SessionProjectionsBlock | undefined
+  }> {
     const attached = ctx.sessions.get(sessionId)
     if (attached !== undefined) {
-      const events = [...attached.events]
-      const projections = includeProjections ? projectionsFor(ctx, attached) : undefined
-      return { header: attached.header, events, ...projections === undefined ? {} : { projections } }
+      return {
+        header: attached.header,
+        events: [...attached.events],
+        readProjections: () => includeProjections ? projectionsFor(ctx, attached) : undefined,
+      }
     }
     const inspected = await inspectServable(sessionId)
-    const projections = includeProjections ? detachedProjectionsFor(ctx, inspected.events) : undefined
     return {
       header: inspected.meta,
       events: inspected.events,
-      ...projections === undefined ? {} : { projections },
+      readProjections: () => includeProjections ? detachedProjectionsFor(ctx, inspected.events) : undefined,
     }
   }
 
@@ -2006,7 +2022,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
 
       async history(request) {
         const { sessionId, beforeSeq, maxMessages } = request.payload
-        let state: { header: SessionHeader; events: SessionEvent[]; projections?: SessionProjectionsBlock }
+        let state: Awaited<ReturnType<typeof historyStateFor>>
         try {
           state = await historyStateFor(sessionId, beforeSeq === undefined)
         } catch (error: unknown) {
@@ -2019,11 +2035,16 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             details: {},
           })
         }
-        const page = historyPage(ctx, state.events, beforeSeq, maxMessages, await presenterScopeFor(sessionId, state))
+        // The scope resolves first: ensuring the recorded composition's
+        // standing mount is what registers its projection units, so the
+        // baseline below has to be read after it, not beside it.
+        const scope = await presenterScopeFor(sessionId, state)
+        const page = historyPage(ctx, state.events, beforeSeq, maxMessages, scope)
+        const projections = state.readProjections()
         return ok(request, {
           events: page.events,
           hasMore: page.hasMore,
-          ...state.projections === undefined ? {} : { projections: state.projections },
+          ...projections === undefined ? {} : { projections },
         })
       },
 
