@@ -263,6 +263,21 @@ describe('catalog cache', () => {
     expect(payloads).toHaveLength(2)
   })
 
+  it('session/preset-changed clears only the recomposed session', async () => {
+    const { list, payloads } = countingList()
+    const { ctx, source } = await bench(list)
+    await source.candidates(proj('s1'), req(''))
+    await source.candidates(proj('s2'), req(''))
+    expect(payloads).toHaveLength(2)
+    // The catalog a preset supplies is the preset's; the other session's
+    // composition did not change, so its cached catalog still holds.
+    ctx.emit('session/preset-changed', sid('s1'), 'minimal')
+    await source.candidates(proj('s1'), req(''))
+    await source.candidates(proj('s2'), req(''))
+    expect(payloads).toHaveLength(3)
+    expect(payloads[2]).toEqual({ sessionId: 's1' })
+  })
+
   it('connection/reset clears every cached session', async () => {
     const { list, payloads } = countingList()
     const { ctx, source } = await bench(list)

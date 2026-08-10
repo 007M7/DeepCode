@@ -17,7 +17,9 @@
  * Catalog fetches are cached per session (the small twin of the ui-command
  * directory): the per-keystroke candidates re-poll filters a settled
  * snapshot locally, so one session costs one RPC. The scope-birth warm hook
- * prewarms the session's key; connection/reset clears everything — the host
+ * prewarms the session's key; a preset switch drops that one key (the
+ * catalog is the preset's, and a blank session may switch after the warm);
+ * connection/reset clears everything — the host
  * catalog may differ across generations. A shared in-flight fetch
  * deliberately outlives any single menu interaction: closing the menu must
  * not kill the prewarm other consumers will hit, so it carries its own
@@ -174,6 +176,9 @@ export function apply(ctx: ClientContext): void {
     },
   }
   const slash = ctx.get('slash') as SlashServiceContract
+  // A preset decides which skill providers an agent reads, so a switched
+  // session's cached catalog belongs to the composition it no longer runs.
+  ctx.on('session/preset-changed', invalidate)
   ctx.on('connection/reset', clearAll)
   ctx.effect(() => {
     const unregister = slash.registerSource(source)
