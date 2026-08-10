@@ -93,7 +93,7 @@ interface SetupOptions {
   resolvedModels?: LlmModelInfo[]
   attachments?: boolean
   llm?: boolean
-  storeConfig?: { maxImageBytes?: number; maxImagePixels?: number }
+  storeConfig?: { maxImageBytes?: number; maxImagePixels?: number; maxMessageImageBytes?: number }
   toolMode?: ToolConfig['mode']
 }
 
@@ -366,12 +366,20 @@ describe('image admission failures', () => {
     const result = await readImage(ctx, { file_path: 'wrong.jpg' }, agentOn('vision-model'))
     expect(result.isError).toBe(true)
     expect(text(result)).toContain('the .jpg extension declares image/jpeg')
-    expect(text(result)).toContain('rename the file to match its actual PNG/JPEG/WebP/GIF format')
+    expect(text(result)).toContain('rename the file to match its actual format if it is PNG/JPEG/WebP/GIF, or convert it to one of those formats')
   })
 
   it('fails with FS_TOO_LARGE before reading a file past maxImageBytes', async () => {
     await writeFile(join(dir, 'red.png'), PNG_1X1)
     const ctx = await setup({ storeConfig: { maxImageBytes: PNG_1X1.length - 1 } })
+    const result = await readImage(ctx, { file_path: 'red.png' }, agentOn('vision-model'))
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain('exceeds')
+  })
+
+  it('honors the tighter per-message aggregate byte bound', async () => {
+    await writeFile(join(dir, 'red.png'), PNG_1X1)
+    const ctx = await setup({ storeConfig: { maxMessageImageBytes: PNG_1X1.length - 1 } })
     const result = await readImage(ctx, { file_path: 'red.png' }, agentOn('vision-model'))
     expect(result.isError).toBe(true)
     expect(text(result)).toContain('exceeds')
@@ -387,9 +395,12 @@ describe('image admission failures', () => {
   it('reports a missing image file and a directory target through the fs vocabulary', async () => {
     await mkdir(join(dir, 'folder.png'))
     const ctx = await setup()
+    const observed: { path: string; kind: string }[] = []
+    ctx.on('fs/observed', (target, observation) => void observed.push({ path: target.displayPath, kind: observation.kind }))
     const missing = await readImage(ctx, { file_path: 'absent.png' }, agentOn('vision-model'))
     expect(missing.isError).toBe(true)
     expect(text(missing)).toContain('not found')
+    expect(observed).toEqual([{ path: join(dir, 'absent.png'), kind: 'absent' }])
 
     const directory = await readImage(ctx, { file_path: 'folder.png' }, agentOn('vision-model'))
     expect(directory.isError).toBe(true)
@@ -430,6 +441,32 @@ describe('image admission failures', () => {
 })
 
 describe('registration surface', () => {
+  it('withdraws read_image when the tool-fs fiber or the attachment store is disposed (HMR safety)', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry, { mode: 'native' })
+    await ctx.plugin(LocalFileSystem, { cwd: dir })
+    await ctx.plugin(FsPolicy)
+    const attachmentsFiber = await ctx.plugin(LocalAttachmentStore, { dshHome: home })
+    const toolFsFiber = await ctx.plugin(ToolFs)
+    const names = () => ctx.tools.schemas().map(schema => schema.name).sort()
+    expect(names()).toEqual(['edit', 'read', 'read_image', 'write'])
+
+    // Disposing only the attachment store tears down the scoped inject fiber:
+    // read_image withdraws while the unconditional tools stay registered.
+    await attachmentsFiber.dispose()
+    expect(names()).toEqual(['edit', 'read', 'write'])
+
+    // Remounting the store restores the conditional registration.
+    const remounted = await ctx.plugin(LocalAttachmentStore, { dshHome: home })
+    expect(names()).toEqual(['edit', 'read', 'read_image', 'write'])
+    void remounted
+
+    // Disposing the whole plugin withdraws every tool, read_image included.
+    await toolFsFiber.dispose()
+    expect(names()).toEqual([])
+  })
+
   it('declares read_image parallel-safe and presents a read-family card', async () => {
     const ctx = await setup()
     expect(ctx.tools.executionMode({

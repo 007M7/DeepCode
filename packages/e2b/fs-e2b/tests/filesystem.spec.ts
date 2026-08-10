@@ -488,6 +488,22 @@ describe('E2BFileSystem identity, metadata, and reads', () => {
     await expectCode(fs.readBytes(target, undefined, 4), 'FS_ABORTED')
   })
 
+  it('readBytes bounds a post-stat grower mid-stream and reads an empty file through the SDK quirk', async () => {
+    const remote = new FakeRemote()
+    remote.file('/workspace/grow.bin', [1, 1, 1, 1])
+    remote.file('/workspace/empty.bin', '')
+    const { fs } = await setup(remote)
+
+    remote.streamChunks = [bytes([1, 1, 1]), bytes([1, 2, 2])]
+    remote.streamKeepOpen = true
+    await expectCode(fs.readBytes(await fs.resolve('grow.bin'), undefined, 4), 'FS_TOO_LARGE')
+    expect(remote.streamCancel).toHaveBeenCalledOnce()
+
+    remote.streamChunks = undefined
+    remote.streamKeepOpen = false
+    expect((await fs.readBytes(await fs.resolve('empty.bin'), undefined, 4)).byteLength).toBe(0)
+  })
+
   it('honors aborts before and during remote reads', async () => {
     const remote = new FakeRemote()
     remote.file('/workspace/a', 'a')

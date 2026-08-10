@@ -60,19 +60,19 @@ export function imageMediaTypeForPath(filePath: string): ImageMediaType | undefi
  * options) and requires the exact resolved route to declare `image` input explicitly.
  * @param ctx - the plugin context used to resolve the optional `llm` service.
  * @param exec - the tool-execution context supplying the calling agent.
- * @param displayPath - the path rendered in refusal messages.
+ * @param requestedPath - the raw, not-yet-resolved path rendered in refusal messages.
  */
-export async function assertImageCapableRoute(ctx: Context, exec: ToolExecution, displayPath: string): Promise<void> {
+export async function assertImageCapableRoute(ctx: Context, exec: ToolExecution, requestedPath: string): Promise<void> {
   const routed = exec.agent?.session.requestHeader()?.config
   const provider = routed?.provider ?? exec.agent?.options.provider
   const model = routed?.model ?? exec.agent?.options.model
   const llm = ctx.get('llm')
   if (provider === undefined || model === undefined || llm === undefined) {
-    throw new Error(`cannot read "${displayPath}" as an image: the current model route could not be resolved`)
+    throw new Error(`cannot read "${requestedPath}" as an image: the current model route could not be resolved`)
   }
   const active = await llm.resolveModelInfo(provider, model, exec.signal)
   if (active.inputModalities === undefined || !active.inputModalities.includes('image')) {
-    throw new Error(`cannot read "${displayPath}" as an image: model "${model}" does not declare image input; switch to an image-capable model to read images`)
+    throw new Error(`cannot read "${requestedPath}" as an image: model "${model}" does not declare image input; switch to an image-capable model to read images`)
   }
 }
 
@@ -120,12 +120,13 @@ function imageReadContent(value: ImageReadValue): ContentBlock[] {
 }
 
 /**
- * Register the `read_image` tool. Execution gates on the optional
- * `attachments`/`llm` services and the calling route's declared image input;
- * registration itself is unconditional so denial happens at the operation
- * boundary rather than through schema omission.
- * @param ctx - the plugin context; registrations are effects scoped to it, and
- *   execution uses its `fs` service plus the optional `attachments`/`llm` services.
+ * Register the `read_image` tool into the given context. The composing plugin
+ * owns the attachments gate: `src/index.ts` calls this inside
+ * `ctx.inject(['attachments'], …)` so the tool exists only while a durable
+ * store is mounted. Execution still re-checks `ctx.get('attachments')` for
+ * direct callers and gates on the calling route's declared image input.
+ * @param ctx - the registration scope; execution uses its `fs` service plus
+ *   the optional `attachments`/`llm` services.
  */
 export function applyReadImageTool(ctx: Context): void {
   ctx.tools.register(defineTool({
@@ -180,10 +181,16 @@ export function applyReadImageTool(ctx: Context): void {
 
       const target = await ctx.fs.resolve(args.file_path, sessionResolveOptions(exec, args.file_path))
       const info = await ctx.fs.stat(target, exec.signal)
-      if (!info) throw new FsError(`cannot read "${target.displayPath}": not found`, 'FS_NOT_FOUND')
+      if (!info) {
+        ctx.emit('fs/observed', target, { kind: 'absent' }, exec)
+        throw new FsError(`cannot read "${target.displayPath}": not found`, 'FS_NOT_FOUND')
+      }
       if (info.type !== 'file') throw new FsError(`cannot read "${target.displayPath}": not a regular file`, 'FS_NOT_REGULAR_FILE')
 
-      const data = await ctx.fs.readBytes(target, exec.signal, attachments.imageLimits.maxImageBytes)
+      // The tool result is one message carrying one image, so the per-message
+      // aggregate bound applies beside the per-image bound.
+      const byteCap = Math.min(attachments.imageLimits.maxImageBytes, attachments.imageLimits.maxMessageImageBytes)
+      const data = await ctx.fs.readBytes(target, exec.signal, byteCap)
       // Persist before returning: the image block must reference a durably
       // committed object by the time the tool/result event is appended.
       let ref: ImageAttachmentRef
@@ -193,7 +200,7 @@ export function applyReadImageTool(ctx: Context): void {
         if (!(error instanceof AttachmentError) || error.code !== 'IMAGE_TYPE_MISMATCH') throw error
         const extension = extname(target.displayPath).toLowerCase()
         throw new Error(
-          `cannot read "${target.displayPath}": the ${extension} extension declares ${mediaType}, but the bytes use a different image format; rename the file to match its actual PNG/JPEG/WebP/GIF format`,
+          `cannot read "${target.displayPath}": the ${extension} extension declares ${mediaType}, but the bytes use a different image format; rename the file to match its actual format if it is PNG/JPEG/WebP/GIF, or convert it to one of those formats`,
           { cause: error },
         )
       }
