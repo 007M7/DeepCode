@@ -274,6 +274,7 @@ export class E2BFileSystem extends FileSystem {
           // remote stream adds nothing actionable for the caller.
         }
       }
+      reader.releaseLock()
     }
     const whole = new Uint8Array(bytes)
     let offset = 0

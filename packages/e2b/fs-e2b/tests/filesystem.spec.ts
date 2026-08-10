@@ -40,6 +40,7 @@ class FakeRemote {
   readonly links: Array<{ from: string; to: string }> = []
   readonly removals: string[] = []
   readonly commands: string[] = []
+  readonly reads: Array<{ path: string; format: 'bytes' | 'stream' }> = []
   streamChunks: Uint8Array[] | undefined
   streamKeepOpen = false
   readonly streamCancel = vi.fn()
@@ -157,6 +158,7 @@ class FakeRemote {
       },
       read: async (path: string, options: { format: 'bytes' | 'stream'; signal?: AbortSignal }): Promise<Uint8Array | ReadableStream<Uint8Array> | string> => {
         this.checkAbort(options)
+        this.reads.push({ path, format: options.format })
         if (this.nextReadError !== undefined) {
           const error = this.nextReadError
           this.nextReadError = undefined
@@ -478,7 +480,10 @@ describe('E2BFileSystem identity, metadata, and reads', () => {
     const { fs } = await setup(remote)
     const target = await fs.resolve('img.bin')
     expect(Array.from(await fs.readBytes(target, undefined, 4))).toEqual([0x89, 0, 0xff, 0x47])
+    expect(remote.reads).toEqual([{ path: '/workspace/img.bin', format: 'stream' }])
+    remote.reads.length = 0
     await expectCode(fs.readBytes(target, undefined, 3), 'FS_TOO_LARGE')
+    expect(remote.reads).toEqual([])
     await expectCode(fs.readBytes(await fs.resolve('missing'), undefined, 4), 'FS_NOT_FOUND')
     await expectCode(fs.readBytes(await fs.resolve('directory'), undefined, 4), 'FS_NOT_REGULAR_FILE')
 
