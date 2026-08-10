@@ -17,8 +17,10 @@ import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent'
 import { findLastMessageTurnEnd, SessionId, type SessionEvent, type TurnEndReason } from '@deepseek-ai/dsh-session'
 import { createUserMessage, type ContentBlock } from '@deepseek-ai/dsh-llm'
 import {
+  appendDelegatedPolicyOverrides,
   applyChildComposition,
   assertSubagentMaxDepth,
+  captureDelegatedPolicyOverrides,
   childSessionMeta,
   finalAssistantOutput,
   resolveChildAgentOptions,
@@ -31,11 +33,6 @@ import type {
   SubagentRun,
   SubagentStopReason,
 } from '@deepseek-ai/dsh-subagent'
-// Type-only: make `ctx.get('sandboxPolicy')` / `ctx.get('approval')` resolve
-// to the policy services when composed — the driver consumes both
-// opportunistically (the documented `ctx.get` pattern), never as a hard dep.
-import type {} from '@deepseek-ai/dsh-sandbox-policy'
-import type {} from '@deepseek-ai/dsh-user-approval'
 import {
   attachStructuredRuntime,
   type StructuredAttachment,
@@ -112,20 +109,11 @@ export async function startInProcessRun(
 
   // Capture before the first await: a later parent switch belongs to the
   // parent's future.
-  const inheritedMode = parent.ctx.get('sandboxPolicy')?.overrideOf(parent.session)
-  const inheritedPolicy = parent.ctx.get('approval')?.overrideOf(parent.session)
+  const inherited = captureDelegatedPolicyOverrides(parent)
 
   let structured: StructuredAttachment | undefined
   const setup = (childCtx: Context): void => {
-    // Inherited overrides land on the child's own log, so its effective policy
-    // is reconstructable from that log alone.
-    const childSession = (childCtx.agent as Agent).session
-    if (inheritedMode !== undefined) {
-      childSession.append('sandbox/mode', { mode: inheritedMode, source: 'delegation' })
-    }
-    if (inheritedPolicy !== undefined) {
-      childSession.append('approval/policy', { policy: inheritedPolicy, source: 'delegation' })
-    }
+    appendDelegatedPolicyOverrides((childCtx.agent as Agent).session, inherited)
     applyChildComposition(childCtx, parent, {
       persona: request.persona,
       toolFilter: request.toolFilter,
