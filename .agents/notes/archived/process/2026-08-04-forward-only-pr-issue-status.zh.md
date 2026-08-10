@@ -1,6 +1,7 @@
 # Agent Note: PR 到 Issue 的状态仅向前投射
 
 Status: implemented
+Archived: 2026-08-10
 
 [English](2026-08-04-forward-only-pr-issue-status.md) | 中文
 

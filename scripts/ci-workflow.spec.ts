@@ -113,17 +113,37 @@ describe('E2B e2e workflow', () => {
 })
 
 describe('Issue lifecycle workflow', () => {
-  it('uses review signals instead of rerunning when a draft becomes ready', () => {
+  it('uses explicit review handoff events without rerunning when a draft becomes ready', () => {
     const lifecycle = loadWorkflow('.github/workflows/issue-lifecycle.yml')
     const lifecyclePullRequest = workflowEvent(lifecycle, 'pull_request')
     const lifecycleReview = workflowEvent(lifecycle, 'pull_request_review')
+    const lifecycleJob = workflowJob(lifecycle, 'lifecycle')
     const policy = loadWorkflow('.github/workflows/issue-policy.yml')
     const policyPullRequest = workflowEvent(policy, 'pull_request')
 
     expect(lifecyclePullRequest.types).not.toContain('ready_for_review')
     expect(lifecyclePullRequest.types).toContain('review_requested')
-    expect(lifecycleReview.types).toContain('submitted')
+    expect(lifecycleReview.types).toEqual(['submitted'])
+    expect(lifecycleJob.if).toBe(
+      "${{ github.event_name != 'pull_request_review' || github.event.review.state == 'changes_requested' }}",
+    )
     expect(policyPullRequest.types).toContain('ready_for_review')
+  })
+})
+
+describe('Git hooks', () => {
+  it('leaves frozen Agent Note sidecars to the archive verifier', () => {
+    const lefthook = loadWorkflow('lefthook.yml')
+
+    for (const hookName of ['pre-commit', 'pre-merge-commit']) {
+      const hook = lefthook[hookName]
+      if (!isRecord(hook) || !Array.isArray(hook.jobs)) {
+        throw new TypeError(`lefthook must define ${hookName} jobs`)
+      }
+      const pairing = hook.jobs.find(job => isRecord(job) && job.name === 'translation pairing (staged records)')
+
+      expect(pairing).toMatchObject({ exclude: ['.agents/notes/archived/**'] })
+    }
   })
 })
 
@@ -138,6 +158,13 @@ function workflowEvent(workflow: Record<string, unknown>, event: string): Record
     throw new TypeError(`workflow must define the ${event} event`)
   }
   return workflow.on[event]
+}
+
+function workflowJob(workflow: Record<string, unknown>, job: string): Record<string, unknown> {
+  if (!isRecord(workflow.jobs) || !isRecord(workflow.jobs[job])) {
+    throw new TypeError(`workflow must define the ${job} job`)
+  }
+  return workflow.jobs[job]
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
