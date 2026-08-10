@@ -55,7 +55,7 @@ export const Config: z<Config> = z.object({
   userAgent: z.string().default(DEFAULT_USER_AGENT),
 })
 
-/** The shape after schemastery applies its defaults to every field. */
+/** Complete config after schemastery applies every field default. */
 type ResolvedConfig = Required<Config>
 
 /** A resource limit (byte/char/length/timeout cap) must be a positive finite number. */

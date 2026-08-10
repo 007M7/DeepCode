@@ -70,7 +70,7 @@ export class TsConfigFile extends ProjectFile {
     ))
   }
 
-  /** Validate JSONC and the project-reference shape. */
+  /** Validate JSONC and the project-reference fields. */
   override validate(): void {
     const value = parseConfig(this.text)
     if (value.references === undefined) return

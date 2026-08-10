@@ -43,7 +43,7 @@ declare module 'cordis' {
   }
 }
 
-/** package.json `dshClient` declaration shape (file boundary — validated field by field). */
+/** package.json `dshClient` declaration fields, validated one by one after reading the file. */
 interface DshClientDeclaration {
   inject?: string[]
   platform: string
@@ -138,7 +138,7 @@ function clientExportOf(pkgName: string, exportsField: unknown): string | undefi
     const fallback = (client as Record<string, unknown>).default
     if (typeof fallback === 'string') return fallback
   }
-  throw new Error(`client-modules: ${pkgName} exports["./client"] has an unsupported shape`)
+  throw new Error(`client-modules: ${pkgName} exports["./client"] must be a string or an object with a string default`)
 }
 
 /** sha1 content hash shortened to 12 hex chars (bundle rev / graph rev). */

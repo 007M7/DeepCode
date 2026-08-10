@@ -203,7 +203,7 @@ export function normalizeInput(input: string | ContentBlock[]): ContentBlock[] {
   return typeof input === 'string' ? [{ type: 'text', text: input }] : input
 }
 
-/** Validate a wire `session.event` envelope to the shape the typed result exposes. */
+/** Validate the fields in a wire `session.event` envelope before returning the typed result. */
 function validatedSessionEvent(value: unknown): SessionEvent {
   if (!isRecord(value) || typeof value.type !== 'string') {
     throw new SdkProtocolError(`session.event carried no event envelope: ${JSON.stringify(value)}`)

@@ -177,7 +177,7 @@ interface EpochHeader {
 
 ### 路由容量事件：`request/context`
 
-请求所解析到的路由的上下文元数据是独立的已记录状态，在同一步骤内紧随 `request/header` 追加，且仅在提供方、模型或容量与上一条记录不同时追加。它保持在 `EpochHeader` 之外，因为该类型是由 `headerEquals` 逐字段比较的重建约定：容量描述的是路由，不是请求输入，把它折叠进去会让一次容量变化被登记为请求信封的 `change`，也会把适配器元数据拉进 loop 的重建不变式。与 `request/header` 一样，它不是 `SurfaceEventType`，也不产生 LLM 消息。`session.requestContext()` 以增量方式归并最新一条记录。适配器不公布容量的路由会以缺失 `contextWindow` 的形式记录，因此新记录可以清除较早路由的容量。
+请求所解析到的路由的上下文元数据是独立的已记录状态，在同一步骤内紧随 `request/header` 追加，且仅在提供方、模型或容量与上一条记录不同时追加。它保持在 `EpochHeader` 之外，因为该类型是 `headerEquals` 逐字段比较的重建约定。容量描述的是路由，不是请求输入，把它折叠进去会让一次容量变化被登记为请求信封的 `change`，也会把适配器元数据拉进 loop 的重建不变式。与 `request/header` 一样，它不是 `SurfaceEventType`，也不产生 LLM 消息。`session.requestContext()` 以增量方式归并最新一条记录。适配器不公布容量的路由会以缺失 `contextWindow` 的形式记录，因此新记录可以清除较早路由的容量。
 
 ```ts type-equiv
 /** Registration-bound metadata for one resolved model route. */
@@ -347,7 +347,7 @@ interface SurfaceFoldResult {
 
 ## `Session` 公共 API
 
-去除方法体的声明与源码中的普通类保持同步，覆盖其脱离态工厂、状态访问器、追加边界和历史投影。存储操作仍由生成的 [`ctx.sessions` 小节](#ctxsessions--sessionstore)记录。
+去除方法体的声明与源码中的普通类保持同步，覆盖其脱离态工厂、状态访问器、append 方法和历史投影。存储操作仍由生成的 [`ctx.sessions` 小节](#ctxsessions--sessionstore)记录。
 
 ```ts public-api
 /**
@@ -406,8 +406,8 @@ declare class Session {
   static create(id: SessionId, seed?: readonly SessionEvent[], header?: SessionHeader): Session;
   /**
    * Restore a detached session by taking ownership of fresh persistence values.
-   * Storage shape, event envelopes, sequence continuity, surface transitions,
-   * and header fields are validated before the graphs are frozen in place.
+   * The storage format, event envelopes, sequence continuity, surface transitions,
+   * and header fields are validated before the restored objects are frozen.
    * @param id - restored session identity.
    * @param seed - fresh detached events whose ownership is transferred.
    * @param header - fresh detached metadata whose ownership is transferred.

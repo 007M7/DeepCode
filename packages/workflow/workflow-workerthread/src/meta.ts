@@ -1,6 +1,6 @@
 /**
- * Meta validation: check the caller-provided {@link WorkflowMeta} DATA against the shape
- * contract and reject everything else loud, every violation named. Meta arrives as schema-checked
+ * Meta validation checks caller-provided DATA against the {@link WorkflowMeta}
+ * contract and rejects every violation by name. Meta arrives as schema-checked
  * JSON data, never evaluated script text; evaluating it on the host could run getters outside the
  * worker timeout that exists to isolate model-written code.
  * @module @deepseek-ai/dsh-workflow-workerthread/meta

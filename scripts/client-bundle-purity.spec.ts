@@ -1,5 +1,5 @@
 /**
- * Pins shared client-bundle preset contracts: the module-edge purity gate and
+ * Pins shared client-bundle preset rules: the module-edge purity gate and
  * the physical watch dependencies hidden behind virtual CSS Modules.
  */
 import { fileURLToPath } from 'node:url'

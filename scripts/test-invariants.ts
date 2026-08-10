@@ -24,7 +24,7 @@ declare global {
   }
 }
 
-/** Loader-safe shape shared by every package invariant companion. */
+/** Loader-safe exports shared by every package invariant companion. */
 export interface TestInvariantCompanion {
   readonly name: string
   readonly inject: readonly string[]
