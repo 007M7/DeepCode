@@ -62,7 +62,7 @@ This matrix shows which packages dispatch each harness-owned event and which pac
 | Event string | Dispatchers | Listeners |
 | --- | --- | --- |
 | `commands/changed` | `runtime` (`emit`) | `ui-command` |
-| `connection/reset` | `runtime` (`emit`) | `ui-command`, `ui-models`, `ui-permission`, `ui-settings-general` |
+| `connection/reset` | `runtime` (`emit`) | `runtime`, `ui-command`, `ui-models`, `ui-permission`, `ui-settings-general` |
 | `credentials/changed` | `runtime` (`emit`) | `ui-models` |
 | `internal/dispatch` | - | [`commands`](../packages/interaction/commands), [`compact`](../packages/compact/compact), [`fs`](../packages/fs/fs), [`goal`](../packages/goal/goal), [`goal-session`](../packages/goal/goal-session), [`hook-protocol`](../packages/hooks/hook-protocol), [`llm-retry`](../packages/llm/llm-retry), [`permission`](../packages/interaction/permission), [`plan-mode`](../packages/plan/plan-mode), [`pty-local`](../packages/pty/pty-local), `runtime`, [`sandbox-policy`](../packages/sandbox/sandbox-policy), [`scope`](../packages/core/scope), [`session`](../packages/core/session), [`session-title`](../packages/session/session-title), [`subagent`](../packages/subagent/subagent), [`time-context`](../packages/context/time-context), [`tool-todo`](../packages/todo/tool-todo), [`tools`](../packages/core/tools), [`user-approval`](../packages/interaction/user-approval), [`workflow`](../packages/workflow/workflow) |
 | `internal/plugin` | - | `hmr`, `loader`, [`lsp-local`](../packages/lsp/lsp-local), `modules`, `webserver` |
@@ -71,7 +71,7 @@ This matrix shows which packages dispatch each harness-owned event and which pac
 | `locale/change` | `locale` (`emit`) | `locale` |
 | `models/changed` | `runtime` (`emit`) | `ui-models` |
 | `session/preset-changed` | `runtime` (`emit`) | `ui-command` |
-| `settings/changed` | `runtime` (`emit`) | `ui-models`, `ui-permission`, `ui-settings-general` |
+| `settings/changed` | `runtime` (`emit`) | `runtime`, `ui-models`, `ui-permission`, `ui-settings-general` |
 | `slash/input-begin-command` | - | `ui-conversation` |
 | `slash/input-consume-token` | - | `ui-conversation` |
 | `slash/input-insert-reference` | - | `ui-conversation` |
