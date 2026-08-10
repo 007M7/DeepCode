@@ -1163,6 +1163,8 @@ export interface Config {
    * variables. Empty text drops the section at render, matching the registry.
    */
   text: string
+  /** Make this persona the complete system prompt, suppressing every other section. */
+  complete?: boolean
 }
 ```
 
@@ -1989,7 +1991,7 @@ export interface Config {
 }
 ```
 
-来源：[`packages/core/system-prompt/src/index.ts:177`](../packages/core/system-prompt/src/index.ts)
+来源：[`packages/core/system-prompt/src/index.ts:186`](../packages/core/system-prompt/src/index.ts)
 
 ## `@deepseek-ai/dsh-time-context`
 

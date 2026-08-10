@@ -21,16 +21,16 @@ The surrounding runtime also loads JSONL session persistence and automatic conte
 | `DEEPSEEK_BASE_URL` | Host endpoint used by `dsh-llm-deepseek` |
 | `DSH_CWD` | Agent workspace for bash and filesystem tools |
 | `DSH_MAX_TOKENS_AS_SUCCESS` | `true` (default) accepts token-limited results; `false` reports them as errors |
-| `DSH_SESSION_ROOT` | JSONL trajectory directory |
+| `DSH_SESSION_ROOT` | JSONL session directory |
 | `DSH_SYSTEM_PROMPT` | Deployment-provided coding persona |
 
 Pass the config path through the Python SDK's `cordis` option or `DSH_CORDIS_CONFIG`. The bundled executable already carries every plugin named by this file; the target machine does not need Node.js.
 
-## Persistent tools variant
+## Minimal variant
 
-[`persistent-tools.cordis.yml`](persistent-tools.cordis.yml) is a minimal runnable variant whose model-facing surface is exactly:
+[`minimal.cordis.yml`](minimal.cordis.yml) is the complete standalone counterpart of the Web `minimal` preset. It fixes the system prompt and compaction policy, and its model-facing surface is exactly:
 
 - owner-scoped persistent `bash`
 - `str_replace_editor` with `view`, `create`, `str_replace`, and `insert`
 
-It composes the local PTY, filesystem intent policy, and session sandbox policy.
+It composes the local PTY, filesystem intent policy, session sandbox policy, and JSONL persistence needed by the bundled runtime. [`minimal.py`](minimal.py) runs it through the Python SDK; the [Python SDK tutorial](../../docs/user/guide/python-sdk.md) uses this configuration to cover setup, session management, and the security boundary.

@@ -21,7 +21,9 @@ declare module '@deepseek-ai/cordis' {
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): scoped listeners
      * receive only that scope's assemblies. The returned value is authoritative.
      * A supplied signal controls only this explicit assembly request and must not
-     * be retained to control later turns.
+     * be retained to control later turns. A registered complete section is
+     * restored after this waterfall, so listeners cannot add to or replace
+     * that scope's system prompt.
      * @param assembly - the mutable assembly built from registered providers.
      * @param context - the caller's per-assembly context.
      * @mode waterfall
@@ -63,6 +65,13 @@ export interface PromptSection {
    * interpolated later, by {@link renderPrompt}.
    */
   readonly text: string | ((context: AssembleContext) => string)
+  /**
+   * Treat this contribution as the complete system prompt. Assembly still
+   * runs the cooperative waterfall so tools, contexts, and variables can be
+   * resolved, then restores this exact section as the sole prompt section.
+   * More than one effective complete section makes assembly fail.
+   */
+  readonly complete?: boolean
 }
 
 /** Dynamic model context materialized as a durable user-role snapshot. */
@@ -428,9 +437,11 @@ export class SystemPrompt extends Service {
   /**
    * Assemble global and scoped providers, detach tool parameters, apply
    * canonical ordering, then run the assembly waterfall. Scoped sections and
-   * variables shadow globals; the returned waterfall value is authoritative.
+   * variables shadow globals. The returned waterfall value is authoritative
+   * except that an effective complete section is restored afterwards as the
+   * sole prompt section.
    * @param context - the optional scope and plugin-defined assembly fields.
-   * @returns the authoritative post-waterfall assembly.
+   * @returns the post-waterfall assembly with any complete prompt enforced.
    */
   // Keep configuration failures on the declared asynchronous error path.
   async assemble(context: AssembleContext = {}): Promise<PromptAssembly> {
@@ -467,13 +478,23 @@ export class SystemPrompt extends Service {
       collected.push(...schemas)
       for (const name of acceptedKnownNames) knownNames.add(name)
     }
-    const assembly: PromptAssembly = {
-      sections: [...sectionByName.values()]
-        .sort((a, b) => a.order - b.order)
-        .map(section => ({
+    const sectionDefinitions = [...sectionByName.values()].sort((a, b) => a.order - b.order)
+    const completeSections = sectionDefinitions.filter(section => section.complete === true)
+    if (completeSections.length > 1) {
+      throw new Error(`multiple complete prompt sections are active: ${completeSections.map(section => JSON.stringify(section.name)).join(', ')}`)
+    }
+    let completeSection: AssembledSection | undefined
+    const sections = sectionDefinitions
+      .map((section) => {
+        const assembled = {
           name: section.name,
           text: typeof section.text === 'function' ? section.text(context) : section.text,
-        })),
+        }
+        if (section.complete === true) completeSection = { ...assembled }
+        return assembled
+      })
+    const assembly: PromptAssembly = {
+      sections,
       contexts: [...contextByName.values()]
         .sort((a, b) => a.order - b.order)
         .map(entry => ({
@@ -483,10 +504,12 @@ export class SystemPrompt extends Service {
       tools: orderTools(collected, this.toolOrder, knownNames),
       variables,
     }
-    return this.ctx.waterfall(
+    const transformed = await this.ctx.waterfall(
       scopeTarget(this, scope), 'system-prompt/assemble', assembly, context,
       () => Promise.resolve(assembly),
     )
+    if (completeSection === undefined) return transformed
+    return { ...transformed, sections: [completeSection] }
   }
 }
 

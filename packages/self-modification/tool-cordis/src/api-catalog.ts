@@ -1114,7 +1114,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'async assemble(context: AssembleContext = {}): Promise<PromptAssembly>',
-        jsDoc: '/**\n * Assemble global and scoped providers, detach tool parameters, apply\n * canonical ordering, then run the assembly waterfall. Scoped sections and\n * variables shadow globals; the returned waterfall value is authoritative.\n * @param context - the optional scope and plugin-defined assembly fields.\n * @returns the authoritative post-waterfall assembly.\n */',
+        jsDoc: '/**\n * Assemble global and scoped providers, detach tool parameters, apply\n * canonical ordering, then run the assembly waterfall. Scoped sections and\n * variables shadow globals. The returned waterfall value is authoritative\n * except that an effective complete section is restored afterwards as the\n * sole prompt section.\n * @param context - the optional scope and plugin-defined assembly fields.\n * @returns the post-waterfall assembly with any complete prompt enforced.\n */',
       },
     ],
   },
@@ -1610,7 +1610,7 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'system-prompt/assemble',
     mode: 'waterfall',
     signature: '\'system-prompt/assemble\'(this: Scoped<SystemPrompt>, assembly: PromptAssembly, context: AssembleContext, next: () => Promise<PromptAssembly>): Promise<PromptAssembly>',
-    jsDoc: '/**\n * Expert waterfall over the assembled sections, contexts, tools, and variables.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): scoped listeners\n * receive only that scope\'s assemblies. The returned value is authoritative.\n * A supplied signal controls only this explicit assembly request and must not\n * be retained to control later turns.\n * @param assembly - the mutable assembly built from registered providers.\n * @param context - the caller\'s per-assembly context.\n * @mode waterfall\n */',
+    jsDoc: '/**\n * Expert waterfall over the assembled sections, contexts, tools, and variables.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): scoped listeners\n * receive only that scope\'s assemblies. The returned value is authoritative.\n * A supplied signal controls only this explicit assembly request and must not\n * be retained to control later turns. A registered complete section is\n * restored after this waterfall, so listeners cannot add to or replace\n * that scope\'s system prompt.\n * @param assembly - the mutable assembly built from registered providers.\n * @param context - the caller\'s per-assembly context.\n * @mode waterfall\n */',
     summary: 'Expert waterfall over the assembled sections, contexts, tools, and variables.',
   },
   {
@@ -2421,7 +2421,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'PromptSection',
-    declaration: 'export interface PromptSection {\n    readonly name: string;\n    readonly order: number;\n    readonly text: string | ((context: AssembleContext) => string);\n}',
+    declaration: 'export interface PromptSection {\n    readonly name: string;\n    readonly order: number;\n    readonly text: string | ((context: AssembleContext) => string);\n    readonly complete?: boolean;\n}',
   },
   {
     name: 'ProviderRequestId',
