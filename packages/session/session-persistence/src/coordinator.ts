@@ -5,7 +5,7 @@
  * @module @deepseek-ai/dsh-session-persistence/coordinator
  */
 
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import {
   adoptSessionEvent,
   interruptedTurnClosers,

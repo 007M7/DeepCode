@@ -7,7 +7,7 @@
  * document. The plugin also registers the Appearance preference row into the
  * settings General section — the theme feature owns its own settings surface.
  */
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import type { BoundActions } from '@deepseek-ai/dsh-client-ui-slots'
 import {
   bindSettingsScope, type ClientContext, type SettingsScope,
@@ -66,7 +66,7 @@ export interface ThemeSnapshot {
   revision: number
 }
 
-declare module 'cordis' {
+declare module '@deepseek-ai/cordis' {
   interface Context {
     theme: ThemeService
   }

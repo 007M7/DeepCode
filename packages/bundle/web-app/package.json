@@ -74,18 +74,18 @@
     "@deepseek-ai/dsh-storage-domain": "workspace:^",
     "@deepseek-ai/dsh-storage-json": "workspace:^",
     "@deepseek-ai/dsh-workspace": "workspace:^",
-    "schemastery": "^3.18.0"
+    "@deepseek-ai/schemastery": "^3.18.0"
   },
   "peerDependencies": {
     "@deepseek-ai/dsh-bash-env": "^0.0.1",
     "@deepseek-ai/dsh-invariants": "^0.0.1",
     "@deepseek-ai/dsh-system-prompt": "^0.0.1",
-    "cordis": "^4.0.0-rc.7"
+    "@deepseek-ai/cordis": "^4.0.0-rc.7"
   },
   "devDependencies": {
     "@deepseek-ai/dsh-bash-env": "workspace:^",
     "@deepseek-ai/dsh-invariants": "workspace:^",
     "@deepseek-ai/dsh-system-prompt": "workspace:^",
-    "cordis": "^4.0.0-rc.7"
+    "@deepseek-ai/cordis": "^4.0.0-rc.7"
   }
 }

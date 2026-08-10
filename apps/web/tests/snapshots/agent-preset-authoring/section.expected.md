@@ -23,7 +23,7 @@
   - list:
     - listitem:
       - 'button "当前使用: 标准模式" [disabled] [pressed]':
-        - text: 标准模式 内置 当前使用 完整的编码 agent：文件读写、shell、检索、计划、委派与工作流。
+        - text: 标准模式 内置 当前使用 功能完整的编码 Agent，支持文件编辑、Shell、文件与网页检索、Skills、计划、目标、子代理和工作流。
         - code: standard
       - 'button "查看: 标准模式"':
         - img
@@ -33,7 +33,7 @@
         - text: 复制
     - listitem:
       - 'button "设为默认: 代码模式"':
-        - text: 代码模式 内置 标准模式的工具改为 Code Mode 呈现：模型写一段 TypeScript 调用 SDK，一次执行代替多轮工具调用。
+        - text: 代码模式 内置 具备标准模式的全部能力，并通过 Code Mode SDK 呈现工具，让模型用一个 TypeScript 程序组合多步操作。
         - code: code
       - 'button "查看: 代码模式"':
         - img
@@ -43,7 +43,7 @@
         - text: 复制
     - listitem:
       - 'button "设为默认: 极简模式"':
-        - text: 极简模式 内置 只向模型呈现 bash 与 str_replace_editor，适合 benchmark 与最小复现。
+        - text: 极简模式 内置 仅提供 bash 与 str_replace_editor 的双工具编码 Agent，用于基准测试和最小复现。
         - code: minimal
       - 'button "查看: 极简模式"':
         - img
@@ -53,7 +53,7 @@
         - text: 复制
     - listitem:
       - 'button "设为默认: 创造模式"':
-        - text: 创造模式 内置 标准模式加上自指工具集，可以读改自己运行的这套组装，并据此创作新的预设。
+        - text: 创造模式 内置 用于创建自定义 Agent preset：具备标准模式的全部能力，并提供运行时检查、插件实验和 preset 创作指导。
         - code: cordis
       - 'button "查看: 创造模式"':
         - img

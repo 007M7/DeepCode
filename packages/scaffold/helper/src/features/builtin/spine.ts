@@ -26,7 +26,7 @@ class SpineOption extends FeatureOption {
 
   override contribution(_profile: ProjectProfile): ProjectContribution {
     return new ProjectContribution([
-      ...npmCordisConfigEntry(ID, { id: 'timer', name: '@cordisjs/plugin-timer' }),
+      ...npmCordisConfigEntry(ID, { id: 'timer', name: '@deepseek-ai/cordis-plugin-timer' }),
       ...npmCordisConfigEntry(ID, { id: 'llm', name: '@deepseek-ai/dsh-llm' }),
       ...npmCordisConfigEntry(ID, { id: 'session', name: '@deepseek-ai/dsh-session' }),
       ...npmCordisConfigEntry(ID, {

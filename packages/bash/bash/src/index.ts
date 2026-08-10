@@ -5,7 +5,7 @@
  * @module @deepseek-ai/dsh-bash
  */
 
-import { Context, Service } from 'cordis'
+import { Context, Service } from '@deepseek-ai/cordis'
 import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import type { SandboxMode } from '@deepseek-ai/dsh-sandbox'
 import type { BashExecRequest, BashExecSpec, BashProcess, BashRunResult } from './types.ts'
@@ -37,7 +37,7 @@ export type {
 export { parseExitStatus } from './render.ts'
 export type { ParsedExitStatus } from './render.ts'
 
-declare module 'cordis' {
+declare module '@deepseek-ai/cordis' {
   interface Context {
     bash: BashExecutor
   }

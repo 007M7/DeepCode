@@ -254,7 +254,6 @@
     { "path": "./packages/preset/persona" },
     { "path": "./packages/guard/repeat-tool-guard" },
     { "path": "./packages/self-modification/tool-cordis" },
-    { "path": "./packages/self-modification/repository-plugin" },
     { "path": "./packages/hooks/hook-protocol" },
     { "path": "./packages/hooks/hooks-claude" },
     { "path": "./packages/hooks/hooks-codex" },

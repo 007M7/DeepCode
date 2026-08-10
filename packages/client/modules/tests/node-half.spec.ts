@@ -5,7 +5,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { HttpServerService, WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import { ClientModuleHostService } from '../src/index.ts'
@@ -17,8 +17,11 @@ afterEach(() => {
   root = undefined
 })
 
-/** Create a resolvable dshClient package whose client export points at the returned path. */
-function writePackage(packageName: string): string {
+/** Create a resolvable package whose client export points at the returned path. */
+function writePackage(
+  packageName: string,
+  metadata: Record<string, unknown> = { dsh: { client: { platform: 'web' } } },
+): string {
   root ??= realpathSync(mkdtempSync(join(tmpdir(), 'dsh-client-modules-')))
   const pkgRoot = join(root, 'node_modules', ...packageName.split('/'))
   const clientPath = join(pkgRoot, 'lib', 'client.js')
@@ -29,7 +32,7 @@ function writePackage(packageName: string): string {
       './client': './lib/client.js',
       './package.json': './package.json',
     },
-    dshClient: { platform: 'web' },
+    ...metadata,
   }))
   return clientPath
 }
@@ -66,6 +69,20 @@ function construct(packageNames: string[]): ClientModuleHostService {
 }
 
 describe('client bundle activation', () => {
+  it('allows sibling dsh roles', () => {
+    const currentName = '@fixture/current-client-field'
+    const clientPath = writePackage(currentName, {
+      dsh: {
+        bundle: { patch: './cordis.patch.yml' },
+        client: { platform: 'web' },
+        profile: { bundles: [] },
+      },
+    })
+    mkdirSync(dirname(clientPath), { recursive: true })
+    writeFileSync(clientPath, 'module.exports = {}\n')
+    expect(construct([currentName]).graph().entries.map(entry => entry.id)).toEqual([currentName])
+  })
+
   it('groups missing bundles under one source-build instruction with a package/path list', () => {
     const firstName = '@fixture/missing-first'
     const secondName = '@fixture/missing-second'

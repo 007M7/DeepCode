@@ -11,7 +11,7 @@
  * @module @deepseek-ai/dsh-timeout-policy
  */
 
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import { deadline, timeoutOf } from '@deepseek-ai/dsh-timeout'
 import type { ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 

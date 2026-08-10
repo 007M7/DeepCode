@@ -4,7 +4,7 @@
  * @module @deepseek-ai/dsh-workflow
  */
 
-import { Context, Service } from 'cordis'
+import { Context, Service } from '@deepseek-ai/cordis'
 import { HarnessError } from '@deepseek-ai/dsh-llm'
 import type {
   WorkflowAgentEndInfo,
@@ -30,7 +30,7 @@ export type {
   WorkflowStopReason,
 } from './types.ts'
 
-declare module 'cordis' {
+declare module '@deepseek-ai/cordis' {
   interface Context {
     workflows: WorkflowService
   }
