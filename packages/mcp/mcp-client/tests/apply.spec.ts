@@ -254,11 +254,15 @@ describe('apply (plugin lifecycle)', () => {
   })
 
   it('rejects activation and still closes the client when startup failure is configured as fatal', async () => {
-    mockConnect.mockRejectedValue(new Error('connection refused'))
+    const cause = new Error('connection refused')
+    mockConnect.mockRejectedValue(cause)
     await expect(apply(ctx, {
       ...stdioConfig,
       failOnStartupError: true,
-    })).rejects.toThrow('initial connection or tool synchronization failed')
+    })).rejects.toMatchObject({
+      message: 'mcp-client(srv): initial connection or tool synchronization failed',
+      cause,
+    })
 
     expect(mockListTools).not.toHaveBeenCalled()
     expect(ctx.tools.get('mcp__srv__remote')).toBeUndefined()
