@@ -382,7 +382,7 @@ function daclAcePolicy(descriptor: Buffer): string[] {
   for (let index = 0; index < aceCount; index++) {
     const size = descriptor.readUInt16LE(offset + 2)
     const ace = Buffer.from(descriptor.subarray(offset, offset + size))
-    // INHERITED_ACE records provenance, not the entry's access policy.
+    // INHERITED_ACE records which parent ACE produced this entry, not the entry's access policy.
     ace.writeUInt8(ace.readUInt8(1) & ~0x10, 1)
     const key = ace.toString('hex')
     if (!seen.has(key)) {
@@ -494,6 +494,77 @@ describe('writeFileAtomic — temp-file safety', () => {
     })).rejects.toBe(denied)
     expect(await readFile(file, 'utf8')).toBe('old')
     expect((await readdir(dir)).filter(name => name.includes('.tmp'))).toEqual([])
+  })
+
+  it('maps a non-collision guarded-create publication failure and cleans staging', async () => {
+    const file = join(dir, 'a.txt')
+    const denied = Object.assign(new Error('link denied'), { code: 'EACCES' })
+
+    await expect(writeFileAtomic(file, 'ours', undefined, undefined, {
+      linkFile: async () => { throw denied },
+    }, { displayPath: file })).rejects.toMatchObject({ code: 'FS_IO_ERROR', cause: denied })
+    await expect(stat(file)).rejects.toMatchObject({ code: 'ENOENT' })
+    expect((await readdir(dir)).filter(name => name.includes('.tmp'))).toEqual([])
+  })
+
+  it('maps a guarded-create target-inspection failure and cleans staging', async () => {
+    const file = join(dir, 'a.txt')
+    const linkFailure = Object.assign(new Error('link failed'), { code: 'EIO' })
+    const inspectionFailure = Object.assign(new Error('inspection denied'), { code: 'EACCES' })
+
+    await expect(writeFileAtomic(file, 'ours', undefined, undefined, {
+      linkFile: async () => { throw linkFailure },
+      inspectPublicationTarget: async () => { throw inspectionFailure },
+    }, { displayPath: file })).rejects.toMatchObject({ code: 'FS_IO_ERROR', cause: inspectionFailure })
+    await expect(stat(file)).rejects.toMatchObject({ code: 'ENOENT' })
+    expect((await readdir(dir)).filter(name => name.includes('.tmp'))).toEqual([])
+  })
+
+  it('rejects a guarded-create collision that vanishes before inspection', async () => {
+    const file = join(dir, 'a.txt')
+    const collision = Object.assign(new Error('target existed'), { code: 'EEXIST' })
+
+    await expect(writeFileAtomic(file, 'ours', undefined, undefined, {
+      linkFile: async () => { throw collision },
+    }, { displayPath: file })).rejects.toMatchObject({
+      code: 'FS_NOT_OBSERVED',
+      message: `cannot overwrite existing "${file}" without reading it first`,
+      cause: collision,
+    })
+    await expect(stat(file)).rejects.toMatchObject({ code: 'ENOENT' })
+    expect((await readdir(dir)).filter(name => name.includes('.tmp'))).toEqual([])
+  })
+
+  it('uses the display path and target type when guarded publication finds a competitor', async () => {
+    const file = join(dir, 'a.txt')
+    const displayPath = join(dir, 'linked-workspace', 'a.txt')
+
+    await expect(writeFileAtomic(file, 'ours', undefined, undefined, {
+      inspectTemp: async () => { await writeFile(file, 'competitor') },
+    }, { displayPath })).rejects.toMatchObject({
+      code: 'FS_NOT_OBSERVED',
+      message: `cannot overwrite existing "${displayPath}" without reading it first`,
+    })
+    expect(await readFile(file, 'utf8')).toBe('competitor')
+
+    await rm(file)
+    await expect(writeFileAtomic(file, 'ours', undefined, undefined, {
+      inspectTemp: async () => { await mkdir(file) },
+    }, { displayPath })).rejects.toMatchObject({
+      code: 'FS_NOT_REGULAR_FILE',
+      message: `cannot write "${displayPath}": not a regular file`,
+    })
+    expect((await stat(file)).isDirectory()).toBe(true)
+  })
+
+  it('does not turn post-commit staging cleanup failure into a failed guarded write', async () => {
+    const file = join(dir, 'a.txt')
+    const cleanupFailure = new Error('staging cleanup failed')
+
+    await expect(writeFileAtomic(file, 'ours', undefined, undefined, {
+      removeStagingDir: async () => { throw cleanupFailure },
+    }, { displayPath: file })).resolves.toBeUndefined()
+    expect(await readFile(file, 'utf8')).toBe('ours')
   })
 
   it.skipIf(!posixModes)('creates new files owner-only by default', async () => {

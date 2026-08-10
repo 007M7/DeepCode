@@ -41,12 +41,12 @@ const IDENTIFIER = /^[\p{XID_Start}_]\p{XID_Continue}*$/u
  * that normalize together would collapse into one declaration. Those names
  * take the subscript path, which carries their exact bytes.
  *
- * `IDENTIFIER`'s equivalence to `str.isidentifier()` was measured across 21
- * samples with zero divergence, on Node 22.23.1 against CPython 3.9.6 — every
- * sample sits inside the two versions' shared tables, and the skew characters
- * below are exactly where that pair diverges. The predicate as a whole is
- * deliberately stricter than `isidentifier()`, which does not test NFKC
- * stability: `'ﬁeld'.isidentifier()` is True and this returns false.
+ * `IDENTIFIER` matches `str.isidentifier()` (measured on Node 22.23.1 vs
+ * CPython 3.9.6 tables): the equivalence holds inside the two versions' shared
+ * tables, and the skew characters below are exactly where that pair diverges.
+ * The predicate as a whole is deliberately stricter than `isidentifier()`,
+ * which does not test NFKC stability: `'ﬁeld'.isidentifier()` is True and
+ * this returns false.
  *
  * Both conditions are evaluated against the ENGINE's Unicode tables, and the
  * two sides are versioned independently — `\p{XID_Start}`/`\p{XID_Continue}`
@@ -85,8 +85,8 @@ const IDENTIFIER = /^[\p{XID_Start}_]\p{XID_Continue}*$/u
  * here — and the declared `class \u{A7DC}Args` fails with `invalid
  * non-printable character U+A7DC`. Closing the exposure therefore covers all
  * four read points, not this predicate alone; it needs the target interpreter's
- * version, which the backend reporting `language: 'python'` owns and which is
- * unpublished on this base, so the note records it as that PR's decision.
+ * version, which the backend reporting `language: 'python'` owns; the
+ * language-dispatch Agent Note records the deferral.
  *
  * The `ts-types` sibling keeps its own ASCII rule rather than sharing this
  * one: ECMAScript identifiers are a different set (`$`) and are never
@@ -500,7 +500,7 @@ function renderType(schema: unknown, className: string, state: RenderState): str
     ({ schema, className, phase: 'start', listDepth, children: [], childIndex: 0, childTypes: [], entries: [] })
   try {
     // Validate the WHOLE tree once, then trust it — the same contract the
-    // sibling ts-types renderer follows at a typed same-process seam. Every
+    // sibling ts-types renderer follows at a typed same-process boundary. Every
     // node past this point is a validated JSON-schema node, so the walk reads
     // its fields without re-checking. An unsupported or malformed schema throws
     // here (before anything is emitted) and degrades to `Any`, the Python

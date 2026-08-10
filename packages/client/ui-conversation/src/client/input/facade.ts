@@ -25,7 +25,7 @@ export interface PopupDismissFace {
 }
 
 /**
- * Construction seams of one facade. The slash/popup faces are THUNKS: the
+ * Construction dependencies of one facade. The slash/popup faces are THUNKS: the
  * shell is created inside the sessions provide materialization (before the
  * scope record is queryable), where `slash.sessionOf`/`command.popupFor`
  * cannot resolve yet — resolution defers to first interactive use.
@@ -39,6 +39,11 @@ export interface SessionInputDeps {
   popup?: (() => PopupDismissFace | undefined) | undefined
   /** Queue read face; overlaid onto InputState.queue (absent = empty). */
   queue?: ObservableSnapshot<readonly QueuedMessage[]> | undefined
+  /**
+   * Steer every still-pending queued message into the running turn, in FIFO
+   * order (the empty-draft accelerated-Enter gesture); absent = unsupported.
+   */
+  steerQueue?: (() => void) | undefined
   /** The plain-message sink (send choreography / materialize fork — the hub owns it). */
   defaultSink(text: string, mode: InputSubmitMode): void
 }
@@ -66,7 +71,7 @@ export class SessionInputShell implements SessionInput {
   readonly state: SnapshotStore<InputState>
   /** Latest surfaced notice (null after clear); the wiring renders it beside the error strip. */
   readonly notices: SnapshotStore<InputNotice | null> = createSnapshotStore<InputNotice | null>(null)
-  /** The public provide-channel action face (one stable identity per session — decision 20). */
+  /** The public provide-channel action face (one stable identity per session). */
   readonly actions: InputActions = {
     setDraft: (text) => { this.setDraft(text) },
     submit: () => { this.submit('queue') },
@@ -174,6 +179,16 @@ export class SessionInputShell implements SessionInput {
   }
 
   /**
+   * Steer every still-pending queued message into the running turn (the
+   * empty-draft accelerated-Enter gesture). Execution belongs to the hub's
+   * queue choreography; absent dep = the gesture falls back to the machine's
+   * empty-draft no-op.
+   */
+  steerQueue(): void {
+    this.deps.steerQueue?.()
+  }
+
+  /**
    * Space adjudication over the controller's hot state.
    * @returns true = a claim/insert was applied — the caller preventDefaults.
    */
@@ -198,7 +213,9 @@ export class SessionInputShell implements SessionInput {
 
   /**
    * Hot plain-text reference lexicon source for the decoration scan
-   * (decision 21): delegates to the controller's aggregated store. Stable
+   * (the plain-text-reference decision;
+   * see .agents/notes/implemented/architecture/2026-07-25-web-input-machine-and-slash-pipeline.md):
+   * delegates to the controller's aggregated store. Stable
    * identity per shell; without a pipeline the snapshot is the empty Map and
    * subscribers never fire.
    */
@@ -253,7 +270,8 @@ export class SessionInputShell implements SessionInput {
 
   /**
    * Insert plain reference text over the pick-time span (scoped insert-text
-   * event listener body, decision 21). Same CAS-then-splice shape as the
+   * event listener body; plain-text-reference decision, web-input-machine
+   * note). Same CAS-then-splice shape as the
    * consume-token span branch: the machine sees an ordinary draft-changed
    * transaction (one undo step), no occurrence is minted — the chip look is
    * a scan-derived decoration, never state.
@@ -339,7 +357,7 @@ export class SessionInputShell implements SessionInput {
   }
 
   /**
-   * Prompt serialization before the sink (design §3.12): expand each
+   * Prompt serialization before the sink: expand each
    * placeholder to its owner's model form via the session controller's
    * codec routing. Owner missing / serialize failure / disposal blocks the
    * send — notice + draft and chips retained, never a silent downgrade to

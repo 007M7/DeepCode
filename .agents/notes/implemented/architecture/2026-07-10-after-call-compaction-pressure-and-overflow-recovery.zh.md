@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-`agent/pre-step` 运行在最终请求路由之前，也早于 assistant 输出、工具结果、缓冲上下文与 steering（中途引导）的产生。即使它接收已装配提示词与会话前缀，压力视图仍是临时的，因为 `agent/request` 还可以改变路由或调用配置，工具 schema 也没有与这些输入一同冻结。增加字段无法让调用前状态描述已完成调用，还会把通用 seam 与压缩耦合。
+`agent/pre-step` 运行在最终请求路由之前，也早于 assistant 输出、工具结果、缓冲上下文与 steering（中途引导）的产生。即使它接收已装配提示词与会话前缀，压力视图仍是临时的，因为 `agent/request` 还可以改变路由或调用配置，工具 schema 也没有与这些输入一同冻结。增加字段无法让调用前状态描述已完成调用，还会把通用扩展点与压缩耦合。
 
 成功调用也不是唯一的压力信号。提供方可能在返回 usage 之前就因上下文窗口超限拒绝请求，一些成功调用也不提供 usage。因此，系统需要可回放的调用后压力，以及一条狭窄的失败恢复路径；当压缩无法证明取得有效进展时，必须保留原始提供方错误。
 
@@ -32,7 +32,7 @@ Compact-basic 会在每个拟议请求之前包装 `agent/pre-step`。在续步�
 
 `CompactService.compactIfNeeded(agent, trigger, signal)` 接收 `trigger: 'pressure' | 'context-overflow'`。接口不增加估算方法或 token 类型；`ctx.tokenMeter` 继续作为可复用的核算所有者。
 
-对于 `pressure`，compact-basic 先解析持久提供方/模型目标对应适配器所维护的容量与精确目标策略，再把得到的阈值与保留尾部预算应用到一次统一的 `ctx.tokenMeter.measure()` 结果。未达到压力阈值时直接返回，不执行剪枝。压力达到条件后，可选的 `ctx.toolResultPrune` 会改写当前表层中过大的工具结果，compact-basic 再通过同一个 meter 重新计量；若压力已降至安全水平则跳过模型调用，否则从已剪枝表层选择范围并生成摘要。范围定价、来源、被遮蔽 token 数与非缩小摘要拒绝也由同一个单例 meter 完成。通用默认值保持为阈值比例 `0.8`、保留历史比例 `0.16`、摘要提供方/模型 `''`、`maxTokens: 8192`、`compactionRetries: 1` 与 `auto: true`；可选 `modelPolicies` 项可以按精确提供方/模型组合覆盖这些值。
+对于 `pressure`，compact-basic 先解析持久提供方/模型目标对应适配器所维护的容量与精确目标策略，再把得到的阈值与保留尾部预算应用到一次统一的 `ctx.tokenMeter.measure()` 结果。未达到压力阈值时直接返回，不执行剪枝。压力达到条件后，可选的 `ctx.toolResultPrune` 会改写当前表层中过大的工具结果，compact-basic 再通过同一个 meter 重新计量；若压力已降至安全水平则跳过模型调用，否则从已剪枝表层选择范围并生成摘要。范围定价、引用的源事件计量、被遮蔽 token 数与非缩小摘要拒绝也由同一个单例 meter 完成。通用默认值保持为阈值比例 `0.8`、保留历史比例 `0.16`、摘要提供方/模型 `''`、`maxTokens: 8192`、`compactionRetries: 1` 与 `auto: true`；可选 `modelPolicies` 项可以按精确提供方/模型组合覆盖这些值。
 
 对于规范化溢出，compact-basic 不要求容量元数据，并绕过标量压力与普通保留 token 预算。它先执行剪枝，再在保留最新不可分割单元的同时选择最大的工具配对平衡头部范围；存在范围时，才在同一 signal 下尝试一次缩小摘要压缩。自动监听器先记录 `session.surface.replaceGeneration`，剪枝或摘要让 generation 增加时就返回 `{ kind: 'retry' }`。即使剪枝先落盘而后续摘要工作抛错，这条规则仍然成立；取消依然优先。后端若只返回结果但没有替换表层，不能授权重试；只有剪枝取得进展时，即使没有 `CompactionResult` 也可以授权重试。
 

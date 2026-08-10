@@ -22,7 +22,7 @@ The `fs-glob-sampling` ACP snapshot scenario now executes the real packaged bina
 
 **Keep the bash seam and probe, but document `rg` as a required host dependency.** Rejected: the host dependency is exactly the failure this change removes, and Windows support for the discovery tools was the point of the exercise; a documented requirement is still a requirement.
 
-**Make `rgPath` injectable (a config field or env override) so tests and snapshots keep substituting a stand-in binary.** Rejected: it adds a public deployment surface whose only consumer would be test seams, and the real binary is deterministic enough to pin directly through fixture mtimes — the packaged binary is the deployment, so tests should exercise it.
+**Make `rgPath` injectable (a config field or env override) so tests and snapshots keep substituting a stand-in binary.** Rejected: it adds a public deployment surface whose only consumer would be test hooks, and the real binary is deterministic enough to pin directly through fixture mtimes — the packaged binary is the deployment, so tests should exercise it.
 
 **Switch to a pure-JS glob/search engine (e.g. `picomatch`/`tinyglobby`).** Rejected: the [dependency-swaps audit](../../rejected/simplification/2026-07-26-dependency-swaps-rejected-by-nih-audit.md) already rejected that on the "no glob engine exists" evidence; ripgrep semantics (`--sort=modified`, VCS pruning, JSON transport, regex dialect) are the tool contract.
 

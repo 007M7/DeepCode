@@ -1,7 +1,7 @@
 /**
- * Telemetry seam for the DeepSeek Harness.
+ * Telemetry Service Definition for the DeepSeek Harness.
  *
- * The seam owns the CAPTURE side of session-event reporting — which records
+ * This package owns the CAPTURE side of session-event reporting — which records
  * exist (the chunk projection), what they carry (the logical record), when
  * they are captured (adoption, the per-append firehose, lifecycle
  * forwarding), live versus on-demand canonical-log capture, and the HMR
@@ -24,7 +24,7 @@ declare module 'cordis' {
   interface Events {
     /**
      * Transform one outbound record before it reaches the backend. This
-     * waterfall is the seam's redaction extension point. It ships NO rules
+     * waterfall is the Service Definition's redaction extension point. It ships NO rules
      * of its own: the
      * innermost `next()` passes the record through unchanged, and with no
      * listener mounted records reach the backend as captured, so exported
@@ -55,7 +55,7 @@ declare module 'cordis' {
 export type TelemetrySeverity = 'info' | 'warn' | 'error'
 
 /**
- * One logical record handed to a backend — the seam's whole outbound
+ * One logical record handed to a backend — the capture contract's whole outbound
  * vocabulary. Ledger records mirror session-log events one-to-one;
  * operational records (`channel: 'ops'`) carry the two signals with no log
  * home (`agent-error`, `shutdown`) and deliberately omit `event.seq`-style
@@ -111,7 +111,7 @@ export interface TelemetryBackend {
    * leave this unimplemented and let their SDK's own batching cadence govern
    * export timing: a backend that does implement it owns the interaction
    * between its concurrent flushes and {@link shutdown}'s drain (the OTel
-   * backend removed its implementation for exactly that hazard — see the
+   * backend leaves it unimplemented for exactly that hazard — see the
    * revival Agent Note).
    */
   flush?(): void
@@ -143,7 +143,7 @@ export abstract class Telemetry extends Service implements TelemetryBackend {
   }
 
   /**
-   * See {@link TelemetryBackend.emit} — the seam declaration is the contract's one home.
+   * See {@link TelemetryBackend.emit} — that declaration is the contract's one home.
    * @param record - the logical record to report; owned by the backend after the call.
    */
   abstract emit(record: TelemetryRecord): void

@@ -20,7 +20,7 @@ export type {
   ToolCallView, ToolResultView, WorkspaceApi, WorkspaceId, WorkspaceView,
   CommandsApi, CommandDescriptor, SkillsApi, SkillEntry,
   ModelCatalogFailure, ModelCatalogModel, ModelProviderGroup, ModelReasoning,
-  MessageId, ModelReasoningEffort, ModelTarget, QueueAction, QueuedInboxItem, SessionModels,
+  MessageId, ModelReasoningEffort, ModelSelection, QueueAction, QueuedInboxItem, SessionModels,
   SubagentsApi, SubagentAddress, SubagentCatalog, SubagentListEntry, SubagentPromptReceipt,
   TaskView,
   RpcRequest, RpcResponse, RpcResult, RpcError, RpcErrorCode,

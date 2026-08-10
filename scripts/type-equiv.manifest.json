@@ -114,12 +114,12 @@
     {
       "doc": "docs/subsystems/core.md",
       "symbol": "InboxTarget",
-      "source": "packages/core/agent/src/inbox.ts"
+      "source": "packages/core/agent/src/types.ts"
     },
     {
       "doc": "docs/subsystems/core.md",
       "symbol": "CancelOptions",
-      "source": "packages/core/agent/src/types.ts"
+      "source": "packages/core/agent/src/runtime-types.ts"
     },
     {
       "doc": "docs/subsystems/core.md",
@@ -129,22 +129,22 @@
     {
       "doc": "docs/subsystems/core.md",
       "symbol": "Agent",
-      "source": "packages/core/agent/src/types.ts"
+      "source": "packages/core/agent/src/runtime-types.ts"
     },
     {
       "doc": "docs/subsystems/core.md",
       "symbol": "PreStepDecision",
-      "source": "packages/core/agent/src/types.ts"
+      "source": "packages/core/agent/src/runtime-types.ts"
     },
     {
       "doc": "docs/subsystems/core.md",
       "symbol": "RequestErrorAction",
-      "source": "packages/core/agent/src/types.ts"
+      "source": "packages/core/agent/src/runtime-types.ts"
     },
     {
       "doc": "docs/subsystems/core.md",
       "symbol": "SessionStartSource",
-      "source": "packages/core/agent/src/types.ts"
+      "source": "packages/core/agent/src/runtime-types.ts"
     },
     {
       "doc": "docs/subsystems/scope.md",
@@ -962,6 +962,11 @@
     },
     {
       "doc": "docs/subsystems/filesystem.md",
+      "symbol": "FsObservation",
+      "source": "packages/fs/fs/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/filesystem.md",
       "symbol": "FsInfo",
       "source": "packages/fs/fs/src/types.ts"
     },
@@ -1053,6 +1058,11 @@
     {
       "doc": "docs/subsystems/skills.md",
       "symbol": "SkillLookupOptions",
+      "source": "packages/skill/skill/src/index.ts"
+    },
+    {
+      "doc": "docs/subsystems/skills.md",
+      "symbol": "SkillViewOptions",
       "source": "packages/skill/skill/src/index.ts"
     },
     {
@@ -1693,12 +1703,12 @@
     {
       "doc": "docs/subsystems/core.md",
       "symbol": "AgentStatus",
-      "source": "packages/core/agent/src/types.ts"
+      "source": "packages/core/agent/src/runtime-types.ts"
     },
     {
       "doc": "docs/subsystems/core.md",
       "symbol": "AgentOptions",
-      "source": "packages/core/agent/src/types.ts"
+      "source": "packages/core/agent/src/runtime-types.ts"
     }
   ]
 }

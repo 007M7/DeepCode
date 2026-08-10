@@ -12,7 +12,7 @@ Adding Ralph behavior to `dsh-agent-loop`, the goal driver, or the public model-
 
 ## Decision
 
-Add `@deepseek-ai/dsh-tool-ralph` as a separate consumer package under `packages/workflow/`. It registers `ralph({ objective, maxRounds? })`, owns a fixed workflow script, and depends only on `ctx.tools`, `ctx.systemPrompt`, `ctx.workflows`, and `ctx.subagents`. A Ralph run is not a session goal, creates no goal state, and requires no branch in the concrete agent loop.
+Add `@deepseek-ai/dsh-tool-ralph` as a separate Consumer package under `packages/workflow/`. It registers `ralph({ objective, maxRounds? })`, owns a fixed workflow script, and depends only on `ctx.tools`, `ctx.systemPrompt`, `ctx.workflows`, and `ctx.subagents`. A Ralph run is not a session goal, creates no goal state, and requires no branch in the concrete agent loop.
 
 The tool is foreground-only. The calling agent parents every child for cwd and lineage, the parent tool call waits for the complete run, and the parent step's abort signal cancels the workflow. `run.dispose()` is awaited on every path, so cancellation reaches the worker engine's bounded settlement and child quiescence before the call returns.
 
@@ -70,5 +70,5 @@ A keyless real-stack integration drives the fixed script through the actual work
 - Runs are foreground and process-local. Background collection, persistence/resume, scheduling, and restart recovery are absent.
 - Round count is the only aggregate budget. Token, currency, elapsed-time, and provider-usage budgets remain separate future policy.
 - One round creates one child. Within-round fan-out, evaluator/worker role separation, dynamic provider or model selection, and cross-run journals are deferred.
-- An ordinary child failure ends the run without retry, while preserving the failed round and last successful handoff. Fatal workflow infrastructure failures can end before the fixed script returns that state; adding retry or richer failure transport requires separate policy and seam design.
+- An ordinary child failure ends the run without retry, while preserving the failed round and last successful handoff. Fatal workflow infrastructure failures can end before the fixed script returns that state; adding retry or richer failure transport requires separate policy and boundary design.
 - Prompt guidance asks models not to invoke Ralph recursively; a structural child-tool restriction would require a separately designed workflow child-policy surface.

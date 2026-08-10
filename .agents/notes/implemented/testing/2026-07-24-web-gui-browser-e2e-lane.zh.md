@@ -18,7 +18,7 @@ Web GUI 以一条真实组装链交付——chromium 页面 → client 插件 bu
 
 `launchWebScaffold()` 通过 vendored Loader 的 include 机制，从交付的 `apps/cli/config/base.cordis.yml` 与 `apps/cli/config/web.cordis.yml` 启动真实 web 组合——与 `AppCLIEntry` 为 `dsh web` 驱动的是同一棵树、同一套机制。差异全部经 include patch 覆盖在这棵树上，即 ACP `cordis.snapshot.yml` 模式的进程内表达：临时 `persistenceRoot`；每个主机级 `skill-local` 根目录（`dshHome`、`agentsHome` 和 `bundledSkillDir`）都钉在临时工作区下并禁用监听，因为环境 skill（技能）目录是模型可见输入；禁用 `workspace-context`（录制的 fixture 不得嵌入本仓库的 AGENTS.md）；禁用 `session-title-llm`（其发后不管的标题调用会与循环争抢会话的回放游标）；webserver 行钉到端口 0 加已构建 dist；无密钥模式下禁用 `llm-deepseek`。patch 的 id 一旦不再匹配任何行，boot 扫描会大声失败而不是漂移。boot 在临时工作区 `chdir` 下运行，使 api-gateway 的 `process.cwd()` 会话默认值、工具 cwd 与 fixture 一致；`dsh web` bin 自身的胶水（argv、profile json、AppCLIEntry）仍由 `smoke-real.e2e.ts` 中的无密钥 CLI 冒烟把守。初始化回滚和正常关闭都会先对 Cordis 树执行 dispose（资源释放），再删除 scaffold 持有的两个临时根目录；每项清理都会独立尝试，并会报告清理失败而不掩盖初始化失败。
 
-无密钥的模型替换 = 禁用适配器行的 patch 加 `installLlmReplay` 在停稳的根 ctx 上以提供方目录（providers-catalog）模式填充开放的 seam——绝不用 catch-all：适配器行被禁用后不存在任何适配器，catch-all 会让 `resolveModelInfo` 无路由可走，`compact-basic` 的步后压力检查将步步告警，而不是被可证明地闲置（发布的 128k `contextWindow` 使该路径对小 fixture 保持闲置）。选择直接安装而非插入回放插件行是刻意的：直接安装返回收尾消费检查所需的 `ReplayHandle`。没有 fixture 的场景让 seam 保持空置，任何离群的流式调用都会以 NO_ADAPTER 大声失败。
+无密钥的模型替换 = 禁用适配器行的 patch 加 `installLlmReplay` 在停稳的根 ctx 上以提供方目录（providers-catalog）模式填充空的适配器注册表——绝不用 catch-all：适配器行被禁用后不存在任何适配器，catch-all 会让 `resolveModelInfo` 无路由可走，`compact-basic` 的步后压力检查将步步告警，而不是被可证明地闲置（发布的 128k `contextWindow` 使该路径对小 fixture 保持闲置）。选择直接安装而非插入回放插件行是刻意的：直接安装返回收尾消费检查所需的 `ReplayHandle`。没有 fixture 的场景让注册表保持空置，任何离群的流式调用都会以 NO_ADAPTER 大声失败。
 
 `seedSession()` 通过真实持久化 API 播种冷会话——一次性 `Context` 挂载 `SessionStore` + `SessionPersistenceJsonl` 指向 host 的根目录，`create()` + `append()`，一次 `utimes` 回拨保证侧栏顺序确定（`semantic-checkpoint.snapshot.ts` 先例）——绝不裸写文件，因此播种器对桶哈希、文件名编码、压缩一无所知，host 的 zstd 默认值也无需任何启动开关。种子在播种时即校验（可解析、以 `turn/end` 结尾——未闭合的最终轮次会被恢复（resume）的崩溃修复改写）。
 
@@ -52,7 +52,7 @@ Web GUI 以一条真实组装链交付——chromium 页面 → client 插件 bu
 
 ## 业界先例
 
-调研了 AI 聊天/agent web UI 与 mock 层（LibreChat、vercel/ai-chatbot + AI SDK、lobe-chat、open-webui、OpenHands、Chainlit、continue、cline、langfuse、gradio/streamlit；Playwright HAR/route、MSW、Polly/nock、WireMock、aimock）。自有后端的应用的主流成熟架构是：真实后端 seam 后放一个进程内伪造/回放模型，下游全部真实（LibreChat 的 `LIBRECHAT_TEST_RUN_HOOK` 伪模型；ai-chatbot 的 `MockLanguageModelV3` + `simulateReadableStream`；continue 的脚本化 mock 提供方类）——这正是 `dsh-llm-replay` 已然所是。浏览器层 SSE 拦截无法检验增量渲染（`route.fulfill` 一次性交付整个响应体；playwright#33564），且服务端 SSE 栈完全失测，因此各项目只把它用于边缘用例。分片节奏作为 fixture 参数反复出现（LibreChat 默认 10ms 附慢速档；ai-chatbot 500ms）；CI 里的真实模型会腐烂（open-webui 的套件长出 120 秒超时，先被禁用后被删除）；会话在持久化层以受控时间戳播种（LibreChat 直插回拨时间的 Mongo 文档；langfuse 播种其数据库）。没有任何被调研项目为 UI 测试把录制的 agent 事件日志经真实后端回放——最接近的是提供方层录制 fixture（aimock）与前端层 socket 历史发射（OpenHands MSW）——因此会话日志即 fixture 的设计沿着本仓库「模型可见 ⟺ 已记录」不变式所指的方向比业界先例多走了一步。
+调研了 AI 聊天/agent web UI 与 mock 层（LibreChat、vercel/ai-chatbot + AI SDK、lobe-chat、open-webui、OpenHands、Chainlit、continue、cline、langfuse、gradio/streamlit；Playwright HAR/route、MSW、Polly/nock、WireMock、aimock）。自有后端的应用的主流成熟架构是：真实后端约定后放一个进程内伪造/回放模型，下游全部真实（LibreChat 的 `LIBRECHAT_TEST_RUN_HOOK` 伪模型；ai-chatbot 的 `MockLanguageModelV3` + `simulateReadableStream`；continue 的脚本化 mock 提供方类）——这正是 `dsh-llm-replay` 已然所是。浏览器层 SSE 拦截无法检验增量渲染（`route.fulfill` 一次性交付整个响应体；playwright#33564），且服务端 SSE 栈完全失测，因此各项目只把它用于边缘用例。分片节奏作为 fixture 参数反复出现（LibreChat 默认 10ms 附慢速档；ai-chatbot 500ms）；CI 里的真实模型会腐烂（open-webui 的套件长出 120 秒超时，先被禁用后被删除）；会话在持久化层以受控时间戳播种（LibreChat 直插回拨时间的 Mongo 文档；langfuse 播种其数据库）。没有任何被调研项目为 UI 测试把录制的 agent 事件日志经真实后端回放——最接近的是提供方层录制 fixture（aimock）与前端层 socket 历史发射（OpenHands MSW）——因此会话日志即 fixture 的设计沿着本仓库「模型可见 ⟺ 已记录」不变式所指的方向比业界先例多走了一步。
 
 ## 曾考虑的替代方案
 
@@ -60,7 +60,7 @@ Web GUI 以一条真实组装链交付——chromium 页面 → client 插件 bu
 
 **`DEEPSEEK_BASE_URL` 处的 mock HTTP 提供方。** 作为本车道机制已否决（仅保留给既有的工作区探针冒烟）：fixture 会变成手写的 OpenAI SSE 字节脚本，一种与仓库其余部分录制回放的会话日志格式渐行渐远的第二 fixture 格式；适配器的真实 HTTP 路径归带密钥 e2e 管。
 
-**扩展 `?fixture` 客户端。** 已否决：分层纪律——`FixtureApiClient` 的存在意义就是脱离服务器测试客户端 shell；client API seam 以下按构造即失测。
+**扩展 `?fixture` 客户端。** 已否决：分层纪律——`FixtureApiClient` 的存在意义就是脱离服务器测试客户端 shell；client API 边界以下按构造即失测。
 
 **用占位 `DEEPSEEK_API_KEY` + 回放拦截替代禁用适配器行。** 尽管零组合改动且树内有两处先例仍被否决：它用谎言满足 `llm-deepseek` 的快速失败密钥检查，还留下一个挂载却被拦截的死适配器；禁用行（ACP overlay 的同款做法）是诚实的无密钥，并在最早可解析点快速失败。
 
@@ -70,9 +70,9 @@ Web GUI 以一条真实组装链交付——chromium 页面 → client 插件 bu
 
 **以 `DSH_SNAPSHOT` 回放分支拉起 `dsh web` bin。** 已否决：它需要在交付的 CLI 中增加测试专用回放分支和环境变量管道。进程内 scaffold 已加载同一份 `apps/cli/config/base.cordis.yml` 与 `apps/cli/config/web.cordis.yml`；只剩 argv、profile JSON 和 `AppCLIEntry` 胶水不在其覆盖范围内，而这些路径已由无密钥 CLI 冒烟覆盖。
 
-**为可测试性改 wire 协议。** 已否决：约定已有第一等的无密钥同构 seam（`InProcessApiClient(toFetchHandler(api))`），逐事件不合批的 SSE 恰是回放在浏览器中可观测的原因，测试一条不再交付的 wire 会颠倒该层的存在意义。
+**为可测试性改 wire 协议。** 已否决：约定已有第一等的无密钥进程内路径（`InProcessApiClient(toFetchHandler(api))`），逐事件不合批的 SSE 恰是回放在浏览器中可观测的原因，测试一条不再交付的 wire 会颠倒该层的存在意义。
 
-**以真实模型浏览器测试充当无密钥车道。** 已否决：按构造即不确定；被调研的前车之鉴（open-webui）长出无界超时后被删除。带密钥的 W5 冒烟仍是真实模型侧的补充。
+**以真实模型浏览器测试充当无密钥车道。** 已否决：按构造即不确定；被调研的前车之鉴（open-webui）长出无界超时后被删除。带密钥的真实 host 冒烟仍是真实模型侧的补充。
 
 **在必需的浏览器门禁中运行高基数性能用例。** 已否决：其 fixture 设置和完整历史渲染会增加数十秒耗时，而壁钟时间和内存值随 host 不同而变化，无法提供稳定的正确性阈值。必需车道保留确定性行为断言；贡献者在调查或更改大列表和长历史渲染时运行该诊断用例。
 

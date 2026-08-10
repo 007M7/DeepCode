@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-06-17-filesystem-capability-seam.md
-2026-06-17-filesystem-capability-seam.md: 7436d2a9402c76f17c7d6571eb489a86e550ebfb
-2026-06-17-filesystem-capability-seam.zh.md: a96d513d7f4fa793ebb3427e3f7b290862d0d5e9
+2026-06-17-filesystem-capability-seam.md: 928ad4926e46ed5b6b35552b75882d565d8ad6db
+2026-06-17-filesystem-capability-seam.zh.md: 02af77a3cc291eeba2be966a4bc08aa006675e7d

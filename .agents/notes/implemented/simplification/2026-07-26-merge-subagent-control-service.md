@@ -8,7 +8,7 @@ The public operation set is refined by [Intent-named subagent continuation opera
 
 ## Problem
 
-Continuable-child orchestration originally lived in a separate `ctx.subagentControl` service above the raw `ctx.subagents` provider seam. That split kept provider dispatch independent of Tasks and persistence, and gave model and human adapters one orchestration contract. In practice the two services described one capability family, every continuable caller needed both, and the provider-bound delegation tool had to infer policy from `provider.resume` and inspect whether the control service and `send_message` tool happened to be loaded. This made sibling plugin presence decide execution semantics and coupled starting continuable work to an optional follow-up surface.
+Continuable-child orchestration originally lived in a separate `ctx.subagentControl` service above the raw `ctx.subagents` provider contract. That split kept provider dispatch independent of Tasks and persistence, and gave model and human adapters one orchestration contract. In practice the two services described one capability family, every continuable caller needed both, and the provider-bound delegation tool had to infer policy from `provider.resume` and inspect whether the control service and `send_message` tool happened to be loaded. This made sibling plugin presence decide execution semantics and coupled starting continuable work to an optional follow-up surface.
 
 ## Decision
 

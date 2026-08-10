@@ -116,7 +116,7 @@ slot scope 是闭集 `root | session-maybe | session`：
 |---|---|
 | client-local Intent + materialize（published CAS / pendingPrompt attach 事务 / before-create 链） | client 被迫模拟 host 缺失的前半段生命，养出 published CAS、attach 事务、部分发布一坨状态机 |
 | host 预留 ID（draft Map） | host 只认了个号，状态机原封留在 client |
-| host draft Session（有 Session 无 Agent） | 每个查 Agent 的 host 面都要为 draft 分叉；core 要开 attachAgent seam + header cwd 后写 |
+| host draft Session（有 Session 无 Agent） | 每个查 Agent 的 host 面都要为 draft 分叉；core 要新增 `attachAgent` API + header cwd 后写 |
 | 无 cwd 先绑 Agent（ungrouped） | header.cwd readonly「created in」不变性被推翻 + launch-dir 副作用产品坑 |
 | React Context 层层传会话语境 | 插件在 host/client 两侧应是一个心智模型；scope 机制与 host dsh-scope 同构 |
 | `scopeTarget` carrier + 融合派发器（镜像 host `agentEvents`） | host 包装层护的是「业务 Agent subject 与 scope key 不漂移」，client 事件无 subject 可护；filter 住 actx + cordis 原语覆盖全部需求 |
@@ -133,4 +133,4 @@ slot scope 是闭集 `root | session-maybe | session`：
 - client 对象层收敛为 wire 镜像：会话身份、生命周期、能力判别全部以 host 实体为准——输入体系（下一层）面对的永远是「有真 Agent 的会话」，slash/skill 等提供方一律以 sessionId 直接寻址。
 - 空会话治理零专用机制：状态靠一个派生位，可见性靠统一列表投影（仅 current blank 以 `New Session` 展示），回收靠 lazy persistence 的既有约定（重启蒸发），常规上限靠同 Workspace 复用。
 - 代价：id→ctx 换乘纪律、provide 的 Concurrent 纪律都是约定而非类型强制，靠 review 与测试钉住；「未选 workspace」期间输入全禁是产品面接受的体验代价（单一状态轴换来的）。
-- 已知欠账：approval/question 跨 prune 恢复（TODO）；模型选择以 live-mutation 形状回归（host `selectModel` 三件套现成，等独立分支）。
+- 已知欠账：approval/question 跨 prune 恢复（TODO）；模型选择以 live-mutation 形状回归（host `selectModel` 三件套现成，其 client 消费方尚未构建）。

@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-后台任务注册表 seam（`ctx.tasks`）。抽象的 `TaskService` 及其词汇类型在同一份约定下为长时间运行的生产方提供共享 id、owner 隔离、读取、取消、等待、通知和清理；进程局部注册表位于 [`dsh-tasks-local`](../tasks-local/README.md)。生产方插件使用其不透明 id namespace 扩展 `TaskKindMap`。
+后台任务注册表约定（`ctx.tasks`）。抽象的 `TaskService` 及其词汇类型在同一份约定下为长时间运行的生产方提供共享 id、owner 隔离、读取、取消、等待、通知和清理；进程局部注册表位于 [`dsh-tasks-local`](../tasks-local/README.md)。生产方插件使用其不透明 id namespace 扩展 `TaskKindMap`。
 
 ## 服务约定
 

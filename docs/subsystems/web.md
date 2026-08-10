@@ -2,11 +2,11 @@
 
 English | [中文](web.zh.md)
 
-The web access seam — a [capability seam](../../.agents/notes/implemented/architecture/2026-06-24-web-capability-seam.md) that spans **two capabilities** (search and fetch) on one `ctx.web` service, split across packages: interface ([dsh-web](../../packages/web/web), `ctx.web` + the provider registries), implementations ([dsh-web-search-exa](../../packages/web/web-search-exa), [dsh-web-search-perplexity](../../packages/web/web-search-perplexity), [dsh-web-search-deepseek](../../packages/web/web-search-deepseek), [dsh-web-fetch-local](../../packages/web/web-fetch-local)), and consumer ([dsh-tool-web](../../packages/web/tool-web), the `web_search`/`web_fetch` tool schemas). Web is **one optional capability**, not part of the agent-loop spine — so its vocabulary lives here, not in [core.md](core.md). A search-provider swap does not change how the model asks for a query, and a fetch-implementation swap does not change how the model asks for a URL.
+The web access seam — a [capability seam](../../.agents/notes/implemented/architecture/2026-06-24-web-capability-seam.md) that spans **two operations** (search and fetch) on one `ctx.web` service, split across packages: Service Definition ([dsh-web](../../packages/web/web), `ctx.web` + the provider registries), Service providers ([dsh-web-search-exa](../../packages/web/web-search-exa), [dsh-web-search-perplexity](../../packages/web/web-search-perplexity), [dsh-web-search-deepseek](../../packages/web/web-search-deepseek), [dsh-web-fetch-local](../../packages/web/web-fetch-local)), and Consumer ([dsh-tool-web](../../packages/web/tool-web), the `web_search`/`web_fetch` tool schemas). Web is **one optional capability**, not part of the agent-loop spine — so its vocabulary lives here, not in [core.md](core.md). A search-provider swap does not change how the model asks for a query, and a fetch-provider swap does not change how the model asks for a URL.
 
 Source: [`packages/web/web/src/types.ts`](../../packages/web/web/src/types.ts)
 
-## Why one seam for two capabilities
+## Why one capability has two operations
 
 Search and fetch share no request schema and no business logic, but they are deliberately one `ctx.web` middle layer: one provider-selection policy owner, one abort/error vocabulary, one product-facing "how this harness reaches the web" config surface. The cost is the parallel `searchX`/`fetchX` method pairs on the service; that parallelism is intentional, not a missed extraction. Providers register **capabilities** (a `WebSearchProvider` or `WebFetchProvider`), not tools; the model-facing names, schemas, prompt guidance, and presentation all live in the single `dsh-tool-web` consumer.
 
@@ -36,7 +36,8 @@ interface WebSearchRequest {
 ```ts type-equiv
 /**
  * Normalized search outcome. `content` is optional provider-generated answer
- * text or summary (Exa returns none; Perplexity returns a generated answer).
+ * text or summary (Exa and DeepSeek return none; Perplexity returns a
+ * generated answer).
  * `sources[]` is the portable citation surface. `truncated` is set by the seam
  * when it cut `sources[]` down to `maxResults`.
  */
@@ -49,8 +50,6 @@ interface WebSearchResult {
   readonly truncated: boolean
 }
 ```
-
-`content` is optional provider-generated answer text (Exa and DeepSeek return none; Perplexity returns a generated answer). `sources[]` is the portable citation surface. A source always has a `url`; `title`/`snippet`/`publishedAt` are optional because not every provider returns them — Perplexity citations may be URL-only, and forcing adapters to invent the rest would make the seam lie. `dsh-tool-web` renders `title ?? hostname(url)`.
 
 ```ts type-equiv
 /**
@@ -103,8 +102,6 @@ interface WebFetchResult {
 }
 ```
 
-`WebFetchBody` is a **closed** discriminated union owned by `dsh-web` (not a merge-extensible map): the provider decodes the kind and `dsh-tool-web` renders it, so a new kind is a coordinated change across known packages, not a plugin extension. Consumers `switch` on `kind` ending in `default: assertNever(...)`, so adding a kind breaks compilation at every consumer until handled. Each arm stays its own object literal even where fields coincide today, leaving room for arm-specific fields later (a future `pdf` body's `pageCount`).
-
 ```ts type-equiv
 /**
  * The decoded body of a fetched resource. A CLOSED discriminated union owned by
@@ -112,8 +109,8 @@ interface WebFetchResult {
  * new kind is a coordinated change across known packages, not a plugin
  * extension. Consumers `switch` on `kind` ending in `default: assertNever(...)`
  * so adding a kind breaks compilation at every consumer until handled. Each arm
- * stays its own object literal even where fields coincide today, leaving room
- * for arm-specific fields later (a `pdf` body's `pageCount`).
+ * stays its own object literal even where fields coincide, so an arm can gain
+ * fields the others lack.
  */
 type WebFetchBody =
   | { readonly kind: 'html'; readonly content: string }
@@ -132,7 +129,7 @@ Selection never depends on registration, config, or HMR order: a capability has 
 
 ## The service
 
-`WebService` registers search and fetch providers, rejects duplicate ids with `WEB_DUPLICATE_PROVIDER`, and resolves providers at execution time with structured selection errors. The local fetch backend accepts only HTTP(S), rejects credentials, caps redirects, bytes, characters, and time, revalidates every same-origin redirect hop, and decodes the body; the tool owns presentation. Private-network blocking is deferred, so do not enable `web_fetch` where it can reach sensitive internal targets.
+`WebService` registers search and fetch providers, rejects duplicate ids with `WEB_DUPLICATE_PROVIDER`, and resolves providers at execution time with structured selection errors. The local fetch backend accepts only HTTP(S), rejects credentials, caps redirects, bytes, characters, and time, revalidates every same-origin redirect hop, and decodes the body; the tool owns presentation. The local backend does not block private-network targets; do not enable `web_fetch` where it can reach sensitive internal ones.
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 

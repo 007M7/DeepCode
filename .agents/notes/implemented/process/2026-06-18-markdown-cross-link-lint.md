@@ -28,6 +28,6 @@ The gate now also checks `#fragment` anchors on Markdown targets — same-file a
 
 ## Consequences
 
-- Renames and moves that orphan a cross-link fail `doc-sync` and CI instead of waiting for a reader to click a dead link. This made the Agent Note reorganization that introduced the gate self-verifying: the same PR that rewrote forty links also added the check that proves none dangle.
+- Renames and moves that orphan a cross-link fail `doc-sync` and CI instead of waiting for a reader to click a dead link. This made the Agent Note reorganization that introduced the gate self-verifying: the check proves none of its own rewritten links dangle.
 - One more fast tsx script in the `doc-sync` chain; no new dependency (the mdast/GFM stack is already in devDependencies for `verify-md-wrap`).
 - The convention this enforces — cross-reference docs by machine-checkable relative link, never by bare prose or a number — is documented in [docs/AGENTS.md](../../../../docs/AGENTS.md) so authors know the gate exists and why.

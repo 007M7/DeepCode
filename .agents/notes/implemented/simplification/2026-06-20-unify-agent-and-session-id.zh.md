@@ -33,7 +33,6 @@ agent 的注册表 id 等于其会话 id。`CreateAgentOptions` 接受一个 `se
 - ACP、stdio、钩子、bash 归属、持久化和 lineage 直接使用共享 `SessionId`。ACP subagent 后端在父命名空间中铸造其生命周期 id，因为子服务器返回的会话 id 仅在服务器本地有效；ACP bridge 根据正向会话 map 验证精确的 `Agent` 归属；JSON-RPC 只转发生命周期事件中由服务快照保存的 `local` 标记为 true 的事件，从带范围的事件 carrier 取得委托父项，并且不保留子 identity 或 lineage cache。
 - 配置驱动的恢复或创建策略是显式的，并在持久化重启场景下得到覆盖。
 - 生产监听器搜索确认保留 `agent/created`/`agent/disposed` 及其发布语义。
-- 类型检查、覆盖率、快照、doc-sync（文档同步门禁）、module-graph 校验、构建与 hygiene 全部通过。
 
 ## 后果
 

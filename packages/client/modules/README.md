@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-Client module system: the browser peer of Node's internal ESM loader, built as a lazy CJS table. The web shell mounts the vendored cordis Loader for entry governance (fiber lifecycle, inject waiting, update/refresh) and injects this package's `ClientModuleLoader` as its `internal` seam — the vendored side's only consumption point is `EntryTree.import`, so replacing `internal` replaces exactly "how plugin code arrives" and nothing else.
+Client module system: the browser peer of Node's internal ESM loader, built as a lazy CJS table. The web shell mounts the vendored cordis Loader for entry governance (fiber lifecycle, inject waiting, update/refresh) and injects this package's `ClientModuleLoader` through its `internal` contract — the vendored side's only consumption point is `EntryTree.import`, so replacing `internal` replaces exactly "how plugin code arrives" and nothing else.
 
 Lazy CJS model (web2): executing a plugin bundle only REGISTERS its factory (`window.__ModuleLoader__.load({id, factory})`); every module body side effect — CSS injection included — lives in the factory closure and runs at materialization (`factory(require)` → export surface, memoized in `loadCache`), not at script execution. A factory that requires another registered-but-unmaterialized module materializes it recursively, so load order needs no external sequencing; require cycles throw (factory-form CJS cannot deliver partial exports). `<id>/client` and the bare id name the same surface (a plugin bundle IS its package's client half).
 

@@ -6,36 +6,36 @@ Status: implemented
 
 ## 问题
 
-产品启动器过去把可选任务文本挂在通用 profile 启动命令上：`dsh --profile headless "task"`。于是，同一种 argv 形态会表示常驻 profile 或一次性运行，具体含义取决于组合完成后才发现的配置行。解析器的 `ProfileInvocation` 携带可选任务状态，帮助信息把 profile 的实现细节呈现为用户命令，自定义 profile 也只能通过同一个过载的根命令接收任务。
+通用 profile 启动与一次性任务执行具有不同的生命周期约定。若根语法接受可选任务文本，同一种 argv 形态会表示常驻进程或终止式任务，具体含义取决于组合完成后才发现的插件配置行。它还会把 profile 实现细节暴露成主要用户命令，并使自定义 profile 缺少明确的一次性入口。
 
-解析器中已经没有原来的 `dsh -p` 写法，因此恢复该写法或加入特殊检测，会给预发布接口增加兼容机制。另一个应用文件提案也使用 `run` 动词，使同一个顶层命令同时归属两个互不兼容的功能。
+`run` 动词必须只有一种顶层含义。与应用文件执行共用该动词，或根据位置参数形态推断含义，都会产生相同的歧义。
 
 ## 决策
 
-一次性执行采用明确语法：
+一次性执行采用以下语法：
 
 ```text
 dsh run [--profile <name>] [--patch <path>...] <task...>
 ```
 
-`--profile` 默认为 `headless`，同时保留对自定义一次性组合的支持。`--patch` 可重复使用，并沿用既有 overlay 层的位置。Commander 用空格拼接可变数量的任务参数，并在启动前拒绝缺失或空白任务。
+`--profile` 默认为 `headless`，并支持自定义一次性组合。`--patch` 可重复使用，并占据正常的 overlay 层。Commander 用空格拼接可变数量的任务参数，并在启动前拒绝缺失或空白任务。
 
-[profile 插件组合包决策](../architecture/2026-08-05-profile-plugin-bundles.md)负责该语法所选择的组合。
+`RunInvocation` 是单独的 `DshInvocation` 成员。通用 profile 调用不携带任务状态，也不接受位置参数。两条分派路径都使用 `runProfile`：profile 启动省略 `task`，而 `run` 提供该字段。缺少 `headless-runner` 的一次性 profile 会触发组合行检查；如果启动的 profile 包含该行却未提供任务，错误会指向 `dsh run --profile <name> "<task>"`。
 
-`RunInvocation` 是单独的 `DshInvocation` 成员。通用 profile 调用不再携带任务文本，其根命令也不接受位置参数。两条分派路径都调用已有的深层 `runProfile` 模块：`profile` 省略 `task`，`run` 则提供该字段。实现中没有只负责转发的浅层 `run.ts` 模块，也没有面向旧写法的别名、警告或自定义检测器；旧写法会按普通 Commander 语法失败。缺少 `headless-runner` 的一次性 profile 仍会触发既有的组合行检查；如果启动的 profile 包含该行却未提供任务，错误会指向 `dsh run --profile <name> "<task>"`。
+[profile 插件组合包决策](../architecture/2026-08-05-profile-plugin-bundles.md)负责组合。[Headless 是直接 core 前门](../architecture/2026-08-09-headless-direct-core-front-door.md)负责执行约定：一个新的持久化会话、stdout 上的最终 assistant 文本、completed／非 completed 的退出状态映射、成功时为空的 stderr、无监听端口，以及 Agent 完全停稳且会话 flush 后的有界信号关闭。
 
-`run` 动词只负责一次性任务执行。应用文件启动必须选择其他命令名；如果让两个顶层含义由位置参数形态决定，就会重新引入本命令消除的歧义。
-
-运行器面向用户的约定保持不变：创建新的持久化会话，在 stderr 打印浏览器观察 URL，在 stdout 打印最终 assistant 文本，将完成／未完成映射为退出状态，并执行有界的信号关闭。产品级无密钥验收用例发现，进程内 mux 消费方可能落后于同进程的 `agent/status: idle` 通知，在读到最终帧之前就生成输出。idle 通知现在会捕获权威的会话最终事件序号，运行器则等待有序 mux 到达该边界（或流结束），再生成文本和退出原因。这一机制在不增加 wire 字段或定时延迟的前提下，落实了既有的 idle-to-idle 约定。
+`run` 动词只负责一次性任务执行。应用文件启动需要不同的命令名。
 
 ## 考虑过的替代方案
 
-- **把任务文本保留在 `dsh --profile` 上。** 不予采纳：profile 启动和一次性执行仍共用同一套语法，其含义取决于较晚发生的组合检查。
-- **保留 `dsh -p` 或位置参数 profile 形式作为别名。** 不予采纳：根据预发布立场，这些兼容分支会比本应退役的接口存续更久。
-- **要求在 `run` 下必须指定 `--profile headless`。** 不予采纳：已交付的一次性接口应采用最短的规范写法，同时用可选的 `--profile` 保留插件定义的一次性组合。
-- **把 `dsh run` 交给应用文件启动，并为 headless 选择另一个动词。** 不予采纳：`run` 描述的是通过 harness 执行任务；若归应用文件所有，产品的主要一次性命令会更不直接，并与自定义一次性 profile 冲突。
-- **新增 `apps/cli/src/run.ts`。** 不予采纳：它只会转发到 `runProfile`，拆分命令归属，却没有隐藏任何复杂度。
+| 替代方案 | 约定不匹配之处 |
+|---|---|
+| 把任务文本放在根 profile 启动命令上 | 生命周期含义依赖解析后才发现的插件配置行。 |
+| 接受 `dsh -p` 等根命令别名 | 预发布语法获得不属于任何当前命令的兼容分支。 |
+| 要求指定 `--profile headless` | 随附的一次性 surface 失去最短的规范写法。 |
+| 将 `dsh run` 用于应用文件 | 一个顶层动词具有两种含义，主要任务命令也变得间接。 |
+| 添加仅转发的 `apps/cli/src/run.ts` | 命令归属被拆分，却没有隐藏任何复杂度。 |
 
 ## 后果
 
-这是一次有意为之的 CLI（命令行界面）破坏性变更。文档、帮助信息、解析器测试、构建后二进制验收、PTY 关闭覆盖和组装应用的无密钥快照都使用 `dsh run`。现有自定义一次性 profile 可继续通过 `--profile` 工作；常驻 profile 和配置 dump 保留既有的根命令语法。与之竞争的应用文件命令必须单独改名并 rebase，不得共享或重载 `run`。
+帮助信息、文档、解析器测试、构建后二进制验收、PTY 关闭覆盖和组装应用的无密钥快照均使用 `dsh run`。自定义一次性 profile 使用 `--profile`；常驻 profile 启动与配置 dump 使用根 profile 语法。应用文件执行是独立的命令关注点。

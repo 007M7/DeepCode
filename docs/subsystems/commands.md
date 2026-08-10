@@ -2,13 +2,13 @@
 
 English | [中文](commands.zh.md)
 
-The human-command seam of [`dsh-commands`](../../packages/interaction/commands). Interactive adapters use it to discover and directly execute plugin-owned commands for an exact agent without creating a model message. The [command Agent Note](../../.agents/notes/implemented/feature/2026-07-19-plugin-command-registration.md) owns dispatch and lifecycle rationale; the [package README](../../packages/interaction/commands/README.md) owns composition and limitations.
+The human-command registry service from [`dsh-commands`](../../packages/interaction/commands). Interactive adapters use it to discover and directly execute plugin-owned commands for an exact agent without creating a model message. The [command Agent Note](../../.agents/notes/implemented/feature/2026-07-19-plugin-command-registration.md) owns dispatch and lifecycle rationale; the [package README](../../packages/interaction/commands/README.md) owns composition and limitations.
 
 Source: [`packages/interaction/commands/src/index.ts`](../../packages/interaction/commands/src/index.ts)
 
 ## Input metadata
 
-The seam exposes one optional unstructured-input hint. Command availability follows plugin composition: every adapter consuming the registry sees every effective definition.
+The service exposes one optional unstructured-input hint. Command availability follows plugin composition: every adapter consuming the registry sees every effective definition.
 
 ```ts type-equiv
 /** Immutable metadata for a command's optional unstructured input. */
@@ -49,6 +49,8 @@ The adapter owns cancellation and passes the exact target agent. `rawInput` begi
 ```ts type-equiv
 /** Invocation passed to one registered command handler. */
 interface CommandInvocation {
+  /** Pairing id already written to this invocation's `command/run` event. */
+  readonly commandId: CommandId
   /** Exact agent whose human-facing surface received the command. */
   readonly agent: Agent
   /** Exact text following the registered command name, including separator whitespace. */
@@ -159,7 +161,7 @@ async execute( agent: Agent, line: string, signal: AbortSignal, ): Promise<Comma
 
 Types: [Agent](core.md)
 
-Source: [`packages/interaction/commands/src/index.ts:305`](../../packages/interaction/commands/src/index.ts)
+Source: [`packages/interaction/commands/src/index.ts:267`](../../packages/interaction/commands/src/index.ts)
 
 <a id="commands-events"></a>
 
@@ -181,5 +183,5 @@ A command was registered or unregistered. This is an unfiltered registry notific
 'commands/change'(): void
 ```
 
-Source: [`packages/interaction/commands/src/index.ts:172`](../../packages/interaction/commands/src/index.ts)
+Source: [`packages/interaction/commands/src/index.ts:134`](../../packages/interaction/commands/src/index.ts)
 <!-- END GENERATED cordis-surface -->

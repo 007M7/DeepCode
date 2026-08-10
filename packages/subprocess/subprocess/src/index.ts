@@ -1,5 +1,5 @@
 /**
- * The subprocess seam (`ctx.subprocess`): execution-world executable lookup,
+ * Service Definition for the subprocess capability seam (`ctx.subprocess`): execution-world executable lookup,
  * fully specified managed process trees with raw or
  * collected stdio, and one terminal-process primitive. Command defaulting,
  * shell semantics, deadlines, protocol framing, terminal readiness, and
@@ -108,8 +108,8 @@ export abstract class SubprocessService extends Service {
    * Resolve one configured executable in this provider's execution world.
    * Absolute paths are verified; bare names use the provider's scrubbed PATH
    * plus explicit environment overrides. Relative paths containing separators
-   * are rejected: no current consumer defines which directory they would
-   * resolve against, so providers fail loud instead of guessing.
+   * are rejected: the resolution base is undefined, so providers fail loud
+   * instead of guessing.
    * @param command - absolute executable path or bare PATH name.
    * @param env - explicit environment entries used for lookup.
    * @param signal - aborts remote or local lookup.

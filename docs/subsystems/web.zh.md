@@ -2,11 +2,11 @@
 
 [English](web.md) | 中文
 
-Web 访问 seam 是一个[能力 seam](../../.agents/notes/implemented/architecture/2026-06-24-web-capability-seam.md)，在同一个 `ctx.web` 服务上横跨**两项能力**（search 与 fetch），并拆分到多个包：接口（[dsh-web](../../packages/web/web)，`ctx.web` + 提供方注册表）、实现（[dsh-web-search-exa](../../packages/web/web-search-exa)、[dsh-web-search-perplexity](../../packages/web/web-search-perplexity)、[dsh-web-search-deepseek](../../packages/web/web-search-deepseek)、[dsh-web-fetch-local](../../packages/web/web-fetch-local)）与消费方（[dsh-tool-web](../../packages/web/tool-web)，即 `web_search`/`web_fetch` 工具 schema）。Web 是**一项可选能力**，不属于 agent loop（智能体循环）主干，因此其词汇定义在此而非 [core.md](core.md) 中。更换 search 提供方不会改变模型提交查询的方式，更换 fetch 实现也不会改变模型请求 URL 的方式。
+Web 访问 seam 是一个[能力 seam](../../.agents/notes/implemented/architecture/2026-06-24-web-capability-seam.md)，在同一个 `ctx.web` 服务上横跨**两项操作**（search 与 fetch），并拆分到多个包：Service Definition（[dsh-web](../../packages/web/web)，`ctx.web` + 提供方注册表）、Service provider（[dsh-web-search-exa](../../packages/web/web-search-exa)、[dsh-web-search-perplexity](../../packages/web/web-search-perplexity)、[dsh-web-search-deepseek](../../packages/web/web-search-deepseek)、[dsh-web-fetch-local](../../packages/web/web-fetch-local)）与 Consumer（[dsh-tool-web](../../packages/web/tool-web)，即 `web_search`/`web_fetch` 工具 schema）。Web 是**一项可选能力**，不属于 agent loop（智能体循环）主干，因此其词汇定义在此而非 [core.md](core.md) 中。更换 search 提供方不会改变模型提交查询的方式，更换 fetch 提供方也不会改变模型请求 URL 的方式。
 
 源码：[`packages/web/web/src/types.ts`](../../packages/web/web/src/types.ts)
 
-## 为什么两项能力合为一个 seam
+## 为什么一项能力包含两项操作
 
 搜索与抓取既不共享请求 schema，也不共享业务逻辑，但它们被有意设计为同一个 `ctx.web` 中间层：一个提供方选择策略的所有者、一套中止与错误词汇，以及一个面向产品的「此 harness 如何访问 Web」配置界面。代价是服务上并行的 `searchX`／`fetchX` 方法对；这种并行是有意为之，而不是遗漏了可抽取的共性。提供方注册的是**能力**（`WebSearchProvider` 或 `WebFetchProvider`），而非工具；面向模型的名称、schema、提示词引导与展示全部集中在唯一的消费方 `dsh-tool-web` 中。
 
@@ -36,7 +36,8 @@ interface WebSearchRequest {
 ```ts type-equiv
 /**
  * Normalized search outcome. `content` is optional provider-generated answer
- * text or summary (Exa returns none; Perplexity returns a generated answer).
+ * text or summary (Exa and DeepSeek return none; Perplexity returns a
+ * generated answer).
  * `sources[]` is the portable citation surface. `truncated` is set by the seam
  * when it cut `sources[]` down to `maxResults`.
  */
@@ -49,8 +50,6 @@ interface WebSearchResult {
   readonly truncated: boolean
 }
 ```
-
-`content` 是提供方可选生成的回答文本（Exa 和 DeepSeek 不返回；Perplexity 返回生成式回答）。`sources[]` 是一套可跨提供方使用的引用数据结构。每个来源都必须有 `url`；`title`、`snippet` 和 `publishedAt` 为可选字段，因为并非每个提供方都会返回它们——Perplexity 的引用可能只有 URL，强迫适配器编造其余字段会让 seam 说谎。`dsh-tool-web` 渲染时使用 `title ?? hostname(url)`。
 
 ```ts type-equiv
 /**
@@ -103,8 +102,6 @@ interface WebFetchResult {
 }
 ```
 
-`WebFetchBody` 是 `dsh-web` 拥有的**封闭**可辨识联合类型（不是可合并扩展的 map）：提供方解码 kind，`dsh-tool-web` 渲染它，因此新增一个 kind 是已知包之间的协调变更，而非插件扩展。消费方对 `kind` 做 `switch` 并以 `default: assertNever(...)` 结尾，所以新增 kind 会在每个消费方处编译失败，直到被处理。即使各分支当前字段一致，每个分支仍保持独立的对象字面量，为将来分支特有字段留出空间（例如未来 `pdf` body 的 `pageCount`）。
-
 ```ts type-equiv
 /**
  * The decoded body of a fetched resource. A CLOSED discriminated union owned by
@@ -112,8 +109,8 @@ interface WebFetchResult {
  * new kind is a coordinated change across known packages, not a plugin
  * extension. Consumers `switch` on `kind` ending in `default: assertNever(...)`
  * so adding a kind breaks compilation at every consumer until handled. Each arm
- * stays its own object literal even where fields coincide today, leaving room
- * for arm-specific fields later (a `pdf` body's `pageCount`).
+ * stays its own object literal even where fields coincide, so an arm can gain
+ * fields the others lack.
  */
 type WebFetchBody =
   | { readonly kind: 'html'; readonly content: string }
@@ -132,7 +129,7 @@ type WebFetchBody =
 
 ## 服务
 
-`WebService` 注册搜索与抓取提供方，以 `WEB_DUPLICATE_PROVIDER` 拒绝重复 id，并在执行时以结构化的选择错误解析提供方。本地抓取后端仅接受 HTTP(S)、拒绝凭证、限制重定向次数、字节数、字符数和时间、对每一跳同源重定向重新校验，并解码正文；展示由工具负责。SSRF／私有网络防护尚未实现，因此在能够触及敏感内部目标的环境中，禁止启用 `web_fetch`。
+`WebService` 注册搜索与抓取提供方，以 `WEB_DUPLICATE_PROVIDER` 拒绝重复 id，并在执行时以结构化的选择错误解析提供方。本地抓取后端仅接受 HTTP(S)、拒绝凭证、限制重定向次数、字节数、字符数和时间、对每一跳同源重定向重新校验，并解码正文；展示由工具负责。本地后端不会拦截私有网络目标；在能够触及敏感内部目标的环境中，禁止启用 `web_fetch`。
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 

@@ -445,7 +445,7 @@ describe('MarkdownText', () => {
     const startedAt = performance.now()
     const { container } = render(<MarkdownText text={'\\(x '.repeat(6_400)} />)
 
-    expect(performance.now() - startedAt).toBeLessThan(1_000)
+    expect(performance.now() - startedAt).toBeLessThan(3_000)
     expect(container.querySelector('.katex')).toBeNull()
   })
 

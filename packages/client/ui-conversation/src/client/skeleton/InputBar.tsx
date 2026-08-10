@@ -1,5 +1,5 @@
-/** The default composer body: the 'conversation.composer.bar' slot entry
- * (decision 20). Machine state arrives through the standard provide channel
+/** The default composer body: the 'conversation.composer.bar' slot entry.
+ * Machine state arrives through the standard provide channel
  * (useInput + inputActions); the keyboard/DOM command face and stop arrive
  * through this entry's own inject, whose hooks compartment binds
  * useNotices/useLexicon; layout-phase inputs (variant, placeholder,
@@ -87,7 +87,7 @@ export function InputBar({
   // but its independent Stop below stays available while it runs.
   const continuable = subagent?.address.mode === 'continuable'
   const parentOffline = continuable && !subagent.parentAvailable
-  // Queue cut 1: running input stays free; locked = session removed, the
+  // Running input stays free; locked = session removed, the
   // inert no-workspace state, the machine faces absent (no session), or a
   // parent-offline continuable child. An owner block also disables input;
   // adjudicating and submitting render read-only so the draft stays visible.
@@ -99,6 +99,8 @@ export function InputBar({
   // be disabled do lock it — there is no session to choose a model for.
   const modelSeatLocked = removed || inert || !live
   const machineBusy = input?.phase === 'adjudicating' || input?.phase === 'submitting'
+  const canSteerQueue = !locked && !machineBusy && !commandMenuOpen && empty && running && subagent === null
+    && input.queue.some(row => row.placement === 'queued')
 
   // Scroll the draft scrollport the minimum that brings `caret` into view — the
   // browser's own behavior for typing, performed for the paths where it does
@@ -257,9 +259,19 @@ export function InputBar({
     e.preventDefault()
     if (e.repeat) return // held-down Enter must not machine-gun sends
     if (locked || machineBusy) return
+    const accelerated = e.ctrlKey || e.metaKey
+    // Empty-draft accelerated Enter acts on the queue instead of the (empty)
+    // draft: the machine rejects empty drafts, so the gesture steers every
+    // still-pending queued message into the running turn (the dock's per-row
+    // steer button applied to the whole queue). Steering needs the same
+    // window as the per-row button: a running ordinary session.
+    if (accelerated && canSteerQueue) {
+      keyboard.steerQueue()
+      return
+    }
     keyboard.submit(resolveSubmitMode(
       running,
-      e.ctrlKey || e.metaKey ? 'accelerated' : 'enter',
+      accelerated ? 'accelerated' : 'enter',
       subagent === null,
     ))
   }
@@ -385,7 +397,7 @@ export function InputBar({
   const backdrop: ReactNode[] = []
   {
     // Segment boundaries: the token range end, every chip offset, and every
-    // text-ref range (decision 21) — merged in draft order (the sources never
+    // text-ref range — merged in draft order (the sources never
     // overlap: chips sit on placeholders, text-refs on plain tokens, the
     // claim token only leads).
     let cursor = 0
@@ -430,7 +442,7 @@ export function InputBar({
         )
         cursor = chip.offset + 1 // the placeholder char the chip stands for
       } else {
-        // Plain-range highlight (decision 21): the glyphs stay the
+        // Plain-range highlight: the glyphs stay the
         // textarea's (advance untouched); the mark paints the chip look.
         backdrop.push(
           <mark key={`ref-${b.ref.start}`} className={css.textRef} data-decoration="text-ref">
@@ -489,7 +501,12 @@ export function InputBar({
                 ? t('placeholder.parentOffline')
                 : disabled
                   ? t('placeholder.unavailable')
-                  : planActive ? t('placeholder.plan') : t('placeholder.default'))}
+                  // The steer hint deliberately outranks the plan placeholder:
+                  // while it shows, the whole-queue gesture is genuinely available
+                  // (the gate never consults plan mode), so the actionable hint wins.
+                  : canSteerQueue
+                    ? t('placeholder.steerQueue')
+                    : planActive ? t('placeholder.plan') : t('placeholder.default'))}
               rows={2}
               onChange={onChange}
               onKeyDown={onKeyDown}
@@ -529,7 +546,6 @@ export function InputBar({
             {rightItems}
             {renderSlot('conversation.input.model', { locked: modelSeatLocked })}
             <ContextMeter useProjection={useProjection} t={t} />
-            {/* {machineBusy && <span className={css.pending} data-input-pending aria-label="处理中" />} */}
             {interruptible && (
               <Tooltip label={t('input.stop')} side="top" delayMs={500}>
                 <button

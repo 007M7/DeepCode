@@ -54,6 +54,7 @@ const reasoningConfigPath = fileURLToPath(new URL('./fixtures/cli.cordis.yml', i
 const deepseekDefaultsConfigPath = fileURLToPath(new URL('./fixtures/deepseek-defaults.cordis.yml', import.meta.url))
 const dshRunOverlayPath = fileURLToPath(new URL('./fixtures/dsh-run.cordis.yml', import.meta.url))
 const dshRunSessionExpected = join(snapshotsDir, 'dsh-run', 'session.expected.jsonl')
+const dshRunFailureExpected = join(snapshotsDir, 'dsh-run', 'stderr.expected.txt')
 const cliMockLlmPluginPath = fileURLToPath(new URL('./fixtures/cli-mock-llm.ts', import.meta.url))
 const refreshing = process.env.DSH_SNAPSHOT === 'refresh'
 
@@ -82,12 +83,21 @@ async function deepseekDefaultsServer(): Promise<DeepSeekDefaultsServer> {
     request.on('end', () => {
       requests.push(JSON.parse(body) as JsonObject)
       response.writeHead(200, { 'content-type': 'text/event-stream' })
-      response.end([
-        'data: {"choices":[{"delta":{"content":"DEFAULTS_OK"}}]}',
-        'data: {"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":1}}',
-        'data: [DONE]',
-        '',
-      ].join('\n\n'))
+      let keepAlives = 3
+      const write = (): void => {
+        if (keepAlives-- > 0) {
+          response.write(': keep-alive\n\n')
+          setTimeout(write, 60)
+          return
+        }
+        response.end([
+          'data: {"choices":[{"delta":{"content":"DEFAULTS_OK"}}]}',
+          'data: {"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":1}}',
+          'data: [DONE]',
+          '',
+        ].join('\n\n'))
+      }
+      setTimeout(write, 60)
     })
   })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
@@ -196,6 +206,16 @@ async function persistedLogs(cwd: string, root: string = join(cwd, '.sessions'))
   }))
 }
 
+/** Install the keyless product-CLI adapter into the temporary headless profile. */
+async function prepareCliMockFixture(cwd: string): Promise<void> {
+  const fixtureDir = join(cwd, '.dsh', 'profiles', 'headless', 'snapshot-fixtures')
+  await mkdir(fixtureDir, { recursive: true })
+  await Promise.all([
+    copyFile(cliMockLlmPluginPath, join(fixtureDir, 'cli-mock-llm.ts')),
+    writeFile(join(fixtureDir, 'package.json'), '{"type":"module"}\n'),
+  ])
+}
+
 describe('headless stream-json snapshots', () => {
   it('runs one task through the product dsh run command', async () => {
     const task = 'Prove the product dsh run path with one real tool round trip.'
@@ -211,14 +231,7 @@ describe('headless stream-json snapshots', () => {
         DSH_TELEMETRY_DISABLED: '1',
         NODE_OPTIONS: [process.env.NODE_OPTIONS, '--disable-warning=ExperimentalWarning'].filter(Boolean).join(' '),
       },
-      prepare: async (cwd) => {
-        const fixtureDir = join(cwd, '.dsh', 'profiles', 'headless', 'snapshot-fixtures')
-        await mkdir(fixtureDir, { recursive: true })
-        await Promise.all([
-          copyFile(cliMockLlmPluginPath, join(fixtureDir, 'cli-mock-llm.ts')),
-          writeFile(join(fixtureDir, 'package.json'), '{"type":"module"}\n'),
-        ])
-      },
+      prepare: prepareCliMockFixture,
       inspect: async (cwd) => {
         const logs = await persistedLogs(cwd, join(cwd, '.dsh', 'sessions'))
         expect(logs).toHaveLength(1)
@@ -234,7 +247,28 @@ describe('headless stream-json snapshots', () => {
     })
 
     expect(result.stdout).toBe('CLI tool round trip complete: CLI_TOOL_ROUND_TRIP\n')
-    expect(result.stderr).toMatch(/^dsh: observing at http:\/\/127\.0\.0\.1:\d+\n$/u)
+    expect(result.stderr).toBe('')
+  }, LOADER_SMOKE_TEST_TIMEOUT_MS)
+
+  it('prints a terminal model failure through the product dsh run command', async () => {
+    const result = await runLoaderSmoke({
+      label: 'product dsh run model failure snapshot',
+      tempDirPrefix: 'headless-snapshot-dsh-run-failure-',
+      binScript: dshBinScript,
+      configPath: dshRunOverlayPath,
+      binArgs: ['run', '--patch', dshRunOverlayPath, 'Trigger the keyless model failure.'],
+      tsconfigPath,
+      expectedExitCode: 1,
+      env: {
+        DSH_CLI_MOCK_FAILURE: '1',
+        DSH_TELEMETRY_DISABLED: '1',
+        NODE_OPTIONS: [process.env.NODE_OPTIONS, '--disable-warning=ExperimentalWarning'].filter(Boolean).join(' '),
+      },
+      prepare: prepareCliMockFixture,
+    })
+
+    expect(result.stdout).toBe('\n')
+    await expect(result.stderr).toMatchFileSnapshot(dshRunFailureExpected)
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 
   it('prints the original Loader activation error through the assembled one-shot app', async () => {
@@ -413,9 +447,9 @@ describe('headless stream-json snapshots', () => {
       binArgs: [credentialsConfigPath, 'say pong'],
       tsconfigPath,
       env: {
-        // A key that exists but no HTTP header can carry — the paste this
-        // change exists for. Before it, `fetch` refused to build the header
-        // and the turn ended on a retried ByteString TypeError.
+        // A key that exists but no HTTP header can carry — the paste the
+        // credential guard exists for: without it, `fetch` refuses to build
+        // the header and the turn ends on a retried ByteString TypeError.
         DEEPSEEK_API_KEY: 'sk-\u{1F600}pasted-from-a-chat-window',
         DEEPSEEK_BASE_URL: '',
         NODE_OPTIONS: [process.env.NODE_OPTIONS, '--disable-warning=ExperimentalWarning'].filter(Boolean).join(' '),
@@ -432,8 +466,8 @@ describe('headless stream-json snapshots', () => {
     // page at all.
     expect(normalized).toContain('the API key resolved from DEEPSEEK_API_KEY contains characters')
     expect(normalized).toContain('the web Models page writes it')
-    // Neither the key nor the transport-level symptom it used to produce may
-    // reach the user: the code point of one character is still the key.
+    // Neither the key nor its transport-level symptom (the ByteString error)
+    // may reach the user: the code point of one character is still the key.
     expect(normalized).not.toContain('pasted-from-a-chat-window')
     expect(normalized).not.toContain('ByteString')
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
@@ -479,7 +513,7 @@ describe('headless stream-json snapshots', () => {
     `)
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 
-  it('logs and sends the DeepSeek adapter maxTokens default through the one-shot app', async () => {
+  it('keeps provider comments alive and sends DeepSeek defaults through the one-shot app', async () => {
     const server = await deepseekDefaultsServer()
     try {
       const result = await runLoaderSmoke({

@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/host/apiproxy/README.md
-README.md: edf51dd1c15c61a03102003eb921a0e21b1f0fa8
-README.zh.md: 25e049a0e8d8781c39b1c0cf3c1bdf6052158770
+README.md: 5f52781021a70d89c63a49aa74dec002a04d0f40
+README.zh.md: 996935b2028c98a97a7d6208c72fc6a72a023ee4

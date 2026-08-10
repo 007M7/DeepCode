@@ -2,7 +2,7 @@
 
 English | [中文](bash.zh.md)
 
-The bash execution seam is split across interface ([dsh-bash](../../packages/bash/bash), `ctx.bash`), implementations ([dsh-bash-local](../../packages/bash/bash-local) and [dsh-bash-sandbox](../../packages/bash/bash-sandbox)), and consumer ([dsh-tool-bash](../../packages/bash/tool-bash), the `bash` schema). Generic background-task ids, ownership, and controls live in [tasks.md](tasks.md); this seam returns a task-free process handle. Raw process-group mechanics live behind the [subprocess seam](subprocess.md).
+The bash execution seam is split across a Service Definition ([dsh-bash](../../packages/bash/bash), `ctx.bash`), Service providers ([dsh-bash-local](../../packages/bash/bash-local) and [dsh-bash-sandbox](../../packages/bash/bash-sandbox)), and Consumer ([dsh-tool-bash](../../packages/bash/tool-bash), the `bash` schema). Generic background-task ids, ownership, and controls live in [tasks.md](tasks.md); this seam returns a task-free process handle. Raw process-group mechanics live behind the [subprocess seam](subprocess.md).
 
 Source: [`packages/bash/bash/src/types.ts`](../../packages/bash/bash/src/types.ts)
 
@@ -12,7 +12,7 @@ Source: [`packages/bash/bash/src/types.ts`](../../packages/bash/bash/src/types.t
 
 ## Request vs. spec: the `resolve()` split
 
-The seam separates the **model-/plugin-facing request** (optional `workdir`/`timeoutMs`/`stdoutMaxBytes`, filled from config or request policy) from the **fully-resolved spec** the executor acts on (those fields required). The tool layer calls `ctx.bash.resolve(request)` between them — this is the repo's "explicit > implicit at package seams" rule made concrete: the reader of a `BashExecSpec` never wonders where the working directory or output budget came from.
+The seam separates the **model-/plugin-facing request** (optional `workdir`/`timeoutMs`/`stdoutMaxBytes`, filled from config or request policy) from the **fully-resolved spec** the executor acts on (those fields required). The tool layer calls `ctx.bash.resolve(request)` between them (the repo's "explicit > implicit at package boundaries" rule); a `BashExecSpec` carries resolved values.
 
 ```ts type-equiv
 /**
@@ -162,7 +162,7 @@ interface BashSandboxInfo {
 }
 ```
 
-One more piece completes the vocabulary: the `SANDBOX_UNAVAILABLE` error code (owned by the [sandbox seam](sandbox.md)) is what the `ctx.sandbox` provider throws — and the executor propagates — when a confined mode has no usable backend. A selected runner refusing its profile reaches the same fail-closed foreground error; a settled background task records `runnerFailed`. The model receives denial/runner facts in results, learns the effective mode only when a denial marker names it, and can request a one-shot strictly wider retry through `sandbox_permissions` plus `justification`; `ctx.approval` must grant that exact call before anything executes. The complete policy and switching design is the [sandbox Agent Note](../../.agents/notes/implemented/feature/2026-07-06-sandbox.md).
+The `SANDBOX_UNAVAILABLE` error code (owned by the [sandbox seam](sandbox.md)) is what the `ctx.sandbox` provider throws — and the executor propagates — when a confined mode has no usable backend. A selected runner refusing its profile reaches the same fail-closed foreground error; a settled background task records `runnerFailed`. The model receives denial/runner facts in results, learns the effective mode only when a denial marker names it, and can request a one-shot strictly wider retry through `sandbox_permissions` plus `justification`; `ctx.approval` must grant that exact call before anything executes. The complete policy and switching design is the [sandbox Agent Note](../../.agents/notes/implemented/feature/2026-07-06-sandbox.md).
 
 ## Background processes: `BashProcess`
 

@@ -8,6 +8,7 @@ import type { SessionsApi } from './sessions.ts'
 import type { HostApi } from './host.ts'
 import type { WorkspaceApi } from './workspace.ts'
 import type { CommandsApi } from './commands.ts'
+import type { AgentPresetsApi } from './agent-presets.ts'
 import type { SkillsApi } from './skills.ts'
 import type { SubagentsApi } from './subagents.ts'
 import type { EventsApi } from './events.ts'
@@ -25,6 +26,7 @@ export interface ApiProxy {
   workspace: WorkspaceApi
   commands: CommandsApi
   skills: SkillsApi
+  agentPresets: AgentPresetsApi
   events: EventsApi
   goals: GoalsApi
   settings: SettingsApi
@@ -37,7 +39,7 @@ export interface ApiProxy {
 // ---- Domain interfaces and payload entities ----
 export type {
   HistoryEntry, ModelCatalogFailure, ModelCatalogModel, ModelProviderGroup, ModelReasoning,
-  ModelReasoningEffort, ModelTarget, QueueAction, SessionModels, SessionProjectionsBlock, SessionSearchItem,
+  ModelReasoningEffort, ModelSelection, QueueAction, SessionModels, SessionProjectionsBlock, SessionSearchItem,
   SessionsApi, SessionSummary,
 } from './sessions.ts'
 export type { DirectoryEntry, DirectoryListing, HostApi } from './host.ts'
@@ -49,6 +51,7 @@ export type { TaskView } from './tasks.ts'
 export type { WorkspaceApi, WorkspaceId, WorkspaceView } from './workspace.ts'
 export type { CommandsApi, CommandDescriptor } from './commands.ts'
 export type { SkillsApi, SkillEntry } from './skills.ts'
+export type { AgentPresetsApi, AgentPresetEntry } from './agent-presets.ts'
 export type { EventsApi, MuxFrame, HostFrame, QueuedInboxItem, ToolCallView, ToolEventView, ToolResultView } from './events.ts'
 export type { GoalsApi, GoalId, GoalRef } from './goals.ts'
 export type { SettingsApi, SettingsNamespaceView, SettingsPathOpView, SettingsSecretView } from './settings.ts'

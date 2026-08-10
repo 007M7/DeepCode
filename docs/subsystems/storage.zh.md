@@ -2,7 +2,7 @@
 
 [English](storage.md) | 中文
 
-存储子系统持久保存一切不属于会话事件日志的数据（会话日志有自己的 seam——见 [persistence.md](persistence.md)）。它是一项可选能力，不属于 agent loop（智能体循环）主干，并按[能力 seam](../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md)拆分：枢纽（hub）与后端接口（[dsh-storage](../../packages/storage/storage)，`ctx.storage`）、后端实现（注册为 `json` 的 [dsh-storage-json](../../packages/storage/storage-json) 与注册为 `sqlite` 的 [dsh-storage-sqlite](../../packages/storage/storage-sqlite)），以及领域数据形式（[dsh-storage-domain](../../packages/storage/storage-domain)，`ctx.storageDomain`，也可经 `ctx.storage.domain` 访问）——它是后端 seam 的唯一消费方，也是其他一切所使用的类型化 API。枢纽自身不做任何 IO：后端拥有介质，数据形式拥有语义，产品包（package）绝不直接触碰后端。设计记录：[领域 KV 存储 Agent Note（agent 决策记录）](../../.agents/notes/proposed/architecture/2026-07-24-domain-kv-storage-and-workspace.md)。
+存储子系统持久保存一切不属于会话事件日志的数据（会话日志有自己的 seam——见 [persistence.md](persistence.md)）。它是一项可选能力，不属于 agent loop（智能体循环）主干，并按[能力 seam](../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md)拆分：枢纽（hub）与 Service Definition（[dsh-storage](../../packages/storage/storage)，`ctx.storage`）、Service provider（注册为 `json` 的 [dsh-storage-json](../../packages/storage/storage-json) 与注册为 `sqlite` 的 [dsh-storage-sqlite](../../packages/storage/storage-sqlite)），以及 Consumer 数据形式（[dsh-storage-domain](../../packages/storage/storage-domain)，`ctx.storageDomain`，也可经 `ctx.storage.domain` 访问）——它是后端约定的唯一 Consumer，也是其他一切所使用的类型化 API。枢纽自身不做任何 IO：后端拥有介质，数据形式拥有语义，产品包（package）绝不直接触碰后端。设计记录：[领域 KV 存储 Agent Note（agent 决策记录）](../../.agents/notes/proposed/architecture/2026-07-24-domain-kv-storage-and-workspace.md)。
 
 源码：[`packages/storage/storage/src/backend.ts`](../../packages/storage/storage/src/backend.ts) · [`packages/storage/storage-domain/src/spec.ts`](../../packages/storage/storage-domain/src/spec.ts) · [`packages/storage/storage-domain/src/events.ts`](../../packages/storage/storage-domain/src/events.ts)
 
@@ -23,7 +23,7 @@ interface StorageForms {}
 
 `mount(form, facility)` 是一个 effect，其 disposer 负责卸载；对同一键的第二次挂载抛出 `duplicate-mount`。`form(form)` 解析已挂载的 facility，在拥有插件加载之前抛出 `form-not-mounted`——组合方应据此安排插件顺序，而不是静默推迟。领域层合并 `domain: DomainFacility`，因此 `ctx.storage.domain` 与 `ctx.storageDomain` 是同一个对象。
 
-## 后端 seam
+## 后端约定
 
 ```ts type-equiv
 /**
@@ -44,7 +44,7 @@ interface StorageBackend {
 }
 ```
 
-一个后端拥有一个介质（一棵文件树的根目录、一个数据库文件），并暴露可选的数据形状 facet；目前 `kv` 是唯一的 facet。`KvFacet.open(descriptor)` 打开一个具名 unit——`KvUnitDescriptor` 携带名称、格式版本、表名清单，以及是否存在全局单例槽位——并返回提供 `loadAll`、`putRecord`、`deleteRecord`、`setGlobal` 和 `close` 的 `KvUnit`。unit 名与表名必须匹配 `UNIT_NAME_RE`（既可安全用作文件名，也可安全用作 SQL 标识符片段）；记录键是任意字符串，绝不进入文件路径。unit 不对并发写入做串行化——顺序由调用方负责——但每次单独调用在介质上都是原子的，且 resolve 后即已持久。介质上记录的版本与之不同时拒绝 `version-mismatch`；无法按该 unit 解析的介质拒绝 `malformed-medium`（不做迁移：预发布立场）。[`backend.ts`](../../packages/storage/storage/src/backend.ts) 是逐条款的规范性约定，[`tests/contract.ts`](../../packages/storage/storage/tests/contract.ts) 中的共享一致性套件对每个后端断言其中每一条款。[json 后端](../../packages/storage/storage-json/README.md)以原子方式为每个 unit 整文件重新发布一份人类可读文件；[sqlite 后端](../../packages/storage/storage-sqlite/README.md)在单个数据库中按一行一文档存储，是高频更新领域的路由选择。
+一个后端拥有一个介质（一棵文件树的根目录、一个数据库文件），并暴露可选的数据形状 facet；`kv` 是唯一的 facet。`KvFacet.open(descriptor)` 打开一个具名 unit——`KvUnitDescriptor` 携带名称、格式版本、表名清单，以及是否存在全局单例槽位——并返回提供 `loadAll`、`putRecord`、`deleteRecord`、`setGlobal` 和 `close` 的 `KvUnit`。unit 名与表名必须匹配 `UNIT_NAME_RE`（既可安全用作文件名，也可安全用作 SQL 标识符片段）；记录键是任意字符串，绝不进入文件路径。unit 不对并发写入做串行化——顺序由调用方负责——但每次单独调用在介质上都是原子的，且 resolve 后即已持久。介质上记录的版本与之不同时拒绝 `version-mismatch`；无法按该 unit 解析的介质拒绝 `malformed-medium`（不做迁移：预发布立场）。[`backend.ts`](../../packages/storage/storage/src/backend.ts) 是逐条款的规范性约定，[`tests/contract.ts`](../../packages/storage/storage/tests/contract.ts) 中的共享一致性套件对每个后端断言其中每一条款。[json 后端](../../packages/storage/storage-json/README.md)以原子方式为每个 unit 整文件重新发布一份人类可读文件；[sqlite 后端](../../packages/storage/storage-sqlite/README.md)在单个数据库中按一行一文档存储，是高频更新领域的路由选择。
 
 ## 声明领域
 
@@ -122,7 +122,7 @@ interface DomainChangedBase {
 type DomainChanged = DomainChangedPut | DomainChangedDeleted
 ```
 
-`put`（插入、覆写和 global 写入）在 `value` 中携带新快照——绝不携带旧值；需要做差异比较的消费方自行保留上一份快照。`deleted` 是不携带值的墓碑。该事件是通知，不是事务参与者：发出时提交点已经过去，因此同步抛出的监听器会被兜住并记录一条警告，而不会让已经持久的写入被拒绝；发出的值等于发出时刻的内存态。该事件仅限进程内；跨进程的变更推送是延后工作，记录在[包 README](../../packages/storage/storage-domain/README.md)中。
+`put`（插入、覆写和 global 写入）在 `value` 中携带新快照——绝不携带旧值；需要做差异比较的消费方自行保留上一份快照。`deleted` 是不携带值的墓碑。该事件是通知，不是事务参与者：发出时提交点已经过去，因此同步抛出的监听器会被兜住并记录一条警告，而不会让已经持久的写入被拒绝；发出的值等于发出时刻的内存态。该事件仅限进程内；跨进程的变更推送是一项已记录的限制（[包 README](../../packages/storage/storage-domain/README.md)）。
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 

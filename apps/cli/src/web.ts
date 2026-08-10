@@ -97,6 +97,9 @@ function deriveWebFlagPatches(
   // inserts the client-hmr row), never pass-throughs of composed values.
   put('web-runtime', 'mode', flags.dev ? 'development' : 'production')
   put('web-runtime', 'lanAddresses', lanAddresses)
+  // The agent-preset roots are patched by the shared profile boot: they are
+  // an assembly fact of every dsh launcher, and `dsh run` composes agents
+  // from the same roster this alias offers.
   const patches = [...overrides.entries()].map(([id, bag]): PatchOptions => {
     const composed = rows.get(id)
     if (composed === undefined) throw new Error(`dsh: patch target row "${id}" not found in the web profile composition`)

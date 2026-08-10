@@ -20,7 +20,7 @@ The produced-files row lists a turn's output, but the closing message usually al
 
 - **Path-shaped regex over all prose** — links `package.json` mentioned abstractly and examples that were never written; every false positive is a click that opens nothing or the wrong file. The vocabulary approach cannot produce a dead link.
 - **Linking suffix matches (`out/index.html` mentioned as `index.html` in a subdirectory listing)** — deferred; exact path and unique basename cover the observed closing-message shapes, and a wider matcher can loosen later without breaking the seam.
-- **Resolving in ui-primitives against a passed path list** — puts matching policy in the generic renderer, where other consumers would inherit it unasked. The resolver seam keeps policy with the owner.
+- **Resolving in ui-primitives against a passed path list** — puts matching policy in the generic renderer, where other consumers would inherit it unasked. The resolver contract keeps policy with the owner.
 - **Threading the vocabulary through the turn-tail chain** — the chain is a render dispatch below the message; mentions decorate markdown inside it, which only data reaching MarkdownText can do. The optional service is that data path, and its absence is the off state.
 
 ## Consequences

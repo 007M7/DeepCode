@@ -14,30 +14,31 @@ packages/    @deepseek-ai/dsh-<pkg> workspaces at packages/<group>/<pkg>/
   core/        product API spine: session, system-prompt, tools, agent, agent-loop
   api/         Remote BFF assembly and TypeRT RPC gateway
   typert/      type graph generator, loader, and runtime registry
-  llm/         LLM seam + DeepSeek adapters (direct-fetch + pi-ai design twin)
+  llm/         LLM capability: Service Definition/Consumer + DeepSeek providers
   e2b/         E2B POC: sandbox + FS/subprocess adapters
-  bash/        bash executor seam + local/pwsh impls + model-facing shell tools
-  subprocess/  subprocess seam + local process-tree impl
-  pty/         persistent PTY seam/backend/tools
-  fs/          filesystem seam/backends/policy/tools
-  lsp/         language-server seam/local backend/tool
+  bash/        bash capability: Service Definition + local/pwsh providers + shell Consumers
+  subprocess/  subprocess capability + local process-tree provider
+  pty/         persistent PTY capability
+  fs/          filesystem capability + policy
+  lsp/         language-server capability
   skill/       skill provider registry + local impl + catalog/loader tool
-  web/         web seam + search/fetch providers + model-facing web tools
-  compact/     compaction seam + basic backend
+  web/         web capability: Service Definition + search/fetch providers + tool Consumer
+  compact/     compaction capability + basic provider
   context/     request-context plugins
-  subagent/    subagent seam + spawn/fork/ACP backends + tool
+  subagent/    subagent capability: Service Definition + providers + delegation Consumers
   bundle/      installable dsh --profile patch-layer bundles
-  workflow/    workflow seam + worker-thread engine + workflow tool
+  workflow/    workflow capability + worker-thread provider + tool Consumer
   todo/        todo_write tool
   plan/        plan mode as logged state
+  preset/      per-session agent composition from preset cordis.yml files
   guard/       loop-hygiene + tool-timeout plugins
   self-modification/  the agent inspects/mounts its own plugins
   hooks/       Claude Code/Codex hook bridges + wire-protocol library
   session/     durable session data: persistence, projection, titles, telemetry
-  settings/    user-settings seam + file provider
-  credentials/ credential-reference seam + env/.env provider
+  settings/    user-settings capability + file provider
+  credentials/ credential-reference capability + env/.env provider
   acp/         automation-only Agent Client Protocol server
-  interaction/ approval/interaction seams, permission, commands, ask-user
+  interaction/ approval/interaction capabilities, permission, commands, ask-user
   boot/        shared app-bin glue
   scaffold/    project tooling: helper, launcher, initializer, SDK protocol
   examples/    demo bundles (agent-spine + CLI/ACP/JSON-RPC bins)
@@ -103,14 +104,14 @@ Real-API tests and demos read `DEEPSEEK_API_KEY`, optional `DEEPSEEK_BASE_URL`, 
 - **Switch on discriminant tags.** Closed unions end in `assertNever`; merge-extensible unions fall through a documented default.
 - **Waterfall listeners MUST call `next()`** to delegate; returning without it short-circuits the chain ([semantics](docs/cordis-primer.md#cordis-waterfall-semantics)).
 - **Model-visible ⟺ logged**: anything that reaches a model request must be reconstructable from the session log; a new model-visible input requires a session event.
-- **Plugins, not loop changes**: new behavior goes on the documented extension seams; changing `agent-loop` requires updating docs/architecture.md.
-- **Capability seams are three packages** — interface / implementation / consumer; don't split preemptively.
+- **Plugins, not loop changes**: new behavior goes on documented extension points; changing `agent-loop` requires updating docs/architecture.md.
+- **A capability seam comprises Service Definition / Service provider / Consumer roles.** It is complete, never one role; split only when roles evolve independently ([glossary](docs/glossary.md#capability-seam)).
 - **Prefer maintained dependencies over hand-rolling** when they genuinely delete owned code and tests ([policy](.agents/notes/implemented/process/2026-07-26-dependencies-over-hand-rolling.md)).
-- **Explicit > implicit at package seams**: defaulting is an explicit `resolve(request): Spec` step in the owning implementation, never a hidden `?? default` inside `run()` (the `dsh-bash` request/spec split is the template).
-- **No hardcoded tunables in plugins**: deployment-varying choices are validated `Config` fields changeable from cordis.yml; a `DEFAULT_*` constant or test seam is not configurability. Protocol constants, external specs, and security invariants stay fixed.
+- **Explicit > implicit at package boundaries**: defaulting is an explicit `resolve(request): Spec` step in the owning implementation, never a hidden `?? default` inside `run()` (the `dsh-bash` request/spec split is the template).
+- **No hardcoded tunables in plugins**: deployment-varying choices are validated `Config` fields changeable from cordis.yml; a `DEFAULT_*` constant or test hook is not configurability. Protocol constants, external specs, and security invariants stay fixed.
 - **Misconfiguration fails loud** at load when self-contained, otherwise at the earliest resolvable point; never silently skip a missing referent.
 - **Opaque cross-boundary ids are branded** (`Branded<B>` from `dsh-brand`), never bare `string`.
-- **Trust TypeScript at typed same-process seams.** Do not add runtime validation, fallback behavior, or hostile-input tests solely for values the static interface requires; validate at parser/config, queued, model/tool JSON, durable/file, worker, process, and wire boundaries.
+- **Trust TypeScript at typed same-process boundaries.** Do not add runtime validation, fallback behavior, or hostile-input tests solely for values the static interface requires; validate at parser/config, queued, model/tool JSON, durable/file, worker, process, and wire boundaries.
 - **Source plane vs artifact plane, never mixed.** Static gates and tests resolve workspace imports through tsconfig `paths` to `src` and pass on a clean tree; gates consuming built `lib/` declare that dependency ([layout](docs/development.md#typescript-project-layout)).
 - **Keep compiler faces explicit.** Each package uses one aggregate except `api/remotes`; repo-wide programs seed a face config, never the root solution ([layout](docs/development.md#typescript-project-layout)).
 - **An empty `catch` names what it swallows** and why nothing else can reach it; keep the `try` to one statement.
@@ -119,7 +120,7 @@ Real-API tests and demos read `DEEPSEEK_API_KEY`, optional `DEEPSEEK_BASE_URL`, 
 - **Non-trivial changes MUST include an Agent Note in the same PR;** only mechanical/local edits are exempt ([scope](.agents/notes/README.md#when-to-write-one)). Archived notes are frozen: never edit or treat them as current authority ([archive policy](.agents/notes/README.md#archiving-and-deletion)).
 - **Testing policy** — [docs/testing.md](docs/testing.md). Every non-trivial model- or product-user-visible behavior change adds or updates a keyless snapshot through a real runnable example in the same PR; package tests, e2e-only assertions, and mock-only fixtures do not substitute for the assembled application transcript. Fixtures must replay on macOS/Linux; fix fixtures, not normalizers.
 - **A tool's UI render intent is part of its design**, decided up front (`generic`/`terminal`/`diff`, `locations`); presentation methods are pure functions of `args` ([cookbook](docs/cookbook/adding-a-tool.md)).
-- **Plan unit, e2e, and snapshot coverage** for new seams, lifecycle shapes, and transcript surfaces; missing snapshot-harness support is part of the implementation, not deferred follow-up.
+- **Plan unit, e2e, and snapshot coverage** for new capability seams, lifecycle shapes, and transcript surfaces; add missing snapshot-harness support in the same change.
 - **Choose PR history deliberately.** Split independent changes; fix the introducing PR before propagation. Standalone PRs and official stacks may merge-forward or rebase after review. Rewrites use `--force-with-lease`, abort on remote movement, never raw `--force`; an in-progress merge-forward preserves its checkpoint before taking a newer base ([rationale](.agents/notes/implemented/process/2026-08-02-native-github-stacks-and-optional-rebases.md)).
 - **Labels:** one PR `kind/*`, all material `area/*`, and native Issue Type ([taxonomy](.agents/notes/implemented/process/2026-08-08-unified-github-label-taxonomy.md)).
 - TODO markers: `FIXME`/`TODO`/`XXX` by urgency ([semantics](docs/development.md)).
@@ -131,7 +132,7 @@ Read [docs/defensive-patterns.md](docs/defensive-patterns.md) before lifecycle, 
 
 ## Type safety and documentation
 
-Everything compiles under `strict: true` with `noImplicitAny`; every remaining `any` explains why a narrower type is infeasible. Every module and export has concise JSDoc for its non-obvious contract; function-like exports include `@param`/`@returns`, as enforced by `verify-export-jsdoc`. Heritage-declared members, plugin-protocol slots, and constructors keep their docs at the declaring seam, protocol, or class.
+Everything compiles under `strict: true` with `noImplicitAny`; every remaining `any` explains why narrowing is infeasible. Every module and export has concise JSDoc for its non-obvious contract; function-like exports include `@param`/`@returns`, as enforced by `verify-export-jsdoc`. Heritage-declared members, plugin-protocol slots, and constructors keep their docs at the declaring Service Definition, protocol, or class.
 
 Comments and docs preserve complete contracts and non-obvious orientation, not reasoning transcripts. Do not narrate control flow or tests, preserve review history, or restate code. Keep factual clauses affecting behavior, failure, timing, ownership, or safe use; link aggressively to owning rationale. Use [dsh-prose-standard](.agents/skills/dsh-prose-standard/SKILL.md) for prose decisions. Wire mechanically checkable invariants into an executed top-level gate and prove each new or changed acceptance path rejects an invalid case. Use narrow justified exceptions instead of disabling a rule globally.
 

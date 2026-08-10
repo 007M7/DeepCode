@@ -9,7 +9,7 @@ Land dependent PRs through GitHub's native stack object and `gh stack merge`. Do
 
 ## Require native stack support
 
-Run `gh stack --version` before changing GitHub state. Hard-stop if the official extension or server-side stack feature is unavailable; do not fall back to the legacy manual landing procedure. GitHub stacks require every head branch to live in the same repository, so hard-stop on a cross-fork chain.
+Run `gh stack --version` before changing GitHub state. Hard-stop if the official extension or server-side stack feature is unavailable; do not fall back to manually merging and retargeting PRs one at a time. GitHub stacks require every head branch to live in the same repository, so hard-stop on a cross-fork chain.
 
 Use a clean dedicated worktree. Fetch current PR metadata and exact head OIDs rather than trusting branch names or an earlier report:
 

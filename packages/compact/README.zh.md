@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-一个压缩（compaction）能力家族（参见[能力 seam](../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md)）：抽象接口、摘要后端、无模型工具结果修剪配套工具，以及用户命令适配器。这些全是**产品**包。
+一个压缩（compaction）能力家族（参见[能力 seam](../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md)）：Service Definition、摘要提供方、无模型工具结果修剪配套工具，以及人类命令 Consumer。这些全是**产品**包。
 
 | 包 | 职责 | ctx key |
 |---|---|---|

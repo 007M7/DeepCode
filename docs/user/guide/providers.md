@@ -122,18 +122,18 @@ Under `dsh`, references resolve from the inherited environment, the Models page'
 
 ## Point an agent at the new provider
 
-A configured route appears in the web model picker and can be switched at any time, which is how most people use it.
+A configured route appears in the web model picker and can be switched at any time.
 
-Switching there also sets the default: the model you pick becomes the one the next new session starts on, recorded in `settings.yaml` under `api-gateway`. There is no separate gesture.
+Switching there also sets the default: the model you pick becomes the one the next new session starts on, recorded in `settings.yaml` under `agent-default-model`. There is no separate gesture.
 
 ```yaml
-api-gateway:
+agent-default-model:
   provider: acme-gateway
   model: acme-large
   reasoningEffort: high   # optional
 ```
 
-A session that has already run a turn is never retargeted by it — that session derives its route from its own log, so changing the default only reaches sessions that have not started. The shipped fallback under this section is the `api-gateway` composition entry (`deepseek-official` / `deepseek-v4-flash`), which a self-assembled `cordis.yml` may override; a composition you assemble yourself — headless, for instance — sets `agent-loop`'s `agents` instead.
+After a session has run a turn, its own log remains authoritative for its model selection; the default applies only to sessions without a recorded request. The shipped fallback under this section is the base bundle's `agent-default-model` composition entry (`deepseek-official` / `deepseek-v4-flash`). A self-assembled `cordis.yml` mounts and configures `@deepseek-ai/dsh-agent-default-model`; both direct front doors and Host-backed front doors read that same service.
 
 If the provider a saved default names is later removed, the composer says **Select model** and refuses input until you pick one, rather than sending to a route nothing serves.
 

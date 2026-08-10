@@ -17,7 +17,7 @@ A turn flows through the six packages in one loop: the driver in [`agent-loop`](
 | `agent-loop/` | The concrete driver implementing the public `Agent` contract (`ctx.agentLoop`) | this page |
 | `scope/` | The scoped-registration primitive the registries and loop build per-agent scoping on | [scope.md](scope.md) |
 
-`scope/` is the one non-service package: a dependency-free library (`createScope`/`scopeOf`/`scopeTarget`) that sits below `session/` and `system-prompt/` in the module graph precisely so they can consume it without a cycle. `agent-loop` is the one concrete implementation of the `agent` seam and lives here because it is the harness's default product loop; it runs each driver inside `ctx.agents.withInitiator()`. Extension plugins depend on `agent` — including when they need the initiating Agent — and never on `agent-loop` directly, so the loop stays swappable. The default composition that wires this spine into a runnable agent is [`examples/agent-spine-demo`](../../packages/examples/agent-spine-demo/README.md).
+`scope/` is the one non-service package: a dependency-free library (`createScope`/`scopeOf`/`scopeTarget`) that sits below `session/` and `system-prompt/` in the module graph precisely so they can consume it without a cycle. `agent-loop` is the one concrete implementation of the public `Agent` contract and lives here because it is the harness's default product loop; it runs each driver inside `ctx.agents.withInitiator()`. Extension plugins depend on `agent` — including when they need the initiating Agent — and never on `agent-loop` directly, so the loop stays swappable. The default composition that wires this spine into a runnable agent is [`examples/agent-spine-demo`](../../packages/examples/agent-spine-demo/README.md).
 
 ## Creation and ownership
 
@@ -48,7 +48,7 @@ interface AgentHandle {
 
 `CreateAgentOptions` carries the shared identity and everything a fresh agent needs before publication: session metadata (`meta` — validated `cwd`, fork lineage, seed boundary, origin classification, delegation depth), an optional `seed` replay prefix for forks, per-agent `AgentOptions`, a creation-only cancellation `signal`, and `setup`. `ResumeAgentOptions` is the persisted-identity counterpart: `resumeSessionId`, `agentOptions`, `signal`, and `setup`. The `setup` callback (`AgentSetup`) composes the agent's scoped world while both ids are still unpublished — everything registered through `agentCtx` exists before `agent/created` and the first prompt assembly — and may return a synchronous commit invoked immediately before publication; a setup rejection, commit throw, or owner disposal rolls the transaction back without publishing either id.
 
-`AgentFactory` is the creation seam behind the registry: the loop registers its factory via `ctx.agents.setFactory()`, so consumers program against `ctx.agents` without depending on the concrete loop package. The exact `create`/`resume` signatures and their rollback contracts are in the [generated section](#ctxagents--agentregistry) below.
+`AgentFactory` is the creation contract behind the registry: the loop registers its factory via `ctx.agents.setFactory()`, so consumers program against `ctx.agents` without depending on the concrete loop package. The exact `create`/`resume` signatures and their rollback contracts are in the [generated section](#ctxagents--agentregistry) below.
 
 ## The agent handle
 
@@ -107,7 +107,7 @@ interface Agent {
    * cancel leaves it parked. A wake submitted while already idle always opens
    * its turn boundary, even when its message is cleared before the driver
    * claims ([cancel-convergence wake latch](../../../../.agents/notes/implemented/bug-fix/2026-08-07-cancel-convergence-wake-latch.md)).
-   * @param message - identified content and its producer provenance.
+   * @param message - identified content and the source that supplied it.
    * @param target - the preferred next-turn or next-step inbox boundary.
    * @param wakeup - whether delivery may wake the driver.
    */
@@ -116,7 +116,7 @@ interface Agent {
   /**
    * Queue an ordinary follow-up turn and wake the driver. The item becomes the
    * sole ordinary message of its own turn.
-   * @param message - identified prompt content and its producer provenance.
+   * @param message - identified prompt content and the source that supplied it.
    */
   followup(message: UserMessage): void
 
@@ -125,7 +125,7 @@ interface Agent {
    * a running driver consumes it at its next step boundary.
    * A rejected step leaves steering parked in the inbox until the next
    * wake; cancellation or disposal may discard pending steering.
-   * @param message - identified steering content and its producer provenance.
+   * @param message - identified steering content and the source that supplied it.
    */
   steer(message: UserMessage): void
 
@@ -135,7 +135,7 @@ interface Agent {
    * idle drivers leave it pending until follow-up or steering
    * wakes them. It may miss a request whose pre-step already claimed its
    * batch. Cancellation or disposal may discard pending context.
-   * @param message - identified injected context and its producer provenance.
+   * @param message - identified injected context and the source that supplied it.
    */
   inject(message: UserMessage): void
 }
@@ -200,7 +200,7 @@ type AgentCancelCause =
   | { readonly kind: 'disposed' }
 ```
 
-The cause is a TypeScript-enforced same-process input. An active cancellation holder copies it into the runtime-only `AbortSignal.reason`; a signal grants cooperating listeners no classification authority. Durable `turn/end` retains the coarse `{ kind: 'aborted' }` outcome; request provenance would require a separate durable event rather than overloading the terminal result.
+The cause is a TypeScript-enforced same-process input. An active cancellation holder copies it into the runtime-only `AbortSignal.reason`; a signal grants cooperating listeners no classification authority. Durable `turn/end` retains the coarse `{ kind: 'aborted' }` outcome; recording who requested cancellation would require a separate durable event rather than overloading the terminal result.
 
 The [event taxonomy](../architecture.md#event) owns the `agent/*` lifecycle, checkpoint, and waterfall contracts. Turn and step boundaries are durable session events rather than agent emits.
 
@@ -210,7 +210,7 @@ The process-local initiator carried by `ctx.agents` is the exact `Agent` above, 
 
 ## Interception decisions
 
-Pre-step decisions use the same identified `UserMessage` shape as durable user-role input. The entered batch is authoritative and preserves every message's identity and provenance. Hook bridges map their native decision fields onto this typed result.
+Pre-step decisions use the same identified `UserMessage` shape as durable user-role input. The entered batch is authoritative and preserves every message's id and source. Hook bridges map their native decision fields onto this typed result.
 
 Source: [`packages/core/agent/src/types.ts`](../../packages/core/agent/src/types.ts)
 
@@ -243,7 +243,7 @@ type SessionStartSource = 'startup' | 'resume' | 'clear' | 'compact'
 
 ## Sessions
 
-A `Session` is an **append-only log** of typed `SessionEvent`s — the single source of truth. The LLM message history is *derived* from the log (`deriveMessages()`), not stored separately. Every entry carries a monotonic `seq`, a `time`, and a `type`-discriminated `data` payload; surface variants additionally carry `sourceEventSeqs` provenance and a `surfaceOp`.
+A `Session` is an **append-only log** of typed `SessionEvent`s — the single source of truth. The LLM message history is *derived* from the log (`deriveMessages()`), not stored separately. Every entry carries a monotonic `seq`, a `time`, and a `type`-discriminated `data` payload; surface variants may also list cited earlier events in `sourceEventSeqs` and carry a `surfaceOp`.
 
 The `SessionEvent` envelope's exact conditional shape, the twelve event variants (`turn/start`, `turn/end`, `step/start`, `step/end`, `user/message`, `assistant/chunk`, `assistant/message`, `tool/call`, `tool/result`, `steering/message`, `todo/write`, `request/header`), the `deriveMessages()` projection rules, the `TurnTrigger`/`TurnEndReason` reasons, and the execution-enclosure and standalone-event rules are on **[session.md](session.md)**. How the log is made durable — the `SessionPersistence` seam, JSONL/SQLite backends, the `session/flush` checkpoint, crash recovery, and `SessionHeader` — is on **[persistence.md](persistence.md)**.
 
@@ -314,6 +314,30 @@ The two core IDs are `CallId` (correlates a tool call with its result; dsh-llm) 
 
 Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` surface lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
 
+<a id="ctxagentdefaultmodel--agentdefaultmodelservice"></a>
+
+### `ctx.agentDefaultModel` — `AgentDefaultModelService`
+
+Owns the default model selection independently of any Host or transport. The composition entry remains usable without a settings provider; when one is mounted, its user layer is read live.
+
+```ts cordis-catalog
+/**
+ * Read the current default model selection.
+ * @returns a detached provider, model, and optional reasoning selection.
+ */
+currentSelection(): ModelSelection
+
+/**
+ * Save the complete default model selection. A deployment without a settings
+ * provider keeps its composition entry.
+ * @param next - resolved selection accepted by a front door.
+ * @returns fulfillment after the optional settings write settles.
+ */
+async saveSelection(next: ModelSelection): Promise<void>
+```
+
+Source: [`packages/core/agent-default-model/src/index.ts:64`](../../packages/core/agent-default-model/src/index.ts)
+
 <a id="ctxagentloop--agentloop"></a>
 
 ### `ctx.agentLoop` — `AgentLoop`
@@ -353,6 +377,138 @@ Types: [SessionHeader](persistence.md)
 
 Source: [`packages/core/agent-loop/src/index.ts:277`](../../packages/core/agent-loop/src/index.ts)
 
+<a id="ctxagentpresets--agentpresets"></a>
+
+### `ctx.agentPresets` — `AgentPresets`
+
+Registry over the deployment's agent presets.
+
+Discovery is unmemoized: `list()` and `resolve()` re-read the roots on every call so a preset authored while the process runs is visible immediately, and a preset deleted underneath a picker disappears from the next read.
+
+```ts cordis-catalog
+/**
+ * Every preset the configured roots currently supply.
+ * @returns the presets, first-root-wins per id.
+ */
+async list(): Promise<AgentPreset[]>
+
+/**
+ * Resolve one preset by id.
+ *
+ * A broken preset resolves — deleting one, reading one, and reporting one
+ * all need the row — and the mounting paths refuse it AFTER resolution
+ * through {@link resolveMountable}.
+ * @param id - the preset id, or `undefined` for {@link defaultId}.
+ * @returns the resolved preset.
+ * @throws when no configured root supplies that id.
+ */
+async resolve(id?: string): Promise<AgentPreset>
+
+/**
+ * Compose one agent from a preset: ensure the preset's standing mount, then
+ * parent the agent's scope key to it so the mount's registrations and
+ * listeners cover this agent.
+ *
+ * Call from the agent factory's `setup(agentCtx)`; a rejection there rolls
+ * the agent creation back, so a broken preset never yields a half-composed
+ * session.
+ * @param agentCtx - the agent's scope context.
+ * @param id - the preset id, or `undefined` for {@link defaultId}.
+ * @returns the preset that was composed, for the caller to record.
+ * @throws when the preset is unknown or its composition is unusable.
+ */
+async mount(agentCtx: Context, id?: string): Promise<AgentPreset>
+
+/**
+ * Read one preset's composition text.
+ * @param id - the preset id.
+ * @returns the composition exactly as stored.
+ * @throws when no configured root supplies that id.
+ */
+async read(id: string): Promise<string>
+
+/**
+ * Create a locally authored preset by copying an existing one whole.
+ *
+ * Copy is the only authoring write. Composition text never crosses this
+ * seam: the source is named by id and its directory is copied as it stands,
+ * so the copy is exactly as loadable as its source and authoring grants no
+ * capability the roster did not already carry. The copy is NOT mounted to
+ * validate — a source that mounts today yields a copy that mounts today.
+ * @param from - the preset the copy starts from; shipped presets are the
+ * primary source, so any trust is accepted.
+ * @param id - the new preset's id, which becomes its directory name.
+ * @param name - display name for the copy; absent falls back to the id.
+ * @throws when the source is unknown, the id is unusable or already taken,
+ * or the deployment configures no writable root.
+ */
+async copy(from: string, id: string, name?: string): Promise<void>
+
+/**
+ * Delete a locally authored preset.
+ * @param id - the preset id.
+ * @throws when the preset is unknown or ships with the deployment.
+ */
+async remove(id: string): Promise<void>
+
+/**
+ * One agent's instance of a service its preset mounted.
+ *
+ * A preset publishes services behind `isolate` realms, which are invisible
+ * outside the group that declares them — including to the host. This is how a
+ * caller holding the agent reads one anyway: a request that is ABOUT a
+ * session but arrives from outside it, which is every browser RPC.
+ *
+ * Read addressing only. A host row that `inject`s a service cannot use this,
+ * because injection resolves before any session exists and has no agent to
+ * key by; such a service belongs on the host plane instead.
+ * @param agent - the agent whose composition to look inside.
+ * @param name - the service name as the preset's rows resolve it.
+ * @returns the agent's instance, or undefined when its preset mounts none.
+ */
+serviceFor<K extends string & keyof Context>(agent: { ctx: Context }, name: K): Context[K] | undefined
+
+/**
+ * Re-link one agent to a different preset's standing composition.
+ *
+ * Only valid while the agent has produced nothing: swapping tools mid
+ * conversation would leave logged tool calls the new composition cannot
+ * make. The CALLER owns that check — this method does not read session
+ * history.
+ *
+ * The swap is a parent re-link, not an unmount: standing mounts are shared
+ * and permanent, so the old composition stays for its other agents and the
+ * new one is ensured BEFORE the link moves. An unknown or unusable preset
+ * therefore throws with the agent exactly as it was — there is no torn-down
+ * state to restore. The re-link runs through the binding this roster kept
+ * from the agent's mount — dsh-scope's only re-link authority. An agent
+ * that never composed one has nothing to re-link: the switch is then the
+ * agent's first bind, exactly a mount.
+ * @param agentCtx - the agent's scope context.
+ * @param id - the preset to compose the agent from instead.
+ * @returns the preset now installed.
+ * @throws when the preset is unknown or its composition is unusable.
+ */
+async recompose(agentCtx: Context, id: string): Promise<AgentPreset>
+
+/**
+ * The standing scope key of one preset, for a host reader with no agent.
+ *
+ * A cold transcript read resolves tool presenters against the composition
+ * the session recorded, and the standing mount makes that possible without
+ * resuming anything: ensuring the mount composes plugins but starts no
+ * agent, no session, and no turn.
+ * @param id - the preset id, or `undefined` for {@link defaultId}.
+ * @returns the standing scope key readers pass as a registry view scope.
+ * @throws when the preset is unknown or its composition is unusable.
+ */
+async standingKeyFor(id?: string): Promise<ScopeKey>
+```
+
+Types: [ScopeKey](scope.md)
+
+Source: [`packages/preset/agent-presets/src/index.ts:78`](../../packages/preset/agent-presets/src/index.ts)
+
 <a id="ctxagents--agentregistry"></a>
 
 ### `ctx.agents` — `AgentRegistry`
@@ -377,7 +533,7 @@ currentInitiator(): Agent | undefined
  * Read the initiating Agent and fail when no initiator boundary is active.
  * Use this for private helpers contractually below a driver, or for a
  * deployment-owned outbound request whose contract forbids agentless calls.
- * Generic or direct-call seams use optional lookup or explicit request fields.
+ * Generic or direct-call paths use optional lookup or explicit request fields.
  * @returns the inherited Agent.
  * @throws when no initiator is active or this service instance has been disposed.
  */
@@ -523,7 +679,7 @@ list(): Agent[]
 roots(): Agent[]
 ```
 
-Source: [`packages/core/agent/src/index.ts:253`](../../packages/core/agent/src/index.ts)
+Source: [`packages/core/agent/src/index.ts:255`](../../packages/core/agent/src/index.ts)
 
 <a id="agent-events"></a>
 
@@ -533,12 +689,12 @@ Source: [`packages/core/agent/src/index.ts:253`](../../packages/core/agent/src/i
 
 #### `agent/created` — emit
 
-A fully configured agent and live session were published. Setup is composition-only; `agent/session-start` is the first startup-driving seam. Synchronous listener failure vetoes publication, while returned-promise rejection is reported. Detach requested during dispatch waits until every creation listener has observed the stable entry.
+A fully configured agent and live session were published. Setup is composition-only; `agent/session-start` is the first startup-driving extension point. Synchronous listener failure vetoes publication, while returned-promise rejection is reported. Detach requested during dispatch waits until every creation listener has observed the stable entry.
 
 ```ts cordis-catalog
 /**
  * A fully configured agent and live session were published. Setup is
- * composition-only; `agent/session-start` is the first startup-driving seam.
+ * composition-only; `agent/session-start` is the first startup-driving extension point.
  * Synchronous listener failure vetoes publication, while returned-promise
  * rejection is reported. Detach requested during dispatch waits until every
  * creation listener has observed the stable entry.
@@ -551,7 +707,7 @@ A fully configured agent and live session were published. Setup is composition-o
 
 Types: [Scoped](scope.md)
 
-Source: [`packages/core/agent/src/types.ts:158`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/runtime-types.ts:159`](../../packages/core/agent/src/runtime-types.ts)
 
 <a id="agentdisposed--emit"></a>
 
@@ -573,7 +729,7 @@ An agent left the registry; AgentLoop emits this after driver quiescence and sco
 
 Types: [Scoped](scope.md)
 
-Source: [`packages/core/agent/src/types.ts:167`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/runtime-types.ts:168`](../../packages/core/agent/src/runtime-types.ts)
 
 <a id="agenterror--emit"></a>
 
@@ -597,7 +753,7 @@ A step or turn errored. The machine reports a failure here even when the error h
 
 Types: [Scoped](scope.md)
 
-Source: [`packages/core/agent/src/types.ts:289`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/runtime-types.ts:290`](../../packages/core/agent/src/runtime-types.ts)
 
 <a id="agentinboxclaimed--emit"></a>
 
@@ -621,7 +777,7 @@ One message left the inbox inside its open turn. If the proposed step is rejecte
 
 Types: [Scoped](scope.md) · [UserMessage](session.md)
 
-Source: [`packages/core/agent/src/types.ts:196`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/runtime-types.ts:197`](../../packages/core/agent/src/runtime-types.ts)
 
 <a id="agentinboxdiscarded--emit"></a>
 
@@ -642,7 +798,7 @@ One message was discarded from the live inbox.
 
 Types: [Scoped](scope.md) · [UserMessage](session.md)
 
-Source: [`packages/core/agent/src/types.ts:204`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/runtime-types.ts:205`](../../packages/core/agent/src/runtime-types.ts)
 
 <a id="agentinboxinserted--emit"></a>
 
@@ -663,7 +819,7 @@ One message entered the live inbox.
 
 Types: [Scoped](scope.md) · [UserMessage](session.md)
 
-Source: [`packages/core/agent/src/types.ts:185`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/runtime-types.ts:186`](../../packages/core/agent/src/runtime-types.ts)
 
 <a id="agentpre-step--waterfall"></a>
 
@@ -688,20 +844,20 @@ Reject a proposed step or replace the messages that enter it. Calling `next()` p
 
 Types: [Scoped](scope.md) · [UserMessage](session.md)
 
-Source: [`packages/core/agent/src/types.ts:230`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/runtime-types.ts:231`](../../packages/core/agent/src/runtime-types.ts)
 
 <a id="agentrequest--waterfall"></a>
 
 #### `agent/request` — waterfall
 
-Replace the frozen call configuration. `await next()` yields the config the machine would use (agent options on the first request, the logged header afterwards); return a replacement to switch. Model-visible content must use logged channels; this seam cannot mutate messages.
+Replace the frozen call configuration. `await next()` yields the config the machine would use (agent options on the first request, the logged header afterwards); return a replacement to switch. Model-visible content must use logged channels; this waterfall cannot mutate messages.
 
 ```ts cordis-catalog
 /**
  * Replace the frozen call configuration. `await next()` yields the config
  * the machine would use (agent options on the first request, the logged
  * header afterwards); return a replacement to switch. Model-visible
- * content must use logged channels; this seam cannot mutate messages.
+ * content must use logged channels; this waterfall cannot mutate messages.
  * @param payload.agent - the agent making the model call.
  * @param payload.turn - the open turn number.
  * @param payload.step - the step whose request this is.
@@ -714,7 +870,7 @@ Replace the frozen call configuration. `await next()` yields the config the mach
 
 Types: [LlmCallConfig](llm-streaming.md) · [Scoped](scope.md)
 
-Source: [`packages/core/agent/src/types.ts:243`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/runtime-types.ts:244`](../../packages/core/agent/src/runtime-types.ts)
 
 <a id="agentrequest-error--waterfall"></a>
 
@@ -743,7 +899,7 @@ Handle one failed model-request attempt before the loop retries or closes its st
 
 Types: [LlmFailure](llm-streaming.md) · [ResolvedRetryPolicy](llm-streaming.md) · [Scoped](scope.md)
 
-Source: [`packages/core/agent/src/types.ts:259`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/runtime-types.ts:260`](../../packages/core/agent/src/runtime-types.ts)
 
 <a id="agentsession-start--emit"></a>
 
@@ -767,7 +923,7 @@ The session lifecycle began, once before the first turn. Use `agent.inject()` to
 
 Types: [Scoped](scope.md)
 
-Source: [`packages/core/agent/src/types.ts:216`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/runtime-types.ts:217`](../../packages/core/agent/src/runtime-types.ts)
 
 <a id="agentstatus--emit"></a>
 
@@ -790,7 +946,7 @@ Agent status changed (`idle` ⇄ `running`). A waking delivery enters `running` 
 
 Types: [Scoped](scope.md)
 
-Source: [`packages/core/agent/src/types.ts:177`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/runtime-types.ts:178`](../../packages/core/agent/src/runtime-types.ts)
 
 <a id="agentturn-stopping--serial"></a>
 
@@ -821,7 +977,7 @@ The turn is about to close: the model owes no response (no live tool calls, no f
 
 Types: [Scoped](scope.md)
 
-Source: [`packages/core/agent/src/types.ts:277`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/runtime-types.ts:278`](../../packages/core/agent/src/runtime-types.ts)
 
 <a id="agent-loop-events"></a>
 

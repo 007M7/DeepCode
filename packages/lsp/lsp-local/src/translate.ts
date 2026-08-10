@@ -25,8 +25,8 @@ import type {
 } from './protocol.ts'
 
 /**
- * The `textDocument/*` request method for each seam operation.
- * @param operation - the seam operation to map.
+ * The `textDocument/*` request method for each LSP operation.
+ * @param operation - the LSP operation to map.
  * @returns the LSP request method name.
  */
 export function requestMethod(operation: LspOperation): string {
@@ -62,7 +62,7 @@ function supportsCapability(value: WireProviderCapability): boolean {
 /**
  * Whether the server advertises the requested operation.
  * @param capabilities - the server's `initialize` capabilities.
- * @param operation - the seam operation to check.
+ * @param operation - the LSP operation to check.
  * @returns true when the corresponding provider capability is present.
  */
 export function supportsOperation(capabilities: WireServerCapabilities, operation: LspOperation): boolean {

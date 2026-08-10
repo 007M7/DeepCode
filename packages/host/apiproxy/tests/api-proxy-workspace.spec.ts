@@ -59,7 +59,7 @@ function stubAgent(session: Session): Agent {
 
 /** Compose the API over real Session, Agent, Storage, Domain, and Workspace services. */
 async function harness(
-  workspaceRoot = realpathSync(mkdtempSync(join(tmpdir(), 'dsh-apiproxy-workspace-'))),
+  workspaceRoot = realpathSync.native(mkdtempSync(join(tmpdir(), 'dsh-apiproxy-workspace-'))),
   picker: DirectoryPickerCapability = { kind: 'native', pick: async () => null },
   extras: { openPath?: (path: string, signal: AbortSignal) => Promise<void> } = {},
 ) {
@@ -100,7 +100,7 @@ async function harness(
   // object per harness mirrors the seam's stability contract.
   ctx.provide('directoryPicker', { capability: () => picker } as never)
   const api = createApiProxy(ctx, {
-    defaultTarget: () => ({ provider: 'test', model: 'test-model' }),
+    defaultModelSelection: () => ({ provider: 'test', model: 'test-model' }),
     cwd: workspaceRoot,
     workspaceRoot,
     ...extras.openPath === undefined ? {} : { openPath: extras.openPath },

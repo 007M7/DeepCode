@@ -9,7 +9,7 @@
 | 命令 | 用途 |
 |---|---|
 | `dsh --profile <name>` | 启动位于 `$DSH_HOME/profiles/<name>` 的指定 profile。 |
-| `dsh run [--profile <name>] [--patch <path>...] "task"` | 运行一个新的持久化会话，打印最终答案并退出；profile 默认为 `headless`。 |
+| `dsh run [--profile <name>] [--patch <path>...] "task"` | 直接在 core 上运行一个新的持久化会话，打印最终答案并退出；profile 默认为 `headless`，且不挂载 Web server。 |
 | `dsh web` | `--profile web` 的别名，附带 Web flag 系列（`--host`、`--port`、`--dev` 等）。 |
 | `dsh plugin --profile <name> <pnpm args>` | 通过在 profile 目录中转发给 pnpm 来管理该 profile 的插件。 |
 

@@ -8,24 +8,24 @@ English | [中文](2026-06-21-subagent-capability-seam.zh.md)
 
 ## Problem
 
-The harness has a long-deferred seam for **subagents** — an agent delegating work to another agent. The intent was sketched in the `Agent`/`AgentLoop` interfaces ([packages/core/agent/src/types.ts](../../../../packages/core/agent/src/types.ts), [packages/core/agent-loop/src/index.ts](../../../../packages/core/agent-loop/src/index.ts)): a creation option referencing a parent agent (fork = seed the child session with the parent's event log; spawn = fresh session), with the child returned as an `Agent` handle so steering and event subscription work uniformly. This Agent Note realizes that seam; the banner above lists what shipped.
+The harness has a long-deferred seam for **subagents** — an agent delegating work to another agent. The intent was sketched in the `Agent`/`AgentLoop` interfaces ([packages/core/agent/src/types.ts](../../../../packages/core/agent/src/types.ts), [packages/core/agent-loop/src/index.ts](../../../../packages/core/agent-loop/src/index.ts)): a creation option referencing a parent agent (fork = seed the child session with the parent's event log; spawn = fresh session), with the child returned as an `Agent` handle so steering and event subscription work uniformly.
 
-The distinctive requirement — the one that shapes the whole design — is that **multiple subagent implementations must coexist at runtime**. A parent may want a cheap in-process child for a scoped subtask AND an isolated out-of-process child (over ACP) in the same session. The transports we foresee:
+The distinctive requirement — the one that shapes the whole design — is that **multiple subagent implementations must coexist at runtime**. A parent may want a cheap in-process child for a scoped subtask AND an isolated out-of-process child (over ACP) in the same session. The transports:
 
 - **in-process** — a child concrete `Agent` on the same `Context` (the cheapest, and nearly free given the existing agent factory);
 - **ACP** — act as an ACP *client* driving another agent process (which can be another instance of ourselves);
-- **Codex app-server and Claude Code Agent SDK** — current one-shot siblings that apply the same named-provider seam to official product processes ([product-provider Agent Note](2026-08-04-claude-code-and-codex-subagent-backends.md));
+- **Codex app-server and Claude Code Agent SDK** — current one-shot siblings that apply the same named-provider contract to official product processes ([product-provider Agent Note](2026-08-04-claude-code-and-codex-subagent-backends.md));
 - later: **A2A** using the same out-of-process "start a child, prompt it, settle, cancel" shape.
 
 ## Alternatives considered
 
 ### Why not the bash seam shape
 
-The bash seam ([capability seams](../architecture/2026-06-13-capability-seams.md)) registers exactly one `BashExecutor` per context; loading a second throws. That is correct for bash (one machine, one way to run a command) but wrong here: coexistence is the requirement. So the subagent service is a **named-provider registry** — each implementation registers under a unique name and a caller picks one by name — mirroring the **LLM adapter registry** (`LlmService.registerAdapter`), not the single-service bash executor. The seam is still three-package (interface / implementation / consumer); only the "one vs. many implementations" axis differs.
+The bash seam ([capability seams](../architecture/2026-06-13-capability-seams.md)) registers exactly one `BashExecutor` per context; loading a second throws. That is correct for bash (one machine, one way to run a command) but wrong here: coexistence is the requirement. So the subagent service is a **named-provider registry** — each implementation registers under a unique name and a caller picks one by name — mirroring the **LLM adapter registry** (`LlmService.registerAdapter`), not the single-service bash executor. The seam is still three-package (Service Definition / Service provider / Consumer); only the "one vs. many implementations" axis differs.
 
 ## Decision
 
-### The three-package seam
+### The three-package boundary
 
 A new package group `packages/subagent/`:
 
@@ -62,7 +62,7 @@ Each in-process subagent runs in its **own `Session`** (own id, `parentSession` 
 
 ### Provider selection is config, not model-facing
 
-`dsh-tool-subagent` binds to exactly one provider name (`Config.provider`); the model sees only `{ description, prompt }`. To expose more than one transport, load the tool plugin more than once, each bound to a different provider and a distinct `toolName` (the tool registry rejects a duplicate name). The *service* holds the multi-provider registry; the *tool* picks one — no provider/type parameter in the schema this cut.
+`dsh-tool-subagent` binds to exactly one provider name (`Config.provider`); the model sees only `{ description, prompt }`. To expose more than one transport, load the tool plugin more than once, each bound to a different provider and a distinct `toolName` (the tool registry rejects a duplicate name). The *service* holds the multi-provider registry; the *tool* picks one — the schema carries no provider/type parameter.
 
 ## Testing
 
@@ -72,5 +72,5 @@ Registry and tool tests replace only the nondeterministic child boundary with a 
 
 - **Recursion.** Without a bound, an in-process child can see the delegation tool and recurse. The in-process backends implement the optional absolute depth limit and scoped live-global `toolFilter`; ACP advertises both capabilities off and rejects such a request. The [subagent composition-controls Agent Note](2026-07-12-subagent-persona-tool-filter-and-depth.md) owns their exact semantics and security limits.
 - **Blocking the parent turn.** Foreground collection holds the parent's step open for the child's full duration. Background delegation uses the shared `ctx.tasks` runtime and generic `task_*` tools, the same collection mechanism as background bash; the subagent seam itself remains task-agnostic.
-- **Live progress.** This cut surfaces only lifecycle + final result; a per-chunk child→parent update stream is deferred with the background redesign.
-- **ACP client surface.** Proxying `fs`/`terminal` from the ACP child back to the parent (a shared-workspace mode) is future work; the first cut advertises neither, so the child self-serves in its own process.
+- **Live progress.** Only lifecycle + the final result surface; a per-chunk child→parent update stream is deferred with the background redesign.
+- **ACP client surface.** Proxying `fs`/`terminal` from the ACP child back to the parent (a shared-workspace mode) is future work; the backend advertises neither capability, so the child self-serves in its own process.

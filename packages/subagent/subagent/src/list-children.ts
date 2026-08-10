@@ -1,7 +1,7 @@
 /**
  * Read-only enumeration of durable subagent children and descendant trees
  * straight from the live session store and optional session persistence — no
- * query seam. Candidates come from one live-preferred corpus; each child's
+ * query service. Candidates come from one live-preferred corpus; each child's
  * mode/label is the registered `subagent` projection unit's value, resolved
  * down a three-rung ladder: the registry's watermark cache for a live child,
  * a durable projection-cache row when it serves an own-suffix identity (the
@@ -80,8 +80,8 @@ export type SubagentListEntry =
      * for any candidate whose log makes a registered unit's fold or schema
      * throw (deterministic data damage, contained per child); `unavailable`
      * when the candidate's persistence inspection failed (retried on the
-     * next listing). `unsupported` is kept for consumers already routing on
-     * it but is no longer produced.
+     * next listing). `unsupported` is never produced; it remains in the
+     * union for consumers that route on it.
      */
     readonly reason: 'corrupt' | 'unsupported' | 'unavailable'
   }
@@ -439,10 +439,7 @@ const LIFECYCLE_WITNESS_KEYS = [
   'version', 'id', 'createdAt', 'cwd', 'parentSession', 'seedLength', 'delegationDepth',
 ] as const
 
-/**
- * Whether an inspected log still belongs to the enumerated lifecycle,
- * mirroring the retired query-source compatibility check's field set.
- */
+/** Whether an inspected log still belongs to the enumerated lifecycle. */
 function sameLifecycle(meta: SessionHeader, expected: SessionHeader): boolean {
   return LIFECYCLE_WITNESS_KEYS.every(key => meta[key] === expected[key])
 }

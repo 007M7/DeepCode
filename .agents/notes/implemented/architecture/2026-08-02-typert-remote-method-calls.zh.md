@@ -147,7 +147,7 @@ InvocationDescriptor {
 
 参数顺序来自方法签名，HTTP 字段来自参数名或 lookup 声明。取消 descriptor 只保留最后一个 `signal` 位置，并使其不进入具名 `args`；实际 signal 由 Connection 或直接调用 Gateway 的调用方提供。Gateway 不根据请求内容推断可选字段、Context 类型、lookup 类型或缺失参数，也不会合成业务默认值。
 
-LIB codec 带有 Zod schema 和“package + 公共 subpath + export name”的规范 `typeSymbol`；SRC codec 只标记 `src-json`。Host 和消费端运行在不同 JavaScript realm 时会各自持有 Zod 实例，但这些实例由同一 TypeRT 模型和 symbol key 生成。
+LIB codec 带有 Zod schema 和「package + 公共 subpath + export name」的规范 `typeSymbol`；SRC codec 只标记 `src-json`。Host 和消费端运行在不同 JavaScript realm 时会各自持有 Zod 实例，但这些实例由同一 TypeRT 模型和 symbol key 生成。
 
 descriptor 只存在于两端本地 registry。wire 上只有 `/api` channel、endpoint 和 `{ args }` payload；Host 用自己的 descriptor 解码和调用，Client 用自己的对应 descriptor 编码参数和验证结果。
 
@@ -341,7 +341,7 @@ Remote DTS、Remote JS、`TypeRTClientRemote`、`InvocationDescriptor`、Remote 
 
 未来 TUI 可以在不改变业务 decorator、Remote maps 和 API 调用形状的前提下接入同一调用抽象。届时 TUI 可见的 API 仍只能由 `@Remote` 和 `@RemoteScope` 生成，不能因为它与 Host 同进程就绕过 Remote 限制直接暴露 Service 方法。
 
-TUI 的 runtime 挂载、carrier、Agent Scope 关联和 SRC 启动接线均不属于本期实现。
+TUI 的 runtime 挂载、carrier、Agent Scope 关联和 SRC 启动接线均仍延后，不在本决策之内。
 
 Web 本身依赖 `lib/client.js` 等构建产物，因此启动 Web 前要求完整 `build:lib`。Host Remote 约定变化后，开发者需重新执行 lib build，再启动或重启 Web；系统不实现 Remote contract 的增量 watch。
 
@@ -474,7 +474,7 @@ Connection 提供共享 channel interceptor 与当前 HTTP carrier 映射。WebS
 
 **让 decorator 在运行时完成严格反射。** JavaScript decorator 无法恢复擦除后的 TypeScript 类型、公共符号身份和完整 Zod codec；向 constructor 注入 compiler 私有 symbol 又会隐藏业务类的真实依赖，因此严格信息由 TypeRT compiler 生成。
 
-**SRC 启动时使用 preload、loader hook 或完整 `ts.Program`。** 这能复用 LIB 分析，但增加所有源码启动入口的要求。SRC 只需要可用的弱 descriptor，因此采用 decorator 标记、函数参数名和显式 provider；严格检查留给 LIB contract pass。
+**SRC 启动时使用 preload、loader hook 或完整 `ts.Program`。** 这能复用 LIB 分析，但增加所有源码启动入口的要求。SRC 只需要可用的弱 descriptor，因此采用 decorator 标记、函数参数名和显式 provider；严格检查留给 LIB 约定 pass。
 
 **手写 Client interface。** 手写接口不能保证只包含 Remote 标记的方法，也会与 Host 签名、lookup ID 和 Zod schema 漂移，因此 Client 类型从 Host Program 自动投影。
 
@@ -512,11 +512,11 @@ SRC 弱 descriptor 不验证普通 JSON 内部结构。Host Remote 签名变化�
 
 公共类型唯一性要求业务 DTO 具有纯类型出口，可能暴露现有包中 Host 类型与实现入口混杂的问题。构建会拒绝这些边界，而不是复制类型掩盖问题。
 
-类型 import 与运行时 contribution 是两种不同效果。`import type {}` 只扩展静态 Remote surface；真实调用环境遗漏 value contribution 时，Client Remote Service 必须以明确的“Remote 未挂载”错误失败。
+类型 import 与运行时 contribution 是两种不同效果。`import type {}` 只扩展静态 Remote surface；真实调用环境遗漏 value contribution 时，Client Remote Service 必须以明确的「Remote 未挂载」错误失败。
 
 Browser 与 Host 各自持有 Zod 实例，不能依赖对象 identity 跨 realm 比较；一致性只由规范 symbol key、同一生成模型和 wire 行为保证。
 
-消费端可以导入 Host 当前未挂载的 Remote contract。类型表示“该协议能力已被消费端选择”，不保证目标进程当前存在对应 Service；运行时 endpoint 不可用必须明确失败。
+消费端可以导入 Host 当前未挂载的 Remote contract。类型表示「该协议能力已被消费端选择」，不保证目标进程当前存在对应 Service；运行时 endpoint 不可用必须明确失败。
 
 Connection 的通用 channel API 必须同时适合当前 HTTP carrier 和后续 WebSocket carrier。若 Client Remote 或 Gateway 暴露 `fetch`、HTTP request 或 route handle，WebSocket 迁移会再次穿透 Remote 层，因此这些物理对象必须留在 Connection 内部。
 

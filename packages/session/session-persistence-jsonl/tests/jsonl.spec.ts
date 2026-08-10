@@ -62,6 +62,17 @@ async function expectFlushError(promise: Promise<unknown>, message: RegExp): Pro
   throw new Error('expected flush to reject')
 }
 
+async function expectFlushCode(promise: Promise<unknown>, codes: readonly string[]): Promise<void> {
+  try {
+    await promise
+  } catch (error) {
+    expect(error).toBeInstanceOf(Error)
+    expect(codes).toContain((error as NodeJS.ErrnoException).code)
+    return
+  }
+  throw new Error('expected flush to reject')
+}
+
 async function freshRoot(): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), 'dsh-jsonl-'))
   dirs.push(dir)
@@ -201,7 +212,6 @@ describe('SessionPersistenceJsonl: durability and crash semantics', () => {
     expect((await ctx.sessionPersistence.list()).map(h => h.id)).not.toContain(m.id)
 
     await ctx.sessionPersistence.append(m.id, oneTurnLog())
-    // now materialized
     expect((await stat(dir)).isDirectory()).toBe(true)
     expect((await stat(rawLogPath(root, '/work', m.id))).isFile()).toBe(true)
     expect((await ctx.sessionPersistence.list()).map(h => h.id)).toContain(m.id)
@@ -807,6 +817,27 @@ describe('SessionPersistenceJsonl: scanLog unit', () => {
     expect(() => scanLog(Buffer.from(log))).toThrow(/session header/)
   })
 
+  it('round-trips the agent preset a session was composed from', () => {
+    const line = toHeaderLine({
+      version: 0,
+      id: SessionId('composed'),
+      createdAt: 1,
+      delegationDepth: 0,
+      agentPreset: 'minimal',
+    })
+    const log = `${JSON.stringify(line)}\n`
+
+    // The preset decides the resumed session's tools and prompt; dropping it
+    // on disk would restore a composition the logged history contradicts.
+    expect(scanLog(Buffer.from(log)).meta.agentPreset).toBe('minimal')
+  })
+
+  it('rejects a session header whose agentPreset is not a string', () => {
+    const log = '{"type":"session","version":0,"id":"bad-preset","createdAt":1,"delegationDepth":0,"agentPreset":7}\n'
+
+    expect(() => scanLog(Buffer.from(log))).toThrow(/session header/)
+  })
+
   it('a seq gap after the last turn/end bounds the preserved tail (torn fragment tolerated)', () => {
     const log = [
       JSON.stringify({ type: 'session', version: 0, id: 'g', createdAt: 1, delegationDepth: 0 }),
@@ -1343,7 +1374,7 @@ describe('SessionPersistenceJsonl: edge cases', () => {
       s = inner.sessions.create(SessionId('exists-fault'), { meta: { cwd } })
       appendClosedTurn(s)
     }, { inject: ['sessions'] }))
-    await expect(ctx2.sessions.flush(s)).rejects.toThrow(/EEXIST|ENOTDIR/)
+    await expectFlushCode(ctx2.sessions.flush(s), ['EEXIST', 'ENOTDIR'])
     await ctx2.fiber.dispose()
   })
 

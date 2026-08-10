@@ -49,7 +49,7 @@ Status: implemented
 
 ### 强制执行点：提供方，而非 intent gate
 
-沙箱 Agent Note 最初的跨家族草图把 fs 强制执行放在 `fs/write-intent`/`fs/edit-intent` 事件上。本 Agent Note 改为在提供方中强制执行，基于两个机制性事实:intent 槽是单决策、先到先得(已被 `dsh-fs-policy` 占据,其约定称第二个决策者为配置错误),且 intent 事件只由 `dsh-tool-fs` 派发——一个直连 `ctx.fs` 的调用方(一个 cordis 挂载插件、一个自定义工具)会绕过它们,而提供方级强制执行按构造覆盖每一个调用方。沙箱 Agent Note 的暂缓阶段措辞在同一变更中被更新以匹配。
+沙箱 Agent Note 最初的跨家族草图把 fs 强制执行放在 `fs/write-intent`/`fs/edit-intent` 事件上。本 Agent Note 改为在提供方中强制执行，基于两个机制性事实:intent 槽是单决策、先到先得(已被 `dsh-fs-policy` 占据,其约定称第二个决策者为配置错误),且 intent 事件只由 `dsh-tool-fs` 派发——一个直连 `ctx.fs` 的调用方(一个 cordis 挂载插件、一个自定义工具)会绕过它们,而提供方级强制执行按构造覆盖每一个调用方。
 
 ### 范围之外
 

@@ -1,5 +1,5 @@
 /**
- * The background task registry seam (`ctx.tasks`). It owns the contract for
+ * The background-task Service Definition (`ctx.tasks`). It owns the contract for
  * task ids, session-scoped access, lifecycle state, completion listeners, and
  * owner cleanup while producers retain their execution resources. The
  * process-local registry lives in `@deepseek-ai/dsh-tasks-local`.
@@ -52,10 +52,9 @@ declare module 'cordis' {
  */
 export abstract class TaskService extends Service {
   constructor(ctx: Context) {
-    // `abstract` erases at runtime, and this package name used to be the
-    // mountable concrete registry — a stale composition row would otherwise
-    // register a ctx.tasks with no method implementations and fail far from
-    // the misconfiguration. Fail loud at load instead.
+    // `abstract` erases at runtime, so a composition row naming this package
+    // would register a ctx.tasks with no method implementations and fail far
+    // from the misconfiguration. Fail loud at load instead.
     if (new.target === TaskService) {
       throw new Error('@deepseek-ai/dsh-tasks is the abstract task registry seam; load an implementation such as @deepseek-ai/dsh-tasks-local instead')
     }

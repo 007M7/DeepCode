@@ -10,7 +10,10 @@ export const name = 'host-directory-picker-invariant'
 /** Service required before the companion can reserve package ownership. */
 export const inject = ['invariants']
 
-/** No runtime invariant: this stateless seam owns the capability vocabulary, while backends and the RPC consumer own observations. */
+/**
+ * No runtime invariant: this stateless Service Definition owns the capability
+ * vocabulary, while backends and the RPC consumer own observations.
+ */
 const install: InvariantInstaller = () => {}
 
 /**

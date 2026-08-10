@@ -1,8 +1,8 @@
 /**
- * Frozen pure-core contract (design v4, plan §1.2): trigger detection and
- * menu reduction, zero React / DOM / cordis. Types only — T2 implements
- * these signatures in sibling modules (annotate implementations with these
- * aliases); the service shell (T4) wires them to ctx.
+ * Frozen pure-core contract: trigger detection and
+ * menu reduction, zero React / DOM / cordis. Types only — implementations
+ * live in sibling modules annotated with these
+ * aliases; the service shell wires them to ctx.
  */
 import type { SlashCandidate, TokenSpan, TriggerChar, TriggerGuard, TriggerPosition } from '../types.ts'
 

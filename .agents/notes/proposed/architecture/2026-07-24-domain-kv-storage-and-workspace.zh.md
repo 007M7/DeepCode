@@ -8,7 +8,7 @@ Status: proposed
 
 host 侧唯一的持久化面是 session 事件日志（`packages/session/session-persistence`：仅追加、一 session 一文件）。凡是"不属于某个 session"的信息就没有落盘处，眼下有两个真实需求：
 
-- **workspace 实体**。GUI 要把 workspace 做成真实对象：路径、标题、关联 session 清单。归属关系由 workspace 持有——"哪些 session 属于这个 workspace"不是任何单个 session 自己的事实，塞进 session log 语义不成立。此前 workspace 只是 sidebar 上按 cwd 分组的视觉概念，没有实体（该结论已被推翻）。
+- **workspace 实体**。GUI 要把 workspace 做成真实对象：路径、标题、关联 session 清单。归属关系由 workspace 持有——"哪些 session 属于这个 workspace"不是任何单个 session 自己的事实，塞进 session log 语义不成立。在本设计之前，workspace 只是 sidebar 上按 cwd 分组的视觉概念，没有实体。
 - **session 动态元信息**（可预见的第二个消费方）。冷会话列表只读日志首行 header（创建时的不可变快照），title、结束状态这类随会话推进变化的信息拿不到；补齐方向是 sidecar 元数据表——正是一张按 key 高频点更新的 KV 表。
 
 另外，Session 删除需要 `SessionPersistence` 删除原语和 `session.delete` 端点。该空白的设计随本 Note 定案，但实现仍属未来工作。
@@ -305,7 +305,7 @@ export class WorkspaceRegistry extends Service {
 - **复用 session-persistence 的 coordinator/后端**：事件日志语义（仅追加、turn 崩溃修复、懒物化）与 KV 覆写语义不匹配；只借其分层思想（协调层持写序、后端只实现最小原语）。
 - **workspace 专用存储包，后续再抽 seam**：第二个消费方（session sidecar）已可预见，届时泛化要再动一次接口。
 - **domain 与 storage 合为一层**：后端会被迫接触 schema 校验、变更事件、写串行等领域关切；拆开后 storage 后端只做不透明原语（可替换面最小），domain 单实现收敛全部领域逻辑（zod/事件/串行化只写一遍，不随后端翻倍）。
-- **整库单后端二选一（学 session-persistence 单 slot 模式）**：曾是初版方案；改为多后端并存 + 配置路由，因为存储枢纽要承载多种数据形式，不同形式/域对后端的偏好（肉眼可读 vs 高频点更新）注定分化，单 slot 会逼出"整体换挂 + 手工导数据"的粗粒度动作。代价是按名查找多一步，fail-loud 兜底。
+- **整库单后端二选一（学 session-persistence 单 slot 模式）**：否决——存储枢纽要承载多种数据形式，不同形式/域对后端的偏好（肉眼可读 vs 高频点更新）注定分化，单 slot 会逼出"整体换挂 + 手工导数据"的粗粒度动作。代价是按名查找多一步，fail-loud 兜底。
 - **JSON 后端 jsonl 追加 + 墓碑 + 压实（compaction）**：temp+fsync+rename 的崩溃安全与 append 等价；覆写让文件永远是净值、肉眼可读，免掉折叠／压实／断行容错。域规模下整写与追加一行同量级。
 - **JSON 一表一文件**：覆写下文件粒度不影响写成本，按域合并文件更少，global 单例有落点。
 - **SQLite 整域存单行 blob**：任何一条记录变更都重写整域，失去按 key 精确更新——SQLite 相对 JSON 的唯一优势归零。

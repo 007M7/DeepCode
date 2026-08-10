@@ -4,7 +4,7 @@
  * entry (declaring is claiming: anchor, children declaration, lifecycle),
  * but the SlotMap type merge lives here: the owner package depends on this
  * one, so the dependency direction admits no reverse type import, and a
- * type-erased registration is ruled out (PR #632 review). The owner's
+ * type-erased registration is ruled out. The owner's
  * program picks this merge up transitively through its ui-slash imports.
  */
 // Type-only edge: the SlotMap augmentation below merges into this package's interface.

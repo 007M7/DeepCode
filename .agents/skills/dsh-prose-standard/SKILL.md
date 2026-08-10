@@ -5,7 +5,7 @@ description: Use when writing, reviewing, restoring, trimming, or auditing prose
 
 # DeepSeek Harness Prose Standard
 
-Write enough to preserve the contract, then remove reasoning transcripts, repetition, and decoration. This skill owns editorial judgment and required prose coverage; use [dsh-doc-standards](../dsh-doc-standards/SKILL.md) for placement, budgets, bilingual pairs, and documentation gates. It is guidance, not a script.
+Write enough to preserve the contract, then remove reasoning transcripts, repetition, and decoration. This skill owns editorial judgment and required prose coverage; use [dsh-doc-standards](../dsh-doc-standards/SKILL.md) for placement, budgets, bilingual pairs, and documentation gates, and [dsh-trim-cot-leakage](../dsh-trim-cot-leakage/SKILL.md) for hunting and fixing reasoning-transcript leakage. It is guidance, not a script.
 
 Comments describe non-obvious contracts or rationale that code cannot express; they do not restate what code already implies.
 

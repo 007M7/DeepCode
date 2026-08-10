@@ -18,7 +18,7 @@ Goal、Todo 与 Queue 独立注册到同一个 `conversation.input.dock` 列表�
 
 ## 验证
 
-注册测试固定了三个顺序值。无密钥 Queue 浏览器场景同时渲染 Todo、Goal 和 Queue，固定它们的无障碍顺序，并检查其可见卡片边缘；聚焦的 Goal 与 Queue 场景覆盖各自的独立状态。
+注册测试固定了三个顺序值。无密钥 Queue 浏览器场景同时渲染 Todo、Goal 和 Queue，固定它们的无障碍顺序，并检查其可见卡片边缘；分别针对 Goal 与 Queue 的场景覆盖各自的独立状态。
 
 ## 考虑过的替代方案
 
@@ -26,7 +26,7 @@ Goal、Todo 与 Queue 独立注册到同一个 `conversation.input.dock` 列表�
 
 **在 `ConversationRoot` 中分别渲染每个已知 dock id。** 不予采纳，因为这会把可扩展的列表 slot 变成硬编码的组件清单，并迫使 owner 在每新增一个注册方时随之修改。
 
-**让最后一个 dock 条目贴卡。** 不予采纳，因为 Goal 和 Todo 是独立卡片；Goal 或 Todo 缺席时的组合不得改变剩余卡片的界面语义。
+**让最后一个 dock 条目与 composer 相接。** 不予采纳，因为 Goal 和 Todo 是独立卡片；Goal 或 Todo 缺席时的组合不得改变剩余卡片的界面语义。
 
 ## 后果
 

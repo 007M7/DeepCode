@@ -8,7 +8,7 @@
 
 ## 持久标题状态
 
-提供方生成修订时会记录 `SessionTitleProviderId`。`SessionTitleEventData` 携带精确的人类消息来源信息，`SessionTitleSnapshot` 则加入 `foldSessionTitle()` 选出的持久事件封装信息。
+提供方生成修订时会记录 `SessionTitleProviderId`。`SessionTitleEventData` 列出生成标题时使用的精确人类消息 seq，`SessionTitleSnapshot` 则加入 `foldSessionTitle()` 选出的持久事件封装信息。
 
 ```ts type-equiv
 /** Identifies one session-title provider registration. */
@@ -47,7 +47,7 @@ interface SessionTitleEventData {
   readonly title: string
   /** Exact human `user/message` seqs used to derive this title; empty for an explicit user rename. */
   readonly messageSeqs: number[]
-  /** Built-in fallback, registered-provider, or explicit-user provenance. */
+  /** Whether the built-in fallback, a registered provider, or the user supplied the title. */
   readonly source: SessionTitleSource
 }
 ```
@@ -86,7 +86,7 @@ interface SessionTitleLlmRequestEventData {
 
 ## 提供方输入与输出
 
-服务会对截至某一修订的合格消息创建快照。提供方返回的 seq 仅可来自该请求；由服务负责的接纳流程会验证顺序、规范化标题、强制执行字节上限并追加来源信息。
+服务会对截至某一修订的合格消息创建快照。提供方返回的 seq 仅可来自该请求；由服务负责的接纳流程会验证顺序、规范化标题、强制执行字节上限，并追加标题及其来源消息 seq 和来源类型。
 
 ```ts type-equiv
 /** One eligible human text message exposed to title providers. */
@@ -132,14 +132,14 @@ interface SessionTitleProviderResult {
 ```ts type-equiv
 /** One optional asynchronous title implementation registered with the service. */
 interface SessionTitleProvider {
-  /** Stable provider identity recorded in title provenance. */
+  /** Stable id of the provider recorded with the title. */
   readonly id: SessionTitleProviderId
   /** When new human prompts start automatic generation. */
   readonly automatic: SessionTitleAutomaticMode
   /**
    * Produce one title revision.
    * @param request - message snapshot, current route, session, and cancellation.
-   * @returns proposed title plus exact input seqs and optional model provenance.
+   * @returns proposed title plus exact input seqs and the optional provider/model route used to generate it.
    */
   generate(request: SessionTitleProviderRequest): Promise<SessionTitleProviderResult>
 }

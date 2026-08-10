@@ -18,7 +18,7 @@ subagent seam（[seam Agent Note](2026-06-21-subagent-capability-seam.md)）的�
 
 ### 最小化客户端桩
 
-客户端不声明任何可选能力（无 `fs`、无 `terminal`）：子 agent 在自己的进程中自行处理文件/终端访问。`session/update` 通知被消费：后端将 `agent_message_chunk` 文本累积为结果输出，在本阶段忽略其余内容（思考、工具调用卡片），仅暴露子 agent 的最终回答。`session/request_permission` 由配置的策略自动应答（`reject` 拒绝所有提示，`allow` 通过第一个表示允许的选项批准）——本阶段不向人类暴露任何权限提示。将 `fs`/`terminal` 代理回父进程（共享工作区模式）仍为后续工作，如 seam Agent Note 所述。
+客户端不声明任何可选能力（无 `fs`、无 `terminal`）：子 agent 在自己的进程中自行处理文件/终端访问。`session/update` 通知被消费：后端将 `agent_message_chunk` 文本累积为结果输出，忽略其余内容（思考、工具调用卡片），因此仅暴露子 agent 的最终回答。`session/request_permission` 由配置的策略自动应答（`reject` 拒绝所有提示，`allow` 通过第一个表示允许的选项批准）——不向人类暴露任何权限提示。将 `fs`/`terminal` 代理回父进程（共享工作区模式）仍为后续工作，如 seam Agent Note 所述。
 
 ### 无启动时能力
 
@@ -59,4 +59,4 @@ ACP `StopReason` → harness `SubagentStopReason`：`end_turn`→`completed`、`
 
 ## 兄弟产品提供方
 
-[Codex app-server 与 Claude Code Agent SDK 提供方](2026-08-04-claude-code-and-codex-subagent-backends.md)作为按名称注册的兄弟提供方，采用同样的进程外启动/提示词/结算/取消边界。A2A 仍是未来的兄弟传输方式；ACP 后端证明了通用 seam 能够支持这项边界，而无需负责产品私有协议。
+[Codex app-server 与 Claude Code Agent SDK 提供方](2026-08-04-claude-code-and-codex-subagent-backends.md)作为按名称注册的兄弟提供方，采用同样的进程外启动/提示词/结算/取消边界。A2A 仍是未来的兄弟传输方式；ACP 后端证明了 subagent seam 能够支持这项边界，而无需负责产品私有协议。

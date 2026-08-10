@@ -1,9 +1,9 @@
 /**
- * OpenTelemetry backend for the DeepSeek Harness telemetry seam.
+ * OpenTelemetry Service provider for the DeepSeek Harness telemetry capability.
  *
  * Composes the OTel JS SDK as-is — a `LoggerProvider` with a
  * `BatchLogRecordProcessor` and an OTLP/HTTP log exporter — and maps each
- * record handed over by the seam onto `logger.emit()`. Per the seam's
+ * record handed over by the capture coordinator onto `logger.emit()`. Per the Service Definition's
  * boundary axiom, everything downstream of that call (batching, retry,
  * queueing, loss policy) is the SDK's documented behavior, configured
  * verbatim through the `exporter`/`processor` passthroughs. This package owns
@@ -121,7 +121,7 @@ export const DEFAULT_SHUTDOWN_TIMEOUT_MILLIS = 3_000
 // protocol limit, not a deployment default.
 const MAX_TIMER_DELAY_MILLIS = 2_147_483_647
 
-/** Severity mapping from the seam's three-level vocabulary to OTel severity numbers. */
+/** Severity mapping from the Service Definition's three-level vocabulary to OTel severity numbers. */
 const SEVERITY: Record<TelemetrySeverity, { severityNumber: SeverityNumber; severityText: string }> = {
   info: { severityNumber: SeverityNumber.INFO, severityText: 'INFO' },
   warn: { severityNumber: SeverityNumber.WARN, severityText: 'WARN' },
@@ -250,14 +250,14 @@ export class TelemetryOtel extends Telemetry {
     this.directEmit(record)
   }
 
-  // The seam's optional flush() hint is deliberately NOT implemented. The
+  // The Service Definition's optional flush() hint is deliberately NOT implemented. The
   // batch processor exports on its own cadence (`processor.scheduledDelayMillis`,
   // the SDK's documented knob), and this backend is the SDK pipeline's only
-  // caller — forwarding the hint to `forceFlush()` was the sole source of
+  // caller — forwarding the hint to `forceFlush()` would be the sole source of
   // concurrent flushes, whose undocumented interactions with shutdown's
   // internal drain (concurrent-flush guard, provider-level flush timeout)
-  // silently dropped tail records. Removal history and the revival trigger:
-  // the revival Agent Note.
+  // silently drop tail records. Rationale and the revival trigger: the
+  // revival Agent Note.
 
   /**
    * Ask the SDK to drain and quiesce, but reject after the backend-owned

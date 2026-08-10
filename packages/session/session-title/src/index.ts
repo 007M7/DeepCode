@@ -1,5 +1,5 @@
 /**
- * Log-backed session title service, deterministic fallback, and provider seam.
+ * Log-backed session title service, deterministic fallback, and provider contract.
  * @module @deepseek-ai/dsh-session-title
  */
 
@@ -63,7 +63,7 @@ export interface SessionTitleEventData {
   readonly title: string
   /** Exact human `user/message` seqs used to derive this title; empty for an explicit user rename. */
   readonly messageSeqs: number[]
-  /** Built-in fallback, registered-provider, or explicit-user provenance. */
+  /** Whether the built-in fallback, a registered provider, or the user supplied the title. */
   readonly source: SessionTitleSource
 }
 
@@ -91,7 +91,7 @@ declare module 'cordis' {
   }
 }
 
-declare module '@deepseek-ai/dsh-session' {
+declare module '@deepseek-ai/dsh-session/types' {
   interface SessionEventMap {
     /**
      * Latest-wins session title snapshot. Log-only: it never enters the model
@@ -146,14 +146,14 @@ export interface SessionTitleProviderResult {
 
 /** One optional asynchronous title implementation registered with the service. */
 export interface SessionTitleProvider {
-  /** Stable provider identity recorded in title provenance. */
+  /** Stable id of the provider recorded with the title. */
   readonly id: SessionTitleProviderId
   /** When new human prompts start automatic generation. */
   readonly automatic: SessionTitleAutomaticMode
   /**
    * Produce one title revision.
    * @param request - message snapshot, current route, session, and cancellation.
-   * @returns proposed title plus exact input seqs and optional model provenance.
+   * @returns proposed title plus exact input seqs and the optional provider/model route used to generate it.
    */
   generate(request: SessionTitleProviderRequest): Promise<SessionTitleProviderResult>
 }
@@ -615,12 +615,12 @@ export class SessionTitleService extends Service {
     let model: SessionTitleModelProvenance | undefined
     if (modelCandidate !== undefined) {
       if (modelCandidate === null || typeof modelCandidate !== 'object') {
-        throw new Error('session-title provider model provenance requires non-empty provider and model')
+        throw new Error('session-title provider result model must contain non-empty provider and model strings')
       }
       const record = modelCandidate as Record<string, unknown>
       if (typeof record.provider !== 'string' || record.provider.length === 0
         || typeof record.model !== 'string' || record.model.length === 0) {
-        throw new Error('session-title provider model provenance requires non-empty provider and model')
+        throw new Error('session-title provider result model must contain non-empty provider and model strings')
       }
       model = { provider: record.provider, model: record.model }
     }

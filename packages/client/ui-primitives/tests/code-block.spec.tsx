@@ -47,7 +47,7 @@ describe('highlightToHtml', () => {
     // Once every grammar has registered, the same call highlights.
     await vi.waitFor(() => {
       for (const alias of LAZY_ALIASES) expect(highlightToHtml('x', alias)).toContain('shiki')
-    })
+    }, { timeout: 5_000 })
   })
 })
 

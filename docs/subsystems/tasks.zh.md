@@ -151,7 +151,7 @@ interface TaskRead {
 
 ## 服务行为
 
-抽象的 [`TaskService`](../../packages/tasks/tasks/src/index.ts) seam 定义原子 `start`、限定调用方作用域的 `get` 和 `list`、`read`、`kill`、有界 `wait`、故障隔离的 `onTaskDone` 与 `onTasksChanged` 监听器，以及 `attachSurface` 可用性防线；[`LocalTaskService`](../../packages/tasks/tasks-local/src/index.ts) 是其进程局部实现。两类监听器不是包含关系：`onTaskDone` 按控制面与通知投递绑定的 first-wins 语义投递唯一一条终态记录，而 `onTasksChanged` 观察每一次可见集合的变化——注册、转入 stopping、结算，以及 owner 销毁时的移除——只携带集合发生变化的那个 owner，或在无主任务变化、因而每个调用方的集合都随之变化时携带 `undefined`。授权会比较拥有者会话；拥有者清理会选择确切的已注册 `Agent` 实例。seam 契约见 [`dsh-tasks`](../../packages/tasks/tasks/README.md)，注册表生命周期见 [`dsh-tasks-local`](../../packages/tasks/tasks-local/README.md)，面向模型的接口见 [`dsh-tool-tasks`](../../packages/tasks/tool-tasks/README.md)。
+抽象的 [`TaskService`](../../packages/tasks/tasks/src/index.ts) Service Definition 规定原子 `start`、限定调用方作用域的 `get` 和 `list`、`read`、`kill`、有界 `wait`、故障隔离的 `onTaskDone` 与 `onTasksChanged` 监听器，以及 `attachSurface` 可用性防线；[`LocalTaskService`](../../packages/tasks/tasks-local/src/index.ts) 是其进程局部提供方。两类监听器不是包含关系：`onTaskDone` 按控制面与通知投递绑定的 first-wins 语义投递唯一一条终态记录，而 `onTasksChanged` 观察每一次可见集合的变化——注册、转入 stopping、结算，以及 owner 销毁时的移除——只携带集合发生变化的那个 owner，或在无主任务变化、因而每个调用方的集合都随之变化时携带 `undefined`。授权会比较拥有者会话；拥有者清理会选择确切的已注册 `Agent` 实例。Service Definition 约定见 [`dsh-tasks`](../../packages/tasks/tasks/README.md)，注册表生命周期见 [`dsh-tasks-local`](../../packages/tasks/tasks-local/README.md)，面向模型的 Consumer 见 [`dsh-tool-tasks`](../../packages/tasks/tool-tasks/README.md)。
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 

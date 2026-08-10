@@ -19,7 +19,7 @@ Frozen Agent Notes under `.agents/notes/archived/` are not translation work. The
 
 ## The update path (briefing-driven)
 
-Benchmarked on real pair updates from this repo's history, the briefing-driven path costs a fraction of a guidance-corpus-loading run at equal measured quality; the [briefed-updates Agent Note](../../notes/implemented/process/2026-07-26-briefed-minimal-translation-updates.md) holds the evidence.
+The briefing-driven path matches guidance-corpus quality at a fraction of the cost; the [briefed-updates Agent Note](../../notes/implemented/process/2026-07-26-briefed-minimal-translation-updates.md) owns the benchmark evidence.
 
 1. **Generate the briefing**: `pnpm run gen-translation-brief <any file of the pair>` (no arguments briefs every out-of-sync pair). The briefing maps the change at the narrowest safely aligned granularity — changed Markdown units (paragraph, table row, list item, heading), then whole heading sections, then whole document — and contains the authored side's diff since the last confirmed-consistent state, each changed unit's last-confirmed source, current source, and current counterpart text (with line numbers), the terminology rows the change touches, first-occurrence movement notes, and a digest of the binding update rules.
 2. **Mechanical-only diff? `--apply` it.** When every change lies inside code fences that the pair shares byte-identically, the briefing says so; `pnpm run gen-translation-brief --apply <pair>` splices the edited fences into the counterpart and structure-validates the result before writing — no subagent, no hand-editing.
@@ -56,7 +56,7 @@ When translations need to be written from scratch, the orchestrating agent does 
 
 ## Finish the pair
 
-1. Switcher: `[English](foo.md) | 中文` immediately after the Chinese file's H1, `English | [中文](foo.zh.md)` after the English file's H1 — add both if this is a new pair.
+1. Switcher: `[English](foo.md) | 中文` immediately after the Chinese file's H1, `English | [中文](foo.zh.md)` after the English file's H1 — add both if this is a new pair, except that a generator-owned English source stays byte-identical to generator output and omits its switcher while the Chinese counterpart still links back.
 2. Record consistency: `pnpm run verify-translation-pairing --write <pair>` recomputes and records both sides' full blob hashes in `foo.i18n.yaml`. The yaml diff in your PR is the reviewable statement "I confirmed these two say the same thing" — only run it after you actually have.
 3. No manifest entry is needed for an ordinary document: every in-scope source requires a pair. Change [scripts/translation-pairing.manifest.json](../../../scripts/translation-pairing.manifest.json) only when the owning policy documents a genuine generated, instructional, or bilingual-by-construction exclusion.
 4. Before the PR: the touched pairs are green under the scoped check; `pnpm run doc-sync` (which includes the corpus-wide pairing check plus `verify-md-wrap`/`verify-md-links`) runs once at PR level per [dsh-pre-push-checks](../dsh-pre-push-checks/SKILL.md), not inside each translation task.

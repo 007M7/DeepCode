@@ -10,6 +10,10 @@ import { WorkspaceTypertGenerator } from '../src/workspace.ts'
 const fixtureRoot = resolve(import.meta.dirname, 'fixtures/remote-model')
 const temporaryRoots: string[] = []
 
+function normalizedPath(path: string): string {
+  return path.replaceAll('\\', '/')
+}
+
 interface RuntimeSchema {
   safeParse(value: unknown): { readonly success: boolean }
 }
@@ -646,7 +650,8 @@ void navigated
   const navigation = 'ctx.remote.goals.create'
   const position = consumerSource.indexOf(navigation) + navigation.lastIndexOf('create') + 1
   const definitions = languageService.getDefinitionAtPosition(consumerPath, position)
-  const generatedDefinition = definitions?.find(candidate => candidate.fileName === declarationPath)
+  const generatedDefinition = definitions?.find(candidate =>
+    normalizedPath(candidate.fileName) === normalizedPath(declarationPath))
   if (generatedDefinition === undefined) {
     throw new Error(`generated Remote definition not found: ${JSON.stringify(definitions, null, 2)}`)
   }
@@ -661,7 +666,7 @@ void navigated
     pos: generatedDefinition.textSpan.start,
   })
   languageService.dispose()
-  if (definition === undefined || !definition.fileName.endsWith('/packages/remote/src/index.ts')) {
+  if (definition === undefined || !normalizedPath(definition.fileName).endsWith('/packages/remote/src/index.ts')) {
     throw new Error(`generated Remote definition did not map to its Host source: ${JSON.stringify(definition)}`)
   }
   const hostSource = readFileSync(join(consumerRoot, 'packages/remote/src/index.ts'), 'utf8')

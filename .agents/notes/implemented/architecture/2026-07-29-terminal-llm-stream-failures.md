@@ -28,10 +28,10 @@ The agent loop consumes one failure representation. It iterates and logs chunks 
 
 **Require every adapter to emit failure chunks and forbid throws.** Library iterators, transports, and JavaScript dispatch can still throw. Requiring every adapter to reproduce the same catch boundary duplicates ownership and does not protect a direct `LlmService` consumer from an incomplete implementation.
 
-**Catch every iteration error in the agent loop.** The loop cannot reliably distinguish provider failure from middleware, session append, cancellation, or assembly failure without restoring the same sidecar provenance mechanism. Classification belongs where the adapter call is made.
+**Catch every iteration error in the agent loop.** The loop cannot reliably distinguish provider failure from middleware, session append, cancellation, or assembly failure without restoring a sidecar map from stream objects to the adapter calls that created them. Classification belongs where the adapter call is made.
 
 **Return a `Result` before streaming.** A pre-stream result cannot represent a transport failure after partial output without adding a second response lifecycle. The existing terminal chunk already represents both early and late attempt outcomes.
 
 ## Consequences
 
-All `LlmService.stream()` consumers receive adapter operational failures through one typed terminal protocol, while programming and lifecycle failures retain ordinary exception semantics. Recovery gives up exact thrown-object identity and exposes only detached provider-neutral facts. The stream service owns slightly more adapter plumbing, but consumers delete provenance catches and stream-keyed metadata. Prepared calls carry their policy explicitly, and middleware-only routing remains visibly policy-free.
+All `LlmService.stream()` consumers receive adapter operational failures through one typed terminal protocol, while programming and lifecycle failures retain ordinary exception semantics. Recovery gives up exact thrown-object identity and exposes only detached provider-neutral facts. The stream service owns slightly more adapter plumbing, but consumers delete catches that identify which adapter threw and delete stream-keyed metadata. Prepared calls carry their policy explicitly, and middleware-only routing remains visibly policy-free.

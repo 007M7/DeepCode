@@ -61,6 +61,8 @@
     "tests/skill-user-invoke.e2e.ts",
     "tests/permission-policy-context.e2e.ts",
     "tests/access-confirmation.e2e.ts",
+    "tests/agent-preset-selection.e2e.ts",
+    "tests/agent-preset-authoring.e2e.ts",
     "tests/shipped-composition.e2e.ts",
     "tests/startup-auto-selection.e2e.ts",
     "tests/produced-files.e2e.ts",

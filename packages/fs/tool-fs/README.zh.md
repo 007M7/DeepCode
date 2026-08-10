@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-**面向模型的文件系统工具**（`read`、`write`、`edit`）及其**执行器**。这是文件系统栈的消费方层：拥有工具名称、JSON Schema、参数校验、提示词段、**读取窗口逻辑**和结果格式化。它**直接**通过 `ctx.fs` 提供方 seam（[`@deepseek-ai/dsh-fs`](../fs)）读取／写入／编辑。新鲜度／观察策略由独立插件（[`@deepseek-ai/dsh-fs-policy`](../fs-policy)）通过 `fs/*` 事件门禁贡献；工具不与其方法耦合。使用施加沙箱限制的提供方时，逐会话执行需要共享沙箱策略服务，工具还会为文件系统变更提供升权路径。
+**面向模型的文件系统工具**（`read`、`write`、`edit`）及其**执行器**。这是文件系统栈的消费方层：拥有工具名称、JSON Schema、参数校验、提示词段、**读取窗口逻辑**和结果格式化。它**直接**通过 `ctx.fs` 提供方约定（[`@deepseek-ai/dsh-fs`](../fs)）读取／写入／编辑。新鲜度／观察策略由独立插件（[`@deepseek-ai/dsh-fs-policy`](../fs-policy)）通过 `fs/*` 事件门禁贡献；工具不与其方法耦合。使用施加沙箱限制的提供方时，逐会话执行需要共享沙箱策略服务，工具还会为文件系统变更提供升权路径。
 
 ```ts ignore-check
 // Default deployment: a ctx.fs provider, the policy plugin, then the tools.
@@ -108,7 +108,7 @@ Use the edit tool for targeted changes to existing UTF-8 text files. It replaces
 
 #### 模型看到的内容
 
-成功读取结果精确为 `<path><displayPath></path>`、换行、`<type>file</type>`、换行、`<content>`、形如 `<lineNumber>: <text>` 的编号行、一个空行、一条 footer 和 `</content>`。footer 精确为 `(Output capped. Showing lines <start>-<end>. Use offset=<next> to continue.)`、`(Showing lines <start>-<end> of <total>. Use offset=<next> to continue.)` 或 `(End of file - total <total> lines)`。长行结尾精确为 `... (line truncated to <max> chars)`。
+成功读取结果精确为 `<path><displayPath></path>`、换行、`<type>file</type>`、换行、`<content>`、形如 `<lineNumber>: <text>` 的编号行、一个空行、一条 footer 和 `</content>`。footer 精确为 `(Output capped. Showing lines <start>-<end>. Use offset=<next> to continue.)`、`(Showing lines <start>-<end> of <total>. Use offset=<next> to continue.)` 或 `(End of file - total <total> lines)`。长行结尾精确为 `... (line truncated to <max> chars)`。读取缺失目标仍返回 `FS_NOT_FOUND`，但会为调用会话记录确认缺失；外部删除的文件被重新读取后，重试的 `write` 可以通过提供方的不替换防护安全地重新创建该文件。
 
 #### Token 影响
 
@@ -136,7 +136,7 @@ Use the edit tool for targeted changes to existing UTF-8 text files. It replaces
 
 #### 模型看到的内容
 
-失败会规范化为 `Error: <message>`。本包稳定的校验和读取消息是 `file_path must be a non-empty string`、`limit must be less than or equal to <max>`、`old_string must be a non-empty string`、`old_string and new_string must differ`、`cannot read "<path>": not found`、`cannot read "<path>": not a regular file` 和 `offset <offset> is out of range for "<path>" (<total> lines)`；提供方和策略模板在各自包的 README 中逐字列出。防护变更失败还会在消息中携带恢复指令，由本包面向模型的错误包装追加：`FS_STALE_VERSION`（包括编辑目标缺失）追加 `— re-read the file, then retry`，`FS_NOT_OBSERVED` 追加 `— read the file, then retry`；结构化错误码保持不变。
+失败会规范化为 `Error: <message>`。本包稳定的校验和读取消息是 `file_path must be a non-empty string`、`limit must be less than or equal to <max>`、`old_string must be a non-empty string`、`old_string and new_string must differ`、`cannot read "<path>": not found`、`cannot read "<path>": not a regular file` 和 `offset <offset> is out of range for "<path>" (<total> lines)`；提供方和策略模板在各自包的 README 中逐字列出。防护变更失败还会在消息中携带恢复指令，由本包面向模型的错误包装追加：`FS_STALE_VERSION` 追加 `— re-read the file, then retry`，`FS_NOT_OBSERVED` 追加 `— read the file, then retry`；结构化错误码保持不变。该次重新读取确认缺失后，edit 会报告 `FS_NOT_FOUND`，而不会重复陈旧恢复指令；write 则使用带防护的创建。
 
 #### Token 影响
 
@@ -148,6 +148,6 @@ Use the edit tool for targeted changes to existing UTF-8 text files. It replaces
 
 ## 已知限制与暂缓事项
 
-- **未交付面向模型的目录列表工具**：`ctx.fs.listDir` 服务于 skill（技能）发现等提供方代码，同级 [`dsh-tool-fs-search`](../tool-fs-search/) 包则提供基于 bash 的 `glob` 与 `grep`，而不是扩展文件系统 seam。
+- **未交付面向模型的目录列表工具**：`ctx.fs.listDir` 服务于 skill（技能）发现等提供方代码，同级 [`dsh-tool-fs-search`](../tool-fs-search/) 包则提供基于 ripgrep 的 `glob` 与 `grep`，而不是扩展文件系统 seam。
 - **`read` 只处理 UTF-8 文本文件**：二进制安全读取和 PDF/图像/多模态内容均延期处理；目录目标为 `FS_NOT_REGULAR_FILE`。
 - **没有超时接口**：`read`/`write`/`edit` 不接受超时参数，也不声明 `timeout-policy` 预算；取消只通过 `exec.signal` 传递（见[提供方理由](../README.md#no-timeouts-on-file-io)）。

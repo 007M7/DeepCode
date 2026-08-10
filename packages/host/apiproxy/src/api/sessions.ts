@@ -53,8 +53,8 @@ export interface SessionProjectionsBlock {
   values: Partial<SessionProjectionMap>
 }
 
-/** Complete model target selected for one session. */
-export interface ModelTarget {
+/** Complete model selection for one session. */
+export interface ModelSelection {
   /** Registered provider route. */
   provider: string
   /** Provider-owned model id. */
@@ -115,8 +115,8 @@ export interface ModelCatalogFailure {
 
 /** Detached model-directory snapshot for one session. */
 export interface SessionModels {
-  /** Target selected for the session's next assembled step. */
-  current: ModelTarget
+  /** Model selection for the session's next assembled step. */
+  current: ModelSelection
   /**
    * Whether an adapter currently serves `current.provider`, and therefore
    * whether this session can start a turn at all. Deliberately NOT derivable
@@ -166,6 +166,13 @@ export interface SessionSummary {
   /** Session working directory (header.cwd passthrough); absent when unrecorded. */
   cwd?: string
   /**
+   * Agent preset this session's agent was composed from (header passthrough);
+   * absent when the deployment composes no presets. A surface offering a
+   * switch reads this to show what the session actually runs rather than what
+   * the deployment currently defaults to.
+   */
+  agentPreset?: string
+  /**
    * Projection baseline for this row, with zero log loads: attached sessions
    * read the registry's live watermark cut; cold sessions read the persisted
    * projection cache's stored rows — as stale as that session's last durable
@@ -208,15 +215,22 @@ export interface SessionsApi {
    * session, while a different cwd fails with `session-conflict`. Workspace
    * creation attaches the session after publication; an attach failure
    * returns `workspace-attach-failed` with the published session id.
+   *
+   * `agentPreset` names the composition the new session's agent is built
+   * from; omitted, the effective default applies — the user's stored choice
+   * where one exists, else the deployment's own. The resolved id is stored on
+   * the session header, so a later resume rebuilds the same agent. An unknown
+   * id fails with `agent-preset-not-found`, and a preset whose composition
+   * cannot be mounted fails with `agent-preset-invalid`.
    */
-  create(request: RpcRequest<{ workspaceId?: WorkspaceId; cwd?: string; sessionId?: SessionId }>):
-  Promise<RpcResponse<{ sessionId: SessionId }>>
+  create(request: RpcRequest<{ workspaceId?: WorkspaceId; cwd?: string; sessionId?: SessionId; agentPreset?: string }>):
+  Promise<RpcResponse<{ sessionId: SessionId; agentPreset?: string }>>
 
   /**
    * Reads a window of history events; page boundaries align to append-origin message
    * boundaries: one page = all raw events owned by a whole number of such messages (including
    * their chunk / tool events), never cut mid-message. Model-only replacement copies consume no
-   * `maxMessages`, so a compaction's provenance stays on the page of its replacement. The tail
+   * `maxMessages`, so a compaction's `compact/summary` record stays on the page of its replacement. The tail
    * page (beforeSeq absent) additionally carries the in-flight
    * partial — chunk events already emitted for the last unfinalized message.
    * Each entry pairs the raw SessionEvent with the host-computed view (tool events whose
@@ -240,7 +254,7 @@ export interface SessionsApi {
   models(request: RpcRequest<{ sessionId: SessionId }>): Promise<RpcResponse<SessionModels>>
 
   /**
-   * Selects the complete target for this session. Exact model metadata
+   * Selects the complete model selection for this session. Exact model metadata
    * validates an optional reasoning effort, while catalog membership remains
    * advisory. Session-backed subagents reject with `agent-busy`.
    */
@@ -250,7 +264,7 @@ export interface SessionsApi {
     model: string
     reasoningEffort?: string
   }>):
-  Promise<RpcResponse<{ selected: ModelTarget }>>
+  Promise<RpcResponse<{ selected: ModelSelection }>>
 
   /**
    * Renames a session: appends a `session/title` event with the `user`
