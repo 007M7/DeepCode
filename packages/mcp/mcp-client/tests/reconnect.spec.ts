@@ -191,6 +191,7 @@ describe('reconnect supervisor', () => {
     // Initial connect + exactly maxAttempts reconnect attempts.
     expect(mockConnect).toHaveBeenCalledTimes(3)
     expect(warns.some(line => line.includes('connection attempt failed: Error: server gone'))).toBe(true)
+    expect(warns.some(line => line.includes('connection failed; retrying in 4ms (attempt 2/2)'))).toBe(true)
     await sleep(30)
     expect(mockConnect).toHaveBeenCalledTimes(3)
   })
@@ -222,6 +223,7 @@ describe('reconnect supervisor', () => {
   })
 
   it('does not start a replacement until a failed generation reports that it closed', async () => {
+    const { warns } = captureLogs(ctx)
     mockConnect.mockRejectedValueOnce(new Error('initialize failed'))
     // Model the SDK's fire-and-forget close after initialize fails: the
     // harness's second close call returns, but the child has not exited yet.
@@ -235,6 +237,7 @@ describe('reconnect supervisor', () => {
     instances[0]!.onclose?.()
     await applying
     await vi.waitFor(() => { expect(instances).toHaveLength(2) })
+    expect(warns.some(line => line.includes('connection failed; retrying in 2ms (attempt 1/2)'))).toBe(true)
   })
 
   it('stops reconnecting when a failed generation never reports that it closed', async () => {
@@ -329,7 +332,7 @@ describe('reconnect supervisor', () => {
     expect(mockConnect).toHaveBeenCalledTimes(1)
     // Pre-reconnect contract: the generation stays registered until disposal.
     expect(ctx.tools.get('mcp__srv__remote')).toBeDefined()
-    expect(errors.some(line => line.includes('reconnect is disabled'))).toBe(true)
+    expect(errors.some(line => line.includes('connection lost and reconnect is disabled'))).toBe(true)
   })
   it('reconnect disabled after a failed initial connect reports no registered tools', async () => {
     const { errors } = captureLogs(ctx)
@@ -337,6 +340,7 @@ describe('reconnect supervisor', () => {
     await apply(ctx, stdioConfig({ enabled: false }))
     await sleep(30)
     expect(ctx.tools.get('mcp__srv__remote')).toBeUndefined()
+    expect(errors.some(line => line.includes('connection failed and reconnect is disabled'))).toBe(true)
     expect(errors.some(line => line.includes('no tools were registered'))).toBe(true)
   })
 

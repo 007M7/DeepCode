@@ -190,11 +190,12 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
   }
 
   function scheduleReconnect(): void {
+    const lostEstablishedConnection = connectedAt !== undefined
     if (!policy.enabled) {
-      const detail = connectedAt !== undefined
-        ? 'registered tools will fail until an HMR reload or Host restart'
-        : 'no tools were registered; reload the plugin or restart the Host to connect'
-      ctx.logger.error(`${label}: connection lost and reconnect is disabled — ${detail}`)
+      const message = lostEstablishedConnection
+        ? 'connection lost and reconnect is disabled — registered tools will fail until an HMR reload or Host restart'
+        : 'connection failed and reconnect is disabled — no tools were registered; reload the plugin or restart the Host to connect'
+      ctx.logger.error(`${label}: ${message}`)
       return
     }
     // A connection that stayed up past the stability window (= maxDelayMs, the
@@ -213,7 +214,8 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
       return
     }
     const delayMs = Math.min(policy.maxDelayMs, policy.initialDelayMs * 2 ** (failedAttempts - 1))
-    ctx.logger.warn(`${label}: connection lost; reconnecting in ${delayMs}ms (attempt ${failedAttempts}/${policy.maxAttempts})`)
+    const action = lostEstablishedConnection ? 'connection lost; reconnecting' : 'connection failed; retrying'
+    ctx.logger.warn(`${label}: ${action} in ${delayMs}ms (attempt ${failedAttempts}/${policy.maxAttempts})`)
     reconnectTimer = setTimeout(() => {
       reconnectTimer = undefined
       settling = connectGeneration(false)
