@@ -45,6 +45,7 @@ import {
   sessionLogExportDeps,
   sessionLogZipFilename,
   streamSessionLogZip,
+  type SessionLogExportReady,
 } from './session-export.ts'
 import type { SessionRawArtifact } from '@deepseek-ai/dsh-session-persistence'
 import {
@@ -3366,17 +3367,23 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             { status: 500 },
           )
         }
+        const ready: SessionLogExportReady = {
+          sessionQuery: deps.sessionQuery,
+          sessionPersistence: deps.sessionPersistence,
+        }
         let root: SessionRawArtifact | undefined
         try {
-          root = await deps.sessionPersistence.readRaw(request.sessionId)
-        } catch (error: unknown) {
-          return new Response(String(error), { status: 500 })
+          root = await deps.sessionPersistence.readRaw(request.sessionId, signal)
+        } catch {
+          // Backend read failure: answer 500 without echoing the error, which
+          // may carry absolute host paths into the browser error bar.
+          return new Response('session log export failed to read the stored artifact', { status: 500 })
         }
         if (root === undefined) {
           return new Response('session not found', { status: 404 })
         }
         return new Response(
-          streamSessionLogZip(deps, root, request.sessionId, request.includeDescendants === true, signal),
+          streamSessionLogZip(ready, root, request.sessionId, request.includeDescendants === true, signal),
           {
             headers: {
               'content-type': 'application/zip',

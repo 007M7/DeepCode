@@ -10,11 +10,15 @@ import { z } from 'zod'
 import type { DownloadsApi } from './downloads.ts'
 import { sessionIdSchema } from './sessions.schema.ts'
 
-/** session.export query params → the sessionLog request. */
+/**
+ * session.export query params → the sessionLog request. `includeDescendants`
+ * accepts exactly `true`/`false`/absent; any other value is rejected (400) so
+ * a misspelled flag cannot silently under-export.
+ */
 export const sessionLogQuerySchema = z
   .object({
     sessionId: sessionIdSchema,
-    includeDescendants: z.string().optional(),
+    includeDescendants: z.union([z.literal('true'), z.literal('false')]).optional(),
   })
   .transform(query => ({
     sessionId: query.sessionId,
