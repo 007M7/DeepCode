@@ -1,6 +1,5 @@
 /** The shell plugin's card: the limits every command the agent runs is bound by. */
 
-import { useState } from 'react'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import { NumberField } from './fields.tsx'
@@ -38,17 +37,14 @@ export type BashCardProps =
 export function BashCard(props: BashCardProps) {
   const { t } = props
   const state = props.useBashCard(snapshot => snapshot)
-  const [open, setOpen] = useState(false)
   const disabled = !state.writable
   return (
     <PluginCard
-      title={t('bashTitle')}
-      description={t('bashDescription')}
+      t={t}
+      titleKey="bashTitle"
+      descriptionKey="bashDescription"
       available={state.available}
-      open={open}
-      onToggle={() => { setOpen(!open) }}
       readOnly={disabled}
-      readOnlyLabel={t('readOnly')}
     >
       <NumberField
         id="plugin-config-bash-timeout"

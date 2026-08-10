@@ -21,9 +21,9 @@ export interface BashSettings {
 /** What the shell card renders. */
 export interface BashCardState extends CardShell {
   /** Command timeout in milliseconds. */
-  timeoutMs: CardField<number>
+  timeoutMs: CardField<number | undefined>
   /** Per-stream output cap in bytes. */
-  maxOutputBytes: CardField<number>
+  maxOutputBytes: CardField<number | undefined>
 }
 
 /** The registration-side face the shell card's slot entry injects. */
@@ -50,8 +50,8 @@ export class BashCardController extends CardController<BashSettings, BashCardSta
       ...shellOf(snapshot),
       // The fallbacks only show before the Host serves a section; every served
       // section is already schema-defaulted by the owning executor.
-      timeoutMs: fieldOf(snapshot, 'timeoutMs', 0),
-      maxOutputBytes: fieldOf(snapshot, 'maxOutputBytes', 0),
+      timeoutMs: fieldOf(snapshot, 'timeoutMs', undefined),
+      maxOutputBytes: fieldOf(snapshot, 'maxOutputBytes', undefined),
     }))
   }
 

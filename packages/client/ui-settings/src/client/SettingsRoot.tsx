@@ -14,7 +14,8 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import clsx from 'clsx'
 import {
-  IconCloseOutline16, IconDataOutline16, IconSettingsOutline16, IconThinkOutline16,
+  IconCloseOutline16, IconDataOutline16, IconPersonalizationOutline16,
+  IconSettingsOutline16, IconThinkOutline16,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SettingsRootComponentProps, SettingsSectionRow } from './contract/slots.ts'
 import css from './SettingsRoot.module.css'
@@ -23,6 +24,7 @@ import css from './SettingsRoot.module.css'
 function navIcon(id: string) {
   if (id === 'models') return <IconDataOutline16 className={css.navIcon} size={16} />
   if (id === 'agent-presets') return <IconThinkOutline16 className={css.navIcon} size={16} />
+  if (id === 'plugins') return <IconPersonalizationOutline16 className={css.navIcon} size={16} />
   return <IconSettingsOutline16 className={css.navIcon} size={16} />
 }
 

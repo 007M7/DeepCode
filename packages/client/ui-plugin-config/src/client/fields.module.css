@@ -7,6 +7,10 @@
   padding: 12px 0;
 }
 
+.field + .field {
+  border-top: 1px solid var(--dsw-alias-border-l2);
+}
+
 .head {
   display: flex;
   align-items: center;
@@ -16,9 +20,9 @@
 .label {
   flex: 1;
   min-width: 0;
-  font-size: 14px;
-  font-weight: 400;
-  line-height: 22px;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.5;
   color: var(--dsw-alias-label-primary);
 }
 
@@ -29,19 +33,22 @@
 }
 
 .badge {
-  padding: 0 8px;
-  border-radius: 10px;
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: 11px;
+  line-height: 17px;
+  white-space: nowrap;
+  font-weight: 500;
   background: var(--dsw-alias-bg-module-platform);
-  font-size: 12px;
-  line-height: 20px;
   color: var(--dsw-alias-label-secondary);
 }
 
 .badgeMuted {
-  padding: 0 8px;
-  border-radius: 10px;
-  font-size: 12px;
-  line-height: 20px;
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: 11px;
+  line-height: 17px;
+  white-space: nowrap;
   color: var(--dsw-alias-label-tertiary);
 }
 
@@ -51,7 +58,7 @@
   padding: 0;
   font: inherit;
   font-size: 12px;
-  line-height: 20px;
+  line-height: 1.5;
   color: var(--dsw-alias-label-secondary);
   cursor: pointer;
 }
@@ -65,15 +72,20 @@
 }
 
 .input {
-  height: 36px;
+  height: 34px;
   padding: 0 12px;
   border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 8px;
-  background: var(--dsw-alias-bg-module-platform);
+  background: var(--dsw-alias-bg-layer-3);
   font: inherit;
-  font-size: 14px;
-  line-height: 22px;
+  font-size: 13px;
+  line-height: 1.5;
   color: var(--dsw-alias-label-primary);
+}
+
+.input:focus-visible {
+  outline: none;
+  border-color: var(--dsw-alias-brand-primary);
 }
 
 .input:disabled {
@@ -84,7 +96,6 @@
 .hint {
   margin: 0;
   font-size: 12px;
-  font-weight: 400;
-  line-height: 18px;
+  line-height: 1.5;
   color: var(--dsw-alias-label-tertiary);
 }

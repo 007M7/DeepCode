@@ -48,7 +48,7 @@ describe('ui-plugin-config apply', () => {
     const section = slots.entries('settings.section')[0]!
     expect(section.options).toMatchObject({ id: 'plugins', order: 30 })
     // The nav label is a locale-following thunk; owners resolve it at read time.
-    expect(resolveSlotLabel(section.options.label)).toBe('插件')
+    expect(resolveSlotLabel(section.options.label)).toBe('插件配置')
     expect(slots.spec('settings.plugin.item')).toMatchObject({ kind: 'list', scope: 'root' })
   })
 

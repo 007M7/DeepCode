@@ -115,8 +115,11 @@ function DraftInput(props: {
 
 /** A whole-number field committed on blur or Enter. */
 export function NumberField(props: FieldProps & {
-  /** Current effective value. */
-  value: number
+  /**
+   * Current effective value, or undefined when the Host served none — which
+   * renders empty rather than as a number nobody chose.
+   */
+  value: number | undefined
   /** Commit a parsed value; a draft that is not a finite number is discarded. */
   onCommit: (next: number) => void
 }) {
@@ -124,13 +127,13 @@ export function NumberField(props: FieldProps & {
     <FieldFrame {...props}>
       <DraftInput
         id={props.id}
-        value={String(props.value)}
+        value={props.value === undefined ? '' : String(props.value)}
         disabled={props.disabled}
         numeric
         onSettle={(draft, restore) => {
           const parsed = Number(draft)
           if (draft.trim() === '' || !Number.isFinite(parsed)) {
-            restore(String(props.value))
+            restore(props.value === undefined ? '' : String(props.value))
             return
           }
           if (parsed === props.value) return

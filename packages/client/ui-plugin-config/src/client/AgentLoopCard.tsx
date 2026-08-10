@@ -1,6 +1,5 @@
 /** The agent-loop plugin's card: how many tool calls may run at once. */
 
-import { useState } from 'react'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import { NumberField } from './fields.tsx'
@@ -34,17 +33,14 @@ export type AgentLoopCardProps =
 export function AgentLoopCard(props: AgentLoopCardProps) {
   const { t } = props
   const state = props.useAgentLoopCard(snapshot => snapshot)
-  const [open, setOpen] = useState(false)
   const disabled = !state.writable
   return (
     <PluginCard
-      title={t('agentLoopTitle')}
-      description={t('agentLoopDescription')}
+      t={t}
+      titleKey="agentLoopTitle"
+      descriptionKey="agentLoopDescription"
       available={state.available}
-      open={open}
-      onToggle={() => { setOpen(!open) }}
       readOnly={disabled}
-      readOnlyLabel={t('readOnly')}
     >
       <NumberField
         id="plugin-config-agent-loop-parallel"

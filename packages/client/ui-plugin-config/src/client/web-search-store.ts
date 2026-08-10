@@ -36,7 +36,7 @@ export interface WebSearchCardState extends CardShell {
   /** Provider endpoint. */
   baseURL: CardField<string>
   /** Searches allowed per request. */
-  maxUses: CardField<number>
+  maxUses: CardField<number | undefined>
   /** Credential reference the key is written under. */
   apiKeyRef: string
   /** Whether the Host reports a credential configured for that reference. */
@@ -78,7 +78,7 @@ export class WebSearchCardController extends CardController<WebSearchSettings, W
     super(scope, snapshot => ({
       ...shellOf(snapshot),
       baseURL: fieldOf(snapshot, 'baseURL', ''),
-      maxUses: fieldOf(snapshot, 'maxUses', 0),
+      maxUses: fieldOf(snapshot, 'maxUses', undefined),
       apiKeyRef: refOf(snapshot),
       apiKeyConfigured: credential.configured,
     }))

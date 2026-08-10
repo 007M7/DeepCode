@@ -67,5 +67,8 @@
     "lib/invariant.js",
     "lib/client.js",
     "lib/types/**/*.d.ts"
-  ]
+  ],
+  "dependencies": {
+    "clsx": "^2.0.0"
+  }
 }

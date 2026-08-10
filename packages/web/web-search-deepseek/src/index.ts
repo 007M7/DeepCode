@@ -63,11 +63,14 @@ export interface Config {
 export const Config: z<Config> = z.object({
   apiKey: z.string().role('secret'),
   apiKeyEnv: z.string().role('credential-ref').default(DEFAULT_API_KEY_ENV),
+  // Declared here rather than only at the use site: a configuration surface
+  // renders the resolved section, so a default the schema does not carry reads
+  // there as no value at all.
   baseURL: z.string(),
-  model: z.string(),
-  apiVersion: z.string(),
-  maxTokens: z.number().step(1).min(1),
-  maxUses: z.number().step(1).min(1),
+  model: z.string().default(DEEPSEEK_DEFAULT_MODEL),
+  apiVersion: z.string().default(DEEPSEEK_DEFAULT_API_VERSION),
+  maxTokens: z.number().step(1).min(1).default(DEEPSEEK_DEFAULT_MAX_TOKENS),
+  maxUses: z.number().step(1).min(1).default(DEEPSEEK_DEFAULT_MAX_USES),
 })
 
 /**

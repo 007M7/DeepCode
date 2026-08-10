@@ -21,7 +21,7 @@ export interface AgentLoopSettings {
 /** What the agent-loop card renders. */
 export interface AgentLoopCardState extends CardShell {
   /** Parallel tool-call cap. */
-  maxParallelToolCalls: CardField<number>
+  maxParallelToolCalls: CardField<number | undefined>
 }
 
 /** The registration-side face the agent-loop card's slot entry injects. */
@@ -42,7 +42,7 @@ export class AgentLoopCardController extends CardController<AgentLoopSettings, A
   constructor(scope: SettingsScope<AgentLoopSettings>) {
     super(scope, snapshot => ({
       ...shellOf(snapshot),
-      maxParallelToolCalls: fieldOf(snapshot, 'maxParallelToolCalls', 0),
+      maxParallelToolCalls: fieldOf(snapshot, 'maxParallelToolCalls', undefined),
     }))
   }
 

@@ -116,6 +116,22 @@ describe('NumberField', () => {
     expect(onCommit).not.toHaveBeenCalled()
   })
 
+  it('renders an absent value as empty rather than as a number nobody chose', () => {
+    const onCommit = vi.fn()
+    render(
+      <NumberField {...frame} overridden={false} onReset={vi.fn()} value={undefined} onCommit={onCommit} />,
+    )
+    const input = screen.getByLabelText('Command timeout')
+    expect(input).toHaveProperty('value', '')
+
+    // A draft typed and then cleared restores the same emptiness, not a zero.
+    fireEvent.change(input, { target: { value: 'abc' } })
+    fireEvent.blur(input)
+
+    expect(input).toHaveProperty('value', '')
+    expect(onCommit).not.toHaveBeenCalled()
+  })
+
   it('suppresses every interaction while disabled', () => {
     const onCommit = vi.fn()
     const onReset = vi.fn()

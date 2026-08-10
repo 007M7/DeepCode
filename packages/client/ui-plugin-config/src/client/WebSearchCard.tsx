@@ -4,7 +4,6 @@
  * the settings section, so the literal never rides a response.
  */
 
-import { useState } from 'react'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import { NumberField, SecretField, TextField } from './fields.tsx'
@@ -44,17 +43,14 @@ export type WebSearchCardProps =
 export function WebSearchCard(props: WebSearchCardProps) {
   const { t } = props
   const state = props.useWebSearchCard(snapshot => snapshot)
-  const [open, setOpen] = useState(false)
   const disabled = !state.writable
   return (
     <PluginCard
-      title={t('webSearchTitle')}
-      description={t('webSearchDescription')}
+      t={t}
+      titleKey="webSearchTitle"
+      descriptionKey="webSearchDescription"
       available={state.available}
-      open={open}
-      onToggle={() => { setOpen(!open) }}
       readOnly={disabled}
-      readOnlyLabel={t('readOnly')}
     >
       <SecretField
         id="plugin-config-web-search-key"
