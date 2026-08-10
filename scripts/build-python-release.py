@@ -17,6 +17,8 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+SDK_DISTRIBUTION = "deepseek-harness-sdk"
+RUNTIME_DISTRIBUTION = "deepseek-harness-runtime-bin"
 PLATFORMS = {
     "linux-x64": ("manylinux_2_28_x86_64", "dsh-jsonrpc-agent-pkg-linux-x64"),
     "linux-arm64": ("manylinux_2_28_aarch64", "dsh-jsonrpc-agent-pkg-linux-arm64"),
@@ -53,7 +55,7 @@ def main() -> None:
         if args.package == "sdk":
             stage_sdk(staging, version)
             environment = None
-            expected = output_dir / f"deepseek_harness-{version}-py3-none-any.whl"
+            expected = output_dir / f"deepseek_harness_sdk-{version}-py3-none-any.whl"
         else:
             platform_tag, executable_name = PLATFORMS[args.platform]
             stage_runtime(staging, version, args.runtime_exe.resolve(), executable_name)
@@ -160,6 +162,11 @@ def verify_wheel(
             raise RuntimeError(f"{wheel} has wrong WHEEL tags: {wheel_metadata.get_all('Tag')}")
         if metadata.get("Version") != version:
             raise RuntimeError(f"{wheel} has version {metadata.get('Version')}, expected {version}")
+        expected_distribution = SDK_DISTRIBUTION if package == "sdk" else RUNTIME_DISTRIBUTION
+        if metadata.get("Name") != expected_distribution:
+            raise RuntimeError(
+                f"{wheel} has distribution name {metadata.get('Name')}, expected {expected_distribution}"
+            )
         runtime_files = [
             name for name in archive.namelist() if "/runtime/dsh-jsonrpc-agent-pkg-" in name
         ]
@@ -177,7 +184,7 @@ def verify_wheel(
             raise RuntimeError(f"SDK wheel unexpectedly contains runtime executables: {runtime_files}")
         if package == "sdk":
             requirements = metadata.get_all("Requires-Dist") or []
-            expected_requirement = f"deepseek-harness-runtime-bin=={version}"
+            expected_requirement = f"{RUNTIME_DISTRIBUTION}=={version}"
             if expected_requirement not in requirements:
                 raise RuntimeError(f"{wheel} does not pin {expected_requirement}; found {requirements}")
 

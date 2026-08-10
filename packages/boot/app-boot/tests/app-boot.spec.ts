@@ -1,6 +1,7 @@
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve, sep } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
@@ -552,6 +553,73 @@ describe('boot', () => {
     try {
       const entries = [...ctx.loader.entries()]
       expect(entries.some(entry => entry.options.name === './noop.mjs' && entry.fiber !== undefined)).toBe(true)
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('can resolve bare plugins from the harness when the config project shadows their package name', async () => {
+    const dir = tmp()
+    const harness = tmp()
+    const absolutePlugin = join(dir, 'absolute.mjs')
+    const shadow = join(dir, 'node_modules', '@deepseek-ai', 'dsh-system-prompt')
+    const harnessPlugin = join(harness, 'node_modules', '@deepseek-ai', 'dsh-system-prompt')
+    mkdirSync(shadow, { recursive: true })
+    mkdirSync(harnessPlugin, { recursive: true })
+    writeFileSync(join(shadow, 'package.json'), JSON.stringify({
+      name: '@deepseek-ai/dsh-system-prompt',
+      type: 'module',
+      exports: './index.mjs',
+    }))
+    writeFileSync(join(shadow, 'index.mjs'), [
+      'export function apply(ctx) {',
+      '  ctx.provide("shadowPluginLoaded", true)',
+      '}',
+      '',
+    ].join('\n'))
+    writeFileSync(join(harnessPlugin, 'package.json'), JSON.stringify({
+      name: '@deepseek-ai/dsh-system-prompt',
+      type: 'module',
+      exports: './index.mjs',
+    }))
+    writeFileSync(join(harnessPlugin, 'index.mjs'), [
+      'export function apply(ctx) {',
+      '  ctx.provide("harnessPluginLoaded", true)',
+      '}',
+      '',
+    ].join('\n'))
+    writeFileSync(join(dir, 'relative.mjs'), 'export function apply(ctx) { ctx.provide("relativePluginLoaded", true) }\n')
+    writeFileSync(absolutePlugin, 'export function apply(ctx) { ctx.provide("absolutePluginLoaded", true) }\n')
+    const entries = [
+      '- id: prompt',
+      "  name: '@deepseek-ai/dsh-system-prompt'",
+      '- id: relative',
+      "  name: './relative.mjs'",
+    ]
+    const configOwnedPath = join(dir, 'config-owned.cordis.yml')
+    writeFileSync(configOwnedPath, [...entries, ''].join('\n'))
+    const hostOwnedPath = join(dir, 'host-owned.cordis.yml')
+    writeFileSync(hostOwnedPath, [
+      ...entries,
+      '- id: absolute',
+      `  name: ${JSON.stringify(absolutePlugin)}`,
+      '',
+    ].join('\n'))
+    const configOwned = await boot(NAME, configOwnedPath)
+    try {
+      expect(configOwned.get('shadowPluginLoaded')).toBe(true)
+      expect(configOwned.get('systemPrompt')).toBeUndefined()
+      expect(configOwned.get('relativePluginLoaded')).toBe(true)
+    } finally {
+      await configOwned.fiber.dispose()
+    }
+    const harnessBaseUrl = pathToFileURL(join(harness, 'entry.mjs')).href
+    const ctx = await boot(NAME, hostOwnedPath, undefined, undefined, harnessBaseUrl)
+    try {
+      expect(ctx.get('harnessPluginLoaded')).toBe(true)
+      expect(ctx.get('shadowPluginLoaded')).toBeUndefined()
+      expect(ctx.get('relativePluginLoaded')).toBe(true)
+      expect(ctx.get('absolutePluginLoaded')).toBe(true)
     } finally {
       await ctx.fiber.dispose()
     }
