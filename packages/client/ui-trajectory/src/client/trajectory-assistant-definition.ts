@@ -9,6 +9,9 @@ import {
 } from '@deepseek-ai/dsh-client-runtime/client'
 import { trajectoryNode } from './trajectory-definition-common.ts'
 
+/* jscpd:ignore-start -- Target-owned Definitions intentionally keep their event
+ * state machines independent; see ../../../../../.agents/notes/implemented/
+ * architecture/2026-08-09-client-conversation-node-assembly.md. */
 interface UsageValue {
   readonly inputTokens: number
   readonly outputTokens: number
@@ -389,6 +392,7 @@ const trajectoryTurnEndDefinition: ConversationNodeDefinition<TurnEndState> = {
       ...(context.state.error === undefined ? {} : { error: context.state.error }),
     }),
 }
+/* jscpd:ignore-end */
 
 /**
  * Register the Trajectory Assistant lifecycle.

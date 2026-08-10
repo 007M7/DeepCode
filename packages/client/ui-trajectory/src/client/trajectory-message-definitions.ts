@@ -9,6 +9,9 @@ import {
 import type {} from '@deepseek-ai/dsh-agent/types'
 import { trajectoryNode } from './trajectory-definition-common.ts'
 
+/* jscpd:ignore-start -- Target-owned Definitions intentionally keep their event
+ * state machines independent; see ../../../../../.agents/notes/implemented/
+ * architecture/2026-08-09-client-conversation-node-assembly.md. */
 interface InboxIdentity {
   readonly id: string
 }
@@ -106,6 +109,7 @@ const trajectoryMessageDefinition: ConversationNodeDefinition<MessageNode> = {
     ? null
     : trajectoryNode(context, context.state.seq, { kind: 'node', node: context.state }),
 }
+/* jscpd:ignore-end */
 
 /**
  * Register Trajectory-owned inbox classification and message records.

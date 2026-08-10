@@ -10,17 +10,14 @@ import type {
 } from './trajectory-contract.ts'
 
 const EMPTY_LIST: readonly never[] = []
-const EMPTY_CONTEXTS = [{ id: 0, nodes: EMPTY_LIST }]
 type AssistantRequest = Extract<RequestView, { purpose: 'assistant' }>
 type ToolSchema = ConversationPromptSnapshot['tools'][number]
 
 /** Stable empty target used until a Session has assembled Trajectory records. */
 export const EMPTY_TRAJECTORY_SNAPSHOT: TrajectorySnapshot = {
   eventNodes: EMPTY_LIST,
-  contexts: EMPTY_CONTEXTS,
   requests: EMPTY_LIST,
   callSchemas: new Map(),
-  interruptedNodes: EMPTY_LIST,
   partial: null,
   runningCalls: EMPTY_LIST,
 }
@@ -249,10 +246,8 @@ export class TrajectorySnapshotBuilder implements ConversationViewBuilder<
     const eventNodes = finalized
     return {
       eventNodes,
-      contexts: [{ id: 0, nodes: eventNodes }],
       requests,
       callSchemas,
-      interruptedNodes: EMPTY_LIST,
       partial,
       runningCalls,
     }

@@ -4,13 +4,9 @@ import { useCallback, useMemo, useState } from 'react'
 import type { ConvViewProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { InjectFace } from '@deepseek-ai/dsh-client-ui-slots'
 import type {
-  AssistantBlock, AssistantMessageNode, ConversationContext, ConversationSnapshot,
+  AssistantBlock, AssistantMessageNode, ConversationSnapshot,
   SnapshotStore,
 } from '@deepseek-ai/dsh-client-runtime/client'
-import {
-  deriveTrajectoryContextBranches, trajectoryBranchContainsRequest,
-  trajectoryNodeIdentity,
-} from './context-branches.ts'
 import {
   TrajectoryTable,
   type TrajectoryRequestNumber,
@@ -190,10 +186,7 @@ export function TrajectoryView({
   const [collapsedTurns, setCollapsedTurns] = useState<ReadonlySet<number>>(EMPTY_TURN_IDS)
   const [collapsedAssistants, setCollapsedAssistants] =
     useState<ReadonlySet<string>>(EMPTY_RECORD_IDS)
-  const [timelineSelection, setTimelineSelection] = useState<{
-    branchKey: string
-    range: TrajectoryTimeRange
-  } | null>(null)
+  const [timelineSelection, setTimelineSelection] = useState<TrajectoryTimeRange | null>(null)
   const actualDuration = useDuration(value => value)
   const [actualTime, setActualTime] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
@@ -215,41 +208,8 @@ export function TrajectoryView({
   const runningCalls = inspection.runningCalls
   const requests = inspection.requests
   const callSchemas = inspection.callSchemas
-  const historyContexts = inspection.contexts
-  const interruptedNodes = inspection.interruptedNodes
-  const contexts = useMemo<readonly ConversationContext[]>(
-    () => historyContexts.length === 0
-      ? [{ id: 0, nodes }]
-      : historyContexts,
-    [historyContexts, nodes],
-  )
-  const branches = useMemo(
-    () => deriveTrajectoryContextBranches(contexts),
-    [contexts],
-  )
-  const currentBranch = branches.at(-1)
-  if (currentBranch === undefined) throw new Error('trajectory branch projection must not be empty')
-  const selectedNodes = useMemo(() => {
-    const selected = new Map(currentBranch.nodes.map(node => [trajectoryNodeIdentity(node), node]))
-    for (const node of interruptedNodes) {
-      selected.set(trajectoryNodeIdentity(node), node)
-    }
-    return [...selected.values()].sort((left, right) => left.seq - right.seq)
-  }, [currentBranch.nodes, interruptedNodes])
-  const selectedRequests = useMemo(
-    () => requests.filter(request =>
-      trajectoryBranchContainsRequest(currentBranch, request),
-    ),
-    [currentBranch, requests],
-  )
   const requestNumbers = useMemo<readonly TrajectoryRequestNumber[]>(() => {
     const assistantsByStep = new Map<string, AssistantMessageNode>()
-    for (const context of contexts) {
-      for (const node of context.nodes) {
-        if (node.kind !== 'assistant' || node.step <= 0) continue
-        assistantsByStep.set(`${node.turn}\u0000${node.step}`, node)
-      }
-    }
     for (const node of nodes) {
       if (node.kind !== 'assistant' || node.step <= 0) continue
       assistantsByStep.set(`${node.turn}\u0000${node.step}`, node)
@@ -345,24 +305,24 @@ export function TrajectoryView({
 
     return numbered
   }, [
-    contexts, nodes, requests,
+    nodes, requests,
   ])
   const partialTurn = partial?.turn ?? null
   const partialStep = partial?.step ?? null
   const finalized = useMemo(() => {
     const turns = deriveTrajectoryLayout({
-      nodes: selectedNodes,
+      nodes,
       partial: partialTurn === null || partialStep === null
         ? null
         : { turn: partialTurn, step: partialStep, blocks: [] },
       runningCalls,
-      requests: selectedRequests,
+      requests,
       callSchemas,
     })
     return { turns, lastIndex: lastCellIndex(turns) }
   }, [
-    selectedNodes, partialTurn, partialStep,
-    runningCalls, selectedRequests, callSchemas,
+    nodes, partialTurn, partialStep,
+    runningCalls, requests, callSchemas,
   ])
   const timelinePartialSignature = partialStructureSignature(partial)
   const timelinePartial = useMemo<ConversationSnapshot['partial']>(() => partial === null
@@ -402,9 +362,7 @@ export function TrajectoryView({
     () => mergeSearchMatches(finalizedSearchMatches, partialSearchMatches),
     [finalizedSearchMatches, partialSearchMatches],
   )
-  const timelineRange = timelineSelection?.branchKey === currentBranch.key
-    ? timelineSelection.range
-    : null
+  const timelineRange = timelineSelection
   const timelineFocusIndexes = useMemo(
     () => timelineRange === null
       ? null
@@ -420,11 +378,8 @@ export function TrajectoryView({
     }
   }, [timelineFocusIndexes])
   const handleTimelineRangeChange = useCallback((range: TrajectoryTimeRange | null) => {
-    setTimelineSelection(range === null ? null : {
-      branchKey: currentBranch.key,
-      range,
-    })
-  }, [currentBranch.key])
+    setTimelineSelection(range)
+  }, [])
   const handleTimelineRecordSelect = useCallback((index: number) => {
     setTimelineSelection(null)
     setTimelineRecordSelection({ index })
@@ -547,7 +502,6 @@ export function TrajectoryView({
       />
       <div className={css.ledger}>
         <TrajectoryTable
-          key={currentBranch.key}
           requestNumbers={requestNumbers}
           turns={timelineTurns}
           streamingCells={streamingCells}

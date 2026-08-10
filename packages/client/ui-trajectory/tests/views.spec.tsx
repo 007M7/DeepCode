@@ -75,10 +75,8 @@ function historySnapshot(
 ): ConversationSnapshot {
   const trajectory: TrajectorySnapshot = {
     eventNodes: nodes,
-    contexts: [{ id: 0, nodes }],
     requests: [],
     callSchemas: new Map(),
-    interruptedNodes: [],
     partial: null,
     runningCalls: [],
     ...inspection,
@@ -191,7 +189,7 @@ async function bench(snapshot = historySnapshot(NODES)) {
     { name: 'conversation.view', id: 'chat', order: 0, label: 'Chat' } as never, chatBody as never)
   const fiber = ctx.plugin({ inject: [...inject], apply })
   await fiber.await()
-  return { ctx, slots, fiber, loadOlder }
+  return { ctx, slots, fiber, loadOlder, sessionStore }
 }
 
 /** Tab projection twin of apply's viewTabs (the render-side consumption path). */
@@ -294,8 +292,16 @@ describe('plugin registration', () => {
 
   it('fiber disposal removes the tab and leaves chat standing', async () => {
     const b = await bench()
+    const events = b.ctx.get('conversationEvents') as ConversationEventRegistry
+    const views = b.ctx.get('conversationViews') as ConversationViewRegistry
+    expect(events.entries().length).toBeGreaterThan(0)
+    expect(views.entries()).toHaveLength(1)
+
     await b.fiber.dispose()
+
     expect(tabsOf(b.slots).map(v => v.id)).toEqual(['chat'])
+    expect(events.entries()).toEqual([])
+    expect(views.entries()).toEqual([])
   })
 
   it('shares one browser-wide duration preference across session injections', async () => {
@@ -314,6 +320,23 @@ describe('plugin registration', () => {
     expect(second.hooks.duration.getSnapshot()).toBe(true)
     expect(localStorage.getItem('dsh.trajectory.duration')).toBe('true')
     expect(localStorage.getItem(`dsh.trajectory.duration.${SID}`)).toBeNull()
+  })
+
+  it('reports whether loading older history changed the Trajectory snapshot', async () => {
+    const b = await bench()
+    const entry = b.slots.entries('conversation.view')
+      .find(candidate => candidate.options.id === 'trajectory')
+    const injectEntry = entry!.inject as unknown as (
+      sessionId: SessionId,
+    ) => TrajectoryViewInjected
+    const injected = injectEntry(SID)
+
+    expect(await injected.loadOlder()).toBe(false)
+
+    b.loadOlder.mockImplementationOnce(async () => {
+      b.sessionStore.set(historySnapshot([...NODES]))
+    })
+    expect(await injected.loadOlder()).toBe(true)
   })
 })
 
@@ -1083,7 +1106,7 @@ describe('timeline projection', () => {
   })
 })
 
-describe('TrajectoryView branches', () => {
+describe('TrajectoryView state', () => {
   it('persists the duration preference through the runtime snapshot-store seam', () => {
     const firstDuration = createTrajectoryDurationStore()
     const commonProps = {
@@ -1116,109 +1139,6 @@ describe('TrajectoryView branches', () => {
       .toBe('true')
   })
 
-  it('renders only the selected rewind branch while retaining session-global requests', () => {
-    const retained = {
-      kind: 'user',
-      seq: 1,
-      time: 1_000,
-      content: [{ type: 'text', text: 'retained user' }],
-      source: null,
-    } as unknown as ConversationSnapshot['nodes'][number]
-    const abandoned = {
-      kind: 'assistant',
-      seq: 3,
-      time: 3_000,
-      turn: 1,
-      step: 1,
-      blocks: [{ kind: 'text', text: 'abandoned response' }],
-    } as unknown as ConversationSnapshot['nodes'][number]
-    const current = {
-      kind: 'assistant',
-      seq: 5,
-      time: 5_000,
-      turn: 2,
-      step: 1,
-      blocks: [{ kind: 'text', text: 'current response' }],
-    } as unknown as ConversationSnapshot['nodes'][number]
-    const request = (startSeq: number, turn: number): RequestView => ({
-      purpose: 'assistant',
-      startSeq,
-      turn,
-      step: 1,
-      startedAt: startSeq * 1_000,
-      completedAt: startSeq * 1_000 + 100,
-      status: 'complete',
-    })
-    const store = createSnapshotStore(historySnapshot(
-      [retained, abandoned, current],
-      {
-        eventNodes: [retained, abandoned, current],
-        contexts: [
-          { id: 0, nodes: [retained, abandoned] },
-          {
-            id: 1,
-            parentId: 0,
-            origin: 'rewind' as const,
-            originSeq: 4,
-            nodes: [retained, current],
-          },
-        ],
-        requests: [request(2, 1), request(4, 2)],
-        callSchemas: new Map(),
-      },
-    ))
-
-    const view = render(
-      <TrajectoryView
-        {...standaloneProps([])}
-        {...standaloneDuration()}
-        useSession={bindSnapshotSelector(store)}
-        loadOlder={vi.fn(() => Promise.resolve(false))}
-      />,
-    )
-
-    expect(screen.queryByText('abandoned response')).toBeNull()
-    expect(screen.getByText('current response')).toBeTruthy()
-    expect(screen.getByRole('row', { name: /Request 2, ASSISTANT/ })).toBeTruthy()
-    expect(view.container.querySelectorAll('[data-request-only="true"]')).toHaveLength(0)
-  })
-
-  it('does not remount the ledger when prepending shifts a rewind generation id', () => {
-    const current = {
-      kind: 'assistant',
-      seq: 5,
-      time: 5_000,
-      turn: 2,
-      step: 1,
-      blocks: [{ kind: 'text', text: 'stable rewind response' }],
-    } as unknown as ConversationSnapshot['nodes'][number]
-    const snapshot = (id: number) => historySnapshot([current], {
-      contexts: [{
-        id,
-        origin: 'rewind' as const,
-        originSeq: 4,
-        nodes: [current],
-      }],
-    })
-    const store = createSnapshotStore(snapshot(1))
-    render(
-      <TrajectoryView
-        {...standaloneProps([])}
-        {...standaloneDuration()}
-        useSession={bindSnapshotSelector(store)}
-        loadOlder={vi.fn(() => Promise.resolve(false))}
-      />,
-    )
-    const row = screen.getByRole('row', { name: /stable rewind response/ })
-    fireEvent.click(row)
-    expect(row.getAttribute('aria-selected')).toBe('true')
-
-    act(() => { store.set(snapshot(2)) })
-
-    expect(screen.getByRole('row', { name: /stable rewind response/ })
-      .getAttribute('aria-selected')).toBe('true')
-  })
-
   it('keeps ledger and timeline selection on the same event after prepend', () => {
     const older = {
       kind: 'user', seq: 1, time: 1_000,
@@ -1249,46 +1169,6 @@ describe('TrajectoryView branches', () => {
     )).toBeTruthy()
   })
 
-  it('retains cancellation-frozen assistant and tool nodes outside raw contexts', () => {
-    const retained = {
-      kind: 'user', seq: 1, time: 1_000,
-      content: [{ type: 'text', text: 'stop the task' }], source: null,
-    } as unknown as ConversationSnapshot['nodes'][number]
-    const interruptedAssistant = {
-      kind: 'assistant', seq: 2.1, time: 2_000, turn: 1, step: 1,
-      blocks: [{ kind: 'text', text: 'partial response retained' }],
-      interrupted: true,
-    } as unknown as ConversationSnapshot['nodes'][number]
-    const interruptedTool = {
-      kind: 'tool-result', seq: 2.2, time: 2_100, callId: 'slow-call',
-      call: { name: 'bash', argsRaw: '{"command":"sleep 30"}' }, callTime: 1_900,
-      content: [], isError: true,
-      error: { name: 'Interrupted', code: 'interrupted' },
-      callView: null, resultView: null,
-    } as unknown as ConversationSnapshot['nodes'][number]
-    const store = createSnapshotStore(historySnapshot(
-      [retained],
-      {
-        eventNodes: [retained],
-        contexts: [{ id: 0, nodes: [retained] }],
-        requests: [],
-        callSchemas: new Map(),
-        interruptedNodes: [interruptedAssistant, interruptedTool],
-      },
-    ))
-
-    render(
-      <TrajectoryView
-        {...standaloneProps([])}
-        {...standaloneDuration()}
-        useSession={bindSnapshotSelector(store)}
-        loadOlder={vi.fn(() => Promise.resolve(false))}
-      />,
-    )
-
-    expect(screen.getByText('partial response retained')).toBeTruthy()
-    expect(screen.getByRole('row', { name: /TOOL, bash/ })).toBeTruthy()
-  })
 })
 
 describe('node half', () => {

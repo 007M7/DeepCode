@@ -45,9 +45,9 @@ export function apply(ctx: Context): void {
       return {
         hooks: { duration },
         loadOlder: async () => {
-          const hadMore = session.getSnapshot().hasMore
+          const before = session.getSnapshot().views.get('trajectory')
           await session.loadOlder()
-          return hadMore
+          return session.getSnapshot().views.get('trajectory') !== before
         },
         setActualDuration: (value) => { duration.set(value) },
       }

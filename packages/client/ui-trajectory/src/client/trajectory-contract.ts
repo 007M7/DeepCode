@@ -1,5 +1,5 @@
 import type {
-  AssistantMessageNode, ConversationContext, ConversationLocation, ConversationNode,
+  AssistantMessageNode, ConversationLocation, ConversationNode,
   ConversationPromptSnapshot, ConversationViewNode, PartialAssistant,
   RequestPromptChange, RequestView, RunningToolCall, ToolCallBlock,
 } from '@deepseek-ai/dsh-client-runtime/client'
@@ -59,10 +59,8 @@ export interface TrajectoryConversationViewNode extends ConversationViewNode {
 /** Stage-oriented Trajectory data assembled from registered business Contexts. */
 export interface TrajectorySnapshot {
   readonly eventNodes: readonly ConversationNode[]
-  readonly contexts: readonly ConversationContext[]
   readonly requests: readonly RequestView[]
   readonly callSchemas: ReadonlyMap<string, ConversationPromptSnapshot['tools'][number]>
-  readonly interruptedNodes: readonly ConversationNode[]
   readonly partial: PartialAssistant | null
   readonly runningCalls: readonly RunningToolCall[]
 }

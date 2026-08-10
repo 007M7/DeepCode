@@ -84,9 +84,15 @@ describe('tsdown client artifact', () => {
     ctx.provide('sessions', { binding: () => undefined })
     const fiber = ctx.plugin(surface as { apply: (ctx: Context) => void })
     await fiber.await()
+    const events = ctx.get('conversationEvents') as ConversationEventRegistry
+    const views = ctx.get('conversationViews') as ConversationViewRegistry
     expect(slots.entries('conversation.view').map(e => e.options.id)).toEqual(['trajectory'])
+    expect(events.entries().length).toBeGreaterThan(0)
+    expect(views.entries()).toHaveLength(1)
     await fiber.dispose()
     expect(slots.entries('conversation.view')).toHaveLength(0)
+    expect(events.entries()).toEqual([])
+    expect(views.entries()).toEqual([])
   })
 
   it.skipIf(code === undefined)('injects plugin-tagged module CSS during factory execution', async () => {

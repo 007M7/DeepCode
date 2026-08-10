@@ -6,6 +6,9 @@ import type {
 import type {} from '@deepseek-ai/dsh-tools/types'
 import { trajectoryNode } from './trajectory-definition-common.ts'
 
+/* jscpd:ignore-start -- Target-owned Definitions intentionally keep their event
+ * state machines independent; see ../../../../../.agents/notes/implemented/
+ * architecture/2026-08-09-client-conversation-node-assembly.md. */
 const MAX_DEPTH = 256
 
 interface ToolState {
@@ -109,11 +112,26 @@ function childResult(
 function acceptsEdge(state: ToolState, parent: string, child: string): boolean {
   if (parent === child || state.parents.has(child)) return false
   let cursor: string | undefined = parent
-  for (let depth = 0; cursor !== undefined && depth <= MAX_DEPTH; depth++) {
-    if (cursor === child) return false
+  let parentDepth = 0
+  const ancestors = new Set<string>()
+  while (cursor !== undefined) {
+    if (cursor === child || ancestors.has(cursor)) return false
+    ancestors.add(cursor)
+    parentDepth++
     cursor = state.parents.get(cursor)
   }
-  return cursor === undefined
+  const pending = [{ callId: child, depth: 1 }]
+  const descendants = new Set<string>()
+  let subtreeDepth = 0
+  for (const candidate of pending) {
+    if (descendants.has(candidate.callId)) return false
+    descendants.add(candidate.callId)
+    subtreeDepth = Math.max(subtreeDepth, candidate.depth)
+    for (const nested of state.children.get(candidate.callId) ?? []) {
+      pending.push({ callId: nested, depth: candidate.depth + 1 })
+    }
+  }
+  return parentDepth + subtreeDepth <= MAX_DEPTH
 }
 
 function updateDispatch(state: ToolState, match: ConversationMatch): ToolState {
@@ -243,6 +261,7 @@ const trajectoryToolDefinition: ConversationNodeDefinition<ToolState> = {
     return trajectoryNode(context, anchorSeq, { kind: 'tool', root })
   },
 }
+/* jscpd:ignore-end */
 
 /**
  * Register the Trajectory Tool lifecycle.
