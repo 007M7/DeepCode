@@ -2,7 +2,7 @@
   - button "Use actual duration": Duration
   - button "Collapse turns": Turns
   - button "Collapse calls": Calls
-  - button "导出会话日志": 导出
+  - button "Export session log": Export
   - img
   - searchbox "Search trajectory"
 - region "Trajectory timeline":
