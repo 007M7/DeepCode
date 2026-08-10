@@ -99,6 +99,8 @@ export function InputBar({
   // be disabled do lock it — there is no session to choose a model for.
   const modelSeatLocked = removed || inert || !live
   const machineBusy = input?.phase === 'adjudicating' || input?.phase === 'submitting'
+  const canSteerQueue = !locked && !machineBusy && !commandMenuOpen && empty && running && subagent === null
+    && input.queue.some(row => row.placement === 'queued')
 
   // Scroll the draft scrollport the minimum that brings `caret` into view — the
   // browser's own behavior for typing, performed for the paths where it does
@@ -257,9 +259,19 @@ export function InputBar({
     e.preventDefault()
     if (e.repeat) return // held-down Enter must not machine-gun sends
     if (locked || machineBusy) return
+    const accelerated = e.ctrlKey || e.metaKey
+    // Empty-draft accelerated Enter acts on the queue instead of the (empty)
+    // draft: the machine rejects empty drafts, so the gesture steers every
+    // still-pending queued message into the running turn (the dock's per-row
+    // steer button applied to the whole queue). Steering needs the same
+    // window as the per-row button: a running ordinary session.
+    if (accelerated && canSteerQueue) {
+      keyboard.steerQueue()
+      return
+    }
     keyboard.submit(resolveSubmitMode(
       running,
-      e.ctrlKey || e.metaKey ? 'accelerated' : 'enter',
+      accelerated ? 'accelerated' : 'enter',
       subagent === null,
     ))
   }
@@ -489,7 +501,12 @@ export function InputBar({
                 ? t('placeholder.parentOffline')
                 : disabled
                   ? t('placeholder.unavailable')
-                  : planActive ? t('placeholder.plan') : t('placeholder.default'))}
+                  // The steer hint deliberately outranks the plan placeholder:
+                  // while it shows, the whole-queue gesture is genuinely available
+                  // (the gate never consults plan mode), so the actionable hint wins.
+                  : canSteerQueue
+                    ? t('placeholder.steerQueue')
+                    : planActive ? t('placeholder.plan') : t('placeholder.default'))}
               rows={2}
               onChange={onChange}
               onKeyDown={onKeyDown}
