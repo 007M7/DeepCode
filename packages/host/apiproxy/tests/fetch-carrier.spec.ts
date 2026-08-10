@@ -97,6 +97,12 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
       async prompt(request) {
         return { rpcId: request.rpcId, result: { ok: true, value: { accepted: true as const } } }
       },
+      async attachment(request) {
+        return {
+          rpcId: request.rpcId,
+          result: { ok: true, value: { attachment: { attachmentId: 'a' as never, mediaType: 'image/png' as const, bytes: 1, width: 1, height: 1 }, data: 'AA==' } },
+        }
+      },
       async updateQueue(request) {
         return { rpcId: request.rpcId, result: { ok: true, value: { accepted: true as const } } }
       },
@@ -195,6 +201,32 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
           return { rpcId: request.rpcId, result: { ok: true, value: { matched: true, commandId: CommandId('cmd-x') } } }
         }
         return { rpcId: request.rpcId, result: { ok: true, value: { matched: false } } }
+      },
+    },
+    agentPresets: {
+      list(request: RpcRequest<{}>) {
+        return Promise.resolve({
+          rpcId: request.rpcId,
+          result: { ok: true as const, value: { presets: [], authorable: false, hasDocument: false } },
+        })
+      },
+      select(request: RpcRequest<{ agentPreset: string }>) {
+        const value = { agentPreset: request.payload.agentPreset }
+        return Promise.resolve({ rpcId: request.rpcId, result: { ok: true as const, value } })
+      },
+      read(request: RpcRequest<{ agentPreset: string }>) {
+        const value = { agentPreset: request.payload.agentPreset, trust: 'user' as const, content: '' }
+        return Promise.resolve({ rpcId: request.rpcId, result: { ok: true as const, value } })
+      },
+      copy(request: RpcRequest<{ from: string; agentPreset: string }>) {
+        const value = { agentPreset: request.payload.agentPreset }
+        return Promise.resolve({ rpcId: request.rpcId, result: { ok: true as const, value } })
+      },
+      openDocument(request: RpcRequest<{ agentPreset: string }>) {
+        return Promise.resolve({ rpcId: request.rpcId, result: { ok: true as const, value: { opened: true as const } } })
+      },
+      remove(request: RpcRequest<{ agentPreset: string }>) {
+        return Promise.resolve({ rpcId: request.rpcId, result: { ok: true as const, value: {} } })
       },
     },
     skills: {
@@ -331,6 +363,7 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
     const renamed = await c.sessions.rename({ sessionId: 's' as never, title: 'named' })
     expect(renamed.result).toMatchObject({ ok: true, value: { title: 'named', seq: 0 } })
     expect((await c.sessions.prompt({ sessionId: 's' as never, mode: 'queue', content: [{ type: 'text', text: 'x' }] })).result.ok).toBe(true)
+    expect((await c.sessions.attachment({ sessionId: 's' as never, attachmentId: 'a' as never })).result.ok).toBe(true)
     expect((await c.sessions.updateQueue({
       sessionId: 's' as never,
       itemId: 'item-1' as never,
@@ -338,6 +371,28 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
     })).result.ok).toBe(true)
     expect((await c.sessions.cancel({ sessionId: 's' as never })).result.ok).toBe(true)
     expect((await c.host.describe({})).result.ok).toBe(true)
+  })
+
+  it('round-trips every agent-preset method, authoring included', async () => {
+    const c = client()
+
+    // The whole domain crosses the carrier: the roster a picker reads, the
+    // per-session switch, and the authoring calls the settings page makes.
+    // Each has its own request schema, so a registration missing from either
+    // half fails here rather than in the browser.
+    expect((await c.agentPresets.list({})).result).toEqual({
+      ok: true, value: { presets: [], authorable: false, hasDocument: false },
+    })
+    expect((await c.agentPresets.select({ sessionId: 's' as never, agentPreset: 'minimal' })).result)
+      .toEqual({ ok: true, value: { agentPreset: 'minimal' } })
+    expect((await c.agentPresets.read({ agentPreset: 'mine' })).result).toEqual({
+      ok: true, value: { agentPreset: 'mine', trust: 'user', content: '' },
+    })
+    expect((await c.agentPresets.copy({ from: 'standard', agentPreset: 'mine' })).result)
+      .toEqual({ ok: true, value: { agentPreset: 'mine' } })
+    expect((await c.agentPresets.openDocument({ agentPreset: 'mine' })).result)
+      .toEqual({ ok: true, value: { opened: true } })
+    expect((await c.agentPresets.remove({ agentPreset: 'mine' })).result).toEqual({ ok: true, value: {} })
   })
 
   it('round-trips the native picker without the default unary timeout', async () => {

@@ -95,7 +95,7 @@ logger 会先触发：`tools/result` 在结果物化过程中发出，发生在 
 
 ## 从这里走向完整 agent（智能体）
 
-真实 agent 就是这套组合再加上更多插件：LLM（大语言模型）适配器、agent loop（智能体循环）、持久化和前端。对照 [examples/headless-agent/cordis.yml](../../examples/headless-agent/cordis.yml)，你现在已经可以读懂其中每个配置项。将 `greet-tool.ts` 加入该文件的副本即可。
+真实 agent 就是这套组合再加上更多插件：LLM（大语言模型）适配器、agent loop（智能体循环）、持久化和运行入口。对照 [examples/headless-agent/cordis.yml](../../examples/headless-agent/cordis.yml)，你现在已经可以读懂其中每个配置项。将 `greet-tool.ts` 加入该文件的副本即可。
 
 后续可以阅读：
 

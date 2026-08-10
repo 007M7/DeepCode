@@ -166,6 +166,10 @@ idle inject:
 
 `dsh-agent-spine-demo` 组合一套主干和可选目标。应用包负责 CLI（命令行界面）、ACP 自动化入口和 JSON-RPC 入口（[README](../packages/examples/agent-spine-demo/README.md)、[acp/](../packages/acp/README.md)、[interaction/](../packages/interaction/README.md)）。`dsh-jsonrpc-agent` 启动外部 `cordis.yml`；Python SDK 在配置缺失时提供默认项（[Python SDK](../python/README.md)）。轻量部署使用可替换后端和可选工具（[examples/](../examples/AGENTS.md)、[可运行接线](cookbook/extension-cookbook.md#runnable-wirings)、[图谱](graph-atlas.md)）。
 
+### Agent Preset
+
+部署可为每个会话分别组装面向模型的插件集合。**agent preset** 是一个含 `agent.cordis.yml` 的目录，在 `setup(agentCtx)` 期间作为 `include` 子树挂到该 agent 的 scope 之下，其工具与提示词注册因而归档进该 agent 的分层并随之卸载，注册表无需新增层级。宿主组装保留必须共享的部分：注册表本身、跨会话设施、沙箱与审批栈、模型路由。`ctx.agentPresets` 负责发现与把关，拒绝未激活的行和把服务发布进根 realm 的行。详见 [按会话组装 agent preset](../.agents/notes/implemented/architecture/2026-08-03-per-session-agent-presets.md)、[preset/](../packages/preset/README.md)。
+
 ### 新行为的归属位置
 
 新行为附加到已有文档记录的扩展点；循环发生变更时，本架构图随之更新。
@@ -174,6 +178,7 @@ idle inject:
 |---|---|
 | 添加模型提供方 | 在 `ctx.llm` 上注册其适配器 |
 | 添加面向模型的能力 | 在 `ctx.tools` 上注册；schema 加入提示词组装 |
+| 让某个会话拥有不同的能力集合 | 在 agent preset 中组装它；其中的 service 行需要 `isolate` realm |
 | 添加 shell 执行 | 实现并注册 `ctx.bash` 后端；本地后端通过 `ctx.subprocess` spawn 进程 |
 | 添加持久化终端执行 | 注册 `ctx.pty` 后端和 `dsh-tool-pty` |
 | 添加用户命令 | 在 `ctx.commands` 上注册；适配器无需模型轮次即可发现并分派 |

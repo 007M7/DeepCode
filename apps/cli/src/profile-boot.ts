@@ -12,6 +12,7 @@ import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { FiberState, type Context } from 'cordis'
 import type { PatchOptions } from '@cordisjs/plugin-include'
+import { dshHomePath } from '@deepseek-ai/dsh-paths'
 import {
   boot,
   composeEntries,
@@ -25,9 +26,16 @@ import {
   type Profile,
 } from '@deepseek-ai/dsh-app-boot'
 import { resolveDshHome } from '@deepseek-ai/dsh-paths'
+
+/** Shipped agent-preset root: beside this app's own config, in both source and built layouts. */
+const SHIPPED_PRESET_ROOT = fileURLToPath(new URL('../config/agent-presets/', import.meta.url))
+
+/** Harness-home directory holding locally authored agent presets. */
+const USER_PRESET_DIR = '.agent-presets'
 import { DSH_ENVIRONMENT_KEY, type EnvironmentSnapshot } from '@deepseek-ai/dsh-environment'
 import type { HeadlessIo } from '@deepseek-ai/dsh-headless'
 import { createProcessShutdown, type ProcessShutdown } from './process-shutdown.ts'
+import { resolveWindowsShellLayer } from './windows-shell.ts'
 
 const NAME = 'dsh'
 
@@ -104,6 +112,8 @@ interface ComposedProfile {
   profile: Profile
   /** Bundle layers concatenated — the part below the user layers on a live reload. */
   bundlePatches: PatchOptions[]
+  /** The win32 shell platform layer (the base bundle's `windows.cordis.patch.yml`), between bundles and user layers. */
+  windowsShellPatches: PatchOptions[]
   /** The home-level user layer (`$DSH_HOME/cordis.patch.yml`), applied after the profile's own. */
   homePatches: PatchOptions[]
   /** Layers above the user layers on a live reload: --patch overlays, flag patches, the telemetry switch. */
@@ -118,12 +128,19 @@ interface ComposedProfile {
 
 /** The full patch stack of one composed profile, in application order. */
 function allPatches(composed: ComposedProfile): PatchOptions[] {
-  return [...composed.bundlePatches, ...composed.profile.patches, ...composed.homePatches, ...composed.overlayAndFlags]
+  return [
+    ...composed.bundlePatches,
+    ...composed.windowsShellPatches,
+    ...composed.profile.patches,
+    ...composed.homePatches,
+    ...composed.overlayAndFlags,
+  ]
 }
 
 /**
  * Load `name` and compose its effective patch stack: bundle layers in
- * `dsh.profile.bundles` order, the profile's user layer, the home-level user layer
+ * `dsh.profile.bundles` order, the win32 shell platform layer (when the host
+ * is Windows), the profile's user layer, the home-level user layer
  * (`$DSH_HOME/cordis.patch.yml` — machine-local preferences that apply to
  * every profile, so it outranks the per-profile layer), `--patch` overlays,
  * then flag patches derived from the composed rows, then the telemetry
@@ -142,14 +159,33 @@ function composeProfile(
   const homePatches = loadOptionalPatches(NAME, homePatchPath()) ?? []
   const overlays = patchFiles.flatMap(file => loadOverlayPatches(NAME, resolve(file)))
   const bundlePatches = profile.layers.flatMap(layer => layer.patches)
+  const windowsShellPatches = resolveWindowsShellLayer(process.platform, profile.layers, NAME)?.patches ?? []
   const rows = new Map<string, { name?: string; config?: unknown }>()
-  for (const row of composeEntries([bundlePatches, profile.patches, homePatches, overlays])) {
+  for (const row of composeEntries([bundlePatches, windowsShellPatches, profile.patches, homePatches, overlays])) {
     if (typeof row.id === 'string') rows.set(row.id, row)
   }
   const overlayAndFlags = [...overlays, ...deriveFlagPatches(rows)]
+  // The agent-preset roots are an assembly fact of every dsh launcher, not a
+  // patch author's choice: the shipped set sits beside this app's config and
+  // the user's own under the Harness home. Resolved per boot ($DSH_HOME may
+  // differ per run) and only patched when the composed tree actually mounts
+  // the roster — a one-shot `dsh run` composes agents from the same roster
+  // `dsh web` offers.
+  if (rows.has('agent-presets')) {
+    overlayAndFlags.push({
+      id: 'agent-presets',
+      config: {
+        ...(rows.get('agent-presets')?.config ?? {}) as Record<string, unknown>,
+        roots: [
+          { path: SHIPPED_PRESET_ROOT, trust: 'system' },
+          { path: dshHomePath(USER_PRESET_DIR), trust: 'user' },
+        ],
+      },
+    })
+  }
   const telemetryPatch = resolveTelemetryPatch(process.env.DSH_TELEMETRY_DISABLED, rows.has(TELEMETRY_ROW_ID))
   if (telemetryPatch !== undefined) overlayAndFlags.push(telemetryPatch)
-  return { profile, bundlePatches, homePatches, overlayAndFlags, rows }
+  return { profile, bundlePatches, windowsShellPatches, homePatches, overlayAndFlags, rows }
 }
 
 /** Options for {@link runProfile}. */
@@ -207,7 +243,7 @@ export async function runProfile(options: RunProfileOptions): Promise<{ ctx: Con
     shutdown.interrupt(code)
   }
   // Signals own teardown throughout the startup window, not only after boot()
-  // settles: an inserted front door can publish readiness before sibling rows
+  // settles: an inserted entry point can publish readiness before sibling rows
   // finish mounting.
   process.on('SIGTERM', () => { interrupt(options.task === undefined ? 0 : 143) })
   process.on('SIGINT', () => { interrupt(130) })
@@ -228,6 +264,7 @@ export async function runProfile(options: RunProfileOptions): Promise<{ ctx: Con
   // removing the override could never revert the row to the bundle default.
   const composeLive = (): PatchOptions[] => structuredClone([
     ...composed.bundlePatches,
+    ...composed.windowsShellPatches,
     ...loadOptionalPatches(NAME, composed.profile.patchPath) ?? [],
     ...loadOptionalPatches(NAME, homePatchPath()) ?? [],
     ...composed.overlayAndFlags,

@@ -6,8 +6,8 @@
  * region-slot content) ride the owner props. Session facts
  * (running/removed/promptError) are self-selected via useSession. */
 
-import { useEffect, useRef } from 'react'
-import type { ChangeEvent, KeyboardEvent, MouseEvent, ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { ChangeEvent, DragEvent, KeyboardEvent, MouseEvent, ReactNode } from 'react'
 import clsx from 'clsx'
 import { IconPlusOutline16, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 // Type-only: the `plan` projection key merge (the TodoDock posture — the
@@ -16,10 +16,11 @@ import type {} from '@deepseek-ai/dsh-plan-mode/client'
 // Type-only: the `goal` projection key merge (hint disambiguation).
 import type {} from '@deepseek-ai/dsh-goal/client'
 import type { Translate } from '@deepseek-ai/dsh-client-ui-slots'
-import type { ComposerBarProps } from '../contract/slots.ts'
+import type { ComposerAttachment, ComposerBarProps } from '../contract/slots.ts'
 import { deriveDecorations } from '../input/decorations.ts'
 import type { DraftDecorations } from '../input/decorations.ts'
 import { ContextMeter } from './ContextMeter.tsx'
+import { ImageLightbox } from './ImageLightbox.tsx'
 import { PermissionSelect } from './PermissionSelect.tsx'
 import css from './InputBar.module.css'
 
@@ -35,7 +36,8 @@ export interface InputBarError {
 export type InputBarProps = ComposerBarProps
 
 export function InputBar({
-  useSession, useInput, inputActions, keyboard, resolveSubmitMode, toggleCommandMenu, stop, command, t,
+  useSession, useInput, inputActions, keyboard, addImages, removeImage, draftImages,
+  resolveSubmitMode, toggleCommandMenu, stop, command, t,
   renderSlot, useNotices, useLexicon, useMenuLauncher,
   useProjection, sessionId, variant, disabled: inert = false, blocked, placeholder,
   accessory, overlay, leftItems, rightItems, footer,
@@ -63,8 +65,16 @@ export function InputBar({
   // current; the bar renders the same DOM inert instead of a parallel tree.
   const live = input !== undefined && keyboard !== undefined && inputActions !== undefined
   const draft = input?.draft ?? ''
-  const empty = draft.trim() === ''
+  const attachments = useMemo(
+    () => input === undefined || draftImages === undefined ? [] : draftImages(input.imageIds),
+    [draftImages, input?.imageIds],
+  )
+  const empty = draft.trim() === '' && attachments.length === 0
+  const [preview, setPreview] = useState<ComposerAttachment | null>(null)
+  const [dragActive, setDragActive] = useState(false)
+  const [dropError, setDropError] = useState<string | null>(null)
   const inputRef = useRef<HTMLTextAreaElement | null>(null)
+  const dragDepthRef = useRef(0)
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const mirrorRef = useRef<HTMLDivElement | null>(null)
   // IME guard: composition Enter picks a candidate, it must not send. The ref outlives renders;
@@ -99,6 +109,19 @@ export function InputBar({
   // be disabled do lock it — there is no session to choose a model for.
   const modelSeatLocked = removed || inert || !live
   const machineBusy = input?.phase === 'adjudicating' || input?.phase === 'submitting'
+  const canSteerQueue = !locked && !machineBusy && !commandMenuOpen && empty && running && subagent === null
+    && input.queue.some(row => row.placement === 'queued')
+
+  useEffect(() => {
+    if (input === undefined || inputActions === undefined) return
+    if (attachments.length !== input.imageIds.length) {
+      inputActions.pruneImages(attachments.map(attachment => attachment.id))
+    }
+  }, [attachments, input?.imageIds, inputActions])
+
+  useEffect(() => {
+    if (preview !== null && !attachments.some(attachment => attachment.id === preview.id)) setPreview(null)
+  }, [attachments, preview])
 
   // Scroll the draft scrollport the minimum that brings `caret` into view — the
   // browser's own behavior for typing, performed for the paths where it does
@@ -257,9 +280,19 @@ export function InputBar({
     e.preventDefault()
     if (e.repeat) return // held-down Enter must not machine-gun sends
     if (locked || machineBusy) return
+    const accelerated = e.ctrlKey || e.metaKey
+    // Empty-draft accelerated Enter acts on the queue instead of the (empty)
+    // draft: the machine rejects empty drafts, so the gesture steers every
+    // still-pending queued message into the running turn (the dock's per-row
+    // steer button applied to the whole queue). Steering needs the same
+    // window as the per-row button: a running ordinary session.
+    if (accelerated && canSteerQueue) {
+      keyboard.steerQueue()
+      return
+    }
     keyboard.submit(resolveSubmitMode(
       running,
-      e.ctrlKey || e.metaKey ? 'accelerated' : 'enter',
+      accelerated ? 'accelerated' : 'enter',
       subagent === null,
     ))
   }
@@ -318,8 +351,16 @@ export function InputBar({
   const onPaste = (e: React.ClipboardEvent<HTMLTextAreaElement>): void => {
     if (keyboard === undefined) return // absent machine: disabled textarea, no events
     if (machineBusy || locked) return
+    const files = Array.from(e.clipboardData.items)
+      .filter(item => item.kind === 'file')
+      .map(item => item.getAsFile())
+      .filter((file): file is File => file !== null)
+    if (files.length > 0 && addImages !== undefined) setDropError(addImages(files))
     const text = e.clipboardData.getData('text/plain')
-    if (text === '') return
+    if (text === '') {
+      if (files.length > 0) e.preventDefault()
+      return
+    }
     e.preventDefault()
     const el = e.currentTarget
     const sel = selectionOf(el)
@@ -332,6 +373,39 @@ export function InputBar({
     restoreCaret(el, caret)
     keyboard.track(keyboard.snapshot.draft, caret)
   }
+
+  const onDragEnter = (event: DragEvent<HTMLDivElement>): void => {
+    if (!event.dataTransfer.types.includes('Files')) return
+    event.preventDefault()
+    if (locked || machineBusy || addImages === undefined) return
+    dragDepthRef.current += 1
+    setDropError(null)
+    setDragActive(true)
+  }
+
+  const onDragOver = (event: DragEvent<HTMLDivElement>): void => {
+    if (!event.dataTransfer.types.includes('Files')) return
+    event.preventDefault()
+    event.dataTransfer.dropEffect = locked || machineBusy || addImages === undefined ? 'none' : 'copy'
+  }
+
+  const onDragLeave = (event: DragEvent<HTMLDivElement>): void => {
+    if (!event.dataTransfer.types.includes('Files') || locked || machineBusy) return
+    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1)
+    if (dragDepthRef.current === 0) setDragActive(false)
+  }
+
+  const onDrop = (event: DragEvent<HTMLDivElement>): void => {
+    if (!event.dataTransfer.types.includes('Files')) return
+    event.preventDefault()
+    dragDepthRef.current = 0
+    setDragActive(false)
+    if (locked || machineBusy || addImages === undefined) return
+    const dropped = [...event.dataTransfer.files]
+    if (dropped.length > 0) setDropError(addImages(dropped))
+  }
+
+  const closePreview = useCallback(() => { setPreview(null) }, [])
 
   const onSelect = (e: React.SyntheticEvent<HTMLTextAreaElement>): void => {
     // Any caret/selection gesture ends a live paste attempt (the machine
@@ -465,9 +539,43 @@ export function InputBar({
           {notice.text}
         </div>
       )}
-      <div className={css.card} data-composer-card>
+      {dropError !== null && <div className={css.error} role="alert">{dropError}</div>}
+      <div
+        className={clsx(css.card, dragActive && css.dragActive)}
+        data-composer-card
+        onDragEnter={onDragEnter}
+        onDragOver={onDragOver}
+        onDragLeave={onDragLeave}
+        onDrop={onDrop}
+      >
+        {dragActive && <div className={css.dropHint} role="status">{t('image.dropHint')}</div>}
         {overlay !== undefined && <div className={css.overlayAnchor}>{overlay}</div>}
         {accessory !== undefined && <div className={css.accessory}>{accessory}</div>}
+        {attachments.length > 0 && (
+          <div className={css.attachments} role="group" aria-label={t('image.pending')}>
+            {attachments.map(attachment => (
+              <div key={attachment.id} className={css.attachment}>
+                <button
+                  type="button"
+                  className={css.thumbnail}
+                  title={t('image.openOriginal')}
+                  onDoubleClick={() => { setPreview(attachment) }}
+                >
+                  <img src={attachment.previewUrl} alt={attachment.file.name || t('image.pending')} />
+                </button>
+                <button
+                  type="button"
+                  className={css.remove}
+                  aria-label={t('image.remove', { name: attachment.file.name })}
+                  onClick={() => {
+                    setDropError(null)
+                    removeImage?.(attachment.id)
+                  }}
+                >×</button>
+              </div>
+            ))}
+          </div>
+        )}
         {/* One scrollport, two text layers. The hidden mirror renders draft+'\n' and stretches the
             stack to the draft's FULL height (counting rows by '\n' cannot see soft wraps); the
             absolutely-positioned backdrop and textarea ride that height, and .scroll — capped at 14
@@ -489,9 +597,17 @@ export function InputBar({
                 ? t('placeholder.parentOffline')
                 : disabled
                   ? t('placeholder.unavailable')
-                  : planActive ? t('placeholder.plan') : t('placeholder.default'))}
+                  // The steer hint deliberately outranks the plan placeholder:
+                  // while it shows, the whole-queue gesture is genuinely available
+                  // (the gate never consults plan mode), so the actionable hint wins.
+                  : canSteerQueue
+                    ? t('placeholder.steerQueue')
+                    : planActive ? t('placeholder.plan') : t('placeholder.default'))}
               rows={2}
-              onChange={onChange}
+              onChange={(event) => {
+                setDropError(null)
+                onChange(event)
+              }}
               onKeyDown={onKeyDown}
               onSelect={onSelect}
               onCopy={(e) => { onCopyOrCut(e, false) }}
@@ -568,6 +684,14 @@ export function InputBar({
           </div>
         </div>
       </div>
+      {preview !== null && (
+        <ImageLightbox
+          src={preview.previewUrl}
+          alt={preview.file.name || t('image.original')}
+          onClose={closePreview}
+          t={t}
+        />
+      )}
       {footer}
     </div>
   )

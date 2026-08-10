@@ -1,5 +1,6 @@
 /** Conversation slot declarations and their composed component props. */
 import type { ReactNode, RefObject } from 'react'
+import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type {
   InjectFace, MaybeSnapshotSelectorHook, PropsLocale, PropsRenderSlots, PropsRuntime, PropsStore,
   SlotHookFactory, SnapshotSelectorHook,
@@ -12,11 +13,21 @@ import type {
 import type { MarkdownFileMentions } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { ComposerBlock } from '../input/blocks.ts'
-import type { ComposerKeyboard, EditSelection, InputActions, InputNotice, InputState } from '../input/contract.ts'
+import type {
+  ComposerKeyboard, DraftAttachmentId, EditSelection, InputActions, InputNotice, InputState,
+} from '../input/contract.ts'
 import type { createChatStore } from '../stores.ts'
 import type { ComposerSubmitGesture, InputSubmitMode } from './composer-submission.ts'
 import type { ChatNode, ChatNodeKind } from './chat-nodes.ts'
 import type { CallId, SelectionTarget, ViewTab } from './views.ts'
+
+/** Browser-owned image that has not crossed the durable host boundary. */
+export interface ComposerAttachment {
+  kind: 'image'
+  id: DraftAttachmentId
+  file: File
+  previewUrl: string
+}
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface SlotMap {
@@ -79,6 +90,12 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * reads the global workspace list.
      */
     'conversation.hero.workspace': { kind: 'single'; scope: 'root'; owner: EmptyWorkspaceOwnerProps }
+    /**
+     * The agent-preset chip beside the workspace picker on the new-session
+     * screen. Root scope: no session exists yet, so the choice is staged for
+     * the next one rather than applied to a current one.
+     */
+    'conversation.hero.agentPreset': { kind: 'single'; scope: 'root'; owner: HeroAgentPresetOwnerProps }
     // 'conversation.input.overlay' merges in ui-slash (the dependency
     // direction is the hard constraint — ui-slash cannot import
     // this package, while this package's input contract already imports
@@ -139,6 +156,28 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
     useInput: MaybeSnapshotSelectorHook<InputState>
     inputActions: InputActions | undefined
   }
+}
+
+/** Owner share of the hero agent-preset chip: the shell supplies nothing. */
+export interface HeroAgentPresetOwnerProps {
+  /** Marker field: the chip owns its own roster, staging, and menu state. */
+  children?: never
+}
+
+/** Owner share of the strict session content seat. */
+export interface ConversationSessionOwnerProps {
+  /**
+   * Wrap the view ring in the transcript scrollport that also hosts the
+   * sticky composer seat (whole `'conversation.composer'` chain output).
+   * Supplied for every real session (hero/settling/active) so the composer
+   * keeps one tree seat across the blank → active flip; the header stays
+   * outside that wrapper as ordinary column chrome (`flex: none`), while
+   * active CSS sticks the seat to the bottom of the same scrollport so wheel
+   * over the footer scrolls the flow.
+   * @param view - the session view-ring content (null while blank chrome is hidden).
+   * @returns the scrollport containing `view` and the sticky composer seat.
+   */
+  wrapActiveBody?: (view: ReactNode) => ReactNode
 }
 
 /** Header actions derive their state from the standard session/global kit. */
@@ -230,6 +269,8 @@ export interface ChatNodeOwnerProps {
   openFile: (path: string) => void
   inspectCall: (callId: CallId) => void
   forkAt: (seq: number) => void
+  /** Resolve a session-authorized historical image for inline display. */
+  loadImage: (attachment: ImageAttachmentRef) => Promise<string>
   fileMentions: (owner: TurnTailOwnerProps) => MarkdownFileMentions | undefined
 }
 
@@ -299,6 +340,8 @@ export interface ConversationSessionInjected {
     subscribe: (fn: () => void) => () => void
     version: () => number
   }
+  /** Release historical image URLs when this rendered session scope unmounts. */
+  releaseSessionImages: (sessionId: SessionId) => void
   /** Bind the input machine's draft persistence mirror to the session store. */
   bindDraftMirror: (write: (text: string) => void) => () => void
 }
@@ -355,6 +398,12 @@ export interface ComposerBarOwnerProps {
 export interface ComposerBarInjected {
   /** The InputBar-exclusive keyboard/DOM command face (private plane); absent with the session. */
   keyboard: ComposerKeyboard | undefined
+  /** Create previews and append image ids to the session input. */
+  addImages: ((files: readonly File[]) => string | null) | undefined
+  /** Release one preview and remove its id from session input. */
+  removeImage: ((id: DraftAttachmentId) => void) | undefined
+  /** Resolve ordered input ids to browser-owned draft images. */
+  draftImages: ((ids: readonly DraftAttachmentId[]) => readonly ComposerAttachment[]) | undefined
   /** Resolve one keyboard submission gesture against the current running state and persisted preference. */
   resolveSubmitMode: (
     running: boolean,
@@ -430,6 +479,7 @@ export type ConversationSlotProps =
     | 'conversation.input.dock' | 'conversation.composer.dock'
     | 'conversation.input.left' | 'conversation.input.right'
     | 'conversation.hero.workspace'
+    | 'conversation.hero.agentPreset'
   >
   & InjectFace<ConversationInjected>
   & PropsLocale<'conversation'>
@@ -536,6 +586,8 @@ export interface ChatViewInjected {
    */
   openFile: (path: string) => void
   loadOlder: () => void
+  /** Resolve a session-authorized historical image for inline display. */
+  loadImage: (attachment: ImageAttachmentRef) => Promise<string>
   /** Hand a call off to the trajectory view: write the one-shot inspect target and switch tabs. */
   inspectCall: (callId: CallId) => void
   /**

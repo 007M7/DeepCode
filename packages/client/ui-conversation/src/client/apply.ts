@@ -13,7 +13,7 @@ import type {
 } from './contract/slots.ts'
 import type { InputNotice } from './input/contract.ts'
 import { createChatStore } from './stores.ts'
-import { ConversationService } from './service.ts'
+import { ConversationService, UnsupportedImageMediaTypeError } from './service.ts'
 import type { IConversation } from './service.ts'
 import { ComposerBlockRegistry } from './input/blocks.ts'
 import type { ComposerBlock } from './input/blocks.ts'
@@ -91,6 +91,13 @@ function scopedConversation(sessions: ISessions, id: SessionId): IConversation {
   return conversation
 }
 
+/** Resolve package-internal attachment operations from the public service registration. */
+function concreteConversation(ctx: Context): ConversationService {
+  const conversation = ctx.get('conversation') as ConversationService | undefined
+  if (conversation === undefined) throw new Error('ui-conversation: conversation service unavailable')
+  return conversation
+}
+
 /** Chain routing: claim the composer while an approval wait is pending (pure — owner props only). */
 function selectApproval({ interactions }: ComposerChainProps): ApprovalWait | null {
   return interactions.find((i): i is ApprovalWait => i.kind === 'approval') ?? null
@@ -152,7 +159,7 @@ export function apply(ctx: Context): void {
 
   // The per-session input machine registry (InputService face; published as
   // ctx.conversation.input by the service below sharing this one instance).
-  const inputHub = new InputHub(ctx)
+  const inputHub = new InputHub(ctx, t)
 
   // The composer-block registry: a plugin that knows a session cannot send —
   // ui-model, when no adapter serves the session's route — raises a block
@@ -192,6 +199,7 @@ export function apply(ctx: Context): void {
       'conversation.input.left': { kind: 'list', scope: 'session' },
       'conversation.input.right': { kind: 'list', scope: 'session' },
       'conversation.hero.workspace': { kind: 'single', scope: 'root' },
+      'conversation.hero.agentPreset': { kind: 'single', scope: 'root' },
     },
     inject: (sessionId: SessionId | undefined): ConversationInjected => ({
       hooks: { composerBlock: sessionId === undefined ? ABSENT_BLOCK : composerBlocks.storeFor(sessionId) },
@@ -200,9 +208,16 @@ export function apply(ctx: Context): void {
         if (sessionId !== undefined && nextId !== sessionId) {
           const from = inputHub.shell(sessionId)
           const draft = from.snapshot.draft
-          if (draft !== '') {
-            inputHub.shell(nextId).setDraft(draft)
-            from.setDraft('')
+          const imageIds = from.snapshot.imageIds
+          const next = inputHub.shell(nextId)
+          if (imageIds.length === 0 || next.addImages(imageIds)) {
+            if (draft !== '') {
+              next.setDraft(draft)
+              from.setDraft('')
+            }
+            if (imageIds.length > 0) {
+              for (const id of imageIds) from.removeImage(id)
+            }
           }
         }
         sessions.open(nextId)
@@ -219,10 +234,14 @@ export function apply(ctx: Context): void {
       'conversation.view': { kind: 'list', scope: 'session' },
     },
     store: chatStore,
-    inject: (sessionId: SessionId, _actions: BoundActions<typeof chatStore>): ConversationSessionInjected => ({
-      views,
-      bindDraftMirror: write => inputHub.shell(sessionId).bindMirror(write),
-    }),
+    inject: (sessionId: SessionId, _actions: BoundActions<typeof chatStore>): ConversationSessionInjected => {
+      const conversation = concreteConversation(ctx)
+      return {
+        views,
+        releaseSessionImages: (id) => { conversation.releaseSessionImages(id) },
+        bindDraftMirror: write => inputHub.shell(sessionId).bindMirror(write),
+      }
+    },
   }, ConversationSession)
 
   // Header chrome sits above the resident scrollport but shares the same
@@ -261,6 +280,9 @@ export function apply(ctx: Context): void {
       if (sessionId === undefined) {
         return {
           keyboard: undefined,
+          addImages: undefined,
+          removeImage: undefined,
+          draftImages: undefined,
           resolveSubmitMode: (running, gesture, steeringAvailable) =>
             submissionPolicy.resolve(running, gesture, steeringAvailable),
           toggleCommandMenu: undefined,
@@ -269,10 +291,32 @@ export function apply(ctx: Context): void {
           hooks: { notices: ABSENT_NOTICES, lexicon: ABSENT_LEXICON, menuLauncher: ABSENT_MENU_LAUNCHER },
         }
       }
+      const conversation = concreteConversation(ctx)
       const shell = inputHub.shell(sessionId)
       const slash = inputHub.slash(sessionId)
       return {
         keyboard: shell,
+        addImages: (files) => {
+          try {
+            const images = conversation.createDraftImages(files)
+            if (!shell.addImages(images.map(image => image.id))) {
+              conversation.releaseDraftImages(images)
+            }
+            return null
+          } catch (error: unknown) {
+            if (error instanceof UnsupportedImageMediaTypeError) {
+              return t('image.unsupportedType', {
+                type: error.mediaType || t('image.unknownType'),
+              })
+            }
+            return error instanceof Error ? error.message : String(error)
+          }
+        },
+        removeImage: (id) => {
+          conversation.releaseDraftImage(id)
+          shell.removeImage(id)
+        },
+        draftImages: ids => conversation.draftImages(ids),
         resolveSubmitMode: (running, gesture, steeringAvailable) =>
           submissionPolicy.resolve(running, gesture, steeringAvailable),
         toggleCommandMenu: slash === undefined
@@ -331,6 +375,7 @@ export function apply(ctx: Context): void {
     },
     store: chatStore,
     inject: (sessionId: SessionId, actions: BoundActions<typeof chatStore>): ChatViewInjected => {
+      const conversation = concreteConversation(ctx)
       const scoped = scopedConversation(sessions, sessionId)
       return {
         openDetails: (target) => {
@@ -346,6 +391,7 @@ export function apply(ctx: Context): void {
           })
         },
         loadOlder: () => { void scoped.loadOlder() },
+        loadImage: attachment => conversation.resolveImage(sessionId, attachment),
         // Unregistered 'trajectory' id is safe: the tab ring falls back to
         // the first view, and the untouched inspect target stays inert.
         inspectCall: (callId) => {

@@ -72,7 +72,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'async saveSelection(next: ModelSelection): Promise<void>',
-        jsDoc: '/**\n * Save the complete default model selection. A deployment without a settings\n * provider keeps its composition entry.\n * @param next - resolved selection accepted by a front door.\n * @returns fulfillment after the optional settings write settles.\n */',
+        jsDoc: '/**\n * Save the complete default model selection. A deployment without a settings\n * provider keeps its composition entry.\n * @param next - resolved selection accepted by an entry point.\n * @returns fulfillment after the optional settings write settles.\n */',
       },
     ],
   },
@@ -91,6 +91,48 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       {
         signature: 'async resume(ownerCtx: Context, options: ResumeAgentOptions): Promise<AgentHandle>',
         jsDoc: '/**\n * Resume an owned agent from the configured persistence service.\n * @param ownerCtx - caller context that owns load, setup, and the live lifecycle.\n * @param options - persisted identity, loop options, setup, and cancellation.\n * @returns the published handle.\n */',
+      },
+    ],
+  },
+  {
+    key: 'agentPresets',
+    summary: 'Registry over the deployment\'s agent presets.',
+    methods: [
+      {
+        signature: 'async list(): Promise<AgentPreset[]>',
+        jsDoc: '/**\n * Every preset the configured roots currently supply.\n * @returns the presets, first-root-wins per id.\n */',
+      },
+      {
+        signature: 'async resolve(id?: string): Promise<AgentPreset>',
+        jsDoc: '/**\n * Resolve one preset by id.\n *\n * A broken preset resolves — deleting one, reading one, and reporting one\n * all need the row — and the mounting paths refuse it AFTER resolution\n * through {@link resolveMountable}.\n * @param id - the preset id, or `undefined` for {@link defaultId}.\n * @returns the resolved preset.\n * @throws when no configured root supplies that id.\n */',
+      },
+      {
+        signature: 'async mount(agentCtx: Context, id?: string): Promise<AgentPreset>',
+        jsDoc: '/**\n * Compose one agent from a preset: ensure the preset\'s standing mount, then\n * parent the agent\'s scope key to it so the mount\'s registrations and\n * listeners cover this agent.\n *\n * Call from the agent factory\'s `setup(agentCtx)`; a rejection there rolls\n * the agent creation back, so a broken preset never yields a half-composed\n * session.\n * @param agentCtx - the agent\'s scope context.\n * @param id - the preset id, or `undefined` for {@link defaultId}.\n * @returns the preset that was composed, for the caller to record.\n * @throws when the preset is unknown or its composition is unusable.\n */',
+      },
+      {
+        signature: 'async read(id: string): Promise<string>',
+        jsDoc: '/**\n * Read one preset\'s composition text.\n * @param id - the preset id.\n * @returns the composition exactly as stored.\n * @throws when no configured root supplies that id.\n */',
+      },
+      {
+        signature: 'async copy(from: string, id: string, name?: string): Promise<void>',
+        jsDoc: '/**\n * Create a locally authored preset by copying an existing one whole.\n *\n * Copy is the only authoring write. Composition text never crosses this\n * seam: the source is named by id and its directory is copied as it stands,\n * so the copy is exactly as loadable as its source and authoring grants no\n * capability the roster did not already carry. The copy is NOT mounted to\n * validate — a source that mounts today yields a copy that mounts today.\n * @param from - the preset the copy starts from; shipped presets are the\n * primary source, so any trust is accepted.\n * @param id - the new preset\'s id, which becomes its directory name.\n * @param name - display name for the copy; absent falls back to the id.\n * @throws when the source is unknown, the id is unusable or already taken,\n * or the deployment configures no writable root.\n */',
+      },
+      {
+        signature: 'async remove(id: string): Promise<void>',
+        jsDoc: '/**\n * Delete a locally authored preset.\n * @param id - the preset id.\n * @throws when the preset is unknown or ships with the deployment.\n */',
+      },
+      {
+        signature: 'serviceFor<K extends string & keyof Context>(agent: { ctx: Context }, name: K): Context[K] | undefined',
+        jsDoc: '/**\n * One agent\'s instance of a service its preset mounted.\n *\n * A preset publishes services behind `isolate` realms, which are invisible\n * outside the group that declares them — including to the host. This is how a\n * caller holding the agent reads one anyway: a request that is ABOUT a\n * session but arrives from outside it, which is every browser RPC.\n *\n * Read addressing only. A host row that `inject`s a service cannot use this,\n * because injection resolves before any session exists and has no agent to\n * key by; such a service belongs on the host plane instead.\n * @param agent - the agent whose composition to look inside.\n * @param name - the service name as the preset\'s rows resolve it.\n * @returns the agent\'s instance, or undefined when its preset mounts none.\n */',
+      },
+      {
+        signature: 'async recompose(agentCtx: Context, id: string): Promise<AgentPreset>',
+        jsDoc: '/**\n * Re-link one agent to a different preset\'s standing composition.\n *\n * Only valid while the agent has produced nothing: swapping tools mid\n * conversation would leave logged tool calls the new composition cannot\n * make. The CALLER owns that check — this method does not read session\n * history.\n *\n * The swap is a parent re-link, not an unmount: standing mounts are shared\n * and permanent, so the old composition stays for its other agents and the\n * new one is ensured BEFORE the link moves. An unknown or unusable preset\n * therefore throws with the agent exactly as it was — there is no torn-down\n * state to restore. The re-link runs through the binding this roster kept\n * from the agent\'s mount — dsh-scope\'s only re-link authority. An agent\n * that never composed one has nothing to re-link: the switch is then the\n * agent\'s first bind, exactly a mount.\n * @param agentCtx - the agent\'s scope context.\n * @param id - the preset to compose the agent from instead.\n * @returns the preset now installed.\n * @throws when the preset is unknown or its composition is unusable.\n */',
+      },
+      {
+        signature: 'async standingKeyFor(id?: string): Promise<ScopeKey>',
+        jsDoc: '/**\n * The standing scope key of one preset, for a host reader with no agent.\n *\n * A cold transcript read resolves tool presenters against the composition\n * the session recorded, and the standing mount makes that possible without\n * resuming anything: ensuring the mount composes plugins but starts no\n * agent, no session, and no turn.\n * @param id - the preset id, or `undefined` for {@link defaultId}.\n * @returns the standing scope key readers pass as a registry view scope.\n * @throws when the preset is unknown or its composition is unusable.\n */',
       },
     ],
   },
@@ -171,6 +213,24 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       {
         signature: 'overrideOf(session: Session): ApprovalPolicy | undefined',
         jsDoc: '/**\n * Read the session override without applying the configured default.\n * @param session - session whose log supplies the override.\n * @returns the last logged policy, or `undefined` without one.\n */',
+      },
+    ],
+  },
+  {
+    key: 'attachments',
+    summary: 'Immutable binary attachment service.',
+    methods: [
+      {
+        signature: 'abstract validateImage(input: SaveImageAttachment): Promise<void>',
+        jsDoc: '/**\n * Validate one image without persisting it.\n * Batch callers validate every member before saving any member.\n * @param input - encoded bytes, declared media type, and optional display name.\n * @returns completion after the encoded raster has been fully decoded.\n */',
+      },
+      {
+        signature: 'abstract saveImage(input: SaveImageAttachment): Promise<ImageAttachmentRef>',
+        jsDoc: '/**\n * Validate and durably commit one image before its owning session event is appended.\n * @param input - encoded bytes, declared media type, and optional display name.\n * @returns a durable content-addressed reference.\n */',
+      },
+      {
+        signature: 'abstract readImage(ref: ImageAttachmentRef): Promise<StoredImageAttachment>',
+        jsDoc: '/**\n * Read one image and verify that bytes still match the recorded reference.\n * @param ref - durable reference from the session log.\n * @returns the verified bytes and canonical reference.\n */',
       },
     ],
   },
@@ -886,27 +946,27 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   },
   {
     key: 'skills',
-    summary: 'Registry of skill providers.',
+    summary: 'Layered registry of skill providers, the host+per-scope shape the tools registry established.',
     methods: [
       {
         signature: 'registerProvider(create: (control: SkillProviderControl) => SkillProvider): () => void',
-        jsDoc: '/**\n * Register a borrowed same-process provider synchronously during plugin apply. Duplicate and\n * reserved names throw; remote initialization belongs in `list()`. Fiber disposal unregisters\n * the provider and invalidates catalog caches.\n * @param create - synchronous factory receiving this registration\'s lifecycle and invalidation control.\n * @returns the exact Cordis effect disposer that unregisters this provider;\n *   composite effects may yield it directly to preserve teardown ordering.\n */',
+        jsDoc: '/**\n * Register a borrowed same-process provider synchronously during plugin\n * apply, into the calling context\'s layer: a scoped context (an agent\n * preset\'s standing mount) registers for that scope alone, an unscoped\n * context registers globally. Duplicate names within one layer and reserved\n * names throw; remote initialization belongs in `list()`. Fiber disposal\n * unregisters the provider and invalidates catalog caches.\n * @param create - synchronous factory receiving this registration\'s lifecycle and invalidation control.\n * @returns the exact Cordis effect disposer that unregisters this provider;\n *   composite effects may yield it directly to preserve teardown ordering.\n */',
       },
       {
         signature: 'register(skill: SkillRegistration): () => void',
-        jsDoc: '/**\n * Register a borrowed readonly runtime skill. Project entries outrank runtime entries, which\n * outrank user entries. Same-name runtime entries are first-wins; a duplicate logs a warning and\n * receives a no-op disposer so it cannot remove the winner.\n * @param skill - the skill definition input; omitted invocation and provider fields receive defaults.\n * @returns the exact Cordis effect disposer, preserving composite teardown order and invalidating caches.\n */',
+        jsDoc: '/**\n * Register a borrowed readonly runtime skill into the calling context\'s\n * layer. Project entries outrank runtime entries, which outrank user\n * entries, within one layer. Same-name runtime entries in one layer are\n * first-wins; a duplicate logs a warning and receives a no-op disposer so\n * it cannot remove the winner.\n * @param skill - the skill definition input; omitted invocation and provider fields receive defaults.\n * @returns the exact Cordis effect disposer, preserving composite teardown order and invalidating caches.\n */',
       },
       {
-        signature: 'async list(options: SkillLookupOptions = {}): Promise<SkillSummary[]>',
-        jsDoc: '/**\n * List invocation-neutral skill summaries for a workspace. Consumers apply\n * model or user invocation policy at their operational boundary. Lookup\n * options and provider candidates are readonly same-process values borrowed\n * throughout discovery.\n * @param options - lookup options; `cwd` selects project roots and `signal` cancels discovery.\n * @returns all sorted winning summaries.\n */',
+        signature: 'async list(options: SkillViewOptions = {}): Promise<SkillSummary[]>',
+        jsDoc: '/**\n * List invocation-neutral skill summaries for a workspace. Consumers apply\n * model or user invocation policy at their operational boundary. Lookup\n * options and provider candidates are readonly same-process values borrowed\n * throughout discovery.\n * @param options - view options; `scope` selects the viewing agent\'s layers, `cwd` selects project roots, and `signal` cancels discovery.\n * @returns all sorted winning summaries.\n */',
       },
       {
-        signature: 'async snapshot(options: SkillLookupOptions = {}): Promise<SkillCatalogSnapshot>',
-        jsDoc: '/**\n * Observe the current invocation-neutral catalog and whether discovery completed within a stable revision.\n * Incomplete observations are never cached, allowing consumers to retain last-good state and\n * retry on their next request boundary.\n * @param options - lookup options; `cwd` selects project roots and `signal` cancels discovery.\n * @returns sorted summaries plus discovery-completeness state.\n */',
+        signature: 'async snapshot(options: SkillViewOptions = {}): Promise<SkillCatalogSnapshot>',
+        jsDoc: '/**\n * Observe the current invocation-neutral catalog and whether discovery completed within a stable revision.\n * Incomplete observations are never cached, allowing consumers to retain last-good state and\n * retry on their next request boundary.\n * @param options - view options; `scope` selects the viewing agent\'s layers, `cwd` selects project roots, and `signal` cancels discovery.\n * @returns sorted summaries plus discovery-completeness state.\n */',
       },
       {
-        signature: 'async get(name: string, options: SkillLookupOptions = {}): Promise<SkillDefinition | undefined>',
-        jsDoc: '/**\n * Load and validate the winning candidate, passing its opaque discovery locator back to the\n * provider. Cancellation is rechecked after selection, including cache hits, and raced against\n * loading so an uncooperative provider cannot hang the caller.\n * @param name - kebab-case skill name.\n * @param options - lookup options; `cwd` selects workspace-sensitive skills and `signal` cancels work.\n * @returns the full skill, including body content, or `undefined`.\n */',
+        signature: 'async get(name: string, options: SkillViewOptions = {}): Promise<SkillDefinition | undefined>',
+        jsDoc: '/**\n * Load and validate the winning candidate, passing its opaque discovery locator back to the\n * provider. Cancellation is rechecked after selection, including cache hits, and raced against\n * loading so an uncooperative provider cannot hang the caller.\n * @param name - kebab-case skill name.\n * @param options - view options; `scope` selects the viewing agent\'s layers,\n *   `cwd` selects workspace-sensitive skills, and `signal` cancels work.\n * @returns the full skill, including body content, or `undefined`.\n */',
       },
     ],
   },
@@ -1142,6 +1202,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     key: 'tools',
     summary: 'Tool registry and execution pipeline.',
     methods: [
+      {
+        signature: 'presentAs(mode: ToolPresentationMode): () => void',
+        jsDoc: '/**\n * Present this agent\'s tools in `mode` instead of the deployment default.\n *\n * Scoped only, and one declaration per agent: this is how an agent preset\n * composes a Code Mode agent beside native ones in the same process, and a\n * process-global override would be the `mode` config field instead.\n * @param mode - the presentation this agent\'s model sees.\n * @returns the exact disposer that restores the deployment default.\n */',
+      },
       {
         signature: 'register(definition: ToolDefinition): () => void',
         jsDoc: '/**\n * Register globally or in the calling agent scope. Scoped tools shadow\n * globals; duplicates within one layer and the reserved `run_code` name fail.\n * @param definition - tool schema, execution, and optional finalization/presentation callbacks.\n * @returns the exact disposer that unregisters the tool.\n */',
@@ -1668,6 +1732,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface AgentOptions {\n    provider?: string;\n    model?: string;\n    maxTokens?: number;\n}',
   },
   {
+    name: 'AgentPreset',
+    declaration: 'export interface AgentPreset {\n    readonly id: string;\n    readonly trust: PresetTrust;\n    readonly path: string;\n    readonly name?: string;\n    readonly description?: string;\n    readonly order?: number;\n    readonly broken?: string;\n}',
+  },
+  {
     name: 'AgentSetup',
     declaration: 'export type AgentSetup = (agentCtx: Context) => AgentSetupCommit | Promise<AgentSetupCommit | void> | void;',
   },
@@ -1734,6 +1802,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'AssistantProvenance',
     declaration: 'export interface AssistantProvenance {\n    provider: string;\n    model: string;\n    replayState?: unknown;\n}',
+  },
+  {
+    name: 'AttachmentId',
+    declaration: 'export type AttachmentId = Branded<\'AttachmentId\'>;',
   },
   {
     name: 'BashEnvContributor',
@@ -1873,7 +1945,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ContentBlockMap',
-    declaration: 'export interface ContentBlockMap {\n    \'text\': TextBlock;\n    \'reasoning\': ReasoningBlock;\n    \'tool-call\': ToolCallBlock;\n    \'tool-result\': ToolResultBlock;\n}',
+    declaration: 'export interface ContentBlockMap {\n    \'text\': TextBlock;\n    \'reasoning\': ReasoningBlock;\n    \'image\': ImageBlock;\n    \'tool-call\': ToolCallBlock;\n    \'tool-result\': ToolResultBlock;\n}',
   },
   {
     name: 'ContentBlockType',
@@ -1913,7 +1985,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'CreateAgentOptions',
-    declaration: 'export interface CreateAgentOptions {\n    readonly sessionId: SessionId;\n    readonly meta?: {\n        readonly cwd?: string;\n        readonly parentSession?: SessionId;\n        readonly seedLength?: number;\n        readonly origin?: \'subagent\';\n        readonly delegationDepth?: number;\n    };\n    readonly seed?: readonly SessionEvent[];\n    readonly agentOptions?: AgentOptions;\n    readonly signal?: AbortSignal;\n    readonly setup?: AgentSetup;\n}',
+    declaration: 'export interface CreateAgentOptions {\n    readonly sessionId: SessionId;\n    readonly meta?: {\n        readonly cwd?: string;\n        readonly parentSession?: SessionId;\n        readonly seedLength?: number;\n        readonly origin?: \'subagent\';\n        readonly delegationDepth?: number;\n        readonly agentPreset?: string;\n    };\n    readonly seed?: readonly SessionEvent[];\n    readonly agentOptions?: AgentOptions;\n    readonly signal?: AbortSignal;\n    readonly setup?: AgentSetup;\n}',
   },
   {
     name: 'CreateGoalRequest',
@@ -1925,7 +1997,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'CreateSessionOptions',
-    declaration: 'export interface CreateSessionOptions {\n    readonly seed?: readonly SessionEvent[];\n    readonly meta?: {\n        readonly cwd?: string;\n        readonly parentSession?: SessionId;\n        readonly createdAt?: number;\n        readonly seedLength?: number;\n        readonly origin?: \'subagent\';\n        readonly delegationDepth?: number;\n    };\n}',
+    declaration: 'export interface CreateSessionOptions {\n    readonly seed?: readonly SessionEvent[];\n    readonly meta?: {\n        readonly cwd?: string;\n        readonly parentSession?: SessionId;\n        readonly createdAt?: number;\n        readonly seedLength?: number;\n        readonly origin?: \'subagent\';\n        readonly delegationDepth?: number;\n        readonly agentPreset?: string;\n    };\n}',
   },
   {
     name: 'CredentialInfo',
@@ -2112,6 +2184,18 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface GoalView extends GoalSnapshot {\n    readonly roundsStarted: number;\n    readonly createdAt: number;\n    readonly updatedAt: number;\n    readonly activation: GoalActivation;\n}',
   },
   {
+    name: 'ImageAttachmentRef',
+    declaration: 'export interface ImageAttachmentRef {\n    attachmentId: AttachmentId;\n    mediaType: ImageMediaType;\n    bytes: number;\n    width: number;\n    height: number;\n    name?: string;\n}',
+  },
+  {
+    name: 'ImageBlock',
+    declaration: 'export interface ImageBlock {\n    type: \'image\';\n    attachment: ImageAttachmentRef;\n}',
+  },
+  {
+    name: 'ImageMediaType',
+    declaration: 'export type ImageMediaType = \'image/png\' | \'image/jpeg\' | \'image/webp\' | \'image/gif\';',
+  },
+  {
     name: 'Inbox',
     declaration: 'export class Inbox {\n    constructor(private readonly session: Session, private readonly notifications: InboxNotifications);\n    get nextTurn(): readonly UserMessage[];\n    get nextStep(): readonly UserMessage[];\n    get hasPending(): boolean;\n    clear(): void;\n    claim(target: InboxTarget, turn: number): UserMessage[];\n    append(target: InboxTarget, message: UserMessage): void;\n    prepend(target: InboxTarget, message: UserMessage): void;\n    replace(messageId: MessageId, newMessage: UserMessage): boolean;\n    remove(messageId: MessageId): boolean;\n    splice(target: InboxTarget, start: number, deleteCount: number, inserted: UserMessage[]): UserMessage[];\n}',
   },
@@ -2209,7 +2293,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'LlmModelInfo',
-    declaration: 'export interface LlmModelInfo {\n    provider: string;\n    id: string;\n    name: string;\n    description?: string;\n}',
+    declaration: 'export interface LlmModelInfo {\n    provider: string;\n    id: string;\n    name: string;\n    description?: string;\n    inputModalities?: readonly ModelModality[];\n}',
   },
   {
     name: 'LlmModelReasoningInfo',
@@ -2252,6 +2336,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface ModelMessageSource extends AssistantProvenance {\n    kind: \'model\';\n}',
   },
   {
+    name: 'ModelModality',
+    declaration: 'export type ModelModality = ModelModalityMap[keyof ModelModalityMap];',
+  },
+  {
+    name: 'ModelModalityMap',
+    declaration: 'export interface ModelModalityMap {\n    text: \'text\';\n    image: \'image\';\n}',
+  },
+  {
     name: 'ModelSelection',
     declaration: 'export interface ModelSelection {\n    provider: string;\n    model: string;\n    reasoningEffort?: ReasoningEffortId;\n}',
   },
@@ -2286,6 +2378,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'PresetSpec',
     declaration: 'export interface PresetSpec {\n    sandbox: SandboxMode;\n    approval: ApprovalPolicy;\n    name?: string;\n    description?: string;\n}',
+  },
+  {
+    name: 'PresetTrust',
+    declaration: 'export type PresetTrust = \'system\' | \'user\';',
   },
   {
     name: 'ProjectionChangeListener',
@@ -2473,7 +2569,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SandboxExecutionPolicy',
-    declaration: 'export interface SandboxExecutionPolicy {\n    mode: SandboxMode;\n    workspaceRoot: string;\n}',
+    declaration: 'export interface SandboxExecutionPolicy {\n    mode: SandboxMode;\n    workspaceRoot: string;\n    sessionId?: SessionId;\n}',
   },
   {
     name: 'SandboxMode',
@@ -2486,6 +2582,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SandboxPolicyRequest',
     declaration: 'export interface SandboxPolicyRequest {\n    session?: Session;\n    mode?: SandboxMode;\n}',
+  },
+  {
+    name: 'SaveImageAttachment',
+    declaration: 'export interface SaveImageAttachment {\n    data: Uint8Array;\n    mediaType: ImageMediaType;\n    name?: string;\n}',
   },
   {
     name: 'SaveTextSpill',
@@ -2593,7 +2693,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionHeader',
-    declaration: 'export interface SessionHeader {\n    readonly version: number;\n    readonly id: SessionId;\n    readonly createdAt: number;\n    readonly cwd?: string;\n    readonly parentSession?: SessionId;\n    readonly seedLength?: number;\n    readonly origin?: \'subagent\';\n    readonly delegationDepth?: number;\n}',
+    declaration: 'export interface SessionHeader {\n    readonly version: number;\n    readonly id: SessionId;\n    readonly createdAt: number;\n    readonly cwd?: string;\n    readonly parentSession?: SessionId;\n    readonly seedLength?: number;\n    readonly origin?: \'subagent\';\n    readonly delegationDepth?: number;\n    readonly agentPreset?: string;\n}',
   },
   {
     name: 'SessionId',
@@ -2812,6 +2912,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SkillSummary {\n    readonly name: string;\n    readonly description: string;\n    readonly whenToUse?: string;\n    readonly invocation: SkillInvocationPolicy;\n    readonly source: SkillSource;\n    readonly provider: string;\n    readonly resourceBase?: SkillResourceBase;\n}',
   },
   {
+    name: 'SkillViewOptions',
+    declaration: 'export interface SkillViewOptions extends SkillLookupOptions {\n    readonly scope?: ScopeKey | undefined;\n}',
+  },
+  {
     name: 'SpillLocator',
     declaration: 'export type SpillLocator = Branded<\'SpillLocator\'>;',
   },
@@ -2830,6 +2934,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'StorageForms',
     declaration: 'export interface StorageForms {\n}',
+  },
+  {
+    name: 'StoredImageAttachment',
+    declaration: 'export interface StoredImageAttachment {\n    ref: ImageAttachmentRef;\n    data: Uint8Array;\n}',
   },
   {
     name: 'StreamChunk',
@@ -3110,6 +3218,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ToolOutputDefinition',
     declaration: 'export interface ToolOutputDefinition {\n    readonly schema: JsonSchemaNode;\n    render(args: unknown, value: JsonValue): ContentBlock[];\n    presentationMeta?(args: unknown, value: JsonValue): JsonValue;\n}',
+  },
+  {
+    name: 'ToolPresentationMode',
+    declaration: 'export type ToolPresentationMode = \'native\' | \'code\' | \'both\';',
   },
   {
     name: 'ToolProviderResult',

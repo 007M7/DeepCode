@@ -62,6 +62,7 @@ type EventReceiverKind = 'context' | 'agent-dispatch' | 'events-service'
 
 const GROUP_ORDER = [
   'util',
+  'attachment',
   'llm',
   'core',
   'typert',
@@ -95,6 +96,15 @@ const GROUP_ORDER = [
 ]
 
 const SERVICE_ROLES: ServiceRole[] = [
+  {
+    key: 'attachments',
+    pkg: 'attachment',
+    title: 'Durable binary attachment storage',
+    mode: 'seam',
+    implementations: ['attachment-local'],
+    consumers: ['host-runtime', 'llm-pi-ai'],
+    note: 'The host commits accepted images before session events; provider adapters resolve authorized durable references into provider-native content.',
+  },
   {
     key: 'llm',
     pkg: 'llm',
@@ -258,7 +268,7 @@ const SERVICE_ROLES: ServiceRole[] = [
     title: 'Human question/answer seam',
     mode: 'seam',
     consumers: ['tool-ask-user'],
-    note: 'UI front doors provide the active human-answer provider; tool-ask-user pauses a tool call on the provider-neutral ask() promise.',
+    note: 'UI front ends provide the active human-answer provider; tool-ask-user pauses a tool call on the provider-neutral ask() promise.',
   },
   {
     key: 'planMode',
@@ -266,6 +276,13 @@ const SERVICE_ROLES: ServiceRole[] = [
     title: 'Plan collaboration state',
     mode: 'core',
     note: 'Folds logged plan/mode state, flushes user selections at turn boundaries, renders deployment-owned guidance, registers /plan, and keeps the plan-exit schema stable across transitions.',
+  },
+  {
+    key: 'agentPresets',
+    pkg: 'agent-presets',
+    title: 'Per-session agent composition',
+    mode: 'core',
+    note: 'Discovers preset directories over trusted and user-authored roots and mounts one preset cordis.yml under an agent scope during creation, rejecting a row that never activates or that publishes into the root service realm.',
   },
   {
     key: 'commands',
@@ -313,7 +330,7 @@ const SERVICE_ROLES: ServiceRole[] = [
     title: 'Default Agent model selection',
     mode: 'core',
     consumers: ['headless', 'host-apiproxy'],
-    note: 'Layers the default ModelSelection through settings so direct and Host-backed Agent front doors share one state owner.',
+    note: 'Layers the default ModelSelection through settings so direct and Host-backed Agent entry points share one state owner.',
   },
   {
     key: 'agentLoop',
@@ -675,7 +692,7 @@ function renderAppExpansion(lines: string[], appNode: string, pluginName: string
   lines.push(`  ${appNode} --> ${agentCore}["@deepseek-ai/dsh-agent-spine-demo"]`)
   lines.push(`  ${appNode} --> ${jsonl}["@deepseek-ai/dsh-session-persistence-jsonl"]`)
   if (pluginName === '@deepseek-ai/dsh-acp-demo') {
-    lines.push(`  ${appNode} --> ${nodeId('frontdoor', 'acp')}["@deepseek-ai/dsh-acp<br/>automation-only JSON-RPC stdio<br/>fresh sessions created by client"]`)
+    lines.push(`  ${appNode} --> ${nodeId('entrypoint', 'acp')}["@deepseek-ai/dsh-acp<br/>automation-only JSON-RPC stdio<br/>fresh sessions created by client"]`)
   }
   lines.push(
     `  ${agentCore} --> ${nodeId('spine', 'llm')}["ctx.llm"]`,
@@ -727,7 +744,18 @@ type CallSiteIndex = Map<ts.SignatureDeclaration | ts.JSDocSignature, ts.CallExp
  */
 const EVENT_API_METHODS = new Set(['on', 'once', 'emit', 'parallel', 'serial', 'waterfall', 'dispatch'])
 
-/** Collect event dispatch/listener relations from real cross-file receiver types. */
+/**
+ * Collect event dispatch/listener relations from real cross-file receiver types.
+ *
+ * TODO: the program is seeded from the host aggregate alone (ts-project.ts
+ * documents why: one program cannot hold both faces' Context merges), so a
+ * Client package enters only when a host file imports it. Client-face
+ * listeners on client-face events are therefore under-reported —
+ * `connection/reset` omits `ui-skill`/`ui-agent-preset`, `models/changed`
+ * omits `ui-model`, `session/preset-changed` omits `ui-skill`. Closing it
+ * needs a second Client program whose relations merge into these, not a
+ * wider seed.
+ */
 export class EventRelationCollector {
   private readonly relations = new Map<string, EventRelation>()
   private readonly fileCallSites = new Map<ts.SourceFile, CallSiteIndex>()

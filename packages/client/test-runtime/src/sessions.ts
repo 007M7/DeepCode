@@ -1,5 +1,6 @@
 /** Test-owned sessions face: the SlotsService host contract over declarative fixtures. */
 import type { Context } from 'cordis'
+import type { AttachmentIdType } from '@deepseek-ai/dsh-attachment'
 import { createScope, scopeOf, SessionProvideChannel } from '@deepseek-ai/dsh-client-runtime/client'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type {
@@ -86,6 +87,15 @@ export class FixtureSession implements SessionFace {
    */
   prompt(): never {
     throw new Error(`test session "${this.sessionId}": prompt is not stubbed — supply it on the fixture's session face`)
+  }
+
+  /**
+   * Fail-loud stub; supply `readAttachment` on the fixture's session face to exercise it.
+   * @param _attachmentId - opaque durable attachment id.
+   * @returns never — always throws.
+   */
+  readAttachment(_attachmentId: AttachmentIdType): never {
+    throw new Error(`test session "${this.sessionId}": readAttachment is not stubbed — supply it on the fixture's session face`)
   }
 
   /**
@@ -428,6 +438,14 @@ export class TestSessions implements ISessions {
   refreshSubagents(parentSessionId: SessionId): Promise<void> {
     this.calls.push({ method: 'refreshSubagents', args: [parentSessionId] })
     return Promise.resolve()
+  }
+
+  /** Apply a confirmed preset switch into the fixture list, as production does. */
+  noteAgentPreset(sessionId: SessionId, agentPreset: string): void {
+    this.list.update((draft) => {
+      const summary = draft.byId[sessionId]
+      if (summary !== undefined) draft.byId[sessionId] = { ...summary, agentPreset }
+    })
   }
 
   /** Clear the current selection (recorded; the production no-session flow). */

@@ -46,6 +46,7 @@ function timelineBlock(block: AssistantBlock): AssistantBlock {
   switch (block.kind) {
     case 'text': return { kind: 'text', text: '' }
     case 'reasoning': return { kind: 'reasoning', text: '' }
+    case 'image': return block
     case 'tool-call': return {
       kind: 'tool-call',
       callId: block.callId,

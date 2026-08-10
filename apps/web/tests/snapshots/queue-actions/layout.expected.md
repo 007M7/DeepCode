@@ -1,6 +1,8 @@
 - banner:
   - navigation "Session hierarchy":
     - button "workspace" [disabled]
+  - img
+  - text: 标准模式
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
@@ -29,7 +31,7 @@
 - button "Clear goal":
   - img
 - button "2 queued messages"
-- textbox "Message the agent"
+- textbox "Cmd/Ctrl+Enter steers all queued messages"
 - button "Commands":
   - img
 - 'button "Access mode, current: Workspace Write"': Workspace Write
