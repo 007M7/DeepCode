@@ -48,6 +48,11 @@ class FakeFs extends FileSystem {
   override async resolve(path: string): Promise<FsTarget> {
     return { targetKey: FsTargetKey(`key:${path}`), displayPath: `/abs/${path}` }
   }
+  override processPath(target: FsTarget): string { return String(target.targetKey) }
+  override fileUrl(target: FsTarget): string { return `file://${target.targetKey}` }
+  override contains(parent: FsTarget, child: FsTarget): boolean {
+    return child.targetKey === parent.targetKey || String(child.targetKey).startsWith(`${parent.targetKey}/`)
+  }
   override async stat(target: FsTarget): Promise<FsInfo | undefined> {
     this.throwIfArmed()
     const content = this.files.get(target.targetKey)
@@ -397,12 +402,13 @@ describe('write tool', () => {
     expect(text(result)).toContain('file_path must be a non-empty string')
   })
 
-  it('propagates a backend FsError as an isError result carrying its code', async () => {
+  it('propagates a backend FsError as an isError result carrying its code and remedy', async () => {
     const { ctx, fs } = await setup()
     fs.rejectWith = new FsError('blocked', 'FS_STALE_VERSION')
     const result = await call(ctx, 'write', { file_path: 'a.txt', content: 'hi' })
     expect(result.isError).toBe(true)
     expect(result.error).toMatchObject({ info: { name: 'FsError', code: 'FS_STALE_VERSION' } })
+    expect(text(result)).toContain('re-read the file, then retry')
   })
 })
 

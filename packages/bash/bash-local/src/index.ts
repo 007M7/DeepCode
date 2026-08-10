@@ -1,6 +1,6 @@
 /**
- * Local implementation of the bash executor seam over the subprocess
- * seam. Public commands run as `bash -c` in a managed process group spawned
+ * Local Service provider for the bash capability seam over the subprocess
+ * capability seam. Public commands run as `bash -c` in a managed process group spawned
  * through `ctx.subprocess`; subclasses may reuse the same mechanics with an
  * explicit argv. This executor owns command defaulting, deadlines and cause
  * classification, the model-friendly terminal environment, and the model-facing
@@ -14,7 +14,7 @@ import z from 'schemastery'
 import { BashExecutor } from '@deepseek-ai/dsh-bash'
 import type { BashExecRequest, BashExecSpec, BashProcess, BashProcessRead, BashRunResult, CollectedOutput } from '@deepseek-ai/dsh-bash'
 import type { SubprocessCollect, SubprocessHandle, SubprocessOutputReader, SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
-import { clampTimeout, deadline, timeoutOf } from '@deepseek-ai/dsh-timeout'
+import { clampTimeout, deadline, MAX_TIMER_DELAY_MS, timeoutOf } from '@deepseek-ai/dsh-timeout'
 
 /**
  * Model-friendly environment overrides: disable colors, pagers, and
@@ -48,7 +48,7 @@ export interface Config {
   maxOutputBytes?: number
   /** Per-stream spill-file cap; larger streams retain only their in-memory tail. */
   maxSpillBytes?: number
-  /** Grace period for kill escalation and for inherited pipes after shell exit. */
+  /** Grace period for kill escalation and inherited pipes; at most `MAX_TIMER_DELAY_MS`. */
   graceMs?: number
 }
 
@@ -102,6 +102,9 @@ export class LocalBashExecutor extends BashExecutor {
     assertPositiveFinite('maxOutputBytes', this.config.maxOutputBytes)
     assertPositiveFinite('maxSpillBytes', this.config.maxSpillBytes)
     assertPositiveFinite('graceMs', this.config.graceMs)
+    if (this.config.graceMs > MAX_TIMER_DELAY_MS) {
+      throw new Error(`bash-local: graceMs must be no greater than ${MAX_TIMER_DELAY_MS}`)
+    }
   }
 
   /**

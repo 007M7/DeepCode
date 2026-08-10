@@ -1,12 +1,12 @@
 /**
  * Markdown-to-plain-text projection for compact summaries and labels.
- * Parsing shares the renderer's GFM grammar; raw HTML stays literal, links
- * keep their labels, images keep alt text, and code keeps its source text.
+ * Parsing shares the renderer's streaming GFM grammar ({@link parseGfm}), so
+ * the projection strips exactly the markup the renderer would draw; raw HTML
+ * stays literal, links keep their labels, images keep alt text, and code
+ * keeps its source text.
  */
 
-import { fromMarkdown } from 'mdast-util-from-markdown'
-import { gfmFromMarkdown } from 'mdast-util-gfm'
-import { gfm } from 'micromark-extension-gfm'
+import { parseGfm } from './parse.ts'
 
 /** Amount of parsed Markdown content returned by the extractor. */
 export type MarkdownPlainTextMode = 'all' | 'first-line' | 'first-paragraph'
@@ -108,10 +108,7 @@ export function extractMarkdownPlainText(
   options: MarkdownPlainTextOptions = {},
 ): string {
   const { mode = 'all' } = options
-  const root = fromMarkdown(markdown, {
-    extensions: [gfm()],
-    mdastExtensions: [gfmFromMarkdown()],
-  }) as MarkdownNode
+  const root = parseGfm(markdown) as MarkdownNode
   const all = fullText(root)
   switch (mode) {
     case 'all':

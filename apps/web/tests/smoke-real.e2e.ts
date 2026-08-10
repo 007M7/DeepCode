@@ -1,4 +1,4 @@
-// W5 real-host smoke: spawn `dsh web` with a real key, walk the full W5 flow
+// Real-host smoke: spawn `dsh web` with a real key, walk the full flow
 // list in a real chromium, screenshot every screen into .artifacts/ for the
 // figma comparison pass. Self-skips without DEEPSEEK_API_KEY (repo e2e
 // convention); vitest.web.config.ts loads the repo-root .env before this file
@@ -11,8 +11,9 @@
 // (frame/handle) rides local names that survive hashing as suffixes; prefer
 // data-* for anything new.
 //
-// Flow order matters: chat rounds first (5 depends on 3's session), geometry
-// and theme after, reload recovery last. Tests run sequentially in-file.
+// Flow order matters: chat rounds first (the bash round reuses the first
+// send's session), geometry and theme after, reload recovery last. Tests run
+// sequentially in-file.
 import type { ChildProcess } from 'node:child_process'
 import { spawn } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
@@ -119,7 +120,7 @@ async function waitForAssistantMarker(baseUrl: string, sessionId: string, marker
   }).toBe(true)
 }
 
-/** W5 screenshot: evidence for the figma comparison, not a failure artifact. */
+/** Real-host smoke screenshot: evidence for the figma comparison, not a failure artifact. */
 async function screen(page: Page, name: string): Promise<void> {
   await page.screenshot({ path: join(REPO_ROOT, '.artifacts', `w5-${name}.png`) })
 }
@@ -465,7 +466,7 @@ describe('dsh web keyless CLI smoke', () => {
   })
 })
 
-describe.skipIf(!process.env.DEEPSEEK_API_KEY || notReady.length > 0)('web smoke (real host, real key, W5)', () => {
+describe.skipIf(!process.env.DEEPSEEK_API_KEY || notReady.length > 0)('web smoke (real host, real key)', () => {
   let child: ChildProcess
   let sessionsDir: string
   let baseUrl: string
@@ -487,7 +488,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY || notReady.length > 0)('web smoke
         '--import', tsxLoader, join(REPO_ROOT, 'apps/cli/src/bin.ts'), 'web', '--port', String(port),
         // Pin the in-browser picker: the shipped `-auto` row would resolve to
         // the native OS chooser on this bind, and no page can drive that.
-        '--config', fileURLToPath(new URL('./pin-browse-picker.overlay.yml', import.meta.url)),
+        '--patch', fileURLToPath(new URL('./pin-browse-picker.overlay.yml', import.meta.url)),
       ],
       {
         cwd: sessionsDir,
@@ -518,7 +519,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY || notReady.length > 0)('web smoke
     if (sessionsDir !== undefined) rmSync(sessionsDir, { recursive: true, force: true })
   })
 
-  it('1 cold start: loading page settles into the three-column frame', async () => {
+  it('cold start: loading page settles into the three-column frame', async () => {
     onTestFailed(() => saveFailureShot(page, 'w5-cold-start'))
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
     expect(await page.locator('text=Failed to load plugins').count()).toBe(0)
@@ -527,7 +528,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY || notReady.length > 0)('web smoke
     await screen(page, '01-cold-start')
   })
 
-  it('2+3 empty-state first send completes a real model round', async () => {
+  it('empty-state first send completes a real model round', async () => {
     onTestFailed(() => saveFailureShot(page, 'w5-first-round'))
     // This scenario spawns its own server against a fresh $DSH_HOME, so the
     // first-run welcome notice is unacknowledged and its overlay owns pointer
@@ -590,7 +591,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY || notReady.length > 0)('web smoke
     await screen(page, '07-back-to-chat')
   })
 
-  it('5 bash differential rendering: tool row click leaves the default details column closed', async () => {
+  it('bash differential rendering: tool row click leaves the default details column closed', async () => {
     onTestFailed(() => saveFailureShot(page, 'w5-tool-details'))
     const input = page.locator('textarea').first()
     await input.fill('请用 bash 工具运行命令 echo w5marker 然后告诉我结果')
@@ -604,12 +605,12 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY || notReady.length > 0)('web smoke
     await screen(page, '08-bash-round')
     expect(await detailsTrack(page)).toBe(0)
     await toolRow.click()
-    // Tool rows no longer drive layout.openDetails; the default column stays closed.
+    // Tool rows do not drive layout.openDetails; the default column stays closed.
     expect(await detailsTrack(page)).toBe(0)
     await screen(page, '09-details-closed')
   }, 150_000)
 
-  it('6 sidebar drag widens the column and resets across reload', async () => {
+  it('sidebar drag widens the column and resets across reload', async () => {
     onTestFailed(() => saveFailureShot(page, 'w5-drag'))
     const before = await firstTrack(page)
     const handle = page.locator('[class*="handle"]').first()
@@ -627,10 +628,11 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY || notReady.length > 0)('web smoke
     expect(await firstTrack(page)).toBe(before)
   })
 
-  it('7 dark mode: the body attribute cascades the token sheets', async () => {
+  it('dark mode: the body attribute cascades the token sheets', async () => {
     onTestFailed(() => saveFailureShot(page, 'w5-dark'))
-    // theme.apply === toggling this attribute (v3 §8); no switcher UI owns it
-    // in P-I, so the acceptance drives the documented mechanism directly.
+    // The body attribute is the documented cascade mechanism; the Settings
+    // gesture is owned by settings-chrome.e2e.ts — drive the attribute
+    // directly here.
     const dark = await page.evaluate(() => {
       document.body.setAttribute('data-ds-dark-theme', '')
       return getComputedStyle(document.body).backgroundColor
@@ -643,7 +645,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY || notReady.length > 0)('web smoke
     expect(dark).not.toBe(light)
   })
 
-  it('8 reload recovery: history replays after a fresh boot', async () => {
+  it('reload recovery: history replays after a fresh boot', async () => {
     onTestFailed(() => saveFailureShot(page, 'w5-reload'))
     await page.reload({ waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })

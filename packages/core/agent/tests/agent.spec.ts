@@ -6,11 +6,13 @@ import AgentRegistry, {
   agentEvents,
   Inbox,
 } from '@deepseek-ai/dsh-agent'
+import TypertRegistry from '@deepseek-ai/dsh-typert-registry'
 
 import type {
   Agent,
   AgentCancelCause,
   AgentFactory,
+  AgentStatus,
   CreateAgentOptions,
   ResumeAgentOptions,
 } from '@deepseek-ai/dsh-agent'
@@ -141,12 +143,37 @@ describe('Inbox', () => {
 })
 
 describe('AgentRegistry', () => {
+  it('contributes Agent lookup and scoped Context providers while TypeRT is live', async () => {
+    const ctx = new Context()
+    const agentFiber = ctx.plugin(AgentRegistry)
+    await agentFiber
+    await ctx.plugin(TypertRegistry)
+    const agent = stubAgent('remote-agent')
+    const disposeAgent = ctx.agents.register(agent)
+
+    const lookup = ctx.typert.lookups.get('agent')
+    expect(lookup).toMatchObject({
+      parameter: 'agent',
+      wire: 'agentId',
+      hostTypeSymbol: '@deepseek-ai/dsh-agent#Agent',
+      wireTypeSymbol: '@deepseek-ai/dsh-session/types#SessionId',
+    })
+    expect(lookup?.resolve(agent.id)).toBe(agent)
+    expect(ctx.typert.contexts.getHost('agent')?.resolve(agent.id)).toBe(agent.ctx)
+
+    disposeAgent()
+    expect(lookup?.resolve(agent.id)).toBeUndefined()
+    await agentFiber.dispose()
+    expect(ctx.typert.lookups.get('agent')).toBeUndefined()
+    expect(ctx.typert.contexts.getHost('agent')).toBeUndefined()
+  })
+
   it('registers exact entries, emits lifecycle events, and unregisters on owner disposal', async () => {
     const ctx = new Context()
     await ctx.plugin(AgentRegistry)
     const lifecycle: string[] = []
-    ctx.on('agent/created', agent => void lifecycle.push(`created:${agent.id}`))
-    ctx.on('agent/disposed', agent => void lifecycle.push(`disposed:${agent.id}`))
+    ctx.on('agent/created', ({ agent }) => void lifecycle.push(`created:${agent.id}`))
+    ctx.on('agent/disposed', ({ agent }) => void lifecycle.push(`disposed:${agent.id}`))
 
     const agent = stubAgent('a1')
     const dispose = ctx.agents.register(agent)
@@ -195,9 +222,9 @@ describe('AgentRegistry', () => {
     const ctx = new Context()
     await ctx.plugin(AgentRegistry)
     const lifecycle: string[] = []
-    ctx.on('agent/created', agent => void lifecycle.push(`created:${agent.id}`))
+    ctx.on('agent/created', ({ agent }) => void lifecycle.push(`created:${agent.id}`))
     ctx.on('agent/created', () => { throw new Error('creation veto') })
-    ctx.on('agent/disposed', agent => void lifecycle.push(`disposed:${agent.id}`))
+    ctx.on('agent/disposed', ({ agent }) => void lifecycle.push(`disposed:${agent.id}`))
 
     expect(() => ctx.agents.register(stubAgent('vetoed'))).toThrow('creation veto')
     expect(ctx.agents.get(SessionId('vetoed'))).toBeUndefined()
@@ -213,7 +240,7 @@ describe('AgentRegistry', () => {
     ctx.on('agent/created', () => Promise.reject(new Error('created async')) as never)
     ctx.on('agent/disposed', () => { throw new Error('disposed sync') })
     ctx.on('agent/disposed', () => Promise.reject(new Error('disposed async')) as never)
-    ctx.on('agent/disposed', agent => void heard.push(agent.id))
+    ctx.on('agent/disposed', ({ agent }) => void heard.push(agent.id))
 
     const dispose = ctx.agents.register(stubAgent('contained'))
     await Promise.resolve()
@@ -232,8 +259,8 @@ describe('AgentRegistry', () => {
     const ctx = new Context()
     await ctx.plugin(AgentRegistry)
     const lifecycle: string[] = []
-    ctx.on('agent/created', agent => void lifecycle.push(`created:${agent.id}`))
-    ctx.on('agent/disposed', agent => void lifecycle.push(`disposed:${agent.id}`))
+    ctx.on('agent/created', ({ agent }) => void lifecycle.push(`created:${agent.id}`))
+    ctx.on('agent/disposed', ({ agent }) => void lifecycle.push(`disposed:${agent.id}`))
 
     const first = stubAgent('split')
     const detachFirst = ctx.agents.enter(first, undefined)
@@ -280,9 +307,9 @@ describe('agentEvents()', () => {
     const agent = stubAgent('event')
     ctx.on('agent/status', () => { throw new Error('sync listener') })
     ctx.on('agent/status', () => Promise.reject(new Error('async listener')) as never)
-    ctx.on('agent/status', (_agent, status) => void heard.push(status))
+    ctx.on('agent/status', ({ status }) => void heard.push(status))
 
-    agentEvents(ctx, agent).emit('agent/status', 'running')
+    agentEvents(ctx, agent).emit('agent/status', { status: 'running' })
     await Promise.resolve()
     expect(heard).toEqual(['running'])
     expect(warnings).toEqual([
@@ -296,14 +323,29 @@ describe('agentEvents()', () => {
     const agent = stubAgent('serial-event')
     const signal = new AbortController().signal
     const heard: Array<{ agent: Agent; turn: number; signal: AbortSignal }> = []
-    ctx.on('agent/turn-stopping', async (subject, turn, receivedSignal) => {
+    ctx.on('agent/turn-stopping', async ({ agent: subject, turn, signal: receivedSignal }) => {
       await Promise.resolve()
       heard.push({ agent: subject, turn, signal: receivedSignal })
     })
 
-    await agentEvents(ctx, agent).serial('agent/turn-stopping', 3, signal)
+    await agentEvents(ctx, agent).serial('agent/turn-stopping', { turn: 3, signal })
 
     expect(heard).toEqual([{ agent, turn: 3, signal }])
+  })
+
+  it('injects the fused subject even when the payload carries a conflicting agent field', async () => {
+    const ctx = new Context()
+    const agent = stubAgent('fused-subject')
+    const other = stubAgent('payload-agent')
+    const heard: Agent[] = []
+    ctx.on('agent/status', ({ agent: subject }) => void heard.push(subject))
+    // A structurally acceptable payload may carry an extra `agent` field; the
+    // dispatcher's injected subject must win over it.
+    const payload: { status: AgentStatus; agent: Agent } = { status: 'running', agent: other }
+
+    agentEvents(ctx, agent).emit('agent/status', payload)
+
+    expect(heard).toEqual([agent])
   })
 })
 

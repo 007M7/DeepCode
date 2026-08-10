@@ -6,7 +6,7 @@ English | [中文](2026-06-29-todo-write-tool.zh.md)
 
 ## Problem
 
-The harness gives the model bash and subagent tools but no way to record a structured task list. A todo list serves two co-equal purposes: it steers the model to plan multi-step work and keep the active task unambiguous (at most one active, exactly one while work remains), and it gives an interactive host a live progress checklist. Every reference coding agent surveyed (claude-code, opencode, codex, oh-my-pi, pi) ships some form of this; the harness had nothing.
+The harness gives the model bash and subagent tools but no way to record a structured task list. A todo list serves two co-equal purposes: it steers the model to plan multi-step work and keep the active work unambiguous, and it gives an interactive host a live progress checklist. Every reference coding agent surveyed (claude-code, opencode, codex, oh-my-pi, pi) ships some form of this; the harness had nothing.
 
 ## Decision
 
@@ -34,7 +34,7 @@ Each list belongs to the calling agent session, and non-agent calls are rejected
 
 ### Validation: the cheap middle
 
-The schema enforces type/required/enum. Beyond that, `execute` rejects empty or duplicate `content` and more than one `in_progress` task. claude-code leaves single-in-progress to the prompt; oh-my-pi enforces it in code. We take the middle: enforce the cheap invariants that make a plan *coherent* (no blank tasks, no dupes, at most one active), but leave ordering and the discipline of keeping the list current to the model via the tool description. A rejected write returns an `isError` result so the model self-corrects.
+The schema enforces type/required/enum. Beyond that, `execute` rejects empty or duplicate `content` and, when `allowParallelInProgress` is `false`, more than one active task. Ordering and keeping the list current remain model disciplines expressed in the tool description. A rejected write returns an `isError` result so the model self-corrects. The required deployment policy and the durable invariant's independence from it are owned by the [parallel in-progress Agent Note](2026-07-26-todo-parallel-in-progress.md).
 
 ## Why no cordis-catalog entry / no `@mode`
 
@@ -42,7 +42,7 @@ The schema enforces type/required/enum. Beyond that, `execute` rejects empty or 
 
 ## Testing
 
-Four tiers, designed up front:
+Four tiers:
 - **Unit** — the session event (append/snapshot-clone/last-write-wins/not-on-surface); the tool (schema shape, arg validation via the real `ctx.tools.execute`, value validation, the event append + replacement, no-agent rejection, `presentCall`, HMR-safety); and TUI folding.
 - **Real-Loader path** — the plugin run through `Loader.unwrapExports`, asserting the namespace export shape survives (it HAS `inject`, so a stray default would crash at load — postmortem/0001).
 - **Full-loop integration** — a scripted mock model calls `todo_write` through the real agent loop; the `todo/write` event lands and a second call replaces it.

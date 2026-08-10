@@ -17,6 +17,7 @@ import type {
   SubagentProvider,
   SubagentStartRequest,
 } from '@deepseek-ai/dsh-subagent'
+import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { type AcpRunSpec, DEFAULT_DISPOSE_EOF_GRACE_MS, DEFAULT_DISPOSE_GRACE_MS, type PermissionPolicy, startAcpRun } from './run.ts'
 
 export const name = 'subagent-acp'
@@ -41,7 +42,7 @@ export interface Config {
   /**
    * How to auto-answer the child's `session/request_permission` prompts:
    * `reject` (default — decline every prompt) or `allow` (approve via the first
-   * allow-shaped option). The first cut surfaces no prompt to a human.
+   * allow-shaped option). No prompt is surfaced to a human.
    */
   permission: PermissionPolicy
   /**
@@ -54,10 +55,11 @@ export interface Config {
   /**
    * Grace period (ms) for the child's EOF-driven quiesce on dispose — its
    * window to flush persistence and tear down its own nested subprocesses
-   * before the parent escalates to a signal.
+   * before the parent escalates to a signal. Must not exceed
+   * `MAX_TIMER_DELAY_MS`.
    */
   disposeEofGraceMs?: number
-  /** Termination confirmation window (ms), including forced exit on every platform. */
+  /** Termination-escalation grace (ms); must not exceed `MAX_TIMER_DELAY_MS`. */
   disposeGraceMs?: number
 }
 
@@ -72,10 +74,10 @@ export const Config: z<Config> = z.object({
   disposeGraceMs: z.number().default(DEFAULT_DISPOSE_GRACE_MS),
 })
 
-/** A dispose grace must be a positive finite number (it bounds the teardown wait). */
+/** A dispose grace must fit the single Node timer that owns its teardown tier. */
 function assertPositiveFinite(name: string, value: number): void {
-  if (!Number.isFinite(value) || value <= 0) {
-    throw new Error(`subagent-acp: ${name} must be a positive finite number`)
+  if (!Number.isFinite(value) || value <= 0 || value > MAX_TIMER_DELAY_MS) {
+    throw new Error(`subagent-acp: ${name} must be a positive finite number no greater than ${MAX_TIMER_DELAY_MS}`)
   }
 }
 

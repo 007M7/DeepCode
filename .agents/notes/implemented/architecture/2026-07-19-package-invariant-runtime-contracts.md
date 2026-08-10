@@ -6,7 +6,7 @@ English | [中文](2026-07-19-package-invariant-runtime-contracts.zh.md)
 
 ## Problem
 
-The package-owned invariant seam made publication and registration exhaustive, but its first generated baseline accepted empty installers. A follow-up then replaced those empties with generic assertions about plugin names, injections, effects, service methods, and fixed pure-library examples. Those assertions made every companion executable without making the system safer: TypeScript, Cordis startup, package tests, and module-load tests already enforce those shapes, while the invariant service should detect impossible runtime state.
+The package-owned invariant service made publication and registration exhaustive, but its first generated baseline accepted empty installers. A follow-up then replaced those empties with generic assertions about plugin names, injections, effects, service methods, and fixed pure-library examples. Those assertions made every companion executable without making the system safer: TypeScript, Cordis startup, package tests, and module-load tests already enforce those shapes, while the invariant service should detect impossible runtime state.
 
 A useful runtime invariant relates observations over time or across a mutable data structure. Examples include a terminal event without its start, an LLM delta for a block that is not open, or a durable result whose identity differs from its request. Merely confirming that a declared method exists, that a plugin has its expected name, or that a constant example still returns a known value is not such a relation.
 
@@ -50,7 +50,7 @@ The current 103-package workspace has 21 executable companions and 82 justified 
 | `dsh-user-approval` | Approval asked/decided records pair by call and use valid outcomes and policies. |
 | `dsh-workflow` | Workflow and child-agent start/end events preserve run metadata, identity, outcome, count, and error relations. |
 | `dsh-tasks` | Current and terminal task snapshots preserve id/kind, owner, status, and timestamp relationships. |
-| `dsh-tool-todo` | Durable whole-list snapshots use unique trimmed items, closed statuses, and at most one active item. |
+| `dsh-tool-todo` | Durable whole-list snapshots use unique trimmed items and closed statuses. |
 | `dsh-time-context` | Plugin-attributed clock readings agree with the session's open turn, next pre-step position, and elapsed baseline; rendered time parses and does not postdate its event. |
 
 Session-backed companions validate existing durable events when they load, using the prefix preceding each candidate where the relationship depends on event order. Other checks observe the authoritative live event boundary or mutable service result. Validation runs before publication where accepting an invalid event would otherwise commit bad state.

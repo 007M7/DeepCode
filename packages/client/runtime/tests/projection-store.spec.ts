@@ -1,5 +1,6 @@
 /**
- * Projection value store (session-projection RFC, push model): the single
+ * Projection value store (push model; session-projection subsystem page:
+ * docs/subsystems/session-projection.md): the single
  * higher-seq-wins rule on both paths (a stale baseline cannot overwrite a
  * newer push frame; a replayed frame cannot regress), capability absence as
  * undefined, generation truncation, and the Session/manager wiring (tail-page
@@ -14,7 +15,7 @@ import { SessionManager } from '../src/client/sessions/manager.ts'
 import { FakeApiClient, ok } from './fake-api.ts'
 import { entries, plainTurn } from './event-script.ts'
 
-// Test-domain keys merged into the projection map (the interface package's
+// Test-domain keys merged into the projection map (the Service Definition package's
 // pure-type outlet), the same way domain host plugins merge theirs.
 declare module '@deepseek-ai/dsh-session-projection/types' {
   interface SessionProjectionMap {

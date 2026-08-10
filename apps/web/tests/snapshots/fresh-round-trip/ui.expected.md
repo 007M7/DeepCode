@@ -1,15 +1,14 @@
 - banner:
   - navigation "Session hierarchy":
     - button "Use the bash tool to" [disabled]
+  - img
+  - text: 标准模式
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
 - text: "Use the bash tool to run exactly: echo WEB_E2E_OK. Then reply with the single word DONE and stop. {{clock}}"
 - button "Copy":
   - img
-- button "Branch into a new conversation" [disabled]:
-  - img
-- text: Available only on the last message of a completed turn
 - button "Context injection @deepseek-ai/dsh-system-prompt":
   - img
   - img

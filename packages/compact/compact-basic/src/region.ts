@@ -5,14 +5,17 @@
  * @module @deepseek-ai/dsh-compact-basic/region
  */
 
+import { randomUUID } from 'node:crypto'
 import { isDeepStrictEqual } from 'node:util'
 import {
-  COMPACT_CHECKPOINT_SOURCE,
+  CompactionId,
   ManualCompactionError,
+  compactCheckpointSource,
   toolPairingBalancedAfter,
   toolPairingBalancedBefore,
 } from '@deepseek-ai/dsh-compact'
 import type { CompactionResult } from '@deepseek-ai/dsh-compact'
+import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
 import { createUserMessage, errorChain } from '@deepseek-ai/dsh-llm'
 import type { Message, UserMessage } from '@deepseek-ai/dsh-llm'
 import type { TokenMeasurement, TokenMeterService } from '@deepseek-ai/dsh-token-meter'
@@ -43,7 +46,7 @@ interface PreparedCompaction extends SurfaceSelection {
   readonly input: SummarizationInput
 }
 
-interface SummarizedCompaction extends PreparedCompaction, SummaryResult {
+type SummarizedCompaction = PreparedCompaction & SummaryResult & {
   readonly checkpointMessage: UserMessage
 }
 
@@ -54,6 +57,8 @@ interface CompactionTransactionOptions {
   readonly stability: 'whole-surface' | 'selected-span'
   /** Optional durability checkpoint after a successfully closed bracket. */
   readonly flush?: () => Promise<void>
+  /** Manual command that initiated this transaction, when present. */
+  readonly sourceCommandId?: CommandId
 }
 
 interface CompactionEntryState {
@@ -175,7 +180,13 @@ export async function compactSurfaceRegion(
     owner = entryState.openTurn
   }
 
-  const startEvent = session.append('compact/start', { turn: owner })
+  const compactionId = CompactionId(randomUUID())
+  const lifecycle = {
+    compactionId,
+    ...options.sourceCommandId === undefined ? {} : { sourceCommandId: options.sourceCommandId },
+    turn: owner,
+  }
+  const startEvent = session.append('compact/start', lifecycle)
   const assertStable: StabilityCheck = options.stability === 'whole-surface'
     ? assertWholeSurfaceUnchanged
     : assertSelectedSpanStable
@@ -188,13 +199,20 @@ export async function compactSurfaceRegion(
 
   try {
     const prepared = prepareCompaction(dependencies, session, selection)
-    const summarized = await summarizeCompaction(dependencies, prepared, agent, signal)
+    const summarized = await summarizeCompaction(
+      dependencies,
+      prepared,
+      agent,
+      compactionId,
+      options.sourceCommandId,
+      signal,
+    )
     if (options.owner === null) signal?.throwIfAborted()
     assertStable(dependencies, session, summarized)
     stage = 'commit'
     const pending = commitCompactionBody(session, startEvent, summarized)
     closing = true
-    const endEvent = session.append('compact/end', { turn: owner })
+    const endEvent = session.append('compact/end', lifecycle)
     closed = true
     result = completeCompaction(pending, endEvent)
   } catch (error: unknown) {
@@ -202,7 +220,7 @@ export async function compactSurfaceRegion(
     if (!closing) {
       closing = true
       try {
-        session.append('compact/end', { turn: owner, error: errorChain(error) })
+        session.append('compact/end', { ...lifecycle, error: errorChain(error) })
         closed = true
       } catch (closeError: unknown) {
         failure = { error: closeError, stage: 'commit' }
@@ -343,12 +361,14 @@ async function summarizeCompaction(
   dependencies: RegionDependencies,
   prepared: PreparedCompaction,
   agent: Agent,
+  compactionId: CompactionResult['compactionId'],
+  sourceCommandId: CommandId | undefined,
   signal?: AbortSignal,
 ): Promise<SummarizedCompaction> {
   const summaryResult = await dependencies.summarize(prepared.input, agent, signal)
   const checkpointMessage = createUserMessage({
     content: frameSummary(summaryResult.summary),
-    source: COMPACT_CHECKPOINT_SOURCE,
+    source: compactCheckpointSource(compactionId, sourceCommandId),
   })
   const framedSummaryTokenCount = dependencies.meter.estimateMessage(checkpointMessage)
   if (framedSummaryTokenCount >= prepared.shadowedTokenCount) {
@@ -403,7 +423,7 @@ function assertSelectedSpanStable(
   }
 }
 
-/** Append one already-summarized provenance and replacement body without yielding. */
+/** Append one completed summary record and replacement body without yielding. */
 function commitCompactionBody(
   session: Session,
   startEvent: SessionEvent<'compact/start'>,
@@ -415,16 +435,22 @@ function commitCompactionBody(
     shadowedSeqs,
     shadowedTokenCount,
     summary,
-    rawOutput,
     provider,
     model,
     maxTokens,
     usage,
     checkpointMessage,
   } = summarized
+  const callProvenance = summarized.llmStreamCall === true
+    ? { rawOutput: summarized.rawOutput, llmStreamCall: true as const }
+    : summarized.rawOutput === undefined ? {} : { rawOutput: summarized.rawOutput }
   const summaryEvent = session.append('compact/summary', {
+    compactionId: startEvent.data.compactionId,
+    ...startEvent.data.sourceCommandId === undefined
+      ? {}
+      : { sourceCommandId: startEvent.data.sourceCommandId },
     summary,
-    ...rawOutput === undefined ? {} : { rawOutput },
+    ...callProvenance,
     shadowedRange: { start, end },
     shadowedSeqs: [...shadowedSeqs],
     shadowedTokenCount,
@@ -438,6 +464,10 @@ function commitCompactionBody(
     sourceEventSeqs: [startEvent.seq, summaryEvent.seq, ...shadowedSeqs],
   })
   return {
+    compactionId: startEvent.data.compactionId,
+    ...startEvent.data.sourceCommandId === undefined
+      ? {}
+      : { sourceCommandId: startEvent.data.sourceCommandId },
     startSeq: startEvent.seq,
     summarySeq: summaryEvent.seq,
     summary,

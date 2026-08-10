@@ -1,17 +1,20 @@
 /**
  * Keyless snapshot-test LLM replay. It derives one model-call script per
- * recorded session from `assistant/chunk` events and binds fresh live sessions
- * to parent/child scripts by first-call order. Throw and hang cases require an
- * explicit override because a session log cannot reconstruct them alone.
+ * recorded session from `assistant/chunk` events and explicitly marked local
+ * compaction calls, then binds fresh live sessions to parent/child scripts by
+ * first-call order. Throw and hang cases require an explicit override because
+ * a session log cannot reconstruct them alone.
  * @module @deepseek-ai/dsh-llm-replay
  */
 
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { delimiter as pathDelimiter } from 'node:path'
 import type { Context } from 'cordis'
+import type {} from '@deepseek-ai/dsh-compact'
 import { decodeStorageRecord } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type {
+  ContentBlock,
   GenerateOptions,
   LlmModelInfo,
   LlmProviderInfo,
@@ -19,13 +22,15 @@ import type {
   ResolvedRetryPolicy,
   RetryPolicyConfig,
   StreamChunk,
+  TokenUsage,
 } from '@deepseek-ai/dsh-llm'
 import { LlmAdapter, LlmError, assertNever, resolveRetryPolicy } from '@deepseek-ai/dsh-llm'
 
 /**
  * One recorded model call. `throw` may replay prefix chunks before failing;
- * `hang` models cancellation. Only ordinary chunk entries derive from JSONL;
- * the other variants come from an override sidecar.
+ * `hang` models cancellation. Derived chunk entries come from ordinary model
+ * streams and complete outputs of explicitly marked local compaction calls;
+ * an override sidecar can supply any variant.
  */
 export type ReplayEntry =
   | { kind: 'chunks'; chunks: StreamChunk[] }
@@ -174,10 +179,13 @@ export function parseSessionHeader(text: string): { id: string; createdAt: numbe
  * Reconstruct the per-`stream()` replay script from a recorded session log.
  *
  * Splits `assistant/chunk` events at every `finish`, using turn and step changes
- * to detect an unterminated prior call. A missing terminator means the live
- * stream threw, so derivation rejects and the scenario must provide an explicit
- * override. Multiple calls may share one turn and step when the loop retries.
- * @param events - the recorded session's events; only `assistant/chunk` is consulted.
+ * to detect an unterminated prior call. A `compact/summary` explicitly marked
+ * as one local LLM-stream call becomes a canonical successful stream from its
+ * complete `rawOutput` at the summary's log position. A
+ * missing assistant terminator means the live stream threw, so derivation
+ * rejects and the scenario must provide an explicit override. Multiple calls
+ * may share one turn and step when the loop retries.
+ * @param events - the recorded session's events.
  * @returns one `chunks` entry per recorded model call, in call order.
  */
 export function deriveReplayScript(events: SessionEvent[]): ReplayEntry[] {
@@ -195,6 +203,32 @@ export function deriveReplayScript(events: SessionEvent[]): ReplayEntry[] {
     script.push({ kind: 'chunks', chunks })
   }
   for (const event of events) {
+    if (event.type === 'compact/summary') {
+      close(currentKey, current)
+      currentKey = undefined
+      current = []
+      // JSONL decoding crosses an untyped durable boundary, so retain its wider
+      // shape even though current in-process producers enforce this correlation.
+      const persisted: {
+        readonly llmStreamCall?: true
+        readonly rawOutput?: ContentBlock[]
+        readonly usage?: TokenUsage
+      } = event.data
+      if (persisted.llmStreamCall === true) {
+        if (persisted.rawOutput === undefined) {
+          throw new Error('llm-replay: compact/summary marks an LLM stream call without rawOutput')
+        }
+        const chunks: StreamChunk[] = []
+        for (const [index, block] of persisted.rawOutput.entries()) {
+          chunks.push({ type: 'block-start', index, blockType: block.type })
+          chunks.push({ type: 'block-end', index, block })
+        }
+        if (persisted.usage !== undefined) chunks.push({ type: 'usage', usage: persisted.usage })
+        chunks.push({ type: 'finish', reason: { kind: 'stop' } })
+        script.push({ kind: 'chunks', chunks })
+      }
+      continue
+    }
     if (event.type !== 'assistant/chunk') continue
     const { turn, step, chunk } = event.data
     const key = `${turn}/${step}`

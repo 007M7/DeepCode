@@ -16,6 +16,12 @@
       "path": "../../../vendor/schemastery"
     },
     {
+      "path": "../../core/scope"
+    },
+    {
+      "path": "../../llm/llm"
+    },
+    {
       "path": "../../support/invariants"
     }
   ]

@@ -1,17 +1,33 @@
 /**
  * Generic pi-ai-backed implementation of the Harness LLM seam.
  *
+ * Each resolution produces one **immutable** snapshot — the profiles plus a
+ * `Models` collection holding the `Provider` each route built — and an
+ * operation captures a whole snapshot before its first `await`. A
+ * configuration change builds a *new* collection rather than mutating the one
+ * in use, because `Models.streamSimple()` is lazy: it resolves the provider
+ * when the stream is first consumed, which is after the credential await, so a
+ * mutated collection would let a request that started under one configuration
+ * finish under another — or fail with a provider that no longer exists. This is
+ * what makes the seam's per-step call freeze (`llm.prepareCall()`) hold all the
+ * way down: switching models mid-reply takes effect on the next step, never
+ * inside the one in flight.
+ *
+ * Credentials stay outside that collection. The harness resolves a route's key
+ * through its own seam and passes it as the request's `apiKey` option, which
+ * pi-ai treats as the highest-priority auth override — so `Models` never holds
+ * a credential store and the harness keeps its fail-loud reference semantics.
+ *
  * @module dsh-llm-pi-ai/adapter
  */
 
-import { streamSimple } from '@earendil-works/pi-ai/compat'
-import { getBuiltinModels } from '@earendil-works/pi-ai/providers/all'
-import type { BuiltinProvider } from '@earendil-works/pi-ai/providers/all'
-import { getSupportedThinkingLevels } from '@earendil-works/pi-ai'
+import { createModels, getSupportedThinkingLevels } from '@earendil-works/pi-ai'
 import type {
   Api,
   Model,
+  Models,
   ModelThinkingLevel,
+  MutableModels,
   SimpleStreamOptions,
   ThinkingLevel,
 } from '@earendil-works/pi-ai'
@@ -24,6 +40,7 @@ import {
 import type {
   GenerateOptions,
   LlmModelInfo,
+  LlmProviderInfo,
   LlmResolvedModelInfo,
   ReasoningEffortId as ReasoningEffortIdType,
   ResolvedRetryPolicy,
@@ -34,33 +51,27 @@ import type { ResolvedPiAiProviderProfile } from './config.ts'
 import { toPiContext } from './context.ts'
 import { toStreamChunks } from './stream.ts'
 
-/** Constructor options for {@link PiAiAdapter}: the two resolution seams the plugin owns. */
+/** One resolution's frozen view: the profiles and the collection built from them. */
+interface PiAiSnapshot {
+  /** The resolved profiles this collection was built from, used as its identity. */
+  profiles: ReadonlyMap<string, ResolvedPiAiProviderProfile>
+  /** Providers for exactly those profiles; never mutated once published. */
+  models: Models
+}
+
+/** Constructor options for {@link PiAiAdapter}: the two resolution hooks the plugin owns. */
 export interface PiAiAdapterOptions {
   /** Current validated profiles by provider route; called once per operation. */
   profiles: () => ReadonlyMap<string, ResolvedPiAiProviderProfile>
   /**
    * Resolve the credential for one already-resolved profile; called once per
-   * stream call and frozen for that call. `undefined` defers to pi-ai's
-   * provider-native ambient discovery, which the plugin allows only for a
-   * profile naming no credential at all; a named reference that misses throws
-   * `LlmError` `MISSING_CREDENTIAL` rather than falling back.
+   * stream call and frozen for that call. `undefined` defers to the route's own
+   * pi-ai auth, which for an installed catalog route is its provider-native
+   * ambient discovery; the plugin allows that only for a profile naming no
+   * credential at all, because a named reference that misses throws `LlmError`
+   * `MISSING_CREDENTIAL` rather than falling back.
    */
   resolveApiKey: (provider: string, profile: ResolvedPiAiProviderProfile) => Promise<string | undefined>
-}
-
-/**
- * Resolve a catalog model dynamically and apply only the configured endpoint
- * override, preserving the catalog's API/capability/compatibility metadata.
- */
-function resolvePiModel(
-  profile: ResolvedPiAiProviderProfile,
-  modelId: string,
-): Model<Api> {
-  const model = getBuiltinModels(profile.provider as BuiltinProvider).find(candidate => candidate.id === modelId) as Model<Api> | undefined
-  if (model === undefined) {
-    throw new LlmError(`pi-ai provider "${profile.provider}" has no catalog model "${modelId}"`, 'UNKNOWN_MODEL')
-  }
-  return profile.baseURL === undefined ? model : { ...model, baseUrl: profile.baseURL }
 }
 
 /** Copy profile stream knobs into pi-ai's common option vocabulary. */
@@ -83,6 +94,29 @@ function profileOptions(
   }
 }
 
+/**
+ * The profile default this exact model can actually take, for DESCRIBING it.
+ * A configured level the model does not support yields none rather than
+ * throwing: `resolveModel` builds the model catalog, and a catalog that fails
+ * takes its whole provider out of every picker — so one mis-set profile field
+ * would hide every model on the route, including the ones that support the
+ * level. The request path still refuses, which is where a bad configuration
+ * belongs: describing what a model can do must not fail because a deployment
+ * asked it for something it cannot.
+ * @param model - the resolved model descriptor.
+ * @param effort - the profile's configured level, if any.
+ * @returns the level when this model supports it, otherwise undefined.
+ */
+function describableReasoningLevel(
+  model: Model<Api>,
+  effort: ReasoningEffortIdType | ModelThinkingLevel | undefined,
+): ModelThinkingLevel | undefined {
+  if (effort === undefined) return undefined
+  return getSupportedThinkingLevels(model).some(level => level === effort)
+    ? effort as ModelThinkingLevel
+    : undefined
+}
+
 /** Validate an explicit Harness/profile effort without invoking pi-ai's clamp. */
 function resolveReasoningLevel(
   model: Model<Api>,
@@ -97,6 +131,39 @@ function resolveReasoningLevel(
   )
 }
 
+/**
+ * Selectable reasoning efforts for one model, or nothing at all.
+ *
+ * A model that carries no reasoning metadata — every hand-declared one, and
+ * every catalog model pi-ai marks as non-reasoning — is reported by pi-ai as
+ * supporting the single level `off`. Passing that through would offer a control
+ * that cannot do what it says: `off` is translated to *omitting* the reasoning
+ * option, which for such a model is byte-for-byte the same request as naming no
+ * effort — so a provider whose own default is to think would keep thinking with
+ * `off` selected. Omitting `reasoning` entirely is the seam's way of saying the
+ * capability is unavailable, which leaves the surface offering only the
+ * provider's default.
+ * @param model - the resolved model descriptor.
+ * @param defaultLevel - the profile's configured effort, already validated.
+ * @returns the `reasoning` field, or an empty object when none can be offered.
+ */
+function reasoningInfo(
+  model: Model<Api>,
+  defaultLevel: ModelThinkingLevel | undefined,
+): Pick<LlmResolvedModelInfo, 'reasoning'> | Record<string, never> {
+  if (!model.reasoning) return {}
+  const levels = getSupportedThinkingLevels(model)
+  return {
+    reasoning: {
+      efforts: levels.map(level => ({
+        id: ReasoningEffortId(level),
+        name: `${level.charAt(0).toUpperCase()}${level.slice(1)}`,
+      })),
+      ...defaultLevel === undefined ? {} : { defaultEffort: ReasoningEffortId(defaultLevel) },
+    },
+  }
+}
+
 /** Merge deployment headers while removing case-insensitive attribution collisions. */
 function requestHeaders(headers: Readonly<Record<string, string>> | undefined): Record<string, string> {
   const attribution = attributionHeaders()
@@ -108,28 +175,72 @@ function requestHeaders(headers: Readonly<Record<string, string>> | undefined): 
 }
 
 /**
- * pi-ai-backed multi-provider adapter. Model descriptors are resolved for each
- * request, so models need not be registered during the Cordis lifecycle.
+ * pi-ai-backed multi-provider adapter. Each operation reads the current
+ * profiles, so a configuration change reaches the next request without a
+ * restart; model descriptors come from the collection those profiles built.
  */
 export class PiAiAdapter extends LlmAdapter {
+  private snapshot: PiAiSnapshot | undefined
+
   constructor(private readonly config: PiAiAdapterOptions) {
     super()
   }
 
+  /**
+   * The snapshot for the current profiles. Resolution memoizes its result, so
+   * an unchanged configuration is recognized by identity; a changed one gets a
+   * brand-new collection, leaving any snapshot an operation already captured
+   * untouched for as long as that operation holds it.
+   */
+  private current(): PiAiSnapshot {
+    const profiles = this.config.profiles()
+    if (this.snapshot?.profiles === profiles) return this.snapshot
+    const models: MutableModels = createModels()
+    for (const profile of profiles.values()) models.setProvider(profile.piProvider)
+    this.snapshot = { profiles, models }
+    return this.snapshot
+  }
+
+  /** The profile for one route within one snapshot, or the not-owned failure. */
+  private profileOf(snapshot: PiAiSnapshot, provider: string): ResolvedPiAiProviderProfile {
+    const profile = snapshot.profiles.get(provider)
+    if (profile === undefined) {
+      throw new LlmError(`pi-ai adapter does not own provider "${provider}"`, 'NO_ADAPTER')
+    }
+    return profile
+  }
+
+  /** The configured descriptor for one exact route/model pair within one snapshot. */
+  private modelOf(snapshot: PiAiSnapshot, provider: string, model: string): Model<Api> {
+    this.profileOf(snapshot, provider)
+    const resolved = snapshot.models.getModel(provider, model)
+    if (resolved === undefined) {
+      throw new LlmError(`pi-ai provider "${provider}" has no configured model "${model}"`, 'UNKNOWN_MODEL')
+    }
+    return resolved
+  }
+
+  override providerInfo(provider: string): LlmProviderInfo {
+    // The configured name, not the route key: `displayName` exists so a
+    // deployment can label a route, and a label only the configuration surface
+    // reads would leave every selector showing the raw key.
+    return { id: provider, name: this.current().profiles.get(provider)?.displayName ?? provider }
+  }
+
   override providerRetryPolicy(provider: string): ResolvedRetryPolicy | undefined {
-    return this.config.profiles().get(provider)?.retryPolicy
+    return this.current().profiles.get(provider)?.retryPolicy
   }
 
   override listModels(provider: string): Promise<readonly LlmModelInfo[]> {
-    const profile = this.config.profiles().get(provider)
-    if (profile === undefined) {
-      return Promise.reject(new LlmError(`pi-ai adapter does not own provider "${provider}"`, 'NO_ADAPTER'))
-    }
-    return Promise.resolve(getBuiltinModels(profile.provider as BuiltinProvider).map(model => ({
-      provider,
-      id: model.id,
-      name: model.name,
-    })))
+    return Promise.resolve().then(() => {
+      const snapshot = this.current()
+      this.profileOf(snapshot, provider)
+      return snapshot.models.getModels(provider).map(model => ({
+        provider,
+        id: model.id,
+        name: model.name,
+      }))
+    })
   }
 
   override resolveModel(
@@ -137,31 +248,21 @@ export class PiAiAdapter extends LlmAdapter {
     model: string,
     _signal?: AbortSignal,
   ): Promise<LlmResolvedModelInfo> {
-    const profile = this.config.profiles().get(provider)
-    if (profile === undefined) {
-      return Promise.reject(new LlmError(
-        `pi-ai adapter does not own provider "${provider}"`,
-        'NO_ADAPTER',
-      ))
-    }
     return Promise.resolve().then(() => {
-      const resolvedModel = resolvePiModel(profile, model)
-      const levels = getSupportedThinkingLevels(resolvedModel)
-      const defaultLevel = resolveReasoningLevel(resolvedModel, profile.reasoning)
+      const snapshot = this.current()
+      const profile = this.profileOf(snapshot, provider)
+      const resolvedModel = this.modelOf(snapshot, provider, model)
+      const defaultLevel = describableReasoningLevel(resolvedModel, profile.reasoning)
+      // Only a cap the deployment configured is a request default; the
+      // catalog's `maxTokens` sizes the model and stops there.
+      const configuredMaxTokens = profile.configuredMaxTokens.get(model)
       return {
         provider,
         id: model,
         name: resolvedModel.name,
         context: { contextWindow: resolvedModel.contextWindow },
-        reasoning: {
-          efforts: levels.map(level => ({
-            id: ReasoningEffortId(level),
-            name: `${level.charAt(0).toUpperCase()}${level.slice(1)}`,
-          })),
-          ...defaultLevel === undefined
-            ? {}
-            : { defaultEffort: ReasoningEffortId(defaultLevel) },
-        },
+        ...configuredMaxTokens === undefined ? {} : { defaultMaxTokens: configuredMaxTokens },
+        ...reasoningInfo(resolvedModel, defaultLevel),
       }
     })
   }
@@ -170,14 +271,14 @@ export class PiAiAdapter extends LlmAdapter {
     if (options.stop !== undefined) {
       throw new LlmError('llm-pi-ai does not support GenerateOptions.stop', 'UNSUPPORTED_OPTION')
     }
-    // One resolution per stream call: the profile snapshot and the credential
-    // freeze here and hold for this whole request, so an in-flight stream
-    // never observes a configuration change and the next call re-resolves.
-    const profile = this.config.profiles().get(options.provider)
-    if (profile === undefined) {
-      throw new LlmError(`pi-ai adapter does not own provider "${options.provider}"`, 'NO_ADAPTER')
-    }
-    const model = resolvePiModel(profile, options.model)
+    // One capture per stream call, taken before any await: the profile, the
+    // model descriptor, and the collection all come from the same immutable
+    // snapshot, and the credential freezes with them. A configuration change
+    // mid-request builds a separate snapshot, so this request finishes under
+    // the one it started with and the next call picks up the new one.
+    const snapshot = this.current()
+    const profile = this.profileOf(snapshot, options.provider)
+    const model = this.modelOf(snapshot, options.provider, options.model)
     const reasoning = resolveReasoningLevel(
       model,
       options.reasoningEffort ?? profile.reasoning,
@@ -192,7 +293,7 @@ export class PiAiAdapter extends LlmAdapter {
     using watchdog = idleWatchdog(upstream, streamIdleTimeoutMs, 'LLM_STREAM_IDLE_TIMEOUT')
 
     try {
-      const events = streamSimple(model, toPiContext(options), {
+      const events = snapshot.models.streamSimple(model, toPiContext(options), {
         ...profileOptions(profile, reasoning, apiKey),
         ...options.temperature === undefined ? {} : { temperature: options.temperature },
         ...options.maxTokens === undefined ? {} : { maxTokens: options.maxTokens },

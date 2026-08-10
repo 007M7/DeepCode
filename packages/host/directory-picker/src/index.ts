@@ -1,5 +1,5 @@
 /**
- * The `ctx.directoryPicker` seam: how the web-GUI host lets an operator
+ * Service Definition for the `ctx.directoryPicker` capability seam: how the web-GUI host lets an operator
  * select a workspace directory. Backends differ in interaction shape, not
  * just mechanism, so the service exposes a discriminated capability instead
  * of one method set: a `native` backend opens one OS chooser on the

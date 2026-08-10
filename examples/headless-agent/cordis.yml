@@ -9,7 +9,7 @@
 - id: settings
   name: '@deepseek-ai/dsh-settings-local'
 
-# Credential store: the live process environment over `$DSH_HOME/.env`
+# Credential store: the live process environment over `$DSH_HOME/.credentials.yaml`
 # (owner-only file, hot-reloaded). The adapter resolves `DEEPSEEK_API_KEY`
 # through it at each request, so no key is inlined in this file.
 - id: credentials
@@ -40,17 +40,18 @@
   config:
     timeoutMs: 60000
 
-# The app bundle pre-creates one fresh `main` agent per invocation.
-- id: cli-agent
-  name: '@deepseek-ai/dsh-cli-demo'
+# The example composition pre-creates one fresh `main` agent for its test driver.
+- id: agent-spine
+  name: '@deepseek-ai/dsh-agent-spine-demo'
   config:
-    provider: deepseek-official
-    # Stays on flash: the goal/ralph replay corpora were recorded on it, and
-    # their nested-include overlays cannot re-pin the app config (a config
-    # patch cannot target an entry behind a nested include).
-    model: deepseek-v4-flash
-    persistenceRoot: './.sessions'
-    persistenceCompression: !!js "process.env.DSH_SNAPSHOT === undefined ? 'zstd' : 'none'"
+    agents:
+      - id: main
+        provider: deepseek-official
+        # Stays on flash: the goal/ralph replay corpora were recorded on it, and
+        # their nested-include overlays cannot re-pin the app config (a config
+        # patch cannot target an entry behind a nested include).
+        model: deepseek-v4-flash
+        cwd: !!js process.cwd()
     workspaceContext:
       maxBytes: 65536
     persona: |
@@ -58,6 +59,15 @@
 
       Verify your work by running the code or tests. Keep answers brief and
       factual.
+
+- id: persistence
+  name: '@deepseek-ai/dsh-session-persistence-jsonl'
+  config:
+    root: './.sessions'
+    compression: !!js "process.env.DSH_SNAPSHOT === undefined ? 'zstd' : 'none'"
+
+- id: checkpoint-policy
+  name: '@deepseek-ai/dsh-session-checkpoint-policy'
 
 # Summarize an older range when derived history approaches the context window.
 - id: token-meter
@@ -70,6 +80,11 @@
     retainRatio: 0.16
     maxTokens: 8192
     compactionRetries: 1
+
+# Projection registry: durable subagent identity (mode/label) folds through
+# its registered units; subagent catalog reads fail loud without the capability.
+- id: session-projection
+  name: '@deepseek-ai/dsh-session-projection'
 
 # Expose fresh-child `spawn` and completed-prefix `fork` through independent
 # in-process backends.
@@ -129,6 +144,8 @@
 # `todo_write` replaces the logged whole list.
 - id: tool-todo
   name: '@deepseek-ai/dsh-tool-todo'
+  config:
+    allowParallelInProgress: true
 
 # Policy loads before the model-facing filesystem tools so writes and edits
 # require an observed file. Relative paths resolve from the process cwd.

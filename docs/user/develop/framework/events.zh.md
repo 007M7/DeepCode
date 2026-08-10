@@ -22,7 +22,7 @@ ctx.emit('event-name', payload)
 
 ## 事件模式
 
-Cordis 提供多种事件模式，适用于不同的交互契约：
+Cordis 提供多种事件模式，适用于不同的交互约定：
 
 ### emit — 广播
 
@@ -63,7 +63,7 @@ await ctx.serial('setup-phase', context)
 
 ### waterfall（瀑布式事件）— 流水线
 
-每个监听器可以包装下游返回值，形成处理链。**必须调用 `next()` 传递给下游**，不调用即为否决：
+每个监听器可以包装下游返回值，形成处理链。**必须调用 `next()` 传递给下游**，不调用即会短路流水线：
 
 ```ts ignore-check
 // Dispatch
@@ -77,7 +77,7 @@ ctx.on('my-plugin/transform', async (_input, next) => {
 ```
 
 ::: warning
-waterfall 监听器**必须调用 `next()`**。不调用 `next` 等于否决整个流水线，这是故意为之的设计——用于实现拦截/网关逻辑。
+waterfall 监听器**必须调用 `next()`**。不调用 `next` 会短路整个流水线，这是故意为之的设计——用于实现拦截/网关逻辑。
 :::
 
 ## 类型安全的事件
@@ -101,7 +101,7 @@ declare module 'cordis' {
 
 ## Cordis 事件与会话记录
 
-Harness 的 Cordis 事件遵循 `namespace/action` 命名，例如 `agent/pre-step`、`agent/request`、`agent/request-error`、`tools/result` 和 `session/event`。完整签名与触发模式见[Events 目录](../../../cordis-catalog/events.md)。
+Harness 的 Cordis 事件遵循 `namespace/action` 命名，例如 `agent/step`、`agent/request`、`agent/request-error`、`tools/result` 和 `session/event`。完整签名与触发模式见[子系统页面](../../../subsystems/core.md)上生成的 `cordis-surface` 区块。
 
 `turn/*`、`step/*`、`tool/call`、`tool/result` 和 `compact/*` 是持久化的会话事件类型，不是同名 Cordis 事件。需要观察它们时，监听 `session/event` 并检查 `event.type`。
 

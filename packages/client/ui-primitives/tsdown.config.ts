@@ -1,14 +1,14 @@
-import { defineConfig } from 'tsdown'
+import { clientOnly } from '../tsdown.client.ts'
 
 /**
  * ui-primitives is browser-only, but its lib bundle IS imported under plain
- * Node now that the web shell is a lib (dsh-client-web's lib chain reaches
+ * Node because the web shell is a lib (dsh-client-web's lib chain reaches
  * this package). CSS imports are therefore stubbed to empty modules instead
  * of externalized — the hashed class maps only matter in bundler contexts
  * (loader module table / vite source paths), which compile src directly and
  * never read lib.
  */
-export default defineConfig({
+export default clientOnly([{
   entry: ['lib/types/index.js', 'lib/types/invariant.js'],
   outDir: 'lib',
   format: ['esm'],
@@ -28,4 +28,4 @@ export default defineConfig({
       return 'export default {};'
     },
   }],
-})
+}])

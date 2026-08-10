@@ -16,7 +16,7 @@ Why spawn-backed: local workspace discovery is naturally a process-backed `rg` w
 
 ## Deployment requirement: no host rg, co-located workdir/filesystem
 
-The binary ships with the package on every supported platform (macOS/Linux/Windows, x64/arm64), so no host `rg` install is required and the tools register on every deployment. Returned paths are displayed relative to the resolved workdir (the calling agent's session cwd when present, else `process.cwd()`) and are follow-up-readable with `read` only when that workdir and the filesystem root are the same workspace. v1 documents that co-location requirement and performs no runtime cross-service validation; remote or virtual filesystem search waits for a shared workspace contract or a provider-specific search backend.
+The binary ships with the package on every supported platform (macOS/Linux/Windows, x64/arm64), so no host `rg` install is required and the tools register on every deployment. Returned paths are displayed relative to the resolved workdir (the calling agent's session cwd when present, else `process.cwd()`) and are follow-up-readable with `read` only when that workdir and the filesystem root are the same workspace. That co-location requirement carries no runtime cross-service validation; remote or virtual filesystem search waits for a shared workspace contract or a provider-specific search backend.
 
 ## Config
 
@@ -30,7 +30,7 @@ The binary ships with the package on every supported platform (macOS/Linux/Windo
 | `grepMaxLineBytes` | `2000` | Byte cap per matched-line preview; the cut preserves UTF-8 boundaries and is marked `(line truncated)`. |
 | `rawOutputMaxBytes` | `20000000` | Max complete raw `rg` stdout a search will parse (matches Claude Code's ripgrep raw buffer); larger raw output fails with `SEARCH_RAW_OUTPUT_OVERFLOW`. |
 | `timeoutMs` | `30000` | Cooperative tool-call budget attached to both tool definitions, enforced by `@deepseek-ai/dsh-timeout-policy` through `exec.signal`; the subprocess seam's terminate escalation is the hard kill. |
-| `graceMs` | `3000` | Terminate-escalation grace period the subprocess seam grants past `timeoutMs` before the search fails as `SEARCH_ABORTED`. |
+| `graceMs` | `3000` | Positive terminate-escalation grace the subprocess seam grants past `timeoutMs` before the search fails as `SEARCH_ABORTED`; it cannot exceed [`MAX_TIMER_DELAY_MS`](../../util/timeout/README.md). |
 | `stderrMaxBytes` | `65536` | Diagnostic-tail budget for `rg` stderr, captured through the subprocess seam's collect disposition; a lossy read keeps only the tail (marked `[stderr truncated]`). |
 
 ## Tools

@@ -36,7 +36,7 @@ The Host creates the child through the agent registry with the selected seed and
 
 ## Alternatives considered
 
-**Separate `ctx.sessionFork` service.** This was the first implementation, but review showed it overfit the capability-seam pattern. The code had no swappable backend, no extra event surface, no independent ownership lifecycle, and no durable behavior beyond `ctx.sessions.create({ seed, meta })`. Keeping a separate package would make callers discover and install a second service just to perform policy around a session-store primitive.
+**Separate `ctx.sessionFork` service.** An earlier iteration shipped this as a separate service; it overfit the capability-seam pattern. The code had no swappable backend, no extra event surface, no independent ownership lifecycle, and no durable behavior beyond `ctx.sessions.create({ seed, meta })`. Keeping a separate package would make callers discover and install a second service just to perform policy around a session-store primitive.
 
 **Two functions: `snapshot()` plus `fork()`.** This preserved a reusable seed/metadata computation, but the only supported consumer created a session immediately. It also made the surface feel more abstract than the concrete operation users need. A single `fork()` with an explicit `boundary` keeps the API direct while still supporting previous-point forks.
 

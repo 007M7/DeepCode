@@ -17,7 +17,7 @@
  */
 export type CodeBindingFunction = (args: unknown) => Promise<CodeJsonValue>
 
-/** A lossless JSON value transferable across the dependency-light code-runtime seam. */
+/** A lossless JSON value transferable through the dependency-light Service Definition. */
 export type CodeJsonValue = null | boolean | number | string | CodeJsonValue[] | { [key: string]: CodeJsonValue }
 
 /**
@@ -28,9 +28,14 @@ export type CodeJsonValue = null | boolean | number | string | CodeJsonValue[] |
  * of a particular consumer such as Code Mode.
  */
 export interface CodeBindingErrorClass {
-  /** Constructor global and resulting `Error.name` (must be a usable JS identifier). */
+  /** Constructor global and resulting `Error.name`; same portable identifier rule as {@link CodeBindingNamespace.global}. */
   name: string
-  /** Non-empty own property for the member name; cannot replace `name`, `message`, or `stack`. */
+  /**
+   * Non-empty own property for the member name. The portable exclusion set is
+   * `RESERVED_ERROR_MEMBERS` plus dunder-form names (`__x__`, non-empty
+   * middle), enforced identically by every backend; any other name —
+   * identifiers or not — is accepted everywhere.
+   */
   memberNameProperty: string
 }
 
@@ -42,7 +47,16 @@ export interface CodeBindingErrorClass {
  * collisions.
  */
 export interface CodeBindingNamespace {
-  /** The global identifier the program sees (must be a valid JS identifier). */
+  /**
+   * The global identifier the program sees. Must match the LANGUAGE-PORTABLE
+   * identifier subset `[A-Za-z_][A-Za-z0-9_]*` and no language's reserved
+   * words, so the same namespace list works against every backend regardless
+   * of `language` — a JS-only spelling like `$tools` is rejected by design,
+   * not just by the Python backend. Names that satisfy the identifier rule but
+   * name a backend-owned slot (`RESERVED_BINDING_GLOBALS`, e.g. `console`,
+   * `__dsh_main__`) are also refused everywhere; see its declaration for the
+   * exact set and why each entry is reserved.
+   */
   global: string
   /** The callable members, keyed by the exact name the program calls. */
   functions: Record<string, CodeBindingFunction>

@@ -13,10 +13,10 @@ import type { Context } from 'cordis'
 import { isDeepStrictEqual } from 'node:util'
 import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
-import type { UserMessage } from '@deepseek-ai/dsh-session'
-import type { ToolExecution, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
-import { Config, resolveConfig, type ResolvedConfig } from './config.ts'
-import { loadBaselineInstructionSet } from './files.ts'
+import type { Session, UserMessage } from '@deepseek-ai/dsh-session'
+import type { ToolExecution, ToolExecutionResult, ToolExecutionToken } from '@deepseek-ai/dsh-tools'
+import { Config, resolveConfig, workspaceBaselineIdentity, type ResolvedConfig } from './config.ts'
+import { findProjectRoot, loadBaselineInstructionSet } from './files.ts'
 import {
   applyInstructionVersionUpdates,
   baselineInstructionState,
@@ -24,6 +24,7 @@ import {
   reconcileInstructionContext,
   workspaceContextMessage,
   type InstructionVersionCache,
+  type WorkspaceInstructionSource,
 } from './state.ts'
 import type { WorkspaceInstructionChange } from './render.ts'
 
@@ -39,13 +40,22 @@ export type {
 export { renderWorkspaceContext } from './render.ts'
 export type { RenderedWorkspaceContext, TruncatedInstruction } from './render.ts'
 
-function hasVisibleBaseline(agent: Agent): boolean {
-  return agent.session.surface.nodes.some((seq) => {
+function visibleBaselineSource(
+  agent: Agent,
+  authorityMessages: readonly UserMessage[],
+): WorkspaceInstructionSource | undefined {
+  for (const message of authorityMessages.toReversed()) {
+    if (message.source.kind === 'workspace-instructions' && message.source.baseline === true) {
+      return message.source
+    }
+  }
+  for (const seq of agent.session.surface.nodes.toReversed()) {
     const event = agent.session.events[seq]
-    return event?.type === 'user/message'
+    if (event?.type === 'user/message'
       && event.data.source.kind === 'workspace-instructions'
-      && event.data.source.baseline === true
-  })
+      && event.data.source.baseline === true) return event.data.source
+  }
+  return undefined
 }
 
 function isWorkspaceContext(message: UserMessage): boolean {
@@ -70,16 +80,27 @@ function filePathFromExecution(exec: ToolExecution): string | undefined {
 export function apply(ctx: Context, config: Config): void {
   const resolved: ResolvedConfig = resolveConfig(config)
   const instructionVersions: InstructionVersionCache = new WeakMap()
+  const baselinePreparations = new WeakMap<Session, {
+    identity: string
+    excludedScopes: ReadonlySet<string>
+  }>()
   const projectionLifecycle = new AbortController()
+  type ProjectionTouch = { agent: Agent; path: string }
+  const executionTouches = new Map<ToolExecutionToken, ProjectionTouch[]>()
   ctx.effect(
     () => () => {
       projectionLifecycle.abort(new Error('workspace-context disposed'))
+      executionTouches.clear()
     },
     'workspace-context.projectionLifecycle',
   )
   // Emit listeners are not awaited, so each projection must compose against the
   // inbox produced by earlier file results for the same agent.
   const projectionTails = new WeakMap<Agent, Promise<void>>()
+  // Execution ancestry and the enclosing durable step are the two commit
+  // boundaries before an asynchronous projection may mutate the agent inbox.
+  const openSteps = new WeakMap<Session, boolean>()
+  const stepTouches = new WeakMap<Session, ProjectionTouch[]>()
 
   const compose = async (
     agent: Agent,
@@ -99,11 +120,20 @@ export function apply(ctx: Context, config: Config): void {
     const changes: WorkspaceInstructionChange[] = []
     let desiredBaseline = false
     const authorityMessages = [...claimed]
-    const baselinePresent = hasVisibleBaseline(agent) || claimed.some(message =>
-      message.source.kind === 'workspace-instructions' && message.source.baseline === true)
-    if (!baselinePresent) {
-      /* v8 ignore next -- normal agents carry an absolute session cwd. */
-      const cwd = agent.session.header.cwd ?? process.cwd()
+    /* v8 ignore next -- normal agents carry an absolute session cwd. */
+    const cwd = agent.session.header.cwd ?? process.cwd()
+    const projectRoot = await findProjectRoot(cwd, resolved.projectRootMarkers, fileSystem, signal)
+    const identity = workspaceBaselineIdentity(resolved, cwd, projectRoot)
+    const visibleBaseline = visibleBaselineSource(agent, authorityMessages)
+    const baselinePresent = visibleBaseline !== undefined
+    const keepVisibleBaseline = visibleBaseline?.baselineIdentity === identity
+    const prepared = baselinePreparations.get(agent.session)
+    let excludedBaselineScopes = keepVisibleBaseline && prepared?.identity === identity
+      ? prepared.excludedScopes
+      : undefined
+    let nextPreparation: { identity: string; excludedScopes: ReadonlySet<string> } | undefined
+    if (!baselinePresent || !keepVisibleBaseline || excludedBaselineScopes === undefined) {
+      const replacePreviousBaseline = baselinePresent && !keepVisibleBaseline
       const instructions = await loadBaselineInstructionSet({
         cwd,
         dshHome: resolved.dshHome,
@@ -112,18 +142,45 @@ export function apply(ctx: Context, config: Config): void {
         maxSourceBytes: resolved.maxSourceBytes,
         instructionFileCandidates: resolved.instructionFileCandidates,
         localInstructionFileCandidates: resolved.localInstructionFileCandidates,
+        projectRoot,
+        replacePreviousBaseline,
         signal,
       }, fileSystem)
       const baseline = baselineInstructionState(instructions?.included ?? [])
+      const observedBaseline = baselineInstructionState(instructions?.observed ?? [])
+      const excludedScopes = new Set(observedBaseline.changes.keys())
+      for (const scope of baseline.changes.keys()) excludedScopes.delete(scope)
+      excludedBaselineScopes = excludedScopes
+      nextPreparation = { identity, excludedScopes }
       let versionStates = instructionVersions.get(agent.session)
       if (versionStates === undefined && baseline.versions.size > 0) {
         versionStates = new Map()
         instructionVersions.set(agent.session, versionStates)
       }
       for (const [scope, state] of baseline.versions) versionStates?.set(scope, state)
-      if (instructions !== undefined && instructions.rendered.text.length > 0) {
-        content.push(...workspaceContextMessage(instructions.rendered.text).content)
-        changes.push(...baseline.changes.values())
+      if (!keepVisibleBaseline && instructions !== undefined && instructions.rendered.text.length > 0) {
+        const baselineContent = workspaceContextMessage(instructions.rendered.text).content
+        content.push(...baselineContent)
+        const replacementScopes = new Set(baseline.changes.keys())
+        const replacementRemovals = replacePreviousBaseline
+          ? visibleBaseline.changes.flatMap(change => (
+            change.action === 'remove' || replacementScopes.has(change.scope)
+              ? []
+              : [{ action: 'remove' as const, scope: change.scope, path: change.path }]
+          ))
+          : []
+        const baselineChanges = [...replacementRemovals, ...baseline.changes.values()]
+        changes.push(...baselineChanges)
+        authorityMessages.push(createUserMessage({
+          content: baselineContent,
+          source: {
+            kind: 'workspace-instructions',
+            form: 'instructions',
+            baseline: true,
+            baselineIdentity: identity,
+            changes: baselineChanges,
+          },
+        }))
         desiredBaseline = true
       }
     }
@@ -132,7 +189,15 @@ export function apply(ctx: Context, config: Config): void {
       resolved,
       instructionVersions,
       fileSystem,
-      { authorityMessages, scopeMessages: pending, includeBaselineScopes: baselinePresent, touchedPaths, signal },
+      {
+        authorityMessages,
+        scopeMessages: pending,
+        includeBaselineScopes: keepVisibleBaseline,
+        ...keepVisibleBaseline ? { excludedBaselineScopes } : {},
+        touchedPaths,
+        projectRoot,
+        signal,
+      },
     )
     if (update !== undefined) {
       content.push(...update.context.content)
@@ -142,6 +207,7 @@ export function apply(ctx: Context, config: Config): void {
       }
       applyInstructionVersionUpdates(agent.session, update.versionUpdates, instructionVersions)
     }
+    if (nextPreparation !== undefined) baselinePreparations.set(agent.session, nextPreparation)
     if (content.length === 0) return undefined
     return createUserMessage({
       content,
@@ -149,6 +215,7 @@ export function apply(ctx: Context, config: Config): void {
         kind: 'workspace-instructions',
         form: 'instructions',
         ...desiredBaseline ? { baseline: true } : {},
+        ...desiredBaseline ? { baselineIdentity: identity } : {},
         changes,
       },
     })
@@ -212,10 +279,48 @@ export function apply(ctx: Context, config: Config): void {
     while ((projection = projectionTails.get(agent)) !== undefined) await projection
   }
 
+  const stepIsOpen = (session: Session): boolean => {
+    const known = openSteps.get(session)
+    if (known !== undefined) return known
+    let open = false
+    for (const event of session.events) {
+      if (event.type === 'step/start') open = true
+      else if (event.type === 'step/end' || event.type === 'turn/end') open = false
+    }
+    openSteps.set(session, open)
+    return open
+  }
+
+  const projectTouch = (touch: ProjectionTouch): void => {
+    const session = touch.agent.session
+    if (!stepIsOpen(session)) {
+      queueProjection(touch.agent, touch.path)
+      return
+    }
+    const pending = stepTouches.get(session)
+    if (pending === undefined) stepTouches.set(session, [touch])
+    else pending.push(touch)
+  }
+
+  ctx.on('session/event', (session, event) => {
+    if (event.type === 'step/start') {
+      openSteps.set(session, true)
+      return
+    }
+    if (event.type === 'turn/end') {
+      openSteps.set(session, false)
+      return
+    }
+    if (event.type !== 'step/end') return
+    openSteps.set(session, false)
+    const pending = stepTouches.get(session)
+    if (pending === undefined) return
+    stepTouches.delete(session)
+    for (const touch of pending) queueProjection(touch.agent, touch.path)
+  })
+
   ctx.on('agent/pre-step', async (
-    agent: Agent,
-    messages,
-    { step, signal },
+    { agent, messages, step, signal },
     next,
   ): Promise<PreStepDecision> => {
     const decision = await next()
@@ -243,9 +348,20 @@ export function apply(ctx: Context, config: Config): void {
   })
 
   ctx.on('tools/result', (exec: ToolExecution, result: ToolExecutionResult) => {
-    if (result.isError || exec.agent === undefined || exec.signal.aborted) return
-    const ownPath = filePathFromExecution(exec)
-    if (ownPath === undefined) return
-    queueProjection(exec.agent, ownPath)
+    const touches = executionTouches.get(exec.token) ?? []
+    executionTouches.delete(exec.token)
+    if (!result.isError && exec.agent !== undefined && !exec.signal.aborted) {
+      const ownPath = filePathFromExecution(exec)
+      if (ownPath !== undefined) touches.push({ agent: exec.agent, path: ownPath })
+    }
+    if (exec.parent !== undefined) {
+      if (touches.length > 0) {
+        const parentTouches = executionTouches.get(exec.parent)
+        if (parentTouches === undefined) executionTouches.set(exec.parent, touches)
+        else parentTouches.push(...touches)
+      }
+      return
+    }
+    for (const touch of touches) projectTouch(touch)
   })
 }

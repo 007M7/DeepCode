@@ -6,9 +6,10 @@
 // client; THIS spec pins the same flow through HTTP RPC + SSE + the host
 // gateway), reload replays everything from the log (zero further model
 // calls), and the theme scenario proves the shipped dark palette actually
-// cascades: attribute -> alias token flip -> painted surface change. Per the
-// lane's scope ruling there is no theme/layout golden (aria is color-blind);
-// the hero's waiting state gets the one golden here.
+// cascades: attribute -> alias token flip -> painted surface change. No
+// theme/layout golden: aria snapshots are color-blind (lane scope: the
+// browser-e2e-lane Agent Note); the hero's waiting state gets the one golden
+// here.
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
@@ -26,6 +27,7 @@ const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/lifecycle-chrome', impor
 const FIXTURE = join(SNAPSHOT_DIR, 'session.jsonl')
 const HERO_EXPECTED = join(SNAPSHOT_DIR, 'hero.expected.md')
 const COMMAND_MENU_EXPECTED = join(SNAPSHOT_DIR, 'command-menu.expected.md')
+const FUZZY_COMMAND_MENU_EXPECTED = join(SNAPSHOT_DIR, 'command-menu-fuzzy.expected.md')
 const PLAN_ACTIVE_EXPECTED = join(SNAPSHOT_DIR, 'plan-active.expected.md')
 // Post-reload golden: the same settled conversation rebuilt purely from
 // persistence + history — byte-equal rendering is exactly the recovery claim.
@@ -83,6 +85,12 @@ describe('web e2e: lifecycle & chrome (workspace flow / reload / dark mode)', ()
     expect(Math.abs(
       launchedBox!.y + launchedBox!.height - typedBox!.y - typedBox!.height,
     )).toBeLessThan(1)
+    await input.fill('/cpt')
+    await expect.poll(() => menu.getByRole('option').allTextContents()).toEqual([
+      'compactCompact older conversation history',
+    ])
+    const fuzzySnapshot = await captureStableAria(page, '[role="listbox"]', scaffold.workspaceCwd)
+    await compareOrRefreshGolden(FUZZY_COMMAND_MENU_EXPECTED, fuzzySnapshot, MODE)
     await input.fill('')
     await expect.poll(() => menu.count()).toBe(0)
   })
@@ -105,8 +113,8 @@ describe('web e2e: lifecycle & chrome (workspace flow / reload / dark mode)', ()
       const planButton = activePage.getByRole('button', { name: 'Plan mode on, press to turn off' })
       await planButton.waitFor({ timeout: 10_000 })
       // The golden encodes an empty composer, and the button arriving does not
-      // mean the submitted text is gone yet: under load the capture caught a
-      // textbox still holding `/plan`.
+      // mean the submitted text is gone yet: under load the capture can catch
+      // a textbox still holding `/plan`.
       await expect.poll(() => input.inputValue(), { timeout: 10_000 }).toBe('')
       const planSnapshot = await captureStableAria(activePage, '[class*="frame"]', activeScaffold.workspaceCwd)
       await compareOrRefreshGolden(PLAN_ACTIVE_EXPECTED, planSnapshot, MODE)
@@ -152,7 +160,7 @@ describe('web e2e: lifecycle & chrome (workspace flow / reload / dark mode)', ()
     }
     // The blank frame renders the hero, not the resident composer: the
     // headline plus the guidance placeholder are the empty state's anchors.
-    await expect.poll(() => page.getByText("Let's start building", { exact: false }).count(), { timeout: 15_000 }).toBe(1)
+    await expect.poll(() => page.getByText('Into the Unknown', { exact: false }).count(), { timeout: 15_000 }).toBe(1)
     const input = page.locator('textarea').first()
     await input.waitFor({ timeout: 10_000 })
     if (MODE !== 'record') {
@@ -225,7 +233,7 @@ describe('web e2e: lifecycle & chrome (workspace flow / reload / dark mode)', ()
 
   it.skipIf(MODE === 'record')('cascades the dark theme from the body attribute to painted surfaces', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-lifecycle-dark'))
-    // This scenario pins the ThemeService's DOM contract seam directly (the
+    // This scenario pins the ThemeService's DOM contract directly (the
     // body[data-ds-dark-theme] attribute -> stylesheet cascade); the REAL
     // user gesture above it (Settings -> Appearance cubes) is owned by
     // settings-chrome.e2e.ts. Driving the attribute here keeps the cascade
@@ -258,7 +266,7 @@ describe('web e2e: lifecycle & chrome (workspace flow / reload / dark mode)', ()
   it.skipIf(MODE === 'record')('keeps the fixture inventory closed', async () => {
     expect(tripwire.warnings).toEqual([])
     await assertFixtureInventory(SNAPSHOT_DIR, [
-      'session.jsonl', 'command-menu.expected.md', 'hero.expected.md', 'plan-active.expected.md', 'reloaded.expected.md',
+      'session.jsonl', 'command-menu.expected.md', 'command-menu-fuzzy.expected.md', 'hero.expected.md', 'plan-active.expected.md', 'reloaded.expected.md',
     ])
   })
 })

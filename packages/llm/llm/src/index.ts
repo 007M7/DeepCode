@@ -10,8 +10,10 @@ import { Context, Service } from 'cordis'
 import type {
   GenerateOptions,
   LlmConfigurableProvider,
+  LlmDiscoveredModel,
   LlmFailure,
   LlmModelContext,
+  LlmModelDiscoveryRequest,
   LlmModelInfo,
   LlmResolvedModelInfo,
   LlmProviderInfo,
@@ -23,13 +25,15 @@ import type { ResolvedRetryPolicy } from './retry-policy.ts'
 import type { ProviderRequestId } from './brand.ts'
 import { callConfigEquals, deepFreeze } from './call-config.ts'
 import type { LlmCallConfig, LlmCallConfigAdapterDefaults } from './call-config.ts'
-import { HarnessError } from './error.ts'
+import { HarnessError, INVALID_CREDENTIAL_CODE } from './error.ts'
 import { normalizeLlmFailure } from './adapter-failure.ts'
+import { normalizeApiKey } from './api-key.ts'
 
 export * from './attribution.ts'
 export * from './brand.ts'
 export * from './never.ts'
 export * from './error.ts'
+export * from './api-key.ts'
 export * from './types.ts'
 export * from './message.ts'
 export * from './retry-policy.ts'
@@ -118,6 +122,41 @@ export class LlmError extends HarnessError {
       ...options?.requestId === undefined ? {} : { requestId: options.requestId },
     })
   }
+}
+
+/**
+ * Accept one supplied credential, or refuse it as unusable.
+ *
+ * A stored key arrives from the credentials seam, a `.env` line, or a shell
+ * export, all of which pick up surrounding whitespace, so trimming is silent.
+ * Anything else fails here rather than inside `fetch`, whose ByteString
+ * refusal names a UTF-16 code point instead of the setting to change. The key
+ * never enters the message: `ref` names where to fix it, and echoing any part
+ * of a secret into a log or a UI is the failure this diagnosis avoids.
+ *
+ * Lives beside {@link LlmError} rather than in `./api-key.ts` so the predicate
+ * module stays dependency-free; both adapters share this one diagnosis instead
+ * of keeping near-identical local copies.
+ * @param raw - the credential exactly as supplied.
+ * @param pkg - the refusing package name, prefixed to the diagnostic.
+ * @param ref - the credential reference the value resolved through.
+ * @returns the trimmed, usable key.
+ */
+export function assertUsableApiKey(raw: string, pkg: string, ref: string): string {
+  const checked = normalizeApiKey(raw)
+  if (checked.ok) return checked.value
+  // The Models page is named as the writer it usually is, not as the only one:
+  // the same value can arrive from a hand-edited .env or a shell export in a
+  // composition that mounts no credentials seam at all, where directing the
+  // user to a page that deployment does not serve would be a dead end.
+  throw new LlmError(
+    checked.reason === 'empty'
+      ? `${pkg}: the API key resolved from ${ref} is blank; set ${ref} to the raw key`
+        + ' (the web Models page writes it) or export it in the launching environment'
+      : `${pkg}: the API key resolved from ${ref} contains characters no HTTP header can carry;`
+        + ` set ${ref} to the raw key alone (the web Models page writes it)`,
+    INVALID_CREDENTIAL_CODE,
+  )
 }
 
 /** One model call whose config and adapter registration were resolved together. */
@@ -226,12 +265,37 @@ export interface AdapterRegistrationHandle {
 }
 
 /**
+ * A live configurable-provider registration, disposable and atomically
+ * replaceable — the directory counterpart of {@link AdapterRegistrationHandle}.
+ */
+export interface DirectoryRegistrationHandle {
+  /** Withdraw every entry this registration currently holds. */
+  (): void
+  /**
+   * Replace this registration's entries with `entries`. The candidate set is
+   * validated in full first — an entry another registration already declares,
+   * a duplicate within the set, or invalid metadata throws and leaves the
+   * current entries untouched — and the swap is one synchronous section, so no
+   * reader observes a gap. An empty array is legal here, unlike an empty
+   * initial registration.
+   *
+   * Throws `LlmError` with code `REGISTRATION_DISPOSED` once the registration
+   * has been disposed.
+   */
+  replace(entries: readonly LlmConfigurableProvider[]): void
+}
+
+/**
  * The abstract `llm` service: an adapter registry plus a streaming model-call
  * surface, interceptable via the `llm/stream` waterfall.
  */
 export class LlmService extends Service {
   private adapters = new Map<string, AdapterRegistration>()
   private directory = new Map<string, LlmConfigurableProvider>()
+  private discoveries = new Map<
+    string,
+    (request: LlmModelDiscoveryRequest) => Promise<readonly LlmDiscoveredModel[]>
+  >()
 
   constructor(ctx: Context) {
     super(ctx, 'llm')
@@ -370,34 +434,61 @@ export class LlmService extends Service {
    * entry, or a provider already declared by any registration throws
    * `LlmError` without registering the rest. Disposed with the fiber.
    * @param entries - every configurable provider this plugin owns.
-   * @returns the disposer that withdraws all of them.
+   * @returns a handle that withdraws all of them, and can atomically replace them.
    */
-  registerConfigurableProviders(entries: readonly LlmConfigurableProvider[]): () => void {
-    const dispose = this.ctx.effect(function* (this: LlmService) {
-      if (entries.length === 0) {
-        throw new LlmError('a configurable-provider registration must declare at least one provider', 'INVALID_DIRECTORY')
-      }
+  registerConfigurableProviders(entries: readonly LlmConfigurableProvider[]): DirectoryRegistrationHandle {
+    let held: LlmConfigurableProvider[] = []
+    let disposed = false
+    /**
+     * Validate a candidate set in full against everything this registration
+     * does not already hold, then publish it. Nothing is written until the
+     * whole set passes, so a refused candidate leaves the current entries in
+     * place — the property that makes `replace` a swap rather than a
+     * delete-then-add that can strand the directory empty.
+     */
+    const commit = (candidates: readonly LlmConfigurableProvider[]): void => {
       const detached: LlmConfigurableProvider[] = []
-      for (const entry of entries) {
+      const own = new Set(held.map(entry => entry.provider))
+      for (const entry of candidates) {
         if (entry.provider.length === 0 || entry.displayName.length === 0 || entry.settingsNs.length === 0) {
           throw new LlmError('configurable providers need a non-empty provider, displayName, and settingsNs', 'INVALID_DIRECTORY')
         }
         if (entry.settingsPath.some(segment => segment.length === 0)) {
           throw new LlmError(`configurable provider "${entry.provider}" has an empty settingsPath segment`, 'INVALID_DIRECTORY')
         }
-        if (this.directory.has(entry.provider) || detached.some(seen => seen.provider === entry.provider)) {
+        if ((this.directory.has(entry.provider) && !own.has(entry.provider))
+          || detached.some(seen => seen.provider === entry.provider)) {
           throw new LlmError(`configurable provider "${entry.provider}" is already declared`, 'DUPLICATE_DIRECTORY')
         }
         detached.push({ ...entry, settingsPath: [...entry.settingsPath] })
       }
+      for (const entry of held) this.directory.delete(entry.provider)
       for (const entry of detached) this.directory.set(entry.provider, entry)
+      held = detached
       this.emitAdaptersUpdated()
+    }
+
+    const dispose = this.ctx.effect(function* (this: LlmService) {
+      if (entries.length === 0) {
+        throw new LlmError('a configurable-provider registration must declare at least one provider', 'INVALID_DIRECTORY')
+      }
+      commit(entries)
       yield () => {
-        for (const entry of detached) this.directory.delete(entry.provider)
+        disposed = true
+        for (const entry of held) this.directory.delete(entry.provider)
+        held = []
         this.emitAdaptersUpdated()
       }
     }.bind(this), 'llm.registerConfigurableProviders()')
-    return () => void dispose()
+
+    const handle = ((): void => void dispose()) as DirectoryRegistrationHandle
+    handle.replace = (next: readonly LlmConfigurableProvider[]): void => {
+      if (disposed) {
+        throw new LlmError('this configurable-provider registration was disposed', 'REGISTRATION_DISPOSED')
+      }
+      commit(next)
+    }
+    return handle
   }
 
   /**
@@ -406,6 +497,73 @@ export class LlmService extends Service {
    */
   listConfigurableProviders(): LlmConfigurableProvider[] {
     return [...this.directory.values()].map(entry => ({ ...entry, settingsPath: [...entry.settingsPath] }))
+  }
+
+  /**
+   * Offer to interrogate provider endpoints on behalf of the settings
+   * namespace this plugin owns. The namespace is the key because that is what
+   * a configuration surface already holds from the configurable-provider
+   * directory, and because a provider being *added* has no route to name yet.
+   * Disposed with the fiber.
+   * @param settingsNs - the namespace whose profiles this discovery serves.
+   * @param discover - interrogates one endpoint; must honor `request.signal`.
+   * @returns the disposer that withdraws the offer.
+   */
+  registerModelDiscovery(
+    settingsNs: string,
+    discover: (request: LlmModelDiscoveryRequest) => Promise<readonly LlmDiscoveredModel[]>,
+  ): () => void {
+    const dispose = this.ctx.effect(function* (this: LlmService) {
+      if (settingsNs.length === 0) {
+        throw new LlmError('model discovery needs a non-empty settings namespace', 'INVALID_DISCOVERY')
+      }
+      if (this.discoveries.has(settingsNs)) {
+        throw new LlmError(`model discovery for "${settingsNs}" is already registered`, 'DUPLICATE_DISCOVERY')
+      }
+      this.discoveries.set(settingsNs, discover)
+      yield () => {
+        this.discoveries.delete(settingsNs)
+      }
+    }.bind(this), 'llm.registerModelDiscovery()')
+    return () => void dispose()
+  }
+
+  /**
+   * Interrogate one provider endpoint for the models it advertises. The
+   * request describes a draft, not a stored route, so nothing here reads or
+   * writes settings or credentials — the caller owns both, and the reply is
+   * candidate metadata a surface may offer for adoption.
+   * @param settingsNs - namespace whose registered discovery serves this draft.
+   * @param request - the endpoint, protocol, and one-shot credential to use.
+   * @returns the advertised models, deduplicated in endpoint order.
+   */
+  async discoverModels(
+    settingsNs: string,
+    request: LlmModelDiscoveryRequest,
+  ): Promise<LlmDiscoveredModel[]> {
+    const discover = this.discoveries.get(settingsNs)
+    if (discover === undefined) {
+      throw new LlmError(`no model discovery is registered for "${settingsNs}"`, 'NO_DISCOVERY')
+    }
+    // One of the two identifies what to describe: a route the adapter knows, or
+    // an endpoint to ask. Neither leaves nothing to answer about.
+    if ((request.provider ?? '').length === 0 && (request.baseURL ?? '').length === 0) {
+      throw new LlmError('model discovery needs a provider route or a baseURL', 'INVALID_DISCOVERY')
+    }
+    const discovered = await discover(request)
+    const seen = new Set<string>()
+    const models: LlmDiscoveredModel[] = []
+    for (const model of discovered) {
+      if (typeof model.id !== 'string' || model.id.length === 0 || seen.has(model.id)) continue
+      seen.add(model.id)
+      models.push({
+        id: model.id,
+        ...model.name === undefined ? {} : { name: model.name },
+        ...model.contextWindow === undefined ? {} : { contextWindow: model.contextWindow },
+        ...model.maxTokens === undefined ? {} : { maxTokens: model.maxTokens },
+      })
+    }
+    return models
   }
 
   /**

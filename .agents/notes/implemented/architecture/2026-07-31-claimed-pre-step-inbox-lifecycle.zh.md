@@ -14,7 +14,7 @@ Status: implemented
 
 每个拟议步骤之前，`Inbox.claim(target)` 会原子移除完整批次：全部 `next-step` 消息，以及轮次边界上的一条 `next-turn` 消息。在首次边界，循环会先提交 `turn/start`，使领取及其唯一一次 `agent/pre-step` 决策拥有持久轮次归属。领取会记录规范化、不带 outcome 的纯删除 `agent/inbox/spliced`。随后，循环针对每条已领取消息发出一次 `agent/inbox/claimed { message, turn }`，并用该独占批次与 `{ turn, step, signal }` 等待 waterfall（瀑布式事件）。
 
-`PreStepDecision` 为 `{ kind: 'reject' } | { kind: 'enter'; messages: UserMessage[] }`。reject 不会打开步骤，会让已领取批次保持已删除，并将轮次关闭为 blocked，且不产生任何步骤事件。空的 enter、取消以及 `step/start` 前的失败同样会关闭一个边界平衡的无步骤轮次。enter 提供在 `step/start` 后以 `user/message` 追加的完整批次。包装 `next()` 的监听器会保留下游变更，除非有意替换，因此全部消息改写只在最终返回值中一次性结算。系统不再存在 `agent/prompt-prepare`、`agent/prompt-submit` 或 `agent/step` seam。
+`PreStepDecision` 为 `{ kind: 'reject' } | { kind: 'enter'; messages: UserMessage[] }`。reject 不会打开步骤，会让已领取批次保持已删除，并将轮次关闭为 blocked，且不产生任何步骤事件。空的 enter、取消以及 `step/start` 前的失败同样会关闭一个边界平衡的无步骤轮次。enter 提供在 `step/start` 后以 `user/message` 追加的完整批次。包装 `next()` 的监听器会保留下游变更，除非有意替换，因此全部消息改写只在最终返回值中一次性结算。系统不再存在 `agent/prompt-prepare`、`agent/prompt-submit` 或 `agent/step` 扩展点。
 
 持久 inbox 仍是两份通过 `MessageId` 寻址的 `UserMessage[]` 列表。`append`、`prepend` 与 `splice` 接受 target；`replace(messageId, newMessage)` 与 `remove(messageId)` 则在提交规范化 splice 前，通过 `MessageId` 跨两份列表定位待处理消息。替换可以改变标识，并先将旧消息作为 discarded 发布，再将新消息作为 inserted 发布。每次插入发出 `agent/inbox/inserted { message }`；普通删除记录 `outcome: 'canceled'` 并发出 `agent/inbox/discarded { message }`。领取是循环在 inbox 上的内部步骤边界操作，记录不带通知或 outcome 的纯删除，因此循环可以自行发布 claimed 事件。这些实时事件不增加 placement、outcome 或批次字段。
 
@@ -30,11 +30,11 @@ Status: implemented
 
 **reject 时把已领取批次重新入队。** 这看似保留重试行为，却会让否决隐式修改队列；若不为每个竞态加围栏，还会复制后续工作，并使 claim 无法成为原子所有权转移。
 
-**在每个实时事件上携带 placement 与 outcome。** 持久 splice 已经拥有这些事实。实时通知重复它们会建立可能漂移的第二份契约，而持有确切消息标识的消费方并不需要这些字段。
+**在每个实时事件上携带 placement 与 outcome。** 持久 splice 已经拥有这些事实。实时通知重复它们会建立可能漂移的第二份约定，而持有确切消息标识的消费方并不需要这些字段。
 
 ## 验证
 
-Agent-loop 覆盖固定先 `turn/start`、再领取、后 pre-step 的顺序、实时事件的确切载荷、边界平衡的无步骤 reject、最终批次改写、领取后插入的输入、监听器失败与取消。Inbox 和消费方测试固定纯领取删除、普通删除的 canceled 结果、workspace-context 的暂存、替换与同一步骤进入、plan/goal/hook 行为、UI 清理、压缩、检查点以及恢复后的持久投影。生成的事件与类型目录只公开新的 seam 与载荷。
+Agent-loop 覆盖固定先 `turn/start`、再领取、后 pre-step 的顺序、实时事件的确切载荷、边界平衡的无步骤 reject、最终批次改写、领取后插入的输入、监听器失败与取消。Inbox 和消费方测试固定纯领取删除、普通删除的 canceled 结果、workspace-context 的暂存、替换与同一步骤进入、plan/goal/hook 行为、UI 清理、压缩、检查点以及恢复后的持久投影。生成的事件与类型目录只公开新的 waterfall 与载荷。
 
 ## 后果
 

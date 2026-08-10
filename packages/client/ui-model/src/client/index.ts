@@ -4,14 +4,14 @@
  * contribution and the composer's named `conversation.input.model` seat both
  * load the session's provider-grouped advisory directory (`session.models`)
  * and submit through `session.selectModel` via the same directory instance,
- * so the host-reported current target is the single fact both surfaces echo
+ * so the host-reported current selection is the single fact both surfaces echo
  * — a switch made in either entry is what the other shows next. Failures
  * ride each entry's own retry surface (popup shell error/retry; seat menu
  * inline error) without forking the state. Addressed subagent sessions expose
  * neither entry because those Agent-bound RPCs would activate persisted
- * history outside the direct-parent continuation seam.
+ * history outside the direct-parent continuation path.
  */
-import type { ModelTarget, SessionModels } from '@deepseek-ai/dsh-client-connection/client'
+import type { ModelSelection, SessionModels } from '@deepseek-ai/dsh-client-connection/client'
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import type { CommandServiceContract, SelectOption } from '@deepseek-ai/dsh-client-ui-command/client'
 // Type-only: pulls the ui-conversation SlotMap merge (the input.model seat).
@@ -68,13 +68,13 @@ function optionsOf(directory: SessionModels, t: TranslateNS<'model'>): SelectOpt
 }
 
 /**
- * Resolve a picked row back to its target by matching against the loaded
+ * Resolve a picked row back to its model selection by matching against the loaded
  * groups (the same data the rows were built from — ids stay opaque).
  * @param state - the session's directory snapshot.
  * @param id - the picked row id.
- * @returns the row's target, or undefined for failure rows / stale ids.
+ * @returns the row's model selection, or undefined for failure rows / stale ids.
  */
-function targetOf(state: ModelDirectoryState, id: string): ModelTarget | undefined {
+function selectionOf(state: ModelDirectoryState, id: string): ModelSelection | undefined {
   for (const group of state.groups) {
     for (const model of group.models) {
       if (rowId(group.id, model.id) !== id) continue
@@ -105,13 +105,15 @@ export const inject = ['command', 'connection', 'locale', 'sessions', 'slots']
  * @param ctx - client root context.
  */
 export function apply(ctx: ClientContext): void {
-  ctx.plugin(ModelService)
-
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-model: dictionaries')
 
   // Non-slot faces (the command description, the popup option builder) read
   // through the bound translate; the seat component reads the standard seat.
   const t = ctx.locale.bind(NS)
+
+  // The composer-block reason is this plugin's own copy, read at raise time so
+  // a locale change reaches the next publish.
+  ctx.plugin(ModelService, { blockReason: () => t('blocked.composer') })
 
   // Entry 1: the /model popupSelect over the shared directory. The command
   // description is registry-held text: it reads t() once at registration and
@@ -137,11 +139,11 @@ export function apply(ctx: ClientContext): void {
             throw new Error('model selection is unavailable for addressed subagent sessions')
           }
           const directory = models.directoryFor(session.sessionId)
-          const target = targetOf(directory.store.getSnapshot(), option.id)
-          if (target === undefined) {
+          const selection = selectionOf(directory.store.getSnapshot(), option.id)
+          if (selection === undefined) {
             throw new Error('this provider\'s catalog failed to load — pick a model from a loaded group')
           }
-          await directory.select(target)
+          await directory.select(selection)
         },
       },
     }), 'ui-model: /model contribution')
@@ -163,8 +165,8 @@ export function apply(ctx: ClientContext): void {
           load: () => {
             if (available) directory.load().catch(() => { /* surfaced on the store */ })
           },
-          select: (target: ModelTarget) => available
-            ? directory.select(target).then(() => true, () => false)
+          select: (selection: ModelSelection) => available
+            ? directory.select(selection).then(() => true, () => false)
             : Promise.resolve(false),
         }
       },

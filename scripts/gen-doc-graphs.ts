@@ -70,6 +70,7 @@ const GROUP_ORDER = [
   'bash',
   'pty',
   'sandbox',
+  'e2b',
   'fs',
   'skill',
   'compact',
@@ -124,7 +125,7 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'session',
     title: 'In-memory session store',
     mode: 'core',
-    consumers: ['agent-loop', 'agent', 'cli-demo', 'session-persistence', 'session-query', 'session-query-sqlite', 'subagent-inprocess', 'invariants'],
+    consumers: ['agent-loop', 'agent', 'session-persistence', 'session-query', 'session-query-sqlite', 'subagent-inprocess', 'invariants'],
     note: 'Owns append-only Session instances and emits the durable session event feed.',
   },
   {
@@ -140,8 +141,15 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'typert-registry',
     title: 'Runtime type registry',
     mode: 'core',
-    consumers: ['typert-loader'],
-    note: 'Plugins register live zod contributions directly or through dsh-typert-loader; runtime consumers query schemas and reflection metadata at their own edges.',
+    consumers: ['typert-loader', 'api-gateway'],
+    note: 'Plugins register live zod contributions directly or through dsh-typert-loader; the API gateway consumes invocation descriptors and providers, while other runtime consumers query schemas and reflection metadata at their own edges.',
+  },
+  {
+    key: 'typertGateway',
+    pkg: 'api-gateway',
+    title: 'TypeRT Host invocation gateway',
+    mode: 'core',
+    note: 'Associates generated Remote descriptors with live Cordis services, resolves registered identities, and exposes unary calls through the shared Connection RPC carrier.',
   },
   {
     key: 'sessionPersistence',
@@ -250,7 +258,7 @@ const SERVICE_ROLES: ServiceRole[] = [
     title: 'Human question/answer seam',
     mode: 'seam',
     consumers: ['tool-ask-user'],
-    note: 'UI front doors provide the active human-answer provider; tool-ask-user pauses a tool call on the provider-neutral ask() promise.',
+    note: 'UI front ends provide the active human-answer provider; tool-ask-user pauses a tool call on the provider-neutral ask() promise.',
   },
   {
     key: 'planMode',
@@ -258,6 +266,13 @@ const SERVICE_ROLES: ServiceRole[] = [
     title: 'Plan collaboration state',
     mode: 'core',
     note: 'Folds logged plan/mode state, flushes user selections at turn boundaries, renders deployment-owned guidance, registers /plan, and keeps the plan-exit schema stable across transitions.',
+  },
+  {
+    key: 'agentPresets',
+    pkg: 'agent-presets',
+    title: 'Per-session agent composition',
+    mode: 'core',
+    note: 'Discovers preset directories over trusted and user-authored roots and mounts one preset cordis.yml under an agent scope during creation, rejecting a row that never activates or that publishes into the root service realm.',
   },
   {
     key: 'commands',
@@ -287,7 +302,7 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'skill',
     title: 'Skill provider registry',
     mode: 'seam',
-    implementations: ['skill-local'],
+    implementations: ['skill-badge', 'skill-local'],
     consumers: ['tool-skill'],
     note: 'Merges provider skill catalogs; tool-skill renders the session-prefix catalog and loads complete skill bodies.',
   },
@@ -296,8 +311,16 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'agent',
     title: 'Agent service',
     mode: 'core',
-    consumers: ['agent-loop', 'acp', 'cli-demo', 'subagent-inprocess'],
+    consumers: ['agent-loop', 'acp', 'subagent-inprocess'],
     note: 'Owns live Agent handles, the create/resume factory seam, and process-local initiator propagation.',
+  },
+  {
+    key: 'agentDefaultModel',
+    pkg: 'agent-default-model',
+    title: 'Default Agent model selection',
+    mode: 'core',
+    consumers: ['headless', 'host-apiproxy'],
+    note: 'Layers the default ModelSelection through settings so direct and Host-backed Agent entry points share one state owner.',
   },
   {
     key: 'agentLoop',
@@ -315,13 +338,21 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Folds revisioned objective state from the session log and keeps live continuation activation process-local.',
   },
   {
+    key: 'e2b',
+    pkg: 'e2b',
+    title: 'E2B sandbox lifecycle owner',
+    mode: 'core',
+    consumers: ['fs-e2b', 'subprocess-e2b'],
+    note: 'Owns one shared E2B SDK handle, remote working directory, and final sandbox disposition so both fundamental E2B providers inhabit the same Linux runtime.',
+  },
+  {
     key: 'subprocess',
     pkg: 'subprocess',
     title: 'Subprocess seam',
     mode: 'seam',
-    implementations: ['subprocess-local'],
-    consumers: ['bash-local', 'bash-sandbox', 'lsp-local', 'subagent-acp'],
-    note: 'The bash executors, the LSP host, and the ACP subagent backend spawn their children through ctx.subprocess; the service owns tree lifetime, stdio dispositions (pipes, inherit, bounded spill-backed collection), and kill escalation.',
+    implementations: ['subprocess-local', 'subprocess-e2b'],
+    consumers: ['bash-local', 'bash-sandbox', 'pty-local', 'lsp-local', 'subagent-acp', 'subagent-codex', 'subagent-claude-code'],
+    note: 'The bash executors, the PTY shell backend, the LSP host, and the out-of-process ACP, Codex, and Claude Code subagent backends spawn through ctx.subprocess; the service owns process coordinates, tree/session lifetime, stdio dispositions, terminal mechanics, and kill escalation.',
   },
   {
     key: 'bash',
@@ -398,7 +429,7 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'fs',
     title: 'Filesystem provider seam',
     mode: 'seam',
-    implementations: ['fs-local', 'fs-sandbox'],
+    implementations: ['fs-local', 'fs-sandbox', 'fs-e2b'],
     consumers: ['tool-fs'],
     companions: ['fs-policy'],
     note: 'tool-fs executes read/write/edit through ctx.fs; fs-sandbox fences mutations by the shared sandbox mode; fs-policy contributes observed-state checks through the fs/* event gate.',
@@ -410,14 +441,14 @@ const SERVICE_ROLES: ServiceRole[] = [
     mode: 'seam',
     implementations: ['compact-basic'],
     consumers: ['compact-basic'],
-    note: 'The basic backend consumes post-step pressure and request-error recovery events; a model-facing compact tool remains deferred.',
+    note: 'The basic backend consumes post-step pressure and request-error recovery events; there is no model-facing compact tool.',
   },
   {
     key: 'subagents',
     pkg: 'subagent',
     title: 'Subagent provider and continuation service',
     mode: 'seam',
-    implementations: ['subagent-spawn', 'subagent-fork', 'subagent-acp'],
+    implementations: ['subagent-spawn', 'subagent-fork', 'subagent-acp', 'subagent-codex', 'subagent-claude-code', 'subagent-dsh-sdk'],
     consumers: ['tool-subagent', 'tool-subagent-control', 'tool-ralph'],
     note: 'Providers implement transports; the service also owns optional Activation-based continuation orchestration, tool-subagent selects one-shot or continuable delegation, tool-subagent-control delivers follow-ups, and tool-ralph requires one fresh structured-output route.',
   },
@@ -598,7 +629,8 @@ function parseExampleCordis(rel: string): ExamplePlugin[] {
     if (current?.name) plugins.push({ id: current.id, name: current.name })
   }
   for (const line of text.split('\n')) {
-    const id = /^-\s+id:\s+(.+?)\s*$/.exec(line)
+    // Top-level rows (`- id:`) and bundle-patch insert rows (`    - id:`).
+    const id = /^\s*-\s+id:\s+(.+?)\s*$/.exec(line)
     if (id?.[1] !== undefined) {
       flush()
       current = { id: stripYamlScalar(id[1]) }
@@ -620,17 +652,17 @@ const APP_EXAMPLES = [
     id: 'dsh_base',
     rel: 'apps/cli/composition.md',
     title: 'DSH Base Composition',
-    label: 'apps/cli/config/base.cordis.yml',
-    config: 'apps/cli/config/base.cordis.yml',
-    summary: 'The raw CLI applies one required caller-selected patch list over this shared base; Web and headless apply their own shipped overlays.',
+    label: 'packages/bundle/base/cordis.patch.yml',
+    config: 'packages/bundle/base/cordis.patch.yml',
+    summary: 'The dsh-base bundle patch every profile applies first; mode bundles (dsh-web-app, dsh-headless) and the user\'s profile layer patch over it.',
   },
   {
     id: 'headless',
     rel: 'examples/headless-agent/composition.md',
-    title: 'Headless Agent App Composition',
+    title: 'Headless Agent Snapshot Composition',
     label: 'examples/headless-agent',
     config: 'examples/headless-agent/cordis.yml',
-    summary: 'The headless demo combines the real DeepSeek adapter and coding capabilities with the one-shot app package, format-pure stdout, and one fresh persisted top-level session.',
+    summary: 'The headless snapshot composition combines the real DeepSeek adapter and coding capabilities with one explicitly configured persisted top-level agent; its JSONL driver is test-only.',
   },
   {
     id: 'acp',
@@ -649,10 +681,8 @@ function renderAppExpansion(lines: string[], appNode: string, pluginName: string
   const jsonl = nodeId('bundle', 'jsonl')
   lines.push(`  ${appNode} --> ${agentCore}["@deepseek-ai/dsh-agent-spine-demo"]`)
   lines.push(`  ${appNode} --> ${jsonl}["@deepseek-ai/dsh-session-persistence-jsonl"]`)
-  if (pluginName === '@deepseek-ai/dsh-cli-demo') {
-    lines.push(`  ${appNode} --> ${nodeId('frontdoor', 'cli')}["one-shot driver<br/>format-pure stdout<br/>fresh top-level agent"]`)
-  } else if (pluginName === '@deepseek-ai/dsh-acp-demo') {
-    lines.push(`  ${appNode} --> ${nodeId('frontdoor', 'acp')}["@deepseek-ai/dsh-acp<br/>automation-only JSON-RPC stdio<br/>fresh sessions created by client"]`)
+  if (pluginName === '@deepseek-ai/dsh-acp-demo') {
+    lines.push(`  ${appNode} --> ${nodeId('entrypoint', 'acp')}["@deepseek-ai/dsh-acp<br/>automation-only JSON-RPC stdio<br/>fresh sessions created by client"]`)
   }
   lines.push(
     `  ${agentCore} --> ${nodeId('spine', 'llm')}["ctx.llm"]`,
@@ -677,7 +707,7 @@ function renderAppComposition(example: AppExample): string {
     const pluginNode = nodeId(`plugin_${example.id}`, plugin.id)
     lines.push(`  ${pluginNode}["${escLabel(plugin.id)}<br/>${escLabel(plugin.name)}"]`)
     lines.push(`  cfg --> ${pluginNode}`)
-    if (plugin.name === '@deepseek-ai/dsh-cli-demo' || plugin.name === '@deepseek-ai/dsh-acp-demo') {
+    if (plugin.name === '@deepseek-ai/dsh-acp-demo') {
       renderAppExpansion(lines, pluginNode, plugin.name)
     }
   }
@@ -704,7 +734,18 @@ type CallSiteIndex = Map<ts.SignatureDeclaration | ts.JSDocSignature, ts.CallExp
  */
 const EVENT_API_METHODS = new Set(['on', 'once', 'emit', 'parallel', 'serial', 'waterfall', 'dispatch'])
 
-/** Collect event dispatch/listener relations from real cross-file receiver types. */
+/**
+ * Collect event dispatch/listener relations from real cross-file receiver types.
+ *
+ * TODO: the program is seeded from the host aggregate alone (ts-project.ts
+ * documents why: one program cannot hold both faces' Context merges), so a
+ * Client package enters only when a host file imports it. Client-face
+ * listeners on client-face events are therefore under-reported —
+ * `connection/reset` omits `ui-skill`/`ui-agent-preset`, `models/changed`
+ * omits `ui-model`, `session/preset-changed` omits `ui-skill`. Closing it
+ * needs a second Client program whose relations merge into these, not a
+ * wider seed.
+ */
 export class EventRelationCollector {
   private readonly relations = new Map<string, EventRelation>()
   private readonly fileCallSites = new Map<ts.SourceFile, CallSiteIndex>()
@@ -1094,7 +1135,7 @@ function renderEventRelations(pkgs: Pkg[], events: readonly EventEntry[]): strin
   const maintenance = 'generated: Cordis event declarations and producer/listener edges are resolved from the repository TypeScript Program'
   const lines = generatedHeader('Event Producer And Consumer Matrix')
   lines.push(
-    'This matrix shows which packages dispatch each harness-owned event and which packages listen to it. It is intentionally a table rather than one large graph: events are many-to-many, and dense relation data is easier to review in rows. Receiver and event-name types also cover contained dispatch sites that deliberately bypass `ctx.emit`, such as subagent lifecycle containment.',
+    'This matrix shows which packages dispatch each harness-owned event and which packages listen to it. Events are many-to-many, so the dense relation data is presented as a table rather than one large graph. Receiver and event-name types also cover contained dispatch sites that deliberately bypass `ctx.emit`, such as subagent lifecycle containment.',
     '',
     '| Event | Mode | Declared in | Dispatchers | Listeners |',
     '| --- | --- | --- | --- | --- |',
@@ -1139,7 +1180,7 @@ function renderLifecycle(): string {
   const maintenance = 'curated Mermaid sequence; exact event signatures live in the generated Cordis catalog'
   return [
     ...generatedHeader('Agent Turn And Step Lifecycle'),
-    'This sequence is the visual companion to [architecture.md](architecture.md#loop-lifecycle-session--turn--step). It keeps durable replay facts on `session/event` and live control/status on `agent/*`.',
+    'This sequence is the visual companion to [architecture.md](architecture.md#default-loop-lifecycle). It keeps durable replay facts on `session/event` and live control/status on `agent/*`.',
     '',
     '```mermaid',
     'sequenceDiagram',
@@ -1207,7 +1248,7 @@ function renderLifecycle(): string {
     `  Driver-->>SDK: ${mermaidCode('agent/status')} idle`,
     '```',
     '',
-    'The `assistant/message` edge records every successful provider call, including content-less and `max-tokens` finishes. Empty content stays out of derived history while the durable anchor retains usage and exact chunk provenance, including an explicit empty source set.',
+    'The `assistant/message` event records every successful provider call, including content-less and `max-tokens` finishes. Empty content stays out of derived history, while the durable event keeps usage and `sourceEventSeqs` listing the exact `assistant/chunk` events, including an explicit empty list.',
     '',
     '`dsh-compact-basic` uses `agent/pre-step` for pressure before request derivation and `agent/request-error` only for canonical context overflow. Once either trigger qualifies, optional tool-result pruning runs before summary selection. Recovery works between the closed failed step and failed turn close, and opens a fresh retry turn only when pruning or summarization advances the surface replacement generation; otherwise the original request error remains authoritative.',
     '',
@@ -1329,7 +1370,7 @@ function renderIndex(docs: GraphDoc[]): string {
   const maintenance = 'mixed: each linked page declares generated, hybrid, or curated mode'
   return [
     ...generatedHeader('Documentation Graph Index'),
-    'These diagrams are the relationship layer above the generated catalogs. Use them to navigate package topology, capability seams, event flow, model-facing tools, app composition, and runtime lifecycle paths. Exact signatures and type shapes still live in the generated [events](cordis-catalog/events.md) / [services](cordis-catalog/services.md) catalogs, [tool-catalog.md](tool-catalog.md), and [core-data-structures/](core-data-structures/core.md).',
+    'These diagrams are the relationship layer above the generated catalogs. Use them to navigate package topology, capability seams, event flow, model-facing tools, app composition, and runtime lifecycle paths. Exact signatures and type shapes still live in the [subsystem pages](subsystems/core.md) (types + the generated `cordis-surface` regions) and [tool-catalog.md](tool-catalog.md).',
     '',
     'The process decision behind this index is recorded in [the documentation graph Agent Note](../.agents/notes/archived/process/2026-07-03-documentation-graph-atlas.md).',
     '',

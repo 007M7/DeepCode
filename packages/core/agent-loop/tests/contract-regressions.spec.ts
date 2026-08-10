@@ -40,7 +40,7 @@ async function harness(adapter: MockAdapter) {
 
 function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
   return new Promise((resolve) => {
-    const dispose = ctx.on('agent/status', (subject, status) => {
+    const dispose = ctx.on('agent/status', ({ agent: subject, status }) => {
       if (subject === agent && status === 'idle') {
         dispose()
         resolve()
@@ -59,7 +59,7 @@ function inboxText(message: UserMessage): string {
     .join('')
 }
 
-describe('assistant replay provenance', () => {
+describe('assistant replay provider and model fields', () => {
   it('records adapter replay state with the assembled assistant content', async () => {
     const response = textResponse('unchanged')
     const replayState = { private: 'state' }
@@ -191,7 +191,7 @@ describe('abort during tool execution ends the turn', () => {
     const adapter = new MockAdapter([textResponse('must not run')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a-empty-batch'), { provider: 'mock', model: 'mock' })
-    ctx.on('agent/pre-step', (subject, _messages, _context, next) => {
+    ctx.on('agent/pre-step', ({ agent: subject }, next) => {
       if (subject !== agent) return next()
       return Promise.resolve({ kind: 'enter', messages: [] })
     })
@@ -288,7 +288,7 @@ describe('abort during tool execution ends the turn', () => {
 
     send(agent, 'leave an unmatched historical call')
     await waitForIdle(ctx, agent)
-    const disposeInjection = ctx.on('agent/pre-step', async (subject, _messages, { turn }, next) => {
+    const disposeInjection = ctx.on('agent/pre-step', async ({ agent: subject, turn }, next) => {
       const decision = await next()
       if (subject === agent && turn === 2 && decision.kind === 'enter') {
         disposeInjection()
@@ -382,7 +382,7 @@ describe('disposal leaves the two-state status contract balanced', () => {
 
     const statuses: string[] = []
     const reasons: TurnEndReason[] = []
-    ctx.on('agent/status', (_agent, status) => void statuses.push(status))
+    ctx.on('agent/status', ({ status }) => void statuses.push(status))
     ctx.on('session/event', (_s, event) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
 
     send(agent, 'go')
@@ -411,7 +411,7 @@ describe('disposal leaves the two-state status contract balanced', () => {
       agent = inner.agentLoop.create(SessionId('scoped'), { provider: 'mock', model: 'mock' })
     }, { inject: ['agentLoop'] }))
 
-    ctx.on('agent/status', (_agent, status) => {
+    ctx.on('agent/status', ({ status }) => {
       if (status === 'idle') throw new Error('broken status listener')
     })
 
@@ -457,7 +457,7 @@ describe('adapter registration, routing, and accepted-input ownership', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), {}) // no model — router plugin decides
 
-    ctx.on('agent/request', async (_agent, _turn, _step, _signal, next) => {
+    ctx.on('agent/request', async (_payload, next) => {
       return { ...await next(), provider: 'mock', model: 'mock' }
     })
 
@@ -540,7 +540,7 @@ describe('turn numbering continues across seeded sessions', () => {
     ctx2.on('session/event', (_s, event) => { if (event.type === 'turn/start') turns.push(event.data.turn) })
     forked.followup(createUserMessage({ content: [{ type: 'text', text: 'continue' }], source: { kind: 'user' } }))
     await new Promise<void>((resolve) => {
-      ctx2.on('agent/status', (subject, status) => {
+      ctx2.on('agent/status', ({ agent: subject, status }) => {
         if (subject === forked && status === 'idle') resolve()
       })
     })
@@ -586,7 +586,7 @@ describe('a finish-error stream chunk ends the turn as error, not completed', ()
 
     const reasons: TurnEndReason[] = []
     const errors: unknown[] = []
-    ctx.on('agent/error', (_agent, turn, step, error) => {
+    ctx.on('agent/error', ({ turn, step, error }) => {
       expect({ turn, step }).toEqual({ turn: 1, step: 1 })
       errors.push(error)
     })
@@ -710,7 +710,7 @@ describe('turn and step boundary recovery', () => {
       if (event.type === 'step/start' && !threw) { threw = true; throw new Error('boom step-start') }
     })
     const errors: Error[] = []
-    ctx.on('agent/error', (_a, _t, _s, error) => {
+    ctx.on('agent/error', ({ error }) => {
       if (error instanceof Error) errors.push(error)
     })
 
@@ -743,7 +743,7 @@ describe('turn and step boundary recovery', () => {
       }
     })
     const errors: Error[] = []
-    ctx.on('agent/error', (_agent, _turn, _step, error) => {
+    ctx.on('agent/error', ({ error }) => {
       if (error instanceof Error) errors.push(error)
     })
 
@@ -800,7 +800,7 @@ describe('turn and step boundary recovery', () => {
       }
     })
     const errors: Error[] = []
-    ctx.on('agent/error', (_agent, _turn, _step, error) => {
+    ctx.on('agent/error', ({ error }) => {
       if (error instanceof Error) errors.push(error)
     })
 
@@ -893,14 +893,14 @@ describe('turn and step boundary recovery', () => {
     }, { inject: ['agentLoop'] }))
 
     let threw = false
-    ctx.on('agent/pre-step', (_subject, _messages, _context, next) => {
+    ctx.on('agent/pre-step', (_payload, next) => {
       if (threw) return next()
       threw = true
       void fiber.dispose()
       throw new Error('boom pre-step during disposal')
     })
     const errorEmits: Error[] = []
-    ctx.on('agent/error', (_a, _t, _s, error) => {
+    ctx.on('agent/error', ({ error }) => {
       if (error instanceof Error) errorEmits.push(error)
     })
 
@@ -926,7 +926,7 @@ describe('turn and step boundary recovery', () => {
       if (!threw && event.type === 'turn/start') { threw = true; throw new Error('boom turn/start append') }
     })
     const errors: Error[] = []
-    ctx.on('agent/error', (_a, _t, _s, error) => {
+    ctx.on('agent/error', ({ error }) => {
       if (error instanceof Error) errors.push(error)
     })
 
@@ -959,7 +959,7 @@ describe('turn and step boundary recovery', () => {
       if (event.type === 'step/end' && !threw) { threw = true; throw new Error('boom step-end') }
     })
     const errors: Error[] = []
-    ctx.on('agent/error', (_a, _t, _s, error) => {
+    ctx.on('agent/error', ({ error }) => {
       if (error instanceof Error) errors.push(error)
     })
 
@@ -1000,7 +1000,7 @@ describe('turn and step boundary recovery', () => {
       if (!threw && event.type === 'step/end') { threw = true; throw new Error('boom step/end listener') }
     })
     const errors: Error[] = []
-    ctx.on('agent/error', (_a, _t, _s, error) => {
+    ctx.on('agent/error', ({ error }) => {
       if (error instanceof Error) errors.push(error)
     })
 
@@ -1215,7 +1215,7 @@ describe('disposal and cancellation during pre-step assembly', () => {
     await mountInvariants(ctx)
     ctx.llm.registerAdapter(['mock'], adapter)
 
-    ctx.on('agent/pre-step', async (_subject, _messages, _context, next) => {
+    ctx.on('agent/pre-step', async (_payload, next) => {
       await blocker
       return next()
     })
@@ -1261,7 +1261,7 @@ describe('disposal and cancellation during pre-step assembly', () => {
     await mountInvariants(ctx)
     ctx.llm.registerAdapter(['mock'], adapter)
 
-    ctx.on('agent/pre-step', async (_subject, _messages, _context, next) => {
+    ctx.on('agent/pre-step', async (_payload, next) => {
       await blocker
       return next()
     })

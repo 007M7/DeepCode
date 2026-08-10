@@ -46,7 +46,7 @@ export interface TrajectoryCellProps extends HTMLAttributes<HTMLDivElement> {
   opensTurn?: boolean
   /** Source session-event seq for cross-record navigation. */
   sourceSeq?: number
-  /** Producer provenance from a user-role message or context injection. */
+  /** Producer role and name from a user-role message or context injection. */
   messageSource?: unknown
   /** Producer-owned model-hidden metadata carried beside the message source. */
   /** A separator-only anchor for an auxiliary request with no visible record. */

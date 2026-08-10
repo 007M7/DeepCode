@@ -21,7 +21,10 @@ import type {
   SessionHistorySnapshot, SessionId, SessionListState, WorkspaceListState,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ConvViewProps, ViewTab } from '@deepseek-ai/dsh-client-ui-conversation/client'
-import { ConversationSession, type ConversationSessionProps } from '@deepseek-ai/dsh-client-ui-conversation/src/client/skeleton/ConversationSession.tsx'
+import {
+  ConversationSession, ConversationSessionHeader,
+  type ConversationSessionHeaderProps, type ConversationSessionProps,
+} from '@deepseek-ai/dsh-client-ui-conversation/src/client/skeleton/ConversationSession.tsx'
 import { createChatStore } from '@deepseek-ai/dsh-client-ui-conversation/src/client/stores.ts'
 import { zh as conversationZh } from '@deepseek-ai/dsh-client-ui-conversation/src/client/locales.ts'
 import { apply, inject } from '@deepseek-ai/dsh-client-ui-trajectory/client'
@@ -35,12 +38,9 @@ import { createTrajectoryDurationStore } from '../src/client/duration-store.ts'
 import { deriveTrajectoryTimeline } from '../src/client/timeline.ts'
 
 const SID = 's1' as SessionId
-
-// Stub of the conversation package's standard locale seat (this spec mounts
-// its ConversationSession chrome); answers from the zh dictionary and falls
-// back to the key like the real chain.
-const tConversation: ConversationSessionProps['t'] =
+const tConversation: ConversationSessionHeaderProps['t'] =
   key => (conversationZh as Record<string, string>)[key] ?? key
+
 afterEach(cleanup)
 // The chat store persists under its declared key; clear so one case's active
 // view cannot rehydrate into the next.
@@ -82,7 +82,6 @@ function historySnapshot(
       interruptedNodes: [],
       partial: null,
       runningCalls: [],
-      codeDispatches: new Map(),
       ...inspection,
     },
   }
@@ -115,7 +114,7 @@ function standaloneDuration(): Pick<
 function fakeSession(nodes: ConversationSnapshot['nodes']) {
   const store = createSnapshotStore({
     nodes, pending: [], partial: null,
-    runningCalls: [] as ConversationSnapshot['runningCalls'], codeDispatches: new Map(),
+    runningCalls: [] as ConversationSnapshot['runningCalls'],
   })
   return { store, useSession: bindSnapshotSelector(store) as unknown as UseSession<ConversationSnapshot> }
 }
@@ -180,16 +179,23 @@ function tabsOf(slots: SlotsService): ViewTab[] {
     .map(e => ({ id: e.options.id!, label: resolveSlotLabel(e.options.label) ?? e.options.id! }))
 }
 
-/** Mount the strict session content over the ring ledger with an outlet-faithful renderSlot. */
+/** Mount the strict Session header/body over the ring ledger with outlet-faithful render shares. */
 function mount(slots: SlotsService, nodes: ConversationSnapshot['nodes'] = NODES) {
   const sessionSnapshot = createSnapshotStore({
     running: false, removed: false, promptError: null, nodes,
     pending: [],
     openState: 'open' as const, hasMore: true, loadingOlder: false,
-    partial: null, runningCalls: [] as ConversationSnapshot['runningCalls'], codeDispatches: new Map(),
+    partial: null, runningCalls: [] as ConversationSnapshot['runningCalls'],
   })
   const useSession = bindSnapshotSelector(sessionSnapshot) as unknown as UseSession<ConversationSnapshot>
   const chat = createChatStore().create()
+  const views = {
+    list: () => tabsOf(slots),
+    subscribe: (fn: () => void) => slots.subscribe('conversation.view', fn),
+    version: () => slots.getVersion('conversation.view'),
+  }
+  const useInput = bindSnapshotSelector(createSnapshotStore({ draft: '', draftRev: 0, phase: 'plain', queue: [] })) as never
+  const inputActions = { setDraft: vi.fn(), submit: vi.fn() }
   // Minimal outlet twin: resolve the ring entry by the `only` filter and
   // render it with the session standard kit (what SlotOutlet does for a
   // list-kind session slot, minus machinery).
@@ -222,27 +228,39 @@ function mount(slots: SlotsService, nodes: ConversationSnapshot['nodes'] = NODES
     )
   }) as unknown as ConversationSessionProps['renderSlot']
   return render(
-    <ConversationSession
-      sessionId={SID}
-      t={tConversation}
-      SessionProvider={({ children }) => children(SID)}
-      useSession={useSession}
-      useSessions={emptySessions()}
-      useWorkspaces={emptyWorkspaces()}
-      useProjection={(() => undefined)}
-      useStore={bindSnapshotSelector(chat)}
-      actions={chat.actions}
-      renderSlot={renderSlot}
-      views={{
-        list: () => tabsOf(slots),
-        subscribe: (fn: () => void) => slots.subscribe('conversation.view', fn),
-        version: () => slots.getVersion('conversation.view'),
-      }}
-      useInput={bindSnapshotSelector(createSnapshotStore({ draft: '', draftRev: 0, phase: 'plain', queue: [] })) as never}
-      inputActions={{ setDraft: vi.fn(), submit: vi.fn() }}
-      bindDraftMirror={() => () => {}}
-      open={vi.fn()}
-    />,
+    <>
+      <ConversationSessionHeader
+        sessionId={SID}
+        SessionProvider={({ children }) => children(SID)}
+        useSession={useSession}
+        useSessions={emptySessions()}
+        useWorkspaces={emptyWorkspaces()}
+        useProjection={(() => undefined)}
+        useStore={bindSnapshotSelector(chat)}
+        actions={chat.actions}
+        renderSlot={() => null}
+        views={views}
+        useInput={useInput}
+        inputActions={inputActions}
+        open={vi.fn()}
+        t={tConversation}
+      />
+      <ConversationSession
+        sessionId={SID}
+        SessionProvider={({ children }) => children(SID)}
+        useSession={useSession}
+        useSessions={emptySessions()}
+        useWorkspaces={emptyWorkspaces()}
+        useProjection={(() => undefined)}
+        useStore={bindSnapshotSelector(chat)}
+        actions={chat.actions}
+        renderSlot={renderSlot}
+        views={views}
+        useInput={useInput}
+        inputActions={inputActions}
+        bindDraftMirror={() => () => {}}
+      />
+    </>,
   )
 }
 

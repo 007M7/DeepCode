@@ -66,7 +66,7 @@ function internalError(detail: string): RequestError {
   return RequestError.internalError(undefined, detail)
 }
 
-/** Plugin config: the provider/model target used for each ACP-created agent. */
+/** Plugin config: the provider/model selection used for each ACP-created agent. */
 export interface AcpConfig {
   /** Provider route for created agents. */
   provider?: string
@@ -100,7 +100,7 @@ interface SessionRecord {
 /**
  * Mount the automation-only ACP server.
  * @param ctx - Cordis context carrying the agent factory and session events.
- * @param config - Initial provider/model target and optional test transport.
+ * @param config - Initial provider/model selection and optional test transport.
  */
 export function apply(ctx: Context, config: AcpConfig): void {
   // ACP handlers execute outside this plugin's injection scope, so capture the
@@ -184,13 +184,13 @@ export function apply(ctx: Context, config: AcpConfig): void {
     }
   })
 
-  ctx.on('agent/inbox/claimed', (agent, { message, turn }) => {
+  ctx.on('agent/inbox/claimed', ({ agent, message, turn }) => {
     const record = ownedRecord(agent)
     const inflight = record?.inflight
     if (inflight !== undefined && inflight.messageId === message.id) inflight.turn = turn
   })
 
-  ctx.on('agent/error', (agent, turn, _step, error) => {
+  ctx.on('agent/error', ({ agent, turn, error }) => {
     const record = ownedRecord(agent)
     const inflight = record?.inflight
     if (record === undefined || inflight === undefined || inflight.turn === turn) return

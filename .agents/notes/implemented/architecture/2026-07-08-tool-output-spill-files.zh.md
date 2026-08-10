@@ -10,7 +10,7 @@ Status: implemented
 
 这项改动之前的行为并不一致。`dsh-bash-local` 已经会在内存尾部溢出时，把完整 stdout／stderr 流写入私有的临时落盘文件；普通文本工具结果则仍以内联形式返回，除非工具自行实现上限。[工具结果保留库](2026-07-06-tool-result-retention-library.md)负责预览机制，但不负责存储，也不负责把这些机制应用于最终工具结果的执行流水线策略。
 
-其形态与超时策略设计一致：工具作者声明规范值与 Native renderer（原生渲染器），由策略插件在渲染后的内容上执行部署默认的上下文预算。工具仍可在提供方采集上限处提前落盘；由工具负责的展示落盘可以保留已完整采集的规范值，而只替换展示内容。[规范工具输出契约](2026-07-20-canonical-tool-output-contract.md)规定了这项区分。
+其形态与超时策略设计一致：工具作者声明规范值与 Native renderer（原生渲染器），由策略插件在渲染后的内容上执行部署默认的上下文预算。工具仍可在提供方采集上限处提前落盘；由工具负责的展示落盘可以保留已完整采集的规范值，而只替换展示内容。[规范工具输出约定](2026-07-20-canonical-tool-output-contract.md)规定了这项区分。
 
 ## 决策
 
@@ -22,7 +22,7 @@ Status: implemented
 | `@deepseek-ai/dsh-spill-local` | 本地后端：在宿主文件系统中提供私有、会话作用域的文件存储。 |
 | `@deepseek-ai/dsh-spill-policy` | 工具结果策略插件：包装分发后的最终文本结果，并以保留预览和落盘定位符替换超大结果。 |
 
-系统不增加专用的面向模型消费方包。消费方是现有 `ctx.tools` 执行流水线：`dsh-spill-policy` 通过 `tools/post-execute` waterfall（瀑布式事件）使用最终工具结果，模型则按照后端随定位符返回的检索提示读取内容。
+系统不增加专用的面向模型 Consumer 包。Consumer 是现有 `ctx.tools` 执行流水线：`dsh-spill-policy` 通过 `tools/post-execute` waterfall（瀑布式事件）使用最终工具结果，模型则按照后端随定位符返回的检索提示读取内容。
 
 ### 落盘 seam
 
@@ -164,7 +164,7 @@ ctx.tools.register(defineTool({
 
 ## 测试
 
-- `dsh-spill` 单元测试锁定 seam 契约：注册为 `ctx.spillStore`、每个上下文只允许一种实现，并在 dispose（资源释放）时释放。
+- `dsh-spill` 单元测试锁定 seam 约定：注册为 `ctx.spillStore`、每个上下文只允许一种实现，并在 dispose（资源释放）时释放。
 - `dsh-spill-local` 单元测试覆盖 `saveText`、`encodeSegment` 清理（分隔符／波浪号／完整路径段的点／空值）、会话哈希目录、仅所有者权限、每次保存生成不同路径、配置根目录／私有根目录，以及存储失败时的拒绝。
 - `dsh-spill-policy` 单元测试通过 `ctx.tools.execute` 驱动真实工具：禁用模式下无操作、替换超大文本、小结果／非文本结果保持不变、跳过 `read`、尽力回退（保存失败／无后端／无所有者），以及下游组合（限制已替换结果、保留 `additionalContexts`）。
 - `dsh-tool-web` 集成测试驱动 `web_fetch`，其实际执行路径经过 `ctx.tools.execute`，并使用真实的 `spill-local` 后端与策略；测试证明只有刻意加入的落盘提示会改变模型可见文本，而落盘文件保存完整的格式化结果。

@@ -82,8 +82,7 @@ function liveAgent(
 }
 
 const api = (ctx: Context) => createApiProxy(ctx, {
-  provider: 'default-provider',
-  model: 'default-model',
+  defaultModelSelection: () => ({ provider: 'default-provider', model: 'default-model' }),
   cwd: '/tmp',
   workspaceRoot: '/tmp',
 })
@@ -255,7 +254,7 @@ describe('sessions.fork', () => {
     await ctx.fiber.dispose()
   })
 
-  it('installs the latest logged model target before the child can run', async () => {
+  it('installs the latest logged model selection before the child can run', async () => {
     const ctx = await composed()
     const source = liveAgent(ctx, 'session-routed', 1)
     source.append('request/header', {
@@ -280,7 +279,7 @@ describe('sessions.fork', () => {
     })
     const fallback: LlmCallConfig = { provider: 'default-provider', model: 'default-model' }
     await expect(agentEvents(child.ctx, child).waterfall(
-      'agent/request', 1, 0, new AbortController().signal, () => Promise.resolve(fallback),
+      'agent/request', { turn: 1, step: 0, signal: new AbortController().signal }, () => Promise.resolve(fallback),
     )).resolves.toMatchObject({
       provider: 'inherited-provider',
       model: 'inherited-model',

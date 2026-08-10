@@ -2,11 +2,11 @@
 
 [English](README.md) | 中文
 
-注册在 `ctx.bash` 执行器 seam 之上的模型可见 `pwsh` 工具。面向由 PowerShell 执行器（如 `@deepseek-ai/dsh-pwsh-local`）支撑 `ctx.bash` 的 Windows 组合；工具契约是 PowerShell 方言：原生 `C:\...` 路径与 `$env:NAME` 变量。行为与 `dsh-tool-bash` 逐调用对齐、减去 sandbox 面——通过通用任务运行时执行前台与 `run_in_background`、通过共享 `bash-env` 注册表管理 `DSH_*` 环境、以及 bash 的 marker/截断渲染故事（干净退出不产生 marker）。
+注册在 `ctx.bash` 执行器 seam 之上的模型可见 `pwsh` 工具。面向由 PowerShell 执行器（如 `@deepseek-ai/dsh-pwsh-local`）支撑 `ctx.bash` 的 Windows 组合；工具约定是 PowerShell 方言：原生 `C:\...` 路径与 `$env:NAME` 变量。行为与 `dsh-tool-bash` 逐调用对齐——通过通用任务运行时执行前台与 `run_in_background`、通过共享 `bash-env` 注册表管理 `DSH_*` 环境、sandbox 拒绝渲染与同轮次 `sandbox_permissions` 升级面、以及 bash 的 marker/截断渲染故事（干净退出不产生 marker）。
 
 需要已加载的执行器实现与 `bash-env` 插件；两者都存在前工具保持 pending（`inject: ['tools', 'bash', 'systemPrompt', 'bashEnv']`）。
 
-包根只导出 Cordis 插件契约（`name`、`inject`、`Config`、`apply`）；结果渲染（`src/render.ts`）与后台任务适配（`src/background.ts`）镜像 bash 工具的结构，并可通过包的 `./src/*` 导出访问。
+包根只导出 Cordis 插件约定（`name`、`inject`、`Config`、`apply`）；结果渲染（`src/render.ts`）与后台任务适配（`src/background.ts`）镜像 bash 工具的结构，并可通过包的 `./src/*` 导出访问。
 
 插件还贡献 `tool:pwsh` prompt section（order 105）：非零退出以 `[exit code: N]` marker 报告，Windows 上的中断以无 signal 的 exit 1 结算。
 
@@ -21,6 +21,8 @@
 | `timeoutMs` | number | 超时覆盖值（毫秒）。执行器应用其配置的默认值与上限。 |
 | `workdir` | string | 本次调用的工作目录。默认取调用 agent（智能体）的会话 cwd（`session.header.cwd`），使每个会话在自己的工作区运行；相对 `workdir` 基于同一身份解析。 |
 | `run_in_background` | boolean | 立即返回 task id；不适用超时。 |
+| `sandbox_permissions` | string enum | 仅当已挂载 sandbox 执行器时才会公开（`ctx.bash.sandboxMode` 已定义）。用于对刚被 sandbox 拒绝的命令做一次性重试的更宽 sandbox 模式——取刚好足够的最窄更宽模式，要求 `justification` 并在执行**之前**经 `ctx.approval` 获得用户批准。未拓宽或无法获批的请求 fail-closed，不运行任何内容。 |
+| `justification` | string | 必须与 `sandbox_permissions` 一同提供：用一句话向用户解释为何正是这条命令需要更宽的访问。 |
 
 `command`、`workdir` 与 `timeoutMs` 在执行前经 `ctx.bash.resolve()` 按执行器配置默认值解析。workdir 默认值在工具层于 `resolve()` 之前从调用 agent 的 `session.header.cwd` 取得——每次会话的 cwd 必须来自 `exec.agent`，因为 N 个会话共享一个执行器；仅当没有会话 cwd 时执行器才回退到自己的配置 / `process.cwd()`。
 
@@ -28,9 +30,9 @@
 
 每次前台与后台模型 pwsh 调用都会通过共享的 [`dsh-bash-env`](../bash-env/) 注册表收到一份新收集的受信任 `DSH_*` 环境：`DSH_HOME`（Harness 主目录绝对路径）、`DSH_SHELL=1`、agent 的 `DSH_SESSION_ID`，以及活跃持久化后端定位到 JSONL 时的 `DSH_SESSION_JSONL`。向 `ctx.bashEnv` 贡献 `DSH_*` 事实的插件对 pwsh 调用与 bash 调用一视同仁。快照通过专用的 `BashExecRequest.dshEnv` 通道传递；`process.env` 永不被修改。描述只教授通用的 `$env:DSH_*` 约定，而不是点名持久化相关的变量。
 
-结果文本包含 stdout、可选的 `[stderr]` 段，然后是适用的截断、超时、signal 与退出 marker。干净退出（0、无 signal）不产生 marker；空体渲染为 `(no output)`。截断会链接一个安全的完整 spill 文件，或报告其不可用。超时独立于最终退出状态报告；非零退出仍是模型解读的结果而非 `isError`。Windows 上强制终止以无 signal 的 exit 1 结算，因此 `[killed by signal: …]` 在那里仅存在于 POSIX。只有基础设施失败——spawn 错误与中止（`tool call aborted`）——产生 `isError`。
+结果文本包含 stdout、可选的 `[stderr]` 段，然后是适用的截断、sandbox 拒绝（组合公开升级能力时带同轮次升级提示）、超时、signal 与退出 marker。干净退出（0、无 signal）不产生 marker；空体渲染为 `(no output)`。截断会链接一个安全的完整 spill 文件，或报告其不可用。超时独立于最终退出状态报告；非零退出仍是模型解读的结果而非 `isError`。Windows 上强制终止以无 signal 的 exit 1 结算，因此 `[killed by signal: …]` 在那里仅存在于 POSIX。只有基础设施失败——spawn 错误与中止（`tool call aborted`）——产生 `isError`。
 
-规范成功形态是已完成前台进程的 `{ kind: 'foreground', ...BashRunResult }` 或已发布任务的 `{ kind: 'background', taskId }`。渲染器对后台 ack 精确保留 `started background task <id>`；编程消费者使用类型化字段而不解析渲染文本。
+规范成功形态是已完成前台进程的 `{ kind: 'foreground', ...BashRunResult }`（存在时投影执行器的 `sandbox` 事实——`mode`/`denied`、可选的 `enforcement`/`runnerFailed`）或已发布任务的 `{ kind: 'background', taskId }`。渲染器对后台 ack 精确保留 `started background task <id>`；编程消费者使用类型化字段而不解析渲染文本。
 
 当 `run_in_background` 为 true 时，本插件在 spawn 前预检 `ctx.tasks.start()`，把调用 agent 注册为 owner，并将返回的 `BashProcess` 句柄适配为通用的 cancel/done/增量输出钩子。任务运行时拥有 id、跨会话隔离、完成通知、等待与清理；本插件只把 pwsh 退出事实映射进任务输出与结果明细。`enableRunInBackground: false` 会移除参数并在执行时拒绝强制的后台调用。
 
@@ -78,7 +80,7 @@ Non-zero exits are reported as `[exit code: N]` markers; investigate failures be
 
 #### What the model sees
 
-渲染器输出数据相关的 stdout 尾部，然后是可选的 `[stderr]` 与 stderr 尾部。条件行精确为 `[output truncated; full output: <path>]`、`[timed out after <timeoutMs>ms]`、`[killed by signal: <signal>]` 与 `[exit code: <exitCode>]`（仅非零退出）；空体渲染为 `(no output)`。
+渲染器输出数据相关的 stdout 尾部，然后是可选的 `[stderr]` 与 stderr 尾部。条件行精确为 `[output truncated; full output: <path>]`、`[sandbox: file access denied under <mode> mode]` 加升级提示 `[sandbox: escalation available — …]`（仅当组合公开升级能力时）、`[timed out after <timeoutMs>ms]`、`[killed by signal: <signal>]` 与 `[exit code: <exitCode>]`（仅非零退出）；空体渲染为 `(no output)`。
 
 #### Token effect
 
@@ -106,7 +108,7 @@ ack 是固定短行；任务输出按读取有界。
 
 #### What the model sees
 
-校验与基础设施失败规范化为 `Error: <message>`。本包的稳定消息包括 `invalid command: expected a non-empty string`、`invalid description: expected a non-empty string`、`invalid timeoutMs: expected a positive number, got <value>`、`run_in_background is disabled for this deployment (enableRunInBackground: false)`、`background tasks unavailable: load @deepseek-ai/dsh-tasks and @deepseek-ai/dsh-tool-tasks` 与 `tool call aborted`。
+校验与基础设施失败规范化为 `Error: <message>`。本包的稳定消息包括 `invalid command: expected a non-empty string`、`invalid description: expected a non-empty string`、`invalid timeoutMs: expected a positive number, got <value>`、`invalid escalation: sandbox_permissions requires a justification`、`invalid escalation: justification is only valid together with sandbox_permissions`、`invalid justification: expected a non-empty sentence`、`sandbox_permissions is not available in this composition (no sandboxing executor to escalate)`、共享的升级失败（非严格更宽、无审批服务、无 agent 可路由、无审批通道、用户拒绝、已取消）、`run_in_background is disabled for this deployment (enableRunInBackground: false)`、`background tasks unavailable: load @deepseek-ai/dsh-tasks and @deepseek-ai/dsh-tool-tasks` 与 `tool call aborted`。
 
 #### Token effect
 
@@ -118,7 +120,7 @@ ack 是固定短行；任务输出按读取有界。
 
 ## Known Limitations and Deferred Work
 
-- **无 sandbox 升级** — 没有 `sandbox_permissions`/`justification`；升级等待 Windows-confining 执行器（bash 工具的 sandbox 面不被镜像）。
+- **Windows sandbox 下的 ConstrainedLanguage 与 named-pipe 捕获** — 当 [Windows ACL sandbox](../../sandbox/sandbox-windows-acl/README.md) 隔离某次调用（read-only 或 workspace-write）时，受限令牌使 pwsh 进入 ConstrainedLanguage 模式：`Add-Type`、非核心 .NET 静态调用（`[System.IO.*]::`、`[math]::`）、COM 对象与反射都会以“only core types”错误失败，且该模式无法从内部解除。这两种模式同样会拒绝 named-pipe 打开，因此受限命令内的管道 stdio spawn 以 EPERM 失败。工具描述把这两个约定教给模型；后端 README 负责完整的限制说明。
 - **无持久 shell 或 PTY** — 每次调用都启动全新的 `pwsh -Command`；PTY 后端目前仅限 Linux/macOS，Windows ConPTY 持久 shell 属于路线图工作。
-- **PowerShell 方言契约** — 模型必须写 PowerShell（原生路径、`$env:` 变量），而不是 bash；没有方言翻译。
-- **会话 cwd 身份不做规范化** — workdir 基座直接取会话头 cwd 原值，不同于 bash 工具经 sandbox-root 规范化的身份；此处只涉及无 sandbox 场景。
+- **PowerShell 方言约定** — 模型必须写 PowerShell（原生路径、`$env:` 变量），而不是 bash；没有方言翻译。
+- **会话 cwd 身份不做规范化** — workdir 基座直接取会话头 cwd 原值，不同于 bash 工具经 sandbox-root 规范化的身份。在隔离执行器下，策略的工作区根**会**被规范化（由共享的策略服务完成），因此当原始会话 cwd 与其规范化形态不同时，workdir 与隔离根可能不一致——这一 parity 差距留待共享 shell 工具基座提取时解决。

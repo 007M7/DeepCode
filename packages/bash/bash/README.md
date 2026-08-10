@@ -2,18 +2,18 @@
 
 English | [中文](README.zh.md)
 
-The **bash executor seam**: an abstract `BashExecutor` service (`ctx.bash`) defining WHAT a bash backend does — run foreground commands and start background processes — without saying HOW. Task ids, ownership, collection, cancellation, and notices belong to the generic `ctx.tasks` runtime.
+The **`BashExecutor`** (`ctx.bash`) defines WHAT a bash backend does — run foreground commands and start background processes — without saying HOW. Task ids, ownership, collection, cancellation, and notices belong to the generic `ctx.tasks` runtime.
 
-This package is the interface quarter of the bash capability, split so each concern can evolve (and be swapped) independently:
+This package owns the Service Definition role of the bash capability, split so each role can evolve (and be swapped) independently:
 
 | Package | Role |
 |---|---|
-| `@deepseek-ai/dsh-bash` (this) | the interface: abstract service + vocabulary types |
-| `@deepseek-ai/dsh-bash-local` | an implementation: local subprocesses |
-| `@deepseek-ai/dsh-bash-sandbox` | an implementation: `dsh-bash-local`'s mechanics with every spawn confined via [`ctx.sandbox`](../../sandbox/sandbox/), denials reported as result facts |
+| `@deepseek-ai/dsh-bash` (this) | Service Definition: abstract service + vocabulary types |
+| `@deepseek-ai/dsh-bash-local` | Service provider: local subprocesses |
+| `@deepseek-ai/dsh-bash-sandbox` | Service provider: `dsh-bash-local`'s mechanics with every spawn confined via [`ctx.sandbox`](../../sandbox/sandbox/), denials reported as result facts |
 | `@deepseek-ai/dsh-tool-bash` | the model-facing tool schemas over `ctx.bash` |
 
-The split mirrors the LLM seam (`LlmService`/`LlmAdapter`) and the agent-tool survey: pi hides execution behind a `BashOperations` interface (local shell / SSH / VM backends), Codex behind an exec-server protocol. `dsh-bash-sandbox` is exactly that swap in action — a sandboxing executor behind the same interface; the consumer detects its `sandboxMode` capability and adds escalation fields without importing the implementation. A containerized or remote executor slots in the same way.
+The split is a standard capability seam ([capability-seams Agent Note](../../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md)): `dsh-bash-sandbox` is a sandboxing executor behind the same Service Definition — the Consumer detects its `sandboxMode` capability and adds escalation fields without importing the provider — and a containerized or remote executor slots in the same way.
 
 ## Service API (`ctx.bash`)
 
@@ -31,11 +31,11 @@ Implementations subclass `BashExecutor` and implement the abstract methods. Disp
 
 `BashExecRequest` (command, workdir?, timeoutMs?, stdoutMaxBytes?, signal?, stdin?, env?, dshEnv?, sandboxPolicy?) resolves to `BashExecSpec` (command, workdir, timeoutMs, stdoutMaxBytes, signal?, stdin?, env?, dshEnv?, sandboxPolicy) before execution. `stdoutMaxBytes` is a trusted foreground-run capture budget for consumers that must parse complete bounded stdout; the model-facing bash tool does not expose it. `sandboxPolicy` is optional on the request and required-but-nullable on the resolved spec: it carries the complete per-call mode and workspace root. The sandbox tool path resolves it from the calling session through `ctx.sandboxPolicy`; a direct sandbox-executor caller falls back to deployment policy, while a non-sandboxing executor carries the field and confines nothing.
 
-The per-session sandbox-mode override vocabulary (the `'sandbox/mode'` event, the `effectiveSandboxMode(events)` fold, and the `setSandboxMode(session, mode)` write path) is NOT here — it is policy state shared by every enforcing family, owned by [`@deepseek-ai/dsh-sandbox-policy`](../../sandbox/sandbox-policy/). `run()` returns `BashRunResult`; `start()` returns `BashProcess`, whose incremental read and kill methods are adapted by `dsh-tool-bash` into a generic task registration. A sandboxing executor stamps `BashSandboxInfo` on foreground results and settled process handles. See `src/types.ts` and [core-data-structures/bash.md](../../../docs/core-data-structures/bash.md).
+The per-session sandbox-mode override vocabulary (the `'sandbox/mode'` event, the `effectiveSandboxMode(events)` fold, and the `setSandboxMode(session, mode)` write path) is NOT here — it is policy state shared by every enforcing family, owned by [`@deepseek-ai/dsh-sandbox-policy`](../../sandbox/sandbox-policy/). `run()` returns `BashRunResult`; `start()` returns `BashProcess`, whose incremental read and kill methods are adapted by `dsh-tool-bash` into a generic task registration. A sandboxing executor stamps `BashSandboxInfo` on foreground results and settled process handles. See `src/types.ts` and [subsystems/bash.md](../../../docs/subsystems/bash.md).
 
 `stdin` and ordinary `env` are set by in-process plugins (the hooks bridges, native plugins) to feed a hook command its JSON payload and `CLAUDE_PROJECT_DIR`/`CLAUDE_PLUGIN_ROOT` values. `dshEnv` is a separate trusted overlay restricted by type to managed keys; the exported `DSH_ENV_PREFIX` is the single source for that namespace, its `DshEnvironmentKey` template type, executor scrubbing, registry validation, derived built-in names, and model guidance. Model bash uses the current snapshot collected by `ctx.bashEnv`. Implementations remove inherited managed keys, then merge `dshEnv` after ordinary `env`, so an omitted current fact cannot fall back to stale ambient state and an `env` entry cannot displace a managed value. The model-facing tool exposes none of these as parameters. All three remain optional on the resolved spec; absent means no input/overlay. See [the bash-stdin-env Agent Note](../../../.agents/notes/implemented/architecture/2026-06-30-bash-stdin-env-trusted-plugin-surface.md) and [the session environment Agent Note](../../../.agents/notes/implemented/feature/2026-07-10-agent-session-identity-and-log-location.md).
 
-The exported `parseExitStatus` (with `ParsedExitStatus`) is the shared rendering contract half of the shell tools: the inverse of the `[exit code: N]` / `[killed by signal: X]` markers `dsh-tool-bash`'s `renderResult` and `dsh-tool-pwsh`'s `renderPwshResult` append. Both tools' `presentResult` use it to split the rendered text into the terminal card's output body and its exit-status pill; it lives on the seam so the two tools never drift on the marker contract.
+The exported `parseExitStatus` (with `ParsedExitStatus`) is the shared rendering contract half of the shell tools: the inverse of the `[exit code: N]` / `[killed by signal: X]` markers `dsh-tool-bash`'s `renderResult` and `dsh-tool-pwsh`'s `renderPwshResult` append. Both tools' `presentResult` use it to split the rendered text into the terminal card's output body and its exit-status pill; it lives with the Service Definition so the two tools never drift on the marker contract.
 
 ## Model Experience
 

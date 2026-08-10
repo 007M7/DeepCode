@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-SDK 提供方会在全新的子进程中把每个 subagent 作为完整的 DeepSeek Harness 运行时运行，并经由 [TypeScript SDK 客户端](../../sdk/sdk-client/README.md) 通过 stdio JSON-RPC 驱动。它是 [`subagent-acp`](../subagent-acp/README.md) 之外的第二个进程外后端，差异在协议格式（wire format）和子进程契约：ACP（Agent Client Protocol）后端能驱动任何 Agent Client Protocol agent（智能体）；本后端专门驱动 harness SDK 运行时（`dsh-jsonrpc-agent` bin 或打包后的可执行文件），因此子进程是一个完整的对等 harness，拥有由 `cordis.yml` 决定的组合、会话持久化、模型路由和工具。
+SDK 提供方会在全新的子进程中把每个 subagent 作为完整的 DeepSeek Harness 运行时运行，并经由 [TypeScript SDK 客户端](../../scaffold/client/README.md) 通过 stdio JSON-RPC 驱动。它是 [`subagent-acp`](../subagent-acp/README.md) 之外的第二个进程外后端，差异在协议格式（wire format）和子进程约定：ACP（Agent Client Protocol）后端能驱动任何 Agent Client Protocol agent（智能体）；本后端专门驱动 harness SDK 运行时（`dsh-jsonrpc-agent` bin 或打包后的可执行文件），因此子进程是一个完整的对等 harness，拥有由 `cordis.yml` 决定的组合、会话持久化、模型路由和工具。
 
 ## 启动与所有权
 
@@ -16,7 +16,7 @@ SDK 提供方会在全新的子进程中把每个 subagent 作为完整的 DeepS
 
 ## 停止原因映射
 
-SDK 客户端返回自有子活动，而不是提示词结果。提供方读取该活动内最后一个持久 `turn/end`，并将其映射为 seam 词汇：`completed` → `completed`，`max-tokens` → `max-tokens`，`aborted` → `aborted`；其余情况，包括 `error`、`interrupted`、`disposed`、未来变体或不含轮次的活动，均映射为 `error`，因此非正常停止绝不会报告为成功。发布后的传输层失败会通过 `onError` 诊断接收器（连接到 `ctx.logger.warn`）压平为 `stopReason: 'error'`；seam 契约禁止 `result` 被拒绝。
+SDK 客户端返回自有子活动，而不是提示词结果。提供方读取该活动内最后一个已持久化的 `turn/end`，并将其映射为 seam 词汇：`completed` → `completed`，`max-tokens` → `max-tokens`，`aborted` → `aborted`；其余情况，包括 `error`、`interrupted`、`disposed`、未来变体或不含轮次的活动，均映射为 `error`，因此非正常停止绝不会报告为成功。发布后的传输层失败会通过 `onError` 诊断接收器（连接到 `ctx.logger.warn`）压平为 `stopReason: 'error'`；seam 约定禁止 `result` 被拒绝。
 
 ## 能力与上下文
 

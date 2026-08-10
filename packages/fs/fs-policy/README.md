@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-The **fs-policy plugin**: it adds observed-state, read-before-edit, and version-guarded write/edit on top of the `ctx.fs` provider seam ([`@deepseek-ai/dsh-fs`](../fs)) — through the `fs/*` event gate, **NOT** through a method service. This plugin registers **no** `ctx.fsPolicy` service and has no public `read`/`write`/`edit`/`resolve` methods. It is the policy third of the filesystem stack: not a swappable seam, but the policy that does not belong on the `FileSystem` provider base class.
+The **fs-policy plugin**: it records observed presence or absence and adds read-before-edit plus guarded write/edit on top of the `ctx.fs` provider contract ([`@deepseek-ai/dsh-fs`](../fs)) — through the `fs/*` event gate, **NOT** through a method service. This plugin registers **no** `ctx.fsPolicy` service and has no public `read`/`write`/`edit`/`resolve` methods. It is the policy third of the filesystem stack: not a swappable seam, but the policy that does not belong on the `FileSystem` provider base class.
 
 ```ts
 import type { Context } from 'cordis'
@@ -24,7 +24,7 @@ await ctx.plugin(FsPolicy)
 |---|---|---|
 | tool / executor | `@deepseek-ai/dsh-tool-fs` | model-facing schemas + read windowing + text rendering; reads/writes/edits via `ctx.fs`, dispatches the `fs/*` events |
 | policy | `@deepseek-ai/dsh-fs-policy` (this) | observed-state + read-before-edit + version-guarded write/edit, contributed through the `fs/*` event gate (no service) |
-| provider seam | `@deepseek-ai/dsh-fs` | `ctx.fs`: text IO + atomic mutation primitives (optional version guard); owns the `fs/*` event vocabulary |
+| provider contract | `@deepseek-ai/dsh-fs` | `ctx.fs`: text IO + atomic mutation primitives (optional version guard); owns the `fs/*` event vocabulary |
 | provider | `@deepseek-ai/dsh-fs-local` | local implementation of `ctx.fs` |
 
 ## How the gate participates
@@ -33,13 +33,13 @@ Three `fs/*` events (declared by `@deepseek-ai/dsh-fs`, dispatched by `@deepseek
 
 | Event | This plugin's listener |
 |---|---|
-| `fs/write-intent` | No prior observation → `{ kind: 'createIfAbsent' }`; a prior observation → `{ kind: 'replaceIfVersion', version: vObserved }`. Single-slot decision; does NOT call `next()`. |
-| `fs/edit-intent` | Requires a prior observation by this owner (else throws `FS_NOT_OBSERVED`); returns `{ version: vObserved }` as the CAS basis. Single-slot decision; does NOT call `next()`. |
-| `fs/observed` | Records `{ version }` for this owner+target. Synchronous, side-effect-only `WeakMap.set`. |
+| `fs/write-intent` | Unseen or observed absent → `{ kind: 'createIfAbsent' }`; observed present → `{ kind: 'replaceIfVersion', version: vObserved }`. Single-slot decision; does NOT call `next()`. |
+| `fs/edit-intent` | Unseen → `FS_NOT_OBSERVED`; observed absent → `FS_NOT_FOUND`; observed present → `{ version: vObserved }` as the CAS basis. Single-slot decision; does NOT call `next()`. |
+| `fs/observed` | Records `{ kind: 'present', version }` or `{ kind: 'absent' }` for this owner+target. Synchronous, side-effect-only `WeakMap.set`. |
 
 ## Observed state is the prior-observation record; freshness is provider CAS
 
-Observed state is a weak owner-to-target version map updated after every successful read or mutation; presence alone is the prior-observation record. The plugin performs no filesystem I/O: it supplies the observed version to the provider's atomic mutation guard. A windowed read observes the whole file version, so a later targeted edit is allowed only while that file remains unchanged. State is discarded on plugin disposal and is not persisted across sessions.
+Observed state is a weak owner-to-target map with three logical states: unseen, confirmed absent, or present at a version. A successful file read or mutation records presence; a metadata miss from `read` or the `str_replace_editor` `view`, `str_replace`, or `insert` command records absence before returning `FS_NOT_FOUND`. The plugin performs no filesystem I/O: it converts that state into a provider guard. Presence supplies the observed version, while absence lets only a `createIfAbsent` write proceed; edit has no version basis and returns `FS_NOT_FOUND`. A windowed read observes the whole file version, so a later targeted edit is allowed only while that file remains unchanged. State is discarded on plugin disposal and is not persisted across sessions.
 
 ## Single-slot, first-wins
 
@@ -55,7 +55,7 @@ Because the plugin influences the world only through events, removing it does no
 
 #### What the model sees
 
-This plugin adds no prompt or schema. It rejects an edit without a prior read with code `FS_NOT_OBSERVED` and exact message `edit requires reading "<path>" first`. Guarded mutations whose observed version is stale propagate the provider-owned `FS_STALE_VERSION` error. [`dsh-tool-fs`](../tool-fs/README.md) owns the model-facing error wrapper; observation state is never shown.
+This plugin adds no prompt or schema. It rejects an edit without a prior observation with code `FS_NOT_OBSERVED` and exact message `edit requires reading "<path>" first`; editing a target just observed absent returns `FS_NOT_FOUND`. Guarded mutations whose positive observation is stale propagate the provider-owned `FS_STALE_VERSION` error. [`dsh-tool-fs`](../tool-fs/README.md) owns the model-facing error wrapper, which appends the recovery instruction to `FS_STALE_VERSION` (`— re-read the file, then retry`) and `FS_NOT_OBSERVED` (`— read the file, then retry`) messages while preserving the code. Following the stale remedy on an externally deleted target now records absence: the next guarded write may recreate it with `createIfAbsent`, while the provider atomically preserves any concurrent creator.
 
 #### Token effect
 

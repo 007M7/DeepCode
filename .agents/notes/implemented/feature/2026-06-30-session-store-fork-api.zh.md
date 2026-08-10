@@ -36,7 +36,7 @@ Host 通过 agent（智能体）注册表，以选定的种子和谱系创建子
 
 ## 曾考虑的替代方案
 
-**独立的 `ctx.sessionFork` 服务。** 这是最初的实现，但评审表明它过度套用了能力 seam 模式。代码没有可替换的后端、没有额外的事件面、没有独立的所有权生命周期，也没有超出 `ctx.sessions.create({ seed, meta })` 的持久化行为。保留独立包会迫使调用方为了在会话存储原语之上执行一层策略而去发现并安装第二个服务。
+**独立的 `ctx.sessionFork` 服务。** 较早的一版迭代曾把它作为独立服务交付；它过度套用了能力 seam 模式。代码没有可替换的后端、没有额外的事件面、没有独立的所有权生命周期，也没有超出 `ctx.sessions.create({ seed, meta })` 的持久化行为。保留独立包会迫使调用方为了在会话存储原语之上执行一层策略而去发现并安装第二个服务。
 
 **两个函数：`snapshot()` 加 `fork()`。** 这保留了一个可复用的种子／元数据计算，但唯一支持的消费方会立即创建会话。它还使接口看起来比用户实际需要的具体操作更抽象。单一的 `fork()` 加显式 `boundary` 使 API 保持直接，同时仍支持对先前时间点的 fork。
 
@@ -46,4 +46,4 @@ Host 通过 agent（智能体）注册表，以选定的种子和谱系创建子
 
 公开接口保持精简且易于发现：活跃会话分支是 `ctx.sessions` 的一部分，紧邻 `create({ seed })`，而非一个独立服务或一对两步辅助函数。持久化继续通过现有的 `session/created` 和 `session/flush` 行为运作：fork 出的子会话创建时便带有种子事件，因此现有后端只需持久化该种子一次，并在 header 中保存 `parentSession`／`seedLength`。
 
-v1 范围仍然排除 ACP（Agent Client Protocol） `session/fork`、对未加载的已持久化会话的 fork、面向模型的工具，以及 subagent 重构。如果未来添加 ACP 方法，应在具备协议与快照覆盖后才声明支持该能力；本 Agent Note 不添加任何 ACP 协议行为，因此不需要 ACP 快照。fork 子会话的回放仍由现有的[种子边界测试 Agent Note](../testing/2026-06-22-fork-child-replay-seed-boundary.md) 覆盖；store、Host、载体与客户端的专项测试固定边界和对账契约，真实 Chromium 场景则固定组装后的消息操作与谱系树。
+v1 范围仍然排除 ACP（Agent Client Protocol） `session/fork`、对未加载的已持久化会话的 fork、面向模型的工具，以及 subagent 重构。如果未来添加 ACP 方法，应在具备协议与快照覆盖后才声明支持该能力；本 Agent Note 不添加任何 ACP 协议行为，因此不需要 ACP 快照。fork 子会话的回放仍由现有的[种子边界测试 Agent Note](../testing/2026-06-22-fork-child-replay-seed-boundary.md) 覆盖；store、Host、载体与客户端的专项测试固定边界和对账约定，真实 Chromium 场景则固定组装后的消息操作与谱系树。

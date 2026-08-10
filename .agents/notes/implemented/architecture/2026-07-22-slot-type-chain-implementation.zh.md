@@ -55,7 +55,7 @@ ctx.slots.register({
 
 第四种 `SlotKind`——`'chain'`——把路由权相对 `keyed` 反转：keyed 的分派现场以 `entryKey` 点选占用 slot 的 entry，chain 则由 entry 自荐——owner 只分派一套格式统一的 owner props，永远不知道谁来接管，新的接管包注册进来 owner 零改动。chain 注册携带一个 `select` 纯选择器（`ChainSelect<O, M>`：`(owner) => matched | null`）与可选的 `priority`（升序；同值保持注册序 = 装配序——部署可控的 inject 拓扑——复用 list `order` 的同一稳定排序）；注册缺 `select` 即上文装载即炸情形之一。渲染时 outlet 按链序依次执行各 select：首个非 null 返回值当选，该值以 `matched` 并入组件 props（组件绝不自行重新推导匹配）；返回 `null` 则轮到下一个 entry；全 null 则渲染 owner 的 fallback 体（`ChainRenderOpts`）。
 
-「不接」的判定住在 `select` 里，绝不在挂载后的组件里自探 props：组件为了渲染 null 也得先挂载，其 hook 与 effect 全部白跑，随之而来的挂载/卸载抖动还会破坏 memo 化与 React key 语义；而选择器是纯函数——可单测、零挂载副作用——与「presentation methods are pure functions of `args`」是同一条纪律。纯，就是选择器的契约：不读外部可变状态、不产副作用，路由判定因此完全是 owner props 的函数，每次分派都可安全执行。选择器只做路由，绝不创建新对象——按分派逐次构造对象会让引用每次渲染都换新；把匹配值包成更丰富的面这件事，发生在当选组件内部（以 `matched` 为依赖的 `useMemo`）。
+「不接」的判定住在 `select` 里，绝不在挂载后的组件里自探 props：组件为了渲染 null 也得先挂载，其 hook 与 effect 全部白跑，随之而来的挂载/卸载抖动还会破坏 memo 化与 React key 语义；而选择器是纯函数——可单测、零挂载副作用——与「presentation methods are pure functions of `args`」是同一条纪律。纯，就是选择器的约定：不读外部可变状态、不产副作用，路由判定因此完全是 owner props 的函数，每次分派都可安全执行。选择器只做路由，绝不创建新对象——按分派逐次构造对象会让引用每次渲染都换新；把匹配值包成更丰富的面这件事，发生在当选组件内部（以 `matched` 为依赖的 `useMemo`）。
 
 类型链上，chain entry 的 SlotMap 形状是 `{ kind: 'chain'; scope; owner }`，`owner` 即链的货币；`M`——`matched` prop 的类型——从 select 返回值推导（选择器收窄 union 成员时，`matched` 类型自动随之收窄），且组件位不参与 `M` 的推断，与钉住 inject 份额的 NoInfer 裁定同源（见下文裁定）。owner 侧，`renderSlotChain(key, owner, { fallback })` 与 `renderSlot` 同住 `PropsRenderSlots` 份额，其键域静态收窄到本 entry children 声明中 chain kind 的键（`ChainKeysOf`）；分派现场只有一行，不含任何自有的派生或路由逻辑。
 
@@ -88,11 +88,11 @@ inject 工厂只接收其声明所授权的形参——session slot 获得 `sess
 
 hook 只许框架造：`useSession`、`useSessions`、`useWorkspaces`、`useStore`、`renderSlot` 五席，加上 provide 贡献与 inject `hooks` 格绑出的 hook——全部出自渲染器同一台绑定机械；业务代码在父子组件之间只传普通数据与回调（组件自用、不订阅任何外部数据源的行为 hook 不在此限）。活数据恰有三条通道：父知道的，作为 owner props 在 renderSlot 现场传入；只有组件自己知道的，是本地 state；需要跨 entry 共享或跨重挂载存活的，是声明的 store。派生是对框架 hook 数据做纯函数（`useMemo`），绝不自成一路订阅。
 
-### 树上语境与渲染器安装缝
+### 树上语境与渲染器约定
 
 `SessionProvider` 是框架组件，**以标配 slot 形式送达**：`children` 里声明了 session scope slot 的 entry 经 prop 收到它（类型住 ui-slots，值由渲染器注入）——组件永不对它做值 import。它框架自接线（内部自读 runtime 的当前会话状态，装配方零传参），render-prop 形——`children(sessionId)` 外加 `empty` 分支，以 `key={sessionId}` 重挂。`BindingContext` 属机械内部；业务组件可见的 React Context 为零。inject 工厂有意在 outlet 内部执行（per-entry 错误边界接得住它们；崩溃的注册方只黑掉自己那一格，装配错误则重抛）；outlet 将树上下文作为仅供框架机制使用的隐式参数读取——即「身份出自 register 闭包、现场出自树位置」的分工。
 
-渲染位于一个 install seam 之后，因此 runtime 不依赖 React：`SlotRenderer`（接口住 ui-slots，实现 `createSlotRenderer()` 住 web-react）在壳 boot 时经 `ctx.slots.install(...)` 安装一次；双重安装与安装前渲染均 throw。归属记账是服务里的单一 `Map<key, entry>`——账本、slot、贡献、渲染绑定、store 实例全部沿同一条 entry 轴生灭，跨插件重载的陈旧权威窗口由此在构造上关闭（已 dispose 的 entry 所捕获的 `renderSlot`，一进入口即抛陈旧授权（stale-authorization）错误）。
+渲染位于一份安装约定之后，因此 runtime 不依赖 React：`SlotRenderer`（接口住 ui-slots，实现 `createSlotRenderer()` 住 web-react）在壳 boot 时经 `ctx.slots.install(...)` 安装一次；双重安装与安装前渲染均 throw。归属记账是服务里的单一 `Map<key, entry>`——账本、slot、贡献、渲染绑定、store 实例全部沿同一条 entry 轴生灭，跨插件重载的陈旧权威窗口由此在构造上关闭（已 dispose 的 entry 所捕获的 `renderSlot`，一进入口即抛陈旧授权（stale-authorization）错误）。
 
 ### 类型链实现裁定
 
@@ -117,5 +117,5 @@ register 签名里的两条硬化裁定之所以存在，是因为显然的替�
 | 模块级 store 句柄 | 模块级句柄是跨插件重载与跨测试用例的单例；工厂形把身份圈定在单次 apply/测试调用内 |
 | 组件直收 store 实例 | 渲染代码里能用 `update`/`set`，变更面就无从审计；声明的 actions 让「什么能变」保持为 register 现场的事实 |
 | 注册位用 `FC` / 从组件推断 `I` | FC 静态位产生协变噪音、拒绝合法组件；组件侧推断静默吸收 props 漂移（见上文裁定） |
-| 接管 slot 用 keyed 分派 + owner 侧路由 | owner 会不断攒下逐 entry 契约与硬编码路由表（每种接管一份 `find` + `entryKey`）；chain 货币让新增接管注册保持 owner 零改动 |
+| 接管 slot 用 keyed 分派 + owner 侧路由 | owner 会不断攒下逐 entry 约定与硬编码路由表（每种接管一份 `find` + `entryKey`）；chain 货币让新增接管注册保持 owner 零改动 |
 | 组件靠渲染 null 表示不接 | 不接也得先挂载——hook 与 effect 白跑，挂载/卸载抖动破坏 memo 化与 key 语义；纯选择器无需组件实例即可裁决 |

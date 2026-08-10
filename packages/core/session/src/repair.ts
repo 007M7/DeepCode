@@ -47,7 +47,7 @@ export function interruptedTurnClosers(events: readonly SessionEvent[]): Session
   let openTurn: number | null = null
   let openStep: number | null = null
   // Reset at each turn boundary so earlier calls cannot leak into tail repair.
-  // Assistant blocks register calls; later tool/call events add provenance seqs.
+  // Assistant blocks register calls; later `tool/call` events add their seqs to `sourceEventSeqs`.
   const pendingCalls = new Map<CallId, { step: number; callSeq?: number }>()
   for (const event of events) {
     switch (event.type) {
@@ -76,7 +76,7 @@ export function interruptedTurnClosers(events: readonly SessionEvent[]): Session
         }
         break
       case 'tool/call':
-        // Add the tool/call seq used as provenance on a synthetic result.
+        // Cite the `tool/call` seq from the synthetic result.
         {
           const entry = pendingCalls.get(event.data.callId)
           if (entry) {

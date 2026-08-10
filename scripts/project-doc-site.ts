@@ -5,15 +5,17 @@
  * tier, while this adapter rewrites cross-source links for the public site.
  */
 
-import { existsSync, lstatSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { dirname, extname, posix, relative, resolve, sep } from 'node:path'
+import {
+  copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync,
+} from 'node:fs'
+import { basename, dirname, extname, posix, relative, resolve, sep } from 'node:path'
 import { fromMarkdown } from 'mdast-util-from-markdown'
 import { gfmFromMarkdown } from 'mdast-util-gfm'
 import { gfm } from 'micromark-extension-gfm'
 import type { Nodes } from 'mdast'
 import { docsPages, type DocsLocale, type DocsPage } from '../website/docs.ts'
 
-const REPOSITORY_URL = 'https://github.com/deepseek-harness/deepseek-harness'
+const REPOSITORY_URL = 'https://github.com/deepseek-ai/deepseek-harness-sdk'
 const root = resolve(import.meta.dirname, '..')
 const generatedRoot = resolve(root, 'website/.generated')
 
@@ -38,6 +40,15 @@ export interface RewriteMarkdownOptions {
   pages: DocsPage[]
   repoRoot: string
   repositoryRef: string
+  /**
+   * Place one referenced image beside the projected page and return the URL to
+   * reach it from that page. A GitHub raw URL cannot serve this repository —
+   * `raw.githubusercontent.com` answers 404 for a private one, and no reader of
+   * the site is authenticated to it — so an image travels into the generated
+   * tree and Vite bundles it like any other site asset. Omitted by callers that
+   * only rewrite text, which then leave images pointing at the repository.
+   */
+  placeImage?: (absPath: string) => string
 }
 
 function repoPath(absPath: string, repoRoot: string): string {
@@ -120,6 +131,12 @@ function destinationRange(rawNode: string, type: 'link' | 'image' | 'definition'
   return { start, end: rawNode.length }
 }
 
+// `#fragment` suffixes pass through verbatim. Generated cordis-surface
+// headings carry explicit `<a id>` anchors with the GitHub slug, so those
+// fragments resolve on the published site too; hand-written headings rely on
+// VitePress's own slugger, which differs from GitHub's for punctuation-heavy
+// text — hand-authored cross-page fragments should prefer plain-text headings
+// or explicit anchors.
 function splitTarget(url: string): { path: string; suffix: string } {
   const boundary = url.search(/[?#]/)
   if (boundary === -1) return { path: url, suffix: '' }
@@ -192,7 +209,7 @@ function githubTarget(
   image: boolean,
 ): string {
   const path = repoPath(absPath, repoRoot)
-  if (image) return `https://raw.githubusercontent.com/deepseek-harness/deepseek-harness/${repositoryRef}/${path}${suffix}`
+  if (image) return `https://raw.githubusercontent.com/deepseek-ai/deepseek-harness-sdk/${repositoryRef}/${path}${suffix}`
   const kind = lstatSync(absPath).isDirectory() ? 'tree' : 'blob'
   const lineSuffix = line === undefined ? suffix : `#L${line}`
   return `${REPOSITORY_URL}/${kind}/${repositoryRef}/${path}${lineSuffix}`
@@ -222,9 +239,13 @@ export function rewriteMarkdown(source: string, options: RewriteMarkdownOptions)
       ? options.locale === 'root' ? 'en' : 'root'
       : options.locale
     const page = published.get(targetPath)?.get(targetLocale)
-    const nextUrl = page === undefined
-      ? githubTarget(absPath, line, suffix, options.repositoryRef, options.repoRoot, node.type === 'image')
-      : routeTarget(options.route, page.route, suffix)
+    const nextUrl = page !== undefined
+      ? routeTarget(options.route, page.route, suffix)
+      : node.type === 'image' && options.placeImage !== undefined
+        // The suffix rides along exactly as the GitHub branch keeps it: an SVG
+        // view fragment or a Vite query changes what the reference means.
+        ? `${options.placeImage(absPath)}${suffix}`
+        : githubTarget(absPath, line, suffix, options.repositoryRef, options.repoRoot, node.type === 'image')
 
     const start = node.position?.start.offset
     const end = node.position?.end.offset
@@ -291,16 +312,77 @@ export function projectedPageContent(markdown: string, page: DocsPage): string {
   return markdown.slice(0, closing + closingDelimiter.length)
 }
 
-/** Canonical Markdown files watched by the local VitePress dev server. */
+/**
+ * The repository file one image reference resolves to, or `undefined` when the
+ * target is not a local file this build may publish.
+ * @param absPath - resolved image target.
+ * @param repoRoot - repository root every published image must stay inside.
+ * @returns the file's real path, or `undefined` when it must not be copied.
+ *
+ * Only a regular file whose real path stays inside the repository qualifies.
+ * Publication copies the bytes into the site, so a reference escaping the
+ * repository — `../../.ssh/id_rsa`, or a symlink pointing out of the tree —
+ * would put a build-machine file on the site; `existsSync` alone, which is all
+ * link resolution needs, does not answer that.
+ */
+export function publishableImage(absPath: string, repoRoot: string): string | undefined {
+  const real = realpathSync(absPath)
+  const inside = real === repoRoot || real.startsWith(`${repoRoot}${sep}`)
+  return inside && statSync(real).isFile() ? real : undefined
+}
+
+/** Every local image a published page references, resolved to its repository file. */
+function referencedImages(): string[] {
+  const found = new Set<string>()
+  for (const page of docsPages) {
+    const sourceAbs = resolve(root, page.source)
+    if (!existsSync(sourceAbs)) continue
+    rewriteMarkdown(readFileSync(sourceAbs, 'utf8'), {
+      sourcePath: page.source,
+      locale: page.locale,
+      route: page.route,
+      pages: docsPages,
+      repoRoot: root,
+      repositoryRef: 'master',
+      placeImage: (absPath) => {
+        const real = publishableImage(absPath, root)
+        if (real !== undefined) found.add(real)
+        return ''
+      },
+    })
+  }
+  return [...found]
+}
+
+/**
+ * Files watched by the local VitePress dev server: every canonical Markdown
+ * source, plus the images they publish. Without the images, replacing a
+ * screenshot leaves the previous copy in the generated tree until something
+ * touches the Markdown beside it.
+ */
 export function docsSourceFiles(): string[] {
-  return [...new Set(docsPages.map(page => resolve(root, page.source)))]
+  return [...new Set([...docsPages.map(page => resolve(root, page.source)), ...referencedImages()])]
 }
 
 /** Rebuild the disposable VitePress source tree from the publication manifest. */
 export function projectDocs(): void {
   const routes = new Set<string>()
+  /** Projected path to the repository file that claimed it, pages and images alike. */
+  const claimed = new Map<string, string>()
   const repositoryRef = process.env.GITHUB_SHA ?? 'master'
   rmSync(generatedRoot, { recursive: true, force: true })
+
+  /** Reserve one projected path, refusing a second source for it. */
+  const claim = (target: string, sourceAbs: string): void => {
+    const holder = claimed.get(target)
+    if (holder !== undefined && holder !== sourceAbs) {
+      throw new Error(
+        `project-doc-site: ${repoPath(sourceAbs, root)} and ${repoPath(holder, root)}`
+        + ` both project to ${relative(generatedRoot, target).split(sep).join('/')}.`,
+      )
+    }
+    claimed.set(target, sourceAbs)
+  }
 
   for (const page of docsPages) {
     if (routes.has(page.route)) throw new Error(`project-doc-site: duplicate route ${JSON.stringify(page.route)}.`)
@@ -310,6 +392,9 @@ export function projectDocs(): void {
       throw new Error(`project-doc-site: source ${JSON.stringify(page.source)} does not exist or is not a file.`)
     }
     const output = resolve(generatedRoot, page.route)
+    // Claimed before the images are placed: a page and an image landing on one
+    // path would otherwise overwrite each other in whichever order they ran.
+    claim(output, sourceAbs)
     mkdirSync(dirname(output), { recursive: true })
     const markdown = readFileSync(sourceAbs, 'utf8')
     const projected = rewriteMarkdown(markdown, {
@@ -319,6 +404,25 @@ export function projectDocs(): void {
       pages: docsPages,
       repoRoot: root,
       repositoryRef,
+      placeImage: (absPath) => {
+        const real = publishableImage(absPath, root)
+        if (real === undefined) {
+          throw new Error(
+            `project-doc-site: ${page.source} references image ${repoPath(absPath, root)},`
+            + ' which is not a regular file inside the repository.',
+          )
+        }
+        // Beside the page that references it, under its own basename: each
+        // locale's route tree gets its own copy, so one relative URL is correct
+        // from both.
+        const name = basename(real)
+        const target = resolve(dirname(output), name)
+        claim(target, real)
+        copyFileSync(real, target)
+        // Encoded because the destination is a Markdown inline target, where an
+        // unescaped space would end it early.
+        return `./${encodeURI(name)}`
+      },
     })
     writeFileSync(output, addProjectionFrontmatter(projectedPageContent(projected, page), page))
   }

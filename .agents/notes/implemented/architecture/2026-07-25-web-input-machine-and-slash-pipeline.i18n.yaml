@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-07-25-web-input-machine-and-slash-pipeline.md
-2026-07-25-web-input-machine-and-slash-pipeline.md: 977df6508e1a1cd54cf1ddb469a6bfb835f60071
-2026-07-25-web-input-machine-and-slash-pipeline.zh.md: f70065c8b356b2ed5ca6ab317fbdeb5177f058fa
+2026-07-25-web-input-machine-and-slash-pipeline.md: 1aca87530d4dcf1709f484cd471d8887c632f55b
+2026-07-25-web-input-machine-and-slash-pipeline.zh.md: 958b519e7f291033410b932ccca623d87954738d

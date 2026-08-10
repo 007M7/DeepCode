@@ -168,7 +168,7 @@ describe('createFixtureApi', () => {
     })
   })
 
-  it('serves grouped models and keeps a selected target for later history and fixture requests', async () => {
+  it('serves grouped models and keeps a selection for later history and fixture requests', async () => {
     const api = createFixtureApi()
     const sessionId = sid('fx-alpha')
     const catalog = await api.sessions.models(req({ sessionId }))
@@ -242,6 +242,10 @@ describe('createFixtureApi', () => {
     const times = events.slice(todoAt - 1, todoAt + 2).map(e => e.time)
     expect(times[0]).toBeLessThanOrEqual(times[1] ?? 0)
     expect(times[1]).toBeLessThanOrEqual(times[2] ?? 0)
+    // The sample is a parallel plan: this fixture chooses the parallel policy,
+    // so the surfaces fed from here face more than one active item.
+    const snapshot = events[todoAt] as { data: { todos: { status: string }[] } }
+    expect(snapshot.data.todos.filter(t => t.status === 'in_progress')).toHaveLength(2)
   })
 
   it('create adds a session and pushes host/session-added to open host streams', async () => {

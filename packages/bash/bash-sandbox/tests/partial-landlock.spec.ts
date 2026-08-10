@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import { LAUNCHER_FAILURE_EXIT } from 'node-addon-landlock-run'
+import { LAUNCHER_FAILURE_EXIT } from '@deepseek-ai/node-addon-landlock-run'
 import { SANDBOX_UNAVAILABLE, SandboxUnavailableError } from '@deepseek-ai/dsh-sandbox'
 import { LocalSandboxProvider } from '@deepseek-ai/dsh-sandbox-local'
 import { SandboxPolicyService } from '@deepseek-ai/dsh-sandbox-policy'
@@ -151,7 +151,7 @@ describe('partial Landlock runner-failure classification', () => {
 
     // Node/libuv may expose execve's ENOEXEC directly (Darwin) or retry a
     // no-shebang executable through /bin/sh (Linux). Neither path supplies the
-    // provenanced ENOENT/EACCES evidence required for runner attribution.
+    // ENOENT/EACCES with the exact failed executable path required for runner attribution.
     const foreground = await bash.run(bash.resolve(request)).catch((value: unknown) => value)
     expect(foreground).not.toBeInstanceOf(SandboxUnavailableError)
 

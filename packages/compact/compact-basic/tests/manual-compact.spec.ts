@@ -3,13 +3,14 @@ import { Context } from 'cordis'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import InvariantService from '@deepseek-ai/dsh-invariants'
+import { CommandId } from '@deepseek-ai/dsh-commands/brand'
 import * as SessionInvariant from '@deepseek-ai/dsh-session/invariant'
 import * as AgentInvariant from '@deepseek-ai/dsh-agent/invariant'
 import * as AgentLoopInvariant from '@deepseek-ai/dsh-agent-loop/invariant'
 import * as CompactInvariant from '@deepseek-ai/dsh-compact/invariant'
 import * as CompactBasicInvariant from '@deepseek-ai/dsh-compact-basic/invariant'
 import { BasicCompactService } from '@deepseek-ai/dsh-compact-basic'
-import { isCompactCheckpointSource, ManualCompactionError } from '@deepseek-ai/dsh-compact'
+import { CompactionId, isCompactCheckpointSource, ManualCompactionError } from '@deepseek-ai/dsh-compact'
 import type { CompactionResult } from '@deepseek-ai/dsh-compact'
 import {
   createAssistantMessage,
@@ -23,7 +24,7 @@ import type {
   StreamChunk,
   TokenUsage,
 } from '@deepseek-ai/dsh-llm'
-import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
+import SessionStore, { Session, SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import LlmService from '@deepseek-ai/dsh-llm'
 import TokenMeterService from '@deepseek-ai/dsh-token-meter'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -394,22 +395,35 @@ describe('compactNow transaction and failure classification', () => {
     const { compact, flushes } = detachedService()
     const session = closedConversation(2, 7)
     const agent = fakeAgent(session, () => () => undefined)
+    const commandId = CommandId('manual-compact-command')
 
-    const result = await compact.compactNow(agent, SIGNAL)
+    const result = await compact.compactNow(agent, SIGNAL, commandId)
 
     expect(result).not.toBeNull()
+    expect(result?.sourceCommandId).toBe(commandId)
     expect(flushes()).toBe(1)
     expect(session.events.filter(event => event.type === 'turn/start').at(-1)?.data.turn).toBe(7)
-    expect(session.events.findLast(event => event.type === 'compact/start')?.data)
-      .toEqual({ turn: null })
-    expect(session.events.findLast(event => event.type === 'compact/end')?.data)
-      .toEqual({ turn: null })
+    const start = session.events.findLast(event => event.type === 'compact/start')
+    const summaryEvent = session.events.findLast(event => event.type === 'compact/summary')
+    const checkpoint = session.events.findLast(
+      (event): event is SessionEvent<'user/message'> => event.type === 'user/message'
+        && isCompactCheckpointSource(event.data.source),
+    )
+    const end = session.events.findLast(event => event.type === 'compact/end')
+    const correlated = { compactionId: result?.compactionId, sourceCommandId: commandId }
+    expect(start?.data).toEqual({ ...correlated, turn: null })
+    expect(summaryEvent?.data.sourceCommandId).toBe(commandId)
+    expect(checkpoint?.data.source).toMatchObject(correlated)
+    expect(end?.data).toEqual({ ...correlated, turn: null })
   })
 
   it('reports a live unmatched bracket as busy without summarizing', async () => {
     const { compact } = detachedService()
     const session = closedConversation(2)
-    session.append('compact/start', { turn: null })
+    session.append('compact/start', {
+      compactionId: CompactionId('live-manual-compaction'),
+      turn: null,
+    })
     const agent = fakeAgent(session, () => () => undefined)
 
     const error = await rejection(() => compact.compactNow(agent, SIGNAL))
@@ -421,7 +435,10 @@ describe('compactNow transaction and failure classification', () => {
   it('ignores an unmatched bracket inherited before a later end-seed marker', async () => {
     const { compact } = detachedService()
     const original = closedConversation(2)
-    original.append('compact/start', { turn: null })
+    original.append('compact/start', {
+      compactionId: CompactionId('stale-manual-compaction'),
+      turn: null,
+    })
     const reloaded = Session.create(SessionId('stale-orphan'), [...original.events])
     const boundary = reloaded.events.findLast(event => event.type === 'session/end-seed')
     const orphan = reloaded.events.find(event => event.type === 'compact/start')
@@ -435,7 +452,10 @@ describe('compactNow transaction and failure classification', () => {
   it('scans a stale orphan independently of later repaired turn state', async () => {
     const { compact } = detachedService()
     const original = closedConversation(2)
-    original.append('compact/start', { turn: null })
+    original.append('compact/start', {
+      compactionId: CompactionId('reloaded-manual-compaction'),
+      turn: null,
+    })
     original.append('turn/start', { turn: 3 })
     original.append('turn/end', { turn: 3, reason: { kind: 'interrupted' } })
     const reloaded = Session.create(SessionId('reloaded-orphan'), [...original.events])
@@ -618,7 +638,7 @@ describe('compactNow transaction and failure classification', () => {
     const agent = fakeAgent(session, () => () => { released += 1 })
     const append = session.append.bind(session)
     vi.spyOn(session, 'append').mockImplementation(((type: string, ...rest: never[]) => {
-      if (type === 'compact/summary') throw new Error('provenance rejected')
+      if (type === 'compact/summary') throw new Error('summary record rejected')
       return (append as (...args: never[]) => unknown)(type as never, ...rest)
     }) as never)
 
@@ -627,7 +647,7 @@ describe('compactNow transaction and failure classification', () => {
     expect(error.code).toBe('commit')
     expect(released).toBe(1)
     const end = session.events.findLast(event => event.type === 'compact/end')
-    expect(end?.type === 'compact/end' && end.data.error).toContain('provenance rejected')
+    expect(end?.type === 'compact/end' && end.data.error).toContain('summary record rejected')
     expect(end?.type === 'compact/end' && end.data.turn).toBeNull()
   })
 
@@ -637,14 +657,14 @@ describe('compactNow transaction and failure classification', () => {
     const agent = fakeAgent(session, () => () => undefined)
     const append = session.append.bind(session)
     vi.spyOn(session, 'append').mockImplementation(((type: string, ...rest: never[]) => {
-      if (type === 'compact/summary') throw new Error('provenance rejected')
+      if (type === 'compact/summary') throw new Error('summary record rejected')
       return (append as (...args: never[]) => unknown)(type as never, ...rest)
     }) as never)
     vi.spyOn(ctx.sessions, 'flush').mockRejectedValueOnce(new Error('disk full'))
 
     const error = await rejection(compact.compactNow(agent, SIGNAL))
     expect(error.code).toBe('commit')
-    expect(causeOf(error).message).toBe('provenance rejected')
+    expect(causeOf(error).message).toBe('summary record rejected')
     vi.restoreAllMocks()
   })
 
@@ -664,7 +684,7 @@ describe('compactNow transaction and failure classification', () => {
     expect(result).not.toBeNull()
     expect(session.events.some(event => event.type === 'turn/start')).toBe(false)
     expect(session.events.find(event => event.type === 'compact/start')?.data)
-      .toEqual({ turn: null })
+      .toEqual({ compactionId: result?.compactionId, turn: null })
   })
 
   it('classifies a durability failure after the standalone bracket committed', async () => {
@@ -676,8 +696,9 @@ describe('compactNow transaction and failure classification', () => {
     expect((await rejection(compact.compactNow(agent, SIGNAL))).code).toBe('persistence')
     vi.restoreAllMocks()
     expect(session.events.some(event => event.type === 'compact/summary')).toBe(true)
-    expect(session.events.findLast(event => event.type === 'compact/end')?.data)
-      .toEqual({ turn: null })
+    const start = session.events.findLast(event => event.type === 'compact/start')
+    const end = session.events.findLast(event => event.type === 'compact/end')
+    expect(end?.data).toEqual({ compactionId: start?.data.compactionId, turn: null })
   })
 
   it('lets a pre-aborted signal win before reservation, measurement, or summarization', async () => {

@@ -1,7 +1,8 @@
 /**
  * Agent skill provider registry.
  *
- * This package is the interface third of the skill capability seam. Concrete
+ * This package owns the Service Definition role of the skill capability seam.
+ * Concrete
  * providers such as `@deepseek-ai/dsh-skill-local` decide where skills come
  * from; this service only merges provider catalogs, resolves the winning skill
  * for a name, and exposes the winning summaries and definitions to consumers.
@@ -10,6 +11,9 @@
  */
 
 import { Context, Service } from 'cordis'
+import { assertNever } from '@deepseek-ai/dsh-llm'
+import { NamedEntries, ScopedLayers, scopeChainOf, scopeOf } from '@deepseek-ai/dsh-scope'
+import type { ScopeKey, ScopeLayer } from '@deepseek-ai/dsh-scope'
 import z from 'schemastery'
 import type Schema from 'schemastery'
 
@@ -18,6 +22,9 @@ const DEFAULT_COLLECT_CACHE_ENTRIES = 128
 const MAX_COLLECT_ATTEMPTS = 2
 const RUNTIME_PROVIDER = 'runtime'
 const RUNTIME_RANK = 250
+
+/** Standard precedence rank for packaged skill providers and local bundled roots. */
+export const BUNDLED_SKILL_RANK = 600
 
 /**
  * Return whether a string is a valid kebab-case skill name.
@@ -102,6 +109,17 @@ export interface SkillLookupOptions {
 }
 
 /**
+ * Registry read options: provider lookup context plus the viewing scope.
+ * The registry consumes `scope` to select layers; providers receive the same
+ * borrowed options object and read only their {@link SkillLookupOptions}
+ * contract from it.
+ */
+export interface SkillViewOptions extends SkillLookupOptions {
+  /** Viewing scope (the calling agent); omitted reads the global layer alone. */
+  readonly scope?: ScopeKey | undefined
+}
+
+/**
  * Return whether a skill may be advertised to and loaded by a model.
  * @param skill - skill metadata carrying resolved invocation controls.
  * @returns whether the policy permits model invocation.
@@ -117,6 +135,97 @@ export function isModelInvocable(skill: Pick<SkillSummary, 'invocation'>): boole
  */
 export function isUserInvocable(skill: Pick<SkillSummary, 'invocation'>): boolean {
   return skill.invocation.userInvocable
+}
+
+/**
+ * Durable source for the context message a user-explicit skill invocation
+ * injects: the user's own words ride a plain user message, and the rendered
+ * skill body follows as injected `instructions`-form context carrying this
+ * source, so transcript consumers present the injection from metadata
+ * instead of re-parsing the model-facing text.
+ */
+export interface SkillInvocationSource {
+  readonly kind: 'skill-invocation'
+  /** Invoked skill name, validated user-invocable at the injecting boundary. */
+  readonly name: string
+  /** Injected skill bodies are instructions for the model to follow. */
+  readonly form: 'instructions'
+}
+
+declare module '@deepseek-ai/dsh-llm' {
+  interface MessageSourceMap {
+    /** A user-explicit skill invocation injected by the host. */
+    'skill-invocation': SkillInvocationSource
+  }
+}
+
+/**
+ * Render one loaded skill for the model. The output is shared verbatim by the
+ * `skill` tool result and the user-explicit invocation injection, so the model
+ * sees one canonical `<skill_content>` shape on both paths. The name rides an
+ * escaped attribute; the body is embedded verbatim (skills are trusted local
+ * content, and user-supplied invocation text stays outside this wrapper).
+ * @param skill - name, provider, optional resource base, and body to render.
+ * @returns the complete model-facing `<skill_content>` block.
+ */
+export function renderSkillContent(skill: Pick<SkillDefinition, 'name' | 'provider' | 'resourceBase' | 'content'>): string {
+  const resourceHint = renderResourceHint(skill)
+  return [
+    `<skill_content name="${escapeAttr(skill.name)}">`,
+    '<skill_resources>',
+    ...resourceHint,
+    '</skill_resources>',
+    '',
+    '<skill_instructions>',
+    skill.content,
+    '</skill_instructions>',
+    '</skill_content>',
+  ].join('\n')
+}
+
+function renderResourceHint(skill: Pick<SkillDefinition, 'provider' | 'resourceBase'>): string[] {
+  const base = skill.resourceBase
+  if (base === undefined) {
+    return [
+      `Resources for this skill are managed by provider "${escapeText(skill.provider)}".`,
+      'Load referenced resources only as needed.',
+    ]
+  }
+  switch (base.kind) {
+    case 'directory':
+      return [
+        `Base directory for this skill: ${escapeText(base.path)}`,
+        'Resolve relative paths mentioned by this skill against the base directory before using them. Load referenced resources only as needed.',
+      ]
+    case 'url':
+      return [
+        `Base URL for this skill: ${escapeText(base.url)}`,
+        'Resolve relative URLs mentioned by this skill against the base URL before using them. Load referenced resources only as needed.',
+      ]
+    case 'opaque':
+      return [
+        `Resources for this skill: ${escapeText(base.description)}`,
+        'Load referenced resources only as needed.',
+      ]
+    /* v8 ignore start -- SkillResourceBase is a closed union; a future kind must fail compilation here. */
+    default:
+      return assertNever(base, 'SkillResourceBase.kind')
+    /* v8 ignore stop */
+  }
+}
+
+function escapeAttr(value: string): string {
+  return value.replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;')
+}
+
+/**
+ * Escape model-facing prose embedded inside skill markup so provider-supplied
+ * text cannot open or close framing tags.
+ * @param value - raw prose to embed.
+ * @returns the escaped text.
+ */
+export function escapeText(value: string): string {
+  return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
 }
 
 /** One catalog observation plus whether discovery completed within a stable catalog revision. */
@@ -194,17 +303,56 @@ interface IndexedCandidate {
   provider: SkillProvider
   providerOrder: number
   localOrder: number
+  /** Owning layer, so a stale-definition invalidation can verify the exact registration is still live. */
+  layer: SkillLayer
 }
 
-interface CollectResult {
+/** One provider registration retained by its layer. */
+interface RegisteredProvider {
+  provider: SkillProvider
+  /** Service-wide monotonic registration order, the within-layer rank tiebreak. */
+  order: number
+}
+
+interface LayerCollectResult {
   entries: IndexedCandidate[]
   cacheable: boolean
 }
 
+interface CollectResult {
+  entries: Map<string, IndexedCandidate>
+  cacheable: boolean
+}
+
+/** One scope's complete skill-registry contribution. */
+class SkillLayer implements ScopeLayer {
+  /** Providers registered through contexts carrying this scope, insertion-ordered. */
+  readonly providers: NamedEntries<RegisteredProvider>
+  /** Runtime skills registered through contexts carrying this scope. */
+  readonly runtime = new Map<string, SkillDefinition>()
+
+  constructor(scope: ScopeKey | undefined) {
+    this.providers = new NamedEntries(name => new Error(scope === undefined
+      ? `a skill provider named "${name}" is already registered`
+      : `a skill provider named "${name}" is already registered in this scope`))
+  }
+
+  /** Whether every contribution table in this aggregate layer is empty. */
+  isEmpty(): boolean {
+    return this.providers.isEmpty() && this.runtime.size === 0
+  }
+}
+
 /**
- * Registry of skill providers. It merges provider catalogs with stable
- * first-wins duplicate handling, exposes sorted invocation-neutral summaries, and
- * loads full skill bodies on demand.
+ * Layered registry of skill providers, the host+per-scope shape the tools
+ * registry established. A registration files into the layer of its calling
+ * context's scope ({@link scopeOf}): host rows and repository plugins land in
+ * the global layer, while a plugin mounted by an agent preset's standing
+ * composition lands in that preset's layer. A read merges the global layer
+ * with the viewing scope's chain — the nearest layer's entry wins a duplicate
+ * name outright, and the rank order decides duplicates only within one layer.
+ * It exposes sorted invocation-neutral summaries and loads full skill bodies
+ * on demand.
  */
 export class SkillService extends Service {
   static Config: Schema<Config> = z.object({
@@ -212,12 +360,16 @@ export class SkillService extends Service {
   })
 
   private readonly collectCacheMaxEntries: number
-  private readonly providers = new Map<string, { provider: SkillProvider; order: number }>()
-  private readonly runtime = new Map<string, SkillDefinition>()
-  private readonly collectCache = new Map<string, IndexedCandidate[]>()
-  private providerRevision = 0
+  private readonly layers = new ScopedLayers<SkillLayer>(
+    scope => new SkillLayer(scope),
+    () => { this.invalidateCache() },
+  )
+  private readonly collectCache = new Map<string, Map<string, IndexedCandidate>>()
+  private revision = 0
   private nextProviderOrder = 0
-  private runtimeRevision = 0
+  /** Stable identities for cache keys; scope keys are opaque identity-compared objects. */
+  private readonly scopeIds = new WeakMap<ScopeKey, number>()
+  private nextScopeId = 1
 
   constructor(ctx: Context, config: Config = {}) {
     super(ctx, 'skills')
@@ -226,21 +378,27 @@ export class SkillService extends Service {
   }
 
   /**
-   * Register a borrowed same-process provider synchronously during plugin apply. Duplicate and
-   * reserved names throw; remote initialization belongs in `list()`. Fiber disposal unregisters
-   * the provider and invalidates catalog caches.
+   * Register a borrowed same-process provider synchronously during plugin
+   * apply, into the calling context's layer: a scoped context (an agent
+   * preset's standing mount) registers for that scope alone, an unscoped
+   * context registers globally. Duplicate names within one layer and reserved
+   * names throw; remote initialization belongs in `list()`. Fiber disposal
+   * unregisters the provider and invalidates catalog caches.
    * @param create - synchronous factory receiving this registration's lifecycle and invalidation control.
    * @returns the exact Cordis effect disposer that unregisters this provider;
    *   composite effects may yield it directly to preserve teardown ordering.
    */
   registerProvider(create: (control: SkillProviderControl) => SkillProvider): () => void {
     const lifecycle = new AbortController()
-    let active = false
+    let registration: { layer: SkillLayer; name: string } | undefined
     let provider: SkillProvider
     const control: SkillProviderControl = {
       signal: lifecycle.signal,
       invalidate: () => {
-        if (active) this.invalidateProvider(provider)
+        const active = registration
+        if (active !== undefined && active.layer.providers.get(active.name)?.provider === provider) {
+          this.invalidateCache()
+        }
       },
     }
     try {
@@ -249,26 +407,21 @@ export class SkillService extends Service {
       if (name === RUNTIME_PROVIDER) {
         throw new Error(`"${RUNTIME_PROVIDER}" is reserved for runtime skill registrations`)
       }
-      if (this.providers.has(name)) {
-        throw new Error(`a skill provider named "${name}" is already registered`)
-      }
-      const providers = this.providers
       const order = this.nextProviderOrder
-      const invalidateCache = (): void => { this.invalidateCache() }
       this.nextProviderOrder += 1
-      const dispose = this.ctx.effect(function* () {
-        active = true
-        providers.set(name, { provider, order })
-        invalidateCache()
-        yield () => {
-          active = false
-          providers.delete(name)
-          lifecycle.abort(new Error(`skill provider "${name}" disposed`))
-          invalidateCache()
-        }
-      }, 'skills.registerProvider()')
-      // oxlint-disable-next-line typescript/no-misused-promises -- synchronous cleanup; preserve exact disposer identity
-      return dispose
+      return this.layers.effect(
+        this.ctx,
+        (layer) => {
+          const undo = layer.providers.insert(name, { provider, order })
+          registration = { layer, name }
+          return () => {
+            registration = undefined
+            undo()
+            lifecycle.abort(new Error(`skill provider "${name}" disposed`))
+          }
+        },
+        { label: 'skills.registerProvider()' },
+      )
     } catch (error) {
       lifecycle.abort(error)
       throw error
@@ -276,16 +429,19 @@ export class SkillService extends Service {
   }
 
   /**
-   * Register a borrowed readonly runtime skill. Project entries outrank runtime entries, which
-   * outrank user entries. Same-name runtime entries are first-wins; a duplicate logs a warning and
-   * receives a no-op disposer so it cannot remove the winner.
+   * Register a borrowed readonly runtime skill into the calling context's
+   * layer. Project entries outrank runtime entries, which outrank user
+   * entries, within one layer. Same-name runtime entries in one layer are
+   * first-wins; a duplicate logs a warning and receives a no-op disposer so
+   * it cannot remove the winner.
    * @param skill - the skill definition input; omitted invocation and provider fields receive defaults.
    * @returns the exact Cordis effect disposer, preserving composite teardown order and invalidating caches.
    */
   register(skill: SkillRegistration): () => void {
     validateRuntimeSkill(skill)
-    const existing = this.runtime.get(skill.name)
-    if (existing !== undefined) {
+    const scope = scopeOf(this.ctx)
+    const existingLayer = scope === undefined ? this.layers.global : this.layers.peek(scope)
+    if (existingLayer !== undefined && existingLayer.runtime.has(skill.name)) {
       this.ctx.logger.warn(`runtime skill "${skill.name}" ignored because it is already registered`)
       return () => {}
     }
@@ -294,21 +450,14 @@ export class SkillService extends Service {
       invocation: skill.invocation ?? { modelInvocable: true, userInvocable: true },
       provider: skill.provider ?? RUNTIME_PROVIDER,
     }
-    const runtime = this.runtime
-    const updateRevision = (): void => { this.runtimeRevision += 1 }
-    const invalidateCache = (): void => { this.invalidateCache() }
-    const dispose = this.ctx.effect(function* () {
-      runtime.set(definition.name, definition)
-      updateRevision()
-      invalidateCache()
-      yield () => {
-        runtime.delete(definition.name)
-        updateRevision()
-        invalidateCache()
-      }
-    }, 'skills.register()')
-    // oxlint-disable-next-line typescript/no-misused-promises -- synchronous cleanup; direct return preserves disposer identity
-    return dispose
+    return this.layers.effect(
+      this.ctx,
+      (layer) => {
+        layer.runtime.set(definition.name, definition)
+        return () => { layer.runtime.delete(definition.name) }
+      },
+      { label: 'skills.register()' },
+    )
   }
 
   /**
@@ -316,10 +465,10 @@ export class SkillService extends Service {
    * model or user invocation policy at their operational boundary. Lookup
    * options and provider candidates are readonly same-process values borrowed
    * throughout discovery.
-   * @param options - lookup options; `cwd` selects project roots and `signal` cancels discovery.
+   * @param options - view options; `scope` selects the viewing agent's layers, `cwd` selects project roots, and `signal` cancels discovery.
    * @returns all sorted winning summaries.
    */
-  async list(options: SkillLookupOptions = {}): Promise<SkillSummary[]> {
+  async list(options: SkillViewOptions = {}): Promise<SkillSummary[]> {
     return (await this.snapshot(options)).skills
   }
 
@@ -327,15 +476,14 @@ export class SkillService extends Service {
    * Observe the current invocation-neutral catalog and whether discovery completed within a stable revision.
    * Incomplete observations are never cached, allowing consumers to retain last-good state and
    * retry on their next request boundary.
-   * @param options - lookup options; `cwd` selects project roots and `signal` cancels discovery.
+   * @param options - view options; `scope` selects the viewing agent's layers, `cwd` selects project roots, and `signal` cancels discovery.
    * @returns sorted summaries plus discovery-completeness state.
    */
-  async snapshot(options: SkillLookupOptions = {}): Promise<SkillCatalogSnapshot> {
+  async snapshot(options: SkillViewOptions = {}): Promise<SkillCatalogSnapshot> {
     const collected = await this.collect(options)
     return {
-      skills: collected.entries
-        .map(entry => entry.candidate)
-        .map(toSummary)
+      skills: [...collected.entries.values()]
+        .map(entry => toSummary(entry.candidate))
         .sort(compareSkillSummary),
       complete: collected.cacheable,
     }
@@ -346,14 +494,15 @@ export class SkillService extends Service {
    * provider. Cancellation is rechecked after selection, including cache hits, and raced against
    * loading so an uncooperative provider cannot hang the caller.
    * @param name - kebab-case skill name.
-   * @param options - lookup options; `cwd` selects workspace-sensitive skills and `signal` cancels work.
+   * @param options - view options; `scope` selects the viewing agent's layers,
+   *   `cwd` selects workspace-sensitive skills, and `signal` cancels work.
    * @returns the full skill, including body content, or `undefined`.
    */
-  async get(name: string, options: SkillLookupOptions = {}): Promise<SkillDefinition | undefined> {
+  async get(name: string, options: SkillViewOptions = {}): Promise<SkillDefinition | undefined> {
     if (!isSkillName(name)) return undefined
     const collected = await this.collect(options)
     throwIfAborted(options.signal)
-    const match = collected.entries.find(entry => entry.candidate.name === name)
+    const match = collected.entries.get(name)
     if (match === undefined) return undefined
     const definition = await waitWithAbort(
       match.provider.get(match.candidate, options),
@@ -362,25 +511,27 @@ export class SkillService extends Service {
     if (definition === undefined) return undefined
     validateDefinition(definition)
     if (definition.name !== match.candidate.name) {
-      this.invalidateProvider(match.provider)
+      this.invalidateEntry(match)
       return undefined
     }
     return definition
   }
 
-  private async collect(options: SkillLookupOptions): Promise<CollectResult> {
+  private async collect(options: SkillViewOptions): Promise<CollectResult> {
     throwIfAborted(options.signal)
     let attempt = 1
     while (true) {
-      const providerRevision = this.providerRevision
-      const runtimeRevision = this.runtimeRevision
-      const key = collectCacheKey(options, providerRevision, runtimeRevision)
+      const revision = this.revision
+      // The chain is part of the key rather than assumed stable: a blank-session
+      // recompose re-parents an existing scope without touching this registry,
+      // and only a chain-bearing key makes the next read see the new preset.
+      const key = this.collectCacheKey(options.cwd, scopeChainOf(options.scope), revision)
       const cached = this.collectCache.get(key)
       if (cached !== undefined) return { entries: cached, cacheable: true }
 
       const result = await this.collectFresh(options)
       throwIfAborted(options.signal)
-      if (providerRevision !== this.providerRevision || runtimeRevision !== this.runtimeRevision) {
+      if (revision !== this.revision) {
         if (attempt < MAX_COLLECT_ATTEMPTS) {
           attempt += 1
           continue
@@ -398,8 +549,24 @@ export class SkillService extends Service {
     }
   }
 
-  private async collectFresh(options: SkillLookupOptions): Promise<CollectResult> {
-    const collected = await this.listAllCandidates(options)
+  private async collectFresh(options: SkillViewOptions): Promise<CollectResult> {
+    // Global first, then existing chain overlays farthest ancestor first and
+    // the exact scope last, so the nearest layer's same-name entry replaces
+    // the farther ones — the tools registry's shadowing rule. Rank decides
+    // duplicates only within one layer.
+    const layers = [this.layers.global, ...this.layers.chainLayers(options.scope)]
+    const merged = new Map<string, IndexedCandidate>()
+    let cacheable = true
+    for (const layer of layers) {
+      const collected = await this.collectLayer(layer, options)
+      if (!collected.cacheable) cacheable = false
+      for (const entry of collected.entries) merged.set(entry.candidate.name, entry)
+    }
+    return { entries: merged, cacheable }
+  }
+
+  private async collectLayer(layer: SkillLayer, options: SkillLookupOptions): Promise<LayerCollectResult> {
+    const collected = await this.listLayerCandidates(layer, options)
     collected.entries.sort(compareIndexedCandidates)
     const seen = new Set<string>()
     const result: IndexedCandidate[] = []
@@ -415,21 +582,22 @@ export class SkillService extends Service {
     return { entries: result, cacheable: collected.cacheable }
   }
 
-  private async listAllCandidates(options: SkillLookupOptions): Promise<CollectResult> {
+  private async listLayerCandidates(layer: SkillLayer, options: SkillLookupOptions): Promise<LayerCollectResult> {
     throwIfAborted(options.signal)
     const candidates: IndexedCandidate[] = []
     let cacheable = true
     let runtimeOrder = 0
-    for (const skill of [...this.runtime.values()].sort((a, b) => compareCodePoints(a.name, b.name))) {
+    for (const skill of [...layer.runtime.values()].sort((a, b) => compareCodePoints(a.name, b.name))) {
       candidates.push({
         candidate: runtimeCandidate(skill),
         provider: RUNTIME_SKILL_PROVIDER,
         providerOrder: -1,
         localOrder: runtimeOrder,
+        layer,
       })
       runtimeOrder += 1
     }
-    for (const { provider, order } of [...this.providers.values()]) {
+    for (const { provider, order } of [...layer.providers.values()]) {
       let localOrder = 0
       let output: unknown
       try {
@@ -444,7 +612,7 @@ export class SkillService extends Service {
       if (!observation.complete) cacheable = false
       for (const candidate of observation.candidates) {
         validateCandidate(candidate, provider.name)
-        candidates.push({ candidate, provider, providerOrder: order, localOrder })
+        candidates.push({ candidate, provider, providerOrder: order, localOrder, layer })
         localOrder += 1
       }
     }
@@ -452,14 +620,29 @@ export class SkillService extends Service {
   }
 
   private invalidateCache(): void {
-    this.providerRevision += 1
+    this.revision += 1
     this.collectCache.clear()
     this.notifyChange()
   }
 
-  private invalidateProvider(provider: SkillProvider): void {
+  /** Invalidate after a stale definition load, only while the exact registration that produced the entry is still live. */
+  private invalidateEntry(entry: IndexedCandidate): void {
     /* v8 ignore else -- A definition load can outlive the exact provider registration it selected. */
-    if (this.providers.get(provider.name)?.provider === provider) this.invalidateCache()
+    if (entry.layer.providers.get(entry.provider.name)?.provider === entry.provider) this.invalidateCache()
+  }
+
+  private scopeId(key: ScopeKey): number {
+    let id = this.scopeIds.get(key)
+    if (id === undefined) {
+      id = this.nextScopeId
+      this.nextScopeId += 1
+      this.scopeIds.set(key, id)
+    }
+    return id
+  }
+
+  private collectCacheKey(cwd: string | undefined, chain: ScopeKey[], revision: number): string {
+    return JSON.stringify({ cwd, scopes: chain.map(key => this.scopeId(key)), revision })
   }
 
   /** Notify catalog observers without making their refresh work load-bearing. */
@@ -631,10 +814,6 @@ function assertPositiveInteger(name: string, value: number, minimum = 1): void {
   if (!Number.isInteger(value) || value < minimum) {
     throw new Error(`skill: ${name} must be an integer greater than or equal to ${minimum}`)
   }
-}
-
-function collectCacheKey(options: SkillLookupOptions, providerRevision: number, runtimeRevision: number): string {
-  return JSON.stringify({ cwd: options.cwd, providerRevision, runtimeRevision })
 }
 
 function waitWithAbort<T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T> {

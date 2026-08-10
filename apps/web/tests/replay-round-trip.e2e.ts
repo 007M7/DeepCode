@@ -1,6 +1,6 @@
 // Web e2e scenario: fresh round trip. A real chromium types a prompt into the
 // real composer; the wire, apiproxy, agent loop, and the REAL bash tool (echo
-// in the temp workspace) all run; the model seam is dsh-llm-replay (keyless)
+// in the temp workspace) all run; the model adapter is dsh-llm-replay (keyless)
 // or the live adapter (record). Drive steps run in every mode and wait only
 // on generic completion (whenTurnSettled — never model-content selectors, so
 // record cannot hang on a live model answering differently); assertion steps

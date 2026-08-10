@@ -10,6 +10,7 @@ import type {
 // plugin-to-plugin value imports are a bundle purity error.
 import { transportError } from '@deepseek-ai/dsh-host-apiproxy/api'
 import { mergeOrderedBaseline } from '../ordered-baseline.ts'
+import type { ConversationRuntime } from './conversation-assembler.ts'
 import type { SessionListEntry, TitledSessionSummary } from './lineage.ts'
 import { flattenLineage } from './lineage.ts'
 import type { PendingInteractionStatus } from './pending.ts'
@@ -97,18 +98,26 @@ function questionInteractionStatus(
   return options.some(option => option.label === intent.approve) ? 'plan-review' : 'question'
 }
 
-/** Instance cluster + frame entry + the session list (see the web client architecture RFC). */
+/** Instance cluster + frame entry + the session list. */
 export class SessionManager {
   private readonly sessions = new Map<SessionId, Session>()
   /** Pre-instantiation buffer for answerable requests and the queued-turn snapshot, which history
    *  cannot reconstruct on open. Live requests remain until resolution; queue and replay duplicates
-   *  compact by identity. Instantiation replays and clears it, while removal drops it (audit S7). */
+   *  compact by identity. Instantiation replays and clears it, while removal drops it. */
   private readonly pendingBuffers = new Map<SessionId, RpcRequest<MuxFrame>[]>()
   /** Outstanding answerable interactions per session, keyed by their stable request identity.
    *  Manager-owned rather than read off Session instances because the sidebar must light up for
    *  sessions never instantiated. Cleared per connection generation — the reopen replay re-adds
    *  still-pending requests — and on session-removed. */
   private readonly pendingInteractions = new Map<SessionId, Map<string, PendingInteractionStatus>>()
+  /**
+   * Sessions that finished running while not selected — the sidebar's green
+   * "done" reminder (manager-owned, survives connection generations; cleared
+   * on select and session-removed, re-armed by the next completion).
+   */
+  private readonly completedNotifications = new Set<SessionId>()
+  /** Last-observed running bits per session; the true→false edge here arms {@link completedNotifications}. */
+  private readonly prevRunning = new Map<SessionId, boolean>()
   /** Per-session projection value stores, retained independently of instance arrival (the
    *  title-snapshot precedent, generalized): push frames land here whether or not the Session
    *  is instantiated (list rows read the 'title' key), and an instantiated Session adopts the
@@ -133,9 +142,9 @@ export class SessionManager {
   private selected: SessionId | undefined
 
   private listSnapshotCache: SessionListSnapshot
-  /** Entry-identity cache (§C.2 reference stability): list rebuilds reuse the previous entry
+  /** Entry-identity cache (reference stability): list rebuilds reuse the previous entry
    *  object when every field matches — wire refreshes mint all-new summary objects, so identity
-   *  must be recovered by value or every SessionListItem memo misses on every refresh (audit S5). */
+   *  must be recovered by value or every SessionListItem memo misses on every refresh. */
   private entryCache = new Map<SessionId, SessionListEntry>()
   private itemsCache: readonly SessionListEntry[] = []
   private readonly notifier = new Notifier(() => {
@@ -150,6 +159,7 @@ export class SessionManager {
     private readonly api: IApiClient,
     restoredSelection?: SessionId,
     restoredAddress?: SubagentAddress,
+    private readonly conversation?: ConversationRuntime,
   ) {
     this.selected = restoredSelection
     if (restoredAddress !== undefined) this.addresses.set(restoredAddress.childSessionId, restoredAddress)
@@ -175,6 +185,8 @@ export class SessionManager {
         : this.catalogs.get(address.parentSessionId)?.parentAvailable ?? false,
     )
     this.selected = sessionId
+    // Looking at the session consumes its completion reminder (dot clears).
+    this.completedNotifications.delete(sessionId)
     void this.refreshSubagents(sessionId)
     this.notifier.notifyNow()
   }
@@ -192,6 +204,7 @@ export class SessionManager {
     this.addresses.set(address.childSessionId, address)
     this.sessions.get(address.childSessionId)?.configureSubagent(address, catalog?.parentAvailable ?? false)
     this.selected = address.childSessionId
+    this.completedNotifications.delete(address.childSessionId)
     void this.refreshSubagents(address.childSessionId)
     this.notifier.notifyNow()
   }
@@ -231,7 +244,7 @@ export class SessionManager {
   // ---- Instance management ----
 
   /**
-   * Drop a session instance (scope-prune companion, decision 12: instance
+   * Drop a session instance (scope-prune companion: instance
    * and scope share one lifecycle). The host session log is the durable
    * truth — a later get() lazily rebuilds and open() backfills history.
    * @param sessionId - the session to drop.
@@ -271,7 +284,12 @@ export class SessionManager {
         const address = this.addresses.get(sessionId)
         const child = address === undefined ? undefined : this.catalogs.get(address.parentSessionId)?.entries
           .find(entry => entry.kind === 'child' && entry.id === sessionId)
-        if (child?.kind === 'child') session.handleRunning(child.activity === 'running')
+        if (child?.kind === 'child') {
+          // A catalogued child exists only after its delegated session has
+          // durable history, even though child rows do not carry `blank`.
+          session.handleBlank(false)
+          session.handleRunning(child.activity === 'running')
+        }
       }
     }
     return session
@@ -290,7 +308,13 @@ export class SessionManager {
         this.recordMutation({ kind: 'engaged', sessionId: engaged.sessionId })
       },
       projections: this.projectionStore(sessionId),
+      ...this.conversation === undefined ? {} : { conversation: this.conversation },
     })
+  }
+
+  /** Rebuild every resident Session after one coalesced registry transaction. */
+  rebuildConversationRegistry(): void {
+    for (const session of this.sessions.values()) session.rebuildConversationRegistry()
   }
 
   /** Resident per-session projection store (create-on-demand; outlives instantiation). */
@@ -414,13 +438,28 @@ export class SessionManager {
       try {
         const { result } = await this.api.sessions.list({})
         if (result.ok) {
-          let summaries = this.listPhase === 'pending'
+          const baseline = this.listPhase === 'pending'
             ? result.value.items
             : mergeOrderedBaseline(established, result.value.items, summary => summary.sessionId)
-          for (const mutation of mutations) summaries = applyMutation(summaries, mutation)
+          // Seed first observations from the pull-time baseline BEFORE replaying
+          // in-flight mutations, then reconcile the reminders after EVERY
+          // replayed mutation: an edge that happens entirely between mutations
+          // (baseline idle → running → idle) must still arm, which a single
+          // sync on the folded result would collapse away.
+          for (const s of baseline) {
+            if (!this.prevRunning.has(s.sessionId)) this.prevRunning.set(s.sessionId, s.running)
+          }
+          let summaries = baseline
+          for (const mutation of mutations) {
+            summaries = applyMutation(summaries, mutation)
+            this.summaries = summaries
+            this.syncCompletedNotifications()
+          }
           this.summaries = summaries
           this.listState = 'idle'
           this.listPhase = 'ready'
+          // Covers the empty-mutations pull (a plain baseline carries no edge).
+          this.syncCompletedNotifications()
           // Push running/blank bits down to instantiated Sessions (the list is the authoritative summary source).
           for (const s of this.summaries) {
             const session = this.sessions.get(s.sessionId)
@@ -497,6 +536,7 @@ export class SessionManager {
         this.recordMutation({ kind: 'upsert', summary: {
           sessionId: result.value.sessionId, updatedAt: Date.now(), running: false, blank: true,
           ...(opts.cwd !== undefined ? { cwd: opts.cwd } : {}),
+          ...(result.value.agentPreset !== undefined ? { agentPreset: result.value.agentPreset } : {}),
         } })
       } else {
         const publishedSessionId = workspaceAttachSessionId(result.error)
@@ -562,10 +602,23 @@ export class SessionManager {
     this.recordMutation({ kind: 'upsert', summary })
   }
 
+  /**
+   * Record a host-confirmed composition switch (see ISessions.noteAgentPreset).
+   * @param sessionId - the switched session.
+   * @param agentPreset - the preset id the host confirmed.
+   */
+  noteAgentPreset(sessionId: SessionId, agentPreset: string): void {
+    this.recordMutation({ kind: 'upsert', summary: {
+      sessionId, updatedAt: Date.now(), running: false, blank: true, agentPreset,
+    } })
+  }
+
   /** Apply immediately and retain for replay when a list response is in flight. */
   private recordMutation(mutation: SessionListMutation): void {
     this.listMutations?.push(mutation)
     this.summaries = applyMutation(this.summaries, mutation)
+    // Eager edge reconciliation — a snapshot-build-time pass would miss consecutive status frames.
+    this.syncCompletedNotifications()
     this.notifier.markDirty()
   }
 
@@ -715,6 +768,7 @@ export class SessionManager {
           ...(frame.parentSessionId !== undefined ? { parentSessionId: frame.parentSessionId } : {}),
           ...(frame.origin !== undefined ? { origin: frame.origin } : {}),
           ...(frame.cwd !== undefined ? { cwd: frame.cwd } : {}),
+          ...(frame.agentPreset !== undefined ? { agentPreset: frame.agentPreset } : {}),
         })
         this.sessions.get(frame.sessionId)?.handleBlank(frame.blank)
         if (frame.origin === 'subagent' && frame.parentSessionId !== undefined) {
@@ -724,6 +778,14 @@ export class SessionManager {
           && (this.selected === frame.parentSessionId || this.openCatalogs.has(frame.parentSessionId))) {
           this.scheduleCatalogRefresh(frame.parentSessionId)
         }
+        return
+      }
+      case 'host/session-preset-changed': {
+        // Every connected client observes the switch here; only the tab that
+        // issued it also gets the RPC echo. The merge keeps the row's own
+        // updatedAt and lowers `blank` only, so re-applying the switching
+        // tab's own frame is a no-op.
+        this.noteAgentPreset(frame.sessionId, frame.agentPreset)
         return
       }
       case 'host/session-removed': {
@@ -893,10 +955,42 @@ export class SessionManager {
     })
   }
 
+  /**
+   * Reconcile completion reminders against the latest summaries, eagerly after
+   * every mutation and pull (a snapshot-build-time pass would collapse
+   * consecutive status frames into one observation). A running→idle edge of a
+   * non-selected session arms its reminder; running disarms it; removal drops
+   * it. First observation only records the running bit — sessions already
+   * idle at load get no reminder.
+   */
+  private syncCompletedNotifications(): void {
+    const seen = new Set<SessionId>()
+    for (const s of this.summaries) {
+      seen.add(s.sessionId)
+      const prev = this.prevRunning.get(s.sessionId)
+      if (prev === undefined) {
+        this.prevRunning.set(s.sessionId, s.running)
+        continue
+      }
+      if (prev && !s.running) {
+        if (s.sessionId !== this.selected) this.completedNotifications.add(s.sessionId)
+      } else if (s.running) {
+        this.completedNotifications.delete(s.sessionId)
+      }
+      this.prevRunning.set(s.sessionId, s.running)
+    }
+    for (const id of this.prevRunning.keys()) {
+      if (!seen.has(id)) this.prevRunning.delete(id)
+    }
+    for (const id of this.completedNotifications) {
+      if (!seen.has(id)) this.completedNotifications.delete(id)
+    }
+  }
+
   private buildListSnapshot(): SessionListSnapshot {
     const merged: TitledSessionSummary[] = this.summaries.map((summary) => {
       // List rows read the generic 'title' projection key (host-computed unit
-      // value; the bespoke session/title frame is retired).
+      // value; there is no dedicated title frame).
       const projectionStore = this.projectionStores.get(summary.sessionId)
       const title = projectionStore?.get('title')
       const projectionValues = projectionStore?.values()
@@ -914,16 +1008,17 @@ export class SessionManager {
       const status = statuses.find(candidate => candidate !== 'approval') ?? statuses[0]
       if (status !== undefined) pendingInteractions.set(sessionId, status)
     }
-    const fresh = flattenLineage(merged, pendingInteractions)
+    const fresh = flattenLineage(merged, pendingInteractions, this.completedNotifications)
     const items = fresh.map((entry) => {
       const prev = this.entryCache.get(entry.sessionId)
       if (
         prev !== undefined && prev.updatedAt === entry.updatedAt && prev.running === entry.running
-        && prev.blank === entry.blank
+        && prev.blank === entry.blank && prev.agentPreset === entry.agentPreset
         && prev.parentSessionId === entry.parentSessionId && prev.cwd === entry.cwd
         && prev.origin === entry.origin && prev.title === entry.title && prev.depth === entry.depth
         && prev.pendingInteraction === entry.pendingInteraction
         && prev.projectionValues === entry.projectionValues
+        && prev.completed === entry.completed
       ) return prev
       this.entryCache.set(entry.sessionId, entry)
       return entry
@@ -966,15 +1061,21 @@ function applyMutation(summaries: readonly SessionSummary[], mutation: SessionLi
           ? { parentSessionId: mutation.summary.parentSessionId } : {}),
         ...(existing.origin === undefined && mutation.summary.origin !== undefined
           ? { origin: mutation.summary.origin } : {}),
+        // Newest wins, not fill-only: a blank-session preset switch replaces
+        // the creation-time value, and every producer of this field (the
+        // create echo, the select echo, a list row) reports the CURRENT one.
+        ...(mutation.summary.agentPreset !== undefined
+          ? { agentPreset: mutation.summary.agentPreset } : {}),
       }
       if (filled.cwd === existing.cwd && filled.parentSessionId === existing.parentSessionId
-        && filled.origin === existing.origin && filled.blank === existing.blank) return [...summaries]
+        && filled.origin === existing.origin && filled.blank === existing.blank
+        && filled.agentPreset === existing.agentPreset) return [...summaries]
       return summaries.map(summary => summary.sessionId === mutation.summary.sessionId ? filled : summary)
     }
     case 'remove':
       return summaries.filter(summary => summary.sessionId !== mutation.sessionId)
     case 'status':
-      // running:true doubles as the cross-端 blank flip (a blank session
+      // running:true doubles as the cross-client blank flip (a blank session
       // never runs, so the first running frame proves a message landed).
       return summaries.map(summary => summary.sessionId === mutation.sessionId
         && (summary.running !== mutation.running || (mutation.running && summary.blank))

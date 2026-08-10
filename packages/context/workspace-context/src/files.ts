@@ -15,10 +15,9 @@ import { trimmedInstructionDigest } from './digest.ts'
 import {
   decodeScopeKey,
   renderWorkspaceInstructionSet,
+  type RenderedWorkspaceContext,
   USER_GLOBAL_DIRECTORY,
   USER_GLOBAL_FILE,
-  type RenderedInstructionSet,
-  type RenderedWorkspaceContext,
 } from './render.ts'
 
 /** An instruction candidate identified by absolute and model-facing paths. */
@@ -53,14 +52,24 @@ interface DiscoverOptions {
   projectRootMarkers?: string[]
   instructionFileCandidates?: string[]
   localInstructionFileCandidates?: string[]
+  projectRoot?: string
   signal?: AbortSignal
 }
 
 interface LoadOptions extends DiscoverOptions {
   maxBytes: number
   maxSourceBytes?: number
+  replacePreviousBaseline?: boolean
 }
 
+/** Rendered baseline plus the successfully read and byte-budget-retained files. */
+export interface RenderedInstructionSet {
+  rendered: RenderedWorkspaceContext
+  /** Successfully read candidates before content deduplication and byte budgeting. */
+  observed: LoadedInstructionFile[]
+  /** Candidates retained by content deduplication and byte budgeting. */
+  included: LoadedInstructionFile[]
+}
 /** Tri-state scope probe that distinguishes confirmed absence from provider failure. */
 export type ScopeInstructionProbe =
   | { kind: 'present'; file: ProbedInstructionFile }
@@ -287,7 +296,8 @@ async function discoverInstructionFiles(
   }
 
   const cwd = resolve(options.cwd)
-  const projectRoot = await findProjectRoot(cwd, config.projectRootMarkers, fileSystem, options.signal)
+  const projectRoot = options.projectRoot
+    ?? await findProjectRoot(cwd, config.projectRootMarkers, fileSystem, options.signal)
   for (const dir of ancestorChain(projectRoot, cwd)) {
     for (const candidates of [config.instructionFileCandidates, config.localInstructionFileCandidates]) {
       for (const file of await allExistingInstructionFiles(dir, projectRoot, candidates, fileSystem, options.signal)) {
@@ -390,7 +400,7 @@ export async function loadBaselineInstructions(
  * Load a baseline together with the files retained after rendering.
  * @param options - discovery, source-size, byte-budget, and cancellation configuration.
  * @param fileSystem - optional provider used instead of host filesystem reads.
- * @returns rendered context and retained files, or undefined when empty or disabled.
+ * @returns rendered context and retained files, an explicit empty replacement set, or undefined when empty or disabled.
  */
 export async function loadBaselineInstructionSet(
   options: LoadOptions,
@@ -413,8 +423,29 @@ export async function loadBaselineInstructionSet(
     }
   }
   const deduped = dedupInstructionFilesByDirectory(loaded)
-  if (deduped.length === 0) return undefined
-  return renderWorkspaceInstructionSet(deduped, { maxBytes: config.maxBytes })
+  if (deduped.length === 0) {
+    if (options.replacePreviousBaseline !== true) return undefined
+    const { rendered, included } = renderWorkspaceInstructionSet([], {
+      maxBytes: config.maxBytes,
+      replacePreviousBaseline: true,
+    })
+    return {
+      rendered,
+      observed: [],
+      included,
+    }
+  }
+  const { rendered, included } = renderWorkspaceInstructionSet(deduped, {
+    maxBytes: config.maxBytes,
+    ...options.replacePreviousBaseline === undefined
+      ? {}
+      : { replacePreviousBaseline: options.replacePreviousBaseline },
+  })
+  return {
+    rendered,
+    observed: loaded,
+    included,
+  }
 }
 
 /**

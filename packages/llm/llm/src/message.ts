@@ -4,7 +4,7 @@ import { MessageId, type CallId } from './brand.ts'
 import { deepFreeze } from './call-config.ts'
 import type { ContentBlock, ToolResultBlock } from './types.ts'
 
-/** Provider ownership and adapter-private replay data for an assistant message. */
+/** Provider/model identity and adapter-private replay data for an assistant message. */
 export interface AssistantProvenance {
   /** Provider route that produced the message. */
   provider: string
@@ -31,12 +31,12 @@ export interface ToolMessageSource {
 
 /**
  * What SHAPE of information a producer-supplied context carries, declared by
- * the producer beside its provenance.
+ * the producer beside the source fields it supplied.
  *
  * `MessageSource.kind` answers *who produced this*; `form` answers *what kind
  * of thing it is*, and the two axes are deliberately independent — several
- * producers share one form (three snapshot producers today), and one producer
- * may emit more than one form over a session.
+ * producers share one form, and one producer may emit more than one form over
+ * a session.
  *
  * The vocabulary is SEMANTIC, never visual: a value states that the content is
  * a file's instructions or a catalog of available items, and a consumer decides
@@ -133,7 +133,7 @@ export interface Message {
   readonly role: 'system' | 'user' | 'assistant'
   /** Exact model-facing blocks. */
   readonly content: ContentBlock[]
-  /** Required producer provenance. */
+  /** Required source fields supplied by the producer. */
   readonly source: MessageSource
 }
 
@@ -200,7 +200,7 @@ export function createUserMessage<T extends NewUserMessage>(
 
 /**
  * Create one identified model-produced assistant message and freeze it before publication.
- * @param input - complete content and model provenance for a new assistant message.
+ * @param input - complete content plus the provider, model, and optional replay state for a new assistant message.
  * @returns an immutable assistant message with fixed role/source tags and a fresh stable identity.
  */
 export function createAssistantMessage(

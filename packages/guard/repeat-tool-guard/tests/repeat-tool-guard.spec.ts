@@ -32,7 +32,7 @@ async function harness(config: Config = {}): Promise<Context> {
 }
 
 function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
-  return new Promise((resolve) => { const d = ctx.on('agent/status', (s, st) => { if (s === agent && st === 'idle') { d(); resolve() } }) })
+  return new Promise((resolve) => { const d = ctx.on('agent/status', ({ agent: s, status: st }) => { if (s === agent && st === 'idle') { d(); resolve() } }) })
 }
 
 /** Every injected-context user message in the agent's log, flattened to joined text + source for terse assertions. */
@@ -330,7 +330,7 @@ describe('fold onto the downstream decision', () => {
 
     const found = reminders(agent)
     expect(found).toHaveLength(3)
-    // Only the repeated call adds guard context; downstream provenance survives.
+    // Only the repeated call adds guard context; downstream source fields survive.
     expect(found[0]!.text).toBe('downstream-ctx')
     expect(found[0]!.source).toEqual({ kind: 'plugin', plugin: 'test' })
     expect(found[1]!.text).toContain('repeating the exact same tool call')

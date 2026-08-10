@@ -1,4 +1,4 @@
-# Agent Note: 包拥有的不变式服务 seam
+# Agent Note: 包拥有的不变式服务约定
 
 Status: implemented
 
@@ -18,7 +18,7 @@ Status: implemented
 
 `@deepseek-ai/dsh-invariants` 是与产品无关的 Cordis 服务插件，注册 `ctx.invariants`。它只负责配置、注册唯一性、子 fiber 生命周期和带包归属的失败；不导入 session、agent、scope 或 agent-loop 包，也不包含这些包的检查。
 
-工作区内的每个包都发布 `./invariant` 伴随插件，注册自己完整且准确的 npm 包名。如果所有者具备有意义的事件或可变数据关系，companion 就检查该关系；否则空 installer 必须携带该所有者专属的说明。后续的[运行时契约 Agent Note](2026-07-19-package-invariant-runtime-contracts.md) 禁止生成的所有权占位符和合成 API 形状断言。包的根入口不会隐式导入或注册诊断，因此加载根包不会改变运行时检查，也不要求不变式服务存在。
+工作区内的每个包都发布 `./invariant` 伴随插件，注册自己完整且准确的 npm 包名。如果所有者具备有意义的事件或可变数据关系，companion 就检查该关系；否则空 installer 必须携带该所有者专属的说明。后续的[运行时约定 Agent Note](2026-07-19-package-invariant-runtime-contracts.md) 禁止生成的所有权占位符和合成 API 形状断言。包的根入口不会隐式导入或注册诊断，因此加载根包不会改变运行时检查，也不要求不变式服务存在。
 
 ### 配置与选择
 
@@ -64,13 +64,13 @@ blocklist 匹配优先于 allowlist 匹配。每个条目都是区分大小写�
 | `@deepseek-ai/dsh-scope/invariant` | `@deepseek-ai/dsh-scope` | scoped event carrier 存在性与主体一致性 |
 | `@deepseek-ai/dsh-agent-loop/invariant` | `@deepseek-ai/dsh-agent-loop` | 模型请求重建 |
 
-这四个所有者提供了首批有状态检查。后续运行时契约决策为另外十七个确有事件或可变数据关系的所有者增加检查，并为其余包记录有理由的空 companion。每个伴随入口都是单独打包的 `./invariant` export，具有独立声明和对 Loader 安全的命名空间插件形态；服务包自身的伴随插件导入本地服务类型，避免形成自依赖。
+这四个所有者提供了首批有状态检查。后续运行时约定决策为另外十七个确有事件或可变数据关系的所有者增加检查，并为其余包记录有理由的空 companion。每个伴随入口都是单独打包的 `./invariant` export，具有独立声明和对 Loader 安全的命名空间插件形态；服务包自身的伴随插件导入本地服务类型，避免形成自依赖。
 
 `verify-package-invariants` 会发现每个工作区包，并拒绝缺失的伴随插件源码、生成标记、没有解释的空 installer、缺少或不使用失败报告器的非空 installer、外部或无法解析的注册名、缺失的 `./invariant` export 或发布文件、缺失的不变式对等依赖（peer dependency）、开发依赖及项目引用，以及遗漏伴随入口的自定义构建配置。
 
 ### Scoped event 语义映射
 
-生成的 scoped event 主体解析表位于 `dsh-scope`，与消费它的契约和不变式相邻。`gen-scoped-events` 使用根 TypeScript Program 枚举 `this: Scoped<Base>` 声明，从真实 `scopeTarget(base, key)` 调用推断路由键类型，并要求唯一、无歧义的 payload 主体或显式 unsupported 标记。提交的运行时映射不导入事件所有者包，因此语义完整性不会扩大服务包或 scope 包的运行时依赖闭包。
+生成的 scoped event 主体解析表位于 `dsh-scope`，与消费它的约定和不变式相邻。`gen-scoped-events` 使用根 TypeScript Program 枚举 `this: Scoped<Base>` 声明，从真实 `scopeTarget(base, key)` 调用推断路由键类型，并要求唯一、无歧义的 payload 主体或显式 unsupported 标记。提交的运行时映射不导入事件所有者包，因此语义完整性不会扩大服务包或 scope 包的运行时依赖闭包。
 
 ### 示例组合与 SDK 输出
 
@@ -88,9 +88,9 @@ Workspace 约束识别独立的不变式 bundle；包 exports、项目引用、�
 
 ## 考虑过的替代方案
 
-- **把所有检查保留在 `dsh-invariants`。** 不予采纳，因为注册包仍要导入所有被检查的产品领域，所有者变更仍需中央编辑，测试也继续远离被保护的契约。
+- **把所有检查保留在 `dsh-invariants`。** 不予采纳，因为注册包仍要导入所有被检查的产品领域，所有者变更仍需中央编辑，测试也继续远离被保护的约定。
 - **当 `ctx.invariants` 恰好存在时，让根包入口隐式注册检查。** 不予采纳，因为根入口行为会依赖组合顺序与可选服务是否存在，诊断无法独立选择，而且包加载会隐藏一个不在显式伴随插件中的注册 effect。
-- **在运行时自动发现所有 `invariant.ts` 文件。** 不予采纳，因为文件系统或包发现不是运行时所有权契约，会让 bundle 发布含义不清，也无法表达显式 Cordis 加载顺序或依赖安装。构建期生成与校验以及测试 host 可以枚举源码树，因为它们验证的是仓库完整性，而不是组合已发布的部署。
+- **在运行时自动发现所有 `invariant.ts` 文件。** 不予采纳，因为文件系统或包发现不是运行时所有权约定，会让 bundle 发布含义不清，也无法表达显式 Cordis 加载顺序或依赖安装。构建期生成与校验以及测试 host 可以枚举源码树，因为它们验证的是仓库完整性，而不是组合已发布的部署。
 - **根据当前已加载包集合验证 allow/block 条目。** 不予采纳，因为零匹配模式可能有意指向稍后加载或 HMR 加载的贡献；当前加载顺序不能决定配置有效性。
 
 ## 后果
@@ -102,4 +102,4 @@ Workspace 约束识别独立的不变式 bundle；包 exports、项目引用、�
 - 每个选中的可执行贡献增加一个子 fiber 及其 listener/状态成本；选中的空贡献不增加 listener 或 trace 状态成本，被过滤注册则只保留包名占用。
 - 正则表达式源属于部署配置，在服务重载前保持固定。
 - 普通 Vitest 根上下文会安装当前测试包中被选中的伴随插件；一个完整拓扑只支付一次全部子 fiber 成本，用于覆盖整个仓库的注册。
-- 会话存储验证、快照、冻结、provenance 与 surface 接受规则始终启用，不受不变式选择影响。
+- 会话存储验证、快照、冻结、引用的源事件验证与 surface 接受规则始终启用，不受不变式选择影响。

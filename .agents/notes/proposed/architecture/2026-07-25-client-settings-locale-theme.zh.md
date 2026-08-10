@@ -6,7 +6,7 @@ Status: proposed
 
 ## 问题
 
-浏览器端已有的 Settings 直接写在 Sidebar 内，语言和主题也由组件本地状态直接改 DOM。这使 Settings 无法由独立插件扩展，偏好状态没有稳定的跨插件服务契约，主题注册表同时承担状态与呈现职责。
+浏览器端已有的 Settings 直接写在 Sidebar 内，语言和主题也由组件本地状态直接改 DOM。这使 Settings 无法由独立插件扩展，偏好状态没有稳定的跨插件服务约定，主题注册表同时承担状态与呈现职责。
 
 ## 提案
 
@@ -55,13 +55,13 @@ root
             └─ models (order 10)         ui-models 注册
 ```
 
-section/item contribution 使用 `ctx.slots.inject()`，不依赖 client manifest 的 apply 顺序；本地化 label 走 [全量接入 Note](../../implemented/architecture/2026-07-30-client-locale-full-rollout.md) 的 label thunk。SlotMap 类型分家：trigger/header/close/section 正家在 ui-settings contract（消费者 general/models 均依赖壳，无环）；`settings.general.item` 正家在 locale 包——它是全部 item 注册方的最低公共依赖（设置行必带文案），而声明方 general 的 contract 对 locale/ui-theme 不可达（会成环）；ui-theme 经 re-export seam 消费。
+section/item contribution 使用 `ctx.slots.inject()`，不依赖 client manifest 的 apply 顺序；本地化 label 走 [全量接入 Note](../../implemented/architecture/2026-07-30-client-locale-full-rollout.md) 的 label thunk。SlotMap 类型分家：trigger/header/close/section 正家在 ui-settings contract（消费者 general/models 均依赖壳，无环）；`settings.general.item` 正家在 locale 包——它是全部 item 注册方的最低公共依赖（设置行必带文案），而声明方 general 的 contract 对 locale/ui-theme 不可达（会成环）；ui-theme 经 re-export 出口消费。
 
 ### slot 声明是一等可注入等待对象
 
-`SlotsService.inject()` 直接等待有类型约束的 ledger key；它不会将声明桥接为合成的 `slot:<name>` Cordis 服务。回调会跟随声明折叠与重新声明，而其控制器仍归贡献方插件 fiber 所有；直接向未声明 slot 注册仍会大声失败。这删除了陈旧 disposer 判在位机器和容易因拼写错误出错的平行服务命名空间。完整的生命周期与失败契约见 [slot 声明注入决策](../../implemented/architecture/2026-08-05-slot-declaration-injection.md)。
+`SlotsService.inject()` 直接等待有类型约束的 ledger key；它不会将声明桥接为合成的 `slot:<name>` Cordis 服务。回调会跟随声明折叠与重新声明，而其控制器仍归贡献方插件 fiber 所有；直接向未声明 slot 注册仍会大声失败。这删除了陈旧 disposer 判在位机器和容易因拼写错误出错的平行服务命名空间。完整的生命周期与失败约定见 [slot 声明注入决策](../../implemented/architecture/2026-08-05-slot-declaration-injection.md)。
 
-### 服务契约
+### 服务约定
 
 ```ts
 export type ThemePreference = 'light' | 'dark' | 'system'

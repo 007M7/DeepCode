@@ -6,14 +6,14 @@ Cordis is the plugin framework underneath the DeepSeek Harness SDK: a small runt
 
 The audience is agent developers. You do not need deep TypeScript experience; the [TypeScript notes](#typescript-notes) below explain the syntax that may be unfamiliar, and every chapter shows the exact commands and expected output.
 
-If you want the condensed concept reference instead of a walkthrough, read the [Cordis primer](../cordis-primer.md). The exhaustive API reference lives in the generated [events](../cordis-catalog/events.md) and [services](../cordis-catalog/services.md) catalogs and the [Cordis core API](../cordis-catalog/core/context.md) pages.
+If you want the condensed concept reference instead of a walkthrough, read the [Cordis primer](../cordis-primer.md). The exhaustive API reference lives in the generated `cordis-surface` regions on the [subsystem pages](../subsystems/core.md) and the [Cordis core API](../cordis-api/context.md) pages.
 
 ## Setup
 
 You need a clone of this repository with dependencies installed — the [quick start](../user/guide/quickstart.md) covers prerequisites. No API key is needed for this tutorial; every example runs keylessly.
 
 ```sh
-git clone https://github.com/deepseek-harness/deepseek-harness.git
+git clone https://github.com/deepseek-ai/deepseek-harness-sdk.git
 cd deepseek-harness
 pnpm install
 ```
@@ -55,4 +55,4 @@ The examples use three TypeScript features beyond ordinary modern JavaScript:
 
 Chapter 5 also uses an `interface` to describe a configuration object's fields and a generic type such as `Schema<Config>` to say which object shape a schema validates. You can copy those declarations as shown; the surrounding text explains what each one connects.
 
-[![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-harness/deepseek-harness)
+[![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness-sdk)

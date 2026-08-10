@@ -1,9 +1,9 @@
 import {
-  useEffect, useRef, useState, type KeyboardEvent, type MouseEvent,
+  useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent,
 } from 'react'
-import type {
-  SessionId, SessionListState, SessionProjectionMap, SessionSummary, SubagentAddress,
-  SubagentCatalogSnapshot,
+import {
+  indexSubagentDescendants, type SessionId, type SessionListState, type SessionProjectionMap,
+  type SessionSummary, type SubagentAddress, type SubagentCatalogSnapshot,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import {
   IconChevronDownOutline14, IconChevronRightOutline14, IconRefreshOutline14, StateDot,
@@ -171,30 +171,7 @@ function formatExactDuration(ms: number, t: TranslateNS<typeof NS>): string {
     })
 }
 
-/** Aggregate the complete subagent-only descendant subtree from flat summaries. */
-function summarizeDescendants(
-  sessionId: SessionId,
-  summaries: Readonly<Record<SessionId, SessionSummary>>,
-): { count: number; running: boolean } {
-  let count = 0
-  let running = false
-  for (const summary of Object.values(summaries)) {
-    if (summary.origin !== 'subagent') continue
-    const seen = new Set<SessionId>()
-    let current: SessionSummary | undefined = summary
-    while (current?.origin === 'subagent' && current.parentId !== undefined
-      && !seen.has(current.id)) {
-      seen.add(current.id)
-      if (current.parentId === sessionId) {
-        count += 1
-        running ||= summary.running
-        break
-      }
-      current = summaries[current.parentId]
-    }
-  }
-  return { count, running }
-}
+const NO_DESCENDANTS = { count: 0, runningCount: 0 } as const
 
 /** Render the known direct-child shape while its authoritative catalog hydrates. */
 function CatalogLoadingRows({
@@ -448,12 +425,15 @@ export function SubagentCatalogAction({
   const setCatalogOpenRef = useRef(setCatalogOpen)
   setCatalogOpenRef.current = setCatalogOpen
   const healthy = catalog?.entries.filter(entry => entry.kind === 'child') ?? []
-  const descendants = summarizeDescendants(sessionId, summaries)
+  const descendants = useMemo(
+    () => indexSubagentDescendants(summaries).get(sessionId) ?? NO_DESCENDANTS,
+    [sessionId, summaries],
+  )
   // The catalog can arrive before the session-list baseline; never undercount
   // the already-visible direct rows during that short bootstrap window.
   const descendantCount = Math.max(healthy.length, descendants.count)
   const totalCountKey = descendantCount === 1 ? 'count.total.one' : 'count.total.other'
-  const runningCountKey = descendantCount === 1 ? 'count.running.one' : 'count.running.other'
+  const runningCountKey = descendants.runningCount === 1 ? 'count.running.one' : 'count.running.other'
   // Session summaries can announce membership before the descriptor-backed catalog catches up.
   // Keep that entry point visible through disabled loading rows; only catalog rows are navigable.
   const summaryBackedLoading = descendants.count > 0
@@ -527,10 +507,10 @@ export function SubagentCatalogAction({
   }, [open])
 
   useEffect(() => {
-    if (!open || !descendants.running) return
+    if (!open || descendants.runningCount === 0) return
     const timer = setInterval(() => { setNow(Date.now()) }, 1_000)
     return () => { clearInterval(timer) }
-  }, [open, descendants.running])
+  }, [open, descendants.runningCount])
 
   useEffect(() => () => {
     for (const parentSessionId of observedCatalogs.current) {
@@ -584,7 +564,10 @@ export function SubagentCatalogAction({
         className={css.trigger}
         aria-haspopup="tree"
         aria-expanded={open}
-        aria-label={t(descendants.running ? runningCountKey : totalCountKey, { count: descendantCount })}
+        aria-label={t(
+          descendants.runningCount > 0 ? runningCountKey : totalCountKey,
+          { count: descendants.runningCount > 0 ? descendants.runningCount : descendantCount },
+        )}
         onClick={() => { changeOpen(!open) }}
         onKeyDown={(event) => {
           if (event.key !== 'ArrowDown') return
@@ -594,7 +577,7 @@ export function SubagentCatalogAction({
         }}
       >
         <span className={css.activitySlot}>
-          {descendants.running && <StateDot state="ongoing" />}
+          {descendants.runningCount > 0 && <StateDot state="ongoing" />}
         </span>
         <span className={css.count}>{t(totalCountKey, { count: descendantCount })}</span>
         <IconChevronDownOutline14 className={open ? css.triggerOpen : undefined} />

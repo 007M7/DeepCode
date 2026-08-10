@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { ModelTarget } from '@deepseek-ai/dsh-client-connection/client'
+import type { ModelSelection } from '@deepseek-ai/dsh-client-connection/client'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ComponentProps } from 'react'
 import type { ModelDirectoryState } from '../src/client/directory.ts'
@@ -32,6 +32,7 @@ const reasoning = {
 function state(overrides: Partial<ModelDirectoryState> = {}): ModelDirectoryState {
   return {
     current: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+    routable: true,
     groups: [{
       id: 'deepseek-official',
       name: 'DeepSeek',
@@ -47,10 +48,10 @@ function state(overrides: Partial<ModelDirectoryState> = {}): ModelDirectoryStat
 afterEach(cleanup)
 
 describe('ModelSelect reasoning effort', () => {
-  it('renders adapter metadata and submits the effort as part of the session target', async () => {
+  it('renders adapter metadata and submits the effort as part of the session selection', async () => {
     const directory = createSnapshotStore<ModelDirectoryState>(state())
-    const select = vi.fn(async (target: ModelTarget) => {
-      directory.set(state({ current: target }))
+    const select = vi.fn(async (selection: ModelSelection) => {
+      directory.set(state({ current: selection }))
       return true
     })
     render(<ModelSelect
@@ -111,7 +112,7 @@ describe('ModelSelect reasoning effort', () => {
       .toEqual(['Default', 'Standard'])
   })
 
-  it('prompts for a new selection when the current target is no longer advertised', () => {
+  it('prompts for a selection when the current model is no longer advertised', () => {
     const directory = createSnapshotStore(state({
       current: { provider: 'deepseek-official', model: 'removed-model' },
     }))

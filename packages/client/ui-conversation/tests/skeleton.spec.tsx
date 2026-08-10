@@ -5,7 +5,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
-import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
+import { createSnapshotStore, EMPTY_CHAT_SNAPSHOT } from '@deepseek-ai/dsh-client-runtime/client'
 import type {
   ConversationSnapshot, SessionId, SessionListState, WorkspaceId, WorkspaceListState, WorkspaceView,
 } from '@deepseek-ai/dsh-client-runtime/client'
@@ -18,7 +18,7 @@ import { createChatStore } from '../src/client/stores.ts'
 import { SessionInputShell } from '../src/client/input/facade.ts'
 import { en, zh } from '../src/client/locales.ts'
 import { ConversationRoot } from '../src/client/skeleton/ConversationRoot.tsx'
-import { ConversationSession } from '../src/client/skeleton/ConversationSession.tsx'
+import { ConversationSession, ConversationSessionHeader } from '../src/client/skeleton/ConversationSession.tsx'
 import { HeroShell } from '../src/client/skeleton/EmptyHero.tsx'
 import { InputBar } from '../src/client/skeleton/InputBar.tsx'
 import type { InputBarProps } from '../src/client/skeleton/InputBar.tsx'
@@ -70,7 +70,8 @@ const workspaceState = (items: readonly WorkspaceView[]): WorkspaceListState => 
 
 function conversationSnapshot(overrides: Partial<ConversationSnapshot> = {}): ConversationSnapshot {
   return {
-    sessionId: SID, nodes: [], turnTimings: new Map(), turnEnds: new Map(), partial: null, runningCalls: [], codeDispatches: new Map(),
+    sessionId: SID, chat: EMPTY_CHAT_SNAPSHOT,
+    nodes: [], turnTimings: new Map(), turnEnds: new Map(), partial: null, runningCalls: [],
     pending: [], queue: [], running: false, composerPhase: 'active', removed: false,
     openState: 'open', openError: null, hasMore: false, loadingOlder: false,
     promptError: null, blank: false, subagent: null, lastAgentError: null,
@@ -91,6 +92,8 @@ function mount(
     omitSummaryRow?: boolean
     /** Classify the selected child as a subagent instead of an ordinary fork. */
     summaryOrigin?: 'subagent'
+    /** A composer block another plugin raised for this session. */
+    composerBlock?: { reason: string }
   } = {},
 ) {
   const root = sid('root')
@@ -118,10 +121,42 @@ function mount(
   const stop = vi.fn()
   const open = vi.fn()
   const slotCalls: string[] = []
+  /** Owner share handed to the two composer tool-row seats, per render. */
+  const seatOwners: { key: string; owner: unknown }[] = []
   let pickerOwner: unknown
   const renderSlot = ((key: string, owner: object, opts?: { only?: string }) => {
     slotCalls.push(key)
+    if (key === 'conversation.input.model' || key === 'conversation.input.plan') {
+      seatOwners.push({ key, owner })
+    }
     if (key === 'conversation.hero.workspace') { pickerOwner = owner; return null }
+    if (key === 'conversation.session.header') {
+      return (
+        <ConversationSessionHeader
+          sessionId={SID}
+          SessionProvider={({ children }) => children(SID)}
+          useSession={useSession}
+          useSessions={props.useSessions}
+          useWorkspaces={props.useWorkspaces}
+          useProjection={(() => undefined)}
+          useInput={useInput}
+          inputActions={inputActions}
+          useStore={bindSnapshotSelector(chat)}
+          actions={chat.actions}
+          renderSlot={renderSlot as never}
+          views={{
+            list: () => [
+              { id: 'chat', label: 'Chat' },
+              { id: 'trajectory', label: 'Trajectory' },
+            ],
+            subscribe: () => () => {},
+            version: () => 1,
+          }}
+          open={open}
+          t={t}
+        />
+      )
+    }
     if (key === 'conversation.session') {
       return (
         <ConversationSession
@@ -145,9 +180,6 @@ function mount(
             version: () => 1,
           }}
           bindDraftMirror={write => wiring.bindMirror(write)}
-          open={open}
-          t={t}
-          {...owner}
         />
       )
     }
@@ -174,7 +206,12 @@ function mount(
           stop={stop}
           command={() => Promise.resolve(true)}
           t={t}
-          renderSlot={(() => null) as InputBarProps['renderSlot']}
+          renderSlot={((key: string, seatOwner: object) => {
+            // The bar's own seats: recorded so a case can assert what share
+            // each tool-row control received.
+            seatOwners.push({ key, owner: seatOwner })
+            return null
+          }) as InputBarProps['renderSlot']}
           {...bar}
         />
       )
@@ -200,6 +237,7 @@ function mount(
     useSessions: bindSnapshotSelector(sessions),
     useWorkspaces: bindSnapshotSelector(workspaces),
     useProjection: (() => undefined),
+    useComposerBlock: select => select(options.composerBlock),
     useInput,
     inputActions,
     renderSlot,
@@ -209,7 +247,7 @@ function mount(
   }
   const view = render(<ConversationRoot {...props} />)
   return {
-    view, chat, sink, retargetWorkspace, session, slotCalls, open,
+    view, chat, sink, retargetWorkspace, session, slotCalls, seatOwners, open,
     pickerOwner: () => pickerOwner,
     rerender: () => { view.rerender(<ConversationRoot {...props} />) },
   }
@@ -218,12 +256,44 @@ function mount(
 describe('Hero chrome', () => {
   it('renders the English preview badge through the hero locale seat', () => {
     const view = render(<HeroShell t={makeTranslate(en, commonEn)} />)
-    expect(view.getByText('Let\'s start building')).toBeTruthy()
+    expect(view.getByText('Into the Unknown')).toBeTruthy()
     expect(view.getByText('Preview')).toBeTruthy()
   })
 })
 
 describe('ConversationRoot resident composer', () => {
+  it('renders the composer inert with the blocker\u2019s own reason', () => {
+    const b = mount(conversationSnapshot(), undefined, undefined, {
+      composerBlock: { reason: 'select a model first' },
+    })
+    const box = b.view.getByRole('textbox') as HTMLTextAreaElement
+    // One disabled textarea with the blocker's placeholder, never a second
+    // tree: the DOM survives the block being raised and cleared.
+    expect(box.disabled).toBe(true)
+    expect(box.placeholder).toBe('select a model first')
+    fireEvent.keyDown(box, { key: 'Enter' })
+    expect(b.sink).not.toHaveBeenCalled()
+
+    // The model seat stays live. Locking it too would leave the composer
+    // asking for the one thing it prevents — every block this contract has is
+    // cleared by choosing a model.
+    const seat = (key: string) => b.seatOwners.filter(call => call.key === key).at(-1)?.owner
+    expect(seat('conversation.input.model')).toEqual({ locked: false })
+    expect(seat('conversation.input.plan')).toEqual({ locked: true })
+  })
+
+  it('lets the no-workspace posture win over a block', () => {
+    // Picking a workspace is the earlier prerequisite; naming a model first
+    // would send the user somewhere they cannot act yet.
+    const b = mount(conversationSnapshot({ composerPhase: 'blank' }), [], undefined, {
+      summaryBlank: true,
+      composerBlock: { reason: 'select a model first' },
+    })
+    const box = b.view.getByRole('textbox') as HTMLTextAreaElement
+    expect(box.disabled).toBe(true)
+    expect(box.placeholder).not.toBe('select a model first')
+  })
+
   it('keeps composer text in the machine, mirrors to the chat store, and submits through the sink', () => {
     const b = mount(conversationSnapshot())
     const box = b.view.getByRole('textbox')
@@ -282,7 +352,7 @@ describe('ConversationRoot resident composer', () => {
     const header = b.view.container.querySelector('header')
     expect(host).not.toBeNull()
     expect(header?.getAttribute('aria-hidden')).toBe('true')
-    expect(b.view.getByText('开始构建吧')).toBeTruthy()
+    expect(b.view.getByText('探索未知之境')).toBeTruthy()
     expect(b.view.getByText('预览版')).toBeTruthy()
     expect(b.view.queryByTestId('view-chat')).toBeNull()
     // The same machine-backed textarea is live in the hero, and the
@@ -306,7 +376,7 @@ describe('ConversationRoot resident composer', () => {
     const b = mount(conversationSnapshot({ composerPhase: 'blank', blank: true, openState: 'loading' }))
     const root = b.view.container.querySelector('[data-phase]')
     expect(root?.getAttribute('data-phase')).toBe('settling')
-    expect(b.view.queryByText('开始构建吧')).toBeNull()
+    expect(b.view.queryByText('探索未知之境')).toBeNull()
   })
 
   it('settling phase: a session the list has no row for settles conservatively', () => {
@@ -331,7 +401,7 @@ describe('ConversationRoot resident composer', () => {
     // blank the column for the history round-trip.
     const root = b.view.container.querySelector('[data-phase]')
     expect(root?.getAttribute('data-phase')).toBe('hero')
-    expect(b.view.getByText('开始构建吧')).toBeTruthy()
+    expect(b.view.getByText('探索未知之境')).toBeTruthy()
     expect(b.view.getByRole('textbox')).toBeTruthy()
   })
 
@@ -340,7 +410,7 @@ describe('ConversationRoot resident composer', () => {
     const before = b.view.getByRole('textbox')
     fireEvent.change(before, { target: { value: 'kept across flip' } })
     // First message landed: content exists, phase leaves blank. Composer
-    // already sat in the Session scrollport during hero, so the textarea
+    // already sat in the resident scrollport during hero, so the textarea
     // node and InputHub draft both survive.
     b.session.set(conversationSnapshot({ composerPhase: 'active', blank: false }))
     b.rerender()
@@ -349,7 +419,7 @@ describe('ConversationRoot resident composer', () => {
     expect(after.value).toBe('kept across flip')
     expect(b.chat.store.getSnapshot().draft).toBe('kept across flip')
     expect(b.view.container.querySelector('[data-conversation-scroll]')?.contains(after)).toBe(true)
-    expect(b.view.queryByText('开始构建吧')).toBeNull()
+    expect(b.view.queryByText('探索未知之境')).toBeNull()
     expect(b.view.getByTestId('view-chat')).toBeTruthy()
   })
 
@@ -383,6 +453,9 @@ describe('ConversationRoot resident composer', () => {
     const chip = b.view.getByRole('button', { name: '选择工作区' })
     expect((chip as HTMLButtonElement).disabled).toBe(false)
     expect(b.slotCalls).toContain('conversation.hero.workspace')
+    // The agent-preset chip sits in the same row, for the same reason: both
+    // choices are only open before the first message.
+    expect(b.slotCalls).toContain('conversation.hero.agentPreset')
   })
 
   it('prompt failure renders the promptError strip (ordinary failure, no transaction UI)', () => {

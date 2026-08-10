@@ -49,12 +49,11 @@ export interface DeepSeekConnectionOptions {
   /** Endpoint base; `/chat/completions` is appended. */
   baseURL: string
   /**
-   * Literal API key of this same resolution, when the configuration carried
-   * one. Travelling with the endpoint is the point: a request can never pair
-   * one generation's URL with another generation's secret.
+   * Credential reference of this same resolution, resolved per request.
+   * Travelling with the endpoint is the point: a request can never pair one
+   * generation's URL with another generation's secret. Configuration carries
+   * only this name — a literal key is not a configuration value.
    */
-  apiKey?: string
-  /** Credential reference of this same resolution, resolved per request when no literal key exists. */
   apiKeyEnv: CredentialRef
   /** Request defaults applied to every call (thinking mode, effort). */
   defaults: RequestDefaults
@@ -70,7 +69,7 @@ export interface DeepSeekConnectionOptions {
   retryPolicy: ResolvedRetryPolicy
 }
 
-/** Constructor options for {@link DeepSeekAdapter}: the two resolution seams the plugin owns. */
+/** Constructor options for {@link DeepSeekAdapter}: the two resolution hooks the plugin owns. */
 export interface DeepSeekAdapterOptions {
   /** Current validated connection facts; called once per operation. */
   options: () => DeepSeekConnectionOptions
@@ -217,7 +216,13 @@ export class DeepSeekAdapter extends LlmAdapter {
       ? consumer.signal
       : AbortSignal.any([options.signal, consumer.signal])
     using watchdog = idleWatchdog(upstream, connection.streamIdleTimeoutMs, STREAM_IDLE_TIMEOUT_CODE)
-    const iterator = this.request(options, watchdog.signal, connection, apiKey)[Symbol.asyncIterator]()
+    const iterator = this.request(
+      options,
+      watchdog.signal,
+      connection,
+      apiKey,
+      () => { watchdog.pulse() },
+    )[Symbol.asyncIterator]()
     let exhausted = false
     try {
       while (true) {
@@ -258,6 +263,7 @@ export class DeepSeekAdapter extends LlmAdapter {
     signal: AbortSignal,
     connection: DeepSeekConnectionOptions,
     apiKey: string,
+    onComment: () => void,
   ): AsyncIterable<StreamChunk> {
     const body = serializeRequest(options, connection.defaults)
     // Prepared outside the try so the TRANSPORT label below covers exactly the
@@ -292,7 +298,7 @@ export class DeepSeekAdapter extends LlmAdapter {
       // fetch wraps every transport failure (DNS, refused connection, TLS,
       // proxy) in a bare `TypeError: fetch failed` whose actionable detail
       // lives on `cause`. Wrapping with the endpoint and chaining the cause
-      // lets `errorChain` render the full diagnosis at every reporting seam.
+      // lets `errorChain` render the full diagnosis at every reporting boundary.
       throw new LlmError(
         `DeepSeek API request to ${connection.baseURL} failed`,
         'TRANSPORT',
@@ -323,6 +329,6 @@ export class DeepSeekAdapter extends LlmAdapter {
       throw new LlmError('DeepSeek API returned no response body', 'EMPTY_RESPONSE')
     }
 
-    yield* translate(parseSse(response.body))
+    yield* translate(parseSse(response.body, onComment))
   }
 }

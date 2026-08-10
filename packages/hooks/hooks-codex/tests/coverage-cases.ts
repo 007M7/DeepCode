@@ -128,7 +128,7 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
       hooks(d, { UserPromptSubmit: [{ hooks: [{ type: 'command', command: sh(d, 'c.sh', '#!/usr/bin/env bash\necho \'{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"from-bridge"}}\'\n') }] }] })
       const adapter = new MockAdapter([textResponse('ok')])
       const ctx = await harness(join(d, 'hooks.json'), adapter)
-      ctx.on('agent/pre-step', async (_agent, messages) => ({
+      ctx.on('agent/pre-step', async ({ messages }) => ({
         kind: 'enter' as const,
         messages: [{
           ...messages[0]!,
@@ -395,7 +395,7 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
     })
 
     it('a {"continue":false} hook is RECORDED as "stop" but does not halt the run (TODO(hook-continue-false))', async () => {
-    // Honoring `continue:false` is deferred — the seams have no hard-halt
+    // Honoring `continue:false` is deferred — the extension points have no hard-halt
     // primitive. Assert the LOG records the halt request AND that the run is not
     // actually halted (the tool still runs, the turn completes).
       const d = dir()

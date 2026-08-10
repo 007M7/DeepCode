@@ -64,6 +64,7 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
             ok: true,
             value: {
               current: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+              routable: true,
               groups: [],
               failures: [],
             },
@@ -126,6 +127,9 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
           rpcId: request.rpcId,
           result: { ok: true, value: { messageId: 'message-1' as never } },
         }
+      },
+      async interrupt(request) {
+        return { rpcId: request.rpcId, result: { ok: true, value: { accepted: true as const } } }
       },
     },
     host: {
@@ -193,9 +197,35 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
         return { rpcId: request.rpcId, result: { ok: true, value: { matched: false } } }
       },
     },
+    agentPresets: {
+      list(request: RpcRequest<{}>) {
+        return Promise.resolve({
+          rpcId: request.rpcId,
+          result: { ok: true as const, value: { presets: [], authorable: false, hasDocument: false } },
+        })
+      },
+      select(request: RpcRequest<{ agentPreset: string }>) {
+        const value = { agentPreset: request.payload.agentPreset }
+        return Promise.resolve({ rpcId: request.rpcId, result: { ok: true as const, value } })
+      },
+      read(request: RpcRequest<{ agentPreset: string }>) {
+        const value = { agentPreset: request.payload.agentPreset, trust: 'user' as const, content: '' }
+        return Promise.resolve({ rpcId: request.rpcId, result: { ok: true as const, value } })
+      },
+      copy(request: RpcRequest<{ from: string; agentPreset: string }>) {
+        const value = { agentPreset: request.payload.agentPreset }
+        return Promise.resolve({ rpcId: request.rpcId, result: { ok: true as const, value } })
+      },
+      openDocument(request: RpcRequest<{ agentPreset: string }>) {
+        return Promise.resolve({ rpcId: request.rpcId, result: { ok: true as const, value: { opened: true as const } } })
+      },
+      remove(request: RpcRequest<{ agentPreset: string }>) {
+        return Promise.resolve({ rpcId: request.rpcId, result: { ok: true as const, value: {} } })
+      },
+    },
     skills: {
       async list(request) {
-        return { rpcId: request.rpcId, result: { ok: true, value: { skills: [{ name: 'commit-helper', description: 'Git commits' }] } } }
+        return { rpcId: request.rpcId, result: { ok: true, value: { skills: [{ name: 'commit-helper', description: 'Git commits', modelInvocable: true }] } } }
       },
     },
     goals: {
@@ -252,6 +282,9 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
       },
       async models(request) {
         return { rpcId: request.rpcId, result: { ok: true, value: { groups: [], failures: [] } } }
+      },
+      async discoverModels(request) {
+        return { rpcId: request.rpcId, result: { ok: true, value: { models: [] } } }
       },
     },
     events: {
@@ -333,6 +366,28 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
     expect((await c.host.describe({})).result.ok).toBe(true)
   })
 
+  it('round-trips every agent-preset method, authoring included', async () => {
+    const c = client()
+
+    // The whole domain crosses the carrier: the roster a picker reads, the
+    // per-session switch, and the authoring calls the settings page makes.
+    // Each has its own request schema, so a registration missing from either
+    // half fails here rather than in the browser.
+    expect((await c.agentPresets.list({})).result).toEqual({
+      ok: true, value: { presets: [], authorable: false, hasDocument: false },
+    })
+    expect((await c.agentPresets.select({ sessionId: 's' as never, agentPreset: 'minimal' })).result)
+      .toEqual({ ok: true, value: { agentPreset: 'minimal' } })
+    expect((await c.agentPresets.read({ agentPreset: 'mine' })).result).toEqual({
+      ok: true, value: { agentPreset: 'mine', trust: 'user', content: '' },
+    })
+    expect((await c.agentPresets.copy({ from: 'standard', agentPreset: 'mine' })).result)
+      .toEqual({ ok: true, value: { agentPreset: 'mine' } })
+    expect((await c.agentPresets.openDocument({ agentPreset: 'mine' })).result)
+      .toEqual({ ok: true, value: { opened: true } })
+    expect((await c.agentPresets.remove({ agentPreset: 'mine' })).result).toEqual({ ok: true, value: {} })
+  })
+
   it('round-trips the native picker without the default unary timeout', async () => {
     const api = fakeApi()
     api.host.pickDirectory = async (request) => {
@@ -377,7 +432,7 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
     const miss = await c.commands.execute({ sessionId: 's' as never, line: '/nope' })
     expect(miss.result).toEqual({ ok: true, value: { matched: false } })
     const skills = await c.skills.list({ sessionId: 's' as never })
-    expect(skills.result).toEqual({ ok: true, value: { skills: [{ name: 'commit-helper', description: 'Git commits' }] } })
+    expect(skills.result).toEqual({ ok: true, value: { skills: [{ name: 'commit-helper', description: 'Git commits', modelInvocable: true }] } })
   })
 
   it('lets command.execute finish after the 30-second default unary deadline', async () => {
@@ -429,6 +484,11 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
       mode: 'continuable',
       content: [],
     })).result).toEqual({ ok: true, value: { messageId: 'message-1' } })
+    expect((await c.subagents.interrupt({
+      parentSessionId: 'parent' as never,
+      childSessionId: 'child' as never,
+      mode: 'continuable',
+    })).result).toEqual({ ok: true, value: { accepted: true } })
   })
 
   it('keeps caller and connection aborts on command.execute', async () => {

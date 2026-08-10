@@ -77,20 +77,53 @@ describe('deriveGroups', () => {
     expect(strayGroups.map(group => group.key)).toEqual(['first'])
   })
 
+  it('projects the completion reminder into session and search rows (absent = false)', () => {
+    const done = { ...summary('done', 3), completed: true }
+    const plain = summary('plain', 2)
+    const sessions = list(done, plain)
+    const groups = deriveGroups(
+      sessions, [workspace('first', ['done', 'plain'])], noArchive, view(['first']),
+    )
+    const doneNode = groups[0]!.sessions.find(session => session.id === done.id)!
+    const plainNode = groups[0]!.sessions.find(session => session.id === plain.id)!
+    expect(doneNode.completed).toBe(true)
+    expect(plainNode.completed).toBe(false)
+    expect(deriveFlat(sessions, noArchive).find(node => node.id === done.id)!.completed).toBe(true)
+    const search = deriveSearchResults(sessions, [workspace('first', ['done', 'plain'])], 'done', noArchive, { items: [], hasMore: false }, 10)
+    expect(search.items[0]?.completed).toBe(true)
+  })
+
   it('hides subagent-origin sessions without hiding ordinary forks', () => {
     const parent = summary('parent', 1)
-    const fork = { ...summary('fork', 2), parentId: parent.id }
-    const subagent = { ...summary('subagent', 3), parentId: parent.id, origin: 'subagent' as const }
-    const sessions = { ...list(parent, fork, subagent), current: subagent.id }
+    const subagent = {
+      ...summary('subagent', 3), parentId: parent.id, origin: 'subagent' as const, running: true,
+    }
+    const grandchild = {
+      ...summary('grandchild', 4), parentId: subagent.id, origin: 'subagent' as const, running: true,
+    }
+    const fork = { ...summary('fork', 2), parentId: subagent.id }
+    const forkChild = {
+      ...summary('fork-child', 5), parentId: fork.id, origin: 'subagent' as const, running: true,
+    }
+    const sessions = { ...list(parent, fork, subagent, grandchild, forkChild), current: subagent.id }
     const groups = deriveGroups(
       sessions,
-      [workspace('first', ['parent', 'fork', 'subagent'])],
+      [workspace('first', ['parent', 'fork', 'subagent', 'grandchild', 'fork-child'])],
       noArchive,
       view(['first']),
     )
 
     expect(groups[0]!.sessions.map(node => node.id)).toEqual([parent.id, fork.id])
     expect(groups[0]!.sessionCount).toBe(2)
+    expect(groups[0]!.sessions[0]).toMatchObject({ running: false, runningSubagentCount: 2 })
+    expect(groups[0]!.sessions[1]).toMatchObject({ running: false, runningSubagentCount: 1 })
+    expect(deriveFlat(sessions, noArchive).map(node => [node.id, node.runningSubagentCount])).toEqual([
+      [fork.id, 1], [parent.id, 2],
+    ])
+    expect(deriveSearchResults(
+      sessions, [workspace('first', ['parent', 'fork'])], 'parent', noArchive,
+      { items: [], hasMore: false }, 10,
+    ).items[0]).toMatchObject({ id: parent.id, runningSubagentCount: 2 })
   })
 
   it('ignores fork lineage and sorts every ungrouped session as a top-level row', () => {
@@ -258,7 +291,9 @@ describe('deriveSearchResults', () => {
           title: 'Needle title',
           workspace: 'Alpha',
           running: false,
+          runningSubagentCount: 0,
           pendingInteraction: 'plan-review',
+          completed: false,
           snippet: 'title session body excerpt',
         },
         {
@@ -266,12 +301,16 @@ describe('deriveSearchResults', () => {
           title: 'Ordinary title',
           workspace: 'Needle Workspace',
           running: false,
+          runningSubagentCount: 0,
+          completed: false,
         },
         {
           id: contentHit.id,
           title: 'content-hit',
           workspace: 'c',
           running: false,
+          runningSubagentCount: 0,
+          completed: false,
           snippet: 'body needle excerpt',
         },
       ],

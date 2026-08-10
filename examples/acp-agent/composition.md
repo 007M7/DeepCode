@@ -24,7 +24,7 @@ flowchart LR
   cfg --> plugin_acp_acp_agent
   plugin_acp_acp_agent --> bundle_agent_core["@deepseek-ai/dsh-agent-spine-demo"]
   plugin_acp_acp_agent --> bundle_jsonl["@deepseek-ai/dsh-session-persistence-jsonl"]
-  plugin_acp_acp_agent --> frontdoor_acp["@deepseek-ai/dsh-acp<br/>automation-only JSON-RPC stdio<br/>fresh sessions created by client"]
+  plugin_acp_acp_agent --> entrypoint_acp["@deepseek-ai/dsh-acp<br/>automation-only JSON-RPC stdio<br/>fresh sessions created by client"]
   bundle_agent_core --> spine_llm["ctx.llm"]
   bundle_agent_core --> spine_sessions["ctx.sessions"]
   bundle_agent_core --> spine_tools["ctx.tools + tool-bash"]
@@ -33,6 +33,8 @@ flowchart LR
   cfg --> plugin_acp_token_meter
   plugin_acp_compact_basic["compact-basic<br/>@deepseek-ai/dsh-compact-basic"]
   cfg --> plugin_acp_compact_basic
+  plugin_acp_session_projection["session-projection<br/>@deepseek-ai/dsh-session-projection"]
+  cfg --> plugin_acp_session_projection
   plugin_acp_subagent["subagent<br/>@deepseek-ai/dsh-subagent"]
   cfg --> plugin_acp_subagent
   plugin_acp_subagent_spawn["subagent-spawn<br/>@deepseek-ai/dsh-subagent-spawn"]
@@ -82,6 +84,7 @@ flowchart LR
 | `acp-agent` | `@deepseek-ai/dsh-acp-demo` |
 | `token-meter` | `@deepseek-ai/dsh-token-meter` |
 | `compact-basic` | `@deepseek-ai/dsh-compact-basic` |
+| `session-projection` | `@deepseek-ai/dsh-session-projection` |
 | `subagent` | `@deepseek-ai/dsh-subagent` |
 | `subagent-spawn` | `@deepseek-ai/dsh-subagent-spawn` |
 | `subagent-fork` | `@deepseek-ai/dsh-subagent-fork` |

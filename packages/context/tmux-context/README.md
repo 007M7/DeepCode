@@ -17,7 +17,7 @@ Opt-in durable context naming the tmux session, window, and pane this agent proc
 
 ## How it reads tmux
 
-The plugin prepends an `agent/pre-step` listener that runs only on the first step of each turn. When due, it runs one read-only command through the `ctx.bash` executor seam:
+The plugin prepends an `agent/pre-step` listener that runs only on the first step of each turn. When due, it runs one read-only command through the `ctx.bash` executor service:
 
 ```sh
 [ -n "$TMUX_PANE" ] || exit 1

@@ -63,15 +63,18 @@
 }
 
 /* Panel (figma Settings 501:29947): r24, white, lv3 shadow (figma effects
-   match --dsw-shadow-lv3 exactly); figma's 1080x700 is shrunk to 800x600. */
+   match --dsw-shadow-lv3 exactly); figma's 1080x700 is shrunk to 800 wide.
+   One height for every section, taken from the viewport rather than the
+   content: sections differ by hundreds of pixels (a settings list against the
+   composition editor), and a content-sized panel would resize under the
+   pointer on every nav click. Whatever does not fit scrolls in `.options`. */
 .panel {
   position: relative;
   z-index: 1;
   display: flex;
   width: 800px;
-  height: 600px;
+  height: min(800px, calc(100vh - 48px));
   max-width: calc(100vw - 48px);
-  max-height: calc(100vh - 48px);
   border-radius: 24px;
   overflow: hidden;
   background: var(--dsw-alias-bg-layer-2);
@@ -218,34 +221,4 @@
   overflow: hidden;
   clip: rect(0 0 0 0);
   white-space: nowrap;
-}
-
-/* First-run stage: keep the product top bar visible, then let onboarding own
-   the complete workspace instead of presenting another settings modal. */
-.onboardingOverlay {
-  position: fixed;
-  inset: 0;
-  z-index: 1100;
-}
-
-/* Mask */
-.onboardingMask {
-  position: absolute;
-  left: 0px;
-  right: 0px;
-  top: 80px;
-  bottom: 0px;
-  background: rgba(0, 0, 0, 0.24);
-  /* Mask-blur */
-  backdrop-filter: blur(2px);
-}
-
-.onboardingStage {
-  position: absolute;
-  z-index: 1;
-  inset: 0;
-  display: flex;
-  justify-content: center;
-  overflow: hidden;
-  background: var(--dsw-alias-bg-layer-1);
 }

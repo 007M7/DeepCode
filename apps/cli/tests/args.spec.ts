@@ -21,53 +21,87 @@ function exitCode(argv: string[]): number {
 afterEach(() => { vi.restoreAllMocks() })
 
 describe('parseDshArgs', () => {
-  it('routes the required raw config, one-shot prompt, and Web command', () => {
-    expect(parse(['--config', 'custom.yml'])).toEqual({ mode: 'config', config: 'custom.yml' })
-    expect(parse(['-p', 'do the thing'])).toEqual({ mode: 'headless', prompt: 'do the thing' })
-    expect(parse(['web'])).toEqual({ mode: 'web', dev: false })
-    expect(parse(['web', '--config', 'web.yml'])).toEqual({ mode: 'web', dev: false, config: 'web.yml' })
+  it('routes profile boots, one-shot runs, and the web alias', () => {
+    expect(parse(['--profile', 'tui'])).toEqual({ mode: 'profile', profile: 'tui', patches: [] })
+    expect(parse(['--profile', 'tui', '--patch', 'a.yml', '--patch', 'b.yml']))
+      .toEqual({ mode: 'profile', profile: 'tui', patches: ['a.yml', 'b.yml'] })
+    expect(parse(['run', 'run', 'the', 'tests']))
+      .toEqual({ mode: 'run', profile: 'headless', patches: [], task: 'run the tests' })
+    expect(parse(['run', '--profile', 'custom', '--patch', 'a.yml', '--patch', 'b.yml', 'run', 'the', 'tests']))
+      .toEqual({ mode: 'run', profile: 'custom', patches: ['a.yml', 'b.yml'], task: 'run the tests' })
+    expect(parse(['run', '--', '--profile', 'is', 'task', 'text']))
+      .toEqual({ mode: 'run', profile: 'headless', patches: [], task: '--profile is task text' })
+    expect(parse(['web'])).toEqual({ mode: 'web', dev: false, patches: [] })
+    expect(parse(['web', '--patch', 'web.yml'])).toEqual({ mode: 'web', dev: false, patches: ['web.yml'] })
     expect(parse(['web', '--host', '0.0.0.0', '--port', '8080', '--dev', '--workspace-root', '/w']))
-      .toEqual({ mode: 'web', host: '0.0.0.0', port: 8080, dev: true, workspaceRoot: '/w' })
+      .toEqual({ mode: 'web', host: '0.0.0.0', port: 8080, dev: true, workspaceRoot: '/w', patches: [] })
     expect(parse(['web', '--trusted-host', 'harness.internal:3080', 'lab.internal', '--trusted-host', '10.0.0.9']))
-      .toEqual({ mode: 'web', dev: false, trustedHosts: ['harness.internal:3080', 'lab.internal', '10.0.0.9'] })
+      .toEqual({ mode: 'web', dev: false, patches: [], trustedHosts: ['harness.internal:3080', 'lab.internal', '10.0.0.9'] })
   })
 
-  it('routes raw and Web config dumps', () => {
-    expect(parse(['--config', 'c.yml', '--dump-config']))
-      .toEqual({ mode: 'dump-config', surface: 'config', defaultOnly: false, config: 'c.yml' })
-    expect(parse(['--dump-default-config']))
-      .toEqual({ mode: 'dump-config', surface: 'config', defaultOnly: true })
+  it('routes the plugin pnpm forwarder', () => {
+    expect(parse(['plugin', '--profile', 'tui', 'add', 'turtle-ui']))
+      .toEqual({ mode: 'plugin', profile: 'tui', args: ['add', 'turtle-ui'] })
+    expect(parse(['plugin', '--profile', 'tui', 'remove', 'turtle-ui']))
+      .toEqual({ mode: 'plugin', profile: 'tui', args: ['remove', 'turtle-ui'] })
+    expect(parse(['plugin', '--profile', 'tui', 'why', 'cordis']))
+      .toEqual({ mode: 'plugin', profile: 'tui', args: ['why', 'cordis'] })
+    // Unknown pnpm flags forward verbatim.
+    expect(parse(['plugin', '--profile', 'tui', 'add', '--save-dev', 'x']))
+      .toEqual({ mode: 'plugin', profile: 'tui', args: ['add', '--save-dev', 'x'] })
+  })
+
+  it('routes profile and web config dumps', () => {
+    expect(parse(['--profile', 'web', '--dump-config']))
+      .toEqual({ mode: 'dump-config', profile: 'web', defaultOnly: false, patches: [] })
+    expect(parse(['--profile', 'web', '--dump-default-config']))
+      .toEqual({ mode: 'dump-config', profile: 'web', defaultOnly: true, patches: [] })
+    expect(parse(['--profile', 'tui', '--dump-config', '--patch', 'x.yml']))
+      .toEqual({ mode: 'dump-config', profile: 'tui', defaultOnly: false, patches: ['x.yml'] })
     expect(parse(['web', '--dump-config']))
-      .toEqual({ mode: 'dump-config', surface: 'web', defaultOnly: false })
-    expect(parse(['web', '--dump-config', '--config', 'w.yml']))
-      .toEqual({ mode: 'dump-config', surface: 'web', defaultOnly: false, config: 'w.yml' })
+      .toEqual({ mode: 'dump-config', profile: 'web', defaultOnly: false, patches: [] })
     expect(parse(['web', '--dump-default-config']))
-      .toEqual({ mode: 'dump-config', surface: 'web', defaultOnly: true })
+      .toEqual({ mode: 'dump-config', profile: 'web', defaultOnly: true, patches: [] })
   })
 
-  it('rejects missing config, removed commands, and contradictory inputs', () => {
+  it('rejects missing profile, flags outside the current grammar, and contradictory inputs', () => {
     expect(exitCode([])).toBe(1)
-    expect(exitCode(['tui'])).toBe(1)
-    expect(exitCode(['meta'])).toBe(1)
-    expect(exitCode(['upgrade'])).toBe(1)
+    expect(exitCode(['tui'])).toBe(1) // a bare word is a task without --profile
+    expect(exitCode(['--config', 'c.yml'])).toBe(1) // outside the current grammar
+    expect(exitCode(['-p', 'task'])).toBe(1) // outside the current grammar
+    expect(exitCode(['--profile', 'headless', 'task'])).toBe(1) // tasks belong to `run`
+    expect(exitCode(['run'])).toBe(1)
+    expect(exitCode(['run', ''])).toBe(1)
+    expect(exitCode(['run', '--profile', '', 'task'])).toBe(1)
+    expect(exitCode(['run', '--patch=', 'task'])).toBe(1)
+    expect(exitCode(['--profile', 'headless', 'run', 'task'])).toBe(1)
+    expect(exitCode(['--patch', 'parent.yml', 'run', 'task'])).toBe(1)
+    expect(exitCode(['--profile', ''])).toBe(1)
+    expect(exitCode(['--profile', 'x', '--patch='])).toBe(1)
     expect(exitCode(['--dump-config'])).toBe(1)
-    expect(exitCode(['--dump-config', '--dump-default-config', '--config', 'c.yml'])).toBe(1)
-    expect(exitCode(['--dump-default-config', '--config', 'c.yml'])).toBe(1)
-    expect(exitCode(['--dump-config', '--config', 'c.yml', '-p', 'task'])).toBe(1)
-    expect(exitCode(['-p', ''])).toBe(1)
-    expect(exitCode(['--config='])).toBe(1)
-    expect(exitCode(['-p', 'x', '--config', 'c.yml'])).toBe(1)
+    expect(exitCode(['--profile', 'x', '--dump-config', '--dump-default-config'])).toBe(1)
+    expect(exitCode(['--profile', 'x', '--dump-default-config', '--patch', 'p.yml'])).toBe(1)
+    expect(exitCode(['--profile', 'x', '--dump-config', 'task'])).toBe(1)
     expect(exitCode(['--bogus'])).toBe(1)
-    expect(exitCode(['bogus-positional'])).toBe(1)
-    expect(exitCode(['web', '-p', 'task'])).toBe(1)
-    expect(exitCode(['--config', 'c.yml', 'web'])).toBe(1)
+    expect(exitCode(['--profile', 'x', 'web'])).toBe(1)
     expect(exitCode(['web', '--dump-config', '--dump-default-config'])).toBe(1)
-    expect(exitCode(['web', '--dump-default-config', '--config', 'w.yml'])).toBe(1)
-    expect(exitCode(['web', '--config='])).toBe(1)
+    expect(exitCode(['web', '--dump-default-config', '--patch', 'w.yml'])).toBe(1)
+    expect(exitCode(['web', '--patch='])).toBe(1)
+    // Boot-free dumps derive no flag patches; silently dropping the flags
+    // would print a tree that differs from the same invocation's boot.
+    expect(exitCode(['web', '--dump-config', '--port', '8080'])).toBe(1)
+    expect(exitCode(['web', '--dump-config', '--dev'])).toBe(1)
+    // A non-numeric port fails at the flag, not deep in the webserver schema.
+    expect(exitCode(['web', '--port', 'abc'])).toBe(1)
+    expect(exitCode(['plugin', 'add', 'x'])).toBe(1) // --profile required
+    expect(exitCode(['plugin', '--profile', 'tui'])).toBe(1) // nothing to forward
+    expect(exitCode(['plugin', '--profile', ''])).toBe(1)
+    expect(exitCode(['--profile', 'x', 'plugin', 'add', 'y'])).toBe(1)
   })
 
   it('exits 0 for help and version', () => {
     expect(exitCode(['--help'])).toBe(0)
+    expect(exitCode(['run', '--help'])).toBe(0)
     expect(exitCode(['--version'])).toBe(0)
   })
 })

@@ -1,6 +1,8 @@
 - banner:
   - navigation "Session hierarchy":
     - 'button "Plan a small change: add" [disabled]'
+  - img
+  - text: 标准模式
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
@@ -8,9 +10,6 @@
 - text: "plan Plan mode on. Use /plan off to leave. Interjection Plan a small change: add a --greeting flag to a CLI. Do not read or write any files. Call exit_plan_mode with a short plan of at most five bullet points. Once the plan is approved, reply with the single word DONE and stop. {{clock}}"
 - button "Copy":
   - img
-- button "Branch into a new conversation" [disabled]:
-  - img
-- text: Available only on the last message of a completed turn
 - button "Context injection @deepseek-ai/dsh-system-prompt":
   - img
   - img

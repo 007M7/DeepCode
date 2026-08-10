@@ -131,12 +131,20 @@ const homeAndGuide = pairedPages([
     order: 2,
   },
   {
+    source: 'docs/user/guide/providers.md',
+    route: 'guide/providers.md',
+    label: { root: '配置模型', en: 'Configure models' },
+    sidebar: { root: 'zh-guide', en: 'en-guide' },
+    section: { root: '入门', en: 'Guide' },
+    order: 3,
+  },
+  {
     source: 'docs/user/guide/config.md',
     route: 'guide/config.md',
     label: { root: '配置文件', en: 'Configuration' },
     sidebar: { root: 'zh-guide', en: 'en-guide' },
     section: { root: '入门', en: 'Guide' },
-    order: 3,
+    order: 4,
   },
 ])
 
@@ -165,6 +173,14 @@ const develop = pairedPages([
     sidebar: { root: 'zh-develop', en: 'en-develop' },
     section: { root: '基础', en: 'Basics' },
     order: 3,
+  },
+  {
+    source: 'docs/user/develop/basic/publish.md',
+    route: 'develop/basic/publish.md',
+    label: { root: '打包与安装插件', en: 'Package and install' },
+    sidebar: { root: 'zh-develop', en: 'en-develop' },
+    section: { root: '基础', en: 'Basics' },
+    order: 4,
   },
   {
     source: 'docs/user/develop/framework/index.md',
@@ -210,7 +226,7 @@ const develop = pairedPages([
   },
 ])
 
-const cordisTutorial = mirroredPages(([
+const cordisTutorial = pairedPages(([
   ['index.md', 'Cordis 教程', 'Cordis tutorial'],
   ['01-first-plugin.md', '1. 第一个插件', '1. Your first plugin'],
   ['02-lifecycle-and-effects.md', '2. 生命周期与副作用', '2. Lifecycle and effects'],
@@ -219,10 +235,9 @@ const cordisTutorial = mirroredPages(([
   ['05-config.md', '5. 配置', '5. Configuration'],
   ['06-composition-and-hmr.md', '6. 组合与热重载', '6. Composition and HMR'],
   ['07-into-the-harness.md', '7. 进入 Harness', '7. Into the harness'],
-] as const).map(([file, rootLabel, enLabel], order): MirroredPage => ({
+] as const).map(([file, rootLabel, enLabel], order): PairedPage => ({
   source: `docs/cordis-tutorial/${file}`,
   route: `develop/cordis-tutorial/${file}`,
-  contentLocale: 'en-US',
   label: { root: rootLabel, en: enLabel },
   sidebar: { root: 'zh-develop', en: 'en-develop' },
   section: { root: 'Cordis 教程', en: 'Cordis tutorial' },
@@ -241,111 +256,151 @@ const cordisPrimerReference = pairedPages([
   },
 ])
 
-const coreDataReference = pairedPages(([
-  ['core.md', '核心数据结构', 'Core data structures', 0],
-  ['scope.md', '作用域', 'Scopes', 1],
-  ['session.md', '会话', 'Sessions', 2],
-  ['system-prompt.md', '系统提示词', 'System prompts', 4],
-  ['tools.md', '工具', 'Tools', 5],
-  ['llm-streaming.md', 'LLM 流式响应', 'LLM streaming', 6],
-  ['bash.md', 'Bash 执行', 'Bash execution', 7],
-  ['filesystem.md', '文件系统', 'Filesystem', 9],
-  ['code-runtime.md', '代码运行时', 'Code runtime', 10],
-  ['compaction.md', '上下文压缩', 'Compaction', 11],
-  ['subagent.md', '子代理', 'Subagents', 12],
-  ['workflow.md', '工作流', 'Workflows', 13],
-  ['skills.md', '技能', 'Skills', 14],
-  ['approval.md', '审批', 'Approvals', 15],
-  ['user-interaction.md', '用户交互', 'User interaction', 16],
-  ['sandbox.md', '沙箱', 'Sandboxing', 18],
-  ['web.md', 'Web 访问', 'Web access', 19],
-  ['persistence.md', '会话持久化', 'Session persistence', 20],
-  ['settings.md', '用户设置', 'User settings', 21],
-  ['credentials.md', '用户凭据', 'User credentials', 22],
+const subsystemsReference = pairedPages(([
+  ['README.md', '子系统', 'Subsystems', 0],
+  ['core.md', '核心', 'Core', 1],
+  ['scope.md', '作用域', 'Scopes', 2],
+  ['typert.md', 'TypeRT', 'TypeRT', 39],
+  ['session.md', '会话', 'Sessions', 3],
+  ['session-query.md', '会话查询', 'Session query', 4],
+  ['session-reference.md', '会话引用', 'Session references', 5],
+  ['session-title.md', '会话标题', 'Session titles', 6],
+  ['settings.md', '用户设置', 'User settings', 7],
+  ['credentials.md', '用户凭据', 'User credentials', 8],
+  ['system-prompt.md', '系统提示词', 'System prompts', 9],
+  ['tools.md', '工具', 'Tools', 10],
+  ['llm-streaming.md', 'LLM 流式响应', 'LLM streaming', 11],
+  ['token-meter.md', 'Token 计量', 'Token metering', 12],
+  ['bash.md', 'Bash 执行', 'Bash execution', 13],
+  ['subprocess.md', '子进程', 'Subprocesses', 14],
+  ['tasks.md', '后台任务', 'Background tasks', 15],
+  ['filesystem.md', '文件系统', 'Filesystem', 16],
+  ['lsp.md', 'LSP 导航', 'LSP navigation', 17],
+  ['code-runtime.md', '代码运行时', 'Code runtime', 18],
+  ['compaction.md', '上下文压缩', 'Compaction', 19],
+  ['subagent.md', '子代理', 'Subagents', 20],
+  ['workflow.md', '工作流', 'Workflows', 21],
+  ['skills.md', '技能', 'Skills', 22],
+  ['approval.md', '审批', 'Approvals', 23],
+  ['permission.md', '权限预设', 'Permission presets', 24],
+  ['plan.md', '计划模式', 'Plan mode', 25],
+  ['user-interaction.md', '用户交互', 'User interaction', 26],
+  ['sandbox.md', '沙箱', 'Sandboxing', 27],
+  ['web.md', 'Web 访问', 'Web access', 28],
+  ['spill.md', 'Spill 存储', 'Spill storage', 29],
+  ['persistence.md', '会话持久化', 'Session persistence', 30],
+  ['storage.md', '存储', 'Storage', 31],
+  ['workspace.md', '工作区', 'Workspaces', 32],
+  ['http-server.md', 'HTTP 服务器', 'HTTP server', 33],
+  ['client-modules.md', '客户端模块', 'Client modules', 34],
+  ['invariants.md', '运行时不变式', 'Runtime invariants', 36],
+  ['session-projection.md', '会话投影', 'Session projections', 37],
+  ['telemetry.md', '遥测', 'Telemetry', 38],
 ] as const).map(([file, rootLabel, enLabel, order]): PairedPage => ({
-  source: `docs/core-data-structures/${file}`,
-  route: `reference/core-data-structures/${file}`,
+  source: `docs/subsystems/${file}`,
+  route: file === 'README.md' ? 'reference/subsystems/index.md' : `reference/subsystems/${file}`,
   label: { root: rootLabel, en: enLabel },
   sidebar: { root: 'zh-reference', en: 'en-reference' },
-  section: { root: '数据结构', en: 'Data structures' },
+  section: { root: '子系统', en: 'Subsystems' },
   order,
-  ...(file === 'core.md' ? { sourceAliases: ['docs/core-data-structures'] } : {}),
+  ...(file === 'README.md' ? { sourceAliases: ['docs/subsystems'] } : {}),
 })))
 
-const reference = mirroredPages([
-  ...([
+const reference = [
+  ...pairedPages(([
     ['docs/architecture.md', 'reference/index.md', '架构', 'Architecture', 0],
-    ['docs/capability-seams.md', 'reference/capability-seams.md', '能力服务', 'Capability services', 2],
-    ['docs/agent-lifecycle.md', 'reference/agent-lifecycle.md', 'Agent 生命周期', 'Agent lifecycle', 3],
-    ['docs/tool-execution-pipeline.md', 'reference/tool-execution-pipeline.md', 'Tool 执行', 'Tool execution', 4],
-  ] as const).map(([source, route, rootLabel, enLabel, order]): MirroredPage => ({
+  ] as const).map(([source, route, rootLabel, enLabel, order]): PairedPage => ({
     source,
     route,
-    contentLocale: 'en-US',
     label: { root: rootLabel, en: enLabel },
     sidebar: { root: 'zh-reference', en: 'en-reference' },
     section: { root: '概念', en: 'Concepts' },
     order,
-  })),
-  ...([
-    ['docs/config-catalog.md', 'reference/config-catalog.md', '插件配置', 'Plugin configuration'],
-    ['docs/tool-catalog.md', 'reference/tool-catalog.md', 'Tool Schema', 'Tool schemas'],
-    ['docs/cordis-catalog/services.md', 'reference/cordis-catalog/services.md', '服务', 'Services'],
-    ['docs/cordis-catalog/events.md', 'reference/cordis-catalog/events.md', '事件', 'Events'],
-    ['docs/persistence-catalog.md', 'reference/persistence-catalog.md', '持久化事件', 'Persistence events', 'deep'],
-  ] as const).map(([source, route, rootLabel, enLabel, outline], order): MirroredPage => ({
+  }))),
+  ...pairedPages(([
+    ['docs/capability-seams.md', 'reference/capability-seams.md', '能力服务', 'Capability services', 2],
+    ['docs/agent-lifecycle.md', 'reference/agent-lifecycle.md', 'Agent 生命周期', 'Agent lifecycle', 3],
+    ['docs/tool-execution-pipeline.md', 'reference/tool-execution-pipeline.md', 'Tool 执行', 'Tool execution', 4],
+  ] as const).map(([source, route, rootLabel, enLabel, order]): PairedPage => ({
     source,
     route,
-    contentLocale: 'en-US',
+    label: { root: rootLabel, en: enLabel },
+    sidebar: { root: 'zh-reference', en: 'en-reference' },
+    section: { root: '概念', en: 'Concepts' },
+    order,
+  }))),
+  ...pairedPages(([
+    ['docs/config-catalog.md', 'reference/config-catalog.md', '插件配置', 'Plugin configuration'],
+    ['docs/tool-catalog.md', 'reference/tool-catalog.md', 'Tool Schema', 'Tool schemas'],
+    ['docs/persistence-catalog.md', 'reference/persistence-catalog.md', '持久化事件', 'Persistence events', 'deep'],
+  ] as const).map(([source, route, rootLabel, enLabel, outline], order): PairedPage => ({
+    source,
+    route,
     label: { root: rootLabel, en: enLabel },
     sidebar: { root: 'zh-reference', en: 'en-reference' },
     section: { root: '生成参考', en: 'Generated reference' },
     order,
     ...(outline === undefined ? {} : { outline }),
-  })),
-  ...([
+  }))),
+  ...pairedPages(([
     ['context.md', 'Context', 'Context'],
     ['events.md', 'Events', 'Events'],
     ['fiber.md', 'Fiber', 'Fiber'],
     ['registry.md', 'Plugin Registry', 'Plugin Registry'],
     ['service.md', 'Service', 'Service'],
+  ] as const).map(([file, rootLabel, enLabel], order): PairedPage => ({
+    source: `docs/cordis-api/${file}`,
+    route: `reference/cordis-api/${file}`,
+    label: { root: rootLabel, en: enLabel },
+    sidebar: { root: 'zh-reference', en: 'en-reference' },
+    section: { root: 'Cordis API', en: 'Cordis Core API' },
+    order,
+  }))),
+  ...mirroredPages(([
+    ['inherited.md', '继承接口面', 'Inherited surface'],
   ] as const).map(([file, rootLabel, enLabel], order): MirroredPage => ({
-    source: `docs/cordis-catalog/core/${file}`,
+    source: `docs/cordis-api/${file}`,
     route: `reference/cordis-api/${file}`,
     contentLocale: 'en-US',
     label: { root: rootLabel, en: enLabel },
     sidebar: { root: 'zh-reference', en: 'en-reference' },
     section: { root: 'Cordis API', en: 'Cordis Core API' },
-    order,
-  })),
-  ...([
-    ['goal.md', '目标', 'Goals', 3],
-    ['pty.md', 'PTY 会话', 'PTY sessions', 8],
-    ['commands.md', '命令', 'Human commands', 17],
-  ] as const).map(([file, rootLabel, enLabel, order]): MirroredPage => ({
-    source: `docs/core-data-structures/${file}`,
-    route: `reference/core-data-structures/${file}`,
-    contentLocale: 'en-US',
+    order: order + 5,
+  }))),
+  ...pairedPages(([
+    ['goal.md', '目标', 'Goals', 14],
+    ['pty.md', 'PTY 会话', 'PTY sessions', 26],
+    ['commands.md', '命令', 'Human commands', 38],
+  ] as const).map(([file, rootLabel, enLabel, order]): PairedPage => ({
+    source: `docs/subsystems/${file}`,
+    route: `reference/subsystems/${file}`,
     label: { root: rootLabel, en: enLabel },
     sidebar: { root: 'zh-reference', en: 'en-reference' },
-    section: { root: '数据结构', en: 'Data structures' },
+    section: { root: '子系统', en: 'Subsystems' },
     order,
-  })),
-  ...([
+  }))),
+  ...pairedPages(([
     ['adding-a-package.md', '新增 Package', 'Adding a package'],
     ['adding-a-tool.md', '新增 Tool', 'Adding a tool'],
     ['adding-an-llm-adapter.md', '新增 LLM Adapter', 'Adding an LLM adapter'],
     ['extension-cookbook.md', '扩展模式', 'Extension patterns'],
-  ] as const).map(([file, rootLabel, enLabel], order): MirroredPage => ({
+  ] as const).map(([file, rootLabel, enLabel], order): PairedPage => ({
     source: `docs/cookbook/${file}`,
     route: `reference/cookbook/${file}`,
-    contentLocale: 'en-US',
     label: { root: rootLabel, en: enLabel },
     sidebar: { root: 'zh-reference', en: 'en-reference' },
     section: { root: '开发手册', en: 'Cookbook' },
     order,
-  })),
-])
+  }))),
+  ...pairedPages([{
+    source: 'docs/cookbook/adding-a-conversation-node.md',
+    route: 'reference/cookbook/adding-a-conversation-node.md',
+    label: { root: '新增 Conversation Node', en: 'Adding a Conversation Node' },
+    sidebar: { root: 'zh-reference', en: 'en-reference' },
+    section: { root: '开发手册', en: 'Cookbook' },
+    order: 4,
+  }]),
+]
 
 /** Every canonical page published by the documentation website. */
 export const docsPages: DocsPage[] = [
@@ -353,6 +408,6 @@ export const docsPages: DocsPage[] = [
   ...develop,
   ...cordisTutorial,
   ...cordisPrimerReference,
-  ...coreDataReference,
+  ...subsystemsReference,
   ...reference,
 ]

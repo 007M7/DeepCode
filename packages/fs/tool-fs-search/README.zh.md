@@ -16,11 +16,11 @@ await ctx.plugin(LocalSpillStore)                           // @deepseek-ai/dsh-
 
 ## 部署要求：无需宿主 rg，但工作目录与文件系统需共置
 
-二进制随包交付，覆盖所有受支持平台（macOS/Linux/Windows，x64/arm64），因此无需宿主 `rg` 安装，工具在每个部署上都注册。返回路径会相对于解析后的工作目录显示（调用方 agent（智能体）有会话 cwd 时使用该 cwd，否则使用 `process.cwd()`）；只有该工作目录与文件系统根目录是同一工作区时，才能用 `read` 继续读取。v1 只记录这项共置要求，不执行运行时跨服务校验；远程或虚拟文件系统搜索需等待共享工作区契约或特定提供方的搜索后端。
+二进制随包交付，覆盖所有受支持平台（macOS/Linux/Windows，x64/arm64），因此无需宿主 `rg` 安装，工具在每个部署上都注册。返回路径会相对于解析后的工作目录显示（调用方 agent（智能体）有会话 cwd 时使用该 cwd，否则使用 `process.cwd()`）；只有该工作目录与文件系统根目录是同一工作区时，才能用 `read` 继续读取。这项共置要求不附带运行时跨服务校验；远程或虚拟文件系统搜索需等待共享工作区约定或特定提供方的搜索后端。
 
 ## 配置
 
-`sampleOverCapGlobResults` 是必填项且没有回退值；部署必须显式选择超过上限时的排序契约。其余配置键是可选的搜索上限，默认值如下。
+`sampleOverCapGlobResults` 是必填项且没有回退值；部署必须显式选择超过上限时的排序约定。其余配置键是可选的搜索上限，默认值如下。
 
 | 配置键 | 默认值 | 含义 |
 |---|---|---|
@@ -30,7 +30,7 @@ await ctx.plugin(LocalSpillStore)                           // @deepseek-ai/dsh-
 | `grepMaxLineBytes` | `2000` | 每条匹配行预览的字节上限；截断会保留 UTF-8 边界，并标记为 `(line truncated)`。 |
 | `rawOutputMaxBytes` | `20000000` | 搜索将解析的完整原始 `rg` stdout 上限（与 Claude Code 的 ripgrep 原始 buffer 相同）；更大的原始输出以 `SEARCH_RAW_OUTPUT_OVERFLOW` 失败。 |
 | `timeoutMs` | `30000` | 附加到两个工具定义上的协作式工具调用预算，由 `@deepseek-ai/dsh-timeout-policy` 通过 `exec.signal` 强制执行；subprocess seam 的终止升级提供硬终止。 |
-| `graceMs` | `3000` | subprocess seam 在 `timeoutMs` 之外授予的终止升级宽限期；超过后搜索以 `SEARCH_ABORTED` 失败。 |
+| `graceMs` | `3000` | subprocess seam 在 `timeoutMs` 之外授予的终止升级宽限期须为正值；超过后搜索以 `SEARCH_ABORTED` 失败；该宽限期不得大于 [`MAX_TIMER_DELAY_MS`](../../util/timeout/README.md)。 |
 | `stderrMaxBytes` | `65536` | `rg` stderr 的诊断尾部预算，经 subprocess seam 的 collect 形态捕获；lossy 读取只保留尾部（标记 `[stderr truncated]`）。 |
 
 ## 工具

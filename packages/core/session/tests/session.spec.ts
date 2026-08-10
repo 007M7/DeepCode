@@ -417,7 +417,7 @@ describe('Session', () => {
     }
   })
 
-  it('round-trips adapter-default provenance and rejects invalid durable values', () => {
+  it('round-trips adapter-default markers and rejects invalid durable values', () => {
     const valid = {
       type: 'request/header',
       seq: 0,
@@ -1319,6 +1319,7 @@ describe('SessionStore', () => {
       { meta: { delegationDepth: '1' }, error: /delegationDepth must be a non-negative safe integer/ },
       { meta: { delegationDepth: 0.5 }, error: /delegationDepth must be a non-negative safe integer/ },
       { meta: { delegationDepth: -1 }, error: /delegationDepth must be a non-negative safe integer/ },
+      { meta: { agentPreset: 1 }, error: /agentPreset must be a string/ },
     ]
 
     for (const [index, { meta, error }] of cases.entries()) {

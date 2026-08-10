@@ -1,5 +1,5 @@
 /**
- * Bridge for unmodified Codex command hooks on harness interception seams. It
+ * Bridge for unmodified Codex command hooks on harness interception points. It
  * supports five points (SessionStart, prompt/tool pre/post, Stop), regex-only
  * matchers, snake_case payloads without a trailing newline, no hook environment
  * or command substitution, and no pre-tool approval or rewrite path; only
@@ -46,7 +46,7 @@ export interface Config {
    * Path to a Codex `hooks.json`. Process-level: read once at load, a relative
    * path resolves against the process launch cwd.
    * TODO(per-session-hook-config): per-session project-local discovery from each
-   * `session/new.cwd` is not yet implemented.
+   * `session/new.cwd`.
    */
   configPath: string
   /** The model name stamped on every payload (Codex includes `model` on each event). */
@@ -107,7 +107,7 @@ export function apply(ctx: Context, config: Config): void {
   /**
    * Run and fold one configured Codex hook point.
    *
-   * A supplied turn records the hook provenance pair inside that open turn.
+   * A supplied turn records the hook invocation/result pair inside that open turn.
    * Detached lifecycle points omit it.
    */
   async function runPoint(
@@ -156,7 +156,7 @@ export function apply(ctx: Context, config: Config): void {
         }
         outputs.push(output)
         // Execution and decision mapping remain in each bridge so dialect
-        // differences stay explicit at their owning seam.
+        // differences stay explicit at their owning extension point.
         /* jscpd:ignore-start */
         if (output.systemMessage !== undefined) {
           ctx.logger.warn(`hooks-codex: ${point} hook emitted a systemMessage, which is not yet surfaced (ignored)`)
@@ -169,7 +169,7 @@ export function apply(ctx: Context, config: Config): void {
     return mergeHookOutputs(outputs)
   }
 
-  // TODO(hook-continue-false): `merged.stop` is logged but needs a run-level halt seam.
+  // TODO(hook-continue-false): `merged.stop` is logged but needs a run-level halt mechanism.
 
   function contextFrom(merged: MergedHookOutcome): UserMessage | undefined {
     if (merged.additionalContext.length === 0) return undefined
@@ -177,7 +177,7 @@ export function apply(ctx: Context, config: Config): void {
     return createUserMessage({ content, source: PLUGIN_SOURCE })
   }
 
-  /** Prepend one context without flattening downstream provenance or metadata. */
+  /** Prepend one context without flattening source fields or other downstream metadata. */
   function prependContext(ours: UserMessage, theirs: UserMessage[] | undefined): UserMessage[] {
     return [ours, ...theirs ?? []]
   }
@@ -185,7 +185,7 @@ export function apply(ctx: Context, config: Config): void {
   // SessionStart injects plain stdout when its detached hook resolves; a slow
   // hook may miss the first request.
   // TODO(session-start-gating): add a startup gate before promising first-turn delivery.
-  ctx.on('agent/session-start', (agent, source) => {
+  ctx.on('agent/session-start', ({ agent, source }) => {
     detached.track(runPoint('SessionStart', source, { ...base(ctx, agent, 'SessionStart', model), source }, { agent, plainStdoutAsContext: true, signal: detached.signal })
       .then((merged) => {
         const context = contextFrom(merged)
@@ -196,7 +196,7 @@ export function apply(ctx: Context, config: Config): void {
   })
 
   // UserPromptSubmit → PreStepDecision. Codex supports reject, not rewrite or ask.
-  ctx.on('agent/pre-step', async (agent, messages, { turn, signal }, next): Promise<PreStepDecision> => {
+  ctx.on('agent/pre-step', async ({ agent, messages, turn, signal }, next): Promise<PreStepDecision> => {
     if (messages.length === 0) return next()
     const payload = {
       ...base(ctx, agent, 'UserPromptSubmit', model),
@@ -257,7 +257,7 @@ export function apply(ctx: Context, config: Config): void {
   // TODO(stop-loop-guard): Codex supplies `stop_hook_active` so a Stop hook can
   // avoid continuing the same turn indefinitely. It is always false here, so an
   // unconditionally blocking hook force-continues every step until it self-limits.
-  ctx.on('agent/turn-stopping', async (agent, turn, signal): Promise<void> => {
+  ctx.on('agent/turn-stopping', async ({ agent, turn, signal }): Promise<void> => {
     const merged = await runPoint('Stop', '', { ...turnBase(ctx, agent, 'Stop', model), stop_hook_active: false, last_assistant_message: null }, { agent, turn, signal })
     /* jscpd:ignore-end */
     if (merged.decision === 'deny') {
@@ -279,7 +279,7 @@ export function apply(ctx: Context, config: Config): void {
 function lastTurn(agent: Agent | undefined): number {
   if (!agent) return 0
   const last = [...agent.session.events].findLast(e => e.type === 'turn/start')
-  /* v8 ignore next -- agent-present turnBase callers are tool/stop seams inside an open turn. */
+  /* v8 ignore next -- agent-present turnBase callers are tool/stop extension points inside an open turn. */
   return last?.type === 'turn/start' ? last.data.turn : 0
 }
 

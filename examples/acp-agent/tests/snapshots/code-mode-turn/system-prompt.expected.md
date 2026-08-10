@@ -77,8 +77,16 @@ interface ToolArgsMap {
   } & Record<string, JsonValue>;
   /** Read the current same-session goal, including its exact id/revision, objective, phase, completed continuation rounds, round limit, blocker reason when present, and whether another continuation is armed. Call this before updating a goal. */
   get_goal: Record<string, JsonValue>;
-  /** List your continuable background subagents by durable id and label. Status is a snapshot of the stored record: running means the subagent session is currently live in this process, complete means it exists only in storage and a `send_message` starts a new turn on the same conversation. The snapshot is not a delivery promise — `send_message` performs the authoritative check and may still fail. Children that could not be read are reported as diagnostics instead of being silently dropped. */
-  list_agents: Record<string, JsonValue>;
+  /** Request cancellation of a background agent's current turn by its agent id. The target may be your direct child or a deeper agent created under you. Only the current turn stops: messages already queued for the agent stay parked until a later send_message, agents it started keep running, and the agent itself stays available for follow-ups. This call returns as soon as the stop request is accepted, so the target may keep running briefly; interrupting an agent that already finished is an accepted no-op. */
+  interrupt_agent: {
+    /** The agent id of the running agent to interrupt. */
+    agent_id: string;
+  } & Record<string, JsonValue>;
+  /** List your continuable background subagents by durable id and label. Status comes from the live registry: running means the agent is working right now, idle means it is loaded but between turns (it may be waiting on agents it started), and complete means it exists only in storage — a direct child remains a `send_message` candidate in every status. The snapshot is not a delivery promise — `send_message` performs the authoritative check and may still fail. Children that could not be read are reported as diagnostics instead of being silently dropped. Scope `descendants` walks the whole tree below you in stable pre-order, annotating each entry with its durable direct-parent session id and depth. You may use `send_message` only for depth-1 entries; deeper entries are candidates for `interrupt_agent` only. */
+  list_agents: {
+    /** children (default) lists direct children only; descendants walks the complete tree below you. */
+    scope?: "children" | "descendants";
+  } & Record<string, JsonValue>;
   /** Run a foreground fresh-agent Ralph loop toward one immutable objective. Use only when the direct human explicitly asks for Ralph or fresh-agent iteration. Each round opens a new child with no parent conversation or prior child session; the shared workspace is long-term memory, and only a bounded structured report crosses rounds. The call returns when a worker reports completion or a concrete blocker, or at the round limit. Ordinary long-running same-session work belongs to goal tools. */
   ralph: {
     /** The immutable completion objective for every fresh Ralph round. */
@@ -143,7 +151,7 @@ interface ToolArgsMap {
     /** Max wait in milliseconds (only meaningful with wait: true). Defaults to the configured wait timeout; capped by the configured maximum. */
     timeout_ms?: number;
   } & Record<string, JsonValue>;
-  /** Record and update a structured task list for the current work. Send the ENTIRE list every call — it REPLACES the previous list (there are no partial updates, no per-item edits). Use it to plan multi-step work and show progress: add one todo per concrete step before you start. Keep AT MOST ONE todo `in_progress` at a time; while work remains, exactly one active task should be `in_progress`. Mark a todo `completed` the moment it is done (do not batch completions), and allow no `in_progress` item only once all work is complete. Skip the list for trivial single-step tasks. Statuses: `pending` (not started), `in_progress` (being worked on now), `completed` (finished). */
+  /** Record and update a structured task list for the current work. Send the ENTIRE list every call — it REPLACES the previous list (there are no partial updates, no per-item edits). Use it to plan multi-step work and show progress: add one todo per concrete step before you start. Mark every todo being actively worked on `in_progress` — several at once when work genuinely runs in parallel (e.g. concurrent subagents or background commands), one for sequential work; while work remains, at least one task should be `in_progress`. Mark a todo `completed` the moment it is done (do not batch completions), and allow no `in_progress` item only once all work is complete. Skip the list for trivial single-step tasks. Statuses: `pending` (not started), `in_progress` (being worked on now), `completed` (finished). */
   todo_write: {
     /** The COMPLETE task list, replacing any previous list. */
     todos: ({
@@ -275,15 +283,22 @@ interface ToolOutputMap {
     };
     activation: "armed" | "disarmed";
   };
+  interrupt_agent: {
+    accepted: boolean;
+  };
   list_agents: ({
     kind: "child";
     id: string;
     label: string;
-    status: "running" | "complete";
+    status: "running" | "idle" | "complete";
+    parent?: string;
+    depth?: number;
   } | {
     kind: "diagnostic";
     id: string;
     reason: "corrupt" | "unsupported" | "unavailable";
+    parent?: string;
+    depth?: number;
   })[];
   ralph: {
     runId: string;

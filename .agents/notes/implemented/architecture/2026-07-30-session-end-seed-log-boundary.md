@@ -36,7 +36,7 @@ The predicate holds for a bracket *this* session inherited, not as a liveness si
 
 ## Alternatives considered
 
-**A boundary written by the persistence coordinator's cold-load path.** Built first, as the [`session/resumed` boundary](../../rejected/architecture/2026-07-29-session-resumed-log-boundary.md), and abandoned before merge. It covers no fork, which is the one case where the inherited bracket's owner may still be running. Because the marker was minted at load it also had to be a durable write on a read path, which spread cost across the seam: a revision bump on every cold load, a `commitRepair` batch on a balanced log with nothing to repair, a stored-time floor to keep the clamp monotonic, and a load that failed against a read-only store.
+**A boundary written by the persistence coordinator's cold-load path.** An earlier iteration wrote a `session/resumed` boundary; it lost because it covers no fork — the one case where the inherited bracket's owner may still be running — and because a marker minted at load had to be a durable write on a read path, which spread cost across the seam: a revision bump on every cold load, a `commitRepair` batch on a balanced log with nothing to repair, a stored-time floor to keep the clamp monotonic, and a load that failed against a read-only store.
 
 **A boundary appended at loop start.** The loop calls `resumeWith`, so it covers the resume paths, but it misses `fork()` and `adopt()` entirely, and the event would have to fire on `'startup'` — the source a fork child publishes — so `SessionStartSource` would stop discriminating. It also publishes the session before the marker is appended, so a `session/created` listener could observe a seeded log with no boundary.
 

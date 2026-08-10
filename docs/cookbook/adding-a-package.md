@@ -31,7 +31,7 @@ In-package relative imports use explicit `.ts` specifiers in source (for example
 | File | Change |
 |---|---|
 | `tsconfig.base.json` | no edit for an existing group; for a new group, add a `./packages/<group>/*/src` candidate to the `@deepseek-ai/dsh-*` wildcard |
-| `tsconfig.host.json` (host-side package) or `tsconfig.client.json` (client-side package) | add `{ "path": "./packages/<group>/<pkg>" }` to `references` — exactly one aggregate, never both ([layout](../development.md#typescript-project-layout)) |
+| `tsconfig.host.json` (Host package) or `tsconfig.client.json` (Client package) | add `{ "path": "./packages/<group>/<pkg>" }` to `references` — an ordinary package belongs to exactly one aggregate, never both. `api/remotes` uses a repository-specific split because the Host generates a contract that the Client consumes in a later phase; new packages must not copy it ([layout](../development.md#typescript-project-layout)) |
 | `knip.json` | only if the package has entrypoints that repository discovery does not already cover |
 
 A `packages/client/*` package additionally extends `tsconfig.base.client.json` instead of `tsconfig.base.json`, and a client plugin package declares `dshClient` in package.json, exports `./client`, and calls the shared tsdown preset (`packages/client/tsdown.client.ts`) — see [packages/client/AGENTS.md](../../packages/client/AGENTS.md) for the client-side contract.
@@ -40,7 +40,7 @@ Covered automatically by globs or package-manifest discovery — no edits needed
 
 ## 3. Decide the package topology
 
-For a swappable capability, split interface / implementation / consumer into separate packages (see docs/architecture.md § "Capability seams" — the bash trio is the template). A single-purpose plugin stays one package.
+For a swappable capability, separate Service Definition / Service provider / Consumer roles into packages when they evolve independently (see docs/architecture.md § "Capability seams" — the bash trio is the template). A single-purpose plugin stays one package.
 
 ## 4. Write the package README
 

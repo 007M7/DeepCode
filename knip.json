@@ -5,9 +5,12 @@
   ],
   "ignoreBinaries": [
     "bwrap",
+    "icacls",
+    "musl-gcc",
     "python3",
     "sandbox-exec",
-    "taskkill"
+    "taskkill",
+    "where.exe"
   ],
   "ignoreWorkspaces": [
     "vendor/*",
@@ -36,18 +39,27 @@
       "entry": [
         "headless-agent/tests/fixtures/cli-mock-llm.ts",
         "headless-agent/tests/fixtures/semantic-checkpoint-agent.ts",
+        "headless-agent/tests/fixtures/subagent-diagnostic-agent.ts",
         "headless-agent/tests/fixtures/subagent-inheritance-agent.ts",
+        "headless-agent/tests/fixtures/workspace-context-resume-agent.ts",
         "headless-agent/tests/fixtures/goal-domain/seed-goal.ts",
         "headless-agent/tests/fixtures/time-context-driver.ts",
         "headless-agent/tests/fixtures/time-context-mock-llm.ts",
         "headless-agent/tests/fixtures/telemetry-otel-driver.ts",
         "headless-agent/tests/fixtures/telemetry-redact-rule.ts",
+        "headless-agent/tests/fixtures/e2b/e2b/bin.ts",
         "acp-agent/tests/snapshots/lsp-definition/workspace/subject.ts",
+        "acp-agent/tests/fixtures/child-question-tripwire.ts",
         "acp-agent/tests/fixtures/partial-landlock-sandbox.ts",
         "acp-agent/tests/fixtures/subagent-durability-failure.ts",
         "acp-agent/tests/fixtures/subagent-settlement-marker.ts",
+        "acp-agent/tests/fixtures/workspace-context-compaction.ts",
         "acp-agent/tests/fixtures/subagent/subagent-acp/mock-delegating-llm.ts",
         "acp-agent/tests/fixtures/subagent/subagent-acp/driver.ts",
+        "acp-agent/tests/fixtures/subagent/subagent-claude-code/fixture.ts",
+        "acp-agent/tests/fixtures/subagent/subagent-claude-code/driver.ts",
+        "acp-agent/tests/fixtures/subagent/subagent-codex/fixture.ts",
+        "acp-agent/tests/fixtures/subagent/subagent-codex/driver.ts",
         "jsonrpc-agent/tests/fixtures/subagent/subagent-dsh-sdk/driver.ts",
         "jsonrpc-agent/tests/fixtures/subagent/subagent-dsh-sdk/child-mock-llm.ts",
         "jsonrpc-agent/tests/fixtures/subagent/subagent-dsh-sdk/mock-delegating-llm.ts",
@@ -58,6 +70,7 @@
         "**/*.ts"
       ],
       "ignoreDependencies": [
+        "@cordisjs/plugin-logger-console",
         "@deepseek-ai/.+"
       ]
     },
@@ -107,6 +120,15 @@
         "tests/**/*.ts"
       ]
     },
+    "packages/api/remotes": {
+      "entry": [
+        "tests/**/*.e2e.ts"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "tests/**/*.ts"
+      ]
+    },
     "packages/client/ui-primitives": {
       "entry": [
         "tests/**/*.spec.tsx"
@@ -118,6 +140,16 @@
       ]
     },
     "packages/client/ui-goal": {
+      "entry": [
+        "tests/**/*.spec.tsx"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "src/**/*.tsx",
+        "tests/**/*.tsx"
+      ]
+    },
+    "packages/client/ui-deliverables": {
       "entry": [
         "tests/**/*.spec.tsx"
       ],
@@ -182,7 +214,8 @@
     "packages/typert/generator": {
       "entry": [
         "tests/**/*.spec.ts",
-        "tests/fixtures/type-model/**/*.ts"
+        "tests/fixtures/type-model/**/*.ts",
+        "tests/fixtures/remote-model/**/*.ts"
       ],
       "project": [
         "src/**/*.ts",
@@ -190,6 +223,26 @@
       ]
     },
     "packages/bash/bash-sandbox": {
+      "entry": [
+        "tests/**/*.spec.ts",
+        "tests/**/*.e2e.ts"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "tests/**/*.ts"
+      ]
+    },
+    "packages/bash/pwsh-sandbox": {
+      "entry": [
+        "tests/**/*.spec.ts",
+        "tests/**/*.e2e.ts"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "tests/**/*.ts"
+      ]
+    },
+    "packages/e2b/e2b": {
       "entry": [
         "tests/**/*.spec.ts",
         "tests/**/*.e2e.ts"
@@ -242,7 +295,7 @@
         "tests/**/*.ts"
       ]
     },
-    "packages/telemetry/session-telemetry-otel": {
+    "packages/session/session-telemetry-otel": {
       "entry": [
         "tests/**/*.spec.ts",
         "tests/**/*.e2e.ts"
@@ -373,7 +426,7 @@
         "tests/**/*.ts"
       ]
     },
-    "packages/session-title/session-title-first-message-llm": {
+    "packages/session/session-title-first-message-llm": {
       "entry": [
         "tests/**/*.spec.ts",
         "tests/**/*.e2e.ts"
@@ -393,7 +446,7 @@
         "tests/**/*.ts"
       ]
     },
-    "packages/session-persistence/session-checkpoint-policy": {
+    "packages/session/session-checkpoint-policy": {
       "entry": [
         "tests/**/*.spec.ts",
         "tests/**/*.e2e.ts"
@@ -472,7 +525,7 @@
         "tests/**/*.ts"
       ]
     },
-    "packages/ui/jsonrpc": {
+    "packages/scaffold/server": {
       "entry": [
         "tests/**/*.spec.ts",
         "tests/**/*.e2e.ts"
@@ -482,19 +535,9 @@
         "tests/**/*.ts"
       ]
     },
-    "packages/ui/commands": {
+    "packages/interaction/commands": {
       "entry": [
         "tests/**/*.spec.ts"
-      ],
-      "project": [
-        "src/**/*.ts",
-        "tests/**/*.ts"
-      ]
-    },
-    "packages/examples/cli-demo": {
-      "entry": [
-        "tests/**/*.spec.ts",
-        "tests/**/*.e2e.ts"
       ],
       "project": [
         "src/**/*.ts",
@@ -506,7 +549,7 @@
         "src/**/*.ts"
       ]
     },
-    "packages/sdk/create-sdk": {
+    "packages/scaffold/create-sdk": {
       "entry": [
         "src/bin.ts",
         "tests/**/*.spec.ts",
@@ -518,7 +561,7 @@
         "tests/**/*.ts"
       ]
     },
-    "packages/sdk/scripts": {
+    "packages/scaffold/scripts": {
       "entry": [
         "src/bin.ts",
         "tests/**/*.spec.ts",
@@ -547,6 +590,29 @@
         "tests/**/*.spec.ts",
         "tests/**/*.e2e.ts",
         "tests/mock-acp-server.ts"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "tests/**/*.ts"
+      ]
+    },
+    "packages/subagent/subagent-codex": {
+      "entry": [
+        "tests/**/*.spec.ts",
+        "tests/**/*.e2e.ts"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "tests/**/*.ts"
+      ],
+      "ignoreDependencies": [
+        "@openai/codex"
+      ]
+    },
+    "packages/subagent/subagent-claude-code": {
+      "entry": [
+        "tests/**/*.spec.ts",
+        "tests/**/*.e2e.ts"
       ],
       "project": [
         "src/**/*.ts",
@@ -597,6 +663,22 @@
         "@deepseek-ai/dsh-client-ui-theme"
       ]
     },
+    "packages/client/ui-settings": {
+      "entry": [
+        "tests/**/*.spec.ts",
+        "tests/**/*.spec.tsx"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "src/**/*.tsx",
+        "tests/**/*.ts",
+        "tests/**/*.tsx"
+      ],
+      "ignoreDependencies": [
+        "@types/react-dom",
+        "react-dom"
+      ]
+    },
     "apps/web": {
       "entry": [
         "tests/**/*.e2e.ts",
@@ -622,7 +704,8 @@
     "apps/cli": {
       "entry": [
         "tests/**/*.spec.ts",
-        "tests/**/*.e2e.ts"
+        "tests/**/*.e2e.ts",
+        "tests/**/*.snapshot.ts"
       ],
       "project": [
         "src/**/*.ts",
@@ -630,6 +713,20 @@
       ],
       "ignoreDependencies": [
         "@deepseek-ai/.+"
+      ]
+    },
+    "apps/cli/tests/fixtures/github-repository-plugin/.dsh-plugin": {
+      "entry": [
+        "src/*.ts"
+      ],
+      "project": [
+        "src/**/*.ts"
+      ],
+      "ignoreDependencies": [
+        "@deepseek-ai/dsh-repository-plugin"
+      ],
+      "ignoreBinaries": [
+        "dsh-plugin-prepare"
       ]
     },
     "packages/client/modules": {
@@ -658,6 +755,22 @@
       "project": [
         "src/**/*.ts",
         "tests/**/*.ts"
+      ]
+    },
+    "packages/bundle/base": {
+      "ignoreDependencies": [
+        "@deepseek-ai/.+",
+        "@cordisjs/.+"
+      ]
+    },
+    "packages/bundle/headless": {
+      "ignoreDependencies": [
+        "@deepseek-ai/dsh-code-runtime-worker"
+      ]
+    },
+    "packages/bundle/web-app": {
+      "ignoreDependencies": [
+        "@deepseek-ai/.+"
       ]
     }
   }

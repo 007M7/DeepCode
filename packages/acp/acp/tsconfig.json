@@ -24,7 +24,7 @@
       "path": "../../core/agent"
     },
     {
-      "path": "../../ui/user-approval"
+      "path": "../../interaction/user-approval"
     },
     {
       "path": "../../support/invariants"

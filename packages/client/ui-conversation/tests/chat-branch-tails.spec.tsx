@@ -10,13 +10,21 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
+import type {
+  ChatConversationViewNode, ConversationNode,
+} from '@deepseek-ai/dsh-client-runtime/client'
+import type { ChatNodeViewProps } from '../src/client/contract/slots.ts'
 import {
   formatMessageClock, msUntilNextLocalMidnight, startOfLocalDay,
 } from '../src/client/chat/message-chrome.ts'
-import { MessageItem, type MessageItemProps } from '../src/client/chat/MessageItem.tsx'
+import {
+  CompactionNodeView, ContextMessageNodeView, RetryNodeView, UnknownNodeView,
+  UserMessageNodeView,
+} from '../src/client/chat/MessageItem.tsx'
 import { AssistantMarkdown } from '../src/client/chat/AssistantMarkdown.tsx'
 import { StatsLine, type StatsLineProps } from '../src/client/chat/StatsLine.tsx'
 import { zh } from '../src/client/locales.ts'
+import { chatSnapshotFixture } from './chat-snapshot-fixture.ts'
 
 /** jsdom has no ResizeObserver; StatsLine watches its row for ellipsis truncation through one. */
 class ResizeObserverStub {
@@ -33,10 +41,47 @@ afterEach(() => {
 })
 
 // Mirrors the real lookup chain (conversation namespace, then common).
-const t: MessageItemProps['t'] = makeTranslate(zh, commonZh)
+const t: ChatNodeViewProps['t'] = makeTranslate(zh, commonZh)
+const RETRY_ID = 'retry-fixture' as Extract<ConversationNode, { kind: 'model-retry' }>['retryId']
+
+interface MessageItemProps {
+  readonly node: ConversationNode
+  readonly t: ChatNodeViewProps['t']
+}
+
+/** Legacy-node fixture adapter for the independently registered renderers. */
+function MessageItem({ node, t: translate }: MessageItemProps) {
+  const kind = node.kind === 'assistant' ? 'assistant-step' : node.kind
+  const viewNode: ChatConversationViewNode = {
+    key: `fixture:${node.kind}:${node.seq}`,
+    kind,
+    id: String(node.seq),
+    target: 'chat',
+    anchorSeq: node.seq,
+    location: { kind: 'session' },
+    visibility: 'visible',
+    data: node.kind === 'model-retry' ? { attempts: [node], current: node } : node,
+  }
+  const props = { node: viewNode, t: translate } as ChatNodeViewProps
+  switch (node.kind) {
+    case 'user':
+    case 'steering':
+      return <UserMessageNodeView {...props as ChatNodeViewProps<'user' | 'steering'>} />
+    case 'context':
+      return <ContextMessageNodeView {...props as ChatNodeViewProps<'context'>} />
+    case 'compaction':
+      return <CompactionNodeView {...props as ChatNodeViewProps<'compaction'>} />
+    case 'model-retry':
+      return <RetryNodeView {...props as ChatNodeViewProps<'model-retry'>} />
+    case 'unknown':
+      return <UnknownNodeView {...props as ChatNodeViewProps<'unknown'>} />
+    default:
+      throw new Error(`unsupported MessageItem fixture kind: ${node.kind}`)
+  }
+}
 
 describe('MessageItem arms', () => {
-  it('user bubbles expose clock / copy / branch and no edit; copy writes the text', () => {
+  it('user bubbles expose clock / copy and neither branch nor edit; copy writes the text', () => {
     const writeText = vi.fn().mockResolvedValue(undefined)
     Object.defineProperty(navigator, 'clipboard', {
       configurable: true,
@@ -45,24 +90,20 @@ describe('MessageItem arms', () => {
     // Same-day clock: construct "today at 14:24" so the label stays `HH:mm`.
     const now = new Date()
     const time = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 14, 24).getTime()
-    const onFork = vi.fn()
     render(
       <MessageItem t={t} node={{
         kind: 'user', seq: 1, time,
         content: [{ type: 'text', text: 'hello bubble' }] as never,
         source: null,
       }}
-      onFork={onFork}
       />,
     )
     expect(screen.getByText('14:24')).toBeTruthy()
     expect(screen.getByRole('button', { name: '复制' })).toBeTruthy()
-    expect(screen.getByRole('button', { name: '在新对话中分支' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: '在新对话中分支' })).toBeNull()
     expect(screen.queryByRole('button', { name: '编辑' })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: '复制' }))
     expect(writeText).toHaveBeenCalledWith('hello bubble')
-    fireEvent.click(screen.getByRole('button', { name: '在新对话中分支' }))
-    expect(onFork).toHaveBeenCalledWith(1)
   })
 
   it('user copy falls back to execCommand when clipboard.writeText is unavailable', () => {
@@ -85,30 +126,6 @@ describe('MessageItem arms', () => {
     )
     fireEvent.click(screen.getByRole('button', { name: '复制' }))
     expect(exec).toHaveBeenCalledWith('copy')
-  })
-
-  it('keeps an unavailable branch focusable and explains why without sending a fork', () => {
-    const onFork = vi.fn()
-    render(
-      <MessageItem t={t} node={{
-        kind: 'user', seq: 1, time: 1_000,
-        content: [{ type: 'text', text: 'open turn' }] as never,
-        source: null,
-      }}
-      onFork={onFork}
-      forkUnavailable
-      />,
-    )
-    const branch = screen.getByRole('button', { name: '在新对话中分支' }) as HTMLButtonElement
-    expect(branch.disabled).toBe(false)
-    expect(branch.getAttribute('aria-disabled')).toBe('true')
-    const reasonId = branch.getAttribute('aria-describedby')
-    expect(reasonId).not.toBeNull()
-    expect(document.getElementById(reasonId!)?.textContent).toBe('仅可从已完成轮次的最后一条消息分支')
-    fireEvent.click(branch)
-    expect(onFork).not.toHaveBeenCalled()
-    fireEvent.focus(branch)
-    expect(screen.getByRole('tooltip').textContent).toBe('仅可从已完成轮次的最后一条消息分支')
   })
 
   it('user copy never claims success when the host rejects the write', async () => {
@@ -212,19 +229,17 @@ describe('MessageItem arms', () => {
     expect(vi.getTimerCount()).toBe(0)
   })
 
-  it('consumed steering is captioned as an interjection and keeps copy and branch actions', () => {
+  it('consumed steering is captioned as an interjection and keeps copy without branch', () => {
     const writeText = vi.fn().mockResolvedValue(undefined)
     Object.defineProperty(navigator, 'clipboard', {
       configurable: true,
       value: { writeText },
     })
-    const fork = vi.fn()
     const view = render(
       <MessageItem t={t} node={{
         kind: 'steering', messageId: 'steer-message', seq: 2, time: 1_000, turn: 1, source: null,
         content: [{ type: 'text', text: 'steer!' }, { type: 'image', data: 'x' }] as never,
       } as never}
-      onFork={fork}
       />,
     )
     expect(view.getByText('插话')).toBeTruthy()
@@ -232,8 +247,7 @@ describe('MessageItem arms', () => {
     expect(view.getByText(/附加内容块/)).toBeTruthy()
     fireEvent.click(view.getByRole('button', { name: '复制' }))
     expect(writeText).toHaveBeenCalledWith('steer!')
-    fireEvent.click(view.getByRole('button', { name: '在新对话中分支' }))
-    expect(fork).toHaveBeenCalledWith(2)
+    expect(view.queryByRole('button', { name: '在新对话中分支' })).toBeNull()
   })
 
   it('context uses the Tool calls disclosure chrome and keeps its body collapsed by default', () => {
@@ -257,7 +271,7 @@ describe('MessageItem arms', () => {
     expect(disclosure.getAttribute('aria-expanded')).toBe('true')
     // An unknown form renders the opaque body: the model-facing text keeps its
     // real line breaks instead of being escaped into one JSON line, and the
-    // remaining provenance follows it as fields.
+    // remaining source data follows it as fields.
     expect(ctxView.container.querySelector('[data-context-text]')?.textContent)
       .toBe('line one\n\nline two')
     const fields = [...ctxView.container.querySelectorAll('[data-context-fields] dt')].map(node => node.textContent)
@@ -449,7 +463,7 @@ describe('MessageItem arms', () => {
     expect(view.container.querySelector('[data-context-text]')?.textContent).toBe('firstsecond')
   })
 
-  it('bounds an oversized provenance field, not only the model-facing text', () => {
+  it('bounds an oversized source field, not only the model-facing text', () => {
     const view = render(
       <MessageItem t={t} node={{
         kind: 'context',
@@ -722,11 +736,15 @@ describe('MessageItem arms', () => {
       <MessageItem t={t} node={{
         kind: 'compaction', seq: 5, time: 1_000,
         summary: '## 摘要标题\n\n保留的事实。',
+        summaryEventSeq: 4,
+        shadowedItemCount: 16,
+        shadowedTokenCount: 11_309,
       }}
       />,
     )
     const row = view.getByRole('button', { name: /上下文已压缩/ })
     expect(row.getAttribute('aria-expanded')).toBe('false')
+    expect(view.getByText('已压缩 16 条历史记录（约 11309 tokens）')).toBeTruthy()
     expect(view.queryByText(/保留的事实/)).toBeNull()
     fireEvent.click(row)
     expect(row.getAttribute('aria-expanded')).toBe('true')
@@ -735,8 +753,11 @@ describe('MessageItem arms', () => {
     expect(row.getAttribute('aria-expanded')).toBe('false')
   })
 
-  it('a marker whose provenance fell outside the window is not expandable', () => {
-    const view = render(<MessageItem t={t} node={{ kind: 'compaction', seq: 6, time: 1_000, summary: null }} />)
+  it('a marker whose cited summary event fell outside the window is not expandable', () => {
+    const view = render(<MessageItem t={t} node={{
+      kind: 'compaction', seq: 6, time: 1_000, summary: null,
+      summaryEventSeq: null, shadowedItemCount: null, shadowedTokenCount: null,
+    }} />)
     const row = view.getByRole('button', { name: /上下文已压缩/ })
     expect(row).toHaveProperty('disabled', true)
     expect(row.getAttribute('aria-expanded')).toBeNull()
@@ -751,9 +772,9 @@ describe('MessageItem arms', () => {
     const view = render(
       <MessageItem
         t={t}
-        retryActive
         node={{
           kind: 'model-retry',
+          retryId: RETRY_ID,
           seq: 5,
           time: 10_000,
           retryState: 'scheduled',
@@ -785,9 +806,9 @@ describe('MessageItem arms', () => {
     view.rerender(
       <MessageItem
         t={t}
-        retryActive
         node={{
           kind: 'model-retry',
+          retryId: RETRY_ID,
           seq: 6,
           time: 12_100,
           retryState: 'scheduled',
@@ -812,6 +833,7 @@ describe('MessageItem arms', () => {
     view.rerender(
       <MessageItem t={t} node={{
         kind: 'model-retry',
+        retryId: RETRY_ID,
         seq: 6,
         time: 12_100,
         retryState: 'started',
@@ -833,6 +855,7 @@ describe('MessageItem arms', () => {
     view.rerender(
       <MessageItem t={t} node={{
         kind: 'model-retry',
+        retryId: RETRY_ID,
         seq: 7,
         time: 12_100,
         retryState: 'started',
@@ -852,6 +875,7 @@ describe('MessageItem arms', () => {
     view.rerender(
       <MessageItem t={t} node={{
         kind: 'model-retry',
+        retryId: RETRY_ID,
         seq: 8,
         time: 12_100,
         retryState: 'cancelled',
@@ -870,31 +894,6 @@ describe('MessageItem arms', () => {
     expect(view.getByRole('status').textContent).toBe('模型请求重试已取消（1/2） · 4s')
   })
 
-  it('synchronizes the countdown when an inactive retry becomes active at the one-second floor', () => {
-    vi.useFakeTimers()
-    vi.setSystemTime(10_000)
-    const node = {
-      kind: 'model-retry',
-      seq: 5,
-      time: 10_000,
-      retryState: 'scheduled',
-      turn: 1,
-      step: 0,
-      provider: 'mock',
-      mode: 'normal',
-      policyKey: 'mock-normal',
-      retry: 1,
-      maxRetries: 2,
-      delayMs: 5_000,
-      failure: { code: 'TRANSPORT', message: '连接被重置' },
-    } as const
-    const view = render(<MessageItem t={t} node={node} />)
-    expect(view.getByRole('status').textContent).toBe('等待重试模型请求（1/2） · 5s')
-
-    act(() => { vi.advanceTimersByTime(4_200) })
-    view.rerender(<MessageItem t={t} node={node} retryActive />)
-    expect(view.getByRole('status').textContent).toBe('正在重试模型请求（1/2） · 1s')
-  })
 })
 
 describe('formatMessageClock', () => {
@@ -955,59 +954,13 @@ describe('small branch tails', () => {
     expect(view.getByText('one-liner')).toBeTruthy()
   })
 
-  it('finalized content messages expose copy / branch / clock; Think-only and streaming omit them', () => {
-    const writeText = vi.fn().mockResolvedValue(undefined)
-    Object.defineProperty(navigator, 'clipboard', {
-      configurable: true,
-      value: { writeText },
-    })
-    const now = new Date()
-    const time = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 14, 24).getTime()
-    const onFork = vi.fn()
-    const settled = render(
-      <AssistantMarkdown
-        t={t}
-        blocks={[{ kind: 'text', text: 'answer body' }, { kind: 'reasoning', text: 'hidden' }]}
-        streaming={false}
-        time={time}
-        seq={3}
-        onFork={onFork}
-      />,
-    )
-    expect(settled.getByText('14:24')).toBeTruthy()
-    expect(settled.getByRole('button', { name: '复制' })).toBeTruthy()
-    expect(settled.getByRole('button', { name: '在新对话中分支' })).toBeTruthy()
-    fireEvent.click(settled.getByRole('button', { name: '复制' }))
-    expect(writeText).toHaveBeenCalledWith('answer body')
-    fireEvent.click(settled.getByRole('button', { name: '在新对话中分支' }))
-    expect(onFork).toHaveBeenCalledWith(3)
-    settled.unmount()
-
-    const thinkOnly = render(
-      <AssistantMarkdown
-        t={t}
-        blocks={[{ kind: 'reasoning', text: 'only thinking' }]}
-        streaming={false}
-        time={time}
-      />,
-    )
-    expect(thinkOnly.queryByRole('button', { name: '复制' })).toBeNull()
-    expect(thinkOnly.queryByText('14:24')).toBeNull()
-    thinkOnly.unmount()
-
-    const streaming = render(
-      <AssistantMarkdown t={t} blocks={[{ kind: 'text', text: 'partial' }]} streaming time={time} />,
-    )
-    expect(streaming.queryByRole('button', { name: '复制' })).toBeNull()
-    expect(streaming.queryByText('14:24')).toBeNull()
-  })
-
   it('StatsLine omits the cache-hit segment when no input accounting exists at all', () => {
     // Cache hit is null only when all three prompt buckets are zero (pure
     // output accounting) — any billed input makes it a real 0%.
-    const snap = {
-      nodes: [{ kind: 'assistant', seq: 1, turn: 1, step: 1, blocks: [], usage: { outputTokens: 10 } }],
-    }
+    const nodes = [{
+      kind: 'assistant', seq: 1, time: 1_000, turn: 1, step: 1, blocks: [], usage: { outputTokens: 10 },
+    }] as const
+    const snap = { chat: chatSnapshotFixture({ nodes }), nodes }
     const source = { getSnapshot: () => snap, subscribe: () => () => {} }
     const view = render(
       <StatsLine

@@ -62,9 +62,9 @@ export interface AcpRunSpec {
    */
   disposeEofGraceMs: number
   /**
-   * Termination confirmation window (ms) in {@link SubagentRun.dispose}; POSIX applies it after
-   * `SIGTERM` and `SIGKILL`, while Windows applies it after direct forced termination. The plugin
-   * fills this from its `disposeGraceMs` config.
+   * Termination-escalation grace (ms) in {@link SubagentRun.dispose}; POSIX
+   * waits this long after `SIGTERM` before `SIGKILL`, while Windows
+   * force-terminates directly. The plugin fills it from `disposeGraceMs`.
    */
   disposeGraceMs: number
   /**
@@ -105,14 +105,12 @@ async function treeExitsWithin(child: SubprocessHandle, ms: number): Promise<boo
  * Cooperative teardown ladder for an out-of-process agent, over the seam's
  * public verbs; resolves only at whole-tree quiescence: stdin EOF (the child's
  * window to flush persistence and reap its own descendants), then the
- * terminate() escalation (SIGTERM → spec grace → SIGKILL), then a bounded
- * confirmation wait.
+ * terminate() escalation (SIGTERM → spec grace → SIGKILL) and its
+ * whole-tree exit proof.
  * @param child - the spawned ACP child's handle.
  * @param eofGraceMs - tier-1 window after stdin EOF.
- * @param graceMs - confirmation window after the escalation's SIGKILL.
- * @throws when the tree still has not exited `graceMs` after forced termination.
  */
-export async function disposeAcpChild(child: SubprocessHandle, eofGraceMs: number, graceMs: number): Promise<void> {
+export async function disposeAcpChild(child: SubprocessHandle, eofGraceMs: number): Promise<void> {
   // A spawn failure has no process to tear down; observe the rejection so
   // disposal in a finally block cannot surface it as unhandled.
   if (child.pid <= 0) {
@@ -121,13 +119,10 @@ export async function disposeAcpChild(child: SubprocessHandle, eofGraceMs: numbe
   }
   child.stdin?.end()
   if (await treeExitsWithin(child, eofGraceMs)) return
-  // terminate() sends SIGTERM now and SIGKILL after the spawn spec's grace
-  // (this plugin passes disposeGraceMs there), so the bound covers both the
-  // escalation window and an equal confirmation window after the SIGKILL.
+  // terminate() owns the bounded SIGTERM→SIGKILL timer. Its unbounded wait is
+  // the process owner's exit proof, not a second derived grace that can overflow.
   child.terminate()
-  if (!(await treeExitsWithin(child, graceMs * 2))) {
-    throw new Error('ACP child process tree did not exit within its dispose windows')
-  }
+  await child.waitForExit()
 }
 
 /**
@@ -235,7 +230,7 @@ export async function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpe
 
   // Startup rollback and the published handle share one process teardown.
   let processDisposal: Promise<void> | undefined
-  const disposeProcess = (): Promise<void> => (processDisposal ??= disposeAcpChild(child, spec.disposeEofGraceMs, spec.disposeGraceMs))
+  const disposeProcess = (): Promise<void> => (processDisposal ??= disposeAcpChild(child, spec.disposeEofGraceMs))
 
   // Accumulate the child's streamed assistant text — the SubagentResult output.
   const output: string[] = []
@@ -249,7 +244,7 @@ export async function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpe
         output.push(acpContentText(update.content))
       }
       // Other updates (thoughts, tool calls, plans) are consumed but not
-      // surfaced in this cut — the subagent returns only its final answer.
+      // surfaced — the subagent returns only its final answer.
       return Promise.resolve()
     },
     requestPermission(params: RequestPermissionRequest): Promise<RequestPermissionResponse> {

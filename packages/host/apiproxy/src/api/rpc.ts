@@ -44,6 +44,11 @@ export interface RpcErrorDetailsMap {
   'directory-exists': { path: string }
   'directory-create-failed': { path: string }
   'directory-picker-unavailable': { capability: string }
+  'agent-preset-read-only': { agentPreset: string; reason: string }
+  'agent-preset-locked': { sessionId: SessionId; agentPreset: string }
+  'agent-preset-conflict': { sessionId: SessionId; requestedPreset: string; existingPreset?: string }
+  'agent-preset-not-found': { agentPreset: string; available: string[] }
+  'agent-preset-invalid': { agentPreset: string; reason: string }
   'agent-busy': { reason: string }
   'queue-item-not-found': { itemId: MessageId }
   'steer-unavailable': { itemId: MessageId }
@@ -70,6 +75,15 @@ export interface RpcErrorDetailsMap {
   'settings-conflict': { ns: string; expected: number; actual: number }
   /** A credential write was refused (read-only shadowing layer or storage failure); the message is the seam's own text. */
   'credential-rejected': { ref: string }
+  /**
+   * Interrogating a draft provider endpoint did not produce a model listing:
+   * no adapter family serves the namespace, the protocol has no listing this
+   * build can read, or the endpoint was unreachable, refused the credential,
+   * or answered with something else. The message is the adapter's own text —
+   * it is what the form shows before falling back to hand-entry — and the
+   * details name the endpoint asked, never the credential offered.
+   */
+  'model-discovery-failed': { settingsNs: string; baseURL?: string }
   'title-invalid': { sessionId: SessionId }
   'fork-unavailable': { sessionId: SessionId }
   'subagent-parent-unavailable': { parentSessionId: SessionId }

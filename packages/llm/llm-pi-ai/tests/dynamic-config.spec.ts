@@ -44,7 +44,7 @@ async function boot(dir: string, config: LlmPiAi.Config): Promise<Context> {
   })
   await ctx.plugin(LlmService)
   await ctx.plugin(SettingsLocal, { path: join(dir, 'settings.yaml'), watch: false })
-  await ctx.plugin(CredentialsLocal, { path: join(dir, '.env'), watch: false })
+  await ctx.plugin(CredentialsLocal, { path: join(dir, '.credentials.yaml'), watch: false })
   await ctx.plugin(LlmPiAi, config)
   return ctx
 }
@@ -53,7 +53,11 @@ describe('request-level dynamic profiles', () => {
   it('mounts bare and dormant, then registers routes the moment settings supply providers', async () => {
     vi.stubEnv('PI_DYNAMIC_KEY', '')
     const dir = await home()
-    await writeFile(join(dir, '.env'), 'PI_DYNAMIC_KEY=pk-from-settings\n')
+    await writeFile(
+      join(dir, '.credentials.yaml'),
+      'PI_DYNAMIC_KEY: pk-from-settings\nPI_LIVE_KEY: live-key\nPI_OTHER_KEY: other\n',
+      { mode: 0o600 },
+    )
     const server = await mockServer([{ events: textEvents }])
     // The exact product posture: `- id: llm-pi-ai` with no config at all.
     const ctx = await boot(dir, {})
@@ -68,6 +72,7 @@ describe('request-level dynamic profiles', () => {
       displayName: 'openai',
       settingsNs: 'llm-pi-ai',
       settingsPath: ['providers', 'openai'],
+      declared: false,
     })
     await ctx.settings.update(NS, {
       providers: { deepseek: { apiKeyEnv: 'PI_DYNAMIC_KEY', baseURL: server.url } },
@@ -86,14 +91,19 @@ describe('request-level dynamic profiles', () => {
 
   it('adds a provider route from settings and drops it when the user layer resets', async () => {
     const dir = await home()
+    await writeFile(
+      join(dir, '.credentials.yaml'),
+      'PI_LIVE_KEY: live-key\nPI_OTHER_KEY: other\n',
+      { mode: 0o600 },
+    )
     const server = await mockServer([{ events: textEvents }])
     const ctx = await boot(dir, {
-      providers: { openai: { apiKey: 'k', baseURL: 'http://127.0.0.1:1/v1' } },
+      providers: { openai: { apiKeyEnv: 'PI_DYNAMIC_KEY', baseURL: 'http://127.0.0.1:1/v1' } },
     })
 
     expect(ctx.llm.listProviders().map(provider => provider.id)).toEqual(['openai'])
     await ctx.settings.update(NS, {
-      providers: { deepseek: { apiKey: 'live-key', baseURL: server.url } },
+      providers: { deepseek: { apiKeyEnv: 'PI_LIVE_KEY', baseURL: server.url } },
     })
     expect(ctx.llm.listProviders().map(provider => provider.id)).toEqual(['openai', 'deepseek'])
 
@@ -112,7 +122,7 @@ describe('request-level dynamic profiles', () => {
   it('rotates the per-request credential referenced by apiKeyEnv', async () => {
     vi.stubEnv('PI_DYNAMIC_KEY', '')
     const dir = await home()
-    await writeFile(join(dir, '.env'), 'PI_DYNAMIC_KEY=pk-one\n')
+    await writeFile(join(dir, '.credentials.yaml'), 'PI_DYNAMIC_KEY: pk-one\n', { mode: 0o600 })
     const server = await mockServer([{ events: textEvents }, { events: textEvents }])
     const ctx = await boot(dir, {
       providers: { deepseek: { apiKeyEnv: 'PI_DYNAMIC_KEY', baseURL: server.url } },
@@ -146,27 +156,35 @@ describe('request-level dynamic profiles', () => {
     expect(ctx.llm.listProviders().map(provider => provider.id)).toEqual(['openai'])
   })
 
-  it('keeps the last good profiles when a settings snapshot names an unknown provider', async () => {
+  it('refuses a settings write this adapter could not serve, leaving its routes alone', async () => {
     const dir = await home()
     const ctx = await boot(dir, { providers: { openai: {} } })
 
-    // Schema-valid but catalog-invalid: the resolver rejects it and the
-    // last good route set keeps serving.
-    await ctx.settings.update(NS, { providers: { 'not-a-real-provider': {} } })
+    // Shape-valid but unserviceable: a route the catalog does not ship and
+    // that lists no models of its own. The section schema resolves the whole
+    // profile set, so this is refused where it is written rather than stored
+    // and then quietly disabling every route in the namespace.
+    await expect(ctx.settings.update(NS, { providers: { 'not-a-real-provider': {} } }))
+      .rejects.toThrow(/resolves no models/)
     expect(ctx.llm.listProviders().map(provider => provider.id)).toEqual(['openai'])
   })
 
   it('keeps serving its routes when a settings-born route collides with another adapter', async () => {
     const dir = await home()
+    await writeFile(
+      join(dir, '.credentials.yaml'),
+      'PI_LIVE_KEY: live-key\nPI_OTHER_KEY: other\n',
+      { mode: 0o600 },
+    )
     const server = await mockServer([{ events: textEvents }, { events: textEvents }])
-    const ctx = await boot(dir, { providers: { openai: { apiKey: 'pk', baseURL: `${server.url}/v1` } } })
+    const ctx = await boot(dir, { providers: { openai: { apiKeyEnv: 'PI_LIVE_KEY', baseURL: `${server.url}/v1` } } })
     // Another adapter owns `anthropic`; the registry must refuse to hand it over.
     ctx.llm.registerAdapter(['anthropic'], new StubAdapter())
 
     await ctx.settings.update(NS, {
       providers: {
-        openai: { apiKey: 'pk', baseURL: `${server.url}/v1` },
-        anthropic: { apiKey: 'other' },
+        openai: { apiKeyEnv: 'PI_LIVE_KEY', baseURL: `${server.url}/v1` },
+        anthropic: { apiKeyEnv: 'PI_OTHER_KEY' },
       },
     })
 

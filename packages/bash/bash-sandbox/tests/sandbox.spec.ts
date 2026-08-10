@@ -240,7 +240,7 @@ describe('fail closed', () => {
     expect(background).not.toBeInstanceOf(SandboxUnavailableError)
   })
 
-  it('classifies a synchronous SubprocessService EACCES with exact runner provenance', async () => {
+  it('classifies a synchronous SubprocessService EACCES with the exact runner path', async () => {
     const runner = join(spillDir, 'unexecutable-runner')
     const { ctx, bash } = await setup({}, argv => ({
       argv: [runner, ...argv],
@@ -439,7 +439,7 @@ describe('isRunnerSpawnFailure', () => {
     expect(isRunnerSpawnFailure(spawnError('ENOENT'), undefined, process.cwd())).toBe(false)
   })
 
-  it('accepts only syscall provenance compatible with the exact runner program', () => {
+  it('accepts only syscall and error-path facts that identify the exact runner program', () => {
     const runner = join(spillDir, 'runner with spaces')
     const spawnError = (syscall: string, path?: string) =>
       Object.assign(new Error('spawn failed'), { code: 'ENOENT', syscall, path })

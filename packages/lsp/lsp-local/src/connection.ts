@@ -1,12 +1,12 @@
 /**
  * A JSON-RPC endpoint over one language server spawned through the subprocess
- * seam. Owns id correlation, outbound requests/notifications, and inbound
+ * capability. Owns id correlation, outbound requests/notifications, and inbound
  * server→client requests: it answers `workspace/configuration` from static
  * config, and rejects `workspace/applyEdit` (this host never applies edits or
  * runs commands). It caps stderr, surfaces framing/decoder failures as a
  * fatal close, and exposes tree-scoped termination through the handle so the
- * instance owns teardown; group/tree mechanics live in the seam's
- * implementation.
+ * instance owns teardown; group/tree mechanics live in the subprocess
+ * Service provider.
  * @module @deepseek-ai/dsh-lsp-local/connection
  */
 
@@ -22,7 +22,7 @@ export interface ConnectionSpec {
   readonly args: readonly string[]
   /** The child's working directory (the canonical workspace). */
   readonly cwd: string
-  /** The child's environment (credential-scrubbed, with overrides applied). */
+  /** Explicit child environment overrides; the subprocess provider owns its ambient scrub. */
   readonly env: Record<string, string>
   /** Largest single framed message accepted from the server. */
   readonly maxMessageBytes: number
@@ -98,9 +98,8 @@ export class LspConnection {
         stderr: { maxBytes: spec.maxStderrBytes },
       },
       graceMs: spec.killGraceMs,
-      // spec.env mixes the scrubbed base with explicit config entries; the
-      // seam merges the whole map after its own ambient scrub, so a
-      // configured DSH_* fact reaches the child.
+      // The seam merges explicit config entries after its ambient scrub, so a
+      // configured credential or DSH_* fact reaches the child deliberately.
       env: spec.env,
     })
     /* v8 ignore start -- 'pipe' dispositions expose both streams by the seam contract; defensive. */

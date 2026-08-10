@@ -39,22 +39,24 @@ dsh web
 
 The path above is the installer's default. If you set `DSH_SOURCE` or `DSH_CURRENT`, or reused an existing checkout, replace `~/.dsh/source/current` with that checkout path; see [`scripts/install.sh`](scripts/install.sh) for details. The Web UI is served at `http://127.0.0.1:3080` by default.
 
-### Configured runtime
+### Profiles
 
-Raw `dsh` requires a patch-list configuration applied over the shipped base:
+`dsh` boots profiles — ordered stacks of plugin-bundle patch layers under your own overrides in `$DSH_HOME/profiles/<name>`:
 
 ```sh
-dsh --config ./app.cordis.yml
+dsh --profile web                       # the browser UI (same as: dsh web)
+dsh plugin --profile tui add <package>  # install a plugin into a custom profile
+dsh --profile tui                       # boot it
 ```
 
-The [CLI contract](apps/cli/README.md#raw-config) describes the base, overlay semantics, and config dump commands.
+The [CLI contract](apps/cli/README.md#profiles) describes profile layout, layer semantics, and config dump commands.
 
 ### Headless
 
 Run one task, print the final answer, and exit:
 
 ```sh
-dsh -p "summarize this workspace"
+dsh run "summarize this workspace"
 ```
 
 ### Automation and SDKs
@@ -74,7 +76,7 @@ Built-in capabilities cover file reading, editing, and search; shell and persist
 - **Everything is a plugin.** Models, tools, policies, storage, context management, and interfaces are composable [Cordis plugins](docs/user/develop/basic/index.md), so deployments can extend or replace behavior without forking the agent loop. See the [architecture](docs/architecture.md) for the underlying design.
 - **Runs are reconstructable.** Anything visible to the model is logged in the authoritative session stream; persistence, resume/fork/query, replay, telemetry, and UIs derive from the same events. See the [session-log architecture](docs/architecture.md#session-log).
 - **Code Mode (opt-in).** It exposes a `run_code` tool and a generated TypeScript SDK; only program output re-enters model context. See [Code Mode](packages/core/tools/README.md#code-mode).
-- **Self-referential Cordis tools are opt-in.** They let the agent inspect its live runtime and mount or unmount plugins while it runs. See the [Cordis tools](packages/cordis/tool-cordis/README.md).
+- **Self-referential Cordis tools are opt-in.** They let the agent inspect its live runtime and mount or unmount plugins while it runs. See the [Cordis tools](packages/self-modification/tool-cordis/README.md).
 
 ## Community
 

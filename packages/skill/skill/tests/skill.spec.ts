@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
+import { bindScopeParent, createScope, scopeOf } from '@deepseek-ai/dsh-scope'
 import SkillService, {
   isModelInvocable,
   isUserInvocable,
+  renderSkillContent,
   type SkillCandidate,
   type SkillDefinition,
   type SkillInvocationPolicy,
@@ -46,6 +48,13 @@ class MemoryProvider implements SkillProvider {
 
 function registerProvider(ctx: Context, provider: SkillProvider): () => void {
   return ctx.skills.registerProvider(() => provider)
+}
+
+/** The skills service as a scoped caller resolves it (scope contexts declare no inject). */
+function scopedSkills(ctx: Context): SkillService {
+  const skills = ctx.get('skills')
+  if (skills === undefined) throw new Error('skills service missing')
+  return skills
 }
 
 describe('SkillService registry', () => {
@@ -893,6 +902,26 @@ describe('SkillService registry', () => {
     await expect(ctx.skills.get('vanished-skill')).resolves.toBeUndefined()
   })
 
+  it('propagates a load failure raced against an armed abort signal', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SkillService)
+    registerProvider(ctx, {
+      name: 'failing-loader',
+      list: () => Promise.resolve([{
+        name: 'failing-skill',
+        description: 'Failing',
+        invocation: { modelInvocable: true, userInvocable: true },
+        provider: 'failing-loader',
+        source: 'test',
+        rank: 10,
+        locator: 'failing',
+      }]),
+      get: () => Promise.reject(new Error('load failed')),
+    })
+    const controller = new AbortController()
+    await expect(ctx.skills.get('failing-skill', { signal: controller.signal })).rejects.toThrow('load failed')
+  })
+
   it('contains a provider rejection whose string coercion throws', async () => {
     const ctx = new Context()
     await ctx.plugin(SkillService)
@@ -1011,5 +1040,232 @@ describe('SkillService registry', () => {
     expect((await ctx.skills.get('same-skill'))?.description).toBe('First')
     disposeFirst()
     expect(await ctx.skills.get('same-skill')).toBeUndefined()
+  })
+})
+
+describe('renderSkillContent', () => {
+  it('renders a directory-based skill with the shared wrapper', () => {
+    const text = renderSkillContent({
+      name: 'demo-skill',
+      provider: 'memory',
+      resourceBase: { kind: 'directory', path: '/tmp/demo' },
+      content: 'Do the thing.',
+    })
+    expect(text).toBe([
+      '<skill_content name="demo-skill">',
+      '<skill_resources>',
+      'Base directory for this skill: /tmp/demo',
+      'Resolve relative paths mentioned by this skill against the base directory before using them. Load referenced resources only as needed.',
+      '</skill_resources>',
+      '',
+      '<skill_instructions>',
+      'Do the thing.',
+      '</skill_instructions>',
+      '</skill_content>',
+    ].join('\n'))
+  })
+
+  it('renders url and opaque resource hints', () => {
+    const url = renderSkillContent({
+      name: 'url-skill',
+      provider: 'memory',
+      resourceBase: { kind: 'url', url: 'https://example.test/base/' },
+      content: 'Body.',
+    })
+    expect(url).toContain('Base URL for this skill: https://example.test/base/')
+    expect(url).toContain('Resolve relative URLs mentioned by this skill against the base URL before using them.')
+
+    const opaque = renderSkillContent({
+      name: 'opaque-skill',
+      provider: 'memory',
+      resourceBase: { kind: 'opaque', description: 'archive <bundle>' },
+      content: 'Body.',
+    })
+    expect(opaque).toContain('Resources for this skill: archive &lt;bundle&gt;')
+  })
+
+  it('falls back to the provider hint without a resource base', () => {
+    const text = renderSkillContent({
+      name: 'provider-skill',
+      provider: 'remote <hub>',
+      content: 'Body.',
+    })
+    expect(text).toContain('Resources for this skill are managed by provider "remote &lt;hub&gt;".')
+  })
+
+  it('escapes hostile attribute names and keeps the body verbatim', () => {
+    const text = renderSkillContent({
+      name: 'x"&<y',
+      provider: 'memory',
+      resourceBase: { kind: 'directory', path: '/tmp' },
+      content: 'Keep </skill_content> and <tags> as-is.',
+    })
+    expect(text).toContain('<skill_content name="x&quot;&amp;&lt;y">')
+    expect(text).toContain('Keep </skill_content> and <tags> as-is.')
+  })
+})
+
+describe('SkillService scoped layers', () => {
+  it('files a scoped provider into its layer and merges it into that scope view only', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SkillService)
+    registerProvider(ctx, new MemoryProvider([memorySkill('global-skill', 'Global', 100)]))
+    const preset = createScope(ctx, { preset: 'a' })
+    const presetProvider: SkillProvider = {
+      name: 'preset-local',
+      async list() {
+        return [{
+          name: 'preset-skill',
+          description: 'Preset',
+          invocation: { modelInvocable: true, userInvocable: true },
+          provider: 'preset-local',
+          source: 'preset',
+          rank: 300,
+          locator: { content: 'Preset body.' },
+        }]
+      },
+      async get(candidate) {
+        return { ...candidate, content: (candidate.locator as { content: string }).content }
+      },
+    }
+    scopedSkills(preset.ctx).registerProvider(() => presetProvider)
+
+    expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['global-skill'])
+    const scoped = await ctx.skills.list({ scope: scopeOf(preset.ctx) })
+    expect(scoped.map(skill => skill.name)).toEqual(['global-skill', 'preset-skill'])
+    expect((await ctx.skills.get('preset-skill', { scope: scopeOf(preset.ctx) }))?.content).toBe('Preset body.')
+    expect(await ctx.skills.get('preset-skill')).toBeUndefined()
+    await preset.dispose()
+  })
+
+  it('lets the nearest layer win a duplicate name regardless of rank', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SkillService)
+    registerProvider(ctx, new MemoryProvider([memorySkill('shared-name', 'Global wins ranks', 10)]))
+    const preset = createScope(ctx, { preset: 'shadow' })
+    scopedSkills(preset.ctx).registerProvider(() => ({
+      name: 'preset-local',
+      async list() {
+        return [{
+          name: 'shared-name',
+          description: 'Preset shadow',
+          invocation: { modelInvocable: true, userInvocable: true },
+          provider: 'preset-local',
+          source: 'preset',
+          rank: 900,
+          locator: { content: 'Preset shadow body.' },
+        }]
+      },
+      async get(candidate: SkillCandidate) {
+        return { ...candidate, content: (candidate.locator as { content: string }).content }
+      },
+    }))
+
+    const scoped = await ctx.skills.list({ scope: scopeOf(preset.ctx) })
+    expect(scoped).toHaveLength(1)
+    expect(scoped[0]?.description).toBe('Preset shadow')
+    expect((await ctx.skills.get('shared-name', { scope: scopeOf(preset.ctx) }))?.content).toBe('Preset shadow body.')
+    expect((await ctx.skills.list())[0]?.description).toBe('Global wins ranks')
+    await preset.dispose()
+  })
+
+  it('resolves the scope chain so an agent key inherits its preset layer and recompose follows the new parent', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SkillService)
+    const presetA = createScope(ctx, { preset: 'a' })
+    const presetB = createScope(ctx, { preset: 'b' })
+    for (const [scope, label] of [[presetA, 'a'], [presetB, 'b']] as const) {
+      scopedSkills(scope.ctx).register({
+        name: `skill-${label}`,
+        description: `Skill ${label}`,
+        source: 'preset',
+        content: `Body ${label}.`,
+      })
+    }
+    const agentKey = {}
+    const binding = bindScopeParent(agentKey, scopeOf(presetA.ctx) as object)
+    expect((await ctx.skills.list({ scope: agentKey })).map(skill => skill.name)).toEqual(['skill-a'])
+    // A blank-session recompose re-links the same key through its binding
+    // without any registry write.
+    binding.rebind(scopeOf(presetB.ctx) as object)
+    expect((await ctx.skills.list({ scope: agentKey })).map(skill => skill.name)).toEqual(['skill-b'])
+    await presetA.dispose()
+    await presetB.dispose()
+  })
+
+  it('scopes provider-name uniqueness per layer and reports scoped duplicates distinctly', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SkillService)
+    registerProvider(ctx, new MemoryProvider([]))
+    const presetA = createScope(ctx, { preset: 'a' })
+    const presetB = createScope(ctx, { preset: 'b' })
+    scopedSkills(presetA.ctx).registerProvider(() => new MemoryProvider([memorySkill('a-only', 'A', 100)]))
+    scopedSkills(presetB.ctx).registerProvider(() => new MemoryProvider([memorySkill('b-only', 'B', 100)]))
+    expect(() => scopedSkills(presetA.ctx).registerProvider(() => new MemoryProvider([])))
+      .toThrow('a skill provider named "memory" is already registered in this scope')
+    expect((await ctx.skills.list({ scope: scopeOf(presetA.ctx) })).map(skill => skill.name)).toEqual(['a-only'])
+    expect((await ctx.skills.list({ scope: scopeOf(presetB.ctx) })).map(skill => skill.name)).toEqual(['b-only'])
+    await presetA.dispose()
+    await presetB.dispose()
+  })
+
+  it('keeps runtime duplicate handling per layer and shadows a global runtime name', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SkillService)
+    const warn = vi.fn()
+    ctx.logger.warn = warn as never
+    ctx.skills.register({ name: 'told-twice', description: 'Global runtime', source: 'runtime', content: 'Global body.' })
+    const preset = createScope(ctx, { preset: 'runtime' })
+    const disposeShadow = scopedSkills(preset.ctx).register({
+      name: 'told-twice',
+      description: 'Preset runtime',
+      source: 'preset',
+      content: 'Preset body.',
+    })
+    expect(warn).not.toHaveBeenCalled()
+    scopedSkills(preset.ctx).register({ name: 'told-twice', description: 'Ignored', source: 'preset', content: 'Ignored.' })
+    expect(warn).toHaveBeenCalledWith('runtime skill "told-twice" ignored because it is already registered')
+    expect((await ctx.skills.get('told-twice', { scope: scopeOf(preset.ctx) }))?.content).toBe('Preset body.')
+    expect((await ctx.skills.get('told-twice'))?.content).toBe('Global body.')
+    disposeShadow()
+    expect((await ctx.skills.get('told-twice', { scope: scopeOf(preset.ctx) }))?.content).toBe('Global body.')
+    await preset.dispose()
+  })
+
+  it('drops a disposed scoped registration from its scope view and notifies change', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SkillService)
+    const changes = vi.fn()
+    ctx.on('skills/change', changes)
+    const preset = createScope(ctx, { preset: 'hmr' })
+    const provider = new MemoryProvider([memorySkill('scoped-skill', 'Scoped', 100)])
+    scopedSkills(preset.ctx).registerProvider(() => provider)
+    expect((await ctx.skills.list({ scope: scopeOf(preset.ctx) })).map(skill => skill.name)).toEqual(['scoped-skill'])
+    const notified = changes.mock.calls.length
+    await preset.dispose()
+    expect(changes.mock.calls.length).toBeGreaterThan(notified)
+    expect(await ctx.skills.list({ scope: scopeOf(preset.ctx) })).toEqual([])
+  })
+
+  it('invalidates through a scoped provider control only while its exact registration is live', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SkillService)
+    const preset = createScope(ctx, { preset: 'invalidate' })
+    const provider = new MemoryProvider([memorySkill('watched', 'Watched', 100)])
+    let control: { invalidate: () => void } | undefined
+    const dispose = scopedSkills(preset.ctx).registerProvider((given) => {
+      control = given
+      return provider
+    })
+    const scope = scopeOf(preset.ctx)
+    expect((await ctx.skills.list({ scope })).map(skill => skill.name)).toEqual(['watched'])
+    provider.replace([memorySkill('replaced', 'Replaced', 100)])
+    control?.invalidate()
+    expect((await ctx.skills.list({ scope })).map(skill => skill.name)).toEqual(['replaced'])
+    dispose()
+    provider.replace([memorySkill('ignored', 'Ignored', 100)])
+    control?.invalidate()
+    expect(await ctx.skills.list({ scope })).toEqual([])
+    await preset.dispose()
   })
 })

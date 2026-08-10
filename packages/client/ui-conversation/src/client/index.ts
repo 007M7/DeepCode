@@ -3,6 +3,16 @@
  * between the independently implemented skeleton and chat domains; `apply.ts`
  * owns their slot assembly.
  */
+export type {} from './conversation-nodes/assistant.ts'
+export type {} from './conversation-nodes/command.ts'
+export type {} from './conversation-nodes/compaction.ts'
+export type {} from './conversation-nodes/fallback.ts'
+export type {} from './conversation-nodes/message.ts'
+export type {} from './conversation-nodes/retry.ts'
+export type {} from './conversation-nodes/tool.ts'
+export type {} from './conversation-nodes/turn-error.ts'
+export type {} from './conversation-nodes/turn-tail.ts'
+
 export { apply, inject } from './apply.ts'
 export { ConversationService } from './service.ts'
 export type { IConversation } from './service.ts'
@@ -10,13 +20,18 @@ export type { IConversation } from './service.ts'
 export type {
   CallId, ChatStoreState, SelectionTarget, ViewTab,
 } from './contract/views.ts'
-export type { ToolCallBlock } from './contract/tool-call-model.ts'
 export type { ConversationKey } from './locales.ts'
 export type {
+  AssistantChatData, ChatNode, ChatNodeDataMap, ChatNodeKind, ManualCompactionChatData,
+  RetryChatData, ToolChatData, TurnTailChatData,
+} from './contract/chat-nodes.ts'
+export type {
+  ChatFileMentions, ChatNodeOwnerProps, ChatNodeViewProps,
   ChatStore, ChatViewInjected, ChatViewSlotProps, CommandRowOwnerProps, CommandRowProps, ComposerBarInjected,
   ComposerChainProps, ConversationInjected,
-  ConversationSessionInjected, ConversationSlotProps, ConvViewOwnerProps, ConvViewProps, DetailsInjected, DetailsSlotProps,
-  EmptyWorkspaceOwnerProps, ToolRowOwnerProps, ToolRowProps,
+  ConversationSessionHeaderInjected, ConversationSessionInjected, ConversationSlotProps, ConvViewOwnerProps,
+  ConvViewProps, DetailsInjected, DetailsSlotProps, DetailsToolOwnerProps, EmptyWorkspaceOwnerProps,
+  TurnTailOwnerProps, UseChatNodeTurnData,
 } from './contract/slots.ts'
 // Export discipline: packages/client/AGENTS.md.
 

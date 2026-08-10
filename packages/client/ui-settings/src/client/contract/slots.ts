@@ -57,7 +57,13 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * Root-scoped onboarding steps contributed by settings features. The
      * shell mounts one ordered step at a time; the active registrant either
      * completes itself or keeps ownership until the user completes its sole
-     * path. Registrants own readiness, copy, and dialog behavior.
+     * path. Registrants own readiness, copy, dialog behavior, AND the
+     * takeover chrome: a step wraps its visible content in the
+     * OnboardingSurface primitive (mask, opaque stage, `#root` inert) and
+     * renders null while its private facts are still loading — the shell
+     * paints no chrome of its own, so a mounted-but-deciding step shows and
+     * blocks nothing (prevents a white flash on reload: a bare unwrapped step
+     * would render without mask or stage).
      */
     'settings.onboarding': { kind: 'list'; scope: 'root'; owner: SettingsOnboardingOwnerProps }
   }
@@ -77,12 +83,14 @@ export interface SettingsHeaderOwnerProps {
 
 /**
  * Owner share of a settings section entry. The shell owns modal visibility
- * and navigation; sections receive nothing but the render site (their data
- * arrives through their own inject faces and stores).
+ * and navigation; a section's data arrives through its own inject faces and
+ * stores. `close` is the one shell affordance a section receives, for flows
+ * that leave settings altogether (starting a session from a section) — the
+ * onboarding coordinator's `openSection`/`complete` precedent, inverted.
  */
 export interface SettingsSectionOwnerProps {
-  /** Marker field: section owner props are intentionally empty for now. */
-  children?: never
+  /** Close the settings panel (the shell owns the open state). */
+  close: () => void
 }
 
 /** Owner share of the currently active settings-backed onboarding step. */

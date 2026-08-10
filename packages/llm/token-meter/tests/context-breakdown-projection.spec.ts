@@ -10,6 +10,7 @@ import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import TokenMeterService from '@deepseek-ai/dsh-token-meter'
 import type { ContextBreakdownProjection } from '@deepseek-ai/dsh-token-meter/client'
+import { CompactionId } from '@deepseek-ai/dsh-compact'
 import { contextBreakdownProjectionDefinition } from '../src/breakdown-projection.ts'
 import {
   estimateContent,
@@ -59,6 +60,7 @@ function appendSummaryMeter(ctx: Context, session: Session, start: number, end: 
   const endIdx = nodes.findIndex(node => node.seq === end)
   const shadowed = nodes.slice(startIdx, endIdx + 1)
   session.append('compact/summary', {
+    compactionId: CompactionId('context-breakdown-summary'),
     summary: [{ type: 'text', text: 'summary' }],
     shadowedRange: { start, end },
     shadowedSeqs: shadowed.map(node => node.seq),
@@ -180,7 +182,7 @@ describe('contextBreakdown session projection', () => {
     expect(agree()).toBeLessThan(grown)
   })
 
-  it('fails loud on a replacement without an adjacent matching shadow price', () => {
+  it('folds a replacement without a claim at zero and fails on a mismatched claim', () => {
     const definition = contextBreakdownProjectionDefinition
     const replace = (start: number, end: number): SessionEvent => ({
       type: 'user/message',
@@ -206,15 +208,17 @@ describe('contextBreakdown session projection', () => {
     let state = definition.init()
     state = definition.apply(state, append(1))
     state = definition.apply(state, append(3))
-    // No metering event at all.
-    expect(() => definition.apply(state, replace(1, 3))).toThrow('no adjacent shadow price')
-    // A claim for a different range does not price this replacement.
+    // No metering event: the replacement contributes zero instead of throwing.
+    expect(definition.view(definition.apply(state, replace(1, 3))).messageTokens)
+      .toBe(definition.view(state).messageTokens)
+    // An adjacent claim for another range contradicts the replacement.
     const mismatched = definition.apply(state, meter(1, 1, 8))
     expect(() => definition.apply(mismatched, replace(1, 3))).toThrow('no adjacent shadow price')
-    // A claim expires after one intervening event instead of lingering.
+    // A claim expires after one intervening event, so replacement delta is zero.
     let expired = definition.apply(state, meter(1, 3, 8))
     expired = definition.apply(expired, { type: 'todo/write', seq: 9, time: 0, data: { todos: [] } } as unknown as SessionEvent)
-    expect(() => definition.apply(expired, replace(1, 3))).toThrow('no adjacent shadow price')
+    expect(definition.view(definition.apply(expired, replace(1, 3))).messageTokens)
+      .toBe(definition.view(state).messageTokens)
     // The armed claim prices exactly the next event's matching replacement.
     const armed = definition.apply(state, meter(1, 3, 8))
     expect(definition.view(definition.apply(armed, replace(1, 3))).messageTokens)

@@ -7,6 +7,7 @@ import type { Session } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import TokenMeterService from '@deepseek-ai/dsh-token-meter'
 import type { ContextPressureProjection, TokenUsageProjection } from '@deepseek-ai/dsh-token-meter/client'
+import { CompactionId } from '@deepseek-ai/dsh-compact'
 
 const ZERO: TokenUsageProjection = {
   uncachedInputTokens: 0,
@@ -81,6 +82,7 @@ function appendSummaryMeter(ctx: Context, session: Session, start: number, end: 
   const endIdx = nodes.findIndex(node => node.seq === end)
   const shadowed = nodes.slice(startIdx, endIdx + 1)
   session.append('compact/summary', {
+    compactionId: CompactionId('token-usage-summary'),
     summary: [{ type: 'text', text: 'summary' }],
     shadowedRange: { start, end },
     shadowedSeqs: shadowed.map(node => node.seq),
@@ -417,6 +419,25 @@ describe('contextPressure session projection', () => {
     const compacted = pressure(ctx, session)
     expect(compacted.pressureTokens).toBe(900)
     expect(compacted.projectedTokens).toBeLessThan(beforeCompaction!)
+  })
+
+  it('folds a replacement without a claim at zero', async () => {
+    const { ctx, session } = await harness()
+    const question = appendUser(session, 'a question from an unmetered log')
+    startStep(session, 1, 1)
+    usageChunk(session, { inputTokens: 100, outputTokens: 1 }, 1, 1)
+    session.append('step/end', { turn: 1, step: 1 })
+    const before = pressure(ctx, session)
+
+    session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'summary without a preceding claim' }],
+      source: { kind: 'plugin', plugin: 'test' },
+    }), {
+      surfaceOp: { op: 'replace', start: question, end: question },
+      sourceEventSeqs: [question],
+    })
+
+    expect(pressure(ctx, session)).toEqual(before)
   })
 
   it('clamps a projection that heuristic error drove below zero', async () => {

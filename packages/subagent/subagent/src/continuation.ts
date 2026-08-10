@@ -103,6 +103,15 @@ export interface ContinuableStart {
   readonly messageId: MessageId
 }
 
+/**
+ * Authority under which one interrupt request is admitted. `user` carries the
+ * durable direct-parent address a human client presented; `ancestor` carries
+ * the exact live Agent object whose recorded lineage must contain the caller.
+ */
+export type SubagentInterruptAuthority =
+  | { readonly kind: 'user'; readonly parentSessionId: SessionId }
+  | { readonly kind: 'ancestor'; readonly agent: Agent }
+
 /** Options for following up with one continuable child. */
 export interface SubagentFollowupOptions {
   /** Durable attribution retained on the delivered message; it grants no authority. */
@@ -287,7 +296,7 @@ export class SubagentContinuationManager {
     // child-first ordering.
     const scope = ctx.plugin(function activationOwner() {})
     this.ownerCtx = scope.ctx
-    ctx.on('agent/disposed', (agent) => {
+    ctx.on('agent/disposed', ({ agent }) => {
       this.closingScopes.delete(agent)
     })
     ctx.effect(function* (this: SubagentContinuationManager) {
@@ -377,7 +386,7 @@ export class SubagentContinuationManager {
    * @param parent - the exact live direct parent authorizing this delivery.
    * @param childId - the durable child session id.
    * @param content - the user-role content to deliver.
-   * @param options - durable provenance and caller cancellation.
+   * @param options - the message source fields and caller cancellation.
    * @returns the accepted message's inbox id.
    * @throws when parent authority, availability, or admission rejects the delivery.
    */
@@ -410,6 +419,69 @@ export class SubagentContinuationManager {
       options.signal.throwIfAborted()
       /* v8 ignore stop */
     }
+  }
+
+  /**
+   * Interrupt one live continuable child's current turn. Admission is
+   * synchronous and the effect is asynchronous: this authorizes the caller,
+   * requests `Agent.cancel(cause, { keepInbox: true })` on the target, and
+   * returns without waiting for the target to observe the signal or reach
+   * quiescence. The Activation, its handle, accepted unclaimed inbox work, and
+   * already-published descendants are untouched; work already claimed into the
+   * interrupted turn is not requeued. Once the interrupted driver is idle, a
+   * waking send resumes the parked queue.
+   *
+   * An absent target is an accepted no-op, which uniformly covers natural
+   * completion races, repeated requests, one-shot ids, and unknown ids without
+   * consulting the durable catalog. A target whose disposal transaction is
+   * already open is likewise an accepted no-op after authorization.
+   * @param targetSessionId - the durable child session id to interrupt.
+   * @param authority - the human parent address or exact live ancestor Agent.
+   * @throws {SubagentError} `UNAUTHORIZED` when the presented authority does
+   *   not own the live target: a stale or self-targeting ancestor caller, a
+   *   parent address that is not the live target's durable direct parent, or
+   *   an ancestor outside the target's recorded live lineage.
+   */
+  interrupt(targetSessionId: SessionId, authority: SubagentInterruptAuthority): void {
+    if (authority.kind === 'ancestor') {
+      const caller = authority.agent
+      // A stale caller is rejected even when the target is absent, so a
+      // replaced same-id Agent can never probe this manager's state.
+      if (this.ctx.agents.get(caller.id) !== caller) {
+        throw new SubagentError(
+          `interrupting "${targetSessionId}" requires the exact live ancestor agent`,
+          'UNAUTHORIZED',
+        )
+      }
+      if (caller.id === targetSessionId) {
+        throw new SubagentError(
+          `agent "${caller.id}" cannot interrupt itself`,
+          'UNAUTHORIZED',
+        )
+      }
+    }
+    const activation = this.activations.get(targetSessionId)
+    if (activation === undefined) return
+    if (authority.kind === 'user') {
+      if (activation.handle.agent.session.header.parentSession !== authority.parentSessionId) {
+        throw new SubagentError(
+          `subagent "${targetSessionId}" belongs to another parent session`,
+          'UNAUTHORIZED',
+        )
+      }
+    } else if (!activation.ancestry.has(authority.agent)) {
+      throw new SubagentError(
+        `subagent "${targetSessionId}" is not a live descendant of agent "${authority.agent.id}"`,
+        'UNAUTHORIZED',
+      )
+    }
+    // Disposal already stopped the target with a whole-Activation teardown;
+    // a second cancel would be a redundant signal on a closing handle.
+    if (activation.disposal !== undefined) return
+    activation.handle.agent.cancel(
+      authority.kind === 'user' ? { kind: 'user' } : { kind: 'parent' },
+      { keepInbox: true },
+    )
   }
 
   /**
@@ -754,7 +826,7 @@ export class SubagentContinuationManager {
    * Submit to a freshly materialized Activation or roll it back completely.
    * @param activation - the just-published Activation to admit or release.
    * @param content - the initial or resumed message content.
-   * @param source - durable provenance for the accepted message.
+   * @param source - durable fields naming who supplied the accepted message.
    * @param parent - the live direct parent authorizing admission.
    * @param signal - caller cancellation owning admission until acceptance.
    * @returns the accepted inbox message id.
@@ -859,12 +931,12 @@ export class SubagentContinuationManager {
       // quiet Agent from one whose accepted turn has not been admitted yet.
       // Registered through the child's own scoped context, so scope filtering
       // already restricts both listeners to this exact agent.
-      handle.agent.ctx.on('agent/inbox/claimed', (_agent, { message }) => {
+      handle.agent.ctx.on('agent/inbox/claimed', ({ message }) => {
         /* v8 ignore next -- a claim of an id this manager never admitted needs
          * another sender on the same child, which no current path allows. */
         if (activation.accepted.delete(message.id)) this.wake(activation)
       })
-      handle.agent.ctx.on('agent/inbox/discarded', (_agent, { message }) => {
+      handle.agent.ctx.on('agent/inbox/discarded', ({ message }) => {
         if (activation.accepted.delete(message.id)) this.wake(activation)
       })
       // Agent creation committed setup at its publication boundary;

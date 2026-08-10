@@ -4,7 +4,7 @@ Status: implemented
 
 [English](2026-06-17-ts-build-config.md) | 中文
 
-> 根项目拓扑（即哪个 tsconfig 拥有哪张图）后来改为由一个 solution 根文件统辖两个聚合 program；见[solution 根文件 Agent Note](2026-07-22-tsconfig-solution-root-two-aggregates.md)。本文确定的 TSC 优先流水线保持不变。
+> 根项目拓扑由一个 solution 根文件统辖两个 aggregate program；见 [solution 根文件 Agent Note](2026-07-22-tsconfig-solution-root-two-aggregates.md)。Host 生成 Remote 约定后再编译 Client 的当前命令顺序见 [API Remotes 构建 Agent Note](2026-08-08-api-remotes-generated-contract-build.md)。本文确定的 tsc-first 职责保持不变。
 
 ## 问题
 
@@ -13,13 +13,13 @@ Status: implemented
 - `build` 使用 `tsc` 将 `packages/<group>/<pkg>` 和 `vendor/*` 下的 `.ts` 转换为 `.d.ts` 文件，然后使用 `tsdown` 将 `.ts` 转换为打包后的 `.js` 文件。这导致两个工具各自执行 TypeScript 转换。
 - `typecheck` 倾向于通过一个根目录的类型检查配置来校验包（package）、vendor 源码、示例、测试和脚本。
 
-目标是让构建与类型检查使用一致的 tsconfig 边界和 TypeScript 解析/转换行为。构建应通过单一编译器和配置生成 `.js`、`.d.ts`、`.js.map` 和 `.d.ts.map`，使发布产物与类型校验保持一致。
+构建与类型检查使用一致的 tsconfig 边界和 TypeScript 解析/转换行为。构建通过单一编译器和配置生成 `.js`、`.d.ts`、`.js.map` 和 `.d.ts.map`，使发布产物与类型校验保持一致。
 
-验证过程中发现了若干具体的技术问题和可能的路径：
+具体约束：
 
 - `tsdown` 使用 `oxc` 进行 TypeScript 转换，其行为与 `tsc` 不同。
     - `tsdown` 输出的打包 `.d.ts` 与 Cordis 内部的相对模块增强（module augmentation）结构冲突。
-    - tsc 的输出受 `allowImportingTsExtensions` 影响，因此需要确保生成的 `.js` 文件不会导入 `.ts` 文件，且生成的 `.d.ts` 文件保留 NodeNext/Node16 接受的显式相对说明符。为此，包内相对导入在 TypeScript 源码中使用显式 `.ts` 说明符，由 `rewriteRelativeImportExtensions` 在输出的 JS 中将其重写为 `.js`。
+    - tsc 的输出受 `allowImportingTsExtensions` 影响：生成的 `.js` 文件不得导入 `.ts` 文件，且生成的 `.d.ts` 文件必须保留 NodeNext/Node16 接受的显式相对说明符。为此，包内相对导入在 TypeScript 源码中使用显式 `.ts` 说明符，由 `rewriteRelativeImportExtensions` 在输出的 JS 中将其重写为 `.js`。
     - `tsdown` 输出的打包 `.js` 与 `tsc -b` 逐文件输出的 `.js` 行为不同，例如装饰器转换行为。
 - `vendor/*/src`、示例、测试和脚本无法全部以 plain-include 方式纳入一个根目录的严格程序。
     - 在根目录严格配置下直接对 `vendor/*/src` 做类型检查，会触发大量不属于本项目所有权范围的类型错误。
@@ -30,18 +30,15 @@ Status: implemented
 
 包内相对导入使用显式 `.ts` 说明符。
 
-`pnpm run build` 是两阶段构建：
+`pnpm run build` 按 Host lib、Client lib 和 Web 排序；每个 lib 阶段都保持 tsc 先发射、tsdown 后打包：
 
-- 阶段 1：在根 solution 上执行 `tsc -b`，将逐模块的 `.js`、声明文件 `.d.ts`、JS sourcemap `.js.map` 和声明 sourcemap `.d.ts.map` 输出到各包的 `lib/types`。这是权威的 TypeScript 编译结果。发布时保留 `.d.ts`；如果包的运行时 export 显式指向该输出树，也会保留其中的 `.js` 文件。`.js.map` 和 `.d.ts.map` 留在本地构建树中。
-    - 该图是从根 solution `tsconfig.json` 经两个聚合可达的 project-reference 图（[拓扑](2026-07-22-tsconfig-solution-root-two-aggregates.md)），用于校验并输出包/vendor 的构建结果。
-- 阶段 2：打包器读取 `lib/types` 下输出的 JS，将打包后的运行时入口写为 `lib/index.js` 或 `lib/index.mjs`（沿用当前行为）。此阶段仅做打包，禁止读取 TypeScript 源码或输出声明文件。
+- Host tsc 对 `tsconfig.host.json` 执行 `tsc -b`，把逐模块 `.js`、`.d.ts`、`.js.map` 与 `.d.ts.map` 输出到 Host 图各 package 的 `lib/types`；Host tsdown 随后读取这些 JS，生成发布入口并运行 Host TypeRT。
+- Client tsc 在 Host TypeRT 已生成 Remote Client 声明后对 `tsconfig.client.json` 执行 `tsc -b`；Client tsdown 再读取 Client 图发射的 JS，生成 Client package 的 Node loader 入口与 browser bundle。
+- Web build 只在两个 lib 阶段完成后启动。
 
 `tsdown` 不再负责 TypeScript 编译或声明文件输出。
 
-`pnpm run typecheck` 运行同一张 `tsc -b` 图。
-- 两个聚合（`tsconfig.host.json`、`tsconfig.client.json`）以 `noEmit` 方式检查示例、测试和脚本，并通过 references 校验包/vendor 源码。
-- 被引用的包/vendor 项目保持与构建相同的输出行为，因此类型检查会刷新它们的 `lib/types` 输出，而无需使用独立的 no-emit 图。项目特定的严格度变更放在各自的 `packages/*/*/tsconfig.json` 或 `vendor/*/tsconfig.json` 中。
-- 两个 no-emit 聚合禁用 `rewriteRelativeImportExtensions`；它们不输出任何文件，且包含跨 project-reference 边界导入 helper 的测试。包/vendor 的 emit 项目保持重写开启。
+`pnpm run typecheck` 先执行 Host lib 阶段，以生成 Client 类型检查所需的 Remote 声明，再对 `tsconfig.client.json` 执行 `tsc -b`。两个 aggregate 本身以 `noEmit` 方式检查各自的示例、测试与脚本；被引用的 package/vendor project 保持与构建相同的发射行为。
 
 复合项目将增量构建信息保存在各项目本地的 `lib/` 输出中。`pnpm run clean` 会根据根 TypeScript project-reference 图确定当前有效的输出目录，删除遗留的根目录构建信息，并删除已删除包留下且仅包含已知生成残留的 `packages/*/*` 目录。在删除现有目标前，该命令会解析目标父目录的真实路径；如果解析后的父目录位于仓库之外，则拒绝删除，防止使用符号链接的 project reference 将清理操作重定向到工作副本之外。对于仍有 `package.json` 的每个包，该命令都会保留 `node_modules`；如果不含 `package.json` 的目录中存在未知文件，则拒绝删除。构建不会自动调用 clean，因此常规构建会保留增量状态。
 
@@ -49,14 +46,18 @@ Status: implemented
 
 ```sh
 pnpm run build:
-tsc -b
-tsdown
+tsc -b tsconfig.host.json
+tsdown --env.DSH_BUILD_FACE host
+tsc -b tsconfig.client.json
+tsdown --env.DSH_BUILD_FACE client
+pnpm run build:web
 
 pnpm run verify-node-next-types:
 tsx scripts/verify-node-next-types.ts
 
 pnpm run typecheck:
-tsc -b
+pnpm run build:lib:host
+tsc -b tsconfig.client.json
 
 pnpm run clean:
 tsx scripts/clean.ts
@@ -75,8 +76,8 @@ tsx scripts/clean.ts
 
 构建职责更加清晰：
 
-- `packages/<group>/<pkg>` 和 `vendor/*` 下的每个模块有一份本地 tsconfig，同时服务于构建、类型检查和直接运行源码的工具（如 `dsh` 源码 loader、`tsx` 和 `vitest`）。
-- `build` 命令驱动根 solution 图。`tsc -b` 负责可发布的逐模块 `.js` 和 `.d.ts` 输出，打包器仅负责 `lib/index.*`。
+- `packages/<group>/<pkg>` 和 `vendor/*` 下的每个普通模块有一份本地 tsconfig，同时服务于构建、类型检查和直接运行源码的工具（如 `dsh` 源码 loader、`tsx` 和 `vitest`）。`api/remotes` 因生成约定顺序使用一个 solution 和两个互斥的 emitting project，是唯一例外。
+- `build` 命令按 Host 与 Client Project Reference 图执行。每个阶段都由 `tsc -b` 负责可发布的逐模块 `.js` 和 `.d.ts` 输出，打包器仅负责发布 runtime bundle。
     - `lib/types/*.d.ts` 是发布用的声明输出；`.d.ts.map` 只作为本地编译产物保留。
     - `lib/types/*.d.ts` 使用显式 `.ts` 相对说明符，TypeScript 的 NodeNext/Node16 解析器会将其映射到同级的 `.d.ts` 文件。
     - `lib/types/*.js` 通常仅作为打包器输入。只有显式运行时 export 指向该输出树时，才会发布这些文件。

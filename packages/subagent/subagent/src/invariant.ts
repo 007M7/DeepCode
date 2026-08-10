@@ -45,7 +45,7 @@ const install: InvariantInstaller = Object.assign((ctx: Context, fail: Invariant
       const info = args[0] as SubagentRunInfo
       // Provider availability is an admission-time relationship. A published
       // one-shot run may outlive provider removal, and a cold-resumed Activation
-      // carries durable provider provenance without dispatching through it.
+      // records the initial provider name without dispatching through it.
       if (info.provider.length === 0 || String(info.runId).length === 0 || String(info.id).length === 0) {
         fail('subagent/start provider, runId, and child id must be non-empty')
       }

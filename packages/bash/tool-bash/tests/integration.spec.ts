@@ -19,7 +19,7 @@ import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent
 
 /**
  * Full-loop integration: a scripted mock model drives the REAL bash tool
- * through the agent loop, exercising the same seams a live model would
+ * through the agent loop, exercising the same execution paths a live model would
  * (tool/call + tool/result session events, the generic `ctx.tasks` runtime,
  * agent.inject completion notices).
  */
@@ -48,7 +48,7 @@ afterEach(() => {
 
 function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
   return new Promise((resolve) => {
-    const dispose = ctx.on('agent/status', (subject, status) => {
+    const dispose = ctx.on('agent/status', ({ agent: subject, status }) => {
       if (subject === agent && status === 'idle') {
         dispose()
         resolve()

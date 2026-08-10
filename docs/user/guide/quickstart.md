@@ -19,9 +19,10 @@ pnpm -v
 ## Step 1: install and configure the API key
 
 ```sh
-git clone https://github.com/deepseek-harness/deepseek-harness.git
+git clone https://github.com/deepseek-ai/deepseek-harness-sdk.git
 cd deepseek-harness
 pnpm install
+pnpm run build
 ```
 
 Create the gitignored repository-root `.env`:
@@ -35,17 +36,16 @@ DEEPSEEK_API_KEY=sk-your-key-here
 Run a non-interactive task and print its final answer:
 
 ```sh
-pnpm run demo:headless "summarize the architecture of this workspace"
+pnpm run dsh run "summarize the architecture of this workspace"
 ```
 
-Headless runs one complete model/tool turn, persists the session, prints the result, and exits. Use `--output-format stream-json` when you need the canonical event stream.
+`dsh run` creates and persists a fresh session, prints the final assistant answer, and exits. It starts no Web server or listening port, and a successful run leaves stderr empty.
 
 ## Step 3: use the Web UI
 
-Build and start the browser interface:
+Start the browser interface:
 
 ```sh
-pnpm run build
 pnpm run dsh web
 ```
 
@@ -53,9 +53,10 @@ Open `http://127.0.0.1:3080`. The agent can read and write files, run commands, 
 
 ## What happened
 
-headless-agent uses the `@deepseek-ai/dsh-cli-demo` app. `dsh web` instead composes [`apps/cli/config/base.cordis.yml`](../../../apps/cli/config/base.cordis.yml) with [`apps/cli/config/web.cordis.yml`](../../../apps/cli/config/web.cordis.yml) and no app bundle. Both select the DeepSeek model and capability plugins appropriate to their entry mode.
+`dsh run` boots the `headless` profile: [`dsh-base`](../../../packages/bundle/base/cordis.patch.yml) and [`dsh-headless`](../../../packages/bundle/headless/cordis.patch.yml) compose over an empty root, then the runner drives the core Agent and Session services directly. `dsh web` instead composes `dsh-base` with [`dsh-web-app`](../../../packages/bundle/web-app/cordis.patch.yml), which owns the Host, HTTP, and browser layers. Both read the same default DeepSeek model route from `dsh-base`.
 
 ## Next steps
 
+- [Configure models](./providers.md) — reach providers beyond DeepSeek, and custom gateways
 - [Configuration](./config.md) — understand the `cordis.yml` format
 - [Develop a plugin](../develop/basic/) — build your own tool or backend

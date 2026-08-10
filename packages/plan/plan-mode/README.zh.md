@@ -8,7 +8,7 @@
 
 `plan/mode`（`{ active: boolean }`）是一个仅存在于日志中、每次以完整值替换的 `SessionEventMap` 成员。`foldPlanMode(events)` 返回最后记录的值，如果没有则返回 `false`，因此恢复、fork 和压缩（compaction）都能直接从会话日志恢复 plan 状态。UI 通过 `session/event` 观察已提交的切换。
 
-`ctx.planMode.set(agent, active)` 在 agent 空闲时立即提交——下一个 prompt 之前不会有任何边界到来，因此独立的 `plan/mode` 事件当场落账——在 agent 运行中则持有待生效选择、等下一个被接受的轮内 pre-step；返回值说明发生了哪种（`committed`/`queued`）、一次 `cancelled` 反转或 `noop`。`get(agent)` 返回 `{ active, pending? }`，将塑造当前步骤的日志状态与用户的轮中选择分开。初始与续步 pre-step 边界都在覆盖范围内；同一步骤的请求恢复重试会复用已冻结的 assembly，并将该选择保留到下一个 pre-step。当最后记录的请求头描述了另一状态时，用户选择的变更会贡献一条插件来源的 `user/message` 通知（两条提交路径皆然）。
+`ctx.planMode.set(agent, active)` 在 agent 空闲时立即提交——下一个 prompt 之前不会有任何边界到来，因此独立的 `plan/mode` 事件当场落账——在 agent 运行中则持有待生效选择，并等待下一个被接受的轮内 pre-step；返回值区分 `committed`、`queued`、表示反转的 `cancelled` 和 `noop`。`get(agent)` 返回 `{ active, pending? }`，将塑造当前步骤的日志状态与用户的轮中选择分开。初始与续步 pre-step 边界都在覆盖范围内；同一步骤的请求恢复重试会复用已冻结的 assembly，并将该选择保留到下一个 pre-step。当最后记录的请求头描述了另一状态时，用户选择的变更会贡献一条插件来源的 `user/message` 通知（两条提交路径皆然）。
 
 ## 模型与人类交互
 
@@ -22,7 +22,7 @@ Web 客户端使用该插件提供的 `/plan` 命令；其他入口可以直接�
 
 ## 会话投影
 
-当组合挂载 `ctx.sessionProjections`（[`@deepseek-ai/dsh-session-projection`](../../session-projection/session-projection/README.md)）时，本包会在一个注入的子插件中注册 `plan` 投影单元。该单元折叠两类事件：名为 `plan` 的 `command/run` 记录会设置目标状态（`off` → 未激活，其余 → 激活），`plan/mode` 会提交已记录状态并清除该目标；其他任何事件都返回同一个状态引用。`view` 推导 `{ active, pending }`，其中 `pending` 仅在尚未落实的选择与已记录状态不同时为 true。该值完全由日志回放得出，因此 host 重启、其他标签页和冷读都能仅凭日志恢复它。`/plan` 处理器会在任何可能失败的路径之前调用 `set()`，避免已写入日志的请求与运行面分叉。key 由 `src/types.ts` 通过声明合并加入 `SessionProjectionMap`：host 消费方经 `./types` 获取，client 聚合经 `./client` 获取。框架负责驱动该单元，载体通过历史尾页和 `session/projection` 推送帧提供其值。未挂载注册表的组合不受影响。
+当组合挂载 `ctx.sessionProjections`（[`@deepseek-ai/dsh-session-projection`](../../session/session-projection/README.md)）时，本包会在一个注入的子插件中注册 `plan` 投影单元。该单元折叠两类事件：名为 `plan` 且携带已记录 `args` 的 `command/run` 记录会设置目标状态（`off` → 未激活，其余 → 激活），`plan/mode` 会提交已记录状态并清除该目标；其他任何事件都返回同一个状态引用。`view` 推导 `{ active, pending }`，其中 `pending` 仅在尚未落实的选择与已记录状态不同时为 true。该值完全由日志回放得出，因此 host 重启、其他标签页和冷读都能仅凭日志恢复它。`/plan` 处理器会在任何可能失败的路径之前调用 `set()`，避免已写入日志的请求与运行面分叉。key 由 `src/types.ts` 通过声明合并加入 `SessionProjectionMap`：host 消费方经 `./types` 获取，client 聚合经 `./client` 获取。框架负责驱动该单元，载体通过历史尾页和 `session/projection` 推送帧提供其值。未挂载注册表的组合不受影响。
 
 ## 配置
 
@@ -94,4 +94,5 @@ mode 转换不改变工具目录；plan 参数与评审结果按常规方式扩�
 - Plan mode 只进行引导，而不强制执行；需要硬边界的部署必须组合独立的沙箱与批准控制。
 - 如果进程在下一个边界之前退出，空闲时作出的待生效选择会丢失，因此 UI 必须重新应用它。
 - Fork 的 agent 会继承已记录的 plan 状态，新 spawn 的 agent 则从未激活状态开始；不存在创建时 plan 选项。
+- 由另一个 agent 所有的存活子级无法打开 `exit_plan_mode` 审阅。该调用失败时会提示子级在最终结果中包含尚未解决的决策；仅有持久化 fork 谱系并不会阻止恢复为运行时根的会话打开该审阅。
 - 只有 Web UI 具备专用的 `plan-review` 渲染器；其他交互提供方可以通过通用选项流程呈现同一请求。

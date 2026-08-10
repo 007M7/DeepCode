@@ -41,6 +41,10 @@ import {
 import { commandExecuteValueSchema, commandListValueSchema } from '../api/commands.schema.ts'
 import { skillListValueSchema } from '../api/skills.schema.ts'
 import {
+  agentPresetCopyValueSchema, agentPresetListValueSchema, agentPresetOpenDocumentValueSchema,
+  agentPresetReadValueSchema, agentPresetRemoveValueSchema, agentPresetSelectValueSchema,
+} from '../api/agent-presets.schema.ts'
+import {
   goalCreateValueSchema,
   goalEditValueSchema,
   goalPauseValueSchema,
@@ -55,9 +59,10 @@ import {
 import {
   credentialsDescribeValueSchema, credentialsSetValueSchema, credentialsUnsetValueSchema,
 } from '../api/credentials.schema.ts'
-import { llmModelsValueSchema, llmProvidersValueSchema } from '../api/llm.schema.ts'
+import { llmDiscoverModelsValueSchema, llmModelsValueSchema, llmProvidersValueSchema } from '../api/llm.schema.ts'
 import {
   subagentHistoryValueSchema,
+  subagentInterruptValueSchema,
   subagentListValueSchema,
   subagentPromptValueSchema,
 } from '../api/subagents.schema.ts'
@@ -96,6 +101,7 @@ export interface IApiClient {
     list(payload: RequestPayload<'subagent.list'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'subagent.list'>>>
     history(payload: RequestPayload<'subagent.history'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'subagent.history'>>>
     prompt(payload: RequestPayload<'subagent.prompt'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'subagent.prompt'>>>
+    interrupt(payload: RequestPayload<'subagent.interrupt'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'subagent.interrupt'>>>
   }
   host: {
     describe(payload: RequestPayload<'host.describe'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'host.describe'>>>
@@ -118,6 +124,14 @@ export interface IApiClient {
   }
   skills: {
     list(payload: RequestPayload<'skill.list'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'skill.list'>>>
+  }
+  agentPresets: {
+    list(payload: RequestPayload<'agentPreset.list'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'agentPreset.list'>>>
+    select(payload: RequestPayload<'agentPreset.select'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'agentPreset.select'>>>
+    read(payload: RequestPayload<'agentPreset.read'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'agentPreset.read'>>>
+    copy(payload: RequestPayload<'agentPreset.copy'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'agentPreset.copy'>>>
+    openDocument(payload: RequestPayload<'agentPreset.openDocument'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'agentPreset.openDocument'>>>
+    remove(payload: RequestPayload<'agentPreset.remove'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'agentPreset.remove'>>>
   }
   events: {
     mux(payload: Parameters<ApiProxy['events']['mux']>[0]['payload'], signal: AbortSignal, onOpen?: () => void): AsyncIterable<RpcRequest<MuxFrame>>
@@ -146,6 +160,7 @@ export interface IApiClient {
   llm: {
     providers(payload: RequestPayload<'llm.providers'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'llm.providers'>>>
     models(payload: RequestPayload<'llm.models'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'llm.models'>>>
+    discoverModels(payload: RequestPayload<'llm.discoverModels'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'llm.discoverModels'>>>
   }
   /** client-response passthrough (rpcId is a backfill of the server-request's id — never minted here). */
   respond(message: ClientResponse, signal?: AbortSignal): Promise<RpcReceipt>
@@ -170,6 +185,7 @@ const UNARY_VALUE_SCHEMAS: { [K in keyof RpcMethodMap]: z.ZodType<Wire<ResponseV
   'subagent.list': subagentListValueSchema,
   'subagent.history': subagentHistoryValueSchema,
   'subagent.prompt': subagentPromptValueSchema,
+  'subagent.interrupt': subagentInterruptValueSchema,
   'host.describe': hostDescribeValueSchema,
   'host.pickDirectory': hostPickDirectoryValueSchema,
   'host.listDirectory': hostListDirectoryValueSchema,
@@ -184,6 +200,12 @@ const UNARY_VALUE_SCHEMAS: { [K in keyof RpcMethodMap]: z.ZodType<Wire<ResponseV
   'command.list': commandListValueSchema,
   'command.execute': commandExecuteValueSchema,
   'skill.list': skillListValueSchema,
+  'agentPreset.list': agentPresetListValueSchema,
+  'agentPreset.select': agentPresetSelectValueSchema,
+  'agentPreset.read': agentPresetReadValueSchema,
+  'agentPreset.copy': agentPresetCopyValueSchema,
+  'agentPreset.openDocument': agentPresetOpenDocumentValueSchema,
+  'agentPreset.remove': agentPresetRemoveValueSchema,
   'goal.create': goalCreateValueSchema,
   'goal.edit': goalEditValueSchema,
   'goal.pause': goalPauseValueSchema,
@@ -200,6 +222,7 @@ const UNARY_VALUE_SCHEMAS: { [K in keyof RpcMethodMap]: z.ZodType<Wire<ResponseV
   'credentials.unset': credentialsUnsetValueSchema,
   'llm.providers': llmProvidersValueSchema,
   'llm.models': llmModelsValueSchema,
+  'llm.discoverModels': llmDiscoverModelsValueSchema,
 }
 
 /** Default timeout for bounded unary calls (rpc-compare 2026-07-19: a hung host must not leave callers pending forever). */
@@ -405,6 +428,7 @@ export abstract class AbstractApiClient implements IApiClient {
     list: (payload, signal) => this.callUnary('subagent.list', payload, signal),
     history: (payload, signal) => this.callUnary('subagent.history', payload, signal),
     prompt: (payload, signal) => this.callUnary('subagent.prompt', payload, signal),
+    interrupt: (payload, signal) => this.callUnary('subagent.interrupt', payload, signal),
   }
 
   readonly host: IApiClient['host'] = {
@@ -441,6 +465,20 @@ export abstract class AbstractApiClient implements IApiClient {
     list: (payload, signal) => this.callUnary('skill.list', payload, signal),
   }
 
+  // Annotated like every sibling, and load-bearing rather than cosmetic:
+  // inferring this member inlines `AgentPresetEntry` into the emitted
+  // declaration by the specifier TS picks — the host `index.ts` — which drags
+  // the whole gateway, and with it the host `Context` merges, into every
+  // Client program that imports this carrier.
+  readonly agentPresets: IApiClient['agentPresets'] = {
+    list: (payload, signal) => this.callUnary('agentPreset.list', payload, signal),
+    select: (payload, signal) => this.callUnary('agentPreset.select', payload, signal),
+    read: (payload, signal) => this.callUnary('agentPreset.read', payload, signal),
+    copy: (payload, signal) => this.callUnary('agentPreset.copy', payload, signal),
+    openDocument: (payload, signal) => this.callUnary('agentPreset.openDocument', payload, signal),
+    remove: (payload, signal) => this.callUnary('agentPreset.remove', payload, signal),
+  }
+
   readonly goals: IApiClient['goals'] = {
     create: (payload, signal) => this.callUnary('goal.create', payload, signal),
     edit: (payload, signal) => this.callUnary('goal.edit', payload, signal),
@@ -467,6 +505,7 @@ export abstract class AbstractApiClient implements IApiClient {
   readonly llm: IApiClient['llm'] = {
     providers: (payload, signal) => this.callUnary('llm.providers', payload, signal),
     models: (payload, signal) => this.callUnary('llm.models', payload, signal),
+    discoverModels: (payload, signal) => this.callUnary('llm.discoverModels', payload, signal),
   }
 
   readonly events: IApiClient['events'] = {

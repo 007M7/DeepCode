@@ -9,6 +9,7 @@ import Include from '@cordisjs/plugin-include'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import CommandService from '@deepseek-ai/dsh-commands'
 import {
+  CompactionId,
   CompactService,
   type CompactAgentContext,
   type CompactionResult,
@@ -18,10 +19,13 @@ import {
 import * as commandCompact from '@deepseek-ai/dsh-command-compact'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 
+const COMPACTION_ID = CompactionId('loader-command-compact-test')
+
 const RESULT: CompactionResult = {
+  compactionId: COMPACTION_ID,
   startSeq: 1,
   summarySeq: 2,
-  endSeq: 4,
+  endSeq: 3,
   summary: [{ type: 'text', text: 'loader summary' }],
   shadowedRange: { start: 3, end: 8 },
   shadowedSeqs: [3, 5, 8],
@@ -42,10 +46,26 @@ class LoaderCompactService extends CompactService {
   }
 
   override compactNow(
-    _agent: ManualCompactAgentContext,
+    agent: ManualCompactAgentContext,
     _signal: AbortSignal,
+    sourceCommandId?: Parameters<CompactService['compactNow']>[2],
   ): Promise<CompactionResult | null> {
-    return Promise.resolve(RESULT)
+    const provenance = {
+      compactionId: RESULT.compactionId,
+      ...sourceCommandId === undefined ? {} : { sourceCommandId },
+    }
+    agent.session.append('compact/start', { ...provenance, turn: null })
+    agent.session.append('compact/summary', {
+      ...provenance,
+      summary: RESULT.summary,
+      shadowedRange: RESULT.shadowedRange,
+      shadowedSeqs: RESULT.shadowedSeqs,
+      shadowedTokenCount: RESULT.shadowedTokenCount,
+      provider: 'loader-test',
+      model: 'loader-test',
+    })
+    agent.session.append('compact/end', { ...provenance, turn: null })
+    return Promise.resolve({ ...RESULT, ...provenance })
   }
 }
 
@@ -108,6 +128,7 @@ describe('command-compact real Loader composition', () => {
     expect(execution.result).toEqual({
       kind: 'success',
       text: 'Compacted 3 history items (~99 tokens).',
+      sourceEventSeq: RESULT.summarySeq,
     })
     expect(session.events.map(event => ({ type: event.type, data: event.data }))).toEqual([
       {
@@ -120,11 +141,41 @@ describe('command-compact real Loader composition', () => {
         },
       },
       {
+        type: 'compact/start',
+        data: {
+          compactionId: COMPACTION_ID,
+          sourceCommandId: execution.commandId,
+          turn: null,
+        },
+      },
+      {
+        type: 'compact/summary',
+        data: {
+          compactionId: COMPACTION_ID,
+          sourceCommandId: execution.commandId,
+          summary: RESULT.summary,
+          shadowedRange: RESULT.shadowedRange,
+          shadowedSeqs: RESULT.shadowedSeqs,
+          shadowedTokenCount: RESULT.shadowedTokenCount,
+          provider: 'loader-test',
+          model: 'loader-test',
+        },
+      },
+      {
+        type: 'compact/end',
+        data: {
+          compactionId: COMPACTION_ID,
+          sourceCommandId: execution.commandId,
+          turn: null,
+        },
+      },
+      {
         type: 'command/done',
         data: {
           commandId: execution.commandId,
           kind: 'success',
           text: 'Compacted 3 history items (~99 tokens).',
+          sourceEventSeq: RESULT.summarySeq,
         },
       },
     ])

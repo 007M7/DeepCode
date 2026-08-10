@@ -7,9 +7,6 @@
 - text: Render adjacent CJK strong emphasis. {{clock}}
 - button "Copy":
   - img
-- button "Branch into a new conversation" [disabled]:
-  - img
-- text: Available only on the last message of a completed turn
 - heading "CJK strong emphasis" [level=2]
 - paragraph:
   - strong: 注意：
@@ -45,8 +42,8 @@
 - button "Commands":
   - img
 - 'button "Access mode, current: Workspace Write"': Workspace Write
-- button "Select model":
-  - text: Select model
+- button "Select model, current DeepSeek-V4-Flash":
+  - text: DeepSeek-V4-Flash
   - img
 - button "Send message" [disabled]
-- text: 1 turns · 1 steps Input 0 tok · Output 0 tok
+- text: 1 turns · 1 steps LLM {{duration}} Input 0 tok · Output 0 tok

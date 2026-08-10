@@ -6,6 +6,30 @@ import { join } from 'node:path'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { CredentialsLocal } from '../src/index.ts'
 
+const fsHarness = vi.hoisted(() => ({
+  nextReadError: undefined as NodeJS.ErrnoException | undefined,
+}))
+
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>()
+  return {
+    ...actual,
+    readFile: (async (path: unknown, ...rest: never[]) => {
+      const error = fsHarness.nextReadError
+      if (error !== undefined) {
+        fsHarness.nextReadError = undefined
+        throw error
+      }
+      return (actual.readFile as (path: unknown, ...args: never[]) => Promise<unknown>)(path, ...rest)
+    }) as typeof actual.readFile,
+  }
+})
+
+/** Credential documents are seeded owner-only, exactly as the provider creates them. */
+function writeCredentials(file: string, text: string): Promise<void> {
+  return writeFile(file, text, { mode: 0o600 })
+}
+
 // chokidar is the nondeterministic OS boundary: faking it lets these tests
 // drive the event pipeline (error events, races with unreadable files)
 // deterministically. Real end-to-end watching stays covered by local.spec.ts.
@@ -43,6 +67,7 @@ const KEY = credentialRef('DSH_CRED_PIPE')
 const cleanups: Array<() => Promise<void>> = []
 
 afterEach(async () => {
+  fsHarness.nextReadError = undefined
   while (cleanups.length > 0) await cleanups.pop()!()
   ;(await fakeInstances()).length = 0
 })
@@ -66,21 +91,21 @@ async function boot(config: ConstructorParameters<typeof CredentialsLocal>[1]): 
 describe('watcher pipeline', () => {
   it('clamps the write-settle poll interval for a zero debounce', async () => {
     const dir = await tempDir()
-    await boot({ path: join(dir, '.env'), debounceMs: 0 })
+    await boot({ path: join(dir, '.credentials.yaml'), debounceMs: 0 })
     const [instance] = await fakeInstances()
     expect(instance!.options.awaitWriteFinish).toEqual({ stabilityThreshold: 0, pollInterval: 1 })
   })
 
   it('survives a watcher error and keeps publishing later edits', async () => {
     const dir = await tempDir()
-    const path = join(dir, '.env')
+    const path = join(dir, '.credentials.yaml')
     const ctx = await boot({ path, debounceMs: 5 })
     const [instance] = await fakeInstances()
 
     instance!.watcher.emit('error', new Error('watch backend failure'))
     expect(await ctx.credentials.resolve(KEY)).toBeUndefined()
 
-    await writeFile(path, 'DSH_CRED_PIPE=arrived\n')
+    await writeCredentials(path, 'DSH_CRED_PIPE: arrived\n')
     instance!.watcher.emit('all', 'change', path)
     await vi.waitFor(async () => {
       expect(await ctx.credentials.resolve(KEY)).toEqual({ value: 'arrived', source: 'file' })
@@ -89,8 +114,8 @@ describe('watcher pipeline', () => {
 
   it('keeps the last good snapshot when the file turns unreadable at runtime', async () => {
     const dir = await tempDir()
-    const path = join(dir, '.env')
-    await writeFile(path, 'DSH_CRED_PIPE=good\n')
+    const path = join(dir, '.credentials.yaml')
+    await writeCredentials(path, 'DSH_CRED_PIPE: good\n')
     const ctx = await boot({ path, debounceMs: 5 })
 
     await chmod(path, 0o000)
@@ -102,9 +127,24 @@ describe('watcher pipeline', () => {
     expect(await ctx.credentials.resolve(KEY)).toEqual({ value: 'good', source: 'file' })
   })
 
+  it('keeps the last good snapshot when the read fails after its permission check', async () => {
+    const dir = await tempDir()
+    const path = join(dir, '.credentials.yaml')
+    await writeCredentials(path, 'DSH_CRED_PIPE: good\n')
+    const ctx = await boot({ path, debounceMs: 5 })
+    fsHarness.nextReadError = Object.assign(new Error('EACCES: injected read failure'), { code: 'EACCES' })
+
+    const [instance] = await fakeInstances()
+    instance!.watcher.emit('all', 'change', path)
+    await vi.waitFor(() => {
+      expect(fsHarness.nextReadError).toBeUndefined()
+    })
+    expect(await ctx.credentials.resolve(KEY)).toEqual({ value: 'good', source: 'file' })
+  })
+
   it('keeps the reload queue alive after an invariant violation escapes the fan-out', async () => {
     const dir = await tempDir()
-    const path = join(dir, '.env')
+    const path = join(dir, '.credentials.yaml')
     const ctx = await boot({ path, debounceMs: 5 })
     let arm = true
     ctx.on('credentials/updated', () => {
@@ -113,7 +153,7 @@ describe('watcher pipeline', () => {
     })
     const [instance] = await fakeInstances()
 
-    await writeFile(path, 'DSH_CRED_PIPE=first\n')
+    await writeCredentials(path, 'DSH_CRED_PIPE: first\n')
     instance!.watcher.emit('all', 'change', path)
     // The snapshot commits before the fan-out, so the value lands even though
     // the listener threw out of the refresh.
@@ -122,7 +162,7 @@ describe('watcher pipeline', () => {
     })
 
     arm = false
-    await writeFile(path, 'DSH_CRED_PIPE=second\n')
+    await writeCredentials(path, 'DSH_CRED_PIPE: second\n')
     instance!.watcher.emit('all', 'change', path)
     await vi.waitFor(async () => {
       expect(await ctx.credentials.resolve(KEY)).toEqual({ value: 'second', source: 'file' })
@@ -131,8 +171,8 @@ describe('watcher pipeline', () => {
 
   it('quiesces the refresh pipeline before dispose completes', async () => {
     const dir = await tempDir()
-    const path = join(dir, '.env')
-    await writeFile(path, 'DSH_CRED_PIPE=initial\n')
+    const path = join(dir, '.credentials.yaml')
+    await writeCredentials(path, 'DSH_CRED_PIPE: initial\n')
     const ctx = new Context()
     const fiber = ctx.plugin(CredentialsLocal, { path, debounceMs: 5 })
     await fiber
@@ -142,7 +182,7 @@ describe('watcher pipeline', () => {
       if (disposed) postDisposeCommits += 1
     })
 
-    await writeFile(path, 'DSH_CRED_PIPE=changed\n')
+    await writeCredentials(path, 'DSH_CRED_PIPE: changed\n')
     const [instance] = await fakeInstances()
     // Two queued refreshes: dispose interrupts one mid-flight and the other
     // before it starts, so both closed guards must hold.
@@ -158,8 +198,8 @@ describe('watcher pipeline', () => {
 
   it('empties the snapshot when the document is deleted and emits the removals', async () => {
     const dir = await tempDir()
-    const path = join(dir, '.env')
-    await writeFile(path, 'DSH_CRED_PIPE=doomed\n')
+    const path = join(dir, '.credentials.yaml')
+    await writeCredentials(path, 'DSH_CRED_PIPE: doomed\n')
     const ctx = await boot({ path, debounceMs: 5 })
     const seen: string[] = []
     ctx.on('credentials/updated', (ref) => {
@@ -175,30 +215,39 @@ describe('watcher pipeline', () => {
     expect(seen).toEqual([KEY])
   })
 
-  it('publishes only seam-addressable keys and preserves the rest untouched', async () => {
+  it('keeps the last good snapshot when an external edit makes the document invalid', async () => {
     const dir = await tempDir()
-    const path = join(dir, '.env')
-    await writeFile(path, 'BAD-KEY=1\nDSH_CRED_PIPE=a\n')
+    const path = join(dir, '.credentials.yaml')
+    await writeCredentials(path, 'DSH_CRED_PIPE: a\n')
     const ctx = await boot({ path, debounceMs: 5 })
     const seen: string[] = []
     ctx.on('credentials/updated', (ref) => {
       seen.push(ref)
     })
 
-    await writeFile(path, 'BAD-KEY=2\nDSH_CRED_PIPE=b\n')
+    // A key the seam cannot address is a rejection, not preserved content:
+    // this document holds nothing but credentials. A live reload must warn
+    // and keep serving the last good snapshot rather than take the process
+    // down or silently drop the entry it could not validate.
+    await writeCredentials(path, 'BAD-KEY: 2\nDSH_CRED_PIPE: b\n')
     const [instance] = await fakeInstances()
+    instance!.watcher.emit('all', 'change', path)
+    await new Promise(resolve => setTimeout(resolve, 50))
+    expect(await ctx.credentials.resolve(KEY)).toEqual({ value: 'a', source: 'file' })
+    expect(seen).toEqual([])
+
+    // Repairing the document resumes publishing.
+    await writeCredentials(path, 'DSH_CRED_PIPE: b\n')
     instance!.watcher.emit('all', 'change', path)
     await vi.waitFor(async () => {
       expect(await ctx.credentials.resolve(KEY)).toEqual({ value: 'b', source: 'file' })
     })
-    // The dash-named key is preserved file content the seam cannot address:
-    // its change publishes nothing and breaks nothing.
     expect(seen).toEqual([KEY])
   })
 
   it('treats an event for a still-absent file as a no-op', async () => {
     const dir = await tempDir()
-    const path = join(dir, '.env')
+    const path = join(dir, '.credentials.yaml')
     const ctx = await boot({ path, debounceMs: 5 })
     const [instance] = await fakeInstances()
     instance!.watcher.emit('all', 'add', path)
@@ -208,12 +257,12 @@ describe('watcher pipeline', () => {
 
   it('reconciles at watcher ready so a change during setup is not missed', async () => {
     const dir = await tempDir()
-    const path = join(dir, '.env')
-    await writeFile(path, `${KEY}=a\n`)
+    const path = join(dir, '.credentials.yaml')
+    await writeCredentials(path, `${KEY}: a\n`)
     const ctx = await boot({ path, debounceMs: 5 })
     // Written after the initial load but before the watcher became active:
     // no 'all' event will ever fire for it.
-    await writeFile(path, `${KEY}=written-before-ready\n`)
+    await writeCredentials(path, `${KEY}: written-before-ready\n`)
     const [instance] = await fakeInstances()
     instance!.watcher.emit('ready')
     await vi.waitFor(async () => {

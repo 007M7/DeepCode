@@ -23,6 +23,7 @@ function execution(sessionId?: string): ToolExecution {
     signal: testToolSignal,
     token: Symbol('bash-env-test') as ToolExecution['token'],
     callId: CallId('bash-env-call'),
+    rootCallId: CallId('bash-env-call'),
     name: 'bash',
     arguments: { command: 'true' },
     ...(sessionId === undefined

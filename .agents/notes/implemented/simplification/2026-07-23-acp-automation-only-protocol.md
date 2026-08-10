@@ -36,7 +36,7 @@ Protocol and lifecycle tests pin stop-reason and prompt codecs, version negotiat
 
 **Keep ACP as an editor UI until Web reaches parity.** Rejected because it leaves two interactive contracts to evolve and keeps editor conventions in the automation boundary.
 
-**Keep the earlier editor bridge behind disciplined seams.** Rejected even though that bridge correctly used interface services, tool-owned render intents, approval and user-interaction answerers, harness-owned execution, and a stdout-pure composition. Its terminal cards were capability-gated, display-only Zed `_meta` projections with a text fallback rather than ACP `terminal/create`, so shell execution never left the harness. The projection derived each display terminal id from the stable per-call id to prevent collisions and recovered exit code or signal from the rendered status markers because the pure result presenter received content blocks rather than a structured exit; marker round-trip tests and an explicit no-capability `console` fallback test pinned both contracts. Those boundaries were coherent but could not make editor cards, session navigation, configuration pickers, and human elicitation belong in an automation protocol.
+**Keep the earlier editor bridge behind disciplined service boundaries.** Rejected even though that bridge correctly used interface services, tool-owned render intents, approval and user-interaction answerers, harness-owned execution, and a stdout-pure composition. Its terminal cards were capability-gated, display-only Zed `_meta` projections with a text fallback rather than ACP `terminal/create`, so shell execution never left the harness. The projection derived each display terminal id from the stable per-call id to prevent collisions and recovered exit code or signal from the rendered status markers because the pure result presenter received content blocks rather than a structured exit; marker round-trip tests and an explicit no-capability `console` fallback test pinned both contracts. Those boundaries were coherent but could not make editor cards, session navigation, configuration pickers, and human elicitation belong in an automation protocol.
 
 **Replace ACP with a private subagent RPC.** Rejected because ACP already supplies a typed, interoperable process protocol and is used by the out-of-process subagent backend.
 
@@ -46,7 +46,7 @@ Protocol and lifecycle tests pin stop-reason and prompt codecs, version negotiat
 
 ## Consequences
 
-ACP has a narrow contract suitable for agents and automation, while TUI and Web own human interaction and presentation. The package has fewer injected services, dependencies, protocol branches, and lifecycle states, and it no longer claims compatibility as a general editor front door.
+ACP has a narrow contract suitable for agents and automation, while TUI and Web own human interaction and presentation. The package has fewer injected services, dependencies, protocol branches, and lifecycle states, and it no longer claims compatibility as a general editor entry point.
 
 Automation clients receive complete committed text rather than token deltas or structured tool UI. They inspect durable logs or another API when they need reasoning, tool traces, titles, or richer state. Fresh-session-only operation also means callers that need durable browsing or resume use a host API rather than ACP.
 

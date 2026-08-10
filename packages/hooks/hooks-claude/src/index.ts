@@ -1,10 +1,10 @@
 /**
  * Bridge for unmodified Claude Code command hooks on harness interception
- * seams. It supports SessionStart, prompt/tool pre/post, Stop, and subagent
+ * extension points. It supports SessionStart, prompt/tool pre/post, Stop, and subagent
  * start/stop. It owns Claude payloads, environment, substitution, and decision
  * mapping; shared execution and parsing live in `dsh-hook-protocol`.
  * `updatedInput` is logged and warned but not honored. Bespoke behavior should
- * use typed native plugins on the same seams; see the
+ * use typed native plugins on the same extension points; see the
  * [hook-bridges Agent Note](../../../../.agents/notes/implemented/feature/2026-06-30-hook-bridges.md).
  * @module @deepseek-ai/dsh-hooks-claude
  */
@@ -38,7 +38,7 @@ import { parseClaudeConfig, type ClaudeHookConfig } from './config.ts'
 
 export const name = 'hooks-claude'
 // `bash` is required to run hooks; the rest are read opportunistically via
-// ctx.get so a deployment can load this bridge without every seam present.
+// ctx.get so a deployment can load this bridge without every extension point present.
 export const inject = ['bash']
 
 /** Plugin config: where the CC hook config lives + substitution roots. */
@@ -48,7 +48,7 @@ export interface Config {
    * Process-level: read once at load, a relative path resolves against the process
    * launch cwd, so one config applies to the whole process.
    * TODO(per-session-hook-config): per-session discovery of a project-local
-   * `hooks.json` from each `session/new.cwd` is not yet implemented.
+   * `hooks.json` from each `session/new.cwd`.
    */
   configPath: string
   /**
@@ -130,7 +130,7 @@ export function apply(ctx: Context, config: Config): void {
    * `matchQuery`, with the per-event `payload` on stdin, and fold the results.
    * Writes a `hook/invoked`/`hook/result` pair per hook when `opts.turn` names
    * an open turn. Detached lifecycle points omit the pair. Returns the merged outcome (a neutral,
-   * already-most-restrictive view) for the caller to map onto its seam
+   * already-most-restrictive view) for the caller to map onto its extension point
    * decision. `matchQuery` is the event's matcher subject (tool name, session
    * source, …); `''` for events that ignore matchers.
    */
@@ -143,7 +143,7 @@ export function apply(ctx: Context, config: Config): void {
     const groups: MatcherGroup[] = parsed[point] ?? []
     const outputs: HookOutput[] = []
     // Run the hook in the agent's session workspace (the `session/new` cwd on the session
-    // header), not the executor or front-door process's launch dir.
+    // header), not the executor or entry-point process's launch dir.
     const workdir = opts.agent?.session.header.cwd
     // CLAUDE_PROJECT_DIR: an explicit config value wins; otherwise default it to the session
     // workspace (the same dir the hook runs in).
@@ -186,7 +186,7 @@ export function apply(ctx: Context, config: Config): void {
     return mergeHookOutputs(outputs)
   }
 
-  // TODO(hook-continue-false): `merged.stop` is logged but needs a run-level halt seam.
+  // TODO(hook-continue-false): `merged.stop` is logged but needs a run-level halt mechanism.
 
   /** Build additional model context from hook output, or return undefined when empty. */
   function contextFrom(merged: MergedHookOutcome): UserMessage | undefined {
@@ -195,7 +195,7 @@ export function apply(ctx: Context, config: Config): void {
     return createUserMessage({ content, source: PLUGIN_SOURCE })
   }
 
-  /** Prepend one context without flattening downstream provenance or metadata. */
+  /** Prepend one context without flattening source fields or other downstream metadata. */
   function prependContext(ours: UserMessage, theirs: UserMessage[] | undefined): UserMessage[] {
     return [ours, ...theirs ?? []]
   }
@@ -203,7 +203,7 @@ export function apply(ctx: Context, config: Config): void {
   // SessionStart injects context when its detached hook resolves; a slow hook
   // may miss the first request.
   // TODO(session-start-gating): add a startup gate before promising first-turn delivery.
-  ctx.on('agent/session-start', (agent, source) => {
+  ctx.on('agent/session-start', ({ agent, source }) => {
     detached.track(runPoint('SessionStart', source, sessionStartPayload(ctx, agent, source), { agent, signal: detached.signal })
       .then((merged) => {
         const context = contextFrom(merged)
@@ -216,7 +216,7 @@ export function apply(ctx: Context, config: Config): void {
 
   // --- UserPromptSubmit → PreStepDecision. The prompt text is the payload; no
   // matcher subject (CC ignores matchers for this event). ---
-  ctx.on('agent/pre-step', async (agent, messages, { turn, signal }, next): Promise<PreStepDecision> => {
+  ctx.on('agent/pre-step', async ({ agent, messages, turn, signal }, next): Promise<PreStepDecision> => {
     if (messages.length === 0) return next()
     const content = messages.flatMap(message => message.content)
     const merged = await runPoint('UserPromptSubmit', '', promptPayload(ctx, agent, content), { agent, turn, signal })
@@ -267,7 +267,7 @@ export function apply(ctx: Context, config: Config): void {
   // A blocking Stop hook steers at the stopping boundary, which makes the
   // machine observe pending input and run another step.
   // TODO(stop-loop-guard): cap consecutive forced continuations; hooks must self-limit meanwhile.
-  ctx.on('agent/turn-stopping', async (agent, turn, signal): Promise<void> => {
+  ctx.on('agent/turn-stopping', async ({ agent, turn, signal }): Promise<void> => {
     const merged = await runPoint('Stop', '', stopPayload(ctx, agent), { agent, turn, signal })
     if (merged.decision === 'deny') {
       // A blocking Stop hook forces continuation.
@@ -310,7 +310,7 @@ const SUBAGENT_TYPE = 'general-purpose'
 function lastTurn(agent: Agent | undefined): number {
   if (!agent) return 0
   const last = [...agent.session.events].findLast(e => e.type === 'turn/start')
-  /* v8 ignore next -- agent-present callers are tool/stop seams inside an open turn. */
+  /* v8 ignore next -- agent-present callers are tool/stop extension points inside an open turn. */
   return last?.type === 'turn/start' ? last.data.turn : 0
 }
 
@@ -349,7 +349,7 @@ function stopPayload(ctx: Context, agent: Agent): Record<string, unknown> {
  * Build a SubagentStart/SubagentStop payload from the CC base (the child's
  * `session_id`/`cwd` when the child agent is available) plus the subagent-hook
  * fields. `agent_type` is the CC-default {@link SUBAGENT_TYPE}; `stop_hook_active`
- * is present on SubagentStop only (the loop-guard flag, always false this cut).
+ * is present on SubagentStop only (the loop-guard flag, always false).
  */
 function subagentPayload(ctx: Context, event: 'SubagentStart' | 'SubagentStop', info: { id: string }, child: Agent | undefined): Record<string, unknown> {
   return {

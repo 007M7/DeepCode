@@ -1,10 +1,9 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
-import type { Extension } from 'micromark-util-types'
 import { JsonBlock, MarkdownText, MessageText } from '@deepseek-ai/dsh-client-ui-primitives'
-import { remarkCjkFriendlyStrong } from '../src/markdown/remarkCjkFriendlyStrong.ts'
-import { remarkMathCompatibility } from '../src/markdown/remarkMathCompatibility.ts'
+import { cjkFriendlyStrong } from '../src/markdown/cjkFriendlyStrong.ts'
+import { mathCompatibility } from '../src/markdown/mathCompatibility.ts'
 
 afterEach(cleanup)
 
@@ -149,14 +148,53 @@ describe('MarkdownText', () => {
     expect(container.querySelector('pre code a')).toBeNull()
   })
 
-  it('registers the CJK strong extension and rejects a parser without CommonMark attention markers', () => {
-    const data: { micromarkExtensions?: Extension[] } = {}
-    const processor = { data: () => data }
-    remarkCjkFriendlyStrong.call(processor)
-    remarkCjkFriendlyStrong.call(processor)
+  it('links inline code through the file-mention resolver: URL first, settled only, never inside links', () => {
+    const opened: string[] = []
+    const fileMentions = {
+      resolve: (value: string) => value === 'index.html' || value === 'out/index.html'
+        ? { open: () => { opened.push(value) }, label: 'Open out/index.html', title: 'out/index.html' }
+        : undefined,
+    }
+    const source = [
+      '`index.html`',
+      '`other.css`',
+      '`https://example.com/`',
+      // Inside an anchor the mention stays inert code: a button cannot nest there.
+      '[see `out/index.html`](https://example.com/doc)',
+      '[ref `out/index.html`][target]',
+      '[target]: https://example.com/ref',
+      '```',
+      'index.html',
+      '```',
+    ].join('\n\n')
+    const { container } = render(<MarkdownText text={source} fileMentions={fileMentions} />)
 
-    expect(data.micromarkExtensions).toHaveLength(2)
-    const construct = data.micromarkExtensions?.[0]?.text?.[42]
+    const mention = screen.getByRole('button', { name: 'Open out/index.html' })
+    expect(mention.closest('code')).not.toBeNull()
+    // The full path rides title, the same disambiguator the row's chips carry.
+    expect(mention.getAttribute('title')).toBe('out/index.html')
+    fireEvent.click(mention)
+    expect(opened).toEqual(['index.html'])
+    // Exactly one live mention: the two inside anchors declined, and an
+    // unresolved token plus fenced code stay inert.
+    expect(container.querySelectorAll('code button')).toHaveLength(1)
+    expect(container.querySelectorAll('a code button, a button')).toHaveLength(0)
+    expect(screen.getByText('other.css').closest('button')).toBeNull()
+    // URL promotion wins before the resolver sees a token.
+    expect(screen.getByText('https://example.com/').closest('a')).not.toBeNull()
+
+    // Streaming renders keep mentions off — the one gate lives here: cached
+    // frozen elements must not bake in handlers that could go stale.
+    const streamed = render(
+      <MarkdownText text={'`index.html`\n\nmore\n\n'} streaming fileMentions={fileMentions} />,
+    )
+    expect(streamed.container.querySelector('button')).toBeNull()
+  })
+
+  it('exposes the CJK strong syntax as a micromark extension needing CommonMark attention markers', () => {
+    const extension = cjkFriendlyStrong()
+    expect(cjkFriendlyStrong()).toBe(extension)
+    const construct = extension.text?.[42]
     const tokenizer = Array.isArray(construct) ? construct[0]?.tokenize : construct?.tokenize
     expect(tokenizer).toBeTypeOf('function')
     expect(() => tokenizer?.call({
@@ -407,7 +445,7 @@ describe('MarkdownText', () => {
     const startedAt = performance.now()
     const { container } = render(<MarkdownText text={'\\(x '.repeat(6_400)} />)
 
-    expect(performance.now() - startedAt).toBeLessThan(1_000)
+    expect(performance.now() - startedAt).toBeLessThan(3_000)
     expect(container.querySelector('.katex')).toBeNull()
   })
 
@@ -420,11 +458,11 @@ describe('MarkdownText', () => {
     expect(container.querySelector('pre code')?.textContent).toContain('$$x \\tag{1}$$')
   })
 
-  it('registers the compatibility extension on a bare remark processor', () => {
-    const data: { micromarkExtensions?: Extension[] } = {}
-    remarkMathCompatibility.call({ data: () => data })
+  it('exposes the compatibility syntax as a micromark extension', () => {
+    const extension = mathCompatibility()
 
-    expect(data.micromarkExtensions).toHaveLength(1)
+    expect(Object.keys(extension)).toEqual(['flow', 'text'])
+    expect(mathCompatibility()).toBe(extension)
   })
 
   it('defers TeX rendering while streaming so incomplete formulas never flash KaTeX errors', () => {

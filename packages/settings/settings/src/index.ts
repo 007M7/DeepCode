@@ -1,5 +1,5 @@
 /**
- * User-settings seam (`ctx.settings`). Providers store one raw document of
+ * Service Definition for the user-settings capability seam (`ctx.settings`). Providers store one raw document of
  * per-namespace sections; plugins register a namespace schema and read the
  * resolved value, which layers schema defaults, the registrant's composition
  * `base`, and the user document section, in that order.
@@ -44,12 +44,32 @@ export interface SettingsRegisterOptions<T> {
   base?: Partial<T>
   /** Owner's effect timing, surfaced to configuration UIs; defaults to `live`. */
   applies?: SettingsApplies
+  /**
+   * Reject a resolved section the owner could not act on, for constraints its
+   * schema cannot express — a cross-field requirement, or one field's validity
+   * depending on another's. Throwing here refuses the *write* that produced the
+   * value, so a caller learns at `update`/`replace`/`mutate` instead of storing
+   * something that would silently disable the owner.
+   *
+   * Kept separate from the schema because the schema is also what a
+   * configuration surface renders and what an absent section resolves through;
+   * folding a cross-field check into it would change both.
+   *
+   * Once the owner is registered, a stored section that fails this keeps the
+   * namespace's last good value and warns, exactly as a schema failure does,
+   * so an externally edited document cannot strand a running owner. At
+   * registration there is no last good value yet, so a stored section that
+   * already fails rejects the registration itself — again exactly as a schema
+   * failure does.
+   * @param value - the resolved section, schema-valid by construction.
+   */
+  validate?: (value: T) => void
 }
 
 /** One registered namespace as surfaced to configuration UIs. */
 export interface SettingsDescriptor {
   // TODO(settings-namespace-vocabulary): Rename `ns` to `namespace` across the
-  // public seam, provider contract, implementations, tests, and consumers.
+  // public API, provider contract, implementations, tests, and consumers.
   /** The registered namespace. */
   ns: SettingsNamespace
   /** Serialized schemastery schema (`schema.toJSON()`). */
@@ -153,7 +173,7 @@ declare module 'cordis' {
 
 /**
  * Deep equality over JSON-shaped data (objects, arrays, primitives) — the
- * seam's single change-detection predicate, exported so the invariant
+ * Service Definition's single change-detection predicate, exported so the invariant
  * companion checks exactly the implementation's relation.
  * @param a - one JSON-shaped value.
  * @param b - the other JSON-shaped value.
@@ -175,7 +195,7 @@ export function deepEqualJson(a: unknown, b: unknown): boolean {
 
 /**
  * A write refused because the namespace moved since the caller read it. The
- * seam's serialized write queue orders writes; it cannot tell a fresh writer
+ * Service Definition's serialized write queue orders writes; it cannot tell a fresh writer
  * from one holding a stale snapshot, which is what this reports.
  */
 export class SettingsConflictError extends Error {
@@ -343,6 +363,8 @@ interface SettingsRegistration {
   schema: z<unknown>
   base: unknown
   applies: SettingsApplies
+  /** Owner-supplied check for constraints the schema cannot express. */
+  validate?: (value: unknown) => void
   resolved: unknown
   /**
    * Monotonic counter over this namespace's RAW user section — bumped by any
@@ -456,7 +478,10 @@ export abstract class Settings extends Service {
       schema: schema as z<unknown>,
       base: options?.base,
       applies: options?.applies ?? 'live',
-      resolved: deepFreeze(this.resolve(schema, options?.base, this.section(ns))),
+      ...options?.validate === undefined
+        ? {}
+        : { validate: options.validate as (value: unknown) => void },
+      resolved: deepFreeze(this.resolve(schema, options?.base, this.section(ns), options?.validate)),
       revision: 0,
       watchers: new Set(),
     }
@@ -642,7 +667,7 @@ export abstract class Settings extends Service {
         : mode === 'replace'
           ? snapshot
           : (snapshot['ops'] as SettingsPathOp[]).reduce(applyPathOp, current)
-      const next = deepFreeze(this.resolve(registration.schema, registration.base, section))
+      const next = deepFreeze(this.resolve(registration.schema, registration.base, section, registration.validate))
       await this.persist(ns, section)
       // The write reached storage either way; the cache must say so. Commit
       // only when this registration is still the namespace owner — a fiber
@@ -684,7 +709,7 @@ export abstract class Settings extends Service {
     for (const registration of this.registrations.values()) {
       let next: unknown
       try {
-        next = deepFreeze(this.resolve(registration.schema, registration.base, this.section(registration.ns)))
+        next = deepFreeze(this.resolve(registration.schema, registration.base, this.section(registration.ns), registration.validate))
       } catch (error) {
         this.ctx.logger.warn('settings: keeping last good "%s" after invalid stored section', registration.ns)
         this.ctx.logger.warn(error)
@@ -706,10 +731,19 @@ export abstract class Settings extends Service {
   }
 
   /** Resolve one namespace value: schema defaults, then `base`, then the user layer. */
-  private resolve<T>(schema: z<T>, base: unknown, section: Record<string, unknown> | undefined): T {
+  private resolve<T>(
+    schema: z<T>,
+    base: unknown,
+    section: Record<string, unknown> | undefined,
+    validate?: (value: T) => void,
+  ): T {
     // The merged candidate is untyped by construction; the schema call is the
     // runtime validation that admits it into T.
-    return schema(mergeLayers(base, section) as never)
+    const value = schema(mergeLayers(base, section) as never)
+    // The owner's own check runs on the admitted value, so it sees defaults
+    // and the composition base exactly as the owner will.
+    validate?.(value)
+    return value
   }
 
   /**
@@ -842,6 +876,12 @@ export interface SettingsSectionHooks<T> {
    * memoized resolutions — after an attach, a detach, or a committed change.
    */
   onChange(): void
+  /**
+   * Reject a resolved section this consumer could not act on, for constraints
+   * its schema cannot express. See {@link SettingsRegisterOptions.validate}.
+   * @param value - the resolved section, schema-valid by construction.
+   */
+  validate?: (value: T) => void
 }
 
 /**
@@ -865,7 +905,10 @@ export function installSettingsSection<T>(
   hooks: SettingsSectionHooks<T>,
 ): void {
   ctx.inject(['settings'], (sctx) => {
-    const scope = sctx.settings.register(ns, schema, { base: entry })
+    const scope = sctx.settings.register(ns, schema, {
+      base: entry,
+      ...hooks.validate === undefined ? {} : { validate: hooks.validate },
+    })
     hooks.setSource(() => scope.get())
     sctx.effect(() => () => {
       // This disposer runs for two different reasons. A settings provider

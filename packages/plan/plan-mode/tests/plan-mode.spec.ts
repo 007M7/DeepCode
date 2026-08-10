@@ -4,7 +4,7 @@ import { createUserMessage, CallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { RUN_CODE_NAME, defineContentToolFixture } from '@deepseek-ai/dsh-tools'
 import { Session, SessionId, type UserMessage } from '@deepseek-ai/dsh-session'
-import { agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
 import { createScope } from '@deepseek-ai/dsh-scope'
 import UserInteractionService, {
   UserInteractionError, type AskUserQuestionRequest,
@@ -25,7 +25,11 @@ const PLAN_CONFIG = { section: TEST_PLAN_SECTION } satisfies PlanModeConfig
  * and the following `step/start` session event used by the loop.
  */
 
-async function agentWithSession(ctx: Context, id = 'agent-1', { active }: { active?: boolean } = {}): Promise<Agent & { session: Session }> {
+async function agentWithSession(
+  ctx: Context,
+  id = 'agent-1',
+  { active, owner }: { active?: boolean; owner?: Agent } = {},
+): Promise<Agent & { session: Session }> {
   // A live store session when a store is mounted (the command executor logs
   // lifecycle events through it); bare otherwise (fold/tool-only benches).
   const session = Session.create(SessionId(id))
@@ -44,8 +48,15 @@ async function agentWithSession(ctx: Context, id = 'agent-1', { active }: { acti
   ;(agent as { ctx?: Context }).ctx = scoped
   // Seeded plan state lands before the creation announcement, matching resume.
   if (active !== undefined) session.append('plan/mode', { active })
-  // The loop announces creation after publication.
-  ctx.emit('agent/created', agent)
+  // The loop publishes through the live registry when it is composed; narrow
+  // fold-only benches retain the direct lifecycle event used before it exists.
+  const agents = ctx.get('agents')
+  if (agents === undefined) {
+    ctx.emit('agent/created', { agent })
+  } else {
+    agents.enter(agent, owner)
+    agents.announce(agent)
+  }
   return agent
 }
 
@@ -74,8 +85,7 @@ async function boundary(ctx: Context, agent: Agent & { session: Session }, type:
   const signal = new AbortController().signal
   const decision = await events.waterfall(
     'agent/pre-step',
-    [message],
-    { turn: 1, step: 1, signal },
+    { messages: [message], turn: 1, step: 1, signal },
     () => Promise.resolve({ kind: 'enter' as const, messages: [message] }),
   )
   if (decision.kind === 'enter') {
@@ -352,7 +362,7 @@ describe('the boundary flush', () => {
     ctx.planMode.set(agent, true)
     const original = agent.session.append.bind(agent.session)
     // Only the flush's own plan/mode append fails; the boundary event itself
-    // lands (the loop appended it before the seam fires).
+    // lands (the loop appended it before the between-step hook fires).
     agent.session.append = (((type: string, ...rest: unknown[]) => {
       if (type === 'plan/mode') throw new Error('backend gone')
       return (original as (...args: unknown[]) => unknown)(type, ...rest)
@@ -654,6 +664,7 @@ describe('/plan', () => {
 describe('exit_plan_mode', () => {
   async function setupWithReview(answer?: { selected: string[]; custom?: string }) {
     const ctx = await setup()
+    await ctx.plugin(AgentRegistry)
     await ctx.plugin(UserInteractionService)
     const asked: AskUserQuestionRequest[] = []
     if (answer !== undefined) {
@@ -731,6 +742,26 @@ describe('exit_plan_mode', () => {
     expect(foldPlanMode(agent.session.events)).toBe(true)
   })
 
+  it('rejects review from a runtime-owned agent with consumer-neutral guidance', async () => {
+    const ctx = await setup()
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(UserInteractionService)
+    const ask = vi.fn(async () => ({ answers: [{ id: 'plan-review', selected: ['Approve'] }] }))
+    ctx.userInteraction.registerProvider({ ask })
+    const root = await agentWithSession(ctx, 'review-root')
+    const child = await agentWithSession(ctx, 'review-child', { active: true, owner: root })
+
+    const result = await callExit(ctx, child)
+
+    expect(result.isError).toBe(true)
+    expect(result.content).toEqual([{
+      type: 'text',
+      text: "Error: human interaction is unavailable while the calling agent is owned by another live agent; include the unresolved question or decision in the child agent's final result",
+    }])
+    expect(ask).not.toHaveBeenCalled()
+    expect(foldPlanMode(child.session.events)).toBe(true)
+  })
+
   it('approve: records the boundary-applied switch and confirms (the fold flips at the flush)', async () => {
     const { ctx, agent, asked } = await setupWithReview({ selected: ['Approve'] })
     const result = await callExit(ctx, agent)
@@ -766,6 +797,7 @@ describe('exit_plan_mode', () => {
     await ctx.plugin(ToolRegistry, { mode: 'code' })
     await ctx.plugin(ExitRuntime)
     await ctx.plugin(PlanModeService, PLAN_CONFIG)
+    await ctx.plugin(AgentRegistry)
     await ctx.plugin(UserInteractionService)
     const asked: AskUserQuestionRequest[] = []
     ctx.userInteraction.registerProvider({
@@ -940,6 +972,7 @@ describe('exit_plan_mode', () => {
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
     const fiber = await ctx.plugin(PlanModeService, PLAN_CONFIG)
+    await ctx.plugin(AgentRegistry)
     await ctx.plugin(UserInteractionService)
     let answer!: (value: { answers: { id: string; selected: string[] }[] }) => void
     ctx.userInteraction.registerProvider({

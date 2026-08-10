@@ -159,14 +159,14 @@ describe('dsh-tool-subagent-report', () => {
     expect(names).not.toContain('send_message')
   })
 
-  it('delivers quiet reports with stable identity and provenance without waking', async () => {
+  it('delivers quiet reports with stable message and sender identities without waking', async () => {
     const { ctx, parent, adapter } = await setup()
     const { started, child } = await startChild(ctx, parent)
     const parentRequests = adapter.requests.filter(request => request.sessionId === parent.id).length
     const enqueues: string[] = []
-    ctx.on('agent/inbox/inserted', (agent, item) => {
+    ctx.on('agent/inbox/inserted', ({ agent, message }) => {
       if (agent === parent) {
-        enqueues.push(agent.inbox.nextTurn.some(message => message.id === item.message.id) ? 'queued' : 'steering')
+        enqueues.push(agent.inbox.nextTurn.some(queued => queued.id === message.id) ? 'queued' : 'steering')
       }
     })
 
@@ -190,9 +190,9 @@ describe('dsh-tool-subagent-report', () => {
     const { ctx, parent, adapter } = await setup({ config: { reportDelivery: 'wakeup' } })
     const { child } = await startChild(ctx, parent)
     const enqueues: string[] = []
-    ctx.on('agent/inbox/inserted', (agent, item) => {
+    ctx.on('agent/inbox/inserted', ({ agent, message }) => {
       if (agent === parent) {
-        enqueues.push(agent.inbox.nextTurn.some(message => message.id === item.message.id) ? 'queued' : 'steering')
+        enqueues.push(agent.inbox.nextTurn.some(queued => queued.id === message.id) ? 'queued' : 'steering')
       }
     })
 
@@ -219,7 +219,9 @@ describe('dsh-tool-subagent-report', () => {
     expect((await callReport(ctx, child, 'DURABLE_SELECTION')).isError).toBe(false)
 
     adapter.release()
-    await vi.waitFor(() => { expect(ctx.agents.get(started.childId)).toBeUndefined() })
+    await vi.waitFor(() => {
+      expect(ctx.agents.get(started.childId) === undefined).toBe(true)
+    }, { timeout: 5_000 })
     expect(reports(parent).map(report => report.text)).toEqual([
       `Background subagent ${started.childId} reported:\nDURABLE_SELECTION`,
     ])
@@ -421,7 +423,9 @@ describe('dsh-tool-subagent-report result independence', () => {
     const { ctx, parent, adapter } = await setup()
     const { started } = await startChild(ctx, parent)
     adapter.release()
-    await vi.waitFor(() => { expect(ctx.agents.get(started.childId)).toBeUndefined() })
+    await vi.waitFor(() => {
+      expect(ctx.agents.get(started.childId) === undefined).toBe(true)
+    }, { timeout: 5_000 })
 
     expect(reports(parent)).toEqual([])
     expect(userTexts((await ctx.sessionPersistence.load(started.childId)).events)).toEqual(['child task'])

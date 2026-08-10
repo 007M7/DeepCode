@@ -42,7 +42,7 @@ async function harness(adapter: MockAdapter): Promise<Context> {
 
 function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
   return new Promise((resolve) => {
-    const dispose = ctx.on('agent/status', (subject, status) => {
+    const dispose = ctx.on('agent/status', ({ agent: subject, status }) => {
       if (subject === agent && status === 'idle') {
         dispose()
         resolve()
@@ -139,7 +139,7 @@ describe('plan mode through the agent loop', () => {
     ])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('it-plan-retry-flip'), { provider: 'mock', model: 'mock' })
-    ctx.on('agent/request-error', async (subject, _context, _signal, next) => {
+    ctx.on('agent/request-error', async ({ agent: subject }, next) => {
       if (subject !== agent) return next()
       ctx.planMode.set(agent, true)
       return { kind: 'retry' }

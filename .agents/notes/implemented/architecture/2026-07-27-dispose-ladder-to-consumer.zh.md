@@ -10,14 +10,14 @@ Status: implemented
 
 ## 决策
 
-阶梯移入其唯一消费方。`dsh-subagent-acp` 拥有 `disposeAcpChild(child, eofGraceMs, graceMs)`，完全构建在 seam 的公开动词之上：关闭 `stdin`，以 `eofGraceMs` 约束一次 `waitForExit`，随后 `terminate()`（其 SIGTERM→spec 宽限期→SIGKILL 升级已编码了信号层级），最后进行有界的整树等待，若仍有存活进程则抛出。seam 保留 `kill`／`terminate`／`waitForExit`——机制而非策略——而 `waitForExit(signal?)` 恰是消费方阶梯在每一层确认进程树真正退出所需的完全停稳探针。`dsh-subprocess-local` 卸下 `dsh-timeout` 依赖；seam 的句柄少了一个方法和一个导出接口。
+阶梯移入其唯一消费方。`dsh-subagent-acp` 拥有 `disposeAcpChild(child, eofGraceMs)`，完全构建在 seam 的公开动词之上：关闭 `stdin`，以 `eofGraceMs` 约束一次 `waitForExit`，随后调用 `terminate()`（其 SIGTERM→spec 宽限期→SIGKILL 升级已拥有信号定时器），再无界等待 `waitForExit()`，由子进程责任方证明整棵进程树已经退出。seam 保留 `kill`／`terminate`／`waitForExit`——机制而非策略——而 `waitForExit(signal?)` 恰是消费方阶梯在协作层确认进程树真正退出所需的停稳探针，无需从终止宽限期再派生一个定时器。seam 的句柄少了一个方法和一个导出接口。
 
 ## 曾考虑的替代方案
 
-**把阶梯作为便利方法留在句柄上。**否决：一个每个实现都必须提供的 seam 方法不是便利，而是契约表面——而这一个把某一消费方的配合形状（stdin EOF 打头）当作进程词汇来编码。seam 自己的 README 早已不得不加注「依赖其他信号才能完全停稳的子进程需要自己的第一阶」，这本身就是承认该阶梯是策略。
+**把阶梯作为便利方法留在句柄上。**否决：一个每个 Service provider 都必须实现的 Service Definition 方法不是便利，而是约定表面——而这一个把某一消费方的配合形状（stdin EOF 打头）当作进程词汇来编码。seam 自己的 README 早已不得不加注「依赖其他信号才能完全停稳的子进程需要自己的第一阶」，这本身就是承认该阶梯是策略。
 
-**把阶梯移到共享辅助包。**否决：只有一个消费方。当第二个具有相同 stdin EOF 配合形状的进程外后端出现时，可以再把 `disposeAcpChild` 提升为共享代码；现在抽取只会重造 `dsh-subagent-subprocess`——这组堆叠变更刚刚删掉的那个单一用途库。
+**把阶梯移到共享辅助包。**否决：只有一个消费方。当第二个具有相同 stdin EOF 配合形状的进程外后端出现时，可以再把 `disposeAcpChild` 提升为共享代码；现在抽取只会重造 `dsh-subagent-subprocess`——本次变更删掉的那个单一用途库。
 
 ## 后果
 
-换来的是：seam 少了一个方法和一个类型；实现只需提供四个动词，无需提供拆卸策略；`dsh-subprocess-local` 少了一个依赖；阶梯的层级时间窗与调节它们的配置字段住在一起。代价：未来想要 EOF 打头拆卸的后端需针对这些动词写约 20 行（或直接搬 ACP 的辅助函数）；阶梯的层级测试从 seam 套件移入 ACP 套件，seam 套件转而钉住阶梯所组合的动词（升级前后有界 `waitForExit` 先假后真），而非组合后的策略。
+买到的：Service Definition 少了一个方法和一个类型；Service provider 只欠四个动词，不欠拆卸策略；协作式 EOF 时间窗与调节它的 ACP 配置字段住在一起，而终止时间窗与最终的整树退出等待仅由子进程责任方拥有。代价：未来想要 EOF 打头拆卸的后端需针对这些动词写约 20 行（或直接搬 ACP 的辅助函数）；阶梯的层级测试位于 ACP 套件，Service Definition 套件转而钉住阶梯所组合的动词（升级前有界 `waitForExit` 返回假，升级后无界等待整棵进程树退出），而非组合后的策略。

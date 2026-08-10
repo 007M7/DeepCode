@@ -11,50 +11,121 @@ import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { CodeBindingFunction, CodeRunResult, CodeRuntime } from '@deepseek-ai/dsh-code-runtime'
 import { snapshotJsonValue } from '@deepseek-ai/dsh-session'
 import type { JsonValue } from '@deepseek-ai/dsh-session'
-import { defineTool } from './schema.ts'
+import { defineTool, parameterSchemaSpecToJsonSchema } from './schema.ts'
 import { TOOL_REGISTRY_SCHEDULER } from './index.ts'
 import type { CodeDispatchLog, ToolDefinition, ToolExecutionResult, ToolRegistry, ToolRunContext } from './index.ts'
-
-declare module '@deepseek-ai/dsh-session' {
-  interface SessionEventMap {
-    /**
-     * One sub-dispatch STARTING inside a `run_code` program: the parent
-     * `run_code` call id, the deterministic sub-call id (`<parent>:code:<n>`,
-     * numbered in submission order), and the tool `name` with its
-     * JSON-normalized `arguments` — the exact value dispatched, normalized
-     * BEFORE dispatch, so this append can never fail on payload shape.
-     * Appended when the scheduler actually starts the call (not at
-     * submission), so a start means the tool body pipeline was entered; a
-     * call abandoned in the queue logs nothing. Log-only: `deriveMessages()`
-     * ignores it; UIs use it for live per-sub-call running state and pair it
-     * with `tool/code-dispatch` by `subCallId` (timing = the two events'
-     * `time` fields).
-     */
-    'tool/code-dispatch-start': { parentCallId: CallId; subCallId: CallId; name: string; arguments: unknown }
-    /**
-     * One bridged sub-dispatch SETTLING: the pairing ids (matching the
-     * `tool/code-dispatch-start` with the same `subCallId`), the tool `name`
-     * with the same JSON-normalized `arguments`, and the sub-call's complete
-     * model-facing outcome in `tool/result`'s own vocabulary
-     * (`content` + `isError`), so UIs render a sub-call through the exact
-     * code path that renders a native call. Every started sub-call settles
-     * with exactly one of these (abort included: the aborted pipeline result
-     * is an `isError` outcome).
-     * Log-only: `deriveMessages()` ignores it, so sub-calls never re-enter
-     * model context; persistence and UIs get every call. Appended inside the
-     * parent `run_code`'s execution (the bridge drains in-flight dispatches
-     * before returning), so its execution-enclosure relation holds by
-     * construction.
-     */
-    'tool/code-dispatch': { parentCallId: CallId; subCallId: CallId; name: string; arguments: unknown; isError: boolean; content: ContentBlock[] }
-  }
-}
+import type {} from './types.ts'
 
 /** The model-facing name of the Code Mode tool. */
 export const RUN_CODE_NAME = 'run_code'
 
 /** The `tools:sdk` section order: inside the 100–199 tool-guidance band, after per-tool guidance sections. */
 export const SDK_SECTION_ORDER = 150
+
+/**
+ * The language-specific `run_code` schema text: the tool `description` and its
+ * `code` parameter description, kept together so a language's two model-facing
+ * strings share one source of truth. Keyed by `CodeRuntime.language`, mirroring
+ * `SDK_RENDERERS` in {@link ./index.ts}. The emitted flavor MUST match the
+ * semantics the same language's SDK instructions promise, so the model never
+ * receives a TypeScript-shaped schema beside a Python SDK (or vice versa).
+ */
+interface RunCodeFlavor {
+  /** The tool `description` the model sees for this language. */
+  readonly description: string
+  /** The `code` parameter's description for this language. */
+  readonly codeDescription: string
+}
+
+/**
+ * The TypeScript flavor: the fallback for a schema read with no runtime
+ * mounted ({@link resolveFlavor} owns which readers reach that). A real
+ * assembly always resolves a runtime first, so the model never sees this
+ * fallback outside its own language.
+ */
+const TYPESCRIPT_FLAVOR: RunCodeFlavor = {
+  description:
+    'Execute a TypeScript program against the available tools. Write the BODY of an '
+    + 'async function (erasable syntax only; top-level `await` and `return` work) and '
+    + 'call tools as `await tools.name(args)` per the declarations in the system prompt. '
+    + 'Only what you print or return comes back — curate it.',
+  codeDescription: 'The program: the body of an async TypeScript function.',
+}
+
+/**
+ * The Python flavor: the body of an async function, top-level `await` and
+ * `return`, answer via `print` and/or the returned value, matching
+ * {@link ./py-types.ts}'s SDK instructions.
+ */
+const PYTHON_FLAVOR: RunCodeFlavor = {
+  description:
+    'Execute a Python program against the available tools. Write the BODY of an '
+    + 'async function (top-level `await` and `return` work) and call tools as '
+    + '`await tools.name(args)` per the declarations in the system prompt. Answer '
+    + 'with `print(...)` and/or `return <value>` — only that comes back, so curate it.',
+  codeDescription: 'The program: the body of an async Python function.',
+}
+
+/**
+ * The languages Code Mode ships a presentation for. Both per-language tables —
+ * {@link RUN_CODE_FLAVORS} here and `SDK_RENDERERS` in {@link ./index.ts} — are
+ * checked against this union with `satisfies`, so a language added to one and
+ * not the other fails `typecheck` instead of waiting for a runtime that reports
+ * it. The tables stay declared `Record<string, …>` because `CodeRuntime.language`
+ * is an unconstrained `string`: this union pins what the harness ships, while the
+ * `Object.hasOwn` guards reject what a mounted runtime may report.
+ */
+export type CodeSdkLanguage = 'typescript' | 'python'
+
+/** Per-language `run_code` schema flavors (see {@link RunCodeFlavor}); one entry per {@link CodeSdkLanguage}. */
+const RUN_CODE_FLAVORS: Record<string, RunCodeFlavor> = {
+  typescript: TYPESCRIPT_FLAVOR,
+  python: PYTHON_FLAVOR,
+} satisfies Record<CodeSdkLanguage, RunCodeFlavor>
+
+/**
+ * The `description` parameter's model-facing description: language-independent
+ * (the UI label contract is the same for every runtime), shared between the
+ * static spec and the language-aware `parameters` getter so the two emissions
+ * can never drift.
+ */
+const RUN_CODE_DESCRIPTION_PARAM_DESCRIPTION
+  = 'Clear, concise description of what this program does in active voice, '
+    + '5-10 words (shown in the UI). Examples: "Count TODO markers across packages"; '
+    + '"Read failing test and its fixture"; "Rename config key in every cordis.yml".'
+
+/**
+ * Resolve the {@link RunCodeFlavor} for the loaded runtime's language, read at
+ * schema-emission time so the model-visible `run_code` schema always matches
+ * the SDK section's language. `peekRuntime` returns `undefined` only when no
+ * runtime is mounted, which reaches this function through definition readers
+ * and `schemas()` — the doc-catalog harvest is the only shipped one, and none
+ * of them feeds a model, because `wireSchemas` calls `requireCodeRuntime`
+ * before projecting — so that path degrades to {@link TYPESCRIPT_FLAVOR}. A
+ * mounted runtime whose language has no flavor entry fails loud, exactly as
+ * `requireCodeRuntime` rejects it at assembly. Keeping this table in step with
+ * `SDK_RENDERERS` is the compiler's job ({@link CodeSdkLanguage}); what this
+ * guard owns is the runtime-supplied language neither table knows, which never
+ * yields a wrong-language schema for a real runtime.
+ */
+function resolveFlavor(peekRuntime: () => CodeRuntime | undefined): RunCodeFlavor {
+  const runtime = peekRuntime()
+  if (runtime === undefined) {
+    // No runtime mounted: reached by definition readers and `schemas()`, of
+    // which the doc-catalog harvest is the only shipped one. None feeds a
+    // model — `wireSchemas` calls `requireCodeRuntime` before projecting, so
+    // the assembly path never arrives here. Degrade to the TS default.
+    return TYPESCRIPT_FLAVOR
+  }
+  // Own-property read: a language like `toString`/`constructor` would otherwise
+  // resolve an inherited Object.prototype member as a flavor.
+  const flavor = RUN_CODE_FLAVORS[runtime.language]
+  if (!Object.hasOwn(RUN_CODE_FLAVORS, runtime.language) || flavor === undefined) {
+    const known = Object.keys(RUN_CODE_FLAVORS).map(name => JSON.stringify(name)).join(', ')
+    throw new Error(`dsh-tools: no run_code schema flavor registered for runtime language ${JSON.stringify(runtime.language)} (known: ${known})`)
+  }
+  return flavor
+}
 
 /**
  * Thrown by `run_code` when the program run itself failed — a program
@@ -194,6 +265,13 @@ type RunCodeOutput = { logs: string[]; result?: JsonValue }
 export interface RunCodeBridgeOptions {
   /** Resolves `ctx.codeRuntime` or throws the loud misconfiguration error (shared with the registry's assembly-time checks). */
   requireRuntime: () => CodeRuntime
+  /**
+   * Reads `ctx.codeRuntime` without throwing: `undefined` when none is mounted.
+   * Lets schema emission tell "no runtime" (degrade to TS; the readers that
+   * reach it are {@link resolveFlavor}'s) apart from "unknown language" (fail
+   * loud).
+   */
+  peekRuntime: () => CodeRuntime | undefined
   /** The run's overlap cap for parallel-classified sub-calls (the registry passes its validated `maxParallelSubCalls`). */
   maxParallel: number
   /** Runs the contained `tools/code-dispatch-log` waterfall over one settled sub-dispatch (the registry's private invoker). */
@@ -212,22 +290,22 @@ export interface RunCodeBridgeOptions {
  * @returns the registry-ready definition.
  */
 export function createRunCodeTool(registry: ToolRegistry, options: RunCodeBridgeOptions): ToolDefinition {
-  const { requireRuntime, maxParallel, shapeDispatchLog } = options
-  return defineTool({
+  const { requireRuntime, peekRuntime, maxParallel, shapeDispatchLog } = options
+  const definition = defineTool({
     name: RUN_CODE_NAME,
-    description:
-      'Execute a TypeScript program against the available tools. Write the BODY of an '
-      + 'async function (erasable syntax only; top-level `await` and `return` work) and '
-      + 'call tools as `await tools.name(args)` per the declarations in the system prompt. '
-      + 'Only what you print or return comes back — curate it.',
+    // The description and `code` parameter description are placeholders here:
+    // the language-aware getters installed below replace both, resolving the
+    // loaded runtime's flavor at schema-emission time so the schema the MODEL
+    // sees matches the SDK section's language. Argument VALIDATION still keys
+    // off this static spec (defineTool closes over it), which is language-
+    // independent (one required string `code`).
+    description: TYPESCRIPT_FLAVOR.description,
     parameters: {
-      code: { type: 'string', required: true, description: 'The program: the body of an async TypeScript function.' },
+      code: { type: 'string', required: true, description: TYPESCRIPT_FLAVOR.codeDescription },
       description: {
         type: 'string',
         required: true,
-        description: 'Clear, concise description of what this program does in active voice, '
-          + '5-10 words (shown in the UI). Examples: "Count TODO markers across packages"; '
-          + '"Read failing test and its fixture"; "Rename config key in every cordis.yml".',
+        description: RUN_CODE_DESCRIPTION_PARAM_DESCRIPTION,
       },
     },
     output: {
@@ -261,7 +339,7 @@ export function createRunCodeTool(registry: ToolRegistry, options: RunCodeBridge
 
       let dispatches = 0
       // The per-run scheduler, reusing the NATIVE concurrency contract through
-      // the registry's staged view (the loop scheduler's own seam) — and the
+      // the registry's staged view (the loop scheduler's own boundary) — and the
       // native loop's SEQUENCING: every ordered stage (the dispatch-start
       // append, prepare = pre-execute/guards, finalize/finish = post-execute,
       // context deferral, the settle append) runs inside ONE driver lane, so
@@ -390,6 +468,7 @@ export function createRunCodeTool(registry: ToolRegistry, options: RunCodeBridge
         const subCallId = CallId(`${String(exec.callId)}:code:${n}`)
         const input = {
           callId: subCallId,
+          rootCallId: exec.rootCallId,
           name,
           arguments: normalized.dispatched,
           ...exec.agent ? { agent: exec.agent } : {},
@@ -427,6 +506,7 @@ export function createRunCodeTool(registry: ToolRegistry, options: RunCodeBridge
                 content: result.content,
               })
               agent.session.append('tool/code-dispatch', {
+                rootCallId: exec.rootCallId,
                 parentCallId: exec.callId,
                 subCallId,
                 name,
@@ -451,6 +531,7 @@ export function createRunCodeTool(registry: ToolRegistry, options: RunCodeBridge
             },
             async start(): Promise<void> {
               exec.agent?.session.append('tool/code-dispatch-start', {
+                rootCallId: exec.rootCallId,
                 parentCallId: exec.callId,
                 subCallId,
                 name,
@@ -569,4 +650,22 @@ export function createRunCodeTool(registry: ToolRegistry, options: RunCodeBridge
     // title and reads durable result content without duplicating a large raw
     // result into the host view payload.
   })
+  // Resolve the language flavor lazily, at the moment the registry projects the
+  // schema (`schemaOf` destructures `description`/`parameters`). The definition
+  // is minted once at registration, before a runtime is known; deferring here
+  // is the least invasive point that still emits the loaded runtime's language.
+  Object.defineProperty(definition, 'description', {
+    enumerable: true,
+    get: () => resolveFlavor(peekRuntime).description,
+  })
+  Object.defineProperty(definition, 'parameters', {
+    enumerable: true,
+    // Recompile through the same spec→schema projection defineTool used, so
+    // the emitted shape can never drift from the validated one.
+    get: () => parameterSchemaSpecToJsonSchema({
+      code: { type: 'string', required: true, description: resolveFlavor(peekRuntime).codeDescription },
+      description: { type: 'string', required: true, description: RUN_CODE_DESCRIPTION_PARAM_DESCRIPTION },
+    }) as unknown as Record<string, unknown>,
+  })
+  return definition
 }

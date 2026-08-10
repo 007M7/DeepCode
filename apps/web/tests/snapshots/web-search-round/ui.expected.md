@@ -1,15 +1,14 @@
 - banner:
   - navigation "Session hierarchy":
     - button "Use web_search to search exactly" [disabled]
+  - img
+  - text: 标准模式
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
 - text: Use web_search to search exactly "DeepSeek Harness snapshot search". Then reply exactly SEARCH_DONE and stop. {{clock}}
 - button "Copy":
   - img
-- button "Branch into a new conversation" [disabled]:
-  - img
-- text: Available only on the last message of a completed turn
 - button "Context injection @deepseek-ai/dsh-system-prompt":
   - img
   - img
