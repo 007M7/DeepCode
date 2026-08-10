@@ -59,7 +59,7 @@ describe('WorkspaceManager', () => {
     expect(manager.getSnapshot()).toMatchObject({ phase: 'ready', state: 'error', error: { message: 'wire down' } })
   })
 
-  it('creates by name/path, prepends a new row, and folds failures', async () => {
+  it('creates by path, prepends a new row, and folds failures', async () => {
     const api = new FakeApiClient()
     const manager = new WorkspaceManager(api)
     api.onWorkspaceCreate = payload => Promise.resolve(ok({
@@ -67,8 +67,8 @@ describe('WorkspaceManager', () => {
       created: true,
       payload,
     } as never))
-    await expect(manager.create({ name: 'created' })).resolves.toMatchObject({ ok: true })
-    expect(api.callsOf('workspace.create')).toEqual([{ name: 'created' }])
+    await expect(manager.create({ path: '/w/created' })).resolves.toMatchObject({ ok: true })
+    expect(api.callsOf('workspace.create')).toEqual([{ path: '/w/created' }])
     expect(manager.getSnapshot().items[0]?.workspaceId).toBe('created')
 
     api.onWorkspaceCreate = () => Promise.reject(new Error('create transport'))

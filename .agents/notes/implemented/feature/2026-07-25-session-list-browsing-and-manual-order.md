@@ -24,7 +24,7 @@ The group-by menu offers two modes, WorkSpace / In one list. WorkSpace mode rend
 
 ### workspace.rename
 
-`workspace.rename({ workspaceId, title })`: the title is trimmed and must be non-blank; both the same-title no-op and the duplicate check evaluate inside the Host's serialized workspace-operation chain (shared with create-by-name, so concurrent explicit naming operations cannot interleave a duplicate or an out-of-order fake success), and a conflict returns `workspace-name-conflict`. Path adoption may derive a title already present because canonical path, not title, owns identity ([decision](../bug-fix/2026-07-31-same-basename-workspace-adoption.md)). Durability goes through `setTitle`'s mutate path, and the `domain/changed` listener broadcasts the `host/workspace-changed` frame automatically. The UI is a standard modal with a client-side duplicate pre-check.
+`workspace.rename({ workspaceId, title })`: the title is trimmed and must be non-blank; both the same-title no-op and the duplicate check evaluate inside the Host's serialized workspace-operation chain (shared with path adoption and deletion, so concurrent workspace operations cannot interleave a duplicate or an out-of-order fake success), and a conflict returns `workspace-name-conflict`. Path adoption may derive a title already present because canonical path, not title, owns identity ([decision](../bug-fix/2026-07-31-same-basename-workspace-adoption.md)). Durability goes through `setTitle`'s mutate path, and the `domain/changed` listener broadcasts the `host/workspace-changed` frame automatically. The UI is a standard modal with a client-side duplicate pre-check.
 
 ### Manual order: insertSessionBefore replaces activity pinning
 

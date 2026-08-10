@@ -73,18 +73,17 @@ export class TestWorkspaces implements IWorkspaces {
   /**
    * Create a Workspace (recorded). The default echoes a view derived from
    * the input; stub for failure or list-coupled flows.
-   * @param input - exactly one Host create spelling.
+   * @param input - the Host create payload.
    * @returns the created Workspace view.
    */
-  async create(input: { name: string } | { path: string }): Promise<WorkspaceView> {
+  async create(input: { path: string }): Promise<WorkspaceView> {
     this.calls.push({ method: 'create', args: [input] })
     const stub = this.stubs.get('create')
     if (stub !== undefined) return await (stub(input) as Promise<WorkspaceView>)
-    const title = 'name' in input ? input.name : input.path
     return {
-      workspaceId: `ws-${title}` as WorkspaceId,
-      title,
-      path: 'path' in input ? input.path : `/${input.name}`,
+      workspaceId: `ws-${input.path}` as WorkspaceId,
+      title: input.path,
+      path: input.path,
       sessionIds: [],
     } as unknown as WorkspaceView
   }
