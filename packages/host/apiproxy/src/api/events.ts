@@ -116,6 +116,7 @@ export type HostFrame =
     parentSessionId?: SessionId
     origin?: 'subagent'
     cwd?: string
+    agentPreset?: string
   }
   | { type: 'host/session-removed'; sessionId: SessionId }
   | { type: 'host/session-status'; sessionId: SessionId; running: boolean }

@@ -75,8 +75,11 @@
 - id: tool-str-replace-editor
   disabled: true
 
-# The matching browser controls must not offer host tools that this profile
-# omits. ui-question's host half owns the ask_user_question registration.
+# The matching browser controls must not offer surfaces whose tool this
+# overlay omits: the panels would render for a capability the model does not
+# have. Turning the row off no longer removes a tool — `ui-question`'s host
+# half is empty and `tool-ask-user` is composed per preset — so this is a UI
+# decision now, not a capability one.
 - id: ui-plan
   disabled: true
 

@@ -1,6 +1,8 @@
 - banner:
   - navigation "Session hierarchy":
     - button "Begin your reply with the" [disabled]
+  - img
+  - text: 标准模式
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"

@@ -22,8 +22,20 @@ export type ApiRemoteAgentResult =
 export interface ApiRemoteAgentOptions {
   /** Read the per-Agent defaults when a cold identity must resume. */
   readonly agentOptions?: () => AgentOptions
-  /** Host-specific Agent-scope composition completed before publication. */
-  readonly setup?: AgentSetup
+  /**
+   * Build the Host-specific Agent-scope composition completed before
+   * publication. Keyed by the resumed session itself because what a Host
+   * installs may depend on what that session recorded: an agent preset fixes
+   * the tools its history was produced under, so rebuilding it under another
+   * composition would replay tool calls the agent can no longer make. The
+   * events come along because a session's own record of such a choice may be
+   * an event rather than a header field.
+   * @param session - the resumed session's persisted header and event log.
+   * @returns the Agent-scope setup to run before publication.
+   */
+  readonly setup?: (
+    session: { meta: SessionHeader; events: readonly SessionEvent[] },
+  ) => AgentSetup | Promise<AgentSetup>
 }
 
 /** Cold identity absent from the durable session store. */
@@ -136,6 +148,11 @@ export function createApiRemoteAgentResolver(
           if (hasApiRemoteSubagentOwner(ctx, { header: inspected.meta }, undefined)) {
             throw new ApiRemoteSubagentSessionOwnership(sessionId)
           }
+          // Built from the inspected session before the published re-checks
+          // below, so those stay adjacent to `resume` and a Host setup that
+          // awaits (composing a preset, say) does not widen the collision
+          // window.
+          const setup = options.setup === undefined ? undefined : await options.setup(inspected)
           const publishedSession = ctx.sessions.get(sessionId)
           const publishedAgent = ctx.agents.get(sessionId)
           if (publishedSession !== undefined
@@ -145,7 +162,7 @@ export function createApiRemoteAgentResolver(
           const handle = await ctx.agents.resume({
             resumeSessionId: sessionId,
             ...options.agentOptions === undefined ? {} : { agentOptions: options.agentOptions() },
-            ...options.setup === undefined ? {} : { setup: options.setup },
+            ...setup === undefined ? {} : { setup },
           })
           return handle.agent
         } finally {

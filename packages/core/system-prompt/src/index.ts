@@ -110,6 +110,17 @@ export interface PromptAssembly {
   variables: Record<string, string | undefined>
 }
 
+/**
+ * The deployment persona's section name and order. Exported because a
+ * composition can replace this slot — an agent preset shadows the
+ * deployment's persona with its own — and both sides naming the same section
+ * is what makes the replacement work rather than duplicate.
+ */
+export const PERSONA_SECTION = 'deployment:persona'
+
+/** Prompt order of the persona slot; the first section a model reads. */
+export const PERSONA_ORDER = 0
+
 /** Valid variable names: how they are written between the braces. */
 const VARIABLE_NAME = /^[a-z][a-z0-9_]*$/
 
@@ -337,8 +348,8 @@ export class SystemPrompt extends Service {
       })
     }
     this.section({
-      name: 'deployment:persona',
-      order: 0,
+      name: PERSONA_SECTION,
+      order: PERSONA_ORDER,
       // The fallback narrows the optional input type; the schema already defaults it.
       text: config.persona ?? '',
     })
@@ -429,9 +440,11 @@ export class SystemPrompt extends Service {
     for (const [name, provider] of this.layers.global.variables.entries()) {
       variables[name] = provider(context)
     }
-    const scopedVariables = this.layers.peek(scope)?.variables
-    for (const [name, provider] of scopedVariables?.entries() ?? []) {
-      variables[name] = provider(context)
+    // Scope-chain variables, farthest first, so the nearest scope wins a name.
+    for (const layer of this.layers.chainLayers(scope)) {
+      for (const [name, provider] of layer.variables.entries()) {
+        variables[name] = provider(context)
+      }
     }
     // Scoped sections shadow globals before the stable order sort.
     const sectionByName = this.layers.merge(scope, layer => layer.sections)
@@ -439,7 +452,7 @@ export class SystemPrompt extends Service {
     // Validate order against pre-restriction names while collecting visible schemas.
     const providers = [
       ...this.layers.global.toolProviders.values(),
-      ...(this.layers.peek(scope)?.toolProviders.values() ?? []),
+      ...this.layers.chainLayers(scope).flatMap(layer => [...layer.toolProviders.values()]),
     ]
     const collected: ToolSchema[] = []
     const knownNames = new Set<string>()

@@ -159,6 +159,10 @@ describe('connection node half', () => {
       'settings.describe', 'settings.openDocument', 'settings.update', 'settings.replace', 'settings.mutate',
       'credentials.describe', 'credentials.set', 'credentials.unset',
       'llm.discoverModels',
+      // A composition names the plugins a session runs: reading one is
+      // reconnaissance, and copy/remove/openDocument manage the roster and
+      // drive the host desktop.
+      'agentPreset.read', 'agentPreset.copy', 'agentPreset.openDocument', 'agentPreset.remove',
     ]) {
       const denied = fakeResponse()
       await routes[0]!.handler(
@@ -452,13 +456,19 @@ describe('connection node half over a real HTTP server', () => {
         // Carries a draft credential and turns the host into a fetcher for a
         // URL the caller picked: an anonymous LAN caller must not reach it.
         'llm.discoverModels',
+        'agentPreset.read', 'agentPreset.copy', 'agentPreset.openDocument', 'agentPreset.remove',
       ]) {
         expect([method, await call(port, method, 'harness.example')]).toEqual([method, 403])
       }
       // The model catalog stays reachable for the same authority: a LAN
       // client's model picker needs it, and it carries no key or endpoint
       // state (404 is the empty proxy's carrier answer — the fence passed).
-      for (const method of ['llm.providers', 'llm.models']) {
+      // `agentPreset.list` joins the model catalog for the same reason: ids and
+      // trust only, and a LAN client's preset picker needs it. `select` is
+      // reachable too: `session.create` already takes an `agentPreset`, and the
+      // deployment's own default already carries bash, so pinning the switch
+      // would be a fence beside an open gate.
+      for (const method of ['llm.providers', 'llm.models', 'agentPreset.list', 'agentPreset.select']) {
         expect([method, await call(port, method, 'harness.example')]).toEqual([method, 404])
       }
       // Loopback reaches everything, configuration included.
