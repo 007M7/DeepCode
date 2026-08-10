@@ -31,8 +31,8 @@ const SEED = fileURLToPath(new URL('./snapshots/seeded-history/seed.jsonl', impo
 const MODE = webSnapshotMode()
 const BROWSER_EXPECTED = join(SNAPSHOT_DIR, 'directory-browser.expected.md')
 const SEED_ID = 'workspace-management-web-e2e'
-// Both waits exceed ui-primitives' 200ms POINTER_GRACE_MS. Keep them coupled
-// to that contract if the shared grace tuning changes.
+// Both waits exceed ui-primitives' 200ms POINTER_GRACE_MS. Keep them above
+// that value if the shared setting changes.
 const POINTER_TRANSIT_MS = 300
 const POINTER_HOLD_MS = 600
 

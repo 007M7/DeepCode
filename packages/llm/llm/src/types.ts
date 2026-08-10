@@ -1,6 +1,6 @@
 /**
  * Canonical provider-neutral message and streaming vocabulary for the loop,
- * session log, and plugins. Adapters alone translate provider wire shapes;
+ * session log, and plugins. Adapters alone translate provider wire messages;
  * mapped interfaces make the content, source, and finish unions extensible.
  */
 
@@ -21,13 +21,13 @@ export type {
   UserMessage,
 } from './message.ts'
 
-/** Serializable provider-boundary facts; policy decides whether they are retryable. */
+/** Serializable provider or transport failure facts; policy decides whether they are retryable. */
 export interface LlmFailure {
   /** Human-readable provider or transport failure. */
   readonly message: string
   /** Stable provider-neutral machine-routing code. */
   readonly code: string
-  /** HTTP status observed at the provider boundary, when available. */
+  /** HTTP status returned by the provider, when available. */
   readonly status?: number
   /** Provider-requested delay in milliseconds, when valid and available. */
   readonly providerRetryAfterMs?: number
@@ -89,7 +89,7 @@ export interface ContentBlockMap {
   'tool-result': ToolResultBlock
 }
 
-/** The block `type` tag vocabulary; widens as plugins merge new shapes into {@link ContentBlockMap}. */
+/** The block `type` tag vocabulary; widens as plugins add entries to {@link ContentBlockMap}. */
 export type ContentBlockType = keyof ContentBlockMap
 /** Any known content block, derived from {@link ContentBlockMap}; switch on `type` and fall through unknowns (merge-extensible). */
 export type ContentBlock = ContentBlockMap[ContentBlockType]

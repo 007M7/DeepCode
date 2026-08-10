@@ -38,7 +38,7 @@ const NS = 'goal'
 /** Required services: slots for the dock entry, sessions for the projected ref, API for Remote mutations, locale for the copy. */
 export const inject = ['slots', 'sessions', 'remote', 'remote.goals', 'locale']
 
-/** Map one generated Remote call, including synchronous namespace lookup failures, onto the strip's inline-render shape. */
+/** Map one generated Remote call, including synchronous namespace lookup failures, to the fields rendered by the goal strip. */
 async function settle(invoke: () => Promise<unknown>): Promise<GoalActionResult> {
   try {
     await invoke()

@@ -503,8 +503,8 @@ export class Session {
 
   /**
    * Restore a detached session by taking ownership of fresh persistence values.
-   * Storage shape, event envelopes, sequence continuity, surface transitions,
-   * and header fields are validated before the graphs are frozen in place.
+   * The storage format, event envelopes, sequence continuity, surface transitions,
+   * and header fields are validated before the restored objects are frozen.
    * @param id - restored session identity.
    * @param seed - fresh detached events whose ownership is transferred.
    * @param header - fresh detached metadata whose ownership is transferred.

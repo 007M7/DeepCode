@@ -26,7 +26,7 @@ export function apply(ctx: Context) {
 }
 ```
 
-这就是完整结构。
+这就是完整配置。
 
 ## 创建插件文件
 

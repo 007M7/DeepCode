@@ -3,9 +3,8 @@
  *
  * Composes the OTel JS SDK as-is — a `LoggerProvider` with a
  * `BatchLogRecordProcessor` and an OTLP/HTTP log exporter — and maps each
- * record handed over by the capture coordinator onto `logger.emit()`. Per the Service Definition's
- * boundary axiom, everything downstream of that call (batching, retry,
- * queueing, loss policy) is the SDK's documented behavior, configured
+ * record handed over by the capture coordinator onto `logger.emit()`. After that call,
+ * batching, retry, queueing, and loss policy use the SDK's documented behavior, configured
  * verbatim through the `exporter`/`processor` passthroughs. This package owns
  * capture mode and an outer shutdown deadline: the SDK's export timeout does
  * not bound its preceding `forceFlush()` wait.
@@ -73,7 +72,7 @@ function assertNever(value: never): never {
 }
 
 /**
- * Plugin configuration: one sharing policy, two verbatim SDK option shapes,
+ * Plugin configuration: one sharing policy, two verbatim SDK option objects,
  * and one DSH-owned shutdown bound. Uploading modes validate their endpoint
  * and shutdown deadline at plugin load; `DISABLED` reads neither.
  */
@@ -101,11 +100,10 @@ export interface Config {
 
 /**
  * Schemastery validator for {@link Config}; cordis runs it before the plugin
- * starts. Shape-level only — load-bearing value checks live in the constructor
- * so their errors name the fields. Both SDK slots are opaque passthroughs:
- * the SDK owns their shapes and validates its own options;
- * re-declaring them field-by-field here would violate the boundary axiom
- * (and silently drop every field not re-declared).
+ * starts. It checks only the top-level fields; value checks live in the constructor
+ * so their errors name the fields. Both SDK option objects pass through unchanged:
+ * the SDK defines and validates their fields. Re-declaring them here would
+ * silently drop every field this plugin did not repeat.
  */
 export const Config: z<Config> = z.object({
   mode: z.union(Object.values(TelemetryMode)).default(DEFAULT_TELEMETRY_MODE),

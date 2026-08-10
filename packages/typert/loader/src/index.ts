@@ -18,8 +18,8 @@
  * current entries. Package verdicts and imported manifests are cached per
  * package name and never expire — plugin-set changes take effect on restart.
  *
- * Manual `ctx.typert.register()` remains the escape hatch for contributions
- * that do not ride a `./typert` artifact (hand-written contract schemas,
+ * Manual `ctx.typert.register()` remains available for contributions
+ * that do not use a `./typert` artifact (hand-written wire schemas,
  * tests, non-loader compositions).
  *
  * @module @deepseek-ai/dsh-typert-loader
@@ -68,7 +68,7 @@ function typertExportOf(pkgName: string, exportsField: unknown): string | undefi
     const fallback = (target as Record<string, unknown>).default
     if (typeof fallback === 'string') return fallback
   }
-  throw new Error(`typert-loader: ${pkgName} exports["${TYPERT_HOST_EXPORT}"] has an unsupported shape`)
+  throw new Error(`typert-loader: ${pkgName} exports["${TYPERT_HOST_EXPORT}"] must be a string or an object with a string default`)
 }
 
 /**

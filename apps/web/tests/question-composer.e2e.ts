@@ -31,7 +31,7 @@ const ANSWERED_EXPECTED = join(SNAPSHOT_DIR, 'answered.expected.md')
 const MODE = webSnapshotMode()
 
 // The options carry long descriptions on purpose: the squeeze assertion below
-// needs option copy that WRAPS, which is the only shape that reproduces a
+// needs option copy that WRAPS, which is the only text layout that reproduces a
 // collapsed row painting its copy outside its own box.
 const PROMPT = 'Use the ask_user_question tool to ask me exactly one multi-select question with id "color", question "Which color do you prefer?", header "Pick one", and two options: label "Blue" with description "A cool recessive hue that reads as calm and trustworthy in long reading sessions and dense dashboards.", and label "Green" with description "A restful mid-spectrum hue with the highest perceived brightness, easiest on the eye over long sessions." Set multi_select to true. After I answer, reply with the single word DONE and stop.'
 
@@ -116,7 +116,7 @@ describe('web e2e: resident question composer round trip', () => {
           return {
             rows: rows.length,
             spill: Math.max(...spill),
-            // Wrapped copy is the shape that overflows a collapsed row, and a
+            // Wrapped option text is what overflows a collapsed row, and a
             // scrolling list proves the seat is genuinely capped. Without both,
             // the spill assertion would hold vacuously.
             wrappedRows: rows.filter(row => row.getBoundingClientRect().height > 42).length,

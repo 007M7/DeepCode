@@ -109,7 +109,7 @@ function firstNonblankLine(body) {
 }
 
 /**
- * Validate body shape and Owner against assignees.
+ * Validate required body sections and check Owner against assignees.
  * @param {{body: string, assignees: string[], allowUnassignedOwner?: boolean}} input Body input.
  * @returns {string[]} Validation errors.
  */
@@ -144,7 +144,7 @@ export function validateBody({
 }
 
 /**
- * Decide whether a PR has entered the human-review enforcement boundary.
+ * Decide whether the human-review policy applies to a PR.
  * @param {{isDraft: boolean, authorType: string, reviewRequestCount: number, reviewCount: number}} input PR state.
  * @returns {boolean} Whether the PR policy is mandatory.
  */

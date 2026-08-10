@@ -8,7 +8,7 @@
 
 ## 问题选项
 
-`AskUserQuestionOption` 是可选择项的形状。`label` 是面向用户的选项文字，同时也是面向模型的选中值；`description` 是可选的 UI 帮助文本。
+`AskUserQuestionOption` 包含一个可供选择的选项。`label` 是面向用户的选项文字，同时也是面向模型的选中值；`description` 是可选的 UI 帮助文本。
 
 ```ts type-equiv
 /** One selectable answer offered to the user. */
@@ -22,15 +22,15 @@ interface AskUserQuestionOption {
 
 ## 呈现意图
 
-`AskUserQuestionIntent` 是一项可选声明：某个问题本身就是一次已知形状的决定。它按 `kind` 打标签，因此意图可以扩充；不认识某个标签的 UI 渲染通用选项列表。意图只塑造呈现 —— 遵循它的 UI 回答的仍是通用 UI 会发送的那些 option label，因此调用方两种情况下读到的都是同一种回答形态。`approve` 指名肯定选项，而不依赖选项顺序。有两项断言是任何类型都承载不了的，`ask()` 会拒绝它们：`approve` 未命中该问题自身的任一选项，以及意图落在没有 `detail` 的问题上。
+`AskUserQuestionIntent` 可选地声明一种已知的决定类型。它按 `kind` 打标签，因此可以增加新的意图；不认识某个标签的 UI 渲染通用选项列表。意图只改变呈现方式——遵循它的 UI 回答的仍是通用 UI 会发送的那些 option label，因此调用方两种情况下读到的回答字段相同。`approve` 指名肯定选项，而不依赖选项顺序。有两项断言是任何类型都承载不了的，`ask()` 会拒绝它们：`approve` 未命中该问题自身的任一选项，以及意图落在没有 `detail` 的问题上。
 
 ```ts type-equiv
 /**
- * A caller-declared presentation intent: the question IS a decision of this
- * shape, so a UI that recognises the tag may present it as such instead of as a
+ * A caller-declared presentation intent: the question IS this kind of
+ * decision, so a UI that recognises the tag may present it as such instead of as a
  * generic option list. Tagged so further intents can be added; a UI that does
  * not know a tag renders the generic flow, and the answer encoding is identical
- * either way — an intent shapes presentation only, never the protocol.
+ * either way — an intent changes presentation only, never the protocol.
  */
 type AskUserQuestionIntent = {
   /** A plan submitted for review: `detail` is the plan markdown `ask()` requires, and the decision approves or declines it. */

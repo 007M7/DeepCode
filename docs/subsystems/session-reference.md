@@ -2,7 +2,7 @@
 
 English | [中文](session-reference.zh.md)
 
-Structured cross-session reference requests and prepared message contexts. The [package contract](../../packages/context/session-reference) owns canonical URIs, current-surface projection, tag-safe JSON and byte retention, stable errors, and the untrusted model prompt. Host adapters use these types instead of passing their UI mention syntax into the agent core.
+Structured cross-session reference requests and prepared message contexts. The [package contract](../../packages/context/session-reference) defines canonical URIs, current-surface projection, tag-safe JSON and byte retention, stable errors, and the untrusted model prompt. Host adapters use these types instead of passing their UI mention syntax into the agent core.
 
 Source: [`packages/context/session-reference/src/types.ts`](../../packages/context/session-reference/src/types.ts)
 

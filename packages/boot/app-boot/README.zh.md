@@ -14,12 +14,12 @@
 | `assertEntriesLoaded(ctx, binName)` | 树结算后，如果其中存在已启用但没有 fiber 的条目，则抛出异常，并以 Cordis 启动故障的形式报告每个未解析插件的名称 |
 | `assertEntriesActivated(ctx, binName)` | 先执行 `assertEntriesLoaded` 检查，再在 Loader 结算后等待每个已启用配置项；抛出的错误包含每个失败插件的原始错误堆栈，或每个等待中插件尚未解析的服务 |
 | `loadOptionalPatches(binName, file)` | 解析一份可选的 patch 列表文件（即 profile 的 `cordis.patch.yml`）：其顶层是一个 YAML 数组，内容为 include 的 `PatchOptions`（按 id 定位的配置覆盖、`insert` 列表，允许 `!!js`）；文件不存在时返回 `undefined`，文件不可读、不可解析或内容不是数组时抛出异常 |
-| `loadOverlayPatches(binName, file)` | 解析一份形状相同的必需 patch 列表文件；文件缺失同样抛出异常，因为该文件是调用方指名的 |
+| `loadOverlayPatches(binName, file)` | 解析必需的顶层 YAML 数组，其中包含与上文相同的 include `PatchOptions` 条目；文件缺失也会抛出异常，因为该文件是调用方指名的 |
 | `mountRootInclude(ctx, absoluteConfigPath, patches?)` | 注册静态导入的 `cordis:include` 与 `cordis:group` builtin，挂载 include，并保留用户 patch 层 HMR（热模块替换）使用的确切根配置项 |
 | `watchUserPatches(ctx, options)` | 向现有 Cordis HMR 服务注册指名的 patch 文件；每次新增、变更或移除都会通过调用方的 `compose` 闭包（应用自有层围绕当前用户层）以事务方式重新组合完整 patch 列表，并返回异步清理函数 |
 | `resolveProfileDir` / `initProfile` / `loadProfile` / `readProfileManifest` / `writeProfileManifest` / `resolveBundleDir` / `composeEntries` / `healProfilesModuleFallback` / `PROFILE_TEMPLATES` / `DEFAULT_PROFILE_BUNDLES` / `PROFILES_DIR` / `PROFILE_PATCH_FILENAME` | Profile 机制（见 [Profile](#profiles)） |
 | `boot(binName, absoluteConfigPath, patches?, prepare?)` | 创建根上下文，向 Loader `!!js` 配置表达式暴露 `dshHomePath(...segments)` 并安装 Loader，在配置树条目挂载前执行可选的宿主准备操作（`prepare` 可以使用 Loader，也可以提供由启动器拥有的上下文插槽），再挂载并等待 include 树结算，断言所有条目均已加载并激活，最后返回根上下文——失败时 dispose（资源释放）部分构造的上下文，并以带标签的错误 reject |
-| `renderConfigDump(binName, absoluteConfigPath, layers, warn?)` | 离线合成基础配置与带标签的覆盖层——使用 include 自己的解析器和补丁算法（`entryListSchema`/`applyEntryPatches`），因此结果与 `boot()` 挂载的内容一致——并渲染为 YAML，`!!js` 表达式原样保留；每段来自同一文件且经相同补丁层修改的连续行之前都有一条 `# ==` 注释，标明该文件和这些补丁层，输出仍是一份可加载的文档；未匹配到行的补丁连同其层标签交给 `warn`（默认：一行 stderr），读取／解析／形状失败则抛出 |
+| `renderConfigDump(binName, absoluteConfigPath, layers, warn?)` | 使用 include 自己的解析器和补丁算法（`entryListSchema`/`applyEntryPatches`）离线合成基础配置与带标签的覆盖层，使结果与 `boot()` 挂载的内容一致，再渲染为 YAML，并原样保留 `!!js` 表达式；每段来源于同一文件且由相同补丁层修改的连续行之前都有一条 `# ==` 注释，标明该文件和这些补丁层，输出仍是一份可加载的文档；未匹配到行的补丁连同其层标签交给 `warn`（默认：一行 stderr），读取、解析或字段验证失败则抛出 |
 | `addHarnessSourceSection(ctx, sourceRoot)` | 添加全局 `harness:source` 提示词段落（顺序紧随 harness 身份、位于 persona 之前），告知 agent（智能体）DSH 实现代码 checkout 的磁盘路径，同时提醒它不得据此推断当前工作目录，而应使用 `pwd`；如果已启动树没有此项服务，则不执行操作并返回 `undefined`。这里的服务是 `systemPrompt`；该段落注册到它的 fiber，因此开发环境 HMR（热模块替换）重新加载系统提示词后，它会消失直至下次启动 |
 | `HARNESS_SOURCE_SECTION` | `'harness:source'` 段落名称，供 `addHarnessSourceSection` 注册使用 |
 
@@ -57,4 +57,4 @@ profile 是位于 `$DSH_HOME/profiles/<name>` 下的目录（Harness home 由 [`
 - **裸包 specifier 依赖 Loader 内部机制**：生产 bin 需要 Loader 的可选原生辅助组件；没有该辅助组件的进程内调用方必须使用可解析的相对／file specifier，或提供自己的模块解析钩子。
 - **快照回放替换仅识别特定 basename**：只有以 `cordis.yml` 或 `cordis.yaml` 结尾的配置会映射到同级 `cordis.snapshot.yml`；自定义配置名称需要调用方自行选择。
 - **环境发现以启动为界**：`loadLayeredEnv` 只读取一次调用目录与 Harness home 中的 `.env`；它不搜索父目录，也不跟随之后选择的 workspace。`loadEnv` 仍是非产品 bin 使用的单目录 helper。
-- **用户 patch 层采用 patch 形式**：按 id 定位的 patch 会替换条目的整个 `config`，而不是深度合并，因此 profile 覆盖必须重述需要保留的组合包字段。
+- **用户 patch 会替换匹配到的整个配置**：按 id 定位的 patch 不做深度合并，因此 profile 覆盖必须重述需要保留的组合包字段。

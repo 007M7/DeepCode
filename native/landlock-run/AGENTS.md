@@ -1,10 +1,10 @@
 # AGENTS.md
 
-This directory builds `landlock-run`, a Landlock self-restrict-then-exec launcher: a small, auditable confinement binary distributed as prebuilt per-platform npm packages, plus the thin JS entry package that resolves it and speaks its CLI contract. It belongs to the repository's root pnpm workspace and lockfile. The main repository owns native CI, tarball assembly, verification, and npm publication; keep package-family changes coordinated with harness consumers in the same repository.
+This directory builds `landlock-run`, a Landlock self-restrict-then-exec launcher: a small, auditable confinement binary distributed as prebuilt per-platform npm packages, plus the thin JS entry package that resolves it and implements its CLI contract. It belongs to the repository's root pnpm workspace and lockfile. The main repository owns native CI, tarball assembly, verification, and npm publication; keep package-family changes coordinated with harness consumers in the same repository.
 
 ## Pre-release stance
 
-The project is pre-1.0. Prefer the correct public shape over compatibility shims: if a package name, exported field, layout, or contract detail is wrong, rename it and update all references in the same change. Do not add deprecated aliases unless a stable release already needs them.
+The project is pre-1.0. Prefer the correct public API over compatibility shims: if a package name, exported field, layout, or contract detail is wrong, rename it and update all references in the same change. Do not add deprecated aliases unless a stable release already needs them.
 
 ## Runtime safety rules
 
@@ -47,4 +47,4 @@ pnpm test            # entry tests everywhere; launcher tests need linux + built
 
 ## Documentation
 
-User-facing docs are English. Keep the README focused on install, usage, and support status; durable design decisions belong in docs/ alongside the code, and the current implemented shape belongs in [docs/architecture.md](docs/architecture.md).
+User-facing docs are English. Keep the README focused on install, usage, and support status; durable design decisions belong in docs/ alongside the code, and the current implementation belongs in [docs/architecture.md](docs/architecture.md).
