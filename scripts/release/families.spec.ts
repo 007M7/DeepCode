@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { releaseFamily, type ReleaseMember } from './families.ts'
-import { nextVendorVersion, reachesPayload } from './bump.ts'
+import { compareVersions, nextVendorVersion, reachesPayload } from './bump.ts'
 
 /**
  * A release member standing in for a manifest on disk.
@@ -108,6 +108,36 @@ describe('vendored version baseline', () => {
     // incrementing the manifest alone would name 4.0.1 a second time.
     expect(nextVendorVersion('4.0.0-rc.8', '4.0.1')).toBe('4.0.2')
     expect(nextVendorVersion('4.1.0', '4.0.1')).toBe('4.1.1')
+  })
+
+  it('appends a rehearsal prerelease without consuming its release numbers', () => {
+    // A rehearsal burns 4.0.1-rc.1 and leaves 4.0.1 free, so the stable release
+    // that follows takes those same numbers instead of skipping to 4.0.2.
+    expect(nextVendorVersion('4.0.0-rc.7', undefined, 'rc.1')).toBe('4.0.1-rc.1')
+    expect(nextVendorVersion('4.0.0-rc.7', '4.0.1-rc.1', 'rc.2')).toBe('4.0.1-rc.2')
+    expect(nextVendorVersion('4.0.0-rc.7', '4.0.1-rc.1')).toBe('4.0.1')
+    expect(nextVendorVersion('4.0.0-rc.7', '4.0.1')).toBe('4.0.2')
+  })
+})
+
+describe('version precedence', () => {
+  it('ranks a release above the prerelease it follows', () => {
+    // git --sort=v:refname disagrees, placing 4.0.1-rc.1 above 4.0.1, which is
+    // why the newest published version is chosen here rather than by git.
+    expect(compareVersions('4.0.1', '4.0.1-rc.1')).toBeGreaterThan(0)
+    expect(compareVersions('4.0.1-rc.1', '4.0.1')).toBeLessThan(0)
+  })
+
+  it('compares numeric prerelease fields numerically', () => {
+    expect(compareVersions('4.0.1-rc.10', '4.0.1-rc.1')).toBeGreaterThan(0)
+    expect(compareVersions('4.0.1-rc.2', '4.0.1-rc.10')).toBeLessThan(0)
+  })
+
+  it('ranks a numeric field below an alphanumeric one, and a shorter list below a longer', () => {
+    expect(compareVersions('4.0.1-1', '4.0.1-alpha')).toBeLessThan(0)
+    expect(compareVersions('4.0.1-rc', '4.0.1-rc.1')).toBeLessThan(0)
+    expect(compareVersions('4.0.2', '4.0.1')).toBeGreaterThan(0)
+    expect(compareVersions('4.0.1-rc.1', '4.0.1-rc.1')).toBe(0)
   })
 })
 
