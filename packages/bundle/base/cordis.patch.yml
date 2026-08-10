@@ -287,6 +287,15 @@
       config:
         providerName: fork
 
+    # Product providers stay on the host plane because the registry is a
+    # process singleton. Agent presets decide whether their own model sees the
+    # matching delegation tools; loading either provider starts no product.
+    - id: subagent-codex
+      name: '@deepseek-ai/dsh-subagent-codex'
+
+    - id: subagent-claude-code
+      name: '@deepseek-ai/dsh-subagent-claude-code'
+
     # Continuable background children are selected per delegation tool. The
     # separately loaded follow-up tool registers the one global `send_message`.
     - id: tool-subagent-control

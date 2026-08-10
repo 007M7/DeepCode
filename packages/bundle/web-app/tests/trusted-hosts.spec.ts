@@ -1,7 +1,7 @@
 /** Single-sample LAN-trust resolution for the /api browser-trust fence (`resolveLanTrust`). */
 
 import { describe, expect, it, vi } from 'vitest'
-import { resolveLanTrust, webSurfaceContextEnabled } from '../src/web.ts'
+import { resolveLanTrust } from '../src/index.ts'
 
 vi.mock('node:os', () => ({
   networkInterfaces: () => ({
@@ -26,20 +26,9 @@ describe('resolveLanTrust', () => {
     expect(trustedHosts).toEqual(['192.168.1.5', '10.0.0.7', 'harness.internal:3080'])
   })
 
-  it('derives nothing for a loopback or unresolved bind — extras alone stand, no LAN URL to print', () => {
+  it('derives nothing for a loopback bind — extras alone stand, no LAN URL to print', () => {
     expect(resolveLanTrust('127.0.0.1', [])).toEqual({ lanAddresses: [], trustedHosts: [] })
-    expect(resolveLanTrust(undefined, ['lab.internal'])).toEqual({ lanAddresses: [], trustedHosts: ['lab.internal'] })
-  })
-})
-
-describe('webSurfaceContextEnabled', () => {
-  it('defaults to enabled and honors an explicit complete-prompt disable', () => {
-    expect(webSurfaceContextEnabled(new Map())).toBe(true)
-    expect(webSurfaceContextEnabled(new Map([
-      ['web-runtime', { config: { mode: 'production' } }],
-    ]))).toBe(true)
-    expect(webSurfaceContextEnabled(new Map([
-      ['web-runtime', { config: { surfaceContext: false } }],
-    ]))).toBe(false)
+    expect(resolveLanTrust('127.0.0.1', ['lab.internal']))
+      .toEqual({ lanAddresses: [], trustedHosts: ['lab.internal'] })
   })
 })

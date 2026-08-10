@@ -11,6 +11,7 @@ import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import Hmr from '@deepseek-ai/cordis-plugin-hmr'
+import Include, { type PatchOptions } from '@deepseek-ai/cordis-plugin-include'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Timer from '@deepseek-ai/cordis-plugin-timer'
 import {
@@ -92,23 +93,101 @@ describe('loadOptionalPatches', () => {
   })
 })
 
-describe('boot with user patches', () => {
-  function writeTree(dir: string): string {
-    writeFileSync(join(dir, 'noop.mjs'), [
-      'export const name = "noop"',
-      'export function apply(_ctx, config = {}) {',
-      '  if (config.fail) throw new Error("candidate config failed")',
-      '}',
+function writeTree(dir: string): string {
+  writeFileSync(join(dir, 'noop.mjs'), [
+    'export const name = "noop"',
+    'export function apply(_ctx, config = {}) {',
+    '  if (config.fail) throw new Error("candidate config failed")',
+    '}',
+    '',
+  ].join('\n'))
+  writeFileSync(join(dir, 'cordis.yml'), '- id: noop\n  name: ./noop.mjs\n  config:\n    value: base\n')
+  return join(dir, 'cordis.yml')
+}
+
+function entryConfig(ctx: Context, id: string): unknown {
+  return [...ctx.loader.entries()].find(entry => entry.options.id === id)?.options.config
+}
+
+describe('Loader config interpolation', () => {
+  it("resolves Include's own !!js options", async () => {
+    const dir = tmp()
+    writeFileSync(join(dir, 'noop.mjs'), 'export function apply() {}\n')
+    writeFileSync(join(dir, 'cordis.yml'), '- id: noop\n  name: ./noop.mjs\n')
+    const ctx = new Context()
+    await ctx.plugin(Loader)
+    ctx.loader.builtins.include = Include
+    ctx.provide('includePath', pathToFileURL(join(dir, 'cordis.yml')).href)
+    try {
+      await ctx.loader.create({
+        name: 'cordis:include',
+        config: { path: { __jsExpr: "ctx.get('includePath')" } },
+      })
+      await ctx.loader.await()
+      expect([...ctx.loader.entries()].some(entry => entry.options.id === 'noop')).toBe(true)
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('waits for row injections before resolving !!js and resolves again after provider replacement', async () => {
+    const dir = tmp()
+    writeFileSync(join(dir, 'provider.mjs'), [
+      'export const name = "provider"',
+      'export function apply(ctx, config) { ctx.provide("phaseOne", config) }',
       '',
     ].join('\n'))
-    writeFileSync(join(dir, 'cordis.yml'), '- id: noop\n  name: ./noop.mjs\n  config:\n    value: base\n')
-    return join(dir, 'cordis.yml')
-  }
+    writeFileSync(join(dir, 'reader.mjs'), [
+      'export const name = "reader"',
+      'export const inject = ["phaseOne"]',
+      'export function apply(ctx, config) { ctx.provide("readerResult", config) }',
+      '',
+    ].join('\n'))
+    writeFileSync(join(dir, 'cordis.yml'), '[]\n')
+    const composition: PatchOptions[] = [{
+      insert: [
+        {
+          // Consumer-first order proves interpolation follows injection
+          // readiness rather than YAML position.
+          id: 'reader',
+          name: './reader.mjs',
+          inject: ['phaseOne'],
+          config: { value: { __jsExpr: 'ctx.phaseOne.fail ? (() => { throw new Error("rejected provider") })() : ctx.phaseOne.value' } },
+        },
+        { id: 'provider', name: './provider.mjs', config: { value: 'first' } },
+      ],
+    }]
+    const ctx = await boot(NAME, join(dir, 'cordis.yml'), composition)
+    try {
+      expect(ctx.get('readerResult')).toEqual({ value: 'first' })
+      const provider = [...ctx.loader.entries()].find(entry => entry.options.id === 'provider')
+      expect(provider).toBeDefined()
+      await provider?.update({ disabled: true })
+      await ctx.loader.await()
+      expect(ctx.get('readerResult')).toBeUndefined()
+      await provider?.update({ config: { value: 'second' } })
+      await provider?.update({ disabled: false })
+      await ctx.loader.await()
+      expect(ctx.get('readerResult')).toEqual({ value: 'second' })
 
-  function entryConfig(ctx: Context, id: string): unknown {
-    return [...ctx.loader.entries()].find(entry => entry.options.id === id)?.options.config
-  }
+      await provider?.update({ disabled: true })
+      await provider?.update({ config: { fail: true } })
+      await provider?.update({ disabled: false })
+      await expect(ctx.loader.await()).rejects.toThrow('rejected provider')
+      expect(ctx.get('readerResult')).toBeUndefined()
 
+      await provider?.update({ disabled: true })
+      await provider?.update({ config: { value: 'recovered' } })
+      await provider?.update({ disabled: false })
+      await ctx.loader.await()
+      expect(ctx.get('readerResult')).toEqual({ value: 'recovered' })
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+})
+
+describe('boot with user patches', () => {
   it('applies id-targeted overrides, inserts, and interpolates !!js from the environment', async () => {
     const dir = tmp()
     const userDir = tmp()
