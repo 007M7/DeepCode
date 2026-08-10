@@ -79,8 +79,14 @@ jobs:
       - name: Pack release tarballs
         run: pnpm run release:pack --family dsh --out dist/npm
 
+      # The harness packages declare the vendored framework as a peer, and this
+      # job has no credentials for the private registry, so the verification
+      # installs that family's pack output too. Only dist/npm is published.
+      - name: Pack the vendored framework for verification
+        run: pnpm run release:pack --family vendor --out dist/npm-vendor
+
       - name: Verify packed install
-        run: pnpm run release:verify-packed-install --family dsh --from dist/npm
+        run: pnpm run release:verify-packed-install --family dsh --from dist/npm --from dist/npm-vendor
 
       - uses: actions/upload-artifact@v4
         with:

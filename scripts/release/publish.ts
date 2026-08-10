@@ -12,13 +12,13 @@
  * the same artifact safe.
  */
 
-import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 import { releaseFamily } from './families.ts'
-import { PUBLISH_ORDER_FILE } from './pack.ts'
+import { attempt, run } from './process.ts'
+import { packedIdentity, readPublishOrder } from './tarball.ts'
 
 /** npm access level for every package this repository publishes. */
 const ACCESS = 'restricted'
@@ -27,22 +27,6 @@ const ACCESS = 'restricted'
 type RegistryState =
   | { readonly kind: 'absent' }
   | { readonly kind: 'present'; readonly integrity: string }
-
-/**
- * Read a packed tarball's own manifest.
- * @param tarball - absolute tarball path.
- * @returns The packed `package.json` name and version.
- */
-function packedIdentity(tarball: string): { name: string; version: string } {
-  const result = spawnSync('tar', ['-xOzf', tarball, 'package/package.json'], { encoding: 'utf8' })
-  if (result.error !== undefined) throw result.error
-  if (result.status !== 0) throw new Error(`cannot read ${tarball}:\n${result.stderr}`)
-  const manifest: unknown = JSON.parse(result.stdout)
-  if (manifest === null || typeof manifest !== 'object') throw new Error(`${tarball} has no manifest`)
-  const { name, version } = manifest as Record<string, unknown>
-  if (typeof name !== 'string' || typeof version !== 'string') throw new Error(`${tarball} manifest lacks name/version`)
-  return { name, version }
-}
 
 /**
  * The subresource integrity string npm records for a tarball.
@@ -60,8 +44,7 @@ function integrityOf(tarball: string): string {
  * @returns The registry state for that version.
  */
 function registryState(name: string, version: string): RegistryState {
-  const result = spawnSync('npm', ['view', `${name}@${version}`, 'dist.integrity', '--json'], { encoding: 'utf8' })
-  if (result.error !== undefined) throw result.error
+  const result = attempt('npm', ['view', `${name}@${version}`, 'dist.integrity', '--json'])
   if (result.status !== 0) {
     const output = `${result.stdout}${result.stderr}`
     if (output.includes('E404') || output.includes('404 Not Found')) return { kind: 'absent' }
@@ -72,19 +55,6 @@ function registryState(name: string, version: string): RegistryState {
     throw new Error(`registry reported no dist.integrity for ${name}@${version}`)
   }
   return { kind: 'present', integrity: parsed }
-}
-
-/**
- * Publish one tarball.
- * @param tarball - absolute tarball path.
- * @param version - the version being published; a prerelease never takes `latest`.
- */
-function publish(tarball: string, version: string): void {
-  const args = ['publish', tarball, '--access', ACCESS]
-  if (version.includes('-')) args.push('--tag', 'next')
-  const result = spawnSync('npm', args, { stdio: 'inherit' })
-  if (result.error !== undefined) throw result.error
-  if (result.status !== 0) throw new Error(`npm publish ${tarball} exited with ${String(result.status)}`)
 }
 
 /** Publish the family named by `--family` from the directory named by `--from`. */
@@ -99,11 +69,10 @@ function main(): void {
 
   const family = releaseFamily(values.family)
   const directory = resolve(process.cwd(), values.from)
-  const order = readFileSync(join(directory, PUBLISH_ORDER_FILE), 'utf8').split('\n').filter(line => line !== '')
 
   let published = 0
   let skipped = 0
-  for (const filename of order) {
+  for (const filename of readPublishOrder(directory)) {
     const tarball = join(directory, filename)
     const { name, version } = packedIdentity(tarball)
     const state = registryState(name, version)
@@ -120,7 +89,9 @@ function main(): void {
       skipped += 1
       continue
     }
-    publish(tarball, version)
+    // A prerelease version never takes the latest dist-tag.
+    const tagArgs = version.includes('-') ? ['--tag', 'next'] : []
+    run('npm', ['publish', tarball, '--access', ACCESS, ...tagArgs])
     published += 1
   }
 

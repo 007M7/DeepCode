@@ -13,32 +13,17 @@
  * the tag after the commit merges. CI never writes to the repository.
  */
 
-import { spawnSync } from 'node:child_process'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join, matchesGlob } from 'node:path'
 import { parseArgs } from 'node:util'
 import { releaseFamily, type ReleaseFamily, type ReleaseMember } from './families.ts'
+import { capture } from './process.ts'
 
 /** Files npm publishes whether or not `files` lists them. */
 const ALWAYS_PUBLISHED = ['package.json', 'README*', 'LICENSE*', 'LICENCE*'] as const
 
 /** Release types the dsh family accepts besides an explicit version. */
 const RELEASE_TYPES = ['major', 'minor', 'patch'] as const
-
-/**
- * Run a command and fail the process on a non-zero exit.
- * @param command - executable name.
- * @param args - command arguments.
- * @returns The captured stdout, trimmed.
- */
-function run(command: string, args: readonly string[]): string {
-  const result = spawnSync(command, [...args], { encoding: 'utf8' })
-  if (result.error !== undefined) throw result.error
-  if (result.status !== 0) {
-    throw new Error(`${command} ${args.join(' ')} exited with ${String(result.status)}:\n${result.stdout}\n${result.stderr}`)
-  }
-  return result.stdout.trim()
-}
 
 /**
  * Split a version into its release numbers, discarding any prerelease segment.
@@ -106,7 +91,7 @@ function reachesPayload(member: ReleaseMember, path: string): boolean {
  */
 function lastPublishedTag(family: ReleaseFamily, member: ReleaseMember): string | undefined {
   const prefix = family.tagFor(member).replace(/-v[^-]*$/, '-v')
-  const tags = run('git', ['tag', '--list', `${prefix}*`, '--sort=-v:refname']).split('\n').filter(line => line !== '')
+  const tags = capture('git', ['tag', '--list', `${prefix}*`, '--sort=-v:refname']).split('\n').filter(line => line !== '')
   return tags[0]
 }
 
@@ -119,7 +104,7 @@ function lastPublishedTag(family: ReleaseFamily, member: ReleaseMember): string 
 function changedSincePublication(family: ReleaseFamily, member: ReleaseMember): boolean {
   const tag = lastPublishedTag(family, member)
   if (tag === undefined) return true
-  const changed = run('git', ['diff', '--name-only', `${tag}..HEAD`, '--', member.directory])
+  const changed = capture('git', ['diff', '--name-only', `${tag}..HEAD`, '--', member.directory])
     .split('\n').filter(line => line !== '')
   return changed.some(path => reachesPayload(member, path))
 }
@@ -176,7 +161,7 @@ function main(): void {
   const dryRun = values['dry-run']
   if (!dryRun) {
     for (const { member, version } of planned) writeVersion(root, member, version)
-    run('pnpm', ['install', '--lockfile-only'])
+    capture('pnpm', ['install', '--lockfile-only'])
   }
 
   const summary = sharedVersion
@@ -188,8 +173,8 @@ function main(): void {
     console.log('release bump: dry run, nothing written')
     return
   }
-  run('git', ['add', 'pnpm-lock.yaml', ...planned.map(entry => join(entry.member.directory, 'package.json'))])
-  run('git', ['commit', '-m', `release(${family.id}): ${summary}`])
+  capture('git', ['add', 'pnpm-lock.yaml', ...planned.map(entry => join(entry.member.directory, 'package.json'))])
+  capture('git', ['commit', '-m', `release(${family.id}): ${summary}`])
   // The dsh family tags once for its shared version; vendor tags each package.
   const tags = [...new Set(planned.map(entry => family.tagFor({ ...entry.member, version: entry.version })))]
   console.log('release bump: committed. After this merges to master, tag it:')

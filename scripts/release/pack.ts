@@ -7,40 +7,15 @@
  * ([rationale](../../.agents/notes/proposed/process/2026-08-10-npm-release-sequences.md)).
  */
 
-import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 import { releaseFamily, tarballName, type ReleaseFamily, type ReleaseMember } from './families.ts'
+import { run } from './process.ts'
+import { PUBLISH_ORDER_FILE, tarballFiles } from './tarball.ts'
 
 /** Where pack output lands when `--out` is omitted. */
 const DEFAULT_OUTPUT = 'dist/npm'
-
-/** Name of the file the publish step reads to learn the upload order. */
-export const PUBLISH_ORDER_FILE = 'publish-order.txt'
-
-/**
- * Run a command, inheriting stdio, and fail the process on a non-zero exit.
- * @param command - executable name.
- * @param args - command arguments.
- */
-function run(command: string, args: readonly string[]): void {
-  const result = spawnSync(command, [...args], { stdio: 'inherit' })
-  if (result.error !== undefined) throw result.error
-  if (result.status !== 0) throw new Error(`${command} ${args.join(' ')} exited with ${String(result.status)}`)
-}
-
-/**
- * List a tarball's members.
- * @param tarball - absolute tarball path.
- * @returns Every path inside the archive.
- */
-function tarballFiles(tarball: string): string[] {
-  const result = spawnSync('tar', ['-tzf', tarball], { encoding: 'utf8' })
-  if (result.error !== undefined) throw result.error
-  if (result.status !== 0) throw new Error(`tar -tzf ${tarball} exited with ${String(result.status)}:\n${result.stderr}`)
-  return result.stdout.split('\n').filter(line => line !== '')
-}
 
 /**
  * Pack one member and check what its tarball carries.
