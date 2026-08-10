@@ -8,7 +8,7 @@
 
 ## 模式与强制执行
 
-`SandboxMode` 仅管控文件系统效果。`read-only` 拒绝所有写入（必需的 `/dev/null` 接收器除外）；`workspace-write` 允许在工作区根目录及后端承诺的临时区域下写入；`danger-full-access` 绕过隔离。网络与进程可见性不在此处的定义范围内。
+`SandboxMode` 仅管控文件系统效果。`read-only` 拒绝所有写入——POSIX runner 还会授予其 shell 所需的 `/dev/null` 接收器，而 Windows ACL runner 不授予任何写入；`workspace-write` 允许在工作区根目录及后端承诺的临时区域下写入；`danger-full-access` 绕过隔离。网络与进程可见性不在此处的定义范围内。
 
 ```ts type-equiv
 /**
@@ -53,6 +53,14 @@ interface SandboxExecutionPolicy {
   mode: SandboxMode
   /** Absolute root directory `workspace-write` may write under. */
   workspaceRoot: string
+  /**
+   * Opaque identity of the calling session (the branded `dsh-session`
+   * SessionId). Backends key per-session state off it (e.g. the windows-acl
+   * per-session private temp subdirectory — the write grant itself is
+   * per-workspace, derived from the workspace root); absent for agentless
+   * calls, which fall back to per-call backend state.
+   */
+  sessionId?: SessionId
 }
 ```
 
@@ -176,7 +184,7 @@ Abstract process-sandbox service. confine must return enforcing argv or fail clo
 abstract confine(argv: readonly string[], policy: SandboxPolicy): ConfinedArgv
 ```
 
-Source: [`packages/sandbox/sandbox/src/index.ts:148`](../../packages/sandbox/sandbox/src/index.ts)
+Source: [`packages/sandbox/sandbox/src/index.ts:158`](../../packages/sandbox/sandbox/src/index.ts)
 
 <a id="ctxsandboxpolicy--sandboxpolicyservice"></a>
 

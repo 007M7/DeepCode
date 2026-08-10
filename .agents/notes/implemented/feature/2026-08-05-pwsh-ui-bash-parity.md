@@ -6,7 +6,7 @@ English | [中文](2026-08-05-pwsh-ui-bash-parity.zh.md)
 
 ## Problem
 
-The [pwsh tool bash parity decision](../../implemented/feature/2026-08-02-pwsh-tool-bash-parity.md) made `dsh-tool-pwsh` behaviorally interchangeable with `dsh-tool-bash` for execution, markers, and background tasks, but explicitly deferred the human-visible half: a completed pwsh foreground call presented as a generic `console`-fenced card while the bash tool's completed call presented as a terminal card with a parsed exit-status pill. The roadmap that owned this gap ([Windows defaults to pwsh](../../proposed/feature/2026-08-01-windows-pwsh-default.md)) named "pwsh TUI/GUI rendering" as stage 2, but the TUI package was removed, leaving the Web surface as the only UI the gap affects.
+The [pwsh tool bash parity decision](../../implemented/feature/2026-08-02-pwsh-tool-bash-parity.md) made `dsh-tool-pwsh` behaviorally interchangeable with `dsh-tool-bash` for execution, markers, and background tasks, but explicitly deferred the human-visible half: a completed pwsh foreground call presented as a generic `console`-fenced card while the bash tool's completed call presented as a terminal card with a parsed exit-status pill. The roadmap that owned this gap ([Windows defaults to pwsh](../../implemented/feature/2026-08-01-windows-pwsh-default.md)) named "pwsh TUI/GUI rendering" as stage 2, but the TUI package was removed, leaving the Web surface as the only UI the gap affects.
 
 ## Decision
 

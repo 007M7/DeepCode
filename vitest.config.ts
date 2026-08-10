@@ -37,6 +37,16 @@ const windowsUnsupportedPackages = process.platform === 'win32'
     ]
   : []
 
+// Windows-only packages: their sources execute exclusively on win32 (koffi
+// loads Win32 libraries), so the Linux coverage lane can never cover them.
+// The Windows dev/CI lane exercises them through the probe/runner suites; the
+// per-file 100% gate must not fail on their Linux-uncovered paths.
+const windowsOnlyCoverageExclusions = process.platform !== 'win32'
+  ? [
+      'packages/sandbox/sandbox-windows-acl/src/**/*.ts',
+    ]
+  : []
+
 // pwsh-local's run/start/lifecycle suites self-skip without a real pwsh
 // (executor.spec.ts hasPwsh), leaving this file
 // far below per-file 100% on pwsh-less hosts; the exemption keeps those hosts
@@ -46,7 +56,10 @@ const windowsUnsupportedPackages = process.platform === 'win32'
 // narrower probe could exempt the file on hosts whose suites actually run.
 const pwshCoverageExclusions = spawnSync(resolvePwshPath(), ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', '$true'], { encoding: 'utf8' }).status === 0
   ? []
-  : ['packages/bash/pwsh-local/src/index.ts']
+  : [
+      'packages/bash/pwsh-local/src/index.ts',
+      'packages/bash/pwsh-sandbox/src/**/*.ts',
+    ]
 
 const testIncludes = [
   'packages/*/*/tests/**/*.spec.{ts,tsx}',
@@ -220,6 +233,7 @@ export default defineConfig({
         'packages/interaction/commands/src/invariant.ts',
         'packages/session/session-projection/src/index.ts',
         ...windowsUnsupportedPackages.map(path => `${path}/src/**/*.ts`),
+        ...windowsOnlyCoverageExclusions,
         ...pwshCoverageExclusions,
       ],
       // 100% or it doesn't merge (docs/testing.md: excessive tests are welcome).
