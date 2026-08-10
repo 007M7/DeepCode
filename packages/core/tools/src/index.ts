@@ -810,17 +810,6 @@ export class ToolRegistry extends Service {
     if (this.defaultMode !== 'native') {
       ctx.systemPrompt.section(this.sdkSection())
     }
-    // Under `code` mode, filter out tool-specific guidance sections
-    // (`tool:*`) that instruct the model to call native tools directly.
-    // The `tools:sdk` section and SDK types remain — they teach the model
-    // how to call tools through `run_code`.
-    if (this.defaultMode === 'code') {
-      ctx.on('system-prompt/assemble', async (_assembly, _context, next) => {
-        const result = await next()
-        result.sections = result.sections.filter(s => !s.name.startsWith('tool:'))
-        return result
-      })
-    }
   }
 
   /**
