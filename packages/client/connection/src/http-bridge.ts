@@ -21,8 +21,14 @@ export interface FetchHandler {
  * @param req - incoming node:http request (fully read before dispatch).
  * @param res - node:http response the bridge writes and owns to completion.
  * @param apiHandler - fetch-shaped API carrier the request is dispatched to.
+ * @param maxRequestBodyBytes - maximum body bytes buffered before dispatch.
  */
-export async function bridge(req: IncomingMessage, res: ServerResponse, apiHandler: FetchHandler): Promise<void> {
+export async function bridge(
+  req: IncomingMessage,
+  res: ServerResponse,
+  apiHandler: FetchHandler,
+  maxRequestBodyBytes = 32 * 1024 * 1024,
+): Promise<void> {
   const abort = new AbortController()
   // Client-disconnect detection MUST hang off the response, not the request:
   // since Node 16, IncomingMessage 'close' fires as soon as the request body is
@@ -32,8 +38,26 @@ export async function bridge(req: IncomingMessage, res: ServerResponse, apiHandl
   res.on('close', () => {
     if (!res.writableEnded) abort.abort()
   })
+  const declaredLength = req.headers['content-length']
+  if (declaredLength !== undefined && Number(declaredLength) > maxRequestBodyBytes) {
+    res.writeHead(413, { connection: 'close' })
+    res.end()
+    req.destroy()
+    return
+  }
   const chunks: Buffer[] = []
-  for await (const chunk of req) chunks.push(chunk as Buffer)
+  let received = 0
+  for await (const chunk of req) {
+    const buffer = chunk as Buffer
+    received += buffer.byteLength
+    if (received > maxRequestBodyBytes) {
+      res.writeHead(413, { connection: 'close' })
+      res.end()
+      req.destroy()
+      return
+    }
+    chunks.push(buffer)
+  }
   /* v8 ignore next 3 -- `??` arms: node:http always sets url/method on server
   requests; the fields are only optional on the client-side IncomingMessage type */
   const request = new Request(new URL(req.url ?? '/', 'http://dsh.internal'), {

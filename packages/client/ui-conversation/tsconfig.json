@@ -9,6 +9,12 @@
   ],
   "references": [
     {
+      "path": "../../attachment/attachment"
+    },
+    {
+      "path": "../../util/brand"
+    },
+    {
       "path": "../../../vendor/cordis"
     },
     {

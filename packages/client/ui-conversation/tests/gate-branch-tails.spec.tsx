@@ -122,7 +122,13 @@ describe('render branch tails', () => {
         useWorkspaces={bindSnapshotSelector(emptyWorkspaces)}
         useProjection={(() => undefined)}
         useInput={(() => { throw new Error('unused') })}
-        inputActions={{ setDraft: () => {}, submit: () => {} }}
+        inputActions={{
+          setDraft: () => {},
+          addImages: () => true,
+          removeImage: () => {},
+          pruneImages: () => {},
+          submit: () => {},
+        }}
         useStore={bindSnapshotSelector(chat)}
         actions={chat.actions}
         closeDetails={vi.fn()}
@@ -173,7 +179,13 @@ describe('render branch tails', () => {
         useWorkspaces={bindSnapshotSelector(emptyWorkspaces)}
         useProjection={(() => undefined)}
         useInput={(() => { throw new Error('unused') })}
-        inputActions={{ setDraft: () => {}, submit: () => {} }}
+        inputActions={{
+          setDraft: () => {},
+          addImages: () => true,
+          removeImage: () => {},
+          pruneImages: () => {},
+          submit: () => {},
+        }}
         useStore={bindSnapshotSelector(chat)}
         actions={chat.actions}
         closeDetails={vi.fn()}
