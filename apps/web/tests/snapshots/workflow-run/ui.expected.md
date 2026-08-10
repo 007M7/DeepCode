@@ -1,0 +1,55 @@
+- banner:
+  - navigation "Session hierarchy":
+    - button "Use the workflow tool exactly" [disabled]
+  - button "1 subagent":
+    - text: 1 subagent
+    - img
+  - img
+  - text: 标准模式
+  - tablist:
+    - tab "Chat" [selected]
+    - tab "Trajectory"
+- text: "Use the workflow tool exactly once, with args omitted, meta set to { \"name\": \"snapshot-flow\", \"description\": \"one child for the snapshot\" }, and this EXACT script body (copy it verbatim): phase('Run') const reply = await agent('Reply with exactly the word WF_CHILD_OK and nothing else.') return { reply } After the workflow returns, reply with the single word WORKFLOW_DONE and stop. Do not use any other tool. {{clock}}"
+- button "Copy":
+  - img
+- button "Context injection @deepseek-ai/dsh-system-prompt":
+  - img
+  - img
+  - text: Context injection @deepseek-ai/dsh-system-prompt
+- button "Think The user wants me to use the workflow tool exactly once with specific parameters. Let me carefully follow the instructions:":
+  - img
+  - img
+  - text: "Think The user wants me to use the workflow tool exactly once with specific parameters. Let me carefully follow the instructions:"
+- button "Tool call workflow ·":
+  - img
+  - img
+  - text: Tool call workflow ·
+- button "snapshot-flow 1 members Completed" [expanded]:
+  - img
+  - text: snapshot-flow 1 members Completed
+- button "Run 1 members Completed 1" [expanded]:
+  - img
+  - text: Run 1 members Completed 1
+- text: Reply with exactly the word WF_CHILD_OK and not… Completed
+- button "Think The workflow returned successfully with the reply \"WF_CHILD_OK\". Now I need to reply with exactly \"WORKFLOW_DONE\" and stop.":
+  - img
+  - img
+  - text: Think The workflow returned successfully with the reply "WF_CHILD_OK". Now I need to reply with exactly "WORKFLOW_DONE" and stop.
+- paragraph: WORKFLOW_DONE
+- button "Copy":
+  - img
+- button "Branch into a new conversation":
+  - img
+- text: {{clock}} Ran for {{duration}} TTFT {{duration}} {{throughput}} tok/s
+- button "Back to bottom":
+  - img
+- textbox "Message the agent"
+- button "Commands":
+  - img
+- 'button "Access mode, current: Workspace Write"': Workspace Write
+- button "Select model, current DeepSeek-V4-Flash":
+  - text: DeepSeek-V4-Flash
+  - img
+- button "3% of context used"
+- button "Send message" [disabled]
+- text: 1 turns · 2 steps LLM {{duration}} · Tool call {{duration}} TTFT avg {{duration}} · {{throughput}} tok/s Cache hit 47% Input 6.6K tok · Output 227 tok

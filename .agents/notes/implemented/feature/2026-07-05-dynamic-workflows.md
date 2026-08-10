@@ -40,6 +40,8 @@ The engine exposes an in-process `MessageChannel` test path because main-process
 
 A `workflow` tool mirroring `dsh-tool-subagent`'s synchronous shape: start, await, `try/finally` dispose, abort-bridge `exec.signal`, non-`completed` → `isError`. Render intent: a `generic` card titled by the call's `meta.name` parameter (presentation is a pure function of args). The tool description IS the model-facing authoring spec. The usage policy ships with the tool as its own `tool:<toolName>` prompt section (explicit-ask-only guidance — tool guidance lives in tool plugins, never in the deployment persona); the harness has no ultracode-style effort gate.
 
+For a top-level tool execution, the same consumer also writes the run and actual member lifecycle into the calling parent Session as four log-only `tool-workflow/*` events. The recording path observes rather than controls execution: its first append failure disables later writes for that run and leaves a legal prefix without changing the tool result. [`ui-workflow-run`](../../../../packages/client/ui-workflow-run/README.md) rebuilds those facts through the Conversation Node engine as a separate keyed Chat row; the existing generic tool row remains its own presentation owner. The detailed persistence, replay, disclosure, and live-navigation decision lives in [durable workflow runs in Chat](2026-08-10-durable-workflow-runs-in-chat.md).
+
 ### The foundation: structured output on the subagent seam
 
 `SubagentStartRequest.outputSchema` is implemented by `dsh-subagent-inprocess` for both in-process backends. Each structured child receives its own scoped capture tool, instruction, and enforcement registrations on `child.ctx`; concurrent children can use different schemas without sharing mutable policy, and disposing the child removes the entire attachment.
@@ -60,7 +62,6 @@ Worker-side logic runs through an in-process `MessageChannel` so V8 coverage mea
 - **Nested `workflow()`**, **token `budget`**, and the `effort`/`isolation`/`agentType` agent options (each rejects loud with a message naming it deferred).
 - **An overall run wall-clock timeout** — cancellation always frees the caller (result settles within the grace), so a cap on total run time is a policy knob for the background redesign, not a correctness need here.
 - **Engine hardening beyond worker threads**: an isolated-vm or separate-process engine behind the same seam (actual sandboxing; memory limits).
-- **Human-interface progress UI** over the `workflow/*` events (a `/workflows`-style view); the events exist for it.
 - **ACP-backend structured output** and **`toolFilter`** (both still capability-gated `false`).
 
 ## Alternatives considered
@@ -77,4 +78,4 @@ Worker-side logic runs through an in-process `MessageChannel` so V8 coverage mea
 
 ## Consequences
 
-Fan-out plans now live in rerunnable scripts, and `outputSchema` provides authoritative structured child results. Each run pays worker startup and message-port RPC costs, but host startup stays non-blocking, cancellation can terminate the worker, and serialization enforces the value boundary. Worker threads are not a security boundary. Invalid options fail rather than degrading to Claude Code's `null`; consumers retain control through the run handle while observers receive snapshots only.
+Fan-out plans now live in rerunnable scripts, and `outputSchema` provides authoritative structured child results. Each run pays worker startup and message-port RPC costs, but host startup stays non-blocking, cancellation can terminate the worker, and serialization enforces the value boundary. Worker threads are not a security boundary. Invalid options fail rather than degrading to Claude Code's `null`; consumers retain control through the run handle while observers receive snapshots only. Top-level Web users also receive a durable, replayable workflow record without widening the execution seam or coupling the original tool card to workflow-specific UI.

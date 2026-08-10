@@ -149,6 +149,11 @@
     - id: ui-tool
       name: '@deepseek-ai/dsh-client-ui-tool'
 
+    # Durable workflow lifecycle as an independent Chat node after the
+    # existing generic workflow tool row.
+    - id: ui-workflow-run
+      name: '@deepseek-ai/dsh-client-ui-workflow-run'
+
     # Turn tail: the produced-files row under each closing assistant message.
     # Remove this entry to turn the surface off; the tail hole renders empty.
     - id: ui-deliverables

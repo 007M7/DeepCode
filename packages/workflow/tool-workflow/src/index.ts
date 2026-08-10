@@ -15,8 +15,15 @@ import z from 'schemastery'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolCallView, ToolResultView } from '@deepseek-ai/dsh-tools'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
-import type { JsonValue } from '@deepseek-ai/dsh-session'
-import type { WorkflowResult, WorkflowRun } from '@deepseek-ai/dsh-workflow'
+import type { JsonValue, Session, SessionEventMap } from '@deepseek-ai/dsh-session'
+import type {
+  WorkflowAgentEndInfo, WorkflowAgentInfo, WorkflowResult, WorkflowRun,
+  WorkflowRunId, WorkflowRunInfo, WorkflowStopReason,
+} from '@deepseek-ai/dsh-workflow'
+import type {
+  ToolWorkflowAgentEndData, ToolWorkflowAgentStartData,
+  ToolWorkflowRunEndData, ToolWorkflowRunStartData,
+} from './types.ts'
 // Declaration merge only: makes ctx.systemPrompt visible for the section registration.
 import type {} from '@deepseek-ai/dsh-system-prompt'
 
@@ -37,6 +44,114 @@ export const Config: z<Config> = z.object({
 })
 
 type ResolvedConfig = Required<Config>
+
+type BufferedWorkflowEvent =
+  | { readonly kind: 'agent-start'; readonly info: WorkflowRunInfo; readonly agent: WorkflowAgentInfo }
+  | { readonly kind: 'agent-end'; readonly info: WorkflowRunInfo; readonly agent: WorkflowAgentEndInfo }
+
+interface WorkflowRecorder {
+  bind(run: WorkflowRun): void
+  finish(stopReason: WorkflowStopReason): void
+  dispose(): void
+}
+
+interface ToolWorkflowRecordEventMap {
+  'tool-workflow/run-start': ToolWorkflowRunStartData
+  'tool-workflow/agent-start': ToolWorkflowAgentStartData
+  'tool-workflow/agent-end': ToolWorkflowAgentEndData
+  'tool-workflow/run-end': ToolWorkflowRunEndData
+}
+
+/** Render a contained recording failure without trusting the thrown value. */
+function renderRecordingError(error: unknown): string {
+  try {
+    return String(error)
+  } catch {
+    return '[unrenderable thrown value]'
+  }
+}
+
+/**
+ * Project one top-level workflow run into its parent Session without letting
+ * recording failure affect tool execution. Listeners are installed before
+ * `start()` so even a synchronous provider cannot outrun the recorder.
+ */
+function createWorkflowRecorder(ctx: Context, session: Session): WorkflowRecorder {
+  let runId: WorkflowRunId | undefined
+  let enabled = true
+  const buffered: BufferedWorkflowEvent[] = []
+  // These four package-owned events are all log-only. Narrowing the generic
+  // append face here lets TypeScript discharge Session.append's conditional
+  // surface-options tuple once for the complete closed event set.
+  const appendRecord = session.append.bind(session) as <Type extends keyof ToolWorkflowRecordEventMap>(
+    type: Type,
+    data: SessionEventMap[Type],
+  ) => void
+
+  const append = <Type extends keyof ToolWorkflowRecordEventMap>(
+    type: Type,
+    data: SessionEventMap[Type],
+  ): void => {
+    if (!enabled) return
+    try {
+      appendRecord(type, data)
+    } catch (error: unknown) {
+      enabled = false
+      ctx.logger.warn(`tool-workflow: disabled durable record after ${type} append failed: ${renderRecordingError(error)}`)
+    }
+  }
+
+  const record = (event: BufferedWorkflowEvent): void => {
+    if (runId === undefined) {
+      buffered.push(event)
+      return
+    }
+    if (event.info.id !== runId) return
+    if (event.kind === 'agent-start') {
+      const data: ToolWorkflowAgentStartData = {
+        runId,
+        seq: event.agent.seq,
+        label: event.agent.label,
+        ...event.agent.phase === undefined ? {} : { phase: event.agent.phase },
+        childId: event.agent.childId,
+      }
+      append('tool-workflow/agent-start', data)
+      return
+    }
+    const data: ToolWorkflowAgentEndData = {
+      runId,
+      seq: event.agent.seq,
+      outcome: event.agent.outcome,
+    }
+    append('tool-workflow/agent-end', data)
+  }
+
+  const disposeStart = ctx.on('workflow/agent-start', (info, agent) => {
+    record({ kind: 'agent-start', info, agent })
+  })
+  const disposeEnd = ctx.on('workflow/agent-end', (info, agent) => {
+    record({ kind: 'agent-end', info, agent })
+  })
+
+  return {
+    bind(run) {
+      runId = run.id
+      append('tool-workflow/run-start', { runId, name: run.meta.name })
+      for (const event of buffered) record(event)
+      buffered.length = 0
+    },
+    finish(stopReason) {
+      /* v8 ignore next -- execute binds every returned run before result settlement can call finish. */
+      if (runId === undefined) return
+      append('tool-workflow/run-end', { runId, stopReason })
+    },
+    dispose() {
+      disposeStart()
+      disposeEnd()
+      buffered.length = 0
+    },
+  }
+}
 
 /**
  * The script-authoring contract, embedded in the tool description. This IS the
@@ -188,13 +303,23 @@ export function apply(ctx: Context, config: Config): void {
       // Meta/body validation failures (META_INVALID/SCRIPT_PARSE) throw
       // synchronously here and become isError results via the registry — the
       // model sees the violation list and can correct the call.
-      const run: WorkflowRun = ctx.workflows.start({
-        script: args.script,
-        meta: args.meta,
-        ...args.args !== undefined ? { args: args.args } : {},
-        parent,
-        signal: exec.signal,
-      })
+      const recorder = exec.parent === undefined
+        ? createWorkflowRecorder(ctx, parent.session)
+        : undefined
+      let run: WorkflowRun
+      try {
+        run = ctx.workflows.start({
+          script: args.script,
+          meta: args.meta,
+          ...args.args !== undefined ? { args: args.args } : {},
+          parent,
+          signal: exec.signal,
+        })
+      } catch (error: unknown) {
+        recorder?.dispose()
+        throw error
+      }
+      recorder?.bind(run)
 
       // Bridge the tool's abort signal to the run: if the parent step is aborted while the
       // script is in flight, cancel the whole run. The signal also enters the engine directly, but
@@ -202,8 +327,9 @@ export function apply(ctx: Context, config: Config): void {
       const onAbort = (): void => { run.cancel('parent step aborted') }
       exec.signal.addEventListener('abort', onAbort, { once: true })
 
+      let result: WorkflowResult | undefined
       try {
-        const result = await run.result
+        result = await run.result
         const error = stopReasonError(result)
         if (error !== undefined) {
           // Map a non-clean finish to an isError result (the registry turns a
@@ -217,8 +343,15 @@ export function apply(ctx: Context, config: Config): void {
         }
       } finally {
         exec.signal.removeEventListener('abort', onAbort)
-        // Always reach run quiescence — never leak a live script or children.
-        await run.dispose()
+        try {
+          // Keep member listeners alive through disposal: an engine may
+          // synthesize cancelled member endings while reaching quiescence.
+          await run.dispose()
+          /* v8 ignore next -- WorkflowRun.result never rejects by contract, so result is assigned before finally. */
+          if (result !== undefined) recorder?.finish(result.stopReason)
+        } finally {
+          recorder?.dispose()
+        }
       }
     },
     presentCall: args => presentWorkflowCall(args),

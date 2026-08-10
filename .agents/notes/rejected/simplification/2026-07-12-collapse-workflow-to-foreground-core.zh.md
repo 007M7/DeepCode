@@ -6,15 +6,11 @@ Status: rejected — 工作流进度是有意设计的观测接口面；应通�
 
 ## 问题
 
-工作流能力在前台执行用于编排 subagent 的 JavaScript，但它同时携带了一套无人消费的进度观测系统。没有任何生产环境的监听器订阅六个 `workflow/*` 事件中的任何一个；监听器仅存在于工作流测试中。尽管如此，seam 定义了 run/phase/agent（智能体）outcome 载荷，worker 发送 phase/log/agent 生命周期协议消息，host 通过一个 `liveAgents` 配对账本转发它们，引擎维护 run id 仅仅是为了关联这些通知。
+工作流能力在执行句柄之外还携带一套只供观察的生命周期。脚本即使没有 UI 监听器也能完成，因此这套界面看似可删除；但它是唯一与提供方无关、能够报告真正开始过的成员、精确标签与阶段以及配对结果的事实来源。
 
-这套进度词汇不仅仅是未被使用；它在不经重新设计的情况下也无法服务于其唯一已命名的未来消费方。`WorkflowRunInfo` 包含 `{id, meta}` 但没有父 agent、会话或工具调用标识，而面向模型的工具也从不暴露 run id。一个全局 ACP（Agent Client Protocol）监听器无法将事件路由到正确的客户端会话。`meta.phases` 从未被查询，`phase(title)` 不对其做校验，phase 的 `detail`/`model` 和 agent 的 `label`/`phase` 仅供事件消费，`whenToUse` 被校验和复制但从未被渲染或用于选择。`phase()` 和 `log()` 仍然跨越 worker 边界，尽管没有接收方。
+顶层 `dsh-tool-workflow` 消费方现在利用这些事件，把四类最小 `tool-workflow/*` 事实写入调用方父 Session；`ui-workflow-run` 再把它们重建为持久 Chat 节点。投影由消费方拥有，因为只有它同时持有调用 Agent、知道工具执行是顶层还是嵌套，并能让记录故障与工作流执行隔离。`WorkflowRun.id` 与 `meta` 因此用于把实时引擎事件关联到该条精确持久记录，而不是复制展示状态。
 
-这些观测者移除后，live handle 仍重复携带事件机制所需的数据。`WorkflowRun.id` 没有非事件消费方，而工具读取 `run.meta.name` 只是为了渲染一个它已经以 `args.meta.name` 形式持有的值；两者都不属于执行/取消 handle。
-
-取消机制也为一个同步启动提供了两条公开通道。`WorkflowStartRequest.signal` 被传递给 worker host，而唯一的生产调用方另外将同一个 signal 桥接到 `WorkflowRun.cancel()`。因为 `start()` 在控制权让出之前就返回了 run，不存在需要请求时取消的就绪窗口；重复的 signal 增加了 host 的 listener/disarm 状态却没有封堵任何竞态。
-
-`WorkflowError.fatal` 是同一种推测性分支的微缩版：所有生产环境的构造都是 fatal 的，`fatal: false` 仅存在于测试中，组合子已经通过 `instanceof` 区分工作流失败。
+删除事件词汇、成员标签或阶段、运行身份，会移除当前回放和导航结果，而不再只是清理未使用脚手架。下方提案继续记录应避免的收缩；[Chat 中的持久工作流运行](../../implemented/feature/2026-08-10-durable-workflow-runs-in-chat.md)拥有当前消费方与边界。
 
 ## 提案
 
@@ -24,7 +20,7 @@ Status: rejected — 工作流进度是有意设计的观测接口面；应通�
 
 ## 曾考虑的替代方案
 
-**为未来 UI 保留预建的观测词汇。** 当前形态类似 Claude Code 的动态工作流元数据，host 有意地将每个转发的 agent start 与 worker 的 end 或一个合成的终止 end 配对。移除它意味着放弃形态兼容性，使进度 UI 成为一项全新的设计任务；但现有载荷仍缺少可路由的归属信息，因此仅靠平衡的生命周期也无法在不重新设计的情况下让已命名的 ACP 消费方可行。
+**把持久记录移入工作流引擎。** 引擎知道运行与成员生命周期，却不拥有调用方父 Session，也不知道顶层与嵌套工具边界。把这些事实交给引擎会让提供方 seam 耦合到单一消费方，并使记录故障进入引擎执行域。由工具拥有的投影补齐了缺失所有权，同时不扩展 worker 消息或 service 合同。
 
 ## 验收标准
 

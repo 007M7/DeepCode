@@ -1278,7 +1278,7 @@
     {
       "doc": "docs/subsystems/workflow.md",
       "symbol": "WorkflowStartRequest",
-      "source": "packages/workflow/workflow/src/types.ts"
+      "source": "packages/workflow/workflow/src/runtime-types.ts"
     },
     {
       "doc": "docs/subsystems/workflow.md",
@@ -1293,7 +1293,7 @@
     {
       "doc": "docs/subsystems/workflow.md",
       "symbol": "WorkflowRun",
-      "source": "packages/workflow/workflow/src/types.ts"
+      "source": "packages/workflow/workflow/src/runtime-types.ts"
     },
     {
       "doc": "docs/subsystems/lsp.md",
