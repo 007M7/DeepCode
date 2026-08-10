@@ -253,7 +253,6 @@ flowchart TD
     pkg_telemetry["telemetry"]
   end
   subgraph group_self_modification["packages/self-modification"]
-    pkg_repository_plugin["repository-plugin"]
     pkg_tool_cordis["tool-cordis"]
   end
   subgraph group_session["packages/session"]
@@ -1069,10 +1068,6 @@ flowchart TD
   pkg_sdk_protocol --> pkg_llm
   pkg_sdk_protocol --> pkg_session
   pkg_sdk_protocol --> pkg_subagent
-  pkg_repository_plugin --> pkg_invariants
-  pkg_repository_plugin --> pkg_mcp_client
-  pkg_repository_plugin --> pkg_paths
-  pkg_repository_plugin --> pkg_skill_local
   pkg_tool_ralph --> pkg_agent
   pkg_tool_ralph --> pkg_invariants
   pkg_tool_ralph --> pkg_llm
@@ -1430,7 +1425,6 @@ flowchart TD
 | [`web-app`](../packages/bundle/web-app) | `bundle` | [`bash-env`](../packages/bash/bash-env), [`invariants`](../packages/support/invariants), [`system-prompt`](../packages/core/system-prompt) |
 | [`client-ui-conversation`](../packages/client/ui-conversation) | `client` | [`agent`](../packages/core/agent), [`attachment`](../packages/attachment/attachment), [`brand`](../packages/util/brand), [`client-connection`](../packages/client/connection), [`client-locale`](../packages/client/locale), [`client-runtime`](../packages/client/runtime), [`client-ui-primitives`](../packages/client/ui-primitives), [`client-ui-slash`](../packages/client/ui-slash), [`client-ui-slots`](../packages/client/ui-slots), [`commands`](../packages/interaction/commands), [`compact`](../packages/compact/compact), [`invariants`](../packages/support/invariants), [`llm-retry`](../packages/llm/llm-retry), [`token-meter`](../packages/llm/token-meter), [`tools`](../packages/core/tools) |
 | [`sdk-protocol`](../packages/scaffold/protocol) | `scaffold` | [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`subagent`](../packages/subagent/subagent) |
-| [`repository-plugin`](../packages/self-modification/repository-plugin) | `self-modification` | [`invariants`](../packages/support/invariants), [`mcp-client`](../packages/mcp/mcp-client), [`paths`](../packages/util/paths), [`skill-local`](../packages/skill/skill-local) |
 | [`tool-ralph`](../packages/workflow/tool-ralph) | `workflow` | [`agent`](../packages/core/agent), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`subagent`](../packages/subagent/subagent), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools), [`workflow`](../packages/workflow/workflow) |
 | [`workflow-workerthread`](../packages/workflow/workflow-workerthread) | `workflow` | [`agent`](../packages/core/agent), [`brand`](../packages/util/brand), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`subagent`](../packages/subagent/subagent), [`tools`](../packages/core/tools), [`workflow`](../packages/workflow/workflow) |
 | [`compact-basic`](../packages/compact/compact-basic) | `compact` | [`agent`](../packages/core/agent), [`commands`](../packages/interaction/commands), [`compact`](../packages/compact/compact), [`compact-tool-result-prune`](../packages/compact/compact-tool-result-prune), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`token-meter`](../packages/llm/token-meter) |

@@ -37,7 +37,7 @@
 
 # ── web-only host rows, the transport layer, and the browser roster ─────────
 
-# `dshClient` rows are the browser roster the modules node half scans into
+# `dsh.client` rows are the browser roster the modules node half scans into
 # window.__DSH_BOOT__; the modules row is simultaneously a host row.
 - insert:
     - id: code-runtime
@@ -101,9 +101,9 @@
         printUrl: true
         surfaceContext: true
 
-    # ── browser plugin roster (dshClient rows; node halves are layer-2 hosts) ──
+    # ── browser plugin roster (dsh.client rows; node halves are layer-2 hosts) ──
 
-    # Dual-face: node half scans this very tree for dshClient rows, composes
+    # Dual-face: node half scans this very tree for dsh.client rows, composes
     # window.__DSH_BOOT__, serves /plugins/<id>/client.js; browser half is the
     # module table the shell kernel constructs before cordis exists (adopted
     # as a plugin entry by the kernel, never fetched).

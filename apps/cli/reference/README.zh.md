@@ -63,11 +63,11 @@ dsh web --dump-config
 
 ## 共享部署行为
 
-基础组合包挂载原生 DeepSeek 适配器、settings 与凭据提供方、稳定的 `web_search`、repository Plugin 支持和会话遥测。提供方凭据依次从继承环境、`$DSH_HOME/.credentials.yaml`、调用目录的 `.env` 和 `$DSH_HOME/.env` 解析；受管文档从不物化进 `process.env`，而两个 `.env` 文件都是普通启动环境层。搜索使用 `DEEPSEEK_API_KEY` 并接受 `DEEPSEEK_SEARCH_BASE_URL`；只有 patch 层插入提供方并启用 `web_fetch` 后，该工具才可用。
+基础组合包挂载原生 DeepSeek 适配器、settings 与凭据提供方、稳定的 `web_search` 和会话遥测。提供方凭据依次从继承环境、`$DSH_HOME/.credentials.yaml`、调用目录的 `.env` 和 `$DSH_HOME/.env` 解析；受管文档从不物化进 `process.env`，而两个 `.env` 文件都是普通启动环境层。搜索使用 `DEEPSEEK_API_KEY` 并接受 `DEEPSEEK_SEARCH_BASE_URL`；只有 patch 层插入提供方并启用 `web_fetch` 后，该工具才可用。
 
 会话事件默认作为 OTLP/HTTP 日志流式发送。`DSH_TELEMETRY_OTLP_URL` 选择其他 collector。任何非空 `DSH_TELEMETRY_DISABLED` 都会在启动前禁用遥测配置行。随附基础配置没有遥测脱敏规则，因此导出的记录可能包含消息文本、工具参数与结果以及 workspace 路径；该部署决策由[遥测 Agent Note](../../../.agents/notes/implemented/feature/2026-07-31-web-telemetry-default-mount.md)负责。
 
-空 `repository-plugins` 行让 profile 的 patch 层能够挂载已准备的不可变 repository Plugin generation。参见 [repository Plugin 约定](../../../packages/self-modification/repository-plugin/README.md#standalone-app-configuration)。CLI 还随附 `@deepseek-ai/dsh-mcp-client` 作为供 patch 层使用的依赖，但默认不启用 MCP 服务器，因为每条服务器命令都是 agent（智能体）沙箱之外的受信任可执行代码。
+通过 `dsh plugin --profile <name> add <package-or-git-spec>` 安装外部插件组合包。安装的包拥有其依赖，并贡献其声明的 `cordis.patch.yml` 层。CLI 还随附 `@deepseek-ai/dsh-mcp-client` 作为供 patch 层使用的依赖，但默认不启用 MCP 服务器，因为每条服务器命令都是 agent（智能体）沙箱之外的受信任可执行代码。
 
 ## 源码启动器
 

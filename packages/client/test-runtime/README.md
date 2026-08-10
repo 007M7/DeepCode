@@ -8,7 +8,7 @@ The doubles implement the same outward faces features receive through ctx (`Test
 
 Local DOM snapshots: `declare(children)` registers an auto frame whose per-key `<div data-slot>` wrappers are snapshot roots; `renderSlot(key, owner)` returns the slot-local view (container, scoped Testing Library queries, in-place `update(owner)`); a registered snapshot serializer folds CSS-module class hashes (`_frame_a1b2c3` → `frame`) to keep `.snap` files structural and collapses `<svg>` internals to a `data-content` fingerprint. Suites needing a custom page frame use `root.declare(children, Frame)` instead; `mount(plugin)` runs a real fiber with fail-loud service prechecks, and `dispose()` tears down views, feature fibers, minted scopes, and persisted store state on one axis.
 
-Not part of the product plugin graph (no `dshClient`); feature packages depend on it in `devDependencies` only.
+Not part of the product plugin graph (no `dsh.client`); feature packages depend on it in `devDependencies` only.
 
 ## Model Experience
 

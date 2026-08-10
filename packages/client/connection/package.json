@@ -22,10 +22,12 @@
     "./src/*": "./src/*",
     "./package.json": "./package.json"
   },
-  "dshClient": {
-    "inject": [],
-    "platform": "web",
-    "immediately": true
+  "dsh": {
+    "client": {
+      "inject": [],
+      "platform": "web",
+      "immediately": true
+    }
   },
   "license": "BSD-3-Clause",
   "dependencies": {
