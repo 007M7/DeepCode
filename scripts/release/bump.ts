@@ -74,6 +74,55 @@ function compareReleaseNumbers(left: string, right: string): number {
 }
 
 /**
+ * The prerelease segment of a version, or undefined when it has none.
+ * @param version - the version to read.
+ * @returns The segment after the first `-`.
+ */
+function prereleaseOf(version: string): string | undefined {
+  const index = version.indexOf('-')
+  return index === -1 ? undefined : version.slice(index + 1)
+}
+
+/**
+ * Order two versions by semver precedence.
+ *
+ * Git's version sort cannot stand in for this: `--sort=v:refname` places
+ * `4.0.1-rc.1` above `4.0.1`, while semver gives a prerelease lower precedence
+ * than the release it precedes. Prerelease identifiers compare field by field,
+ * numeric fields numerically, so `rc.10` outranks `rc.1`.
+ * @param left - one version.
+ * @param right - the other version.
+ * @returns Negative when `left` is lower, positive when higher, zero when equal.
+ */
+export function compareVersions(left: string, right: string): number {
+  const numbers = compareReleaseNumbers(left, right)
+  if (numbers !== 0) return numbers
+  const leftPre = prereleaseOf(left)
+  const rightPre = prereleaseOf(right)
+  if (leftPre === undefined || rightPre === undefined) {
+    if (leftPre === rightPre) return 0
+    return leftPre === undefined ? 1 : -1
+  }
+  const leftFields = leftPre.split('.')
+  const rightFields = rightPre.split('.')
+  for (let index = 0; index < Math.max(leftFields.length, rightFields.length); index += 1) {
+    const leftField = leftFields[index]
+    const rightField = rightFields[index]
+    // A shorter identifier list has lower precedence when all its fields match.
+    if (leftField === undefined) return -1
+    if (rightField === undefined) return 1
+    if (leftField === rightField) continue
+    const leftNumeric = /^\d+$/.test(leftField)
+    const rightNumeric = /^\d+$/.test(rightField)
+    if (leftNumeric && rightNumeric) return Number(leftField) - Number(rightField)
+    // Numeric fields have lower precedence than alphanumeric ones.
+    if (leftNumeric !== rightNumeric) return leftNumeric ? -1 : 1
+    return leftField < rightField ? -1 : 1
+  }
+  return 0
+}
+
+/**
  * The next dsh version.
  * @param current - the family's current shared version.
  * @param request - `major`, `minor`, `patch`, or an explicit version.
@@ -93,20 +142,36 @@ function nextSharedVersion(current: string, request: string): string {
 }
 
 /**
- * The version a vendored package publishes next: the higher of its manifest
- * version and its last published version, with the patch incremented.
+ * The version a vendored package publishes next.
  *
- * The manifest alone is not the baseline. A vendor re-sync restores upstream's
- * version, which is lower than what this repository already published, and
- * incrementing that would name a version the registry already carries.
+ * The baseline is the higher of the manifest version and the last published
+ * version: a vendor re-sync restores upstream's version, which is lower than
+ * what this repository already published, and incrementing that would name a
+ * version the registry already carries.
+ *
+ * A prerelease does not consume its own release numbers. Publishing
+ * `4.0.1-rc.1` leaves `4.0.1` free, so the next stable version is `4.0.1`
+ * rather than `4.0.2`, and a second prerelease keeps those numbers too.
  * @param current - the package's manifest version.
  * @param published - the version its newest tag names, when it has one.
+ * @param prerelease - prerelease identifier to append, for a rehearsal publication.
  * @returns The target version.
  */
-export function nextVendorVersion(current: string, published: string | undefined): string {
-  const baseline = published !== undefined && compareReleaseNumbers(published, current) > 0 ? published : current
+export function nextVendorVersion(
+  current: string,
+  published: string | undefined,
+  prerelease?: string,
+): string {
+  const ahead = published !== undefined && compareReleaseNumbers(published, current) > 0
+  const baseline = ahead ? published : current
   const [major, minor, patch] = releaseNumbers(baseline)
-  return `${String(major)}.${String(minor)}.${String(patch + 1)}`
+  // Reuse the numbers when the published version that set them is a prerelease
+  // of them; increment when a stable release already holds them.
+  const reuse = ahead && published.includes('-')
+  const numbers = reuse
+    ? `${String(major)}.${String(minor)}.${String(patch)}`
+    : `${String(major)}.${String(minor)}.${String(patch + 1)}`
+  return prerelease === undefined ? numbers : `${numbers}-${prerelease}`
 }
 
 /**
@@ -133,9 +198,10 @@ export function reachesPayload(member: ReleaseMember, path: string): boolean {
  */
 function lastPublishedVersion(family: ReleaseFamily, member: ReleaseMember): string | undefined {
   const prefix = family.tagPrefixFor(member)
-  const [newest] = capture('git', ['tag', '--list', `${prefix}*`, '--sort=-v:refname'])
-    .split('\n').filter(line => line !== '')
-  return newest === undefined ? undefined : newest.slice(prefix.length)
+  const versions = capture('git', ['tag', '--list', `${prefix}*`])
+    .split('\n').filter(line => line !== '').map(tag => tag.slice(prefix.length))
+  if (versions.length === 0) return undefined
+  return versions.reduce((newest, candidate) => compareVersions(candidate, newest) > 0 ? candidate : newest)
 }
 
 /**
@@ -231,9 +297,14 @@ function planShared(
  * it last published.
  * @param family - the vendored family.
  * @param members - the family's members.
+ * @param prerelease - prerelease identifier to append, for a rehearsal publication.
  * @returns The manifests to rewrite.
  */
-function planPerPackage(family: ReleaseFamily, members: readonly ReleaseMember[]): PlannedVersion[] {
+function planPerPackage(
+  family: ReleaseFamily,
+  members: readonly ReleaseMember[],
+  prerelease: string | undefined,
+): PlannedVersion[] {
   const planned: PlannedVersion[] = []
   for (const member of members) {
     const published = lastPublishedVersion(family, member)
@@ -244,7 +315,7 @@ function planPerPackage(family: ReleaseFamily, members: readonly ReleaseMember[]
         .split('\n').filter(line => line !== '')
       if (!changed.some(path => reachesPayload(member, path))) continue
     }
-    const to = nextVendorVersion(member.version, published)
+    const to = nextVendorVersion(member.version, published, prerelease)
     planned.push({
       manifestPath: join(member.directory, 'package.json'),
       label: member.directory,
@@ -256,10 +327,18 @@ function planPerPackage(family: ReleaseFamily, members: readonly ReleaseMember[]
   return planned
 }
 
-/** Bump the family named by `--family` and commit; `--dry-run` only reports the plan. */
+/**
+ * Bump the family named by `--family` and commit; `--dry-run` only reports the
+ * plan. `--prerelease rc.1` makes the vendored family publish a rehearsal
+ * version, which never takes the stable dist-tag.
+ */
 function main(): void {
   const { values, positionals } = parseArgs({
-    options: { family: { type: 'string' }, 'dry-run': { type: 'boolean', default: false } },
+    options: {
+      family: { type: 'string' },
+      prerelease: { type: 'string' },
+      'dry-run': { type: 'boolean', default: false },
+    },
     allowPositionals: true,
   })
   if (values.family === undefined) throw new Error('usage: bump.ts --family <dsh|vendor> [version]')
@@ -274,12 +353,18 @@ function main(): void {
   if (family.id === 'dsh') {
     const request = positionals[0]
     if (request === undefined) throw new Error('usage: release:dsh <major|minor|patch|x.y.z>')
+    if (values.prerelease !== undefined) {
+      throw new Error('release:dsh takes the prerelease in its version argument, as in 0.0.1-rc.1')
+    }
     const shared = planShared(family, root, members, request)
     planned = shared.planned
     sharedVersion = shared.version
   } else {
     if (positionals.length > 0) throw new Error('release:vendor takes no version: each package increments its own patch')
-    planned = planPerPackage(family, members)
+    if (values.prerelease !== undefined && !/^[0-9A-Za-z.-]+$/.test(values.prerelease)) {
+      throw new Error(`--prerelease must be a semver prerelease identifier, got ${values.prerelease}`)
+    }
+    planned = planPerPackage(family, members, values.prerelease)
   }
 
   if (planned.length === 0) {
