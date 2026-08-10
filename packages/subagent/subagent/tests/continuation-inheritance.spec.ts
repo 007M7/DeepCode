@@ -124,6 +124,42 @@ describe('continuable policy inheritance', () => {
     expect(policyEvents(loaded.events)).toEqual([])
   })
 
+  it('does not freeze deployment defaults into an unswitched fork child either', async () => {
+    const { ctx, parent } = await setup([textResponse('parent turn'), textResponse('forked child')])
+    parent.followup(createUserMessage({
+      content: [{ type: 'text', text: 'parent work' }],
+      source: { kind: 'user' },
+    }))
+    await parent.whenIdle()
+
+    const started = await ctx.subagents.startContinuable(startSpec(parent, 'fork'))
+    await waitNoActivation(ctx, started.childId)
+
+    const loaded = await ctx.sessionPersistence.load(started.childId)
+    expect(loaded.meta.seedLength).toBeGreaterThan(0)
+    expect(policyEvents(loaded.events)).toEqual([])
+  })
+
+  it('lets a later child-side switch win over the delegation snapshot', async () => {
+    const { ctx, parent } = await setup([textResponse('child done')])
+    setSandboxMode(parent.session, 'danger-full-access')
+    let child: Agent | undefined
+    ctx.on('agent/created', ({ agent }) => {
+      if (agent !== parent) child = agent
+    })
+
+    const started = await ctx.subagents.startContinuable(startSpec(parent))
+    if (child === undefined) throw new Error('expected the continuable child to be created')
+    expect(ctx.sandboxPolicy.overrideOf(child.session)).toBe('danger-full-access')
+    // Last event wins: the child's own runtime switch beats the seeded snapshot.
+    setSandboxMode(child.session, 'read-only')
+    expect(ctx.sandboxPolicy.overrideOf(child.session)).toBe('read-only')
+
+    await waitNoActivation(ctx, started.childId)
+    const loaded = await ctx.sessionPersistence.load(started.childId)
+    expect(effectiveSandboxMode(loaded.events)).toBe('read-only')
+  })
+
   it('cold-resumes on the persisted snapshot without re-capturing the parent', async () => {
     const { ctx, parent } = await setup([textResponse('first'), textResponse('after resume')])
     setSandboxMode(parent.session, 'read-only')

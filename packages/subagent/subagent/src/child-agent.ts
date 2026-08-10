@@ -17,7 +17,10 @@ import type { ApprovalPolicy } from '@deepseek-ai/dsh-user-approval'
 // Type-only: make `ctx.get('sandboxPolicy')` / `ctx.get('approval')` resolve
 // to the policy services when composed — delegation consumes both
 // opportunistically (the documented `ctx.get` pattern), never as a hard dep.
+// The user-approval side stays an explicit empty import so its augmentation
+// does not ride the `ApprovalPolicy` import above.
 import type {} from '@deepseek-ai/dsh-sandbox-policy'
+import type {} from '@deepseek-ai/dsh-user-approval'
 import { delegationDepthOf } from './depth.ts'
 
 /** Thrown when starting a child would exceed the requested depth cap. */
