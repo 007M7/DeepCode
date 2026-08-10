@@ -28,7 +28,7 @@ ACP advertises no start-time capabilities because this process cannot enforce th
 | `command` | required | Executable spawned for each run. |
 | `args` | `[]` | Command arguments. |
 | `cwd` | parent session cwd | Working-directory override for the child process and its ACP session; must be non-empty, a relative value resolves against the harness launch directory at load, and the result must name a directory the harness can enter. |
-| `permission` | `reject` | Auto-answer permission requests by rejecting or choosing the first allow-shaped option. |
+| `permission` | `reject` | Auto-answer permission requests by rejecting or choosing the first `allow_once` or `allow_always` option. |
 | `env` | `{}` | Explicit child environment layered over a credential-scrubbed parent environment. |
 | `disposeEofGraceMs` | `6000` | Positive grace after stdin EOF before platform termination; it cannot exceed [`MAX_TIMER_DELAY_MS`](../../util/timeout/README.md). |
 | `disposeGraceMs` | `3000` | Positive POSIX grace after SIGTERM before SIGKILL (Windows force-terminates directly); it cannot exceed [`MAX_TIMER_DELAY_MS`](../../util/timeout/README.md). |

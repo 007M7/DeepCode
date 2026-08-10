@@ -224,7 +224,7 @@ function resolveRedirect(location: string, base: URL): URL {
 
 /**
  * Translate a thrown fetch/stream error into a `WebError`, classified by the
- * deadline signal rather than the error's shape (which differs by phase: the
+ * deadline signal rather than the thrown value (which differs by phase: the
  * request-phase `fetch` rejects with the abort reason, while the read-phase
  * reader surfaces a bare `AbortError`). `timeoutOf(signal, 'WEB_FETCH_TIMEOUT')`
  * recovering OUR reason means our timeout fired (`WEB_FETCH_TIMEOUT`); any other

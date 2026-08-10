@@ -137,7 +137,7 @@ describe('global test invariant host', () => {
       .toEqual(Object.keys(testInvariantCompanions).sort())
   })
 
-  it('loads and executes every source companion through the real Loader shape', async () => {
+  it('loads and executes every source companion through the real Loader setup', async () => {
     const owners = new Map(packageInvariantOwners(process.cwd()).map(owner => [owner.sourcePath, owner.packageName]))
     const registrations = new Map<string, string>()
     const loader = Object.create(Loader.prototype) as Loader

@@ -53,13 +53,13 @@ When a preset genuinely owns a service, wrap the provider **and every consumer t
 
 A consumer left outside the group resolves the host's registry, which the preset did not populate, and then contributes nothing. That is the quietest failure here: the mount succeeds and a tool is simply missing.
 
-Registry-shaped host capabilities need no realm at all: the host `tools` and `skills` registries are layered per scope, so rows like `skill-local` and `tool-skill` sit loose in the preset and their registrations file into this preset's layer automatically — the agent's catalog merges them with whatever the deployment registered globally.
+Host capabilities exposed through registries need no realm: the host `tools` and `skills` registries are layered per scope, so rows like `skill-local` and `tool-skill` sit loose in the preset and their registrations file into this preset's layer automatically — the agent's catalog merges them with whatever the deployment registered globally.
 
 ## Verifying a change
 
 Read the live runtime with `cordis_inspect` — it reports the services, the plugin fibers, and the registered tools as they actually are, which is the only reliable check that a row did what its name suggests. Note it shows THIS session's composition: a preset you just wrote is not mounted anywhere until a session starts on it.
 
-To check a preset you authored, re-read the files you wrote and walk the shape: a top-level YAML list, every row a map with a `name`, every group carrying its own list, service-publishing rows behind an `isolate` realm. The settings page's preset roster runs the same shape check and marks an unloadable preset broken in red — point the user there, and ask them to start a session on the new preset to confirm the tool list; you cannot start one yourself.
+To check a preset you authored, re-read the files and validate these fields: the top level is a YAML list, every row is a map with a `name`, every group carries its own list, and service-publishing rows sit behind an `isolate` realm. The settings page's preset roster validates the same fields and marks an unloadable preset broken in red — point the user there, and ask them to start a session on the new preset to confirm the tool list; you cannot start one yourself.
 
 `cordis_mount` evaluates JavaScript against the live runtime and disappears on restart. It is for probing, not for shipping a capability: a capability belongs in a composition file.
 

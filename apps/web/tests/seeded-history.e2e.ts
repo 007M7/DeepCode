@@ -102,7 +102,7 @@ function withCompaction(raw: string, meter: TokenMeterService): string {
   })
   // Load-bearing exactness: the projections subtract this count verbatim, so
   // it must equal what the host's fold prices for these nodes. The estimator
-  // prices message CONTENT only, so a minimal wrapper per storage shape is
+  // prices message CONTENT only, so a minimal wrapper for each stored event format is
   // exact — pre-identity rows carry bare `content` (the persistence read path
   // upgrades them), a current row carries the full `message` envelope.
   const priceRow = (row: (typeof events)[number]): number => {
@@ -169,7 +169,7 @@ function withCompaction(raw: string, meter: TokenMeterService): string {
     },
   })
   // The persistence seed helper requires a terminal turn/end. Keep the manual
-  // command standalone, then add a closed zero-step fixture boundary after it.
+  // command standalone, then add a closed zero-step turn after it.
   const closureTurn = lastTurn + 1
   at({ type: 'turn/start', data: { turn: closureTurn } })
   at({ type: 'turn/end', data: { turn: closureTurn, reason: { kind: 'completed' } } })

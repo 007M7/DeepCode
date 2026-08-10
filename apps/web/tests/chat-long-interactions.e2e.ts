@@ -186,7 +186,7 @@ describe('web e2e: long Chat interaction contract', () => {
     const boundary = source.session.events.find((event): event is SessionEvent<'turn/end'> => (
       event.type === 'turn/end' && event.data.turn === BRANCH_TURN
     ))
-    if (boundary === undefined) throw new Error(`turn ${String(BRANCH_TURN)} has no completed boundary`)
+    if (boundary === undefined) throw new Error(`turn ${String(BRANCH_TURN)} has no turn/end event`)
     const expectedUserText = textContent(branchUserEvent.data.content)
 
     await wheelUntilMounted(page, `[data-chat-call-id="${TARGET_CALL_2}"]`, -1_100)
