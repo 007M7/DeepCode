@@ -1,6 +1,7 @@
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve, sep } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
@@ -559,9 +560,12 @@ describe('boot', () => {
 
   it('can resolve bare plugins from the harness when the config project shadows their package name', async () => {
     const dir = tmp()
+    const harness = tmp()
     const absolutePlugin = join(dir, 'absolute.mjs')
     const shadow = join(dir, 'node_modules', '@deepseek-ai', 'dsh-system-prompt')
+    const harnessPlugin = join(harness, 'node_modules', '@deepseek-ai', 'dsh-system-prompt')
     mkdirSync(shadow, { recursive: true })
+    mkdirSync(harnessPlugin, { recursive: true })
     writeFileSync(join(shadow, 'package.json'), JSON.stringify({
       name: '@deepseek-ai/dsh-system-prompt',
       type: 'module',
@@ -570,6 +574,17 @@ describe('boot', () => {
     writeFileSync(join(shadow, 'index.mjs'), [
       'export function apply(ctx) {',
       '  ctx.provide("shadowPluginLoaded", true)',
+      '}',
+      '',
+    ].join('\n'))
+    writeFileSync(join(harnessPlugin, 'package.json'), JSON.stringify({
+      name: '@deepseek-ai/dsh-system-prompt',
+      type: 'module',
+      exports: './index.mjs',
+    }))
+    writeFileSync(join(harnessPlugin, 'index.mjs'), [
+      'export function apply(ctx) {',
+      '  ctx.provide("harnessPluginLoaded", true)',
       '}',
       '',
     ].join('\n'))
@@ -593,9 +608,10 @@ describe('boot', () => {
     } finally {
       await configOwned.fiber.dispose()
     }
-    const ctx = await boot(NAME, join(dir, 'cordis.yml'), undefined, undefined, import.meta.url)
+    const harnessBaseUrl = pathToFileURL(join(harness, 'entry.mjs')).href
+    const ctx = await boot(NAME, join(dir, 'cordis.yml'), undefined, undefined, harnessBaseUrl)
     try {
-      expect(ctx.get('systemPrompt')).toBeDefined()
+      expect(ctx.get('harnessPluginLoaded')).toBe(true)
       expect(ctx.get('shadowPluginLoaded')).toBeUndefined()
       expect(ctx.get('relativePluginLoaded')).toBe(true)
       expect(ctx.get('absolutePluginLoaded')).toBe(true)
