@@ -123,7 +123,7 @@
       inject: [webStartup]
       disabled: true
 
-    # ── browser plugin roster (dshClient rows; node halves are layer-2 hosts) ──
+    # ── browser plugin roster (dsh.client rows; node halves are layer-2 hosts) ──
 
     # Dual-face: this waits for the runtime row to decide whether HMR belongs
     # in the first graph. The node half then scans this tree, composes
