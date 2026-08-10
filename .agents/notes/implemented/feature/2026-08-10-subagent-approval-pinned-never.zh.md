@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-被委派的子 agent 发起审批请求时无人可问。在交互式父级（`'ask'`）之下，后台子 agent 的升级请求会变成一个任何产品界面都不展示的挂起问题——subagent 会话不进入 Web 侧边栏，父级的 `list_agents` 只报告普通的 `running`／`idle`，目录树的行也只显示活动状态——因此被权限拦住的子 agent 与正常干活的子 agent 无法区分；headless 与无应答者的组合则让同一次 ask 以 `'unavailable'` 失败关闭。拒绝的审计记录只落在子 agent 自己的日志里，而且没有任何工具参数或 Web 控件能调整一个正在运行的子会话的沙箱模式或审批策略（[deepseek-harness#1723](https://github.com/deepseek-harness/deepseek-harness/issues/1723)）。机制繁重的修复方案——持久化的受阻状态投影、父级通知、目录树徽标，以及穿过 subagent 所有权围栏的权限写入路径——在临近发布时代价不成比例。
+被委派的子 agent 发起审批请求时无人可问。在交互式父级（`'ask'`）之下，后台子 agent 的升级请求会变成一个任何产品界面都不展示的挂起问题——subagent 会话不进入 Web 侧边栏，父级的 `list_agents` 只报告普通的 `running`／`idle`，目录树的行也只显示活动状态——因此被权限拦住的子 agent 与正常干活的子 agent 无法区分；headless 与无应答者的组合则让同一次 ask 以 `'unavailable'` 失败关闭。拒绝的审计记录只落在子 agent 自己的日志里，而且没有任何工具参数或 Web 控件能调整一个正在运行的子会话的沙箱模式或审批策略（Issue #1723）。机制繁重的修复方案——持久化的受阻状态投影、父级通知、目录树徽标，以及穿过 subagent 所有权围栏的权限写入路径——在临近发布时代价不成比例。
 
 ## 决策
 
