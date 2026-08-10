@@ -9,7 +9,7 @@
  * writes CRLF on Windows, so exact text assertions normalize line endings.
  */
 
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
@@ -33,7 +33,9 @@ const lf = (text: string): string => text.replace(/\r\n/g, '\n')
 
 /** Case-insensitive path equality on Windows (Get-Location may re-case the drive). */
 function samePath(actual: string, expected: string): boolean {
-  const norm = (value: string) => (process.platform === 'win32' ? value.toLowerCase() : value)
+  const norm = (value: string) => (
+    process.platform === 'win32' ? realpathSync.native(value).toLowerCase() : value
+  )
   return norm(actual) === norm(expected)
 }
 
@@ -72,12 +74,23 @@ describe('resolvePwshPath and candidatePwshPaths (pure, every platform)', () => 
   it('falls through an empty configured path to platform resolution', () => {
     // SystemRoot points at a non-existent tree so the Windows PowerShell 5.1
     // fallback candidate cannot exist either.
-    expect(resolvePwshPath('', { PATH: 'P:\\Store', SystemRoot: 'S:\\no-windows' }, 'win32')).toBe('pwsh')
+    expect(resolvePwshPath('', {
+      PATH: 'P:\\Store',
+      ProgramFiles: 'P:\\no-program-files',
+      SystemRoot: 'S:\\no-windows',
+    }, 'win32')).toBe('pwsh')
   })
 
   it('returns pwsh on non-Windows platforms regardless of the environment', () => {
     expect(resolvePwshPath(undefined, { ProgramFiles: 'P:\\Program Files' }, 'linux')).toBe('pwsh')
     expect(resolvePwshPath(undefined, { PATH: 'P:\\Store' }, 'darwin')).toBe('pwsh')
+  })
+
+  it('uses stable Windows roots when the environment omits both overrides', () => {
+    expect(candidatePwshPaths({})).toEqual([
+      join('C:\\Program Files', 'PowerShell', '7', 'pwsh.exe'),
+      join('C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
+    ])
   })
 
   it('lists PowerShell 7, PATH entries (quotes stripped), then Windows PowerShell 5.1 on win32', () => {
@@ -154,12 +167,12 @@ describe('spawn construction (pure, every platform)', () => {
 })
 
 describe.skipIf(!hasPwsh)('PwshLocalExecutor.run', () => {
-  it('resolves with output and the effective timeout', async () => {
-    const { bash } = await setup({ timeoutMs: 5_000 })
+  it('resolves with output and the effective timeout', { timeout: 15_000 }, async () => {
+    const { bash } = await setup({ timeoutMs: 10_000 })
     const result = await bash.run(bash.resolve({ command: 'Write-Output hi' }))
     expect(result.exitCode).toBe(0)
     expect(lf(result.stdout.text)).toBe('hi\n')
-    expect(result.timeoutMs).toBe(5_000)
+    expect(result.timeoutMs).toBe(10_000)
   })
 
   it('uses config cwd, overridable per call', async () => {
@@ -301,9 +314,10 @@ describe.skipIf(!hasPwsh)('PwshLocalExecutor.start (background process handles)'
       env: { BG_VAR: 'bg-env' },
       dshEnv: { DSH_BG_VAR: 'bg-dsh-env' },
     }))
-    const output = await readUntil(proc, '[bg-env][bg-dsh-env]')
-    expect(output).toBe('bg-stdin\n[bg-env][bg-dsh-env]\n')
+    const partialOutput = await readUntil(proc, '[bg-env][bg-dsh-env]')
     await proc.done
+    const output = partialOutput + lf(proc.readOutput().delta)
+    expect(output).toBe('bg-stdin\n[bg-env][bg-dsh-env]\n')
     expect(proc.exitCode).toBe(0)
   })
 

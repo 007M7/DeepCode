@@ -18,6 +18,11 @@ import { WorkspaceTypertGenerator } from '../src/workspace.ts'
 
 const fixtureRoot = resolve(import.meta.dirname, 'fixtures/type-model')
 const temporaryRoots: string[] = []
+
+function normalizedPath(path: string): string {
+  return path.replaceAll('\\', '/')
+}
+
 const parseConfigHost: ts.ParseConfigFileHost = {
   ...ts.sys,
   onUnRecoverableConfigFileDiagnostic(diagnostic) {
@@ -733,8 +738,8 @@ describe('WorkspaceAnalyzer', { timeout: 60_000 }, () => {
       rootNames: packageConfig.fileNames,
       options: aggregateConfig.options,
     })
-    expect(diagnosticProgram.getSourceFiles().map(source => source.fileName))
-      .toContain(join(externalRoot, 'index.d.ts'))
+    expect(diagnosticProgram.getSourceFiles().map(source => normalizedPath(source.fileName)))
+      .toContain(normalizedPath(join(externalRoot, 'index.d.ts')))
 
     const targets = new WorkspaceAnalyzer({ root }).analyze().faces
       .flatMap(face => face.graph.nodes)

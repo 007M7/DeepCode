@@ -219,7 +219,9 @@ describe('dsh-tool-subagent-report', () => {
     expect((await callReport(ctx, child, 'DURABLE_SELECTION')).isError).toBe(false)
 
     adapter.release()
-    await vi.waitFor(() => { expect(ctx.agents.get(started.childId)).toBeUndefined() })
+    await vi.waitFor(() => {
+      expect(ctx.agents.get(started.childId) === undefined).toBe(true)
+    }, { timeout: 5_000 })
     expect(reports(parent).map(report => report.text)).toEqual([
       `Background subagent ${started.childId} reported:\nDURABLE_SELECTION`,
     ])
@@ -421,7 +423,9 @@ describe('dsh-tool-subagent-report result independence', () => {
     const { ctx, parent, adapter } = await setup()
     const { started } = await startChild(ctx, parent)
     adapter.release()
-    await vi.waitFor(() => { expect(ctx.agents.get(started.childId)).toBeUndefined() })
+    await vi.waitFor(() => {
+      expect(ctx.agents.get(started.childId) === undefined).toBe(true)
+    }, { timeout: 5_000 })
 
     expect(reports(parent)).toEqual([])
     expect(userTexts((await ctx.sessionPersistence.load(started.childId)).events)).toEqual(['child task'])

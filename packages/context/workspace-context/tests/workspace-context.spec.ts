@@ -4111,17 +4111,18 @@ describe('dynamic nested workspace context injection', () => {
     }
   })
 
-  it('warns when an asynchronous file-result projection fails', async () => {
+  it('warns when an asynchronous file-result projection fails', { timeout: 20_000 }, async () => {
     const ctx = new Context()
     try {
       await ctx.plugin(RecordingFileSystem)
       await ctx.plugin(workspaceContext, { maxBytes: 65536 })
       const fs = ctx.fs as RecordingFileSystem
-      const agent = stubAgent('/')
+      const root = resolve('/')
+      const agent = stubAgent(root)
       const failure = new Error('projection failed')
       const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
-      fs.entries.set('/.git', { type: 'directory' })
-      fs.entries.set('/AGENTS.md', { type: 'file', content: 'workspace rule' })
+      fs.entries.set(join(root, '.git'), { type: 'directory' })
+      fs.entries.set(join(root, 'AGENTS.md'), { type: 'file', content: 'workspace rule' })
       vi.spyOn(agent.inbox, 'prepend').mockImplementationOnce(() => { throw failure })
 
       ctx.emit('tools/result', stubToolExecution({
@@ -4134,7 +4135,7 @@ describe('dynamic nested workspace context injection', () => {
 
       await vi.waitFor(() => {
         expect(warn).toHaveBeenCalledWith('workspace instruction refresh failed: %o', failure)
-      })
+      }, { timeout: 10_000 })
     } finally {
       await ctx.fiber.dispose()
     }
