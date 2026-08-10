@@ -144,8 +144,8 @@ function startProfileLifecycle(fixture: ProfileLifecycleFixture) {
 }
 
 function requestProfileShutdown(
-  child: ReturnType<typeof startProfileLifecycle>,
-  fixture: ProfileLifecycleFixture,
+  child: Pick<ReturnType<typeof startProfileLifecycle>, 'kill'>,
+  fixture: Pick<ProfileLifecycleFixture, 'interrupt'>,
 ): void {
   if (process.platform === 'win32') {
     writeFileSync(fixture.interrupt, 'interrupt')
@@ -197,6 +197,7 @@ interface StartupFixture {
   home: string
   ready: string
   echo: string
+  interrupt: string
   /** An always-running row's echo, used to observe that a user patch reload landed. */
   witness: string
 }
@@ -228,11 +229,16 @@ function createStartupFixture(): StartupFixture {
     '',
   ].join('\n'))
   writeFileSync(join(bundleDir, 'waiting.mjs'), [
-    "import { writeFileSync } from 'node:fs'",
+    "import { existsSync, writeFileSync } from 'node:fs'",
     "import { join } from 'node:path'",
     "export const name = 'startup-fixture'",
     'export function apply(ctx, config = {}) {',
-    '  const heartbeat = setInterval(() => {}, 1000)',
+    '  let interrupted = false',
+    '  const heartbeat = setInterval(() => {',
+    '    if (interrupted || !existsSync(process.env.RAW_INTERRUPT_FILE)) return',
+    '    interrupted = true',
+    "    process.emit('SIGTERM')",
+    '  }, 20)',
     "  writeFileSync(join(process.env.DSH_HOME, 'config-echo'), String(config.generation ?? 'bundle-default'))",
     "  writeFileSync(process.env.RAW_READY_FILE, 'ready')",
     '  ctx.effect(() => () => { clearInterval(heartbeat) })',
@@ -276,7 +282,13 @@ function createStartupFixture(): StartupFixture {
     dsh: { profile: { bundles: ['dsh-startup-bundle'] } },
   }, undefined, 2))
   writeFileSync(join(profileDir, 'cordis.patch.yml'), '[]\n')
-  return { home, ready: join(home, 'ready'), echo: join(home, 'config-echo'), witness: join(home, 'witness') }
+  return {
+    home,
+    ready: join(home, 'ready'),
+    echo: join(home, 'config-echo'),
+    interrupt: join(home, 'interrupt'),
+    witness: join(home, 'witness'),
+  }
 }
 
 function startStartupProfile(fixture: StartupFixture, args: readonly string[]) {
@@ -286,7 +298,11 @@ function startStartupProfile(fixture: StartupFixture, args: readonly string[]) {
     reject: false,
     timeout: 25_000,
     killSignal: 'SIGKILL',
-    env: { DSH_HOME: fixture.home, RAW_READY_FILE: fixture.ready },
+    env: {
+      DSH_HOME: fixture.home,
+      RAW_READY_FILE: fixture.ready,
+      RAW_INTERRUPT_FILE: fixture.interrupt,
+    },
   })
 }
 
@@ -538,7 +554,7 @@ describe.skipIf(!existsSync(dshBin))('dsh BUILT bin (node lib/bin.js, no tsx)', 
       // The waiting row started once, already carrying the flag value: the
       // launcher never saw --generation, and the app resolved it first.
       expect(readFileSync(fixture.echo, 'utf8')).toBe('flagged')
-      child.kill('SIGTERM')
+      requestProfileShutdown(child, fixture)
       expect((await child).exitCode).toBe(0)
     } finally {
       child.kill('SIGKILL')
@@ -552,7 +568,7 @@ describe.skipIf(!existsSync(dshBin))('dsh BUILT bin (node lib/bin.js, no tsx)', 
     try {
       await waitForFile(fixture.ready)
       expect(readFileSync(fixture.echo, 'utf8')).toBe('bundle-default')
-      child.kill('SIGTERM')
+      requestProfileShutdown(child, fixture)
       expect((await child).exitCode).toBe(0)
     } finally {
       child.kill('SIGKILL')
@@ -586,7 +602,7 @@ describe.skipIf(!existsSync(dshBin))('dsh BUILT bin (node lib/bin.js, no tsx)', 
       await waitForFile(fixture.witness)
       expect(readFileSync(fixture.witness, 'utf8')).toBe('reloaded')
       expect(readFileSync(fixture.echo, 'utf8')).toBe('flagged')
-      child.kill('SIGTERM')
+      requestProfileShutdown(child, fixture)
       expect((await child).exitCode).toBe(0)
     } finally {
       child.kill('SIGKILL')
