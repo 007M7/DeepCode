@@ -460,6 +460,7 @@ export const FOUNDATION_TYPE_NAMES: ReadonlySet<string> = new Set([
   'Promise',
   'Record',
   'Readonly',
+  'Uint8Array',
 ])
 
 /** Project types deliberately documented outside the subsystems catalog. */
