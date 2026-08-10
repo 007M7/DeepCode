@@ -238,23 +238,21 @@ export class LocalTaskService extends TaskService {
   }
 
   onTaskDone(listener: TaskDoneListener): () => void {
-    const dispose = this.layers.effect(
+    return this.layers.effect(
       this.ctx,
       layer => layer.listeners.append(listener),
       { label: 'tasks.onTaskDone()' },
     )
-    return () => void dispose()
   }
 
   attachSurface(name: string): () => void {
     // One token per call keeps duplicate labels independently disposable.
     const token = Symbol(name)
-    const dispose = this.layers.effect(
+    return this.layers.effect(
       this.ctx,
       layer => layer.surfaces.append(token),
       { label: 'tasks.attachSurface()' },
     )
-    return () => void dispose()
   }
 
   /**

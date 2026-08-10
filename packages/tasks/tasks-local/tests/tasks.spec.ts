@@ -805,6 +805,30 @@ describe('LocalTaskService disposal', () => {
     expect(ownerEffects()).toHaveLength(0)
   })
 
+  it('drops a scoped layer when its registrations dispose', async () => {
+    const ctx = new Context()
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(LocalTaskService)
+    const standing = createScope(ctx, {})
+    // One mount contributes both kinds into the same layer, as `tool-tasks`
+    // does; unloading it must leave nothing serving the agents that joined it.
+    const mount = await standing.ctx.plugin({
+      inject: ['tasks'],
+      apply(pluginCtx: Context) {
+        pluginCtx.tasks.attachSurface('tool-tasks')
+        pluginCtx.tasks.onTaskDone(() => {})
+      },
+    })
+    const owner = stubAgent(ctx, 'joined', scopeOf(standing.ctx))
+    ctx.agents.register(owner)
+    expect(() => ctx.tasks.start(producer({ owner }).spec)).not.toThrow()
+
+    await mount.dispose()
+
+    expect(() => ctx.tasks.start(producer({ owner }).spec))
+      .toThrow('no control surface serves this agent')
+  })
+
   it('detaching the last surface re-arms the register fence', async () => {
     const ctx = new Context()
     await ctx.plugin(LocalTaskService)
