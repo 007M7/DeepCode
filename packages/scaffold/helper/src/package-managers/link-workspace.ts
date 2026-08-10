@@ -134,4 +134,37 @@ export class LinkWorkspace {
       ? resolve(dirname(directory), directory.split(sep).at(-1) as string)
       : undefined
   }
+
+  /**
+   * Rewrite one nested generated manifest's local dependencies to live-link specs.
+   *
+   * A generated workspace member resolves its own dependencies, so every local
+   * name it declares must point into this repository as well: none of them —
+   * the harness packages or the rescoped framework — exists on a public
+   * registry, so a semver spec there fails the install outright.
+   * `peerDependencies` keeps its range because a peer states what the consumer
+   * must supply, and package managers reject a link spec in that section.
+   * @param projectRoot - Absolute root of the generated project.
+   * @param manifestPath - The nested manifest's project-relative POSIX path.
+   * @param text - The nested manifest's complete current text.
+   * @param manager - Package manager whose link-spec form applies.
+   * @returns The manifest text with every resolved local dependency relinked.
+   */
+  relinkNestedManifest(projectRoot: string, manifestPath: string, text: string, manager: PackageManager): string {
+    const manifest = JSON.parse(text) as Record<string, unknown>
+    const manifestDirectory = resolve(canonicalPath(projectRoot), dirname(manifestPath))
+    let changed = false
+    for (const section of ['dependencies', 'devDependencies', 'optionalDependencies']) {
+      const dependencies = manifest[section]
+      if (typeof dependencies !== 'object' || dependencies === null) continue
+      for (const [name] of Object.entries(dependencies as Record<string, string>)) {
+        const pkg = this.packages.get(name)
+        if (!pkg) continue
+        const relativePath = posixPath(relative(manifestDirectory, realpathSync(pkg.directory)))
+        ;(dependencies as Record<string, string>)[name] = manager.linkSpec(relativePath)
+        changed = true
+      }
+    }
+    return changed ? `${JSON.stringify(manifest, null, 2)}\n` : text
+  }
 }

@@ -698,14 +698,24 @@ describe('SdkProject and ProjectEditSession', () => {
   it('does not mistake a linked NPM dependency closure for an installed feature', async () => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-link-closure-inspection-'))
     temporary.push(root)
-    const base = request([selection('hooks', ['claude'])])
+    const base = request([selection('hooks', ['claude'])], [new LocalPluginBlueprint('probe', 'plugin')])
     const creation: ProjectCreationRequest = { ...base, linkWorkspaceRoot: repoRoot }
     const project = SdkProject.create(root, creation)
     const registry = createBuiltinRegistry(project.profile)
     const edit = project.edit(registry)
     for (const item of creation.features) edit.installFeature(registry.get(item.id), item)
+    for (const blueprint of creation.localPlugins) edit.addPlugin(blueprint)
     const committed = (await edit.commit()).project
     expect(committed.packageManifest().dependencies?.['@deepseek-ai/dsh-subagent']).toMatch(/^file:/)
+    // A generated workspace member resolves its own dependencies, so its manifest links too.
+    const plugin = JSON.parse(await readFile(join(root, 'plugins/probe/package.json'), 'utf8')) as {
+      devDependencies?: Record<string, string>
+      peerDependencies?: Record<string, string>
+    }
+    // Asserted by shape, not by the framework's name: what matters is that the
+    // resolved section links into this repository while the peer keeps its range.
+    expect(Object.values(plugin.devDependencies ?? {}).every(spec => spec.startsWith('file:'))).toBe(true)
+    expect(Object.values(plugin.peerDependencies ?? {}).some(spec => spec.startsWith('^'))).toBe(true)
     expect(createBuiltinRegistry(committed.profile).get(featureId('subagent')).inspect(committed).state).toBe('absent')
   })
 

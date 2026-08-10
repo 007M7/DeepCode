@@ -371,6 +371,27 @@ describe('package manager strategies', () => {
     expect(workspace.packageDirectory('cordis')).toBe(join(root, 'vendor', 'cordis'))
     expect(await readFile(join(root, 'vendor', 'cordis', 'package.json'), 'utf8')).toContain('cordis')
     expect(workspace.packageDirectory('missing')).toBeUndefined()
+    // A generated workspace member resolves its own dependencies: every local name it
+    // declares relinks, while a peer keeps the range package managers require there.
+    const nested = workspace.relinkNestedManifest(join(root, 'consumer'), 'plugins/probe/package.json', `${JSON.stringify({
+      name: 'probe',
+      dependencies: { '@deepseek-ai/dsh-helper': '^0.0.1', 'left-pad': '^1' },
+      peerDependencies: { '@deepseek-ai/dsh-scripts': '^0.0.1' },
+      devDependencies: { '@deepseek-ai/dsh-scripts': '^0.0.1' },
+    }, null, 2)}\n`, new PnpmPackageManager('10.0.0'))
+    const nestedManifest = JSON.parse(nested) as {
+      dependencies: Record<string, string>
+      peerDependencies: Record<string, string>
+      devDependencies: Record<string, string>
+    }
+    expect(nestedManifest.dependencies['@deepseek-ai/dsh-helper']).toMatch(/^link:\.\.\/\.\.\//)
+    expect(nestedManifest.dependencies['left-pad']).toBe('^1')
+    expect(nestedManifest.devDependencies['@deepseek-ai/dsh-scripts']).toMatch(/^link:\.\.\/\.\.\//)
+    expect(nestedManifest.peerDependencies['@deepseek-ai/dsh-scripts']).toBe('^0.0.1')
+    // Nothing local to relink, and a non-object section, leave the text byte-identical.
+    const untouched = `${JSON.stringify({ name: 'probe', dependencies: { 'left-pad': '^1' }, devDependencies: null }, null, 2)}\n`
+    expect(workspace.relinkNestedManifest(join(root, 'consumer'), 'plugins/probe/package.json', untouched, new PnpmPackageManager('10.0.0')))
+      .toBe(untouched)
     const yarnManifest = PackageJsonFile.create('{"name":"consumer"}')
     yarnManifest.setNpmDependency('dependencies', '@deepseek-ai/dsh-scripts', '^0.0.1')
     workspace.apply(join(root, 'consumer-yarn'), yarnManifest, new YarnPackageManager('4.0.0'), [])
