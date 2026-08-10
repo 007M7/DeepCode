@@ -187,8 +187,8 @@ describe('web e2e: seeded history renders through cold resume', () => {
     scaffold = await launchWebScaffold({})
     // The workspace-aware flow runs sessions in <workspaceCwd>/workspace
     // (the composer's default draft name); the read-tool targets must live in
-    // that session cwd. Pre-creating the directory is safe: create-by-name
-    // adopts an existing directory.
+    // that session cwd. Pre-creating the directory is safe because the picker
+    // adopts an existing directory by path.
     const sessionCwd = join(scaffold.workspaceCwd, 'workspace')
     await mkdir(sessionCwd, { recursive: true })
     await writeFile(join(sessionCwd, 'a.txt'), 'alpha\n')
