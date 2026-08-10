@@ -3,15 +3,17 @@ import { mkdir, mkdtemp, readFile, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import { boot, healProfilesModuleFallback, loadOverlayPatches } from '@deepseek-ai/dsh-app-boot'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import type { PatchOptions } from '@cordisjs/plugin-include'
+import type { PatchOptions } from '@deepseek-ai/cordis-plugin-include'
 import { beforeAll, describe, expect, it } from 'vitest'
 import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { resolveSessionPreset, SETTINGS_NAMESPACE } from '@deepseek-ai/dsh-agent-presets'
+import { applyChildComposition, childSessionMeta } from '@deepseek-ai/dsh-subagent'
 import { CallId } from '@deepseek-ai/dsh-llm'
+import type { BasicCompactService } from '@deepseek-ai/dsh-compact-basic'
 import type {} from '@deepseek-ai/dsh-skill'
 import type {} from '@deepseek-ai/dsh-tools'
 
@@ -22,6 +24,15 @@ const BASE_PATCH = join(REPO_ROOT, 'packages/bundle/base/cordis.patch.yml')
 const WEB_PATCH = join(REPO_ROOT, 'packages/bundle/web-app/cordis.patch.yml')
 /** The installation anchor whose dependency surface the preset module fallback mirrors. */
 const INSTALL_ANCHOR = join(REPO_ROOT, 'apps/cli/package.json')
+const MINIMAL_PROMPT = 'You are a helpful software engineer assistant.'
+const MINIMAL_BASH_DESCRIPTION = `Run commands in a bash shell
+* When invoking this tool, the contents of the "command" parameter does NOT need to be XML-escaped.
+* You don't have access to the internet via this tool.
+* You do have access to a mirror of common linux and python packages via apt and pip.
+* State is persistent across command calls and discussions with the user.
+* To inspect a particular line range of a file, e.g. lines 10-25, try 'sed -n 10,25p /path/to/the/file'.
+* Please avoid commands that may produce a very large amount of output.
+* Please run long lived commands in the background, e.g. 'sleep 10 &' or start a server in the background.`
 
 /**
  * Boot the shipped Web composition, minus the rows that would bind a port,
@@ -134,7 +145,7 @@ describe('the shipped Web composition', () => {
       expect(toolNames(ctx, handle.agent).filter(name => name !== 'glob' && name !== 'grep')).toEqual([
         'ask_user_question', 'bash', 'create_goal', 'edit', 'exit_plan_mode',
         'get_goal', 'interrupt_agent', 'list_agents', 'ralph', 'read', 'send_message', 'skill',
-        'str_replace_editor', 'subagent', 'subagent_fork', 'task_kill',
+        'subagent', 'subagent_fork', 'task_kill',
         'task_list', 'task_output', 'todo_write', 'update_goal', 'web_search',
         'workflow', 'write',
       ])
@@ -143,14 +154,30 @@ describe('the shipped Web composition', () => {
     }
   })
 
-  it('composes exactly two tools from `minimal`', async () => {
+  it('composes the exact RL prompt and two tools from `minimal`', async () => {
     const handle = await ctx.agents.create({
       sessionId: SessionId('preset-minimal'),
       setup: agentCtx => ctx.agentPresets.mount(agentCtx, 'minimal').then(() => undefined),
     })
     try {
-      // Exactly what the preset lists — nothing arrives from the host.
-      expect(toolNames(ctx, handle.agent)).toEqual(['bash', 'str_replace_editor'])
+      const assembly = await ctx.systemPrompt.assemble({ scope: handle.agent })
+      expect(assembly.sections).toEqual([
+        { name: 'deployment:persona', text: MINIMAL_PROMPT },
+      ])
+      expect(assembly.tools.map(tool => tool.name)).toEqual(['bash', 'str_replace_editor'])
+      expect(assembly.tools.find(tool => tool.name === 'bash')?.description).toBe(MINIMAL_BASH_DESCRIPTION)
+      expect(JSON.stringify(assembly.tools.find(tool => tool.name === 'str_replace_editor')?.parameters))
+        .toContain('Absolute path')
+      const compact = ctx.agentPresets.serviceFor(handle.agent, 'compact')
+      expect(compact).toBeDefined()
+      expect((compact as BasicCompactService).config).toMatchObject({
+        thresholdRatio: 0.8,
+        retainTokens: 20480,
+        summarizationProvider: '',
+        summarizationModel: '',
+        maxTokens: 8192,
+        compactionRetries: 1,
+      })
     } finally {
       await handle.dispose()
     }
@@ -190,6 +217,7 @@ describe('the shipped Web composition', () => {
       expect(tools).toEqual(expect.arrayContaining(['cordis_inspect', 'cordis_mount', 'cordis_unmount']))
       // And it keeps the standard agent's own tools rather than replacing them.
       expect(tools).toEqual(expect.arrayContaining(['bash', 'read', 'edit', 'skill']))
+      expect(tools).not.toContain('str_replace_editor')
 
       // The preset's own authoring skill registers into ITS layer of the host
       // registry: the cordis agent's view carries it, the global view does not.
@@ -216,9 +244,9 @@ describe('the shipped Web composition', () => {
       // the capabilities — so the assembly is what carries the claim.
       const assembly = await ctx.systemPrompt.assemble({ scope: coded.agent })
       expect(assembly.tools.map(tool => tool.name)).toEqual(['run_code'])
-      expect(toolNames(ctx, coded.agent)).toContain('str_replace_editor')
+      expect(toolNames(ctx, coded.agent)).not.toContain('str_replace_editor')
       const sdk = assembly.sections.find(section => section.name === 'tools:sdk')?.text ?? ''
-      expect(sdk).toContain('str_replace_editor')
+      expect(sdk).not.toContain('str_replace_editor')
       expect(sdk).toContain('web_search')
 
       // The presentation is this agent's alone: the deployment default is
@@ -339,20 +367,6 @@ describe('the shipped Web composition', () => {
 
     expect(await readFile(path, 'utf8')).toBe(before)
   })
-
-  it('gives each session its own persona', async () => {
-    const handle = await ctx.agents.create({
-      sessionId: SessionId('preset-persona'),
-      setup: agentCtx => ctx.agentPresets.mount(agentCtx, 'minimal').then(() => undefined),
-    })
-    try {
-      const assembly = await ctx.systemPrompt.assemble({ scope: handle.agent })
-      expect(assembly.sections.find(section => section.name === 'deployment:persona')?.text)
-        .toContain('You are a coding agent powered by')
-    } finally {
-      await handle.dispose()
-    }
-  })
 })
 
 describe('a switch survives the session', () => {
@@ -415,6 +429,59 @@ describe('a forked session', () => {
       // for free any more.
       expect(toolNames(ctx, child.agent)).toEqual(toolNames(ctx, parent.agent))
       expect(toolNames(ctx, child.agent).length).toBeGreaterThan(0)
+    } finally {
+      await child.dispose()
+      await parent.dispose()
+    }
+  })
+})
+
+describe('a delegated child', () => {
+  it('runs on the composition its parent runs on', async () => {
+    const parent = await ctx.agents.create({
+      sessionId: SessionId('preset-child-parent'),
+      meta: { agentPreset: 'standard' },
+      setup: agentCtx => ctx.agentPresets.mount(agentCtx, 'standard').then(() => undefined),
+    })
+    // Exactly what an in-process subagent driver's creation window does.
+    const child = await parent.agent.ctx.agents.create({
+      sessionId: SessionId('preset-child'),
+      meta: childSessionMeta(parent.agent, 1, 0),
+      setup: (agentCtx) => {
+        applyChildComposition(agentCtx, parent.agent, {})
+      },
+    })
+    try {
+      expect(toolNames(ctx, child.agent)).toEqual(toolNames(ctx, parent.agent))
+      // The shipped `standard` preset is the whole coding agent; an empty
+      // child here is the defect, and equality alone would not catch it.
+      expect(toolNames(ctx, child.agent)).toContain('bash')
+      expect(child.agent.session.header.agentPreset).toBe('standard')
+    } finally {
+      await child.dispose()
+      await parent.dispose()
+    }
+  })
+
+  it('follows a parent that switched preset while blank', async () => {
+    const parent = await ctx.agents.create({
+      sessionId: SessionId('preset-child-switch-parent'),
+      meta: { agentPreset: 'standard' },
+      setup: agentCtx => ctx.agentPresets.mount(agentCtx, 'standard').then(() => undefined),
+    })
+    await ctx.agentPresets.recompose(parent.agent.ctx, 'minimal')
+    const child = await parent.agent.ctx.agents.create({
+      sessionId: SessionId('preset-child-switch'),
+      meta: childSessionMeta(parent.agent, 1, 0),
+      setup: (agentCtx) => {
+        applyChildComposition(agentCtx, parent.agent, {})
+      },
+    })
+    try {
+      // The live scope chain is the authority, not the parent's creation
+      // header — which still names `standard`.
+      expect(toolNames(ctx, child.agent)).toEqual(toolNames(ctx, parent.agent))
+      expect(child.agent.session.header.agentPreset).toBe('minimal')
     } finally {
       await child.dispose()
       await parent.dispose()

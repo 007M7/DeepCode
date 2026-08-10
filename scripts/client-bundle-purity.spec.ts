@@ -97,9 +97,9 @@ describe('client bundle purity gate', () => {
 
   it('carries exactly one documented temporary exemption: runtime/client (store engine pending rehoming)', () => {
     expect(resolveId('@deepseek-ai/dsh-client-runtime/client')).toBeNull()
-    const dshClientChannels = CLIENT_EXTERNALS.filter(
+    const clientChannels = CLIENT_EXTERNALS.filter(
       entry => entry.startsWith('@deepseek-ai/') && entry.endsWith('/client'))
-    expect(dshClientChannels).toEqual(['@deepseek-ai/dsh-client-runtime/client'])
+    expect(clientChannels).toEqual(['@deepseek-ai/dsh-client-runtime/client'])
   })
 })
 

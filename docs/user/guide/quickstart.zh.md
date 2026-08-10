@@ -57,6 +57,7 @@ pnpm run dsh web
 
 ## 下一步
 
+- [Python SDK 快速上手](./python-sdk.md) — 安装 SDK，并在不使用 Web UI 的情况下运行完整 Cordis 配置
 - [配置模型](./providers.md) — 接入 DeepSeek 之外的提供方与自定义网关
 - [配置文件](./config.md) — 了解 `cordis.yml` 的格式
 - [开发插件](../develop/basic/) — 编写自己的工具或后端

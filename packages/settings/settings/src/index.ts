@@ -6,8 +6,8 @@
  * @module @deepseek-ai/dsh-settings
  */
 
-import { Context, Service } from 'cordis'
-import type z from 'schemastery'
+import { Context, Service } from '@deepseek-ai/cordis'
+import type z from '@deepseek-ai/schemastery'
 import type { Branded } from '@deepseek-ai/dsh-brand'
 import { redactSecrets } from './redact.ts'
 import type { RedactedSecret } from './redact.ts'
@@ -133,7 +133,7 @@ export interface SettingsScope<T> {
   replace(section: object): Promise<void>
 }
 
-declare module 'cordis' {
+declare module '@deepseek-ai/cordis' {
   interface Context {
     settings: Settings
   }

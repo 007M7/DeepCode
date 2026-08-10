@@ -24,7 +24,7 @@ The composition moves with it: the web-app bundle re-enables the base `skill` re
 
 **A deployment-level skill reaches every preset-composed session that mounts `tool-skill`.** The repository-plugin e2e's skill root and assertions are restored; the shipped-Web e2e proves the badge row (the same host-registration shape) merges into a standard-preset agent's catalog while the host view stays global-only.
 
-**Layer visibility and consumption stay separate choices.** A core-web agent can read the global layer in principle, but composes no `skill` tool — whether an agent has skills at all remains the preset's decision, made by mounting or omitting `tool-skill`.
+**Layer visibility and consumption stay separate choices.** A `minimal` agent can read the global layer in principle, but composes no `skill` tool — whether an agent has skills at all remains the preset's decision, made by mounting or omitting `tool-skill`.
 
 **Provider options are still the borrowed caller object.** `SkillViewOptions` extends `SkillLookupOptions`; the registry consumes `scope` and providers read only their own contract from the same readonly object, preserving the existing borrow-identity guarantee.
 

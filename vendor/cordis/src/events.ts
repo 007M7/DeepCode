@@ -1,5 +1,5 @@
-import { defineProperty } from 'cosmokit'
-import type { Promisify } from 'cosmokit'
+import { defineProperty } from '@deepseek-ai/cosmokit'
+import type { Promisify } from '@deepseek-ai/cosmokit'
 import { Context } from './context.ts'
 import { Fiber, FiberState } from './fiber.ts'
 import { DisposableList, symbols } from './utils.ts'

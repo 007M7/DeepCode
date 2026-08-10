@@ -90,7 +90,7 @@ describe('the General-settings row', () => {
     const actions = renderRow()
 
     await waitFor(() => { expect(actions.load).toHaveBeenCalledTimes(1) })
-    expect(screen.getByRole('button').textContent).toContain('标准模式')
+    expect(screen.getByRole('button').textContent).toContain(en.presetStandardName)
   })
 
   it('marks a locally authored option as local', () => {
@@ -102,7 +102,7 @@ describe('the General-settings row', () => {
     // list says which rows are local rather than presenting all as vetted.
     expect(screen.getByText(`mine · ${en.userTrust}`)).toBeTruthy()
     // The shipped one carries no marker; only local rows are called out.
-    expect(screen.getAllByText('标准模式')).toHaveLength(2)
+    expect(screen.getAllByText(en.presetStandardName)).toHaveLength(2)
   })
 
   it('falls back to the id for a preset that published no name', () => {
@@ -126,6 +126,12 @@ describe('the General-settings row', () => {
     expect(screen.getByText(`mine · ${en.userTrust}`)).toBeTruthy()
     // A shipped preset with no metadata is listed by id and carries no mark.
     expect(screen.getByText('bare')).toBeTruthy()
+  })
+
+  it('shows the selected id until a stale roster contains it', () => {
+    renderRow({ currentValue: 'arriving', options: [] })
+
+    expect(screen.getByRole('button').textContent).toContain('arriving')
   })
 
   it('writes the picked preset and closes the menu', () => {
@@ -194,7 +200,7 @@ describe('the new-session chip', () => {
     const actions = renderSeat()
 
     await waitFor(() => { expect(actions.load).toHaveBeenCalledTimes(1) })
-    expect(screen.getByRole('button').textContent).toContain('标准模式')
+    expect(screen.getByRole('button').textContent).toContain(en.presetStandardName)
     expect(screen.getByRole('button').getAttribute('title')).toBe(en.seatHint)
   })
 
@@ -205,7 +211,7 @@ describe('the new-session chip', () => {
 
     // The id alone never said what a preset does; the description is the
     // whole reason a preset can publish metadata at all.
-    expect(screen.getByText('完整的编码 agent。')).toBeTruthy()
+    expect(screen.getByText(en.presetStandardDescription)).toBeTruthy()
     // A preset that published none still reads as a row, with its id standing
     // in for the name.
     expect(screen.getByText(en.noDescription)).toBeTruthy()
@@ -216,6 +222,12 @@ describe('the new-session chip', () => {
     renderSeat({ current: 'mine' })
 
     expect(screen.getByRole('button').textContent).toContain('mine')
+  })
+
+  it('shows the staged id until a stale roster contains it', () => {
+    renderSeat({ current: 'arriving' })
+
+    expect(screen.getByRole('button').textContent).toContain('arriving')
   })
 
   it('stages the picked preset and closes the menu', () => {
@@ -267,7 +279,7 @@ describe('the session-header label', () => {
     await waitFor(() => { expect(load).toHaveBeenCalledTimes(1) })
     // A control here would promise a switch the host refuses outright.
     expect(screen.queryByRole('button')).toBeNull()
-    expect(screen.getByTitle('完整的编码 agent。').textContent).toBe('标准模式')
+    expect(screen.getByTitle(en.presetStandardDescription).textContent).toBe(en.presetStandardName)
   })
 
   it('falls back to the id, and to the generic hint, when metadata is absent', () => {

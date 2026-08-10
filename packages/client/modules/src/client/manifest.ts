@@ -30,10 +30,10 @@
  * composes the wire.
  */
 
-import type {} from 'cordis'
+import type {} from '@deepseek-ai/cordis'
 import type { ClientModuleSystem } from './system.ts'
 
-declare module 'cordis' {
+declare module '@deepseek-ai/cordis' {
   interface Context {
     /** The client module system the web shell builds at boot (provided by the `./client` wrapper plugin). */
     modules: ClientModuleLoader
@@ -44,7 +44,7 @@ declare module 'cordis' {
  * One composed client entry pushed by the host (a graph row). Wire
  * single source: the host node half (package root) produces this same shape.
  * `immediately` marks stage-one prefetch; `inject` is informational graph
- * metadata (the authoritative edges live in each package's dshClient
+ * metadata (the authoritative edges live in each package's `dsh.client`
  * declaration and reach fibers through entry creation).
  */
 export interface WebBootEntry {

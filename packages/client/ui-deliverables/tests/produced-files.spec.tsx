@@ -5,7 +5,7 @@
  * and opener wiring, and the plugin registrations' fiber-teardown removal
  * (HMR safety) against the real SlotsService.
  */
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import { cleanup, fireEvent, render } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
@@ -340,6 +340,7 @@ describe('plugin registration', () => {
       name: 'root',
       children: { 'conversation.chat.turnTail': { kind: 'chain', scope: 'session' } },
     } as never, () => null)
+    ctx.provide('connection', { api: { settings: {} }, isLoopback: false } as never)
     await ctx.plugin({ inject: ['slots'], apply: applyLocale }).await()
 
     const fiber = ctx.plugin({ inject: [...inject], apply })

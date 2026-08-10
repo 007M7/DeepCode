@@ -4,7 +4,7 @@
  * @module @deepseek-ai/dsh-api-gateway
  */
 
-import { Context, Service, symbols } from 'cordis'
+import { Context, Service, symbols } from '@deepseek-ai/cordis'
 import type { ConnectionRpcHandler } from '@deepseek-ai/dsh-client-connection'
 import {
   remoteMethods,

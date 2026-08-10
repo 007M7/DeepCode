@@ -2,7 +2,7 @@
 # discovery inside the scenario's temporary cwd. The app config patch replaces
 # the whole base config, so the base fields are restated verbatim.
 - id: base
-  name: '@cordisjs/plugin-include'
+  name: '@deepseek-ai/cordis-plugin-include'
   config:
     path: ./cordis.yml
     patches:

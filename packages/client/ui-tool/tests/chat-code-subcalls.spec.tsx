@@ -8,7 +8,7 @@
 // and a file sub-row click opens the host path. Running parents
 // (runningCalls) nest their so-far dispatches the same way.
 
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render } from '@testing-library/react'
 import {
@@ -155,6 +155,7 @@ async function bench(snapshot: ConversationSnapshot) {
   }
   ctx.provide('workspaces', workspaces)
   ctx.provide('layout', layout)
+  ctx.provide('connection', { api: { settings: {} }, isLoopback: false } as never)
   const locale = new LocaleService(ctx)
   ctx.provide('locale', locale)
   slots.installLocale(locale)

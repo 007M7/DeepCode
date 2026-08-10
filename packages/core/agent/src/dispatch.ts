@@ -6,7 +6,7 @@
  * @module @deepseek-ai/dsh-agent/dispatch
  */
 
-import type { Context, Events } from 'cordis'
+import type { Context, Events } from '@deepseek-ai/cordis'
 import { scopeTarget } from '@deepseek-ai/dsh-scope'
 import type { Scoped } from '@deepseek-ai/dsh-scope'
 import type { AssembleContext } from '@deepseek-ai/dsh-system-prompt'

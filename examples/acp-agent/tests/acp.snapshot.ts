@@ -47,11 +47,15 @@ const SESSION_TITLE_CONFIG = fileURLToPath(new URL('../session-title.cordis.yml'
 const SUBAGENT_DURABILITY_FAILURE_CONFIG = fileURLToPath(
   new URL('../subagent-durability-failure.cordis.yml', import.meta.url),
 )
+const SUBAGENT_CONTINUABLE_INHERITANCE_CONFIG = fileURLToPath(
+  new URL('../subagent-continuable-inheritance.cordis.yml', import.meta.url),
+)
 const LSP_CONFIG = fileURLToPath(new URL('./lsp.cordis.yml', import.meta.url))
 const WEB_CONFIG = fileURLToPath(new URL('../web.cordis.yml', import.meta.url))
 const FS_SEARCH_CONFIG = fileURLToPath(new URL('./fs-search.cordis.yml', import.meta.url))
 const PARTIAL_LANDLOCK_CONFIG = fileURLToPath(new URL('../partial-landlock.cordis.yml', import.meta.url))
 const PWSH_CONFIG = fileURLToPath(new URL('./pwsh.cordis.yml', import.meta.url))
+const FS_DIFF_BOUND_CONFIG = fileURLToPath(new URL('./fs-diff-bound.cordis.yml', import.meta.url))
 const SNAPSHOTS_DIR = join(dirname(fileURLToPath(import.meta.url)), 'snapshots')
 const PACKED_CHUNKS_SOURCE = 'hook-cc-pretool-deny'
 
@@ -253,6 +257,21 @@ const SCENARIOS: Scenario[] = [
   { name: 'fs-write', hasModelTurn: true, recorded: true },
   { name: 'fs-edit', hasModelTurn: true, recorded: true },
   { name: 'fs-write-overwrite', hasModelTurn: true, recorded: true },
+  // An overwrite whose replacement is at/above the configured diff-basis bound:
+  // the persisted result meta carries no contextual hunks and presentation
+  // falls back to the whole-file diff. The overlay leaves the prompt and tool
+  // sequence identical to text-turn, but the freshly recorded header carries
+  // the current adapter capability fields, so the scenario pins its own class.
+  {
+    name: 'fs-write-overwrite-bounded',
+    hasModelTurn: true,
+    recorded: true,
+    pinsHeader: true,
+    headerClass: 'fs-diff-bound',
+    systemPromptSource: 'text-turn',
+    toolSchemasSource: 'text-turn',
+    configPath: FS_DIFF_BOUND_CONFIG,
+  },
   { name: 'fs-read-window', hasModelTurn: true, recorded: true },
   { name: 'fs-policy-reject', hasModelTurn: true, recorded: true },
   { name: 'fs-delete-recreate', hasModelTurn: true, recorded: true },
@@ -314,6 +333,18 @@ const SCENARIOS: Scenario[] = [
     recorded: false,
     pinsChildToolSchemas: [1],
     configPath: SUBAGENT_DURABILITY_FAILURE_CONFIG,
+  },
+  // Authored policy-inheritance transcript: the root session is switched to
+  // read-only at creation (the UI Access switch equivalent), and the
+  // continuable background child's log carries that override as a
+  // `sandbox/mode` `source: 'delegation'` event, so the child's runtime
+  // context states the inherited policy instead of the deployment default.
+  {
+    name: 'subagent-continuable-inheritance',
+    hasModelTurn: true,
+    recorded: false,
+    pinsChildToolSchemas: [1],
+    configPath: SUBAGENT_CONTINUABLE_INHERITANCE_CONFIG,
   },
   // The in-process child is published before its first follow-up fails. The
   // foreground tool retains both that run-result failure and an independent

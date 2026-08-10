@@ -653,7 +653,7 @@ class FaceAnalyzer {
       for (const statement of sourceFile.statements) {
         if (!ts.isModuleDeclaration(statement)
           || !ts.isStringLiteral(statement.name)
-          || statement.name.text !== 'cordis'
+          || statement.name.text !== '@deepseek-ai/cordis'
           || statement.body === undefined
           || !ts.isModuleBlock(statement.body)) continue
         for (const member of statement.body.statements) {
@@ -2545,7 +2545,7 @@ function sourceFileHasSurface(sourceFile: ts.SourceFile): boolean {
     }
     if (!ts.isModuleDeclaration(statement)
       || !ts.isStringLiteral(statement.name)
-      || statement.name.text !== 'cordis'
+      || statement.name.text !== '@deepseek-ai/cordis'
       || statement.body === undefined
       || !ts.isModuleBlock(statement.body)) continue
     if (statement.body.statements.some(member => ts.isInterfaceDeclaration(member)
@@ -2564,8 +2564,12 @@ function hasPackageSurface(model: PackageModel): boolean {
 }
 
 function isDualFacePackage(manifest: Record<string, unknown>): boolean {
-  return manifest.dshClient !== null
-    && typeof manifest.dshClient === 'object'
+  const dsh = manifest.dsh
+  const client = dsh !== null && typeof dsh === 'object'
+    ? (dsh as Record<string, unknown>).client
+    : undefined
+  return client !== null
+    && typeof client === 'object'
     && clientExportSubpaths(manifest).length > 0
 }
 

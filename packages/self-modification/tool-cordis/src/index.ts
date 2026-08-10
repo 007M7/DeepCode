@@ -7,8 +7,8 @@
  * @module @deepseek-ai/dsh-tool-cordis
  */
 
-import type { Context } from 'cordis'
-import z from 'schemastery'
+import type { Context } from '@deepseek-ai/cordis'
+import z from '@deepseek-ai/schemastery'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { STATE_LABELS } from './fiber-state.ts'
 import { isPlugin, pluginName } from './guard.ts'
@@ -112,7 +112,7 @@ export function apply(ctx: Context, config: Config): void {
       + 'This creates an in-memory runtime Plugin, not an installed or configured Plugin. '
       + 'It remains active across later turns until cordis_unmount, toolset unload, or DSH restart. '
       + 'It does not create files, install a package, change cordis.yml or personal/project config, survive restart, or automatically become permanent. '
-      + 'To keep it, ask the Agent to implement a normal local, project, or repository Plugin through the regular development workflow. '
+      + 'To keep it, ask the Agent to implement an SDK Plugin or installable profile bundle through the regular development workflow. '
       + 'It may affect other sessions in the same process; the sandbox is not a security boundary, and injected services reach the real runtime. '
       + '`code` runs now as the body of an async JavaScript function '
       + 'in an isolated sandbox and MUST `return` a plugin. Two forms: '
