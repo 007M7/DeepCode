@@ -25,7 +25,7 @@ async function setup(internals: LocalSandboxProvider['internals']) {
 }
 
 describe('windows-acl win32 chain (LocalSandboxProvider)', () => {
-  it('workspace-write: runner argv prefix, explicit temp, mode flag, full enforcement, ACL denial dialect', async () => {
+  it('workspace-write: runner argv prefix, explicit temp, mode flag, partial enforcement, ACL denial dialect', async () => {
     const probeWindowsAcl = vi.fn(() => true)
     const sandbox = await setup({
       platform: 'win32',
@@ -41,7 +41,7 @@ describe('windows-acl win32 chain (LocalSandboxProvider)', () => {
       '--',
       'pwsh', '/Command', 'x',
     ])
-    expect(confined.enforcement).toBe('full')
+    expect(confined.enforcement).toBe('partial')
     expect(confined.denialSignatures).toEqual(['access is denied', 'access to the path', 'permission denied'])
     expect(confined.runnerFailureRules).toEqual([{ allowedExitCodes: [127], fatalSignatures: ['windows-acl-run: '] }])
     // A sole candidate is selected unprobed.
@@ -52,7 +52,7 @@ describe('windows-acl win32 chain (LocalSandboxProvider)', () => {
     const sandbox = await setup({ platform: 'win32', windowsAclRunnerArgs: ['node', 'windows-acl-runner.js'] })
     const confined = sandbox.confine(['true'], RO)
     expect(confined.argv.slice(-4)).toEqual(['--mode', 'read-only', '--', 'true'])
-    expect(confined.enforcement).toBe('full')
+    expect(confined.enforcement).toBe('partial')
     expect(confined.runnerFailureRules).toEqual([{ allowedExitCodes: [127], fatalSignatures: ['windows-acl-run: '] }])
   })
 })

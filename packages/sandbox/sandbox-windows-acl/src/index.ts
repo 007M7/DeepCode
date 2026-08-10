@@ -61,9 +61,9 @@ export interface AclSandboxOptions {
   writableDirs: readonly string[]
   /**
    * Temp directory to also grant; defaults to GetTempPathW() at init time.
-   * Pass null for read-only confinement: NO temp grant (strict zero grant on
-   * the filesystem; the NUL device stays ambient-writable via Everyone — see
-   * README).
+   * Pass null for read-only confinement: NO explicit temp grant. Ambient
+   * Everyone authority remains part of the backend's documented partial
+   * boundary — see README.
    */
   tempDir?: string | null
   /**

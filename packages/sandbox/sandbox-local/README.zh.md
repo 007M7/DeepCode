@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-[`dsh-sandbox`](../sandbox/) seam 的本地实现。它选择并缓存一个平台 runner：Linux 优先选择可工作的 `bwrap`，否则选择 Landlock；macOS 使用 Seatbelt。多个候选项会按顺序探测，只有一个候选项时则直接选择。
+[`dsh-sandbox`](../sandbox/) seam 的本地实现。它选择并缓存一个平台 runner：Linux 优先选择可工作的 `bwrap`，否则选择 Landlock；macOS 使用 Seatbelt；Windows 使用 ACL 受限令牌 runner。多个候选项会按顺序探测，只有一个候选项时则直接选择。
 
 包根目录导出默认及命名的 `LocalSandboxProvider` 插件和 `Config`；平台 profile builder 仍为内部实现。
 
@@ -31,7 +31,7 @@ Seatbelt profile 默认允许，但带 `(deny file-write*)` 和写入 allow-list
 
 ## 已知限制与暂缓事项
 
-- **Windows 没有 runner**：`win32` 以 `SANDBOX_UNAVAILABLE` 拒绝执行；AppContainer 家族后端暂缓实现。
+- **Windows ACL 只能实现部分强制执行**：受限令牌必须保留 Everyone 以完成进程初始化，因此授予 Everyone 写访问的外部对象仍可写；NTFS 硬链接也会使工作区路径与外部路径指向同一个文件对象。提供方报告 `enforcement: 'partial'`，而不会把该边界夸大为完整强制执行。
 - **Landlock 可能只实现部分强制执行**：较旧且受支持的内核 ABI 只能限制自身公开的访问类别，因此报告 `enforcement: 'partial'`，不会夸大为完整强制执行。
 - **Seatbelt 依赖已弃用的 `sandbox-exec`**：macOS 仍会提供它，但若 Apple 移除该私有策略引擎，该提供方无法替换或探测。
 - **runner 选择在提供方生命周期内缓存**：安装、移除或修复 runner 后，必须重载插件才能改变选择。

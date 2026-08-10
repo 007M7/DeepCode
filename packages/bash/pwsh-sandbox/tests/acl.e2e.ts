@@ -2,9 +2,9 @@
  * Real-backend end-to-end: LocalSandboxProvider (win32 chain → the
  * windows-acl runner), SandboxPolicyService, and SandboxPwshExecutor with
  * REAL pwsh spawns confined through the runner — the debug-instance
- * verification of both modes: read-only denies every write (not even NUL),
- * workspace-write allows the workspace and temp while denying escape writes,
- * and denial/classification facts ride the settled result.
+ * verification of both modes on ordinary user-owned paths: read-only denies
+ * writes, workspace-write allows its promised roots while denying escape
+ * writes, and the partial-enforcement/denial facts ride the settled result.
  */
 
 import { spawnSync } from 'node:child_process'
@@ -61,7 +61,7 @@ describe.skipIf(!isWin32 || !pwshAvailable())('pwsh-sandbox real ACL confinement
     rmSync(isolatedTemp, { recursive: true, force: true })
   })
 
-  it('read-only: every write denied (workspace, temp, NUL), reads fine, denial facts ride the result', async () => {
+  it('read-only: ordinary path writes denied, reads fine, partial and denial facts ride the result', async () => {
     const policy: SandboxExecutionPolicy = { mode: 'read-only', workspaceRoot: writableDir }
     const probe = [
       "$ErrorActionPreference='SilentlyContinue';",
@@ -78,7 +78,7 @@ describe.skipIf(!isWin32 || !pwshAvailable())('pwsh-sandbox real ACL confinement
     expect(result.stdout.text).toContain('SECRET-READ: OK')
     expect(existsSync(join(writableDir, 'ro-write.txt'))).toBe(false)
     // A self-caught denial keeps the command exit 0: no denial fact.
-    expect(result.sandbox).toEqual({ mode: 'read-only', denied: false, enforcement: 'full' })
+    expect(result.sandbox).toEqual({ mode: 'read-only', denied: false, enforcement: 'partial' })
 
     // A raw failing write must classify as a denial of the ACL dialect.
     const denied = await executor.run(executor.resolve({
@@ -86,7 +86,7 @@ describe.skipIf(!isWin32 || !pwshAvailable())('pwsh-sandbox real ACL confinement
       sandboxPolicy: policy,
     }))
     expect(denied.exitCode).not.toBe(0)
-    expect(denied.sandbox).toEqual({ mode: 'read-only', denied: true, enforcement: 'full' })
+    expect(denied.sandbox).toEqual({ mode: 'read-only', denied: true, enforcement: 'partial' })
   }, 60_000)
 
   it('workspace-write: workspace and temp writable, escape denied, reads fine', async () => {
@@ -106,6 +106,6 @@ describe.skipIf(!isWin32 || !pwshAvailable())('pwsh-sandbox real ACL confinement
     expect(result.stdout.text).toContain('SECRET-READ: OK')
     expect(existsSync(join(writableDir, 'ww-write.txt'))).toBe(true)
     expect(existsSync(escapeFile)).toBe(false)
-    expect(result.sandbox).toEqual({ mode: 'workspace-write', denied: false, enforcement: 'full' })
+    expect(result.sandbox).toEqual({ mode: 'workspace-write', denied: false, enforcement: 'partial' })
   }, 60_000)
 })

@@ -14,10 +14,10 @@
  *
  * Modes:
  *  - workspace-write: the workspace and temp directories carry the orphan-SID
- *    Write grant; every other write is denied by the token intersection.
- *  - read-only: STRICT zero grants — no directory is writable, not even the
- *    NUL device (`> $null` fails with access denied); the restricting list
- *    carries no orphan SID, so a standing grant ACE from an earlier
+ *    Write grant; other ACL-addressable writes are denied except for the
+ *    documented Everyone and hard-link boundaries.
+ *  - read-only: no orphan-SID grants; the restricting list carries no orphan
+ *    SID, so a standing grant ACE from an earlier
  *    workspace-write period stays inert. BOTH modes drop Authenticated Users
  *    (CIM unavailable — documented in README) and INTERACTIVE/LOCAL (the
  *    Public tree writes are denied); the two lists share the keep-alive group

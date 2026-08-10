@@ -14,7 +14,9 @@
  * every later provision O(1) instead of re-propagating the tree per
  * session); the private-temp ACEs are revoked on dispose. The runner
  * receives `--write-sid` (the derived identity; its presence marks the
- * seam-managed contract) and stops managing DACLs itself.
+ * seam-managed contract) and stops managing DACLs itself. The rung reports
+ * partial enforcement because WRITE_RESTRICTED must retain Everyone in its
+ * restricting list and NTFS hard links alias one file object across paths.
  * @module @deepseek-ai/dsh-sandbox-local
  */
 
@@ -189,13 +191,12 @@ const STATIC_ENFORCEMENT: Record<SelectedRunner['runner'], SandboxEnforcement> =
   bwrap: 'full',
   landlock: 'full',
   seatbelt: 'full',
-  // 'full' is the SUPPORTED-SURFACE promise: on NTFS both restricting lists
-  // close every ambient write (INTERACTIVE/LOCAL and Authenticated Users are
-  // absent from both — pinned by the runner's Public-probe and CIM-denial
-  // regressions). FAT-class (non-ACL) targets are declared unsupported
-  // (warn-only) in the backend README — outside the promise, not an
-  // exception to it.
-  'windows-acl': 'full',
+  // WRITE_RESTRICTED needs Everyone in both restricting lists for process
+  // initialization. An external object that grants Everyone write access
+  // therefore remains writable, and NTFS hard links can alias a granted
+  // workspace file to a path outside it. The backend enforces the remaining
+  // ACL-addressable surface but must not advertise the absolute promise.
+  'windows-acl': 'partial',
 }
 
 /**
@@ -529,8 +530,9 @@ export class LocalSandboxProvider extends SandboxProvider {
   private probeRunner(runner: SelectedRunner['runner']): SandboxEnforcement | 'unusable' {
     // bwrap's mount profile and Seatbelt's deny-file-write* profile govern
     // every promised file effect by construction, so their passing probes
-    // are always full enforcement; only the Landlock launcher's probe report
-    // distinguishes full from per-ABI-partial.
+    // are always full enforcement; the Landlock launcher's probe report
+    // distinguishes full from per-ABI-partial, while windows-acl is always
+    // partial for its documented Everyone and hard-link boundaries.
     switch (runner) {
       case 'bwrap': {
         const probe = this.internals.probeBwrap ?? (() => defaultProbeBwrap(this.probeTimeoutMs))
@@ -547,7 +549,7 @@ export class LocalSandboxProvider extends SandboxProvider {
       case 'windows-acl': {
         const probe = this.internals.probeWindowsAcl
           ?? (() => defaultProbeWindowsAcl(this.windowsAclRunnerInvocation(), this.probeTimeoutMs))
-        return probe() ? 'full' : 'unusable'
+        return probe() ? 'partial' : 'unusable'
       }
       default: return assertNever(runner)
     }

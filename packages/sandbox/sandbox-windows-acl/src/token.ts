@@ -170,10 +170,11 @@ export interface RestrictingSidSet {
  * workspace-write — read-only carries no write SID, so a standing grant ACE
  * from an earlier workspace-write period (a `/permission` mode downgrade, or
  * a crash-resumed session) stays INERT under read-only: the WRITE_RESTRICTED
- * pass-2 check grants only what the restricting list carries, keeping
- * read-only strictly zero-grant even with stale ACEs standing, while the
- * unrevoked ACE keeps the re-upgrade free (the grant's exact-ACE skip — no
- * re-propagation). Authenticated Users is absent from BOTH lists: the WMI
+ * pass-2 check grants only what the restricting list carries, keeping that
+ * workspace grant inert under read-only while the unrevoked ACE keeps the
+ * re-upgrade free (the grant's exact-ACE skip — no re-propagation).
+ * Everyone's own ambient grants remain the documented partial boundary.
+ * Authenticated Users is absent from BOTH lists: the WMI
  * namespace security check fails (0x80041003), so CIM is unavailable in
  * every confined mode, and the C:\-root tree-creation escape (standing
  * `AU:(AD)` + `AU:(OI)(CI)(IO)(M)` ACEs) is closed in both — documented in

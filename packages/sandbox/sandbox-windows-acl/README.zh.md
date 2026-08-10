@@ -2,9 +2,9 @@
 
 [English](README.md) | 中文
 
-面向 [harness 沙盒 seam](../sandbox/) 的 Windows 写入限制沙盒后端：一个 Node.js/[koffi](https://koffi.dev/) 实现的、对 [huoyaoyuan/windows-acl-restrict-poc](https://github.com/huoyaoyuan/windows-acl-restrict-poc)（`10e4dfb`，修复后的修订）机制的移植，挂载为 [`@deepseek-ai/dsh-sandbox-local`](../sandbox-local/) 链的 win32 一级（`workspace-write` / `read-only` 两种模式）；Linux/macOS 后端在同一包中。
+面向 [harness 沙盒 seam](../sandbox/) 的 Windows 写入限制沙盒后端：一个 Node.js/[koffi](https://koffi.dev/) 实现的、对 [huoyaoyuan/windows-acl-restrict-poc](https://github.com/huoyaoyuan/windows-acl-restrict-poc)（`10e4dfb`，修复后的修订）机制的移植，挂载为 [`@deepseek-ai/dsh-sandbox-local`](../sandbox-local/) 链中报告 `enforcement: 'partial'` 的 win32 一级（`workspace-write` / `read-only` 两种模式）；Linux/macOS 后端在同一包中。
 
-一句话机制：把调用者令牌复制为 `WRITE_RESTRICTED` 受限令牌，其 restricting SIDs 中加入一个写入 SID（`S-1-4-x-y`），该 SID 的 Write ACE 只存在于工作区与会话的私有临时目录上。写入 SID 是**按工作区**的身份，由规范工作区路径确定性派生（`workspaceWriteSid`），因此工作区根目录 ACE 每台机器每个工作区只物化一次——之后每次会话、调用、重启都命中精确 ACE 跳过——而不是每会话一次（见[隔离 runner](#the-confinement-runner)）。此后 Windows 只在「调用者正常权限」与「restricting SID 交集」同时允许时才放行写入——写入 SID 就是写入白名单，而它在系统其余位置不授予任何权限；令牌的写检查还会继承**其他** restricting SID 的环境写 ACE（保活组登录 SID + Everyone——下文「模式」段是完整边界）。
+一句话机制：把调用者令牌复制为 `WRITE_RESTRICTED` 受限令牌，其 restricting SIDs 中加入一个写入 SID（`S-1-4-x-y`），该 SID 的 Write ACE 只存在于工作区与会话的私有临时目录上。写入 SID 是**按工作区**的身份，由规范工作区路径确定性派生（`workspaceWriteSid`），因此工作区根目录 ACE 每台机器每个工作区只物化一次——之后每次会话、调用、重启都命中精确 ACE 跳过——而不是每会话一次（见[隔离 runner](#the-confinement-runner)）。此后 Windows 只在「调用者正常权限」与「restricting SID 交集」同时允许时才放行写入。写入 SID 是主要写入白名单，在系统其余位置不授予任何权限；但该检查还会继承**其他** restricting SID 的环境写 ACE（保活组登录 SID + Everyone），而 NTFS ACL 属于文件对象而非路径。Everyone 与硬链接边界正是该档报告部分而非完整强制执行的原因。
 
 直接构建在原生 ACL 机制上是记录在案的设计选择：它实现两种隔离模式，且不背负被否决的容器方案的问题——见[设计笔记](../../../.agents/notes/implemented/feature/2026-08-08-windows-acl-restricted-token-sandbox.md)（[mxc](https://github.com/microsoft/mxc/blob/main/docs/process-container/os-version-support.md) 要求 Windows 11 24H2 的 OS 下限，且任意路径读取需要整体改写宿主 DACL；AppContainer 根本无法任意路径读取）。
 
@@ -44,8 +44,8 @@ runner 创建受限令牌，在它之下 spawn 包装后的 argv，调用者的 
 **按工作区授权复用**（`--write-sid`）：写入 SID 从工作区路径**派生**——任何地方都不存储 SID 或临时目录状态（先前每会话随机 SID 及其篡改面已移除）。seam 把工作区 ACE **常驻**物化（每个工作区每服务器生命周期一次，绝不撤销——它就是复用缓存），把临时 ACE **可回收**物化（提供方 dispose 时撤销），两者都在会话首次受限执行时惰性进行。会话的私有临时子目录由会话 id + 工作区**派生**（sha256、16 位 hex）而非存储：恢复的会话派生同一个目录并重新授权（精确 ACE 跳过使这一步保持 O(1)），而 fork 的不同会话 id 会派生出一个全新的目录。该目录以**独占**方式创建——已存在条目或重解析点会让首次受限运行大声失败，因此授权永远不会落到外部对象上——并在提供方 dispose 时再次移除。传入 `--write-sid` 时 runner 既不授权也不回收（`manageDacls: false`）——该标志的存在标记 seam 管理的契约，其值即派生 SID；不传它（独立使用）时 runner 用**同一个**派生 SID 自行管理（工作区 ACE 常驻，临时 ACE 每次调用可回收）。重启后重新授权是幂等的：`grantWrite` 读取当前 DACL，当完全相同的 ACE 已存在时跳过 `SetNamedSecurityInfoW` 的应用（该应用会把相同的 ACE 急切地重新传播到整棵树——大型工作区上以分钟计）。异常关闭遗留的 ACE 无需垃圾回收——它们**就是**缓存；同一个派生 SID 永远重新命中它们。已知代价：在大型工作区树上物化授权会阻塞整次急切传播，每台机器每个工作区一次（该主机上的第一次受限写入）。
 
 模式（令牌的 restricting-SID 列表随模式而变；保活组登录 SID + Everyone 在**两种**模式下都存在——没有它们早期 DLL 初始化会以 `0xC0000142` 死亡、CNG 会让 pwsh 以 `0xE0434352` 崩溃）：
-- `workspace-write`（登录 SID、Everyone、写入 SID）：工作区与会话的**私有**临时子目录携带写入 SID 的 Write 授权；其余写全部被令牌交集拒绝。
-- `read-only`（登录 SID、Everyone——**不含**写入 SID）：**严格零授权**——没有任何可写位置。写入 SID 有意留在列表**之外**：先前 workspace-write 时期留下的常驻授权 ACE（`/permission` 降级，或崩溃后恢复的会话）在 read-only 下保持**失效**，因为 write-restricted 的 pass-2 检查只授予 restricting 列表所携带的内容——而常驻 ACE 让重新升级免于重新传播。NUL 写入是**环境性**的、不是被授权的：设备 DACL 授予 Everyone 读+写+执行（`0x1201BF`），因此访问掩码落在其内的打开者（cmd 的 `> NUL`、node 的 `\\.\NUL`）在**两种**模式下都能写——只要 Everyone 还在保活组里，沙盒就无法把 NUL 设备归零。`Set-Content NUL` 在两种模式下都失败（PowerShell/.NET 层效应，由 read-only 套件钉住——拒绝方不是设备 DACL）；PowerShell 的 `> $null` 重定向不受影响（它直接丢弃、不打开 NUL）。
+- `workspace-write`（登录 SID、Everyone、写入 SID）：工作区与会话的**私有**临时子目录携带写入 SID 的 Write 授权；受 ACL 管辖的其他写入都会被拒绝，已记录的 Everyone 与硬链接边界除外。
+- `read-only`（登录 SID、Everyone——**不含**写入 SID）：不存在显式的写入 SID 授权。写入 SID 有意留在列表**之外**：先前 workspace-write 时期留下的常驻授权 ACE（`/permission` 降级，或崩溃后恢复的会话）在 read-only 下保持**失效**，因为 write-restricted 的 pass-2 检查只授予 restricting 列表所携带的内容——而常驻 ACE 让重新升级免于重新传播。Everyone 的环境权限仍构成已记录的部分强制执行边界。NUL 写入是**环境性**的、不是被授权的：设备 DACL 授予 Everyone 读+写+执行（`0x1201BF`），因此访问掩码落在其内的打开者（cmd 的 `> NUL`、node 的 `\\.\NUL`）在**两种**模式下都能写——只要 Everyone 还在保活组里，沙盒就无法把 NUL 设备归零。`Set-Content NUL` 在两种模式下都失败（PowerShell/.NET 层效应，由 read-only 套件钉住——拒绝方不是设备 DACL）；PowerShell 的 `> $null` 重定向不受影响（它直接丢弃、不打开 NUL）。
 
 Authenticated Users 在**两种**列表中都不存在——WMI 命名空间安全检查失败（`0x80041003`），因此 CIM cmdlet 与 `Get-ComputerInfo`（它静默返回不完整结果而非报错）在**所有**受限模式下都不可用，且 C:\-root 树创建逃逸（常驻的 `AU:(AD)` + `AU:(OI)(CI)(IO)(M)` ACE）在两种模式下都被关闭——面向模型的表面记录的是该契约，而不是提示词承诺。INTERACTIVE/LOCAL 在两种列表中同样不存在：宿主的 Public 树向 INTERACTIVE 授予写权限，因此 Public 写入被拒绝——由 runner 的环境可写 Public 探针回归测试钉住（见设计笔记）。
 
@@ -63,6 +63,8 @@ koffi 结构体定义在模块加载时对照探针断言其大小，因此头�
 
 ## 已验证边界（受限令牌固有，非本移植引入）
 
+- **Everyone 授权仍是环境中的写权限来源。** Everyone 必须保留在两种 restricting 列表中：移除它会破坏早期 DLL 初始化与 CNG。因此，如果外部 NTFS 对象的正常 DACL 向 Everyone 授予所请求的写权限，它就会同时通过两次访问检查，并在两种模式下保持可写。真实 runner 套件配置一个外部 `Everyone:Modify` 目录并钉住该行为；提供方报告 `enforcement: 'partial'`，使调用方能够拒绝或向上暴露这项较弱的边界。
+- **硬链接是文件对象别名，而非路径别名。** 传播到已有 NTFS 硬链接上的可继承工作区 ACE 会修改底层同一文件的安全描述符，因此同一对象也可通过外部别名写入。拒绝工作区中的所有多链接文件不具可行性，因为普通 pnpm 安装会使用硬链接指向其内容寻址存储；原生 runner 套件钉住该缺口，提供方的部分强制执行报告则点明其后果。
 - **写入受限；读取、网络与进程可见性不受限。** `WRITE_RESTRICTED` 只交叉检查写访问，因此受限子进程可以读取调用者可读的任何文件并打开套接字。`read-only` 模式因而不能仅靠该机制表达；将其与读侧策略或 AppContainer/`S-1-15-2` capability 令牌配对以获得更强隔离。
 - **控制台隔离不可用。** 在受限令牌下，以 `CREATE_NO_WINDOW` / `CREATE_NEW_CONSOLE` 创建的子进程在 DLL 初始化期间以 `STATUS_DLL_INIT_FAILED`（`0xC0000142`）死亡。POC 尝试把控制台登录 SID（`S-1-2-1`）加入 restricting 列表来修复；在 Windows 11 26200 上 `CreateWellKnownSid(WinLocalLogonSid)` 以 `ERROR_INVALID_PARAMETER`（87）失败，正确的 `WinConsoleLogonSid` 能产出合法 `S-1-2-1` 但子进程仍然死亡，POC 的最终修订同时移除了该 SID 与控制台隔离。子进程因此共享宿主控制台；stdio 重定向走管道，不受影响。
 - **ACL 授权是对真实目录的驻留改动。** 进程中途死亡会留下授权；工作区 ACE **按设计**常驻（绝不撤销——复用缓存），临时 ACE 由 `dispose()` 撤销（后续步骤失败时 `init()` 也会撤销已应用的临时授权）。POC 注释里的手工清理命令（`icacls <dir> /remove '*S-1-4-…'`）在本平台实测失败（`ERROR_NONE_MAPPED` 1332）——请通过本模块回收。工作区 ACE 在异常关闭后无需自愈：派生 SID 在下一次供给时重新命中常驻 ACE（跳过应用）；写入 SID ACE 不会因每次重启而累积第二个身份，因为身份**就是**工作区。
@@ -73,7 +75,7 @@ koffi 结构体定义在模块加载时对照探针断言其大小，因此头�
 
 ## Model Experience
 
-间接地通过 [`dsh-bash-sandbox`](../../bash/bash-sandbox/README.md)、[`dsh-pwsh-sandbox`](../../bash/pwsh-sandbox/README.md) 及其工具呈现：它们渲染此后端的强制与拒绝事实（工具层通过 `denialSignatures` 分类的受限 stderr），而 [`dsh-sandbox`](../sandbox/README.md) seam 拥有 `SANDBOX_UNAVAILABLE` 文本与 runner 选择。
+间接地通过 [`dsh-bash-sandbox`](../../bash/bash-sandbox/README.md)、[`dsh-pwsh-sandbox`](../../bash/pwsh-sandbox/README.md) 及其工具呈现：它们渲染此后端的部分强制执行与拒绝事实（工具层通过 `denialSignatures` 分类的受限 stderr），而 [`dsh-sandbox`](../sandbox/README.md) seam 拥有 `SANDBOX_UNAVAILABLE` 文本与 runner 选择。
 
 #### KV Cache 影响
 

@@ -6,7 +6,7 @@
  */
 
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -38,6 +38,7 @@ describe.skipIf(!isWin32 || !pwshAvailable())('windows-acl runner', () => {
   let isolatedTemp!: string
   let secretFile!: string
   let escapeFile!: string
+  let worldWritableDir!: string
   // The ambient-writable probe target: a subdirectory of C:\Users\Public.
   // INTERACTIVE/LOCAL are absent from BOTH restricting lists, so the Public
   // tree's INTERACTIVE grant must NOT satisfy the write check — the ambient
@@ -54,6 +55,12 @@ describe.skipIf(!isWin32 || !pwshAvailable())('windows-acl runner', () => {
     secretFile = join(scratchRoot, 'secret.txt')
     writeFileSync(secretFile, 'top secret - must stay readable to prove the read boundary')
     escapeFile = join(scratchRoot, 'escaped.txt')
+    worldWritableDir = join(scratchRoot, 'world-writable')
+    mkdirSync(worldWritableDir)
+    const worldGrant = spawnSync('icacls', [worldWritableDir, '/grant', '*S-1-1-0:(OI)(CI)(M)'], { encoding: 'utf8' })
+    if (worldGrant.status !== 0) {
+      throw new Error(`icacls Everyone grant failed: ${worldGrant.stdout}\n${worldGrant.stderr}`)
+    }
     try {
       publicProbeDir = mkdtempSync(join(process.env.PUBLIC ?? 'C:\\Users\\Public', 'dsh-acl-public-'))
     } catch {
@@ -99,13 +106,14 @@ describe.skipIf(!isWin32 || !pwshAvailable())('windows-acl runner', () => {
     expect(existsSync(join(writableDir, 'child-wrote.txt'))).toBe(true)
   }, 30_000)
 
-  it('read-only: strict zero grants — no writes anywhere (not even NUL), reads and $null redirection fine, CIM unavailable', () => {
+  it('read-only: no write-SID grants — workspace/temp writes denied, reads and $null redirection fine, CIM unavailable', () => {
     const probe = [
       "$ErrorActionPreference='SilentlyContinue';",
       '\'LANGMODE: \' + $ExecutionContext.SessionState.LanguageMode;',
       `try{Set-Content -Path '${writableDir}\\readonly-child-wrote.txt' -Value ok -ErrorAction Stop;'TARGET-WRITE: OK'}catch{'TARGET-WRITE: DENIED'};`,
       `try{Set-Content -Path '${isolatedTemp}\\readonly-child-wrote.txt' -Value ok -ErrorAction Stop;'TEMP-WRITE: OK'}catch{'TEMP-WRITE: DENIED'};`,
-      // The NUL device is a securable object: strict zero grants deny it too.
+      // Set-Content NUL fails at the PowerShell/.NET layer even though the
+      // device DACL's Everyone rights remain an ambient backend boundary.
       'try{Set-Content -Path \'NUL\' -Value ok -ErrorAction Stop;\'NUL-WRITE: OK\'}catch{\'NUL-WRITE: DENIED\'};',
       // PowerShell's $null redirection discards without opening NUL — must keep working.
       'echo hi > $null;\'DOLLAR-NULL: OK\';',
@@ -284,6 +292,45 @@ describe.skipIf(!isWin32 || !pwshAvailable())('windows-acl runner', () => {
       expect(result.stdout, `mode: ${mode}`).toContain('PUBLIC-WRITE: DENIED')
       expect(existsSync(join(publicProbeDir, 'public-escaped.txt')), `mode: ${mode}`).toBe(false)
     }
+  }, 30_000)
+
+  it('partial boundary: an external Everyone-Modify directory stays writable under BOTH modes', () => {
+    // Everyone is a required keep-alive restricting SID: without it early DLL
+    // initialization and CNG fail. A normal DACL that grants Everyone Modify
+    // therefore also clears the WRITE_RESTRICTED pass-2 check. Pin this
+    // unavoidable gap beside the provider's `partial` enforcement report.
+    for (const mode of ['read-only', 'workspace-write'] as const) {
+      const target = join(worldWritableDir, `${mode}.txt`)
+      const result = runRunner([
+        '--workspace', writableDir, '--temp', isolatedTemp, '--mode', mode,
+        '--', process.execPath, '-e', "require('node:fs').writeFileSync(process.argv[1], 'written')", target,
+      ])
+      expect(result.status, `mode: ${mode}\nstderr: ${result.stderr}`).toBe(0)
+      expect(existsSync(target), `mode: ${mode}`).toBe(true)
+    }
+  }, 30_000)
+
+  it('partial boundary: a workspace hard link lets the grant reach an external file object', () => {
+    // NTFS ACLs belong to the file object, not one pathname. Propagating the
+    // workspace write-SID ACE through an existing hard-link alias therefore
+    // grants the external alias too. pnpm workspaces commonly contain hard
+    // links, so rejecting every multiply-linked file is not a viable profile.
+    const hardlinkWorkspace = join(scratchRoot, 'hardlink-workspace')
+    const hardlinkTemp = join(scratchRoot, 'hardlink-temp')
+    const externalFile = join(scratchRoot, 'hardlink-target.txt')
+    const workspaceLink = join(hardlinkWorkspace, 'hardlink-alias.txt')
+    mkdirSync(hardlinkWorkspace)
+    mkdirSync(hardlinkTemp)
+    writeFileSync(externalFile, 'original')
+    linkSync(externalFile, workspaceLink)
+    const result = runRunner([
+      // This workspace has not been granted before the alias exists: the first
+      // recursive materialization reaches the shared file security descriptor.
+      '--workspace', hardlinkWorkspace, '--temp', hardlinkTemp, '--mode', 'workspace-write',
+      '--', process.execPath, '-e', "require('node:fs').writeFileSync(process.argv[1], 'mutated')", workspaceLink,
+    ])
+    expect(result.status, `stderr: ${result.stderr}`).toBe(0)
+    expect(readFileSync(externalFile, 'utf8')).toBe('mutated')
   }, 30_000)
 
   it('runner-side failure: signature on stderr and exit 127, the command never runs', () => {
