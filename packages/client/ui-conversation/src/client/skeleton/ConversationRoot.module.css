@@ -292,6 +292,7 @@
 .heroWorkspaceRow {
   display: flex;
   align-items: center;
+  gap: 2px;
   min-width: 0;
   /* figma drew px 8; nudged +12 so the chip's folder glyph lines up closer to
      the card's inner controls below. */

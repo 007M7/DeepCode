@@ -57,7 +57,7 @@ export function AgentPresetLabel({
   const text = option === undefined ? undefined : presetDisplayText(option, t)
   return (
     <span className={css.label} title={text?.description ?? t('headerHint')}>
-      <IconAgentPresetOutline16 className={css.icon} />
+      <IconAgentPresetOutline16 size={14} className={css.icon} />
       {text?.name ?? preset}
     </span>
   )
