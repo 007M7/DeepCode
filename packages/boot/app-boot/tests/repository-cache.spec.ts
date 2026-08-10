@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { delimiter, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { promisify } from 'node:util'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -10,6 +10,9 @@ import { BUNDLED_PNPM_VERSION, RepositoryCache, type RepositoryInstall } from '@
 
 const execFileAsync = promisify(execFile)
 const roots: string[] = []
+
+/** Normalize Git's platform checkout line endings for source-content assertions. */
+const lf = (text: string): string => text.replace(/\r\n/g, '\n')
 
 async function temporaryRoot(name: string): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), `cordis-${name}-`))
@@ -116,9 +119,13 @@ describe('RepositoryCache', () => {
     const root = await temporaryRoot('repository-pnpm')
     const repository = join(root, 'source')
     await mkdir(join(repository, '.dsh-plugin'), { recursive: true })
-    await mkdir(join(repository, 'build-helper'), { recursive: true })
-    await mkdir(join(repository, 'prepare-helper'), { recursive: true })
+    await mkdir(join(repository, '.dsh-plugin', 'build-helper'), { recursive: true })
+    await mkdir(join(repository, '.dsh-plugin', 'prepare-helper'), { recursive: true })
     await mkdir(join(repository, 'skills', 'fixture'), { recursive: true })
+    const shadowPnpm = join(root, 'shadow-pnpm')
+    await mkdir(shadowPnpm)
+    await writeFile(join(shadowPnpm, 'pnpm'), '#!/bin/sh\nexit 99\n', { mode: 0o700 })
+    await writeFile(join(shadowPnpm, 'pnpm.bat'), '@exit /b 99\r\n')
     await writeFile(join(repository, 'package.json'), `${JSON.stringify({
       name: 'repository-fixture',
       private: true,
@@ -135,38 +142,46 @@ describe('RepositoryCache', () => {
       '  .: {}',
       '',
     ].join('\n'))
-    await writeFile(join(repository, 'build-helper', 'package.json'), `${JSON.stringify({
+    await writeFile(join(repository, '.dsh-plugin', 'build-helper', 'package.json'), `${JSON.stringify({
       name: 'repository-build-helper',
       version: '1.0.0',
       bin: 'index.js',
     })}\n`)
-    await writeFile(join(repository, 'build-helper', 'index.js'), [
+    await writeFile(join(repository, '.dsh-plugin', 'build-helper', 'index.js'), [
       '#!/usr/bin/env node',
       "require('node:fs').writeFileSync('dependency-built.txt', 'dependency available\\n')",
       '',
     ].join('\n'), { mode: 0o700 })
-    await writeFile(join(repository, 'prepare-helper', 'package.json'), `${JSON.stringify({
+    await writeFile(join(repository, '.dsh-plugin', 'prepare-helper', 'package.json'), `${JSON.stringify({
       name: 'repository-prepare-helper',
       version: '1.0.0',
       bin: { 'dsh-plugin-prepare': 'index.js' },
     })}\n`)
-    await writeFile(join(repository, 'prepare-helper', 'index.js'), [
+    await writeFile(join(repository, '.dsh-plugin', 'prepare-helper', 'index.js'), [
       '#!/usr/bin/env node',
       "const { cpSync, mkdirSync, writeFileSync } = require('node:fs')",
       "mkdirSync('dsh-plugin-assets/skills', { recursive: true })",
       "cpSync('../skills', 'dsh-plugin-assets/skills/0', { recursive: true })",
       "writeFileSync('dsh-plugin.mjs', 'export function apply() {}\\n')",
-      "writeFileSync('prepared.txt', `${process.env.REPOSITORY_TEST_VISIBLE ?? 'absent'}|${process.env.REPOSITORY_TEST_TOKEN ?? 'absent'}\\n`)",
+      "writeFileSync('prepared.txt', `${process.env.REPOSITORY_TEST_VISIBLE ?? 'absent'}|${process.env.REPOSITORY_TEST_TOKEN ?? 'absent'}|${process.env.PNPM_CONFIG_IGNORE_WORKSPACE ?? 'absent'}\\n`)",
+      "writeFileSync('environment.json', `${JSON.stringify({ path: process.env.PATH, pathExt: process.env.PATHEXT })}\\n`)",
       '',
     ].join('\n'), { mode: 0o700 })
     await writeFile(join(repository, 'skills', 'fixture', 'SKILL.md'), 'repository skill source\n')
     await writeFile(join(repository, '.dsh-plugin', 'package.json'), `${JSON.stringify({
       name: 'repository-plugin-fixture',
       version: '1.0.0',
-      scripts: { prepack: 'repository-build-helper && dsh-plugin-prepare' },
+      scripts: {
+        // The fixture owns dependency installation, not platform-specific
+        // node_modules/.bin shim generation during pnpm's Git preparation.
+        prepack: [
+          'node ./node_modules/repository-build-helper/index.js',
+          'node ./node_modules/repository-prepare-helper/index.js',
+        ].join(' && '),
+      },
       devDependencies: {
-        'repository-build-helper': 'file:../build-helper',
-        'repository-prepare-helper': 'file:../prepare-helper',
+        'repository-build-helper': 'file:./build-helper',
+        'repository-prepare-helper': 'file:./prepare-helper',
       },
       dsh: { skills: ['../skills'] },
     })}\n`)
@@ -181,13 +196,22 @@ describe('RepositoryCache', () => {
     const specifier = `git+${pathToFileURL(repository).href}#${stdout.trim()}&path:/.dsh-plugin`
     vi.stubEnv('REPOSITORY_TEST_VISIBLE', 'visible')
     vi.stubEnv('REPOSITORY_TEST_TOKEN', 'hidden')
+    vi.stubEnv('PNPM_HOME', shadowPnpm)
+    vi.stubEnv('PATH', [shadowPnpm, ...(process.env.PATH === undefined ? [] : [process.env.PATH])].join(delimiter))
+    vi.stubEnv('PATHEXT', '.BAT;.CMD;.EXE')
 
     const installed = await new RepositoryCache(join(root, 'cache')).resolve(specifier)
     await expect(readFile(join(installed, 'dependency-built.txt'), 'utf8')).resolves.toBe('dependency available\n')
-    await expect(readFile(join(installed, 'prepared.txt'), 'utf8')).resolves.toBe('visible|absent\n')
+    await expect(readFile(join(installed, 'prepared.txt'), 'utf8')).resolves.toBe('visible|absent|true\n')
+    const environment = JSON.parse(await readFile(join(installed, 'environment.json'), 'utf8')) as {
+      path: string
+      pathExt: string
+    }
+    expect(environment.path.split(delimiter)).not.toContain(shadowPnpm)
+    expect(environment.pathExt.split(';')[0]?.toUpperCase()).toBe('.CMD')
     await expect(readFile(join(installed, 'dsh-plugin.mjs'), 'utf8')).resolves.toContain('export function apply')
-    await expect(readFile(join(installed, 'dsh-plugin-assets/skills/0/fixture/SKILL.md'), 'utf8'))
-      .resolves.toBe('repository skill source\n')
+    expect(lf(await readFile(join(installed, 'dsh-plugin-assets/skills/0/fixture/SKILL.md'), 'utf8')))
+      .toBe('repository skill source\n')
     await expect(readFile(join(installed, 'package.json'), 'utf8'))
       .resolves.toContain('repository-plugin-fixture')
   })

@@ -98,24 +98,27 @@ const GROUP_OTHER_BITS = 0o077
  * here — so the check is skipped rather than faked, and the file's protection
  * there is whatever the create and replace APIs express.
  * @param filename - absolute path of the document.
- * @throws when the file exists with group or other permission bits set.
+ * @throws when the path hierarchy is invalid or the file exists with group or other permission bits set.
  */
 async function assertOwnerOnly(filename: string): Promise<void> {
-  /* v8 ignore next -- native Windows coverage exercises the skip; POSIX covers the check */
-  if (process.platform === 'win32') return
   let mode: number
   try {
     mode = (await stat(filename)).mode
   } catch (error) {
     if (!isENOENT(error)) throw error
+    await canonicalizeWatchPath(filename)
     return
   }
+  /* v8 ignore next -- POSIX coverage cannot take the Windows peer; native Windows coverage does. */
+  if (process.platform === 'win32') return
+  /* v8 ignore start -- Windows has no POSIX mode enforcement; POSIX behavior tests enforce this peer. */
   const offending = mode & GROUP_OTHER_BITS
   if (offending === 0) return
   throw new Error(
     `credentials-local: ${filename} is readable beyond its owner (mode ${(mode & 0o777).toString(8)});`
     + ` run "chmod 600 ${filename}" before starting again`,
   )
+  /* v8 ignore stop */
 }
 
 /** Whether a filesystem error means absence; every non-ENOENT failure must surface. */
