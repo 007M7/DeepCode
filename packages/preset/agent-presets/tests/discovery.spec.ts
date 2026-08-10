@@ -1,13 +1,36 @@
-import { chmod, mkdtemp, mkdir, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { COMPOSITION_FILE, discoverPresets, scanRoot } from '@deepseek-ai/dsh-agent-presets'
+
+const fsHarness = vi.hoisted(() => ({
+  nextReadError: undefined as NodeJS.ErrnoException | undefined,
+}))
+
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>()
+  return {
+    ...actual,
+    readFile: (async (path: unknown, ...rest: never[]) => {
+      const error = fsHarness.nextReadError
+      if (error !== undefined) {
+        fsHarness.nextReadError = undefined
+        throw error
+      }
+      return (actual.readFile as (path: unknown, ...args: never[]) => Promise<unknown>)(path, ...rest)
+    }) as typeof actual.readFile,
+  }
+})
 
 const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), 'fixtures')
 const SYSTEM = { path: join(FIXTURES, 'system'), trust: 'system' as const }
 const USER = { path: join(FIXTURES, 'user'), trust: 'user' as const }
+
+beforeEach(() => {
+  fsHarness.nextReadError = undefined
+})
 
 describe('display order', () => {
   it('puts declared order first, then everything else by id', async () => {
@@ -177,10 +200,11 @@ describe('composition health', () => {
     await mkdir(join(root, 'sealed'))
     const path = join(root, 'sealed', COMPOSITION_FILE)
     await writeFile(path, '[]\n')
-    await chmod(path, 0o000)
+    fsHarness.nextReadError = Object.assign(new Error('EACCES: injected read failure'), { code: 'EACCES' })
 
     const [preset] = await scanRoot({ path: root, trust: 'user' })
 
+    expect(fsHarness.nextReadError).toBeUndefined()
     expect(preset?.broken).toMatch(/cannot be read/)
   })
 

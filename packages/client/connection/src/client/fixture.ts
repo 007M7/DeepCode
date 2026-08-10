@@ -1,7 +1,7 @@
 // FixtureApi: standalone UI development without a server. Real contract shape: unary takes
 // RpcRequest<P> and returns RpcResponse<T> (echoing the rpcId); streams yield RpcRequest<frame>
 // (the fixture IS the fake server, so it mints frame rpcIds); root respond takes ClientResponse
-// and returns RpcReceipt. fx-alpha carries a hand-built history script (60 turns, pageable);
+// and returns RpcReceipt. fx-alpha carries a hand-built history script (74 turns, pageable);
 // prompt triggers a chunked streaming replay; cancel stops the replay; resident pending
 // approval/question requests exercise replay and composer takeover with stable rpcIds.
 
@@ -19,6 +19,7 @@ import type {
   ToolResultMessage,
   UserMessage,
 } from '@deepseek-ai/dsh-llm'
+import type { AttachmentIdType, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type {
   SessionEvent,
   SessionId,
@@ -51,10 +52,10 @@ function userMessage(content: ContentBlock[], source: MessageSource = { kind: 'u
   return createUserMessage({ content, source })
 }
 
-function assistantMessage(content: ContentBlock[]): AssistantMessage {
+function assistantMessage(content: ContentBlock[], model = 'fx-1'): AssistantMessage {
   return createAssistantMessage({
     content,
-    source: { provider: 'fixture', model: 'fx-1' },
+    source: { provider: 'fixture', model },
   })
 }
 
@@ -330,6 +331,16 @@ function sid(id: string): SessionId {
   return id as SessionId
 }
 
+const FIXTURE_IMAGE_DATA = 'iVBORw0KGgoAAAANSUhEUgAAAKAAAABaCAYAAAA/xl1SAAAAvklEQVR42u3SMQ0AAAjAMIyhELM4AAe8PD1qYFlk9cCXEAEDYkAwIAYEA2JAMCAGBANiQDAgBgQDYkAwIAYEA2JAMCAGBANiQDAgBgQDYkAwIAYEA2JAMCAGxIBCYEAMCAbEgGBADAgGxIBgQAwIBsSAYEAMCAbEgGBADAgGxIBgQAwIBsSAYEAMCAbEgGBADAgGxIAYEAyIAcGAGBAMiAHBgBgQDIgBwYAYEAyIAcGAGBAMiAHBgBgQDIgB4bYWLb6pnOb1xAAAAABJRU5ErkJggg=='
+const FIXTURE_IMAGE_REF: ImageAttachmentRef = {
+  attachmentId: 'fixture:image' as AttachmentIdType,
+  mediaType: 'image/png',
+  bytes: 247,
+  width: 160,
+  height: 90,
+  name: 'fixture-image.png',
+}
+
 /** Deterministic provider billing attached to fixture assistant messages. */
 function fixtureUsage(turn: number, step: number): TokenUsage {
   return {
@@ -340,7 +351,7 @@ function fixtureUsage(turn: number, step: number): TokenUsage {
   }
 }
 
-/** fx-alpha history script: 60 turns (~130+ messages -> 3 pages at PAGE_MESSAGES=50),
+/** fx-alpha history script: 74 turns (~150+ messages -> 4 pages at PAGE_MESSAGES=50),
  *  mixing reasoning blocks / tool call+result / context. */
 function buildAlphaLog(): SessionEvent[] {
   const events: Record<string, unknown>[] = []
@@ -476,7 +487,7 @@ function buildAlphaLog(): SessionEvent[] {
     push({ type: 'step/end', data: { turn, step: 0 } })
     push({ type: 'turn/end', data: { turn, reason: { kind: 'completed' } } })
   }
-  // Turn 72: todo_write sample — the TodoRow toolview in the flow plus the
+  // Turn 73: todo_write sample — the TodoRow toolview in the flow plus the
   // todo/write snapshot event feeding the TodoPanel plan strip. Two items are
   // in_progress: this fixture chooses the parallel policy, so both surfaces
   // must render a parallel plan rather than the first active item alone.
@@ -535,8 +546,32 @@ function buildAlphaLog(): SessionEvent[] {
   toolTurn(70, 'web_search', '{"query":"deepseek harness architecture"}', 'Search results for deepseek harness architecture.')
   toolTurn(71, 'web_fetch', '{"url":"https://www.deepseek.com/blog/harness-architecture"}', '# Harness architecture\n\nEverything is a plugin.')
 
+  // Turn 72: user and assistant images share one durable fixture object.
+  // The todo turn remains last so its standing projection stays visible.
+  push({ type: 'turn/start', data: { turn: 72 } })
+  push({
+    type: 'user/message',
+    surfaceOp: 'append',
+    data: userMessage([{ type: 'image', attachment: FIXTURE_IMAGE_REF }, ...text('历史用户图片')]),
+  })
+  push({ type: 'step/start', data: { turn: 72, step: 0 } })
+  push({
+    type: 'assistant/message',
+    surfaceOp: 'append',
+    data: {
+      turn: 72,
+      step: 0,
+      message: assistantMessage(
+        [...text('结构化模型图片：'), { type: 'image', attachment: FIXTURE_IMAGE_REF }],
+        'fx-vision',
+      ),
+    },
+  })
+  push({ type: 'step/end', data: { turn: 72, step: 0 } })
+  push({ type: 'turn/end', data: { turn: 72, reason: { kind: 'completed' } } })
+
   const todoArgs = JSON.stringify({ todos: fixtureTodos })
-  toolTurn(72, 'todo_write', todoArgs, 'Updated todo list: 1 pending, 2 in progress, 1 completed.')
+  toolTurn(73, 'todo_write', todoArgs, 'Updated todo list: 1 pending, 2 in progress, 1 completed.')
   // The real tool appends the snapshot mid-execution — between tool/call and
   // tool/result — so the fixture reproduces that exact ordering (the last
   // toolTurn events run ... tool/call, tool/result, step/end, turn/end).
@@ -855,7 +890,6 @@ function estimateFixtureContent(blocks: readonly ContentBlock[]): number {
     // ContentBlockMap is merge-extensible: this client graph sees only the
     // base four members, but fixture turns do carry extended blocks at
     // runtime, so the structural JSON fallback below is live code.
-    // oxlint-disable-next-line typescript/no-unnecessary-condition -- the type collapses without the out-of-graph merges (see above).
     if (block.type === 'tool-result') {
       return tokens + estimateFixtureContent(block.content) + BLOCK_OVERHEAD
     }
@@ -1055,6 +1089,18 @@ function pageOf(
     return view === undefined ? { event } : { event, view }
   })
   return { events, hasMore: start > 0 }
+}
+
+/** Fixture mirror of host session-scoped attachment authorization. */
+function logReferencesAttachment(log: readonly SessionEvent[], attachmentId: string): boolean {
+  const visit = (value: unknown): boolean => {
+    if (Array.isArray(value)) return value.some(visit)
+    if (typeof value !== 'object' || value === null) return false
+    const record = value as Record<string, unknown>
+    if (record.attachmentId === attachmentId) return true
+    return Object.values(record).some(visit)
+  }
+  return log.some(event => visit(event.data))
 }
 
 /** Fixture mirror of first-party message extraction used by session-query. */
@@ -1351,6 +1397,10 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
     session.sessionId,
     { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
   ]))
+  const attachments = new Map<string, { attachment: ImageAttachmentRef; data: string }>([[
+    String(FIXTURE_IMAGE_REF.attachmentId),
+    { attachment: FIXTURE_IMAGE_REF, data: FIXTURE_IMAGE_DATA },
+  ]])
   /** Credential store double: set/unset flip the describe badge, values never read back. */
   const fixtureCredentials = new Map<string, true>([
     // The assembled fixture represents an already-configured shipped
@@ -1368,7 +1418,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
     ['my-agent', { trust: 'user', content: "- id: tool-read\n  name: '@deepseek-ai/dsh-tool-read'\n" }],
   ])
   let fixtureDefaultPreset = 'standard'
-  const nextTurn = new Map<SessionId, number>([[sid('fx-alpha'), 60]])
+  const nextTurn = new Map<SessionId, number>([[sid('fx-alpha'), 74]])
   let nextSession = 1
   let nextRpc = 1
   let attachedSessions = options.empty ? 0 : 1
@@ -2145,9 +2195,26 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
         // First accepted prompt appends events: the summary stops being blank.
         summary.blank = false
         const userText = content.map(b => (b.type === 'text' ? b.text : '')).join('')
+        const durable: ContentBlock[] = content.map((block) => {
+          if (block.type === 'text') return block
+          const attachment: ImageAttachmentRef = {
+            attachmentId: `fixture:${randomUuid()}` as AttachmentIdType,
+            mediaType: block.mediaType,
+            bytes: Math.max(
+              1,
+              Math.floor(block.data.length * 3 / 4)
+              - (block.data.endsWith('==') ? 2 : block.data.endsWith('=') ? 1 : 0),
+            ),
+            width: 160,
+            height: 90,
+            ...block.name === undefined ? {} : { name: block.name },
+          }
+          attachments.set(String(attachment.attachmentId), { attachment, data: block.data })
+          return { type: 'image', attachment }
+        })
         if (mode === 'steer' && replays.has(id)) {
           // Steering: the durable user/message lands inside the current turn; the replay continues.
-          append(id, { type: 'user/message', surfaceOp: 'append', data: userMessage(content) })
+          append(id, { type: 'user/message', surfaceOp: 'append', data: userMessage(durable) })
           return ok(request, { accepted: true as const })
         }
         const turn = nextTurn.get(id) ?? 0
@@ -2160,7 +2227,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
         if (plan.wanted !== null && plan.wanted !== plan.active) {
           append(id, { type: 'plan/mode', data: { active: plan.wanted } })
         }
-        append(id, { type: 'user/message', surfaceOp: 'append', data: userMessage(content) })
+        append(id, { type: 'user/message', surfaceOp: 'append', data: userMessage(durable) })
         // Capacity parallel of the host token-meter's request/context record:
         // log-only, appended inside the open turn, and deduplicated against the
         // route already recorded (the fixture never varies contextWindow).
@@ -2185,6 +2252,27 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
               : `回声：${userText}。这是 fixture 的流式回复，用于验证打字机增长与定稿切换。`,
         )
         return ok(request, { accepted: true as const })
+      },
+      attachment: (request) => {
+        const stored = attachments.get(String(request.payload.attachmentId))
+        if (stored === undefined) {
+          return err(request, {
+            code: 'attachment-error',
+            message: 'fixture attachment missing',
+            details: { reason: 'ATTACHMENT_NOT_FOUND' },
+          })
+        }
+        if (!logReferencesAttachment(
+          logs.get(request.payload.sessionId) ?? [],
+          String(request.payload.attachmentId),
+        )) {
+          return err(request, {
+            code: 'attachment-error',
+            message: 'fixture attachment is not referenced by this session',
+            details: { reason: 'ATTACHMENT_NOT_REFERENCED' },
+          })
+        }
+        return ok(request, stored)
       },
       updateQueue: request => err(request, {
         code: 'queue-item-not-found',
@@ -2262,15 +2350,14 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
         archivedSessionIds: [...archivedSessionIds],
       }),
       create: (request) => {
-        const { path, name } = request.payload
-        const target = path ?? `/tmp/fixture-workspaces/${name ?? ''}`
-        const existing = workspaces.find(w => w.path === target)
+        const { path } = request.payload
+        const existing = workspaces.find(w => w.path === path)
         if (existing !== undefined) return ok(request, { workspace: { ...existing }, created: false })
         const now = new Date().toISOString()
         const created: WorkspaceView = {
           workspaceId: wid(`fx-ws-${nextWorkspace++}`),
-          path: target,
-          title: name ?? target.split('/').filter(Boolean).at(-1) ?? target,
+          path,
+          title: path.split('/').filter(Boolean).at(-1) ?? path,
           sessionIds: [],
           createdAt: now,
           updatedAt: now,
@@ -2837,6 +2924,7 @@ export class FixtureApiClient extends AbstractApiClient {
       case 'session.rename': return this.api.sessions.rename(request)
       case 'session.fork': return this.api.sessions.fork(request)
       case 'session.prompt': return this.api.sessions.prompt(request)
+      case 'session.attachment': return this.api.sessions.attachment(request)
       case 'session.updateQueue': return this.api.sessions.updateQueue(request)
       case 'session.cancel': return this.api.sessions.cancel(request)
       case 'subagent.list': return this.api.subagents.list(request)

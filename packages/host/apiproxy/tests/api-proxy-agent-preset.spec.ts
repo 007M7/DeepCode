@@ -14,6 +14,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import SessionStore, { SessionId, type Session } from '@deepseek-ai/dsh-session'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
 import { RpcId, type RpcRequest } from '../src/api/rpc.ts'
+import type { HostFrame } from '../src/api/events.ts'
 import {
   InvalidPresetIdError, PresetExistsError, resolveSessionPreset, UnknownPresetError,
 } from '@deepseek-ai/dsh-agent-presets'
@@ -136,7 +137,6 @@ async function harness(
   const api = createApiProxy(ctx, {
     defaultModelSelection: () => ({ provider: 'test', model: 'test-model' }),
     cwd,
-    workspaceRoot: cwd,
     ...options.defaults,
   })
   return { api, ctx, cwd }
@@ -348,6 +348,37 @@ describe('agentPreset.select', () => {
     if (!listed.result.ok) throw new Error('unreachable')
     expect(listed.result.value.items.find(item => item.sessionId === 'sel-log')?.agentPreset)
       .toBe('core-web')
+  })
+
+  it('frames the committed switch so clients can drop that session\'s catalogs', async () => {
+    const { api, ctx } = await harness(['standard', 'minimal'])
+    await api.sessions.create(request({ sessionId: SessionId('sel-frame'), agentPreset: 'standard' }))
+    // The host-stream opener reads the committed-workspace baseline; this
+    // spec owns preset identity, so the stub suffices (api-proxy-commands
+    // precedent).
+    ctx.provide('workspace', { list: () => [] } as never)
+    const abort = new AbortController()
+    const frames: HostFrame[] = []
+    const stream = api.events.host(request({}), abort.signal)
+    const consume = (async () => {
+      for await (const frame of stream) {
+        if (frame.payload.type === 'host/session-preset-changed') frames.push(frame.payload)
+      }
+    })()
+
+    await api.agentPresets.select(
+      request({ sessionId: SessionId('sel-frame'), agentPreset: 'minimal' }))
+    // The queue push rides the synchronous append, so one turn of the loop is
+    // enough to deliver it; closing the stream bounds the read either way.
+    await new Promise(resolve => setTimeout(resolve, 0))
+    abort.abort()
+    await consume
+
+    // Recomposing registers nothing, so this frame — not the registry-wide
+    // commands one — is what tells a client its cached catalogs are stale.
+    expect(frames).toEqual([
+      { type: 'host/session-preset-changed', sessionId: 'sel-frame', agentPreset: 'minimal' },
+    ])
   })
 
   it('serializes two concurrent selects on one session', async () => {

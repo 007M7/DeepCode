@@ -17,7 +17,7 @@ Harnesses are [Cordis](cordis-primer.md) contexts; packages contribute services,
 | `ctx.systemPrompt` | `dsh-system-prompt` | ordered prompt sections, tool schemas, and variables |
 | `ctx.tools` | `dsh-tools` | tool registry and [execution pipeline](tool-execution-pipeline.md) |
 | `ctx.agents` | `dsh-agent` | live agents, delegated creation, `agent/*` events, process-local initiator scope |
-| `ctx.agentDefaultModel` | [`dsh-agent-default-model`](../packages/core/agent-default-model/README.md) | Settings-backed model selection shared by Agent front doors |
+| `ctx.agentDefaultModel` | [`dsh-agent-default-model`](../packages/core/agent-default-model/README.md) | Settings-backed model selection shared by Agent entry points |
 | `ctx.agentLoop` | `dsh-agent-loop` | concrete `Agent` driver |
 
 ### Capability Services
@@ -164,7 +164,7 @@ Exceptions combine LLM Service Definition/Consumer roles, filesystem policy, web
 
 ### Bundles And Apps
 
-`dsh-agent-spine-demo` bundles a spine and optional goals. App packages own CLI, ACP automation, and JSON-RPC front doors ([README](../packages/examples/agent-spine-demo/README.md), [acp/](../packages/acp/README.md), [interaction/](../packages/interaction/README.md)). `dsh-jsonrpc-agent` boots external `cordis.yml`; the Python SDK defaults when config is absent ([Python SDK](../python/README.md)). Thin deployments use swappable backends and optional tools ([examples/](../examples/AGENTS.md), [runnable wirings](cookbook/extension-cookbook.md#runnable-wirings), [graph atlas](graph-atlas.md)).
+`dsh-agent-spine-demo` bundles a spine and optional goals. App packages own CLI, ACP automation, and JSON-RPC entry points ([README](../packages/examples/agent-spine-demo/README.md), [acp/](../packages/acp/README.md), [interaction/](../packages/interaction/README.md)). `dsh-jsonrpc-agent` boots external `cordis.yml`; the Python SDK defaults when config is absent ([Python SDK](../python/README.md)). Thin deployments use swappable backends and optional tools ([examples/](../examples/AGENTS.md), [runnable wirings](cookbook/extension-cookbook.md#runnable-wirings), [graph atlas](graph-atlas.md)).
 
 ### Agent Presets
 

@@ -229,7 +229,7 @@ describe('MessageItem arms', () => {
     expect(vi.getTimerCount()).toBe(0)
   })
 
-  it('consumed steering is captioned as an interjection and keeps copy without branch', () => {
+  it('consumed steering renders as a plain user bubble and keeps copy without branch', () => {
     const writeText = vi.fn().mockResolvedValue(undefined)
     Object.defineProperty(navigator, 'clipboard', {
       configurable: true,
@@ -242,7 +242,7 @@ describe('MessageItem arms', () => {
       } as never}
       />,
     )
-    expect(view.getByText('插话')).toBeTruthy()
+    expect(view.queryByText('插话')).toBeNull()
     expect(view.getByText('steer!')).toBeTruthy()
     expect(view.getByText(/附加内容块/)).toBeTruthy()
     fireEvent.click(view.getByRole('button', { name: '复制' }))

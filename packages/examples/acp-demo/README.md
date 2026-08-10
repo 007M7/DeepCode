@@ -55,4 +55,4 @@ Append-only per session; the app adds no request-prefix content itself.
 
 - **JSONL persistence is fixed** — a different backend requires another composition.
 - **Sibling plugins can corrupt stdout** — the app cannot prevent another entry from writing non-protocol bytes.
-- **Fresh automation sessions only** — resume and human interaction belong to other front doors.
+- **Fresh automation sessions only** — resume and human interaction belong to other entry points.

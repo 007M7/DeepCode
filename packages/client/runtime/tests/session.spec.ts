@@ -531,6 +531,21 @@ describe('prompt and cancel errors', () => {
     expect(result.ok).toBe(false)
     expect(session.getSnapshot().promptError).toMatchObject({ op: 'stop', error: { code: 'internal' } })
   })
+
+  it('reads session-authorized attachment bytes and keeps the opaque id on the wire', async () => {
+    const { api, session } = makeSession()
+    const result = await session.readAttachment('attachment-1' as never)
+    expect(result).toEqual({
+      ok: true,
+      value: {
+        attachment: { attachmentId: 'a', mediaType: 'image/png', bytes: 1, width: 1, height: 1 },
+        data: Uint8Array.of(0),
+      },
+    })
+    expect(api.callsOf('session.attachment')).toEqual([{
+      sessionId: SID, attachmentId: 'attachment-1',
+    }])
+  })
 })
 
 describe('rename', () => {

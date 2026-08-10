@@ -330,11 +330,11 @@ describe('workspace domain schemas', () => {
     expect(() => workspaceArchiveSessionValueSchema.parse({ archivedSessionIds: 's1' })).toThrow()
   })
 
-  it('create requires exactly one of path/name (both refine arms)', () => {
+  it('create requires a path', () => {
     expect(workspaceCreateRequestSchema.parse({ path: '/p' }).path).toBe('/p')
-    expect(workspaceCreateRequestSchema.parse({ name: 'n' }).name).toBe('n')
-    expect(() => workspaceCreateRequestSchema.parse({})).toThrow(/exactly one/)
-    expect(() => workspaceCreateRequestSchema.parse({ path: '/p', name: 'n' })).toThrow(/exactly one/)
+    expect(() => workspaceCreateRequestSchema.parse({})).toThrow()
+    // The retired create-by-name spelling stays a clean schema rejection.
+    expect(() => workspaceCreateRequestSchema.parse({ name: 'n' })).toThrow()
     expect(workspaceCreateValueSchema.parse({ workspace: view, created: false }).created).toBe(false)
   })
 
@@ -493,6 +493,7 @@ describe('events frame schemas', () => {
       } },
       { type: 'host/workspace-removed', workspaceId: 'w' },
       { type: 'host/commands-changed' },
+      { type: 'host/session-preset-changed', sessionId: 's', agentPreset: 'minimal' },
       { type: 'stream/error', error: { code: 'internal', message: 'm', details: {} } },
     ]
     for (const frame of frames) expect(hostFrameSchema.parse(frame)).toMatchObject({ type: frame.type })
