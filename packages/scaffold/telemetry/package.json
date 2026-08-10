@@ -24,9 +24,6 @@
     "lib/types/**/*.d.ts"
   ],
   "license": "BSD-3-Clause",
-  "dependencies": {
-    "yaml": "^2.9.0"
-  },
   "peerDependencies": {
     "@deepseek-ai/dsh-brand": "^0.0.1",
     "@deepseek-ai/dsh-invariants": "^0.0.1",

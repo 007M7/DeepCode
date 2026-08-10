@@ -611,12 +611,12 @@ describe('command telemetry', () => {
     const reporter = { report: () => { sent.push(1) }, flush: async () => {} }
     await reportCommandTelemetry(
       { command: 'build', cwd: dir, durationMs: 5, success: true },
-      { resolve: async () => ({ allowed: true, reason: 'absent' }), reporter },
+      { resolve: async () => ({ allowed: true, reason: 'FULL' }), reporter },
     )
     expect(sent).toHaveLength(1)
     await reportCommandTelemetry(
       { command: 'build', cwd: dir, durationMs: 5, success: true },
-      { resolve: async () => ({ allowed: false, reason: 'disabled' }), reporter },
+      { resolve: async () => ({ allowed: false, reason: 'DISABLED' }), reporter },
     )
     expect(sent).toHaveLength(1)
     await expect(reportCommandTelemetry(

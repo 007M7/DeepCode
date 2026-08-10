@@ -7,9 +7,9 @@
  */
 
 import {
-  ConsentResolver,
   TelemetryReporter,
   buildTelemetryPayload,
+  resolveTelemetryConsent,
   type ConsentDecision,
 } from '@deepseek-ai/dsh-telemetry'
 
@@ -17,7 +17,7 @@ import {
 export interface CommandTelemetryEvent {
   /** The dsh-sdk command that ran. */
   command: string
-  /** Project directory whose consent, `cordis.yml`, and `package.json` are read. */
+  /** Project directory whose `cordis.yml` and `package.json` may be reported. */
   cwd: string
   /** Wall-clock duration in milliseconds. */
   durationMs: number
@@ -27,12 +27,12 @@ export interface CommandTelemetryEvent {
 
 /** Injectable consent and delivery hooks for tests. */
 export interface CommandTelemetryDeps {
-  resolve?: (cwd: string) => Promise<ConsentDecision>
+  resolve?: () => ConsentDecision | Promise<ConsentDecision>
   reporter?: Pick<TelemetryReporter, 'report' | 'flush'>
 }
 
 /**
- * Resolve consent for the project and, when allowed, assemble and send one
+ * Resolve the shared telemetry mode and, when allowed, assemble and send one
  * telemetry event, draining in-flight sends before returning. Swallows every
  * error so telemetry can never change a command's result.
  * @param event - the command lifecycle facts.
@@ -43,9 +43,8 @@ export async function reportCommandTelemetry(
   deps: CommandTelemetryDeps = {},
 ): Promise<void> {
   try {
-    /* v8 ignore next -- the production ConsentResolver is exercised by the built-bin smoke */
-    const resolve = deps.resolve ?? (cwd => new ConsentResolver().resolve(cwd))
-    const consent = await resolve(event.cwd)
+    /* v8 ignore next -- the production resolver is exercised by its owning tests */
+    const consent = await (deps.resolve?.() ?? resolveTelemetryConsent())
     if (!consent.allowed) return
     const payload = await buildTelemetryPayload({
       command: event.command,

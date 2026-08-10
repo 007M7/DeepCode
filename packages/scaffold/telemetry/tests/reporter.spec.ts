@@ -9,8 +9,8 @@ import {
   type TelemetryPayload,
 } from '@deepseek-ai/dsh-telemetry'
 
-const ALLOW: ConsentDecision = { allowed: true, reason: 'enabled' }
-const DENY: ConsentDecision = { allowed: false, reason: 'disabled' }
+const ALLOW: ConsentDecision = { allowed: true, reason: 'FULL' }
+const DENY: ConsentDecision = { allowed: false, reason: 'DISABLED' }
 const anon = (value = 'anon-123'): (() => Promise<AnonymousId>) => async () => value as AnonymousId
 
 function okResponse(): Response {

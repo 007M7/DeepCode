@@ -2,10 +2,9 @@
  * Launcher-side telemetry for the dsh-sdk toolchain: secret redaction, consent
  * resolution, anonymous id, payload assembly, and a fire-and-forget reporter.
  *
- * This package is a plain library the launcher imports around each command — it
- * is NOT a Cordis plugin (several commands never boot Cordis). Wiring it into
- * the launcher command dispatch and the helper feature catalog lives outside
- * this package.
+ * This package is a plain library the launcher imports around each command; it
+ * is not a Cordis plugin because several commands never boot Cordis. Wiring
+ * reporting into launcher command dispatch lives outside this package.
  *
  * FIXME: rename to `@deepseek-ai/dsh-sdk-telemetry` before the first tagged release —
  * the current name collides with the `dsh-session-telemetry` family; this is
@@ -24,13 +23,11 @@ export {
 } from './secret-redactor.ts'
 export type { SecretRedactorOptions } from './secret-redactor.ts'
 export {
-  ConsentResolver,
-  DEFAULT_TELEMETRY_PLUGIN_NAME,
+  resolveTelemetryConsent,
 } from './consent-resolver.ts'
 export type {
   ConsentDecision,
   ConsentReason,
-  ConsentResolverOptions,
 } from './consent-resolver.ts'
 export {
   ANONYMOUS_ID_FILE_NAME,

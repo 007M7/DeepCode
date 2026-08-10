@@ -99,6 +99,7 @@ async function boot(url: string) {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
   const fiber = await ctx.plugin(TelemetryOtel, {
+    mode: TelemetryMode.FULL,
     exporter: { url, headers: { authorization: 'Bearer test-token' } },
   })
   return { ctx, fiber }
@@ -180,6 +181,7 @@ describe('TelemetryOtel wire', () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     const fiber = await ctx.plugin(TelemetryOtel, {
+      mode: TelemetryMode.FULL,
       exporter: { url },
       processor: { scheduledDelayMillis: 10 },
     })
@@ -210,6 +212,7 @@ describe('TelemetryOtel wire', () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     const fiber = await ctx.plugin(TelemetryOtel, {
+      mode: TelemetryMode.FULL,
       exporter: { url, timeoutMillis: 60_000 },
       processor: { scheduledDelayMillis: 10, exportTimeoutMillis: 60_000 },
       shutdownTimeoutMillis: 50,
@@ -238,6 +241,7 @@ describe('TelemetryOtel wire', () => {
     // verbatim passthrough must hand it (and every other field) to the
     // exporter rather than silently rebuilding url/headers only.
     const fiber = await ctx.plugin(TelemetryOtel, {
+      mode: TelemetryMode.FULL,
       exporter: { url, compression: 'gzip' },
     } as Config)
     const session = ctx.sessions.create(SessionId('gzip'), { meta: {} })
@@ -364,16 +368,24 @@ describe('TelemetryOtel wire', () => {
     expect(captures).toEqual([])
   })
 
-  it('defaults direct construction to full delivery', async () => {
+  it('defaults direct construction to disabled delivery', async () => {
     const { url, captures } = await mockCollector()
     const ctx = new Context()
     await ctx.plugin(SessionStore)
-    new TelemetryOtel(ctx, { exporter: { url } })
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
+    new TelemetryOtel(ctx, {
+      exporter: { url },
+      processor: { maxExportBatchSize: 0 },
+    })
     const session = ctx.sessions.create(SessionId('direct-default'), { meta: {} })
     session.append('turn/start', { turn: 1 })
+    recordFeedback(session, 'local report')
     await ctx.fiber.dispose()
 
-    expect(eventTypes(captures)).toContain('turn/start')
+    expect(warn).toHaveBeenCalledWith(
+      'session telemetry is DISABLED; nothing will be shared and this feedback remains local',
+    )
+    expect(captures).toEqual([])
   })
 })
 
@@ -382,23 +394,23 @@ describe('TelemetryOtel config fails loud', () => {
     expectTypeOf<Config['mode']>().toEqualTypeOf<TelemetryMode | undefined>()
     expectTypeOf<'FULL'>().not.toExtend<TelemetryMode>()
     expectTypeOf<TelemetryMode.FULL>().toExtend<TelemetryMode>()
-    expect(DEFAULT_TELEMETRY_MODE).toBe(TelemetryMode.FULL)
+    expect(DEFAULT_TELEMETRY_MODE).toBe(TelemetryMode.DISABLED)
     expect(Config({}).mode).toBe(DEFAULT_TELEMETRY_MODE)
   })
 
   it.each([
-    [{}, /exporter\.url is required/],
-    [{ exporter: { url: '' } }, /exporter\.url is required/],
-    [{ exporter: { url: 'not a url' } }, /not a valid URL/],
-    [{ exporter: { url: 'ftp://collector' } }, /must be http\(s\)/],
+    [{ mode: TelemetryMode.FULL }, /exporter\.url is required/],
+    [{ mode: TelemetryMode.FULL, exporter: { url: '' } }, /exporter\.url is required/],
+    [{ mode: TelemetryMode.FULL, exporter: { url: 'not a url' } }, /not a valid URL/],
+    [{ mode: TelemetryMode.FULL, exporter: { url: 'ftp://collector' } }, /must be http\(s\)/],
     [{ mode: TelemetryMode.FEEDBACK_ONLY }, /exporter\.url is required/],
     [{ mode: 'INVALID' }, /INVALID/],
     // The SDK accepts a non-positive batch size but its shutdown drain then
     // splices empty batches forever — dispose would hang, so reject at load.
-    [{ exporter: { url: 'http://c/v1/logs' }, processor: { maxExportBatchSize: 0 } }, /maxExportBatchSize/],
-    [{ exporter: { url: 'http://c/v1/logs' }, processor: { maxExportBatchSize: 0.5 } }, /maxExportBatchSize/],
-    [{ exporter: { url: 'http://c/v1/logs' }, shutdownTimeoutMillis: 0 }, /shutdownTimeoutMillis/],
-    [{ exporter: { url: 'http://c/v1/logs' }, shutdownTimeoutMillis: Number.POSITIVE_INFINITY }, /shutdownTimeoutMillis/],
+    [{ mode: TelemetryMode.FULL, exporter: { url: 'http://c/v1/logs' }, processor: { maxExportBatchSize: 0 } }, /maxExportBatchSize/],
+    [{ mode: TelemetryMode.FULL, exporter: { url: 'http://c/v1/logs' }, processor: { maxExportBatchSize: 0.5 } }, /maxExportBatchSize/],
+    [{ mode: TelemetryMode.FULL, exporter: { url: 'http://c/v1/logs' }, shutdownTimeoutMillis: 0 }, /shutdownTimeoutMillis/],
+    [{ mode: TelemetryMode.FULL, exporter: { url: 'http://c/v1/logs' }, shutdownTimeoutMillis: Number.POSITIVE_INFINITY }, /shutdownTimeoutMillis/],
   ])('rejects %j at plugin load', async (config, message) => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
@@ -463,7 +475,7 @@ describe('dsh-session-telemetry-otel real-load-path guard', () => {
     const unwrapped = loader.unwrapExports(module) as Parameters<Context['plugin']>[0]
     const ctx = new Context()
     await ctx.plugin(SessionStore)
-    const fiber = await ctx.plugin(unwrapped, { exporter: { url } })
+    const fiber = await ctx.plugin(unwrapped, { mode: TelemetryMode.FULL, exporter: { url } })
     expect(ctx.telemetry).toBeInstanceOf(TelemetryOtel)
     await fiber.dispose()
   })

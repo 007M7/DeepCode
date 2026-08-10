@@ -5493,10 +5493,6 @@ importers:
         version: link:../../../vendor/cordis
 
   packages/scaffold/telemetry:
-    dependencies:
-      yaml:
-        specifier: ^2.9.0
-        version: 2.9.0
     devDependencies:
       '@deepseek-ai/dsh-brand':
         specifier: workspace:^

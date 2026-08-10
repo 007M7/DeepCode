@@ -55,13 +55,13 @@ This proposal concerns dependencies of developer-owned SDK projects. Standalone 
 
 Telemetry wraps the `create-sdk` initializer and the `dsh-sdk` launcher command lifecycle because project initialization, plugin creation, and build do not reliably boot Cordis. One event records the command name, duration, success, a random per-user anonymous identifier, and redacted `cordis.yml` and `package.json` text when those project files are eligible.
 
-Reporting is enabled unless a present telemetry config entry is explicitly disabled. `DO_NOT_TRACK` and CI deny reporting regardless of project configuration. A missing `cordis.yml` does not itself deny the event, but `package.json` content is included only when `cordis.yml` establishes that the directory is an SDK project.
+The [explicit-opt-in decision](../../implemented/feature/2026-08-10-telemetry-default-off.md) supersedes this proposal's default-on consent rule. Launcher reporting reads the shared `DSH_TELEMETRY_MODE` and is enabled only under `FULL`; `FEEDBACK_ONLY`, `DISABLED`, unset, and empty values deny reporting. `package.json` content is included only when `cordis.yml` establishes that the directory is an SDK project.
 
 ### Safety and delivery
 
 The payload builder never reads `.env`. It redacts secret-shaped keys and values, known token forms, PEM blocks, URL credentials, and high-entropy opaque strings in the two eligible text files. Redaction is a safety backstop rather than a guarantee; SDK projects must keep credentials in `.env`.
 
-The reporter uses a fixed endpoint and resolves every send path without throwing. Command dispatch records success or failure in a `finally` path, starts reporting after the command outcome is known, and drains within a bounded interval. Consent parsing, payload construction, storage, or network failures are swallowed only at this telemetry boundary and never alter the command's exit code.
+The reporter uses a fixed endpoint and resolves every send path without throwing. Command dispatch records success or failure in a `finally` path, starts reporting after the command outcome is known, and drains within a bounded interval. Consent resolution, payload construction, storage, or network failures are swallowed only at this telemetry boundary and never alter the command's exit code.
 
 ## Interactive workflow testing
 
@@ -72,7 +72,6 @@ One or two optional real-PTY smoke tests may cover the shipped binary and TTY gu
 ## Deferred work
 
 - Extend the headless create specification to express local `plugin` or `tool` scaffolding instead of defaulting that interactive choice to none.
-- Expose the telemetry opt-out in create and config while preserving the consent representation in which only a disabled telemetry entry is written.
 - Define whether GitHub source dependencies must be prebuilt or may run package-manager-controlled preparation scripts, and surface the policy before installation.
 - Replace the telemetry package's `.invalid` endpoint placeholder with the production endpoint before release.
 
@@ -99,7 +98,7 @@ One or two optional real-PTY smoke tests may cover the shipped binary and TTY gu
 - Create runs without a TTY from a complete structured input, emits only NDJSON on stdout under `--json`, and reports missing required input as `action-required` without writing a partial project.
 - Create and config resolve the same feature-plan contract through the shared question, feature-configuration, and project-editing code paths.
 - `dsh-sdk create <source>` uses the selected project package manager, mounts the dependency name that operation actually added, and fails loudly when no new dependency can be identified.
-- The initializer and every `dsh-sdk` command reach one best-effort telemetry completion path; an explicit disabled entry, `DO_NOT_TRACK`, or CI prevents delivery, and telemetry failures never change the command result.
+- The initializer and every `dsh-sdk` command reach one best-effort telemetry completion path; only `DSH_TELEMETRY_MODE=FULL` permits delivery, and telemetry failures never change the command result.
 - Telemetry never reads `.env`, withholds unrelated `package.json` content when no `cordis.yml` exists, redacts both eligible text payloads, and uses an identifier unrelated to git metadata.
 - Interactive tests cover create and config decisions through injected interaction and assert committed project files; any real-PTY coverage remains a narrow smoke layer.
 - The agent skill documents the public structured-input and event contracts without depending on private package exports.
@@ -107,7 +106,7 @@ One or two optional real-PTY smoke tests may cover the shipped binary and TTY gu
 ## Risks
 
 - Full redacted `cordis.yml` and `package.json` text still reveals plugin and dependency names, URLs, paths, and configuration values to the endpoint operator, and heuristic redaction can miss a secret.
-- Default-on reporting may surprise developers when no telemetry entry exists; the CLI must make the opt-out discoverable before release.
+- `FULL` opts into both complete Session Log sharing and launcher project-text reporting; deployments cannot enable those feeds independently.
 - A package-manager add can change `package.json`, the lockfile, and installed files before `ProjectEditSession` mounts the plugin, so a later mount failure can leave dependency changes that require manual recovery.
 - GitHub dependencies may execute preparation or lifecycle code according to package-manager policy; an unresolved build policy is a supply-chain and reproducibility risk.
 - Injected prompt tests do not prove raw-mode, signal, or repaint behavior in a real terminal; the optional smoke layer must cover only those residual contracts.
@@ -116,5 +115,4 @@ One or two optional real-PTY smoke tests may cover the shipped binary and TTY gu
 
 - [Vercel Eve](https://github.com/vercel/eve) and [Vercel Labs Skills](https://github.com/vercel-labs/skills) for the distinction between a headless initializer and skill distribution.
 - [npm package specifications](https://docs.npmjs.com/cli/v11/using-npm/package-spec), [pnpm add](https://pnpm.io/cli/add), and [Yarn add](https://yarnpkg.com/cli/add) for package-manager-native sources.
-- [`DO_NOT_TRACK`](https://donottrack.sh/) for the environment-level opt-out convention.
 - [Clack](https://github.com/bombshell-dev/clack) and [Vitest snapshots](https://vitest.dev/guide/snapshot) for injected prompts and generated-file assertions.

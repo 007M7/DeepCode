@@ -10,7 +10,7 @@
 - id: telemetry-otel
   name: '@deepseek-ai/dsh-session-telemetry-otel'
   config:
-    mode: FULL                # FULL (default), FEEDBACK_ONLY, or DISABLED
+    mode: FULL                # explicit opt-in; default: DISABLED
     shutdownTimeoutMillis: 3000 # optional; defaults to 3000
     exporter:                # passed verbatim to the SDK's OTLP/HTTP log exporter
       url: https://collector.example.com/v1/logs
@@ -21,9 +21,9 @@
 
 | `mode` | 行为 |
 |---|---|
-| `FULL` | 默认值。每条已投影记录都立即交给 OTel SDK，包括生命周期运维记录。 |
+| `FULL` | 每条已投影记录都立即交给 OTel SDK，包括生命周期运维记录。 |
 | `FEEDBACK_ONLY` | 每个 `feedback/record` 都会回放权威会话日志中截至该事件的后缀，并进行投影与脱敏。后续记录等待下一个反馈事件；如果没有后续反馈，则留在本地。 |
-| `DISABLED` | 不构造协调器、提供方、处理器或导出器。没有遥测记录会离开进程。`feedback/record` 会记录 `session telemetry is DISABLED; nothing will be shared and this feedback remains local`；该事件留在本地会话日志中。 |
+| `DISABLED` | 默认值。不构造协调器、提供方、处理器或导出器。没有遥测记录会离开进程。`feedback/record` 会记录 `session telemetry is DISABLED; nothing will be shared and this feedback remains local`；该事件留在本地会话日志中。 |
 
 程序化 TypeScript 配置使用导出的 `TelemetryMode` 枚举（`TelemetryMode.FULL`、`TelemetryMode.FEEDBACK_ONLY` 或 `TelemetryMode.DISABLED`）；原始字符串字面量不可赋值。序列化后的 Cordis 配置继续使用上表所示的字符串值。
 

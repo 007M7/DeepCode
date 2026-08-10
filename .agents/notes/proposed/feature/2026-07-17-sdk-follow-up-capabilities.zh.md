@@ -55,7 +55,7 @@ Create 和 config 使用相同的功能计划形状。create 通过上述命令�
 
 遥测包住 `create-sdk` 初始化命令与 `dsh-sdk` launcher 的命令生命周期，因为工程初始化、插件创建和 build 都不会稳定地启动 Cordis。每个事件记录命令名、时长、成败、随机生成的用户级匿名标识符，以及符合条件时经过脱敏的 `cordis.yml` 与 `package.json` 文本。
 
-除非当前存在的遥测配置项被明确禁用，否则允许上报。`DO_NOT_TRACK` 和 CI 无论工程配置如何都禁止上报。缺少 `cordis.yml` 本身不会禁止事件，但只有 `cordis.yml` 能证明目录是 SDK 工程时，遥测内容才包含 `package.json` 文本。
+[显式启用决策](../../implemented/feature/2026-08-10-telemetry-default-off.md)取代了本提案默认允许上报的许可规则。启动器上报读取共享的 `DSH_TELEMETRY_MODE`，只在 `FULL` 下启用；`FEEDBACK_ONLY`、`DISABLED`、未设置和空值都会拒绝上报。只有 `cordis.yml` 能证明目录是 SDK 工程时，遥测内容才包含 `package.json` 文本。
 
 ### 安全与传输
 
@@ -72,7 +72,6 @@ Create 和 config 测试向现有工作流注入 `PromptPort` 和脚本化输入
 ## 延后工作
 
 - 扩展 headless create 规格，使其能表达本地 `plugin` 或 `tool` 脚手架，而不是把该交互选择默认为 none。
-- 在 create 和 config 中公开遥测关闭选项，同时保留只有禁用时才写入遥测配置项的上报许可表示。
 - 明确 GitHub 来源依赖必须预先构建，还是允许运行由包管理器控制的 preparation script（准备脚本），并在安装前向用户展示该策略。
 - 发布前把遥测包中的 `.invalid` endpoint 占位符替换为生产端点。
 
@@ -99,7 +98,7 @@ Create 和 config 测试向现有工作流注入 `PromptPort` 和脚本化输入
 - Create 能依据完整结构化输入在没有 TTY 时运行；使用 `--json` 时 stdout 只输出 NDJSON；缺少必答输入时通过 `action-required` 报告，且不写入部分工程。
 - Create 和 config 通过共享的问题、功能配置和工程编辑代码路径解析相同的功能计划约定。
 - `dsh-sdk create <source>` 使用工程选定的包管理器，挂载该操作实际新增的依赖名；无法识别新增依赖时快速失败。
-- 初始化命令与每个 `dsh-sdk` 命令都进入同一条尽力而为的遥测收尾路径；明确禁用的配置项、`DO_NOT_TRACK` 或 CI 会阻止传输，遥测失败绝不改变命令结果。
+- 初始化命令与每个 `dsh-sdk` 命令都进入同一条尽力而为的遥测收尾路径；只有 `DSH_TELEMETRY_MODE=FULL` 才允许传输，遥测失败绝不改变命令结果。
 - 遥测绝不读取 `.env`；没有 `cordis.yml` 时不发送无关的 `package.json` 内容；两个符合条件的文本都经过脱敏；匿名标识符与 git 元数据无关。
 - 交互测试通过注入交互覆盖 create 和 config 决策，并断言已提交的工程文件；真实 PTY 覆盖只作为窄范围冒烟层。
 - Agent skill 说明公开的结构化输入与事件约定，不依赖包的私有导出。
@@ -107,7 +106,7 @@ Create 和 config 测试向现有工作流注入 `PromptPort` 和脚本化输入
 ## 风险
 
 - 即使经过脱敏，完整的 `cordis.yml` 与 `package.json` 文本仍会向 endpoint 运营方暴露插件名、依赖名、URL、路径和配置值；启发式脱敏也可能漏掉 secret。
-- 没有遥测配置项时默认上报可能让开发者意外；发布前 CLI 必须让关闭方法易于发现。
+- `FULL` 会同时启用完整 Session Log 共享和启动器工程文本上报；部署方无法独立启用这两路数据流。
 - 在 `ProjectEditSession` 挂载插件前，包管理器的 add 操作已经可能修改 `package.json`、lockfile 和安装文件；后续挂载失败会留下需要手工恢复的依赖改动。
 - GitHub 依赖可能按包管理器策略执行 preparation 或 lifecycle script；尚未解决的构建策略会带来供应链与可复现性风险。
 - 注入提示词交互的测试无法证明真实终端中的 raw mode、signal 或重绘行为；可选冒烟层只应覆盖这些残余约定。
@@ -116,5 +115,4 @@ Create 和 config 测试向现有工作流注入 `PromptPort` 和脚本化输入
 
 - [Vercel Eve](https://github.com/vercel/eve) 与 [Vercel Labs Skills](https://github.com/vercel-labs/skills) 用于区分 headless 初始化命令与 skill 分发。
 - [npm package specifications](https://docs.npmjs.com/cli/v11/using-npm/package-spec)、[pnpm add](https://pnpm.io/cli/add)和 [Yarn add](https://yarnpkg.com/cli/add)说明包管理器原生来源。
-- [`DO_NOT_TRACK`](https://donottrack.sh/)定义环境级关闭约定。
 - [Clack](https://github.com/bombshell-dev/clack) 和 [Vitest snapshots](https://vitest.dev/guide/snapshot) 说明注入提示词交互与生成文件断言。
