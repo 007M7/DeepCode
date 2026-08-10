@@ -7554,6 +7554,9 @@ importers:
       '@deepseek-ai/cordis-plugin-timer':
         specifier: workspace:^
         version: link:../../vendor/timer
+      '@deepseek-ai/cosmokit':
+        specifier: workspace:^
+        version: link:../../vendor/cosmokit
       '@deepseek-ai/dsh-acp':
         specifier: workspace:^
         version: link:../../packages/acp/acp
