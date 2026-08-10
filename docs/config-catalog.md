@@ -259,7 +259,7 @@ export interface Config {
 
 Depends on: [`ToolPresentationMode`](subsystems/tools.md)
 
-Source: [`packages/core/agent-tool-mode/src/index.ts:36`](../packages/core/agent-tool-mode/src/index.ts)
+Source: [`packages/core/agent-tool-mode/src/index.ts:38`](../packages/core/agent-tool-mode/src/index.ts)
 
 ## `@deepseek-ai/dsh-attachment-local`
 

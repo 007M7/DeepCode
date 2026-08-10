@@ -115,17 +115,20 @@
 
 # `compact-basic` reads `toolResultPrune` through `ctx.get`, so the pruner must
 # share this realm rather than sit outside it.
+#
+# `tokenMeter` is deliberately NOT in this realm: the meter stays on the HOST
+# plane, and the rows here resolve that one instance. It takes no configuration,
+# keys every fold by Session, and owns the context-meter projection units the
+# browser reads for every session — behind a realm those units would come and go
+# with whichever presets happen to be mounted. What a preset chooses is whether
+# its agent compacts at all, which is `compact-basic` below.
 - id: compaction
   name: cordis:group
   group: true
   isolate:
-    tokenMeter: true
     compact: true
     toolResultPrune: true
   config:
-    - id: token-meter
-      name: '@deepseek-ai/dsh-token-meter'
-
     - id: compact-basic
       name: '@deepseek-ai/dsh-compact-basic'
 

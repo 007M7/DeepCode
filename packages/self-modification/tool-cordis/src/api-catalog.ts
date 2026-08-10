@@ -1212,7 +1212,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     methods: [
       {
         signature: 'presentAs(mode: ToolPresentationMode): () => void',
-        jsDoc: '/**\n * Present this agent\'s tools in `mode` instead of the deployment default.\n *\n * Scoped only, and one declaration per agent: this is how an agent preset\n * composes a Code Mode agent beside native ones in the same process, and a\n * process-global override would be the `mode` config field instead.\n * @param mode - the presentation this agent\'s model sees.\n * @returns the exact disposer that restores the deployment default.\n */',
+        jsDoc: '/**\n * Present the calling scope\'s tools in `mode` instead of the deployment\n * default. Nearest scope on the chain wins, so a preset\'s standing\n * declaration covers every agent joined under it.\n *\n * Scoped only, and one declaration per scope: this is how an agent preset\n * composes Code Mode agents beside native ones in the same process, and a\n * process-global override would be the `mode` config field instead.\n * @param mode - the presentation the covered agents\' models see.\n * @returns the exact disposer that restores the deployment default.\n */',
       },
       {
         signature: 'register(definition: ToolDefinition): () => void',

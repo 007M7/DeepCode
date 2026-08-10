@@ -106,6 +106,13 @@ async function run(ctx: Context, task: string, io: HeadlessIo): Promise<void> {
   if (agents === undefined || defaultModel === undefined || sessions === undefined) return
 
   const selection = defaultModel.currentSelection()
+  // This bundle composes no preset roster, so the model-facing rows sit in the
+  // host plane and the agent reads them from the global registry layer. A
+  // deployment that DOES configure `dsh-agent-presets` has to join one here
+  // first: registration visibility inherits only along the `dsh-scope` parent
+  // chain, and `AgentPresets.mount()` is the only thing that links an agent to
+  // it, so an agent created without that link reads an empty global layer and
+  // reaches the model with no tools at all.
   const { agent } = await agents.create({
     sessionId: SessionId(`session-${randomUUID()}`),
     meta: { cwd: process.cwd() },

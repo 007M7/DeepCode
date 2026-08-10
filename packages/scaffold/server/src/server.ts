@@ -216,6 +216,12 @@ export class HarnessSdkServer {
   }
 
   private async createSession(sessionId: string): Promise<SessionRecord> {
+    // No preset composition: the SDK server's compositions keep the
+    // model-facing rows in the host plane, so this agent reads them from the
+    // global registry layer. A deployment that configures `dsh-agent-presets`
+    // has to join one here first — registration visibility inherits only along
+    // the `dsh-scope` parent chain, and an agent created without that link
+    // reads an empty global layer and reaches the model with no tools.
     const handle = await this.ctx.agents.create({
       sessionId: SessionId(sessionId),
       meta: { cwd: this.cwd },

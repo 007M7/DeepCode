@@ -84,4 +84,28 @@ describe('agent-presets invariants', () => {
       setup: async (agentCtx: Context) => void await ctx.agentPresets.mount(agentCtx, 'isolated'),
     })).resolves.toBeDefined()
   })
+
+  it('rejects an agent that addresses a model without joining any preset', async () => {
+    const ctx = await harness()
+    // The delegation shape: an agent composed outside the roster keeps a
+    // scope chain of length one, so every registry view it reads is the empty
+    // global layer. Publication alone stays legal — `recompose` binds exactly
+    // such an agent — so nothing fires until that empty world reaches a prompt.
+    const handle = await ctx.agents.create({ sessionId: SessionId('inv-unjoined') })
+
+    await expect(ctx.systemPrompt.assemble({ scope: handle.agent }))
+      .rejects.toThrow(/without joining any agent preset/)
+  })
+
+  it('admits a joined agent and a host assembly that names no scope', async () => {
+    const ctx = await harness()
+    const handle = await ctx.agents.create({
+      sessionId: SessionId('inv-joined'),
+      setup: async (agentCtx: Context) => void await ctx.agentPresets.mount(agentCtx, 'standard'),
+    })
+
+    await expect(ctx.systemPrompt.assemble({ scope: handle.agent })).resolves.toBeDefined()
+    // A scopeless assembly belongs to no agent, so it cannot be an unjoined one.
+    await expect(ctx.systemPrompt.assemble({})).resolves.toBeDefined()
+  })
 })

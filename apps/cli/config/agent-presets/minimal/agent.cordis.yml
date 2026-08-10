@@ -7,7 +7,9 @@
 # from a shared default.
 #
 # The host composition is unchanged: this agent still runs inside the same
-# sandbox, approval, persistence, and model routing as any other session.
+# sandbox, approval, persistence, and model routing as any other session — and
+# the same token meter, so the browser's context meter reads this session like
+# any other. What this preset drops is auto-compaction, not the accounting.
 
 - id: persona
   name: '@deepseek-ai/dsh-persona'

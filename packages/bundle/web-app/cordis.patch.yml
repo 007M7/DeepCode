@@ -270,8 +270,17 @@
 - id: plan-mode
   disabled: true
 
-- id: token-meter
-  disabled: true
+# The token METER stays on the host plane; only the compaction backend that
+# reads it moves. It takes no configuration at all, keys every fold by Session,
+# and registers no tool or prompt section, so one host instance serves every
+# preset exactly as before. It also owns the `tokenUsage`/`contextPressure`/
+# `contextBreakdown` projection units, and the projection registry is
+# process-wide rather than scope-layered: registered from inside a preset, the
+# browser's context meter would appear for a session whose own composition
+# mounts no meter as soon as some OTHER session mounted one, and disappear
+# entirely in a process that only ever ran `minimal`. That is the same criterion
+# `tasks` and `goals` are read by — a Service the host and every preset can see
+# belongs to the plane both can see.
 
 - id: compact-basic
   disabled: true

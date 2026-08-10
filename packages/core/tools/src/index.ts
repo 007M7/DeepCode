@@ -786,7 +786,7 @@ export class ToolRegistry extends Service {
     scope => new ToolLayer(scope),
     () => { this.ctx.emit('tools/change') },
   )
-  /** Presentation for agents that declare none; {@link presentAs} shadows it per agent. */
+  /** Presentation for scopes that declare none; {@link presentAs} shadows it per scope. */
   private readonly defaultMode: ToolPresentationMode
   private readonly maxParallelSubCalls: number
   /**
@@ -811,7 +811,7 @@ export class ToolRegistry extends Service {
 
   /**
    * The generated-SDK prompt section, registered globally by a code-mode
-   * deployment and per agent by {@link presentAs}.
+   * deployment and per scope by {@link presentAs}.
    *
    * The body regenerates from the CALLING scope, and renders empty for an
    * agent presenting natively — an agent that opted out under a code-mode
@@ -880,12 +880,14 @@ export class ToolRegistry extends Service {
   }
 
   /**
-   * Present this agent's tools in `mode` instead of the deployment default.
+   * Present the calling scope's tools in `mode` instead of the deployment
+   * default. Nearest scope on the chain wins, so a preset's standing
+   * declaration covers every agent joined under it.
    *
-   * Scoped only, and one declaration per agent: this is how an agent preset
-   * composes a Code Mode agent beside native ones in the same process, and a
+   * Scoped only, and one declaration per scope: this is how an agent preset
+   * composes Code Mode agents beside native ones in the same process, and a
    * process-global override would be the `mode` config field instead.
-   * @param mode - the presentation this agent's model sees.
+   * @param mode - the presentation the covered agents' models see.
    * @returns the exact disposer that restores the deployment default.
    */
   presentAs(mode: ToolPresentationMode): () => void {
@@ -898,14 +900,14 @@ export class ToolRegistry extends Service {
         ctx,
         (layer) => {
           if (layer.mode !== undefined) {
-            throw new Error(`tools.presentAs("${mode}") conflicts with "${layer.mode}" already declared for this agent; one composition selects one presentation`)
+            throw new Error(`tools.presentAs("${mode}") conflicts with "${layer.mode}" already declared for this scope; one composition selects one presentation`)
           }
           layer.mode = mode
           return () => { layer.mode = undefined }
         },
         { label: 'tools.presentAs()' },
       )
-      // The SDK section is per agent for the same reason the mode is. Under a
+      // The SDK section is per scope for the same reason the mode is. Under a
       // deployment that already defaults to a code mode this shadows the
       // global registration with an identical body, which costs nothing and
       // keeps one rule instead of a case analysis.

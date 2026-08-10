@@ -15,6 +15,9 @@ import { applyChildComposition, childSessionMeta } from '@deepseek-ai/dsh-subage
 import { CallId } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-skill'
 import type {} from '@deepseek-ai/dsh-tools'
+// Type-only: resolves `ctx.get('sessionProjections')` and `ctx.get('tokenMeter')`.
+import type {} from '@deepseek-ai/dsh-session-projection'
+import type {} from '@deepseek-ai/dsh-token-meter'
 
 const CONFIG_DIR = fileURLToPath(new URL('../config/', import.meta.url))
 const REPO_ROOT = fileURLToPath(new URL('../../..', import.meta.url))
@@ -111,6 +114,31 @@ describe('the shipped Web composition', () => {
     // present three. A regression here means an agent-plane row came back to
     // the host composition.
     expect(toolNames(ctx)).toEqual([])
+  })
+
+  it('keeps the token meter and its context-meter projections on the host plane', async () => {
+    // Read before any preset in this file mounts, which is what makes this an
+    // ownership assertion rather than a mount-order coincidence: a preset-side
+    // meter sits behind an `isolate` realm and is invisible to `ctx.get`.
+    //
+    // The projection registry is process-wide rather than scope-layered, so a
+    // preset-side meter would also make the browser's context meter appear for
+    // a `minimal` session the moment some OTHER session mounted a preset that
+    // carries one, and vanish entirely in a process that only ever ran
+    // `minimal`. Host ownership is what makes the meter a per-session fact.
+    expect(ctx.get('tokenMeter')).toBeDefined()
+    const projections = ctx.get('sessionProjections')
+    if (projections === undefined) throw new Error('the Web composition must compose a projection registry')
+    const handle = await ctx.agents.create({
+      sessionId: SessionId('preset-minimal-meter'),
+      setup: agentCtx => ctx.agentPresets.mount(agentCtx, 'minimal').then(() => undefined),
+    })
+    try {
+      expect(Object.keys(projections.snapshot(handle.agent.session).values).sort())
+        .toEqual(expect.arrayContaining(['contextBreakdown', 'contextPressure', 'tokenUsage']))
+    } finally {
+      await handle.dispose()
+    }
   })
 
   it('supplies both shipped presets, and only those, from the system root', async () => {

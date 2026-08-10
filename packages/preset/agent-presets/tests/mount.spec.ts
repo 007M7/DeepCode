@@ -499,6 +499,22 @@ describe('replacing a composition', () => {
     expect(toolNames(ctx, handle.agent)).toEqual(['alpha'])
   })
 
+  it('names an agent that was published without joining any preset', async () => {
+    const ctx = await harness()
+    const warnings: string[] = []
+    ctx.logger.warn = ((message: unknown) => { warnings.push(String(message)) }) as typeof ctx.logger.warn
+
+    await ctx.agents.create({ sessionId: SessionId('sess-unjoined-warn') })
+    // Advisory, not fatal: a synchronous `agent/created` throw would veto
+    // publication, and creating an agent outside the roster stays legal.
+    expect(warnings.filter(line => line.includes('sess-unjoined-warn'))).toHaveLength(1)
+    expect(warnings.at(-1)).toMatch(/without joining an agent preset/)
+
+    warnings.length = 0
+    await agentOn(ctx, 'sess-joined-quiet', 'minimal')
+    expect(warnings).toEqual([])
+  })
+
   it('composes an agent that had nothing installed', async () => {
     // An agent created without a preset has no binding to re-link, so the
     // switch is its first bind — exactly a mount — and once bound only the

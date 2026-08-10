@@ -87,3 +87,4 @@ Namespace 插件：命名导出 `name`／`inject`／`Config`／`apply`，无默�
 - **沙箱只用于约束诚实代码，并非安全边界**：可以访问沙箱全局变量上的 host realm helper，因此挂载代码可以触达 Node；加载该插件时，应当像授予 bash 工具一样慎重（见 § 信任立场）。
 - **`ctx` façade 不公开 `effect()`**：挂载代码无法注册定制 disposer；`on`／`provide`／`tools.register` 是受支持的清理路径。
 - **`vmTimeoutMs` 只限制同步求值**：async 挂载主体可逃出该边界；挂载代码没有 async 预算。
+- **临时 Plugin 属于组装，而不属于挂载它的那个会话**：group fiber 与 `dyn-N` 表是本行自己的，因此本行覆盖的每个 agent 共享它们——注册在某个 agent preset 的常驻挂载里时，一个会话挂载出来的东西会出现在另一个会话的工具目录和 `cordis_inspect what:"temporary"` 里，同一个 id 的第二次挂载会顶掉第一次。这与本包最初作为宿主平面行的语义一致（每进程一份）；只有当多个会话并发运行同一 preset 时才变得可观察。要做到逐会话，需要把 group 与表按调用方 agent 建键。
