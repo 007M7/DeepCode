@@ -14,6 +14,7 @@
  * @module @deepseek-ai/dsh-agent-presets/mount
  */
 
+import { isAbsolute } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { Context, type Fiber } from 'cordis'
 import { Include } from '@cordisjs/plugin-include'
@@ -69,21 +70,25 @@ class PresetTree extends Include {
    * where Node's upward `node_modules` walk never reaches the harness's own
    * dependencies, so every `@deepseek-ai/dsh-*` row would fail to import. The
    * mount records the host composition's base instead, which is inside the
-   * installed harness, and bare names resolve from there.
+   * installed harness, and bare names resolve from there. An absolute
+   * filesystem path names neither base and becomes a file URL before Node's
+   * ESM loader receives it, which is required for drive-letter paths on
+   * Windows.
    * @param name - the module specifier from the row.
    * @param getOuterStack - the loader's stack composer for import diagnostics.
    * @returns the imported module, or the `cordis:` builtin.
    */
   override import(name: string, getOuterStack?: () => string[]): unknown {
+    const specifier = isAbsolute(name) ? pathToFileURL(name).href : name
     const base = harnessBase.get(this.config)
     /* v8 ignore next -- every PresetTree is constructed by `mountPreset`, which records the base first */
-    if (base === undefined) return super.import(name, getOuterStack)
+    if (base === undefined) return super.import(specifier, getOuterStack)
     if (name.startsWith('.') || name.startsWith('cordis:')) return super.import(name, getOuterStack)
     const internal = this.ctx.loader.internal
     /* v8 ignore next -- Node always supplies the internal module loader; the branch keeps a
        hypothetical embedder from losing the row's name in a resolution error. */
-    if (internal === undefined) return super.import(name, getOuterStack)
-    return internal.import(name, base, {})
+    if (internal === undefined) return super.import(specifier, getOuterStack)
+    return internal.import(specifier, base, {})
   }
 
   /**
