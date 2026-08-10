@@ -125,7 +125,7 @@ function pwshDescription(backgroundEnabled: boolean, escalationModes: readonly S
     + 'workspace-write stays in FullLanguage unless host policy says otherwise. In read-only, prefer cmdlets and core types (`[string]`, `[datetime]`, `[regex]`, `[guid]`); '
     + '.NET static calls (`[System.IO.*]::`, `[math]::`), `Add-Type`, COM objects, and reflection fail '
     + 'with "only core types" errors. `-f` formatting, property access, and core cmdlets work. '
-    + 'In the same modes, programs cannot open named pipes, so a command that captures another '
+    + 'In both confined modes, programs cannot open named pipes, so a command that captures another '
     + 'program\'s output through piped stdio (Node.js `child_process.spawn`/`exec` with the default '
     + '`stdio: \'pipe\'`) fails with EPERM, while `stdio: \'inherit\'` and `stdio: \'ignore\'` spawns '
     + 'work and PowerShell\'s own pipelines are unaffected. That EPERM is the documented boundary: '

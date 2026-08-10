@@ -560,7 +560,7 @@ describe('sandbox escalation through ctx.approval', () => {
     expect(schema.description).toContain('approval prompt')
     expect(schema.description).toContain('ConstrainedLanguage')
     expect(schema.description).toContain('workspace-write stays in FullLanguage')
-    expect(schema.description).toContain('named pipes')
+    expect(schema.description).toContain('In both confined modes, programs cannot open named pipes')
     expect(schema.description).toContain('fails with EPERM')
 
     for (const args of [
