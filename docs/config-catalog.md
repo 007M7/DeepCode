@@ -2546,7 +2546,7 @@ export interface Config {
 export type WebMode = 'production' | 'development'
 ```
 
-Source: [`packages/bundle/web-app/src/index.ts:41`](../packages/bundle/web-app/src/index.ts)
+Source: [`packages/bundle/web-app/src/index.ts:40`](../packages/bundle/web-app/src/index.ts)
 
 ## `@deepseek-ai/dsh-web-fetch-local`
 

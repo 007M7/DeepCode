@@ -73,6 +73,8 @@ export class Entry {
 
   _initTask?: Promise<void>
   _disposing = 0
+  private runtimeEnabled = false
+  private runtimeEnableTask?: Promise<void>
 
   constructor(public loader: Loader) {
     this.ctx = loader.ctx.extend({ [Entry.key]: this })
@@ -99,13 +101,29 @@ export class Entry {
   private _disabled(options: EntryOptions) {
     // group is always enabled
     if (options.group) return false
-    if (options.disabled) return true
+    if (options.disabled && !this.runtimeEnabled) return true
     let entry = this.parent.ctx.fiber.entry
     while (entry) {
-      if (entry.options.disabled) return true
+      if (entry.options.disabled && !entry.runtimeEnabled) return true
       entry = entry.parent.ctx.fiber.entry
     }
     return false
+  }
+
+  /**
+   * Enable this in-memory entry without rewriting its configured `disabled`
+   * value; the override survives config reapplication for this entry object.
+   * @returns a promise settling after its initial activation attempt.
+   */
+  enableRuntime(): Promise<void> {
+    if (this.runtimeEnableTask !== undefined) return this.runtimeEnableTask
+    this.runtimeEnabled = true
+    this.runtimeEnableTask = this.refresh().catch((error: unknown) => {
+      this.runtimeEnabled = false
+      this.runtimeEnableTask = undefined
+      throw error
+    })
+    return this.runtimeEnableTask
   }
 
   evaluate(expr: string) {

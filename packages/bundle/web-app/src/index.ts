@@ -25,11 +25,10 @@ import type {} from '@deepseek-ai/dsh-bash-env'
 /** Stable Cordis plugin name. */
 export const name = 'web-app'
 
-/** The client-plugin reload chain row this bundle ships disabled, for `--dev`. */
-const HMR_ROW_ID = 'client-hmr'
-
 /** This dsh installation's root, from either this package's source or built entry. */
 const SOURCE_ROOT = fileURLToPath(new URL('../../../..', import.meta.url))
+const HMR_ROW_ID = 'client-hmr'
+const CLIENT_ROSTER_SERVICE = 'webClientRoster'
 
 /** Services required before the web runtime can mount. */
 export const inject = ['httpServer']
@@ -118,14 +117,16 @@ export const internals: { resolveDistIndex: () => string } = { resolveDistIndex 
  * variables, and the URL line.
  * @param ctx - plugin context carrying the httpServer service.
  * @param config - validated {@link Config}.
- * @returns nothing once optional development rows are active and runtime contributions are registered.
+ * @returns nothing once the invocation's client roster and runtime contributions are registered.
  */
 export async function apply(ctx: Context, config: Config): Promise<void> {
-  ctx.plugin(FrontendStatic, { distIndex: internals.resolveDistIndex() })
-  // The client-plugin reload chain is a row this bundle ships off, because it
-  // exists only in development. Turning it on belongs here rather than in the
-  // startup row: it needs host services that also activate after webStartup.
+  // Client discovery must start after the optional HMR row has a pending
+  // fiber. Otherwise its first browser graph omits the reload receiver, which
+  // cannot use that receiver to discover itself later.
   if (config.mode === 'development') await enableRow(ctx, HMR_ROW_ID)
+  // Release client discovery only after the optional row has a pending fiber.
+  ctx.provide(CLIENT_ROSTER_SERVICE, true)
+  ctx.plugin(FrontendStatic, { distIndex: internals.resolveDistIndex() })
   if (config.surfaceContext) {
     ctx.inject(['systemPrompt'], (promptCtx) => {
       addHarnessSourceSection(promptCtx, SOURCE_ROOT)

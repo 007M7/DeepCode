@@ -56,7 +56,7 @@ Every row the app configures from flags then reads what the startup row resolved
 
 Loader defers a row's `!!js` interpolation until that row's declared injections are active, then evaluates against the row's plugin context. The example above can therefore read `ctx.webStartup` directly: Cordis has already populated that injected service before Loader asks for `webserver`'s config. Include trees preserve nested expression nodes until each target row reaches this point. Provider replacement and live patch reload repeat interpolation against the current injected services, so a launch flag cannot be silently reset.
 
-`enableRow(ctx, id)` turns on a row a bundle ships disabled because only some invocations want it (`dsh web --dev` and its client-plugin reload chain). Loader applies the enabled row's ordinary injection ordering.
+`enableRow(ctx, id)` turns on a row a bundle ships disabled because only some invocations want it (`dsh web --dev` and its client-plugin reload chain). The activation is an in-memory override: it does not rewrite the row's configured `disabled` value and survives config reapplication for that mounted entry. Loader applies the enabled row's ordinary injection ordering.
 
 ### One command line, one owner
 

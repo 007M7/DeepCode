@@ -49,6 +49,19 @@ function fakeHttpServer(): { server: HttpServerService; seat: () => unknown } {
   return { server, seat: () => fallback }
 }
 
+/** Install the optional HMR row the runtime sequences before client discovery. */
+function provideHmrRow(ctx: Context, settle: () => Promise<void> = async () => {}): string[] {
+  const updates: string[] = []
+  ctx.provide('loader', {
+    entries: () => [{
+      options: { id: 'client-hmr' },
+      enableRuntime: async () => { updates.push('client-hmr') },
+    }],
+    await: settle,
+  } as never)
+  return updates
+}
+
 interface BashContribution {
   name: string
   variables: Record<string, { description: string }>
@@ -68,14 +81,7 @@ describe('web-app runtime glue', () => {
         return () => {}
       },
     } as never)
-    const hmrUpdates: unknown[] = []
-    ctx.provide('loader', {
-      entries: () => [{
-        options: { id: 'client-hmr' },
-        update: async (options: unknown) => { hmrUpdates.push(options) },
-      }],
-      await: async () => {},
-    } as never)
+    const enabledRows = provideHmrRow(ctx)
     const log = vi.spyOn(console, 'log').mockImplementation(() => {})
     await apply(ctx, new Config({ mode: 'development', printUrl: true, surfaceContext: true, lanAddresses: ['192.168.1.5'] }))
     await ctx.plugin(SystemPrompt, { persona: '' })
@@ -83,7 +89,8 @@ describe('web-app runtime glue', () => {
     await new Promise(resolve => setTimeout(resolve, 0))
 
     expect(seat()).toBeDefined() // frontend-static claimed the fallback
-    expect(hmrUpdates).toEqual([{ disabled: false }])
+    expect(enabledRows).toEqual(['client-hmr'])
+    expect(ctx.get('webClientRoster')).toBe(true)
     expect(log).toHaveBeenCalledWith('dsh web: http://127.0.0.1:4567 (LAN: http://192.168.1.5:4567)')
     const assembly = await ctx.systemPrompt.assemble()
     expect(assembly.sections.find(entry => entry.name === 'harness:source')?.text).toContain('DeepSeek Harness implementation checkout')
@@ -148,7 +155,7 @@ describe('web-app runtime glue', () => {
     // this row itself has activated.
     const ready = new Context()
     ready.provide('httpServer', fakeHttpServer().server)
-    ready.provide('loader', { await: () => Promise.resolve() } as never)
+    provideHmrRow(ready)
     let announce: () => void
     ready.provide('appReady', new Promise<void>((resolve) => { announce = resolve }))
     const log = vi.spyOn(console, 'log').mockImplementation(() => {})
@@ -182,7 +189,7 @@ describe('web-app runtime glue', () => {
     settled.provide('httpServer', fakeHttpServer().server)
     let release: () => void
     const settlement = new Promise<void>((resolve) => { release = resolve })
-    settled.provide('loader', { await: () => settlement } as never)
+    provideHmrRow(settled, () => settlement)
     const log = vi.spyOn(console, 'log').mockImplementation(() => {})
     await apply(settled, new Config({ mode: 'production', printUrl: true, surfaceContext: true, lanAddresses: [] }))
     await new Promise(resolve => setTimeout(resolve, 0))
@@ -202,7 +209,7 @@ describe('web-app runtime glue', () => {
     await child
     let releaseTorn: () => void
     const tornSettlement = new Promise<void>((resolve) => { releaseTorn = resolve })
-    torn.provide('loader', { await: () => tornSettlement } as never)
+    provideHmrRow(torn, () => tornSettlement)
     await apply(torn, new Config({ mode: 'production', printUrl: true, surfaceContext: true, lanAddresses: [] }))
     await child.dispose() // the httpServer service goes away
     releaseTorn!()

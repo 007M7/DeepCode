@@ -27,7 +27,7 @@ boot 只挂载一次整套组合。Cordis 让每一行等待其注入激活；Lo
 - **profile 的各行位于根 include 的 `patches` 选项内部。** Include 是条目树所有者，因此它的静态条目配置解析器会插值 Include 自身的选项，同时为目标行保留嵌套的 `!!js` 节点，而不是在 Include 上下文中递归求值。
 - **Cordis 只在所有声明的注入都已激活后才激活 fiber。** 每次激活前一刻，Cordis 会基于 fiber 自身上下文运行 `internal/config` waterfall；Cordis 快照注入服务之后，Loader 的监听器再插值原始配置。
 - **提供方替换与 HMR 必须保持相同契约。** fiber 重新激活时会重跑 waterfall，HMR 会把原始配置带给替换 fiber，而待处理行可以接受选项变更，不会针对缺失服务提前求值表达式。
-- **不能从正在挂载的插件内部插入一行**——`tree.create` 返回一个带前缀的 id，随后它自己解析不出来——因此条件性的行以 `disabled: true` 交付，再由活跃行启用（`dsh web --dev` 及其重载链路）；启用后的行继续遵循普通注入顺序。
+- **不能从正在挂载的插件内部插入一行**——`tree.create` 返回一个带前缀的 id，随后它自己解析不出来——因此条件性的行以 `disabled: true` 交付，再由活跃行启用（`dsh web --dev` 及其重载链路）。启用采用 Loader 的内存覆盖而非改写选项，因此 Include 重新应用配置时不会悄然将其禁用。Web 组合包还会在启用可选行之后才启动客户端发现，确保首份浏览器图中已经包含 HMR 接收端。
 
 这样，依赖顺序仍由负责它的 Cordis 激活与 Loader 插值流程处理。各行保留自己的 `inject` 和配置，Loader 只挂载一次组合，启动器只提供 argv 与进程生命周期服务。
 

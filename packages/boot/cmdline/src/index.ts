@@ -221,6 +221,8 @@ export function runStartup<T>(
  * A row cannot be inserted from inside a mounting plugin — the Loader returns a
  * prefixed id it then fails to resolve — so a conditional row ships disabled
  * and a row mounted beside it enables it after startup resolves the invocation.
+ * The Loader keeps that activation in memory, separate from serialized options,
+ * so reapplying the composition cannot restore the invocation's row to disabled.
  * @param ctx - plugin context whose Loader tree carries the row.
  * @param id - the row id.
  * @returns nothing once the row has started or is waiting for its dependencies.
@@ -231,7 +233,7 @@ export async function enableRow(ctx: Context, id: string): Promise<void> {
   if (loader === undefined) throw new Error('dsh-cmdline: enabling a row requires the Loader service')
   const entry = [...loader.entries()].find(candidate => candidate.options.id === id)
   if (entry === undefined) throw new Error(`dsh-cmdline: the composition has no ${JSON.stringify(id)} row to enable`)
-  await entry.update({ disabled: false })
+  await entry.enableRuntime()
 }
 
 /**
