@@ -744,7 +744,18 @@ type CallSiteIndex = Map<ts.SignatureDeclaration | ts.JSDocSignature, ts.CallExp
  */
 const EVENT_API_METHODS = new Set(['on', 'once', 'emit', 'parallel', 'serial', 'waterfall', 'dispatch'])
 
-/** Collect event dispatch/listener relations from real cross-file receiver types. */
+/**
+ * Collect event dispatch/listener relations from real cross-file receiver types.
+ *
+ * TODO: the program is seeded from the host aggregate alone (ts-project.ts
+ * documents why: one program cannot hold both faces' Context merges), so a
+ * Client package enters only when a host file imports it. Client-face
+ * listeners on client-face events are therefore under-reported —
+ * `connection/reset` omits `ui-skill`/`ui-agent-preset`, `models/changed`
+ * omits `ui-model`, `session/preset-changed` omits `ui-skill`. Closing it
+ * needs a second Client program whose relations merge into these, not a
+ * wider seed.
+ */
 export class EventRelationCollector {
   private readonly relations = new Map<string, EventRelation>()
   private readonly fileCallSites = new Map<ts.SourceFile, CallSiteIndex>()
