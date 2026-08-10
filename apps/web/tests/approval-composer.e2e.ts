@@ -35,9 +35,9 @@ const UI_EXPECTED = join(SNAPSHOT_DIR, 'ui.expected.md')
 const MODE = webSnapshotMode()
 
 // Irreducible payload: the command has to be long enough to pass the card's
-// height cap, which is the only shape that reproduces an action row pushed off
-// screen. Unrelated tokens, not a repeated word — the model compresses a
-// repeated word into `printf 'alpha %.0s' {1..400}` when recording, and a
+// height cap, which is the only command length that reproduces an action row pushed off
+// screen. Unrelated tokens, not a repeated word — a repeated word is what the
+// model compressed into `printf 'alpha %.0s' {1..400}` while recording, and a
 // short command proves nothing here. The formula keeps the source small; the
 // model receives the expanded literal it has to put in the command.
 const TOKENS = Array.from({ length: 220 }, (_, index) => `tok${((index + 1) * 7919 % 99991).toString(36)}`).join(' ')

@@ -6,8 +6,8 @@
 
 | 页面 | 负责内容 |
 |---|---|
-| [core.md](core.md) | `packages/core` 控制主干：逐包循环地图、agent 创建与所有权（`AgentHandle`）、`Agent` 句柄及其投递/取消/拦截约定，以及全仓通用类型模式（`…Map → 派生联合`、品牌化 id） |
-| [llm-streaming.md](llm-streaming.md) | `packages/llm` 的对话词汇——`Message`/`ContentBlock`、组装完成的模型请求、`StreamChunk` 协议格式（wire format）+ 适配器约定（adapter contract）、`BlockAssembler`、`LlmAdapter` 提供方约定 |
+| [core.md](core.md) | `packages/core` 如何控制 agent loop：逐包的循环说明、agent 创建与所有权（`AgentHandle`）、`Agent` 句柄的投递/取消/拦截约定，以及全仓通用类型模式（`…Map → 派生联合`、品牌化 id） |
+| [llm-streaming.md](llm-streaming.md) | `packages/llm` 的对话类型——`Message`/`ContentBlock`、组装完成的模型请求、`StreamChunk` wire protocol 和适配器约定（adapter contract）、`BlockAssembler`，以及 `LlmAdapter` 提供方约定 |
 | [token-meter.md](token-meter.md) | 不可变的标量与位置回放度量，附带已消费日志修订号 |
 | [scope.md](scope.md) | 作用域注册标识、dispatch 载体，以及拥有的 `Scope` 上下文 |
 | [typert.md](typert.md) | 远程调用描述符、lookup/Context 声明、TypeRT 注册表，以及 Host Gateway/Client API 边界 |
@@ -23,7 +23,7 @@
 | [system-prompt.md](system-prompt.md) | 逐次组装的上下文、工具提供方结果、提示词段落与协作式组装 |
 | [tools.md](tools.md) | `ToolDefinition` 完整字段、schema DSL、`ToolExecution`/`ToolResult`、工具展示 UI 类型，以及受保护的执行流水线 |
 | [user-interaction.md](user-interaction.md) | UI 支持的人工问答 seam：`AskUserQuestionRequest`、answer/options 词汇、提供方 API、错误分类体系 |
-| [approval.md](approval.md) | 一次性用户审批 seam：`ApprovalRequest`、`ApprovalOutcome`、逐会话策略、审计与 answerer 约定 |
+| [approval.md](approval.md) | 一次性用户审批 seam：`ApprovalRequest`、`ApprovalOutcome`、逐会话策略、审计事件和 answerer 约定 |
 | [attachment.md](attachment.md) | 持久图片标识与元数据、校验输入、经校验读取，以及 `AttachmentStore` seam |
 | [bash.md](bash.md) | bash 执行器 seam：`BashExecRequest`/`Spec`、`BashRunResult`、后台 `BashProcess` 句柄 |
 | [subprocess.md](subprocess.md) | 子进程 seam：完全显式的 `SubprocessSpawnSpec`、基于偏移的输出读取器、不含分类的 `SubprocessOutcome`，以及受管 `DSH_*` 环境词汇 |
@@ -38,7 +38,7 @@
 | [web.md](web.md) | Web 访问 seam：`WebSearchRequest`/`Result`、`WebFetchRequest`/`Result`、`WebFetchBody`、提供方可用性、`WebError` |
 | [spill.md](spill.md) | spill 存储 seam：`SaveTextSpill`、`SpillOwner`/`SpillSource`、`SpillRef`、品牌类型 `SpillLocator` |
 | [workflow.md](workflow.md) | 工作流 seam：`WorkflowStartRequest`、`WorkflowMeta`、`WorkflowRun`/`Result`、`workflow/*` 事件载荷、`WorkflowError` 致命性 |
-| [tasks.md](tasks.md) | 后台任务运行时：品牌化 `TaskId`、producer 约定、consumer 视图、`ctx.tasks` 服务行为 |
+| [tasks.md](tasks.md) | 后台任务运行时：品牌化 `TaskId`、producer 约定、consumer 视图和 `ctx.tasks` 服务行为 |
 | [permission.md](permission.md) | 权限预设层：`PresetSpec`/`PresetOption`、派生的 `custom` 状态、仅记日志的 `permission/preset` 事件 |
 | [plan.md](plan.md) | 计划模式：仅记日志的 `plan/mode` 状态、待定选择的冲刷、`PlanModeConfig`、`exit_plan_mode` 审阅流程 |
 | [invariants.md](invariants.md) | 运行时不变式注册表：选择配置 `Config`、`InvariantInstaller`/`InvariantFailure`、空配套插件约定 |
@@ -47,6 +47,6 @@
 | [workspace.md](workspace.md) | 工作区注册表：`Workspace`/`WorkspaceId`、注册与解析、与会话 `cwd` 的关系 |
 | [client-modules.md](client-modules.md) | Web 插件表：`dshClient` 声明、`WebBootGraph` 线上组合、bundle 路由与 index 转换 |
 | [session-projection.md](session-projection.md) | 投影 seam：`SessionProjectionMap`、纯函数 `ProjectionDefinition` 单元、`ProjectionSnapshot` 的一致切面、变更馈送 |
-| [telemetry.md](telemetry.md) | 会话遥测能力 seam：`TelemetryRecord`/`TelemetrySeverity`、`TelemetryBackend` 约定、`telemetry/record` 脱敏 waterfall |
+| [telemetry.md](telemetry.md) | 对外会话上报能力 seam：`TelemetryRecord`/`TelemetrySeverity`、`TelemetryBackend` 约定和 `telemetry/record` 脱敏 waterfall |
 
 > 这些页面上的类型声明及其 JSDoc 与源码等价，并由 `pnpm run verify-type-equiv` 检查漂移（见 [development.md](../development.md#documenting-types-verbatim-ts-type-equiv)）。普通块保留完整声明；`public-api` 块保留去除实现体的公开 class 声明。Cordis 服务与事件使用每页生成的 **Cordis surface** 小节。

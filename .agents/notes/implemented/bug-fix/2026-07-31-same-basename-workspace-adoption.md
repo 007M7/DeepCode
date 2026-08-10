@@ -14,7 +14,7 @@ A Workspace is identified by its stable id and canonical directory path, while i
 
 The Host's `workspace.create({ path })` adoption route inherits that rule. The Workspace manager, picker, grouping tree, selection, rename, deletion, and Session creation continue to use `WorkspaceId`, so equal labels neither merge records nor redirect an operation. The sidebar hover card exposes each canonical path when the labels need disambiguation.
 
-Explicit naming remains stricter. `workspace.create({ name })` and `workspace.rename` continue to reject a title already registered, as described by [manual Workspace naming](../feature/2026-07-25-session-list-browsing-and-manual-order.md). This prevents a user from deliberately introducing another ambiguous label while accepting collisions imposed by existing directory names. The path-adoption rule supersedes only the title-conflict clauses in the [Workspace product flow](../feature/2026-07-25-workspace-ui-product-flow.md) and [native directory picker](../feature/2026-07-27-native-workspace-directory-picker.md).
+Explicit naming remains stricter. `workspace.rename` continues to reject a title already registered, as described by [manual Workspace naming](../feature/2026-07-25-session-list-browsing-and-manual-order.md). This prevents a user from deliberately introducing another ambiguous label while accepting collisions imposed by existing directory names. The path-adoption rule supersedes only the title-conflict clauses in the [Workspace product flow](../feature/2026-07-25-workspace-ui-product-flow.md) and [native directory picker](../feature/2026-07-27-native-workspace-directory-picker.md).
 
 The durable schema does not change: Workspace records already store id, path, and title independently, bootstrap can derive equal basenames, and startup validates duplicate paths rather than titles.
 
@@ -30,7 +30,7 @@ Workspace registry and Host API tests create two real directories under differen
 
 **Use the full path as every Workspace title.** This removes the collision but makes the primary navigation label unnecessarily long. The full path remains available in the hover detail while the concise basename stays useful.
 
-**Permit collisions from explicit rename and create-by-name operations too.** The registry supports that state, but those operations intentionally ask the user to choose a display name. Retaining their conflict response preserves the existing naming guard without blocking filesystem-selected paths.
+**Permit collisions from the explicit rename operation too.** The registry supports that state, but rename intentionally asks the user to choose a display name. Retaining its conflict response preserves the existing naming guard without blocking filesystem-selected paths.
 
 ## Consequences
 

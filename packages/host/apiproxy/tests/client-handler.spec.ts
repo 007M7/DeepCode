@@ -432,8 +432,8 @@ describe('workspace domain round trip', () => {
     expect(archivedResponse.result).toEqual({ ok: true, value: { archivedSessionIds: ['s-arch'] } })
   })
 
-  it('rejects a create payload violating the exactly-one refine at the handler', async () => {
-    const response = await client(scriptedApi()).workspace.create({})
+  it('rejects a pathless create payload at the handler schema', async () => {
+    const response = await client(scriptedApi()).workspace.create({} as never)
     expect(response.result.ok).toBe(false)
     if (!response.result.ok) expect(response.result.error.code).toBe('bad-request')
   })

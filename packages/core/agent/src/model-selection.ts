@@ -1,5 +1,5 @@
 /**
- * Agent-scoped model selection shared by interactive front doors.
+ * Agent-scoped model selection shared by runtime entry points.
  * @module @deepseek-ai/dsh-agent/model-selection
  */
 
@@ -33,7 +33,7 @@ export interface ModelSelectionRef {
  * the selected model's provider/default behavior.
  *
  * @param agentCtx - The selected Agent's scoped context.
- * @param selection - Mutable selection owned by the calling front door.
+ * @param selection - Mutable selection owned by the calling entry point.
  * @returns Disposer for both scoped waterfall listeners.
  */
 export function installModelSelection(agentCtx: Context, selection: ModelSelectionRef): () => void {

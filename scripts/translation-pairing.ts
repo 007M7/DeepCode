@@ -80,7 +80,7 @@ const PAIR_META_LINE = /^([^:#]+\.md): ([0-9a-f]{40})$/
 /**
  * Parse a `foo.i18n.yaml` consistency record into basename → recorded blob
  * hash, or undefined when any non-comment line deviates from the exact
- * `<basename>.md: <40-hex>` shape or repeats a key. Consumers must
+ * `<basename>.md: <40-hex>` format or repeats a key. Consumers must
  * additionally require exactly the two expected basenames — a renamed key is
  * a malformed record, never a silently-missing entry.
  * @param content - Sidecar file text.
@@ -118,7 +118,7 @@ export function renderPairMeta(source: string, sourceHash: string, zh: string, z
   ].join('\n')
 }
 
-/** Validated shape of `scripts/translation-pairing.manifest.json`. */
+/** Validated fields of `scripts/translation-pairing.manifest.json`. */
 export interface TranslationPairingManifest {
   /** Source documents exempt from pairing because they are generated, instructional, or bilingual by construction. */
   excluded: string[]

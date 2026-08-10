@@ -6,13 +6,13 @@ Status: implemented
 
 ## 问题
 
-会话模型选择器与部署默认值是同一项偏好的两个层次。如果选择器只影响其所在会话，下一个空白会话可能选择不同模型，用户却没有途径使默认值与选择器一致。如果默认值位于 Host 网关内部，直接创建 Agent 的前门只有依赖 Host 或复制状态才能共享它。
+会话模型选择器与部署默认值是同一项偏好的两个层次。如果选择器只影响其所在会话，下一个空白会话可能选择不同模型，用户却没有途径使默认值与选择器一致。如果默认值位于 Host 网关内部，直接创建 Agent 的入口只有依赖 Host 或复制状态才能共享它。
 
 推理强度使持久化形态成为约定的一部分：不含强度的模型选择必须清除已存强度，否则下一个 Agent 可能会采用所选模型不接受的强度。
 
 ## 决定
 
-`AgentDefaultModelService` 提供 `ctx.agentDefaultModel`，并把 `{provider, model, reasoningEffort?}` 注册为 `agent-default-model` Settings 分节。其 `{provider, model}` 组合条目是 base 层，`settings.yaml` 提供用户层。该服务不偏向特定前门，因此直接创建与 ApiProxy 支撑的创建共享同一个默认值（[headless 直接 core 前门](../architecture/2026-08-09-headless-direct-core-front-door.md)）。`workspaceRoot` 仍是 ApiProxy 配置，因为它是 Host 启动器事实，而不是模型状态。
+`AgentDefaultModelService` 提供 `ctx.agentDefaultModel`，并把 `{provider, model, reasoningEffort?}` 注册为 `agent-default-model` Settings 分节。其 `{provider, model}` 组合条目是 base 层，`settings.yaml` 提供用户层。该服务不偏向特定入口，因此直接创建与 ApiProxy 支撑的创建共享同一个默认值（[headless 直接 core 入口](../architecture/2026-08-09-headless-direct-core-entry-point.md)）。
 
 `reasoningEffort` 属于 Settings 分节，但不属于插件配置。Settings 层按字段合并，因此已配置的强度会在用户选择省略它时继续存在。`saveSelection()` 写入完整的用户分节；缺席值由此清除已存强度。部署级强度默认值属于适配器 profile，并由它按模型解析。
 

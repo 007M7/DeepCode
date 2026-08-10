@@ -4,7 +4,7 @@
 #
 # A patch replaces the targeted row's whole `config`, so each row below
 # restates every key it owns. The `dsh web` launcher alias turns --host/--port/
-# --dev/--workspace-root/--trusted-host into further patches over these rows
+# --dev/--trusted-host into further patches over these rows
 # (`--dev` inserts the dsh-client-hmr row).
 
 # ── surface-specific values the base deliberately omits ─────────────────────
@@ -218,10 +218,17 @@
 - id: tool-bash
   disabled: true
 
-- id: tool-tasks
-  disabled: true
+# The background-task REGISTRY stays on the host plane; only the model-facing
+# `task_*` controls move. Its producers — `tool-bash` here, `tool-pty` and a
+# non-continuable `tool-subagent` elsewhere — are preset rows that resolve it
+# with `ctx.get`, and an entry-local realm around the registry is invisible to
+# every sibling row outside that realm, so `run_in_background` answered
+# "background tasks unavailable" while the controls sat in the catalog. That is
+# the `goals` criterion read from inside the preset: a Service a row outside its
+# realm READS belongs to the plane both can see. The registry is keyed by owning
+# agent, so one host instance serves every session exactly as before presets.
 
-- id: tasks
+- id: tool-tasks
   disabled: true
 
 - id: tool-fs

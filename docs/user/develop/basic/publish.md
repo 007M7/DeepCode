@@ -33,7 +33,7 @@ hello-plugin/
 }
 ```
 
-The patch file has the same shape as the `--patch` overlays you have been writing — a YAML array of patch entries — except plugin rows reference the package by name instead of a relative source path, so Node resolution finds the installed code:
+The patch file is a YAML array of patch entries, like the `--patch` overlays you have been writing, except plugin rows reference the package by name instead of a relative source path so Node resolution finds the installed code:
 
 ```yaml
 - insert:
@@ -41,7 +41,7 @@ The patch file has the same shape as the `--patch` overlays you have been writin
       name: dsh-hello-plugin
 ```
 
-A package without the `dsh.bundle` declaration still installs, but only as a plain dependency: `dsh plugin` prints a warning and activates no layer. That is the correct shape for a library that plugin packages import rather than a plugin users enable.
+A package without the `dsh.bundle` declaration still installs, but only as a plain dependency: `dsh plugin` prints a warning and activates no layer. Use that package format for a library that plugin packages import rather than a plugin users enable.
 
 ### The profile manifest
 

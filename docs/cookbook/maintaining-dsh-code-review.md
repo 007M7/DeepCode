@@ -20,7 +20,7 @@ Each run stores its artifacts on the operator's machine. The saved diff, candida
 
 When a run produces a candidate, a macOS notification arrives with a `dsh-code-review-promote <timestamp>` hint.
 
-1. **Read the diff on its own merits.** Do not defer to "the reviewers approved" — the maintainer contract is that the operator is the final judgment. Look for checklist bloat, historical prose, unsupported extrapolation from a single incident, and duplicated coverage with existing skill or authoritative-doc content.
+1. **Read the diff on its own merits.** Do not defer to "the reviewers approved"; the maintainer contract is that the operator makes the final decision. Look for checklist bloat, historical prose, unsupported extrapolation from a single incident, and duplicated coverage with existing skill or authoritative-doc content.
 
    ```sh
    ls ~/dsh-code-review-outputs/                         # every candidate ever produced

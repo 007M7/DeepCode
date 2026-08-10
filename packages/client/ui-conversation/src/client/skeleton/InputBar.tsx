@@ -109,6 +109,8 @@ export function InputBar({
   // be disabled do lock it — there is no session to choose a model for.
   const modelSeatLocked = removed || inert || !live
   const machineBusy = input?.phase === 'adjudicating' || input?.phase === 'submitting'
+  const canSteerQueue = !locked && !machineBusy && !commandMenuOpen && empty && running && subagent === null
+    && input.queue.some(row => row.placement === 'queued')
 
   useEffect(() => {
     if (input === undefined || inputActions === undefined) return
@@ -278,9 +280,19 @@ export function InputBar({
     e.preventDefault()
     if (e.repeat) return // held-down Enter must not machine-gun sends
     if (locked || machineBusy) return
+    const accelerated = e.ctrlKey || e.metaKey
+    // Empty-draft accelerated Enter acts on the queue instead of the (empty)
+    // draft: the machine rejects empty drafts, so the gesture steers every
+    // still-pending queued message into the running turn (the dock's per-row
+    // steer button applied to the whole queue). Steering needs the same
+    // window as the per-row button: a running ordinary session.
+    if (accelerated && canSteerQueue) {
+      keyboard.steerQueue()
+      return
+    }
     keyboard.submit(resolveSubmitMode(
       running,
-      e.ctrlKey || e.metaKey ? 'accelerated' : 'enter',
+      accelerated ? 'accelerated' : 'enter',
       subagent === null,
     ))
   }
@@ -504,7 +516,7 @@ export function InputBar({
     }
     pushPlain(draft.length)
     if (deco.hint !== null) {
-      // Claim tokens are shaped `/name ` (trailing space); trim to the bare name.
+      // Claim tokens have the `/name ` format (trailing space); trim to the bare name.
       const commandName = input?.claim?.token.slice(1).trim() ?? ''
       const hintKey = `hint.${commandName === 'goal' && hasGoal ? 'goal.active' : commandName}`
       // Dynamic lookup by claimed command name: unknown commands miss the
@@ -585,7 +597,12 @@ export function InputBar({
                 ? t('placeholder.parentOffline')
                 : disabled
                   ? t('placeholder.unavailable')
-                  : planActive ? t('placeholder.plan') : t('placeholder.default'))}
+                  // The steer hint deliberately outranks the plan placeholder:
+                  // while it shows, the whole-queue gesture is genuinely available
+                  // (the gate never consults plan mode), so the actionable hint wins.
+                  : canSteerQueue
+                    ? t('placeholder.steerQueue')
+                    : planActive ? t('placeholder.plan') : t('placeholder.default'))}
               rows={2}
               onChange={(event) => {
                 setDropError(null)

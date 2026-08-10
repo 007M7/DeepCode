@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-01-pwsh-tool-and-executor.md
-2026-08-01-pwsh-tool-and-executor.md: 7206f8ffe6640f8499f8453c40ab5846b23112c6
-2026-08-01-pwsh-tool-and-executor.zh.md: c59ba8e3e6c68d48d310861325c74dc6cec8e5c3
+2026-08-01-pwsh-tool-and-executor.md: 855d8e5db8a78e7e798061724d89fde31b28e975
+2026-08-01-pwsh-tool-and-executor.zh.md: dcf5c53cd6681be07adafef92d556b400c116736

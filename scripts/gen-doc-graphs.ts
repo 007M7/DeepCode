@@ -268,7 +268,7 @@ const SERVICE_ROLES: ServiceRole[] = [
     title: 'Human question/answer seam',
     mode: 'seam',
     consumers: ['tool-ask-user'],
-    note: 'UI front doors provide the active human-answer provider; tool-ask-user pauses a tool call on the provider-neutral ask() promise.',
+    note: 'UI front ends provide the active human-answer provider; tool-ask-user pauses a tool call on the provider-neutral ask() promise.',
   },
   {
     key: 'planMode',
@@ -330,7 +330,7 @@ const SERVICE_ROLES: ServiceRole[] = [
     title: 'Default Agent model selection',
     mode: 'core',
     consumers: ['headless', 'host-apiproxy'],
-    note: 'Layers the default ModelSelection through settings so direct and Host-backed Agent front doors share one state owner.',
+    note: 'Layers the default ModelSelection through settings so direct and Host-backed Agent entry points share one state owner.',
   },
   {
     key: 'agentLoop',
@@ -521,7 +521,7 @@ const SERVICE_ROLES: ServiceRole[] = [
     mode: 'seam',
     implementations: ['workflow-workerthread'],
     consumers: ['tool-workflow', 'tool-ralph'],
-    note: 'One engine per context (bash shape, no named-provider registry); the general workflow and fixed Ralph consumers start runs whose agent() calls fan out through ctx.subagents.',
+    note: 'One engine per context, as in bash, with no named-provider registry; the general workflow and fixed Ralph consumers start runs whose agent() calls fan out through ctx.subagents.',
   },
 ]
 
@@ -692,7 +692,7 @@ function renderAppExpansion(lines: string[], appNode: string, pluginName: string
   lines.push(`  ${appNode} --> ${agentCore}["@deepseek-ai/dsh-agent-spine-demo"]`)
   lines.push(`  ${appNode} --> ${jsonl}["@deepseek-ai/dsh-session-persistence-jsonl"]`)
   if (pluginName === '@deepseek-ai/dsh-acp-demo') {
-    lines.push(`  ${appNode} --> ${nodeId('frontdoor', 'acp')}["@deepseek-ai/dsh-acp<br/>automation-only JSON-RPC stdio<br/>fresh sessions created by client"]`)
+    lines.push(`  ${appNode} --> ${nodeId('entrypoint', 'acp')}["@deepseek-ai/dsh-acp<br/>automation-only JSON-RPC stdio<br/>fresh sessions created by client"]`)
   }
   lines.push(
     `  ${agentCore} --> ${nodeId('spine', 'llm')}["ctx.llm"]`,
@@ -744,7 +744,18 @@ type CallSiteIndex = Map<ts.SignatureDeclaration | ts.JSDocSignature, ts.CallExp
  */
 const EVENT_API_METHODS = new Set(['on', 'once', 'emit', 'parallel', 'serial', 'waterfall', 'dispatch'])
 
-/** Collect event dispatch/listener relations from real cross-file receiver types. */
+/**
+ * Collect event dispatch/listener relations from real cross-file receiver types.
+ *
+ * TODO: the program is seeded from the host aggregate alone (ts-project.ts
+ * documents why: one program cannot hold both faces' Context merges), so a
+ * Client package enters only when a host file imports it. Client-face
+ * listeners on client-face events are therefore under-reported —
+ * `connection/reset` omits `ui-skill`/`ui-agent-preset`, `models/changed`
+ * omits `ui-model`, `session/preset-changed` omits `ui-skill`. Closing it
+ * needs a second Client program whose relations merge into these, not a
+ * wider seed.
+ */
 export class EventRelationCollector {
   private readonly relations = new Map<string, EventRelation>()
   private readonly fileCallSites = new Map<ts.SourceFile, CallSiteIndex>()
@@ -804,7 +815,7 @@ export class EventRelationCollector {
    * Return every indexed call resolving to one local helper declaration.
    * Fast path: when every same-file reference to the non-exported helper is
    * provably a direct callee, module scoping confines all of its calls to that
-   * file, so only that file is indexed. Any other reference shape may alias
+   * file, so only that file is indexed. Any other reference form may alias
    * the function value outward, so the original full package-source index
    * decides instead.
    */
@@ -1144,7 +1155,7 @@ function renderEventRelations(pkgs: Pkg[], events: readonly EventEntry[]): strin
     lines.push(`| \`${event.name}\` | \`${event.mode}\` | ${sourceLink(event.source)} | ${relationPackages(relation.dispatchers, pkgsByShort)} | ${listenerPackages(relation.listeners, pkgsByShort)} |`)
   }
   // Every declared event needs a dispatcher: zero means dead vocabulary or an
-  // unrecognized semantic dispatch shape. Listener-free extension points remain
+  // unrecognized semantic dispatch form. Listener-free extension points remain
   // valid. Client-declared events are exempt: the relation scan seeds the HOST
   // aggregate program only (host+client cannot share one program — the cordis
   // Context merges collide), so client dispatch sites are structurally
@@ -1157,8 +1168,8 @@ function renderEventRelations(pkgs: Pkg[], events: readonly EventEntry[]): strin
   if (undispatched.length > 0) {
     throw new Error(
       `event-producer-consumer matrix: no dispatcher found for declared event${undispatched.length > 1 ? 's' : ''} `
-      + `${undispatched.map(name => `"${name}"`).join(', ')} — dead vocabulary, or a dispatch shape the semantic scan misses `
-      + '(teach scripts/gen-doc-graphs.ts the shape)',
+      + `${undispatched.map(name => `"${name}"`).join(', ')} — dead vocabulary, or a dispatch form the semantic scan misses `
+      + '(teach scripts/gen-doc-graphs.ts that form)',
     )
   }
   const declared = new Set(events.map(event => event.name))
@@ -1251,9 +1262,9 @@ function renderLifecycle(): string {
     '',
     '`dsh-compact-basic` uses `agent/pre-step` for pressure before request derivation and `agent/request-error` only for canonical context overflow. Once either trigger qualifies, optional tool-result pruning runs before summary selection. Recovery works between the closed failed step and failed turn close, and opens a fresh retry turn only when pruning or summarization advances the surface replacement generation; otherwise the original request error remains authoritative.',
     '',
-    'The returned `agent/pre-step` decision is authoritative; listeners wrapping `next()` preserve downstream messages unless replacement is intentional. Steering and injected context pass through the same waterfall after a later boundary claims their next-step batch.',
+    'The returned `agent/pre-step` decision is authoritative; listeners wrapping `next()` preserve downstream messages unless replacement is intentional. Steering and injected context pass through the same waterfall after a later claim operation takes their next-step batch.',
     '',
-    'SDK users that need replayable transcript data should consume `session/event`; `agent/*` is the live coordination surface for queue/status, prompt interception, request shaping, steering, continuation, and errors.',
+    'SDK users that need replayable transcript data should consume `session/event`; `agent/*` is the live coordination surface for queue/status, prompt interception, request construction, steering, continuation, and errors.',
     '',
     ...maintenanceFooter(maintenance),
   ].join('\n')
@@ -1263,7 +1274,7 @@ function renderToolPipeline(): string {
   const maintenance = 'curated Mermaid flow; exact tool schemas and event signatures live in generated catalogs'
   return [
     ...generatedHeader('Tool Execution Pipeline'),
-    'This graph shows where policy, hooks, sandboxing, filesystem guards, result rewriting, final-outcome observation, and UI rendering fit without changing the loop. The transformable extension points are the `tools/pre-execute`, `tools/execute`, and `tools/post-execute` waterfalls; monotonic guards, definition-owned `finalizeContent`, and `tools/result` are the owner-enforced boundaries around them.',
+    'This graph shows where policy, hooks, sandboxing, filesystem guards, result rewriting, final-outcome observation, and UI rendering run without changing the loop. The `tools/pre-execute` waterfall runs first, monotonic guards run next, and the `tools/execute` and `tools/post-execute` waterfalls follow; the three waterfalls may transform a call. Definition-owned `finalizeContent` and `tools/result` run afterward.',
     '',
     '```mermaid',
     'flowchart TD',
@@ -1369,7 +1380,7 @@ function renderIndex(docs: GraphDoc[]): string {
   const maintenance = 'mixed: each linked page declares generated, hybrid, or curated mode'
   return [
     ...generatedHeader('Documentation Graph Index'),
-    'These diagrams are the relationship layer above the generated catalogs. Use them to navigate package topology, capability seams, event flow, model-facing tools, app composition, and runtime lifecycle paths. Exact signatures and type shapes still live in the [subsystem pages](subsystems/core.md) (types + the generated `cordis-surface` regions) and [tool-catalog.md](tool-catalog.md).',
+    'These diagrams show relationships that the generated catalogs do not. Use them to find package relationships, capability seams, event flow, model-facing tools, app composition, and runtime lifecycle paths. Exact signatures and type definitions still live in the [subsystem pages](subsystems/core.md) (types + the generated `cordis-surface` regions) and [tool-catalog.md](tool-catalog.md).',
     '',
     'The process decision behind this index is recorded in [the documentation graph Agent Note](../.agents/notes/archived/process/2026-07-03-documentation-graph-atlas.md).',
     '',

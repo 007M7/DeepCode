@@ -18,4 +18,4 @@ pnpm run demo:cordis
 pnpm run demo:cordis acp
 ```
 
-这两条命令都需要 `DEEPSEEK_API_KEY`。工具、生命周期和安全约定由 [Cordis 工具参考](../../packages/self-modification/tool-cordis/README.md)定义。
+这两条命令都需要 `DEEPSEEK_API_KEY`。[Cordis 工具参考](../../packages/self-modification/tool-cordis/README.md)定义了四类约定：工具参数、存续时间、清理行为和安全性。

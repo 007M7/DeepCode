@@ -1,7 +1,6 @@
 // MessageItem: simple chat nodes — user and consumed-steering bubbles
-// (right-aligned, with clock + copy IconActions; steering adds the
-// interjection caption that names it; branch lives only under assistant
-// answers), pending steering (caption + copy only), context injection,
+// (right-aligned, with clock + copy IconActions; branch lives only under
+// assistant answers), pending steering (copy only), context injection,
 // compaction marker, retry disclosure, and unknown-surface JSON rows.
 
 import { memo, useEffect, useMemo, useState } from 'react'
@@ -162,7 +161,7 @@ function projectUserText(text: string): ReactNode {
 
 /** Right-aligned bubble shared by user and steering rows. */
 function UserStyleBubble({
-  content, imageLoader, actions, pending = false, steering = false, t,
+  content, imageLoader, actions, pending = false, t,
 }: {
   content: readonly unknown[]
   imageLoader: ImageLoader
@@ -170,8 +169,6 @@ function UserStyleBubble({
   actions?: (text: string) => ReactNode
   /** Whether this is the Host-authoritative pre-admission steering projection. */
   pending?: boolean
-  /** Marks the bubble as mid-turn steering rather than a turn-opening prompt. */
-  steering?: boolean
   t: ChatViewSlotProps['t']
 }): ReactNode {
   const { text, images, rest } = contentParts(content)
@@ -179,7 +176,6 @@ function UserStyleBubble({
   const showBubble = text !== '' || rest.length > 0
   return (
     <div className={css.userRow} data-pending-steering={pending || undefined} data-time-hover-root>
-      {steering && <span className={css.steeringMark} data-steering-mark>{t('message.steering')}</span>}
       <div className={css.userStack}>
         <ImageGallery images={images} load={imageLoader} align="end" t={t} />
         {showBubble && <div className={css.bubble}>
@@ -209,7 +205,6 @@ export function PendingSteeringBubble({ content, loadImage, t }: {
       content={content}
       imageLoader={imageLoader}
       pending
-      steering
       t={t}
       actions={text => (
         <MessageIconActions
@@ -232,7 +227,6 @@ export const UserMessageNodeView = memo(function UserMessageNodeView({
     <UserStyleBubble
       content={data.content}
       imageLoader={loadImage}
-      steering={data.kind === 'steering'}
       t={t}
       actions={text => (
         <MessageIconActions

@@ -15,7 +15,7 @@ import { sandboxDefineTool, sandboxRegisterTool } from './guard.ts'
  * A write-through console for one sandbox, tagging every line with the mount
  * id. Write-through (host stdout/stderr), NOT buffered into the tool result:
  * a mounted listener fires long after the mount call returned, and its output
- * must land somewhere the user can see — for a terminal front door, the host terminal.
+ * must land somewhere the user can see — for a terminal entry point, the host terminal.
  */
 function taggedConsole(id: string): Record<'log' | 'info' | 'warn' | 'error' | 'debug', (...args: unknown[]) => void> {
   const tag = `[cordis:${id}]`
@@ -56,8 +56,8 @@ const TIMER_REDIRECT
 
 /**
  * The callable Node APIs the sandbox deliberately disables, each mapped to the
- * cordis alternative its trap error names. Only FUNCTION-shaped globals are
- * trapped — a data-shaped global like `process` stays `undefined`, because a
+ * cordis alternative its trap error names. Only function-valued globals are
+ * trapped; a data-valued global such as `process` stays `undefined`, because a
  * throwing accessor would detonate the common `typeof process` feature probe
  * at resolution time.
  */

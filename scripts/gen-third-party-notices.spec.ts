@@ -139,7 +139,7 @@ describe('parseVendoredRows', () => {
     expect(rows.every(row => /^https:\/\/\S+$/.test(row.upstream))).toBe(true)
   })
 
-  it('yields nothing when the table shape changes, so the generator fails loud', () => {
+  it('yields nothing when the table columns change, so the generator fails loud', () => {
     expect(parseVendoredRows('| `cordis/` | cordis | 4.0.0 | https://example.com | `abc123` |\n')).toEqual([])
   })
 
@@ -215,7 +215,7 @@ describe('parsePyprojectRequirements', () => {
     ].join('\n'))).toEqual(['pydantic', 'tomli', 'pytest'])
   })
 
-  it('accepts dependency-group includes and rejects unsupported requirement shapes', () => {
+  it('accepts dependency-group includes and rejects unsupported requirement forms', () => {
     expect(parsePyprojectRequirements('[dependency-groups]\nbase = ["pytest"]\nall = [{ include-group = "base" }]\n'))
       .toEqual(['pytest'])
     expect(() => parsePyprojectRequirements('[project]\ndependencies = "pytest"\n')).toThrow(/must be an array/)

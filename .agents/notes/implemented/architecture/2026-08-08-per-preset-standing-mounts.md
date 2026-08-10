@@ -16,7 +16,7 @@ A preset is one composition per PROCESS, not one per session. The roster mounts 
 
 Standing mounts fix the class, not the instances: the registrations a reader needs exist for the process lifetime, keyed by preset id, no agent required. What made it cheap
 
-- The stateful preset plugins (`plan-mode`, `token-meter`, `compact-basic`, `tasks-local`) already key state by `Session`/`Agent` — they predate presets. Sharing one instance is a return to their design, not a rewrite.
+- The stateful preset plugins (`plan-mode`, `token-meter`, `compact-basic`) already key state by `Session`/`Agent` — they predate presets. Sharing one instance is a return to their design, not a rewrite. `tasks-local` shared that property and has since left the preset plane entirely: producers outside its realm (`tool-bash`, `tool-pty`, a non-continuable `tool-subagent`) resolve the registry with `ctx.get`, which an entry-local realm hides from them, so it is composed on the host plane and only the model-facing `tool-tasks` row stays per preset.
 - Preset ymls are unchanged: one mount per preset = one Entry per preset, whose entry-local realms (`isolate: <name>: true`) keep two presets' same-named services apart exactly as they kept two sessions' apart.
 - A shared realm label was NOT an option: `provide()` throws on a second registration under the same realm symbol, so labels pool the REALM, never the instance — a per-session world sharing a label crashes the second mount.
 

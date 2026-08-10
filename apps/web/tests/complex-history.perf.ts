@@ -1,7 +1,7 @@
 // Opt-in browser benchmark for high-cardinality workspace and history
 // rendering. It reports measurements without timing assertions because host
-// speed is not a correctness contract; structural assertions keep the load
-// shape from silently shrinking.
+// speed is not a correctness contract; structural assertions keep the number
+// of workspaces and history entries from silently shrinking.
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
