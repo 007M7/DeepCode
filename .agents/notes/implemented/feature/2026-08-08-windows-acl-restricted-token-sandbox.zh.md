@@ -6,7 +6,7 @@ Status: implemented
 
 ## Problem
 
-[沙盒决策](2026-07-06-sandbox.md)把 `PLATFORM_CHAINS.win32` 留空，交付的 Windows profile 因为没有可用的隔离执行器而退化为 danger-full-access。win32 档必须实现沙盒词汇表承诺的两个文件效果模式——`read-only`（零写入）与 `workspace-write`（仅工作区根目录加后端定义的临时区域可写）——同时保持读、网络与进程可见性不受影响，因为所有模式都允许读取。
+最初的[沙箱决策](2026-07-06-sandbox.md)将 `PLATFORM_CHAINS.win32` 留空，因此交付的 Windows profile 因不存在隔离执行器而退化为 danger-full-access。win32 档必须约束沙箱词汇表中的两种文件效果模式——`read-only`（不显式授予任何可写根目录）与 `workspace-write`（允许写入工作区根目录及后端定义的临时区域）——并报告其机制无法约束的任何效果；读取、网络与进程可见性仍在这套词汇之外。
 
 ## Decision
 

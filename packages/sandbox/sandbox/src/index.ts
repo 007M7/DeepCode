@@ -43,10 +43,10 @@ export interface SandboxExecutionPolicy {
   workspaceRoot: string
   /**
    * Opaque identity of the calling session (the branded `dsh-session`
-   * SessionId). Backends key per-session state off it (e.g. the windows-acl
-   * per-session private temp subdirectory — the write grant itself is
-   * per-workspace, derived from the workspace root); absent for agentless
-   * calls, which fall back to per-call backend state.
+   * SessionId). Backends key per-session state off it (e.g. windows-acl gives
+   * each live session/workspace pair a random private temp directory and SID,
+   * while the workspace SID and standing grant remain per-workspace); absent
+   * for agentless calls, which fall back to per-call backend state.
    */
   sessionId?: SessionId
 }
@@ -156,7 +156,7 @@ declare module 'cordis' {
  * skipped for a sole candidate, whose own refusal remains the fail-closed end.
  */
 export abstract class SandboxProvider extends Service {
-  /* v8 ignore next -- Windows has no sandbox backend to instantiate this service. */
+  /* v8 ignore next -- abstract service construction is covered through concrete provider packages. */
   constructor(ctx: Context) {
     super(ctx, 'sandbox')
   }
