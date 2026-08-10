@@ -186,6 +186,23 @@ describe('SessionPersistenceJsonl: format helpers', () => {
     })
     await fiber.dispose()
   })
+
+  it('points a format refusal at the raw log path', async () => {
+    const absoluteRoot = await freshRoot()
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const fiber = await ctx.plugin(SessionPersistenceJsonl, { root: absoluteRoot, compression: 'none' })
+    const m = { ...meta('newer-format', '/work'), version: 7 }
+    await ctx.sessionPersistence.create(m)
+    await ctx.sessionPersistence.append(m.id, [
+      { type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } },
+      { type: 'turn/end', seq: 1, time: 2, data: { turn: 1, reason: { kind: 'completed' } } },
+    ])
+    const failure = await ctx.sessionPersistence.load(m.id).then(() => undefined, (error: unknown) => error as Error)
+    expect(failure?.name).toBe('SessionFormatUnsupportedError')
+    expect(failure?.message).toContain(`(raw log: ${rawLogPath(resolve(absoluteRoot), '/work', m.id)})`)
+    await fiber.dispose()
+  })
 })
 
 describe('SessionPersistenceJsonl: durability and crash semantics', () => {

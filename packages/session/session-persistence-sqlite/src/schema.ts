@@ -17,7 +17,7 @@ import type { SessionEvent, SessionId, SessionHeader, SurfaceOp } from '@deepsee
  * layout; orthogonal to a session's own `version` (which versions the EVENT
  * vocabulary, stored per session in the `sessions` row).
  */
-export const SCHEMA_VERSION = 14
+export const SCHEMA_VERSION = 15
 
 /** SQLite application id protecting unrelated databases from persistence writes. */
 export const SESSION_PERSISTENCE_SQLITE_APPLICATION_ID = 0x44534850
@@ -55,6 +55,8 @@ export interface EventRow {
   source_event_seqs: string | null
   /** JSON-encoded `SurfaceOp` — how the event entered the surface, or null. */
   surface_op: string | null
+  /** `1` iff the event carries the envelope's `ignorable: true` marker, else null. */
+  ignorable: number | null
 }
 
 /**
@@ -139,6 +141,7 @@ function configureDatabase(db: DatabaseSync, path: string, journalMode: JournalM
         data              TEXT NOT NULL,
         source_event_seqs TEXT,
         surface_op        TEXT,
+        ignorable         INTEGER,
         PRIMARY KEY (session_id, seq)
       ) STRICT
     `)
@@ -203,12 +206,14 @@ export function rowToEvent(row: EventRow): SessionEvent {
     ...row.source_event_seqs !== null ? { sourceEventSeqs: JSON.parse(row.source_event_seqs) as number[] } : {},
     ...row.surface_op !== null ? { surfaceOp: JSON.parse(row.surface_op) as SurfaceOp } : {},
   }
+  const ignorableField = row.ignorable === 1 ? { ignorable: true as const } : {}
   return {
     type: row.type as SessionEvent['type'],
     seq: row.seq,
     time: row.time,
     data: JSON.parse(row.data) as SessionEvent['data'],
     ...surfaceFields,
+    ...ignorableField,
   } as SessionEvent
 }
 
