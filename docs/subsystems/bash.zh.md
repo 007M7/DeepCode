@@ -136,7 +136,7 @@ interface BashRunResult {
 }
 ```
 
-每个流是一个 `CollectedOutput`：（可能被截断的）文本加恢复信息；截断时，`text` 是**尾部**，完整流溢出到一个私有文件。该形状归[进程管理器 seam](subprocess.md)所有，由 `dsh-bash` 重导出。
+每个流是一个 `CollectedOutput`：（可能被截断的）文本加恢复信息；截断时，`text` 是**尾部**，完整流溢出到一个私有文件。这些字段归[进程管理器 seam](subprocess.md)所有，由 `dsh-bash` 重导出。
 
 ## 文件沙箱：`BashSandboxInfo`
 

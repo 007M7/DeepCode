@@ -50,12 +50,11 @@ export interface Config {
 }
 
 /**
- * The web-shape HTTP carrier service. Activation listens immediately (route
- * registration order carries no request-facing semantics: named routes are
- * composed to be disjoint, and the fallback seat answers anything not yet
- * claimed during the boot window — 404 until its owner registers). A listen
- * failure throws out of init — a FAILED fiber the boot's fail-loud sweep
- * reports.
+ * The browser HTTP carrier service. Activation listens immediately. Route
+ * registration order does not affect requests because configured named routes
+ * must be distinct, and the fallback handler answers anything not yet claimed
+ * during startup with 404 until its owner registers. A listen failure rejects
+ * initialization, and the boot process reports the failed fiber.
  */
 export class HttpServerService extends Service {
   static Config: z<Config> = z.object({
@@ -224,8 +223,8 @@ export class HttpServerService extends Service {
       })
     })
 
-    // Node does not include upgraded sockets in closeAllConnections(), so the
-    // service tracks and destroys them as part of the same ownership boundary.
+    // Node does not include upgraded sockets in closeAllConnections(). The service
+    // owns them with the other connections, so it tracks and destroys them explicitly.
     this.ctx.effect(() => async () => {
       const serverClosed = new Promise<void>((resolve) => {
         this.server.close(() => { resolve() })

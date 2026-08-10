@@ -7,7 +7,7 @@
  * Per-session storage follows the client service pattern (SlashService /
  * CommandService): a lazy service-internal map whose entry is deleted by the
  * owning scope's disposer. The host `dsh-scope` ScopedLayers registry does
- * not transplant here: it derives scope from the host carrier mechanism
+ * does not belong here: it derives scope from the host carrier mechanism
  * (object-keyed), while client scopes tag contexts with branded SessionId
  * strings, and it models global+shadow named registries — this is a
  * per-session singleton with no global layer to merge.

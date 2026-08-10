@@ -31,7 +31,7 @@ function rejectStandaloneServe(): Plugin {
  * editing shell code re-hashes only index and returning clients keep the
  * cached vendor chunk.
  *
- * Boundary invariant: every member must be react-free. A package that
+ * Every member must be React-free. A package that
  * imports react/jsx-runtime must never be listed — rollup folds a module
  * shared between the entry and a manual chunk into the manual chunk, so one
  * react-importing member would drag the single shared react copy into
@@ -77,8 +77,8 @@ const BOOT_GRAMMAR_FILES: readonly string[] = [
 const FONT_EXTENSIONS: readonly string[] = ['.woff2', '.woff', '.ttf']
 
 /**
- * npm package name of a resolved module id (the segment after the LAST
- * `node_modules/` — pnpm nests the real package under an inner node_modules).
+ * npm package name of a resolved module id: the segment after the last
+ * `node_modules/`. pnpm nests the real package under an inner node_modules.
  */
 function npmPackageOf(id: string): string | undefined {
   const parts = id.split('/node_modules/')

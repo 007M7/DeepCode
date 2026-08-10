@@ -92,7 +92,7 @@ async function applyPrepared(ctx: Context, value: PreparedPluginConfig): Promise
       process.env,
       directory,
       // Schemastery call signatures collapse the parameter to `never` under
-      // NodeNext; ResolvedMcpServer is shaped for the Config union by design.
+      // NodeNext; ResolvedMcpServer matches the Config union by design.
     ).map(input => McpClient.Config(input as never))
 
   await ctx.effect(async function* () {

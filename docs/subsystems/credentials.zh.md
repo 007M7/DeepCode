@@ -8,7 +8,7 @@
 
 ## 标识
 
-引用以 POSIX 风格环境变量名命名一条凭据。brand 使引用不与其他跨边界字符串混用；构造时校验 shell 标识符形态。
+引用以 POSIX 风格环境变量名命名一条凭据。brand 防止调用方将凭据引用与在包或进程之间传递的其他字符串混用；构造时校验 shell 标识符语法。
 
 ```ts type-equiv
 /** Nominal reference to one credential: a POSIX-style environment-variable name. */

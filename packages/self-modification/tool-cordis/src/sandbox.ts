@@ -56,8 +56,8 @@ const TIMER_REDIRECT
 
 /**
  * The callable Node APIs the sandbox deliberately disables, each mapped to the
- * cordis alternative its trap error names. Only FUNCTION-shaped globals are
- * trapped — a data-shaped global like `process` stays `undefined`, because a
+ * cordis alternative its trap error names. Only function-valued globals are
+ * trapped; a data-valued global such as `process` stays `undefined`, because a
  * throwing accessor would detonate the common `typeof process` feature probe
  * at resolution time.
  */

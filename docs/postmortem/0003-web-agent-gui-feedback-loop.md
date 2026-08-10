@@ -31,7 +31,7 @@ No change in this investigation restarted or modified the read-only 3081 and 308
 
 ## Root cause
 
-The Web assembly had no model-visible identity for the current GUI, canonical URL, or runtime mode. The session cwd correctly represented the user's selected Workspace, but the model mistook that project boundary for the application boundary. No durable contract related the GUI source checkout, built artifacts, serving process, target origin, and browser acceptance.
+The Web assembly had no model-visible identity for the current GUI, canonical URL, or runtime mode. The session cwd correctly identified the user's selected Workspace, but the model treated that project directory as the application directory. No durable record related the GUI source checkout, built artifacts, serving process, target origin, and browser acceptance.
 
 The wrong startup path looked legitimate because bare Vite returned HTTP 200. `window.__DSH_BOOT__` is injected only by the full host, so transport readiness did not imply application readiness. The first regression test repeated this mistake in another form: a timeout killed Vite and satisfied a nonzero-exit assertion. Live reproduction exposed that false positive.
 

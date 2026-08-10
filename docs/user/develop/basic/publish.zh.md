@@ -33,7 +33,7 @@ hello-plugin/
 }
 ```
 
-patch 文件的形状与你一直在写的 `--patch` overlay 相同——一个 patch 条目的 YAML 数组——只是插件行按包名而不是相对源码路径引用这个包，这样 Node 的模块解析才能找到已安装的代码：
+patch 文件与一直在写的 `--patch` overlay 一样，是一个 patch 条目的 YAML 数组；区别是插件行按包名而不是相对源码路径引用这个包，这样 Node 的模块解析才能找到已安装的代码：
 
 ```yaml
 - insert:
@@ -41,7 +41,7 @@ patch 文件的形状与你一直在写的 `--patch` overlay 相同——一个 
       name: dsh-hello-plugin
 ```
 
-没有 `dsh.bundle` 声明的包仍然可以安装，但只作为普通依赖：`dsh plugin` 会打印警告，且不激活任何层。这正是「供插件包 import 的库」应有的形状，区别于「供用户启用的插件」。
+没有 `dsh.bundle` 声明的包仍然可以安装，但只作为普通依赖：`dsh plugin` 会打印警告，且不激活任何层。如果一个库供插件包 import，而不是供用户启用，就使用这种包格式。
 
 ### profile manifest
 

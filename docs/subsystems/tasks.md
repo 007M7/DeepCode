@@ -2,7 +2,7 @@
 
 English | [中文](tasks.zh.md)
 
-Types shared by long-running producers, `ctx.tasks`, and task control surfaces. The [runtime Agent Note](../../.agents/notes/implemented/architecture/2026-06-20-generic-long-running-tool-runtime.md) owns the design; this page records the literal shapes from [`packages/tasks/tasks/src/types.ts`](../../packages/tasks/tasks/src/types.ts).
+Types shared by long-running producers, `ctx.tasks`, and task controls. The [runtime Agent Note](../../.agents/notes/implemented/architecture/2026-06-20-generic-long-running-tool-runtime.md) owns the design; this page records the exact fields and variants from [`packages/tasks/tasks/src/types.ts`](../../packages/tasks/tasks/src/types.ts).
 
 ## Ids and status
 
@@ -57,7 +57,7 @@ interface TaskStart {
 }
 ```
 
-`TaskHooks.done` is the quiescence boundary. Optional `readOutput` distinguishes consuming stream tasks from final-output-only tasks.
+`TaskHooks.done` resolves after the producer releases its resources, not merely when work finishes. Optional `readOutput` distinguishes consuming stream tasks from final-output-only tasks.
 
 ```ts type-equiv
 /** Hooks through which the runtime controls and observes producer work. */
@@ -151,7 +151,7 @@ interface TaskRead {
 
 ## Service behavior
 
-The abstract [`TaskService`](../../packages/tasks/tasks/src/index.ts) Service Definition specifies atomic `start`, caller-scoped `get` and `list`, `read`, `kill`, bounded `wait`, contained `onTaskDone` listeners, and the `attachSurface` availability fence; [`LocalTaskService`](../../packages/tasks/tasks-local/src/index.ts) is the process-local provider. Authorization compares owner sessions; owner cleanup selects the exact registered `Agent` instance. See [`dsh-tasks`](../../packages/tasks/tasks/README.md) for the Service Definition contract, [`dsh-tasks-local`](../../packages/tasks/tasks-local/README.md) for the registry lifecycle, and [`dsh-tool-tasks`](../../packages/tasks/tool-tasks/README.md) for the model-facing Consumer.
+The abstract [`TaskService`](../../packages/tasks/tasks/src/index.ts) Service Definition specifies atomic `start`, caller-scoped `get` and `list`, `read`, `kill`, bounded `wait`, failure-isolated `onTaskDone` listeners, and when `attachSurface` becomes available; [`LocalTaskService`](../../packages/tasks/tasks-local/src/index.ts) is the process-local Service provider. Authorization compares owner sessions; owner cleanup selects the exact registered `Agent` instance. See [`dsh-tasks`](../../packages/tasks/tasks/README.md) for the Service Definition contract, [`dsh-tasks-local`](../../packages/tasks/tasks-local/README.md) for the registry lifecycle, and [`dsh-tool-tasks`](../../packages/tasks/tool-tasks/README.md) for the model-facing Consumer.
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 

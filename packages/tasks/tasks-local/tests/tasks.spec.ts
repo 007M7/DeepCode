@@ -201,7 +201,7 @@ describe('LocalTaskService reads and settlement', () => {
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('async listener boom'))
   })
 
-  it('contains a rejecting done as a failed outcome (producer contract violation)', async () => {
+  it("contains rejection from the producer's done promise as a failed outcome (producer contract violation)", async () => {
     const ctx = await harness()
     const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
     const p = producer()

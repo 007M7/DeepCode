@@ -52,7 +52,7 @@ hello from my first plugin
 
 ## 其他两种插件形态
 
-函数是最常见的形态，但 Cordis 接受三种形态：
+函数是最常见的形式，但 Cordis 接受三种形式：
 
 ```ts
 import { Service, type Context } from 'cordis'

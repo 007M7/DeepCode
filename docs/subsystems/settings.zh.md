@@ -8,7 +8,7 @@
 
 ## 标识
 
-namespace 命名用户文档中一个归插件所有的分节。brand 使其不与其他跨边界 id 混用；构造时校验小写 kebab-case 形态。
+namespace 命名用户文档中一个归插件所有的分节。brand 防止调用方将设置 namespace 与在包或进程之间传递的其他 id 混用；构造时校验小写 kebab-case 语法。
 
 ```ts type-equiv
 /** Nominal id of one registered settings namespace. */
@@ -79,14 +79,14 @@ interface SettingsScope<T> {
   watch(callback: (next: T, prev: T) => void | Promise<void>): () => void
   /**
    * Merge a partial patch into this namespace's user layer and persist it.
-   * @param patch - plain-object patch over the user section; JSON-shaped data
+   * @param patch - plain-object patch over the user section; JSON-compatible data
    * only (non-JSON values reject with their path before anything persists).
    */
   update(patch: object): Promise<void>
   /**
    * Replace this namespace's user section wholesale; absent keys re-inherit
    * the composition `base` and schema defaults (`replace({})` resets all).
-   * @param section - the complete next user section; JSON-shaped data only,
+   * @param section - the complete next user section; JSON-compatible data only,
    * as for {@link update}.
    */
   replace(section: object): Promise<void>

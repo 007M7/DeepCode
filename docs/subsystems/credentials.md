@@ -8,7 +8,7 @@ Source: [`packages/credentials/credentials/src/index.ts`](../../packages/credent
 
 ## Identity
 
-A reference names one credential as a POSIX-style environment-variable name. The brand keeps references from mixing with other cross-boundary strings; construction validates the shell-identifier shape.
+A reference names one credential as a POSIX-style environment-variable name. The brand prevents callers from mixing credential references with other strings passed between packages or processes; construction validates the shell-identifier syntax.
 
 ```ts type-equiv
 /** Nominal reference to one credential: a POSIX-style environment-variable name. */
