@@ -57,6 +57,7 @@ Open `http://127.0.0.1:3080`. The agent can read and write files, run commands, 
 
 ## Next steps
 
+- [Run the minimal agent with Python](./python-sdk-minimal.md) — use the fixed two-tool composition without the Web UI
 - [Configure models](./providers.md) — reach providers beyond DeepSeek, and custom gateways
 - [Configuration](./config.md) — understand the `cordis.yml` format
 - [Develop a plugin](../develop/basic/) — build your own tool or backend

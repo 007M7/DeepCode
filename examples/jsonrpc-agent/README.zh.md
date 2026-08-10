@@ -26,11 +26,11 @@
 
 通过 Python SDK 的 `cordis` 选项或 `DSH_CORDIS_CONFIG` 传入配置路径。内置可执行文件已携带此文件中指定的每个插件；目标机器无需 Node.js。
 
-## 持久化工具变体
+## 极简变体
 
-[`persistent-tools.cordis.yml`](persistent-tools.cordis.yml) 是一个最小可运行变体，面向模型的能力严格只有：
+[`minimal.cordis.yml`](minimal.cordis.yml) 是 Web `minimal` preset 的完整独立版本。它固定系统提示词与压缩策略，面向模型的能力严格只有：
 
 - 所有者作用域内持久化的 `bash`
 - 提供 `view`、`create`、`str_replace` 与 `insert` 的 `str_replace_editor`
 
-它组合了本地 PTY、文件系统意图策略与会话沙箱策略。
+它组合了内置运行时所需的本地 PTY、文件系统意图策略、会话沙箱策略与 JSONL 持久化。[`minimal.py`](minimal.py) 通过 Python SDK 运行该配置；[极简 Python SDK 教程](../../docs/user/guide/python-sdk-minimal.md)介绍设置方式、可重复运行与安全边界。

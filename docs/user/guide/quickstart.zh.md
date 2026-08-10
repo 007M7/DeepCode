@@ -57,6 +57,7 @@ pnpm run dsh web
 
 ## 下一步
 
+- [使用 Python 运行极简 agent](./python-sdk-minimal.md) — 无需 Web UI，即可使用固定的双工具组合
 - [配置模型](./providers.md) — 接入 DeepSeek 之外的提供方与自定义网关
 - [配置文件](./config.md) — 了解 `cordis.yml` 的格式
 - [开发插件](../develop/basic/) — 编写自己的工具或后端

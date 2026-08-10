@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-通过 JSON-RPC stdio 驱动 DeepSeek Harness 的 Python 子进程 SDK。运行时继承常规的 DeepSeek Harness 环境变量（如 `DEEPSEEK_BASE_URL` 与 `DEEPSEEK_API_KEY`），调用方可以直接用真实模型端点，也可以在跑基准测试时把它们指向本地代理。
+通过 JSON-RPC stdio 驱动 DeepSeek Harness 的 Python 子进程 SDK。运行时继承常规的 DeepSeek Harness 环境变量（如 `DEEPSEEK_BASE_URL` 与 `DEEPSEEK_API_KEY`），调用方可以直接使用真实模型端点，也可以把这些变量指向本地代理。
 
 安装 `deepseek-harness` 会同时安装版本完全相同的 `deepseek-harness-runtime-bin` 平台 wheel 包。因此常规入口不需要传可执行文件参数：
 
@@ -30,6 +30,8 @@ with DeepSeekHarness(
 ```
 
 `provider` 用于选择当前 Cordis 组合已注册的提供方路由；`model` 是该适配器解析的模型 ID。`max_tokens` 是可选的正整数，用于限制根 agent（智能体）及其进程内后代每次请求的输出 token；省略时由提供方默认值控制。压缩摘要继续使用压缩插件单独配置的上限。内置默认组合注册 `deepseek-official`。自定义组合可以挂载 `llm-pi-ai`，在其中配置各提供方的凭据与端点，再选择 pi-ai 已安装目录中的任意提供方/模型组合。
+
+[极简 agent 教程](../../docs/user/guide/python-sdk-minimal.md)提供完整的独立 Cordis 文件与可运行的 SDK 示例，用于在不使用 Web UI 的情况下使用双工具极简模式。
 
 `Session.run()` 拥有一个从提示词进入持久 inbox 时开始、到整个 agent 下一次进入空闲状态为止的活动区间，并返回 `RunResult(session_id, final_response, events, notifications, session_root)`。结果不携带提示词级状态或轮次原因：`final_response` 是该区间内根会话最后提交的助手文本，并非因果上归属于该提示词的输出。steering（中途引导）、注入的上下文和其他排队工作都可能在进入空闲状态前参与其中。
 

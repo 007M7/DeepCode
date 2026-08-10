@@ -12,7 +12,7 @@ Web surface 同时由两个位置定义与 Claude SWE 兼容的 RL agent（智�
 
 ## 决策
 
-随附的 `minimal` preset 是 RL agent 组合的唯一所有者。它声明 entry 本地的 PTY 注册表与本地后端、带 RL 环境描述且超时为 300 秒的持久 `bash`、`str_replace_editor`，以及 entry 本地的压缩后端。工具呈现仍由部署选择。压缩策略保留 RL 的阈值、绝对保留量、生成上限和重试次数；模型容量来自经路由选定的适配器元数据，因为 `contextWindow` 已不再是 compact-basic 的配置字段。编辑器不接受 `requireAbsolutePath` 设置，因为要求绝对路径是它的无条件约定。
+随附的 Web `minimal` preset 是 RL agent 组合在 Web 中的唯一所有者。它声明 entry 本地的 PTY 注册表与本地后端、带 RL 环境描述且超时为 300 秒的持久 `bash`、`str_replace_editor`，以及 entry 本地的压缩后端。工具呈现仍由部署选择。压缩策略保留 RL 的阈值、绝对保留量、生成上限和重试次数；模型容量来自经路由选定的适配器元数据，因为 `contextWindow` 已不再是 compact-basic 的配置字段。编辑器不接受 `requireAbsolutePath` 设置，因为要求绝对路径是它的无条件约定。
 
 preset persona 恰好是 `You are a helpful software engineer assistant.`，并设置 `complete: true`。complete `PromptSection` 参与常规组装，因此工具、上下文、变量和协作式监听器仍会解析；`system-prompt/assemble` waterfall（瀑布式事件）结束后，提示词注册表会将该段落的独立副本恢复为唯一的系统提示词段落。存在多个有效 complete 段时，组装会被拒绝。这项最终注册表约束可防止 harness 身份、Web 定位、工具引导或组装监听器追加提示词文本。
 
@@ -21,6 +21,8 @@ preset persona 恰好是 `You are a helpful software engineer assistant.`，并�
 ## 验证
 
 系统提示词与 persona 包测试证明了 complete 段的最终约束，包括 waterfall 修改与重复项拒绝。交付 preset 组合测试在默认原生呈现下断言精确的提示词、Bash 描述、要求绝对路径的编辑器 schema 和双工具目录。无密钥 Web 回放通过 `minimal` agent 发送一个真实请求，同时注册全局身份、Web surface 文本和一个测试段落；随后执行两次持久 Bash 调用，证明环境与 cwd 状态能够保留，并通过绝对路径执行编辑器。
+
+独立的 [`minimal.cordis.yml`](../../../../examples/jsonrpc-agent/minimal.cordis.yml) 为内置 JSON-RPC 运行时复现相同的提示词、工具、超时和压缩策略。其无密钥 SDK 回放会断言组装后的系统提示词与双工具目录，跨调用执行持久 Bash，并使用编辑器；Python SDK 教程提供可运行的入口。
 
 ## 考虑过的替代方案
 
@@ -34,4 +36,4 @@ preset persona 恰好是 `You are a helpful software engineer assistant.`，并�
 
 ## 后果
 
-RL 提示词固定不变，不能通过环境覆盖，且 `minimal` 是交付内容中唯一声明该提示词的位置。模型只看到持久 `bash` 与 `str_replace_editor`；shell 状态按 agent 隔离，并随该 agent 一并消失。preset 为自身的 PTY 与压缩服务实例承担开销，其他 preset 无需承担。持久 shell 的本地后端需要受支持的 POSIX 终端基础环境，因此该 preset 不适用于 Windows agent surface。
+RL 提示词固定不变，不能通过环境覆盖。Web preset 与独立 JSON-RPC 示例分别在各自的启动界面声明相同的约定。模型只看到持久 `bash` 与 `str_replace_editor`；shell 状态按 agent 隔离，并随该 agent 一并消失。preset 为自身的 PTY 与压缩服务实例承担开销，其他 preset 无需承担。持久 shell 的本地后端需要受支持的 POSIX 终端基础环境，因此该 preset 不适用于 Windows agent surface。
