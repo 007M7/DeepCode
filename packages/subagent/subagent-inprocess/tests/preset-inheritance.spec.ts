@@ -103,6 +103,21 @@ describe('a child agent composed in-process', () => {
     await run.dispose()
   })
 
+  it('honours a tool filter over the preset tools it inherited', async () => {
+    const { ctx, parent } = await setupPresetHost()
+
+    const run = await startInProcessRun(
+      { ...spawnRequest(parent), toolFilter: { deny: ['preset_only'] } },
+      {},
+    )
+    await run.result
+
+    // The capability filter is the only thing bounding a delegated child, and
+    // every tool it can name now arrives from the preset rather than the host.
+    expect(ctx.tools.schemas(run.localAgent).map(schema => schema.name)).toEqual([])
+    await run.dispose()
+  })
+
   it('follows a parent that switched preset while blank', async () => {
     const { ctx, parent } = await setupPresetHost()
     // A DIFFERENT preset, so the assertion below distinguishes reading the
