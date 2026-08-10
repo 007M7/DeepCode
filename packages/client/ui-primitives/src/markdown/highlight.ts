@@ -19,7 +19,7 @@
  */
 
 import { createHighlighterCoreSync, createCssVariablesTheme } from 'shiki/core'
-import { createJavaScriptRegexEngine } from 'shiki/engine/javascript'
+import { createJavaScriptRegexEngine, defaultJavaScriptRegexConstructor } from 'shiki/engine/javascript'
 import langTs from '@shikijs/langs/typescript'
 import langBash from '@shikijs/langs/shellscript'
 import langJson from '@shikijs/langs/json'
@@ -139,15 +139,49 @@ const cssVariablesTheme = createCssVariablesTheme({
   fontStyle: true,
 })
 
+/**
+ * The client regex engine compiles each TextMate pattern when its scanner is
+ * created. Shiki otherwise defers patterns longer than 3,000 characters until
+ * their first match; that compilation counts against Shiki's 500 ms per-line
+ * budget and can return a partial token stream under host contention. Eager
+ * compilation leaves the same budget in place for scanning user content.
+ */
+const regexEngine = createJavaScriptRegexEngine({
+  forgiving: true,
+  regexConstructor: pattern => defaultJavaScriptRegexConstructor(pattern, {
+    lazyCompileLength: Number.POSITIVE_INFINITY,
+  }),
+})
+
 let singleton: HighlighterCore | undefined
+
+/** Representative paths through every boot grammar, compiled before user content is timed. */
+const BOOT_GRAMMAR_WARMUPS = [
+  { lang: 'typescript', code: 'const answer: number = 42' },
+  { lang: 'shellscript', code: 'printf \'%s\\n\' "$HOME"' },
+  { lang: 'json', code: '{"ready":true}' },
+] as const
+
+/** Construct and pre-tokenize the boot grammars outside the user-content scan budget. */
+function createHighlighter(): HighlighterCore {
+  const instance = createHighlighterCoreSync({
+    themes: [cssVariablesTheme],
+    langs: LANGS,
+    engine: regexEngine,
+  })
+  for (const sample of BOOT_GRAMMAR_WARMUPS) {
+    instance.codeToTokens(sample.code, {
+      lang: sample.lang,
+      theme: 'css-variables',
+      tokenizeTimeLimit: 0,
+    })
+  }
+  return instance
+}
 
 /** The synchronous highlighter (one instance per document); pre-warmed below, lazy as the fallback. */
 function highlighter(): HighlighterCore {
-  singleton ??= createHighlighterCoreSync({
-    themes: [cssVariablesTheme],
-    langs: LANGS,
-    engine: createJavaScriptRegexEngine({ forgiving: true }),
-  })
+  singleton ??= createHighlighter()
   return singleton
 }
 

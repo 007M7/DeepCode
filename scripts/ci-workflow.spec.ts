@@ -51,10 +51,15 @@ describe('CI workflow', () => {
     expect(windows.if).toBe("github.event_name == 'pull_request'")
     expect(JSON.stringify(windows)).toContain('bash scripts/wine-windows-gates.sh')
     expect(workflow.jobs).toHaveProperty('wine-apt-cache')
-    expect(windowsNative['runs-on']).toBe('windows-2025')
+    expect(windowsNative['runs-on']).toBe('dsh-windows-2025-16core')
     expect(windowsNative.name).toBe('windows node 24 / native complete')
     expect(windowsNative['timeout-minutes']).toBe(60)
     expect(windowsNative.if).toBe("github.event_name == 'pull_request'")
+    expect(windowsNative.env).toMatchObject({
+      DSH_COVERAGE_MAX_WORKERS: '2',
+      DSH_GATE_CONCURRENCY: '2',
+      DSH_PUBLINT_CONCURRENCY: '8',
+    })
     expect(windowsNative).not.toHaveProperty('continue-on-error')
     expect(nativeCommandSteps).toHaveLength(3)
     expect(nativeCommandSteps.every(step => step.shell === 'pwsh')).toBe(true)
@@ -62,6 +67,21 @@ describe('CI workflow', () => {
     expect(JSON.stringify(windowsNative)).not.toMatch(/wine/i)
     expect(aggregate.needs).toContain('windows')
     expect(aggregate.needs).not.toContain('windows-native')
+  })
+
+  it('keeps supported LSP source under native Windows coverage', () => {
+    const config = readFileSync(resolve(root, 'vitest.config.ts'), 'utf8')
+
+    expect(config).not.toContain('packages/lsp/lsp-local/src/connection.ts')
+    expect(config).not.toContain('packages/lsp/lsp-local/src/index.ts')
+    expect(config).not.toContain('packages/lsp/lsp-local/src/instance.ts')
+  })
+
+  it('keeps every Vitest project process-isolated on native Windows', () => {
+    const config = readFileSync(resolve(root, 'vitest.config.ts'), 'utf8')
+
+    expect(config).not.toContain("pool: process.platform === 'win32' ? 'threads' : 'forks'")
+    expect(config.match(/pool: 'forks'/g)).toHaveLength(2)
   })
 })
 

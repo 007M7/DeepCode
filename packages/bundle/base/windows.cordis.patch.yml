@@ -1,0 +1,31 @@
+# The dsh-base Windows platform layer: applied by the dsh launcher on win32
+# hosts, between the bundle layers and the user layers. Windows confines
+# through the ACL restricted-token runner (the win32 chain of
+# dsh-sandbox-local → @deepseek-ai/dsh-sandbox-windows-acl), so the shipped
+# stack is the SANDBOXED PowerShell executor plus the full permission
+# surface: sandbox/sandbox-policy enforce the file-effect policy, the
+# permission switcher and the approval service run exactly as on POSIX, and
+# the fs row stays the base's sandboxed provider (fs-sandbox) — mounting
+# dsh-fs-local alongside it would double-register ctx.fs and fail the load.
+# Only the POSIX bash
+# stack (bash-sandbox/tool-bash) is disabled — bash has no Windows runner.
+# A Windows host that prefers the unconfined local pwsh executor or full
+# access overrides these rows through its profile or home cordis.patch.yml.
+# The bash-restore recipe must be complete: disable pwsh-sandbox and
+# tool-pwsh AND re-enable bash-sandbox and tool-bash — both executor
+# families register the same 'bash' service, so re-enabling the bash rows
+# while pwsh-sandbox stays inserted fails loud at load on a duplicate
+# registration.
+
+- id: bash-sandbox
+  disabled: true
+
+- id: tool-bash
+  disabled: true
+
+- insert:
+    - id: pwsh-sandbox
+      name: '@deepseek-ai/dsh-pwsh-sandbox'
+
+    - id: tool-pwsh
+      name: '@deepseek-ai/dsh-tool-pwsh'
