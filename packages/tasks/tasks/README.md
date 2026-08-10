@@ -12,7 +12,9 @@ The background task registry contract (`ctx.tasks`). The abstract `TaskService` 
 - `kill(id, caller?, reason?)` invokes producer cancellation before changing status. A cancellation throw leaves the task running; success changes it to `stopping` and marks terminal delivery reported.
 - `wait(id, timeoutMs, caller?, signal?)` returns a terminal snapshot or the live snapshot at timeout. Aborting stops only the wait; settlement wins once it has committed terminal delivery to that waiter.
 - `onTaskDone(listener)` observes each terminal record with the exact owner. Listener throws and rejections are contained; listener work is not awaited.
-- `attachSurface(name)` declares a control surface for its effect lifetime. `start()` fails before producer execution when none is attached.
+- `attachSurface(name)` declares a control surface for its effect lifetime. `start()` fails before producer execution when no attached surface serves the spec's owner.
+
+Both registrations are owner-relative, because one registry serves every composition in the process. A surface or listener registered from an unscoped context serves every owner; one registered under an agent composition's scope serves exactly the agents composed under it. So a composition that loads no control surface cannot start background work on the strength of another composition's controls, and one settlement notifies only the listeners its owner's composition registered.
 
 Owned access compares the task's `SessionId` with the caller's. Ids such as `bash-1` are predictable, so this fence is the boundary. Unowned tasks are open to callers and last until service disposal.
 
