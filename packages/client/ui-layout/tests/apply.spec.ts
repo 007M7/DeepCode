@@ -6,7 +6,7 @@
 // and the invariant companion ride along — one-line surfaces the aggregate
 // coverage gate still requires exercised.
 
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
 import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'

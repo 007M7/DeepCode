@@ -6,7 +6,7 @@
  * @module @deepseek-ai/dsh-tasks
  */
 
-import { Context, Service } from 'cordis'
+import { Context, Service } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { TaskDoneListener, TaskId, TaskRead, TaskSnapshot, TaskStart } from './types.ts'
 
@@ -23,7 +23,7 @@ export type {
   TaskStatus,
 } from './types.ts'
 
-declare module 'cordis' {
+declare module '@deepseek-ai/cordis' {
   interface Context {
     tasks: TaskService
   }

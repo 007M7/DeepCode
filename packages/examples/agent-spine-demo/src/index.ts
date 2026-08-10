@@ -8,9 +8,9 @@
  * @module @deepseek-ai/dsh-agent-spine-demo
  */
 
-import type { Context } from 'cordis'
-import Timer from '@cordisjs/plugin-timer'
-import z from 'schemastery'
+import type { Context } from '@deepseek-ai/cordis'
+import Timer from '@deepseek-ai/cordis-plugin-timer'
+import z from '@deepseek-ai/schemastery'
 import LlmService from '@deepseek-ai/dsh-llm'
 import SessionStore from '@deepseek-ai/dsh-session'
 import SessionTitleService, { type Config as SessionTitleConfig } from '@deepseek-ai/dsh-session-title'

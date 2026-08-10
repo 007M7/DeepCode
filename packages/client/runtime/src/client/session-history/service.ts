@@ -1,4 +1,4 @@
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import type {
   HostFrame, IApiClient, MuxFrame, RpcRequest, SessionId,
 } from '@deepseek-ai/dsh-client-connection/client'

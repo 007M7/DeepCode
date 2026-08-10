@@ -23,7 +23,7 @@
  * @module @deepseek-ai/dsh-plan-mode
  */
 
-import { Context, Service } from 'cordis'
+import { Context, Service } from '@deepseek-ai/cordis'
 import { z as zod } from 'zod'
 import type { ZodType } from 'zod'
 import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
@@ -54,7 +54,7 @@ declare module '@deepseek-ai/dsh-session/types' {
   }
 }
 
-declare module 'cordis' {
+declare module '@deepseek-ai/cordis' {
   interface Context {
     planMode: PlanModeService
   }

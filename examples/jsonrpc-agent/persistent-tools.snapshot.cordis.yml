@@ -4,7 +4,7 @@
 # unowned route makes the SDK server mount the real adapter, which then demands
 # a key this keyless lane has no way to supply.
 - id: base
-  name: '@cordisjs/plugin-include'
+  name: '@deepseek-ai/cordis-plugin-include'
   config:
     path: ./persistent-tools.cordis.yml
     patches:

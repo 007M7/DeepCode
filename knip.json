@@ -67,7 +67,6 @@
         "**/*.ts"
       ],
       "ignoreDependencies": [
-        "@cordisjs/plugin-logger-console",
         "@deepseek-ai/.+"
       ]
     },
@@ -747,8 +746,7 @@
     },
     "packages/bundle/base": {
       "ignoreDependencies": [
-        "@deepseek-ai/.+",
-        "@cordisjs/.+"
+        "@deepseek-ai/.+"
       ]
     },
     "packages/bundle/headless": {

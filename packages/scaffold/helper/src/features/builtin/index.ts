@@ -101,7 +101,7 @@ config:
         id: 'default',
         label: 'Cordis HMR',
         default: true,
-        resources: [{ kind: 'npm-cordis-config-entry', id: 'hmr', package: '@cordisjs/plugin-hmr' }],
+        resources: [{ kind: 'npm-cordis-config-entry', id: 'hmr', package: '@deepseek-ai/cordis-plugin-hmr' }],
       }],
     },
     {

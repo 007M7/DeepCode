@@ -17,7 +17,7 @@ Service 通常继承 `GatewayService`，让 Cordis service key 与默认 Remote 
 ```ts
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { GatewayService, Remote, RemoteScope } from '@deepseek-ai/dsh-type-meta'
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 
 export interface CreateGoalRequest {
   objective: string
@@ -60,7 +60,7 @@ Client 使用普通对象上的具体函数，不使用 JavaScript Proxy。直�
 ```ts ignore-check
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { AgentContext } from '@deepseek-ai/dsh-client-runtime/client'
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
 
 export const inject = ['remote', 'remote.goals']
