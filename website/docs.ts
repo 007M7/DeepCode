@@ -139,9 +139,9 @@ const homeAndGuide = pairedPages([
     order: 3,
   },
   {
-    source: 'docs/user/guide/python-sdk-minimal.md',
-    route: 'guide/python-sdk-minimal.md',
-    label: { root: 'Python SDK 极简模式', en: 'Minimal mode with Python' },
+    source: 'docs/user/guide/python-sdk.md',
+    route: 'guide/python-sdk.md',
+    label: { root: 'Python SDK', en: 'Python SDK' },
     sidebar: { root: 'zh-guide', en: 'en-guide' },
     section: { root: '入门', en: 'Guide' },
     order: 4,

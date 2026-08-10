@@ -1,8 +1,8 @@
-# Run the minimal agent with the Python SDK
+# Get started with the Python SDK
 
-English | [中文](python-sdk-minimal.zh.md)
+English | [中文](python-sdk.zh.md)
 
-This tutorial runs the minimal agent without the Web UI. The checked-in Cordis composition fixes the system prompt, tool catalog, persistent-shell behavior, and compaction policy so SDK runs use the same model-facing contract as the Web `minimal` preset.
+This tutorial installs the Python SDK, runs a checked-in Cordis composition without the Web UI, and uses the same API in your own program. It uses the compact [`minimal.cordis.yml`](../../../examples/jsonrpc-agent/minimal.cordis.yml) configuration as a complete example with a fixed system prompt, tool catalog, persistent-shell behavior, and compaction policy.
 
 ## Prerequisites
 
@@ -30,7 +30,7 @@ python -m pip install deepseek-harness-sdk
 A source build additionally requires Git, Node.js ^22.19 or >= 24, Corepack-enabled pnpm 11, and `uv`. The following commands build the runtime for the current supported host platform, build both wheels, and install them into the active virtual environment:
 
 ```sh
-git clone https://github.com/deepseek-ai/deepseek-harness-sdk.git
+git clone https://github.com/deepseek-ai/deepseek-harness-sdk.git deepseek-harness
 cd deepseek-harness
 python -m pip install uv==0.11.23
 corepack enable
@@ -70,12 +70,12 @@ Run one task from the repository checkout:
 ```sh
 python examples/jsonrpc-agent/minimal.py \
   --workspace /absolute/path/to/workspace \
-  --session-root /absolute/path/to/trajectories \
+  --session-root /absolute/path/to/sessions \
   --session-id example-001 \
   "Inspect the repository and fix the failing tests."
 ```
 
-The script prints the final assistant response. The session root receives the JSONL trajectory, including the assembled model request and every tool call.
+The script prints the final assistant response. The session root receives a JSONL session log containing the assembled model request and every tool call.
 
 ## Use the SDK in your own program
 
@@ -88,7 +88,7 @@ from deepseek_harness import DeepSeekHarness
 
 config = Path("examples/jsonrpc-agent/minimal.cordis.yml").resolve()
 workspace = Path("/absolute/path/to/workspace").resolve()
-sessions = Path("/absolute/path/to/trajectories").resolve()
+sessions = Path("/absolute/path/to/sessions").resolve()
 
 with DeepSeekHarness(
     provider="deepseek-official",
@@ -108,7 +108,7 @@ print(result.final_response)
 
 `DeepSeekHarness` starts the bundled JSON-RPC runtime lazily and reuses it until the context manager exits. Reusing the same harness and session id across calls also preserves the session-owned Bash process, including its working directory, exported variables, and shell functions.
 
-## Contract reproduced by the configuration
+## Understand the example configuration
 
 | Surface | Fixed value |
 |---|---|
@@ -121,9 +121,9 @@ print(result.final_response)
 
 The configuration omits harness identity, workspace prompt text, skills, one-shot Bash, task tools, and every other model-facing plugin. Filesystem policy facts are logged as runtime user context rather than appended to the system prompt. The editor requires absolute paths as an unconditional current contract, so the obsolete `requireAbsolutePath` option is absent.
 
-## Keep runs reproducible
+## Choose workspace and session IDs
 
-For comparable trajectories, pin the Harness commit and Python package version together, retain the exact Cordis file, and record the provider, model, endpoint, `max_tokens`, task input, workspace state, and session id for every run. Start independent runs with a clean workspace and a fresh session id; reuse a session only when multi-turn state is intentional.
+`cwd` selects the workspace available to the agent, while `session_root` stores session logs and state. Use a fresh session id for an independent task; reuse an id only when the next call should continue the same conversation and persistent shell state.
 
 The composition uses `danger-full-access`. Run it only inside a disposable checkout or container: Bash and the editor can modify any path allowed to the runtime process. The persistent PTY backend requires a POSIX terminal substrate and is not a Windows agent surface.
 

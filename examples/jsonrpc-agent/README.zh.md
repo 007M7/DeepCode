@@ -21,7 +21,7 @@
 | `DEEPSEEK_BASE_URL` | `dsh-llm-deepseek` 使用的宿主端点 |
 | `DSH_CWD` | bash 和文件系统工具使用的 agent workspace |
 | `DSH_MAX_TOKENS_AS_SUCCESS` | `true`（默认）接受受 token 上限限制的结果；`false` 将其报告为错误 |
-| `DSH_SESSION_ROOT` | JSONL 轨迹目录 |
+| `DSH_SESSION_ROOT` | JSONL 会话目录 |
 | `DSH_SYSTEM_PROMPT` | 由部署提供的编码人格 |
 
 通过 Python SDK 的 `cordis` 选项或 `DSH_CORDIS_CONFIG` 传入配置路径。内置可执行文件已携带此文件中指定的每个插件；目标机器无需 Node.js。
@@ -33,4 +33,4 @@
 - 所有者作用域内持久化的 `bash`
 - 提供 `view`、`create`、`str_replace` 与 `insert` 的 `str_replace_editor`
 
-它组合了内置运行时所需的本地 PTY、文件系统意图策略、会话沙箱策略与 JSONL 持久化。[`minimal.py`](minimal.py) 通过 Python SDK 运行该配置；[极简 Python SDK 教程](../../docs/user/guide/python-sdk-minimal.md)介绍设置方式、可重复运行与安全边界。
+它组合了内置运行时所需的本地 PTY、文件系统意图策略、会话沙箱策略与 JSONL 持久化。[`minimal.py`](minimal.py) 通过 Python SDK 运行该配置；[Python SDK 教程](../../docs/user/guide/python-sdk.md)以此配置介绍设置方式、会话管理与安全边界。

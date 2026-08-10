@@ -40,7 +40,7 @@ with DeepSeekHarness(
 
 `provider` selects a provider route registered by the chosen Cordis composition; `model` is the model id resolved by that adapter. `max_tokens` is an optional positive per-request output-token cap for the root agent and its in-process descendants; omission leaves the provider default in control. Compaction summaries keep the separate limit configured by their compaction plugin. The bundled default composition registers `deepseek-official`. A custom composition can mount `llm-pi-ai`, configure provider-specific credentials/endpoints there, and select any provider/model present in pi-ai's installed catalog.
 
-The [minimal-agent tutorial](../../docs/user/guide/python-sdk-minimal.md) provides a complete standalone Cordis file and runnable SDK example for using the two-tool minimal mode without the Web UI.
+The [Python SDK tutorial](../../docs/user/guide/python-sdk.md) uses a complete standalone Cordis file to demonstrate installation, direct SDK usage, and runs without the Web UI.
 
 `Session.run()` owns an activity interval from its prompt's durable inbox receipt through the next whole-agent idle and returns `RunResult(session_id, final_response, events, notifications, session_root)`. The result has no prompt-level status or turn reason: `final_response` is the last committed root-session assistant text in the interval, not an output causally assigned to the prompt. Steering, injected context, and other queued work may contribute before idle.
 

@@ -1,8 +1,8 @@
-# 使用 Python SDK 运行极简 agent（智能体）
+# Python SDK 快速上手
 
-[English](python-sdk-minimal.md) | 中文
+[English](python-sdk.md) | 中文
 
-本教程介绍如何在不使用 Web UI 的情况下运行极简 agent。仓库内置的 Cordis 组合固定了系统提示词、工具目录、持久 shell 行为和压缩（compaction）策略，因此 SDK 运行与 Web `minimal` preset 使用相同的面向模型约定。
+本教程介绍如何安装 Python SDK、在不使用 Web UI 的情况下运行仓库内置 Cordis 组合，以及如何在自己的程序中调用同一套 API。教程使用精简且完整的 [`minimal.cordis.yml`](../../../examples/jsonrpc-agent/minimal.cordis.yml) 作为示例，其中固定了系统提示词、工具目录、持久 shell 行为和压缩（compaction）策略。
 
 ## 前置要求
 
@@ -30,7 +30,7 @@ python -m pip install deepseek-harness-sdk
 从源码构建还需要 Git、Node.js ^22.19 或 >= 24、通过 Corepack 启用的 pnpm 11，以及 `uv`。以下命令为当前受支持的宿主平台构建运行时和两个 wheel 包，并将它们安装进当前虚拟环境：
 
 ```sh
-git clone https://github.com/deepseek-ai/deepseek-harness-sdk.git
+git clone https://github.com/deepseek-ai/deepseek-harness-sdk.git deepseek-harness
 cd deepseek-harness
 python -m pip install uv==0.11.23
 corepack enable
@@ -70,12 +70,12 @@ export DEEPSEEK_API_KEY=sk-your-key-here
 ```sh
 python examples/jsonrpc-agent/minimal.py \
   --workspace /absolute/path/to/workspace \
-  --session-root /absolute/path/to/trajectories \
+  --session-root /absolute/path/to/sessions \
   --session-id example-001 \
   "Inspect the repository and fix the failing tests."
 ```
 
-脚本会打印 assistant 的最终回复。会话根目录会收到 JSONL 运行轨迹，其中包含组装后的模型请求与每次工具调用。
+脚本会打印 assistant 的最终回复。会话根目录会收到 JSONL 会话日志，其中包含组装后的模型请求与每次工具调用。
 
 ## 在自己的程序中使用 SDK
 
@@ -88,7 +88,7 @@ from deepseek_harness import DeepSeekHarness
 
 config = Path("examples/jsonrpc-agent/minimal.cordis.yml").resolve()
 workspace = Path("/absolute/path/to/workspace").resolve()
-sessions = Path("/absolute/path/to/trajectories").resolve()
+sessions = Path("/absolute/path/to/sessions").resolve()
 
 with DeepSeekHarness(
     provider="deepseek-official",
@@ -108,7 +108,7 @@ print(result.final_response)
 
 `DeepSeekHarness` 会延迟启动内置 JSON-RPC 运行时，并持续复用，直至退出上下文管理器。在多次调用中复用同一个 harness 和 session id，还会保留该会话拥有的 Bash 进程，包括其工作目录、已导出的变量与 shell 函数。
 
-## 配置复现的约定
+## 了解示例配置
 
 | 方面 | 固定值 |
 |---|---|
@@ -121,9 +121,9 @@ print(result.final_response)
 
 该配置省略了 harness 身份、workspace 提示词文本、skill（技能）、一次性 Bash、任务工具和其他所有面向模型的插件。文件系统策略事实记录为运行时用户上下文，而不会追加到系统提示词中。编辑器无条件要求绝对路径，因此配置中没有已经废弃的 `requireAbsolutePath` 选项。
 
-## 保持运行可复现
+## 选择 workspace 与 session id
 
-为了让运行轨迹可复现且便于比较，请配套固定 Harness commit 与 Python 包版本，保留确切的 Cordis 文件，并为每次运行记录提供方、模型、端点、`max_tokens`、任务输入、workspace 状态和 session id。独立运行应使用干净的 workspace 和新的 session id；只有有意保留多轮状态时才复用会话。
+`cwd` 用于选择 agent 可访问的 workspace，`session_root` 用于保存会话日志和状态。独立任务应使用新的 session id；只有下一次调用需要延续同一段对话和持久 shell 状态时，才复用原有 id。
 
 该组合使用 `danger-full-access`。只能在可丢弃的 checkout 或容器内运行：Bash 与编辑器可以修改运行时进程有权访问的任何路径。持久 PTY 后端需要 POSIX 终端环境，因此该模式不适用于 Windows agent。
 
