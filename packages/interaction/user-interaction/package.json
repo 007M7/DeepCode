@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-user-interaction",
   "description": "Abstract user-interaction seam (ctx.userInteraction) for asking the human during agent runs",
-  "version": "0.0.1",
+  "version": "0.0.1-rc.1",
   "publishConfig": {
     "access": "restricted"
   },

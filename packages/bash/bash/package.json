@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-bash",
   "description": "Abstract bash executor seam (ctx.bash) for the DeepSeek Harness",
-  "version": "0.0.1",
+  "version": "0.0.1-rc.1",
   "publishConfig": {
     "access": "restricted"
   },

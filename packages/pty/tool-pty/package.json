@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-tool-pty",
   "description": "Six model-facing persistent PTY tools with owner isolation and generic background-task integration",
-  "version": "0.0.1",
+  "version": "0.0.1-rc.1",
   "publishConfig": {
     "access": "restricted"
   },

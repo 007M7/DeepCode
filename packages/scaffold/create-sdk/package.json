@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/create-sdk",
   "description": "Create a DeepSeek Harness SDK project with npm create @deepseek-ai/sdk",
-  "version": "0.0.1",
+  "version": "0.0.1-rc.1",
   "publishConfig": {
     "access": "restricted"
   },

@@ -8,6 +8,9 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 /** Published-entry acceptance for argument errors, profile lifecycle, and boot-free config dumps. */
 const repoRoot = fileURLToPath(new URL('../../../', import.meta.url))
+// The release version, including a prerelease such as 0.0.1-rc.1: `--version`
+// prints what this manifest carries, so no test may pin it to a literal.
+const cliVersion = (JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string }).version
 const dshBin = join(repoRoot, 'apps/cli/lib/bin.js')
 const invalidProvider = fileURLToPath(new URL('./fixtures/invalid-provider.cordis.yml', import.meta.url))
 
@@ -387,7 +390,7 @@ describe.skipIf(!existsSync(dshBin))('dsh BUILT bin (node lib/bin.js, no tsx)', 
     writeFileSync(join(project, '.env'), 'PATH=/project-only-path\n')
     try {
       const result = await runBuiltBin(['--version'], {}, project)
-      expect(result).toEqual({ code: 0, stdout: '0.0.1', stderr: '' })
+      expect(result).toEqual({ code: 0, stdout: cliVersion, stderr: '' })
     } finally {
       rmSync(project, { recursive: true, force: true })
     }
