@@ -6,27 +6,18 @@
 
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-import { NumberField, SecretField, TextField } from './fields.tsx'
+import { SecretField, ValueField } from './fields.tsx'
 import { PluginCard } from './PluginCard.tsx'
+import type { CardActions } from './card-store.ts'
 import type { WebSearchCardState } from './web-search-store.ts'
 import type {} from './slot-contract.ts'
 
 /** Registration-side business face for the web-search card. */
-export interface WebSearchCardInjected {
+export interface WebSearchCardInjected extends CardActions {
   hooks: {
     /** Card snapshot bound by the renderer as useWebSearchCard. */
     webSearchCard: SnapshotStore<WebSearchCardState>
   }
-  /** Write the provider endpoint; the empty string clears it. */
-  setBaseUrl: (next: string) => void
-  /** Clear the endpoint so it re-inherits the composition layer. */
-  resetBaseUrl: () => void
-  /** Write the per-request search budget. */
-  setMaxUses: (next: number) => void
-  /** Clear the budget so it re-inherits the composition layer. */
-  resetMaxUses: () => void
-  /** Write the credential the section references. */
-  setApiKey: (next: string) => void
 }
 
 /** Props the renderer binds for the web-search card. */
@@ -37,7 +28,7 @@ export type WebSearchCardProps =
 
 /**
  * Render the web-search card.
- * @param props - locale copy, the card snapshot, and its write actions.
+ * @param props - locale copy, the card snapshot, and its form actions.
  * @returns the card.
  */
 export function WebSearchCard(props: WebSearchCardProps) {
@@ -49,45 +40,46 @@ export function WebSearchCard(props: WebSearchCardProps) {
       t={t}
       titleKey="webSearchTitle"
       descriptionKey="webSearchDescription"
-      available={state.available}
-      readOnly={disabled}
+      state={state}
+      onSave={props.save}
+      onDiscard={props.discard}
     >
       <SecretField
         id="plugin-config-web-search-key"
         label={t('webSearchApiKey')}
         hint={t('webSearchApiKeyHint')}
-        overriddenLabel={t('overridden')}
-        resetLabel={t('reset')}
         // The credentials domain accepts a key even when the settings document
         // itself is read-only; they are separate stores with separate refusals.
         disabled={false}
+        text={state.apiKey.text}
         configured={state.apiKeyConfigured}
         stateLabel={state.apiKeyConfigured ? t('webSearchApiKeySet') : t('webSearchApiKeyUnset')}
-        onCommit={props.setApiKey}
+        onEdit={(text) => { props.edit('apiKey', text) }}
       />
-      <TextField
+      <ValueField
         id="plugin-config-web-search-endpoint"
         label={t('webSearchBaseUrl')}
         hint={t('webSearchBaseUrlHint')}
         overriddenLabel={t('overridden')}
         resetLabel={t('reset')}
-        overridden={state.baseURL.overridden}
+        invalidLabel={t('invalidNumber')}
         disabled={disabled}
-        value={state.baseURL.value}
-        onCommit={props.setBaseUrl}
-        onReset={props.resetBaseUrl}
+        {...state.baseURL}
+        onEdit={(text) => { props.edit('baseURL', text) }}
+        onReset={() => { props.resetField('baseURL') }}
       />
-      <NumberField
+      <ValueField
         id="plugin-config-web-search-max-uses"
         label={t('webSearchMaxUses')}
         hint={t('webSearchMaxUsesHint')}
         overriddenLabel={t('overridden')}
         resetLabel={t('reset')}
-        overridden={state.maxUses.overridden}
+        invalidLabel={t('invalidNumber')}
+        numeric
         disabled={disabled}
-        value={state.maxUses.value}
-        onCommit={props.setMaxUses}
-        onReset={props.resetMaxUses}
+        {...state.maxUses}
+        onEdit={(text) => { props.edit('maxUses', text) }}
+        onReset={() => { props.resetField('maxUses') }}
       />
     </PluginCard>
   )

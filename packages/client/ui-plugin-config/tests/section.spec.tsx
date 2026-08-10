@@ -2,7 +2,7 @@
 /**
  * What the section and its cards show: the empty line when no plugin
  * contributed one, a card that renders nothing while its namespace is
- * unavailable, and the read-only notice a locked document produces.
+ * unavailable, and the save footer that decides when staged edits are written.
  */
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
@@ -19,12 +19,32 @@ import { WebSearchCard } from '../src/client/WebSearchCard.tsx'
 import type { WebSearchCardProps } from '../src/client/WebSearchCard.tsx'
 import type { AgentLoopCardState } from '../src/client/agent-loop-store.ts'
 import type { BashCardState } from '../src/client/bash-store.ts'
+import type { CardFieldState, CardShell } from '../src/client/card-store.ts'
 import type { WebSearchCardState } from '../src/client/web-search-store.ts'
 import { en } from '../src/client/locales.ts'
 
 afterEach(cleanup)
 
 const t = (key: keyof typeof en) => en[key]
+
+/** A settled form: nothing staged, everything served. */
+const settled: CardShell = {
+  available: true,
+  writable: true,
+  dirty: false,
+  invalid: false,
+  saving: false,
+  failed: false,
+}
+
+/** One control's state, defaulting to an inherited value. */
+function field(text: string, rest: Partial<CardFieldState> = {}): CardFieldState {
+  return { text, overridden: false, invalid: false, ...rest }
+}
+
+function cardActions() {
+  return { edit: vi.fn(), resetField: vi.fn(), save: vi.fn(), discard: vi.fn() }
+}
 
 function renderSection(cardCount: number, cards = 'cards') {
   const props = {
@@ -37,23 +57,13 @@ function renderSection(cardCount: number, cards = 'cards') {
 
 function renderBash(state: Partial<BashCardState> = {}) {
   const store = createSnapshotStore<BashCardState>({
-    available: true,
-    writable: true,
-    timeoutMs: { value: 60_000, overridden: false },
-    maxOutputBytes: { value: 64_000, overridden: false },
+    ...settled,
+    timeoutMs: field('60000'),
+    maxOutputBytes: field('64000'),
     ...state,
   })
-  const actions = {
-    setTimeoutMs: vi.fn(),
-    resetTimeoutMs: vi.fn(),
-    setMaxOutputBytes: vi.fn(),
-    resetMaxOutputBytes: vi.fn(),
-  }
-  const props = {
-    ...actions,
-    t,
-    useBashCard: bindSnapshotSelector(store),
-  } as unknown as BashCardProps
+  const actions = cardActions()
+  const props = { ...actions, t, useBashCard: bindSnapshotSelector(store) } as unknown as BashCardProps
   render(<BashCard {...props} />)
   return actions
 }
@@ -101,26 +111,86 @@ describe('BashCard', () => {
     expect(screen.getByLabelText(en.bashMaxOutputBytes)).toBeTruthy()
   })
 
-  it('commits an edited field through its action', () => {
+  it('stages an edit instead of writing it', () => {
     const actions = renderBash()
     fireEvent.click(screen.getByText(en.bashTitle))
 
-    const input = screen.getByLabelText(en.bashTimeoutMs)
-    fireEvent.change(input, { target: { value: '9000' } })
-    fireEvent.blur(input)
+    fireEvent.change(screen.getByLabelText(en.bashTimeoutMs), { target: { value: '9000' } })
 
-    expect(actions.setTimeoutMs).toHaveBeenCalledWith(9_000)
+    expect(actions.edit).toHaveBeenCalledWith('timeoutMs', '9000')
+    expect(actions.save).not.toHaveBeenCalled()
   })
 
   it('offers the reset for an overridden field only', () => {
-    const actions = renderBash({ timeoutMs: { value: 9_000, overridden: true } })
+    const actions = renderBash({ timeoutMs: field('9000', { overridden: true }) })
     fireEvent.click(screen.getByText(en.bashTitle))
 
     // One badge and one reset: the output cap is still inherited.
     expect(screen.getAllByText(en.overridden)).toHaveLength(1)
     fireEvent.click(screen.getByRole('button', { name: en.reset }))
 
-    expect(actions.resetTimeoutMs).toHaveBeenCalledOnce()
+    expect(actions.resetField).toHaveBeenCalledWith('timeoutMs')
+  })
+
+  it('addresses each of its two fields separately', () => {
+    const actions = renderBash({ maxOutputBytes: field('64000', { overridden: true }) })
+    fireEvent.click(screen.getByText(en.bashTitle))
+
+    fireEvent.change(screen.getByLabelText(en.bashMaxOutputBytes), { target: { value: '1024' } })
+    fireEvent.click(screen.getByRole('button', { name: en.reset }))
+
+    expect(actions.edit).toHaveBeenCalledWith('maxOutputBytes', '1024')
+    expect(actions.resetField).toHaveBeenCalledWith('maxOutputBytes')
+  })
+
+  it('keeps save and discard inert until something is staged', () => {
+    renderBash()
+    fireEvent.click(screen.getByText(en.bashTitle))
+
+    expect(screen.getByRole('button', { name: en.save })).toHaveProperty('disabled', true)
+    expect(screen.getByRole('button', { name: en.discard })).toHaveProperty('disabled', true)
+    expect(screen.queryByText(en.unsaved)).toBeNull()
+  })
+
+  it('writes the staged edits when saved, and drops them when discarded', () => {
+    const actions = renderBash({ dirty: true, timeoutMs: field('9000', { overridden: true }) })
+    fireEvent.click(screen.getByText(en.bashTitle))
+
+    fireEvent.click(screen.getByRole('button', { name: en.save }))
+    fireEvent.click(screen.getByRole('button', { name: en.discard }))
+
+    expect(actions.save).toHaveBeenCalledOnce()
+    expect(actions.discard).toHaveBeenCalledOnce()
+  })
+
+  it('marks a card holding unsaved edits, collapsed or not', () => {
+    renderBash({ dirty: true })
+
+    expect(screen.getByText(en.unsaved)).toBeTruthy()
+  })
+
+  it('blocks the save while a draft is invalid, and says why', () => {
+    renderBash({ dirty: true, invalid: true, timeoutMs: field('soon', { invalid: true }) })
+    fireEvent.click(screen.getByText(en.bashTitle))
+
+    expect(screen.getByRole('button', { name: en.save })).toHaveProperty('disabled', true)
+    expect(screen.getByRole('button', { name: en.discard })).toHaveProperty('disabled', false)
+    expect(screen.getByText(en.invalidNumber)).toBeTruthy()
+  })
+
+  it('reports a save in flight and refuses another', () => {
+    renderBash({ dirty: true, saving: true })
+    fireEvent.click(screen.getByText(en.bashTitle))
+
+    expect(screen.getByRole('button', { name: en.saving })).toHaveProperty('disabled', true)
+    expect(screen.getByRole('button', { name: en.discard })).toHaveProperty('disabled', true)
+  })
+
+  it('reports a save the deployment did not accept', () => {
+    renderBash({ dirty: true, failed: true })
+    fireEvent.click(screen.getByText(en.bashTitle))
+
+    expect(screen.getByText(en.saveFailed)).toBeTruthy()
   })
 
   it('says the document is read-only and disables its controls', () => {
@@ -130,56 +200,73 @@ describe('BashCard', () => {
     expect(screen.getByRole('status')).toHaveProperty('textContent', en.readOnly)
     expect(screen.getByLabelText(en.bashTimeoutMs)).toHaveProperty('disabled', true)
   })
+
+  it('collapses again on a second click', () => {
+    renderBash()
+    fireEvent.click(screen.getByText(en.bashTitle))
+    expect(screen.getByLabelText(en.bashTimeoutMs)).toBeTruthy()
+
+    fireEvent.click(screen.getByText(en.bashTitle))
+
+    expect(screen.queryByLabelText(en.bashTimeoutMs)).toBeNull()
+  })
 })
 
 describe('AgentLoopCard', () => {
-  it('edits the only field it owns', () => {
+  it('stages and saves the only field it owns', () => {
     const store = createSnapshotStore<AgentLoopCardState>({
-      available: true,
-      writable: true,
-      maxParallelToolCalls: { value: 10, overridden: false },
+      ...settled,
+      dirty: true,
+      maxParallelToolCalls: field('10'),
     })
-    const setMaxParallelToolCalls = vi.fn()
+    const actions = cardActions()
     const props = {
+      ...actions,
       t,
       useAgentLoopCard: bindSnapshotSelector(store),
-      setMaxParallelToolCalls,
-      resetMaxParallelToolCalls: vi.fn(),
     } as unknown as AgentLoopCardProps
     render(<AgentLoopCard {...props} />)
 
     fireEvent.click(screen.getByText(en.agentLoopTitle))
-    const input = screen.getByLabelText(en.agentLoopMaxParallel)
-    fireEvent.change(input, { target: { value: '2' } })
-    fireEvent.blur(input)
+    fireEvent.change(screen.getByLabelText(en.agentLoopMaxParallel), { target: { value: '2' } })
+    fireEvent.click(screen.getByRole('button', { name: en.save }))
 
-    expect(setMaxParallelToolCalls).toHaveBeenCalledWith(2)
+    expect(actions.edit).toHaveBeenCalledWith('maxParallelToolCalls', '2')
+    expect(actions.save).toHaveBeenCalledOnce()
+  })
+
+  it('stages a reset for the field it owns', () => {
+    const store = createSnapshotStore<AgentLoopCardState>({
+      ...settled,
+      maxParallelToolCalls: field('2', { overridden: true }),
+    })
+    const actions = cardActions()
+    const props = {
+      ...actions,
+      t,
+      useAgentLoopCard: bindSnapshotSelector(store),
+    } as unknown as AgentLoopCardProps
+    render(<AgentLoopCard {...props} />)
+
+    fireEvent.click(screen.getByText(en.agentLoopTitle))
+    fireEvent.click(screen.getByRole('button', { name: en.reset }))
+
+    expect(actions.resetField).toHaveBeenCalledWith('maxParallelToolCalls')
   })
 })
 
 describe('WebSearchCard', () => {
   function renderWebSearch(state: Partial<WebSearchCardState> = {}) {
     const store = createSnapshotStore<WebSearchCardState>({
-      available: true,
-      writable: true,
-      baseURL: { value: '', overridden: false },
-      maxUses: { value: 5, overridden: false },
-      apiKeyRef: 'DEEPSEEK_API_KEY',
+      ...settled,
+      baseURL: field(''),
+      maxUses: field('5'),
+      apiKey: field(''),
       apiKeyConfigured: false,
       ...state,
     })
-    const actions = {
-      setBaseUrl: vi.fn(),
-      resetBaseUrl: vi.fn(),
-      setMaxUses: vi.fn(),
-      resetMaxUses: vi.fn(),
-      setApiKey: vi.fn(),
-    }
-    const props = {
-      ...actions,
-      t,
-      useWebSearchCard: bindSnapshotSelector(store),
-    } as unknown as WebSearchCardProps
+    const actions = cardActions()
+    const props = { ...actions, t, useWebSearchCard: bindSnapshotSelector(store) } as unknown as WebSearchCardProps
     render(<WebSearchCard {...props} />)
     return actions
   }
@@ -201,23 +288,27 @@ describe('WebSearchCard', () => {
     expect(screen.getByLabelText(en.webSearchBaseUrl)).toHaveProperty('disabled', true)
 
     fireEvent.change(key, { target: { value: 'ds-secret' } })
-    fireEvent.blur(key)
 
-    expect(actions.setApiKey).toHaveBeenCalledWith('ds-secret')
+    expect(actions.edit).toHaveBeenCalledWith('apiKey', 'ds-secret')
   })
 
-  it('commits the endpoint and the search budget', () => {
-    const actions = renderWebSearch()
+  it('stages the endpoint, the search budget, and their resets', () => {
+    const actions = renderWebSearch({
+      baseURL: field('https://search.test/v1', { overridden: true }),
+      maxUses: field('3', { overridden: true }),
+    })
     fireEvent.click(screen.getByText(en.webSearchTitle))
 
-    const endpoint = screen.getByLabelText(en.webSearchBaseUrl)
-    fireEvent.change(endpoint, { target: { value: 'https://search.test/v1' } })
-    fireEvent.blur(endpoint)
-    const budget = screen.getByLabelText(en.webSearchMaxUses)
-    fireEvent.change(budget, { target: { value: '3' } })
-    fireEvent.blur(budget)
+    fireEvent.change(screen.getByLabelText(en.webSearchBaseUrl), { target: { value: 'https://other.test' } })
+    fireEvent.change(screen.getByLabelText(en.webSearchMaxUses), { target: { value: '4' } })
+    const resets = screen.getAllByRole('button', { name: en.reset })
+    expect(resets).toHaveLength(2)
+    for (const reset of resets) fireEvent.click(reset)
 
-    expect(actions.setBaseUrl).toHaveBeenCalledWith('https://search.test/v1')
-    expect(actions.setMaxUses).toHaveBeenCalledWith(3)
+    expect(actions.edit.mock.calls).toEqual([
+      ['baseURL', 'https://other.test'],
+      ['maxUses', '4'],
+    ])
+    expect(actions.resetField.mock.calls).toEqual([['baseURL'], ['maxUses']])
   })
 })

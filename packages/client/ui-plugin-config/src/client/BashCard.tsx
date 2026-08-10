@@ -2,25 +2,18 @@
 
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-import { NumberField } from './fields.tsx'
+import { ValueField } from './fields.tsx'
 import { PluginCard } from './PluginCard.tsx'
+import type { CardActions } from './card-store.ts'
 import type { BashCardState } from './bash-store.ts'
 import type {} from './slot-contract.ts'
 
 /** Registration-side business face for the shell card. */
-export interface BashCardInjected {
+export interface BashCardInjected extends CardActions {
   hooks: {
     /** Card snapshot bound by the renderer as useBashCard. */
     bashCard: SnapshotStore<BashCardState>
   }
-  /** Write the foreground command timeout. */
-  setTimeoutMs: (next: number) => void
-  /** Clear the timeout so it re-inherits the composition layer. */
-  resetTimeoutMs: () => void
-  /** Write the per-stream output cap. */
-  setMaxOutputBytes: (next: number) => void
-  /** Clear the output cap so it re-inherits the composition layer. */
-  resetMaxOutputBytes: () => void
 }
 
 /** Props the renderer binds for the shell card. */
@@ -31,7 +24,7 @@ export type BashCardProps =
 
 /**
  * Render the shell card.
- * @param props - locale copy, the card snapshot, and its write actions.
+ * @param props - locale copy, the card snapshot, and its form actions.
  * @returns the card.
  */
 export function BashCard(props: BashCardProps) {
@@ -43,32 +36,35 @@ export function BashCard(props: BashCardProps) {
       t={t}
       titleKey="bashTitle"
       descriptionKey="bashDescription"
-      available={state.available}
-      readOnly={disabled}
+      state={state}
+      onSave={props.save}
+      onDiscard={props.discard}
     >
-      <NumberField
+      <ValueField
         id="plugin-config-bash-timeout"
         label={t('bashTimeoutMs')}
         hint={t('bashTimeoutMsHint')}
         overriddenLabel={t('overridden')}
         resetLabel={t('reset')}
-        overridden={state.timeoutMs.overridden}
+        invalidLabel={t('invalidNumber')}
+        numeric
         disabled={disabled}
-        value={state.timeoutMs.value}
-        onCommit={props.setTimeoutMs}
-        onReset={props.resetTimeoutMs}
+        {...state.timeoutMs}
+        onEdit={(text) => { props.edit('timeoutMs', text) }}
+        onReset={() => { props.resetField('timeoutMs') }}
       />
-      <NumberField
+      <ValueField
         id="plugin-config-bash-output"
         label={t('bashMaxOutputBytes')}
         hint={t('bashMaxOutputBytesHint')}
         overriddenLabel={t('overridden')}
         resetLabel={t('reset')}
-        overridden={state.maxOutputBytes.overridden}
+        invalidLabel={t('invalidNumber')}
+        numeric
         disabled={disabled}
-        value={state.maxOutputBytes.value}
-        onCommit={props.setMaxOutputBytes}
-        onReset={props.resetMaxOutputBytes}
+        {...state.maxOutputBytes}
+        onEdit={(text) => { props.edit('maxOutputBytes', text) }}
+        onReset={() => { props.resetField('maxOutputBytes') }}
       />
     </PluginCard>
   )

@@ -1,7 +1,7 @@
-/** The shell card's state and writes over the `bash` settings namespace. */
+/** The shell card's staged form over the `bash` settings namespace. */
 
 import type { SettingsScope, SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
-import { CardController, fieldOf, shellOf, type CardField, type CardShell } from './card-store.ts'
+import { CardForm, numberField, type CardActions, type CardFieldState, type CardShell } from './card-store.ts'
 
 /**
  * Namespace of the shell capability. Spelled here rather than imported: a
@@ -21,51 +21,43 @@ export interface BashSettings {
 /** What the shell card renders. */
 export interface BashCardState extends CardShell {
   /** Command timeout in milliseconds. */
-  timeoutMs: CardField<number | undefined>
+  timeoutMs: CardFieldState
   /** Per-stream output cap in bytes. */
-  maxOutputBytes: CardField<number | undefined>
+  maxOutputBytes: CardFieldState
 }
 
 /** The registration-side face the shell card's slot entry injects. */
-export interface BashCardFace {
+export interface BashCardFace extends CardActions {
   hooks: {
     /** Card snapshot bound by the renderer as useBashCard. */
     bashCard: SnapshotStore<BashCardState>
   }
-  /** Write the foreground command timeout. */
-  setTimeoutMs: (next: number) => void
-  /** Clear the timeout so it re-inherits the composition layer. */
-  resetTimeoutMs: () => void
-  /** Write the per-stream output cap. */
-  setMaxOutputBytes: (next: number) => void
-  /** Clear the output cap so it re-inherits the composition layer. */
-  resetMaxOutputBytes: () => void
 }
 
-/** Bridges the `bash` scope onto the shell card's state and writes. */
-export class BashCardController extends CardController<BashSettings, BashCardState> {
+/** Bridges the `bash` scope onto the shell card's staged form. */
+export class BashCardController {
+  private readonly form: CardForm<BashSettings>
+  private readonly store: SnapshotStore<BashCardState>
+
   /** @param scope - the bound settings scope for the `bash` namespace. */
   constructor(scope: SettingsScope<BashSettings>) {
-    super(scope, snapshot => ({
-      ...shellOf(snapshot),
-      // The fallbacks only show before the Host serves a section; every served
-      // section is already schema-defaulted by the owning executor.
-      timeoutMs: fieldOf(snapshot, 'timeoutMs', undefined),
-      maxOutputBytes: fieldOf(snapshot, 'maxOutputBytes', undefined),
-    }))
+    this.form = new CardForm(scope, [numberField('timeoutMs'), numberField('maxOutputBytes')])
+    this.store = this.form.bind(() => this.projection())
+  }
+
+  private projection(): BashCardState {
+    return {
+      ...this.form.shell(),
+      timeoutMs: this.form.field('timeoutMs'),
+      maxOutputBytes: this.form.field('maxOutputBytes'),
+    }
   }
 
   /**
    * Build the face the card's slot registration injects.
-   * @returns the card's snapshot and its write actions.
+   * @returns the card's snapshot and its form actions.
    */
   inject(): BashCardFace {
-    return {
-      hooks: { bashCard: this.store },
-      setTimeoutMs: (next: number) => { void this.scope.set('timeoutMs', next) },
-      resetTimeoutMs: () => { void this.scope.unset('timeoutMs') },
-      setMaxOutputBytes: (next: number) => { void this.scope.set('maxOutputBytes', next) },
-      resetMaxOutputBytes: () => { void this.scope.unset('maxOutputBytes') },
-    }
+    return { hooks: { bashCard: this.store }, ...this.form.actions() }
   }
 }

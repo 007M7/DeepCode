@@ -28,7 +28,11 @@ import { en, zh } from './locales.ts'
 export type { PluginConfigSectionInjected, PluginConfigSectionProps } from './PluginConfigSection.tsx'
 export type { PluginCardProps } from './PluginCard.tsx'
 export type { SettingsPluginItemOwnerProps } from './slot-contract.ts'
-export { NumberField, SecretField, TextField, type FieldProps } from './fields.tsx'
+export { SecretField, ValueField, type FieldProps } from './fields.tsx'
+export {
+  CardForm, numberField, textField,
+  type CardActions, type CardFieldSpec, type CardFieldState, type CardSecretSpec, type CardShell,
+} from './card-store.ts'
 export { AGENT_LOOP_NS, AgentLoopCardController, type AgentLoopCardState } from './agent-loop-store.ts'
 export { BASH_NS, BashCardController, type BashCardState } from './bash-store.ts'
 export { WEB_SEARCH_NS, WebSearchCardController, type WebSearchCardState } from './web-search-store.ts'
