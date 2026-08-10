@@ -151,7 +151,7 @@ pnpm run dsh -- web --dev
 pnpm run dev:web
 ```
 
-`dsh` starts the Host source through tsx, so the Host can use the SRC fallback; `dev:web` watches only Client plugins with a `dshClient` declaration and rewrites their `lib/client.js`. It does not analyze Host decorators or generate Remote Client DTS.
+`dsh` starts the Host source through tsx, so the Host can use the SRC fallback; `dev:web` watches only Client plugins with a `dsh.client` declaration and rewrites their `lib/client.js`. It does not analyze Host decorators or generate Remote Client DTS.
 
 Changing only a Remote method's implementation body without changing its contract does not require regenerating the TypeRT files. After adding or removing a decorator or changing an export name, namespace, parameter, return value, lookup, Context, or cancellation signature, rerun the ordered lib build so the Host generates the strict contract before the Client compiles and bundles the new contribution:
 

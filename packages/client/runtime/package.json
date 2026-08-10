@@ -22,13 +22,15 @@
     "./src/*": "./src/*",
     "./package.json": "./package.json"
   },
-  "dshClient": {
-    "inject": [
-      "@deepseek-ai/dsh-client-connection",
-      "@deepseek-ai/dsh-typert-registry"
-    ],
-    "platform": "web",
-    "immediately": true
+  "dsh": {
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-connection",
+        "@deepseek-ai/dsh-typert-registry"
+      ],
+      "platform": "web",
+      "immediately": true
+    }
   },
   "license": "BSD-3-Clause",
   "dependencies": {

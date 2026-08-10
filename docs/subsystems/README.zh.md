@@ -45,7 +45,7 @@
 | [http-server.md](http-server.md) | HTTP 载体：`WebRouteKind`/`WebRoute`、匹配顺序、可认领的回退席位、index 转换 |
 | [storage.md](storage.md) | 存储子系统：后端约定（`StorageBackend`）、`StorageForms`、`DomainSpec`/`Domain`、`domain/changed` |
 | [workspace.md](workspace.md) | 工作区注册表：`Workspace`/`WorkspaceId`、注册与解析、与会话 `cwd` 的关系 |
-| [client-modules.md](client-modules.md) | Web 插件表：`dshClient` 声明、`WebBootGraph` 线上组合、bundle 路由与 index 转换 |
+| [client-modules.md](client-modules.md) | Web 插件表：`dsh.client` 声明、`WebBootGraph` 线上组合、bundle 路由与 index 转换 |
 | [session-projection.md](session-projection.md) | 投影 seam：`SessionProjectionMap`、纯函数 `ProjectionDefinition` 单元、`ProjectionSnapshot` 的一致切面、变更馈送 |
 | [telemetry.md](telemetry.md) | 对外会话上报能力 seam：`TelemetryRecord`/`TelemetrySeverity`、`TelemetryBackend` 约定和 `telemetry/record` 脱敏 waterfall |
 

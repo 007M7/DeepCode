@@ -151,7 +151,7 @@ pnpm run dsh -- web --dev
 pnpm run dev:web
 ```
 
-`dsh` 通过 tsx 启动 Host 源码，所以 Host 可以使用 SRC 回退；`dev:web` 只监听带 `dshClient` 声明的 Client plugin 并重写其 `lib/client.js`，它不会分析 Host decorator，也不会生成 Remote Client DTS。
+`dsh` 通过 tsx 启动 Host 源码，所以 Host 可以使用 SRC 回退；`dev:web` 只监听带 `dsh.client` 声明的 Client plugin 并重写其 `lib/client.js`，它不会分析 Host decorator，也不会生成 Remote Client DTS。
 
 只修改 Remote 方法实现体而不改变约定时，无需重新生成 TypeRT 文件。新增或删除 decorator、修改导出名、namespace、参数、返回值、lookup、Context 或取消签名时，重新执行有序 lib 构建，让 Host 先生成严格约定，再让 Client 编译并打包新的贡献：
 

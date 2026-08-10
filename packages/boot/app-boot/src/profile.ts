@@ -51,14 +51,13 @@ export interface DshProfileManifest {
 }
 
 /**
- * The `dsh`-owned manifest section of a package.json. The nested key names
- * the manifest kind: a bundle package declares `bundle`, a profile directory
- * declares `profile`; nothing declares both.
+ * The profile-launcher slice of the `dsh`-owned package.json section. A
+ * manifest may declare both roles; other consumers own additional keys.
  */
 export interface DshManifestSection {
-  /** Present on bundle packages only. */
+  /** Bundle metadata consumed by the profile launcher. */
   bundle?: DshBundleManifest
-  /** Present on profile manifests only. */
+  /** Profile metadata consumed by the profile launcher. */
   profile?: DshProfileManifest
 }
 

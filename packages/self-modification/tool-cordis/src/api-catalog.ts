@@ -280,7 +280,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   },
   {
     key: 'clientModuleHost',
-    summary: 'The web plugin table service: incremental dshClient scan + wire composition + bundle route + index tap.',
+    summary: 'The web plugin table service: incremental `dsh.client` scan + wire composition + bundle route + index tap.',
     methods: [
       {
         signature: 'graph(): WebBootGraph',
