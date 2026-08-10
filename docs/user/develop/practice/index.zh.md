@@ -61,9 +61,9 @@
 
 ```ts ignore-check
 // packages/my-cap/my-cap/src/index.ts
-import { Service, type Context } from 'cordis'
+import { Service, type Context } from '@deepseek-ai/cordis'
 
-declare module 'cordis' {
+declare module '@deepseek-ai/cordis' {
   interface Context {
     myCap: MyCapService
   }
@@ -91,7 +91,7 @@ export interface MyCapResult {
 
 ```ts ignore-check
 // packages/my-cap/my-cap-local/src/index.ts
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import { MyCapService, type MyCapRequest, type MyCapResult } from '@deepseek-ai/dsh-my-cap'
 
 class MyCapLocal extends MyCapService {
@@ -112,7 +112,7 @@ export function apply(ctx: Context) {
 
 ```ts ignore-check
 // packages/my-cap/tool-my-cap/src/index.ts
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 
 export const name = 'tool-my-cap'

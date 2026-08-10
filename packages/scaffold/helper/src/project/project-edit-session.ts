@@ -17,7 +17,7 @@ import type { ProjectResource } from '../features/resources.ts'
 import { CordisYamlFile, type CordisConfigEntry } from '../documents/cordis-yaml-file.ts'
 import { EnvFile } from '../documents/env-file.ts'
 import { PackageJsonFile, type PackageManifest } from '../documents/package-json-file.ts'
-import { ProjectFile } from '../documents/project-file.ts'
+import { ProjectFile, TextProjectFile } from '../documents/project-file.ts'
 import { TsConfigFile } from '../documents/tsconfig-file.ts'
 import { featureId, type FeatureId, type ResourceKey } from '../ids.ts'
 import { LinkWorkspace } from '../package-managers/link-workspace.ts'
@@ -288,6 +288,18 @@ export class ProjectEditSession implements FeatureProjectView {
         this.profile.packageManager,
         [...this.documents.values()],
       )
+      // Generated workspace members resolve their own dependencies, so the root
+      // manifest's links are not enough: relink every nested manifest as well.
+      for (const [path, document] of this.documents) {
+        if (path === 'package.json' || !path.endsWith('/package.json')) continue
+        const relinked = workspace.relinkNestedManifest(
+          this.source.root,
+          path,
+          document.serialize(),
+          this.profile.packageManager,
+        )
+        this.documents.set(path, new TextProjectFile(path, relinked, document.originalText))
+      }
     }
     this.validateFinalState()
     const changes = this.changes()

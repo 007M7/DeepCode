@@ -4,7 +4,7 @@
  */
 
 /* jscpd:ignore-start */
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import type { InvariantInstaller } from './index.ts'
 
 const PACKAGE_NAME = '@deepseek-ai/dsh-invariants'

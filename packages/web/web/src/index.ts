@@ -6,8 +6,8 @@
  * @module @deepseek-ai/dsh-web
  */
 
-import { Context, Service } from 'cordis'
-import z from 'schemastery'
+import { Context, Service } from '@deepseek-ai/cordis'
+import z from '@deepseek-ai/schemastery'
 import type {
   WebFetchProvider,
   WebFetchRequest,
@@ -32,7 +32,7 @@ export type {
   WebSearchSource,
 } from './types.ts'
 
-declare module 'cordis' {
+declare module '@deepseek-ai/cordis' {
   interface Context {
     web: WebService
   }

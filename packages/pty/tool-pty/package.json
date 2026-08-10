@@ -25,7 +25,7 @@
   ],
   "license": "BSD-3-Clause",
   "dependencies": {
-    "schemastery": "^3.18.0"
+    "@deepseek-ai/schemastery": "^3.18.0"
   },
   "peerDependencies": {
     "@deepseek-ai/dsh-agent": "^0.0.1",
@@ -36,11 +36,11 @@
     "@deepseek-ai/dsh-system-prompt": "^0.0.1",
     "@deepseek-ai/dsh-tasks": "^0.0.1",
     "@deepseek-ai/dsh-tools": "^0.0.1",
-    "cordis": "^4.0.0-rc.7"
+    "@deepseek-ai/cordis": "^4.0.0-rc.7"
   },
   "devDependencies": {
-    "@cordisjs/plugin-include": "workspace:^",
-    "@cordisjs/plugin-loader": "workspace:^",
+    "@deepseek-ai/cordis-plugin-include": "workspace:^",
+    "@deepseek-ai/cordis-plugin-loader": "workspace:^",
     "@deepseek-ai/dsh-agent": "workspace:^",
     "@deepseek-ai/dsh-invariants": "workspace:^",
     "@deepseek-ai/dsh-llm": "workspace:^",
@@ -56,6 +56,6 @@
     "@deepseek-ai/dsh-tasks-local": "workspace:^",
     "@deepseek-ai/dsh-tool-tasks": "workspace:^",
     "@deepseek-ai/dsh-tools": "workspace:^",
-    "cordis": "^4.0.0-rc.7"
+    "@deepseek-ai/cordis": "^4.0.0-rc.7"
   }
 }

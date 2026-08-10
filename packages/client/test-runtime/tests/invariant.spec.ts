@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import * as TestRuntimeInvariant from '@deepseek-ai/dsh-client-test-runtime/invariant'
 import InvariantService from '@deepseek-ai/dsh-invariants'
 

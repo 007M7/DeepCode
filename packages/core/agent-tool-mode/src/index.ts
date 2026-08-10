@@ -16,8 +16,8 @@
  * @module @deepseek-ai/dsh-agent-tool-mode
  */
 
-import type { Context } from 'cordis'
-import z from 'schemastery'
+import type { Context } from '@deepseek-ai/cordis'
+import z from '@deepseek-ai/schemastery'
 import type { ToolPresentationMode } from '@deepseek-ai/dsh-tools'
 // Type-only: brings the `ctx.tools` Context merge into this program.
 import type {} from '@deepseek-ai/dsh-tools'

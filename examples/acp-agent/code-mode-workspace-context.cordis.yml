@@ -1,7 +1,7 @@
 # Code Mode workspace-context snapshot recording overlay. The default filesystem
 # tools trigger nested instruction discovery after a read.
 - id: base
-  name: '@cordisjs/plugin-include'
+  name: '@deepseek-ai/cordis-plugin-include'
   config:
     path: ./cordis.yml
     patches:

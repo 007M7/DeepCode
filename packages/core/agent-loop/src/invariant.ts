@@ -3,7 +3,7 @@
  * @module @deepseek-ai/dsh-agent-loop/invariant
  */
 
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import { isAgentLoopRequest, type GenerateOptions } from '@deepseek-ai/dsh-llm'
 import type { InvariantFailure, InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 import { foldRequestHeader } from '@deepseek-ai/dsh-session'

@@ -6,8 +6,8 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import type { Context, Events } from 'cordis'
-import z from 'schemastery'
+import type { Context, Events } from '@deepseek-ai/cordis'
+import z from '@deepseek-ai/schemastery'
 import type { Agent, RequestErrorAction } from '@deepseek-ai/dsh-agent'
 import type { LlmFailure, ResolvedRetryPolicy } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'

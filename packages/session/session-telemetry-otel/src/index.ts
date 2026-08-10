@@ -13,8 +13,8 @@
  */
 
 import { createRequire } from 'node:module'
-import z from 'schemastery'
-import type { Context } from 'cordis'
+import z from '@deepseek-ai/schemastery'
+import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-command-feedback'
 import {
   Telemetry,

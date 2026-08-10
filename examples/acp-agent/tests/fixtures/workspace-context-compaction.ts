@@ -1,4 +1,4 @@
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-agent'
 import { CompactionId, compactCheckpointSource } from '@deepseek-ai/dsh-compact'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'

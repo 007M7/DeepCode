@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import { stubSettingsScope, type StubSettingsScope } from '@deepseek-ai/dsh-client-test-runtime'
 import type { ThemeSettings, ThemeSnapshot } from '@deepseek-ai/dsh-client-ui-theme/client'
 import { ThemeService } from '@deepseek-ai/dsh-client-ui-theme/client'
