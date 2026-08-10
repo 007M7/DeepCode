@@ -717,20 +717,6 @@
         "@deepseek-ai/.+"
       ]
     },
-    "apps/cli/tests/fixtures/github-repository-plugin/.dsh-plugin": {
-      "entry": [
-        "src/*.ts"
-      ],
-      "project": [
-        "src/**/*.ts"
-      ],
-      "ignoreDependencies": [
-        "@deepseek-ai/dsh-repository-plugin"
-      ],
-      "ignoreBinaries": [
-        "dsh-plugin-prepare"
-      ]
-    },
     "packages/client/modules": {
       "entry": [
         "tests/**/*.spec.ts"

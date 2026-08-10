@@ -11,16 +11,11 @@
       "types": "./lib/types/index.d.ts",
       "default": "./lib/index.js"
     },
-    "./repository": {
-      "types": "./lib/types/repository.d.ts",
-      "default": "./lib/repository.js"
-    },
     "./src/*": "./src/*",
     "./package.json": "./package.json"
   },
   "files": [
     "lib/index.js",
-    "lib/repository.js",
     "lib/types/**/*.d.ts",
     "lib/types/**/*.d.ts.map",
     "src"
@@ -37,7 +32,6 @@
     }
   },
   "dependencies": {
-    "cosmokit": "^1.8.1",
-    "pnpm": "11.7.0"
+    "cosmokit": "^1.8.1"
   }
 }
