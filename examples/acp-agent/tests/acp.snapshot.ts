@@ -47,6 +47,9 @@ const SESSION_TITLE_CONFIG = fileURLToPath(new URL('../session-title.cordis.yml'
 const SUBAGENT_DURABILITY_FAILURE_CONFIG = fileURLToPath(
   new URL('../subagent-durability-failure.cordis.yml', import.meta.url),
 )
+const SUBAGENT_CONTINUABLE_INHERITANCE_CONFIG = fileURLToPath(
+  new URL('../subagent-continuable-inheritance.cordis.yml', import.meta.url),
+)
 const LSP_CONFIG = fileURLToPath(new URL('./lsp.cordis.yml', import.meta.url))
 const WEB_CONFIG = fileURLToPath(new URL('../web.cordis.yml', import.meta.url))
 const FS_SEARCH_CONFIG = fileURLToPath(new URL('./fs-search.cordis.yml', import.meta.url))
@@ -330,6 +333,18 @@ const SCENARIOS: Scenario[] = [
     recorded: false,
     pinsChildToolSchemas: [1],
     configPath: SUBAGENT_DURABILITY_FAILURE_CONFIG,
+  },
+  // Authored policy-inheritance transcript: the root session is switched to
+  // read-only at creation (the UI Access switch equivalent), and the
+  // continuable background child's log carries that override as a
+  // `sandbox/mode` `source: 'delegation'` event, so the child's runtime
+  // context states the inherited policy instead of the deployment default.
+  {
+    name: 'subagent-continuable-inheritance',
+    hasModelTurn: true,
+    recorded: false,
+    pinsChildToolSchemas: [1],
+    configPath: SUBAGENT_CONTINUABLE_INHERITANCE_CONFIG,
   },
   // The in-process child is published before its first follow-up fails. The
   // foreground tool retains both that run-result failure and an independent

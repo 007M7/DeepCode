@@ -32,11 +32,14 @@ import type { ToolRestriction } from '@deepseek-ai/dsh-tools'
 import { foldSubagentDescriptor, snapshotSubagentDescriptor } from './descriptor.ts'
 import type { SubagentDescriptorData } from './descriptor.ts'
 import {
+  appendDelegatedPolicyOverrides,
   applyChildComposition,
+  captureDelegatedPolicyOverrides,
   childSessionMeta,
   resolveChildAgentOptions,
   resolveChildDepth,
 } from './child-agent.ts'
+import type { DelegatedPolicyOverrides } from './child-agent.ts'
 import { assertSubagentMaxDepth } from './depth.ts'
 import { seedDescriptorTurn } from './descriptor-seed.ts'
 import type { ContinuableCreateRequest, ContinuableCreateSpec, SubagentStartRequest } from './types.ts'
@@ -203,8 +206,17 @@ interface MaterializeInputs {
   childId: SessionId
   provider: string
   parent: Agent
-  /** Creation inputs; absent for a cold resume, which loads the persisted session. */
-  create?: { seed: readonly SessionEvent[]; meta: NonNullable<CreateAgentOptions['meta']> }
+  /**
+   * Creation inputs; absent for a cold resume, which loads the persisted
+   * session — including the delegation policy events a fresh creation seeded,
+   * so a resume never re-captures the parent's policy.
+   */
+  create?: {
+    seed: readonly SessionEvent[]
+    meta: NonNullable<CreateAgentOptions['meta']>
+    /** Policy captured at the delegation boundary: the parent's sandbox override plus the approval pin. */
+    delegatedPolicies: DelegatedPolicyOverrides
+  }
   agentOptions: AgentOptions
   composition: { persona?: string | undefined; toolFilter?: ToolRestriction | undefined }
   signal: AbortSignal
@@ -341,6 +353,9 @@ export class SubagentContinuationManager {
       ...request.persona !== undefined ? { persona: request.persona } : {},
       ...request.toolFilter !== undefined ? { toolFilter: request.toolFilter } : {},
     })
+    // Capture before the first await: a later parent switch belongs to the
+    // parent's future, not to this child.
+    const delegatedPolicies = captureDelegatedPolicyOverrides(parent)
 
     const prepared = await this.host.prepareContinuable(spec.provider, {
       sessionId: childId,
@@ -357,7 +372,7 @@ export class SubagentContinuationManager {
         childId,
         provider: spec.provider,
         parent,
-        create: { seed, meta: childSessionMeta(parent, childDepth, lineageSeedLength) },
+        create: { seed, meta: childSessionMeta(parent, childDepth, lineageSeedLength), delegatedPolicies },
         agentOptions: resolveChildAgentOptions(parent, request.agentOptions, childDepth),
         composition: { persona: request.persona, toolFilter: request.toolFilter },
         signal: spec.signal,
@@ -878,18 +893,23 @@ export class SubagentContinuationManager {
     inputs: MaterializeInputs,
     parentLineage: readonly Agent[],
   ): Promise<Activation> {
-    const { childId, provider, parent } = inputs
+    const { childId, provider, parent, create } = inputs
     // No id pre-check here: the child lock serializes each durable child, both
     // callers reach this only after confirming no Activation exists, and
     // `AgentRegistry.enter()` is the authoritative collision boundary for an id
     // some other owner holds — a duplicate would reject there with rollback.
     inputs.signal.throwIfAborted()
     const setup = (childCtx: Context): AgentSetupCommit => {
+      // Only fresh creation seeds the delegation policy onto the child's own
+      // log (after any fork seed, so fresh policy wins stale seed state); a
+      // cold resume replays those persisted events instead.
+      if (create !== undefined) {
+        appendDelegatedPolicyOverrides((childCtx.agent as Agent).session, create.delegatedPolicies)
+      }
       applyChildComposition(childCtx, parent, inputs.composition)
       return this.setupRegistry.apply(childCtx)
     }
     const observer = this.host.observeActivation(provider, childId, parent)
-    const { create } = inputs
     // Agent creation owns rollback before handle transfer. A rejection leaves
     // no resident Activation and therefore publishes no lifecycle edge.
     const handle: AgentHandle = create === undefined
