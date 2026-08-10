@@ -759,6 +759,7 @@ flowchart TD
   pkg_agent_loop --> pkg_scope
   pkg_agent_loop --> pkg_session
   pkg_agent_loop --> pkg_session_persistence
+  pkg_agent_loop --> pkg_settings
   pkg_agent_loop --> pkg_system_prompt
   pkg_agent_loop --> pkg_tools
   pkg_agent_tool_mode --> pkg_invariants
@@ -1375,7 +1376,7 @@ flowchart TD
 | [`session-title-llm`](../packages/session/session-title-llm) | `session` | [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-title`](../packages/session/session-title), [`timeout`](../packages/util/timeout) |
 | [`tasks-local`](../packages/tasks/tasks-local) | `tasks` | [`agent`](../packages/core/agent), [`invariants`](../packages/support/invariants), [`tasks`](../packages/tasks/tasks), [`timeout`](../packages/util/timeout) |
 | [`token-meter`](../packages/llm/token-meter) | `llm` | [`compact`](../packages/compact/compact), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-projection`](../packages/session/session-projection) |
-| [`agent-loop`](../packages/core/agent-loop) | `core` | [`agent`](../packages/core/agent), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`scope`](../packages/core/scope), [`session`](../packages/core/session), [`session-persistence`](../packages/session/session-persistence), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools) |
+| [`agent-loop`](../packages/core/agent-loop) | `core` | [`agent`](../packages/core/agent), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`scope`](../packages/core/scope), [`session`](../packages/core/session), [`session-persistence`](../packages/session/session-persistence), [`settings`](../packages/settings/settings), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools) |
 | [`agent-tool-mode`](../packages/core/agent-tool-mode) | `core` | [`invariants`](../packages/support/invariants), [`tools`](../packages/core/tools) |
 | [`tool-goal`](../packages/goal/tool-goal) | `goal` | [`agent`](../packages/core/agent), [`goal`](../packages/goal/goal), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools) |
 | [`bash-env`](../packages/bash/bash-env) | `bash` | [`bash`](../packages/bash/bash), [`invariants`](../packages/support/invariants), [`paths`](../packages/util/paths), [`session-persistence`](../packages/session/session-persistence), [`tools`](../packages/core/tools) |

@@ -7,7 +7,7 @@ This matrix shows which packages dispatch each harness-owned event and which pac
 
 | Event | Mode | Declared in | Dispatchers | Listeners |
 | --- | --- | --- | --- | --- |
-| `agent-loop/config-start-failed` | `emit` | [`packages/core/agent-loop/src/index.ts:182`](../packages/core/agent-loop/src/index.ts) | [`agent-loop`](../packages/core/agent-loop) (`events.dispatch`) | - |
+| `agent-loop/config-start-failed` | `emit` | [`packages/core/agent-loop/src/index.ts:183`](../packages/core/agent-loop/src/index.ts) | [`agent-loop`](../packages/core/agent-loop) (`events.dispatch`) | - |
 | `agent/created` | `emit` | [`packages/core/agent/src/runtime-types.ts:159`](../packages/core/agent/src/runtime-types.ts) | [`agent`](../packages/core/agent) (`events.dispatch`) | [`goal-session`](../packages/goal/goal-session) |
 | `agent/disposed` | `emit` | [`packages/core/agent/src/runtime-types.ts:168`](../packages/core/agent/src/runtime-types.ts) | [`agent`](../packages/core/agent) (`events.dispatch`) | [`agent-loop`](../packages/core/agent-loop), [`goal-session`](../packages/goal/goal-session), [`subagent`](../packages/subagent/subagent) |
 | `agent/error` | `emit` | [`packages/core/agent/src/runtime-types.ts:290`](../packages/core/agent/src/runtime-types.ts) | [`agent-loop`](../packages/core/agent-loop) (`emit`) | [`acp`](../packages/acp/acp), `apiproxy`, [`goal-session`](../packages/goal/goal-session), [`session-telemetry`](../packages/session/session-telemetry) |
