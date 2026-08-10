@@ -27,6 +27,9 @@
       "path": "../../core/scope"
     },
     {
+      "path": "../../preset/agent-presets"
+    },
+    {
       "path": "../../session/session-persistence"
     },
     {

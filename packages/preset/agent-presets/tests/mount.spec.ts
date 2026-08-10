@@ -153,6 +153,79 @@ describe('composing an agent from a preset', () => {
   })
 })
 
+describe('composing a child agent from its parent', () => {
+  /** Create one agent joined to `parent`'s composition, as a child creation window does. */
+  async function childOf(ctx: Context, id: string, parent: Agent): Promise<Agent> {
+    const handle = await ctx.agents.create({
+      sessionId: SessionId(id),
+      setup: (childCtx: Context) => void ctx.agentPresets.composeFrom(childCtx, parent.ctx),
+    })
+    return handle.agent
+  }
+
+  it('gives the child its parent\'s tools and prompt sections', async () => {
+    const parent = await agentOn(ctx, 'sess-parent', 'standard')
+
+    const child = await childOf(ctx, 'sess-child', parent)
+
+    expect(toolNames(ctx, child)).toEqual(['alpha'])
+    const prompt = await ctx.systemPrompt.assemble(assembleContextFor(child))
+    expect(prompt.sections.map(section => section.name)).toContain('preset:alpha')
+  })
+
+  it('joins the parent\'s own generation rather than remounting its preset', async () => {
+    const parent = await agentOn(ctx, 'sess-shared', 'standard')
+    const before = livePresetMounts().length
+
+    await childOf(ctx, 'sess-shared-child', parent)
+
+    // A remount would compose a second copy of every row in the preset; the
+    // child must run on the plugin instances its parent already runs on.
+    expect(livePresetMounts()).toHaveLength(before)
+  })
+
+  it('keeps the child composed after its parent is disposed', async () => {
+    const parentHandle = await ctx.agents.create({
+      sessionId: SessionId('sess-dying-parent'),
+      setup: async (agentCtx: Context) => void await ctx.agentPresets.mount(agentCtx, 'standard'),
+    })
+    const child = await childOf(ctx, 'sess-orphan', parentHandle.agent)
+
+    await parentHandle.dispose()
+
+    // Standing mounts outlive the agents that joined them, so a child outliving
+    // its parent — a background subagent — keeps the composition it started on.
+    expect(toolNames(ctx, child)).toEqual(['alpha'])
+  })
+
+  it('reports the preset id the child joined, for the durable header', async () => {
+    const parent = await agentOn(ctx, 'sess-named', 'minimal')
+
+    const child = await childOf(ctx, 'sess-named-child', parent)
+
+    expect(ctx.agentPresets.composedPreset(parent.ctx)).toBe('minimal')
+    expect(ctx.agentPresets.composedPreset(child.ctx)).toBe('minimal')
+  })
+
+  it('composes nothing when the parent joined no preset', async () => {
+    // The rosterless deployment: model-facing rows sit in the host composition
+    // and the child already resolves them through the registry's global layer.
+    const bare = (await ctx.agents.create({ sessionId: SessionId('sess-bare-parent') })).agent
+
+    const child = await childOf(ctx, 'sess-bare-child', bare)
+
+    expect(ctx.agentPresets.composedPreset(bare.ctx)).toBeUndefined()
+    expect(ctx.agentPresets.composeFrom(child.ctx, bare.ctx)).toBeUndefined()
+    expect(toolNames(ctx, child)).toEqual([])
+  })
+
+  it('refuses to compose an unscoped context', async () => {
+    const parent = await agentOn(ctx, 'sess-unscoped-parent', 'standard')
+
+    expect(() => ctx.agentPresets.composeFrom(ctx, parent.ctx)).toThrow(/unscoped context/)
+  })
+})
+
 describe('rejecting a composition that cannot be used', () => {
   it('refuses to mount into a context that carries no agent scope', async () => {
     await expect(ctx.agentPresets.mount(ctx, 'standard'))
