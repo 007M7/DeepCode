@@ -124,16 +124,16 @@ publish 不读 tag、不读任何清单，对发布集里每个包比较 manifes
 
 | 项 | 内容 |
 |---|---|
-| 发布集 manifest | 去掉 `private: true`，补 `publishConfig`（`access: restricted`、`registry`） |
-| 发布集边界 | 一份显式的族与成员清单，脚本据此发现成员并校验闭包内的包都在清单里，不猜 |
+| 发布集 manifest | 去掉 `private: true`，补 `publishConfig.access: restricted` 与 `repository`（`git+https://github.com/deepseek-ai/deepseek-harness.git` + 各自 `directory`） |
+| 发布集边界 | `packages/*/*` + `apps/*` + `vendor/*` 全部成员，不另挑子集 |
 | 依赖协议 | workspace 内部引用统一 `workspace:^`，并更新 `check-workspace-constraints.ts` |
 | 根 `AGENTS.md` | 现在写着 vendored 包是 rescope 过且 `private: true`，vendor 要发布，这条约定要改 |
 | `vendor/README.md` | manifest 表补记上游版本，与我们发布的版本区分开 |
-| native 三包 | `publishConfig.access` 从 `public` 改 `restricted` |
+| native 三包 | `publishConfig.access` 从 `public` 改 `restricted`；它们尚未发布过，所以没有匿名安装路径要保 |
 
 ### 与既有提案的关系
 
-本 Note 取代 [以产物为先的 NPM 基线发布](2026-08-04-artifact-first-npm-baseline-publication.zh.md) 中的版本方案与发布集边界两部分：那篇的 `<base>-<时间戳>-<短 SHA>` 预发布版本与 `dev-<base>` dist-tag 不再采用，vendor 也不再排除在发布集之外。两篇一致的部分保留：pack 与 publish 分离、publish 只消费已验证的 tarball、payload 与安装后探针作为发布门。
+本 Note 取代 [以产物为先的 NPM 基线发布](2026-08-04-artifact-first-npm-baseline-publication.md) 中的版本方案与发布集边界两部分：那篇的 `<base>-<时间戳>-<短 SHA>` 预发布版本与 `dev-<base>` dist-tag 不再采用，vendor 也不再排除在发布集之外。两篇一致的部分保留：pack 与 publish 分离、publish 只消费已验证的 tarball、payload 与安装后探针作为发布门。
 
 ## 考虑过的替代方案
 
@@ -153,7 +153,7 @@ publish 不读 tag、不读任何清单，对发布集里每个包比较 manifes
 
 **以 `scripts/publish-npm-baseline.ts` 为基础扩展。** 它是本机发布脚本，把 pack 与 publish 放在同一进程，与「无凭据 pack、受保护 publish」的分离相反。它验证过的零件（payload 校验、已安装产物探针）搬运复用，避免 `pnpm run duplication` 判重复。
 
-**发布全部 217 个 workspace 包。** 发布集定为入口闭包。`support/`、`examples/` 这类包进 registry 只扩大攻击面与维护面，没有消费方。
+**按入口闭包挑一部分包发。** 从 `@deepseek-ai/dsh` 与 `@deepseek-ai/dsh-frontend` 沿 `dependencies` 爬得到 156 个包，比全量少 61 个。但本仓的插件是 cordis.yml 按名字挂载的，不是被 import 的：`vendor/cordis-plugin-group` 与 `vendor/cordis-plugin-logger-console` 就落在依赖闭包之外，而它们是运行时必需。照代码依赖挑，漏掉的表现是消费方装完起不来，且要额外证明「没漏任何挂载项」。发布集因此取 `packages/*/*` + `apps/*` + `vendor/*` 全部；私有 scope 下多几个包不对外可见。`python/`、根 `examples/`、`docs/` 与 `website/` 不是发布集成员。
 
 **一个 workflow 用 `family` 输入选择序列。** 两套版本模型塞进一个文件会让 concurrency group、tag 前缀、排练触发条件全部分叉成条件表达式。一族一个文件更短也更好读。
 
@@ -181,6 +181,8 @@ publish 不读 tag、不读任何清单，对发布集里每个包比较 manifes
 
 **`workspace:^` 改动面大。** 一次触及 1477 处依赖声明。它不改变本机解析行为（pnpm 本来就从 workspace 解析），但会改变发布出去的范围写法，且要同步更新 workspace 约束门。
 
-**私有包的可见性代价。** `--access restricted` 之后，任何消费方（含 CI、沙箱 e2e、外部使用者）都必须持有 scope 凭据才能安装。native 三包从 public 转 restricted 会切断现有匿名安装路径。
+**私有包的可见性代价。** `--access restricted` 之后，任何消费方（含 CI、沙箱 e2e、外部使用者）都必须持有 scope 凭据才能安装。native 三包一并转 `restricted`；它们尚未发布过，因此没有既有的匿名安装路径被切断。
+
+**`repository` 指向的组织与运行 workflow 的组织不一致。** 发布集写的是 `github.com/deepseek-ai/deepseek-harness`，而 workflow 跑在 `deepseek-harness/deepseek-harness`。用 token 发布不受影响；一旦改用 npm provenance（OIDC），npm 会要求二者一致，届时要么改 `repository`，要么从公开仓库发布。
 
 **首发一次性放大。** vendor 首发九包、dsh 首发全闭包，任何 payload 缺陷都会在同一次发布里暴露。用 `0.0.1-rc.1` 先跑一遍完整链路是唯一的缓解手段，正式版本号留给验证通过之后。
