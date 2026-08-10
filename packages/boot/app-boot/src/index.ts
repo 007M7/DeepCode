@@ -306,7 +306,7 @@ export function loadOverlayPatches(binName: string, file: string): PatchOptions[
 /**
  * Parse one loader patch list: a top-level YAML array of
  * `@cordisjs/plugin-include` `PatchOptions` (id-targeted config overrides and
- * `insert` lists, `!!js` expressions allowed). Every shape failure throws,
+ * `insert` lists, `!!js` expressions allowed). Every invalid field or value throws,
  * because a patch file that cannot be applied at all is a misconfiguration; a
  * single patch whose target row is absent stays a per-entry Loader warning, so
  * one overlay shared across surfaces does not have to match every tree.
@@ -397,12 +397,12 @@ export function renderConfigDump(
     throw new Error(`${binName}: config ${absoluteConfigPath} must be a top-level YAML array of entries`)
   }
   const baseLabel = basename(absoluteConfigPath)
-  // The YAML boundary yields untyped rows; the include validates entry shape
+  // YAML parsing yields untyped rows; the include validates each entry
   // at mount, and the dump prints whatever the file holds, so `EntryOptions`
   // here is structural trust in the same file `boot()` would include.
   const base = parsed as Parameters<typeof applyEntryPatches>[0]
-  // snapshot_k = ONE application of layers 1..k flattened — boot's exact call
-  // shape for that prefix. snapshot_N is therefore the mounted composition.
+  // snapshot_k = ONE application of layers 1..k flattened, using the exact
+  // arguments boot passes for that prefix. snapshot_N is the mounted composition.
   // The patches are cloned per call: applyEntryPatches detaches the entry
   // list but pushes `insert` rows by reference from the patch list, so
   // sharing patch objects across snapshot calls would leak a later

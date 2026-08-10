@@ -54,6 +54,7 @@ const PARTIAL_LANDLOCK_CONFIG = fileURLToPath(new URL('../partial-landlock.cordi
 const PWSH_CONFIG = fileURLToPath(new URL('./pwsh.cordis.yml', import.meta.url))
 const PRODUCT_SUBAGENT_CODEX_CONFIG = fileURLToPath(new URL('../product-subagent-codex.cordis.yml', import.meta.url))
 const PRODUCT_SUBAGENT_BOTH_CONFIG = fileURLToPath(new URL('../product-subagent-both.cordis.yml', import.meta.url))
+const FS_DIFF_BOUND_CONFIG = fileURLToPath(new URL('./fs-diff-bound.cordis.yml', import.meta.url))
 const SNAPSHOTS_DIR = join(dirname(fileURLToPath(import.meta.url)), 'snapshots')
 const PACKED_CHUNKS_SOURCE = 'hook-cc-pretool-deny'
 
@@ -259,7 +260,7 @@ const SCENARIOS: Scenario[] = [
   // and then `migrate:packed-session-fixtures`, which canonicalizes the live
   // log's eager-drain-packed rows into the maximal-run layout replay produces.
   // The recorded fixture's `request/header` config and `request/context` are
-  // normalized to the replay-produced minimal shape (the live adapter logs
+  // normalized to the minimal fields produced during replay (the live adapter logs
   // model capabilities like maxTokens/reasoningEffort that llm-replay has no
   // data for), and its tool-result paths are canonicalized to `/` separators.
   {
@@ -276,6 +277,21 @@ const SCENARIOS: Scenario[] = [
   { name: 'fs-write', hasModelTurn: true, recorded: true },
   { name: 'fs-edit', hasModelTurn: true, recorded: true },
   { name: 'fs-write-overwrite', hasModelTurn: true, recorded: true },
+  // An overwrite whose replacement is at/above the configured diff-basis bound:
+  // the persisted result meta carries no contextual hunks and presentation
+  // falls back to the whole-file diff. The overlay leaves the prompt and tool
+  // sequence identical to text-turn, but the freshly recorded header carries
+  // the current adapter capability fields, so the scenario pins its own class.
+  {
+    name: 'fs-write-overwrite-bounded',
+    hasModelTurn: true,
+    recorded: true,
+    pinsHeader: true,
+    headerClass: 'fs-diff-bound',
+    systemPromptSource: 'text-turn',
+    toolSchemasSource: 'text-turn',
+    configPath: FS_DIFF_BOUND_CONFIG,
+  },
   { name: 'fs-read-window', hasModelTurn: true, recorded: true },
   { name: 'fs-policy-reject', hasModelTurn: true, recorded: true },
   { name: 'fs-delete-recreate', hasModelTurn: true, recorded: true },

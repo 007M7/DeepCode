@@ -163,12 +163,12 @@ const compatProfile: z<PiAiCompatProfile> = z.object({
 /**
  * Keys are the offered levels, values their wire spellings. A valueless key
  * (`off:`) survives validation because schemastery passes nullable data
- * through before any member schema runs — `z.const(null)` only shapes the
- * error for non-null wrong values and what a configuration surface renders.
+ * through before any member schema runs — `z.const(null)` only controls the
+ * error for non-null wrong values and what a configuration UI renders.
  * Only resolution decides which levels may leave the value empty, so the
  * diagnostic can name the route and model. The assertion narrows
  * schemastery's `Dict`, which types every literal key as required; dict
- * validation is per-present-key, so the runtime shape is the partial record.
+ * validation checks only present keys, so the runtime value is a partial record.
  */
 const reasoningEfforts = z.dict(
   z.union([z.string(), z.const(null)]),
@@ -237,7 +237,7 @@ export function assertServiceable(config: Config): void {
   resolveProfiles(config.providers)
 }
 
-/** Reject a pre-release profile shape, naming the replacement. */
+/** Reject removed pre-release profile fields and name their replacements. */
 function rejectRemovedFields(provider: string, source: PiAiProviderProfile): void {
   const legacy = source as PiAiProviderProfile & {
     provider?: unknown

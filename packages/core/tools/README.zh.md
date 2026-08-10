@@ -36,7 +36,7 @@ tools:
 
 ### 实时事件
 
-实时注册表流水线先经过 3 个可变换的 waterfall，再经过由定义拥有的内容终结器，最后到达仅观测的 `tools/result` 边界；注册表变更有意作为不过滤的共享状态通知。确切签名、分发 mode、作用域筛选和故障收容约定位于 [tools.md](../../../docs/subsystems/tools.md#cordis-surface) 的生成区块，完整顺序则在生成的[工具执行流水线](../../../docs/tool-execution-pipeline.md)中可视化。`tools/result` 是实时事件；名称相近的 `tool/result` 是 agent loop 随后追加的持久会话事件。
+实时注册表流水线先经过 3 个可变换的 waterfall，再经过由定义拥有的内容终结器，最后发布仅供观测的 `tools/result` 事件；注册表变更有意作为不过滤的共享状态通知。确切签名、分发 mode、作用域筛选和失败隔离约定位于 [tools.md](../../../docs/subsystems/tools.md#cordis-surface) 的生成区块，完整顺序则在生成的[工具执行流水线](../../../docs/tool-execution-pipeline.md)中可视化。`tools/result` 是实时事件；名称相近的 `tool/result` 是 agent loop 随后追加的持久会话事件。
 
 ### 关键类型
 
@@ -120,7 +120,7 @@ ctx.tools.register(defineTool({
 - **SDK 段**（`tools:sdk`，顺序 150）：一个惰性提示词段，每次组装时都会重新生成与所加载运行时语言相符的 SDK 文本。TypeScript 形态发出 `JsonValue`、精确的 `ToolArgsMap` / `ToolOutputMap`、`ToolName`、`ToolCallError` 声明、面向调用作用域可见最终能力的映射 `tools` 命名空间（特殊名称使用带引号的键），以及固定用法说明；Python 形态（`ctx.codeRuntime.language === 'python'`）发出等价的具名 `TypedDict` 与一个带相同用法说明的 `tools` 对象。其输出具有确定性：工具按字典序排列；工具集合不变时，文本逐字节相同（有利于前缀 cache）。两个代码生成器都已导出，且绝不会在提示词组装期间抛出：`jsonSchemaToTs` 处理统一 schema 的每种构造并将不受支持的原始构造降级为 `unknown`；`jsonSchemaToPy` 同理，降级为 `Any`（当某字段名不是合法的 `TypedDict` 属性时，或在 SDK 渲染之外被调用时——`TypedDict` 声明所需的命名上下文由该渲染提供——整个对象降级为 `dict[str, Any]`）。
 - **分发桥接层**（`run_code` 的 execute）：每个绑定调用都会在分发前快照为无损 JSON（`undefined`、`BigInt`、循环、稀疏数组、`-0` 和特殊对象会使该次调用被拒绝），经由每次运行独有、复用原生并发约定的池调度——调用严格按提交顺序启动，连续的 `isConcurrencySafe` 调用最多可重叠经校验的 `maxParallelSubCalls` 配置个（默认 10；设为 `1` 即恢复串行分发），被分类为独占的调用先排空池、单独运行并阻挡其后的调用——以外层执行的不透明 token 作为 `parent`，并经过完整的 pre-execute → guards → execute → post-execute → result 流水线。成功会返回策略处理后的最终规范值；失败以一条消息到达 worker，并成为 `ToolCallError(toolName, message)`。每个已启动的子调用在进入流水线时记录一条 `tool/code-dispatch-start` 事件（确定性 id `<parent>:code:<n>`，按提交顺序编号），并以一条携带完整模型可见 `content`/`isError` 结果的 `tool/code-dispatch` 事件完结（采用 `tool/result` 词汇，因此 UI 会沿原生路径呈现子调用——这对事件的 `time` 字段承载每个子调用的计时）；因 run 结算而被放弃的排队调用两者都不记录。`deriveMessages()` 既不公开这两个事件，也不持久化规范值。token 关联让以提交为语义的观察器能够把内部成功延迟到最终 `run_code` 结果，而无需公开实时外层执行；普通工具副作用不会回滚。每个子调用的 `additionalContexts` 条目都会按分发顺序通过外层 `ToolRunContext` 延迟；循环只在父级 `run_code` 结果之后追加这些上下文，从而保持相邻关系，并且即使程序后来失败，也会保留各自的来源／元数据。
 - **结算纪律**：桥接层拥有一个运行作用域的中止机制；该中止会跟随传入的外层信号，并在运行因任何原因结算时触发，因此预算耗尽会中止正在运行的子工具，而不会将其遗留。桥接层随后会在返回之前排空队列，使每个 `tool/code-dispatch` 都落在仍打开的轮次内。失败的运行会抛出 `CodeRunFailedError`（`code: 'CODE_RUN_FAILED'`，message = 失败类型 + 已捕获日志），流水线会将其转换为模型可据以自我修正的结构化 `isError`。
-- **结果边界**：中间绑定值会完整跨越 worker 边界，且没有逐绑定字节上限。`run_code` 返回规范的 `{ logs: string[], result?: JsonValue }`；字符串原样呈现，其他所有存在的 JSON 根都通过栈安全的美化 JSON 遍历呈现，总缩进最多为 10 个字符（更深的子树保持紧凑），`null` 保持显式，而缺少 `result` 表示程序返回 `undefined`。worker 可配置的 `maxOutputBytes`（默认 64 MiB）只应用于组合序列化后的外层日志数组、完成值或失败消息载荷；固定的结果 envelope 语法和呈现空白不计入该账本。无效和超限的完成会明确失败，只有此外层结果可以使用普通 spill。
+- **结果大小**：中间绑定值会完整传入 worker 进程，且没有逐绑定字节上限。`run_code` 返回规范的 `{ logs: string[], result?: JsonValue }`；字符串原样呈现，其他所有存在的 JSON 根都通过栈安全的美化 JSON 遍历呈现，总缩进最多为 10 个字符（更深的子树保持紧凑），`null` 保持显式，而缺少 `result` 表示程序返回 `undefined`。worker 可配置的 `maxOutputBytes`（默认 64 MiB）只应用于组合序列化后的外层日志数组、完成值或失败消息载荷；固定的结果 envelope 语法和呈现空白不计入该上限。无效和超限的完成会明确失败，只有此外层结果可以使用普通 spill。
 
 ### 并行执行
 
@@ -146,7 +146,7 @@ agent loop 将连续的 `parallel` 调用归入有界滚动池，并把每个 `e
 
 #### 模型看到的内容
 
-Code Mode 会公开生成的 [`run_code` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tools)、下方 SDK 说明，以及按所加载运行时语言生成的精确 SDK 块（TypeScript 的 `declare const tools` 块，或 Python 的 `tools` 声明）。`both` 会同时公开普通 schema 与此 Code Mode 接口。说明与 SDK 块随所加载运行时的语言切换；下方展示 TypeScript 风格（经 [`dsh-code-runtime-worker`](../../code-runtime/code-runtime-worker/README.md)），Python 风格（用于任何报告 `language: 'python'` 的运行时）形状相同，只是换成 Python 语法（`await tools.name(args)`、特殊名称用下标访问、`print(...)` 与顶层 `return`）。
+Code Mode 会公开生成的 [`run_code` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tools)、下方 SDK 说明，以及按所加载运行时语言生成的精确 SDK 块（TypeScript 的 `declare const tools` 块，或 Python 的 `tools` 声明）。`both` 会同时公开普通 schema 与此 Code Mode API。说明与 SDK 块随所加载运行时的语言切换；下方展示 TypeScript 版本（经 [`dsh-code-runtime-worker`](../../code-runtime/code-runtime-worker/README.md)），Python 版本（用于任何报告 `language: 'python'` 的运行时）以 Python 语法提供相同操作和类型（`await tools.name(args)`、特殊名称用下标访问、`print(...)` 与顶层 `return`）。
 
 ##### Code Mode SDK 说明
 

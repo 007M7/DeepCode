@@ -25,7 +25,7 @@ import { RpcId } from '../src/api/rpc.ts'
 import { AGENT_DEFAULT_MODEL_SETTINGS_NAMESPACE } from '@deepseek-ai/dsh-agent-default-model'
 import { createApiProxy } from '../src/api-proxy.ts'
 
-const DEFAULTS = { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp', workspaceRoot: '/tmp' }
+const DEFAULTS = { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp' }
 
 let nextRpc = 1
 function request<P>(payload: P): RpcRequest<P> {
@@ -309,8 +309,8 @@ describe('settings domain', () => {
     // The settings seam is general: any plugin may register a namespace for
     // its own configuration. The Web configuration plane remains opt-in, so a
     // future internal plugin cannot become remotely configurable just by
-    // registering; permission and the product onboarding namespace are the
-    // non-model namespaces intentionally admitted by this surface.
+    // registering; locale, permission, conversation, theme, and the product
+    // onboarding namespace are intentionally admitted by this surface.
     const ctx = await harness()
     ctx.settings.register(NS, AdapterConfig)
     ctx.settings.register(settingsNamespace('some-other-plugin'), z.object({ secretPath: z.string() }))
@@ -319,15 +319,41 @@ describe('settings domain', () => {
     }), {
       base: { defaultPreset: 'read-only' },
     })
+    ctx.settings.register(settingsNamespace('ui-theme'), z.object({
+      preference: z.union(['light', 'dark', 'system']).default('system'),
+    }))
+    ctx.settings.register(settingsNamespace('locale'), z.object({
+      preference: z.union(['zh', 'en']).required(false),
+    }))
+    ctx.settings.register(settingsNamespace('ui-conversation'), z.object({
+      busyEnter: z.union(['queue', 'steer']).default('queue'),
+    }))
     const api = createApiProxy(ctx, DEFAULTS)
 
     const value = expectOk(await api.settings.describe(request({})))
-    expect(value.namespaces.map(view => view.ns)).toEqual(['llm-deepseek', 'permission'])
+    expect(value.namespaces.map(view => view.ns)).toEqual([
+      'llm-deepseek', 'permission', 'ui-theme', 'locale', 'ui-conversation',
+    ])
     const permission = expectOk(await api.settings.mutate(request({
       ns: 'permission',
       ops: [{ op: 'set', path: ['defaultPreset'], value: 'workspace-write' }],
     })))
     expect(permission.value).toEqual({ defaultPreset: 'workspace-write' })
+    const theme = expectOk(await api.settings.mutate(request({
+      ns: 'ui-theme',
+      ops: [{ op: 'set', path: ['preference'], value: 'dark' }],
+    })))
+    expect(theme.value).toEqual({ preference: 'dark' })
+    const locale = expectOk(await api.settings.mutate(request({
+      ns: 'locale',
+      ops: [{ op: 'set', path: ['preference'], value: 'en' }],
+    })))
+    expect(locale.value).toEqual({ preference: 'en' })
+    const conversation = expectOk(await api.settings.mutate(request({
+      ns: 'ui-conversation',
+      ops: [{ op: 'set', path: ['busyEnter'], value: 'steer' }],
+    })))
+    expect(conversation.value).toEqual({ busyEnter: 'steer' })
 
     for (const response of [
       await api.settings.update(request({ ns: 'some-other-plugin', patch: { secretPath: '/etc/shadow' } })),
@@ -341,19 +367,29 @@ describe('settings domain', () => {
     expect(ctx.settings.describe().find(d => String(d.ns) === 'some-other-plugin')?.value).toEqual({})
   })
 
-  it('serves the product onboarding namespace without invalidating the model catalog', async () => {
+  it('serves product preference namespaces without invalidating the model catalog', async () => {
     const ctx = await harness()
     ctx.settings.register(settingsNamespace('ui-onboarding'), z.object({ welcomeNoticeVersion: z.string() }))
+    ctx.settings.register(settingsNamespace('ui-theme'), z.object({
+      preference: z.union(['light', 'dark', 'system']).default('system'),
+    }))
     const api = createApiProxy(ctx, DEFAULTS)
     expect(expectOk(await api.settings.describe(request({}))).namespaces.map(view => view.ns))
-      .toEqual(['ui-onboarding'])
-    const frames = await collectHost(api, ['host/settings-changed'], 1, async () => {
+      .toEqual(['ui-onboarding', 'ui-theme'])
+    const frames = await collectHost(api, ['host/settings-changed'], 2, async () => {
       expectOk(await api.settings.mutate(request({
         ns: 'ui-onboarding',
         ops: [{ op: 'set', path: ['welcomeNoticeVersion'], value: 'v1' }],
       })))
+      expectOk(await api.settings.mutate(request({
+        ns: 'ui-theme',
+        ops: [{ op: 'set', path: ['preference'], value: 'dark' }],
+      })))
     })
-    expect(frames).toEqual([{ type: 'host/settings-changed', ns: 'ui-onboarding' }])
+    expect(frames).toEqual([
+      { type: 'host/settings-changed', ns: 'ui-onboarding' },
+      { type: 'host/settings-changed', ns: 'ui-theme' },
+    ])
   })
 
   it('serves the agent-preset namespace, so a browser preset picker can persist its choice', async () => {

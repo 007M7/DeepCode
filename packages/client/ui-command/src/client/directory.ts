@@ -1,7 +1,7 @@
 /**
  * Command-directory cache keyed by session: one entry per served catalog —
  * every session is agent-backed, so `command.list({sessionId})` is the only
- * address shape. Each entry keeps the single-flight / soft-hard invalidation
+ * request fields. Each entry keeps the single-flight / soft-hard invalidation
  * / epoch-guard behavior of the original global cache; the session-key axis
  * is the only extra dimension.
  */

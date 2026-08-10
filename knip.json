@@ -30,9 +30,6 @@
         "scripts/**/*.ts",
         "scripts/**/*.mjs",
         "scripts/**/*.cjs"
-      ],
-      "ignoreDependencies": [
-        "playwright"
       ]
     },
     "examples": {
@@ -306,6 +303,11 @@
       ]
     },
     "packages/util/brand": {
+      "project": [
+        "src/**/*.ts"
+      ]
+    },
+    "packages/attachment/attachment": {
       "project": [
         "src/**/*.ts"
       ]

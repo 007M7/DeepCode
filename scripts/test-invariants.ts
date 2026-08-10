@@ -8,6 +8,13 @@
 import { expect } from 'vitest'
 import { FiberState, Inject, RegistryService } from 'cordis'
 import type { Context, Plugin } from 'cordis'
+import { AttachmentStore } from '@deepseek-ai/dsh-attachment'
+import type {
+  ImageAttachmentLimits,
+  ImageAttachmentRef,
+  SaveImageAttachment,
+  StoredImageAttachment,
+} from '@deepseek-ai/dsh-attachment'
 import InvariantService from '@deepseek-ai/dsh-invariants'
 
 declare global {
@@ -17,7 +24,7 @@ declare global {
   }
 }
 
-/** Loader-safe shape shared by every package invariant companion. */
+/** Loader-safe exports shared by every package invariant companion. */
 export interface TestInvariantCompanion {
   readonly name: string
   readonly inject: readonly string[]
@@ -102,6 +109,29 @@ export function usesManualInvariantTree(testPath: string): boolean {
 }
 
 const ALL_COMPANION_TESTS = ['/scripts/test-invariants.spec.ts'] as const
+const ATTACHMENT_COMPANION = '../packages/attachment/attachment-local/src/invariant.ts'
+
+class TestAttachmentStore extends AttachmentStore {
+  readonly imageLimits: ImageAttachmentLimits = {
+    maxImageBytes: 1,
+    maxImagesPerMessage: 1,
+    maxMessageImageBytes: 1,
+    maxImagePixels: 1,
+    mediaTypes: ['image/png'],
+  }
+
+  validateImage(_input: SaveImageAttachment): Promise<void> {
+    return Promise.reject(new Error('test invariant attachment store does not validate images'))
+  }
+
+  saveImage(_input: SaveImageAttachment): Promise<ImageAttachmentRef> {
+    return Promise.reject(new Error('test invariant attachment store does not save images'))
+  }
+
+  readImage(_ref: ImageAttachmentRef): Promise<StoredImageAttachment> {
+    return Promise.reject(new Error('test invariant attachment store does not read images'))
+  }
+}
 
 /**
  * Select the package companions that an ordinary test root must register.
@@ -148,6 +178,9 @@ function startInvariantHost(root: Context): InvariantHost {
   const testPath = expect.getState().testPath ?? ''
   const companionPaths = testInvariantCompanionPaths(testPath)
   const ready = requireActive(serviceFiber, 'invariant service').then(async () => {
+    const attachmentFiber = companionPaths.includes(ATTACHMENT_COMPANION)
+      ? mount(TestAttachmentStore)
+      : undefined
     const companions = await Promise.all(companionPaths.map(async (path) => {
       const load = testInvariantCompanions[path]
       if (load === undefined) {
@@ -163,7 +196,12 @@ function startInvariantHost(root: Context): InvariantHost {
       fiber: mount(companion),
       path,
     }))
-    await Promise.all(companionFibers.map(({ fiber, path }) => requireActive(fiber, path)))
+    await Promise.all([
+      ...(attachmentFiber === undefined
+        ? []
+        : [requireActive(attachmentFiber, 'test attachment store')]),
+      ...companionFibers.map(({ fiber, path }) => requireActive(fiber, path)),
+    ])
     root.provide(TEST_INVARIANT_READY_SERVICE, true)
   })
   const host = { byCallback, barrierOwners, ready }
