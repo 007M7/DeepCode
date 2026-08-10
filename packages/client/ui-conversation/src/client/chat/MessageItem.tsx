@@ -1,7 +1,6 @@
 // MessageItem: simple chat nodes — user and consumed-steering bubbles
-// (right-aligned, with clock + copy IconActions; steering adds the
-// interjection caption that names it; branch lives only under assistant
-// answers), pending steering (caption + copy only), context injection,
+// (right-aligned, with clock + copy IconActions; branch lives only under
+// assistant answers), pending steering (copy only), context injection,
 // compaction marker, retry disclosure, and unknown-surface JSON rows.
 
 import { memo, useEffect, useMemo, useState } from 'react'
@@ -151,22 +150,19 @@ function projectUserText(text: string): ReactNode {
 
 /** Right-aligned bubble shared by user and steering rows. */
 function UserStyleBubble({
-  content, actions, pending = false, steering = false, t,
+  content, actions, pending = false, t,
 }: {
   content: readonly unknown[]
   /** Optional IconActions (or similar) below the bubble; receives the joined text. */
   actions?: (text: string) => ReactNode
   /** Whether this is the Host-authoritative pre-admission steering projection. */
   pending?: boolean
-  /** Marks the bubble as mid-turn steering rather than a turn-opening prompt. */
-  steering?: boolean
   t: ChatViewSlotProps['t']
 }): ReactNode {
   const { text, rest } = contentText(content)
   const truncated = (total: number): string => t('json.truncated', { total })
   return (
     <div className={css.userRow} data-pending-steering={pending || undefined} data-time-hover-root>
-      {steering && <span className={css.steeringMark} data-steering-mark>{t('message.steering')}</span>}
       <div className={css.bubble}>
         {projectUserText(text)}
         {rest.map((block, i) => <JsonBlock key={i} label={t('message.extraBlock')} payload={block} truncatedLabel={truncated} />)}
@@ -190,7 +186,6 @@ export function PendingSteeringBubble({ content, t }: {
     <UserStyleBubble
       content={content}
       pending
-      steering
       t={t}
       actions={text => (
         <MessageIconActions
@@ -212,7 +207,6 @@ export const UserMessageNodeView = memo(function UserMessageNodeView({
   return (
     <UserStyleBubble
       content={data.content}
-      steering={data.kind === 'steering'}
       t={t}
       actions={text => (
         <MessageIconActions

@@ -19,7 +19,7 @@
   - img
   - img
   - text: Ask question 1/1 answered
-- text: "Interjection Interjection: include the word BANANA in your final reply. {{clock}}"
+- text: "Interjection: include the word BANANA in your final reply. {{clock}}"
 - button "Copy":
   - img
 - button "Think The user selected \"Yes\" and wants me to include the word \"BANANA\" in my final reply. Let me acknowledge their answer.":

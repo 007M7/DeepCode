@@ -37,11 +37,12 @@ The transcript names all three roles a non-prompt message can play — injected 
 ## Testing
 
 - `packages/client/runtime` unit coverage pins each source kind, the label fallbacks when a name field is missing, empty, or wrongly typed, the unnamed degradation for a source with no readable kind, and steering reconstruction on reset and live append paths.
-- `packages/client/ui-conversation` jsdom coverage pins the role title, the producer label beside it, the label's survival while expanded, the roleless header, and the steering caption on both durable and pending bubbles.
-- The keyless assembled-Web goldens carry the named header and the steering caption, so the assembled transcript — not only component tests — proves the marks.
+- `packages/client/ui-conversation` jsdom coverage pins the role title, the producer label beside it, the label's survival while expanded, and the roleless header.
+- The keyless assembled-Web goldens carry the named header, so the assembled transcript — not only component tests — proves the marks.
 
 ## Consequences
 
+- **Superseded in part.** The steering-caption clause of the Decision no longer describes master: the [caption removal](../simplification/2026-08-10-web-remove-steering-interjection-caption.md) deleted the `插话` / `Interjection` caption, leaving a mid-turn steer recognizable only by its position in the flow. The context-source and recall naming below stays current, and the `SteeringMessageNode` projection is unchanged.
 - A reader can attribute every non-prompt message in the transcript at a glance, and the header stays honest for logs this client version has never seen a producer for.
 - Producer names in the UI are package-shaped (`dsh-tool-skill`, `@deepseek-ai/dsh-system-prompt`) wherever the source carries only a plugin id. That is the cost of refusing a client-side name table; a producer that wants a better label must record one in its source fields.
 - `ContextMessageNode` gains a required field, so every constructed node — including test fixtures — must supply it.
