@@ -156,7 +156,6 @@ describe('Web session model selection', () => {
     const api = createApiProxy(ctx, {
       defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }),
       cwd: '/tmp',
-      workspaceRoot: '/tmp',
     })
 
     const result = await api.sessions.prompt(request({
@@ -203,7 +202,6 @@ describe('Web session model selection', () => {
     const api = createApiProxy(ctx, {
       defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }),
       cwd: '/tmp',
-      workspaceRoot: '/tmp',
     })
     const image = {
       type: 'image' as const,
@@ -246,7 +244,6 @@ describe('Web session model selection', () => {
     const api = createApiProxy(ctx, {
       defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }),
       cwd: '/tmp',
-      workspaceRoot: '/tmp',
     })
     agent.session.append('agent/inbox/spliced', {
       target: 'next-turn',
@@ -277,7 +274,7 @@ describe('Web session model selection', () => {
       model: 'private-preview',
       reasoningEffort: ReasoningEffortId('max'),
     })
-    const api = createApiProxy(ctx, { defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }), cwd: '/tmp', workspaceRoot: '/tmp' })
+    const api = createApiProxy(ctx, { defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }), cwd: '/tmp' })
 
     const catalog = expectValue(await api.sessions.models(request({ sessionId })))
     expect(catalog.current).toEqual({
@@ -312,7 +309,7 @@ describe('Web session model selection', () => {
 
   it('accepts an advisory-unlisted model, rejects an unavailable provider, and switches only after the next assembly', async () => {
     const { ctx, agent, sessionId } = await harness()
-    const api = createApiProxy(ctx, { defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }), cwd: '/tmp', workspaceRoot: '/tmp' })
+    const api = createApiProxy(ctx, { defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }), cwd: '/tmp' })
     const seed: LlmCallConfig = { provider: 'seed', model: 'seed', temperature: 0.2 }
     const signal = new AbortController().signal
 
@@ -384,7 +381,6 @@ describe('Web session model selection', () => {
     const api = createApiProxy(ctx, {
       defaultModelSelection: () => stored,
       cwd: '/tmp',
-      workspaceRoot: '/tmp',
     })
 
     expect(expectValue(await api.sessions.models(request({ sessionId }))).current)
@@ -409,7 +405,6 @@ describe('Web session model selection', () => {
     const api = createApiProxy(ctx, {
       defaultModelSelection: () => stored,
       cwd: '/tmp',
-      workspaceRoot: '/tmp',
     })
 
     stored = { provider: 'duplicate', model: 'same' }
@@ -429,7 +424,6 @@ describe('Web session model selection', () => {
         return reject ? Promise.reject(new Error('read-only document')) : Promise.resolve()
       },
       cwd: '/tmp',
-      workspaceRoot: '/tmp',
     })
 
     expectValue(await api.sessions.selectModel(request({
@@ -460,7 +454,6 @@ describe('Web session model selection', () => {
     const api = createApiProxy(ctx, {
       defaultModelSelection: () => ({ provider: 'deleted-gateway', model: 'deleted-model' }),
       cwd: '/tmp',
-      workspaceRoot: '/tmp',
     })
 
     // The client disabling its input is an affordance; this method stays
@@ -493,7 +486,6 @@ describe('Web session model selection', () => {
       // names the route the user last picked, and nothing serves it.
       defaultModelSelection: () => ({ provider: 'deleted-gateway', model: 'deleted-model' }),
       cwd: '/tmp',
-      workspaceRoot: '/tmp',
     })
 
     const catalog = expectValue(await api.sessions.models(request({ sessionId })))

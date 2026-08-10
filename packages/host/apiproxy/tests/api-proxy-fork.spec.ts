@@ -84,7 +84,6 @@ function liveAgent(
 const api = (ctx: Context) => createApiProxy(ctx, {
   defaultModelSelection: () => ({ provider: 'default-provider', model: 'default-model' }),
   cwd: '/tmp',
-  workspaceRoot: '/tmp',
 })
 
 describe('sessions.fork', () => {

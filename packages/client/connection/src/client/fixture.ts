@@ -2350,15 +2350,14 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
         archivedSessionIds: [...archivedSessionIds],
       }),
       create: (request) => {
-        const { path, name } = request.payload
-        const target = path ?? `/tmp/fixture-workspaces/${name ?? ''}`
-        const existing = workspaces.find(w => w.path === target)
+        const { path } = request.payload
+        const existing = workspaces.find(w => w.path === path)
         if (existing !== undefined) return ok(request, { workspace: { ...existing }, created: false })
         const now = new Date().toISOString()
         const created: WorkspaceView = {
           workspaceId: wid(`fx-ws-${nextWorkspace++}`),
-          path: target,
-          title: name ?? target.split('/').filter(Boolean).at(-1) ?? target,
+          path,
+          title: path.split('/').filter(Boolean).at(-1) ?? path,
           sessionIds: [],
           createdAt: now,
           updatedAt: now,
