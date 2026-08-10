@@ -1,7 +1,7 @@
 // FixtureApi: standalone UI development without a server. Real contract shape: unary takes
 // RpcRequest<P> and returns RpcResponse<T> (echoing the rpcId); streams yield RpcRequest<frame>
 // (the fixture IS the fake server, so it mints frame rpcIds); root respond takes ClientResponse
-// and returns RpcReceipt. fx-alpha carries a hand-built history script (73 turns, pageable);
+// and returns RpcReceipt. fx-alpha carries a hand-built history script (74 turns, pageable);
 // prompt triggers a chunked streaming replay; cancel stops the replay; resident pending
 // approval/question requests exercise replay and composer takeover with stable rpcIds.
 
@@ -351,7 +351,7 @@ function fixtureUsage(turn: number, step: number): TokenUsage {
   }
 }
 
-/** fx-alpha history script: 73 turns (~150+ messages -> 4 pages at PAGE_MESSAGES=50),
+/** fx-alpha history script: 74 turns (~150+ messages -> 4 pages at PAGE_MESSAGES=50),
  *  mixing reasoning blocks / tool call+result / context. */
 function buildAlphaLog(): SessionEvent[] {
   const events: Record<string, unknown>[] = []
@@ -487,7 +487,7 @@ function buildAlphaLog(): SessionEvent[] {
     push({ type: 'step/end', data: { turn, step: 0 } })
     push({ type: 'turn/end', data: { turn, reason: { kind: 'completed' } } })
   }
-  // Turn 72: todo_write sample — the TodoRow toolview in the flow plus the
+  // Turn 73: todo_write sample — the TodoRow toolview in the flow plus the
   // todo/write snapshot event feeding the TodoPanel plan strip. Two items are
   // in_progress: this fixture chooses the parallel policy, so both surfaces
   // must render a parallel plan rather than the first active item alone.
@@ -546,20 +546,20 @@ function buildAlphaLog(): SessionEvent[] {
   toolTurn(70, 'web_search', '{"query":"deepseek harness architecture"}', 'Search results for deepseek harness architecture.')
   toolTurn(71, 'web_fetch', '{"url":"https://www.deepseek.com/blog/harness-architecture"}', '# Harness architecture\n\nEverything is a plugin.')
 
-  // Turn 71: user and assistant images share one durable fixture object.
+  // Turn 72: user and assistant images share one durable fixture object.
   // The todo turn remains last so its standing projection stays visible.
-  push({ type: 'turn/start', data: { turn: 71 } })
+  push({ type: 'turn/start', data: { turn: 72 } })
   push({
     type: 'user/message',
     surfaceOp: 'append',
     data: userMessage([{ type: 'image', attachment: FIXTURE_IMAGE_REF }, ...text('历史用户图片')]),
   })
-  push({ type: 'step/start', data: { turn: 71, step: 0 } })
+  push({ type: 'step/start', data: { turn: 72, step: 0 } })
   push({
     type: 'assistant/message',
     surfaceOp: 'append',
     data: {
-      turn: 71,
+      turn: 72,
       step: 0,
       message: assistantMessage(
         [...text('结构化模型图片：'), { type: 'image', attachment: FIXTURE_IMAGE_REF }],
@@ -567,11 +567,11 @@ function buildAlphaLog(): SessionEvent[] {
       ),
     },
   })
-  push({ type: 'step/end', data: { turn: 71, step: 0 } })
-  push({ type: 'turn/end', data: { turn: 71, reason: { kind: 'completed' } } })
+  push({ type: 'step/end', data: { turn: 72, step: 0 } })
+  push({ type: 'turn/end', data: { turn: 72, reason: { kind: 'completed' } } })
 
   const todoArgs = JSON.stringify({ todos: fixtureTodos })
-  toolTurn(72, 'todo_write', todoArgs, 'Updated todo list: 1 pending, 2 in progress, 1 completed.')
+  toolTurn(73, 'todo_write', todoArgs, 'Updated todo list: 1 pending, 2 in progress, 1 completed.')
   // The real tool appends the snapshot mid-execution — between tool/call and
   // tool/result — so the fixture reproduces that exact ordering (the last
   // toolTurn events run ... tool/call, tool/result, step/end, turn/end).
@@ -1407,7 +1407,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
     // DeepSeek route so unrelated GUI journeys do not enter first-run setup.
     ['DEEPSEEK_API_KEY', true],
   ])
-  const nextTurn = new Map<SessionId, number>([[sid('fx-alpha'), 73]])
+  const nextTurn = new Map<SessionId, number>([[sid('fx-alpha'), 74]])
   let nextSession = 1
   let nextRpc = 1
   let attachedSessions = options.empty ? 0 : 1

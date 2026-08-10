@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 // Multimodal image surfaces over the BUILT client graph (the code-mode-fixture
 // idiom: real bundles via AppWebEntry, keyless FixtureApiClient transport).
-// Opens the fixture history session whose turn 71 carries an image in BOTH a
+// Opens the fixture history session whose turn 72 carries an image in BOTH a
 // user message and an assistant message, and pins the product surfaces: the
 // history ImageGallery loading real fixture bytes through the authorized
 // sessions.attachment route, the double-click ImageLightbox, and the composer
@@ -12,7 +12,7 @@ import { installAssembledBootEnv, mountAssembledApp } from './assembled-boot.ts'
 
 installAssembledBootEnv()
 
-/** Open the fixture history session (the alpha log carrying the turn-71 image pair) and wait for its gallery. */
+/** Open the fixture history session (the alpha log carrying the turn-72 image pair) and wait for its gallery. */
 async function openFixtureSession(): Promise<void> {
   const tree = await screen.findByRole('tree', { name: '会话' }, { timeout: 10_000 })
   const group = (await within(tree).findAllByText('fixture'))
