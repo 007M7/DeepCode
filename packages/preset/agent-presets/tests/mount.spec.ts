@@ -15,7 +15,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import AgentPresets, {
   COMPOSITION_FILE, leakedServices, livePresetMounts, mountPreset, serviceForAgent,
 } from '@deepseek-ai/dsh-agent-presets'
-import { createScope, scopeOf, setScopeParent } from '@deepseek-ai/dsh-scope'
+import { bindScopeParent, createScope, scopeOf } from '@deepseek-ai/dsh-scope'
 
 declare module 'cordis' {
   interface Context {
@@ -202,7 +202,7 @@ describe('rejecting a composition that cannot be used', () => {
     const loner = createScope(ctx, { test: 'loner' })
     expect(serviceForAgent(ctx, { ctx: loner.ctx }, 'fixtureIsolatedSvc')).toBeUndefined()
     const orphan = createScope(ctx, { test: 'orphan' })
-    setScopeParent(scopeOf(orphan.ctx)!, { agentPreset: 'never-mounted' })
+    bindScopeParent(scopeOf(orphan.ctx)!, { agentPreset: 'never-mounted' })
     expect(serviceForAgent(ctx, { ctx: orphan.ctx }, 'fixtureIsolatedSvc')).toBeUndefined()
   })
 

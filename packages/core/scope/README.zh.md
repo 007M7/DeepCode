@@ -2,12 +2,12 @@
 
 [English](README.md) | 中文
 
-带作用域的注册原语。`createScope(ctx, key)` 创建一个带标签的 Cordis 上下文，其底层 fiber 拥有通过该上下文进行的每项注册。`scopeOf(ctx)` 读取标签；`scopeTarget(base, key)` 将带作用域的事件路由到键相同的监听器，同时让无作用域监听器保持全局可见。键可以构成可选的父链（`setScopeParent`）：注册视图沿链**向下**继承——子作用域看得见祖先各层，近者遮蔽远者——事件放行沿链**向上**扩展——标签为祖先的监听器能收到子孙键的事件，反向永不成立。agent loop（智能体循环）为每个实时 agent 创建一个作用域，agent preset 的常驻挂载则是其 agent 们的父作用域，但该机制与键的具体含义无关，底层包无需依赖两者即可使用。
+带作用域的注册原语。`createScope(ctx, key)` 创建一个带标签的 Cordis 上下文，其底层 fiber 拥有通过该上下文进行的每项注册。`scopeOf(ctx)` 读取标签；`scopeTarget(base, key)` 将带作用域的事件路由到键相同的监听器，同时让无作用域监听器保持全局可见。键可以构成可选的父链（`bindScopeParent`）：注册视图沿链**向下**继承——子作用域看得见祖先各层，近者遮蔽远者——事件放行沿链**向上**扩展——标签为祖先的监听器能收到子孙键的事件，反向永不成立。agent loop（智能体循环）为每个实时 agent 创建一个作用域，agent preset 的常驻挂载则是其 agent 们的父作用域，但该机制与键的具体含义无关，底层包无需依赖两者即可使用。
 
 ## 公开 API
 
-- `createScope(ctx: Context, key: ScopeKey, options?): Scope`：在 `ctx` 的 fiber 下创建作用域。可以同步使用（effect 收集受 uid 门禁约束；服务解析会沿创建该作用域的插件依赖范围继续查找）。同进程、带类型的键受信任；处于非活动状态的创建上下文仍会通过 Cordis 失败（`INACTIVE_EFFECT`）。`options.parent` 在作用域可用之前经 `setScopeParent` 记录其外围作用域。
-- `setScopeParent(key, parent)` / `scopeParentOf(key)` / `scopeChainOf(key)`：支撑两条链方向的父关系。通常在创建时写入一次；对已有键重新认父是空白会话 recompose 的操作，仅当旧父之下产出的东西一概不被保留时才合法（这是调用方的约定——该关系看不见会话记录了什么）。会闭环的链接直接抛错。`scopeChainOf` 返回 `[key, parent, …]`，最近者在前。
+- `createScope(ctx: Context, key: ScopeKey, options?): Scope`：在 `ctx` 的 fiber 下创建作用域。可以同步使用（effect 收集受 uid 门禁约束；服务解析会沿创建该作用域的插件依赖范围继续查找）。同进程、带类型的键受信任；处于非活动状态的创建上下文仍会通过 Cordis 失败（`INACTIVE_EFFECT`）。`options.parent` 在作用域可用之前经 `bindScopeParent` 绑定其外围作用域；绑定句柄不外泄。
+- `bindScopeParent(key, parent): ScopeParentBinding` / `scopeParentOf(key)` / `scopeChainOf(key)`：支撑两条链方向的父关系。绑定仅此一次：已有父级的键直接抛错，只有返回的绑定句柄的 `rebind(parent)` 才能重新认父——即空白会话 recompose 的操作，仅当旧父之下产出的东西一概不被保留时才合法（这是持有方的约定——该关系看不见会话记录了什么）。绑定与每次 rebind 都拒绝会闭环的链接。`scopeChainOf` 返回 `[key, parent, …]`，最近者在前。
 - `Scope.ctx`：带标签的上下文。通过它进行的注册既具备作用域可见性，也服从作用域生命周期。派生上下文（一次 `extend`、挂载于其下的 fiber）继承标签；嵌套作用域会遮蔽外层标签（最近的标签生效）。
 - `Scope.rawDispose`：底层 fiber 的原样 Cordis disposer。组合式（generator）effect 会 yield 此函数，从而把作用域 teardown 嵌套在该 yield 位置（Cordis 按函数标识去重嵌套 effect；yield 一个包装函数会使作用域 teardown 成为并行的同级操作）。
 - `Scope.dispose(): Promise<void>`：通过作用域进行的每项注册所共用的幂等完全停稳边界。竞态调用或重复调用会等待同一次 teardown；即使 `rawDispose` 先调用了底层单次 Cordis disposer 也是如此。

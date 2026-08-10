@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
-import { createScope, scopeOf, setScopeParent } from '@deepseek-ai/dsh-scope'
+import { bindScopeParent, createScope, scopeOf } from '@deepseek-ai/dsh-scope'
 import SkillService, {
   isModelInvocable,
   isUserInvocable,
@@ -1183,10 +1183,11 @@ describe('SkillService scoped layers', () => {
       })
     }
     const agentKey = {}
-    setScopeParent(agentKey, scopeOf(presetA.ctx) as object)
+    const binding = bindScopeParent(agentKey, scopeOf(presetA.ctx) as object)
     expect((await ctx.skills.list({ scope: agentKey })).map(skill => skill.name)).toEqual(['skill-a'])
-    // A blank-session recompose re-parents the same key without any registry write.
-    setScopeParent(agentKey, scopeOf(presetB.ctx) as object)
+    // A blank-session recompose re-links the same key through its binding
+    // without any registry write.
+    binding.rebind(scopeOf(presetB.ctx) as object)
     expect((await ctx.skills.list({ scope: agentKey })).map(skill => skill.name)).toEqual(['skill-b'])
     await presetA.dispose()
     await presetB.dispose()

@@ -8,7 +8,7 @@
  * projection units exist exactly once, keyed per session inside the plugins
  * themselves (they predate presets and were written for a shared world). An
  * agent joins by having its scope key parented to the mount's
- * ({@link setScopeParent}), which makes the mount's registrations visible to
+ * ({@link bindScopeParent}), which makes the mount's registrations visible to
  * that agent's views and the mount's listeners receive that agent's events —
  * and a host reader with no agent at all (a cold transcript read) resolves
  * the same standing registrations by preset id.
@@ -23,7 +23,7 @@
 
 import { Context, Service } from 'cordis'
 import z from 'schemastery'
-import { createScope, scopeOf, setScopeParent, type Scope, type ScopeKey } from '@deepseek-ai/dsh-scope'
+import { bindScopeParent, createScope, scopeOf, type Scope, type ScopeKey, type ScopeParentBinding } from '@deepseek-ai/dsh-scope'
 import { settingsNamespace, type SettingsScope } from '@deepseek-ai/dsh-settings'
 import { discoverPresets } from './discovery.ts'
 import { mountPreset, serviceForAgent } from './mount.ts'
@@ -159,6 +159,14 @@ export class AgentPresets extends Service {
   private readonly standing = new Map<string, Promise<StandingMount>>()
 
   /**
+   * Parent bindings of the agents this roster composed, keyed by the agent's
+   * scope key. The binding is dsh-scope's only re-link capability; holding it
+   * here makes this service the sole authority that can move an agent between
+   * standing compositions. WeakMap: entries die with their agents.
+   */
+  private readonly bindings = new WeakMap<ScopeKey, ScopeParentBinding>()
+
+  /**
    * Compose one agent from a preset: ensure the preset's standing mount, then
    * parent the agent's scope key to it so the mount's registrations and
    * listeners cover this agent.
@@ -178,7 +186,11 @@ export class AgentPresets extends Service {
     }
     const preset = await this.resolve(id)
     const standing = await this.ensureStanding(preset)
-    setScopeParent(agentKey, standing.key)
+    // The one bind of this agent's ancestry. The binding is the only re-link
+    // authority, held privately so nothing outside this roster can move a
+    // composed agent to another preset; a later recompose layer re-links
+    // through it under the caller-owned blank-session contract.
+    this.bindings.set(agentKey, bindScopeParent(agentKey, standing.key))
     return preset
   }
 
