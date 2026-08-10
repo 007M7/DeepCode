@@ -1,7 +1,7 @@
 # Keyless twin of product-subagent-both.cordis.yml: preserve both product
 # tools while replacing only the external model adapter.
 - id: base
-  name: '@cordisjs/plugin-include'
+  name: '@deepseek-ai/cordis-plugin-include'
   config:
     path: ./cordis.yml
     patches:
