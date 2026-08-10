@@ -1,0 +1,30 @@
+# Agent Note: Web session-log export via session.log + ZIP download
+
+Status: implemented
+
+English | [中文](2026-08-10-web-session-log-export.zh.md)
+
+## Problem
+
+The Trajectory view had no way to hand a debugging artifact to a human: the raw session log lived on disk and in the host, the client history face served folded projections (not raw entries), and a session with subagents spans many independent session logs. A bug report needs the complete raw log of the whole tree, in a shape that survives being emailed around.
+
+## Decision
+
+- **The export is a host-only download, not an RPC**: `GET /api/session.export?sessionId=…&includeDescendants=true` streams one ZIP attachment. Every file is a session's **stored artifact text verbatim**: `readRaw` on the persistence service reads the backend's own durable bytes (the JSONL backend decodes its physical zstd frames, or returns plaintext) — never a reconstruction from parsed events, so packed-chunk rows, key order, and line breaks survive byte-for-byte — under its original base name (`session.jsonl` at the root, `subagents/<id>/session.jsonl` for descendants). Compression runs on the host with fflate's streaming `Zip`/`ZipDeflate` API, each entry deflated in bounded chunks as it is produced, so the response is chunked as it is generated and the host never materializes the whole archive (at most one descendant's artifact text beyond the preloaded root). No manifest is written — every file is byte-identical to the durable artifact and self-describing through its own header line.
+- **Error vocabulary is HTTP-native**: missing services → 500, missing root session → 404 (both decided before any byte streams), a descendant without a stored artifact → the stream errors (fail-loud, never silent under-export). The carrier (`toFetchHandler`) already applies the `/api` trust fence; the GET branch sits beside the existing SSE GET routes, and `ApiProxy.downloads.sessionLog` (host-only, no wire envelope, absent from `IApiClient`) implements it.
+- **The UI just downloads**: the 导出 button fetches the endpoint and saves the response; the `session.log` RPC that an earlier iteration shipped was removed — the download endpoint is its only consumer, and the repo rule is no public interface without a current owner. The client bundle no longer carries fflate (the earlier browser-entry-alias pitfall is moot).
+- The 导出 button lives in the Trajectory toolbar; the plugin exposes `exportLog` through the view's inject face (components never touch ctx) and resolves the view tab label through the locale service (`轨迹` in Chinese, `Trajectory` in English). In-flight state disables the button; a failure surfaces in a visible alert bar under the toolbar.
+
+## Alternatives considered
+
+- **`session.log` data RPC + client-side zip** — shipped first, rejected with the user: the browser pulls the full raw JSON (≈10× the final zip size) and compresses on the main thread; for the 23 MB sessions in real use the host-side stream is strictly better. The RPC was deleted with the migration rather than left as a dead public surface.
+- **Single JSONL with envelope lines for multiple sessions** — rejected with the user: mixing sessions in one JSONL loses clean per-file boundaries; a ZIP keeps one canonical file per session.
+- **jszip** — heavier (~100 kB) and its dependency graph pulls readable-stream browser mappings; fflate is purpose-built and small.
+- **Vendoring fflate's browser entry** — the repo vendoring procedure targets cordis-scale pinned sources; a resolveId alias keeps the maintained dependency without shipping a copy (and host-side fflate needs no alias at all).
+
+## Consequences
+
+- Export fidelity: every exported file is byte-identical to the backend's durable artifact as of the read moment (a live session may append after the read; the export reflects the durable state at read time). The archive name is `dsh-session-<sanitized-id>.zip` and archive paths sanitize ids before they can shape entries.
+- `readRaw` joins the persistence service as a concrete default (`undefined` for backends without a per-session artifact, e.g. SQLite) with a JSONL-backend override that owns the compression decode. `ApiProxy.downloads.sessionLog` adds one host-only member to the contract plus a host-side query schema and a GET branch in the fetch handler — no RPC map row, envelope schema, or client `IApiClient` surface.
+- Fixture mode (no host) answers 404 for the export, so the button's error bar explains the gap instead of hanging; the navigation-panes golden snapshot includes the 导出 button.
+- Deferred: transcript.md and a report/feedback bundle remain future work; the byte-faithful, manifest-free shape keeps the v2 bundle extension cheap.
