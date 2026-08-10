@@ -1,12 +1,10 @@
-# Keyless replay keeps the persistent-tool composition intact and replaces
-# only its live DeepSeek adapter with the fixture-backed provider. The catalog
-# below claims the same `deepseek-official` route the agent asks for: an
-# unowned route makes the SDK server mount the real adapter, which then demands
-# a key this keyless lane has no way to supply.
+# Keyless replay keeps the complete minimal composition intact and replaces
+# only its live DeepSeek adapter with the fixture-backed provider. The replay
+# catalog claims the same route initialized by the SDK.
 - id: base
   name: '@deepseek-ai/cordis-plugin-include'
   config:
-    path: ./persistent-tools.cordis.yml
+    path: ./minimal.cordis.yml
     patches:
       - id: llm-deepseek
         name: '@deepseek-ai/dsh-llm-deepseek'

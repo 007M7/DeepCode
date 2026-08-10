@@ -27,7 +27,16 @@
       "path": "../../core/scope"
     },
     {
+      "path": "../../interaction/user-approval"
+    },
+    {
       "path": "../../preset/agent-presets"
+    },
+    {
+      "path": "../../sandbox/sandbox"
+    },
+    {
+      "path": "../../sandbox/sandbox-policy"
     },
     {
       "path": "../../session/session-persistence"

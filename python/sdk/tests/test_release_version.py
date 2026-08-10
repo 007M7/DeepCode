@@ -39,6 +39,18 @@ def test_repository_version_rejects_non_stable_versions(tmp_path: Path) -> None:
         build_python_release.repository_version(tmp_path)
 
 
+def test_stage_sdk_keeps_distribution_module_and_runtime_pin_distinct(tmp_path: Path) -> None:
+    destination = tmp_path / "staging"
+
+    build_python_release.stage_sdk(destination, "1.2.3")
+
+    pyproject = (destination / "pyproject.toml").read_text()
+    assert 'name = "deepseek-harness-sdk"' in pyproject
+    assert 'version = "1.2.3"' in pyproject
+    assert '"deepseek-harness-runtime-bin==1.2.3"' in pyproject
+    assert (destination / "src" / "deepseek_harness" / "__init__.py").is_file()
+
+
 @pytest.mark.parametrize(("target", "with_helper"), [("linux-x64", False), ("macos-arm64", True)])
 def test_stage_runtime_copies_platform_payload(
     tmp_path: Path, target: str, with_helper: bool

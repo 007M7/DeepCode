@@ -16,21 +16,21 @@
 
 ### 公开 API
 
-- `ctx.systemPrompt.section(section: PromptSection): () => void`：贡献一个段。层由调用上下文的作用域决定：`agent.ctx` 只为该 agent 贡献，并在该处遮蔽同名全局段。同一层中的重复名称和非有限顺序会抛出。随调用 fiber 一并 dispose（资源释放）。
+- `ctx.systemPrompt.section(section: PromptSection): () => void`：贡献一个段。层由调用上下文的作用域决定：`agent.ctx` 只为该 agent 贡献，并在该处遮蔽同名全局段。一个 `complete: true` 段会在组装 waterfall 之后成为精确的完整提示词；有效 complete 段超过一个时，组装会被拒绝。同一层中的重复名称和非有限顺序会抛出。随调用 fiber 一并 dispose（资源释放）。
 - `ctx.systemPrompt.tools(provider: (context: AssembleContext) => ToolProviderResult): () => void`：贡献工具 schema；每次组装时使用该次组装的上下文求值。`ToolProviderResult` = `{ schemas, knownNames? }`：`schemas` 是限制后的可见集合；`knownNames` 是限制前由 `toolOrder` 使用的全集。提供方不得返回名为 `TOOL_ORDER_REST` 的 schema。带作用域提供方只在其作用域的组装中查询。随调用 fiber 一并 dispose。
 - `ctx.systemPrompt.variable(name: string, provider: (context) => string | undefined): () => void`：贡献提示词变量，在段文本中以 `{{name}}` 引用。带作用域变量会为该 agent 遮蔽同名全局变量。同层重复或无法引用的名称会抛出；`undefined` 表示「本次组装没有值」。随调用 fiber 一并 dispose。
-- `ctx.systemPrompt.assemble(context?: AssembleContext): Promise<PromptAssembly>`：为一个调用方组装提示词：将全局层与 `context.scope` 的层合并，并在变换 waterfall 前分离工具 schema。它经过按作用域筛选的 `system-prompt/assemble` waterfall，并返回其权威结果。可选的 `context.signal` 显式控制本次组装请求；提供方与监听器可以配合该信号，但不得将它保留给另一轮次。当已配置的 `toolOrder` 指名提供方 `knownNames` 全集以外的工具，或提供方返回保留的其余项名称时，调用会被拒绝。
+- `ctx.systemPrompt.assemble(context?: AssembleContext): Promise<PromptAssembly>`：为一个调用方组装提示词：将全局层与 `context.scope` 的层合并，并在变换 waterfall 前分离工具 schema。它经过按作用域筛选的 `system-prompt/assemble` waterfall，之后将一个有效的 complete 段恢复为唯一的提示词段落。可选的 `context.signal` 显式控制本次组装请求；提供方与监听器可以配合该信号，但不得将它保留给另一轮次。存在多个 complete 段、已配置的 `toolOrder` 指名提供方 `knownNames` 全集以外的工具，或提供方返回保留的其余项名称时，调用会被拒绝。
 
 <a id="live-events"></a>
 
 ### 实时事件
 
-`system-prompt/assemble` 是权威来源；替换条目的监听器必须保留任何活动 Code Mode 或结构化输出协议。筛选需要在呈现、查找与执行之间保持一致时，应使用 [`ToolRegistry.restrict()`](../tools/README.md)。注册表变更通知不经过筛选。[system-prompt.md](../../../docs/subsystems/system-prompt.md#cordis-surface) 的生成区块拥有签名与分发约定。
+`system-prompt/assemble` 对普通段落具有权威性；complete 段是在 waterfall 之后应用的最终提示词约束。替换条目的监听器必须保留任何活动 Code Mode 或结构化输出协议。筛选需要在呈现、查找与执行之间保持一致时，应使用 [`ToolRegistry.restrict()`](../tools/README.md)。注册表变更通知不经过筛选。[system-prompt.md](../../../docs/subsystems/system-prompt.md#cordis-surface) 的生成区块拥有签名与分发约定。
 
 ### 关键类型
 
 - `AssembleContext`：说明一次 `assemble()` 调用的用途。它可通过合并扩展；此处声明 `scope?: ScopeKey`（层选择器）与 `signal?: AbortSignal`（显式请求控制能力），而 `dsh-agent` 声明 `agent?: Agent`（类型化 DX 字段；绝不能在没有 `scope` 时设置，应使用 `assembleContextFor(agent, signal)`）。提供方必须容忍字段缺席，因为裸 `assemble()` 携带的是无作用域、无信号的空上下文。`signal` 是请求值，不是环境 Agent 执行 frame 的一部分。
-- `PromptSection`：`{ name, order, text }`。各段按 `order` 升序拼接。顺序区间：`-100` 是 harness 身份，`0` 是部署 persona，工具引导使用 `100–199`。
+- `PromptSection`：`{ name, order, text, complete? }`。各段按 `order` 升序拼接。顺序区间：`-100` 是 harness 身份，`0` 是部署 persona，工具引导使用 `100–199`。协作式组装完成后，一个有效的 `complete` 段会抑制其他所有段落。
 - `PromptAssembly`：`{ sections: AssembledSection[], tools: ToolSchema[], variables: Record<string, string | undefined> }`。段文本到达时已解析，但尚未插值；`variables` 包含对上下文解析后的每个已注册变量。工具 schema 按设计属于组装结果：「模型获知自己能做什么」是一个连贯整体，尽管适配器把 schema 作为独立 wire 字段传输。
 - `renderPrompt(assembly)`：插值每个段中的 `{{variable}}` 引用，删除空段，并用空行连接。严格规则：未知引用（使用 `Object.hasOwn` 查找，因此 `{{constructor}}` 等原型名称未知）、已注册但无值的引用、格式错误的完整 `{{…}}` 组，或一个起始 `{{` 没有打开完整组、但后面仍有 `}}`（`{{{model}}}`），都会抛出；明确失败胜过交付格式错误的提示词。孤立的 `{{` 如果后面任何位置都没有 `}}`，会按字面量通过；替换值绝不再次扫描。
 
@@ -41,7 +41,7 @@
 - 段提供方：工具包拥有跨调用引导（`tool:bash`、`tool:read` 等）；此插件拥有 `harness:identity` 与 `deployment:persona`。
 - 变量提供方：agent loop（智能体循环）注册 `model` 与 `cwd`；任何插件都可以注册自己拥有的事实（未来的 `date`、git 状态等）。
 - 工具 schema 提供方：`ToolRegistry` 自动将自身注册为工具提供方。
-- [`system-prompt/assemble` waterfall](#live-events)：按调用方协作式修改或替换组装结果。
+- [`system-prompt/assemble` waterfall](#live-events)：按调用方协作式修改或替换组装结果，之后再实施 complete 段约束。
 
 设计原理：[提示词变量 Agent Note](../../../.agents/notes/implemented/architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md)。
 
@@ -51,7 +51,7 @@
 
 #### 模型看到的内容
 
-默认情况下，每次组装都从下方 harness 身份开始，然后在严格变量插值后追加已配置 persona 与有序插件段。`includeHarnessIdentity: false` 仅为拥有完整兼容 persona 的部署省略这个固定开场白。空段会消失；带作用域的段和变量可以为一个 agent 遮蔽全局项。最终 `system-prompt/assemble` waterfall 结果是权威来源，因此专家监听器的变更决定交付的提示词与工具 schema。
+默认情况下，每次组装都从下方 harness 身份开始，然后在严格变量插值后追加已配置 persona 与有序插件段。`includeHarnessIdentity: false` 仅省略这个固定开场白。空段会消失；带作用域的段和变量可以为一个 agent 遮蔽全局项。`system-prompt/assemble` waterfall 决定交付的提示词与工具 schema，除非一个有效段声明自身为 complete；此时，该确切段落会成为完整的系统提示词，而 waterfall 得到的上下文、工具和变量保持不变。
 
 ##### Harness 身份
 
