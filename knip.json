@@ -5,6 +5,7 @@
   ],
   "ignoreBinaries": [
     "bwrap",
+    "dsh",
     "icacls",
     "musl-gcc",
     "python3",
