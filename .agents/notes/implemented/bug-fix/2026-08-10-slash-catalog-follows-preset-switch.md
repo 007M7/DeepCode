@@ -16,7 +16,9 @@ The menu therefore kept serving the composition the session no longer ran. Switc
 
 The switch's commit point is the logged `agent-preset/selected` event. The host stream frames it as `host/session-preset-changed { sessionId, agentPreset }`, the browser runtime bridges that frame to the typed `session/preset-changed` ctx event beside the registry-invalidation bridges it already owns, and each catalog owner drops its own entry for that session: `ui-command` soft-refreshes the key (the old snapshot keeps serving the open menu until the new one lands), `ui-skill` invalidates it (aborting an in-flight prewarm, so a warm racing the switch cannot publish the stale catalog).
 
-The frame is per session and carries no catalog. Deriving it from the logged event rather than from the RPC handler's return keeps one authority for "this session's composition changed": every connected client observes the switch, not only the tab that issued it, and a client that is not the switcher never has to infer it from a registry signal that will not come.
+The frame is per session and carries no catalog, only the preset id — which the manager folds into the session row, because the `agentPresets.select` echo reaches only the client that issued the switch and the row is what the session header labels itself from (and what the hero chip compares the next pick against).
+
+Deriving the frame from the logged event rather than from the RPC handler's return keeps one authority for "this session's composition changed": every connected client observes the switch, not only the tab that issued it, and a client that is not the switcher never has to infer it from a registry signal that will not come.
 
 ## Alternatives considered
 
@@ -38,4 +40,4 @@ That e2e also stopped reading its staged-pick assertion off the serialized sessi
 
 ## Related
 
-Reaching the host on a SECOND switch is a separate defect with its own cause and fix: [the session-row identity guard](2026-08-10-session-row-identity-covers-the-preset.md). Until it landed, the e2e below could only exercise the first switch — the invalidation edge here is direction-blind, but the switch it reacts to has to happen.
+Reaching the host on a SECOND switch is a separate defect with its own cause and fix: [the session-row identity guard](2026-08-10-session-row-identity-covers-the-preset.md). Until it landed, `agent-preset-selection.e2e.ts` could only exercise the first switch — the invalidation edge here is direction-blind, but the switch it reacts to has to happen.

@@ -173,12 +173,14 @@ describe('web e2e: agent-preset selection', () => {
   })
 
   it('re-reads the slash catalog through the composition the switch installed', async () => {
+    // Continues the previous case: the chip has already applied `minimal` to
+    // the blank session, and this one reads the menu that switch left behind.
     onTestFailed(() => saveFailureShot(page, 'web-e2e-agent-preset-slash-catalog'))
     const composer = page.locator('textarea:enabled').last()
 
-    // `minimal` (applied above) mounts neither the compaction group nor plan
-    // mode nor local skill discovery, so the catalog the composer warmed
-    // under the deployment default must not survive the switch.
+    // `minimal` mounts neither the compaction group nor plan mode nor local
+    // skill discovery, so the catalog the composer warmed under the
+    // deployment default must not survive the switch.
     await composer.fill('/')
     await expect.poll(() => menuOptions(page), { timeout: 15_000 })
       .not.toEqual(expect.arrayContaining([expect.stringContaining(SKILL_NAME)]))

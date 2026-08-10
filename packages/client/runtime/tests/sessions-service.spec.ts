@@ -87,6 +87,23 @@ describe('list store projection', () => {
     expect(b.svc.list.getSnapshot().byId[sid('s1')]?.agentPreset).toBe('minimal')
   })
 
+  it('learns a preset switch from the host frame, not only from the tab that issued it', async () => {
+    const b = bench()
+    await feedList(b, [{ id: 's1', blank: true, agentPreset: 'standard' }])
+
+    // Every connected client gets this frame; only the switching tab gets the
+    // RPC echo. A client that ignored the payload would keep labelling the
+    // session with the composition it replaced.
+    b.svc.handleHostEnvelope({
+      rpcId: 'r1' as never,
+      payload: { type: 'host/session-preset-changed', sessionId: sid('s1'), agentPreset: 'minimal' } as never,
+    })
+    await Promise.resolve()
+
+    expect(b.svc.list.getSnapshot().byId[sid('s1')]?.agentPreset).toBe('minimal')
+    expect(b.svc.list.getSnapshot().byId[sid('s1')]?.blank).toBe(true)
+  })
+
   it('reflects live increments (host stream via manager) into the store', async () => {
     const b = bench()
     await feedList(b, [{ id: 's1' }])

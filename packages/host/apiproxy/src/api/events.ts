@@ -137,8 +137,9 @@ export type HostFrame =
    * re-parents that agent's scope without registering anything, so a
    * preset already mounted for another session produces no registry change
    * at all. Clients refetch the catalogs this session's composition decides
-   * (`command.list`, `skill.list`) for this sessionId alone; the preset id
-   * rides along for surfaces that label the session.
+   * (`command.list`, `skill.list`) for this sessionId alone, and fold the
+   * preset id into their session row — the RPC echo reaches only the client
+   * that issued the switch, so the row is where every other one learns it.
    */
   | { type: 'host/session-preset-changed'; sessionId: SessionId; agentPreset: string }
   /**
