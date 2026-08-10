@@ -81,4 +81,4 @@ Install external plugin bundles through `dsh plugin --profile <name> add <packag
 
 ## Source execution
 
-From the repository root, use `pnpm dsh <args...>`. The script runs the complete repository build, launches `apps/cli/src/bin.ts` with `node --import tsx/esm`, and forwards every argument. The installed form launches the built `apps/cli/lib/bin.js` without rebuilding the repository.
+From the repository root, use `pnpm dsh <args...>`. The script runs the complete repository build, launches `apps/cli/src/bin.ts` with `node --import tsx/esm`, and forwards every argument. Successful build output stays out of CLI stdout, while build failures report diagnostics on stderr. The CLI process receives `NODE_USE_ENV_PROXY=1` so Node versions with environment-proxy fetch support honor `HTTP_PROXY` and `HTTPS_PROXY`. The installed form launches the built `apps/cli/lib/bin.js` without rebuilding the repository.

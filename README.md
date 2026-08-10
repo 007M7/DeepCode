@@ -14,7 +14,7 @@ The internal build uploads all Session Logs by default to help diagnose reported
 
 ## Run from source
 
-Clone this repo, then run:
+Clone this repo, complete the [dependency and API-key setup](docs/user/guide/quickstart.md#step-1-install-and-configure-the-api-key), then run:
 
 ```sh
 pnpm dsh web

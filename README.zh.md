@@ -14,7 +14,7 @@ DeepSeek Harness 正处于内部测试阶段，功能和接口可能发生变化
 
 ## 从源码运行
 
-克隆本仓库，然后运行：
+克隆本仓库，完成[依赖安装和 API 密钥配置](docs/user/guide/quickstart.md#step-1-install-and-configure-the-api-key)，然后运行：
 
 ```sh
 pnpm dsh web
