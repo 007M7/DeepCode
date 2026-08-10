@@ -127,8 +127,9 @@ const packageFileExtras: Readonly<Record<string, readonly string[]>> = {
   '@deepseek-ai/dsh-client-ui-theme': ['lib/styles'],
   '@deepseek-ai/dsh-helper': ['lib/assets'],
   // The argv-prefix runner entry ships beside the lib as its own bundle;
-  // sandbox-local resolves it through the package's ./runner export.
-  '@deepseek-ai/dsh-sandbox-windows-acl': ['lib/runner.js'],
+  // sandbox-local resolves it through the package's ./runner export. tsdown
+  // also shares its generated FFI code through a hashed runtime chunk.
+  '@deepseek-ai/dsh-sandbox-windows-acl': ['lib/runner.js', 'lib/types-*.js'],
   '@deepseek-ai/dsh-skill-badge': ['assets'],
   '@deepseek-ai/dsh-subprocess-local': ['scripts/ensure-spawn-helper.mjs'],
   '@deepseek-ai/dsh-scripts': [

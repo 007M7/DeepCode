@@ -9,7 +9,7 @@
 import { pathToFileURL } from 'node:url'
 import { readFileSync } from 'node:fs'
 import { parseEnv } from 'node:util'
-import { basename, dirname, resolve } from 'node:path'
+import { basename, dirname, isAbsolute, resolve } from 'node:path'
 import * as yaml from 'js-yaml'
 import { Context, type FiberState } from 'cordis'
 import Loader, { type Entry, type EntryOptions } from '@cordisjs/plugin-loader'
@@ -476,6 +476,8 @@ function groupedDump(
  * @param ctx - context carrying an initialized Loader service.
  * @param absoluteConfigPath - absolute YAML or JSON configuration path.
  * @param patches - initial app and user patches, applied in order.
+ * @param bareModuleBaseUrl - optional installed-host base for bare package
+ * names; relative names continue to resolve beside the configuration file.
  * @returns the created root Include entry, or `undefined` when a surface
  * disposed the whole tree (taking the Loader service with it) while the
  * transactional create was still settling entry lifecycle.
@@ -484,8 +486,21 @@ export async function mountRootInclude(
   ctx: Context,
   absoluteConfigPath: string,
   patches: readonly PatchOptions[] = [],
+  bareModuleBaseUrl?: string,
 ): Promise<Entry | undefined> {
-  ctx.loader.builtins.include = Include
+  ctx.loader.builtins.include = bareModuleBaseUrl === undefined
+    ? Include
+    : class HostResolvedRootInclude extends Include {
+      override import(name: string, getOuterStack?: () => string[]): unknown {
+        const specifier = isAbsolute(name) ? pathToFileURL(name).href : name
+        if (name.startsWith('.') || name.startsWith('cordis:')) return super.import(specifier, getOuterStack)
+        const internal = this.ctx.loader.internal
+        /* v8 ignore next -- Node supplies the internal loader; this preserves the
+           original diagnostic for hypothetical embedders without it. */
+        if (internal === undefined) return super.import(specifier, getOuterStack)
+        return internal.import(specifier, bareModuleBaseUrl, {})
+      }
+    }
   // `cordis:group` alongside it: a group row is how a composition gives one
   // `isolate` realm to a provider and its consumers together, and an agent
   // preset living outside this workspace cannot resolve `@cordisjs/plugin-group`
@@ -495,13 +510,14 @@ export async function mountRootInclude(
   // Pinned id: the bootstrap include is app glue, not a config row, and its
   // id appears in Loader failure chains — a random id would make startup
   // diagnostics unstable across runs (and snapshot fixtures).
+  const includeConfig: Include.Config = {
+    path: pathToFileURL(absoluteConfigPath).href,
+    ...patches.length > 0 ? { patches: [...patches] } : {},
+  }
   const rootInclude: EntryOptions = {
     id: 'include',
     name: 'cordis:include',
-    config: {
-      path: pathToFileURL(absoluteConfigPath).href,
-      ...patches.length > 0 ? { patches: [...patches] } : {},
-    },
+    config: includeConfig,
   }
   const includeId = await ctx.loader.create(rootInclude)
   const loader = ctx.get('loader')
@@ -709,14 +725,13 @@ export async function assertEntriesActivated(ctx: Context, binName: string): Pro
 
 /**
  * Boot the Loader against `absoluteConfigPath` and return only after the whole
- * tree settles. Entry names load through the Loader's internal module loader
- * against `baseUrl` (the config directory), which may live outside
- * `node_modules` reach and, unbuilt, cannot load vendored source; the
- * bootstrap include is therefore statically imported and mounted as the
- * `cordis:include` builtin, loading through the ambient module pipeline
- * (vite/tsx/plain ESM) while the included tree's own specifiers stay
- * config-relative. The package build embeds Include while leaving Loader
- * external, so the built include tree and host share one Loader peer. Loader
+ * tree settles. Relative entry names resolve against the config directory;
+ * bare package names resolve there by default or against an explicit
+ * `bareModuleBaseUrl` for closed packaged runtimes. The bootstrap include
+ * is statically imported and mounted as the `cordis:include` builtin, loading
+ * through the ambient module pipeline (vite/tsx/plain ESM). The package build
+ * embeds Include while leaving Loader external, so the built include tree and
+ * host share one Loader peer. Loader
  * settlement rejects startup failures, which `boot` wraps after disposing the
  * partial context; a missing fiber or never-activating entry is rejected by
  * the final audit, {@link assertEntriesActivated}, which rethrows a plugin's
@@ -729,6 +744,9 @@ export async function assertEntriesActivated(ctx: Context, binName: string): Pro
  * @param patches - optional overlay patches applied over the included tree
  * (see {@link loadOptionalPatches}); an empty list mounts none.
  * @param prepare - optional host setup run after Loader installation and before any config-tree entry mounts.
+ * @param bareModuleBaseUrl - optional installed-host base for bare package
+ * names; use it when the host, rather than the configuration project, owns the
+ * complete plugin set.
  * @returns the root context once every entry has started, or as soon as a
  * surface disposed the tree while startup was still in flight.
  * @throws a labelled error after disposing the partial context — `host
@@ -740,6 +758,7 @@ export async function boot(
   absoluteConfigPath: string,
   patches?: PatchOptions[],
   prepare?: (ctx: Context) => Promise<void> | void,
+  bareModuleBaseUrl?: string,
 ): Promise<Context> {
   const ctx = new Context()
   // Two failure labels: `prepare` runs before any config-tree entry mounts,
@@ -751,7 +770,7 @@ export async function boot(
     await ctx.plugin(Loader)
     await prepare?.(ctx)
     stage = 'plugin tree failed to load'
-    await mountRootInclude(ctx, absoluteConfigPath, patches)
+    await mountRootInclude(ctx, absoluteConfigPath, patches, bareModuleBaseUrl)
     // A surface can finish and dispose the whole tree while startup is still
     // in flight, before the last entry settles. The Loader service goes with
     // it, and the activation audit describes a live tree — reading `ctx.loader`

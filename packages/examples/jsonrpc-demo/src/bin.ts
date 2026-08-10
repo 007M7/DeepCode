@@ -33,7 +33,9 @@ if (configPath === undefined || !existsSync(configPath)) {
   process.exit(1)
 }
 
-const ctx = await boot(NAME, configPath)
+// The executable owns a closed plugin set; config-adjacent node_modules must
+// not shadow the packages embedded beside this bin in the VFS.
+const ctx = await boot(NAME, configPath, undefined, undefined, import.meta.url)
 let exiting = false
 
 async function disposeAndExit(code: number): Promise<void> {

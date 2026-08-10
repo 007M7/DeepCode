@@ -557,6 +557,53 @@ describe('boot', () => {
     }
   })
 
+  it('can resolve bare plugins from the harness when the config project shadows their package name', async () => {
+    const dir = tmp()
+    const absolutePlugin = join(dir, 'absolute.mjs')
+    const shadow = join(dir, 'node_modules', '@deepseek-ai', 'dsh-system-prompt')
+    mkdirSync(shadow, { recursive: true })
+    writeFileSync(join(shadow, 'package.json'), JSON.stringify({
+      name: '@deepseek-ai/dsh-system-prompt',
+      type: 'module',
+      exports: './index.mjs',
+    }))
+    writeFileSync(join(shadow, 'index.mjs'), [
+      'export function apply(ctx) {',
+      '  ctx.provide("shadowPluginLoaded", true)',
+      '}',
+      '',
+    ].join('\n'))
+    writeFileSync(join(dir, 'relative.mjs'), 'export function apply(ctx) { ctx.provide("relativePluginLoaded", true) }\n')
+    writeFileSync(absolutePlugin, 'export function apply(ctx) { ctx.provide("absolutePluginLoaded", true) }\n')
+    writeFileSync(join(dir, 'cordis.yml'), [
+      '- id: prompt',
+      "  name: '@deepseek-ai/dsh-system-prompt'",
+      '- id: relative',
+      "  name: './relative.mjs'",
+      '- id: absolute',
+      `  name: ${JSON.stringify(absolutePlugin)}`,
+      '',
+    ].join('\n'))
+    const configOwned = await boot(NAME, join(dir, 'cordis.yml'))
+    try {
+      expect(configOwned.get('shadowPluginLoaded')).toBe(true)
+      expect(configOwned.get('systemPrompt')).toBeUndefined()
+      expect(configOwned.get('relativePluginLoaded')).toBe(true)
+      expect(configOwned.get('absolutePluginLoaded')).toBe(true)
+    } finally {
+      await configOwned.fiber.dispose()
+    }
+    const ctx = await boot(NAME, join(dir, 'cordis.yml'), undefined, undefined, import.meta.url)
+    try {
+      expect(ctx.get('systemPrompt')).toBeDefined()
+      expect(ctx.get('shadowPluginLoaded')).toBeUndefined()
+      expect(ctx.get('relativePluginLoaded')).toBe(true)
+      expect(ctx.get('absolutePluginLoaded')).toBe(true)
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
   it('runs host preparation before the Loader tree mounts', async () => {
     const dir = tmp()
     writeFileSync(join(dir, 'noop.mjs'), 'export const name = "noop"\nexport function apply() {}\n')
