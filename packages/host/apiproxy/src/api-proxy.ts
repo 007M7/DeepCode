@@ -100,7 +100,7 @@ import { canOpenNativePath, openNativePath, openNativeTextFile } from './native-
 const DEFAULT_MAX_MESSAGES = 50
 
 /** Non-model settings namespaces intentionally served to the Web client. */
-const WEB_SETTINGS_NAMESPACES = ['permission'] as const
+const WEB_SETTINGS_NAMESPACES = ['locale', 'permission', 'ui-conversation', 'ui-theme'] as const
 
 /** Provider work budget: at most 100 calls and 2,000 inspected hits. */
 const SESSION_SEARCH_PROVIDER_CALL_LIMIT = 100
