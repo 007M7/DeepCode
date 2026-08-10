@@ -296,6 +296,7 @@ class SingleExeBuild {
       const nestedNodeModules = join(source, 'node_modules')
       await cp(source, destination, {
         recursive: true,
+        dereference: true,
         filter: path => path !== nestedNodeModules && !path.startsWith(nestedNodeModules + sep),
       })
       restored.push(dependency)

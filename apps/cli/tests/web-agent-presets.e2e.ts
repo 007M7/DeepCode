@@ -366,7 +366,6 @@ describe('the shipped Web composition', () => {
 
     expect(await readFile(path, 'utf8')).toBe(before)
   })
-
 })
 
 describe('a switch survives the session', () => {
