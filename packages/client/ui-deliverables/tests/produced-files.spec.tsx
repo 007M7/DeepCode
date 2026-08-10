@@ -73,7 +73,7 @@ interface TimelineSnapshot {
 
 class TestEventDefinitions {
   entries(): readonly ConversationNodeDefinition[] { return [deliverablesDefinition] }
-  fallbackEntries(): readonly ConversationNodeDefinition[] { return [] }
+  fallbackEntry(): ConversationNodeDefinition | undefined { return undefined }
 }
 
 class TestViewDefinitions {

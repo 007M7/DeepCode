@@ -324,7 +324,7 @@ export class ConversationNodeAssembler implements ConversationViewSnapshotStore 
     return this.views.get(target)?.snapshot
   }
 
-  get<Target extends keyof ConversationViewSnapshotMap & string>(
+  get<Target extends Extract<keyof ConversationViewSnapshotMap, string>>(
     target: Target,
   ): ConversationViewSnapshotMap[Target] | undefined {
     return this.snapshot(target) as ConversationViewSnapshotMap[Target] | undefined

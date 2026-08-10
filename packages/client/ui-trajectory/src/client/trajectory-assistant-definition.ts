@@ -255,17 +255,17 @@ function assistantRequest(
     ...(state.retry === undefined
       ? {}
       : {
-          error: state.retry.message,
-          retry: state.retry.retry,
-          ...(state.retry.maxRetries === undefined ? {} : { maxRetries: state.retry.maxRetries }),
-          retryDelayMs: state.retry.delayMs,
-        }),
+        error: state.retry.message,
+        retry: state.retry.retry,
+        ...(state.retry.maxRetries === undefined ? {} : { maxRetries: state.retry.maxRetries }),
+        retryDelayMs: state.retry.delayMs,
+      }),
     ...(node === undefined || node.interrupted === true
       ? {}
       : {
-          resultSeq: node.seq,
-          ...(node.provenance === undefined ? {} : { provenance: node.provenance }),
-        }),
+        resultSeq: node.seq,
+        ...(node.provenance === undefined ? {} : { provenance: node.provenance }),
+      }),
     ...(state.usage === undefined ? {} : { usage: state.usage }),
   }
 }
@@ -383,14 +383,18 @@ const trajectoryTurnEndDefinition: ConversationNodeDefinition<TurnEndState> = {
   buildViewNode: context => context.state === undefined
     ? null
     : trajectoryNode(context, context.state.seq, {
-        kind: 'turn-end',
-        turn: context.state.turn,
-        time: context.state.time,
-        ...(context.state.error === undefined ? {} : { error: context.state.error }),
-      }),
+      kind: 'turn-end',
+      turn: context.state.turn,
+      time: context.state.time,
+      ...(context.state.error === undefined ? {} : { error: context.state.error }),
+    }),
 }
 
-/** Register the Trajectory Assistant lifecycle. */
+/**
+ * Register the Trajectory Assistant lifecycle.
+ *
+ * @param ctx - Plugin context receiving the Definitions.
+ */
 export function registerTrajectoryAssistantDefinition(ctx: Context): void {
   ctx.conversationEvents.register(trajectoryAssistantDefinition)
   ctx.conversationEvents.register(trajectoryTurnEndDefinition)

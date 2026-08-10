@@ -17,7 +17,6 @@ import {
   ConversationEventRegistry, ConversationViewRegistry, createSnapshotStore,
   EMPTY_CHAT_SNAPSHOT,
 } from '@deepseek-ai/dsh-client-runtime/client'
-import type { UseSession } from '@deepseek-ai/dsh-client-web-react'
 import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
 import type {
   ConversationSnapshot, RequestView,
@@ -88,7 +87,7 @@ function historySnapshot(
     sessionId: SID,
     views: {
       get: target => target === 'trajectory' ? trajectory : undefined,
-    } as ConversationSnapshot['views'],
+    },
     chat: EMPTY_CHAT_SNAPSHOT,
     nodes,
     turnTimings: new Map(),
@@ -136,7 +135,7 @@ function standaloneDuration(): Pick<
 
 function fakeSession(nodes: ConversationSnapshot['nodes']) {
   const store = createSnapshotStore(historySnapshot(nodes))
-  return { store, useSession: bindSnapshotSelector(store) as UseSession<ConversationSnapshot> }
+  return { store, useSession: bindSnapshotSelector(store) }
 }
 
 /** Empty sessions-list hook; breadcrumbs therefore fall back to the raw id. */
@@ -204,7 +203,7 @@ function tabsOf(slots: SlotsService): ViewTab[] {
 /** Mount the strict Session header/body over the ring ledger with outlet-faithful render shares. */
 function mount(slots: SlotsService, nodes: ConversationSnapshot['nodes'] = NODES) {
   const sessionSnapshot = sessionSnapshots.get(slots) ?? createSnapshotStore(historySnapshot(nodes))
-  const useSession = bindSnapshotSelector(sessionSnapshot) as UseSession<ConversationSnapshot>
+  const useSession = bindSnapshotSelector(sessionSnapshot)
   const chat = createChatStore().create()
   const views = {
     list: () => tabsOf(slots),

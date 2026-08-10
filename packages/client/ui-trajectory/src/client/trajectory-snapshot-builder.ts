@@ -50,11 +50,11 @@ function applyHeader(
   return header === undefined
     ? request
     : {
-        ...request,
-        prompt: header.prompt,
-        requestConfig: header.prompt.config,
-        ...(header.change === undefined ? {} : { promptChange: header.change }),
-      }
+      ...request,
+      prompt: header.prompt,
+      requestConfig: header.prompt.config,
+      ...(header.change === undefined ? {} : { promptChange: header.change }),
+    }
 }
 
 function withRequestConfig(
@@ -70,7 +70,7 @@ function captureSchemas(
   output: Map<string, ConversationPromptSnapshot['tools'][number]>,
 ): void {
   const name = 'kind' in block ? block.call?.name : block.name
-  const schema = name === undefined || name === null
+  const schema = name === undefined
     ? undefined
     : tools.find(candidate => candidate.name === name)
   if (schema !== undefined) output.set(block.callId, schema)
@@ -216,7 +216,11 @@ export const trajectoryViewDefinition: ConversationViewDefinition<
   create: () => new TrajectorySnapshotBuilder(),
 }
 
-/** Register the legacy-shape Trajectory target builder. */
+/**
+ * Register the stage-oriented Trajectory target builder.
+ *
+ * @param ctx - Plugin context receiving the view Definition.
+ */
 export function registerTrajectoryConversationView(ctx: Context): void {
   ctx.conversationViews.register(trajectoryViewDefinition)
 }

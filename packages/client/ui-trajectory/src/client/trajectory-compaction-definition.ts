@@ -61,18 +61,18 @@ function requestFromState(
     ...(summary?.type !== 'compact/summary'
       ? {}
       : {
-          resultSeq: summary.seq,
-          summary: summary.data.summary,
-          ...(summary.data.rawOutput === undefined ? {} : { rawOutput: summary.data.rawOutput }),
-          provenance: { provider: summary.data.provider, model: summary.data.model },
-          requestConfig: {
-            provider: summary.data.provider,
-            model: summary.data.model,
-            purpose: 'compaction',
-            ...(summary.data.maxTokens === undefined ? {} : { maxTokens: summary.data.maxTokens }),
-          },
-          ...(summary.data.usage === undefined ? {} : { usage: summary.data.usage }),
-        }),
+        resultSeq: summary.seq,
+        summary: summary.data.summary,
+        ...(summary.data.rawOutput === undefined ? {} : { rawOutput: summary.data.rawOutput }),
+        provenance: { provider: summary.data.provider, model: summary.data.model },
+        requestConfig: {
+          provider: summary.data.provider,
+          model: summary.data.model,
+          purpose: 'compaction',
+          ...(summary.data.maxTokens === undefined ? {} : { maxTokens: summary.data.maxTokens }),
+        },
+        ...(summary.data.usage === undefined ? {} : { usage: summary.data.usage }),
+      }),
     ...(checkpoint?.type === 'user/message' ? { replacementSeq: checkpoint.seq } : {}),
   }
 }
@@ -126,13 +126,17 @@ const trajectorySessionEndDefinition: ConversationNodeDefinition<SessionEndState
   buildViewNode: context => context.state === undefined
     ? null
     : trajectoryNode(context, context.state.seq, {
-        kind: 'session-end',
-        seq: context.state.seq,
-        time: context.state.time,
-      }),
+      kind: 'session-end',
+      seq: context.state.seq,
+      time: context.state.time,
+    }),
 }
 
-/** Register Trajectory compaction requests and session boundaries. */
+/**
+ * Register Trajectory compaction requests and session boundaries.
+ *
+ * @param ctx - Plugin context receiving the Definitions.
+ */
 export function registerTrajectoryCompactionDefinitions(ctx: Context): void {
   ctx.conversationEvents.register(trajectoryCompactionDefinition)
   ctx.conversationEvents.register(trajectorySessionEndDefinition)

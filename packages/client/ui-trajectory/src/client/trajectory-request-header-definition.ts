@@ -65,12 +65,16 @@ const trajectoryRequestHeaderDefinition: ConversationNodeDefinition<TrajectoryRe
   buildViewNode: context => context.state === undefined
     ? null
     : trajectoryNode(context, context.state.seq, {
-        kind: 'request-header',
-        header: context.state,
-      }),
+      kind: 'request-header',
+      header: context.state,
+    }),
 }
 
-/** Register Trajectory request-header facts. */
+/**
+ * Register Trajectory request-header facts.
+ *
+ * @param ctx - Plugin context receiving the Definition.
+ */
 export function registerTrajectoryRequestHeaderDefinition(ctx: Context): void {
   ctx.conversationEvents.register(trajectoryRequestHeaderDefinition)
 }

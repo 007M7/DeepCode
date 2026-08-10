@@ -244,7 +244,11 @@ const trajectoryToolDefinition: ConversationNodeDefinition<ToolState> = {
   },
 }
 
-/** Register the Trajectory Tool lifecycle. */
+/**
+ * Register the Trajectory Tool lifecycle.
+ *
+ * @param ctx - Plugin context receiving the Definition.
+ */
 export function registerTrajectoryToolDefinition(ctx: Context): void {
   ctx.conversationEvents.register(trajectoryToolDefinition)
 }

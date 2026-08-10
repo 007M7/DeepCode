@@ -116,7 +116,7 @@ export interface ConversationViewSnapshotMap {}
 /** Stable reader over the latest snapshot of every registered view target. */
 export interface ConversationViewSnapshotStore {
   /** @param target - registered view target. @returns its current snapshot. */
-  get<Target extends keyof ConversationViewSnapshotMap & string>(
+  get<Target extends Extract<keyof ConversationViewSnapshotMap, string>>(
     target: Target,
   ): ConversationViewSnapshotMap[Target] | undefined
 }

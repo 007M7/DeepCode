@@ -86,20 +86,20 @@ const trajectoryMessageDefinition: ConversationNodeDefinition<MessageNode> = {
       ?.state.claimed.has(String(event.data.id)) === true
     return claimed
       ? {
-          kind: 'steering',
-          messageId: event.data.id,
-          seq: event.seq,
-          time: event.time,
-          content: event.data.content,
-          source: event.data.source,
-        }
+        kind: 'steering',
+        messageId: event.data.id,
+        seq: event.seq,
+        time: event.time,
+        content: event.data.content,
+        source: event.data.source,
+      }
       : {
-          kind: 'user',
-          seq: event.seq,
-          time: event.time,
-          content: event.data.content,
-          source: event.data.source,
-        }
+        kind: 'user',
+        seq: event.seq,
+        time: event.time,
+        content: event.data.content,
+        source: event.data.source,
+      }
   },
   update: context => context.state,
   buildViewNode: context => context.state === undefined
@@ -107,7 +107,11 @@ const trajectoryMessageDefinition: ConversationNodeDefinition<MessageNode> = {
     : trajectoryNode(context, context.state.seq, { kind: 'node', node: context.state }),
 }
 
-/** Register Trajectory-owned inbox classification and message records. */
+/**
+ * Register Trajectory-owned inbox classification and message records.
+ *
+ * @param ctx - Plugin context receiving the Definitions.
+ */
 export function registerTrajectoryMessageDefinitions(ctx: Context): void {
   ctx.conversationEvents.register(trajectoryInboxDefinition)
   ctx.conversationEvents.register(trajectoryMessageDefinition)

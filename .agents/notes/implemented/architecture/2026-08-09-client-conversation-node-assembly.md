@@ -148,7 +148,7 @@ The Assembler verifies `node.key === context.key` and `node.target === target`. 
 
 `current` lets a Definition distinguish "never materialized" from "already materialized and now hidden." Assistant retry and Turn Error suppression use it to avoid illegal Node withdrawal.
 
-A Definition may branch by target to construct different data, while matching, Context identity, and State remain target-neutral. This change registers only the `chat` builder; Trajectory remains on its independent `session-history` fold until it gains a registered target.
+A Definition owns at most one view target; state-only Definitions omit both `target` and `buildViewNode()`. Chat and Trajectory register separate business Definitions even when they recognize the same durable Event family, while the shared Assembler supplies the same matching, replay, Location, and publication mechanics to both targets.
 
 #### No generic `end()`
 
@@ -328,7 +328,7 @@ When business logic deliberately changes a materialized Node to hidden, it leave
 
 The concrete Tool renderer remains governed by the [`ui-tool ownership decision`](2026-08-08-client-tool-presentation-ownership.md). Tool Definition supplies recursive root/subcall data, and `ui-tool` dispatches concrete presentation by the Tool-name keyed slot.
 
-Trajectory has no registered target and does not consume the Chat Builder's legacy slice. Its activated `SessionHistoryInspection` keeps an independent history fold, while the ordinary Session snapshot no longer runs a second transcript fold. The Chat Builder retains its legacy slice for StatsLine and the top-level public compatibility fields; a future Trajectory migration does not change the Event Definition, Context, Reader, or Location contracts.
+Trajectory registers its own target and business Definitions against the same Assembler and Session event window as Chat. Its target builder preserves the stage-oriented read model without consuming the Chat Builder's legacy slice or running an independent history fold. The Chat Builder retains its legacy slice for StatsLine and the top-level public compatibility fields; target-specific Definitions do not change the shared Context, Reader, or Location contracts.
 
 ## Runtime and render path
 
@@ -339,20 +339,17 @@ Session Event window
        -> Context matches + State + Location
        -> Definition.buildLocationData(step -> turn)
             -> StepLocation.data / TurnLocation.data
-       -> Definition.buildViewNode(target = chat)
-  -> ChatSnapshotBuilder
-       -> order[] + keyed Node store + Location index + timeline
-  -> ChatView
-       -> ChatNodeSeat(key)
-       -> conversation.chat.node(entryKey = node.kind, hookContext = key)
-            -> slot-level useTurnData(businessKey)
+       -> Definition.buildViewNode() for its declared target
+  -> target View Builder
+       -> chat: ChatSnapshotBuilder -> ChatView -> keyed ChatNodeSeat
+       -> trajectory: TrajectorySnapshotBuilder -> stages/layout/table
 ```
 
 ## Verification
 
 Runtime tests pin Definition lifecycle registration, exact-ID append, update-before-start collection followed by forward replay after start, prepend identity, Reader window-gap repair, transitive dependencies, Location closure, Step→Turn data phase order, Location data replacement, publication cadence, illegal withdrawal, and per-target Builders.
 
-Conversation tests cover every built-in Definition, Assistant Step data, Turn Tail and Deliverables Turn data, Chat ordering and structural sharing, selector isolation, Assistant and Tool running-to-settled identity, nested Code Dispatch, steering, Compaction, Retry, interruption, load-older anchoring, and slot dispatch.
+Conversation tests cover every built-in Chat Definition, Assistant Step data, Turn Tail and Deliverables Turn data, Chat ordering and structural sharing, selector isolation, Assistant and Tool running-to-settled identity, nested Code Dispatch, steering, Compaction, Retry, interruption, load-older anchoring, and slot dispatch. Trajectory tests cover its independently registered Message, Assistant, Tool, Compaction, Request-header, and boundary Definitions together with the preserved stage-oriented view model.
 
 Slot type/runtime tests pin required parent-provided common inject, the `hookContext` type, Hook isolation across Node contexts, stable factory/Hook identity, and the absence of business-renderer rerenders for unrelated Session publications. Existing entry-owned Observable Hook tests continue to pin the path that does not use a contextual factory.
 
@@ -382,7 +379,7 @@ History-path tests cover complete replace, non-overlapping prepend, overlapping-
 
 **Add generic `end()`, prepared, or window-reset lifecycles.** Rejected: businesses have different completion conditions, and a pagination gap is not a business lifecycle. Business Events update State, Location close triggers replay/build, and Reader dependencies own pagination invalidation.
 
-**Register separate Event Definitions for Chat and Trajectory.** Rejected: identity, State, and Location are target-neutral. `buildViewNode(target)` and each Builder express view differences; Trajectory's independent history fold remains until it registers its own Builder.
+**Reuse one Event Definition across Chat and Trajectory by branching in `buildViewNode(target)`.** Rejected: the views require different business State and intermediate records, so a shared Definition would make each package carry the other's conditions and payloads. Separate target-owned Definitions keep those choices local while sharing the Assembler's ingestion and lifecycle contracts.
 
 **Add a generic layout model above final business Nodes.** Rejected: activity, tail candidacy, and layout enums would centralize current Chat business semantics in the engine again. Final Nodes carry renderer-required data directly and share only identity, ordering, and Location facts.
 
@@ -406,4 +403,4 @@ Steps and Turns become stable homes for cross-business aggregates. Turn Tail and
 
 The cost is new Runtime contracts for Registry, Assembler, Location data, dependency replay, and per-target Builders, plus parent-owned common inject and per-occurrence `hookContext` in UI Slots. Definition authors must understand stable IDs, unique starts, forward replay, Step→Turn publication order, read-only Reader access, and the prohibition on Node withdrawal.
 
-`useTurnData()` does not revoke the standard `useSession` capability from session-scoped renderers, so this boundary relies on API guidance and tests rather than capability isolation. Registry changes remain low-frequency full rebuilds; the Chat Builder still maintains a legacy slice for StatsLine and the top-level public fields, Trajectory still owns an independent history fold, and built-in Definitions currently remain centralized in `ui-conversation`. These compatibility boundaries do not return business interpretation to Session.
+`useTurnData()` does not revoke the standard `useSession` capability from session-scoped renderers, so this boundary relies on API guidance and tests rather than capability isolation. Registry changes remain low-frequency full rebuilds; the Chat Builder still maintains a legacy slice for StatsLine and the top-level public fields, while Trajectory owns target-specific Definitions and a Builder over the shared Session window. Built-in Definitions remain in their respective UI packages, and these compatibility boundaries do not return business interpretation to Session.
