@@ -118,7 +118,7 @@ export function buildGrepCommand(input: GrepInput): string[] {
 
 /**
  * The uniform malformed-output failure: raw `rg --json` is an internal
- * transport, so a shape surprise is a search failure, not a partial result.
+ * transport, so missing or invalid response fields cause a search failure, not a partial result.
  */
 function malformedRecord(detail: string, cause?: unknown): SearchError {
   return new SearchError(`grep received malformed ripgrep --json output (${detail})`, 'SEARCH_FAILED', cause !== undefined ? { cause } : undefined)

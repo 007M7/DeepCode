@@ -234,7 +234,7 @@ export interface PendingCall {
   reject(error: Error): void
 }
 
-/** Constructor shape for one program-visible binding rejection class. */
+/** Constructor type for one program-visible binding rejection class. */
 export type BindingErrorConstructor = new (memberName: string, message: string) => Error
 
 /**

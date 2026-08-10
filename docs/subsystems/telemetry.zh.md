@@ -2,7 +2,7 @@
 
 [English](telemetry.md) | 中文
 
-对外的会话上报拆分为一项[能力 seam](../capability-seams.md)：Service Definition 与捕获协调器（[dsh-session-telemetry](../../packages/session/session-telemetry)，`ctx.telemetry`）拥有捕获点、固定分片投影、`telemetry/record` 脱敏 waterfall（瀑布式事件）、handoff 游标与最小后端约定；部署方加载的 Service provider（[dsh-session-telemetry-otel](../../packages/session/session-telemetry-otel)）则是原样配置的 OpenTelemetry JS SDK 日志流水线。它是一项可选能力，不属于 agent loop（智能体循环）主干，这里也没有任何内容会进入模型请求。边界公理（harness 的职责止于 `emit()`；批处理、重试、排队与丢失策略都属于上报 SDK）连同被否决的替代方案，均已在[复活 Agent Note（agent 决策记录）](../../.agents/notes/implemented/feature/2026-07-23-session-telemetry-otel-revival.md)中定案；捕获点、游标与投影的约定见 [Service Definition README](../../packages/session/session-telemetry/README.md)。
+对外会话上报是一项[能力 seam](../capability-seams.md)：其 Service Definition（[dsh-session-telemetry](../../packages/session/session-telemetry)，`ctx.telemetry`）声明最小后端约定，其捕获协调器负责捕获点、固定分片投影、`telemetry/record` 脱敏 waterfall（瀑布式事件）和 handoff 游标；部署方加载的 Service provider（[dsh-session-telemetry-otel](../../packages/session/session-telemetry-otel)）按原配置使用 OpenTelemetry JS SDK 日志流水线。这项能力可选，不属于 agent loop（智能体循环），这里也没有任何内容会进入模型请求。Harness 调用 `emit()` 后停止处理；上报 SDK 负责批处理、重试、排队和丢失策略。[复活 Agent Note](../../.agents/notes/implemented/feature/2026-07-23-session-telemetry-otel-revival.md)记录了这条规则和被否决的替代方案。[Service Definition README](../../packages/session/session-telemetry/README.md) 定义捕获点、游标和投影约定。
 
 源码：[`packages/session/session-telemetry/src/index.ts`](../../packages/session/session-telemetry/src/index.ts)
 
@@ -60,9 +60,8 @@ interface TelemetryRecord {
 
 ```ts type-equiv
 /**
- * The backend contract the coordinator hands records to — the minimum any
- * reporting SDK satisfies with zero bending. {@link Telemetry} is its
- * service-registered form; tests compose the coordinator with a bare
+ * The minimum backend contract the coordinator requires. {@link Telemetry} is
+ * its service-registered form; tests compose the coordinator with a bare
  * implementation of this interface.
  */
 interface TelemetryBackend {
@@ -77,8 +76,8 @@ interface TelemetryBackend {
    */
   emit(record: TelemetryRecord): void
   /**
-   * Optional hint that a natural boundary (turn end) passed — a backend may
-   * forward it to its SDK's flush so records land at turn boundaries. Called
+   * Optional hint that a turn ended. A backend may forward it to its SDK's
+   * flush so records are exported after each turn. Called
    * fire-and-forget; implementations must not block and must not throw
    * meaningfully (the coordinator contains exceptions). Most backends should
    * leave this unimplemented and let their SDK's own batching cadence govern
@@ -105,7 +104,7 @@ interface TelemetryBackend {
 }
 ```
 
-`Telemetry`（`ctx.telemetry`，[签名](#ctxtelemetry--telemetry-abstract-seam)）是该约定的可加载形态：每个上下文只允许一个实现，重复加载会抛出异常；后端在其构造函数中组合 seam 的 `TelemetryCoordinator`，以此装配捕获侧。
+`Telemetry`（`ctx.telemetry`，[签名](#ctxtelemetry--telemetry-abstract-seam)）是该约定的可加载类型：每个上下文只允许一个实现，重复加载会抛出异常。后端在构造函数中创建 `TelemetryCoordinator`，以安装捕获处理。
 
 ## 脱敏 waterfall：`telemetry/record`
 
@@ -123,7 +122,7 @@ Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnp
 
 ### `ctx.telemetry` — `Telemetry` (abstract seam)
 
-The backend contract in its loadable form: one implementation per context — the cordis `Service` registration under the `telemetry` key throws on a duplicate, cordis' standard behavior. A backend composes a TelemetryCoordinator in its constructor to install the capture side.
+Loadable form of the backend contract: one implementation per context — the cordis `Service` registration under the `telemetry` key throws on a duplicate, cordis' standard behavior. A backend composes a TelemetryCoordinator in its constructor to install the capture side.
 
 ```ts cordis-catalog
 /**
@@ -142,7 +141,7 @@ flush?(): void
 abstract shutdown(): Promise<void>
 ```
 
-Source: [`packages/session/session-telemetry/src/index.ts:140`](../../packages/session/session-telemetry/src/index.ts)
+Source: [`packages/session/session-telemetry/src/index.ts:139`](../../packages/session/session-telemetry/src/index.ts)
 
 <a id="telemetry-events"></a>
 

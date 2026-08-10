@@ -184,7 +184,7 @@ export interface Config {
   persona?: string
   /**
    * Model-facing tool names in order, with {@link TOOL_ORDER_REST} exactly once.
-   * Shape errors fail at load and unknown names fail at assembly; known names
+   * Invalid fields fail at load and unknown names fail at assembly; known names
    * hidden in one scope may be absent there. Omitted means lexicographic order.
    */
   toolOrder?: string[]

@@ -75,9 +75,9 @@ function unwrapExpression(e: ts.Expression): ts.Expression {
 
 /**
  * Classify inline callable annotations. Mixed callable literals fail closed;
- * other annotations are ordinary value shapes.
+ * other annotations are ordinary value types.
  * @param type - the declarator's type annotation.
- * @returns the signature to check, 'refuse' for an unclassifiable callable literal, or null for a non-callable shape.
+ * @returns the signature to check, 'refuse' for an unclassifiable callable literal, or null for a non-callable type.
  */
 function callableAnnotation(type: ts.TypeNode): ts.SignatureDeclarationBase | 'refuse' | null {
   if (ts.isFunctionTypeNode(type)) return type
@@ -446,7 +446,7 @@ function checkScope(
     if (ts.isExportAssignment(stmt)) {
       if (stmt.isExportEquals) {
         // `export =` has no ESM consumer surface in this repo and the walk
-        // cannot classify its operand's shape; refuse rather than fail open.
+        // cannot classify its operand's type; refuse rather than fail open.
         w.violations.push(`export-equals assignment (${pointer(w.rel, w.sf, stmt)}) is not a gate-supported export form; use ESM named exports.`)
         continue
       }

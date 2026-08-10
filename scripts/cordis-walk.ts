@@ -81,7 +81,7 @@ export function contextKeyMap(body: ts.ModuleBlock, sf: ts.SourceFile): Map<stri
 /**
  * Every event name a `declare module 'cordis'` Events merge declares in one
  * module body. Names are the literal member keys (`'agent/created'`), read
- * from method and property members alike so a declaration shape the projector
+ * from method and property members alike so a declaration form the projector
  * would reject still enters the exhaustiveness scan.
  * @param body - The cordis module augmentation block.
  * @param sf - Owning source file (for computed-name text extraction).

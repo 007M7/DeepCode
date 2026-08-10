@@ -11,7 +11,7 @@ export const name = 'permission-invariant'
 /** Service required before the companion can reserve package ownership. */
 export const inject = ['invariants']
 
-/** Validate the package-owned event shape and ignore unrelated events. */
+/** Validate the package-owned event fields and ignore unrelated events. */
 function validateEvent(ctx: Context, event: SessionEvent, fail: InvariantFailure): void {
   if (event.type === 'permission/preset' && !ctx.permission.names.includes(event.data.preset)) {
     fail(`permission/preset names unknown preset ${JSON.stringify(event.data.preset)}`)

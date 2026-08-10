@@ -42,7 +42,7 @@ function appFrame(page: Page) {
   return page.locator('[style*="grid-template-columns"]').first()
 }
 
-/** Render the two boundary affordances without platform-dependent coordinates. */
+/** Render the two column-resize handles without platform-dependent coordinates. */
 async function handleSnapshot(page: Page): Promise<string> {
   const handles = await page.locator('[class*="handle"]').evaluateAll(elements =>
     elements.map(element => ({

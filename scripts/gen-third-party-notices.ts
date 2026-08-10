@@ -475,7 +475,7 @@ function collectPythonRequirementArray(
   }
 }
 
-/** Read an optional TOML table and reject a present value of another shape. */
+/** Read an optional TOML table and reject a present non-table value. */
 function optionalTomlTable(value: TomlValueWithoutBigInt | undefined, location: string): TomlTableWithoutBigInt | undefined {
   if (value === undefined || isTomlTable(value)) return value
   throw new Error(`gen-third-party-notices: ${location} must be a table.`)
@@ -487,7 +487,7 @@ function optionalTomlTable(value: TomlValueWithoutBigInt | undefined, location: 
  * `[build-system]`, `dependencies` under `[project]`, and every key under
  * `[project.optional-dependencies]` and `[dependency-groups]`. A TOML parser
  * owns comments, quoted keys, escapes, and array boundaries; unsupported
- * requirement shapes fail instead of disappearing from the notices.
+ * requirement forms fail instead of disappearing from the notices.
  * @param text - the complete `pyproject.toml` contents.
  * @returns the local project name and declared requirement names.
  */

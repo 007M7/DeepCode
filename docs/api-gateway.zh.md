@@ -85,7 +85,7 @@ Client 应用只装配 `@deepseek-ai/dsh-api-remotes`。该包以运行时值导
 | 构建 | `@deepseek-ai/dsh-typert-generator` | 从 Host `ts.Program` 严格分析 Remote 签名、类型图、lookup、Context 与源码位置，并生成 Host 和 Host-for-Client 产物 |
 | Host | `@deepseek-ai/dsh-typert-registry` 与 Loader | 把生成的 Host 描述符、schema 及业务包注册项放入 `ctx.typert`，并持有 lookup 与 Context 提供方 |
 | Host | `@deepseek-ai/dsh-api-remotes` | 负责应用的 Agent/Session 身份策略，并配置对应的 TypeRT lookup |
-| Host | `@deepseek-ai/dsh-api-gateway` | 提供 `ctx.typertGateway`，认领 Remote endpoint，解析对象或 Context，调用实时 Cordis Service 并校验边界 |
+| Host | `@deepseek-ai/dsh-api-gateway` | 提供 `ctx.typertGateway`，认领 Remote endpoint，解析对象或 Context，调用实时 Cordis Service，并校验请求值和返回值 |
 | Client | `@deepseek-ai/dsh-api-gateway/client` | 提供 `ctx.remote` 与 `remote.<namespace>` 子 Service，把生成的描述符挂成具体方法，并通过 Connection 发起、校验和取消调用 |
 | Client | `@deepseek-ai/dsh-api-remotes/client` | 显式选择并挂载本应用允许使用的 `/remote` 贡献，向业务代码带入对应的声明合并 |
 | 双侧 | `@deepseek-ai/dsh-client-connection` | 提供 RPC carrier、请求关联、信任边界、取消、响应 envelope 与 `/api` HTTP bridge |
@@ -114,7 +114,7 @@ API Gateway 包同时拥有 Host dispatcher 与 Client Remote endpoint 两个对
 
 Remote Client 声明中的参数名来自 wire 字段，参数和返回类型则引用原业务包导出的 Client-safe 类型。声明 map 把 `ctx.remote.goals.create` 最终解析到的生成属性映射到带 `@Remote` 的 Host 源方法，因此支持 declaration-map 的编辑器可以从 Client 调用跳到真实实现，而不是停在生成的 `.d.ts`。
 
-严格分析要求 Remote 是公开、非静态、有具体实现的实例方法。方法不能是泛型；参数必须是具名且必填的简单标识符，不能使用解构、默认值、rest 或可选参数。可 JSON 表示的普通类型由 TypeRT 生成严格 schema；工作区 class 等复杂对象必须具有唯一的 `TypeRTLookupMap` 声明。lookup 与 Context 包同时负责静态声明合并和运行时提供方注册，缺少任一侧都会在构建或最早可解析的运行时边界报错。
+严格分析要求 Remote 是公开、非静态、有具体实现的实例方法。方法不能是泛型；参数必须是具名且必填的简单标识符，不能使用解构、默认值、rest 或可选参数。可 JSON 表示的普通类型由 TypeRT 生成严格 schema；工作区 class 等复杂对象必须具有唯一的 `TypeRTLookupMap` 声明。lookup 与 Context 包同时负责静态声明合并和运行时提供方注册；缺少任一侧都会导致构建失败，或者首次调用需要该提供方时失败。
 
 ## 运行时调用
 
@@ -122,7 +122,7 @@ Remote 与 API Proxy 共用 Connection 的 `/api` 路由。Client Remote 调用 
 
 Connection 在 HTTP bridge 之前执行 `/api` 的统一信任检查，再在共享 FetchHandler 内按 interceptor 顺序分发。TypeRT Gateway 只认领存在严格描述符或活跃 SRC marker 的两段式 endpoint；未认领的请求回退到既有 API Proxy。Connection 拥有传输、RPC id、响应 envelope 和 request cancellation，Gateway 只拥有 Remote 数据协议和业务分发。未来替换 Connection carrier 不要求改变 Remote 描述符或 Client 编程界面。
 
-Gateway 每次调用都从当前注册表解析描述符和实时 Service，不缓存业务对象。它要求 `args` 的字段集合与描述符完全一致，先用 codec 校验 wire 值，再通过注册的 lookup 或 Context provider 解析对象或接收者，最后调用 binding 指向的 Service 方法并校验返回值。缺少 provider、identity 未命中、binding 不一致、参数多缺、schema 失败和方法不存在都在进入或离开业务边界时失败。
+Gateway 每次调用都从当前注册表解析描述符和实时 Service，不缓存业务对象。它要求 `args` 的字段集合与描述符完全一致，先用 codec 校验 wire 值，再通过注册的 lookup 或 Context provider 解析对象或接收者，最后调用 binding 指向的 Service 方法并校验返回值。缺少 provider、identity 未命中、binding 不一致、参数多缺、schema 失败和方法不存在都会在进入业务代码前或离开业务代码后失败。
 
 lookup provider 的 `register()` 同时提供稳定声明和默认 resolver；`configure()` 提供由 Host 组合拥有、可异步执行且受 effect 生命周期约束的 resolver。配置可以先于 provider 挂载；没有 provider 时调用仍以 `lookup-unavailable` 失败，配置卸载后则恢复 provider 默认策略。API Remotes 负责 `agent` 与 `session` 的标准 `agentFor()` 语义：复用 live Agent，自动恢复普通冷会话，对并发恢复去重，并拒绝由 subagent routing 拥有的 identity；`session` lookup 返回该 Agent 的 Session。Web API Proxy 提供 Agent 默认值与 scope 设置，再让旧方法使用同一个 resolver。恢复失败和 ownership fence 通过既有 RPC error 原样返回，不折叠为 Gateway 的 `internal` 错误。
 

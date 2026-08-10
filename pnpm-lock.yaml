@@ -6976,6 +6976,9 @@ importers:
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
         version: link:../../support/invariants
+      '@deepseek-ai/dsh-scope':
+        specifier: workspace:^
+        version: link:../../core/scope
       '@deepseek-ai/dsh-session':
         specifier: workspace:^
         version: link:../../core/session

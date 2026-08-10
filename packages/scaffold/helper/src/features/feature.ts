@@ -236,7 +236,7 @@ export abstract class Feature {
   }
 
   /**
-   * Inspect current files and reject any partial or ambiguous owned shape.
+   * Inspect current files and reject any partial or ambiguous owned file set.
    * @param project - project snapshot to inspect.
    * @returns installation state, selection, and diagnostics.
    */

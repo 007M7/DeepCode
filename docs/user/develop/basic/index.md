@@ -26,7 +26,7 @@ export function apply(ctx: Context) {
 }
 ```
 
-That is the complete shape.
+That is the complete configuration.
 
 ## Create the plugin file
 

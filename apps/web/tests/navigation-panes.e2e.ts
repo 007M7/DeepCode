@@ -164,8 +164,8 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
       sessionId = await settled
     }
     await recordFixture(scaffold, sessionId!, SEED)
-    // Fixture honesty: the recording must carry the shape the replay
-    // scenarios assert on — three calls in turn 1 and two closed turns.
+    // Fixture honesty: the recording must contain the events the replay
+    // scenarios assert on: three calls in turn 1 and two closed turns.
     const recorded = parseSessionLog(await readFile(SEED, 'utf8'))
     expect(recorded.filter(e => e.type === 'turn/end')).toHaveLength(2)
     const calls = recorded.filter((e): e is SessionEvent & { data: { name: string } } => e.type === 'tool/call')

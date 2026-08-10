@@ -448,7 +448,7 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
   let replayHandle: ReplayHandle | undefined
   try {
     process.chdir(workspaceCwd)
-    // The production resolution shape: an empty profile root inside the temp
+    // The production module-resolution setup: an empty profile root inside the temp
     // harness home, with bare plugin names resolving through the flat module
     // fallback the launcher heals under <home>/profiles.
     healProfilesModuleFallback(INSTALL_ANCHOR, harnessHome)
@@ -626,7 +626,7 @@ export function fixtureUserPrompts(fixtureText: string): string[] {
  * through the REAL backend API (throwaway Context + SessionStore + JSONL
  * plugin — the semantic-checkpoint precedent), never raw file writes: no
  * knowledge of bucket hashing, filename encoding, or compression, and
- * malformed shapes fail loud at seed time. The fixture's tokenized identity
+ * malformed session events fail loud at seed time. The fixture's tokenized identity
  * ({{sessionId}}/{{cwd}}) is realized for this world before parsing.
  * @param scaffold - the target scaffold.
  * @param fixtureText - raw recorded session.jsonl contents.
@@ -730,7 +730,7 @@ function normalizeAria(snapshot: string, workspaceCwd: string): string {
     // between local worktrees and CI scratch directories.
     .replace(/(Compacted \d+ history items \(~)\d+( tokens\))/g, '$1{{tokens}}$2')
     // Message IconActions clocks widen by calendar day/year; collapse every
-    // shape so goldens stay stable across midnight and year boundaries.
+    // format so goldens stay stable across midnight and year changes.
     .replace(/\d{4}年\d{1,2}月\d{1,2}日 \d{2}:\d{2}/g, '{{clock}}')
     .replace(/\d{1,2}月\d{1,2}日 \d{2}:\d{2}/g, '{{clock}}')
     .replace(/(?<!\d)\d{1,2}:\d{2}:\d{2}(?:\.\d+)?(?:\s*[AP]M)?(?!\d)/gi, '{{clock}}')
