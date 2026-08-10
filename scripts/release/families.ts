@@ -253,7 +253,7 @@ class VendorFamily extends ReleaseFamily {
 }
 
 /** Every release family this module owns, in workflow order. */
-export function releaseFamilies(): readonly ReleaseFamily[] {
+function releaseFamilies(): readonly ReleaseFamily[] {
   return [new DshFamily(), new VendorFamily()]
 }
 
