@@ -77,6 +77,7 @@
       "@deepseek-ai/dsh-credentials/types": ["./packages/credentials/credentials/src/types.ts"],
       "@deepseek-ai/dsh-settings/types": ["./packages/settings/settings/src/types.ts"],
       "@deepseek-ai/dsh-api-remotes/types": ["./packages/api/remotes/src/types.ts"],
+      "@deepseek-ai/dsh-api-remotes/invariant": ["./packages/api/remotes/src/invariant.ts"],
       "@deepseek-ai/dsh-compact/checkpoint": ["./packages/compact/compact/src/checkpoint.ts"],
       "@deepseek-ai/dsh-compact/types": ["./packages/compact/compact/src/types.ts"],
       "@deepseek-ai/dsh-tools/presentation": ["./packages/core/tools/src/presentation.ts"],
