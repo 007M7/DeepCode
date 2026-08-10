@@ -35,6 +35,7 @@
     "@deepseek-ai/dsh-pty": "workspace:^",
     "@deepseek-ai/dsh-pty-local": "workspace:^",
     "@deepseek-ai/dsh-pwsh-local": "workspace:^",
+    "@deepseek-ai/dsh-pwsh-sandbox": "workspace:^",
     "@deepseek-ai/dsh-session-reference": "workspace:^",
     "@deepseek-ai/dsh-skill": "workspace:^",
     "@deepseek-ai/dsh-skill-local": "workspace:^",
