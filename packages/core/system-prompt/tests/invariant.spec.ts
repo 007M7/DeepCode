@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import type { PromptAssembly } from '@deepseek-ai/dsh-system-prompt'
 import * as SystemPromptInvariant from '@deepseek-ai/dsh-system-prompt/invariant'
 import InvariantService from '@deepseek-ai/dsh-invariants'

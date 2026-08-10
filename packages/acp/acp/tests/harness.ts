@@ -1,6 +1,6 @@
 /** In-memory ACP transport fixture over the real agent factory and loop. */
 
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import {
   ClientSideConnection,
   ndJsonStream,

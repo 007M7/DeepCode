@@ -42,7 +42,7 @@ export const en: Record<AgentPresetSettingsKey, string> = {
     'All Standard mode capabilities, with tools exposed through the Code Mode SDK so the model can combine multi-step operations in one TypeScript program.',
   presetMinimalName: 'Minimal mode',
   presetMinimalDescription:
-    'Two-tool coding agent with only bash and str_replace_editor, for benchmarks and minimal reproductions.',
+    'Two-tool coding agent with persistent bash and str_replace_editor.',
   presetCordisName: 'Creator mode',
   presetCordisDescription:
     'Built for creating custom agent presets, with all Standard mode capabilities plus runtime inspection, plugin experiments, and preset-authoring guidance.',
@@ -103,7 +103,7 @@ export const zh: Record<AgentPresetSettingsKey, string> = {
   presetCodeName: '代码模式',
   presetCodeDescription: '具备标准模式的全部能力，并通过 Code Mode SDK 呈现工具，让模型用一个 TypeScript 程序组合多步操作。',
   presetMinimalName: '极简模式',
-  presetMinimalDescription: '仅提供 bash 与 str_replace_editor 的双工具编码 Agent，用于基准测试和最小复现。',
+  presetMinimalDescription: '仅提供持久 bash 与 str_replace_editor 的双工具编码 Agent。',
   presetCordisName: '创造模式',
   presetCordisDescription: '用于创建自定义 Agent preset：具备标准模式的全部能力，并提供运行时检查、插件实验和 preset 创作指导。',
   duplicate: '复制',

@@ -309,11 +309,11 @@ export interface RemainingSchema {
     const root = copyFixture()
     const manifestPath = join(root, 'packages/remote/package.json')
     const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as {
-      dshClient?: object
+      dsh?: { client?: object }
       exports: Record<string, unknown>
       files: string[]
     }
-    manifest.dshClient = {}
+    manifest.dsh = { client: {} }
     manifest.exports['./client'] = './src/client.ts'
     manifest.exports['./client/typert'] = {
       types: './lib/typert.client.d.ts',
@@ -332,8 +332,10 @@ export interface ClientMarker {
 }
 `)
 
-    expect(new WorkspaceTypertGenerator(root).generate().map(artifact => artifact.face))
-      .toEqual(['host', 'client'])
+    const artifacts = new WorkspaceTypertGenerator(root).generate()
+    expect(artifacts.map(artifact => artifact.face)).toEqual(['host', 'client'])
+    expect(artifacts.find(artifact => artifact.face === 'host')?.dts).not.toContain('ClientMarker')
+    expect(artifacts.find(artifact => artifact.face === 'client')?.dts).toContain('ClientMarker')
   })
 
   it.each([

@@ -15,8 +15,8 @@
  * — a cold session's host Agent is already disposed while its client actx
  * stays alive for history viewing.
  */
-import { Context as CordisContext } from 'cordis'
-import type { Context, Fiber } from 'cordis'
+import { Context as CordisContext } from '@deepseek-ai/cordis'
+import type { Context, Fiber } from '@deepseek-ai/cordis'
 import type { SessionId } from '@deepseek-ai/dsh-client-connection/client'
 import type { TypeRTClientRemote, TypeRTRemoteScopeApi } from '@deepseek-ai/dsh-type-meta'
 

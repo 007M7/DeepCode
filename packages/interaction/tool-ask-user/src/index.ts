@@ -6,7 +6,7 @@
  * @module @deepseek-ai/dsh-tool-ask-user
  */
 
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import '@deepseek-ai/dsh-user-interaction'
 

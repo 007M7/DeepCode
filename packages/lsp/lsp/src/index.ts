@@ -11,7 +11,7 @@
  * @module @deepseek-ai/dsh-lsp
  */
 
-import { Context, Service } from 'cordis'
+import { Context, Service } from '@deepseek-ai/cordis'
 import { HarnessError } from '@deepseek-ai/dsh-llm'
 import type { LspProviderId } from './brand.ts'
 import type {
@@ -35,7 +35,7 @@ export type {
   LspService,
 } from './types.ts'
 
-declare module 'cordis' {
+declare module '@deepseek-ai/cordis' {
   interface Context {
     lsp: LspService
   }

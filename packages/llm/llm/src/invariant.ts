@@ -1,6 +1,6 @@
 /** Package-owned LLM stream-protocol invariants. @module @deepseek-ai/dsh-llm/invariant */
 
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import type { InvariantFailure, InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 import type { ContentBlockType, StreamChunk } from './types.ts'
 

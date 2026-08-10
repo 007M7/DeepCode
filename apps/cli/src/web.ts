@@ -10,8 +10,8 @@
 
 import { networkInterfaces } from 'node:os'
 import { fileURLToPath } from 'node:url'
-import type { Context } from 'cordis'
-import type { PatchOptions } from '@cordisjs/plugin-include'
+import type { Context } from '@deepseek-ai/cordis'
+import type { PatchOptions } from '@deepseek-ai/cordis-plugin-include'
 import { addHarnessSourceSection } from '@deepseek-ai/dsh-app-boot'
 import type { EnvironmentSnapshot } from '@deepseek-ai/dsh-environment'
 import { runProfile, type ProfileRows } from './profile-boot.ts'
