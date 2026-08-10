@@ -251,6 +251,8 @@ export interface LaunchOptions {
    * 127.0.0.1; a non-resolving authority fails before Host trust is exercised.
    */
   remoteAuthority?: string
+  /** Reuse an existing harness home so a second Host can verify user settings across origins. */
+  harnessHome?: string
 }
 
 /** Dispose the booted tree and remove both owned temp roots, reporting every independent cleanup failure. */
@@ -297,16 +299,19 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
   // Isolated harness home: the settings/credentials rows resolve $DSH_HOME
   // paths at load, and an in-process boot must NEVER touch the developer's
   // real ~/.dsh document or credential file.
-  const harnessHome = join(workspaceCwd, '.dsh-home')
+  const harnessHome = options.harnessHome ?? join(workspaceCwd, '.dsh-home')
   // Skill discovery is model-visible input, and its roots now resolve inside a
   // PRESET — a subtree this lane's include patches cannot reach, because the
   // roster mounts it directly per session rather than as a row of the booted
   // tree. The row's documented fallback is the environment, so pin that: the
   // whole scaffold lifetime, not just the boot, since presets mount when a
   // session is created. Without this a developer's real ~/.dsh/skills silently
-  // enters replay requests and goldens while CI sees none.
+  // enters replay requests and goldens while CI sees none. `DSH_HOME` follows
+  // the resolved harness home so a scaffold sharing another's home — the
+  // cross-port persistence scenario — pins the same roots the settings and
+  // credentials rows were configured with.
   const skillRootEnvironment = {
-    DSH_HOME: join(workspaceCwd, '.dsh-home'),
+    DSH_HOME: harnessHome,
     DSH_AGENTS_HOME: join(workspaceCwd, '.agents-home'),
     DSH_BUNDLED_SKILL_DIR: join(workspaceCwd, '.bundled-skills'),
   }
