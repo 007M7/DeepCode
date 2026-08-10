@@ -1,15 +1,44 @@
 /**
- * Wire-to-typed-event bridge: host/commands-changed
- * → ctx 'commands/changed'; host/session-preset-changed →
- * ctx 'session/preset-changed'; each established connection generation →
- * ctx 'connection/reset' (the forced cache-invalidation broadcast).
+ * Wire-to-typed-event bridge: a `host/remote-event` frame is republished
+ * verbatim on the internal `remote/host-event` plumbing event (the Remote
+ * service's fan-out to `ctx.remote.$on` is api-gateway's own coverage);
+ * host/session-preset-changed → ctx 'session/preset-changed';
+ * `host/models-changed` still broadcasts the typed `models/changed`; each
+ * established connection generation → ctx 'connection/reset' (the forced
+ * cache-invalidation broadcast).
  */
 import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it } from 'vitest'
 import type { ConnectionHandle, ConnectionSinks } from '@deepseek-ai/dsh-client-connection/client'
 import TypertRegistry from '@deepseek-ai/dsh-typert-registry'
+// Type-only: the api-remotes facade carries both the allowlist's selection seat
+// and the owner packages' `./types` declarations, which together give `$on` its
+// key face and per-event listener signatures.
+import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import * as RuntimeClient from '../src/client/index.ts'
 import { FakeApiClient } from './fake-api.ts'
+
+/**
+ * Compile-time face of `ctx.remote.$on`, asserted by type-checking this file
+ * rather than by running it: the allowlist narrows the key set, and each
+ * listener's parameters come from the owner package's own cordis `Events`
+ * declaration (so a brand cannot be flattened on the way to a consumer).
+ * @param ctx - any client Context carrying the Remote service.
+ */
+function forwardedEventContracts(ctx: Context): void {
+  ctx.remote.$on('settings/document-updated', (namespace, source) => {
+    // @ts-expect-error -- the brand survives the wire: a bare string is not a SettingsNamespace
+    const bare: typeof namespace = 'plain-string'
+    void bare; void namespace; void source
+  })
+  ctx.remote.$on('credentials/updated', () => {})
+  ctx.remote.$on('commands/change', () => {})
+  // @ts-expect-error -- client-local event outside the allowlist
+  ctx.remote.$on('slots/changed', () => {})
+  // @ts-expect-error -- declared host event the allowlist does not select
+  ctx.remote.$on('skills/change', () => {})
+}
+void forwardedEventContracts
 
 interface Bench {
   ctx: Context
@@ -33,39 +62,62 @@ async function mount(): Promise<Bench> {
     },
   }
   ctx.reflect.provide('connection', handle)
-  ctx.reflect.provide('remote', {})
   await ctx.plugin(RuntimeClient).await()
   return bench
 }
 
 describe('wire event bridge', () => {
-  it('broadcasts commands/changed on a host/commands-changed frame, not on other host frames', async () => {
+  it('republishes a forwarded host event verbatim, and routes no other host frame there', async () => {
     const bench = await mount()
-    let changed = 0
-    bench.ctx.on('commands/changed', () => { changed++ })
-    bench.sinks?.onHostEnvelope?.({ rpcId: 'r1' as never, payload: { type: 'host/commands-changed' } })
-    expect(changed).toBe(1)
+    const seen: unknown[][] = []
+    bench.ctx.on('remote/host-event', (event, args) => { seen.push([event, ...args]) })
+    bench.sinks?.onHostEnvelope?.({
+      rpcId: 'r1' as never,
+      payload: { type: 'host/remote-event', event: 'commands/change', args: [] },
+    })
+    expect(seen).toEqual([['commands/change']])
+
     bench.sinks?.onHostEnvelope?.({
       rpcId: 'r2' as never,
       payload: { type: 'host/session-status', sessionId: 's1' as never, running: true },
     })
-    expect(changed).toBe(1)
+    expect(seen).toEqual([['commands/change']])
   })
 
-  it('broadcasts the settings/credentials/models invalidations with their frame payloads', async () => {
+  it('carries each forwarded event name with its own argument list, unfiltered', async () => {
     const bench = await mount()
     const seen: unknown[][] = []
-    bench.ctx.on('settings/changed', ns => seen.push(['settings', ns]))
-    bench.ctx.on('credentials/changed', ref => seen.push(['credentials', ref]))
-    bench.ctx.on('models/changed', () => seen.push(['models']))
-    bench.sinks?.onHostEnvelope?.({ rpcId: 'r3' as never, payload: { type: 'host/settings-changed', ns: 'llm-pi-ai' } })
-    bench.sinks?.onHostEnvelope?.({ rpcId: 'r4' as never, payload: { type: 'host/credentials-changed', ref: 'OPENAI_API_KEY' } })
-    bench.sinks?.onHostEnvelope?.({ rpcId: 'r5' as never, payload: { type: 'host/models-changed' } })
+    bench.ctx.on('remote/host-event', (event, args) => { seen.push([event, ...args]) })
+
+    bench.sinks?.onHostEnvelope?.({
+      rpcId: 'r3' as never,
+      payload: { type: 'host/remote-event', event: 'settings/document-updated', args: ['llm-pi-ai', 7] },
+    })
+    bench.sinks?.onHostEnvelope?.({
+      rpcId: 'r4' as never,
+      payload: { type: 'host/remote-event', event: 'credentials/updated', args: ['OPENAI_API_KEY'] },
+    })
+    // The carrier does not second-guess the name: selecting what a consumer can
+    // receive is the allowlist's job, and dropping an unsubscribed name is the
+    // Remote service's. This plugin republishes whatever the frame carried.
+    bench.sinks?.onHostEnvelope?.({
+      rpcId: 'r5' as never,
+      payload: { type: 'host/remote-event', event: 'nobody/listening', args: ['ignored'] },
+    })
+
     expect(seen).toEqual([
-      ['settings', 'llm-pi-ai'],
-      ['credentials', 'OPENAI_API_KEY'],
-      ['models'],
+      ['settings/document-updated', 'llm-pi-ai', 7],
+      ['credentials/updated', 'OPENAI_API_KEY'],
+      ['nobody/listening', 'ignored'],
     ])
+  })
+
+  it('still broadcasts the typed models/changed invalidation (its host frame is unchanged)', async () => {
+    const bench = await mount()
+    let models = 0
+    bench.ctx.on('models/changed', () => { models++ })
+    bench.sinks?.onHostEnvelope?.({ rpcId: 'r6' as never, payload: { type: 'host/models-changed' } })
+    expect(models).toBe(1)
   })
 
   it('broadcasts session/preset-changed with the recomposed session and its new preset', async () => {

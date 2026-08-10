@@ -1,5 +1,8 @@
 /**
- * Durable command event vocabulary shared with type-only consumers.
+ * Durable command event vocabulary and the registry's Cordis event
+ * declaration, shared with type-only consumers. Client-safe: nothing here
+ * reaches a Host-only symbol, so a Client compilation face reads the same
+ * `commands/change` signature the Host emits.
  *
  * @module @deepseek-ai/dsh-commands/types
  */
@@ -18,6 +21,18 @@ export interface CommandSourceMap {
 
 /** The union over {@link CommandSourceMap} — who issued a command line. */
 export type CommandSource = CommandSourceMap[keyof CommandSourceMap]
+
+declare module '@deepseek-ai/cordis' {
+  interface Events {
+    /**
+     * A command was registered or unregistered. This is an unfiltered registry
+     * notification because a global or scoped change may affect any UI view.
+     * Observer failures are contained and cannot veto the registry mutation.
+     * @mode emit
+     */
+    'commands/change'(): void
+  }
+}
 
 declare module '@deepseek-ai/dsh-session/types' {
   interface SessionEventMap {

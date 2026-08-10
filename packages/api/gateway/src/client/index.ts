@@ -5,7 +5,7 @@
  */
 
 import { Service } from '@deepseek-ai/cordis'
-import type { Context } from '@deepseek-ai/cordis'
+import type { Context, Events } from '@deepseek-ai/cordis'
 import type { ConnectionHandle, RpcError } from '@deepseek-ai/dsh-client-connection/client'
 import type {
   InvocationDescriptor,
@@ -13,6 +13,7 @@ import type {
   TypeRTCodec,
   TypeRTDisposer,
   TypeRTRemoteContribution,
+  TypeRTRemoteEvent,
 } from '@deepseek-ai/dsh-type-meta'
 
 interface MountToken {
@@ -71,14 +72,20 @@ export function apply(ctx: Context): void {
   new ClientRemoteService(ctx)
 }
 
+/** One subscribed listener after `$on` erased its per-event argument list. */
+type RemoteEventListener = (...args: never[]) => void
+
 class ClientRemoteService extends Service implements TypeRTClientRemote {
   private readonly ownerCtx: Context
   private readonly namespaces = new Map<string, RemoteNamespaceHandle>()
+  private readonly subscriptions = new Map<string, Set<RemoteEventListener>>()
   private mutations = Promise.resolve()
 
   constructor(ctx: Context) {
     super(ctx, 'remote')
     this.ownerCtx = ctx
+    ctx.on('remote/host-event', (event, args) => { this.dispatch(event, args) })
+    ctx.effect(() => () => { this.subscriptions.clear() }, 'api-gateway.client.subscriptions')
   }
 
   async $mount(contribution: TypeRTRemoteContribution): ReturnType<TypeRTClientRemote['$mount']> {
@@ -89,6 +96,49 @@ class ClientRemoteService extends Service implements TypeRTClientRemote {
     }, `api-gateway.client.$mount(${JSON.stringify(contribution.package)})`)
     await owned
     return async () => { await owned() }
+  }
+
+  $on<Event extends TypeRTRemoteEvent>(
+    event: Event,
+    listener: Events[Event],
+  ): ReturnType<TypeRTClientRemote['$on']> {
+    // The table is keyed by the runtime event name, so the argument list this
+    // signature pins per event cannot survive in it; `$deliver` restores it
+    // from the frame the Host emitted for that same name.
+    const erased: RemoteEventListener = listener
+    const owned = this.ctx.effect(() => {
+      const listeners = this.listeners(event)
+      listeners.add(erased)
+      return () => { listeners.delete(erased) }
+    }, `api-gateway.client.$on(${JSON.stringify(event)})`)
+    return () => { void owned() }
+  }
+
+  /**
+   * Deliver one forwarded event in registration order, isolating a throwing
+   * listener; an event name nobody subscribes to is dropped, since the wire
+   * carries whatever the Host forwarding allowlist selected.
+   */
+  private dispatch(event: string, args: readonly unknown[]): void {
+    const listeners = this.subscriptions.get(event)
+    if (listeners === undefined) return
+    for (const listener of listeners) {
+      try {
+        listener(...args as never[])
+      } catch (error) {
+        console.error(`client api: Remote event ${JSON.stringify(event)} listener threw:`, error)
+      }
+    }
+  }
+
+  /** Subscription set for one event name; empty sets are retained, bounded by the Host's selection. */
+  private listeners(event: string): Set<RemoteEventListener> {
+    let listeners = this.subscriptions.get(event)
+    if (listeners === undefined) {
+      listeners = new Set()
+      this.subscriptions.set(event, listeners)
+    }
+    return listeners
   }
 
   private enqueue<T>(operation: () => T | Promise<T>): Promise<T> {

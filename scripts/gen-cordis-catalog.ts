@@ -173,17 +173,14 @@ export const EVENT_SCOPE_PAGE: Record<string, string> = {
  * `packages/x/x/src/**`, so a declared event either renders onto a subsystems
  * page (via {@link EVENT_SCOPE_PAGE}) or names itself here — never vanishes
  * silently. Keys are full event names, not scopes: client-face events share
- * scopes with rendered host events (`commands/changed` beside `commands/*`),
+ * scopes with rendered host events (`models/changed` beside `llm/*`),
  * so a scope-level exemption would mask a host-face regression.
  */
 export const EVENT_WALK_EXEMPTIONS: Record<string, string> = {
-  'commands/changed': 'client-face registry invalidation signal — packages/client/runtime/README.md owns the API',
   'connection/reset': 'client-face transport signal — packages/client/runtime/README.md owns the API',
-  'credentials/changed': 'client-face registry invalidation signal — packages/client/runtime/README.md owns the API',
   'locale/change': 'client-face locale switch signal — packages/client/locale/README.md owns the API',
   'models/changed': 'client-face registry invalidation signal — packages/client/runtime/README.md owns the API',
   'session/preset-changed': 'client-face per-session catalog invalidation signal — packages/client/runtime/README.md owns the API',
-  'settings/changed': 'client-face registry invalidation signal — packages/client/runtime/README.md owns the API',
   'slash/input-begin-command': 'client-face slash-input protocol — packages/client/ui-slash/README.md owns the API',
   'slash/input-consume-token': 'client-face slash-input protocol — packages/client/ui-slash/README.md owns the API',
   'slash/input-insert-reference': 'client-face slash-input protocol — packages/client/ui-slash/README.md owns the API',

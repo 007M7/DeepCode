@@ -6,7 +6,7 @@
 import { randomUUID } from 'node:crypto'
 import { mkdir, stat } from 'node:fs/promises'
 import { dirname } from 'node:path'
-import type { Context } from '@deepseek-ai/cordis'
+import type { Context, Events } from '@deepseek-ai/cordis'
 import { installModelSelection } from '@deepseek-ai/dsh-agent'
 import type { Agent, ModelSelection, ModelSelectionRef, AgentOptions, AgentStatus } from '@deepseek-ai/dsh-agent'
 import { AGENT_DEFAULT_MODEL_SETTINGS_NAMESPACE } from '@deepseek-ai/dsh-agent-default-model'
@@ -15,8 +15,8 @@ import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import { contentHasImage, createUserMessage, freezeMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import { errorChain } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
-import { isAppendSurfaceEvent, lastActivityTime } from '@deepseek-ai/dsh-session'
-import type { Session, SessionEvent, SessionEventMap, SessionHeader, SessionId, UserMessage } from '@deepseek-ai/dsh-session'
+import { isAppendSurfaceEvent, isJsonValue, lastActivityTime } from '@deepseek-ai/dsh-session'
+import type { JsonValue, Session, SessionEvent, SessionEventMap, SessionHeader, SessionId, UserMessage } from '@deepseek-ai/dsh-session'
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
 import { SessionQueryError, type SessionSearchCursor } from '@deepseek-ai/dsh-session-query'
 import { SubagentError } from '@deepseek-ai/dsh-subagent'
@@ -96,6 +96,7 @@ import { DirectoryPickerError } from '@deepseek-ai/dsh-host-directory-picker'
 import {
   ApiRemoteSessionNotFound as SessionNotFound,
   ApiRemoteSubagentSessionOwnership as SubagentSessionOwnership,
+  API_REMOTE_FORWARDED_EVENTS,
   apiRemoteSubagentOwnershipError,
   createApiRemoteAgentResolver,
   hasApiRemoteSubagentOwner,
@@ -412,6 +413,27 @@ class FrameQueue<F> {
  */
 function frame<F>(payload: F): RpcRequest<F> {
   return { rpcId: RpcId(randomUUID()), payload }
+}
+
+/**
+ * Narrow one allowlisted host event's argument list to the JSON values the
+ * wrapper frame carries. A rejected argument is an allowlist mistake (the
+ * forwarded path applies no projection), not hostile input, so it fails loud
+ * here rather than degrading to a dropped or lossy frame. Exported for the
+ * test that owns this decision: every currently allowlisted event has a
+ * statically JSON-safe payload, so a type-legal `ctx.emit` cannot reach the
+ * rejection branch.
+ * @param event - forwarded host event name, named in the failure.
+ * @param args - the emitter's argument list.
+ * @returns the same arguments typed as JSON values.
+ */
+export function assertJsonArgs(event: string, args: readonly unknown[]): JsonValue[] {
+  for (const [index, arg] of args.entries()) {
+    if (!isJsonValue(arg)) {
+      throw new Error(`forwarded host event "${event}" argument ${index} is not lossless JSON data`)
+    }
+  }
+  return args as JsonValue[]
 }
 
 /** Queue the subscription baseline frame. */
@@ -3441,9 +3463,27 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
               workspace: changedWorkspaceView(change.key, change.value),
             }))
           }),
-          ctx.on('commands/change', () => {
-            queue.push(frame({ type: 'host/commands-changed' }))
-          }),
+          // Allowlisted host events ride one verbatim wrapper frame each. The
+          // allowlist is api-remotes', and `ctx.remote.$on` is the consumer
+          // face; nothing here projects, redacts, or renames. Registered ahead
+          // of the derived frames below so a forwarded event still precedes the
+          // invalidation derived from it (`settings/document-updated` before
+          // its `host/models-changed`), which is the order a client sees.
+          ...API_REMOTE_FORWARDED_EVENTS.map(name => ctx.on(
+            name,
+            // cordis keys `on` by literal event name, so subscribing from a
+            // runtime list erases the handler type once. The erasure is safe
+            // because the allowlist's shape assertion already proves each name
+            // is a real, non-scoped, void-returning event, and assertJsonArgs
+            // proves the payload is JSON-safe before it reaches the queue.
+            ((...args: unknown[]) => {
+              queue.push(frame({
+                type: 'host/remote-event',
+                event: name,
+                args: assertJsonArgs(name, args),
+              }))
+            }) as Events[typeof name],
+          )),
           // The recompose itself registers nothing (it re-parents the agent's
           // scope onto a standing mount that may already exist), so the
           // logged selection is the only commit point a client can follow.
@@ -3461,7 +3501,6 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             // configuration client still has to re-read (its held revision is
             // stale, and the field's meaning changed).
             const name = String(ns)
-            queue.push(frame({ type: 'host/settings-changed', ns: name }))
             // A provider's own settings carry its model catalog and endpoint,
             // so a change there invalidates the model list even when the route
             // set is untouched — `llm/adapters-updated` alone misses it. The
@@ -3472,9 +3511,6 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             if (modelProviderNamespaces().has(name) || name === String(AGENT_DEFAULT_MODEL_SETTINGS_NAMESPACE)) {
               queue.push(frame({ type: 'host/models-changed' }))
             }
-          }),
-          ctx.on('credentials/updated', (ref) => {
-            queue.push(frame({ type: 'host/credentials-changed', ref: String(ref) }))
           }),
           ctx.on('llm/adapters-updated', () => {
             queue.push(frame({ type: 'host/models-changed' }))

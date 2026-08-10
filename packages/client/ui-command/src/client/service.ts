@@ -11,6 +11,9 @@ import { Service } from '@deepseek-ai/cordis'
 import type { Context } from '@deepseek-ai/cordis'
 import type { ConnectionHandle, SessionId } from '@deepseek-ai/dsh-client-connection/client'
 import type { ClientContext, ISessions } from '@deepseek-ai/dsh-client-runtime/client'
+// Type-only: pulls the ctx.remote merge and the forwarded-event key face
+// (`commands/change` rides the allowlist) into this program.
+import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import type {
   CandidateRequest, ClientSessionContext, CommandClaim, PickOutcome, SlashCandidate, SlashPick,
   SubmitOutcome,
@@ -93,7 +96,7 @@ function fuzzyCandidates(candidates: readonly SlashCandidate[], rawQuery: string
 
 /** Command surface: session-keyed directory + '/' source + contribution registry + per-session popups. */
 export class CommandService extends Service implements CommandServiceContract {
-  static inject = ['slash', 'sessions', 'connection']
+  static inject = ['slash', 'sessions', 'connection', 'remote']
 
   private readonly directory: CommandDirectory
   private readonly live: LiveState = { contributions: new Map(), decorations: new Map(), popups: new Map() }
@@ -123,7 +126,7 @@ export class CommandService extends Service implements CommandServiceContract {
       matchEnter: (session, line, signal) => this.matchEnter(session, line, signal),
       warm: (session) => { this.directory.warm(session.sessionId) },
     }), 'command: slash source')
-    ctx.on('commands/changed', () => { this.directory.invalidateAll() })
+    ctx.remote.$on('commands/change', () => { this.directory.invalidateAll() })
     // A preset switch changes which commands one session's agent resolves and
     // registers nothing globally, so the registry-wide signal above never
     // fires for it: repull that key alone, soft, so the old snapshot serves

@@ -151,29 +151,6 @@ declare module '@deepseek-ai/cordis' {
      */
     'slots/changed'(key: string): void
     /**
-     * The host command registry changed (host/commands-changed passthrough).
-     * Pure invalidation signal: subscribers refetch `command.list` in the
-     * background rather than diffing.
-     * @mode emit
-     */
-    'commands/changed'(): void
-    /**
-     * One settings namespace's resolved value changed on the host
-     * (host/settings-changed passthrough). Subscribers refetch
-     * `settings.describe`; the frame carries no values.
-     * @mode emit
-     * @param ns - the namespace whose resolved value changed.
-     */
-    'settings/changed'(ns: string): void
-    /**
-     * One credential reference's state changed on the host
-     * (host/credentials-changed passthrough). The ref is an
-     * environment-variable NAME — never a value.
-     * @mode emit
-     * @param ref - the reference whose configured state changed.
-     */
-    'credentials/changed'(ref: string): void
-    /**
      * The host provider topology changed (host/models-changed passthrough).
      * Subscribers refetch `llm.providers`/`llm.models`/`session.models`.
      * @mode emit
@@ -241,16 +218,15 @@ export function apply(ctx: Context): void {
     onHostEnvelope: (envelope) => {
       sessions.handleHostEnvelope(envelope)
       workspaces.handleHostEnvelope(envelope)
-      // Typed-event bridge: the session layer ignores registry frames (no
-      // session routing); consumers (command directory caches, the settings
-      // and model services) subscribe on ctx.
+      // Forwarded-event bridge: the session layer ignores registry frames (no
+      // session routing). This plugin only carries the frame onto the internal
+      // `remote/host-event` plumbing event; the Remote service subscribes there
+      // and fans out to `ctx.remote.$on`, so no consumer reads a frame.
       const frame = envelope.payload
-      if (frame.type === 'host/commands-changed') ctx.emit('commands/changed')
+      if (frame.type === 'host/remote-event') ctx.emit('remote/host-event', frame.event, frame.args)
       else if (frame.type === 'host/session-preset-changed') {
         ctx.emit('session/preset-changed', frame.sessionId, frame.agentPreset)
       }
-      else if (frame.type === 'host/settings-changed') ctx.emit('settings/changed', frame.ns)
-      else if (frame.type === 'host/credentials-changed') ctx.emit('credentials/changed', frame.ref)
       else if (frame.type === 'host/models-changed') ctx.emit('models/changed')
     },
     onConnected: () => {

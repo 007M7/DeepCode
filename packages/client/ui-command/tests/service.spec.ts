@@ -10,6 +10,7 @@
 import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it, vi } from 'vitest'
 import { createScope, scopeOf } from '@deepseek-ai/dsh-client-runtime/client'
+import { TestRemote } from '@deepseek-ai/dsh-client-test-runtime'
 import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ClientSessionContext, ConsumeTokenRequest, SlashPick, SlashSource } from '@deepseek-ai/dsh-client-ui-slash/client'
 import type { CommandContribution, CommandDecoration, CommandUiSpec, SelectOption } from '../src/client/contract.ts'
@@ -78,6 +79,9 @@ async function bench(opts: BenchOptions = {}) {
       : undefined,
   })
   ctx.provide('connection', { api })
+  // CommandService injects `remote`; the directory invalidation arrives on the
+  // same `remote/host-event` signal the connection sink republishes.
+  new TestRemote(ctx)
   /** Notices the fake conversation face collected (runDetached routing). */
   const notices: Array<{ scope: SessionId | undefined; level: 'info' | 'error'; text: string }> = []
   ctx.provide('conversation', {
@@ -611,7 +615,7 @@ describe('directory invalidation events', () => {
       },
     })
     await warm(proj('s1'))
-    ctx.emit('commands/changed')
+    ctx.emit('remote/host-event', 'commands/change', [])
     await new Promise(resolve => setTimeout(resolve, 0))
     expect(source.matchSpace!(proj('s1'), '/fresh')).not.toBeUndefined()
     expect(source.matchSpace!(proj('s1'), '/goal')).toBeUndefined()

@@ -8,7 +8,8 @@
   "files": [
     "src/agent-lookup.ts",
     "src/index.ts",
-    "src/invariant.ts"
+    "src/invariant.ts",
+    "src/types.ts"
   ],
   "references": [
     {
@@ -21,7 +22,16 @@
       "path": "../../core/session"
     },
     {
+      "path": "../../credentials/credentials"
+    },
+    {
+      "path": "../../interaction/commands"
+    },
+    {
       "path": "../../session/session-persistence"
+    },
+    {
+      "path": "../../settings/settings"
     },
     {
       "path": "../../support/invariants"

@@ -16,6 +16,9 @@
 import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
 import type {} from '@deepseek-ai/dsh-client-locale/client'
+// Type-only: pulls the ctx.remote merge and the forwarded-event key face
+// (the settings invalidation rides the allowlist) into this program.
+import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import type { ClientContext, SessionFace } from '@deepseek-ai/dsh-client-runtime/client'
 import type { CommandServiceContract, SelectOption } from '@deepseek-ai/dsh-client-ui-command/client'
 import type { ClientSessionContext } from '@deepseek-ai/dsh-client-ui-slash/client'
@@ -38,7 +41,7 @@ export type {
 } from './settings-store.ts'
 
 /** Required services (cordis fiber inject). */
-export const inject = ['command', 'sessions', 'slots', 'locale', 'connection']
+export const inject = ['command', 'sessions', 'slots', 'locale', 'connection', 'remote']
 
 const ACCESS_NS = 'permission.access'
 
@@ -118,12 +121,12 @@ export function apply(ctx: ClientContext): void {
   })
 
   ctx.effect(() => {
-    const refresh = (ns?: string): void => {
-      if (ns !== undefined && ns !== PERMISSION_SETTINGS_NS) return
-      refreshPermissionIfLoaded(controller)
-    }
+    const refresh = (): void => { refreshPermissionIfLoaded(controller) }
     const disposers = [
-      ctx.on('settings/changed', refresh),
+      ctx.remote.$on('settings/document-updated', (ns) => {
+        if (ns !== PERMISSION_SETTINGS_NS) return
+        refresh()
+      }),
       ctx.on('connection/reset', () => { refresh() }),
     ]
     return () => {

@@ -12,6 +12,9 @@ import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 // Type-only: pulls ctx.locale and the 'settings.general.item' SlotMap merge.
 import type {} from '@deepseek-ai/dsh-client-locale/client'
+// Type-only: pulls the ctx.remote merge and the forwarded-event key face
+// (the settings invalidation rides the allowlist) into this program.
+import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import { CloseLabel, HeaderContent, TriggerContent } from './chrome.tsx'
 import { GeneralSection } from './GeneralSection.tsx'
 import { SettingsDocumentAction } from './SettingsDocumentAction.tsx'
@@ -51,7 +54,7 @@ const NS = 'settings'
  * ui-settings' apply, whose activation order relative to this one is NOT
  * constrained; registrations depend on their slots through `slots.inject()`.
  */
-export const inject = ['slots', 'locale', 'connection']
+export const inject = ['slots', 'locale', 'connection', 'remote']
 
 /**
  * Register the `settings` dictionaries, the chrome content, and the General
@@ -83,12 +86,12 @@ export function apply(ctx: ClientContext): void {
   })
 
   ctx.effect(() => {
-    const refresh = (ns?: string): void => {
-      if (ns !== undefined && ns !== WELCOME_NOTICE_SETTINGS_NAMESPACE) return
-      refreshWelcomeIfLoaded(welcomeController)
-    }
+    const refresh = (): void => { refreshWelcomeIfLoaded(welcomeController) }
     const disposers = [
-      ctx.on('settings/changed', refresh),
+      ctx.remote.$on('settings/document-updated', (ns) => {
+        if (ns !== WELCOME_NOTICE_SETTINGS_NAMESPACE) return
+        refresh()
+      }),
       ctx.on('connection/reset', () => {
         refresh()
         refreshDocumentIfLoaded(documentController)

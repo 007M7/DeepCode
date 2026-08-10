@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { resolveSlotLabel } from '@deepseek-ai/dsh-client-ui-slots'
 import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
 import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
-import { usePinnedBrowserLanguages } from '@deepseek-ai/dsh-client-test-runtime'
+import { TestRemote, usePinnedBrowserLanguages } from '@deepseek-ai/dsh-client-test-runtime'
 import { apply, inject, refreshIfLoaded } from '@deepseek-ai/dsh-client-ui-models/client'
 import { ModelsSection } from '../src/client/ModelsSection.tsx'
 import { DeepSeekOnboardingDialog } from '../src/client/DeepSeekOnboardingDialog.tsx'
@@ -18,6 +18,9 @@ async function bench() {
   await ctx.plugin(SlotsService).await()
   const locale = new LocaleService(ctx)
   ctx.provide('locale', locale)
+  // The plugins inject `remote`; forwarded events reach them through the
+  // same `remote/host-event` signal the connection sink republishes.
+  new TestRemote(ctx)
   // The apply path only captures the wire face; no call leaves this fake
   // until a section actually loads.
   ctx.provide('connection', { api: {} } as never)
@@ -39,7 +42,7 @@ function declare(slots: SlotsService): () => void {
 
 describe('ui-models apply', () => {
   it('declares the services it uses', () => {
-    expect(inject).toEqual(['slots', 'locale', 'connection'])
+    expect(inject).toEqual(['slots', 'locale', 'connection', 'remote'])
   })
 
   it('registers the models nav entry for declarations before or after apply', async () => {
@@ -135,8 +138,8 @@ describe('pushed invalidations', () => {
     declare(b.slots)
     await b.ctx.plugin({ inject: [...inject], apply }).await()
     // The fake wire face has no methods: a fetch attempt would throw.
-    b.ctx.emit('settings/changed', 'llm-pi-ai')
-    b.ctx.emit('credentials/changed', 'OPENAI_API_KEY')
+    b.ctx.emit('remote/host-event', 'settings/document-updated', ['llm-pi-ai', 1])
+    b.ctx.emit('remote/host-event', 'credentials/updated', ['OPENAI_API_KEY'])
     b.ctx.emit('models/changed')
     b.ctx.emit('connection/reset')
   })
@@ -167,7 +170,7 @@ describe('pushed invalidations', () => {
     )()
     injected.controller.store.update((state) => { state.status = 'ready' })
     const load = vi.spyOn(injected.controller, 'load').mockResolvedValue()
-    b.ctx.emit('credentials/changed', 'DEEPSEEK_API_KEY')
+    b.ctx.emit('remote/host-event', 'credentials/updated', ['DEEPSEEK_API_KEY'])
     expect(load).toHaveBeenCalledTimes(1)
   })
 })

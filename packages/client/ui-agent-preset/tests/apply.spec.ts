@@ -10,7 +10,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { resolveSlotLabel } from '@deepseek-ai/dsh-client-ui-slots'
 import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
 import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
-import { usePinnedBrowserLanguages } from '@deepseek-ai/dsh-client-test-runtime'
+import { TestRemote, usePinnedBrowserLanguages } from '@deepseek-ai/dsh-client-test-runtime'
 import { apply, inject } from '@deepseek-ai/dsh-client-ui-agent-preset/client'
 import { AgentPresetLabel } from '../src/client/AgentPresetLabel.tsx'
 import type { AgentPresetLabelInjected } from '../src/client/AgentPresetLabel.tsx'
@@ -78,6 +78,9 @@ async function bench() {
   await ctx.plugin(SlotsService).await()
   const locale = new LocaleService(ctx)
   ctx.provide('locale', locale)
+  // The plugins inject `remote`; forwarded events reach them through the
+  // same `remote/host-event` signal the connection sink republishes.
+  new TestRemote(ctx)
   const calls: string[] = []
   ctx.provide('connection', {
     api: {
@@ -169,7 +172,7 @@ function sessionsDouble(state: {
 
 describe('ui-agent-preset apply', () => {
   it('declares the services it uses', () => {
-    expect(inject).toEqual(['slots', 'locale', 'connection'])
+    expect(inject).toEqual(['slots', 'locale', 'connection', 'remote'])
   })
 
   it('registers the General row and the settings section', async () => {
@@ -250,11 +253,11 @@ describe('ui-agent-preset apply', () => {
     await section.load()
     const before = calls.length
 
-    ctx.emit('settings/changed', 'agent-presets')
+    ctx.emit('remote/host-event', 'settings/document-updated', ['agent-presets', 1])
     await vi.waitFor(() => { expect(calls.length).toBe(before + 2) })
     const afterRelevant = calls.length
 
-    ctx.emit('settings/changed', 'llm-deepseek')
+    ctx.emit('remote/host-event', 'settings/document-updated', ['llm-deepseek', 1])
     await Promise.resolve()
 
     // Both surfaces re-read on their own namespace; an unrelated one moves
@@ -282,7 +285,7 @@ describe('ui-agent-preset apply', () => {
     await ctx.plugin({ inject: [...inject], apply }).await()
     const before = calls.length
 
-    ctx.emit('settings/changed', 'agent-presets')
+    ctx.emit('remote/host-event', 'settings/document-updated', ['agent-presets', 1])
     await vi.waitFor(() => { expect(calls.length).toBeGreaterThan(before) })
 
     // Only the General row reloads: a section nobody opened has nothing to
@@ -333,11 +336,11 @@ describe('ui-agent-preset apply', () => {
     // An unrelated namespace moves nothing: the chip re-reads on its own
     // setting, not on every settings write in the process.
     moveDefault()
-    ctx.emit('settings/changed', 'llm-deepseek')
+    ctx.emit('remote/host-event', 'settings/document-updated', ['llm-deepseek', 1])
     await Promise.resolve()
     expect(seat.hooks.agentPresetSeat.getSnapshot().current).toBe('standard')
 
-    ctx.emit('settings/changed', 'agent-presets')
+    ctx.emit('remote/host-event', 'settings/document-updated', ['agent-presets', 1])
     await vi.waitFor(() => {
       expect(seat.hooks.agentPresetSeat.getSnapshot().current).toBe('minimal')
     })

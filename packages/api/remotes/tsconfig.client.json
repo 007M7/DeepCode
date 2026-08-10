@@ -6,14 +6,27 @@
     "tsBuildInfoFile": "lib/tsconfig.client.tsbuildinfo"
   },
   "files": [
-    "src/client/index.ts"
+    "src/client/index.ts",
+    "src/types.ts"
   ],
   "references": [
     {
       "path": "../../../vendor/cordis"
     },
     {
+      "path": "../gateway"
+    },
+    {
+      "path": "../../credentials/credentials"
+    },
+    {
       "path": "../../goal/goal"
+    },
+    {
+      "path": "../../interaction/commands"
+    },
+    {
+      "path": "../../settings/settings"
     },
     {
       "path": "../../typert/type-meta"

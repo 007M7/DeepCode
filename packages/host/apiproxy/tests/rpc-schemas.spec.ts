@@ -505,7 +505,8 @@ describe('events frame schemas', () => {
         createdAt: '0', updatedAt: '0',
       } },
       { type: 'host/workspace-removed', workspaceId: 'w' },
-      { type: 'host/commands-changed' },
+      { type: 'host/remote-event', event: 'commands/change', args: [] },
+      { type: 'host/remote-event', event: 'settings/document-updated', args: ['ns', 3] },
       { type: 'host/session-preset-changed', sessionId: 's', agentPreset: 'minimal' },
       { type: 'stream/error', error: { code: 'internal', message: 'm', details: {} } },
     ]
