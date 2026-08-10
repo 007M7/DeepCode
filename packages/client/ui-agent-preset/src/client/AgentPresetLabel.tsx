@@ -15,6 +15,7 @@ import { IconThinkOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
 // Type-only: pulls the ui-conversation SlotMap merge (the header actions).
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { AgentPresetSettingsState } from './settings-store.ts'
+import { presetDisplayText } from './locales.ts'
 import css from './AgentPresetLabel.module.css'
 
 /** Registration-side business face for the header label. */
@@ -53,10 +54,11 @@ export function AgentPresetLabel({
   if (preset === undefined) return null
 
   const option = options.find(entry => entry.id === preset)
+  const text = option === undefined ? undefined : presetDisplayText(option, t)
   return (
-    <span className={css.label} title={option?.description ?? t('headerHint')}>
+    <span className={css.label} title={text?.description ?? t('headerHint')}>
       <IconThinkOutline16 className={css.icon} />
-      {option?.name ?? preset}
+      {text?.name ?? preset}
     </span>
   )
 }
