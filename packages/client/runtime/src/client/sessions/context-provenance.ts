@@ -1,4 +1,4 @@
-// Context provenance projection: the role and the human-facing producer name
+// Context source projection: the role and the human-facing producer name
 // of one logged non-user `user/message`, read from its durable `source` alone.
 // The client keeps no table of known plugin ids — a renamed or newly mounted
 // producer must never need a client release to stay identifiable, and a resumed
@@ -83,6 +83,9 @@ export function contextProvenance(source: unknown): ContextProvenanceView {
       return { role: 'inject', label: joined(collect(record, 'changes', 'path')) ?? kind }
     case 'plugin':
       return { role: 'inject', label: readString(record, 'plugin') ?? kind }
+    // A user-explicit skill invocation names the skill it injected.
+    case 'skill-invocation':
+      return { role: 'inject', label: readString(record, 'name') ?? kind }
     // Documented default arm of the merge-extensible source map: an unknown
     // producer still identifies itself by its own durable kind.
     default:

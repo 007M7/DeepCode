@@ -1,6 +1,5 @@
-/* Chat flow: one 16px rhythm everywhere — between blocks (prose <-> tool
-   runs) via the column gap and between consecutive tool rows via the group
-   gap. Input padding cap rides the skeleton. Under
+/* Chat flow: one 16px rhythm everywhere through the column gap. Input
+   padding cap rides the skeleton. Under
    `[data-conversation-scroll]` the column host owns overflow and this view
    is ordinary flow (see ConversationRoot active-phase rules). */
 
@@ -51,10 +50,11 @@
   min-width: 0;
 }
 
-.toolGroup {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
+/* A keyed renderer may intentionally decline its row after dispatch (the
+   completed-turn tail does this when it owns neither actions nor extensions).
+   An empty flex item must not consume the column gap. */
+.flowItem:empty {
+  display: none;
 }
 
 .callRow {
@@ -63,17 +63,6 @@
 
 /* Selection still sets data-selected for details linkage; no outline —
    tool rows match Think chrome (no selected ring). */
-
-/* run_code sub-dispatch rows: indented under the parent row, left-edged so
-   the code turn reads as one unit; each nested row is itself a .callRow. */
-.subCalls {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin: 4px 0 2px 22px;
-  padding-left: 8px;
-  border-left: 1px solid var(--dsw-alias-border-l2);
-}
 
 /* Turn activity keeps the former loader's one-line footprint. A pale
    brand-blue band sweeps from left to right; reduced-motion keeps it static. */

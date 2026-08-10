@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-Abstract credential seam (`ctx.credentials`). One doctrine, three consequences:
+Credential Service Definition (`ctx.credentials`). One doctrine, three consequences:
 
 **Configuration carries references to secrets, never the secrets.** A settings section or `cordis.yml` entry says `apiKeyEnv: DEEPSEEK_API_KEY`; the value behind that reference lives with a credential provider. So the settings document stays safe to sync and to render in a configuration UI, `describe()` can answer "is this configured, where from, can I write it" without ever holding a value, and rotating a secret touches no configuration file.
 
@@ -31,7 +31,7 @@ The shadowing rule on `set`/`unset` is deliberate fail-loud: when a read-only so
 
 ## Providers
 
-[`dsh-credentials-local`](../credentials-local/README.md) layers the live process environment over a `$DSH_HOME/.env` file. The seam shape leaves room for keyring-, helper-command-, and KMS-backed providers; a remote settings provider never needs to carry secrets.
+[`dsh-credentials-local`](../credentials-local/README.md) layers the inherited process environment over its managed `$DSH_HOME/.credentials.yaml` document, with the launcher's project and user `.env` layers as fallbacks. The seam shape leaves room for keyring-, helper-command-, and KMS-backed providers; a remote settings provider never needs to carry secrets.
 
 ## Model Experience
 

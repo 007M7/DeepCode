@@ -33,7 +33,10 @@
       "path": "../../core/agent"
     },
     {
-      "path": "../../session-projection/session-projection"
+      "path": "../../session/session-projection"
+    },
+    {
+      "path": "../../typert/type-meta"
     },
     {
       "path": "../../support/invariants"

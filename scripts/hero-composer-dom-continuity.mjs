@@ -1,4 +1,4 @@
-// Regression drive for the unified hero composer (0729-0357-hero-unify):
+// Regression drive for the unified hero composer:
 // cold start with zero workspaces -> create a workspace -> type. Asserts the
 // composer textarea is the SAME DOM node across the disabled->live flip (a
 // remount drops the __heroMark marker property) — the session-maybe

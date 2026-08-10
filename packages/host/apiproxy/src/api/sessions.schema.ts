@@ -12,7 +12,7 @@ import type { RequestPayload, ResponseValue } from './rpc-map.ts'
 import type { Wire } from './rpc.schema.ts'
 import type {
   HistoryEntry, ModelCatalogFailure, ModelCatalogModel, ModelProviderGroup, ModelReasoning,
-  ModelReasoningEffort, ModelTarget, SessionProjectionsBlock, SessionSearchItem, SessionSummary,
+  ModelReasoningEffort, ModelSelection, SessionProjectionsBlock, SessionSearchItem, SessionSummary,
 } from './sessions.ts'
 import type { ToolEventView } from './events.ts'
 import type { WorkspaceId } from './workspace.ts'
@@ -55,6 +55,7 @@ export const sessionSummarySchema = z.object({
   parentSessionId: sessionIdSchema.optional(),
   origin: z.literal('subagent').optional(),
   cwd: z.string().optional(),
+  agentPreset: z.string().optional(),
   projections: z.lazy(() => sessionProjectionsBlockSchema).optional(),
 }) as unknown as z.ZodType<Wire<SessionSummary>>
 
@@ -100,6 +101,7 @@ export const sessionCreateRequestSchema = z.object({
   workspaceId: workspaceIdSchema.optional(),
   cwd: z.string().optional(),
   sessionId: sessionIdSchema.optional(),
+  agentPreset: z.string().optional(),
 }).refine(
   payload => payload.workspaceId === undefined || payload.cwd === undefined,
   { message: 'session.create accepts workspaceId or cwd, not both' },
@@ -108,6 +110,7 @@ export const sessionCreateRequestSchema = z.object({
 /** session.create response value. */
 export const sessionCreateValueSchema = z.object({
   sessionId: sessionIdSchema,
+  agentPreset: z.string().optional(),
 }) satisfies z.ZodType<Wire<ResponseValue<'session.create'>>>
 
 /** session.rename request payload (raw title; host-side normalization decides acceptance). */
@@ -140,12 +143,12 @@ export const sessionHistoryRequestSchema = z.object({
   maxMessages: z.number().int().positive().optional(),
 }) satisfies z.ZodType<Wire<RequestPayload<'session.history'>>>
 
-/** Complete provider/model target. */
-export const modelTargetSchema = z.object({
+/** Complete provider/model selection. */
+export const modelSelectionSchema = z.object({
   provider: z.string().min(1),
   model: z.string().min(1),
   reasoningEffort: z.string().min(1).optional(),
-}) satisfies z.ZodType<Wire<ModelTarget>>
+}) satisfies z.ZodType<Wire<ModelSelection>>
 
 /** One adapter-owned reasoning effort. */
 export const modelReasoningEffortSchema = z.object({
@@ -224,7 +227,8 @@ export const sessionModelsRequestSchema = z.object({
 
 /** session.models response value. */
 export const sessionModelsValueSchema = z.object({
-  current: modelTargetSchema,
+  current: modelSelectionSchema,
+  routable: z.boolean(),
   groups: z.array(modelProviderGroupSchema),
   failures: z.array(modelCatalogFailureSchema),
 }) satisfies z.ZodType<Wire<ResponseValue<'session.models'>>>
@@ -239,7 +243,7 @@ export const sessionSelectModelRequestSchema = z.object({
 
 /** session.selectModel response value. */
 export const sessionSelectModelValueSchema = z.object({
-  selected: modelTargetSchema,
+  selected: modelSelectionSchema,
 }) satisfies z.ZodType<Wire<ResponseValue<'session.selectModel'>>>
 
 /** ContentBlock passthrough: core is merge-extensible — the type discriminant envelope is strict, the rest stays wide. */

@@ -14,6 +14,24 @@ interface CssModulePlugin {
   load?: (this: { addWatchFile: (id: string) => void }, id: string) => Promise<unknown>
 }
 
+function clientConfigs(id = '@deepseek-ai/dsh-client-test') {
+  return clientBundle(id, ['lib/types/index.js', 'lib/types/invariant.js'])(
+    { env: { DSH_BUILD_FACE: 'client' } },
+  ).filter(config => config.platform === 'browser')
+}
+
+describe('client bundle build faces', () => {
+  it('watches source in development and consumes emitted JavaScript in the Client build', () => {
+    const bundle = clientBundle('@deepseek-ai/dsh-client-test', ['lib/types/index.js'])
+    const development = bundle({ env: {} }).find(config => config.platform === 'browser')
+    const artifact = bundle({ env: { DSH_BUILD_FACE: 'client' } })
+      .find(config => config.platform === 'browser')
+
+    expect(development?.entry).toEqual({ client: 'src/client/index.ts' })
+    expect(artifact?.entry).toEqual({ client: 'lib/types/client/index.js' })
+  })
+})
+
 function clientSourceMapPath(packagePath: string): string {
   return fileURLToPath(new URL(`../packages/${packagePath}/lib/client.js.map`, import.meta.url))
 }
@@ -21,16 +39,16 @@ function clientSourceMapPath(packagePath: string): string {
 function purityResolveId(): ResolveId {
   // libEntry is spelled at every call site (no default) so the
   // package-invariants text check can see the invariant entry per package.
-  const configs = clientBundle('@deepseek-ai/dsh-client-test', ['lib/types/index.js', 'lib/types/invariant.js'])
-  const plugins = (configs[1] as { plugins: { name: string; resolveId?: unknown }[] }).plugins
+  const configs = clientConfigs()
+  const plugins = (configs[0] as { plugins: { name: string; resolveId?: unknown }[] }).plugins
   const gate = plugins.find(p => p.name === 'dsh-client-bundle-purity')
   if (gate?.resolveId === undefined) throw new Error('purity plugin missing from client config')
   return gate.resolveId as ResolveId
 }
 
 function cssModulePlugin(): CssModulePlugin {
-  const configs = clientBundle('@deepseek-ai/dsh-client-test', ['lib/types/index.js', 'lib/types/invariant.js'])
-  const plugins = (configs[1] as { plugins: CssModulePlugin[] }).plugins
+  const configs = clientConfigs()
+  const plugins = (configs[0] as { plugins: CssModulePlugin[] }).plugins
   const plugin = plugins.find(candidate => candidate.name === 'dsh-css-modules-inline')
   if (plugin?.resolveId === undefined || plugin.load === undefined) {
     throw new Error('CSS Modules plugin missing from client config')
@@ -59,6 +77,13 @@ describe('client bundle purity gate', () => {
     expect(resolveId('@deepseek-ai/dsh-brand')).toBeNull()
   })
 
+  it('lets exact generated Remote contributions inline without admitting their package implementation', () => {
+    expect(resolveId('@deepseek-ai/dsh-goal/remote')).toBeNull()
+    expect(() => resolveId('@deepseek-ai/dsh-goal')).toThrow(/purity/)
+    expect(() => resolveId('@deepseek-ai/dsh-goal/client')).toThrow(/purity/)
+    expect(() => resolveId('@deepseek-ai/dsh-goal/remote/nested')).toThrow(/purity/)
+  })
+
   it('throws on any other @deepseek-ai leak', () => {
     expect(() => resolveId('@deepseek-ai/dsh-agent')).toThrow(/purity/)
     expect(() => resolveId('@deepseek-ai/dsh-client-web')).toThrow(/purity/)
@@ -80,13 +105,13 @@ describe('client bundle purity gate', () => {
 
 describe('client bundle debug artifacts', () => {
   it('emits source maps for plugin TS and TSX outside the Vite module graph', () => {
-    const configs = clientBundle('@deepseek-ai/dsh-client-test', ['lib/types/index.js', 'lib/types/invariant.js'])
-    expect(configs[1]?.sourcemap).toBe(true)
+    const configs = clientConfigs()
+    expect(configs[0]?.sourcemap).toBe(true)
   })
 
   it('maps first-party sources to their repository package paths', () => {
-    const configs = clientBundle('@deepseek-ai/dsh-client-ui-goal', ['lib/types/index.js', 'lib/types/invariant.js'])
-    const outputOptions = configs[1]?.outputOptions
+    const configs = clientConfigs('@deepseek-ai/dsh-client-ui-goal')
+    const outputOptions = configs[0]?.outputOptions
     if (typeof outputOptions !== 'object' || outputOptions === null) throw new Error('client output options missing')
     const transform = outputOptions.sourcemapPathTransform
     if (transform === undefined) throw new Error('client sourcemap path transform missing')
@@ -98,8 +123,8 @@ describe('client bundle debug artifacts', () => {
   })
 
   it('maps dual-face host sources to the host package group', () => {
-    const configs = clientBundle('@deepseek-ai/dsh-host-directory-picker-native', ['lib/types/index.js'])
-    const outputOptions = configs[1]?.outputOptions
+    const configs = clientConfigs('@deepseek-ai/dsh-host-directory-picker-native')
+    const outputOptions = configs[0]?.outputOptions
     if (typeof outputOptions !== 'object' || outputOptions === null) throw new Error('client output options missing')
     const transform = outputOptions.sourcemapPathTransform
     if (transform === undefined) throw new Error('client sourcemap path transform missing')
@@ -109,8 +134,8 @@ describe('client bundle debug artifacts', () => {
   })
 
   it('maps inlined workspace sources to packages and leaves dependencies outside it unchanged', () => {
-    const configs = clientBundle('@deepseek-ai/dsh-client-connection', ['lib/types/index.js'])
-    const outputOptions = configs[1]?.outputOptions
+    const configs = clientConfigs('@deepseek-ai/dsh-client-connection')
+    const outputOptions = configs[0]?.outputOptions
     if (typeof outputOptions !== 'object' || outputOptions === null) throw new Error('client output options missing')
     const transform = outputOptions.sourcemapPathTransform
     if (transform === undefined) throw new Error('client sourcemap path transform missing')

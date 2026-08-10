@@ -1,4 +1,4 @@
-# Agent Note（agent 决策记录）：可继续 subagent 报告工具
+# Agent Note: 可继续 subagent 报告工具
 
 Status: implemented
 
@@ -8,15 +8,15 @@ Status: implemented
 
 可继续的进程内 subagent 能够接收 parent 后续发来的消息、保留后代、结算并冷恢复，但基础生命周期无法让它们将选中内容发送给直接 parent。child 的完整输出已可从持久化会话中重建，因此缺失的能力是显式投递，而非结果存储。
 
-如果将每条 assistant 最终消息都视为隐式结果，就会混淆轮次完成与报告。长期运行的 child 可能在某个轮次中无内容可报告，也可能在另一个轮次多次报告进展，而且报告后必须仍可继续工作。因此，接收方权限、静默投递与唤醒投递、确认、持久性和重试行为都需要一份显式契约。
+如果将每条 assistant 最终消息都视为隐式结果，就会混淆轮次完成与报告。长期运行的 child 可能在某个轮次中无内容可报告，也可能在另一个轮次多次报告进展，而且报告后必须仍可继续工作。因此，接收方权限、静默投递与唤醒投递、确认、持久性和重试行为都需要一份显式约定。
 
 ## 决策
 
-新增可独立安装的 `@deepseek-ai/dsh-tool-subagent-report` 包（package）。它会向每个可继续进程内 child Activation 贡献一个普通的面向模型 `report` 工具。child 在一个轮次中可调用零次或多次。调用成功既不会结束该轮次或结算 Activation，也不会阻止 parent 之后继续 follow-up；完成轮次也绝不会自动报告。
+新增可独立安装的 `@deepseek-ai/dsh-tool-subagent-report` 包。它会向每个可继续进程内 child Activation 贡献一个普通的面向模型 `report` 工具。child 在一个轮次中可调用零次或多次。调用成功既不会结束该轮次或结算 Activation，也不会阻止 parent 之后继续 follow-up；完成轮次也绝不会自动报告。
 
 该功能是协作控制，不是承载结果的执行包装层。它不新增 Task、`SubagentRun`、结果 promise、Activation 状态、投递队列或回放路径。
 
-### 面向模型的契约
+### 面向模型的约定
 
 `report` 只接受 `{ output: string }`，也只返回 `{ messageId: string }`。它不接受 child id、接收方 id 或投递模式。`exec.agent` 将工具调用绑定到发送报告的 child；服务从持久化 `parentSession` 中推导唯一接收方，调度则由部署配置决定。
 
@@ -24,11 +24,11 @@ Status: implemented
 
 工具描述会明确报告操作是显式、可重复、仅限直接 parent 且不会结束轮次的。它还会警告：发送被接受后，后续 `tools/post-execute` 失败可能替换工具结果，因此工具结果失败时内容仍可能已经送达。没有幂等键时，更强的表述会诱导调用方在结果不明确的失败后重复重试。
 
-该工具使用不带 location 的通用渲染，其确认中包含 `messageId`。作用域局部注册使呈现与执行保持一致：root、one-shot child、远程提供方、同级作用域和无 agent 执行既不能看到，也不能执行 `report`。它会在 child 的全局 `toolFilter` 之后安装，因此委派 allow-list 不会意外移除这条结构性返回通道；不需要返回通道的部署不安装该包。
+该工具使用不带 location 的通用渲染，其确认中包含 `messageId`。作用域局部注册使呈现与执行保持一致：root、one-shot child、远程提供方、同级作用域和无 agent（智能体）执行既不能看到，也不能执行 `report`。它会在 child 的全局 `toolFilter` 之后安装，因此委派 allow-list 不会意外移除这条结构性返回通道；不需要返回通道的部署不安装该包。
 
 ### 服务权限
 
-subagent seam 暴露 `ctx.subagents.reportFrom(child, content, { delivery, signal }): Promise<MessageId>`。确切的在线 child Agent 是发送方凭据。继续执行管理器只接受 `handle.agent === child` 的 Activation，从 child 的持久化 header 中推导其直接 parent，并要求该 id 在最终的同步授权与发送区间解析为一个在线 parent Agent。该 API 不接受由调用方选择的接收方、祖先或来源信息。
+subagent seam 暴露 `ctx.subagents.reportFrom(child, content, { delivery, signal }): Promise<MessageId>`。确切的在线 child Agent 是发送方凭据。继续执行管理器只接受 `handle.agent === child` 的 Activation，从 child 的持久化 header 中推导其直接 parent，并要求该 id 在最终的同步授权与发送区间解析为一个在线 parent Agent。该 API 不接受由调用方选择的接收方、祖先或发送方字段。
 
 root、one-shot child、伪造对象、陈旧 Agent 和同 id 替换对象都以 `UNAUTHORIZED` 失败。正在关闭的 child Activation 以 `ACTIVATION_CLOSING` 失败；管理器 drain 和接受前取消保留既有的生命周期错误。直接 parent 不存在或拒绝接受时，以 `PARENT_UNAVAILABLE` 和 `direct parent is not live; report was not delivered` 失败。失败不返回 id，不冷恢复 parent，不写入离线邮箱，也不会修改缺失 parent 的会话。
 
@@ -40,21 +40,21 @@ root、one-shot child、伪造对象、陈旧 Agent 和同 id 替换对象都以
 
 静默投递调用 `parent.inject()`。它会添加模型可见上下文，但不启动 parent 模型请求：若 parent 空闲，则在调用返回前追加消息；若 parent 正在准入或运行，则暂存报告，留到下一个安全日志位置。该模式不创建 inbox 条目实例，因此也不会产生虚构的继续执行管理器接受记录。
 
-唤醒投递调用 `parent.followup()`。它会创建一个普通的 FIFO parent 轮次，唤醒已驻留的 parent driver，且绝不 steering 已开始的轮次。当该 parent 本身也是可继续 Activation 时，发送会使用管理器现有的准入计数，防止 parent 在同步入队与准入微任务之间结算。
+唤醒投递调用 `parent.followup()`。它会创建一个普通的 FIFO parent 轮次，唤醒已停驻的 parent driver，且绝不 steering（中途引导）已开始的轮次。当该 parent 本身也是可继续 Activation 时，发送会使用管理器现有的准入计数，防止 parent 在同步入队与准入微任务之间结算。
 
-两种模式都会将一条用户角色消息封装为 `Background subagent <child-id> reported:`，后面跟随完全原样的 `output`。持久化来源信息为 `{ kind: 'subagent-report', senderSessionId: child.id }`。并发发送的顺序由 Agent 的常规规则决定；subagent 层不会创建第二条队列。
+两种模式都会将一条用户角色消息封装为 `Background subagent <child-id> reported:`，后面跟随完全原样的 `output`。持久化消息来源为 `{ kind: 'subagent-report', senderSessionId: child.id }`。并发发送的顺序由 Agent 的常规规则决定；subagent 层不会创建第二条队列。
 
 ### 确认与恢复
 
 成功表示确切的在线 parent 已同步接受该消息。空闲 parent 在接受静默注入时已经完成追加，而暂存的静默上下文只有到达正常日志边界后才可重建。唤醒投递包含一个 inbox 条目实例，其 id 与返回的稳定消息 id 保持分离。
 
-首个版本不提供持久化邮箱、幂等键、投递回执、重试协议或恰好一次保证。进程故障可能让调用方无法确定结果，在结果未知时重试则可能重复报告。parent 不可用时，持久化 child transcript 仍是恢复来源。
+首个版本不提供持久化邮箱、幂等键、投递回执、重试协议或恰好一次保证。进程故障可能让调用方无法确定结果，在结果未知时重试则可能重复报告。parent 不可用时，持久化 child transcript（文本记录）仍是恢复来源。
 
 ### 组合与生命周期
 
 subagent seam 新增 `registerContinuableSetup(contribution): () => void`，由 `SubagentActivationSetupRegistry` 支撑。每个同步贡献都会接收尚未发布的 child 上下文，并返回其安装的 disposer。继续执行管理器首先应用基础 child 组合，然后通过同一个用于首次创建与冷恢复的设置闭包，按注册顺序应用当前贡献。
 
-注册表负责注册、每个 child 的安装记录、设置回滚、child 作用域清理和立即撤销。应用一个批次会返回 Agent setup 提交对象，用于在所有 setup 的 await 均结算后、紧邻 Agent 发布前重新校验配置状态。因此，某项贡献抛出异常或被并发撤销时，会在 Agent 与 Session 发布前拒绝操作并回滚该批次。新注册项只会在驻留 child 的下一个 Activation 生效；移除注册项时，会先将它对新设置关闭，再立即撤销为正在配置或驻留的每个 child 安装的实例。注册 dispose 与 child 上下文 dispose 都是幂等的，两者都会先尝试每项释放，再聚合失败。
+注册表负责注册、每个 child 的安装记录、设置回滚、child 作用域清理和立即撤销。应用一个批次会返回 Agent setup 提交对象，用于在所有 setup 的 await 均结算后、紧邻 Agent 发布前重新校验配置状态。因此，某项贡献抛出异常或被并发撤销时，会在 Agent 与会话发布前拒绝操作并回滚该批次。新注册项只会在驻留 child 的下一个 Activation 生效；移除注册项时，会先将它对新设置关闭，再立即撤销为正在配置或驻留的每个 child 安装的实例。注册 dispose（资源释放）与 child 上下文 dispose 都是幂等的，两者都会先尝试每项释放，再聚合失败。
 
 该 seam 使继续执行管理器无需知道工具名。report 包只安装 `report`；`@deepseek-ai/dsh-tool-subagent-control` 则独立安装 parent 侧的 `send_message` 和 `list_agents`。部署时可安装任一方向、同时安装两者或两者均不安装。提供方仍只负责数据，持久化描述符不会对 report 可用性或投递模式建立快照，冷恢复则使用部署当前的贡献与策略。
 
@@ -96,7 +96,7 @@ ACP（Agent Client Protocol）快照 harness 新增 `waitForSubagentTurnEnd`，�
 
 ### 在 Agent 创建后校验 setup
 
-创建完成后的撤销检查只能在 Agent 与 Session 均已发布后拒绝 Activation。对返回的 handle 执行 dispose 会移除实时对象，但当前 seam 无法删除持久化内容，因此会留下一个仍可恢复的 child，而继续执行管理器却判定它从未建立。改为返回 `AgentSetupCommit`，Agent 工厂便可在自身的发布边界同步执行同一项可变状态检查。
+创建完成后的撤销检查只能在 Agent 与会话均已发布后拒绝 Activation。对返回的 handle 执行 dispose 会移除实时对象，但当前 seam 无法删除持久化内容，因此会留下一个仍可恢复的 child，而继续执行管理器却判定它从未建立。改为返回 `AgentSetupCommit`，Agent 工厂便可在自身的发布边界同步执行同一项可变状态检查。
 
 ## 影响
 
@@ -106,7 +106,7 @@ ACP（Agent Client Protocol）快照 harness 新增 `waitForSubagentTurnEnd`，�
 - 静默投递是校验后的默认模式，绝不会启动 parent 请求。wakeup 会恰好创建一个后续 FIFO 轮次，绝不 steering 已开始的轮次。
 - parent 接受后取消或 dispose child 不会撤回报告。接受前，child dispose、drain、parent 丢失或调用方取消都会拒绝操作。
 - 新建和恢复的 Activation 都会在发布前组合当前设置贡献。新授权等待下一个 Activation 才生效，而已驻留 child 的授权撤销立即生效。
-- 单元覆盖固定可见性、allow-list 行为、两种投递模式、稳定身份与来源信息、嵌套路由、无效发送方、缺失的 parent、取消、drain、撤销竞争，以及不存在 Task 或隐式最终报告。
+- 单元覆盖固定可见性、allow-list 行为、两种投递模式、稳定的消息与发送方身份、嵌套路由、无效发送方、缺失的 parent、取消、drain、撤销竞争，以及不存在 Task 或隐式最终报告。
 - 无密钥整体组装快照证明真实 child 工具、静默且不唤醒的行为、持久化 parent 封装，以及 parent 后续消费。
 
 ### 已接受的风险
@@ -115,4 +115,4 @@ ACP（Agent Client Protocol）快照 harness 新增 `waitForSubagentTurnEnd`，�
 
 wakeup 模式可能在嵌套 child 频繁报告时放大模型工作量。由部署所有者控制并默认静默，可以限制该风险，但无法完全消除。
 
-注册表中的存在性就是 parent 在线信号。宿主拥有的 parent 如果已开始 `AgentHandle.dispose()` 但尚未展开其作用域，仍可能接受并追加一条本进程不会再处理的报告。要弥合这个缺口，需要 Agent 层面的 dispose 开始信号，不能由 subagent 层推断。
+注册表中的存在性就是 parent 在线信号。宿主拥有的 parent 如果已开始 `AgentHandle.dispose()` 但尚未完成其作用域清理，仍可能接受并追加一条本进程不会再处理的报告。要弥合这个缺口，需要 Agent 层面的 dispose 开始信号，不能由 subagent 层推断。

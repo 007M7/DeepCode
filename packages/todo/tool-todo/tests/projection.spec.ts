@@ -45,7 +45,7 @@ async function harness(withTodoTool: boolean): Promise<Bench> {
   if (withTodoTool) await ctx.plugin(ToolTodo, { allowParallelInProgress: true })
   const session = ctx.sessions.create()
   ctx.agents.register({ id: session.id, session, status: 'idle', ctx } as Agent)
-  const api = createApiProxy(ctx, { provider: 'p', model: 'm', cwd: '/tmp', workspaceRoot: '/tmp' })
+  const api = createApiProxy(ctx, { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp', workspaceRoot: '/tmp' })
   return {
     ctx,
     session,

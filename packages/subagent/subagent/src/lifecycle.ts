@@ -27,7 +27,7 @@ import type { SubagentResult, SubagentRun, SubagentRunEndInfo, SubagentRunInfo }
  * Lifecycle observer for one Activation's residency epoch, so continuable
  * children emit the same start/end pair as one-shot runs. Package-private: the
  * continuation manager is the only consumer, and its call ordering is an
- * in-package contract rather than a published extension seam.
+ * in-package contract rather than a published extension point.
  */
 export interface ActivationObserver {
   /**

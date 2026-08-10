@@ -14,12 +14,12 @@ The repository therefore needs goal-based execution above the turn/step loop, bu
 
 ## Decision
 
-This proposal is implemented in amended form as two explicit plugin policies over existing seams:
+Two explicit plugin policies over existing seams:
 
 1. **Same-session goals** retain one durable objective in the current session and admit goal-attributed continuation turns only while live activation is armed.
 2. **Fresh-agent Ralph runs** execute a fixed foreground workflow whose rounds each spawn a new structured child with no conversation seed.
 
-There is no `packages/loop/` family, `LoopDriver`, `LoopId`, universal `StopCondition`, or model-facing generic `loop` tool. The two policies share the repository's ordinary agent, session, tools, workflow, subagent, and UI extension seams, but they do not pretend that one lifecycle fits both.
+There is no `packages/loop/` family, `LoopDriver`, `LoopId`, universal `StopCondition`, or model-facing generic `loop` tool. The two policies share the repository's ordinary agent, session, tools, workflow, subagent, and UI extension points, but they do not pretend that one lifecycle fits both.
 
 ### Vocabulary and policy boundary
 
@@ -36,9 +36,9 @@ Time-based `/loop` or scheduled execution is a third policy and is not implement
 | Package | Repository category | Owned structures and verbs |
 |---|---|---|
 | `@deepseek-ai/dsh-goal` | `packages/goal/goal/`, domain service | Owns `GoalId`, compare-and-set `GoalRef`, `GoalSnapshot`, four-state `GoalPhase`, structured `GoalBlockReason`, process-local `GoalActivation`, replay folding, and `get`, `create`, `edit`, `pause`, `resume`, `complete`, `block`, `clear`, and `disarm` verbs. |
-| `@deepseek-ai/dsh-tool-goal` | `packages/goal/tool-goal/`, model-facing consumer | Registers exclusive `get_goal`, `create_goal`, and `update_goal`; authenticates live turn provenance and narrows autonomous-round authority to completion or blocking reports with machine-routable reason codes. |
+| `@deepseek-ai/dsh-tool-goal` | `packages/goal/tool-goal/`, model-facing consumer | Registers exclusive `get_goal`, `create_goal`, and `update_goal`; requires a direct human message in a live root-agent turn and narrows autonomous-round authority to completion or blocking reports with machine-routable reason codes. |
 | `@deepseek-ai/dsh-goal-session` | `packages/goal/goal-session/`, continuation policy | Reserves, fences, admits, attributes, settles, cancels, and quiescently drains same-session goal rounds without importing the concrete loop. |
-| `@deepseek-ai/dsh-commands` | `packages/ui/commands/`, UI registry | Owns `CommandDefinition`, discovery, scoped registration, direct dispatch, `CommandResult`, and request cancellation for human-only commands. |
+| `@deepseek-ai/dsh-commands` | `packages/interaction/commands/`, UI registry | Owns `CommandDefinition`, discovery, scoped registration, direct dispatch, `CommandResult`, and request cancellation for human-only commands. |
 | `@deepseek-ai/dsh-command-goal` | `packages/goal/command-goal/`, human-command producer | Registers `/goal` status, creation, edit, pause, resume, and clear over the goal domain for TUI. |
 | `@deepseek-ai/dsh-tool-ralph` | `packages/workflow/tool-ralph/`, fixed workflow consumer | Registers `ralph({ objective, maxRounds? })`, validates the fresh structured provider and bounded `RalphRoundReport`, and returns `complete`, `blocked`, or `budget-limited`. |
 
@@ -68,7 +68,7 @@ Normal turn completion schedules another round only while the goal remains activ
 
 The human UX follows the compact Codex shape in the [public OpenAI Codex TUI dispatcher at commit `678157a`](https://github.com/openai/codex/blob/678157acaa819d5510adfe359abb5d0392cfe461/codex-rs/tui/src/chatwidget/slash_dispatch.rs#L750-L805): `/goal` shows status, `/goal <objective>` creates, and `edit`, `pause`, `resume`, or `clear` perform direct lifecycle actions. The commit permalink keeps the researched grammar verifiable as Codex evolves. Status includes durable phase, admitted/capped rounds, and live armed/disarmed activation. Direct status and command output do not enter model history; accepted domain mutations remain reconstructable because the goal service records them.
 
-The model receives only `get_goal`, `create_goal`, and `update_goal`. It may create a goal when a direct human request clearly asks for substantial multi-round work, and it may infer that intent in any language. It must not turn routine one-turn work into a goal. Direct-human provenance is enforced in code; semantic interpretation remains model judgment. An autonomous goal round may report `complete` or `blocked` for the exact current goal round but cannot edit, pause, resume, or replace the human objective.
+The model receives only `get_goal`, `create_goal`, and `update_goal`. It may create a goal when a direct human request clearly asks for substantial multi-round work, and it may infer that intent in any language. It must not turn routine one-turn work into a goal. Code requires a direct human message in the current live root-agent turn; semantic interpretation remains model judgment. An autonomous goal round may report `complete` or `blocked` for the exact current goal round but cannot edit, pause, resume, or replace the human objective.
 
 TUI mounts the shared command registry and complete goal stack by default and exposes `/goal` through one producer. ACP mounts the goal domain, model tools, and same-session driver but deliberately omits the human command plane. Every effective registered command is discoverable and invocable through every composed command adapter; a plugin incompatible with an application omits its command producer from that composition rather than relying on registry-level surface masks. The UI-less agent spine is opt-in so one-shot callers do not silently become multi-round operations. The headless CLI and JSON-RPC front doors do not consume the command plane; ordinary human text can still authorize model goal tools when that stack is composed.
 
@@ -98,11 +98,11 @@ The six owning Agent Notes record unit, integration, process, snapshot, cancella
 
 ## Alternatives considered
 
-- **Implement the original universal loop capability seam** — rejected because `Evaluator`, `BudgetPolicy`, `RoundHandoff`, `GoalReflector`, background task ownership, persistence, and scheduling do not form one coherent mandatory abstraction. Building all of them before their first concrete consumers would create broad speculative surface and duplicate existing session, workflow, subagent, and task machinery.
+- **Implement the original universal loop capability** — rejected because `Evaluator`, `BudgetPolicy`, `RoundHandoff`, `GoalReflector`, background task ownership, persistence, and scheduling do not form one coherent mandatory abstraction. Building all of them before their first concrete consumers would create broad speculative surface and duplicate existing session, workflow, subagent, and task machinery.
 - **Implement only same-session goals** — rejected because fresh-context iteration is materially different and is a valuable demonstration of the plugin architecture. Ralph belongs as a fixed workflow consumer with explicit context reset.
 - **Put Ralph inside the goal-round driver** — rejected because same-session goals deliberately preserve one conversation while Ralph deliberately removes it. Combining them would make activation, replay, handoff, and UI state ambiguous.
 - **Treat a fork as a fresh Ralph child** — rejected because a fork carries a conversation prefix. Fresh children plus workspace state and one explicit report are easier to bound and replay without a synthetic cancel record.
-- **Copy Claude Code's evaluator into the first goal implementation** — rejected because a transcript-only model evaluator is one useful policy, not a generally trustworthy completion certificate. Deterministic evaluation and isolation must remain possible, so the evaluator is deferred until its authority and provider seam are designed.
+- **Copy Claude Code's evaluator into the first goal implementation** — rejected because a transcript-only model evaluator is one useful policy, not a generally trustworthy completion certificate. Deterministic evaluation and isolation must remain possible, so the evaluator is deferred until its authority and provider contract are designed.
 - **Automatically continue after session restore** — rejected because opening a session is observation, not authority to spend resources. Durable state is restored while activation waits for a new human prompt.
 - **Route `/goal` through the model** — rejected because status and explicit lifecycle controls should be deterministic, token-free UI actions; ordinary natural-language prompts remain the semantic model path.
 - **Modify the concrete agent loop with goal or Ralph modes** — rejected because public queue, prompt, session, cancellation, workflow, and subagent seams already support both policies. The generic cancel-requested observation is the only core coordination addition.
@@ -111,7 +111,7 @@ The six owning Agent Notes record unit, integration, process, snapshot, cancella
 
 - Goal-based execution ships without one overloaded “loop” object: same-session continuation and fresh-agent iteration have explicit, separately testable contracts.
 - Durable goal history is replayable and forkable, while process-local activation prevents accidental work on resume.
-- Humans receive a small Codex-shaped UX; models receive a compact provenance-checked tool surface; deployments can remove either independently.
+- Humans receive a small Codex-shaped UX; models receive a compact tool set whose mutating calls require a direct human message in the current live root-agent turn; deployments can remove either independently.
 - Ralph demonstrates a nontrivial fixed policy entirely as a plugin over existing workflow and subagent primitives.
 - Round limits are generous by default but remain deployment-controlled. They bound iterations, not tokens, price, elapsed time, or external side effects.
 - The original proposal's evaluator, budget, reflector, background-task, CLI, and generic loop-session architecture is intentionally not part of the implemented public surface.
@@ -125,5 +125,5 @@ The six owning Agent Notes record unit, integration, process, snapshot, cancella
 - **No generic loop journal or execution-world rewind** — session replay reconstructs goal history, not prior files, processes, environment, credentials, or external side effects. Ralph treats the current workspace as authority and carries no cross-run journal.
 - **No goal reflector** — concern events, automatic no-progress heuristics, goal revision by an independent reflector, stuck-pattern detection, and `loop_split` are not implemented. Humans can edit, pause, clear, or resume the goal directly.
 - **Ralph policy remains narrow** — one round creates one fresh child; within-round fan-out, evaluator/worker role separation, dynamic provider/model selection, and structural recursive-Ralph tool denial need separate policy surfaces. Prompt guidance is not enforcement.
-- **Ralph does not retry a failed child** — an ordinary failure preserves the failed round and last good handoff, while fatal workflow infrastructure failures can end before that state is available. Retry count, backoff, and richer failure transport need separate policy and seam design.
+- **Ralph does not retry a failed child** — an ordinary failure preserves the failed round and last good handoff, while fatal workflow infrastructure failures can end before that state is available. Retry count, backoff, and richer failure transport need separate policy and boundary design.
 - **Portable UI remains modest** — TUI renders plain-text goal status and generic Ralph cards. ACP carries only committed assistant text; there is no continuous status widget, reconnectable command output, modal goal editor, or command plane in ACP, the headless CLI, or JSON-RPC.

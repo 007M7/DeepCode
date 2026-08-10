@@ -1,6 +1,6 @@
 // Web e2e scenarios: live-turn interactions — cancellation, error surfacing,
 // and transient-retry recovery, all through the real composition and wire.
-// The model seam is dsh-llm-replay with override sidecars: `hang` (+ a
+// The model adapter is dsh-llm-replay with override sidecars: `hang` (+ a
 // readyFile marker) makes mid-stream cancel deterministic by construction,
 // `throw` entries express provider failures by stable code, and `{ patches }`
 // augmentation injects a transient throw before the recorded success so

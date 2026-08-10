@@ -1,11 +1,12 @@
 /**
- * Wire-to-typed-event bridge (web input-triggers cut 1): host/commands-changed
+ * Wire-to-typed-event bridge: host/commands-changed
  * → ctx 'commands/changed'; each established connection generation →
  * ctx 'connection/reset' (the forced cache-invalidation broadcast).
  */
 import { Context } from 'cordis'
 import { describe, expect, it } from 'vitest'
 import type { ConnectionHandle, ConnectionSinks } from '@deepseek-ai/dsh-client-connection/client'
+import TypertRegistry from '@deepseek-ai/dsh-typert-registry'
 import * as RuntimeClient from '../src/client/index.ts'
 import { FakeApiClient } from './fake-api.ts'
 
@@ -16,17 +17,22 @@ interface Bench {
 
 async function mount(): Promise<Bench> {
   const ctx = new Context()
+  await ctx.plugin(TypertRegistry)
   const api = new FakeApiClient()
   const bench: Bench = { ctx, sinks: undefined }
   const handle: ConnectionHandle = {
     api,
     isLoopback: true,
+    rpc: {
+      call: () => Promise.reject(new Error('unexpected generic RPC call')),
+    },
     start: (sinks) => {
       bench.sinks = sinks
       return { stop: () => {} }
     },
   }
   ctx.reflect.provide('connection', handle)
+  ctx.reflect.provide('remote', {})
   await ctx.plugin(RuntimeClient).await()
   return bench
 }

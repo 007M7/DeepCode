@@ -13,6 +13,7 @@ import { fileURLToPath } from 'node:url'
 import type { Context } from 'cordis'
 import type { PatchOptions } from '@cordisjs/plugin-include'
 import { addHarnessSourceSection } from '@deepseek-ai/dsh-app-boot'
+import type { EnvironmentSnapshot } from '@deepseek-ai/dsh-environment'
 import { runProfile, type ProfileRows } from './profile-boot.ts'
 
 const SOURCE_ROOT = fileURLToPath(new URL('../../..', import.meta.url))
@@ -96,6 +97,9 @@ function deriveWebFlagPatches(
   // inserts the client-hmr row), never pass-throughs of composed values.
   put('web-runtime', 'mode', flags.dev ? 'development' : 'production')
   put('web-runtime', 'lanAddresses', lanAddresses)
+  // The agent-preset roots are patched by the shared profile boot: they are
+  // an assembly fact of every dsh launcher, and `dsh run` composes agents
+  // from the same roster this alias offers.
   const patches = [...overrides.entries()].map(([id, bag]): PatchOptions => {
     const composed = rows.get(id)
     if (composed === undefined) throw new Error(`dsh: patch target row "${id}" not found in the web profile composition`)
@@ -124,9 +128,11 @@ export function webSurfaceContextEnabled(rows: ProfileRows): boolean {
  * every boot. The URL line is printed by the web-app bundle's runtime row
  * after Loader settlement.
  * @param flags - the parsed `dsh web` flag family.
+ * @param environment - this run's frozen environment snapshot.
  */
-export async function runWeb(flags: WebFlags): Promise<void> {
+export async function runWeb(flags: WebFlags, environment: EnvironmentSnapshot): Promise<void> {
   await runProfile({
+    environment,
     profile: 'web',
     patchFiles: flags.patches,
     deriveFlagPatches: rows => deriveWebFlagPatches(rows, flags),

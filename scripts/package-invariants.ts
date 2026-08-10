@@ -118,11 +118,8 @@ function checkBuild(
   violations: PackageInvariantViolation[],
 ): void {
   const tsconfigPath = `${owner.dir}/tsconfig.json`
-  const tsconfig = JSON.parse(readFileSync(resolve(root, tsconfigPath), 'utf8')) as {
-    references?: Array<{ path?: string }>
-  }
   if (owner.packageName !== '@deepseek-ai/dsh-invariants'
-    && !tsconfig.references?.some(reference => reference.path === '../../support/invariants')) {
+    && !projectReferencesInvariants(root, owner.dir, tsconfigPath)) {
     addViolation(
       violations,
       tsconfigPath,
@@ -136,6 +133,31 @@ function checkBuild(
   if (!source.includes('lib/types/invariant.js')) {
     addViolation(violations, configPath, 'package build override must bundle lib/types/invariant.js')
   }
+}
+
+function projectReferencesInvariants(root: string, ownerDir: string, entryPath: string): boolean {
+  const ownerRoot = resolve(root, ownerDir)
+  const target = resolve(root, 'packages/support/invariants')
+  const pending = [resolve(root, entryPath)]
+  const visited = new Set<string>()
+  while (pending.length > 0) {
+    const configPath = pending.pop()
+    if (configPath === undefined) break
+    if (visited.has(configPath)) continue
+    visited.add(configPath)
+    const config = JSON.parse(readFileSync(configPath, 'utf8')) as {
+      references?: Array<{ path?: string }>
+    }
+    for (const reference of config.references ?? []) {
+      if (reference.path === undefined) continue
+      const referenced = resolve(dirname(configPath), reference.path)
+      if (referenced === target) return true
+      if (!referenced.startsWith(`${ownerRoot}${sep}`)) continue
+      const childConfig = referenced.endsWith('.json') ? referenced : resolve(referenced, 'tsconfig.json')
+      if (existsSync(childConfig)) pending.push(childConfig)
+    }
+  }
+  return false
 }
 
 function checkSource(

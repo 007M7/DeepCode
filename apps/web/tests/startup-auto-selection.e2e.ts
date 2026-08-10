@@ -3,10 +3,10 @@
 // A page load with a workspace already registered runs
 // `WorkspacesService.startInitialSelection`: it connects the most recent
 // workspace and opens its blank session. `openState` flips to `loading` the
-// moment `open()` lands, which used to drive `data-phase=settling` on the
-// conversation root — `visibility:hidden` over the composer seat and the
-// header for the whole `session.history` round-trip, so the center column went
-// blank and repainted, reading as a full-page refresh on every launch.
+// moment `open()` lands; driving `data-phase=settling` on the conversation
+// root from that flip would hide the composer seat and the header
+// (`visibility:hidden`) for the whole `session.history` round-trip — the
+// center column blanks and repaints like a full-page refresh on every launch.
 //
 // The unit spec pins the phase condition over hand-built stores. What only the
 // assembled application can show is that the path a user actually takes
@@ -19,8 +19,9 @@
 // The round-trip against a loopback host is far too fast to observe, so this
 // scenario HOLDS the `session.history` response open at the browser's network
 // boundary and asserts the visible frame while it is in flight. That gate is
-// what makes the assertions non-vacuous: with the exemption reverted the held
-// window is exactly when `settling` is painted and the composer is hidden.
+// what makes the assertions non-vacuous: without the phase exemption, the
+// held window is exactly when `settling` would be painted and the composer
+// hidden.
 //
 // Zero model calls: registering a workspace and opening its blank session are
 // host RPCs with no model involvement. A stray stream would fail loud with
@@ -145,7 +146,7 @@ describe('web e2e: startup auto-selection', () => {
     // seat with `visibility:hidden`, which Playwright reports as not visible).
     await page.waitForSelector(ROOT_PHASE, { timeout: 15_000 })
     expect(await page.locator(ROOT_PHASE).first().getAttribute('data-phase')).toBe('hero')
-    expect(await page.getByText("Let's start building").isVisible()).toBe(true)
+    expect(await page.getByText('Into the Unknown').isVisible()).toBe(true)
     expect(await page.locator('textarea').first().isVisible()).toBe(true)
 
     releaseHistory()

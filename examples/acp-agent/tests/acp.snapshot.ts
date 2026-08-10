@@ -40,6 +40,7 @@ const FS_CONFIG = fileURLToPath(new URL('../fs.cordis.yml', import.meta.url))
 const SESSION_QUERY_CONFIG = fileURLToPath(new URL('../session-query.cordis.yml', import.meta.url))
 const PTY_CONFIG = fileURLToPath(new URL('../pty.cordis.yml', import.meta.url))
 const DEPTH_TWO_CONFIG = fileURLToPath(new URL('../depth-two.cordis.yml', import.meta.url))
+const CHILD_QUESTION_CONFIG = fileURLToPath(new URL('../child-question.cordis.yml', import.meta.url))
 const SESSION_SANDBOX_ROOT_CONFIG = fileURLToPath(new URL('../session-sandbox-root.cordis.yml', import.meta.url))
 const RETRY_CONFIG = fileURLToPath(new URL('../retry.cordis.yml', import.meta.url))
 const SESSION_TITLE_CONFIG = fileURLToPath(new URL('../session-title.cordis.yml', import.meta.url))
@@ -90,8 +91,8 @@ async function prepareFsSearchWorkspace(cwd: string): Promise<void> {
   }
 }
 
-// FIXME: Migrate backend-oriented scenarios to the headless stream-json suite;
-// this ACP suite should eventually retain only automation-protocol contracts.
+// TODO(acp-snapshot-ownership): Move backend/product scenarios to headless while
+// retaining ACP protocol contracts here.
 
 function fixtureRecords(name: string): unknown[] {
   return readFileSync(join(SNAPSHOTS_DIR, name, 'session.jsonl'), 'utf8')
@@ -254,6 +255,7 @@ const SCENARIOS: Scenario[] = [
   { name: 'fs-write-overwrite', hasModelTurn: true, recorded: true },
   { name: 'fs-read-window', hasModelTurn: true, recorded: true },
   { name: 'fs-policy-reject', hasModelTurn: true, recorded: true },
+  { name: 'fs-delete-recreate', hasModelTurn: true, recorded: true },
   { name: 'multi-turn', hasModelTurn: true, recorded: true },
   { name: 'error-finish', hasModelTurn: true, recorded: false, overridden: true },
   // Keyless, authored (like error-finish): a live provider cannot be coaxed
@@ -335,9 +337,10 @@ const SCENARIOS: Scenario[] = [
   },
   // Authored durable-catalog transcript: the snapshot-only lifecycle marker
   // fences the second parent turn behind the child's Activation end, so
-  // `list_agents` deterministically reads the persisted child as complete.
-  // The tool itself executes for real against the control service, session
-  // query, and JSONL persistence; the marker is not model-visible.
+  // `list_agents({ scope: 'descendants' })` deterministically reads the
+  // persisted child as complete, then `interrupt_agent` executes its accepted
+  // no-op against that settled id. Both tools run through the assembled control
+  // service; the marker is not model-visible.
   {
     name: 'subagent-list-agents',
     hasModelTurn: true,
@@ -350,6 +353,19 @@ const SCENARIOS: Scenario[] = [
     recorded: false,
     overridden: true,
     configPath: DEPTH_TWO_CONFIG,
+  },
+  // Authored keyless replay through the assembled app: a one-shot child calls
+  // the real ask_user_question tool, the runtime-ownership guard rejects before
+  // the tripwire provider, and the child carries the unresolved decision in its
+  // final result so the parent can complete instead of waiting forever.
+  {
+    name: 'subagent-child-question-rejection',
+    hasModelTurn: true,
+    recorded: false,
+    pinsHeader: true,
+    headerClass: 'child-question',
+    systemPromptSource: 'text-turn',
+    configPath: CHILD_QUESTION_CONFIG,
   },
   // The workflow tool: the model writes a one-child orchestration script; the
   // child runs as a spawn subagent under the worker-thread engine (its session is the
@@ -383,7 +399,7 @@ const SCENARIOS: Scenario[] = [
   // the real Loader/app path, rather than retaining the earlier valid group.
   { name: 'hook-cc-invalid-matcher', hasModelTurn: true, recorded: false },
   { name: 'hook-codex-invalid-matcher', hasModelTurn: true, recorded: false },
-  // The mid-turn seams fire during a real model turn, so each is recorded with its hook active
+  // The mid-turn interception points fire during a real model turn, so each is recorded with its hook active
   // (the model's reaction to a deny/block/force-continue is part of the captured transcript).
   // SessionStart/SubagentStart are excluded because detached injection races log
   // order; SubagentStop writes no transcript, so an expected output could not prove it ran.

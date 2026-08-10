@@ -49,7 +49,7 @@ The driver classifies one closed goal-owned turn as follows:
 
 No abnormal outcome requests an automatic retry. A later human prompt can ask to continue in any language; the model reads the stopped goal and uses the goal tool's resume action, which records a new revision and arms continuation.
 
-### Durability and cancellation seam
+### Durability and cancellation contract
 
 Every `goal/changed` notification creates a checkpoint obligation. The driver awaits `ctx.sessions.flush(session)` before reserving work, then checks for a newer mutation, agent lifecycle change, or competing prompt. Turn-end flush failure is reported by the existing `agent/error` notification after `turn/end`; the driver finds that exact closed turn even when a concurrent one-shot injection appended a later turn, associates the failure with the exact attempt, and disarms before the next idle decision.
 
@@ -75,7 +75,7 @@ The core cancellation test proves notification order and containment: observers 
 
 ## Alternatives considered
 
-- **Add a goal loop inside `dsh-agent-loop`** — rejected because the public queue, prompt, session, cancellation, and status seams are sufficient, and a concrete-loop branch would privilege one policy.
+- **Add a goal loop inside `dsh-agent-loop`** — rejected because the public queue, prompt, session, cancellation, and status contracts are sufficient, and a concrete-loop branch would privilege one policy.
 - **Use `agent/turn-continuation` to make every round another step** — rejected because a goal round is an outer policy iteration and must have its own durable user prompt, turn boundary, round count, and failure settlement.
 - **Persist a pending reservation** — rejected because a crash cannot prove that queued process memory had reached admission; only the durable `user/message` consumes the round.
 - **Retry provider or persistence errors automatically** — rejected because retry policy spends resources and needs explicit authority; stopped phases plus later human resume are simpler and observable.

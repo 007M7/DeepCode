@@ -28,7 +28,7 @@ Amend the implemented dynamic-workflow Agent Note and update the seam/tool/worke
 
 ## Acceptance criteria
 
-- The workflow public seam contains only execution, cancellation, result, and disposal contracts with a production consumer.
+- The workflow public contract contains only execution, cancellation, result, and disposal contracts with a production consumer.
 - No workflow event, phase/log protocol message, run-id generator, progress-only metadata, host pairing ledger, or fatal-mode branch remains.
 - The run handle has no id/meta echoes, and cancellation has one holder-owned channel after synchronous `start()` returns.
 - Parallel/pipeline behavior, caps, cancellation quiescence, worker containment, structured output, and the model-facing workflow scenarios retain coverage.
@@ -36,4 +36,4 @@ Amend the implemented dynamic-workflow Agent Note and update the seam/tool/worke
 
 ## Risks
 
-This is a compile-visible contraction of the workflow DSL, event taxonomy, handle, and start request. Existing workflow calls that supply descriptive metadata, and scripts that use `phase`, `log`, or labels, must shrink; programmatic callers bridge their own abort source to the returned handle; and a future observer must add a better-correlated seam. The execution semantics that make workflows useful do not change.
+This is a compile-visible contraction of the workflow DSL, event taxonomy, handle, and start request. Existing workflow calls that supply descriptive metadata, and scripts that use `phase`, `log`, or labels, must shrink; programmatic callers bridge their own abort source to the returned handle; and a future observer must add a better-correlated event contract. The execution semantics that make workflows useful do not change.

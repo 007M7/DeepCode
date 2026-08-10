@@ -106,8 +106,6 @@ describe('dsh-subagent-fork', () => {
   })
 
   it('seeds the child with the parent\'s completed-turn prefix (child inherits context)', async () => {
-    // Parent runs one turn, then we fork. The child's seeded log should contain
-    // the parent's first turn, and the child should run its own new turn on top.
     const { ctx, parent } = await setup([textResponse('parent answer'), textResponse('child answer')])
     parent.followup(createUserMessage({ content: [{ type: 'text', text: 'parent question' }], source: { kind: 'user' } }))
     await parent.whenIdle()

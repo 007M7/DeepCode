@@ -6,7 +6,7 @@ Status: proposed
 
 ## 问题
 
-用户可能希望在不改变当前会话主上下文的前提下，探索一个来自活跃会话的问题。现有原语无法提供这种产品形态：[会话存储 fork](../../implemented/feature/2026-06-30-session-store-fork-api.md)创建的是一个无关联的会话，而 [fork subagent](../../implemented/feature/2026-06-21-subagent-capability-seam.md)是模型驱动的任务，其 transcript（文本记录）会折叠为一条工具结果。两者都不能给用户一个独立的对话，也都不能将结论带着出处信息记录回父会话。
+用户可能希望在不改变当前会话主上下文的前提下，探索一个来自活跃会话的问题。现有原语无法提供这种产品形态：[会话存储 fork](../../implemented/feature/2026-06-30-session-store-fork-api.md)创建的是一个无关联的会话，而 [fork subagent](../../implemented/feature/2026-06-21-subagent-capability-seam.md)是模型驱动的任务，其 transcript（文本记录）会折叠为一条工具结果。两者都不能给用户一个独立的对话，也都不能在父会话中同时记录结论和产生该结论的侧会话。
 
 ## 提案
 
@@ -23,7 +23,7 @@ Status: proposed
 
 - **使用 subagent seam：** 否决。侧会话是用户驱动的、客户端可见的，且可能存活超过父会话的一个轮次；subagent 是模型驱动的运行，返回一条工具结果。
 - **修改子会话的系统提示词：** 默认否决，因为任何字节变化都会从第零个 token 起使前缀缓存失效。部署方仍可选择这种更强的隔离方式。
-- **新增 `sidechat/*` 事件：** 延后。插件来源的 `context/message` 已提供持久性、出处与回放能力；只有当某个界面需要差异化渲染时，专用事件才有正当理由。
+- **新增 `sidechat/*` 事件：** 延后。已标注来源的 `context/message` 已经持久记录内容、生产方和回放输入；只有当某个界面需要差异化渲染时，专用事件才有正当理由。
 - **现在就绑定一个协议界面：** 否决。当前 UI 由客户端拥有。实时呈现最终必须从持久消息派生，以使回放渲染出相同的记录。
 
 ## 验收标准
@@ -36,6 +36,6 @@ Status: proposed
 
 ## 风险
 
-- 只读行为在 `tools/pre-execute` 拒绝门禁强制执行之前仅为建议性质；[拦截 seam](../../implemented/feature/2026-06-30-interception-seams.md) 可在不改变本机制的前提下添加该门禁。
+- 只读行为在 `tools/pre-execute` 拒绝门禁强制执行之前仅为建议性质；[拦截点](../../implemented/feature/2026-06-30-interception-extension-points.md) 可在不改变本机制的前提下添加该门禁。
 - 经过压缩（compaction）的源会话 fork 出的是其压缩视图，因此绑定的界面应当告知用户子会话继承的是摘要而非被替换的轮次。
 - 反复的 handback 会消耗父会话上下文。每次合并的长度上限约束了单条笔记的大小；后续的合并整理属于上下文压缩的职责。

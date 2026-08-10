@@ -59,7 +59,7 @@ describe('gate graph validation', () => {
     'ci-primary',
     'ci-linux-primary',
     'ci-static',
-    'ci-lint',
+    'ci-lint-contracts-ready',
     'ci-coverage',
     'ci-snapshot',
     'ci-artifacts',
@@ -75,6 +75,21 @@ describe('gate graph validation', () => {
     const execute = vi.fn(async (item: Gate) => resultFor(item))
 
     await expect(runGates(subject, subject.length, execute)).resolves.toHaveLength(subject.length)
+  })
+
+  it('keeps the public repository link policy in the documentation gate', () => {
+    const ids = withPnpmEntrypoint(() => gatesForMode('doc-sync').map(subject => subject.id))
+
+    expect(ids).toContain('public-repository-links')
+  })
+
+  it('keeps native Windows coverage blocking while portability inventory remains observational', () => {
+    const gates = withPnpmEntrypoint(() => gatesForMode('ci-windows-complete'))
+    const byId = new Map(gates.map(subject => [subject.id, subject]))
+
+    expect(byId.get('coverage')?.allowFailure).not.toBe(true)
+    expect(byId.get('coverage-exempt-heavy')?.allowFailure).not.toBe(true)
+    expect(byId.get('duplication')?.allowFailure).toBe(true)
   })
 
   it.each([
@@ -112,26 +127,74 @@ describe('gate graph validation', () => {
 describe('Oxlint gate', () => {
   it('uses the package script when no worker bound is configured', () => {
     const subject = withEnv('DSH_OXLINT_THREADS', undefined, () =>
-      withPnpmEntrypoint(() => gatesForMode('ci-lint')[0]))
+      withPnpmEntrypoint(() => gatesForMode('ci-lint-contracts-ready')[0]))
 
     expect(subject).toMatchObject({
       id: 'lint',
-      displayCommand: 'pnpm run lint',
+      displayCommand: 'pnpm run lint:contracts-ready',
       command: process.execPath,
-      args: ['/private/pnpm.cjs', 'run', 'lint'],
+      args: ['/private/pnpm.cjs', 'run', 'lint:contracts-ready'],
     })
   })
 
   it('surfaces the configured worker bound on the shared package script', () => {
     const subject = withEnv('DSH_OXLINT_THREADS', '4', () =>
-      withPnpmEntrypoint(() => gatesForMode('ci-lint')[0]))
+      withPnpmEntrypoint(() => gatesForMode('ci-lint-contracts-ready')[0]))
 
     expect(subject).toMatchObject({
       id: 'lint',
-      displayCommand: 'DSH_OXLINT_THREADS=4 pnpm run lint',
+      displayCommand: 'DSH_OXLINT_THREADS=4 pnpm run lint:contracts-ready',
       command: process.execPath,
-      args: ['/private/pnpm.cjs', 'run', 'lint'],
+      args: ['/private/pnpm.cjs', 'run', 'lint:contracts-ready'],
     })
+  })
+})
+
+describe('TypeRT contract preparation', () => {
+  it('prepares primary source consumers once before they run', () => {
+    const subject = withEnv('DSH_OXLINT_THREADS', undefined, () =>
+      withPnpmEntrypoint(() => gatesForMode('ci-primary')))
+
+    expect(subject.find(item => item.id === 'typert-contracts')).toMatchObject({
+      displayCommand: 'pnpm run build:lib:host',
+      args: ['/private/pnpm.cjs', 'run', 'build:lib:host'],
+    })
+    for (const [id, script] of [
+      ['typecheck', 'typecheck:contracts-ready'],
+      ['lint', 'lint:contracts-ready'],
+      ['doc-typecheck', 'doc-typecheck:contracts-ready'],
+    ] as const) {
+      expect(subject.find(item => item.id === id)).toMatchObject({
+        displayCommand: `pnpm run ${script}`,
+        args: ['/private/pnpm.cjs', 'run', script],
+        needs: ['typert-contracts'],
+      })
+    }
+    expect(subject.find(item => item.id === 'build')?.needs).toEqual([
+      'typecheck',
+      'lint',
+      'doc-typecheck',
+    ])
+  })
+
+  it('reuses contracts from the validated consumer build', () => {
+    const subject = withPnpmEntrypoint(() => gatesForMode('ci-consumers'))
+
+    expect(subject.find(item => item.id === 'lint-and-duplication')).toMatchObject({
+      displayCommand: 'pnpm run check:ci:lint:contracts-ready',
+      args: ['/private/pnpm.cjs', 'run', 'check:ci:lint:contracts-ready'],
+    })
+    expect(subject.find(item => item.id === 'doc-typecheck')).toMatchObject({
+      displayCommand: 'pnpm run doc-typecheck:contracts-ready',
+      args: ['/private/pnpm.cjs', 'run', 'doc-typecheck:contracts-ready'],
+    })
+  })
+
+  it('keeps standalone doc sync responsible for preparation', () => {
+    const docTypecheck = withPnpmEntrypoint(() =>
+      gatesForMode('doc-sync').find(item => item.id === 'doc-typecheck'))
+
+    expect(docTypecheck?.displayCommand).toBe('pnpm run doc-typecheck')
   })
 })
 
@@ -164,7 +227,7 @@ describe('Node 24 lane ownership', () => {
     const subject = withPnpmEntrypoint(() => gatesForMode('ci-consumers'))
 
     expect(defaultConcurrency('ci-consumers', subject.length, 4)).toEqual({
-      workers: 10,
+      workers: 11,
       source: 'ci-consumers gate count',
     })
     expect(subject.map(item => item.id)).toEqual([
@@ -178,11 +241,19 @@ describe('Node 24 lane ownership', () => {
       'doc-typecheck',
       'node-next-types',
       'built-bin-smoke',
+      'github-repository-plugin-e2e',
     ])
     expect(subject.find(item => item.id === 'publint')?.needs).toEqual(['build'])
     expect(subject.find(item => item.id === 'built-package-invariants')?.needs).toEqual(['publint'])
     expect(subject.find(item => item.id === 'lint-and-duplication')?.needs).toEqual(['built-package-invariants'])
-    for (const id of ['snapshot', 'web-snapshot', 'doc-typecheck', 'node-next-types', 'built-bin-smoke']) {
+    for (const id of [
+      'snapshot',
+      'web-snapshot',
+      'doc-typecheck',
+      'node-next-types',
+      'built-bin-smoke',
+      'github-repository-plugin-e2e',
+    ]) {
       expect(subject.find(item => item.id === id)?.needs).toEqual(['built-package-invariants'])
     }
     expect(subject.find(item => item.id === 'snapshot')?.env).toEqual({ DSH_EXAMPLE_MODE: 'lib' })
@@ -194,6 +265,16 @@ describe('Node 24 lane ownership', () => {
         'packages/subagent/subagent-codex/tests/loader-composition.e2e.ts',
         'packages/subagent/subagent-claude-code/tests/loader-composition.e2e.ts',
       ]),
+    )
+    const githubRepositoryPlugin = subject.find(item => item.id === 'github-repository-plugin-e2e')
+    expect(githubRepositoryPlugin).toMatchObject({
+      label: 'GitHub repository Plugin dsh run',
+      env: {
+        DSH_REQUIRE_GITHUB_REPOSITORY_PLUGIN_E2E: '1',
+      },
+    })
+    expect(githubRepositoryPlugin?.args).toEqual(
+      expect.arrayContaining(['apps/cli/tests/github-repository-plugin.built.e2e.ts']),
     )
     expect(subject.find(item => item.id === 'web-snapshot')).toMatchObject({
       displayCommand: 'DSH_SNAPSHOT=replay pnpm run test:web:built',

@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-The background task registry seam (`ctx.tasks`). The abstract `TaskService` and its vocabulary types give long-running producers shared ids, owner isolation, reads, cancellation, waiting, notices, and cleanup under one contract; the process-local registry lives in [`dsh-tasks-local`](../tasks-local/README.md). Producer plugins extend `TaskKindMap` with their opaque id namespace.
+The background task registry contract (`ctx.tasks`). The abstract `TaskService` and its vocabulary types give long-running producers shared ids, owner isolation, reads, cancellation, waiting, notices, and cleanup under one contract; the process-local registry lives in [`dsh-tasks-local`](../tasks-local/README.md). Producer plugins extend `TaskKindMap` with their opaque id namespace.
 
 ## Service contract
 
@@ -20,7 +20,7 @@ Owned access compares the task's `SessionId` with the caller's. Ids such as `bas
 
 Implementations also owe the lifecycle semantics of the contract: registrations outlive producer and control-surface fibers, owner and service disposal cancel live work and await compliant producers, and settlement is first-wins — one terminal record, one round of contained listener notification, released waiters.
 
-See the [task type catalog](../../../docs/core-data-structures/tasks.md), the [runtime Agent Note](../../../.agents/notes/implemented/architecture/2026-06-20-generic-long-running-tool-runtime.md), and the [seam Agent Note](../../../.agents/notes/implemented/architecture/2026-07-26-task-registry-seam.md).
+See the [task type catalog](../../../docs/subsystems/tasks.md), the [runtime Agent Note](../../../.agents/notes/implemented/architecture/2026-06-20-generic-long-running-tool-runtime.md), and the [seam Agent Note](../../../.agents/notes/implemented/architecture/2026-07-26-task-registry-seam.md).
 
 ## Model Experience
 

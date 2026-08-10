@@ -1239,22 +1239,18 @@ describe('dsh-workflow-workerthread', () => {
       await ctx.plugin(WorkerWorkflowEngine, { provider: 'doomed', maxConcurrentAgents: 2 })
       const runEnds: WorkflowResultInfo[] = []
       ctx.on('workflow/end', (_info, result) => { runEnds.push(result) })
+      const childStarted = Promise.withResolvers<undefined>()
+      ctx.on('workflow/agent-start', () => { childStarted.resolve(undefined) })
       const handle = ctx.workflows.start({
-        // The stray child's start RPC reaches the host, then the script kills
-        // its own worker through the documented vm escape — the host must
-        // settle `error` with the exit diagnostics and wind the child down.
-        ...scripted(`
-          agent('doomed')
-          const proc = ${ESCAPE}
-          const st = globalThis.constructor.constructor('return setTimeout')()
-          await new Promise(resolve => st(resolve, 200))
-          proc.exit(7)
-        `),
+        ...scripted("return await agent('doomed')"),
         parent: fakeParent(),
       })
+      const worker = (handle as unknown as { worker: Worker }).worker
+      await childStarted.promise
+      await worker.terminate()
       const result = await handle.result
       expect(result.stopReason).toBe('error')
-      expect(result.error).toContain('exit code 7')
+      expect(result.error).toContain('exit code 1')
       expect(result.agentsStarted).toBe(1)
       // A worker death is a stop reason like any other: workflow/end fires
       // with the error outcome — for a bus observer it is the only obituary.
@@ -1306,26 +1302,22 @@ describe('dsh-workflow-workerthread', () => {
       })
       ctx.on('workflow/end', () => { order.push('run-end') })
       const handle = ctx.workflows.start({
-        // Same choreography as the force-settle pairing test, but the worker
-        // DIES (the documented vm escape) instead of being terminated: the
-        // exit path must close slow's pair from the ledger too. The escaped
-        // setTimeout lets the already-posted messages flush before the kill.
         ...scripted(`
           const p = agent('slow')
           await agent('fast')
-          const proc = ${ESCAPE}
-          const st = globalThis.constructor.constructor('return setTimeout')()
-          await new Promise(resolve => st(resolve, 150))
-          proc.exit(7)
+          await new Promise(() => {})
         `),
         parent,
       })
+      const worker = (handle as unknown as { worker: Worker }).worker
       await waitFor(() => { expect(order.filter(entry => entry.startsWith('start:')).length).toBe(2) })
       const fast = provider.runs.find(run => (run.request.prompt[0] as { text?: string }).text === 'fast')!
       fast.settle(text('fast done'))
+      await waitFor(() => { expect(ends).toContainEqual({ seq: 2, outcome: 'completed' }) })
+      await worker.terminate()
       const result = await handle.result
       expect(result.stopReason).toBe('error')
-      expect(result.error).toContain('exit code 7')
+      expect(result.error).toContain('exit code 1')
       expect(ends).toEqual([
         { seq: 2, outcome: 'completed' },
         { seq: 1, outcome: 'cancelled' },
@@ -1340,21 +1332,22 @@ describe('dsh-workflow-workerthread', () => {
       // guard in post()).
       const { ctx, parent, provider } = await setup({ disposeDelayMs: 300 })
       const handle = ctx.workflows.start({
-        // The STRAY child settles instantly, so its wrapper starts the slow
-        // host-side disposal concurrently while the script goes on to kill
-        // its own worker — the ack then resolves into a dead thread.
         ...scripted(`
           agent('stray, never awaited')
-          const proc = ${ESCAPE}
-          const st = globalThis.constructor.constructor('return setTimeout')()
-          await new Promise(resolve => st(resolve, 150))
-          proc.exit(5)
+          await new Promise(() => {})
         `),
         parent,
       })
+      const worker = (handle as unknown as { worker: Worker }).worker
+      await waitFor(() => {
+        expect(provider.runs).toHaveLength(1)
+        expect(provider.runs[0]!.disposeCalls).toBe(1)
+        expect(provider.runs[0]!.disposed).toBe(false)
+      })
+      await worker.terminate()
       const result = await handle.result
       expect(result.stopReason).toBe('error')
-      expect(result.error).toContain('exit code 5')
+      expect(result.error).toContain('exit code 1')
       // Result already settled — this is the reap's promptness (bounded
       // above the mock's fixed 300ms dispose delay, not a cold-start race);
       // tight explicit bound (see the helper's doc comment).
@@ -1366,20 +1359,19 @@ describe('dsh-workflow-workerthread', () => {
       const { ctx, parent } = await setup({ config: { provider: 'stub', disposeGraceMs: 60_000 } })
       const handle = ctx.workflows.start({
         ...scripted(`
-          const proc = ${ESCAPE}
-          const st = globalThis.constructor.constructor('return setTimeout')()
           log('armed')
-          await new Promise(resolve => st(resolve, 400))
-          proc.exit(3)
+          await new Promise(() => {})
         `),
         parent,
       })
+      const worker = (handle as unknown as { worker: Worker }).worker
       const logs: string[] = []
       ctx.on('workflow/log', (_info, message) => { logs.push(message) })
       await waitFor(() => { expect(logs).toContain('armed') })
       handle.cancel('stop it')
-      // The grace is deliberately huge: only the worker's own death (exit 3,
-      // unreachable by the cancel — the script ignores hooks) settles this.
+      // The grace is deliberately huge: only the host-triggered worker death,
+      // not the cancellation timer, settles this.
+      await worker.terminate()
       const result = await handle.result
       expect(result.stopReason).toBe('cancelled')
       expect(result.error).toContain('stop it')

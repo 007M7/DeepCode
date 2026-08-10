@@ -49,7 +49,7 @@ export interface EventsApi {
    * attached session, then replays each session's still-pending approval/question requested
    * frames (rpcId reused verbatim — the refresh-recovery baseline). Session titles ride the
    * generic projection pair (history-tail projections block + session/projection frames).
-   * since: resume seam, unimplemented in v1 (ignored if passed); reconnection = reopen the
+   * since: resume hook, unimplemented in v1 (ignored if passed); reconnection = reopen the
    * stream + refetch history.
    */
   mux(request: RpcRequest<{ since?: Record<SessionId, number> }>, signal: AbortSignal): AsyncIterable<RpcRequest<MuxFrame>>
@@ -116,6 +116,7 @@ export type HostFrame =
     parentSessionId?: SessionId
     origin?: 'subagent'
     cwd?: string
+    agentPreset?: string
   }
   | { type: 'host/session-removed'; sessionId: SessionId }
   | { type: 'host/session-status'; sessionId: SessionId; running: boolean }

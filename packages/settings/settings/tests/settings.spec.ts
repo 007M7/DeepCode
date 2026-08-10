@@ -4,7 +4,7 @@ import z from 'schemastery'
 import { Settings, SettingsConflictError, deepEqualJson, installSettingsSection, settingsNamespace, type SettingsNamespace, type SettingsScope, type SettingsUpdateSource } from '../src/index.ts'
 import { MemorySettings } from './memory.ts'
 
-/** A provider implementing only the three primitives: the seam owns init. */
+/** A provider implementing only the three primitives: the Service Definition owns initialization. */
 class BareProvider extends Settings {
   doc: Record<string, unknown>
 

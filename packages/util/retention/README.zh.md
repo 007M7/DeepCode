@@ -23,7 +23,7 @@ import type {
 
 | 导出项 | 职责 |
 |---|---|
-| `ItemRetainer<T>` | 限制有序逻辑单元（路径、grep 匹配项、来源）。v1 只支持 `head`。`push()` → `PushDecision`；`finish()` → `RetainedItems<T>`。 |
+| `ItemRetainer<T>` | 限制有序逻辑单元（路径、grep 匹配项、来源）。只支持 `head`。`push()` → `PushDecision`；`finish()` → `RetainedItems<T>`。 |
 | `TextRetainer` | 限制面向字节的文本流。`head` / `tail` / `headTail`，并在 `finish()` 时保留 UTF-8 边界。`push()` → `PushDecision`；`finish()` → `RetainedText`。 |
 | `describeOmitted(omitted, unit)` | 标准化的省略子句（`exact` 输出数量；`unknown` 不输出）。 |
 | `formatRetentionNotice(notice, recovery)` | 将标准化的省略子句与工具自有的恢复指引连接起来。 |
@@ -57,7 +57,7 @@ import type {
 | `web_fetch` | `TextRetainer`，`head` 或 `headTail` | 提供方/资源上限保留为提供方事实；retainer 只提供保留文本和省略元数据。 |
 | `web_search` | `ItemRetainer<WebSearchSource>`，`head` | 当提供方返回的来源超过面向模型的结果应包含的数量时，标准化「来源已达上限」通知。 |
 
-`read` 仍不属于这个通用库。其 `read-render` 辅助工具负责文件专用的分页契约：`offset`/`limit`、行号、`totalLines`、偏移越界错误、每行预览截断，以及所选窗口的字节上限。这是行窗口渲染器。单个 `Omitted` 数量无法表示该窗口两侧。
+`read` 仍不属于这个通用库。其 `read-render` 辅助工具负责文件专用的分页约定：`offset`/`limit`、行号、`totalLines`、偏移越界错误、每行预览截断，以及所选窗口的字节上限。这是行窗口渲染器。单个 `Omitted` 数量无法表示该窗口两侧。
 
 ## 使用形态
 

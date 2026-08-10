@@ -16,7 +16,7 @@ Why spawn-backed: local workspace discovery is naturally a process-backed `rg` w
 
 ## Deployment requirement: no host rg, co-located workdir/filesystem
 
-The binary ships with the package on every supported platform (macOS/Linux/Windows, x64/arm64), so no host `rg` install is required and the tools register on every deployment. Returned paths are displayed relative to the resolved workdir (the calling agent's session cwd when present, else `process.cwd()`) and are follow-up-readable with `read` only when that workdir and the filesystem root are the same workspace. v1 documents that co-location requirement and performs no runtime cross-service validation; remote or virtual filesystem search waits for a shared workspace contract or a provider-specific search backend.
+The binary ships with the package on every supported platform (macOS/Linux/Windows, x64/arm64), so no host `rg` install is required and the tools register on every deployment. Returned paths are displayed relative to the resolved workdir (the calling agent's session cwd when present, else `process.cwd()`) and are follow-up-readable with `read` only when that workdir and the filesystem root are the same workspace. That co-location requirement carries no runtime cross-service validation; remote or virtual filesystem search waits for a shared workspace contract or a provider-specific search backend.
 
 ## Config
 

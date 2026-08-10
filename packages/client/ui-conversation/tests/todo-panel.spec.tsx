@@ -1,29 +1,19 @@
 // @vitest-environment jsdom
 /**
  * Todo display acceptance: the TodoPanel plan strip (empty-hidden, status rows
- * including several `in_progress` at once, collapse), its TodoDock adapter
- * (selects the plan off the session snapshot and follows changes), the row's
- * plan summary (counts plus the two halves of the active summary — the named
- * task and the `+N` count that parallel work adds, kept apart so the row never
- * ellipsizes the count away), and the todo_write toolview row (progress summary
- * from args, generic fallback on malformed JSON, shared ToolRow state dots and
- * leading expansion).
+ * including several `in_progress` at once, collapse), and its TodoDock
+ * adapter (selects the plan off the session snapshot and follows changes).
  */
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
-import type { TodoItem, ToolResultNode } from '@deepseek-ai/dsh-client-runtime/client'
+import type { TodoItem } from '@deepseek-ai/dsh-client-runtime/client'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
-// Export discipline: packages/client/AGENTS.md.
-import { TodoRow, todoToolview } from '../src/client/toolviews/todo-row.tsx'
 import type { TodoDockProps } from '../src/client/skeleton/TodoPanel.tsx'
 import { TodoDock, TodoPanel, todoDockEntry } from '../src/client/skeleton/TodoPanel.tsx'
-import { planSummary } from '../src/client/toolviews/plan-summary.ts'
 import { NS, zh } from '../src/client/locales.ts'
-
-type TodoRowProps = Parameters<typeof TodoRow>[0]
 
 // Mirrors the real lookup chain (conversation namespace, then common).
 const t: TodoDockProps['t'] = makeTranslate(zh, commonZh)
@@ -44,40 +34,6 @@ const PARALLEL: TodoItem[] = [
   { content: '读源码', status: 'in_progress' },
   { content: '补测试', status: 'pending' },
 ]
-
-describe('planSummary', () => {
-  it('counts done/total and names the single active item with no extra count', () => {
-    expect(planSummary(LIST)).toEqual({ done: 1, total: 3, activeContent: '写组件', activeExtra: 0 })
-  })
-
-  it('reports the extra active count separately when several items are in progress', () => {
-    // Parallel work marks several: naming one and hiding the rest would lose
-    // them, and the count stays unjoined so the row cannot ellipsize it.
-    expect(planSummary(PARALLEL)).toEqual({ done: 1, total: 5, activeContent: '写组件', activeExtra: 2 })
-  })
-
-  it('has no hint when nothing is in progress', () => {
-    expect(planSummary([{ content: '都完了', status: 'completed' }]))
-      .toEqual({ done: 1, total: 1, activeContent: null, activeExtra: 0 })
-  })
-
-  it('has no hint when the first active item carries no usable content (model JSON)', () => {
-    // Unvalidated args: a missing, mistyped, empty, or whitespace-only content
-    // yields no hint — and no orphan count, even with a second active item to
-    // count. Whitespace-only is the tool's own rejection rule (trimmed
-    // non-empty), and a rejected call keeps its args verbatim.
-    expect(planSummary([{ status: 'in_progress' }, { content: 'x', status: 'in_progress' }]))
-      .toMatchObject({ activeContent: null, activeExtra: 0 })
-    expect(planSummary([{ content: 42, status: 'in_progress' }]).activeContent).toBeNull()
-    expect(planSummary([{ content: '', status: 'in_progress' }]).activeContent).toBeNull()
-    expect(planSummary([{ content: '   ', status: 'in_progress' }, { content: 'x', status: 'in_progress' }]))
-      .toMatchObject({ activeContent: null, activeExtra: 0 })
-  })
-
-  it('is empty-safe', () => {
-    expect(planSummary([])).toEqual({ done: 0, total: 0, activeContent: null, activeExtra: 0 })
-  })
-})
 
 describe('TodoPanel', () => {
   it('renders nothing while the list is empty', () => {
@@ -130,8 +86,8 @@ describe('TodoPanel', () => {
   it('marks every parallel active item, and counts them all in the header', () => {
     render(<TodoPanel todos={PARALLEL} t={t} />)
     fireEvent.click(screen.getByRole('button', { expanded: false }))
-    // The old unconditional cap made this list unreachable: three items carry
-    // the in-progress glyph at once, and the header counts all three.
+    // An unconditional in-progress cap would make this list unreachable: three
+    // items carry the in-progress glyph at once, and the header counts all three.
     const statuses = screen.getAllByRole('listitem').map(li => li.getAttribute('data-status'))
     expect(statuses.filter(s => s === 'in_progress')).toHaveLength(3)
     expect(screen.getByText('跑后台构建')).toBeTruthy()
@@ -176,112 +132,5 @@ describe('TodoDock', () => {
     todoDockEntry.apply({ slots: { inject, register } } as never)
     expect(inject).toHaveBeenCalledWith('conversation.input.dock', expect.any(Function))
     expect(register).toHaveBeenCalledWith({ name: 'conversation.input.dock', id: 'todo', order: 0, locale: NS }, TodoDock)
-  })
-})
-
-const resultNode = (argsRaw: string, over?: Partial<ToolResultNode>): ToolResultNode => ({
-  kind: 'tool-result', seq: 10, time: 2_000, callTime: 1_000, callId: 'c1',
-  call: { name: 'todo_write', argsRaw },
-  content: [], isError: false, callView: null, resultView: null, ...over,
-})
-
-function rowProps(block: unknown): TodoRowProps {
-  return {
-    callId: 'c1', toolName: 'todo_write', block,
-    openFile: vi.fn(),
-    sessionId: 's1',
-    useSessions: () => undefined,
-    t,
-  } as unknown as TodoRowProps
-}
-
-describe('TodoRow', () => {
-  const ARGS = JSON.stringify({ todos: LIST })
-
-  it('summarizes counts and the active item from the call args', () => {
-    render(<TodoRow {...rowProps(resultNode(ARGS))} />)
-    expect(screen.getByText('更新任务清单')).toBeTruthy()
-    expect(screen.getByText('1/3 已完成 · 写组件')).toBeTruthy()
-  })
-
-  it('reports the extra active count outside the ellipsized summary text', () => {
-    const { container } = render(<TodoRow {...rowProps(resultNode(JSON.stringify({ todos: PARALLEL })))} />)
-    const text = screen.getByText('1/5 已完成 · 写组件')
-    const extra = screen.getByText('+2')
-    // Separate spans: .summary truncates, the count must not travel inside it.
-    expect(text.contains(extra)).toBe(false)
-    expect(container.textContent).toContain('1/5 已完成 · 写组件+2')
-  })
-
-  it('omits the active clause when no item is in progress and reads running-call args', () => {
-    const args = JSON.stringify({ todos: [{ content: 'x', status: 'completed' }] })
-    render(<TodoRow {...rowProps({ callId: 'c1', name: 'todo_write', argsRaw: args, turn: 1, step: 1, time: 1_000, callView: null })} />)
-    expect(screen.getByText('1/1 已完成')).toBeTruthy()
-  })
-
-  it('keeps the counts when an active item has unusable content, instead of the generic summary', () => {
-    // planSummary yields activeContent null here, but the counts are known good,
-    // so the row drops only the active clause — `?? model.summary` never runs.
-    const args = JSON.stringify({ todos: [{ content: 'done', status: 'completed' }, { content: 42, status: 'in_progress' }] })
-    const { container } = render(<TodoRow {...rowProps(resultNode(args))} />)
-    expect(screen.getByText('1/2 已完成')).toBeTruthy()
-    expect(container.textContent).not.toContain('+')
-  })
-
-  it('keeps the non-ok execution states visible through the shared row states', () => {
-    // A running call (no result yet) carries the running state (row sweep).
-    const args = JSON.stringify({ todos: LIST })
-    const running = render(<TodoRow {...rowProps({ callId: 'c1', name: 'todo_write', argsRaw: args, turn: 1, step: 1, time: 1_000, callView: null })} />)
-    expect(running.container.querySelector('[data-state="running"]')).not.toBeNull()
-    expect(running.container.querySelector('[data-state="running"] svg')).not.toBeNull()
-    running.unmount()
-    // A cancelled call wrote no todo/write: the row must not read as a completed update.
-    const stopped = render(<TodoRow {...rowProps(resultNode(args, { isError: true, error: { name: 'Interrupted', code: 'interrupted' } }))} />)
-    expect(stopped.container.querySelector('[data-state="stopped"]')).not.toBeNull()
-  })
-
-  it('falls back to the generic summary on malformed args and marks the error state', () => {
-    const view = render(<TodoRow {...rowProps(resultNode('not json', { isError: true }))} />)
-    expect(view.container.querySelector('[data-state="error"]')).not.toBeNull()
-    // Generic others summary: "<tool> · <raw>".
-    expect(screen.getByText('todo_write · not json')).toBeTruthy()
-  })
-
-  it('falls back when parsed args carry no todos array', () => {
-    render(<TodoRow {...rowProps(resultNode('{"other":1}'))} />)
-    expect(screen.getByText('todo_write · {"other":1}')).toBeTruthy()
-  })
-
-  it('leading toggle expands the raw args body', () => {
-    render(<TodoRow {...rowProps(resultNode(ARGS))} />)
-    fireEvent.click(screen.getByRole('button', { expanded: false }))
-    expect(screen.getByRole('button', { expanded: true })).toBeTruthy()
-    // The expanded body is the pretty-printed args, not the tool output.
-    expect(screen.getByText(/搭骨架/)).toBeTruthy()
-  })
-
-  it.each([
-    { label: 'null root', argsRaw: 'null' },
-    { label: 'non-object root', argsRaw: '42' },
-    { label: 'null items', argsRaw: '{"todos":[null]}' },
-  ])('falls back to the generic summary on valid JSON with an invalid shape ($label)', ({ argsRaw }) => {
-    render(<TodoRow {...rowProps(resultNode(argsRaw))} />)
-    // No throw, and the generic others summary carries the raw args verbatim.
-    expect(screen.getByText(`todo_write · ${argsRaw}`)).toBeTruthy()
-  })
-
-  it('window-truncated result (call head lost) falls back to the callId summary', () => {
-    render(<TodoRow {...rowProps(resultNode('', { call: null }))} />)
-    expect(screen.getByText('todo_write · c1')).toBeTruthy()
-  })
-
-  it('todoToolview injects the toolview declaration directly', () => {
-    expect(todoToolview.name).toBe('todo-toolview')
-    expect(todoToolview.inject).toEqual(['slots'])
-    const register = vi.fn(() => () => undefined)
-    const inject = vi.fn((_name: string, callback: () => () => void) => callback())
-    todoToolview.apply({ slots: { inject, register } } as never)
-    expect(inject).toHaveBeenCalledWith('conversation.chat.toolview', expect.any(Function))
-    expect(register).toHaveBeenCalledWith({ name: 'conversation.chat.toolview', key: 'todo_write', locale: NS }, TodoRow)
   })
 })

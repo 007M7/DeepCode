@@ -101,7 +101,7 @@ logger 会先触发：`tools/result` 在结果物化过程中发出，发生在 
 
 - [构建工具](../user/develop/basic/tool.md)：深入了解 `defineTool`，包括呈现和更丰富的 schema。
 - [三层能力设计](../user/develop/practice/index.md)：harness 如何组织可替换能力。
-- 生成的[服务](../cordis-catalog/services.md)与[事件](../cordis-catalog/events.md)目录：可以注入和监听的所有内容。
+- [子系统页面](../subsystems/core.md)上生成的 `cordis-surface` 区块：可以注入和监听的所有内容，各在其所属页面上。
 - [架构](../architecture.md)：这些插件所处的系统地图。
 
-[![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-harness/deepseek-harness)
+[![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness-sdk)

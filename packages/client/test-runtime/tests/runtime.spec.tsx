@@ -18,6 +18,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
     'trt.panel': { kind: 'single'; scope: 'root'; owner: { label?: string } }
     'trt.chat': { kind: 'single'; scope: 'session' }
     'trt.rows': { kind: 'list'; scope: 'root' }
+    'trt.rows.hole': { kind: 'single'; scope: 'root' }
   }
 }
 
@@ -220,6 +221,13 @@ describe('sessions', () => {
       .toMatchObject({ displayTitle: 'renamed', running: true })
     runtime.sessions.setSubagentCatalogOpen('s2' as SessionId, true)
     await runtime.sessions.refreshSubagents('s2' as SessionId)
+    // The confirmed-switch write-back lands on the row it names and ignores
+    // one the fixture never added, exactly as production's list upsert does.
+    runtime.sessions.noteAgentPreset('s1' as SessionId, 'minimal')
+    runtime.sessions.noteAgentPreset('missing' as SessionId, 'minimal')
+    await runtime.flush()
+    expect(runtime.sessions.list.getSnapshot().byId['s1' as SessionId])
+      .toMatchObject({ agentPreset: 'minimal' })
     runtime.sessions.open('s1' as SessionId)
     await runtime.flush()
     expect(runtime.sessions.list.getSnapshot().current).toBe('s1')
@@ -419,7 +427,7 @@ describe('feature mount and disposal', () => {
     await feature.dispose()
     await feature.dispose() // idempotent
     expect(runtime.slots.entries('trt.rows')).toHaveLength(0)
-    expect(runtime.slots.spec('trt.rows.hole' as never)).toBeUndefined()
+    expect(runtime.slots.spec('trt.rows.hole')).toBeUndefined()
     expect(runtime.ctx.get('feature-service')).toBeUndefined()
     expect(view.queryByTestId('row')).toBeNull()
     await runtime.dispose()

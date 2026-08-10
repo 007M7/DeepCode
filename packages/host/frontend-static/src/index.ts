@@ -41,6 +41,7 @@ const MIME: Record<string, string> = {
   '.svg': 'image/svg+xml',
   '.json': 'application/json',
   '.map': 'application/json',
+  '.webmanifest': 'application/manifest+json',
 }
 
 /**

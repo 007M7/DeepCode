@@ -1,4 +1,4 @@
-import { defineConfig } from 'tsdown'
+import { clientOnly } from '../tsdown.client.ts'
 
 /**
  * Root-shape lib build plus a css stub: the shell's components import
@@ -8,7 +8,7 @@ import { defineConfig } from 'tsdown'
  * this node lib build stubs every css import to an empty module — importing
  * the lib under plain node must not crash on an asset specifier.
  */
-export default defineConfig({
+export default clientOnly([{
   entry: ['lib/types/index.js', 'lib/types/invariant.js'],
   outDir: 'lib',
   format: ['esm'],
@@ -28,4 +28,4 @@ export default defineConfig({
       return 'export default {};'
     },
   }],
-})
+}])

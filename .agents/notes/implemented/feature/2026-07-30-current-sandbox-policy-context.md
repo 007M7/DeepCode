@@ -52,7 +52,7 @@ The cache-safe delivery rework then supplied a separate, non-statistical accepta
 
 **Keep sandbox mode absent because a standing mode label once caused preemptive refusal.** Rejected because a fresh Web request otherwise exposes mutation tools while withholding their standing policy, producing false capability claims before the first operation. The earlier live measurement remains a required counter-test: five of twelve turns ended without a tool call under `Bash commands run under the "read-only" file sandbox.` The committed tool-owned attempt guidance postdates that measurement, so the replacement is selected through a new positive-control experiment under the current tool contract rather than assuming the old and current conditions match.
 
-**A separate model-context package.** Rejected because the policy owner can resolve current session state directly and the existing assembly service can order it. A new package would add a shallow composition seam and documentation/gate surface around the same request boundary.
+**A separate model-context package.** Rejected because the policy owner can resolve current session state directly and the existing assembly service can order it. A new package would add a shallow composition layer and documentation/gate surface around the same request boundary.
 
 **Enumerate writable temporary roots.** Rejected because the backend is selected later at `confine()`: bwrap, Landlock, Seatbelt, and the in-process filesystem fence do not grant one common temporary-path set. Host-specific paths in a standing request would be both unstable and overclaimed.
 

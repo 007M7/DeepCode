@@ -69,7 +69,7 @@ export interface Config {
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'spill-policy'
 
-/** Require the tool registry (its `tools/post-execute` waterfall is the seam we transform). */
+/** Require the tool registry (its `tools/post-execute` waterfall is the extension point we transform). */
 export const inject = ['tools']
 
 export const Config: z<Config> = z.object({

@@ -3,8 +3,8 @@
  * surfaces. `llm.providers` merges the configurable-provider directory
  * (which providers CAN be configured, and where their settings live) with the
  * live route registry; `llm.models` is the session-independent model catalog
- * (the same groups as `session.models`, without the per-session current
- * target). Both invalidate on the `host/models-changed` frame.
+ * (the same groups as `session.models`, without a per-session selection).
+ * Both invalidate on the `host/models-changed` frame.
  */
 
 import type { RpcRequest, RpcResponse } from './rpc.ts'
@@ -22,6 +22,12 @@ export interface ConfigurableProviderView {
   settingsPath: string[]
   /** Whether the route is currently registered (its models are requestable). */
   active: boolean
+  /**
+   * Whether the owning adapter knows this route only because configuration
+   * declared it. Absent when the adapter draws no such distinction, so a
+   * surface must treat absence as "unknown", not as "shipped".
+   */
+  declared?: boolean
 }
 
 /** Llm-domain unary methods (the map keys llm.* of RpcMethodMap). */

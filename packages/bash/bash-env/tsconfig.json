@@ -27,7 +27,7 @@
       "path": "../../core/tools"
     },
     {
-      "path": "../../session-persistence/session-persistence"
+      "path": "../../session/session-persistence"
     },
     {
       "path": "../../support/invariants"

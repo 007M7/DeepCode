@@ -1,5 +1,5 @@
 /**
- * Credential seam (`ctx.credentials`). Settings and composition files carry
+ * Service Definition for the credential-reference capability seam (`ctx.credentials`). Settings and composition files carry
  * *references* to secrets — environment-variable names — while providers own
  * the actual values and their storage. Consumers resolve a reference once per
  * operation, so a changed credential reaches the next operation without any
@@ -32,7 +32,7 @@ export function credentialRef(value: string): CredentialRef {
 export interface ResolvedCredential {
   /** The non-empty secret value. */
   value: string
-  /** Provider-defined source layer id (the local provider uses `env` and `file`). */
+  /** Provider-defined source layer id (the local provider uses `env`, `file`, `project-env`, and `user-env`). */
   source: string
 }
 

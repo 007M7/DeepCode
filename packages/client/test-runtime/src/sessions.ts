@@ -3,7 +3,7 @@ import type { Context } from 'cordis'
 import { createScope, scopeOf, SessionProvideChannel } from '@deepseek-ai/dsh-client-runtime/client'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type {
-  ConversationSnapshot, ISessions, ObservableSnapshot, ProjectionsFace, SessionFace, SessionId,
+  AgentContext, ConversationSnapshot, ISessions, ObservableSnapshot, ProjectionsFace, SessionFace, SessionId,
   SessionListState, SessionProvideDescriptor, SessionSearchResultItem, SessionSummary, SnapshotStore,
   SubagentAddress,
 } from '@deepseek-ai/dsh-client-runtime/client'
@@ -134,7 +134,7 @@ interface SessionRecord {
   summary: SessionSummary
   snapshot: SnapshotStore<ConversationSnapshot>
   session: FixtureSession
-  scope: Context | undefined
+  scope: AgentContext | undefined
   scopeFiber: { dispose(): Promise<void> } | undefined
   /** Materialized standard-props bundle (identity-stable per session; invalidated on roster change). */
   provideInfo: SessionProvideInfo | undefined
@@ -144,7 +144,7 @@ interface SessionRecord {
 export interface TestSessionBinding {
   readonly sessionId: SessionId
   readonly session: FixtureSession
-  readonly ctx: Context
+  readonly ctx: AgentContext
 }
 
 /**
@@ -345,7 +345,7 @@ export class TestSessions implements ISessions {
    * @param id - session id.
    * @returns the scoped context, or undefined for unknown sessions.
    */
-  scope(id: string): Context | undefined {
+  scope(id: string): AgentContext | undefined {
     const record = this.records.get(id as SessionId)
     if (record === undefined) return undefined
     if (record.scope === undefined) {
@@ -368,7 +368,7 @@ export class TestSessions implements ISessions {
   }
 
   /**
-   * Read the session scope tag off a context (service-method seam mirror).
+   * Read the session scope tag off a context (service-method boundary mirror).
    * @param ctx - any client context.
    * @returns the session id, or undefined on root contexts.
    */
@@ -428,6 +428,14 @@ export class TestSessions implements ISessions {
   refreshSubagents(parentSessionId: SessionId): Promise<void> {
     this.calls.push({ method: 'refreshSubagents', args: [parentSessionId] })
     return Promise.resolve()
+  }
+
+  /** Apply a confirmed preset switch into the fixture list, as production does. */
+  noteAgentPreset(sessionId: SessionId, agentPreset: string): void {
+    this.list.update((draft) => {
+      const summary = draft.byId[sessionId]
+      if (summary !== undefined) draft.byId[sessionId] = { ...summary, agentPreset }
+    })
   }
 
   /** Clear the current selection (recorded; the production no-session flow). */

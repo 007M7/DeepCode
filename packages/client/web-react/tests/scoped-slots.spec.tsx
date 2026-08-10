@@ -90,6 +90,7 @@ function makeHost() {
   const provide = observable<SessionMaybeProvideInfo>(absentInfo)
   let currentId: string | undefined
   const infos = new Map<string, SessionProvideInfo>()
+  const sessionSources = new Map<string, ReturnType<typeof observable<unknown>>>()
 
   const bump = (key: string) => {
     versions.set(key, (versions.get(key) ?? 0) + 1)
@@ -134,8 +135,8 @@ function makeHost() {
     host,
     list,
     workspaces,
-    // Same driver surface as the old current cell: set(id) publishes the
-    // resolved bundle (or the absent projection) through the provide source.
+    // Driver surface: set(id) publishes the resolved bundle (or the absent
+    // projection) through the provide source.
     current: {
       set: (id: string | undefined) => {
         currentId = id
@@ -160,16 +161,23 @@ function makeHost() {
         bump(key)
       }
     },
-    addSession: (id: string): SessionProvideInfo => {
+    addSession: (id: string, initial: unknown = { sid: id }): SessionProvideInfo => {
       // Bare source per bundle (identity-stable): the machinery binds useSession from it.
+      const session = observable<unknown>(initial)
       const info: SessionProvideInfo = {
         sessionId: id,
-        hooks: { session: { getSnapshot: () => ({ sid: id }), subscribe: () => () => {} } },
+        hooks: { session },
         props: {},
       }
+      sessionSources.set(id, session)
       infos.set(id, info)
       if (currentId === id) provide.set(info)
       return info
+    },
+    setSession: (id: string, snapshot: unknown) => {
+      const source = sessionSources.get(id)
+      if (source === undefined) throw new Error(`unknown test session: ${id}`)
+      source.set(snapshot)
     },
   }
 }
@@ -633,6 +641,71 @@ describe('standard-kit synthesis', () => {
     // (per-source cache), which the switch-back cache tests cover.
     expect(props['read']).toBe('s1')
     expect(props['sessionId']).toBe('s1')
+  })
+
+  it('binds only function-valued inject hooks to the standard kit and render occurrence context', () => {
+    const h = makeHost()
+    const turnDataFactory = vi.fn((standard: AnyProps, turn: unknown) => (key: string) => {
+      const useSession = standard['useSession'] as (selector: (snapshot: unknown) => unknown) => unknown
+      return useSession((snapshot) => {
+        const value = snapshot as { turns: Record<number, Record<string, unknown>> }
+        return value.turns[turn as number]?.[key]
+      })
+    })
+    const sessionSpec: DeclaredSpec = {
+      kind: 'single', scope: 'session', inject: { hooks: { turnData: turnDataFactory } },
+    }
+    h.declare('k.session', sessionSpec)
+    h.addSession('s1', {
+      turns: { 1: { tail: 'one' }, 2: { tail: 'two' } },
+      unrelated: 0,
+    })
+    const hooks = new Map<string, Array<(key: string) => unknown>>()
+    let renders = 0
+    h.add('k.session', {
+      component: ({ label, useTurnData }: { label: string; useTurnData: (key: string) => unknown }) => {
+        renders += 1
+        const seen = hooks.get(label) ?? []
+        seen.push(useTurnData)
+        hooks.set(label, seen)
+        return <b data-turn={label}>{String(useTurnData('tail'))}</b>
+      },
+    })
+    const { view } = mountRoot(h, { 'k.session': sessionSpec }, renderSlot => (
+      <SessionProvider>{() => <>
+        {renderSlot('k.session', { label: 'one' }, { hookContext: 1 })}
+        {renderSlot('k.session', { label: 'two' }, { hookContext: 2 })}
+      </>}
+      </SessionProvider>
+    ))
+    act(() => { h.current.set('s1') })
+    expect(view.container.textContent).toBe('onetwo')
+    expect(renders).toBe(2)
+
+    // A session publication whose selected contextual value is identical is
+    // filtered by the framework-bound selector.
+    act(() => {
+      h.setSession('s1', {
+        turns: { 1: { tail: 'one' }, 2: { tail: 'two' } },
+        unrelated: 1,
+      })
+    })
+    expect(renders).toBe(2)
+
+    // Updating the selected contextual value re-renders through the returned
+    // custom Hook; the factory itself and its Hook identity stay stable.
+    act(() => {
+      h.setSession('s1', {
+        turns: { 1: { tail: 'updated' }, 2: { tail: 'two' } },
+        unrelated: 1,
+      })
+    })
+    expect(view.container.textContent).toBe('updatedtwo')
+    expect(renders).toBe(3)
+    expect(hooks.get('one')![1]).toBe(hooks.get('one')![0])
+    expect(hooks.get('two')).toHaveLength(1)
+    expect(hooks.get('one')![0]).not.toBe(hooks.get('two')![0])
+    expect(turnDataFactory).toHaveBeenCalledTimes(2)
   })
 
   it('hands the SessionProvider seat to entries declaring a session-scope child', () => {

@@ -30,9 +30,9 @@ Each proposed step first claims its inbox batch and runs `agent/pre-step`. Rejec
 
 **Enforcement.** The `dsh-agent-loop/invariant` companion registers with `ctx.invariants` and, when selected, independently rebuilds each loop request through a fresh `Session`, so the live cache cannot vouch for itself, then compares messages and folded header fields at `llm/stream`. The loop records the exact frozen request through `markAgentLoopRequest()` in `dsh-llm`; the process-local identity lets the companion and other request observers recognize conversation work, while direct one-shots remain excluded regardless of their frozen shape or session id. Correctness depends on sequence-bounded reconstruction rather than listener order. A with-key e2e requires positive cache-read tokens after the first request; per-step usage is the production signal, and a header change or compaction appears as a cache-read drop on the next step.
 
-### The MiniCode shape: adopted, with the provenance arrow inverted
+### The MiniCode shape: adopted, with the event log as the source
 
-Like MiniCode, the conversation advances append-only and resets only when model-visible state changes. Unlike MiniCode, the event log remains the source of truth because it also owns persistence, recovery, boundaries, tool pairing, and provenance. `Session` caches message and header folds derived from that log, making every request independently checkable.
+Like MiniCode, the conversation advances append-only and resets only when model-visible state changes. Unlike MiniCode, the event log remains the source of truth because it also owns persistence, recovery, boundaries, tool pairing, and links from derived events to their inputs. `Session` caches message and header folds derived from that log, making every request independently checkable.
 
 ## Alternatives considered
 
@@ -49,8 +49,7 @@ Like MiniCode, the conversation advances append-only and resets only when model-
 - A request that is not explained by the log cannot be constructed by accident — not by the loop, not by a listener; mutating a built request throws; every header change is a durable, diffable log event.
 - Model-visible context uses logged message channels. `agent.inject()` and tool `additionalContexts` enter the inbox for a later claim, while `agent/pre-step` returns context that must settle with the current claimed batch. Each entered value is a durable sourced `user/message`, paid once and prefix-cached thereafter at the price of accumulating in history until compaction.
 - What still costs full price at the provider is inherent and logged: compaction (its `compact/*` events and replacement entry), a real prompt, tool, or config change (`request/header` with reason `change`), or a process boundary with drift (a differing `resume` snapshot). The provider's own reasoning-content exclusion is managed server-side.
-- `agent/pre-step` is the current-request message seam; direct inbox mutation is the eventual later-request seam.
-- Tool-result trimming (planned) needs no new mechanism: a logged single-entry surface replace (`start === end`) carrying a trimmed `tool/result` under the same `callId` — compaction-family, replay-correct, cache-bust batched by the same pressure logic.
+- `agent/pre-step` is the current-request message channel; direct inbox mutation is the eventual later-request channel.
+- Tool-result trimming needs no new mechanism: a logged single-entry surface replace (`start === end`) carrying a trimmed `tool/result` under the same `callId` — compaction-family, replay-correct, cache-bust batched by the same pressure logic.
 - Session logs grow one `request/header` snapshot per loop instance plus snapshots on real changes. This is larger than a delta codec but small beside chunk-heavy logs and retains one replay representation. `SESSION_FORMAT_VERSION` stays `0`; legacy delta events are rejected rather than migrated.
 - Snapshot expected outputs changed once (every transcript gains its header events); the fs-writing fixtures are stored in the normalized authored form with cwd-relative tool arguments, because replay only round-trips cwd-independent argument paths.
-- FIXME(call-config-shape): revisit `LlmCallConfig`'s exact field set — which fields are genuinely epoch-level for cache purposes (`model` certainly; the sampling scalars sit there out of caution), and where provider-specific extras (reasoning options, extra body params) belong when an adapter needs them.

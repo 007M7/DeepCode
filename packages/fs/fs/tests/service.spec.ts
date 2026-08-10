@@ -1,5 +1,5 @@
 /**
- * Tests for the filesystem provider seam itself: registration, duplicate-service
+ * Tests for the filesystem Service Definition: registration, duplicate-service
  * behavior, disposal, and the branded id factories. The provider primitives and
  * policy live in `dsh-fs-local` and `dsh-fs-policy`; this seam owns only the
  * abstract service contract, so a minimal fake backend exercises it.
@@ -19,12 +19,17 @@ import type {
   FsWriteOutcome,
 } from '@deepseek-ai/dsh-fs'
 
-/** A minimal in-memory fake implementing the eight provider primitives. */
+/** A minimal in-memory fake implementing the provider primitives. */
 class FakeFileSystem extends FileSystem {
   files = new Map<string, string>()
 
   override async resolve(path: string): Promise<FsTarget> {
     return { targetKey: FsTargetKey(path), displayPath: path }
+  }
+  override processPath(target: FsTarget): string { return String(target.targetKey) }
+  override fileUrl(target: FsTarget): string { return `file:///${encodeURIComponent(String(target.targetKey))}` }
+  override contains(parent: FsTarget, child: FsTarget): boolean {
+    return child.targetKey === parent.targetKey || String(child.targetKey).startsWith(`${parent.targetKey}/`)
   }
   override async stat(target: FsTarget): Promise<FsInfo | undefined> {
     const content = this.files.get(target.targetKey)
@@ -75,6 +80,7 @@ describe('FileSystem provider seam', () => {
     const ctx = new Context()
     await ctx.plugin(FakeFileSystem)
     const fs = ctx.fs as FakeFileSystem
+    expect(fs.sandboxMode).toBeUndefined()
     fs.files.set('a.txt', 'hi')
     const target = await fs.resolve('a.txt')
     expect((await fs.stat(target))?.type).toBe('file')
