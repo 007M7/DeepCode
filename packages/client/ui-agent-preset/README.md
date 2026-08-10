@@ -18,7 +18,7 @@ A session that has started is refused rather than queued: the host answers `agen
 
 ## The session-header label
 
-A third surface, beside the session title: the preset THIS session runs, as static chrome. It precedes the subagent catalog in the header action row. A control there would promise a switch the host refuses outright. It reads the preset from the session's own summary — a resumed session runs what it was created with, not today's default — and resolves the display name against the same roster the General row reads.
+A third surface, beside the session title: the preset THIS session runs, as static chrome. A control there would promise a switch the host refuses outright. It reads the preset from the session's own summary — a resumed session runs what it was created with, not today's default — and resolves the display name against the same roster the General row reads.
 
 ## What it reads and writes
 

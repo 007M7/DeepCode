@@ -17,6 +17,10 @@ import type { Browser, Page } from 'playwright'
 import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import {
+  SESSION_FORMAT_VERSION, SessionId as sessionId, type SessionEvent, type SessionId,
+} from '@deepseek-ai/dsh-session'
+import { snapshotSubagentDescriptor } from '@deepseek-ai/dsh-subagent'
+import {
   captureStableAria, compareOrRefreshGolden, launchWebScaffold, seedSession, watchConsole,
   webSnapshotMode, type WebScaffold,
 } from './scaffold.ts'
@@ -79,6 +83,60 @@ function seedLog(): string {
 }
 
 /**
+ * Persist one child so the assembled header snapshot exercises both action
+ * contributors whose relative order is the product contract under test.
+ * @param scaffold - the booted Web scaffold.
+ * @param parentId - the seeded session whose header the browser opens.
+ */
+async function seedSubagent(scaffold: WebScaffold, parentId: SessionId): Promise<void> {
+  const childId = sessionId('agent-preset-selection-child')
+  const createdAt = 1784974100100
+  await scaffold.ctx.sessionPersistence.create({
+    version: SESSION_FORMAT_VERSION,
+    id: childId,
+    createdAt,
+    cwd: scaffold.workspaceCwd,
+    parentSession: parentId,
+    origin: 'subagent',
+    delegationDepth: 1,
+    agentPreset: 'minimal',
+  })
+  await scaffold.ctx.sessionPersistence.append(childId, [
+    {
+      type: 'turn/start',
+      seq: 0,
+      time: createdAt,
+      data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } },
+    },
+    {
+      type: 'user/message',
+      seq: 1,
+      time: createdAt + 1,
+      data: {
+        content: [{ type: 'text', text: 'Check the session-header action order.' }],
+        source: { kind: 'user' },
+      },
+      surfaceOp: 'append',
+    },
+    {
+      type: 'subagent/descriptor',
+      seq: 2,
+      time: createdAt + 2,
+      data: snapshotSubagentDescriptor({
+        mode: 'one-shot', provider: 'spawn', label: 'header order probe',
+      }),
+    },
+    {
+      type: 'turn/end',
+      seq: 3,
+      time: createdAt + 3,
+      data: { turn: 1, reason: { kind: 'completed' } },
+    },
+  ] as SessionEvent[])
+  await scaffold.ctx.sessionProjectionCache.coldSnapshot(childId)
+}
+
+/**
  * The preset the host reports for the blank session the workspace connect
  * produced. Addressed by id rather than by scanning the serialized list: the
  * seeded session records `minimal` too, so a substring match over the whole
@@ -120,7 +178,8 @@ describe('web e2e: agent-preset selection', () => {
     // A resumed session runs what it was created with; seeding one that
     // records `minimal` is what makes the header label a claim about the
     // session rather than an echo of the current default.
-    await seedSession(scaffold, seedLog(), SEED_ID, 'minimal')
+    const seededId = await seedSession(scaffold, seedLog(), SEED_ID, 'minimal')
+    await seedSubagent(scaffold, seededId)
     await seedWorkspaceSkill(scaffold.workspaceCwd)
     browser = await chromium.launch()
     page = await newEnglishPage(browser)
@@ -222,6 +281,8 @@ describe('web e2e: agent-preset selection', () => {
 
     await compareOrRefreshGolden(HEADER_EXPECTED, snapshot, MODE)
     expect(snapshot).toContain('Minimal mode')
+    expect(snapshot).toContain('button "1 subagent"')
+    expect(snapshot.indexOf('Minimal mode')).toBeLessThan(snapshot.indexOf('button "1 subagent"'))
     // Static chrome, not a control: the header can only report a composition
     // the host would refuse to change.
     expect(snapshot).not.toContain('button "Minimal mode"')
