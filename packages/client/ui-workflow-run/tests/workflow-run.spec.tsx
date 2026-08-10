@@ -107,14 +107,13 @@ describe('workflow-run Conversation Definition', () => {
     expect(data).toEqual({
       name: 'audit',
       status: 'failed',
-      memberCount: 2,
       phases: [
         {
-          key: 'value:0:', phase: '', status: 'completed',
+          key: 'value:0:', phase: '',
           members: [{ seq: 1, label: 'first', childId: 'child-1', status: 'completed' }],
         },
         {
-          key: 'missing', phase: null, status: 'failed',
+          key: 'missing', phase: null,
           members: [{ seq: 2, label: 'second', childId: 'child-2', status: 'failed' }],
         },
       ],
@@ -167,7 +166,7 @@ describe('workflow-run Conversation Definition', () => {
       at(4, 'tool-workflow/run-end', { runId: 'empty', stopReason: 'completed' }),
     ])
     expect(workflowData(value)).toEqual({
-      name: 'empty', status: 'completed', memberCount: 0, phases: [],
+      name: 'empty', status: 'completed', phases: [],
     })
   })
 
@@ -187,7 +186,7 @@ describe('workflow-run Conversation Definition', () => {
     ])
     expect(workflowData(cancelled)).toMatchObject({
       status: 'cancelled',
-      phases: [{ phase: 'Research', status: 'cancelled', members: [{ status: 'cancelled' }, { status: 'completed' }] }],
+      phases: [{ phase: 'Research', members: [{ status: 'cancelled' }, { status: 'completed' }] }],
     })
 
     const interruptedTurn = assembler([
@@ -254,7 +253,6 @@ function node(data: WorkflowRunChatData): WorkflowRunPanelProps['node'] {
 const phase = (overrides: Partial<WorkflowRunChatData['phases'][number]> = {}): WorkflowRunChatData['phases'][number] => ({
   key: 'missing',
   phase: null,
-  status: 'running',
   members: [{ seq: 1, label: 'worker', childId: 'child-1' as SessionId, status: 'running' }],
   ...overrides,
 })
@@ -303,7 +301,7 @@ function panelProps(data: WorkflowRunChatData, sessions = listState(), openSessi
 describe('WorkflowRunPanel', () => {
   it('defaults running runs open, terminal history closed, and keeps the current choice across data updates', () => {
     const running: WorkflowRunChatData = {
-      name: 'audit', status: 'running', memberCount: 1, phases: [phase()],
+      name: 'audit', status: 'running', phases: [phase()],
     }
     const view = render(<WorkflowRunPanel {...panelProps(running)} />)
     expect(screen.getByText('未分阶段')).toBeTruthy()
@@ -321,7 +319,7 @@ describe('WorkflowRunPanel', () => {
 
   it('supports root keyboard disclosure and renders a zero-member running state', () => {
     render(<WorkflowRunPanel {...panelProps({
-      name: 'keyboard', status: 'running', memberCount: 1,
+      name: 'keyboard', status: 'running',
       phases: [phase({ key: 'research', phase: 'Research' })],
     })} />)
     const header = screen.getByRole('button', { name: /^keyboard/ })
@@ -344,14 +342,14 @@ describe('WorkflowRunPanel', () => {
 
     cleanup()
     render(<WorkflowRunPanel {...panelProps({
-      name: 'empty', status: 'running', memberCount: 0, phases: [],
+      name: 'empty', status: 'running', phases: [],
     })} />)
     expect(screen.getByText('没有启动成员')).toBeTruthy()
   })
 
   it('keeps phase disclosure independent and preserves empty versus absent names', () => {
     render(<WorkflowRunPanel {...panelProps({
-      name: 'audit', status: 'running', memberCount: 2,
+      name: 'audit', status: 'running',
       phases: [
         phase({ key: 'value:0:', phase: '', members: [{
           seq: 1, label: '', childId: 'child-1' as SessionId, status: 'running',
@@ -373,9 +371,8 @@ describe('WorkflowRunPanel', () => {
 
   it('covers the Figma completed, failed/cancelled, and interrupted state boards', () => {
     const completed: WorkflowRunChatData = {
-      name: 'repo-audit', status: 'completed', memberCount: 1,
+      name: 'repo-audit', status: 'completed',
       phases: [phase({
-        status: 'completed',
         members: [{ seq: 1, label: 'done', childId: 'child-1' as SessionId, status: 'completed' }],
       })],
     }
@@ -387,9 +384,8 @@ describe('WorkflowRunPanel', () => {
     completedView.unmount()
 
     const mixed: WorkflowRunChatData = {
-      name: 'repo-audit', status: 'failed', memberCount: 2,
+      name: 'repo-audit', status: 'failed',
       phases: [phase({
-        status: 'failed',
         members: [
           { seq: 1, label: 'failed', childId: 'child-1' as SessionId, status: 'failed' },
           { seq: 2, label: 'cancelled', childId: 'child-2' as SessionId, status: 'cancelled' },
@@ -407,17 +403,16 @@ describe('WorkflowRunPanel', () => {
     mixedView.unmount()
 
     const interrupted: WorkflowRunChatData = {
-      name: 'repo-audit', status: 'interrupted', memberCount: 2,
+      name: 'repo-audit', status: 'interrupted',
       phases: [
         phase({
-          status: 'interrupted',
           members: [
             { seq: 1, label: 'done', childId: 'child-1' as SessionId, status: 'completed' },
             { seq: 2, label: 'interrupted', childId: 'child-2' as SessionId, status: 'interrupted' },
           ],
         }),
         phase({
-          key: 'interrupted-only', phase: 'Interrupted only', status: 'interrupted',
+          key: 'interrupted-only', phase: 'Interrupted only',
           members: [{
             seq: 3, label: 'interrupted', childId: 'child-3' as SessionId, status: 'interrupted',
           }],
@@ -433,7 +428,7 @@ describe('WorkflowRunPanel', () => {
 
   it('opens only a running ordinary-list subagent proven to have this parent', () => {
     const data: WorkflowRunChatData = {
-      name: 'audit', status: 'running', memberCount: 1, phases: [phase()],
+      name: 'audit', status: 'running', phases: [phase()],
     }
     const openSession = vi.fn()
     render(<WorkflowRunPanel {...panelProps(data, listState(), openSession)} />)
@@ -459,9 +454,8 @@ describe('WorkflowRunPanel', () => {
     ['member terminal', listState(), 'completed'],
   ] as const)('does not navigate when %s', (_name, sessions, memberStatus) => {
     const data: WorkflowRunChatData = {
-      name: 'audit', status: 'running', memberCount: 1,
+      name: 'audit', status: 'running',
       phases: [phase({
-        status: memberStatus === 'running' ? 'running' : 'completed',
         members: [{
           seq: 1, label: 'worker', childId: 'child-1' as SessionId, status: memberStatus,
         }],

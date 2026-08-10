@@ -1,6 +1,6 @@
-import { useMemo, useState, type KeyboardEvent } from 'react'
+import { useMemo, useState } from 'react'
 import {
-  IconChevronDownOutline14, IconChevronRightOutline14, StateDot, type StateDotState,
+  DisclosureRow, IconChevronRightOutline14, StateDot, type StateDotState,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
@@ -71,12 +71,6 @@ function phaseStatusSummary(members: readonly WorkflowRunMemberData[], t: Workfl
   return visible.map(status => statusCount(status, count(status), t)).join(' · ')
 }
 
-function handleDisclosureKey(event: KeyboardEvent<HTMLDivElement>, onToggle: () => void): void {
-  if (event.key !== 'Enter' && event.key !== ' ') return
-  event.preventDefault()
-  onToggle()
-}
-
 function RunHeader({ count, name, onToggle, open, status, t }: {
   readonly count: number
   readonly name: string
@@ -86,27 +80,29 @@ function RunHeader({ count, name, onToggle, open, status, t }: {
   readonly t: WorkflowRunPanelProps['t']
 }) {
   return (
-    <div
-      className={css.runHeader}
-      data-run-header
-      data-status={status}
-      role="button"
-      tabIndex={0}
-      aria-expanded={open}
-      onClick={onToggle}
-      onKeyDown={(event) => { handleDisclosureKey(event, onToggle) }}
-    >
-      <span className={css.runLeading}>
-        {open ? <IconChevronDownOutline14 /> : <IconChevronRightOutline14 />}
-      </span>
-      <span className={css.runTitle}>{t('run.title', { name })}</span>
-      <span className={css.separator} aria-hidden />
-      <span className={css.runSummary}>{t('run.members', { count })}</span>
-      <span className={css.statusTail} data-run-status-tail data-status={status}>
-        <StateDot state={dotState(status)} />
-        <span>{t(STATUS_KEYS[status])}</span>
-      </span>
-    </div>
+    <DisclosureRow
+      icon={<IconChevronRightOutline14 />}
+      title={t('run.title', { name })}
+      open={open}
+      expandable
+      onToggle={onToggle}
+      expandOnRowClick
+      previewChevron={false}
+      keepContentWhenOpen
+      rowClassName={css.runHeader}
+      leadingClassName={css.runLeading}
+      titleClassName={css.runTitle}
+      collapsedContent={(
+        <>
+          <span className={css.separator} aria-hidden />
+          <span className={css.runSummary}>{t('run.members', { count })}</span>
+          <span className={css.statusTail} data-status={status}>
+            <StateDot state={dotState(status)} />
+            <span>{t(STATUS_KEYS[status])}</span>
+          </span>
+        </>
+      )}
+    />
   )
 }
 
@@ -149,38 +145,39 @@ function PhaseSection({ phase, navigable, openSession, t }: {
   const [open, setOpen] = useState(false)
   const toggle = (): void => { setOpen(value => !value) }
   return (
-    <div className={css.phase} data-phase-key={phase.key} data-phase-status={phase.status}>
-      <div
-        className={css.phaseHeader}
-        data-phase-header
-        role="button"
-        tabIndex={0}
-        aria-expanded={open}
-        onClick={toggle}
-        onKeyDown={(event) => { handleDisclosureKey(event, toggle) }}
-      >
-        <span className={css.phaseLeading}>
-          {open ? <IconChevronDownOutline14 /> : <IconChevronRightOutline14 />}
-        </span>
-        <span className={css.phaseTitle}>{readablePhase(phase.phase, t)}</span>
-        <span className={css.separator} aria-hidden />
-        <span className={css.phaseCount} data-phase-count>{t('run.members', { count: phase.members.length })}</span>
-        <span className={css.phaseStatus} data-phase-status-text>{phaseStatusSummary(phase.members, t)}</span>
-      </div>
-      {open && (
-        <div className={css.members}>
-          {phase.members.map(member => (
-            <MemberRow
-              key={member.seq}
-              member={member}
-              navigable={navigable.has(member.childId)}
-              openSession={openSession}
-              t={t}
-            />
-          ))}
-        </div>
+    <DisclosureRow
+      icon={<IconChevronRightOutline14 />}
+      title={readablePhase(phase.phase, t)}
+      open={open}
+      expandable
+      onToggle={toggle}
+      expandOnRowClick
+      previewChevron={false}
+      keepContentWhenOpen
+      className={css.phase}
+      rowClassName={css.phaseHeader}
+      leadingClassName={css.phaseLeading}
+      titleClassName={css.phaseTitle}
+      collapsedContent={(
+        <>
+          <span className={css.separator} aria-hidden />
+          <span className={css.phaseCount} data-phase-count>{t('run.members', { count: phase.members.length })}</span>
+          <span className={css.phaseStatus} data-phase-status-text>{phaseStatusSummary(phase.members, t)}</span>
+        </>
       )}
-    </div>
+    >
+      <div className={css.members}>
+        {phase.members.map(member => (
+          <MemberRow
+            key={member.seq}
+            member={member}
+            navigable={navigable.has(member.childId)}
+            openSession={openSession}
+            t={t}
+          />
+        ))}
+      </div>
+    </DisclosureRow>
   )
 }
 
@@ -188,6 +185,7 @@ function PhaseSection({ phase, navigable, openSession, t }: {
 export function WorkflowRunPanel({ node, sessionId, useSessions, openSession, t }: WorkflowRunPanelProps) {
   const [open, setOpen] = useState(() => node.data.status === 'running')
   const sessions = useSessions(value => value)
+  const memberCount = node.data.phases.reduce((count, phase) => count + phase.members.length, 0)
   const navigable = useMemo(() => {
     const ordinary = new Set(sessions.ids)
     const result = new Set<SessionId>()
@@ -208,7 +206,7 @@ export function WorkflowRunPanel({ node, sessionId, useSessions, openSession, t 
   return (
     <section className={css.root} data-workflow-run data-run-status={node.data.status}>
       <RunHeader
-        count={node.data.memberCount}
+        count={memberCount}
         name={node.data.name}
         open={open}
         status={node.data.status}

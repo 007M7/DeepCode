@@ -24,7 +24,6 @@ export interface WorkflowRunPhaseData {
   readonly key: string
   /** `null` is the absent field; the empty string remains a distinct identity. */
   readonly phase: string | null
-  readonly status: WorkflowRunStatus
   readonly members: readonly WorkflowRunMemberData[]
 }
 
@@ -32,7 +31,6 @@ export interface WorkflowRunPhaseData {
 export interface WorkflowRunChatData {
   readonly name: string
   readonly status: WorkflowRunStatus
-  readonly memberCount: number
   readonly phases: readonly WorkflowRunPhaseData[]
 }
 
@@ -43,7 +41,7 @@ declare module '@deepseek-ai/dsh-client-ui-conversation/client' {
   }
 }
 
-interface WorkflowMemberState extends ToolWorkflowAgentStartData {
+interface WorkflowMemberState extends Omit<ToolWorkflowAgentStartData, 'runId'> {
   readonly outcome?: WorkflowAgentOutcome
 }
 
@@ -90,14 +88,6 @@ function locationClosed(location: ConversationLocation | undefined): boolean {
   return location.kind === 'turn' && location.turn.status === 'closed'
 }
 
-function aggregateStatus(members: readonly WorkflowRunMemberData[]): WorkflowRunStatus {
-  if (members.some(member => member.status === 'running')) return 'running'
-  if (members.some(member => member.status === 'failed')) return 'failed'
-  if (members.some(member => member.status === 'cancelled')) return 'cancelled'
-  if (members.some(member => member.status === 'interrupted')) return 'interrupted'
-  return 'completed'
-}
-
 function projectWorkflow(
   context: ConversationNodeContext<WorkflowState>,
 ): WorkflowRunChatData | undefined {
@@ -126,7 +116,6 @@ function projectWorkflow(
   const projectedPhases = [...phases].map(([key, phase]) => ({
     key,
     phase: phase.phase,
-    status: aggregateStatus(phase.members),
     members: phase.members,
   }))
   return {
@@ -134,13 +123,18 @@ function projectWorkflow(
     status: state.stopReason === undefined
       ? interrupted ? 'interrupted' : 'running'
       : statusFromStopReason(state.stopReason),
-    memberCount: state.members.length,
     phases: projectedPhases,
   }
 }
 
 function updateAgentStart(state: WorkflowState, data: ToolWorkflowAgentStartData): WorkflowState {
-  return { ...state, members: [...state.members, data] }
+  const member: WorkflowMemberState = {
+    seq: data.seq,
+    label: data.label,
+    ...data.phase === undefined ? {} : { phase: data.phase },
+    childId: data.childId,
+  }
+  return { ...state, members: [...state.members, member] }
 }
 
 function updateAgentEnd(state: WorkflowState, data: ToolWorkflowAgentEndData): WorkflowState {

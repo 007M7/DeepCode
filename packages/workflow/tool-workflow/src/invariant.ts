@@ -19,12 +19,9 @@ interface RunTrace {
 
 type WorkflowTrace = Map<string, RunTrace>
 
-/** Clone the independent fold before validating one candidate append. */
-function cloneTrace(source: WorkflowTrace): WorkflowTrace {
-  return new Map([...source].map(([runId, run]) => [runId, {
-    ended: run.ended,
-    members: new Map(run.members),
-  }]))
+/** Whether this package owns the candidate Session event. */
+function isWorkflowRecordEvent(event: SessionEvent): boolean {
+  return event.type.startsWith('tool-workflow/')
 }
 
 /** Require a durable opaque identity to be a non-empty string. */
@@ -50,6 +47,23 @@ function recordOf(event: SessionEvent, fail: InvariantFailure): Record<string, u
   return data as Record<string, unknown>
 }
 
+/** Copy only the run one candidate can mutate; other committed states stay shared. */
+function cloneTraceForEvent(
+  source: WorkflowTrace,
+  event: SessionEvent,
+  fail: InvariantFailure,
+): WorkflowTrace {
+  const trace = new Map(source)
+  if (event.type === 'tool-workflow/run-start') return trace
+  const data = recordOf(event, fail)
+  const runId = stringId(data.runId, `${event.type} runId`, fail)
+  const run = source.get(runId)
+  if (run !== undefined) {
+    trace.set(runId, { ended: run.ended, members: new Map(run.members) })
+  }
+  return trace
+}
+
 /** Require the named run to exist and remain open. */
 function openRun(trace: WorkflowTrace, runId: string, eventType: string, fail: InvariantFailure): RunTrace {
   const run = trace.get(runId)
@@ -60,7 +74,6 @@ function openRun(trace: WorkflowTrace, runId: string, eventType: string, fail: I
 
 /** Advance the workflow-record fold with one relevant Session event. */
 function applyEvent(trace: WorkflowTrace, event: SessionEvent, fail: InvariantFailure): void {
-  if (!event.type.startsWith('tool-workflow/')) return
   const data = recordOf(event, fail)
   const runId = stringId(data.runId, `${event.type} runId`, fail)
 
@@ -107,6 +120,7 @@ function applyEvent(trace: WorkflowTrace, event: SessionEvent, fail: InvariantFa
         fail(`tool-workflow/run-end leaves member seq ${openMembers.join(', ')} open in run ${runId}`)
       }
       run.ended = true
+      run.members.clear()
       return
     }
     default:
@@ -126,23 +140,23 @@ const install: InvariantInstaller = Object.assign((ctx: Context, fail: Invariant
 
   const seed = (session: Session): WorkflowTrace => {
     const trace: WorkflowTrace = new Map()
-    for (const event of session.events) applyChecked(trace, event, fail)
+    for (const event of session.events.filter(isWorkflowRecordEvent)) applyChecked(trace, event, fail)
     traces.set(session, trace)
     return trace
   }
-  /* v8 ignore next -- session/event always follows list() or session/created seeding. */
-  const traceFor = (session: Session): WorkflowTrace => traces.get(session) ?? seed(session)
-
-  for (const session of ctx.sessions.list()) seed(session)
+  ctx.sessions.list().forEach(seed)
   ctx.on('session/created', (session) => { seed(session) }, { global: true })
   ctx.on('internal/dispatch', (_mode, eventName, args) => {
     if (eventName !== 'session/event') return
     const [session, event] = args as [Session, SessionEvent]
-    const trace = cloneTrace(traceFor(session))
+    if (!isWorkflowRecordEvent(event)) return
+    // session/event dispatch follows list() or session/created seeding.
+    const trace = cloneTraceForEvent(traces.get(session) as WorkflowTrace, event, fail)
     applyChecked(trace, event, fail)
     staged.set(event, { session, trace })
   }, { global: true })
   ctx.on('session/event', (session, event) => {
+    if (!isWorkflowRecordEvent(event)) return
     const candidate = staged.get(event)
     /* v8 ignore next 2 -- internal/dispatch stages the exact session/event callback arguments. */
     if (candidate === undefined || candidate.session !== session) {

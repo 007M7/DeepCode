@@ -93,8 +93,16 @@ describe.skipIf(MODE === 'record')('web e2e: durable workflow run in Chat', () =
       const label = element.querySelector('[data-member-label]')
       const labelWrap = element.querySelector('[data-member-label-wrap]')
       const status = element.querySelector('[data-member-status-text]')
-      const runHeader = element.querySelector('[data-run-header]')
-      const phaseHeader = element.querySelector('[data-phase-header]')
+      const disclosures = element.querySelectorAll('[data-disclosure-row]')
+      const runHeader = disclosures[0]
+      const phaseHeader = disclosures[1]
+      const phaseTitle = phaseHeader?.children.item(1) as HTMLElement | null
+      const phaseStatus = element.querySelector('[data-phase-status-text]')
+      const originalPhaseTitle = phaseTitle?.textContent ?? ''
+      if (phaseTitle !== null) phaseTitle.textContent = 'A phase name long enough to require ellipsis in the narrow layout'
+      const phaseTitleRight = phaseTitle?.getBoundingClientRect().right ?? 0
+      const phaseStatusLeft = phaseStatus?.getBoundingClientRect().left ?? 0
+      if (phaseTitle !== null) phaseTitle.textContent = originalPhaseTitle
       return {
         clientWidth: element.clientWidth,
         scrollWidth: element.scrollWidth,
@@ -105,6 +113,8 @@ describe.skipIf(MODE === 'record')('web e2e: durable workflow run in Chat', () =
         statusFontSize: status === null ? '' : getComputedStyle(status).fontSize,
         runHeight: runHeader?.getBoundingClientRect().height ?? 0,
         phaseHeight: phaseHeader?.getBoundingClientRect().height ?? 0,
+        phaseTitleRight,
+        phaseStatusLeft,
       }
     })
     expect(darkNarrow.clientWidth).toBe(356)
@@ -116,6 +126,7 @@ describe.skipIf(MODE === 'record')('web e2e: durable workflow run in Chat', () =
     expect(darkNarrow.statusFontSize).toBe('13px')
     expect(darkNarrow.runHeight).toBe(32)
     expect(darkNarrow.phaseHeight).toBe(32)
+    expect(darkNarrow.phaseTitleRight).toBeLessThanOrEqual(darkNarrow.phaseStatusLeft)
     await page.locator('[data-workflow-run]').evaluate((element) => {
       (element as HTMLElement).style.removeProperty('width')
       document.body.removeAttribute('data-ds-dark-theme')
@@ -158,7 +169,7 @@ describe.skipIf(MODE === 'record')('web e2e: durable workflow run in Chat', () =
     await page.getByText(CHILD_PROMPT, { exact: false }).waitFor()
     expect(await page.getByRole('button', { name: /^Open Reply with exactly the word/ }).count()).toBe(0)
 
-    const snapshot = await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd)
+    const snapshot = await captureStableAria(page, '[data-chat-flow]', scaffold.workspaceCwd)
     await compareOrRefreshGolden(UI_EXPECTED, snapshot, MODE)
   }, 60_000)
 

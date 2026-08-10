@@ -17,8 +17,7 @@ import type { ToolCallView, ToolResultView } from '@deepseek-ai/dsh-tools'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { JsonValue, Session, SessionEventMap } from '@deepseek-ai/dsh-session'
 import type {
-  WorkflowAgentEndInfo, WorkflowAgentInfo, WorkflowResult, WorkflowRun,
-  WorkflowRunId, WorkflowRunInfo, WorkflowStopReason,
+  WorkflowResult, WorkflowRun, WorkflowRunId, WorkflowStopReason,
 } from '@deepseek-ai/dsh-workflow'
 import type {
   ToolWorkflowAgentEndData, ToolWorkflowAgentStartData,
@@ -45,14 +44,10 @@ export const Config: z<Config> = z.object({
 
 type ResolvedConfig = Required<Config>
 
-type BufferedWorkflowEvent =
-  | { readonly kind: 'agent-start'; readonly info: WorkflowRunInfo; readonly agent: WorkflowAgentInfo }
-  | { readonly kind: 'agent-end'; readonly info: WorkflowRunInfo; readonly agent: WorkflowAgentEndInfo }
-
 interface WorkflowRecorder {
-  bind(run: WorkflowRun): void
-  finish(stopReason: WorkflowStopReason): void
-  dispose(): void
+  start(session: Session, run: WorkflowRun): void
+  finish(runId: WorkflowRunId, stopReason: WorkflowStopReason): void
+  abandon(runId: WorkflowRunId): void
 }
 
 interface ToolWorkflowRecordEventMap {
@@ -72,84 +67,66 @@ function renderRecordingError(error: unknown): string {
 }
 
 /**
- * Project one top-level workflow run into its parent Session without letting
- * recording failure affect tool execution. Listeners are installed before
- * `start()` so even a synchronous provider cannot outrun the recorder.
+ * Project active top-level workflow runs into their parent Sessions without
+ * letting recording failure affect tool execution.
  */
-function createWorkflowRecorder(ctx: Context, session: Session): WorkflowRecorder {
-  let runId: WorkflowRunId | undefined
-  let enabled = true
-  const buffered: BufferedWorkflowEvent[] = []
-  // These four package-owned events are all log-only. Narrowing the generic
-  // append face here lets TypeScript discharge Session.append's conditional
-  // surface-options tuple once for the complete closed event set.
-  const appendRecord = session.append.bind(session) as <Type extends keyof ToolWorkflowRecordEventMap>(
-    type: Type,
-    data: SessionEventMap[Type],
-  ) => void
-
+function createWorkflowRecorder(ctx: Context): WorkflowRecorder {
+  const active = new Map<WorkflowRunId, Session>()
   const append = <Type extends keyof ToolWorkflowRecordEventMap>(
+    session: Session,
     type: Type,
     data: SessionEventMap[Type],
-  ): void => {
-    if (!enabled) return
+  ): boolean => {
+    // These four package-owned events are all log-only. Narrowing the generic
+    // append face here discharges Session.append's conditional options tuple.
+    const appendRecord = session.append.bind(session) as <Event extends keyof ToolWorkflowRecordEventMap>(
+      event: Event,
+      value: SessionEventMap[Event],
+    ) => void
     try {
       appendRecord(type, data)
+      return true
     } catch (error: unknown) {
-      enabled = false
       ctx.logger.warn(`tool-workflow: disabled durable record after ${type} append failed: ${renderRecordingError(error)}`)
+      return false
     }
   }
 
-  const record = (event: BufferedWorkflowEvent): void => {
-    if (runId === undefined) {
-      buffered.push(event)
-      return
+  ctx.on('workflow/agent-start', (info, agent) => {
+    const session = active.get(info.id)
+    if (session === undefined) return
+    const data: ToolWorkflowAgentStartData = {
+      runId: info.id,
+      seq: agent.seq,
+      label: agent.label,
+      ...agent.phase === undefined ? {} : { phase: agent.phase },
+      childId: agent.childId,
     }
-    if (event.info.id !== runId) return
-    if (event.kind === 'agent-start') {
-      const data: ToolWorkflowAgentStartData = {
-        runId,
-        seq: event.agent.seq,
-        label: event.agent.label,
-        ...event.agent.phase === undefined ? {} : { phase: event.agent.phase },
-        childId: event.agent.childId,
-      }
-      append('tool-workflow/agent-start', data)
-      return
-    }
-    const data: ToolWorkflowAgentEndData = {
-      runId,
-      seq: event.agent.seq,
-      outcome: event.agent.outcome,
-    }
-    append('tool-workflow/agent-end', data)
-  }
-
-  const disposeStart = ctx.on('workflow/agent-start', (info, agent) => {
-    record({ kind: 'agent-start', info, agent })
+    if (!append(session, 'tool-workflow/agent-start', data)) active.delete(info.id)
   })
-  const disposeEnd = ctx.on('workflow/agent-end', (info, agent) => {
-    record({ kind: 'agent-end', info, agent })
+  ctx.on('workflow/agent-end', (info, agent) => {
+    const session = active.get(info.id)
+    if (session === undefined) return
+    const data: ToolWorkflowAgentEndData = {
+      runId: info.id,
+      seq: agent.seq,
+      outcome: agent.outcome,
+    }
+    if (!append(session, 'tool-workflow/agent-end', data)) active.delete(info.id)
   })
 
   return {
-    bind(run) {
-      runId = run.id
-      append('tool-workflow/run-start', { runId, name: run.meta.name })
-      for (const event of buffered) record(event)
-      buffered.length = 0
+    start(session, run) {
+      if (append(session, 'tool-workflow/run-start', { runId: run.id, name: run.meta.name })) {
+        active.set(run.id, session)
+      }
     },
-    finish(stopReason) {
-      /* v8 ignore next -- execute binds every returned run before result settlement can call finish. */
-      if (runId === undefined) return
-      append('tool-workflow/run-end', { runId, stopReason })
+    finish(runId, stopReason) {
+      const session = active.get(runId)
+      if (session !== undefined) append(session, 'tool-workflow/run-end', { runId, stopReason })
+      active.delete(runId)
     },
-    dispose() {
-      disposeStart()
-      disposeEnd()
-      buffered.length = 0
-    },
+    abandon: (runId) => { active.delete(runId) },
   }
 }
 
@@ -229,6 +206,7 @@ export function apply(ctx: Context, config: Config): void {
   // schemastery (the exported Config schema) has already filled the defaulted
   // fields; the assertion records that resolution, not a hidden fallback.
   const { toolName, maxResultChars } = config as ResolvedConfig
+  const recorder = createWorkflowRecorder(ctx)
   // Usage policy ships with the tool (the master convention: tool guidance
   // lives in tool plugins as prompt sections, not in the deployment persona).
   ctx.systemPrompt.section({
@@ -303,23 +281,15 @@ export function apply(ctx: Context, config: Config): void {
       // Meta/body validation failures (META_INVALID/SCRIPT_PARSE) throw
       // synchronously here and become isError results via the registry — the
       // model sees the violation list and can correct the call.
-      const recorder = exec.parent === undefined
-        ? createWorkflowRecorder(ctx, parent.session)
-        : undefined
-      let run: WorkflowRun
-      try {
-        run = ctx.workflows.start({
-          script: args.script,
-          meta: args.meta,
-          ...args.args !== undefined ? { args: args.args } : {},
-          parent,
-          signal: exec.signal,
-        })
-      } catch (error: unknown) {
-        recorder?.dispose()
-        throw error
-      }
-      recorder?.bind(run)
+      const run = ctx.workflows.start({
+        script: args.script,
+        meta: args.meta,
+        ...args.args !== undefined ? { args: args.args } : {},
+        parent,
+        signal: exec.signal,
+      })
+      const recordsRun = exec.parent === undefined
+      if (recordsRun) recorder.start(parent.session, run)
 
       // Bridge the tool's abort signal to the run: if the parent step is aborted while the
       // script is in flight, cancel the whole run. The signal also enters the engine directly, but
@@ -348,9 +318,9 @@ export function apply(ctx: Context, config: Config): void {
           // synthesize cancelled member endings while reaching quiescence.
           await run.dispose()
           /* v8 ignore next -- WorkflowRun.result never rejects by contract, so result is assigned before finally. */
-          if (result !== undefined) recorder?.finish(result.stopReason)
+          if (recordsRun && result !== undefined) recorder.finish(run.id, result.stopReason)
         } finally {
-          recorder?.dispose()
+          if (recordsRun) recorder.abandon(run.id)
         }
       }
     },

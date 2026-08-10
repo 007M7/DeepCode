@@ -2413,7 +2413,7 @@ export interface Config {
 }
 ```
 
-来源：[`packages/workflow/tool-workflow/src/index.ts:34`](../packages/workflow/tool-workflow/src/index.ts)
+来源：[`packages/workflow/tool-workflow/src/index.ts:33`](../packages/workflow/tool-workflow/src/index.ts)
 
 ## `@deepseek-ai/dsh-tools`
 

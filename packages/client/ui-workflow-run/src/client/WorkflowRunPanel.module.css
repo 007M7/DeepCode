@@ -29,6 +29,7 @@
   height: 16px;
   align-items: center;
   justify-content: center;
+  margin-right: 0;
   color: var(--dsw-alias-label-tertiary);
 }
 
@@ -93,14 +94,19 @@
   height: 16px;
   align-items: center;
   justify-content: center;
+  margin-right: 0;
   color: var(--dsw-alias-label-tertiary);
 }
 
 .phaseTitle {
-  flex: none;
+  overflow: hidden;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 42%;
   color: var(--dsw-alias-label-secondary);
   font-size: 14px;
   line-height: 24px;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 

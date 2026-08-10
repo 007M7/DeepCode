@@ -7,12 +7,6 @@ import { WorkflowRunPanel, type WorkflowRunInjected } from './WorkflowRunPanel.t
 import { en, NS, type WorkflowRunKey, zh } from './locales.ts'
 import { workflowRunDefinition } from './workflow-definition.ts'
 
-export type { WorkflowRunInjected, WorkflowRunPanelProps } from './WorkflowRunPanel.tsx'
-export type {
-  WorkflowRunChatData, WorkflowRunMemberData, WorkflowRunPhaseData, WorkflowRunStatus,
-} from './workflow-definition.ts'
-export type { WorkflowRunKey } from './locales.ts'
-
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
     /** Durable workflow-run node copy. */

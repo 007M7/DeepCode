@@ -125,7 +125,7 @@ interface WorkflowRun {
 
 `dsh-tool-workflow/invariant` 会在实时提交前和 Session 加载时校验同一协议：每个运行只有一个 start，成员序号为正且唯一，成员 end 必须配对，仍有开放成员时不能结束运行，运行结束后不能继续更新。日志尾部缺少成员 end 或 run end 是有效的中断证据，不是损坏。
 
-`dsh-client-ui-workflow-run` 通过 Conversation Node 引擎把四类事件折叠为一个 `workflow-run` Chat 节点，以 run-start 序号锚定在原工作流工具节点之后。阶段组只来自真正开始过的成员，并保留精确字符串，包括字段缺省与 `''` 的区别。Location 关闭时，缺失终点会显示为已中断。32 像素运行行使用 module-platform 背景、常驻 chevron 与内联状态点加文字；32 像素阶段行在主区显示标题和计数，在固定尾部精确显示聚合状态且不重复状态点；成员使用 16 像素状态点槽和固定 64 像素生命周期列。只有成员状态与当前列表同时证明它是同父级、仍运行的本地 subagent 时，带下划线名称才标记普通 Session 导航。
+`dsh-client-ui-workflow-run` 通过 Conversation Node 引擎把四类事件折叠为一个 `workflow-run` Chat 节点，以 run-start 序号锚定在原工作流工具节点之后。阶段组只来自真正开始过的成员，并保留精确字符串，包括字段缺省与 `''` 的区别。Location 关闭时，缺失终点会显示为已中断。[界面包 README](../../packages/client/ui-workflow-run/README.md)负责定义 disclosure、状态与同父本地导航行为。
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 

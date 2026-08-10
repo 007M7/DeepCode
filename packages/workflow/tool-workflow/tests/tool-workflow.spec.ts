@@ -27,7 +27,6 @@ class StubEngine extends WorkflowService {
   settle!: (result: WorkflowResult) => void
   readonly settlements = new Map<WorkflowRunIdType, (result: WorkflowResult) => void>()
   startError: Error | undefined
-  emitMemberDuringStart = false
 
   start(request: WorkflowStartRequest): WorkflowRun {
     if (this.startError) throw this.startError
@@ -35,12 +34,6 @@ class StubEngine extends WorkflowService {
     const id = WorkflowRunId(`run-${this.requests.length}`)
     const result = new Promise<WorkflowResult>((resolve) => { this.settle = resolve })
     this.settlements.set(id, this.settle)
-    if (this.emitMemberDuringStart) {
-      const info = { id, meta: request.meta }
-      const member = { seq: 1, label: 'synchronous', childId: SessionId('sync-child') }
-      this.emitWorkflowEvent('workflow/agent-start', info, member)
-      this.emitWorkflowEvent('workflow/agent-end', info, { ...member, outcome: 'completed' })
-    }
     request.signal?.addEventListener('abort', () => {
       this.settle({ value: null, stopReason: 'cancelled', error: 'signal', agentsStarted: 0 })
     }, { once: true })
@@ -203,23 +196,6 @@ describe('dsh-tool-workflow', () => {
         { runId: 'run-1', stopReason: 'completed' },
         { runId: 'run-2', stopReason: 'error' },
       ])
-  })
-
-  it('buffers synchronous member events until start returns the run identity', async () => {
-    const { ctx, engine, parent, session } = await setup()
-    engine.emitMemberDuringStart = true
-    const pending = execute(ctx, { script: SCRIPT, meta: META }, { agent: parent })
-    await vi.waitFor(() => { expect(engine.requests).toHaveLength(1) })
-    engine.settleRun(WorkflowRunId('run-1'), {
-      value: null, stopReason: 'completed', agentsStarted: 1,
-    })
-    expect((await pending).isError).toBe(false)
-    expect(session.events.map(event => event.type)).toEqual([
-      'tool-workflow/run-start',
-      'tool-workflow/agent-start',
-      'tool-workflow/agent-end',
-      'tool-workflow/run-end',
-    ])
   })
 
   it('does not record nested transport executions', async () => {
