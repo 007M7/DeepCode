@@ -1,5 +1,5 @@
-import { EntryTree, isJsExpr, type EntryOptions } from '@cordisjs/plugin-loader'
-import { Context, Service } from 'cordis'
+import { EntryTree, isJsExpr, type EntryOptions } from '@deepseek-ai/cordis-plugin-loader'
+import { Context, Service } from '@deepseek-ai/cordis'
 import { extname } from 'node:path'
 import { access, constants, readFile, rename, writeFile } from 'node:fs/promises'
 import { setTimeout as delay } from 'node:timers/promises'

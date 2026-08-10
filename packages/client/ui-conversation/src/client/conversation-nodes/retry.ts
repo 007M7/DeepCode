@@ -1,4 +1,4 @@
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import type {
   ConversationLocation, ConversationNodeDefinition, ModelRetryNode,
 } from '@deepseek-ai/dsh-client-runtime/client'

@@ -10,8 +10,8 @@
  * @module dsh-permission
  */
 
-import { Context, Service } from 'cordis'
-import z from 'schemastery'
+import { Context, Service } from '@deepseek-ai/cordis'
+import z from '@deepseek-ai/schemastery'
 import { z as zod } from 'zod'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type { SandboxMode } from '@deepseek-ai/dsh-sandbox'
@@ -33,7 +33,7 @@ import type { PermissionSelect, PresetOption } from './types.ts'
 // consuming the declarations still receive the SessionProjectionMap merge.
 export type * from './types.ts'
 
-declare module 'cordis' {
+declare module '@deepseek-ai/cordis' {
   interface Context {
     permission: PermissionService
   }

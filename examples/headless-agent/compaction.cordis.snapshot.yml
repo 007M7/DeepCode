@@ -1,6 +1,6 @@
 # Keyless context-overflow composition for the assembled compaction snapshot.
 - id: base
-  name: '@cordisjs/plugin-include'
+  name: '@deepseek-ai/cordis-plugin-include'
   config:
     path: ./cordis.yml
     patches:

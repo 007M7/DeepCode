@@ -14,9 +14,9 @@
  * @module @deepseek-ai/dsh-session-telemetry
  */
 
-import { Context, Service } from 'cordis'
+import { Context, Service } from '@deepseek-ai/cordis'
 
-declare module 'cordis' {
+declare module '@deepseek-ai/cordis' {
   interface Context {
     telemetry: Telemetry
   }

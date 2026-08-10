@@ -8,7 +8,7 @@
  * @module @deepseek-ai/dsh-bash-sandbox
  */
 
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import type { BashExecRequest, BashExecSpec, BashProcess, BashRunResult } from '@deepseek-ai/dsh-bash'
 import { SandboxUnavailableError } from '@deepseek-ai/dsh-sandbox'
 import type {

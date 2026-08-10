@@ -8,15 +8,15 @@
  * @module @deepseek-ai/dsh-bash-env
  */
 
-import { Service, type Context } from 'cordis'
-import z from 'schemastery'
+import { Service, type Context } from '@deepseek-ai/cordis'
+import z from '@deepseek-ai/schemastery'
 import { DSH_ENV_PREFIX } from '@deepseek-ai/dsh-bash'
 import type { DshEnvironment, DshEnvironmentKey } from '@deepseek-ai/dsh-bash'
 import { DSH_HOME_ENV, resolveDshHome } from '@deepseek-ai/dsh-paths'
 import type { ToolExecution } from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-session-persistence'
 
-declare module 'cordis' {
+declare module '@deepseek-ai/cordis' {
   interface Context {
     bashEnv: BashEnvRegistry
   }

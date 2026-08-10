@@ -4,7 +4,7 @@
  * @module @deepseek-ai/dsh-session-query
  */
 
-import { Context, Service } from 'cordis'
+import { Context, Service } from '@deepseek-ai/cordis'
 import { Session, snapshotSessionEvent, type SessionId } from '@deepseek-ai/dsh-session'
 import { foldSessionTitle } from '@deepseek-ai/dsh-session-title'
 import type { SessionTitleSnapshot } from '@deepseek-ai/dsh-session-title'
@@ -65,7 +65,7 @@ export {
 } from './filters.ts'
 export { assertSessionHeadersCompatible } from './sources.ts'
 
-declare module 'cordis' {
+declare module '@deepseek-ai/cordis' {
   interface Context {
     sessionQuery: SessionQueryService
   }

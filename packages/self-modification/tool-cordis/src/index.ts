@@ -7,8 +7,8 @@
  * @module @deepseek-ai/dsh-tool-cordis
  */
 
-import type { Context } from 'cordis'
-import z from 'schemastery'
+import type { Context } from '@deepseek-ai/cordis'
+import z from '@deepseek-ai/schemastery'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { STATE_LABELS } from './fiber-state.ts'
 import { isPlugin, pluginName } from './guard.ts'

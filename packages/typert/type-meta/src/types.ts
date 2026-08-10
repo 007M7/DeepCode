@@ -4,7 +4,7 @@
  * @module @deepseek-ai/dsh-type-meta/types
  */
 
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 
 declare const LOOKUP_HOST: unique symbol
 declare const LOOKUP_WIRE: unique symbol
@@ -421,7 +421,7 @@ export interface TypeRTService {
   readonly contexts: TypeRTContextRegistry
 }
 
-declare module 'cordis' {
+declare module '@deepseek-ai/cordis' {
   interface Context {
     typert: TypeRTService
   }

@@ -18,8 +18,8 @@
  * @module @deepseek-ai/dsh-tmux-context
  */
 
-import type { Context, LoggerService } from 'cordis'
-import z from 'schemastery'
+import type { Context, LoggerService } from '@deepseek-ai/cordis'
+import z from '@deepseek-ai/schemastery'
 import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
 import type { BashExecutor, BashRunResult } from '@deepseek-ai/dsh-bash'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'

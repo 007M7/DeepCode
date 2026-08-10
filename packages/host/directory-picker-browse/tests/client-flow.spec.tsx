@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'

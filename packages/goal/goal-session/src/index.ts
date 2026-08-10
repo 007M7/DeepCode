@@ -4,8 +4,8 @@
  */
 
 import { isDeepStrictEqual } from 'node:util'
-import { FiberState } from 'cordis'
-import type { Context } from 'cordis'
+import { FiberState } from '@deepseek-ai/cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
 import type { GoalMessageSource, GoalRef, GoalView } from '@deepseek-ai/dsh-goal'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'

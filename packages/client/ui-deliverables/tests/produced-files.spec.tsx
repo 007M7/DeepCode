@@ -5,7 +5,7 @@
  * and opener wiring, and the plugin registrations' fiber-teardown removal
  * (HMR safety) against the real SlotsService.
  */
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import { cleanup, fireEvent, render } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
