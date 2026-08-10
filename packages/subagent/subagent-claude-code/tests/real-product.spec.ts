@@ -224,7 +224,12 @@ describe('real Claude Agent SDK 0.3.220 and Claude Code 2.1.220', {
         message.type === 'system' && message.subtype === 'init',
     )
     expect(initMessage?.claude_code_version).toBe('2.1.220')
-    expect(harness.spawnSpecs[0]?.argv[0]).toBe(harness.executable)
+    const spawnedExecutable = harness.spawnSpecs[0]?.argv[0]
+    expect(spawnedExecutable).toBeDefined()
+    if (spawnedExecutable !== undefined) {
+      expect(process.platform === 'win32' ? spawnedExecutable.toLowerCase() : spawnedExecutable)
+        .toBe(process.platform === 'win32' ? harness.executable.toLowerCase() : harness.executable)
+    }
 
     expect(fixture.requests).toHaveLength(1)
     const recorded = fixture.requests[0]!
