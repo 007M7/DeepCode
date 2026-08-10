@@ -19,10 +19,9 @@ pnpm -v
 ## Step 1: install and configure the API key
 
 ```sh
-git clone https://github.com/deepseek-ai/deepseek-harness-sdk.git
+git clone https://github.com/deepseek-ai/deepseek-harness-sdk.git deepseek-harness
 cd deepseek-harness
 pnpm install
-pnpm run build
 ```
 
 Create the gitignored repository-root `.env`:

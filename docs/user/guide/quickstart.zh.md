@@ -19,10 +19,9 @@ pnpm -v
 ## 第一步：安装并配置 API 密钥
 
 ```sh
-git clone https://github.com/deepseek-ai/deepseek-harness-sdk.git
+git clone https://github.com/deepseek-ai/deepseek-harness-sdk.git deepseek-harness
 cd deepseek-harness
 pnpm install
-pnpm run build
 ```
 
 在仓库根目录创建已被 Git 忽略的 `.env`：

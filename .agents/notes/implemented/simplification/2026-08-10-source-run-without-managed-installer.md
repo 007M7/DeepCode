@@ -12,7 +12,7 @@ That lifecycle is not required to run or develop DeepSeek Harness from a source 
 
 ## Decision
 
-The repository supports source execution through its root `pnpm` scripts. The `pnpm dsh <args...>` script runs the complete repository build before launching the source CLI; users select Web with `pnpm dsh web` and headless execution with `pnpm dsh run`. The independent ACP example remains available through `pnpm run demo:acp`.
+The repository supports source execution through its root `pnpm` scripts. The `pnpm dsh <args...>` launcher runs the complete repository build before launching the source CLI. It discards successful build output so CLI stdout remains machine-readable, reports failed build diagnostics on stderr, and sets `NODE_USE_ENV_PROXY=1` for the CLI process. Users select Web with `pnpm dsh web` and headless execution with `pnpm dsh run`. The independent ACP example remains available through `pnpm run demo:acp`.
 
 The repository does not distribute a source installer, an installer test suite, or skills that assume a managed `current` symlink and timestamped staging worktrees. Users own source checkout placement, Git updates, and any launcher they create outside the repository.
 
@@ -28,4 +28,4 @@ The repository does not distribute a source installer, an installer test suite, 
 
 Source users invoke repository scripts rather than an installed `dsh` command. The repository provides no atomic upgrade cutover or preserved staging rollback checkout, and it does not automate the integration or upstream publication of personal source modifications. A future distribution mechanism must justify its ownership of installation and upgrade state, define recovery behavior, and add tests and user documentation without making the source-run path depend on it. Any future publication workflow must isolate one approved feature and obtain explicit approval before its first push and draft PR.
 
-Verification covers repository-wide references to the removed entry points, documentation links, generated third-party-notice freshness, and a clean-artifact source CLI smoke through `pnpm dsh`.
+Verification covers repository-wide references to the removed entry points, documentation links, generated third-party-notice freshness, and source CLI smokes that verify the build-first launch and absence of build logs on stdout through `pnpm dsh`.

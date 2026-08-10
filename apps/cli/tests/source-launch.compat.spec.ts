@@ -16,6 +16,22 @@ const repoRoot = fileURLToPath(new URL('../../../', import.meta.url))
 const dshSourceBin = 'apps/cli/src/bin.ts'
 
 describe('dsh SOURCE launcher (node --import tsx/esm)', () => {
+  it('builds without mixing build logs into CLI stdout', async () => {
+    const result = await execa('pnpm', ['dsh', '--help'], {
+      cwd: repoRoot,
+      timeout: 120_000,
+      killSignal: 'SIGKILL',
+      reject: false,
+    })
+    if (result.timedOut) {
+      throw new Error(`pnpm dsh --help did not exit within 120s. stdout:\n${result.stdout}\nstderr:\n${result.stderr}`)
+    }
+    expect(result.exitCode).toBe(0)
+    expect(result.stdout).toMatch(/^Usage: dsh /)
+    expect(result.stdout).not.toContain('tsdown')
+    expect(result.stdout).not.toContain('build:lib')
+  }, 125_000)
+
   it('boots the source entry and requires a profile', async () => {
     const result = await execa(process.execPath, ['--import', 'tsx/esm', dshSourceBin], {
       cwd: repoRoot,
