@@ -2,7 +2,7 @@
 
 English | [中文](http-server.zh.md)
 
-[dsh-host-webserver](../../packages/host/webserver) is the web-shape HTTP carrier for the GUI host: a single `node:http` plugin providing `ctx.httpServer`, a named-route registry, index.html transform taps, and a single claimable fallback seat. It is not part of the agent-loop spine and not a capability seam — it knows no harness concepts, and every feature surface (the `/api` bridge, plugin bundles, the HMR event stream) is a route some other plugin registers ([layering note](../../.agents/notes/implemented/architecture/2026-07-19-gui-layering-and-rpc-protocol.md)). Web (browser) shape only: Electron loads dist over `file://` and carries fetch over an IPC bridge, not this server.
+[dsh-host-webserver](../../packages/host/webserver) is the browser HTTP carrier for the GUI host: a single `node:http` plugin providing `ctx.httpServer`, a named-route registry, index.html transform callbacks, and one fallback handler that a plugin may claim. It is not part of the agent loop and not a capability seam; it knows no harness concepts, and another plugin registers every feature route, including the `/api` bridge, plugin bundles, and the HMR event stream ([layering note](../../.agents/notes/implemented/architecture/2026-07-19-gui-layering-and-rpc-protocol.md)). It serves browsers only: Electron loads the built files over `file://` and sends fetch requests through an IPC bridge instead of this server.
 
 Source: [`packages/host/webserver/src/index.ts`](../../packages/host/webserver/src/index.ts)
 
@@ -42,7 +42,7 @@ interface Config {
 
 ## The service
 
-`HttpServerService` (`ctx.httpServer`) listens immediately on activation; a listen failure (EADDRINUSE…) throws out of init — a FAILED fiber the boot's fail-loud sweep reports. `register(route)` adds one named route and returns its disposer; a duplicate `(kind, path)` throws, because route patterns are a composition-level contract and a collision is a misconfiguration. `tapIndex(transform)` adds a pure html-to-html transform applied to every index response — `/` and each SPA fallback — in registration order; [dsh-client-modules](../../packages/client/modules) uses it to inject the boot manifest. `port` reads the listening port, the OS-assigned value when `config.port` is 0.
+`HttpServerService` (`ctx.httpServer`) listens immediately on activation; a listen failure (EADDRINUSE…) rejects initialization, and the boot process reports the failed fiber. `register(route)` adds one named route and returns its disposer; a duplicate `(kind, path)` throws because route patterns are a composition-level contract and a collision is a misconfiguration. `tapIndex(transform)` adds a pure html-to-html transform applied to every index response — `/` and each SPA fallback — in registration order; [dsh-client-modules](../../packages/client/modules) uses it to inject the boot manifest. `port` reads the listening port, including the port assigned by the OS when `config.port` is 0.
 
 A request whose handling throws (a malformed %-escape hitting `decodeURIComponent`, a client dropping mid-body) is logged as a warning and answered 400 — or the socket destroyed when headers are already out — never a process exit. Disposal pairs `close()` with `closeAllConnections()` because a handler may hold its response open (SSE) and such connections never end on their own; without the force-close, teardown would hang. The package never prints: the URL line belongs to the shell. Per-package operational detail, including the dev-mode bundle watch pipeline, stays in the [README](../../packages/host/webserver/README.md).
 
@@ -58,7 +58,7 @@ Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnp
 
 ### `ctx.httpServer` — `HttpServerService`
 
-The web-shape HTTP carrier service. Activation listens immediately (route registration order carries no request-facing semantics: named routes are composed to be disjoint, and the fallback seat answers anything not yet claimed during the boot window — 404 until its owner registers). A listen failure throws out of init — a FAILED fiber the boot's fail-loud sweep reports.
+The browser HTTP carrier service. Activation listens immediately. Route registration order does not affect requests because configured named routes must be distinct, and the fallback handler answers anything not yet claimed during startup with 404 until its owner registers. A listen failure rejects initialization, and the boot process reports the failed fiber.
 
 ```ts cordis-catalog
 /**
@@ -104,5 +104,5 @@ tapIndex(transform: (html: string) => string): () => void
 applyIndexTaps(html: string): string
 ```
 
-Source: [`packages/host/webserver/src/index.ts:60`](../../packages/host/webserver/src/index.ts)
+Source: [`packages/host/webserver/src/index.ts:59`](../../packages/host/webserver/src/index.ts)
 <!-- END GENERATED cordis-surface -->

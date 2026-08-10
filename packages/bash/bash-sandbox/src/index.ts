@@ -125,7 +125,7 @@ export class SandboxBashExecutor extends LocalBashExecutor {
       proc = this.startArgv(spec, confined.argv)
     } catch (error) {
       // LocalSubprocessService reports ENOENT/EACCES with the failed executable path through async
-      // `done` rejection; this covers alternatives that throw that shape synchronously.
+      // `done` rejection; this covers alternatives that throw the same error synchronously.
       if (isRunnerSpawnFailure(error, confined.argv[0], spec.workdir)) {
         throw new SandboxUnavailableError(mode, String(error))
       }

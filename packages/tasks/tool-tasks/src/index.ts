@@ -230,6 +230,10 @@ export function apply(ctx: Context, config: Config): void {
   // Delivery targets the exact lifecycle owner. The notice waits in its
   // next-step inbox until another step claims it; disposal before that
   // boundary discards it with the owner.
+  //
+  // The registry routes each settlement to the listeners its owner's scope
+  // chain reaches, so a mount under one preset never sees another preset's
+  // agents; this listener owns delivery, not the choice of whom to deliver to.
   ctx.tasks.onTaskDone((snapshot, owner) => {
     if (snapshot.reported || owner === undefined) return
     owner.inject(createUserMessage({

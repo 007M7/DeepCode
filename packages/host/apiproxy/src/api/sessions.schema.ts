@@ -23,7 +23,7 @@ import {
   truncateUnicodeCodePoints,
 } from './session-search.ts'
 
-/** SessionId: one brand cast after shape validation (the only cast point in this domain). */
+/** SessionId: one brand cast after schema validation (the only cast point in this domain). */
 export const sessionIdSchema = z.string().min(1) as unknown as z.ZodType<SessionId>
 
 /** MessageId: one brand cast after non-empty string validation. */

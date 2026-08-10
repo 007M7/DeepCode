@@ -45,7 +45,7 @@ interface ProjectionDefinition<K extends keyof SessionProjectionMap, S> {
    */
   view(state: S): SessionProjectionMap[K]
   /**
-   * Persisted-cache invalidation anchor: bump whenever the state shape or the
+   * Persisted-cache invalidation version: bump whenever the serialized state fields or the
    * fold semantics change, so persisted `(sessionId, key, ver, seq, val)`
    * rows from an older unit are discarded instead of being forward-applied
    * into garbage. Non-negative integer.
@@ -86,7 +86,7 @@ type ProjectionChangeListener = (
 ) => void
 ```
 
-`snapshot(session)` is fully synchronous — a carrier reads it in the same tick as its page slice, which is what makes `asOfSeq` one consistent cut — and every value passes its unit's schema before leaving (an accidentally-async `view` returns a Promise, which fails that boundary parse loudly). The change feed fires once per unit whose state *reference* changed, per committed event: the same-reference discipline in `apply` is the gate.
+`snapshot(session)` is fully synchronous: a carrier reads it in the same tick as its page slice, so `asOfSeq` covers both reads at one sequence number. Every value passes its unit's schema before return; an accidentally async `view` returns a Promise, which schema validation rejects. The change feed fires once per unit whose state *reference* changed for each committed event; `apply` must return the same reference when its state did not change.
 
 ## The registry: `ctx.sessionProjections`
 
@@ -162,7 +162,7 @@ Source: [`packages/session/session-projection-cache/src/index.ts:71`](../../pack
  * context's fiber: disposing the fiber (or calling the returned disposer)
  * removes the key — and the unit's cached cells — from subsequent drives
  * and snapshots.
- * @param definition - key, boundary schema, pure unit functions, and stateVersion.
+ * @param definition - key, state schema, pure unit functions, and stateVersion.
  * @returns the exact disposer that unregisters this unit.
  */
 register<K extends keyof SessionProjectionMap, S>(definition: ProjectionDefinition<K, S>): () => void

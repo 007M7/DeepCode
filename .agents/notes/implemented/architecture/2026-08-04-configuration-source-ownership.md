@@ -60,7 +60,7 @@ The line is that these take effect with no user action, before any turn, outside
 
 ## Alternatives considered
 
-**Unify credentials into the non-secret ordering, by who authored each source.** Attempted and abandoned: it reads well, but the settings seam already fixes composition *below* the user section, so "authored by deployment" is not a tier the seam can express — and moving `.credentials.yaml` above the launching environment would take away the one override CI, containers, and a per-run `DEEPSEEK_API_KEY=…` depend on. Two orderings that each say why they are shaped that way beat one that describes neither accurately.
+**Unify credentials into the non-secret ordering, by who authored each source.** Attempted and abandoned: it reads well, but the settings seam already fixes composition *below* the user section, so "authored by deployment" is not a tier the seam can express — and moving `.credentials.yaml` above the launching environment would take away the one override CI, containers, and a per-run `DEEPSEEK_API_KEY=…` depend on. Two orderings that each explain their precedence beat one that describes neither accurately.
 
 **Withhold routing and credentials from the invoking project until it is explicitly trusted.** Rejected as the product's stance: a checkout is trusted by default, with no prompt and no stored trust record. The residual is real and worth naming — cloning a repository that carries a `.env` naming another endpoint or key routes that session through it — and a later project-trust gate is where that gets addressed, not a rule that makes the common case require ceremony.
 

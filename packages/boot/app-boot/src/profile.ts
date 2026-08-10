@@ -267,7 +267,7 @@ export function readProfileManifest(binName: string, dir: string): ProfileManife
   } catch (error) {
     throw new Error(`${binName}: failed to read profile manifest ${path}: ${String(error)}`)
   }
-  // File boundary: the shape check below validates what the parse type asserts.
+  // The field checks below validate the file data before trusting the parse type.
   const parsed = JSON.parse(raw) as ProfileManifest | null
   if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
     throw new Error(`${binName}: profile manifest ${path} must hold a JSON object`)

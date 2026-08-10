@@ -228,8 +228,9 @@ export interface SubagentResult {
    * The structured result after a requested `outputSchema` was successfully
    * satisfied. Requesting a schema does not guarantee presence: a provider can
    * end with `stopReason: 'error'` when the child fails or finishes without a
-   * valid capture. Shape is validated against the request schema by the
-   * provider; `unknown` here because the seam is schema-agnostic.
+   * valid capture. The structured value is validated against the requested
+   * output schema by the provider; `unknown` here because the seam is
+   * schema-agnostic.
    */
   readonly structured?: unknown
   /** Why the run ended. A non-`completed` reason means `output` may be partial. */
