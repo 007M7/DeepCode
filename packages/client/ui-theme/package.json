@@ -23,14 +23,16 @@
     "./src/*": "./src/*",
     "./package.json": "./package.json"
   },
-  "dshClient": {
-    "inject": [
-      "@deepseek-ai/dsh-client-connection",
-      "@deepseek-ai/dsh-client-runtime",
-      "@deepseek-ai/dsh-client-locale"
-    ],
-    "platform": "web",
-    "immediately": true
+  "dsh": {
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-connection",
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-locale"
+      ],
+      "platform": "web",
+      "immediately": true
+    }
   },
   "license": "BSD-3-Clause",
   "peerDependencies": {
