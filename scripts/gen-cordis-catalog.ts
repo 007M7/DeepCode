@@ -180,6 +180,7 @@ export const EVENT_WALK_EXEMPTIONS: Record<string, string> = {
   'credentials/changed': 'client-face registry invalidation signal — packages/client/runtime/README.md owns the surface',
   'locale/change': 'client-face locale switch signal — packages/client/locale/README.md owns the surface',
   'models/changed': 'client-face registry invalidation signal — packages/client/runtime/README.md owns the surface',
+  'session/preset-changed': 'client-face per-session catalog invalidation signal — packages/client/runtime/README.md owns the surface',
   'settings/changed': 'client-face registry invalidation signal — packages/client/runtime/README.md owns the surface',
   'slash/input-begin-command': 'client-face slash-input protocol — packages/client/ui-slash/README.md owns the surface',
   'slash/input-consume-token': 'client-face slash-input protocol — packages/client/ui-slash/README.md owns the surface',

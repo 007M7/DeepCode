@@ -3164,6 +3164,17 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           ctx.on('commands/change', () => {
             queue.push(frame({ type: 'host/commands-changed' }))
           }),
+          // The recompose itself registers nothing (it re-parents the agent's
+          // scope onto a standing mount that may already exist), so the
+          // logged selection is the only commit point a client can follow.
+          ctx.on('session/event', (session: Session, event: SessionEvent) => {
+            if (event.type !== 'agent-preset/selected') return
+            queue.push(frame({
+              type: 'host/session-preset-changed',
+              sessionId: session.id,
+              agentPreset: event.data.agentPreset,
+            }))
+          }),
           ctx.on('settings/document-updated', (ns) => {
             // The RAW-section event, not the resolved one: a field going from
             // inherited to overridden leaves the resolved value equal, and a
