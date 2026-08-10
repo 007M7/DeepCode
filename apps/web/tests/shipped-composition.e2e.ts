@@ -5,6 +5,7 @@
 // surface itself.
 import { tmpdir } from 'node:os'
 import { afterEach, expect, it } from 'vitest'
+import { CallId } from '@deepseek-ai/dsh-llm'
 import { canonicalPath, writableRoots } from '@deepseek-ai/dsh-sandbox'
 import { SessionId } from '@deepseek-ai/dsh-session'
 // Empty type imports carry the tools/sandboxPolicy/approval Context merges.
@@ -112,5 +113,66 @@ it('assembles the shipped Web catalog with the confined access default', async (
     })
   } finally {
     await commandHandle.dispose()
+  }
+}, 120_000)
+
+it('lets a preset producer reach the background-task registry', async () => {
+  scaffold = await launchWebScaffold()
+  const ctx = scaffold.ctx
+  const handle = await ctx.agents.create({
+    sessionId: SessionId('shipped-background-task'),
+    meta: { cwd: scaffold.workspaceCwd },
+    setup: agentCtx => ctx.agentPresets.mount(agentCtx).then(() => undefined),
+  })
+  try {
+    const signal = new AbortController().signal
+    // `tool-bash` is a preset row and `tasks` is a host registry; the producer
+    // resolves it with `ctx.get`, so a registry hidden behind a preset realm
+    // fails here — with every task control still listed in the catalog above.
+    const started = await ctx.tools.execute({
+      signal,
+      callId: CallId('shipped-bash-background'),
+      name: 'bash',
+      arguments: {
+        command: 'printf SHIPPED_BACKGROUND_OK',
+        description: 'shipped background probe',
+        run_in_background: true,
+      },
+      agent: handle.agent,
+    })
+    expect({ isError: started.isError, content: started.content }).toEqual({
+      isError: false,
+      content: [{ type: 'text', text: 'started background task bash-1' }],
+    })
+
+    // The control surface reads what the producer started: same registry, one
+    // owner. A per-preset registry would list nothing here even on success.
+    const listed = await ctx.tools.execute({
+      signal,
+      callId: CallId('shipped-task-list'),
+      name: 'task_list',
+      arguments: {},
+      agent: handle.agent,
+    })
+    expect(listed.isError).toBe(false)
+    expect(listed.content).toEqual([
+      { type: 'text', text: expect.stringContaining('bash-1 [bash]') as unknown as string },
+    ])
+
+    // The full round trip: the output a host-plane producer wrote is collected
+    // through a preset-plane control, which is the linkage the realm severed.
+    const collected = await ctx.tools.execute({
+      signal,
+      callId: CallId('shipped-task-output'),
+      name: 'task_output',
+      arguments: { task_id: 'bash-1', wait: true },
+      agent: handle.agent,
+    })
+    expect(collected.isError).toBe(false)
+    expect(collected.content).toEqual([
+      { type: 'text', text: expect.stringContaining('SHIPPED_BACKGROUND_OK') as unknown as string },
+    ])
+  } finally {
+    await handle.dispose()
   }
 }, 120_000)
