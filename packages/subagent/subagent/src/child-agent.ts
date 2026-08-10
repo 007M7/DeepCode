@@ -12,6 +12,12 @@ import type { Context } from 'cordis'
 import type { Agent, AgentOptions, CreateAgentOptions } from '@deepseek-ai/dsh-agent'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import type { ToolRestriction } from '@deepseek-ai/dsh-tools'
+// Type-only: make `ctx.get('agentPresets')` resolve to the preset roster when
+// composed — a child inherits its parent's composition opportunistically (the
+// documented `ctx.get` pattern), never as a hard dep. A rosterless deployment
+// keeps its model-facing rows on the host plane, where the child already sees
+// them through the tool registry's global layer.
+import type {} from '@deepseek-ai/dsh-agent-presets'
 import { delegationDepthOf } from './depth.ts'
 
 /** Thrown when starting a child would exceed the requested depth cap. */
@@ -72,8 +78,15 @@ export function resolveChildAgentOptions(
 /**
  * Build the child session's durable creation metadata: the parent's workspace,
  * its direct lineage, coarse product origin, the recursion budget that must
- * survive persistence, and the seed boundary that separates inherited parent
- * history from child work.
+ * survive persistence, the seed boundary that separates inherited parent
+ * history from child work, and the composition the child runs under.
+ *
+ * The preset is read from the parent's LIVE scope chain rather than from its
+ * header, because a parent that switched preset while blank runs on the newer
+ * composition and its header still names the older one. Recording it is what
+ * makes a child's history reconstructable: without it a cold read of the child
+ * resolves the deployment default and rebuilds turns under a tool set the
+ * child never had.
  * @param parent - the delegating parent agent.
  * @param childDepth - the resolved delegation depth to persist.
  * @param lineageSeedLength - how many leading events came from the parent's log.
@@ -85,8 +98,10 @@ export function childSessionMeta(
   lineageSeedLength: number,
 ): NonNullable<CreateAgentOptions['meta']> {
   const parentHeader = parent.session.header
+  const agentPreset = parent.ctx.get('agentPresets')?.composedPreset(parent.ctx)
   return {
     ...parentHeader.cwd !== undefined ? { cwd: parentHeader.cwd } : {},
+    ...agentPreset === undefined ? {} : { agentPreset },
     parentSession: parentHeader.id,
     // Navigation classification only; the descriptor remains the authority
     // for mode and continuation capability.
@@ -106,13 +121,31 @@ export interface ChildComposition {
 }
 
 /**
- * Apply one child's scoped composition inside its creation window: a shadowing
- * persona section and a tool restriction, both owned by the child's scope and
- * therefore invisible to its parent and siblings.
+ * Compose one child inside its creation window: join its parent's preset, then
+ * apply the child's own shadowing persona section and tool restriction, both
+ * owned by the child's scope and therefore invisible to its parent and
+ * siblings.
+ *
+ * The join comes first and the child's own registrations second, which is the
+ * order the layering already implies — the nearest scope wins a name, and a
+ * per-child restriction intersects with everything its chain admits — but
+ * stating it here keeps the two steps from being read as independent.
+ *
+ * Both steps live in ONE call because a child composed with only the second is
+ * exactly the defect this function exists to prevent: with every model-facing
+ * row on the agent plane, a child that joins no preset sees an empty tool
+ * registry and none of its parent's prompt sections. Taking the parent as a
+ * parameter is what makes that omission unrepresentable at the call sites.
  * @param childCtx - the child agent's scoped creation context.
- * @param composition - the persona and tool filter to install.
+ * @param parent - the delegating parent whose composition the child joins.
+ * @param composition - the per-child persona and tool filter to install.
  */
-export function applyChildComposition(childCtx: Context, composition: ChildComposition): void {
+export function applyChildComposition(
+  childCtx: Context,
+  parent: Agent,
+  composition: ChildComposition,
+): void {
+  childCtx.get('agentPresets')?.composeFrom(childCtx, parent.ctx)
   if (composition.persona !== undefined) {
     childCtx.systemPrompt.section({ name: 'deployment:persona', order: 0, text: composition.persona })
   }

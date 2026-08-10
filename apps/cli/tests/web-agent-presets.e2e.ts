@@ -11,6 +11,7 @@ import type { PatchOptions } from '@cordisjs/plugin-include'
 import { beforeAll, describe, expect, it } from 'vitest'
 import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { resolveSessionPreset, SETTINGS_NAMESPACE } from '@deepseek-ai/dsh-agent-presets'
+import { applyChildComposition, childSessionMeta } from '@deepseek-ai/dsh-subagent'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import type { BasicCompactService } from '@deepseek-ai/dsh-compact-basic'
 import type {} from '@deepseek-ai/dsh-skill'
@@ -428,6 +429,59 @@ describe('a forked session', () => {
       // for free any more.
       expect(toolNames(ctx, child.agent)).toEqual(toolNames(ctx, parent.agent))
       expect(toolNames(ctx, child.agent).length).toBeGreaterThan(0)
+    } finally {
+      await child.dispose()
+      await parent.dispose()
+    }
+  })
+})
+
+describe('a delegated child', () => {
+  it('runs on the composition its parent runs on', async () => {
+    const parent = await ctx.agents.create({
+      sessionId: SessionId('preset-child-parent'),
+      meta: { agentPreset: 'standard' },
+      setup: agentCtx => ctx.agentPresets.mount(agentCtx, 'standard').then(() => undefined),
+    })
+    // Exactly what an in-process subagent driver's creation window does.
+    const child = await parent.agent.ctx.agents.create({
+      sessionId: SessionId('preset-child'),
+      meta: childSessionMeta(parent.agent, 1, 0),
+      setup: (agentCtx) => {
+        applyChildComposition(agentCtx, parent.agent, {})
+      },
+    })
+    try {
+      expect(toolNames(ctx, child.agent)).toEqual(toolNames(ctx, parent.agent))
+      // The shipped `standard` preset is the whole coding agent; an empty
+      // child here is the defect, and equality alone would not catch it.
+      expect(toolNames(ctx, child.agent)).toContain('bash')
+      expect(child.agent.session.header.agentPreset).toBe('standard')
+    } finally {
+      await child.dispose()
+      await parent.dispose()
+    }
+  })
+
+  it('follows a parent that switched preset while blank', async () => {
+    const parent = await ctx.agents.create({
+      sessionId: SessionId('preset-child-switch-parent'),
+      meta: { agentPreset: 'standard' },
+      setup: agentCtx => ctx.agentPresets.mount(agentCtx, 'standard').then(() => undefined),
+    })
+    await ctx.agentPresets.recompose(parent.agent.ctx, 'minimal')
+    const child = await parent.agent.ctx.agents.create({
+      sessionId: SessionId('preset-child-switch'),
+      meta: childSessionMeta(parent.agent, 1, 0),
+      setup: (agentCtx) => {
+        applyChildComposition(agentCtx, parent.agent, {})
+      },
+    })
+    try {
+      // The live scope chain is the authority, not the parent's creation
+      // header — which still names `standard`.
+      expect(toolNames(ctx, child.agent)).toEqual(toolNames(ctx, parent.agent))
+      expect(child.agent.session.header.agentPreset).toBe('minimal')
     } finally {
       await child.dispose()
       await parent.dispose()
