@@ -27,7 +27,7 @@ export type {
 /**
  * Required services (cordis fiber inject). The target slot is declared by
  * ui-sidebar's apply, whose activation order relative to this one is NOT
- * constrained (dshClient.inject edges are informational); registration
+ * constrained (dsh.client.inject edges are informational); registration
  * depends on the slot through `slots.inject()`.
  */
 export const inject = ['slots']
