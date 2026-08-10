@@ -7,7 +7,13 @@ runtime inherits normal DeepSeek Harness environment variables such as
 `DEEPSEEK_BASE_URL` and `DEEPSEEK_API_KEY`, so callers can use real model
 endpoints directly or point those variables at a local proxy.
 
-Installing `deepseek-harness` installs the exact same-version `deepseek-harness-runtime-bin` platform wheel. The normal entry point therefore needs no executable argument:
+Install the `deepseek-harness-sdk` distribution from PyPI; the import module remains `deepseek_harness`:
+
+```sh
+python -m pip install deepseek-harness-sdk
+```
+
+Installing `deepseek-harness-sdk` installs the exact same-version `deepseek-harness-runtime-bin` platform wheel. The normal entry point therefore needs no executable argument:
 
 ```py
 from deepseek_harness import DeepSeekHarness

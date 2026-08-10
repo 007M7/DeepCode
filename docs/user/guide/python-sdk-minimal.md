@@ -11,15 +11,50 @@ This tutorial runs the minimal agent without the Web UI. The checked-in Cordis c
 - A DeepSeek-compatible API endpoint and credential
 - An isolated workspace that the agent may modify
 
+## Install the SDK
+
+Choose either the public package or a source build. Both install the `deepseek-harness-sdk` distribution and expose the `deepseek_harness` Python module.
+
+### Install from PyPI
+
 Create a virtual environment and install the SDK with its same-version bundled runtime:
 
 ```sh
 python -m venv .venv
 . .venv/bin/activate
-python -m pip install deepseek-harness
+python -m pip install deepseek-harness-sdk
 ```
 
-The runtime wheel contains the JSON-RPC executable and every plugin used by the complete [`minimal.cordis.yml`](../../../examples/jsonrpc-agent/minimal.cordis.yml), so an installed SDK does not need Node.js.
+### Build from source
+
+A source build additionally requires Git, Node.js ^22.19 or >= 24, Corepack-enabled pnpm 11, and `uv`. The following commands build the runtime for the current supported host platform, build both wheels, and install them into the active virtual environment:
+
+```sh
+git clone https://github.com/deepseek-ai/deepseek-harness-sdk.git
+cd deepseek-harness
+python -m pip install uv==0.11.23
+corepack enable
+pnpm install
+
+case "$(uname -s):$(uname -m)" in
+  Linux:x86_64) runtime_platform=linux-x64 ;;
+  Linux:aarch64|Linux:arm64) runtime_platform=linux-arm64 ;;
+  Darwin:arm64) runtime_platform=macos-arm64 ;;
+  *) echo "unsupported platform" >&2; exit 1 ;;
+esac
+
+pnpm exec tsx scripts/build-exe-for-python-sdk.ts --targets="node24-$runtime_platform"
+version="$(node -p "require('./package.json').version")"
+python scripts/build-python-release.py --package sdk --output-dir dist-python
+python scripts/build-python-release.py \
+  --package runtime \
+  --platform "$runtime_platform" \
+  --runtime-exe "dist-exe/dsh-jsonrpc-agent-pkg-$runtime_platform" \
+  --output-dir dist-python
+python -m pip install --find-links dist-python "deepseek-harness-sdk==$version"
+```
+
+The runtime wheel contains the JSON-RPC executable and every plugin used by the complete [`minimal.cordis.yml`](../../../examples/jsonrpc-agent/minimal.cordis.yml), so neither installation path needs Node.js after installation.
 
 ## Run the checked-in example
 

@@ -83,7 +83,7 @@ const OVERRIDES: Record<string, { license?: string; repo?: string }> = {
  * the generator fails when a manifest names a package this map misses.
  */
 const PYTHON_METADATA: Record<string, { license: string; repo: string; role: string }> = {
-  pydantic: { license: 'MIT', repo: 'https://github.com/pydantic/pydantic', role: 'runtime dependency of `deepseek-harness`' },
+  pydantic: { license: 'MIT', repo: 'https://github.com/pydantic/pydantic', role: 'runtime dependency of `deepseek-harness-sdk`' },
   hatchling: { license: 'MIT', repo: 'https://github.com/pypa/hatch', role: 'build backend' },
   pytest: { license: 'MIT', repo: 'https://github.com/pytest-dev/pytest', role: 'test-only' },
 }

@@ -11,15 +11,50 @@
 - DeepSeek 兼容的 API 端点与凭据
 - agent 可以修改的隔离 workspace
 
+## 安装 SDK
+
+可以选择安装公开包或从源码构建。两种方式都会安装 `deepseek-harness-sdk` 分发包，并提供 `deepseek_harness` Python 模块。
+
+### 从 PyPI 安装
+
 请创建虚拟环境，并安装 SDK 及其同版本内置运行时：
 
 ```sh
 python -m venv .venv
 . .venv/bin/activate
-python -m pip install deepseek-harness
+python -m pip install deepseek-harness-sdk
 ```
 
-运行时 wheel 包含 JSON-RPC 可执行文件，以及完整 [`minimal.cordis.yml`](../../../examples/jsonrpc-agent/minimal.cordis.yml) 使用的每个插件，因此安装后的 SDK 不需要 Node.js。
+### 从源码构建
+
+从源码构建还需要 Git、Node.js ^22.19 或 >= 24、通过 Corepack 启用的 pnpm 11，以及 `uv`。以下命令为当前受支持的宿主平台构建运行时和两个 wheel 包，并将它们安装进当前虚拟环境：
+
+```sh
+git clone https://github.com/deepseek-ai/deepseek-harness-sdk.git
+cd deepseek-harness
+python -m pip install uv==0.11.23
+corepack enable
+pnpm install
+
+case "$(uname -s):$(uname -m)" in
+  Linux:x86_64) runtime_platform=linux-x64 ;;
+  Linux:aarch64|Linux:arm64) runtime_platform=linux-arm64 ;;
+  Darwin:arm64) runtime_platform=macos-arm64 ;;
+  *) echo "unsupported platform" >&2; exit 1 ;;
+esac
+
+pnpm exec tsx scripts/build-exe-for-python-sdk.ts --targets="node24-$runtime_platform"
+version="$(node -p "require('./package.json').version")"
+python scripts/build-python-release.py --package sdk --output-dir dist-python
+python scripts/build-python-release.py \
+  --package runtime \
+  --platform "$runtime_platform" \
+  --runtime-exe "dist-exe/dsh-jsonrpc-agent-pkg-$runtime_platform" \
+  --output-dir dist-python
+python -m pip install --find-links dist-python "deepseek-harness-sdk==$version"
+```
+
+运行时 wheel 包含 JSON-RPC 可执行文件，以及完整 [`minimal.cordis.yml`](../../../examples/jsonrpc-agent/minimal.cordis.yml) 使用的每个插件，因此两种安装方式完成后都不再需要 Node.js。
 
 ## 运行仓库内置示例
 

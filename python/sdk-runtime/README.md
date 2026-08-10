@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-Runtime carrier package for the Python SDK (dist `deepseek-harness-runtime-bin`, module `deepseek_harness_runtime`): it locates the bundled runtime binaries the `deepseek-harness` client spawns, and ships the default configuration behind zero-config runs.
+Runtime carrier package for the Python SDK (dist `deepseek-harness-runtime-bin`, module `deepseek_harness_runtime`): it locates the bundled runtime binaries the `deepseek-harness-sdk` client spawns, and ships the default configuration behind zero-config runs.
 
 ## Runtime carriers
 

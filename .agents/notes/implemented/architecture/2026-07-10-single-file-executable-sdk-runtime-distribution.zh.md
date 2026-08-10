@@ -48,13 +48,13 @@ CI 使用 [`.github/workflows/build-exe-for-python-sdk.yml`](../../../../.github
 
 Python SDK 位于 [`python/`](../../../../python/README.md)：`python/sdk` 是客户端，`python/sdk-runtime` 是运行时载体包。运行时包的数据目录包含检入的默认 `runtime/cordis.yml`、构建注入的平台 exe 与可选 helper，以及构建注入的 `runtime/node/` 闭包树。`resolve_bundled_launch_args()` 的自动解析**只查找 exe**；`node` 载体仅在显式设置 `DSH_RUNTIME_MODE=node` 时启用（运行 `runtime/node/node_modules/@deepseek-ai/dsh-jsonrpc-demo/lib/bin.js`，需要系统 Node ≥22.19），定位为本仓库成员的开发验证通道，不随 wheel 包分发。
 
-[`scripts/build-python-release.py`](../../../../scripts/build-python-release.py) 从仓库根目录的 `package.json` 读取权威的稳定版本 `X.Y.Z`，以该版本暂存两个包，并让 SDK 精确依赖 `deepseek-harness-runtime-bin==X.Y.Z`。可选的 `python-vX.Y.Z` 发布标签只是一项一致性断言，与仓库版本不同时会被拒绝；源码 `pyproject.toml` 中的开发占位版本从不决定发布版本。SDK 是 `py3-none-any` wheel 包；每个只提供 wheel 包的运行时包都包含一个 exe，macOS wheel 包还包含与其架构匹配的 helper。运行时 wheel 包使用 `py3-none-manylinux_2_28_x86_64`、`py3-none-manylinux_2_28_aarch64` 或 `py3-none-macosx_11_0_arm64` 三种标签之一；Hatch 钩子拒绝 sdist、通用标签、混合平台载荷、helper 缺失或多余，以及不支持的平台。
+[`scripts/build-python-release.py`](../../../../scripts/build-python-release.py) 从仓库根目录的 `package.json` 读取权威的稳定版本 `X.Y.Z`，以该版本暂存两个包，并让 `deepseek-harness-sdk` 精确依赖 `deepseek-harness-runtime-bin==X.Y.Z`。可选的 `python-vX.Y.Z` 发布标签只是一项一致性断言，与仓库版本不同时会被拒绝；源码 `pyproject.toml` 中的开发占位版本从不决定发布版本。SDK 是 `py3-none-any` wheel 包；每个只提供 wheel 包的运行时包都包含一个 exe，macOS wheel 包还包含与其架构匹配的 helper。运行时 wheel 包使用 `py3-none-manylinux_2_28_x86_64`、`py3-none-manylinux_2_28_aarch64` 或 `py3-none-macosx_11_0_arm64` 三种标签之一；Hatch 钩子拒绝 sdist、通用标签、混合平台载荷、helper 缺失或多余，以及不支持的平台。
 
 exe「必须显式配置」的硬语义不变；零配置体验由包装层恢复：调用方没有提供 `cordis`、没有显式指定运行时，且环境中没有 `DSH_CORDIS_CONFIG` 时，客户端将检入的默认 `cordis.yml`（`agent-core` + 预载的 `llm-deepseek` + JSONL 持久化 + `bash-local` + `dsh-jsonrpc` 对外服务条目，并通过 `!!js` 使用环境变量兜底）显式注入 `DSH_CORDIS_CONFIG`。
 
 ### 命名血统
 
-`@deepseek-ai/dsh-jsonrpc-demo`（包）→ `dsh-jsonrpc-agent`（`bin`）→ `dsh-jsonrpc-agent-pkg`（闭包 manifest；没有作用域前缀，刻意避开 `constraints` 对 `@deepseek-ai/dsh-*` 的包形状规则）→ `dsh-jsonrpc-agent-pkg-<platform>-<arch>`（exe 产物）。协议字段 `serverInfo.name` 保持为 `deepseek-harness-sdk-runtime`（协议稳定值）；Python 分发名为 `deepseek-harness` / `deepseek-harness-runtime-bin`。
+`@deepseek-ai/dsh-jsonrpc-demo`（包）→ `dsh-jsonrpc-agent`（`bin`）→ `dsh-jsonrpc-agent-pkg`（闭包 manifest；没有作用域前缀，刻意避开 `constraints` 对 `@deepseek-ai/dsh-*` 的包形状规则）→ `dsh-jsonrpc-agent-pkg-<platform>-<arch>`（exe 产物）。协议字段 `serverInfo.name` 保持为 `deepseek-harness-sdk-runtime`（协议稳定值）；Python 分发包名为 `deepseek-harness-sdk` / `deepseek-harness-runtime-bin`，导入模块名仍为 `deepseek_harness` / `deepseek_harness_runtime`。
 
 ## 工作线程插件
 
