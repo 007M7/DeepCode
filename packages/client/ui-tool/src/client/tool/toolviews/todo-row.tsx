@@ -41,7 +41,7 @@ function summarize(argsRaw: string, t: TodoRowProps['t']): RowSummary | null {
     // Mid-stream truncation or malformed model JSON: fall back to the generic summary.
     return null
   }
-  // Valid JSON with an invalid shape (null root, non-array todos, null items —
+  // Valid JSON with invalid todo fields (null root, non-array todos, null items —
   // a rejected tool/call retains such args verbatim): same generic fallback.
   if (typeof parsed !== 'object' || parsed === null) return null
   const todos = (parsed as { todos?: unknown }).todos

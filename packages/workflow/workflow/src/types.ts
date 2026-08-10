@@ -1,6 +1,6 @@
 /**
  * Workflow seam vocabulary: the request/run/result types a workflow engine
- * consumes and produces, plus the payload shapes of the `workflow/*` events.
+ * consumes and produces, plus the fields in the `workflow/*` event payloads.
  * Types only (plus the id-brand factory), per the package convention.
  *
  * @module @deepseek-ai/dsh-workflow/types
@@ -57,8 +57,8 @@ export interface WorkflowMeta {
 
 /**
  * What a caller asks for when starting a workflow run. `meta` and `args` are
- * plain JSON DATA by the seam contract (the tool builds both from the model's
- * schema-validated call; the engine validates `meta`'s shape and rejects loud
+ * plain JSON DATA by the seam contract (the tool builds both from the model's schema-validated call;
+ * the engine validates `meta` against its schema and rejects loud
  * before anything runs) — an engine never evaluates script text to obtain
  * them. `parent` is REQUIRED — every `agent()` the script spawns is
  * attributed to it (cwd, lineage, depth flow through the subagent seam).
@@ -66,7 +66,7 @@ export interface WorkflowMeta {
 export interface WorkflowStartRequest {
   /** The plain-JS script body (top-level await allowed; ends with `return <json-value>`). */
   script: string
-  /** The workflow's identity block, as plain JSON data (shape-validated by the engine). */
+  /** The workflow's identity fields as plain JSON data, validated by the engine. */
   meta: WorkflowMeta
   /** Optional input exposed verbatim to the script as the `args` global. */
   args?: unknown

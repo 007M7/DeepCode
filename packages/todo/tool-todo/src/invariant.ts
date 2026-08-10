@@ -39,7 +39,7 @@ function validateTodos(value: unknown, fail: InvariantFailure): void {
 }
 
 /* jscpd:ignore-start -- package companions share replay and dispatch plumbing */
-/** Validate the package-owned event shape and ignore unrelated events. */
+/** Validate the package-owned event fields and ignore unrelated events. */
 function validateEvent(event: SessionEvent, fail: InvariantFailure): void {
   if (event.type === 'todo/write') validateTodos(event.data.todos, fail)
 }

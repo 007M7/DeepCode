@@ -291,6 +291,6 @@ if (errors.length === 0) {
   process.exit(0)
 }
 
-console.error('verify-translation-pairing: bilingual pairing contract violated (see docs/i18n/README.md):')
+console.error('verify-translation-pairing: bilingual pairing rules violated (see docs/i18n/README.md):')
 for (const message of errors) console.error(`  ${message}`)
 process.exit(1)

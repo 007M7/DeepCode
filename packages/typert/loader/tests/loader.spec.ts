@@ -356,7 +356,7 @@ describe('typert loader', () => {
     await ctx.loader.create({ name: '@fixture/export-primitive' })
     await ctx.loader.await()
 
-    await expect(mountTypertLoader(ctx)).rejects.toThrow('unsupported shape')
+    await expect(mountTypertLoader(ctx)).rejects.toThrow('must be a string or an object with a string default')
   })
 
   it('caches a negative verdict for loader entries without a package root', LOADER_TEST_TIMEOUT, async () => {

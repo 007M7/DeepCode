@@ -15,7 +15,7 @@ A pull request that changes product-user-visible GUI behavior MUST include a dem
 
 The recording itself is part of the evidence: use a real server booted from that pull request's branch tree, a real API key, and real model rounds. Never substitute fixture queries, mock transports, synthetic event injection, or test-only hooks unless the user explicitly asked for a fixture recording. Next to the embed, state the exact demonstrated commit SHA, the tree and origin that served it, any mode flags or browser-state exceptions, and whether a real model round ran, so reviewers know exactly what the recording proves.
 
-## Keep the boundary explicit
+## Keep recording separate from publication
 
 - Recording produces frame images and one local `.gif` artifact only; it never mutates remote state.
 - Publication — pushing the GIF to an assets branch and embedding it in a pull request body — is the separate final step, performed only when the task includes attaching the GIF to a pull request. It never touches the pull request's own branch.
@@ -33,9 +33,9 @@ A GIF for a specific pull request demonstrates that pull request's tree, so stag
 
 ## Record the flow
 
-1. Invoke the available browser-control skill and follow its setup, interaction, and cleanup instructions. Use the user's existing Chrome state only when requested or required; state that exception next to the GIF and do not claim fresh client state. If browser control is unavailable, use the repository-declared Playwright dependency in an isolated headless browser; do not install another driver or launch the user's browser. State that fallback next to the GIF.
-2. Resolve the evidence boundary before recording: identify the exact origin, whether the app is built or in development, the transport, and any fixture or mock mode. Record only claims that the observed setup supports.
-3. When a production default opens a native operating-system surface that headless automation cannot drive, select an official browser-operable production backend through the application's normal configuration. State that override next to the GIF; a fixture, mock transport, or test-only hook is not an acceptable substitute.
+1. Invoke the available browser-control skill and follow its setup, interaction, and cleanup instructions. Use the user's existing Chrome state only when requested or required; state that exception in the provenance and do not claim fresh client state. If browser control is unavailable, use the repository-declared Playwright dependency in an isolated headless browser; do not install another driver or launch the user's browser. State that fallback in the provenance.
+2. Before recording, identify the exact origin, whether the app is built or in development, the transport, and any fixture or mock mode. Record only claims that the observed setup supports.
+3. When a production default opens a native operating-system surface that headless automation cannot drive, select an official browser-operable production backend through the application's normal configuration. State the override in the provenance; a fixture, mock transport, or test-only hook is not an acceptable substitute.
 4. Choose three to six states that tell one story, such as typed, running, settled, and detail. Prefer semantic state changes over continuous capture; omit loading churn that does not help the viewer.
 5. Keep one viewport and crop for every frame, and name frames lexically: `00-initial.png`, `01-typed.png`, and so on.
 6. Store frames under the repository's gitignored `.playwright-mcp/` directory — browser-tool screenshots can only be written under the tool's allowed roots, and relative filenames resolve against the repository root. Create the frame subdirectory first (`mkdir -p .playwright-mcp/gif-frames-<label>`); writing into a missing directory fails with ENOENT at capture time.

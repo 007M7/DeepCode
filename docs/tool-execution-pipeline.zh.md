@@ -5,7 +5,7 @@
 
 [English](tool-execution-pipeline.md) | 中文
 
-此图展示了策略、钩子、沙箱、文件系统守卫、结果重写、最终结果观察和 UI 渲染如何在不改变循环的前提下各就其位。可转换的扩展点是 `tools/pre-execute`、`tools/execute` 和 `tools/post-execute` waterfall（瀑布式事件）；围绕这些扩展点的边界则由所有者强制执行，包括单调守卫、由定义自身控制的 `finalizeContent`，以及 `tools/result`。
+此图展示策略、钩子、沙箱、文件系统守卫、结果重写、最终结果观察和 UI 渲染在不改变循环的情况下何时运行。`tools/pre-execute` waterfall（瀑布式事件）首先运行，随后是单调守卫，然后运行 `tools/execute` 和 `tools/post-execute` waterfall；这三个 waterfall 可以改写一次调用。由定义自身控制的 `finalizeContent` 和 `tools/result` 在此之后运行。
 
 ```mermaid
 flowchart TD

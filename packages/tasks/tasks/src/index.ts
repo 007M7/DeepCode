@@ -44,8 +44,13 @@ declare module 'cordis' {
  * - Settlement is first-wins: one terminal record, one round of contained
  *   listener notification, and released waiters, even against a late
  *   producer outcome.
- * - {@link start} refuses work while no control surface is attached, so a
- *   producer cannot start work that callers cannot collect or stop.
+ * - {@link start} refuses work while no attached control surface serves the
+ *   spec's owner, so a producer cannot start work that owner cannot collect
+ *   or stop. One registry serves every composition in the process, so this
+ *   question — and completion-listener delivery — is owner-relative rather
+ *   than process-wide: registrations made from an unscoped context serve
+ *   every owner, and registrations made under an agent composition's scope
+ *   serve exactly the agents composed under it.
  */
 export abstract class TaskService extends Service {
   constructor(ctx: Context) {
@@ -120,17 +125,19 @@ export abstract class TaskService extends Service {
   abstract wait(id: TaskId, timeoutMs: number, caller?: Agent, signal?: AbortSignal): Promise<TaskSnapshot>
 
   /**
-   * Register an effect-scoped completion listener. Each listener is contained;
-   * returned promises are observed but not awaited. No listener runs after
-   * service disposal.
+   * Register an effect-scoped completion listener. It receives the settlements
+   * of the owners its registering context's scope covers; each listener is
+   * contained; returned promises are observed but not awaited. No listener runs
+   * after service disposal.
    * @param listener - receives each terminal snapshot and its exact owner.
    * @returns disposer that unregisters the listener.
    */
   abstract onTaskDone(listener: TaskDoneListener): () => void
 
   /**
-   * Attach an effect-scoped surface that can read and stop tasks. {@link start}
-   * refuses work while none is attached.
+   * Attach an effect-scoped surface that can read and stop tasks. It serves the
+   * owners its registering context's scope covers, and {@link start} refuses an
+   * owner no attached surface serves.
    * @param name - diagnostic label; duplicate names remain independent.
    * @returns disposer that detaches this surface.
    */

@@ -777,7 +777,7 @@ describe('background execution through the task runtime', () => {
 
     const result = await call(ctx, 'pwsh', { command: 'Start-Sleep -Seconds 60', description: 'test command', run_in_background: true })
     expect(result.isError).toBe(true)
-    expect(text(result)).toContain('no control surface is attached')
+    expect(text(result)).toContain('no control surface serves this agent')
     // Declare-then-execute: the failed preflight means no process ever ran.
     expect(bash.startCalls).toBe(0)
   })

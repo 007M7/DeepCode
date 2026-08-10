@@ -486,7 +486,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   },
   {
     key: 'httpServer',
-    summary: 'The web-shape HTTP carrier service.',
+    summary: 'The browser HTTP carrier service.',
     methods: [
       {
         signature: 'register(route: WebRoute): () => void',
@@ -602,15 +602,15 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   },
   {
     key: 'planMode',
-    summary: '`ctx.planMode`: owns logged plan state, boundary application and narration, the `plan:policy` section, the `/plan` command, and the stable exit tool.',
+    summary: '`ctx.planMode`: owns logged plan state, applies and narrates selected state at step start, the `plan:policy` section, the `/plan` command, and the stable exit tool.',
     methods: [
       {
         signature: 'get(agent: Agent): { active: boolean; pending?: boolean }',
-        jsDoc: '/**\n * Read the logged plan state and any selected state awaiting a boundary.\n *\n * @param agent The agent to read.\n * @returns Current logged state plus a pending selection, when present.\n */',
+        jsDoc: '/**\n * Read the logged plan state and any selected state awaiting the next\n * accepted in-turn pre-step.\n *\n * @param agent The agent to read.\n * @returns Current logged state plus a pending selection, when present.\n */',
       },
       {
         signature: 'set(agent: Agent, active: boolean): \'committed\' | \'queued\' | \'cancelled\' | \'noop\'',
-        jsDoc: '/**\n * Select whether plan mode should be active. Between turns the change\n * commits immediately — no request boundary would arrive until the next\n * prompt, so a queued intent would hang (the open-turn fold is the idle\n * signal: agent status stays `running` through post-turn checkpointing,\n * where a boundary equally never comes). During an open turn the\n * selection is held as pending intent for the next in-turn request\n * boundary. Repeated selection of the current or already-pending state is\n * a no-op.\n *\n * @param agent The agent to switch.\n * @param active Whether plan mode should be active.\n * @returns what happened: `committed` (logged now), `queued` (awaiting the\n * next boundary), `cancelled` (an opposite pending selection was cleared;\n * the logged state already matches), or `noop` (already in that state).\n */',
+        jsDoc: '/**\n * Select whether plan mode should be active. Between turns the method\n * appends the change immediately because no in-turn pre-step will run until\n * another prompt starts a turn. The open-turn fold is the idle signal:\n * agent status stays `running` through post-turn checkpointing, when no\n * further in-turn pre-step runs. During an open turn the selection remains\n * pending until the next accepted in-turn pre-step. Repeated selection of\n * the current or already-pending state is a no-op.\n *\n * @param agent The agent to switch.\n * @param active Whether plan mode should be active.\n * @returns what happened: `committed` (logged now), `queued` (awaiting the\n * next accepted in-turn pre-step), `cancelled` (an opposite pending selection\n * was cleared; the logged state already matches), or `noop` (already in that\n * state).\n */',
       },
     ],
   },
@@ -746,7 +746,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     methods: [
       {
         signature: 'register<K extends keyof SessionProjectionMap, S>(definition: ProjectionDefinition<K, S>): () => void',
-        jsDoc: '/**\n * Register one domain\'s unit. The registration is an effect on the calling\n * context\'s fiber: disposing the fiber (or calling the returned disposer)\n * removes the key — and the unit\'s cached cells — from subsequent drives\n * and snapshots.\n * @param definition - key, boundary schema, pure unit functions, and stateVersion.\n * @returns the exact disposer that unregisters this unit.\n */',
+        jsDoc: '/**\n * Register one domain\'s unit. The registration is an effect on the calling\n * context\'s fiber: disposing the fiber (or calling the returned disposer)\n * removes the key — and the unit\'s cached cells — from subsequent drives\n * and snapshots.\n * @param definition - key, state schema, pure unit functions, and stateVersion.\n * @returns the exact disposer that unregisters this unit.\n */',
       },
       {
         signature: 'onChanged(listener: ProjectionChangeListener): () => void',
@@ -820,11 +820,11 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'async readSurface(sessionId: SessionId): Promise<SessionSurfaceSnapshot>',
-        jsDoc: '/**\n * Read one session\'s complete current model surface from one corpus observation.\n * @param sessionId - live-preferred session id to read.\n * @returns cloned header, current surface, and raw-log capture boundary.\n * @throws when source resolution fails or the session surface is invalid.\n */',
+        jsDoc: '/**\n * Read one session\'s complete current model surface from one corpus observation.\n * @param sessionId - live-preferred session id to read.\n * @returns cloned header, current surface, and the last sequence number included in the raw-log capture.\n * @throws when source resolution fails or the session surface is invalid.\n */',
       },
       {
         signature: 'async traceSession(sessionId: SessionId, signal?: AbortSignal): Promise<SessionLineageTrace>',
-        jsDoc: '/**\n * Trace known ancestry and descendants from one corpus observation.\n * @param sessionId - logical session id to trace.\n * @param signal - optional cancellation for persistence listing.\n * @returns a complete lineage or an explicit unresolved parent boundary.\n * @throws when corpus resolution fails, the target is absent, or its known ancestry cycles.\n */',
+        jsDoc: '/**\n * Trace known ancestry and descendants from one corpus observation.\n * @param sessionId - logical session id to trace.\n * @param signal - optional cancellation for persistence listing.\n * @returns a complete lineage or the first parent that could not be resolved.\n * @throws when corpus resolution fails, the target is absent, or its known ancestry cycles.\n */',
       },
       {
         signature: 'async traceEvent(request: SessionEventTraceRequest, signal?: AbortSignal): Promise<SessionEventTraceObservation>',
@@ -1140,17 +1140,17 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'abstract onTaskDone(listener: TaskDoneListener): () => void',
-        jsDoc: '/**\n * Register an effect-scoped completion listener. Each listener is contained;\n * returned promises are observed but not awaited. No listener runs after\n * service disposal.\n * @param listener - receives each terminal snapshot and its exact owner.\n * @returns disposer that unregisters the listener.\n */',
+        jsDoc: '/**\n * Register an effect-scoped completion listener. It receives the settlements\n * of the owners its registering context\'s scope covers; each listener is\n * contained; returned promises are observed but not awaited. No listener runs\n * after service disposal.\n * @param listener - receives each terminal snapshot and its exact owner.\n * @returns disposer that unregisters the listener.\n */',
       },
       {
         signature: 'abstract attachSurface(name: string): () => void',
-        jsDoc: '/**\n * Attach an effect-scoped surface that can read and stop tasks. {@link start}\n * refuses work while none is attached.\n * @param name - diagnostic label; duplicate names remain independent.\n * @returns disposer that detaches this surface.\n */',
+        jsDoc: '/**\n * Attach an effect-scoped surface that can read and stop tasks. It serves the\n * owners its registering context\'s scope covers, and {@link start} refuses an\n * owner no attached surface serves.\n * @param name - diagnostic label; duplicate names remain independent.\n * @returns disposer that detaches this surface.\n */',
       },
     ],
   },
   {
     key: 'telemetry',
-    summary: 'The backend contract in its loadable form: one implementation per context — the cordis `Service` registration under the `telemetry` key throws on a duplicate, cordis\' standard behavior.',
+    summary: 'Loadable form of the backend contract: one implementation per context — the cordis `Service` registration under the `telemetry` key throws on a duplicate, cordis\' standard behavior.',
     methods: [
       {
         signature: 'abstract emit(record: TelemetryRecord): void',
@@ -1308,7 +1308,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'async search(request: WebSearchRequest, signal?: AbortSignal): Promise<WebSearchResult>',
-        jsDoc: '/**\n * Run one search through the selected provider. Resolves the provider at call\n * time with the selection rules above; throws {@link WebError} when the\n * capability cannot run. The seam enforces `request.maxResults` on the result:\n * if the provider over-returns, `sources[]` is truncated and `truncated` set.\n * @param request - the query plus result-shaping options.\n * @param signal - optional cancellation signal forwarded to the provider.\n * @returns the provider\'s results, capped to `request.maxResults`.\n */',
+        jsDoc: '/**\n * Run one search through the selected provider. Resolves the provider at call\n * time with the selection rules above; throws {@link WebError} when the\n * capability cannot run. The seam enforces `request.maxResults` on the result:\n * if the provider over-returns, `sources[]` is truncated and `truncated` set.\n * @param request - the query and optional result limit.\n * @param signal - optional cancellation signal forwarded to the provider.\n * @returns the provider\'s results, capped to `request.maxResults`.\n */',
       },
       {
         signature: 'async fetch(request: WebFetchRequest, signal?: AbortSignal): Promise<WebFetchResult>',
@@ -1630,8 +1630,8 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'tools/code-dispatch-log',
     mode: 'waterfall',
     signature: '\'tools/code-dispatch-log\'(this: Scoped<ToolRegistry>, dispatch: CodeDispatchLog, next: () => Promise<ContentBlock[]>): Promise<ContentBlock[]>',
-    jsDoc: '/**\n * Shape the DURABLE LOG COPY of one `run_code` sub-dispatch outcome before\n * the bridge appends its `tool/code-dispatch` event. `next()` keeps the\n * content unchanged; a listener may return replacement blocks (e.g. the\n * spill policy\'s preview + locator for an oversized text result). Only the\n * logged copy is affected — the program already received the complete\n * value, and the model sees neither. A throwing listener is contained:\n * the bridge falls back to logging the unshaped content.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent\'s dispatches.\n * @param dispatch - the parent execution, sub-call identity, and the settled content to log.\n * @mode waterfall\n */',
-    summary: 'Shape the DURABLE LOG COPY of one `run_code` sub-dispatch outcome before the bridge appends its `tool/code-dispatch` event.',
+    jsDoc: '/**\n * Allow a listener to replace content in the DURABLE LOG COPY of one\n * `run_code` sub-dispatch outcome before the bridge appends its\n * `tool/code-dispatch` event. `next()` keeps the\n * content unchanged; a listener may return replacement blocks (e.g. the\n * spill policy\'s preview + locator for an oversized text result). Only the\n * logged copy is affected — the program already received the complete\n * value, and the model sees neither. A throwing listener is contained:\n * the bridge falls back to logging the original settled content.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent\'s dispatches.\n * @param dispatch - the parent execution, sub-call identity, and the settled content to log.\n * @mode waterfall\n */',
+    summary: 'Allow a listener to replace content in the DURABLE LOG COPY of one `run_code` sub-dispatch outcome before the bridge appends its `tool/code-dispatch` event.',
   },
   {
     name: 'tools/execute',

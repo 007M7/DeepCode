@@ -1,6 +1,6 @@
 /**
  * The third-party memory examples stay config-only. This suite parses every
- * checked-in overlay, verifies its pin/transport/secret boundary, then replaces
+ * checked-in overlay, verifies its package pin, transport, and secret handling, then replaces
  * only the upstream endpoint with the package-owned keyless MCP fixture and
  * proves the real Cordis Loader discovers a tool through the generic bridge.
  */
@@ -81,7 +81,7 @@ async function waitForTool(ctx: Context, name: string): Promise<void> {
 }
 
 describe('third-party memory MCP example overlays', () => {
-  it.each(examples)('parses $file with the documented generic boundary', (contract) => {
+  it.each(examples)('parses $file with the documented generic plugin fields', (contract) => {
     const file = resolve(exampleDir, contract.file)
     const source = readFileSync(file, 'utf8')
     const row = insertedRow(loadOverlayPatches('memory-mcp-config-test', file))

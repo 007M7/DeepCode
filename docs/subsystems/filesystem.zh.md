@@ -4,7 +4,7 @@
 
 可选的文件系统能力由四个部分组成：[dsh-fs](../../packages/fs/fs) 拥有 `ctx.fs` 以及带可选守卫的原子文本操作；[dsh-fs-local](../../packages/fs/fs-local) 实现本地磁盘后端；[dsh-fs-policy](../../packages/fs/fs-policy) 记录观测到的存在或缺失状态，并通过事件（而非服务）添加新鲜度规则；[dsh-tool-fs](../../packages/fs/tool-fs) 直接执行面向模型的 read/write/edit 调用并渲染窗口。它位于 agent loop（智能体循环）主干之外；替换后端不会改变策略或工具 schema。
 
-该模型是**加法式而非减法式**的：`ctx.fs` 本身就是一个完整、无约束的文本存储 seam（`write` 无条件创建或覆盖，`edit` 无条件替换字面文本）。`dsh-fs-policy` 是一个插件，通过裁决 `fs/*` waterfall（瀑布式事件）在上层*叠加*策略；移除它只会暴露裸提供方，而不会破坏工具，因为工具与策略之间没有方法级耦合。加载了 `dsh-tool-fs` 的部署通常也应加载 `dsh-fs-policy`，使默认行为为「先读后写/编辑」。
+`dsh-fs-policy` 是可选插件。没有该插件时，`FileSystem` 服务定义、一个提供方和 `dsh-tool-fs` 消费方组成完整且不受约束的文件系统 seam：`write` 无条件创建或覆盖，`edit` 无条件替换字面文本。策略插件通过裁决 `fs/*` waterfall（瀑布式事件）来改变这些操作。移除该插件不会破坏工具，因为工具调用 `ctx.fs` 并分发事件，而不调用策略方法。加载了 `dsh-tool-fs` 的部署通常也应加载 `dsh-fs-policy`，使默认行为为「先读后写/编辑」。
 
 提供方源码：[`packages/fs/fs/src/types.ts`](../../packages/fs/fs/src/types.ts) 与 [`packages/fs/fs/src/index.ts`](../../packages/fs/fs/src/index.ts)。策略源码：[`packages/fs/fs-policy/src/types.ts`](../../packages/fs/fs-policy/src/types.ts)。读取渲染源码：[`packages/fs/tool-fs/src/read-render.ts`](../../packages/fs/tool-fs/src/read-render.ts)。
 
@@ -113,7 +113,7 @@ interface FsDirEntry {
 
 ## 写入与编辑守卫（提供方约定）
 
-`writeText` 和 `editText` 的版本守卫都是可选的：省略守卫时执行无条件的裸提供方变更，提供守卫时则执行相应的条件检查。`writeText` 的守卫是 `FsWriteIntent`：`createIfAbsent` 在目标缺失时创建，目标已存在时以 `FS_NOT_OBSERVED` 拒绝；即使目标在提供方初始探测后才出现，也必须拒绝，因为发布操作本身不得替换。`replaceIfVersion` 仅在目标存在且版本匹配时替换，否则报 `FS_STALE_VERSION`。省略 `expected` 则无条件创建或覆盖。联合类型本身只包含两种有守卫的意图；「无守卫」通过省略表达，因此 write 和 edit 共享同一个对称的 `expected?` 形状。
+`writeText` 和 `editText` 的版本守卫都是可选的：省略守卫时执行无条件的裸提供方变更，提供守卫时则执行相应的条件检查。`writeText` 的守卫是 `FsWriteIntent`：`createIfAbsent` 在目标缺失时创建，目标已存在时以 `FS_NOT_OBSERVED` 拒绝；即使目标在提供方初始探测后才出现，也必须拒绝，因为发布操作本身不得替换。`replaceIfVersion` 仅在目标存在且版本匹配时替换，否则报 `FS_STALE_VERSION`。省略 `expected` 则无条件创建或覆盖。联合类型本身只包含两种有守卫的意图；「无守卫」通过省略表达，因此 write 和 edit 都使用同一个可选的 `expected` 字段。
 
 ```ts type-equiv
 /**
@@ -196,15 +196,15 @@ type FsObservation =
 
 ## 执行上下文（策略插件）
 
-策略插件只需要足够的执行上下文，通过收窄 `fs/*` 事件携带的不透明 `object` actor 来推导观测状态的所有者。`ToolExecution` 满足此形状，因此 `dsh-tool-fs` 将其执行对象作为 actor 直接传递，而无需让 `dsh-fs-policy` 导入工具、agent 或会话包。
+策略插件只需要足够的执行上下文，通过收窄 `fs/*` 事件携带的不透明 `object` actor 来推导观测状态的所有者。`ToolExecution` 包含必需的字段，因此 `dsh-tool-fs` 将其执行对象作为 actor 直接传递，而无需让 `dsh-fs-policy` 导入工具、agent 或会话包。
 
 ```ts type-equiv
 /**
  * Minimal structural view of a tool execution the policy plugin needs to derive
- * an observed-state owner. `@deepseek-ai/dsh-tools`' `ToolExecution` satisfies
- * this shape, so the tool passes its `exec` straight through as the opaque
- * `object` actor on the `fs/*` events; this plugin narrows that actor to this
- * shape without importing `dsh-tools`, `dsh-agent`, or `dsh-session`.
+ * an observed-state owner. `@deepseek-ai/dsh-tools`' `ToolExecution` contains
+ * these fields, so the tool passes its `exec` straight through as the opaque
+ * `object` actor on the `fs/*` events; this plugin narrows that actor to
+ * `FsPolicyExec` without importing `dsh-tools`, `dsh-agent`, or `dsh-session`.
  *
  * The owner is `agent.session` when present. It is treated as an opaque object
  * identity (a `WeakMap` key); this package never reads any of its fields.
@@ -220,7 +220,7 @@ interface FsPolicyExec {
 
 ## 读取结果（消费方 / 读取渲染）
 
-文本读取受行窗口、字节上限和后端限制约束。达到字节上限后，扫描仍会继续，但不再保留更多行，因此 `totalLines` 仍为精确值。面向模型的 `read` 工具渲染的结果纯粹是展示性的；不存在 `full`/`partial` 视图区分——授权基于新鲜度（工具以 stat 的版本 emit 表示存在的 `fs/observed`），因此任何窗口化读取在文件未变时都能授权后续的 write/edit。元数据未命中时，工具会在返回 `FS_NOT_FOUND` 前 emit 缺失观测，使后续带防护的写入可以重新创建外部删除的目标，但不会授权 edit。读取窗口化与此结果形状位于 `dsh-tool-fs`（拥有读取操作的执行器）中，而非策略插件中。
+文本读取受行窗口、字节上限和后端限制约束。达到字节上限后，扫描仍会继续，但不再保留更多行，因此 `totalLines` 仍为精确值。面向模型的 `read` 工具渲染的结果纯粹是展示性的；不存在 `full`/`partial` 视图区分——授权基于新鲜度（工具 emit 表示存在的 `fs/observed`，并直接携带 stat 的版本），因此任何窗口化读取在文件未变时都能授权后续的 write/edit。元数据未命中时，工具会在返回 `FS_NOT_FOUND` 前 emit 缺失观测，使后续带守卫的写入可以重新创建外部删除的目标，但不会授权 edit。拥有读取操作的执行器 `dsh-tool-fs` 实现读取窗口化并构造该结果；策略插件不执行这些操作。
 
 ```ts type-equiv
 /** Outcome of a bounded text read — what {@link formatReadOutput} renders. */

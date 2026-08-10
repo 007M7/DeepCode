@@ -1,7 +1,7 @@
 /**
  * Vocabulary for the web capability seam (`ctx.web`). Search and fetch deliberately share one
  * seam so provider selection, cancellation, errors, and product configuration have one owner,
- * while retaining separate request and result shapes.
+ * while retaining separate request and result types.
  * @module @deepseek-ai/dsh-web/types
  */
 

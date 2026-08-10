@@ -1,6 +1,6 @@
 /**
  * The model-facing `workflow` tool: run a JavaScript orchestration script that fans out
- * subagents, and return the script's final value. Pure schema + lifecycle shaping — script
+ * subagents, and return the script's final value. It owns the model-facing schema and run lifecycle; script
  * parsing, execution, caps, and cancellation live behind `ctx.workflows`
  * (`@deepseek-ai/dsh-workflow`), so a hardened engine swaps in without touching what the model
  * sees. Execution awaits `run.result` and always disposes the run; non-completed reasons become tool

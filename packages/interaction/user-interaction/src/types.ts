@@ -1,5 +1,5 @@
 /**
- * Wire-safe question/answer shapes, free of cordis/service imports so browser
+ * Wire-safe question and answer types, free of cordis/service imports so browser
  * type chains (apiproxy api → client) can consume them without loading this
  * package's Context augmentation.
  * @module @deepseek-ai/dsh-user-interaction/types
@@ -14,11 +14,11 @@ export interface AskUserQuestionOption {
 }
 
 /**
- * A caller-declared presentation intent: the question IS a decision of this
- * shape, so a UI that recognises the tag may present it as such instead of as a
+ * A caller-declared presentation intent: the question IS this kind of
+ * decision, so a UI that recognises the tag may present it as such instead of as a
  * generic option list. Tagged so further intents can be added; a UI that does
  * not know a tag renders the generic flow, and the answer encoding is identical
- * either way — an intent shapes presentation only, never the protocol.
+ * either way — an intent changes presentation only, never the protocol.
  */
 export type AskUserQuestionIntent = {
   /** A plan submitted for review: `detail` is the plan markdown `ask()` requires, and the decision approves or declines it. */

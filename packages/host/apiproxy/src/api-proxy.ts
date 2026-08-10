@@ -5,7 +5,7 @@
 
 import { randomUUID } from 'node:crypto'
 import { mkdir, stat } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { dirname } from 'node:path'
 import type { Context } from 'cordis'
 import { installModelSelection } from '@deepseek-ai/dsh-agent'
 import type { Agent, ModelSelection, ModelSelectionRef, AgentOptions, AgentStatus } from '@deepseek-ai/dsh-agent'
@@ -523,8 +523,6 @@ export interface ApiProxyDefaults {
   saveDefaultModelSelection?: (selection: ModelSelection) => Promise<void>
   /** Default project directory for new sessions whose create request carries no cwd. */
   cwd: string
-  /** Parent directory for name-created workspaces. */
-  workspaceRoot: string
   /** Native open-with-default-application; injectable for carrier tests. */
   openPath?: (path: string, signal: AbortSignal) => Promise<void>
   /** Native text-editor handoff; injectable for settings-document tests. */
@@ -914,9 +912,6 @@ class SessionCwdConflict extends Error {
     )
   }
 }
-
-/** Host failed before the registry could adopt a name-created directory. */
-class WorkspaceDirectoryCreationError extends Error {}
 
 /** An explicit Host naming operation would duplicate another Workspace title. */
 class WorkspaceNameConflictError extends Error {
@@ -1487,29 +1482,11 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
   }
 
   /** Resolve or create one path while holding the Host's workspace-create chain. */
-  function ensureWorkspace(
-    path: string,
-    title: string | undefined,
-    rejectExistingName = false,
-    createDirectory = false,
-  ): Promise<{ workspace: Workspace; created: boolean }> {
+  function ensureWorkspace(path: string): Promise<{ workspace: Workspace; created: boolean }> {
     const operation = workspaceCreationChain.then(async () => {
-      if (rejectExistingName && title !== undefined
-        && ctx.workspace.list().some(workspace => workspace.title === title)) {
-        throw new WorkspaceNameConflictError(title)
-      }
-      if (createDirectory) {
-        try {
-          await mkdir(path, { recursive: true })
-        } catch (error: unknown) {
-          throw new WorkspaceDirectoryCreationError(
-            `failed to create workspace directory "${path}": ${String(error)}`,
-          )
-        }
-      }
       const existing = await ctx.workspace.resolveByPath(path)
       if (existing !== undefined) return { workspace: existing, created: false }
-      return { workspace: await ctx.workspace.create(path, title), created: true }
+      return { workspace: await ctx.workspace.create(path), created: true }
     })
     workspaceCreationChain = operation.then(() => undefined, () => undefined)
     return operation
@@ -2555,54 +2532,12 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         }))
       },
 
-      // Exactly one of path/name arrives (schema refine). Existing-folder
-      // adoption reuses its canonical path; create-by-name rejects a name
-      // already present in the registry.
-      // TODO: the create-by-name branch lost its last product consumer when
-      // the Web picker collapsed onto the directory flow
-      // (.agents/notes/implemented/simplification/2026-07-31-one-route-to-add-a-workspace.md).
-      // Delete it with the wire schema's `name` member, this
-      // `defaults.workspaceRoot`, the client contract that carried the name
-      // (`WorkspaceCreateInput`, `WorkspacesService.create`'s `{ name }` arm,
-      // `intentName`'s name branch, the manager's "name under workspaceRoot"
-      // contract), and the `dsh web --workspace-root` flag plus its apps/cli
-      // README lines, which exist only to feed it.
       async create(request) {
-        const { payload } = request
-        let path: string
-        if (payload.name !== undefined) {
-          const name = payload.name.trim()
-          if (name === '' || name === '.' || name === '..' || /[/\\]/.test(name)) {
-            return err(request, {
-              code: 'workspace-invalid-path',
-              message: `workspace name must be one non-empty path segment, got "${payload.name}"`,
-              details: { path: payload.name },
-            })
-          }
-          path = join(defaults.workspaceRoot, name)
-        } else {
-          path = payload.path as string
-        }
+        const { path } = request.payload
         try {
-          const name = payload.name?.trim()
-          const { workspace, created } = await ensureWorkspace(
-            path,
-            name,
-            name !== undefined,
-            name !== undefined,
-          )
+          const { workspace, created } = await ensureWorkspace(path)
           return ok(request, { workspace: workspaceView(workspace), created })
         } catch (error: unknown) {
-          if (error instanceof WorkspaceNameConflictError) {
-            return err(request, {
-              code: 'workspace-name-conflict',
-              message: error.message,
-              details: { name: error.workspaceName },
-            })
-          }
-          if (error instanceof WorkspaceDirectoryCreationError) {
-            return err(request, { code: 'internal', message: error.message, details: {} })
-          }
           // The registry rejects a path that does not resolve to an existing
           // directory (realpath ENOENT / not-a-directory) — the business
           // error of the typed-path flow, surfaced as a validation failure.

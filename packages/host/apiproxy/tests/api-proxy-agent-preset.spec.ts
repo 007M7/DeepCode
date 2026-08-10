@@ -137,7 +137,6 @@ async function harness(
   const api = createApiProxy(ctx, {
     defaultModelSelection: () => ({ provider: 'test', model: 'test-model' }),
     cwd,
-    workspaceRoot: cwd,
     ...options.defaults,
   })
   return { api, ctx, cwd }

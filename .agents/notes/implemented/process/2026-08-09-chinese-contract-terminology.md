@@ -14,7 +14,7 @@ English `convention` also commonly renders as `约定`. That overlap is intentio
 
 The terminology source of truth defines `contract` as `约定` and `adapter contract` as `适配器约定（adapter contract）` on first mention. Every active Chinese documentation pair follows that ruling; archived Agent Notes remain frozen. Unpaired bilingual calibration assets and the translation prompt's explanatory prose follow the same terms so they cannot teach the superseded rendering.
 
-The migration is semantic prose maintenance, not a rename of identifiers. Inline code, file paths, links, API names, English filenames containing `contract`, and machine-readable values remain unchanged. `convention` does not receive a global terminology row or corpus-wide rewrite: translators preserve natural Chinese and explicitly disambiguate only where the source contrasts the two concepts.
+The migration is semantic prose maintenance, not a rename of identifiers. Inline code, file paths, links, API names, English filenames containing `contract`, and machine-readable values remain unchanged. `convention` does not receive a global terminology row or corpus-wide rewrite: translators preserve natural Chinese and explicitly disambiguate only where the source contrasts the two concepts. The [concrete prose decision](2026-08-09-concrete-prose-names-actors-and-recorded-facts.md) separately decides when English prose should replace a vague `contract` use with the exact rule, API, or behavior before translation.
 
 ## Alternatives considered
 

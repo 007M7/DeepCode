@@ -69,7 +69,7 @@ describe('plan projection unit', () => {
     expect(bench.values()).toEqual({ plan: { active: false, pending: false } })
   })
 
-  it('a logged /plan selection reads pending until the boundary commit resolves it', async () => {
+  it('a logged /plan selection reads pending until plan/mode records it', async () => {
     const bench = await harness(true)
     runPlanCommand(bench.session, '', 0)
     expect(bench.values().plan).toEqual({ active: false, pending: true })

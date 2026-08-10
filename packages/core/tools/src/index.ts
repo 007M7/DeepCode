@@ -160,13 +160,14 @@ declare module 'cordis' {
      */
     'tools/post-execute'(this: Scoped<ToolRegistry>, exec: ToolExecution, result: Readonly<ToolExecutionResult>, next: () => Promise<PostToolDecision>): Promise<PostToolDecision>
     /**
-     * Shape the DURABLE LOG COPY of one `run_code` sub-dispatch outcome before
-     * the bridge appends its `tool/code-dispatch` event. `next()` keeps the
+     * Allow a listener to replace content in the DURABLE LOG COPY of one
+     * `run_code` sub-dispatch outcome before the bridge appends its
+     * `tool/code-dispatch` event. `next()` keeps the
      * content unchanged; a listener may return replacement blocks (e.g. the
      * spill policy's preview + locator for an oversized text result). Only the
      * logged copy is affected — the program already received the complete
      * value, and the model sees neither. A throwing listener is contained:
-     * the bridge falls back to logging the unshaped content.
+     * the bridge falls back to logging the original settled content.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent's dispatches.
      * @param dispatch - the parent execution, sub-call identity, and the settled content to log.
      * @mode waterfall
@@ -1183,8 +1184,8 @@ export class ToolRegistry extends Service {
   /**
    * Run the `tools/code-dispatch-log` waterfall over one settled sub-dispatch
    * and return the content the bridge should log on `tool/code-dispatch`.
-   * Contained: a throwing listener falls back to the unshaped content — log
-   * shaping must never fail the dispatch or lose the settle event. Private:
+   * Contained: when a listener throws, the method logs the original settled
+   * content; that failure must not fail the dispatch or omit the settle event. Private:
    * the ONE consumer is the `run_code` bridge this registry constructs, which
    * receives it as a capability parameter (the `requireRuntime` idiom) — the
    * waterfall, not this invoker, is the public extension point.
@@ -1196,7 +1197,7 @@ export class ToolRegistry extends Service {
         () => Promise.resolve(dispatch.content),
       )
     } catch (error: unknown) {
-      this.ctx.logger.warn(`tools: code-dispatch-log listener failed for ${dispatch.name}: ${errorMessage(error)}; logging the unshaped content`)
+      this.ctx.logger.warn(`tools: code-dispatch-log listener failed for ${dispatch.name}: ${errorMessage(error)}; logging the original settled content`)
       return dispatch.content
     }
   }

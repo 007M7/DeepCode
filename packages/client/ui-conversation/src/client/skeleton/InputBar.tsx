@@ -516,7 +516,7 @@ export function InputBar({
     }
     pushPlain(draft.length)
     if (deco.hint !== null) {
-      // Claim tokens are shaped `/name ` (trailing space); trim to the bare name.
+      // Claim tokens have the `/name ` format (trailing space); trim to the bare name.
       const commandName = input?.claim?.token.slice(1).trim() ?? ''
       const hintKey = `hint.${commandName === 'goal' && hasGoal ? 'goal.active' : commandName}`
       // Dynamic lookup by claimed command name: unknown commands miss the

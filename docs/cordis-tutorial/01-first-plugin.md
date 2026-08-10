@@ -52,7 +52,7 @@ There is no framework bootstrap code in your file: a plugin describes what it co
 
 ## The two other plugin shapes
 
-A function is the most common shape, but Cordis accepts three:
+A function is the most common form, but Cordis accepts three:
 
 ```ts
 import { Service, type Context } from 'cordis'
