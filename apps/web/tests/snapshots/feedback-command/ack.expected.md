@@ -2,7 +2,7 @@
   - navigation "Session hierarchy":
     - button "Reply with the single word" [disabled]
   - img
-  - text: 标准模式
+  - text: Standard mode
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
