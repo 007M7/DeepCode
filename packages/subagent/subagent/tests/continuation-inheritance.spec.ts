@@ -74,8 +74,7 @@ describe('continuable policy inheritance', () => {
   it('seeds the parent sandbox override and pins approval to never', async () => {
     const { ctx, parent } = await setup([textResponse('child done')])
     setSandboxMode(parent.session, 'danger-full-access')
-    // The parent keeps the interactive deployment default: the child pin must
-    // not depend on any parent approval override.
+    // No parent approval override: the child pin must not depend on one.
     expect(ctx.approval.overrideOf(parent.session)).toBeUndefined()
     let child: Agent | undefined
     ctx.on('agent/created', ({ agent }) => {
@@ -95,11 +94,10 @@ describe('continuable policy inheritance', () => {
       { type: 'sandbox/mode', data: { mode: 'danger-full-access', source: 'delegation' } },
       { type: 'approval/policy', data: { policy: 'never', source: 'delegation' } },
     ])
-    // Durable: a reload folds the same effective policy; the parent keeps its own.
+    // Durable: a reload folds the same effective policy.
     expect(effectiveSandboxMode(loaded.events)).toBe('danger-full-access')
     expect(effectiveApprovalPolicy(loaded.events)).toBe('never')
     expect(ctx.approval.overrideOf(parent.session)).toBeUndefined()
-    // The child's runtime-context snapshot states the fixed delegation scope.
     const runtimeContext = loaded.events.find(
       (event): event is SessionEvent<'user/message'> => event.type === 'user/message'
         && event.data.source.kind === 'plugin'

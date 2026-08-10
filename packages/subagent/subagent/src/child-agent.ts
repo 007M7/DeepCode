@@ -113,13 +113,9 @@ export interface ChildComposition {
 }
 
 /**
- * Model-facing statement every in-process child receives: the permission
- * scope is fixed at delegation and approval prompts are unavailable, so the
- * child reports a scope limitation instead of retrying denied operations.
- * A runtime-context contribution (not a system-prompt section) because it is
- * a per-session fact: the deployment's system prompt stays uniform across
- * parents and children, and the statement joins the same durable snapshot
- * that carries the sandbox-policy and approval-policy sentences.
+ * Model-facing delegation-scope statement for every in-process child. A
+ * runtime-context contribution rather than a system-prompt section, so the
+ * deployment's system prompt stays uniform across parents and children.
  */
 export const SUBAGENT_DELEGATION_CONTEXT
   = 'You are a delegated subagent: your permission scope was fixed when you were started and cannot be '
@@ -131,14 +127,12 @@ export const SUBAGENT_DELEGATION_CONTEXT
  * Apply one child's scoped composition inside its creation window: the fixed
  * delegation-scope statement, a shadowing persona section, and a tool
  * restriction, all owned by the child's scope and therefore invisible to its
- * parent and siblings. Both creation and cold resume pass through here, so a
- * resumed child keeps the same statement.
+ * parent and siblings. Creation and cold resume both pass through here.
  * @param childCtx - the child agent's scoped creation context.
  * @param composition - the persona and tool filter to install.
  */
 export function applyChildComposition(childCtx: Context, composition: ChildComposition): void {
-  // After sandbox:policy (110) and approval:policy (115): scope, then policy,
-  // then what a delegated child does about a denial.
+  // Order 120: after the sandbox:policy (110) and approval:policy (115) sentences.
   childCtx.systemPrompt.context({ name: 'subagent:delegation', order: 120, text: SUBAGENT_DELEGATION_CONTEXT })
   if (composition.persona !== undefined) {
     childCtx.systemPrompt.section({ name: 'deployment:persona', order: 0, text: composition.persona })
@@ -151,11 +145,9 @@ export interface DelegatedPolicyOverrides {
   /** The parent session's explicit sandbox-mode override, or `undefined` without one. */
   readonly sandboxMode: SandboxMode | undefined
   /**
-   * The child's pinned approval policy, or `undefined` when no approval
-   * capability is composed. Always `'never'` with one composed: a delegated
-   * child acts only within the sandbox scope fixed at delegation, so the
-   * composed `ApprovalService` rejects every child ask deterministically
-   * instead of waiting on a prompt no one is watching.
+   * `'never'` whenever the approval capability is composed, `undefined`
+   * otherwise: a delegated child acts only within the sandbox scope fixed at
+   * delegation, so its asks are rejected deterministically.
    */
   readonly approvalPolicy: 'never' | undefined
 }
@@ -163,12 +155,10 @@ export interface DelegatedPolicyOverrides {
 /**
  * Capture the policy to seed into one delegation. Call synchronously before
  * the child start's first await: a later parent switch belongs to the
- * parent's future, not to this child. The sandbox scope is the parent
- * session's explicit override — deployment defaults and one-shot grants are
- * never captured, so an unswitched parent leaves the child following the
- * deployment default dynamically. The approval policy is never inherited: it
- * is pinned to `'never'` whenever the approval capability is composed,
- * regardless of the parent's own policy.
+ * parent's future, not to this child. Only the parent session's explicit
+ * sandbox override is captured — never deployment defaults or one-shot
+ * grants — and the approval policy is pinned to `'never'` regardless of the
+ * parent's own policy.
  * @param parent - the delegating parent agent.
  * @returns the sandbox override (or `undefined` without one) and the approval pin.
  */

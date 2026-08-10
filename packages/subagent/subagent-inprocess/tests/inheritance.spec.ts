@@ -84,8 +84,7 @@ describe('in-process policy inheritance', () => {
     const { ctx, parent } = await setupWalled(script)
     const blocked = join(workspace, 'spawn-blocked.txt')
     setSandboxMode(parent.session, 'read-only')
-    // The parent keeps the interactive deployment default: the child pin must
-    // not depend on any parent approval override.
+    // No parent approval override: the child pin must not depend on one.
     expect(ctx.approval.overrideOf(parent.session)).toBeUndefined()
     const parentLogLength = parent.session.events.length
     script.push(
@@ -125,8 +124,7 @@ describe('in-process policy inheritance', () => {
         .join('\n')
       expect(contextText).toContain('Current DSH file policy: read-only')
       expect(contextText).toContain('Approval prompts are disabled')
-      // The delegation-scope statement is a runtime-context fact, so the
-      // deployment system prompt stays uniform across parents and children.
+      // The statement rides runtime context; the system prompt stays uniform.
       expect(contextText).toContain('You are a delegated subagent')
       expect(request.data.header.system).not.toContain('Approval prompts are disabled')
       expect(request.data.header.system).not.toContain('You are a delegated subagent')
@@ -215,8 +213,7 @@ describe('in-process policy inheritance', () => {
   it('rejects a child escalation deterministically even when an answerer would allow it', async () => {
     const script: Script = []
     const { ctx, parent } = await setupWalled(script)
-    // A root answerer that would GRANT: the pinned 'never' must resolve
-    // before any answerer is consulted, so this never runs for the child.
+    // A granting answerer proves the pin resolves before any answerer runs.
     let consulted = false
     ctx.on('approval/request', () => {
       consulted = true
@@ -243,7 +240,6 @@ describe('in-process policy inheritance', () => {
       expect(consulted).toBe(false)
       expect(toolResultTexts(child).join('\n'))
         .toContain('the user rejected escalating this operation to "workspace-write"')
-      // The deterministic rejection still leaves the full audit pair on the child log.
       const asked = child.session.events.find(
         (event): event is SessionEvent<'approval/asked'> => event.type === 'approval/asked',
       )

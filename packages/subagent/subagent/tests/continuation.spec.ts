@@ -103,7 +103,7 @@ function hasUserText(events: readonly SessionEvent[], text: string): boolean {
     && event.data.content.some(block => block.type === 'text' && block.text === text))
 }
 
-/** Every caller-supplied user-role message text in log order, for FIFO assertions (framework runtime-context snapshots excluded). */
+/** Caller-supplied user message texts in log order (runtime-context snapshots excluded). */
 function userTexts(events: readonly SessionEvent[]): string[] {
   return events.flatMap(event => event.type === 'user/message' && event.data.source.kind !== 'plugin'
     ? event.data.content.flatMap(block => block.type === 'text' ? [block.text] : [])
