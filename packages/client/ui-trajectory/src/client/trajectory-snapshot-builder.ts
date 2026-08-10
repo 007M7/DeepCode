@@ -46,6 +46,7 @@ function headerFor(
 function applyHeader(
   request: Extract<RequestView, { purpose: 'assistant' }>,
   header: TrajectoryRequestHeaderState | undefined,
+  includeChange: boolean,
 ): Extract<RequestView, { purpose: 'assistant' }> {
   return header === undefined
     ? request
@@ -53,7 +54,7 @@ function applyHeader(
       ...request,
       prompt: header.prompt,
       requestConfig: header.prompt.config,
-      ...(header.change === undefined ? {} : { promptChange: header.change }),
+      ...(includeChange && header.change !== undefined ? { promptChange: header.change } : {}),
     }
 }
 
@@ -150,6 +151,7 @@ export class TrajectorySnapshotBuilder implements ConversationViewBuilder<
     const boundaries: { seq: number; time: number }[] = []
     const turnEndings: { turn: number; time: number; error?: string }[] = []
     const callSchemas = new Map<string, ConversationPromptSnapshot['tools'][number]>()
+    const consumedPromptChanges = new Set<number>()
     let partial: TrajectorySnapshot['partial'] = null
     const runningCalls: TrajectorySnapshot['runningCalls'][number][] = []
 
@@ -163,7 +165,12 @@ export class TrajectorySnapshotBuilder implements ConversationViewBuilder<
         const header = data.request === undefined ? undefined : headerFor(data.request, headers)
         if (data.node !== undefined) finalized.push(withRequestConfig(data.node, header?.prompt))
         if (data.partial !== null) partial = data.partial
-        if (data.request !== undefined) requests.push(applyHeader(data.request, header))
+        if (data.request !== undefined) {
+          const includeChange = header?.change !== undefined
+            && !consumedPromptChanges.has(header.seq)
+          requests.push(applyHeader(data.request, header, includeChange))
+          if (includeChange) consumedPromptChanges.add(header.seq)
+        }
         continue
       }
       if (data.kind === 'tool') {
