@@ -356,6 +356,21 @@ describe('settings domain', () => {
     expect(frames).toEqual([{ type: 'host/settings-changed', ns: 'ui-onboarding' }])
   })
 
+  it('serves the agent-preset namespace, so a browser preset picker can persist its choice', async () => {
+    const ctx = await harness()
+    ctx.settings.register(settingsNamespace('agent-presets'), z.object({ default: z.string() }))
+    const api = createApiProxy(ctx, DEFAULTS)
+
+    expectOk(await api.settings.update(request({ ns: 'agent-presets', patch: { default: 'minimal' } })))
+
+    // Both browser surfaces that offer the choice — the General row and the
+    // management section — write the default through `settings.update`, so a
+    // namespace outside this boundary makes the picker move and then silently
+    // forget, which is worse than refusing the control.
+    expect(ctx.settings.describe().find(view => String(view.ns) === 'agent-presets')?.value)
+      .toEqual({ default: 'minimal' })
+  })
+
   it('refuses even a model-provider namespace once its directory entry is gone', async () => {
     const ctx = await harness({ configurableProviders: false })
     ctx.settings.register(NS, AdapterConfig)
