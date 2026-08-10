@@ -10,7 +10,7 @@ Status: implemented
 
 ## 决策
 
-捕获／追加这对函数从一次性驱动器移入该 seam 的共享子 agent 模块（`dsh-subagent/src/child-agent.ts`），即声明的共享子级组合唯一归属之处：`captureDelegatedPolicyOverrides(parent)` 通过可选的 `ctx.get` 对 `sandboxPolicy.overrideOf(parent.session)` 与 `approval.overrideOf(parent.session)` 建立快照，`appendDelegatedPolicyOverrides(childSession, overrides)` 则追加 `source: 'delegation'` 事件。一次性驱动器与继续执行管理器都调用它们，因此两条路径不会出现偏差。
+捕获／追加这对函数从一次性驱动器移入该 seam 的共享子 agent 模块（`dsh-subagent/src/child-agent.ts`），即声明的共享子级组合唯一归属之处：`captureDelegatedPolicyOverrides(parent)` 通过可选的 `ctx.get` 对 `sandboxPolicy.overrideOf(parent.session)` 建立快照，并把子级审批策略钉定为 `'never'`（[审批钉定决策](2026-08-10-subagent-approval-pinned-never.md)），`appendDelegatedPolicyOverrides(childSession, overrides)` 则追加 `source: 'delegation'` 事件。一次性驱动器与继续执行管理器都调用它们，因此两条路径不会出现偏差。
 
 `startContinuable` 在其第一次 await（`prepareContinuable`）之前完成捕获，沿用与一次性路径相同的「父级后续切换属于父级的未来」边界。快照放在 `MaterializeInputs.create` 中传递，因此只有全新物化会在未发布的设置阶段、排在任何 fork 种子之后追加这些事件。冷恢复（cold resume）不传入 `create` 输入，也不追加任何内容：持久化的子日志已经携带委派事件，而回放该日志本身就是状态。子 agent 的生效策略由持久化子日志拥有，而不是当前 Activation，也不是发起恢复的父级，因此父级在驻留纪元（residency epoch）之间的切换绝不会追溯性地改变一个持久化子 agent。
 
@@ -23,7 +23,7 @@ Status: implemented
 
 ## 后果
 
-- 默认组合包的后台委派（`backgroundMode: continuable`）现在会继承父级显式的沙箱与审批覆盖项；未组合任一策略服务的组合保持原有行为。
+- 默认组合包的后台委派（`backgroundMode: continuable`）现在会继承父级显式的沙箱覆盖项，并把子级钉定为 `'never'` 审批；未组合任一策略服务的组合保持原有行为。
 - `dsh-subagent` 新增针对 `dsh-sandbox-policy` 与 `dsh-user-approval` 的可选 peer 类型（即一次性驱动器所用的 `ctx.get` 模式）；`dsh-subagent-inprocess` 完全移除自己的策略服务 peer 与类型导入，委托给共享辅助函数。
 - 可继续测试套件（`packages/subagent/subagent/tests/continuation-inheritance.spec.ts`）锁定全新启动的种子写入、await 前捕获、默认值省略、冷恢复快照稳定性与 fork 种子优先级；ACP 快照场景 `subagent-continuable-inheritance` 经组装后的应用锁定子级的委派事件与只读运行时上下文，移除捕获时即失败。
 - 进程外提供方（`acp`、`dsh-sdk`、`claude-code`、`codex`）不支持可继续子 agent（没有 `prepareContinuable`），其一次性子 agent 保留自身的部署策略（`inheritsParentContext = false`）；跨进程策略传播仍不在范围内。

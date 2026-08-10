@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-10-subagent-approval-pinned-never.md
+2026-08-10-subagent-approval-pinned-never.md: 578dbe58cd4e0a3c97552e20f27a2818ee9c9f40
+2026-08-10-subagent-approval-pinned-never.zh.md: 45bc461505b07a4c10e063a122e8003f52afd259

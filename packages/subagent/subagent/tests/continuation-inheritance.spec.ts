@@ -1,9 +1,9 @@
 /**
- * Continuable-child policy inheritance: a fresh continuable start seeds the
- * parent's explicit sandbox/approval overrides onto the child's own log as
- * `source: 'delegation'` events, and a cold resume replays that persisted
- * snapshot instead of re-capturing the parent (the one-shot
- * `subagent-inprocess/tests/inheritance.spec.ts` counterpart).
+ * Continuable-child delegation policy: a fresh continuable start seeds the
+ * parent's explicit sandbox override and the pinned `approval/policy: never`
+ * onto the child's own log as `source: 'delegation'` events, and a cold
+ * resume replays that persisted snapshot instead of re-capturing the parent
+ * (the one-shot `subagent-inprocess/tests/inheritance.spec.ts` counterpart).
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -21,7 +21,7 @@ import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import * as SubagentFork from '@deepseek-ai/dsh-subagent-fork'
 import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn'
-import ApprovalService, { effectiveApprovalPolicy, setApprovalPolicy } from '@deepseek-ai/dsh-user-approval'
+import ApprovalService, { effectiveApprovalPolicy } from '@deepseek-ai/dsh-user-approval'
 import { MockAdapter, textResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 import SubagentService from '../src/index.ts'
 
@@ -71,10 +71,12 @@ function policyEvents(events: readonly SessionEvent[]) {
 }
 
 describe('continuable policy inheritance', () => {
-  it('seeds parent overrides into a fresh continuable child', async () => {
+  it('seeds the parent sandbox override and pins approval to never', async () => {
     const { ctx, parent } = await setup([textResponse('child done')])
     setSandboxMode(parent.session, 'danger-full-access')
-    setApprovalPolicy(parent.session, 'never')
+    // The parent keeps the interactive deployment default: the child pin must
+    // not depend on any parent approval override.
+    expect(ctx.approval.overrideOf(parent.session)).toBeUndefined()
     let child: Agent | undefined
     ctx.on('agent/created', ({ agent }) => {
       if (agent !== parent) child = agent
@@ -93,9 +95,20 @@ describe('continuable policy inheritance', () => {
       { type: 'sandbox/mode', data: { mode: 'danger-full-access', source: 'delegation' } },
       { type: 'approval/policy', data: { policy: 'never', source: 'delegation' } },
     ])
-    // Durable: a reload folds the same effective policy.
+    // Durable: a reload folds the same effective policy; the parent keeps its own.
     expect(effectiveSandboxMode(loaded.events)).toBe('danger-full-access')
     expect(effectiveApprovalPolicy(loaded.events)).toBe('never')
+    expect(ctx.approval.overrideOf(parent.session)).toBeUndefined()
+    // The child's runtime-context snapshot states the fixed delegation scope.
+    const runtimeContext = loaded.events.find(
+      (event): event is SessionEvent<'user/message'> => event.type === 'user/message'
+        && event.data.source.kind === 'plugin'
+        && event.data.source.plugin === '@deepseek-ai/dsh-system-prompt',
+    )
+    const contextText = runtimeContext?.data.content
+      .flatMap(block => block.type === 'text' ? [block.text] : [])
+      .join('\n')
+    expect(contextText).toContain('You are a delegated subagent')
   })
 
   it('captures policy at delegation before asynchronous child creation', async () => {
@@ -114,17 +127,20 @@ describe('continuable policy inheritance', () => {
     expect(effectiveSandboxMode(loaded.events)).toBe('read-only')
   })
 
-  it('does not freeze deployment defaults into an unswitched child', async () => {
+  it('leaves an unswitched sandbox on the deployment default while still pinning approval', async () => {
     const { ctx, parent } = await setup([textResponse('child done')])
 
     const started = await ctx.subagents.startContinuable(startSpec(parent))
     await waitNoActivation(ctx, started.childId)
 
     const loaded = await ctx.sessionPersistence.load(started.childId)
-    expect(policyEvents(loaded.events)).toEqual([])
+    expect(policyEvents(loaded.events)).toMatchObject([
+      { type: 'approval/policy', data: { policy: 'never', source: 'delegation' } },
+    ])
+    expect(effectiveSandboxMode(loaded.events)).toBeUndefined()
   })
 
-  it('does not freeze deployment defaults into an unswitched fork child either', async () => {
+  it('pins approval after the fork prefix of an unswitched fork child', async () => {
     const { ctx, parent } = await setup([textResponse('parent turn'), textResponse('forked child')])
     parent.followup(createUserMessage({
       content: [{ type: 'text', text: 'parent work' }],
@@ -137,7 +153,10 @@ describe('continuable policy inheritance', () => {
 
     const loaded = await ctx.sessionPersistence.load(started.childId)
     expect(loaded.meta.seedLength).toBeGreaterThan(0)
-    expect(policyEvents(loaded.events)).toEqual([])
+    expect(policyEvents(loaded.events)).toMatchObject([
+      { type: 'approval/policy', data: { policy: 'never', source: 'delegation' } },
+    ])
+    expect(effectiveSandboxMode(loaded.events)).toBeUndefined()
   })
 
   it('lets a later child-side switch win over the delegation snapshot', async () => {
@@ -180,6 +199,10 @@ describe('continuable policy inheritance', () => {
       { data: { mode: 'read-only', source: 'delegation' } },
     ])
     expect(effectiveSandboxMode(loaded.events)).toBe('read-only')
+    // The approval pin is seeded once at creation, never re-appended on resume.
+    expect(loaded.events.filter(event => event.type === 'approval/policy')).toMatchObject([
+      { data: { policy: 'never', source: 'delegation' } },
+    ])
   })
 
   it('places inherited events after a fork prefix so fresh policy wins stale seed state', async () => {

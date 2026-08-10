@@ -1,9 +1,9 @@
 /**
  * Shared in-process child composition: the delegation-depth budget, the
  * durable session metadata, the resolved child `AgentOptions`, the delegated
- * policy snapshot, and the scoped setup a child agent needs. Both the one-shot
+ * policy seed, and the scoped setup a child agent needs. Both the one-shot
  * provider driver and the continuation manager compose children this way, so
- * depth accounting, lineage stamping, and policy inheritance have one home.
+ * depth accounting, lineage stamping, and delegation policy have one home.
  *
  * @module @deepseek-ai/dsh-subagent/child-agent
  */
@@ -13,12 +13,10 @@ import type { Agent, AgentOptions, CreateAgentOptions } from '@deepseek-ai/dsh-a
 import type { SandboxMode } from '@deepseek-ai/dsh-sandbox'
 import type { Session, SessionId } from '@deepseek-ai/dsh-session'
 import type { ToolRestriction } from '@deepseek-ai/dsh-tools'
-import type { ApprovalPolicy } from '@deepseek-ai/dsh-user-approval'
 // Type-only: make `ctx.get('sandboxPolicy')` / `ctx.get('approval')` resolve
 // to the policy services when composed — delegation consumes both
-// opportunistically (the documented `ctx.get` pattern), never as a hard dep.
-// The user-approval side stays an explicit empty import so its augmentation
-// does not ride the `ApprovalPolicy` import above.
+// opportunistically (the documented `ctx.get` pattern), never as a hard dep —
+// and merge the `sandbox/mode` / `approval/policy` session-event payloads.
 import type {} from '@deepseek-ai/dsh-sandbox-policy'
 import type {} from '@deepseek-ai/dsh-user-approval'
 import { delegationDepthOf } from './depth.ts'
@@ -115,51 +113,80 @@ export interface ChildComposition {
 }
 
 /**
- * Apply one child's scoped composition inside its creation window: a shadowing
- * persona section and a tool restriction, both owned by the child's scope and
- * therefore invisible to its parent and siblings.
+ * Model-facing statement every in-process child receives: the permission
+ * scope is fixed at delegation and approval prompts are unavailable, so the
+ * child reports a scope limitation instead of retrying denied operations.
+ * A runtime-context contribution (not a system-prompt section) because it is
+ * a per-session fact: the deployment's system prompt stays uniform across
+ * parents and children, and the statement joins the same durable snapshot
+ * that carries the sandbox-policy and approval-policy sentences.
+ */
+export const SUBAGENT_DELEGATION_CONTEXT
+  = 'You are a delegated subagent: your permission scope was fixed when you were started and cannot be '
+    + 'widened from inside this session — operations that require approval are rejected automatically. '
+    + 'When the task needs access beyond that scope, do not retry the denied operation; state the '
+    + 'limitation in your reply so the delegating agent can handle it.'
+
+/**
+ * Apply one child's scoped composition inside its creation window: the fixed
+ * delegation-scope statement, a shadowing persona section, and a tool
+ * restriction, all owned by the child's scope and therefore invisible to its
+ * parent and siblings. Both creation and cold resume pass through here, so a
+ * resumed child keeps the same statement.
  * @param childCtx - the child agent's scoped creation context.
  * @param composition - the persona and tool filter to install.
  */
 export function applyChildComposition(childCtx: Context, composition: ChildComposition): void {
+  // After sandbox:policy (110) and approval:policy (115): scope, then policy,
+  // then what a delegated child does about a denial.
+  childCtx.systemPrompt.context({ name: 'subagent:delegation', order: 120, text: SUBAGENT_DELEGATION_CONTEXT })
   if (composition.persona !== undefined) {
     childCtx.systemPrompt.section({ name: 'deployment:persona', order: 0, text: composition.persona })
   }
   if (composition.toolFilter !== undefined) childCtx.tools.restrict(composition.toolFilter)
 }
 
-/** Parent-session policy overrides captured at the delegation boundary. */
+/** Policy seeded onto a child session's log at the delegation boundary. */
 export interface DelegatedPolicyOverrides {
   /** The parent session's explicit sandbox-mode override, or `undefined` without one. */
   readonly sandboxMode: SandboxMode | undefined
-  /** The parent session's explicit approval-policy override, or `undefined` without one. */
-  readonly approvalPolicy: ApprovalPolicy | undefined
+  /**
+   * The child's pinned approval policy, or `undefined` when no approval
+   * capability is composed. Always `'never'` with one composed: a delegated
+   * child acts only within the sandbox scope fixed at delegation, so the
+   * composed `ApprovalService` rejects every child ask deterministically
+   * instead of waiting on a prompt no one is watching.
+   */
+  readonly approvalPolicy: 'never' | undefined
 }
 
 /**
- * Capture the parent session's explicit policy overrides for one delegation.
- * Call synchronously before the child start's first await: a later parent
- * switch belongs to the parent's future, not to this child. Deployment
- * defaults and one-shot grants are never captured, so an unswitched parent
- * leaves the child following the deployment default dynamically.
+ * Capture the policy to seed into one delegation. Call synchronously before
+ * the child start's first await: a later parent switch belongs to the
+ * parent's future, not to this child. The sandbox scope is the parent
+ * session's explicit override — deployment defaults and one-shot grants are
+ * never captured, so an unswitched parent leaves the child following the
+ * deployment default dynamically. The approval policy is never inherited: it
+ * is pinned to `'never'` whenever the approval capability is composed,
+ * regardless of the parent's own policy.
  * @param parent - the delegating parent agent.
- * @returns the overrides to seed into the child, each `undefined` without one.
+ * @returns the sandbox override (or `undefined` without one) and the approval pin.
  */
 export function captureDelegatedPolicyOverrides(parent: Agent): DelegatedPolicyOverrides {
   return {
     sandboxMode: parent.ctx.get('sandboxPolicy')?.overrideOf(parent.session),
-    approvalPolicy: parent.ctx.get('approval')?.overrideOf(parent.session),
+    approvalPolicy: parent.ctx.get('approval') === undefined ? undefined : 'never',
   }
 }
 
 /**
- * Append captured parent overrides onto the child's own log as
+ * Append the captured delegation policy onto the child's own log as
  * `source: 'delegation'` events inside the unpublished creation window, so the
  * child's effective policy is reconstructable from its log alone. Appends land
  * after any fork seed, so fresh policy wins stale seed state; later child
  * switches still win over these events.
  * @param childSession - the unpublished child's session.
- * @param overrides - the overrides captured at delegation.
+ * @param overrides - the policy captured at delegation.
  */
 export function appendDelegatedPolicyOverrides(
   childSession: Session,

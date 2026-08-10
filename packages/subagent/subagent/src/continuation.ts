@@ -214,8 +214,8 @@ interface MaterializeInputs {
   create?: {
     seed: readonly SessionEvent[]
     meta: NonNullable<CreateAgentOptions['meta']>
-    /** Parent policy overrides captured at the delegation boundary. */
-    inheritedPolicies: DelegatedPolicyOverrides
+    /** Policy captured at the delegation boundary: the parent's sandbox override plus the approval pin. */
+    delegatedPolicies: DelegatedPolicyOverrides
   }
   agentOptions: AgentOptions
   composition: { persona?: string | undefined; toolFilter?: ToolRestriction | undefined }
@@ -355,7 +355,7 @@ export class SubagentContinuationManager {
     })
     // Capture before the first await: a later parent switch belongs to the
     // parent's future, not to this child.
-    const inheritedPolicies = captureDelegatedPolicyOverrides(parent)
+    const delegatedPolicies = captureDelegatedPolicyOverrides(parent)
 
     const prepared = await this.host.prepareContinuable(spec.provider, {
       sessionId: childId,
@@ -372,7 +372,7 @@ export class SubagentContinuationManager {
         childId,
         provider: spec.provider,
         parent,
-        create: { seed, meta: childSessionMeta(parent, childDepth, lineageSeedLength), inheritedPolicies },
+        create: { seed, meta: childSessionMeta(parent, childDepth, lineageSeedLength), delegatedPolicies },
         agentOptions: resolveChildAgentOptions(parent, request.agentOptions, childDepth),
         composition: { persona: request.persona, toolFilter: request.toolFilter },
         signal: spec.signal,
@@ -900,11 +900,11 @@ export class SubagentContinuationManager {
     // some other owner holds — a duplicate would reject there with rollback.
     inputs.signal.throwIfAborted()
     const setup = (childCtx: Context): AgentSetupCommit => {
-      // Only fresh creation seeds captured parent policy onto the child's own
+      // Only fresh creation seeds the delegation policy onto the child's own
       // log (after any fork seed, so fresh policy wins stale seed state); a
       // cold resume replays those persisted events instead.
       if (create !== undefined) {
-        appendDelegatedPolicyOverrides((childCtx.agent as Agent).session, create.inheritedPolicies)
+        appendDelegatedPolicyOverrides((childCtx.agent as Agent).session, create.delegatedPolicies)
       }
       applyChildComposition(childCtx, inputs.composition)
       return this.setupRegistry.apply(childCtx)

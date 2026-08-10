@@ -10,7 +10,7 @@ The one-shot in-process driver has seeded parent sandbox/approval overrides into
 
 ## Decision
 
-The capture/append pair moved from the one-shot driver into the seam's shared child-agent module (`dsh-subagent/src/child-agent.ts`), the declared one home for shared child composition: `captureDelegatedPolicyOverrides(parent)` snapshots `sandboxPolicy.overrideOf(parent.session)` and `approval.overrideOf(parent.session)` through optional `ctx.get`, and `appendDelegatedPolicyOverrides(childSession, overrides)` appends the `source: 'delegation'` events. The one-shot driver and the continuation manager both call them, so the two paths cannot drift.
+The capture/append pair moved from the one-shot driver into the seam's shared child-agent module (`dsh-subagent/src/child-agent.ts`), the declared one home for shared child composition: `captureDelegatedPolicyOverrides(parent)` snapshots `sandboxPolicy.overrideOf(parent.session)` through optional `ctx.get` and pins the child approval policy to `'never'` ([approvals-pinned decision](2026-08-10-subagent-approval-pinned-never.md)), and `appendDelegatedPolicyOverrides(childSession, overrides)` appends the `source: 'delegation'` events. The one-shot driver and the continuation manager both call them, so the two paths cannot drift.
 
 `startContinuable` captures before its first await (`prepareContinuable`), the same "a later parent switch belongs to the parent's future" boundary as one-shot. The snapshot travels in `MaterializeInputs.create`, so only fresh materialization appends the events during unpublished setup, after any fork seed. A cold resume passes no `create` inputs and appends nothing: the persisted child log already carries the delegation events, and replaying the log IS the state. The durable child log — not the current Activation, not the resuming parent — owns the child's effective policy, so a parent switch between residency epochs never retroactively changes a durable child.
 
@@ -23,7 +23,7 @@ The capture/append pair moved from the one-shot driver into the seam's shared ch
 
 ## Consequences
 
-- Default-bundle background delegation (`backgroundMode: continuable`) now inherits a parent's explicit sandbox and approval overrides; compositions without either policy service behave unchanged.
+- Default-bundle background delegation (`backgroundMode: continuable`) now inherits a parent's explicit sandbox override and pins the child to `'never'` approvals; compositions without either policy service behave unchanged.
 - `dsh-subagent` gains optional peer types on `dsh-sandbox-policy` and `dsh-user-approval` (the `ctx.get` pattern the one-shot driver used); `dsh-subagent-inprocess` drops its policy-service peers and type imports entirely and delegates to the shared helpers.
 - The continuable suite (`packages/subagent/subagent/tests/continuation-inheritance.spec.ts`) pins fresh-start seeding, pre-await capture, default omission, cold-resume snapshot stability, and fork-seed precedence; the ACP snapshot scenario `subagent-continuable-inheritance` pins the child's delegation event and read-only runtime context through the assembled app and fails when the capture is removed.
 - Out-of-process providers (`acp`, `dsh-sdk`, `claude-code`, `codex`) support no continuable children (`prepareContinuable` absent), and their one-shot children keep their own deployment policy (`inheritsParentContext = false`); cross-process policy propagation remains out of scope.

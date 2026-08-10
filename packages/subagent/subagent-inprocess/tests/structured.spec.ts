@@ -247,10 +247,11 @@ describe('in-process structured output', () => {
     const result = await run.result
     expect(result.stopReason).toBe('error')
     expect(result.structured).toBeUndefined()
-    // Exactly one model request and one user message: no nudge turn exists.
+    // Exactly one model request and one caller-supplied user message (the
+    // delegation runtime-context snapshot aside): no nudge turn exists.
     expect(adapter.requests.length).toBe(1)
     const child = ctx.agents.get(run.id)!
-    expect(child.session.events.filter(e => e.type === 'user/message').length).toBe(1)
+    expect(child.session.events.filter(e => e.type === 'user/message' && e.data.source.kind !== 'plugin').length).toBe(1)
     await run.dispose()
   })
 
