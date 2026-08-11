@@ -264,9 +264,13 @@ describe('createFixtureApi', () => {
     await consuming
     if (!created.result.ok) throw new Error('create failed')
     const createdId = created.result.value.sessionId
-    expect(seen).toEqual([{
-      type: 'host/session-added', sessionId: createdId, createdAt: expect.any(Number), blank: true, cwd: '/tmp/fixture',
-    }])
+    expect(seen).toHaveLength(1)
+    const added = seen[0]
+    if (added?.type !== 'host/session-added') throw new Error('session-added frame missing')
+    expect(Number.isFinite(added.createdAt)).toBe(true)
+    expect(added).toEqual({
+      type: 'host/session-added', sessionId: createdId, createdAt: added.createdAt, blank: true, cwd: '/tmp/fixture',
+    })
     const list = await api.sessions.list(req({}))
     if (!list.result.ok) throw new Error('list failed')
     expect(list.result.value.items.some(s => s.sessionId === createdId)).toBe(true)
@@ -701,8 +705,11 @@ describe('createFixtureApi', () => {
     await consuming
     // The session lands with the workspace's path as cwd, and the account
     // write pushes the fresh workspace snapshot after session-added.
-    expect(seen[0]).toEqual({
-      type: 'host/session-added', sessionId: id, createdAt: expect.any(Number), blank: true, cwd: '/tmp/fixture',
+    const added = seen[0]
+    if (added?.type !== 'host/session-added') throw new Error('session-added frame missing')
+    expect(Number.isFinite(added.createdAt)).toBe(true)
+    expect(added).toEqual({
+      type: 'host/session-added', sessionId: id, createdAt: added.createdAt, blank: true, cwd: '/tmp/fixture',
     })
     expect(seen[1]).toMatchObject({
       type: 'host/workspace-changed',
@@ -732,8 +739,11 @@ describe('createFixtureApi', () => {
     expect(frames[0]).toMatchObject({
       type: 'host/workspace-changed', workspace: { sessionIds: [preallocated] },
     })
-    expect(frames[1]).toEqual({
-      type: 'host/session-added', sessionId: preallocated, createdAt: expect.any(Number), blank: true,
+    const added = frames[1]
+    if (added?.type !== 'host/session-added') throw new Error('session-added frame missing')
+    expect(Number.isFinite(added.createdAt)).toBe(true)
+    expect(added).toEqual({
+      type: 'host/session-added', sessionId: preallocated, createdAt: added.createdAt, blank: true,
       cwd: made.result.value.workspace.path,
     })
 
