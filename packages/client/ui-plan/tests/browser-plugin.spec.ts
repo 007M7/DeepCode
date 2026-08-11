@@ -25,16 +25,18 @@ async function bench() {
     name: 'root',
     children: { 'conversation.input.plan': { kind: 'single', scope: 'session' } },
   } as never, () => null)
-  const execute = vi.fn((_payload: { sessionId: SessionId; line: string }) =>
-    Promise.resolve({ result: { ok: true as const, value: { matched: true as const, commandId: 'c1' } } }))
-  ctx.provide('connection', { api: { commands: { execute } } })
+  const execute = vi.fn((_sessionId: SessionId, _line: string) =>
+    Promise.resolve({ commandId: 'c1', result: { kind: 'success' as const } }))
+  const commandsRemote = { execute }
+  ctx.provide('remote', { commands: commandsRemote })
+  ctx.provide('remote.commands', commandsRemote)
   ctx.provide('locale', new LocaleService(ctx))
   return { ctx, slots, execute }
 }
 
 describe('ui-plan browser apply', () => {
   it('declares every service it binds', () => {
-    expect(inject).toEqual(['slots', 'connection', 'locale'])
+    expect(inject).toEqual(['slots', 'remote', 'remote.commands', 'locale'])
   })
 
   it('node-half apply is an intentional no-op', () => {
@@ -44,7 +46,8 @@ describe('ui-plan browser apply', () => {
   it('waits until conversation declares the plan seat', async () => {
     const ctx = new Context()
     await ctx.plugin(SlotsService).await()
-    ctx.provide('connection', {})
+    ctx.provide('remote', { commands: {} })
+    ctx.provide('remote.commands', {})
     ctx.provide('locale', new LocaleService(ctx))
     const fiber = ctx.plugin({ inject: [...inject], apply })
     await fiber.await()
@@ -65,18 +68,17 @@ describe('ui-plan browser apply', () => {
     const injected = (entry.inject as unknown as (id: SessionId) => PlanChipInjected)(SID)
 
     await expect(injected.exitPlanMode()).resolves.toBeNull()
-    expect(b.execute).toHaveBeenLastCalledWith({ sessionId: SID, line: '/plan off' })
+    expect(b.execute).toHaveBeenLastCalledWith(SID, '/plan off')
 
-    // Business failure folds to the composer-visible line.
-    b.execute.mockResolvedValueOnce({
-      result: { ok: false as const, error: { code: 'session-not-found', message: 'gone', details: {} } },
-    } as never)
+    // Business failure folds to the composer-visible line: the generated method
+    // throws with the RPC failure as its cause.
+    b.execute.mockRejectedValueOnce(new Error('client api: commands/execute failed', {
+      cause: { code: 'session-not-found', message: 'gone', details: {} },
+    }))
     await expect(injected.exitPlanMode()).resolves.toBe('gone (session-not-found)')
 
     // Unmatched admission (plan-mode not composed host-side) is also a failure line.
-    b.execute.mockResolvedValueOnce({
-      result: { ok: true as const, value: { matched: false as const } },
-    } as never)
+    b.execute.mockResolvedValueOnce(undefined as never)
     await expect(injected.exitPlanMode()).resolves.toBe('unknown command: /plan off')
 
     await fiber.dispose()

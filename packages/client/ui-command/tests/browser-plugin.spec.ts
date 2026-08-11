@@ -14,7 +14,6 @@ import type { SlashSource } from '@deepseek-ai/dsh-client-ui-slash/client'
 import type { CommandServiceContract } from '../src/client/contract.ts'
 import type { PopupSelectInjected } from '../src/client/PopupSelectView.tsx'
 import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
-import { TestRemote } from '@deepseek-ai/dsh-client-test-runtime'
 import { apply, CommandService, inject } from '../src/client/index.ts'
 
 const sid = (k: string): SessionId => k as SessionId
@@ -33,14 +32,14 @@ async function bench() {
     scope: (id: SessionId) => scopes.get(id),
     scopeOf: (c: Context) => scopeOf(c),
   })
-  ctx.provide('connection', { api: { commands: { list: () => Promise.resolve({ result: { ok: true, value: { commands: [] } } }) } } })
+  const commandsRemote = { list: () => Promise.resolve([]) }
+  ctx.provide('remote', { commands: commandsRemote })
+  ctx.provide('remote.commands', commandsRemote)
   await ctx.plugin(SlotsService).await()
   ctx.slots.register({
     name: 'root', children: { 'conversation.input.overlay': { kind: 'list', scope: 'session' } },
   } as never, (() => null) as never)
   ctx.provide('locale', new LocaleService(ctx))
-  // CommandService injects `remote` for the forwarded directory invalidation.
-  new TestRemote(ctx)
   const fiber = ctx.plugin({ inject: [...inject], apply })
   await fiber.await()
   const mint = (key: string) => {
@@ -53,7 +52,7 @@ async function bench() {
 
 describe('apply', () => {
   it('declares the services it binds', () => {
-    expect(inject).toEqual(['slash', 'sessions', 'connection', 'locale', 'remote'])
+    expect(inject).toEqual(['slash', 'sessions', 'remote', 'remote.commands', 'locale'])
   })
 
   it('mounts ctx.command, registers the source and the overlay entry, and folds up on disposal', async () => {

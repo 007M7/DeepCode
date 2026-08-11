@@ -8,11 +8,11 @@
  * list rows' title projection).
  */
 import { describe, expect, it } from 'vitest'
-import type { SessionId } from '@deepseek-ai/dsh-client-connection/client'
+import type { SessionId } from '@deepseek-ai/dsh-api-remotes/client'
 import { ProjectionValueStore } from '../src/client/sessions/projection-store.ts'
 import { Session } from '../src/client/sessions/session.ts'
 import { SessionManager } from '../src/client/sessions/manager.ts'
-import { FakeApiClient, ok } from './fake-api.ts'
+import { FakeApiClient, fakeRemote, ok } from './fake-api.ts'
 import { entries, plainTurn } from './event-script.ts'
 
 // Test-domain keys merged into the projection map (the Service Definition package's
@@ -103,7 +103,7 @@ describe('ProjectionValueStore semantics', () => {
 describe('Session tail-page seeding', () => {
   it('seeds the store from a history response carrying a projections block', async () => {
     const api = new FakeApiClient()
-    const session = new Session(SID, api)
+    const session = new Session(SID, api, fakeRemote())
     api.onHistory = () => Promise.resolve(ok({
       events: entries(plainTurn(0, 0, '问', '答')) as never[], hasMore: false,
       projections: { asOfSeq: 5, values: { 'test/marks': { marks: ['from-baseline'] } } },
@@ -114,7 +114,7 @@ describe('Session tail-page seeding', () => {
 
   it('a resync serving a stale block keeps the newer pushed value (seq rule end to end)', async () => {
     const api = new FakeApiClient()
-    const session = new Session(SID, api)
+    const session = new Session(SID, api, fakeRemote())
     api.onHistory = () => Promise.resolve(ok({
       events: entries(plainTurn(0, 0, 'a', 'b')) as never[], hasMore: false,
       projections: { asOfSeq: 5, values: { 'test/marks': { marks: ['baseline'] } } },
@@ -127,7 +127,7 @@ describe('Session tail-page seeding', () => {
 
   it('treats a blockless response as no reset: pushed values survive', async () => {
     const api = new FakeApiClient()
-    const session = new Session(SID, api)
+    const session = new Session(SID, api, fakeRemote())
     api.onHistory = () => Promise.resolve(ok({ events: entries(plainTurn(0, 0, 'a', 'b')) as never[], hasMore: false }))
     await session.open()
     session.projections.apply('test/marks', { marks: ['pushed'] }, 9)
@@ -141,7 +141,7 @@ describe('manager frame routing', () => {
 
   it('lands session/projection frames before instantiation and the Session adopts the same store', async () => {
     const api = new FakeApiClient()
-    const manager = new SessionManager(api)
+    const manager = new SessionManager(api, fakeRemote())
     manager.handleMuxEnvelope({
       rpcId: 'p1' as never,
       payload: { type: 'session/projection', sessionId: sid('s1'), key: 'test/marks', value: { marks: ['early'] }, seq: 7 } as never,
@@ -158,7 +158,7 @@ describe('manager frame routing', () => {
 
   it('projects the title key into list rows and truncates phantom rows on the subscribed baseline', async () => {
     const api = new FakeApiClient()
-    const manager = new SessionManager(api)
+    const manager = new SessionManager(api, fakeRemote())
     api.onList = () => Promise.resolve(ok({
       items: [{ sessionId: sid('s1'), updatedAt: 1, running: false, blank: false }],
     }) as never)
@@ -181,7 +181,7 @@ describe('manager frame routing', () => {
 
   it('projects every retained value into list rows with stable snapshot identity', async () => {
     const api = new FakeApiClient()
-    const manager = new SessionManager(api)
+    const manager = new SessionManager(api, fakeRemote())
     api.onList = () => Promise.resolve(ok({
       items: [{
         sessionId: sid('s1'), updatedAt: 1, running: false, blank: false,
@@ -211,7 +211,7 @@ describe('manager frame routing', () => {
 
   it('drops the projection store with the removed session', async () => {
     const api = new FakeApiClient()
-    const manager = new SessionManager(api)
+    const manager = new SessionManager(api, fakeRemote())
     api.onList = () => Promise.resolve(ok({
       items: [{ sessionId: sid('s1'), updatedAt: 1, running: false, blank: false }],
     }) as never)

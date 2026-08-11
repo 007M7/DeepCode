@@ -9,7 +9,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import type {} from '@deepseek-ai/dsh-commands/types'
-import type { SessionId } from '@deepseek-ai/dsh-client-connection/client'
+import type { SessionId } from '@deepseek-ai/dsh-api-remotes/client'
 import { Session } from '../src/client/sessions/session.ts'
 import type {
   ChatConversationViewNode, ChatLocationNodeIndex, ChatNodeStore, ChatSnapshot,
@@ -17,7 +17,7 @@ import type {
   ConversationRuntime, ConversationSnapshot, ConversationTimelineSnapshot,
   ConversationViewDefinition,
 } from '../src/client/index.ts'
-import { FakeApiClient, deferred, err, ok } from './fake-api.ts'
+import { FakeApiClient, deferred, err, fakeRemote, ok } from './fake-api.ts'
 import { entries, ev, plainTurn } from './event-script.ts'
 
 const SID = 'fk-s1' as SessionId
@@ -159,7 +159,7 @@ const TEST_CONVERSATION: ConversationRuntime = {
 }
 
 function makeSession(api = new FakeApiClient()): { api: FakeApiClient; session: Session } {
-  return { api, session: new Session(SID, api, { conversation: TEST_CONVERSATION }) }
+  return { api, session: new Session(SID, api, fakeRemote(), { conversation: TEST_CONVERSATION }) }
 }
 
 function chatEvents(snapshot: ConversationSnapshot): readonly TestEventState[] {
@@ -343,7 +343,7 @@ describe('live event path', () => {
         entries: () => [testViewDefinition()],
       } as unknown as ConversationRuntime['views'],
     }
-    const session = new Session(SID, api, { conversation })
+    const session = new Session(SID, api, fakeRemote(), { conversation })
     await session.open()
     const snapshots: ConversationSnapshot[] = []
     session.subscribe(() => { snapshots.push(session.getSnapshot()) })
@@ -448,7 +448,7 @@ describe('paging', () => {
 describe('prompt and cancel errors', () => {
   it('routes an addressed child through non-activating history, continuation prompt, and interrupt only', async () => {
     const api = new FakeApiClient()
-    const session = new Session(SID, api, {
+    const session = new Session(SID, api, fakeRemote(), {
       address: { parentSessionId: PARENT, childSessionId: SID, mode: 'continuable' },
       parentAvailable: true,
     })
@@ -487,7 +487,7 @@ describe('prompt and cancel errors', () => {
     api.onSubagentInterrupt = () => Promise.resolve(err({
       code: 'subagent-unauthorized', message: 'nope', details: { childSessionId: SID },
     }) as never)
-    const session = new Session(SID, api, {
+    const session = new Session(SID, api, fakeRemote(), {
       address: { parentSessionId: PARENT, childSessionId: SID, mode: 'continuable' },
       parentAvailable: true,
     })
@@ -501,7 +501,7 @@ describe('prompt and cancel errors', () => {
 
   it('keeps one-shot history readable without exposing prompt or cancel transport', async () => {
     const api = new FakeApiClient()
-    const session = new Session(SID, api, {
+    const session = new Session(SID, api, fakeRemote(), {
       address: { parentSessionId: PARENT, childSessionId: SID, mode: 'one-shot' },
     })
     await session.open()

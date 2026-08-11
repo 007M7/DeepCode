@@ -10,7 +10,8 @@
 import type { AttachmentIdType, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type {
   MessageId, PromptContentPart, QueueAction, RpcResult, SessionId,
-} from '@deepseek-ai/dsh-client-connection/client'
+} from '@deepseek-ai/dsh-api-remotes/client'
+import type { RemoteResult } from '@deepseek-ai/dsh-type-meta'
 import type { ConversationSnapshot } from '../sessions/conversation.ts'
 import type { ObservableSnapshot } from './store.ts'
 
@@ -75,9 +76,9 @@ export interface ISession {
    * Execute one slash-command line against this session's agent — pure
    * admission semantics (the host executor durably logs the lifecycle).
    * @param line - the full command line, leading slash included.
-   * @returns the admission result, or the error branch on transport failure.
+   * @returns the admission result, or the Remote face's error branch.
    */
-  command(line: string): Promise<RpcResult<{ matched: boolean }>>
+  command(line: string): Promise<RemoteResult<{ matched: boolean }>>
 }
 
 /**

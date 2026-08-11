@@ -1,6 +1,6 @@
 import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it, vi } from 'vitest'
-import type { SessionId } from '@deepseek-ai/dsh-client-connection/client'
+import type { SessionId } from '@deepseek-ai/dsh-api-remotes/client'
 import { ConversationEventRegistry } from '../src/client/conversation/event-registry.ts'
 import { ConversationViewRegistry } from '../src/client/conversation/view-registry.ts'
 import type {
@@ -8,7 +8,7 @@ import type {
 } from '../src/client/contract/conversation.ts'
 import { Session } from '../src/client/sessions/session.ts'
 import { SessionsService } from '../src/client/sessions/service.ts'
-import { FakeApiClient, ok } from './fake-api.ts'
+import { FakeApiClient, fakeRemote, ok } from './fake-api.ts'
 
 function eventDefinition(kind: string): ConversationNodeDefinition<null> {
   return {
@@ -145,7 +145,7 @@ describe('Conversation registries', () => {
     api.onList = () => Promise.resolve(ok({
       items: [{ sessionId, updatedAt: 1, running: false, blank: true }],
     }) as never)
-    const sessions = new SessionsService(ctx, api)
+    const sessions = new SessionsService(ctx, api, fakeRemote())
     await sessions.refresh()
     await Promise.resolve()
     sessions.scope(sessionId)

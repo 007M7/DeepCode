@@ -16,7 +16,7 @@ import {
 } from '@deepseek-ai/dsh-client-runtime/client'
 import { SlashService } from '@deepseek-ai/dsh-client-ui-slash/client'
 import type { ClientSessionContext, CommandClaim, PickOutcome, SubmitOutcome } from '@deepseek-ai/dsh-client-ui-slash/client'
-import { FakeApiClient, ok } from '../../runtime/tests/fake-api.ts'
+import { FakeApiClient, fakeRemote, ok } from '../../runtime/tests/fake-api.ts'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import { SessionInputShell } from '../src/client/input/facade.ts'
@@ -98,7 +98,7 @@ async function scopedBench(register?: (slash: SlashService) => void) {
   api.onList = () => Promise.resolve(ok({
     items: [{ sessionId, updatedAt: 1, running: false, blank: false, cwd: '/w/a' }],
   }) as never)
-  const sessions = new SessionsService(ctx, api) // provides 'sessions' itself
+  const sessions = new SessionsService(ctx, api, fakeRemote()) // provides 'sessions' itself
   await sessions.refresh()
   await Promise.resolve() // manager notifier flush
   await ctx.plugin(SlashService).await()

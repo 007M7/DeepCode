@@ -7,10 +7,10 @@ import { describe, expect, it } from 'vitest'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, UserMessage } from '@deepseek-ai/dsh-llm/types'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
-import type { MessageId, MuxFrame, RpcId, SessionId } from '@deepseek-ai/dsh-client-connection/client'
+import type { MessageId, MuxFrame, RpcId, SessionId } from '@deepseek-ai/dsh-api-remotes/client'
 import { Session } from '../src/client/sessions/session.ts'
 import { SessionManager } from '../src/client/sessions/manager.ts'
-import { FakeApiClient } from './fake-api.ts'
+import { FakeApiClient, fakeRemote } from './fake-api.ts'
 
 const SID = 'fk-q1' as SessionId
 const text = (value: string): ContentBlock[] => [{ type: 'text', text: value }]
@@ -42,7 +42,7 @@ function queueFrame(items: QueueFixture[]): MuxFrame {
 }
 
 function makeSession(): Session {
-  return new Session(SID, new FakeApiClient())
+  return new Session(SID, new FakeApiClient(), fakeRemote())
 }
 
 describe('queue snapshot intake', () => {
@@ -198,7 +198,7 @@ describe('queue snapshot intake', () => {
 describe('queue operation transport', () => {
   it('addresses the session.updateQueue RPC without optimistic local mutation', async () => {
     const api = new FakeApiClient()
-    const session = new Session(SID, api)
+    const session = new Session(SID, api, fakeRemote())
     session.handleMuxEnvelope(rid('env-op'), queueFrame([{ id: 'q-op', body: 'pending' }]))
     const before = session.getSnapshot().queue
 
@@ -251,14 +251,14 @@ describe('queue reconnect semantics', () => {
 
 describe('manager buffering of queue snapshots', () => {
   it('replays only the latest snapshot for an uninstantiated session', () => {
-    const manager = new SessionManager(new FakeApiClient())
+    const manager = new SessionManager(new FakeApiClient(), fakeRemote())
     manager.handleMuxEnvelope({ rpcId: rid('b1'), payload: queueFrame([{ id: 'q-old', body: '旧' }]) })
     manager.handleMuxEnvelope({ rpcId: rid('b2'), payload: queueFrame([{ id: 'q-new', body: '新' }]) })
     expect(manager.get(SID).getSnapshot().queue.map(row => row.id)).toEqual(['q-new'])
   })
 
   it('subscribed drops the prior-generation snapshot while preserving answerable frames', () => {
-    const manager = new SessionManager(new FakeApiClient())
+    const manager = new SessionManager(new FakeApiClient(), fakeRemote())
     manager.handleMuxEnvelope({ rpcId: rid('g1a'), payload: queueFrame([{ id: 'q-g1', body: '第一代' }]) })
     manager.handleMuxEnvelope({
       rpcId: rid('g1b'),

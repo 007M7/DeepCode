@@ -10,7 +10,6 @@
 import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it, vi } from 'vitest'
 import { createScope, scopeOf } from '@deepseek-ai/dsh-client-runtime/client'
-import { TestRemote } from '@deepseek-ai/dsh-client-test-runtime'
 import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ClientSessionContext, ConsumeTokenRequest, SlashPick, SlashSource } from '@deepseek-ai/dsh-client-ui-slash/client'
 import type { CommandContribution, CommandDecoration, CommandUiSpec, SelectOption } from '../src/client/contract.ts'
@@ -32,7 +31,7 @@ const S2_CMDS: CommandDescriptor[] = [
   { name: 'attach', description: 'scoped shadow', input: { hint: 'path' } },
 ]
 
-type ExecuteValue = { matched: boolean }
+type ExecuteValue = { matched: boolean; commandId?: string }
 
 interface BenchOptions {
   /** Scripted catalog per list payload; default serves the fixed catalogs by session. */
@@ -46,20 +45,26 @@ async function bench(opts: BenchOptions = {}) {
   const registered = new Map<string, SlashSource>()
   const listCalls: Array<{ sessionId: SessionId }> = []
   const executeCalls: Array<{ sessionId: SessionId; line: string }> = []
-  const api = {
-    commands: {
-      list: async (payload: { sessionId: SessionId }) => {
-        listCalls.push(payload)
-        const value = await (opts.commands ?? (p => Promise.resolve({
-          commands: p.sessionId === sid('s2') ? S2_CMDS : S1_CMDS,
-        })))(payload)
-        return { result: { ok: true as const, value } }
-      },
-      execute: async (payload: { sessionId: SessionId; line: string }) => {
-        executeCalls.push(payload)
-        const value = await (opts.execute ?? (() => Promise.resolve({ matched: true })))(payload)
-        return { result: { ok: true as const, value } }
-      },
+  // The service reads the generated commands Remote, which delivers the
+  // carrier's outcome, so a programmed failure answers the error branch.
+  const commandsRemote = {
+    list: async (sessionId: SessionId) => {
+      listCalls.push({ sessionId })
+      const value = await (opts.commands ?? (p => Promise.resolve({
+        commands: p.sessionId === sid('s2') ? S2_CMDS : S1_CMDS,
+      })))({ sessionId })
+      return { ok: true as const, value: value.commands }
+    },
+    execute: async (sessionId: SessionId, line: string) => {
+      executeCalls.push({ sessionId, line })
+      const fallback = (): Promise<ExecuteValue> => Promise.resolve({ matched: true })
+      const value = await (opts.execute ?? fallback)({ sessionId, line })
+      return {
+        ok: true as const,
+        value: value.matched
+          ? { commandId: value.commandId ?? 'fake-command', result: { kind: 'success' as const } }
+          : undefined,
+      }
     },
   }
   ctx.provide('slash', {
@@ -78,10 +83,20 @@ async function bench(opts: BenchOptions = {}) {
       ? { parentSessionId: sid('parent'), childSessionId: id, mode: 'continuable' as const }
       : undefined,
   })
-  ctx.provide('connection', { api })
-  // CommandService injects `remote`; the directory invalidation arrives on the
-  // same `$dispatch` handoff the connection sink makes.
-  new TestRemote(ctx)
+  const forwarded = new Map<string, Array<(...args: never[]) => void>>()
+  ctx.provide('remote', {
+    commands: commandsRemote,
+    $on: (event: string, listener: (...args: never[]) => void) => {
+      const listeners = forwarded.get(event) ?? []
+      listeners.push(listener)
+      forwarded.set(event, listeners)
+      return () => { forwarded.set(event, listeners.filter(entry => entry !== listener)) }
+    },
+    $dispatch: (event: string, args: readonly unknown[]) => {
+      for (const listener of forwarded.get(event) ?? []) listener(...args as never[])
+    },
+  })
+  ctx.provide('remote.commands', commandsRemote)
   /** Notices the fake conversation face collected (runDetached routing). */
   const notices: Array<{ scope: SessionId | undefined; level: 'info' | 'error'; text: string }> = []
   ctx.provide('conversation', {
@@ -515,7 +530,13 @@ describe('detached admission notices', () => {
     mode = 'reject'
     menuPick(source, 'plan', proj('s1'))
     await flush()
-    expect(notices).toEqual([{ scope: sid('s1'), level: 'error', text: 'network down' }])
+    // A dead Remote call and a rejected one now read alike: both arrive as a
+    // failed result, so the notice names the endpoint either way.
+    expect(notices).toEqual([{
+      scope: sid('s1'),
+      level: 'error',
+      text: 'command.execute failed: internal: network down',
+    }])
   })
 
   it('a torn-down scope drops the failure notice', async () => {

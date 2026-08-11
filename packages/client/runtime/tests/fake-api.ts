@@ -1,13 +1,13 @@
 // Test-local programmable IApiClient fake (NOT the fixture: fixture is a demo
 // data source on a real clock; behavior tests need per-case responses and
 // deferred-controlled timing). Streams are hand pumps: pushMux/pushHost.
-import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
 import type {
-  ClientResponse, CommandDescriptor, HostFrame, IApiClient, ModelSelection, MuxFrame,
+  ClientResponse, HostFrame, IApiClient, ModelSelection, MuxFrame,
   RpcError, RpcReceipt, RpcRequest, RpcResponse, SessionId, SessionModels, SessionSearchItem, SkillEntry,
   WorkspaceId, WorkspaceView,
-} from '@deepseek-ai/dsh-client-connection/client'
+} from '@deepseek-ai/dsh-api-remotes/client'
 import { RpcId } from '@deepseek-ai/dsh-client-connection/client'
+import type { SessionRemotes } from '../src/client/sessions/remotes.ts'
 
 /** Programmable-default workspace row (branded id, ISO-ish times). */
 function fakeWorkspace(id: string, over: Partial<WorkspaceView> = {}): WorkspaceView {
@@ -53,6 +53,20 @@ type StreamItem<F> = { kind: 'frame'; envelope: RpcRequest<F> } | { kind: 'end' 
 
 interface StreamConn<F> {
   feed(item: StreamItem<F>): void
+}
+
+/**
+ * Commands Remote double: the generated face delivers the carrier's outcome, so
+ * a test that programs nothing sees an empty catalog and an unmatched line.
+ * @returns the Remote namespaces the session cluster calls.
+ */
+export function fakeRemote(): SessionRemotes {
+  return {
+    commands: {
+      list: () => Promise.resolve({ ok: true, value: [] }),
+      execute: () => Promise.resolve({ ok: true, value: undefined }),
+    },
+  }
 }
 
 export class FakeApiClient implements IApiClient {
@@ -205,18 +219,9 @@ export class FakeApiClient implements IApiClient {
   // Payloads stay `unknown` (lint-lane note above); response rows are the real
   // wire shapes so cases can program requires-bearing catalogs and dual-address
   // skill lists without casts.
-  onCommandList: (payload: unknown) => Promise<RpcResponse<{ commands: CommandDescriptor[] }>>
-    = () => Promise.resolve(ok({ commands: [] }))
-  onCommandExecute: (payload: unknown) => Promise<RpcResponse<{ matched: boolean; commandId?: CommandId }>>
-    = () => Promise.resolve(ok({ matched: false }))
   onSkillList: (payload: unknown) => Promise<RpcResponse<{ skills: SkillEntry[] }>>
     = () => Promise.resolve(ok({ skills: [] }))
 
-
-  readonly commands: IApiClient['commands'] = {
-    list: (payload: unknown) => this.record('command.list', payload, this.onCommandList(payload)),
-    execute: (payload: unknown) => this.record('command.execute', payload, this.onCommandExecute(payload)),
-  }
 
   readonly agentPresets: IApiClient['agentPresets'] = {
     list: (payload: unknown) => this.record('agentPreset.list', payload, Promise.resolve(ok({ presets: [], authorable: false, hasDocument: false }))),

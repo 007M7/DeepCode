@@ -1,28 +1,35 @@
 /**
- * Fixture commands/skills domains: contract-shape conformance for the two
- * domains added to ApiProxy — rpcId echo, session-addressed catalogs, execute
- * parse/dispatch, skill.list session resolution, and the FixtureApiClient
- * dispatch rows.
+ * Fixture commands/skills domains: session-addressed catalogs, execute
+ * parse/dispatch and its logged lifecycle pair, skill.list session resolution,
+ * and the FixtureApiClient dispatch rows. Commands answer on the Remote face
+ * and skills on the legacy API face, so both are driven here.
  */
 import { describe, expect, it } from 'vitest'
 import type { SessionId } from '../src/client/api.ts'
 import { RpcId } from '../src/client/api.ts'
 import type { RpcRequest } from '../src/client/api.ts'
-import { FixtureApiClient, createFixtureApi } from '../src/client/fixture.ts'
+import { FixtureApiClient, createFixtureApi, createFixtureFaces } from '../src/client/fixture.ts'
+
+/** Drive one commands Remote endpoint against the fixture state graph. */
+async function callRemote<T>(
+  rpc: ReturnType<typeof createFixtureFaces>['rpc'],
+  endpoint: string,
+  args: Record<string, unknown>,
+): Promise<T> {
+  const result = await rpc.call('/api', endpoint, { args })
+  if (!result.ok) throw new Error(`${endpoint} failed: ${result.error.code}`)
+  return result.value as T
+}
 
 const sid = (id: string): SessionId => id as SessionId
 let reqCount = 0
 const req = <P>(payload: P): RpcRequest<P> => ({ rpcId: RpcId(`t-${reqCount++}`), payload })
-const signal = new AbortController().signal
 
 describe('createFixtureApi commands/skills', () => {
-  it('serves the addressed session catalog with rpcId echo', async () => {
-    const api = createFixtureApi()
-    const request = req({ sessionId: sid('fx-alpha') })
-    const response = await api.commands.list(request)
-    expect(response.rpcId).toBe(request.rpcId)
-    if (!response.result.ok) throw new Error('list failed')
-    const commands = response.result.value.commands
+  it('serves the addressed session catalog', async () => {
+    const { rpc } = createFixtureFaces()
+    const commands = await callRemote<{ name: string; input?: { hint: string } }[]>(
+      rpc, 'commands/list', { agentId: sid('fx-alpha') })
     expect(commands.map(c => c.name)).toEqual(['compact', 'echo', 'goal', 'permission', 'plan'])
     // input hint rides only the commands declaring it.
     const echo = commands.find(c => c.name === 'echo')
@@ -31,13 +38,13 @@ describe('createFixtureApi commands/skills', () => {
   })
 
   it('rejects a catalog request for an unknown session', async () => {
-    const api = createFixtureApi()
-    const response = await api.commands.list(req({ sessionId: sid('fx-nope') }))
-    expect(response.result).toMatchObject({ ok: false, error: { code: 'session-not-found' } })
+    const { rpc } = createFixtureFaces()
+    const result = await rpc.call('/api', 'commands/list', { args: { agentId: sid('fx-nope') } })
+    expect(result).toMatchObject({ ok: false, error: { code: 'session-not-found' } })
   })
 
   it('executes a known command line: pure admission plus a mux-broadcast lifecycle pair', async () => {
-    const api = createFixtureApi()
+    const { api, rpc } = createFixtureFaces()
     const frames: unknown[] = []
     const abort = new AbortController()
     const stream = api.events.mux(req({}), abort.signal)
@@ -47,10 +54,9 @@ describe('createFixtureApi commands/skills', () => {
         if (frames.filter(f => (f as { type: string }).type === 'session/event').length >= 2) abort.abort()
       }
     })()
-    const response = await api.commands.execute(req({ sessionId: sid('fx-alpha'), line: '/echo hello world' }), signal)
-    if (!response.result.ok) throw new Error('execute failed')
-    expect(response.result.value).toMatchObject({ matched: true })
-    expect(response.result.value.commandId).toBeTruthy()
+    const execution = await callRemote<{ commandId: string } | undefined>(
+      rpc, 'commands/execute', { agentId: sid('fx-alpha'), line: '/echo hello world' })
+    expect(execution?.commandId).toBeTruthy()
     await pump
     const events = frames
       .filter((f): f is { type: string; event: { type: string; data: Record<string, unknown> } } => (f as { type: string }).type === 'session/event')
@@ -63,22 +69,23 @@ describe('createFixtureApi commands/skills', () => {
   })
 
   it('addresses execute to the session; an unknown session errs', async () => {
-    const api = createFixtureApi()
-    const hit = await api.commands.execute(req({ sessionId: sid('fx-alpha'), line: '/goal ship' }), signal)
-    if (!hit.result.ok) throw new Error('execute failed')
-    expect(hit.result.value.matched).toBe(true)
+    const { rpc } = createFixtureFaces()
+    const hit = await callRemote<{ commandId: string } | undefined>(
+      rpc, 'commands/execute', { agentId: sid('fx-alpha'), line: '/goal ship' })
+    expect(hit?.commandId).toBeTruthy()
 
-    const missing = await api.commands.execute(req({ sessionId: sid('fx-nope'), line: '/goal ship' }), signal)
-    expect(missing.result).toMatchObject({ ok: false, error: { code: 'session-not-found' } })
+    const missing = await rpc.call('/api', 'commands/execute', {
+      args: { agentId: sid('fx-nope'), line: '/goal ship' },
+    })
+    expect(missing).toMatchObject({ ok: false, error: { code: 'session-not-found' } })
   })
 
-  it('falls to matched:false on unknown names and non-command lines', async () => {
-    const api = createFixtureApi()
+  it('answers no execution for unknown names and non-command lines', async () => {
+    const { rpc } = createFixtureFaces()
     for (const line of ['/nope', 'plain text', '/']) {
-      const response = await api.commands.execute(req({ sessionId: sid('fx-alpha'), line }), signal)
-      if (!response.result.ok) throw new Error('execute failed')
-      // Pure admission value: the matched bit is the whole response shape.
-      expect(response.result.value).toEqual({ matched: false })
+      // Absence is the whole answer: nothing matched, so no lifecycle id exists.
+      expect(await callRemote(rpc, 'commands/execute', { agentId: sid('fx-alpha'), line }))
+        .toBeUndefined()
     }
   })
 
@@ -94,14 +101,13 @@ describe('createFixtureApi commands/skills', () => {
 })
 
 describe('FixtureApiClient command/skill dispatch', () => {
-  it('routes the three method keys through the in-memory dispatch table', async () => {
+  it('routes the Remote commands face and the legacy skill row through one state graph', async () => {
     const client = new FixtureApiClient()
-    const list = await client.commands.list({ sessionId: sid('fx-alpha') })
-    if (!list.result.ok) throw new Error('command.list failed')
-    expect(list.result.value.commands.length).toBeGreaterThan(0)
-    const executed = await client.commands.execute({ sessionId: sid('fx-alpha'), line: '/compact' })
-    if (!executed.result.ok) throw new Error('command.execute failed')
-    expect(executed.result.value.matched).toBe(true)
+    const commands = await callRemote<{ name: string }[]>(client.rpc, 'commands/list', { agentId: sid('fx-alpha') })
+    expect(commands.length).toBeGreaterThan(0)
+    const executed = await callRemote<{ commandId: string } | undefined>(
+      client.rpc, 'commands/execute', { agentId: sid('fx-alpha'), line: '/compact' })
+    expect(executed?.commandId).toBeTruthy()
     const skills = await client.skills.list({ sessionId: sid('fx-alpha') })
     if (!skills.result.ok) throw new Error('skill.list failed')
     expect(skills.result.value.skills.length).toBeGreaterThan(0)

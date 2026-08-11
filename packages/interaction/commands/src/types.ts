@@ -9,6 +9,45 @@
 
 import type { CommandId } from './brand.ts'
 
+/** Immutable metadata for a command's optional unstructured input. */
+export interface CommandInputDescriptor {
+  /** Placeholder shown before the user supplies free-form input. */
+  readonly hint: string
+}
+
+/** Expected command outcome rendered directly by the dispatching UI. */
+export type CommandResult =
+  | {
+    readonly kind: 'success'
+    readonly text?: string
+    /** Earlier authoritative domain event that owns a richer presentation. */
+    readonly sourceEventSeq?: number
+  }
+  | { readonly kind: 'error'; readonly text: string }
+
+/**
+ * One settled command execution: the handler's normalized result plus the
+ * lifecycle pairing id minted for its `command/run`/`command/done` records,
+ * so a dispatching surface can correlate the Remote acknowledgment with the
+ * flow node those events produce.
+ */
+export interface CommandExecution {
+  /** Pairing id carried by this execution's lifecycle events. */
+  readonly commandId: CommandId
+  /** The handler's normalized outcome. */
+  readonly result: CommandResult
+}
+
+/** Handler-free immutable command view returned to UI adapters. */
+export interface CommandDescriptor {
+  /** Lowercase command name without the leading slash. */
+  readonly name: string
+  /** Human-readable summary used in discovery UI. */
+  readonly description: string
+  /** Optional free-form input hint advertised to capable clients. */
+  readonly input?: CommandInputDescriptor
+}
+
 /**
  * Producer record for one command invocation (the `command/run` event's
  * source slot). Merge-extensible sum type mirroring `MessageSourceMap`'s
