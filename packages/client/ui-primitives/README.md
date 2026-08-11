@@ -10,7 +10,7 @@ Pure React atoms (zero cordis): StateDot, DisclosureRow, ic_ds_* icons, Button/P
 
 ## Toast
 
-`Toast` is the transient top-center banner: it slides in, holds at full opacity for three seconds, fades over one second, then calls `onDone` so the owner can unmount it. It renders `role="alert"` with an optional leading icon slot and takes its copy as a required prop (zero-cordis: the owner localizes). Re-showing the same message requires a remount — owners key the element by a per-show sequence so an identical repeated message restarts the hold-and-fade cycle instead of silently reusing the faded banner. It layers above the ui-attachment image lightbox so a failure reported during a preview stays readable.
+`Toast` is the transient top banner: it slides in, holds at full opacity for three seconds, fades over one second, then calls `onDone` so the owner can unmount it. It renders `role="alert"` with an optional leading icon slot and takes its copy as a required prop (zero-cordis: the owner localizes). It body-portals with `pointer-events: none`, sits 120px from the viewport top, and centers horizontally over the optional `anchor` element (re-measured on window resizes) — the composer passes its card so the banner centers over the chat column rather than the whole window — falling back to the viewport center without one. Re-showing the same message requires a remount — owners key the element by a per-show sequence so an identical repeated message restarts the hold-and-fade cycle instead of silently reusing the faded banner. Under `prefers-reduced-motion: reduce` the slide-in is dropped and only the delayed fade remains. It layers above the ui-attachment image lightbox so a failure reported during a preview stays readable.
 
 ## Markdown rendering
 

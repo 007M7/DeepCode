@@ -89,6 +89,7 @@ export function InputBar({
     if (promptError !== null) showToast(`${promptError.error.message} (${promptError.error.code})`)
   }, [promptError, showToast])
   const inputRef = useRef<HTMLTextAreaElement | null>(null)
+  const cardRef = useRef<HTMLDivElement | null>(null)
   const dragDepthRef = useRef(0)
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const mirrorRef = useRef<HTMLDivElement | null>(null)
@@ -577,6 +578,7 @@ export function InputBar({
           key={toast.seq}
           text={toast.text}
           icon={<IconWarningOutline16 />}
+          anchor={cardRef.current}
           onDone={dismissToast}
         />
       )}
@@ -591,6 +593,7 @@ export function InputBar({
           pointerdown stops here so the Menu's outside-close cannot race the
           click's reopen (close-then-open flickers the chip's open echo). */}
       <div
+        ref={cardRef}
         className={clsx(css.card, workspaceTrigger && css.cardWorkspaceTrigger, dragActive && css.dragActive)}
         data-composer-card
         onClick={workspaceTrigger ? onRequestWorkspace : undefined}

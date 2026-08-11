@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render } from '@testing-library/react'
+import { cleanup, fireEvent, render } from '@testing-library/react'
 import { Toast } from '../src/Toast.tsx'
 
 afterEach(cleanup)
@@ -19,6 +19,23 @@ describe('Toast', () => {
       expect(onDone).not.toHaveBeenCalled()
       vi.advanceTimersByTime(1)
       expect(onDone).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('centers over its anchor and re-measures on window resize', () => {
+    vi.useFakeTimers()
+    try {
+      const anchor = document.createElement('div')
+      document.body.appendChild(anchor)
+      anchor.getBoundingClientRect = () => ({ left: 100, width: 400 }) as DOMRect
+      const view = render(<Toast text="anchored" anchor={anchor} onDone={vi.fn()} />)
+      expect(view.getByRole('alert').style.left).toBe('300px')
+      anchor.getBoundingClientRect = () => ({ left: 200, width: 400 }) as DOMRect
+      fireEvent(window, new Event('resize'))
+      expect(view.getByRole('alert').style.left).toBe('400px')
+      anchor.remove()
     } finally {
       vi.useRealTimers()
     }

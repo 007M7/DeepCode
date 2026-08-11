@@ -128,10 +128,14 @@ describe('AttachmentRail', () => {
     expect(scrollBy).toHaveBeenCalledWith({ left: 32, behavior: 'auto' })
     fireEvent.wheel(rail, { deltaY: -1, deltaMode: WheelEvent.DOM_DELTA_PAGE })
     expect(scrollBy).toHaveBeenCalledWith({ left: -60, behavior: 'auto' })
-    // A trackpad pan (deltaX) and a zero-delta wheel keep native behavior.
-    expect(fireEvent.wheel(rail, { deltaX: 12, deltaY: 30 })).toBe(true)
+    // A diagonal pan is consumed too — nothing vertical may escape the rail —
+    // and keeps its horizontal intent.
+    expect(fireEvent.wheel(rail, { deltaX: 12, deltaY: 30 })).toBe(false)
+    expect(scrollBy).toHaveBeenCalledWith({ left: 12, behavior: 'auto' })
+    // A purely horizontal pan and a zero-delta wheel keep native behavior.
+    expect(fireEvent.wheel(rail, { deltaX: 12, deltaY: 0 })).toBe(true)
     fireEvent.wheel(rail, { deltaY: 0 })
-    expect(scrollBy).toHaveBeenCalledTimes(5)
+    expect(scrollBy).toHaveBeenCalledTimes(6)
   })
 
   it('pages instantly under a reduced-motion preference, smoothly otherwise', () => {

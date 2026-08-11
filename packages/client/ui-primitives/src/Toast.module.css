@@ -6,7 +6,7 @@
 
 .toast {
   position: fixed;
-  top: 80px;
+  top: 120px;
   left: 50%;
   /* Above the 1000 the image lightbox backdrop uses: a failure reported while
      a preview is open must stay readable. */

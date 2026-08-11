@@ -109,20 +109,25 @@ export function AttachmentRail<T extends AttachmentRailItem>({ items, labels, on
       observer.observe(el)
       disconnect = () => { observer.disconnect() }
     }
-    // A vertical wheel pans the rail horizontally and is consumed: without
-    // preventDefault the same tick would also scroll the conversation behind
-    // the composer. React's root wheel listener is passive, so the exclusive
-    // conversion needs this manually attached non-passive listener. LINE and
-    // PAGE deltas (Firefox notch wheels) are normalized to pixels before the
-    // per-tick clamp that keeps a fast wheel followable.
+    // The rail scrolls horizontally ONLY: any wheel tick with a vertical
+    // component is consumed — without preventDefault it would also scroll the
+    // conversation behind the composer, and React's root wheel listener is
+    // passive, so the exclusion needs this manually attached non-passive
+    // listener. A diagonal trackpad pan keeps its horizontal intent; a pure
+    // vertical wheel converts to a horizontal step, with LINE and PAGE deltas
+    // (Firefox notch wheels) normalized to pixels before the per-tick clamp
+    // that keeps a fast wheel followable. A purely horizontal pan stays
+    // native.
     const onWheel = (event: globalThis.WheelEvent): void => {
-      if (event.deltaX !== 0 || event.deltaY === 0) return
+      if (event.deltaY === 0) return
       const scale = event.deltaMode === WheelEvent.DOM_DELTA_LINE
         ? WHEEL_LINE_PX
         : event.deltaMode === WheelEvent.DOM_DELTA_PAGE ? el.clientWidth : 1
       event.preventDefault()
       el.scrollBy({
-        left: Math.sign(event.deltaY) * Math.min(Math.abs(event.deltaY) * scale, 60),
+        left: event.deltaX !== 0
+          ? event.deltaX * scale
+          : Math.sign(event.deltaY) * Math.min(Math.abs(event.deltaY) * scale, 60),
         behavior: 'auto',
       })
     }
