@@ -251,6 +251,19 @@ describe('rewriteMarkdown', () => {
 })
 
 describe('docsPages locale routes', () => {
+  it('redirects both locale roots to their locale-relative quick-start page', () => {
+    const homes = docsPages.filter(page => page.sidebar === null)
+    expect(homes.map(page => page.route).sort()).toEqual(['en/index.md', 'index.md'])
+    for (const page of homes) {
+      const source = readFileSync(resolve(repositoryRoot, page.source), 'utf8')
+      const projected = projectedPageContent(source, page)
+      expect(projected).toContain('layout: false')
+      expect(projected).toContain('http-equiv: refresh')
+      expect(projected).toContain('content: 0; url=./guide/quickstart')
+      expect(projected).not.toContain('# DeepSeek Harness')
+    }
+  })
+
   it('publishes every route in both locales and uses every available Chinese counterpart', () => {
     const byRoute = new Map(docsPages.map(page => [page.route, page]))
     for (const page of docsPages.filter(page => page.locale === 'root')) {
@@ -388,9 +401,9 @@ describe('projectedPageContent', () => {
 
   it('omits the source-only body from locale home pages', () => {
     expect(projectedPageContent(
-      '---\nlayout: home\nhero:\n  name: Harness\n---\n\n# Harness\n\n[English](index.md) | 中文\n',
+      '---\nlayout: false\nhead:\n  - - meta\n    - http-equiv: refresh\n      content: 0; url=./guide/quickstart\n---\n\n# Harness\n\n[English](index.md) | 中文\n',
       page(null),
-    )).toBe('---\nlayout: home\nhero:\n  name: Harness\n---\n')
+    )).toBe('---\nlayout: false\nhead:\n  - - meta\n    - http-equiv: refresh\n      content: 0; url=./guide/quickstart\n---\n')
   })
 
   it('keeps the full body for ordinary pages', () => {
