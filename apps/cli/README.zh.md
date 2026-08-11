@@ -31,8 +31,8 @@ dsh --help                          # the launcher's own help
 
 profile 目录包含一个 `package.json`（树外插件依赖，加上 profile manifest（元数据清单）`dsh.profile` 及其有序的 `bundles` 列表）和一个 `cordis.patch.yml`（用户自己的 patch 层，在长期运行的 surface 上热重载）。配置树在空根之上组合：先按 `dsh.profile.bundles` 顺序应用各组合包的 patch，然后是 profile 的 `cordis.patch.yml`，然后是 home 级的 `$DSH_HOME/cordis.patch.yml`，然后是 `--patch` overlay。`dsh.profile.bundles` 中列出的组合包先从 dsh 安装目录解析（`@deepseek-ai/dsh-base`、`@deepseek-ai/dsh-web-app`、`@deepseek-ai/dsh-headless`），再从 profile 自己的 `node_modules` 解析；pnpm 把树外插件安装在后者。使用 `--dump-default-config` 和 `--dump-config` 可在不启动的情况下检查组合后的配置树。
 
-[CLI（命令行界面）行为参考](reference/README.md)负责确切的层优先级、flag、关闭行为、部署默认值和源码启动器。
+[CLI（命令行界面）行为参考](reference/README.md)负责确切的层优先级、flag、关闭行为、部署默认值和源码执行。
 
 ## 开发
 
-生产运行需要已构建的包与前端产物。在 checkout 中，`pnpm run dsh` 会运行 TypeScript 入口并转发参数；[源码启动器参考](reference/README.md#source-launcher)说明 PATH 符号链接和模块解析契约。
+生产运行需要已构建的包与前端产物。从仓库根目录运行 `pnpm dsh <args...>` 会先构建这些产物，再运行 TypeScript 入口并转发所有参数；模块解析约定由[源码执行参考](reference/README.md#source-execution)负责。

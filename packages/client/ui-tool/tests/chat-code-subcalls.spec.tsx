@@ -112,7 +112,7 @@ async function bench(snapshot: ConversationSnapshot) {
     ids: [SID],
     byId: { [SID]: { id: SID, title: 'S', displayTitle: 'S', running: false, blank: false, updatedAt: 1 } },
     current: SID,
-    phase: 'ready', subagentsByParent: {}, currentAddress: undefined,
+    phase: 'ready', subagentsByParent: {}, tasksBySession: {}, currentAddress: undefined,
   })
   const scoped = { send: vi.fn(async () => {}), cancel: vi.fn(async () => {}) }
   const layout = { openDetails: vi.fn(), closeDetails: vi.fn() }

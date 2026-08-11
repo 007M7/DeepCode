@@ -202,7 +202,7 @@ export class TestSessions implements ISessions {
   constructor(private readonly stabilize: Stabilizer, private readonly rootCtx: Context) {
     this.list = createSnapshotStore<SessionListState>({
       ids: [], byId: {}, current: undefined, phase: 'ready',
-      subagentsByParent: {}, currentAddress: undefined,
+      subagentsByParent: {}, tasksBySession: {}, currentAddress: undefined,
     })
     this.channel = new SessionProvideChannel({
       rebuildBundles: () => {

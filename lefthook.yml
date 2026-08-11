@@ -10,6 +10,10 @@ pre-commit:
         - '.agents/notes/archived/**'
       run: node_modules/.bin/tsx scripts/verify-translation-pairing.ts --cached {staged_files}
 
+    - name: archived agent notes
+      glob: '.agents/notes/archived/**'
+      run: node_modules/.bin/tsx scripts/verify-archived-agent-notes.ts
+
     - name: lint (staged)
       glob: '*.{ts,tsx,mts,cts,mjs}'
       exclude:
@@ -40,6 +44,10 @@ pre-merge-commit:
       exclude:
         - '.agents/notes/archived/**'
       run: node_modules/.bin/tsx scripts/verify-translation-pairing.ts --cached {staged_files}
+
+    - name: archived agent notes
+      glob: '.agents/notes/archived/**'
+      run: node_modules/.bin/tsx scripts/verify-archived-agent-notes.ts
 
 pre-push:
   jobs:

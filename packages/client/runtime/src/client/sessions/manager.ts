@@ -4,7 +4,7 @@
 
 import type {
   IApiClient, HostFrame, MuxFrame, RpcError, RpcRequest, RpcResult, SessionId,
-  SessionSummary, SubagentAddress, SubagentCatalog, WorkspaceId,
+  SessionSummary, SubagentAddress, SubagentCatalog, TaskView, WorkspaceId,
 } from '@deepseek-ai/dsh-client-connection/client'
 // Value import from the inline-safe wire layer (not the connection plugin):
 // plugin-to-plugin value imports are a bundle purity error.
@@ -48,6 +48,8 @@ export interface SessionListSnapshot {
   phase: SessionListPhase
   error: RpcError | null
   subagentsByParent: Readonly<Record<SessionId, SubagentCatalogSnapshot>>
+  /** Background tasks per session; an absent key is an empty set. */
+  tasksBySession: Readonly<Record<SessionId, readonly TaskView[]>>
   currentAddress: SubagentAddress | undefined
 }
 
@@ -138,6 +140,11 @@ export class SessionManager {
   private readonly catalogStale = new Set<SessionId>()
   private readonly openCatalogs = new Set<SessionId>()
   private readonly catalogDebounce = new Map<SessionId, ReturnType<typeof setTimeout>>()
+  /**
+   * Background tasks per session, last-wins from `session/tasks`. An empty set
+   * is stored as an absent key, so absence and `[]` are one representation.
+   */
+  private readonly tasksBySession = new Map<SessionId, readonly TaskView[]>()
 
   private selected: SessionId | undefined
 
@@ -682,10 +689,23 @@ export class SessionManager {
       this.notifier.markDirty()
       return
     }
+    if (frame.type === 'session/tasks') {
+      // Whole-set snapshot, so last-wins with no reconciliation. The Host omits
+      // the baseline for an empty set, which is the same fact an emptying change
+      // reports as `[]` — both land as an absent key.
+      if (frame.tasks.length === 0) this.tasksBySession.delete(frame.sessionId)
+      else this.tasksBySession.set(frame.sessionId, frame.tasks)
+      this.notifier.markDirty()
+      return
+    }
     if (frame.type === 'session/subscribed') {
       // Rows past the host's durable baseline rode state a restart lost; drop
       // them so last-wins cannot pin a phantom value over recomputed truth.
       this.projectionStores.get(frame.sessionId)?.truncate(frame.lastSeq)
+      // Same re-baseline reasoning as the queue below: this generation sends a
+      // task baseline only when the set is non-empty, so a mirror kept from the
+      // previous generation would survive as a phantom list.
+      this.tasksBySession.delete(frame.sessionId)
       this.notifier.markDirty()
       // New mux-generation baseline: discard the previous queue snapshot.
       // The host omits session/queue when the live queue is empty, so retaining
@@ -804,6 +824,11 @@ export class SessionManager {
         }
         this.pendingBuffers.delete(frame.sessionId) // a removed session's buffered frames must not replay on a future instantiation
         this.pendingInteractions.delete(frame.sessionId) // a removed session cannot wait on anyone
+        // Owner disposal already dropped these registry-side, but that lands on
+        // the mux stream while this frame rides the host stream, so the two have
+        // no relative order. Clearing here makes a detached Activation's rows
+        // disappear whichever arrives first.
+        this.tasksBySession.delete(frame.sessionId)
         if (!durableSubagent) this.projectionStores.delete(frame.sessionId)
         // A pull already in flight was requested before this removal and can
         // carry the pre-removal parentAvailable:true, which would resurrect
@@ -1040,6 +1065,7 @@ export class SessionManager {
       phase: this.listPhase,
       error: this.listError,
       subagentsByParent: Object.fromEntries(this.catalogs),
+      tasksBySession: Object.fromEntries(this.tasksBySession),
       currentAddress: current === undefined ? undefined : this.addresses.get(current),
     }
   }
