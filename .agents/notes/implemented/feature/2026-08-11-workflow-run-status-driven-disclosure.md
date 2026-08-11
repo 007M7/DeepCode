@@ -20,7 +20,7 @@ A clean level mounts an ordinary controlled disclosure in the closed state. Its 
 
 For example, a running workflow exposes its active phase and member without clicks. When that phase completes, only the phase folds while the workflow remains open; when the workflow and every phase complete, the workflow also folds. The user can then reopen both levels for review. If another member starts under the same phase key, both affected levels immediately return to forced expansion and fold again only after the new activity completes.
 
-The renderer owns only this visibility lifecycle. It does not add Session events, stores, settings, acknowledgement state, timers, focus movement, automatic scrolling, or cross-remount persistence. It does not change workflow status derivation, phase grouping, member order, navigation eligibility, copy, or the shared `DisclosureRow` API. The only CSS change removes unconditional pointer cursors so forced-open static rows do not advertise an unavailable action. An interrupted durable prefix remains an attention state and therefore stays visible until the underlying facts change.
+The renderer owns only this visibility lifecycle. It does not add Session events, stores, settings, acknowledgement state, timers, focus movement, automatic scrolling, or cross-remount persistence. It does not change workflow status derivation, phase grouping, member order, navigation eligibility, copy, or the shared `DisclosureRow` API. Shared `data-expandable` styling owns pointer cursors, so forced-open static rows do not advertise an unavailable action. An interrupted durable prefix remains an attention state and therefore stays visible until the underlying facts change.
 
 ## Verification
 
