@@ -14,7 +14,7 @@ Status: implemented
 
 它把字符串 realm label 描述为跨子树共享一个实例。label 只是加入同一 realm，`provide()` 在同一 realm symbol 下第二次注册仍然抛错——`standard` 的头部注释早已如此说明。
 
-它让 agent 去读包的 README 判断某行是否发布服务。除 `apps/cli`（`files: ["lib/*.js", "config"]`）外，所有 harness 包只发布 `lib/index.js`、`lib/invariant.js` 与 `lib/types/**/*.d.ts`，没有 README、没有 `src/`、没有 `docs/`。在装机部署中该指令根本无法执行。
+它让 agent 去读包的 README 判断某行是否发布服务。每个 harness 包都声明了 `files`，且没有任何一份声明包含自己的 README，因此装机部署中一份也没有。在那里该指令根本无法执行。
 
 四条之下还压着一个能力断言：agent「自己起不了会话」，于是校验退化成肉眼核对 YAML 字段，再把结果经设置页的红色标记交给用户。那个标记是发现阶段的结构检查，远弱于这句话给人的印象。
 
@@ -41,7 +41,8 @@ agent 按 `cordis_mount` 自身文档所述的方式够到 roster 服务：挂�
 | 被测组装 | `list()` 的 `broken` | `standingKeyFor()` |
 |---|---|---|
 | 行指向不存在的包 | 空 | `Cannot find package '@deepseek-ai/dsh-does-not-exist'` |
-| 服务行未套 realm | 空 | `service "tasks" has been registered at <LocalTaskService>` |
+| 服务行未套 realm，名字宿主已提供 | 空 | `service "tasks" has been registered at <LocalTaskService>` |
+| 服务行未套 realm，名字宿主未提供 | 空 | `row(s) published process-global service(s) [workflows]; …` |
 | 同一行置于 `isolate` 内 | 空 | 挂载成功 |
 | 消费者行无人提供服务 | 空 | `1 row(s) did not activate: … waiting for workflows` |
 | 行缺少必填配置字段 | 空 | `invalid config: $.allowParallelInProgress missing required value` |

@@ -63,9 +63,9 @@ Unmount the plugin with `cordis_unmount` when you are done; it is a probe, not a
 
 ## Authoring a preset
 
-1. **Start from a copy.** `copy(from, id, name)` copies a whole preset directory into the user root — composition, metadata, skill directories, assets. It validates the id (lowercase letters, digits, and hyphens, because it becomes the directory name), refuses an id any root already supplies, rolls a failed copy back, and rewrites the copy's `preset.yml` to keep the source's description while dropping its name and roster `order`. Prefer it over a shell copy: it needs no sandbox escalation, and the copy is exactly as loadable as its source. `standard` is the full coding agent and the usual source.
-2. **Expect the file sandbox on every edit after the copy.** The user preset root lies outside the session workspace, so under the default `workspace-write` policy the first write there is denied. Retry that exact command once with `sandbox_permissions` escalation and a short justification — the user sees and approves it. Batch your writes (one heredoc per file) rather than escalating many small commands. `copy()` itself runs host-side and needs none of this; the edits do.
-3. **Give the copy its own `name` and `description`** in `preset.yml`.
+1. **Start from a copy.** `copy(from, id, name)` copies a whole preset directory into the user root — composition, metadata, skill directories, assets. It validates the id against `[a-z0-9][a-z0-9-]*` (it becomes the directory name, so no leading hyphen), refuses an id any root already supplies, rolls a failed copy back, and rewrites the copy's `preset.yml` to keep the source's description while dropping its name and roster `order`. Prefer it over a shell copy: it needs no sandbox escalation, and the copy is exactly as loadable as its source. `standard` is the full coding agent and the usual source.
+2. **Expect the file sandbox on every edit after the copy.** The user preset root lies outside the session workspace, so under the default `workspace-write` policy the first write there is denied. Only writes are: reading any composition by absolute path needs no escalation. Retry that exact command once with `sandbox_permissions` escalation and a short justification — the user sees and approves it. Batch your writes (one heredoc per file) rather than escalating many small commands. `copy()` itself runs host-side and needs none of this; the edits do.
+3. **Write the copy's `description`** in `preset.yml`, and its `name` if you passed none to `copy()`.
 4. **Edit `agent.cordis.yml`** row by row, keeping the plane rule and the realm rule.
 5. **Mount-validate the result**, then hand off to the user for a real session — both under *Verifying a change*.
 
@@ -106,8 +106,8 @@ Realms are for services a preset owns, not for every group. A host capability th
 
 - a row whose package does not resolve (`Cannot find package …`);
 - a row whose config is invalid (`invalid config: $.<field> missing required value`);
-- a service published into the root realm (`service "<name>" has been registered at <Owner>`);
-- a row that never activated (`N row(s) did not activate: <id>: waiting for <service>`).
+- a row that never activated (`N row(s) did not activate: <id>: waiting for <service>`);
+- a service published into the root realm, which arrives as one of two messages. A name the host does not supply lands in the root realm and the mount audit rejects it: `row(s) published process-global service(s) [<name>]; a preset service must sit behind an isolate realm or move to the host composition` — this is the shape a preset's own forgotten realm takes. A name the host already supplies collides before the audit: `service "<name>" has been registered at <Owner>`. Both name the offending service.
 
 It returns normally when the composition mounts. Run it as the final check on a finished edit rather than after every line: a successful mount installs a standing generation that lives until the process exits, while a failed one disposes its subtree and leaves nothing behind.
 

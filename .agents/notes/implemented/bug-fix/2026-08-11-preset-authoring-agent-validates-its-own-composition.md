@@ -14,7 +14,7 @@ Its `isolate` example composed `tasks-local` with `tool-tasks`. `tasks-local` is
 
 It described a string realm label as pooling one instance across subtrees. Labels join realms; `provide()` still throws on the second registration under the same realm symbol, which `standard`'s header comment already stated.
 
-It sent the agent to a package's README to learn whether a row publishes a service. Outside `apps/cli` (`files: ["lib/*.js", "config"]`), every harness package publishes only `lib/index.js`, `lib/invariant.js`, and `lib/types/**/*.d.ts` — no README, no `src/`, no `docs/`. In an installed deployment that instruction cannot be followed at all.
+It sent the agent to a package's README to learn whether a row publishes a service. Every harness package declares `files`, and no declaration includes its README, so an installed deployment carries none. There that instruction cannot be followed at all.
 
 Underneath all four sat a capability claim: the agent "cannot start one \[a session\] yourself", so verification was hand-reading YAML fields and handing the result to the user through the settings page's red marking. That marking is discovery's shape check, which is far weaker than the sentence implied.
 
@@ -41,7 +41,8 @@ Each row was produced by booting the shipped Web composition and calling the too
 | Composition under test | `list()` `broken` | `standingKeyFor()` |
 |---|---|---|
 | row names an absent package | empty | `Cannot find package '@deepseek-ai/dsh-does-not-exist'` |
-| service row with no realm | empty | `service "tasks" has been registered at <LocalTaskService>` |
+| service row with no realm, name the host supplies | empty | `service "tasks" has been registered at <LocalTaskService>` |
+| service row with no realm, name the host does not supply | empty | `row(s) published process-global service(s) [workflows]; …` |
 | same row inside `isolate` | empty | mounts |
 | consumer row with no provider | empty | `1 row(s) did not activate: … waiting for workflows` |
 | row missing a required config field | empty | `invalid config: $.allowParallelInProgress missing required value` |
