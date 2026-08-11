@@ -12,8 +12,13 @@ export type WorkspaceGroupBy = 'workspace' | 'flat'
 /** Session order: durable Workspace order or a derived timestamp order. */
 export type WorkspaceOrderBy = 'manual' | 'created' | 'updated'
 
-/** Workspace browser viewing state; transient expansion facts stay component-local. */
-type WorkspaceViewState = { groupBy: WorkspaceGroupBy; orderBy: WorkspaceOrderBy }
+/** Workspace browser viewing state persisted across surface remounts and reloads. */
+type WorkspaceViewState = {
+  groupBy: WorkspaceGroupBy
+  orderBy: WorkspaceOrderBy
+  /** Explicit zero-or-five-session state keyed by Workspace group identity. */
+  workspaceExpansion: Record<string, boolean>
+}
 
 /**
  * Annotation twin of the actions literal below (the export needs a declared
@@ -22,6 +27,7 @@ type WorkspaceViewState = { groupBy: WorkspaceGroupBy; orderBy: WorkspaceOrderBy
 type WorkspaceViewActions = {
   setGroupBy: (draft: WorkspaceViewState, mode: WorkspaceGroupBy) => void
   setOrderBy: (draft: WorkspaceViewState, mode: WorkspaceOrderBy) => void
+  setWorkspaceExpanded: (draft: WorkspaceViewState, key: string, expanded: boolean) => void
 }
 
 /**
@@ -30,12 +36,12 @@ type WorkspaceViewActions = {
  */
 export function createWorkspaceViewStore(): EngineStoreHandle<WorkspaceViewState, WorkspaceViewActions> {
   return defineStore({
-    init: (): WorkspaceViewState => ({ groupBy: 'workspace', orderBy: 'manual' }),
-    // The added order field changes the whole-value persistence format.
-    persist: 'dsh.workspace.view.v2',
+    init: (): WorkspaceViewState => ({ groupBy: 'workspace', orderBy: 'manual', workspaceExpansion: {} }),
+    persist: 'dsh.workspace.view.v3',
     actions: {
       setGroupBy: (d, mode: WorkspaceGroupBy) => { d.groupBy = mode },
       setOrderBy: (d, mode: WorkspaceOrderBy) => { d.orderBy = mode },
+      setWorkspaceExpanded: (d, key: string, expanded: boolean) => { d.workspaceExpansion[key] = expanded },
     },
   })
 }

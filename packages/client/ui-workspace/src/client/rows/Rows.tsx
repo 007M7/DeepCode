@@ -83,6 +83,12 @@ export interface RowDragProps {
   end: () => void
 }
 
+/** Drag lifecycle owned by a workspace row; its enclosing group owns hit testing. */
+interface WorkspaceRowDragProps {
+  start: () => void
+  end: () => void
+}
+
 /** Pointer-position half of a row (insert line above or below). */
 function rowHalf(e: { clientY: number; currentTarget: HTMLElement }): 'before' | 'after' {
   const rect = e.currentTarget.getBoundingClientRect()
@@ -108,7 +114,7 @@ export function ProjectRowItem({ group, onToggle, onCreate, actions, drag, t }: 
   /** Real-Workspace actions; absent for the ungrouped bucket (no menu shown). */
   actions?: { rename: () => void; delete: () => void } | undefined
   /** Present only for real Workspace rows in the grouped view. */
-  drag?: RowDragProps | undefined
+  drag?: WorkspaceRowDragProps | undefined
   t: RowTranslate
 }) {
   const row = group
@@ -122,10 +128,7 @@ export function ProjectRowItem({ group, onToggle, onCreate, actions, drag, t }: 
   ]
   const ownRow = (
     <div
-      className={clsx(
-        css.projectRow, menuOpen && css.menuOpen,
-        drag?.marker === 'before' && css.dropBefore, drag?.marker === 'after' && css.dropAfter,
-      )}
+      className={clsx(css.projectRow, menuOpen && css.menuOpen)}
       role="treeitem"
       aria-expanded={row.expanded}
       onClick={onToggle}
@@ -138,21 +141,6 @@ export function ProjectRowItem({ group, onToggle, onCreate, actions, drag, t }: 
           drag.start()
         }}
       onDragEnd={drag?.end}
-      onDragOver={drag === undefined
-        ? undefined
-        : (e) => {
-          if (!drag.active) return
-          e.preventDefault()
-          e.dataTransfer.dropEffect = 'move'
-          drag.hover(rowHalf(e))
-        }}
-      onDrop={drag === undefined
-        ? undefined
-        : (e) => {
-          if (!drag.active) return
-          e.preventDefault()
-          drag.drop(rowHalf(e))
-        }}
     >
       <span className={clsx(css.slot, css.folder, active && css.folderActive)}>
         {row.expanded ? <IconFolderOpen16 /> : <IconFolderClose16 />}

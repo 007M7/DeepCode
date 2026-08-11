@@ -36,6 +36,7 @@ const SEARCH_DEBOUNCE_MS = 250
 const SEARCH_QUERY_MAX_CODE_UNITS = 500
 /** Session rows visible per Workspace before the local overflow control. */
 const COLLAPSED_SESSION_LIMIT = 5
+const EMPTY_WORKSPACE_EXPANSION: Readonly<Record<string, boolean>> = Object.freeze({})
 
 /** Keep controlled input and RPC payload inside the session.search wire contract. */
 function sanitizeSearchQuery(value: string): string {
@@ -48,7 +49,7 @@ function sanitizeSearchQuery(value: string): string {
   return withoutNul.slice(0, end)
 }
 
-/** Immutable membership toggle for the local expansion arrays. */
+/** Immutable membership toggle for the local expand-all array. */
 function toggled(list: readonly string[], key: string): string[] {
   return list.includes(key) ? list.filter(k => k !== key) : [...list, key]
 }
@@ -116,12 +117,22 @@ interface WorkspaceDragState {
   over: { id: WorkspaceId; half: 'before' | 'after' } | null
 }
 
+/** Resolve an insertion side from the full rendered workspace group. */
+function workspaceGroupHalf(e: { clientY: number; currentTarget: HTMLElement }): 'before' | 'after' {
+  const rect = e.currentTarget.getBoundingClientRect()
+  return e.clientY < rect.top + rect.height / 2 ? 'before' : 'after'
+}
+
 type SessionTreeProps = Pick<
   WorkspaceBrowserProps,
   'useSessions' | 'startSession' | 'open' | 'forkSession'
   | 'insertWorkspaceBefore' | 'insertSessionBefore' | 't'
 > & {
   workspaces: readonly WorkspaceView[]
+  /** Explicit persisted zero-or-five-session state by Workspace group. */
+  workspaceExpansion: Readonly<Record<string, boolean>>
+  /** Persist one Workspace group's zero-or-five-session state. */
+  setWorkspaceExpanded: (key: string, expanded: boolean) => void
   /** Registry-global archive set (hidden rows). */
   archivedSessionIds: readonly SessionNode['id'][]
   /** Open the browser-owned rename dialog for a real Workspace group. */
@@ -136,15 +147,15 @@ type SessionTreeProps = Pick<
   orderBy: SessionOrderBy
 }
 
-/** The scrolling session tree; unmounting at collapse settle drops the sessions subscription and expansion state. */
+/** The scrolling session tree; unmounting drops the sessions subscription and expand-all state. */
 function SessionTree({
   useSessions, startSession, open, forkSession, workspaces, archivedSessionIds,
   onRenameRequest, onDeleteRequest, onSessionRename, onSessionArchive,
-  insertWorkspaceBefore, insertSessionBefore, orderBy, t,
+  insertWorkspaceBefore, insertSessionBefore, orderBy,
+  workspaceExpansion, setWorkspaceExpanded, t,
 }: SessionTreeProps) {
   const list = useSessions(s => s)
   const current = list.current
-  const [expandedProjects, setExpandedProjects] = useState<string[]>([])
   const [expandedSessionGroups, setExpandedSessionGroups] = useState<string[]>([])
   // Transient drag viewing state (never store-bound; order truth stays Host-side).
   const [drag, setDrag] = useState<DragState | null>(null)
@@ -154,9 +165,13 @@ function SessionTree({
     : (workspaces.find(w => w.sessionIds.includes(current))?.workspaceId as string | undefined)
       ?? UNGROUPED_KEY
   useEffect(() => {
-    if (current === undefined || currentGroup === undefined) return
-    setExpandedProjects(l => (l.includes(currentGroup) ? l : [...l, currentGroup]))
-  }, [current, currentGroup])
+    if (current === undefined || currentGroup === undefined || Object.hasOwn(workspaceExpansion, currentGroup)) return
+    setWorkspaceExpanded(currentGroup, true)
+  }, [current, currentGroup, setWorkspaceExpanded, workspaceExpansion])
+  const expandedProjects = useMemo(
+    () => Object.entries(workspaceExpansion).filter(([, expanded]) => expanded).map(([key]) => key),
+    [workspaceExpansion],
+  )
   const groups = useMemo(
     () => deriveGroups(list, workspaces, archivedSessionIds, { expandedProjects }, orderBy),
     [list, workspaces, archivedSessionIds, expandedProjects, orderBy],
@@ -176,14 +191,18 @@ function SessionTree({
             : null
           const workspaceDragProps = workspaceId === undefined ? undefined : {
             start: () => { setWorkspaceDrag({ workspaceId, over: null }) },
-            active: workspaceDrag !== null,
-            marker: null,
-            hover: (half: 'before' | 'after') => {
+            end: () => { setWorkspaceDrag(null) },
+          }
+          const hoverWorkspace = workspaceId === undefined
+            ? undefined
+            : (half: 'before' | 'after') => {
               setWorkspaceDrag(active => active === null
                 ? active
                 : { ...active, over: { id: workspaceId, half } })
-            },
-            drop: (half: 'before' | 'after') => {
+            }
+          const dropWorkspace = workspaceId === undefined
+            ? undefined
+            : (half: 'before' | 'after') => {
               if (workspaceDrag === null) return
               const rowIndex = workspaces.findIndex(workspace => workspace.workspaceId === workspaceId)
               const anchor = half === 'before' ? workspaceId : workspaces[rowIndex + 1]?.workspaceId
@@ -197,9 +216,7 @@ function SessionTree({
               insertWorkspaceBefore(workspaceDrag.workspaceId, anchor).catch((reason: unknown) => {
                 console.warn('workspace reorder rejected:', reason)
               })
-            },
-            end: () => { setWorkspaceDrag(null) },
-          }
+            }
           return (
           // Group section: header row + expanded top-level session rows. The
           // inter-group breathing room is the section's own margin
@@ -211,6 +228,19 @@ function SessionTree({
               workspaceMarker === 'before' && css.workspaceDropBefore,
               workspaceMarker === 'after' && css.workspaceDropAfter,
             )}
+            onDragOver={workspaceDrag === null || hoverWorkspace === undefined
+              ? undefined
+              : (e) => {
+                e.preventDefault()
+                e.dataTransfer.dropEffect = 'move'
+                hoverWorkspace(workspaceGroupHalf(e))
+              }}
+            onDrop={workspaceDrag === null || dropWorkspace === undefined
+              ? undefined
+              : (e) => {
+                e.preventDefault()
+                dropWorkspace(workspaceGroupHalf(e))
+              }}
           >
             <ProjectRowItem
               group={group}
@@ -219,7 +249,7 @@ function SessionTree({
                 if (group.expanded) {
                   setExpandedSessionGroups(keys => keys.filter(key => key !== group.key))
                 }
-                setExpandedProjects(l => toggled(l, group.key))
+                setWorkspaceExpanded(group.key, !group.expanded)
               }}
               onCreate={() => {
                 if (group.workspaceId !== undefined) startSession(group.workspaceId)
@@ -458,6 +488,8 @@ export function WorkspaceBrowser({
   // A flat list has no single Workspace account to drag. Keep the stored
   // grouped preference intact while presenting the flat list by recency.
   const effectiveOrderBy = groupBy === 'flat' && orderBy === 'manual' ? 'updated' : orderBy
+  // HMR can retain the preceding view-store instance until the slot remounts.
+  const workspaceExpansion = useStore(s => s.workspaceExpansion ?? EMPTY_WORKSPACE_EXPANSION)
   // The query outlives the tree and the input (both wide-only) so collapsing
   // does not silently drop an in-progress filter.
   const [query, setQuery] = useState('')
@@ -497,12 +529,14 @@ export function WorkspaceBrowser({
 
   useEffect(() => {
     if (!wide || !searchExpanded) return
-    const onPointerDown = (event: PointerEvent): void => {
+    const onClick = (event: MouseEvent): void => {
       if (!(event.target instanceof Node) || searchRoot.current?.contains(event.target) === true) return
       searchInput.current?.blur()
+      setQuery('')
+      setSearchExpanded(false)
     }
-    document.addEventListener('pointerdown', onPointerDown)
-    return () => { document.removeEventListener('pointerdown', onPointerDown) }
+    document.addEventListener('click', onClick)
+    return () => { document.removeEventListener('click', onClick) }
   }, [wide, searchExpanded])
 
   useEffect(() => {
@@ -810,6 +844,8 @@ export function WorkspaceBrowser({
                 onSessionArchive={onSessionArchive}
                 forkSession={forkSession}
                 workspaces={workspaces}
+                workspaceExpansion={workspaceExpansion}
+                setWorkspaceExpanded={actions.setWorkspaceExpanded}
                 archivedSessionIds={archivedSessionIds}
                 startSession={startSession}
                 open={open}
