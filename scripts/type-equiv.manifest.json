@@ -1622,6 +1622,11 @@
     },
     {
       "doc": "docs/subsystems/telemetry.md",
+      "symbol": "TelemetrySharingStatus",
+      "source": "packages/session/session-telemetry/src/index.ts"
+    },
+    {
+      "doc": "docs/subsystems/telemetry.md",
       "symbol": "TelemetrySeverity",
       "source": "packages/session/session-telemetry/src/index.ts"
     },

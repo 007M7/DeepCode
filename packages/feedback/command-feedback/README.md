@@ -8,10 +8,23 @@ Trigger-independent session feedback plus human-facing `/feedback` capture. The 
 
 | Input | Result |
 |---|---|
-| `/feedback <text>` | Append `feedback/record` and acknowledge with `Feedback recorded for session {sessionId}` followed by `User: {userId}`. |
+| `/feedback <text>` | Append `feedback/record` and acknowledge with `Feedback recorded for session {sessionId}`, `User: {userId}`, plus the session-sharing disclosure. |
 | `/feedback` | Return a direct usage error. Whitespace-only input is treated as empty. |
 
 Surrounding whitespace is discarded, but feedback is otherwise unparsed: no truncation, case folding, or control words. Text that looks like another command, such as `/feedback /plan felt slow`, is feedback content. Repeated commands each produce their own event; nothing is replaced or merged.
+
+## Session-sharing disclosure
+
+The acknowledgement names the receiving session id and reports how that session is shared, read from the mounted [`telemetry`](../../session/session-telemetry/README.md) service through the plugin context (`ctx.get('telemetry')`, never a declared injection). The disclosure is one sentence chosen from the backend's [`TelemetrySharingStatus`](../../session/session-telemetry/README.md):
+
+| Disclosed status | Acknowledgement sentence |
+|---|---|
+| `full` | `Session sharing is enabled.` |
+| `feedback-only` | `Session sharing is feedback-gated; recording feedback releases the session prefix for sharing.` |
+| `disabled` | `Session sharing is disabled.` |
+| no service | `Session sharing is not configured.` |
+
+The disclosure states the deployment's current sharing policy only; it never promises delivery or retention. With `full` or `feedback-only`, records are handed to the backend's non-blocking enqueue and the SDK owns batching, retry, and loss policy, so the sentence claims nothing about what reached a collector; `disabled` claims nothing about future reconfiguration. The disclosure adds no event and never enters the model surface.
 
 ## What this plugin does and does not do
 
@@ -56,4 +69,5 @@ Independent of the model request path. Recording appends to the session log only
 - **No structured fields** — an entry is one free-text string with no category, severity, or referenced-event link, so feedback cannot be filtered by subject without re-reading its text.
 - **No amend or withdraw** — the session log is append-only and this package adds no tombstone, so a mistaken entry stays recorded and can only be superseded by a later one.
 - **No explicit durability barrier** — the acknowledgement follows the append, not a flush, so an entry recorded immediately before a crash can be lost with any other unflushed tail. Feedback is not worth forcing a synchronous disk write for; a consumer that needs one awaits `ctx.sessions.flush(session)`.
+- **No visible acknowledgement on a fresh session** — the web transcript renders command rows only once a session is active, so `/feedback` on a still-blank session records the event but shows no acknowledgement row. Recording feedback after the first message renders normally.
 - **Web only among the shipped entry points** — headless mode, ACP automation, and JSON-RPC do not provide a command adapter, so `/feedback` is unavailable there.
