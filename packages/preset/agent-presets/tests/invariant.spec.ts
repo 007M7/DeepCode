@@ -11,7 +11,7 @@ import AgentRegistry, { assembleContextFor } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import InvariantService from '@deepseek-ai/dsh-invariants'
 import { describe, expect, it } from 'vitest'
-import AgentPresets, { livePresetMounts } from '@deepseek-ai/dsh-agent-presets'
+import AgentPresets, { livePresetMounts, type Config } from '@deepseek-ai/dsh-agent-presets'
 import * as AgentPresetsInvariant from '@deepseek-ai/dsh-agent-presets/invariant'
 
 const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), 'fixtures')
@@ -20,7 +20,7 @@ const ROOTS = [
   { path: join(FIXTURES, 'user'), trust: 'user' as const },
 ]
 
-async function harness(): Promise<Context> {
+async function harness(roster: Partial<Config> = {}): Promise<Context> {
   const ctx = new Context()
   ctx.baseUrl = pathToFileURL(FIXTURES).href + '/'
   await ctx.plugin(Loader)
@@ -31,7 +31,7 @@ async function harness(): Promise<Context> {
   await ctx.plugin(ToolRegistry)
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(AgentLoop, { agents: [] })
-  await ctx.plugin(AgentPresets, { default: 'standard', roots: ROOTS, includeUserRoot: false })
+  await ctx.plugin(AgentPresets, { default: 'standard', roots: ROOTS, includeUserRoot: false, ...roster })
   await ctx.plugin(InvariantService)
   await ctx.plugin(AgentPresetsInvariant)
   return ctx
@@ -95,6 +95,28 @@ describe('agent-presets invariants', () => {
 
     await expect(ctx.systemPrompt.assemble(assembleContextFor(handle.agent)))
       .rejects.toThrow(/without joining any agent preset/)
+  })
+
+  it('rejects one just the same when the derived home root is the whole roster', async () => {
+    // The shape this plugin defaults to: an app configures nothing and the
+    // roster is the harness home alone. A roster is a roster however its roots
+    // were resolved, so the fail-loud half must not go quiet here — it read
+    // `config.roots` once, which is empty in exactly this case.
+    const ctx = await harness({ roots: [], includeUserRoot: true })
+    const handle = await ctx.agents.create({ sessionId: SessionId('inv-derived-only') })
+
+    await expect(ctx.systemPrompt.assemble(assembleContextFor(handle.agent)))
+      .rejects.toThrow(/without joining any agent preset/)
+  })
+
+  it('stays silent for a composition that opted out of every root', async () => {
+    // `includeUserRoot: false` with no configured roots is a deployment that
+    // mounts the roster but keeps its agents on the host plane; there is no
+    // roster to join, so an unjoined agent is not a violation.
+    const ctx = await harness({ roots: [], includeUserRoot: false })
+    const handle = await ctx.agents.create({ sessionId: SessionId('inv-no-roster') })
+
+    await expect(ctx.systemPrompt.assemble(assembleContextFor(handle.agent))).resolves.toBeDefined()
   })
 
   it('admits a joined agent, a scopeless read, and a standing-key read', async () => {

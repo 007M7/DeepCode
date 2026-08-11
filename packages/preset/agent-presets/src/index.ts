@@ -337,7 +337,17 @@ export class AgentPresets extends Service {
     return standingMountFor(agentCtx)?.presetId
   }
 
-  /** Whether this deployment configures a root locally authored presets go to. */
+  /**
+   * The roots this roster scans, which is not `config.roots`: it is every
+   * configured root in order, then the harness-home user root unless
+   * `includeUserRoot` is false. Read this — not the config field — to answer
+   * whether a roster is composed at all, so one derivation decides it.
+   */
+  get roots(): readonly PresetRoot[] {
+    return this.resolvedRoots
+  }
+
+  /** Whether this deployment has a root locally authored presets go to. */
   get authorable(): boolean {
     return this.resolvedRoots.some(root => root.trust === 'user')
   }
