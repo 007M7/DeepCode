@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
 const css = readFileSync(fileURLToPath(new URL('../src/client/WorkspaceBrowser.module.css', import.meta.url)), 'utf8')
+const rowsCss = readFileSync(fileURLToPath(new URL('../src/client/rows/Rows.module.css', import.meta.url)), 'utf8')
 
 /**
  * Declarations of one selector rule, keyed by property with whitespace collapsed.
@@ -15,20 +16,22 @@ const css = readFileSync(fileURLToPath(new URL('../src/client/WorkspaceBrowser.m
  * @param selector - one exact selector, including a leading dot for local classes.
  * @returns the rule's declarations, or undefined when no such rule exists.
  */
-function declarations(selector: string): Map<string, string> | undefined {
-  const withoutComments = css.replace(/\/\*[\s\S]*?\*\//g, ' ')
+function declarationsFrom(source: string, selector: string): Map<string, string> | undefined {
+  const withoutComments = source.replace(/\/\*[\s\S]*?\*\//g, ' ')
+  const found = new Map<string, string>()
   for (const [, selectorList = '', body = ''] of withoutComments.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
     if (!selectorList.split(',').map(value => value.trim()).includes(selector)) continue
-    const found = new Map<string, string>()
     for (const part of body.split(';')) {
       const colon = part.indexOf(':')
       if (colon === -1) continue
       found.set(part.slice(0, colon).trim(), part.slice(colon + 1).trim().replace(/\s+/g, ' '))
     }
-    return found
   }
-  return undefined
+  return found.size === 0 ? undefined : found
 }
+
+const declarations = (selector: string): Map<string, string> | undefined => declarationsFrom(css, selector)
+const rowDeclarations = (selector: string): Map<string, string> | undefined => declarationsFrom(rowsCss, selector)
 
 describe('WorkspaceBrowser.module.css list', () => {
   const root = declarations('.root')
@@ -67,5 +70,16 @@ describe('WorkspaceBrowser.module.css list', () => {
     expect(declarations(".searchTree > [role='treeitem'] + [role='treeitem']")?.get('margin-top')).toBe('2px')
     expect(declarations('.groupSection > * + *')?.get('margin-top')).toBe('2px')
     expect(declarations('.groupSection + .groupSection')?.get('margin-top')).toBe('4px')
+  })
+
+  it('keeps the compact fade, overflow control, search field, and row heights', () => {
+    expect(declarations('.fade')?.get('height')).toBe('24px')
+    expect(declarations('.sessionOverflowButton')?.get('height')).toBe('28px')
+    expect(declarations('.searchExpanded')?.get('height')).toBe('34px')
+    expect(rowDeclarations('.projectRow')?.get('height')).toBe('34px')
+    expect(rowDeclarations('.sessionRow')?.get('height')).toBe('32px')
+    expect(rowDeclarations('.searchResultRow')?.get('min-height')).toBe('48px')
+    expect(rowDeclarations('.sessionRow.selected')?.get('background'))
+      .toBe('var(--dsw-alias-interactive-bg-hover)')
   })
 })

@@ -110,7 +110,7 @@ async function bench(snapshot: ConversationSnapshot) {
   const session = createSnapshotStore<ConversationSnapshot>(snapshot)
   const list = createSnapshotStore<SessionListState>({
     ids: [SID],
-    byId: { [SID]: { id: SID, title: 'S', displayTitle: 'S', running: false, blank: false, updatedAt: 1 } },
+    byId: { [SID]: { id: SID, title: 'S', displayTitle: 'S', running: false, blank: false, createdAt: 1, updatedAt: 1 } },
     current: SID,
     phase: 'ready', subagentsByParent: {}, tasksBySession: {}, currentAddress: undefined,
   })

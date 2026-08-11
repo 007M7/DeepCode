@@ -23,6 +23,7 @@ import {
   workspaceArchiveSessionRequestSchema, workspaceArchiveSessionValueSchema,
   workspaceCreateRequestSchema, workspaceCreateValueSchema, workspaceIdSchema,
   workspaceDeleteRequestSchema, workspaceDeleteValueSchema,
+  workspaceInsertBeforeRequestSchema, workspaceInsertBeforeValueSchema,
   workspaceInsertSessionBeforeRequestSchema, workspaceInsertSessionBeforeValueSchema,
   workspaceListRequestSchema, workspaceListValueSchema,
   workspaceRenameRequestSchema, workspaceRenameValueSchema, workspaceViewSchema,
@@ -349,6 +350,17 @@ describe('workspace domain schemas', () => {
     expect(() => workspaceDeleteRequestSchema.parse({})).toThrow()
     expect(workspaceDeleteValueSchema.parse({ deleted: true })).toEqual({ deleted: true })
     expect(() => workspaceDeleteValueSchema.parse({ deleted: false })).toThrow()
+  })
+
+  it('insertBefore accepts an anchored or anchorless Workspace move and returns the complete order', () => {
+    expect(workspaceInsertBeforeRequestSchema.parse({
+      workspaceId: 'w1', beforeWorkspaceId: 'w2',
+    }).beforeWorkspaceId).toBe('w2')
+    expect(workspaceInsertBeforeRequestSchema.parse({ workspaceId: 'w1' }).beforeWorkspaceId)
+      .toBeUndefined()
+    expect(() => workspaceInsertBeforeRequestSchema.parse({ beforeWorkspaceId: 'w2' })).toThrow()
+    expect(workspaceInsertBeforeValueSchema.parse({ workspaceIds: ['w2', 'w1'] }).workspaceIds)
+      .toEqual(['w2', 'w1'])
   })
 
   it('insertSessionBefore accepts an anchored and an anchorless move', () => {

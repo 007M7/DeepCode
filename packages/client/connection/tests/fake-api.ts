@@ -4,7 +4,7 @@
 import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
 import type {
   CommandDescriptor, HostFrame, IApiClient, ModelSelection, MuxFrame,
-  RpcRequest, RpcResponse, SessionId, SessionModels, SessionSearchItem, SkillEntry,
+  RpcRequest, RpcResponse, SessionId, SessionModels, SessionSearchItem, SkillEntry, WorkspaceId,
 } from '../src/client/api.ts'
 import { RpcId } from '../src/client/api.ts'
 
@@ -152,6 +152,9 @@ export class FakeApiClient implements IApiClient {
       workspace: { workspaceId: 'fk-ws' as never, path: '/f/ws', title: 'ws', sessionIds: [], createdAt: '0', updatedAt: '0' },
     }))),
     delete: (payload: unknown) => this.record('workspace.delete', payload, Promise.resolve(ok({ deleted: true as const }))),
+    insertBefore: (payload: unknown) => this.record('workspace.insertBefore', payload, Promise.resolve(ok({
+      workspaceIds: [(payload as { workspaceId: WorkspaceId }).workspaceId],
+    }))),
     insertSessionBefore: (payload: unknown) => this.record('workspace.insertSessionBefore', payload, Promise.resolve(ok({
       workspace: { workspaceId: 'fk-ws' as never, path: '/f/ws', title: 'ws', sessionIds: [], createdAt: '0', updatedAt: '0' },
     }))),

@@ -308,6 +308,48 @@ describe('workspace.create', () => {
   })
 })
 
+describe('workspace.insertBefore', () => {
+  it('commits the complete order, streams one order frame, and maps unknown ids', async () => {
+    const { api, root } = await harness()
+    const first = expectOk(await api.workspace.create(request({ path: stageDir(root, 'first') }))).workspace
+    const second = expectOk(await api.workspace.create(request({ path: stageDir(root, 'second') }))).workspace
+    const third = expectOk(await api.workspace.create(request({ path: stageDir(root, 'third') }))).workspace
+
+    const abort = new AbortController()
+    const stream: AsyncIterator<RpcRequest<HostFrame>> =
+      api.events.host(request({}), abort.signal)[Symbol.asyncIterator]()
+    const changed = nextHostFrame(stream)
+    const reordered = expectOk(await api.workspace.insertBefore(request({
+      workspaceId: first.workspaceId,
+      beforeWorkspaceId: second.workspaceId,
+    })))
+    expect(reordered.workspaceIds).toEqual([third.workspaceId, first.workspaceId, second.workspaceId])
+    expect(await changed).toMatchObject({
+      payload: {
+        type: 'host/workspace-order-changed',
+        workspaceIds: [third.workspaceId, first.workspaceId, second.workspaceId],
+      },
+    })
+    expect(expectOk(await api.workspace.list(request({}))).items.map(item => item.workspaceId))
+      .toEqual(reordered.workspaceIds)
+
+    const missingSource = await api.workspace.insertBefore(request({
+      workspaceId: 'missing' as WorkspaceId,
+    }))
+    expect(missingSource.result).toMatchObject({
+      ok: false, error: { code: 'workspace-not-found', details: { workspaceId: 'missing' } },
+    })
+    const missingAnchor = await api.workspace.insertBefore(request({
+      workspaceId: first.workspaceId,
+      beforeWorkspaceId: 'missing-anchor' as WorkspaceId,
+    }))
+    expect(missingAnchor.result).toMatchObject({
+      ok: false, error: { code: 'workspace-not-found', details: { workspaceId: 'missing-anchor' } },
+    })
+    abort.abort()
+  })
+})
+
 describe('session creation and Workspace membership', () => {
   it('attaches a preallocated idempotent session while cwd-only sessions stay ungrouped', async () => {
     const { api, ctx, root } = await harness()

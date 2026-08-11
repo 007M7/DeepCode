@@ -11,7 +11,8 @@ import { createWorkspaceViewStore } from '../src/client/stores.ts'
 const sid = (id: string) => id as SessionId
 const wid = (id: string) => id as WorkspaceId
 const summary = (id: string, updatedAt: number, cwd?: string): SessionSummary => ({
-  id: sid(id), displayTitle: id, running: false, blank: false, updatedAt, ...(cwd === undefined ? {} : { cwd }),
+  id: sid(id), displayTitle: id, running: false, blank: false,
+  createdAt: updatedAt, updatedAt, ...(cwd === undefined ? {} : { cwd }),
 })
 const list = (...items: SessionSummary[]): SessionListState => ({
   ids: items.map(item => item.id),
@@ -377,11 +378,22 @@ describe('deriveSearchResults', () => {
 })
 
 describe('createWorkspaceViewStore', () => {
-  it('defaults to workspace grouping; setGroupBy is the sole mutation', () => {
+  it('stores grouping, ordering, Workspace expansion, and recent-session view order', () => {
     const store = createWorkspaceViewStore().create()
     expect(store.getSnapshot().groupBy).toBe('workspace')
+    expect(store.getSnapshot().orderBy).toBe('manual')
     store.actions.setGroupBy('flat')
+    store.actions.setOrderBy('updated')
+    store.actions.setWorkspaceExpanded('alpha', true)
+    store.actions.syncRecentSessions('alpha', ['two', 'one'], { one: 1, two: 2 })
+    store.actions.setRecentSessionOrder('alpha', ['one', 'two'])
     expect(store.getSnapshot().groupBy).toBe('flat')
+    expect(store.getSnapshot()).toMatchObject({
+      orderBy: 'updated',
+      workspaceExpansion: { alpha: true },
+      recentSessionOrder: { alpha: ['one', 'two'] },
+      recentSessionUpdatedAt: { alpha: { one: 1, two: 2 } },
+    })
   })
 })
 

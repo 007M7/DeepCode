@@ -22,7 +22,7 @@ const t: WorkspaceBrowserProps['t'] = makeTranslate(zh, commonZh)
 const sid = (id: string) => id as SessionId
 const wid = (id: string) => id as WorkspaceId
 const summary = (id: string, updatedAt: number, overrides: Partial<SessionSummary> = {}): SessionSummary => ({
-  id: sid(id), displayTitle: id, running: false, blank: false, updatedAt, ...overrides,
+  id: sid(id), displayTitle: id, running: false, blank: false, createdAt: updatedAt, updatedAt, ...overrides,
 })
 const sessionState = (items: readonly SessionSummary[], overrides: Partial<SessionListState> = {}): SessionListState => ({
   ids: items.map(item => item.id),
@@ -53,6 +53,10 @@ function fireDrag(row: HTMLElement, kind: 'dragOver' | 'drop', clientY: number):
   fireEvent(row, event)
 }
 
+function dragData(): Pick<DataTransfer, 'effectAllowed' | 'dropEffect' | 'setData'> {
+  return { effectAllowed: 'uninitialized', dropEffect: 'none', setData: vi.fn() }
+}
+
 function mount(overrides: Partial<WorkspaceBrowserProps> = {}) {
   const store = createWorkspaceViewStore().create()
   const props: WorkspaceBrowserProps = {
@@ -71,6 +75,7 @@ function mount(overrides: Partial<WorkspaceBrowserProps> = {}) {
     renameWorkspace: vi.fn(async () => {}),
     deleteWorkspace: vi.fn(async () => {}),
     archiveSession: vi.fn(async () => {}),
+    insertWorkspaceBefore: vi.fn(async () => {}),
     insertSessionBefore: vi.fn(async () => {}),
     createWorkspace: vi.fn(async () => workspace('created', [])),
     useDirectoryFlow: bindSnapshotSelector({ getSnapshot: () => true, subscribe: () => () => {} }),
@@ -102,6 +107,8 @@ describe('WorkspaceBrowser', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '分组方式' }))
     expect(screen.getByText('分组方式')).toBeTruthy() // the menu heading label
+    expect(screen.getByRole('menuitem', { name: '手动排序' }).querySelector('svg')).toBeTruthy()
+    expect(screen.queryByText('创建时间')).toBeNull()
     fireEvent.click(screen.getByRole('menuitem', { name: '单列表' }))
     // Store-driven flip: title changes, rows flatten newest-first, headers gone.
     expect(b.store.getSnapshot().groupBy).toBe('flat')
@@ -138,6 +145,61 @@ describe('WorkspaceBrowser', () => {
     expect(screen.queryByText('alpha-s')).toBeNull()
   })
 
+  it('shows five sessions by default and clears transient show-all when the Workspace collapses', () => {
+    const items = Array.from({ length: 7 }, (_, index) => summary(`session-${index + 1}`, 7 - index))
+    const b = mount({
+      useSessions: hook(sessionState(items)),
+      useWorkspaces: hook(workspaceState([workspace('alpha', items.map(item => item.id))])),
+    })
+    fireEvent.click(screen.getByText('alpha'))
+    for (const item of items.slice(0, 5)) expect(screen.getByText(item.displayTitle)).toBeTruthy()
+    expect(screen.queryByText('session-6')).toBeNull()
+    expect(screen.queryByText('session-7')).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: '展开其余 2 个会话' }))
+    expect(screen.getByText('session-6')).toBeTruthy()
+    expect(screen.getByText('session-7')).toBeTruthy()
+    expect(screen.getByRole('button', { name: '收起' })).toBeTruthy()
+
+    fireEvent.click(screen.getByText('alpha'))
+    expect(b.store.getSnapshot().workspaceExpansion).toEqual({ alpha: false })
+    fireEvent.click(screen.getByText('alpha'))
+    expect(b.store.getSnapshot().workspaceExpansion).toEqual({ alpha: true })
+    expect(screen.queryByText('session-6')).toBeNull()
+    expect(screen.getByRole('button', { name: '展开其余 2 个会话' })).toBeTruthy()
+  })
+
+  it('keeps recent-update order editable and promotes a Session when its timestamp advances', async () => {
+    const initial = sessionState([summary('one', 3), summary('two', 2)])
+    const b = mount({
+      useSessions: hook(initial),
+      useWorkspaces: hook(workspaceState([workspace('alpha', ['two', 'one'])])),
+    })
+    fireEvent.click(screen.getByText('alpha'))
+    fireEvent.click(screen.getByRole('button', { name: '分组方式' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '最近更新' }))
+    await waitFor(() => {
+      const rows = screen.getAllByRole('treeitem').slice(1)
+      expect(rows[0]?.textContent).toContain('one')
+      expect(rows[1]?.textContent).toContain('two')
+    })
+
+    const [one, two] = screen.getAllByRole('treeitem').slice(1) as [HTMLElement, HTMLElement]
+    two.getBoundingClientRect = () => ({
+      top: 150, bottom: 184, left: 0, right: 200, width: 200, height: 34, x: 0, y: 150, toJSON: () => ({}),
+    })
+    fireEvent.dragStart(one, { dataTransfer: dragData() })
+    fireDrag(two, 'drop', 180)
+    expect(b.store.getSnapshot().recentSessionOrder.alpha).toEqual(['two', 'one'])
+
+    const updated = sessionState([summary('one', 4), summary('two', 2)])
+    rerender(b, { useSessions: hook(updated) })
+    await waitFor(() => {
+      expect(b.store.getSnapshot().recentSessionOrder.alpha).toEqual(['one', 'two'])
+      expect(screen.getAllByRole('treeitem').slice(1)[0]?.textContent).toContain('one')
+    })
+  })
+
   it('archives a session from the row menu and hides archived rows in both modes', async () => {
     const archiveSession = vi.fn(async () => {})
     const b = mount({
@@ -150,10 +212,9 @@ describe('WorkspaceBrowser', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: '归档会话' }))
     expect(archiveSession).toHaveBeenCalledWith(sid('gone-s'))
 
-    // The archive-set echo hides the row in grouped mode (count included) and flat mode.
+    // The archive-set echo hides the row in grouped and flat modes.
     rerender(b, { useWorkspaces: hook(workspaceState([workspace('alpha', ['kept-s', 'gone-s'])], [sid('gone-s')])) })
     expect(screen.queryByText('gone-s')).toBeNull()
-    expect(screen.getByText('1 个会话')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: '分组方式' }))
     fireEvent.click(screen.getByRole('menuitem', { name: '单列表' }))
     expect(screen.getByText('kept-s')).toBeTruthy()
@@ -253,7 +314,6 @@ describe('WorkspaceBrowser', () => {
     expect(screen.getByText('新会话')).toBeTruthy()
     expect(screen.queryByText('alpha-blank')).toBeNull()
     expect(screen.queryByText('beta-blank')).toBeNull()
-    expect(screen.getByText('1 个会话')).toBeTruthy()
 
     rerender(b, { useSessions: hook({ ...sessions, current: staleBlank.id }) })
     expect(screen.getAllByText('新会话')).toHaveLength(1)
@@ -279,6 +339,7 @@ describe('WorkspaceBrowser', () => {
         useSessions: hook(sessions),
         useWorkspaces: hook(workspaceState([workspace('alpha', ['needle-row', 'other-row'])])),
       })
+      fireEvent.click(screen.getByRole('button', { name: '搜索会话' }))
       const input = screen.getByPlaceholderText<HTMLInputElement>('搜索名称、关键词…')
       fireEvent.change(input, { target: { value: 'needle' } })
       const resultTree = screen.getByRole('tree', { name: '搜索结果' })
@@ -300,6 +361,22 @@ describe('WorkspaceBrowser', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  it('collapses an empty search on outside click but keeps a non-empty query expanded', () => {
+    mount()
+    const search = screen.getByRole('button', { name: '搜索会话' })
+    fireEvent.click(search)
+    expect(search.getAttribute('aria-expanded')).toBe('true')
+    fireEvent.click(document.body)
+    expect(search.getAttribute('aria-expanded')).toBe('false')
+
+    fireEvent.click(search)
+    const input = screen.getByPlaceholderText<HTMLInputElement>('搜索名称、关键词…')
+    fireEvent.change(input, { target: { value: 'kept' } })
+    fireEvent.click(document.body)
+    expect(search.getAttribute('aria-expanded')).toBe('true')
+    expect(input.value).toBe('kept')
   })
 
   it('adds Host content hits with context, shows the result bound, and opens without clearing the query', async () => {
@@ -524,6 +601,34 @@ describe('WorkspaceBrowser', () => {
     expect(screen.getByText('alpha')).toBeTruthy()
   })
 
+  it('uses the full expanded Workspace section when resolving a Workspace drop half', () => {
+    const insertWorkspaceBefore = vi.fn(async () => {})
+    const sessions = sessionState(Array.from({ length: 5 }, (_, index) => summary(`beta-${index}`, index)))
+    mount({
+      useSessions: hook(sessions),
+      useWorkspaces: hook(workspaceState([
+        workspace('alpha', []),
+        workspace('beta', sessions.ids),
+        workspace('tail', []),
+      ])),
+      insertWorkspaceBefore,
+    })
+    fireEvent.click(screen.getByText('beta'))
+    const source = screen.getByText('tail').closest('[role="treeitem"]') as HTMLElement
+    let targetSection = screen.getByText('beta').closest('[role="treeitem"]')?.parentElement as HTMLElement
+    while (targetSection.parentElement?.getAttribute('role') !== 'tree') {
+      targetSection = targetSection.parentElement as HTMLElement
+    }
+    targetSection.getBoundingClientRect = () => ({
+      top: 100, bottom: 300, left: 0, right: 200, width: 200, height: 200, x: 0, y: 100, toJSON: () => ({}),
+    })
+    fireEvent.dragStart(source, { dataTransfer: dragData() })
+    // y=190 is below the header row but still in the top half of the whole
+    // expanded section, so the target is before beta rather than after it.
+    fireDrag(targetSection, 'drop', 190)
+    expect(insertWorkspaceBefore).toHaveBeenCalledWith(wid('tail'), wid('beta'))
+  })
+
   it('drag reorder reports the anchor to insertSessionBefore and skips no-op drops', () => {
     const insertSessionBefore = vi.fn(async () => {})
     const sessions = sessionState([summary('one', 3), summary('two', 2), summary('three', 1)])
@@ -538,7 +643,7 @@ describe('WorkspaceBrowser', () => {
     three.getBoundingClientRect = () => ({
       top: 200, bottom: 234, left: 0, right: 200, width: 200, height: 34, x: 0, y: 200, toJSON: () => ({}),
     })
-    const dataTransfer = { effectAllowed: '', dropEffect: '' }
+    const dataTransfer = dragData()
     fireEvent.dragStart(one, { dataTransfer })
     // Drop on the top half of "three": insert one before three.
     fireDrag(three, 'dragOver', 205)
@@ -569,7 +674,7 @@ describe('WorkspaceBrowser', () => {
     })
     fireEvent.click(screen.getByText('alpha'))
     const one = screen.getByText('one').closest('[role="treeitem"]') as HTMLElement
-    fireEvent.dragStart(one, { dataTransfer: { effectAllowed: '', dropEffect: '' } })
+    fireEvent.dragStart(one, { dataTransfer: dragData() })
     // The host dropped "one" from the workspace account while the drag is in
     // flight: the source index is gone but the drop still resolves its anchor.
     rerender(b, { useWorkspaces: hook(workspaceState([workspace('alpha', ['two'])])) })
@@ -594,7 +699,7 @@ describe('WorkspaceBrowser', () => {
     two.getBoundingClientRect = () => ({
       top: 150, bottom: 184, left: 0, right: 200, width: 200, height: 34, x: 0, y: 150, toJSON: () => ({}),
     })
-    const dataTransfer = { effectAllowed: '', dropEffect: '' }
+    const dataTransfer = dragData()
     fireEvent.dragStart(one, { dataTransfer })
     fireEvent.dragEnd(one)
     // The drag ended: rows no longer accept drops.
@@ -605,6 +710,28 @@ describe('WorkspaceBrowser', () => {
     fireEvent.dragStart(one, { dataTransfer })
     fireDrag(two, 'dragOver', 180)
     fireDrag(two, 'drop', 180)
+    expect(insertSessionBefore).toHaveBeenCalledWith(wid('alpha'), sid('one'), undefined)
+  })
+
+  it('accepts a document-level drop and commits the last Session marker on drag end', () => {
+    const insertSessionBefore = vi.fn(async () => {})
+    mount({
+      useSessions: hook(sessionState([summary('one', 2), summary('two', 1)])),
+      useWorkspaces: hook(workspaceState([workspace('alpha', ['one', 'two'])])),
+      insertSessionBefore,
+    })
+    fireEvent.click(screen.getByText('alpha'))
+    const [one, two] = screen.getAllByRole('treeitem').slice(1) as [HTMLElement, HTMLElement]
+    two.getBoundingClientRect = () => ({
+      top: 150, bottom: 184, left: 0, right: 200, width: 200, height: 34, x: 0, y: 150, toJSON: () => ({}),
+    })
+    fireEvent.dragStart(one, { dataTransfer: dragData() })
+    fireDrag(two, 'dragOver', 180)
+    const outsideDrop = createEvent.drop(document.body)
+    Object.defineProperty(outsideDrop, 'dataTransfer', { value: dragData() })
+    fireEvent(document.body, outsideDrop)
+    expect(outsideDrop.defaultPrevented).toBe(true)
+    fireEvent.dragEnd(one)
     expect(insertSessionBefore).toHaveBeenCalledWith(wid('alpha'), sid('one'), undefined)
   })
 
@@ -623,7 +750,7 @@ describe('WorkspaceBrowser', () => {
       two.getBoundingClientRect = () => ({
         top: 150, bottom: 184, left: 0, right: 200, width: 200, height: 34, x: 0, y: 150, toJSON: () => ({}),
       })
-      const dataTransfer = { effectAllowed: '', dropEffect: '' }
+      const dataTransfer = dragData()
       fireEvent.dragStart(one, { dataTransfer })
       fireDrag(two, 'drop', 180)
       await waitFor(() => { expect(warn).toHaveBeenCalledWith('session reorder rejected:', expect.any(Error)) })
