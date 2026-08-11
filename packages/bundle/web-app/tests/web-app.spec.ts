@@ -187,6 +187,28 @@ describe('web-app runtime glue', () => {
     await ctx.fiber.dispose()
   })
 
+  it('defers to a user-configured client-hmr row anywhere in the tree', async () => {
+    stageDist()
+    const ctx = new Context()
+    ctx.provide('httpServer', fakeHttpServer().server)
+    const created: string[] = []
+    // The user's own row — possibly patched into an include subtree and even
+    // disabled there — already carries the name; the runtime must not create
+    // a second one beside it.
+    ctx.provide('loader', {
+      entries: () => [{ options: { id: 'my-hmr', name: '@deepseek-ai/dsh-client-hmr', disabled: true } }][Symbol.iterator](),
+      create: (options: { name: string }) => {
+        created.push(options.name)
+        return Promise.resolve(options.name)
+      },
+      await: () => Promise.resolve(),
+    } as never)
+    apply(ctx, new Config({ mode: 'development', printUrl: false, surfaceContext: false, trustedHosts: [] }))
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(created).toEqual([])
+    await ctx.fiber.dispose()
+  })
+
   it('skips the dev row when the tree is disposed during settlement and logs a creation failure', async () => {
     stageDist()
     const raced = new Context()

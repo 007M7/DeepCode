@@ -160,8 +160,11 @@ export function apply(ctx: Context, config: Config): void {
     } else {
       void loader.await().then(async () => {
         // The tree can be disposed while settlement was in flight (early
-        // SIGTERM); re-check before mutating it. A reload of this fiber must
-        // not duplicate the row a previous generation created.
+        // SIGTERM); re-check before mutating it. The name scan spans every
+        // tree (entries() recurses into subtrees), so a row the user
+        // configured in a patch layer — enabled, reconfigured, or
+        // deliberately disabled — wins over this default, and a reload of
+        // this fiber never duplicates the row a previous generation created.
         if (ctx.get('loader') === undefined) return
         const mounted = [...ctx.loader.entries()].some(entry => entry.options.name === HMR_ROW_NAME)
         if (!mounted) await ctx.loader.create({ name: HMR_ROW_NAME })
