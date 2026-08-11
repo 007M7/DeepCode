@@ -519,8 +519,14 @@ export function SubagentCatalogAction({
     observedCatalogs.current.clear()
   }, [])
 
+  // Visibility needs evidence of children (entries, summary-known descendants,
+  // or a failed load worth retrying). A bare loading catalog is not evidence:
+  // selecting any session schedules a refresh whose loading snapshot would
+  // otherwise flash the action in and out on childless sessions.
   const visible = presentedCatalog !== undefined
-    && (presentedCatalog.state !== 'ready' || presentedCatalog.entries.length > 0)
+    && (presentedCatalog.state === 'error'
+      || presentedCatalog.entries.length > 0
+      || descendantCount > 0)
   useEffect(() => {
     if (visible || !open) return
     setOpen(false)

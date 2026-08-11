@@ -225,11 +225,11 @@ describe('DeepSeekSearchProvider settings changes mid-search', () => {
     commitSettings()
     await search
 
-    const [endpoint, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    const [endpoint, init] = fetchMock.mock.calls[0] as unknown as [string, { headers: Record<string, string>; body: string }]
     // The key resolved from `before` must never reach `after`'s origin.
     expect(endpoint).toBe('https://before.test/v1/messages')
-    expect((init.headers as Record<string, string>)['x-api-key']).toBe('key-from-before')
-    expect(JSON.parse(String(init.body))).toMatchObject({ model: 'model-before' })
+    expect(init.headers['x-api-key']).toBe('key-from-before')
+    expect(JSON.parse(init.body)).toMatchObject({ model: 'model-before' })
   })
 })
 

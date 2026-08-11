@@ -205,11 +205,11 @@
   background: var(--dsw-alias-interactive-bg-hover);
 }
 
-/* Options area (figma Options 501:29983): pad (24,0,24,8), scrolls. */
+/* Options area (figma Options 501:29983): pad (24,0,24,24), scrolls. */
 .options {
   flex: 1;
   min-height: 0;
-  padding: 0 24px 8px;
+  padding: 0 24px 24px;
   overflow-y: auto;
 }
 

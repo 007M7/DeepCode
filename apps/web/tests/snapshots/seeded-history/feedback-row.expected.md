@@ -38,10 +38,10 @@
   - text: Context injection AGENTS.md
 - img
 - text: permission preset read-only
-- 'button "feedback Feedback recorded for session {{seededId}} User: {{uuid}}" [expanded]':
+- 'button "feedback Feedback recorded for session {{seededId}} User: {{uuid}}. Session sharing is not configured." [expanded]':
   - img
-  - text: "feedback Feedback recorded for session {{seededId}} User: {{uuid}}"
-- text: "Feedback recorded for session {{seededId}} User: {{uuid}}"
+  - text: "feedback Feedback recorded for session {{seededId}} User: {{uuid}}. Session sharing is not configured."
+- text: "Feedback recorded for session {{seededId}} User: {{uuid}}. Session sharing is not configured."
 - textbox "Message the agent"
 - button "Commands":
   - img

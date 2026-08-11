@@ -22,6 +22,7 @@ import {
   assertSubagentMaxDepth,
   captureDelegatedPolicyOverrides,
   childSessionMeta,
+  finalAssistantOutput,
   resolveChildAgentOptions,
   resolveChildDepth,
 } from '@deepseek-ai/dsh-subagent'
@@ -206,9 +207,9 @@ function readResult(
   structured?: { captured?: { value: unknown } | undefined },
 ): SubagentResult {
   const own = child.session.events.slice(boundary)
-  const lastMessage = own.findLast((event): event is SessionEvent<'assistant/message'> => event.type === 'assistant/message')
   const lastEnd = findLastMessageTurnEnd(own)
-  const output: ContentBlock[] = lastMessage?.data.message.content ?? []
+  // The seam's canonical selection rule; a partial answer survives cancel and truncation.
+  const output: ContentBlock[] = finalAssistantOutput(own) ?? []
   const recorded = toStopReason(lastEnd?.data.reason)
   // Disposal can tear the owner down before the loop records its ordinary
   // `aborted` end, yielding `disposed` instead.
