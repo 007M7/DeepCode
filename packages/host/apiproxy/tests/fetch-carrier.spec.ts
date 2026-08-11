@@ -140,7 +140,13 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
     },
     host: {
       async describe(request) {
-        return { rpcId: request.rpcId, result: { ok: true, value: { version: 'v', cwd: '/w', attachedSessions: 0 } } }
+        return {
+          rpcId: request.rpcId,
+          result: {
+            ok: true,
+            value: { version: 'v', cwd: '/w', attachedSessions: 0, canOpenPath: true },
+          },
+        }
       },
       async pickDirectory(request) {
         return { rpcId: request.rpcId, result: { ok: true, value: { path: null } } }

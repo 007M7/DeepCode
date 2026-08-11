@@ -343,8 +343,8 @@ export interface GenerateOptions {
   stop?: string[]
   signal?: AbortSignal
   /**
-   * Session identity stamped by the loop for listener routing. Adapters ignore
-   * it; replay uses it to keep concurrent parent and child cursors independent.
+   * Session identity stamped by the loop for request routing. Replay uses it
+   * to separate cursors; adapters may map it to model-hidden transport metadata.
    */
   sessionId?: Branded<'SessionId'>
   /**

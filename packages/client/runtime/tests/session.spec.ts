@@ -465,6 +465,7 @@ describe('prompt and cancel errors', () => {
       {
         parentSessionId: PARENT, childSessionId: SID, mode: 'continuable',
         content: [{ type: 'text', text: '继续' }],
+        clientTimeZone: new Intl.DateTimeFormat().resolvedOptions().timeZone,
       },
     ])
     expect(api.callsOf('subagent.interrupt')).toEqual([
@@ -530,7 +531,12 @@ describe('prompt and cancel errors', () => {
     expect(result.ok).toBe(true)
     // Monotone: settlement alone does not step the phase anywhere.
     expect(session.getSnapshot().composerPhase).toBe('engaging')
-    expect(api.callsOf('session.prompt')).toMatchObject([{ sessionId: SID, mode: 'queue', content: [{ type: 'text', text: '要发的' }] }])
+    expect(api.callsOf('session.prompt')).toMatchObject([{
+      sessionId: SID,
+      mode: 'queue',
+      content: [{ type: 'text', text: '要发的' }],
+      clientTimeZone: new Intl.DateTimeFormat().resolvedOptions().timeZone,
+    }])
     // First content lands (running turn): engaging → active.
     session.handleRunning(true)
     expect(session.getSnapshot().composerPhase).toBe('active')

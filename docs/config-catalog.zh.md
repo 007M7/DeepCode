@@ -785,7 +785,7 @@ export interface DeepSeekCatalogModel {
 
 依赖：[`RetryPolicyConfig`](../packages/llm/llm/src/index.ts)
 
-来源：[`packages/llm/llm-deepseek/src/index.ts:61`](../packages/llm/llm-deepseek/src/index.ts)
+来源：[`packages/llm/llm-deepseek/src/index.ts:62`](../packages/llm/llm-deepseek/src/index.ts)
 
 ## `@deepseek-ai/dsh-llm-pi-ai`
 
@@ -2038,14 +2038,14 @@ export interface Config {
 ```ts config-catalog
 /** Request-preparation clock formatting and append scheduling. Invalid values fail plugin load. */
 export interface Config {
-  /** IANA time zone used for the rendered timestamp. Omit to resolve the Node process's system zone at plugin load. */
+  /** Fallback display zone when the open turn has no unique browser zone. Omit to use the process zone. */
   timeZone?: string
   /** Minimum milliseconds between durable injections in one session. Omit or set to 0 to inject at every eligible step. */
   refreshIntervalMs?: number
 }
 ```
 
-来源：[`packages/context/time-context/src/index.ts:20`](../packages/context/time-context/src/index.ts)
+来源：[`packages/context/time-context/src/index.ts:27`](../packages/context/time-context/src/index.ts)
 
 ## `@deepseek-ai/dsh-tmux-context`
 
@@ -2301,7 +2301,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-tool-subagent`
 
-需要：`tools` · `subagents`
+需要：`tools` · `subagents` · `systemPrompt`
 
 ```ts config-catalog
 /** Config: which registered provider this tool delegates to, plus child defaults. */
@@ -2319,9 +2319,10 @@ export interface Config {
    */
   enableRunInBackground?: boolean
   /**
-   * Background execution policy (default `one-shot`). `continuable` requires a
-   * provider with the `prepareContinuable` capability and returns the durable
-   * child id; follow-up adapters remain independently optional.
+   * Background execution policy (default `one-shot`). `one-shot` defaults calls
+   * to foreground; `continuable` defaults them to background, requires a provider
+   * with the `prepareContinuable` capability, and returns the durable child id.
+   * Follow-up adapters remain independently optional.
    */
   backgroundMode?: 'one-shot' | 'continuable'
   /**
@@ -2359,7 +2360,7 @@ export interface Config {
 
 依赖：[`AgentOptions`](subsystems/core.md)
 
-来源：[`packages/subagent/tool-subagent/src/index.ts:25`](../packages/subagent/tool-subagent/src/index.ts)
+来源：[`packages/subagent/tool-subagent/src/index.ts:29`](../packages/subagent/tool-subagent/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-subagent-report`
 
@@ -2386,16 +2387,32 @@ export interface Config {
 需要：`tools` · `tasks` · `systemPrompt`
 
 ```ts config-catalog
-/** Configures bounded `task_output` waits. */
+/** Configures bounded `task_output` waits and completion-notice delivery. */
 export interface Config {
   /** Wait duration applied when `task_output` sets `wait` without `timeout_ms` (default 30s). */
   waitTimeoutMs?: number
   /** Hard cap on any single wait; a larger model-supplied `timeout_ms` is clamped down to it (default 10min). */
   maxWaitTimeoutMs?: number
+  /** Whether a completion opens a turn on an idle owner (default `wakeup`). */
+  completionDelivery?: CompletionDelivery
+  /**
+   * Turns one owner may have opened by completion wakes before the next
+   * notice degrades to injection, reset by any user-authored input (default 3).
+   * Bounds the self-exciting chain where a woken turn starts the task whose
+   * completion wakes it again.
+   */
+  maxConsecutiveWakes?: number
 }
+
+/**
+ * How an unreported completion reaches an owner that is already idle: `wakeup`
+ * opens a turn for it, `quiet` leaves it pending until something else wakes the
+ * owner. A busy owner is injected either way.
+ */
+export type CompletionDelivery = 'quiet' | 'wakeup'
 ```
 
-来源：[`packages/tasks/tool-tasks/src/index.ts:23`](../packages/tasks/tool-tasks/src/index.ts)
+来源：[`packages/tasks/tool-tasks/src/index.ts:32`](../packages/tasks/tool-tasks/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-todo`
 
@@ -2748,6 +2765,7 @@ export interface Config {
 - `@deepseek-ai/dsh-client-ui-models`（[`packages/client/ui-models/src/index.ts`](../packages/client/ui-models/src/index.ts)）
 - `@deepseek-ai/dsh-client-ui-permission`（[`packages/client/ui-permission/src/index.ts`](../packages/client/ui-permission/src/index.ts)）
 - `@deepseek-ai/dsh-client-ui-plan`（[`packages/client/ui-plan/src/index.ts`](../packages/client/ui-plan/src/index.ts)）
+- `@deepseek-ai/dsh-client-ui-plugin-config`（[`packages/client/ui-plugin-config/src/index.ts`](../packages/client/ui-plugin-config/src/index.ts)）
 - `@deepseek-ai/dsh-client-ui-question`（[`packages/client/ui-question/src/index.ts`](../packages/client/ui-question/src/index.ts)）
 - `@deepseek-ai/dsh-client-ui-settings`（[`packages/client/ui-settings/src/index.ts`](../packages/client/ui-settings/src/index.ts)）
 - `@deepseek-ai/dsh-client-ui-settings-general`（[`packages/client/ui-settings-general/src/index.ts`](../packages/client/ui-settings-general/src/index.ts)）
@@ -2783,6 +2801,7 @@ export interface Config {
 - `@deepseek-ai/dsh-tasks-local`（[`packages/tasks/tasks-local/src/index.ts`](../packages/tasks/tasks-local/src/index.ts)）
 - `@deepseek-ai/dsh-timeout-policy` — 需要 `tools`（[`packages/guard/timeout-policy/src/index.ts`](../packages/guard/timeout-policy/src/index.ts)）
 - `@deepseek-ai/dsh-tool-ask-user` — 需要 `tools` · `userInteraction`（[`packages/interaction/tool-ask-user/src/index.ts`](../packages/interaction/tool-ask-user/src/index.ts)）
+- `@deepseek-ai/dsh-tool-schedule` — 需要 `agents` · `sessions` · `tools` · `sessionPersistence`（[`packages/schedule/tool-schedule/src/index.ts`](../packages/schedule/tool-schedule/src/index.ts)）
 - `@deepseek-ai/dsh-tool-subagent-control` — 需要 `tools` · `subagents`（[`packages/subagent/tool-subagent-control/src/index.ts`](../packages/subagent/tool-subagent-control/src/index.ts)）
 - `@deepseek-ai/dsh-user-interaction`（[`packages/interaction/user-interaction/src/index.ts`](../packages/interaction/user-interaction/src/index.ts)）
 - `@deepseek-ai/dsh-workspace` — 需要 `storageDomain` · `sessionPersistence`（[`packages/workspace/workspace/src/index.ts`](../packages/workspace/workspace/src/index.ts)）

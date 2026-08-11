@@ -87,10 +87,87 @@ describe('connection client apply', () => {
   it('start() hands out one loop, rejects a second consumer, and stop() aborts the streams', async () => {
     ;(globalThis as Win).location = { hostname: 'localhost', search: '?fixture' }
     const handle = await mount()
-    // config omitted: the `config ?? {}` default arm is part of the API.
-    const loop = handle.start({})
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const descriptions: Array<boolean | undefined> = []
+    const stopThrowing = handle.hostDescription.subscribe(() => { throw new Error('subscriber bug') })
+    const stopDescription = handle.hostDescription.subscribe(() => {
+      descriptions.push(handle.hostDescription.getSnapshot()?.canOpenPath)
+    })
+    expect(handle.hostDescription.getSnapshot()).toBeUndefined()
+    // config omitted: the `config ?? {}` default arm is part of the surface.
+    let connected = 0
+    const loop = handle.start({ onConnected: () => { connected++ } })
     expect(() => handle.start({})).toThrow(/already owned by another consumer/)
+    await vi.waitFor(() => {
+      expect(handle.hostDescription.getSnapshot()?.canOpenPath).toBe(true)
+    })
     loop.stop() // teardown must not throw; the fixture streams abort quietly
+    expect(handle.hostDescription.getSnapshot()).toBeUndefined()
+    expect(descriptions).toEqual([true, undefined])
+    expect(connected).toBe(1)
+    expect(errorSpy).toHaveBeenCalledTimes(2)
+    stopThrowing()
+    stopDescription()
+    errorSpy.mockRestore()
+  })
+
+  it('does not announce a generation synchronously stopped by a description subscriber', async () => {
+    ;(globalThis as Win).location = { hostname: 'localhost', search: '?fixture' }
+    const handle = await mount()
+    const owner: { loop?: ReturnType<ConnectionHandle['start']> } = {}
+    let sawDescription = false
+    const stopDescription = handle.hostDescription.subscribe(() => {
+      if (handle.hostDescription.getSnapshot() === undefined) return
+      sawDescription = true
+      owner.loop?.stop()
+    })
+    const connected = vi.fn()
+    const loop = handle.start({ onConnected: connected })
+    owner.loop = loop
+    try {
+      await vi.waitFor(() => { expect(sawDescription).toBe(true) })
+      expect(handle.hostDescription.getSnapshot()).toBeUndefined()
+      expect(connected).not.toHaveBeenCalled()
+    } finally {
+      stopDescription()
+      loop.stop()
+    }
+  })
+
+  it('retracts the host description while reconnecting and republishes the next generation', async () => {
+    ;(globalThis as Win).location = { hostname: 'localhost', search: '?fixture' }
+    const handle = await mount()
+    const descriptions: Array<boolean | undefined> = []
+    const reconnectSnapshots: Array<boolean | undefined> = []
+    const stopDescription = handle.hostDescription.subscribe(() => {
+      descriptions.push(handle.hostDescription.getSnapshot()?.canOpenPath)
+    })
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const loop = handle.start({
+      onStateChange: (state) => {
+        if (state === 'reconnecting') {
+          reconnectSnapshots.push(handle.hostDescription.getSnapshot()?.canOpenPath)
+        }
+      },
+    }, { backoffBaseMs: 10, backoffFactor: 1, backoffMaxMs: 10, streamOpenTimeoutMs: 500 })
+    try {
+      await vi.waitFor(() => {
+        expect(handle.hostDescription.getSnapshot()?.canOpenPath).toBe(true)
+      })
+      const timing = (globalThis as Record<string, unknown>).__fxTiming as
+        | { breakStreams(): void }
+        | undefined
+      if (timing === undefined) throw new Error('fixture timing hooks missing')
+      timing.breakStreams()
+
+      await vi.waitFor(() => { expect(reconnectSnapshots).toEqual([undefined]) })
+      await vi.waitFor(() => { expect(descriptions).toEqual([true, undefined, true]) })
+      expect(handle.hostDescription.getSnapshot()?.canOpenPath).toBe(true)
+    } finally {
+      stopDescription()
+      loop.stop()
+      warnSpy.mockRestore()
+    }
   })
 
   it('WebApiClient keeps unary calls and respond on globalThis.fetch', async () => {

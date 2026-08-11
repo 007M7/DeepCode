@@ -293,8 +293,78 @@ describe('SettingsScopeController', () => {
     expect(describeCall).not.toHaveBeenCalled()
     expect(mutate).not.toHaveBeenCalled()
   })
-})
 
+  it('carries the composition base and the user layer into the snapshot', async () => {
+    const layered: SettingsNamespaceView = {
+      ...view({ preference: 'dark' }, 3),
+      base: { preference: 'system' },
+      user: { preference: 'dark' },
+    }
+    const describeCall = vi.fn()
+      .mockResolvedValueOnce(ok({ writable: true, hasDocument: true, namespaces: [layered] }))
+    const scope = new SettingsScopeController<UiTestSettings>(
+      { settings: { describe: describeCall } } as never,
+      { namespace: 'ui-test' },
+    )
+
+    await scope.load()
+
+    expect(scope.getSnapshot()).toMatchObject({
+      value: { preference: 'dark' },
+      base: { preference: 'system' },
+      user: { preference: 'dark' },
+    })
+  })
+
+  it('reports an inherited field as absent from the user layer', async () => {
+    const inherited: SettingsNamespaceView = { ...view({ preference: 'system' }, 1), base: { preference: 'system' } }
+    const describeCall = vi.fn()
+      .mockResolvedValueOnce(ok({ writable: true, hasDocument: true, namespaces: [inherited] }))
+    const scope = new SettingsScopeController<UiTestSettings>(
+      { settings: { describe: describeCall } } as never,
+      { namespace: 'ui-test' },
+    )
+
+    await scope.load()
+
+    expect(scope.getSnapshot().user).toBeUndefined()
+  })
+
+  it('clears one field through an unset op fenced by the held revision', async () => {
+    const mutate = vi.fn().mockResolvedValueOnce(ok(view({ preference: 'system' }, 4)))
+    const describeCall = vi.fn().mockResolvedValueOnce(described({ preference: 'dark' }, 3))
+    const scope = new SettingsScopeController<UiTestSettings>(
+      { settings: { describe: describeCall, mutate } } as never,
+      { namespace: 'ui-test' },
+    )
+    await scope.load()
+
+    await scope.unset('preference')
+
+    expect(mutate).toHaveBeenCalledWith({
+      ns: 'ui-test',
+      ops: [{ op: 'unset', path: ['preference'] }],
+      expectedRevision: 3,
+    })
+    expect(scope.getSnapshot()).toMatchObject({ value: { preference: 'system' }, revision: 4 })
+  })
+
+  it('recovers the Host state when the latest clear is refused', async () => {
+    const mutate = vi.fn().mockResolvedValueOnce(rejected())
+    const describeCall = vi.fn()
+      .mockResolvedValueOnce(described({ preference: 'dark' }, 3))
+      .mockResolvedValueOnce(described({ preference: 'light' }, 5))
+    const scope = new SettingsScopeController<UiTestSettings>(
+      { settings: { describe: describeCall, mutate } } as never,
+      { namespace: 'ui-test' },
+    )
+    await scope.load()
+
+    await scope.unset('preference')
+
+    expect(scope.getSnapshot()).toMatchObject({ value: { preference: 'light' }, revision: 5 })
+  })
+})
 describe('SettingsScopeService.bind', () => {
   it('subscribes before the initial read and converges to the latest queued invalidation', async () => {
     const initial = deferred<ReturnType<typeof described>>()

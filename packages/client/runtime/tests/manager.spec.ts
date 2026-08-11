@@ -374,6 +374,7 @@ describe('subagent catalogs', () => {
       {
         parentSessionId: S1, childSessionId: S2, mode: 'continuable',
         content: [{ type: 'text', text: 'continue' }],
+        clientTimeZone: new Intl.DateTimeFormat().resolvedOptions().timeZone,
       },
     ])
     expect(api.callsOf('session.history')).toEqual([])

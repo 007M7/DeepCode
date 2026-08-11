@@ -14,7 +14,7 @@ import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { resolveSessionPreset, SETTINGS_NAMESPACE } from '@deepseek-ai/dsh-agent-presets'
 import { applyChildComposition, childSessionMeta } from '@deepseek-ai/dsh-subagent'
 import { CallId } from '@deepseek-ai/dsh-llm'
-import type { BasicCompactService } from '@deepseek-ai/dsh-compact-basic'
+import type {} from '@deepseek-ai/dsh-compact-basic'
 import type {} from '@deepseek-ai/dsh-skill'
 import type {} from '@deepseek-ai/dsh-tools'
 // Type-only: resolves `ctx.get('sessionProjections')` and `ctx.get('tokenMeter')`.
@@ -216,16 +216,8 @@ describe('the shipped Web composition', () => {
       expect(assembly.tools.find(tool => tool.name === 'bash')?.description).toBe(MINIMAL_BASH_DESCRIPTION)
       expect(JSON.stringify(assembly.tools.find(tool => tool.name === 'str_replace_editor')?.parameters))
         .toContain('Absolute path')
-      const compact = ctx.agentPresets.serviceFor(handle.agent, 'compact')
-      expect(compact).toBeDefined()
-      expect((compact as BasicCompactService).config).toMatchObject({
-        thresholdRatio: 0.8,
-        retainTokens: 20480,
-        summarizationProvider: '',
-        summarizationModel: '',
-        maxTokens: 8192,
-        compactionRetries: 1,
-      })
+      expect(ctx.agentPresets.serviceFor(handle.agent, 'compact')).toBeUndefined()
+      expect(handle.agent.ctx.get('compact')).toBeUndefined()
     } finally {
       await handle.dispose()
     }

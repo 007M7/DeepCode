@@ -35,6 +35,7 @@ dsh web GUI 的浏览器侧：shell 启动、浏览器与宿主通信、共享 U
 | [`ui-model/`](ui-model/README.md) | 在会话界面中提供模型选择。 |
 | [`ui-permission/`](ui-permission/README.md) | 配置默认权限并切换当前会话的访问模式。 |
 | [`ui-plan/`](ui-plan/README.md) | 展示生效中的 plan mode 状态及其退出控件。 |
+| [`ui-plugin-config/`](ui-plugin-config/README.md) | 插件设置分区：把宿主平面的插件配置呈现为可展开卡片。 |
 | [`ui-question/`](ui-question/README.md) | 展示 agent 请求的交互式问题。 |
 | [`ui-agent-preset/`](ui-agent-preset/README.md) | 选择会话的 agent 预设，并创作预设组装。 |
 | [`ui-settings/`](ui-settings/README.md) | 承载设置界面及其扩展区域。 |
