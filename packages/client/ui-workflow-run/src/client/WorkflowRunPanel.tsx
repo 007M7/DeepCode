@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import {
-  DisclosureRow, IconChevronRightOutline14, StateDot, type StateDotState,
+  DisclosureRow, IconChevronRightOutline14, StateDot,
+  type DisclosureRowProps, type StateDotState,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import { shallowEqual, type SessionId, type SessionListState } from '@deepseek-ai/dsh-client-runtime/client'
@@ -62,6 +63,34 @@ function memberCount(count: number, t: WorkflowRunPanelProps['t']): string {
   return t(count === 1 ? 'run.members.one' : 'run.members.other', { count })
 }
 
+function phaseRequiresExpansion(phase: WorkflowRunPhaseData): boolean {
+  return phase.members.some(member => member.status !== 'completed')
+}
+
+type StatusDisclosureProps = Omit<DisclosureRowProps, 'open' | 'expandable' | 'onToggle'>
+
+/* v8 ignore next -- DisclosureRow requires the callback but cannot invoke it when expandable is false. */
+const forcedOpenToggle = (): void => {}
+
+function ManualDisclosure(props: StatusDisclosureProps) {
+  const [open, setOpen] = useState(false)
+  return (
+    <DisclosureRow
+      {...props}
+      open={open}
+      expandable
+      onToggle={() => { setOpen(value => !value) }}
+    />
+  )
+}
+
+function StatusDisclosure({ requiresExpansion, ...props }: StatusDisclosureProps & {
+  readonly requiresExpansion: boolean
+}) {
+  if (!requiresExpansion) return <ManualDisclosure {...props} />
+  return <DisclosureRow {...props} open expandable={false} onToggle={forcedOpenToggle} />
+}
+
 function phaseStatusSummary(members: readonly WorkflowRunMemberData[], t: WorkflowRunPanelProps['t']): string {
   const counts = new Map<WorkflowRunStatus, number>()
   for (const member of members) counts.set(member.status, (counts.get(member.status) ?? 0) + 1)
@@ -97,21 +126,19 @@ function navigableMembers(
   return result
 }
 
-function RunHeader({ count, name, onToggle, open, status, t }: {
+function RunHeader({ children, count, name, requiresExpansion, status, t }: {
+  readonly children: ReactNode
   readonly count: number
   readonly name: string
-  readonly onToggle: () => void
-  readonly open: boolean
+  readonly requiresExpansion: boolean
   readonly status: WorkflowRunStatus
   readonly t: WorkflowRunPanelProps['t']
 }) {
   return (
-    <DisclosureRow
+    <StatusDisclosure
       icon={<IconChevronRightOutline14 />}
       title={t('run.title', { name })}
-      open={open}
-      expandable
-      onToggle={onToggle}
+      requiresExpansion={requiresExpansion}
       expandOnRowClick
       previewChevron={false}
       keepContentWhenOpen
@@ -128,7 +155,9 @@ function RunHeader({ count, name, onToggle, open, status, t }: {
           </span>
         </>
       )}
-    />
+    >
+      {children}
+    </StatusDisclosure>
   )
 }
 
@@ -168,15 +197,11 @@ function PhaseSection({ phase, navigable, openSession, t }: {
   readonly openSession: WorkflowRunInjected['openSession']
   readonly t: WorkflowRunPanelProps['t']
 }) {
-  const [open, setOpen] = useState(false)
-  const toggle = (): void => { setOpen(value => !value) }
   return (
-    <DisclosureRow
+    <StatusDisclosure
       icon={<IconChevronRightOutline14 />}
       title={readablePhase(phase.phase, t)}
-      open={open}
-      expandable
-      onToggle={toggle}
+      requiresExpansion={phaseRequiresExpansion(phase)}
       expandOnRowClick
       previewChevron={false}
       keepContentWhenOpen
@@ -203,14 +228,15 @@ function PhaseSection({ phase, navigable, openSession, t }: {
           />
         ))}
       </div>
-    </DisclosureRow>
+    </StatusDisclosure>
   )
 }
 
-/** Render one durable workflow run with independent run and phase disclosure. */
+/** Render one durable workflow run with status-driven run and phase disclosure. */
 export function WorkflowRunPanel({ node, sessionId, useSessions, openSession, t }: WorkflowRunPanelProps) {
-  const [open, setOpen] = useState(() => node.data.status === 'running')
-  const memberCount = node.data.phases.reduce((count, phase) => count + phase.members.length, 0)
+  const totalMembers = node.data.phases.reduce((count, phase) => count + phase.members.length, 0)
+  const requiresExpansion = node.data.status !== 'completed'
+    || node.data.phases.some(phaseRequiresExpansion)
   const navigable = useSessions(
     sessions => navigableMembers(sessions, node.data.phases, sessionId),
     shallowEqual,
@@ -218,14 +244,12 @@ export function WorkflowRunPanel({ node, sessionId, useSessions, openSession, t 
   return (
     <section className={css.root} data-workflow-run data-run-status={node.data.status}>
       <RunHeader
-        count={memberCount}
+        count={totalMembers}
         name={node.data.name}
-        open={open}
+        requiresExpansion={requiresExpansion}
         status={node.data.status}
         t={t}
-        onToggle={() => { setOpen(value => !value) }}
-      />
-      {open && (
+      >
         <div className={css.phaseList}>
           {node.data.phases.length === 0
             ? <span className={css.empty}>{t('run.empty')}</span>
@@ -239,7 +263,7 @@ export function WorkflowRunPanel({ node, sessionId, useSessions, openSession, t 
               />
             ))}
         </div>
-      )}
+      </RunHeader>
     </section>
   )
 }
