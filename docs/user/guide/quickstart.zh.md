@@ -22,7 +22,6 @@ pnpm -v
 git clone https://github.com/deepseek-ai/deepseek-harness-sdk.git
 cd deepseek-harness
 pnpm install
-pnpm run build
 ```
 
 在仓库根目录创建已被 Git 忽略的 `.env`：
@@ -36,7 +35,7 @@ DEEPSEEK_API_KEY=sk-your-key-here
 运行一个非交互式任务并打印最终回答：
 
 ```sh
-pnpm run dsh --profile headless "summarize the architecture of this workspace"
+pnpm dsh --profile headless "summarize the architecture of this workspace"
 ```
 
 `dsh --profile headless` 创建并持久化一个新会话，打印最终助手回答，然后退出。它不会启动 Web 服务器或监听端口；成功运行时 stderr 为空。
@@ -46,7 +45,7 @@ pnpm run dsh --profile headless "summarize the architecture of this workspace"
 启动浏览器界面：
 
 ```sh
-pnpm run dsh web
+pnpm dsh web
 ```
 
 打开 `http://127.0.0.1:3080`。agent 可以读写文件、运行命令、分配子任务和跟踪计划。可以尝试：`Create hello.js in the current directory, print "Hello from Harness!", and run it`。

@@ -73,7 +73,7 @@ pnpm run check:windows-wine  # ONLY when diagnosing a known Windows failure (nee
 pnpm run hygiene        # knip + publint + workspace constraints + NodeNext consumer check
 pnpm run doc-sync       # all documentation gates; leaf list in scripts/run-gates.ts
 pnpm run website:build  # VitePress build (doubles as dead-link check)
-pnpm run demo:headless "task" # one-shot agent (needs DEEPSEEK_API_KEY)
+pnpm dsh --profile headless "task"  # build, then run one task (needs DEEPSEEK_API_KEY)
 pnpm run demo:cordis    # the agent modifies its own runtime (needs key)
 pnpm run demo:acp       # ACP automation server (needs DEEPSEEK_API_KEY)
 ```

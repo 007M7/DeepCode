@@ -60,6 +60,7 @@
     "apps/web/tests/subagent-interrupt.e2e.ts",
     "apps/web/tests/subagent-interrupt-ui.e2e.ts",
     "apps/web/tests/sidebar-subagent-activity.e2e.ts",
+    "apps/web/tests/background-task-list.e2e.ts",
     "apps/web/tests/bash-abort-row.e2e.ts",
     "apps/web/tests/skill-tool-row.e2e.ts",
     "apps/web/tests/turn-tail-actions.e2e.ts",

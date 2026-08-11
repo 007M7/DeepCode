@@ -847,3 +847,150 @@ describe('LocalTaskService disposal', () => {
     expect(() => ctx.tasks.start(producer().spec)).toThrow('no control surface serves this agent')
   })
 })
+
+describe('LocalTaskService.onTasksChanged', () => {
+  it('fires after registration, the stopping transition, and settlement', async () => {
+    const ctx = await harness()
+    const owner = stubAgent(ctx, 'alice')
+    ctx.agents.register(owner)
+    const seen: (string | undefined)[] = []
+    ctx.tasks.onTasksChanged(changed => void seen.push(changed?.id))
+
+    const p = producer({ owner })
+    const id = ctx.tasks.start(p.spec)
+    // Registration is announced only once the record is readable.
+    expect(seen).toEqual(['alice'])
+    expect(ctx.tasks.list(owner)).toHaveLength(1)
+
+    expect(ctx.tasks.kill(id, owner)).toBe('requested')
+    expect(seen).toEqual(['alice', 'alice'])
+    expect(ctx.tasks.get(id, owner).status).toBe('stopping')
+
+    p.settle({ status: 'killed' })
+    await tick()
+    expect(seen).toEqual(['alice', 'alice', 'alice'])
+    expect(ctx.tasks.get(id, owner).status).toBe('killed')
+    await disposeAgentScope(owner)
+  })
+
+  it('reports an unowned change as undefined, since every caller can see it', async () => {
+    const ctx = await harness()
+    const seen: (string | undefined)[] = []
+    ctx.tasks.onTasksChanged(changed => void seen.push(changed?.id))
+
+    ctx.tasks.start(producer().spec)
+    expect(seen).toEqual([undefined])
+  })
+
+  it('announces the owner-disposal removal, and stays silent when that owner had none', async () => {
+    const ctx = await harness()
+    const owner = stubAgent(ctx, 'alice')
+    const bystander = stubAgent(ctx, 'bob')
+    ctx.agents.register(owner)
+    ctx.agents.register(bystander)
+    const p = producer({ owner })
+    ctx.tasks.start(p.spec)
+
+    const seen: (string | undefined)[] = []
+    ctx.tasks.onTasksChanged(changed => void seen.push(changed?.id))
+    p.settle({ status: 'completed' })
+    await tick()
+    expect(seen).toEqual(['alice'])
+
+    // Disposing an owner with no records changes no visible set.
+    await disposeAgentScope(bystander)
+    expect(seen).toEqual(['alice'])
+
+    await disposeAgentScope(owner)
+    expect(seen).toEqual(['alice', 'alice'])
+    expect(ctx.tasks.list(owner)).toEqual([])
+  })
+
+  it('contains a throwing listener so the lifecycle commit still stands', async () => {
+    const ctx = await harness()
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
+    const seen: (string | undefined)[] = []
+    ctx.tasks.onTasksChanged(() => { throw new Error('observer boom') })
+    ctx.tasks.onTasksChanged(changed => void seen.push(changed?.id))
+
+    const id = ctx.tasks.start(producer().spec)
+    expect(id).toBe('bash-1')
+    expect(seen).toEqual([undefined])
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('onTasksChanged listener threw'))
+  })
+
+  it('unregisters through its disposer and with its fiber (HMR safety)', async () => {
+    const ctx = await harness()
+    const seen: number[] = []
+    const detach = ctx.tasks.onTasksChanged(() => void seen.push(1))
+    const fiber = await ctx.plugin(Object.assign((inner: Context) => {
+      inner.tasks.onTasksChanged(() => void seen.push(2))
+    }, { inject: ['tasks'] }))
+
+    ctx.tasks.start(producer().spec)
+    expect(seen).toEqual([1, 2])
+
+    detach()
+    detach() // second call of the same disposer is a no-op
+    ctx.tasks.start(producer().spec)
+    expect(seen).toEqual([1, 2, 2])
+
+    await fiber.dispose()
+    ctx.tasks.start(producer().spec)
+    expect(seen).toEqual([1, 2, 2])
+  })
+})
+
+describe('LocalTaskService teardown change notifications', () => {
+  it('announces the stopping transition during owner teardown, before settlement', async () => {
+    const ctx = await harness()
+    const owner = stubAgent(ctx, 'alice')
+    ctx.agents.register(owner)
+    const p = producer({ owner })
+    const id = ctx.tasks.start(p.spec)
+
+    const statuses: (string | undefined)[] = []
+    ctx.tasks.onTasksChanged((changed) => {
+      statuses.push(changed === undefined ? undefined : ctx.tasks.list(changed)[0]?.status)
+    })
+
+    // A slow producer keeps teardown parked between cancel and settlement;
+    // an observer must not be left showing `running` for that whole window.
+    const disposal = disposeAgentScope(owner)
+    await tick()
+    expect(statuses).toEqual(['stopping'])
+
+    p.settle({ status: 'killed' })
+    await disposal
+    // Settlement, then the removal that empties the visible set.
+    expect(statuses).toEqual(['stopping', 'killed', undefined])
+    expect(ctx.tasks.list(owner)).toEqual([])
+    void id
+  })
+
+  it('announces the emptied set to a listener registered outside this service (reload safety)', async () => {
+    const ctx = new Context()
+    await ctx.plugin(AgentRegistry)
+    const fiber = await ctx.plugin(LocalTaskService)
+    ctx.tasks.attachSurface('test-surface')
+
+    // The api-proxy carrier registers from its own stream context, not the
+    // registry's fiber, so it is still listening when the registry unloads.
+    const seen: (string | undefined)[] = []
+    ctx.tasks.onTasksChanged(changed => void seen.push(changed?.id))
+    let settle!: (outcome: TaskOutcome) => void
+    ctx.tasks.start({
+      kind: 'bash',
+      label: 'sleep 600',
+      run: () => ({
+        cancel() { settle({ status: 'killed' }) },
+        done: new Promise<TaskOutcome>((resolve) => { settle = resolve }),
+      }),
+    })
+    seen.length = 0
+
+    await fiber.dispose()
+    // stopping (teardown cancel), settlement, then the final empty set.
+    expect(seen).toEqual([undefined, undefined, undefined])
+  })
+})
