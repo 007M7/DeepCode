@@ -94,7 +94,9 @@ export class ApiProxyService extends Service implements ApiProxy {
       saveDefaultModelSelection: selection => ctx.agentDefaultModel.saveSelection(selection),
       cwd: process.cwd(),
       ...config.nativeOpen === undefined ? {} : { canOpenPath: () => config.nativeOpen as boolean },
-      sessionExportCompressionLevel: config.sessionExportCompressionLevel,
+      ...(config.sessionExportCompressionLevel === undefined
+        ? {}
+        : { sessionExportCompressionLevel: config.sessionExportCompressionLevel }),
     })
     this.sessions = api.sessions
     this.subagents = api.subagents
