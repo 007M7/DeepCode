@@ -213,7 +213,7 @@ export function sessionLogZipFilename(sessionId: string): string {
  * missing-session path can answer cleanly before streaming starts).
  * @param sessionId - the root session id.
  * @param includeDescendants - whether to include every subagent descendant.
- * @param signal - optional cancellation forwarded to lineage and persistence reads.
+ * @param signal - optional cancellation forwarded to lineage, persistence, and attachment reads.
  * @returns the export entries in zip order.
  */
 export async function* sessionLogZipEntries(
@@ -259,7 +259,7 @@ export async function* sessionLogZipEntries(
   }
   for (const ref of media.values()) {
     signal?.throwIfAborted()
-    const stored = await deps.attachments.readImage(ref)
+    const stored = await deps.attachments.readImage(ref, signal)
     signal?.throwIfAborted()
     yield { path: mediaEntryPath(ref), data: stored.data }
   }

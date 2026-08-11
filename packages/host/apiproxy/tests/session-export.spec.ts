@@ -60,7 +60,7 @@ async function buildApi(
   services: {
     query?: boolean
     persistence?: boolean | 'throw' | 'unsupported'
-    attachments?: boolean | ((ref: ImageAttachmentRef) => Promise<ReturnType<typeof storedImage>>)
+    attachments?: boolean | ((ref: ImageAttachmentRef, signal?: AbortSignal) => Promise<ReturnType<typeof storedImage>>)
     sessions?: {
       get(id: SessionId): { readonly id: SessionId } | undefined
       flush(session: { readonly id: SessionId }): Promise<boolean>
@@ -488,6 +488,39 @@ describe('session.export download endpoint', () => {
     await reader.cancel(cancellation)
     expect(descendantSignal.aborted).toBe(true)
     expect(descendantSignal.reason).toBe(cancellation)
+  })
+
+  it('aborts attachment reads when its reader cancels', async () => {
+    let reportAttachmentStarted!: (signal: AbortSignal) => void
+    const attachmentStarted = new Promise<AbortSignal>((resolve) => {
+      reportAttachmentStarted = resolve
+    })
+    const root = artifact('session-root', undefined, [
+      '{"type":"session","version":0,"id":"session-root","createdAt":1000}',
+      imageEventLine('slow-img'),
+    ].join('\n') + '\n')
+    const api = await buildApi({ 'session-root': root }, [], {
+      attachments: async (_ref, signal) => {
+        if (signal === undefined) throw new Error('missing attachment signal')
+        reportAttachmentStarted(signal)
+        return new Promise((_, reject) => {
+          signal.addEventListener('abort', () => {
+            reject(signal.reason as Error)
+          }, { once: true })
+        })
+      },
+    })
+    const response = await api.downloads.sessionLog(
+      { sessionId: sid('session-root'), includeDescendants: false },
+      new AbortController().signal,
+    )
+    const reader = response.body?.getReader()
+    if (reader === undefined) throw new Error('missing response body')
+    const attachmentSignal = await attachmentStarted
+    const cancellation = new Error('download consumer left during attachment read')
+    await reader.cancel(cancellation)
+    expect(attachmentSignal.aborted).toBe(true)
+    expect(attachmentSignal.reason).toBe(cancellation)
   })
 
   it('uses a stable Error reason when its reader cancels without one', async () => {
