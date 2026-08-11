@@ -80,6 +80,7 @@ const SENTENCE_MODEL_EXPERIENCE: Readonly<Record<string, SentenceContract>> = {
   'packages/client/ui-model': { kind: 'indirect', reason: 'Selection routes session.selectModel; the Host snapshots the selection at the next prompt-assembly boundary and owns the model-visible effect.' },
   'packages/client/ui-goal': { kind: 'indirect', reason: 'The strip verbs route goal.* mutations; the host GoalService owns the model-visible goal/change context message.' },
   'packages/client/ui-permission': { kind: 'indirect', reason: 'The picker submits the host /permission command; the knob events it appends own the model-visible effect through the sandbox/approval consumers.' },
+  'packages/client/ui-plugin-config': { kind: 'none', reason: 'Browser-side settings surface; registers no model surface.' },
   'packages/client/ui-plan': { kind: 'indirect', reason: 'The chip dispatches /plan off; dsh-plan-mode owns the model-visible policy, exit tool, and logged state.' },
   'packages/client/ui-question': { kind: 'indirect', reason: 'The package mounts dsh-tool-ask-user; that tool owns the model-visible schema and answer rendering.' },
   'packages/client/ui-trajectory': { kind: 'none', reason: 'Browser-side UI plugin layer; registers nothing model-facing.' },
