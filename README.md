@@ -49,7 +49,7 @@ The [CLI reference](apps/cli/README.md#profiles) describes profile layout, layer
 Run one task, print the final answer, and exit:
 
 ```sh
-pnpm dsh run "summarize this workspace"
+pnpm dsh --profile headless "summarize this workspace"
 ```
 
 ### Automation and SDKs

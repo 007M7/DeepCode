@@ -12,7 +12,7 @@ Status: implemented
 
 ## 决策
 
-仓库通过根目录的 `pnpm` 脚本支持从源码运行。`pnpm dsh <args...>` 启动器会先完成整个仓库的构建，再启动源码 CLI（命令行界面）。它会丢弃成功构建的输出，使 CLI stdout 保持机器可读；在 stderr 中报告构建失败的诊断信息；并为 CLI 进程设置 `NODE_USE_ENV_PROXY=1`。用户使用 `pnpm dsh web` 选择 Web，使用 `pnpm dsh run` 选择无头执行。独立的 ACP（Agent Client Protocol）示例仍可通过 `pnpm run demo:acp` 运行。
+仓库通过根目录的 `pnpm` 脚本支持从源码运行。`pnpm dsh <args...>` 启动器会先完成整个仓库的构建，再启动源码 CLI（命令行界面）。它会丢弃成功构建的输出，使 CLI stdout 保持机器可读；在 stderr 中报告构建失败的诊断信息；并为 CLI 进程设置 `NODE_USE_ENV_PROXY=1`。用户使用 `pnpm dsh web` 选择 Web，使用 `pnpm dsh --profile headless "task"` 选择无头执行。独立的 ACP（Agent Client Protocol）示例仍可通过 `pnpm run demo:acp` 运行。
 
 仓库不分发源码安装器、安装器测试套件，也不分发依赖受管理的 `current` 符号链接和带时间戳 staging worktree 的 skill。源码检出的存放位置、Git 更新，以及用户在仓库外创建的任何启动器均由用户负责。
 
