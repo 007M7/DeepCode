@@ -1374,7 +1374,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/sandbox/sandbox-local/src/index.ts:43`](../packages/sandbox/sandbox-local/src/index.ts)
+Source: [`packages/sandbox/sandbox-local/src/index.ts:44`](../packages/sandbox/sandbox-local/src/index.ts)
 
 ## `@deepseek-ai/dsh-sandbox-policy`
 
@@ -2362,14 +2362,15 @@ Source: [`packages/subagent/tool-subagent/src/index.ts:25`](../packages/subagent
 
 ## `@deepseek-ai/dsh-tool-subagent-report`
 
-Requires: `subagents` · `tools`
+Requires: `subagents` · `tools` · `systemPrompt`
 
 ```ts config-catalog
 /** Config: how accepted reports are scheduled on the parent. */
 export interface Config {
   /**
-   * Parent scheduling (default `quiet`). `quiet` adds context without waking;
-   * `wakeup` creates one ordinary later parent turn.
+   * Parent scheduling (default `wakeup`). `wakeup` creates one ordinary later
+   * parent turn; `quiet` adds context without waking, so a parked parent learns
+   * of the report only when something else wakes it.
    */
   reportDelivery?: SubagentReportDelivery
 }
@@ -2377,7 +2378,7 @@ export interface Config {
 
 Depends on: [`SubagentReportDelivery`](subsystems/subagent.md)
 
-Source: [`packages/subagent/tool-subagent-report/src/index.ts:22`](../packages/subagent/tool-subagent-report/src/index.ts)
+Source: [`packages/subagent/tool-subagent-report/src/index.ts:27`](../packages/subagent/tool-subagent-report/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-tasks`
 

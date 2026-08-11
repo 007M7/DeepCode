@@ -63,7 +63,7 @@ export const FILE_DELETE_CHILD = 0x0040
 // security boundary).
 /**
  * GRANT_MASK: FILE_GENERIC_WRITE minus READ_CONTROL plus DELETE and
- * FILE_DELETE_CHILD — the write+delete access mask the orphan-SID ACEs grant
+ * FILE_DELETE_CHILD — the write+delete access mask the capability-SID ACEs grant
  * (displays as "Modify" in Explorer/icacls). WRITE_DAC/WRITE_OWNER are
  * deliberately excluded: they would let the confined child take ownership or
  * rewrite DACLs.

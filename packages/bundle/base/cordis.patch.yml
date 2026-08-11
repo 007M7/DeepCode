@@ -311,12 +311,16 @@
         toolName: subagent
         backgroundMode: continuable
 
+    # Fork stays one-shot: a continuable child's `report` tool and prompt
+    # section precede the inherited history a fork exists to reuse; one-shot
+    # fork children install neither, keeping the parent's request prefix.
+    # See .agents/notes/implemented/architecture/2026-08-10-fork-children-stay-one-shot.md.
     - id: tool-subagent-fork
       name: '@deepseek-ai/dsh-tool-subagent'
       config:
         provider: fork
         toolName: subagent_fork
-        backgroundMode: continuable
+        backgroundMode: one-shot
 
     # Optional direct-child return channel; absent from roots and one-shot agents.
     - id: tool-subagent-report

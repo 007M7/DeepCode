@@ -46,6 +46,9 @@ const CHILD_QUESTION_CONFIG = fileURLToPath(new URL('../child-question.cordis.ym
 const SESSION_SANDBOX_ROOT_CONFIG = fileURLToPath(new URL('../session-sandbox-root.cordis.yml', import.meta.url))
 const RETRY_CONFIG = fileURLToPath(new URL('../retry.cordis.yml', import.meta.url))
 const SESSION_TITLE_CONFIG = fileURLToPath(new URL('../session-title.cordis.yml', import.meta.url))
+const SUBAGENT_REPORT_QUIET_CONFIG = fileURLToPath(
+  new URL('../subagent-report-quiet.cordis.yml', import.meta.url),
+)
 const SUBAGENT_DURABILITY_FAILURE_CONFIG = fileURLToPath(
   new URL('../subagent-durability-failure.cordis.yml', import.meta.url),
 )
@@ -385,12 +388,19 @@ const SCENARIOS: Scenario[] = [
   // turns on that same child (the parent is never woken with their output),
   // send_message to an unknown subagent id fails without delivering, and the
   // child's retained handle is disposed child-first at teardown despite a
-  // failed final durability confirmation.
+  // failed final durability confirmation. That failed confirmation is also what
+  // the settlement notice must report: the child's last turn claimed the third
+  // message and then died on its durability checkpoint without entering a step,
+  // so the notice opening the parent's second turn says the child FAILED and the
+  // parent must not read the earlier answer as final. The scenario's fixture
+  // fences the child behind the parent's spawn turn so that notice can only
+  // arrive at an idle parent.
   {
     name: 'subagent-continuable',
     hasModelTurn: true,
     recorded: false,
     pinsChildToolSchemas: [1],
+    pinsChildSystemPrompts: [1],
     configPath: SUBAGENT_DURABILITY_FAILURE_CONFIG,
   },
   // Authored policy-inheritance transcript: the root session is switched to
@@ -398,11 +408,14 @@ const SCENARIOS: Scenario[] = [
   // continuable background child's log carries that override as a
   // `sandbox/mode` `source: 'delegation'` event, so the child's runtime
   // context states the inherited policy instead of the deployment default.
+  // The input also waits for the manager-owned settlement turn, keeping that
+  // delivery from racing transcript harvest.
   {
     name: 'subagent-continuable-inheritance',
     hasModelTurn: true,
     recorded: false,
     pinsChildToolSchemas: [1],
+    pinsChildSystemPrompts: [1],
     configPath: SUBAGENT_CONTINUABLE_INHERITANCE_CONFIG,
   },
   // The in-process child is published before its first follow-up fails. The
@@ -417,13 +430,18 @@ const SCENARIOS: Scenario[] = [
     configPath: SUBAGENT_DURABILITY_FAILURE_CONFIG,
   },
   // Authored child-to-parent transcript: the child calls its scope-local
-  // `report`, quiet delivery reaches the idle parent without waking it, and a
-  // later parent turn consumes the logged report.
+  // `report`, and the runtime's unconditional settlement notice then wakes the
+  // parked parent into one ordinary turn that claims both. The overlay pins
+  // quiet report delivery because two independent wakes have no orderable
+  // transcript; the shipped waking default is covered by package tests.
   {
     name: 'subagent-report',
     hasModelTurn: true,
     recorded: false,
+    overridden: false,
+    configPath: SUBAGENT_REPORT_QUIET_CONFIG,
     pinsChildToolSchemas: [1],
+    pinsChildSystemPrompts: [1],
   },
   // Authored durable-catalog transcript: the snapshot-only lifecycle marker
   // fences the second parent turn behind the child's Activation end, so
@@ -436,6 +454,7 @@ const SCENARIOS: Scenario[] = [
     hasModelTurn: true,
     recorded: false,
     pinsChildToolSchemas: [1],
+    pinsChildSystemPrompts: [1],
   },
   {
     name: 'subagent-depth-two-rejection',

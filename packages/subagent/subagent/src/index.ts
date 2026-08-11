@@ -119,6 +119,7 @@ export type {
   SubagentReportDelivery,
   SubagentReportMessageSource,
   SubagentReportOptions,
+  SubagentSettledMessageSource,
 } from './continuation.ts'
 export type { ContinuableSetupContribution } from './activation-setup-registry.ts'
 export type { SubagentDescendantListEntry, SubagentListEntry } from './list-children.ts'
