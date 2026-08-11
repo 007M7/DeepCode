@@ -1,5 +1,5 @@
 {
-  "extends": "../../../tsconfig.base.client.json",
+  "extends": "../../../tsconfig.base.json",
   "compilerOptions": {
     "rootDir": "src",
     "outDir": "lib/types",
@@ -19,15 +19,6 @@
     },
     {
       "path": "../../util/native-command"
-    },
-    {
-      "path": "../../client/ui-slots"
-    },
-    {
-      "path": "../../client/runtime"
-    },
-    {
-      "path": "../../client/ui-workspace"
     }
   ]
 }
