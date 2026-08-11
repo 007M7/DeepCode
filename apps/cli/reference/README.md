@@ -79,12 +79,6 @@ Session events stream as OTLP/HTTP logs by default. `DSH_TELEMETRY_OTLP_URL` sel
 
 Install external plugin bundles through `dsh plugin --profile <name> add <package-or-git-spec>`. The installed package owns its dependencies and contributes its declared `cordis.patch.yml` layer. The CLI also ships `@deepseek-ai/dsh-mcp-client` as a dependency for patch layers, but no MCP server is enabled by default because each server command is trusted executable code outside the agent sandbox.
 
-## Source launcher
+## Source execution
 
-Link the source-running launcher onto PATH:
-
-```sh
-ln -sf "$(pwd)/bin/dsh" ~/.local/bin/dsh
-```
-
-It resolves the checkout through its real path and launches `apps/cli/src/bin.ts` with `node --import tsx/esm`. `TSX_TSCONFIG_PATH` is pinned to the checkout root, so workspace package resolution is independent of the invoking directory. `pnpm run dsh` uses the same entry and forwards arguments. The built form is `apps/cli/lib/bin.js` after `pnpm run build`.
+From the repository root, use `pnpm dsh <args...>`. The `package.json` script runs the complete repository build, launches `apps/cli/src/bin.ts` with `node --import tsx/esm`, and forwards every argument. Build output appears before CLI output. The process inherits the launch environment; set `NODE_USE_ENV_PROXY=1` when a supporting Node version must honor `HTTP_PROXY` and `HTTPS_PROXY`. The installed form launches the built `apps/cli/lib/bin.js` without rebuilding the repository.

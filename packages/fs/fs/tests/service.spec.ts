@@ -50,6 +50,13 @@ class FakeFileSystem extends FileSystem {
     const content = await this.readText(target)
     return (async function* () { yield content })()
   }
+  override async readBytes(target: FsTarget, _signal: AbortSignal | undefined, maxBytes: number): Promise<Uint8Array> {
+    const bytes = new TextEncoder().encode(await this.readText(target))
+    if (bytes.length > maxBytes) {
+      throw new FsError(`too large: ${target.displayPath}`, 'FS_TOO_LARGE')
+    }
+    return bytes
+  }
   override async listDir(target: FsTarget): Promise<FsDirEntry[]> {
     if (target.targetKey !== 'skills') throw new FsError(`not a directory: ${target.displayPath}`, 'FS_NOT_DIRECTORY')
     return [
@@ -110,6 +117,16 @@ describe('FileSystem provider seam', () => {
     let streamed = ''
     for await (const chunk of await fs.streamText(target)) streamed += chunk
     expect(streamed).toBe(await fs.readText(target))
+  })
+
+  it('readBytes returns raw content and enforces the byte cap with FS_TOO_LARGE', async () => {
+    const ctx = new Context()
+    await ctx.plugin(FakeFileSystem)
+    const fs = ctx.fs as FakeFileSystem
+    fs.files.set('a.bin', 'hi')
+    const target = await fs.resolve('a.bin')
+    expect(await fs.readBytes(target, undefined, 2)).toEqual(new TextEncoder().encode('hi'))
+    await expect(fs.readBytes(target, undefined, 1)).rejects.toMatchObject({ code: 'FS_TOO_LARGE' })
   })
 
   it('listDir returns child entry targets without reading file content', async () => {
