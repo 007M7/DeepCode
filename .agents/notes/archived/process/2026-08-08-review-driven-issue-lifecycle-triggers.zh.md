@@ -1,6 +1,7 @@
 # Agent Note: 由评审驱动的 Issue 生命周期触发器
 
 Status: implemented
+Archived: 2026-08-10
 
 [English](2026-08-08-review-driven-issue-lifecycle-triggers.md) | 中文
 

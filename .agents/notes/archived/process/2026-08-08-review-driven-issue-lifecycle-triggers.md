@@ -1,6 +1,7 @@
 # Agent Note: Review-driven Issue lifecycle triggers
 
 Status: implemented
+Archived: 2026-08-10
 
 English | [中文](2026-08-08-review-driven-issue-lifecycle-triggers.zh.md)
 
