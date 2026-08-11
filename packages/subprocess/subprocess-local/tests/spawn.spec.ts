@@ -584,7 +584,7 @@ describe('stdio dispositions', () => {
 describe('windows tree semantics (injected platform)', () => {
   it('host-exit termination routes through taskkill immediately', async () => {
     const killed: number[] = []
-    const running = spawnSubprocess(spec('sleep 60', { graceMs: 60_000 }), {
+    const running = spawnSubprocess(spec('exec sleep 60', { graceMs: 60_000 }), {
       spillDir,
       platform: 'win32',
       taskkill: (pid) => {
@@ -603,7 +603,7 @@ describe('windows tree semantics (injected platform)', () => {
 
   it('terminate routes through taskkill by root pid', async () => {
     const killed: number[] = []
-    const running = spawnSubprocess(spec('sleep 60', { graceMs: 100 }), {
+    const running = spawnSubprocess(spec('exec sleep 60', { graceMs: 100 }), {
       spillDir,
       platform: 'win32',
       taskkill: (pid) => {

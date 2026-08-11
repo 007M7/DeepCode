@@ -26,7 +26,7 @@ Status: implemented
 | --- | --- | --- |
 | 正常 Cordis dispose | 协作式终止、有界升级，并等待普通／terminal清理 | dispose结算前，每个自有 handle均达到完全停稳 |
 | `process.exit()`、默认未捕获异常或默认未处理 rejection | 对服务当前存活集合发送同步最终信号 | 宿主退出后的外部观察 |
-| `SIGKILL`、fatal OOM、`process.abort()`、native crash或断电 | 进程内操作无法运行 | 必须由外部 supervisor、容器或 OS所有权负责 |
+| 未安装 handler 时由 `SIGTERM`、`SIGINT` 或 `SIGHUP` 默认终止；`SIGKILL`；fatal OOM；`process.abort()`；native crash；或断电 | 进程内操作无法运行 | 必须由外部 supervisor、容器或 OS 所有权负责；应用安装执行 dispose 或调用 `process.exit()` 的信号 handler 时除外 |
 
 ## Verification
 

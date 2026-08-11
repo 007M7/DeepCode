@@ -26,7 +26,7 @@ Normal disposal remains the [subprocess seam's](../architecture/2026-07-26-subpr
 | --- | --- | --- |
 | Normal Cordis disposal | Cooperative termination, bounded escalation, and awaited ordinary/terminal cleanup | Every owned handle reaches quiescence before disposal settles |
 | `process.exit()`, default uncaught exception, or default unhandled rejection | Synchronous final signals against the service's current live sets | External observation after the host exits |
-| `SIGKILL`, fatal OOM, `process.abort()`, native crash, or power loss | No in-process action can run | External supervisor, container, or OS ownership is required |
+| Default termination for an unhandled `SIGTERM`, `SIGINT`, or `SIGHUP`; `SIGKILL`; fatal OOM; `process.abort()`; native crash; or power loss | No in-process action can run | External supervisor, container, or OS ownership is required unless the application installs a signal handler that performs disposal or calls `process.exit()` |
 
 ## Verification
 

@@ -104,6 +104,7 @@ async function runScenario(kind: ManagedKind, trigger: ExitTrigger) {
   let state: TreeState | undefined
   let identities: ProcessIdentity[] = []
   let settled = false
+  let treeGone = false
   try {
     state = await readTree(join(root, 'tree.json'))
     await vi.waitFor(() => readFile(join(root, 'ready'), 'utf8'), {
@@ -115,6 +116,7 @@ async function runScenario(kind: ManagedKind, trigger: ExitTrigger) {
     const outcome = await child
     settled = true
     await waitForGone(state)
+    treeGone = true
     const disposeCounts = trigger === 'dispose'
       ? JSON.parse(await readFile(join(root, 'dispose.json'), 'utf8')) as {
         listenersBefore: number
@@ -128,8 +130,10 @@ async function runScenario(kind: ManagedKind, trigger: ExitTrigger) {
       child.kill('SIGKILL')
       await child.catch(() => {})
     }
-    cleanupTree(state, identities)
-    if (state !== undefined) await waitForGone(state).catch(() => {})
+    if (!treeGone) {
+      cleanupTree(state, identities)
+      if (state !== undefined) await waitForGone(state).catch(() => {})
+    }
     await rm(root, { recursive: true, force: true })
   }
 }

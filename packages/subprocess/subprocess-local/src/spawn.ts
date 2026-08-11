@@ -59,8 +59,9 @@ export interface SpawnInternals {
 }
 
 /**
- * Local-only extension used by the owning service during Node's synchronous
- * host-exit phase. It is intentionally absent from the public subprocess seam.
+ * Local-only synchronous final termination used by the owning service during
+ * host exit and as the last fallback after failed normal disposal. It is
+ * intentionally absent from the public subprocess seam.
  */
 export interface LocalSubprocessHandle extends SubprocessHandle {
   /** Force-terminate the current tree synchronously without starting timers or waits. */
