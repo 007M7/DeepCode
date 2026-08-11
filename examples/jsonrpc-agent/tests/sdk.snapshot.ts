@@ -38,7 +38,7 @@ const minimalReplayConfig = join(testsDir, '..', 'minimal.snapshot.cordis.yml')
 const runtimeBin = fileURLToPath(new URL('../../../packages/examples/jsonrpc-demo/src/bin.ts', import.meta.url))
 const repoTsconfig = fileURLToPath(new URL('../../../tsconfig.json', import.meta.url))
 
-const MINIMAL_SYSTEM_PROMPT = 'You are a helpful software engineer assistant.'
+const MINIMAL_SYSTEM_PROMPT = 'You are the environment-selected minimal software engineer.'
 const MINIMAL_BASH_DESCRIPTION = `Run commands in a bash shell
 * When invoking this tool, the contents of the "command" parameter does NOT need to be XML-escaped.
 * You don't have access to the internet via this tool.
@@ -67,6 +67,8 @@ interface SdkScenario {
   children: number
   /** Optional scenario-specific live and replay compositions. */
   configs?: { live: string; replay: string }
+  /** Environment overrides passed to the runtime subprocess. */
+  environment?: Readonly<Record<string, string>>
   /** Cwd-relative files whose final contents are part of the scenario contract. */
   expectedFiles?: Readonly<Record<string, string>>
   /** Assembled model-facing tool names and required argument keys. */
@@ -104,6 +106,7 @@ const SCENARIOS: SdkScenario[] = [
     sessionId: 'persistent-tools-snapshot',
     children: 0,
     configs: { live: minimalLiveConfig, replay: minimalReplayConfig },
+    environment: { DSH_SYSTEM_PROMPT: MINIMAL_SYSTEM_PROMPT },
     expectedFiles: { 'note.txt': 'target:\n\tnew\n' },
     expectedTools: { bash: ['command'], str_replace_editor: ['command', 'path'] },
     expectedSystem: MINIMAL_SYSTEM_PROMPT,
@@ -291,6 +294,7 @@ async function runScenario(scenario: SdkScenario): Promise<{
       DSH_SNAPSHOT_FILE: parentFixture,
       ...childFixtures.length > 0 ? { DSH_SNAPSHOT_CHILD_FILES: childFixtures.join(delimiter) } : {},
     },
+    ...scenario.environment,
   }
 
   const harness = new DeepSeekHarness({

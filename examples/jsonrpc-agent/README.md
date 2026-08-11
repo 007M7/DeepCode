@@ -20,7 +20,9 @@ The surrounding runtime also loads JSONL session persistence and automatic conte
 | `DEEPSEEK_API_KEY` | Credential passed to the OpenAI-compatible host endpoint |
 | `DEEPSEEK_BASE_URL` | Host endpoint used by `dsh-llm-deepseek` |
 | `DSH_CWD` | Agent workspace for bash and filesystem tools |
+| `DSH_CONTEXT_WINDOW` | Context capacity recorded for the `DSH_MODEL` catalog entry in the minimal variant |
 | `DSH_MAX_TOKENS_AS_SUCCESS` | `true` (default) accepts token-limited results; `false` reports them as errors |
+| `DSH_MODEL` | Default model used by `minimal.py`; `--model` takes precedence |
 | `DSH_SESSION_ROOT` | JSONL session directory |
 | `DSH_SYSTEM_PROMPT` | Deployment-provided coding persona |
 
@@ -28,9 +30,9 @@ Pass the config path through the Python SDK's `cordis` option or `DSH_CORDIS_CON
 
 ## Minimal variant
 
-[`minimal.cordis.yml`](minimal.cordis.yml) is the complete standalone counterpart of the Web `minimal` preset. It fixes the system prompt and compaction policy, and its model-facing surface is exactly:
+[`minimal.cordis.yml`](minimal.cordis.yml) is the complete standalone counterpart of the Web `minimal` preset. `DSH_SYSTEM_PROMPT` selects its system prompt, with `You are a helpful software engineer assistant.` as the fallback, and no context-compaction plugin is mounted. Its model-facing tools are exactly:
 
 - owner-scoped persistent `bash`
 - `str_replace_editor` with `view`, `create`, `str_replace`, and `insert`
 
-It composes the local PTY, filesystem intent policy, session sandbox policy, and JSONL persistence needed by the bundled runtime. [`minimal.py`](minimal.py) runs it through the Python SDK; the [Python SDK tutorial](../../docs/user/guide/python-sdk.md) uses this configuration to cover setup, session management, and the security boundary.
+It composes the local PTY, bare `fs-local` backend, danger-full-access policy for persistent Bash, and uncompressed JSONL persistence needed by the bundled runtime. [`minimal.py`](minimal.py) runs it through the Python SDK and uses `DSH_MODEL` as its default model; the [Python SDK tutorial](../../docs/user/guide/python-sdk.md) covers setup, session management, and the security boundary.

@@ -2,7 +2,7 @@
 
 [English](python-sdk.md) | 中文
 
-本教程介绍如何安装 Python SDK、在不使用 Web UI 的情况下运行仓库内置 Cordis 组合，以及如何在自己的程序中调用同一套 API。教程使用精简且完整的 [`minimal.cordis.yml`](../../../examples/jsonrpc-agent/minimal.cordis.yml) 作为示例，其中固定了系统提示词、工具目录、持久 shell 行为和压缩（compaction）策略。
+本教程介绍如何安装 Python SDK、在不使用 Web UI 的情况下运行仓库内置 Cordis 组合，以及如何在自己的程序中调用同一套 API。教程使用精简且完整的 [`minimal.cordis.yml`](../../../examples/jsonrpc-agent/minimal.cordis.yml) 作为示例，其中包含可配置的系统提示词、双工具目录和持久 shell 行为，并关闭上下文压缩（context compaction）。
 
 ## 前置要求
 
@@ -63,6 +63,8 @@ python -m pip install --find-links dist-python "deepseek-harness-sdk==$version"
 ```sh
 export DEEPSEEK_API_KEY=sk-your-key-here
 # export DEEPSEEK_BASE_URL=http://127.0.0.1:8000/v1
+# export DSH_MODEL=deepseek-v4-flash
+# export DSH_SYSTEM_PROMPT='You are a helpful software engineer assistant.'
 ```
 
 从仓库 checkout 运行一个任务：
@@ -110,16 +112,18 @@ print(result.final_response)
 
 ## 了解示例配置
 
-| 方面 | 固定值 |
+| 方面 | 值 |
 |---|---|
-| 系统提示词 | `You are a helpful software engineer assistant.` |
+| 系统提示词 | `DSH_SYSTEM_PROMPT`；未设置时使用 `You are a helpful software engineer assistant.` |
+| `minimal.py` 使用的模型 | `--model`，其次为 `DSH_MODEL`，最后为 `deepseek-v4-flash` |
 | 面向模型的工具 | 仅持久 `bash` 与 `str_replace_editor` |
 | Bash 超时 | 300 秒 |
 | 编辑器输出上限 | 16,000 个字符 |
-| 压缩 | 触发比例 `0.8`、保留 `20,480` 个 token、摘要上限 `8,192` 个 token、重试 1 次 |
+| 上下文压缩 | 已关闭 |
+| 文件系统 | 裸本地后端；编辑器使用绝对路径，可以访问运行时进程可见的任何路径 |
 | 会话持久化 | `DSH_SESSION_ROOT` 下未压缩的 JSONL |
 
-该配置省略了 harness 身份、workspace 提示词文本、skill（技能）、一次性 Bash、任务工具和其他所有面向模型的插件。文件系统策略事实记录为运行时用户上下文，而不会追加到系统提示词中。编辑器无条件要求绝对路径，因此配置中没有已经废弃的 `requireAbsolutePath` 选项。
+该配置省略了 harness 身份、workspace 提示词文本、skill（技能）、一次性 Bash、任务工具、上下文压缩和其他所有面向模型的插件。沙箱策略事实记录为运行时用户上下文，而不会追加到系统提示词中。编辑器无条件要求绝对路径，因此配置中没有已经废弃的 `requireAbsolutePath` 选项。
 
 ## 选择 workspace 与 session id
 
