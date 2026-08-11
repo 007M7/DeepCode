@@ -240,7 +240,7 @@
   background: var(--dsw-alias-interactive-bg-hover);
 }
 
-/* Session drag insert marker: a hollow leading dot and 2px rule between rows,
+/* Session drag insert marker: a leading chevron and 2px rule between rows,
    absolutely positioned so it neither resembles a row border nor changes layout. */
 .sessionRow.dropBefore,
 .sessionRow.dropAfter {
@@ -256,15 +256,21 @@
   right: 4px;
   height: 12px;
   background:
-    radial-gradient(
-      circle at 6px 6px,
-      transparent 0 3px,
-      var(--dsw-alias-state-business-primary) 3px 5px,
-      transparent 5px
-    ),
+    linear-gradient(
+      55deg,
+      transparent calc(50% - 1px),
+      var(--dsw-alias-state-business-primary) calc(50% - 1px) calc(50% + 1px),
+      transparent calc(50% + 1px)
+    ) 0 0 / 5px 7px no-repeat,
+    linear-gradient(
+      125deg,
+      transparent calc(50% - 1px),
+      var(--dsw-alias-state-business-primary) calc(50% - 1px) calc(50% + 1px),
+      transparent calc(50% + 1px)
+    ) 0 5px / 5px 7px no-repeat,
     linear-gradient(
       var(--dsw-alias-state-business-primary) 0 0
-    ) 10px 5px / calc(100% - 10px) 2px no-repeat;
+    ) 4px 5px / calc(100% - 4px) 2px no-repeat;
   pointer-events: none;
 }
 

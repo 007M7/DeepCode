@@ -76,20 +76,23 @@ describe('WorkspaceBrowser.module.css list', () => {
     expect(declarations('.groupSection + .groupSection')?.get('margin-top')).toBe('4px')
   })
 
-  it('draws drag targets as a hollow leading dot joined to the insertion line', () => {
+  it('draws drag targets as a leading chevron joined to the insertion line', () => {
     const listTopMarker = declarations('.listTopDropIndicator')
     const workspaceMarker = declarations('.workspaceDropBefore::before')
     const sessionMarker = rowDeclarations('.sessionRow.dropBefore::before')
     expect(listTopMarker?.get('top')).toBe('-8px')
-    expect(listTopMarker?.get('left')).toBe('-4px')
-    expect(workspaceMarker?.get('left')).toBe('-4px')
+    expect(listTopMarker?.get('left')).toBe('0')
+    expect(workspaceMarker?.get('left')).toBe('0')
     expect(sessionMarker?.get('left')).toBe('0')
     for (const marker of [listTopMarker, workspaceMarker, sessionMarker]) {
       expect(marker?.get('height')).toBe('12px')
-      expect(marker?.get('background')).toContain('radial-gradient')
-      expect(marker?.get('background')).toContain('linear-gradient')
-      expect(marker?.get('background')).toContain('var(--dsw-alias-state-business-primary) 3px 5px')
-      expect(marker?.get('background')).toContain('10px 5px / calc(100% - 10px) 2px')
+      expect(marker?.get('background')).not.toContain('radial-gradient')
+      expect(marker?.get('background')).toContain('55deg')
+      expect(marker?.get('background')).toContain('125deg')
+      expect(marker?.get('background')).toContain('calc(50% - 1px) calc(50% + 1px)')
+      expect(marker?.get('background')).toContain('0 0 / 5px 7px')
+      expect(marker?.get('background')).toContain('0 5px / 5px 7px')
+      expect(marker?.get('background')).toContain('4px 5px / calc(100% - 4px) 2px')
     }
   })
 
