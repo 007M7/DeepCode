@@ -156,8 +156,8 @@ type DetailTab =
   | 'tools'
   | 'overview'
   | 'rendered'
+  | 'raw'
   | 'source'
-  | 'origin'
   | 'input'
   | 'output'
   | 'schema'
@@ -800,7 +800,7 @@ function RequestOptions({
   )
 }
 
-function messageOriginLabel(source: unknown): string {
+function messageSourceLabel(source: unknown): string {
   if (typeof source !== 'object' || source === null || Array.isArray(source)) {
     return 'Unknown'
   }
@@ -823,16 +823,16 @@ function messageOriginLabel(source: unknown): string {
   return `${kind[0]?.toUpperCase() ?? ''}${kind.slice(1)}`
 }
 
-function MessageOrigin({ record }: { record: TableRecord }) {
+function MessageSource({ record }: { record: TableRecord }) {
   const source = record.cell.messageSource
-  if (source === undefined) return <p className={css.noPayload}>Origin not recorded</p>
+  if (source === undefined) return <p className={css.noPayload}>Source not recorded</p>
   const data = typeof source === 'object' && source !== null
     ? source
     : { value: source }
   return (
     <JsonTree
       data={data}
-      label="Message origin JSON"
+      label="Message source JSON"
       className={css.jsonPayload}
     />
   )
@@ -897,17 +897,17 @@ function detailTabs(record: TableRecord): readonly DetailTabItem[] {
   if (record.cell.kind === 'compacted') {
     return [
       { id: 'overview', label: 'Summary' },
-      { id: 'source', label: 'Raw Output' },
+      { id: 'raw', label: 'Raw Output' },
     ]
   }
   if (isMarkdownRecord(record)) {
     return [
       { id: 'overview', label: 'Summary' },
       { id: 'rendered', label: 'Preview' },
-      { id: 'source', label: 'Source' },
+      { id: 'raw', label: 'Raw' },
       ...(record.cell.messageSource === undefined
         ? []
-        : [{ id: 'origin', label: 'Origin' } as const]),
+        : [{ id: 'source', label: 'Source' } as const]),
     ]
   }
   return [
@@ -2855,14 +2855,14 @@ export function TrajectoryTable({
                 >
                   {selected.cell.messageSource !== undefined && (
                     <div>
-                      <dt>Origin</dt>
+                      <dt>Source</dt>
                       <dd className={css.overviewParentLinks}>
                         <button
                           type="button"
                           className={css.overviewHierarchyNavLink}
-                          onClick={() => { activateTab('origin') }}
+                          onClick={() => { activateTab('source') }}
                         >
-                          <span>{messageOriginLabel(selected.cell.messageSource)}</span>
+                          <span>{messageSourceLabel(selected.cell.messageSource)}</span>
                           <IconChevronRightOutline14
                             className={css.overviewHierarchyJumpIconTight}
                             size={11}
@@ -2875,7 +2875,7 @@ export function TrajectoryTable({
                     <div>
                       <dt>
                         {selectedAssistantRequestTarget !== undefined
-                          ? 'Origin'
+                          ? 'Source'
                           : 'Hierarchy'}
                       </dt>
                       <dd className={css.overviewParentLinks}>
@@ -2999,7 +2999,7 @@ export function TrajectoryTable({
                 onOpenCall={openCallSummary}
               />
             )}
-            {!promptSelected && selected !== undefined && activeTab === 'source' && (
+            {!promptSelected && selected !== undefined && activeTab === 'raw' && (
               <MarkdownRecordContent
                 record={selected}
                 rendered={false}
@@ -3008,8 +3008,8 @@ export function TrajectoryTable({
                 onOpenCall={openCallSummary}
               />
             )}
-            {!promptSelected && selected !== undefined && activeTab === 'origin' && (
-              <MessageOrigin record={selected} />
+            {!promptSelected && selected !== undefined && activeTab === 'source' && (
+              <MessageSource record={selected} />
             )}
             {!promptSelected && selected !== undefined && activeTab === 'input' && (
               <RecordPayload record={selected} direction="input" />

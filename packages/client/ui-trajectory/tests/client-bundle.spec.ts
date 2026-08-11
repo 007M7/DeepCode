@@ -64,7 +64,7 @@ describe('tsdown client artifact', () => {
     expect(handoff.id).toBe(PLUGIN_ID)
     expect(surface.apply).toBeTypeOf('function')
     expect(surface.inject).toEqual([
-      'slots', 'conversationEvents', 'conversationViews', 'sessions',
+      'slots', 'conversationEvents', 'conversationViews', 'sessions', 'locale',
     ])
   })
 
@@ -80,8 +80,13 @@ describe('tsdown client artifact', () => {
       children: { 'conversation.view': { kind: 'list', scope: 'session' } },
     }, (_p: { renderSlot?: unknown }) => null)
     // Paging is session-owned; this registration-only probe never renders the
-    // entry, so the binding stays deliberately empty.
+    // entry, so the binding stays deliberately empty. The locale plugin backs
+    // the locale-aware view tab label (its settings scope needs a connection
+    // handle).
     ctx.provide('sessions', { binding: () => undefined })
+    ctx.provide('connection', { api: { settings: {} }, isLoopback: false } as never)
+    const locale = await import('@deepseek-ai/dsh-client-locale/client')
+    ctx.plugin({ inject: [...locale.inject], apply: locale.apply })
     const fiber = ctx.plugin(surface as { apply: (ctx: Context) => void })
     await fiber.await()
     const events = ctx.get('conversationEvents') as ConversationEventRegistry

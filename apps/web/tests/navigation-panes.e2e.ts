@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
 import type { Browser, Page, Response } from 'playwright'
 import { chromium } from 'playwright'
+import { strFromU8, unzipSync } from 'fflate'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, onTestFailed } from 'vitest'
 import { parseSessionLog } from '@deepseek-ai/dsh-llm-replay'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
@@ -272,6 +273,23 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
       .split(SEED_ID).join('{{seededId}}')
     await compareOrRefreshGolden(TRAJECTORY_EXPECTED, snapshot, MODE)
     await details.getByRole('button', { name: 'Close details' }).click()
+  }, 60_000)
+
+  it.skipIf(MODE === 'record')('downloads the session-log ZIP from the trajectory toolbar', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-navigation-export'))
+    await ensureSeedOpen(page)
+    await page.getByRole('tab', { name: 'Trajectory' }).click()
+    const downloadPromise = page.waitForEvent('download', { timeout: 30_000 })
+    await page.getByRole('button', { name: 'Export session log' }).click()
+    const download = await downloadPromise
+    expect(download.suggestedFilename()).toMatch(/^dsh-session-.+\.zip$/)
+    // The real host streamed the ZIP; its root entry is the persisted log
+    // text verbatim (the assembled seam: real route, real persistence read).
+    const files = unzipSync(await readFile(await download.path()))
+    expect(Object.keys(files)).toEqual(['session.jsonl'])
+    const content = strFromU8(files['session.jsonl'] as Uint8Array)
+    expect(content.split('\n')[0]).toContain(SEED_ID)
+    expect(content).toContain('FIRST_DONE')
   }, 60_000)
 
   it.skipIf(MODE === 'record')('focuses the ledger by dragging an overview interval', async () => {
