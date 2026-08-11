@@ -174,7 +174,7 @@ describe('bash tool through the agent loop', () => {
     expect(resultText(toolResult)).toContain('[exit code: 9]')
   })
 
-  it('background: start ack → pending completion notice → task_output collects it', async () => {
+  it('background: start ack → completion continues the agent → task_output collects it', async () => {
     // The task id is deterministic (a fresh LocalTaskService counts per kind from 1),
     // so the script can name `bash-1` without threading a generated id.
     const adapter = new MockAdapter([
@@ -193,28 +193,29 @@ describe('bash tool through the agent loop', () => {
     expect(firstResult.data.message.content[0].isError).toBe(false)
     expect(resultText(firstResult)).toBe('started background task bash-1')
 
-    // The task settles on its own; the tool-tasks notice listener injects a
-    // pending next-step message without waking the idle agent.
+    // No second user message. Settlement carries the notice into a turn on its
+    // own, and that turn collects the output. Whether it extends the running
+    // turn or wakes the idle agent depends on when the command exits, so this
+    // waits on the durable outcome rather than on a turn boundary; the lane
+    // choice itself is pinned in the tool-tasks unit tests.
     const isNotice = (e: SessionEvent): e is SessionEvent<'user/message'> =>
       e.type === 'user/message' && e.data.source.kind === 'plugin'
-    await pollUntil(() => agent.inbox.nextStep.some(message => message.source.kind === 'plugin'))
-    const pendingNotice = agent.inbox.nextStep.find(message => message.source.kind === 'plugin')!
-    expect(pendingNotice.content.some(
+    const lastResultText = (): string => {
+      const found = events(agent).findLast(event => event.type === 'tool/result')
+      return found === undefined ? '' : resultText(found)
+    }
+    await pollUntil(() => events(agent).some(isNotice) && lastResultText().includes('bg-ok'))
+
+    const notice = events(agent).find(isNotice)!
+    expect(notice.data.content.some(
       block => block.type === 'text' && block.text.includes('background task bash-1 (bash: echo bg-ok) finished'),
     )).toBe(true)
-    expect(pendingNotice.source).toEqual({
+    expect(notice.data.source).toEqual({
       kind: 'plugin',
       plugin: 'tool-tasks',
       form: 'notice',
       summary: 'bash echo bg-ok [status: completed, exit code: 0]',
     })
-
-    // The next turn first admits that notice as user/message, then collects
-    // the output through the generic task tool.
-    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'collect it' }], source: { kind: 'user' } }))
-    await waitForIdle(ctx, agent)
-    const notice = events(agent).find(isNotice)!
-    expect(notice.data).toEqual(pendingNotice)
     const readResult = findEvent(events(agent), 'tool/result', 'last')
     expect(readResult.data.message.content[0].isError).toBe(false)
     expect(resultText(readResult)).toContain('bg-ok')
