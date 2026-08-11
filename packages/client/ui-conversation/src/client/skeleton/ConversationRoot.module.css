@@ -1,7 +1,7 @@
 /* Conversation column skeleton: header (breadcrumb row only for subagents not fork + tabs) over the view
    area, composer InputBar at the bottom. Column width/squeeze is layout's;
    this fills its cell. Figma: Header 39:27730 (83px two-row), tabs 13px with
-   a 3px active bar. */
+   a 2px active bar. */
 
 .root {
   display: flex;
@@ -121,7 +121,7 @@
   padding-left: 8px;
 }
 
-/* figma .Tab 34:11442: 13/16 text (figma wt510, rendered 500), gap 8 to the 3px bar. */
+/* figma .Tab 34:11442: 13/16 text (figma wt510, rendered 500), gap 8 to the 2px bar. */
 .tab {
   position: relative;
   padding: 0 0 11px;
@@ -138,9 +138,9 @@
   content: '';
   position: absolute;
   right: 0;
-  bottom: 0;
+  bottom: 1px;
   left: 0;
-  height: 3px;
+  height: 2px;
   border-radius: 2px;
   background: transparent;
 }
