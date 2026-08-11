@@ -95,7 +95,10 @@ export abstract class SessionPersistence extends Service {
    */
   abstract locate(meta: SessionHeader): SessionLocation | undefined
 
-  /** Whether this backend exposes one verbatim raw artifact per session. */
+  /**
+   * Whether this backend exposes one verbatim raw artifact per session.
+   * A backend that declares `true` must override {@link readRaw}.
+   */
   abstract readonly supportsRawArtifacts: boolean
 
   /**
