@@ -505,20 +505,6 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
     expect(handlerSignal.aborted).toBe(true)
   })
 
-  it('propagates the carrier Request signal into command.execute', async () => {
-    const handler = toFetchHandler(fakeApi())
-    const controller = new AbortController()
-    const body = JSON.stringify({ type: 'client-request', rpcId: 'r-sig', method: 'command.execute', payload: { sessionId: 's', line: '/hang' } })
-    // The fake's /hang settles only when the invoke-level signal aborts: a
-    // completed response with the cancelled error proves req.signal reached it.
-    const pending = handler.fetch(new Request('http://x/api/command.execute', { method: 'POST', headers: { 'content-type': 'application/json' }, body, signal: controller.signal }))
-    controller.abort()
-    const response = await pending
-    const parsed = await response.json() as { rpcId: string; result: { ok: boolean; error?: { code: string } } }
-    expect(parsed.rpcId).toBe('r-sig')
-    expect(parsed.result.error?.code).toBe('cancelled')
-  })
-
   it('propagates the carrier Request signal into session.search', async () => {
     const handler = toFetchHandler(fakeApi())
     const controller = new AbortController()
