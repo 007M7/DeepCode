@@ -137,6 +137,11 @@ export interface Config {
   default: string
   /** Scanned roots in precedence order; an earlier root wins a duplicate id. */
   roots: PresetRoot[]
+  /**
+   * Append the harness home's `USER_PRESET_DIR` as a `user` root, after every
+   * configured root. False mounts a roster over `roots` alone.
+   */
+  includeUserRoot: boolean
 }
 
 /** One directory scanned for preset subdirectories. */

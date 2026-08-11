@@ -26,6 +26,17 @@ import { PRESET_ID, type AgentPreset, type PresetRoot } from './preset.ts'
 export const COMPOSITION_FILE = 'agent.cordis.yml'
 
 /**
+ * Harness-home directory holding locally authored presets.
+ *
+ * This package owns the writable root the way `dsh-skill-local` owns
+ * `<dshHome>/skills`. An app must assemble the SHIPPED root, whose path only
+ * the installed app can resolve; where a person's own presets go is the same
+ * place in every deployment that does not say otherwise, so a launcher that
+ * forgets to configure one still finds them.
+ */
+export const USER_PRESET_DIR = '.agent-presets'
+
+/**
  * Why `rows` cannot be an entry list, or undefined when it can.
  *
  * A shallow shape check, deliberately short of the loader's work: it does not

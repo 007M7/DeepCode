@@ -93,7 +93,11 @@ async function bootWeb(settingsFile: string, extra: PatchOptions[] = []): Promis
     // document overrides.
     {
       id: 'agent-presets',
-      config: { default: 'standard', roots: [{ path: join(CONFIG_DIR, 'agent-presets'), trust: 'system' }] },
+      config: {
+        default: 'standard',
+        roots: [{ path: join(CONFIG_DIR, 'agent-presets'), trust: 'system' }],
+        includeUserRoot: false,
+      },
     },
     ...extra,
   ]
@@ -447,6 +451,7 @@ describe('product subagent rows in user presets', () => {
           { path: join(CONFIG_DIR, 'agent-presets'), trust: 'system' },
           { path: userRoot, trust: 'user' },
         ],
+        includeUserRoot: false,
       },
     }])
   }, 120_000)
@@ -647,6 +652,7 @@ describe('authoring a preset on the shipped composition', () => {
           // nothing is the normal first-run state.
           { path: userRoot, trust: 'user' },
         ],
+        includeUserRoot: false,
       },
     }])
   })

@@ -385,7 +385,11 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     // able to change a golden.
     {
       id: 'agent-presets',
-      config: { default: 'standard', roots: [{ path: SHIPPED_PRESET_DIR, trust: 'system' }] },
+      config: {
+        default: 'standard',
+        roots: [{ path: SHIPPED_PRESET_DIR, trust: 'system' }],
+        includeUserRoot: false,
+      },
     },
     { id: 'session-persistence-jsonl', config: { root: persistenceRoot } },
     { id: 'session-query-sqlite', config: { path: ':memory:', openAt: 'first-search' } },
@@ -442,7 +446,9 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     { insert: [{ id: 'directory-picker-browse', name: '@deepseek-ai/dsh-host-directory-picker-browse' }] },
     ...options.agentPresets === undefined
       ? []
-      : [{ id: 'agent-presets', config: options.agentPresets }],
+      // Never the derived harness-home root: a developer's own presets must not
+      // be able to change a golden, whatever roots a scenario asks for.
+      : [{ id: 'agent-presets', config: { ...options.agentPresets, includeUserRoot: false } }],
     ...options.toolsMode === undefined ? [] : [{ id: 'tools', config: { mode: options.toolsMode } }],
     ...options.cordisTools === true
       ? [{ insert: [{ id: 'tool-cordis', name: 'cordis:tool-cordis' }] }]

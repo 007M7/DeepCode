@@ -31,7 +31,7 @@ async function harness(): Promise<Context> {
   await ctx.plugin(ToolRegistry)
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(AgentLoop, { agents: [] })
-  await ctx.plugin(AgentPresets, { default: 'standard', roots: ROOTS })
+  await ctx.plugin(AgentPresets, { default: 'standard', roots: ROOTS, includeUserRoot: false })
   await ctx.plugin(InvariantService)
   await ctx.plugin(AgentPresetsInvariant)
   return ctx
