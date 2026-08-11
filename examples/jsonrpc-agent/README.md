@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-The unattended coding-agent composition for the Python SDK's bundled JSON-RPC runtime. It intentionally loads no terminal UI, console logger, approval surface, or user-interaction tool because stdout belongs to the SDK protocol and turns are driven by the SDK.
+The unattended coding-agent composition for the Python SDK's bundled JSON-RPC runtime. It intentionally loads no terminal UI, console logger, approval UI, or user-interaction tool because stdout belongs to the SDK protocol and turns are driven by the SDK.
 
 The model-facing tools are:
 

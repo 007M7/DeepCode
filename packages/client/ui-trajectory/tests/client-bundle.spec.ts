@@ -2,7 +2,7 @@
 /**
  * Real tsdown artifact shape: lib/client.js hands off through
  * window.__ModuleLoader__.load, resolves externals through the injected
- * require, returns the export surface (apply + inject), and a mounted apply
+ * require, returns the exports (apply + inject), and a mounted apply
  * registers the view tab into a real SlotsService ring. Skips when dist/ is
  * not built (`pnpm --filter @deepseek-ai/dsh-client-ui-trajectory bundle`).
  */
@@ -52,24 +52,24 @@ describe('tsdown client artifact', () => {
       ['@deepseek-ai/dsh-client-runtime/client', await import('@deepseek-ai/dsh-client-runtime/client')],
       ['@deepseek-ai/dsh-client-ui-primitives', await import('@deepseek-ai/dsh-client-ui-primitives')],
     ])
-    const surface = handoff!.factory((spec) => {
+    const exports = handoff!.factory((spec) => {
       if (!modules.has(spec)) throw new Error(`unexpected require: ${spec}`)
       return modules.get(spec)
     })
-    return { handoff: handoff!, surface }
+    return { handoff: handoff!, exports }
   }
 
   it.skipIf(code === undefined)('hands off with the manifest id and a DI-require factory', async () => {
-    const { handoff, surface } = await loadArtifact()
+    const { handoff, exports } = await loadArtifact()
     expect(handoff.id).toBe(PLUGIN_ID)
-    expect(surface.apply).toBeTypeOf('function')
-    expect(surface.inject).toEqual([
+    expect(exports.apply).toBeTypeOf('function')
+    expect(exports.inject).toEqual([
       'slots', 'conversationEvents', 'conversationViews', 'sessions', 'locale',
     ])
   })
 
   it.skipIf(code === undefined)('mounted as an object plugin, apply registers the view tab on the real ring', async () => {
-    const { surface } = await loadArtifact()
+    const { exports } = await loadArtifact()
     const ctx = new Context()
     const slots = new SlotsService(ctx)
     await ctx.plugin(ConversationEventRegistry).await()
@@ -87,7 +87,7 @@ describe('tsdown client artifact', () => {
     ctx.provide('connection', { api: { settings: {} }, isLoopback: false } as never)
     const locale = await import('@deepseek-ai/dsh-client-locale/client')
     ctx.plugin({ inject: [...locale.inject], apply: locale.apply })
-    const fiber = ctx.plugin(surface as { apply: (ctx: Context) => void })
+    const fiber = ctx.plugin(exports as { apply: (ctx: Context) => void })
     await fiber.await()
     const events = ctx.get('conversationEvents') as ConversationEventRegistry
     const views = ctx.get('conversationViews') as ConversationViewRegistry

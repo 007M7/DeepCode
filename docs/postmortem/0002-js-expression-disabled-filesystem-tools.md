@@ -16,7 +16,7 @@ Cordis Include parsed each `!!js` scalar into an expression object. The Loader r
 
 ## Impact
 
-Seven filesystem scenarios and the mixed workspace-edit scenario called tools that were absent from the registry. Their structured session logs carried `ToolNotFoundError` with code `UNKNOWN_TOOL`, while stdout rendered generic failed tool cards. The snapshot suite passed because both surfaces matched the refreshed fixtures; it proved deterministic replay of the regression rather than successful filesystem behavior.
+Seven filesystem scenarios and the mixed workspace-edit scenario called tools that were absent from the registry. Their structured session logs carried `ToolNotFoundError` with code `UNKNOWN_TOOL`, while stdout rendered generic failed tool cards. The snapshot suite passed because both outputs matched the refreshed fixtures; it proved deterministic replay of the regression rather than successful filesystem behavior.
 
 The live confined default did not gain unintended filesystem access. A naive interpolation fix would have created that risk: permission presets update bash sandbox and approval state at runtime, but cannot mount, unmount, or confine the filesystem stack.
 

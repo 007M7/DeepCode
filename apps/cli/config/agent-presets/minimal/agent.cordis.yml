@@ -1,6 +1,6 @@
-# The `minimal` agent preset: a fixed-prompt, two-tool coding surface.
+# The `minimal` agent preset: a fixed-prompt, two-tool coding-agent composition.
 #
-# The persona is the complete system prompt, so global identity, Web surface,
+# The persona is the complete system prompt, so global identity, Web orientation,
 # tool guidance, and later assembly listeners cannot add prompt text. The model
 # composes only the persistent `bash` and `str_replace_editor` tools. Context
 # compaction is deliberately absent.

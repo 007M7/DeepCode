@@ -3,7 +3,7 @@
  * Integration against the real ui-slots SlotCore through a passthrough host:
  * registrations go through the real register() (options form, children
  * declaration), and the outlets ride the real subscribe/getVersion/entries/
- * isLive surfaces — microtask-batched notifications, mutation-stable entry
+ * isLive APIs — microtask-batched notifications, mutation-stable entry
  * references (the cache axis), and ledger-fed stale bindings are the
  * real-core semantics the fake-host suite cannot vouch for.
  */

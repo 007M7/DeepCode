@@ -1,8 +1,8 @@
-# Agent Note: Prune dead public and result surface
+# Agent Note: Prune dead public API and result fields
 
 Status: proposed
 
-English | [中文](2026-07-04-prune-dead-core-spine-surface.zh.md)
+English | [中文](2026-07-04-prune-dead-core-spine-api.zh.md)
 
 ## Problem
 
@@ -10,7 +10,7 @@ Several package-root exports, result fields, and convenience methods have no pro
 
 The production corpus is `packages/*/*/src`, example sources/config, and runtime scripts. Tests, package READMEs, and Agent Note prose are evidence of publication but not fixed callers. `cordis_inspect` makes `packages/self-modification/tool-cordis/src/api-catalog.ts` model-visible, and `cordis_mount` can invoke injected services through guarded real-service proxies, so catalogued service methods and returned shapes are a genuine dynamic product surface. The table therefore distinguishes absence of a fixed repository caller from unreachability: rows touching catalogued vocabulary intentionally contract what model-written mounts can discover and call, while package-root implementation helpers are not reached through that service façade. Exact-symbol searches produce the following inventory:
 
-| Surface | Production evidence | Simplification |
+| API element | Production evidence | Simplification |
 | --- | --- | --- |
 | `SurfaceManager.invalidate()` | Only its unit test calls it; seeding completes before the lazily-created manager exists and the session never replaces its log reference. | Delete it and its impossible wholesale-replacement contract. |
 | `ToolExecutionResult.callId` | Every hook already receives the immutable `ToolExecution`; the loop and ACP correlate through the call/session event. No consumer reads the duplicate result field. | Remove the field, copy/mismatch guards, and tests that prove the duplicate cannot disagree. |
@@ -49,12 +49,12 @@ Remove or demote every row as one bounded coordinated public-surface cleanup. Up
 
 **Keep test conveniences and self-contained results public.** Public helpers can make white-box tests convenient, self-contained result fields can look ergonomic, and future embedders might want the concrete loop or enumeration methods. Those benefits are hypothetical; today they make every implementation and document explain states that no shipped caller can observe. A real consumer can introduce the smallest contract it needs, with its ownership and failure semantics known.
 
-**Keep every catalogued member for model-written mounts.** The self-referential toolset is a real generic consumer route, not generated-doc noise. Its value comes from an accurate, composable service surface, however, not from preserving duplicate fields or incoherent argument pairs indefinitely; each catalogued contraction above removes a fact available elsewhere on the same execution, agent, or result and updates the API reference in the same change.
+**Keep every catalogued member for model-written mounts.** The self-referential toolset is a real generic consumer route, not generated-doc noise. Its value comes from an accurate, composable service API, however, not from preserving duplicate fields or incoherent argument pairs indefinitely; each catalogued contraction above removes a fact available elsewhere on the same execution, agent, or result and updates the API reference in the same change.
 
 ## Acceptance criteria
 
-- Exact-symbol searches show no removed surface outside this Agent Note and any implemented-Agent Note amendments.
-- Every surface listed in this Agent Note is absent or demoted as specified; deliberately retained extension/test contracts outside the inventory are unchanged.
+- Exact-symbol searches show no removed API outside this Agent Note and any implemented-Agent Note amendments.
+- Every API element listed in this Agent Note is absent or demoted as specified; deliberately retained extension/test contracts outside the inventory are unchanged.
 - Tool execution, compaction, both LLM adapters, both persistence backends, workflow isolation, and agent creation/resume retain their shipped behavior.
 - Typecheck, coverage, snapshots, doc-sync, module-graph verification, build, and hygiene pass.
 

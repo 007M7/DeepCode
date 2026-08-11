@@ -4,7 +4,7 @@ English | [中文](README.zh.md)
 
 Interactive initializer for `npm create @deepseek-ai/sdk [directory]`. Directory/name/description have visible editable defaults. A tree picker selects features and configures finite options with Right/Left navigation; secret text follows only for selected options. Local plugin creation is one none/plugin/tool choice.
 
-The supported package surface is the `create-sdk` bin. The package root exports no symbols, and workflow, bin, source, and package-manifest subpaths are not exported.
+The supported package entry point is the `create-sdk` bin. The package root exports no symbols, and workflow, bin, source, and package-manifest subpaths are not exported.
 
 The initializer rejects every existing target path, creates one `SdkProject` edit session, validates and commits it, then asks whether to install NPM dependencies and build. Install or build failures keep the generated project and print a retry command.
 
@@ -14,7 +14,7 @@ The provider choice is DeepSeek or a custom endpoint backed by `llm-pi-ai`. Deep
 
 ## Model Experience
 
-Indirectly, through the generated project composition and its selected runtime plugins; the headless `--config-json` + `--json` surface additionally lets an agent create a project end to end and react to `action-required` events.
+Indirectly, through the generated project composition and its selected runtime plugins; the headless `--config-json` + `--json` interface additionally lets an agent create a project end to end and react to `action-required` events.
 
 #### KV Cache effect
 

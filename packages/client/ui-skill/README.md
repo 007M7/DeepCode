@@ -8,7 +8,7 @@ A pick lands the literal `/name ` text and the prompt ships the same literal ([s
 
 A failed `skill.list` throws from `candidates`, which the slash shell logs and folds into a silent menu-group drop — the menu shows only pending/ready states.
 
-The `/client` export surface is the plugin body (`apply`/`inject`) only; the source object is internal to the registration effect.
+The `/client` exports are the plugin body (`apply`/`inject`) only; the source object is internal to the registration effect.
 
 ## Skill tool row
 

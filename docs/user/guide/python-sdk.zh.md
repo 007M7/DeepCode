@@ -112,7 +112,7 @@ print(result.final_response)
 
 ## 了解示例配置
 
-| 方面 | 值 |
+| 属性 | 值 |
 |---|---|
 | 系统提示词 | `DSH_SYSTEM_PROMPT`；未设置时使用 `You are a helpful software engineer assistant.` |
 | `minimal.py` 使用的模型 | `--model`，其次为 `DSH_MODEL`，最后为 `deepseek-v4-flash` |
@@ -129,6 +129,6 @@ print(result.final_response)
 
 `cwd` 用于选择 agent 可访问的 workspace，`session_root` 用于保存会话日志和状态。独立任务应使用新的 session id；只有下一次调用需要延续同一段对话和持久 shell 状态时，才复用原有 id。
 
-该组合使用 `danger-full-access`。只能在可丢弃的 checkout 或容器内运行：Bash 与编辑器可以修改运行时进程有权访问的任何路径。持久 PTY 后端需要 POSIX 终端环境，因此该模式不适用于 Windows agent。
+该组合使用 `danger-full-access`。只能在可丢弃的 checkout 或容器内运行：Bash 与编辑器可以修改运行时进程有权访问的任何路径。持久 PTY 后端需要 POSIX 终端环境，因此该组合不支持 Windows agent。
 
 完整的 SDK 生命周期与结果约定见 [Python SDK 参考](../../../python/sdk/README.md)。Cordis 组合语法见[配置](./config.md)。

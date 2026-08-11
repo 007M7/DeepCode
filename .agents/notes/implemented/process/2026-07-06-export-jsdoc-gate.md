@@ -1,8 +1,8 @@
-# Agent Note: Export-surface JSDoc gate
+# Agent Note: Export JSDoc gate
 
 Status: implemented
 
-English | [中文](2026-07-06-export-surface-jsdoc-gate.zh.md)
+English | [中文](2026-07-06-export-jsdoc-gate.zh.md)
 
 ## Problem
 
@@ -15,7 +15,7 @@ A new gate, `scripts/verify-export-jsdoc.ts` (`pnpm run verify-export-jsdoc`, wi
 The contract by declaration kind:
 
 - Every exported name needs JSDoc with non-empty description prose.
-- Function-like exports (function declarations; consts with function initializers or an INLINE callable annotation; non-identifier function default exports) follow the full function contract, with wrapper expressions (parentheses, `as`/`satisfies` casts, non-null assertions) peeled before classifying. A const whose declarator is annotated with a NAMED type (`export const f: Handler = …`) defers the signature contract to that type's own declaration and `@returns` stays optional; an inline `(x: T) => U` annotation or single-call-signature literal is the surface signature itself and gets the full contract, and a literal mixing call/construct signatures with anything else is refused outright (no single signature to hold the tags against — extract a named type).
+- Function-like exports (function declarations; consts with function initializers or an INLINE callable annotation; non-identifier function default exports) follow the full function contract, with wrapper expressions (parentheses, `as`/`satisfies` casts, non-null assertions) peeled before classifying. A const whose declarator is annotated with a NAMED type (`export const f: Handler = …`) defers the signature contract to that type's own declaration and `@returns` stays optional; an inline `(x: T) => U` annotation or single-call-signature literal is the exported signature itself and gets the full contract, and a literal mixing call/construct signatures with anything else is refused outright (no single signature to hold the tags against — extract a named type).
 - Exported classes need class-level prose; public methods (statics included — reachable on the exported name) follow the function contract; public properties and accessors need prose (a get/set pair is covered by the getter). Overload implementations are exempt — the signatures carry the docs.
 - Exported interfaces, type aliases, and enums need prose on the declaration; member-level enforcement is deliberately deferred (the highest-value member surface — seam service classes — is already under the cordis gate).
 - Exported namespaces recurse (inside an ambient `declare` namespace every member exports implicitly); the namespace itself needs prose only when it does not merge with a documented same-name declaration (the Config-namespace idiom documents the plugin once).
@@ -24,7 +24,7 @@ The contract by declaration kind:
 
 Three exemption families keep the gate from demanding boilerplate, in the spirit of the cordis gate's `this`/`next` exemptions (documenting an exempt name anyway is allowed; only absence goes unchecked):
 
-- **Heritage members.** Overrides inherit documentation from their base declaration. New public surface still requires docs: added parameters, a public override of a protected member, or a concrete return over a void base. Heritage lookup and inferred return classification are the gate's only type-checker work; other checks use the AST.
+- **Heritage members.** Overrides inherit documentation from their base declaration. New public API still requires docs: added parameters, a public override of a protected member, or a concrete return over a void base. Heritage lookup and inferred return classification are the gate's only type-checker work; other checks use the AST.
 - **Plugin-protocol slots.** Top-level `name` / `inject` / `reusable` / `Config` consts and the `apply` entry, plus the same slots as statics on a plugin class, are framework protocol: their shape is fixed by cordis, and the module doc comment plus the `interface Config` carry the plugin's real semantics.
 - **Constructors**, mirroring the cordis gate: plugin classes are framework-constructed, and the class doc owns the story.
 
@@ -33,8 +33,8 @@ Three exemption families keep the gate from demanding boilerplate, in the spirit
 ## Alternatives considered
 
 - **eslint-plugin-jsdoc** (`require-jsdoc`/`require-param`/`require-returns`) — covers the mechanical core but cannot express the repo's contract: the heritage-member exemption needs cross-package type resolution, the protocol-slot and namespace-merge idioms are cordis-specific, and the completeness semantics (prose-above-tags, stale-tag errors, aggregate reporting) already have one home in `scripts/jsdoc.ts` shared with the catalog generator. Two subtly different definitions of "documented" is the failure mode this repo's one-home rule exists to prevent.
-- **Extending `gen-cordis-catalog.ts`** — the catalog generator renders a curated surface and gates its freshness; a repo-wide walk has no catalog to render. Sharing the helpers while keeping the walks separate keeps each gate's scope legible.
-- **Enforcing interface/type-alias member docs** — deferred: it would multiply the checked surface for members that are largely self-describing fields, while the seam classes carrying the load-bearing member contracts are already gated. Revisit if member-doc drift shows up in review.
+- **Extending `gen-cordis-catalog.ts`** — the catalog generator renders a curated API and gates its freshness; a repo-wide walk has no catalog to render. Sharing the helpers while keeping the walks separate keeps each gate's scope legible.
+- **Enforcing interface/type-alias member docs** — deferred: it would multiply the checked scope for members that are largely self-describing fields, while the seam classes carrying the load-bearing member contracts are already gated. Revisit if member-doc drift shows up in review.
 
 ## Consequences
 

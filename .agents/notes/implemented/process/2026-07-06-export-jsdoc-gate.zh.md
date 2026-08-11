@@ -2,7 +2,7 @@
 
 Status: implemented
 
-[English](2026-07-06-export-surface-jsdoc-gate.md) | 中文
+[English](2026-07-06-export-jsdoc-gate.md) | 中文
 
 ## 问题
 

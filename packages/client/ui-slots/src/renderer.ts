@@ -27,7 +27,7 @@ export interface LocaleFace extends HostObservable<{ revision: number }> {
   bind(ns: string): Translate
 }
 
-/** Minimal observable surface for host-provided standard-kit data sources. */
+/** Minimal observable API for host-provided standard-kit data sources. */
 export interface HostObservable<T> {
   getSnapshot(): T
   subscribe(fn: () => void): () => void
@@ -97,7 +97,7 @@ export interface RenderOpts {
   hookContext?: unknown
 }
 
-/** Host surface the runtime SlotsService presents to the installed renderer. */
+/** Host API the runtime SlotsService presents to the installed renderer. */
 export interface SlotRendererHost {
   /**
    * Subscribe to a key's registration changes (microtask-batched).
@@ -167,8 +167,8 @@ export interface SlotRendererHost {
 /** The installation contract: runtime owns install()/renderSlot(); web-react implements rendering. */
 export interface SlotRenderer {
   /**
-   * Render the root slot tree over the host surface (the only ctx-level entry).
-   * @param host - the installing service's host surface.
+   * Render the root slot tree over the host API (the only ctx-level entry).
+   * @param host - the installing service's host API.
    * @param ownerProps - owner props from the shell's renderSlot('root', ...) call.
    * @returns the rendered tree.
    */

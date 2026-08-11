@@ -56,7 +56,7 @@ class StubTaskService extends TaskService {
     return () => {}
   }
 
-  attachSurface(_name: string): () => void {
+  attachController(_name: string): () => void {
     return () => {}
   }
 }
@@ -66,7 +66,7 @@ describe('TaskService seam', () => {
     const ctx = new Context()
     await ctx.plugin(StubTaskService)
 
-    const detachSurface = ctx.tasks.attachSurface('seam-test')
+    const detachController = ctx.tasks.attachController('seam-test')
     const id = ctx.tasks.start({ kind: 'bash', label: 'sleep 60', run: () => ({ cancel() {}, done: new Promise(() => {}) }) })
     expect(id).toBe('bash-1')
     expect(ctx.tasks.list()).toHaveLength(1)
@@ -78,7 +78,7 @@ describe('TaskService seam', () => {
     detachListener()
     const detachChanges = ctx.tasks.onTasksChanged(() => {})
     detachChanges()
-    detachSurface()
+    detachController()
   })
 
   it('loading a second implementation throws (one tasks service per context — cordis standard)', async () => {

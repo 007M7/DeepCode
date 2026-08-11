@@ -8,7 +8,7 @@ English | [中文](2026-07-19-remove-generated-agent-note-index.zh.md)
 
 A committed Agent Note index duplicates facts already encoded by each file's lifecycle/class path, filename date, and H1. Every branch that adds, moves, or renames an otherwise unrelated Agent Note rewrites the same generated file, making that artifact a predictable merge hotspot.
 
-The centralized chronological list adds little discovery value beyond browsing the lifecycle/class tree or searching the repository, while its generator, renderer, command, and freshness check remain maintenance surface.
+The centralized chronological list adds little discovery value beyond browsing the lifecycle/class tree or searching the repository, while its generator, renderer, command, and freshness check remain maintenance burden.
 
 ## Decision
 

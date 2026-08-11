@@ -60,7 +60,7 @@ export interface SessionOptions {
  * remaining public members are manager/runtime entry points.
  */
 export class Session implements SessionFace {
-  // ---- Window and derived state (all private; the snapshot is the only read surface) ----
+  // ---- Window and derived state (all private; the snapshot is the only read API) ----
   private events: SessionEvent[] = []
   /** Wire views aligned with `events` by index (envelope-level annotations; undefined = no view).
    *  Kept parallel rather than merged so `events` stays the raw log slice (model-visible ⟺ logged). */
@@ -428,7 +428,7 @@ export class Session implements SessionFace {
     await this.open()
   }
 
-  // ---- Subscription surface (useSyncExternalStore direct wiring) ----
+  // ---- Subscription API (useSyncExternalStore direct wiring) ----
 
   /**
    * uSES subscription entry.

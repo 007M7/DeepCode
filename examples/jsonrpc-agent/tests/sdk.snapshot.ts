@@ -2,8 +2,8 @@
  * Keyless snapshot coverage for the TypeScript SDK path: each scenario spawns
  * the REAL `dsh-jsonrpc-agent` runtime (per `DSH_EXAMPLE_MODE`) through the
  * REAL `@deepseek-ai/dsh-sdk-client`, drives one turn over stdio JSON-RPC,
- * and pins three surfaces — the SDK `RunResult`, the complete notification
- * stream, and the persisted session logs. Replay serves recorded model
+ * and pins the SDK `RunResult`, the complete notification stream, and the
+ * persisted session logs. Replay serves recorded model
  * responses via `llm-replay` (`cordis.snapshot.yml`); `DSH_SNAPSHOT=record`
  * re-records against the live API; `DSH_SNAPSHOT=refresh` replays committed
  * fixtures and rewrites expected outputs.

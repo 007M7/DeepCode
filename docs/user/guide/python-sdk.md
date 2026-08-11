@@ -112,7 +112,7 @@ print(result.final_response)
 
 ## Understand the example configuration
 
-| Surface | Value |
+| Property | Value |
 |---|---|
 | System prompt | `DSH_SYSTEM_PROMPT`, falling back to `You are a helpful software engineer assistant.` |
 | Model in `minimal.py` | `--model`, then `DSH_MODEL`, then `deepseek-v4-flash` |
@@ -129,6 +129,6 @@ The configuration omits harness identity, workspace prompt text, skills, one-sho
 
 `cwd` selects the workspace available to the agent, while `session_root` stores session logs and state. Use a fresh session id for an independent task; reuse an id only when the next call should continue the same conversation and persistent shell state.
 
-The composition uses `danger-full-access`. Run it only inside a disposable checkout or container: Bash and the editor can modify any path allowed to the runtime process. The persistent PTY backend requires a POSIX terminal substrate and is not a Windows agent surface.
+The composition uses `danger-full-access`. Run it only inside a disposable checkout or container: Bash and the editor can modify any path allowed to the runtime process. The persistent PTY backend requires a POSIX terminal substrate, so this composition does not support Windows agents.
 
 For the complete SDK lifecycle and result contract, see the [Python SDK reference](../../../python/sdk/README.md). For Cordis composition syntax, see [Configuration](./config.md).

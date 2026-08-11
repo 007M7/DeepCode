@@ -19,7 +19,7 @@ import type { LlmApi } from './llm.ts'
 import type { DownloadsApi } from './downloads.ts'
 import type { ClientResponse, RpcReceipt } from './rpc.ts'
 
-/** Root interface of the unified API surface. New client-request domain = one new file pair + one field here + one map row. */
+/** Root interface of the unified API. New client-request domain = one new file pair + one field here + one map row. */
 export interface ApiProxy {
   sessions: SessionsApi
   subagents: SubagentsApi
