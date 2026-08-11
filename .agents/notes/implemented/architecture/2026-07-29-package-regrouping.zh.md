@@ -58,7 +58,7 @@ Status: implemented
 
 组移动未触及：npm 包名、import、`cordis.yml` 配置、快照 fixture（测试前置数据）、`pnpm-workspace.yaml` 与 `tsdown` 的 glob（都是 `packages/*/*`），以及 Python 运行时 manifest（元数据清单）——它们全部按 npm 包名引用包。
 
-`client/` 与 `host/` 不在本次范围内，保持不变。`experimental/` 组提案（PR #844）与本案正交：它是发布边界容器，不是聚类决策。
+`client/` 与 `host/` 不在本次范围内，保持不变。
 
 ## Alternatives considered
 

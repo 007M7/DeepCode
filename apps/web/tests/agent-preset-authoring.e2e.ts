@@ -161,7 +161,7 @@ describe('web e2e: agent-preset authoring is a host-side copy', () => {
     expect(composition).toBe(await readFile(join(SHIPPED_PRESETS, 'minimal', 'agent.cordis.yml'), 'utf8'))
     const metadata = await readFile(join(userRoot, 'my-agent', 'preset.yml'), 'utf8')
     expect(metadata).toContain('name: 我的模式')
-    expect(metadata).toContain('description: 只向模型呈现 bash 与 str_replace_editor，适合 benchmark 与最小复现。')
+    expect(metadata).toContain('description: 仅提供持久 bash 与 str_replace_editor 的双工具编码 Agent。')
     expect(metadata).not.toContain('order:')
   }, 60_000)
 
@@ -176,8 +176,10 @@ describe('web e2e: agent-preset authoring is a host-side copy', () => {
 
     await expect.poll(async () => dialog.getByText('我的模式').count(), { timeout: 10_000 }).toBe(0)
     expect(existsSync(join(userRoot, 'my-agent'))).toBe(false)
-    // Custom group gone with its only member; the shipped set stands.
-    expect(await dialog.getByRole('heading', { name: '自定义' }).count()).toBe(0)
+    // The custom group outlives its only member: the heading stays with the
+    // creator entry so the place to author a preset never disappears.
+    expect(await dialog.getByRole('heading', { name: '自定义' }).count()).toBe(1)
+    expect(await dialog.getByRole('button', { name: '用「创造模式」创作自定义预设' }).count()).toBe(1)
     expect(await dialog.getByText('标准模式').count()).toBeGreaterThan(0)
   }, 60_000)
 

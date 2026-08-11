@@ -17,7 +17,7 @@ import type {
 import type { PendingInteraction } from './pending.ts'
 import type { ContextProvenanceView, KnownContextForm } from './context-provenance.ts'
 import type {
-  ChatConversationViewNode, ConversationTimelineSnapshot,
+  ChatConversationViewNode, ConversationTimelineSnapshot, ConversationViewSnapshotStore,
 } from '../contract/conversation.ts'
 export type { TodoItem }
 
@@ -384,6 +384,11 @@ export interface ChatSnapshot {
 const EMPTY_LIST: readonly never[] = []
 const EMPTY_TIMELINE: ConversationTimelineSnapshot = { turnOrder: EMPTY_LIST, turns: new Map() }
 
+/** Empty target store used by fixtures and Sessions without registered views. */
+export const EMPTY_CONVERSATION_VIEWS: ConversationViewSnapshotStore = {
+  get: () => undefined,
+}
+
 /** Empty Chat target used before a view builder is registered. */
 export const EMPTY_CHAT_SNAPSHOT: ChatSnapshot = {
   order: EMPTY_LIST,
@@ -408,6 +413,8 @@ export const EMPTY_CHAT_SNAPSHOT: ChatSnapshot = {
 /** The immutable snapshot contract Session hands to uSES (see the web client architecture RFC). */
 export interface ConversationSnapshot {
   sessionId: SessionId
+  /** Registered target snapshots assembled from Session events. */
+  views: ConversationViewSnapshotStore
   /** Final Chat target assembled from independently registered business Definitions. */
   chat: ChatSnapshot
   /** Legacy top-level compatibility field mirrored from the registered Chat Definitions. */

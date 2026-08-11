@@ -30,10 +30,16 @@ interface TestSnapshot {
 }
 
 class TestEventDefinitions {
+  readonly definitions: readonly ConversationNodeDefinition[]
+  readonly fallback: ConversationNodeDefinition | undefined
+
   constructor(
-    readonly definitions: readonly ConversationNodeDefinition[],
-    readonly fallback?: ConversationNodeDefinition,
-  ) {}
+    definitions: readonly ConversationNodeDefinition[],
+    fallback?: ConversationNodeDefinition,
+  ) {
+    this.definitions = definitions
+    this.fallback = fallback
+  }
 
   entries(): readonly ConversationNodeDefinition[] {
     return this.definitions
@@ -93,13 +99,27 @@ function chatSnapshot(assembler: ConversationNodeAssembler): TestSnapshot | unde
   return assembler.snapshot('chat') as TestSnapshot | undefined
 }
 
-function node(context: Parameters<ConversationNodeDefinition['buildViewNode']>[0], data: unknown): ConversationViewNode {
+function node(
+  context: Parameters<NonNullable<ConversationNodeDefinition['buildViewNode']>>[0],
+  data: unknown,
+): ConversationViewNode {
   return {
     key: context.key,
     kind: context.kind,
     id: context.id,
     target: 'chat',
     data,
+  }
+}
+
+function fallbackDefinition(start: () => string): ConversationNodeDefinition<string> {
+  return {
+    kind: 'fallback',
+    target: 'chat',
+    match: event => ({ id: String(event.seq), role: 'start' }),
+    start,
+    update: context => context.state,
+    buildViewNode: context => node(context, context.state),
   }
 }
 
@@ -122,6 +142,7 @@ describe('ConversationNodeAssembler', () => {
       },
       start: starts,
       update: updates,
+      target: 'chat',
       buildViewNode: context => node(context, context.state),
     }
     const assembler = new ConversationNodeAssembler(
@@ -173,6 +194,7 @@ describe('ConversationNodeAssembler', () => {
         matchCollections.add(context.matches)
         return updates(context)
       },
+      target: 'chat',
       buildViewNode: context => node(context, context.state),
     }
     const assembler = new ConversationNodeAssembler(
@@ -208,6 +230,7 @@ describe('ConversationNodeAssembler', () => {
       },
       start: starts,
       update: updates,
+      target: 'chat',
       buildViewNode: context => node(context, context.state),
     }
     const assembler = new ConversationNodeAssembler(
@@ -247,6 +270,7 @@ describe('ConversationNodeAssembler', () => {
       },
       start: () => ({ settled: false }),
       update: updates,
+      target: 'chat',
       buildViewNode: context => node(context, context.state ?? { pendingStart: true }),
     }
     const assembler = new ConversationNodeAssembler(
@@ -280,6 +304,7 @@ describe('ConversationNodeAssembler', () => {
         : event.type === 'turn/start' ? { id: 'one', role: 'update' } : null,
       start: () => null,
       update: context => context.state,
+      target: 'chat',
       buildViewNode: () => null,
     }
     const assembler = new ConversationNodeAssembler(
@@ -301,6 +326,7 @@ describe('ConversationNodeAssembler', () => {
         : null,
       start: (_context, match) => Number((match.event.data as { value?: unknown }).value ?? 0),
       update: context => context.state,
+      target: 'chat',
       buildViewNode: () => null,
     }
     const consumerStart = vi.fn((
@@ -315,6 +341,7 @@ describe('ConversationNodeAssembler', () => {
         : null,
       start: consumerStart,
       update: context => context.state,
+      target: 'chat',
       buildViewNode: context => node(context, context.state),
     }
     const assembler = new ConversationNodeAssembler(
@@ -344,6 +371,7 @@ describe('ConversationNodeAssembler', () => {
         : null,
       start: (_context, match) => match.event.seq,
       update: context => context.state,
+      target: 'chat',
       buildViewNode: () => null,
     }
     const consumer: ConversationNodeDefinition<number> = {
@@ -353,6 +381,7 @@ describe('ConversationNodeAssembler', () => {
         : null,
       start: (_context, _match, reader) => reader.previous<number>('source')?.state ?? -1,
       update: context => context.state,
+      target: 'chat',
       buildViewNode: context => node(context, context.state),
     }
     const assembler = new ConversationNodeAssembler(
@@ -397,6 +426,7 @@ describe('ConversationNodeAssembler', () => {
         : null,
       start: consumerStart,
       update: context => context.state,
+      target: 'chat',
       buildViewNode: context => node(context, context.state),
     }
     const assembler = new ConversationNodeAssembler(
@@ -425,6 +455,7 @@ describe('ConversationNodeAssembler', () => {
       },
       start: () => 1,
       update: (_context, match) => (match.event.data as unknown as { value: number }).value,
+      target: 'chat',
       buildViewNode: () => null,
     }
     const consumerStart = vi.fn((
@@ -439,6 +470,7 @@ describe('ConversationNodeAssembler', () => {
         : null,
       start: consumerStart,
       update: context => context.state,
+      target: 'chat',
       buildViewNode: context => node(context, context.state),
     }
     const assembler = new ConversationNodeAssembler(
@@ -468,6 +500,7 @@ describe('ConversationNodeAssembler', () => {
       },
       start: () => 1,
       update: (_context, match) => (match.event.data as unknown as { value: number }).value,
+      target: 'chat',
       buildViewNode: () => null,
     }
     const sourceX: ConversationNodeDefinition<number> = {
@@ -479,6 +512,7 @@ describe('ConversationNodeAssembler', () => {
       },
       start: () => 10,
       update: (_context, match) => (match.event.data as unknown as { value: number }).value,
+      target: 'chat',
       buildViewNode: () => null,
     }
     const middle: ConversationNodeDefinition<number> = {
@@ -491,6 +525,7 @@ describe('ConversationNodeAssembler', () => {
         + (reader.previous<number>('diamond-x')?.state ?? 0)
       ),
       update: context => context.state,
+      target: 'chat',
       buildViewNode: context => node(context, context.state),
     }
     const consumer: ConversationNodeDefinition<number> = {
@@ -503,6 +538,7 @@ describe('ConversationNodeAssembler', () => {
         + (reader.previous<number>('diamond-b')?.state ?? 0)
       ),
       update: context => context.state,
+      target: 'chat',
       buildViewNode: context => node(context, context.state),
     }
     const assembler = new ConversationNodeAssembler(
@@ -538,6 +574,7 @@ describe('ConversationNodeAssembler', () => {
         : null,
       start: starts,
       update: context => context.state,
+      target: 'chat',
       buildViewNode: context => node(context, context.state),
     }
     const assembler = new ConversationNodeAssembler(
@@ -609,6 +646,7 @@ describe('ConversationNodeAssembler', () => {
           value: { valueSeenFromStep: stepValue ?? -1 },
         }
       },
+      target: 'chat',
       buildViewNode: (context) => {
         const location = context.start?.location
         if (location?.kind !== 'step') return null
@@ -646,6 +684,7 @@ describe('ConversationNodeAssembler', () => {
         : null,
       start: () => null,
       update: context => context.state,
+      target: 'chat',
       buildViewNode: context => node(context, context.start?.location.kind === 'turn'
         ? context.start.location.turn.steps.length
         : -1),
@@ -701,6 +740,7 @@ describe('ConversationNodeAssembler', () => {
       },
       start: () => null,
       update: context => context.state,
+      target: 'chat',
       buildViewNode: (context) => {
         const location = context.start?.location
         const data = location?.kind === 'step'
@@ -734,6 +774,7 @@ describe('ConversationNodeAssembler', () => {
         : null,
       start: () => null,
       update: context => context.state,
+      target: 'chat',
       buildViewNode: context => node(context, context.start?.location.kind),
     }
     const assembler = new ConversationNodeAssembler(
@@ -760,6 +801,7 @@ describe('ConversationNodeAssembler', () => {
         : null,
       start: () => null,
       update: context => context.state,
+      target: 'chat',
       buildViewNode: (context) => {
         const location = context.start?.location
         return node(context, location?.kind === 'step'
@@ -792,6 +834,7 @@ describe('ConversationNodeAssembler', () => {
         : null,
       start: () => null,
       update: context => context.state,
+      target: 'chat',
       buildViewNode: (context) => {
         const location = context.start?.location
         return node(context, location?.kind === 'step'
@@ -826,6 +869,7 @@ describe('ConversationNodeAssembler', () => {
         : null,
       start: seen,
       update: context => context.state,
+      target: 'chat',
       buildViewNode: context => node(context, context.state),
     }
     const assembler = new ConversationNodeAssembler(
@@ -841,24 +885,64 @@ describe('ConversationNodeAssembler', () => {
     expect(seen).toHaveBeenCalledTimes(2)
   })
 
-  it('does not invoke the fallback when an ordinary non-rendering Definition claims an event', () => {
+  it('invokes the fallback when only a State-only Definition claims an event', () => {
+    const fallbackStart = vi.fn(() => 'fallback')
+    const claimed: ConversationNodeDefinition<null> = {
+      kind: 'claimed-state',
+      match: event => (event.type as string) === 'command/run'
+        ? { id: 'claimed', role: 'start' }
+        : null,
+      start: () => null,
+      update: context => context.state,
+    }
+    const assembler = new ConversationNodeAssembler(
+      new TestEventDefinitions([claimed], fallbackDefinition(fallbackStart)),
+      new TestViewDefinitions([testView()]),
+    )
+
+    assembler.replaceWindow([input(at(1, 'command/run', { commandId: 'one', name: 'x' }))], false)
+    assembler.flush()
+
+    expect(fallbackStart).toHaveBeenCalledOnce()
+    expect(chatSnapshot(assembler)?.order).toHaveLength(1)
+  })
+
+  it('invokes the fallback when only another target claims an event', () => {
+    const fallbackStart = vi.fn(() => 'fallback')
+    const claimed: ConversationNodeDefinition<null> = {
+      kind: 'claimed-trajectory',
+      target: 'trajectory',
+      match: event => (event.type as string) === 'command/run'
+        ? { id: 'claimed', role: 'start' }
+        : null,
+      start: () => null,
+      update: context => context.state,
+      buildViewNode: () => null,
+    }
+    const assembler = new ConversationNodeAssembler(
+      new TestEventDefinitions([claimed], fallbackDefinition(fallbackStart)),
+      new TestViewDefinitions([testView()]),
+    )
+
+    assembler.replaceWindow([input(at(1, 'command/run', { commandId: 'one', name: 'x' }))], false)
+    assembler.flush()
+
+    expect(fallbackStart).toHaveBeenCalledOnce()
+    expect(chatSnapshot(assembler)?.order).toHaveLength(1)
+  })
+
+  it('suppresses the fallback when the same target claims an event', () => {
     const fallbackStart = vi.fn(() => 'fallback')
     const claimed: ConversationNodeDefinition<null> = {
       kind: 'claimed',
+      target: 'chat',
       match: event => (event.type as string) === 'command/run' ? { id: 'claimed', role: 'start' } : null,
       start: () => null,
       update: context => context.state,
       buildViewNode: () => null,
     }
-    const fallback: ConversationNodeDefinition<string> = {
-      kind: 'fallback',
-      match: event => ({ id: String(event.seq), role: 'start' }),
-      start: fallbackStart,
-      update: context => context.state,
-      buildViewNode: context => node(context, context.state),
-    }
     const assembler = new ConversationNodeAssembler(
-      new TestEventDefinitions([claimed], fallback),
+      new TestEventDefinitions([claimed], fallbackDefinition(fallbackStart)),
       new TestViewDefinitions([testView()]),
     )
     assembler.replaceWindow([input(at(1, 'command/run', { commandId: 'one', name: 'x' }))], false)
@@ -878,6 +962,7 @@ describe('ConversationNodeAssembler', () => {
       },
       start: () => true,
       update: () => false,
+      target: 'chat',
       buildViewNode: context => context.state === true ? node(context, true) : null,
     }
     const assembler = new ConversationNodeAssembler(
@@ -900,6 +985,7 @@ describe('ConversationNodeAssembler', () => {
       match: event => (event.type as string) === 'command/run' ? { id: 'one', role: 'start' } : null,
       start: () => undefined,
       update: context => context.state,
+      target: 'chat',
       buildViewNode: () => null,
     }
     const startAssembler = new ConversationNodeAssembler(
@@ -919,6 +1005,7 @@ describe('ConversationNodeAssembler', () => {
       },
       start: () => true,
       update: () => undefined as never,
+      target: 'chat',
       buildViewNode: context => node(context, context.state),
     }
     const updateAssembler = new ConversationNodeAssembler(
@@ -939,6 +1026,7 @@ describe('ConversationNodeAssembler', () => {
       match: event => (event.type as string) === 'command/run' ? { id: 'one', role: 'start' } : null,
       start: (_context, match) => match.event.seq,
       update: context => context.state,
+      target: 'chat',
       buildViewNode: context => node(context, context.state),
     }
     const assembler = new ConversationNodeAssembler(

@@ -37,12 +37,12 @@ This matrix shows which packages dispatch each harness-owned event and which pac
 | `settings/document-updated` | `emit` | [`packages/settings/settings/src/index.ts:170`](../packages/settings/settings/src/index.ts) | [`settings`](../packages/settings/settings) (`events.dispatch`) | `apiproxy` |
 | `settings/updated` | `emit` | [`packages/settings/settings/src/index.ts:157`](../packages/settings/settings/src/index.ts) | [`settings`](../packages/settings/settings) (`events.dispatch`) | [`settings`](../packages/settings/settings) |
 | `skills/change` | `emit` | [`packages/skill/skill/src/index.ts:297`](../packages/skill/skill/src/index.ts) | [`skill`](../packages/skill/skill) (`events.dispatch`) | - |
-| `subagent/end` | `emit` | [`packages/subagent/subagent/src/index.ts:162`](../packages/subagent/subagent/src/index.ts) | [`subagent`](../packages/subagent/subagent) (`events.dispatch`) | [`hooks-claude`](../packages/hooks/hooks-claude), `server`, [`subagent`](../packages/subagent/subagent) |
-| `subagent/provider-added` | `emit` | [`packages/subagent/subagent/src/index.ts:136`](../packages/subagent/subagent/src/index.ts) | [`subagent`](../packages/subagent/subagent) (`emit`) | [`subagent`](../packages/subagent/subagent), [`tool-subagent`](../packages/subagent/tool-subagent) |
-| `subagent/provider-removed` | `emit` | [`packages/subagent/subagent/src/index.ts:142`](../packages/subagent/subagent/src/index.ts) | [`subagent`](../packages/subagent/subagent) (`events.dispatch`) | [`subagent`](../packages/subagent/subagent), [`tool-subagent`](../packages/subagent/tool-subagent) |
-| `subagent/start` | `emit` | [`packages/subagent/subagent/src/index.ts:153`](../packages/subagent/subagent/src/index.ts) | [`subagent`](../packages/subagent/subagent) (`events.dispatch`) | [`hooks-claude`](../packages/hooks/hooks-claude), [`subagent`](../packages/subagent/subagent) |
-| `system-prompt/assemble` | `waterfall` | [`packages/core/system-prompt/src/index.ts:29`](../packages/core/system-prompt/src/index.ts) | [`system-prompt`](../packages/core/system-prompt) (`waterfall`) | [`agent`](../packages/core/agent), [`system-prompt`](../packages/core/system-prompt) |
-| `system-prompt/change` | `emit` | [`packages/core/system-prompt/src/index.ts:35`](../packages/core/system-prompt/src/index.ts) | [`system-prompt`](../packages/core/system-prompt) (`emit`) | - |
+| `subagent/end` | `emit` | [`packages/subagent/subagent/src/index.ts:165`](../packages/subagent/subagent/src/index.ts) | [`subagent`](../packages/subagent/subagent) (`events.dispatch`) | [`hooks-claude`](../packages/hooks/hooks-claude), `server`, [`subagent`](../packages/subagent/subagent) |
+| `subagent/provider-added` | `emit` | [`packages/subagent/subagent/src/index.ts:139`](../packages/subagent/subagent/src/index.ts) | [`subagent`](../packages/subagent/subagent) (`emit`) | [`subagent`](../packages/subagent/subagent), [`tool-subagent`](../packages/subagent/tool-subagent) |
+| `subagent/provider-removed` | `emit` | [`packages/subagent/subagent/src/index.ts:145`](../packages/subagent/subagent/src/index.ts) | [`subagent`](../packages/subagent/subagent) (`events.dispatch`) | [`subagent`](../packages/subagent/subagent), [`tool-subagent`](../packages/subagent/tool-subagent) |
+| `subagent/start` | `emit` | [`packages/subagent/subagent/src/index.ts:156`](../packages/subagent/subagent/src/index.ts) | [`subagent`](../packages/subagent/subagent) (`events.dispatch`) | [`hooks-claude`](../packages/hooks/hooks-claude), [`subagent`](../packages/subagent/subagent) |
+| `system-prompt/assemble` | `waterfall` | [`packages/core/system-prompt/src/index.ts:31`](../packages/core/system-prompt/src/index.ts) | [`system-prompt`](../packages/core/system-prompt) (`waterfall`) | [`agent`](../packages/core/agent), [`system-prompt`](../packages/core/system-prompt) |
+| `system-prompt/change` | `emit` | [`packages/core/system-prompt/src/index.ts:37`](../packages/core/system-prompt/src/index.ts) | [`system-prompt`](../packages/core/system-prompt) (`emit`) | - |
 | `telemetry/record` | `waterfall` | [`packages/session/session-telemetry/src/index.ts:43`](../packages/session/session-telemetry/src/index.ts) | [`session-telemetry`](../packages/session/session-telemetry) (`waterfall`) | - |
 | `tools/change` | `emit` | [`packages/core/tools/src/index.ts:193`](../packages/core/tools/src/index.ts) | [`tools`](../packages/core/tools) (`emit`) | - |
 | `tools/code-dispatch-log` | `waterfall` | [`packages/core/tools/src/index.ts:175`](../packages/core/tools/src/index.ts) | [`tools`](../packages/core/tools) (`waterfall`) | [`spill-policy`](../packages/spill/spill-policy) |
@@ -62,7 +62,7 @@ This matrix shows which packages dispatch each harness-owned event and which pac
 | Event string | Dispatchers | Listeners |
 | --- | --- | --- |
 | `commands/changed` | `runtime` (`emit`) | `ui-command` |
-| `connection/reset` | `runtime` (`emit`) | `ui-command`, `ui-models`, `ui-permission`, `ui-settings-general` |
+| `connection/reset` | `runtime` (`emit`) | `runtime`, `ui-command`, `ui-models`, `ui-permission`, `ui-settings-general` |
 | `credentials/changed` | `runtime` (`emit`) | `ui-models` |
 | `internal/dispatch` | - | [`commands`](../packages/interaction/commands), [`compact`](../packages/compact/compact), [`fs`](../packages/fs/fs), [`goal`](../packages/goal/goal), [`goal-session`](../packages/goal/goal-session), [`hook-protocol`](../packages/hooks/hook-protocol), [`llm-retry`](../packages/llm/llm-retry), [`permission`](../packages/interaction/permission), [`plan-mode`](../packages/plan/plan-mode), [`pty-local`](../packages/pty/pty-local), `runtime`, [`sandbox-policy`](../packages/sandbox/sandbox-policy), [`scope`](../packages/core/scope), [`session`](../packages/core/session), [`session-title`](../packages/session/session-title), [`subagent`](../packages/subagent/subagent), [`time-context`](../packages/context/time-context), [`tool-todo`](../packages/todo/tool-todo), [`tools`](../packages/core/tools), [`user-approval`](../packages/interaction/user-approval), [`workflow`](../packages/workflow/workflow) |
 | `internal/plugin` | - | `hmr`, `loader`, [`lsp-local`](../packages/lsp/lsp-local), `modules`, `webserver` |
@@ -71,7 +71,7 @@ This matrix shows which packages dispatch each harness-owned event and which pac
 | `locale/change` | `locale` (`emit`) | `locale` |
 | `models/changed` | `runtime` (`emit`) | `ui-models` |
 | `session/preset-changed` | `runtime` (`emit`) | `ui-command` |
-| `settings/changed` | `runtime` (`emit`) | `ui-models`, `ui-permission`, `ui-settings-general` |
+| `settings/changed` | `runtime` (`emit`) | `runtime`, `ui-models`, `ui-permission`, `ui-settings-general` |
 | `slash/input-begin-command` | - | `ui-conversation` |
 | `slash/input-consume-token` | - | `ui-conversation` |
 | `slash/input-insert-reference` | - | `ui-conversation` |

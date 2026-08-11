@@ -38,7 +38,11 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
     'conversation.session': { kind: 'single'; scope: 'session' }
     /** Strict-session header above the resident conversation scrollport. */
     'conversation.session.header': { kind: 'single'; scope: 'session' }
-    /** Session-header actions contributed by feature plugins. */
+    /**
+     * Session-header actions contributed by feature plugins. Entries render
+     * by ascending `order`; negative values are reserved for static session
+     * context that precedes interactive actions.
+     */
     'conversation.session.header.actions': { kind: 'list'; scope: 'session'; owner: ConversationHeaderActionOwnerProps }
     /**
      * The conversation view ring: one list entry per view tab (chat here;
@@ -224,7 +228,7 @@ export interface ChatFileMentions {
   forClosing(owner: TurnTailOwnerProps): MarkdownFileMentions | undefined
 }
 
-declare module 'cordis' {
+declare module '@deepseek-ai/cordis' {
   interface Context {
     /** Prose file-mention provider (ui-deliverables); reach via ctx.get — optional. */
     chatFileMentions: ChatFileMentions

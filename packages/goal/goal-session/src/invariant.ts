@@ -1,7 +1,7 @@
 /** Package-owned goal-round prompt invariants. @module @deepseek-ai/dsh-goal-session/invariant */
 
 import { isDeepStrictEqual } from 'node:util'
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import { foldGoal, type FoldedGoal, type GoalMessageSource, type GoalView } from '@deepseek-ai/dsh-goal'
 import type { InvariantFailure, InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'

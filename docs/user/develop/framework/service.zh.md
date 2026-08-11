@@ -36,7 +36,7 @@ export function apply(ctx: Context) {
 ### 使用 Service 基类
 
 ```ts
-import { Service, type Context } from 'cordis'
+import { Service, type Context } from '@deepseek-ai/cordis'
 
 export default class MetricsService extends Service {
   static inject = ['llm']  // A service may depend on other services.
@@ -67,9 +67,9 @@ export function apply(ctx: Context) {
 使用 TypeScript 声明合并让 `ctx.metrics` 有正确类型：
 
 ```ts
-import { Service, type Context } from 'cordis'
+import { Service, type Context } from '@deepseek-ai/cordis'
 
-declare module 'cordis' {
+declare module '@deepseek-ai/cordis' {
   interface Context {
     metrics: MetricsService
   }
@@ -114,7 +114,7 @@ export function apply(ctx: Context) {
 
 ```yaml
 - id: group-a
-  name: '@cordisjs/plugin-group'
+  name: '@deepseek-ai/cordis-plugin-group'
   group: true
   isolate:
     bash: true
@@ -125,7 +125,7 @@ export function apply(ctx: Context) {
     - name: './src/plugin-a.ts'
 
 - id: group-b
-  name: '@cordisjs/plugin-group'
+  name: '@deepseek-ai/cordis-plugin-group'
   group: true
   isolate:
     bash: true

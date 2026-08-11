@@ -45,7 +45,7 @@ One page per subsystem of the DeepSeek Harness: what it is, the data structures 
 | [http-server.md](http-server.md) | the HTTP carrier: `WebRouteKind`/`WebRoute`, match order, the claimable fallback seat, index taps |
 | [storage.md](storage.md) | the storage subsystem: the backend contract (`StorageBackend`), `StorageForms`, `DomainSpec`/`Domain`, `domain/changed` |
 | [workspace.md](workspace.md) | the workspace registry: `Workspace`/`WorkspaceId`, registration and resolution, the session `cwd` relationship |
-| [client-modules.md](client-modules.md) | the web plugin table: `dshClient` declarations, `WebBootGraph` wire composition, the bundle route and index tap |
+| [client-modules.md](client-modules.md) | the web plugin table: `dsh.client` declarations, `WebBootGraph` wire composition, the bundle route and index tap |
 | [session-projection.md](session-projection.md) | the projection seam: `SessionProjectionMap`, the pure `ProjectionDefinition` unit, `ProjectionSnapshot`'s consistent cut, the change feed |
 | [telemetry.md](telemetry.md) | the outbound session-reporting capability seam: `TelemetryRecord`/`TelemetrySeverity`, the `TelemetryBackend` contract, and the `telemetry/record` redact waterfall |
 

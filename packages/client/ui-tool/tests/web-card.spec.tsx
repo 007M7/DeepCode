@@ -10,7 +10,9 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render } from '@testing-library/react'
-import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
+import {
+  createSnapshotStore, EMPTY_CONVERSATION_VIEWS,
+} from '@deepseek-ai/dsh-client-runtime/client'
 import type {
   ConversationSnapshot, RunningToolCall, SessionId, SessionListState, ToolResultNode, WorkspaceListState,
 } from '@deepseek-ai/dsh-client-runtime/client'
@@ -243,7 +245,8 @@ describe('DetailsPanel web Output section', () => {
     const nodes = over.nodes ?? []
     const runningCalls = over.runningCalls ?? []
     return {
-      sessionId: SID, chat: over.chat ?? toolChatSnapshot(nodes, runningCalls),
+      sessionId: SID, views: EMPTY_CONVERSATION_VIEWS,
+      chat: over.chat ?? toolChatSnapshot(nodes, runningCalls),
       nodes: [], turnTimings: new Map(), turnEnds: new Map(), partial: null, runningCalls: [],
       pending: [], queue: [], running: false, composerPhase: 'active', removed: false,
       openState: 'open', openError: null, hasMore: false, loadingOlder: false,
@@ -294,7 +297,7 @@ describe('web toolview registration', () => {
           return () => {}
         },
       },
-    } as unknown as import('cordis').Context
+    } as unknown as import('@deepseek-ai/cordis').Context
     webToolview.apply(ctx)
     expect(registered.map(r => r.key)).toEqual(['web_search', 'web_fetch'])
     // Both keys claim the conversation locale seat ToolRow's body copy needs.

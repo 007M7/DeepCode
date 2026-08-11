@@ -1,9 +1,28 @@
-import { mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, it } from 'vitest'
 import type { TsdownBundle } from 'tsdown'
-import { watchClientPlugins } from './dev-web.ts'
+import { discoverPluginDirs, watchClientPlugins } from './dev-web.ts'
+
+it('discovers dsh.client packages with sibling roles', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'dsh-dev-web-discovery-'))
+  try {
+    const current = join(root, 'packages', 'client', 'current')
+    await mkdir(current, { recursive: true })
+    await writeFile(join(current, 'package.json'), JSON.stringify({
+      dsh: {
+        bundle: { patch: './cordis.patch.yml' },
+        client: { platform: 'web' },
+        profile: { bundles: [] },
+      },
+    }))
+
+    expect(discoverPluginDirs(root)).toEqual(['packages/client/current'])
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
 
 it('rebuilds a client-plugin bundle after its source changes', async () => {
   const root = await mkdtemp(join(tmpdir(), 'dsh-dev-web-watch-'))

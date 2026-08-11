@@ -85,13 +85,13 @@ describe('the preset list', () => {
     await waitFor(() => { expect(actions.load).toHaveBeenCalledTimes(1) })
   })
 
-  it('shows the published name and description, falling back to the id', () => {
+  it('shows resolved copy for built-ins and falls back to custom ids', () => {
     renderSection()
 
-    // The name is what a picker reads; the id stays visible as the key the
+    // Display copy is what a picker reads; the id stays visible as the key the
     // composition and the session header actually carry.
-    expect(screen.getByText('标准模式')).toBeTruthy()
-    expect(screen.getByText('完整的编码 agent。')).toBeTruthy()
+    expect(screen.getByText(en.presetStandardName)).toBeTruthy()
+    expect(screen.getByText(en.presetStandardDescription)).toBeTruthy()
     const mine = rowFor('mine')
     expect(within(mine).getAllByText('mine').length).toBeGreaterThan(0)
     expect(within(mine).getByText(en.noDescription)).toBeTruthy()
@@ -134,7 +134,7 @@ describe('the preset list', () => {
   it('picks a preset by clicking its card, and the one in use is inert', () => {
     const actions = renderSection()
 
-    const inUse = within(rowFor('standard')).getByRole('button', { name: `${en.inUse}: 标准模式` })
+    const inUse = within(rowFor('standard')).getByRole('button', { name: `${en.inUse}: ${en.presetStandardName}` })
     expect(inUse).toHaveProperty('disabled', true)
     fireEvent.click(inUse)
 
@@ -150,8 +150,8 @@ describe('the preset list', () => {
     // the point. A custom preset is edited in its files, so its row leads
     // there instead; there is no editor for either.
     const standard = rowFor('standard')
-    expect(within(standard).getByRole('button', { name: `${en.view}: 标准模式` })).toBeTruthy()
-    expect(within(standard).queryByRole('button', { name: `${en.openLocation}: 标准模式` })).toBeNull()
+    expect(within(standard).getByRole('button', { name: `${en.view}: ${en.presetStandardName}` })).toBeTruthy()
+    expect(within(standard).queryByRole('button', { name: `${en.openLocation}: ${en.presetStandardName}` })).toBeNull()
     const mine = rowFor('mine')
     expect(within(mine).getByRole('button', { name: `${en.openLocation}: mine` })).toBeTruthy()
     expect(within(mine).queryByRole('button', { name: `${en.view}: mine` })).toBeNull()
@@ -161,13 +161,13 @@ describe('the preset list', () => {
     renderSection()
 
     expect(within(rowFor('mine')).getByRole('button', { name: `${en.delete}: mine` })).toBeTruthy()
-    expect(within(rowFor('standard')).queryByRole('button', { name: `${en.delete}: 标准模式` })).toBeNull()
+    expect(within(rowFor('standard')).queryByRole('button', { name: `${en.delete}: ${en.presetStandardName}` })).toBeNull()
   })
 
   it('disables duplication when nothing is writable, and says why', () => {
     renderSection({ authorable: false })
 
-    const duplicate = within(rowFor('standard')).getByRole('button', { name: `${en.duplicate}: 标准模式` })
+    const duplicate = within(rowFor('standard')).getByRole('button', { name: `${en.duplicate}: ${en.presetStandardName}` })
     expect(duplicate).toHaveProperty('disabled', true)
     expect(duplicate.getAttribute('data-tip')).toBe(en.duplicateUnavailable)
   })
@@ -205,7 +205,7 @@ describe('the preset list', () => {
     // There is no readable composition to offer; the reason on the card is
     // the whole story a shipped row can tell.
     const standard = rowFor('standard')
-    expect(within(standard).queryByRole('button', { name: `${en.view}: 标准模式` })).toBeNull()
+    expect(within(standard).queryByRole('button', { name: `${en.view}: ${en.presetStandardName}` })).toBeNull()
     expect(within(standard).getByRole('alert').textContent).toContain('not valid YAML')
   })
 
@@ -232,7 +232,7 @@ describe('the preset list', () => {
     fireEvent.click(within(rowFor('mine')).getByRole('button', { name: `${en.setDefault}: mine` }))
     fireEvent.click(within(rowFor('mine')).getByRole('button', { name: `${en.openLocation}: mine` }))
     fireEvent.click(within(rowFor('mine')).getByRole('button', { name: `${en.duplicate}: mine` }))
-    fireEvent.click(within(rowFor('standard')).getByRole('button', { name: `${en.view}: 标准模式` }))
+    fireEvent.click(within(rowFor('standard')).getByRole('button', { name: `${en.view}: ${en.presetStandardName}` }))
 
     expect(actions.makeDefault).toHaveBeenCalledWith('mine')
     expect(actions.openLocation).toHaveBeenCalledWith('mine')
@@ -251,6 +251,20 @@ describe('the preset list', () => {
     // Leaving settings is part of the gesture: the flow lands in the new
     // session, not behind the modal.
     expect(actions.close).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps the empty custom group on screen: heading plus the creator entry', () => {
+    renderSection({
+      rows: [
+        { id: 'standard', trust: 'system', isDefault: true, name: '标准模式' },
+        { id: 'cordis', trust: 'system', isDefault: false, name: '创造模式' },
+      ],
+    })
+
+    // No member yet, but the place where one's own preset will appear stays.
+    expect(screen.getByRole('heading', { name: en.customGroup })).toBeTruthy()
+    expect(screen.getByRole('button', { name: en.creatorDraft })).toBeTruthy()
+    expect(screen.queryByText(`· ${en.userTrust}`)).toBeNull()
   })
 
   it('hides the creator entry without the flow or the preset, disables it without a root', () => {
@@ -311,7 +325,7 @@ describe('the copy dialog', () => {
     const actions = renderSection({ copy: draft })
 
     const dialog = screen.getByRole('dialog')
-    expect(dialog.getAttribute('aria-label')).toBe(`${en.copyTitle} · ${en.copyOf} 标准模式`)
+    expect(dialog.getAttribute('aria-label')).toBe(`${en.copyTitle} · ${en.copyOf} ${en.presetStandardName}`)
     expect(within(dialog).getByText(en.copyIntro)).toBeTruthy()
     fireEvent.change(within(dialog).getByPlaceholderText(en.presetIdPlaceholder), { target: { value: 'my-agent' } })
     fireEvent.change(within(dialog).getByPlaceholderText(en.displayNamePlaceholder), { target: { value: '我的模式' } })
@@ -374,9 +388,15 @@ describe('the read-only viewer', () => {
     renderSection({ view: { id: 'standard', title: '标准模式', content: '- id: tool-bash\n' } })
 
     const dialog = screen.getByRole('dialog')
-    expect(dialog.getAttribute('aria-label')).toBe(`${en.view} · 标准模式`)
+    expect(dialog.getAttribute('aria-label')).toBe(`${en.view} · ${en.presetStandardName}`)
     expect(within(dialog).getByText(en.composition)).toBeTruthy()
     expect(within(dialog).getByText(/tool-bash/).textContent).toBe('- id: tool-bash\n')
+  })
+
+  it('keeps the loaded title when the viewed row leaves the roster', () => {
+    renderSection({ view: { id: 'retired', title: 'Retired mode', content: '- id: tool-bash\n' } })
+
+    expect(screen.getByRole('dialog').getAttribute('aria-label')).toBe(`${en.view} · Retired mode`)
   })
 
   it('closes through the controller', () => {

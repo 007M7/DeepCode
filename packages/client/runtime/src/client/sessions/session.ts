@@ -1,6 +1,6 @@
 // Sessions remain resident after creation so they continue consuming mux frames off-screen.
 
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import type { AttachmentIdType, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import type {
@@ -727,6 +727,7 @@ export class Session implements SessionFace {
     const legacy = chat.legacy
     return {
       sessionId: this.sessionId,
+      views: this.conversation,
       chat,
       nodes: legacy.nodes,
       turnTimings: legacy.turnTimings,

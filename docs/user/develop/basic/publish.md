@@ -98,7 +98,8 @@ The effective configuration composes over an empty root by applying, in order:
 2. The profile's own `cordis.patch.yml`.
 3. The home-level `$DSH_HOME/cordis.patch.yml` — machine-local preferences shared by every profile.
 4. Each `--patch <path>` overlay, in argv order.
-5. Launcher flag patches (for example `dsh web --port`).
+
+App arguments are not another patch layer. A surface bundle can resolve them through an ordinary app-owned service, described below.
 
 Later layers win per row, and a patch replaces a row's entire `config` value rather than deep-merging keys. Two consequences for bundle authors:
 
@@ -106,6 +107,29 @@ Later layers win per row, and a patch replaces a row's entire `config` value rat
 - Users can override your rows in their profile's `cordis.patch.yml` without touching your package, so prefer configuration defaults users are likely to keep and let the schema carry the rest.
 
 In-box bundle names always resolve from the dsh installation itself; pnpm manages only out-of-tree packages, so your bundle can rely on `@deepseek-ai/dsh-base` being present and current.
+
+## Give a surface bundle its own command line
+
+A bundle that defines a runnable app mounts an ordinary provider plugin:
+
+```yaml
+- id: hello-startup
+  name: 'dsh-hello-plugin/startup'
+```
+
+The plugin exports `inject = ['cmdlineArgs']`, calls `parseCmdline` from [`@deepseek-ai/dsh-cmdline`](../../../../packages/boot/cmdline/README.md) with its own commander program, and provides the returned value as its app-owned service. The launcher hands every plugin the same immutable arguments after launcher flags, so app-specific flags need no launcher change and multiple plugins may parse the snapshot. The Loader row needs no launcher marker or special kind.
+
+Rows configured by those arguments inject the provider's service and read it from their own `!!js` options, with the deployment value beside it as the fallback:
+
+```yaml
+- id: my-app
+  name: '@example/my-app'
+  inject: [myAppStartup]
+  config:
+    port: !!js ctx.myAppStartup.port ?? 8080
+```
+
+On `--help`, the provider publishes no service, so those rows never activate. Loader mounts the composition once, waits for each row's ordinary injections, and only then evaluates that row's `!!js` config against its injected context.
 
 ## Installing from GitHub: the build-script catch
 

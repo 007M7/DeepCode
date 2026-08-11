@@ -4,8 +4,8 @@
  * @module @deepseek-ai/dsh-tool-pty
  */
 
-import { Context } from 'cordis'
-import z from 'schemastery'
+import { Context } from '@deepseek-ai/cordis'
+import z from '@deepseek-ai/schemastery'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { PtySessionId } from '@deepseek-ai/dsh-pty'

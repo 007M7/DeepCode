@@ -4,7 +4,7 @@
  * @module @deepseek-ai/dsh-pty-local
  */
 
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import { PtyBackendCleanupError } from '@deepseek-ai/dsh-pty'

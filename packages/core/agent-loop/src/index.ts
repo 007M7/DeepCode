@@ -5,9 +5,9 @@
  * @module @deepseek-ai/dsh-agent-loop
  */
 
-import { Context, FiberState, Service } from 'cordis'
+import { Context, FiberState, Service } from '@deepseek-ai/cordis'
 import { randomUUID } from 'node:crypto'
-import z from 'schemastery'
+import z from '@deepseek-ai/schemastery'
 import { emitAgentEvent } from '@deepseek-ai/dsh-agent'
 import type {
   Agent,
@@ -156,7 +156,7 @@ interface PreparedAgent {
   dispose(): Promise<void>
 }
 
-declare module 'cordis' {
+declare module '@deepseek-ai/cordis' {
   interface Context {
     agentLoop: AgentLoop
     /**
