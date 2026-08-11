@@ -110,7 +110,7 @@ function mount(
     ids: listed ? [root, SID] : [root],
     byId: { [root]: rootRow, ...listed && { [SID]: childRow } },
     current: SID,
-    phase: 'ready', subagentsByParent: {}, currentAddress: undefined,
+    phase: 'ready', subagentsByParent: {}, tasksBySession: {}, currentAddress: undefined,
   })
   const workspaces = createSnapshotStore<WorkspaceListState>(workspaceState(workspaceRows))
   const session = createSnapshotStore<ConversationSnapshot>(snapshot)
@@ -296,8 +296,12 @@ describe('ConversationRoot resident composer', () => {
       composerBlock: { reason: 'select a model first' },
     })
     const box = b.view.getByRole('textbox') as HTMLTextAreaElement
-    expect(box.disabled).toBe(true)
+    expect(box.disabled).toBe(false)
+    expect(box.readOnly).toBe(true)
+    expect(box.getAttribute('aria-haspopup')).toBe('menu')
     expect(box.placeholder).not.toBe('select a model first')
+    const modelSeat = b.seatOwners.filter(call => call.key === 'conversation.input.model').at(-1)?.owner
+    expect(modelSeat).toEqual({ locked: true })
   })
 
   it('keeps composer text in the machine, mirrors to the chat store, and submits through the sink', () => {

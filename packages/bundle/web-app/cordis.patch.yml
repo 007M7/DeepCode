@@ -207,6 +207,10 @@
     - id: ui-subagent
       name: '@deepseek-ai/dsh-client-ui-subagent'
 
+    # Background tasks: the session-header list over the tasksBySession mirror.
+    - id: ui-task
+      name: '@deepseek-ai/dsh-client-ui-task'
+
     # Goal surface: GoalBar in the input dock over the goal session projection.
     - id: ui-goal
       name: '@deepseek-ai/dsh-client-ui-goal'

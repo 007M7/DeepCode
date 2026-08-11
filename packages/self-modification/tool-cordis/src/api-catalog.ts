@@ -1173,6 +1173,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Register an effect-scoped completion listener. It receives the settlements\n * of the owners its registering context\'s scope covers; each listener is\n * contained; returned promises are observed but not awaited. No listener runs\n * after service disposal.\n * @param listener - receives each terminal snapshot and its exact owner.\n * @returns disposer that unregisters the listener.\n */',
       },
       {
+        signature: 'abstract onTasksChanged(listener: TasksChangedListener): () => void',
+        jsDoc: '/**\n/**\n * Register an effect-scoped observer of visible-set changes. It fires after\n * every commit that changes what {@link list} returns for that owner —\n * registration, every stopping transition (including the one teardown\n * performs before it awaits a slow producer), settlement, owner-disposal\n * removal, and the emptying that service disposal commits — so an observer\n * re-reads rather than accumulating deltas.\n *\n * Delivery is owner-relative on the same terms as {@link onTaskDone}: an\n * observer registered from an unscoped context — a host composition\'s own\n * carrier — sees every owner, while one registered under an agent\n * composition\'s scope sees exactly the agents composed under it.\n *\n * This is not a superset of {@link onTaskDone}: that one delivers the terminal\n * record under first-wins semantics a control surface couples to notice\n * delivery, while this one carries no delivery meaning and marks nothing\n * reported. Listeners are contained and never awaited.\n * @param listener - receives the owner whose visible set changed, or\n *   `undefined` when an unowned task changed and every caller\'s set did.\n * @returns disposer that unregisters the listener.\n */',
+      },
+      {
         signature: 'abstract attachSurface(name: string): () => void',
         jsDoc: '/**\n * Attach an effect-scoped surface that can read and stop tasks. It serves the\n * owners its registering context\'s scope covers, and {@link start} refuses an\n * owner no attached surface serves.\n * @param name - diagnostic label; duplicate names remain independent.\n * @returns disposer that detaches this surface.\n */',
       },
@@ -3212,6 +3216,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'TaskRead',
     declaration: 'export interface TaskRead {\n    text: string;\n    snapshot: TaskSnapshot;\n}',
+  },
+  {
+    name: 'TasksChangedListener',
+    declaration: 'export type TasksChangedListener = (owner: Agent | undefined) => void;',
   },
   {
     name: 'TaskSnapshot',

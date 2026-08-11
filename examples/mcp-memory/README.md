@@ -30,18 +30,6 @@ dsh web --patch "$PWD/examples/mcp-memory/memorix.cordis.yml"
 
 Replace the filename with `mcp-reference-memory.cordis.yml` or `engram.cordis.yml`. The path may point to a copied file anywhere on disk. No memory server is present in the shipped composition, so omitting `--patch` keeps all three disabled.
 
-Without a repository checkout, download the selected overlay directly:
-
-```sh
-mkdir -p "${DSH_HOME:-$HOME/.dsh}"
-curl --fail --location \
-  --output "${DSH_HOME:-$HOME/.dsh}/memory.cordis.yml" \
-  https://raw.githubusercontent.com/deepseek-ai/deepseek-harness-sdk/master/examples/mcp-memory/memorix.cordis.yml
-dsh web --patch "${DSH_HOME:-$HOME/.dsh}/memory.cordis.yml"
-```
-
-Replace `memorix.cordis.yml` in the URL with either of the other filenames to select it. Review a downloaded overlay before running it: Cordis configuration can contain executable `!!js` expressions.
-
 To keep the selection across runs, merge the chosen file's single `insert` patch into a user patch layer — `$DSH_HOME/profiles/<name>/cordis.patch.yml` for one profile, or `$DSH_HOME/cordis.patch.yml` for every profile on the machine. Do not copy over an existing file: it may already contain unrelated user patches.
 
 ## Provider setup

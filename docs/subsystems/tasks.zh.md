@@ -151,7 +151,7 @@ interface TaskRead {
 
 ## 服务行为
 
-抽象的 [`TaskService`](../../packages/tasks/tasks/src/index.ts) Service Definition 规定原子 `start`、限定调用方作用域的 `get` 和 `list`、`read`、`kill`、有界 `wait`、故障隔离的 `onTaskDone` 监听器，以及 `attachSurface` 何时可用；[`LocalTaskService`](../../packages/tasks/tasks-local/src/index.ts) 是其进程局部 Service provider。授权会比较拥有者会话；拥有者清理会选择确切的已注册 `Agent` 实例。Service Definition 约定见 [`dsh-tasks`](../../packages/tasks/tasks/README.md)，注册表生命周期见 [`dsh-tasks-local`](../../packages/tasks/tasks-local/README.md)，面向模型的 Consumer 见 [`dsh-tool-tasks`](../../packages/tasks/tool-tasks/README.md)。
+抽象的 [`TaskService`](../../packages/tasks/tasks/src/index.ts) Service Definition 规定原子 `start`、限定调用方作用域的 `get` 和 `list`、`read`、`kill`、有界 `wait`、故障隔离的 `onTaskDone` 与 `onTasksChanged` 监听器，以及 `attachSurface` 何时可用；[`LocalTaskService`](../../packages/tasks/tasks-local/src/index.ts) 是其进程局部 Service provider。授权会比较拥有者会话；拥有者清理会选择确切的已注册 `Agent` 实例。Service Definition 约定见 [`dsh-tasks`](../../packages/tasks/tasks/README.md)，注册表生命周期见 [`dsh-tasks-local`](../../packages/tasks/tasks-local/README.md)，面向模型的 Consumer 见 [`dsh-tool-tasks`](../../packages/tasks/tool-tasks/README.md)。
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
@@ -247,6 +247,30 @@ abstract wait(id: TaskId, timeoutMs: number, caller?: Agent, signal?: AbortSigna
 abstract onTaskDone(listener: TaskDoneListener): () => void
 
 /**
+/**
+ * Register an effect-scoped observer of visible-set changes. It fires after
+ * every commit that changes what {@link list} returns for that owner —
+ * registration, every stopping transition (including the one teardown
+ * performs before it awaits a slow producer), settlement, owner-disposal
+ * removal, and the emptying that service disposal commits — so an observer
+ * re-reads rather than accumulating deltas.
+ *
+ * Delivery is owner-relative on the same terms as {@link onTaskDone}: an
+ * observer registered from an unscoped context — a host composition's own
+ * carrier — sees every owner, while one registered under an agent
+ * composition's scope sees exactly the agents composed under it.
+ *
+ * This is not a superset of {@link onTaskDone}: that one delivers the terminal
+ * record under first-wins semantics a control surface couples to notice
+ * delivery, while this one carries no delivery meaning and marks nothing
+ * reported. Listeners are contained and never awaited.
+ * @param listener - receives the owner whose visible set changed, or
+ *   `undefined` when an unowned task changed and every caller's set did.
+ * @returns disposer that unregisters the listener.
+ */
+abstract onTasksChanged(listener: TasksChangedListener): () => void
+
+/**
  * Attach an effect-scoped surface that can read and stop tasks. It serves the
  * owners its registering context's scope covers, and {@link start} refuses an
  * owner no attached surface serves.
@@ -258,5 +282,5 @@ abstract attachSurface(name: string): () => void
 
 Types: [Agent](core.md)
 
-Source: [`packages/tasks/tasks/src/index.ts:55`](../../packages/tasks/tasks/src/index.ts)
+Source: [`packages/tasks/tasks/src/index.ts:58`](../../packages/tasks/tasks/src/index.ts)
 <!-- END GENERATED cordis-surface -->
