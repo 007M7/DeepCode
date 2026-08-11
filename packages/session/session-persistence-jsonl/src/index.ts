@@ -259,7 +259,7 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
     let content: string
     if (this.compression === 'zstd') {
       const { frames } = scanZstdFrames(buffer)
-      if (frames.length === 0) return undefined
+      if (frames.length === 0) throw new Error('empty or header-less Zstandard session log')
       const decoder = createZstdFrameDecoder()
       const plaintexts: Buffer[] = []
       // The decoder yields views into a reused buffer; copy each frame's
