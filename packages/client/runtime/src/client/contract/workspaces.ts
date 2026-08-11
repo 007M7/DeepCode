@@ -21,9 +21,11 @@ export interface IWorkspaces {
    */
   connectWorkspace(workspaceId: WorkspaceId): Promise<SessionId>
   /**
-   * The New Session flow: connect the target (or recent) Workspace and open
-   * the resulting session; failures surface on the session list state.
-   * @param workspaceId - explicit target; omitted uses the recency projection.
+   * The New Session flow: connect the explicit, current-Session, or recent
+   * Workspace and open the resulting session; failures surface on the session
+   * list state.
+   * @param workspaceId - explicit target; omitted inherits the current
+   * Session's Workspace before falling back to the recency projection.
    */
   startSession(workspaceId?: WorkspaceId): void
   /**

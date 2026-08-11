@@ -167,14 +167,20 @@ export class WorkspacesService implements IWorkspaces {
   /**
    * The shared New Session action behind the shell entry points (sidebar
    * button, workspace browser): resolve the target Workspace — explicit wins,
-   * else the recent-Workspace projection — connect its blank session and
-   * navigate there; with no Workspace at all, clear the selection into the
-   * New Session view state. Connect failures are non-fatal (console
-   * diagnostics; the current view stays usable).
+   * then the current Session's Workspace, then the recent-Workspace
+   * projection — connect its blank session and navigate there; with no
+   * Workspace at all, clear the selection into the New Session view state.
+   * Connect failures are non-fatal (console diagnostics; the current view
+   * stays usable).
    * @param workspaceId - explicit target Workspace for scoped actions.
    */
   startSession(workspaceId?: WorkspaceId): void {
-    const target = workspaceId ?? this.list.getSnapshot().recentWorkspaceId
+    const workspace = this.list.getSnapshot()
+    const current = this.sessions.list.getSnapshot().current
+    const currentWorkspaceId = current === undefined
+      ? undefined
+      : workspace.items.find(item => item.sessionIds.includes(current))?.workspaceId
+    const target = workspaceId ?? currentWorkspaceId ?? workspace.recentWorkspaceId
     if (target === undefined) {
       this.sessions.clear()
       return

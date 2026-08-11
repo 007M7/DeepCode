@@ -91,9 +91,9 @@ export type DirectoryPickingHooks = {
  */
 export type WorkspaceBrowserInjected = DirectoryPickingInjected & {
   /**
-   * Start a New Session in a Workspace: reuse-or-create its blank session
-   * and open it; with no workspace, clear the selection into the New Session
-   * pure view state (the conversation.empty seat).
+   * Start a New Session in a Workspace: reuse-or-create its blank session and
+   * open it; without an explicit workspace, inherit the current Session
+   * Workspace, then the recent Workspace, or clear into the New Session view.
    */
   startSession: (workspaceId?: WorkspaceId) => void
   /** Open a real Session. */
