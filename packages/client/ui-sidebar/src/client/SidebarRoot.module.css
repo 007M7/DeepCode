@@ -167,7 +167,7 @@
   gap: 6px;
   height: 38px;
   padding: 8px 16px;
-  margin: 0 2px 20px; /* bottom: former headerBlock padBottom 12 + root gap 8 */
+  margin: 0 2px 8px;
   box-sizing: border-box;
   border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 12px;
