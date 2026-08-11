@@ -31,10 +31,10 @@ const hasPwsh = spawnSync(resolvePwshPath(), ['-NoLogo', '-NoProfile', '-NonInte
 /** Normalize PowerShell's platform line endings (CRLF on Windows, LF elsewhere). */
 const lf = (text: string): string => text.replace(/\r\n/g, '\n')
 
-/** Case-insensitive path equality on Windows (Get-Location may re-case the drive). */
+/** Filesystem path equality across macOS temp symlinks and Windows drive-letter casing. */
 function samePath(actual: string, expected: string): boolean {
   const norm = (value: string) => (
-    process.platform === 'win32' ? realpathSync.native(value).toLowerCase() : value
+    process.platform === 'win32' ? realpathSync.native(value).toLowerCase() : realpathSync.native(value)
   )
   return norm(actual) === norm(expected)
 }
