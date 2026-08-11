@@ -218,6 +218,22 @@ async function collectHost(
   return frames
 }
 
+/**
+ * One forwarded `settings/document-updated` frame for `ns`. The revision rides
+ * the host's own argument list, so it is matched by shape rather than pinned to
+ * a per-test count.
+ * @param ns - the namespace whose stored section changed.
+ * @returns the expected wrapper frame.
+ */
+function forwardedSettings(ns: string): HostFrame {
+  return {
+    type: 'host/remote-event',
+    event: 'settings/document-updated',
+    // The revision is the Host's own counter, so the matcher is the assertion.
+    args: [ns, expect.any(Number)], // oxlint-disable-line typescript/no-unsafe-assignment
+  }
+}
+
 describe('settings domain', () => {
   it('reports an actionable error when no settings provider is mounted', async () => {
     const ctx = await harness({ settings: false })
@@ -401,7 +417,7 @@ describe('settings domain', () => {
     const api = createApiProxy(ctx, DEFAULTS)
     expect(expectOk(await api.settings.describe(request({}))).namespaces.map(view => view.ns))
       .toEqual(['ui-onboarding', 'ui-theme'])
-    const frames = await collectHost(api, ['host/settings-changed'], 2, async () => {
+    const frames = await collectHost(api, ['host/remote-event'], 2, async () => {
       expectOk(await api.settings.mutate(request({
         ns: 'ui-onboarding',
         ops: [{ op: 'set', path: ['welcomeNoticeVersion'], value: 'v1' }],
@@ -411,10 +427,7 @@ describe('settings domain', () => {
         ops: [{ op: 'set', path: ['preference'], value: 'dark' }],
       })))
     })
-    expect(frames).toEqual([
-      { type: 'host/settings-changed', ns: 'ui-onboarding' },
-      { type: 'host/settings-changed', ns: 'ui-theme' },
-    ])
+    expect(frames).toEqual([forwardedSettings('ui-onboarding'), forwardedSettings('ui-theme')])
   })
 
   it('serves the agent-preset namespace, so a browser preset picker can persist its choice', async () => {
@@ -441,7 +454,7 @@ describe('settings domain', () => {
       .toBe('settings-not-exposed')
   })
 
-  it('invalidates the model catalog when a provider namespace changes, and broadcasts a raw-only change', async () => {
+  it('forwards a provider settings change for model-catalog consumers', async () => {
     // Editing `models` changes no route, so llm/adapters-updated never fires
     // and an open model picker would keep serving the stale catalog. Storing
     // an override equal to the resolved value emits nothing on
@@ -450,13 +463,10 @@ describe('settings domain', () => {
     const ctx = await harness()
     ctx.settings.register(NS, AdapterConfig, { base: { baseURL: 'https://base' } })
     const api = createApiProxy(ctx, DEFAULTS)
-    const frames = await collectHost(api, ['host/settings-changed', 'host/models-changed'], 2, async () => {
+    const frames = await collectHost(api, ['host/remote-event'], 1, async () => {
       await api.settings.update(request({ ns: 'llm-deepseek', patch: { baseURL: 'https://base' } }))
     })
-    expect(frames).toEqual([
-      { type: 'host/settings-changed', ns: 'llm-deepseek' },
-      { type: 'host/models-changed' },
-    ])
+    expect(frames).toEqual([forwardedSettings('llm-deepseek')])
     // The resolved value never moved: base already said https://base.
     expect(expectOk(await api.settings.describe(request({}))).namespaces[0]!.value)
       .toEqual({ apiKeyEnv: 'DEEPSEEK_API_KEY', baseURL: 'https://base' })
@@ -470,13 +480,13 @@ describe('settings domain', () => {
       base: { defaultPreset: 'read-only' },
     })
     const api = createApiProxy(ctx, DEFAULTS)
-    const frames = await collectHost(api, ['host/settings-changed', 'host/models-changed'], 1, async () => {
+    const frames = await collectHost(api, ['host/remote-event'], 1, async () => {
       await permission.update({ defaultPreset: 'workspace-write' })
     })
-    expect(frames).toEqual([{ type: 'host/settings-changed', ns: 'permission' }])
+    expect(frames).toEqual([forwardedSettings('permission')])
   })
 
-  it('invalidates the model catalog when the Agent default selection changes', async () => {
+  it('forwards an Agent-default settings change for model-catalog consumers', async () => {
     const ctx = await harness()
     const defaultModel = ctx.settings.register(AGENT_DEFAULT_MODEL_SETTINGS_NAMESPACE, z.object({
       provider: z.string().required(),
@@ -486,13 +496,10 @@ describe('settings domain', () => {
     // The shared section names the selection every blank session resolves to,
     // so an externally edited default — another tab, a
     // hand-edited settings.yaml — has to reach an open selector as well.
-    const frames = await collectHost(api, ['host/settings-changed', 'host/models-changed'], 2, async () => {
+    const frames = await collectHost(api, ['host/remote-event'], 1, async () => {
       await defaultModel.replace({ provider: 'deepseek-official', model: 'deepseek-reasoner' })
     })
-    expect(frames).toEqual([
-      { type: 'host/settings-changed', ns: 'agent-default-model' },
-      { type: 'host/models-changed' },
-    ])
+    expect(frames).toEqual([forwardedSettings('agent-default-model')])
   })
 
   it('maps a stale expectedRevision to settings-conflict carrying both revisions', async () => {
@@ -513,14 +520,14 @@ describe('settings domain', () => {
     const ctx = await harness()
     ctx.settings.register(NS, AdapterConfig, { base: { baseURL: 'https://base' } })
     const api = createApiProxy(ctx, DEFAULTS)
-    const frames = await collectHost(api, ['host/settings-changed'], 1, async () => {
+    const frames = await collectHost(api, ['host/remote-event'], 1, async () => {
       const view = expectOk(await api.settings.update(request({ ns: 'llm-deepseek', patch: { apiKey: 'sk-new', baseURL: 'https://next' } })))
       expect(view.value).toEqual({ apiKeyEnv: 'DEEPSEEK_API_KEY', baseURL: 'https://next' })
       expect(view.user).toEqual({ baseURL: 'https://next' })
       expect(view.secrets).toEqual([{ path: ['apiKey'], set: true }])
       expect(JSON.stringify(view)).not.toContain('sk-new')
     })
-    expect(frames).toEqual([{ type: 'host/settings-changed', ns: 'llm-deepseek' }])
+    expect(frames).toEqual([forwardedSettings('llm-deepseek')])
   })
 
   it('replace resets the user layer wholesale', async () => {
@@ -585,7 +592,7 @@ describe('credentials domain', () => {
     const api = createApiProxy(ctx, DEFAULTS)
     const before = expectOk(await api.credentials.describe(request({ refs: ['OPENAI_API_KEY'] })))
     expect(before.credentials).toEqual({ OPENAI_API_KEY: { configured: false, writable: true } })
-    const frames = await collectHost(api, ['host/credentials-changed'], 2, async () => {
+    const frames = await collectHost(api, ['host/remote-event'], 2, async () => {
       expectOk(await api.credentials.set(request({ ref: 'OPENAI_API_KEY', value: 'sk-secret' })))
       const after = expectOk(await api.credentials.describe(request({ refs: ['OPENAI_API_KEY'] })))
       expect(after.credentials).toEqual({ OPENAI_API_KEY: { configured: true, source: 'file', writable: true } })
@@ -593,8 +600,8 @@ describe('credentials domain', () => {
       expectOk(await api.credentials.unset(request({ ref: 'OPENAI_API_KEY' })))
     })
     expect(frames).toEqual([
-      { type: 'host/credentials-changed', ref: 'OPENAI_API_KEY' },
-      { type: 'host/credentials-changed', ref: 'OPENAI_API_KEY' },
+      { type: 'host/remote-event', event: 'credentials/updated', args: ['OPENAI_API_KEY'] },
+      { type: 'host/remote-event', event: 'credentials/updated', args: ['OPENAI_API_KEY'] },
     ])
   })
 
@@ -651,15 +658,18 @@ describe('llm domain', () => {
     expect(value.failures).toEqual([{ id: 'broken', name: 'Broken', message: 'catalog backend down' }])
   })
 
-  it('broadcasts host/models-changed at every topology commit point', async () => {
+  it('forwards llm/adapters-updated at every topology commit point', async () => {
     const ctx = await harness()
     const api = createApiProxy(ctx, DEFAULTS)
-    const frames = await collectHost(api, ['host/models-changed'], 2, async () => {
+    const frames = await collectHost(api, ['host/remote-event'], 2, async () => {
       const dispose = ctx.llm.registerAdapter(['deepseek-official'], new CatalogAdapter('DeepSeek', []))
       dispose()
       return Promise.resolve()
     })
-    expect(frames).toEqual([{ type: 'host/models-changed' }, { type: 'host/models-changed' }])
+    expect(frames).toEqual([
+      { type: 'host/remote-event', event: 'llm/adapters-updated', args: [] },
+      { type: 'host/remote-event', event: 'llm/adapters-updated', args: [] },
+    ])
   })
 })
 

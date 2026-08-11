@@ -10,6 +10,8 @@ When the Host reports that no adapter serves the session's route (`session.model
 
 Directories are per-session, resolved lazily through `ctx.models.directoryFor(sessionId)`, and disposed with the session scope. Addressed subagent sessions expose neither entry, and their directory rejects loads, selections, and reconnect refreshes, because ordinary Agent-bound model RPCs would activate persisted child history outside the direct-parent continuation path.
 
+Every resident directory refetches directly on forwarded `llm/adapters-updated` and `settings/document-updated` owner events. Provider topology, provider catalogs, and the default selection therefore converge without the Host or client runtime deriving a separate model-change alias.
+
 The `/client` exports are the plugin body (`apply`/`inject`), `ModelService`, `ModelDirectory` with its state fields, and the seat's injected face type.
 
 ## Model Experience

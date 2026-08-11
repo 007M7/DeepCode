@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { resolveSlotLabel } from '@deepseek-ai/dsh-client-ui-slots'
 import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
 import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
-import { usePinnedBrowserLanguages } from '@deepseek-ai/dsh-client-test-runtime'
+import { TestRemote, usePinnedBrowserLanguages } from '@deepseek-ai/dsh-client-test-runtime'
 import { apply, inject } from '@deepseek-ai/dsh-client-ui-settings-general/client'
 import { CloseLabel, HeaderContent, TriggerContent } from '../src/client/chrome.tsx'
 import { GeneralSection } from '../src/client/GeneralSection.tsx'
@@ -33,6 +33,9 @@ async function bench(isLoopback = true) {
   await ctx.plugin(SlotsService).await()
   const locale = new LocaleService(ctx)
   ctx.provide('locale', locale)
+  // The plugins inject `remote`; forwarded events reach them through the
+  // same `$dispatch` handoff the connection sink makes.
+  new TestRemote(ctx)
   const settingsDescribe = vi.fn(() => Promise.resolve({
     rpcId: 'settings-general' as never,
     result: {
@@ -86,7 +89,7 @@ function generalEntry(slots: SlotsService) {
 
 describe('ui-settings-general apply', () => {
   it('declares the services it uses', () => {
-    expect(inject).toEqual(['slots', 'locale', 'connection'])
+    expect(inject).toEqual(['slots', 'locale', 'connection', 'remote'])
   })
 
   it('fills all six seats for declarations before or after apply', async () => {
@@ -167,9 +170,9 @@ describe('ui-settings-general apply', () => {
     const { controller } = (entry.inject as unknown as () => WelcomeNoticeInjected)()
     await controller.load()
     expect(b.settingsDescribe).toHaveBeenCalledOnce()
-    b.ctx.emit('settings/changed', 'unrelated')
+    b.ctx.remote.$dispatch('settings/document-updated', ['unrelated', 1])
     expect(b.settingsDescribe).toHaveBeenCalledOnce()
-    b.ctx.emit('settings/changed', WELCOME_NOTICE_SETTINGS_NAMESPACE)
+    b.ctx.remote.$dispatch('settings/document-updated', [WELCOME_NOTICE_SETTINGS_NAMESPACE, 1])
     await vi.waitFor(() => { expect(b.settingsDescribe).toHaveBeenCalledTimes(2) })
     b.ctx.emit('connection/reset')
     await vi.waitFor(() => { expect(b.settingsDescribe).toHaveBeenCalledTimes(3) })

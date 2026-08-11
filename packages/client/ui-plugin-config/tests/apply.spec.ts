@@ -5,7 +5,8 @@ import { describe, expect, it, vi } from 'vitest'
 import { resolveSlotLabel } from '@deepseek-ai/dsh-client-ui-slots'
 import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
 import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
-import { usePinnedBrowserLanguages } from '@deepseek-ai/dsh-client-test-runtime'
+import { TestRemote, usePinnedBrowserLanguages } from '@deepseek-ai/dsh-client-test-runtime'
+import { SettingsScopeService } from '@deepseek-ai/dsh-client-ui-settings/client'
 import { apply, inject } from '@deepseek-ai/dsh-client-ui-plugin-config/client'
 
 // The service reads its initial locale from the browser; these specs assert
@@ -18,6 +19,10 @@ async function bench() {
   const locale = new LocaleService(ctx)
   ctx.provide('locale', locale)
   const describeCredentials = vi.fn(() => Promise.resolve({ rpcId: 'c', result: { ok: false, error: {} } }))
+  // The section binds its scopes through the Settings surface's service, and
+  // forwarded Host events reach it through the same `$dispatch` handoff the
+  // connection sink makes.
+  new TestRemote(ctx)
   ctx.provide('connection', {
     isLoopback: true,
     api: {
@@ -25,6 +30,7 @@ async function bench() {
       credentials: { describe: describeCredentials },
     },
   } as never)
+  await ctx.plugin(SettingsScopeService).await()
   return { ctx, slots: ctx.get('slots') as SlotsService, describeCredentials }
 }
 
@@ -37,7 +43,7 @@ function declareRoot(slots: SlotsService): () => void {
 
 describe('ui-plugin-config apply', () => {
   it('declares the services it uses', () => {
-    expect(inject).toEqual(['slots', 'locale', 'connection'])
+    expect(inject).toEqual(['slots', 'locale', 'connection', 'remote', 'settingsScope'])
   })
 
   it('registers the section and declares the per-plugin card slot', async () => {
@@ -86,7 +92,7 @@ describe('ui-plugin-config apply', () => {
 
     // A key written on another surface changes no settings section, so this
     // event is the only thing that reaches the card.
-    ctx.emit('credentials/changed', 'DEEPSEEK_API_KEY')
+    ctx.remote.$dispatch('credentials/updated', ['DEEPSEEK_API_KEY'])
 
     await vi.waitFor(() => { expect(describeCredentials).toHaveBeenCalledTimes(1) })
   })
@@ -98,7 +104,7 @@ describe('ui-plugin-config apply', () => {
     await vi.waitFor(() => { expect(describeCredentials).toHaveBeenCalled() })
     describeCredentials.mockClear()
 
-    ctx.emit('credentials/changed', 'SOME_OTHER_KEY')
+    ctx.remote.$dispatch('credentials/updated', ['SOME_OTHER_KEY'])
     await Promise.resolve()
 
     expect(describeCredentials).not.toHaveBeenCalled()

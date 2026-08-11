@@ -63,16 +63,6 @@ declare module '@deepseek-ai/cordis' {
      */
     'llm/stream'(this: LlmService, options: GenerateOptions, next: () => AsyncIterable<StreamChunk>): AsyncIterable<StreamChunk>
 
-    /**
-     * The provider topology changed: an adapter registered or unregistered
-     * routes, or the configurable-provider directory gained or lost entries.
-     * This is a payload-free registry notification fired at each commit point
-     * (including registration disposal); consumers re-read `listProviders()`,
-     * `listModels()`, or `listConfigurableProviders()` for the new state.
-     * Observer failures are contained and cannot veto the registry mutation.
-     * @mode emit
-     */
-    'llm/adapters-updated'(): void
   }
 }
 

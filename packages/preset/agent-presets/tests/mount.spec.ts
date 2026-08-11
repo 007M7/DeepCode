@@ -16,6 +16,7 @@ import AgentPresets, {
   COMPOSITION_FILE, leakedServices, livePresetMounts, mountPreset, PresetMountError, serviceForAgent,
 } from '@deepseek-ai/dsh-agent-presets'
 import type { Config } from '@deepseek-ai/dsh-agent-presets'
+import type {} from '@deepseek-ai/dsh-agent-presets/types'
 import { bindScopeParent, createScope, scopeOf } from '@deepseek-ai/dsh-scope'
 
 declare module '@deepseek-ai/cordis' {
@@ -457,6 +458,18 @@ describe('attributing a service to a subtree', () => {
 })
 
 describe('replacing a composition', () => {
+  it('publishes a committed preset selection for remote consumers', async () => {
+    const agent = await agentOn(ctx, 'sess-selected', 'standard')
+    const selected: Array<[SessionId, string]> = []
+    ctx.on('agent-preset/selected', (sessionId, agentPreset) => {
+      selected.push([sessionId, agentPreset])
+    })
+
+    agent.session.append('agent-preset/selected', { agentPreset: 'minimal' })
+
+    expect(selected).toEqual([[SessionId('sess-selected'), 'minimal']])
+  })
+
   it('swaps the agent\'s tools without touching another session', async () => {
     const keeper = await agentOn(ctx, 'sess-keeper', 'standard')
     const handle = await ctx.agents.create({

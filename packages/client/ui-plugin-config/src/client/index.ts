@@ -13,9 +13,13 @@
 import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
 import type {} from '@deepseek-ai/dsh-client-locale/client'
-// Type-only: pulls the settings shell's SlotMap merge (the 'settings.section' entry).
+// Type-only: the settings shell's SlotMap merge (the 'settings.section' entry)
+// and the ctx.settingsScope Context merge. Cross-plugin collaboration goes
+// through the service, never a value import (client bundle purity gate).
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
-import { bindSettingsScope, type ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+// Type-only: the ctx.remote Context merge and the forwarded-event key face.
+import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import { AgentLoopCard } from './AgentLoopCard.tsx'
 import { BashCard } from './BashCard.tsx'
 import { PluginConfigSection } from './PluginConfigSection.tsx'
@@ -40,7 +44,7 @@ export type { WebSearchCardFace, WebSearchCardState } from './web-search-store.t
 const NS = 'settings.pluginConfig'
 
 /** Required services (cordis fiber inject). */
-export const inject = ['slots', 'locale', 'connection']
+export const inject = ['slots', 'locale', 'connection', 'remote', 'settingsScope']
 
 /**
  * Mount the plugin configuration section and the cards this package ships.
@@ -51,15 +55,15 @@ export function apply(ctx: ClientContext): void {
   const t = ctx.locale.bind(NS)
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-plugin-config: section dictionaries')
 
-  const bash = new BashCardController(bindSettingsScope(ctx, { namespace: BASH_NS }))
-  const agentLoop = new AgentLoopCardController(bindSettingsScope(ctx, { namespace: AGENT_LOOP_NS }))
-  const webSearch = new WebSearchCardController(bindSettingsScope(ctx, { namespace: WEB_SEARCH_NS }), api)
+  const bash = new BashCardController(ctx.settingsScope.bind({ namespace: BASH_NS }))
+  const agentLoop = new AgentLoopCardController(ctx.settingsScope.bind({ namespace: AGENT_LOOP_NS }))
+  const webSearch = new WebSearchCardController(ctx.settingsScope.bind({ namespace: WEB_SEARCH_NS }), api)
 
   // The credential a card reports is not part of any settings section, so its
   // scope publishes nothing when one is written. This is the only signal that
   // a key written on another surface reached the Host.
   ctx.effect(
-    () => ctx.on('credentials/changed', (ref) => { webSearch.refreshCredential(ref) }),
+    () => ctx.remote.$on('credentials/updated', (ref) => { webSearch.refreshCredential(ref) }),
     'ui-plugin-config: credential invalidations',
   )
 

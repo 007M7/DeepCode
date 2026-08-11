@@ -123,16 +123,6 @@ declare module '@deepseek-ai/cordis' {
   interface Context {
     commands: CommandService
   }
-
-  interface Events {
-    /**
-     * A command was registered or unregistered. This is an unfiltered registry
-     * notification because a global or scoped change may affect any UI view.
-     * Observer failures are contained and cannot veto the registry mutation.
-     * @mode emit
-     */
-    'commands/change'(): void
-  }
 }
 
 /**
