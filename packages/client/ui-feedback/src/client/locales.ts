@@ -12,6 +12,7 @@ export const zh = {
   'note.cancel': '取消',
   'note.aria': '反馈说明',
   'error.conflict': '这条反馈已在别处改动，已显示最新状态',
+  'error.load': '反馈状态加载失败',
   'error.generic': '反馈保存失败',
 } satisfies Record<string, string>
 
@@ -37,5 +38,6 @@ export const en = {
   'note.cancel': 'Cancel',
   'note.aria': 'Feedback note',
   'error.conflict': 'This feedback changed elsewhere; the latest state is shown',
+  'error.load': 'Could not load feedback',
   'error.generic': 'Could not save feedback',
 } satisfies Record<FeedbackKey, string>

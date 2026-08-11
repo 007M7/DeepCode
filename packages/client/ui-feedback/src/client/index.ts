@@ -19,8 +19,6 @@ import { FeedbackActions } from './FeedbackActions.tsx'
 import type { FeedbackInjected } from './slots.ts'
 import { en, zh } from './locales.ts'
 
-export { FeedbackActions } from './FeedbackActions.tsx'
-export { FeedbackController } from './controller.ts'
 export type {
   FeedbackActionResult, FeedbackStatus, FeedbackView, MessageFeedbackRemote,
 } from './controller.ts'
@@ -55,7 +53,7 @@ export function apply(ctx: ClientContext): void {
   // stays cold until something asks for it.
   ctx.on('connection/reset', () => {
     for (const controller of controllers.values()) {
-      if (controller.getSnapshot().status !== 'cold') void controller.refresh()
+      if (controller.getSnapshot().status !== 'cold') void controller.resync()
     }
   })
 
@@ -71,6 +69,8 @@ export function apply(ctx: ClientContext): void {
           hooks: { feedback: controller },
           ensure: () => controller.ensure(),
           rate: (messageId, rating, note) => controller.rate(messageId, rating, note),
+          toggle: (messageId, rating) => controller.toggle(messageId, rating),
+          clearNote: messageId => controller.clearNote(messageId),
           clear: messageId => controller.clear(messageId),
         }
       },

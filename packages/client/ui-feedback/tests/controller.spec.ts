@@ -474,4 +474,142 @@ describe('FeedbackController', () => {
     })
     expect(controller.getSnapshot().items.get(MSG)).toEqual(existing)
   })
+
+  it('preserves a stored note when a rating switch omits one', async () => {
+    // Regression: a control that rendered before the first list read holds no
+    // item, so it passes note=undefined; that must not erase the stored note.
+    const stored = item({ version: version('v1'), rating: 'positive', note: 'keep me' })
+    const { remote, calls } = fakeRemote({
+      list: () => Promise.resolve({ ok: true, value: { items: [stored] } }),
+    })
+    const controller = new FeedbackController(remote, SESSION)
+
+    expect(await controller.rate(MSG, 'negative')).toEqual({ ok: true })
+
+    const put = calls.filter(c => c.method === 'put')[0]?.request as Record<string, unknown>
+    expect(put.note).toBe('keep me')
+    expect(put.rating).toBe('negative')
+  })
+
+  it('toggle retracts when the committed rating already matches', async () => {
+    const stored = item({ version: version('v1'), rating: 'positive' })
+    const { remote, calls } = fakeRemote({
+      list: () => Promise.resolve({ ok: true, value: { items: [stored] } }),
+    })
+    const controller = new FeedbackController(remote, SESSION)
+
+    expect(await controller.toggle(MSG, 'positive')).toEqual({ ok: true })
+
+    expect(calls.filter(c => c.method === 'delete')).toHaveLength(1)
+    expect(calls.filter(c => c.method === 'put')).toHaveLength(0)
+    expect(controller.getSnapshot().items.has(MSG)).toBe(false)
+  })
+
+  it('toggle decides from the committed item, not a cold view', async () => {
+    // The click lands before any list read: the cold view knows no item, yet the
+    // stored rating matches, so the toggle must retract rather than re-put.
+    const stored = item({ version: version('v1'), rating: 'positive', note: 'kept' })
+    const { remote, calls } = fakeRemote({
+      list: () => Promise.resolve({ ok: true, value: { items: [stored] } }),
+    })
+    const controller = new FeedbackController(remote, SESSION)
+    expect(controller.getSnapshot().status).toBe('cold')
+
+    expect(await controller.toggle(MSG, 'positive')).toEqual({ ok: true })
+
+    expect(calls.filter(c => c.method === 'delete')).toHaveLength(1)
+  })
+
+  it('toggle replaces the opposite rating and carries the note forward', async () => {
+    const stored = item({ version: version('v1'), rating: 'positive', note: 'kept' })
+    const { remote, calls } = fakeRemote({
+      list: () => Promise.resolve({ ok: true, value: { items: [stored] } }),
+    })
+    const controller = new FeedbackController(remote, SESSION)
+
+    expect(await controller.toggle(MSG, 'negative')).toEqual({ ok: true })
+
+    const put = calls.filter(c => c.method === 'put')[0]?.request as Record<string, unknown>
+    expect(put).toMatchObject({ rating: 'negative', note: 'kept', ifVersion: version('v1') })
+  })
+
+  it('clearNote drops the note and keeps the rating', async () => {
+    const stored = item({ version: version('v1'), rating: 'negative', note: 'remove me' })
+    const { remote, calls } = fakeRemote({
+      list: () => Promise.resolve({ ok: true, value: { items: [stored] } }),
+    })
+    const controller = new FeedbackController(remote, SESSION)
+
+    expect(await controller.clearNote(MSG)).toEqual({ ok: true })
+
+    const put = calls.filter(c => c.method === 'put')[0]?.request as Record<string, unknown>
+    expect(put.rating).toBe('negative')
+    expect(put).not.toHaveProperty('note')
+  })
+
+  it('clearNote is a no-op when there is no note to drop', async () => {
+    const { remote, calls } = fakeRemote({
+      list: () => Promise.resolve({ ok: true, value: { items: [item()] } }),
+    })
+    const controller = new FeedbackController(remote, SESSION)
+
+    expect(await controller.clearNote(MSG)).toEqual({ ok: true })
+    expect(calls.filter(c => c.method === 'put')).toHaveLength(0)
+  })
+
+  it('resync serializes behind an in-flight mutation', async () => {
+    // Regression: an unserialized reconnect read could land after a newer put
+    // and resurrect the version that put had already replaced.
+    const order: string[] = []
+    let releasePut = (): void => {}
+    const putGate = new Promise<void>((r) => { releasePut = r })
+    const { remote } = fakeRemote({
+      list: () => {
+        order.push('list')
+        return Promise.resolve({ ok: true, value: { items: [item({ version: version('v1') })] } })
+      },
+      put: async () => {
+        order.push('put:start')
+        await putGate
+        order.push('put:end')
+        return { ok: true, value: item({ version: version('v9'), rating: 'negative' }) }
+      },
+    })
+    const controller = new FeedbackController(remote, SESSION)
+    await controller.ensure()
+
+    const rating = controller.rate(MSG, 'negative')
+    const resync = controller.resync()
+    releasePut()
+    await Promise.all([rating, resync])
+
+    // The reconnect read runs only after the mutation settled.
+    expect(order.indexOf('list', 1)).toBeGreaterThan(order.indexOf('put:end'))
+  })
+
+  it('refuses a mutation disposed while its seeding read is in flight', async () => {
+    // Dispose only once the seeding list call has actually started, so the
+    // mutation is already past the admission check and must be stopped by the
+    // second guard that runs after ensure() resolves.
+    let release = (): void => {}
+    const gate = new Promise<void>((r) => { release = r })
+    let started = (): void => {}
+    const listStarted = new Promise<void>((r) => { started = r })
+    const { remote, calls } = fakeRemote({
+      list: async () => {
+        started()
+        await gate
+        return { ok: true, value: { items: [] } }
+      },
+    })
+    const controller = new FeedbackController(remote, SESSION)
+    const pending = controller.rate(MSG, 'positive')
+
+    await listStarted
+    controller.dispose()
+    release()
+
+    expect(await pending).toMatchObject({ ok: false, error: { code: 'disposed' } })
+    expect(calls.filter(c => c.method === 'put')).toHaveLength(0)
+  })
 })

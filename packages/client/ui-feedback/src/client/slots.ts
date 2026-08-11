@@ -38,6 +38,19 @@ export interface FeedbackInjected {
     note?: string,
   ) => Promise<FeedbackActionResult>
   /**
+   * Apply the requested judgment, retracting instead when the committed rating
+   * already matches. The controller decides from the committed item, so a click
+   * before the first list read still toggles the stored value.
+   * @param messageId - target assistant message.
+   * @param rating - the judgment the human asked for.
+   */
+  toggle: (messageId: MessageId, rating: MessageFeedbackRating) => Promise<FeedbackActionResult>
+  /**
+   * Drop the note while keeping the rating.
+   * @param messageId - target assistant message.
+   */
+  clearNote: (messageId: MessageId) => Promise<FeedbackActionResult>
+  /**
    * Remove this Session's feedback for one message.
    * @param messageId - target assistant message.
    */

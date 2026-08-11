@@ -19,8 +19,9 @@ import css from './FeedbackActions.module.css'
  * shared feedback hook.
  * @returns the rating buttons, plus the note editor while it is open.
  */
-export function FeedbackActions({ messageId, ensure, rate, clear, useFeedback, t }: FeedbackActionProps) {
+export function FeedbackActions({ messageId, ensure, rate, toggle, clearNote, useFeedback, t }: FeedbackActionProps) {
   const item = useFeedback(view => view.items.get(messageId))
+  const loadFailed = useFeedback(view => view.status === 'error')
   const rating = item?.rating
   const [noteOpen, setNoteOpen] = useState(false)
   const [draft, setDraft] = useState('')
@@ -51,14 +52,12 @@ export function FeedbackActions({ messageId, ensure, rate, clear, useFeedback, t
   const onRate = useCallback((next: MessageFeedbackRating) => {
     setPending(true)
     setFailure(null)
-    // Re-clicking the active rating retracts it; the note goes with it.
-    if (rating === next) {
-      setNoteOpen(false)
-      void clear(messageId).then(settle)
-      return
-    }
-    void rate(messageId, next, item?.note).then(settle)
-  }, [clear, item?.note, messageId, rate, rating, settle])
+    // The controller decides retract-vs-replace from the committed item, so a
+    // click that lands before the first list read still toggles the stored
+    // value instead of this render's empty view.
+    setNoteOpen(false)
+    void toggle(messageId, next).then(settle)
+  }, [messageId, settle, toggle])
 
   // The rating is a parameter because only the note editor's render site can
   // prove one is recorded; that removes an unreachable undefined guard here.
@@ -66,11 +65,16 @@ export function FeedbackActions({ messageId, ensure, rate, clear, useFeedback, t
     const trimmed = draft.trim()
     setPending(true)
     setFailure(null)
-    void rate(messageId, current, trimmed.length === 0 ? undefined : trimmed).then((result) => {
+    // An emptied editor removes the note explicitly; `rate` alone preserves a
+    // stored note, so it cannot express deletion.
+    const settled = trimmed.length === 0
+      ? clearNote(messageId)
+      : rate(messageId, current, trimmed)
+    void settled.then((result) => {
       settle(result)
       if (result.ok && alive.current) setNoteOpen(false)
     })
-  }, [draft, messageId, rate, settle])
+  }, [clearNote, draft, messageId, rate, settle])
 
   const openNote = useCallback(() => {
     setDraft(item?.note ?? '')
@@ -139,6 +143,9 @@ export function FeedbackActions({ messageId, ensure, rate, clear, useFeedback, t
             {t('note.cancel')}
           </button>
         </span>
+      )}
+      {failure === null && loadFailed && (
+        <span className={css.failure} role="status">{t('error.load')}</span>
       )}
       {failure !== null && <span className={css.failure} role="status">{failure}</span>}
     </>

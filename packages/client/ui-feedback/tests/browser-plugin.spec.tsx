@@ -145,6 +145,21 @@ describe('ui-feedback browser plugin', () => {
     })
   })
 
+  it('routes toggle and clearNote to the controller', async () => {
+    const b = await bench()
+    await b.fiber.await()
+
+    const face = b.entry()!.inject!(sid('s1'))
+    expect(await face.toggle(MSG, 'negative')).toEqual({ ok: true })
+    expect(await face.clearNote(MSG)).toEqual({ ok: true })
+
+    // The seeded item is positive with no note, so a negative toggle replaces it
+    // through put, and clearNote has nothing to drop and touches no wire.
+    const puts = b.calls.filter(call => call.method === 'put').map(call => call.request)
+    expect(puts).toHaveLength(1)
+    expect(puts[0]).toMatchObject({ messageId: MSG, rating: 'negative' })
+  })
+
   it('refreshes only Sessions already read when the connection resets', async () => {
     const b = await bench()
     await b.fiber.await()

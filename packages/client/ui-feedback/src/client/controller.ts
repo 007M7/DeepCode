@@ -51,7 +51,11 @@ export type FeedbackActionResult =
   | { ok: true }
   | { ok: false; error: { code: string; message: string } }
 
-const EMPTY_ITEMS: ReadonlyMap<MessageId, MessageFeedbackItem> = Object.freeze(new Map())
+// `Object.freeze` does not protect a Map: `set`/`delete` write internal slots,
+// not properties. Immutability here is by discipline instead — the view type is
+// ReadonlyMap and every publish hands over a freshly built Map that this class
+// keeps no mutable reference to.
+const EMPTY_ITEMS: ReadonlyMap<MessageId, MessageFeedbackItem> = new Map()
 
 const INITIAL_VIEW: FeedbackView = Object.freeze({
   status: 'cold',
@@ -60,6 +64,11 @@ const INITIAL_VIEW: FeedbackView = Object.freeze({
 })
 
 const OK: FeedbackActionResult = Object.freeze({ ok: true })
+
+const DISPOSED: FeedbackActionResult = Object.freeze({
+  ok: false,
+  error: Object.freeze({ code: 'disposed', message: 'feedback controller is disposed' }),
+})
 
 /** Human-readable text for one business failure code. */
 function describe(code: string): string {
@@ -119,6 +128,11 @@ export class FeedbackController implements HostObservable<FeedbackView> {
   /**
    * Re-read the authoritative list, collapsing concurrent callers onto one
    * in-flight read.
+   *
+   * This is the unserialized read used to seed a cold controller, where no
+   * mutation can be in flight yet. A reconnect must use {@link resync} instead:
+   * an unserialized list response can otherwise arrive after a newer mutation's
+   * reply and overwrite the version that mutation just committed.
    * @returns the settled reload result.
    */
   refresh(): Promise<FeedbackActionResult> {
@@ -130,11 +144,28 @@ export class FeedbackController implements HostObservable<FeedbackView> {
   }
 
   /**
+   * Re-read the list behind this Session's queued mutations, so a reconnect
+   * cannot resurrect a version an in-flight mutation already replaced.
+   * @returns the settled reload result.
+   */
+  resync(): Promise<FeedbackActionResult> {
+    // seed: false — this operation *is* the read, so pre-seeding would either
+    // short-circuit it (status already ready) or run it twice.
+    return this.mutate(() => this.refresh(), { seed: false })
+  }
+
+  /**
    * Create or replace feedback for one message, comparing against the version
    * this controller last observed.
+   *
+   * The note is resolved here rather than by the caller: `mutate` awaits the
+   * one list read first, so this body always sees the committed item, while a
+   * control that rendered before that read completed would still be holding
+   * `undefined`. Omitting `note` therefore keeps whatever is stored; only
+   * {@link clearNote} removes one.
    * @param messageId - target assistant message.
    * @param rating - desired judgment.
-   * @param note - optional explanation; omitted leaves the note unset.
+   * @param note - replacement explanation; omitted keeps the stored note.
    * @returns the settled mutation result.
    */
   rate(
@@ -144,21 +175,38 @@ export class FeedbackController implements HostObservable<FeedbackView> {
   ): Promise<FeedbackActionResult> {
     return this.mutate(async () => {
       const observed = this.view.items.get(messageId)
-      const result = await this.remote.put({
-        sessionId: this.sessionId,
-        messageId,
-        rating,
-        ...(note === undefined ? {} : { note }),
-        ifVersion: observed?.version ?? null,
-      })
-      if (result.ok) {
-        this.commit(messageId, result.value)
-        return OK
-      }
-      if (result.error.code === 'version-conflict') {
-        this.commit(messageId, result.error.current)
-      }
-      return fail(result.error.code)
+      return await this.putCommitted(messageId, rating, note ?? observed?.note, observed)
+    })
+  }
+
+  /**
+   * Replace one message's rating with the opposite judgment, or retract it when
+   * the committed rating already matches. The decision reads the committed item
+   * inside the serialized mutation, so a click that lands before the first list
+   * read still toggles against the stored value rather than the empty view a
+   * cold control rendered.
+   * @param messageId - target assistant message.
+   * @param rating - the judgment the human asked for.
+   * @returns the settled mutation result.
+   */
+  toggle(messageId: MessageId, rating: MessageFeedbackRating): Promise<FeedbackActionResult> {
+    return this.mutate(async () => {
+      const observed = this.view.items.get(messageId)
+      if (observed?.rating === rating) return await this.deleteCommitted(messageId, observed)
+      return await this.putCommitted(messageId, rating, observed?.note, observed)
+    })
+  }
+
+  /**
+   * Drop the note while keeping the rating. Absent feedback needs no call.
+   * @param messageId - target assistant message.
+   * @returns the settled mutation result.
+   */
+  clearNote(messageId: MessageId): Promise<FeedbackActionResult> {
+    return this.mutate(async () => {
+      const observed = this.view.items.get(messageId)
+      if (observed === undefined || observed.note === undefined) return OK
+      return await this.putCommitted(messageId, observed.rating, undefined, observed)
     })
   }
 
@@ -172,20 +220,48 @@ export class FeedbackController implements HostObservable<FeedbackView> {
     return this.mutate(async () => {
       const observed = this.view.items.get(messageId)
       if (observed === undefined) return OK
-      const result = await this.remote.delete({
-        sessionId: this.sessionId,
-        messageId,
-        ifVersion: observed.version,
-      })
-      if (result.ok) {
-        this.commit(messageId, null)
-        return OK
-      }
-      if (result.error.code === 'version-conflict') {
-        this.commit(messageId, result.error.current)
-      }
-      return fail(result.error.code)
+      return await this.deleteCommitted(messageId, observed)
     })
+  }
+
+  /** Commit one put against the observed version and reconcile a conflict. */
+  private async putCommitted(
+    messageId: MessageId,
+    rating: MessageFeedbackRating,
+    note: string | undefined,
+    observed: MessageFeedbackItem | undefined,
+  ): Promise<FeedbackActionResult> {
+    const result = await this.remote.put({
+      sessionId: this.sessionId,
+      messageId,
+      rating,
+      ...(note === undefined ? {} : { note }),
+      ifVersion: observed?.version ?? null,
+    })
+    if (result.ok) {
+      this.commit(messageId, result.value)
+      return OK
+    }
+    if (result.error.code === 'version-conflict') this.commit(messageId, result.error.current)
+    return fail(result.error.code)
+  }
+
+  /** Commit one delete against the observed version and reconcile a conflict. */
+  private async deleteCommitted(
+    messageId: MessageId,
+    observed: MessageFeedbackItem,
+  ): Promise<FeedbackActionResult> {
+    const result = await this.remote.delete({
+      sessionId: this.sessionId,
+      messageId,
+      ifVersion: observed.version,
+    })
+    if (result.ok) {
+      this.commit(messageId, null)
+      return OK
+    }
+    if (result.error.code === 'version-conflict') this.commit(messageId, result.error.current)
+    return fail(result.error.code)
   }
 
   /** Drop subscribers and refuse further work when the owning fiber unloads. */
@@ -205,7 +281,7 @@ export class FeedbackController implements HostObservable<FeedbackView> {
       }
       const items = new Map<MessageId, MessageFeedbackItem>()
       for (const item of result.value.items) items.set(item.messageId, item)
-      this.publish({ status: 'ready', items: Object.freeze(items), error: null })
+      this.publish({ status: 'ready', items, error: null })
       return OK
     } catch (error) {
       if (this.disposed) return OK
@@ -220,11 +296,20 @@ export class FeedbackController implements HostObservable<FeedbackView> {
    * operations always compare against the committed version, and translate a
    * transport throw into the same settled shape the controls already render.
    */
-  private mutate(operation: () => Promise<FeedbackActionResult>): Promise<FeedbackActionResult> {
+  private mutate(
+    operation: () => Promise<FeedbackActionResult>,
+    options: { readonly seed?: boolean } = {},
+  ): Promise<FeedbackActionResult> {
     const guarded = async (): Promise<FeedbackActionResult> => {
-      if (this.disposed) return { ok: false, error: { code: 'disposed', message: 'feedback controller is disposed' } }
-      const loaded = await this.ensure()
-      if (!loaded.ok) return loaded
+      if (this.disposed) return DISPOSED
+      if (options.seed !== false) {
+        const loaded = await this.ensure()
+        if (!loaded.ok) return loaded
+        // Disposal can land while the seeding read is in flight; without this
+        // second check the fiber would still reach the wire after unloading.
+        // oxlint-disable-next-line typescript/no-unnecessary-condition -- dispose() can run during the await.
+        if (this.disposed) return DISPOSED
+      }
       try {
         return await operation()
       } catch (error) {
@@ -255,7 +340,7 @@ export class FeedbackController implements HostObservable<FeedbackView> {
     const items = new Map(this.view.items)
     if (item === null) items.delete(messageId)
     else items.set(messageId, item)
-    this.publish({ status: 'ready', items: Object.freeze(items), error: null })
+    this.publish({ status: 'ready', items, error: null })
   }
 
   /** Replace the view and contain subscriber failures at the observable boundary. */

@@ -12,7 +12,9 @@ import { cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import type { MessageId } from '@deepseek-ai/dsh-client-connection/client'
-import type { MessageFeedbackItem, MessageFeedbackVersion } from '@deepseek-ai/dsh-message-feedback/types'
+import type {
+  MessageFeedbackItem, MessageFeedbackRating, MessageFeedbackVersion,
+} from '@deepseek-ai/dsh-message-feedback/types'
 import { FeedbackActions } from '../src/client/FeedbackActions.tsx'
 import type { FeedbackActionResult, FeedbackView } from '../src/client/controller.ts'
 import { zh } from '../src/client/locales.ts'
@@ -38,20 +40,29 @@ function mount(options: {
   current?: MessageFeedbackItem | undefined
   rateResult?: FeedbackActionResult
   clearResult?: FeedbackActionResult
+  status?: FeedbackView['status']
 } = {}) {
   const view: FeedbackView = {
-    status: 'ready',
+    status: options.status ?? 'ready',
     items: new Map(options.current === undefined ? [] : [[MSG, options.current]]),
     error: null,
   }
   const ensure = vi.fn(() => Promise.resolve<FeedbackActionResult>({ ok: true }))
-  const rate = vi.fn(() => Promise.resolve(options.rateResult ?? { ok: true as const }))
-  const clear = vi.fn(() => Promise.resolve(options.clearResult ?? { ok: true as const }))
+  const rate = vi.fn((_id: MessageId, _rating: MessageFeedbackRating, _note?: string) =>
+    Promise.resolve(options.rateResult ?? { ok: true as const }))
+  const clear = vi.fn((_id: MessageId) =>
+    Promise.resolve(options.clearResult ?? { ok: true as const }))
+  // The controller owns retract-vs-replace, so the double stands in for it:
+  // matching the shown rating retracts, anything else replaces.
+  const toggle = vi.fn((id: MessageId, next: MessageFeedbackRating) =>
+    (options.current?.rating === next ? clear(id) : rate(id, next)))
+  const clearNote = vi.fn((_id: MessageId) =>
+    Promise.resolve(options.rateResult ?? { ok: true as const }))
   const useFeedback = (<T,>(select: (v: FeedbackView) => T): T =>
     useSyncExternalStore(() => () => {}, () => select(view))) as never
-  const props = { messageId: MSG, ensure, rate, clear, useFeedback, t } as unknown as
+  const props = { messageId: MSG, ensure, rate, toggle, clearNote, clear, useFeedback, t } as unknown as
     Parameters<typeof FeedbackActions>[0]
-  return { ...render(<FeedbackActions {...props} />), ensure, rate, clear }
+  return { ...render(<FeedbackActions {...props} />), ensure, rate, clear, toggle, clearNote }
 }
 
 describe('FeedbackActions', () => {
@@ -91,7 +102,7 @@ describe('FeedbackActions', () => {
 
     fireEvent.click(ui.getByLabelText(zh['action.like']))
 
-    await waitFor(() => { expect(ui.rate).toHaveBeenCalledWith(MSG, 'positive', undefined) })
+    await waitFor(() => { expect(ui.toggle).toHaveBeenCalledWith(MSG, 'positive') })
     expect(ui.clear).not.toHaveBeenCalled()
   })
 
@@ -100,7 +111,7 @@ describe('FeedbackActions', () => {
 
     fireEvent.click(ui.getByLabelText(zh['action.dislike']))
 
-    await waitFor(() => { expect(ui.rate).toHaveBeenCalledWith(MSG, 'negative', 'keep me') })
+    await waitFor(() => { expect(ui.toggle).toHaveBeenCalledWith(MSG, 'negative') })
   })
 
   it('retracts the feedback when the active rating is clicked again', async () => {
@@ -108,8 +119,9 @@ describe('FeedbackActions', () => {
 
     fireEvent.click(ui.getByLabelText(zh['action.likeActive']))
 
+    await waitFor(() => { expect(ui.toggle).toHaveBeenCalledWith(MSG, 'positive') })
+    // The double routes a matching rating to clear(), mirroring the controller.
     await waitFor(() => { expect(ui.clear).toHaveBeenCalledWith(MSG) })
-    expect(ui.rate).not.toHaveBeenCalled()
   })
 
   it('saves a typed note through the rate verb and closes the editor', async () => {
@@ -130,7 +142,7 @@ describe('FeedbackActions', () => {
     fireEvent.change(ui.getByLabelText(zh['note.aria']), { target: { value: '   ' } })
     fireEvent.click(ui.getByText(zh['note.save']))
 
-    await waitFor(() => { expect(ui.rate).toHaveBeenCalledWith(MSG, 'positive', undefined) })
+    await waitFor(() => { expect(ui.clearNote).toHaveBeenCalledWith(MSG) })
   })
 
   it('seeds the editor with the recorded note and abandons it on cancel', () => {
@@ -197,6 +209,8 @@ describe('FeedbackActions', () => {
       messageId: MSG,
       ensure: vi.fn(() => Promise.resolve<FeedbackActionResult>({ ok: true })),
       rate: vi.fn(() => gate),
+      toggle: vi.fn(() => gate),
+      clearNote: vi.fn(() => Promise.resolve<FeedbackActionResult>({ ok: true })),
       clear: vi.fn(() => Promise.resolve<FeedbackActionResult>({ ok: true })),
       useFeedback,
       t,
@@ -213,5 +227,23 @@ describe('FeedbackActions', () => {
 
     window.removeEventListener('error', onError)
     expect(errors).toEqual([])
+  })
+
+  it('surfaces a failed list load next to the controls', async () => {
+    const ui = mount({ status: 'error' })
+
+    expect(ui.getByText(zh['error.load'])).toBeTruthy()
+  })
+
+  it('prefers the action failure over the load notice', async () => {
+    const ui = mount({
+      status: 'error',
+      rateResult: { ok: false, error: { code: 'target-not-found', message: 'gone' } },
+    })
+
+    fireEvent.click(ui.getByLabelText(zh['action.like']))
+
+    await waitFor(() => { expect(ui.getByText(zh['error.generic'])).toBeTruthy() })
+    expect(ui.queryByText(zh['error.load'])).toBeNull()
   })
 })
