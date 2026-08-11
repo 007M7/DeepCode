@@ -138,7 +138,7 @@ The tool passes `exec` (the tool-execution context) as the `actor` argument on e
 
 An observed-state entry is the **prior-observation record**, but its discriminant matters. Successful read/write/edit records present at a version, allowing create-then-edit or edit-then-edit without an intervening read. A read/view that confirms absence replaces any old positive version with absent, allowing only a guarded create; a later successful create replaces it with the new present version. Missing entry alone means unseen and produces `FS_NOT_OBSERVED` for edit. The owner is derived structurally from `{ agent?: { session? } }`; disposal drops all state (HMR safety).
 
-`dsh-fs-policy` is now a pure policy/recording plugin with no service surface — it influences the world only through the event gate. That is what removes the method coupling from `dsh-tool-fs`.
+`dsh-fs-policy` is now a pure policy/recording plugin with no service API — it influences the world only through the event gate. That is what removes the method coupling from `dsh-tool-fs`.
 
 ## Bare-provider behavior (no `dsh-fs-policy`)
 

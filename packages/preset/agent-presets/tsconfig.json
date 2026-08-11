@@ -19,10 +19,16 @@
       "path": "../../../vendor/include"
     },
     {
+      "path": "../../core/agent"
+    },
+    {
       "path": "../../core/scope"
     },
     {
       "path": "../../core/session"
+    },
+    {
+      "path": "../../core/system-prompt"
     },
     {
       "path": "../../settings/settings"

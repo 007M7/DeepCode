@@ -60,6 +60,11 @@
       config:
         backend: json
 
+    - id: message-feedback
+      name: '@deepseek-ai/dsh-message-feedback'
+      config:
+        maxNoteBytes: 8192
+
     - id: workspace
       name: '@deepseek-ai/dsh-workspace'
 
@@ -202,6 +207,10 @@
     - id: ui-subagent
       name: '@deepseek-ai/dsh-client-ui-subagent'
 
+    # Background tasks: the session-header list over the tasksBySession mirror.
+    - id: ui-task
+      name: '@deepseek-ai/dsh-client-ui-task'
+
     # Goal surface: GoalBar in the input dock over the goal session projection.
     - id: ui-goal
       name: '@deepseek-ai/dsh-client-ui-goal'
@@ -305,8 +314,12 @@
 - id: plan-mode
   disabled: true
 
-- id: token-meter
-  disabled: true
+# The token METER stays on the host plane; only the compaction backend that
+# reads it moves. It owns the context-meter projection units, and that table is
+# process-wide, so preset ownership would make the meter a function of which
+# presets happen to be mounted rather than a per-session fact. Same criterion as
+# `tasks` and `goals`; the reasoning has one home in
+# `.agents/notes/implemented/architecture/2026-08-10-host-plane-ownership-after-presets.md`.
 
 - id: compact-basic
   disabled: true

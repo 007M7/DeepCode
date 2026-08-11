@@ -124,6 +124,33 @@ describe('mcp-client plugin module exports', () => {
     } as never)
     expect(resolved.serverName).toBe('github-prod_1')
   })
+
+  it('Config schema materializes reconnect defaults and merges partial overrides', () => {
+    const omitted = ConfigSchema({
+      transport: 'stdio',
+      serverName: 'srv',
+      command: 'echo',
+    } as never)
+    expect(omitted.reconnect).toEqual({ enabled: true, initialDelayMs: 500, maxDelayMs: 30_000, maxAttempts: 10 })
+
+    const partial = ConfigSchema({
+      transport: 'stdio',
+      serverName: 'srv',
+      command: 'echo',
+      reconnect: { initialDelayMs: 100 },
+    } as never)
+    expect(partial.reconnect).toEqual({ enabled: true, initialDelayMs: 100, maxDelayMs: 30_000, maxAttempts: 10 })
+  })
+
+  it('Config schema rejects an invalid reconnect block', () => {
+    // schemastery unions wrap branch errors, so assert the throw only.
+    expect(() => ConfigSchema({
+      transport: 'stdio',
+      serverName: 'srv',
+      command: 'echo',
+      reconnect: { maxAttempts: 0 },
+    } as never)).toThrow()
+  })
 })
 
 describe('apply (plugin lifecycle)', () => {
@@ -132,7 +159,10 @@ describe('apply (plugin lifecycle)', () => {
   beforeEach(async () => {
     vi.clearAllMocks()
     mockConnect.mockResolvedValue(undefined)
-    mockClose.mockResolvedValue(undefined)
+    mockClose.mockImplementation(function (this: { onclose?: () => void }) {
+      this.onclose?.()
+      return Promise.resolve()
+    })
     mockListTools.mockResolvedValue({
       tools: [{ name: 'remote', description: 'A remote tool', inputSchema: { type: 'object' } }],
       nextCursor: undefined,
@@ -216,19 +246,23 @@ describe('apply (plugin lifecycle)', () => {
     expect(mockListTools).not.toHaveBeenCalled()
     expect(ctx.tools.get('mcp__srv__remote')).toBeUndefined()
 
-    // Disposal exercises the empty fallback accessor: nothing to unregister,
-    // close still attempted, no throw.
+    // Disposal cancels the scheduled reconnect attempt: nothing to
+    // unregister, close already attempted by the failed attempt, no throw.
     await ctx.fiber.dispose()
     await sleep(50)
     expect(mockClose).toHaveBeenCalled()
   })
 
   it('rejects activation and still closes the client when startup failure is configured as fatal', async () => {
-    mockConnect.mockRejectedValue(new Error('connection refused'))
+    const cause = new Error('connection refused')
+    mockConnect.mockRejectedValue(cause)
     await expect(apply(ctx, {
       ...stdioConfig,
       failOnStartupError: true,
-    })).rejects.toThrow('initial connection or tool synchronization failed')
+    })).rejects.toMatchObject({
+      message: 'mcp-client(srv): initial connection or tool synchronization failed',
+      cause,
+    })
 
     expect(mockListTools).not.toHaveBeenCalled()
     expect(ctx.tools.get('mcp__srv__remote')).toBeUndefined()
@@ -256,6 +290,32 @@ describe('apply (plugin lifecycle)', () => {
     expect(ctx.tools.get('mcp__srv__remote')).toBeDefined()
     await ctx.fiber.dispose()
     expect(mockClose).toHaveBeenCalled()
+  })
+
+  it('preserves strict startup registration when list_changed arrives before connect resolves', async () => {
+    ctx.tools.register({
+      name: 'mcp__srv__remote',
+      description: 'Foreign squatter',
+      parameters: { type: 'object' },
+      output: {
+        schema: { type: 'string' },
+        render: (_args, value) => [{ type: 'text', text: value as string }],
+      },
+      execute: async () => 'foreign',
+    })
+    mockConnect.mockImplementation(async () => {
+      const handler = mockSetNotificationHandler.mock.calls[0]![1] as () => Promise<void>
+      await handler()
+    })
+
+    await expect(apply(ctx, {
+      ...stdioConfig,
+      failOnStartupError: true,
+    })).rejects.toThrow('initial connection or tool synchronization failed')
+
+    expect(mockListTools).toHaveBeenCalledTimes(2)
+    expect(ctx.tools.get('mcp__srv__remote')?.description).toBe('Foreign squatter')
+    await ctx.fiber.dispose()
   })
 
   it('re-syncs tools on ToolListChanged notification', async () => {
@@ -311,7 +371,10 @@ describe('apply (plugin lifecycle)', () => {
   })
 
   it('effect disposer handles client.close failure gracefully', async () => {
-    mockClose.mockRejectedValue(new Error('already closed'))
+    mockClose.mockImplementation(function (this: { onclose?: () => void }) {
+      this.onclose?.()
+      return Promise.reject(new Error('already closed'))
+    })
 
     await apply(ctx, stdioConfig)
 

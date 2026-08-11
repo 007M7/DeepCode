@@ -262,12 +262,13 @@ export function apply(ctx: Context, config: Config): void {
     disposeTool = ctx.tools.register(defineTool({
       name: config.toolName ?? 'subagent',
       description: wording.description + (backgroundEnabled
-        // The return channel is a separately installed capability this package
-        // cannot observe, so this describes only this call's result.
+        // The completion notice is the continuation service's own behavior, not
+        // a separately installed capability, so this promise holds whenever the
+        // continuable background path is reachable at all.
         ? continuable
           ? ' Set `run_in_background: true` to start a background subagent that keeps its conversation:'
-          + ' you receive only its subagent id, never its result, and it works on its own. Use this for'
-          + ' work whose result you do not need returned by this call; `send_message` sends it more work.'
+          + ' this call returns only its subagent id, and the subagent works on its own from there. You'
+          + ' are told when it finishes, so never poll or wait on it; `send_message` sends it more work.'
           : ' Set `run_in_background: true` to return a task id; collect with `task_output` and stop with `task_kill`.'
         : ''),
       parameters: {
@@ -286,7 +287,7 @@ export function apply(ctx: Context, config: Config): void {
             type: 'boolean' as const,
             description: continuable
               ? 'Run as a background subagent that keeps its conversation and return only its subagent id. '
-              + 'This call never returns its result; send it more work with send_message.'
+              + 'This call does not wait for it; you are told when it finishes. Send it more work with send_message.'
               : 'Run as a background task and return its id; collect with task_output or stop with task_kill.',
           },
         } : {},
@@ -330,6 +331,9 @@ export function apply(ctx: Context, config: Config): void {
               : outputValueText(value.output),
         }],
       },
+      // Children never mutate the parent session; the one parent-owned write
+      // (tasks.start) is a synchronous commutative insertion.
+      isConcurrencySafe: () => true,
       async execute(args, exec) {
         const parent = exec.agent
         if (!parent) {

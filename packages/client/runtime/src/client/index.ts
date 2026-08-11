@@ -53,7 +53,7 @@ export type {
   SessionBinding, SessionListState, SessionProvideContribution, SessionProvideDescriptor, SessionSummary,
 } from './sessions/service.ts'
 export type { SessionListPhase, SessionSearchResultItem, SubagentCatalogSnapshot } from './sessions/manager.ts'
-export type { SubagentAddress } from '@deepseek-ai/dsh-client-connection/client'
+export type { SubagentAddress, TaskView } from '@deepseek-ai/dsh-client-connection/client'
 export type { WorkspaceListPhase } from './workspaces/manager.ts'
 export type { WorkspaceListState } from './workspaces/service.ts'
 export type {
@@ -243,7 +243,7 @@ export function apply(ctx: Context): void {
       workspaces.handleHostEnvelope(envelope)
       // Typed-event bridge: the session layer ignores registry frames (no
       // session routing); consumers (command directory caches, the settings
-      // and model surfaces) subscribe on ctx.
+      // and model services) subscribe on ctx.
       const frame = envelope.payload
       if (frame.type === 'host/commands-changed') ctx.emit('commands/changed')
       else if (frame.type === 'host/session-preset-changed') {

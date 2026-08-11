@@ -1,5 +1,5 @@
 /**
- * ACL editing helpers: grant/revoke the orphan write SID on a directory via
+ * ACL editing helpers: grant/revoke a capability SID on a directory via
  * SetEntriesInAclW + SetNamedSecurityInfoW (the same calls the POC uses, with
  * the failure handling the POC lacks). Every API call is checked and every
  * failure is reported with the API name, the exact Win32 code, the formatted
@@ -39,7 +39,7 @@ export function buildExplicitAccess(sidPtr: NativePtr, mode: number, permissions
   entry.writeUInt32LE(abi.NO_MULTIPLE_TRUSTEE, 24) // Trustee.MultipleTrusteeOperation
   entry.writeUInt32LE(abi.TRUSTEE_IS_SID, 28) // Trustee.TrusteeForm
   entry.writeUInt32LE(abi.TRUSTEE_IS_UNKNOWN, 32) // Trustee.TrusteeType
-  entry.writeBigUInt64LE(ptrAddress(sidPtr), 40) // Trustee.ptstrName = the orphan SID
+  entry.writeBigUInt64LE(ptrAddress(sidPtr), 40) // Trustee.ptstrName = the capability SID
   return entry
 }
 
@@ -181,16 +181,16 @@ function mergeAndApply(
 /**
  * True when the explicit DACL already carries the EXACT write grant this
  * module would add (Allow ACE, OI|CI inheritance, {@link abi.GRANT_MASK}, the
- * orphan SID). Every field is read through koffi.decode at pointer offsets —
+ * capability SID). Every field is read through koffi.decode at pointer offsets —
  * no memcpy, no pointer arithmetic. The ACE's SID is INLINE (embedded in the
  * ACE after the 4-byte mask — there is no pointer to read; reading one
  * yields garbage addresses and crashed EqualSid, verified by gdb), so it is
- * compared field-by-field against the orphan SID through bounded offset
+ * compared field-by-field against the capability SID through bounded offset
  * reads ({@link sameSidAt}). A malformed header reads as "no exact grant"
  * so the caller falls back to the merge-apply path, which owns the robust
  * failure handling.
  * @param oldAcl - the current explicit DACL pointer (from {@link readCurrentDacl}).
- * @param sidPtr - the orphan write SID to match.
+ * @param sidPtr - the capability SID to match.
  * @returns whether the exact grant ACE is already present.
  */
 function hasExactGrant(oldAcl: NativePtr, sidPtr: NativePtr): boolean {
@@ -213,7 +213,7 @@ function hasExactGrant(oldAcl: NativePtr, sidPtr: NativePtr): boolean {
 }
 
 /**
- * Grant `GRANT_MASK` (Write+Delete, displays as "Modify") to the orphan SID
+ * Grant `GRANT_MASK` (Write+Delete, displays as "Modify") to the capability SID
  * on `path`, inheriting to subcontainers and objects. Idempotent: when the
  * directory's current explicit DACL already carries the exact ACE (the
  * per-session grant surviving from a previous server lifetime), the
@@ -226,7 +226,7 @@ function hasExactGrant(oldAcl: NativePtr, sidPtr: NativePtr): boolean {
  * precondition as the POC.
  * @param api - the binding table.
  * @param path - the directory whose DACL gains the grant (the workspace or temp root).
- * @param sidPtr - the orphan write SID the ACE names.
+ * @param sidPtr - the capability SID the ACE names.
  */
 export function grantWrite(api: Win32Bindings, path: string, sidPtr: NativePtr): void {
   withPathLock(api, path, () => {
@@ -244,15 +244,15 @@ export function grantWrite(api: Win32Bindings, path: string, sidPtr: NativePtr):
 }
 
 /**
- * Remove every ACE for the orphan SID from the directory DACL (REVOKE_ACCESS
+ * Remove every ACE for the capability SID from the directory DACL (REVOKE_ACCESS
  * merge — other entries are preserved). Returns whether an ACE removal was
  * attempted (false when the directory carries no DACL at all).
  *
  * Runs under the per-path lock (the whole get-merge-set sequence); the
  * descriptor/ACL allocation contract lives on {@link readCurrentDacl}.
  * @param api - the binding table.
- * @param path - the directory whose DACL loses the orphan-SID ACEs.
- * @param sidPtr - the orphan write SID whose ACEs are removed.
+ * @param path - the directory whose DACL loses the capability-SID ACEs.
+ * @param sidPtr - the capability SID whose ACEs are removed.
  * @returns whether an ACE removal was attempted (false when the directory carries no DACL at all).
  */
 export function revokeWrite(api: Win32Bindings, path: string, sidPtr: NativePtr): boolean {

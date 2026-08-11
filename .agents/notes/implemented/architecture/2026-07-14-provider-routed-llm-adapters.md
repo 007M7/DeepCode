@@ -48,7 +48,7 @@ This state is model-visible replay input and therefore follows the existing [rec
 
 ### Propagate the target through every request producer
 
-Every model-selection surface carries provider and model together: declarative agents, ACP and stdio app config, the JSON-RPC initialize request, subagent overrides and inheritance, workflow child overrides, and direct compaction summarization. Subagents inherit both fields from their parent before applying request overrides. The system-prompt variable set gains `provider` beside `model`.
+Every model-selection path carries provider and model together: declarative agents, ACP and stdio app config, the JSON-RPC initialize request, subagent overrides and inheritance, workflow child overrides, and direct compaction summarization. Subagents inherit both fields from their parent before applying request overrides. The system-prompt variable set gains `provider` beside `model`.
 
 Compaction configuration gains `summarizationProvider` beside `summarizationModel`. Both are empty to inherit, or both are non-empty to select an explicit target; a half-configured pair fails load. Inheritance uses the last logged request target when one exists and falls back to the agent's creation options. `compact/summary` records both fields with the existing model-call envelope.
 
@@ -66,7 +66,7 @@ The on-disk session format remains the pre-release pinned version `0`, with no c
 
 **Let `dsh-llm-pi-ai` automatically register every pi-ai provider.** This would claim ambient credentials and provider names the deployment never intended to expose, and would conflict with native adapters such as `dsh-llm-deepseek`. Explicit profiles make capability and credential scope reviewable.
 
-**Mount one pi-ai plugin instance per provider.** Separate instances isolate config but repeat plugin declarations and cannot make profile registration atomic. One adapter already receives provider on every request, so a validated profile map is the smaller lifecycle surface.
+**Mount one pi-ai plugin instance per provider.** Separate instances isolate config but repeat plugin declarations and cannot make profile registration atomic. One adapter already receives provider on every request, so a validated profile map is the smaller lifecycle API.
 
 **Accept arbitrary inline pi-ai model descriptors.** This would support catalog-external private model ids, but it exposes pi-ai's model and compatibility schema as Harness configuration and makes the adapter responsible for validating protocol-specific combinations. The first version supports custom endpoints by overriding `baseURL` on catalog models; custom descriptors require a separate decision after a real catalog-external deployment is identified.
 

@@ -27,7 +27,7 @@ export interface CommandInputDescriptor {
 export interface CommandInvocation {
   /** Pairing id already written to this invocation's `command/run` event. */
   readonly commandId: CommandId
-  /** Exact agent whose human-facing surface received the command. */
+  /** Exact agent whose UI received the command. */
   readonly agent: Agent
   /** Exact text following the registered command name, including separator whitespace. */
   readonly rawInput: string

@@ -25,7 +25,7 @@ Long-running tools are producers. `dsh-tool-bash` adapts a `BashProcess` into in
 
 The literal types live on the [tasks subsystem page](../../../../docs/subsystems/tasks.md). A producer calls `ctx.tasks.start()` with a kind, label, optional owning `Agent`, optional positive `outputLimitBytes`, and a `run()` function. The runtime completes all failable preflight work before calling `run()` and invokes it once. After `run()` returns hooks, registration commits without another failable step; a producer cannot start work that lacks a collectable task id.
 
-`outputLimitBytes` is producer-owned presentation policy, not a registry buffer. The registry validates and projects it unchanged into `TaskSnapshot`; generic control surfaces apply the cap to complete model-facing output after adding their own status or notice metadata. Omitting it preserves the existing surface behavior, so the runtime does not impose a hidden default on unrelated producer families.
+`outputLimitBytes` is producer-owned presentation policy, not a registry buffer. The registry validates and projects it unchanged into `TaskSnapshot`; generic control APIs apply the cap to complete model-facing output after adding their own status or notice metadata. Omitting it preserves the existing controller behavior, so the runtime does not impose a hidden default on unrelated producer families.
 
 A model-facing producer exposes that committed id in its canonical success value, normally `{ kind: 'background', taskId }`; Native rendering may keep human-readable prose. A pre-aborted background call fails rather than returning a no-op because no task exists to satisfy the promised handle. Once registration publishes the id, cancellation belongs to the task's own controller and the task runtime: later cancellation of the producing tool call must not kill the published task. `task_kill`, owner disposal, and service teardown request cancellation; foreground execution remains coupled to the call's `exec.signal`.
 
@@ -39,7 +39,7 @@ Statuses are `running`, `stopping`, `completed`, `killed`, and `failed`. Produce
 
 The runtime attaches one continuation to `done`, records the first terminal outcome, resolves waiters, and invokes completion listeners with per-listener error containment. First-wins settlement matters during teardown: if `cancel` throws, the runtime force-fails the record and warns that work may be orphaned rather than waiting forever for a promise that may never settle. A later producer outcome cannot overwrite that diagnosis or notify twice. A `cancel` that returns without eventually settling `done` still blocks teardown because the runtime cannot distinguish it from a slow, valid stop.
 
-Task registrations are not effects of the producer tool fiber. Reloading a tool or control-surface plugin therefore does not kill work owned by an agent and backend. The task service's own disposal cancels all live tasks and awaits contract-compliant producers.
+Task registrations are not effects of the producer tool fiber. Reloading a tool or controller plugin therefore does not kill work owned by an agent and backend. The task service's own disposal cancels all live tasks and awaits contract-compliant producers.
 
 ## Authorization and owner lifecycle
 
@@ -51,7 +51,7 @@ The first task for an owner attaches one asynchronous effect to `owner.ctx`. Age
 
 For contract-compliant producers, `AgentHandle.dispose()` resolves only after owned background work has stopped. Work intended to outlive an agent must be started unowned; survival across runtime restarts requires a separate durable-job design.
 
-## Service surface
+## Service API
 
 `TaskService` provides:
 
@@ -61,13 +61,13 @@ For contract-compliant producers, `AgentHandle.dispose()` resolves only after ow
 - `kill(id, caller?, reason?)` for cancellation.
 - `wait(id, timeoutMs, caller?, signal?)` for bounded terminal waiting.
 - `onTaskDone(listener)` for effect-scoped observation with exact-owner delivery and listener containment.
-- `attachSurface(name)` for the control-surface availability fence.
+- `attachController(name)` for the task-controller availability fence.
 
 `wait` returns the terminal snapshot when the task settles or the live snapshot when its timeout expires. Aborting a wait cancels only that wait. If settlement has already assigned terminal delivery to the waiter, the terminal snapshot still wins. Waiters unregister synchronously on abort so a same-tick settlement cannot suppress a completion notice on behalf of a reader that receives nothing.
 
-A producer loaded without any control surface would let callers start work they cannot collect or stop. `dsh-tool-tasks` therefore calls `attachSurface()` for its lifetime, and `start()` fails before producer execution when no surface is attached. This check occurs at start rather than plugin load because sibling plugins may activate concurrently. Custom non-model surfaces can attach themselves without teaching the registry tool names.
+A producer loaded without any controller would let callers start work they cannot collect or stop. `dsh-tool-tasks` therefore calls `attachController()` for its lifetime, and `start()` fails before producer execution when no controller is attached. This check occurs at start rather than plugin load because sibling plugins may activate concurrently. Custom non-model controllers can attach themselves without teaching the registry tool names.
 
-## Model-facing control surface
+## Model-facing control API
 
 `dsh-tool-tasks` registers three kind-independent tools with generic UI cards:
 
@@ -79,13 +79,13 @@ Stream reads share one task-scoped consuming cursor because the owning model is 
 
 The system prompt tells the model to retain task ids, continue independent work instead of busy-polling or duplicating a running task, collect relevant tasks before its final answer, and kill work that no longer matters. Completion injects a logged `context/message` into the exact owner's session; it becomes durable context for the next request but does not wake an idle agent.
 
-The runtime marks a terminal task `reported` when a read or wait delivers it, when a live waiter has claimed delivery at settlement, or when the model explicitly kills it. Reported tasks do not inject redundant completion notices. Listener failures are logged independently, do not stop later listeners, and are not awaited by waiters or teardown. When a snapshot carries `outputLimitBytes`, `dsh-tool-tasks` preserves UTF-8 boundaries and reuses an existing producer truncation marker rather than duplicating it. Reads reserve status suffixes and retain the output tail; completion notices reserve the stable `background task <id>` prefix and `task_output` instruction before truncating variable kind, label, status, detail, or the truncation marker itself, so the minimum PTY cap still identifies the task to collect. The task surface resolves the caller-visible producer cap in a prepended pre-execute listener before policy can deny or short-circuit dispatch, then applies it through the task definitions' last-mile `finalizeContent` callback so normalized tool errors, outer pipeline failures, and single-text policy results cannot escape the bound; deliberately structured multi-block policy results retain policy ownership of their shape and size.
+The runtime marks a terminal task `reported` when a read or wait delivers it, when a live waiter has claimed delivery at settlement, or when the model explicitly kills it. Reported tasks do not inject redundant completion notices. Listener failures are logged independently, do not stop later listeners, and are not awaited by waiters or teardown. When a snapshot carries `outputLimitBytes`, `dsh-tool-tasks` preserves UTF-8 boundaries and reuses an existing producer truncation marker rather than duplicating it. Reads reserve status suffixes and retain the output tail; completion notices reserve the stable `background task <id>` prefix and `task_output` instruction before truncating variable kind, label, status, detail, or the truncation marker itself, so the minimum PTY cap still identifies the task to collect. The task controller resolves the caller-visible producer cap in a prepended pre-execute listener before policy can deny or short-circuit dispatch, then applies it through the task definitions' last-mile `finalizeContent` callback so normalized tool errors, outer pipeline failures, and single-text policy results cannot escape the bound; deliberately structured multi-block policy results retain policy ownership of their shape and size.
 
 ## Producer opt-in
 
 Each producer owns whether its schema exposes `run_in_background` through defaulted config. `dsh-tool-bash`, `dsh-tool-pty`, and each `dsh-tool-subagent` instance use `enableRunInBackground`, defaulting to true. A disabled instance omits the parameter and also rejects a forced background argument at execution because the generic argument validator permits undeclared keys. Schema omission advertises the capability; the execution check enforces it.
 
-`ctx.tasks` does not rewrite producer schemas. A bundle forwards configuration only for producers it owns. If a background call reaches `start()` without an attached surface, the runtime fence fails before execution.
+`ctx.tasks` does not rewrite producer schemas. A bundle forwards configuration only for producers it owns. If a background call reaches `start()` without an attached controller, the runtime fence fails before execution.
 
 ## Producer integrations
 
@@ -107,7 +107,7 @@ The current `TaskStart.run()` contract passes in-process callbacks and exact `Ag
 
 ### Consumer-owned authorization or cleanup events
 
-Consumer-owned checks invite inconsistent or missing isolation on each new surface. A broadcast cleanup event makes every listener filter every agent and provides no registration disposer. Central authorization plus one owner-scoped effect gives every consumer the same fence and an awaited, removable lifecycle hook.
+Consumer-owned checks invite inconsistent or missing isolation on each new controller. A broadcast cleanup event makes every listener filter every agent and provides no registration disposer. Central authorization plus one owner-scoped effect gives every consumer the same fence and an awaited, removable lifecycle hook.
 
 ### Blocking output or a separate wait tool
 
@@ -125,7 +125,7 @@ Authorization, not unguessability, is the access boundary, and ids do not derive
 
 ## Testing
 
-Unit coverage pins preflight atomicity, per-kind ids, output-limit validation and projection, complete UTF-8 result bounds, stream and final reads, wait timeout and abort races, cancellation, first-wins settlement, listener containment, notice suppression, owner isolation, stale owner instances, owner cleanup, service teardown, and the no-surface fence. Producer tests cover bash process mapping, subagent startup cancellation, terminal mapping, and disposal. Snapshot coverage pins the control-tool schemas and prompt guidance.
+Unit coverage pins preflight atomicity, per-kind ids, output-limit validation and projection, complete UTF-8 result bounds, stream and final reads, wait timeout and abort races, cancellation, first-wins settlement, listener containment, notice suppression, owner isolation, stale owner instances, owner cleanup, service teardown, and the no-controller fence. Producer tests cover bash process mapping, subagent startup cancellation, terminal mapping, and disposal. Snapshot coverage pins the control-tool schemas and prompt guidance.
 
 ## Consequences
 

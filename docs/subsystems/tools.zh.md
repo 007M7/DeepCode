@@ -17,7 +17,7 @@ interface ToolOutputDefinition {
   readonly schema: JsonSchemaNode
   /** Pure projection from validated arguments and value to Native/model content. */
   render(args: unknown, value: JsonValue): ContentBlock[]
-  /** Pure replayable presentation projection, computed only for surface calls. */
+  /** Pure replayable presentation projection, computed only for top-level calls. */
   presentationMeta?(args: unknown, value: JsonValue): JsonValue
 }
 ```
@@ -468,9 +468,9 @@ type ObjectJsonSchema = JsonSchemaNode & { type: 'object' }
 
 <a id="cordis-surface"></a>
 
-## Cordis surface
+## Cordis API
 
-Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` surface lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
+Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
 
 <a id="ctxtools--toolregistry"></a>
 
@@ -480,12 +480,14 @@ Tool registry and execution pipeline. Scoped registrations shadow globals; one v
 
 ```ts cordis-catalog
 /**
- * Present this agent's tools in `mode` instead of the deployment default.
+ * Present the calling scope's tools in `mode` instead of the deployment
+ * default. Nearest scope on the chain wins, so a preset's standing
+ * declaration covers every agent joined under it.
  *
- * Scoped only, and one declaration per agent: this is how an agent preset
- * composes a Code Mode agent beside native ones in the same process, and a
+ * Scoped only, and one declaration per scope: this is how an agent preset
+ * composes Code Mode agents beside native ones in the same process, and a
  * process-global override would be the `mode` config field instead.
- * @param mode - the presentation this agent's model sees.
+ * @param mode - the presentation the covered agents' models see.
  * @returns the exact disposer that restores the deployment default.
  */
 presentAs(mode: ToolPresentationMode): () => void
@@ -502,7 +504,7 @@ register(definition: ToolDefinition): () => void
  * Restrict global tools for the calling agent scope. Empty filters, unknown
  * names, scope-local names, and reserved transport names fail. Restrictions
  * intersect; scoped registrations remain visible.
- * @param filter - global-surface mask: `allow` (keep only) and/or `deny` (remove).
+ * @param filter - global-tool mask: `allow` (keep only) and/or `deny` (remove).
  * @returns the exact disposer that lifts this restriction.
  */
 restrict(filter: ToolRestriction): () => void

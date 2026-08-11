@@ -38,7 +38,7 @@ const ERROR_ALREADY_EXISTS = 183
 
 let bindings: Win32Bindings | undefined
 
-/** Load the small Win32 surface lazily so non-Windows processes never load Koffi. */
+/** Load the small Win32 API lazily so non-Windows processes never load Koffi. */
 async function win32(): Promise<Win32Bindings> {
   if (bindings !== undefined) return bindings
   const koffi = (await import('koffi')).default

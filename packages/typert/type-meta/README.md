@@ -24,7 +24,7 @@ Lookup and Context packages own both sides of their contract: declaration mergin
 
 ## Model Experience
 
-None, as this protocol package declares application reflection and registers no model surface.
+None, as this protocol package declares application reflection and registers nothing model-facing.
 
 #### KV Cache effect
 

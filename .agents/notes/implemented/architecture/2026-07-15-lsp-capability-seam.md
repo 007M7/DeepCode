@@ -137,7 +137,7 @@ Navigation maps `Location` directly and `LocationLink` from `targetUri` plus `ta
 
 Abort reaches every query phase and sends `$/cancelRequest` once an id exists. An unresponsive server is terminated and awaited without collateral active work because the instance is serialized. Disposal rejects and cancels work, attempts graceful shutdown, escalates through bounded termination, and awaits quiescence.
 
-## Deliberately deferred surface
+## Deliberately deferred API
 
 Symbols are deferred because they need different schemas and overlap read/search; a future workspace-symbol tool must accept a search query. Call hierarchy is deferred because support is uneven, and `prepareCallHierarchy` remains an internal prerequisite rather than a model operation.
 

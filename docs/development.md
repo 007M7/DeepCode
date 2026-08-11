@@ -129,7 +129,7 @@ The root [contributor instructions](../AGENTS.md#commands) summarize common comm
 The one-shot Headless coding agent needs `DEEPSEEK_API_KEY` in the environment or repo-root `.env`:
 
 ```sh
-pnpm run demo:headless "summarize this workspace"
+pnpm dsh --profile headless "summarize this workspace"
 ```
 
 The self-referential cordis demo can inspect and modify its live plugin runtime and needs the same credentials (`web` by default, or `acp`):

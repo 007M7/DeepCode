@@ -12,7 +12,7 @@ The replay suites still need canonical session events to pin assembled backend b
 
 ## Decision
 
-Delete `@deepseek-ai/dsh-cli-demo` completely: its package, bin, parser, app plugin, output formats, tests, workspace references, generated-catalog entries, and active documentation. No alias or compatibility package remains. The root `demo:headless` script is retained only as a direct alias of `dsh --profile headless`; the product command owns final-text stdout, failure diagnostics on stderr, persistence, exit status, and shutdown.
+Delete `@deepseek-ai/dsh-cli-demo` completely: its package, bin, parser, app plugin, output formats, tests, workspace references, generated-catalog entries, and active documentation. No alias or compatibility package remains. Source users invoke the product command through `pnpm dsh --profile headless`; it owns final-text stdout, failure diagnostics on stderr, persistence, exit status, and shutdown.
 
 `examples/headless-agent` becomes an explicit test composition. Its Loader configs mount `@deepseek-ai/dsh-agent-spine-demo`, one root agent, JSONL persistence, and checkpoint policy as separate rows instead of hiding them behind an app bundle. The support-tier `@deepseek-ai/dsh-loader-smoke` package owns the shared direct-agent turn helper; unexported example-local drivers select their Loader configuration and render canonical events as JSONL. They are launched only by tests, have no bin, and do not define a supported product output format.
 
@@ -25,7 +25,7 @@ Delete `@deepseek-ai/dsh-cli-demo` completely: its package, bin, parser, app plu
 
 ## Consequences
 
-This is intentionally breaking. `dsh-cli-demo`, its `--output-format` choices, and imports from `@deepseek-ai/dsh-cli-demo/src/cli.ts` no longer resolve. There is no public event-stream replacement in this change; callers use `dsh --profile headless` for one-shot execution and must choose an existing protocol surface when they need structured automation.
+This is intentionally breaking. `dsh-cli-demo`, its `--output-format` choices, and imports from `@deepseek-ai/dsh-cli-demo/src/cli.ts` no longer resolve. There is no public event-stream replacement in this change; callers use `dsh --profile headless` for one-shot execution and must choose an existing protocol API when they need structured automation.
 
 The repository retains backend replay coverage through test-only infrastructure, while product smoke and built-bin acceptance exercise `dsh --profile headless`. A separate one-shot package may return only if it owns a genuinely independent, versioned protocol that cannot belong to the product launcher; a second spelling or output shim is not enough.
 

@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-The model-facing control surface for `ctx.tasks`: three kind-independent tools, completion notices, and one background-work prompt section. Loading the plugin attaches the surface required by `ctx.tasks.start()`.
+The model-facing controller for `ctx.tasks`: three kind-independent tools, completion notices, and one background-work prompt section. Loading the plugin attaches the controller required by `ctx.tasks.start()`.
 
 ## Tools
 
@@ -14,13 +14,13 @@ All three use generic UI cards: `read` for output and list, `execute` for kill.
 
 Their canonical values are `{ text, task }`, `PublicTaskSnapshot[]`, and `{ outcome: 'cancellation-requested' | 'already-finished', task }`. A public snapshot carries id, kind, label, status/detail, and start/finish times; it deliberately omits `ownerSession` and the internal `reported` notice bit. Native renderers preserve the status and acknowledgement text above.
 
-When a producer supplies `outputLimitBytes`, `task_output`, terminal `task_kill`, and completion notices cap the complete Native UTF-8 result after adding status or notice text. Reads retain the output tail and control suffix when they fit; a bounded completion notice instead reserves `background task <id>` and the `task_output` collection instruction before spending remaining bytes on its variable kind, label, status, detail, and truncation marker. A prepended pre-execute listener captures the caller-visible task before policy, and each task-control definition's final-content callback applies its producer cap to single-text denials, short-circuits, normalized tool or pipeline failures, replacements, and blocks; structured multi-block policy results retain their shape. An existing producer truncation marker is reused rather than duplicated. Producers that omit the field retain the existing unbounded control-surface behavior.
+When a producer supplies `outputLimitBytes`, `task_output`, terminal `task_kill`, and completion notices cap the complete Native UTF-8 result after adding status or notice text. Reads retain the output tail and control suffix when they fit; a bounded completion notice instead reserves `background task <id>` and the `task_output` collection instruction before spending remaining bytes on its variable kind, label, status, detail, and truncation marker. A prepended pre-execute listener captures the caller-visible task before policy, and each task-control definition's final-content callback applies its producer cap to single-text denials, short-circuits, normalized tool or pipeline failures, replacements, and blocks; structured multi-block policy results retain their shape. An existing producer truncation marker is reused rather than duplicated. Producers that omit the field retain the existing unbounded controller behavior.
 
 ## Completion notices
 
 An unreported completion injects `background task <id> (<kind>: <label>) finished [status: ...]. Read its output with task_output.` into the exact owner's next-step inbox. When bounded, the stable id prefix and collection command outrank variable label/detail so the notice remains actionable at PTY's supported 64-byte minimum. Injection is durable pending context for a later pre-step claim, not a wake-up; cancellation or owner disposal may discard it before claim. A kill or terminal read/wait marks delivery reported and suppresses the redundant notice.
 
-One host registry may carry several mounts of this plugin — one per agent preset. The registry routes each settlement to the listeners the owner's scope chain reaches, so a mount under one preset never sees another preset's agents and an agent reads exactly one notice per completion however many presets are mounted. The same routing decides which agents this mount's control surface serves: an agent whose composition loads no `tool-tasks` cannot start background work at all.
+One host registry may carry several mounts of this plugin — one per agent preset. The registry routes each settlement to the listeners the owner's scope chain reaches, so a mount under one preset never sees another preset's agents and an agent reads exactly one notice per completion however many presets are mounted. The same routing decides which agents this mount's controller serves: an agent whose composition loads no `tool-tasks` cannot start background work at all.
 
 ## Config
 
@@ -57,7 +57,7 @@ Prefix-stable while the plugin scope and guidance text are unchanged. Activation
 
 #### What the model sees
 
-The generated [`task_output`, `task_list`, and `task_kill` schemas](../../../docs/tool-catalog.md#deepseek-aidsh-tool-tasks) while this surface is visible.
+The generated [`task_output`, `task_list`, and `task_kill` schemas](../../../docs/tool-catalog.md#deepseek-aidsh-tool-tasks) while this tool set is visible.
 
 #### Token effect
 
@@ -85,4 +85,4 @@ Append-only; newly visible content follows the reusable request prefix and does 
 
 - **Completion notices do not wake idle agents** — callers needing an immediate result must use `task_output`.
 - **Stream reads are single-consumer** — independent observers need another runtime API.
-- **Unowned tasks have no session fence** — external surfaces must supply caller policy or avoid them.
+- **Unowned tasks have no session fence** — external callers must supply policy or avoid them.

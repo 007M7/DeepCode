@@ -6,7 +6,7 @@ English | [中文](2026-07-10-single-file-executable-sdk-runtime-distribution.zh
 
 ## Problem
 
-DeepSeek Harness needs a dedicated SDK distribution form for the Python library — no Node installation, runs directly on the target platform: a single-file executable (hereafter "the exe") that exposes a stdio JSON-RPC serving surface (`HarnessSdkServer`, the Python SDK's peer), where the plugins and configuration actually booted are decided entirely by a `cordis.yml` supplied from outside the exe.
+DeepSeek Harness needs a dedicated SDK distribution form for the Python library — no Node installation, runs directly on the target platform: a single-file executable (hereafter "the exe") that exposes a stdio JSON-RPC serving interface (`HarnessSdkServer`, the Python SDK's peer), where the plugins and configuration actually booted are decided entirely by a `cordis.yml` supplied from outside the exe.
 
 - The JSONRPC protocol for talking to the Python SDK is already validated
 - A standardized way for cordis.yml to load every plugin (ESModule) is needed
@@ -23,11 +23,11 @@ The exe is packaged with the **`--sea` (enhanced SEA) mode** of [@yao-pkg/pkg](h
 
 Terminology reminder: pkg's `/snapshot` VFS has nothing to do with this repo's testing-system "snapshot" (ACP replay expected outputs, `$DSH_SNAPSHOT`); this document says "VFS" for the former.
 
-### The serving surface is a plugin: the two packages ui/jsonrpc + examples/jsonrpc-demo
+### The serving interface is a plugin: the two packages sdk/server + examples/jsonrpc-demo
 
 The deterministic protocol implementation (`server.ts` / `transport.ts`) lands as two packages on the existing `acp/acp` + `examples/acp-demo` pattern — the serving surface is itself a plugin:
 
-- [`packages/scaffold/server`](../../../../packages/scaffold/server/README.md) (`@deepseek-ai/dsh-jsonrpc`): the pure protocol plugin; on apply it mounts `HarnessSdkServer` plus a line-delimited JSON-RPC transport on the process stdio, with disposal through `ctx.effect()`. Whether to serve is decided by `cordis.yml`; a yml that does not mount it is a legitimate process that does not serve. Protocol-level exit belongs to the plugin (after answering and flushing the `shutdown` response it disposes the root runtime so persistence drains, then `exit(0)`; an HMR-style unload only stops the service without exiting the process).
+- [`packages/sdk/server`](../../../../packages/sdk/server/README.md) (`@deepseek-ai/dsh-jsonrpc`): the pure protocol plugin; on apply it mounts `HarnessSdkServer` plus a line-delimited JSON-RPC transport on the process stdio, with disposal through `ctx.effect()`. Whether to serve is decided by `cordis.yml`; a yml that does not mount it is a legitimate process that does not serve. Protocol-level exit belongs to the plugin (after answering and flushing the `shutdown` response it disposes the root runtime so persistence drains, then `exit(0)`; an HMR-style unload only stops the service without exiting the process).
 - [`packages/examples/jsonrpc-demo`](../../../../packages/examples/jsonrpc-demo/README.md) (`@deepseek-ai/dsh-jsonrpc-demo`): a thin app bin — `installFailLoud` + `loadEnv` + config discovery + `boot()` from [`dsh-app-boot`](../../../../packages/boot/app-boot/src/index.ts), done once boot completes; the server is brought up by the `dsh-jsonrpc` entry in the yml. Its only dependency is app-boot. Process-level exit belongs to the bin (stdin EOF/SIGTERM → dispose then 0, SIGINT → 130).
 
 Config discovery has two channels and fails loudly when both are missing: the `DSH_CORDIS_CONFIG` environment variable first (the SDK client convention), then an argv positional argument; no default path and no built-in fallback whatsoever — "the plugins actually booted are decided by an external cordis.yml" is a hard semantic.
@@ -80,6 +80,6 @@ Manual-driving caveat: the bin treats stdin EOF as "the client is gone" and disp
 
 ## Consequences
 
-**Bought**: zero-dependency single-file distribution on target platforms; plugin semantics strictly identical to running from source (the same real package tree, no transpilation, no registry); the serving surface, the plugin set, and the configuration all converge on two sources of truth — `cordis.yml` plus one dependency manifest; the exe and node carriers share one tree and one semantics, so development verification never waits for packaging; official Node binaries remove the patched-binary supply-chain concern.
+**Bought**: zero-dependency single-file distribution on target platforms; plugin semantics strictly identical to running from source (the same real package tree, no transpilation, no registry); the serving interface, the plugin set, and the configuration all converge on two sources of truth — `cordis.yml` plus one dependency manifest; the exe and node carriers share one tree and one semantics, so development verification never waits for packaging; official Node binaries remove the patched-binary supply-chain concern.
 
 **Paid**: artifacts on the order of 174MB with source entering the blob as-is (no bytecode obfuscation; a closed-source distribution requirement needs a separate evaluation); pkg's VFS/module-hook layer remains community-maintained (the build script pins `@yao-pkg/pkg@6.21.0`; upgrading is an explicit change); `--sea` is one invocation per target (matching CI's one leg per platform; local multi-platform builds are serial).

@@ -25,7 +25,7 @@ The design can be skimmed as seven choices:
 | Coordinate create/resume | One `AgentCreationTransaction` |
 | Protect durable, queued, model, or wire data | Materialize once at that boundary |
 | Pass typed values inside one process | Readonly borrowed contract |
-| Compose the model-visible prompt and tool surface | One shared tool view plus the authoritative assembly-waterfall result |
+| Compose the model-visible prompt and tool set | One shared tool view plus the authoritative assembly-waterfall result |
 | Coordinate subagent, worker, and process shutdown | One cancellation signal plus the independent terminal/quiescence facts of that boundary |
 
 The rest of this Agent Note expands those choices in dependency order: Cordis mechanics, scope routing, creation and session commit, tools and prompts, subagents and workflows, then executable checks.

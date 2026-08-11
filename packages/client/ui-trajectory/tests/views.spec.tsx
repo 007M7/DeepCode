@@ -29,6 +29,9 @@ import {
 } from '@deepseek-ai/dsh-client-ui-conversation/src/client/skeleton/ConversationSession.tsx'
 import { createChatStore } from '@deepseek-ai/dsh-client-ui-conversation/src/client/stores.ts'
 import { zh as conversationZh } from '@deepseek-ai/dsh-client-ui-conversation/src/client/locales.ts'
+import { apply as localeApply, inject as localeInject } from '@deepseek-ai/dsh-client-locale/client'
+import type { LocaleKeysOf } from '@deepseek-ai/dsh-client-ui-slots'
+import { zh, type TrajectoryKey } from '../src/client/locales.ts'
 import { apply, inject } from '@deepseek-ai/dsh-client-ui-trajectory/client'
 import { apply as nodeApply } from '@deepseek-ai/dsh-client-ui-trajectory'
 import type { TrajectoryTurnModel } from '../src/client/layout.ts'
@@ -132,6 +135,12 @@ function standaloneDuration(): Pick<
   }
 }
 
+function standaloneExport(
+  onExport: () => Promise<void> = vi.fn(() => Promise.resolve()),
+): Pick<ComponentProps<typeof TrajectoryView>, 'exportLog'> {
+  return { exportLog: onExport }
+}
+
 function fakeSession(nodes: ConversationSnapshot['nodes']) {
   const store = createSnapshotStore(historySnapshot(nodes))
   return { store, useSession: bindSnapshotSelector(store) }
@@ -140,7 +149,7 @@ function fakeSession(nodes: ConversationSnapshot['nodes']) {
 /** Empty sessions-list hook; breadcrumbs therefore fall back to the raw id. */
 function emptySessions() {
   const store = createSnapshotStore<SessionListState>(
-    { ids: [], byId: {}, current: undefined, phase: 'ready', subagentsByParent: {}, currentAddress: undefined })
+    { ids: [], byId: {}, current: undefined, phase: 'ready', subagentsByParent: {}, tasksBySession: {}, currentAddress: undefined })
   return bindSnapshotSelector(store)
 }
 
@@ -153,14 +162,18 @@ function emptyWorkspaces() {
 }
 
 /** Standalone view props: the session-scope standard kit the outlet would bake. */
-function standaloneProps(nodes: ConversationSnapshot['nodes']): ConvViewProps {
+function standaloneProps(
+  nodes: ConversationSnapshot['nodes'],
+): ConvViewProps & { t: (key: LocaleKeysOf<'trajectory'>) => string } {
   return {
     sessionId: SID,
     useSession: fakeSession(nodes).useSession,
     useSessions: emptySessions(),
     useWorkspaces: emptyWorkspaces(),
     useProjection: (() => undefined) as never,
-  } as unknown as ConvViewProps
+    // The locale seat the outlet would inject for the declared namespace.
+    t: (key: LocaleKeysOf<'trajectory'>) => zh[key as TrajectoryKey] ?? key,
+  } as unknown as ConvViewProps & { t: (key: LocaleKeysOf<'trajectory'>) => string }
 }
 
 /** Real-stack bench: root Context + real SlotsService ring + the plugin fiber. */
@@ -188,6 +201,10 @@ async function bench(snapshot = historySnapshot(NODES)) {
   const chatBody = vi.fn(() => <div data-testid="chat-body" />)
   slots.register(
     { name: 'conversation.view', id: 'chat', order: 0, label: 'Chat' } as never, chatBody as never)
+  // The locale plugin backs the locale-aware view tab label ('locale' in
+  // inject); its settings scope needs a connection handle.
+  ctx.provide('connection', { api: { settings: {} }, isLoopback: false } as never)
+  ctx.plugin({ inject: [...localeInject], apply: localeApply })
   const fiber = ctx.plugin({ inject: [...inject], apply })
   await fiber.await()
   return { ctx, slots, fiber, loadOlder, sessionStore }
@@ -232,7 +249,9 @@ function mount(slots: SlotsService, nodes: ConversationSnapshot['nodes'] = NODES
         return {
           loadOlder: trajectory.loadOlder,
           setActualDuration: trajectory.setActualDuration,
+          exportLog: trajectory.exportLog,
           useDuration: bindSnapshotSelector(trajectory.hooks.duration),
+          t: (key: TrajectoryKey) => zh[key],
         }
       })()
       : injected
@@ -352,7 +371,7 @@ describe('tab switching in ConversationRoot', () => {
     expect(screen.queryByText(/turns ·/)).toBeNull()
     expect(view.container.querySelectorAll('tr[data-turn-start="true"]')).toHaveLength(2)
     expect(screen.queryByRole('columnheader')).toBeNull()
-    expect(screen.getByRole('toolbar', { name: 'Trajectory toolbar' })).toBeTruthy()
+    expect(screen.getByRole('toolbar', { name: '轨迹工具栏' })).toBeTruthy()
     expect(screen.getByRole('region', { name: 'Trajectory timeline' })).toBeTruthy()
     expect(view.container.querySelector('[data-conversation-composer-overlay]')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Collapse turns' }))
@@ -363,6 +382,17 @@ describe('tab switching in ConversationRoot', () => {
     expect(b.loadOlder).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole('tab', { name: 'Chat' }))
     expect(b.loadOlder).not.toHaveBeenCalled()
+  })
+
+  it('labels the trajectory tab in the active locale', async () => {
+    const b = await bench()
+    const labelOf = () => tabsOf(b.slots).find(tab => tab.id === 'trajectory')?.label
+    expect(labelOf()).toBe('Trajectory')
+    const locale = b.ctx.get('locale') as { setLocale(id: string): void }
+    locale.setLocale('zh')
+    expect(labelOf()).toBe('轨迹')
+    locale.setLocale('en')
+    expect(labelOf()).toBe('Trajectory')
   })
 
   it('opens a local record inspector and switches payload tabs without opening chat details', async () => {
@@ -553,7 +583,7 @@ describe('tab switching in ConversationRoot', () => {
     const b = await bench(historySnapshot([]))
     mount(b.slots)
     fireEvent.click(screen.getByRole('tab', { name: 'Trajectory' }))
-    expect(screen.getByRole('toolbar', { name: 'Trajectory toolbar' })).toBeTruthy()
+    expect(screen.getByRole('toolbar', { name: '轨迹工具栏' })).toBeTruthy()
     expect(screen.getByText('No timing data')).toBeTruthy()
     expect(screen.getByRole<HTMLButtonElement>('button', {
       name: 'Collapse turns',
@@ -1100,10 +1130,59 @@ describe('timeline projection', () => {
         ...standaloneProps([]),
         ...standaloneHistory(historySnapshot([])),
         ...standaloneDuration(),
+        ...standaloneExport(),
       },
     ))
-    expect(screen.getByRole('toolbar', { name: 'Trajectory toolbar' })).toBeTruthy()
+    expect(screen.getByRole('toolbar', { name: '轨迹工具栏' })).toBeTruthy()
     expect(screen.queryByRole('row')).toBeNull()
+  })
+})
+
+describe('session log export', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    Reflect.deleteProperty(URL, 'createObjectURL')
+    Reflect.deleteProperty(HTMLAnchorElement.prototype, 'click')
+  })
+
+  it('downloads the host-streamed ZIP with descendants on click', async () => {
+    // exportLog always fetches a URL instance, so the mock's shape stays narrow.
+    const fetchMock = vi.fn(async (input: URL) => {
+      expect(input.pathname).toBe('/api/session.export')
+      expect(input.searchParams.get('sessionId')).toBe(SID)
+      expect(input.searchParams.get('includeDescendants')).toBe('true')
+      return new Response('zip-bytes')
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const createObjectURL = vi.fn(() => 'blob:export')
+    URL.createObjectURL = createObjectURL
+    const clickAnchor = vi.fn()
+    HTMLAnchorElement.prototype.click = clickAnchor
+    const b = await bench(historySnapshot(NODES))
+    mount(b.slots)
+    fireEvent.click(screen.getByRole('tab', { name: 'Trajectory' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Export session log' }))
+    await vi.waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledOnce()
+    })
+    // The blob download lands a few microtasks after the fetch settles.
+    await vi.waitFor(() => {
+      expect(createObjectURL).toHaveBeenCalled()
+    })
+    expect(clickAnchor).toHaveBeenCalled()
+  })
+
+  it('surfaces the download failure in the visible alert bar', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('boom', { status: 404 })))
+    const b = await bench(historySnapshot(NODES))
+    mount(b.slots)
+    fireEvent.click(screen.getByRole('tab', { name: 'Trajectory' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Export session log' }))
+    await vi.waitFor(() => {
+      const alert = screen.queryByRole('alert')
+      expect(alert).not.toBeNull()
+      expect(alert!.textContent).toContain('HTTP 404')
+    })
   })
 })
 
@@ -1117,6 +1196,7 @@ describe('TrajectoryView state', () => {
     const first = render(
       <TrajectoryView
         {...commonProps}
+        {...standaloneExport()}
         useDuration={bindSnapshotSelector(firstDuration)}
         setActualDuration={(value) => { firstDuration.set(value) }}
       />,
@@ -1132,6 +1212,7 @@ describe('TrajectoryView state', () => {
     render(
       <TrajectoryView
         {...commonProps}
+        {...standaloneExport()}
         useDuration={bindSnapshotSelector(restoredDuration)}
         setActualDuration={(value) => { restoredDuration.set(value) }}
       />,
@@ -1139,6 +1220,8 @@ describe('TrajectoryView state', () => {
     expect(screen.getByRole('button', { name: 'Use actual duration' }).getAttribute('aria-pressed'))
       .toBe('true')
   })
+
+
 
   it('keeps ledger and timeline selection on the same event after prepend', () => {
     const older = {
@@ -1154,6 +1237,7 @@ describe('TrajectoryView state', () => {
       <TrajectoryView
         {...standaloneProps([])}
         {...standaloneDuration()}
+        {...standaloneExport()}
         useSession={bindSnapshotSelector(store)}
         loadOlder={vi.fn(() => Promise.resolve(false))}
       />,

@@ -46,7 +46,7 @@ manifest 拥有包的装载约定：它的 `inject` 依赖边，加可选的 `im
 
 ### 一套模块系统，一个插件治理器
 
-浏览器复刻 host 侧的分工。`dsh-client-modules`（`ClientModuleSystem`）坐上 host 侧由 Node 内部 ESM loader 占据的模块系统席位；同一份 vendored `@cordisjs/plugin-loader` 在两侧都坐治理席。二者的分界线一句话说尽：**模块系统拥有模块身份与字节——代码怎么到达、怎么登记、怎么变成导出面；Loader 拥有插件生命周期——插件何时挂载、等待什么、如何拆除。**
+浏览器复刻 host 侧的分工。`dsh-client-modules`（`ClientModuleSystem`）坐上 host 侧由 Node 内部 ESM loader 占据的模块系统席位；同一份 vendored `@cordisjs/plugin-loader` 在两侧都坐治理席。二者的分界线一句话说尽：**模块系统拥有模块身份与字节——代码怎么到达、怎么登记、怎么变成导出内容；Loader 拥有插件生命周期——插件何时挂载、等待什么、如何拆除。**
 
 `ClientModuleSystem` 是一张 lazy CJS 表。执行 bundle 只**登记**其工厂——bundle 调用 `window.__ModuleLoader__.load({ id, factory })`，此外什么都不发生。模块体的一切副作用（包括 CSS 注入）都住在工厂闭包里，在物化时运行：物化即该 id 的首次 `require`/import，此后记忆化。工厂若 require 一个已登记未物化的同伴，就递归物化它，因此任何地方都不存在排序。被要求 import 一个 id 时，表按固定分支顺序解析：种子词条 → 记忆化的记录 → 静态登记（壳自有模块，如 app-shell）→ 已登记的工厂 → 图行外部 classic script 加载 → 大声抛错。最后这一抛是构建期纯度门禁在运行期的镜像。系统还保管逐模块的簿记——名下 `<style data-plugin>` 标签 id、观测到的 require 边——并暴露 HMR（热模块替换）需要的两个动词：`prefetch(id)`（加载脚本、只登记工厂；并发调用共享同一在途任务）与 `invalidate(id)`（丢弃工厂与记录，下次到达即重新加载）。
 
@@ -122,7 +122,7 @@ vendored Loader 经其 `internal` 约定消费模块系统——唯一调用点�
 
 ## Consequences
 
-wire 两侧跑着同一份治理实现；浏览器特有的表面只是一套模块系统加一个重载插件。插件包只有一种形态，纯度门禁因此覆盖全部插件。依赖边与启动档位都与其所有者——manifest——同住，负责组合的 app 只握名册与 `--dev` 开关。各漂移缺陷类被结构性关死：共享清单人肉同步、装载顺序耦合、跨插件 import、名册/档位双重记账。浏览器原生脚本装载使插件网络资源、生成 bundle 与 TypeScript/TSX 源码保持标准映射，模块系统也只保留一个可替换的 `loadBundle` 钩子。
+wire 两侧跑着同一份治理实现；浏览器特有层只包含一套模块系统和一个重载插件。插件包只有一种形态，纯度门禁因此覆盖全部插件。依赖边与启动档位都与其所有者——manifest——同住，负责组合的 app 只握名册与 `--dev` 开关。各漂移缺陷类被结构性关死：共享清单人肉同步、装载顺序耦合、跨插件 import、名册/档位双重记账。浏览器原生脚本装载使插件网络资源、生成 bundle 与 TypeScript/TSX 源码保持标准映射，模块系统也只保留一个可替换的 `loadBundle` 钩子。
 
 接受的代价：vendored Loader 在浏览器里背着闲置机件（EntryTree 持久化是 no-op，分组/隔离未用）；开发期每次修改插件都要付一次 bundle 重建加 fiber 重挂；图中 `inject` 行仅是信息性说明——激活的真相在服务层——因此不匹配会在 settled 扫描时浮出，而不是在图校验时被拦下；三个尚未升格的库在各自的 DI 转换落地之前保持静态 import 的导出面；每个 bundle 多出一份 sourcemap 产物，外部脚本失败也只能给出粗粒度的 URL 诊断，不能像显式 fetch 那样报告 HTTP 状态。
 

@@ -39,8 +39,9 @@ export function InputBar({
   useSession, useInput, inputActions, keyboard, addImages, removeImage, draftImages,
   resolveSubmitMode, toggleCommandMenu, stop, command, t,
   renderSlot, useNotices, useLexicon, useMenuLauncher,
-  useProjection, sessionId, variant, disabled: inert = false, blocked, placeholder,
-  accessory, overlay, leftItems, rightItems, footer,
+  useProjection, sessionId, variant, disabled: inert = false, blocked,
+  workspacePickerOpen = false, onRequestWorkspace,
+  placeholder, accessory, overlay, leftItems, rightItems, footer,
 }: InputBarProps) {
   const input = useInput(s => s)
   const notice = useNotices(s => s)
@@ -109,6 +110,12 @@ export function InputBar({
   // be disabled do lock it — there is no session to choose a model for.
   const modelSeatLocked = removed || inert || !live
   const machineBusy = input?.phase === 'adjudicating' || input?.phase === 'submitting'
+  // The no-workspace textarea remains the resident DOM node but acts as the
+  // existing picker trigger. Message controls stay locked until a Session
+  // exists; the trigger itself is read-only rather than disabled so pointer
+  // and keyboard users can reach the recovery action.
+  const workspaceTrigger = inert && !removed && onRequestWorkspace !== undefined
+  const textareaDisabled = removed || (locked && !workspaceTrigger)
   const canSteerQueue = !locked && !machineBusy && !commandMenuOpen && empty && running && subagent === null
     && input.queue.some(row => row.placement === 'queued')
 
@@ -233,8 +240,15 @@ export function InputBar({
   }, [])
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>): void => {
-    // Absent machine (no session): the textarea is disabled so events cannot
-    // fire; the guard narrows the faces for the paths below.
+    if (workspaceTrigger) {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault()
+        onRequestWorkspace()
+      }
+      return
+    }
+    // Absent machine without a Workspace recovery action stays disabled; the
+    // guard narrows the faces for the paths below.
     if (keyboard === undefined || inputActions === undefined) return
     // Shift+Enter is the native newline UNCONDITIONALLY — decided before the
     // IME guard so a composition-closing Shift+Enter still breaks the line.
@@ -298,7 +312,7 @@ export function InputBar({
   }
 
   const onChange = (e: ChangeEvent<HTMLTextAreaElement>): void => {
-    if (keyboard === undefined) return // absent machine: disabled textarea, no events
+    if (keyboard === undefined || locked) return // disabled/read-only states cannot edit the draft
     if (machineBusy) return // submitting is the read-only span; adjudicating holds the pending lock
     const next = e.target.value
     keyboard.setDraft(next)
@@ -324,7 +338,7 @@ export function InputBar({
   /* oxlint-enable typescript/no-unnecessary-condition */
 
   const onCopyOrCut = (e: React.ClipboardEvent<HTMLTextAreaElement>, cut: boolean): void => {
-    if (input === undefined || keyboard === undefined) return // absent machine: disabled textarea, no events
+    if (input === undefined || keyboard === undefined) return // absent machine: no draft can be copied or cut
     const el = e.currentTarget
     const { start, end } = selectionOf(el)
     if (start === end) return
@@ -349,7 +363,7 @@ export function InputBar({
   }
 
   const onPaste = (e: React.ClipboardEvent<HTMLTextAreaElement>): void => {
-    if (keyboard === undefined) return // absent machine: disabled textarea, no events
+    if (keyboard === undefined) return // absent machine: no draft can accept a paste
     if (machineBusy || locked) return
     const files = Array.from(e.clipboardData.items)
       .filter(item => item.kind === 'file')
@@ -539,10 +553,17 @@ export function InputBar({
           {notice.text}
         </div>
       )}
+      {/* Trigger clicks land on the card, not the textarea: the toolbar row's
+          disabled controls swallow clicks otherwise (the CSS state disarms
+          their pointer events), so the WHOLE capsule is the pick target.
+          pointerdown stops here so the Menu's outside-close cannot race the
+          click's reopen (close-then-open flickers the chip's open echo). */}
       {dropError !== null && <div className={css.error} role="alert">{dropError}</div>}
       <div
-        className={clsx(css.card, dragActive && css.dragActive)}
+        className={clsx(css.card, workspaceTrigger && css.cardWorkspaceTrigger, dragActive && css.dragActive)}
         data-composer-card
+        onClick={workspaceTrigger ? onRequestWorkspace : undefined}
+        onPointerDown={workspaceTrigger ? (e) => { e.stopPropagation() } : undefined}
         onDragEnter={onDragEnter}
         onDragOver={onDragOver}
         onDragLeave={onDragLeave}
@@ -590,8 +611,11 @@ export function InputBar({
               ref={inputRef}
               className={css.input}
               value={draft}
-              disabled={locked}
-              readOnly={machineBusy}
+              disabled={textareaDisabled}
+              readOnly={machineBusy || workspaceTrigger}
+              aria-label={workspaceTrigger ? t('hero.chooseWorkspace') : undefined}
+              aria-haspopup={workspaceTrigger ? 'menu' : undefined}
+              aria-expanded={workspaceTrigger ? workspacePickerOpen : undefined}
               data-phase={input?.phase ?? 'inert'}
               placeholder={placeholder ?? (parentOffline
                 ? t('placeholder.parentOffline')

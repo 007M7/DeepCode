@@ -128,8 +128,8 @@ export interface CreateScopeOptions {
 
 /**
  * Mint a scope under `ctx`. The scoped context inherits the minting plugin's
- * dependency surface and owns every registration made through it.
- * @param ctx - active context whose dependency surface the scope inherits.
+ * dependency API and owns every registration made through it.
+ * @param ctx - active context whose dependency API the scope inherits.
  * @param key - opaque identity used for listener routing.
  * @param options - optional scope-chain placement.
  * @returns the scoped context and exact/shared disposal boundaries.

@@ -32,7 +32,7 @@ OpenRouter 应用归属刻意未实现。`HTTP-Referer`、`X-OpenRouter-Title`�
 
 - `User-Agent` 的产品 token：`deepseek-harness`（与 Agent Note 之前的线路值及仓库/组织身份保持连续性）
 - 版本：通过 `createRequire` 从所属包的 manifest（元数据清单）读取，绝不手动复制常量
-- 应用 URL：`https://github.com/deepseek-ai/deepseek-harness-sdk`——计划中的公开主页，且必须在发布前实际存在
+- 应用 URL：`https://github.com/deepseek-ai/deepseek-harness`——仓库主页
 
 默认值是强制的且非空。白标部署通过向 `attributionHeaders(identity)` 传入自己的 `AppIdentity` 来覆盖——覆盖钩子就是函数参数，在有消费方需要之前不做部署配置管道——省略时回退到 harness 默认值而非抑制归属。没有逐请求 API 允许模型、用户提示词、会话 id、cwd、用户邮箱、API key 所有者或本地机器身份影响这些字段。
 
@@ -76,8 +76,6 @@ OpenRouter 应用归属刻意未实现。`HTTP-Referer`、`X-OpenRouter-Title`�
 ## 后果
 
 **提供方看到流量来自 harness。** 这正是目的，但意味着此前混在通用 SDK 流量中的部署变得可识别。缓解措施：仅发送静态公开产品数据，并允许 fork/白标部署传入自己的 `AppIdentity`。
-
-**应用 URL 指向一个尚不存在的仓库。** `deepseek-ai/deepseek-harness-sdk` 是计划中的公开主页；在它创建之前，该 URL 是一个阻塞发布的悬空承诺。
 
 **不同客户端库的头部支持有差异。** 手写适配器直接设置头部；基于 pi-ai 的适配器依赖 pi-ai 继续尊重 `StreamOptions.headers`（最后合并覆盖提供方默认值）。线路级 mock 服务器测试是守卫：如果 pi-ai 升级后不再投递该头部，套件会变红。这对抽象施加了有益的压力：一个无法设置强制头部的提供方适配器不能完整实现 harness 的 LLM 约定。
 

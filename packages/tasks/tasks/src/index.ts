@@ -8,7 +8,9 @@
 
 import { Context, Service } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import type { TaskDoneListener, TaskId, TaskRead, TaskSnapshot, TaskStart } from './types.ts'
+import type {
+  TaskDoneListener, TaskId, TaskRead, TaskSnapshot, TaskStart, TasksChangedListener,
+} from './types.ts'
 
 export { TaskId } from './types.ts'
 export type {
@@ -21,6 +23,7 @@ export type {
   TaskSnapshot,
   TaskStart,
   TaskStatus,
+  TasksChangedListener,
 } from './types.ts'
 
 declare module '@deepseek-ai/cordis' {
@@ -36,7 +39,7 @@ declare module '@deepseek-ai/cordis' {
  * standard duplicate-service behavior).
  *
  * Implementations must honor these semantics:
- * - Registrations outlive producer and control-surface fibers. Owner and
+ * - Registrations outlive producer and controller fibers. Owner and
  *   service disposal cancel live work and await compliant producers; a
  *   throwing teardown cancel force-fails only the record.
  * - Owned-task access is fenced by the owner's session id. Ids are
@@ -44,7 +47,7 @@ declare module '@deepseek-ai/cordis' {
  * - Settlement is first-wins: one terminal record, one round of contained
  *   listener notification, and released waiters, even against a late
  *   producer outcome.
- * - {@link start} refuses work while no attached control surface serves the
+ * - {@link start} refuses work while no attached task controller serves the
  *   spec's owner, so a producer cannot start work that owner cannot collect
  *   or stop. One registry serves every composition in the process, so this
  *   question — and completion-listener delivery — is owner-relative rather
@@ -135,13 +138,37 @@ export abstract class TaskService extends Service {
   abstract onTaskDone(listener: TaskDoneListener): () => void
 
   /**
-   * Attach an effect-scoped surface that can read and stop tasks. It serves the
-   * owners its registering context's scope covers, and {@link start} refuses an
-   * owner no attached surface serves.
-   * @param name - diagnostic label; duplicate names remain independent.
-   * @returns disposer that detaches this surface.
+  /**
+   * Register an effect-scoped observer of visible-set changes. It fires after
+   * every commit that changes what {@link list} returns for that owner —
+   * registration, every stopping transition (including the one teardown
+   * performs before it awaits a slow producer), settlement, owner-disposal
+   * removal, and the emptying that service disposal commits — so an observer
+   * re-reads rather than accumulating deltas.
+   *
+   * Delivery is owner-relative on the same terms as {@link onTaskDone}: an
+   * observer registered from an unscoped context — a host composition's own
+   * carrier — sees every owner, while one registered under an agent
+   * composition's scope sees exactly the agents composed under it.
+   *
+   * This is not a superset of {@link onTaskDone}: that one delivers the terminal
+   * record under first-wins semantics a task controller couples to notice
+   * delivery, while this one carries no delivery meaning and marks nothing
+   * reported. Listeners are contained and never awaited.
+   * @param listener - receives the owner whose visible set changed, or
+   *   `undefined` when an unowned task changed and every caller's set did.
+   * @returns disposer that unregisters the listener.
    */
-  abstract attachSurface(name: string): () => void
+  abstract onTasksChanged(listener: TasksChangedListener): () => void
+
+  /**
+   * Attach an effect-scoped controller that can read and stop tasks. It serves the
+   * owners its registering context's scope covers, and {@link start} refuses an
+   * owner no attached controller serves.
+   * @param name - diagnostic label; duplicate names remain independent.
+   * @returns disposer that detaches this controller.
+   */
+  abstract attachController(name: string): () => void
 }
 
 export default TaskService

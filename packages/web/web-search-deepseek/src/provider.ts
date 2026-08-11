@@ -27,7 +27,7 @@ import type {
 export const DEEPSEEK_PROVIDER_ID = 'deepseek-official'
 
 /**
- * Default endpoint: DeepSeek's Anthropic-compatible surface, `/v1` included
+ * Default endpoint: DeepSeek's Anthropic-compatible API, `/v1` included
  * (`/messages` is appended). This is NOT the chat-completions base
  * (`https://api.deepseek.com`) `@deepseek-ai/dsh-llm-deepseek` uses, so this
  * provider does NOT reuse `$DEEPSEEK_BASE_URL` — only the API key is shared.
@@ -111,7 +111,7 @@ export interface DeepSeekSearchProviderOptions {
 
 /**
  * Build a `url → cited_text` map from every `text` block's `citations[]`. This
- * is the snippet surface: Anthropic `web_search_result` items carry
+ * is the snippet source: Anthropic `web_search_result` items carry
  * `url`/`title`/`page_age` but typically NO inline snippet — the excerpt lives
  * in a separate `text` block's citation, keyed by `url` (first occurrence wins).
  *

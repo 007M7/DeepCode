@@ -133,7 +133,7 @@ function text(result: { content: { type: string; text?: string }[] }): string {
   return result.content.filter(block => block.type === 'text').map(block => block.text).join('')
 }
 
-describe('tool-pty foreground surface', () => {
+describe('tool-pty foreground API', () => {
   it('registers exactly six schemas and drives the full owner-scoped lifecycle', async () => {
     const { ctx, agent } = await setup(false)
     expect(TOOL_NAMES.every(name => ctx.tools.get(name) !== undefined)).toBe(true)
