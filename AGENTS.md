@@ -40,7 +40,7 @@ packages/    @deepseek-ai/dsh-<pkg> workspaces at packages/<group>/<pkg>/
   acp/         automation-only Agent Client Protocol server
   interaction/ approval/interaction capabilities, permission, commands, ask-user
   boot/        shared app-bin glue
-  scaffold/    project tooling: helper, launcher, initializer, SDK protocol
+  sdk/         JSON-RPC protocol, server, and TypeScript client
   examples/    demo bundles (agent-spine + CLI/ACP/JSON-RPC bins)
   support/     dev/test infrastructure
   util/        zero-dependency utilities
