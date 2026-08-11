@@ -712,6 +712,16 @@ function historyPage(
  * registry). An absent registry means the deployment has no projection seam:
  * the whole block is absent and clients treat every key as capability-absent.
  */
+/**
+ * Which session a transcript read is served from. An attached session is the
+ * live object and keeps appending, so its events and projection baseline are
+ * read together in one synchronous step; a detached one is already a frozen
+ * inspection.
+ */
+type HistorySource =
+  | { readonly kind: 'attached'; readonly session: Session }
+  | { readonly kind: 'detached'; readonly header: SessionHeader; readonly events: SessionEvent[] }
+
 function projectionsFor(ctx: Context, session: Session): SessionProjectionsBlock | undefined {
   const registry = ctx.get('sessionProjections')
   if (registry === undefined) return undefined
@@ -1355,24 +1365,55 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     return undefined
   }
 
-  /** Read one transcript cut and optional projection baseline without acquiring an Agent owner. */
-  async function historyStateFor(
-    sessionId: SessionId,
-    includeProjections: boolean,
-  ): Promise<{ header: SessionHeader; events: SessionEvent[]; projections?: SessionProjectionsBlock }> {
+  /**
+   * Resolve which session one transcript read is served from, without
+   * acquiring an Agent owner. This is the read's only asynchronous step
+   * besides ensuring the composition; {@link historyCutOf} takes the cut.
+   * @param sessionId - the transcript being read.
+   * @returns the attached session, or the inspected detached header and events.
+   * @throws {@link ApiRemoteSessionNotFound} when no project-backed session has that identity.
+   */
+  async function historySourceFor(sessionId: SessionId): Promise<HistorySource> {
     const attached = ctx.sessions.get(sessionId)
-    if (attached !== undefined) {
-      const events = [...attached.events]
-      const projections = includeProjections ? projectionsFor(ctx, attached) : undefined
-      return { header: attached.header, events, ...projections === undefined ? {} : { projections } }
-    }
+    if (attached !== undefined) return { kind: 'attached', session: attached }
     const inspected = await inspectServable(sessionId)
-    const projections = includeProjections ? detachedProjectionsFor(ctx, inspected.events) : undefined
-    return {
-      header: inspected.meta,
-      events: inspected.events,
-      ...projections === undefined ? {} : { projections },
+    return { kind: 'detached', header: inspected.meta, events: inspected.events }
+  }
+
+  /**
+   * The header and events {@link presenterScopeFor} reads to decide which
+   * composition a transcript ran under.
+   * @param source - the live or detached session this read is served from.
+   * @returns that session's creation header and its events.
+   */
+  function sourceSession(source: HistorySource): PresetBearingSession {
+    if (source.kind === 'detached') return { header: source.header, events: source.events }
+    return { header: source.session.header, events: source.session.events }
+  }
+
+  /**
+   * One transcript cut: the events and the projection baseline that describe
+   * the SAME log position.
+   *
+   * Synchronous, and the two reads sit next to each other, because an attached
+   * session keeps appending: an `await` between them would serve events cut at
+   * N beside a baseline folded to N+1, which is one response describing two
+   * moments. The caller does its awaiting before this call.
+   * @param source - the live or detached session this read is served from.
+   * @param includeProjections - whether the caller asked for the baseline (a tail page does).
+   * @returns the events and, when asked, the baseline for that same position.
+   */
+  function historyCutOf(
+    source: HistorySource,
+    includeProjections: boolean,
+  ): { events: SessionEvent[]; projections?: SessionProjectionsBlock } {
+    if (source.kind === 'detached') {
+      const projections = includeProjections ? detachedProjectionsFor(ctx, source.events) : undefined
+      return { events: source.events, ...projections === undefined ? {} : { projections } }
     }
+    const events = [...source.session.events]
+    const projections = includeProjections ? projectionsFor(ctx, source.session) : undefined
+    return { events, ...projections === undefined ? {} : { projections } }
   }
 
   /**
@@ -2032,9 +2073,22 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
 
       async history(request) {
         const { sessionId, beforeSeq, maxMessages } = request.payload
-        let state: { header: SessionHeader; events: SessionEvent[]; projections?: SessionProjectionsBlock }
         try {
-          state = await historyStateFor(sessionId, beforeSeq === undefined)
+          const source = await historySourceFor(sessionId)
+          // Both awaits happen BEFORE the cut. Ensuring the recorded
+          // composition's standing mount is what registers its projection
+          // units, so a first cold read would otherwise serve a baseline
+          // missing every preset-owned key; and an attached session keeps
+          // appending, so awaiting between the two reads would pair events cut
+          // at N with a baseline folded to N+1.
+          const scope = await presenterScopeFor(sessionId, sourceSession(source))
+          const cut = historyCutOf(source, beforeSeq === undefined)
+          const page = historyPage(ctx, cut.events, beforeSeq, maxMessages, scope)
+          return ok(request, {
+            events: page.events,
+            hasMore: page.hasMore,
+            ...cut.projections === undefined ? {} : { projections: cut.projections },
+          })
         } catch (error: unknown) {
           if (error instanceof SessionNotFound) {
             return err(request, { code: 'session-not-found', message: error.message, details: { sessionId } })
@@ -2045,12 +2099,6 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             details: {},
           })
         }
-        const page = historyPage(ctx, state.events, beforeSeq, maxMessages, await presenterScopeFor(sessionId, state))
-        return ok(request, {
-          events: page.events,
-          hasMore: page.hasMore,
-          ...state.projections === undefined ? {} : { projections: state.projections },
-        })
       },
 
       async models(request) {
