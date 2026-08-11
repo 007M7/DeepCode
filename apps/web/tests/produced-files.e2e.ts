@@ -1,13 +1,14 @@
 // Web e2e scenario: the single-line produced-files summary a finished turn
 // ends with. Cold-seeds ten writes (zero model calls), then verifies the real
 // assembled lane keeps a precise +N and a capability-gated folder handoff.
-// Clicking is not driven: it would launch a real native application.
+// The folder request is intercepted so one real browser click can exercise
+// the full client carrier without launching a native application in CI.
 import { writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Browser, Page } from 'playwright'
 import { chromium } from 'playwright'
-import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, onTestFailed, vi } from 'vitest'
 import { CallId, createAssistantMessage, createToolResultMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
 import { SESSION_FORMAT_VERSION, Session, SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-title'
@@ -157,8 +158,26 @@ describe('web e2e: a finished turn ends with the files it produced', () => {
     expect(await chips.nth(0).innerText()).toBe('关于我.md')
     expect(await chips.nth(1).innerText()).toBe('index.html')
     expect(await row.getByText('+ 8 files', { exact: true }).count()).toBe(1)
-    expect(await page.getByRole('button', { name: 'Show in folder', exact: true }).count()).toBe(1)
+    const showFolder = page.getByRole('button', { name: 'Show in folder', exact: true })
+    expect(await showFolder.count()).toBe(1)
     expect(await page.getByText('Produced', { exact: true }).count()).toBe(1)
+
+    const openPath = vi.spyOn(scaffold.ctx.apiProxy.host, 'openPath')
+      .mockImplementation(async (request, _signal) => ({
+        rpcId: request.rpcId,
+        result: { ok: true, value: { opened: true as const } },
+      }))
+    try {
+      const [response] = await Promise.all([
+        page.waitForResponse(response => new URL(response.url()).pathname === '/api/host.openPath'),
+        showFolder.click({ clickCount: 1 }),
+      ])
+      expect(response.status()).toBe(200)
+      expect(openPath).toHaveBeenCalledTimes(1)
+      expect(openPath.mock.calls[0]![0].payload).toEqual({ path: `${scaffold.workspaceCwd}/.` })
+    } finally {
+      openPath.mockRestore()
+    }
 
     const tops = await row.locator(':scope > *').evaluateAll(elements =>
       elements.map(element => element.getBoundingClientRect().top))
