@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-DeepSeek Harness 有两路出站遥测数据流。在内测阶段，共享基础配置挂载了带内建生产 endpoint 的遥测，两路数据流默认上报以帮助诊断上报的问题：会话 OTel 后端在省略 `mode` 时可能导出完整会话内容、工具数据、提示词和工作区路径，而 dsh-sdk 启动器数据流则无条件下报。因此，全新安装无需部署方明确选择便允许向外上报。
+DeepSeek Harness 有两路出站遥测数据流。在内测阶段，共享基础配置挂载了带内建生产 endpoint 的遥测，两路数据流默认上报以帮助诊断上报的问题：会话 OTel 后端在省略 `mode` 时可能导出完整会话内容、工具数据、提示词和工作区路径，而 dsh-sdk 启动器数据流则无条件外发。因此，全新安装无需部署方明确选择便允许向外上报。
 
 ## 决策
 
@@ -14,7 +14,7 @@ DeepSeek Harness 有两路出站遥测数据流。在内测阶段，共享基础
 
 dsh-sdk 启动器读取同一变量，不解析 `cordis.yml`，也不启动 Cordis。`FULL` 允许上报；`FEEDBACK_ONLY`、`DISABLED`、未设置和空值都会拒绝。此规则仅取代 [SDK 后续功能提案](../../proposed/feature/2026-07-17-sdk-follow-up-capabilities.md)中启动器默认允许上报的规则；其余能力仍处于提案状态。
 
-带版本的 Web 欢迎通知说明会话日志上传默认关闭，并将 `DSH_TELEMETRY_MODE=FEEDBACK_ONLY` 和 `DSH_TELEMETRY_MODE=FULL` 列为两种显式启用选项。其版本随这项重要的隐私声明一同变更，使每个 profile 都确认当前文案。
+带版本的 Web 欢迎通知说明会话日志上传默认关闭，将 `DSH_TELEMETRY_MODE=FEEDBACK_ONLY` 和 `DSH_TELEMETRY_MODE=FULL` 列为两种显式启用选项，并披露 `FULL` 同时会启用 dsh-sdk 命令遥测。其版本随这项重要的隐私声明一同变更，使每个 profile 都确认当前文案。
 
 ## 考虑过的替代方案
 

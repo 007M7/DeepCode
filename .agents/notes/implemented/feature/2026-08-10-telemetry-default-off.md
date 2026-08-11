@@ -14,7 +14,7 @@ Both feeds use `DSH_TELEMETRY_MODE` as their positive consent setting. Unset and
 
 The dsh-sdk launcher reads the same variable without parsing `cordis.yml` or booting Cordis. `FULL` permits reporting; `FEEDBACK_ONLY`, `DISABLED`, unset, and empty values deny it. This rule supersedes only the default-on launcher consent in the [SDK follow-up proposal](../../proposed/feature/2026-07-17-sdk-follow-up-capabilities.md); its other capabilities remain proposed.
 
-The versioned Web welcome notice states that Session Log upload is off by default and names `DSH_TELEMETRY_MODE=FEEDBACK_ONLY` and `DSH_TELEMETRY_MODE=FULL` as the two opt-in choices. Its version changes with that material privacy statement so every profile acknowledges the current copy.
+The versioned Web welcome notice states that Session Log upload is off by default, names `DSH_TELEMETRY_MODE=FEEDBACK_ONLY` and `DSH_TELEMETRY_MODE=FULL` as the two opt-in choices, and discloses that `FULL` also enables dsh-sdk command telemetry. Its version changes with that material privacy statement so every profile acknowledges the current copy.
 
 ## Alternatives considered
 
