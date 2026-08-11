@@ -4,7 +4,9 @@
  * mounts deliver no inotify events), reports content changes through
  * `clientModuleHost.rebuilt(id)`, and serves the `/plugins/events` SSE channel
  * broadcasting graph/rebuilt frames to the browser half (src/client/).
- * Dev-only row: prod compositions never mount this plugin.
+ * The web bundle mounts this row unconditionally: without a rebuild
+ * watcher rewriting client bundles, the poll observes no changes and the
+ * chain stays idle.
  */
 import { statSync } from 'node:fs'
 import type { ServerResponse } from 'node:http'

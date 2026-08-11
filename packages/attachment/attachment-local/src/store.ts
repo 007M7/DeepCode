@@ -197,22 +197,32 @@ export async function saveImageFile(root: string, input: SaveImageAttachment, li
  * Read and verify one content-addressed image.
  * @param root - absolute `DSH_HOME/attachments/v1` root.
  * @param ref - reference recorded in the session log.
+ * @param signal - optional cancellation for filesystem and verification work.
  * @returns verified bytes and reference.
+ * @throws the signal reason when aborted, or an AttachmentError when verification fails.
  */
-export async function readImageFile(root: string, ref: ImageAttachmentRef): Promise<StoredImageAttachment> {
+export async function readImageFile(
+  root: string,
+  ref: ImageAttachmentRef,
+  signal?: AbortSignal,
+): Promise<StoredImageAttachment> {
+  signal?.throwIfAborted()
   const sha256 = ensureReference(ref)
   let data: Uint8Array
   try {
-    data = new Uint8Array(await readFile(objectPath(root, sha256)))
+    data = new Uint8Array(await readFile(objectPath(root, sha256), { signal }))
   } catch (error) {
+    signal?.throwIfAborted()
     if (error instanceof Error && 'code' in error && error.code === 'ENOENT') throw new AttachmentError('Attachment object is missing.', 'ATTACHMENT_NOT_FOUND')
     throw new AttachmentError('Unable to read image attachment.', 'ATTACHMENT_READ_FAILED', { cause: error })
   }
+  signal?.throwIfAborted()
   if (digest(data) !== sha256) throw new AttachmentError('Stored attachment failed integrity verification.', 'ATTACHMENT_CORRUPT')
   // The digest proves these are the exact bytes admission fully decoded, so
   // the read path only re-derives the header fields (no raster decode, no
   // per-request pixel amplification on history replay).
   const metadata = await probeImage(data)
+  signal?.throwIfAborted()
   if (metadata.mediaType !== ref.mediaType || data.byteLength !== ref.bytes
     || metadata.width !== ref.width || metadata.height !== ref.height) {
     throw new AttachmentError('Stored attachment metadata does not match its reference.', 'ATTACHMENT_CORRUPT')
