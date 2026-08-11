@@ -56,19 +56,19 @@ describe('PluginInventoryService', () => {
       entries: [
         {
           entryId: activeId,
-          displayId: activeId,
+          moduleName: 'cordis:active',
           enabled: true,
           fiberPhase: 'active',
         },
         {
           entryId: pendingId,
-          displayId: pendingId,
+          moduleName: 'cordis:pending',
           enabled: true,
           fiberPhase: 'pending',
         },
         {
           entryId: disabledId,
-          displayId: disabledId,
+          moduleName: 'cordis:not-installed',
           enabled: false,
           fiberPhase: null,
         },
@@ -78,7 +78,7 @@ describe('PluginInventoryService', () => {
     await ctx.loader.update(activeId, { disabled: true })
     expect(inventory.list().entries.find(entry => entry.entryId === activeId)).toEqual({
       entryId: activeId,
-      displayId: activeId,
+      moduleName: 'cordis:active',
       enabled: false,
       fiberPhase: null,
     })

@@ -26,12 +26,12 @@ function props(list: PluginSettingsSectionInjected['list']): PluginSettingsSecti
 
 const SNAPSHOT = {
   entries: [
-    { entryId: 'active', displayId: 'active-name', enabled: true, fiberPhase: 'active' },
-    { entryId: 'pending', displayId: 'pending-name', enabled: true, fiberPhase: 'pending' },
-    { entryId: 'loading', displayId: 'loading-name', enabled: true, fiberPhase: 'loading' },
-    { entryId: 'failed', displayId: 'failed-name', enabled: true, fiberPhase: 'failed' },
-    { entryId: 'unloading', displayId: 'unloading-name', enabled: true, fiberPhase: 'unloading' },
-    { entryId: 'disabled-entry', displayId: 'disabled-name', enabled: false, fiberPhase: null },
+    { entryId: '8a1b2c3d', moduleName: '@deepseek-ai/cordis-plugin-hmr', enabled: true, fiberPhase: 'active' },
+    { entryId: 'pending', moduleName: '@fixture/pending-name', enabled: true, fiberPhase: 'pending' },
+    { entryId: 'loading', moduleName: '@fixture/loading-name', enabled: true, fiberPhase: 'loading' },
+    { entryId: 'failed', moduleName: '@fixture/failed-name', enabled: true, fiberPhase: 'failed' },
+    { entryId: 'unloading', moduleName: '@fixture/unloading-name', enabled: true, fiberPhase: 'unloading' },
+    { entryId: 'disabled-entry', moduleName: '@deepseek-ai/dsh-host-directory-picker-native', enabled: false, fiberPhase: null },
   ],
 } as unknown as Snapshot
 
@@ -60,28 +60,28 @@ describe('PluginSettingsSection', () => {
     ]) {
       expect(screen.getByRole('img', { name: value })).toBeTruthy()
     }
-    const active = screen.getByRole('button', { name: 'active-name, Mounted, Enabled' })
+    const active = screen.getByRole('button', { name: 'hmr, Mounted, Enabled' })
     expect(active.getAttribute('aria-expanded')).toBe('false')
     fireEvent.click(active)
     expect(active.getAttribute('aria-expanded')).toBe('true')
-    expect(view.container.querySelector('[data-loader-entry]')?.textContent).toBe('active')
+    expect(view.container.querySelector('[data-loader-entry]')?.textContent).toBe('8a1b2c3d')
     expect(screen.getByText(en.configuration)).toBeTruthy()
     expect(screen.getByText(en.cordis)).toBeTruthy()
     fireEvent.click(active)
     expect(view.container.querySelector('[data-loader-entry]')).toBeNull()
   })
 
-  it('filters by local id or Loader entry id', async () => {
+  it('filters by module name or Loader entry id', async () => {
     render(<PluginSettingsSection {...props(async () => SNAPSHOT)} />)
     const search = await screen.findByRole('searchbox', { name: en.search })
 
     fireEvent.change(search, { target: { value: 'disabled-entry' } })
     expect(screen.getAllByRole('listitem')).toHaveLength(1)
-    expect(screen.getByText('disabled-name')).toBeTruthy()
+    expect(screen.getByText('directory-picker-native')).toBeTruthy()
 
-    fireEvent.change(search, { target: { value: 'pending' } })
+    fireEvent.change(search, { target: { value: 'cordis-plugin-hmr' } })
     expect(screen.getAllByRole('listitem')).toHaveLength(1)
-    expect(screen.getByText('pending-name')).toBeTruthy()
+    expect(screen.getByText('hmr')).toBeTruthy()
 
     fireEvent.change(search, { target: { value: 'not-a-plugin' } })
     expect(screen.queryAllByRole('listitem')).toHaveLength(0)

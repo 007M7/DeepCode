@@ -15,8 +15,8 @@ export type PluginFiberPhase =
 /** One non-group Loader entry exposed to trusted clients. */
 export interface PluginInventoryEntry {
   readonly entryId: PluginEntryId
-  /** Local Loader id used as the compact card title. */
-  readonly displayId: string
+  /** Exact module specifier imported by the Loader entry. */
+  readonly moduleName: string
   /** Effective Loader enablement, including disabled ancestor groups. */
   readonly enabled: boolean
   readonly fiberPhase: PluginFiberPhase

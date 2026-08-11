@@ -45,10 +45,19 @@ function phaseLabel(
   return phase === null ? t('unobserved') : t(PHASE_KEYS[phase])
 }
 
+/** Compact a module specifier without guessing whether its Loader id was generated. */
+function moduleShortName(moduleName: string): string {
+  const unscoped = moduleName.startsWith('@') ? moduleName.slice(moduleName.indexOf('/') + 1) : moduleName
+  return unscoped
+    .replace(/^cordis:/, '')
+    .replace(/^cordis-plugin-/, '')
+    .replace(/^dsh-(?:host-|client-)?/, '')
+}
+
 /** Whether an inventory row matches the local catalog query. */
 function matches(entry: PluginInventoryEntry, normalizedQuery: string): boolean {
   if (normalizedQuery.length === 0) return true
-  return [entry.displayId, entry.entryId]
+  return [entry.moduleName, entry.entryId]
     .some(value => value.toLocaleLowerCase().includes(normalizedQuery))
 }
 
@@ -125,6 +134,7 @@ export function PluginSettingsSection({ list, t }: PluginSettingsSectionProps): 
             <ul className={css.cards}>
               {filteredEntries.map((entry) => {
                 const status = phaseLabel(entry.fiberPhase, t)
+                const title = moduleShortName(entry.moduleName)
                 const open = expanded === entry.entryId
                 const detailId = `${titleId}-details-${encodeURIComponent(entry.entryId)}`
                 return (
@@ -139,12 +149,12 @@ export function PluginSettingsSection({ list, t }: PluginSettingsSectionProps): 
                       type="button"
                       aria-expanded={open}
                       aria-controls={detailId}
-                      aria-label={`${entry.displayId}, ${status}, ${t(entry.enabled ? 'enabledTag' : 'disabledTag')}`}
+                      aria-label={`${title}, ${status}, ${t(entry.enabled ? 'enabledTag' : 'disabledTag')}`}
                       onClick={() => {
                         setExpanded(current => current === entry.entryId ? null : entry.entryId)
                       }}
                     >
-                      <strong className={css.cardTitle}>{entry.displayId}</strong>
+                      <strong className={css.cardTitle} title={entry.moduleName}>{title}</strong>
                       <span className={css.cardTrailing}>
                         <span
                           className={css.statusDot}

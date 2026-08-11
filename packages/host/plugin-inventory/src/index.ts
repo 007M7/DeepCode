@@ -60,7 +60,7 @@ export class PluginInventoryService extends GatewayService {
       if (entry.options.group) continue
       entries.push({
         entryId: pluginEntryId(entry.id),
-        displayId: entry.options.id,
+        moduleName: entry.options.name,
         enabled: !entry.disabled,
         fiberPhase: entry.fiber === undefined ? null : FIBER_PHASE[entry.fiber.state],
       })
