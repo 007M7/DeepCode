@@ -1,46 +1,11 @@
 {
-  "extends": "../../../tsconfig.base.client.json",
-  "compilerOptions": {
-    "rootDir": "src",
-    "outDir": "lib/types",
-    "types": ["node"]
-  },
-  "include": [
-    "src"
-  ],
+  "files": [],
   "references": [
     {
-      "path": "../../attachment/attachment"
+      "path": "./tsconfig.host.json"
     },
     {
-      "path": "../../llm/llm"
-    },
-    {
-      "path": "../../core/session"
-    },
-    {
-      "path": "../../interaction/commands"
-    },
-    {
-      "path": "../../util/brand"
-    },
-    {
-      "path": "../../host/apiproxy"
-    },
-    {
-      "path": "../../host/webserver"
-    },
-    {
-      "path": "../../interaction/user-approval"
-    },
-    {
-      "path": "../../interaction/user-interaction"
-    },
-    {
-      "path": "../../support/invariants"
+      "path": "./tsconfig.client.json"
     }
-  ],
-  "exclude": [
-    "**/*.legacy.*"
   ]
 }

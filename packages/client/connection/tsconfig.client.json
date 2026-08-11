@@ -6,25 +6,32 @@
     "tsBuildInfoFile": "lib/tsconfig.client.tsbuildinfo"
   },
   "files": [
+    "src/api-path.ts",
+    "src/client/api.ts",
+    "src/client/connection.ts",
+    "src/client/fixture.ts",
     "src/client/index.ts",
-    "src/remote-events.ts",
-    "src/types.ts"
+    "src/client/random-uuid.ts",
+    "src/client/rpc.ts",
+    "src/client/web-api-client.ts",
+    "src/loopback-hostname.ts",
+    "src/rpc.ts"
   ],
   "references": [
     {
       "path": "../../../vendor/cordis"
     },
     {
-      "path": "../gateway/tsconfig.client.json"
+      "path": "../../attachment/attachment"
     },
     {
-      "path": "../../client/connection/tsconfig.client.json"
+      "path": "../../core/session"
     },
     {
-      "path": "../../credentials/credentials"
+      "path": "../../core/tools"
     },
     {
-      "path": "../../goal/goal"
+      "path": "../../host/apiproxy"
     },
     {
       "path": "../../interaction/commands"
@@ -33,13 +40,10 @@
       "path": "../../llm/llm"
     },
     {
-      "path": "../../preset/agent-presets"
+      "path": "../../support/invariants"
     },
     {
-      "path": "../../settings/settings"
-    },
-    {
-      "path": "../../typert/type-meta"
+      "path": "../../util/brand"
     }
   ]
 }
