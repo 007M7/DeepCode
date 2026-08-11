@@ -109,7 +109,9 @@ export abstract class SessionPersistence extends Service {
    * session is absent or the backend owns no per-session artifact.
    */
   readRaw(_id: SessionId, signal?: AbortSignal): Promise<SessionRawArtifact | undefined> {
-    if (signal?.aborted === true) return Promise.reject(signal.reason)
+    if (signal?.aborted === true) {
+      return Promise.reject(signal.reason instanceof Error ? signal.reason : new Error('aborted'))
+    }
     return Promise.resolve(undefined)
   }
 
