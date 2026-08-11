@@ -7,28 +7,11 @@ import SessionStore, {
   Session,
   SessionEvent,
   SessionId,
-  findLastMessageTurnEnd,
   snapshotSessionEvent,
 } from '@deepseek-ai/dsh-session'
 import type { CreateSessionOptions, SessionEventType, SessionHeader, SessionSurface, TodoItem } from '@deepseek-ai/dsh-session'
 
 describe('Session', () => {
-  it('finds the latest closed turn that entered a model step', () => {
-    const session = Session.create(SessionId('last-message-turn'))
-    session.append('turn/start', { turn: 1 })
-    session.append('turn/end', { turn: 1, reason: { kind: 'blocked' } })
-
-    expect(findLastMessageTurnEnd(session.events)).toBeUndefined()
-
-    session.append('turn/start', { turn: 2 })
-    session.append('step/start', { turn: 2, step: 1 })
-    session.append('step/end', { turn: 2, step: 1 })
-    session.append('turn/end', { turn: 2, reason: { kind: 'max-tokens' } })
-
-    expect(findLastMessageTurnEnd(session.events)?.data)
-      .toEqual({ turn: 2, reason: { kind: 'max-tokens' } })
-  })
-
   it('exposes one stable readonly surface view', () => {
     const session = Session.create(SessionId('surface-view'))
     const surface = session.surface

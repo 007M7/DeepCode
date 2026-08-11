@@ -39,7 +39,7 @@ Forking duplicates retained completed history into separate child requests; the 
 
 #### KV Cache effect
 
-The child may reuse the inherited byte-identical prefix under the same provider and model. Persona, tool-filter, generated-SDK, or route changes may invalidate reuse before inherited history; later child history is append-only.
+The child may reuse the inherited byte-identical prefix under the same provider and model. Persona, tool-filter, generated-SDK, or route changes may invalidate reuse before inherited history; later child history is append-only. Shipped compositions therefore bind this provider to `backgroundMode: one-shot`, because a continuable child additionally carries the child-scoped `report` tool and its prompt section — deltas that precede the inherited history and so invalidate all of it ([the fork-one-shot Agent Note](../../../.agents/notes/implemented/architecture/2026-08-10-fork-children-stay-one-shot.md)).
 
 ### Parent tool result, indirectly
 
@@ -58,3 +58,4 @@ Append-only; newly visible content follows the reusable request prefix and does 
 ## Known Limitations and Deferred Work
 
 - **The seed is a one-time snapshot** — the child sees the parent's completed turns as of the fork and nothing the parent logs afterwards; there is no live context sharing.
+- **No shipped composition creates a continuable fork child** — `prepareContinuable` remains implemented and the seam accepts it, but every shipped `cordis.yml` sets `backgroundMode: one-shot` on the fork delegation tool, so the provider's continuable path has no production caller. Reopening it requires the child's system prompt and tool schemas to match the parent's byte for byte, which the [`report` return channel](../tool-subagent-report/README.md) currently prevents. Rationale and the reintroduction condition: [the fork-one-shot Agent Note](../../../.agents/notes/implemented/architecture/2026-08-10-fork-children-stay-one-shot.md).

@@ -32,7 +32,7 @@ import WebService from '@deepseek-ai/dsh-web'
 import * as WebSearchExa from '@deepseek-ai/dsh-web-search-exa'
 import * as WebFetchLocal from '@deepseek-ai/dsh-web-fetch-local'
 import SubagentService from '@deepseek-ai/dsh-subagent'
-import type { SubagentProvider } from '@deepseek-ai/dsh-subagent'
+import type { SubagentProvider, SubagentReportDelivery } from '@deepseek-ai/dsh-subagent'
 import * as ToolSubagentControl from '@deepseek-ai/dsh-tool-subagent-control'
 import * as ToolSubagentListAgents from '@deepseek-ai/dsh-tool-subagent-control/list-agents'
 import * as ToolSubagentReport from '@deepseek-ai/dsh-tool-subagent-report'
@@ -420,7 +420,7 @@ const TOOL_PACKAGES: ToolPackage[] = [
       await ctx.plugin(ToolSubagent, { provider: 'mock' })
     },
     note:
-      'The registered tool name is the load-time `toolName` config (default `subagent`); the schema above is that default. The shipped example agents load this package once per subagent backend, so the model additionally sees `subagent_fork` (bound to the fork backend) with an identical schema — see `packages/bundle/base/cordis.patch.yml` and `examples/acp-agent/cordis.yml`.',
+      'The registered tool name is the load-time `toolName` config (default `subagent`); the schema above is that default. The shipped compositions load this package once per subagent backend, so the model additionally sees `subagent_fork` bound to the fork backend. Each instance\'s description and `run_in_background` parameter follow its own `backgroundMode` and `enableRunInBackground`, so the two shipped schemas are not identical: `subagent` is `continuable`, while `subagent_fork` stays `one-shot` — see `packages/bundle/base/cordis.patch.yml` and `examples/acp-agent/cordis.yml`.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-subagent-control',
@@ -448,20 +448,22 @@ const TOOL_PACKAGES: ToolPackage[] = [
     pkg: '@deepseek-ai/dsh-tool-subagent-report',
     dir: 'tool-subagent-report',
     source: 'packages/subagent/tool-subagent-report/src/index.ts',
-    requires: ['ctx.subagents', 'a live continuable in-process child Agent'],
+    requires: ['ctx.subagents', 'ctx.systemPrompt', 'a live continuable in-process child Agent'],
     writes: ['tool/call', 'tool/result', 'a user-role message in the direct parent session'],
     async mount(ctx) {
       await ctx.plugin(AgentRegistry)
       await ctx.plugin(SubagentService)
+      const { reportDelivery } = ToolSubagentReport.Config({}) as { reportDelivery: SubagentReportDelivery }
       await mountCatalogChildScope(ctx, (childCtx) => {
-        ToolSubagentReport.installReportTool(childCtx, ctx, 'quiet')
+        ToolSubagentReport.installReportTool(childCtx, ctx, reportDelivery)
       })
     },
     scope: ctx => catalogChildScopes.get(ctx) as Agent,
     note:
       'Registered per continuable in-process child rather than globally, so this schema is visible only '
-      + 'inside such a child and survives its global `toolFilter`. The parent-facing `send_message` tool '
-      + 'is installed independently.',
+      + 'inside such a child and survives its global `toolFilter`. The same contribution installs the '
+      + 'child-scoped `tool:report` prompt section, which this catalog does not render. The parent-facing '
+      + '`send_message` tool is installed independently.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-tasks',
