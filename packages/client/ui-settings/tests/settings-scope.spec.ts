@@ -354,4 +354,3 @@ describe('SettingsScopeService.bind', () => {
     expect(describeCall).not.toHaveBeenCalled()
   })
 })
-
