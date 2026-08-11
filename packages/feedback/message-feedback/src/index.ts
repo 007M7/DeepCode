@@ -192,8 +192,8 @@ export class MessageFeedbackService extends GatewayService {
 
   /**
    * Create or replace feedback for one derived append-origin assistant
-   * message. An exact desired-value retry returns the stored item before its
-   * stale or `null` version is considered a conflict.
+   * message. Every request must match the addressed item's current version;
+   * a matching no-op returns the stored item without changing its revision.
    * @param request - target, desired value, and observed item version.
    * @returns the committed item or an explicit business failure.
    */
@@ -228,13 +228,13 @@ export class MessageFeedbackService extends GatewayService {
       const items = current?.items ?? EMPTY_ITEMS
       const index = items.findIndex(item => item.messageId === request.messageId)
       const existing = items[index]
+      if (request.ifVersion !== (existing?.version ?? null)) {
+        return rejected(this.versionConflict(existing ?? null))
+      }
       if (existing !== undefined
         && existing.rating === request.rating
         && existing.note === note.value) {
         return success(snapshotItem(existing))
-      }
-      if (request.ifVersion !== (existing?.version ?? null)) {
-        return rejected(this.versionConflict(request, existing?.version ?? null))
       }
 
       const now = Date.now()
@@ -278,7 +278,7 @@ export class MessageFeedbackService extends GatewayService {
         return success<MessageFeedbackDeleteValue>(Object.freeze({ absent: true }))
       }
       if (request.ifVersion !== existing.version) {
-        return rejected(this.versionConflict(request, existing.version))
+        return rejected(this.versionConflict(existing))
       }
 
       await table.put(
@@ -298,7 +298,8 @@ export class MessageFeedbackService extends GatewayService {
   private async inspectSession(sessionId: SessionId): Promise<KnownSession> {
     if (this.ctx.sessions.get(sessionId) === undefined) {
       const snapshots = await this.ctx.sessionPersistence.listSnapshots()
-      if (!snapshots.some(snapshot => snapshot.header.id === sessionId)) {
+      if (!snapshots.some(snapshot => snapshot.header.id === sessionId)
+        && this.ctx.sessions.get(sessionId) === undefined) {
         return rejected({ code: 'session-not-found', sessionId })
       }
     }
@@ -327,7 +328,7 @@ export class MessageFeedbackService extends GatewayService {
           `message-feedback: no durability listener participated for live session '${inspection.meta.id}'`,
         )
       }
-      return inspection
+      return await this.ctx.sessionPersistence.readFrom(inspection.meta.id, 0)
     }
     return await this.ctx.sessionPersistence.readFrom(inspection.meta.id, 0)
   }
@@ -343,17 +344,11 @@ export class MessageFeedbackService extends GatewayService {
     return success(note)
   }
 
-  /** Build a conflict branch without exposing an orderable version. */
-  private versionConflict(
-    request: Pick<MessageFeedbackPutRequest, 'sessionId' | 'messageId' | 'ifVersion'>,
-    actual: MessageFeedbackVersion | null,
-  ): MessageFeedbackVersionConflict {
+  /** Return the authoritative item needed to reconcile one failed comparison. */
+  private versionConflict(current: MessageFeedbackItem | null): MessageFeedbackVersionConflict {
     return {
       code: 'version-conflict',
-      sessionId: request.sessionId,
-      messageId: request.messageId,
-      expected: request.ifVersion,
-      actual,
+      current: current === null ? null : snapshotItem(current),
     }
   }
 

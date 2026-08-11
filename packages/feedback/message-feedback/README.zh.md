@@ -31,7 +31,7 @@
 
 `SessionPersistence.inspect()` 提供 cold-safe 观测，不发布或恢复 Agent，也不提交 cold repair。对于没有 live owner 的 Session，系统先用 `listSnapshots()` 判定明确不存在；已进入目录的 Session 若 `inspect()` 失败，仍属于基础设施故障，不会被猜测成 `session-not-found`。`put` 只接受具有指定 `MessageId` 的非空、append-origin `assistant/message`；replacement-origin 消息、仅承载 usage 的空 assistant 记录与非 assistant 记录都返回 `target-not-found`。
 
-初步校验后，`put` 在写入伴随记录前建立 durability barrier。身份匹配的 live Session 通过权威 `ctx.sessions.flush` checkpoint 提交；已进入目录的 cold Session 则通过 `SessionPersistence.readFrom` 从序列零做物理复读。随后再次校验所得观测的 header 身份与目标。缺少 flush 参与方、身份变化、目标消失或 cold 物理读取失败都会阻止伴随记录提交，因此持久反馈绝不会先于其持久目标消息。
+初步校验后，`put` 在写入伴随记录前建立 durability barrier。身份匹配的 live Session 先通过权威 `ctx.sessions.flush` checkpoint 提交，随后 live 与 cold 路径都会通过 `SessionPersistence.readFrom` 从序列零做物理复读。之后再次校验所得观测的 header 身份与目标。缺少 flush 参与方、身份变化、目标消失或物理读取失败都会阻止伴随记录提交，因此持久反馈绝不会先于其持久目标消息。
 
 message feedback 不是 Session 日志内容或 Session 投影。它不发出 `feedback/record` 事件，不进入模型历史，也不触发 `FEEDBACK_ONLY` 遥测释放。
 
@@ -45,13 +45,13 @@ message feedback 不是 Session 日志内容或 Session 投影。它不发出 `f
 | `put` | `MessageFeedbackPutRequest { sessionId, messageId, rating, note?, ifVersion }` | 已提交的 `MessageFeedbackItem` | `session-not-found`、`target-not-found`、`version-conflict`、`note-blank`、`note-too-large` |
 | `delete` | `MessageFeedbackDeleteRequest { sessionId, messageId, ifVersion }` | `MessageFeedbackDeleteValue { absent: true }` | `session-not-found`、`version-conflict` |
 
-`MessageFeedbackVersionConflict` 返回调用方的 `expected` token 与当前 `actual` token；在表示不存在时，两者可以为 null。`MessageFeedbackNoteTooLarge` 同时返回 `maxBytes` 与 `actualBytes`。客户端 Remote 聚合尚未挂载生成的客户端 contribution；Host 调用方无需该客户端组装即可使用 service/Remote 契约。
+`MessageFeedbackVersionConflict` 返回权威 `current` 条目；条目不存在时为 `null`。调用方无需额外执行 `list`，即可协调当前 rating、note 与 version。`MessageFeedbackNoteTooLarge` 同时返回 `maxBytes` 与 `actualBytes`。客户端 Remote 聚合尚未挂载生成的客户端 contribution；Host 调用方无需该客户端组装即可使用 service/Remote 契约。
 
 ## Compare-and-set 与幂等性
 
-`ifVersion: null` 表示仅当条目不存在时才创建；实质更新要求与当前条目 version 完全一致。检查按消息而非按 Session 进行，因此修改一个条目不会与另一个条目冲突。每次实质创建或更新都会分配新的 opaque UUID token。
+`ifVersion: null` 表示仅当条目不存在时才创建；已有条目的每次请求都必须与其当前 version 完全一致，即使目标值已经相同、不会产生实质更新。检查按消息而非按 Session 进行，因此修改一个条目不会与另一个条目冲突。每次实质创建或更新都会分配新的 opaque UUID token，防止陈旧写入穿过 ABA 值循环。
 
-系统会在比较 `ifVersion` 之前识别与目标值完全相同的重试。它返回已存条目，version 与时间戳均不变，因此调用方在成功响应丢失后，即使用当前已陈旧的 token 或原始 `null` 也可安全重试。条目已不存在时，`delete` 忽略 `ifVersion`；成功后始终返回稳定的 `{ absent: true }` 后置条件。
+携带匹配 version 的无变化请求会返回已存条目，version 与时间戳均不变。成功响应丢失后，使用旧 token 重试会得到 `version-conflict.current`；调用方无需额外读取，即可把权威当前值与目标值比较。条目已不存在时，`delete` 忽略 `ifVersion`；成功后始终返回稳定的 `{ absent: true }` 后置条件。
 
 按 Session 划分的 promise 队列覆盖检查、持久性校验、伴随记录读取、比较与整行写入。这些语义会串行化经由同一服务实例的并发变更；storage-domain 自身没有跨进程条件写。
 

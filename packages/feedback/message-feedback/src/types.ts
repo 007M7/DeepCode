@@ -89,12 +89,8 @@ export interface MessageFeedbackTargetNotFound {
 /** A material mutation did not match the addressed item's current version. */
 export interface MessageFeedbackVersionConflict {
   readonly code: 'version-conflict'
-  readonly sessionId: SessionId
-  readonly messageId: MessageId
-  /** Version supplied by the caller (`null` means create-only). */
-  readonly expected: MessageFeedbackVersion | null
-  /** Current version, or `null` when the item does not exist. */
-  readonly actual: MessageFeedbackVersion | null
+  /** Authoritative current item, or `null` when it does not exist. */
+  readonly current: MessageFeedbackItem | null
 }
 
 /** A supplied note contains no non-whitespace character. */

@@ -596,7 +596,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: '@Remote(\'put\') put(request: MessageFeedbackPutRequest): Promise<MessageFeedbackPutResult>',
-        jsDoc: '/**\n * Create or replace feedback for one derived append-origin assistant\n * message. An exact desired-value retry returns the stored item before its\n * stale or `null` version is considered a conflict.\n * @param request - target, desired value, and observed item version.\n * @returns the committed item or an explicit business failure.\n */',
+        jsDoc: '/**\n * Create or replace feedback for one derived append-origin assistant\n * message. Every request must match the addressed item\'s current version;\n * a matching no-op returns the stored item without changing its revision.\n * @param request - target, desired value, and observed item version.\n * @returns the committed item or an explicit business failure.\n */',
       },
       {
         signature: '@Remote(\'delete\') delete(request: MessageFeedbackDeleteRequest): Promise<MessageFeedbackDeleteResult>',
@@ -2423,7 +2423,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'MessageFeedbackVersionConflict',
-    declaration: 'export interface MessageFeedbackVersionConflict {\n    readonly code: \'version-conflict\';\n    readonly sessionId: SessionId;\n    readonly messageId: MessageId;\n    readonly expected: MessageFeedbackVersion | null;\n    readonly actual: MessageFeedbackVersion | null;\n}',
+    declaration: 'export interface MessageFeedbackVersionConflict {\n    readonly code: \'version-conflict\';\n    readonly current: MessageFeedbackItem | null;\n}',
   },
   {
     name: 'MessageId',

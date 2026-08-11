@@ -10,7 +10,7 @@
 
 每个 Session 的一条伴随记录包含 header 身份 `{createdAt, cwd}` 和以 `MessageId` 为键的反馈条目。每个条目携带好评或差评、可选备注、Host 分配的 `createdAt`/`updatedAt` 时间戳及自己的 opaque version。version 只能用于相等比较，且只与目标消息比较；调用方不能排序或自行合成它。
 
-`put` 采用乐观并发并可安全重试。若目标值已经存储，完全相同的重试会先返回该条目，再考虑陈旧 `ifVersion` 是否构成冲突。删除已经不存在的条目也同样成功。按 Session 划分的队列覆盖检查、读取、冲突判断与整行写入，因此这些保证适用于单个 Host 进程中的并发调用。
+`put` 采用严格乐观并发：已有条目的每次请求都必须匹配当前 `ifVersion`，即使请求不会改变目标值。冲突会返回权威当前条目（不存在时为 `null`），因此调用方无需额外读取，即可协调丢失响应或并发编辑。删除已经不存在的条目同样成功。按 Session 划分的队列覆盖检查、读取、冲突判断与整行写入，因此这些保证适用于单个 Host 进程中的并发调用。
 
 ## 目标与生命周期权威
 
@@ -20,7 +20,7 @@
 
 ## 持久化与 Remote 契约
 
-服务通过 `ctx.storageDomain` 在 `message_feedback` 存储域中保存完整 Session 行。`put` 提交引用目标消息的伴随记录前，身份匹配的 live 目标先经过权威 `ctx.sessions.flush` checkpoint；已进入目录的 cold 目标则通过 `SessionPersistence.readFrom` 从序列零做物理复读。写入伴随记录前会再次校验所得观测，因此目标日志的持久提交始终先于其伴随记录。`maxNoteBytes` 为必填项，按 UTF-8 字节限制备注文本；Web Host 组合将其设为 `8192`。该包通过 `GatewayService` 与 `@Remote` 发布 Host `messageFeedback.list`、`messageFeedback.put` 和 `messageFeedback.delete` 一元 Remote 契约；下方生成的 Cordis surface 是方法级权威。
+服务通过 `ctx.storageDomain` 在 `message_feedback` 存储域中保存完整 Session 行。`put` 提交引用目标消息的伴随记录前，身份匹配的 live 目标先经过权威 `ctx.sessions.flush` checkpoint；随后 live 与 cold 路径都会通过 `SessionPersistence.readFrom` 从序列零做物理复读。写入伴随记录前会再次校验所得观测，因此目标日志的持久提交始终先于其伴随记录。`maxNoteBytes` 为必填项，按 UTF-8 字节限制备注文本；Web Host 组合将其设为 `8192`。该包通过 `GatewayService` 与 `@Remote` 发布 Host `messageFeedback.list`、`messageFeedback.put` 和 `messageFeedback.delete` 一元 Remote 契约；下方生成的 Cordis surface 是方法级权威。
 
 ## 边界与限制
 
@@ -56,8 +56,8 @@ Storage-domain sidecar service. It inspects persisted Session history and never 
 
 /**
  * Create or replace feedback for one derived append-origin assistant
- * message. An exact desired-value retry returns the stored item before its
- * stale or `null` version is considered a conflict.
+ * message. Every request must match the addressed item's current version;
+ * a matching no-op returns the stored item without changing its revision.
  * @param request - target, desired value, and observed item version.
  * @returns the committed item or an explicit business failure.
  */

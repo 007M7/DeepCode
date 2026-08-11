@@ -31,7 +31,7 @@ Each stored row carries the inspected Session header identity `{createdAt, cwd}`
 
 `SessionPersistence.inspect()` supplies a cold-safe observation without publishing or resuming an Agent and without committing cold repair. For a Session without a live owner, `listSnapshots()` first decides definite absence; an `inspect()` failure for a catalogued Session remains an infrastructure failure rather than being guessed into `session-not-found`. `put` accepts only a non-empty, append-origin `assistant/message` with the requested `MessageId`; replacement-origin messages, empty usage-only assistant records, and non-assistant records return `target-not-found`.
 
-After initial validation, `put` establishes a durability barrier before writing the sidecar. A matching live Session commits through the canonical `ctx.sessions.flush` checkpoint; a catalogued cold Session is physically re-read from sequence zero through `SessionPersistence.readFrom`. The resulting observation's header identity and target are validated again. A missing flush participant, changed identity, vanished target, or cold physical-read failure prevents the sidecar commit, so durable feedback never precedes the durable target message.
+After initial validation, `put` establishes a durability barrier before writing the sidecar. A matching live Session commits through the canonical `ctx.sessions.flush` checkpoint, then both live and cold paths are physically read from sequence zero through `SessionPersistence.readFrom`. The resulting observation's header identity and target are validated again. A missing flush participant, changed identity, vanished target, or physical-read failure prevents the sidecar commit, so durable feedback never precedes the durable target message.
 
 Message feedback is not Session-log content or a Session projection. It emits no `feedback/record` event, does not enter model history, and does not trigger `FEEDBACK_ONLY` telemetry release.
 
@@ -45,13 +45,13 @@ The same three `MessageFeedbackService` methods are published by `GatewayService
 | `put` | `MessageFeedbackPutRequest { sessionId, messageId, rating, note?, ifVersion }` | committed `MessageFeedbackItem` | `session-not-found`, `target-not-found`, `version-conflict`, `note-blank`, `note-too-large` |
 | `delete` | `MessageFeedbackDeleteRequest { sessionId, messageId, ifVersion }` | `MessageFeedbackDeleteValue { absent: true }` | `session-not-found`, `version-conflict` |
 
-`MessageFeedbackVersionConflict` returns the caller's `expected` token and the current `actual` token, each nullable where absence is meaningful. `MessageFeedbackNoteTooLarge` returns both `maxBytes` and `actualBytes`. The Client Remote aggregate does not mount the generated client contribution yet; Host callers can use the service/Remote contract without that client assembly.
+`MessageFeedbackVersionConflict` returns the authoritative `current` item, or `null` when no item exists. This lets a caller reconcile the current rating, note, and version without a second `list` request. `MessageFeedbackNoteTooLarge` returns both `maxBytes` and `actualBytes`. The Client Remote aggregate does not mount the generated client contribution yet; Host callers can use the service/Remote contract without that client assembly.
 
 ## Compare-and-set and idempotency
 
-`ifVersion: null` requests creation only; a material update requires the exact current item version. The check is per message rather than per Session, so changing one item does not conflict with another. Every material create or update assigns a fresh opaque UUID token.
+`ifVersion: null` requests creation only; every request for an existing item requires its exact current version, including a no-op whose desired value already matches. The check is per message rather than per Session, so changing one item does not conflict with another. Every material create or update assigns a fresh opaque UUID token, preventing stale writes from crossing an ABA value cycle.
 
-An exact desired-value retry is recognized before `ifVersion` comparison. It returns the already stored item with unchanged version and timestamps, so a caller may safely retry after losing a success response even with the now-stale token or original `null`. `delete` ignores `ifVersion` when the item is already absent and always returns the stable `{ absent: true }` postcondition after success.
+A matching-version no-op returns the already stored item with unchanged version and timestamps. After a lost success response, a retry with the old token receives `version-conflict.current`; the caller can compare that authoritative item with its desired value without an extra read. `delete` ignores `ifVersion` when the item is already absent and always returns the stable `{ absent: true }` postcondition after success.
 
 A per-Session promise queue encloses inspection, durability validation, sidecar read, comparison, and whole-row write. These semantics serialize concurrent mutations through one service instance; storage-domain itself has no cross-process conditional write.
 

@@ -10,7 +10,7 @@ Source: [`packages/feedback/message-feedback/src/types.ts`](../../packages/feedb
 
 One Session sidecar row contains its header identity `{createdAt, cwd}` and feedback items keyed by `MessageId`. Each item carries a positive or negative rating, an optional note, Host-assigned `createdAt`/`updatedAt` timestamps, and its own opaque version. Versions are compared only for equality and only against the addressed message; callers do not order or synthesize them.
 
-`put` is optimistic and retry-safe. An exact retry of the already stored desired value returns that item before a stale `ifVersion` is treated as a conflict. Deleting an already absent item also succeeds. A per-Session queue encloses inspection, read, conflict evaluation, and whole-row write, so these guarantees cover concurrent calls in one Host process.
+`put` uses strict optimistic concurrency: every request for an existing item must match its current `ifVersion`, including a no-op. A conflict returns the authoritative current item (or `null`), so a caller can reconcile a lost response or a concurrent edit without another read. Deleting an already absent item succeeds. A per-Session queue encloses inspection, read, conflict evaluation, and whole-row write, so these guarantees cover concurrent calls in one Host process.
 
 ## Target and lifecycle authority
 
@@ -20,7 +20,7 @@ The stored `{createdAt, cwd}` identity must match the inspected header. A mismat
 
 ## Persistence and Remote contract
 
-The service stores whole Session rows in the `message_feedback` storage domain through `ctx.storageDomain`. Before `put` commits a row that references a target message, a matching live target passes through the canonical `ctx.sessions.flush` checkpoint; a catalogued cold target is physically re-read from sequence zero through `SessionPersistence.readFrom`. The resulting observation is revalidated before the sidecar write, so the durable target log always precedes its sidecar commit. `maxNoteBytes` is required and bounds note text by UTF-8 bytes; the Web Host composition sets `8192`. The package publishes the Host `messageFeedback.list`, `messageFeedback.put`, and `messageFeedback.delete` unary Remote contract through `GatewayService` and `@Remote`; the generated Cordis surface below is the method-level authority.
+The service stores whole Session rows in the `message_feedback` storage domain through `ctx.storageDomain`. Before `put` commits a row that references a target message, a matching live target passes through the canonical `ctx.sessions.flush` checkpoint; both live and cold paths are then physically read from sequence zero through `SessionPersistence.readFrom`. The resulting observation is revalidated before the sidecar write, so the durable target log always precedes its sidecar commit. `maxNoteBytes` is required and bounds note text by UTF-8 bytes; the Web Host composition sets `8192`. The package publishes the Host `messageFeedback.list`, `messageFeedback.put`, and `messageFeedback.delete` unary Remote contract through `GatewayService` and `@Remote`; the generated Cordis surface below is the method-level authority.
 
 ## Boundaries and limitations
 
@@ -56,8 +56,8 @@ Storage-domain sidecar service. It inspects persisted Session history and never 
 
 /**
  * Create or replace feedback for one derived append-origin assistant
- * message. An exact desired-value retry returns the stored item before its
- * stale or `null` version is considered a conflict.
+ * message. Every request must match the addressed item's current version;
+ * a matching no-op returns the stored item without changing its revision.
  * @param request - target, desired value, and observed item version.
  * @returns the committed item or an explicit business failure.
  */

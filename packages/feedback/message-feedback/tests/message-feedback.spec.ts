@@ -68,6 +68,25 @@ describe('MessageFeedbackService public contract', () => {
     await expect(ctx.messageFeedback.list({ sessionId: fixture.session.id })).rejects.toBe(corruption)
   })
 
+  it('rechecks live ownership before returning a cold catalog miss', async () => {
+    const { ctx, persistence } = await harness()
+    const sessionId = SessionId('catalog-live-race')
+    const listed = Promise.withResolvers<undefined>()
+    const release = Promise.withResolvers<undefined>()
+    persistence.onListSnapshots = async () => {
+      listed.resolve(undefined)
+      await release.promise
+    }
+
+    const pending = ctx.messageFeedback.list({ sessionId })
+    await listed.promise
+    ctx.sessions.create(sessionId, { meta: { createdAt: 1_700_000_000_001 } })
+    release.resolve(undefined)
+
+    await expect(pending).resolves.toEqual({ ok: true, value: { items: [] } })
+    expect(persistence.inspectCalls).toBe(1)
+  })
+
   it('returns session-not-found from mutations and conflicts on an observed version for an absent item', async () => {
     const { ctx, persistence } = await harness()
     const missing = SessionId('missing-mutations')
@@ -100,13 +119,7 @@ describe('MessageFeedbackService public contract', () => {
       ifVersion: expected,
     })).resolves.toEqual({
       ok: false,
-      error: {
-        code: 'version-conflict',
-        sessionId: fixture.session.id,
-        messageId: fixture.assistantMessageIds[0],
-        expected,
-        actual: null,
-      },
+      error: { code: 'version-conflict', current: null },
     })
   })
 
@@ -154,7 +167,7 @@ describe('MessageFeedbackService public contract', () => {
       sessionId: fixture.session.id,
       messageId,
       rating: 'negative',
-      ifVersion: null,
+      ifVersion: updated.version,
     }))
     expect(retry).toEqual(updated)
 
@@ -320,19 +333,48 @@ describe('MessageFeedbackService item concurrency', () => {
       ifVersion: first.version,
     })).resolves.toEqual({
       ok: false,
-      error: {
-        code: 'version-conflict',
-        sessionId: fixture.session.id,
-        messageId: firstId,
-        expected: first.version,
-        actual: updated.version,
-      },
+      error: { code: 'version-conflict', current: updated },
     })
 
     const listed = await ctx.messageFeedback.list({ sessionId: fixture.session.id })
     if (!listed.ok) throw new Error(`expected list success, got ${listed.error.code}`)
     expect(listed.value.items).toEqual([updated, second])
     expect(listed.value.items[1]?.version).toBe(second.version)
+  })
+
+  it('rejects a stale put even when the current value has returned to the same state', async () => {
+    const { ctx, persistence } = await harness()
+    const fixture = messageFixture('put-aba')
+    persistence.persist(fixture.session)
+    const messageId = fixture.assistantMessageIds[0]
+    const first = expectItem(await ctx.messageFeedback.put({
+      sessionId: fixture.session.id,
+      messageId,
+      rating: 'positive',
+      ifVersion: null,
+    }))
+    const second = expectItem(await ctx.messageFeedback.put({
+      sessionId: fixture.session.id,
+      messageId,
+      rating: 'negative',
+      ifVersion: first.version,
+    }))
+    const current = expectItem(await ctx.messageFeedback.put({
+      sessionId: fixture.session.id,
+      messageId,
+      rating: 'positive',
+      ifVersion: second.version,
+    }))
+
+    await expect(ctx.messageFeedback.put({
+      sessionId: fixture.session.id,
+      messageId,
+      rating: 'positive',
+      ifVersion: first.version,
+    })).resolves.toEqual({
+      ok: false,
+      error: { code: 'version-conflict', current },
+    })
   })
 
   it('makes delete retries stable and prevents delete/recreate ABA', async () => {
@@ -351,9 +393,9 @@ describe('MessageFeedbackService item concurrency', () => {
       sessionId: fixture.session.id,
       messageId,
       ifVersion: staleVersion(),
-    })).resolves.toMatchObject({
+    })).resolves.toEqual({
       ok: false,
-      error: { code: 'version-conflict', actual: created.version },
+      error: { code: 'version-conflict', current: created },
     })
     const request = {
       sessionId: fixture.session.id,
@@ -376,9 +418,9 @@ describe('MessageFeedbackService item concurrency', () => {
       ifVersion: null,
     }))
     expect(recreated.version).not.toBe(created.version)
-    await expect(ctx.messageFeedback.delete(request)).resolves.toMatchObject({
+    await expect(ctx.messageFeedback.delete(request)).resolves.toEqual({
       ok: false,
-      error: { code: 'version-conflict', actual: recreated.version },
+      error: { code: 'version-conflict', current: recreated },
     })
   })
 
@@ -449,7 +491,7 @@ describe('MessageFeedbackService durability ordering', () => {
     })
   })
 
-  it('commits a live target checkpoint before the sidecar write without a cold-log reread', async () => {
+  it('commits and physically verifies a live target checkpoint before the sidecar write', async () => {
     const { ctx, persistence } = await harness()
     const session = ctx.sessions.create(SessionId('live-checkpoint'), {
       meta: { createdAt: 30, cwd: '/live' },
@@ -463,7 +505,7 @@ describe('MessageFeedbackService durability ordering', () => {
     ctx.on('domain/changed', (change) => {
       if (change.domain === 'message_feedback') order.push('sidecar:durable')
     })
-    persistence.onReadFrom = () => { order.push('unexpected:cold-read') }
+    persistence.onReadFrom = () => { order.push('session:verified') }
 
     expectItem(await ctx.messageFeedback.put({
       sessionId: session.id,
@@ -471,14 +513,14 @@ describe('MessageFeedbackService durability ordering', () => {
       rating: 'positive',
       ifVersion: null,
     }))
-    expect(order).toEqual(['session:durable', 'sidecar:durable'])
-    expect(persistence.readFromCalls).toBe(0)
+    expect(order).toEqual(['session:durable', 'session:verified', 'sidecar:durable'])
+    expect(persistence.readFromCalls).toBe(1)
     expect(persistence.durable.get(session.id)?.events).toContainEqual(
       expect.objectContaining({ type: 'assistant/message' }),
     )
   })
 
-  it('fails closed when a live checkpoint fails or has no participant', async () => {
+  it('fails closed when a live checkpoint fails, has no participant, or is not physically durable', async () => {
     const failed = await harness()
     const failedSession = failed.ctx.sessions.create(SessionId('live-flush-failure'))
     const failedFixture = appendMessageFixture(failedSession)
@@ -505,6 +547,22 @@ describe('MessageFeedbackService durability ordering', () => {
       ifVersion: null,
     })).rejects.toThrow(/no durability listener participated/u)
     await expect(absent.ctx.messageFeedback.list({ sessionId: absentSession.id })).resolves.toEqual({
+      ok: true,
+      value: { items: [] },
+    })
+
+    const noDurability = await harness()
+    const unpersistedSession = noDurability.ctx.sessions.create(SessionId('live-unpersisted'))
+    const unpersistedFixture = appendMessageFixture(unpersistedSession)
+    noDurability.ctx.on('session/flush', () => {})
+    await expect(noDurability.ctx.messageFeedback.put({
+      sessionId: unpersistedSession.id,
+      messageId: unpersistedFixture.assistantMessageIds[0],
+      rating: 'positive',
+      ifVersion: null,
+    })).rejects.toThrow(/not found/u)
+    expect(noDurability.persistence.durable.has(unpersistedSession.id)).toBe(false)
+    await expect(noDurability.ctx.messageFeedback.list({ sessionId: unpersistedSession.id })).resolves.toEqual({
       ok: true,
       value: { items: [] },
     })
@@ -537,7 +595,7 @@ describe('MessageFeedbackService durability ordering', () => {
     expect(ctx.sessions.get(session.id)).toBeUndefined()
     release.resolve(undefined)
     expectItem(await pending)
-    expect(persistence.readFromCalls).toBe(0)
+    expect(persistence.readFromCalls).toBe(1)
     await expect(ctx.messageFeedback.list({ sessionId: session.id })).resolves.toMatchObject({
       ok: true,
       value: { items: [{ messageId: fixture.assistantMessageIds[0] }] },

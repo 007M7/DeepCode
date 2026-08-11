@@ -18,9 +18,9 @@ Status: implemented
 
 `put` 只接受由 `SessionPersistence.inspect()` 观测到的非空、append-origin `assistant/message`，且其 `MessageId` 必须与目标相同。replacement-origin 消息、仅承载 usage 的空 assistant 记录以及非 assistant 目标都会被拒绝。检查使用 cold-safe 权威路径：它不会仅为验证反馈而发布或恢复 Agent，也不会提交 cold 日志修复。cold 路径由 `listSnapshots()` 预检明确不存在；已进入目录的 Session 若检查失败，仍按基础设施故障处理。因此，请求若恰落在 live detach 到 header materialization 的极短窗口，可能返回 `session-not-found`，调用方在 retirement materialization 后重试。
 
-`put` 提交伴随记录前，会先让目标日志通过 durability barrier。身份匹配的 live Session 经过权威 `ctx.sessions.flush` checkpoint；已进入目录的 cold Session 则通过 `SessionPersistence.readFrom` 从序列零做物理复读。随后再次校验所得观测的 header 身份与目标。缺少 flush 参与方、身份变化、目标消失或 cold 物理读取失败都会阻止伴随记录写入，因此已提交反馈绝不会先于它引用的持久 assistant 消息。
+`put` 提交伴随记录前，会先让目标日志通过 durability barrier。身份匹配的 live Session 经过权威 `ctx.sessions.flush` checkpoint，随后 live 与 cold 路径都会通过 `SessionPersistence.readFrom` 从序列零做物理复读。之后再次校验所得观测的 header 身份与目标。缺少 flush 参与方、身份变化、目标消失或物理读取失败都会阻止伴随记录写入，因此已提交反馈绝不会先于它引用的持久 assistant 消息。
 
-每个消息条目都携带自己的 opaque version，以及 Host 分配的 `createdAt` 和 `updatedAt` 时间戳。`put` 只把调用方的 `ifVersion` 与目标条目比较，因此编辑一条消息不会使另一条消息失效。对已提交目标值的完全相同重试，会在陈旧 `ifVersion` 形成冲突前返回已存条目，并保留其 version 与时间戳；实质更新保留 `createdAt`、替换 version，并保证 `updatedAt` 不倒退。删除已经不存在的条目也同样成功。version 是只能做相等比较的 token，不是调用方可以排序或自行合成的计数器。
+每个消息条目都携带自己的 opaque version，以及 Host 分配的 `createdAt` 和 `updatedAt` 时间戳。`put` 只把调用方的 `ifVersion` 与目标条目比较，因此编辑一条消息不会使另一条消息失效。即使目标值已经相同，比较仍然严格执行，从而防止陈旧请求穿过 ABA 值循环；冲突会返回权威当前条目，调用方无需二次读取即可协调。携带匹配 version 的无变化请求会保留 version 与时间戳；实质更新保留 `createdAt`、替换 version，并保证 `updatedAt` 不倒退。删除已经不存在的条目也同样成功。version 是只能做相等比较的 token，不是调用方可以排序或自行合成的计数器。
 
 按 Session 划分的变更队列覆盖生命周期检查、伴随记录读取、冲突判断与整行写入。这使同一个服务实例的变更串行化，并在单个 Host 进程内保持逐消息 compare-and-swap 契约。底层 storage-domain API 不提供跨进程条件写，因此实现不承诺跨进程线性一致性或防止丢失更新。
 

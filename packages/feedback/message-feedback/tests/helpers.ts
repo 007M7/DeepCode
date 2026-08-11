@@ -117,6 +117,7 @@ class TestPersistence extends SessionPersistence {
   inspectCalls = 0
   readFromCalls = 0
   onReadFrom: (() => void) | undefined
+  onListSnapshots: (() => void | Promise<void>) | undefined
 
   locate(_meta: SessionHeader): SessionLocation | undefined { return undefined }
   create(_meta: SessionHeader): Promise<void> { return Promise.resolve() }
@@ -155,11 +156,12 @@ class TestPersistence extends SessionPersistence {
     return Promise.resolve([...this.durable.values()].map(value => value.meta))
   }
 
-  listSnapshots(): Promise<SessionPersistenceSnapshot[]> {
-    return Promise.resolve([...this.durable.values()].map((value, index) => ({
+  async listSnapshots(): Promise<SessionPersistenceSnapshot[]> {
+    await this.onListSnapshots?.()
+    return [...this.durable.values()].map((value, index) => ({
       header: value.meta,
       revision: SessionPersistenceRevision(`test:${index}:${value.events.length}`),
-    })))
+    }))
   }
 
   persist(session: Session): void {
