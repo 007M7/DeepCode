@@ -30,5 +30,5 @@
 ## 已知限制与后续工作
 
 - **Windows 上读不受限**（ACL runner 只限写）；读边界文档在 `@deepseek-ai/dsh-sandbox-windows-acl`。
-- **Windows workspace-write 的临时区域是真实临时目录**（`GetTempPathW`）。这是有意为之的后端自定义选择，与 Landlock 的决策（`readWrite: ['/tmp', ...]`）同类：seam 的 "backend-defined temp area" 词汇表允许它，`tests/acl.e2e.ts` 的逃逸探针也正是因此位于 temp 树之外。按运行创建私有临时目录（bwrap `--tmpfs /tmp` 的语义）还需 runner 改写环境块——这是可选的进一步加固，而非正确性缺口。
-- **Windows read-only 是严格零授权**——连 NUL 设备都不可写；`> $null` 重定向不受影响（后端包有文档）。
+- **Windows workspace-write 的临时权限按每个活跃的会话/工作区对私有**；无 agent（智能体）的调用每次都获得一个新的私有目录。环境临时根目录绝不会被授权，runner 会在 spawn 前将 TMP/TEMP 重写为该私有目录。
+- **Windows read-only 不授予任何显式可写根目录，但仍为部分强制执行**，因为受限令牌必须保留 Everyone。DACL 向 Everyone 授予写访问的对象——包括以兼容方式打开的 NUL 设备——仍构成环境权限来源；PowerShell 的 `> $null` 重定向仍可工作，且不会打开 NUL。
