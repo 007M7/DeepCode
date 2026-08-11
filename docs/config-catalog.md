@@ -153,7 +153,7 @@ export interface PresetRoot {
 export type PresetTrust = 'system' | 'user'
 ```
 
-Source: [`packages/preset/agent-presets/src/types.ts:52`](../packages/preset/agent-presets/src/types.ts)
+Source: [`packages/preset/agent-presets/src/preset.ts:52`](../packages/preset/agent-presets/src/preset.ts)
 
 ## `@deepseek-ai/dsh-agent-spine-demo`
 

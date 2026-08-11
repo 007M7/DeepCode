@@ -4,6 +4,8 @@
 import { Context } from '@deepseek-ai/cordis'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
+import { SettingsScopeService } from '@deepseek-ai/dsh-client-ui-settings/client'
+import { TestRemote } from '@deepseek-ai/dsh-client-test-runtime'
 import {
   apply, inject, SETTINGS_NS,
 } from '@deepseek-ai/dsh-client-locale/client'
@@ -43,6 +45,9 @@ async function bench() {
     }
   })
   ctx.provide('connection', { api: { settings: { describe, mutate } }, isLoopback: true } as never)
+  // The settings transport and the forwarded-event port the plugin injects.
+  new TestRemote(ctx)
+  await ctx.plugin(SettingsScopeService).await()
   return {
     ctx, slots: ctx.get('slots') as SlotsService, describe, mutate,
     setHostPreference: (next: string | undefined) => { preference = next; revision += 1 },
@@ -79,7 +84,7 @@ describe('locale apply', () => {
   })
 
   it('declares the slot service', () => {
-    expect(inject).toEqual(['slots', 'connection'])
+    expect(inject).toEqual(['slots', 'connection', 'remote', 'settingsScope'])
   })
 
   it('provides the service with base + settings dictionaries and registers the row (declaration before or after apply)', async () => {
@@ -134,10 +139,10 @@ describe('locale apply', () => {
     const locale = b.ctx.get('locale') as LocaleService
     await vi.waitFor(() => { expect(locale.getLocale().active).toBe('en') })
     b.setHostPreference(undefined)
-    b.ctx.emit('settings/changed', LOCALE_SETTINGS_NAMESPACE)
+    b.ctx.remote.$dispatch('settings/document-updated', [LOCALE_SETTINGS_NAMESPACE, 0])
     await vi.waitFor(() => { expect(locale.getLocale().active).toBe('zh') })
     b.setHostPreference('en')
-    b.ctx.emit('settings/changed', LOCALE_SETTINGS_NAMESPACE)
+    b.ctx.remote.$dispatch('settings/document-updated', [LOCALE_SETTINGS_NAMESPACE, 0])
     await vi.waitFor(() => { expect(locale.getLocale().active).toBe('en') })
     expect(b.describe).toHaveBeenCalledTimes(3)
   })

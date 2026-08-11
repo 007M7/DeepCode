@@ -10,6 +10,7 @@
 import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it, vi } from 'vitest'
 import { createScope, scopeOf } from '@deepseek-ai/dsh-client-runtime/client'
+import { TestRemote } from '@deepseek-ai/dsh-client-test-runtime'
 import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ClientSessionContext, ConsumeTokenRequest, SlashPick, SlashSource } from '@deepseek-ai/dsh-client-ui-slash/client'
 import type { CommandContribution, CommandDecoration, CommandUiSpec, SelectOption } from '../src/client/contract.ts'
@@ -78,6 +79,9 @@ async function bench(opts: BenchOptions = {}) {
       : undefined,
   })
   ctx.provide('connection', { api })
+  // CommandService injects `remote`; the directory invalidation arrives on the
+  // same `$dispatch` handoff the connection sink makes.
+  new TestRemote(ctx)
   /** Notices the fake conversation face collected (runDetached routing). */
   const notices: Array<{ scope: SessionId | undefined; level: 'info' | 'error'; text: string }> = []
   ctx.provide('conversation', {
@@ -598,7 +602,7 @@ describe('popupFor', () => {
 })
 
 describe('directory invalidation events', () => {
-  it('commands/changed repulls in the background while the old snapshot serves', async () => {
+  it('commands/change repulls in the background while the old snapshot serves', async () => {
     let round = 0
     const { ctx, source, warm } = await bench({
       commands: () => {
@@ -611,13 +615,13 @@ describe('directory invalidation events', () => {
       },
     })
     await warm(proj('s1'))
-    ctx.emit('commands/changed')
+    ctx.remote.$dispatch('commands/change', [])
     await new Promise(resolve => setTimeout(resolve, 0))
     expect(source.matchSpace!(proj('s1'), '/fresh')).not.toBeUndefined()
     expect(source.matchSpace!(proj('s1'), '/goal')).toBeUndefined()
   })
 
-  it('session/preset-changed repulls the recomposed session and leaves the others served', async () => {
+  it('agent-preset/selected repulls the recomposed session and leaves the others served', async () => {
     const rounds = new Map<SessionId, number>()
     const { ctx, source, warm } = await bench({
       commands: (payload) => {
@@ -634,7 +638,7 @@ describe('directory invalidation events', () => {
     await warm(proj('s2'))
     // A preset switch changes which commands one session's agent resolves;
     // every other session keeps the catalog its own composition serves.
-    ctx.emit('session/preset-changed', sid('s1'), 'minimal')
+    ctx.remote.$dispatch('agent-preset/selected', [sid('s1'), 'minimal'])
     await new Promise(resolve => setTimeout(resolve, 0))
     expect(source.matchSpace!(proj('s1'), '/fresh')).not.toBeUndefined()
     expect(source.matchSpace!(proj('s1'), '/goal')).toBeUndefined()

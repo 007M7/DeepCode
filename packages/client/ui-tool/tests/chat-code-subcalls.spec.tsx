@@ -9,6 +9,7 @@
 // (runningCalls) nest their so-far dispatches the same way.
 
 import { Context } from '@deepseek-ai/cordis'
+import { stubSettingsScope } from '@deepseek-ai/dsh-client-test-runtime'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render } from '@testing-library/react'
 import {
@@ -158,6 +159,9 @@ async function bench(snapshot: ConversationSnapshot) {
   ctx.provide('workspaces', workspaces)
   ctx.provide('layout', layout)
   ctx.provide('connection', { api: { settings: {} }, isLoopback: false } as never)
+  // ui-theme's Appearance row binds a durable scope through these two.
+  ctx.provide('remote', { $on: () => () => {} } as never)
+  ctx.provide('settingsScope', { bind: () => stubSettingsScope().scope } as never)
   const locale = new LocaleService(ctx)
   ctx.provide('locale', locale)
   slots.installLocale(locale)

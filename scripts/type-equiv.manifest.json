@@ -1528,7 +1528,7 @@
     {
       "doc": "docs/subsystems/settings.md",
       "symbol": "SettingsNamespace",
-      "source": "packages/settings/settings/src/index.ts"
+      "source": "packages/settings/settings/src/types.ts"
     },
     {
       "doc": "docs/subsystems/settings.md",
@@ -1553,7 +1553,7 @@
     {
       "doc": "docs/subsystems/settings.md",
       "symbol": "SettingsUpdateSource",
-      "source": "packages/settings/settings/src/index.ts"
+      "source": "packages/settings/settings/src/types.ts"
     },
     {
       "doc": "docs/subsystems/credentials.md",
@@ -1758,7 +1758,7 @@
     {
       "doc": "docs/subsystems/credentials.md",
       "symbol": "CredentialRef",
-      "source": "packages/credentials/credentials/src/index.ts"
+      "source": "packages/credentials/credentials/src/types.ts"
     },
     {
       "doc": "docs/subsystems/permission.md",
