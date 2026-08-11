@@ -701,7 +701,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Resolve this backend\'s independent local artifact for a session without\n * reading, creating, flushing, or otherwise materializing it. Backends such\n * as SQLite that do not own one artifact per session return `undefined`.\n * @param meta - the immutable session header whose artifact is requested.\n * @returns the backend-specific absolute location, when one exists.\n */',
       },
       {
-        signature: 'async readRaw(_id: SessionId, signal?: AbortSignal): Promise<SessionRawArtifact | undefined>',
+        signature: 'readRaw(_id: SessionId, signal?: AbortSignal): Promise<SessionRawArtifact | undefined>',
         jsDoc: '/**\n * Read a session\'s backend-owned artifact text verbatim — the exact durable\n * bytes the backend wrote (decoded from its physical encoding, e.g. a\n * decompressed JSONL). The returned `content` is the raw text, not a\n * reconstruction from parsed events, so it preserves backend-specific\n * serialization (chunk packing, key order, line breaks). Backends without a\n * per-session artifact (SQLite) inherit the `undefined` default.\n * @param _id - the persisted session to read (unused by the default: no\n * per-session artifact).\n * @param signal - optional cancellation for backend read work.\n * @returns the raw artifact plus its parsed header, or `undefined` when the\n * session is absent or the backend owns no per-session artifact.\n */',
       },
       {

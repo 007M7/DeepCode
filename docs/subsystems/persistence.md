@@ -270,7 +270,7 @@ abstract locate(meta: SessionHeader): SessionLocation | undefined
  * @returns the raw artifact plus its parsed header, or `undefined` when the
  * session is absent or the backend owns no per-session artifact.
  */
-async readRaw(_id: SessionId, signal?: AbortSignal): Promise<SessionRawArtifact | undefined>
+readRaw(_id: SessionId, signal?: AbortSignal): Promise<SessionRawArtifact | undefined>
 
 /**
  * Register a new session's metadata. A backend MAY defer the physical write
