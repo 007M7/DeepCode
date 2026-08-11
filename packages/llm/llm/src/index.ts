@@ -1,6 +1,6 @@
 /**
  * LLM service: adapter registry with a waterfall-interceptable streaming call
- * surface. Exports the `LlmService` default, the abstract `LlmAdapter` for
+ * API. Exports the `LlmService` default, the abstract `LlmAdapter` for
  * provider backends, and `BlockAssembler` for chunk assembly.
  *
  * @module @deepseek-ai/dsh-llm
@@ -289,7 +289,7 @@ export interface DirectoryRegistrationHandle {
 
 /**
  * The abstract `llm` service: an adapter registry plus a streaming model-call
- * surface, interceptable via the `llm/stream` waterfall.
+ * API, interceptable via the `llm/stream` waterfall.
  */
 export class LlmService extends Service {
   private adapters = new Map<string, AdapterRegistration>()

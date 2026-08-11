@@ -1229,7 +1229,7 @@ describe('the run_code dispatch bridge', () => {
     const tool = ctx.tools.get(RUN_CODE_NAME)!
 
     expect(result.content).toEqual([{ type: 'text', text }])
-    // Surfaces keep the pending program title and render this durable content
+    // Presenters keep the pending program title and render this durable content
     // through their generic fallback. Omitting a result view also prevents the
     // host frame from carrying the same raw content a second time.
     expect('presentResult' in tool).toBe(false)

@@ -6,7 +6,7 @@ Permission browser surfaces for two different lifetimes. The General-settings ro
 
 The current-session surface remains a popupSelect DECORATION hung on the host `/permission` command (`ctx.command.decorate`). A decoration is not a second command — the host command keeps its slash-menu row, the argued path (`/permission <preset>` switches directly), and the durable lifecycle logging; the decoration replaces only the bare invocation with the picker: one flat preset list with the current value marked active and kebab-case preset names rendered as title-case labels (`workspace-write` → `Workspace Write`, the composer chip's display transform twin), where a pick submits the `/permission <preset>` command line. Options and the active mark read the session's `permissions` projection (the same host-computed select the composer chip renders), so both current-session surfaces share one read source and one write path, and the pushed projection frame is the single confirmation both follow. The decoration is available exactly while the projection key is present; a permission-less composition shows neither picker nor Settings row.
 
-The `/client` export surface is the plugin body (`apply`/`inject`).
+The `/client` exports are the plugin body (`apply`/`inject`).
 
 ## Model Experience
 

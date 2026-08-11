@@ -14,7 +14,7 @@ The process-local task registry already owns the exact task owner and the author
 
 `LocalTaskService` owns a `maxConcurrentTasksPerOwner` configuration field. It accepts positive safe integers, defaults to `10`, and is available through the provider's Cordis schema, the typed `agent-spine-demo` bundle, and the ACP app configuration. The bundle transports the value; the process-local provider owns its meaning.
 
-`start()` performs admission after the existing control-surface, task-field, and live-owner checks and before `TaskStart.run()`. It derives the active count from the registry's current records instead of storing another counter:
+`start()` performs admission after the existing task-controller, task-field, and live-owner checks and before `TaskStart.run()`. It derives the active count from the registry's current records instead of storing another counter:
 
 | Record | Occupies capacity | Release fact |
 |---|---:|---|

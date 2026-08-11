@@ -107,4 +107,4 @@ Deferred until observation calls for them:
 - **The stub directory occupies attention**: dozens of stable index cards per request may dilute focus; the bench measurement in the acceptance criteria tracks it against `compact-basic`.
 - **Cost**: per-pass summarize input is roughly twice today's; short sessions sit near today's cost and quality, and the design pays off with session length.
 - **State drift and division-of-labor leakage** are observable through the handoff probe and stub review; their counters are specified follow-ups.
-- **Two backends** are a maintenance surface; the seam contract and the shared recall consumer bound it, and the bench comparison decides the default over time.
+- **Two backends** are a maintenance burden; the seam contract and the shared recall consumer bound it, and the bench comparison decides the default over time.

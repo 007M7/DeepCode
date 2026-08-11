@@ -1085,7 +1085,7 @@ describe('dsh-tool-subagent continuable background mode', () => {
 
 describe('background preflight failure (no orphaned child, by construction)', () => {
   it('never starts the child when tasks.start preflight throws', async () => {
-    // With no control surface, task preflight fails before the provider can spawn.
+    // With no task controller, preflight fails before the provider can spawn.
     const ctx = await setup({ provider: 'mock' })
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(LocalTaskService)
@@ -1125,7 +1125,7 @@ describe('background preflight failure (no orphaned child, by construction)', ()
       agent: parent,
     })
     expect(result.isError).toBe(true)
-    expect(text(result)).toContain('no control surface serves this agent')
+    expect(text(result)).toContain('no task controller serves this agent')
     // Declare-then-execute: the failed preflight means no child ever existed.
     expect(starts).toBe(0)
   })

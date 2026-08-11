@@ -51,7 +51,7 @@ async function harness(withRegistry: boolean): Promise<{ ctx: Context; session: 
   await ctx.plugin(AgentRegistry)
   if (withRegistry) {
     await ctx.plugin(LocalTaskService)
-    ctx.tasks.attachSurface('api-proxy-test')
+    ctx.tasks.attachController('api-proxy-test')
   }
   const session = ctx.sessions.create()
   const agent = {

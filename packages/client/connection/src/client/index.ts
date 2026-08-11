@@ -46,7 +46,7 @@ export type { ClientConnectionRpc } from '../rpc.ts'
 export const inject: string[] = []
 
 /**
- * The ctx.connection service surface: the api client plus a one-shot
+ * The ctx.connection service API: the API client plus a one-shot
  * controller starter (the runtime plugin supplies sinks when its object layer
  * is ready — connection stays consumer-agnostic).
  */

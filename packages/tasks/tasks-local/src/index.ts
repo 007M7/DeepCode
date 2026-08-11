@@ -3,7 +3,7 @@
  * (`ctx.tasks`). It keeps every record in memory and hands out fresh
  * snapshots, never live state.
  *
- * Registrations outlive producer and control-surface fibers. Agent or service
+ * Registrations outlive producer and controller fibers. Agent or service
  * disposal cancels live work and awaits compliant producers; a throwing
  * teardown cancel force-fails only the record and reports a possible orphan.
  * @module @deepseek-ai/dsh-tasks-local
@@ -68,18 +68,18 @@ function isTerminal(status: TaskStatus): boolean {
 }
 
 /**
- * One scope's contributions: the control surfaces attached from it and the
+ * One scope's contributions: the task controllers attached from it and the
  * completion listeners registered there. Both tables are anonymous because a
  * contribution is identified by its own disposer, never by a name a second
  * registrant could shadow.
  */
 class TaskLayer implements ScopeLayer {
-  readonly surfaces = new AnonymousEntries<symbol>()
+  readonly controllers = new AnonymousEntries<symbol>()
   readonly listeners = new AnonymousEntries<TaskDoneListener>()
   readonly changed = new AnonymousEntries<TasksChangedListener>()
 
   isEmpty(): boolean {
-    return this.surfaces.isEmpty() && this.listeners.isEmpty() && this.changed.isEmpty()
+    return this.controllers.isEmpty() && this.listeners.isEmpty() && this.changed.isEmpty()
   }
 }
 
@@ -134,7 +134,7 @@ export class LocalTaskService extends TaskService {
 
   start(spec: TaskStart): TaskId {
     if (!this.servesOwner(spec.owner)) {
-      throw new Error('background tasks unavailable: no control surface serves this agent (load @deepseek-ai/dsh-tool-tasks in its composition)')
+      throw new Error('background tasks unavailable: no task controller serves this agent (load @deepseek-ai/dsh-tool-tasks in its composition)')
     }
     if (spec.kind.length === 0) throw new Error('invalid task kind: expected a non-empty string')
     if (spec.label.length === 0) throw new Error('invalid task label: expected a non-empty string')
@@ -297,28 +297,28 @@ export class LocalTaskService extends TaskService {
     )
   }
 
-  attachSurface(name: string): () => void {
+  attachController(name: string): () => void {
     // One token per call keeps duplicate labels independently disposable.
     const token = Symbol(name)
     return this.layers.effect(
       this.ctx,
-      layer => layer.surfaces.append(token),
-      { label: 'tasks.attachSurface()' },
+      layer => layer.controllers.append(token),
+      { label: 'tasks.attachController()' },
     )
   }
 
   /**
-   * Whether an attached control surface can collect and stop work owned by
-   * `owner`. The global layer holds every surface attached from an unscoped
+   * Whether an attached task controller can collect and stop work owned by
+   * `owner`. The global layer holds every controller attached from an unscoped
    * context — a host composition's own controls — and therefore serves every
-   * owner; a scoped surface serves exactly the agents composed under it.
+   * owner; a scoped controller serves exactly the agents composed under it.
    * @param owner - the task's owner, or undefined for unowned work.
-   * @returns whether some reachable surface serves the owner.
+   * @returns whether some reachable controller serves the owner.
    */
   private servesOwner(owner?: Agent): boolean {
-    if (!this.layers.global.surfaces.isEmpty()) return true
+    if (!this.layers.global.controllers.isEmpty()) return true
     return this.layers.chainLayers(owner === undefined ? undefined : scopeOf(owner.ctx))
-      .some(layer => !layer.surfaces.isEmpty())
+      .some(layer => !layer.controllers.isEmpty())
   }
 
   /** Count authoritative active records for one exact owner or the shared unowned bucket. */

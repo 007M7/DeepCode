@@ -19,7 +19,7 @@ import type { PlatformModule } from './platform.ts'
 
 /**
  * Build the static table handed to the module loader at boot.
- * @returns module specifier → export-surface entity (one entry per platform word).
+ * @returns module specifier → exported entity (one entry per platform word).
  */
 export function getStaticModules(): Record<string, unknown> {
   // The satisfies pin is the projection contract: a word added to

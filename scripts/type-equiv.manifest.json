@@ -1172,6 +1172,11 @@
     },
     {
       "doc": "docs/subsystems/subagent.md",
+      "symbol": "SubagentSettledMessageSource",
+      "source": "packages/subagent/subagent/src/continuation.ts"
+    },
+    {
+      "doc": "docs/subsystems/subagent.md",
       "symbol": "SubagentReportOptions",
       "source": "packages/subagent/subagent/src/continuation.ts"
     },

@@ -759,7 +759,7 @@ jobs:
 
   # Manual comparison of the intended low-fanout topology. Linux runs the
   # complete unsharded primary aggregate with bounded in-runner parallelism;
-  # Windows runs both blocking build surfaces concurrently through run-gates.
+  # Windows runs both blocking build targets concurrently through run-gates.
   consolidated-runner-benchmark:
     if: github.event_name == 'workflow_dispatch' && inputs.suite == 'consolidated-runner-benchmark'
     runs-on: ${{ matrix.runner }}

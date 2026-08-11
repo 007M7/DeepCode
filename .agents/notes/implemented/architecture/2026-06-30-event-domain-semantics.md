@@ -1,4 +1,4 @@
-# Agent Note: Event-domain semantics — session is the fact log, agent is the live surface
+# Agent Note: Event-domain semantics — session is the fact log, agent is the live event channel
 
 Status: implemented
 

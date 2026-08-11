@@ -5,8 +5,8 @@ import { SlotCore } from '@deepseek-ai/dsh-client-ui-slots'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface SlotMap {
-    'surface.a': { kind: 'single'; scope: 'root' }
-    'surface.b': { kind: 'single'; scope: 'root' }
+    'dynamic.a': { kind: 'single'; scope: 'root' }
+    'dynamic.b': { kind: 'single'; scope: 'root' }
     'surface.injected': { kind: 'single'; scope: 'root'; inject: { token: string } }
   }
 }
@@ -16,17 +16,17 @@ const Comp: SlotComponent<object> = () => null
 describe('dynamic-key escape hatch', () => {
   it('specDynamic reads wide-typed specs for string keys; undefined while undeclared', () => {
     const core = new SlotCore()
-    expect(core.specDynamic('surface.a')).toBeUndefined()
-    core.register({ name: 'root', children: { 'surface.a': { kind: 'single', scope: 'root' } } }, Comp as never)
-    expect(core.specDynamic('surface.a')).toEqual({ kind: 'single', scope: 'root' })
+    expect(core.specDynamic('dynamic.a')).toBeUndefined()
+    core.register({ name: 'root', children: { 'dynamic.a': { kind: 'single', scope: 'root' } } }, Comp as never)
+    expect(core.specDynamic('dynamic.a')).toEqual({ kind: 'single', scope: 'root' })
     expect(core.specDynamic('never.declared')).toBeUndefined()
   })
 
   it('spec() narrows by SlotMap key', () => {
     const core = new SlotCore()
-    core.register({ name: 'root', children: { 'surface.a': { kind: 'single', scope: 'root' } } }, Comp as never)
-    expect(core.spec('surface.a')).toEqual({ kind: 'single', scope: 'root' })
-    expect(core.spec('surface.b')).toBeUndefined()
+    core.register({ name: 'root', children: { 'dynamic.a': { kind: 'single', scope: 'root' } } }, Comp as never)
+    expect(core.spec('dynamic.a')).toEqual({ kind: 'single', scope: 'root' })
+    expect(core.spec('dynamic.b')).toBeUndefined()
   })
 
   it('records the parent-declared Slot inject on the runtime spec', () => {
@@ -41,9 +41,9 @@ describe('dynamic-key escape hatch', () => {
 
   it('entries/getVersion on an untouched key return the frozen empty array and 0', () => {
     const core = new SlotCore()
-    expect(core.entries('surface.b')).toHaveLength(0)
-    expect(core.entries('surface.b')).toBe(core.entries('surface.b'))
-    expect(core.getVersion('surface.b')).toBe(0)
+    expect(core.entries('dynamic.b')).toHaveLength(0)
+    expect(core.entries('dynamic.b')).toBe(core.entries('dynamic.b'))
+    expect(core.getVersion('dynamic.b')).toBe(0)
   })
 
   it('isLive is false for entries the core never held', () => {

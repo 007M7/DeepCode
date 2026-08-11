@@ -334,7 +334,7 @@ export class FixService {
     ))).toThrow(/is a binding pattern/)
   })
 
-  it('ignores private/protected/static members (not the ctx.<key> surface)', () => {
+  it('ignores private/protected/static members (not the ctx.<key> API)', () => {
     const services = collectServices(makeService(
       '/** Fixture service. */\nexport class FixService {\n  private hidden(id: string): string { return id }\n  protected hook(): void {}\n  static helper(): void {}\n}',
     ))

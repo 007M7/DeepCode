@@ -12,13 +12,13 @@ At capacity, `start()` fails before producer execution and id allocation with an
 
 ## Lifecycle
 
-Tasks belong to their owner and backend, not the producer tool fiber, so producer and surface reloads do not stop them. The first task for an owner attaches one awaited effect to the exact `Agent` scope. Owner disposal cancels that object's tasks, awaits producer quiescence, and removes their snapshots; reused agent or session ids cannot redirect an old cleanup.
+Tasks belong to their owner and backend, not the producer tool fiber, so producer and controller reloads do not stop them. The first task for an owner attaches one awaited effect to the exact `Agent` scope. Owner disposal cancels that object's tasks, awaits producer quiescence, and removes their snapshots; reused agent or session ids cannot redirect an old cleanup.
 
 Service disposal closes listeners, cancels all live tasks, awaits their records, and detaches effects from surviving owner scopes. If teardown cancellation throws, the service force-fails the record and warns that work may be orphaned instead of deadlocking. A cancellation that returns but never settles `done` remains indistinguishable from a slow stop and can stall teardown.
 
-Settlement is first-wins: the earliest terminal outcome — producer settlement, a rejected `done` contained as `failed`, or a teardown force-failure — records once, notifies listeners once with per-listener containment, and releases waiters. Pending waits mark the task reported before listeners run so completion surfaces do not duplicate notices.
+Settlement is first-wins: the earliest terminal outcome — producer settlement, a rejected `done` contained as `failed`, or a teardown force-failure — records once, notifies listeners once with per-listener containment, and releases waiters. Pending waits mark the task reported before listeners run so completion reporters do not duplicate notices.
 
-Surfaces and listeners are layered by the scope that registered them, in the tools-registry shape: a registration files into its registering context's scope, and a read unions the global layer with the owner's scope chain. One process-wide registry therefore answers per-owner questions per owner — `start()` refuses `background tasks unavailable: no control surface serves this agent (load @deepseek-ai/dsh-tool-tasks in its composition)` for an owner whose own composition attaches none, however many other compositions attach theirs, and a settlement reaches only the listeners its owner's composition registered.
+Controllers and listeners are layered by the scope that registered them, in the tools-registry shape: a registration files into its registering context's scope, and a read unions the global layer with the owner's scope chain. One process-wide registry therefore answers per-owner questions per owner — `start()` refuses `background tasks unavailable: no task controller serves this agent (load @deepseek-ai/dsh-tool-tasks in its composition)` for an owner whose own composition attaches none, however many other compositions attach theirs, and a settlement reaches only the listeners its owner's composition registered.
 
 ## Model Experience
 

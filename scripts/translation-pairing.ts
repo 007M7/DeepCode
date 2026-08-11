@@ -281,7 +281,7 @@ export function parseTranslationPairingCliArgs(argv: string[]): TranslationPairi
   }
 }
 
-/** The structural surface compared between the two sides of a pair. */
+/** The structural signature compared between the two sides of a pair. */
 export interface TranslationStructureSignature {
   /** Heading depths in document order (h2 -> 2). */
   headings: number[]

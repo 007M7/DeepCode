@@ -14,7 +14,7 @@ Status: implemented
 
 `LocalTaskService` 拥有 `maxConcurrentTasksPerOwner` 配置字段。它只接受正的安全整数，默认值为 `10`，并通过 Service provider 的 Cordis schema、typed `agent-spine-demo` 组合包与 ACP 应用配置提供。组合包只传输该值；其含义归进程内 Service provider 所有。
 
-`start()` 在现有控制表层、任务字段与存活 owner 检查之后、`TaskStart.run()` 之前执行准入。它从注册表当前记录派生活动数量，而不保存另一份计数：
+`start()` 在现有任务控制器、任务字段与存活 owner 检查之后、`TaskStart.run()` 之前执行准入。它从注册表当前记录派生活动数量，而不保存另一份计数：
 
 | 记录 | 占用容量 | 释放事实 |
 |---|---:|---|

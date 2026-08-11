@@ -67,7 +67,7 @@ export interface Config {
   toolBash?: NonNullable<agentCore.Config['toolBash']>
   /** Process-local background-task admission config forwarded through agent-core. */
   tasks?: NonNullable<agentCore.Config['tasks']>
-  /** Generic background-task controls forwarded through agent-core; set false to omit their tool surface. */
+  /** Generic background-task controls forwarded through agent-core; set false to omit their tools. */
   toolTasks?: NonNullable<agentCore.Config['toolTasks']>
   /** Persisted same-session goals; owner defaults enable them, or false disables the stack and tools. */
   goals?: agentCore.GoalConfig | false
