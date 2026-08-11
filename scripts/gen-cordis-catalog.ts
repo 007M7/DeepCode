@@ -117,12 +117,12 @@ export const SERVICE_WALK_EXEMPTIONS: Record<string, string> = {
   configuredAgentIdentities: 'not a service: launcher-provided boot-context value (ConfiguredAgentIdentities | undefined) — packages/core/agent-loop/README.md owns this launcher contract',
   launcherSessionQueryPath: 'not a service: launcher-provided boot-context value (string | undefined) — packages/session-query/session-query-sqlite/README.md owns this launcher contract',
   dshHomePath: 'not a service: boot-provided root accessor function (typeof dshHomePath | undefined) for Loader !!js config expressions — packages/boot/app-boot/README.md owns the boot contract',
-  headlessIo: 'not a service: launcher-provided root accessor value (HeadlessIo | undefined) for the headless bundle runner — packages/bundle/headless/README.md owns this launcher contract',
   launcherEnvironment: 'not a service: launcher-provided root accessor value (EnvironmentSnapshot | undefined) — packages/util/environment/README.md owns this launcher contract',
   lsp: 'interface-typed (LspService); implementing class Lsp is not the declared type name — packages/lsp/lsp/README.md owns the API',
   apiProxy: 'interface-typed (ApiProxy) with the class in api-proxy.ts, not index.ts — packages/host/apiproxy/README.md owns the API',
   appShell: 'client-side interface-typed browser service — packages/client/web/README.md owns the API',
   connection: 'client-side interface-typed browser service — packages/client/connection/README.md owns the API',
+  settingsScope: 'client-side settings-namespace transport service — packages/client/ui-settings/README.md owns the API',
   chatFileMentions: 'client-side slot-contract accessor (ChatFileMentions) — packages/client/ui-conversation/README.md owns the API',
   command: 'client-side interface-typed browser service — packages/client/ui-command/README.md owns the API',
   conversation: 'client-side interface-typed browser service — packages/client/ui-conversation/README.md owns the API',
@@ -149,6 +149,7 @@ export const SERVICE_WALK_EXEMPTIONS: Record<string, string> = {
 export const EVENT_SCOPE_PAGE: Record<string, string> = {
   'agent': 'core.md',
   'agent-loop': 'core.md',
+  'agent-preset': 'core.md',
   'approval': 'approval.md',
   'commands': 'commands.md',
   'credentials': 'credentials.md',
@@ -173,18 +174,12 @@ export const EVENT_SCOPE_PAGE: Record<string, string> = {
  * scan reads EVERY `declare module '@deepseek-ai/cordis'` Events merge under
  * `packages/x/x/src/**`, so a declared event either renders onto a subsystems
  * page (via {@link EVENT_SCOPE_PAGE}) or names itself here — never vanishes
- * silently. Keys are full event names, not scopes: client-face events share
- * scopes with rendered host events (`commands/changed` beside `commands/*`),
- * so a scope-level exemption would mask a host-face regression.
+ * silently. Keys are full event names rather than scopes, so a scope-level
+ * exemption cannot mask another declaration in that scope.
  */
 export const EVENT_WALK_EXEMPTIONS: Record<string, string> = {
-  'commands/changed': 'client-face registry invalidation signal — packages/client/runtime/README.md owns the API',
   'connection/reset': 'client-face transport signal — packages/client/runtime/README.md owns the API',
-  'credentials/changed': 'client-face registry invalidation signal — packages/client/runtime/README.md owns the API',
   'locale/change': 'client-face locale switch signal — packages/client/locale/README.md owns the API',
-  'models/changed': 'client-face registry invalidation signal — packages/client/runtime/README.md owns the API',
-  'session/preset-changed': 'client-face per-session catalog invalidation signal — packages/client/runtime/README.md owns the API',
-  'settings/changed': 'client-face registry invalidation signal — packages/client/runtime/README.md owns the API',
   'slash/input-begin-command': 'client-face slash-input protocol — packages/client/ui-slash/README.md owns the API',
   'slash/input-consume-token': 'client-face slash-input protocol — packages/client/ui-slash/README.md owns the API',
   'slash/input-insert-reference': 'client-face slash-input protocol — packages/client/ui-slash/README.md owns the API',

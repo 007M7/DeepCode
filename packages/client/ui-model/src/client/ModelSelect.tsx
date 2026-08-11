@@ -7,7 +7,9 @@
  * ToggleButton) shows both: model name + effort in the caption tone.
  * Data and submission ride the SAME per-session ModelDirectory as the
  * /model popup; exact-model reasoning metadata and the selected effort come
- * from the Host rather than a client-owned vocabulary.
+ * from the Host rather than a client-owned vocabulary. A rejected selection
+ * announces through the shared transient Toast anchored to the composer
+ * card; the in-menu strip with Retry remains the catalog-load surface.
  */
 import {
   useEffect, useId, useMemo, useRef, useState, useSyncExternalStore,
@@ -17,6 +19,7 @@ import clsx from 'clsx'
 import type { ModelReasoningEffort, ModelSelection } from '@deepseek-ai/dsh-client-connection/client'
 import {
   IconCheckOutline16, IconChevronDownOutline14, IconChevronRightOutline14,
+  IconWarningOutline16, Toast,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ModelSelectInjected } from './slots.ts'
@@ -49,6 +52,13 @@ export function ModelSelect(
   )
   const [open, setOpen] = useState(false)
   const [pane, setPane] = useState<Pane>('root')
+  // The in-menu error strip serves catalog loads (its Retry re-runs the
+  // load); a rejected SELECTION announces through the transient toast
+  // instead, so the strip renders only while the latest failure-capable
+  // action was a load.
+  const lastActionRef = useRef<'load' | 'select'>('load')
+  const [toast, setToast] = useState<{ seq: number; text: string } | null>(null)
+  const toastSeq = useRef(0)
   const rootRef = useRef<HTMLDivElement | null>(null)
   const triggerRef = useRef<HTMLButtonElement | null>(null)
   const itemRefs = useRef<(HTMLButtonElement | null)[]>([])
@@ -92,9 +102,17 @@ export function ModelSelect(
     ], [reasoning, t])
   const busy = state.status === 'selecting'
 
+  const reload = (): void => {
+    lastActionRef.current = 'load'
+    load()
+  }
+
   // Mount-time load resolves the trigger label; every open refreshes.
   useEffect(() => {
-    if (available) load()
+    if (available) {
+      lastActionRef.current = 'load'
+      load()
+    }
   }, [available, load])
 
   useEffect(() => {
@@ -111,7 +129,7 @@ export function ModelSelect(
   const show = (): void => {
     setPane('root')
     setOpen(true)
-    load()
+    reload()
   }
 
   const close = (restoreFocus = false): void => {
@@ -148,14 +166,25 @@ export function ModelSelect(
     close()
   }
 
+  const settleSelection = (accepted: boolean): void => {
+    if (accepted) {
+      if (rootRef.current !== null) close(true)
+      return
+    }
+    const message = directory.getSnapshot().error
+    if (message !== null) {
+      toastSeq.current += 1
+      setToast({ seq: toastSeq.current, text: t('error.action', { message }) })
+    }
+  }
+
   const choose = (selection: ModelSelection): void => {
     if (state.current?.provider === selection.provider && state.current.model === selection.model) {
       close(true)
       return
     }
-    void select(selection).then((accepted) => {
-      if (accepted && rootRef.current !== null) close(true)
-    })
+    lastActionRef.current = 'select'
+    void select(selection).then(settleSelection)
   }
 
   const chooseEffort = (effort: string | undefined): void => {
@@ -169,9 +198,8 @@ export function ModelSelect(
       model: state.current.model,
       ...effort === undefined ? {} : { reasoningEffort: effort },
     }
-    void select(selection).then((accepted) => {
-      if (accepted && rootRef.current !== null) close(true)
-    })
+    lastActionRef.current = 'select'
+    void select(selection).then(settleSelection)
   }
 
   const modelLabel = currentChoice?.model.name ?? t('trigger.fallback')
@@ -243,16 +271,16 @@ export function ModelSelect(
               {state.status === 'loading' && (
                 <div className={css.status}>{t('status.loading')}</div>
               )}
-              {state.error !== null && (
+              {state.error !== null && lastActionRef.current === 'load' && (
                 <div className={css.error}>
                   <span>{t('error.action', { message: state.error })}</span>
-                  <button type="button" className={css.retry} onClick={() => { load() }}>{t('retry')}</button>
+                  <button type="button" className={css.retry} onClick={reload}>{t('retry')}</button>
                 </div>
               )}
               {state.failures.map(failure => (
                 <div className={css.warning} key={failure.id}>
                   <span>{t('warning.groupLoad', { name: failure.name, message: failure.message })}</span>
-                  <button type="button" className={css.retry} onClick={() => { load() }}>{t('retry')}</button>
+                  <button type="button" className={css.retry} onClick={reload}>{t('retry')}</button>
                 </div>
               ))}
               <div className={clsx(css.groups, 'scrollable')}>
@@ -299,10 +327,10 @@ export function ModelSelect(
 
           {pane === 'effort' && (
             <>
-              {state.error !== null && (
+              {state.error !== null && lastActionRef.current === 'load' && (
                 <div className={css.error}>
                   <span>{t('error.action', { message: state.error })}</span>
-                  <button type="button" className={css.retry} onClick={() => { load() }}>{t('action.reload')}</button>
+                  <button type="button" className={css.retry} onClick={reload}>{t('action.reload')}</button>
                 </div>
               )}
               {effortChoices.length === 0
@@ -332,6 +360,15 @@ export function ModelSelect(
             </>
           )}
         </div>
+      )}
+      {toast !== null && (
+        <Toast
+          key={toast.seq}
+          text={toast.text}
+          icon={<IconWarningOutline16 />}
+          anchor={rootRef.current?.closest<HTMLElement>('[data-composer-card]') ?? null}
+          onDone={() => { setToast(null) }}
+        />
       )}
     </div>
   )

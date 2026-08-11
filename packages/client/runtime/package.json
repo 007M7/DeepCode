@@ -33,7 +33,8 @@
     "client": {
       "inject": [
         "@deepseek-ai/dsh-client-connection",
-        "@deepseek-ai/dsh-typert-registry"
+        "@deepseek-ai/dsh-typert-registry",
+        "@deepseek-ai/dsh-api-gateway"
       ],
       "platform": "web",
       "immediately": true
@@ -44,7 +45,6 @@
     "@deepseek-ai/dsh-agent": "workspace:^",
     "@deepseek-ai/dsh-attachment": "workspace:^",
     "@deepseek-ai/dsh-client-connection": "workspace:^",
-    "@deepseek-ai/dsh-client-schema-form": "workspace:^",
     "@deepseek-ai/dsh-commands": "workspace:^",
     "@deepseek-ai/dsh-client-ui-slots": "workspace:^",
     "@deepseek-ai/dsh-host-apiproxy": "workspace:^",
@@ -59,19 +59,20 @@
     "zustand": "~4.4.7"
   },
   "peerDependencies": {
+    "@deepseek-ai/dsh-api-gateway": "workspace:^",
     "@deepseek-ai/dsh-invariants": "workspace:^",
     "@deepseek-ai/dsh-type-meta": "workspace:^",
     "@deepseek-ai/dsh-typert-registry": "workspace:^",
     "@deepseek-ai/cordis": "workspace:^"
   },
   "devDependencies": {
+    "@deepseek-ai/dsh-api-gateway": "workspace:^",
     "@deepseek-ai/dsh-invariants": "workspace:^",
     "@deepseek-ai/dsh-timeout": "workspace:^",
     "@deepseek-ai/dsh-type-meta": "workspace:^",
     "@deepseek-ai/dsh-typert-registry": "workspace:^",
-    "@types/react": "~18.3.1",
     "@deepseek-ai/cordis": "workspace:^",
-    "@deepseek-ai/schemastery": "workspace:^"
+    "@types/react": "~18.3.1"
   },
   "files": [
     "lib/index.js",

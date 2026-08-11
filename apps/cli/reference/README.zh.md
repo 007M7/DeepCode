@@ -24,7 +24,7 @@
 
 | Profile | 参数 |
 |---|---|
-| `web` | `--host`、`--port`、`--dev`、可重复的 `--trusted-host` |
+| `web` | `--host`、`--port`、可重复的 `--trusted-host` |
 | `headless` | 任务文本，作为位置参数 |
 
 一次性任务（`dsh --profile headless "run the tests"`）通过核心注册表创建一个全新的持久化 Agent（智能体），提交任务、等待完全停稳并对 Session 执行 flush，再从其持久化事件区间中推导最后一个非空 assistant 文本与最终 `turn/end` 原因。它在 stdout 打印文本，并在原因为 `completed` 时以 0 退出，否则以 1 退出。没有任务的调用是该应用的用法错误。随附 headless profile 不挂载 ApiProxy、Host、HTTP 服务器、Web 运行时或浏览器客户端；成功运行不会向 stderr 写入任何内容，也不会打开监听端口。
@@ -52,7 +52,7 @@ Git 托管、随附源码的插件在安装期间通过其 `prepare` 脚本构�
 
 ## Web 别名
 
-`dsh web` 是 `--profile web` 的硬编码别名；写在它之后的 flag 属于 web 应用，由组合包中的普通提供方解析。`--host` 和 `--port` 覆盖承载它们的那些行的组合取值，可重复的 `--trusted-host` 通过 `ctx.webRuntime.trustedHosts` 提供本次调用的 authority（部署表达式会拼接自己的 authority），`--dev` 把 web-runtime 行切换到开发模式并启用组合包以禁用状态交付的客户端插件 HMR（热模块替换）接收器；若要无刷新更新客户端 bundle，还需单独运行 `pnpm run dev:web` watcher。
+`dsh web` 是 `--profile web` 的硬编码别名；写在它之后的 flag 属于 web 应用，由组合包中的普通提供方解析。`--host` 和 `--port` 覆盖承载它们的那些行的组合取值，可重复的 `--trusted-host` 通过 `ctx.webRuntime.trustedHosts` 提供本次调用的 authority（部署表达式会拼接自己的 authority），客户端插件 HMR（热模块替换）接收器始终挂载，在单独运行的 `pnpm run dev:web` watcher 重建客户端 bundle 之前保持空闲。
 
 ```sh
 dsh web
@@ -63,9 +63,9 @@ dsh web --help
 
 生产 Web 运行器需要已构建的包和前端产物（`pnpm run build`）。默认服务地址是 `http://127.0.0.1:3080`。绑定所有接口时，还会信任机器自动发现的 LAN IP 字面量；`--trusted-host` 可添加 `/api` 浏览器信任围栏接受的具名 authority。
 
-进程关闭时会给插件树最多 5 秒完成 dispose。第一次 `SIGINT`/`SIGTERM` 启动该优雅排空；第二次信号强制立即退出。如果一次性运行正常结束时已经卡在 dispose 中，第一次 `Ctrl+C` 就会升格并立即退出，而不会被吞掉。
+进程关闭时会给插件树最多 5 秒完成 dispose。第一次 `SIGINT`/`SIGTERM` 启动该优雅排空——`SIGTERM` 是监督进程的普通停止请求，在所有 surface 上以 0 退出，`SIGINT` 报告 130；第二次信号强制立即退出。如果一次性运行正常结束时已经卡在 dispose 中，第一次 `Ctrl+C` 就会升格并立即退出，而不会被吞掉。
 
-所有模式都将调用目录作为默认 workspace 根目录，以 65,536 字节渲染预算加载适用的 `AGENTS.md` 或 `CLAUDE.md` 指令，并使用内存 SQLite 会话内容索引。常驻 surface 监视两个 `cordis.patch.yml` 层（profile 与 home）的有效编辑并以事务方式重新应用；一次性运行只在启动时读取这些文件一次。
+所有模式都将调用目录作为默认 workspace 根目录，以 65,536 字节渲染预算加载适用的 `AGENTS.md` 或 `CLAUDE.md` 指令，并使用内存 SQLite 会话内容索引。每次 profile 启动都监视两个 `cordis.patch.yml` 层（profile 与 home）的有效编辑并以事务方式重新应用；一次性 surface 经由有界关闭退出，关闭会先 dispose 监视器。
 
 新会话默认使用 `workspace-write` 权限预设。Bash 和文件系统修改仅限于会话 workspace 与平台临时根目录；读取、网络访问和进程可见性不受限制。`DSH_PERMISSION_MODE` 更改进程后备值。General settings 中存储的权限影响后续 Web 会话，不改变已打开的会话。
 

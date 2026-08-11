@@ -9,14 +9,14 @@ import { dirname } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { installModelSelection } from '@deepseek-ai/dsh-agent'
 import type { Agent, ModelSelection, ModelSelectionRef, AgentOptions, AgentStatus } from '@deepseek-ai/dsh-agent'
-import { AGENT_DEFAULT_MODEL_SETTINGS_NAMESPACE } from '@deepseek-ai/dsh-agent-default-model'
+import type {} from '@deepseek-ai/dsh-agent-presets/types'
 import { AttachmentError } from '@deepseek-ai/dsh-attachment'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import { contentHasImage, createUserMessage, freezeMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import { errorChain } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
-import { isAppendSurfaceEvent, lastActivityTime } from '@deepseek-ai/dsh-session'
-import type { Session, SessionEvent, SessionEventMap, SessionHeader, SessionId, UserMessage } from '@deepseek-ai/dsh-session'
+import { isAppendSurfaceEvent, isJsonValue, lastActivityTime } from '@deepseek-ai/dsh-session'
+import type { JsonValue, Session, SessionEvent, SessionEventMap, SessionHeader, SessionId, UserMessage } from '@deepseek-ai/dsh-session'
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
 import { SessionQueryError, type SessionSearchCursor } from '@deepseek-ai/dsh-session-query'
 import { SubagentError } from '@deepseek-ai/dsh-subagent'
@@ -43,10 +43,13 @@ import type {
   WorkspaceId, WorkspaceView,
 } from './api/index.ts'
 import {
+  DEFAULT_SESSION_LOG_COMPRESSION_LEVEL,
+  flushLiveSessionLog,
   sessionLogExportDeps,
   sessionLogZipFilename,
   streamSessionLogZip,
   type SessionLogExportReady,
+  type SessionLogCompressionLevel,
 } from './session-export.ts'
 import type { SessionRawArtifact } from '@deepseek-ai/dsh-session-persistence'
 import {
@@ -93,6 +96,7 @@ import { DirectoryPickerError } from '@deepseek-ai/dsh-host-directory-picker'
 import {
   ApiRemoteSessionNotFound as SessionNotFound,
   ApiRemoteSubagentSessionOwnership as SubagentSessionOwnership,
+  API_REMOTE_FORWARDED_EVENTS,
   apiRemoteSubagentOwnershipError,
   createApiRemoteAgentResolver,
   hasApiRemoteSubagentOwner,
@@ -411,6 +415,29 @@ function frame<F>(payload: F): RpcRequest<F> {
   return { rpcId: RpcId(randomUUID()), payload }
 }
 
+/**
+ * Narrow one allowlisted host event's argument list to the JSON values the
+ * wrapper frame carries. A rejected argument is an allowlist mistake (the
+ * forwarded path applies no projection), not hostile input, so it throws rather
+ * than degrading to a lossy frame. The throw surfaces where the forwarding
+ * listener runs, so the emitter's own listener containment logs it and drops
+ * that frame — loud in the Host log, not at load or at the emit. Exported for
+ * the test that owns this decision: every currently allowlisted event has a
+ * statically JSON-safe payload, so a type-legal `ctx.emit` cannot reach the
+ * rejection branch.
+ * @param event - forwarded host event name, named in the failure.
+ * @param args - the emitter's argument list.
+ * @returns the same arguments typed as JSON values.
+ */
+export function assertJsonArgs(event: string, args: readonly unknown[]): JsonValue[] {
+  for (const [index, arg] of args.entries()) {
+    if (!isJsonValue(arg)) {
+      throw new Error(`forwarded host event "${event}" argument ${index} is not lossless JSON data`)
+    }
+  }
+  return args as JsonValue[]
+}
+
 /** Queue the subscription baseline frame. */
 function subscribeSession(queue: FrameQueue<RpcRequest<MuxFrame>>, session: Session): void {
   queue.push(frame({ type: 'session/subscribed', sessionId: session.id, lastSeq: session.seq - 1 }))
@@ -543,6 +570,8 @@ export interface ApiProxyDefaults {
   openPath?: (path: string, signal: AbortSignal) => Promise<void>
   /** Native text-editor handoff; injectable for settings-document tests. */
   openTextFile?: (path: string, signal: AbortSignal) => Promise<void>
+  /** Validated DEFLATE level for session-log ZIP entries; defaults to 6. */
+  sessionExportCompressionLevel?: SessionLogCompressionLevel
   /**
    * Whether handing a path to the native opener can work at all — the
    * `hasDocument` capability the preset roster reports, and the switch
@@ -988,6 +1017,8 @@ function changedWorkspaceView(workspaceId: string, value: unknown): WorkspaceVie
  * @returns the ApiProxy implementation.
  */
 export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiProxy {
+  const sessionExportCompressionLevel = defaults.sessionExportCompressionLevel
+    ?? DEFAULT_SESSION_LOG_COMPRESSION_LEVEL
   /** The seed model each create/resume declares; re-read so it never goes stale. */
   const agentOptions = (): AgentOptions => {
     const { provider, model } = defaults.defaultModelSelection()
@@ -3434,44 +3465,23 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
               workspace: changedWorkspaceView(change.key, change.value),
             }))
           }),
-          ctx.on('commands/change', () => {
-            queue.push(frame({ type: 'host/commands-changed' }))
-          }),
-          // The recompose itself registers nothing (it re-parents the agent's
-          // scope onto a standing mount that may already exist), so the
-          // logged selection is the only commit point a client can follow.
-          ctx.on('session/event', (session: Session, event: SessionEvent) => {
-            if (event.type !== 'agent-preset/selected') return
-            queue.push(frame({
-              type: 'host/session-preset-changed',
-              sessionId: session.id,
-              agentPreset: event.data.agentPreset,
-            }))
-          }),
-          ctx.on('settings/document-updated', (ns) => {
-            // The RAW-section event, not the resolved one: a field going from
-            // inherited to overridden leaves the resolved value equal, and a
-            // configuration client still has to re-read (its held revision is
-            // stale, and the field's meaning changed).
-            const name = String(ns)
-            queue.push(frame({ type: 'host/settings-changed', ns: name }))
-            // A provider's own settings carry its model catalog and endpoint,
-            // so a change there invalidates the model list even when the route
-            // set is untouched — `llm/adapters-updated` alone misses it. The
-            // Agent default section is the other such source: it names the
-            // selection every session with no logged one resolves to, so an
-            // externally edited default (another tab, a hand-edited
-            // settings.yaml) has to reach an open selector too.
-            if (modelProviderNamespaces().has(name) || name === String(AGENT_DEFAULT_MODEL_SETTINGS_NAMESPACE)) {
-              queue.push(frame({ type: 'host/models-changed' }))
-            }
-          }),
-          ctx.on('credentials/updated', (ref) => {
-            queue.push(frame({ type: 'host/credentials-changed', ref: String(ref) }))
-          }),
-          ctx.on('llm/adapters-updated', () => {
-            queue.push(frame({ type: 'host/models-changed' }))
-          }),
+          // Allowlisted host events ride one verbatim wrapper frame each. The
+          // allowlist is api-remotes', and `ctx.remote.$on` is the consumer
+          // face; nothing here projects, redacts, or renames.
+          ...API_REMOTE_FORWARDED_EVENTS.map(name => ctx.on(
+            name,
+            // The allowlist's shape assertion proves each name is a real,
+            // non-scoped, void-returning event, so the rest-parameter handler
+            // satisfies every member of the union `on` accepts here;
+            // assertJsonArgs proves the payload is JSON-safe before it queues.
+            ((...args: unknown[]) => {
+              queue.push(frame({
+                type: 'host/remote-event',
+                event: name,
+                args: assertJsonArgs(name, args),
+              }))
+            }),
+          )),
         ]
         return queue.iterate(signal, () => { for (const dispose of disposers) dispose() })
       },
@@ -3489,24 +3499,41 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             { status: 500 },
           )
         }
+        if (!deps.sessionPersistence.supportsRawArtifacts) {
+          return new Response(
+            'session log export is unavailable: the persistence backend does not expose per-session raw artifacts',
+            { status: 501 },
+          )
+        }
         const ready: SessionLogExportReady = {
           sessionQuery: deps.sessionQuery,
           sessionPersistence: deps.sessionPersistence,
           attachments: deps.attachments,
+          sessions: deps.sessions,
         }
         let root: SessionRawArtifact | undefined
         try {
+          await flushLiveSessionLog(deps, request.sessionId, signal)
           root = await deps.sessionPersistence.readRaw(request.sessionId, signal)
+          signal.throwIfAborted()
         } catch {
-          // Backend read failure: answer 500 without echoing the error, which
-          // may carry absolute host paths into the browser error bar.
-          return new Response('session log export failed to read the stored artifact', { status: 500 })
+          signal.throwIfAborted()
+          // Root preparation failure: answer 500 without echoing the error,
+          // which may carry absolute host paths into the browser error bar.
+          return new Response('session log export failed to prepare the stored artifact', { status: 500 })
         }
         if (root === undefined) {
           return new Response('session not found', { status: 404 })
         }
         return new Response(
-          streamSessionLogZip(ready, root, request.sessionId, request.includeDescendants === true, signal),
+          streamSessionLogZip(
+            ready,
+            root,
+            request.sessionId,
+            request.includeDescendants === true,
+            sessionExportCompressionLevel,
+            signal,
+          ),
           {
             headers: {
               'content-type': 'application/zip',

@@ -7,6 +7,7 @@
 // coverage gate still requires exercised.
 
 import { Context } from '@deepseek-ai/cordis'
+import { stubSettingsScope } from '@deepseek-ai/dsh-client-test-runtime'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
 import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
@@ -26,6 +27,9 @@ async function bench() {
   // seam for persistence; model this bench as a remote, memory-only browser.
   ctx.provide('locale', new LocaleService(ctx))
   ctx.provide('connection', { api: { settings: {} }, isLoopback: false } as never)
+  // ui-theme's Appearance row binds a durable scope through these two.
+  ctx.provide('remote', { $on: () => () => {} } as never)
+  ctx.provide('settingsScope', { bind: () => stubSettingsScope().scope } as never)
   await ctx.plugin({ inject: themeInject, apply: themeApply }).await()
   await slotsFiber.await()
   return { ctx, slots: ctx.get('slots') as SlotsService }

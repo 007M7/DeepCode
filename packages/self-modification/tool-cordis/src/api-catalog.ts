@@ -237,8 +237,8 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Validate and durably commit one image before its owning session event is appended.\n * @param input - encoded bytes, declared media type, and optional display name.\n * @returns a durable content-addressed reference.\n */',
       },
       {
-        signature: 'abstract readImage(ref: ImageAttachmentRef): Promise<StoredImageAttachment>',
-        jsDoc: '/**\n * Read one image and verify that bytes still match the recorded reference.\n * @param ref - durable reference from the session log.\n * @returns the verified bytes and canonical reference.\n */',
+        signature: 'abstract readImage(ref: ImageAttachmentRef, signal?: AbortSignal): Promise<StoredImageAttachment>',
+        jsDoc: '/**\n * Read one image and verify that bytes still match the recorded reference.\n * @param ref - durable reference from the session log.\n * @param signal - optional cancellation for backend read and verification work.\n * @returns the verified bytes and canonical reference.\n * @throws the signal reason when aborted, or a storage error when verification fails.\n */',
       },
     ],
   },
@@ -720,7 +720,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'readRaw(_id: SessionId, signal?: AbortSignal): Promise<SessionRawArtifact | undefined>',
-        jsDoc: '/**\n * Read a session\'s backend-owned artifact text verbatim — the exact durable\n * bytes the backend wrote (decoded from its physical encoding, e.g. a\n * decompressed JSONL). The returned `content` is the raw text, not a\n * reconstruction from parsed events, so it preserves backend-specific\n * serialization (chunk packing, key order, line breaks). Backends without a\n * per-session artifact (SQLite) inherit the `undefined` default.\n * @param _id - the persisted session to read (unused by the default: no\n * per-session artifact).\n * @param signal - optional cancellation for backend read work.\n * @returns the raw artifact plus its parsed header, or `undefined` when the\n * session is absent or the backend owns no per-session artifact.\n */',
+        jsDoc: '/**\n * Read a session\'s backend-owned artifact text verbatim — the exact durable\n * bytes the backend wrote (decoded from its physical encoding, e.g. a\n * decompressed JSONL). The returned `content` is the raw text, not a\n * reconstruction from parsed events, so it preserves backend-specific\n * serialization (chunk packing, key order, line breaks). Callers first test\n * {@link supportsRawArtifacts}; `undefined` then means only that the requested\n * session has no materialized artifact.\n * @param _id - the persisted session to read (unused by the default: no\n * per-session artifact).\n * @param signal - optional cancellation for backend read work.\n * @returns the raw artifact plus its parsed header, or `undefined` when the\n * session is absent.\n * @throws when this backend does not expose per-session raw artifacts.\n */',
       },
       {
         signature: 'abstract create(meta: SessionHeader): Promise<void>',
@@ -1406,6 +1406,13 @@ export const EVENT_API: readonly EventApiEntry[] = [
     summary: 'A declarative agent entry failed before it could publish a live agent.',
   },
   {
+    name: 'agent-preset/selected',
+    mode: 'emit',
+    signature: '\'agent-preset/selected\'(sessionId: SessionId, agentPreset: string): void',
+    jsDoc: '/**\n * One session committed a different agent preset to its durable log.\n * Consumers invalidate only state derived from that session\'s composition.\n * @mode emit\n * @param sessionId - the session whose composition changed.\n * @param agentPreset - the preset recorded by the committed selection.\n */',
+    summary: 'One session committed a different agent preset to its durable log.',
+  },
+  {
     name: 'agent/created',
     mode: 'emit',
     signature: '\'agent/created\'(this: Scoped<Agent>, payload: { agent: Agent }): void',
@@ -1549,7 +1556,7 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'llm/adapters-updated',
     mode: 'emit',
     signature: '\'llm/adapters-updated\'(): void',
-    jsDoc: '/**\n * The provider topology changed: an adapter registered or unregistered\n * routes, or the configurable-provider directory gained or lost entries.\n * This is a payload-free registry notification fired at each commit point\n * (including registration disposal); consumers re-read `listProviders()`,\n * `listModels()`, or `listConfigurableProviders()` for the new state.\n * Observer failures are contained and cannot veto the registry mutation.\n * @mode emit\n */',
+    jsDoc: '/**\n * The provider topology changed: an adapter registered or unregistered\n * routes, or the configurable-provider directory gained or lost entries.\n * This payload-free registry notification fires at each commit point\n * (including registration disposal); consumers re-read `listProviders()`,\n * `listModels()`, or `listConfigurableProviders()` for the new state.\n * Observer failures are contained and cannot veto the registry mutation.\n * @mode emit\n */',
     summary: 'The provider topology changed: an adapter registered or unregistered routes, or the configurable-provider directory gained or lost entries.',
   },
   {
