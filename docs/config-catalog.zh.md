@@ -2301,7 +2301,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-tool-subagent`
 
-需要：`tools` · `subagents`
+需要：`tools` · `subagents` · `systemPrompt`
 
 ```ts config-catalog
 /** Config: which registered provider this tool delegates to, plus child defaults. */
@@ -2319,9 +2319,10 @@ export interface Config {
    */
   enableRunInBackground?: boolean
   /**
-   * Background execution policy (default `one-shot`). `continuable` requires a
-   * provider with the `prepareContinuable` capability and returns the durable
-   * child id; follow-up adapters remain independently optional.
+   * Background execution policy (default `one-shot`). `one-shot` defaults calls
+   * to foreground; `continuable` defaults them to background, requires a provider
+   * with the `prepareContinuable` capability, and returns the durable child id.
+   * Follow-up adapters remain independently optional.
    */
   backgroundMode?: 'one-shot' | 'continuable'
   /**
@@ -2359,7 +2360,7 @@ export interface Config {
 
 依赖：[`AgentOptions`](subsystems/core.md)
 
-来源：[`packages/subagent/tool-subagent/src/index.ts:25`](../packages/subagent/tool-subagent/src/index.ts)
+来源：[`packages/subagent/tool-subagent/src/index.ts:29`](../packages/subagent/tool-subagent/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-subagent-report`
 
