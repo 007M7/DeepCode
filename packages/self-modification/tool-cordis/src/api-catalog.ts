@@ -719,6 +719,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Resolve this backend\'s independent local artifact for a session without\n * reading, creating, flushing, or otherwise materializing it. Backends such\n * as SQLite that do not own one artifact per session return `undefined`.\n * @param meta - the immutable session header whose artifact is requested.\n * @returns the backend-specific absolute location, when one exists.\n */',
       },
       {
+        signature: 'readRaw(_id: SessionId, signal?: AbortSignal): Promise<SessionRawArtifact | undefined>',
+        jsDoc: '/**\n * Read a session\'s backend-owned artifact text verbatim — the exact durable\n * bytes the backend wrote (decoded from its physical encoding, e.g. a\n * decompressed JSONL). The returned `content` is the raw text, not a\n * reconstruction from parsed events, so it preserves backend-specific\n * serialization (chunk packing, key order, line breaks). Backends without a\n * per-session artifact (SQLite) inherit the `undefined` default.\n * @param _id - the persisted session to read (unused by the default: no\n * per-session artifact).\n * @param signal - optional cancellation for backend read work.\n * @returns the raw artifact plus its parsed header, or `undefined` when the\n * session is absent or the backend owns no per-session artifact.\n */',
+      },
+      {
         signature: 'abstract create(meta: SessionHeader): Promise<void>',
         jsDoc: '/**\n * Register a new session\'s metadata. A backend MAY defer the physical write\n * until the first {@link append} (lazy materialization), in which case a\n * created-but-never-appended session is absent from {@link list}\n * — abandoned sessions leave nothing behind.\n * @param meta - the immutable header (id, version, cwd, lineage) to record.\n */',
       },
@@ -1238,7 +1242,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     methods: [
       {
         signature: 'presentAs(mode: ToolPresentationMode): () => void',
-        jsDoc: '/**\n * Present this agent\'s tools in `mode` instead of the deployment default.\n *\n * Scoped only, and one declaration per agent: this is how an agent preset\n * composes a Code Mode agent beside native ones in the same process, and a\n * process-global override would be the `mode` config field instead.\n * @param mode - the presentation this agent\'s model sees.\n * @returns the exact disposer that restores the deployment default.\n */',
+        jsDoc: '/**\n * Present the calling scope\'s tools in `mode` instead of the deployment\n * default. Nearest scope on the chain wins, so a preset\'s standing\n * declaration covers every agent joined under it.\n *\n * Scoped only, and one declaration per scope: this is how an agent preset\n * composes Code Mode agents beside native ones in the same process, and a\n * process-global override would be the `mode` config field instead.\n * @param mode - the presentation the covered agents\' models see.\n * @returns the exact disposer that restores the deployment default.\n */',
       },
       {
         signature: 'register(definition: ToolDefinition): () => void',
@@ -2848,6 +2852,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SessionProjectionMap',
     declaration: 'export interface SessionProjectionMap {\n}',
+  },
+  {
+    name: 'SessionRawArtifact',
+    declaration: 'export interface SessionRawArtifact {\n    readonly meta: SessionHeader;\n    readonly filename: string;\n    readonly content: string;\n}',
   },
   {
     name: 'SessionRecord',
