@@ -1,12 +1,9 @@
 /**
- * Server-side per-session write grant: the ACE materialization half of the
- * sandbox seam's per-session grant reuse. The seam (sandbox-local) holds ONE
- * {@link AclWriteGrant} per session for the server process's lifetime —
- * created lazily at the session's first confined execution, reused (never
- * re-applied) for every later call, revoked on provider dispose. The durable
- * half (the session's SID and paths surviving a restart) lives in the
- * session log, owned by the seam; this module owns only the native half: the
- * parsed SID pointer and the standing ACEs.
+ * Server-side write-grant materialization. The sandbox seam holds one
+ * standing workspace grant per workspace and one revocable temp grant per
+ * live session/workspace pair. Workspace identities survive by deterministic
+ * derivation and their standing ACE; temp identities derive from random
+ * private paths and are deliberately new after a restart.
  *
  * Fail-closed: `add` throws on any grant failure and the caller disposes the
  * instance (revoking every path granted so far); `dispose` revokes every
@@ -19,7 +16,7 @@ import { allocPtrSlot, decodePtr, isNullPtr, throwLastError, win32Sync } from '.
 import type { NativePtr, Win32Bindings } from './ffi.ts'
 
 /**
- * One write SID's server-lifetime grant materialization: the parsed SID
+ * One write SID's provider-lifetime grant materialization: the parsed SID
  * pointer plus every directory whose DACL currently carries its ACE.
  * Workspace paths are added STANDING (their ACEs are the cross-session reuse
  * cache and outlive the grant — dispose() skips revoking them, or the next
@@ -45,7 +42,7 @@ export class AclWriteGrant {
   /**
    * Parse the SID string and open the binding table (lazily, once per
    * server). Fail-closed: any failure throws — nothing is granted yet.
-   * @param writeSid - the orphan write SID string (`S-1-4-x-y`).
+   * @param writeSid - the workspace (`S-1-4-x-y`) or temp (`S-1-4-x-y-1`) capability SID string.
    * @param api - optional already-resolved bindings (tests).
    * @returns the ready grant (no ACEs yet).
    */

@@ -441,6 +441,11 @@
       "source": "packages/session/session-persistence/src/index.ts"
     },
     {
+      "doc": "docs/subsystems/persistence.md",
+      "symbol": "SessionRawArtifact",
+      "source": "packages/session/session-persistence/src/index.ts"
+    },
+    {
       "doc": "docs/subsystems/session-query.md",
       "symbol": "SessionEventSurface",
       "source": "packages/session-query/session-query/src/types.ts"
@@ -1163,6 +1168,11 @@
     {
       "doc": "docs/subsystems/subagent.md",
       "symbol": "SubagentReportDelivery",
+      "source": "packages/subagent/subagent/src/continuation.ts"
+    },
+    {
+      "doc": "docs/subsystems/subagent.md",
+      "symbol": "SubagentSettledMessageSource",
       "source": "packages/subagent/subagent/src/continuation.ts"
     },
     {

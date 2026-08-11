@@ -45,6 +45,8 @@ const credentialsConfigPath = fileURLToPath(new URL('../credentials.cordis.snaps
 const invalidCredentialScenarioDir = join(snapshotsDir, 'invalid-credential')
 const ralphScenarioDir = join(snapshotsDir, 'ralph-loop')
 const ralphConfigPath = fileURLToPath(new URL('../ralph.cordis.snapshot.yml', import.meta.url))
+const settlementScenarioDir = join(snapshotsDir, 'subagent-settlement')
+const settlementConfigPath = fileURLToPath(new URL('../subagent-settlement.cordis.snapshot.yml', import.meta.url))
 const startupFailureConfigPath = fileURLToPath(new URL('./fixtures/startup-activation-error/cordis.yml', import.meta.url))
 const startupFailureExpected = join(snapshotsDir, 'startup-activation-error', 'stderr.expected.txt')
 const binScript = fileURLToPath(new URL('./fixtures/headless-driver.ts', import.meta.url))
@@ -772,6 +774,77 @@ describe('headless stream-json snapshots', () => {
     })
 
     expect(result.stderr).toBe('')
+    const normalized = normalizeHeadlessStream(result.stdout, runCwd)
+    if (refreshing) await writeFile(streamExpected, normalized)
+    expect(normalized).toBe(await readFile(streamExpected, 'utf8'))
+  }, LOADER_SMOKE_TEST_TIMEOUT_MS)
+
+  it('delivers a continuable child result without parent polling', async () => {
+    const parentReplay = join(settlementScenarioDir, 'parent.replay.jsonl')
+    const parentOverride = join(settlementScenarioDir, 'parent.override.json')
+    const childReplay = join(settlementScenarioDir, 'child.replay.jsonl')
+    const childExpected = join(settlementScenarioDir, 'child.expected.jsonl')
+    const streamExpected = join(settlementScenarioDir, 'stream-json.expected.jsonl')
+    const task = 'Start one continuable background subagent and answer from its completion notice. Do not call list_agents, send_message, task_output, or task_list.'
+    let runCwd = ''
+    const result = await runLoaderSmoke({
+      label: 'continuable settlement headless stream-json snapshot',
+      tempDirPrefix: 'headless-snapshot-subagent-settlement-',
+      binScript,
+      libBinScript: binScript,
+      configPath: settlementConfigPath,
+      binArgs: [settlementConfigPath, task],
+      tsconfigPath,
+      env: {
+        // The override fully supplies the parent script; the child fixture
+        // remains separate so replay binds it to the fresh child Session.
+        DSH_SNAPSHOT_FILE: parentReplay,
+        DSH_SNAPSHOT_OVERRIDE: parentOverride,
+        DSH_SNAPSHOT_CHILD_FILES: childReplay,
+        NODE_OPTIONS: [process.env.NODE_OPTIONS, '--disable-warning=ExperimentalWarning'].filter(Boolean).join(' '),
+      },
+      prepare: (cwd) => { runCwd = cwd },
+      inspect: async (cwd) => {
+        const logs = await persistedLogs(cwd)
+        expect(logs).toHaveLength(2)
+        const parent = logs.find(log => typeof log.header.parentSession !== 'string')
+        const child = logs.find(log => typeof log.header.parentSession === 'string')
+        if (parent === undefined || child === undefined) throw new Error('missing persisted parent or child log')
+
+        const parentRecords = parseJsonl(parent.content)
+        const calls = parentRecords.filter(record => record.type === 'tool/call')
+        expect(calls.map(record => (record.data as JsonObject | undefined)?.name)).toEqual(['subagent'])
+        const callArguments = (calls[0]?.data as JsonObject | undefined)?.arguments
+        if (typeof callArguments !== 'string') throw new Error('subagent call did not persist its arguments')
+        expect(JSON.parse(callArguments)).toMatchObject({ run_in_background: true })
+
+        const notices = parentRecords.flatMap((record) => {
+          if (record.type !== 'agent/inbox/spliced') return []
+          const inserted = (record.data as JsonObject | undefined)?.inserted
+          if (!Array.isArray(inserted)) return []
+          return (inserted as JsonObject[]).filter((message) => {
+            const source = message.source as JsonObject | undefined
+            return source?.kind === 'subagent-settled'
+          })
+        })
+        expect(notices).toHaveLength(1)
+        expect(JSON.stringify(notices[0])).toContain('CHILD_RESULT')
+
+        const context = contextFromLogs([parent.content, child.content])
+        const normalizedChild = scrubRequestHeaders(normalizeSessionLog(child.content, context))
+        if (refreshing) await writeFile(childExpected, normalizedChild)
+        expect(normalizedChild).toBe(await readFile(childExpected, 'utf8'))
+        expect(normalizedChild).toContain('CHILD_RESULT')
+        expect(normalizedChild).not.toContain('"name":"report"')
+      },
+    })
+
+    expect(result.stderr).toBe('')
+    const records = parseJsonl(result.stdout)
+    expect(records.at(-1)).toMatchObject({
+      type: 'result',
+      output: 'PARENT_RECEIVED_CHILD_RESULT',
+    })
     const normalized = normalizeHeadlessStream(result.stdout, runCwd)
     if (refreshing) await writeFile(streamExpected, normalized)
     expect(normalized).toBe(await readFile(streamExpected, 'utf8'))

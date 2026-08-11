@@ -122,6 +122,22 @@ interface CreateSessionOptions {
 
 因此，回放/fork 的调用方式为 `ctx.sessions.create(id, { seed: seedEvents })`；将一个*持久化*会话恢复为活跃 agent 的调用方式为 `ctx.agents.resume({ resumeSessionId })`。
 
+## `SessionRawArtifact`——逐字存储工件文本
+
+后端为单个会话自持的工件文本，与其持久化写入的字节逐字一致（按物理编码解码）。`readRaw` 返回它而不从解析后事件重建，因此后端特定的序列化（chunk 打包、键序、换行）得以保留；没有每会话工件的后端（如 SQLite）继承 `undefined` 默认。
+
+```ts type-equiv
+/** A backend's own raw artifact text for one session, verbatim. */
+interface SessionRawArtifact {
+  /** The session header parsed from the artifact's own first line. */
+  readonly meta: SessionHeader
+  /** The artifact's base filename on disk, without any physical encoding suffix. */
+  readonly filename: string
+  /** The artifact's full text content, decoded from the backend's physical encoding. */
+  readonly content: string
+}
+```
+
 ## 准备与恢复所有权
 
 `SessionStore.prepare()` 接收普通创建选项，或通过 `RestoredSessionOptions` 转移所有权的新鲜持久化对象图。恢复分支会直接验证并冻结转移来的 header 与事件，因此调用方不得保留可变别名。`SessionPreparation` 随后持有该精确的未发布 Session，直至发布或回滚；dispose 是同步且幂等的。持久化检查只暴露 `SessionInspection`，即从同一个已准备 Session 借用的不可变逻辑视图。
@@ -242,6 +258,21 @@ Durable append-only session storage. Implementations preserve contiguous, lossle
 abstract locate(meta: SessionHeader): SessionLocation | undefined
 
 /**
+ * Read a session's backend-owned artifact text verbatim — the exact durable
+ * bytes the backend wrote (decoded from its physical encoding, e.g. a
+ * decompressed JSONL). The returned `content` is the raw text, not a
+ * reconstruction from parsed events, so it preserves backend-specific
+ * serialization (chunk packing, key order, line breaks). Backends without a
+ * per-session artifact (SQLite) inherit the `undefined` default.
+ * @param _id - the persisted session to read (unused by the default: no
+ * per-session artifact).
+ * @param signal - optional cancellation for backend read work.
+ * @returns the raw artifact plus its parsed header, or `undefined` when the
+ * session is absent or the backend owns no per-session artifact.
+ */
+readRaw(_id: SessionId, signal?: AbortSignal): Promise<SessionRawArtifact | undefined>
+
+/**
  * Register a new session's metadata. A backend MAY defer the physical write
  * until the first {@link append} (lazy materialization), in which case a
  * created-but-never-appended session is absent from {@link list}
@@ -346,5 +377,5 @@ abstract listSnapshots(signal?: AbortSignal): Promise<SessionPersistenceSnapshot
 
 Types: [SessionEvent](session.md) · [SessionId](core.md)
 
-Source: [`packages/session/session-persistence/src/index.ts:74`](../../packages/session/session-persistence/src/index.ts)
+Source: [`packages/session/session-persistence/src/index.ts:84`](../../packages/session/session-persistence/src/index.ts)
 <!-- END GENERATED cordis-surface -->

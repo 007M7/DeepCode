@@ -170,18 +170,12 @@
         mode: !!js process.env.DSH_PERMISSION_MODE ?? 'workspace-write'
         workspaceRoot: !!js process.cwd()
 
-    # POSIX shell executor and its win32 twin: bash has no Windows runner, so
-    # each row gates itself on platform and exactly one shell stack mounts per
-    # host (both executors register the same 'bash' service).
     - id: bash-sandbox
       name: '@deepseek-ai/dsh-bash-sandbox'
       disabled: !!js process.platform === 'win32'
       config:
         timeoutMs: 60000
 
-    # The confined PowerShell executor, mounted on win32 only. Its config keeps
-    # the schema defaults (a 120s timeout); the 60s pin above is the bash
-    # executor's own knob, not a shared shell policy.
     - id: pwsh-sandbox
       name: '@deepseek-ai/dsh-pwsh-sandbox'
       disabled: !!js process.platform !== 'win32'
@@ -208,7 +202,6 @@
     - id: bash-env
       name: '@deepseek-ai/dsh-bash-env'
 
-    # The dialect tools gate with their executors: one shell tool per host.
     - id: tool-bash
       name: '@deepseek-ai/dsh-tool-bash'
       disabled: !!js process.platform === 'win32'
@@ -328,12 +321,16 @@
         toolName: subagent
         backgroundMode: continuable
 
+    # Fork stays one-shot: a continuable child's `report` tool and prompt
+    # section precede the inherited history a fork exists to reuse; one-shot
+    # fork children install neither, keeping the parent's request prefix.
+    # See .agents/notes/implemented/architecture/2026-08-10-fork-children-stay-one-shot.md.
     - id: tool-subagent-fork
       name: '@deepseek-ai/dsh-tool-subagent'
       config:
         provider: fork
         toolName: subagent_fork
-        backgroundMode: continuable
+        backgroundMode: one-shot
 
     # Optional direct-child return channel; absent from roots and one-shot agents.
     - id: tool-subagent-report

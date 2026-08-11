@@ -32,7 +32,7 @@ type ListAgentsEntry =
     readonly kind: 'child'
     readonly id: SessionId
     readonly label: string
-    readonly status: 'running' | 'idle' | 'complete'
+    readonly status: 'running' | 'idle' | 'ready'
     readonly parent?: SessionId
     readonly depth?: number
   }
@@ -52,11 +52,13 @@ function resolveListAgentsRequest(request: ListAgentsRequest): ListAgentsSpec {
 /**
  * Refine one candidate's status through the live Agent registry: `running`
  * for an active driver, `idle` for a resident Agent between turns (possibly
- * waiting on agents it started), and `complete` when no live Agent remains.
+ * waiting on agents it started), and `ready` when no live Agent remains.
+ * `ready` preserves resumability without presenting an inactive conversation
+ * as a terminal result to collect.
  */
-function statusOf(agents: { get(id: SessionId): Agent | undefined }, id: SessionId): 'running' | 'idle' | 'complete' {
+function statusOf(agents: { get(id: SessionId): Agent | undefined }, id: SessionId): 'running' | 'idle' | 'ready' {
   const agent = agents.get(id)
-  if (agent === undefined) return 'complete'
+  if (agent === undefined) return 'ready'
   return agent.status === 'running' ? 'running' : 'idle'
 }
 
@@ -90,10 +92,12 @@ export function apply(ctx: Context): void {
   ctx.tools.register(defineTool({
     name: 'list_agents',
     description:
-      'List your continuable background subagents by durable id and label. Status comes from the live '
+      'List your continuable background subagents by durable id and label. Use it to recall which ones '
+      + 'you started, not to poll for completion — you are told when one finishes. Status comes from the live '
       + 'registry: running means the agent is working right now, idle means it is loaded but between turns '
-      + '(it may be waiting on agents it started), and complete means it exists only in storage — a '
-      + 'direct child remains a `send_message` candidate in every status. The snapshot is not a delivery '
+      + '(it may be waiting on agents it started), and ready means it exists only in storage — resumable, not '
+      + 'terminal, and not a result waiting to be collected; a `send_message` starts a new turn on the same '
+      + 'conversation, and a direct child remains a `send_message` candidate in every status. The snapshot is not a delivery '
       + 'promise — `send_message` performs the authoritative check and may still fail. Children that could '
       + 'not be read are reported as diagnostics instead of being silently dropped. Scope `descendants` '
       + 'walks the whole tree below you in stable pre-order, annotating each entry with its durable direct-parent '
@@ -118,7 +122,7 @@ export function apply(ctx: Context): void {
                 kind: { type: 'string', required: true, enum: ['child'] },
                 id: { type: 'string', required: true },
                 label: { type: 'string', required: true },
-                status: { type: 'string', required: true, enum: ['running', 'idle', 'complete'] },
+                status: { type: 'string', required: true, enum: ['running', 'idle', 'ready'] },
                 parent: { type: 'string' },
                 depth: { type: 'number' },
               },
