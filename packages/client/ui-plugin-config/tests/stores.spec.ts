@@ -436,6 +436,30 @@ describe('WebSearchCardController', () => {
     expect(credentials.set).not.toHaveBeenCalled()
   })
 
+  it('re-reads when the Host reports the watched reference changed', async () => {
+    const host = stubSettingsScope<WebSearchSettings>()
+    const credentials = credentialsApi(false)
+    const controller = new WebSearchCardController(host.scope, credentials.api)
+    host.publish({ status: 'ready', writable: true, value: {}, user: {} })
+    await vi.waitFor(() => { expect(credentials.describe).toHaveBeenCalled() })
+    credentials.describe.mockClear()
+
+    // Another reference is not this card's business.
+    controller.refreshCredential('OTHER_KEY')
+    expect(credentials.describe).not.toHaveBeenCalled()
+
+    // A key written on another surface reaches this card only through this signal.
+    credentials.describe.mockImplementation(() => Promise.resolve({
+      rpcId: 'c-1' as never,
+      result: { ok: true as const, value: { credentials: { DEEPSEEK_API_KEY: { configured: true, writable: true } } } },
+    }))
+    controller.refreshCredential('DEEPSEEK_API_KEY')
+
+    await vi.waitFor(() => {
+      expect(controller.inject().hooks.webSearchCard.getSnapshot().apiKeyConfigured).toBe(true)
+    })
+  })
+
   it('addresses the reference the section declares rather than the default', async () => {
     const host = stubSettingsScope<WebSearchSettings>()
     const credentials = credentialsApi(false)

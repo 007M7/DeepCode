@@ -17,14 +17,15 @@ async function bench() {
   await ctx.plugin(SlotsService).await()
   const locale = new LocaleService(ctx)
   ctx.provide('locale', locale)
+  const describeCredentials = vi.fn(() => Promise.resolve({ rpcId: 'c', result: { ok: false, error: {} } }))
   ctx.provide('connection', {
     isLoopback: true,
     api: {
       settings: { describe: vi.fn(() => Promise.resolve({ rpcId: 's', result: { ok: false, error: {} } })) },
-      credentials: { describe: vi.fn(() => Promise.resolve({ rpcId: 'c', result: { ok: false, error: {} } })) },
+      credentials: { describe: describeCredentials },
     },
   } as never)
-  return { ctx, slots: ctx.get('slots') as SlotsService }
+  return { ctx, slots: ctx.get('slots') as SlotsService, describeCredentials }
 }
 
 function declareRoot(slots: SlotsService): () => void {
@@ -74,6 +75,33 @@ describe('ui-plugin-config apply', () => {
       // Each card injects exactly one snapshot store plus its own actions.
       expect(Object.keys(face.hooks)).toHaveLength(1)
     }
+  })
+
+  it('re-reads the credential when the Host reports the watched reference changed', async () => {
+    const { ctx, slots, describeCredentials } = await bench()
+    declareRoot(slots)
+    await ctx.plugin({ inject: [...inject], apply }).await()
+    await vi.waitFor(() => { expect(describeCredentials).toHaveBeenCalled() })
+    describeCredentials.mockClear()
+
+    // A key written on another surface changes no settings section, so this
+    // event is the only thing that reaches the card.
+    ctx.emit('credentials/changed', 'DEEPSEEK_API_KEY')
+
+    await vi.waitFor(() => { expect(describeCredentials).toHaveBeenCalledTimes(1) })
+  })
+
+  it('ignores a credential change for a reference no card watches', async () => {
+    const { ctx, slots, describeCredentials } = await bench()
+    declareRoot(slots)
+    await ctx.plugin({ inject: [...inject], apply }).await()
+    await vi.waitFor(() => { expect(describeCredentials).toHaveBeenCalled() })
+    describeCredentials.mockClear()
+
+    ctx.emit('credentials/changed', 'SOME_OTHER_KEY')
+    await Promise.resolve()
+
+    expect(describeCredentials).not.toHaveBeenCalled()
   })
 
   it('registers into a declaration that arrives after apply', async () => {

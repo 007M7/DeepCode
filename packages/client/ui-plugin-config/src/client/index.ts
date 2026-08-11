@@ -55,6 +55,14 @@ export function apply(ctx: ClientContext): void {
   const agentLoop = new AgentLoopCardController(bindSettingsScope(ctx, { namespace: AGENT_LOOP_NS }))
   const webSearch = new WebSearchCardController(bindSettingsScope(ctx, { namespace: WEB_SEARCH_NS }), api)
 
+  // The credential a card reports is not part of any settings section, so its
+  // scope publishes nothing when one is written. This is the only signal that
+  // a key written on another surface reached the Host.
+  ctx.effect(
+    () => ctx.on('credentials/changed', (ref) => { webSearch.refreshCredential(ref) }),
+    'ui-plugin-config: credential invalidations',
+  )
+
   // The section renders the empty line rather than an empty list when no plugin
   // contributed a card. The count is read once: the renderer caches a root
   // entry's inject face per registration, so this reports what was registered

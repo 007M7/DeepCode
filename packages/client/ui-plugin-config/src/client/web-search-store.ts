@@ -144,6 +144,19 @@ export class WebSearchCardController {
   }
 
   /**
+   * Re-read after the Host reports a change to the reference this card watches.
+   *
+   * A key can be written from somewhere else — the Models page addresses the
+   * same reference — and the settings section does not change when it is, so
+   * without this the badge keeps reporting a state the Host already replaced.
+   * @param ref - the reference the Host reports as changed.
+   */
+  refreshCredential(ref: string): void {
+    if (ref !== this.credential.ref) return
+    void this.readCredential()
+  }
+
+  /**
    * Build the face the card's slot registration injects.
    * @returns the card's snapshot and its form actions.
    */
