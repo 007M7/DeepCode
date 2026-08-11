@@ -988,6 +988,8 @@ export interface ReplayModelConfig {
   description?: string
   /** Optional positive integer context capacity published by the replay adapter. */
   contextWindow?: number
+  /** Optional declared input modalities, so a scenario can exercise capability gates (e.g. image-capable `read_image`). */
+  inputModalities?: readonly ModelModality[]
   /**
    * Optional per-request output cap the replay route materializes when callers
    * omit one, so replay reconstructs the request header a live catalog produced.
@@ -1003,9 +1005,9 @@ export interface ReplayModelConfig {
 }
 ```
 
-依赖：[`RetryPolicyConfig`](../packages/llm/llm/src/index.ts)
+依赖：[`ModelModality`](../packages/llm/llm/src/index.ts) · [`RetryPolicyConfig`](../packages/llm/llm/src/index.ts)
 
-来源：[`packages/support/llm-replay/src/index.ts:769`](../packages/support/llm-replay/src/index.ts)
+来源：[`packages/support/llm-replay/src/index.ts:776`](../packages/support/llm-replay/src/index.ts)
 
 ## `@deepseek-ai/dsh-llm-retry`
 
