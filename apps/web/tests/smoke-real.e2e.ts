@@ -478,7 +478,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY || notReady.length > 0)('web smoke
     requireDist()
     sessionsDir = mkdtempSync(join(tmpdir(), 'dsh-web-w5-'))
     const port = await probeFreePort()
-    // tsx boot mirrors demo:web — lib/ may be unbuilt in this worktree. Isolate
+    // tsx boot mirrors the runtime half of the root dsh script. Isolate
     // the host-level Harness and shared-agent homes inside the temp world; tsx
     // also needs the repo's loader and tsconfig paths pointed at explicitly.
     const tsxLoader = pathToFileURL(createRequire(join(REPO_ROOT, 'package.json')).resolve('tsx')).href

@@ -131,6 +131,15 @@ export interface TelemetryBackend {
 }
 
 /**
+ * Deployment-selected session-sharing policy disclosed by a mounted
+ * {@link Telemetry} backend to human-facing acknowledgement surfaces (the
+ * `/feedback` command's confirmation text). The seam owns the vocabulary so
+ * any backend can disclose a policy without depending on the OTel package;
+ * the values mirror the OTel backend's serialized `TelemetryMode` choices.
+ */
+export type TelemetrySharingStatus = 'full' | 'feedback-only' | 'disabled'
+
+/**
  * Loadable form of the backend contract: one implementation per context —
  * the cordis `Service` registration under the `telemetry` key throws on a
  * duplicate, cordis' standard behavior. A backend composes a
@@ -140,6 +149,15 @@ export abstract class Telemetry extends Service implements TelemetryBackend {
   constructor(ctx: Context) {
     super(ctx, 'telemetry')
   }
+
+  /**
+   * Deployment-selected session-sharing policy, disclosed for acknowledgement
+   * surfaces that report whether recorded feedback leaves the process. Every
+   * backend must disclose its policy; a consumer renders "not configured" only
+   * when no telemetry service is mounted. The seam owns this vocabulary so the
+   * disclosure is backend-independent.
+   */
+  abstract readonly sharing: TelemetrySharingStatus
 
   /**
    * See {@link TelemetryBackend.emit} — that declaration is the contract's one home.

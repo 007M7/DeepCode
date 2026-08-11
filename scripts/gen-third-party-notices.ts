@@ -27,8 +27,8 @@ const ALL_KINDS = ['dependencies', 'devDependencies', 'optionalDependencies', 'p
  * root manifest), test infrastructure, the documentation site, the runnable
  * demo leaves, and the native launcher's build workspace. A runtime
  * declaration by anything outside these areas is a disclosure-relevant
- * runtime dependency, because `scripts/install.sh` installs the repository
- * itself and any plugin package can be mounted from a user's `cordis.yml`.
+ * runtime dependency because any plugin package can be mounted from a user's
+ * `cordis.yml`.
  */
 const DEV_ONLY_AREAS = [
   'package.json',
@@ -369,7 +369,7 @@ function collectNpmDeps(): ExternalDep[] {
  */
 export function tierExternalDeps(manifests: Map<string, Manifest>, names: Set<string>): Map<string, boolean> {
   const tiers = new Map<string, boolean>()
-  // `tsx` is runtime by fiat: `bin/dsh` execs the CLI through its ESM hook.
+  // `tsx` is runtime by fiat: the root source-run scripts execute through its ESM hook.
   tiers.set('tsx', true)
   for (const [path, manifest] of manifests) {
     const devOnly = DEV_ONLY_AREAS.some(area => (area.endsWith('/') ? path.startsWith(area) : path === area))
@@ -707,7 +707,7 @@ ${vendored.map(row => `| \`${row.npmName}\` | \`${row.upstreamName}\` | [${row.u
 
 ## Runtime npm dependencies
 
-External packages that a workspace package resolves at runtime. \`scripts/install.sh\` installs this repository itself, so the tier covers every plugin a user can mount from \`cordis.yml\` — not only what the \`dsh\` CLI, Web UI, and Python SDK runtime load by default.
+External packages that a workspace package resolves at runtime. The tier covers every plugin a user can mount from \`cordis.yml\` — not only what the \`dsh\` CLI, Web UI, and Python SDK runtime load by default.
 
 ${renderNpmTable(runtimeDeps)}
 

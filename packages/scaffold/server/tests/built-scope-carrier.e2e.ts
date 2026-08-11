@@ -106,6 +106,8 @@ describe.skipIf(!existsSync(jsonrpcBundle))('dsh-jsonrpc BUILT scope carrier', (
     })
 
     expect(stderr).not.toContain('listener threw')
+    // A result without output omits lastAssistantMessage from the wire; it
+    // never sends `[]`.
     expect(JSON.parse(stdout) as unknown).toEqual([{
       method: 'subagent.finished',
       params: {
@@ -115,7 +117,6 @@ describe.skipIf(!existsSync(jsonrpcBundle))('dsh-jsonrpc BUILT scope carrier', (
         childSessionId: 'built-child',
         status: 'ok',
         stopReason: 'completed',
-        lastAssistantMessage: [],
       },
     }])
   })

@@ -384,6 +384,7 @@ export const LINK_MAP: Readonly<Record<string, string>> = {
   TaskRead: 'tasks.md',
   TaskSnapshot: 'tasks.md',
   TaskStart: 'tasks.md',
+  TasksChangedListener: 'tasks.md',
   TokenMeasurement: 'token-meter.md',
   CodeDispatchLog: 'tools.md',
   PostToolDecision: 'tools.md',
@@ -462,6 +463,7 @@ export const FOUNDATION_TYPE_NAMES: ReadonlySet<string> = new Set([
   'Promise',
   'Record',
   'Readonly',
+  'Uint8Array',
 ])
 
 /** Project types deliberately documented outside the subsystems catalog. */
