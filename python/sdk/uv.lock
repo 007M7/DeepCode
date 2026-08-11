@@ -42,7 +42,7 @@ test = [
 [package.metadata]
 requires-dist = [
     { name = "deepseek-harness-runtime-bin", editable = "../sdk-runtime" },
-    { name = "pydantic", specifier = ">=2.12" },
+    { name = "pydantic", specifier = ">=2.12,<3" },
 ]
 
 [package.metadata.requires-dev]

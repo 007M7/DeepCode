@@ -22,7 +22,7 @@ RUNTIME_DISTRIBUTION = "deepseek-harness-runtime-bin"
 PLATFORMS = {
     "linux-x64": ("manylinux_2_28_x86_64", "dsh-jsonrpc-agent-pkg-linux-x64"),
     "linux-arm64": ("manylinux_2_28_aarch64", "dsh-jsonrpc-agent-pkg-linux-arm64"),
-    "macos-arm64": ("macosx_11_0_arm64", "dsh-jsonrpc-agent-pkg-macos-arm64"),
+    "macos-arm64": ("macosx_14_0_arm64", "dsh-jsonrpc-agent-pkg-macos-arm64"),
 }
 
 
@@ -35,7 +35,7 @@ def main() -> None:
     parser.add_argument("--package", choices=("sdk", "runtime"), required=True)
     parser.add_argument(
         "--tag",
-        help="optional python-vX.Y.Z release tag; it must match package.json",
+        help="optional python-v<repository-version> release tag; it must match package.json",
     )
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--platform", choices=tuple(PLATFORMS))
@@ -146,8 +146,29 @@ def rewrite_version(pyproject: Path, version: str) -> None:
     pyproject.write_text(text)
 
 
+def stage_license_files(destination: Path, *, include_notices: bool) -> None:
+    """Copy legal files and declare them as wheel license payloads."""
+    shutil.copy2(ROOT / "LICENSE", destination / "LICENSE")
+    license_files = '["LICENSE"]'
+    if include_notices:
+        shutil.copy2(ROOT / "THIRD_PARTY_NOTICES.md", destination / "THIRD_PARTY_NOTICES.md")
+        license_files = '["LICENSE", "THIRD_PARTY_NOTICES.md"]'
+    pyproject = destination / "pyproject.toml"
+    text, count = re.subn(
+        r'^(license = "[^"]+")$',
+        rf"\1\nlicense-files = {license_files}",
+        pyproject.read_text(),
+        count=1,
+        flags=re.MULTILINE,
+    )
+    if count != 1:
+        raise RuntimeError(f"could not declare license files in {pyproject}")
+    pyproject.write_text(text)
+
+
 def stage_sdk(destination: Path, version: str) -> None:
     copy_package(ROOT / "python" / "sdk", destination)
+    stage_license_files(destination, include_notices=False)
     pyproject = destination / "pyproject.toml"
     rewrite_version(pyproject, version)
     text, count = re.subn(
@@ -163,6 +184,7 @@ def stage_sdk(destination: Path, version: str) -> None:
 
 def stage_runtime(destination: Path, version: str, executable: Path, executable_name: str) -> None:
     copy_package(ROOT / "python" / "sdk-runtime", destination)
+    stage_license_files(destination, include_notices=True)
     rewrite_version(destination / "pyproject.toml", version)
     runtime_dir = destination / "src" / "deepseek_harness_runtime" / "runtime"
     runtime_dir.mkdir(parents=True, exist_ok=True)
@@ -190,6 +212,16 @@ def verify_wheel(
         if metadata.get("Name") != expected_distribution:
             raise RuntimeError(
                 f"{wheel} has distribution name {metadata.get('Name')}, expected {expected_distribution}"
+            )
+        if metadata.get("License-Expression") != "BSD-3-Clause":
+            raise RuntimeError(
+                f"{wheel} has license expression {metadata.get('License-Expression')}, expected BSD-3-Clause"
+            )
+        expected_license_files = ["LICENSE"] if package == "sdk" else ["LICENSE", "THIRD_PARTY_NOTICES.md"]
+        license_files = [Path(name).name for name in metadata.get_all("License-File") or []]
+        if license_files != expected_license_files:
+            raise RuntimeError(
+                f"{wheel} has license files {license_files}, expected {expected_license_files}"
             )
         runtime_files = [
             name for name in archive.namelist() if "/runtime/dsh-jsonrpc-agent-pkg-" in name

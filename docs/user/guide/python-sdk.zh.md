@@ -7,7 +7,7 @@
 ## 前置要求
 
 - Python 3.10 或更高版本
-- Linux x64、Linux arm64 或 macOS arm64
+- Linux x64、Linux arm64 或 macOS 14 或更高版本的 arm64
 - DeepSeek 兼容的 API 端点与凭据
 - agent 可以修改的隔离 workspace
 

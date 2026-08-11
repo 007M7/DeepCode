@@ -7,7 +7,7 @@ This tutorial installs the Python SDK, runs a checked-in Cordis composition with
 ## Prerequisites
 
 - Python 3.10 or newer
-- Linux x64, Linux arm64, or macOS arm64
+- Linux x64, Linux arm64, or macOS 14 or newer on arm64
 - A DeepSeek-compatible API endpoint and credential
 - An isolated workspace that the agent may modify
 

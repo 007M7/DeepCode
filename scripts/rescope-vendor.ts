@@ -240,13 +240,6 @@ const EXACT_EDITS: readonly ExactEdit[] = [
     expect: 1,
   },
   {
-    id: 'vendor-readme-local-modification-log',
-    file: 'vendor/README.md',
-    find: '\n18. **`cordis/package.json` publishes `src`**',
-    replace: '\n17. **`@deepseek-ai` rescope**: every vendored manifest `name`, every internal dependency entry among the vendored set, and every module specifier that reaches them use the scoped names in the manifest table\'s `npm name` column. Directory names, version numbers, and dependency ranges are unchanged, and no upstream runtime identifier is renamed — `Symbol.for(\'schemastery\')` and Schemastery\'s `vendor:` metadata field keep their upstream values. Re-apply with `pnpm run rescope-vendor --apply` after a sync; the table\'s two name columns are the mapping, restated for consumers in [docs/rescope.md](../docs/rescope.md).\n18. **`cordis/package.json` publishes `src`**',
-    expect: 1,
-  },
-  {
     // A plain fence listing the bundle's mounted tree: a bare token, no quotes.
     id: 'agent-spine-demo-mounted-tree',
     file: 'packages/examples/agent-spine-demo/README.md',

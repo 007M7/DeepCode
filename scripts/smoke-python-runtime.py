@@ -155,15 +155,16 @@ def completion_chunks(body: dict[str, object]) -> list[dict[str, object]]:
             return text_chunks(WORKFLOW_WORKER_TEXT)
         raise AssertionError(f"unexpected tool follow-up: {tool_name}")
 
+    user_prompts = [
+        message_text(message.get("content"))
+        for message in reversed(messages)
+        if isinstance(message, dict) and message.get("role") == "user"
+    ]
     minimal_prompt = next(
         (
-            message_text(message.get("content"))
-            for message in reversed(messages)
-            if isinstance(message, dict)
-            and message.get("role") == "user"
-            and message_text(message.get("content")).startswith(
-                f"{MINIMAL_PROMPT}\n{MINIMAL_EDITOR_PATH_PREFIX}"
-            )
+            prompt
+            for prompt in user_prompts
+            if prompt.startswith(f"{MINIMAL_PROMPT}\n{MINIMAL_EDITOR_PATH_PREFIX}")
         ),
         None,
     )
@@ -183,7 +184,17 @@ def completion_chunks(body: dict[str, object]) -> list[dict[str, object]]:
             "bash",
             {"command": MINIMAL_BASH_COMMAND},
         )
-    prompt = message_text(latest.get("content"))
+    scenario_prompts = {
+        SNAPSHOT_DIRECT_CHILD_PROMPT,
+        SNAPSHOT_WORKFLOW_CHILD_PROMPT,
+        SNAPSHOT_PROMPT,
+        CODE_PROMPT,
+        WORKFLOW_PROMPT,
+    }
+    prompt = next(
+        (candidate for candidate in user_prompts if candidate in scenario_prompts),
+        message_text(latest.get("content")),
+    )
     if prompt == SNAPSHOT_DIRECT_CHILD_PROMPT:
         return text_chunks("DIRECT_CHILD_OK")
     if prompt == SNAPSHOT_WORKFLOW_CHILD_PROMPT:

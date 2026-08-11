@@ -57,6 +57,10 @@ def test_pep440_version_spells_a_prerelease_the_python_way() -> None:
         build_python_release.pep440_version("1.2.3-nightly")
 
 
+def test_macos_wheel_tag_does_not_claim_unsupported_node_platforms() -> None:
+    assert build_python_release.PLATFORMS["macos-arm64"][0] == "macosx_14_0_arm64"
+
+
 def test_stage_sdk_keeps_distribution_module_and_runtime_pin_distinct(tmp_path: Path) -> None:
     destination = tmp_path / "staging"
 
@@ -66,6 +70,8 @@ def test_stage_sdk_keeps_distribution_module_and_runtime_pin_distinct(tmp_path: 
     assert 'name = "deepseek-harness-sdk"' in pyproject
     assert 'version = "1.2.3"' in pyproject
     assert '"deepseek-harness-runtime-bin==1.2.3"' in pyproject
+    assert 'license-files = ["LICENSE"]' in pyproject
+    assert (destination / "LICENSE").read_bytes() == (ROOT / "LICENSE").read_bytes()
     assert (destination / "src" / "deepseek_harness" / "__init__.py").is_file()
 
 
@@ -88,3 +94,9 @@ def test_stage_runtime_copies_platform_payload(
 
     runtime_dir = destination / "src" / "deepseek_harness_runtime" / "runtime"
     assert {path.name: path.read_bytes() for path in runtime_dir.glob("dsh-jsonrpc-agent-pkg-*")} == expected
+    pyproject = (destination / "pyproject.toml").read_text()
+    assert 'license-files = ["LICENSE", "THIRD_PARTY_NOTICES.md"]' in pyproject
+    assert (destination / "LICENSE").read_bytes() == (ROOT / "LICENSE").read_bytes()
+    assert (destination / "THIRD_PARTY_NOTICES.md").read_bytes() == (
+        ROOT / "THIRD_PARTY_NOTICES.md"
+    ).read_bytes()
