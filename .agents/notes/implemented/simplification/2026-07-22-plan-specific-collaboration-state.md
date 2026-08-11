@@ -34,7 +34,7 @@ The active state contributes the deployment's section at prompt order 50. Inacti
 
 The tool renders the submitted plan as a generic card titled by its first heading. An absent or failed user-interaction provider, a failed review, or plugin disposal while review is pending fails closed and leaves manual `/plan off` as the human escape path.
 
-## Deleted surface
+## Deleted API
 
 - The arbitrary definition map, mode-name regular expression, reserved-name rules, and per-definition command loop.
 - `ModeDefinition`, the resolved definition map, `ctx.modes.list()`, string-valued get/set state, and unknown or retired mode handling.

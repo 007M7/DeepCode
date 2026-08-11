@@ -1,5 +1,5 @@
 /**
- * The sandbox-escalation surface shared by the `write` and `edit` tools: the
+ * The sandbox-escalation API shared by the `write` and `edit` tools: the
  * per-call policy resolution, the advertised escalation fields, and the denial-marker
  * mapping — all delegating the vocabulary and the fail-closed approval
  * sequence to `@deepseek-ai/dsh-sandbox` (the same pieces `@deepseek-ai/dsh-tool-bash`
@@ -30,11 +30,11 @@ export interface EscalationSchemaFields {
 }
 
 /**
- * The filesystem escalation surface: advertisement gating, per-call policy
+ * The filesystem escalation API: advertisement gating, per-call policy
  * resolution, the one-approved wider retry, and denial-marker mapping. A pure
  * product of `ctx` at plugin apply time.
  */
-export class FsSandboxSurface {
+export class FsSandboxController {
   /** The escalation targets this composition advertises (`[]` when no confining backend is mounted). */
   readonly escalationModes: readonly SandboxMode[]
   /** Shared per-session policy resolver, required by a confining backend. */

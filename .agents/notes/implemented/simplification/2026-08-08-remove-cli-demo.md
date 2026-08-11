@@ -25,7 +25,7 @@ Delete `@deepseek-ai/dsh-cli-demo` completely: its package, bin, parser, app plu
 
 ## Consequences
 
-This is intentionally breaking. `dsh-cli-demo`, its `--output-format` choices, and imports from `@deepseek-ai/dsh-cli-demo/src/cli.ts` no longer resolve. There is no public event-stream replacement in this change; callers use `dsh --profile headless` for one-shot execution and must choose an existing protocol surface when they need structured automation.
+This is intentionally breaking. `dsh-cli-demo`, its `--output-format` choices, and imports from `@deepseek-ai/dsh-cli-demo/src/cli.ts` no longer resolve. There is no public event-stream replacement in this change; callers use `dsh --profile headless` for one-shot execution and must choose an existing protocol API when they need structured automation.
 
 The repository retains backend replay coverage through test-only infrastructure, while product smoke and built-bin acceptance exercise `dsh --profile headless`. A separate one-shot package may return only if it owns a genuinely independent, versioned protocol that cannot belong to the product launcher; a second spelling or output shim is not enough.
 

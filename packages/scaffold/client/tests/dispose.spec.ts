@@ -28,7 +28,7 @@ interface FakeChildScript {
 }
 
 /**
- * A scriptable stand-in for a ChildProcess carrying exactly the surface the
+ * A scriptable stand-in for a ChildProcess carrying exactly the API the
  * ladder reads: `exitCode`/`signalCode`, `stdin.end()`, `kill()`, and the
  * `exit` event.
  */

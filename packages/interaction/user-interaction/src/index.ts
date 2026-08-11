@@ -47,7 +47,7 @@ export class UserInteractionError extends HarnessError {
   }
 }
 
-/** `ctx.userInteraction`: one active UI provider plus an `ask()` surface. */
+/** `ctx.userInteraction`: one active UI provider plus an `ask()` API. */
 export class UserInteractionService extends Service {
   private provider: UserInteractionProvider | undefined
 

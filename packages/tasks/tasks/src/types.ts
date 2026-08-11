@@ -1,5 +1,5 @@
 /**
- * Types shared by task producers, the registry, and control surfaces. The
+ * Types shared by task producers, the registry, and controllers. The
  * service implementation lives in `./index.ts`.
  * @module @deepseek-ai/dsh-tasks/types
  */
@@ -50,7 +50,7 @@ export interface TaskStart {
   label: string
   /**
    * Optional UTF-8 byte cap for each complete model-facing completion notice or
-   * output read, including control-surface status metadata.
+   * output read, including controller status metadata.
    */
   outputLimitBytes?: number
   /**
@@ -119,7 +119,7 @@ export interface TaskSnapshot {
   finishedAt?: number
   /**
    * True when a kill, read, or wait has reported or committed to report the
-   * terminal state. Completion surfaces suppress redundant notices when set.
+   * terminal state. Completion reporters suppress redundant notices when set.
    */
   reported: boolean
 }

@@ -80,22 +80,22 @@ async function harness() {
   const ctx = new Context()
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(LocalTaskService)
-  ctx.tasks.attachSurface('test-surface')
+  ctx.tasks.attachController('test-controller')
   return ctx
 }
 
 /**
- * Attach a control surface the way `tool-tasks` does: from a plugin whose own
+ * Attach a task controller the way `tool-tasks` does: from a plugin whose own
  * `inject` resolves `ctx.tasks`, so the service method binds to the REGISTERING
- * context and the surface files into that context's scope layer. Reading the
+ * context and the controller files into that context's scope layer. Reading the
  * service off a bare scoped context instead throws `cannot get property "tasks"
  * without inject`, which is the same rule the shipped plugin obeys.
- * @param ctx - the context whose scope should own the surface.
+ * @param ctx - the context whose scope should own the controller.
  */
-async function attachSurfaceIn(ctx: Context): Promise<void> {
+async function attachControllerIn(ctx: Context): Promise<void> {
   await ctx.plugin({
     inject: ['tasks'],
-    apply(pluginCtx: Context) { pluginCtx.tasks.attachSurface('tool-tasks') },
+    apply(pluginCtx: Context) { pluginCtx.tasks.attachController('tool-tasks') },
   })
 }
 
@@ -115,14 +115,14 @@ describe('LocalTaskService.start', () => {
     expectTypeOf<TaskSnapshot['ownerSession']>().toEqualTypeOf<SessionId | undefined>()
   })
 
-  it('refuses to register while no control surface serves the owner', async () => {
+  it('refuses to register while no task controller serves the owner', async () => {
     const ctx = new Context()
     await ctx.plugin(LocalTaskService)
     expect(() => ctx.tasks.start(producer().spec))
-      .toThrow('background tasks unavailable: no control surface serves this agent (load @deepseek-ai/dsh-tool-tasks in its composition)')
+      .toThrow('background tasks unavailable: no task controller serves this agent (load @deepseek-ai/dsh-tool-tasks in its composition)')
   })
 
-  it('refuses an owner whose own composition attaches no surface', async () => {
+  it('refuses an owner whose own composition attaches no controller', async () => {
     const ctx = new Context()
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(LocalTaskService)
@@ -130,7 +130,7 @@ describe('LocalTaskService.start', () => {
     // task controls. The second must not inherit the first's open gate.
     const withControls = createScope(ctx, {})
     const withoutControls = createScope(ctx, {})
-    await attachSurfaceIn(withControls.ctx)
+    await attachControllerIn(withControls.ctx)
 
     const served = stubAgent(ctx, 'served', scopeOf(withControls.ctx))
     const unserved = stubAgent(ctx, 'unserved', scopeOf(withoutControls.ctx))
@@ -139,19 +139,19 @@ describe('LocalTaskService.start', () => {
 
     expect(() => ctx.tasks.start(producer({ owner: served }).spec)).not.toThrow()
     expect(() => ctx.tasks.start(producer({ owner: unserved }).spec))
-      .toThrow('no control surface serves this agent')
-    // An unowned producer has no chain to walk, so only a global surface serves it.
+      .toThrow('no task controller serves this agent')
+    // An unowned producer has no chain to walk, so only a global controller serves it.
     expect(() => ctx.tasks.start(producer().spec))
-      .toThrow('no control surface serves this agent')
+      .toThrow('no task controller serves this agent')
   })
 
-  it('lets a surface attached without a scope serve every owner', async () => {
+  it('lets a controller attached without a scope serve every owner', async () => {
     const ctx = new Context()
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(LocalTaskService)
     // The host-plane composition's own controls: no scope, so the global layer
     // holds them and every owner's read includes it.
-    await attachSurfaceIn(ctx)
+    await attachControllerIn(ctx)
     const scoped = stubAgent(ctx, 'scoped', scopeOf(createScope(ctx, {}).ctx))
     ctx.agents.register(scoped)
 
@@ -310,7 +310,7 @@ describe('LocalTaskService.kill', () => {
     p.settle({ status: 'killed' })
     await tick()
     // The listener still fires (telemetry may care), but carries reported: true
-    // so the notice surface suppresses its redundant "finished".
+    // so the notice path suppresses its redundant "finished".
     expect(seen[0]).toMatchObject({ id, status: 'killed', reported: true })
   })
 
@@ -500,7 +500,7 @@ describe('LocalTaskService owner isolation', () => {
   it('rejects an owned registration when no agent registry is mounted', async () => {
     const ctx = new Context()
     await ctx.plugin(LocalTaskService)
-    ctx.tasks.attachSurface('test-surface')
+    ctx.tasks.attachController('test-controller')
     expect(() => ctx.tasks.start(producer({ owner: stubAgent(ctx, 'a') }).spec))
       .toThrow('background task ownership requires the agent registry')
     // The failed registration mutated nothing: no stored task, counter untouched.
@@ -647,7 +647,7 @@ describe('LocalTaskService owner cleanup', () => {
     const ctx = new Context()
     await ctx.plugin(AgentRegistry)
     const tasksFiber = await ctx.plugin(LocalTaskService)
-    ctx.tasks.attachSurface('test-surface')
+    ctx.tasks.attachController('test-controller')
     const owner = stubAgent(ctx, 'owner')
     ctx.agents.register(owner)
     const ownerCleanupEffects = () => owner.ctx.fiber.getEffects()
@@ -717,10 +717,10 @@ describe('LocalTaskService disposal', () => {
     const ctx = new Context()
     await ctx.plugin(AgentRegistry)
     const fiber = await ctx.plugin(LocalTaskService)
-    const surface = await ctx.plugin(Object.assign((inner: Context) => {
-      inner.tasks.attachSurface('test-surface')
+    const controller = await ctx.plugin(Object.assign((inner: Context) => {
+      inner.tasks.attachController('test-controller')
     }, { inject: ['tasks'] }))
-    void surface
+    void controller
 
     const seen: string[] = []
     ctx.tasks.onTaskDone(snapshot => void seen.push(snapshot.id))
@@ -745,7 +745,7 @@ describe('LocalTaskService disposal', () => {
     const ctx = new Context()
     await ctx.plugin(AgentRegistry)
     const fiber = await ctx.plugin(LocalTaskService)
-    ctx.tasks.attachSurface('test-surface')
+    ctx.tasks.attachController('test-controller')
     const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
     const seen: TaskSnapshot[] = []
     ctx.tasks.onTaskDone(snapshot => void seen.push(snapshot))
@@ -783,7 +783,7 @@ describe('LocalTaskService disposal', () => {
     const ctx = new Context()
     await ctx.plugin(AgentRegistry)
     const tasksFiber = await ctx.plugin(LocalTaskService)
-    ctx.tasks.attachSurface('test-surface')
+    ctx.tasks.attachController('test-controller')
     const owner = stubAgent(ctx, 'owner')
     ctx.agents.register(owner)
     let settle!: (outcome: TaskOutcome) => void
@@ -815,7 +815,7 @@ describe('LocalTaskService disposal', () => {
     const mount = await standing.ctx.plugin({
       inject: ['tasks'],
       apply(pluginCtx: Context) {
-        pluginCtx.tasks.attachSurface('tool-tasks')
+        pluginCtx.tasks.attachController('tool-tasks')
         pluginCtx.tasks.onTaskDone(() => {})
       },
     })
@@ -826,16 +826,16 @@ describe('LocalTaskService disposal', () => {
     await mount.dispose()
 
     expect(() => ctx.tasks.start(producer({ owner }).spec))
-      .toThrow('no control surface serves this agent')
+      .toThrow('no task controller serves this agent')
   })
 
-  it('detaching the last surface re-arms the register fence', async () => {
+  it('detaching the last controller re-arms the register fence', async () => {
     const ctx = new Context()
     await ctx.plugin(LocalTaskService)
-    const detachA1 = ctx.tasks.attachSurface('a')
-    const detachA2 = ctx.tasks.attachSurface('a') // duplicate name counts independently
+    const detachA1 = ctx.tasks.attachController('a')
+    const detachA2 = ctx.tasks.attachController('a') // duplicate name counts independently
     const fiber = await ctx.plugin(Object.assign((inner: Context) => {
-      inner.tasks.attachSurface('b')
+      inner.tasks.attachController('b')
     }, { inject: ['tasks'] }))
 
     detachA1()
@@ -844,7 +844,7 @@ describe('LocalTaskService disposal', () => {
     detachA2()
     expect(() => ctx.tasks.start(producer().spec)).not.toThrow() // b remains
     await fiber.dispose() // detaches b with its fiber (HMR safety)
-    expect(() => ctx.tasks.start(producer().spec)).toThrow('no control surface serves this agent')
+    expect(() => ctx.tasks.start(producer().spec)).toThrow('no task controller serves this agent')
   })
 })
 
@@ -972,7 +972,7 @@ describe('LocalTaskService teardown change notifications', () => {
     const ctx = new Context()
     await ctx.plugin(AgentRegistry)
     const fiber = await ctx.plugin(LocalTaskService)
-    ctx.tasks.attachSurface('test-surface')
+    ctx.tasks.attachController('test-controller')
 
     // The api-proxy carrier registers from its own stream context, not the
     // registry's fiber, so it is still listening when the registry unloads.

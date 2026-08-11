@@ -395,7 +395,7 @@ const SERVICE_ROLES: ServiceRole[] = [
     mode: 'seam',
     implementations: ['pty-local'],
     consumers: ['tool-pty'],
-    note: 'The registry owns exact-Agent session identity and cleanup; backends own terminal mechanics, while tool-pty exposes the owner-scoped model surface.',
+    note: 'The registry owns exact-Agent session identity and cleanup; backends own terminal mechanics, while tool-pty exposes the owner-scoped model tools.',
   },
   {
     key: 'sandbox',
@@ -476,7 +476,7 @@ const SERVICE_ROLES: ServiceRole[] = [
     mode: 'seam',
     implementations: ['tasks-local'],
     consumers: ['tool-bash', 'tool-pty', 'tool-subagent', 'tool-tasks'],
-    note: 'Producers (background bash, PTY sends, and subagent delegations) register running work; tool-tasks is the model-facing control surface that reads, lists, and kills it; tasks-local is the process-local registry.',
+    note: 'Producers (background bash, PTY sends, and subagent delegations) register running work; tool-tasks is the model-facing controller that reads, lists, and kills it; tasks-local is the process-local registry.',
   },
   {
     key: 'web',
@@ -1271,7 +1271,7 @@ function renderLifecycle(): string {
     '',
     'The returned `agent/pre-step` decision is authoritative; listeners wrapping `next()` preserve downstream messages unless replacement is intentional. Steering and injected context pass through the same waterfall after a later claim operation takes their next-step batch.',
     '',
-    'SDK users that need replayable transcript data should consume `session/event`; `agent/*` is the live coordination surface for queue/status, prompt interception, request construction, steering, continuation, and errors.',
+    'SDK users that need replayable transcript data should consume `session/event`; `agent/*` is the live coordination API for queue/status, prompt interception, request construction, steering, continuation, and errors.',
     '',
     ...maintenanceFooter(maintenance),
   ].join('\n')
@@ -1335,7 +1335,7 @@ function renderToolPipeline(): string {
     '  allResults --> context',
     '```',
     '',
-    'Filesystem read-before-edit checks stay below `tool-fs` on `fs/*` events. Generic pre/post waterfalls host hooks and approval policy; `ctx.approval` resolves asks before monotonic guards, and owner policy that must not be reordered remains a registered guard. Around-dispatch concerns such as timeouts wrap `tools/execute`. The registry losslessly snapshots the candidate result and normalizes a snapshot failure before the visible definition\'s snapshotted `finalizeContent` callback enforces its synchronous content-only invariant. `tools/result` then observes the immutable, lossless-JSON outcome. This lets hooks span tool families without coupling the tools to one policy service. Code Mode sends both the reserved `run_code` transport and its serialized sub-calls through the pipeline; sub-calls carry the parent token, log `tool/code-dispatch`, surface denials as binding rejections, and omit `additionalContexts` to preserve call/result adjacency.',
+    'Filesystem read-before-edit checks stay below `tool-fs` on `fs/*` events. Generic pre/post waterfalls host hooks and approval policy; `ctx.approval` resolves asks before monotonic guards, and owner policy that must not be reordered remains a registered guard. Around-dispatch concerns such as timeouts wrap `tools/execute`. The registry losslessly snapshots the candidate result and normalizes a snapshot failure before the visible definition\'s snapshotted `finalizeContent` callback enforces its synchronous content-only invariant. `tools/result` then observes the immutable, lossless-JSON outcome. This lets hooks span tool families without coupling the tools to one policy service. Code Mode sends both the reserved `run_code` transport and its serialized sub-calls through the pipeline; sub-calls carry the parent token, log `tool/code-dispatch`, return denials as binding rejections, and omit `additionalContexts` to preserve call/result adjacency.',
     '',
     ...maintenanceFooter(maintenance),
   ].join('\n')
@@ -1387,7 +1387,7 @@ function renderIndex(docs: GraphDoc[]): string {
   const maintenance = 'mixed: each linked page declares generated, hybrid, or curated mode'
   return [
     ...generatedHeader('Documentation Graph Index'),
-    'These diagrams show relationships that the generated catalogs do not. Use them to find package relationships, capability seams, event flow, model-facing tools, app composition, and runtime lifecycle paths. Exact signatures and type definitions still live in the [subsystem pages](subsystems/core.md) (types + the generated `cordis-surface` regions) and [tool-catalog.md](tool-catalog.md).',
+    'These diagrams show relationships that the generated catalogs do not. Use them to find package relationships, capability seams, event flow, model-facing tools, app composition, and runtime lifecycle paths. Exact signatures and type definitions still live in the [subsystem pages](subsystems/core.md) (types + the generated Cordis API regions) and [tool-catalog.md](tool-catalog.md).',
     '',
     'The process decision behind this index is recorded in [the documentation graph Agent Note](../.agents/notes/archived/process/2026-07-03-documentation-graph-atlas.md).',
     '',

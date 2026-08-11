@@ -73,6 +73,6 @@ Vitest mounts `InvariantService` with `{ enabled: true }` for every package test
 
 - Every package has visible ownership and publication wiring, but only packages with a plausible runtime relation add listeners or trace state.
 - Empty companions remain reviewable decisions with package-specific explanations and fail the gate if the explanation is removed.
-- Type declarations, Cordis loadability, plugin metadata, service method surfaces, and pure algebra remain covered by their owning compile, load, unit, or integration gates.
+- Type declarations, Cordis loadability, plugin metadata, service method APIs, and pure algebra remain covered by their owning compile, load, unit, or integration gates.
 - Runtime failures identify the owning npm package and point to an inconsistent observation rather than restating a required API shape.
 - The original selection, blocklist precedence, duplicate ownership, rollback, disposal, and HMR service contracts remain unchanged.

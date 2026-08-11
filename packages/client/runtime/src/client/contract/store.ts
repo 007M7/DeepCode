@@ -18,7 +18,7 @@ import type {
 } from '@deepseek-ai/dsh-client-ui-slots'
 
 // Store contract types are ui-slots authority; re-exported beside the engine
-// so store consumers get one import surface.
+// so store consumers get one import path.
 export type {
   ActionsDecl, BakedActions, BoundActions, StoreFactory, StoreHandle, StoreInstance, StoreSpec,
 } from '@deepseek-ai/dsh-client-ui-slots'
@@ -165,7 +165,7 @@ function deepFreeze(value: unknown): void {
 
 /** A live engine instance: the contract instance plus the raw engine store. */
 export interface EngineStoreInstance<T, A extends ActionsDecl<T>> extends StoreInstance<T, A> {
-  /** The underlying engine store (framework/test surface; components never see it). */
+  /** The underlying engine store (framework/test API; components never see it). */
   readonly store: SnapshotStore<T>
 }
 

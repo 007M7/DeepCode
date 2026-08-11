@@ -1,6 +1,6 @@
 /**
  * Service Definition for the subagent capability seam (`ctx.subagents`): a named-provider registry plus a
- * capability-validating asynchronous start surface. Providers establish a
+ * capability-validating asynchronous start API. Providers establish a
  * child before returning its run, so fulfillment is the single publication and
  * ownership-transfer boundary.
  *

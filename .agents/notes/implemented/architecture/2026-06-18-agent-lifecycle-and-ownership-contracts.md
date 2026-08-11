@@ -43,7 +43,7 @@ The bash owner-token comparison relies on the shared `Agent.id`/`SessionId` bein
 
 - **A public `BashTask.owner` field** instead of the `BashExecutor.ownerOf(id)` Service Definition method — rejected: one read path, no redundant API.
 - **Sibling cordis effects for the agent's session lifecycle** — rejected: a fiber unload disposes sibling effects concurrently (`Promise.all`), racing removal of the store-owned append publication hooks against the loop's closing `session/flush`; the single composite effect's ordered LIFO chain is what captures the closing `turn/end` on both disposal paths.
-- **A separate step-only `abort()` beside `cancel()`** — shipped originally, then removed as unused; `cancel()` is the single public stop primitive ([the public-stop-surface Agent Note](../simplification/2026-06-20-public-agent-stop-surface.md)).
+- **A separate step-only `abort()` beside `cancel()`** — shipped originally, then removed as unused; `cancel()` is the single public stop primitive ([the public-stop-API Agent Note](../simplification/2026-06-20-public-agent-stop-api.md)).
 
 ## Consequences
 

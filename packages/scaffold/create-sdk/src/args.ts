@@ -1,5 +1,5 @@
 /**
- * Commander adapter for the create-sdk command surface.
+ * Commander adapter for the create-sdk command interface.
  *
  * @module @deepseek-ai/create-sdk/args
  */

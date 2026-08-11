@@ -6,7 +6,7 @@ Web shell kernel: `new AppWebEntry(el, seams?).run()` mounts the whole client th
 
 Shell self-sufficiency (web2 hard rule): the kernel value-imports no plugin package — the boot status store and signals are hand-rolled here (`loader-status.ts`), so the loading page works while (and especially when) plugins fail. The app-shell assembly (`@deepseek-ai/dsh-client-app-shell`, a shell-owned pseudo entry with no npm package behind it) is the only module registered through `registerStatic`; it inject-waits on slots/sessions/layout like any plugin.
 
-`PLATFORM_MODULES` (src/platform.ts) is the single source of truth for the shared module surface: seed-table keys, tsdown client externals, and the vite alias set are its projections.
+`PLATFORM_MODULES` (src/platform.ts) is the single source of truth for shared modules: seed-table keys, tsdown client externals, and the Vite alias set are its projections.
 
 The optional override parameter `seams` forwards the module system's `loadBundle` transport override (`BootSeams`) for environments where external `<script>` execution cannot reach the page context; ordinary browser callers omit it.
 

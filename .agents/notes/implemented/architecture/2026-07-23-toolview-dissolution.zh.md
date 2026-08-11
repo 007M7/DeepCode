@@ -26,7 +26,7 @@ Status: implemented
 
 **把 `renderToolView` 提进标配 kit、注册表迁入 runtime 包。** 拒绝：Tool 展示是 Client UI 词汇；上提进 runtime 会把展示概念泄漏进数据对象层，且依然留着两套注册模型。
 
-**以订阅 refCount 推导槽声明**（首个注册方订阅时隐式声明槽）。拒绝：隐式耦合加去抖复杂度；记为将来真出现多观看面时的备选。
+**以订阅 refCount 推导槽声明**（首个注册方订阅时隐式声明槽）。拒绝：隐式耦合加去抖复杂度；记为将来真出现多视图 UI 时的备选。
 
 **slots.register 之上的薄 `registerToolView` 门面。** 缓建而非拒绝：溶解后该门面只剩编译期语法糖（slot 名字面量收窄、tool→key 词汇翻译、props 预组合），运行时为零。按「enforce at the operation boundary」（门面不是强制点）保持不建；有用的类型组合以导出的 Tool view props 别名兑现。若重复注册仪式今后足以证明其价值，可在不扰动直接注册的前提下补充门面。
 

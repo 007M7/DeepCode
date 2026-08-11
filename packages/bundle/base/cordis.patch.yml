@@ -387,7 +387,7 @@
         thresholds: [3, 5, 8]
         argumentsPreviewChars: 500
 
-    # Every mode enables the stable web_search model surface. DeepSeek search
+    # Every mode enables the stable model-facing web_search tool. DeepSeek search
     # resolves the same DEEPSEEK_API_KEY credential the Models page manages for
     # chat, at each search; its Messages endpoint is separate from the
     # chat-completions endpoint, so it takes its own base-URL override. Fetch stays
