@@ -17,8 +17,6 @@
 
 import type { Command } from 'commander'
 import type { Context } from '@deepseek-ai/cordis'
-// Empty type import carries the Loader Context merge used by enableRow.
-import type {} from '@deepseek-ai/cordis-plugin-loader'
 
 /**
  * The invocation's inner arguments: everything after the launcher's own flags,
@@ -131,28 +129,6 @@ export function parseCmdline<T>(
     exit(error.exitCode)
     return undefined
   }
-}
-
-/**
- * Turn on a row this composition ships disabled, because this invocation asked
- * for it (`dsh web --dev` and its client-plugin reload chain).
- *
- * A row cannot be inserted from inside a mounting plugin — the Loader returns a
- * prefixed id it then fails to resolve — so a conditional row ships disabled
- * and a row mounted beside it enables it after startup resolves the invocation.
- * The Loader keeps that activation in memory, separate from serialized options,
- * so reapplying the composition cannot restore the invocation's row to disabled.
- * @param ctx - plugin context whose Loader tree carries the row.
- * @param id - the row id.
- * @returns nothing once the row has started or is waiting for its dependencies.
- * @throws when the Loader or named row is absent.
- */
-export async function enableRow(ctx: Context, id: string): Promise<void> {
-  const loader = ctx.get('loader')
-  if (loader === undefined) throw new Error('dsh-cmdline: enabling a row requires the Loader service')
-  const entry = [...loader.entries()].find(candidate => candidate.options.id === id)
-  if (entry === undefined) throw new Error(`dsh-cmdline: the composition has no ${JSON.stringify(id)} row to enable`)
-  await entry.enableRuntime()
 }
 
 /**

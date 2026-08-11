@@ -57,7 +57,6 @@ export const apply = ctx => globalThis.__webStartupApply(ctx)
     '  config:',
     "    host: !!js ctx.webStartup.host ?? '127.0.0.1'",
     '    port: !!js ctx.webStartup.port ?? 3080',
-    '    mode: !!js ctx.webStartup.mode',
     '    trustedHosts: !!js ctx.webStartup.trustedHosts',
     '- id: provider',
     `  name: ${pathToFileURL(join(dir, 'provider.mjs')).href}`,
@@ -91,14 +90,12 @@ describe('web command-line provider', () => {
     const { values, observed } = await bootProvider([
       '--host', '0.0.0.0',
       '--port', '8080',
-      '--dev',
       '--trusted-host', 'lab.internal', 'lab-2.internal',
       '--trusted-host', '10.0.0.9',
     ])
     expect(values).toEqual({
       host: '0.0.0.0',
       port: 8080,
-      mode: 'development',
       trustedHosts: ['lab.internal', 'lab-2.internal', '10.0.0.9'],
     })
     expect(observed.readerConfig).toEqual(values)
@@ -107,11 +104,10 @@ describe('web command-line provider', () => {
 
   it('leaves deployment values to each consumer when flags omit them', async () => {
     const { values, observed } = await bootProvider([])
-    expect(values).toEqual({ mode: 'production', trustedHosts: [] })
+    expect(values).toEqual({ trustedHosts: [] })
     expect(observed.readerConfig).toEqual({
       host: '127.0.0.1',
       port: 3080,
-      mode: 'production',
       trustedHosts: [],
     })
   })

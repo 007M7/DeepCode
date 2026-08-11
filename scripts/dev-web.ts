@@ -2,7 +2,7 @@
  * Watch-build for client-plugin HMR: runs every `dsh.client` plugin package
  * through the tsdown JS API in watch mode. Reload signaling is not this
  * script's business — the host webserver stat-polls the bundles it serves and
- * broadcasts `rebuilt` frames itself (`dsh web --dev`), so any process that
+ * broadcasts `rebuilt` frames itself (`dsh web`), so any process that
  * rewrites `lib/client.js` files triggers reloads; this script is merely the
  * convenient way to keep them all rebuilt on source change.
  *

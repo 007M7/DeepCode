@@ -1,4 +1,4 @@
-import { EntryConfigResolver, EntryTree, interpolate, isJsExpr, type EntryOptions } from '@deepseek-ai/cordis-plugin-loader'
+import { EntryGroup, EntryTree, isJsExpr, type EntryOptions } from '@deepseek-ai/cordis-plugin-loader'
 import { Context, Service } from '@deepseek-ai/cordis'
 import { extname } from 'node:path'
 import { access, constants, readFile, rename, writeFile } from 'node:fs/promises'
@@ -174,20 +174,12 @@ export namespace Include {
 export class Include extends EntryTree {
   static inject = ['loader']
 
-  /**
-   * Resolve Include's own options while preserving nested entry expressions.
-   * @param ctx - the Include plugin context.
-   * @param config - the raw Include config.
-   * @returns resolved Include options with `initial` and `patches` untouched.
-   */
-  static [EntryConfigResolver](ctx: Context, config: Include.Config): Include.Config {
-    const { initial, patches, ...own } = config
-    return {
-      ...interpolate(ctx, own),
-      ...(initial === undefined ? {} : { initial }),
-      ...(patches === undefined ? {} : { patches }),
-    }
-  }
+  // Tree-carrier marker (the Group plugin declares the same): this config is
+  // entry and patch lists, so the Loader's `internal/config` interpolation
+  // keeps it literal — a `!!js` expression inside a nested row's config
+  // belongs to that row's fiber, resolving lazily in the row's own context.
+  // Include's own fields (`path`, `enableLogs`) therefore stay literal too.
+  static readonly [EntryGroup.key] = true
 
   public filename: string
   private type?: string

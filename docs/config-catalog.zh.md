@@ -373,7 +373,7 @@ export interface Config {
 }
 ```
 
-来源：[`packages/client/hmr/src/index.ts:29`](../packages/client/hmr/src/index.ts)
+来源：[`packages/client/hmr/src/index.ts:31`](../packages/client/hmr/src/index.ts)
 
 ## `@deepseek-ai/dsh-code-runtime-worker`
 
@@ -581,7 +581,7 @@ export interface Config {
 }
 ```
 
-来源：[`packages/bundle/headless/src/index.ts:29`](../packages/bundle/headless/src/index.ts)
+来源：[`packages/bundle/headless/src/index.ts:31`](../packages/bundle/headless/src/index.ts)
 
 ## `@deepseek-ai/dsh-hooks-claude`
 
@@ -2562,26 +2562,21 @@ export interface WebServiceConfig {
 ```ts config-catalog
 /** Plugin config: composed deployment settings plus per-invocation command-line values. */
 export interface Config {
-  /** Whether this process mounted the client-plugin HMR receiver (`dsh web --dev`). */
-  mode: WebMode
   /** Print the URL line on activation; a non-interactive layer can turn it off. */
   printUrl: boolean
   /**
    * Register the model-visible surface context (the `app:web-surface` prompt
-   * section and the `DSH_WEB_URL`/`DSH_WEB_MODE` bash variables). A one-shot
-   * non-interactive layer can turn it off when its user is not in the GUI, so the
+   * section and the `DSH_WEB_URL` bash variable). A one-shot non-interactive
+   * layer can turn it off when its user is not in the GUI, so the
    * orientation text would be false.
    */
   surfaceContext: boolean
   /** Explicit `--trusted-host` authorities from this invocation. */
   trustedHosts: string[]
 }
-
-/** Web runtime mode: production, or development when the client-plugin HMR receiver is active. */
-export type WebMode = 'production' | 'development'
 ```
 
-来源：[`packages/bundle/web-app/src/index.ts:43`](../packages/bundle/web-app/src/index.ts)
+来源：[`packages/bundle/web-app/src/index.ts:38`](../packages/bundle/web-app/src/index.ts)
 
 ## `@deepseek-ai/dsh-web-fetch-local`
 
