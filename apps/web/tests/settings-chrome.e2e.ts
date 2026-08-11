@@ -152,6 +152,67 @@ describe('web e2e: settings modal and General preferences', () => {
     expect(tripwire.pageErrors).toEqual([])
   }, 60_000)
 
+  it('uses the persisted dark preference while plugins are still loading', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-settings-boot-theme'))
+    await page.emulateMedia({ colorScheme: 'light' })
+    await page.getByRole('button', { name: '设置', exact: true }).click()
+    const initialDialog = page.getByRole('dialog', { name: '设置' })
+    const darkCube = initialDialog.getByRole('button', { name: '深色' })
+    await darkCube.click()
+    await expect.poll(() => darkCube.getAttribute('aria-pressed'), { timeout: 5_000 }).toBe('true')
+    await expect.poll(async () => readFile(join(scaffold.harnessHome, 'settings.yaml'), 'utf8'), { timeout: 5_000 })
+      .toMatch(/ui-theme:\n\s+preference: dark/)
+    await page.keyboard.press('Escape')
+
+    // Hold real plugin bundles so the shell-owned loading page remains observable.
+    const pluginPattern = '**/plugins/**'
+    let releaseBundles = (): void => {}
+    const bundlesReleased = new Promise<void>((resolve) => { releaseBundles = resolve })
+    await page.route(pluginPattern, async (route) => {
+      await bundlesReleased
+      await route.continue()
+    })
+
+    const warningStart = tripwire.warnings.length
+    let reload: ReturnType<Page['reload']> | undefined
+    try {
+      reload = page.reload({ waitUntil: 'domcontentloaded' })
+      const loading = page.getByText('Loading plugins…', { exact: true })
+      await loading.waitFor({ timeout: 10_000 })
+      const state = await loading.evaluate((element) => {
+        const boot = element.parentElement?.parentElement
+        if (boot === undefined || boot === null) throw new Error('loading hint is detached from the boot page')
+        return {
+          attr: document.body.hasAttribute('data-ds-dark-theme'),
+          background: getComputedStyle(boot).backgroundColor,
+          colorScheme: document.documentElement.style.colorScheme,
+        }
+      })
+      expect(state).toEqual({
+        attr: true,
+        background: 'rgb(21, 21, 23)',
+        colorScheme: 'dark',
+      })
+    } finally {
+      releaseBundles()
+      await reload
+      await page.unroute(pluginPattern)
+    }
+
+    await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
+    acknowledgeReloadConnectionLoss(tripwire, warningStart)
+    await page.getByRole('button', { name: '设置', exact: true }).click()
+    const restoredDialog = page.getByRole('dialog', { name: '设置' })
+    const systemCube = restoredDialog.getByRole('button', { name: '跟随系统' })
+    await systemCube.click()
+    await expect.poll(() => systemCube.getAttribute('aria-pressed'), { timeout: 5_000 }).toBe('true')
+    await expect.poll(() => page.evaluate(() => document.body.hasAttribute('data-ds-dark-theme')), {
+      timeout: 5_000,
+    }).toBe(false)
+    await page.keyboard.press('Escape')
+    expect(tripwire.pageErrors).toEqual([])
+  }, 90_000)
+
   it('flips the theme through the Appearance cubes and persists across reload and a distinct port', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-settings-appearance'))
     interface ThemeState {

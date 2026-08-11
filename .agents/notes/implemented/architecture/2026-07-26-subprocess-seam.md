@@ -17,11 +17,11 @@ A new `subprocess/` capability family owns "run and manage a process"; the bash 
 - **`dsh-bash-local` (Consumer)** — `inject: ['subprocess']`; maps each resolved `BashExecSpec` onto a `SubprocessSpawnSpec` (`['bash', '-c', command]`), keeps its config, `resolve()` defaulting, fused-deadline `timedOut`/`aborted` classification, the `[stderr]`-marked background read merge with its consuming cursor, and the `onProcessDone` subclass hook. `dsh-bash-sandbox` is unchanged apart from redeclaring the inherited inject; it still wraps at the command-string level and re-enters the inherited spawn path.
 - **`dsh-bash` (Service Definition)** — re-exports the moved vocabulary from `dsh-subprocess`, so no bash Consumer changes an import; `BashExecRequest`/`BashExecSpec`/`BashProcess` and the sandbox facts remain bash-owned.
 
-Every composition that loads a bash executor now also loads `@deepseek-ai/dsh-subprocess-local` (CLI, examples, python bundled runtime, create-sdk's bash feature resources, inline test configs).
+Every composition that loads a bash executor also loads `@deepseek-ai/dsh-subprocess-local` (CLI, examples, the Python bundled runtime, and inline test configs).
 
 Background-process lifetime moved from the executor to the subprocess service: the executor no longer retains a live-process set, so an executor reload leaves background work running and readable, and composition teardown (the service's disposal) remains the kill-and-join boundary. One behavioral contract shifted with it: a background spawn failure can no longer be buffered as fake stderr inside the plumbing (the service rejects `done` and buffers nothing for a process that never ran), so the executor injects the `spawn failed: …` note into exactly one `readOutput()` delta.
 
-Observed stream and lifecycle needs then moved the eligible process consumers onto the seam: LSP uses piped protocol streams plus a collected stderr tail; the ACP backend uses piped ndjson, inherited stderr, and a consumer-owned stdin-EOF disposal ladder; PTY uses `spawnTerminal()` while keeping readiness and terminal policy. `dsh-subagent-subprocess` and the private LSP tree helpers were deleted. MCP transport spawning, the SDK package-manager runner, synchronous TUI Git probing, and dependency-light test-support launchers remain outside by ownership or execution shape; their production callers share the scrub where applicable.
+Observed stream and lifecycle needs then moved the eligible process consumers onto the seam: LSP uses piped protocol streams plus a collected stderr tail; the ACP backend uses piped ndjson, inherited stderr, and a consumer-owned stdin-EOF disposal ladder; PTY uses `spawnTerminal()` while keeping readiness and terminal policy. `dsh-subagent-subprocess` and the private LSP tree helpers were deleted. MCP transport spawning and dependency-light test-support launchers remain outside by ownership or execution shape; their production callers share the scrub where applicable.
 
 ## Alternatives considered
 
@@ -31,7 +31,7 @@ Observed stream and lifecycle needs then moved the eligible process consumers on
 
 **Use one `stdio: 'pipe' | 'inherit' | 'collect'` mode for all streams.** Rejected because real consumers mix modes per stream: LSP uses pipe/pipe/collect, ACP uses pipe/pipe/inherit, and Bash uses data/collect/collect.
 
-**Route every process launch through `ctx.subprocess`.** Rejected because the MCP SDK owns its transport spawn, the SDK wizard has no Cordis context and needs inherited redirection, the TUI probe is synchronous, and support launchers deliberately stay independent of product seams. PTY allocation did move behind `spawnTerminal()` because the provider, not the consumer, owns that substrate-specific primitive.
+**Route every process launch through `ctx.subprocess`.** Rejected because the MCP SDK owns its transport spawn and support launchers deliberately stay independent of product seams. PTY allocation did move behind `spawnTerminal()` because the provider, not the consumer, owns that substrate-specific primitive.
 
 **Put `run_in_background`/task semantics into the subprocess capability seam instead.** Rejected: that boundary already exists — `ctx.tasks` owns ids, ownership, and notices, and the bash tool adapts a `BashProcess` into task hooks. The subprocess seam sits *below* the bash executor, not beside the task registry.
 
