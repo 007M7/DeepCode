@@ -621,7 +621,7 @@ describe('directory invalidation events', () => {
     expect(source.matchSpace!(proj('s1'), '/goal')).toBeUndefined()
   })
 
-  it('session/preset-changed repulls the recomposed session and leaves the others served', async () => {
+  it('agent-preset/selected repulls the recomposed session and leaves the others served', async () => {
     const rounds = new Map<SessionId, number>()
     const { ctx, source, warm } = await bench({
       commands: (payload) => {
@@ -638,7 +638,7 @@ describe('directory invalidation events', () => {
     await warm(proj('s2'))
     // A preset switch changes which commands one session's agent resolves;
     // every other session keeps the catalog its own composition serves.
-    ctx.emit('session/preset-changed', sid('s1'), 'minimal')
+    ctx.remote.$dispatch('agent-preset/selected', [sid('s1'), 'minimal'])
     await new Promise(resolve => setTimeout(resolve, 0))
     expect(source.matchSpace!(proj('s1'), '/fresh')).not.toBeUndefined()
     expect(source.matchSpace!(proj('s1'), '/goal')).toBeUndefined()

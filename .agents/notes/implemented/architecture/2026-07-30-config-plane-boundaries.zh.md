@@ -26,7 +26,7 @@ Status: implemented
 
 **过期是被检测出来的，而不是靠排序绕过去的。**每个 namespace 都带有一个针对其**原始**分节的单调 `revision`；写入可携带 `expectedRevision`，不匹配即以 `SettingsConflictError` 拒绝——在协议上是 `settings-conflict`，并附上两个 revision。编辑器记住自己打开时的 revision，冲突时请用户重新打开，而不是把自己的快照重放上去。
 
-**原始层拥有自己的事件。**`settings/updated` 仍以解析值为门槛——那才是消费方所说的"变化"。`settings/document-updated (ns, revision)` 则在任何原始分节变化时触发，因为配置界面必须知道某个字段从继承变成了覆盖（解析值相同，含义不同），也必须知道自己持有的 revision 已经过期。host 帧 `host/settings-changed` 曾搭乘这个事件（现在 `settings/document-updated` 改为原样转发给消费端，见[转发的 Remote 事件](2026-08-10-remote-event-delivery.md)——这不改变原始层为何需要自己的事件，派生的 `host/models-changed` 仍搭乘它）；而已暴露提供方 namespace 的变更还会额外发出 `host/models-changed`：该 namespace 正持有这个提供方的目录，而没有任何路由变更会宣告它。
+**原始层拥有自己的事件。**`settings/updated` 仍以解析值为门槛——那才是消费方所说的"变化"。`settings/document-updated (ns, revision)` 则在任何原始分节变化时触发，因为配置界面必须知道某个字段从继承变成了覆盖（解析值相同，含义不同），也必须知道自己持有的 revision 已经过期。该事件被原样转发，模型消费方同时订阅它与 `llm/adapters-updated`，因为提供方设置持有不会由路由变化宣告的目录数据。
 
 ## 曾考虑的替代方案
 

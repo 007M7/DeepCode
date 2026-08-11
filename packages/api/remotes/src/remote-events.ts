@@ -15,7 +15,9 @@
  * else.
  */
 export const API_REMOTE_FORWARDED_EVENTS = [
+  'agent-preset/selected',
   'commands/change',
   'credentials/updated',
+  'llm/adapters-updated',
   'settings/document-updated',
 ] as const

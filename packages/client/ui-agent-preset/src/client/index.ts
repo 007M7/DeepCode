@@ -141,6 +141,11 @@ export function apply(ctx: ClientContext): void {
         if (ns !== AGENT_PRESET_SETTINGS_NS) return
         void seat.load()
       })
+      // Every tab folds the committed preset into the shared session row; the
+      // initiating tab may already have applied the RPC echo, which is idempotent.
+      const presetSelected = scope.remote.$on('agent-preset/selected', (sessionId, agentPreset) => {
+        scope.sessions.noteAgentPreset(sessionId, agentPreset)
+      })
       // Authoring writes a FILE, not a setting, so nothing on the wire
       // announces it — without this the screen that starts the next session
       // keeps offering the roster as it stood when the chip first loaded, and
@@ -173,6 +178,7 @@ export function apply(ctx: ClientContext): void {
       return () => {
         stop()
         settingsMoved()
+        presetSelected()
         rosterReaders.delete(readRoster)
         creatorDraft = undefined
         chip()

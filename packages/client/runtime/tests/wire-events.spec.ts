@@ -1,11 +1,8 @@
 /**
  * Wire-to-typed-event bridge: a `host/remote-event` frame is handed verbatim to
  * the Remote service's `$dispatch` (its fan-out to `ctx.remote.$on` is
- * api-gateway's own coverage);
- * host/session-preset-changed → ctx 'session/preset-changed';
- * `host/models-changed` still broadcasts the typed `models/changed`; each
- * established connection generation → ctx 'connection/reset' (the forced
- * cache-invalidation broadcast).
+ * api-gateway's own coverage); each established connection generation emits
+ * `connection/reset` for generation-scoped cache invalidation.
  */
 import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it } from 'vitest'
@@ -33,6 +30,10 @@ function forwardedEventContracts(ctx: Context): void {
   })
   ctx.remote.$on('credentials/updated', () => {})
   ctx.remote.$on('commands/change', () => {})
+  ctx.remote.$on('llm/adapters-updated', () => {})
+  ctx.remote.$on('agent-preset/selected', (sessionId, agentPreset) => {
+    void sessionId; void agentPreset
+  })
   // @ts-expect-error -- client-local event outside the allowlist
   ctx.remote.$on('slots/changed', () => {})
   // @ts-expect-error -- declared host event the allowlist does not select
@@ -115,25 +116,6 @@ describe('wire event bridge', () => {
       ['credentials/updated', 'OPENAI_API_KEY'],
       ['nobody/listening', 'ignored'],
     ])
-  })
-
-  it('still broadcasts the typed models/changed invalidation (its host frame is unchanged)', async () => {
-    const bench = await mount()
-    let models = 0
-    bench.ctx.on('models/changed', () => { models++ })
-    bench.sinks?.onHostEnvelope?.({ rpcId: 'r6' as never, payload: { type: 'host/models-changed' } })
-    expect(models).toBe(1)
-  })
-
-  it('broadcasts session/preset-changed with the recomposed session and its new preset', async () => {
-    const bench = await mount()
-    const seen: Array<[string, string]> = []
-    bench.ctx.on('session/preset-changed', (sessionId, agentPreset) => { seen.push([sessionId, agentPreset]) })
-    bench.sinks?.onHostEnvelope?.({
-      rpcId: 'r1' as never,
-      payload: { type: 'host/session-preset-changed', sessionId: 's1' as never, agentPreset: 'minimal' },
-    })
-    expect(seen).toEqual([['s1', 'minimal']])
   })
 
   it('broadcasts connection/reset on every established generation (reconnect invalidation)', async () => {

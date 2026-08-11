@@ -373,7 +373,7 @@ describe('agentPreset.select', () => {
       .toBe('minimal')
   })
 
-  it('frames the committed switch so clients can drop that session\'s catalogs', async () => {
+  it('forwards the committed switch so clients can drop that session\'s catalogs', async () => {
     const { api, ctx } = await harness(['standard', 'minimal'])
     await api.sessions.create(request({ sessionId: SessionId('sel-frame'), agentPreset: 'standard' }))
     // The host-stream opener reads the committed-workspace baseline; this
@@ -385,7 +385,8 @@ describe('agentPreset.select', () => {
     const stream = api.events.host(request({}), abort.signal)
     const consume = (async () => {
       for await (const frame of stream) {
-        if (frame.payload.type === 'host/session-preset-changed') frames.push(frame.payload)
+        if (frame.payload.type === 'host/remote-event'
+          && frame.payload.event === 'agent-preset/selected') frames.push(frame.payload)
       }
     })()
 
@@ -397,10 +398,10 @@ describe('agentPreset.select', () => {
     abort.abort()
     await consume
 
-    // Recomposing registers nothing, so this frame — not the registry-wide
-    // commands one — is what tells a client its cached catalogs are stale.
+    // Recomposing registers nothing, so the owner event — not the
+    // registry-wide commands one — tells clients their cached catalogs are stale.
     expect(frames).toEqual([
-      { type: 'host/session-preset-changed', sessionId: 'sel-frame', agentPreset: 'minimal' },
+      { type: 'host/remote-event', event: 'agent-preset/selected', args: ['sel-frame', 'minimal'] },
     ])
   })
 

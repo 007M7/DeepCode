@@ -9,7 +9,7 @@ import { dirname } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { installModelSelection } from '@deepseek-ai/dsh-agent'
 import type { Agent, ModelSelection, ModelSelectionRef, AgentOptions, AgentStatus } from '@deepseek-ai/dsh-agent'
-import { AGENT_DEFAULT_MODEL_SETTINGS_NAMESPACE } from '@deepseek-ai/dsh-agent-default-model'
+import type {} from '@deepseek-ai/dsh-agent-presets/types'
 import { AttachmentError } from '@deepseek-ai/dsh-attachment'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import { contentHasImage, createUserMessage, freezeMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
@@ -3467,10 +3467,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           }),
           // Allowlisted host events ride one verbatim wrapper frame each. The
           // allowlist is api-remotes', and `ctx.remote.$on` is the consumer
-          // face; nothing here projects, redacts, or renames. Registered ahead
-          // of the derived frames below so a forwarded event still precedes the
-          // invalidation derived from it (`settings/document-updated` before
-          // its `host/models-changed`), which is the order a client sees.
+          // face; nothing here projects, redacts, or renames.
           ...API_REMOTE_FORWARDED_EVENTS.map(name => ctx.on(
             name,
             // The allowlist's shape assertion proves each name is a real,
@@ -3485,37 +3482,6 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
               }))
             }),
           )),
-          // The recompose itself registers nothing (it re-parents the agent's
-          // scope onto a standing mount that may already exist), so the
-          // logged selection is the only commit point a client can follow.
-          ctx.on('session/event', (session: Session, event: SessionEvent) => {
-            if (event.type !== 'agent-preset/selected') return
-            queue.push(frame({
-              type: 'host/session-preset-changed',
-              sessionId: session.id,
-              agentPreset: event.data.agentPreset,
-            }))
-          }),
-          ctx.on('settings/document-updated', (ns) => {
-            // The RAW-section event, not the resolved one: a field going from
-            // inherited to overridden leaves the resolved value equal, and a
-            // configuration client still has to re-read (its held revision is
-            // stale, and the field's meaning changed).
-            const name = String(ns)
-            // A provider's own settings carry its model catalog and endpoint,
-            // so a change there invalidates the model list even when the route
-            // set is untouched — `llm/adapters-updated` alone misses it. The
-            // Agent default section is the other such source: it names the
-            // selection every session with no logged one resolves to, so an
-            // externally edited default (another tab, a hand-edited
-            // settings.yaml) has to reach an open selector too.
-            if (modelProviderNamespaces().has(name) || name === String(AGENT_DEFAULT_MODEL_SETTINGS_NAMESPACE)) {
-              queue.push(frame({ type: 'host/models-changed' }))
-            }
-          }),
-          ctx.on('llm/adapters-updated', () => {
-            queue.push(frame({ type: 'host/models-changed' }))
-          }),
         ]
         return queue.iterate(signal, () => { for (const dispose of disposers) dispose() })
       },

@@ -14,6 +14,8 @@ export type { ApiRemoteForwardedEvent } from '../types.ts'
 // declaration the Host emits rather than a flattened restatement of it.
 export type {} from '@deepseek-ai/dsh-commands/types'
 export type {} from '@deepseek-ai/dsh-credentials/types'
+export type {} from '@deepseek-ai/dsh-llm/types'
+export type {} from '@deepseek-ai/dsh-agent-presets/types'
 export type {} from '@deepseek-ai/dsh-settings/types'
 /**
  * The Gateway Client face's own declaration merges, type-only: `ctx.remote` and

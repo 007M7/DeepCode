@@ -8,7 +8,7 @@ Status: implemented
 
 [TypeRT Remote 方法调用](../../implemented/architecture/2026-08-02-typert-remote-method-calls.md)只覆盖「一次请求一个结果」的定向调用，明确把 Session 事件流与有状态交互留在别处；Host 向消费端的**单向事件推送**因此仍然全部压在遗留的 API Proxy 上。
 
-Host 上一族「注册表变了，重新拉一次」的纯失效事件（`commands/change`、`credentials/updated`、`settings/document-updated`）既不依赖 AgentScope、载荷也本来就是 JSON，却要穿过四跳才能到达一个 UI 订阅者：host cordis 事件 → apiproxy 手写 `HostFrame` 变体 + zod → client/runtime 手写桥 `ctx.emit(...)` → 消费者 `ctx.on(...)`。每加一个这类事件要改 5 处（帧联合、zod 联合、host 流监听、client 桥、client 侧重复的 `Events` 声明），而这 5 处没有一处是在陈述新事实——事件名、载荷类型、发射时机全都由 owner 包早已在 cordis `Events` 里声明过。
+Host 拥有 `agent-preset/selected`、`commands/change`、`credentials/updated`、`llm/adapters-updated`、`settings/document-updated` 这五条单向事件；它们既不依赖 AgentScope，载荷也本来就是 JSON。过去每条都要穿过 host cordis 事件、apiproxy 手写帧、client/runtime 手写桥和 Client 事件别名才能抵达 UI，而这些层没有陈述 owner 事件之外的新事实。
 
 那份重复声明还是**有损**的：client 侧写成 `settings/changed(ns: string)`，brand 类型在这一跳被拍平成裸 `string`，与 Remote 方法侧「消费端类型指向业务包唯一符号」的既有契约相反。
 
@@ -22,9 +22,9 @@ Host 上一族「注册表变了，重新拉一次」的纯失效事件（`comma
 - 事件**签名**不另立表：owner 包把自己的 cordis `Events` 声明搬进 client-safe 的 `./types` 纯类型出口，两侧读**同一份**——`$on` 的 listener 类型就是 `Events[Event]` 本身。「原样」不需要证明，是构造性成立的。
 - 但**只借 cordis 的类型形状，不接 cordis 的事件系统**：投递语义、注册表、异常处置全归 TypeRT 自己。
 
-一条 `Events` 条目若签名里够到了 host-only 符号（Service、`Agent`、Context 等），处理方式是**把代码拆到能干净落进 `./types` 为止**；不接受「一半留 index、一半搬走」的分裂声明，也不接受在 `./types` 里造结构等价的影子类型。这三个包都不需要拆：它们的条目只够到 `SettingsNamespace`、`SettingsUpdateSource`、`CredentialRef`，全是纯类型。
+一条 `Events` 条目若签名里够到了 host-only 符号（Service、`Agent`、Context 等），处理方式是**把代码拆到能干净落进 `./types` 为止**；不接受「一半留 index、一半搬走」的分裂声明，也不接受在 `./types` 里造结构等价的影子类型。这五个包都不需要拆：它们的条目只够到纯类型。agent-presets 把原词汇模块改名为 `preset.ts`，让导出的 `types.ts` 专门承载 client-safe 事件声明。
 
-**纯透传**的三条走这条路径，对应的 `HostFrame` 变体已删除；带派生逻辑的一律不动：`host/models-changed`（`llm/adapters-updated` 与 provider/agent-default 命名空间过滤的 fan-in）、`host/workspace-changed`/`-removed`/`host/archived-sessions-changed`（需 view 派生 + 每连接 dedup 状态）、`host/session-added`/`-removed`/`host/session-status`/`host/agent-error`（需活对象投影或帧时派生字段）。
+五条事件全部走这条路径，专用帧与 Client 别名都已删除。模型消费方直接订阅 `llm/adapters-updated` 和 `settings/document-updated`；preset 消费方订阅 `agent-preset/selected`。真正需要投影或去重的数据仍保留专用帧。
 
 `skills/change`、`tools/change`、`system-prompt/change` 是同形状的纯失效事件但目前**没有任何消费者**，按「每个抽象都要有当前 owner 与需求」不进名单，只作为扩展位记录在此。
 
@@ -73,8 +73,10 @@ $dispatch(event: string, args: readonly unknown[]): void
 ```ts
 // remote-events.ts — the value
 export const API_REMOTE_FORWARDED_EVENTS = [
+  'agent-preset/selected',
   'commands/change',
   'credentials/updated',
+  'llm/adapters-updated',
   'settings/document-updated',
 ] as const
 
@@ -108,7 +110,7 @@ API_REMOTE_FORWARDED_EVENTS satisfies readonly TypeRTForwardableEvent[]
 
 zod 侧 `args: z.array(z.unknown())`：帧本身来自 `JSON.parse`，元素必然已是 JSON 值，结构契约由 owner 包的 `Events` 声明承担——与既有 `session/projection` 帧的 `value` 同 posture。
 
-`events.host()` 打开时按名单挂监听（host 流每条自持 disposers，无需新增广播集合）。**注册位置是契约的一部分**：这段必须挂在 `settings/document-updated` 监听**之前**。cordis 按注册序触发，而 `host/models-changed` 是由同一条 host 事件**派生**出来的失效帧——转发帧排到派生帧之后会让同一次 emit 的两帧顺序相对改动前颠倒（已被两条 config 用例实测到）。规则：**转发帧必须先于由它派生的失效帧**。
+`events.host()` 打开时按名单挂监听；每条流自持 disposers，无需新增广播集合或派生失效 listener。
 
 
 `api/events.ts` 是浏览器侧也要编译的 wire 契约文件，所以它引用的每个类型都必须走 owner 包的 **client-safe type-only 子路径**，绝不能走包根出口。实证：从 `@deepseek-ai/dsh-session` 根引一个类型，就把根出口的 `declare module 'cordis' { interface Context { sessions: SessionStore } }` 拖进 client 编译面、把 client 的 `ctx.sessions: ISessions` 顶掉，在完全无关的 `ui-slash` / `ui-conversation` 里炸出 18 条错。`JsonValue` 因此需要 `dsh-session/src/types.ts` 补一条 re-export。
@@ -130,9 +132,9 @@ zod 侧 `args: z.array(z.unknown())`：帧本身来自 `JSON.parse`，元素必�
 | `api/remotes` | 新增 `src/remote-events.ts`（名单值）与 `src/types.ts`（类型投影 + 选择座位），两者都双列进两个 face 的 `files`；`./types` 出口 + `files` 补 `lib/types/**/*.js`；host 半加形状断言并 `import type {}` 三个 owner 包的 `./types`；client 半 `export type {}` 那三个 `./types` 与 `@deepseek-ai/dsh-api-gateway/client` |
 | 根 `tsconfig.base.json` | 加 `dsh-settings/types`、`dsh-credentials/types`、`dsh-api-remotes/types` 三条 `paths`，全部指向**源**平面 |
 | `dsh-commands` / `dsh-settings` / `dsh-credentials` | `interface Events` 子块移入各自 client-safe 的 `./types`（settings/credentials 新建该出口，brand 与纯类型一并移入，index 继续 re-export 并留住构造器；`files` 补 `lib/types/**/*.js`） |
-| `host/apiproxy` | `HostFrame` 增 `host/remote-event`、删 `host/commands-changed`/`-settings-changed`/`-credentials-changed` 三变体及其 zod；`events.host()` 按名单挂监听（位置在 `settings/document-updated` 之前）+ `assertJsonArgs`；该监听保留以继续喂 `host/models-changed` |
+| `host/apiproxy` | `HostFrame` 增 `host/remote-event`、删除五个专用变体及其 zod；`events.host()` 按名单挂监听并通过 `assertJsonArgs` 校验 |
 | `dsh-session` | `src/types.ts` 补 `export type { JsonValue }`，让 wire 契约文件能走 client-safe 子路径 |
-| `client/runtime` | 桥里三条 `ctx.emit` 换成一行 `ctx.remote.$dispatch(frame.event, frame.args)` 并新增 `remote` 注入；`Events` 声明删 `commands/changed`/`settings/changed`/`credentials/changed`（`models/changed` 保留） |
+| `client/runtime` | 五条 Client 事件桥分支收敛为 `ctx.remote.$dispatch(frame.event, frame.args)`，并删除重复声明 |
 | 5 个消费者 | ui-command / ui-models / ui-settings-general / ui-permission / ui-agent-preset 改订 `ctx.remote.$on(...)`；照 `ui-goal` 先例 type-only 引 `@deepseek-ai/dsh-api-remotes/client` 并把 `'remote'` 加进 `inject` |
 | `client/connection` | fixture 的 `emitHost` 造 `host/remote-event` |
 | `apps/web/tests` + `apps/cli` | 客户端符号镜像（见上节）；`apps/cli/tsconfig.json` 删 15 条 client 工程引用 |
@@ -160,9 +162,8 @@ zod 侧 `args: z.array(z.unknown())`：帧本身来自 `JSON.parse`，元素必�
 - 消费端 `$on('settings/document-updated', …)` 把 `ns` 解析为 `SettingsNamespace`：brand 穿过 wire 存活。
 - `$on` 的 disposer 归属调用方 fiber；同一个函数对象订阅两次时两条注册各自独立退订——按 listener 身份做键的表会把它们合并，所以订阅按注册项寻址。
 - 投递同时收容抛出的 listener 与拒绝所返回 promise 的 listener：声明返回值是 `void`，没人 await 异步 listener，其拒绝否则会完全逃出这层收容。投递遍历快照，因此派发中订阅或退订都不会改变本帧的接收者集合。
-- 同一次 emit 下，转发帧与由同一条 host 事件派生的失效帧保持改动前的相对顺序（两条 config 用例实测）。
 - `assertJsonArgs` 直接单测，而不是从事件总线造畸形 emit：类型化的 `ctx.emit` 造不出来——名单内每条事件的载荷在静态上都是 JSON-safe 的。
-- 三个 `HostFrame` 变体、三条 client 侧 `Events` 声明、三条桥分支在同一变更内消失；`host/models-changed` 行为不变。
+- 五个专用帧、五条 Client 别名及其桥分支都不存在；各消费方直接观察 owner 事件。
 
 ## 后果
 

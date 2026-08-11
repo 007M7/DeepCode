@@ -67,8 +67,6 @@ This matrix shows which packages dispatch each harness-owned event and which pac
 | `internal/service` | - | [`agent-presets`](../packages/preset/agent-presets), `gateway` |
 | `internal/status` | - | [`agent`](../packages/core/agent) |
 | `locale/change` | `locale` (`emit`) | `locale` |
-| `models/changed` | `runtime` (`emit`) | - |
-| `session/preset-changed` | `runtime` (`emit`) | - |
 | `slash/input-begin-command` | - | `ui-conversation` |
 | `slash/input-consume-token` | - | `ui-conversation` |
 | `slash/input-insert-reference` | - | `ui-conversation` |

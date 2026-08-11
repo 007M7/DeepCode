@@ -88,7 +88,5 @@ export const hostFrameSchema = z.discriminatedUnion('type', [
   // structural contract belongs to the owner package's cordis `Events`
   // declaration — the host validated JSON-safety before forwarding.
   z.object({ type: z.literal('host/remote-event'), event: z.string().min(1), args: z.array(z.unknown()) }),
-  z.object({ type: z.literal('host/session-preset-changed'), sessionId: sessionIdSchema, agentPreset: z.string() }),
-  z.object({ type: z.literal('host/models-changed') }),
   z.object({ type: z.literal('stream/error'), error: rpcErrorSchema }),
 ]) as unknown as z.ZodType<HostFrame>

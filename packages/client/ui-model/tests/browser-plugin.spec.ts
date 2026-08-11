@@ -13,6 +13,7 @@ import { describe, expect, it } from 'vitest'
 import { createScope } from '@deepseek-ai/dsh-client-runtime/client'
 import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
+import { TestRemote } from '@deepseek-ai/dsh-client-test-runtime'
 import type { ModelSelection } from '@deepseek-ai/dsh-client-connection/client'
 import type { CommandContribution, SelectOption } from '@deepseek-ai/dsh-client-ui-command/client'
 import type { ModelSelectInjected } from '../src/client/slots.ts'
@@ -112,6 +113,7 @@ async function bench() {
       ? { parentSessionId: sid('parent'), childSessionId: id, mode: 'continuable' as const }
       : undefined,
   })
+  new TestRemote(ctx)
   const fiber = ctx.plugin({ inject: [...inject], apply })
   await fiber.await()
   await ctx.plugin(function probe() {}).await()
@@ -245,14 +247,14 @@ describe('ui-model dual entry', () => {
     expect(b.blockOf('s1')).toBeUndefined()
 
     b.setRoutable(false)
-    b.ctx.emit('models/changed')
+    b.ctx.remote.$dispatch('llm/adapters-updated', [])
     await Promise.resolve()
     await Promise.resolve()
     expect(b.blockOf('s1')?.reason).toBe(zh['blocked.composer'])
 
     // Recovering clears it without a reload of the surface.
     b.setRoutable(true)
-    b.ctx.emit('models/changed')
+    b.ctx.remote.$dispatch('settings/document-updated', ['llm-deepseek', 1])
     await Promise.resolve()
     await Promise.resolve()
     expect(b.blockOf('s1')).toBeUndefined()

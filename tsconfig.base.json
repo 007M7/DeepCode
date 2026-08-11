@@ -60,6 +60,7 @@
       "@deepseek-ai/dsh-session-title/client": ["./packages/session/session-title/src/client.ts"],
       "@deepseek-ai/dsh-plan-mode/types": ["./packages/plan/plan-mode/src/types.ts"],
       "@deepseek-ai/dsh-plan-mode/client": ["./packages/plan/plan-mode/src/client.ts"],
+      "@deepseek-ai/dsh-agent-presets/types": ["./packages/preset/agent-presets/src/types.ts"],
       "@deepseek-ai/dsh-pwsh-local": ["./packages/bash/pwsh-local/src/index.ts"],
       "@deepseek-ai/dsh-tool-pwsh": ["./packages/bash/tool-pwsh/src/index.ts"],
       "@deepseek-ai/dsh-bash-env": ["./packages/bash/bash-env/src/index.ts"],

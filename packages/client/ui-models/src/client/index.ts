@@ -87,7 +87,7 @@ export function apply(ctx: ClientContext): void {
     const disposers = [
       ctx.remote.$on('settings/document-updated', refresh),
       ctx.remote.$on('credentials/updated', refresh),
-      ctx.on('models/changed', refresh),
+      ctx.remote.$on('llm/adapters-updated', refresh),
       ctx.on('connection/reset', refresh),
     ]
     return () => { for (const dispose of disposers) dispose() }

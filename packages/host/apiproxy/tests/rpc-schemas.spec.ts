@@ -507,7 +507,8 @@ describe('events frame schemas', () => {
       { type: 'host/workspace-removed', workspaceId: 'w' },
       { type: 'host/remote-event', event: 'commands/change', args: [] },
       { type: 'host/remote-event', event: 'settings/document-updated', args: ['ns', 3] },
-      { type: 'host/session-preset-changed', sessionId: 's', agentPreset: 'minimal' },
+      { type: 'host/remote-event', event: 'agent-preset/selected', args: ['s', 'minimal'] },
+      { type: 'host/remote-event', event: 'llm/adapters-updated', args: [] },
       { type: 'stream/error', error: { code: 'internal', message: 'm', details: {} } },
     ]
     for (const frame of frames) expect(hostFrameSchema.parse(frame)).toMatchObject({ type: frame.type })

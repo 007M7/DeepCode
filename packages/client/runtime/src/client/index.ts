@@ -158,24 +158,6 @@ declare module '@deepseek-ai/cordis' {
      */
     'slots/changed'(key: string): void
     /**
-     * The host provider topology changed (host/models-changed passthrough).
-     * Subscribers refetch `llm.providers`/`llm.models`/`session.models`.
-     * @mode emit
-     */
-    'models/changed'(): void
-    /**
-     * One session's agent preset changed (host/session-preset-changed
-     * passthrough), so everything its composition decides — the command
-     * catalog, the skill catalog — is stale for that session and no other.
-     * Every connected client observes it, not only the one that issued the
-     * switch. Subscribers refetch their own session-keyed caches; the frame
-     * carries no catalog.
-     * @mode emit
-     * @param sessionId - the session whose composition changed.
-     * @param agentPreset - the preset it now runs.
-     */
-    'session/preset-changed'(sessionId: SessionId, agentPreset: string): void
-    /**
      * A connection generation was (re-)established. Wire-derived caches must
      * treat their state as stale and repull (commands directory; the queue
      * mirrors reset themselves through the session resync path).
@@ -231,10 +213,6 @@ export function apply(ctx: Context): void {
       // `ctx.remote.$on` subscribers; no consumer reads a frame.
       const frame = envelope.payload
       if (frame.type === 'host/remote-event') ctx.remote.$dispatch(frame.event, frame.args)
-      else if (frame.type === 'host/session-preset-changed') {
-        ctx.emit('session/preset-changed', frame.sessionId, frame.agentPreset)
-      }
-      else if (frame.type === 'host/models-changed') ctx.emit('models/changed')
     },
     onConnected: () => {
       sessions.handleConnected()

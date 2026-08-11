@@ -431,7 +431,7 @@ describe('settings domain', () => {
       .toBe('settings-not-exposed')
   })
 
-  it('invalidates the model catalog when a provider namespace changes, and broadcasts a raw-only change', async () => {
+  it('forwards a provider settings change for model-catalog consumers', async () => {
     // Editing `models` changes no route, so llm/adapters-updated never fires
     // and an open model picker would keep serving the stale catalog. Storing
     // an override equal to the resolved value emits nothing on
@@ -440,13 +440,10 @@ describe('settings domain', () => {
     const ctx = await harness()
     ctx.settings.register(NS, AdapterConfig, { base: { baseURL: 'https://base' } })
     const api = createApiProxy(ctx, DEFAULTS)
-    const frames = await collectHost(api, ['host/remote-event', 'host/models-changed'], 2, async () => {
+    const frames = await collectHost(api, ['host/remote-event'], 1, async () => {
       await api.settings.update(request({ ns: 'llm-deepseek', patch: { baseURL: 'https://base' } }))
     })
-    expect(frames).toEqual([
-      forwardedSettings('llm-deepseek'),
-      { type: 'host/models-changed' },
-    ])
+    expect(frames).toEqual([forwardedSettings('llm-deepseek')])
     // The resolved value never moved: base already said https://base.
     expect(expectOk(await api.settings.describe(request({}))).namespaces[0]!.value)
       .toEqual({ apiKeyEnv: 'DEEPSEEK_API_KEY', baseURL: 'https://base' })
@@ -460,13 +457,13 @@ describe('settings domain', () => {
       base: { defaultPreset: 'read-only' },
     })
     const api = createApiProxy(ctx, DEFAULTS)
-    const frames = await collectHost(api, ['host/remote-event', 'host/models-changed'], 1, async () => {
+    const frames = await collectHost(api, ['host/remote-event'], 1, async () => {
       await permission.update({ defaultPreset: 'workspace-write' })
     })
     expect(frames).toEqual([forwardedSettings('permission')])
   })
 
-  it('invalidates the model catalog when the Agent default selection changes', async () => {
+  it('forwards an Agent-default settings change for model-catalog consumers', async () => {
     const ctx = await harness()
     const defaultModel = ctx.settings.register(AGENT_DEFAULT_MODEL_SETTINGS_NAMESPACE, z.object({
       provider: z.string().required(),
@@ -476,13 +473,10 @@ describe('settings domain', () => {
     // The shared section names the selection every blank session resolves to,
     // so an externally edited default — another tab, a
     // hand-edited settings.yaml — has to reach an open selector as well.
-    const frames = await collectHost(api, ['host/remote-event', 'host/models-changed'], 2, async () => {
+    const frames = await collectHost(api, ['host/remote-event'], 1, async () => {
       await defaultModel.replace({ provider: 'deepseek-official', model: 'deepseek-reasoner' })
     })
-    expect(frames).toEqual([
-      forwardedSettings('agent-default-model'),
-      { type: 'host/models-changed' },
-    ])
+    expect(frames).toEqual([forwardedSettings('agent-default-model')])
   })
 
   it('maps a stale expectedRevision to settings-conflict carrying both revisions', async () => {
@@ -641,15 +635,18 @@ describe('llm domain', () => {
     expect(value.failures).toEqual([{ id: 'broken', name: 'Broken', message: 'catalog backend down' }])
   })
 
-  it('broadcasts host/models-changed at every topology commit point', async () => {
+  it('forwards llm/adapters-updated at every topology commit point', async () => {
     const ctx = await harness()
     const api = createApiProxy(ctx, DEFAULTS)
-    const frames = await collectHost(api, ['host/models-changed'], 2, async () => {
+    const frames = await collectHost(api, ['host/remote-event'], 2, async () => {
       const dispose = ctx.llm.registerAdapter(['deepseek-official'], new CatalogAdapter('DeepSeek', []))
       dispose()
       return Promise.resolve()
     })
-    expect(frames).toEqual([{ type: 'host/models-changed' }, { type: 'host/models-changed' }])
+    expect(frames).toEqual([
+      { type: 'host/remote-event', event: 'llm/adapters-updated', args: [] },
+      { type: 'host/remote-event', event: 'llm/adapters-updated', args: [] },
+    ])
   })
 })
 

@@ -165,6 +165,12 @@ function sessionsDouble(state: {
         return () => listeners.delete(fn)
       },
     },
+    noteAgentPreset: (sessionId: string, agentPreset: string) => {
+      const summary = state.byId[sessionId]
+      if (summary === undefined || summary.agentPreset === agentPreset) return
+      summary.agentPreset = agentPreset
+      for (const fn of listeners) fn()
+    },
     /** Push a list change the way the runtime's store does. */
     notify: () => { for (const fn of listeners) fn() },
   }
@@ -345,6 +351,24 @@ describe('ui-agent-preset apply', () => {
       expect(seat.hooks.agentPresetSeat.getSnapshot().current).toBe('minimal')
     })
     conversation()
+  })
+
+  it('folds a remote preset commit into the shared session row', async () => {
+    const { ctx, slots } = await bench()
+    declareRoot(slots)
+    declareConversation(slots)
+    ctx.provide('conversation', {} as never)
+    const state = {
+      current: 's1',
+      byId: { s1: { id: 's1', blank: true, agentPreset: 'standard' } },
+    }
+    ctx.provide('sessions', sessionsDouble(state) as never)
+    ctx.provide('workspaces', workspacesDouble() as never)
+    await ctx.plugin({ inject: [...inject, 'conversation', 'sessions', 'workspaces'], apply }).await()
+
+    ctx.remote.$dispatch('agent-preset/selected', ['s1', 'minimal'])
+
+    expect(state.byId.s1.agentPreset).toBe('minimal')
   })
 
   it('offers a just-authored preset on the new-session chip', async () => {

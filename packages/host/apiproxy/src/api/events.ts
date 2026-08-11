@@ -150,23 +150,4 @@ export type HostFrame =
    * per-event frame variant.
    */
   | { type: 'host/remote-event'; event: string; args: JsonValue[] }
-  /**
-   * One blank session was recomposed onto another agent preset (the logged
-   * `agent-preset/selected` commit point, read off the session stream). The
-   * registry-wide `commands/change` forwarded above cannot stand in for it:
-   * recomposing re-parents that agent's scope without registering anything,
-   * so a preset already mounted for another session produces no registry
-   * change at all. Clients refetch the catalogs this session's composition
-   * decides (`command.list`, `skill.list`) for this sessionId alone, and fold
-   * the preset id into their session row — the RPC echo reaches only the
-   * client that issued the switch, so the row is where every other one learns
-   * it.
-   */
-  | { type: 'host/session-preset-changed'; sessionId: SessionId; agentPreset: string }
-  /**
-   * The provider topology changed (`llm/adapters-updated` passthrough):
-   * routes registered or dropped, or the configurable directory moved. Pure
-   * invalidation: clients refetch `llm.providers`/`llm.models`/`session.models`.
-   */
-  | { type: 'host/models-changed' }
   | { type: 'stream/error'; error: RpcError }

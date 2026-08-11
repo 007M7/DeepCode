@@ -8,7 +8,7 @@ English | [中文](2026-08-10-remote-event-delivery.zh.md)
 
 [TypeRT Gateway targeted method calls](../../implemented/architecture/2026-08-02-typert-remote-method-calls.md) cover only the request/response shape and deliberately leave Session event streams and stateful interactions to separate designs. Every **one-way Host-to-consumer push** therefore still rides the legacy API Proxy.
 
-The Host owns a family of pure invalidation events — "a registry changed, refetch it" — whose payloads are already JSON and whose emission never binds an AgentScope: `commands/change`, `credentials/updated`, `settings/document-updated`. Reaching one UI subscriber takes four hops: the Host cordis event, a hand-written `HostFrame` variant plus its zod branch in apiproxy, a hand-written bridge in client/runtime that re-emits it as a Client cordis event, and finally the consumer's `ctx.on(...)`. Adding one such event edits five places (frame union, zod union, host-stream listener, client bridge, a duplicated Client-side `Events` declaration), and not one of them states a new fact: the name, the payload type, and the emission point were all declared by the owner package's cordis `Events` merge.
+The Host owns a family of one-way events whose payloads are already JSON and whose emission never binds an AgentScope: `agent-preset/selected`, `commands/change`, `credentials/updated`, `llm/adapters-updated`, and `settings/document-updated`. Reaching one UI subscriber took four hops: the Host cordis event, a hand-written `HostFrame` variant plus its zod branch in apiproxy, a hand-written bridge in client/runtime that re-emitted it as a Client cordis event, and finally the consumer's `ctx.on(...)`. Adding one such event edited five places (frame union, zod union, host-stream listener, client bridge, a duplicated Client-side `Events` declaration), and not one of them stated a new fact: the name, the payload type, and the emission point were all declared by the owner package's cordis `Events` merge.
 
 That duplicated declaration is also **lossy**: the Client side restates it as `settings/changed(ns: string)`, flattening a branded type into bare `string` — the opposite of the Remote method contract, where a consumer type points at the business package's one canonical symbol.
 
@@ -22,9 +22,9 @@ The consumer Remote surface carries one one-way subscription verb, `ctx.remote.$
 - Event **signatures** get no second table. Each owner package moves its cordis `Events` declaration into its client-safe, type-only `./types` export, so both faces read the same declaration and `$on`'s listener type is `Events[Event]` itself. "Verbatim" then holds by construction rather than by proof.
 - Only cordis's *type shape* is borrowed, not its event system: delivery semantics, the subscription registry, and failure containment belong to TypeRT.
 
-When an `Events` entry's signature reaches a Host-only symbol (a Service, `Agent`, a Context), the answer is to **split the code until the entry lands cleanly in `./types`** — never a declaration half-left in `index.ts`, and never a structurally equivalent shadow type in `./types`. None of the three packages needed that here: their entries reach only `SettingsNamespace`, `SettingsUpdateSource`, and `CredentialRef`, all pure types.
+When an `Events` entry's signature reaches a Host-only symbol (a Service, `Agent`, a Context), the answer is to **split the code until the entry lands cleanly in `./types`** — never a declaration half-left in `index.ts`, and never a structurally equivalent shadow type in `./types`. None of the five packages needs that here: their entries reach only `SettingsNamespace`, `SettingsUpdateSource`, `CredentialRef`, and `SessionId`, all pure types. The agent-presets package renames its previous vocabulary module to `preset.ts`, leaving the exported `types.ts` dedicated to the client-safe event declaration.
 
-The three **pure passthrough** events ride this path, and their `HostFrame` variants are gone. Everything with derivation stays untouched: `host/models-changed` (a fan-in of `llm/adapters-updated` with provider/agent-default namespace filtering), `host/workspace-changed`/`-removed`/`host/archived-sessions-changed` (view derivation plus per-connection dedup state), and `host/session-added`/`-removed`/`host/session-status`/`host/agent-error` (live-object projection or frame-time derived fields).
+All five events ride this path, and their dedicated `HostFrame` variants or Client aliases are gone. Model consumers subscribe directly to both owner inputs, `llm/adapters-updated` and `settings/document-updated`; preset-derived consumers subscribe to `agent-preset/selected`. Frames that actually project or deduplicate data stay dedicated: `host/workspace-changed`/`-removed`/`host/archived-sessions-changed` (view derivation plus per-connection dedup state), and `host/session-added`/`-removed`/`host/session-status`/`host/agent-error` (live-object projection or frame-time derived fields).
 
 `skills/change`, `tools/change`, and `system-prompt/change` have the same shape but **no consumer today**; under "require a current owner and need" they stay out of the allowlist and are recorded here only as the extension seat.
 
@@ -73,8 +73,10 @@ Delivery shares no implementation with the cordis event system: one-way only, no
 ```ts
 // remote-events.ts — the value
 export const API_REMOTE_FORWARDED_EVENTS = [
+  'agent-preset/selected',
   'commands/change',
   'credentials/updated',
+  'llm/adapters-updated',
   'settings/document-updated',
 ] as const
 
@@ -108,7 +110,7 @@ JSON-safety is a runtime concern: before forwarding, apiproxy validates each arg
 
 The zod branch keeps `args: z.array(z.unknown())`: the frame arrives from `JSON.parse`, so every element is already a JSON value, and the structural contract belongs to the owner package's `Events` declaration — the same posture the existing `session/projection` frame takes with its `value`.
 
-`events.host()` subscribes by allowlist when the stream opens (each stream owns its disposers, so no broadcast set is needed). **The registration position is part of the contract**: this block must sit *before* the `settings/document-updated` listener. Cordis fires in registration order, and `host/models-changed` is an invalidation frame *derived* from that same Host event; placing the forwarded frame after the derived one flips the relative order of two frames from one emit compared with the previous behavior (two config cases observe it).
+`events.host()` subscribes by allowlist when the stream opens. Each stream owns its disposers, so no broadcast set or derived invalidation listener is needed.
 
 `api/events.ts` is a wire contract file the browser side also compiles, so every type it references must come from an owner package's **client-safe, type-only subpath**, never the package root. Evidence: importing one type from `@deepseek-ai/dsh-session` root drags the root's `declare module 'cordis' { interface Context { sessions: SessionStore } }` into the Client compilation face and overrides the Client's `ctx.sessions: ISessions`, producing 18 errors in the unrelated `ui-slash` and `ui-conversation`. `JsonValue` therefore needs a re-export from `dsh-session/src/types.ts`.
 
@@ -126,13 +128,13 @@ The few Client-owned symbols are therefore **mirrored** on the test side (`scaff
 |---|---|
 | `dsh-type-meta` | `src/types.ts` gains `TypeRTForwardableEvent`, `TypeRTRemoteEventSelection`, and `TypeRTRemoteEvent`; `TypeRTClientRemote` gains `$on` and `$dispatch`. Types only, no runtime |
 | `api/gateway` Client half | `ClientRemoteService` implements `$on` (subscriptions addressed by registration, `ctx.effect` ownership for the calling fiber) and `$dispatch` (snapshot delivery in registration order, containing a listener that throws or rejects) |
-| `api/remotes` | New `src/remote-events.ts` (the allowlist value) and `src/types.ts` (type projection, selection seat), both listed in both faces' `files`; a `./types` export with `lib/types/**/*.js` added to `files`; the Host face adds the shape assertion and `import type {}` for the three owner `./types`; the Client half re-exports those three plus `@deepseek-ai/dsh-api-gateway/client` |
-| Root `tsconfig.base.json` | Three `paths` entries (`dsh-settings/types`, `dsh-credentials/types`, `dsh-api-remotes/types`), all pointing at the **source** plane |
-| `dsh-commands` / `dsh-settings` / `dsh-credentials` | The `interface Events` sub-block moves into each package's client-safe `./types` (settings and credentials create that export, moving the brands and pure types with it; `index` keeps re-exporting them and keeps the constructors; `files` gains `lib/types/**/*.js`) |
-| `host/apiproxy` | `HostFrame` gains `host/remote-event` and loses `host/commands-changed`/`-settings-changed`/`-credentials-changed` with their zod branches; `events.host()` subscribes by allowlist ahead of the `settings/document-updated` listener and validates through `assertJsonArgs`; that listener stays to keep feeding `host/models-changed` |
+| `api/remotes` | New `src/remote-events.ts` (the allowlist value) and `src/types.ts` (type projection, selection seat), both listed in both faces' `files`; a `./types` export with `lib/types/**/*.js` added to `files`; the Host face adds the shape assertion and `import type {}` for the five owner `./types`; the Client half re-exports those five plus `@deepseek-ai/dsh-api-gateway/client` |
+| Root `tsconfig.base.json` | Client-safe `paths` entries for settings, credentials, llm, agent-presets, and api-remotes types point at the **source** plane |
+| `dsh-commands` / `dsh-settings` / `dsh-credentials` / `dsh-llm` / `dsh-agent-presets` | Each forwarded `interface Events` member lives in the owner's client-safe `./types`; agent-presets moves its previous domain vocabulary to `preset.ts` so the exported file itself remains `types.ts` |
+| `host/apiproxy` | `HostFrame` gains `host/remote-event` and loses the five dedicated passthrough or invalidation variants with their zod branches; `events.host()` subscribes by allowlist and validates through `assertJsonArgs` |
 | `dsh-session` | `src/types.ts` re-exports `JsonValue` so wire contract files can use the client-safe subpath |
-| `client/runtime` | The bridge's three `ctx.emit` branches collapse into `ctx.remote.$dispatch(frame.event, frame.args)`, adding a `remote` injection; the `Events` merge drops `commands/changed`, `settings/changed`, and `credentials/changed` (`models/changed` stays) |
-| Five consumers | ui-command / ui-models / ui-settings-general / ui-permission / ui-agent-preset subscribe through `ctx.remote.$on(...)`, following `ui-goal`'s precedent for the type-only facade import and the `'remote'` injection |
+| `client/runtime` | The five Client-event bridge branches collapse into `ctx.remote.$dispatch(frame.event, frame.args)`, adding a `remote` injection and deleting their duplicated `Events` declarations |
+| Seven consumers | ui-command / ui-model / ui-models / ui-settings-general / ui-permission / ui-agent-preset / ui-skill subscribe through `ctx.remote.$on(...)`, following `ui-goal`'s precedent for the type-only facade import and the `'remote'` injection |
 | `client/connection` | The fixture's `emitHost` produces `host/remote-event` |
 | `apps/web/tests` + `apps/cli` | Client symbols mirrored on the test side (see above); `apps/cli/tsconfig.json` drops its 15 Client project references |
 
@@ -144,7 +146,7 @@ The few Client-owned symbols are therefore **mirrored** on the test side (`scaff
 
 **Have the typert generator project Host `Events` declarations** (codec, `.d.ts`, declaration map, like `/remote`). The generator already analyzes Host events, but it cannot see projection or redaction intent, and it would change the generator and the build surface. Verbatim forwarding needs no projection.
 
-**Give forwardable events a payload projection function** (a `{ name, project, zod }` forwarding table). This would cover `models-changed`'s fan-in and workspace view derivation in one step, at the cost of hand-aligning projection logic with payload types — the central table the method side just removed.
+**Give forwardable events a payload projection function** (a `{ name, project, zod }` forwarding table). This could fold the two model-directory inputs into one derived invalidation and also cover workspace view derivation, at the cost of hand-aligning projection logic with payload types — the central table the method side just removed.
 
 **Move the apps/web browser e2e into the Client aggregate.** "Client tests belong to the Client face" looks right and fails immediately with 21 errors: those tests use Host services, and in the Client program `ctx.sessions` is `ISessions`.
 
@@ -159,9 +161,8 @@ What pins this behavior:
 - On the consumer side, `$on('settings/document-updated', …)` resolves `ns` as `SettingsNamespace`: the brand survives the wire.
 - `$on`'s disposer belongs to the calling fiber, and two registrations of one function object retire independently — a table keyed on listener identity would collapse them, so subscriptions are addressed by registration.
 - Delivery contains a listener that throws AND one that rejects a returned promise: the declared return is `void`, so nobody awaits an async listener, and its rejection would otherwise escape this containment entirely. Delivery iterates a snapshot, so subscribing or disposing mid-frame cannot change who receives that frame.
-- For one emit, the forwarded frame and the invalidation frame derived from the same Host event keep the pre-change relative order (two config cases observe it).
 - `assertJsonArgs` is unit-tested directly rather than by driving a malformed emit through the event bus: a typed `ctx.emit` cannot construct one, since every allowlisted event has a statically JSON-safe payload.
-- The three `HostFrame` variants, the three Client-side `Events` declarations, and the three bridge branches are gone in the same change; `host/models-changed` behavior is unchanged.
+- The five dedicated `HostFrame` variants, five Client-side aliases, and their bridge branches are absent. The model directories observe both owner inputs, while command, skill, and session-row consumers observe the preset owner's committed-selection event.
 
 ## Consequences
 

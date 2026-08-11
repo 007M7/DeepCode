@@ -29,6 +29,12 @@
       "path": "../../interaction/commands"
     },
     {
+      "path": "../../llm/llm"
+    },
+    {
+      "path": "../../preset/agent-presets"
+    },
+    {
       "path": "../../session/session-persistence"
     },
     {
