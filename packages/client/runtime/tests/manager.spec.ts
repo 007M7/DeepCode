@@ -7,7 +7,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { SessionId } from '@deepseek-ai/dsh-client-connection/client'
 import { SessionManager } from '../src/client/sessions/manager.ts'
 import { FakeApiClient, deferred, err, ok } from './fake-api.ts'
-import { entries, plainTurn } from './event-script.ts'
+import { entries, ev, plainTurn } from './event-script.ts'
 
 const S1 = 'fk-m1' as SessionId
 const S2 = 'fk-m2' as SessionId
@@ -111,6 +111,46 @@ describe('list lifecycle', () => {
     }))
     await manager.refreshList()
     expect(manager.getListSnapshot().items.map(item => item.sessionId)).toEqual([S2, S1])
+  })
+
+  it('advances list activity only for direct user messages', async () => {
+    const api = new FakeApiClient()
+    api.onList = () => Promise.resolve(ok({ items: [summary(S1)] as never[] }))
+    const manager = new SessionManager(api)
+    await manager.refreshList()
+
+    // Both a new prompt and an admitted steer land as a user-sourced message.
+    const activity = { ...ev.user(10, 'new'), time: 500 }
+    manager.handleMuxEnvelope({
+      rpcId: 'activity' as never,
+      payload: { type: 'session/event', sessionId: S1, event: activity },
+    })
+    expect(manager.getListSnapshot().items[0]?.updatedAt).toBe(500)
+
+    manager.handleMuxEnvelope({
+      rpcId: 'older' as never,
+      payload: { type: 'session/event', sessionId: S1, event: { ...activity, time: 400 } },
+    })
+    manager.handleMuxEnvelope({
+      rpcId: 'assistant' as never,
+      payload: { type: 'session/event', sessionId: S1, event: { ...ev.assistant(11, 0, 'reply'), time: 600 } },
+    })
+
+    const injected = ev.user(12, 'context')
+    if (injected.type !== 'user/message') throw new Error('user builder returned another event type')
+    manager.handleMuxEnvelope({
+      rpcId: 'injected' as never,
+      payload: {
+        type: 'session/event',
+        sessionId: S1,
+        event: {
+          ...injected,
+          time: 700,
+          data: { ...injected.data, source: { kind: 'plugin', plugin: 'test' } },
+        },
+      },
+    })
+    expect(manager.getListSnapshot().items[0]?.updatedAt).toBe(500)
   })
 
   it('keeps the error in the list snapshot on failure', async () => {
