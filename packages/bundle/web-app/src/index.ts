@@ -16,7 +16,6 @@ import { fileURLToPath } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { addHarnessSourceSection } from '@deepseek-ai/dsh-app-boot'
-import { enableRow } from '@deepseek-ai/dsh-cmdline'
 import * as FrontendStatic from '@deepseek-ai/dsh-frontend-static'
 import type {} from '@deepseek-ai/cordis-plugin-loader'
 import type {} from '@deepseek-ai/dsh-host-webserver'
@@ -28,7 +27,7 @@ export const name = 'web-app'
 
 /** This dsh installation's root, from either this package's source or built entry. */
 const SOURCE_ROOT = fileURLToPath(new URL('../../../..', import.meta.url))
-const HMR_ROW_ID = 'client-hmr'
+const HMR_ROW_NAME = '@deepseek-ai/dsh-client-hmr'
 
 /** Runtime service that releases Web rows after bind-dependent values resolve. */
 const WEB_RUNTIME_SERVICE = 'webRuntime'
@@ -141,19 +140,36 @@ export const internals: { resolveDistIndex: () => string } = { resolveDistIndex 
 
 /**
  * Mount the Web runtime: dist serving, surface prompt, bash runtime
- * variables, and the URL line.
+ * variables, the development-mode client-hmr row, and the URL line.
  * @param ctx - plugin context carrying the httpServer service.
  * @param config - validated {@link Config}.
- * @returns nothing once the invocation's client roster and runtime contributions are registered.
  */
-export async function apply(ctx: Context, config: Config): Promise<void> {
-  // Client discovery must start after the optional HMR row has a pending
-  // fiber. Otherwise its first browser graph omits the reload receiver, which
-  // cannot use that receiver to discover itself later.
-  if (config.mode === 'development') await enableRow(ctx, HMR_ROW_ID)
+export function apply(ctx: Context, config: Config): void {
+  if (config.mode === 'development') {
+    // The dev reload chain is mounted as a real tree row so the browser
+    // roster scan includes its client half; it is a row rather than a child
+    // of this plugin because its node half is a client-side package, which a
+    // host-side bundle cannot import. Created in the root tree after Loader
+    // settlement: row creation must stay out of the mounting transaction,
+    // and a root-tree row survives user-patch reapplication of the include.
+    // The incremental roster scan picks it up before any page load — a
+    // browser arrives only after a human reads the URL line.
+    const loader = ctx.get('loader')
+    if (loader === undefined) {
+      ctx.logger.warn('web-app: development mode without a Loader tree mounts no client-hmr row')
+    } else {
+      void loader.await().then(async () => {
+        // The tree can be disposed while settlement was in flight (early
+        // SIGTERM); re-check before mutating it. A reload of this fiber must
+        // not duplicate the row a previous generation created.
+        if (ctx.get('loader') === undefined) return
+        const mounted = [...ctx.loader.entries()].some(entry => entry.options.name === HMR_ROW_NAME)
+        if (!mounted) await ctx.loader.create({ name: HMR_ROW_NAME })
+      }).catch((error: unknown) => { ctx.logger.error(error) })
+    }
+  }
   const runtime = resolveLanTrust(ctx.httpServer.host, config.trustedHosts)
-  // Release dependent rows only after the optional row has a pending fiber and
-  // bind-dependent trust has been sampled once.
+  // Release dependent rows only after bind-dependent trust has been sampled once.
   ctx.provide(WEB_RUNTIME_SERVICE, runtime)
   ctx.plugin(FrontendStatic, { distIndex: internals.resolveDistIndex() })
   if (config.surfaceContext) {

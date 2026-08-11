@@ -8,8 +8,8 @@
 # The web-startup plugin injects `cmdlineArgs` and provides `webStartup` as an
 # ordinary Cordis service. Rows configured from flags inject that service, so
 # Loader resolves their expressions only after it exists. The web runtime then
-# provides bind-dependent `webRuntime` values to the trust fence and client
-# roster. `dsh --profile web --help` provides neither service, so no server binds.
+# provides bind-dependent `webRuntime` values to the trust fence.
+# `dsh --profile web --help` provides neither service, so no server binds.
 
 # ── surface-specific values the base deliberately omits ─────────────────────
 
@@ -119,25 +119,17 @@
         surfaceContext: true
         trustedHosts: !!js ctx.webStartup.trustedHosts
 
-    # The client-plugin reload chain: a dev-only row this bundle ships off,
-    # which the runtime row turns on before client discovery. It is a row rather
-    # than a child of web-runtime because its node half is a client-side package,
-    # which a host-side bundle cannot import.
-    - id: client-hmr
-      name: '@deepseek-ai/dsh-client-hmr'
-      inject: [webStartup]
-      disabled: true
-
     # ── browser plugin roster (dsh.client rows; node halves are layer-2 hosts) ──
 
-    # Dual-face: this waits for the runtime row to decide whether HMR belongs
-    # in the first graph. The node half then scans this tree, composes
-    # window.__DSH_BOOT__, and serves /plugins/<id>/client.js; the browser half
-    # is the module table the shell kernel constructs before cordis exists
-    # (adopted as a plugin entry by the kernel, never fetched).
+    # Dual-face: the node half scans this tree, composes window.__DSH_BOOT__,
+    # and serves /plugins/<id>/client.js; the browser half is the module table
+    # the shell kernel constructs before cordis exists (adopted as a plugin
+    # entry by the kernel, never fetched). In development mode the web-runtime
+    # row creates the client-plugin reload chain (dsh-client-hmr) as a root
+    # tree row after Loader settlement; the incremental scan adds it to the
+    # roster before any page loads.
     - id: modules
       name: '@deepseek-ai/dsh-client-modules'
-      inject: [webRuntime]
 
     # Owns both ends of the web transport: node half binds the gateway to the
     # webserver under /api; browser half is the fetch/SSE client.
