@@ -6,7 +6,7 @@ The workflow seam lets an agent run a model-written orchestration SCRIPT that st
 
 Service Definition: [dsh-workflow](../../packages/workflow/workflow) (`ctx.workflows` + the vocabulary below). The Service provider is [dsh-workflow-workerthread](../../packages/workflow/workflow-workerthread) (a `node:worker_threads` engine — one worker per run, the script's vm context inside it); the model-facing Consumer is [dsh-tool-workflow](../../packages/workflow/tool-workflow). The proposal and rationale: [the dynamic-workflows Agent Note](../../.agents/notes/implemented/feature/2026-07-05-dynamic-workflows.md).
 
-Source: [`packages/workflow/workflow/src/types.ts`](../../packages/workflow/workflow/src/types.ts)
+Sources: browser-safe vocabulary in [`packages/workflow/workflow/src/types.ts`](../../packages/workflow/workflow/src/types.ts), Host request and live-run handles in [`runtime-types.ts`](../../packages/workflow/workflow/src/runtime-types.ts).
 
 ## The start request
 
@@ -15,33 +15,23 @@ What a caller asks for when starting a run. The ordinary workflow tool builds th
 ```ts type-equiv
 /**
  * What a caller asks for when starting a workflow run. `meta` and `args` are
- * plain JSON DATA by the seam contract (the tool builds both from the model's schema-validated call;
- * the engine validates `meta` against its schema and rejects loud
- * before anything runs) — an engine never evaluates script text to obtain
- * them. `parent` is REQUIRED — every `agent()` the script spawns is
- * attributed to it (cwd, lineage, depth flow through the subagent seam).
+ * plain JSON data by the seam contract. `parent` is required because every
+ * `agent()` spawned by the script is attributed to that live Agent.
  */
 interface WorkflowStartRequest {
   /** The plain-JS script body (top-level await allowed; ends with `return <json-value>`). */
   script: string
-  /** The workflow's identity fields as plain JSON data, validated by the engine. */
+  /** The workflow's identity block, as plain JSON data (shape-validated by the engine). */
   meta: WorkflowMeta
   /** Optional input exposed verbatim to the script as the `args` global. */
   args?: unknown
-  /**
-   * Optional engine-wide child-provider override for this run. The workflow
-   * script cannot observe or replace it; omission uses the engine's configured
-   * provider.
-   */
+  /** Optional engine-wide child-provider override for this run. */
   subagentProvider?: string
-  /**
-   * Optional per-run total-child ceiling. Implementations reject values above
-   * their deployment ceiling before publishing the run.
-   */
+  /** Optional per-run total-child ceiling. */
   maxTotalAgents?: number
   /** The agent on whose behalf the run executes (parent of every child). */
   parent: Agent
-  /** Cancels the run when aborted (the tool's `exec.signal`). */
+  /** Cancels the run when aborted. */
   signal?: AbortSignal
 }
 ```
@@ -76,7 +66,7 @@ The outcome of one run, resolved by `WorkflowRun.result`. `value` is the script'
 
 ```ts type-equiv
 /**
- * The outcome of one run, resolved by {@link WorkflowRun.result}. `value` is
+ * The outcome resolved by a live workflow run. `value` is
  * the script's materialized return value (plain host-realm JSON data; `null`
  * when the script returned `undefined`) — meaningful only for `completed`.
  * A non-`completed` reason carries the failure in `error`; the consumer maps
@@ -106,19 +96,17 @@ The handle the consumer holds while a script executes. The consumer awaits `resu
 
 ```ts type-equiv
 /**
- * Holder-owned live workflow. `result` never rejects and settles within the
- * engine's cancellation grace; failures resolve through `stopReason`. Consumers
- * may cancel and must call idempotent `dispose()` on every path to await bounded
- * script settlement and child quiescence.
+ * Holder-owned live workflow. `result` never rejects; consumers may cancel
+ * and must call idempotent `dispose()` to await script and child quiescence.
  */
 interface WorkflowRun {
   readonly id: WorkflowRunId
-  /** The validated meta block (available before the body runs). */
+  /** The validated meta block available before the script body runs. */
   readonly meta: WorkflowMeta
   readonly result: Promise<WorkflowResult>
-  /** Cancel the run: children abort, pending hooks reject, the script dies at its next await (or is force-settled at the grace). */
+  /** Cancel the run and its children. */
   cancel(reason?: string): void
-  /** Cancel + bounded-grace settle; safe to call on every path (idempotent). */
+  /** Cancel if needed and await bounded settlement and cleanup. */
   dispose(): Promise<void>
 }
 ```
@@ -130,6 +118,14 @@ Hook misuse inside a script — bad arguments, unknown/deferred `agent()` option
 ## Events
 
 The `workflow/*` events (`workflow/start`, `workflow/phase`, `workflow/log`, `workflow/agent-start`, `workflow/agent-end`, `workflow/end` — see the [events catalog](#cordis-surface)) are **observe-only** emits carrying DATA SNAPSHOTS: every payload starts with `WorkflowRunInfo` (id + meta), never the live `WorkflowRun`, so a subscriber cannot gain `cancel`/`dispose`, and `workflow/end` deliberately omits the result value (a listener observing outcomes must not receive a mutable alias of the caller's result). Every emit is per-listener contained — a throwing subscriber is logged, never propagated, and cannot starve the listeners registered after it — and every listener receives its own payload clone, so mutating it corrupts neither the engine nor other listeners; the containment mirrors `subagent/start`/`subagent/end`.
+
+## Durable Chat records
+
+The top-level `dsh-tool-workflow` consumer projects display facts into its calling parent Session without changing execution ownership. It writes `tool-workflow/run-start` after a run is accepted, pairs member start and end by `runId + seq`, and writes `tool-workflow/run-end` only after the result is known and disposal reaches quiescence. Nested transport calls write no record. The first append failure disables later writes for that run, so the log remains empty or a legal continuous prefix and the tool result is unchanged.
+
+`dsh-tool-workflow/invariant` validates the same protocol before live commit and when a Session is loaded: one start per run, positive unique member sequences, paired member endings, no run ending with open members, and no updates after the run ending. A missing member ending or run ending at the log tail is valid interruption evidence rather than corruption.
+
+`dsh-client-ui-workflow-run` folds the four events through the Conversation Node engine into one `workflow-run` Chat node anchored at the run-start sequence, after the original workflow tool node. Phase groups come only from actual member starts and preserve exact strings, including the distinction between an omitted phase and `''`. Closed Locations turn missing terminal facts into interrupted presentation. The [UI package README](../../packages/client/ui-workflow-run/README.md) owns disclosure, status, and same-parent local navigation behavior.
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
@@ -155,7 +151,7 @@ Workflow Service Definition contract. Invalid requests throw before publication;
 abstract start(request: WorkflowStartRequest): WorkflowRun
 ```
 
-Source: [`packages/workflow/workflow/src/index.ts:159`](../../packages/workflow/workflow/src/index.ts)
+Source: [`packages/workflow/workflow/src/index.ts:157`](../../packages/workflow/workflow/src/index.ts)
 
 <a id="workflow-events"></a>
 
@@ -181,7 +177,7 @@ One `agent()` call settled (clean result, child failure, or run cancellation). P
 'workflow/agent-end'(info: WorkflowRunInfo, agent: WorkflowAgentEndInfo): void
 ```
 
-Source: [`packages/workflow/workflow/src/index.ts:81`](../../packages/workflow/workflow/src/index.ts)
+Source: [`packages/workflow/workflow/src/index.ts:79`](../../packages/workflow/workflow/src/index.ts)
 
 <a id="workflowagent-start--emit"></a>
 
@@ -202,7 +198,7 @@ One `agent()` call established a published child run. Paired with Events['workfl
 'workflow/agent-start'(info: WorkflowRunInfo, agent: WorkflowAgentInfo): void
 ```
 
-Source: [`packages/workflow/workflow/src/index.ts:70`](../../packages/workflow/workflow/src/index.ts)
+Source: [`packages/workflow/workflow/src/index.ts:68`](../../packages/workflow/workflow/src/index.ts)
 
 <a id="workflowend--emit"></a>
 
@@ -223,7 +219,7 @@ A workflow run settled (any stop reason). Fired when WorkflowRun.result resolves
 'workflow/end'(info: WorkflowRunInfo, result: WorkflowResultInfo): void
 ```
 
-Source: [`packages/workflow/workflow/src/index.ts:91`](../../packages/workflow/workflow/src/index.ts)
+Source: [`packages/workflow/workflow/src/index.ts:89`](../../packages/workflow/workflow/src/index.ts)
 
 <a id="workflowlog--emit"></a>
 
@@ -241,7 +237,7 @@ The script emitted a narration line (a `log(message)` call).
 'workflow/log'(info: WorkflowRunInfo, message: string): void
 ```
 
-Source: [`packages/workflow/workflow/src/index.ts:60`](../../packages/workflow/workflow/src/index.ts)
+Source: [`packages/workflow/workflow/src/index.ts:58`](../../packages/workflow/workflow/src/index.ts)
 
 <a id="workflowphase--emit"></a>
 
@@ -260,7 +256,7 @@ The script entered a phase (a `phase(title)` call) — progress grouping for obs
 'workflow/phase'(info: WorkflowRunInfo, title: string): void
 ```
 
-Source: [`packages/workflow/workflow/src/index.ts:53`](../../packages/workflow/workflow/src/index.ts)
+Source: [`packages/workflow/workflow/src/index.ts:51`](../../packages/workflow/workflow/src/index.ts)
 
 <a id="workflowstart--emit"></a>
 
@@ -278,5 +274,5 @@ A workflow run started — the script's meta block validated, the body about to 
 'workflow/start'(info: WorkflowRunInfo): void
 ```
 
-Source: [`packages/workflow/workflow/src/index.ts:45`](../../packages/workflow/workflow/src/index.ts)
+Source: [`packages/workflow/workflow/src/index.ts:43`](../../packages/workflow/workflow/src/index.ts)
 <!-- END GENERATED cordis-surface -->

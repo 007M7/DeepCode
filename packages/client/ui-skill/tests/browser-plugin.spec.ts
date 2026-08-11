@@ -18,6 +18,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
 import { SlashService } from '@deepseek-ai/dsh-client-ui-slash/client'
+import { TestRemote } from '@deepseek-ai/dsh-client-test-runtime'
 import type { ClientSessionContext, SlashSource } from '@deepseek-ai/dsh-client-ui-slash/client'
 import { apply, inject } from '../src/client/index.ts'
 import { SkillRow as SkillToolRow } from '../src/client/SkillRow.tsx'
@@ -73,6 +74,7 @@ async function bench(list: ListFn, addressed?: SessionId, invoke?: InvokeFn) {
       ? { parentSessionId: sid('parent'), childSessionId: id, mode: 'continuable' as const }
       : undefined,
   })
+  new TestRemote(ctx)
   providePresentation(ctx)
   await ctx.plugin({ inject: [...inject], apply }).await()
   return { ctx, source: captured! }
@@ -105,7 +107,7 @@ const req = (query: string, signal?: AbortSignal) =>
 
 describe('apply', () => {
   it('declares the services it binds', () => {
-    expect(inject).toEqual(['slash', 'connection', 'sessions', 'slots', 'locale'])
+    expect(inject).toEqual(['slash', 'connection', 'sessions', 'slots', 'locale', 'remote'])
   })
 
   it('registers the dedicated skill row and its locale dictionaries', async () => {
@@ -113,6 +115,7 @@ describe('apply', () => {
     ctx.provide('slash', { registerSource: () => () => {} })
     ctx.provide('connection', { api: { skills: { list: listOk(CATALOG) } } })
     ctx.provide('sessions', { subagentAddress: () => undefined })
+    new TestRemote(ctx)
     const presentation = providePresentation(ctx)
     await ctx.plugin({ inject: [...inject], apply }).await()
     const entry = presentation.slots.entries('tool.call.toolview')[0]
@@ -145,6 +148,7 @@ describe('apply', () => {
     ctx.provide('sessions', {})
     await ctx.plugin(SlashService).await()
     ctx.provide('connection', { api: { skills: { list: listOk(CATALOG) } } })
+    new TestRemote(ctx)
     const presentation = providePresentation(ctx)
     const fiber = ctx.plugin({ inject: [...inject], apply })
     await fiber.await()
@@ -263,7 +267,7 @@ describe('catalog cache', () => {
     expect(payloads).toHaveLength(2)
   })
 
-  it('session/preset-changed clears only the recomposed session', async () => {
+  it('agent-preset/selected clears only the recomposed session', async () => {
     const { list, payloads } = countingList()
     const { ctx, source } = await bench(list)
     await source.candidates(proj('s1'), req(''))
@@ -271,7 +275,7 @@ describe('catalog cache', () => {
     expect(payloads).toHaveLength(2)
     // The catalog a preset supplies is the preset's; the other session's
     // composition did not change, so its cached catalog still holds.
-    ctx.emit('session/preset-changed', sid('s1'), 'minimal')
+    ctx.remote.$dispatch('agent-preset/selected', [sid('s1'), 'minimal'])
     await source.candidates(proj('s1'), req(''))
     await source.candidates(proj('s2'), req(''))
     expect(payloads).toHaveLength(3)

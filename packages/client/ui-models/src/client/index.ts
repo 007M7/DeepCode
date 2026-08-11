@@ -12,6 +12,9 @@ import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
 import type {} from '@deepseek-ai/dsh-client-locale/client'
+// Type-only: pulls the ctx.remote merge and the forwarded-event key face
+// (settings/credentials invalidations ride the allowlist) into this program.
+import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import { ModelsSection } from './ModelsSection.tsx'
 import type { ModelsSectionInjected } from './ModelsSection.tsx'
 import { DeepSeekOnboardingDialog } from './DeepSeekOnboardingDialog.tsx'
@@ -48,7 +51,7 @@ export function refreshIfLoaded(controller: ModelsSettingsStore): void {
  * ui-settings' apply, whose activation order relative to this one is NOT
  * constrained; registration depends on each slot through `slots.inject()`.
  */
-export const inject = ['slots', 'locale', 'connection']
+export const inject = ['slots', 'locale', 'connection', 'remote']
 
 /**
  * Register the Models section once the `settings.section` declaration is on
@@ -82,9 +85,9 @@ export function apply(ctx: ClientContext): void {
   ctx.effect(() => {
     const refresh = (): void => { refreshIfLoaded(controller) }
     const disposers = [
-      ctx.on('settings/changed', refresh),
-      ctx.on('credentials/changed', refresh),
-      ctx.on('models/changed', refresh),
+      ctx.remote.$on('settings/document-updated', refresh),
+      ctx.remote.$on('credentials/updated', refresh),
+      ctx.remote.$on('llm/adapters-updated', refresh),
       ctx.on('connection/reset', refresh),
     ]
     return () => { for (const dispose of disposers) dispose() }
