@@ -377,6 +377,45 @@ describe('WorkflowRunPanel', () => {
     expect(screen.queryByText('未分阶段')).toBeNull()
   })
 
+  it('refolds when a complete activity cycle arrives as one clean update', () => {
+    const firstMember = {
+      seq: 1, label: 'first', childId: 'child-1' as SessionId, status: 'completed' as const,
+    }
+    const phaseClean: WorkflowRunChatData = {
+      name: 'phase-cycle', status: 'running',
+      phases: [phase({ members: [firstMember] })],
+    }
+    const phaseView = render(<WorkflowRunPanel {...panelProps(phaseClean)} />)
+    fireEvent.click(screen.getByRole('button', { name: /未分阶段/ }))
+    expect(screen.getByText('first')).toBeTruthy()
+    phaseView.rerender(<WorkflowRunPanel {...panelProps({
+      ...phaseClean,
+      phases: [phase({ members: [firstMember, {
+        seq: 2, label: 'second', childId: 'child-2' as SessionId, status: 'completed',
+      }] })],
+    })} />)
+    expect(screen.getByRole('button', { name: /未分阶段/ }).getAttribute('aria-expanded')).toBe('false')
+    expect(screen.queryByText('first')).toBeNull()
+    expect(screen.queryByText('second')).toBeNull()
+    phaseView.unmount()
+
+    const workflowClean: WorkflowRunChatData = {
+      name: 'workflow-cycle', status: 'completed',
+      phases: [phase({ members: [firstMember] })],
+    }
+    const workflowView = render(<WorkflowRunPanel {...panelProps(workflowClean)} />)
+    fireEvent.click(screen.getByRole('button', { name: /^workflow-cycle/ }))
+    expect(screen.getByText('未分阶段')).toBeTruthy()
+    workflowView.rerender(<WorkflowRunPanel {...panelProps({
+      ...workflowClean,
+      phases: [phase({ members: [firstMember, {
+        seq: 2, label: 'second', childId: 'child-2' as SessionId, status: 'completed',
+      }] })],
+    })} />)
+    expect(screen.getByRole('button', { name: /^workflow-cycle/ }).getAttribute('aria-expanded')).toBe('false')
+    expect(screen.queryByText('未分阶段')).toBeNull()
+  })
+
   it('derives the zero-member running and completed states from the current run status', () => {
     const running: WorkflowRunChatData = { name: 'empty', status: 'running', phases: [] }
     const view = render(<WorkflowRunPanel {...panelProps(running)} />)

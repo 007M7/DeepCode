@@ -84,10 +84,11 @@ function ManualDisclosure(props: StatusDisclosureProps) {
   )
 }
 
-function StatusDisclosure({ requiresExpansion, ...props }: StatusDisclosureProps & {
+function StatusDisclosure({ cleanCycleKey, requiresExpansion, ...props }: StatusDisclosureProps & {
+  readonly cleanCycleKey: number
   readonly requiresExpansion: boolean
 }) {
-  if (!requiresExpansion) return <ManualDisclosure {...props} />
+  if (!requiresExpansion) return <ManualDisclosure key={cleanCycleKey} {...props} />
   return <DisclosureRow {...props} open expandable={false} onToggle={forcedOpenToggle} />
 }
 
@@ -138,6 +139,7 @@ function RunHeader({ children, count, name, requiresExpansion, status, t }: {
     <StatusDisclosure
       icon={<IconChevronRightOutline14 />}
       title={t('run.title', { name })}
+      cleanCycleKey={count}
       requiresExpansion={requiresExpansion}
       expandOnRowClick
       previewChevron={false}
@@ -201,6 +203,7 @@ function PhaseSection({ phase, navigable, openSession, t }: {
     <StatusDisclosure
       icon={<IconChevronRightOutline14 />}
       title={readablePhase(phase.phase, t)}
+      cleanCycleKey={phase.members.length}
       requiresExpansion={phaseRequiresExpansion(phase)}
       expandOnRowClick
       previewChevron={false}
