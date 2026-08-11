@@ -4,11 +4,11 @@
  * @module @deepseek-ai/dsh-fs-local
  */
 
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import { constants as bufferConstants } from 'node:buffer'
 import { isAbsolute, relative, resolve, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import z from 'schemastery'
+import z from '@deepseek-ai/schemastery'
 import { FileSystem, FsError, FsVersion } from '@deepseek-ai/dsh-fs'
 import type {
   FsDirEntry,
@@ -28,6 +28,7 @@ import {
   probeNoFollow,
   readForEdit,
   readTextForDiff,
+  readWholeBytes,
   readWholeText,
   resolveLocalTarget,
   restoreLineEndings,
@@ -145,6 +146,10 @@ export class LocalFileSystem extends FileSystem {
 
   override streamText(target: FsTarget, signal?: AbortSignal): Promise<AsyncIterable<string>> {
     return Promise.resolve(streamWholeText({ displayPath: target.displayPath, targetKey: target.targetKey }, signal))
+  }
+
+  override async readBytes(target: FsTarget, signal: AbortSignal | undefined, maxBytes: number): Promise<Uint8Array> {
+    return readWholeBytes({ displayPath: target.displayPath, targetKey: target.targetKey }, signal, maxBytes, this.internals)
   }
 
   override async listDir(target: FsTarget, signal?: AbortSignal): Promise<FsDirEntry[]> {

@@ -2,7 +2,7 @@ import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
 import LocalSubprocessService from '@deepseek-ai/dsh-subprocess-local'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
@@ -307,7 +307,7 @@ describe('process lifecycle ownership (the subprocess service, not the executor)
     const bash = ctx.bash as LocalBashExecutor
 
     // The child prints its own pid ($$ = the detached bash group leader) so
-    // the test can probe liveness through the public read surface alone.
+    // the test can probe liveness through the public read API alone.
     const proc = bash.start(bash.resolve({ command: 'echo $$; sleep 60' }))
     const pid = Number((await readUntil(proc, '\n')).trim())
     expect(Number.isInteger(pid) && pid > 0).toBe(true)

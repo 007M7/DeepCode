@@ -1,5 +1,5 @@
 /** Test-owned sessions face: the SlotsService host contract over declarative fixtures. */
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import type { AttachmentIdType } from '@deepseek-ai/dsh-attachment'
 import { createScope, scopeOf, SessionProvideChannel } from '@deepseek-ai/dsh-client-runtime/client'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
@@ -202,7 +202,7 @@ export class TestSessions implements ISessions {
   constructor(private readonly stabilize: Stabilizer, private readonly rootCtx: Context) {
     this.list = createSnapshotStore<SessionListState>({
       ids: [], byId: {}, current: undefined, phase: 'ready',
-      subagentsByParent: {}, currentAddress: undefined,
+      subagentsByParent: {}, tasksBySession: {}, currentAddress: undefined,
     })
     this.channel = new SessionProvideChannel({
       rebuildBundles: () => {

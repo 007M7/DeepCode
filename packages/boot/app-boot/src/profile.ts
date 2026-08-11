@@ -27,8 +27,8 @@ import {
   existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, rmSync, symlinkSync, writeFileSync,
 } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
-import type { EntryOptions } from '@cordisjs/plugin-loader'
-import { applyEntryPatches, type PatchOptions } from '@cordisjs/plugin-include'
+import type { EntryOptions } from '@deepseek-ai/cordis-plugin-loader'
+import { applyEntryPatches, type PatchOptions } from '@deepseek-ai/cordis-plugin-include'
 import { resolveDshHome } from '@deepseek-ai/dsh-paths'
 import { loadOverlayPatches } from './index.ts'
 
@@ -190,7 +190,7 @@ function ensureSymlink(link: string, target: string): void {
     // Concurrent launches heal the same fallback; losing the race to a
     // process writing the identical link is success, anything else is not.
     // The window between the lstat miss above and this write cannot be
-    // staged deterministically from the public surface.
+    // staged deterministically from the public API.
     /* v8 ignore next 4 */
     if ((error as NodeJS.ErrnoException).code !== 'EEXIST'
       || !lstatSync(link).isSymbolicLink() || readlinkSync(link) !== target) {

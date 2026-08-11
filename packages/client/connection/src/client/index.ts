@@ -3,7 +3,7 @@
  * the shared API client, and lets the runtime object layer start the stream
  * controller with its sinks.
  */
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import type { IApiClient } from './api.ts'
 import { ConnectionController, type ConnectionConfig, type ConnectionSinks, type ConnectionState } from './connection.ts'
 import { FixtureApiClient } from './fixture.ts'
@@ -22,6 +22,7 @@ export type {
   ModelCatalogFailure, ModelCatalogModel, ModelProviderGroup, ModelReasoning,
   MessageId, ModelReasoningEffort, ModelSelection, QueueAction, QueuedInboxItem, SessionModels,
   SubagentsApi, SubagentAddress, SubagentCatalog, SubagentListEntry, SubagentPromptReceipt,
+  TaskView,
   RpcRequest, RpcResponse, RpcResult, RpcError, RpcErrorCode,
   ClientRequest, ServerResponse, ServerRequest, ClientResponse, RpcMessage, RpcReceipt,
   HostDescription, IApiClient, SessionId, SessionEvent, ContentBlock, StreamChunk,
@@ -45,7 +46,7 @@ export type { ClientConnectionRpc } from '../rpc.ts'
 export const inject: string[] = []
 
 /**
- * The ctx.connection service surface: the api client plus a one-shot
+ * The ctx.connection service API: the API client plus a one-shot
  * controller starter (the runtime plugin supplies sinks when its object layer
  * is ready — connection stays consumer-agnostic).
  */

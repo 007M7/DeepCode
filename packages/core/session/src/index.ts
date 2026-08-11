@@ -6,7 +6,7 @@
  * @module @deepseek-ai/dsh-session
  */
 
-import { Context, Service } from 'cordis'
+import { Context, Service } from '@deepseek-ai/cordis'
 import { isAbsolute } from 'node:path'
 import { deepFreeze } from '@deepseek-ai/dsh-llm'
 import { scopeOf, scopeTarget } from '@deepseek-ai/dsh-scope'
@@ -32,29 +32,9 @@ export type { ChunkRow, StorageRecord } from './chunk-rows.ts'
 export type { SessionSurface, SurfaceFoldReplacement, SurfaceFoldResult } from './surface.ts'
 export { deriveEventMessage, foldSurface, isAppendSurfaceEvent, isReplacementSurfaceEvent, isSurfaceEvent, isSurfaceEligibleType } from './surface.ts'
 export { canonicalHeader, foldRequestHeader, headerEquals } from './request-header.ts'
+export { KNOWN_SESSION_EVENT_TYPES } from './known-event-types.ts'
 
-/**
- * Find the latest closed turn that entered at least one model step, ignoring
- * balanced no-step turns produced by rejection, empty input, or cancellation.
- * @param events - session events, or an owned suffix, to inspect.
- * @returns the latest matching turn end, or `undefined`.
- */
-export function findLastMessageTurnEnd(
-  events: readonly SessionEvent[],
-): SessionEvent<'turn/end'> | undefined {
-  const steppedTurns = new Set<number>()
-  let latest: SessionEvent<'turn/end'> | undefined
-  for (const event of events) {
-    if (event.type === 'step/start') {
-      steppedTurns.add(event.data.turn)
-      continue
-    }
-    if (event.type === 'turn/end' && steppedTurns.delete(event.data.turn)) latest = event
-  }
-  return latest
-}
-
-declare module 'cordis' {
+declare module '@deepseek-ai/cordis' {
   interface Context {
     sessions: SessionStore
   }
@@ -243,6 +223,7 @@ function assertSessionEventEnvelope(value: Record<string, unknown>, index: numbe
       case 'data':
       case 'surfaceOp':
       case 'sourceEventSeqs':
+      case 'ignorable':
         break
       default:
         throw new Error(`seed event at index ${index} has an invalid event envelope`)
@@ -254,7 +235,8 @@ function assertSessionEventEnvelope(value: Record<string, unknown>, index: numbe
   if (typeof type !== 'string'
     || typeof seq !== 'number' || !Number.isSafeInteger(seq) || seq < 0
     || typeof time !== 'number' || !Number.isSafeInteger(time)
-    || event['data'] === undefined) {
+    || event['data'] === undefined
+    || (event['ignorable'] !== undefined && event['ignorable'] !== true)) {
     throw new Error(`seed event at index ${index} has an invalid event envelope`)
   }
   switch (type) {

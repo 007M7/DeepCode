@@ -2,9 +2,9 @@ import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { Context } from 'cordis'
-import Loader from '@cordisjs/plugin-loader'
-import Include from '@cordisjs/plugin-include'
+import { Context } from '@deepseek-ai/cordis'
+import Loader from '@deepseek-ai/cordis-plugin-loader'
+import Include from '@deepseek-ai/cordis-plugin-include'
 import LlmService from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -18,7 +18,7 @@ import AgentPresets, {
 import type { Config } from '@deepseek-ai/dsh-agent-presets'
 import { bindScopeParent, createScope, scopeOf } from '@deepseek-ai/dsh-scope'
 
-declare module 'cordis' {
+declare module '@deepseek-ai/cordis' {
   interface Context {
     /** Published by the `isolated` fixture preset behind an entry-local realm. */
     fixtureIsolatedSvc: { label: string }
@@ -497,6 +497,35 @@ describe('replacing a composition', () => {
     // The swap is unmount-then-mount, so a failure must put the old one back
     // rather than leave the agent with no tools at all.
     expect(toolNames(ctx, handle.agent)).toEqual(['alpha'])
+  })
+
+  it('names an agent that was published without joining any preset', async () => {
+    const ctx = await harness()
+    const warnings: string[] = []
+    ctx.logger.warn = ((message: unknown) => { warnings.push(String(message)) }) as typeof ctx.logger.warn
+
+    await ctx.agents.create({ sessionId: SessionId('sess-unjoined-warn') })
+    // Advisory, not fatal: a synchronous `agent/created` throw would veto
+    // publication, and creating an agent outside the roster stays legal.
+    expect(warnings.filter(line => line.includes('sess-unjoined-warn'))).toHaveLength(1)
+    expect(warnings.at(-1)).toMatch(/without joining an agent preset/)
+
+    warnings.length = 0
+    await agentOn(ctx, 'sess-joined-quiet', 'minimal')
+    expect(warnings).toEqual([])
+  })
+
+  it('says nothing when the deployment configures no roster at all', async () => {
+    // Presets are optional: every surface except the Web bundle keeps its
+    // model-facing rows in the host plane, so an agent with a chain of one is
+    // exactly right there and the diagnostic must stay silent.
+    const rosterless = await harness({ default: 'standard', roots: [] })
+    const warnings: string[] = []
+    rosterless.logger.warn = ((message: unknown) => { warnings.push(String(message)) }) as typeof rosterless.logger.warn
+
+    await rosterless.agents.create({ sessionId: SessionId('sess-no-roster') })
+
+    expect(warnings).toEqual([])
   })
 
   it('composes an agent that had nothing installed', async () => {

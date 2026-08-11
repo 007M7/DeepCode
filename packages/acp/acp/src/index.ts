@@ -9,11 +9,11 @@
  * @module @deepseek-ai/dsh-acp
  */
 
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import { randomUUID } from 'node:crypto'
 import { isAbsolute } from 'node:path'
 import { Readable, Writable } from 'node:stream'
-import Schema from 'schemastery'
+import Schema from '@deepseek-ai/schemastery'
 import { createUserMessage, errorChain } from '@deepseek-ai/dsh-llm'
 import {
   AgentSideConnection,
@@ -252,6 +252,10 @@ export function apply(ctx: Context, config: AcpConfig): void {
         assertOpen()
         validateSessionParams(params)
         const sessionId = SessionId(randomUUID())
+        // No preset composition: the ACP bundle keeps the model-facing rows in
+        // the host plane, so this agent reads them from the global layer. A
+        // deployment that configures a roster has to join one here first
+        // (@deepseek-ai/dsh-agent-presets README, "Composing a child agent").
         const handle = await agents.create({
           sessionId,
           meta: { cwd: params.cwd },

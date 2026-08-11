@@ -3,7 +3,7 @@
  * @module @deepseek-ai/dsh-command-compact
  */
 
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import { ManualCompactionError } from '@deepseek-ai/dsh-compact'
 import type { CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands'
 

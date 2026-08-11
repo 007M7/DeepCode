@@ -1,7 +1,7 @@
 /**
  * sessions domain zod schemas (names derived from map keys: sessionListRequestSchema /
  * sessionListValueSchema). SessionEvent passthrough = strict envelope (type/seq/time) + wide
- * data: the merge-extensible event surface keeps an unknown-type branch at the union level,
+ * data: the merge-extensible event API keeps an unknown-type branch at the union level,
  * with no field-level passthrough. SessionId brand cast point: sessionIdSchema, and only there.
  */
 
@@ -45,6 +45,7 @@ export const sessionEventSchema = z.object({
   data: z.unknown(),
   sourceEventSeqs: z.array(z.number()).optional(),
   surfaceOp: z.unknown().optional(),
+  ignorable: z.literal(true).optional(),
 }) as unknown as z.ZodType<SessionEvent>
 
 /** SessionSummary row of session.list (`projections` reuses the history block's shape and schema). */

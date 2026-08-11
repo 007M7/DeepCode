@@ -215,6 +215,17 @@ type SessionEvent<T extends SessionEventType = SessionEventType> = {
     /** Unix epoch milliseconds. */
     time: number
     data: SessionEventMap[K]
+    /**
+     * Marks an event a reader may safely skip when it does not recognize
+     * `type`. Absent means required: a reader meeting an unrecognized type
+     * without this marker MUST refuse to reconstruct the session instead of
+     * silently dropping the event, because an unrecognized required event may
+     * change how the rest of the log is interpreted. A writer sets `true` only
+     * on purely informational records whose loss cannot affect reconstruction;
+     * defaulting to required means a forgotten marker over-refuses (an
+     * inconvenience) rather than silently resuming a gutted session.
+     */
+    ignorable?: true
   } & (K extends SurfaceEventType ? {
     /**
      * Seq numbers of earlier events that this event cites as sources
@@ -595,9 +606,9 @@ The backends that consume this contract are on [persistence.md](persistence.md).
 
 <a id="cordis-surface"></a>
 
-## Cordis surface
+## Cordis API
 
-Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` surface lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
+Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
 
 <a id="ctxsessions--sessionstore"></a>
 
@@ -733,7 +744,7 @@ fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): 
 
 Types: [CreateSessionOptions](persistence.md) · [PrepareSessionOptions](persistence.md) · [SessionId](core.md)
 
-Source: [`packages/core/session/src/index.ts:810`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:792`](../../packages/core/session/src/index.ts)
 
 <a id="session-events"></a>
 
@@ -762,7 +773,7 @@ Creation announcement during session publication. A synchronous throw vetoes and
 
 Types: [Scoped](scope.md)
 
-Source: [`packages/core/session/src/index.ts:74`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:54`](../../packages/core/session/src/index.ts)
 
 <a id="sessiondisposed--emit"></a>
 
@@ -785,7 +796,7 @@ Emitted once when an announced session leaves the store, including publication r
 
 Types: [Scoped](scope.md)
 
-Source: [`packages/core/session/src/index.ts:84`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:64`](../../packages/core/session/src/index.ts)
 
 <a id="sessionevent--emit"></a>
 
@@ -810,7 +821,7 @@ Post-commit, fire-and-forget append feed. The listener snapshot resolves before 
 
 Types: [Scoped](scope.md)
 
-Source: [`packages/core/session/src/index.ts:96`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:76`](../../packages/core/session/src/index.ts)
 
 <a id="sessionflush--parallel"></a>
 
@@ -832,5 +843,5 @@ Awaited parallel durability checkpoint: every listener runs and the caller await
 
 Types: [Scoped](scope.md)
 
-Source: [`packages/core/session/src/index.ts:105`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:85`](../../packages/core/session/src/index.ts)
 <!-- END GENERATED cordis-surface -->

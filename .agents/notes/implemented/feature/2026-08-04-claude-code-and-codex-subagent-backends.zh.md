@@ -12,7 +12,7 @@ Status: implemented
 
 ## 决策
 
-harness 将两个一次性兄弟提供方作为可独立安装、选择启用的包交付。用户在自己的 `cordis.yml` 中加载提供方与现有的通用 subagent 工具：`subagent_codex` 绑定 `codex`，`subagent_claude_code` 绑定 `claude-code`。随产品交付的 CLI（命令行界面）依赖闭包，以及基础、Web 与 headless 配置都不会加载任一提供方。每个工具只接受独立文本任务；产品选择与后台执行都不作为模型参数。
+harness 交付两个同级的一次性提供方包：`codex` 与 `claude-code`。本说明负责它们的产品协议、结果映射和进程生命周期；[共享 profile 宿主归属决策](../architecture/2026-08-10-product-subagent-providers-in-shared-host.md)取代原先由用户选择启用的组装位置。加载任一提供方都不会启动产品进程，而且每个工具只接受独立文本任务；产品选择与后台执行都不作为模型参数。
 
 这两个提供方都报告 `inheritsParentContext: false`，不声明任何可选的启动能力，并传递父会话 cwd，但不会复制父级对话。文档所示的工具会禁用后台执行，并使用 `maxDepth: 'provider-managed'`，将递归策略留给进程外产品，而不是发送提供方无法强制执行的限制。每次调用都会创建一个全新的产品进程和一次不可续接的产品对话。共享 subagent 服务继续负责请求解析、生命周期事件、结果结算和前台收集；共享子进程服务负责凭证清洗、进程树终止以及整棵进程树的退出观测。
 
@@ -47,7 +47,7 @@ Codex 0.147.0 使用 Responses 协议，而 DeepSeek 的公开 OpenAI 兼容端�
 
 ## Claude Code 提供方
 
-`@deepseek-ai/dsh-subagent-claude-code` 注册固定的 `claude-code` 提供方，并调用 `@anthropic-ai/claude-agent-sdk@0.3.220`。SDK 的平台 `optionalDependency` 提供真实的 Claude Code 2.1.220 CLI。提供方使用官方 `query()` 入口点，并将 SDK 的 `spawnClaudeCodeProcess` 命令、参数、cwd、环境和转发的信号原样传入 `dsh-subprocess`；其私有 `SpawnedProcess` 适配器只公开 SDK 所需的流、事件、终止和退出事实。
+`@deepseek-ai/dsh-subagent-claude-code` 注册固定的 `claude-code` 提供方，并调用 `@anthropic-ai/claude-agent-sdk@0.3.220`。每次运行前，提供方经宿主 subprocess 执行世界解析固定名称 `claude`，并把准确路径作为 `pathToClaudeCodeExecutable` 交给 SDK；SDK 因此使用启动 DSH 的原生产品，而不是选择自身的 platform `optionalDependency`。Windows `.cmd` 或 `.bat` 路径会作为带引号、仅供本次 spawn 使用的环境展开值穿过 `cmd.exe /v:off`，因此路径中的百分号、与号和感叹号仍只是数据，且无需改变共享子进程约定。提供方使用官方 `query()` 入口点，并将 SDK 的 `spawnClaudeCodeProcess` 参数、cwd、环境和转发的信号交给 `dsh-subprocess`；其私有 `SpawnedProcess` 适配器只公开 SDK 所需的流、事件、终止和退出事实。
 
 公开配置包含与 Codex 兄弟提供方相同、由部署方负责的两个值：显式的 `env` 覆盖项，以及须为正有限值且不得大于仓库共享 `MAX_TIMER_DELAY_MS` 的 `disposeGraceMs`。每次运行都会创建自己的 `AbortController`，设置 `persistSession: false` 并禁用 `AskUserQuestion`。提供方故意省略 `settingSources`，因此 SDK 会相对于父会话 cwd 读取宿主机常规的用户、项目和本地 Claude 设置。它既不复制也不过滤这些设置，也不会创建或修改登录状态。提供方不设置 `canUseTool`、elicitation 或对话回调，因此无人值守交互会经 SDK 失败，而不会等待本提供方不负责的用户界面。
 
@@ -65,7 +65,7 @@ Codex 证据锁定 `@openai/codex@0.147.0` 与 `codex-cli 0.147.0`。其真实�
 
 带密钥 Codex e2e 会注册生产提供方，启动同样的真实 app-server，并通过上述测试专用桥接层请求一个随机数。该测试固定外部端点与模型，不存储任何凭据或请求载荷，要求上游恰好完成一次响应，将去除首尾空白后的产品答案与该随机数逐字节比较，并等待所有受管句柄退出。
 
-Claude Code 证据锁定 Agent SDK 0.3.220 及其平台分发的 Claude Code 2.1.220 CLI。其真实产品测试会观测确切的 `x-api-key`、原始任务、逐字节完全一致的最终回答、继承的临时宿主设置标记、进程失败、本地取消以及整棵进程树退出。Loader e2e 会在两个产品命令均不可用时按名称解析两个产品包，并记录零次子级启动。
+Claude Code 证据锁定 Agent SDK 0.3.220，并使用 SDK 按平台分发的 Claude Code 2.1.220 CLI 作为确定性兼容性 fixture（测试前置数据），且该 fixture 经生产环境所用的同一原生可执行文件解析路径运行。其真实产品测试会观测确切的 `x-api-key`、原始任务、逐字节完全一致的最终回答、继承的临时宿主设置标记、进程失败、本地取消、整棵进程树退出，以及位于同时含百分号、与号和感叹号路径中的真实 Windows batch shim。这项证据证明官方 SDK/CLI 集成路径，而不证明它与每个独立安装的产品版本兼容。Loader 与随附 profile 证据会按名称解析两个产品包且不启动产品，provider 测试则证明 SDK 收到由宿主 `PATH` 解析出的可执行文件。
 
 带密钥 Claude Code e2e 仅在提供方的内存环境中映射密钥与固定的官方端点，把模型变量设为文档所示的 `deepseek-v4-pro[1m]` 与 `deepseek-v4-flash`，并实际经过生产提供方、官方 SDK 与真实 CLI。它将去除首尾空白后的结果与一个随机数比较，并证明整棵进程树退出，且测试不会直接调用 Messages API。
 
@@ -79,7 +79,7 @@ Claude Code 证据锁定 Agent SDK 0.3.220 及其平台分发的 Claude Code 2.1
 
 **面向模型的产品选择器。** 产品可用性和身份验证属于部署事实。两个固定工具使各自的 schema 与提供方绑定保持明确，也避免在通用服务中添加动态选择状态。
 
-**以产品替身作为强制证据。** 替身可以穷尽覆盖私有协议分支，但无法证明包导出、官方发行版、身份验证或真实进程行为。强制证据会驱动每个官方产品连接回环模型 fixture（测试前置数据）。
+**以产品替身作为强制证据。** 替身可以穷尽覆盖私有协议分支，但无法证明包导出、官方发行版、身份验证或真实进程行为。强制证据会驱动每个官方产品连接回环模型 fixture。
 
 **由插件管理登录、产品主目录、模型、设置或权限。** 这些选择会在每个产品的原生配置之外建立另一套权威来源，并将一次性提供方扩张为账户管理功能。提供方只公开显式环境覆盖项和清理宽限期；无人值守交互会以默认拒绝方式失败。
 
@@ -87,7 +87,7 @@ Claude Code 证据锁定 Agent SDK 0.3.220 及其平台分发的 Claude Code 2.1
 
 ## 后果
 
-用户可以安装任一或两个产品提供方，在自己的 Cordis 配置中绑定稳定的前台工具，并通过现有 subagent 约定委派一项自包含任务。官方产品集成会保留原生设置与行为，而共享服务继续独占任务结算与进程树完全停稳的责任。
+用户通过官方产品集成支持的两个稳定前台工具进行委派。它们在 Profile 中的归属和按 Preset 暴露方式由[共享宿主归属决策](../architecture/2026-08-10-product-subagent-providers-in-shared-host.md)负责；本说明规定的提供方生命周期会保留原生设置与行为，而共享服务继续独占任务结算与进程树完全停稳的责任。
 
 每次委派都要承担新建产品进程和独立模型上下文的开销，且只有最终文本会到达父级。产品原生配置使行为取决于部署环境中安装的产品、账户状态和工作区设置。带密钥 e2e 运行还会消耗外部 API 配额，并依赖 DeepSeek 官方端点；对协议、失败、取消与审批的确定性覆盖仍由无密钥层级承担。提供方不会恢复会话、以流式方式传送进度、接受新的人工交互、回滚工具或文件副作用，也不会施加按实际经过时间触发的超时。
 

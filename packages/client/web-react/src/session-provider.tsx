@@ -20,7 +20,7 @@ export const HostContext = createContext<SlotRendererHost | null>(null)
 /**
  * Read the installed renderer host; throws outside the rendered root tree
  * (framework components must not render detached from the renderer).
- * @returns the host surface.
+ * @returns the host API.
  */
 export function useHost(): SlotRendererHost {
   const host = useContext(HostContext)
@@ -132,7 +132,7 @@ export function SessionMaybeProvider({ children }: { children: ReactNode }) {
   )
 }
 
-/** SessionProvider surface: render-prop body plus the no-session branch. */
+/** SessionProvider API: render-prop body plus the no-session branch. */
 export interface SessionProviderProps {
   /** No-session body (also covers a current id whose session cannot be resolved). */
   empty?: (() => ReactNode) | undefined

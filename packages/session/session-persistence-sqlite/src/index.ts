@@ -6,8 +6,8 @@
  * @module @deepseek-ai/dsh-session-persistence-sqlite
  */
 
-import { Context } from 'cordis'
-import z from 'schemastery'
+import { Context } from '@deepseek-ai/cordis'
+import z from '@deepseek-ai/schemastery'
 import { randomUUID } from 'node:crypto'
 import { statSync } from 'node:fs'
 import { DatabaseSync } from 'node:sqlite'
@@ -28,15 +28,18 @@ import {
 export { SCHEMA_VERSION } from './schema.ts'
 
 /**
- * Serialize an event's surface-metadata fields for SQL binding. Both fields are
- * nullable TEXT columns — null when the event has no surface metadata (non-surface
- * events, events written before surface support).
+ * Serialize an event's optional envelope fields for SQL binding. The surface
+ * fields are nullable TEXT columns — null when the event has no surface
+ * metadata (non-surface events, events written before surface support); the
+ * ignorable marker is a nullable INTEGER column — `1` iff the envelope carries
+ * `ignorable: true`.
  */
-function surfaceBindings(event: SessionEvent): [string | null, string | null] {
+function envelopeBindings(event: SessionEvent): [string | null, string | null, number | null] {
   const se = event as SessionEvent<SurfaceEventType>
   return [
     se.sourceEventSeqs ? JSON.stringify(se.sourceEventSeqs) : null,
     se.surfaceOp !== undefined ? JSON.stringify(se.surfaceOp) : null,
+    event.ignorable === true ? 1 : null,
   ]
 }
 
@@ -162,7 +165,7 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
     }
   }
 
-  // --- SessionPersistence service surface (delegated to the coordinator) ---
+  // --- SessionPersistence service API (delegated to the coordinator) ---
 
   /** SQLite has one database, not an independent local artifact per session. */
   locate(_meta: SessionHeader): SessionLocation | undefined {
@@ -225,7 +228,7 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
     if (row === undefined) return undefined
     const meta = rowToMeta(row)
     const eventRows = this.db
-      .prepare('SELECT seq, type, time, data, source_event_seqs, surface_op FROM events WHERE session_id = ? AND seq >= ? ORDER BY seq')
+      .prepare('SELECT seq, type, time, data, source_event_seqs, surface_op, ignorable FROM events WHERE session_id = ? AND seq >= ? ORDER BY seq')
       .all(id, fromSeq) as unknown as EventRow[]
     signal?.throwIfAborted()
     const { preserved } = scanRows(eventRows, fromSeq)
@@ -247,7 +250,7 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
       const row = this.rowFor(id)
       if (row !== undefined) {
         const eventRows = this.db
-          .prepare('SELECT seq, type, time, data, source_event_seqs, surface_op FROM events WHERE session_id = ? ORDER BY seq')
+          .prepare('SELECT seq, type, time, data, source_event_seqs, surface_op, ignorable FROM events WHERE session_id = ? ORDER BY seq')
           .all(id) as unknown as EventRow[]
         snapshot = { row, eventRows }
       }
@@ -279,14 +282,14 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
   async appendBatch(meta: SessionHeader, events: readonly SessionEvent[], isMaterialized: boolean): Promise<void> {
     await this.ready
     const insertEvent = this.db.prepare(
-      'INSERT INTO events (session_id, seq, type, time, data, source_event_seqs, surface_op) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO events (session_id, seq, type, time, data, source_event_seqs, surface_op, ignorable) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
     )
     this.db.exec('BEGIN')
     try {
       if (!isMaterialized) this.writeRow(meta)
       for (const event of events) {
-        const [surfaceSeqs, surfaceOp] = surfaceBindings(event)
-        insertEvent.run(meta.id, event.seq, event.type, event.time, JSON.stringify(event.data), surfaceSeqs, surfaceOp)
+        const [surfaceSeqs, surfaceOp, ignorable] = envelopeBindings(event)
+        insertEvent.run(meta.id, event.seq, event.type, event.time, JSON.stringify(event.data), surfaceSeqs, surfaceOp, ignorable)
       }
       this.db.prepare('UPDATE sessions SET revision = revision + 1 WHERE id = ?').run(meta.id)
       this.db.exec('COMMIT')
@@ -310,11 +313,11 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
       }
       if (closers.length > 0) {
         const insertEvent = this.db.prepare(
-          'INSERT INTO events (session_id, seq, type, time, data, source_event_seqs, surface_op) VALUES (?, ?, ?, ?, ?, ?, ?)',
+          'INSERT INTO events (session_id, seq, type, time, data, source_event_seqs, surface_op, ignorable) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
         )
         for (const event of closers) {
-          const [surfaceSeqs, surfaceOp] = surfaceBindings(event)
-          insertEvent.run(meta.id, event.seq, event.type, event.time, JSON.stringify(event.data), surfaceSeqs, surfaceOp)
+          const [surfaceSeqs, surfaceOp, ignorable] = envelopeBindings(event)
+          insertEvent.run(meta.id, event.seq, event.type, event.time, JSON.stringify(event.data), surfaceSeqs, surfaceOp, ignorable)
         }
       }
       if (tornMarker !== undefined || closers.length > 0) {

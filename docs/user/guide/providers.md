@@ -15,7 +15,7 @@ Adding a provider therefore rarely means editing `cordis.yml` — writing settin
 
 ## Configure from the web UI
 
-Start `pnpm run dsh web` and open **Settings → Models**.
+Start `pnpm dsh web` and open **Settings → Models**.
 
 ![The Models page: the DeepSeek card, with Add provider and Add a custom provider below it](providers-models-page.png)
 
@@ -28,6 +28,8 @@ That holds for providers that authenticate with an API key. The catalog also car
 **Add a custom provider.** Choose **Add a custom provider** for a route the catalog does not ship — a company gateway, a self-hosted server, or a provider newer than the installed catalog. It asks for a Provider ID (the lowercase identifier that names the route in requests and as its credential), a base URL, a protocol, and at least one model.
 
 ![The custom provider form: Provider ID, display name, base URL, API protocol, and API key](providers-custom-form.png)
+
+Every field but the Provider ID stays editable afterwards: **Edit** on the row reopens the same fields, with the display name and the protocol under **Customized settings** beside the base URL. Clearing the display name falls back to the Provider ID. The Provider ID itself is fixed: it names the route in requests, in `agent-default-model`, and in every session already logged, and it is the stem of the credential reference the page can never read back — so renaming a route means declaring a new provider and deleting the old one.
 
 **Let the endpoint report its models.** Expand **Model catalog** and choose **Fetch available models**: the interrogation asks the endpoint **the form currently shows** — including a base URL edited but not yet saved and a key typed but not yet stored — and offers what it reports as candidates to pick from. A route the installed catalog describes is answered from that catalog with no network call. Adopting a candidate only writes rows into the draft; nothing is stored until you save.
 

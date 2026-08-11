@@ -42,6 +42,7 @@ Harnesses are [Cordis](cordis-primer.md) contexts; packages contribute services,
 | `ctx.tasks` | [`tasks/`](../packages/tasks/README.md) | background task registry, generic `task_*` controls |
 | `ctx.workflows` | [`workflow/`](../packages/workflow/README.md) | script-driven multi-agent orchestration |
 | `ctx.goals` | [`goal/`](../packages/goal/README.md) | persisted same-session goals |
+| `ctx.messageFeedback` | [`feedback/`](../packages/feedback/README.md) | lifecycle-bound editable feedback for individual assistant messages and its Host Remote contract |
 | `ctx.sessionPersistence` | [`session/`](../packages/session/README.md) | durable session-log storage |
 | `ctx.sessionQuery` | [`session-query/`](../packages/session-query/README.md) | live-preferred exact/filter/trace queries over SQLite FTS, workspace-authorized model tools |
 | `ctx.sessionTitle` | [`session/session-title`](../packages/session/README.md) | log-backed fallbacks, one optional asynchronous provider |

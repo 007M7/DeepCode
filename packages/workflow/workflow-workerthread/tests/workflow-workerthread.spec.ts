@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 import { fileURLToPath } from 'node:url'
 import type { Worker } from 'node:worker_threads'
-import { Context } from 'cordis'
-import Loader from '@cordisjs/plugin-loader'
+import { Context } from '@deepseek-ai/cordis'
+import Loader from '@deepseek-ai/cordis-plugin-loader'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import SubagentService from '@deepseek-ai/dsh-subagent'
 import type { SubagentCapabilities, SubagentProvider, SubagentResult, SubagentRun, SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
@@ -1379,7 +1379,7 @@ describe('dsh-workflow-workerthread', () => {
     }, 15_000)
   })
 
-  describe('service surface', () => {
+  describe('service API', () => {
     it('run ids are unique and lifecycle meta is the run\'s borrowed immutable value', async () => {
       const { ctx, parent } = await setup()
       let eventMeta: WorkflowRunInfo | undefined

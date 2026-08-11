@@ -21,7 +21,7 @@ In `edit.ts` the `fs/edit-intent` waterfall now sits inside the same `try` as th
 
 ## Alternatives considered
 
-- **Append the remedy to the provider messages in `dsh-fs` / `dsh-fs-local`.** Rejected because those messages are machine-oriented seam vocabulary consumed by retry, permission, and UI layers as well as the model surface; model-facing wording belongs at the model boundary, where `dsh-tool-fs` already owns result formatting ([filesystem capability seam](../architecture/2026-06-17-filesystem-capability-seam.md)).
+- **Append the remedy to the provider messages in `dsh-fs` / `dsh-fs-local`.** Rejected because those messages are machine-oriented seam vocabulary consumed by retry, permission, UI, and model-facing layers; model-facing wording belongs at the model boundary, where `dsh-tool-fs` already owns result formatting ([filesystem capability seam](../architecture/2026-06-17-filesystem-capability-seam.md)).
 - **Add the recovery to prompt guidance instead.** Rejected because the failure arrives mid-task; a static instruction does not reliably reach the retry decision, while the error message is present exactly when the model must act.
 - **Signal the remedy with a new `FsError` code.** Rejected because the two failures are the same conditions retry layers already handle; splitting the code would fork routing on identical semantics.
 

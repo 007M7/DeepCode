@@ -18,6 +18,9 @@
       "path": "../../llm/llm"
     },
     {
+      "path": "../../core/system-prompt"
+    },
+    {
       "path": "../../core/tools"
     },
     {

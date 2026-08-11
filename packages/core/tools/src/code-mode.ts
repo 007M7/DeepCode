@@ -260,7 +260,7 @@ type RunCodeOutput = { logs: string[]; result?: JsonValue }
 /**
  * Registry-private capabilities the bridge receives at construction — the
  * `requireRuntime` idiom: operations only the owning registry can mint stay
- * off its public service surface and flow here as closures instead.
+ * off its public service API and flow here as closures instead.
  */
 export interface RunCodeBridgeOptions {
   /** Resolves `ctx.codeRuntime` or throws the loud misconfiguration error (shared with the registry's assembly-time checks). */
@@ -646,7 +646,7 @@ export function createRunCodeTool(registry: ToolRegistry, options: RunCodeBridge
       kind: 'execute',
       rawInput: args.code,
     }),
-    // Deliberately no presentResult: the generic surface fallback keeps this
+    // Deliberately no presentResult: the generic card fallback keeps this
     // title and reads durable result content without duplicating a large raw
     // result into the host view payload.
   })

@@ -3,9 +3,13 @@
 # the profile's own cordis.patch.yml and any --patch overlays still to come.
 #
 # A patch replaces the targeted row's whole `config`, so each row below
-# restates every key it owns. The `dsh web` launcher alias turns --host/--port/
-# --dev/--trusted-host into further patches over these rows
-# (`--dev` inserts the dsh-client-hmr row).
+# restates every key it owns.
+#
+# The web-startup plugin injects `cmdlineArgs` and provides `webStartup` as an
+# ordinary Cordis service. Rows configured from flags inject that service, so
+# Loader resolves their expressions only after it exists. The web runtime then
+# provides bind-dependent `webRuntime` values to the trust fence and client
+# roster. `dsh --profile web --help` provides neither service, so no server binds.
 
 # ── surface-specific values the base deliberately omits ─────────────────────
 
@@ -56,6 +60,11 @@
       config:
         backend: json
 
+    - id: message-feedback
+      name: '@deepseek-ai/dsh-message-feedback'
+      config:
+        maxNoteBytes: 8192
+
     - id: workspace
       name: '@deepseek-ai/dsh-workspace'
 
@@ -76,44 +85,70 @@
     - id: api-gateway
       name: '@deepseek-ai/dsh-host-apiproxy'
 
+    # Ordinary provider for the parsed Web flags. Its plugin-level injection
+    # waits for cmdlineArgs; no launcher metadata or special row kind is needed.
+    - id: web-startup
+      name: '@deepseek-ai/dsh-web-app/startup'
+
     # ── layer 2: transport/service ──────────────────────────────────────────────
 
-    # Plain route-registration carrier; host and port arrive as `dsh web`
-    # flag patches over these defaults. The dist is served by the web-runtime
-    # row below through the fallback seat.
+    # Plain route-registration carrier; host and port come from the app's
+    # webStartup provider, with these deployment fallbacks. The dist is served by
+    # the web-runtime row below through the fallback seat.
     - id: webserver
       name: '@deepseek-ai/dsh-host-webserver'
+      inject: [webStartup]
       config:
-        host: 127.0.0.1
-        port: 3080
+        host: !!js ctx.webStartup.host ?? '127.0.0.1'
+        port: !!js ctx.webStartup.port ?? 3080
 
     # Web glue owned by this bundle: resolves the built frontend dist (an
     # assembly fact of dsh-web-app, never user config), mounts the
     # frontend-static fallback owner, registers the web-surface prompt
-    # section and bash runtime variables, and prints the URL line. `dsh web`
-    # patches mode/lanAddresses over these defaults; complete-prompt overlays
-    # set surfaceContext false to suppress every model- and shell-visible Web
-    # runtime contribution.
+    # section and bash runtime variables, and prints the URL line. The webStartup
+    # provider supplies invocation-only values; after the server binds, this row
+    # samples LAN trust once and provides `webRuntime`. A complete agent-preset
+    # persona suppresses the prompt section for that agent while retaining
+    # these host-owned shell variables.
     - id: web-runtime
       name: '@deepseek-ai/dsh-web-app'
+      inject: [webStartup]
       config:
-        mode: production
+        mode: !!js ctx.webStartup.mode
         printUrl: true
         surfaceContext: true
+        trustedHosts: !!js ctx.webStartup.trustedHosts
+
+    # The client-plugin reload chain: a dev-only row this bundle ships off,
+    # which the runtime row turns on before client discovery. It is a row rather
+    # than a child of web-runtime because its node half is a client-side package,
+    # which a host-side bundle cannot import.
+    - id: client-hmr
+      name: '@deepseek-ai/dsh-client-hmr'
+      inject: [webStartup]
+      disabled: true
 
     # ── browser plugin roster (dsh.client rows; node halves are layer-2 hosts) ──
 
-    # Dual-face: node half scans this very tree for dsh.client rows, composes
-    # window.__DSH_BOOT__, serves /plugins/<id>/client.js; browser half is the
-    # module table the shell kernel constructs before cordis exists (adopted
-    # as a plugin entry by the kernel, never fetched).
+    # Dual-face: this waits for the runtime row to decide whether HMR belongs
+    # in the first graph. The node half then scans this tree, composes
+    # window.__DSH_BOOT__, and serves /plugins/<id>/client.js; the browser half
+    # is the module table the shell kernel constructs before cordis exists
+    # (adopted as a plugin entry by the kernel, never fetched).
     - id: modules
       name: '@deepseek-ai/dsh-client-modules'
+      inject: [webRuntime]
 
     # Owns both ends of the web transport: node half binds the gateway to the
     # webserver under /api; browser half is the fetch/SSE client.
     - id: connection
       name: '@deepseek-ai/dsh-client-connection'
+      inject: [webRuntime]
+      config:
+        # LAN literals derived from the active bind plus --trusted-host extras.
+        # A deployment adding authorities keeps this expression and concatenates
+        # its literals, for example: ['app.internal', ...ctx.webRuntime.trustedHosts].
+        trustedHosts: !!js ctx.webRuntime.trustedHosts
 
     - id: api-remotes
       name: '@deepseek-ai/dsh-api-remotes'
@@ -171,6 +206,10 @@
 
     - id: ui-subagent
       name: '@deepseek-ai/dsh-client-ui-subagent'
+
+    # Background tasks: the session-header list over the tasksBySession mirror.
+    - id: ui-task
+      name: '@deepseek-ai/dsh-client-ui-task'
 
     # Goal surface: GoalBar in the input dock over the goal session projection.
     - id: ui-goal
@@ -270,8 +309,12 @@
 - id: plan-mode
   disabled: true
 
-- id: token-meter
-  disabled: true
+# The token METER stays on the host plane; only the compaction backend that
+# reads it moves. It owns the context-meter projection units, and that table is
+# process-wide, so preset ownership would make the meter a function of which
+# presets happen to be mounted rather than a per-session fact. Same criterion as
+# `tasks` and `goals`; the reasoning has one home in
+# `.agents/notes/implemented/architecture/2026-08-10-host-plane-ownership-after-presets.md`.
 
 - id: compact-basic
   disabled: true

@@ -328,7 +328,7 @@ describe('build profiles and invocation', () => {
     await writeFile(join(root, 'cordis.yml'), '[]\n')
     const byUrl = await startSDK(pathToFileURL(join(root, 'cordis.yml')))
     await byUrl.fiber.dispose()
-    const byRun = await runSDK(undefined, { cwd: root }) as import('cordis').Context
+    const byRun = await runSDK(undefined, { cwd: root }) as import('@deepseek-ai/cordis').Context
     await byRun.fiber.dispose()
     const dev = await startSDK('./cordis.yml', { cwd: root, dev: true })
     await dev.fiber.dispose()

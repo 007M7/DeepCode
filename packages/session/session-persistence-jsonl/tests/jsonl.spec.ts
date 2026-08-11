@@ -1,9 +1,9 @@
 import { MessageId, createUserMessage, createMessage } from '@deepseek-ai/dsh-llm'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import { appendFile, mkdtemp, mkdir, rm, readFile, writeFile, readdir, stat, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { isAbsolute, join, relative, resolve } from 'node:path'
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
@@ -186,6 +186,76 @@ describe('SessionPersistenceJsonl: format helpers', () => {
     })
     await fiber.dispose()
   })
+
+  it('refuses a structurally foreign future header as unsupported, not corrupt', async () => {
+    const absoluteRoot = await freshRoot()
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const fiber = await ctx.plugin(SessionPersistenceJsonl, { root: absoluteRoot, compression: 'none' })
+    // A future format need not satisfy today's header shape at all (no
+    // createdAt, unknown fields): the version must be refused before shape
+    // validation, so the user sees the upgrade direction.
+    const id = SessionId('future-shape')
+    const path = rawLogPath(resolve(absoluteRoot), '/work', id)
+    await mkdir(dirname(path), { recursive: true })
+    await writeFile(path, `${JSON.stringify({ type: 'session', version: 42, id, futureOnly: true })}\n{"future":"row"}\n`)
+    const failure = await ctx.sessionPersistence.load(id).then(() => undefined, (error: unknown) => error as Error)
+    expect(failure?.name).toBe('SessionFormatUnsupportedError')
+    expect(failure?.message).toMatch(/written by a newer harness.*upgrade the harness/)
+    expect(failure?.message).toContain(`(raw log: ${path})`)
+    await fiber.dispose()
+  })
+
+  it('keeps a non-object header line a corruption, not a format refusal', async () => {
+    const absoluteRoot = await freshRoot()
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const fiber = await ctx.plugin(SessionPersistenceJsonl, { root: absoluteRoot, compression: 'none' })
+    // Valid JSON that is no object carries no version to compare, so the
+    // version guard must pass it through to the corruption diagnostics.
+    const id = SessionId('scalar-header')
+    const path = rawLogPath(resolve(absoluteRoot), '/work', id)
+    await mkdir(dirname(path), { recursive: true })
+    await writeFile(path, '42\n')
+    const failure = await ctx.sessionPersistence.load(id).then(() => undefined, (error: unknown) => error as Error)
+    expect(failure?.name).not.toBe('SessionFormatUnsupportedError')
+    expect(failure?.message).toContain('first line is not a session header')
+    await fiber.dispose()
+  })
+
+  it('names a foreign-version header by its stringified non-string id', async () => {
+    const absoluteRoot = await freshRoot()
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const fiber = await ctx.plugin(SessionPersistenceJsonl, { root: absoluteRoot, compression: 'none' })
+    // A future header's id field is as untrusted as the rest of its shape:
+    // the refusal must still name the session it read, not crash on the type.
+    const id = SessionId('numeric-id')
+    const path = rawLogPath(resolve(absoluteRoot), '/work', id)
+    await mkdir(dirname(path), { recursive: true })
+    await writeFile(path, `${JSON.stringify({ type: 'session', version: 42, id: 123 })}\n`)
+    const failure = await ctx.sessionPersistence.load(id).then(() => undefined, (error: unknown) => error as Error)
+    expect(failure?.name).toBe('SessionFormatUnsupportedError')
+    expect(failure?.message).toContain('session "123" uses log format v42')
+    await fiber.dispose()
+  })
+
+  it('points a format refusal at the raw log path', async () => {
+    const absoluteRoot = await freshRoot()
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const fiber = await ctx.plugin(SessionPersistenceJsonl, { root: absoluteRoot, compression: 'none' })
+    const m = { ...meta('newer-format', '/work'), version: 7 }
+    await ctx.sessionPersistence.create(m)
+    await ctx.sessionPersistence.append(m.id, [
+      { type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } },
+      { type: 'turn/end', seq: 1, time: 2, data: { turn: 1, reason: { kind: 'completed' } } },
+    ])
+    const failure = await ctx.sessionPersistence.load(m.id).then(() => undefined, (error: unknown) => error as Error)
+    expect(failure?.name).toBe('SessionFormatUnsupportedError')
+    expect(failure?.message).toContain(`(raw log: ${rawLogPath(resolve(absoluteRoot), '/work', m.id)})`)
+    await fiber.dispose()
+  })
 })
 
 describe('SessionPersistenceJsonl: durability and crash semantics', () => {
@@ -215,6 +285,46 @@ describe('SessionPersistenceJsonl: durability and crash semantics', () => {
     expect((await stat(dir)).isDirectory()).toBe(true)
     expect((await stat(rawLogPath(root, '/work', m.id))).isFile()).toBe(true)
     expect((await ctx.sessionPersistence.list()).map(h => h.id)).toContain(m.id)
+  })
+
+  it('readRaw returns the stored artifact text verbatim with its original filename', async () => {
+    const m = meta('raw-read', '/work')
+    await ctx.sessionPersistence.create(m)
+    await ctx.sessionPersistence.append(m.id, oneTurnLog())
+    const raw = await ctx.sessionPersistence.readRaw(m.id)
+    expect(raw).toBeDefined()
+    expect(raw!.filename).toBe('session.jsonl')
+    expect(raw!.meta.id).toBe(m.id)
+    // Byte-identical to the physical file — never a reconstruction.
+    expect(raw!.content).toBe(await readFile(rawLogPath(root, '/work', m.id), 'utf8'))
+    expect(raw!.content.split('\n')[0]).toBe(JSON.stringify(toHeaderLine(m)))
+    const scanned = scanLog(Buffer.from(raw!.content))
+    expect(scanned.events.map(event => event.type)).toEqual(oneTurnLog().map(event => event.type))
+  })
+
+  it('readRaw is undefined for an absent session', async () => {
+    const m = meta('raw-missing', '/work')
+    expect(await ctx.sessionPersistence.readRaw(m.id)).toBeUndefined()
+  })
+
+  it('readRaw rejects a corrupt header line instead of exporting it', async () => {
+    const m = meta('raw-corrupt', '/work')
+    await ctx.sessionPersistence.create(m)
+    await ctx.sessionPersistence.append(m.id, oneTurnLog())
+    await writeFile(rawLogPath(root, '/work', m.id), 'not a header line\n{"type":"turn/start","seq":0}\n')
+    await expect(ctx.sessionPersistence.readRaw(m.id)).rejects.toThrow(/corrupt session log/)
+  })
+
+  it('readRaw retries when the file revision changes during the read', async () => {
+    const m = meta('raw-revision-race', '/work')
+    await ctx.sessionPersistence.create(m)
+    await ctx.sessionPersistence.append(m.id, oneTurnLog())
+    statRace.path = rawLogPath(root, '/work', m.id)
+
+    const raw = await ctx.sessionPersistence.readRaw(m.id)
+    expect(raw).toBeDefined()
+    // Two stat calls per iteration; the mocked revision change forces a retry.
+    expect(statRace.reads).toBe(4)
   })
 
   it('keeps the same location on resume and gives a fork its own location', async () => {

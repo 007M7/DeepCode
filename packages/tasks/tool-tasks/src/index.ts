@@ -1,13 +1,13 @@
 /**
  * Model-facing `task_output`, `task_list`, and `task_kill` tools over
- * `ctx.tasks`. Loading the plugin attaches the control surface required by
+ * `ctx.tasks`. Loading the plugin attaches the controller required by
  * producers. It also injects unreported completions as durable context for the
  * owner's next request; notices do not wake idle agents.
  * @module @deepseek-ai/dsh-tool-tasks
  */
 
-import type { Context } from 'cordis'
-import z from 'schemastery'
+import type { Context } from '@deepseek-ai/cordis'
+import z from '@deepseek-ai/schemastery'
 import { boundContextSummary, createUserMessage, type ContentBlock } from '@deepseek-ai/dsh-llm'
 import { TextRetainer } from '@deepseek-ai/dsh-retention'
 import { defineTool } from '@deepseek-ai/dsh-tools'
@@ -216,8 +216,8 @@ export function apply(ctx: Context, config: Config): void {
     return boundSingleText(result.content, maxBytes)
   }
 
-  // Producers may start work only while a control surface is attached.
-  ctx.tasks.attachSurface('tool-tasks')
+  // Producers may start work only while a controller is attached.
+  ctx.tasks.attachController('tool-tasks')
 
   // Cross-call guidance follows the bash section and precedes product sections.
   ctx.systemPrompt.section({

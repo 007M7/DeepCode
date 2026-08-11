@@ -5,7 +5,7 @@
  * @module @deepseek-ai/dsh-typert-registry
  */
 
-import { Context, Service } from 'cordis'
+import { Context, Service } from '@deepseek-ai/cordis'
 import { z } from 'zod'
 import type {
   InvocationDescriptor,

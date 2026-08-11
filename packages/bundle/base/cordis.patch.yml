@@ -14,10 +14,10 @@
 
 - insert:
     - id: timer
-      name: '@cordisjs/plugin-timer'
+      name: '@deepseek-ai/cordis-plugin-timer'
 
     - id: hmr
-      name: '@cordisjs/plugin-hmr'
+      name: '@deepseek-ai/cordis-plugin-hmr'
       config:
         root: ['.']
 
@@ -286,6 +286,15 @@
       config:
         providerName: fork
 
+    # Product providers stay on the host plane because the registry is a
+    # process singleton. Agent presets decide whether their own model sees the
+    # matching delegation tools; loading either provider starts no product.
+    - id: subagent-codex
+      name: '@deepseek-ai/dsh-subagent-codex'
+
+    - id: subagent-claude-code
+      name: '@deepseek-ai/dsh-subagent-claude-code'
+
     # Continuable background children are selected per delegation tool. The
     # separately loaded follow-up tool registers the one global `send_message`.
     - id: tool-subagent-control
@@ -301,12 +310,16 @@
         toolName: subagent
         backgroundMode: continuable
 
+    # Fork stays one-shot: a continuable child's `report` tool and prompt
+    # section precede the inherited history a fork exists to reuse; one-shot
+    # fork children install neither, keeping the parent's request prefix.
+    # See .agents/notes/implemented/architecture/2026-08-10-fork-children-stay-one-shot.md.
     - id: tool-subagent-fork
       name: '@deepseek-ai/dsh-tool-subagent'
       config:
         provider: fork
         toolName: subagent_fork
-        backgroundMode: continuable
+        backgroundMode: one-shot
 
     # Optional direct-child return channel; absent from roots and one-shot agents.
     - id: tool-subagent-report
@@ -373,7 +386,7 @@
         thresholds: [3, 5, 8]
         argumentsPreviewChars: 500
 
-    # Every mode enables the stable web_search model surface. DeepSeek search
+    # Every mode enables the stable model-facing web_search tool. DeepSeek search
     # resolves the same DEEPSEEK_API_KEY credential the Models page manages for
     # chat, at each search; its Messages endpoint is separate from the
     # chat-completions endpoint, so it takes its own base-URL override. Fetch stays

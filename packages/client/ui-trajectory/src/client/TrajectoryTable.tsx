@@ -24,7 +24,8 @@ import {
   groupTrajectoryVirtualRows, trajectoryVirtualRecordKey,
 } from './trajectory-virtual-rows.ts'
 import type { TrajectoryVirtualRow } from './trajectory-virtual-rows.ts'
-import { trajectoryPreviewText, type TrajectoryTurnModel } from './layout.ts'
+import type { TrajectoryTurnModel } from './layout.ts'
+import { trajectoryPreviewText } from './trajectory-preview.ts'
 import css from './TrajectoryTable.module.css'
 
 const BOTTOM_FOLLOW_THRESHOLD_PX = 2
@@ -155,8 +156,8 @@ type DetailTab =
   | 'tools'
   | 'overview'
   | 'rendered'
+  | 'raw'
   | 'source'
-  | 'origin'
   | 'input'
   | 'output'
   | 'schema'
@@ -491,6 +492,21 @@ function requestKey(turn: number | null, group: string): string {
   return `${turn}\u0000${group}`
 }
 
+function indexRequestBoundaries(records: readonly TableRecord[]): ReadonlyMap<string, number> {
+  const boundaries = new Map<string, number>()
+  for (const record of records) {
+    const key = requestKey(record.turn, record.group)
+    if (boundaries.has(key)) continue
+    if (requestStep(record.group) === undefined) {
+      if (record.groupStart) boundaries.set(key, record.cell.index)
+      continue
+    }
+    if (record.cell.kind === 'user' || record.cell.kind === 'context') continue
+    boundaries.set(key, record.cell.index)
+  }
+  return boundaries
+}
+
 function sectionLabel(turn: number | null): string {
   return turn === null ? 'Between turns' : `Turn ${turn}`
 }
@@ -498,16 +514,18 @@ function sectionLabel(turn: number | null): string {
 function indexRequestNumbers(
   records: readonly TableRecord[],
   sessionNumbers: readonly TrajectoryRequestNumber[] | undefined,
+  boundaries: ReadonlyMap<string, number>,
 ): ReadonlyMap<string, number> {
   const numbers = new Map<string, number>()
   for (const request of sessionNumbers ?? []) {
     numbers.set(requestKey(request.turn, request.group), request.number)
   }
   let next = Math.max(0, ...numbers.values()) + 1
-  const boundaries = records
-    .filter(record => record.groupStart && requestStep(record.group) !== undefined)
+  const boundaryRecords = records
+    .filter(record => boundaries.get(requestKey(record.turn, record.group)) === record.cell.index
+      && requestStep(record.group) !== undefined)
     .sort((left, right) => left.cell.index - right.cell.index)
-  for (const record of boundaries) {
+  for (const record of boundaryRecords) {
     const key = requestKey(record.turn, record.group)
     if (!numbers.has(key)) numbers.set(key, next++)
   }
@@ -782,7 +800,7 @@ function RequestOptions({
   )
 }
 
-function messageOriginLabel(source: unknown): string {
+function messageSourceLabel(source: unknown): string {
   if (typeof source !== 'object' || source === null || Array.isArray(source)) {
     return 'Unknown'
   }
@@ -805,16 +823,16 @@ function messageOriginLabel(source: unknown): string {
   return `${kind[0]?.toUpperCase() ?? ''}${kind.slice(1)}`
 }
 
-function MessageOrigin({ record }: { record: TableRecord }) {
+function MessageSource({ record }: { record: TableRecord }) {
   const source = record.cell.messageSource
-  if (source === undefined) return <p className={css.noPayload}>Origin not recorded</p>
+  if (source === undefined) return <p className={css.noPayload}>Source not recorded</p>
   const data = typeof source === 'object' && source !== null
     ? source
     : { value: source }
   return (
     <JsonTree
       data={data}
-      label="Message origin JSON"
+      label="Message source JSON"
       className={css.jsonPayload}
     />
   )
@@ -879,17 +897,17 @@ function detailTabs(record: TableRecord): readonly DetailTabItem[] {
   if (record.cell.kind === 'compacted') {
     return [
       { id: 'overview', label: 'Summary' },
-      { id: 'source', label: 'Raw Output' },
+      { id: 'raw', label: 'Raw Output' },
     ]
   }
   if (isMarkdownRecord(record)) {
     return [
       { id: 'overview', label: 'Summary' },
       { id: 'rendered', label: 'Preview' },
-      { id: 'source', label: 'Source' },
+      { id: 'raw', label: 'Raw' },
       ...(record.cell.messageSource === undefined
         ? []
-        : [{ id: 'origin', label: 'Origin' } as const]),
+        : [{ id: 'source', label: 'Source' } as const]),
     ]
   }
   return [
@@ -903,6 +921,11 @@ function detailTabs(record: TableRecord): readonly DetailTabItem[] {
 
 function recordDisplayText(cell: TrajectoryCellProps): string {
   if (isToolCallOnly(cell)) return ''
+  if (cell.previewMarkdown !== undefined) {
+    const preview = trajectoryPreviewText(cell.previewMarkdown)
+    if (cell.text === '') return preview
+    return preview === '' ? cell.text : `${cell.text} · ${preview}`
+  }
   if (cell.text !== '') return cell.text
   const markdown = cell.kind === 'user' || cell.kind === 'context'
     ? cell.inputDetail
@@ -910,6 +933,12 @@ function recordDisplayText(cell: TrajectoryCellProps): string {
       ? cell.outputDetail ?? cell.thinkingDetail
       : undefined
   return markdown === undefined ? '' : trajectoryPreviewText(markdown)
+}
+
+function recordResultText(cell: TrajectoryCellProps): string | undefined {
+  return cell.resultPreviewMarkdown === undefined
+    ? cell.result
+    : trajectoryPreviewText(cell.resultPreviewMarkdown)
 }
 
 function toolCallTextParts(
@@ -930,6 +959,71 @@ function isToolCallOnly(cell: TrajectoryCellProps): boolean {
     && !cell.outputDetail
     && !cell.thinkingDetail
     && cell.text === 'Tool call only'
+}
+
+interface RecordPresentationValue {
+  displayText: string
+  listDisplayText: string
+  resultText: string | undefined
+  toolCallOnly: boolean
+  toolCallText: ToolCallTextParts | undefined
+}
+
+function RecordPresentation({
+  cell,
+  children,
+}: {
+  cell: TrajectoryCellProps
+  children: (value: RecordPresentationValue) => ReactNode
+}) {
+  const displayText = useMemo(
+    () => recordDisplayText(cell),
+    [
+      cell.kind, cell.text, cell.previewMarkdown,
+      cell.inputDetail, cell.outputDetail, cell.thinkingDetail,
+    ],
+  )
+  const resultText = useMemo(
+    () => recordResultText(cell),
+    [cell.result, cell.resultPreviewMarkdown],
+  )
+  const toolCallOnly = isToolCallOnly(cell)
+  const toolCallText = toolCallTextParts(cell.kind, displayText)
+  const listDisplayText = toolCallOnly
+    ? '(tool call only)'
+    : toolCallText === undefined
+      ? displayText
+      : [toolCallText.name, toolCallText.args].filter(Boolean).join(' ')
+  return children({
+    displayText,
+    listDisplayText,
+    resultText,
+    toolCallOnly,
+    toolCallText,
+  })
+}
+
+function RecordListText({
+  displayText,
+  toolCallOnly,
+  toolCallText,
+}: Pick<RecordPresentationValue, 'displayText' | 'toolCallOnly' | 'toolCallText'>) {
+  if (toolCallOnly) {
+    return <span className={css.toolCallOnly}>(tool call only)</span>
+  }
+  if (toolCallText === undefined) return displayText || '—'
+  return (
+    <>
+      <span className={css.toolCallNameTypeface}>
+        {toolCallText.name || '—'}
+      </span>
+      {toolCallText.args !== undefined && (
+        <span className={css.toolCallPayload}>
+          {toolCallText.args}
+        </span>
+      )}
+    </>
+  )
 }
 
 function MarkdownFragment({
@@ -1654,9 +1748,10 @@ export function TrajectoryTable({
   useEffect(() => {
     onSelectedIndexChange?.(selectedIndex)
   }, [onSelectedIndexChange, selectedIndex])
+  const requestBoundaries = useMemo(() => indexRequestBoundaries(allRecords), [allRecords])
   const requestNumbers = useMemo(
-    () => indexRequestNumbers(allRecords, sessionRequestNumbers),
-    [allRecords, sessionRequestNumbers],
+    () => indexRequestNumbers(allRecords, sessionRequestNumbers, requestBoundaries),
+    [allRecords, requestBoundaries, sessionRequestNumbers],
   )
   const records = useMemo(() => {
     if (searchMatchIndexes !== null) return filterRecords(allRecords, searchMatchIndexes)
@@ -2131,263 +2226,251 @@ export function TrajectoryTable({
                 />
               </tr>
             )}
-            {renderedRecords.map(({ record, position, terminalRequestBoundary }) => {
-              const displayText = recordDisplayText(record.cell)
-              const toolCallOnly = isToolCallOnly(record.cell)
-              const toolCallText = toolCallTextParts(record.cell.kind, displayText)
-              const listDisplayText = toolCallOnly
-                ? '(tool call only)'
-                : toolCallText === undefined
-                  ? displayText
-                  : [toolCallText.name, toolCallText.args].filter(Boolean).join(' ')
-              const isCollapsedSummary = record.collapsedSummary !== undefined
-              const isRequestOnly = record.cell.requestOnly === true
-              const isInitialSystem = record.cell.kind === 'system'
+            {renderedRecords.map(({ record, position, terminalRequestBoundary }) => (
+              <RecordPresentation
+                key={trajectoryVirtualRecordKey(record)}
+                cell={record.cell}
+              >
+                {({ displayText, listDisplayText, resultText, toolCallOnly, toolCallText }) => {
+                  const isCollapsedSummary = record.collapsedSummary !== undefined
+                  const isRequestOnly = record.cell.requestOnly === true
+                  const isInitialSystem = record.cell.kind === 'system'
                 && record.cell.index === allRecords[0]?.cell.index
-              const request = record.groupStart
+                  const key = requestKey(record.turn, record.group)
+                  const request = requestBoundaries.get(key) === record.cell.index
                 && !isCollapsedSummary
                 && (record.turn === null || !collapsedTurns.has(record.turn))
-                ? requestNumbers.get(requestKey(record.turn, record.group))
-                : undefined
-              const requestInfo = request === undefined
-                ? undefined
-                : sessionRequestNumbers?.find(candidate => candidate.number === request)
-              const requestStatus = requestInfo?.status
+                    ? requestNumbers.get(key)
+                    : undefined
+                  const requestInfo = request === undefined
+                    ? undefined
+                    : sessionRequestNumbers?.find(candidate => candidate.number === request)
+                  const requestStatus = requestInfo?.status
                 ?? (record.cell.isError === true ? 'error' : undefined)
-              const requestRunIndex = requestBoundaryRuns.get(record.cell.index) ?? 0
-              const requestBoundaryStyle: RequestBoundaryStyle = {
-                '--request-boundary-offset': `${requestRunIndex * 8}px`,
-              }
-              const requestLabel = request === undefined
-                ? undefined
-                : `Request #${request}${requestInfo?.purpose === 'compaction' ? ' · Compaction' : ''}`
-              const requestSelected = request !== undefined
+                  const requestRunIndex = requestBoundaryRuns.get(record.cell.index) ?? 0
+                  const requestBoundaryStyle: RequestBoundaryStyle = {
+                    '--request-boundary-offset': `${requestRunIndex * 8}px`,
+                  }
+                  const requestLabel = request === undefined
+                    ? undefined
+                    : `Request #${request}${requestInfo?.purpose === 'compaction' ? ' · Compaction' : ''}`
+                  const requestSelected = request !== undefined
                 && selectedRequest?.turn === record.turn
                 && selectedRequest.group === record.group
-              const sectionActive = record.turn === null
-                ? activeSection === record.section
-                : activeTurn === record.turn
-              return (
-                <tr
-                  key={trajectoryVirtualRecordKey(record)}
-                  tabIndex={isRequestOnly ? -1 : 0}
-                  aria-rowindex={position + 1}
-                  aria-label={isCollapsedSummary
-                    ? `Collapsed ${record.collapsedSummaryKind} summary, ${record.collapsedSummary}`
-                    : isRequestOnly
-                      ? `Request ${request ?? ''}, compaction`
-                      : `${request === undefined ? '' : `Request ${request}, `}${KIND_LABEL[record.cell.kind]}, ${listDisplayText || 'no content'}`}
-                  aria-selected={!isCollapsedSummary && !isRequestOnly && selectedIndex === record.cell.index}
-                  data-kind={record.cell.kind}
-                  data-trajectory-row-key={trajectoryVirtualRecordKey(record)}
-                  data-virtual-position={virtualizationEnabled ? position : undefined}
-                  data-record-index={!isCollapsedSummary && !isRequestOnly
-                    ? record.cell.index
-                    : undefined}
-                  data-request-only={isRequestOnly || undefined}
-                  data-terminal-request-boundary={terminalRequestBoundary || undefined}
-                  data-group-start={record.groupStart || undefined}
-                  data-turn-start={record.turnStart || undefined}
-                  data-error={record.cell.isError || undefined}
-                  data-running={stateOf(record) === 'running' || undefined}
-                  data-turn-end={record.turnEnd || undefined}
-                  data-collapsed-summary={record.collapsedSummaryKind}
-                  data-selected={!isCollapsedSummary && selectedIndex === record.cell.index || undefined}
-                  data-timeline-focus={isCollapsedSummary || timelineFocusIndexes === null
-                    ? undefined
-                    : timelineFocusIndexes.has(record.cell.index) ? 'inside' : 'outside'}
-                  onClick={isRequestOnly
-                    ? undefined
-                    : isCollapsedSummary
-                      ? () => {
-                        if (record.collapsedSummaryKind === 'turn' && record.turn !== null) {
+                  const sectionActive = record.turn === null
+                    ? activeSection === record.section
+                    : activeTurn === record.turn
+                  return (
+                    <tr
+                      tabIndex={isRequestOnly ? -1 : 0}
+                      aria-rowindex={position + 1}
+                      aria-label={isCollapsedSummary
+                        ? `Collapsed ${record.collapsedSummaryKind} summary, ${record.collapsedSummary}`
+                        : isRequestOnly
+                          ? `Request ${request ?? ''}, compaction`
+                          : `${request === undefined ? '' : `Request ${request}, `}${KIND_LABEL[record.cell.kind]}, ${listDisplayText || 'no content'}`}
+                      aria-selected={!isCollapsedSummary && !isRequestOnly && selectedIndex === record.cell.index}
+                      data-kind={record.cell.kind}
+                      data-trajectory-row-key={trajectoryVirtualRecordKey(record)}
+                      data-virtual-position={virtualizationEnabled ? position : undefined}
+                      data-record-index={!isCollapsedSummary && !isRequestOnly
+                        ? record.cell.index
+                        : undefined}
+                      data-request-only={isRequestOnly || undefined}
+                      data-terminal-request-boundary={terminalRequestBoundary || undefined}
+                      data-group-start={record.groupStart || undefined}
+                      data-turn-start={record.turnStart || undefined}
+                      data-error={record.cell.isError || undefined}
+                      data-running={stateOf(record) === 'running' || undefined}
+                      data-turn-end={record.turnEnd || undefined}
+                      data-collapsed-summary={record.collapsedSummaryKind}
+                      data-selected={!isCollapsedSummary && selectedIndex === record.cell.index || undefined}
+                      data-timeline-focus={isCollapsedSummary || timelineFocusIndexes === null
+                        ? undefined
+                        : timelineFocusIndexes.has(record.cell.index) ? 'inside' : 'outside'}
+                      onClick={isRequestOnly
+                        ? undefined
+                        : isCollapsedSummary
+                          ? () => {
+                            if (record.collapsedSummaryKind === 'turn' && record.turn !== null) {
+                              onToggleTurn(record.turn)
+                            } else onToggleAssistant(trajectoryRecordId(record.cell))
+                          }
+                          : () => { selectRecord(record.cell.index) }}
+                      onDoubleClick={(event) => {
+                        if (isCollapsedSummary || isRequestOnly) return
+                        if (record.turn !== null && collapsedTurns.has(record.turn)) {
+                          event.preventDefault()
                           onToggleTurn(record.turn)
-                        } else onToggleAssistant(trajectoryRecordId(record.cell))
-                      }
-                      : () => { selectRecord(record.cell.index) }}
-                  onDoubleClick={(event) => {
-                    if (isCollapsedSummary || isRequestOnly) return
-                    if (record.turn !== null && collapsedTurns.has(record.turn)) {
-                      event.preventDefault()
-                      onToggleTurn(record.turn)
-                      return
-                    }
-                    if (
-                      record.cell.kind === 'message'
+                          return
+                        }
+                        if (
+                          record.cell.kind === 'message'
                       && assistantToolCalls(allRecords, record.cell.index).length > 0
-                    ) {
-                      event.preventDefault()
-                      onToggleAssistant(trajectoryRecordId(record.cell))
-                      return
-                    }
-                    if (!record.turnStart) return
-                    if (record.turn === null) return
-                    if (allRecords.filter(candidate =>
-                      candidate.turn === record.turn
+                        ) {
+                          event.preventDefault()
+                          onToggleAssistant(trajectoryRecordId(record.cell))
+                          return
+                        }
+                        if (!record.turnStart) return
+                        if (record.turn === null) return
+                        if (allRecords.filter(candidate =>
+                          candidate.turn === record.turn
                       && candidate.cell.requestOnly !== true
                       && candidate.cell.kind !== 'system').length <= 1) return
-                    event.preventDefault()
-                    onToggleTurn(record.turn)
-                  }}
-                  onKeyDown={(event) => {
-                    if (isRequestOnly) return
-                    if (event.key !== 'Enter' && event.key !== ' ') return
-                    event.preventDefault()
-                    if (isCollapsedSummary) {
-                      if (record.collapsedSummaryKind === 'turn' && record.turn !== null) {
+                        event.preventDefault()
                         onToggleTurn(record.turn)
-                      } else onToggleAssistant(trajectoryRecordId(record.cell))
-                      return
-                    }
-                    selectRecord(record.cell.index)
-                  }}
-                >
-                  <td className={css.event}>
-                    {request !== undefined && (
-                      <button
-                        type="button"
-                        className={requestSelected
-                          ? `${css.requestBoundaryControl} ${css.requestBoundaryControlActive}`
-                          : css.requestBoundaryControl}
-                        aria-label={requestLabel}
-                        aria-pressed={requestSelected}
-                        data-label={requestLabel}
-                        data-request-run-index={requestRunIndex}
-                        data-request-status={requestStatus}
-                        style={requestBoundaryStyle}
-                        onClick={(event) => {
-                          event.stopPropagation()
-                          selectRequest({
-                            turn: record.turn,
-                            group: record.group,
-                            ...(requestInfo?.seq === undefined ? {} : { seq: requestInfo.seq }),
-                          })
-                        }}
-                        onDoubleClick={(event) => { event.stopPropagation() }}
-                      />
-                    )}
-                    {record.turn !== null
+                      }}
+                      onKeyDown={(event) => {
+                        if (isRequestOnly) return
+                        if (event.key !== 'Enter' && event.key !== ' ') return
+                        event.preventDefault()
+                        if (isCollapsedSummary) {
+                          if (record.collapsedSummaryKind === 'turn' && record.turn !== null) {
+                            onToggleTurn(record.turn)
+                          } else onToggleAssistant(trajectoryRecordId(record.cell))
+                          return
+                        }
+                        selectRecord(record.cell.index)
+                      }}
+                    >
+                      <td className={css.event}>
+                        {request !== undefined && (
+                          <button
+                            type="button"
+                            className={requestSelected
+                              ? `${css.requestBoundaryControl} ${css.requestBoundaryControlActive}`
+                              : css.requestBoundaryControl}
+                            aria-label={requestLabel}
+                            aria-pressed={requestSelected}
+                            data-label={requestLabel}
+                            data-request-run-index={requestRunIndex}
+                            data-request-status={requestStatus}
+                            style={requestBoundaryStyle}
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              selectRequest({
+                                turn: record.turn,
+                                group: record.group,
+                                ...(requestInfo?.seq === undefined ? {} : { seq: requestInfo.seq }),
+                              })
+                            }}
+                            onDoubleClick={(event) => { event.stopPropagation() }}
+                          />
+                        )}
+                        {record.turn !== null
                     && activeTurn === record.turn
                     && !isInitialSystem && (
-                      <span className={css.turnRail} aria-hidden="true" />
-                    )}
-                    {!isCollapsedSummary && selectedIndex === record.cell.index && (
-                      <span className={css.selectionRail} aria-hidden="true" />
-                    )}
-                    {!isCollapsedSummary
+                          <span className={css.turnRail} aria-hidden="true" />
+                        )}
+                        {!isCollapsedSummary && selectedIndex === record.cell.index && (
+                          <span className={css.selectionRail} aria-hidden="true" />
+                        )}
+                        {!isCollapsedSummary
                     && !isRequestOnly
                     && record.turnStart && (
-                      <span
-                        className={sectionActive
-                          ? `${css.turnLabel} ${css.turnLabelActive}`
-                          : css.turnLabel}
-                        aria-label={sectionLabel(record.turn)}
-                      >
-                        {record.turn === null
-                          ? sectionLabel(record.turn)
-                          : (
-                            <>
-                              <span className={css.turnLabelFull} aria-hidden="true">
-                                {sectionLabel(record.turn)}
-                              </span>
-                              <span className={css.turnLabelCompact} aria-hidden="true">
-                                #{record.turn}
-                              </span>
-                            </>
-                          )}
-                      </span>
-                    )}
-                    <div className={css.eventInner}>
-                      {!isCollapsedSummary && !isRequestOnly && (
-                        <span
-                          className={css.kindSlot}
-                        >
                           <span
-                            className={`${css.kindTag} ${
-                              record.cell.kind === 'system'
-                                ? css.systemNeutral
-                                : record.cell.kind === 'context'
-                                  ? css.contextGreen
-                                  : record.cell.kind === 'compacted'
-                                    ? css.compacted
-                                    : record.cell.kind === 'tool'
-                                      ? css.toolAmber
-                                      : record.cell.kind === 'message'
-                                        ? css.assistantVioletBright
-                                        : record.cell.kind === 'subtool'
-                                          ? css.subtoolAmber
-                                          : css[record.cell.kind]
-                            }`}
-                            data-role-kind={record.cell.kind}
+                            className={sectionActive
+                              ? `${css.turnLabel} ${css.turnLabelActive}`
+                              : css.turnLabel}
+                            aria-label={sectionLabel(record.turn)}
                           >
-                            <Tooltip
-                              label={KIND_LABEL[record.cell.kind]}
-                              side="right"
-                            >
-                              <span className={css.kindTagIcon} aria-hidden="true">
-                                {KIND_ICON[record.cell.kind]}
-                              </span>
-                            </Tooltip>
-                            <span className={css.kindTagLabel}>
-                              {KIND_LABEL[record.cell.kind]}
-                            </span>
-                          </span>
-                        </span>
-                      )}
-                    </div>
-                  </td>
-                  <td className={css.content}>
-                    {isRequestOnly
-                      ? null
-                      : record.collapsedSummary !== undefined
-                        ? (
-                          <span className={css.collapsedTurnContent} title={record.collapsedSummary}>
-                            <span className={css.collapsedTurnEllipsis}>…</span>
-                            <span className={css.collapsedTurnText}>{record.collapsedSummary}</span>
-                          </span>
-                        )
-                        : (
-                          <span
-                            className={record.cell.result === undefined ? css.contentText : css.resultPreview}
-                            title={record.cell.result === undefined
-                              ? listDisplayText
-                              : `${listDisplayText} → ${record.cell.result}`}
-                          >
-                            <span className={record.cell.result === undefined ? undefined : css.resultRequest}>
-                              {toolCallOnly
-                                ? <span className={css.toolCallOnly}>(tool call only)</span>
-                                : toolCallText === undefined
-                                  ? listDisplayText || '—'
-                                  : (
-                                    <>
-                                      <span className={css.toolCallNameTypeface}>
-                                        {toolCallText.name || '—'}
-                                      </span>
-                                      {toolCallText.args !== undefined && (
-                                        <span className={css.toolCallPayload}>
-                                          {toolCallText.args}
-                                        </span>
-                                      )}
-                                    </>
-                                  )}
-                            </span>
-                            {record.cell.result !== undefined && (
-                              <span className={record.cell.isError ? `${css.inlineResult} ${css.error}` : css.inlineResult}>
-                                <span className={css.arrow}>→</span>
-                                <span className={record.cell.result === 'No output'
-                                  ? `${css.inlineResultText} ${css.noOutputText}`
-                                  : css.inlineResultText}
-                                >
-                                  {record.cell.result}
-                                </span>
-                              </span>
-                            )}
+                            {record.turn === null
+                              ? sectionLabel(record.turn)
+                              : (
+                                <>
+                                  <span className={css.turnLabelFull} aria-hidden="true">
+                                    {sectionLabel(record.turn)}
+                                  </span>
+                                  <span className={css.turnLabelCompact} aria-hidden="true">
+                                    #{record.turn}
+                                  </span>
+                                </>
+                              )}
                           </span>
                         )}
-                  </td>
-                </tr>
-              )
-            })}
+                        <div className={css.eventInner}>
+                          {!isCollapsedSummary && !isRequestOnly && (
+                            <span
+                              className={css.kindSlot}
+                            >
+                              <span
+                                className={`${css.kindTag} ${
+                                  record.cell.kind === 'system'
+                                    ? css.systemNeutral
+                                    : record.cell.kind === 'context'
+                                      ? css.contextGreen
+                                      : record.cell.kind === 'compacted'
+                                        ? css.compacted
+                                        : record.cell.kind === 'tool'
+                                          ? css.toolAmber
+                                          : record.cell.kind === 'message'
+                                            ? css.assistantVioletBright
+                                            : record.cell.kind === 'subtool'
+                                              ? css.subtoolAmber
+                                              : css[record.cell.kind]
+                                }`}
+                                data-role-kind={record.cell.kind}
+                              >
+                                <Tooltip
+                                  label={KIND_LABEL[record.cell.kind]}
+                                  side="right"
+                                >
+                                  <span className={css.kindTagIcon} aria-hidden="true">
+                                    {KIND_ICON[record.cell.kind]}
+                                  </span>
+                                </Tooltip>
+                                <span className={css.kindTagLabel}>
+                                  {KIND_LABEL[record.cell.kind]}
+                                </span>
+                              </span>
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className={css.content}>
+                        {isRequestOnly
+                          ? null
+                          : record.collapsedSummary !== undefined
+                            ? (
+                              <span className={css.collapsedTurnContent} title={record.collapsedSummary}>
+                                <span className={css.collapsedTurnEllipsis}>…</span>
+                                <span className={css.collapsedTurnText}>{record.collapsedSummary}</span>
+                              </span>
+                            )
+                            : (
+                              <span
+                                className={resultText === undefined ? css.contentText : css.resultPreview}
+                                title={resultText === undefined
+                                  ? listDisplayText
+                                  : `${listDisplayText} → ${resultText}`}
+                              >
+                                <span className={resultText === undefined ? undefined : css.resultRequest}>
+                                  <RecordListText
+                                    displayText={displayText}
+                                    toolCallOnly={toolCallOnly}
+                                    toolCallText={toolCallText}
+                                  />
+                                </span>
+                                {resultText !== undefined && (
+                                  <span className={record.cell.isError ? `${css.inlineResult} ${css.error}` : css.inlineResult}>
+                                    <span className={css.arrow}>→</span>
+                                    <span className={resultText === 'No output'
+                                      ? `${css.inlineResultText} ${css.noOutputText}`
+                                      : css.inlineResultText}
+                                    >
+                                      {resultText}
+                                    </span>
+                                  </span>
+                                )}
+                              </span>
+                            )}
+                      </td>
+                    </tr>
+                  )
+                }}
+              </RecordPresentation>
+            ))}
             {virtualBottom > 0 && (
               <tr className={css.virtualSpacer} data-virtual-spacer="bottom" aria-hidden="true">
                 <td
@@ -2772,14 +2855,14 @@ export function TrajectoryTable({
                 >
                   {selected.cell.messageSource !== undefined && (
                     <div>
-                      <dt>Origin</dt>
+                      <dt>Source</dt>
                       <dd className={css.overviewParentLinks}>
                         <button
                           type="button"
                           className={css.overviewHierarchyNavLink}
-                          onClick={() => { activateTab('origin') }}
+                          onClick={() => { activateTab('source') }}
                         >
-                          <span>{messageOriginLabel(selected.cell.messageSource)}</span>
+                          <span>{messageSourceLabel(selected.cell.messageSource)}</span>
                           <IconChevronRightOutline14
                             className={css.overviewHierarchyJumpIconTight}
                             size={11}
@@ -2792,7 +2875,7 @@ export function TrajectoryTable({
                     <div>
                       <dt>
                         {selectedAssistantRequestTarget !== undefined
-                          ? 'Origin'
+                          ? 'Source'
                           : 'Hierarchy'}
                       </dt>
                       <dd className={css.overviewParentLinks}>
@@ -2916,7 +2999,7 @@ export function TrajectoryTable({
                 onOpenCall={openCallSummary}
               />
             )}
-            {!promptSelected && selected !== undefined && activeTab === 'source' && (
+            {!promptSelected && selected !== undefined && activeTab === 'raw' && (
               <MarkdownRecordContent
                 record={selected}
                 rendered={false}
@@ -2925,8 +3008,8 @@ export function TrajectoryTable({
                 onOpenCall={openCallSummary}
               />
             )}
-            {!promptSelected && selected !== undefined && activeTab === 'origin' && (
-              <MessageOrigin record={selected} />
+            {!promptSelected && selected !== undefined && activeTab === 'source' && (
+              <MessageSource record={selected} />
             )}
             {!promptSelected && selected !== undefined && activeTab === 'input' && (
               <RecordPayload record={selected} direction="input" />

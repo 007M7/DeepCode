@@ -38,6 +38,7 @@
         "headless-agent/tests/fixtures/semantic-checkpoint-agent.ts",
         "headless-agent/tests/fixtures/subagent-diagnostic-agent.ts",
         "headless-agent/tests/fixtures/subagent-inheritance-agent.ts",
+        "headless-agent/tests/fixtures/subagent-settlement-fence.ts",
         "headless-agent/tests/fixtures/workspace-context-resume-agent.ts",
         "headless-agent/tests/fixtures/goal-domain/seed-goal.ts",
         "headless-agent/tests/fixtures/time-context-driver.ts",
@@ -47,8 +48,10 @@
         "headless-agent/tests/fixtures/e2b/e2b/bin.ts",
         "acp-agent/tests/snapshots/lsp-definition/workspace/subject.ts",
         "acp-agent/tests/fixtures/child-question-tripwire.ts",
+        "acp-agent/tests/fixtures/parent-sandbox-override.ts",
         "acp-agent/tests/fixtures/partial-landlock-sandbox.ts",
         "acp-agent/tests/fixtures/subagent-durability-failure.ts",
+        "acp-agent/tests/fixtures/subagent-report-fence.ts",
         "acp-agent/tests/fixtures/subagent-settlement-marker.ts",
         "acp-agent/tests/fixtures/workspace-context-compaction.ts",
         "acp-agent/tests/fixtures/subagent/subagent-acp/mock-delegating-llm.ts",
@@ -67,7 +70,6 @@
         "**/*.ts"
       ],
       "ignoreDependencies": [
-        "@cordisjs/plugin-logger-console",
         "@deepseek-ai/.+"
       ]
     },
@@ -747,8 +749,7 @@
     },
     "packages/bundle/base": {
       "ignoreDependencies": [
-        "@deepseek-ai/.+",
-        "@cordisjs/.+"
+        "@deepseek-ai/.+"
       ]
     },
     "packages/bundle/headless": {

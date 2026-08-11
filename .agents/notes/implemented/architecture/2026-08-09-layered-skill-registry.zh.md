@@ -24,7 +24,7 @@ agent-preset stack 曾把整个 skill 能力——注册表、本地提供方和
 
 **部署级 skill 会到达每个挂载 `tool-skill` 的 preset 会话。**repository-plugin e2e 的 skill 根目录与断言已恢复；shipped-Web e2e 证明 badge 行（同一种宿主注册形态）汇入 standard preset agent 的目录，而宿主视图保持仅全局。
 
-**层可见性与消费仍是两个独立选择。**core-web agent 原则上可读全局层，但不组合 `skill` 工具——agent 是否拥有 skill 依旧由 preset 通过挂载或省略 `tool-skill` 决定。
+**层可见性与消费仍是两个独立选择。** `minimal` agent 原则上可读全局层，但不组合 `skill` 工具——agent 是否拥有 skill 依旧由 preset 通过挂载或省略 `tool-skill` 决定。
 
 **提供方选项仍是借用的调用方对象。**`SkillViewOptions` 扩展 `SkillLookupOptions`；注册表消费 `scope`，提供方只从同一个只读对象中读取自己的契约，保持既有的借用恒等保证。
 

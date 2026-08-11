@@ -169,7 +169,7 @@ export interface FsEditOutcome {
 
 /**
  * Stable, machine-routable codes for filesystem failures. Carried on
- * {@link FsError}; the tool registry surfaces `{ name, code }` on `isError`
+ * {@link FsError}; the tool registry exposes `{ name, code }` on `isError`
  * results so retry/permission/UI layers can branch without parsing messages.
  */
 export type FsErrorCode =
@@ -177,6 +177,7 @@ export type FsErrorCode =
   | 'FS_NOT_DIRECTORY'
   | 'FS_NOT_TEXT'
   | 'FS_NOT_REGULAR_FILE'
+  | 'FS_TOO_LARGE'
   | 'FS_PERMISSION_DENIED'
   | 'FS_SANDBOX_DENIED'
   | 'FS_IO_ERROR'

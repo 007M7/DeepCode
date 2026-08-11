@@ -5,7 +5,7 @@
  */
 
 import { relative } from 'node:path'
-import z from 'schemastery'
+import z from '@deepseek-ai/schemastery'
 import { resolveDshHome } from '@deepseek-ai/dsh-paths'
 
 const DEFAULT_PROJECT_ROOT_MARKERS = ['.git'] as const

@@ -128,7 +128,7 @@ The Pi-AI adapter is the first visual-input route: it resolves `ctx.attachments`
 
 Core supports structured assistant image blocks, but no current production provider route is certified for image output. Any future output-capable adapter must retrieve provider bytes under bounded size and time policy, validate them through the same attachment service, persist them, and only then publish the atomic `ImageBlock`. A URL in assistant Markdown remains text and is never downloaded automatically.
 
-Provider-neutral token estimation does not guess visual pricing from image dimensions; provider-reported usage remains authoritative. ACP renders an explicit image marker until that protocol surface gains native image support rather than silently omitting the block.
+Provider-neutral token estimation does not guess visual pricing from image dimensions; provider-reported usage remains authoritative. ACP renders an explicit image marker until that protocol API gains native image support rather than silently omitting the block.
 
 Compaction replays the selected conversation prefix, including image references, into the configured summarization route. A visual-capable route resolves those references through its adapter; a text-only route fails explicitly instead of silently dropping the visual context. The synthesized checkpoint remains text-only, and `compact-basic` rejects image summary output with `UNSUPPORTED_CONTENT`.
 

@@ -5,7 +5,7 @@
  * @module @deepseek-ai/dsh-session/invariant
  */
 
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import { assertNever } from '@deepseek-ai/dsh-llm'
 import type { CallId } from '@deepseek-ai/dsh-llm'
 import type { InvariantFailure, InvariantInstaller } from '@deepseek-ai/dsh-invariants'

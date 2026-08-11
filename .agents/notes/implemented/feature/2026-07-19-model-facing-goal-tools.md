@@ -6,9 +6,9 @@ English | [中文](2026-07-19-model-facing-goal-tools.zh.md)
 
 ## Problem
 
-The persisted goal domain deliberately exposes lifecycle verbs to plugins, not directly to a model. A model still needs a small control surface for discovering the current goal, creating one from human intent, and changing its lifecycle. Prompt guidance alone cannot establish who authorized a mutation: a subagent, injected plugin message, stale model turn, or resumed session could all produce the same tool arguments.
+The persisted goal domain deliberately exposes lifecycle verbs to plugins, not directly to a model. A model still needs a small control API for discovering the current goal, creating one from human intent, and changing its lifecycle. Prompt guidance alone cannot establish who authorized a mutation: a subagent, injected plugin message, stale model turn, or resumed session could all produce the same tool arguments.
 
-The surface also needs to preserve the separation between durable state and live execution authority. A restored or forked session can replay an active goal but starts disarmed; a later human request such as “continue” should let the model rearm it without requiring a literal command phrase. Conversely, an admitted autonomous goal round must be able to report completion or a persistent blocker without gaining permission to edit, pause, resume, or replace the human objective.
+The tool API also needs to preserve the separation between durable state and live execution authority. A restored or forked session can replay an active goal but starts disarmed; a later human request such as “continue” should let the model rearm it without requiring a literal command phrase. Conversely, an admitted autonomous goal round must be able to report completion or a persistent blocker without gaining permission to edit, pause, resume, or replace the human objective.
 
 ## Decision
 
@@ -43,7 +43,7 @@ Unit coverage pins registration and disposal, exclusive scheduling, generated pr
 ## Alternatives considered
 
 - **Rely on prompt instructions for authority** — rejected because text can guide model judgment but cannot authenticate the live caller, turn, or source event.
-- **Expose every goal-service verb as a separate tool** — rejected because a compact read/create/update surface reduces schema cost and keeps compare-and-set behavior uniform.
+- **Expose every goal-service verb as a separate tool** — rejected because a compact read/create/update API reduces schema cost and keeps compare-and-set behavior uniform.
 - **Require exact command phrases** — rejected because natural-language intent, including languages other than English, should be interpreted by the model; execution authority depends on a direct human message in the current turn rather than spelling.
 - **Authorize from persisted root or fork metadata** — rejected because a fork that becomes an independently resumed top-level session should accept new human authority, while a currently owned child should not.
 - **Let autonomous rounds edit or resume the goal** — rejected because continuation authority is narrower than authority to redefine or restart the human objective.
@@ -52,7 +52,7 @@ Unit coverage pins registration and disposal, exclusive scheduling, generated pr
 
 ## Consequences
 
-- Models receive a stable, compact lifecycle surface without direct access to the goal service.
+- Models receive a stable, compact lifecycle API without direct access to the goal service.
 - State-changing calls require a live runtime-root agent and a direct human message in the current turn, as well as durable compare-and-set references.
 - Human requests can create and rearm goals through ordinary natural language, while restored sessions remain inert until such input arrives.
 - Goal rounds can finish or report a repeated blocker but cannot broaden their own mandate.

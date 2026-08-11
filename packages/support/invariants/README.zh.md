@@ -52,7 +52,7 @@ interface Config {
 ## 组合
 
 ```ts
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import InvariantService from '@deepseek-ai/dsh-invariants'
 import * as SessionInvariant from '@deepseek-ai/dsh-session/invariant'
 

@@ -236,7 +236,7 @@ export function CustomProviderCard(props: CustomProviderCardProps): ReactNode {
       <div className={styles['field']}>
         <span className={styles['fieldLabel']}>{t('customApi')}</span>
         <select
-          className={styles['input']}
+          className={`${styles['input']} ${styles['selectInput']}`}
           value={protocol}
           aria-label={t('customApi')}
           disabled={profileDisabled}

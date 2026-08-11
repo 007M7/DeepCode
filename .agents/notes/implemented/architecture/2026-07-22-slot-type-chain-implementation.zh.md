@@ -110,12 +110,12 @@ register 签名里的两条硬化裁定之所以存在，是因为显然的替�
 | Rejected | One-line reason |
 |---|---|
 | 独立的 define/register 两步式 API | 拆分让渲染权威无从强制、招来时序 bug；children 进 register 让声明、授权、spec 在同一个可见位置结清 |
-| 白名单面对象（`ScopedSlots` + 收窄辅助件） | 白名单已在组件的 props 类型里，面可由机械推导；可铸造的面对象是第三个权威面，且只有运行时校验 |
+| 白名单面对象（`ScopedSlots` + 收窄辅助件） | 白名单已在组件的 props 类型里，该对象可由机械推导；可铸造的面对象是第三套权威 API，且只有运行时校验 |
 | 装配句柄把 root ctx 带进 inject | 绕开声明的 inject 拓扑——每个工厂都摸得到每个服务，package.json 的依赖声明就此失去意义 |
 | `children` 用键数组形 | kind/scope 是运行时分派数据；SlotMap 已被擦除，数组形必然逼出第二个 spec 注册 API——定义 API 复活 |
 | 业务手造 hook / 组件 props 里递裸 observable | 每个插件都变成自己的订阅机械；inject `hooks` 格让同样的事实走那一台受审计的绑定机械 |
 | 模块级 store 句柄 | 模块级句柄是跨插件重载与跨测试用例的单例；工厂形把身份圈定在单次 apply/测试调用内 |
-| 组件直收 store 实例 | 渲染代码里能用 `update`/`set`，变更面就无从审计；声明的 actions 让「什么能变」保持为 register 现场的事实 |
+| 组件直收 store 实例 | 渲染代码里能用 `update`/`set`，变更 API 就无从审计；声明的 actions 让「什么能变」保持为 register 现场的事实 |
 | 注册位用 `FC` / 从组件推断 `I` | FC 静态位产生协变噪音、拒绝合法组件；组件侧推断静默吸收 props 漂移（见上文裁定） |
 | 接管 slot 用 keyed 分派 + owner 侧路由 | owner 会不断攒下逐 entry 约定与硬编码路由表（每种接管一份 `find` + `entryKey`）；chain 货币让新增接管注册保持 owner 零改动 |
 | 组件靠渲染 null 表示不接 | 不接也得先挂载——hook 与 effect 白跑，挂载/卸载抖动破坏 memo 化与 key 语义；纯选择器无需组件实例即可裁决 |

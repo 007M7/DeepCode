@@ -1,6 +1,6 @@
 /** Package-owned prompt-assembly invariants. @module @deepseek-ai/dsh-system-prompt/invariant */
 
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import type { InvariantFailure, InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 import type { PromptAssembly } from './index.ts'
 

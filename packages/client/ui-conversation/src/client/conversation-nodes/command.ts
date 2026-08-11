@@ -1,4 +1,4 @@
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import type {
   CommandNode, CompactionSummaryNode, ConversationMatch, ConversationNodeContext,
   ConversationNodeDefinition,
@@ -175,6 +175,7 @@ export function updateCompactionState<State extends CompactionEvidence>(
 /** Slash-command lifecycle, including integrated manual compaction, Definition. */
 export const commandDefinition: ConversationNodeDefinition<CommandState> = {
   kind: 'command',
+  target: 'chat',
   match: (event) => {
     if (event.type === 'command/run') {
       return { id: String(event.data.commandId), role: 'start' }
@@ -202,8 +203,7 @@ export const commandDefinition: ConversationNodeDefinition<CommandState> = {
     }
     return updateCompactionState(context.state, match)
   },
-  buildViewNode: (context, target) => {
-    if (target !== 'chat') return null
+  buildViewNode: (context) => {
     const state = context.state ?? fallbackState(context)
     if (state === undefined) return null
     if (state.command.name !== 'compact') {

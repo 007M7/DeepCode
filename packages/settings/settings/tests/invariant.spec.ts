@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { Context } from 'cordis'
-import z from 'schemastery'
+import { Context } from '@deepseek-ai/cordis'
+import z from '@deepseek-ai/schemastery'
 import InvariantService from '@deepseek-ai/dsh-invariants'
 import * as SettingsInvariant from '../src/invariant.ts'
 import { settingsNamespace } from '../src/index.ts'

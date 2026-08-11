@@ -8,9 +8,9 @@ The dsh-base bundle patch every profile applies first; mode bundles (dsh-web-app
 ```mermaid
 flowchart LR
   cfg["packages/bundle/base/cordis.patch.yml<br/>cordis.yml"]
-  plugin_dsh_base_timer["timer<br/>@cordisjs/plugin-timer"]
+  plugin_dsh_base_timer["timer<br/>@deepseek-ai/cordis-plugin-timer"]
   cfg --> plugin_dsh_base_timer
-  plugin_dsh_base_hmr["hmr<br/>@cordisjs/plugin-hmr"]
+  plugin_dsh_base_hmr["hmr<br/>@deepseek-ai/cordis-plugin-hmr"]
   cfg --> plugin_dsh_base_hmr
   plugin_dsh_base_llm["llm<br/>@deepseek-ai/dsh-llm"]
   cfg --> plugin_dsh_base_llm
@@ -110,6 +110,10 @@ flowchart LR
   cfg --> plugin_dsh_base_subagent_spawn
   plugin_dsh_base_subagent_fork["subagent-fork<br/>@deepseek-ai/dsh-subagent-fork"]
   cfg --> plugin_dsh_base_subagent_fork
+  plugin_dsh_base_subagent_codex["subagent-codex<br/>@deepseek-ai/dsh-subagent-codex"]
+  cfg --> plugin_dsh_base_subagent_codex
+  plugin_dsh_base_subagent_claude_code["subagent-claude-code<br/>@deepseek-ai/dsh-subagent-claude-code"]
+  cfg --> plugin_dsh_base_subagent_claude_code
   plugin_dsh_base_tool_subagent_control["tool-subagent-control<br/>@deepseek-ai/dsh-tool-subagent-control"]
   cfg --> plugin_dsh_base_tool_subagent_control
   plugin_dsh_base_tool_subagent_list_agents["tool-subagent-list-agents<br/>@deepseek-ai/dsh-tool-subagent-control/list-agents"]
@@ -164,8 +168,8 @@ flowchart LR
 
 | Plugin id | Package / module |
 | --- | --- |
-| `timer` | `@cordisjs/plugin-timer` |
-| `hmr` | `@cordisjs/plugin-hmr` |
+| `timer` | `@deepseek-ai/cordis-plugin-timer` |
+| `hmr` | `@deepseek-ai/cordis-plugin-hmr` |
 | `llm` | `@deepseek-ai/dsh-llm` |
 | `session` | `@deepseek-ai/dsh-session` |
 | `typert` | `@deepseek-ai/dsh-typert-registry` |
@@ -215,6 +219,8 @@ flowchart LR
 | `subagent` | `@deepseek-ai/dsh-subagent` |
 | `subagent-spawn` | `@deepseek-ai/dsh-subagent-spawn` |
 | `subagent-fork` | `@deepseek-ai/dsh-subagent-fork` |
+| `subagent-codex` | `@deepseek-ai/dsh-subagent-codex` |
+| `subagent-claude-code` | `@deepseek-ai/dsh-subagent-claude-code` |
 | `tool-subagent-control` | `@deepseek-ai/dsh-tool-subagent-control` |
 | `tool-subagent-list-agents` | `@deepseek-ai/dsh-tool-subagent-control/list-agents` |
 | `tool-subagent` | `@deepseek-ai/dsh-tool-subagent` |

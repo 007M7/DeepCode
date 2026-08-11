@@ -8,14 +8,17 @@ import { fileURLToPath } from 'node:url'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import * as yaml from 'js-yaml'
-import { entryListSchema } from '@cordisjs/plugin-include'
+import { entryListSchema } from '@deepseek-ai/cordis-plugin-include'
 
 describe('dsh-base bundle', () => {
   it('declares a parseable patch list through the dsh.bundle.patch manifest field', () => {
     const root = fileURLToPath(new URL('..', import.meta.url))
     const manifest = JSON.parse(
       readFileSync(resolve(root, 'package.json'), 'utf8'),
-    ) as { dsh?: { bundle?: { patch?: string } } }
+    ) as {
+      dependencies?: Record<string, string>
+      dsh?: { bundle?: { patch?: string } }
+    }
     expect(manifest.dsh?.bundle?.patch).toBe('./cordis.patch.yml')
     const parsed = yaml.load(
       readFileSync(resolve(root, manifest.dsh!.bundle!.patch!), 'utf8'),
@@ -30,6 +33,12 @@ describe('dsh-base bundle', () => {
     expect(rows.some(row => row.id === 'agent-loop')).toBe(true)
     expect(rows.find(row => row.id === 'telemetry-otel')?.config?.['mode']).toEqual({
       __jsExpr: "process.env.DSH_TELEMETRY_MODE || 'DISABLED'",
+    })
+    expect(rows.filter(row => row.id === 'subagent-codex')).toHaveLength(1)
+    expect(rows.filter(row => row.id === 'subagent-claude-code')).toHaveLength(1)
+    expect(manifest.dependencies).toMatchObject({
+      '@deepseek-ai/dsh-subagent-codex': 'workspace:^',
+      '@deepseek-ai/dsh-subagent-claude-code': 'workspace:^',
     })
   })
 

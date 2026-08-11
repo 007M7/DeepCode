@@ -5,7 +5,7 @@
  * @module @deepseek-ai/dsh-tool-fs/src/edit
  */
 
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { DiffCallView, DiffResultView, ToolResult } from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-fs'
@@ -13,7 +13,7 @@ import type {} from '@deepseek-ai/dsh-system-prompt'
 import { computeHunkDiffs, diffsFromMeta } from './diff.ts'
 import { remediateFsError } from './error.ts'
 import { sessionResolveOptions } from './session-cwd.ts'
-import type { FsSandboxSurface } from './sandbox.ts'
+import type { FsSandboxController } from './sandbox.ts'
 
 /** Validated `edit` arguments after defaulting. */
 interface EditInput {
@@ -71,9 +71,9 @@ export function formatEditOutput(displayPath: string, replaceAll: boolean): stri
 /**
  * Register the `edit` tool and its system-prompt guidance.
  * @param ctx - the plugin context; registrations are effects scoped to it, and execution uses its `fs` service.
- * @param sandbox - the shared sandbox-escalation surface (advertisement, mode stamping, denial mapping).
+ * @param sandbox - the shared sandbox-escalation API (advertisement, mode stamping, denial mapping).
  */
-export function applyEditTool(ctx: Context, sandbox: FsSandboxSurface): void {
+export function applyEditTool(ctx: Context, sandbox: FsSandboxController): void {
   ctx.systemPrompt.section({
     name: 'tool:edit',
     order: 102,

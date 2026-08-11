@@ -10,13 +10,13 @@
  * factory (`window.__ModuleLoader__.load({id, factory})`); every module body
  * side effect — including CSS injection — lives inside the factory closure
  * and runs at materialization, not at script execution. Materialization
- * (factory(require) → export surface) happens on first import/require and is
+ * (factory(require) → exports) happens on first import/require and is
  * memoized in {@link ClientModuleLoader.loadCache}; a factory that requires
  * another registered-but-unmaterialized module materializes it recursively,
  * so load order needs no external sequencing.
  *
  * Resolution branch order (import): seed word → shell instance; memoized
- * record → surface; static registry (shell-own modules, e.g. app-shell) →
+ * record → exports; static registry (shell-own modules, e.g. app-shell) →
  * module; registered factory → materialize; graph row → load + materialize;
  * anything else → throw (loud — the runtime mirror of the
  * build-time bundle purity gate). The synchronous `require` handed to
@@ -30,10 +30,10 @@
  * composes the wire.
  */
 
-import type {} from 'cordis'
+import type {} from '@deepseek-ai/cordis'
 import type { ClientModuleSystem } from './system.ts'
 
-declare module 'cordis' {
+declare module '@deepseek-ai/cordis' {
   interface Context {
     /** The client module system the web shell builds at boot (provided by the `./client` wrapper plugin). */
     modules: ClientModuleLoader
@@ -149,13 +149,13 @@ export interface ClientPluginHandoff {
   id: string
   /**
    * Closure factory holding the whole bundle body: receives the synchronous
-   * require bound to the module table and returns the bundle's export
-   * surface. Runs once, at materialization.
+   * require bound to the module table and returns the bundle's exports. Runs
+   * once, at materialization.
    */
   factory: (require: (spec: string) => unknown) => Record<string, unknown>
 }
 
-/** Window surface of the web boot protocol: the host-injected graph, the registration sink, and the kernel handoff slot. */
+/** Window API of the web boot protocol: the host-injected graph, registration sink, and kernel handoff slot. */
 export interface DshWindow {
   /** Host-composed entry graph, injected before the shell bundle runs; wire-boundary raw until {@link parseBootManifest}. */
   __DSH_BOOT__?: unknown
@@ -174,8 +174,8 @@ export interface DshWindow {
 export interface ClientModuleRecord {
   /** Module id (entry name / package name). */
   id: string
-  /** The materialized export surface (factory `module.exports`, or the shell module for static registrations). */
-  surface: unknown
+  /** Materialized exports (`module.exports` from a factory, or a statically registered shell module). */
+  exports: unknown
   /** Owned `<style data-plugin>` tag ids (`data-plugin-css` values) injected during materialization. */
   styles: string[]
   /** Observed `require()` edges (module-graph boundary; only table words can appear today). */
@@ -190,7 +190,7 @@ export interface ClientModuleRecord {
 export interface ClientModuleLoader {
   /** Discriminant against Node's internal loader shapes ('v1'/'v2'). */
   version: 'client'
-  /** Materialized-module registry: id → record. The governance-side read face for entry export surfaces. */
+  /** Materialized-module registry: id → record. The governance-side read API for entry exports. */
   loadCache: Map<string, ClientModuleRecord>
   /**
    * Internal contract consumed by the vendored Loader's `tree.import`. Resolves
@@ -199,7 +199,7 @@ export interface ClientModuleLoader {
    * @param specifier - module specifier (entry name or table word).
    * @param parentURL - importer URL (unused — the client module graph is flat).
    * @param attrs - Import attributes (unused; interface parity with Node's loader contract).
-   * @returns the module's export surface.
+   * @returns the module's exports.
    */
   import(specifier: string, parentURL: string, attrs: Record<string, unknown>): Promise<unknown>
   /**

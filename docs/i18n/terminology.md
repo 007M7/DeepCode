@@ -167,7 +167,7 @@
 | same-world subprocess | 与宿主共享文件系统和内核的子进程 | | 同世界子进程 | |
 | sandbox | 沙箱 | | | |
 | service | 服务 | | | |
-| serving surface | 对外服务接口 | | | |
+| serving interface | 对外服务接口 | | | |
 | session | 会话 | | | |
 | session event | 会话事件 | | | |
 | setup card | 设置卡片 | | | 首次运行时代替行卡直接展开的配置卡 |

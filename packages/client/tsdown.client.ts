@@ -25,12 +25,20 @@ const CSS_VIRTUAL_PREFIX = '\0dsh-css:'
 const CSS_VIRTUAL_SUFFIX = '.mjs'
 
 /**
- * Wire/type layers a client bundle may inline: browser-safe contract surfaces
+ * Wire/type layers a client bundle may inline: browser-safe contracts
  * with no runtime identity to share (no Symbol/instanceof/singleton state).
  * Everything else under @deepseek-ai/* is either a module-table entry
  * (external) or a leak the purity gate rejects.
  */
 export const INLINE_SAFE = /^@deepseek-ai\/dsh-(host-apiproxy|session|llm|tools|brand)(\/|$)/
+
+/**
+ * Vendored framework libraries: rescoped into @deepseek-ai, so the gate below
+ * would read them as plugin packages. They carry no cross-plugin runtime
+ * identity to share — the framework itself is a platform module (external),
+ * while these are ordinary libraries a browser bundle inlines.
+ */
+const VENDORED_LIBRARY = /^@deepseek-ai\/(cosmokit|schemastery)(\/|$)/
 
 /** Generated descriptor/codec contribution with no shared runtime identity. */
 const GENERATED_REMOTE = /^@deepseek-ai\/dsh-[a-z0-9]+(?:-[a-z0-9]+)*\/remote$/
@@ -208,6 +216,7 @@ function clientConfig(id: string, entry: string): UserConfig {
       resolveId(source: string) {
         if (!source.startsWith('@deepseek-ai/')) return null
         if (CLIENT_EXTERNALS.includes(source)) return null // platform module: external wins
+        if (VENDORED_LIBRARY.test(source)) return null // vendored library: inline, no shared identity
         if (INLINE_SAFE.test(source) || GENERATED_REMOTE.test(source)) return null // wire contribution: inline is the point
         throw new Error(
           `client bundle purity: "${source}" is not a platform module (CLIENT_EXTERNALS), an inline-safe wire layer, or a generated /remote contribution — `

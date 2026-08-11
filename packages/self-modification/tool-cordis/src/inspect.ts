@@ -6,7 +6,7 @@
  * @module @deepseek-ai/dsh-tool-cordis/inspect
  */
 
-import type { Context, Fiber } from 'cordis'
+import type { Context, Fiber } from '@deepseek-ai/cordis'
 import type { ScopeKey } from '@deepseek-ai/dsh-scope'
 import { EVENT_API, INHERITED_CTX_API, SERVICE_API, TYPE_API } from './api-catalog.ts'
 import type { EventApiEntry, InheritedApiEntry, ServiceApiEntry, TypeApiEntry } from './api-catalog.ts'
@@ -80,7 +80,7 @@ export function describePlugins(ctx: Context): string[] {
 
 /**
  * The `tools` section: the model-facing tool names the CALLING agent can see
- * (its scoped layer shadowing/joining the restricted global surface) — the
+ * (its scoped layer shadowing/joining the restricted global tool set) — the
  * honest answer to the tool description's "what you can call".
  * @param ctx - the runtime whose tool registry is read.
  * @param scope - the calling agent (the viewing scope); omitted = global view.

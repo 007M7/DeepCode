@@ -2,13 +2,13 @@
 
 [English](sandbox.md) | 中文
 
-[dsh-sandbox](../../packages/sandbox/sandbox) 的进程沙箱 seam 将与宿主共享文件系统和内核的子进程 argv 包装在文件效果策略中，而不将消费方耦合到特定平台运行器。[dsh-sandbox-local](../../packages/sandbox/sandbox-local) 提供 Linux bwrap/Landlock 与 macOS Seatbelt 后端；[dsh-bash-sandbox](../../packages/bash/bash-sandbox) 是第一个消费方。容器、microVM 和远程执行是完整能力 seam 的同级实现，而非 `ctx.sandbox` 的提供方。
+[dsh-sandbox](../../packages/sandbox/sandbox) 的进程沙箱 seam 将与宿主共享文件系统和内核的子进程 argv 包装在文件效果策略中，而不将消费方耦合到特定平台运行器。[dsh-sandbox-local](../../packages/sandbox/sandbox-local) 提供 Linux bwrap/Landlock、macOS Seatbelt 与 Windows ACL 受限令牌后端；[dsh-bash-sandbox](../../packages/bash/bash-sandbox) 和 [dsh-pwsh-sandbox](../../packages/bash/pwsh-sandbox) 是其消费方。容器、microVM 和远程执行是完整能力 seam 的同级实现，而非 `ctx.sandbox` 的提供方。
 
 源码：[`packages/sandbox/sandbox/src/index.ts`](../../packages/sandbox/sandbox/src/index.ts)
 
 ## 模式与强制执行
 
-`SandboxMode` 仅管控文件系统效果。`read-only` 拒绝所有写入——POSIX runner 还会授予其 shell 所需的 `/dev/null` 接收器，而 Windows ACL runner 不授予任何写入；`workspace-write` 允许在工作区根目录及后端承诺的临时区域下写入；`danger-full-access` 绕过隔离。网络与进程可见性不在此处的定义范围内。
+`SandboxMode` 仅管控文件系统效果。`read-only` 要求后端拒绝写入——POSIX runner 还会授予其 shell 所需的 `/dev/null` 接收器，而 Windows ACL runner 不授予任何显式可写根目录，并因环境 ACL 缺口报告部分强制执行；`workspace-write` 允许在工作区根目录及后端承诺的临时区域下写入；`danger-full-access` 绕过隔离。网络与进程可见性不在此处的定义范围内。
 
 ```ts type-equiv
 /**
@@ -27,7 +27,7 @@ type SandboxMode = 'read-only' | 'workspace-write' | 'danger-full-access'
 type ConfinedSandboxMode = Exclude<SandboxMode, 'danger-full-access'>
 ```
 
-强制执行完整性是后端报告的事实。`full` 表示后端管控了该模式承诺的所有文件效果；`partial` 表示活跃后端或较旧的内核 ABI 仅管控其中一个子集，因此要求绝对保证的消费方必须拒绝或向上暴露这一区别。
+强制执行完整性是后端报告的事实。`full` 表示后端管控了该模式承诺的所有文件效果；`partial` 表示活跃后端或较旧的内核 ABI 仅管控其中一个子集，因此要求绝对保证的消费方必须拒绝或向上暴露这一区别。当前的部分强制执行情形包括较旧的 Landlock ABI，以及 Windows ACL runner 的 Everyone 与硬链接边界。
 
 ```ts type-equiv
 /**
@@ -55,10 +55,10 @@ interface SandboxExecutionPolicy {
   workspaceRoot: string
   /**
    * Opaque identity of the calling session (the branded `dsh-session`
-   * SessionId). Backends key per-session state off it (e.g. the windows-acl
-   * per-session private temp subdirectory — the write grant itself is
-   * per-workspace, derived from the workspace root); absent for agentless
-   * calls, which fall back to per-call backend state.
+   * SessionId). Backends key per-session state off it (e.g. windows-acl gives
+   * each live session/workspace pair a random private temp directory and SID,
+   * while the workspace SID and standing grant remain per-workspace); absent
+   * for agentless calls, which fall back to per-call backend state.
    */
   sessionId?: SessionId
 }
@@ -159,9 +159,9 @@ interface ConfinedArgv {
 
 <a id="cordis-surface"></a>
 
-## Cordis surface
+## Cordis API
 
-Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` surface lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
+Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
 
 <a id="ctxsandbox--sandboxprovider-abstract-seam"></a>
 
