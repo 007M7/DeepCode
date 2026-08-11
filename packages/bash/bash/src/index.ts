@@ -6,8 +6,20 @@
  */
 
 import { Context, Service } from '@deepseek-ai/cordis'
+import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import type { SandboxMode } from '@deepseek-ai/dsh-sandbox'
 import type { BashExecRequest, BashExecSpec, BashProcess, BashRunResult } from './types.ts'
+
+/**
+ * Settings namespace of this capability, owned here rather than by either
+ * executor family because it names the capability, not an implementation: a
+ * host composes exactly one provider of `ctx.bash` (the win32 layer swaps the
+ * POSIX rows for the pwsh ones, and mounting both fails loud on a duplicate
+ * service registration), so the providers share one namespace without ever
+ * registering it twice, and a settings document carried between platforms
+ * keeps resolving on both.
+ */
+export const BASH_SETTINGS_NAMESPACE = settingsNamespace('bash')
 
 export { DSH_ENV_PREFIX } from './types.ts'
 export type {

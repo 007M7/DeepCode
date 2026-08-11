@@ -189,6 +189,7 @@
       "@deepseek-ai/dsh-client-ui-permission": ["./packages/client/ui-permission/src"],
       "@deepseek-ai/dsh-client-ui-skill": ["./packages/client/ui-skill/src"],
       "@deepseek-ai/dsh-client-ui-subagent": ["./packages/client/ui-subagent/src"],
+      "@deepseek-ai/dsh-client-ui-plugin-config": ["./packages/client/ui-plugin-config/src"],
       "@deepseek-ai/dsh-client-ui-task": ["./packages/client/ui-task/src"],
       "@deepseek-ai/dsh-client-ui-plan": ["./packages/client/ui-plan/src"],
       "@deepseek-ai/dsh-client-ui-question": ["./packages/client/ui-question/src"],
