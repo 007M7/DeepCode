@@ -247,6 +247,30 @@ abstract wait(id: TaskId, timeoutMs: number, caller?: Agent, signal?: AbortSigna
 abstract onTaskDone(listener: TaskDoneListener): () => void
 
 /**
+/**
+ * Register an effect-scoped observer of visible-set changes. It fires after
+ * every commit that changes what {@link list} returns for that owner —
+ * registration, every stopping transition (including the one teardown
+ * performs before it awaits a slow producer), settlement, owner-disposal
+ * removal, and the emptying that service disposal commits — so an observer
+ * re-reads rather than accumulating deltas.
+ *
+ * Delivery is owner-relative on the same terms as {@link onTaskDone}: an
+ * observer registered from an unscoped context — a host composition's own
+ * carrier — sees every owner, while one registered under an agent
+ * composition's scope sees exactly the agents composed under it.
+ *
+ * This is not a superset of {@link onTaskDone}: that one delivers the terminal
+ * record under first-wins semantics a control surface couples to notice
+ * delivery, while this one carries no delivery meaning and marks nothing
+ * reported. Listeners are contained and never awaited.
+ * @param listener - receives the owner whose visible set changed, or
+ *   `undefined` when an unowned task changed and every caller's set did.
+ * @returns disposer that unregisters the listener.
+ */
+abstract onTasksChanged(listener: TasksChangedListener): () => void
+
+/**
  * Attach an effect-scoped surface that can read and stop tasks. It serves the
  * owners its registering context's scope covers, and {@link start} refuses an
  * owner no attached surface serves.
@@ -258,5 +282,5 @@ abstract attachSurface(name: string): () => void
 
 Types: [Agent](core.md)
 
-Source: [`packages/tasks/tasks/src/index.ts:55`](../../packages/tasks/tasks/src/index.ts)
+Source: [`packages/tasks/tasks/src/index.ts:58`](../../packages/tasks/tasks/src/index.ts)
 <!-- END GENERATED cordis-surface -->
