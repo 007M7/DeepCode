@@ -255,6 +255,12 @@ describe('the inherited readRaw default', () => {
     await expect(
       ctx.sessionPersistence.readRaw(SessionId('any-session'), AbortSignal.abort()),
     ).rejects.toThrow()
+    // A non-Error abort reason falls back to a wrapped Error rejection.
+    const controller = new AbortController()
+    controller.abort('boom')
+    await expect(
+      ctx.sessionPersistence.readRaw(SessionId('any-session'), controller.signal),
+    ).rejects.toThrow('aborted')
   })
 })
 
