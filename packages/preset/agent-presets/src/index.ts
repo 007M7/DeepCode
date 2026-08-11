@@ -32,7 +32,8 @@ import { discoverPresets } from './discovery.ts'
 import { copyComposition, deleteComposition, readComposition } from './authoring.ts'
 import { mountPreset, serviceForAgent, standingMountFor } from './mount.ts'
 import { PresetExistsError } from './authoring.ts'
-import { PresetMountError, UnknownPresetError, type AgentPreset, type Config } from './types.ts'
+import { PresetMountError, UnknownPresetError, type AgentPreset, type Config } from './preset.ts'
+import type {} from './types.ts'
 
 /** Settings namespace carrying the user's chosen default preset. */
 export const SETTINGS_NAMESPACE = 'agent-presets'
@@ -61,8 +62,8 @@ export {
   PresetNotWritableError, readComposition, writableRoot,
 } from './authoring.ts'
 export { resolveSessionPreset, type PresetBearingSession } from './session.ts'
-export { PresetMountError, UnknownPresetError } from './types.ts'
-export type { AgentPreset, Config, PresetRoot, PresetTrust } from './types.ts'
+export { PresetMountError, UnknownPresetError } from './preset.ts'
+export type { AgentPreset, Config, PresetRoot, PresetTrust } from './preset.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -153,6 +154,13 @@ export class AgentPresets extends Service {
         + 'its tools, prompt sections, and skill catalog resolve against the empty global layer '
         + '(join through AgentPresets.mount() or composeFrom() in the agent factory setup)',
       )
+    })
+
+    // The durable record is the commit point. Its public notification carries
+    // only the stable identity needed by clients, never the live Session.
+    ctx.on('session/event', (session, event) => {
+      if (event.type !== 'agent-preset/selected') return
+      ctx.emit('agent-preset/selected', session.id, event.data.agentPreset)
     })
   }
 

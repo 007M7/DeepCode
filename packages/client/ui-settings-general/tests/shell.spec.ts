@@ -2,13 +2,26 @@
 import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it, vi } from 'vitest'
 import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
-import { apply, inject } from '@deepseek-ai/dsh-client-ui-settings/client'
-import type { SettingsRootInjected } from '@deepseek-ai/dsh-client-ui-settings/client'
+import { apply, inject } from '../src/client/index.ts'
+import type { SettingsRootInjected } from '../src/client/shell-contract.ts'
 import { SettingsRoot } from '../src/client/SettingsRoot.tsx'
 
 async function bench() {
   const ctx = new Context()
   await ctx.plugin(SlotsService).await()
+  // Copy machinery the shell only reads a revision from; the real locale
+  // plugin would drag its own settings-row dependencies into this bench.
+  ctx.provide('locale', {
+    register: () => () => {},
+    bind: () => (key: string) => key,
+    getSnapshot: () => ({ active: 'zh', locales: [], revision: 0 }),
+    subscribe: () => () => {},
+  } as never)
+  ctx.provide('connection', {
+    api: { settings: { describe: async () => ({ result: { ok: false } }) } },
+    isLoopback: false,
+  } as never)
+  ctx.provide('remote', { $on: () => () => {} } as never)
   return { ctx, slots: ctx.get('slots') as SlotsService }
 }
 
@@ -36,7 +49,7 @@ const CHILD_SPECS = {
 
 describe('ui-settings apply', () => {
   it('declares only the slot registry (a pure composition face, no locale)', () => {
-    expect(inject).toEqual(['slots'])
+    expect(inject).toEqual(['slots', 'locale', 'connection', 'remote'])
   })
 
   it('registers the shell and declares every child slot, before or after the declaration', async () => {
@@ -63,13 +76,16 @@ describe('ui-settings apply', () => {
     declare(b.slots)
     await b.ctx.plugin({ inject: [...inject], apply }).await()
     const { sections } = injectedOf(b.slots).hooks
-    // The shell ships no sections of its own — registrants fill the ledger.
-    expect(sections.getSnapshot()).toEqual([])
+    // This package registers the General section itself; every other section
+    // arrives from a feature registrant.
+    const GENERAL = { id: 'general', order: 0, label: 'general.nav' }
+    expect(sections.getSnapshot()).toEqual([GENERAL])
     b.slots.register({ name: 'settings.section', id: 'z', order: 20, label: 'Z' } as never, () => null)
     // No order and no label: both projection defaults apply.
     b.slots.register({ name: 'settings.section', id: 'a' } as never, () => null)
     const rows = sections.getSnapshot()
     expect(rows).toEqual([
+      GENERAL,
       { id: 'a', order: 0, label: '' },
       { id: 'z', order: 20, label: 'Z' },
     ])
@@ -94,6 +110,8 @@ describe('ui-settings apply', () => {
     b.slots.register({ name: 'settings.onboarding', id: 'default-order' } as never, () => null)
     const steps = onboardingSteps.getSnapshot()
     expect(steps).toEqual([
+      // This package's own onboarding page, registered by the same apply.
+      { id: 'welcome-notice', order: -100 },
       { id: 'welcome', order: -100 },
       { id: 'credential', order: 0 },
       { id: 'default-order', order: 0 },

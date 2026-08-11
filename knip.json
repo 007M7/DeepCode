@@ -126,6 +126,9 @@
       "project": [
         "src/**/*.ts",
         "tests/**/*.ts"
+      ],
+      "ignoreDependencies": [
+        "@deepseek-ai/dsh-api-gateway"
       ]
     },
     "packages/client/ui-primitives": {
@@ -653,18 +656,11 @@
     },
     "packages/client/ui-settings": {
       "entry": [
-        "tests/**/*.spec.ts",
-        "tests/**/*.spec.tsx"
+        "tests/**/*.spec.ts"
       ],
       "project": [
         "src/**/*.ts",
-        "src/**/*.tsx",
-        "tests/**/*.ts",
-        "tests/**/*.tsx"
-      ],
-      "ignoreDependencies": [
-        "@types/react-dom",
-        "react-dom"
+        "tests/**/*.ts"
       ]
     },
     "apps/web": {

@@ -161,7 +161,7 @@ async execute( agent: Agent, line: string, signal: AbortSignal, ): Promise<Comma
 
 Types: [Agent](core.md)
 
-Source: [`packages/interaction/commands/src/index.ts:267`](../../packages/interaction/commands/src/index.ts)
+Source: [`packages/interaction/commands/src/index.ts:257`](../../packages/interaction/commands/src/index.ts)
 
 <a id="commands-events"></a>
 
@@ -183,5 +183,5 @@ A command was registered or unregistered. This is an unfiltered registry notific
 'commands/change'(): void
 ```
 
-Source: [`packages/interaction/commands/src/index.ts:134`](../../packages/interaction/commands/src/index.ts)
+Source: [`packages/interaction/commands/src/types.ts:33`](../../packages/interaction/commands/src/types.ts)
 <!-- END GENERATED cordis-surface -->
