@@ -8,7 +8,7 @@ Source: [`packages/interaction/user-interaction/src/index.ts`](../../packages/in
 
 ## Question options
 
-`AskUserQuestionOption` is the selectable-choice shape. `label` is the user-facing option text and also the model-facing selected value; `description` is optional UI help text.
+`AskUserQuestionOption` contains one selectable choice. `label` is the user-facing option text and also the model-facing selected value; `description` is optional UI help text.
 
 ```ts type-equiv
 /** One selectable answer offered to the user. */
@@ -22,15 +22,15 @@ interface AskUserQuestionOption {
 
 ## Presentation intent
 
-`AskUserQuestionIntent` is the optional declaration that a question IS a decision of a known shape. It is tagged on `kind` so intents can be added; a UI that does not recognise a tag renders the generic option list. An intent shapes presentation only — a UI honouring it answers with the same option labels a generic UI would send, so the caller reads one answer shape either way. `approve` names the affirmative option instead of relying on option order. `ask()` rejects the two assertions no type can carry: an `approve` naming none of its own question's options, and an intent on a question with no `detail`.
+`AskUserQuestionIntent` optionally declares a known decision kind. It is tagged on `kind` so intents can be added; a UI that does not recognise a tag renders the generic option list. An intent changes presentation only — a UI honouring it answers with the same option labels a generic UI would send, so the caller reads the same answer fields either way. `approve` names the affirmative option instead of relying on option order. `ask()` rejects the two assertions no type can carry: an `approve` naming none of its own question's options, and an intent on a question with no `detail`.
 
 ```ts type-equiv
 /**
- * A caller-declared presentation intent: the question IS a decision of this
- * shape, so a UI that recognises the tag may present it as such instead of as a
+ * A caller-declared presentation intent: the question IS this kind of
+ * decision, so a UI that recognises the tag may present it as such instead of as a
  * generic option list. Tagged so further intents can be added; a UI that does
  * not know a tag renders the generic flow, and the answer encoding is identical
- * either way — an intent shapes presentation only, never the protocol.
+ * either way — an intent changes presentation only, never the protocol.
  */
 type AskUserQuestionIntent = {
   /** A plan submitted for review: `detail` is the plan markdown `ask()` requires, and the decision approves or declines it. */
@@ -137,15 +137,15 @@ class UserInteractionError extends HarnessError {
 
 <a id="cordis-surface"></a>
 
-## Cordis surface
+## Cordis API
 
-Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` surface lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
+Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
 
 <a id="ctxuserinteraction--userinteractionservice"></a>
 
 ### `ctx.userInteraction` — `UserInteractionService`
 
-`ctx.userInteraction`: one active UI provider plus an `ask()` surface.
+`ctx.userInteraction`: one active UI provider plus an `ask()` API.
 
 ```ts cordis-catalog
 /**

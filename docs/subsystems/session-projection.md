@@ -45,7 +45,7 @@ interface ProjectionDefinition<K extends keyof SessionProjectionMap, S> {
    */
   view(state: S): SessionProjectionMap[K]
   /**
-   * Persisted-cache invalidation anchor: bump whenever the state shape or the
+   * Persisted-cache invalidation version: bump whenever the serialized state fields or the
    * fold semantics change, so persisted `(sessionId, key, ver, seq, val)`
    * rows from an older unit are discarded instead of being forward-applied
    * into garbage. Non-negative integer.
@@ -86,7 +86,7 @@ type ProjectionChangeListener = (
 ) => void
 ```
 
-`snapshot(session)` is fully synchronous — a carrier reads it in the same tick as its page slice, which is what makes `asOfSeq` one consistent cut — and every value passes its unit's schema before leaving (an accidentally-async `view` returns a Promise, which fails that boundary parse loudly). The change feed fires once per unit whose state *reference* changed, per committed event: the same-reference discipline in `apply` is the gate.
+`snapshot(session)` is fully synchronous: a carrier reads it in the same tick as its page slice, so `asOfSeq` covers both reads at one sequence number. Every value passes its unit's schema before return; an accidentally async `view` returns a Promise, which schema validation rejects. The change feed fires once per unit whose state *reference* changed for each committed event; `apply` must return the same reference when its state did not change.
 
 ## The registry: `ctx.sessionProjections`
 
@@ -96,9 +96,9 @@ type ProjectionChangeListener = (
 
 <a id="cordis-surface"></a>
 
-## Cordis surface
+## Cordis API
 
-Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` surface lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
+Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
 
 <a id="ctxsessionprojectioncache--sessionprojectioncache"></a>
 
@@ -154,7 +154,7 @@ Source: [`packages/session/session-projection-cache/src/index.ts:71`](../../pack
 
 ### `ctx.sessionProjections` — `SessionProjectionRegistry`
 
-`ctx.sessionProjections`: the projection unit table and its drive. The service subscribes to `session/event` once; every committed event passes every registered unit's `apply` (eager drive), and a changed state reference notifies the change feed with the schema-validated view. Cells build lazily — a unit registered after events flowed, or a session older than the registry, folds `init` over the in-memory log on first touch (event or read). Registration is an effect (disposer rides the calling fiber): an unloaded domain plugin's key disappears from snapshots and clients read it as capability absence. Duplicate keys throw. Domain plugins register under `ctx.inject(['sessionProjections'], …)` so headless assemblies without the registry stay unaffected.
+`ctx.sessionProjections`: the projection unit table and its drive. The service subscribes to `session/event` once; every committed event passes every registered unit's `apply` (eager drive), and a changed state reference notifies the change feed with the schema-validated view. Cells build lazily — a unit registered after events flowed, or a session older than the registry, folds `init` over the in-memory log on first touch (event or read). Registration is an effect (disposer rides the calling fiber): an unloaded domain plugin's key disappears from snapshots and clients read it as capability absence. Domain plugins register under `ctx.inject(['sessionProjections'], …)` so headless assemblies without the registry stay unaffected. Registrants sharing a key share one unit and are counted: the same tool package mounted in N agent presets registers N times, and the key survives until the last one unloads.
 
 ```ts cordis-catalog
 /**
@@ -162,7 +162,7 @@ Source: [`packages/session/session-projection-cache/src/index.ts:71`](../../pack
  * context's fiber: disposing the fiber (or calling the returned disposer)
  * removes the key — and the unit's cached cells — from subsequent drives
  * and snapshots.
- * @param definition - key, boundary schema, pure unit functions, and stateVersion.
+ * @param definition - key, state schema, pure unit functions, and stateVersion.
  * @returns the exact disposer that unregisters this unit.
  */
 register<K extends keyof SessionProjectionMap, S>(definition: ProjectionDefinition<K, S>): () => void
@@ -258,5 +258,5 @@ restore(checkpoint: ProjectionCheckpoint, events: readonly SessionEvent[], baseS
 
 Types: [Session](session.md) · [SessionEvent](session.md)
 
-Source: [`packages/session/session-projection/src/index.ts:156`](../../packages/session/session-projection/src/index.ts)
+Source: [`packages/session/session-projection/src/index.ts:171`](../../packages/session/session-projection/src/index.ts)
 <!-- END GENERATED cordis-surface -->

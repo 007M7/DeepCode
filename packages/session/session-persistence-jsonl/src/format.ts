@@ -9,8 +9,9 @@
  */
 
 import { join } from 'node:path'
-import { decodeStorageRecord, packChunkRuns } from '@deepseek-ai/dsh-session'
+import { decodeStorageRecord, packChunkRuns, SESSION_FORMAT_VERSION } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SessionHeader, SessionId, StorageRecord } from '@deepseek-ai/dsh-session'
+import { SessionFormatUnsupportedError, sessionFormatVersionRefusal } from '@deepseek-ai/dsh-session-persistence'
 
 /** Physical encoding selected for JSONL session artifacts. */
 export type JsonlCompression = 'zstd' | 'none'
@@ -39,6 +40,7 @@ export interface HeaderLine {
   seedLength?: number
   origin?: 'subagent'
   delegationDepth: number
+  agentPreset?: string
 }
 
 /**
@@ -57,6 +59,7 @@ export function toHeaderLine(header: SessionHeader): HeaderLine {
     ...header.seedLength !== undefined ? { seedLength: header.seedLength } : {},
     ...header.origin !== undefined ? { origin: header.origin } : {},
     delegationDepth: header.delegationDepth ?? 0,
+    ...header.agentPreset !== undefined ? { agentPreset: header.agentPreset } : {},
   }
 }
 
@@ -78,6 +81,7 @@ export function fromHeaderLine(line: HeaderLine): SessionHeader {
     ...line.seedLength !== undefined ? { seedLength: line.seedLength } : {},
     ...line.origin !== undefined ? { origin: line.origin } : {},
     delegationDepth: line.delegationDepth,
+    ...line.agentPreset !== undefined ? { agentPreset: line.agentPreset } : {},
   }
 }
 
@@ -98,6 +102,8 @@ function isHeaderLine(value: unknown): value is HeaderLine {
     && !Object.is((value as { delegationDepth: number }).delegationDepth, -0)
     && ((value as { origin?: unknown }).origin === undefined
       || (value as { origin?: unknown }).origin === 'subagent')
+    && ((value as { agentPreset?: unknown }).agentPreset === undefined
+      || typeof (value as { agentPreset?: unknown }).agentPreset === 'string')
   )
 }
 
@@ -206,8 +212,8 @@ export function logPath(
  * `packChunks` on, delta-chunk runs pack into `text-chunks` /
  * `reasoning-chunks` / `tool-call-chunks` storage rows; off writes one event
  * per line, byte-identical to the pre-packing layout. Reading is layout-blind
- * either way ({@link scanLog} always decodes rows), so the switch only shapes
- * NEW bytes.
+ * either way ({@link scanLog} always decodes rows), so the switch changes only
+ * newly written bytes.
  * @param events - the batch to serialize, in log order.
  * @param packChunks - whether to pack delta runs into storage rows.
  * @returns the batch's JSONL text; the writer adds the final newline.
@@ -224,6 +230,22 @@ interface SessionLogScan {
 }
 
 /** Parse one complete header record supplied independently from event rows. */
+/**
+ * Refuse a header carrying a format version this build does not read BEFORE
+ * validating the current header shape or decoding any event row: a future
+ * format need not satisfy today's structural checks at all, and its user must
+ * see "upgrade the harness", never "corrupt session log".
+ * @param parsed - the JSON-parsed first line of a session artifact.
+ */
+function refuseForeignFormatVersion(parsed: unknown): void {
+  if (typeof parsed !== 'object' || parsed === null) return
+  const { version, id } = parsed as { version?: unknown; id?: unknown }
+  if (typeof version !== 'number' || version === SESSION_FORMAT_VERSION) return
+  throw new SessionFormatUnsupportedError(
+    sessionFormatVersionRefusal(typeof id === 'string' ? id : String(id), version),
+  )
+}
+
 function parseHeaderRecord(record: Buffer): SessionHeader {
   if (record.length === 0 || record.at(-1) !== 0x0A || record.indexOf(0x0A) !== record.length - 1) {
     throw new Error('empty or header-less session log')
@@ -234,6 +256,7 @@ function parseHeaderRecord(record: Buffer): SessionHeader {
   } catch {
     throw new Error('corrupt session log: header line is not valid JSON')
   }
+  refuseForeignFormatVersion(parsed)
   if (!isHeaderLine(parsed)) {
     throw new Error('corrupt session log: first line is not a session header')
   }

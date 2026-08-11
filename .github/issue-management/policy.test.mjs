@@ -6,6 +6,7 @@ import {
   nextResolvingIssueStatus,
   parseReferences,
   retainIssueReferences,
+  resolvingIssueStatusCommand,
   requiresPullRequestPolicy,
   validateBody,
   validateIssue,
@@ -243,32 +244,73 @@ test('requires policy only after a human PR enters review', () => {
   )
 })
 
-test('advances resolving Issues to the live PR phase', () => {
-  const draft = { isDraft: true, reviewRequestCount: 1, reviewCount: 4 }
-  const open = { isDraft: false, reviewRequestCount: 0, reviewCount: 0 }
-  const requestedReview = { isDraft: false, reviewRequestCount: 1, reviewCount: 0 }
-  const submittedReview = { isDraft: false, reviewRequestCount: 0, reviewCount: 1 }
-
-  for (const status of ['Inbox', 'Backlog', 'Ready']) {
-    assert.equal(nextResolvingIssueStatus(status, draft), 'In progress')
-    assert.equal(nextResolvingIssueStatus(status, open), 'In progress')
-    assert.equal(nextResolvingIssueStatus(status, requestedReview), 'In review')
-    assert.equal(nextResolvingIssueStatus(status, submittedReview), 'In review')
+test('maps only explicit review handoffs to review status commands', () => {
+  assert.equal(
+    resolvingIssueStatusCommand('pull_request', {
+      action: 'review_requested',
+    }),
+    'review-requested',
+  )
+  assert.equal(
+    resolvingIssueStatusCommand('pull_request_review', {
+      action: 'submitted',
+      review: { state: 'changes_requested' },
+    }),
+    'changes-requested',
+  )
+  for (const state of ['approved', 'commented']) {
+    assert.equal(
+      resolvingIssueStatusCommand('pull_request_review', {
+        action: 'submitted',
+        review: { state },
+      }),
+      null,
+    )
   }
-  assert.equal(nextResolvingIssueStatus('In progress', requestedReview), 'In review')
-  assert.equal(nextResolvingIssueStatus('In progress', submittedReview), 'In review')
+  assert.equal(
+    resolvingIssueStatusCommand('pull_request_review', {
+      action: 'dismissed',
+      review: { state: 'changes_requested' },
+    }),
+    null,
+  )
 })
 
-test('never regresses or reopens a resolving Issue', () => {
-  const implementation = { isDraft: false, reviewRequestCount: 0, reviewCount: 0 }
-  const review = { isDraft: false, reviewRequestCount: 0, reviewCount: 1 }
+test('keeps ordinary pull request events as forward-only implementation signals', () => {
+  for (const action of ['opened', 'edited', 'synchronize', 'reopened', 'labeled', 'unlabeled']) {
+    assert.equal(resolvingIssueStatusCommand('pull_request', { action }), 'implementation')
+  }
+  assert.equal(
+    resolvingIssueStatusCommand('pull_request', { action: 'review_request_removed' }),
+    null,
+  )
+})
 
-  assert.equal(nextResolvingIssueStatus('In progress', implementation), null)
-  assert.equal(nextResolvingIssueStatus('In review', implementation), null)
-  assert.equal(nextResolvingIssueStatus('In review', review), null)
-  assert.equal(nextResolvingIssueStatus('Done', review), null)
-  assert.equal(nextResolvingIssueStatus('No action', review), null)
-  assert.equal(nextResolvingIssueStatus(null, review), null)
+test('toggles automation-owned work on request changes and repeated review request', () => {
+  for (const status of ['Inbox', 'Backlog', 'Ready']) {
+    assert.equal(nextResolvingIssueStatus(status, 'implementation'), 'In progress')
+    assert.equal(nextResolvingIssueStatus(status, 'review-requested'), 'In review')
+    assert.equal(nextResolvingIssueStatus(status, 'changes-requested'), 'In progress')
+  }
+  let status = nextResolvingIssueStatus(
+    'In review',
+    'changes-requested',
+    'dsh-issue-management',
+  )
+  assert.equal(status, 'In progress')
+  status = nextResolvingIssueStatus(status, 'review-requested')
+  assert.equal(status, 'In review')
+})
+
+test('preserves human review status and terminal Issues', () => {
+  assert.equal(nextResolvingIssueStatus('In progress', 'implementation'), null)
+  assert.equal(nextResolvingIssueStatus('In review', 'implementation'), null)
+  assert.equal(nextResolvingIssueStatus('In review', 'review-requested'), null)
+  assert.equal(nextResolvingIssueStatus('In review', 'changes-requested', 'tianyicui'), null)
+  assert.equal(nextResolvingIssueStatus('In review', 'changes-requested'), null)
+  assert.equal(nextResolvingIssueStatus('Done', 'review-requested'), null)
+  assert.equal(nextResolvingIssueStatus('No action', 'changes-requested'), null)
+  assert.equal(nextResolvingIssueStatus(null, 'review-requested'), null)
 })
 
 test('keeps lifecycle projection independent of PR metadata enforcement', () => {
@@ -283,7 +325,7 @@ test('keeps lifecycle projection independent of PR metadata enforcement', () => 
   }
 
   assert.ok(validatePullRequest(pull).length > 0)
-  assert.equal(nextResolvingIssueStatus('Inbox', pull), 'In review')
+  assert.equal(nextResolvingIssueStatus('Inbox', 'review-requested'), 'In review')
 })
 
 test('exempts Draft, Bot, and App PRs', () => {

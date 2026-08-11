@@ -359,9 +359,9 @@ type SessionQueryErrorCode =
 
 <a id="cordis-surface"></a>
 
-## Cordis surface
+## Cordis API
 
-Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` surface lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
+Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
 
 <a id="ctxsessionquery--sessionqueryservice-abstract-seam"></a>
 
@@ -456,7 +456,7 @@ async filterEvents( sessionId: SessionId, filters: readonly SessionEventResultFi
 /**
  * Read one session's complete current model surface from one corpus observation.
  * @param sessionId - live-preferred session id to read.
- * @returns cloned header, current surface, and raw-log capture boundary.
+ * @returns cloned header, current surface, and the last sequence number included in the raw-log capture.
  * @throws when source resolution fails or the session surface is invalid.
  */
 async readSurface(sessionId: SessionId): Promise<SessionSurfaceSnapshot>
@@ -465,7 +465,7 @@ async readSurface(sessionId: SessionId): Promise<SessionSurfaceSnapshot>
  * Trace known ancestry and descendants from one corpus observation.
  * @param sessionId - logical session id to trace.
  * @param signal - optional cancellation for persistence listing.
- * @returns a complete lineage or an explicit unresolved parent boundary.
+ * @returns a complete lineage or the first parent that could not be resolved.
  * @throws when corpus resolution fails, the target is absent, or its known ancestry cycles.
  */
 async traceSession(sessionId: SessionId, signal?: AbortSignal): Promise<SessionLineageTrace>

@@ -4,7 +4,7 @@ English | [中文](filesystem.zh.md)
 
 The optional filesystem capability has four parts: [dsh-fs](../../packages/fs/fs) owns `ctx.fs` and atomic text operations with optional guards, [dsh-fs-local](../../packages/fs/fs-local) implements local disk, [dsh-fs-policy](../../packages/fs/fs-policy) records observed presence or absence and adds freshness rules through events rather than a service, and [dsh-tool-fs](../../packages/fs/tool-fs) directly executes model-facing read/write/edit calls and renders windows. It is outside the agent-loop spine; alternate backends do not change policy or tool schemas.
 
-The model is **additive, not subtractive**: `ctx.fs` alone is a complete, unconstrained text-storage seam (`write` unconditionally creates-or-overwrites, `edit` unconditionally replaces literal text). `dsh-fs-policy` is a plugin that *adds* policy on top by deciding the `fs/*` waterfalls; removing it leaves the bare provider rather than breaking the tool, because the tool is not method-coupled to the policy. A deployment that loads `dsh-tool-fs` is expected to also load `dsh-fs-policy` so the default behavior is read-before-write/edit.
+`dsh-fs-policy` is optional. Without it, the `FileSystem` Service Definition, a provider, and the `dsh-tool-fs` Consumer form the complete, unconstrained filesystem seam: `write` unconditionally creates or overwrites, and `edit` unconditionally replaces literal text. The policy plugin changes these operations by deciding the `fs/*` waterfalls. Removing it does not break the tool because the tool calls `ctx.fs` and dispatches events; it does not call policy methods. A deployment that loads `dsh-tool-fs` is expected to also load `dsh-fs-policy` so the default behavior is read-before-write/edit.
 
 Provider source: [`packages/fs/fs/src/types.ts`](../../packages/fs/fs/src/types.ts) and [`packages/fs/fs/src/index.ts`](../../packages/fs/fs/src/index.ts). Policy source: [`packages/fs/fs-policy/src/types.ts`](../../packages/fs/fs-policy/src/types.ts). Read-rendering source: [`packages/fs/tool-fs/src/read-render.ts`](../../packages/fs/tool-fs/src/read-render.ts).
 
@@ -52,7 +52,7 @@ type FsTargetKey = Branded<'FsTargetKey'>
 type FsVersion = Branded<'FsVersion'>
 ```
 
-`stat` returns metadata (never content), or `undefined` when the target is absent. `type` lets the tool reject directories/special files before reading, and `size` lets it choose `readText` vs `streamText` without probing by failure. A protocol consumer that needs a byte ceiling applies it while consuming `streamText`, so the filesystem seam needs no consumer-specific bounded-read primitive.
+`stat` returns metadata (never content), or `undefined` when the target is absent. `type` lets consumers reject directories and special files before reading, and `size` lets text consumers choose `readText` vs `streamText` without probing by failure. A text consumer applies its own retention ceiling while consuming `streamText`. Raw-byte consumers use `readBytes(target, signal, maxBytes)`; its required complete-content cap makes a known or discovered overflow fail with `FS_TOO_LARGE` instead of truncating or buffering without a bound.
 
 ```ts type-equiv
 /**
@@ -113,7 +113,7 @@ interface FsDirEntry {
 
 ## Write and edit guards (provider contract)
 
-Both `writeText` and `editText` take their version guard OPTIONALLY: omit it for an unconditional (bare-provider) mutation, supply it to guard. `writeText`'s guard is an `FsWriteIntent` — `createIfAbsent` creates a missing target and rejects an existing one with `FS_NOT_OBSERVED`, including a target that appears after the provider's initial probe because publication itself must be no-replace; `replaceIfVersion` replaces only when the target exists at the observed version, else `FS_STALE_VERSION`. Omitting `expected` unconditionally creates-or-overwrites. The union itself carries only the two guarded intents; "no guard" is expressed by omission, so write and edit share one symmetric `expected?` shape.
+Both `writeText` and `editText` take their version guard OPTIONALLY: omit it for an unconditional (bare-provider) mutation, supply it to guard. `writeText`'s guard is an `FsWriteIntent` — `createIfAbsent` creates a missing target and rejects an existing one with `FS_NOT_OBSERVED`, including a target that appears after the provider's initial probe because publication itself must be no-replace; `replaceIfVersion` replaces only when the target exists at the observed version, else `FS_STALE_VERSION`. Omitting `expected` unconditionally creates-or-overwrites. The union itself carries only the two guarded intents; "no guard" is expressed by omission, so write and edit both use the same optional `expected` field.
 
 ```ts type-equiv
 /**
@@ -136,10 +136,11 @@ interface FsWriteOutcome {
   version: FsVersion
   /**
    * The file's content BEFORE the write, or `null` when the file did not exist
-   * (a create) or was undiffable (binary/non-UTF-8). LF-normalized storage text
-   * (the diff basis), never a diff — a consumer computes the result-time
-   * contextual diff from `before`/`after` when `before` is present, else falls
-   * back to a whole-file diff.
+   * (a create) or the backend declined a contextual basis (for example, a
+   * binary/non-UTF-8 prior file or either overwrite side reaching its exclusive limit).
+   * LF-normalized storage text (the diff basis), never a diff — a consumer
+   * computes the result-time contextual diff from `before`/`after` when
+   * `before` is present, else falls back to a whole-file diff.
    */
   before: string | null
   /** The file's content AFTER the write, LF-normalized to share `before`'s diff basis. */
@@ -196,15 +197,15 @@ type FsObservation =
 
 ## Execution context (policy plugin)
 
-The policy plugin needs just enough execution context to derive the observed-state owner by narrowing the opaque `object` actor the `fs/*` events carry. `ToolExecution` satisfies this shape, so `dsh-tool-fs` passes its execution object through as the actor without making `dsh-fs-policy` import the tool, agent, or session packages.
+The policy plugin needs just enough execution context to derive the observed-state owner by narrowing the opaque `object` actor the `fs/*` events carry. `ToolExecution` has the required fields, so `dsh-tool-fs` passes its execution object through as the actor without making `dsh-fs-policy` import the tool, agent, or session packages.
 
 ```ts type-equiv
 /**
  * Minimal structural view of a tool execution the policy plugin needs to derive
- * an observed-state owner. `@deepseek-ai/dsh-tools`' `ToolExecution` satisfies
- * this shape, so the tool passes its `exec` straight through as the opaque
- * `object` actor on the `fs/*` events; this plugin narrows that actor to this
- * shape without importing `dsh-tools`, `dsh-agent`, or `dsh-session`.
+ * an observed-state owner. `@deepseek-ai/dsh-tools`' `ToolExecution` contains
+ * these fields, so the tool passes its `exec` straight through as the opaque
+ * `object` actor on the `fs/*` events; this plugin narrows that actor to
+ * `FsPolicyExec` without importing `dsh-tools`, `dsh-agent`, or `dsh-session`.
  *
  * The owner is `agent.session` when present. It is treated as an opaque object
  * identity (a `WeakMap` key); this package never reads any of its fields.
@@ -220,7 +221,7 @@ interface FsPolicyExec {
 
 ## Read outcome (consumer / read rendering)
 
-A text read is bounded by line window, byte cap, and backend limits. After the byte cap is reached, scanning continues without retaining more lines so `totalLines` remains exact. The outcome the model-facing `read` tool renders is purely presentational; there is no `full`/`partial` view — authorization is freshness-based (the tool emits a present `fs/observed` with the stat's version), so any windowed read can authorize a later write/edit when the file is unchanged. A metadata miss emits an absent observation before the tool returns `FS_NOT_FOUND`, allowing a later guarded write to recreate an externally deleted target without authorizing edit. Read windowing and this outcome shape live in `dsh-tool-fs` (the executor that owns the read), not in the policy plugin.
+A text read is bounded by line window, byte cap, and backend limits. After the byte cap is reached, scanning continues without retaining more lines so `totalLines` remains exact. The result the model-facing `read` tool renders is purely presentational; there is no `full`/`partial` view — authorization is freshness-based (the tool emits a present `fs/observed` directly with the stat's version), so any windowed read can authorize a later write/edit when the file is unchanged. A metadata miss emits an absent observation before the tool returns `FS_NOT_FOUND`, allowing a later guarded write to recreate an externally deleted target without authorizing edit. `dsh-tool-fs`, the executor that owns the read, implements read windowing and constructs this result; the policy plugin does not.
 
 ```ts type-equiv
 /** Outcome of a bounded text read — what {@link formatReadOutput} renders. */
@@ -247,7 +248,7 @@ Filesystem failures use stable `FsErrorCode` strings carried by `FsError` (`Harn
 ```ts type-equiv
 /**
  * Stable, machine-routable codes for filesystem failures. Carried on
- * {@link FsError}; the tool registry surfaces `{ name, code }` on `isError`
+ * {@link FsError}; the tool registry exposes `{ name, code }` on `isError`
  * results so retry/permission/UI layers can branch without parsing messages.
  */
 type FsErrorCode =
@@ -255,6 +256,7 @@ type FsErrorCode =
   | 'FS_NOT_DIRECTORY'
   | 'FS_NOT_TEXT'
   | 'FS_NOT_REGULAR_FILE'
+  | 'FS_TOO_LARGE'
   | 'FS_PERMISSION_DENIED'
   | 'FS_SANDBOX_DENIED'
   | 'FS_IO_ERROR'
@@ -273,15 +275,15 @@ type FsErrorCode =
 
 ## The service and the plugin
 
-`FileSystem` (`ctx.fs`, abstract) owns the provider primitives: `resolve`, `processPath`, `fileUrl`, `contains`, `stat`, `lstat`, `readText`, `streamText`, `listDir`, `writeText`, and `editText`. `dsh-fs-policy` registers **no service** — it is a plugin that adds policy through the `fs/*` event gate: it decides the write/edit intent waterfalls from unseen/absent/present state and records `FsObservation` values. The executor is `dsh-tool-fs`: it reads/writes/edits through `ctx.fs`, dispatches the waterfalls, and emits the recording event. The generated [`ctx.fs` section](#ctxfs--filesystem-abstract-seam) below shows the exact signatures.
+`FileSystem` (`ctx.fs`, abstract) owns the provider primitives: `resolve`, `processPath`, `fileUrl`, `contains`, `stat`, `lstat`, `readText`, `streamText`, `readBytes`, `listDir`, `writeText`, and `editText`. `dsh-fs-policy` registers **no service** — it is a plugin that adds policy through the `fs/*` event gate: it decides the write/edit intent waterfalls from unseen/absent/present state and records `FsObservation` values. The executor is `dsh-tool-fs`: it reads/writes/edits through `ctx.fs`, dispatches the waterfalls, and emits the recording event. The generated [`ctx.fs` section](#ctxfs--filesystem-abstract-seam) below shows the exact signatures.
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
 <a id="cordis-surface"></a>
 
-## Cordis surface
+## Cordis API
 
-Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` surface lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
+Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
 
 <a id="ctxfs--filesystem-abstract-seam"></a>
 
@@ -371,6 +373,18 @@ abstract readText(target: FsTarget, signal?: AbortSignal): Promise<string>
  * @returns the chunk iterable, decoded and validated like {@link readText}.
  */
 abstract streamText(target: FsTarget, signal?: AbortSignal): Promise<AsyncIterable<string>>
+
+/**
+ * Read the whole regular file as raw bytes with no decoding or binary
+ * rejection. The bound lives at this seam so a backend can never buffer an
+ * unbounded file: a target known or discovered to exceed `maxBytes` fails
+ * with `FS_TOO_LARGE` instead of returning a truncated result.
+ * @param target - the resolved target to read.
+ * @param signal - aborts the read.
+ * @param maxBytes - inclusive byte cap on the complete content.
+ * @returns the full raw content, at most `maxBytes` long.
+ */
+abstract readBytes(target: FsTarget, signal: AbortSignal | undefined, maxBytes: number): Promise<Uint8Array>
 
 /**
  * List direct children of a directory in stable name order. Returns resolved

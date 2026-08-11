@@ -2,11 +2,12 @@
 import { EventEmitter, once } from 'node:events'
 import { createServer, request as httpRequest } from 'node:http'
 import { PassThrough, Readable } from 'node:stream'
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it } from 'vitest'
 import type { AddressInfo } from 'node:net'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { ApiProxy } from '@deepseek-ai/dsh-host-apiproxy/api'
+import type { AttachmentStore } from '@deepseek-ai/dsh-attachment'
 import { RpcId, type ClientRequest } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { HttpServerService, WebRoute, WebUpgradeRoute } from '@deepseek-ai/dsh-host-webserver'
 import { API_PATH, apply, HOST_EVENTS_PATH, inject, MUX_EVENTS_PATH, type HostConnectionHandle } from '../src/index.ts'
@@ -89,6 +90,19 @@ async function mounted(config?: { trustedHosts?: string[] }): Promise<{
 }
 
 describe('connection node half', () => {
+  it('fails loud when the carrier cap cannot hold the configured image batch', () => {
+    const ctx = new Context()
+    const routes: WebRoute[] = []
+    ctx.provide('httpServer', fakeHttpServer(routes, []) as HttpServerService)
+    ctx.provide('attachments', {
+      imageLimits: { maxMessageImageBytes: 20 * 1024 * 1024 },
+    } as AttachmentStore)
+    ctx.provide('apiProxy', {} as ApiProxy)
+    expect(() => { apply(ctx, { maxRequestBodyBytes: 1024 }) })
+      .toThrow(/must be at least .* aggregate image limit/)
+    expect(routes).toHaveLength(0)
+  })
+
   it('fails the load on a trustedHosts entry that is not a bare authority', async () => {
     const routes: WebRoute[] = []
     const upgrades: WebUpgradeRoute[] = []
@@ -159,6 +173,10 @@ describe('connection node half', () => {
       'settings.describe', 'settings.openDocument', 'settings.update', 'settings.replace', 'settings.mutate',
       'credentials.describe', 'credentials.set', 'credentials.unset',
       'llm.discoverModels',
+      // A composition names the plugins a session runs: reading one is
+      // reconnaissance, and copy/remove/openDocument manage the roster and
+      // drive the host desktop.
+      'agentPreset.read', 'agentPreset.copy', 'agentPreset.openDocument', 'agentPreset.remove',
     ]) {
       const denied = fakeResponse()
       await routes[0]!.handler(
@@ -452,13 +470,19 @@ describe('connection node half over a real HTTP server', () => {
         // Carries a draft credential and turns the host into a fetcher for a
         // URL the caller picked: an anonymous LAN caller must not reach it.
         'llm.discoverModels',
+        'agentPreset.read', 'agentPreset.copy', 'agentPreset.openDocument', 'agentPreset.remove',
       ]) {
         expect([method, await call(port, method, 'harness.example')]).toEqual([method, 403])
       }
       // The model catalog stays reachable for the same authority: a LAN
       // client's model picker needs it, and it carries no key or endpoint
       // state (404 is the empty proxy's carrier answer — the fence passed).
-      for (const method of ['llm.providers', 'llm.models']) {
+      // `agentPreset.list` joins the model catalog for the same reason: ids and
+      // trust only, and a LAN client's preset picker needs it. `select` is
+      // reachable too: `session.create` already takes an `agentPreset`, and the
+      // deployment's own default already carries bash, so pinning the switch
+      // would be a fence beside an open gate.
+      for (const method of ['llm.providers', 'llm.models', 'agentPreset.list', 'agentPreset.select']) {
         expect([method, await call(port, method, 'harness.example')]).toEqual([method, 404])
       }
       // Loopback reaches everything, configuration included.

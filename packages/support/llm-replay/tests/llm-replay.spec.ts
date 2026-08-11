@@ -2,11 +2,12 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { CompactionId } from '@deepseek-ai/dsh-compact'
 import LlmService, { CallId, createUserMessage, GenerateOptions, LlmAdapter, StreamChunk } from '@deepseek-ai/dsh-llm'
 import {
+  type Config,
   type ReplayEntry,
   type SessionScript,
   apply,
@@ -592,8 +593,15 @@ describe('installLlmReplay (through the real LlmService)', () => {
             backoff: { initialDelayMs: 1, maxDelayMs: 1, jitterRatio: 0 },
           },
           models: [
-            { id: 'flash', contextWindow: 128_000 },
-            { id: 'pro', name: 'Pro', description: 'Larger model' },
+            {
+              id: 'flash',
+              contextWindow: 128_000,
+              inputModalities: ['text', 'image'],
+              defaultMaxTokens: 64_000,
+              reasoningEfforts: ['off', 'max'],
+              defaultReasoningEffort: 'max',
+            },
+            { id: 'pro', name: 'Pro', description: 'Larger model', reasoningEfforts: ['high'] },
           ],
         },
         { id: 'empty' },
@@ -605,14 +613,26 @@ describe('installLlmReplay (through the real LlmService)', () => {
       { id: 'empty', name: 'empty' },
     ])
     await expect(ctx.llm.listModels('deepseek')).resolves.toEqual([
-      { provider: 'deepseek', id: 'flash', name: 'flash' },
+      { provider: 'deepseek', id: 'flash', name: 'flash', inputModalities: ['text', 'image'] },
       { provider: 'deepseek', id: 'pro', name: 'Pro', description: 'Larger model' },
     ])
     await expect(ctx.llm.listModels('empty')).resolves.toEqual([])
     await expect(ctx.llm.resolveModelInfo('deepseek', 'flash')).resolves.toMatchObject({
       context: { contextWindow: 128_000 },
+      inputModalities: ['text', 'image'],
+      defaultMaxTokens: 64_000,
+      reasoning: {
+        efforts: [{ id: 'off', name: 'off' }, { id: 'max', name: 'max' }],
+        defaultEffort: 'max',
+      },
     })
+    await expect(ctx.llm.resolveModelInfo('deepseek', 'pro')).resolves.not.toHaveProperty('inputModalities')
     await expect(ctx.llm.resolveModelInfo('deepseek', 'pro')).resolves.not.toHaveProperty('context')
+    // Efforts without a configured default preserve the provider's own default.
+    await expect(ctx.llm.resolveModelInfo('deepseek', 'pro')).resolves.toMatchObject({
+      reasoning: { efforts: [{ id: 'high', name: 'high' }] },
+    })
+    await expect(ctx.llm.resolveModelInfo('deepseek', 'pro')).resolves.not.toHaveProperty('defaultMaxTokens')
     await expect(ctx.llm.resolveModelInfo('deepseek', 'unlisted')).resolves.not.toHaveProperty('context')
     await expect(ctx.llm.resolveModelInfo('empty', 'unlisted')).resolves.not.toHaveProperty('context')
     expect(ctx.llm.providerRetryPolicy('deepseek')).toMatchObject({
@@ -1095,9 +1115,29 @@ describe('apply (the plugin entry)', () => {
     writeFileSync(file, sessionJsonl(TEXT_CHUNKS.map((c, i) => chunkEvent(i + 1, 1, 1, c))), 'utf8')
     const ctx = new Context()
     await ctx.plugin(LlmService)
-    apply(ctx, { file, providers: [{ id: 'm', models: [{ id: 'm' }] }], paceMs: 1 })
-    expect(ctx.llm.listProviders()).toEqual([{ id: 'm', name: 'm' }])
+    apply(ctx, {
+      file,
+      providers: [
+        { id: 'm', models: [{ id: 'm', inputModalities: ['image'] }, { id: 'text' }] },
+        { id: 'empty' },
+      ],
+      paceMs: 1,
+    })
+    expect(ctx.llm.listProviders()).toEqual([{ id: 'm', name: 'm' }, { id: 'empty', name: 'empty' }])
+    await expect(ctx.llm.resolveModelInfo('m', 'm')).resolves.toMatchObject({ inputModalities: ['image'] })
     expect(await drain(ctx.llm.stream({ provider: 'm', model: 'm', messages: [] }))).toEqual(TEXT_CHUNKS)
+  })
+
+  it.each([
+    ['a string', 'image'],
+    ['an unknown modality', ['audio']],
+  ])('rejects inputModalities configured as %s during load', (_case, inputModalities) => {
+    const ctx = new Context()
+    const providers = [{ id: 'm', models: [{ id: 'm', inputModalities }] }] as unknown as
+      NonNullable<Config['providers']>
+    expect(() => { apply(ctx, { file, providers }) }).toThrow(
+      'llm-replay: provider "m" model "m" inputModalities must be an array containing only "text" and "image"',
+    )
   })
 
   it('falls back to $DSH_SNAPSHOT_FILE / $DSH_SNAPSHOT_OVERRIDE when config is empty', async () => {

@@ -132,10 +132,11 @@ export interface FsWriteOutcome {
   version: FsVersion
   /**
    * The file's content BEFORE the write, or `null` when the file did not exist
-   * (a create) or was undiffable (binary/non-UTF-8). LF-normalized storage text
-   * (the diff basis), never a diff — a consumer computes the result-time
-   * contextual diff from `before`/`after` when `before` is present, else falls
-   * back to a whole-file diff.
+   * (a create) or the backend declined a contextual basis (for example, a
+   * binary/non-UTF-8 prior file or either overwrite side reaching its exclusive limit).
+   * LF-normalized storage text (the diff basis), never a diff — a consumer
+   * computes the result-time contextual diff from `before`/`after` when
+   * `before` is present, else falls back to a whole-file diff.
    */
   before: string | null
   /** The file's content AFTER the write, LF-normalized to share `before`'s diff basis. */
@@ -168,7 +169,7 @@ export interface FsEditOutcome {
 
 /**
  * Stable, machine-routable codes for filesystem failures. Carried on
- * {@link FsError}; the tool registry surfaces `{ name, code }` on `isError`
+ * {@link FsError}; the tool registry exposes `{ name, code }` on `isError`
  * results so retry/permission/UI layers can branch without parsing messages.
  */
 export type FsErrorCode =
@@ -176,6 +177,7 @@ export type FsErrorCode =
   | 'FS_NOT_DIRECTORY'
   | 'FS_NOT_TEXT'
   | 'FS_NOT_REGULAR_FILE'
+  | 'FS_TOO_LARGE'
   | 'FS_PERMISSION_DENIED'
   | 'FS_SANDBOX_DENIED'
   | 'FS_IO_ERROR'

@@ -5,7 +5,7 @@
  * @module @deepseek-ai/dsh-session-persistence
  */
 
-import { Context, Service } from 'cordis'
+import { Context, Service } from '@deepseek-ai/cordis'
 import { SessionPreparation } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SessionId, SessionHeader } from '@deepseek-ai/dsh-session'
 import type { SessionPersistenceRevision } from './revision.ts'
@@ -30,13 +30,25 @@ export interface SessionInspection {
   readonly events: readonly SessionEvent[]
 }
 
+/** A backend's own raw artifact text for one session, verbatim. */
+export interface SessionRawArtifact {
+  /** The session header parsed from the artifact's own first line. */
+  readonly meta: SessionHeader
+  /** The artifact's base filename on disk, without any physical encoding suffix. */
+  readonly filename: string
+  /** The artifact's full text content, decoded from the backend's physical encoding. */
+  readonly content: string
+}
+
 // The backend-agnostic write-path orchestration first-party backends compose.
 export {
   DEFAULT_PREPARED_SESSION_CACHE_SIZE,
   DEFAULT_WRITE_BATCH_MAX_DELAY_MS,
   MAX_WRITE_BATCH_DELAY_MS,
   PersistenceCoordinator,
+  SessionFormatUnsupportedError,
   SessionPersistenceCorruptionError,
+  sessionFormatVersionRefusal,
 } from './coordinator.ts'
 export type {
   PersistenceBackend,
@@ -45,7 +57,7 @@ export type {
   StoredSuffix,
 } from './coordinator.ts'
 
-declare module 'cordis' {
+declare module '@deepseek-ai/cordis' {
   interface Context {
     sessionPersistence: SessionPersistence
   }
@@ -82,6 +94,34 @@ export abstract class SessionPersistence extends Service {
    * @returns the backend-specific absolute location, when one exists.
    */
   abstract locate(meta: SessionHeader): SessionLocation | undefined
+
+  /**
+   * Whether this backend exposes one verbatim raw artifact per session.
+   * A backend that declares `true` must override {@link readRaw}.
+   */
+  abstract readonly supportsRawArtifacts: boolean
+
+  /**
+   * Read a session's backend-owned artifact text verbatim — the exact durable
+   * bytes the backend wrote (decoded from its physical encoding, e.g. a
+   * decompressed JSONL). The returned `content` is the raw text, not a
+   * reconstruction from parsed events, so it preserves backend-specific
+   * serialization (chunk packing, key order, line breaks). Callers first test
+   * {@link supportsRawArtifacts}; `undefined` then means only that the requested
+   * session has no materialized artifact.
+   * @param _id - the persisted session to read (unused by the default: no
+   * per-session artifact).
+   * @param signal - optional cancellation for backend read work.
+   * @returns the raw artifact plus its parsed header, or `undefined` when the
+   * session is absent.
+   * @throws when this backend does not expose per-session raw artifacts.
+   */
+  readRaw(_id: SessionId, signal?: AbortSignal): Promise<SessionRawArtifact | undefined> {
+    if (signal?.aborted === true) {
+      return Promise.reject(signal.reason instanceof Error ? signal.reason : new Error('aborted'))
+    }
+    return Promise.reject(new Error('this session persistence backend does not expose raw artifacts'))
+  }
 
   /**
    * Register a new session's metadata. A backend MAY defer the physical write

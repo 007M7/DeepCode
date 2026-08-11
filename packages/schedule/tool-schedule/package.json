@@ -1,8 +1,15 @@
 {
   "name": "@deepseek-ai/dsh-tool-schedule",
-  "description": "Agent-scoped durable one-shot reminders over the session event log",
-  "version": "0.0.1",
-  "private": true,
+  "description": "Agent-scoped durable after and at reminders over the session event log",
+  "version": "0.0.1-rc.1",
+  "publishConfig": {
+    "access": "restricted"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/deepseek-ai/deepseek-harness.git",
+    "directory": "packages/schedule/tool-schedule"
+  },
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",
@@ -25,17 +32,17 @@
   ],
   "license": "BSD-3-Clause",
   "peerDependencies": {
-    "@deepseek-ai/dsh-agent": "^0.0.1",
-    "@deepseek-ai/dsh-brand": "^0.0.1",
-    "@deepseek-ai/dsh-invariants": "^0.0.1",
-    "@deepseek-ai/dsh-llm": "^0.0.1",
-    "@deepseek-ai/dsh-session": "^0.0.1",
-    "@deepseek-ai/dsh-session-persistence": "^0.0.1",
-    "@deepseek-ai/dsh-tools": "^0.0.1",
-    "cordis": "^4.0.0-rc.7"
+    "@deepseek-ai/dsh-agent": "workspace:^",
+    "@deepseek-ai/dsh-brand": "workspace:^",
+    "@deepseek-ai/dsh-invariants": "workspace:^",
+    "@deepseek-ai/dsh-llm": "workspace:^",
+    "@deepseek-ai/dsh-session": "workspace:^",
+    "@deepseek-ai/dsh-session-persistence": "workspace:^",
+    "@deepseek-ai/dsh-tools": "workspace:^",
+    "@deepseek-ai/cordis": "workspace:^"
   },
   "devDependencies": {
-    "@cordisjs/plugin-loader": "workspace:^",
+    "@deepseek-ai/cordis-plugin-loader": "workspace:^",
     "@deepseek-ai/dsh-agent": "workspace:^",
     "@deepseek-ai/dsh-agent-loop": "workspace:^",
     "@deepseek-ai/dsh-agent-loop-testkit": "workspace:^",
@@ -47,6 +54,6 @@
     "@deepseek-ai/dsh-session-persistence-jsonl": "workspace:^",
     "@deepseek-ai/dsh-system-prompt": "workspace:^",
     "@deepseek-ai/dsh-tools": "workspace:^",
-    "cordis": "^4.0.0-rc.7"
+    "@deepseek-ai/cordis": "workspace:^"
   }
 }

@@ -17,7 +17,7 @@ const list = (...items: SessionSummary[]): SessionListState => ({
   ids: items.map(item => item.id),
   byId: Object.fromEntries(items.map(item => [item.id, item])),
   current: undefined,
-  phase: 'ready', subagentsByParent: {}, currentAddress: undefined,
+  phase: 'ready', subagentsByParent: {}, tasksBySession: {}, currentAddress: undefined,
 })
 const workspace = (id: string, sessionIds: string[], title = id): WorkspaceView => ({
   workspaceId: wid(id), path: `/projects/${id}`, title,

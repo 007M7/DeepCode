@@ -27,6 +27,7 @@ const PLUGINS: readonly (WebBootEntry & { bundlePath: string })[] = [
   { id: '@deepseek-ai/dsh-client-ui-sidebar', bundlePath: 'packages/client/ui-sidebar/lib/client.js', url: '/plugins/ui-sidebar.js', rev: 'fx', inject: ['@deepseek-ai/dsh-client-ui-layout'] },
   { id: '@deepseek-ai/dsh-client-ui-conversation', bundlePath: 'packages/client/ui-conversation/lib/client.js', url: '/plugins/ui-conversation.js', rev: 'fx', inject: ['@deepseek-ai/dsh-client-ui-layout'] },
   { id: '@deepseek-ai/dsh-client-ui-tool', bundlePath: 'packages/client/ui-tool/lib/client.js', url: '/plugins/ui-tool.js', rev: 'fx', inject: ['@deepseek-ai/dsh-client-runtime', '@deepseek-ai/dsh-client-locale', '@deepseek-ai/dsh-client-ui-conversation'] },
+  { id: '@deepseek-ai/dsh-client-ui-workflow-run', bundlePath: 'packages/client/ui-workflow-run/lib/client.js', url: '/plugins/ui-workflow-run.js', rev: 'fx', inject: ['@deepseek-ai/dsh-client-locale', '@deepseek-ai/dsh-client-runtime', '@deepseek-ai/dsh-client-ui-conversation'] },
   {
     id: '@deepseek-ai/dsh-client-ui-workspace',
     bundlePath: 'packages/client/ui-workspace/lib/client.js',
@@ -70,7 +71,12 @@ let unmount: (() => void) | undefined
 export function installAssembledBootEnv(): void {
   beforeEach(() => {
     localStorage.clear()
-    localStorage.setItem('dsh.locale', 'en')
+    // The locale service derives its provisional locale from the browser and
+    // takes an explicit choice only from Host settings, which this lane's
+    // fixture transport does not serve; pinning the navigator is what selects
+    // English here.
+    Object.defineProperty(navigator, 'languages', { value: ['en-US'], configurable: true })
+    Object.defineProperty(navigator, 'language', { value: 'en-US', configurable: true })
     document.title = 'DeepSeek Harness'
     vi.stubGlobal('ResizeObserver', ResizeObserverStub)
     vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) =>
@@ -88,6 +94,11 @@ export function installAssembledBootEnv(): void {
     document.head.querySelectorAll('style[data-plugin]').forEach((style) => { style.remove() })
     document.title = ''
     history.replaceState(null, '', '/')
+    // Deleting the own properties uncovers jsdom's own accessors again
+    // (Navigator declares both readonly, hence the erased receiver).
+    const ownNavigator = navigator as unknown as Record<string, unknown>
+    delete ownNavigator.languages
+    delete ownNavigator.language
     vi.unstubAllGlobals()
   })
 }

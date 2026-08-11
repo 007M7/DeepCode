@@ -1,5 +1,6 @@
 import { describe, expect, expectTypeOf, it, vi } from 'vitest'
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
+import { AttachmentId } from '@deepseek-ai/dsh-attachment'
 import BasicCompactService from '@deepseek-ai/dsh-compact-basic'
 import type { BasicCompactConfig } from '@deepseek-ai/dsh-compact-basic'
 import { selectCompactableRange } from '@deepseek-ai/dsh-compact-basic/src/region.ts'
@@ -1222,7 +1223,19 @@ describe('default one-shot summarizer', () => {
     const { adapter, compact } = await summarizerHarness([{ type: 'text', text: 'summary' }])
     const tools = [{ name: 'do_thing', description: 'd', parameters: { type: 'object' } }]
     const prefix: Message = createUserMessage({
-      content: [{ type: 'text', text: 'earlier turn' }],
+      content: [
+        { type: 'text', text: 'earlier turn' },
+        {
+          type: 'image',
+          attachment: {
+            attachmentId: AttachmentId(`sha256:${'a'.repeat(64)}`),
+            mediaType: 'image/png',
+            bytes: 1,
+            width: 1,
+            height: 1,
+          },
+        },
+      ],
       source: { kind: 'plugin', plugin: 'test' },
     })
     await compact.runSummarize({
@@ -1381,6 +1394,43 @@ describe('default one-shot summarizer', () => {
     const { compact } = await summarizerHarness([{ type: 'reasoning', text: 'private' }])
     await expect(compact.runSummarize(promptInput('history'), agent(conversation(1), MODEL)))
       .rejects.toThrow(/no text summary content/)
+  })
+
+  it('rejects image summary output instead of silently dropping it', async () => {
+    const { compact } = await summarizerHarness([
+      {
+        type: 'image',
+        attachment: {
+          attachmentId: AttachmentId(`sha256:${'b'.repeat(64)}`),
+          mediaType: 'image/png',
+          bytes: 1,
+          width: 1,
+          height: 1,
+        },
+      },
+      { type: 'text', text: 'partial summary' },
+    ])
+    await expect(compact.runSummarize(promptInput('history'), agent(conversation(1), MODEL)))
+      .rejects.toMatchObject({ code: 'UNSUPPORTED_CONTENT' })
+  })
+
+  it('rejects image summary output nested in a tool result', async () => {
+    const { compact } = await summarizerHarness([{
+      type: 'tool-result',
+      toolCallId: CallId('summary-tool'),
+      content: [{
+        type: 'image',
+        attachment: {
+          attachmentId: AttachmentId(`sha256:${'c'.repeat(64)}`),
+          mediaType: 'image/png',
+          bytes: 1,
+          width: 1,
+          height: 1,
+        },
+      }],
+    }])
+    await expect(compact.runSummarize(promptInput('history'), agent(conversation(1), MODEL)))
+      .rejects.toMatchObject({ code: 'UNSUPPORTED_CONTENT' })
   })
 })
 

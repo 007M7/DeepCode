@@ -3,7 +3,7 @@
  * @module @deepseek-ai/dsh-command-goal
  */
 
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import type { CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands'
 import { GoalError } from '@deepseek-ai/dsh-goal'
 import type { GoalPhase, GoalRef, GoalView } from '@deepseek-ai/dsh-goal'

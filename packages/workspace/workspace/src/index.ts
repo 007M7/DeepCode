@@ -8,7 +8,7 @@
 import { randomUUID } from 'node:crypto'
 import { stat } from 'node:fs/promises'
 import { basename } from 'node:path'
-import { Context, Service } from 'cordis'
+import { Context, Service } from '@deepseek-ai/cordis'
 import type { SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-persistence'
 import type { DomainGlobal, KvTable } from '@deepseek-ai/dsh-storage-domain'
@@ -53,7 +53,7 @@ export class WorkspaceUnknownSessionError extends Error {
 }
 
 
-declare module 'cordis' {
+declare module '@deepseek-ai/cordis' {
   interface Context {
     workspace: WorkspaceRegistry
   }
@@ -139,6 +139,11 @@ export class WorkspaceRegistry extends Service {
    * @param title - Display title used only when a new record is created.
    * @returns the existing or newly durable workspace.
    */
+  // TODO: `title` lost its last production caller when the gateway's
+  // create-by-name branch was deleted
+  // (.agents/notes/implemented/simplification/2026-07-31-one-route-to-add-a-workspace.md);
+  // drop the parameter with its @param clause and the `create(path, title?)`
+  // lines in this package's README pair.
   async create(path: string, title?: string): Promise<Workspace> {
     const canonical = await realpathNormalize(path)
     if (!(await stat(canonical)).isDirectory()) {

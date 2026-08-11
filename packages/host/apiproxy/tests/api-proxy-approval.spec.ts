@@ -7,7 +7,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import SessionStore from '@deepseek-ai/dsh-session'
@@ -27,7 +27,7 @@ async function harness(): Promise<{ ctx: Context; api: ApiProxy }> {
   await ctx.plugin(UserInteractionService)
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(ApprovalService)
-  const api = createApiProxy(ctx, { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp', workspaceRoot: '/tmp' })
+  const api = createApiProxy(ctx, { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp' })
   return { ctx, api }
 }
 
@@ -217,7 +217,7 @@ describe('approval pending registry', () => {
     await ctx.plugin(ApprovalService)
     let api!: ApiProxy
     const fiber = ctx.plugin(Object.assign((fiberCtx: Context) => {
-      api = createApiProxy(fiberCtx, { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp', workspaceRoot: '/tmp' })
+      api = createApiProxy(fiberCtx, { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp' })
     }, { inject: ['sessions', 'agents', 'userInteraction', 'approval'] }))
     await fiber.await()
     const abort = new AbortController()

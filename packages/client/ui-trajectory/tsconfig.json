@@ -12,6 +12,9 @@
       "path": "../../../vendor/cordis"
     },
     {
+      "path": "../locale"
+    },
+    {
       "path": "../ui-conversation"
     },
     {
@@ -19,6 +22,15 @@
     },
     {
       "path": "../runtime"
+    },
+    {
+      "path": "../../core/agent"
+    },
+    {
+      "path": "../../core/tools"
+    },
+    {
+      "path": "../../compact/compact"
     },
     {
       "path": "../../support/invariants"

@@ -1,6 +1,6 @@
 import { createUserMessage, createMessage } from '@deepseek-ai/dsh-llm'
 import { describe, expect, it } from 'vitest'
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import SessionStore, { SESSION_FORMAT_VERSION, SessionId } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent, SessionHeader, SessionId as SessionIdType } from '@deepseek-ai/dsh-session'
 import SessionPersistence from '@deepseek-ai/dsh-session-persistence'
@@ -32,6 +32,8 @@ function appendEvent(seq: number, sources?: number[]): SessionEvent {
 }
 
 class TracePersistence extends SessionPersistence {
+  override readonly supportsRawArtifacts = false
+
   static entries = new Map<SessionIdType, { meta: SessionHeader; events: SessionEvent[] }>()
   static listCalls = 0
   static inspectCalls = 0

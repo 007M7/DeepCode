@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { Context, Fiber } from 'cordis'
+import type { Context, Fiber } from '@deepseek-ai/cordis'
 import { FiberState } from '../src/fiber-state.ts'
 import { describeApi, describeEvents, describePlugins, describeServices } from '../src/inspect.ts'
 import { call, LISTENER_CODE, setup, text } from './helpers.ts'
@@ -66,7 +66,7 @@ describe('cordis_inspect', () => {
     expect(report).toContain('export interface SessionSurface')
     // A type only reachable through a NOT-live service (e.g. bash) is scoped out.
     expect(report).not.toContain('export interface BashRunResult')
-    // The inherited ctx surface closes the section.
+    // The inherited ctx API closes the section.
     expect(report).toContain('inherited ctx API:')
     expect(report).toContain('- ctx.effect — ')
     // The broad report stays compact; exact-name lookup owns full JSDoc.

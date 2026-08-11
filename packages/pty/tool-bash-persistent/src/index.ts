@@ -4,8 +4,8 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import type { Context } from 'cordis'
-import z from 'schemastery'
+import type { Context } from '@deepseek-ai/cordis'
+import z from '@deepseek-ai/schemastery'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { PtyReadResult, PtySendResult, PtySessionId } from '@deepseek-ai/dsh-pty'
 import { deadline, timeoutOf } from '@deepseek-ai/dsh-timeout'

@@ -8,9 +8,9 @@
  * @module @deepseek-ai/dsh-web-search-exa
  */
 
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import { environmentOf } from '@deepseek-ai/dsh-environment'
-import z from 'schemastery'
+import z from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-web'
 import {
   ExaSearchProvider,

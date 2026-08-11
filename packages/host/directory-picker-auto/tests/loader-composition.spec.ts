@@ -13,14 +13,37 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { Context } from 'cordis'
-import Loader from '@cordisjs/plugin-loader'
-import Include from '@cordisjs/plugin-include'
+import { Context } from '@deepseek-ai/cordis'
+import Loader from '@deepseek-ai/cordis-plugin-loader'
+import Include from '@deepseek-ai/cordis-plugin-include'
 import HttpServer from '@deepseek-ai/dsh-host-webserver'
 import type { DirectoryPicker } from '@deepseek-ai/dsh-host-directory-picker'
 import BrowseDirectoryPicker from '@deepseek-ai/dsh-host-directory-picker-browse'
 import NativeDirectoryPicker from '@deepseek-ai/dsh-host-directory-picker-native'
 import * as DirectoryPickerAuto from '../src/index.ts'
+
+const renameControl = vi.hoisted(() => ({
+  attempts: 0,
+  failureCode: 'EPERM',
+  injectedFailures: 0,
+  remainingFailures: 0,
+}))
+
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>()
+  return {
+    ...actual,
+    async rename(oldPath: string, newPath: string): Promise<void> {
+      renameControl.attempts++
+      if (renameControl.remainingFailures > 0) {
+        renameControl.remainingFailures--
+        renameControl.injectedFailures++
+        throw Object.assign(new Error(`injected rename failure for ${newPath}`), { code: renameControl.failureCode })
+      }
+      await actual.rename(oldPath, newPath)
+    },
+  }
+})
 
 const AUTO = '@deepseek-ai/dsh-host-directory-picker-auto'
 const NATIVE = '@deepseek-ai/dsh-host-directory-picker-native'
@@ -41,6 +64,10 @@ afterEach(async () => {
   }
   root = undefined
   fakeBin = undefined
+  renameControl.attempts = 0
+  renameControl.failureCode = 'EPERM'
+  renameControl.injectedFailures = 0
+  renameControl.remainingFailures = 0
 })
 
 /** Write a two-row cordis.yml (webserver + chooser), then boot it through the real Loader. */
@@ -163,9 +190,30 @@ describe('real Loader composition', () => {
     const backendEntry = [...ctx.loader.entries()].find(entry => entry.options.name === NATIVE)!
     await ctx.loader.remove(backendEntry.id)
     const autoEntry = [...ctx.loader.entries()].find(entry => entry.options.name === AUTO)!
+    renameControl.remainingFailures = 1
     await expect(autoEntry.fiber!.dispose()).resolves.not.toThrow()
     expect(entryNames(ctx)).not.toContain(NATIVE)
     // Same self-dispose persistence as above: let the write land before teardown.
     await expect.poll(async () => await readFile(configPath, 'utf8')).toContain('disabled: true')
+    expect(renameControl.injectedFailures).toBe(1)
+    expect(renameControl.remainingFailures).toBe(0)
+    expect(renameControl.attempts).toBeGreaterThanOrEqual(2)
+  })
+
+  it('reports a terminal debounced-write failure again to the teardown owner', { timeout: 60_000 }, async () => {
+    stubAttendedHost()
+    const { ctx } = await loadComposition('127.0.0.1')
+    const autoEntry = [...ctx.loader.entries()].find(entry => entry.options.name === AUTO)!
+    const include = [...ctx.loader.entries()]
+      .find(entry => entry.options.name === 'cordis:include')?.subtree as Include | undefined
+    if (include === undefined) throw new Error('expected the root Include tree')
+    renameControl.failureCode = 'EIO'
+    renameControl.remainingFailures = 1
+
+    await autoEntry.fiber!.dispose()
+    await expect.poll(() => renameControl.injectedFailures).toBe(1)
+    await expect(include.stop()).rejects.toMatchObject({ code: 'EIO' })
+    await expect(ctx.fiber.dispose()).resolves.not.toThrow()
+    context = undefined
   })
 })

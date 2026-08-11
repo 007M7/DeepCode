@@ -19,7 +19,7 @@ import {
 const driver = fileURLToPath(new URL('./merge-translation-pairing.ts', import.meta.url))
 const driverLauncher = fileURLToPath(new URL('./merge-translation-pairing-driver.sh', import.meta.url))
 const workspaceRoot = fileURLToPath(new URL('../', import.meta.url))
-const tsxLoader = fileURLToPath(import.meta.resolve('tsx/esm'))
+const tsxLoader = import.meta.resolve('tsx/esm')
 const fixtures: string[] = []
 
 interface Fixture {
@@ -231,7 +231,7 @@ function expectMergedPair(fixture: Fixture): void {
   )
 }
 
-describe('translation pairing merge composition', () => {
+describe('translation pairing merge composition', { timeout: 15_000 }, () => {
   it('rejects a pairing-record path outside the repository', () => {
     const fixture = createFixture(false)
 

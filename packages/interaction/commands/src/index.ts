@@ -3,7 +3,7 @@
  * @module @deepseek-ai/dsh-commands
  */
 
-import { Context, Service } from 'cordis'
+import { Context, Service } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { NamedEntries, ScopedLayers } from '@deepseek-ai/dsh-scope'
 import type { ScopeKey, ScopeLayer } from '@deepseek-ai/dsh-scope'
@@ -27,7 +27,7 @@ export interface CommandInputDescriptor {
 export interface CommandInvocation {
   /** Pairing id already written to this invocation's `command/run` event. */
   readonly commandId: CommandId
-  /** Exact agent whose human-facing surface received the command. */
+  /** Exact agent whose UI received the command. */
   readonly agent: Agent
   /** Exact text following the registered command name, including separator whitespace. */
   readonly rawInput: string
@@ -119,7 +119,7 @@ class CommandLayer implements ScopeLayer {
   }
 }
 
-declare module 'cordis' {
+declare module '@deepseek-ai/cordis' {
   interface Context {
     commands: CommandService
   }

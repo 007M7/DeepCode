@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'nod
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import AgentRegistry, { Inbox } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -142,7 +142,7 @@ describe('pty-local real shell', () => {
     const created = await ctx.pty.spawn(agent, { type: 'shell' })
     expect(sandbox.calls).toEqual([{
       argv: ['/bin/bash', '--noprofile', '--norc', '-i'],
-      policy: { mode: 'workspace-write', workspaceRoot: realpathSync.native(root) },
+      policy: { mode: 'workspace-write', workspaceRoot: realpathSync.native(root), sessionId: 'agent-workspace-write' },
     }])
     await fiber.dispose()
     expect(ctx.pty.listBackends()).toEqual([])

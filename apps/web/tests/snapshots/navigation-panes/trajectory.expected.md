@@ -2,6 +2,7 @@
   - button "Use actual duration": Duration
   - button "Collapse turns": Turns
   - button "Collapse calls": Calls
+  - button "Export session log": Export
   - img
   - searchbox "Search trajectory"
 - region "Trajectory timeline":

@@ -2,8 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { Context } from 'cordis'
-import Loader from '@cordisjs/plugin-loader'
+import { Context } from '@deepseek-ai/cordis'
+import Loader from '@deepseek-ai/cordis-plugin-loader'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { TOOL_ABORTED_BEFORE_DISPATCH } from '@deepseek-ai/dsh-tools'
@@ -128,20 +128,42 @@ describe('dsh-tool-subagent', () => {
     expect(foreground.isError).toBe(false)
   })
 
-  it('keeps foreground and background calls exclusive', async () => {
+  it('classifies foreground and background calls concurrency-safe (sibling delegations overlap)', async () => {
     const ctx = await setup({ provider: 'mock' })
     expect(ctx.tools.executionMode({
       signal: testToolSignal,
       callId: CallId('subagent-foreground'),
       name: 'subagent',
       arguments: { description: 'do work', prompt: 'Reply OK' },
-    })).toEqual({ kind: 'exclusive' })
+    })).toEqual({ kind: 'parallel' })
     expect(ctx.tools.executionMode({
       signal: testToolSignal,
       callId: CallId('subagent-background'),
       name: 'subagent',
       arguments: { description: 'do work', prompt: 'Reply OK', run_in_background: true },
-    })).toEqual({ kind: 'exclusive' })
+    })).toEqual({ kind: 'parallel' })
+  })
+
+  it('overlaps sibling foreground delegations dispatched concurrently', async () => {
+    // Two children each block until both have started: hidden serialization
+    // in the tool body, registry pipeline, or provider start path would
+    // deadlock here instead of passing silently.
+    const started: string[] = []
+    let releaseBoth!: () => void
+    const bothStarted = new Promise<void>((resolve) => { releaseBoth = resolve })
+    const ctx = await setup({ provider: 'mock', enableRunInBackground: false }, {
+      onStart: (request: SubagentStartRequest) => {
+        started.push(request.label ?? '(unlabeled)')
+        if (started.length === 2) releaseBoth()
+        return bothStarted
+      },
+    })
+    const results = await Promise.all([
+      callSubagent(ctx, { description: 'first', prompt: 'p1' }),
+      callSubagent(ctx, { description: 'second', prompt: 'p2' }),
+    ])
+    expect(started.sort()).toEqual(['first', 'second'])
+    for (const result of results) expect(result.isError).toBe(false)
   })
 
   it.each([
@@ -154,6 +176,9 @@ describe('dsh-tool-subagent', () => {
     const result = await callSubagent(ctx, { description: 'd', prompt: 'p' })
     expect(result.isError).toBe(true)
     expect(text(result)).toContain(fragment)
+    // The failure is not partial success, but the child's preserved partial
+    // answer still reaches the parent model inside the error result.
+    expect(text(result)).toContain('scripted subagent reply')
   })
 
   it('registers under a configurable toolName so multiple providers can coexist', async () => {
@@ -954,6 +979,16 @@ describe('dsh-tool-subagent continuable background mode', () => {
     return { ctx, parent }
   }
 
+  it('classifies continuable background calls concurrency-safe', async () => {
+    const { ctx } = await continuableSetup()
+    expect(ctx.tools.executionMode({
+      signal: testToolSignal,
+      callId: CallId('subagent-continuable'),
+      name: 'subagent',
+      arguments: { description: 'do work', prompt: 'Reply OK', run_in_background: true },
+    })).toEqual({ kind: 'parallel' })
+  })
+
   it('starts a continuable child and returns only its durable id, creating no Task', async () => {
     const { ctx, parent } = await continuableSetup()
     const schema = ctx.tools.schemas().find(s => s.name === 'subagent')!
@@ -983,11 +1018,74 @@ describe('dsh-tool-subagent continuable background mode', () => {
     expect(loaded.events.some(event => event.type === 'assistant/message')).toBe(true)
   })
 
+  it('isolates a cancelled continuable preparation from a concurrent sibling', async () => {
+    const { ctx, parent } = await continuableSetup()
+    const bothPreparing = Promise.withResolvers<undefined>()
+    const releasePreparations = Promise.withResolvers<undefined>()
+    const cancelled = new AbortController()
+    let preparationCount = 0
+    let cancelledChildId: ReturnType<typeof SessionId> | undefined
+    let survivingChildId: ReturnType<typeof SessionId> | undefined
+    ctx.subagents.registerProvider({
+      name: 'gated',
+      capabilities: { outputSchema: true, depthLimit: true, toolFilter: true, persona: true },
+      inheritsParentContext: false,
+      start: async () => { throw new Error('continuable policy must not start a one-shot child') },
+      prepareContinuable: async (request) => {
+        preparationCount += 1
+        if (request.signal === cancelled.signal) cancelledChildId = request.sessionId
+        else survivingChildId = request.sessionId
+        if (preparationCount === 2) bothPreparing.resolve(undefined)
+        await releasePreparations.promise
+        return {}
+      },
+    })
+    tool.apply(ctx, {
+      provider: 'gated',
+      toolName: 'subagent_gated',
+      backgroundMode: 'continuable',
+      maxDepth: 3,
+    })
+
+    const execute = (callId: string, description: string, signal: AbortSignal) => ctx.tools.execute({
+      signal,
+      callId: CallId(callId),
+      name: 'subagent_gated',
+      arguments: { description, prompt: 'work', run_in_background: true },
+      agent: parent,
+    })
+    const cancelledResult = execute('continuable-cancelled', 'cancelled sibling', cancelled.signal)
+    const survivingResult = execute('continuable-surviving', 'surviving sibling', testToolSignal)
+    await bothPreparing.promise
+    cancelled.abort()
+    releasePreparations.resolve(undefined)
+
+    const [failed, succeeded] = await Promise.all([cancelledResult, survivingResult])
+    expect(preparationCount).toBe(2)
+    expect(failed.isError).toBe(true)
+    expect(succeeded.isError).toBe(false)
+    expect(cancelledChildId).toBeDefined()
+    expect(survivingChildId).toBeDefined()
+    expect(ctx.agents.get(cancelledChildId!)).toBeUndefined()
+    await expect(ctx.sessionPersistence.load(cancelledChildId!)).rejects.toThrow(/not found/)
+
+    expect(succeeded.isError ? undefined : succeeded.value).toEqual({
+      kind: 'continuable',
+      subagentId: survivingChildId,
+    })
+    await vi.waitFor(() => {
+      expect(ctx.agents.get(survivingChildId!)).toBeUndefined()
+    }, { timeout: 5_000 })
+    const loaded = await ctx.sessionPersistence.load(survivingChildId!)
+    expect(loaded.events.some(event => event.type === 'subagent/descriptor')).toBe(true)
+    expect(loaded.events.some(event => event.type === 'assistant/message')).toBe(true)
+  })
+
 })
 
 describe('background preflight failure (no orphaned child, by construction)', () => {
   it('never starts the child when tasks.start preflight throws', async () => {
-    // With no control surface, task preflight fails before the provider can spawn.
+    // With no task controller, preflight fails before the provider can spawn.
     const ctx = await setup({ provider: 'mock' })
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(LocalTaskService)
@@ -1027,7 +1125,7 @@ describe('background preflight failure (no orphaned child, by construction)', ()
       agent: parent,
     })
     expect(result.isError).toBe(true)
-    expect(text(result)).toContain('no control surface is attached')
+    expect(text(result)).toContain('no task controller serves this agent')
     // Declare-then-execute: the failed preflight means no child ever existed.
     expect(starts).toBe(0)
   })

@@ -1,8 +1,9 @@
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve, sep } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { describe, expect, it, vi } from 'vitest'
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import {
   addHarnessSourceSection, assertEntriesActivated, assertEntriesLoaded, boot,
@@ -557,6 +558,73 @@ describe('boot', () => {
     }
   })
 
+  it('can resolve bare plugins from the harness when the config project shadows their package name', async () => {
+    const dir = tmp()
+    const harness = tmp()
+    const absolutePlugin = join(dir, 'absolute.mjs')
+    const shadow = join(dir, 'node_modules', '@deepseek-ai', 'dsh-system-prompt')
+    const harnessPlugin = join(harness, 'node_modules', '@deepseek-ai', 'dsh-system-prompt')
+    mkdirSync(shadow, { recursive: true })
+    mkdirSync(harnessPlugin, { recursive: true })
+    writeFileSync(join(shadow, 'package.json'), JSON.stringify({
+      name: '@deepseek-ai/dsh-system-prompt',
+      type: 'module',
+      exports: './index.mjs',
+    }))
+    writeFileSync(join(shadow, 'index.mjs'), [
+      'export function apply(ctx) {',
+      '  ctx.provide("shadowPluginLoaded", true)',
+      '}',
+      '',
+    ].join('\n'))
+    writeFileSync(join(harnessPlugin, 'package.json'), JSON.stringify({
+      name: '@deepseek-ai/dsh-system-prompt',
+      type: 'module',
+      exports: './index.mjs',
+    }))
+    writeFileSync(join(harnessPlugin, 'index.mjs'), [
+      'export function apply(ctx) {',
+      '  ctx.provide("harnessPluginLoaded", true)',
+      '}',
+      '',
+    ].join('\n'))
+    writeFileSync(join(dir, 'relative.mjs'), 'export function apply(ctx) { ctx.provide("relativePluginLoaded", true) }\n')
+    writeFileSync(absolutePlugin, 'export function apply(ctx) { ctx.provide("absolutePluginLoaded", true) }\n')
+    const entries = [
+      '- id: prompt',
+      "  name: '@deepseek-ai/dsh-system-prompt'",
+      '- id: relative',
+      "  name: './relative.mjs'",
+    ]
+    const configOwnedPath = join(dir, 'config-owned.cordis.yml')
+    writeFileSync(configOwnedPath, [...entries, ''].join('\n'))
+    const hostOwnedPath = join(dir, 'host-owned.cordis.yml')
+    writeFileSync(hostOwnedPath, [
+      ...entries,
+      '- id: absolute',
+      `  name: ${JSON.stringify(absolutePlugin)}`,
+      '',
+    ].join('\n'))
+    const configOwned = await boot(NAME, configOwnedPath)
+    try {
+      expect(configOwned.get('shadowPluginLoaded')).toBe(true)
+      expect(configOwned.get('systemPrompt')).toBeUndefined()
+      expect(configOwned.get('relativePluginLoaded')).toBe(true)
+    } finally {
+      await configOwned.fiber.dispose()
+    }
+    const harnessBaseUrl = pathToFileURL(join(harness, 'entry.mjs')).href
+    const ctx = await boot(NAME, hostOwnedPath, undefined, undefined, harnessBaseUrl)
+    try {
+      expect(ctx.get('harnessPluginLoaded')).toBe(true)
+      expect(ctx.get('shadowPluginLoaded')).toBeUndefined()
+      expect(ctx.get('relativePluginLoaded')).toBe(true)
+      expect(ctx.get('absolutePluginLoaded')).toBe(true)
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
   it('runs host preparation before the Loader tree mounts', async () => {
     const dir = tmp()
     writeFileSync(join(dir, 'noop.mjs'), 'export const name = "noop"\nexport function apply() {}\n')
@@ -631,7 +699,18 @@ describe('boot', () => {
       '}',
       '',
     ].join('\n'))
-    writeFileSync(join(dir, 'cordis.yml'), '- id: exiting\n  name: ./exiting.mjs\n')
+    writeFileSync(join(dir, 'delayed.mjs'), [
+      'await new Promise(resolve => setTimeout(resolve, 10))',
+      'export function apply() {}',
+      '',
+    ].join('\n'))
+    writeFileSync(join(dir, 'cordis.yml'), [
+      '- id: exiting',
+      '  name: ./exiting.mjs',
+      '- id: delayed',
+      '  name: ./delayed.mjs',
+      '',
+    ].join('\n'))
     const ctx = await boot(NAME, join(dir, 'cordis.yml'))
     expect(ctx.get('loader')).toBeUndefined()
   })
@@ -642,6 +721,25 @@ describe('boot', () => {
     await expect(boot(NAME, join(dir, 'cordis.yml'))).rejects.toThrow(
       `${NAME}: plugin tree failed to load: failed to apply loader entry`,
     )
+  })
+
+  it('labels a deferred config failure with its row and leaves the source file unchanged', async () => {
+    const dir = tmp()
+    const configPath = join(dir, 'cordis.yml')
+    const config = [
+      '- id: invalid-config',
+      '  name: ./noop.mjs',
+      '  config:',
+      '    value: !!js "JSON.parse(\'invalid\')"',
+      '',
+    ].join('\n')
+    writeFileSync(join(dir, 'noop.mjs'), 'export function apply() {}\n')
+    writeFileSync(configPath, config)
+
+    await expect(boot(NAME, configPath)).rejects.toThrow(
+      'failed to apply loader entry invalid-config (./noop.mjs)',
+    )
+    expect(readFileSync(configPath, 'utf8')).toBe(config)
   })
 
   it('appends the deepest cause with its original stack to the load failure', async () => {

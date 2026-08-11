@@ -501,6 +501,11 @@
       "source": "packages/session/session-persistence/src/index.ts"
     },
     {
+      "doc": "docs/subsystems/persistence.md",
+      "symbol": "SessionRawArtifact",
+      "source": "packages/session/session-persistence/src/index.ts"
+    },
+    {
       "doc": "docs/subsystems/session-query.md",
       "symbol": "SessionEventSurface",
       "source": "packages/session-query/session-query/src/types.ts"
@@ -841,6 +846,31 @@
       "source": "packages/interaction/user-approval/src/index.ts"
     },
     {
+      "doc": "docs/subsystems/attachment.md",
+      "symbol": "ImageMediaType",
+      "source": "packages/attachment/attachment/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/attachment.md",
+      "symbol": "ImageAttachmentRef",
+      "source": "packages/attachment/attachment/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/attachment.md",
+      "symbol": "ImageAttachmentLimits",
+      "source": "packages/attachment/attachment/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/attachment.md",
+      "symbol": "SaveImageAttachment",
+      "source": "packages/attachment/attachment/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/attachment.md",
+      "symbol": "StoredImageAttachment",
+      "source": "packages/attachment/attachment/src/types.ts"
+    },
+    {
       "doc": "docs/subsystems/bash.md",
       "symbol": "BashExecRequest",
       "source": "packages/bash/bash/src/types.ts"
@@ -1122,6 +1152,11 @@
     },
     {
       "doc": "docs/subsystems/skills.md",
+      "symbol": "SkillViewOptions",
+      "source": "packages/skill/skill/src/index.ts"
+    },
+    {
+      "doc": "docs/subsystems/skills.md",
       "symbol": "SkillProviderObservation",
       "source": "packages/skill/skill/src/index.ts"
     },
@@ -1193,6 +1228,11 @@
     {
       "doc": "docs/subsystems/subagent.md",
       "symbol": "SubagentReportDelivery",
+      "source": "packages/subagent/subagent/src/continuation.ts"
+    },
+    {
+      "doc": "docs/subsystems/subagent.md",
+      "symbol": "SubagentSettledMessageSource",
       "source": "packages/subagent/subagent/src/continuation.ts"
     },
     {
@@ -1308,7 +1348,7 @@
     {
       "doc": "docs/subsystems/workflow.md",
       "symbol": "WorkflowStartRequest",
-      "source": "packages/workflow/workflow/src/types.ts"
+      "source": "packages/workflow/workflow/src/runtime-types.ts"
     },
     {
       "doc": "docs/subsystems/workflow.md",
@@ -1323,7 +1363,7 @@
     {
       "doc": "docs/subsystems/workflow.md",
       "symbol": "WorkflowRun",
-      "source": "packages/workflow/workflow/src/types.ts"
+      "source": "packages/workflow/workflow/src/runtime-types.ts"
     },
     {
       "doc": "docs/subsystems/lsp.md",
@@ -1652,6 +1692,11 @@
     },
     {
       "doc": "docs/subsystems/telemetry.md",
+      "symbol": "TelemetrySharingStatus",
+      "source": "packages/session/session-telemetry/src/index.ts"
+    },
+    {
+      "doc": "docs/subsystems/telemetry.md",
       "symbol": "TelemetrySeverity",
       "source": "packages/session/session-telemetry/src/index.ts"
     },
@@ -1764,6 +1809,101 @@
       "doc": "docs/subsystems/core.md",
       "symbol": "AgentOptions",
       "source": "packages/core/agent/src/runtime-types.ts"
+    },
+    {
+      "doc": "docs/subsystems/feedback.md",
+      "symbol": "MessageFeedbackVersion",
+      "source": "packages/feedback/message-feedback/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/feedback.md",
+      "symbol": "MessageFeedbackRating",
+      "source": "packages/feedback/message-feedback/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/feedback.md",
+      "symbol": "MessageFeedbackItem",
+      "source": "packages/feedback/message-feedback/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/feedback.md",
+      "symbol": "MessageFeedbackListRequest",
+      "source": "packages/feedback/message-feedback/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/feedback.md",
+      "symbol": "MessageFeedbackListValue",
+      "source": "packages/feedback/message-feedback/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/feedback.md",
+      "symbol": "MessageFeedbackPutRequest",
+      "source": "packages/feedback/message-feedback/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/feedback.md",
+      "symbol": "MessageFeedbackDeleteRequest",
+      "source": "packages/feedback/message-feedback/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/feedback.md",
+      "symbol": "MessageFeedbackDeleteValue",
+      "source": "packages/feedback/message-feedback/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/feedback.md",
+      "symbol": "MessageFeedbackSessionNotFound",
+      "source": "packages/feedback/message-feedback/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/feedback.md",
+      "symbol": "MessageFeedbackTargetNotFound",
+      "source": "packages/feedback/message-feedback/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/feedback.md",
+      "symbol": "MessageFeedbackVersionConflict",
+      "source": "packages/feedback/message-feedback/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/feedback.md",
+      "symbol": "MessageFeedbackNoteBlank",
+      "source": "packages/feedback/message-feedback/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/feedback.md",
+      "symbol": "MessageFeedbackNoteTooLarge",
+      "source": "packages/feedback/message-feedback/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/feedback.md",
+      "symbol": "MessageFeedbackFailure",
+      "source": "packages/feedback/message-feedback/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/feedback.md",
+      "symbol": "MessageFeedbackSuccess",
+      "source": "packages/feedback/message-feedback/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/feedback.md",
+      "symbol": "MessageFeedbackRejected",
+      "source": "packages/feedback/message-feedback/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/feedback.md",
+      "symbol": "MessageFeedbackListResult",
+      "source": "packages/feedback/message-feedback/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/feedback.md",
+      "symbol": "MessageFeedbackPutResult",
+      "source": "packages/feedback/message-feedback/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/feedback.md",
+      "symbol": "MessageFeedbackDeleteResult",
+      "source": "packages/feedback/message-feedback/src/types.ts"
     }
   ]
 }

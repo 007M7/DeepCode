@@ -60,7 +60,7 @@ Kept deliberately narrow per the "not every string needs a brand" policy. Each o
 
 ## Verification
 
-The landed invariants: `BashTaskId` and `OwnerToken` are defined in `dsh-bash` and threaded end-to-end (Service Definition, the `dsh-bash-local` generation site, the `dsh-tool-bash` model-facing surface) with no `dsh-bash` dependency on `dsh-session`; no collection keyed by an in-scope branded id (`CallId`/`SessionId`/`BashTaskId`) is keyed by bare `string`; public method params and exported signatures keep the brand; and brands are constructed via the cast factory at each boundary where a raw string enters (provider call id, ACP session id, model-supplied `task_id`), never as scattered `as` casts.
+The landed invariants: `BashTaskId` and `OwnerToken` are defined in `dsh-bash` and threaded end-to-end (Service Definition, the `dsh-bash-local` generation site, the `dsh-tool-bash` model-facing tool) with no `dsh-bash` dependency on `dsh-session`; no collection keyed by an in-scope branded id (`CallId`/`SessionId`/`BashTaskId`) is keyed by bare `string`; public method params and exported signatures keep the brand; and brands are constructed via the cast factory at each boundary where a raw string enters (provider call id, ACP session id, model-supplied `task_id`), never as scattered `as` casts.
 
 ## Consequences
 

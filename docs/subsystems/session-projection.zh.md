@@ -45,7 +45,7 @@ interface ProjectionDefinition<K extends keyof SessionProjectionMap, S> {
    */
   view(state: S): SessionProjectionMap[K]
   /**
-   * Persisted-cache invalidation anchor: bump whenever the state shape or the
+   * Persisted-cache invalidation version: bump whenever the serialized state fields or the
    * fold semantics change, so persisted `(sessionId, key, ver, seq, val)`
    * rows from an older unit are discarded instead of being forward-applied
    * into garbage. Non-negative integer.
@@ -86,7 +86,7 @@ type ProjectionChangeListener = (
 ) => void
 ```
 
-`snapshot(session)` 是完全同步的：载体在切出页面切片的同一 tick 内读取它，`asOfSeq` 之所以是一个一致切面正系于此；且每个值在离开前都要经过其单元的 schema 校验（误写成异步的 `view` 会返回 Promise，让这道边界解析当场大声失败）。变更流对每个已提交事件、每个状态*引用*发生变化的单元各触发一次：`apply` 的同引用纪律就是那道闸门。
+`snapshot(session)` 完全同步：载体在切出页面切片的同一 tick 内读取它，因此 `asOfSeq` 使两次读取使用同一个序号。每个值在返回前都会通过其单元的 schema 校验；如果 `view` 被误写为异步函数，它会返回 Promise，schema 校验将拒绝该值。对于每个已提交事件，变更流会为每个状态*引用*已变化的单元触发一次；状态未变时，`apply` 必须返回同一引用。
 
 ## 注册表：`ctx.sessionProjections`
 
@@ -96,9 +96,9 @@ type ProjectionChangeListener = (
 
 <a id="cordis-surface"></a>
 
-## Cordis surface
+## Cordis API
 
-Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` surface lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
+Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
 
 <a id="ctxsessionprojectioncache--sessionprojectioncache"></a>
 
@@ -154,7 +154,7 @@ Source: [`packages/session/session-projection-cache/src/index.ts:71`](../../pack
 
 ### `ctx.sessionProjections` — `SessionProjectionRegistry`
 
-`ctx.sessionProjections`: the projection unit table and its drive. The service subscribes to `session/event` once; every committed event passes every registered unit's `apply` (eager drive), and a changed state reference notifies the change feed with the schema-validated view. Cells build lazily — a unit registered after events flowed, or a session older than the registry, folds `init` over the in-memory log on first touch (event or read). Registration is an effect (disposer rides the calling fiber): an unloaded domain plugin's key disappears from snapshots and clients read it as capability absence. Duplicate keys throw. Domain plugins register under `ctx.inject(['sessionProjections'], …)` so headless assemblies without the registry stay unaffected.
+`ctx.sessionProjections`: the projection unit table and its drive. The service subscribes to `session/event` once; every committed event passes every registered unit's `apply` (eager drive), and a changed state reference notifies the change feed with the schema-validated view. Cells build lazily — a unit registered after events flowed, or a session older than the registry, folds `init` over the in-memory log on first touch (event or read). Registration is an effect (disposer rides the calling fiber): an unloaded domain plugin's key disappears from snapshots and clients read it as capability absence. Domain plugins register under `ctx.inject(['sessionProjections'], …)` so headless assemblies without the registry stay unaffected. Registrants sharing a key share one unit and are counted: the same tool package mounted in N agent presets registers N times, and the key survives until the last one unloads.
 
 ```ts cordis-catalog
 /**
@@ -162,7 +162,7 @@ Source: [`packages/session/session-projection-cache/src/index.ts:71`](../../pack
  * context's fiber: disposing the fiber (or calling the returned disposer)
  * removes the key — and the unit's cached cells — from subsequent drives
  * and snapshots.
- * @param definition - key, boundary schema, pure unit functions, and stateVersion.
+ * @param definition - key, state schema, pure unit functions, and stateVersion.
  * @returns the exact disposer that unregisters this unit.
  */
 register<K extends keyof SessionProjectionMap, S>(definition: ProjectionDefinition<K, S>): () => void
@@ -258,5 +258,5 @@ restore(checkpoint: ProjectionCheckpoint, events: readonly SessionEvent[], baseS
 
 Types: [Session](session.md) · [SessionEvent](session.md)
 
-Source: [`packages/session/session-projection/src/index.ts:156`](../../packages/session/session-projection/src/index.ts)
+Source: [`packages/session/session-projection/src/index.ts:171`](../../packages/session/session-projection/src/index.ts)
 <!-- END GENERATED cordis-surface -->

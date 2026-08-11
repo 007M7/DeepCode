@@ -8,7 +8,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import { z } from 'zod'
 import SessionStore from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
@@ -127,12 +127,43 @@ describe('SessionProjectionRegistry drive', () => {
     expect(snapshot.values['test/marks']).toEqual({ marks: [] })
   })
 
-  it('rejects duplicate keys loud and keeps the first unit', async () => {
+  it('shares one unit between registrants of the same key', async () => {
     const { ctx, session } = await harness()
     ctx.sessionProjections.register(marksUnit())
-    expect(() => ctx.sessionProjections.register(marksUnit())).toThrow(/"test\/marks" is already registered/)
+
+    // One definition already serves every session (cells are keyed by
+    // Session), and registrants are per-session now: an agent preset mounts
+    // the same tool package once per agent.
+    expect(() => ctx.sessionProjections.register(marksUnit())).not.toThrow()
     mark(session, ['kept'])
     expect(ctx.sessionProjections.snapshot(session).values['test/marks']).toEqual({ marks: ['kept'] })
+  })
+
+  it('keeps the unit until the last registrant releases it', async () => {
+    const { ctx, session } = await harness()
+    const first = ctx.sessionProjections.register(marksUnit())
+    const second = ctx.sessionProjections.register(marksUnit())
+    mark(session, ['kept'])
+
+    first()
+
+    // The regression this counts against: one session ending used to strip
+    // the projection from every other live session, because the first
+    // registrant owned the only disposer.
+    expect(ctx.sessionProjections.snapshot(session).values['test/marks']).toEqual({ marks: ['kept'] })
+    second()
+    expect(ctx.sessionProjections.snapshot(session).values).toEqual({})
+  })
+
+  it('refuses to share a key across a stateVersion change', async () => {
+    const { ctx } = await harness()
+    ctx.sessionProjections.register(marksUnit())
+
+    // The one incompatibility a runtime comparison can name: the versioned
+    // contract says the cached state shape differs, so the two cannot share
+    // cells. Everything else about a definition is functions.
+    expect(() => ctx.sessionProjections.register({ ...marksUnit(), stateVersion: 9 }))
+      .toThrow(/already registered at stateVersion 1; refusing to share it with stateVersion 9/)
   })
 
   it('rejects a non-integer or negative stateVersion at register time', async () => {

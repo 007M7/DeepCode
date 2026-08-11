@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -117,7 +117,7 @@ describe('request-level dynamic configuration', () => {
     await expect(ctx.llm.listModels('deepseek-official')).resolves.toHaveLength(2)
     await ctx.settings.update(NS, { models: [{ id: 'settings-model', name: 'From Settings' }] })
     await expect(ctx.llm.listModels('deepseek-official')).resolves.toEqual([
-      { provider: 'deepseek-official', id: 'settings-model', name: 'From Settings' },
+      { provider: 'deepseek-official', id: 'settings-model', name: 'From Settings', inputModalities: ['text'] },
     ])
   })
 
@@ -156,7 +156,7 @@ describe('request-level dynamic configuration', () => {
     await expect(ctx.llm.listModels('deepseek-official')).resolves.toHaveLength(2)
     await ctx.settings.update(NS, { models: [{ id: 'recovered' }] })
     await expect(ctx.llm.listModels('deepseek-official')).resolves.toEqual([
-      { provider: 'deepseek-official', id: 'recovered', name: 'recovered' },
+      { provider: 'deepseek-official', id: 'recovered', name: 'recovered', inputModalities: ['text'] },
     ])
   })
 

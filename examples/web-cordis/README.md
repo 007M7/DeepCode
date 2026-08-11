@@ -18,4 +18,4 @@ Start the ACP automation server instead:
 pnpm run demo:cordis acp
 ```
 
-Both commands require `DEEPSEEK_API_KEY`. The [Cordis tool reference](../../packages/self-modification/tool-cordis/README.md) owns the tool, lifecycle, and safety contracts.
+Both commands require `DEEPSEEK_API_KEY`. The [Cordis tool reference](../../packages/self-modification/tool-cordis/README.md) defines the tool arguments, lifetime, cleanup, and safety contracts.

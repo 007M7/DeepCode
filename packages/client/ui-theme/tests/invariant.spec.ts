@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest'
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import { apply as nodeApply } from '@deepseek-ai/dsh-client-ui-theme'
 import { apply as clientApply, inject, ThemeService } from '@deepseek-ai/dsh-client-ui-theme/client'
 import * as ThemeInvariant from '@deepseek-ai/dsh-client-ui-theme/invariant'
-import { apply as localeApply } from '@deepseek-ai/dsh-client-locale/client'
+import { apply as localeApply, inject as localeInject } from '@deepseek-ai/dsh-client-locale/client'
 import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
 import InvariantService from '@deepseek-ai/dsh-invariants'
 
@@ -15,18 +15,25 @@ describe('invariant companion', () => {
     await expect(ctx.plugin(ThemeInvariant).await()).resolves.toBeDefined()
   })
 
-  it('node-half apply is a no-op host placeholder', () => {
-    nodeApply()
-    expect(true).toBe(true) // reaching here without throw is the contract
+  it('node-half waits for optional Host services', () => {
+    nodeApply(new Context())
+    expect(true).toBe(true)
   })
 
   it('client apply provides ctx.theme over the slots/locale edges', async () => {
     // The feature registers its own Appearance settings row with localized
     // copy, hence the slots + locale edges.
-    expect(inject).toEqual(['slots', 'locale'])
+    expect(inject).toEqual(['slots', 'locale', 'connection'])
     const ctx = new Context()
     new SlotsService(ctx)
-    await ctx.plugin({ inject: ['slots'], apply: localeApply }).await()
+    ctx.provide('connection', {
+      api: { settings: { describe: () => Promise.resolve({
+        rpcId: 'theme-invariant' as never,
+        result: { ok: true, value: { writable: true, hasDocument: false, namespaces: [] } },
+      }) } },
+      isLoopback: true,
+    } as never)
+    await ctx.plugin({ inject: localeInject, apply: localeApply }).await()
     await ctx.plugin({ inject, apply: clientApply }).await()
     expect(ctx.get('theme')).toBeInstanceOf(ThemeService)
   })

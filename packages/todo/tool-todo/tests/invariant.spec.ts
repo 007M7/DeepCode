@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import SessionStore, { type Session, type SessionEvent } from '@deepseek-ai/dsh-session'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
 import * as ToolTodo from '@deepseek-ai/dsh-tool-todo'

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
 import Lsp, { LspProviderId, type LspProvider, type LspProviderQuery, type LspQueryResult } from '@deepseek-ai/dsh-lsp'

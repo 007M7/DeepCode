@@ -18,7 +18,7 @@ ACP 服务器无法创建或加载任何一个会话——而这正是编辑器�
 
 ## 时间线
 
-- bridge（RFC 010）落地时附带完整的单元测试套件（codec、内存传输、基于属性的协议形状测试、失败路径、HMR（热模块替换））、一个需要 key 的真实 API e2e 测试，以及一个无需 key 的 stdout 纯净性 e2e 测试。全部绿色，100% 覆盖率。
+- bridge（RFC 010）落地时有一套完整的单元测试，覆盖 codec、内存传输、生成的协议消息、失败路径和 HMR（热模块替换）；另有一个需要 key 的真实 API e2e 测试和一个无需 key 的 stdout 纯净性 e2e 测试。全部绿色，100% 覆盖率。
 - 真实 Zed 会话在 `session/new` 上立即失败，报错 `cannot get property "agents" without inject`。
 - 调查最初追踪了一个 Cordis「traceable/shadow」理论（看似合理，且该机制确实存在——见 Bug #2），随后在 vendor 目录中的 `reflect.ts` 里对实际 fiber 遍历做了插桩，并运行了真实子进程。跟踪结果显示，异常在 `apply()` 第 179 行、*插件加载时*抛出，位于 ROOT fiber 且没有 shadow——推翻了 shadow 理论对 `session/new` 的解释。
 - 找到根因 #1：一行多余的 `export default apply`。删除后 `session/new` 修复。
@@ -26,7 +26,7 @@ ACP 服务器无法创建或加载任何一个会话——而这正是编辑器�
 
 ## 根因 #1——`export default apply` 丢弃了插件的 `inject`（导致 `session/new` 崩溃）
 
-`packages/acp/acp/src/index.ts` 是一个*命名空间插件*：它将 `name`、`inject`、`Config` 和 `apply` 作为独立的命名导出——与仓库中其他所有插件（`invariants`、`llm-deepseek`、`tool-bash`、`tui` 等）形状相同。但它*还*多了一行其他插件都没有的代码：
+`packages/acp/acp/src/index.ts` 是一个*命名空间插件*：它将 `name`、`inject`、`Config` 和 `apply` 作为独立的命名导出，仓库中其他所有插件（`invariants`、`llm-deepseek`、`tool-bash`、`tui` 等）也是如此。但它*还*多了一行其他插件都没有的代码：
 
 ```ts ignore-check
 export const name = 'acp'

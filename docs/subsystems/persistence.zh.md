@@ -77,12 +77,23 @@ interface SessionHeader {
    * resume — a runtime-only depth would reset a resumed child to top-level.
    */
   readonly delegationDepth?: number
+  /**
+   * Id of the agent preset this session's agent was composed from, when the
+   * deployment composes per session. Durable because the preset decides the
+   * session's tools and prompt: a resume that restored a different composition
+   * would replay history the model can no longer act on.
+   */
+  readonly agentPreset?: string
 }
 ```
 
+## 格式拒绝：本构建无法可靠读取的日志
+
+后端用 `SessionFormatUnsupportedError` 拒绝无法可靠解读的日志，它与 `SessionPersistenceCorruptionError` 区分，因为数据没有损坏。header 的 `version` 比 `SESSION_FORMAT_VERSION` 新时，消息说明方向（"由更新的 harness 写入，请升级 harness 后打开"）；比它旧时说明本构建没有升级路径。经过 legacy 形状归一化后，本构建生成词汇表（`KNOWN_SESSION_EVENT_TYPES`，由 `gen-persistence-catalog` 生成）之外的事件类型同样被拒绝，除非该事件的信封带 `ignorable: true`：静默跳过一个不认识的必需事件可能改变日志其余部分的解读方式。后端为每个会话保留独立文件时，消息附上原始日志路径，被拒绝的文本仍然可读。JSONL 后端直接从原始 header 行拒绝外来版本，先于当前 header 形状校验和任何事件行解码，因此结构完全不同的未来格式仍会报告升级方向，绝不会报"损坏"；SQLite 则先由自己的 `SCHEMA_VERSION` pragma 把关整个文件的结构。设计理由与推迟建设的升级器链见 [session-log 版本机制 Agent Note](../../.agents/notes/implemented/architecture/2026-08-10-session-log-version-mechanism.md)。
+
 ## `CreateSessionOptions`：seed 与元数据
 
-通过 store 创建 `Session` 时会接收 `seed`（初始回放或 fork 历史）与 `meta`（store 折叠进 `SessionHeader` 的存储层字段）。store 填充 `version`/`id` 并为 `createdAt` 提供默认值；调用方可以提供已校验的绝对 `cwd`、`parentSession` 谱系、`seedLength` 种子边界、可选的粗粒度 `origin`、`delegationDepth` 以及已有的 `createdAt`。`origin: 'subagent'` 让产品导航能够隐藏重复的 child 行；它不证明描述符有效，也不证明 child 可以恢复。
+通过 store 创建 `Session` 时会接收 `seed`（初始回放或 fork 历史）与 `meta`（store 折叠进 `SessionHeader` 的存储层字段）。store 填充 `version`/`id` 并为 `createdAt` 提供默认值；调用方可以提供已校验的绝对 `cwd`、`parentSession` 谱系、`seedLength` 种子边界、可选的粗粒度 `origin`、`delegationDepth`、该 agent 所依据组装的 `agentPreset` 以及已有的 `createdAt`。`origin: 'subagent'` 让产品导航能够隐藏重复的 child 行；它不证明描述符有效，也不证明 child 可以恢复。
 
 ```ts type-equiv
 /**
@@ -104,11 +115,28 @@ interface CreateSessionOptions {
     readonly seedLength?: number
     readonly origin?: 'subagent'
     readonly delegationDepth?: number
+    readonly agentPreset?: string
   }
 }
 ```
 
 因此，回放/fork 的调用方式为 `ctx.sessions.create(id, { seed: seedEvents })`；将一个*持久化*会话恢复为活跃 agent 的调用方式为 `ctx.agents.resume({ resumeSessionId })`。
+
+## `SessionRawArtifact`——逐字存储工件文本
+
+后端为单个会话自持的工件文本，与其持久化写入的字节逐字一致（按物理编码解码）。`readRaw` 返回它而不从解析后事件重建，因此后端特定的序列化（chunk 打包、键序、换行）得以保留。Consumer 须先检查 `supportsRawArtifacts`：`false` 表示后端不提供此能力（如 SQLite），而 `readRaw(...) === undefined` 表示受支持的后端没有该会话的已实体化工件。
+
+```ts type-equiv
+/** A backend's own raw artifact text for one session, verbatim. */
+interface SessionRawArtifact {
+  /** The session header parsed from the artifact's own first line. */
+  readonly meta: SessionHeader
+  /** The artifact's base filename on disk, without any physical encoding suffix. */
+  readonly filename: string
+  /** The artifact's full text content, decoded from the backend's physical encoding. */
+  readonly content: string
+}
+```
 
 ## 准备与恢复所有权
 
@@ -203,15 +231,15 @@ interface SessionPersistenceSnapshot {
 两者都实现同一个抽象 `SessionPersistence`（在 `SessionEvent` 上执行 locate/create/append/prepare/load/inspect/readFrom/list/listSnapshots，观察方法可选支持取消），并通过共享的 `runPersistenceContract` 套件：
 
 - **[dsh-session-persistence-jsonl](../../packages/session/session-persistence-jsonl)**——每个会话一份仅追加的逻辑 JSONL 日志，默认存储为带 checksum 的连续 Zstandard frame，也可配置为原始行；支持崩溃安全的原子写入、被中断轮次的恢复以及读取/回放路径。
-- **[dsh-session-persistence-sqlite](../../packages/session/session-persistence-sqlite)**：基于 `node:sqlite`，每个 `SessionEvent` 一行。行结构 `(session_id, seq, type, time, data, source_event_seqs, surface_op)` 与事件 1:1 映射（包含可选的 surface 元数据），因此没有需要保持同步的并行持久化 schema。
+- **[dsh-session-persistence-sqlite](../../packages/session/session-persistence-sqlite)**：基于 `node:sqlite`，每个 `SessionEvent` 一行。行字段 `(session_id, seq, type, time, data, source_event_seqs, surface_op)` 与事件 1:1 映射（包含可选的 surface 元数据），因此没有需要保持同步的并行持久化 schema。
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
 <a id="cordis-surface"></a>
 
-## Cordis surface
+## Cordis API
 
-Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` surface lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
+Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
 
 <a id="ctxsessionpersistence--sessionpersistence-abstract-seam"></a>
 
@@ -228,6 +256,23 @@ Durable append-only session storage. Implementations preserve contiguous, lossle
  * @returns the backend-specific absolute location, when one exists.
  */
 abstract locate(meta: SessionHeader): SessionLocation | undefined
+
+/**
+ * Read a session's backend-owned artifact text verbatim — the exact durable
+ * bytes the backend wrote (decoded from its physical encoding, e.g. a
+ * decompressed JSONL). The returned `content` is the raw text, not a
+ * reconstruction from parsed events, so it preserves backend-specific
+ * serialization (chunk packing, key order, line breaks). Callers first test
+ * {@link supportsRawArtifacts}; `undefined` then means only that the requested
+ * session has no materialized artifact.
+ * @param _id - the persisted session to read (unused by the default: no
+ * per-session artifact).
+ * @param signal - optional cancellation for backend read work.
+ * @returns the raw artifact plus its parsed header, or `undefined` when the
+ * session is absent.
+ * @throws when this backend does not expose per-session raw artifacts.
+ */
+readRaw(_id: SessionId, signal?: AbortSignal): Promise<SessionRawArtifact | undefined>
 
 /**
  * Register a new session's metadata. A backend MAY defer the physical write
@@ -334,5 +379,5 @@ abstract listSnapshots(signal?: AbortSignal): Promise<SessionPersistenceSnapshot
 
 Types: [SessionEvent](session.md) · [SessionId](core.md)
 
-Source: [`packages/session/session-persistence/src/index.ts:72`](../../packages/session/session-persistence/src/index.ts)
+Source: [`packages/session/session-persistence/src/index.ts:84`](../../packages/session/session-persistence/src/index.ts)
 <!-- END GENERATED cordis-surface -->

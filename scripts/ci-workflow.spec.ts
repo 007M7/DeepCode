@@ -27,41 +27,76 @@ describe('CI workflow', () => {
     }
   })
 
-  it('keeps Wine blocking while native Windows reports independently', () => {
+  it('keeps a required Wine Windows job, a non-blocking native Windows job with failover, and a master-only standby', () => {
     const workflow = loadWorkflow('.github/workflows/ci.yml')
     if (!isRecord(workflow.jobs)
       || !isRecord(workflow.jobs.windows)
       || !isRecord(workflow.jobs['windows-native'])
+      || !isRecord(workflow.jobs['wine-apt-cache'])
+      || !isRecord(workflow.jobs['serial-windows'])
       || !isRecord(workflow.jobs['all-checks-passed'])) {
-      throw new TypeError('CI workflow must define Wine, native Windows, and aggregate jobs')
+      throw new TypeError('CI workflow must define windows, windows-native, wine-apt-cache, serial-windows, and all-checks-passed jobs')
     }
 
     const windows = workflow.jobs.windows
     const windowsNative = workflow.jobs['windows-native']
+    const wineAptCache = workflow.jobs['wine-apt-cache']
+    const serialWindows = workflow.jobs['serial-windows']
     const aggregate = workflow.jobs['all-checks-passed']
-    if (!Array.isArray(windows.steps) || !Array.isArray(windowsNative.steps) || !Array.isArray(aggregate.needs)) {
-      throw new TypeError('Windows jobs must define steps and the aggregate must define needs')
+    if (!Array.isArray(windows.steps) || !Array.isArray(aggregate.needs)) {
+      throw new TypeError('Windows job must define steps and the aggregate must define needs')
     }
-    const nativeCommandSteps = windowsNative.steps.filter((step): step is Record<string, unknown> & { run: string } => (
+    const commandSteps = windows.steps.filter((step): step is Record<string, unknown> & { run: string } => (
       isRecord(step) && typeof step.run === 'string'
     ))
 
+    // Required PR job: Wine on ubuntu-latest, runs wine-windows-gates.sh.
     expect(windows['runs-on']).toBe('ubuntu-latest')
     expect(windows.name).toBe('windows node 24 / wine blocking')
     expect(windows.if).toBe("github.event_name == 'pull_request'")
-    expect(JSON.stringify(windows)).toContain('bash scripts/wine-windows-gates.sh')
-    expect(workflow.jobs).toHaveProperty('wine-apt-cache')
-    expect(windowsNative['runs-on']).toBe('windows-2025')
+    expect(commandSteps.some(step => step.run.includes('wine-windows-gates.sh'))).toBe(true)
+
+    // windows-native: non-blocking native job with failover, runs windows-complete.
+    expect(typeof windowsNative['runs-on']).toBe('string')
+    expect(windowsNative['runs-on']).toContain('DSH_CI_FAILOVER')
+    expect(windowsNative['runs-on']).toContain('self-hosted')
+    expect(windowsNative['runs-on']).toContain('dsh-win-ci')
+    expect(windowsNative['runs-on']).toContain('dsh-windows-2025-16core')
     expect(windowsNative.name).toBe('windows node 24 / native complete')
-    expect(windowsNative['timeout-minutes']).toBe(60)
     expect(windowsNative.if).toBe("github.event_name == 'pull_request'")
-    expect(windowsNative).not.toHaveProperty('continue-on-error')
-    expect(nativeCommandSteps).toHaveLength(3)
-    expect(nativeCommandSteps.every(step => step.shell === 'pwsh')).toBe(true)
+    const nativeCommandSteps = (windowsNative.steps as unknown[]).filter((step): step is Record<string, unknown> & { run: string } => (
+      isRecord(step) && typeof step.run === 'string'
+    ))
     expect(nativeCommandSteps.map(step => step.run)).toContain('pnpm run check:ci:windows-complete')
-    expect(JSON.stringify(windowsNative)).not.toMatch(/wine/i)
+
+    // wine-apt-cache: master-only, seeds the Wine apt cache.
+    expect(wineAptCache.if).toBe("github.event_name == 'push' && github.ref == 'refs/heads/master'")
+    expect(wineAptCache['runs-on']).toBe('ubuntu-latest')
+
+    // serial-windows: master-only standby, self-hosted, non-blocking.
+    expect(serialWindows.if).toBe("github.event_name == 'push' && github.ref == 'refs/heads/master'")
+    expect(serialWindows['runs-on']).toEqual(['self-hosted', 'dsh-win-ci', 'windows'])
+    expect(serialWindows.name).toBe('serial / windows (self-hosted standby)')
+
+    // Aggregate: Wine `windows` required, native `windows-native` excluded.
     expect(aggregate.needs).toContain('windows')
     expect(aggregate.needs).not.toContain('windows-native')
+    expect(aggregate.needs).not.toContain('serial-windows')
+  })
+
+  it('keeps supported LSP source under native Windows coverage', () => {
+    const config = readFileSync(resolve(root, 'vitest.config.ts'), 'utf8')
+
+    expect(config).not.toContain('packages/lsp/lsp-local/src/connection.ts')
+    expect(config).not.toContain('packages/lsp/lsp-local/src/index.ts')
+    expect(config).not.toContain('packages/lsp/lsp-local/src/instance.ts')
+  })
+
+  it('keeps every Vitest project process-isolated on native Windows', () => {
+    const config = readFileSync(resolve(root, 'vitest.config.ts'), 'utf8')
+
+    expect(config).not.toContain("pool: process.platform === 'win32' ? 'threads' : 'forks'")
+    expect(config.match(/pool: 'forks'/g)).toHaveLength(2)
   })
 })
 
@@ -93,17 +128,39 @@ describe('E2B e2e workflow', () => {
 })
 
 describe('Issue lifecycle workflow', () => {
-  it('uses review signals instead of rerunning when a draft becomes ready', () => {
+  it('uses explicit review handoff events without rerunning when a draft becomes ready', () => {
     const lifecycle = loadWorkflow('.github/workflows/issue-lifecycle.yml')
     const lifecyclePullRequest = workflowEvent(lifecycle, 'pull_request')
     const lifecycleReview = workflowEvent(lifecycle, 'pull_request_review')
+    const lifecycleJob = workflowJob(lifecycle, 'lifecycle')
     const policy = loadWorkflow('.github/workflows/issue-policy.yml')
     const policyPullRequest = workflowEvent(policy, 'pull_request')
 
     expect(lifecyclePullRequest.types).not.toContain('ready_for_review')
     expect(lifecyclePullRequest.types).toContain('review_requested')
-    expect(lifecycleReview.types).toContain('submitted')
+    expect(lifecycleReview.types).toEqual(['submitted'])
+    expect(lifecycleJob.if).toBe(
+      "${{ github.event_name != 'pull_request_review' || (github.event.action == 'submitted' && github.event.review.state == 'changes_requested') }}",
+    )
     expect(policyPullRequest.types).toContain('ready_for_review')
+  })
+})
+
+describe('Git hooks', () => {
+  it('leaves frozen Agent Note sidecars to the archive verifier', () => {
+    const lefthook = loadWorkflow('lefthook.yml')
+
+    for (const hookName of ['pre-commit', 'pre-merge-commit']) {
+      const hook = lefthook[hookName]
+      if (!isRecord(hook) || !Array.isArray(hook.jobs)) {
+        throw new TypeError(`lefthook must define ${hookName} jobs`)
+      }
+      const pairing: unknown = hook.jobs.find(
+        (job: unknown) => isRecord(job) && job.name === 'translation pairing (staged records)',
+      )
+
+      expect(pairing).toMatchObject({ exclude: ['.agents/notes/archived/**'] })
+    }
   })
 })
 
@@ -118,6 +175,13 @@ function workflowEvent(workflow: Record<string, unknown>, event: string): Record
     throw new TypeError(`workflow must define the ${event} event`)
   }
   return workflow.on[event]
+}
+
+function workflowJob(workflow: Record<string, unknown>, job: string): Record<string, unknown> {
+  if (!isRecord(workflow.jobs) || !isRecord(workflow.jobs[job])) {
+    throw new TypeError(`workflow must define the ${job} job`)
+  }
+  return workflow.jobs[job]
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

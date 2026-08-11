@@ -4,8 +4,8 @@
  * @module @deepseek-ai/dsh-compact-tool-result-prune
  */
 
-import { Context, Service } from 'cordis'
-import z from 'schemastery'
+import { Context, Service } from '@deepseek-ai/cordis'
+import z from '@deepseek-ai/schemastery'
 import { freezeMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { Session, SessionEvent, ToolResultMessage } from '@deepseek-ai/dsh-session'
@@ -29,7 +29,7 @@ export type {
   ToolResultPruneConfig,
 } from './types.ts'
 
-declare module 'cordis' {
+declare module '@deepseek-ai/cordis' {
   interface Context {
     toolResultPrune: ToolResultPruneService
   }

@@ -1,6 +1,6 @@
 import { createUserMessage, createMessage } from '@deepseek-ai/dsh-llm'
 import { afterEach, describe, expect, it } from 'vitest'
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import { existsSync } from 'node:fs'
 import { chmod, mkdtemp, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -92,6 +92,7 @@ describe('scanRows', () => {
         seq: e.seq, type: e.type, time: e.time, data: JSON.stringify(e.data),
         source_event_seqs: se.sourceEventSeqs !== undefined ? JSON.stringify(se.sourceEventSeqs) : null,
         surface_op: se.surfaceOp !== undefined ? JSON.stringify(se.surfaceOp) : null,
+        ignorable: e.ignorable === true ? 1 : null,
       }
     })
 
@@ -142,8 +143,8 @@ describe('scanRows', () => {
 
   it('throws on an unparsable row inside the committed region', () => {
     const withCorruptCommitted: EventRow[] = [
-      { seq: 0, type: 'turn/start', time: 1, data: '{not json', source_event_seqs: null, surface_op: null }, // corrupt, sits before a turn/end
-      { seq: 1, type: 'turn/end', time: 2, data: JSON.stringify({ turn: 1, reason: { kind: 'completed' } }), source_event_seqs: null, surface_op: null },
+      { seq: 0, type: 'turn/start', time: 1, data: '{not json', source_event_seqs: null, surface_op: null, ignorable: null }, // corrupt, sits before a turn/end
+      { seq: 1, type: 'turn/end', time: 2, data: JSON.stringify({ turn: 1, reason: { kind: 'completed' } }), source_event_seqs: null, surface_op: null, ignorable: null },
     ]
     expect(() => scanRows(withCorruptCommitted)).toThrow(/unparsable committed event/)
   })
@@ -151,7 +152,7 @@ describe('scanRows', () => {
   it('tolerates an unparsable torn-tail row after the last turn/end', () => {
     const withCorruptTail: EventRow[] = [
       ...rows(oneTurnLog()),
-      { seq: 6, type: 'turn/start', time: 7, data: '{not json', source_event_seqs: null, surface_op: null }, // torn fragment, no committed turn/end after
+      { seq: 6, type: 'turn/start', time: 7, data: '{not json', source_event_seqs: null, surface_op: null, ignorable: null }, // torn fragment, no committed turn/end after
     ]
     const { preserved, tornFrom } = scanRows(withCorruptTail)
     expect(preserved).toEqual(oneTurnLog())
@@ -172,6 +173,7 @@ describe('rowToMeta', () => {
       incarnation: 'with-origin',
       revision: 1,
       delegation_depth: null,
+      agent_preset: null,
     })).toMatchObject({ id: 'with-origin', origin: 'subagent' })
   })
 
@@ -187,7 +189,26 @@ describe('rowToMeta', () => {
       incarnation: 'fractional',
       revision: 1,
       delegation_depth: null,
+      agent_preset: null,
     })).toThrow('stored session createdAt must be a non-negative safe integer')
+  })
+
+  it('restores the agent preset a session was composed from', () => {
+    // The preset decides the resumed session's tools and prompt; a row that
+    // dropped it would rebuild a composition the stored history contradicts.
+    expect(rowToMeta({
+      id: 'composed',
+      version: 0,
+      created_at: 1,
+      cwd: null,
+      parent_session: null,
+      seed_length: null,
+      origin: null,
+      incarnation: 'composed',
+      revision: 1,
+      delegation_depth: null,
+      agent_preset: 'minimal',
+    })).toMatchObject({ agentPreset: 'minimal' })
   })
 })
 
@@ -638,7 +659,7 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
   })
 
   it('exposes the schema version constant', () => {
-    expect(SCHEMA_VERSION).toBe(13)
+    expect(SCHEMA_VERSION).toBe(15)
   })
 
   it('keeps the revision stable for an empty repair hook', async () => {
@@ -837,6 +858,7 @@ describe('surface field round-trip', () => {
       data: JSON.stringify({ turn: 1, step: 1, content: [] }),
       source_event_seqs: JSON.stringify([3, 5]),
       surface_op: JSON.stringify('append'),
+      ignorable: null,
     }
     const event = rowToEvent(row)
     expect((event as SurfaceEvent).sourceEventSeqs).toEqual([3, 5])
@@ -849,6 +871,7 @@ describe('surface field round-trip', () => {
       data: JSON.stringify({ turn: 1, step: 1, content: [] }),
       source_event_seqs: JSON.stringify([0, 1]),
       surface_op: JSON.stringify({ op: 'replace', start: 0, end: 1 }),
+      ignorable: null,
     }
     const event = rowToEvent(row)
     expect((event as SurfaceEvent).sourceEventSeqs).toEqual([0, 1])
@@ -859,10 +882,10 @@ describe('surface field round-trip', () => {
     const rows: EventRow[] = [
       { seq: 0, type: 'user/message', time: 1,
         data: JSON.stringify({ content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }),
-        source_event_seqs: null, surface_op: '{"op":"replace","start":0,"end":0}' },
+        source_event_seqs: null, surface_op: '{"op":"replace","start":0,"end":0}', ignorable: null },
       { seq: 1, type: 'turn/end', time: 2,
         data: JSON.stringify({ turn: 1, reason: { kind: 'completed' } }),
-        source_event_seqs: null, surface_op: null },
+        source_event_seqs: null, surface_op: null, ignorable: 1 },
     ]
     const { preserved } = scanRows(rows)
     expect(preserved).toHaveLength(2)

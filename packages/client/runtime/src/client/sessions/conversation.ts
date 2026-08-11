@@ -8,6 +8,7 @@
 import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
 import type { MessageId } from '@deepseek-ai/dsh-llm/brand'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
+import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { LlmRetryEventData } from '@deepseek-ai/dsh-llm-retry/types'
 import type { TodoItem } from '@deepseek-ai/dsh-session/types'
 import type {
@@ -16,7 +17,7 @@ import type {
 import type { PendingInteraction } from './pending.ts'
 import type { ContextProvenanceView, KnownContextForm } from './context-provenance.ts'
 import type {
-  ChatConversationViewNode, ConversationTimelineSnapshot,
+  ChatConversationViewNode, ConversationTimelineSnapshot, ConversationViewSnapshotStore,
 } from '../contract/conversation.ts'
 export type { TodoItem }
 
@@ -43,6 +44,7 @@ export interface AssistantProvenanceView {
 export type AssistantBlock =
   | { kind: 'text'; text: string }
   | { kind: 'reasoning'; text: string }
+  | { kind: 'image'; attachment: ImageAttachmentRef }
   | { kind: 'tool-call'; callId: string; name: string; argsRaw: string }
   | { kind: 'other'; block: unknown }
 
@@ -64,6 +66,7 @@ export function toAssistantBlock(block: ContentBlock): AssistantBlock {
   switch (block.type) {
     case 'text': return { kind: 'text', text: block.text }
     case 'reasoning': return { kind: 'reasoning', text: block.text }
+    case 'image': return { kind: 'image', attachment: block.attachment }
     case 'tool-call': return { kind: 'tool-call', callId: String(block.id), name: block.name, argsRaw: block.arguments }
     default: return { kind: 'other', block }
   }
@@ -321,8 +324,9 @@ export type OpenState = 'cold' | 'loading' | 'open' | 'error'
  * - `engaging`: a first prompt was attempted, but no accepted turn or other
  *   authoritative activity signal has arrived — the UI keeps the composer
  *   visible through admission and error frames.
- * - `active`: the session is non-blank beyond its pending first prompt, is
- *   running, or owns a pending interaction — the ordinary conversation view.
+ * - `active`: the session is non-blank beyond its pending first prompt,
+ *   contains visible non-command Chat content, is running, or owns a pending
+ *   interaction — the ordinary conversation view.
  *
  * A failed first prompt stays `engaging` (composer + error strip — retry
  * semantics; returning to the hero would discard the error context).
@@ -381,6 +385,11 @@ export interface ChatSnapshot {
 const EMPTY_LIST: readonly never[] = []
 const EMPTY_TIMELINE: ConversationTimelineSnapshot = { turnOrder: EMPTY_LIST, turns: new Map() }
 
+/** Empty target store used by fixtures and Sessions without registered views. */
+export const EMPTY_CONVERSATION_VIEWS: ConversationViewSnapshotStore = {
+  get: () => undefined,
+}
+
 /** Empty Chat target used before a view builder is registered. */
 export const EMPTY_CHAT_SNAPSHOT: ChatSnapshot = {
   order: EMPTY_LIST,
@@ -405,6 +414,8 @@ export const EMPTY_CHAT_SNAPSHOT: ChatSnapshot = {
 /** The immutable snapshot contract Session hands to uSES (see the web client architecture RFC). */
 export interface ConversationSnapshot {
   sessionId: SessionId
+  /** Registered target snapshots assembled from Session events. */
+  views: ConversationViewSnapshotStore
   /** Final Chat target assembled from independently registered business Definitions. */
   chat: ChatSnapshot
   /** Legacy top-level compatibility field mirrored from the registered Chat Definitions. */

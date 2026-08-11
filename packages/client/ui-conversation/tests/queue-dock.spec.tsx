@@ -6,7 +6,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { useSyncExternalStore } from 'react'
-import { EMPTY_CHAT_SNAPSHOT } from '@deepseek-ai/dsh-client-runtime/client'
+import {
+  EMPTY_CHAT_SNAPSHOT, EMPTY_CONVERSATION_VIEWS,
+} from '@deepseek-ai/dsh-client-runtime/client'
 import type {
   ConversationSnapshot, QueuedMessage, SessionId, SessionListState,
 } from '@deepseek-ai/dsh-client-runtime/client'
@@ -33,7 +35,7 @@ function row(id: string, text: string | null, preview = text ?? '[image]'): Queu
 
 function snapshotWith(queue: QueuedMessage[]): ConversationSnapshot {
   return {
-    sessionId: SID, chat: EMPTY_CHAT_SNAPSHOT,
+    sessionId: SID, views: EMPTY_CONVERSATION_VIEWS, chat: EMPTY_CHAT_SNAPSHOT,
     nodes: [], turnTimings: new Map(), turnEnds: new Map(), partial: null, runningCalls: [],
     pending: [], queue, running: true, composerPhase: 'active', removed: false, openState: 'open', openError: null,
     hasMore: false, loadingOlder: false, promptError: null, blank: false, subagent: null, lastAgentError: null,
@@ -61,7 +63,8 @@ function liveSession(initial: ConversationSnapshot) {
   }
 }
 
-const INPUT_STATE: InputState = { draft: '', draftRev: 0, phase: 'plain', occurrences: [], queue: [] }
+/** InputZone owner stub (the dock reads useSession only; the zone fields satisfy the owner share). */
+const INPUT_STATE: InputState = { draft: '', imageIds: [], draftRev: 0, phase: 'plain', occurrences: [], queue: [] }
 
 // Standard locale seat stub mirroring the real ns → common → key chain.
 const t: QueueDockProps['t'] = makeTranslate(zh, commonZh)
@@ -166,7 +169,11 @@ describe('QueueDock', () => {
     expect(view.getByText('remove me')).toBeTruthy()
     expect(view.getByText('second')).toBeTruthy()
 
-    act(() => { finishUpdate?.() })
+    expect(updateQueue).toHaveBeenCalledOnce()
+    await act(async () => {
+      finishUpdate?.()
+      await Promise.resolve()
+    })
     await waitFor(() => {
       expect(header).toHaveProperty('disabled', false)
       expect(header.getAttribute('aria-expanded')).toBe('false')

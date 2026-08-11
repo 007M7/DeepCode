@@ -3,9 +3,8 @@
  *
  * Composes the OTel JS SDK as-is — a `LoggerProvider` with a
  * `BatchLogRecordProcessor` and an OTLP/HTTP log exporter — and maps each
- * record handed over by the capture coordinator onto `logger.emit()`. Per the Service Definition's
- * boundary axiom, everything downstream of that call (batching, retry,
- * queueing, loss policy) is the SDK's documented behavior, configured
+ * record handed over by the capture coordinator onto `logger.emit()`. After that call,
+ * batching, retry, queueing, and loss policy use the SDK's documented behavior, configured
  * verbatim through the `exporter`/`processor` passthroughs. This package owns
  * capture mode and an outer shutdown deadline: the SDK's export timeout does
  * not bound its preceding `forceFlush()` wait.
@@ -14,8 +13,8 @@
  */
 
 import { createRequire } from 'node:module'
-import z from 'schemastery'
-import type { Context } from 'cordis'
+import z from '@deepseek-ai/schemastery'
+import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-command-feedback'
 import {
   Telemetry,
@@ -23,9 +22,10 @@ import {
   type TelemetryBackend,
   type TelemetryRecord,
   type TelemetrySeverity,
+  type TelemetrySharingStatus,
 } from '@deepseek-ai/dsh-session-telemetry'
 import { APP_IDENTITY } from '@deepseek-ai/dsh-llm'
-import { getOrCreateAnonymousUserId } from './user-id.ts'
+import { getOrCreateAnonymousUserId } from '@deepseek-ai/dsh-user-id'
 import {
   BatchLogRecordProcessor,
   LoggerProvider,
@@ -72,8 +72,19 @@ function assertNever(value: never): never {
   throw new Error(`session-telemetry-otel: unsupported mode ${JSON.stringify(value)}`)
 }
 
+/** Map the serialized mode onto the seam's backend-independent sharing vocabulary. */
+function sharingStatusFor(mode: TelemetryMode): TelemetrySharingStatus {
+  switch (mode) {
+    case TelemetryMode.FULL: return 'full'
+    case TelemetryMode.FEEDBACK_ONLY: return 'feedback-only'
+    case TelemetryMode.DISABLED: return 'disabled'
+    /* v8 ignore next 2 -- resolveMode already rejected unknown values before this switch; the closed enum cannot reach the default. */
+    default: return assertNever(mode)
+  }
+}
+
 /**
- * Plugin configuration: one sharing policy, two verbatim SDK option shapes,
+ * Plugin configuration: one sharing policy, two verbatim SDK option objects,
  * and one DSH-owned shutdown bound. Uploading modes validate their endpoint
  * and shutdown deadline at plugin load; `DISABLED` reads neither.
  */
@@ -101,11 +112,10 @@ export interface Config {
 
 /**
  * Schemastery validator for {@link Config}; cordis runs it before the plugin
- * starts. Shape-level only — load-bearing value checks live in the constructor
- * so their errors name the fields. Both SDK slots are opaque passthroughs:
- * the SDK owns their shapes and validates its own options;
- * re-declaring them field-by-field here would violate the boundary axiom
- * (and silently drop every field not re-declared).
+ * starts. It checks only the top-level fields; value checks live in the constructor
+ * so their errors name the fields. Both SDK option objects pass through unchanged:
+ * the SDK defines and validates their fields. Re-declaring them here would
+ * silently drop every field this plugin did not repeat.
  */
 export const Config: z<Config> = z.object({
   mode: z.union(Object.values(TelemetryMode)).default(DEFAULT_TELEMETRY_MODE),
@@ -141,10 +151,12 @@ export class TelemetryOtel extends Telemetry {
   private readonly directEmit: TelemetryBackend['emit']
   private readonly provider: LoggerProvider | undefined
   private readonly shutdownTimeoutMillis: number
+  override readonly sharing: TelemetrySharingStatus
 
   constructor(ctx: Context, config: Config) {
     const mode = resolveMode(config.mode)
     super(ctx)
+    this.sharing = sharingStatusFor(mode)
     if (mode === TelemetryMode.DISABLED) {
       this.directEmit = DROP_RECORD
       this.provider = undefined

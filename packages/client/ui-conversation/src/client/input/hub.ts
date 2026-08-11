@@ -10,8 +10,9 @@
  */
 import type { ClientContext, ISessions, SessionBinding, SessionFace, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import type { SlashController } from '@deepseek-ai/dsh-client-ui-slash/client'
+import type { TranslateNS } from '@deepseek-ai/dsh-client-locale/client'
 import { queueReadFaceOf } from '../queue/store.ts'
-import type { ComposerKeyboard, InputService, SessionInput } from './contract.ts'
+import type { ComposerKeyboard, DraftAttachmentId, InputService, SessionInput } from './contract.ts'
 import type { InputSubmitMode } from '../contract/composer-submission.ts'
 import type { PopupDismissFace } from './facade.ts'
 import { SessionInputShell } from './facade.ts'
@@ -21,12 +22,29 @@ interface CommandFace {
   popupFor(actx: ClientContext): PopupDismissFace
 }
 
+/** Attachment-send face resolved lazily to keep hub/service construction acyclic. */
+interface ConversationAttachmentFace {
+  sendSession(
+    session: SessionFace,
+    text: string,
+    imageIds: readonly DraftAttachmentId[],
+    mode: InputSubmitMode,
+  ): Promise<void>
+  releaseDraftImage(id: DraftAttachmentId): void
+}
+
 /** Session-addressed input facade registry (InputService face + composer-layer extras). */
 export class InputHub implements InputService {
   private readonly shells = new Map<SessionId, SessionInputShell>()
 
-  /** @param ctx - client root context (services resolved lazily per call — boot order stays free). */
-  constructor(private readonly rootCtx: ClientContext) {}
+  /**
+   * @param ctx - client root context (services resolved lazily per call — boot order stays free).
+   * @param t - conversation-namespace translate thunk (reads the active locale at call time).
+   */
+  constructor(
+    private readonly rootCtx: ClientContext,
+    private readonly t: TranslateNS<'conversation'>,
+  ) {}
 
   /**
    * Resolve the facade for one session-scope ctx (InputService face).
@@ -57,7 +75,8 @@ export class InputHub implements InputService {
       slash: () => this.controller(actx),
       popup: () => this.popup(actx),
       queue: queueReadFaceOf(session),
-      defaultSink: (text, mode) => { this.sink(session, text, mode) },
+      defaultSink: (text, imageIds, mode) => { this.sink(session, text, imageIds, mode) },
+      steerQueue: () => { void this.steerQueue(session, shell) },
     })
     this.shells.set(id, shell)
     // The one teardown axis: listeners, shell, and map entries all ride the
@@ -75,8 +94,11 @@ export class InputHub implements InputService {
       ]
       return () => {
         for (const off of offs) off()
+        const drafts = shell.snapshot.imageIds
         shell.dispose()
         this.shells.delete(id)
+        const conversation = this.rootCtx.get('conversation') as ConversationAttachmentFace | undefined
+        for (const imageId of drafts) conversation?.releaseDraftImage(imageId)
       }
     }, 'conversation.input: session shell')
     return shell
@@ -124,19 +146,49 @@ export class InputHub implements InputService {
    * exactly one path; a failed first prompt is an ordinary prompt failure
    * (error strip via promptError, draft restored only while untouched).
    */
-  private sink(session: SessionFace, text: string, mode: InputSubmitMode): void {
-    if (text === '') return
+  private sink(
+    session: SessionFace,
+    text: string,
+    imageIds: readonly DraftAttachmentId[],
+    mode: InputSubmitMode,
+  ): void {
+    if (text === '' && imageIds.length === 0) return
     const shell = this.shells.get(session.sessionId)
     // Commit, not an editable clear: undo must not resurrect sent content.
-    shell?.commitSend()
-    void session.prompt([{ type: 'text', text }], mode).then(
-      (result) => {
-        if (!result.ok && shell?.snapshot.draft === '') shell.setDraft(text)
-      },
-      () => {
+    shell?.commitSend(imageIds)
+    void this.conversation().sendSession(session, text, imageIds, mode).catch(() => {
+      if (this.shells.get(session.sessionId) === shell) {
+        shell?.restoreImages(imageIds)
         if (shell?.snapshot.draft === '') shell.setDraft(text)
-      },
-    )
+        return
+      }
+      const conversation = this.rootCtx.get('conversation') as ConversationAttachmentFace | undefined
+      for (const id of imageIds) conversation?.releaseDraftImage(id)
+    })
+  }
+
+  /**
+   * Steer every still-pending queued message into the running turn, in FIFO
+   * order — the same strict-steer operation as the queue dock's per-row
+   * button. A turn closing mid-way (`steer-unavailable`) or a row already
+   * claimed by the agent (`queue-item-not-found`) converges silently, while a
+   * genuine failure surfaces as one composer notice. Repeated triggers
+   * (e.g. two rapid empty-draft chords) rely on that `queue-item-not-found`
+   * convergence: the snapshot may still list a row the host already steered,
+   * and the duplicate strict steer is a silent no-op.
+   * @param session - the addressed host session.
+   * @param shell - the resident shell (notice outlet).
+   */
+  private async steerQueue(session: SessionFace, shell: SessionInputShell): Promise<void> {
+    const queued = session.getSnapshot().queue.filter(item => item.placement === 'queued')
+    if (queued.length === 0) return
+    for (const item of queued) {
+      const result = await session.updateQueue(item.id, { kind: 'steer' })
+      if (result.ok) continue
+      if (result.error.code === 'steer-unavailable' || result.error.code === 'queue-item-not-found') return
+      shell.notify('error', this.t('queue.steerFailed'))
+      return
+    }
   }
 
   private controller(actx: ClientContext): SlashController | undefined {
@@ -153,5 +205,11 @@ export class InputHub implements InputService {
     const sessions = this.rootCtx.get('sessions')
     if (sessions === undefined) throw new Error('conversation.input: sessions service unavailable')
     return sessions
+  }
+
+  private conversation(): ConversationAttachmentFace {
+    const conversation = this.rootCtx.get('conversation') as ConversationAttachmentFace | undefined
+    if (conversation === undefined) throw new Error('conversation.input: conversation service unavailable')
+    return conversation
   }
 }
