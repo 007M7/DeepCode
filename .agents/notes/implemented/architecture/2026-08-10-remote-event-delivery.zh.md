@@ -32,7 +32,9 @@ Host 上一族「注册表变了，重新拉一次」的纯失效事件（`comma
 
 type-meta 加一个**形状谓词**、一个**选择座位**和 `TypeRTClientRemote` 的**一个**成员；零运行时代码：
 
-```ts ignore-check
+```ts
+import type { Events } from '@deepseek-ai/cordis'
+
 /** Cordis events shaped for one-way remote delivery: no Scope binding, void return. */
 export type TypeRTForwardableEvent = {
   [Event in keyof Events]: unknown extends ThisParameterType<Events[Event]>
@@ -68,7 +70,7 @@ $dispatch(event: string, args: readonly unknown[]): void
 
 `packages/api/remotes/src/remote-events.ts` 同时列进 `tsconfig.host.json` 与 `tsconfig.client.json` 的 `files`，是名单的**唯一家**；`src/types.ts` 由它派生类型面：
 
-```ts ignore-check
+```ts
 // remote-events.ts — the value
 export const API_REMOTE_FORWARDED_EVENTS = [
   'commands/change',

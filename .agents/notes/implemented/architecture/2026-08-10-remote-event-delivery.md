@@ -32,7 +32,9 @@ The three **pure passthrough** events ride this path, and their `HostFrame` vari
 
 type-meta gains one **shape predicate**, one **selection seat**, and **one** member on `TypeRTClientRemote`. No runtime code:
 
-```ts ignore-check
+```ts
+import type { Events } from '@deepseek-ai/cordis'
+
 /** Cordis events shaped for one-way remote delivery: no Scope binding, void return. */
 export type TypeRTForwardableEvent = {
   [Event in keyof Events]: unknown extends ThisParameterType<Events[Event]>
@@ -68,7 +70,7 @@ Delivery shares no implementation with the cordis event system: one-way only, no
 
 `packages/api/remotes/src/remote-events.ts` is listed in the `files` of both `tsconfig.host.json` and `tsconfig.client.json`, and is the allowlist's single home; `src/types.ts` derives its type face:
 
-```ts ignore-check
+```ts
 // remote-events.ts — the value
 export const API_REMOTE_FORWARDED_EVENTS = [
   'commands/change',
