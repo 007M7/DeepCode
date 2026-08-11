@@ -19,7 +19,7 @@ pnpm -v
 ## 第一步：安装并配置 API 密钥
 
 ```sh
-git clone https://github.com/deepseek-ai/deepseek-harness-sdk.git deepseek-harness
+git clone https://github.com/deepseek-ai/deepseek-harness-sdk.git
 cd deepseek-harness
 pnpm install
 ```
