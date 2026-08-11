@@ -11,6 +11,10 @@
   /* Above the 1000 the image lightbox backdrop uses: a failure reported while
      a preview is open must stay readable. */
   z-index: 1100;
+  /* Purely an announcement: it must never intercept clicks — in particular
+     after the CSS fade finished while a throttled background-tab timer has
+     not yet unmounted the still-hit-testable fixed element. */
+  pointer-events: none;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -54,5 +58,13 @@
 @keyframes dsh-toast-fade {
   to {
     opacity: 0;
+  }
+}
+
+/* Reduced motion drops the slide-in; the delayed fade (an opacity change,
+   not movement) still ends the banner before the timed unmount. */
+@media (prefers-reduced-motion: reduce) {
+  .toast {
+    animation: dsh-toast-fade 1000ms ease 3000ms forwards;
   }
 }

@@ -133,4 +133,18 @@ it('accepts pasted images into the composer rail in order and removes them', asy
   await waitFor(() => {
     expect(document.querySelector('[role="group"][aria-label="Pending images"]')).toBeNull()
   })
+
+  // An unsupported file announces a transient toast (the inline strip is
+  // gone) and the banner dismisses itself after its hold-and-fade lifetime.
+  fireEvent.paste(textarea, {
+    clipboardData: {
+      items: [{ kind: 'file', type: 'text/plain', getAsFile: () => new File(['x'], 'notes.txt', { type: 'text/plain' }) }],
+      getData: () => '',
+    },
+  })
+  const toast = await screen.findByRole('alert')
+  expect(toast.textContent).toContain('Unsupported image format: text/plain')
+  await waitFor(() => {
+    expect(screen.queryByRole('alert')).toBeNull()
+  }, { timeout: 6_000 })
 })

@@ -1,14 +1,31 @@
 // @vitest-environment jsdom
 // AttachmentRail behavior in the jsdom lane: item rendering and callbacks,
 // arrow paging over stubbed scroll geometry (jsdom lays nothing out), the
-// vertical-wheel pan, and the new-item end reveal.
+// exclusive vertical-wheel pan, and the new-item end reveal.
 
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import { AttachmentRail } from '../src/AttachmentRail.tsx'
 import type { AttachmentRailItem, AttachmentRailLabels } from '../src/AttachmentRail.tsx'
 
 afterEach(cleanup)
+
+// jsdom implements no ResizeObserver; the stub records instances so a test
+// can drive the size-change recompute path.
+const observers: { callback: ResizeObserverCallback; observed: Element[] }[] = []
+beforeEach(() => {
+  observers.length = 0
+  vi.stubGlobal('ResizeObserver', class {
+    observed: Element[] = []
+    constructor(callback: ResizeObserverCallback) {
+      observers.push({ callback, observed: this.observed })
+    }
+
+    observe(el: Element) { this.observed.push(el) }
+    disconnect() { this.observed.length = 0 }
+  })
+})
+afterEach(() => { vi.unstubAllGlobals() })
 
 const labels: AttachmentRailLabels = {
   group: '待发送图片',
@@ -78,34 +95,58 @@ describe('AttachmentRail', () => {
     expect(view.getByLabelText('向右滚动图片')).toBeTruthy()
   })
 
-  it('shows both arrows mid-scroll and recomputes on window resize', () => {
+  it('shows both arrows mid-scroll and recomputes when the rail itself resizes', () => {
     const view = render(
       <AttachmentRail items={[item('a'), item('b'), item('c')]} labels={labels} onOpen={vi.fn()} onRemove={vi.fn()} />,
     )
     const rail = view.getByRole('group', { name: '待发送图片' })
     const { setScrollLeft } = stubGeometry(rail, { scrollWidth: 400, clientWidth: 200 })
     setScrollLeft(100)
-    fireEvent(window, new Event('resize'))
+    // The component observes the rail element, not the window: a sidebar or
+    // panel resize reaches it through the ResizeObserver callback.
+    expect(observers.at(-1)?.observed).toContain(rail)
+    act(() => { observers.at(-1)!.callback([], undefined as never) })
     expect(view.getByLabelText('向左滚动图片')).toBeTruthy()
     expect(view.getByLabelText('向右滚动图片')).toBeTruthy()
   })
 
-  it('pans horizontally on a vertical wheel with clamped travel', () => {
+  it('pans horizontally on a vertical wheel, consuming the event, with clamped normalized travel', () => {
     const view = render(
       <AttachmentRail items={[item('a'), item('b')]} labels={labels} onOpen={vi.fn()} onRemove={vi.fn()} />,
     )
     const rail = view.getByRole('group', { name: '待发送图片' })
     const { scrollBy } = stubGeometry(rail, { scrollWidth: 400, clientWidth: 200 })
-    fireEvent.wheel(rail, { deltaY: 30 })
+    // Converted ticks are consumed (preventDefault): fireEvent returns false.
+    expect(fireEvent.wheel(rail, { deltaY: 30 })).toBe(false)
     expect(scrollBy).toHaveBeenCalledWith({ left: 30, behavior: 'auto' })
     fireEvent.wheel(rail, { deltaY: 500 })
     expect(scrollBy).toHaveBeenCalledWith({ left: 60, behavior: 'auto' })
     fireEvent.wheel(rail, { deltaY: -500 })
     expect(scrollBy).toHaveBeenCalledWith({ left: -60, behavior: 'auto' })
+    // Firefox notch wheels report lines; a page-mode wheel reports viewports.
+    fireEvent.wheel(rail, { deltaY: 2, deltaMode: WheelEvent.DOM_DELTA_LINE })
+    expect(scrollBy).toHaveBeenCalledWith({ left: 32, behavior: 'auto' })
+    fireEvent.wheel(rail, { deltaY: -1, deltaMode: WheelEvent.DOM_DELTA_PAGE })
+    expect(scrollBy).toHaveBeenCalledWith({ left: -60, behavior: 'auto' })
     // A trackpad pan (deltaX) and a zero-delta wheel keep native behavior.
-    fireEvent.wheel(rail, { deltaX: 12, deltaY: 30 })
+    expect(fireEvent.wheel(rail, { deltaX: 12, deltaY: 30 })).toBe(true)
     fireEvent.wheel(rail, { deltaY: 0 })
-    expect(scrollBy).toHaveBeenCalledTimes(3)
+    expect(scrollBy).toHaveBeenCalledTimes(5)
+  })
+
+  it('pages instantly under a reduced-motion preference, smoothly otherwise', () => {
+    for (const [matches, behavior] of [[true, 'auto'], [false, 'smooth']] as const) {
+      vi.stubGlobal('matchMedia', vi.fn(() => ({ matches }) as MediaQueryList))
+      const view = render(
+        <AttachmentRail items={[item('a'), item('b'), item('c')]} labels={labels} onOpen={vi.fn()} onRemove={vi.fn()} />,
+      )
+      const rail = view.getByRole('group', { name: '待发送图片' })
+      const { scrollBy } = stubGeometry(rail, { scrollWidth: 400, clientWidth: 200 })
+      fireEvent.scroll(rail)
+      fireEvent.click(view.getByLabelText('向右滚动图片'))
+      expect(scrollBy).toHaveBeenCalledWith({ left: 200, behavior })
+      view.unmount()
+    }
   })
 
   it('reveals the rail end when an item is added, not when one is removed', () => {

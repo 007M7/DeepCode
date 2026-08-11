@@ -979,10 +979,12 @@ describe('strips and variants', () => {
     vi.useFakeTimers()
     try {
       const send = bench({ promptError: { op: 'send', error: { code: 'agent-busy', message: 'boom', details: { reason: 'boom' } } } })
-      expect(send.view.container.querySelector('[role="alert"]')?.textContent).toContain('boom (agent-busy)')
+      // The toast body-portals (transformed ancestors must not trap it), so
+      // queries go through the view's document-bound helpers.
+      expect(send.view.getByRole('alert').textContent).toContain('boom (agent-busy)')
       expect(send.view.queryByRole('button', { name: 'Retry' })).toBeNull()
       act(() => { vi.advanceTimersByTime(4000) })
-      expect(send.view.container.querySelector('[role="alert"]')).toBeNull()
+      expect(send.view.queryByRole('alert')).toBeNull()
     } finally {
       vi.useRealTimers()
     }

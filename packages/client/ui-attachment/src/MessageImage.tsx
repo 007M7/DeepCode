@@ -40,24 +40,23 @@ export function MessageImage({ attachment, load, labels }: {
   const [src, setSrc] = useState<string | null>(null)
   const [error, setError] = useState(false)
   const [open, setOpen] = useState(false)
+  // Retry re-arms the one load effect below, so every attempt — first load or
+  // retry — runs under the same liveness guard and the same reset.
+  const [attempt, setAttempt] = useState(0)
+  const request = useCallback(() => { setAttempt(a => a + 1) }, [])
   const close = useCallback(() => { setOpen(false) }, [])
   const size = useMemo(() => {
     const scale = Math.min(1, 240 / attachment.width, 240 / attachment.height)
     return { width: Math.max(1, Math.round(attachment.width * scale)), height: Math.max(1, Math.round(attachment.height * scale)) }
   }, [attachment.height, attachment.width])
 
-  const request = useCallback(() => {
-    setError(false)
-    setSrc(null)
-    void load(attachment).then(setSrc).catch(() => { setError(true) })
-  }, [attachment, load])
-
   useEffect(() => {
     let live = true
     setError(false)
+    setSrc(null)
     void load(attachment).then((url) => { if (live) setSrc(url) }).catch(() => { if (live) setError(true) })
     return () => { live = false }
-  }, [attachment, load])
+  }, [attachment, load, attempt])
 
   const label = attachment.name ?? labels.image
   if (error) return <button type="button" className={css.error} onClick={request}>{labels.loadFailed}</button>

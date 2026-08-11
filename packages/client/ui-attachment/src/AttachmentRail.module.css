@@ -81,6 +81,12 @@
   }
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .remove {
+    transition: none;
+  }
+}
+
 .arrow {
   position: absolute;
   top: 50%;

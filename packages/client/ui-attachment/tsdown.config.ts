@@ -1,5 +1,9 @@
 import { clientOnly } from '../tsdown.client.ts'
 
+// TODO(client-atoms): verbatim copy of ui-primitives/tsdown.config.ts (only
+// the package differs). On a third atoms package, extract a shared css-stub
+// client-library preset in packages/client/tsdown.client.ts instead of a
+// fourth copy.
 /**
  * ui-attachment is browser-only, but its lib bundle IS imported under plain
  * Node because the web shell is a lib (dsh-client-web's lib chain reaches

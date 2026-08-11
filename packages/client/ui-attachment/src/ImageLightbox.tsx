@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import css from './ImageLightbox.module.css'
 
 /** Lightbox strings the owner resolves from its own locale namespace. */
@@ -12,7 +13,9 @@ export interface ImageLightboxLabels {
 /**
  * Document-level original-image preview opened by clicking a thumbnail.
  * Closes on Escape, backdrop press, or the close control, and restores focus
- * to the opener on unmount.
+ * to the opener on unmount. Rendered through a body portal: an opener inside
+ * a transformed or filtered ancestor would otherwise trap the fixed backdrop
+ * in that ancestor's box instead of covering the viewport.
  *
  * @param props.src - the original image URL.
  * @param props.alt - the image's alt text.
@@ -42,7 +45,7 @@ export function ImageLightbox({ src, alt, labels, onClose }: {
     }
   }, [onClose])
 
-  return (
+  return createPortal(
     <div
       className={css.backdrop}
       role="dialog"
@@ -52,6 +55,7 @@ export function ImageLightbox({ src, alt, labels, onClose }: {
     >
       <img className={css.image} src={src} alt={alt} />
       <button ref={closeRef} type="button" className={css.close} aria-label={labels.close} onClick={onClose}>×</button>
-    </div>
+    </div>,
+    document.body,
   )
 }

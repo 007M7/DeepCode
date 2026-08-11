@@ -8,13 +8,15 @@ Status: implemented
 
 Web 输入框的图片界面缺乏基本可用性（用户反馈，issue #2248）。删除按钮以 `top/right: -6px` 挂在 72px 缩略图外侧，被附件栏的 `overflow-x` 盒子裁切，点击经常落空；预览只能双击打开，除了 tooltip 没有任何提示这个操作；附件栏超出输入框宽度时在胶囊内部直接出现原生横向滚动条；图片接收被拒和发送失败（例如所选模型不支持图片输入时的 `attachment-error`）以常驻的内联红条显示在卡片上方。这些界面在 DeepSeek Chat 里都有用户熟悉的既定设计：单击预览、卡片内部悬停显示的删除按钮、隐藏滚动条的箭头翻页、顶部居中的短时 toast。
 
+首个多模态版本把这些界面记录在[Web 多模态 Note](2026-07-22-web-multimodal-image-input-and-durable-attachments.md)中；本 Note 取代其中的展示与交互细节（缩略图几何、点击方式、错误呈现），其附件服务边界、准入与持久化决策继续有效。
+
 这些 UI 还全部住在 `dsh-client-ui-conversation` 里——附件栏内联在 700 行的 `InputBar` 中，历史图片和灯箱分散在 `chat/` 与 `skeleton/`——没有其他界面可复用的接缝，纯 props 的纪律也无从约束。
 
 ## 决定
 
 附件展示落位到新的零 cordis 原子组件包 `@deepseek-ai/dsh-client-ui-attachment`（`packages/client/ui-attachment`），模式照 `dsh-client-ui-primitives`：`AttachmentRail`（64px、16px 圆角缩略图，单击 `onOpen`，卡片内部的删除按钮悬停或聚焦显示、`pointer: coarse` 下常显，隐藏滚动条配两端圆形箭头并依滚动几何重算，纵向滚轮转横向平移且单次钳制 60px，新增条目滚到栏尾），`MessageImage`/`ImageGallery`（单击预览），以及 `ImageLightbox`。文案经 label props 传入；`ui-conversation` 通过 `src/client/image-labels.ts` 桥接 `conversation` 词典，并保留状态机接线（草稿 id、预览状态、接收回调）。跨包 import 之所以是被允许的路径，正因为它是原子组件库而非 client 插件：插件之间仍禁止互相 import 组件，且附件栏是输入框自有的渲染，不是插槽。
 
-短时横幅是 `ui-primitives` 的 `Toast` 原子（顶部居中，`role="alert"`，停留三秒再一秒淡出，`onDone` 卸载，按展示序号作 key 使相同文案重新播报）。`InputBar` 把接收拒绝（`addImages` 返回的原因）和 `promptError` 都改走 toast，替换内联红条；状态机 notice 条不受影响。DeepSeek Chat 源码（本地参考副本）提供了目标行为：其 `ImageThumbnailInInput`（64px 卡片、透明度过渡的删除钮）、`ScrollArrows`（哨兵驱动的翻页）与 `useToast` 用法。
+两个浮层都 portal 到 body：从聊天消息打开的灯箱位于带 transform 的祖先之下，`position: fixed` 会被困在祖先的盒子里（遮罩只盖住聊天列），因此 `ImageLightbox` 与 `Toast` 经 `createPortal(document.body)` 渲染，从任何打开位置都覆盖整个视口。短时横幅是 `ui-primitives` 的 `Toast` 原子（顶部居中，`role="alert"`，停留三秒再一秒淡出，`onDone` 卸载，按展示序号作 key 使相同文案重新播报）。`InputBar` 把接收拒绝（`addImages` 返回的原因）和 `promptError` 都改走 toast，替换内联红条；状态机 notice 条不受影响。DeepSeek Chat 源码（本地参考副本）提供了目标行为：其 `ImageThumbnailInInput`（64px 卡片、透明度过渡的删除钮）、`ScrollArrows`（哨兵驱动的翻页）与 `useToast` 用法。
 
 ## 备选方案
 
