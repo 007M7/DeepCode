@@ -64,7 +64,7 @@
     "react": "^18.2.0"
   },
   "devDependencies": {
-    "@deepseek-ai/cordis": "^4.0.0-rc.7",
+    "@deepseek-ai/cordis": "workspace:^",
     "@deepseek-ai/dsh-api-remotes": "workspace:^",
     "@deepseek-ai/dsh-client-connection": "workspace:^",
     "@deepseek-ai/dsh-client-locale": "workspace:^",
@@ -80,7 +80,6 @@
     "@deepseek-ai/dsh-invariants": "workspace:^",
     "@deepseek-ai/dsh-permission": "workspace:^",
     "@types/react": "~18.3.1",
-    "@deepseek-ai/cordis": "workspace:^",
     "react": "^18.2.0"
   },
   "files": [
