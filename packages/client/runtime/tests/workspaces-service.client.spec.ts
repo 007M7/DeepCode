@@ -4,7 +4,7 @@ import type { SessionId, WorkspaceId, WorkspaceView } from '@deepseek-ai/dsh-api
 import { SessionsService } from '../src/client/sessions/service.ts'
 import { WorkspaceManager } from '../src/client/workspaces/manager.ts'
 import { DirectoryBrowseError, WorkspaceCreateError, WorkspacesService } from '../src/client/workspaces/service.ts'
-import { FakeApiClient, deferred, err, fakeRemote, ok } from './fake-api.ts'
+import { FakeApiClient, deferred, err, fakeRemote, ok } from './fake-api.client.ts'
 
 const sid = (id: string): SessionId => id as SessionId
 const wid = (id: string): WorkspaceId => id as WorkspaceId

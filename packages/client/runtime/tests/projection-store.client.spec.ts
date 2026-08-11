@@ -12,8 +12,8 @@ import type { SessionId } from '@deepseek-ai/dsh-api-remotes/client'
 import { ProjectionValueStore } from '../src/client/sessions/projection-store.ts'
 import { Session } from '../src/client/sessions/session.ts'
 import { SessionManager } from '../src/client/sessions/manager.ts'
-import { FakeApiClient, fakeRemote, ok } from './fake-api.ts'
-import { entries, plainTurn } from './event-script.ts'
+import { FakeApiClient, fakeRemote, ok } from './fake-api.client.ts'
+import { entries, plainTurn } from './event-script.client.ts'
 
 // Test-domain keys merged into the projection map (the Service Definition package's
 // pure-type outlet), the same way domain host plugins merge theirs.

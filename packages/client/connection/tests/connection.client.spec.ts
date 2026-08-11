@@ -10,7 +10,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { SessionId } from '../src/client/api.ts'
 import type { ConnectionState } from '../src/client/connection.ts'
 import { ConnectionController } from '../src/client/connection.ts'
-import { FakeApiClient, deferred, ok } from './fake-api.ts'
+import { FakeApiClient, deferred, ok } from './fake-api.client.ts'
 
 const SID = 'fk-c1' as SessionId
 const FAST = { backoffBaseMs: 10, backoffFactor: 1, backoffMaxMs: 10, streamOpenTimeoutMs: 500 }

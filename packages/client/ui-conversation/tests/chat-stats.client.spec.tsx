@@ -14,7 +14,7 @@ import { en as commonEn } from '@deepseek-ai/dsh-client-locale/src/locales/en.ts
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import { StatsLine, contextOccupancy, deriveStats, formatDuration, formatTokens, type StatsLineProps } from '../src/client/chat/StatsLine.tsx'
 import { en, zh } from '../src/client/locales.ts'
-import { chatSnapshotFixture } from './chat-snapshot-fixture.ts'
+import { chatSnapshotFixture } from './chat-snapshot-fixture.client.ts'
 
 // Mirrors the real lookup chain (conversation namespace, then common).
 const t: StatsLineProps['t'] = makeTranslate(zh, commonZh)

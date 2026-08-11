@@ -24,7 +24,7 @@ import {
 import { AssistantMarkdown } from '../src/client/chat/AssistantMarkdown.tsx'
 import { StatsLine, type StatsLineProps } from '../src/client/chat/StatsLine.tsx'
 import { zh } from '../src/client/locales.ts'
-import { chatSnapshotFixture } from './chat-snapshot-fixture.ts'
+import { chatSnapshotFixture } from './chat-snapshot-fixture.client.ts'
 
 /** jsdom has no ResizeObserver; StatsLine watches its row for ellipsis truncation through one. */
 class ResizeObserverStub {

@@ -13,7 +13,7 @@ import TypertRegistry from '@deepseek-ai/dsh-typert-registry'
 // key face and per-event listener signatures.
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import * as RuntimeClient from '../src/client/index.ts'
-import { FakeApiClient, fakeRemote } from './fake-api.ts'
+import { FakeApiClient, fakeRemote } from './fake-api.client.ts'
 
 /**
  * Compile-time face of `ctx.remote.$on`, asserted by type-checking this file

@@ -10,7 +10,7 @@ import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import type { MessageId, MuxFrame, RpcId, SessionId } from '@deepseek-ai/dsh-api-remotes/client'
 import { Session } from '../src/client/sessions/session.ts'
 import { SessionManager } from '../src/client/sessions/manager.ts'
-import { FakeApiClient, fakeRemote } from './fake-api.ts'
+import { FakeApiClient, fakeRemote } from './fake-api.client.ts'
 
 const SID = 'fk-q1' as SessionId
 const text = (value: string): ContentBlock[] => [{ type: 'text', text: value }]

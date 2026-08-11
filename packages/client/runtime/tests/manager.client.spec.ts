@@ -6,8 +6,8 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionId } from '@deepseek-ai/dsh-api-remotes/client'
 import { SessionManager } from '../src/client/sessions/manager.ts'
-import { FakeApiClient, deferred, err, fakeRemote, ok } from './fake-api.ts'
-import { entries, plainTurn } from './event-script.ts'
+import { FakeApiClient, deferred, err, fakeRemote, ok } from './fake-api.client.ts'
+import { entries, plainTurn } from './event-script.client.ts'
 
 const S1 = 'fk-m1' as SessionId
 const S2 = 'fk-m2' as SessionId

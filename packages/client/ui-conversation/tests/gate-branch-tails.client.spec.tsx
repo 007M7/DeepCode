@@ -17,7 +17,7 @@ import { AssistantMarkdown, type AssistantMarkdownProps } from '../src/client/ch
 import { StatsLine } from '../src/client/chat/StatsLine.tsx'
 import { DetailsPanel } from '../src/client/skeleton/DetailsPanel.tsx'
 import { zh } from '../src/client/locales.ts'
-import { chatSnapshotFixture } from './chat-snapshot-fixture.ts'
+import { chatSnapshotFixture } from './chat-snapshot-fixture.client.ts'
 
 // Mirrors the real lookup chain (conversation namespace, then common).
 const t: AssistantMarkdownProps['t'] = makeTranslate(zh, commonZh)

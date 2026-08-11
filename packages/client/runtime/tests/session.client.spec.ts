@@ -17,8 +17,8 @@ import type {
   ConversationRuntime, ConversationSnapshot, ConversationTimelineSnapshot,
   ConversationViewDefinition,
 } from '../src/client/index.ts'
-import { FakeApiClient, deferred, err, fakeRemote, ok } from './fake-api.ts'
-import { entries, ev, plainTurn } from './event-script.ts'
+import { FakeApiClient, deferred, err, fakeRemote, ok } from './fake-api.client.ts'
+import { entries, ev, plainTurn } from './event-script.client.ts'
 
 const SID = 'fk-s1' as SessionId
 const PARENT = 'fk-parent' as SessionId

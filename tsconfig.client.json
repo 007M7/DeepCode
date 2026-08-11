@@ -24,6 +24,12 @@
     "scripts/client-bundle-css.spec.ts",
     "scripts/client-bundle-purity.spec.ts"
   ],
+  // A `*.host.spec.ts` covers the Host half of a split client package and
+  // belongs to the host aggregate, which excludes this program's `*.client.*`
+  // in turn. `exclude` wins over `include`, so the test glob above stays broad.
+  "exclude": [
+    "packages/client/*/tests/**/*.host.spec.ts"
+  ],
   "references": [
     // Shared leaf: web e2e boots the real host webserver (fixture + real-host
     // smoke policy). webserver has zero workspace deps and no cordis merge,
@@ -44,9 +50,6 @@
     { "path": "./packages/client/modules" },
     { "path": "./packages/client/hmr" },
     { "path": "./packages/client/connection/tsconfig.client.json" },
-    // The carrier's node-half spec rides this aggregate's package test glob, so
-    // its Host face is referenced here too — the mirror of the webserver leaf.
-    { "path": "./packages/client/connection/tsconfig.host.json" },
     { "path": "./packages/typert/registry" },
     { "path": "./packages/api/gateway/tsconfig.client.json" },
     { "path": "./packages/api/remotes/tsconfig.client.json" },

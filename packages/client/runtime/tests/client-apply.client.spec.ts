@@ -14,7 +14,7 @@ import type { ConversationNodeDefinition } from '../src/client/contract/conversa
 import { Session } from '../src/client/sessions/session.ts'
 import type { SessionsService } from '../src/client/sessions/service.ts'
 import type { WorkspacesService } from '../src/client/workspaces/service.ts'
-import { FakeApiClient, fakeRemote, ok } from './fake-api.ts'
+import { FakeApiClient, fakeRemote, ok } from './fake-api.client.ts'
 
 interface Bench {
   ctx: Context

@@ -8,7 +8,7 @@ import type {
 } from '../src/client/contract/conversation.ts'
 import { Session } from '../src/client/sessions/session.ts'
 import { SessionsService } from '../src/client/sessions/service.ts'
-import { FakeApiClient, fakeRemote, ok } from './fake-api.ts'
+import { FakeApiClient, fakeRemote, ok } from './fake-api.client.ts'
 
 function eventDefinition(kind: string): ConversationNodeDefinition<null> {
   return {
