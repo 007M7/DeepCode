@@ -197,6 +197,10 @@ describe('LocalTaskService.start', () => {
     for (const task of live) task.settle({ status: 'completed' })
   })
 
+  it('defaults direct construction when the config schema is bypassed', () => {
+    expect(new LocalTaskService(new Context()).config.maxConcurrentTasksPerOwner).toBe(10)
+  })
+
   it('rejects before producer start and id allocation, then admits immediately after settlement', async () => {
     const ctx = await harness({ maxConcurrentTasksPerOwner: 1 })
     const first = producer()
