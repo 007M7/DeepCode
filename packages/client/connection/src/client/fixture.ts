@@ -116,7 +116,7 @@ const TERMINAL_OUTPUT_FIXTURE = [
   `${sgr(32, '\u2713')} duplication                                        2.10s`,
   `${sgr(31, '\u2717')} unit                                               8.41s`,
   '',
-  sgr(90, 'packages/client/ui-primitives/tests/terminal-block.spec.tsx'),
+  sgr(90, 'packages/client/ui-primitives/tests/terminal-block.client.spec.tsx'),
   `  ${sgr(31, 'FAIL')} caps output at the configured line budget`,
   '    expected 16 lines, received 24',
   '',
@@ -201,7 +201,7 @@ const SEARCH_PATHS_FIXTURE = [
   'packages/client/ui-primitives/src/SearchBlock.module.css',
   'packages/client/ui-tool/src/client/tool/models/search-card-model.ts',
   'packages/client/ui-tool/src/client/tool/toolviews/search-row.tsx',
-  'packages/client/ui-tool/tests/search-card.spec.tsx',
+  'packages/client/ui-tool/tests/search-card.client.spec.tsx',
 ]
 
 /**
