@@ -5,7 +5,7 @@
  *
  * The machine-readable cordis API catalog `cordis_inspect` serves to the
  * model: harness services (summary + public method signatures/JSDoc),
- * harness events (mode + signature/JSDoc), and the inherited `ctx` surface. Produced by
+ * harness events (mode + signature/JSDoc), and the inherited `ctx` API. Produced by
  * the same AST walk as docs/cordis-catalog, so this data and the rendered
  * docs cannot diverge.
  *
@@ -534,7 +534,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   },
   {
     key: 'llm',
-    summary: 'The abstract `llm` service: an adapter registry plus a streaming model-call surface, interceptable via the `llm/stream` waterfall.',
+    summary: 'The abstract `llm` service: an adapter registry plus a streaming model-call API, interceptable via the `llm/stream` waterfall.',
     methods: [
       {
         signature: 'registerAdapter(providers: string[], adapter: LlmAdapter): AdapterRegistrationHandle',
@@ -717,6 +717,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       {
         signature: 'abstract locate(meta: SessionHeader): SessionLocation | undefined',
         jsDoc: '/**\n * Resolve this backend\'s independent local artifact for a session without\n * reading, creating, flushing, or otherwise materializing it. Backends such\n * as SQLite that do not own one artifact per session return `undefined`.\n * @param meta - the immutable session header whose artifact is requested.\n * @returns the backend-specific absolute location, when one exists.\n */',
+      },
+      {
+        signature: 'readRaw(_id: SessionId, signal?: AbortSignal): Promise<SessionRawArtifact | undefined>',
+        jsDoc: '/**\n * Read a session\'s backend-owned artifact text verbatim — the exact durable\n * bytes the backend wrote (decoded from its physical encoding, e.g. a\n * decompressed JSONL). The returned `content` is the raw text, not a\n * reconstruction from parsed events, so it preserves backend-specific\n * serialization (chunk packing, key order, line breaks). Backends without a\n * per-session artifact (SQLite) inherit the `undefined` default.\n * @param _id - the persisted session to read (unused by the default: no\n * per-session artifact).\n * @param signal - optional cancellation for backend read work.\n * @returns the raw artifact plus its parsed header, or `undefined` when the\n * session is absent or the backend owns no per-session artifact.\n */',
       },
       {
         signature: 'abstract create(meta: SessionHeader): Promise<void>',
@@ -1174,11 +1178,11 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'abstract onTasksChanged(listener: TasksChangedListener): () => void',
-        jsDoc: '/**\n/**\n * Register an effect-scoped observer of visible-set changes. It fires after\n * every commit that changes what {@link list} returns for that owner —\n * registration, every stopping transition (including the one teardown\n * performs before it awaits a slow producer), settlement, owner-disposal\n * removal, and the emptying that service disposal commits — so an observer\n * re-reads rather than accumulating deltas.\n *\n * Delivery is owner-relative on the same terms as {@link onTaskDone}: an\n * observer registered from an unscoped context — a host composition\'s own\n * carrier — sees every owner, while one registered under an agent\n * composition\'s scope sees exactly the agents composed under it.\n *\n * This is not a superset of {@link onTaskDone}: that one delivers the terminal\n * record under first-wins semantics a control surface couples to notice\n * delivery, while this one carries no delivery meaning and marks nothing\n * reported. Listeners are contained and never awaited.\n * @param listener - receives the owner whose visible set changed, or\n *   `undefined` when an unowned task changed and every caller\'s set did.\n * @returns disposer that unregisters the listener.\n */',
+        jsDoc: '/**\n/**\n * Register an effect-scoped observer of visible-set changes. It fires after\n * every commit that changes what {@link list} returns for that owner —\n * registration, every stopping transition (including the one teardown\n * performs before it awaits a slow producer), settlement, owner-disposal\n * removal, and the emptying that service disposal commits — so an observer\n * re-reads rather than accumulating deltas.\n *\n * Delivery is owner-relative on the same terms as {@link onTaskDone}: an\n * observer registered from an unscoped context — a host composition\'s own\n * carrier — sees every owner, while one registered under an agent\n * composition\'s scope sees exactly the agents composed under it.\n *\n * This is not a superset of {@link onTaskDone}: that one delivers the terminal\n * record under first-wins semantics a task controller couples to notice\n * delivery, while this one carries no delivery meaning and marks nothing\n * reported. Listeners are contained and never awaited.\n * @param listener - receives the owner whose visible set changed, or\n *   `undefined` when an unowned task changed and every caller\'s set did.\n * @returns disposer that unregisters the listener.\n */',
       },
       {
-        signature: 'abstract attachSurface(name: string): () => void',
-        jsDoc: '/**\n * Attach an effect-scoped surface that can read and stop tasks. It serves the\n * owners its registering context\'s scope covers, and {@link start} refuses an\n * owner no attached surface serves.\n * @param name - diagnostic label; duplicate names remain independent.\n * @returns disposer that detaches this surface.\n */',
+        signature: 'abstract attachController(name: string): () => void',
+        jsDoc: '/**\n * Attach an effect-scoped controller that can read and stop tasks. It serves the\n * owners its registering context\'s scope covers, and {@link start} refuses an\n * owner no attached controller serves.\n * @param name - diagnostic label; duplicate names remain independent.\n * @returns disposer that detaches this controller.\n */',
       },
     ],
   },
@@ -1238,7 +1242,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     methods: [
       {
         signature: 'presentAs(mode: ToolPresentationMode): () => void',
-        jsDoc: '/**\n * Present this agent\'s tools in `mode` instead of the deployment default.\n *\n * Scoped only, and one declaration per agent: this is how an agent preset\n * composes a Code Mode agent beside native ones in the same process, and a\n * process-global override would be the `mode` config field instead.\n * @param mode - the presentation this agent\'s model sees.\n * @returns the exact disposer that restores the deployment default.\n */',
+        jsDoc: '/**\n * Present the calling scope\'s tools in `mode` instead of the deployment\n * default. Nearest scope on the chain wins, so a preset\'s standing\n * declaration covers every agent joined under it.\n *\n * Scoped only, and one declaration per scope: this is how an agent preset\n * composes Code Mode agents beside native ones in the same process, and a\n * process-global override would be the `mode` config field instead.\n * @param mode - the presentation the covered agents\' models see.\n * @returns the exact disposer that restores the deployment default.\n */',
       },
       {
         signature: 'register(definition: ToolDefinition): () => void',
@@ -1246,7 +1250,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'restrict(filter: ToolRestriction): () => void',
-        jsDoc: '/**\n * Restrict global tools for the calling agent scope. Empty filters, unknown\n * names, scope-local names, and reserved transport names fail. Restrictions\n * intersect; scoped registrations remain visible.\n * @param filter - global-surface mask: `allow` (keep only) and/or `deny` (remove).\n * @returns the exact disposer that lifts this restriction.\n */',
+        jsDoc: '/**\n * Restrict global tools for the calling agent scope. Empty filters, unknown\n * names, scope-local names, and reserved transport names fail. Restrictions\n * intersect; scoped registrations remain visible.\n * @param filter - global-tool mask: `allow` (keep only) and/or `deny` (remove).\n * @returns the exact disposer that lifts this restriction.\n */',
       },
       {
         signature: 'guard(guard: ToolGuard): () => void',
@@ -1316,7 +1320,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   },
   {
     key: 'userInteraction',
-    summary: '`ctx.userInteraction`: one active UI provider plus an `ask()` surface.',
+    summary: '`ctx.userInteraction`: one active UI provider plus an `ask()` API.',
     methods: [
       {
         signature: 'registerProvider(provider: UserInteractionProvider): () => void',
@@ -2850,6 +2854,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SessionProjectionMap {\n}',
   },
   {
+    name: 'SessionRawArtifact',
+    declaration: 'export interface SessionRawArtifact {\n    readonly meta: SessionHeader;\n    readonly filename: string;\n    readonly content: string;\n}',
+  },
+  {
     name: 'SessionRecord',
     declaration: 'export interface SessionRecord {\n    header: SessionHeader;\n    live: boolean;\n    persisted: boolean;\n}',
   },
@@ -3551,7 +3559,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
 ]
 
-/** The inherited `ctx` surface (cordis core + loader/hmr/timer), in curated order. */
+/** The inherited `ctx` API (cordis core + loader/hmr/timer), in curated order. */
 export const INHERITED_CTX_API: readonly InheritedApiEntry[] = [
   { name: 'ctx.on / ctx.once', summary: 'Register an event listener (disposable).' },
   { name: 'ctx.emit / ctx.parallel / ctx.serial / ctx.bail / ctx.waterfall', summary: 'Dispatch an event (sync / awaited / first-bail / short-circuit chain).' },

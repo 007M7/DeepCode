@@ -49,11 +49,11 @@ blocklist 匹配优先于 allowlist 匹配。每个条目都是区分大小写�
 
 公开注册边界是 `ctx.invariants.register(packageName, installer)`。即使过滤器禁止安装，它也会为每个完整 npm 包名保留唯一的活跃注册，并返回 effect disposer。卸载伴随插件或服务都会释放注册名及全部贡献状态。
 
-启用的 installer 在服务拥有的独立 Cordis 子 fiber 中运行。`InvariantInstaller.inject` 显式声明该子 fiber 的服务表面；注册服务不携带产品专用依赖元数据。服务会在注册成功前等待 installer 返回的 promise，因此异步启动检查仍具有事务性。installer 接收绑定后的 `fail(message)` 报告器。调用它会抛出名为 `InvariantError` 的 `Error` 子类，保留稳定代码 `INVARIANT` 并记录注册方 `packageName`；该错误不继承产品包中的错误基类。
+启用的 installer 在服务拥有的独立 Cordis 子 fiber 中运行。`InvariantInstaller.inject` 显式声明该子 fiber 的服务 API；注册服务不携带产品专用依赖元数据。服务会在注册成功前等待 installer 返回的 promise，因此异步启动检查仍具有事务性。installer 接收绑定后的 `fail(message)` 报告器。调用它会抛出名为 `InvariantError` 的 `Error` 子类，保留稳定代码 `INVARIANT` 并记录注册方 `packageName`；该错误不继承产品包中的错误基类。
 
 注册启动是事务性的。如果 installer 在注册监听器后失败，子 fiber 会完整释放，并在失败向外传播前解除包名占用。被过滤的注册不创建子 fiber，但会保留占用直到 dispose。伴随插件重载时总会从干净的 installer 状态开始；有状态贡献从其所属服务重建基线。
 
-原有函数式插件入口与单参数 `InvariantError` 构造函数不作为兼容表面保留。仓库尚未发布，所有调用方会一起迁移到服务和带包归属的错误。
+原有函数式插件入口与单参数 `InvariantError` 构造函数不作为兼容 API 保留。仓库尚未发布，所有调用方会一起迁移到服务和带包归属的错误。
 
 ### 首批有状态伴随插件与完整所有权
 
@@ -76,7 +76,7 @@ blocklist 匹配优先于 allowlist 匹配。每个条目都是区分大小写�
 
 示例 agent spine 会挂载服务和四个有状态伴随子路径，并把 `enabled`、`package_allowlist` 与 `package_blocklist` 转发给服务。生成的 SDK Cordis 组合输出相同条目。子路径条目添加可安装的根 npm 包，而不会把子路径误当成包名。根据[交付配置决策](../simplification/2026-08-03-omit-invariants-from-shipped-config.md)，交付的 `dsh` TUI 与 Web 配置树会省略该服务及其伴随插件。
 
-Workspace 约束识别独立的不变式 bundle；包 exports、项目引用、构建配置、依赖声明和 lockfile 描述同一发布表面。生成的配置目录、模块图和 API 文档都从这些源派生。
+Workspace 约束识别独立的不变式 bundle；包 exports、项目引用、构建配置、依赖声明和 lockfile 描述同一份发布元数据。生成的配置目录、模块图和 API 文档都从这些源派生。
 
 ## 测试
 

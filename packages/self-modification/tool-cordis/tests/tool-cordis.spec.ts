@@ -4,7 +4,7 @@ import * as tool from '../src/index.ts'
 import { setup } from './helpers.ts'
 
 /**
- * Export-shape and registration surface: the namespace-plugin contract the
+ * Export shape and registration API: the namespace-plugin contract the
  * real Loader path depends on, the registered tool set, and the Config
  * validator's defaults and rejections.
  */

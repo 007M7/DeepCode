@@ -111,11 +111,11 @@ All seven facades keep validation and diagnostics in their owning registry and c
 ## Consequences
 
 - Scope-aware registries express one aggregate layer and reuse the same construction, ownership, rollback, notification, and reclamation choreography. Domain-specific validation, diagnostics, filtering, evaluation, and observer policy remain in each registry.
-- The public read surface stays narrow: direct table iteration preserves explicitly live behavior, while `merge()` is the one shared materialized shadowing operation. A heterogeneous `ScopeLayer` has no layer-wide `values()` contract.
+- The public read API stays narrow: direct table iteration preserves explicitly live behavior, while `merge()` is the one shared materialized shadowing operation. A heterogeneous `ScopeLayer` has no layer-wide `values()` contract.
 - The helper is deliberately synchronous. A future registration that needs asynchronous setup or several independently owned undos must identify its ownership and settlement boundaries before widening this contract.
 - An action must throw before retaining a contribution or return an undo for everything it retained; the helper cannot repair mutation outside that contract. The provided entry operations are atomic, and migrated registries perform fallible validation before insertion.
 - A scoped layer remains allocated until every table in its aggregate is empty. Disposing one facade therefore cannot discard sibling contributions owned by the same scope.
-- The four public symbols become a reusable package contract. Keeping `EntryValues` internal and consumer policy outside the helper limits the compatibility surface.
+- The four public symbols become a reusable package contract. Keeping `EntryValues` internal and consumer policy outside the helper limits the compatibility API.
 - The migration changes no public registry behavior and no model-, human-, wire-, persistence-, configuration-, or dependency-graph output.
 
 ## Verification

@@ -71,7 +71,7 @@ const MARKDOWN_FIXTURE = [
   '- first item',
   '  - nested item',
   '',
-  '| Surface | State |',
+  '| Area | State |',
   '| --- | --- |',
   '| history | rendered |',
   '| streaming | stable |',
@@ -2835,6 +2835,12 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
         outcome: message.result.ok ? 'answered' : 'cancelled',
       })
       return Promise.resolve({ accepted: true })
+    },
+    // Satisfies the ApiProxy contract type only: the browser export button
+    // fetches GET /api/session.export directly (window.fetch), so this stub is
+    // never reached through the fixture's dispatch.
+    downloads: {
+      sessionLog: () => Promise.resolve(new Response('fixture mode does not serve session export', { status: 404 })),
     },
   }
 

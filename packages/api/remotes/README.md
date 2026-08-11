@@ -20,7 +20,7 @@ The package-local `clientBundle(..., { hostPhase: true })` makes Host tsdown bun
 
 ## Model Experience
 
-None, as this BFF selects Remote application methods and identity policy but registers no model surface.
+None, as this BFF selects Remote application methods and identity policy but registers nothing model-facing.
 
 #### KV Cache effect
 

@@ -122,6 +122,22 @@ interface CreateSessionOptions {
 
 Replay/fork is therefore `ctx.sessions.create(id, { seed: seedEvents })`; resuming a *persisted* session into a live agent is `ctx.agents.resume({ resumeSessionId })`.
 
+## `SessionRawArtifact` — verbatim stored artifact text
+
+A backend's own artifact text for one session, byte-identical to what it durably wrote (decoded from its physical encoding). `readRaw` returns it without reconstructing from parsed events, so backend-specific serialization (chunk packing, key order, line breaks) survives; backends without a per-session artifact, such as SQLite, inherit the `undefined` default.
+
+```ts type-equiv
+/** A backend's own raw artifact text for one session, verbatim. */
+interface SessionRawArtifact {
+  /** The session header parsed from the artifact's own first line. */
+  readonly meta: SessionHeader
+  /** The artifact's base filename on disk, without any physical encoding suffix. */
+  readonly filename: string
+  /** The artifact's full text content, decoded from the backend's physical encoding. */
+  readonly content: string
+}
+```
+
 ## Preparation and restoration ownership
 
 `SessionStore.prepare()` accepts ordinary creation options or fresh persistence graphs transferred through `RestoredSessionOptions`. The restoration branch validates and freezes the transferred header and events in place, so callers must retain no mutable aliases. `SessionPreparation` then owns the exact unpublished Session until publication or rollback; disposal is synchronous and idempotent. Persistence inspection exposes only `SessionInspection`, an immutable logical view borrowed from the same prepared Session.
@@ -221,9 +237,9 @@ Both implement the same abstract `SessionPersistence` (locate/create/append/prep
 
 <a id="cordis-surface"></a>
 
-## Cordis surface
+## Cordis API
 
-Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` surface lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
+Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
 
 <a id="ctxsessionpersistence--sessionpersistence-abstract-seam"></a>
 
@@ -240,6 +256,21 @@ Durable append-only session storage. Implementations preserve contiguous, lossle
  * @returns the backend-specific absolute location, when one exists.
  */
 abstract locate(meta: SessionHeader): SessionLocation | undefined
+
+/**
+ * Read a session's backend-owned artifact text verbatim — the exact durable
+ * bytes the backend wrote (decoded from its physical encoding, e.g. a
+ * decompressed JSONL). The returned `content` is the raw text, not a
+ * reconstruction from parsed events, so it preserves backend-specific
+ * serialization (chunk packing, key order, line breaks). Backends without a
+ * per-session artifact (SQLite) inherit the `undefined` default.
+ * @param _id - the persisted session to read (unused by the default: no
+ * per-session artifact).
+ * @param signal - optional cancellation for backend read work.
+ * @returns the raw artifact plus its parsed header, or `undefined` when the
+ * session is absent or the backend owns no per-session artifact.
+ */
+readRaw(_id: SessionId, signal?: AbortSignal): Promise<SessionRawArtifact | undefined>
 
 /**
  * Register a new session's metadata. A backend MAY defer the physical write
@@ -346,5 +377,5 @@ abstract listSnapshots(signal?: AbortSignal): Promise<SessionPersistenceSnapshot
 
 Types: [SessionEvent](session.md) · [SessionId](core.md)
 
-Source: [`packages/session/session-persistence/src/index.ts:74`](../../packages/session/session-persistence/src/index.ts)
+Source: [`packages/session/session-persistence/src/index.ts:84`](../../packages/session/session-persistence/src/index.ts)
 <!-- END GENERATED cordis-surface -->

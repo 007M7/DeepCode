@@ -1,5 +1,5 @@
 /**
- * Commander adapter for the dsh-sdk subcommand surface.
+ * Commander adapter for the dsh-sdk subcommand interface.
  *
  * @module @deepseek-ai/dsh-scripts/args
  */

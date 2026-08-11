@@ -130,7 +130,7 @@ export default defineConfig({
     // Workspace packages resolve to SOURCE: package.json exports point at lib
     // for Node/type consumers, but the browser bundle must compile src directly
     // so CSS rides vite's pipeline instead of the CSS-externalized lib bundle.
-    // Only the shell's normal-package surface is aliased — plugin packages are
+    // Only the shell's normal package entry is aliased — plugin packages are
     // NEVER bundled here (shell self-sufficiency — see
     // packages/client/web/README.md); they arrive as runtime
     // bundles through the client module system. Order matters — subpath

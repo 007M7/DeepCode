@@ -30,7 +30,7 @@ async function setup() {
 }
 
 describe('registration / disposal', () => {
-  it('registers no service surface (it is a plugin, not ctx.fsPolicy)', async () => {
+  it('registers no service API (it is a plugin, not ctx.fsPolicy)', async () => {
     const { ctx } = await setup()
     expect((ctx as Context & { fsPolicy?: unknown }).fsPolicy).toBeUndefined()
   })

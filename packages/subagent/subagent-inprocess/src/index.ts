@@ -13,8 +13,9 @@
 
 import { randomUUID } from 'node:crypto'
 import type { Context } from '@deepseek-ai/cordis'
+import { foldConsumedWork } from '@deepseek-ai/dsh-agent'
 import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent'
-import { findLastMessageTurnEnd, SessionId, type SessionEvent, type TurnEndReason } from '@deepseek-ai/dsh-session'
+import { SessionId, type SessionEvent, type TurnEndReason } from '@deepseek-ai/dsh-session'
 import { createUserMessage, type ContentBlock } from '@deepseek-ai/dsh-llm'
 import {
   appendDelegatedPolicyOverrides,
@@ -52,6 +53,10 @@ function toStopReason(reason: TurnEndReason | undefined): SubagentStopReason {
       return 'max-tokens'
     case 'aborted':
       return 'aborted'
+    // A pre-step rejection discarded the claimed prompt: the task was
+    // declined, and the caller must not read the run as done.
+    case 'blocked':
+      return 'refusal'
     case 'error':
     case 'interrupted':
     default:
@@ -207,7 +212,11 @@ function readResult(
   structured?: { captured?: { value: unknown } | undefined },
 ): SubagentResult {
   const own = child.session.events.slice(boundary)
-  const lastEnd = findLastMessageTurnEnd(own)
+  // `droppedUnrun` is deliberately unread: a one-shot prompt is claimed by its
+  // awaited first turn almost immediately, and the owner's own teardown is the
+  // `cancelled` flag below. A cancellation with no accounting turn resolves
+  // `error` through `toStopReason(undefined)`, which never overstates success.
+  const lastEnd = foldConsumedWork(own).end
   // The seam's canonical selection rule; a partial answer survives cancel and truncation.
   const output: ContentBlock[] = finalAssistantOutput(own) ?? []
   const recorded = toStopReason(lastEnd?.data.reason)

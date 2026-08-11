@@ -6,10 +6,10 @@
  * WRITE_RESTRICTED token intersects write accesses only.
  *
  * The escape target sits in its own scratch dir under the system temp
- * directory, OUTSIDE both granted trees: tempDir is passed EXPLICITLY (never
- * defaulted through GetTempPathW, whose grant would inherit (OI)(CI) over the
- * whole real temp tree) and the writable dir is a separate mkdtemp directory
- * that contains neither sibling. Nothing under the user profile is touched.
+ * directory, OUTSIDE both granted trees: tempDir is an explicit private
+ * mkdtemp directory (the API never grants the ambient temp root implicitly),
+ * and the writable dir is a separate mkdtemp directory that contains neither
+ * sibling. Nothing under the user profile is touched.
  */
 
 import { execFileSync } from 'node:child_process'
@@ -47,11 +47,15 @@ describe.skipIf(!isWin32 || !pwshAvailable())('AclSandbox write restriction', ()
     secretFile = join(scratchRoot, 'secret.txt')
     writeFileSync(secretFile, 'top secret - must stay readable to prove the read boundary')
     escapeFile = join(scratchRoot, 'escaped.txt')
-    // tempDir is passed explicitly: GetTempPathW reads the native environment
-    // block, which host runtimes (vitest worker pools) may not keep in sync
-    // with process.env — and a real-temp grant would inherit over every
-    // temp subdirectory, including this test's scratch dir.
-    sandbox = new AclSandbox({ writableDirs: [writableDir], tempDir: isolatedTemp, writeSid: 'S-1-4-9000-4', mode: 'workspace-write' })
+    // The direct API requires this explicit private temp directory and its
+    // own SID; it never widens the grant over the ambient temp root.
+    sandbox = new AclSandbox({
+      writableDirs: [writableDir],
+      tempDir: isolatedTemp,
+      writeSid: 'S-1-4-9000-4',
+      tempWriteSid: 'S-1-4-9000-4-1',
+      mode: 'workspace-write',
+    })
     await sandbox.init()
   })
 
@@ -91,7 +95,16 @@ describe.skipIf(!isWin32 || !pwshAvailable())('AclSandbox write restriction', ()
   it('fails closed when the write SID cannot be parsed (no unrestricted fallback)', async () => {
     // A malformed SID makes ConvertStringSidToSidW fail; init must throw
     // before any grant is applied and never spawn unrestricted.
-    const broken = new AclSandbox({ writableDirs: [writableDir], writeSid: 'S-1-4-abc-1', mode: 'workspace-write' })
+    const broken = new AclSandbox({ writableDirs: [writableDir], tempDir: null, writeSid: 'S-1-4-abc-1', mode: 'workspace-write' })
     await expect(broken.init()).rejects.toThrow(/ConvertStringSidToSidW/u)
+  }, 15_000)
+
+  it('failed init clears provisional temp state before a retry', async () => {
+    const broken = new AclSandbox({ writableDirs: [writableDir], tempDir: null, writeSid: 'S-1-4-abc-1', mode: 'workspace-write' })
+    const provisionalState = broken as unknown as { tempDirResolved: string | undefined }
+    provisionalState.tempDirResolved = isolatedTemp
+
+    await expect(broken.init()).rejects.toThrow(/ConvertStringSidToSidW/u)
+    expect(broken.tempDir).toBeUndefined()
   }, 15_000)
 })

@@ -1,5 +1,5 @@
 /**
- * JSON-RPC method and notification surface for out-of-process harness SDKs.
+ * JSON-RPC methods and notifications for out-of-process harness SDKs.
  * The surrounding context owns plugins, persistence, and configured adapters.
  *
  * @module @deepseek-ai/dsh-jsonrpc/server
@@ -216,6 +216,10 @@ export class HarnessSdkServer {
   }
 
   private async createSession(sessionId: string): Promise<SessionRecord> {
+    // No preset composition: this server's compositions keep the model-facing
+    // rows in the host plane, so this agent reads them from the global layer. A
+    // deployment that configures a roster has to join one here first
+    // (@deepseek-ai/dsh-agent-presets README, "Composing a child agent").
     const handle = await this.ctx.agents.create({
       sessionId: SessionId(sessionId),
       meta: { cwd: this.cwd },

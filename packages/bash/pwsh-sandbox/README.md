@@ -30,5 +30,5 @@ None directly; the denial surface belongs to the tool layer.
 ## Known Limitations and Deferred Work
 
 - **Reads are unrestricted** on Windows (the ACL runner restricts writes only); the read boundary is documented in `@deepseek-ai/dsh-sandbox-windows-acl`.
-- **The Windows workspace-write temp area is the real temp directory** (`GetTempPathW`). This is a deliberate backend-defined choice, the same decision Landlock makes (`readWrite: ['/tmp', ...]`): the seam's "backend-defined temp area" permits it, and the escape probe in `tests/acl.e2e.ts` lives outside the temp tree for exactly that reason. A per-run private temp (bwrap's `--tmpfs /tmp` semantics) would additionally need an environment-block rewrite in the runner; it is an optional future hardening, not a correctness gap.
-- **Windows read-only is strict zero-grant** — not even the NUL device is writable; `> $null` redirection still works (documented in the backend package).
+- **Windows workspace-write temp authority is private** per live session/workspace pair; agentless calls receive a fresh private directory per invocation. The ambient temp root is never granted, and the runner rewrites TMP/TEMP to the private directory before spawning.
+- **Windows read-only grants no explicit writable root but remains partial** because the restricted token must retain Everyone. Objects whose DACL grants Everyone write access — including compatible opens of the NUL device — remain ambient authority; PowerShell's `> $null` redirection still works without opening NUL.

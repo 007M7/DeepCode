@@ -196,18 +196,18 @@ describe('web e2e: agent-preset authoring is a host-side copy', () => {
     const dialog = settingsDialog()
     await dialog.getByRole('button', { name: '通用设置' }).click()
     await dialog.getByRole('button', { name: 'Agent 预设' }).click()
-    await dialog.getByText('已损坏').first().waitFor({ timeout: 10_000 })
+    await dialog.getByText('加载失败').first().waitFor({ timeout: 10_000 })
 
     const snapshot = withPresetRoot(
       await captureStableAria(page, '[role="dialog"]', scaffold.workspaceCwd))
     await compareOrRefreshGolden(DAMAGED_EXPECTED, snapshot, MODE)
     // Both damage shapes surface as marked, unselectable, uncopyable cards
     // that still carry their metadata and the discovery-reported reason.
-    expect(snapshot).toContain('已损坏: broken-yaml')
-    expect(snapshot).toContain('已损坏: 幽灵预设')
+    expect(snapshot).toContain('加载失败: broken-yaml')
+    expect(snapshot).toContain('加载失败: 幽灵预设')
     expect(snapshot).toContain('not valid YAML')
     expect(snapshot).toContain('agent.cordis.yml is missing')
-    expect(await dialog.getByRole('button', { name: '已损坏: broken-yaml' }).isDisabled()).toBe(true)
+    expect(await dialog.getByRole('button', { name: '加载失败: broken-yaml' }).isDisabled()).toBe(true)
     expect(await dialog.getByRole('button', { name: '复制: 幽灵预设' }).isDisabled()).toBe(true)
     // A broken card offers no "set default" affordance at all — the aria name
     // IS the broken marking, so the picking name must not exist.

@@ -138,7 +138,7 @@ describe('contextBreakdown session projection', () => {
     expect(projected(ctx, session).messageTokens).toBe(estimateMessage(summary))
   })
 
-  it('keeps the message figure equal to the service surface across appends and a compaction', async () => {
+  it('keeps the message figure equal to the service result across appends and a compaction', async () => {
     const { ctx, session } = await harness()
     // The panel's composition rows and `measure()` answer the same question in
     // the same vocabulary; one shared fold is what makes that true.
