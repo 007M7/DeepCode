@@ -629,6 +629,34 @@ describe('WorkspaceBrowser', () => {
     expect(insertWorkspaceBefore).toHaveBeenCalledWith(wid('tail'), wid('beta'))
   })
 
+  it('accepts a document-level drop and commits the last Workspace marker on drag end', () => {
+    const insertWorkspaceBefore = vi.fn(async () => {})
+    mount({
+      useWorkspaces: hook(workspaceState([
+        workspace('alpha', []),
+        workspace('beta', []),
+        workspace('tail', []),
+      ])),
+      insertWorkspaceBefore,
+    })
+    const source = screen.getByText('tail').closest('[role="treeitem"]') as HTMLElement
+    let target = screen.getByText('beta').closest('[role="treeitem"]')?.parentElement as HTMLElement
+    while (target.parentElement?.getAttribute('role') !== 'tree') {
+      target = target.parentElement as HTMLElement
+    }
+    target.getBoundingClientRect = () => ({
+      top: 100, bottom: 134, left: 0, right: 200, width: 200, height: 34, x: 0, y: 100, toJSON: () => ({}),
+    })
+    fireEvent.dragStart(source, { dataTransfer: dragData() })
+    fireDrag(target, 'dragOver', 105)
+    const outsideDrop = createEvent.drop(document.body)
+    Object.defineProperty(outsideDrop, 'dataTransfer', { value: dragData() })
+    fireEvent(document.body, outsideDrop)
+    expect(outsideDrop.defaultPrevented).toBe(true)
+    fireEvent.dragEnd(source)
+    expect(insertWorkspaceBefore).toHaveBeenCalledWith(wid('tail'), wid('beta'))
+  })
+
   it('drag reorder reports the anchor to insertSessionBefore and skips no-op drops', () => {
     const insertSessionBefore = vi.fn(async () => {})
     const sessions = sessionState([summary('one', 3), summary('two', 2), summary('three', 1)])

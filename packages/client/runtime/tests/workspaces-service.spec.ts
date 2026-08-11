@@ -107,6 +107,12 @@ describe('WorkspaceManager', () => {
     expect(manager.getSnapshot().items.map(item => item.workspaceId)).toEqual(['one', 'two', 'three'])
     await expect(rejected).resolves.toMatchObject({ ok: false })
     expect(manager.getSnapshot().items.map(item => item.workspaceId)).toEqual(['one', 'three', 'two'])
+
+    api.onWorkspaceInsertBefore = () => Promise.reject(new Error('transport down'))
+    const disconnected = manager.insertBefore(wid('three'), wid('one'))
+    expect(manager.getSnapshot().items.map(item => item.workspaceId)).toEqual(['three', 'one', 'two'])
+    await expect(disconnected).rejects.toThrow('transport down')
+    expect(manager.getSnapshot().items.map(item => item.workspaceId)).toEqual(['one', 'three', 'two'])
   })
 
   it('replays removal over an in-flight baseline and ignores duplicate or late updates', async () => {

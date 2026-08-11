@@ -200,9 +200,10 @@ function SessionTree({
   const [drag, setDrag] = useState<DragState | null>(null)
   const sessionDropCommitted = useRef(false)
   const [workspaceDrag, setWorkspaceDrag] = useState<WorkspaceDragState | null>(null)
-  const sessionDragging = drag !== null
+  const workspaceDropCommitted = useRef(false)
+  const nativeDragActive = drag !== null || workspaceDrag !== null
   useEffect(() => {
-    if (!sessionDragging) return
+    if (!nativeDragActive) return
     // Row hover still owns the insertion marker. Accept the native drag at
     // document level so releasing outside the list is not rendered as a
     // rejected drop before dragend commits that last marker.
@@ -217,7 +218,7 @@ function SessionTree({
       document.removeEventListener('dragover', acceptDrag)
       document.removeEventListener('drop', acceptDrop)
     }
-  }, [sessionDragging])
+  }, [nativeDragActive])
   const currentGroup = current === undefined
     ? undefined
     : (workspaces.find(w => w.sessionIds.includes(current))?.workspaceId as string | undefined)
@@ -310,6 +311,26 @@ function SessionTree({
       console.warn('session reorder rejected:', reason)
     })
   }
+  const commitWorkspaceDrag = (
+    activeDrag: WorkspaceDragState,
+    over: NonNullable<WorkspaceDragState['over']>,
+  ): void => {
+    if (workspaceDropCommitted.current) return
+    workspaceDropCommitted.current = true
+    setWorkspaceDrag(null)
+    const rowIndex = workspaces.findIndex(workspace => workspace.workspaceId === over.id)
+    if (rowIndex === -1) return
+    const anchor = over.half === 'before' ? over.id : workspaces[rowIndex + 1]?.workspaceId
+    if (anchor === activeDrag.workspaceId) return
+    const sourceIndex = workspaces.findIndex(workspace => workspace.workspaceId === activeDrag.workspaceId)
+    const anchorIndex = anchor === undefined
+      ? workspaces.length
+      : workspaces.findIndex(workspace => workspace.workspaceId === anchor)
+    if (sourceIndex !== -1 && (anchorIndex === sourceIndex || anchorIndex === sourceIndex + 1)) return
+    insertWorkspaceBefore(activeDrag.workspaceId, anchor).catch((reason: unknown) => {
+      console.warn('workspace reorder rejected:', reason)
+    })
+  }
 
   return (
     <div className={clsx(css.treeBody, css.wide)}>
@@ -323,8 +344,18 @@ function SessionTree({
             ? workspaceDrag.over.half
             : null
           const workspaceDragProps = workspaceId === undefined ? undefined : {
-            start: () => { setWorkspaceDrag({ workspaceId, over: null }) },
-            end: () => { setWorkspaceDrag(null) },
+            start: () => {
+              workspaceDropCommitted.current = false
+              setWorkspaceDrag({ workspaceId, over: null })
+            },
+            end: () => {
+              if (workspaceDrag?.over !== null && workspaceDrag?.over !== undefined) {
+                commitWorkspaceDrag(workspaceDrag, workspaceDrag.over)
+              } else {
+                setWorkspaceDrag(null)
+              }
+              workspaceDropCommitted.current = false
+            },
           }
           const hoverWorkspace = workspaceId === undefined
             ? undefined
@@ -337,18 +368,7 @@ function SessionTree({
             ? undefined
             : (half: 'before' | 'after') => {
               if (workspaceDrag === null) return
-              const rowIndex = workspaces.findIndex(workspace => workspace.workspaceId === workspaceId)
-              const anchor = half === 'before' ? workspaceId : workspaces[rowIndex + 1]?.workspaceId
-              setWorkspaceDrag(null)
-              if (anchor === workspaceDrag.workspaceId) return
-              const sourceIndex = workspaces.findIndex(workspace => workspace.workspaceId === workspaceDrag.workspaceId)
-              const anchorIndex = anchor === undefined
-                ? workspaces.length
-                : workspaces.findIndex(workspace => workspace.workspaceId === anchor)
-              if (sourceIndex !== -1 && (anchorIndex === sourceIndex || anchorIndex === sourceIndex + 1)) return
-              insertWorkspaceBefore(workspaceDrag.workspaceId, anchor).catch((reason: unknown) => {
-                console.warn('workspace reorder rejected:', reason)
-              })
+              commitWorkspaceDrag(workspaceDrag, { id: workspaceId, half })
             }
           return (
           // Group section: header row + expanded top-level session rows. The

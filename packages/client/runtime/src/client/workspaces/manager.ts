@@ -173,10 +173,19 @@ export class WorkspaceManager {
     const frameGeneration = this.orderFrameGeneration
     const previousOrder = this.itemViews().map(workspace => workspace.workspaceId)
     this.installOrder(insertIdBefore(previousOrder, workspaceId, beforeWorkspaceId))
-    const { result } = await this.api.workspace.insertBefore({
-      workspaceId,
-      ...beforeWorkspaceId === undefined ? {} : { beforeWorkspaceId },
-    })
+    let result: RpcResult<{ workspaceIds: WorkspaceId[] }>
+    try {
+      ;({ result } = await this.api.workspace.insertBefore({
+        workspaceId,
+        ...beforeWorkspaceId === undefined ? {} : { beforeWorkspaceId },
+      }))
+    } catch (error) {
+      if (requestGeneration === this.orderRequestGeneration
+        && frameGeneration === this.orderFrameGeneration) {
+        this.installOrder(previousOrder)
+      }
+      throw error
+    }
     if (result.ok && requestGeneration === this.orderRequestGeneration
       && frameGeneration === this.orderFrameGeneration) {
       this.installOrder(result.value.workspaceIds)
