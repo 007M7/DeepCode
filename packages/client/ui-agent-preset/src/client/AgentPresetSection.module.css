@@ -161,15 +161,28 @@
   color: var(--dsw-alias-bg-layer-3);
 }
 
+/* Bounded to four lines. A preset publishes its own description, so one long
+   one would otherwise stretch every card in its grid row (`.cards` sizes rows
+   1fr). Clamping is CSS alone: the whole text stays in the DOM for assistive
+   tech, and the card offers it on hover when it is actually cut off. The
+   description does not grow to fill the card — `-webkit-line-clamp` on a
+   flex-stretched box leaves the clamp height and the box height disagreeing,
+   so `.cardId` takes the free space with an auto margin instead. */
 .cardDesc {
   font-size: 13px;
   line-height: 1.55;
   color: var(--dsw-alias-label-secondary);
-  flex: 1;
   min-height: 42px;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  overflow: hidden;
+  /* A user-authored description may carry an unbreakable path or URL. */
+  overflow-wrap: anywhere;
 }
 
 .cardId {
+  margin-top: auto;
   font-family: var(--dsw-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   font-size: 11px;
   color: var(--dsw-alias-label-dimmed);
