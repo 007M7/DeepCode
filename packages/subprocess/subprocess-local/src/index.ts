@@ -1,7 +1,8 @@
 /**
  * Local Service provider for the subprocess capability seam. Each spawn is a detached
- * process tree with the spec's per-stream stdio dispositions; disposal
- * terminates and joins live trees. It has no config: every disposition and
+ * process tree with the spec's per-stream stdio dispositions. Normal disposal
+ * terminates and joins live trees; Node's synchronous exit phase force-stops
+ * any trees the service still owns. It has no config: every disposition and
  * limit arrives on the spec, so the deployment-varying choices stay with the
  * caller's config (the bash executor's, the LSP host's, …).
  * @module @deepseek-ai/dsh-subprocess-local
@@ -21,7 +22,7 @@ import type {
   SubprocessTerminalSpawnSpec,
 } from '@deepseek-ai/dsh-subprocess'
 import { childEnv, spawnSubprocess } from './spawn.ts'
-import type { SpawnInternals } from './spawn.ts'
+import type { LocalSubprocessHandle, SpawnInternals } from './spawn.ts'
 import { createProcessInspector } from './process-inspector.ts'
 import type { ProcessInspector } from './process-inspector.ts'
 import { LocalTerminalHandle } from './terminal.ts'
@@ -30,13 +31,14 @@ import { LocalTerminalHandle } from './terminal.ts'
  * Local subprocess service: detached process trees, Node-shaped stdio
  * dispositions (raw pipes, inherit, bounded tail-keep collection with spill
  * files), credential-scrubbed environment, and tree-scoped signalling with
- * SIGTERM→grace→SIGKILL escalation.
+ * SIGTERM→grace→SIGKILL escalation, plus synchronous final termination during
+ * JavaScript-observable host exit.
  */
 export class LocalSubprocessService extends SubprocessService {
-  /** Live handles retained only so disposal can terminate and join them. */
-  private live = new Set<SubprocessHandle>()
-  /** Live terminal sessions retained through whole-session quiescence. */
-  private terminals = new Set<SubprocessTerminalHandle>()
+  /** Live handles retained for normal disposal and synchronous host-exit finalization. */
+  private live = new Set<LocalSubprocessHandle>()
+  /** Live terminals retained through normal quiescence or host-exit finalization. */
+  private terminals = new Set<LocalTerminalHandle>()
   /** Test hook: spill and platform knobs forwarded to spawnSubprocess. */
   internals: SpawnInternals = {}
   /** Test hook for platform process inspection; production resolves lazily on terminal spawn. */
@@ -44,28 +46,59 @@ export class LocalSubprocessService extends SubprocessService {
 
   constructor(ctx: Context) {
     super(ctx)
-    ctx.effect(() => async () => {
-      // Terminate (escalating), then await WHOLE-TREE exit — not just the
-      // direct child's settlement — so even a TERM-trapping descendant cannot
-      // outlive the fiber.
-      const pending: Promise<unknown>[] = []
-      for (const handle of this.live) {
-        handle.terminate()
-        // Spawn-failure rejections already settled and left the live set.
-        pending.push(handle.done.catch(() => {}).then(() => handle.waitForExit()))
+    ctx.effect(() => {
+      const onHostExit = (): void => { this.terminateForHostExit() }
+      process.on('exit', onHostExit)
+      return async () => {
+        try {
+          await this.disposeManagedProcesses()
+        } finally {
+          process.off('exit', onHostExit)
+        }
       }
-      for (const terminal of this.terminals) {
-        pending.push(terminal.terminate())
-      }
-      this.live.clear()
-      this.terminals.clear()
-      const outcomes = await Promise.allSettled(pending)
-      const failures = outcomes.flatMap<unknown>(outcome => outcome.status === 'rejected'
-        ? [outcome.reason as unknown]
-        : [])
-      if (failures.length === 1) throw failures[0]
-      if (failures.length > 1) throw new AggregateError(failures, 'local subprocess teardown failed')
     }, 'local subprocess teardown')
+  }
+
+  private terminateForHostExit(): void {
+    for (const handle of this.live) {
+      try {
+        handle.terminateForHostExit()
+      } catch (_ordinaryTreeTerminationFailed) {
+        // Host exit cannot await or report one target; continue with the rest.
+      }
+    }
+    for (const terminal of this.terminals) {
+      try {
+        terminal.terminateForHostExit()
+      } catch (_terminalTerminationFailed) {
+        // One terminal must not prevent final termination of another target.
+      }
+    }
+  }
+
+  private async disposeManagedProcesses(): Promise<void> {
+    // Terminate (escalating), then await WHOLE-TREE exit — not just the
+    // direct child's settlement — so even a TERM-trapping descendant cannot
+    // outlive the fiber. Keep both sets authoritative while these waits are
+    // pending so a shorter process-level exit bound can still force-kill them.
+    const pending: Promise<unknown>[] = []
+    for (const handle of this.live) {
+      handle.terminate()
+      // Spawn-failure rejections already settled and left the live set.
+      pending.push(handle.done.catch(() => {}).then(() => handle.waitForExit()))
+    }
+    for (const terminal of this.terminals) {
+      pending.push(terminal.terminate())
+    }
+    const outcomes = await Promise.allSettled(pending)
+    const failures = outcomes.flatMap<unknown>(outcome => outcome.status === 'rejected'
+      ? [outcome.reason as unknown]
+      : [])
+    if (failures.length > 0) this.terminateForHostExit()
+    this.live.clear()
+    this.terminals.clear()
+    if (failures.length === 1) throw failures[0]
+    if (failures.length > 1) throw new AggregateError(failures, 'local subprocess teardown failed')
   }
 
   async resolveExecutable(

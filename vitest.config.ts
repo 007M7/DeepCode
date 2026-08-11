@@ -29,12 +29,26 @@ const windowsUnsupportedPackages = process.platform === 'win32'
       'packages/bash/bash-sandbox',
       'packages/bash/tool-bash',
       'packages/hooks/*',
-      'packages/subprocess/*',
       'packages/pty/pty-local',
       'packages/sandbox/sandbox-local',
       'packages/scaffold/create-sdk',
       'packages/scaffold/helper',
     ]
+  : []
+
+const windowsUnsupportedTests = process.platform === 'win32'
+  ? [
+      ...windowsUnsupportedPackages.map(path => `${path}/tests/**/*.spec.ts`),
+      'packages/subprocess/subprocess/tests/**/*.spec.ts',
+      'packages/subprocess/subprocess-local/tests/local.spec.ts',
+      'packages/subprocess/subprocess-local/tests/process-inspector.spec.ts',
+      'packages/subprocess/subprocess-local/tests/spawn.spec.ts',
+      'packages/subprocess/subprocess-local/tests/terminal.spec.ts',
+    ]
+  : []
+
+const windowsUnsupportedCoveragePackages = process.platform === 'win32'
+  ? [...windowsUnsupportedPackages, 'packages/subprocess/*']
   : []
 
 // Windows-only packages: their sources execute exclusively on win32 (koffi
@@ -94,6 +108,7 @@ const coverageExemptExcludes = coverageExemptRaw === '1'
 const processBoundTests = [
   'packages/session/session-persistence-jsonl/tests/jsonl.spec.ts',
   'packages/subagent/subagent-acp/tests/subagent-acp.spec.ts',
+  'packages/subprocess/subprocess-local/tests/process-exit.spec.ts',
   'packages/subprocess/subprocess-local/tests/spawn.spec.ts',
   'packages/context/time-context/tests/time-context.spec.ts',
   'packages/llm/llm-pi-ai/tests/adapter.spec.ts',
@@ -107,7 +122,7 @@ export default defineConfig({
     setupFiles: ['./scripts/test-invariants.ts'],
     // .tsx: client component specs (jsdom via per-file @vitest-environment pragma).
     include: testIncludes,
-    exclude: windowsUnsupportedPackages.map(path => `${path}/tests/**/*.spec.ts`),
+    exclude: windowsUnsupportedTests,
     // One coverage invocation aggregates both projects. Every suite forks for
     // Node stability; process-bound suites stay separate for inventory control.
     projects: [
@@ -123,7 +138,7 @@ export default defineConfig({
           setupFiles: ['./scripts/test-invariants.ts'],
           include: testIncludes,
           exclude: [
-            ...windowsUnsupportedPackages.map(path => `${path}/tests/**/*.spec.ts`),
+            ...windowsUnsupportedTests,
             ...processBoundTests,
             ...coverageExemptExcludes,
           ],
@@ -138,7 +153,7 @@ export default defineConfig({
           setupFiles: ['./scripts/test-invariants.ts'],
           include: processBoundTests,
           exclude: [
-            ...windowsUnsupportedPackages.map(path => `${path}/tests/**/*.spec.ts`),
+            ...windowsUnsupportedTests,
             ...coverageExemptExcludes,
           ],
         },
@@ -241,7 +256,7 @@ export default defineConfig({
         'packages/interaction/commands/src/index.ts',
         'packages/interaction/commands/src/invariant.ts',
         'packages/session/session-projection/src/index.ts',
-        ...windowsUnsupportedPackages.map(path => `${path}/src/**/*.ts`),
+        ...windowsUnsupportedCoveragePackages.map(path => `${path}/src/**/*.ts`),
         ...windowsOnlyCoverageExclusions,
         ...windowsRunnerCoverageExclusions,
         ...pwshCoverageExclusions,

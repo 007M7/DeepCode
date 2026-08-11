@@ -59,6 +59,15 @@ export interface SpawnInternals {
 }
 
 /**
+ * Local-only extension used by the owning service during Node's synchronous
+ * host-exit phase. It is intentionally absent from the public subprocess seam.
+ */
+export interface LocalSubprocessHandle extends SubprocessHandle {
+  /** Force-terminate the current tree synchronously without starting timers or waits. */
+  terminateForHostExit(): void
+}
+
+/**
  * Liveness-poll cadence for tree-exit waits. The timer stays ref'd: an
  * awaited teardown must keep the event loop alive until the tree really
  * exits, or the parent can exit while claiming quiescence and orphan the
@@ -313,7 +322,7 @@ function signalTree(
  * @returns live subprocess handle.
  * @throws when `graceMs` cannot be represented by one Node timer.
  */
-export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInternals = {}): SubprocessHandle {
+export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInternals = {}): LocalSubprocessHandle {
   if (!Number.isFinite(spec.graceMs) || spec.graceMs <= 0 || spec.graceMs > MAX_TIMER_DELAY_MS) {
     throw new Error(`subprocess graceMs must be a positive finite number no greater than ${MAX_TIMER_DELAY_MS}`)
   }
@@ -442,6 +451,10 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
     graceTimer = setTimeout(() => { kill('SIGKILL') }, spec.graceMs)
   }
 
+  const terminateForHostExit = (): void => {
+    kill('SIGKILL')
+  }
+
   // The caller owns timeout classification; this layer only reacts to abort.
   const onAbort = (): void => { terminate() }
   spec.signal?.addEventListener('abort', onAbort, { once: true })
@@ -523,6 +536,7 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
     },
     done,
     terminate,
+    terminateForHostExit,
     waitForExit,
   }
 }
