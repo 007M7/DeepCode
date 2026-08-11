@@ -108,9 +108,9 @@ export abstract class SessionPersistence extends Service {
    * @returns the raw artifact plus its parsed header, or `undefined` when the
    * session is absent or the backend owns no per-session artifact.
    */
-  async readRaw(_id: SessionId, signal?: AbortSignal): Promise<SessionRawArtifact | undefined> {
-    signal?.throwIfAborted()
-    return undefined
+  readRaw(_id: SessionId, signal?: AbortSignal): Promise<SessionRawArtifact | undefined> {
+    if (signal?.aborted === true) return Promise.reject(signal.reason)
+    return Promise.resolve(undefined)
   }
 
   /**

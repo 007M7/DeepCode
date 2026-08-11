@@ -253,17 +253,7 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
     signal?.throwIfAborted()
     const path = await this.findLog(id, signal)
     if (path === undefined) return undefined
-    let buffer: Buffer
-    // Revision-stable read: a writer appending between stat and readFile
-    // would yield a torn physical file (see readPrefix).
-    for (;;) {
-      signal?.throwIfAborted()
-      const before = fileRevision(await stat(path, { bigint: true }))
-      buffer = await readFile(path, { signal })
-      signal?.throwIfAborted()
-      const after = fileRevision(await stat(path, { bigint: true }))
-      if (before === after) break
-    }
+    const { buffer } = await this.readStableFile(path, signal)
     let content: string
     if (this.compression === 'zstd') {
       const { frames } = scanZstdFrames(buffer)
@@ -290,6 +280,28 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
   }
 
   /**
+   * Read a file's bytes under a revision-stable loop: a writer appending
+   * between stat and readFile would yield a torn physical file, so retry
+   * while the stat revision changes.
+   * @param path - the artifact file to read.
+   * @param signal - optional cancellation for the stat/read work.
+   * @returns the stable bytes and the revision that matched both stats.
+   */
+  private async readStableFile(
+    path: string,
+    signal?: AbortSignal,
+  ): Promise<{ buffer: Buffer; revision: PersistenceRevision }> {
+    for (;;) {
+      signal?.throwIfAborted()
+      const before = fileRevision(await stat(path, { bigint: true }))
+      const buffer = await readFile(path, { signal })
+      signal?.throwIfAborted()
+      const after = fileRevision(await stat(path, { bigint: true }))
+      if (before === after) return { buffer, revision: after }
+    }
+  }
+
+  /**
    * Read a stored prefix and convert torn-tail state to the opaque marker the
    * coordinator can round-trip without knowing the physical encoding.
    */
@@ -298,19 +310,7 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
     expectedId?: SessionId,
     signal?: AbortSignal,
   ): Promise<StoredPrefix<JsonlTornMarker>> {
-    let buffer: Buffer
-    let revision: PersistenceRevision
-    for (;;) {
-      signal?.throwIfAborted()
-      const before = fileRevision(await stat(path, { bigint: true }))
-      buffer = await readFile(path, { signal })
-      signal?.throwIfAborted()
-      const after = fileRevision(await stat(path, { bigint: true }))
-      if (before === after) {
-        revision = after
-        break
-      }
-    }
+    const { buffer, revision } = await this.readStableFile(path, signal)
     let prefix: Omit<StoredPrefix<JsonlTornMarker>, 'revision'>
     try {
       if (this.compression === 'zstd') {

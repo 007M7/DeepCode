@@ -38,5 +38,5 @@ export function downloadBlob(blob: Blob, filename: string): void {
   anchor.download = filename
   anchor.click()
   // Revoke one tick later: some browsers read the blob URL after click().
-  setTimeout(() => URL.revokeObjectURL(url), 0)
+  setTimeout(() => { URL.revokeObjectURL(url) }, 0)
 }
