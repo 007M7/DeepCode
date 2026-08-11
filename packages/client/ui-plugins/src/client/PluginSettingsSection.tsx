@@ -1,6 +1,9 @@
 import { useEffect, useId, useMemo, useState, type ReactNode } from 'react'
 import type { ClientRemote } from '@deepseek-ai/dsh-api-remotes/client'
-import { IconSearchOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
+import {
+  IconChevronDownOutline14,
+  IconSearchOutline16,
+} from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { PluginsKey } from './locales.ts'
 import css from './PluginSettingsSection.module.css'
@@ -54,6 +57,7 @@ export function PluginSettingsSection({ list, t }: PluginSettingsSectionProps): 
   const titleId = useId()
   const [request, setRequest] = useState(0)
   const [query, setQuery] = useState('')
+  const [expanded, setExpanded] = useState<PluginInventoryEntry['entryId'] | null>(null)
   const [state, setState] = useState<ViewState>({ status: 'loading' })
 
   useEffect(() => {
@@ -72,6 +76,12 @@ export function PluginSettingsSection({ list, t }: PluginSettingsSectionProps): 
       : [],
     [normalizedQuery, state],
   )
+
+  useEffect(() => {
+    if (expanded !== null && !filteredEntries.some(entry => entry.entryId === expanded)) {
+      setExpanded(null)
+    }
+  }, [expanded, filteredEntries])
 
   const retry = (): void => {
     setState({ status: 'loading' })
@@ -115,14 +125,25 @@ export function PluginSettingsSection({ list, t }: PluginSettingsSectionProps): 
             <ul className={css.cards}>
               {filteredEntries.map((entry) => {
                 const status = phaseLabel(entry.fiberPhase, t)
+                const open = expanded === entry.entryId
+                const detailId = `${titleId}-details-${encodeURIComponent(entry.entryId)}`
                 return (
                   <li
                     className={css.card}
                     key={entry.entryId}
                     data-plugin-entry={entry.entryId}
-                    aria-label={`${entry.displayId}, ${status}, ${t(entry.enabled ? 'enabledTag' : 'disabledTag')}`}
+                    data-open={open ? 'true' : undefined}
                   >
-                    <div className={css.cardContent}>
+                    <button
+                      className={css.cardContent}
+                      type="button"
+                      aria-expanded={open}
+                      aria-controls={detailId}
+                      aria-label={`${entry.displayId}, ${status}, ${t(entry.enabled ? 'enabledTag' : 'disabledTag')}`}
+                      onClick={() => {
+                        setExpanded(current => current === entry.entryId ? null : entry.entryId)
+                      }}
+                    >
                       <strong className={css.cardTitle}>{entry.displayId}</strong>
                       <span className={css.cardTrailing}>
                         <span
@@ -135,8 +156,24 @@ export function PluginSettingsSection({ list, t }: PluginSettingsSectionProps): 
                         <span className={css.configTag} data-enabled={entry.enabled ? 'true' : 'false'}>
                           {t(entry.enabled ? 'enabledTag' : 'disabledTag')}
                         </span>
+                        <IconChevronDownOutline14 className={css.chevron} size={12} aria-hidden="true" />
                       </span>
-                    </div>
+                    </button>
+                    {open ? (
+                      <div className={css.cardDetails} id={detailId}>
+                        <code className={css.entryValue} data-loader-entry>{entry.entryId}</code>
+                        <dl className={css.details}>
+                          <div>
+                            <dt>{t('configuration')}</dt>
+                            <dd>{t(entry.enabled ? 'enabledTag' : 'disabledTag')}</dd>
+                          </div>
+                          <div>
+                            <dt>{t('cordis')}</dt>
+                            <dd>{status}</dd>
+                          </div>
+                        </dl>
+                      </div>
+                    ) : null}
                   </li>
                 )
               })}

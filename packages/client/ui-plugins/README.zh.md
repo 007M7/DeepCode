@@ -4,7 +4,7 @@
 
 Web 设置中的只读“插件”分区。浏览器插件在“模型”之后注册一个 id 为 `plugin-inventory` 的本地化 `settings.section` 贡献，并由 Settings shell 提供常规的回退图标。插件激活期间不会读取 Remote；挂载该分区时，组件才通过 [`api-remotes`](../../api/remotes/README.md) 懒调用 `ctx.remote.pluginInventory.list()`。
 
-页面以可搜索的双列紧凑卡片展示清单。每张卡片使用 Loader 本地 id 作为标题，以彩色圆点表示根 Fiber 状态，以小标签表示有效启停状态。加载、空结果、无匹配结果与通用失败状态只属于已挂载组件；读取失败后可以重试，且不会暴露传输细节。注册使用 `ctx.slots.inject()`，因此能跟随 Settings 的延迟声明、重新声明、本地化变化与 teardown，而不拥有另一份全局 store。
+页面以可搜索的双列紧凑折叠卡片展示清单。每张收起的卡片使用 Loader 本地 id 作为标题，以彩色圆点表示根 Fiber 状态，以小标签表示有效启停状态。展开卡片后会直接展示 Loader 树条目值，不附加重复的字段标题，并列出有效配置状态与 Cordis 状态。加载、空结果、无匹配结果与通用失败状态只属于已挂载组件；读取失败后可以重试，且不会暴露传输细节。注册使用 `ctx.slots.inject()`，因此能跟随 Settings 的延迟声明、重新声明、本地化变化与 teardown，而不拥有另一份全局 store。
 
 ## 模型体验
 

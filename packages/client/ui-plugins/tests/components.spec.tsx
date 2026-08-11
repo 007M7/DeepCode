@@ -50,10 +50,25 @@ describe('PluginSettingsSection', () => {
     expect(screen.getAllByRole('listitem')).toHaveLength(6)
     expect(screen.getAllByText(en.enabledTag)).toHaveLength(5)
     expect(screen.getByText(en.disabledTag)).toBeTruthy()
-    for (const value of ['Active', 'Pending', 'Loading', 'Failed', 'Unloading', 'No root Fiber']) {
+    for (const value of [
+      'Mounted',
+      'Waiting for dependencies',
+      'Loading',
+      'Mount failed',
+      'Unloading',
+      'Not mounted',
+    ]) {
       expect(screen.getByRole('img', { name: value })).toBeTruthy()
     }
-    expect(screen.getByRole('listitem', { name: 'active-name, Active, Enabled' })).toBeTruthy()
+    const active = screen.getByRole('button', { name: 'active-name, Mounted, Enabled' })
+    expect(active.getAttribute('aria-expanded')).toBe('false')
+    fireEvent.click(active)
+    expect(active.getAttribute('aria-expanded')).toBe('true')
+    expect(view.container.querySelector('[data-loader-entry]')?.textContent).toBe('active')
+    expect(screen.getByText(en.configuration)).toBeTruthy()
+    expect(screen.getByText(en.cordis)).toBeTruthy()
+    fireEvent.click(active)
+    expect(view.container.querySelector('[data-loader-entry]')).toBeNull()
   })
 
   it('filters by local id or Loader entry id', async () => {
