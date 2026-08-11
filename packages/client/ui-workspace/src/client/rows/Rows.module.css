@@ -130,10 +130,6 @@
 }
 
 
-.folderActive {
-  color: var(--dsw-alias-state-business-primary);
-}
-
 /* Project leading slot: folder by default, expand arrow on row hover. */
 .projectRow .chevron { display: none; }
 .projectRow:hover .chevron { display: inline-flex; }
