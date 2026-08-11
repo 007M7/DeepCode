@@ -8,7 +8,9 @@
  * every file is byte-identical to the backend's durable artifact or attachment
  * store and self-describing through its own header line or media type. Before
  * each live session's artifact read, the SessionStore flush barrier makes the
- * current in-memory log durable; cold sessions need no barrier.
+ * current in-memory log durable; cold sessions need no barrier. Request abort
+ * and response-consumer cancellation share one producer signal and terminate
+ * the active compressor.
  * Compression runs on the host with fflate's streaming Zip API, so the archive
  * bytes are produced incrementally and the host never holds the whole archive
  * in one buffer; production yields to the consumer whenever the response queue
@@ -206,7 +208,7 @@ export function sessionLogZipFilename(sessionId: string): string {
  * missing-session path can answer cleanly before streaming starts).
  * @param sessionId - the root session id.
  * @param includeDescendants - whether to include every subagent descendant.
- * @param signal - optional cancellation for read work.
+ * @param signal - optional cancellation forwarded to lineage and persistence reads.
  * @returns the export entries in zip order.
  */
 export async function* sessionLogZipEntries(
@@ -233,7 +235,8 @@ export async function* sessionLogZipEntries(
         if (seen.has(id)) continue
         seen.add(id)
         await flushLiveSessionLog(deps, id, signal)
-        const raw = await deps.sessionPersistence.readRaw(id)
+        const raw = await deps.sessionPersistence.readRaw(id, signal)
+        signal?.throwIfAborted()
         if (raw === undefined) {
           throw new Error(`subagent "${id}" has no stored log artifact`)
         }
@@ -245,12 +248,14 @@ export async function* sessionLogZipEntries(
         yield* collect(node.descendants)
       }
     }
-    const lineage = await deps.sessionQuery.traceSession(sessionId)
+    const lineage = await deps.sessionQuery.traceSession(sessionId, signal)
+    signal?.throwIfAborted()
     yield* collect(lineage.descendants)
   }
   for (const ref of media.values()) {
     signal?.throwIfAborted()
     const stored = await deps.attachments.readImage(ref)
+    signal?.throwIfAborted()
     yield { path: mediaEntryPath(ref), data: stored.data }
   }
 }
@@ -335,7 +340,7 @@ async function pushArtifactChunks(
  * @param root - the already-read root artifact (first zip entry).
  * @param sessionId - the root session id.
  * @param includeDescendants - whether to include every subagent descendant.
- * @param signal - optional cancellation for read work.
+ * @param signal - request cancellation combined with response-consumer cancellation.
  * @returns the zip byte stream.
  */
 export function streamSessionLogZip(
@@ -343,15 +348,24 @@ export function streamSessionLogZip(
   root: SessionRawArtifact,
   sessionId: SessionId,
   includeDescendants: boolean,
-  signal?: AbortSignal,
+  signal: AbortSignal,
 ): ReadableStream<Uint8Array> {
+  const consumerAbort = new AbortController()
+  const producerSignal = AbortSignal.any([signal, consumerAbort.signal])
+  let zip: Zip | undefined
+  let zipTerminated = false
+  const terminateZip = (): void => {
+    if (zip === undefined || zipTerminated) return
+    zipTerminated = true
+    zip.terminate()
+  }
   return new ReadableStream<Uint8Array>({
     start(controller) {
       // fflate invokes the callback synchronously per compressed chunk, so a
       // single push can enqueue ahead of a slow consumer; pushArtifactChunks
       // yields between chunks once the queue is over-full, bounding the
       // accumulation to the queue high-water mark plus one push.
-      const zip = new Zip((error, data, final) => {
+      const archive = new Zip((error, data, final) => {
         /* v8 ignore next 3 -- fflate reports only internal zip failures, unreachable for valid inputs */
         if (error) {
           controller.error(error)
@@ -361,25 +375,33 @@ export function streamSessionLogZip(
         if (data.byteLength > 0) controller.enqueue(data)
         if (final) controller.close()
       })
+      zip = archive
       void (async () => {
         try {
-          for await (const entry of sessionLogZipEntries(deps, root, sessionId, includeDescendants, signal)) {
+          for await (const entry of sessionLogZipEntries(deps, root, sessionId, includeDescendants, producerSignal)) {
             const deflate = new ZipDeflate(entry.path, { level: 6 })
-            zip.add(deflate)
+            archive.add(deflate)
             if ('content' in entry) {
-              await pushArtifactChunks(deflate, entry.content, controller, signal)
+              await pushArtifactChunks(deflate, entry.content, controller, producerSignal)
             } else {
-              await pushBinaryChunks(deflate, entry.data, controller, signal)
+              await pushBinaryChunks(deflate, entry.data, controller, producerSignal)
             }
           }
-          zip.end()
+          archive.end()
         } catch (error) {
           // A mid-stream failure (missing descendant, cancellation, read
           // error) must fail the download rather than ship a truncated archive.
           /* v8 ignore next -- typed backends reject with Error, and DOMException is one in Node */
+          terminateZip()
           controller.error(error instanceof Error ? error : new Error(String(error)))
         }
       })()
+    },
+    cancel(reason) {
+      consumerAbort.abort(
+        reason instanceof Error ? reason : new Error('session log export stream cancelled'),
+      )
+      terminateZip()
     },
   })
 }

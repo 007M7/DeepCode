@@ -3506,7 +3506,9 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         try {
           await flushLiveSessionLog(deps, request.sessionId, signal)
           root = await deps.sessionPersistence.readRaw(request.sessionId, signal)
+          signal.throwIfAborted()
         } catch {
+          signal.throwIfAborted()
           // Backend read failure: answer 500 without echoing the error, which
           // may carry absolute host paths into the browser error bar.
           return new Response('session log export failed to read the stored artifact', { status: 500 })

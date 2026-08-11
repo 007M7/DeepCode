@@ -65,6 +65,14 @@ async function buildApi(
       get(id: SessionId): { readonly id: SessionId } | undefined
       flush(session: { readonly id: SessionId }): Promise<boolean>
     }
+    readRaw?: (id: SessionId, signal?: AbortSignal) => Promise<SessionRawArtifact | undefined>
+    traceSession?: (id: SessionId, signal?: AbortSignal) => Promise<{
+      target: { header: SessionHeader; live: boolean; persisted: boolean }
+      ancestors: readonly SessionLineageNode[]
+      complete: boolean
+      root: { header: SessionHeader; live: boolean; persisted: boolean }
+      descendants: readonly SessionLineageNode[]
+    }>
   } = {},
 ) {
   const ctx = new Context()
@@ -73,22 +81,22 @@ async function buildApi(
   const persistence = services.persistence ?? true
   if (query) {
     ctx.provide('sessionQuery', {
-      traceSession: async () => ({
+      traceSession: services.traceSession ?? (async () => ({
         target: { header: header('session-root'), live: false, persisted: true },
         ancestors: [],
         complete: true,
         root: { header: header('session-root'), live: false, persisted: true },
         descendants,
-      }),
+      })),
     } as never)
   }
   if (persistence) {
     ctx.provide('sessionPersistence', {
       supportsRawArtifacts: persistence !== 'unsupported',
-      readRaw: async (id: SessionId) => {
+      readRaw: services.readRaw ?? (async (id: SessionId) => {
         if (persistence === 'throw') throw new Error('/host/private/session.jsonl')
         return artifacts[id]
-      },
+      }),
     } as never)
   }
   if (services.attachments !== false) {
@@ -320,6 +328,126 @@ describe('session.export download endpoint', () => {
     const body = await response.text()
     expect(body).toBe('session log export failed to read the stored artifact')
     expect(body).not.toContain('/host/private/')
+  })
+
+  it('forwards one request signal through root, lineage, and descendant reads', async () => {
+    const reads: Array<{ id: SessionId; signal: AbortSignal | undefined }> = []
+    const traces: AbortSignal[] = []
+    const api = await buildApi({}, [node('child-a')], {
+      readRaw: async (id, signal) => {
+        reads.push({ id, signal })
+        return id === sid('session-root')
+          ? artifact('session-root')
+          : artifact('child-a', sid('session-root'))
+      },
+      traceSession: async (_id, signal) => {
+        if (signal !== undefined) traces.push(signal)
+        return {
+          target: { header: header('session-root'), live: false, persisted: true },
+          ancestors: [],
+          complete: true,
+          root: { header: header('session-root'), live: false, persisted: true },
+          descendants: [node('child-a')],
+        }
+      },
+    })
+    const controller = new AbortController()
+    const response = await api.downloads.sessionLog(
+      { sessionId: sid('session-root'), includeDescendants: true },
+      controller.signal,
+    )
+    await response.arrayBuffer()
+    const producerSignal = traces[0]
+    if (producerSignal === undefined) throw new Error('missing lineage signal')
+    expect(reads[0]).toEqual({ id: sid('session-root'), signal: controller.signal })
+    expect(reads[1]).toEqual({ id: sid('child-a'), signal: producerSignal })
+    const cancellation = new Error('request cancelled after response')
+    controller.abort(cancellation)
+    expect(producerSignal.aborted).toBe(true)
+    expect(producerSignal.reason).toBe(cancellation)
+  })
+
+  it('preserves request cancellation instead of translating it to HTTP 500', async () => {
+    const api = await buildApi({ 'session-root': artifact('session-root') })
+    const controller = new AbortController()
+    const cancellation = new Error('request cancelled')
+    controller.abort(cancellation)
+    await expect(api.downloads.sessionLog(
+      { sessionId: sid('session-root'), includeDescendants: false },
+      controller.signal,
+    )).rejects.toBe(cancellation)
+  })
+
+  it('aborts descendant work and terminates ZIP production when its reader cancels', async () => {
+    let reportDescendantStarted!: (signal: AbortSignal) => void
+    const descendantStarted = new Promise<AbortSignal>((resolve) => {
+      reportDescendantStarted = resolve
+    })
+    const api = await buildApi({}, [node('child-a')], {
+      readRaw: async (id, signal) => {
+        if (id === sid('session-root')) return artifact('session-root')
+        if (signal === undefined) throw new Error('missing descendant signal')
+        reportDescendantStarted(signal)
+        return new Promise((_, reject) => {
+          signal.addEventListener('abort', () => {
+            reject(signal.reason as Error)
+          }, { once: true })
+        })
+      },
+    })
+    const response = await api.downloads.sessionLog(
+      { sessionId: sid('session-root'), includeDescendants: true },
+      new AbortController().signal,
+    )
+    const reader = response.body?.getReader()
+    if (reader === undefined) throw new Error('missing response body')
+    const descendantSignal = await descendantStarted
+    const cancellation = new Error('download consumer left')
+    await reader.cancel(cancellation)
+    expect(descendantSignal.aborted).toBe(true)
+    expect(descendantSignal.reason).toBe(cancellation)
+  })
+
+  it('uses a stable Error reason when its reader cancels without one', async () => {
+    let reportDescendantStarted!: (signal: AbortSignal) => void
+    const descendantStarted = new Promise<AbortSignal>((resolve) => {
+      reportDescendantStarted = resolve
+    })
+    const api = await buildApi({}, [node('child-a')], {
+      readRaw: async (id, signal) => {
+        if (id === sid('session-root')) return artifact('session-root')
+        if (signal === undefined) throw new Error('missing descendant signal')
+        reportDescendantStarted(signal)
+        return new Promise((_, reject) => {
+          signal.addEventListener('abort', () => {
+            reject(signal.reason as Error)
+          }, { once: true })
+        })
+      },
+    })
+    const response = await api.downloads.sessionLog(
+      { sessionId: sid('session-root'), includeDescendants: true },
+      new AbortController().signal,
+    )
+    const reader = response.body?.getReader()
+    if (reader === undefined) throw new Error('missing response body')
+    const descendantSignal = await descendantStarted
+    await reader.cancel()
+    expect(descendantSignal.reason).toEqual(new Error('session log export stream cancelled'))
+  })
+
+  it('normalizes a non-Error descendant failure before erroring the stream', async () => {
+    const api = await buildApi({}, [node('child-a')], {
+      readRaw: async (id) => {
+        if (id === sid('session-root')) return artifact('session-root')
+        throw 'descendant read failed'
+      },
+    })
+    const response = await api.downloads.sessionLog(
+      { sessionId: sid('session-root'), includeDescendants: true },
+      new AbortController().signal,
+    )
+    await expect(response.arrayBuffer()).rejects.toEqual(new Error('descendant read failed'))
   })
 
   it('includes media objects referenced by the root log under media/<id>.<ext>', async () => {
