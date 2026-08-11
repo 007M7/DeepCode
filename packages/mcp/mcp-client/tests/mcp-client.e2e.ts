@@ -13,7 +13,7 @@ import { mkdtemp, rm, writeFile, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
@@ -197,6 +197,87 @@ describe('fixture server — disposal', () => {
     // Dispose should complete without throwing.
     await ctx.fiber.dispose()
     await sleep(200)
+  }, 30_000)
+})
+
+describe('fixture server — crash recovery', () => {
+  function crashConfig(serverName: string, reconnect: NonNullable<Config['reconnect']>): Config {
+    return {
+      transport: 'stdio',
+      serverName,
+      command: process.execPath,
+      args: [fixtureServerPath],
+      env: {},
+      cwd: packageDir,
+      toolCallTimeoutMs: 15_000,
+      failOnStartupError: false,
+      reconnect,
+    }
+  }
+
+  it('auto-reconnects after a stdio crash and serves tool calls again', async () => {
+    const ctx = await mountRegistry()
+    await apply(ctx, crashConfig('crashy', { initialDelayMs: 50, maxDelayMs: 500, maxAttempts: 40 }))
+
+    const before = await ctx.tools.execute({
+      signal: testToolSignal,
+      callId: nextCallId(), name: 'mcp__crashy__add', arguments: { a: 2, b: 3 },
+    })
+    expect(textOf(before.content[0])).toBe('5')
+
+    // The crash tool replies, then kills the real child process.
+    const crash = await ctx.tools.execute({
+      signal: testToolSignal,
+      callId: nextCallId(), name: 'mcp__crashy__crash', arguments: {},
+    })
+    expect(crash.isError).toBe(false)
+
+    // Recovery is proven by the world: a post-crash call round-trips through
+    // the respawned server process.
+    await vi.waitFor(async () => {
+      const after = await ctx.tools.execute({
+        signal: testToolSignal,
+        callId: nextCallId(), name: 'mcp__crashy__add', arguments: { a: 20, b: 22 },
+      })
+      expect(after.isError).toBe(false)
+      expect(textOf(after.content[0])).toBe('42')
+    }, { timeout: 15_000, interval: 250 })
+
+    // The recovered generation replaced the dead one: no duplicates, no leak.
+    const addEntries = ctx.tools.schemas().map(s => s.name).filter(name => name === 'mcp__crashy__add')
+    expect(addEntries).toHaveLength(1)
+
+    await ctx.fiber.dispose()
+    await sleep(200)
+  }, 30_000)
+
+  it('plugin unload during an outage stops reconnection and unregisters tools', async () => {
+    const ctx = await mountRegistry()
+    const fiber = ctx.plugin(
+      { name: 'mcp-client', inject: ['tools'], apply },
+      crashConfig('ephemeral', { initialDelayMs: 8_000, maxDelayMs: 8_000, maxAttempts: 5 }),
+    )
+    // Cordis awaits async apply() as startup work; wait for it.
+    await vi.waitFor(() => { expect(ctx.tools.get('mcp__ephemeral__add')).toBeDefined() }, { timeout: 20_000 })
+
+    const crash = await ctx.tools.execute({
+      signal: testToolSignal,
+      callId: nextCallId(), name: 'mcp__ephemeral__crash', arguments: {},
+    })
+    expect(crash.isError).toBe(false)
+
+    // Give the transport close a moment to land the supervisor in its 8s
+    // backoff wait, then unload: disposal must not sit out the backoff.
+    await sleep(300)
+    const started = Date.now()
+    await fiber.dispose()
+    expect(Date.now() - started).toBeLessThan(4_000)
+
+    expect(ctx.tools.get('mcp__ephemeral__add')).toBeUndefined()
+    await sleep(200)
+    expect(ctx.tools.get('mcp__ephemeral__add')).toBeUndefined()
+
+    await ctx.fiber.dispose()
   }, 30_000)
 })
 
