@@ -85,6 +85,7 @@ function ManualDisclosure(props: StatusDisclosureProps) {
 }
 
 function StatusDisclosure({ cleanCycleKey, requiresExpansion, ...props }: StatusDisclosureProps & {
+  /** Remount a clean Phase when its append-only member count changes between batched renders. */
   readonly cleanCycleKey?: number | undefined
   readonly requiresExpansion: boolean
 }) {
