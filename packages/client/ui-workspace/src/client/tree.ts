@@ -208,8 +208,8 @@ function sessionNode(
 /**
  * Derive the workspace browser groups with every session as a top-level row.
  *
- * Every group shows; sessions populate under expanded groups, preserving
- * Host account order. Blank sessions are excluded except for the selected
+ * Every group shows; sessions populate under expanded groups in the selected
+ * local order. Blank sessions are excluded except for the selected
  * provisional New Session row; archived sessions are excluded everywhere.
  * Content search lives outside this derivation
  * (see {@link deriveSearchResults}).
@@ -217,6 +217,7 @@ function sessionNode(
  * @param workspaces - real workspaces in stable Host order.
  * @param archivedSessionIds - registry-global archive set.
  * @param view - local expansion arrays.
+ * @param orderBy - local session ordering mode.
  * @returns group sections in render order.
  */
 export function deriveGroups(
@@ -263,7 +264,6 @@ export function deriveGroups(
 export function deriveFlat(
   list: SessionListState,
   archivedSessionIds: readonly SessionId[],
-  orderBy: SessionOrderBy = 'updated',
 ): SessionNode[] {
   const archived = new Set(archivedSessionIds)
   const descendants = indexSubagentDescendants(list.byId)
@@ -273,7 +273,7 @@ export function deriveFlat(
     if (s === undefined || !sessionVisible(s, list.current, archived)) continue
     rows.push(s)
   }
-  sortSessions(rows, orderBy === 'manual' ? 'updated' : orderBy)
+  sortSessions(rows)
   return rows.map(session => sessionNode(session, descendants))
 }
 
