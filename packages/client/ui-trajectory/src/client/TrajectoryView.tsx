@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ConvViewProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
-import type { InjectFace } from '@deepseek-ai/dsh-client-ui-slots'
+import type { InjectFace, PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import type {
   AssistantBlock, AssistantMessageNode, ConversationSnapshot,
   SnapshotStore,
@@ -71,6 +71,8 @@ export interface TrajectoryViewInjected {
   }
   loadOlder: () => Promise<boolean>
   setActualDuration: (actualDuration: boolean) => void
+  /** Download the session log (including subagent logs) as a ZIP archive; rejects on failure. */
+  exportLog: () => Promise<void>
 }
 
 interface UsageLike {
@@ -118,9 +120,9 @@ function addUsage(
 }
 
 export function TrajectoryView({
-  useSession, useDuration, loadOlder, setActualDuration,
-  inspect, onInspectDone,
-}: ConvViewProps & InjectFace<TrajectoryViewInjected>) {
+  useSession, useDuration, loadOlder, setActualDuration, exportLog,
+  inspect, onInspectDone, t,
+}: ConvViewProps & InjectFace<TrajectoryViewInjected> & PropsLocale<'trajectory'>) {
   const [collapsedTurns, setCollapsedTurns] = useState<ReadonlySet<number>>(EMPTY_TURN_IDS)
   const [collapsedAssistants, setCollapsedAssistants] =
     useState<ReadonlySet<string>>(EMPTY_RECORD_IDS)
@@ -128,6 +130,8 @@ export function TrajectoryView({
   const actualDuration = useDuration(value => value)
   const [actualTime, setActualTime] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
+  const [exporting, setExporting] = useState(false)
+  const [exportError, setExportError] = useState<string | null>(null)
   const [searchIndex] = useState(() => new TrajectorySearchIndex())
   const [searchIndexRevision, setSearchIndexRevision] = useState(0)
   const searchIndexTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -443,6 +447,19 @@ export function TrajectoryView({
     return loadOlder()
   }, [loadOlder])
 
+  const onExport = useCallback(() => {
+    if (exporting) return
+    setExporting(true)
+    setExportError(null)
+    void exportLog().then(
+      () => { setExporting(false) },
+      (error: unknown) => {
+        setExportError(error instanceof Error ? error.message : String(error))
+        setExporting(false)
+      },
+    )
+  }, [exportLog, exporting])
+
   return (
     <div className={css.root} data-conversation-composer-overlay="">
       <TrajectoryToolbar
@@ -462,7 +479,16 @@ export function TrajectoryView({
         onToggleAllAssistants={toggleAllAssistants}
         searchQuery={searchQuery}
         onSearchQueryChange={setSearchQuery}
+        exporting={exporting}
+        onExport={onExport}
+        exportError={exportError}
+        t={t}
       />
+      {exportError !== null && (
+        <div className={css.exportError} role="alert">
+          {exportError}
+        </div>
+      )}
       <TrajectoryTimeline
         turns={timelineTurns}
         mode={timelineMode}
