@@ -25,6 +25,8 @@ An empty or whitespace-only `$DSH_HOME` is treated as unset; otherwise `resolve(
 
 `@deepseek-ai/dsh-home` is deleted. Its three importers (`dsh-tool-bash`, `dsh-skill-local`, `dsh-agent-spine-demo`) import `resolveDshHome` from `dsh-paths`.
 
+`dsh-telemetry` and its separate home policy are absent under the [SDK project toolchain removal](../simplification/2026-08-11-remove-sdk-project-toolchain.md), leaving this resolver as the sole home policy.
+
 ## Alternatives considered
 
 **Leave the two `resolveDshHome` copies in place.** They had already drifted (one expands tildes, one didn't) and encode the same cross-cutting fact twice. Consolidation is the point of the `util/` layer; a duplicate resolver is a latent divergence bug.
