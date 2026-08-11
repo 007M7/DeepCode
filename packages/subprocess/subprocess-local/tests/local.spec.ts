@@ -21,6 +21,23 @@ function spec(command: string, overrides: Partial<SubprocessSpawnSpec> = {}): Su
 }
 
 describe('LocalSubprocessService', () => {
+  it('places the host-exit finalizer before listeners that predate the service', async () => {
+    const baseline = new Set(process.listeners('exit'))
+    const prior = vi.fn()
+    process.on('exit', prior)
+    const ctx = new Context()
+    const fiber = await ctx.plugin(LocalSubprocessService)
+    try {
+      const listeners = process.listeners('exit')
+      const finalizer = listeners.find(candidate => !baseline.has(candidate) && candidate !== prior)
+      expect(finalizer).toBeTypeOf('function')
+      expect(listeners.indexOf(finalizer!)).toBeLessThan(listeners.indexOf(prior))
+    } finally {
+      process.off('exit', prior)
+      await fiber.dispose()
+    }
+  })
+
   it('keeps the host-exit finalizer active until normal disposal reaches quiescence', async () => {
     const before = new Set(process.listeners('exit'))
     const ctx = new Context()

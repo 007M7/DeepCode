@@ -48,7 +48,7 @@ export class LocalSubprocessService extends SubprocessService {
     super(ctx)
     ctx.effect(() => {
       const onHostExit = (): void => { this.terminateForHostExit() }
-      process.on('exit', onHostExit)
+      process.prependListener('exit', onHostExit)
       return async () => {
         try {
           await this.disposeManagedProcesses()
