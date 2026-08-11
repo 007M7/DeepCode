@@ -33,10 +33,12 @@ type TooltipLabel = string | (() => string)
  * @param props.delayMs - hover delay in milliseconds; keyboard focus remains immediate.
  * @param props.disabled - suppress the bubble while true; the anchor renders identically so
  * toggling never remounts it (which would cut its CSS transitions).
+ * @param props.maxWidth - bubble width cap in pixels, for labels long enough that the default
+ * half-viewport cap would render a slab wider than the surface the anchor sits on.
  * @param props.children - a single anchor element; its own ref (callback or object) is forwarded alongside the tooltip's.
  * @returns the cloned anchor plus a fixed-position bubble while hovered/focused.
  */
-export function Tooltip({ label, side = 'right', delayMs = 0, disabled = false, children }: { label: TooltipLabel; side?: TooltipSide; delayMs?: number; disabled?: boolean; children: ReactElement<AnchorProps> }) {
+export function Tooltip({ label, side = 'right', delayMs = 0, disabled = false, maxWidth, children }: { label: TooltipLabel; side?: TooltipSide; delayMs?: number; disabled?: boolean; maxWidth?: number; children: ReactElement<AnchorProps> }) {
   const anchor = useRef<HTMLElement | null>(null)
   // React 18 keeps the element's ref outside props; forward it so wrapping an
   // anchor in Tooltip never silently severs the owner's ref.
@@ -132,7 +134,13 @@ export function Tooltip({ label, side = 'right', delayMs = 0, disabled = false, 
         onBlur: (e) => { children.props.onBlur?.(e); triggers.current.focus = false; hide() },
       })}
       {pos !== null && (
-        <span ref={bubble} className={css.bubble} data-side={side} style={{ left: pos.x, top: pos.y }} role="tooltip">
+        <span
+          ref={bubble}
+          className={css.bubble}
+          data-side={side}
+          style={{ left: pos.x, top: pos.y, ...maxWidth === undefined ? {} : { maxWidth } }}
+          role="tooltip"
+        >
           {resolvedLabel}
         </span>
       )}

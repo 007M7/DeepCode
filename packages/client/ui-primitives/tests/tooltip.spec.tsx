@@ -95,6 +95,18 @@ describe('Tooltip', () => {
   const rect = (left: number, right: number): DOMRect =>
     ({ left, right, top: 0, bottom: 20, width: right - left, height: 20, x: left, y: 0, toJSON: () => ({}) })
 
+  it('caps the bubble width where the label would otherwise slab across the surface', () => {
+    render(
+      <Tooltip label="A description long enough to need a cap" side="bottom" maxWidth={360}>
+        <button type="button">anchor</button>
+      </Tooltip>,
+    )
+    fireEvent.mouseEnter(screen.getByText('anchor'))
+
+    // The stylesheet's half-viewport cap stays the default; this one overrides it.
+    expect(screen.getByRole('tooltip').style.maxWidth).toBe('360px')
+  })
+
   it('clamps a bubble overflowing the right viewport edge back inside', () => {
     const spy = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue(rect(900, 1100))
     try {
