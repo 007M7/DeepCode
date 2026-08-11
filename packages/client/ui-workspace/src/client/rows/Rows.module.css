@@ -1,5 +1,5 @@
-/* Tree rows (figma Cell set 14:3080): project 54px two-line, session 34px
-   single-line, radius 8, indent step 22px (16px slot + 6px gap). Hover swaps
+/* Tree rows: project 34px, session 32px, radius 8, indent step 22px
+   (16px slot + 6px gap). Hover swaps
    are pure CSS: project folder -> chevron + action buttons; session time ->
    ellipsis button. */
 
@@ -29,11 +29,11 @@
   flex-direction: column;
   align-items: stretch;
   width: 100%;
-  min-height: 62px;
+  min-height: 48px;
   box-sizing: border-box;
   border: none;
   border-radius: 8px;
-  padding: 7px 8px;
+  padding: 4px 8px;
   background: transparent;
   cursor: pointer;
   text-align: left;
@@ -64,9 +64,16 @@
   line-height: 20px;
 }
 
+.searchResultMeta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  margin-left: 20px;
+}
+
 .searchResultWorkspace,
 .searchResultSnippet {
-  margin-left: 20px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -75,16 +82,20 @@
 }
 
 .searchResultWorkspace {
+  flex: none;
+  max-width: 40%;
   color: var(--dsw-alias-label-tertiary);
 }
 
 .searchResultSnippet {
+  flex: 1;
+  min-width: 0;
   color: var(--dsw-alias-label-secondary);
 }
 
 /* Compact one-line Workspace row after removing the session-count subtitle. */
 .projectRow {
-  height: 36px;
+  height: 34px;
   align-items: center;
   box-sizing: border-box;
 }
@@ -95,7 +106,7 @@
 
 /* Session cell (figma): pad 8, a 16px status slot, then a 4px title gap. */
 .sessionRow {
-  height: 34px;
+  height: 32px;
   gap: 0;
   /* Mount fade: session rows appear by unfolding a group (or the tree
      mounting). Stable row keys keep already-visible rows from replaying it. */

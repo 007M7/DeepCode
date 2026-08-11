@@ -34,7 +34,7 @@ export interface SessionNode {
 }
 
 /** Session order selected by the Workspace browser. */
-export type SessionOrderBy = 'manual' | 'created' | 'updated'
+export type SessionOrderBy = 'manual' | 'updated'
 
 /** One workspace group section: header row facts + visible top-level session rows. */
 export interface GroupNode {
@@ -108,14 +108,8 @@ function byRecency(a: SessionSummary, b: SessionSummary): number {
   return a.id < b.id ? -1 : 1
 }
 
-/** Newest-created first, id as the deterministic tiebreak. */
-function byCreation(a: SessionSummary, b: SessionSummary): number {
-  if (b.createdAt !== a.createdAt) return b.createdAt - a.createdAt
-  return a.id < b.id ? -1 : 1
-}
-
-function sortSessions(sessions: SessionSummary[], orderBy: Exclude<SessionOrderBy, 'manual'>): void {
-  sessions.sort(orderBy === 'created' ? byCreation : byRecency)
+function sortSessions(sessions: SessionSummary[]): void {
+  sessions.sort(byRecency)
 }
 
 /**
@@ -150,7 +144,7 @@ function buildGroup(
   orderBy: SessionOrderBy,
 ): Group {
   const sessions = [...members]
-  if (orderBy !== 'manual') sortSessions(sessions, orderBy)
+  if (orderBy !== 'manual') sortSessions(sessions)
   return { key, workspaceId, cwd, createdAt, label, sessions }
 }
 

@@ -9,8 +9,8 @@ import { defineStore, type EngineStoreHandle } from '@deepseek-ai/dsh-client-run
 
 /** Session-list grouping mode: workspace sections or one flat recency list. */
 export type WorkspaceGroupBy = 'workspace' | 'flat'
-/** Session order: durable Workspace order or a derived timestamp order. */
-export type WorkspaceOrderBy = 'manual' | 'created' | 'updated'
+/** Session order: durable Workspace order or an activity-promoted editable order. */
+export type WorkspaceOrderBy = 'manual' | 'updated'
 
 /** Workspace browser viewing state persisted across surface remounts and reloads. */
 type WorkspaceViewState = {
@@ -18,6 +18,10 @@ type WorkspaceViewState = {
   orderBy: WorkspaceOrderBy
   /** Explicit zero-or-five-session state keyed by Workspace group identity. */
   workspaceExpansion: Record<string, boolean>
+  /** Editable per-Workspace order used by recent-update mode. */
+  recentSessionOrder: Record<string, string[]>
+  /** Last observed update timestamps used to detect promotion events. */
+  recentSessionUpdatedAt: Record<string, Record<string, number>>
 }
 
 /**
@@ -28,6 +32,13 @@ type WorkspaceViewActions = {
   setGroupBy: (draft: WorkspaceViewState, mode: WorkspaceGroupBy) => void
   setOrderBy: (draft: WorkspaceViewState, mode: WorkspaceOrderBy) => void
   setWorkspaceExpanded: (draft: WorkspaceViewState, key: string, expanded: boolean) => void
+  syncRecentSessions: (
+    draft: WorkspaceViewState,
+    workspaceKey: string,
+    order: string[],
+    updatedAt: Record<string, number>,
+  ) => void
+  setRecentSessionOrder: (draft: WorkspaceViewState, workspaceKey: string, order: string[]) => void
 }
 
 /**
@@ -36,12 +47,25 @@ type WorkspaceViewActions = {
  */
 export function createWorkspaceViewStore(): EngineStoreHandle<WorkspaceViewState, WorkspaceViewActions> {
   return defineStore({
-    init: (): WorkspaceViewState => ({ groupBy: 'workspace', orderBy: 'manual', workspaceExpansion: {} }),
-    persist: 'dsh.workspace.view.v3',
+    init: (): WorkspaceViewState => ({
+      groupBy: 'workspace',
+      orderBy: 'manual',
+      workspaceExpansion: {},
+      recentSessionOrder: {},
+      recentSessionUpdatedAt: {},
+    }),
+    persist: 'dsh.workspace.view.v4',
     actions: {
       setGroupBy: (d, mode: WorkspaceGroupBy) => { d.groupBy = mode },
       setOrderBy: (d, mode: WorkspaceOrderBy) => { d.orderBy = mode },
       setWorkspaceExpanded: (d, key: string, expanded: boolean) => { d.workspaceExpansion[key] = expanded },
+      syncRecentSessions: (d, workspaceKey: string, order: string[], updatedAt: Record<string, number>) => {
+        d.recentSessionOrder[workspaceKey] = order
+        d.recentSessionUpdatedAt[workspaceKey] = updatedAt
+      },
+      setRecentSessionOrder: (d, workspaceKey: string, order: string[]) => {
+        d.recentSessionOrder[workspaceKey] = order
+      },
     },
   })
 }

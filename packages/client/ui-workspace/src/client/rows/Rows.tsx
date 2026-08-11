@@ -317,10 +317,12 @@ export function SearchResultItem({ result, currentId, onOpen, t }: {
         </span>
         <span className={css.searchResultTitle}>{result.title}</span>
       </span>
-      <span className={css.searchResultWorkspace}>{result.workspace}</span>
-      {result.snippet !== undefined && (
-        <span className={css.searchResultSnippet}>{result.snippet}</span>
-      )}
+      <span className={css.searchResultMeta}>
+        <span className={css.searchResultWorkspace}>{result.workspace}</span>
+        {result.snippet !== undefined && (
+          <span className={css.searchResultSnippet}>{result.snippet}</span>
+        )}
+      </span>
     </button>
   )
 }
