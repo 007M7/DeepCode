@@ -577,6 +577,7 @@ describe('workspaces action face', () => {
     expect(renamed.title).toBe('Renamed')
     await ws.delete('w1' as WorkspaceId)
     await ws.openPath('/proj/file.ts')
+    await ws.insertBefore('w1' as WorkspaceId, 'w2' as WorkspaceId)
     const moved = await ws.insertSessionBefore('w1' as WorkspaceId, 's1' as SessionId, 's2' as SessionId)
     expect(moved.sessionIds).toEqual(['s1'])
     // Default archive mirrors the production effect: the id joins the list
@@ -584,13 +585,15 @@ describe('workspaces action face', () => {
     await ws.archiveSession('s1' as SessionId)
     expect(ws.list.getSnapshot().archivedSessionIds).toEqual(['s1'])
     expect(ws.calls.map(c => c.method)).toEqual(
-      ['create', 'create', 'pickDirectory', 'rename', 'delete', 'openPath', 'insertSessionBefore', 'archiveSession'])
+      ['create', 'create', 'pickDirectory', 'rename', 'delete', 'openPath', 'insertBefore', 'insertSessionBefore', 'archiveSession'])
 
     ws.stub('create', () => Promise.resolve({ workspaceId: 'ws-x', title: 'X', path: '/x', sessionIds: [] } as never))
     ws.stub('pickDirectory', () => Promise.resolve('/picked'))
     ws.stub('rename', () => Promise.resolve({ workspaceId: 'w1', title: 'S', path: '/s', sessionIds: [] } as never))
     ws.stub('delete', () => Promise.resolve())
     ws.stub('openPath', () => Promise.resolve())
+    const insertBefore = vi.fn(() => Promise.resolve())
+    ws.stub('insertBefore', insertBefore)
     ws.stub('insertSessionBefore', () => Promise.resolve({ workspaceId: 'w1', title: '', path: '', sessionIds: [] } as never))
     ws.stub('archiveSession', () => Promise.resolve())
     expect((await ws.create({ path: '/y' })).title).toBe('X')
@@ -598,6 +601,8 @@ describe('workspaces action face', () => {
     expect((await ws.rename('w1' as WorkspaceId, 'z')).title).toBe('S')
     await ws.delete('w1' as WorkspaceId)
     await ws.openPath('/other')
+    await ws.insertBefore('w2' as WorkspaceId)
+    expect(insertBefore).toHaveBeenCalledWith('w2', undefined)
     expect((await ws.insertSessionBefore('w1' as WorkspaceId, 's1' as SessionId)).sessionIds).toEqual([])
     // The stub replaces the default set mutation: the set stays as-is.
     await ws.archiveSession('s2' as SessionId)
