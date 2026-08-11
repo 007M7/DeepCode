@@ -572,7 +572,7 @@ Source: [`packages/goal/goal/src/index.ts:116`](../packages/goal/goal/src/index.
 Requires: `agentDefaultModel` · `agents` · `sessions`
 
 ```ts config-catalog
-/** Plugin config: the task, patched in by the launcher. */
+/** Plugin config: the task resolved from this app's injected provider service. */
 export interface Config {
   /** The prompt text for the single run. */
   task: string
@@ -1109,7 +1109,7 @@ export interface StreamableHttpConfig {
 }
 ```
 
-Source: [`packages/mcp/mcp-client/src/index.ts:100`](../packages/mcp/mcp-client/src/index.ts)
+Source: [`packages/mcp/mcp-client/src/index.ts:94`](../packages/mcp/mcp-client/src/index.ts)
 
 ## `@deepseek-ai/dsh-permission`
 
@@ -1161,6 +1161,8 @@ export interface Config {
    * variables. Empty text drops the section at render, matching the registry.
    */
   text: string
+  /** Make this persona the complete system prompt, suppressing every other section. */
+  complete?: boolean
 }
 ```
 
@@ -1305,22 +1307,6 @@ export interface Config {
 ```
 
 Source: [`packages/guard/repeat-tool-guard/src/index.ts:28`](../packages/guard/repeat-tool-guard/src/index.ts)
-
-## `@deepseek-ai/dsh-repository-plugin`
-
-Requires: `loader`
-
-```ts config-catalog
-/** Repository Plugin runtime and source-list configuration. */
-export interface Config {
-  /** GitHub repository sources with explicit refs and optional `.dsh-plugin` subpaths. */
-  repositories?: string[]
-  /** Persistent generation cache; defaults to `$DSH_HOME/cache/repository-plugins`. */
-  cacheDir?: string
-}
-```
-
-Source: [`packages/self-modification/repository-plugin/src/index.ts:44`](../packages/self-modification/repository-plugin/src/index.ts)
 
 ## `@deepseek-ai/dsh-sandbox-local`
 
@@ -2003,7 +1989,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/core/system-prompt/src/index.ts:177`](../packages/core/system-prompt/src/index.ts)
+Source: [`packages/core/system-prompt/src/index.ts:186`](../packages/core/system-prompt/src/index.ts)
 
 ## `@deepseek-ai/dsh-time-context`
 
@@ -2534,33 +2520,28 @@ Source: [`packages/web/web/src/index.ts:55`](../packages/web/web/src/index.ts)
 Requires: `httpServer`
 
 ```ts config-catalog
-/** Plugin config: the surface facts the launcher patches over this bundle's defaults. */
+/** Plugin config: composed deployment settings plus per-invocation command-line values. */
 export interface Config {
   /** Whether this process mounted the client-plugin HMR receiver (`dsh web --dev`). */
   mode: WebMode
-  /** Print the URL line on activation; a headless layer over this bundle turns it off. */
+  /** Print the URL line on activation; a non-interactive layer can turn it off. */
   printUrl: boolean
   /**
    * Register the model-visible surface context (the `app:web-surface` prompt
    * section and the `DSH_WEB_URL`/`DSH_WEB_MODE` bash variables). A one-shot
-   * layer turns it off: its user is not interacting through the GUI, so the
+   * non-interactive layer can turn it off when its user is not in the GUI, so the
    * orientation text would be false.
    */
   surfaceContext: boolean
-  /**
-   * LAN IPv4 addresses sampled once by the launcher when the effective bind
-   * is all-interfaces — the exact snapshot the /api trust fence was
-   * configured with, so the printed LAN URL can never name an address the
-   * fence rejects. Empty on a loopback bind.
-   */
-  lanAddresses: string[]
+  /** Explicit `--trusted-host` authorities from this invocation. */
+  trustedHosts: string[]
 }
 
 /** Web runtime mode: production, or development when the client-plugin HMR receiver is active. */
 export type WebMode = 'production' | 'development'
 ```
 
-Source: [`packages/bundle/web-app/src/index.ts:32`](../packages/bundle/web-app/src/index.ts)
+Source: [`packages/bundle/web-app/src/index.ts:43`](../packages/bundle/web-app/src/index.ts)
 
 ## `@deepseek-ai/dsh-web-fetch-local`
 
@@ -2806,6 +2787,7 @@ Imported as libraries by other packages; a `cordis.yml` cannot load them.
 - `@deepseek-ai/dsh-client-ui-slots` ([`packages/client/ui-slots/src/index.ts`](../packages/client/ui-slots/src/index.ts))
 - `@deepseek-ai/dsh-client-web` ([`packages/client/web/src/index.ts`](../packages/client/web/src/index.ts))
 - `@deepseek-ai/dsh-client-web-react` ([`packages/client/web-react/src/index.ts`](../packages/client/web-react/src/index.ts))
+- `@deepseek-ai/dsh-cmdline` ([`packages/boot/cmdline/src/index.ts`](../packages/boot/cmdline/src/index.ts))
 - `@deepseek-ai/dsh-environment` ([`packages/util/environment/src/index.ts`](../packages/util/environment/src/index.ts))
 - `@deepseek-ai/dsh-helper` ([`packages/scaffold/helper/src/index.ts`](../packages/scaffold/helper/src/index.ts))
 - `@deepseek-ai/dsh-hook-protocol` ([`packages/hooks/hook-protocol/src/index.ts`](../packages/hooks/hook-protocol/src/index.ts))

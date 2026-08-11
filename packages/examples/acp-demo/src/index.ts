@@ -11,9 +11,9 @@
  * @module @deepseek-ai/dsh-acp-demo
  */
 
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import { join } from 'node:path'
-import z from 'schemastery'
+import z from '@deepseek-ai/schemastery'
 import * as acp from '@deepseek-ai/dsh-acp'
 import * as agentCore from '@deepseek-ai/dsh-agent-spine-demo'
 import * as workspaceContext from '@deepseek-ai/dsh-workspace-context'

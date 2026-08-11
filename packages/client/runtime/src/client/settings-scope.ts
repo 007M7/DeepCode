@@ -1,6 +1,6 @@
 /** Host-backed settings-namespace synchronization for browser plugins. */
 
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import type {
   ConnectionHandle, IApiClient, SettingsNamespaceView,
 } from '@deepseek-ai/dsh-client-connection/client'

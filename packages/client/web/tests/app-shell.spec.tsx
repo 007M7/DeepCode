@@ -8,7 +8,7 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, render } from '@testing-library/react'
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
 import { TestSessions, TestWorkspaces } from '@deepseek-ai/dsh-client-test-runtime'
 import type { Stabilizer } from '@deepseek-ai/dsh-client-test-runtime'

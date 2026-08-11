@@ -19,17 +19,17 @@ export interface BaselineNpmDependencies {
 }
 
 const EXTERNAL_NPM_DEPENDENCY_SPECS: Readonly<Record<string, string>> = {
-  '@cordisjs/plugin-hmr': '^1.0.15',
-  '@cordisjs/plugin-timer': '^1.1.2',
+  '@deepseek-ai/cordis-plugin-hmr': '^1.0.15',
+  '@deepseek-ai/cordis-plugin-timer': '^1.1.2',
   '@types/node': '^22.20.0',
-  cordis: '^4.0.0-rc.7',
+  '@deepseek-ai/cordis': '^4.0.0-rc.7',
   tsdown: '0.22.2',
   tsx: '^4.22.4',
   typescript: '^6.0.3',
 }
 
 const BASELINE_NPM_DEPENDENCY_NAMES: Readonly<Record<NpmDependencySection, readonly string[]>> = {
-  dependencies: ['@deepseek-ai/dsh-scripts', 'cordis'],
+  dependencies: ['@deepseek-ai/dsh-scripts', '@deepseek-ai/cordis'],
   devDependencies: ['@types/node', 'tsdown', 'tsx', 'typescript'],
 }
 

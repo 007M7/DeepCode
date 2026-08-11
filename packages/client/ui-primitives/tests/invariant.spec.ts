@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import * as PrimitivesInvariant from '@deepseek-ai/dsh-client-ui-primitives/invariant'
 import InvariantService from '@deepseek-ai/dsh-invariants'
 

@@ -10,9 +10,9 @@
  * @module @deepseek-ai/dsh-host-directory-picker-auto
  */
 
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 // Empty type imports carry the `loader` and `httpServer` Context merges for the reads below.
-import type {} from '@cordisjs/plugin-loader'
+import type {} from '@deepseek-ai/cordis-plugin-loader'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import { canExecute, hasLinuxChooserBinary } from './probe.ts'
 import type { DirectoryPickerBackendKind } from './resolve.ts'

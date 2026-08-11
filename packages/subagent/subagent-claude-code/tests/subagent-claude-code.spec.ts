@@ -6,8 +6,8 @@ import type {
   SDKResultMessage,
   SpawnOptions,
 } from '@anthropic-ai/claude-agent-sdk'
-import { Context } from 'cordis'
-import Loader from '@cordisjs/plugin-loader'
+import { Context } from '@deepseek-ai/cordis'
+import Loader from '@deepseek-ai/cordis-plugin-loader'
 import {
   afterEach,
   beforeEach,
@@ -248,6 +248,7 @@ function fakeRun(
   const options: FakeRun['options'] = []
   const spec: ClaudeCodeRunSpec = {
     cwd: '/workspace',
+    executable: '/native/claude',
     env: { ANTHROPIC_API_KEY: 'fake-key' },
     disposeGraceMs: 5,
     spawn: (spawnSpec) => {
@@ -331,6 +332,8 @@ describe('task admission and package contracts', () => {
     const child = fakeChild()
     const spawn = vi.spyOn(ctx.subprocess, 'spawn')
       .mockImplementation(() => child.handle)
+    const resolveExecutable = vi.spyOn(ctx.subprocess, 'resolveExecutable')
+      .mockResolvedValue('/native/claude')
     const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
     await ctx.plugin(claudeCode, {
       env: {
@@ -352,6 +355,11 @@ describe('task admission and package contracts', () => {
     )
     expect(queryMock).not.toHaveBeenCalled()
 
+    resolveExecutable.mockRejectedValueOnce(new Error('claude missing from PATH'))
+    await expect(ctx.subagents.start('claude-code', request()))
+      .rejects.toThrow('claude missing from PATH')
+    expect(queryMock).not.toHaveBeenCalled()
+
     const run = await ctx.subagents.start('claude-code', request())
     child.settle({ exitCode: 9, signal: null })
     child.stdout.end()
@@ -362,6 +370,13 @@ describe('task admission and package contracts', () => {
     expect(warn).toHaveBeenCalledWith(expect.stringContaining(
       'subagent-claude-code: child run failed (error):',
     ))
+    expect(resolveExecutable).toHaveBeenCalledWith(
+      'claude',
+      expect.objectContaining({ ANTHROPIC_API_KEY: 'provider-fake-key' }),
+      expect.any(AbortSignal),
+    )
+    expect(queryMock.mock.calls[0]?.[0].options.pathToClaudeCodeExecutable)
+      .toBe('/native/claude')
     expect(spawn).toHaveBeenCalledWith(expect.objectContaining({
       cwd: process.cwd(),
       graceMs: 29,
@@ -441,6 +456,22 @@ describe('official spawn projection', () => {
     )).toThrow('SDK spawn request omitted its workspace')
   })
 
+  it.each(['cmd', 'bat'])('routes a Windows .%s shim through cmd.exe', (extension) => {
+    const command = String.raw`C:\Program Files\Claude\claude.${extension}`
+    const spec = claudeSpawnSpec(sdkSpawnOptions({
+      command,
+      args: ['--output-format', 'stream-json'],
+    }), 7, 'win32')
+
+    expect(spec.argv).toEqual([
+      'cmd.exe', '/d', '/v:off', '/s', '/c', '%DSH_CLAUDE_CODE_EXECUTABLE%',
+      '--output-format', 'stream-json',
+    ])
+    expect(spec.env).toEqual(expect.objectContaining({
+      DSH_CLAUDE_CODE_EXECUTABLE: `"${command}"`,
+    }))
+  })
+
   it('projects streams, exit facts, listeners, and idempotent tree termination', async () => {
     const child = fakeChild({ exitOnTerminate: false })
     const process = new ManagedClaudeCodeProcess(child.handle)
@@ -508,6 +539,7 @@ describe('query options and result mapping', () => {
     const captured: SubprocessHandle[] = []
     const spec: ClaudeCodeRunSpec = {
       cwd: '/workspace',
+      executable: '/native/claude',
       env: {
         HOST_VISIBLE: 'overridden',
         ANTHROPIC_API_KEY: 'explicit-fake-key',
@@ -523,6 +555,7 @@ describe('query options and result mapping', () => {
     expect(options).toMatchObject({
       abortController: controller,
       cwd: '/workspace',
+      pathToClaudeCodeExecutable: '/native/claude',
       persistSession: false,
       disallowedTools: ['AskUserQuestion'],
     })
@@ -670,6 +703,7 @@ describe('run publication, cancellation, and settlement', () => {
     let index = 0
     const spec: ClaudeCodeRunSpec = {
       cwd: '/workspace',
+      executable: '/native/claude',
       env: {},
       disposeGraceMs: 5,
       spawn: () => children[index++]!.handle,
@@ -720,6 +754,7 @@ describe('run publication, cancellation, and settlement', () => {
       request(undefined, parentAbort.signal),
       {
         cwd: '/workspace',
+        executable: '/native/claude',
         env: {},
         disposeGraceMs: 5,
         spawn: () => child.handle,

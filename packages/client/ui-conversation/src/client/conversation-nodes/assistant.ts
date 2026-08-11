@@ -1,4 +1,4 @@
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import type {
   AssistantBlock, AssistantMessageNode, ConversationLocation, ConversationMatch,
   ConversationNodeContext, ConversationNodeDefinition,
@@ -242,6 +242,7 @@ function projectAssistant(context: ConversationNodeContext<AssistantState>): Ass
 /** Per-step Assistant streaming/final/interruption Definition. */
 export const assistantDefinition: ConversationNodeDefinition<AssistantState> = {
   kind: 'assistant-step',
+  target: 'chat',
   match: (event) => {
     if (event.type === 'step/start') return { id: `${event.data.turn}:${event.data.step}`, role: 'start' }
     if (event.type === 'assistant/chunk'
@@ -291,8 +292,7 @@ export const assistantDefinition: ConversationNodeDefinition<AssistantState> = {
       value: projected.data,
     }
   },
-  buildViewNode: (context, target) => {
-    if (target !== 'chat') return null
+  buildViewNode: (context) => {
     const projected = projectAssistant(context)
     if (projected === undefined) return null
     if (projected.settled === undefined && !projected.visible) {

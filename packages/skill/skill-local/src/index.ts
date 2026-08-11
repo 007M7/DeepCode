@@ -13,10 +13,10 @@ import { access, lstat, readdir, readFile, stat } from 'node:fs/promises'
 import { unwatchFile, watchFile, type Stats } from 'node:fs'
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { homedir } from 'node:os'
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import chokidar from 'chokidar'
-import z from 'schemastery'
-import type Schema from 'schemastery'
+import z from '@deepseek-ai/schemastery'
+import type Schema from '@deepseek-ai/schemastery'
 import { parse as parseYaml } from 'yaml'
 import type { FileSystem, FsDirEntry, FsTarget } from '@deepseek-ai/dsh-fs'
 import { canonicalizeWatchPath, resolveDshHome } from '@deepseek-ai/dsh-paths'
@@ -166,9 +166,8 @@ export class LocalSkillProvider implements SkillProvider {
     this.watchManager = new SkillWatchManager(ctx, control.invalidate, resolveWatchConfig(config))
     control.signal.addEventListener('abort', () => { void this.dispose() }, { once: true })
     // The environment bundled root is a default root: an isolated provider
-    // (includeDefaultRoots: false — repository plugins) must see only its
-    // explicit custom roots, or every such provider would re-discover the
-    // app's bundled skills and claim them under its own provider name.
+    // must see only its explicit roots, or every such provider would
+    // re-discover the app's bundled skills under its own provider name.
     const bundledSkillDir = config.bundledSkillDir
       ?? (this.includeDefaultRoots ? process.env.DSH_BUNDLED_SKILL_DIR : undefined)
     this.bundledSkillDir = bundledSkillDir === undefined ? undefined : resolve(bundledSkillDir)
