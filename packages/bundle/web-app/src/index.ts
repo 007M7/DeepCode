@@ -5,7 +5,7 @@
  * the built frontend dist (workspace knowledge of this bundle, never user
  * config), mounts the `frontend-static` fallback owner over it, registers the
  * harness-source and web-surface prompt sections, the bash-visible web runtime
- * variables, and the URL line. App command-line values arrive through the
+ * variable, and the URL line. App command-line values arrive through the
  * `webStartup` service expressions in the bundle patch.
  * @module @deepseek-ai/dsh-web-app
  */
@@ -27,7 +27,6 @@ export const name = 'web-app'
 
 /** This dsh installation's root, from either this package's source or built entry. */
 const SOURCE_ROOT = fileURLToPath(new URL('../../../..', import.meta.url))
-const HMR_ROW_NAME = '@deepseek-ai/dsh-client-hmr'
 
 /** Runtime service that releases Web rows after bind-dependent values resolve. */
 const WEB_RUNTIME_SERVICE = 'webRuntime'
@@ -35,19 +34,14 @@ const WEB_RUNTIME_SERVICE = 'webRuntime'
 /** Services required before the web runtime can mount. */
 export const inject = ['httpServer']
 
-/** Web runtime mode: production, or development when the client-plugin HMR receiver is active. */
-export type WebMode = 'production' | 'development'
-
 /** Plugin config: composed deployment settings plus per-invocation command-line values. */
 export interface Config {
-  /** Whether this process mounted the client-plugin HMR receiver (`dsh web --dev`). */
-  mode: WebMode
   /** Print the URL line on activation; a non-interactive layer can turn it off. */
   printUrl: boolean
   /**
    * Register the model-visible surface context (the `app:web-surface` prompt
-   * section and the `DSH_WEB_URL`/`DSH_WEB_MODE` bash variables). A one-shot
-   * non-interactive layer can turn it off when its user is not in the GUI, so the
+   * section and the `DSH_WEB_URL` bash variable). A one-shot non-interactive
+   * layer can turn it off when its user is not in the GUI, so the
    * orientation text would be false.
    */
   surfaceContext: boolean
@@ -56,7 +50,6 @@ export interface Config {
 }
 
 export const Config: z<Config> = z.object({
-  mode: z.union([z.const('production'), z.const('development')]).default('production'),
   printUrl: z.boolean().default(true),
   surfaceContext: z.boolean().default(true),
   trustedHosts: z.array(String).default([]),
@@ -72,8 +65,6 @@ export interface WebRuntimeValues {
 
 /** Environment variable naming the canonical local URL of this Web GUI. */
 const DSH_WEB_URL = 'DSH_WEB_URL' as const
-/** Environment variable naming the Web runtime mode. */
-const DSH_WEB_MODE = 'DSH_WEB_MODE' as const
 
 // Display-only mirror of the webserver schema's loopback host: the address the
 // local URL always prints. Not a source of truth — the schema is.
@@ -101,13 +92,10 @@ export function resolveLanTrust(bindHost: string, extra: readonly string[]): Web
 }
 
 /** Model-visible orientation and acceptance boundary for sessions created through `dsh web`. */
-function webSurfacePrompt(webUrl: string, mode: WebMode): string {
-  const updateContract = mode === 'development'
-    ? 'This Web process was launched with `dsh web --dev`, so its client-plugin HMR receiver is active. '
-      + 'No-refresh updates occur only when `pnpm run dev:web` is also running from this same checkout to rebuild client-plugin bundles; verify that watcher before promising automatic updates. '
-      + 'Client-plugin changes then reload automatically, while apps/web shell and other plain-package changes still require a rebuild and page refresh. '
-    : 'This Web process was launched without `--dev`, so HMR is inactive: rebuild the affected Web artifacts and verify this existing URL after a page refresh. '
-      + 'If the user wants no-refresh client-plugin updates, explain that this GUI must be restarted with `dsh web --dev` and `pnpm run dev:web` must also run from this same checkout; do not present either command alone as sufficient. '
+function webSurfacePrompt(webUrl: string): string {
+  const updateContract = 'The client-plugin HMR receiver is active, but client-plugin changes reload without a refresh only while '
+    + '`pnpm run dev:web` is also running from this same checkout to rebuild their bundles; verify that watcher before promising automatic updates. '
+    + 'Every other change — the apps/web shell and plain packages — requires rebuilding the affected Web artifacts and verifying this existing URL after a page refresh. '
   return `You are interacting with the user through the DeepSeek Harness Web GUI at ${webUrl}. `
     + 'When the user refers to "this page", "this GUI", or "this app" without naming another target, they mean this GUI. '
     + 'The browser provides no implicit DOM, route, or screenshot context. '
@@ -139,38 +127,12 @@ function resolveDistIndex(): string {
 export const internals: { resolveDistIndex: () => string } = { resolveDistIndex }
 
 /**
- * Mount the Web runtime: dist serving, surface prompt, bash runtime
- * variables, the development-mode client-hmr row, and the URL line.
+ * Mount the Web runtime: dist serving, surface prompt, the bash runtime
+ * variable, and the URL line.
  * @param ctx - plugin context carrying the httpServer service.
  * @param config - validated {@link Config}.
  */
 export function apply(ctx: Context, config: Config): void {
-  if (config.mode === 'development') {
-    // The dev reload chain is mounted as a real tree row so the browser
-    // roster scan includes its client half; it is a row rather than a child
-    // of this plugin because its node half is a client-side package, which a
-    // host-side bundle cannot import. Created in the root tree after Loader
-    // settlement: row creation must stay out of the mounting transaction,
-    // and a root-tree row survives user-patch reapplication of the include.
-    // The incremental roster scan picks it up before any page load — a
-    // browser arrives only after a human reads the URL line.
-    const loader = ctx.get('loader')
-    if (loader === undefined) {
-      ctx.logger.warn('web-app: development mode without a Loader tree mounts no client-hmr row')
-    } else {
-      void loader.await().then(async () => {
-        // The tree can be disposed while settlement was in flight (early
-        // SIGTERM); re-check before mutating it. The name scan spans every
-        // tree (entries() recurses into subtrees), so a row the user
-        // configured in a patch layer — enabled, reconfigured, or
-        // deliberately disabled — wins over this default, and a reload of
-        // this fiber never duplicates the row a previous generation created.
-        if (ctx.get('loader') === undefined) return
-        const mounted = [...ctx.loader.entries()].some(entry => entry.options.name === HMR_ROW_NAME)
-        if (!mounted) await ctx.loader.create({ name: HMR_ROW_NAME })
-      }).catch((error: unknown) => { ctx.logger.error(error) })
-    }
-  }
   const runtime = resolveLanTrust(ctx.httpServer.host, config.trustedHosts)
   // Release dependent rows only after bind-dependent trust has been sampled once.
   ctx.provide(WEB_RUNTIME_SERVICE, runtime)
@@ -181,7 +143,7 @@ export function apply(ctx: Context, config: Config): void {
       promptCtx.systemPrompt.section({
         name: 'app:web-surface',
         order: -98,
-        text: () => webSurfacePrompt(localWebUrl(promptCtx), config.mode),
+        text: () => webSurfacePrompt(localWebUrl(promptCtx)),
       })
     })
     ctx.inject(['bashEnv'], (runtimeCtx) => {
@@ -189,9 +151,8 @@ export function apply(ctx: Context, config: Config): void {
         name: 'web-runtime',
         variables: {
           [DSH_WEB_URL]: { description: 'Canonical local URL of the DeepSeek Harness Web GUI serving this session.' },
-          [DSH_WEB_MODE]: { description: 'Web runtime mode: production, or development when the client-plugin HMR receiver is active.' },
         },
-        resolve: () => ({ [DSH_WEB_URL]: localWebUrl(runtimeCtx), [DSH_WEB_MODE]: config.mode }),
+        resolve: () => ({ [DSH_WEB_URL]: localWebUrl(runtimeCtx) }),
       })
     })
   }

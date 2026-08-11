@@ -16,18 +16,17 @@ The new `@deepseek-ai/dsh-cmdline` package owns the handoff. A launcher calls `p
 
 The boot mounts the composition once. Cordis holds each row until its injections are active; Loader then interpolates that row's `!!js` against the injection-ready plugin context immediately before activation. Include keeps nested row expressions raw until their target row reaches this point. `--help` leaves the provider's service absent, so dependent rows never activate, and a live patch reload interpolates again against the service that remains active, so a served port cannot be silently reset.
 
-The shipped apps moved their flags into their bundles: `dsh-web-app` owns the Web family (and creates the `client-hmr` row after Loader settlement, for `--dev`), and `dsh-headless` owns the task positional and rejects a missing task as a usage error. `apps/cli/src/web.ts` is gone; `runProfile` no longer knows any flag-target row id. Out of tree, turtle-ui gained `--resume <session>` / `--session <id>` the same way, which is the design's real validation: an installed plugin added a flag with no launcher change.
+The shipped apps moved their flags into their bundles: `dsh-web-app` owns the Web family, and `dsh-headless` owns the task positional and rejects a missing task as a usage error. `apps/cli/src/web.ts` is gone; `runProfile` no longer knows any flag-target row id. Out of tree, turtle-ui gained `--resume <session>` / `--session <id>` the same way, which is the design's real validation: an installed plugin added a flag with no launcher change.
 
 Two further consequences. Loader mounts sibling rows concurrently, so one row can activate while another still mounts or while the whole boot is rolling back; the Web bundle therefore publishes its URL only after its own Loader tree settles. The Web bundle's runtime plugin owns the harness-source prompt section too, so `dsh web` and `dsh --profile web` boot identically without Web-specific launcher setup.
 
 ## Why Loader owns the ordering
 
-Four framework facts shape the mechanism:
+Three framework facts shape the mechanism:
 
 - **A profile's rows arrive inside the root include's `patches` option.** Include declares the `EntryGroup.key` tree-carrier marker (as Group does), so Loader keeps its config — entry and patch lists, including Include's own `path` — literal instead of recursively evaluating nested `!!js` nodes in the Include context; each expression resolves in its target row's fiber.
 - **Cordis activates a fiber only after all declared injections are active.** Immediately before each activation, Cordis runs the `internal/config` waterfall against the fiber's own context; Loader's listener interpolates the raw config after Cordis snapshots its injected services.
 - **Provider replacement and HMR must preserve the same contract.** Fiber reactivation re-runs the waterfall, HMR carries the raw config to the replacement fiber, and a pending row accepts option changes without prematurely evaluating expressions against absent services.
-- **A row cannot be inserted from inside a mounting plugin** — `tree.create` returns a prefixed id it then fails to resolve — so the Web runtime creates its conditional row (`dsh web --dev` and its reload chain) in the root tree after Loader settlement. A root-tree row is outside the include, so user-patch reapplication cannot touch it, and the incremental client-module scan adds it to the roster before any page loads — a browser arrives only after a human reads the URL line.
 
 This leaves dependency ordering in Cordis activation and Loader interpolation, which own it. Rows keep their `inject` and config, Loader mounts the composition once, and the launcher only provides argv and process-lifecycle services.
 

@@ -16,18 +16,17 @@ profile 落地之后，组合可以安装，命令行却不能。`apps/cli` 仍�
 
 boot 只挂载一次整套组合。Cordis 让每一行等待其注入激活；Loader 随后在激活前一刻，基于已注入就绪的插件上下文插值该行的 `!!js`。Include 会保留嵌套的行表达式，直到目标行到达这一时点。`--help` 会让提供方服务保持缺失，因此依赖行永不激活；活动 patch 重载会针对仍然在线的服务再次插值，所以已经服务中的端口不会被悄悄重置。
 
-已交付的各应用把自己的 flag 搬进了组合包：`dsh-web-app` 持有 Web 家族（并为 `--dev` 在 Loader 结算后创建 `client-hmr` 行），`dsh-headless` 持有任务位置参数，缺少任务时按用法错误拒绝。`apps/cli/src/web.ts` 已删除；`runProfile` 不再知道任何 flag 目标行 id。在树外，turtle-ui 以同样的方式获得了 `--resume <session>` / `--session <id>`，这才是这套设计的真正验证：一个已安装的插件加上了一个 flag，启动器毫无改动。
+已交付的各应用把自己的 flag 搬进了组合包：`dsh-web-app` 持有 Web 家族，`dsh-headless` 持有任务位置参数，缺少任务时按用法错误拒绝。`apps/cli/src/web.ts` 已删除；`runProfile` 不再知道任何 flag 目标行 id。在树外，turtle-ui 以同样的方式获得了 `--resume <session>` / `--session <id>`，这才是这套设计的真正验证：一个已安装的插件加上了一个 flag，启动器毫无改动。
 
 还有两条后果。Loader 会并发挂载兄弟行，因此一行可能已经激活，而另一行仍在挂载，或整次 boot 正在回滚；所以 Web 组合包只会在自身的 Loader 配置树结算后公布 URL。另外，Web 组合包的运行时插件也持有 harness 源码提示词段，因此 `dsh web` 与 `dsh --profile web` 无需 Web 专用启动器设置即可按完全相同的方式启动。
 
 ## 为什么由 Loader 持有顺序
 
-四条框架事实塑造了这套机制：
+三条框架事实塑造了这套机制：
 
 - **profile 的各行位于根 include 的 `patches` 选项内部。** Include 声明了 `EntryGroup.key` 树载体标记（与 Group 相同），因此 Loader 让它的配置——条目与 patch 列表，包括 Include 自己的 `path`——保持字面值，而不是在 Include 上下文中递归求值嵌套的 `!!js` 节点；每个表达式都在其目标行的 fiber 中解析。
 - **Cordis 只在所有声明的注入都已激活后才激活 fiber。** 每次激活前一刻，Cordis 会基于 fiber 自身上下文运行 `internal/config` waterfall；Cordis 快照注入服务之后，Loader 的监听器再插值原始配置。
 - **提供方替换与 HMR 必须保持相同契约。** fiber 重新激活时会重跑 waterfall，HMR 会把原始配置带给替换 fiber，而待处理行可以接受选项变更，不会针对缺失服务提前求值表达式。
-- **不能从正在挂载的插件内部插入一行**——`tree.create` 返回一个带前缀的 id，随后它自己解析不出来——因此 Web runtime 在 Loader 结算后在根树中创建其条件行（`dsh web --dev` 及其重载链路）。根树的行在 include 之外，用户 patch 的重新应用无法触及它；增量式客户端模块扫描会在任何页面加载之前把它加入名录——浏览器只会在人读到 URL 行之后到来。
 
 这样，依赖顺序仍由负责它的 Cordis 激活与 Loader 插值流程处理。各行保留自己的 `inject` 和配置，Loader 只挂载一次组合，启动器只提供 argv 与进程生命周期服务。
 

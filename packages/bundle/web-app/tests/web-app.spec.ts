@@ -58,20 +58,9 @@ function fakeHttpServer(host: '127.0.0.1' | '0.0.0.0' = '127.0.0.1'): { server: 
   return { server, seat: () => fallback }
 }
 
-/** A fake Loader capturing the dev-mode row creation the runtime performs after settlement. */
-function provideHmrRow(ctx: Context, settle: () => Promise<void> = async () => {}): string[] {
-  const created: string[] = []
-  const entries: { options: { name: string } }[] = []
-  ctx.provide('loader', {
-    entries: () => entries[Symbol.iterator](),
-    create: (options: { name: string }) => {
-      created.push(options.name)
-      entries.push({ options })
-      return Promise.resolve(options.name)
-    },
-    await: settle,
-  } as never)
-  return created
+/** A fake Loader whose settlement the test controls (the URL line waits on it). */
+function provideLoader(ctx: Context, settle: () => Promise<void> = async () => {}): void {
+  ctx.provide('loader', { await: settle } as never)
 }
 
 interface BashContribution {
@@ -93,15 +82,14 @@ describe('web-app runtime glue', () => {
         return () => {}
       },
     } as never)
-    const enabledRows = provideHmrRow(ctx)
+    provideLoader(ctx)
     const log = vi.spyOn(console, 'log').mockImplementation(() => {})
-    apply(ctx, new Config({ mode: 'development', printUrl: true, surfaceContext: true, trustedHosts: ['lab.internal'] }))
+    apply(ctx, new Config({ printUrl: true, surfaceContext: true, trustedHosts: ['lab.internal'] }))
     await ctx.plugin(SystemPrompt, { persona: '' })
     // Settle the injected registrations.
     await new Promise(resolve => setTimeout(resolve, 0))
 
     expect(seat()).toBeDefined() // frontend-static claimed the fallback
-    expect(enabledRows).toEqual(['@deepseek-ai/dsh-client-hmr'])
     expect(ctx.get('webRuntime')).toEqual({
       lanAddresses: ['192.168.1.5'],
       trustedHosts: ['192.168.1.5', 'lab.internal'],
@@ -111,24 +99,26 @@ describe('web-app runtime glue', () => {
     expect(assembly.sections.find(entry => entry.name === 'harness:source')?.text).toContain('DeepSeek Harness implementation checkout')
     const section = assembly.sections.find(entry => entry.name === 'app:web-surface')
     expect(section?.text).toContain('http://127.0.0.1:4567')
-    expect(section?.text).toContain('--dev')
+    // The single update contract: the receiver is always on; no-refresh
+    // reloads additionally need the rebuild watcher.
+    expect(section?.text).toContain('pnpm run dev:web')
     const webRuntime = contributions.find(contribution => contribution.name === 'web-runtime')
-    expect(webRuntime?.resolve()).toEqual({ DSH_WEB_URL: 'http://127.0.0.1:4567', DSH_WEB_MODE: 'development' })
+    expect(webRuntime?.resolve()).toEqual({ DSH_WEB_URL: 'http://127.0.0.1:4567' })
     await ctx.fiber.dispose()
   })
 
-  it('stays quiet in production mode with printUrl off and reports the production update contract', async () => {
+  it('stays quiet with printUrl off', async () => {
     stageDist()
     const ctx = new Context()
     ctx.provide('httpServer', fakeHttpServer().server)
     const log = vi.spyOn(console, 'log').mockImplementation(() => {})
-    apply(ctx, new Config({ mode: 'production', printUrl: false, surfaceContext: true, trustedHosts: [] }))
+    apply(ctx, new Config({ printUrl: false, surfaceContext: true, trustedHosts: [] }))
     await ctx.plugin(SystemPrompt, { persona: '' })
     await new Promise(resolve => setTimeout(resolve, 0))
     expect(log).not.toHaveBeenCalled()
     const assembly = await ctx.systemPrompt.assemble()
     expect(assembly.sections.find(entry => entry.name === 'app:web-surface')?.text)
-      .toContain('without `--dev`')
+      .toContain('rebuilding the affected Web artifacts')
     await ctx.fiber.dispose()
   })
 
@@ -143,7 +133,7 @@ describe('web-app runtime glue', () => {
         return () => {}
       },
     } as never)
-    apply(ctx, new Config({ mode: 'production', printUrl: false, surfaceContext: false, trustedHosts: [] }))
+    apply(ctx, new Config({ printUrl: false, surfaceContext: false, trustedHosts: [] }))
     await ctx.plugin(SystemPrompt, { persona: '' })
     await new Promise(resolve => setTimeout(resolve, 0))
     const assembly = await ctx.systemPrompt.assemble()
@@ -158,114 +148,10 @@ describe('web-app runtime glue', () => {
     const ctx = new Context()
     ctx.provide('httpServer', fakeHttpServer().server)
     const log = vi.spyOn(console, 'log').mockImplementation(() => {})
-    apply(ctx, new Config({ mode: 'production', printUrl: true, surfaceContext: true, trustedHosts: [] }))
+    apply(ctx, new Config({ printUrl: true, surfaceContext: true, trustedHosts: [] }))
     await new Promise(resolve => setTimeout(resolve, 0))
     expect(log).toHaveBeenCalledWith('dsh web: http://127.0.0.1:4567')
     await ctx.fiber.dispose()
-  })
-
-  it('creates the client-hmr row exactly once across runtime reloads', async () => {
-    stageDist()
-    const ctx = new Context()
-    ctx.provide('httpServer', fakeHttpServer().server)
-    const created = provideHmrRow(ctx)
-    const mount = async (): Promise<() => Promise<void>> => {
-      const fiber = ctx.plugin((child: Context) => {
-        apply(child, new Config({ mode: 'development', printUrl: false, surfaceContext: false, trustedHosts: [] }))
-      })
-      await fiber
-      await new Promise(resolve => setTimeout(resolve, 0))
-      return () => fiber.dispose()
-    }
-    const disposeFirst = await mount()
-    expect(created).toEqual(['@deepseek-ai/dsh-client-hmr'])
-    await disposeFirst()
-    // A reload generation must not duplicate the row the previous one created.
-    const disposeSecond = await mount()
-    expect(created).toEqual(['@deepseek-ai/dsh-client-hmr'])
-    await disposeSecond()
-    await ctx.fiber.dispose()
-  })
-
-  it('defers to a user-configured client-hmr row anywhere in the tree', async () => {
-    stageDist()
-    const ctx = new Context()
-    ctx.provide('httpServer', fakeHttpServer().server)
-    const created: string[] = []
-    // The user's own row — possibly patched into an include subtree and even
-    // disabled there — already carries the name; the runtime must not create
-    // a second one beside it.
-    ctx.provide('loader', {
-      entries: () => [{ options: { id: 'my-hmr', name: '@deepseek-ai/dsh-client-hmr', disabled: true } }][Symbol.iterator](),
-      create: (options: { name: string }) => {
-        created.push(options.name)
-        return Promise.resolve(options.name)
-      },
-      await: () => Promise.resolve(),
-    } as never)
-    apply(ctx, new Config({ mode: 'development', printUrl: false, surfaceContext: false, trustedHosts: [] }))
-    await new Promise(resolve => setTimeout(resolve, 0))
-    expect(created).toEqual([])
-    await ctx.fiber.dispose()
-  })
-
-  it('skips the dev row when the tree is disposed during settlement and logs a creation failure', async () => {
-    stageDist()
-    const raced = new Context()
-    raced.provide('httpServer', fakeHttpServer().server)
-    let release!: () => void
-    const settlement = new Promise<void>((resolve) => { release = resolve })
-    const created: string[] = []
-    const disposeLoader = raced.provide('loader', {
-      entries: () => [][Symbol.iterator](),
-      create: (options: { name: string }) => {
-        created.push(options.name)
-        return Promise.resolve(options.name)
-      },
-      await: () => settlement,
-    } as never)
-    apply(raced, new Config({ mode: 'development', printUrl: false, surfaceContext: false, trustedHosts: [] }))
-    disposeLoader()
-    release()
-    await new Promise(resolve => setTimeout(resolve, 0))
-    expect(created).toEqual([])
-    await raced.fiber.dispose()
-
-    const failing = new Context()
-    failing.provide('httpServer', fakeHttpServer().server)
-    const failure = new Error('row creation failed')
-    failing.provide('loader', {
-      entries: () => [][Symbol.iterator](),
-      create: () => Promise.reject(failure),
-      await: () => Promise.resolve(),
-    } as never)
-    const errors: unknown[] = []
-    failing.logger.error = ((error: unknown) => { errors.push(error) }) as typeof failing.logger.error
-    apply(failing, new Config({ mode: 'development', printUrl: false, surfaceContext: false, trustedHosts: [] }))
-    await new Promise(resolve => setTimeout(resolve, 0))
-    expect(errors).toEqual([failure])
-    await failing.fiber.dispose()
-  })
-
-  it('mounts no dev row in production and only warns without a Loader in development', async () => {
-    stageDist()
-    const prod = new Context()
-    prod.provide('httpServer', fakeHttpServer().server)
-    const created = provideHmrRow(prod)
-    apply(prod, new Config({ mode: 'production', printUrl: false, surfaceContext: false, trustedHosts: [] }))
-    await new Promise(resolve => setTimeout(resolve, 0))
-    expect(created).toEqual([])
-    await prod.fiber.dispose()
-
-    const bare = new Context()
-    bare.provide('httpServer', fakeHttpServer().server)
-    const warnings: string[] = []
-    bare.logger.warn = ((message: unknown) => { warnings.push(String(message)) }) as typeof bare.logger.warn
-    apply(bare, new Config({ mode: 'development', printUrl: false, surfaceContext: false, trustedHosts: [] }))
-    expect(warnings).toEqual(['web-app: development mode without a Loader tree mounts no client-hmr row'])
-    // Let the vitest invariant host settle before tearing the root down.
-    await new Promise(resolve => setTimeout(resolve, 0))
-    await bare.fiber.dispose()
   })
 
   it('defers the URL line until Loader settlement and drops it on failure or teardown', async () => {
@@ -276,9 +162,9 @@ describe('web-app runtime glue', () => {
     settled.provide('httpServer', fakeHttpServer().server)
     let release: () => void
     const settlement = new Promise<void>((resolve) => { release = resolve })
-    provideHmrRow(settled, () => settlement)
+    provideLoader(settled, () => settlement)
     const log = vi.spyOn(console, 'log').mockImplementation(() => {})
-    apply(settled, new Config({ mode: 'production', printUrl: true, surfaceContext: true, trustedHosts: [] }))
+    apply(settled, new Config({ printUrl: true, surfaceContext: true, trustedHosts: [] }))
     await new Promise(resolve => setTimeout(resolve, 0))
     expect(log).not.toHaveBeenCalled()
     release!()
@@ -291,8 +177,8 @@ describe('web-app runtime glue', () => {
     log.mockClear()
     const failed = new Context()
     failed.provide('httpServer', fakeHttpServer().server)
-    provideHmrRow(failed, async () => { throw new Error('boot failed') })
-    apply(failed, new Config({ mode: 'production', printUrl: true, surfaceContext: true, trustedHosts: [] }))
+    provideLoader(failed, async () => { throw new Error('boot failed') })
+    apply(failed, new Config({ printUrl: true, surfaceContext: true, trustedHosts: [] }))
     await new Promise(resolve => setTimeout(resolve, 0))
     expect(log).not.toHaveBeenCalled()
     await failed.fiber.dispose()
@@ -307,8 +193,8 @@ describe('web-app runtime glue', () => {
     await child
     let releaseTorn: () => void
     const tornSettlement = new Promise<void>((resolve) => { releaseTorn = resolve })
-    provideHmrRow(torn, () => tornSettlement)
-    apply(torn, new Config({ mode: 'production', printUrl: true, surfaceContext: true, trustedHosts: [] }))
+    provideLoader(torn, () => tornSettlement)
+    apply(torn, new Config({ printUrl: true, surfaceContext: true, trustedHosts: [] }))
     await child.dispose() // the httpServer service goes away
     releaseTorn!()
     await new Promise(resolve => setTimeout(resolve, 0))
@@ -324,7 +210,7 @@ describe('web-app runtime glue', () => {
     const { server } = fakeHttpServer()
     Object.defineProperty(server, 'port', { get: () => undefined })
     ctx.provide('httpServer', server)
-    apply(ctx, new Config({ mode: 'production', printUrl: false, surfaceContext: true, trustedHosts: [] }))
+    apply(ctx, new Config({ printUrl: false, surfaceContext: true, trustedHosts: [] }))
     await ctx.plugin(SystemPrompt, { persona: '' })
     await new Promise(resolve => setTimeout(resolve, 0))
     await expect(ctx.systemPrompt.assemble()).rejects.toThrow('httpServer service missing')
