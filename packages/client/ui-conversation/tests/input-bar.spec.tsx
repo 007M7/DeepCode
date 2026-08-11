@@ -237,14 +237,48 @@ describe('image draft rail', () => {
     expect(removeImage).toHaveBeenCalledWith('draft-1')
   })
 
-  it('opens the original image on double-click and closes it with Escape', () => {
+  it('opens the original image on a single click and closes it with Escape', () => {
     const file = new File([Uint8Array.of(1)], 'pixel.png', { type: 'image/png' })
     const attachment = { kind: 'image' as const, id: 'draft-1' as DraftAttachmentId, file, previewUrl: 'blob:draft-1' }
     const { view } = bench({ attachments: [attachment] })
-    fireEvent.doubleClick(view.getByTitle('双击查看原图'))
+    fireEvent.click(view.getByTitle('查看原图'))
     expect(view.getByRole('dialog', { name: '原图预览' })).toBeTruthy()
     fireEvent.keyDown(window, { key: 'Escape' })
     expect(view.queryByRole('dialog', { name: '原图预览' })).toBeNull()
+  })
+
+  it('announces an image-intake rejection as a fading toast, repeatable for the same reason', () => {
+    vi.useFakeTimers()
+    try {
+      const addImages = vi.fn(() => '不支持的图片格式：text/plain')
+      const { view, textarea } = bench({ addImages })
+      const paste = () => {
+        fireEvent.paste(textarea, {
+          clipboardData: {
+            items: [{ kind: 'file', type: 'text/plain', getAsFile: () => new File(['x'], 'note.txt', { type: 'text/plain' }) }],
+            getData: () => '',
+          },
+        })
+      }
+      paste()
+      expect(view.getByRole('alert').textContent).toContain('不支持的图片格式：text/plain')
+      act(() => { vi.advanceTimersByTime(4000) })
+      expect(view.queryByRole('alert')).toBeNull()
+      // The identical rejection re-announces: the toast is keyed per show.
+      paste()
+      expect(view.getByRole('alert').textContent).toContain('不支持的图片格式：text/plain')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('announces a rejected drop through the same toast', () => {
+    const addImages = vi.fn(() => '图片读取服务不可用')
+    const { view } = bench({ addImages })
+    const card = view.container.querySelector('[class*="card"]')!
+    const dataTransfer = { types: ['Files'], files: [new File([Uint8Array.of(1)], 'x.png', { type: 'image/png' })], dropEffect: 'none' }
+    fireEvent.drop(card, { dataTransfer })
+    expect(view.getByRole('alert').textContent).toContain('图片读取服务不可用')
   })
 })
 
@@ -941,10 +975,19 @@ describe('insertText (scoped event body)', () => {
 })
 
 describe('strips and variants', () => {
-  it('derives the failure strip from promptError (ordinary failure — no transaction UI, no Retry)', () => {
-    const send = bench({ promptError: { op: 'send', error: { code: 'agent-busy', message: 'boom', details: { reason: 'boom' } } } })
-    expect(send.view.container.querySelector('[role="alert"]')?.textContent).toBe('boom (agent-busy)')
-    expect(send.view.queryByRole('button', { name: 'Retry' })).toBeNull()
+  it('announces promptError as a fading toast (ordinary failure — no transaction UI, no Retry)', () => {
+    vi.useFakeTimers()
+    try {
+      const send = bench({ promptError: { op: 'send', error: { code: 'agent-busy', message: 'boom', details: { reason: 'boom' } } } })
+      // The toast body-portals (transformed ancestors must not trap it), so
+      // queries go through the view's document-bound helpers.
+      expect(send.view.getByRole('alert').textContent).toContain('boom (agent-busy)')
+      expect(send.view.queryByRole('button', { name: 'Retry' })).toBeNull()
+      act(() => { vi.advanceTimersByTime(4000) })
+      expect(send.view.queryByRole('alert')).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('renders the notice strip from the machine notice store', () => {
