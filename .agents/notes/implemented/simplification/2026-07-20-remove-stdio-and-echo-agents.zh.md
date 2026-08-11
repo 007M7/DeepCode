@@ -22,7 +22,7 @@ DeepSeek Harness 在 TUI 和 Headless coding agent 之外，还提供了两个�
 - [`dsh --profile headless`](../../../../apps/cli/README.md) 负责非交互式执行。其 `headless` profile 是产品组装；`examples/headless-agent` 负责回放快照、通用真实 agent 测试套件和未导出的无密钥 Loader driver。
 - [`@deepseek-ai/dsh-acp-demo`](../../../../packages/examples/acp-demo/README.md) 和 `@deepseek-ai/dsh-jsonrpc` 负责各自的分帧协议集成。
 
-SDK 工程模型与 create/config 工作流将 `stdio` 运行接口选项替换为 `tui`；生成的 TUI 工程组合 `@deepseek-ai/dsh-tui`，并创建或恢复一个确切会话。仓库中的演示文档要求 DeepSeek API key，并优先引导到真实的 Headless 或 TUI agent。
+承载 `stdio` 运行接口选项的 SDK 项目模型已由 [SDK 项目工具链移除决策](2026-08-11-remove-sdk-project-toolchain.md)删除。仓库中的演示文档要求 DeepSeek API key，并优先引导到当前可运行的产品。
 
 无密钥验证由测试负责。Headless Loader 冒烟测试使用 fixture 适配器验证真实工具往返；`dsh` built-bin 测试套件固定已发布的一次性入口和输出；产品 Headless 快照固定持久化；Headless PTY 关闭 e2e 固定信号升级。各包专属的 Loader 测试则将确定性适配器放在对应场景旁。其中任何一项都不会作为可运行的 mock agent 对外暴露。
 
@@ -45,5 +45,5 @@ TUI 与 Headless 的 Loader 覆盖以源码和构建产物两种模式运行真�
 - 交互式与非交互式产品执行分别只有一个归属方和一个可运行的 coding 叶节点。
 - 仓库没有面向用户的无密钥 agent 演示；本地 agent 演示需要 `DEEPSEEK_API_KEY`。
 - CI 通过测试 fixture 保留针对真实入口的无密钥覆盖，而不是依赖产品命令。
-- 既有 stdio agent 配置、Echo 命令和 SDK `--interface=stdio` 调用会直接失败，不会被转换。
+- 既有 stdio agent 配置和 Echo 命令会直接失败，不会被转换。
 - 有意移除了单进程内基于管道的多轮交互，以及面向非 TTY `ask_user_question` 的 readline 提供方；恢复会话可以满足持久多轮工作，非 TTY 组装则必须自行提供交互提供方。

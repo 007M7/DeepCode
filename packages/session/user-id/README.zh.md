@@ -4,7 +4,7 @@
 
 会话遥测与直接反馈确认共用的匿名身份。`getOrCreateAnonymousUserId()` 返回一个限定于单个 harness home 的随机 UUID v4，并以裸行形式持久化到 `$DSH_HOME/.userid`（未设置 `DSH_HOME` 时为 `~/.dsh/.userid`）。OpenTelemetry 后端将其作为 Resource 的 `user.id` 上报；`/feedback` 在确认文本中包含同一个值，以便运维人员将所报告的会话和用户与导出的遥测相关联。
 
-该身份绝不从 hostname、网络地址、git remote 或其他可用于识别身份的来源派生。删除 `.userid` 后，下次启动进程时会重置身份。不同 harness home 拥有不同身份，dsh-sdk launcher telemetry 则刻意使用与此无关的独立存储。
+该身份绝不从 hostname、网络地址、git remote 或其他可用于识别身份的来源派生。删除 `.userid` 后，下次启动进程时会重置身份。不同 harness home 拥有不同身份。
 
 ## 存储契约
 
@@ -26,4 +26,4 @@
 
 - **删除后无法恢复**：身份丢失后会按设计生成新的匿名身份；若要恢复身份，就需要稳定的派生材料，这会削弱匿名性。
 - **Best-effort 并发**：如果读取方恰好落在并发进程完成独占创建但尚未写完的狭窄时间窗内，本次运行可能使用不同的内存 UUID；后续启动会收敛到已持久化的值。
-- **没有跨 home 身份**：不同 `$DSH_HOME` 值之间无法关联，本包也不会统一 dsh-sdk launcher telemetry 的独立身份。
+- **没有跨 home 身份**：不同 `$DSH_HOME` 值之间无法关联。
