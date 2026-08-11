@@ -30,8 +30,23 @@ export function SessionId(id: string): SessionId {
  * and enforced by every persistence backend on load. The single source of truth for the
  * version — write sites and the load-time check all read it.
  * While the harness is unreleased it is pinned at `0`: no compatibility is
- * implied, incompatible logs are rejected, and no migration is provided. A
- * monotonic version policy starts with the first tagged release.
+ * implied, incompatible logs are rejected, and no migration is provided.
+ *
+ * The version is a single monotonic integer with no major/minor split. Whether
+ * a bump is needed is decided by what the WRITER emits, never by what a newer
+ * reader can accept: bump exactly when an older runtime could no longer handle
+ * a new log with full semantic correctness ("parses without error" is not
+ * correctness — silently skipping content that shapes reconstruction is a
+ * wrong read). Only structural changes reach that bar: the header shape, the
+ * {@link SessionEvent} envelope, core event semantics, or the surface
+ * mechanism (the {@link SurfaceEventType} set and {@link SurfaceOp} variants).
+ * Adding an ordinary event type does not bump — the per-event
+ * {@link SessionEvent.ignorable} guard covers vocabulary growth instead. When
+ * in doubt, bump: a near-identity upgrade step is almost free, a missed bump
+ * makes older runtimes read new logs wrong silently. The full mechanism
+ * (upgrade-step chain, in-memory view conversion, migrate-on-continue) is
+ * recorded in the session-log-version-mechanism Agent Note
+ * (`.agents/notes/implemented/architecture/2026-08-10-session-log-version-mechanism.md`).
  */
 export const SESSION_FORMAT_VERSION = 0
 
@@ -389,6 +404,17 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
     /** Unix epoch milliseconds. */
     time: number
     data: SessionEventMap[K]
+    /**
+     * Marks an event a reader may safely skip when it does not recognize
+     * `type`. Absent means required: a reader meeting an unrecognized type
+     * without this marker MUST refuse to reconstruct the session instead of
+     * silently dropping the event, because an unrecognized required event may
+     * change how the rest of the log is interpreted. A writer sets `true` only
+     * on purely informational records whose loss cannot affect reconstruction;
+     * defaulting to required means a forgotten marker over-refuses (an
+     * inconvenience) rather than silently resuming a gutted session.
+     */
+    ignorable?: true
   } & (K extends SurfaceEventType ? {
     /**
      * Seq numbers of earlier events that this event cites as sources
