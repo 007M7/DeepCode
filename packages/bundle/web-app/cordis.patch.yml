@@ -258,11 +258,6 @@
 # the criterion for host-plane ownership — injection resolves before any session
 # exists, so there is no agent to key by. Behind a preset realm those variables
 # would never reach the model's shell at all.
-#
-# Both shell TOOL rows move behind presets on every platform: the executors
-# (`bash-sandbox`/`pwsh-sandbox`) stay host-plane with their platform gates in
-# the base patch, while each session's preset declares the shell tool its agent
-# sees and gates it by platform — so the host tool rows are disabled here.
 
 - id: tool-bash
   disabled: true

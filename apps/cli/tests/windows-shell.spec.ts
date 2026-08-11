@@ -21,10 +21,8 @@ import { evaluate } from '@deepseek-ai/cordis-plugin-loader'
 import { composeEntries, initProfile, loadProfile, PROFILES_DIR } from '@deepseek-ai/dsh-app-boot'
 
 /**
- * The effective disabled state of one composed row on one platform: a `!!js`
- * expression evaluates with a platform-scoped context (the `with` scope
- * shadows the global `process`) so both outcomes pin on every host; a plain
- * boolean is the value itself.
+ * The effective disabled state of one row on one platform: a `!!js` expression
+ * evaluates with a platform-scoped `process` so both outcomes pin on any host.
  */
 function disabledOn(row: { disabled?: unknown }, platform: 'win32' | 'linux'): boolean {
   const value = row.disabled
@@ -60,9 +58,8 @@ describe('the shipped shell composition (real bundle layers)', () => {
     expect(disabledOn(byId.get('bash-sandbox')!, 'linux'), 'bash-sandbox on linux').toBe(false)
     expect(disabledOn(byId.get('pwsh-sandbox')!, 'win32'), 'pwsh-sandbox on win32').toBe(false)
     expect(disabledOn(byId.get('pwsh-sandbox')!, 'linux'), 'pwsh-sandbox on linux').toBe(true)
-    // The Web surface owns both host shell TOOL rows on every platform: the
-    // executors stay host-plane with their platform gates, while sessions
-    // mount the shell tools from their preset rows instead.
+    // Host shell-tool rows are disabled on every platform; sessions mount
+    // their own rows instead.
     expect(byId.get('tool-bash')?.disabled).toBe(true)
     expect(byId.get('tool-pwsh')?.disabled).toBe(true)
     // The permission surface never moves: the sandbox/policy rows, the
@@ -118,10 +115,7 @@ describe('shipped agent presets gate both shell tools by platform', () => {
       ))
       if (row === undefined) throw new TypeError(`preset ${preset} must mount ${id}`)
       expect(row.disabled).toMatchObject({ __jsExpr: expect.any(String) as string })
-      // The base patch gates the host shell-tool rows by platform; the preset
-      // rows must not re-enable them on the wrong host. Evaluate the shipped
-      // expression with a platform-scoped context (the `with` scope shadows
-      // the global `process`) so both outcomes pin on every host.
+      // A platform-scoped context pins both outcomes on every host.
       const expression = (row.disabled as { __jsExpr: string }).__jsExpr
       expect(Boolean(evaluate({ process: { platform: 'win32' } }, expression)), `${id} on win32`).toBe(win32)
       expect(Boolean(evaluate({ process: { platform: 'linux' } }, expression)), `${id} on linux`).toBe(!win32)
