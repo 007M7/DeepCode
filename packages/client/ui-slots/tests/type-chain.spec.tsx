@@ -103,7 +103,7 @@ declare function NarrowTakeover(props: PropsRuntime<'chain.takeover'> & { matche
 
 describe('terminal-design type chain', () => {
   it('holds the positive chain and the compile-time negatives', () => {
-    // Everything below is compile-surface only.
+    // Everything below is compile-time only.
     const samples = (core: SlotCore, chat: ChatHandle, fp: FrameProps, cp: ConvProps, acts: BoundActions<ChatHandle>) => {
       // ── positive chain ─────────────────────────────────────────────
       // Frame: children + factory store + inject; actions arrive baked.

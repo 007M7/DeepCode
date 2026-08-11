@@ -190,7 +190,7 @@ function ensureSymlink(link: string, target: string): void {
     // Concurrent launches heal the same fallback; losing the race to a
     // process writing the identical link is success, anything else is not.
     // The window between the lstat miss above and this write cannot be
-    // staged deterministically from the public surface.
+    // staged deterministically from the public API.
     /* v8 ignore next 4 */
     if ((error as NodeJS.ErrnoException).code !== 'EEXIST'
       || !lstatSync(link).isSymbolicLink() || readlinkSync(link) !== target) {

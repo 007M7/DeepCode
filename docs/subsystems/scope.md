@@ -28,7 +28,7 @@ type Scoped<T extends object> = object & { readonly [ScopedBrand]: T }
 
 ## Owned registration context
 
-`Scope` pairs the tagged registration context with two teardown surfaces. `rawDispose` preserves the exact Cordis disposer identity needed by an ordered composite effect; `dispose()` is the public shared quiescence boundary for direct and racing callers.
+`Scope` pairs the tagged registration context with two teardown paths. `rawDispose` preserves the exact Cordis disposer identity needed by an ordered composite effect; `dispose()` is the public shared quiescence boundary for direct and racing callers.
 
 ```ts type-equiv
 /** A minted registration scope and its quiescent disposal boundaries. */

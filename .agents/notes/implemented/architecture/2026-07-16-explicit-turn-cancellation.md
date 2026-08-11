@@ -40,7 +40,7 @@ Initiator-scope tests assert that every hook still observes the exact Agent and 
 
 **Persist a free-form string reason.** Strings admit spelling drift, prevent exhaustive switching, and encourage consumers to parse presentation text. The runtime uses a closed discriminated union, while the terminal record needs only the stable aborted outcome.
 
-**Persist the typed caller cause in `turn/end`.** No production replay, UI, ACP, telemetry, or workflow consumer distinguishes `user` from `parent`. Copying the request source into the terminal result would conflate two facts and add Session-specific validation without a consumer; a future audit surface can record a separate cancellation-request event.
+**Persist the typed caller cause in `turn/end`.** No production replay, UI, ACP, telemetry, or workflow consumer distinguishes `user` from `parent`. Copying the request source into the terminal result would conflate two facts and add Session-specific validation without a consumer; a future audit trail can record a separate cancellation-request event.
 
 **Define speculative `superseded`, `timeout`, and `shutdown` variants now.** No current Agent cancellation producer implements those semantics. `shutdown` is already lifecycle disposal, and timeout or supersession should enter the union only with an owning policy and unique terminal meaning.
 

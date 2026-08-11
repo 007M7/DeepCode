@@ -94,7 +94,7 @@ export { defineContentToolFixture, type ContentToolFixtureOptions } from './test
 
 // The render-intent vocabulary a tool declares via `presentCall`/`presentResult`
 // lives in its own UI-facing module; re-export it so `@deepseek-ai/dsh-tools`
-// stays the single public surface for tool producers and UI adapters.
+// stays the single public API for tool producers and UI adapters.
 export type {
   ToolCallKind,
   FileLocation,
@@ -200,7 +200,7 @@ export interface ToolOutputDefinition {
   readonly schema: JsonSchemaNode
   /** Pure projection from validated arguments and value to Native/model content. */
   render(args: unknown, value: JsonValue): ContentBlock[]
-  /** Pure replayable presentation projection, computed only for surface calls. */
+  /** Pure replayable presentation projection, computed only for top-level calls. */
   presentationMeta?(args: unknown, value: JsonValue): JsonValue
 }
 
@@ -1009,7 +1009,7 @@ export class ToolRegistry extends Service {
    * Restrict global tools for the calling agent scope. Empty filters, unknown
    * names, scope-local names, and reserved transport names fail. Restrictions
    * intersect; scoped registrations remain visible.
-   * @param filter - global-surface mask: `allow` (keep only) and/or `deny` (remove).
+   * @param filter - global-tool mask: `allow` (keep only) and/or `deny` (remove).
    * @returns the exact disposer that lifts this restriction.
    */
   restrict(filter: ToolRestriction): () => void {

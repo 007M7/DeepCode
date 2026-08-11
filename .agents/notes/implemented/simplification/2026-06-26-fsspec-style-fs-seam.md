@@ -83,7 +83,7 @@ The plugin does NO filesystem I/O: "have you observed this file?" is a `WeakMap`
 
 ## Tool Contract
 
-`dsh-tool-fs` keeps the same schemas and prompt surface. `read` still exposes `file_path`, `offset`, and `limit`; `write` and `edit` are unchanged. It is the executor: it validates model args, reads/writes/edits through `ctx.fs` directly, owns line windowing and result rendering (`N: text`, footer, `<path>/<content>` envelope), and dispatches the `fs/*` events.
+`dsh-tool-fs` keeps the same schemas and prompt entry. `read` still exposes `file_path`, `offset`, and `limit`; `write` and `edit` are unchanged. It is the executor: it validates model args, reads/writes/edits through `ctx.fs` directly, owns line windowing and result rendering (`N: text`, footer, `<path>/<content>` envelope), and dispatches the `fs/*` events.
 
 Each mutation dispatches its intent waterfall with an `undefined` bare-provider default, then calls `ctx.fs`, then emits `fs/observed`: e.g. `write` does `ctx.waterfall('fs/write-intent', target, exec, () => undefined)` → `ctx.fs.writeText(target, content, intent)` → `ctx.emit('fs/observed', …)`. A `read` stats once, reads/streams, builds the window, and emits `fs/observed`. Passing `exec` as the actor lets `dsh-fs-policy` derive the owner without the tool reaching into the policy.
 

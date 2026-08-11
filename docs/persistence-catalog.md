@@ -370,7 +370,7 @@ Source: [`packages/compact/compact/src/types.ts:33`](../packages/compact/compact
 ```ts persistence-catalog
 /**
  * One recorded human remark about this session. Log-only and independent
- * of its trigger; it never enters the model surface or derived history.
+ * of its trigger; it never enters model context or derived history.
  */
 'feedback/record': { text: string }
 ```

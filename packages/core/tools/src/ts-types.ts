@@ -2,7 +2,7 @@
  * Code Mode codegen: the pure projection from registered tool schemas to the TypeScript SDK
  * text the model programs against (the `tools:sdk` prompt section). Sibling of
  * `json-schema.ts` — `schemas()` (native function calling) and this module (the generated
- * `declare const tools` surface) are two projections of the same store.
+ * `declare const tools` API) are two projections of the same store.
  * @module @deepseek-ai/dsh-tools/src/ts-types
  */
 

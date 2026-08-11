@@ -6,7 +6,7 @@ English | [中文](2026-07-10-single-file-executable-sdk-runtime-distribution.zh
 
 ## Problem
 
-DeepSeek Harness needs a dedicated SDK distribution form for the Python library — no Node installation, runs directly on the target platform: a single-file executable (hereafter "the exe") that exposes a stdio JSON-RPC serving surface (`HarnessSdkServer`, the Python SDK's peer), where the plugins and configuration actually booted are decided entirely by a `cordis.yml` supplied from outside the exe.
+DeepSeek Harness needs a dedicated SDK distribution form for the Python library — no Node installation, runs directly on the target platform: a single-file executable (hereafter "the exe") that exposes a stdio JSON-RPC serving interface (`HarnessSdkServer`, the Python SDK's peer), where the plugins and configuration actually booted are decided entirely by a `cordis.yml` supplied from outside the exe.
 
 - The JSONRPC protocol for talking to the Python SDK is already validated
 - A standardized way for cordis.yml to load every plugin (ESModule) is needed
@@ -23,7 +23,7 @@ The exe is packaged with the **`--sea` (enhanced SEA) mode** of [@yao-pkg/pkg](h
 
 Terminology reminder: pkg's `/snapshot` VFS has nothing to do with this repo's testing-system "snapshot" (ACP replay expected outputs, `$DSH_SNAPSHOT`); this document says "VFS" for the former.
 
-### The serving surface is a plugin: the two packages sdk/server + examples/jsonrpc-demo
+### The serving interface is a plugin: the two packages sdk/server + examples/jsonrpc-demo
 
 The deterministic protocol implementation (`server.ts` / `transport.ts`) lands as two packages on the existing `acp/acp` + `examples/acp-demo` pattern — the serving surface is itself a plugin:
 
@@ -80,6 +80,6 @@ Manual-driving caveat: the bin treats stdin EOF as "the client is gone" and disp
 
 ## Consequences
 
-**Bought**: zero-dependency single-file distribution on target platforms; plugin semantics strictly identical to running from source (the same real package tree, no transpilation, no registry); the serving surface, the plugin set, and the configuration all converge on two sources of truth — `cordis.yml` plus one dependency manifest; the exe and node carriers share one tree and one semantics, so development verification never waits for packaging; official Node binaries remove the patched-binary supply-chain concern.
+**Bought**: zero-dependency single-file distribution on target platforms; plugin semantics strictly identical to running from source (the same real package tree, no transpilation, no registry); the serving interface, the plugin set, and the configuration all converge on two sources of truth — `cordis.yml` plus one dependency manifest; the exe and node carriers share one tree and one semantics, so development verification never waits for packaging; official Node binaries remove the patched-binary supply-chain concern.
 
 **Paid**: artifacts on the order of 174MB with source entering the blob as-is (no bytecode obfuscation; a closed-source distribution requirement needs a separate evaluation); pkg's VFS/module-hook layer remains community-maintained (the build script pins `@yao-pkg/pkg@6.21.0`; upgrading is an explicit change); `--sea` is one invocation per target (matching CI's one leg per platform; local multi-platform builds are serial).

@@ -624,7 +624,7 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     this.installWritePath()
   }
 
-  // --- public surface (the backend's service methods delegate here) ---
+  // --- Public API (the backend's service methods delegate here) ---
 
   /**
    * Register detached session metadata for lazy creation on the first append.

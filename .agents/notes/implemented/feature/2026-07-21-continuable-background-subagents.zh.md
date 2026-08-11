@@ -37,7 +37,7 @@ durable child Session
 
 用户界面适配器打开 child 会话时，只读取持久化 transcript，不会仅为展示而恢复 agent。用户输入通过继续执行管理器，启动或加入与 parent 输入相同的 Task 激活。由用户启动的 Task 会保留当前加载的精确 parent Agent 作为通知目标，`task_output` 仍是唯一结果路径。只要 Task 尚未标记为已报告，现有完成监听器最多注入一条主动通知；`kill`、终态读取或终态等待都可能将其标记为已报告，并抑制这条通知。因此，仅允许在该 parent 实例保持存活时进行用户交互。可以比 parent 存活更久、并将结论显式合并回去的用户自有会话属于[交互式 side session](../../proposed/feature/2026-07-08-interactive-side-sessions.md)，不属于这一由 Task 持有的生命周期。
 
-如果没有附加 Task 控制面，`TaskService.start()` 会拒绝 producer。因此，接受 child 输入的用户界面适配器必须附加 Task 控制面，或运行于加载了 `@deepseek-ai/dsh-tool-tasks` 的部署中；仅加载 Task 服务并不足够。这项依赖是 parent 和用户启动的激活共用 Task 结果、取消和通知路径所付出的代价。
+如果没有附加任务控制器，`TaskService.start()` 会拒绝 producer。因此，接受 child 输入的用户界面适配器必须附加任务控制器，或运行于加载了 `@deepseek-ai/dsh-tool-tasks` 的部署中；仅加载 Task 服务并不足够。这项依赖是 parent 和用户启动的激活共用 Task 结果、取消和通知路径所付出的代价。
 
 取消始终作用于当前完整激活。如果用户消息和 parent 消息已经加入同一个轮次，任一调用方发起取消都会中止该轮次、dispose 其 run，并将对应 Task 结算为 `killed`；这些消息没有独立的结果或取消权。`followup()` 要求调用方提供信号；若在线 steering 正在等待请求准入时该信号被中止，激活自有的 controller 会被中止，以便提供方丢弃待处理消息，并且该调用仅在子 agent 完全停稳后结算。若需要独立取消，后续消息必须另起轮次，而不能加入当前轮次。
 
@@ -121,7 +121,7 @@ Task 记录和活跃 run 关联都位于进程内。持久化使 child 会话可
 - 两个调用方仍可能通过继续执行管理器外部的路径争抢已停止的 child。Agent 注册表会阻止相同会话的重复发布；失败的 Task 会失败，且其消息不会送达。消息也可能与取消、终态状态发布或 run dispose 发生竞态。准入不承诺原子或恰好执行一次；在进程内同步安装的关联无需公开生命周期状态机，即可通过 `followup` 消除重复的 cold resume。
 - 通过普通 Agent API 驱动可继续 child 会绕过其 Task 关联。`ctx.subagents` 会将该存活 child 视为所有权冲突并拒绝；适配器必须在不加载 Agent 的情况下展示持久化 transcript，并通过 `SubagentService.followup()` 提交用户输入。
 - 活跃 run 关联只能协调一个运行时。多个进程同时恢复时不会串行化；此类部署需要持久化层的租约或 compare-and-set 操作。
-- 用户交互要求作为 owner 的那个精确 parent Agent 实例保持存活，因为 dispose owner 会取消并移除其 Task。用户交互还要求附加 Task 控制面。若要单独与 child 交互，后续必须将 Task 访问所有权与持久化通知目标分离。
+- 用户交互要求作为 owner 的那个精确 parent Agent 实例保持存活，因为 dispose owner 会取消并移除其 Task。用户交互还要求附加任务控制器。若要单独与 child 交互，后续必须将 Task 访问所有权与持久化通知目标分离。
 - 后台工具会在 child 发布和描述符持久化之前返回 child id 和 Task id。启动失败、最终持久性确认失败，或进程在 child 首次 flush 之前退出，都会使 Task 失败，并可能留下 unmaterialized 或陈旧的 child id；按 id 的控制操作会将缺失状态报告为不可用，而不会追溯修改工具确认消息。
 - 将显式组合字段持久化到 child 日志后，其无损 JSON 与兼容性约定便成为恢复约定的一部分。后续如需支持其他组合配置输入，必须明确更改描述符版本，不能隐式持久化可通过声明合并扩展的 `AgentOptions` 字段。
 - Task 记录和活跃 run 关联位于进程内，而 child 会话具有持久性。重启会恢复会话，但不会恢复进行中的工作或其 Task 通知。

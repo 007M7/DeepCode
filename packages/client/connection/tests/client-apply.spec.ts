@@ -87,7 +87,7 @@ describe('connection client apply', () => {
   it('start() hands out one loop, rejects a second consumer, and stop() aborts the streams', async () => {
     ;(globalThis as Win).location = { hostname: 'localhost', search: '?fixture' }
     const handle = await mount()
-    // config omitted: the `config ?? {}` default arm is part of the surface.
+    // config omitted: the `config ?? {}` default arm is part of the API.
     const loop = handle.start({})
     expect(() => handle.start({})).toThrow(/already owned by another consumer/)
     loop.stop() // teardown must not throw; the fixture streams abort quietly
