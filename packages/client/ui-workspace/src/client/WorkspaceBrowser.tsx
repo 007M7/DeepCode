@@ -625,6 +625,7 @@ export function WorkspaceBrowser({
   t,
 }: WorkspaceBrowserProps) {
   const workspaces = useWorkspaces(state => state.items)
+  const workspacePhase = useWorkspaces(state => state.phase)
   const archivedSessionIds = useWorkspaces(state => state.archivedSessionIds)
   // Live occupancy of this surface's directory-flow hole (the same source the
   // flow reads): a composition without a picking affordance can add nothing.
@@ -637,6 +638,13 @@ export function WorkspaceBrowser({
   const workspaceExpansion = useStore(s => s.workspaceExpansion)
   const recentSessionOrder = useStore(s => s.recentSessionOrder)
   const recentSessionUpdatedAt = useStore(s => s.recentSessionUpdatedAt)
+  useEffect(() => {
+    if (workspacePhase !== 'ready') return
+    actions.retainWorkspaceKeys([
+      UNGROUPED_KEY,
+      ...workspaces.map(workspace => workspace.workspaceId as string),
+    ])
+  }, [actions.retainWorkspaceKeys, workspacePhase, workspaces])
   // The query outlives the tree and the input (both wide-only) so collapsing
   // does not silently drop an in-progress filter.
   const [query, setQuery] = useState('')

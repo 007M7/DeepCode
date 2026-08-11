@@ -395,6 +395,22 @@ describe('createWorkspaceViewStore', () => {
       recentSessionUpdatedAt: { alpha: { one: 1, two: 2 } },
     })
   })
+
+  it('removes view state outside the retained Workspace key set', () => {
+    const store = createWorkspaceViewStore().create()
+    store.actions.setWorkspaceExpanded('', true)
+    store.actions.setWorkspaceExpanded('alpha', true)
+    store.actions.setWorkspaceExpanded('deleted', true)
+    store.actions.syncRecentSessions('alpha', ['alpha-session'], { 'alpha-session': 2 })
+    store.actions.syncRecentSessions('deleted', ['deleted-session'], { 'deleted-session': 1 })
+
+    store.actions.retainWorkspaceKeys(['', 'alpha'])
+
+    const snapshot = store.getSnapshot()
+    expect(snapshot.workspaceExpansion).toEqual({ '': true, alpha: true })
+    expect(snapshot.recentSessionOrder).toEqual({ alpha: ['alpha-session'] })
+    expect(snapshot.recentSessionUpdatedAt).toEqual({ alpha: { 'alpha-session': 2 } })
+  })
 })
 
 describe('projectLabel', () => {

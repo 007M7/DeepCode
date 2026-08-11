@@ -32,6 +32,7 @@ type WorkspaceViewActions = {
   setGroupBy: (draft: WorkspaceViewState, mode: WorkspaceGroupBy) => void
   setOrderBy: (draft: WorkspaceViewState, mode: WorkspaceOrderBy) => void
   setWorkspaceExpanded: (draft: WorkspaceViewState, key: string, expanded: boolean) => void
+  retainWorkspaceKeys: (draft: WorkspaceViewState, workspaceKeys: readonly string[]) => void
   syncRecentSessions: (
     draft: WorkspaceViewState,
     workspaceKey: string,
@@ -59,6 +60,18 @@ export function createWorkspaceViewStore(): EngineStoreHandle<WorkspaceViewState
       setGroupBy: (d, mode: WorkspaceGroupBy) => { d.groupBy = mode },
       setOrderBy: (d, mode: WorkspaceOrderBy) => { d.orderBy = mode },
       setWorkspaceExpanded: (d, key: string, expanded: boolean) => { d.workspaceExpansion[key] = expanded },
+      retainWorkspaceKeys: (d, workspaceKeys: readonly string[]) => {
+        const retained = new Set(workspaceKeys)
+        d.workspaceExpansion = Object.fromEntries(
+          Object.entries(d.workspaceExpansion).filter(([key]) => retained.has(key)),
+        )
+        d.recentSessionOrder = Object.fromEntries(
+          Object.entries(d.recentSessionOrder).filter(([key]) => retained.has(key)),
+        )
+        d.recentSessionUpdatedAt = Object.fromEntries(
+          Object.entries(d.recentSessionUpdatedAt).filter(([key]) => retained.has(key)),
+        )
+      },
       syncRecentSessions: (d, workspaceKey: string, order: string[], updatedAt: Record<string, number>) => {
         d.recentSessionOrder[workspaceKey] = order
         d.recentSessionUpdatedAt[workspaceKey] = updatedAt

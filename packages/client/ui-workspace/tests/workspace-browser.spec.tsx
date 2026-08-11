@@ -94,6 +94,28 @@ function rerender(b: ReturnType<typeof mount>, overrides: Partial<WorkspaceBrows
 }
 
 describe('WorkspaceBrowser', () => {
+  it('prunes deleted Workspace view state only after the Workspace baseline is ready', async () => {
+    const pending = {
+      ...workspaceState([]),
+      phase: 'pending' as const,
+      state: 'loading' as const,
+      baselinesReady: false,
+    }
+    const b = mount({ useWorkspaces: hook(pending) })
+    act(() => {
+      b.store.actions.setWorkspaceExpanded('deleted', true)
+      b.store.actions.syncRecentSessions('deleted', ['session'], { session: 1 })
+    })
+    expect(b.store.getSnapshot().workspaceExpansion).toEqual({ deleted: true })
+
+    rerender(b, { useWorkspaces: hook(workspaceState([])) })
+    await waitFor(() => {
+      expect(b.store.getSnapshot().workspaceExpansion).toEqual({})
+      expect(b.store.getSnapshot().recentSessionOrder).toEqual({})
+      expect(b.store.getSnapshot().recentSessionUpdatedAt).toEqual({})
+    })
+  })
+
   it('renders the grouped tree by default and switches to the flat list via Group by', () => {
     const sessions = sessionState([summary('alpha-s', 2), summary('beta-s', 1)])
     const b = mount({
