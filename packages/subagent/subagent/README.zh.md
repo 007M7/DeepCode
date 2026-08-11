@@ -44,7 +44,7 @@ subagent seam 允许一个 agent（智能体）通过具名提供方把工作委
 
 `childSessionMeta()` 把所加入的 preset id 记在子 agent 的持久化 header 上，理由与顶层会话记录自己的那一个相同：preset 决定了模型所见的工具 schema 与提示段，因此冷读子 agent 的历史时必须重建那份组装，而不是部署默认值。该值从父方**活着的** scope 链读取，而不是从父方 header 读取，因为在空白期切换过 preset 的父方运行在更新的那份组装上，而它的 header 仍写着旧的那个。
 
-可继续创建对应可选的 `SubagentProvider.prepareContinuable?()` 方法：方法是否存在就是能力检查，因此服务会在没有该方法的提供方上拒绝已配置的可继续启动，而具备该方法的提供方仍可服务普通一次性委派。该方法只返回分离的 `ContinuableCreateSpec`（`{ seed? }`）——这是数据，绝非能力：它不携带任何 Agent、`AgentHandle`、提示词投递、结果、dispose 或恢复操作，因为准备之后，继续执行管理器拥有身份预留、组合、Agent 创建、提示词投递、冷恢复、所有权和 dispose。一次性 `SubagentRun` 表示一次可 dispose 的前台委派，只有一个结果，且没有冷恢复操作。
+可继续创建对应可选的 `SubagentProvider.prepareContinuable?()` 方法：方法是否存在就是能力检查，因此服务会在没有该方法的提供方上拒绝已配置的可继续启动，而具备该方法的提供方仍可服务普通一次性委派。该方法只返回分离的 `ContinuableCreateSpec`（`{ seed? }`）——这是数据，绝非能力：它不携带任何 Agent、`AgentHandle`、提示词投递、结果、dispose 或恢复操作，因为准备之后，继续执行管理器拥有身份预留、组合、Agent 创建、提示词投递、冷恢复、所有权和 dispose。一次性 `SubagentRun` 表示一次可 dispose 的前台委派，只有一个结果，且没有冷恢复操作。服务可以针对不同的同级子 agent 并发调用同一提供方：每次启动或准备都拥有各自的可变状态和取消路径，一项操作的失败、结果或清理不得使另一项操作结算或释放。提供方可以在内部按自身容量排队，但不得改变这项独立性约定。
 
 ## 持久化描述符
 
