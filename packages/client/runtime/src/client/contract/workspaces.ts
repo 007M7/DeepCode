@@ -69,6 +69,12 @@ export interface IWorkspaces {
    */
   delete(workspaceId: WorkspaceId): Promise<void>
   /**
+   * Move a Workspace within the registry display order.
+   * @param workspaceId - Workspace to move.
+   * @param beforeWorkspaceId - Anchor workspace; omitted appends.
+   */
+  insertBefore(workspaceId: WorkspaceId, beforeWorkspaceId?: WorkspaceId): Promise<void>
+  /**
    * Move an accounted session within/into a Workspace's ordered list.
    * @param workspaceId - target workspace.
    * @param sessionId - accounted session to move.

@@ -266,6 +266,16 @@ export class WorkspacesService implements IWorkspaces {
   }
 
   /**
+   * Move a Workspace within the durable registry display order.
+   * @param workspaceId - Workspace to move.
+   * @param beforeWorkspaceId - Anchor workspace; omitted appends.
+   */
+  async insertBefore(workspaceId: WorkspaceId, beforeWorkspaceId?: WorkspaceId): Promise<void> {
+    const result = await this.manager.insertBefore(workspaceId, beforeWorkspaceId)
+    if (!result.ok) throw new Error(`workspace reorder failed: ${result.error.code}: ${result.error.message}`)
+  }
+
+  /**
    * Archive a session into the registry-global set. Clearing an archived
    * current selection is the projection sweep's job (one rule for the local
    * echo and a remote tab's frame alike).
