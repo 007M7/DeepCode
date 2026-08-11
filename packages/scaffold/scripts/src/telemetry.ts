@@ -59,15 +59,18 @@ export function freezeTelemetryConsent(env: NodeJS.ProcessEnv = process.env): Co
  * sends before returning. Swallows every error so telemetry can never change a
  * command's result.
  * @param event - the command lifecycle facts.
- * @param deps - Consent and delivery hooks; defaults hit the real endpoint.
+ * @param deps - Consent and delivery hooks; defaults hit the real endpoint. Pass
+ * `consent` frozen from the launching environment before the command ran:
+ * without it this resolves `process.env` as it stands now, which a project
+ * `.env` or project code may already have changed.
  */
 export async function reportCommandTelemetry(
   event: CommandTelemetryEvent,
   deps: CommandTelemetryDeps = {},
 ): Promise<void> {
   try {
-    /* v8 ignore next -- the production resolver is exercised by its owning tests */
-    const consent = deps.consent ?? await (deps.resolve?.() ?? resolveTelemetryConsent())
+    const consent = deps.consent ?? await resolveDeferredConsent(deps)
+    /* v8 ignore next -- v8 mis-accounts this early return's implicit else; both outcomes are asserted */
     if (!consent.allowed) return
     const payload = await buildTelemetryPayload({
       command: event.command,
@@ -82,4 +85,15 @@ export async function reportCommandTelemetry(
   } catch {
     // Telemetry is best-effort; a consent, payload, or delivery fault never reaches the command.
   }
+}
+
+/**
+ * Resolve consent for a caller that supplied no frozen decision, reading the
+ * environment as it stands after the command ran.
+ * @param deps - the caller's consent hooks.
+ * @returns the resolved consent decision.
+ */
+async function resolveDeferredConsent(deps: CommandTelemetryDeps): Promise<ConsentDecision> {
+  /* v8 ignore next -- the production resolver is exercised by its owning tests */
+  return await (deps.resolve?.() ?? resolveTelemetryConsent())
 }

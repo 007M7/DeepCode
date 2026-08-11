@@ -24,6 +24,11 @@ export interface ConsentDecision {
 
 /**
  * Resolve launcher telemetry consent from the shared telemetry mode.
+ *
+ * Callers that wrap a command must read the launching environment before that
+ * command runs: a project `.env` load or project code can change
+ * `process.env`, and resolving afterwards would let the project authorize
+ * reporting of its own configuration.
  * @param env - Environment containing `DSH_TELEMETRY_MODE`; defaults to `process.env`.
  * @returns Whether launcher telemetry may report and the resolved mode.
  */

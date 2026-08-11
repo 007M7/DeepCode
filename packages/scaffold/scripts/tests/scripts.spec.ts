@@ -647,6 +647,18 @@ describe('command telemetry', () => {
     )
     expect(sent).toHaveLength(0)
     expect(resolved).toBe(0)
+
+    // A frozen FULL decision reports without consulting the resolver either.
+    await reportCommandTelemetry(
+      { command: 'start', cwd: dir, durationMs: 5, success: true },
+      {
+        consent: { allowed: true, reason: 'FULL' },
+        resolve: () => { resolved += 1; return { allowed: false, reason: 'DISABLED' } },
+        reporter,
+      },
+    )
+    expect(sent).toHaveLength(1)
+    expect(resolved).toBe(0)
   })
 
   it('freezes consent from the launching environment and denies unsupported modes', () => {
