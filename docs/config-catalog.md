@@ -2740,6 +2740,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-client-ui-command` ([`packages/client/ui-command/src/index.ts`](../packages/client/ui-command/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-conversation` ([`packages/client/ui-conversation/src/index.ts`](../packages/client/ui-conversation/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-deliverables` ([`packages/client/ui-deliverables/src/index.ts`](../packages/client/ui-deliverables/src/index.ts))
+- `@deepseek-ai/dsh-client-ui-feedback` ([`packages/client/ui-feedback/src/index.ts`](../packages/client/ui-feedback/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-goal` ([`packages/client/ui-goal/src/index.ts`](../packages/client/ui-goal/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-layout` ([`packages/client/ui-layout/src/index.ts`](../packages/client/ui-layout/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-model` ([`packages/client/ui-model/src/index.ts`](../packages/client/ui-model/src/index.ts))

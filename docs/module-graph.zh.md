@@ -154,6 +154,7 @@ flowchart TD
     pkg_client_ui_command["client-ui-command"]
     pkg_client_ui_conversation["client-ui-conversation"]
     pkg_client_ui_deliverables["client-ui-deliverables"]
+    pkg_client_ui_feedback["client-ui-feedback"]
     pkg_client_ui_goal["client-ui-goal"]
     pkg_client_ui_layout["client-ui-layout"]
     pkg_client_ui_model["client-ui-model"]
@@ -703,6 +704,7 @@ flowchart TD
   pkg_api_remotes --> pkg_agent
   pkg_api_remotes --> pkg_goal
   pkg_api_remotes --> pkg_invariants
+  pkg_api_remotes --> pkg_message_feedback
   pkg_api_remotes --> pkg_session
   pkg_api_remotes --> pkg_session_persistence
   pkg_api_remotes --> pkg_typert_registry
@@ -1152,6 +1154,14 @@ flowchart TD
   pkg_client_ui_deliverables --> pkg_client_ui_conversation
   pkg_client_ui_deliverables --> pkg_client_ui_slots
   pkg_client_ui_deliverables --> pkg_invariants
+  pkg_client_ui_feedback --> pkg_api_remotes
+  pkg_client_ui_feedback --> pkg_client_locale
+  pkg_client_ui_feedback --> pkg_client_runtime
+  pkg_client_ui_feedback --> pkg_client_ui_conversation
+  pkg_client_ui_feedback --> pkg_client_ui_primitives
+  pkg_client_ui_feedback --> pkg_client_ui_slots
+  pkg_client_ui_feedback --> pkg_invariants
+  pkg_client_ui_feedback --> pkg_message_feedback
   pkg_client_ui_goal --> pkg_api_remotes
   pkg_client_ui_goal --> pkg_client_locale
   pkg_client_ui_goal --> pkg_client_runtime
@@ -1392,7 +1402,7 @@ flowchart TD
 | [`hook-protocol`](../packages/hooks/hook-protocol) | `hooks` | [`bash`](../packages/bash/bash), [`invariants`](../packages/support/invariants), [`session`](../packages/core/session) |
 | [`session-query`](../packages/session-query/session-query) | `session-query` | [`brand`](../packages/util/brand), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-persistence`](../packages/session/session-persistence), [`session-title`](../packages/session/session-title) |
 | [`acp`](../packages/acp/acp) | `acp` | [`agent`](../packages/core/agent), [`invariants`](../packages/support/invariants), [`session`](../packages/core/session), [`user-approval`](../packages/interaction/user-approval) |
-| [`api-remotes`](../packages/api/remotes) | `api` | [`agent`](../packages/core/agent), [`goal`](../packages/goal/goal), [`invariants`](../packages/support/invariants), [`session`](../packages/core/session), [`session-persistence`](../packages/session/session-persistence), [`typert-registry`](../packages/typert/registry) |
+| [`api-remotes`](../packages/api/remotes) | `api` | [`agent`](../packages/core/agent), [`goal`](../packages/goal/goal), [`invariants`](../packages/support/invariants), [`message-feedback`](../packages/feedback/message-feedback), [`session`](../packages/core/session), [`session-persistence`](../packages/session/session-persistence), [`typert-registry`](../packages/typert/registry) |
 | [`headless`](../packages/bundle/headless) | `bundle` | [`agent`](../packages/core/agent), [`agent-default-model`](../packages/core/agent-default-model), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |
 | [`tmux-context`](../packages/context/tmux-context) | `context` | [`agent`](../packages/core/agent), [`bash`](../packages/bash/bash), [`invariants`](../packages/support/invariants), [`session`](../packages/core/session) |
 | [`fs-e2b`](../packages/e2b/fs-e2b) | `e2b` | [`e2b`](../packages/e2b/e2b), [`fs`](../packages/fs/fs), [`invariants`](../packages/support/invariants) |
@@ -1466,6 +1476,7 @@ flowchart TD
 | [`client-ui-agent-preset`](../packages/client/ui-agent-preset) | `client` | [`client-connection`](../packages/client/connection), [`client-locale`](../packages/client/locale), [`client-runtime`](../packages/client/runtime), [`client-ui-conversation`](../packages/client/ui-conversation), [`client-ui-primitives`](../packages/client/ui-primitives), [`client-ui-settings`](../packages/client/ui-settings), [`client-ui-slots`](../packages/client/ui-slots), [`client-web-react`](../packages/client/web-react), [`invariants`](../packages/support/invariants) |
 | [`client-ui-command`](../packages/client/ui-command) | `client` | [`client-connection`](../packages/client/connection), [`client-locale`](../packages/client/locale), [`client-runtime`](../packages/client/runtime), [`client-ui-conversation`](../packages/client/ui-conversation), [`client-ui-primitives`](../packages/client/ui-primitives), [`client-ui-slash`](../packages/client/ui-slash), [`client-ui-slots`](../packages/client/ui-slots), [`invariants`](../packages/support/invariants) |
 | [`client-ui-deliverables`](../packages/client/ui-deliverables) | `client` | [`client-locale`](../packages/client/locale), [`client-runtime`](../packages/client/runtime), [`client-ui-conversation`](../packages/client/ui-conversation), [`client-ui-slots`](../packages/client/ui-slots), [`invariants`](../packages/support/invariants) |
+| [`client-ui-feedback`](../packages/client/ui-feedback) | `client` | [`api-remotes`](../packages/api/remotes), [`client-locale`](../packages/client/locale), [`client-runtime`](../packages/client/runtime), [`client-ui-conversation`](../packages/client/ui-conversation), [`client-ui-primitives`](../packages/client/ui-primitives), [`client-ui-slots`](../packages/client/ui-slots), [`invariants`](../packages/support/invariants), [`message-feedback`](../packages/feedback/message-feedback) |
 | [`client-ui-goal`](../packages/client/ui-goal) | `client` | [`api-remotes`](../packages/api/remotes), [`client-locale`](../packages/client/locale), [`client-runtime`](../packages/client/runtime), [`client-ui-conversation`](../packages/client/ui-conversation), [`client-ui-primitives`](../packages/client/ui-primitives), [`client-ui-slots`](../packages/client/ui-slots), [`goal`](../packages/goal/goal), [`invariants`](../packages/support/invariants) |
 | [`client-ui-plan`](../packages/client/ui-plan) | `client` | [`client-connection`](../packages/client/connection), [`client-locale`](../packages/client/locale), [`client-runtime`](../packages/client/runtime), [`client-ui-conversation`](../packages/client/ui-conversation), [`client-ui-primitives`](../packages/client/ui-primitives), [`client-ui-slots`](../packages/client/ui-slots), [`invariants`](../packages/support/invariants), [`plan-mode`](../packages/plan/plan-mode) |
 | [`client-ui-subagent`](../packages/client/ui-subagent) | `client` | [`client-locale`](../packages/client/locale), [`client-runtime`](../packages/client/runtime), [`client-ui-conversation`](../packages/client/ui-conversation), [`client-ui-primitives`](../packages/client/ui-primitives), [`client-ui-slash`](../packages/client/ui-slash), [`client-ui-slots`](../packages/client/ui-slots), [`invariants`](../packages/support/invariants), [`subagent`](../packages/subagent/subagent), [`token-meter`](../packages/llm/token-meter) |

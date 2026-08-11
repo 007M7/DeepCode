@@ -2,10 +2,12 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import goalsRemote from '@deepseek-ai/dsh-goal/remote'
+import messageFeedbackRemote from '@deepseek-ai/dsh-message-feedback/remote'
 import type { TypeRTClientRemote } from '@deepseek-ai/dsh-type-meta'
 
 export type { TypeRTClientRemote as ClientRemote } from '@deepseek-ai/dsh-type-meta'
 export type {} from '@deepseek-ai/dsh-goal/remote'
+export type {} from '@deepseek-ai/dsh-message-feedback/remote'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -23,5 +25,11 @@ export const inject = ['remote']
  * @returns disposer after every selected Remote namespace is ready.
  */
 export async function apply(ctx: Context): Promise<() => Promise<void>> {
-  return await ctx.remote.$mount(goalsRemote)
+  const mounted = [
+    await ctx.remote.$mount(goalsRemote),
+    await ctx.remote.$mount(messageFeedbackRemote),
+  ]
+  return async () => {
+    for (const dispose of mounted.reverse()) await dispose()
+  }
 }

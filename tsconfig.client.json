@@ -68,6 +68,7 @@
     { "path": "./packages/client/ui-subagent" },
     { "path": "./packages/client/ui-task" },
     { "path": "./packages/client/ui-goal" },
+    { "path": "./packages/client/ui-feedback" },
     { "path": "./packages/client/ui-model" },
     { "path": "./packages/client/ui-agent-preset" },
     { "path": "./packages/client/ui-permission" },

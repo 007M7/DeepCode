@@ -96,6 +96,12 @@ export interface AssistantTiming {
 export interface AssistantMessageNode {
   kind: 'assistant'
   seq: number
+  /**
+   * Stable identity of the finalized model output, carried from the
+   * `assistant/message` event. Absent on interruption-frozen partials: those
+   * were never finalized, so they address no durable message.
+   */
+  messageId?: MessageId
   /** Unix epoch ms from the source session event (or turn/end when frozen from a partial). */
   time: number
   turn: number

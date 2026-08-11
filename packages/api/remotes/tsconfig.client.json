@@ -16,6 +16,9 @@
       "path": "../../goal/goal"
     },
     {
+      "path": "../../feedback/message-feedback"
+    },
+    {
       "path": "../../typert/type-meta"
     }
   ]

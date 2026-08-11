@@ -215,6 +215,11 @@
     - id: ui-goal
       name: '@deepseek-ai/dsh-client-ui-goal'
 
+    # Per-message feedback: Like/Dislike plus an optional note in the
+    # assistant-message action strip, over the messageFeedback Remote.
+    - id: ui-feedback
+      name: '@deepseek-ai/dsh-client-ui-feedback'
+
     # Model selection: the /model popupSelect + composer seat over session.models.
     - id: ui-model
       name: '@deepseek-ai/dsh-client-ui-model'
