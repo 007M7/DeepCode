@@ -1,11 +1,13 @@
 /**
  * Validate Cordis Loader entry metadata and package resolution.
  *
- * The Loader interpolates only a plugin entry's `config`; expression objects in
- * fields such as `disabled` remain truthy data and silently change composition.
- * Example configs and the dsh Web composition resolve named plugins from their
- * owning workspace manifests. Local example packages must also be in the root
- * TypeScript project graph.
+ * The Loader interpolates a plugin entry's `config` and the entry `disabled`
+ * field (both evaluate against the loader context; `disabled` at tree build).
+ * Every other entry metadata field stays static, so an expression there
+ * remains truthy data and silently changes composition. Example configs and
+ * the dsh Web composition resolve named plugins from their owning workspace
+ * manifests. Local example packages must also be in the root TypeScript
+ * project graph.
  */
 
 import { globSync, readFileSync } from 'node:fs'
@@ -35,7 +37,7 @@ const appOverlayFiles = new Set([
   'examples/web-cordis/cordis.yml',
   ...globSync('examples/mcp-memory/*.cordis.yml', { cwd: root }),
 ])
-const metadataFields = ['id', 'name', 'group', 'disabled', 'inject', 'intercept', 'isolate'] as const
+const metadataFields = ['id', 'name', 'group', 'inject', 'intercept', 'isolate'] as const
 
 /** The adaptive directory-picker chooser package (mounts a backend row at boot). */
 const CHOOSER_PACKAGE = '@deepseek-ai/dsh-host-directory-picker-auto'
@@ -60,32 +62,35 @@ const jsExprType = new yaml.Type('tag:yaml.org,2002:js', {
 })
 const schema = yaml.JSON_SCHEMA.extend(jsExprType)
 
-const files = cordisConfigFiles(root)
 const errors: string[] = []
 const pluginReferences: PluginReference[] = []
 
-for (const file of files) {
-  const document: unknown = yaml.load(readFileSync(resolve(root, file), 'utf8'), { schema })
-  if (!isUnknownArray(document)) {
-    errors.push(`${file}: root must be a Loader entry array`)
-    continue
-  }
-  for (let index = 0; index < document.length; index++) {
-    validateEntry(document[index], file, `[${index}]`)
-  }
-}
+if (import.meta.main) {
+  const files = cordisConfigFiles(root)
 
-errors.push(...validateExampleResolution())
-errors.push(...validateAppResolution())
-errors.push(...validateSourcePlaneResolution())
-errors.push(...validatePresetPlaneSeparation())
+  for (const file of files) {
+    const document: unknown = yaml.load(readFileSync(resolve(root, file), 'utf8'), { schema })
+    if (!isUnknownArray(document)) {
+      errors.push(`${file}: root must be a Loader entry array`)
+      continue
+    }
+    for (let index = 0; index < document.length; index++) {
+      validateEntry(document[index], file, `[${index}]`)
+    }
+  }
 
-if (errors.length > 0) {
-  console.error('verify-cordis-config: invalid Loader metadata or plugin package resolution:')
-  for (const error of errors) console.error(`- ${error}`)
-  process.exitCode = 1
-} else {
-  console.log(`verify-cordis-config: ${files.length} config files passed.`)
+  errors.push(...validateExampleResolution())
+  errors.push(...validateAppResolution())
+  errors.push(...validateSourcePlaneResolution())
+  errors.push(...validatePresetPlaneSeparation())
+
+  if (errors.length > 0) {
+    console.error('verify-cordis-config: invalid Loader metadata or plugin package resolution:')
+    for (const error of errors) console.error(`- ${error}`)
+    process.exitCode = 1
+  } else {
+    console.log(`verify-cordis-config: ${files.length} config files passed.`)
+  }
 }
 
 /**
@@ -375,12 +380,27 @@ function packageNameFromSpecifier(specifier: string): string | undefined {
 }
 
 function validateMetadata(entry: Record<string, unknown>, file: string, path: string): void {
+  for (const problem of metadataExpressionErrors(entry, path)) {
+    errors.push(`${file}${problem}`)
+  }
+}
+
+/**
+ * Expression-node diagnostics for one entry. `disabled` is the single
+ * interpolated metadata field; every other metadata field must stay static.
+ * @param entry - one loader entry (or patch row).
+ * @param path - the entry's diagnostic path prefix.
+ * @returns one diagnostic per offending expression.
+ */
+export function metadataExpressionErrors(entry: Record<string, unknown>, path: string): string[] {
+  const problems: string[] = []
   for (const field of metadataFields) {
     if (!(field in entry)) continue
     const expressionPaths: string[] = []
     collectExpressionPaths(entry[field], `${path}.${field}`, expressionPaths)
-    for (const expressionPath of expressionPaths) errors.push(`${file}${expressionPath}: !!js is not interpolated here`)
+    for (const expressionPath of expressionPaths) problems.push(`${expressionPath}: !!js is not interpolated here`)
   }
+  return problems
 }
 
 function collectExpressionPaths(value: unknown, path: string, output: string[]): void {

@@ -1,8 +1,11 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { mkdtempSync, writeFileSync, rmSync, mkdirSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import yaml from 'js-yaml'
+import { entryListSchema } from '@deepseek-ai/cordis-plugin-include'
+import { evaluate } from '@deepseek-ai/cordis-plugin-loader'
 import type { ProfileLayer } from '@deepseek-ai/dsh-app-boot'
 import { composeEntries, initProfile, loadProfile, PROFILES_DIR } from '@deepseek-ai/dsh-app-boot'
 import {
@@ -135,5 +138,40 @@ describe('the shipped Windows composition (real bundle layers)', () => {
       message => baseWarnings.push(message),
     )
     expect(baseWarnings).toEqual([])
+  })
+})
+
+describe('shipped agent presets keep tool-bash off the win32 roster', () => {
+  const presetRoot = resolve(fileURLToPath(new URL('../package.json', import.meta.url)), '..', 'config', 'agent-presets')
+
+  it.each(['standard', 'code', 'cordis'])('preset %s gates its tool-bash row by platform', (preset) => {
+    const entries: unknown = yaml.load(
+      readFileSync(join(presetRoot, preset, 'agent.cordis.yml'), 'utf8'),
+      { schema: entryListSchema },
+    )
+    if (!Array.isArray(entries)) throw new TypeError(`preset ${preset} must parse to an entry array`)
+    const row = entries.find((entry): entry is Record<string, unknown> => (
+      typeof entry === 'object' && entry !== null && (entry as Record<string, unknown>).id === 'tool-bash'
+    ))
+    if (row === undefined) throw new TypeError(`preset ${preset} must mount tool-bash`)
+    expect(row.disabled).toMatchObject({ __jsExpr: expect.any(String) as string })
+    // The platform patch disables the host's tool-bash row on win32; the
+    // preset row must not re-enable it there. Evaluate the shipped expression
+    // with a platform-scoped context (the `with` scope shadows the global
+    // `process`) so both outcomes pin on every host.
+    const expression = (row.disabled as { __jsExpr: string }).__jsExpr
+    expect(Boolean(evaluate({ process: { platform: 'win32' } }, expression))).toBe(true)
+    expect(Boolean(evaluate({ process: { platform: 'linux' } }, expression))).toBe(false)
+  })
+
+  it('minimal mounts no tool-bash row at all (its shell is the PTY stack)', () => {
+    const entries: unknown = yaml.load(
+      readFileSync(join(presetRoot, 'minimal', 'agent.cordis.yml'), 'utf8'),
+      { schema: entryListSchema },
+    )
+    if (!Array.isArray(entries)) throw new TypeError('minimal preset must parse to an entry array')
+    expect(entries.some(entry => (
+      typeof entry === 'object' && entry !== null && (entry as Record<string, unknown>).id === 'tool-bash'
+    ))).toBe(false)
   })
 })

@@ -3,7 +3,7 @@ import { deepEqual, isNullable } from '@deepseek-ai/cosmokit'
 import { Loader } from '../index.ts'
 import { EntryGroup } from './group.ts'
 import { EntryTree } from './tree.ts'
-import { evaluate } from './utils.ts'
+import { evaluate, isJsExpr } from './utils.ts'
 
 /** Static plugin hook for resolving a container config while preserving nested entry configs. */
 export const EntryConfigResolver = Symbol.for('cordis.loader.entry-config-resolver')
@@ -101,13 +101,23 @@ export class Entry {
   private _disabled(options: EntryOptions) {
     // group is always enabled
     if (options.group) return false
-    if (options.disabled && !this.runtimeEnabled) return true
+    if (this.disabledOf(options) && !this.runtimeEnabled) return true
     let entry = this.parent.ctx.fiber.entry
     while (entry) {
-      if (entry.options.disabled && !entry.runtimeEnabled) return true
+      if (this.disabledOf(entry.options) && !entry.runtimeEnabled) return true
       entry = entry.parent.ctx.fiber.entry
     }
     return false
+  }
+
+  /**
+   * Effective disabled state: a `!!js` expression evaluates against the loader
+   * context. The raw node stays in the options, so write-back keeps the form.
+   */
+  private disabledOf(options: EntryOptions): boolean {
+    return isJsExpr(options.disabled)
+      ? Boolean(this.evaluate(options.disabled.__jsExpr))
+      : Boolean(options.disabled)
   }
 
   /**
