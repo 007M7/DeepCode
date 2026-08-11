@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/simplification/2026-07-23-acp-automation-only-protocol.md
-2026-07-23-acp-automation-only-protocol.md: 56c433acf59d3a0c4b5c8b6605e422d3c4efede2
-2026-07-23-acp-automation-only-protocol.zh.md: bf326ce9f6fea8c55b842bc61e3d8521032ea4d1
+2026-07-23-acp-automation-only-protocol.md: 56dcaf8b4327a008f26b884264958cac02d6541a
+2026-07-23-acp-automation-only-protocol.zh.md: a34e179a1d38c1867ea8165b149a9ec7716c1c0e

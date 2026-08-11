@@ -14,7 +14,7 @@ Status: implemented
 
 删除 `packages/ui/tui` 包，不提供兼容包或别名。其源码、包测试、终端快照、依赖声明、已打补丁的 `pi-tui` 产物、workspace 引用、生成的服务目录条目和文档会一并移除。通用宿主能力与 agent loop（智能体循环）能力保持不变。
 
-SDK 的运行接口联合类型现在只包含 `acp` 与 `embed`。`create-sdk` 默认使用 ACP，生成的模板不再包含终端启动、恢复、会话环境或模型参数分支；内置的 `ask-user` 功能也被移除，因为剩余两个生成接口都不提供 `UserInteractionProvider`。宿主应用仍可直接挂载提供方无关的 `dsh-user-interaction`、`dsh-commands` 和呈现服务。
+作为 TUI 包最后消费方的 SDK 项目工具链已由[工具链移除决策](2026-08-11-remove-sdk-project-toolchain.md)删除。宿主应用仍可直接挂载提供方无关的 `dsh-user-interaction`、`dsh-commands` 和呈现服务。
 
 本决策取代[显式配置 `dsh` 入口决策](../../archived/simplification/2026-08-03-explicit-config-dsh-entrypoint.md)中保留可复用包的决定，也使已归档 TUI 实现记录不再适用于当前状态。这些历史记录继续保持冻结，但不再作为受支持包或应用清单的依据。
 
@@ -22,7 +22,7 @@ SDK 的运行接口联合类型现在只包含 `acp` 与 `embed`。`create-sdk` 
 
 ## 验证
 
-仓库搜索结果与生成的服务目录中不再包含 TUI 包、依赖补丁、SDK 接口选项、服务键或包链接。专项 SDK 测试覆盖 ACP 和嵌入式两种模式的创建、配置、模板与快照。常规源码构建、类型检查、lint、hygiene、文档门禁以及其余组装快照测试套件均可在没有已删除 workspace 的情况下运行。
+仓库搜索结果与生成的服务目录中不再包含 TUI 包、依赖补丁、服务键或包链接。常规源码构建、类型检查、lint、hygiene、文档门禁以及其余组装快照测试套件均可在没有已删除 workspace 的情况下运行。
 
 ## 考虑过的替代方案
 
@@ -34,6 +34,6 @@ SDK 的运行接口联合类型现在只包含 `acp` 与 `embed`。`create-sdk` 
 
 ## 后果
 
-DeepSeek Harness 不再提供终端 UI 包或生成的 TUI 应用。现有 import、`cordis.yml` 条目、SDK `--interface=tui` 请求以及依赖该包的项目会直接失败，不会得到兼容转换。Web 仍是已交付的交互表面；ACP、JSON-RPC 与一次性 CLI 仍是 Web 之外的入口。
+DeepSeek Harness 不再提供终端 UI 包。现有 import 和依赖该包的 `cordis.yml` 条目会直接失败，不会得到兼容转换。Web 仍是已交付的交互表面；ACP、JSON-RPC 与一次性 CLI 仍是 Web 之外的入口。
 
 提供方无关的命令、用户交互、审批、工具呈现、PTY 与会话投影能力仍可供其他宿主使用。重新引入终端前端时，必须为其提供具名产品或部署、显式包边界、具体交互提供方，以及组装后的生命周期与 transcript（文本记录）验收。
