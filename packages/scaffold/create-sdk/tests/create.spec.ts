@@ -461,7 +461,11 @@ describe('CreateWizard and scaffolder', () => {
   })
 
   it('reads the release batch from the initializer package', async () => {
-    await expect(readCreateSdkVersion()).resolves.toBe('0.0.1')
+    // The version tracks the release, including a prerelease such as 0.0.1-rc.1,
+    // so the expectation comes from the manifest rather than a literal.
+    const manifest = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')) as { version: string }
+
+    await expect(readCreateSdkVersion()).resolves.toBe(manifest.version)
   })
 })
 

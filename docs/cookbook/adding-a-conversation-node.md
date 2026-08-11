@@ -120,6 +120,7 @@ function viewData(state: ReviewState): ReviewChatData {
 
 const reviewDefinition: ConversationNodeDefinition<ReviewState> = {
   kind: 'review-job',
+  target: 'chat',
   match: (event) => {
     if (event.type === 'review/start') {
       return { id: String(event.data.reviewId), role: 'start' }
@@ -161,8 +162,8 @@ const reviewDefinition: ConversationNodeDefinition<ReviewState> = {
       value: viewData(context.state),
     }
   },
-  buildViewNode: (context, target) => {
-    if (target !== 'chat' || context.state === undefined) return null
+  buildViewNode: (context) => {
+    if (context.state === undefined) return null
     return {
       key: context.key,
       kind: 'review-job',
@@ -196,7 +197,7 @@ export function apply(ctx: ClientContext): void {
 
 `buildLocationData(context, scope)` optionally publishes Definition-owned data onto an engine-owned Turn or Step. Use declaration merging to give each key a precise value type. Another Node in the same Location can consume that value through its constrained slot hook, such as `useTurnData(key)`, without receiving the Session or scanning `snapshot.chat.nodes`.
 
-`buildViewNode(context, target)` materializes the final target-specific Node. Preserve `context.key` as the React-facing identity, choose `anchorSeq` from durable ordering evidence, and return only renderer-ready data. Once a target Node has been published, keep returning the same key; use `visibility: 'hidden'` when it must temporarily leave the visible flow rather than withdrawing it with `null`.
+`target` and `buildViewNode(context)` declare one target-owned rendering contribution and must appear together. Preserve `context.key` as the React-facing identity, choose `anchorSeq` from durable ordering evidence, and return only renderer-ready data. Once a target Node has been published, keep returning the same key; use `visibility: 'hidden'` when it must temporarily leave the visible flow rather than withdrawing it with `null`.
 
 ## 3. Query an earlier business Context only at start
 

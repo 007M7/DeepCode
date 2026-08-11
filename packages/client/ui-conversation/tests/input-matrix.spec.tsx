@@ -8,7 +8,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
-import { createSnapshotStore, EMPTY_CHAT_SNAPSHOT } from '@deepseek-ai/dsh-client-runtime/client'
+import {
+  createSnapshotStore, EMPTY_CHAT_SNAPSHOT, EMPTY_CONVERSATION_VIEWS,
+} from '@deepseek-ai/dsh-client-runtime/client'
 import type { ClientContext, ConversationSnapshot, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import type { SubmitOutcome } from '@deepseek-ai/dsh-client-ui-slash/client'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
@@ -26,7 +28,7 @@ const SID = 's1' as SessionId
 /** Standard-props InputBar mount over a real shell (the composer-bar entry shape). */
 function mountBar(shell: SessionInputShell, over?: { running?: boolean; disabled?: boolean }) {
   const session = createSnapshotStore<ConversationSnapshot>({
-    sessionId: SID, chat: EMPTY_CHAT_SNAPSHOT,
+    sessionId: SID, views: EMPTY_CONVERSATION_VIEWS, chat: EMPTY_CHAT_SNAPSHOT,
     nodes: [], turnTimings: new Map(), turnEnds: new Map(), partial: null, runningCalls: [],
     pending: [], queue: [], running: over?.running ?? false, composerPhase: 'active',
     removed: over?.disabled ?? false, openState: 'open', openError: null, hasMore: false,

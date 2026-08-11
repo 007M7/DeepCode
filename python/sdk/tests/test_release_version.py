@@ -32,11 +32,29 @@ def test_release_tag_must_match_repository_version() -> None:
         build_python_release.validate_release_tag("python-v1.2.4", "1.2.3")
 
 
-def test_repository_version_rejects_non_stable_versions(tmp_path: Path) -> None:
-    (tmp_path / "package.json").write_text('{"version":"1.2.3-dev"}\n')
+def test_repository_version_accepts_a_prerelease(tmp_path: Path) -> None:
+    (tmp_path / "package.json").write_text('{"version":"1.2.3-rc.1"}\n')
 
-    with pytest.raises(ValueError, match="must be stable X.Y.Z"):
+    assert build_python_release.repository_version(tmp_path) == "1.2.3-rc.1"
+
+
+def test_repository_version_rejects_malformed_versions(tmp_path: Path) -> None:
+    (tmp_path / "package.json").write_text('{"version":"v1.2"}\n')
+
+    with pytest.raises(ValueError, match="must be X.Y.Z"):
         build_python_release.repository_version(tmp_path)
+
+
+def test_pep440_version_spells_a_prerelease_the_python_way() -> None:
+    # Build backends normalize to this spelling, so the wheel filename and
+    # metadata checks compare against it rather than the repository version.
+    assert build_python_release.pep440_version("1.2.3") == "1.2.3"
+    assert build_python_release.pep440_version("1.2.3-rc.1") == "1.2.3rc1"
+    assert build_python_release.pep440_version("1.2.3-alpha.2") == "1.2.3a2"
+    assert build_python_release.pep440_version("1.2.3-beta.10") == "1.2.3b10"
+
+    with pytest.raises(ValueError, match="no PEP 440 spelling"):
+        build_python_release.pep440_version("1.2.3-nightly")
 
 
 def test_stage_sdk_keeps_distribution_module_and_runtime_pin_distinct(tmp_path: Path) -> None:

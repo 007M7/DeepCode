@@ -30,6 +30,7 @@ function fallbackState(context: ConversationNodeContext<CompactionState>): Compa
 /** Automatic compaction lifecycle and landed checkpoint Definition. */
 export const compactionDefinition: ConversationNodeDefinition<CompactionState> = {
   kind: 'compaction',
+  target: 'chat',
   match: (event) => {
     const checkpoint = compactSource(event)
     if (checkpoint !== undefined && checkpoint.sourceCommandId === undefined) {
@@ -47,8 +48,7 @@ export const compactionDefinition: ConversationNodeDefinition<CompactionState> =
   },
   start: () => ({}),
   update: (context, match) => updateCompactionState(context.state, match),
-  buildViewNode: (context, target) => {
-    if (target !== 'chat') return null
+  buildViewNode: (context) => {
     const state = context.state ?? fallbackState(context)
     if (state.checkpoint === undefined) return null
     const marker = compactSummary(state.summary, state.checkpoint)

@@ -50,7 +50,6 @@ function inboxDefinition(target: InboxTarget): ConversationNodeDefinition<InboxS
     },
     update: context => context.state,
     publication: () => 'none',
-    buildViewNode: () => null,
   }
 }
 
