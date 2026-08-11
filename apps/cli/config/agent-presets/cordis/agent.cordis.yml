@@ -39,13 +39,20 @@
 # publish `DSH_WEB_URL`/`DSH_WEB_MODE`, and a host row that injects a service is
 # the criterion for host-plane ownership — injection resolves before any session
 # exists, so there is no agent to key by. Behind a preset realm those variables
-# never reached the model's shell at all. `tool-bash` consumes the host registry
-# from here; the executor behind it (`bash-sandbox`) is host-plane too, where the
-# sandbox policy owns it.
+# never reached the model's shell at all. Both shell tools consume the host
+# registry from here; the executors behind them (`bash-sandbox`/`pwsh-sandbox`)
+# are host-plane too, where the sandbox policy owns them. The web-app overlay
+# disables the host shell-tool rows, so exactly one of these rows mounts per
+# host — `tool-bash` on POSIX, `tool-pwsh` on win32.
 - id: tool-bash
   name: '@deepseek-ai/dsh-tool-bash'
   # POSIX-only: the base composition swaps the bash stack for the pwsh stack on win32.
   disabled: !!js process.platform === 'win32'
+
+- id: tool-pwsh
+  name: '@deepseek-ai/dsh-tool-pwsh'
+  # win32-only twin of tool-bash: bash has no Windows runner.
+  disabled: !!js process.platform !== 'win32'
 
 # ── filesystem ──────────────────────────────────────────────────────────────
 

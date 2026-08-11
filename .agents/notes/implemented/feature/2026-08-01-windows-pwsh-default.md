@@ -31,13 +31,13 @@ The pwsh GUI rendering shipped earlier with the [pwsh UI presentation matches ba
 
 ## Consequences
 
-- A Windows host running a shipped `dsh` surface gets the confined `pwsh` as its shell tool and PowerShell as the `ctx.bash` executor without configuration; `bash` is absent from the model-visible roster there (its tool row is disabled).
+- A Windows host running a shipped `dsh` surface gets the confined `pwsh` as its shell tool and PowerShell as the `ctx.bash` executor without configuration; `bash` is absent from the model-visible roster there. On the Web surface the shell TOOL rows come from the session's preset (the [loader `disabled` interpolation](../architecture/2026-08-11-loader-entry-disabled-interpolation.md) note owns the one-plane mechanism): each shipped preset declares `tool-pwsh` gated by `process.platform !== 'win32'` and its `tool-bash` twin by the inverted expression, so the preset layer exposes exactly one shell tool per host.
 - Windows commands and fs operations share the sandbox policy, permission switcher, and approval service. The ACL runner confines writes but reports `enforcement: 'partial'`; explicit `danger-full-access` remains the approved bypass rather than the platform default.
 - POSIX hosts mount the bash stack as before; the pwsh rows sit disabled in their composition, because the one shared patch file lists both stacks and each row gates itself.
 - A Windows host that prefers the bash stack (e.g. with WSL/Git-Bash on PATH) overrides the shipped rows through its profile or home `cordis.patch.yml` — disabling `pwsh-sandbox`/`tool-pwsh` and re-enabling `bash-sandbox`/`tool-bash` (both executors register the same `bash` service, so an incomplete recipe fails loud at load) — composition config is the one override channel.
 
 ## Verification
 
-- Unit: `apps/cli/tests/windows-shell.spec.ts` composes the REAL shipped bundle layers (dsh-base + dsh-web-app resolved from the app installation) through the boot's patch algorithm and pins the effective per-platform roster — the win32 pwsh roster, the POSIX bash roster, and the base-only profile — plus the preset-level tool-bash gate and the cold-start resolution closure; `packages/bundle/base/tests/base.spec.ts` pins the four shell rows' symmetric `!!js` platform gates and that no separate platform patch ships.
+- Unit: `apps/cli/tests/windows-shell.spec.ts` composes the REAL shipped bundle layers (dsh-base + dsh-web-app resolved from the app installation) through the boot's patch algorithm and pins the effective per-platform roster — the win32 pwsh roster, the POSIX bash roster, and the base-only profile — plus the preset-level shell-tool gates (`tool-bash`/`tool-pwsh`) and the cold-start resolution closure; `packages/bundle/base/tests/base.spec.ts` pins the four shell rows' symmetric `!!js` platform gates and that no separate platform patch ships.
 - Keyless: a `dsh --profile <name> --dump-config` shows both stacks in the one shared patch layer, with each row's own `disabled` expression deciding the roster at mount.
 - The real-composition smoke boots the web profile on win32 with the pwsh stack mounted (the exact roster this note describes).

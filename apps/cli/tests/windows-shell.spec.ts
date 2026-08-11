@@ -5,9 +5,9 @@
  * the launcher applies nothing beyond the bundle layers. The spec composes
  * the REAL shipped bundle layers (dsh-base + dsh-web-app resolved from the
  * app installation anchor) through the boot's patch algorithm and pins the
- * effective per-platform roster, the preset-level gate that keeps tool-bash
- * out of win32 sessions, and the cold-start resolution closure for the pwsh
- * rows' bare plugin names.
+ * effective per-platform roster, the preset-level gates that keep tool-bash
+ * out of win32 sessions and tool-pwsh out of POSIX sessions, and the
+ * cold-start resolution closure for the pwsh rows' bare plugin names.
  */
 
 import { afterEach, describe, expect, it } from 'vitest'
@@ -53,18 +53,18 @@ describe('the shipped shell composition (real bundle layers)', () => {
     )
     const byId = new Map(rows.map(row => [row.id, row]))
     // One shared patch set, two rosters: the shell stacks gate themselves.
-    for (const id of ['bash-sandbox', 'pwsh-sandbox', 'tool-pwsh']) {
+    for (const id of ['bash-sandbox', 'pwsh-sandbox', 'tool-bash', 'tool-pwsh']) {
       expect(byId.has(id), `row ${id}`).toBe(true)
     }
     expect(disabledOn(byId.get('bash-sandbox')!, 'win32'), 'bash-sandbox on win32').toBe(true)
     expect(disabledOn(byId.get('bash-sandbox')!, 'linux'), 'bash-sandbox on linux').toBe(false)
     expect(disabledOn(byId.get('pwsh-sandbox')!, 'win32'), 'pwsh-sandbox on win32').toBe(false)
     expect(disabledOn(byId.get('pwsh-sandbox')!, 'linux'), 'pwsh-sandbox on linux').toBe(true)
-    expect(disabledOn(byId.get('tool-pwsh')!, 'win32'), 'tool-pwsh on win32').toBe(false)
-    expect(disabledOn(byId.get('tool-pwsh')!, 'linux'), 'tool-pwsh on linux').toBe(true)
-    // The Web surface owns the host tool-bash row on every platform: sessions
-    // mount their own preset rows instead.
+    // The Web surface owns both host shell TOOL rows on every platform: the
+    // executors stay host-plane with their platform gates, while sessions
+    // mount the shell tools from their preset rows instead.
     expect(byId.get('tool-bash')?.disabled).toBe(true)
+    expect(byId.get('tool-pwsh')?.disabled).toBe(true)
     // The permission surface never moves: the sandbox/policy rows, the
     // permission switcher, fs-sandbox, and the approval service stay enabled
     // exactly as on POSIX — the confined pwsh executor is what changes.
@@ -103,37 +103,41 @@ describe('the shipped shell composition (real bundle layers)', () => {
   })
 })
 
-describe('shipped agent presets keep tool-bash off the win32 roster', () => {
+describe('shipped agent presets gate both shell tools by platform', () => {
   const presetRoot = resolve(fileURLToPath(new URL('../package.json', import.meta.url)), '..', 'config', 'agent-presets')
 
-  it.each(['standard', 'code', 'cordis'])('preset %s gates its tool-bash row by platform', (preset) => {
+  it.each(['standard', 'code', 'cordis'])('preset %s gates its shell tool rows by platform', (preset) => {
     const entries: unknown = yaml.load(
       readFileSync(join(presetRoot, preset, 'agent.cordis.yml'), 'utf8'),
       { schema: entryListSchema },
     )
     if (!Array.isArray(entries)) throw new TypeError(`preset ${preset} must parse to an entry array`)
-    const row = entries.find((entry): entry is Record<string, unknown> => (
-      typeof entry === 'object' && entry !== null && (entry as Record<string, unknown>).id === 'tool-bash'
-    ))
-    if (row === undefined) throw new TypeError(`preset ${preset} must mount tool-bash`)
-    expect(row.disabled).toMatchObject({ __jsExpr: expect.any(String) as string })
-    // The base patch gates the host tool-bash row on win32; the preset row
-    // must not re-enable it there. Evaluate the shipped expression with a
-    // platform-scoped context (the `with` scope shadows the global
-    // `process`) so both outcomes pin on every host.
-    const expression = (row.disabled as { __jsExpr: string }).__jsExpr
-    expect(Boolean(evaluate({ process: { platform: 'win32' } }, expression))).toBe(true)
-    expect(Boolean(evaluate({ process: { platform: 'linux' } }, expression))).toBe(false)
+    for (const [id, win32] of [['tool-bash', true], ['tool-pwsh', false]] as const) {
+      const row = entries.find((entry): entry is Record<string, unknown> => (
+        typeof entry === 'object' && entry !== null && (entry as Record<string, unknown>).id === id
+      ))
+      if (row === undefined) throw new TypeError(`preset ${preset} must mount ${id}`)
+      expect(row.disabled).toMatchObject({ __jsExpr: expect.any(String) as string })
+      // The base patch gates the host shell-tool rows by platform; the preset
+      // rows must not re-enable them on the wrong host. Evaluate the shipped
+      // expression with a platform-scoped context (the `with` scope shadows
+      // the global `process`) so both outcomes pin on every host.
+      const expression = (row.disabled as { __jsExpr: string }).__jsExpr
+      expect(Boolean(evaluate({ process: { platform: 'win32' } }, expression)), `${id} on win32`).toBe(win32)
+      expect(Boolean(evaluate({ process: { platform: 'linux' } }, expression)), `${id} on linux`).toBe(!win32)
+    }
   })
 
-  it('minimal mounts no tool-bash row at all (its shell is the PTY stack)', () => {
+  it('minimal mounts no shell tool row at all (its shell is the PTY stack)', () => {
     const entries: unknown = yaml.load(
       readFileSync(join(presetRoot, 'minimal', 'agent.cordis.yml'), 'utf8'),
       { schema: entryListSchema },
     )
     if (!Array.isArray(entries)) throw new TypeError('minimal preset must parse to an entry array')
-    expect(entries.some(entry => (
-      typeof entry === 'object' && entry !== null && (entry as Record<string, unknown>).id === 'tool-bash'
-    ))).toBe(false)
+    for (const id of ['tool-bash', 'tool-pwsh']) {
+      expect(entries.some(entry => (
+        typeof entry === 'object' && entry !== null && (entry as Record<string, unknown>).id === id
+      )), `${id} must be absent from minimal`).toBe(false)
+    }
   })
 })

@@ -31,13 +31,13 @@ pwsh GUI 渲染已随 [pwsh UI 呈现与 bash 对齐决策](2026-08-05-pwsh-ui-b
 
 ## 后果
 
-- 运行交付版 `dsh` 表面的 Windows 主机无需配置即获得受限 `pwsh` 作为 shell 工具、PowerShell 作为 `ctx.bash` 执行器；那里的模型可见清单中没有 `bash`（其工具行被禁用）。
+- 运行交付版 `dsh` 表面的 Windows 主机无需配置即获得受限 `pwsh` 作为 shell 工具、PowerShell 作为 `ctx.bash` 执行器；那里的模型可见清单中没有 `bash`。在 Web 表面，shell 工具行来自会话的预设（[loader `disabled` 插值](../architecture/2026-08-11-loader-entry-disabled-interpolation.md) note 拥有 one-plane 机制）：每个 shipped 预设声明 `tool-pwsh`（以 `process.platform !== 'win32'` 门控）及其孪生行 `tool-bash`（取反表达式），因此预设层每台宿主恰好暴露一个 shell 工具。
 - Windows 命令与 fs 操作共用沙箱策略、权限切换器和 approval 服务。ACL runner 限制写入，但报告 `enforcement: 'partial'`；显式的 `danger-full-access` 仍是获准的绕过方式，而非平台默认。
 - POSIX 主机如常挂载 bash 栈；pwsh 行以其自身的门控表达式处于禁用状态——同一份共享 patch 文件列出两个栈，每个行自己决定挂载。
 - 偏好 bash 栈的 Windows 主机（例如 PATH 上有 WSL/Git-Bash 时）通过其 profile 或 home 的 `cordis.patch.yml` 覆盖交付行——禁用 `pwsh-sandbox`/`tool-pwsh` 并重新启用 `bash-sandbox`/`tool-bash`（两个执行器注册同一个 `bash` 服务，配方不完整会在加载时 fail loud）——组合配置是唯一的覆盖通道。
 
 ## 验证
 
-- 单元：`apps/cli/tests/windows-shell.spec.ts` 通过启动所用的 patch 算法组合真实交付的 bundle 层（从应用安装解析的 dsh-base + dsh-web-app），固定每个平台的有效清单——win32 pwsh 清单、POSIX bash 清单与 base-only profile——外加预设级 tool-bash 门控与冷启动解析闭包；`packages/bundle/base/tests/base.spec.ts` 固定四个 shell 行的对称 `!!js` 平台门控，并断言不再交付独立的平台 patch。
+- 单元：`apps/cli/tests/windows-shell.spec.ts` 通过启动所用的 patch 算法组合真实交付的 bundle 层（从应用安装解析的 dsh-base + dsh-web-app），固定每个平台的有效清单——win32 pwsh 清单、POSIX bash 清单与 base-only profile——外加预设级 shell 工具门控（`tool-bash`/`tool-pwsh`）与冷启动解析闭包；`packages/bundle/base/tests/base.spec.ts` 固定四个 shell 行的对称 `!!js` 平台门控，并断言不再交付独立的平台 patch。
 - Keyless：`dsh --profile <name> --dump-config` 在同一份共享 patch 层中显示两个栈，每个行以自己的 `disabled` 表达式在挂载时决定清单。
 - 真实组合冒烟在 win32 上启动 web profile，pwsh 栈挂载成功（即本笔记描述的确切清单）。
