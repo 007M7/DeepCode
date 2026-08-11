@@ -2,7 +2,7 @@
 
 [English](telemetry.md) | 中文
 
-对外会话上报是一项[能力 seam](../capability-seams.md)：其 Service Definition（[dsh-session-telemetry](../../packages/session/session-telemetry)，`ctx.telemetry`）声明最小后端约定，其捕获协调器负责捕获点、固定分片投影、`telemetry/record` 脱敏 waterfall（瀑布式事件）和 handoff 游标；部署方加载的 Service provider（[dsh-session-telemetry-otel](../../packages/session/session-telemetry-otel)）按原配置使用 OpenTelemetry JS SDK 日志流水线。这项能力可选，不属于 agent loop（智能体循环），这里也没有任何内容会进入模型请求。Harness 调用 `emit()` 后停止处理；上报 SDK 负责批处理、重试、排队和丢失策略。[复活 Agent Note](../../.agents/notes/implemented/feature/2026-07-23-session-telemetry-otel-revival.md)记录了这条规则和被否决的替代方案。[Service Definition README](../../packages/session/session-telemetry/README.md) 定义捕获点、游标和投影约定。
+对外的会话上报拆分为一项[能力 seam](../capability-seams.md)：Service Definition 与捕获协调器（[dsh-session-telemetry](../../packages/session/session-telemetry)，`ctx.telemetry`）拥有捕获点、固定分片投影、`telemetry/record` 脱敏 waterfall（瀑布式事件）、handoff 游标与最小后端约定；部署方加载的 Service provider（[dsh-session-telemetry-otel](../../packages/session/session-telemetry-otel)）则是原样配置的 OpenTelemetry JS SDK 日志流水线。它是一项可选能力，不属于 agent loop（智能体循环）主干，这里也没有任何内容会进入模型请求。边界公理（harness 的职责止于 `emit()`；批处理、重试、排队与丢失策略都属于上报 SDK）连同被否决的替代方案，均已在[复活 Agent Note（agent 决策记录）](../../.agents/notes/implemented/feature/2026-07-23-session-telemetry-otel-revival.md)中定案；捕获点、游标与投影的约定见 [Service Definition README](../../packages/session/session-telemetry/README.md)。
 
 源码：[`packages/session/session-telemetry/src/index.ts`](../../packages/session/session-telemetry/src/index.ts)
 
@@ -56,6 +56,21 @@ interface TelemetryRecord {
 
 每个 `(turn, step)` 只发出第一条 `assistant/chunk`，即「流已开始」的信号；其余分片在捕获时丢弃，因此导出流中的 `seq` 缺口是常态，绝不是丢失信号。其他所有[会话事件](session.md)类型都会完整透传，包括该 seam 从未听说过、由插件合并进来的事件类型。投递是尽力而为的：游标标记的是「已交接」而非「已送达」，记录可能丢失（崩溃、重载窗口）也可能重复（无游标的重新接管、SDK 重试），因此接收端对 ledger 记录基于 `(session.id, event.seq)` 去重；ops 记录刻意省略这类标识——它们是用于告警的信号，而非用于累加的条目，重复被容忍而非被去重。
 
+## 共享披露
+
+该 seam 的确认契约（归属 [Service Definition README 的共享披露段](../../packages/session/session-telemetry/README.md#the-sharing-disclosure)）：每个后端都通过 `ctx.telemetry` 上必需的抽象 `sharing` 成员披露其部署级共享策略，消费方只有在未挂载任何遥测服务时才渲染「未配置」。披露只陈述当前策略，绝不承诺投递或留存——交接是非阻塞入队，批处理、重试与丢失策略仍归上报 SDK。
+
+```ts type-equiv
+/**
+ * Deployment-selected session-sharing policy disclosed by a mounted
+ * {@link Telemetry} backend to human-facing acknowledgement surfaces (the
+ * `/feedback` command's confirmation text). The seam owns the vocabulary so
+ * any backend can disclose a policy without depending on the OTel package;
+ * the values mirror the OTel backend's serialized `TelemetryMode` choices.
+ */
+type TelemetrySharingStatus = 'full' | 'feedback-only' | 'disabled'
+```
+
 ## 后端约定
 
 ```ts type-equiv
@@ -104,7 +119,7 @@ interface TelemetryBackend {
 }
 ```
 
-`Telemetry`（`ctx.telemetry`，[签名](#ctxtelemetry--telemetry-abstract-seam)）是该约定的可加载类型：每个上下文只允许一个实现，重复加载会抛出异常。后端在构造函数中创建 `TelemetryCoordinator`，以安装捕获处理。
+`Telemetry`（`ctx.telemetry`，[签名](#ctxtelemetry--telemetry-abstract-seam)）是该约定的可加载形态：每个上下文只允许一个实现，重复加载会抛出异常；后端在其构造函数中组合 seam 的 `TelemetryCoordinator`，以此装配捕获侧。
 
 ## 脱敏 waterfall：`telemetry/record`
 
@@ -141,7 +156,7 @@ flush?(): void
 abstract shutdown(): Promise<void>
 ```
 
-Source: [`packages/session/session-telemetry/src/index.ts:139`](../../packages/session/session-telemetry/src/index.ts)
+Source: [`packages/session/session-telemetry/src/index.ts:148`](../../packages/session/session-telemetry/src/index.ts)
 
 <a id="telemetry-events"></a>
 

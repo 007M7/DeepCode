@@ -64,7 +64,8 @@
   line-height: 20px;
 }
 
-/* Search input: 38px capsule (figma 133:7649); rail state renders it as the
+/* Search input: 38px bar, 12px radius (figma 133:7649 geometry, squared-off
+   corners); rail state renders it as the
    region's search control. Upstream binds a dedicated design-system variable
    (light #F1F3F5 / dark #1B1B1C) matching no shipped alias — a component
    token pinned to the static scale mirrors it. */
@@ -79,7 +80,7 @@
   padding: 0 14px;
   box-sizing: border-box;
   border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 24px;
+  border-radius: 12px;
   background: var(--dsh-search-input-fill);
   color: var(--dsw-alias-label-caption);
   overflow: hidden;

@@ -364,6 +364,31 @@ describe('TelemetryOtel wire', () => {
     expect(captures).toEqual([])
   })
 
+  it('discloses the sharing policy for every mode', async () => {
+    const { url, captures } = await mockCollector()
+
+    const fullCtx = new Context()
+    await fullCtx.plugin(SessionStore)
+    const full = await fullCtx.plugin(TelemetryOtel, { exporter: { url } })
+    expect(fullCtx.telemetry.sharing).toBe('full')
+    await full.dispose()
+
+    const gatedCtx = new Context()
+    await gatedCtx.plugin(SessionStore)
+    const gated = await gatedCtx.plugin(TelemetryOtel, { mode: TelemetryMode.FEEDBACK_ONLY, exporter: { url } })
+    expect(gatedCtx.telemetry.sharing).toBe('feedback-only')
+    await gated.dispose()
+
+    const disabledCtx = new Context()
+    await disabledCtx.plugin(SessionStore)
+    const disabled = await disabledCtx.plugin(TelemetryOtel, { mode: TelemetryMode.DISABLED })
+    expect(disabledCtx.telemetry.sharing).toBe('disabled')
+    await disabled.dispose()
+
+    // No record was emitted by any mode, so nothing reached the collector.
+    expect(captures).toEqual([])
+  })
+
   it('defaults direct construction to full delivery', async () => {
     const { url, captures } = await mockCollector()
     const ctx = new Context()
