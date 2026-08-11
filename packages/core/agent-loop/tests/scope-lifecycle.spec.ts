@@ -1,6 +1,6 @@
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { describe, expect, it } from 'vitest'
-import { Context, symbols, type EffectMeta, type Fiber } from 'cordis'
+import { Context, symbols, type EffectMeta, type Fiber } from '@deepseek-ai/cordis'
 import LlmService from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -605,7 +605,7 @@ describe('agent scope lifecycle', () => {
           agentCtx.systemPrompt.section({
             name: 'dependency-origin-section',
             order: 1,
-            text: 'factory dependency surface',
+            text: 'factory dependency API',
           })
         },
       })

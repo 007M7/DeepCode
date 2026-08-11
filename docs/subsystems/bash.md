@@ -98,7 +98,7 @@ interface BashExecSpec {
 }
 ```
 
-`stdin` and `env` are trusted in-process plugin inputs and are not exposed by `dsh-tool-bash`. The local executor scrubs ambient credentials before merging explicit caller-supplied env. See [the bash-stdin-env Agent Note](../../.agents/notes/implemented/architecture/2026-06-30-bash-stdin-env-trusted-plugin-surface.md).
+`stdin` and `env` are trusted in-process plugin inputs and are not exposed by `dsh-tool-bash`. The local executor scrubs ambient credentials before merging explicit caller-supplied env. See [the bash-stdin-env Agent Note](../../.agents/notes/implemented/architecture/2026-06-30-bash-stdin-env-trusted-plugin-api.md).
 
 `stdoutMaxBytes` is also trusted-plugin-only. It lets a foreground consumer request complete stdout up to a bounded parser budget without changing stderr, background tasks, or the model-facing bash tool's ordinary output cap.
 
@@ -136,7 +136,7 @@ interface BashRunResult {
 }
 ```
 
-Each stream is a `CollectedOutput` — the (possibly truncated) text plus recovery info; when truncated, `text` is the **tail** and the complete stream spills to a private file. The shape is owned by the [subprocess seam](subprocess.md) and re-exported by `dsh-bash`.
+Each stream is a `CollectedOutput` — the (possibly truncated) text plus recovery info; when truncated, `text` is the **tail** and the complete stream spills to a private file. The fields are owned by the [subprocess seam](subprocess.md) and re-exported by `dsh-bash`.
 
 ## File sandbox: `BashSandboxInfo`
 
@@ -224,9 +224,9 @@ interface BashProcessRead {
 
 <a id="cordis-surface"></a>
 
-## Cordis surface
+## Cordis API
 
-Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` surface lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
+Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
 
 <a id="ctxbash--bashexecutor-abstract-seam"></a>
 

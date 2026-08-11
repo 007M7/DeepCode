@@ -22,7 +22,7 @@ Status: implemented
 
 `--config <path>` 现在应用一个 overlay 来**取代**个人 overlay，因此 demo 或测试用的树绝不会继承用户的提供方与 model。`--config-replace <path>` 则把某个文件作为整棵树启动，同时绕过 base、surface overlay 与个人 overlay；这正是旧 `--config` 的行为，所以像 `examples/web-cordis` 这样的树改用了新 flag。两个 flag 都会在 `/resume` 的 execve 交接中保留，否则恢复时会静默更换 agent（智能体）。
 
-patch 会整体替换目标配置项的 `config` 而不合并，这决定了拆分方式：取值因 surface 而异的配置项住在 overlay 中，绝不住在 base 里，从而没有任何配置项会被三层同时 patch。因此会话身份根本不能经由配置键传递——它迁移到了 `dsh-agent-loop` 的 `CONFIGURED_AGENT_IDENTITIES_KEY`，正如启动器持有身份的记录所述。
+patch 会整体替换目标配置项的 `config` 而不合并。因此，取值因 surface 而异的配置项住在 overlay 中，绝不住在 base 里，从而没有任何配置项会被三层同时 patch。会话身份根本不能经由配置键传递——它迁移到了 `dsh-agent-loop` 的 `CONFIGURED_AGENT_IDENTITIES_KEY`，正如启动器持有身份的记录所述。
 
 `examples/tui-agent`、`examples/cordis-agent`、`examples/code-mode` 与 `packages/examples/tui-demo` 均被删除。TUI 测试迁往 `apps/cli/tests/`，cordis 工具集的 e2e 迁入 `packages/self-modification/tool-cordis/tests/`，受支持的 Code Mode demo 则保留为 `examples/acp-agent/code-mode.cordis.yml` 中的 ACP（Agent Client Protocol）overlay。
 

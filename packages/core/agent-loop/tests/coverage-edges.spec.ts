@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import LlmService, { createUserMessage, CallId, LlmError, StreamChunk, errorChain  } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId, TurnEndReason } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'

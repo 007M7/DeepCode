@@ -55,7 +55,7 @@
  * @module @deepseek-ai/dsh-llm-pi-ai
  */
 
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import { environmentOf } from '@deepseek-ai/dsh-environment'
 import { assertUsableApiKey, LlmError } from '@deepseek-ai/dsh-llm'
 import type { AdapterRegistrationHandle, DirectoryRegistrationHandle, LlmConfigurableProvider } from '@deepseek-ai/dsh-llm'
@@ -184,7 +184,11 @@ export function apply(ctx: Context, config: Config): void {
     )
   }
 
-  const adapter = new PiAiAdapter({ profiles, resolveApiKey })
+  const adapter = new PiAiAdapter({
+    profiles,
+    resolveApiKey,
+    resolveAttachments: () => ctx.get('attachments'),
+  })
   // The full installed catalog is configurable from the moment the plugin
   // mounts — dormant or not — so configuration surfaces can offer every
   // pi-ai provider before any route exists. Hand-declared routes join it as

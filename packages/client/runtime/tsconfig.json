@@ -9,6 +9,9 @@
   ],
   "references": [
     {
+      "path": "../../attachment/attachment"
+    },
+    {
       "path": "../../../vendor/cordis"
     },
     {
@@ -19,6 +22,9 @@
     },
     {
       "path": "../connection"
+    },
+    {
+      "path": "../schema-form"
     },
     {
       "path": "../../host/apiproxy"

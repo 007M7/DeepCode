@@ -36,7 +36,7 @@ interface CodeRunRequest {
 }
 ```
 
-The result reports an error as a **field**, never a rejection of `run()` — reporting a failed program is the caller's job, not an exception path (mirroring `BashExecutor.run`'s resolve-on-failure contract):
+The result reports an error as a **field**, never a rejection of `run()` — reporting a failed program is the caller's job, not an exception path (matching `BashExecutor.run`'s resolve-on-failure contract):
 
 ```ts type-equiv
 /**
@@ -164,9 +164,9 @@ interface CodeRunFailure {
 
 <a id="cordis-surface"></a>
 
-## Cordis surface
+## Cordis API
 
-Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` surface lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
+Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
 
 <a id="ctxcoderuntime--coderuntime-abstract-seam"></a>
 

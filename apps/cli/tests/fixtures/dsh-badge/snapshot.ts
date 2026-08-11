@@ -1,5 +1,5 @@
 import { fileURLToPath } from 'node:url'
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import { agentEvents, Inbox, type Agent } from '@deepseek-ai/dsh-agent'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import { boot, loadOverlayPatches } from '@deepseek-ai/dsh-app-boot'

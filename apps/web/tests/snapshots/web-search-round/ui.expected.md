@@ -1,6 +1,8 @@
 - banner:
   - navigation "Session hierarchy":
     - button "Use web_search to search exactly" [disabled]
+  - img
+  - text: Standard mode
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"

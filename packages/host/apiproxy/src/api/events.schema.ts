@@ -13,9 +13,10 @@ import { approvalRequestIdSchema } from './approvals.schema.ts'
 import {
   contentBlockSchema, messageIdSchema, sessionEventSchema, sessionIdSchema, toolEventViewSchema,
 } from './sessions.schema.ts'
+import { taskViewSchema } from './tasks.schema.ts'
 import { workspaceIdSchema, workspaceViewSchema } from './workspace.schema.ts'
 
-/** Question shape validated strictly against core dsh-user-interaction. */
+/** Question fields validated strictly against core dsh-user-interaction. */
 export const askUserQuestionItemSchema = z.object({
   id: z.string(),
   question: z.string(),
@@ -58,6 +59,7 @@ export const muxFrameSchema = z.discriminatedUnion('type', [
       message: messageSchema,
     })),
   }),
+  z.object({ type: z.literal('session/tasks'), sessionId: sessionIdSchema, tasks: z.array(taskViewSchema) }),
   // value stays wide: it already passed its unit's own schema on the host,
   // and deep-validating here would import every domain's schema into the carrier.
   z.object({ type: z.literal('session/projection'), sessionId: sessionIdSchema, key: z.string().min(1), value: z.unknown(), seq: z.number().int().nonnegative() }),
@@ -73,6 +75,7 @@ export const hostFrameSchema = z.discriminatedUnion('type', [
     parentSessionId: sessionIdSchema.optional(),
     origin: z.literal('subagent').optional(),
     cwd: z.string().optional(),
+    agentPreset: z.string().optional(),
   }),
   z.object({ type: z.literal('host/session-removed'), sessionId: sessionIdSchema }),
   z.object({ type: z.literal('host/session-status'), sessionId: sessionIdSchema, running: z.boolean() }),
@@ -81,6 +84,7 @@ export const hostFrameSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('host/workspace-removed'), workspaceId: workspaceIdSchema }),
   z.object({ type: z.literal('host/archived-sessions-changed'), archivedSessionIds: z.array(sessionIdSchema) }),
   z.object({ type: z.literal('host/commands-changed') }),
+  z.object({ type: z.literal('host/session-preset-changed'), sessionId: sessionIdSchema, agentPreset: z.string() }),
   z.object({ type: z.literal('host/settings-changed'), ns: z.string() }),
   z.object({ type: z.literal('host/credentials-changed'), ref: z.string() }),
   z.object({ type: z.literal('host/models-changed') }),

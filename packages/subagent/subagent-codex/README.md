@@ -10,7 +10,7 @@ This package registers the fixed `codex` subagent provider. Each accepted run st
 
 The published `run.result` starts exactly one turn. It accepts only notifications for that run's thread and turn, then waits for the authoritative `turn/completed` terminal notification. The latest `agentMessage` with `phase: "final_answer"` wins; when Codex emits no explicit final phase, the latest message with `phase: null` is the compatibility fallback. Commentary never replaces either answer, and a successful turn with no nonblank answer settles as an error.
 
-For command and file approvals, the unattended provider selects a non-approval decision offered by the request, preferring `cancel`; the stable 0.146.0 request shape without an offered-decision list falls back to `decline`. It answers permission requests with an empty turn-scoped permission set, answers user-input requests with no answers, and declines MCP elicitation. A request with no legal unattended response, or any unknown server request, fails the run.
+For command and file approvals, the unattended provider selects a non-approval decision offered by the request, preferring `cancel`; the stable 0.147.0 request shape without an offered-decision list falls back to `decline`. It answers permission requests with an empty turn-scoped permission set, answers user-input requests with no answers, and declines MCP elicitation. A request with no legal unattended response, or any unknown server request, fails the run.
 
 Local cancellation wins the result race and maps to `aborted`. A failed turn whose `codexErrorInfo` is `contextWindowExceeded` maps to `max-tokens`; every other remote interrupted or failed turn maps to `error`, and the provider produces no `refusal`. `dispose()` is idempotent: it requests a best-effort `turn/interrupt` with both current ids when they are known, closes the JSON-RPC wire, ends stdin, invokes the shared process-tree termination escalation, and waits for whole-tree exit. Result failure and independent teardown failure remain separate.
 
@@ -27,7 +27,7 @@ The provider advertises no optional start-time capabilities and reports `inherit
 
 Production resolves `codex` from `PATH` and uses the host's native Codex configuration and authentication. The plugin does not install Codex, select a model, create `CODEX_HOME`, log in, or probe a version. Credential-shaped ambient variables are removed by the subprocess seam, so an API key intended for the child must be supplied explicitly in `env`; ordinary ambient values such as `PATH` and `HOME` remain available unless overridden.
 
-Install this package and add the following rows to your own `cordis.yml`. Shipped CLI configurations do not load this provider or expose `subagent_codex` by default.
+Shipped profiles load this provider once on the host and start no Codex process until a tool call. Full Agent Presets carry the tool row below with `disabled: true`; copy a preset and remove that field to expose `subagent_codex` only to agents composed from the copy. A custom host composition can still use both rows directly.
 
 ```yaml
 - id: subagent-codex
@@ -38,6 +38,7 @@ Install this package and add the following rows to your own `cordis.yml`. Shippe
 
 - id: tool-subagent-codex
   name: '@deepseek-ai/dsh-tool-subagent'
+  disabled: true
   config:
     provider: codex
     toolName: subagent_codex
@@ -47,7 +48,7 @@ Install this package and add the following rows to your own `cordis.yml`. Shippe
 
 ## Product compatibility and evidence
 
-The production wire intentionally implements only the app-server methods required by this one-shot contract. Development evidence is pinned to `@openai/codex@0.146.0` / `codex-cli 0.146.0`; the npm package is a test-only dependency, and deployments still supply `codex` on `PATH`.
+The production wire intentionally implements only the app-server methods required by this one-shot contract. Development evidence is pinned to `@openai/codex@0.147.0` / `codex-cli 0.147.0`; the npm package is a test-only dependency, and deployments still supply `codex` on `PATH`.
 
 ## Model Experience
 
@@ -83,7 +84,7 @@ Append-only: the new tool result follows the reusable parent request prefix.
 
 - **One fresh process, thread, and turn per run** — there is no continuation, resume, pooling, progress stream, or product-session persistence.
 - **Host-managed product installation and account state** — a missing or incompatible `codex`, configuration error, or authentication failure is surfaced as a startup or run error; the plugin provides no installer, login flow, or runtime version gate.
-- **Compatibility is pinned by development evidence** — upgrading from the verified 0.146.0 protocol baseline requires regenerating upstream schema evidence and rerunning handshake, answer-selection, approval, cancellation, keyless real-product, and credentialed DeepSeek nonce tests.
+- **Compatibility is pinned by development evidence** — upgrading from the verified 0.147.0 protocol baseline requires regenerating upstream schema evidence and rerunning handshake, answer-selection, approval, cancellation, keyless real-product, and credentialed DeepSeek nonce tests.
 - **No human approval path** — known unattended approval requests are denied and unknown server requests fail closed; deployments cannot configure an allow policy through this package.
 - **Final text only** — reasoning, commentary, intermediate messages, tool traffic, usage, stderr, and workspace diffs remain product-local.
 - **No optional shared capabilities** — output schemas, child personas, tool filtering, and harness depth enforcement are rejected by the shared service for this provider.

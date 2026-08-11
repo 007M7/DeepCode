@@ -8,7 +8,7 @@ Source: [`packages/settings/settings/src/index.ts`](../../packages/settings/sett
 
 ## Identity
 
-A namespace names one plugin-owned section of the user document. The brand keeps namespaces from mixing with other cross-boundary ids; construction validates the lowercase kebab-case shape.
+A namespace names one plugin-owned section of the user document. The brand prevents callers from mixing settings namespaces with other ids passed between packages or processes; construction validates lowercase kebab-case syntax.
 
 ```ts type-equiv
 /** Nominal id of one registered settings namespace. */
@@ -79,14 +79,14 @@ interface SettingsScope<T> {
   watch(callback: (next: T, prev: T) => void | Promise<void>): () => void
   /**
    * Merge a partial patch into this namespace's user layer and persist it.
-   * @param patch - plain-object patch over the user section; JSON-shaped data
+   * @param patch - plain-object patch over the user section; JSON-compatible data
    * only (non-JSON values reject with their path before anything persists).
    */
   update(patch: object): Promise<void>
   /**
    * Replace this namespace's user section wholesale; absent keys re-inherit
    * the composition `base` and schema defaults (`replace({})` resets all).
-   * @param section - the complete next user section; JSON-shaped data only,
+   * @param section - the complete next user section; JSON-compatible data only,
    * as for {@link update}.
    */
   replace(section: object): Promise<void>
@@ -165,9 +165,9 @@ type SettingsUpdateSource = 'update' | 'provider'
 
 <a id="cordis-surface"></a>
 
-## Cordis surface
+## Cordis API
 
-Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` surface lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
+Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
 
 <a id="ctxsettings--settings-abstract-seam"></a>
 

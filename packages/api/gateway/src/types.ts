@@ -46,7 +46,7 @@ export interface TypertGateway {
   invoke(request: InvokeRemoteRequest): Promise<unknown>
 }
 
-declare module 'cordis' {
+declare module '@deepseek-ai/cordis' {
   interface Context {
     /** Host dispatcher for TypeRT Remote calls. */
     typertGateway: TypertGateway

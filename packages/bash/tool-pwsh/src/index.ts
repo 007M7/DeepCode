@@ -4,31 +4,40 @@
  * `@deepseek-ai/dsh-pwsh-local`) backs `ctx.bash`; the tool contract is
  * PowerShell-dialect: native `C:\...` paths and `$env:NAME` variables.
  *
- * Behavior mirrors `dsh-tool-bash` call-for-call minus the sandbox surface:
- * foreground and `run_in_background` execution (background handles register
- * with the generic `ctx.tasks` runtime), the managed `DSH_*` environment
- * through the shared `bash-env` registry, and the bash marker/truncation
- * rendering story. UI presentation mirrors the bash tool's too: a completed
- * foreground call is a terminal card with the parsed exit-status pill, using
- * the shared exit-status parse from `@deepseek-ai/dsh-bash`.
+ * Behavior mirrors `dsh-tool-bash` call-for-call: foreground and
+ * `run_in_background` execution (background handles register with the
+ * generic `ctx.tasks` runtime), the managed `DSH_*` environment through the
+ * shared `bash-env` registry, the per-call sandbox policy resolution (the
+ * calling session's mode and cwd travel to the confining executor), the
+ * sandbox-denial rendering with the same-turn escalation surface
+ * (`sandbox_permissions` + `justification` resolved through
+ * `ctx.approval`), and the bash marker/truncation rendering story. UI
+ * presentation mirrors the bash tool's too: a completed foreground call is
+ * a terminal card with the parsed exit-status pill, using the shared
+ * exit-status parse from `@deepseek-ai/dsh-bash`.
  *
  * @module @deepseek-ai/dsh-tool-pwsh
  */
 
 import { isAbsolute, resolve as resolvePath } from 'node:path'
-import type { Context } from 'cordis'
-import z from 'schemastery'
+import type { Context } from '@deepseek-ai/cordis'
+import z from '@deepseek-ai/schemastery'
 import { defineTool, TOOL_ABORTED } from '@deepseek-ai/dsh-tools'
-import type { GenericCallView, TerminalCallView, ToolResult, ToolResultView } from '@deepseek-ai/dsh-tools'
+import type { GenericCallView, TerminalCallView, ToolExecution, ToolResult, ToolResultView } from '@deepseek-ai/dsh-tools'
 import { HarnessError } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tasks'
 import type {} from '@deepseek-ai/dsh-bash-env'
+import type {} from '@deepseek-ai/dsh-user-approval'
+import type { SandboxExecutionPolicy, SandboxMode } from '@deepseek-ai/dsh-sandbox'
+import { ESCALATION_TARGETS, approveEscalation, validateEscalationArgs } from '@deepseek-ai/dsh-sandbox'
+import type { SandboxPolicyService } from '@deepseek-ai/dsh-sandbox-policy'
 import type { BashRunResult } from '@deepseek-ai/dsh-bash'
 import { parseExitStatus } from '@deepseek-ai/dsh-bash'
 import { processOutcome } from './background.ts'
 import { renderPwshProcessRead, renderPwshResult } from './render.ts'
+import type { RenderablePwshResult } from './render.ts'
 
 declare module '@deepseek-ai/dsh-tasks' {
   interface TaskKindMap {
@@ -57,6 +66,8 @@ interface PwshToolArgs {
   timeoutMs?: number
   workdir?: string
   run_in_background?: boolean
+  sandbox_permissions?: string
+  justification?: string
 }
 
 /** The canonical foreground result of one pwsh call (the `output.schema` value shape). */
@@ -69,6 +80,7 @@ interface PwshForegroundResult {
   timeoutMs: number
   stdout: { text: string; truncated: boolean; spillPath?: string }
   stderr: { text: string; truncated: boolean; spillPath?: string }
+  sandbox?: { mode: string; denied: boolean; enforcement?: string; runnerFailed?: boolean }
 }
 
 /* jscpd:ignore-start -- minimal mirror of dsh-tool-bash's validation and execute plumbing (Agent Note). */
@@ -82,21 +94,54 @@ function validatePwshArgs(args: PwshToolArgs): void {
   if (args.timeoutMs !== undefined && (!Number.isFinite(args.timeoutMs) || args.timeoutMs <= 0)) {
     throw new Error(`invalid timeoutMs: expected a positive number, got ${JSON.stringify(args.timeoutMs)}`)
   }
+  // The escalation pairing (sandbox_permissions ⇔ justification, non-empty) is
+  // the shared rule both enforcing families validate identically.
+  validateEscalationArgs(args.sandbox_permissions, args.justification)
 }
 /* jscpd:ignore-end */
 
-function pwshDescription(backgroundEnabled: boolean): string {
+function pwshDescription(backgroundEnabled: boolean, escalationModes: readonly SandboxMode[]): string {
   const background = backgroundEnabled
     ? 'Set `run_in_background: true` for long-running commands: the call returns a task id immediately; read its output with `task_output` and stop it with `task_kill`.'
     : 'Background execution is not available; long-running commands must finish within the timeout.'
-  return 'Execute a PowerShell command (`pwsh -Command`) and return its stdout/stderr. '
+  const base = 'Execute a PowerShell command (`pwsh -Command`) and return its stdout/stderr. '
     + 'Each call runs in a fresh pwsh process: no state (cwd, variables, functions) persists between calls — '
     + 'pass `workdir` instead of using `cd`. Paths use native Windows form (`C:\\...`); read environment '
     + 'variables with `$env:NAME`. Non-zero exits are reported as `[exit code: N]`. '
     + 'Current harness environment facts are exposed through managed `$env:DSH_*` variables; inspect them when needed. '
+    + 'Commands may run under a file sandbox; a blocked file operation is reported as `[sandbox: file access denied under <mode> mode]` — a policy denial, not a bug in the command; do not retry another way. '
     + 'Long output is truncated to its tail; the full output is saved to a file whose path is reported when available. '
     + 'On Windows a force-killed command settles as `[exit code: 1]` without a signal marker — treat it as an interruption, not a command failure. '
     + background
+  if (escalationModes.length === 0) return base
+  // The language-mode and named-pipe contracts below are Windows-restricted-token
+  // behavior, but the gate is 'any confining executor is mounted'
+  // (escalationModes non-empty). The conflation is safe today because every
+  // shipped composition pairing tool-pwsh with a confining executor is
+  // win32-only; a future POSIX pwsh-sandbox composition must gate both
+  // sentences on the platform instead (tracked in the pwsh-tool-and-executor
+  // Agent Note).
+  return base + ' Under the Windows sandbox, read-only pwsh runs in PowerShell ConstrainedLanguage mode, while '
+    + 'workspace-write stays in FullLanguage unless host policy says otherwise. In read-only, prefer cmdlets and core types (`[string]`, `[datetime]`, `[regex]`, `[guid]`); '
+    + '.NET static calls (`[System.IO.*]::`, `[math]::`), `Add-Type`, COM objects, and reflection fail '
+    + 'with "only core types" errors. `-f` formatting, property access, and core cmdlets work. '
+    + 'In both confined modes, programs cannot open named pipes, so a command that captures another '
+    + 'program\'s output through piped stdio (Node.js `child_process.spawn`/`exec` with the default '
+    + '`stdio: \'pipe\'`) fails with EPERM, while `stdio: \'inherit\'` and `stdio: \'ignore\'` spawns '
+    + 'work and PowerShell\'s own pipelines are unaffected. That EPERM is the documented boundary: '
+    + 'do not retry the command another way — escalate the exact command once or restructure it to '
+    + 'avoid capturing output. '
+    + 'Attempting a command the sandbox may deny is safe and expected: run it and read the '
+    + 'marker rather than assuming the denial. When a command is denied and a wider mode would let it '
+    + 'succeed, escalate immediately in the same turn — the one sanctioned exception to a denial: retry '
+    + 'the exact same command once with `sandbox_permissions` (the narrowest wider mode that suffices) '
+    + 'plus a one-sentence `justification`. Do not detour through chat to ask permission first — the '
+    + 'approval prompt raised by that retry is how the user consents. If the session states approval '
+    + 'prompts are disabled, there is no exception: a denial is final — do not set `sandbox_permissions`. '
+    + 'Never escalate speculatively: ground the request in a real denial — normally the one this command '
+    + 'just hit; escalating up front is fine only when this session already denied the same access. '
+    + 'A rejected escalation is final for that command — stop and explain, never work around '
+    + 'it — but it does not forbid attempting or escalating other commands later.'
 }
 
 /**
@@ -129,6 +174,14 @@ function canonicalPwshResult(result: BashRunResult): PwshForegroundResult {
     /* jscpd:ignore-start -- the canonical projection and background-handle shape mirror dsh-tool-bash's by design (Agent Note). */
     stdout: output(result.stdout),
     stderr: output(result.stderr),
+    ...result.sandbox !== undefined ? {
+      sandbox: {
+        mode: result.sandbox.mode,
+        denied: result.sandbox.denied,
+        ...result.sandbox.enforcement !== undefined ? { enforcement: result.sandbox.enforcement } : {},
+        ...result.sandbox.runnerFailed !== undefined ? { runnerFailed: result.sandbox.runnerFailed } : {},
+      },
+    } : {},
   }
 }
 
@@ -139,8 +192,55 @@ const BACKGROUND_OUTPUT_PROPERTIES = {
 } as const
 /* jscpd:ignore-end */
 
+/* jscpd:ignore-start -- deliberate mirror of dsh-tool-bash's apply() preamble (pwsh-tool-and-executor Agent Note). */
 export function apply(ctx: Context, config: Config = {}): void {
   const backgroundEnabled = config.enableRunInBackground ?? true
+  const defaultMode = ctx.bash.sandboxMode
+  const escalationModes: readonly SandboxMode[] = defaultMode === undefined ? [] : ESCALATION_TARGETS
+  const sandboxPolicy: SandboxPolicyService | undefined = defaultMode === undefined ? undefined : ctx.get('sandboxPolicy')
+  if (defaultMode !== undefined && sandboxPolicy === undefined) {
+    throw new Error('tool-pwsh: the mounted bash executor confines but ctx.sandboxPolicy is missing')
+  }
+  /* jscpd:ignore-end */
+  /** Resolve the complete standing policy for this call when a confining executor is mounted. */
+  const resolveSandboxPolicy = (exec: ToolExecution): SandboxExecutionPolicy | undefined =>
+    sandboxPolicy?.resolve(exec.agent === undefined ? {} : { session: exec.agent.session })
+
+  /* jscpd:ignore-start -- deliberate mirror of dsh-tool-bash's escalation resolver (pwsh-tool-and-executor Agent Note). */
+  /**
+   * Resolve a sandbox-escalation request through `ctx.approval` BEFORE
+   * anything executes, delegating the shared fail-closed sequence (strict
+   * widening, channel resolution, outcome mapping) to
+   * {@link approveEscalation}. This tool contributes only the composition
+   * guard (the fields are unadvertised without a sandboxing executor, yet
+   * schema validation checks advertised keys only, so an unadvertised
+   * `sandbox_permissions` still reaches execute) and the approval
+   * ingredients. The shared policy resolver is required whenever the
+   * executor advertises confinement, so a split composition fails at
+   * tool-plugin load.
+   */
+  const approvePwshEscalation = (
+    mode: string,
+    justification: string,
+    exec: ToolExecution,
+    standingPolicy: SandboxExecutionPolicy | undefined,
+  ): Promise<SandboxMode> => {
+    if (escalationModes.length === 0) {
+      throw new Error('sandbox_permissions is not available in this composition (no sandboxing executor to escalate)')
+    }
+    const effectiveMode = (standingPolicy as SandboxExecutionPolicy).mode
+    return approveEscalation(
+      { requestedMode: mode, justification, effectiveMode, subject: 'command' },
+      {
+        approver: ctx.get('approval'),
+        agent: exec.agent,
+        callId: exec.callId,
+        toolName: 'pwsh',
+        signal: exec.signal,
+      },
+    )
+  }
+  /* jscpd:ignore-end */
 
   ctx.systemPrompt.section({
     name: 'tool:pwsh',
@@ -151,7 +251,8 @@ export function apply(ctx: Context, config: Config = {}): void {
 
   ctx.tools.register(defineTool({
     name: 'pwsh',
-    description: pwshDescription(backgroundEnabled),
+    description: pwshDescription(backgroundEnabled, escalationModes),
+    /* jscpd:ignore-start -- deliberate mirror of dsh-tool-bash's parameter surface (pwsh-tool-and-executor Agent Note). */
     parameters: {
       command: { type: 'string', required: true, description: 'The PowerShell command to execute.' },
       description: {
@@ -166,7 +267,19 @@ export function apply(ctx: Context, config: Config = {}): void {
       ...backgroundEnabled ? {
         run_in_background: { type: 'boolean' as const, description: 'Run in the background and return a task id immediately (collect with task_output, stop with task_kill). No timeout applies.' },
       } : {},
+      ...escalationModes.length > 0 ? {
+        sandbox_permissions: {
+          type: 'string' as const,
+          enum: [...escalationModes],
+          description: 'The wider sandbox mode this command needs. Only valid as a one-shot retry of a command the sandbox just denied; requires justification and user approval.',
+        },
+        justification: {
+          type: 'string' as const,
+          description: 'Required with sandbox_permissions: one sentence for the user explaining why this exact command needs the wider access.',
+        },
+      } : {},
     },
+    /* jscpd:ignore-end */
     output: {
       // The foreground result wire shape mirrors dsh-tool-bash's by contract —
       // consumers of one must accept the other (see the pwsh-tool-and-executor
@@ -209,6 +322,16 @@ export function apply(ctx: Context, config: Config = {}): void {
                   spillPath: { type: 'string' },
                 },
               },
+              sandbox: {
+                type: 'object',
+                additionalProperties: false,
+                properties: {
+                  mode: { type: 'string', required: true },
+                  denied: { type: 'boolean', required: true },
+                  enforcement: { type: 'string' },
+                  runnerFailed: { type: 'boolean' },
+                },
+              },
             },
           },
         ],
@@ -218,18 +341,27 @@ export function apply(ctx: Context, config: Config = {}): void {
         type: 'text',
         text: value.kind === 'background'
           ? `started background task ${value.taskId}`
-          : renderPwshResult(value),
+          : renderPwshResult(value as RenderablePwshResult, escalationModes),
       }],
     },
     /* jscpd:ignore-start -- the execute path mirrors dsh-tool-bash's by design (see the pwsh-tool-and-executor Agent Note). */
     async execute(args: PwshToolArgs, exec) {
       validatePwshArgs(args)
+      // Description is display metadata; workdir defaults to the caller's session.
+      const standingPolicy = resolveSandboxPolicy(exec)
+      const approvedMode = args.sandbox_permissions !== undefined && args.justification !== undefined
+        ? await approvePwshEscalation(args.sandbox_permissions, args.justification, exec, standingPolicy)
+        : undefined
+      const policy = approvedMode === undefined
+        ? standingPolicy
+        : { ...(standingPolicy as SandboxExecutionPolicy), mode: approvedMode }
       const workdir = resolveWorkdir(args.workdir, exec)
       const request = {
         command: args.command,
         ...workdir !== undefined ? { workdir } : {},
         ...args.timeoutMs !== undefined ? { timeoutMs: args.timeoutMs } : {},
         dshEnv: ctx.bashEnv.collect(exec),
+        ...policy !== undefined ? { sandboxPolicy: policy } : {},
       }
       if (args.run_in_background === true) {
         // Undeclared keys are allowed, so schema omission also needs enforcement.
@@ -241,15 +373,11 @@ export function apply(ctx: Context, config: Config = {}): void {
           throw new Error('background tasks unavailable: load @deepseek-ai/dsh-tasks and @deepseek-ai/dsh-tool-tasks')
         }
         // The caller owns cancellation until ctx.tasks commits detached ownership.
-        /* v8 ignore start -- the bash twin's branch is exercised by its sandbox-approval mid-call abort;
-           pwsh has no approval surface, and the tool registry's pre-dispatch abort check intercepts
-           already-aborted signals first, so this mirror-only guard has no reachable trigger. */
         if (exec.signal.aborted) {
           const error = new HarnessError('tool call aborted', TOOL_ABORTED)
           error.name = 'AbortError'
           throw error
         }
-        /* v8 ignore end */
         // Task preflight finishes before the starter can spawn a process.
         const id = tasks.start({
           kind: 'pwsh',
@@ -260,7 +388,7 @@ export function apply(ctx: Context, config: Config = {}): void {
             return {
               cancel: () => void proc.kill(),
               done: proc.done.then(() => processOutcome(proc)),
-              readOutput: () => renderPwshProcessRead(proc.readOutput()),
+              readOutput: () => renderPwshProcessRead(proc.readOutput(), proc.sandbox, escalationModes),
             }
           },
         })

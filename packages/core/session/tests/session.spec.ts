@@ -1,5 +1,5 @@
 import { describe, expect, expectTypeOf, it, vi } from 'vitest'
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import { createUserMessage, CallId, createMessage, createToolResultMessage, MessageId, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import SessionStore, {
   adoptSessionEvent,
@@ -7,28 +7,11 @@ import SessionStore, {
   Session,
   SessionEvent,
   SessionId,
-  findLastMessageTurnEnd,
   snapshotSessionEvent,
 } from '@deepseek-ai/dsh-session'
 import type { CreateSessionOptions, SessionEventType, SessionHeader, SessionSurface, TodoItem } from '@deepseek-ai/dsh-session'
 
 describe('Session', () => {
-  it('finds the latest closed turn that entered a model step', () => {
-    const session = Session.create(SessionId('last-message-turn'))
-    session.append('turn/start', { turn: 1 })
-    session.append('turn/end', { turn: 1, reason: { kind: 'blocked' } })
-
-    expect(findLastMessageTurnEnd(session.events)).toBeUndefined()
-
-    session.append('turn/start', { turn: 2 })
-    session.append('step/start', { turn: 2, step: 1 })
-    session.append('step/end', { turn: 2, step: 1 })
-    session.append('turn/end', { turn: 2, reason: { kind: 'max-tokens' } })
-
-    expect(findLastMessageTurnEnd(session.events)?.data)
-      .toEqual({ turn: 2, reason: { kind: 'max-tokens' } })
-  })
-
   it('exposes one stable readonly surface view', () => {
     const session = Session.create(SessionId('surface-view'))
     const surface = session.surface
@@ -1090,12 +1073,20 @@ describe('Session', () => {
       { ...base, time: '1' },
       { ...base, time: 0.5 },
       { type: base.type, seq: base.seq, time: base.time },
+      { ...base, ignorable: false },
+      { ...base, ignorable: 'yes' },
     ]
 
     for (const [index, event] of cases.entries()) {
       expect(() => Session.create(SessionId(`bad-envelope-${index}`), [event as SessionEvent]))
         .toThrow(/invalid event envelope/)
     }
+
+    // `ignorable: true` is the one accepted marker value (unknown-type skip contract).
+    const marked = Session.create(SessionId('ignorable-envelope'), [
+      { ...base, ignorable: true } as SessionEvent,
+    ])
+    expect(marked.events[0]?.ignorable).toBe(true)
   })
 })
 
@@ -1319,6 +1310,7 @@ describe('SessionStore', () => {
       { meta: { delegationDepth: '1' }, error: /delegationDepth must be a non-negative safe integer/ },
       { meta: { delegationDepth: 0.5 }, error: /delegationDepth must be a non-negative safe integer/ },
       { meta: { delegationDepth: -1 }, error: /delegationDepth must be a non-negative safe integer/ },
+      { meta: { agentPreset: 1 }, error: /agentPreset must be a string/ },
     ]
 
     for (const [index, { meta, error }] of cases.entries()) {

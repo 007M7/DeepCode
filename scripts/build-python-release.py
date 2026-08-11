@@ -17,6 +17,8 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+SDK_DISTRIBUTION = "deepseek-harness-sdk"
+RUNTIME_DISTRIBUTION = "deepseek-harness-runtime-bin"
 PLATFORMS = {
     "linux-x64": ("manylinux_2_28_x86_64", "dsh-jsonrpc-agent-pkg-linux-x64"),
     "linux-arm64": ("manylinux_2_28_aarch64", "dsh-jsonrpc-agent-pkg-linux-arm64"),
@@ -41,6 +43,8 @@ def main() -> None:
     args = parser.parse_args()
     version = repository_version()
     validate_release_tag(args.tag, version)
+    # Wheels carry the PEP 440 spelling; the tag keeps the repository spelling.
+    wheel_version = pep440_version(version)
     if args.package == "runtime" and (args.platform is None or args.runtime_exe is None):
         parser.error("runtime builds require --platform and --runtime-exe")
     if args.package == "sdk" and (args.platform is not None or args.runtime_exe is not None):
@@ -51,19 +55,19 @@ def main() -> None:
     with tempfile.TemporaryDirectory(prefix="dsh-python-release-") as temporary:
         staging = Path(temporary) / args.package
         if args.package == "sdk":
-            stage_sdk(staging, version)
+            stage_sdk(staging, wheel_version)
             environment = None
-            expected = output_dir / f"deepseek_harness-{version}-py3-none-any.whl"
+            expected = output_dir / f"deepseek_harness_sdk-{wheel_version}-py3-none-any.whl"
         else:
             platform_tag, executable_name = PLATFORMS[args.platform]
-            stage_runtime(staging, version, args.runtime_exe.resolve(), executable_name)
+            stage_runtime(staging, wheel_version, args.runtime_exe.resolve(), executable_name)
             environment = {"DSH_RUNTIME_PLATFORM_TAG": platform_tag}
-            expected = output_dir / f"deepseek_harness_runtime_bin-{version}-py3-none-{platform_tag}.whl"
+            expected = output_dir / f"deepseek_harness_runtime_bin-{wheel_version}-py3-none-{platform_tag}.whl"
         command = ["uv", "build", "--wheel", "--out-dir", str(output_dir), str(staging)]
         subprocess.run(command, cwd=ROOT, env=None if environment is None else {**os.environ, **environment}, check=True)
     if not expected.is_file():
         raise RuntimeError(f"build did not produce expected wheel: {expected}")
-    verify_wheel(expected, args.package, version, None if args.platform is None else PLATFORMS[args.platform])
+    verify_wheel(expected, args.package, wheel_version, None if args.platform is None else PLATFORMS[args.platform])
     print(expected)
 
 
@@ -74,11 +78,33 @@ def repository_version(root: Path = ROOT) -> str:
     except (OSError, json.JSONDecodeError) as error:
         raise ValueError(f"could not read repository version from {package_json}") from error
     version = payload.get("version") if isinstance(payload, dict) else None
-    if not isinstance(version, str) or re.fullmatch(r"\d+\.\d+\.\d+", version) is None:
+    if not isinstance(version, str) or re.fullmatch(r"\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?", version) is None:
         raise ValueError(
-            f"{package_json} version must be stable X.Y.Z, got {version!r}"
+            f"{package_json} version must be X.Y.Z with an optional prerelease segment, got {version!r}"
         )
     return version
+
+
+def pep440_version(version: str) -> str:
+    """The Python spelling of a repository version.
+
+    A release candidate is `0.0.1-rc.1` in the repository and `0.0.1rc1` under
+    PEP 440. Build backends normalize to the latter, so the wheel filename and
+    metadata carry it: comparing them against the repository spelling would
+    reject every prerelease build.
+    """
+    stable, separator, prerelease = version.partition("-")
+    if not separator:
+        return stable
+    match = re.fullmatch(r"(a|b|c|rc|alpha|beta|pre|preview)\.?(\d+)", prerelease)
+    if match is None:
+        raise ValueError(
+            f"prerelease segment {prerelease!r} has no PEP 440 spelling; use rc.N, alpha.N, or beta.N"
+        )
+    identifier = {"alpha": "a", "beta": "b", "c": "rc", "pre": "rc", "preview": "rc"}.get(
+        match.group(1), match.group(1)
+    )
+    return f"{stable}{identifier}{match.group(2)}"
 
 
 def validate_release_tag(tag: str | None, version: str) -> None:
@@ -160,6 +186,11 @@ def verify_wheel(
             raise RuntimeError(f"{wheel} has wrong WHEEL tags: {wheel_metadata.get_all('Tag')}")
         if metadata.get("Version") != version:
             raise RuntimeError(f"{wheel} has version {metadata.get('Version')}, expected {version}")
+        expected_distribution = SDK_DISTRIBUTION if package == "sdk" else RUNTIME_DISTRIBUTION
+        if metadata.get("Name") != expected_distribution:
+            raise RuntimeError(
+                f"{wheel} has distribution name {metadata.get('Name')}, expected {expected_distribution}"
+            )
         runtime_files = [
             name for name in archive.namelist() if "/runtime/dsh-jsonrpc-agent-pkg-" in name
         ]
@@ -177,7 +208,7 @@ def verify_wheel(
             raise RuntimeError(f"SDK wheel unexpectedly contains runtime executables: {runtime_files}")
         if package == "sdk":
             requirements = metadata.get_all("Requires-Dist") or []
-            expected_requirement = f"deepseek-harness-runtime-bin=={version}"
+            expected_requirement = f"{RUNTIME_DISTRIBUTION}=={version}"
             if expected_requirement not in requirements:
                 raise RuntimeError(f"{wheel} does not pin {expected_requirement}; found {requirements}")
 

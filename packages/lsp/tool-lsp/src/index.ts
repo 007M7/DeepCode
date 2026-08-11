@@ -10,8 +10,8 @@
  * @module @deepseek-ai/dsh-tool-lsp
  */
 
-import type { Context } from 'cordis'
-import z from 'schemastery'
+import type { Context } from '@deepseek-ai/cordis'
+import z from '@deepseek-ai/schemastery'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { assertNever } from '@deepseek-ai/dsh-llm'
 import { LspError } from '@deepseek-ai/dsh-lsp'

@@ -22,7 +22,7 @@ The model-facing `dsh-tool-skill` catalog and loader enforce `isModelInvocable`.
 
 These rules permit all four combinations:
 
-| Policy | Model surface | User surface |
+| Policy | Model invocation | User invocation |
 |---|---|---|
 | `{ modelInvocable: true, userInvocable: true }` | included | included |
 | `{ modelInvocable: true, userInvocable: false }` | included | excluded |

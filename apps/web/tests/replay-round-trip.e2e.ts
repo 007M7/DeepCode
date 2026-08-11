@@ -101,14 +101,14 @@ describe('web e2e: fresh round trip through the real assembly', () => {
       callId: CallId('web-url-probe'),
       name: 'bash',
       arguments: {
-        command: 'printf \'%s\\n%s\\n\' "$DSH_WEB_URL" "$DSH_WEB_MODE"',
+        command: 'printf \'%s\\n\' "$DSH_WEB_URL"',
         description: 'Print current Web runtime',
       },
       agent,
     })
     expect(result.isError).toBe(false)
     expect(result.content.filter(block => block.type === 'text').map(block => block.text).join(''))
-      .toBe(`${scaffold.baseUrl}\nproduction\n`)
+      .toBe(`${scaffold.baseUrl}\n`)
   })
 
   it.skipIf(MODE === 'record')('rendered the settled turn: markdown, tool row, composer restore', async () => {

@@ -12,14 +12,18 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
+import { foldConsumedWork } from '@deepseek-ai/dsh-agent'
 import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent'
-import { findLastMessageTurnEnd, SessionId, type SessionEvent, type TurnEndReason } from '@deepseek-ai/dsh-session'
+import { SessionId, type SessionEvent, type TurnEndReason } from '@deepseek-ai/dsh-session'
 import { createUserMessage, type ContentBlock } from '@deepseek-ai/dsh-llm'
 import {
+  appendDelegatedPolicyOverrides,
   applyChildComposition,
   assertSubagentMaxDepth,
+  captureDelegatedPolicyOverrides,
   childSessionMeta,
+  finalAssistantOutput,
   resolveChildAgentOptions,
   resolveChildDepth,
 } from '@deepseek-ai/dsh-subagent'
@@ -30,11 +34,6 @@ import type {
   SubagentRun,
   SubagentStopReason,
 } from '@deepseek-ai/dsh-subagent'
-// Type-only: make `ctx.get('sandboxPolicy')` / `ctx.get('approval')` resolve
-// to the policy services when composed — the driver consumes both
-// opportunistically (the documented `ctx.get` pattern), never as a hard dep.
-import type {} from '@deepseek-ai/dsh-sandbox-policy'
-import type {} from '@deepseek-ai/dsh-user-approval'
 import {
   attachStructuredRuntime,
   type StructuredAttachment,
@@ -54,6 +53,10 @@ function toStopReason(reason: TurnEndReason | undefined): SubagentStopReason {
       return 'max-tokens'
     case 'aborted':
       return 'aborted'
+    // A pre-step rejection discarded the claimed prompt: the task was
+    // declined, and the caller must not read the run as done.
+    case 'blocked':
+      return 'refusal'
     case 'error':
     case 'interrupted':
     default:
@@ -111,21 +114,12 @@ export async function startInProcessRun(
 
   // Capture before the first await: a later parent switch belongs to the
   // parent's future.
-  const inheritedMode = parent.ctx.get('sandboxPolicy')?.overrideOf(parent.session)
-  const inheritedPolicy = parent.ctx.get('approval')?.overrideOf(parent.session)
+  const inherited = captureDelegatedPolicyOverrides(parent)
 
   let structured: StructuredAttachment | undefined
   const setup = (childCtx: Context): void => {
-    // Inherited overrides land on the child's own log, so its effective policy
-    // is reconstructable from that log alone.
-    const childSession = (childCtx.agent as Agent).session
-    if (inheritedMode !== undefined) {
-      childSession.append('sandbox/mode', { mode: inheritedMode, source: 'delegation' })
-    }
-    if (inheritedPolicy !== undefined) {
-      childSession.append('approval/policy', { policy: inheritedPolicy, source: 'delegation' })
-    }
-    applyChildComposition(childCtx, {
+    appendDelegatedPolicyOverrides((childCtx.agent as Agent).session, inherited)
+    applyChildComposition(childCtx, parent, {
       persona: request.persona,
       toolFilter: request.toolFilter,
     })
@@ -218,9 +212,13 @@ function readResult(
   structured?: { captured?: { value: unknown } | undefined },
 ): SubagentResult {
   const own = child.session.events.slice(boundary)
-  const lastMessage = own.findLast((event): event is SessionEvent<'assistant/message'> => event.type === 'assistant/message')
-  const lastEnd = findLastMessageTurnEnd(own)
-  const output: ContentBlock[] = lastMessage?.data.message.content ?? []
+  // `droppedUnrun` is deliberately unread: a one-shot prompt is claimed by its
+  // awaited first turn almost immediately, and the owner's own teardown is the
+  // `cancelled` flag below. A cancellation with no accounting turn resolves
+  // `error` through `toStopReason(undefined)`, which never overstates success.
+  const lastEnd = foldConsumedWork(own).end
+  // The seam's canonical selection rule; a partial answer survives cancel and truncation.
+  const output: ContentBlock[] = finalAssistantOutput(own) ?? []
   const recorded = toStopReason(lastEnd?.data.reason)
   // Disposal can tear the owner down before the loop records its ordinary
   // `aborted` end, yielding `disposed` instead.

@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-The model-facing **`workflow` tool**: run a JavaScript orchestration script that fans out subagents, and return the script's final value. This package owns schema and lifecycle shaping over [`ctx.workflows`](../workflow/README.md); script parsing, execution, caps, and cancellation live behind the seam, while the consumer retains ownership of the parent-facing schema and result envelope.
+The model-facing **`workflow` tool**: run a JavaScript orchestration script that fans out subagents, and return the script's final value. This package owns the model-facing schema and run lifecycle over [`ctx.workflows`](../workflow/README.md); script parsing, execution, caps, and cancellation live behind the seam, while the consumer retains ownership of the parent-facing schema and result envelope.
 
 ## What the model sees
 
@@ -75,6 +75,6 @@ Append-only; newly visible content follows the reusable request prefix and does 
 
 ## Known Limitations and Deferred Work
 
-- **The parent turn blocks until the whole workflow settles** — there is no background start/poll surface, and cancellation discards partial output as an error.
+- **The parent turn blocks until the whole workflow settles** — there is no background start/poll API, and cancellation discards partial output as an error.
 - **`args` must be an object and Native result text is bounded** — callers wrap top-level arrays/scalars in a field; the canonical workflow result remains complete, while JSON beyond `maxResultChars` is truncated in the model-facing projection rather than stored behind a retrieval handle.
 - **Workflow policy is fixed per tool registration** — provider selection, caps, and tool name are deployment config, not model-call arguments.

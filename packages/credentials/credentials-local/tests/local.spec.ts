@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -168,7 +168,7 @@ describe('layer ladder', () => {
     expect(await stored.credentials.resolve(KEY)).toEqual({ value: 'stored', source: 'file' })
   })
 
-  it('refuses a document other OS users can read', async () => {
+  it.skipIf(process.platform === 'win32')('refuses a document other OS users can read', async () => {
     const dir = await tempDir()
     const path = join(dir, '.credentials.yaml')
     await writeFile(path, 'DSH_CRED_TEST: leaked\n', { mode: 0o644 })
@@ -189,6 +189,13 @@ describe('layer ladder', () => {
     const ctx = new Context()
     await expect(ctx.plugin(CredentialsLocal, { path: join(notADirectory, '.credentials.yaml'), watch: false }))
       .rejects.toThrow(/ENOTDIR/)
+  })
+
+  it('propagates a permission check rejected before the OS lookup', async () => {
+    const dir = await tempDir()
+    const ctx = new Context()
+    await expect(ctx.plugin(CredentialsLocal, { path: join(dir, '.credentials\0.yaml'), watch: false }))
+      .rejects.toMatchObject({ code: 'ERR_INVALID_ARG_VALUE' })
   })
 
   it('propagates a read that fails for a reason other than absence', async () => {
@@ -274,7 +281,7 @@ describe('document writes', () => {
     const seen = updates(ctx)
     await ctx.credentials.set(KEY, 'sk-fresh')
     expect(await readFile(path, 'utf8')).toBe('DSH_CRED_TEST: sk-fresh\n')
-    expect((await stat(path)).mode & 0o777).toBe(0o600)
+    if (process.platform !== 'win32') expect((await stat(path)).mode & 0o777).toBe(0o600)
     expect(await ctx.credentials.resolve(KEY)).toEqual({ value: 'sk-fresh', source: 'file' })
     expect(seen).toEqual([KEY])
   })

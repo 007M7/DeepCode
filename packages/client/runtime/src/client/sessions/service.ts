@@ -14,9 +14,9 @@
  * tears its scope down immediately unless it is the staged one, whose scope
  * survives frozen (read-only view) until the stage moves on.
  */
-import type { Context, Fiber } from 'cordis'
+import type { Context, Fiber } from '@deepseek-ai/cordis'
 import type {
-  IApiClient, RpcError, RpcResult, SessionId, SubagentAddress, WorkspaceId,
+  IApiClient, RpcError, RpcResult, SessionId, SubagentAddress, TaskView, WorkspaceId,
 } from '@deepseek-ai/dsh-client-connection/client'
 // Value import from the inline-safe wire layer (not the connection plugin):
 // plugin-to-plugin value imports are a bundle purity error.
@@ -45,6 +45,12 @@ export interface SessionSummary {
   /** Human-facing label: durable title, project basename, then session id. */
   displayTitle: string
   cwd?: string
+  /**
+   * Agent preset this session's agent was composed from; absent when the
+   * deployment composes no presets. The session header labels what the
+   * session actually runs rather than the deployment's current default.
+   */
+  agentPreset?: string
   parentId?: SessionId
   /** Coarse durable origin for navigation filtering; not a continuation capability. */
   origin?: 'subagent'
@@ -80,6 +86,12 @@ export interface SessionListState {
   phase: SessionListPhase
   /** Direct durable catalogs keyed by their selected parent address. */
   subagentsByParent: Readonly<Record<SessionId, SubagentCatalogSnapshot>>
+  /**
+   * Background tasks each session can see, mirrored last-wins from
+   * `session/tasks`. A missing key is an empty set — the Host sends no baseline
+   * for a session without tasks — so consumers read absence, never a sentinel.
+   */
+  tasksBySession: Readonly<Record<SessionId, readonly TaskView[]>>
   /** Current session's catalog-derived address, absent on ordinary navigation. */
   currentAddress: SubagentAddress | undefined
 }
@@ -285,7 +297,7 @@ export class SessionsService implements ISessions {
     )
     this.list = createSnapshotStore<SessionListState>({
       ids: [], byId: {}, current: undefined, phase: 'pending',
-      subagentsByParent: {}, currentAddress: undefined,
+      subagentsByParent: {}, tasksBySession: {}, currentAddress: undefined,
     })
     // The manager owns wire truth; the store is its projection. Manager
     // notifications are already microtask-batched.
@@ -390,6 +402,10 @@ export class SessionsService implements ISessions {
    */
   refreshSubagents(parentSessionId: SessionId): Promise<void> {
     return this.manager.refreshSubagents(parentSessionId)
+  }
+
+  noteAgentPreset(sessionId: SessionId, agentPreset: string): void {
+    this.manager.noteAgentPreset(sessionId, agentPreset)
   }
 
   /**
@@ -639,7 +655,7 @@ export class SessionsService implements ISessions {
   /** Project the manager's list snapshot into the store (title derivation is display-only). */
   private projectList(): void {
     const {
-      items, current, phase, subagentsByParent, currentAddress,
+      items, current, phase, subagentsByParent, tasksBySession, currentAddress,
     } = this.manager.getListSnapshot()
     const ids: SessionId[] = []
     const byId: Record<SessionId, SessionSummary> = {}
@@ -662,6 +678,7 @@ export class SessionsService implements ISessions {
         ...(entry.cwd !== undefined ? { cwd: entry.cwd } : {}),
         ...(entry.parentSessionId !== undefined ? { parentId: entry.parentSessionId } : {}),
         ...(entry.origin !== undefined ? { origin: entry.origin } : {}),
+        ...(entry.agentPreset !== undefined ? { agentPreset: entry.agentPreset } : {}),
       }
     }
     if (current !== undefined && currentAddress !== undefined) {
@@ -708,7 +725,7 @@ export class SessionsService implements ISessions {
         ...(currentAddress === undefined ? {} : { subagentAddress: currentAddress }),
       })
     }
-    this.list.set({ ids, byId, current, phase, subagentsByParent, currentAddress })
+    this.list.set({ ids, byId, current, phase, subagentsByParent, tasksBySession, currentAddress })
     this.pruneScopes()
   }
 

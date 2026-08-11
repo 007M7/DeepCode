@@ -2,7 +2,7 @@
 
 English | [中文](workflow.zh.md)
 
-The workflow seam — an agent running a model-written orchestration SCRIPT that fans out subagents. Like [subagent](subagent.md) it is **one optional capability**, not part of the agent-loop spine, so its vocabulary lives here rather than in [core.md](core.md). Unlike the subagent registry it takes the bash shape: ONE engine implementation per context provides `ctx.workflows`; there is no named-provider registry (a second engine is a plugin swap, not a co-resident).
+The workflow seam lets an agent run a model-written orchestration SCRIPT that starts subagents. Like [subagent](subagent.md) it is **one optional capability**, not part of the agent loop, so its types and operations live here rather than in [core.md](core.md). Like bash, it permits ONE engine implementation per context to provide `ctx.workflows`; there is no named-provider registry (a second engine replaces the first through plugin configuration rather than running beside it).
 
 Service Definition: [dsh-workflow](../../packages/workflow/workflow) (`ctx.workflows` + the vocabulary below). The Service provider is [dsh-workflow-workerthread](../../packages/workflow/workflow-workerthread) (a `node:worker_threads` engine — one worker per run, the script's vm context inside it); the model-facing Consumer is [dsh-tool-workflow](../../packages/workflow/tool-workflow). The proposal and rationale: [the dynamic-workflows Agent Note](../../.agents/notes/implemented/feature/2026-07-05-dynamic-workflows.md).
 
@@ -10,13 +10,13 @@ Source: [`packages/workflow/workflow/src/types.ts`](../../packages/workflow/work
 
 ## The start request
 
-What a caller asks for when starting a run. The ordinary workflow tool builds this from the model's `{ script, meta, args }` call plus the calling agent; specialized consumers may also select one engine-wide `subagentProvider` and lower `maxTotalAgents` for the run, but the script cannot observe or replace either policy. `meta` and `args` are plain JSON DATA (the engine shape-validates `meta` and rejects loud BEFORE anything runs — no script text is ever evaluated to obtain it). `parent` is REQUIRED — every child the script spawns is attributed to it (cwd, lineage, and depth flow through the [subagent seam](subagent.md)).
+What a caller asks for when starting a run. The ordinary workflow tool builds this from the model's `{ script, meta, args }` call plus the calling agent; specialized consumers may also select one engine-wide `subagentProvider` and lower `maxTotalAgents` for the run, but the script cannot observe or replace either policy. `meta` and `args` are plain JSON DATA (the engine validates `meta` against its schema and rejects loud BEFORE anything runs — no script text is ever evaluated to obtain it). `parent` is REQUIRED — every child the script starts is attributed to it, and cwd, lineage, and depth pass through the [subagent seam](subagent.md).
 
 ```ts type-equiv
 /**
  * What a caller asks for when starting a workflow run. `meta` and `args` are
- * plain JSON DATA by the seam contract (the tool builds both from the model's
- * schema-validated call; the engine validates `meta`'s shape and rejects loud
+ * plain JSON DATA by the seam contract (the tool builds both from the model's schema-validated call;
+ * the engine validates `meta` against its schema and rejects loud
  * before anything runs) — an engine never evaluates script text to obtain
  * them. `parent` is REQUIRED — every `agent()` the script spawns is
  * attributed to it (cwd, lineage, depth flow through the subagent seam).
@@ -24,7 +24,7 @@ What a caller asks for when starting a run. The ordinary workflow tool builds th
 interface WorkflowStartRequest {
   /** The plain-JS script body (top-level await allowed; ends with `return <json-value>`). */
   script: string
-  /** The workflow's identity block, as plain JSON data (shape-validated by the engine). */
+  /** The workflow's identity fields as plain JSON data, validated by the engine. */
   meta: WorkflowMeta
   /** Optional input exposed verbatim to the script as the `args` global. */
   args?: unknown
@@ -135,9 +135,9 @@ The `workflow/*` events (`workflow/start`, `workflow/phase`, `workflow/log`, `wo
 
 <a id="cordis-surface"></a>
 
-## Cordis surface
+## Cordis API
 
-Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` surface lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
+Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
 
 <a id="ctxworkflows--workflowservice-abstract-seam"></a>
 

@@ -11,9 +11,9 @@
  * @module @deepseek-ai/dsh-acp-demo
  */
 
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import { join } from 'node:path'
-import z from 'schemastery'
+import z from '@deepseek-ai/schemastery'
 import * as acp from '@deepseek-ai/dsh-acp'
 import * as agentCore from '@deepseek-ai/dsh-agent-spine-demo'
 import * as workspaceContext from '@deepseek-ai/dsh-workspace-context'
@@ -65,13 +65,13 @@ export interface Config {
   skills?: agentCore.SkillConfig
   /** Model-facing bash tool config forwarded through agent-core. */
   toolBash?: NonNullable<agentCore.Config['toolBash']>
-  /** Generic background-task controls forwarded through agent-core; set false to omit their tool surface. */
+  /** Generic background-task controls forwarded through agent-core; set false to omit their tools. */
   toolTasks?: NonNullable<agentCore.Config['toolTasks']>
   /** Persisted same-session goals; owner defaults enable them, or false disables the stack and tools. */
   goals?: agentCore.GoalConfig | false
 }
 
-// Each front door owns a complete, directly readable config schema; extracting
+// Each entry point owns a complete, directly readable config schema; extracting
 // the common fields would make two small app contracts depend on a new facade.
 /* jscpd:ignore-start */
 export const Config: z<Config> = z.object({
@@ -114,7 +114,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     const spine = ctx.plugin(agentCore, { ...agentCore.pickSpineConfig(config), goals })
     await spine
     yield spine.dispose
-    // Same rationale as the Config schema above: each front door forwards its own
+    // Same rationale as the Config schema above: each entry point forwards its own
     // persistence passthroughs rather than sharing a facade with stdio-demo.
     /* jscpd:ignore-start */
     const persistence = ctx.plugin(SessionPersistenceJsonl, {

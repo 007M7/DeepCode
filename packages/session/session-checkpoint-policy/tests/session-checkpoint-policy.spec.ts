@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { Context } from 'cordis'
-import Loader from '@cordisjs/plugin-loader'
+import { Context } from '@deepseek-ai/cordis'
+import Loader from '@deepseek-ai/cordis-plugin-loader'
 import { agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
 import LlmService, { CallId, type GenerateOptions, LlmAdapter, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
@@ -13,6 +13,8 @@ import * as checkpointPolicy from '../src/index.ts'
 const contexts: Context[] = []
 
 class TestPersistence extends SessionPersistence {
+  override readonly supportsRawArtifacts = false
+
   locate(_meta: SessionHeader): undefined { return undefined }
   create(_meta: SessionHeader): Promise<void> { return Promise.resolve() }
   append(_id: SessionId, _events: readonly SessionEvent[]): Promise<void> { return Promise.resolve() }

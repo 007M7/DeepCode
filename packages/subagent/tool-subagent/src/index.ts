@@ -8,8 +8,8 @@
  * @module @deepseek-ai/dsh-tool-subagent
  */
 
-import type { Context } from 'cordis'
-import z from 'schemastery'
+import type { Context } from '@deepseek-ai/cordis'
+import z from '@deepseek-ai/schemastery'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { AgentOptions } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
@@ -134,6 +134,21 @@ function stopReasonError(result: SubagentResult): string | undefined {
   }
 }
 
+/**
+ * Append the child's preserved partial answer to a stop-reason error so a
+ * truncated or cancelled child's real text still reaches the parent model.
+ * @param error - the stop-reason headline.
+ * @param output - the child's selected output (`SubagentResult.output`).
+ * @returns the headline, extended with the partial text when any exists.
+ */
+function withPartialText(error: string, output: ContentBlock[]): string {
+  const text = output
+    .filter((block): block is Extract<ContentBlock, { type: 'text' }> => block.type === 'text')
+    .map(block => block.text)
+    .join('')
+  return text.length === 0 ? error : `${error}\nPartial output before the run ended:\n${text}`
+}
+
 type ForegroundToolResult = {
   readonly kind: 'foreground'
   readonly runId: SubagentRun['id']
@@ -149,8 +164,9 @@ async function settleForegroundRun(run: SubagentRun): Promise<ForegroundToolResu
     run.result.then((result): ForegroundToolResult => {
       const error = stopReasonError(result)
       if (error !== undefined) {
-        // The registry converts this throw to isError; partial output is not success.
-        throw new Error(error)
+        // The registry converts this throw to isError; partial output is not
+        // success, but the preserved partial answer still reaches the parent.
+        throw new Error(withPartialText(error, result.output))
       }
       return {
         kind: 'foreground',
@@ -246,12 +262,13 @@ export function apply(ctx: Context, config: Config): void {
     disposeTool = ctx.tools.register(defineTool({
       name: config.toolName ?? 'subagent',
       description: wording.description + (backgroundEnabled
-        // The return channel is a separately installed capability this package
-        // cannot observe, so this describes only this call's result.
+        // The completion notice is the continuation service's own behavior, not
+        // a separately installed capability, so this promise holds whenever the
+        // continuable background path is reachable at all.
         ? continuable
           ? ' Set `run_in_background: true` to start a background subagent that keeps its conversation:'
-          + ' you receive only its subagent id, never its result, and it works on its own. Use this for'
-          + ' work whose result you do not need returned by this call; `send_message` sends it more work.'
+          + ' this call returns only its subagent id, and the subagent works on its own from there. You'
+          + ' are told when it finishes, so never poll or wait on it; `send_message` sends it more work.'
           : ' Set `run_in_background: true` to return a task id; collect with `task_output` and stop with `task_kill`.'
         : ''),
       parameters: {
@@ -270,7 +287,7 @@ export function apply(ctx: Context, config: Config): void {
             type: 'boolean' as const,
             description: continuable
               ? 'Run as a background subagent that keeps its conversation and return only its subagent id. '
-              + 'This call never returns its result; send it more work with send_message.'
+              + 'This call does not wait for it; you are told when it finishes. Send it more work with send_message.'
               : 'Run as a background task and return its id; collect with task_output or stop with task_kill.',
           },
         } : {},
@@ -314,6 +331,9 @@ export function apply(ctx: Context, config: Config): void {
               : outputValueText(value.output),
         }],
       },
+      // Children never mutate the parent session; the one parent-owned write
+      // (tasks.start) is a synchronous commutative insertion.
+      isConcurrencySafe: () => true,
       async execute(args, exec) {
         const parent = exec.agent
         if (!parent) {

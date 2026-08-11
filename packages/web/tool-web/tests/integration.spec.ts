@@ -9,7 +9,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { AddressInfo } from 'node:net'
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { type ToolExecutionResult } from '@deepseek-ai/dsh-tools'

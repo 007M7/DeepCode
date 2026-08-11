@@ -8,9 +8,9 @@
  * @module @deepseek-ai/dsh-agent-spine-demo
  */
 
-import type { Context } from 'cordis'
-import Timer from '@cordisjs/plugin-timer'
-import z from 'schemastery'
+import type { Context } from '@deepseek-ai/cordis'
+import Timer from '@deepseek-ai/cordis-plugin-timer'
+import z from '@deepseek-ai/schemastery'
 import LlmService from '@deepseek-ai/dsh-llm'
 import SessionStore from '@deepseek-ai/dsh-session'
 import SessionTitleService, { type Config as SessionTitleConfig } from '@deepseek-ai/dsh-session-title'
@@ -165,7 +165,7 @@ export const Config = z.intersect([
 ]) as unknown as z<Config>
 
 /**
- * Copy the bundle-owned fields from an app config without leaking front-door settings.
+ * Copy the bundle-owned fields from an app config without leaking entry-point settings.
  * @param config - App config containing the shared spine fields.
  * @returns The fields accepted by this bundle, preserving optional absence.
  */

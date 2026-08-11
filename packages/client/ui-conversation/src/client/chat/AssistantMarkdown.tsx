@@ -14,6 +14,7 @@ import type { AssistantBlock } from '@deepseek-ai/dsh-client-runtime/client'
 import { JsonBlock, MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { MarkdownFileMentions } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ChatViewSlotProps } from '../contract/slots.ts'
+import { ImageGallery, type ImageLoader } from './MessageImage.tsx'
 import { ReasoningRow } from './ReasoningRow.tsx'
 import css from './AssistantMarkdown.module.css'
 
@@ -22,6 +23,8 @@ export interface AssistantMarkdownProps {
   streaming: boolean
   /** Frozen partial of an aborted turn: rendered with a stopped marker. */
   interrupted?: boolean | undefined
+  /** Session-authorized durable image loader. */
+  loadImage?: ImageLoader
   /** Resolved prose file mentions for this Assistant's closing turn. */
   mentions?: MarkdownFileMentions | undefined
   /** The owning view's locale seat, passed down as a plain prop. */
@@ -30,8 +33,9 @@ export interface AssistantMarkdownProps {
 
 /** Reasoning block as the Think variant summary row (figma 39:28304). */
 export const AssistantMarkdown = memo(function AssistantMarkdown({
-  blocks, streaming, interrupted, mentions, t,
+  blocks, streaming, interrupted, loadImage, mentions, t,
 }: AssistantMarkdownProps) {
+  const imageLoader = loadImage ?? (() => Promise.reject(new Error(t('image.serviceUnavailable'))))
   // Stable per locale revision (t identity changes on switch): a fresh object
   // per render would rebuild MarkdownText's component table every chunk.
   const codeLabels = useMemo(() => ({ copyLabel: t('copy'), copiedLabel: t('copied') }), [t])
@@ -58,6 +62,7 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
               />
             )
             case 'reasoning': return <ReasoningRow key={i} text={block.text} running={streaming && i === last} t={t} />
+            case 'image': return <ImageGallery key={i} images={[block]} load={imageLoader} align="start" t={t} />
             // Grouped into tool rows by ChatView; hasVisible above skips an empty shell.
             case 'tool-call': return null
             default: return (

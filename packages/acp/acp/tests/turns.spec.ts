@@ -41,6 +41,35 @@ describe('ACP prompt lifecycle', () => {
     await vi.waitFor(() => { expect(messageText(harness!)).toBe('cut off') })
   })
 
+  it('renders an assistant image as an explicit attachment placeholder', async () => {
+    const attachmentId = `sha256:${'a'.repeat(64)}` as never
+    harness = await makeBridgeHarness({
+      script: [[
+        { type: 'block-start', index: 0, blockType: 'image' },
+        {
+          type: 'block-end',
+          index: 0,
+          block: {
+            type: 'image',
+            attachment: {
+              attachmentId,
+              mediaType: 'image/png',
+              bytes: 1,
+              width: 1,
+              height: 1,
+            },
+          },
+        },
+        { type: 'finish', reason: { kind: 'stop' } },
+      ]],
+    })
+    const sessionId = await newSession(harness)
+    await harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'show it' }] })
+    await vi.waitFor(() => {
+      expect(messageText(harness!)).toBe(`[image attachment ${String(attachmentId)}]`)
+    })
+  })
+
   it('rejects a failed turn and never publishes its partial chunks', async () => {
     harness = await makeBridgeHarness({ script: [errorResponse('provider boom')] })
     const sessionId = await newSession(harness)

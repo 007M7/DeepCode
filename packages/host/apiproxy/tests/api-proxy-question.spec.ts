@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 import SessionStore from '@deepseek-ai/dsh-session'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
@@ -14,7 +14,7 @@ async function harness(): Promise<{ ctx: Context; api: ApiProxy }> {
   await ctx.plugin(UserInteractionService)
   return {
     ctx,
-    api: createApiProxy(ctx, { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp', workspaceRoot: '/tmp' }),
+    api: createApiProxy(ctx, { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp' }),
   }
 }
 

@@ -395,7 +395,8 @@ describe('web e2e: persisted subagent conversation and human continuation', () =
     expect([
       Math.round(clickAreaBox!.x - treeBox!.x),
       Math.round(treeBox!.x + treeBox!.width - clickAreaBox!.x - clickAreaBox!.width),
-    ]).toEqual([5, 5])
+    // Menu padding alone insets the rows now that the border is gone.
+    ]).toEqual([4, 4])
     await compareOrRefreshGolden(
       BRANCHLESS_EXPECTED,
       await captureStableAria(page, '[role="tree"][aria-label="Subagent sessions"]', scaffold.workspaceCwd),
@@ -446,7 +447,7 @@ describe('web e2e: persisted subagent conversation and human continuation', () =
     ).toBe(3)
     expect(await page.getByText('Ungrouped', { exact: true }).count()).toBe(0)
     const hierarchy = page.getByRole('navigation', { name: 'Session hierarchy' })
-    expect(await hierarchy.getByRole('button').count()).toBe(1)
+    await expect.poll(() => hierarchy.getByRole('button').count()).toBe(1)
     await compareOrRefreshGolden(
       FORK_EXPECTED,
       await captureStableAria(page, '[role="tree"][aria-label="Sessions"]', scaffold.workspaceCwd),

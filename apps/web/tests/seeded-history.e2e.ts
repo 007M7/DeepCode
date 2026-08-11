@@ -3,12 +3,11 @@
 // else covers: sidebar cold listing, the implicit resume/attach inside the
 // history RPC, history-page tool views, and the client's log-ordered transcript
 // events — with ZERO model calls in replay (no replay fixture; a stray stream
-// fails loud on the open llm seam). The cold session also carries the one
-// keyless command-row surfaces: the seeded manual `/compact` lifecycle folds
-// into its checkpoint, while an Access-chip pick later runs `/permission` on
-// the host. The seed is a recorded
-// fixture under the
-// same record discipline as every other: DSH_SNAPSHOT=record drives the turn
+// fails loud on the open llm seam). The cold session also carries keyless
+// command-row surfaces: the seeded manual `/compact` lifecycle folds into its
+// checkpoint, an Access-chip pick later runs `/permission` on the host, and
+// `/feedback` pins its expandable correlation ids. The seed is a recorded
+// fixture under the same record discipline as every other: DSH_SNAPSHOT=record drives the turn
 // live through the composer (real read tool against seeded workspace files)
 // and harvests seed.jsonl; replay/refresh seed it cold and only render.
 import { readFile, writeFile, mkdir } from 'node:fs/promises'
@@ -31,9 +30,9 @@ import { newEnglishPage, saveFailureShot } from './support.ts'
 const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/seeded-history', import.meta.url))
 const SEED = fileURLToPath(new URL('./snapshots/seeded-history/seed.jsonl', import.meta.url))
 const UI_EXPECTED = fileURLToPath(new URL('./snapshots/seeded-history/ui.expected.md', import.meta.url))
-// The command-row golden: the same conversation after one /permission switch,
-// which is the only surface that shows a settled command row's copy.
+// Command-row goldens over the same conversation after direct host commands.
 const COMMAND_ROW_EXPECTED = fileURLToPath(new URL('./snapshots/seeded-history/command-row.expected.md', import.meta.url))
+const FEEDBACK_ROW_EXPECTED = fileURLToPath(new URL('./snapshots/seeded-history/feedback-row.expected.md', import.meta.url))
 const MODE = webSnapshotMode()
 const SEED_ID = 'seeded-history-web-e2e'
 
@@ -102,7 +101,7 @@ function withCompaction(raw: string, meter: TokenMeterService): string {
   })
   // Load-bearing exactness: the projections subtract this count verbatim, so
   // it must equal what the host's fold prices for these nodes. The estimator
-  // prices message CONTENT only, so a minimal wrapper per storage shape is
+  // prices message CONTENT only, so a minimal wrapper for each stored event format is
   // exact — pre-identity rows carry bare `content` (the persistence read path
   // upgrades them), a current row carries the full `message` envelope.
   const priceRow = (row: (typeof events)[number]): number => {
@@ -169,7 +168,7 @@ function withCompaction(raw: string, meter: TokenMeterService): string {
     },
   })
   // The persistence seed helper requires a terminal turn/end. Keep the manual
-  // command standalone, then add a closed zero-step fixture boundary after it.
+  // command standalone, then add a closed zero-step turn after it.
   const closureTurn = lastTurn + 1
   at({ type: 'turn/start', data: { turn: closureTurn } })
   at({ type: 'turn/end', data: { turn: closureTurn, reason: { kind: 'completed' } } })
@@ -186,8 +185,8 @@ describe('web e2e: seeded history renders through cold resume', () => {
     scaffold = await launchWebScaffold({})
     // The workspace-aware flow runs sessions in <workspaceCwd>/workspace
     // (the composer's default draft name); the read-tool targets must live in
-    // that session cwd. Pre-creating the directory is safe: create-by-name
-    // adopts an existing directory.
+    // that session cwd. Pre-creating the directory is safe because the picker
+    // adopts an existing directory by path.
     const sessionCwd = join(scaffold.workspaceCwd, 'workspace')
     await mkdir(sessionCwd, { recursive: true })
     await writeFile(join(sessionCwd, 'a.txt'), 'alpha\n')
@@ -195,10 +194,12 @@ describe('web e2e: seeded history renders through cold resume', () => {
     if (MODE !== 'record') {
       const raw = await readFile(SEED, 'utf8')
       expect(fixtureUserPrompts(raw), 'seed fixture must carry exactly the drive prompt').toEqual([PROMPT])
+      // The meter is host-plane — it takes no configuration and keys every
+      // fold by Session — so pricing fixture content needs no agent at all.
       const meter = scaffold.ctx.get('tokenMeter')
-      if (meter === undefined) throw new Error('seeded-history requires the composed token meter')
-      const realized = realizeSeedFixture(scaffold, raw, SEED_ID)
-      await seedSession(scaffold, withCompaction(realized, meter), SEED_ID)
+      if (meter === undefined) throw new Error('seeded-history requires the host token meter')
+      const realizedWithCompaction = withCompaction(realizeSeedFixture(scaffold, raw, SEED_ID), meter)
+      await seedSession(scaffold, realizedWithCompaction, SEED_ID)
     }
     browser = await chromium.launch()
     page = await newEnglishPage(browser)
@@ -245,10 +246,15 @@ describe('web e2e: seeded history renders through cold resume', () => {
     const projections = body.result.value?.projections
     expect(projections).toBeDefined()
     expect(projections?.asOfSeq).toBeGreaterThanOrEqual(0)
-    // The seed carries a session/title event: the title unit must serve it.
+    // The seed carries a session/title event: the title unit is host-plane, so
+    // it folds the detached log and serves the value with nothing composed.
     expect(typeof projections?.values.title).toBe('string')
-    // tool-todo is composed but the seed has no todo/write: whole-value null,
-    // key PRESENT (absence would mean the unit never registered).
+    // `todos` IS here, as its empty fold (null). Its unit is registered by
+    // `tool-todo` inside the default preset's STANDING mount, which the read
+    // itself ensures — deterministically, not because some unrelated session
+    // happens to be composed. A present-but-null key is what keeps the
+    // client's "omitted key = capability absent → clear the row" rule from
+    // wiping preset-owned projections on cold reads.
     expect(projections?.values).toHaveProperty('todos', null)
   })
 
@@ -428,6 +434,44 @@ describe('web e2e: seeded history renders through cold resume', () => {
     await compareOrRefreshGolden(COMMAND_ROW_EXPECTED, snapshot, MODE)
   }, 60_000)
 
+  it.skipIf(MODE === 'record')('reports full feedback correlation ids in an expandable two-line row', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-seeded-feedback-row'))
+    const previousDshHome = process.env.DSH_HOME
+    process.env.DSH_HOME = scaffold.harnessHome
+    try {
+      const input = page.locator('textarea').first()
+      await input.fill('/feedback the diff view is unreadable')
+      await input.press('Enter')
+      const row = page.locator('[data-variant="others"]').filter({
+        hasText: `Feedback recorded for session ${SEED_ID}`,
+      })
+      await row.waitFor({ timeout: 10_000 })
+      const disclosure = row.locator('[data-expandable]')
+      expect(await disclosure.getAttribute('aria-expanded')).toBe('false')
+      await disclosure.click()
+      await expect.poll(() => disclosure.getAttribute('aria-expanded')).toBe('true')
+
+      const agent = scaffold.ctx.agents.get(SessionId(SEED_ID))
+      if (agent === undefined) throw new Error('seeded session did not attach an agent')
+      const done = agent.session.events.filter(event => event.type === 'command/done').at(-1)
+      if (done?.type !== 'command/done') throw new Error('feedback command did not settle')
+      const [sessionLine, userLine, extraLine] = done.data.text?.split('\n') ?? []
+      expect(sessionLine).toBe(`Feedback recorded for session ${SEED_ID}`)
+      expect(userLine).toMatch(/^User: [0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\./i)
+      expect(extraLine).toBeUndefined()
+      const userId = userLine?.match(/^User: ([0-9a-f-]+)/i)?.[1]
+      if (userId === undefined) throw new Error('feedback command omitted the user id')
+
+      const snapshot = (await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd))
+        .split(SEED_ID).join('{{seededId}}')
+        .split(userId).join('{{userId}}')
+      await compareOrRefreshGolden(FEEDBACK_ROW_EXPECTED, snapshot, MODE)
+    } finally {
+      if (previousDshHome === undefined) delete process.env.DSH_HOME
+      else process.env.DSH_HOME = previousDshHome
+    }
+  }, 60_000)
+
   it.skipIf(MODE === 'record')('fits short logged context without a scrollport', async () => {
     const agent = scaffold.ctx.agents.get(SessionId(SEED_ID))
     if (agent === undefined) throw new Error('seeded session did not attach an agent')
@@ -455,6 +499,6 @@ describe('web e2e: seeded history renders through cold resume', () => {
     // stream would have failed the turn loudly. Cleanliness pins the wire.
     expect(tripwire.pageErrors).toEqual([])
     expect(tripwire.warnings).toEqual([])
-    await assertFixtureInventory(SNAPSHOT_DIR, ['command-row.expected.md', 'seed.jsonl', 'ui.expected.md'])
+    await assertFixtureInventory(SNAPSHOT_DIR, ['command-row.expected.md', 'feedback-row.expected.md', 'seed.jsonl', 'ui.expected.md'])
   })
 })

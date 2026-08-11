@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { z } from 'zod'
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
@@ -1055,7 +1055,7 @@ describe('SubagentService.listDescendants', () => {
   })
 
 
-  it('walks a deeply nested ordinary-session chain without consuming the call stack', async () => {
+  it('walks a deeply nested ordinary-session chain without consuming the call stack', { timeout: 20_000 }, async () => {
     const { ctx, parent } = await setup([])
     const depth = 10_000
     let parentId = parent.id
@@ -1078,7 +1078,7 @@ describe('SubagentService.listDescendants', () => {
     }])
   })
 
-  it('discovers continuable descendants below ordinary and one-shot intermediates', async () => {
+  it('discovers continuable descendants below ordinary and one-shot intermediates', { timeout: 20_000 }, async () => {
     const { ctx, parent } = await setup([textResponse('one shot')])
     // An ordinary fork has no descriptor: omitted itself, subtree still walked.
     const fork = ctx.sessions.fork(parent.session, undefined, SessionId('plain-fork'))

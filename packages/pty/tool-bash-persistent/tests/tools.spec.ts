@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import AgentRegistry, { Inbox } from '@deepseek-ai/dsh-agent'
@@ -95,7 +95,9 @@ type StubMode =
   | 'spawn-error'
   | 'send-error'
   | 'prompt-after-idle'
+  | 'incremental-fallback'
   | 'empty-page-after-latest'
+  | 'paged-scrollback'
 
 class StubPtySession implements PtyBackendSession {
   readonly motd = '__DSH_PERSISTENT_BASH_PROMPT__ '
@@ -165,6 +167,10 @@ class StubPtySession implements PtyBackendSession {
     this.pendingText = ''
     const start = /__DSH_PERSISTENT_BASH_START_[^_]+(?:-[^_]+)*__/.exec(sent)?.[0]
     const end = /__DSH_PERSISTENT_BASH_END_[^:]+:/.exec(sent)?.[0]
+    if (this.mode === 'incremental-fallback') {
+      const incremental = `${start ?? ''}\nincrement\n${this.motd}`
+      return this.operation(Promise.resolve(this.result(this.motd, 'stdin_read')), incremental)
+    }
     if (this.mode === 'torn-status') {
       const output = `${start ?? ''}\nhello from stub\n${end ?? ''}`
       this.scrollback += output
@@ -211,6 +217,19 @@ class StubPtySession implements PtyBackendSession {
       return { text: '', totalLines: 2, lineBegin: 1, lineEnd: 1, truncated: false }
     }
     const lines = this.scrollback.split('\n')
+    if (this.mode === 'paged-scrollback') {
+      const offset = request.offset ?? 0
+      const end = lines.length - offset
+      const start = Math.max(0, end - 3)
+      const returnedLines = end - start
+      return {
+        text: lines.slice(start, end).join('\n'),
+        totalLines: lines.length,
+        lineBegin: offset,
+        lineEnd: offset + returnedLines,
+        truncated: this.historyTruncated,
+      }
+    }
     return {
       text: this.scrollback,
       totalLines: this.mode === 'empty-page-after-latest' ? lines.length + 1 : lines.length,
@@ -237,10 +256,10 @@ class StubPtySession implements PtyBackendSession {
     return { viewport, waitReason, sessionStatus: this.statusValue, truncated: false }
   }
 
-  private operation(done: Promise<ReturnType<StubPtySession['result']>>): PtySendOperation {
+  private operation(done: Promise<ReturnType<StubPtySession['result']>>, delta = ''): PtySendOperation {
     return {
       done,
-      readOutput: () => ({ delta: '', truncated: false }),
+      readOutput: () => ({ delta, truncated: false }),
       cancel: () => false,
     }
   }
@@ -316,6 +335,10 @@ describe('tool-bash-persistent', () => {
 
     session.mode = 'idle-then-normal'
     expect(text(await call(ctx, owner, 'silent then complete'))).toContain('hello from')
+
+    session.mode = 'incremental-fallback'
+    session.scrollback = ''
+    expect(text(await call(ctx, owner, 'incremental fallback'))).toBe('increment')
 
     session.mode = 'prompt-only'
     const promptFallback = text(await call(ctx, owner, 'bad {'))
@@ -400,6 +423,16 @@ describe('tool-bash-persistent', () => {
 
     session.mode = 'empty-page-after-latest'
     expect(text(await call(ctx, owner, 'empty continuation page'))).toContain('hello from stub')
+  })
+
+  it('assembles retained output across backward scrollback pages', async () => {
+    const { ctx, owner, stub } = await setup({ backendType: 'stub', maxOutputChars: 1_000 })
+    await call(ctx, owner, 'warm up')
+    const session = stub.sessions[0]!
+    session.mode = 'paged-scrollback'
+    session.scrollback = 'older one\nolder two\nolder three\nolder four\n'
+
+    expect(text(await call(ctx, owner, 'paged output'))).toBe('hello from stub')
   })
 
   it('sanitizes a prompt fallback reached after multiple polling rounds', async () => {

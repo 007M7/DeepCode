@@ -10,6 +10,10 @@ import { WorkspaceTypertGenerator } from '../src/workspace.ts'
 const fixtureRoot = resolve(import.meta.dirname, 'fixtures/remote-model')
 const temporaryRoots: string[] = []
 
+function normalizedPath(path: string): string {
+  return path.replaceAll('\\', '/')
+}
+
 interface RuntimeSchema {
   safeParse(value: unknown): { readonly success: boolean }
 }
@@ -305,11 +309,11 @@ export interface RemainingSchema {
     const root = copyFixture()
     const manifestPath = join(root, 'packages/remote/package.json')
     const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as {
-      dshClient?: object
+      dsh?: { client?: object }
       exports: Record<string, unknown>
       files: string[]
     }
-    manifest.dshClient = {}
+    manifest.dsh = { client: {} }
     manifest.exports['./client'] = './src/client.ts'
     manifest.exports['./client/typert'] = {
       types: './lib/typert.client.d.ts',
@@ -328,8 +332,10 @@ export interface ClientMarker {
 }
 `)
 
-    expect(new WorkspaceTypertGenerator(root).generate().map(artifact => artifact.face))
-      .toEqual(['host', 'client'])
+    const artifacts = new WorkspaceTypertGenerator(root).generate()
+    expect(artifacts.map(artifact => artifact.face)).toEqual(['host', 'client'])
+    expect(artifacts.find(artifact => artifact.face === 'host')?.dts).not.toContain('ClientMarker')
+    expect(artifacts.find(artifact => artifact.face === 'client')?.dts).toContain('ClientMarker')
   })
 
   it.each([
@@ -646,7 +652,8 @@ void navigated
   const navigation = 'ctx.remote.goals.create'
   const position = consumerSource.indexOf(navigation) + navigation.lastIndexOf('create') + 1
   const definitions = languageService.getDefinitionAtPosition(consumerPath, position)
-  const generatedDefinition = definitions?.find(candidate => candidate.fileName === declarationPath)
+  const generatedDefinition = definitions?.find(candidate =>
+    normalizedPath(candidate.fileName) === normalizedPath(declarationPath))
   if (generatedDefinition === undefined) {
     throw new Error(`generated Remote definition not found: ${JSON.stringify(definitions, null, 2)}`)
   }
@@ -661,7 +668,7 @@ void navigated
     pos: generatedDefinition.textSpan.start,
   })
   languageService.dispose()
-  if (definition === undefined || !definition.fileName.endsWith('/packages/remote/src/index.ts')) {
+  if (definition === undefined || !normalizedPath(definition.fileName).endsWith('/packages/remote/src/index.ts')) {
     throw new Error(`generated Remote definition did not map to its Host source: ${JSON.stringify(definition)}`)
   }
   const hostSource = readFileSync(join(consumerRoot, 'packages/remote/src/index.ts'), 'utf8')

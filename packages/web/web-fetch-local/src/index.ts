@@ -7,8 +7,8 @@
  * @module @deepseek-ai/dsh-web-fetch-local
  */
 
-import type { Context } from 'cordis'
-import z from 'schemastery'
+import type { Context } from '@deepseek-ai/cordis'
+import z from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-web'
 import { LocalFetchProvider } from './provider.ts'
 import type { LocalFetchLimits } from './provider.ts'
@@ -55,7 +55,7 @@ export const Config: z<Config> = z.object({
   userAgent: z.string().default(DEFAULT_USER_AGENT),
 })
 
-/** The shape after schemastery applies its defaults to every field. */
+/** Complete config after schemastery applies every field default. */
 type ResolvedConfig = Required<Config>
 
 /** A resource limit (byte/char/length/timeout cap) must be a positive finite number. */

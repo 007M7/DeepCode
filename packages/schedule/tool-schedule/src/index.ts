@@ -3,7 +3,7 @@
  * @module @deepseek-ai/dsh-tool-schedule
  */
 
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-session-persistence'
 import { ScheduleOwner } from './runtime.ts'

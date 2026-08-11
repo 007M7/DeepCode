@@ -1,6 +1,6 @@
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { describe, expect, it } from 'vitest'
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import SessionStore, { Session, SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import * as TimeInvariant from '@deepseek-ai/dsh-time-context/invariant'
@@ -129,20 +129,20 @@ describe('time-context invariants', () => {
     const session = preparing(1, 2)
     session.append('turn/end', { turn: 1, reason: { kind: 'aborted', reason: { kind: 'user' } } })
     expect(() => { ctx.emit('session/event', session, event(reading('1', '2', 'step context'))) })
-      .toThrow(/at a prompt boundary/)
+      .toThrow(/during prompt assembly/)
   })
 
-  it('rejects a reading outside a prompt boundary', async () => {
+  it('rejects a reading outside prompt assembly', async () => {
     const ctx = await setup()
     const ended = preparing(1, 1)
     ended.append('step/end', { turn: 1, step: 1 })
-    expect(() => { ctx.emit('session/event', ended, event(reading())) }).toThrow(/at a prompt boundary/)
+    expect(() => { ctx.emit('session/event', ended, event(reading())) }).toThrow(/during prompt assembly/)
     const notEntered = Session.create(SessionId('time-invariant-turn-only'))
     notEntered.append('turn/start', { turn: 1 })
-    expect(() => { ctx.emit('session/event', notEntered, event(reading())) }).toThrow(/at a prompt boundary/)
+    expect(() => { ctx.emit('session/event', notEntered, event(reading())) }).toThrow(/during prompt assembly/)
     expect(() => {
       ctx.emit('session/event', Session.create(SessionId('time-invariant-empty')), event(reading()))
-    }).toThrow(/at a prompt boundary/)
+    }).toThrow(/during prompt assembly/)
   })
 
   it.each([

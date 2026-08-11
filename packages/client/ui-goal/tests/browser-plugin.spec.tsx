@@ -10,11 +10,12 @@
  * plugin fiber (HMR safety). The node half and the invariant companion are
  * exercised over the same Context.
  */
-import { Context, Service } from 'cordis'
+import { Context, Service } from '@deepseek-ai/cordis'
 import { describe, expect, it, vi } from 'vitest'
 import { cleanup, render } from '@testing-library/react'
 import { afterEach } from 'vitest'
 import { SlotsService, type SessionId } from '@deepseek-ai/dsh-client-runtime/client'
+import { ConversationEventRegistry } from '@deepseek-ai/dsh-client-runtime/src/client/conversation/event-registry.ts'
 import type { GoalProjection } from '@deepseek-ai/dsh-goal/client'
 import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
@@ -52,6 +53,7 @@ async function bench(options: {
 } = {}) {
   const ctx = new Context()
   const calls: { method: string; args: unknown[] }[] = []
+  const conversationEvents = new ConversationEventRegistry(ctx)
   function answer<T>(method: string, value: T) {
     return (...args: unknown[]) => {
       calls.push({ method, args })
@@ -85,7 +87,10 @@ async function bench(options: {
   })
   await ctx.plugin(SlotsService).await()
   ctx.slots.register({
-    name: 'root', children: { 'conversation.input.dock': { kind: 'list', scope: 'session' } },
+    name: 'root', children: {
+      'conversation.input.dock': { kind: 'list', scope: 'session' },
+      'conversation.chat.node': { kind: 'keyed', scope: 'session' },
+    },
   } as never, (() => null) as never)
   ctx.provide('locale', new LocaleService(ctx))
   ctx.provide('sessions', {
@@ -103,6 +108,7 @@ async function bench(options: {
     ctx,
     fiber,
     calls,
+    definitions: () => conversationEvents.entries(),
     remountGoals: () => { activeGoals = goals('remounted-goals') },
     unmountGoals: () => { activeGoals = undefined },
     entry: () => {
@@ -114,15 +120,19 @@ async function bench(options: {
         inject: entry.inject as unknown as ((sessionId: SessionId) => GoalBarActions) | undefined,
       }
     },
+    chatEntry: () => ctx.slots.entries('conversation.chat.node')[0],
   }
 }
 
 describe('ui-goal browser plugin', () => {
-  it('registers the GoalBar dock entry with the documented id and order', async () => {
+  it('registers the GoalBar dock, command input Definition, and keyed Chat renderer', async () => {
     const b = await bench()
     await b.fiber.await()
     expect(b.entry()).toMatchObject({ id: 'goal', order: 10, locale: 'goal' })
     expect(b.entry()?.inject).toBeTypeOf('function')
+    expect(b.definitions().map(definition => definition.kind)).toEqual(['goal-command-input'])
+    expect(b.chatEntry()?.options).toMatchObject({ key: 'command-input' })
+    expect(b.chatEntry()?.locale).toBe('goal')
   })
 
   it('verbs read the CAS ref from the current projected value at call time', async () => {
@@ -199,8 +209,12 @@ describe('ui-goal browser plugin', () => {
     const b = await bench()
     await b.fiber.await()
     expect(b.entry()).toBeDefined()
+    expect(b.chatEntry()).toBeDefined()
+    expect(b.definitions()).toHaveLength(1)
     await b.fiber.dispose()
     expect(b.entry()).toBeUndefined()
+    expect(b.chatEntry()).toBeUndefined()
+    expect(b.definitions()).toHaveLength(0)
   })
 })
 

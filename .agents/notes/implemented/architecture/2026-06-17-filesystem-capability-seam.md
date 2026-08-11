@@ -12,7 +12,7 @@ That couples three concerns that change independently:
 
 1. The filesystem contract: what operations plugins can ask for.
 2. The backend: local disk now, sandboxed/remote/project-scoped filesystem later.
-3. The consumer surface: model-facing `read` / `write` / `edit` schemas and result formatting.
+3. The consumer API: model-facing `read` / `write` / `edit` schemas and result formatting.
 
 Without a `ctx.fs` interface, swapping local filesystem access for a sandboxed or remote backend would churn the tool schemas, demos, and prompt guidance even when the model-facing contract should stay stable. It also makes permission/sandbox boundaries harder to reason about: a `cwd` option can look like a sandbox even though it is only a base path unless an explicit backend or `tools/execute` policy enforces containment.
 
@@ -139,7 +139,7 @@ The defensive-pattern classes this repo has been bitten by are pinned directly:
 ## Alternatives considered
 
 - **Model-facing tools directly over `node:fs`** — the tool package would own execution policy, path resolution, atomic writes, text decoding, and edit semantics at once, coupling the three independently-changing concerns the Problem names and churning schemas on any backend swap.
-- **One combined `dsh-fs-tools` package** — the pre-seam shape; rejected for the same Service Definition / Service provider / Consumer split as bash, and the combined name never became public surface.
+- **One combined `dsh-fs-tools` package** — the pre-seam shape; rejected for the same Service Definition / Service provider / Consumer split as bash, and the combined name never became public API.
 - **Observed-state on `ctx.fs`** — the shape this Agent Note first landed; superseded by [the split-fs-seam Agent Note](../simplification/2026-06-26-fsspec-style-fs-seam.md) and [the event-gate Agent Note](2026-06-26-file-context-as-event-gate.md): a sandboxed/remote backend must not inherit model-facing observation policy, so the provider keeps only the version token and the optional version-guarded mutation.
 
 ## Consequences
@@ -160,4 +160,4 @@ The defensive-pattern classes this repo has been bitten by are pinned directly:
 
 **Error codes become part of the seam.** `FsError` codes make stale-version and observation failures machine-routable through the existing structured error taxonomy. The cost is that `dsh-fs` imports the shared `HarnessError` base from `dsh-llm`; that dependency is intentional and stays limited to the error vocabulary.
 
-**Package churn is front-loaded.** The three-package split adds boilerplate before there is more than one backend. This is intentional: filesystem access is a likely sandbox/remote boundary, and changing the package surface after shipping model-facing tools would be more expensive.
+**Package churn is front-loaded.** The three-package split adds boilerplate before there is more than one backend. This is intentional: filesystem access is a likely sandbox/remote boundary, and changing the package API after shipping model-facing tools would be more expensive.

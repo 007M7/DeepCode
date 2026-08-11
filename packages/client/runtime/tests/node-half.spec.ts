@@ -1,4 +1,4 @@
-/** Node half: the empty host apply (Loader governance + dshClient discovery placeholder). */
+/** Node half: the empty host apply (Loader governance + dsh.client discovery placeholder). */
 import { describe, expect, it } from 'vitest'
 import { apply } from '../src/index.ts'
 

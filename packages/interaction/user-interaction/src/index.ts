@@ -7,11 +7,11 @@
  * @module @deepseek-ai/dsh-user-interaction
  */
 
-import { Context, Service } from 'cordis'
+import { Context, Service } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { HarnessError } from '@deepseek-ai/dsh-llm'
 
-declare module 'cordis' {
+declare module '@deepseek-ai/cordis' {
   interface Context {
     userInteraction: UserInteractionService
   }
@@ -47,7 +47,7 @@ export class UserInteractionError extends HarnessError {
   }
 }
 
-/** `ctx.userInteraction`: one active UI provider plus an `ask()` surface. */
+/** `ctx.userInteraction`: one active UI provider plus an `ask()` API. */
 export class UserInteractionService extends Service {
   private provider: UserInteractionProvider | undefined
 

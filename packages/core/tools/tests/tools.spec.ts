@@ -1,5 +1,5 @@
 import { describe, expect, expectTypeOf, it } from 'vitest'
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import { createUserMessage, CallId, HarnessError, type ContentBlock  } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import type { Agent } from '@deepseek-ai/dsh-agent'

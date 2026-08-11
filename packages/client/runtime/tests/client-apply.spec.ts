@@ -3,7 +3,7 @@
  * connection handle, stream-loop sink wiring into the object layer, and the
  * fiber-scoped loop teardown.
  */
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it, vi } from 'vitest'
 import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
 import type { ConnectionSinks } from '@deepseek-ai/dsh-client-connection/client'
@@ -126,6 +126,7 @@ describe('runtime client apply', () => {
     const rebuild = vi.spyOn(Session.prototype, 'rebuildConversationRegistry')
     const definition: ConversationNodeDefinition<null> = {
       kind: 'registry-probe',
+      target: 'chat',
       match: () => null,
       start: () => null,
       update: context => context.state,

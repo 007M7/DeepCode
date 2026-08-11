@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import { scopeTarget } from '@deepseek-ai/dsh-scope'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import SubagentService, { SubagentRunId } from '@deepseek-ai/dsh-subagent'

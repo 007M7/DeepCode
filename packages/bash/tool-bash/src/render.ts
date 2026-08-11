@@ -66,7 +66,7 @@ export function renderResult(
  * Shape one background-process read into the `task_output` delta the model
  * sees: the incremental delta, plus the lossy-read notice (with full-stream
  * spill paths) when in-memory truncation dropped unread bytes. Empty-delta
- * rendering (`(no new output)`) is the generic control surface's job.
+ * rendering (`(no new output)`) is the generic task controller's job.
  * @param read - one incremental read from the process handle.
  * @param sandbox - settled sandbox facts, when this was a confined process.
  * @param escalationModes - escalation targets advertised by this composition.

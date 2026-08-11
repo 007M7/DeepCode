@@ -6,19 +6,19 @@ Status: implemented
 
 ## 问题
 
-Web 对话需要一项由 Host 提供、可见且可更改的会话模型选择。如果照搬 TUI 的呈现方式，或在浏览器中硬编码 DeepSeek 模型，就会让模型发现逻辑和步骤边界语义分散到不同前门中。响应运行期间发生的切换还需要一个原子边界：提示词变量与请求路由不能观测到不同的选择。
+Web 对话需要一项由 Host 提供、可见且可更改的会话模型选择。如果照搬 TUI 的呈现方式，或在浏览器中硬编码 DeepSeek 模型，就会让模型发现逻辑和步骤边界语义分散到不同前端中。响应运行期间发生的切换还需要一个原子边界：提示词变量与请求路由不能观测到不同的选择。
 
 ## 决策
 
 Web Host 为每个新建或恢复的 Agent 安装 `ModelSelection`。如果会话已经使用过模型，提供方／模型／推理（reasoning）选择来自最新的 `request/header`；否则来自 `ctx.agentDefaultModel`。`session.selectModel` 会赋值会话级选择，提示词组装则将它与请求路由一并捕获，因此运行中步骤发生的切换会应用于下一个组装步骤。下一个实际采用的选择通过完整的 `request/header` 快照持久化；尚未进入请求的选择则仅保存在当前进程中。
 
-会话 RPC 领域公开 `session.models` 模型目录与 `session.selectModel`。该目录从 LLM（大语言模型）注册表动态构建，并按提供方分组；每个已列出模型的精确元数据还会加入由适配器持有的推理强度 ID、名称、说明和可选默认值。各提供方的目录与精确元数据会按提供方并发加载，且彼此独立失败，因此成功加载的分组仍可与可重试的失败记录一同使用。模型是否位于目录仅供参考：`session.models.current` 独立返回，即使不在任何分组中也仍然可以路由，但提供方停止公布该模型后，Host 不会合成未列出行。两个前门对这一状态给出不同回答：TUI 把未列出的当前模型渲染为独立一行，Web 则显示未设置状态的触发器标签并要求选择替代模型。Web 是编辑目录的 surface，因此缺席的目录行代表一项待作出的选择；TUI 只从现有行中选择。显示未设置标签的 Web composer 仍可以使用当前可路由选择发送消息。精确解析决定提供方／模型组合与显式推理强度是否可用。选择操作通过 `resolveCallConfig` 拒绝不支持的推理强度 ID，并在赋值该选择前具体化适配器配置的默认值。
+会话 RPC 领域公开 `session.models` 模型目录与 `session.selectModel`。该目录从 LLM（大语言模型）注册表动态构建，并按提供方分组；每个已列出模型的精确元数据还会加入由适配器持有的推理强度 ID、名称、说明和可选默认值。各提供方的目录与精确元数据会按提供方并发加载，且彼此独立失败，因此成功加载的分组仍可与可重试的失败记录一同使用。模型是否位于目录仅供参考：`session.models.current` 独立返回，即使不在任何分组中也仍然可以路由，但提供方停止公布该模型后，Host 不会合成未列出行。两个前端对这一状态给出不同回答：TUI 把未列出的当前模型渲染为独立一行，Web 则显示未设置状态的触发器标签并要求选择替代模型。Web 是编辑目录所在的前端，因此缺席的目录行代表一项待作出的选择；TUI 只从现有行中选择。显示未设置标签的 Web composer 仍可以使用当前可路由选择发送消息。精确解析决定提供方／模型组合与显式推理强度是否可用。选择操作通过 `resolveCallConfig` 拒绝不支持的推理强度 ID，并在赋值该选择前具体化适配器配置的默认值。
 
 浏览器中的 `ModelService` 为每个实时会话持有一个 `ModelDirectory`。其快照包含当前完整的 `ModelSelection`、分组目录、提供方失败记录、操作错误，以及 `idle`、`loading`、`ready`、`selecting`、`error` 状态。挂载时会预先填充触发器标签，此后每次打开菜单都会刷新目录。目录与选择调用共用操作代次，防止较早响应覆盖较新结果；连接重置会先丢弃当前进程中的投影，再恢复 Host 选择。失败时保留先前的选择和可用分组。
 
 `@deepseek-ai/dsh-client-ui-conversation` 将会话作用域的单实例 slot `conversation.input.model` 声明为其输入栏 entry 的子 slot。InputBar 在尾部控件区将该 seat 渲染于 pending 指示器与主按钮之前；该 seat 接收输入栏的 `locked` owner prop 与会话作用域。`@deepseek-ai/dsh-client-ui-model` 占用该 seat，并在同一目录上提供 `/model`。其紧凑型触发器显示目录中精确模型的名称与生效的推理强度标签。当前选择不在分组中时，触发器显示 `Select model`，模型列表不标记任何活动行，Effort 行也保持隐藏；选择一个已列出的模型，会通过共享的选择路径赋值完整选择。除此情形外，向上展开的菜单会首先提供 Model 与 Effort；Model 可深入提供方分组，Effort 可深入适配器排序的级别。仅当适配器没有配置模型默认值时，才显示提供方默认值行。
 
-生产环境的浏览器名册由 `apps/cli/config/base.cordis.yml` 与 `apps/cli/config/web.cordis.yml` 共同组装；模型功能对应其中一行 `dshClient` 配置项，而不是 Web boot 代码中硬编码的包。其包 manifest（元数据清单）将加载顺序置于运行时与命令功能之后；Cordis 服务注入则等待 conversation slot 可用，再注册 composer 占用方。
+生产环境的浏览器名册由 `apps/cli/config/base.cordis.yml` 与 `apps/cli/config/web.cordis.yml` 共同组装；模型功能对应其中一行 `dsh.client` 配置项，而不是 Web boot 代码中硬编码的包。其包 manifest（元数据清单）将加载顺序置于运行时与命令功能之后；Cordis 服务注入则等待 conversation slot 可用，再注册 composer 占用方。
 
 ## 考虑过的替代方案
 

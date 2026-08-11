@@ -56,13 +56,27 @@ interface TelemetryRecord {
 
 每个 `(turn, step)` 只发出第一条 `assistant/chunk`，即「流已开始」的信号；其余分片在捕获时丢弃，因此导出流中的 `seq` 缺口是常态，绝不是丢失信号。其他所有[会话事件](session.md)类型都会完整透传，包括该 seam 从未听说过、由插件合并进来的事件类型。投递是尽力而为的：游标标记的是「已交接」而非「已送达」，记录可能丢失（崩溃、重载窗口）也可能重复（无游标的重新接管、SDK 重试），因此接收端对 ledger 记录基于 `(session.id, event.seq)` 去重；ops 记录刻意省略这类标识——它们是用于告警的信号，而非用于累加的条目，重复被容忍而非被去重。
 
+## 共享披露
+
+该 seam 的确认契约（归属 [Service Definition README 的共享披露段](../../packages/session/session-telemetry/README.md#the-sharing-disclosure)）：每个后端都通过 `ctx.telemetry` 上必需的抽象 `sharing` 成员披露其部署级共享策略，消费方只有在未挂载任何遥测服务时才渲染「未配置」。披露只陈述当前策略，绝不承诺投递或留存——交接是非阻塞入队，批处理、重试与丢失策略仍归上报 SDK。
+
+```ts type-equiv
+/**
+ * Deployment-selected session-sharing policy disclosed by a mounted
+ * {@link Telemetry} backend to human-facing acknowledgement surfaces (the
+ * `/feedback` command's confirmation text). The seam owns the vocabulary so
+ * any backend can disclose a policy without depending on the OTel package;
+ * the values mirror the OTel backend's serialized `TelemetryMode` choices.
+ */
+type TelemetrySharingStatus = 'full' | 'feedback-only' | 'disabled'
+```
+
 ## 后端约定
 
 ```ts type-equiv
 /**
- * The backend contract the coordinator hands records to — the minimum any
- * reporting SDK satisfies with zero bending. {@link Telemetry} is its
- * service-registered form; tests compose the coordinator with a bare
+ * The minimum backend contract the coordinator requires. {@link Telemetry} is
+ * its service-registered form; tests compose the coordinator with a bare
  * implementation of this interface.
  */
 interface TelemetryBackend {
@@ -77,8 +91,8 @@ interface TelemetryBackend {
    */
   emit(record: TelemetryRecord): void
   /**
-   * Optional hint that a natural boundary (turn end) passed — a backend may
-   * forward it to its SDK's flush so records land at turn boundaries. Called
+   * Optional hint that a turn ended. A backend may forward it to its SDK's
+   * flush so records are exported after each turn. Called
    * fire-and-forget; implementations must not block and must not throw
    * meaningfully (the coordinator contains exceptions). Most backends should
    * leave this unimplemented and let their SDK's own batching cadence govern
@@ -115,15 +129,15 @@ interface TelemetryBackend {
 
 <a id="cordis-surface"></a>
 
-## Cordis surface
+## Cordis API
 
-Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` surface lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
+Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
 
 <a id="ctxtelemetry--telemetry-abstract-seam"></a>
 
 ### `ctx.telemetry` — `Telemetry` (abstract seam)
 
-The backend contract in its loadable form: one implementation per context — the cordis `Service` registration under the `telemetry` key throws on a duplicate, cordis' standard behavior. A backend composes a TelemetryCoordinator in its constructor to install the capture side.
+Loadable form of the backend contract: one implementation per context — the cordis `Service` registration under the `telemetry` key throws on a duplicate, cordis' standard behavior. A backend composes a TelemetryCoordinator in its constructor to install the capture side.
 
 ```ts cordis-catalog
 /**
@@ -142,7 +156,7 @@ flush?(): void
 abstract shutdown(): Promise<void>
 ```
 
-Source: [`packages/session/session-telemetry/src/index.ts:140`](../../packages/session/session-telemetry/src/index.ts)
+Source: [`packages/session/session-telemetry/src/index.ts:148`](../../packages/session/session-telemetry/src/index.ts)
 
 <a id="telemetry-events"></a>
 

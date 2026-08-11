@@ -21,6 +21,7 @@ const CHILD = 'child-1' as SessionId
 
 async function bench() {
   const runtime = await SlotTestRuntime.create()
+  runtime.provide('connection', { api: { settings: {} }, isLoopback: false } as never)
   await runtime.sessions.add({ id: ROOT, summary: { title: 'R', displayTitle: 'R' } }, { current: false })
   await runtime.sessions.add(
     { id: CHILD, summary: { title: 'C', displayTitle: 'C', parentId: ROOT } }, { current: false })
@@ -84,9 +85,11 @@ describe('apply wiring', () => {
     expect(conversationHeader?.store).toBe(conversationSession?.store)
     expect(details?.store).toBe(conversationSession?.store)
     expect(chatView?.store).toBe(conversationSession?.store)
-    // The hero workspace picker hole rides the conversation entry's children
-    // declaration (the empty-state occupant is gone).
+    // The hero holes ride the conversation entry's children declaration (the
+    // empty-state occupant is gone). Both are root-scoped: the new-session
+    // screen precedes the session either would belong to.
     expect(b.slots.spec('conversation.hero.workspace')).toEqual({ kind: 'single', scope: 'root' })
+    expect(b.slots.spec('conversation.hero.agentPreset')).toEqual({ kind: 'single', scope: 'root' })
     expect(b.slots.entries('settings.general.item').map(entry => entry.options.id)).toEqual(['composer-enter'])
     await b.runtime.dispose()
   })

@@ -143,7 +143,7 @@ If a listener rewrites assembled assistant content, the loop drops replay state 
 - pi-ai reports failures as in-stream error events; these map to `finish {kind:'error'|'aborted', failure}` chunks. Provider-specific error text distinguishes terminal `QUOTA` from transient `RATE_LIMIT`, while text and usage signals evaluated against the resolved model's context window normalize overflow to `CONTEXT_WINDOW_EXCEEDED`. A terminal `stop` whose message carries no content blocks maps to a `finish {kind:'error'}` with code `EMPTY_RESPONSE` (retried by default policy) instead of a successful empty message.
 - pi-ai folds reasoning tokens into output usage; there is no separate reasoning count to map.
 - pi-ai's `off` thinking level crosses the Harness capability seam unchanged and becomes an omitted pi-ai common `reasoning` option at dispatch.
-- `GenerateOptions.stop` is rejected with `UNSUPPORTED_OPTION` because pi-ai's common streaming surface cannot guarantee it across providers.
+- `GenerateOptions.stop` is rejected with `UNSUPPORTED_OPTION` because pi-ai's common streaming UI cannot guarantee it across providers.
 
 ## App attribution
 
@@ -173,7 +173,7 @@ Conversion preserves logical request order without adding text, while the select
 
 #### What the model sees
 
-pi-ai events become harness reasoning, text, tool-call, usage, and finish chunks. Parsed tool arguments cross the harness boundary as raw JSON strings.
+pi-ai events become harness reasoning, text, tool-call, usage, and finish chunks. The adapter passes parsed tool arguments to the harness as raw JSON strings.
 
 #### Token effect
 

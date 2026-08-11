@@ -27,7 +27,7 @@ export type {
 export type { DetectTrigger, ExactMatch, MenuEvent, MenuReduce, MenuState, TriggerHit } from '../core/contract.ts'
 export type { SlashServiceContract } from './contract.ts'
 
-declare module 'cordis' {
+declare module '@deepseek-ai/cordis' {
   interface Context {
     /** The outward face only; the concrete service stays inside this plugin. */
     slash: import('./contract.ts').SlashServiceContract

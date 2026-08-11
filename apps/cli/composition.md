@@ -8,12 +8,10 @@ The dsh-base bundle patch every profile applies first; mode bundles (dsh-web-app
 ```mermaid
 flowchart LR
   cfg["packages/bundle/base/cordis.patch.yml<br/>cordis.yml"]
-  plugin_dsh_base_timer["timer<br/>@cordisjs/plugin-timer"]
+  plugin_dsh_base_timer["timer<br/>@deepseek-ai/cordis-plugin-timer"]
   cfg --> plugin_dsh_base_timer
-  plugin_dsh_base_hmr["hmr<br/>@cordisjs/plugin-hmr"]
+  plugin_dsh_base_hmr["hmr<br/>@deepseek-ai/cordis-plugin-hmr"]
   cfg --> plugin_dsh_base_hmr
-  plugin_dsh_base_repository_plugins["repository-plugins<br/>@deepseek-ai/dsh-repository-plugin"]
-  cfg --> plugin_dsh_base_repository_plugins
   plugin_dsh_base_llm["llm<br/>@deepseek-ai/dsh-llm"]
   cfg --> plugin_dsh_base_llm
   plugin_dsh_base_session["session<br/>@deepseek-ai/dsh-session"]
@@ -46,6 +44,8 @@ flowchart LR
   cfg --> plugin_dsh_base_llm_pi_ai
   plugin_dsh_base_session_persistence_jsonl["session-persistence-jsonl<br/>@deepseek-ai/dsh-session-persistence-jsonl"]
   cfg --> plugin_dsh_base_session_persistence_jsonl
+  plugin_dsh_base_attachment_local["attachment-local<br/>@deepseek-ai/dsh-attachment-local"]
+  cfg --> plugin_dsh_base_attachment_local
   plugin_dsh_base_session_query_sqlite["session-query-sqlite<br/>@deepseek-ai/dsh-session-query-sqlite"]
   cfg --> plugin_dsh_base_session_query_sqlite
   plugin_dsh_base_session_projection["session-projection<br/>@deepseek-ai/dsh-session-projection"]
@@ -110,6 +110,10 @@ flowchart LR
   cfg --> plugin_dsh_base_subagent_spawn
   plugin_dsh_base_subagent_fork["subagent-fork<br/>@deepseek-ai/dsh-subagent-fork"]
   cfg --> plugin_dsh_base_subagent_fork
+  plugin_dsh_base_subagent_codex["subagent-codex<br/>@deepseek-ai/dsh-subagent-codex"]
+  cfg --> plugin_dsh_base_subagent_codex
+  plugin_dsh_base_subagent_claude_code["subagent-claude-code<br/>@deepseek-ai/dsh-subagent-claude-code"]
+  cfg --> plugin_dsh_base_subagent_claude_code
   plugin_dsh_base_tool_subagent_control["tool-subagent-control<br/>@deepseek-ai/dsh-tool-subagent-control"]
   cfg --> plugin_dsh_base_tool_subagent_control
   plugin_dsh_base_tool_subagent_list_agents["tool-subagent-list-agents<br/>@deepseek-ai/dsh-tool-subagent-control/list-agents"]
@@ -164,9 +168,8 @@ flowchart LR
 
 | Plugin id | Package / module |
 | --- | --- |
-| `timer` | `@cordisjs/plugin-timer` |
-| `hmr` | `@cordisjs/plugin-hmr` |
-| `repository-plugins` | `@deepseek-ai/dsh-repository-plugin` |
+| `timer` | `@deepseek-ai/cordis-plugin-timer` |
+| `hmr` | `@deepseek-ai/cordis-plugin-hmr` |
 | `llm` | `@deepseek-ai/dsh-llm` |
 | `session` | `@deepseek-ai/dsh-session` |
 | `typert` | `@deepseek-ai/dsh-typert-registry` |
@@ -183,6 +186,7 @@ flowchart LR
 | `credentials` | `@deepseek-ai/dsh-credentials-local` |
 | `llm-pi-ai` | `@deepseek-ai/dsh-llm-pi-ai` |
 | `session-persistence-jsonl` | `@deepseek-ai/dsh-session-persistence-jsonl` |
+| `attachment-local` | `@deepseek-ai/dsh-attachment-local` |
 | `session-query-sqlite` | `@deepseek-ai/dsh-session-query-sqlite` |
 | `session-projection` | `@deepseek-ai/dsh-session-projection` |
 | `telemetry-otel` | `@deepseek-ai/dsh-session-telemetry-otel` |
@@ -215,6 +219,8 @@ flowchart LR
 | `subagent` | `@deepseek-ai/dsh-subagent` |
 | `subagent-spawn` | `@deepseek-ai/dsh-subagent-spawn` |
 | `subagent-fork` | `@deepseek-ai/dsh-subagent-fork` |
+| `subagent-codex` | `@deepseek-ai/dsh-subagent-codex` |
+| `subagent-claude-code` | `@deepseek-ai/dsh-subagent-claude-code` |
 | `tool-subagent-control` | `@deepseek-ai/dsh-tool-subagent-control` |
 | `tool-subagent-list-agents` | `@deepseek-ai/dsh-tool-subagent-control/list-agents` |
 | `tool-subagent` | `@deepseek-ai/dsh-tool-subagent` |

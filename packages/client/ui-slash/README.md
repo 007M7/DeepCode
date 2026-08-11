@@ -8,7 +8,7 @@ Layering: `src/core/` is the pure core — `detectTrigger`, `menuReduce`/`seedGr
 
 MenuView renders the menu store into the `conversation.input.overlay` slot (list kind, session scope) and renders null while closed. Typed triggers seed every source registered for that trigger; a programmatic launcher seeds only its requested source and publishes the source name through the controller's `launcher` snapshot store until the menu closes or typed tracking resumes. Groups sort by the optional `SlashSource.order` (lower first, default 0, ties keep registration order) under title rows localized through the `slash.menu` locale namespace (an unknown source shows its raw name); the list height clamps to the space above the composer, and a pointer down outside both the menu and the surrounding composer card dismisses it. The slot is owned by ui-conversation's composer entry (anchor, children declaration, lifecycle); its SlotMap type merge lives in this package's `src/client/slots.ts` because the dependency direction (ui-conversation → ui-slash) admits no reverse type import. Combobox pattern: focus stays in the textarea, rows pick on mousedown, the highlight rides `aria-activedescendant`.
 
-The `/client` export surface is the plugin body (`apply`/`inject`), `SlashService`, `MenuViewInjected`, and the contract types. MenuView itself is internal — the slot registration closes over it.
+The `/client` exports are the plugin body (`apply`/`inject`), `SlashService`, `MenuViewInjected`, and the contract types. MenuView itself is internal — the slot registration closes over it.
 
 ## Model Experience
 

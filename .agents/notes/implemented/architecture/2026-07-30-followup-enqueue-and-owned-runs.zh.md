@@ -16,7 +16,7 @@ Status: implemented
 
 底层 SDK 协议在入队成功后立即以 `{ messageId }` 响应 `session/prompt`。它通过 `session.event` 流式传输持久事实，通过 `session.status` 发布整个 agent 的状态转换，且不包含 `session.finished`。底层客户端可以观察该回执和之后的 idle，但不会收到提示词结果。
 
-只有明确拥有一个活动区间时，高层自动化 API 才返回 `RunResult`。TypeScript 和 Python SDK 的 `run()` 方法从已提交消息的持久 inbox 回执开始收集，直至整个 agent 下一次进入 `idle`；其 `finalResponse` 是该区间内最后一条已提交的 assistant 消息，而不是按因果关系归属于已提交提示词的响应。单次 CLI（命令行界面）拥有相应的 idle 到 idle 区间。隔离的子 agent 运行可以报告结果，因为调用方拥有完整的子级生命周期，任何 steering 都属于该运行。
+只有明确拥有一个活动区间时，高层自动化 API 才返回 `RunResult`。TypeScript 和 Python SDK 的 `run()` 方法从已提交消息的持久 inbox 回执开始收集，直至整个 agent 下一次进入 `idle`；其最终响应是该区间内最后一条已提交的 assistant 消息，而不是按因果关系归属于已提交提示词的响应。Python SDK 还把根会话最后一个轮次的结束原因 kind 作为运行级 [`finish_reason`](../bug-fix/2026-08-11-owned-run-finish-reason.md) 返回，但不会将其归因于已提交的提示词。单次 CLI（命令行界面）拥有相应的 idle 到 idle 区间。隔离的子 agent 运行可以报告结果，因为调用方拥有完整的子级生命周期，任何 steering 都属于该运行。
 
 ACP（Agent Client Protocol）必须返回协议规定的 `stopReason`。其桥接层串行处理每个 ACP 会话中唯一一个正在处理的提示词，等待整个 agent 进入 idle，其他情况均报告通用的 `end_turn`。token 上限的轮次结束不归因于提示词：它们以 `end_turn` 结算。与该提示词关联的轮次上的模型错误会立即以该错误拒绝提示词（错误按其所属轮次归因），而 turnless 槽位（准入已丢弃提示词）会在 idle 时以 `cancelled` 结算，与显式 ACP 取消或 dispose（资源释放）并列。
 
@@ -33,10 +33,10 @@ Goal 续行只保留 `MessageId`，用于识别持久排队和已准入的 goal 
 ## 验证
 
 - Agent 与 inbox 测试固定 follow-up 仅入队、持久准入或取消以及整个 agent 的 idle 观测。
-- SDK 协议、TypeScript SDK 和 Python SDK 测试固定 `{ messageId }` 回执、`session.status`、不存在 `session.finished`，以及不含提示词级 `status` 或 `reason` 的回执到 idle `RunResult` 收集。
+- SDK 协议、TypeScript SDK 和 Python SDK 测试固定 `{ messageId }` 回执、`session.status`、不存在 `session.finished`，以及不含提示词级 `status` 或 `reason` 的回执到 idle `RunResult` 收集；Python SDK 测试另行固定其运行级 `finish_reason` 观测。
 - ACP、单次 CLI、goal 续行和 subagent 测试固定各集成实际拥有的不同活动边界。
 - 消费方测试固定生产集成都不会通过关联 `MessageId` 与 `turn/end` 来推导 follow-up 结果。
 
 ## 后果
 
-自有活动区间可以包含进入 idle 前提交的 steering、注入上下文或其他工作，因此其最终响应和事件有意比初始消息涵盖更广。SDK 和 ACP 结果不再包含提示词级模型错误和 token 上限分类；需要这些事实的调用方必须检查持久事件流，但不能声称这些事实具有因果归属。在同一会话上并发执行自动化操作时，必须采用显式串行或所有权策略，不能依赖隐式的按提示词结果。
+自有活动区间可以包含进入 idle 前提交的 steering、注入上下文或其他工作，因此其最终响应、结束原因和事件有意比初始消息涵盖更广。SDK 和 ACP 结果仍不包含提示词级模型错误和 token 上限分类；调用方可以检查运行级或持久事件事实，但不能声称这些事实具有因果归属。在同一会话上并发执行自动化操作时，必须采用显式串行或所有权策略，不能依赖隐式的按提示词结果。

@@ -1,8 +1,15 @@
 {
   "name": "@deepseek-ai/dsh-web-app",
   "description": "The dsh browser-surface bundle: the web patch layer over dsh-base plus the runtime glue plugin (frontend dist serving, web-surface prompt, bash runtime variables, URL line)",
-  "version": "0.0.1",
-  "private": true,
+  "version": "0.0.1-rc.1",
+  "publishConfig": {
+    "access": "restricted"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/deepseek-ai/deepseek-harness.git",
+    "directory": "packages/bundle/web-app"
+  },
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",
@@ -10,6 +17,10 @@
     ".": {
       "types": "./lib/types/index.d.ts",
       "default": "./lib/index.js"
+    },
+    "./startup": {
+      "types": "./lib/types/startup.d.ts",
+      "default": "./lib/startup.js"
     },
     "./invariant": {
       "types": "./lib/types/invariant.d.ts",
@@ -22,6 +33,7 @@
   "files": [
     "lib/index.js",
     "lib/invariant.js",
+    "lib/startup.js",
     "cordis.patch.yml",
     "lib/types/**/*.d.ts"
   ],
@@ -32,12 +44,15 @@
     }
   },
   "dependencies": {
+    "@deepseek-ai/dsh-agent-presets": "workspace:^",
+    "@deepseek-ai/dsh-app-boot": "workspace:^",
     "@deepseek-ai/dsh-client-connection": "workspace:^",
     "@deepseek-ai/dsh-client-hmr": "workspace:^",
     "@deepseek-ai/dsh-client-locale": "workspace:^",
     "@deepseek-ai/dsh-client-modules": "workspace:^",
     "@deepseek-ai/dsh-api-remotes": "workspace:^",
     "@deepseek-ai/dsh-client-runtime": "workspace:^",
+    "@deepseek-ai/dsh-client-ui-agent-preset": "workspace:^",
     "@deepseek-ai/dsh-client-ui-command": "workspace:^",
     "@deepseek-ai/dsh-client-ui-conversation": "workspace:^",
     "@deepseek-ai/dsh-client-ui-deliverables": "workspace:^",
@@ -54,10 +69,12 @@
     "@deepseek-ai/dsh-client-ui-skill": "workspace:^",
     "@deepseek-ai/dsh-client-ui-slash": "workspace:^",
     "@deepseek-ai/dsh-client-ui-subagent": "workspace:^",
+    "@deepseek-ai/dsh-client-ui-task": "workspace:^",
     "@deepseek-ai/dsh-client-ui-theme": "workspace:^",
     "@deepseek-ai/dsh-client-ui-tool": "workspace:^",
     "@deepseek-ai/dsh-client-ui-trajectory": "workspace:^",
     "@deepseek-ai/dsh-client-ui-workspace": "workspace:^",
+    "@deepseek-ai/dsh-cmdline": "workspace:^",
     "@deepseek-ai/dsh-code-runtime-worker": "workspace:^",
     "@deepseek-ai/dsh-frontend": "workspace:^",
     "@deepseek-ai/dsh-frontend-static": "workspace:^",
@@ -66,23 +83,27 @@
     "@deepseek-ai/dsh-host-directory-picker-browse": "workspace:^",
     "@deepseek-ai/dsh-host-directory-picker-native": "workspace:^",
     "@deepseek-ai/dsh-host-webserver": "workspace:^",
+    "@deepseek-ai/dsh-message-feedback": "workspace:^",
     "@deepseek-ai/dsh-session-projection-cache": "workspace:^",
     "@deepseek-ai/dsh-storage": "workspace:^",
     "@deepseek-ai/dsh-storage-domain": "workspace:^",
     "@deepseek-ai/dsh-storage-json": "workspace:^",
     "@deepseek-ai/dsh-workspace": "workspace:^",
-    "schemastery": "^3.18.0"
+    "@deepseek-ai/schemastery": "workspace:^",
+    "commander": "^15.0.0"
   },
   "peerDependencies": {
-    "@deepseek-ai/dsh-bash-env": "^0.0.1",
-    "@deepseek-ai/dsh-invariants": "^0.0.1",
-    "@deepseek-ai/dsh-system-prompt": "^0.0.1",
-    "cordis": "^4.0.0-rc.7"
-  },
-  "devDependencies": {
+    "@deepseek-ai/cordis-plugin-loader": "workspace:^",
     "@deepseek-ai/dsh-bash-env": "workspace:^",
     "@deepseek-ai/dsh-invariants": "workspace:^",
     "@deepseek-ai/dsh-system-prompt": "workspace:^",
-    "cordis": "^4.0.0-rc.7"
+    "@deepseek-ai/cordis": "workspace:^"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis-plugin-loader": "workspace:^",
+    "@deepseek-ai/dsh-bash-env": "workspace:^",
+    "@deepseek-ai/dsh-invariants": "workspace:^",
+    "@deepseek-ai/dsh-system-prompt": "workspace:^",
+    "@deepseek-ai/cordis": "workspace:^"
   }
 }

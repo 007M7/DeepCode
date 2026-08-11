@@ -8,6 +8,7 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
+import type {} from '@deepseek-ai/dsh-commands/types'
 import type { SessionId } from '@deepseek-ai/dsh-client-connection/client'
 import { Session } from '../src/client/sessions/session.ts'
 import type {
@@ -123,15 +124,20 @@ function testViewDefinition(): ConversationViewDefinition<ChatConversationViewNo
 
 const TEST_EVENT_DEFINITION: ConversationNodeDefinition<TestEventState> = {
   kind: 'runtime-test-event',
+  target: 'chat',
   match: event => ({ id: String(event.seq), role: 'start' }),
   start: (_context, match) => ({ event: match.event, view: match.view }),
   update: context => context.state,
   publication: match => match.event.type === 'assistant/chunk' ? 'animation-frame' : 'immediate',
-  buildViewNode: (context, target) => {
-    if (target !== 'chat' || context.state === undefined || context.start === undefined) return null
+  buildViewNode: (context) => {
+    if (context.state === undefined || context.start === undefined) return null
     return {
       key: context.key,
-      kind: 'runtime-test-event',
+      kind: context.start.event.type === 'command/run' && context.start.event.data.name === 'goal'
+        ? 'command-input'
+        : context.start.event.type === 'command/run' || context.start.event.type === 'command/done'
+          ? 'command'
+          : 'runtime-test-event',
       id: context.id,
       target: 'chat',
       anchorSeq: context.start.event.seq,
@@ -269,6 +275,24 @@ describe('live event path', () => {
     const snapshot = session.getSnapshot()
     expect(chatSeqs(snapshot)).toEqual([0, 1])
     expect(snapshot.composerPhase).toBe('blank')
+  })
+
+  it('activates a fresh conversation for a command-input View Node without opening a model turn', async () => {
+    const { session } = await opened([])
+    session.handleBlank(true)
+    const feed = (event: SessionEvent) => {
+      session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event })
+    }
+    feed(ev.commandRun(0, 'cmd-goal', 'goal', ' '))
+    feed(ev.commandDone(1, 'cmd-goal', 'success', 'No goal is currently set.'))
+
+    expect(session.getSnapshot()).toMatchObject({
+      blank: true,
+      composerPhase: 'active',
+    })
+    expect(session.getSnapshot().chat.order.map(
+      key => session.getSnapshot().chat.nodes.get(key)?.kind,
+    )).toContain('command-input')
   })
 
   it('publishes animation-frame Definitions once per frame and lets an immediate event supersede the pending frame', async () => {
@@ -530,6 +554,21 @@ describe('prompt and cancel errors', () => {
     const result = await session.cancel()
     expect(result.ok).toBe(false)
     expect(session.getSnapshot().promptError).toMatchObject({ op: 'stop', error: { code: 'internal' } })
+  })
+
+  it('reads session-authorized attachment bytes and keeps the opaque id on the wire', async () => {
+    const { api, session } = makeSession()
+    const result = await session.readAttachment('attachment-1' as never)
+    expect(result).toEqual({
+      ok: true,
+      value: {
+        attachment: { attachmentId: 'a', mediaType: 'image/png', bytes: 1, width: 1, height: 1 },
+        data: Uint8Array.of(0),
+      },
+    })
+    expect(api.callsOf('session.attachment')).toEqual([{
+      sessionId: SID, attachmentId: 'attachment-1',
+    }])
   })
 })
 

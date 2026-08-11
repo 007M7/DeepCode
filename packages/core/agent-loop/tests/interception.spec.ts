@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import LlmService, { createUserMessage, CallId  } from '@deepseek-ai/dsh-llm'
 import SessionStore, {
   SessionId,
@@ -23,7 +23,7 @@ import { MockAdapter, textResponse, toolCallResponse } from './mock-adapter.ts'
  * `agent/session-start`, `agent/turn-stopping`, and the
  * `tools/pre-execute` / `tools/post-execute`
  * split with `additionalContexts` buffering. These verify the canonical event
- * surface a hook bridge (or a native plugin) programs against, WITHOUT any
+ * API a hook bridge (or a native plugin) programs against, WITHOUT any
  * external protocol — a native plugin uses the typed decisions directly.
  */
 

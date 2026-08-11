@@ -38,17 +38,17 @@
 | 400 | `user-dsh` | `<dshHome>/skills` |
 | 500 | `user-agents` | `<agentsHome>/skills` |
 
-项目根目录是包含 `.git` 的最近祖先目录；如果不存在，则使用当前 cwd。用户 DSH 根目录会跳过其 `.system` 子目录，因此归系统所有的目录不会被当作普通用户 skill。`includeDefaultRoots: false` 会省略项目根、用户根以及 `$DSH_BUNDLED_SKILL_DIR` 环境默认值，同时保留显式配置的自定义根与 bundled 根，因此可以挂载多个只看到自身根的唯一命名隔离提供方，例如不可变的仓库插件。该提供方提供项目和用户 skill；其他提供方可提供内置系统 skill。
+项目根目录是包含 `.git` 的最近祖先目录；如果不存在，则使用当前 cwd。用户 DSH 根目录会跳过其 `.system` 子目录，因此归系统所有的目录不会被当作普通用户 skill。`includeDefaultRoots: false` 会省略项目根、用户根以及 `$DSH_BUNDLED_SKILL_DIR` 环境默认值，同时保留显式配置的自定义根与 bundled 根，因此可以挂载多个只看到自身根的唯一命名隔离提供方。该提供方提供项目和用户 skill；其他提供方可提供内置系统 skill。
 
 当 `ctx.fs` 可用时，发现通过 `ctx.fs.listDir` 列出根，通过 `ctx.fs.readText` 读取 skill 文件，并通过文件系统服务探测 `.git`。完整 skill 加载会将查找中止信号转发给文件系统元数据和内容读取。如果没有文件系统服务，提供方回退到可中止的 Node 文件系统 I/O，使最小本地上下文仍能加载 skill。已确认缺失的路径属于有效空状态；遇到格式错误或非文本条目时，提供方会发出警告并跳过；意外的发现或读取失败会使注册表快照不完整，系统不会因此用看似发生删除的结果替换上一份可用模型目录。
 
 ## 目录变更检测
 
-现有 skill 根由 Chokidar 监视。提供方会观察直属 bundle 目录的添加／移除、平铺 Markdown 文件的添加／移除，以及直接 `SKILL.md` 的添加／移除／变更；`change` 事件用于重新发现 `name`、`description` 等目录 frontmatter。`references`、`scripts`、`assets` 或其他 bundle 资源下的变更不会使目录失效。同一微任务批次内送达的事件会合并为一次提供方失效。
+现有 skill 根由 Chokidar 监视。打开原生 watcher 前，提供方会对现有根或祖先执行 realpath 解析，并拼回下一个缺失路径段；当 `watchFollowSymlinks` 为 false 且根本身是符号链接时，提供方不会展开最后这一级链接，使 Chokidar 能够强制执行配置边界。发现与诊断仍保留配置路径，从而避免 Windows 在 libuv 内部混用 8.3 别名与长格式事件路径。提供方会观察直属 bundle 目录的添加／移除、平铺 Markdown 文件的添加／移除，以及直接 `SKILL.md` 的添加／移除／变更；`change` 事件用于重新发现 `name`、`description` 等目录 frontmatter。`references`、`scripts`、`assets` 或其他 bundle 资源下的变更不会使目录失效。同一微任务批次内送达的事件会合并为一次提供方失效。
 
 不存在的根会从最近的现有祖先开始，每次沿一个缺失路径段跟踪。系统使用 `fs.watchFile` 探测下一段；当 `.agents`、`skills` 或已配置的根出现后，观察会逐级推进，直至 Chokidar 可以附加到真实根。根删除时，该过程反向执行，因此删除再重建整个 skills 目录仍可被观察到。按项目划分的 watcher 数量受 `watchMaxProjects` 限制；再次访问已被驱逐的项目时，发现阶段会重新附加观察。
 
-如果第一方文件系统 `write` 和 `edit` 工具的目标可能影响受监视的 skill 条目，它们还会通过 `fs/observed` 同步使提供方失效。这条快速路径让模型的下一个步骤无需等待宿主 watcher，即可观察到自身的文件系统变更。外部 IDE、Git、shell 和进程产生的变更依赖 Chokidar 或缺失路径探测。watcher 启动或运行时失败会被记录并触发重试。发现过程仍会扫描可读根目录，并返回其候选项供直接加载，但会将观测标记为不完整，因此不会缓存，也不会作为权威模型目录发布。effect 释放会关闭所有 watcher，并收束延迟回调。
+如果第一方文件系统 `write` 和 `edit` 工具的目标可能影响受监视的 skill 条目，它们还会通过 `fs/observed` 同步使提供方失效。这条快速路径让模型的下一个步骤无需等待宿主 watcher，即可观察到自身的文件系统变更。外部 IDE、Git、shell 和进程产生的变更依赖 Chokidar 或缺失路径探测。现有根的 watcher 会保持持久状态直至 effect 释放，使 Chokidar 能够接管异步原生错误事件；watcher 启动或运行时失败会被记录并触发重试。发现过程仍会扫描可读根目录，并返回其候选项供直接加载，但会将观测标记为不完整，因此不会缓存，也不会作为权威模型目录发布。effect 释放会关闭所有 watcher，并收束延迟回调。
 
 ## skill 格式
 

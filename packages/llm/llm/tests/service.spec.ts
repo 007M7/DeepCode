@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import LlmService, {
   errorChain,
   GenerateOptions,
@@ -574,6 +574,27 @@ describe('LlmService', () => {
 
     await expect(ctx.llm.resolveModelInfo('route', 'model'))
       .rejects.toMatchObject({ code: 'INVALID_MODEL_INFO' })
+  })
+
+  it('preserves modality metadata through exact model resolution', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    const adapter = new class extends ScriptedAdapter {
+      override resolveModel(): Promise<LlmResolvedModelInfo> {
+        return Promise.resolve({
+          provider: 'route', id: 'model', name: 'Model',
+          inputModalities: ['text', 'image'],
+        })
+      }
+    }(SCRIPT)
+    ctx.llm.registerAdapter(['route'], adapter)
+
+    // Downstream preflights (image admission) act on this exact field; a
+    // rebuild that drops it silently reads as "modalities unknown".
+    await expect(ctx.llm.resolveModelInfo('route', 'model')).resolves.toEqual({
+      provider: 'route', id: 'model', name: 'Model',
+      inputModalities: ['text', 'image'],
+    })
   })
 
   it('resolves detached model context independently of advisory catalog membership', async () => {

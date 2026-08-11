@@ -63,15 +63,18 @@
 }
 
 /* Panel (figma Settings 501:29947): r24, white, lv3 shadow (figma effects
-   match --dsw-shadow-lv3 exactly); figma's 1080x700 is shrunk to 800x600. */
+   match --dsw-shadow-lv3 exactly); figma's 1080x700 is shrunk to 800 wide.
+   One height for every section, taken from the viewport rather than the
+   content: sections differ by hundreds of pixels (a settings list against the
+   composition editor), and a content-sized panel would resize under the
+   pointer on every nav click. Whatever does not fit scrolls in `.options`. */
 .panel {
   position: relative;
   z-index: 1;
   display: flex;
   width: 800px;
-  height: 600px;
+  height: min(800px, calc(100vh - 48px));
   max-width: calc(100vw - 48px);
-  max-height: calc(100vh - 48px);
   border-radius: 24px;
   overflow: hidden;
   background: var(--dsw-alias-bg-layer-2);
@@ -202,11 +205,11 @@
   background: var(--dsw-alias-interactive-bg-hover);
 }
 
-/* Options area (figma Options 501:29983): pad (24,0,24,8), scrolls. */
+/* Options area (figma Options 501:29983): pad (24,0,24,24), scrolls. */
 .options {
   flex: 1;
   min-height: 0;
-  padding: 0 24px 8px;
+  padding: 0 24px 24px;
   overflow-y: auto;
 }
 

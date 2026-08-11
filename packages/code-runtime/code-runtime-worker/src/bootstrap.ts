@@ -22,7 +22,7 @@ function defineBindingErrorField(error: Error, key: string, value: string): void
   capturedObjectDefineProperty(error, key, attributes)
 }
 
-/** The port surface the bootstrap needs — satisfied by `parentPort` and by the tests' fake. */
+/** The port API the bootstrap needs — satisfied by `parentPort` and by the tests' fake. */
 export interface BootstrapPort {
   postMessage(message: WorkerToHost): void
   on(event: 'message', listener: (message: ReplyMessage) => void): void
@@ -105,7 +105,7 @@ const CONSOLE_LEVELS = ['log', 'info', 'warn', 'error', 'debug'] as const
  * `util.inspect`-style (matching real console formatting closely enough for
  * a model to recognize its own output) into the buffer. Only these five
  * exist — the program gets a deliberately small console, not Node's full
- * surface.
+ * console API.
  * @param logs - the buffer every rendered line is pushed into.
  * @returns the five-method console object handed to the program.
  */
@@ -234,7 +234,7 @@ export interface PendingCall {
   reject(error: Error): void
 }
 
-/** Constructor shape for one program-visible binding rejection class. */
+/** Constructor type for one program-visible binding rejection class. */
 export type BindingErrorConstructor = new (memberName: string, message: string) => Error
 
 /**
