@@ -2506,7 +2506,7 @@ export interface Config {
 export type ToolPresentationMode = 'native' | 'code' | 'both'
 ```
 
-来源：[`packages/core/tools/src/index.ts:617`](../packages/core/tools/src/index.ts)
+来源：[`packages/core/tools/src/index.ts:654`](../packages/core/tools/src/index.ts)
 
 ## `@deepseek-ai/dsh-typert-loader`
 

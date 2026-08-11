@@ -1221,7 +1221,7 @@ export class ToolRegistry extends Service {
   private resolveExecution(name: string, scope: ScopeKey | undefined, nested: boolean): ToolDefinition | undefined {
     const tool = this.get(name, scope)
     if (tool === undefined) return undefined
-    if (this.collapses(name, nested)) return undefined
+    if (this.collapses(name, scope, nested)) return undefined
     return tool
   }
 
@@ -1311,11 +1311,18 @@ export class ToolRegistry extends Service {
    * `parent` token set) bypass the collapse. One home for the
    * security-relevant predicate, shared by {@link resolveExecution} and
    * {@link createExecution} so the two can never drift apart.
+   *
+   * Resolved through {@link modeFor}, NOT `defaultMode`: an agent given `code`
+   * by an agent preset under a native deployment is the composition
+   * `dsh-agent-tool-mode` exists for, and reading the deployment default would
+   * leave exactly that agent uncollapsed — announcing one surface while
+   * executing another, which is the bypass this collapse closes.
    * @param name - the tool name as registered.
+   * @param scope - the viewing scope whose effective presentation mode applies.
    * @param nested - whether the call is a transport sub-dispatch, not a model-direct call.
    */
-  private collapses(name: string, nested: boolean): boolean {
-    return !nested && this.defaultMode === 'code' && name !== RUN_CODE_NAME
+  private collapses(name: string, scope: ScopeKey | undefined, nested: boolean): boolean {
+    return !nested && this.modeFor(scope) === 'code' && name !== RUN_CODE_NAME
   }
 
   /**
@@ -1371,7 +1378,7 @@ export class ToolRegistry extends Service {
     // keeps the historical dispatch-stage `UNKNOWN_TOOL` path so policy
     // listeners still see every name that reaches the registry.
     const visible = this.get(name, agent)
-    const collapsed = visible !== undefined && this.collapses(name, parent !== undefined)
+    const collapsed = visible !== undefined && this.collapses(name, agent, parent !== undefined)
     const concludingExecutions = this.concludingExecutions
     const base = {
       token,
