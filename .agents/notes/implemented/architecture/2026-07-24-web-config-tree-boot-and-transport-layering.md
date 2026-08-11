@@ -35,7 +35,7 @@ English | [中文](2026-07-24-web-config-tree-boot-and-transport-layering.zh.md)
 | Dedicated `dsh-host-profile` receiver package | User model state belongs to the Settings-backed `ctx.agentDefaultModel`; an extra Host receiver would duplicate ownership and exclude direct entry points |
 | Runtime `assembly` shim plugin providing an `apiHandler` service | Existed only because `createApiProxy` lived in runtime; moving it into apiproxy made the gateway self-hosting, and `toFetchHandler` is a pure function the binding side calls |
 | Full-rescan + incremental scan coexisting | Two implementations, two semantics; the single per-package path covers the activation pass too |
-| A bespoke `./impl` export on the modules package | Non-uniform export surface; the standard `./client` carries the whole browser half |
+| A bespoke `./impl` export on the modules package | Non-uniform exports; the standard `./client` carries the whole browser half |
 | dev overlay / `cordis.dev.yml` | One yml; `!!js` cannot conditionalize row existence, and `--dev` appending one row is the entire difference |
 | env vars in the mapping table | The same field would gain env/json double sourcing and need an invented precedence |
 | Unbarriered create-after-prefetch (`arrive()` dedup as safety) | Disproved by a 10–25% boot race: in-flight dedup covers same-package double-fetch, not cross-package synchronous require edges |

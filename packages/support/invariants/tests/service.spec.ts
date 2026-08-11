@@ -166,7 +166,7 @@ describe('InvariantService validation', () => {
 })
 
 describe('InvariantService lifecycle', () => {
-  it('honors the installer dependency surface in its child fiber', async () => {
+  it('honors the installer dependency API in its child fiber', async () => {
     const { ctx } = await setup()
     await ctx.plugin(InvariantProbeService)
     let registration!: RuntimeRegistration

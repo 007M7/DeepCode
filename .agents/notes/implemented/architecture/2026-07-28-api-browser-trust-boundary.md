@@ -1,4 +1,4 @@
-# Agent Note: One carrier-level browser-trust boundary for the whole /api surface
+# Agent Note: One carrier-level browser-trust boundary for all `/api` routes
 
 Status: implemented
 

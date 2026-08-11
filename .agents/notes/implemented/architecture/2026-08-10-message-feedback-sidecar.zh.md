@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-现有 `/feedback` 命令记录不可变的 Session 级 `feedback/record` 事件。在 `FEEDBACK_ONLY` 下，该事件可以释放待处理的遥测前缀，因此它不适合作为挂在单条 assistant 消息上的可编辑好评／差评与可选备注的权威来源。消息反馈需要独立的更新与删除语义，且不得进入权威 Session 日志、改变投影、到达模型接口，或隐式表示遥测同意。
+现有 `/feedback` 命令记录不可变的 Session 级 `feedback/record` 事件。在 `FEEDBACK_ONLY` 下，该事件可以释放待处理的遥测前缀，因此它不适合作为挂在单条 assistant 消息上的可编辑好评／差评与可选备注的权威来源。消息反馈需要独立的更新与删除语义，且不得进入权威 Session 日志、改变投影、到达模型上下文，或隐式表示遥测同意。
 
 只按 `SessionId` 建索引的伴随记录可能在该 id 以不同 header 身份重建后，继续存活于其所描述的日志生命周期之外。Session 级 revision 还会让无关消息的编辑彼此冲突，而普通 storage-domain 读／写不提供跨进程 compare-and-swap。Session disposal 只是从 live store 脱离，并非持久删除；当前 Session 持久化 seam 也没有可拥有真实级联的删除操作。
 

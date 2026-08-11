@@ -143,7 +143,7 @@ export class CordisCatalogProjector {
   }
 
   /**
-   * Validate and project the host model's Cordis surface.
+   * Validate and project the host model's Cordis API.
    * @returns every validated service and event projected from the host model.
    */
   project(): CordisCatalogModel {
@@ -445,7 +445,7 @@ function parseJsDoc(raw: string): ParsedJsDoc {
 
 function checkParams(
   where: string,
-  surface: string,
+  apiKind: string,
   parameters: readonly ParameterModel[],
   tags: ReadonlyMap<string, string>,
   isExempt: (parameter: ParameterModel) => boolean,
@@ -453,7 +453,7 @@ function checkParams(
 ): void {
   for (const parameter of parameters) {
     if (parameter.binding !== 'identifier') {
-      violations.push(`${where}: parameter '${parameter.name}' is a binding pattern; the ${surface} surface needs simple identifier parameters so @param can name them.`)
+      violations.push(`${where}: parameter '${parameter.name}' is a binding pattern; the ${apiKind} API needs simple identifier parameters so @param can name them.`)
       continue
     }
     if (isExempt(parameter)) continue
@@ -579,7 +579,7 @@ function renderRuntimeApi(
     ' *',
     ' * The machine-readable cordis API catalog `cordis_inspect` serves to the',
     ' * model: harness services (summary + public method signatures/JSDoc),',
-    ' * harness events (mode + signature/JSDoc), and the inherited `ctx` surface. Produced by',
+    ' * harness events (mode + signature/JSDoc), and the inherited `ctx` API. Produced by',
     ' * the same AST walk as docs/cordis-catalog, so this data and the rendered',
     ' * docs cannot diverge.',
     ' *',
@@ -685,7 +685,7 @@ function renderRuntimeApi(
   lines.push(
     ']',
     '',
-    '/** The inherited `ctx` surface (cordis core + loader/hmr/timer), in curated order. */',
+    '/** The inherited `ctx` API (cordis core + loader/hmr/timer), in curated order. */',
     'export const INHERITED_CTX_API: readonly InheritedApiEntry[] = [',
   )
   for (const inherited of inheritedServices) {
@@ -775,7 +775,7 @@ const BANNER = [
 const GATE_NOTICE = 'This file is GENERATED from source (`scripts/gen-cordis-catalog.ts`) and verified fresh by `pnpm run verify-cordis-catalog` (part of `doc-sync`) — do not edit it by hand. Signature blocks use a `ts cordis-catalog` fence and include the original source JSDoc immediately before each event or service method. doc-typecheck skips these bare declaration fragments; type names in a signature link to the page that documents them.'
 
 /**
- * Render one page's generated `cordis-surface` region: the services mapped to
+ * Render one page's generated Cordis API region: the services mapped to
  * the page, then the event scopes mapped to it, markers included. Pure and
  * deterministic given sorted inputs; identical bytes land in both pair sides.
  * @param page - the owning `docs/subsystems/` page basename, e.g. `core.md`.
@@ -790,9 +790,9 @@ export function renderPageRegion(page: string, services: ServiceEntry[], events:
     '',
     '<a id="cordis-surface"></a>',
     '',
-    '## Cordis surface',
+    '## Cordis API',
     '',
-    'Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` surface lives in [cordis-api/inherited.md](../cordis-api/inherited.md).',
+    'Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).',
     '',
   ]
   for (const s of services) lines.push(...renderService(s, page, policy.linkedTypePages))
@@ -816,7 +816,7 @@ export function renderPageRegion(page: string, services: ServiceEntry[], events:
 export function renderInheritedPage(policy: CordisCatalogPolicy): string {
   const lines: string[] = [
     ...BANNER,
-    '# Inherited Cordis Surface',
+    '# Inherited Cordis API',
     '',
     'The framework `ctx` members and events every plugin sees beyond the harness tier — pinned vendor source ([vendoring policy](../../vendor/README.md)), summarized tersely so the harness pages stay focused on repository-owned vocabulary. Detailed Context, Fiber, Registry, and Service APIs are generated in [context.md](context.md), [fiber.md](fiber.md), [registry.md](registry.md), and [service.md](service.md); the event-dispatch methods in [events.md](events.md).',
     '',

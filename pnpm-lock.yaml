@@ -6964,6 +6964,9 @@ importers:
       '@deepseek-ai/dsh-subagent-spawn':
         specifier: workspace:^
         version: link:../subagent-spawn
+      '@deepseek-ai/dsh-system-prompt':
+        specifier: workspace:^
+        version: link:../../core/system-prompt
       '@deepseek-ai/dsh-tool-subagent-control':
         specifier: workspace:^
         version: link:../tool-subagent-control

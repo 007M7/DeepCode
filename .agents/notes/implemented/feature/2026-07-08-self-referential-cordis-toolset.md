@@ -28,7 +28,7 @@ The vm isolates accidental global pollution, and the context façade hides frame
 
 ### Sandbox semantics
 
-Mount code runs as an async-function body in a fresh vm realm. Its documented surface steers file, network, process, and timer access through Cordis services so mounts remain inspectable and disposable. Host-realm helpers still make Node escape possible, consistent with the trusted posture. `vmTimeoutMs` bounds only synchronous evaluation.
+Mount code runs as an async-function body in a fresh vm realm. Its documented API steers file, network, process, and timer access through Cordis services so mounts remain inspectable and disposable. Host-realm helpers still make Node escape possible, consistent with the trusted posture. `vmTimeoutMs` bounds only synchronous evaluation.
 
 Sandbox globals are deliberately small: a tagged write-through `console` (`[cordis:<id>] …` on the host stdout/stderr, so a listener that fires long after the mount call still lands somewhere the user sees), the `harness.defineTool` / `harness.registerTool` registration pair, the encoding primitives fresh vm contexts lack (`btoa`/`atob` as host closures over `Buffer` — a sanctioned exception, `Buffer` itself is never exposed — plus `TextEncoder`/`TextDecoder`), and callable traps over the withheld Node APIs (`require`, `setTimeout`/`setInterval`/`setImmediate`/`clearTimeout`/`clearInterval`, `fetch`) that throw a redirect naming the cordis alternative. Only function-shaped globals are trapped; `process` and `Buffer` stay `undefined` so a `typeof` feature probe stays inert rather than detonating a throwing accessor.
 
@@ -48,7 +48,7 @@ Mounts relate to each other through ordinary cordis service semantics, with thei
 
 ### The generated API catalog
 
-`cordis_inspect` serves API and event data from a generated catalog rather than a duplicated table. The generator reuses the Cordis catalog AST scan and emits service summaries, signatures, original service-method and event JSDoc, event modes, referenced type declarations, and the inherited context surface. Ambiguous type names are omitted and oversized declarations are marked as truncated.
+`cordis_inspect` serves API and event data from a generated catalog rather than a duplicated table. The generator reuses the Cordis catalog AST scan and emits service summaries, signatures, original service-method and event JSDoc, event modes, referenced type declarations, and the inherited context API. Ambiguous type names are omitted and oversized declarations are marked as truncated.
 
 Freshness is gated like every generated artifact: `pnpm run verify-cordis-api` (in `doc-sync`) regenerates in memory and fails on any diff, so a JSDoc or public-signature edit cannot ship without regenerating the catalog the model reads. At runtime the inspect tool intersects the catalog with the live runtime rather than dumping it: broad reports render live catalogued services as summary + signatures, live services without a catalog entry (mount-provided ones) as name + owning fiber, catalogued services with no live provider tersely, and then the referenced type shapes. Exact-name reports render one live service or event with the original JSDoc immediately before each signature; keeping that detail opt-in avoids charging its token cost on exploratory listings.
 
@@ -66,7 +66,7 @@ Model-visible ⟺ logged holds with no new session event type: mount and unmount
 |---|---|---|
 | Schema correctness | `parameters` is still model-written JSON needing unified-schema validation, merely one step earlier | The same validation runs at the sandbox boundary, with the same instructive errors |
 | The code field | An `execute` body is still model-written JS in a vm; the realm and service-call correctness problems are unchanged | One sandbox, one normalization path, one guarded registration |
-| Capability coverage | Tools only; listeners, services, `inject` relations each need another structured tool — a surface that grows without bound | One vocabulary (a cordis plugin) covers every effect, present and future |
+| Capability coverage | Tools only; listeners, services, `inject` relations each need another structured tool — an API that grows without bound | One vocabulary (a cordis plugin) covers every effect, present and future |
 | Cross-mount composition | Not expressible in a tool-registration payload | Native `provide`/`inject`, ordinary cordis semantics |
 | Inspectability | Registers something the plugin list cannot show as a plugin | What the model mounts is exactly what `cordis_inspect` renders |
 | Model ergonomics | Wins for the single most common case (no plugin boilerplate) | Mitigated by the canonical recipe in the mount description plus boundary errors that teach the fix |
@@ -77,7 +77,7 @@ The correctness investment therefore goes where it pays for every capability at 
 
 **A new `cordis/mount` session event.** A durable event recording each mount's source and name has clear precedent (`hook/invoked`, `compact/start`). It was declined for v1: mount and unmount are already visible as `tool/call` / `tool/result` pairs and the tool-set change is already logged as a full changed request header, so a dedicated event would only duplicate the record. It remains addable if an audit use case needs the mount source and name outside the tool call.
 
-**A hardened / capability-restricted sandbox.** Trapping Node built-ins and handing mount code a whitelist façade rather than the raw context might suggest an intent to sandbox for safety. It is explicitly not that: the traps and the façade narrow the *surface* mount code sees — steering it onto cordis services and away from leak-prone Node built-ins and framework internals — for correctness and to close the unguarded-context escape, but the capabilities the façade exposes (`ctx.bash`, `ctx.fs`, `ctx.web`) reach the real runtime, so it is not a security boundary. A real one (separate process, permission prompts) was out of scope for a dev/opt-in toolset and would fight the entire point — handing the model the live runtime.
+**A hardened / capability-restricted sandbox.** Trapping Node built-ins and handing mount code a whitelist façade rather than the raw context might suggest an intent to sandbox for safety. It is explicitly not that: the traps and the façade narrow the *API* mount code sees — steering it onto cordis services and away from leak-prone Node built-ins and framework internals — for correctness and to close the unguarded-context escape, but the capabilities the façade exposes (`ctx.bash`, `ctx.fs`, `ctx.web`) reach the real runtime, so it is not a security boundary. A real one (separate process, permission prompts) was out of scope for a dev/opt-in toolset and would fight the entire point — handing the model the live runtime.
 
 ## Consequences
 

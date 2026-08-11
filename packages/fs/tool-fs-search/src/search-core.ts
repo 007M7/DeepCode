@@ -82,7 +82,7 @@ export type SearchErrorCode =
 
 /**
  * Typed search failure. Extends {@link HarnessError} so it carries a stable
- * {@link SearchErrorCode} and chains `cause`; the tool registry surfaces
+ * {@link SearchErrorCode} and chains `cause`; the tool registry exposes
  * `{ name, code }` on `isError` results so retry/permission/UI layers can
  * branch without parsing messages.
  */

@@ -694,7 +694,7 @@ function sandboxContext(ctx: Context): Context {
     )
   }
   // Read a service for either access path (property or `get`). `tools` is the façade's own
-  // surface.
+  // API.
   const readService = (name: string): unknown => {
     if (name === 'tools') return tools
     if (!declared.has(name)) return denyRead(name)
@@ -724,7 +724,7 @@ function sandboxContext(ctx: Context): Context {
     set(_target, prop) {
       throw new Error(`sandbox ctx is read-only; cannot assign "${String(prop)}"`)
     },
-    // `in` reflects reachability: the façade surface plus DECLARED services
+    // `in` reflects reachability: the façade API plus DECLARED services
     // (whether or not currently live). Does not resolve/wrap — no throw.
     has: (_target, prop) => prop === 'tools' || prop === 'get'
       || (typeof prop === 'string' && (CTX_VERBS.has(prop) || declared.has(prop))),

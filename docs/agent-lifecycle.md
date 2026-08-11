@@ -77,6 +77,6 @@ The `assistant/message` event records every successful provider call, including 
 
 The returned `agent/pre-step` decision is authoritative; listeners wrapping `next()` preserve downstream messages unless replacement is intentional. Steering and injected context pass through the same waterfall after a later claim operation takes their next-step batch.
 
-SDK users that need replayable transcript data should consume `session/event`; `agent/*` is the live coordination surface for queue/status, prompt interception, request construction, steering, continuation, and errors.
+SDK users that need replayable transcript data should consume `session/event`; `agent/*` is the live coordination API for queue/status, prompt interception, request construction, steering, continuation, and errors.
 
 Maintenance mode: curated Mermaid sequence; exact event signatures live in the generated Cordis catalog.

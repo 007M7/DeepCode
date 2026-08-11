@@ -5,7 +5,7 @@
  * residency, cold resume, and interrupt authorization belong to the subagent
  * service — and they live apart from the provider-bound
  * `@deepseek-ai/dsh-tool-subagent` instances so multiple delegation tools share
- * one control surface.
+ * one control API.
  * @module @deepseek-ai/dsh-tool-subagent-control
  */
 

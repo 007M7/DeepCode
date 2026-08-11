@@ -430,7 +430,7 @@ export class SessionManager {
     }
   }
 
-  // ---- List surface ----
+  // ---- List API ----
 
   /** Full refresh via session.list (single-flight: an in-flight call is reused). */
   refreshList(): Promise<void> {
@@ -629,7 +629,7 @@ export class SessionManager {
     this.notifier.markDirty()
   }
 
-  // ---- Subscription surface (for useSessionList) ----
+  // ---- Subscription API (for useSessionList) ----
 
   /**
    * uSES subscription entry for useSessionList.

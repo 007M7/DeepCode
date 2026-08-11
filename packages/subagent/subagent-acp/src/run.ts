@@ -182,7 +182,7 @@ export function toAcpPrompt(prompt: ContentBlock[]): AcpContentBlock[] {
 function toError(value: unknown): Error {
   // The catch only sees rejections from the ACP SDK RPCs and the spawn `error`
   // event, which are always `Error`s; the `String(value)` arm is a defensive
-  // fallback for a non-Error throw that the typed surfaces cannot produce.
+  // fallback for a non-Error throw that the typed APIs cannot produce.
   /* v8 ignore next */
   return value instanceof Error ? value : new Error(String(value))
 }

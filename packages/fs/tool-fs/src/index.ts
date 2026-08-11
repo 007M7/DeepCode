@@ -13,7 +13,7 @@ import { applyWriteTool } from './write.ts'
 import { applyEditTool } from './edit.ts'
 import { applyReadImageTool } from './read-image.ts'
 import { READ_MAX_BYTES, READ_MAX_LINE_LENGTH } from './read-render.ts'
-import { FsSandboxSurface } from './sandbox.ts'
+import { FsSandboxController } from './sandbox.ts'
 
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'tool-fs'
@@ -70,10 +70,10 @@ export function apply(ctx: Context, config: Config): void {
   ctx.inject(['attachments'], (imageCtx) => {
     applyReadImageTool(imageCtx)
   })
-  // One escalation surface shared by both mutating tools: advertisement gating,
+  // One escalation API shared by both mutating tools: advertisement gating,
   // per-call policy resolution, and denial-marker mapping, all keyed off whether
   // the mounted ctx.fs confines (ctx.fs.sandboxMode).
-  const sandbox = new FsSandboxSurface(ctx)
+  const sandbox = new FsSandboxController(ctx)
   applyWriteTool(ctx, sandbox)
   applyEditTool(ctx, sandbox)
 }
