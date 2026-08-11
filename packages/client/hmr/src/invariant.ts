@@ -3,7 +3,7 @@
  * @module @deepseek-ai/dsh-client-hmr/invariant
  */
 
-import type { Context, Fiber } from 'cordis'
+import type { Context, Fiber } from '@deepseek-ai/cordis'
 import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 
 const PACKAGE_NAME = '@deepseek-ai/dsh-client-hmr'

@@ -8,11 +8,12 @@
 // and a file sub-row click opens the host path. Running parents
 // (runningCalls) nest their so-far dispatches the same way.
 
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render } from '@testing-library/react'
 import {
-  ConversationEventRegistry, ConversationViewRegistry, createSnapshotStore, SlotsService,
+  ConversationEventRegistry, ConversationViewRegistry, createSnapshotStore,
+  EMPTY_CONVERSATION_VIEWS, SlotsService,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import type {
   ConversationSnapshot, RunningToolCall, SessionId, SessionListState,
@@ -78,7 +79,8 @@ function snapshotWith(
   const nestedNodes = nodes.map(node => ({ ...node, subCalls }))
   const nestedRunningCalls = runningCalls.map(call => ({ ...call, subCalls }))
   return {
-    sessionId: SID, chat: toolChatSnapshot(nestedNodes, nestedRunningCalls),
+    sessionId: SID, views: EMPTY_CONVERSATION_VIEWS,
+    chat: toolChatSnapshot(nestedNodes, nestedRunningCalls),
     nodes: nestedNodes, turnTimings: new Map(), turnEnds: new Map(), partial: null,
     runningCalls: nestedRunningCalls,
     pending: [], queue: [], running: runningCalls.length > 0, composerPhase: 'active', removed: false,
@@ -155,6 +157,7 @@ async function bench(snapshot: ConversationSnapshot) {
   }
   ctx.provide('workspaces', workspaces)
   ctx.provide('layout', layout)
+  ctx.provide('connection', { api: { settings: {} }, isLoopback: false } as never)
   const locale = new LocaleService(ctx)
   ctx.provide('locale', locale)
   slots.installLocale(locale)

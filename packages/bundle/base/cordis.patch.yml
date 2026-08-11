@@ -14,19 +14,12 @@
 
 - insert:
     - id: timer
-      name: '@cordisjs/plugin-timer'
+      name: '@deepseek-ai/cordis-plugin-timer'
 
     - id: hmr
-      name: '@cordisjs/plugin-hmr'
+      name: '@deepseek-ai/cordis-plugin-hmr'
       config:
         root: ['.']
-
-    # The profile's cordis.patch.yml replaces this row's config to select exact GitHub
-    # repository Plugin generations. The app registers the DSH-owned runtime even
-    # when the list is empty so a later personal-config edit can load
-    # transactionally; one-shot headless runs consume the startup value only.
-    - id: repository-plugins
-      name: '@deepseek-ai/dsh-repository-plugin'
 
     - id: llm
       name: '@deepseek-ai/dsh-llm'
@@ -293,6 +286,15 @@
       name: '@deepseek-ai/dsh-subagent-fork'
       config:
         providerName: fork
+
+    # Product providers stay on the host plane because the registry is a
+    # process singleton. Agent presets decide whether their own model sees the
+    # matching delegation tools; loading either provider starts no product.
+    - id: subagent-codex
+      name: '@deepseek-ai/dsh-subagent-codex'
+
+    - id: subagent-claude-code
+      name: '@deepseek-ai/dsh-subagent-claude-code'
 
     # Continuable background children are selected per delegation tool. The
     # separately loaded follow-up tool registers the one global `send_message`.

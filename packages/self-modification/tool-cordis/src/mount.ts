@@ -9,7 +9,7 @@
  * @module @deepseek-ai/dsh-tool-cordis/mount
  */
 
-import type { Context, Fiber, Plugin } from 'cordis'
+import type { Context, Fiber, Plugin } from '@deepseek-ai/cordis'
 import { guardedPlugin } from './guard.ts'
 
 /** One tracked dynamic mount: the fiber plus the display name captured at mount time. */

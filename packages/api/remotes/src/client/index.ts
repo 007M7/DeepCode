@@ -1,13 +1,13 @@
 /** Platform-neutral assembly of generated Host Remote contributions. */
 
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import goalsRemote from '@deepseek-ai/dsh-goal/remote'
 import type { TypeRTClientRemote } from '@deepseek-ai/dsh-type-meta'
 
 export type { TypeRTClientRemote as ClientRemote } from '@deepseek-ai/dsh-type-meta'
 export type {} from '@deepseek-ai/dsh-goal/remote'
 
-declare module 'cordis' {
+declare module '@deepseek-ai/cordis' {
   interface Context {
     /** Generated Remote namespaces selected by this Client assembly. */
     remote: TypeRTClientRemote

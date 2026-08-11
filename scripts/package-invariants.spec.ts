@@ -49,7 +49,7 @@ function fixture(options: {
     },
     files: ['lib/index.js', 'lib/invariant.js'],
     peerDependencies: options.invariantDependency === false ? {} : {
-      '@deepseek-ai/dsh-invariants': '^0.0.1',
+      '@deepseek-ai/dsh-invariants': 'workspace:^',
     },
     devDependencies: options.invariantDependency === false ? {} : {
       '@deepseek-ai/dsh-invariants': 'workspace:^',

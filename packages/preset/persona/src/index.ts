@@ -13,8 +13,8 @@
  * @module @deepseek-ai/dsh-persona
  */
 
-import type { Context } from 'cordis'
-import z from 'schemastery'
+import type { Context } from '@deepseek-ai/cordis'
+import z from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 
 // Imported rather than restated: the registry declares the slot this row
@@ -38,23 +38,27 @@ export interface Config {
    * variables. Empty text drops the section at render, matching the registry.
    */
   text: string
+  /** Make this persona the complete system prompt, suppressing every other section. */
+  complete?: boolean
 }
 
 /** Runtime schema for the persona row. */
 export const Config: z<Config> = z.object({
   text: z.string().required(),
+  complete: z.boolean().default(false),
 })
 
 /**
  * Register the persona section for the mounting context's scope.
  * @param ctx - an agent scope context; an unscoped context collides with the
  * prompt registry's own persona registration and rejects.
- * @param config - the persona text.
+ * @param config - the persona text and complete-prompt policy.
  */
 export function apply(ctx: Context, config: Config): void {
   ctx.effect(() => ctx.systemPrompt.section({
     name: PERSONA_SECTION,
     order: PERSONA_ORDER,
     text: config.text,
+    ...(config.complete ? { complete: true } : {}),
   }), 'persona.section()')
 }

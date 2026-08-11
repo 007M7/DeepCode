@@ -92,7 +92,7 @@ jobs:
 
   sdk-wheel:
     needs: plan
-    name: deepseek_harness-${{ needs.plan.outputs.version }}-py3-none-any.whl
+    name: deepseek_harness_sdk-${{ needs.plan.outputs.version }}-py3-none-any.whl
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -113,8 +113,8 @@ jobs:
 
       - uses: actions/upload-artifact@v7
         with:
-          name: deepseek_harness-${{ needs.plan.outputs.version }}-py3-none-any.whl
-          path: dist-python/deepseek_harness-${{ needs.plan.outputs.version }}-py3-none-any.whl
+          name: deepseek_harness_sdk-${{ needs.plan.outputs.version }}-py3-none-any.whl
+          path: dist-python/deepseek_harness_sdk-${{ needs.plan.outputs.version }}-py3-none-any.whl
           if-no-files-found: error
 
   build:
@@ -197,7 +197,7 @@ jobs:
 
       - uses: actions/download-artifact@v8
         with:
-          name: deepseek_harness-${{ needs.plan.outputs.version }}-py3-none-any.whl
+          name: deepseek_harness_sdk-${{ needs.plan.outputs.version }}-py3-none-any.whl
           path: dist-python
 
       - name: Install only the SDK into a clean venv and run zero-config
@@ -208,7 +208,7 @@ jobs:
           python -m venv "$RUNNER_TEMP/dsh-sdk-smoke"
           "$RUNNER_TEMP/dsh-sdk-smoke/bin/python" -m pip install \
             --find-links dist-python \
-            deepseek-harness=="$VERSION"
+            deepseek-harness-sdk=="$VERSION"
           "$RUNNER_TEMP/dsh-sdk-smoke/bin/python" scripts/smoke-python-runtime.py \
             --scenario sdk-default
 
@@ -238,7 +238,7 @@ jobs:
           esac
           docker run --rm -e VERSION -v "$PWD:/work" -w /work "$image" bash -euxo pipefail -c '
             /opt/python/cp310-cp310/bin/python -m venv /tmp/dsh-sdk
-            /tmp/dsh-sdk/bin/python -m pip install --find-links /work/dist-python deepseek-harness=="$VERSION"
+            /tmp/dsh-sdk/bin/python -m pip install --find-links /work/dist-python deepseek-harness-sdk=="$VERSION"
             /tmp/dsh-sdk/bin/python /work/scripts/smoke-python-runtime.py --scenario sdk-default
           '
 

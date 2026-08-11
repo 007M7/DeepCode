@@ -2,7 +2,8 @@ import type {
   ConversationContextReader, ConversationEventInput, ConversationLocationData, ConversationMatch,
   ConversationNodeContext, ConversationNodeDefinition, ConversationPreviousContext,
   ConversationLocationDataScope, ConversationPublication, ConversationViewBuilder,
-  ConversationViewDefinition, ConversationViewNode,
+  ConversationViewDefinition, ConversationViewNode, ConversationViewSnapshotMap,
+  ConversationViewSnapshotStore,
 } from '../contract/conversation.ts'
 import { conversationContextKey } from '../contract/conversation.ts'
 import {
@@ -133,7 +134,7 @@ export interface ConversationViewDefinitions {
  * Session-owned incremental engine that assembles business Contexts from a
  * contiguous Event window and materializes registered view snapshots.
  */
-export class ConversationNodeAssembler {
+export class ConversationNodeAssembler implements ConversationViewSnapshotStore {
   private readonly contexts = new Map<string, InternalContext>()
   private readonly contextsByKind = new Map<string, InternalContext[]>()
   private readonly contextsBySeq = new Map<number, Set<InternalContext>>()
@@ -266,11 +267,11 @@ export class ConversationNodeAssembler {
       const allByTarget = new Map<string, ConversationViewNode[]>()
       for (const target of this.views.keys()) allByTarget.set(target, [])
       for (const context of this.contexts.values()) {
-        for (const target of this.views.keys()) {
-          const node = this.buildNode(context, target)
-          context.current.set(target, node)
-          if (node !== null) allByTarget.get(target)?.push(node)
-        }
+        const target = context.definition.target
+        if (target === undefined || !this.views.has(target)) continue
+        const node = this.buildNode(context, target)
+        context.current.set(target, node)
+        if (node !== null) allByTarget.get(target)?.push(node)
       }
       for (const view of this.views.values()) {
         view.snapshot = view.builder.replace({
@@ -288,17 +289,17 @@ export class ConversationNodeAssembler {
     for (const target of this.views.keys()) upsertsByTarget.set(target, [])
     if (this.applyDirtyLocationData()) this.timelineDirty = true
     for (const context of this.dirty) {
-      for (const target of this.views.keys()) {
-        const previous = context.current.get(target) ?? null
-        const node = this.buildNode(context, target)
-        if (node === null && previous !== null) {
-          throw new Error(
-            `conversation Definition "${context.kind}" withdrew materialized target "${target}"; return the same key with hidden visibility instead`,
-          )
-        }
-        context.current.set(target, node)
-        if (node !== null) upsertsByTarget.get(target)?.push(node)
+      const target = context.definition.target
+      if (target === undefined || !this.views.has(target)) continue
+      const previous = context.current.get(target) ?? null
+      const node = this.buildNode(context, target)
+      if (node === null && previous !== null) {
+        throw new Error(
+          `conversation Definition "${context.kind}" withdrew materialized target "${target}"; return the same key with hidden visibility instead`,
+        )
       }
+      context.current.set(target, node)
+      if (node !== null) upsertsByTarget.get(target)?.push(node)
     }
     this.dirty.clear()
     const timelineDirty = this.timelineDirty
@@ -321,6 +322,12 @@ export class ConversationNodeAssembler {
    */
   snapshot(target: string): unknown {
     return this.views.get(target)?.snapshot
+  }
+
+  get<Target extends Extract<keyof ConversationViewSnapshotMap, string>>(
+    target: Target,
+  ): ConversationViewSnapshotMap[Target] | undefined {
+    return this.snapshot(target) as ConversationViewSnapshotMap[Target] | undefined
   }
 
   private sortedInputs(): ConversationEventInput[] {
@@ -358,18 +365,19 @@ export class ConversationNodeAssembler {
       role: ConversationMatch['role'],
     ) => ConversationPublication,
   ): ConversationPublication {
-    let matched = false
+    const matchedTargets = new Set<string>()
     let publication: ConversationPublication = 'none'
     for (const definition of this.eventDefinitions.entries()) {
       const result = definition.match(input.event)
       if (result === null) continue
-      matched = true
+      if (definition.target !== undefined) matchedTargets.add(definition.target)
       publication = maximumPublication(publication, accept(definition, result.id, result.role))
     }
-    if (!matched) {
-      const fallback = this.eventDefinitions.fallbackEntry()
-      const result = fallback?.match(input.event) ?? null
-      if (fallback !== undefined && result !== null) {
+    const fallback = this.eventDefinitions.fallbackEntry()
+    const target = fallback?.target
+    if (fallback !== undefined && target !== undefined && !matchedTargets.has(target)) {
+      const result = fallback.match(input.event)
+      if (result !== null) {
         publication = maximumPublication(publication, accept(fallback, result.id, result.role))
       }
     }
@@ -697,7 +705,8 @@ export class ConversationNodeAssembler {
   }
 
   private buildNode(context: InternalContext, target: string): ConversationViewNode | null {
-    const node = context.definition.buildViewNode(contextSnapshot(context), target)
+    if (context.definition.target !== target || context.definition.buildViewNode === undefined) return null
+    const node = context.definition.buildViewNode(contextSnapshot(context))
     if (node === null) return null
     if (node.key !== context.key) {
       throw new Error(`conversation Definition "${context.kind}" returned unstable key "${node.key}"; expected "${context.key}"`)

@@ -4,7 +4,7 @@
  */
 
 /* jscpd:ignore-start */
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 
 const PACKAGE_NAME = '@deepseek-ai/dsh-persona'
@@ -16,7 +16,8 @@ export const inject = ['invariants']
 
 /**
  * No runtime invariant: this row owns no event stream or mutable runtime data — it registers one
- * prompt section and the prompt registry owns section identity, shadowing, and disposal.
+ * prompt section and the prompt registry owns identity, complete-prompt enforcement, shadowing,
+ * and disposal.
  */
 const install: InvariantInstaller = () => {}
 

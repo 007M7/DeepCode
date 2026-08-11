@@ -18,18 +18,17 @@ export const REPO_ROOT = fileURLToPath(new URL('../../..', import.meta.url))
 export const ZH_BROWSER_LOCALE = 'zh-CN'
 
 /**
- * Open the standard browser-test page with English selected before client
- * boot. This keeps role locators and goldens deterministic across localized
- * component migrations; the scenarios asserting the Chinese surface bypass
- * this helper and advertise {@link ZH_BROWSER_LOCALE} instead.
+ * Open the standard browser-test page advertising English before client boot.
+ * This keeps role locators and goldens deterministic while leaving the Host
+ * settings document free to override the provisional browser-derived locale;
+ * scenarios asserting the Chinese surface advertise
+ * {@link ZH_BROWSER_LOCALE} instead.
  * @param browser - Playwright browser owning the page.
  * @param height - Viewport height; width is fixed to the lane baseline.
  * @returns the initialized page.
  */
 export async function newEnglishPage(browser: Browser, height = 1000): Promise<Page> {
-  const page = await browser.newPage({ viewport: { width: 1680, height } })
-  await page.addInitScript(() => { localStorage.setItem('dsh.locale', 'en') })
-  return page
+  return await browser.newPage({ viewport: { width: 1680, height }, locale: 'en-US' })
 }
 
 /** Fail loud on a stale checkout instead of testing yesterday's bundle. */

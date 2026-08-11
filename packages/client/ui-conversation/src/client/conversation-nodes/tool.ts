@@ -1,4 +1,4 @@
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import type {
   ConversationMatch, ConversationNodeContext, ConversationNodeDefinition,
   RunningToolCall, ToolCallBlock, ToolResultNode,
@@ -235,6 +235,7 @@ function fallbackState(context: ConversationNodeContext<ToolState>): ToolState |
 /** Root Tool lifecycle and nested Code Dispatch Definition. */
 export const toolDefinition: ConversationNodeDefinition<ToolState> = {
   kind: 'tool-call',
+  target: 'chat',
   match: (event) => {
     if (event.type === 'tool/call') return { id: String(event.data.callId), role: 'start' }
     if (event.type === 'tool/result' && isAppendSurfaceEvent(event)) {
@@ -257,8 +258,7 @@ export const toolDefinition: ConversationNodeDefinition<ToolState> = {
     }
     return updateDispatch(context.state, match)
   },
-  buildViewNode: (context, target) => {
-    if (target !== 'chat') return null
+  buildViewNode: (context) => {
     const state = context.state ?? fallbackState(context)
     if (state === undefined) return null
     const projected = projectBlock(state.root, state, interruption(context))
