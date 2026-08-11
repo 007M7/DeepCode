@@ -71,6 +71,7 @@
     "@deepseek-ai/dsh-user-interaction": "workspace:^",
     "@deepseek-ai/dsh-workspace": "workspace:^",
     "@deepseek-ai/schemastery": "workspace:^",
+    "fflate": "^0.8.2",
     "zod": "^4.4.3"
   },
   "peerDependencies": {
