@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { TaskId, TaskService } from '@deepseek-ai/dsh-tasks'
-import type { TaskDoneListener, TaskRead, TaskSnapshot, TaskStart } from '@deepseek-ai/dsh-tasks'
+import type {
+  TaskDoneListener, TaskRead, TaskSnapshot, TaskStart, TasksChangedListener,
+} from '@deepseek-ai/dsh-tasks'
 
 /**
  * Minimal concrete registry: one canned record. The Service Definition owns the contract
@@ -50,6 +52,10 @@ class StubTaskService extends TaskService {
     return () => {}
   }
 
+  onTasksChanged(_listener: TasksChangedListener): () => void {
+    return () => {}
+  }
+
   attachSurface(_name: string): () => void {
     return () => {}
   }
@@ -70,6 +76,8 @@ describe('TaskService seam', () => {
     await expect(ctx.tasks.wait(id, 5)).resolves.toMatchObject({ id })
     const detachListener = ctx.tasks.onTaskDone(() => {})
     detachListener()
+    const detachChanges = ctx.tasks.onTasksChanged(() => {})
+    detachChanges()
     detachSurface()
   })
 

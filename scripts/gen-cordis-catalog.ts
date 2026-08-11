@@ -385,6 +385,7 @@ export const LINK_MAP: Readonly<Record<string, string>> = {
   TaskRead: 'tasks.md',
   TaskSnapshot: 'tasks.md',
   TaskStart: 'tasks.md',
+  TasksChangedListener: 'tasks.md',
   TokenMeasurement: 'token-meter.md',
   CodeDispatchLog: 'tools.md',
   PostToolDecision: 'tools.md',
