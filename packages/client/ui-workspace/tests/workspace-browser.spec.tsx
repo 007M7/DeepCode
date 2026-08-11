@@ -314,16 +314,20 @@ describe('WorkspaceBrowser', () => {
     expect(screen.getByText('child-s').closest('[role="treeitem"]')?.getAttribute('draggable')).toBe('true')
   })
 
-  it('auto-expands the selected session group and starts a session from the group ＋', () => {
+  it('expands the target group before starting a session from its ＋', () => {
     const startSession = vi.fn()
-    mount({
-      useSessions: hook(sessionState([summary('alpha-s', 1)], { current: sid('alpha-s') })),
+    const b = mount({
+      useSessions: hook(sessionState([summary('alpha-s', 1)])),
       useWorkspaces: hook(workspaceState([workspace('alpha', ['alpha-s'])])),
       startSession,
     })
-    // The current-group effect expanded the owning group without a click.
-    expect(screen.getByText('alpha-s')).toBeTruthy()
+    startSession.mockImplementation(() => {
+      expect(b.store.getSnapshot().workspaceExpansion).toEqual({ alpha: true })
+    })
+    expect(screen.queryByText('alpha-s')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: '在“alpha”中新建会话' }))
+    expect(b.store.getSnapshot().workspaceExpansion).toEqual({ alpha: true })
+    expect(screen.getByText('alpha-s')).toBeTruthy()
     expect(startSession).toHaveBeenCalledWith(wid('alpha'))
   })
 

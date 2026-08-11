@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-11-workspace-sidebar-order-and-folding.md
-2026-08-11-workspace-sidebar-order-and-folding.md: ad011d313dfea3e0c1992946230e3d9577646520
-2026-08-11-workspace-sidebar-order-and-folding.zh.md: a3391113869e4c9002ee0a803bb40fc11c523f68
+2026-08-11-workspace-sidebar-order-and-folding.md: f17855e17d389a85a473b76381f4da51d9bfd9be
+2026-08-11-workspace-sidebar-order-and-folding.zh.md: 7771322c93d75f6d257f323719988ea05f3bf6c2
