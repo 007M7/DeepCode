@@ -647,7 +647,7 @@ Source: [`packages/hooks/hooks-codex/src/index.ts:44`](../packages/hooks/hooks-c
 Requires: `agentDefaultModel` · `agents` · `attachments` · `directoryPicker` · `llm` · `sessions` · `subagents` · `sessionQuery` · `tools` · `userInteraction` · `workspace`
 
 ```ts config-catalog
-/** Gateway plugin config for native Host integration. */
+/** Gateway plugin configuration. */
 export interface Config {
   /**
    * Whether this deployment can hand paths to a native desktop opener —
@@ -657,10 +657,16 @@ export interface Config {
    * container whose DISPLAY points nowhere a user can see.
    */
   nativeOpen?: boolean
+  /**
+   * DEFLATE level for every session-log ZIP entry: `0` stores without
+   * compression, `1` favors CPU/latency, and `9` favors archive size.
+   * @default 6
+   */
+  sessionExportCompressionLevel?: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9
 }
 ```
 
-Source: [`packages/host/apiproxy/src/index.ts:37`](../packages/host/apiproxy/src/index.ts)
+Source: [`packages/host/apiproxy/src/index.ts:41`](../packages/host/apiproxy/src/index.ts)
 
 ## `@deepseek-ai/dsh-host-directory-picker-browse`
 

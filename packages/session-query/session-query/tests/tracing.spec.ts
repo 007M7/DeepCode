@@ -32,6 +32,8 @@ function appendEvent(seq: number, sources?: number[]): SessionEvent {
 }
 
 class TracePersistence extends SessionPersistence {
+  override readonly supportsRawArtifacts = false
+
   static entries = new Map<SessionIdType, { meta: SessionHeader; events: SessionEvent[] }>()
   static listCalls = 0
   static inspectCalls = 0

@@ -4,7 +4,7 @@ English | [中文](README.zh.md)
 
 The durable attachment seam. `ctx.attachments` validates and atomically commits immutable image bytes, then returns a serializable `ImageAttachmentRef`; consumers never persist browser paths, object URLs, provider URLs, or base64 in session events.
 
-Unsent composer images remain browser-owned temporary drafts. `validateImage` runs the same admission policy without persisting; batch writers validate every member first so a malformed member cannot strand earlier members as unreferenced objects. `saveImage` commits each accepted image before any model-visible session event is published, and `readImage` verifies the content-addressed object against its logged metadata.
+Unsent composer images remain browser-owned temporary drafts. `validateImage` runs the same admission policy without persisting; batch writers validate every member first so a malformed member cannot strand earlier members as unreferenced objects. `saveImage` commits each accepted image before any model-visible session event is published, and `readImage` verifies the content-addressed object against its logged metadata. Callers may cancel `readImage`; implementations observe cancellation around backend and verification work and preserve it instead of translating it into a storage failure.
 
 ## Model Experience
 
