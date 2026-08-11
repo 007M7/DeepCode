@@ -68,6 +68,8 @@ interface CoordinatorInternals {
  * durable behavior is covered by the JSONL and SQLite backends.
  */
 class MemoryPersistence extends SessionPersistence implements PersistenceBackend<never> {
+  override readonly supportsRawArtifacts = false
+
   static inject = ['sessions']
 
   override readonly name = 'session-persistence-memory'
@@ -247,11 +249,14 @@ runPersistenceContract('memory', async () => {
 })
 
 describe('the inherited readRaw default', () => {
-  it('answers undefined and honors an aborted signal', async () => {
+  it('rejects unsupported reads distinctly from absence and honors an aborted signal', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     await ctx.plugin(MemoryPersistence)
-    expect(await ctx.sessionPersistence.readRaw(SessionId('any-session'))).toBeUndefined()
+    expect(ctx.sessionPersistence.supportsRawArtifacts).toBe(false)
+    await expect(
+      ctx.sessionPersistence.readRaw(SessionId('any-session')),
+    ).rejects.toThrow('does not expose raw artifacts')
     await expect(
       ctx.sessionPersistence.readRaw(SessionId('any-session'), AbortSignal.abort()),
     ).rejects.toThrow()

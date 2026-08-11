@@ -1,12 +1,15 @@
-// @vitest-environment node
+// @vitest-environment jsdom
 /**
- * Session-log export filename derivation. The archive itself is produced and
- * streamed by the host (GET /api/session.export); this package only derives
- * the download filename and triggers the browser save.
+ * Session-log export browser delivery: safe filename derivation and a native
+ * download handoff that leaves the streamed response outside JavaScript.
  */
 
-import { describe, expect, it } from 'vitest'
-import { sessionLogZipFilename } from '../src/client/export-log.ts'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { downloadSessionLog, sessionLogZipFilename } from '../src/client/export-log.ts'
+
+afterEach(() => {
+  vi.restoreAllMocks()
+})
 
 describe('sessionLogZipFilename', () => {
   it('keeps safe session ids verbatim', () => {
@@ -20,5 +23,29 @@ describe('sessionLogZipFilename', () => {
 
   it('strips dots so a dot-only id cannot shape a dot segment', () => {
     expect(sessionLogZipFilename('..')).toBe('dsh-session-__.zip')
+  })
+})
+
+describe('downloadSessionLog', () => {
+  it('hands the descendant-inclusive endpoint directly to the browser', async () => {
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+
+    await downloadSessionLog('session/with spaces')
+
+    expect(click).toHaveBeenCalledOnce()
+    const anchor = click.mock.contexts[0] as HTMLAnchorElement
+    const url = new URL(anchor.href)
+    expect(url.pathname).toBe('/api/session.export')
+    expect(url.searchParams.get('sessionId')).toBe('session/with spaces')
+    expect(url.searchParams.get('includeDescendants')).toBe('true')
+    expect(anchor.download).toBe('dsh-session-session_with_spaces.zip')
+  })
+
+  it('rejects when the browser download handoff fails', async () => {
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {
+      throw new Error('download denied')
+    })
+
+    await expect(downloadSessionLog('session-root')).rejects.toThrow('download denied')
   })
 })

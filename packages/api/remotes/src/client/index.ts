@@ -8,6 +8,23 @@ import type { TypeRTClientRemote } from '@deepseek-ai/dsh-type-meta'
 export type { TypeRTClientRemote as ClientRemote } from '@deepseek-ai/dsh-type-meta'
 export type {} from '@deepseek-ai/dsh-goal/remote'
 export type {} from '@deepseek-ai/dsh-message-feedback/remote'
+// The forwarded-event allowlist's selection seat: without it in the consumer's
+// compilation face `TypeRTRemoteEvent` is `never` and every `$on` call fails.
+export type { ApiRemoteForwardedEvent } from '../types.ts'
+// The owner packages' client-safe `./types` exports supply the `Events`
+// signatures `$on` hands to a listener, so a consumer reads the very
+// declaration the Host emits rather than a flattened restatement of it.
+export type {} from '@deepseek-ai/dsh-commands/types'
+export type {} from '@deepseek-ai/dsh-credentials/types'
+export type {} from '@deepseek-ai/dsh-llm/types'
+export type {} from '@deepseek-ai/dsh-agent-presets/types'
+export type {} from '@deepseek-ai/dsh-settings/types'
+/**
+ * The Gateway Client face's own declaration merges, type-only: `ctx.remote` and
+ * with it the `$on`/`$dispatch` surface. Erased at emit, so this facade still
+ * carries no runtime edge to the Gateway implementation.
+ */
+export type {} from '@deepseek-ai/dsh-api-gateway/client'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {

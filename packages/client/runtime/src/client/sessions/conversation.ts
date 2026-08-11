@@ -330,8 +330,9 @@ export type OpenState = 'cold' | 'loading' | 'open' | 'error'
  * - `engaging`: a first prompt was attempted, but no accepted turn or other
  *   authoritative activity signal has arrived — the UI keeps the composer
  *   visible through admission and error frames.
- * - `active`: the session is non-blank beyond its pending first prompt, is
- *   running, or owns a pending interaction — the ordinary conversation view.
+ * - `active`: the session is non-blank beyond its pending first prompt,
+ *   contains visible non-command Chat content, is running, or owns a pending
+ *   interaction — the ordinary conversation view.
  *
  * A failed first prompt stays `engaging` (composer + error strip — retry
  * semantics; returning to the hero would discard the error context).

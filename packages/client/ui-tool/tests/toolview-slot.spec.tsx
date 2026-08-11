@@ -13,7 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent } from '@testing-library/react'
 import type { ISession, SessionId, ToolResultNode } from '@deepseek-ai/dsh-client-runtime/client'
 import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
-import { SlotTestRuntime } from '@deepseek-ai/dsh-client-test-runtime'
+import { SlotTestRuntime, stubSettingsScope } from '@deepseek-ai/dsh-client-test-runtime'
 import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
 import { apply as applyConversation, inject as injectConversation } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { apply as applyTool, inject as injectTool } from '@deepseek-ai/dsh-client-ui-tool/client'
@@ -65,6 +65,9 @@ const LAYOUT_CHILDREN = {
 async function bench(nodes: ToolResultNode[]) {
   const runtime = await SlotTestRuntime.create()
   runtime.provide('connection', { api: { settings: {} }, isLoopback: false } as never)
+  // ui-theme's Appearance row binds a durable scope through these two.
+  runtime.provide('remote', { $on: () => () => {} })
+  runtime.provide('settingsScope', { bind: () => stubSettingsScope().scope } as never)
   const layout = { openDetails: vi.fn(), closeDetails: vi.fn() }
   runtime.provide('layout', layout)
   const locale = new LocaleService(runtime.ctx)
@@ -198,6 +201,9 @@ describe('registrant declaration injection', () => {
   it('runs a registrant before ui-tool and waits on the actual toolview declaration', async () => {
     const runtime = await SlotTestRuntime.create()
     runtime.provide('connection', { api: { settings: {} }, isLoopback: false } as never)
+    // ui-theme's Appearance row binds a durable scope through these two.
+    runtime.provide('remote', { $on: () => () => {} })
+    runtime.provide('settingsScope', { bind: () => stubSettingsScope().scope } as never)
     runtime.provide('layout', { openDetails: vi.fn(), closeDetails: vi.fn() })
     const locale = new LocaleService(runtime.ctx)
     runtime.provide('locale', locale)

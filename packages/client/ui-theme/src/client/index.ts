@@ -9,9 +9,10 @@
  */
 import type { Context } from '@deepseek-ai/cordis'
 import type { BoundActions } from '@deepseek-ai/dsh-client-ui-slots'
-import {
-  bindSettingsScope, type ClientContext, type SettingsScope,
-} from '@deepseek-ai/dsh-client-runtime/client'
+import type { ClientContext, SettingsScope } from '@deepseek-ai/dsh-client-runtime/client'
+// Type-only: the ctx.settingsScope Context merge. Cross-plugin collaboration
+// goes through the service, never a value import (client bundle purity gate).
+import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type { AppearanceRowInjected } from './AppearanceRow.tsx'
@@ -212,8 +213,12 @@ export class ThemeService {
   }
 }
 
-/** Required services: settings transport plus slots/locale for the Appearance row. */
-export const inject = ['slots', 'locale', 'connection']
+/**
+ * Required services: settings transport plus slots/locale for the Appearance
+ * row. `remote` carries the forwarded settings invalidation that
+ * `bindSettingsScope` subscribes to on this context.
+ */
+export const inject = ['slots', 'locale', 'connection', 'remote', 'settingsScope']
 
 /**
  * Client plugin body: provide the theme service and register the
@@ -222,7 +227,7 @@ export const inject = ['slots', 'locale', 'connection']
  * @param ctx - client cordis context.
  */
 export function apply(ctx: ClientContext): void {
-  const host = bindSettingsScope<ThemeSettings>(ctx, { namespace: THEME_SETTINGS_NAMESPACE })
+  const host = ctx.settingsScope.bind<ThemeSettings>({ namespace: THEME_SETTINGS_NAMESPACE })
   const theme = new ThemeService(ctx, host)
   ctx.provide('theme', theme)
 

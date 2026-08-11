@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-Shared anonymous identity for session telemetry and direct feedback acknowledgement. `getOrCreateAnonymousUserId()` returns a random UUID v4 scoped to one harness home, persisted as the bare line `$DSH_HOME/.userid` (`~/.dsh/.userid` when `DSH_HOME` is unset). The OpenTelemetry backend reports it as Resource `user.id`; `/feedback` includes the same value in its acknowledgement so an operator can correlate a submitted session and user with exported telemetry.
+Shared anonymous identity for session telemetry, direct feedback acknowledgement, and DeepSeek provider requests. `getOrCreateAnonymousUserId()` returns a random UUID v4 scoped to one harness home, persisted as the bare line `$DSH_HOME/.userid` (`~/.dsh/.userid` when `DSH_HOME` is unset). The OpenTelemetry backend reports it as Resource `user.id`; `/feedback` includes the same value in its acknowledgement; and `dsh-llm-deepseek` sends it as `x-deepseek-harness-user-id`, allowing the receiving systems to correlate records without independently generated identities.
 
 The identity is never derived from the hostname, network address, git remote, or another identifying source. Deleting `.userid` resets the identity on the next process launch. Separate harness homes have separate identities.
 
@@ -12,18 +12,19 @@ Reads and writes are synchronous because both boot-time telemetry construction a
 
 ## Composition
 
-This package is a shared library, not a Cordis plugin. Consumers import `getOrCreateAnonymousUserId()` directly. Its invariant companion is intentionally empty because the package owns no event stream or public mutable relation that can be checked without creating the identity as a side effect.
+This package is a shared library, not a Cordis plugin. Consumers import `getOrCreateAnonymousUserId()` directly. Its invariant companion is intentionally empty because the package owns no event stream or public mutable relation that can be checked without creating the identity as a side effect. `DSH_TELEMETRY_DISABLED` stops telemetry export only; it does not suppress direct feedback acknowledgement or the DeepSeek provider header.
 
 ## Model Experience
 
-None, as the identifier is used only in telemetry metadata and a direct human command response; it never enters a model request.
+None, as the identifier reaches DeepSeek only as model-hidden HTTP transport metadata and never enters the request body, prompt, or model-visible content.
 
 #### KV Cache effect
 
-None; this package never contributes to a model request.
+None; the transport header changes neither tokens nor the model-visible prefix.
 
 ## Known Limitations and Deferred Work
 
 - **No recovery after deletion** — loss mints a new anonymous identity by design; recovery would require stable derivation material that weakens anonymity.
 - **Best-effort concurrency** — a reader landing in the narrow interval between a concurrent process's exclusive create and completed write can use a different in-memory UUID for that run; later launches converge on the persisted value.
 - **No cross-home identity** — different `$DSH_HOME` values cannot be correlated.
+- **Configured DeepSeek gateways receive the id** — `dsh-llm-deepseek` sends the stable header to its resolved `baseURL`, including deployment overrides, independently of telemetry sharing mode.

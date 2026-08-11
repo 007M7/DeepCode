@@ -2,8 +2,11 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { resolveSlotLabel, type BoundActions } from '@deepseek-ai/dsh-client-ui-slots'
 import {
-  bindSettingsScope, resolveWorkspacePath, type ISessions, type SessionId,
+  resolveWorkspacePath, type ISessions, type SessionId,
 } from '@deepseek-ai/dsh-client-runtime/client'
+// Type-only: the ctx.settingsScope Context merge. Cross-plugin collaboration
+// goes through the service, never a value import (client bundle purity gate).
+import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
 import type {} from '@deepseek-ai/dsh-client-locale/client'
@@ -46,7 +49,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 
 /** Services required by the conversation plugin. */
 export const inject = [
-  'slots', 'layout', 'sessions', 'workspaces', 'locale', 'connection',
+  'slots', 'layout', 'sessions', 'workspaces', 'locale', 'connection', 'remote', 'settingsScope',
   'conversationEvents', 'conversationViews',
 ]
 
@@ -128,7 +131,7 @@ export function apply(ctx: Context): void {
   // Apply-time construction keeps store identity bound to this fiber.
   const chatStore = createChatStore()
   const submissionPolicy = new ComposerSubmissionPolicy(
-    bindSettingsScope<ConversationSettings>(ctx, { namespace: CONVERSATION_SETTINGS_NAMESPACE }),
+    ctx.settingsScope.bind<ConversationSettings>({ namespace: CONVERSATION_SETTINGS_NAMESPACE }),
   )
 
   ctx.slots.inject('settings.general.item', () => ctx.slots.register({

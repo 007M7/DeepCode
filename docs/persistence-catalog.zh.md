@@ -536,6 +536,22 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 
 来源：[`packages/sandbox/sandbox-policy/src/session-mode.ts:33`](../packages/sandbox/sandbox-policy/src/session-mode.ts)
 
+### `schedule/*`
+
+#### `schedule/change` — log-only
+
+```ts persistence-catalog
+/**
+ * Versioned Schedule mutation. The owning package validates the complete
+ * session-local transition stream before accepting a candidate event.
+ */
+'schedule/change': ScheduleChange
+```
+
+类型：[ScheduleChange](subsystems/schedule.md)
+
+来源：[`packages/schedule/tool-schedule/src/types.ts:219`](../packages/schedule/tool-schedule/src/types.ts)
+
 ### `session/*`
 
 #### `session/end-seed` — log-only
@@ -728,6 +744,56 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 ```
 
 来源：[`packages/core/session/src/types.ts:271`](../packages/core/session/src/types.ts)
+
+### `tool-workflow/*`
+
+#### `tool-workflow/agent-end` — log-only
+
+```ts persistence-catalog
+/**
+ * Records one member settlement.
+ * @param data - run identity, paired member sequence, and outcome.
+ */
+'tool-workflow/agent-end': ToolWorkflowAgentEndData
+```
+
+来源：[`packages/workflow/tool-workflow/src/types.ts:57`](../packages/workflow/tool-workflow/src/types.ts)
+
+#### `tool-workflow/agent-start` — log-only
+
+```ts persistence-catalog
+/**
+ * Records one published workflow member.
+ * @param data - run identity, member sequence, display identity, and child Session.
+ */
+'tool-workflow/agent-start': ToolWorkflowAgentStartData
+```
+
+来源：[`packages/workflow/tool-workflow/src/types.ts:52`](../packages/workflow/tool-workflow/src/types.ts)
+
+#### `tool-workflow/run-end` — log-only
+
+```ts persistence-catalog
+/**
+ * Closes one workflow record after cleanup.
+ * @param data - stable run identity and terminal reason.
+ */
+'tool-workflow/run-end': ToolWorkflowRunEndData
+```
+
+来源：[`packages/workflow/tool-workflow/src/types.ts:62`](../packages/workflow/tool-workflow/src/types.ts)
+
+#### `tool-workflow/run-start` — log-only
+
+```ts persistence-catalog
+/**
+ * Opens one top-level workflow record.
+ * @param data - stable run identity and display name.
+ */
+'tool-workflow/run-start': ToolWorkflowRunStartData
+```
+
+来源：[`packages/workflow/tool-workflow/src/types.ts:47`](../packages/workflow/tool-workflow/src/types.ts)
 
 ### `turn/*`
 

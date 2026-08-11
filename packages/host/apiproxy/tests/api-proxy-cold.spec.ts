@@ -468,6 +468,80 @@ describe('subagent ownership fence', () => {
     expect(response.result.ok).toBe(true)
     expect(followup).toHaveBeenCalledOnce()
   })
+
+  it('canonicalizes a supplied browser zone on the exact prompt and rejects invalid names', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(UserInteractionService)
+    const session = ctx.sessions.create(sid('session-browser-zone'), { meta: { cwd: '/proj' } })
+    const followup = vi.fn()
+    const agent = { id: session.id, session, status: 'idle', ctx, followup } as unknown as Agent
+    ctx.agents.register(agent)
+    const api = createApiProxy(ctx, {
+      defaultModelSelection: () => ({ provider: 'p', model: 'm' }),
+      cwd: '/tmp',
+    })
+
+    const alias = 'US/Pacific'
+    const canonical = new Intl.DateTimeFormat('en-US', { timeZone: alias })
+      .resolvedOptions().timeZone
+    const zonedRequest = request({
+      sessionId: agent.id,
+      mode: 'queue' as const,
+      content: [{ type: 'text' as const, text: 'zoned work' }],
+      clientTimeZone: alias,
+    })
+    await expect(api.sessions.prompt(zonedRequest)).resolves.toMatchObject({
+      result: { ok: true },
+    })
+    expect(followup).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      source: { kind: 'user', rpcId: zonedRequest.rpcId, clientTimeZone: canonical },
+    }))
+
+    const utcRequest = request({
+      sessionId: agent.id,
+      mode: 'queue' as const,
+      content: [{ type: 'text' as const, text: 'UTC work' }],
+      clientTimeZone: 'UTC',
+    })
+    await expect(api.sessions.prompt(utcRequest)).resolves.toMatchObject({
+      result: { ok: true },
+    })
+    expect(followup).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      source: { kind: 'user', rpcId: utcRequest.rpcId, clientTimeZone: 'UTC' },
+    }))
+
+    const unzonedRequest = request({
+      sessionId: agent.id,
+      mode: 'queue' as const,
+      content: [{ type: 'text' as const, text: 'headless work' }],
+    })
+    await expect(api.sessions.prompt(unzonedRequest)).resolves.toMatchObject({
+      result: { ok: true },
+    })
+    expect(followup).toHaveBeenNthCalledWith(3, expect.objectContaining({
+      source: { kind: 'user', rpcId: unzonedRequest.rpcId },
+    }))
+
+    for (const clientTimeZone of ['', ' UTC', 'CST', 'Not/A_Real_Zone']) {
+      const invalid = await api.sessions.prompt(request({
+        sessionId: agent.id,
+        mode: 'queue' as const,
+        content: [{ type: 'text' as const, text: 'invalid zone' }],
+        clientTimeZone,
+      }))
+      expect(invalid.result).toEqual({
+        ok: false,
+        error: {
+          code: 'invalid-time-zone',
+          message: 'clientTimeZone must be UTC or a valid IANA Area/Location name',
+          details: { value: clientTimeZone },
+        },
+      })
+    }
+    expect(followup).toHaveBeenCalledTimes(3)
+  })
 })
 
 describe('degenerate composition (no persistence, no factory)', () => {

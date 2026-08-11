@@ -2,9 +2,12 @@
 
 [English](README.md) | 中文
 
-客户端 cordis 启动与不依赖 React 的对象服务：SlotsService 包装 SlotCore 并提供 renderer 数据源；SessionsService 拥有 Session 对象、列表与 scope 状态，以及供已注册 conversation view target 共用的事件窗口与历史分页。WorkspacesService 依赖 SessionsService，拥有 Workspace 对象、列表／操作、默认目标派生，以及 New Session 空会话复用入口（`connectWorkspace`）。运行时把共享 Host 流分发给 Session 与 Workspace 所有者，并把注册表失效帧桥接为类型化 ctx 事件（`commands/changed`、`session/preset-changed`、`settings/changed`、`credentials/changed`、`models/changed`），使各表面缓存无需触碰流即可重拉。`host/session-preset-changed` 还会把其中的 preset 折进会话行，因为这次切换的 RPC 回执只会到达发起它的那个客户端。客户端会话一律由 Host 创建（一次 `session.create` 同时产生 Session、agent（智能体）和 cwd）；客户端不持有任何实体化之前的会话状态——agent scope（host dsh-scope 的客户端镜像，以 agent/session 共用 id 为键）在会话行进入列表镜像时创建，并随 prune 销毁。约定：api-contracts v3 §4。每个 `Session` 持有一个通用的 `ProjectionValueStore`，由历史记录尾部的 `projections` 块播种，并经 `session/projection` 帧按 seq 高者胜更新；领域键（含 `todos`）经 `projections.faceOf`／`useProjection` 读取，不经 `ConversationSnapshot`。该 store 还会通过 `SessionSummary.projectionValues` 发布一份引用稳定的完整值映射，使全局列表消费方无需为每个会话创建订阅，即可复用同一组投影。
+客户端 cordis 启动与不依赖 React 的对象服务：SlotsService 包装 SlotCore 并提供 renderer 数据源；SessionsService 拥有 Session 对象、列表与 scope 状态，以及供已注册 conversation view target 共用的事件窗口与历史分页。WorkspacesService 依赖 SessionsService，拥有 Workspace 对象、列表／操作、默认目标派生，以及 New Session 空会话复用入口（`connectWorkspace`）。运行时把共享 Host 流分发给 Session 与 Workspace 所有者，并把每个通用 `host/remote-event` 帧交给 `ctx.remote.$dispatch`；各领域包通过 `ctx.remote.$on` 订阅自身 owner 事件，并自行决定使哪些缓存或会话行失效。客户端会话一律由 Host 创建（一次 `session.create` 同时产生 Session、agent（智能体）和 cwd）；客户端不持有任何实体化之前的会话状态——agent scope（host dsh-scope 的客户端镜像，以 agent/session 共用 id 为键）在会话行进入列表镜像时创建，并随 prune 销毁。约定：api-contracts v3 §4。每个 `Session` 持有一个通用的 `ProjectionValueStore`，由历史记录尾部的 `projections` 块播种，并经 `session/projection` 帧按 seq 高者胜更新；领域键（含 `todos`）经 `projections.faceOf`／`useProjection` 读取，不经 `ConversationSnapshot`。该 store 还会通过 `SessionSummary.projectionValues` 发布一份引用稳定的完整值映射，使全局列表消费方无需为每个会话创建订阅，即可复用同一组投影。
 
-`bindSettingsScope` 面向单个由领域持有的 namespace，是 Host 侧 settings owner seam 的浏览器镜像。它在开始非阻塞初始读取前建立订阅，发布 uSES 快照（状态、分节值、revision、可写性、host／内存模式），使用已知最新 namespace revision 串行执行 `set` 写入，抑制陈旧发布，并在最新写入被拒时从 Host 状态恢复；插件释放时，它会达到完全停稳。默认解码器会对照该 namespace 自身的序列化 wire schema（经 dsh-client-schema-form 还原）校验每个分节，因此领域只有在需要比该 schema 进一步收窄时才添加解码器。回环页面使用 Host settings API，远程页面则停留在内存模式。namespace schema、默认值与实时服务归领域包所有，而非把产品政策放入运行时。
+对于每条可到达本地根 Agent 或可继续子 Agent 的提示词，运行时都会采样浏览器当前的 `Intl.DateTimeFormat().resolvedOptions().timeZone`，并只把该值附加到这一次 Session 或 subagent 提示词 RPC。该值既不缓存，也不包含在 Session 创建或 fork 状态中，因此旅行与并发标签页都能保留消息本地的来源信息。浏览器若无法提供非空时区，会在本地拒绝该提示词，而不会悄然使用部署状态代替。
+
+`bindSettingsScope` 面向单个由领域持有的 namespace，是 Host 侧 settings owner seam 的浏览器镜像。它在开始非阻塞初始读取前建立订阅，发布 uSES 快照（状态、分节值、组装 `base` 层与原始 `user` 层、revision、可写性、host／内存模式），使用已知最新 namespace revision 串行执行 `set` 与 `unset` 写入，抑制陈旧发布，并在最新写入被拒时从 Host 状态恢复；插件释放时，它会达到完全停稳。默认解码器会对照该 namespace 自身的序列化 wire schema（经 dsh-client-schema-form 还原）校验每个分节，因此领域只有在需要比该 schema 进一步收窄时才添加解码器。回环页面使用 Host settings API，远程页面则停留在内存模式。字段是否被覆盖，取决于它是否**出现**在 `user` 中——与组装默认值相同的覆盖仍然是覆盖，比较值是看不出来的——而 `unset` 就是表单把某个字段清回 `base` 的方式。namespace schema、默认值与实时服务归领域包所有，而非把产品政策放入运行时。
+
 ## Slot 声明注入
 
 `ctx.slots.inject(name, callback)` 将完整的 `SlotMap` key 作为贡献项的依赖，适用于贡献方插件可独立于声明条目激活的情形。声明存在时，它会同步运行 `callback`，否则等待；声明折叠会 dispose（资源释放）回调 effect，重新声明则会再次运行回调。控制器归调用方的插件 fiber 所有，因此卸载贡献方会取消等待或移除其活跃注册项。直接调用 `slots.register()` 向未声明 slot 注册仍会抛出异常。
@@ -32,6 +35,8 @@ SlotsService 分别为 renderer 提供 `useSessions` 与 `useWorkspaces` 的裸 
 ## New Session 与 blank 镜像
 
 `WorkspacesService.connectWorkspace(workspaceId)` 解析 New Session 流程最终落入的会话：先在列表镜像中复用该 workspace 的既有空会话（`blank && cwd == workspace.path && sessionIds.includes(id)`——host 自己的成员规则，绝不只按 cwd，避免劫持 cwd 匹配但未入账的空白会话），未命中则调用 `session.create({workspaceId})`，返回会话 id 由调用方 open。`SessionSummary.blank` 镜像主机派生的空日志位，在客户端只降不升：由 `session.list`／`host/session-added` 帧播种，本地首次获 Host 接受的 `prompt()`（RPC 成功响应时——受理即证明用户消息已入主机日志；首讯被拒则会话保持 blank、保持可复用）与任何 `running: true` 状态帧翻为 false，每次列表重拉重新对齐。列表界面隐藏 blank 行；store 保留全部行。`SessionsService.create` 接受可选的、由调用方预先分配的 SessionId，失败时抛出 `SessionCreateError`（携带 `requestedSessionId`）。
+
+`Session.composerPhase` 把任何可见的非命令 Chat Node 视为对话内容，因此客户端插件可以在不打开轮次的情况下投影持久用户输入，而仅包含通用命令行的窗口仍保持 Host blank 状态。列表隐藏和空白会话复用仍遵循 Host blank 位。缺少插件输入 Node 的历史窗口会恢复该空白状态，直到加载更早页面后该 Node 恢复。
 
 ## 待处理队列投影
 

@@ -4,7 +4,7 @@
  * @module @deepseek-ai/dsh-type-meta/types
  */
 
-import type { Context } from '@deepseek-ai/cordis'
+import type { Context, Events } from '@deepseek-ai/cordis'
 
 declare const LOOKUP_HOST: unique symbol
 declare const LOOKUP_WIRE: unique symbol
@@ -41,6 +41,24 @@ export interface TypeRTRemoteMap {}
 
 /** Merge-extensible scoped Remote method signatures generated for consumers. */
 export interface TypeRTRemoteScopeMap {}
+
+/**
+ * Cordis event names whose shape a one-way Remote delivery can carry: unbound
+ * from any Scope and returning `void`. Which ones are actually forwarded is the
+ * Host assembly's selection; this predicate only excludes shapes the carrier
+ * cannot represent.
+ */
+export type TypeRTForwardableEvent = {
+  [Event in keyof Events]: unknown extends ThisParameterType<Events[Event]>
+    ? ReturnType<Events[Event]> extends void ? Event : never
+    : never
+}[keyof Events]
+
+/** Merge-extensible forwarding selection declared once by the Host assembly. */
+export interface TypeRTRemoteEventSelection {}
+
+/** Legal `$on` keys: selected events that exist in the current compilation face. */
+export type TypeRTRemoteEvent = Extract<keyof Events, keyof TypeRTRemoteEventSelection>
 
 /**
  * Resolve one direct Remote namespace from the generated flat endpoint map.
@@ -184,6 +202,27 @@ export interface TypeRTClientRemote extends TypeRTRemoteNamespaceMap {
    * @returns disposer after namespace services and concrete methods are ready.
    */
   $mount(contribution: TypeRTRemoteContribution): Promise<TypeRTDisposer>
+  /**
+   * Subscribe to one forwarded Host event; delivery is one-way, in registration
+   * order, and isolates a throwing listener from the rest.
+   * @template Event - forwarded event name selected by the Host assembly.
+   * @param event - forwarded Host event name, unchanged on the wire.
+   * @param listener - receives the Host's argument list as declared by Cordis `Events`.
+   * @returns disposer owned by the calling fiber.
+   */
+  $on<Event extends TypeRTRemoteEvent>(event: Event, listener: Events[Event]): () => void
+  /**
+   * Hand one decoded forwarded frame to the subscription table. The carrier
+   * owning the Host frame sink calls this; a consumer subscribes with
+   * {@link TypeRTClientRemote.$on} and never calls it.
+   *
+   * `event` is a plain string because this is the wire boundary: the name is
+   * whatever the Host assembly's allowlist selected, and one nobody subscribed
+   * to is dropped silently.
+   * @param event - forwarded Host event name, exactly as the Host emitted it.
+   * @param args - the Host argument list, already JSON-decoded.
+   */
+  $dispatch(event: string, args: readonly unknown[]): void
 }
 
 /**

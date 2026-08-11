@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { Context } from '@deepseek-ai/cordis'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, expectTypeOf, it } from 'vitest'
 import {
   bindTypeRTGateway,
   GatewayService,
@@ -9,12 +9,38 @@ import {
   RemoteScope,
   remoteMethods,
   type TypeRTContext,
+  type TypeRTForwardableEvent,
+  type TypeRTRemoteEvent,
 } from '@deepseek-ai/dsh-type-meta'
+
+declare module '@deepseek-ai/cordis' {
+  interface Events {
+    /**
+     * Test-only one-way event: bound to no Scope and returning nothing.
+     * @param value - marker payload.
+     */
+    'meta-fixture/forwardable'(value: string): void
+    /**
+     * Test-only Scope-bound event, which no carrier can deliver one-way.
+     * @param value - marker payload.
+     */
+    'meta-fixture/scoped'(this: Context, value: string): void
+    /**
+     * Test-only answered event, whose result no one-way delivery can return.
+     * @param value - marker payload.
+     * @returns the replacement value.
+     */
+    'meta-fixture/answered'(value: string): string
+  }
+}
 
 declare module '@deepseek-ai/dsh-type-meta' {
   interface TypeRTContextMap {
     metaFixture: TypeRTContext<string>
   }
+
+  interface TypeRTRemoteEventSelection extends
+    Record<'meta-fixture/forwardable' | 'meta-fixture/absent', true> {}
 }
 
 describe('type-meta Remote declarations', () => {
@@ -208,6 +234,16 @@ describe('type-meta Remote declarations', () => {
     expect(() => bindTypeRTGateway({}, '')).toThrow('service key')
     expect(() => bindTypeRTGateway({}, 'goals', { namespace: 'api/goals' })).toThrow('namespace')
     expect(() => bindTypeRTGateway({}, 'goals', { namespace: 'api goals' })).toThrow('namespace')
+  })
+
+  it('admits only one-way event shapes and only selected events that exist', () => {
+    expectTypeOf<'meta-fixture/forwardable'>().toExtend<TypeRTForwardableEvent>()
+    expectTypeOf<'meta-fixture/scoped'>().not.toExtend<TypeRTForwardableEvent>()
+    expectTypeOf<'meta-fixture/answered'>().not.toExtend<TypeRTForwardableEvent>()
+
+    expectTypeOf<'meta-fixture/forwardable'>().toExtend<TypeRTRemoteEvent>()
+    expectTypeOf<'meta-fixture/scoped'>().not.toExtend<TypeRTRemoteEvent>()
+    expectTypeOf<'meta-fixture/absent'>().not.toExtend<TypeRTRemoteEvent>()
   })
 })
 

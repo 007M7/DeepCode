@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-07-30-versioned-gui-welcome-onboarding.md
-2026-07-30-versioned-gui-welcome-onboarding.md: 4707769d4fa9fbf184e09a2e73087dfd326070be
-2026-07-30-versioned-gui-welcome-onboarding.zh.md: 002a04b1fc6acc4fc7cfee053bdbbb2abaef047e
+2026-07-30-versioned-gui-welcome-onboarding.md: ff4bfc860492d7eca345d55449e4e4726b988854
+2026-07-30-versioned-gui-welcome-onboarding.zh.md: dd293fe9e1e77414c4b352aa50e6b0456f866cce

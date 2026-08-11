@@ -12,7 +12,7 @@ Status: implemented
 
 ## 决策
 
-**wire 领域挂上编译期 RPC 映射，拒绝落为错误码，失效落为帧。**`settings.describe/openDocument/update/replace/mutate`、`credentials.describe/set/unset`、`llm.providers` 与 `llm.models`（认领预留的 `host.listModels` 面）一同加入 `RpcMethodMap`，七处由编译器锁定的接线位点因此让约定、schema、处理器与客户端保持步调一致。seam 侧的拒绝折叠为 `settings-rejected {ns}`/`credential-rejected {ref}` 业务错误（HTTP 仍只是载体），三个 `HostFrame`——`host/settings-changed {ns}`、`host/credentials-changed {ref}`、`host/models-changed`——沿用 `host/commands-changed` 的形状，因此每个客户端都无需轮询即可收敛。settings 读取、原生操作与写入和 `pickDirectory`/`openPath` 一起进入连接守卫的特权集合：回环 + 同源，否则 403，因为暴露在局域网上的 dsh web 绝不能接受来自其他源的配置访问。
+**wire 领域挂上编译期 RPC 映射，拒绝落为错误码，owner 事件原样转发。**`settings.describe/openDocument/update/replace/mutate`、`credentials.describe/set/unset`、`llm.providers` 与 `llm.models` 一同加入 `RpcMethodMap`，由编译器锁定的接线位点让 schema、处理器与客户端保持步调一致。seam 侧拒绝折叠为业务错误，客户端则订阅转发的 settings、credentials 与 LLM owner 事件，无需轮询即可收敛（见[转发的 Remote 事件](2026-08-10-remote-event-delivery.md)）。settings 读取、原生操作与写入和 `pickDirectory`/`openPath` 一起进入连接守卫的特权集合：回环 + 同源，否则 403，因为暴露在局域网上的 dsh web 绝不能接受来自其他源的配置访问。
 
 **`describe()` 增加分层与结构化 secret 脱敏。**`SettingsDescriptor` 在生效值之外携带 `base`/`user`，表单据此按「字段是否出现在用户层」来标记「已覆盖」，而非按值是否不等（与 base *相等*的覆盖仍然是覆盖）。`describe({ redactSecrets: true })`——在每个 wire 面都强制启用——经由对 schema 的纯结构遍历（object/dict/array 容器；secret 角色子树整体是一个不透明叶节点）从全部三层剥除 `role('secret')` 子树，并把剥除的槽位枚举为 `{path, set}`，页面因此不必收到任何值就能渲染只写输入框。
 

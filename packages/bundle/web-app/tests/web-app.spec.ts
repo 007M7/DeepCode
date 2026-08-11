@@ -58,17 +58,9 @@ function fakeHttpServer(host: '127.0.0.1' | '0.0.0.0' = '127.0.0.1'): { server: 
   return { server, seat: () => fallback }
 }
 
-/** Install the optional HMR row the runtime sequences before client discovery. */
-function provideHmrRow(ctx: Context, settle: () => Promise<void> = async () => {}): string[] {
-  const updates: string[] = []
-  ctx.provide('loader', {
-    entries: () => [{
-      options: { id: 'client-hmr' },
-      enableRuntime: async () => { updates.push('client-hmr') },
-    }],
-    await: settle,
-  } as never)
-  return updates
+/** A fake Loader whose settlement the test controls (the URL line waits on it). */
+function provideLoader(ctx: Context, settle: () => Promise<void> = async () => {}): void {
+  ctx.provide('loader', { await: settle } as never)
 }
 
 interface BashContribution {
@@ -90,15 +82,14 @@ describe('web-app runtime glue', () => {
         return () => {}
       },
     } as never)
-    const enabledRows = provideHmrRow(ctx)
+    provideLoader(ctx)
     const log = vi.spyOn(console, 'log').mockImplementation(() => {})
-    await apply(ctx, new Config({ mode: 'development', printUrl: true, surfaceContext: true, trustedHosts: ['lab.internal'] }))
+    apply(ctx, new Config({ printUrl: true, surfaceContext: true, trustedHosts: ['lab.internal'] }))
     await ctx.plugin(SystemPrompt, { persona: '' })
     // Settle the injected registrations.
     await new Promise(resolve => setTimeout(resolve, 0))
 
     expect(seat()).toBeDefined() // frontend-static claimed the fallback
-    expect(enabledRows).toEqual(['client-hmr'])
     expect(ctx.get('webRuntime')).toEqual({
       lanAddresses: ['192.168.1.5'],
       trustedHosts: ['192.168.1.5', 'lab.internal'],
@@ -108,24 +99,26 @@ describe('web-app runtime glue', () => {
     expect(assembly.sections.find(entry => entry.name === 'harness:source')?.text).toContain('DeepSeek Harness implementation checkout')
     const section = assembly.sections.find(entry => entry.name === 'app:web-surface')
     expect(section?.text).toContain('http://127.0.0.1:4567')
-    expect(section?.text).toContain('--dev')
+    // The single update contract: the receiver is always on; no-refresh
+    // reloads additionally need the rebuild watcher.
+    expect(section?.text).toContain('pnpm run dev:web')
     const webRuntime = contributions.find(contribution => contribution.name === 'web-runtime')
-    expect(webRuntime?.resolve()).toEqual({ DSH_WEB_URL: 'http://127.0.0.1:4567', DSH_WEB_MODE: 'development' })
+    expect(webRuntime?.resolve()).toEqual({ DSH_WEB_URL: 'http://127.0.0.1:4567' })
     await ctx.fiber.dispose()
   })
 
-  it('stays quiet in production mode with printUrl off and reports the production update contract', async () => {
+  it('stays quiet with printUrl off', async () => {
     stageDist()
     const ctx = new Context()
     ctx.provide('httpServer', fakeHttpServer().server)
     const log = vi.spyOn(console, 'log').mockImplementation(() => {})
-    await apply(ctx, new Config({ mode: 'production', printUrl: false, surfaceContext: true, trustedHosts: [] }))
+    apply(ctx, new Config({ printUrl: false, surfaceContext: true, trustedHosts: [] }))
     await ctx.plugin(SystemPrompt, { persona: '' })
     await new Promise(resolve => setTimeout(resolve, 0))
     expect(log).not.toHaveBeenCalled()
     const assembly = await ctx.systemPrompt.assemble()
     expect(assembly.sections.find(entry => entry.name === 'app:web-surface')?.text)
-      .toContain('without `--dev`')
+      .toContain('rebuilding the affected Web artifacts')
     await ctx.fiber.dispose()
   })
 
@@ -140,7 +133,7 @@ describe('web-app runtime glue', () => {
         return () => {}
       },
     } as never)
-    await apply(ctx, new Config({ mode: 'production', printUrl: false, surfaceContext: false, trustedHosts: [] }))
+    apply(ctx, new Config({ printUrl: false, surfaceContext: false, trustedHosts: [] }))
     await ctx.plugin(SystemPrompt, { persona: '' })
     await new Promise(resolve => setTimeout(resolve, 0))
     const assembly = await ctx.systemPrompt.assemble()
@@ -155,7 +148,7 @@ describe('web-app runtime glue', () => {
     const ctx = new Context()
     ctx.provide('httpServer', fakeHttpServer().server)
     const log = vi.spyOn(console, 'log').mockImplementation(() => {})
-    await apply(ctx, new Config({ mode: 'production', printUrl: true, surfaceContext: true, trustedHosts: [] }))
+    apply(ctx, new Config({ printUrl: true, surfaceContext: true, trustedHosts: [] }))
     await new Promise(resolve => setTimeout(resolve, 0))
     expect(log).toHaveBeenCalledWith('dsh web: http://127.0.0.1:4567')
     await ctx.fiber.dispose()
@@ -169,9 +162,9 @@ describe('web-app runtime glue', () => {
     settled.provide('httpServer', fakeHttpServer().server)
     let release: () => void
     const settlement = new Promise<void>((resolve) => { release = resolve })
-    provideHmrRow(settled, () => settlement)
+    provideLoader(settled, () => settlement)
     const log = vi.spyOn(console, 'log').mockImplementation(() => {})
-    await apply(settled, new Config({ mode: 'production', printUrl: true, surfaceContext: true, trustedHosts: [] }))
+    apply(settled, new Config({ printUrl: true, surfaceContext: true, trustedHosts: [] }))
     await new Promise(resolve => setTimeout(resolve, 0))
     expect(log).not.toHaveBeenCalled()
     release!()
@@ -184,8 +177,8 @@ describe('web-app runtime glue', () => {
     log.mockClear()
     const failed = new Context()
     failed.provide('httpServer', fakeHttpServer().server)
-    provideHmrRow(failed, async () => { throw new Error('boot failed') })
-    await apply(failed, new Config({ mode: 'production', printUrl: true, surfaceContext: true, trustedHosts: [] }))
+    provideLoader(failed, async () => { throw new Error('boot failed') })
+    apply(failed, new Config({ printUrl: true, surfaceContext: true, trustedHosts: [] }))
     await new Promise(resolve => setTimeout(resolve, 0))
     expect(log).not.toHaveBeenCalled()
     await failed.fiber.dispose()
@@ -200,8 +193,8 @@ describe('web-app runtime glue', () => {
     await child
     let releaseTorn: () => void
     const tornSettlement = new Promise<void>((resolve) => { releaseTorn = resolve })
-    provideHmrRow(torn, () => tornSettlement)
-    await apply(torn, new Config({ mode: 'production', printUrl: true, surfaceContext: true, trustedHosts: [] }))
+    provideLoader(torn, () => tornSettlement)
+    apply(torn, new Config({ printUrl: true, surfaceContext: true, trustedHosts: [] }))
     await child.dispose() // the httpServer service goes away
     releaseTorn!()
     await new Promise(resolve => setTimeout(resolve, 0))
@@ -217,7 +210,7 @@ describe('web-app runtime glue', () => {
     const { server } = fakeHttpServer()
     Object.defineProperty(server, 'port', { get: () => undefined })
     ctx.provide('httpServer', server)
-    await apply(ctx, new Config({ mode: 'production', printUrl: false, surfaceContext: true, trustedHosts: [] }))
+    apply(ctx, new Config({ printUrl: false, surfaceContext: true, trustedHosts: [] }))
     await ctx.plugin(SystemPrompt, { persona: '' })
     await new Promise(resolve => setTimeout(resolve, 0))
     await expect(ctx.systemPrompt.assemble()).rejects.toThrow('httpServer service missing')
