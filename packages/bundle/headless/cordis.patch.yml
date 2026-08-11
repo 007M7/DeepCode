@@ -9,7 +9,8 @@
     persona: >-
       You are a coding agent powered by the {{model}} model. Your working directory is {{cwd}}.
 
-# One-shot runs never watch or reload their composition.
+# The shared module-reload HMR row stays off; the launcher's watch-only
+# fallback still keeps the user patch layers live until the run exits.
 - id: hmr
   disabled: true
 

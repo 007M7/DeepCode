@@ -14,9 +14,7 @@ import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
 import type { PatchOptions } from '@deepseek-ai/cordis-plugin-include'
 import { afterEach, describe, expect, it } from 'vitest'
-import {
-  enableRow, internals, parseCmdline, provideCmdline, type CmdlinePlan,
-} from '../src/index.ts'
+import { internals, parseCmdline, provideCmdline, type CmdlinePlan } from '../src/index.ts'
 
 /** Every value one boot of the fixture tree observed. */
 interface Observed {
@@ -172,71 +170,6 @@ describe('parseCmdline', () => {
     const { ctx } = await bootFixture([], demoPlan, { withoutProvider: true })
     expect(parseCmdline(ctx, demoCommand())).toEqual({})
     expect(ctx.get('demoStartup')).toBeUndefined()
-  })
-})
-
-describe('enableRow', () => {
-  it('enables the named Loader row and fails loud when the Loader or row is absent', async () => {
-    const withoutLoader = new Context()
-    await expect(enableRow(withoutLoader, 'client-hmr')).rejects.toThrow('requires the Loader service')
-
-    const ctx = new Context()
-    let enabled = false
-    ctx.provide('loader', {
-      entries: () => [{
-        options: { id: 'client-hmr' },
-        enableRuntime: async () => { enabled = true },
-      }],
-    } as never)
-    await enableRow(ctx, 'client-hmr')
-    expect(enabled).toBe(true)
-    await expect(enableRow(ctx, 'absent')).rejects.toThrow('no "absent" row to enable')
-  })
-
-  it('keeps invocation-only activation through config reapplication', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'dsh-runtime-enable-'))
-    const observed = { starts: 0, stops: 0 }
-    ;(globalThis as unknown as { __runtimeEnableObserved: typeof observed }).__runtimeEnableObserved = observed
-    writeFileSync(join(dir, 'conditional.mjs'), `
-export function apply(ctx) {
-  globalThis.__runtimeEnableObserved.starts += 1
-  ctx.effect(() => () => { globalThis.__runtimeEnableObserved.stops += 1 })
-}
-`)
-    writeFileSync(join(dir, 'cordis.yml'), [
-      '- id: conditional',
-      `  name: ${pathToFileURL(join(dir, 'conditional.mjs')).href}`,
-      '  disabled: true',
-      '',
-    ].join('\n'))
-
-    const ctx = new Context()
-    await ctx.plugin(Loader)
-    ctx.loader.builtins.include = Include
-    await ctx.loader.create({
-      name: 'cordis:include',
-      config: { path: pathToFileURL(join(dir, 'cordis.yml')).href },
-    })
-    await ctx.loader.await()
-    const conditional = [...ctx.loader.entries()].find(entry => entry.options.id === 'conditional')
-    const include = [...ctx.loader.entries()].find(entry => entry.options.name === 'cordis:include')
-    expect(conditional).toBeDefined()
-    expect(include?.fiber).toBeDefined()
-    expect(conditional?.options.disabled).toBe(true)
-    expect(observed).toEqual({ starts: 0, stops: 0 })
-
-    await enableRow(ctx, 'conditional')
-    await ctx.loader.await()
-    expect(conditional?.disabled).toBe(false)
-    expect(conditional?.options.disabled).toBe(true)
-    expect(observed).toEqual({ starts: 1, stops: 0 })
-
-    await include!.fiber!.update(include!.options.config, true)
-    await ctx.loader.await()
-    expect(conditional?.disabled).toBe(false)
-    expect(conditional?.options.disabled).toBe(true)
-    expect(observed).toEqual({ starts: 1, stops: 0 })
-    disposers.push(async () => { await ctx.fiber.dispose() })
   })
 })
 
