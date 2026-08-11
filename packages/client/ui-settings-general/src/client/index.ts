@@ -1,8 +1,10 @@
 /**
- * Settings ownerless-copy plugin, browser half: registers everything on the
- * Settings surface that belongs to no single feature — the trigger/header
- * chrome content, local-document action, General section, and `settings`
- * dictionaries. Feature-owned rows and sections stay with their features.
+ * Settings shell and ownerless-copy plugin, browser half: renders the
+ * `sidebar.settings` occupant — panel chrome, section navigation, and the
+ * onboarding stage — and registers everything on the Settings pages that
+ * belongs to no single feature: the trigger/header chrome content,
+ * local-document action, General section, and `settings` dictionaries.
+ * Feature-owned rows and sections stay with their features.
  * Export discipline: packages/client/AGENTS.md.
  */
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
