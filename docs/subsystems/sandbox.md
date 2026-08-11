@@ -2,13 +2,13 @@
 
 English | [中文](sandbox.zh.md)
 
-The process-sandbox seam of [dsh-sandbox](../../packages/sandbox/sandbox) wraps a same-world subprocess argv in a file-effect policy without coupling consumers to a platform runner. [dsh-sandbox-local](../../packages/sandbox/sandbox-local) supplies the Linux bwrap/Landlock and macOS Seatbelt backends; [dsh-bash-sandbox](../../packages/bash/bash-sandbox) is the first consumer. Containers, microVMs, and remote execution are sibling implementations of whole capability seams, not providers of `ctx.sandbox`.
+The process-sandbox seam of [dsh-sandbox](../../packages/sandbox/sandbox) wraps a same-world subprocess argv in a file-effect policy without coupling consumers to a platform runner. [dsh-sandbox-local](../../packages/sandbox/sandbox-local) supplies Linux bwrap/Landlock, macOS Seatbelt, and the Windows ACL restricted-token backend; [dsh-bash-sandbox](../../packages/bash/bash-sandbox) and [dsh-pwsh-sandbox](../../packages/bash/pwsh-sandbox) consume it. Containers, microVMs, and remote execution are sibling implementations of whole capability seams, not providers of `ctx.sandbox`.
 
 Source: [`packages/sandbox/sandbox/src/index.ts`](../../packages/sandbox/sandbox/src/index.ts)
 
 ## Modes and enforcement
 
-`SandboxMode` governs filesystem effects only. `read-only` denies every write — the POSIX runners additionally grant the `/dev/null` sink their shells require, while the Windows ACL runner grants nothing; `workspace-write` permits writes under the workspace root and the backend's promised temp area; `danger-full-access` bypasses confinement. Network and process visibility are outside this vocabulary.
+`SandboxMode` governs filesystem effects only. `read-only` asks the backend to deny writes — the POSIX runners additionally grant the `/dev/null` sink their shells require, while the Windows ACL runner grants no explicit writable root and reports partial enforcement for its ambient ACL gaps; `workspace-write` permits writes under the workspace root and the backend's promised temp area; `danger-full-access` bypasses confinement. Network and process visibility are outside this vocabulary.
 
 ```ts type-equiv
 /**
@@ -27,7 +27,7 @@ Only the first two modes can be sent to a provider. A `danger-full-access` consu
 type ConfinedSandboxMode = Exclude<SandboxMode, 'danger-full-access'>
 ```
 
-Enforcement is a reported fact. `full` means the backend governs every file effect promised by the mode; `partial` means an active backend or older kernel ABI governs only a subset, so consumers that require the absolute promise must reject or surface that distinction.
+Enforcement is a reported fact. `full` means the backend governs every file effect promised by the mode; `partial` means an active backend or older kernel ABI governs only a subset, so consumers that require the absolute promise must reject or surface that distinction. Older Landlock ABIs and the Windows ACL runner's Everyone/hard-link boundaries are current partial cases.
 
 ```ts type-equiv
 /**
@@ -55,10 +55,10 @@ interface SandboxExecutionPolicy {
   workspaceRoot: string
   /**
    * Opaque identity of the calling session (the branded `dsh-session`
-   * SessionId). Backends key per-session state off it (e.g. the windows-acl
-   * per-session private temp subdirectory — the write grant itself is
-   * per-workspace, derived from the workspace root); absent for agentless
-   * calls, which fall back to per-call backend state.
+   * SessionId). Backends key per-session state off it (e.g. windows-acl gives
+   * each live session/workspace pair a random private temp directory and SID,
+   * while the workspace SID and standing grant remain per-workspace); absent
+   * for agentless calls, which fall back to per-call backend state.
    */
   sessionId?: SessionId
 }
