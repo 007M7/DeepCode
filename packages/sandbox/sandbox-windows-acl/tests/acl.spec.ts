@@ -9,7 +9,7 @@
  * whose per-test lock file is removed in cleanup.
  */
 
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -120,7 +120,7 @@ describe.skipIf(!isWin32)('ACL editing', () => {
     const api = await win32()
     const dir = scratch()
     const usersSid = sidFromString(api, 'S-1-5-32-545')
-    const orphanSid = sidFromString(api, 'S-1-4-4242-1')
+    const capabilitySid = sidFromString(api, 'S-1-4-4242-1')
     try {
       // Install one explicit ACE (Users + benign read mask) with the
       // package's own bindings, exactly like a pre-existing explicit DACL
@@ -137,37 +137,37 @@ describe.skipIf(!isWin32)('ACL editing', () => {
       expect(applyResult, `SetNamedSecurityInfoW setup (${applyResult})`).toBe(abi.ERROR_SUCCESS)
       expect(isNullPtr(freed)).toBe(true)
 
-      grantWrite(api, dir, orphanSid)
-      revokeWrite(api, dir, orphanSid)
+      grantWrite(api, dir, capabilitySid)
+      revokeWrite(api, dir, capabilitySid)
 
       const aces = readDirectAces(api, dir)
       expect(aces.some(ace => ace.sid === 'S-1-5-32-545')).toBe(true) // explicit ACE preserved
       expect(aces.some(ace => ace.sid === 'S-1-4-4242-1')).toBe(false) // orphan grant fully removed
     } finally {
       if (!isNullPtr(usersSid)) api.localFree(usersSid)
-      if (!isNullPtr(orphanSid)) api.localFree(orphanSid)
+      if (!isNullPtr(capabilitySid)) api.localFree(capabilitySid)
     }
   })
 
   it('grantWrite is idempotent: a second grant over the standing exact ACE skips the SetNamedSecurityInfoW apply (no eager full-tree re-propagation)', async () => {
     const api = await win32()
     const dir = scratch()
-    const orphanSid = sidFromString(api, 'S-1-4-4242-2')
+    const capabilitySid = sidFromString(api, 'S-1-4-4242-2')
     const apply = vi.spyOn(api, 'setNamedSecurityInfoW')
     try {
-      grantWrite(api, dir, orphanSid)
+      grantWrite(api, dir, capabilitySid)
       expect(apply).toHaveBeenCalledTimes(1)
       // The exact ACE now stands (the per-session grant surviving from a
       // previous server lifetime): the second grant is a DACL read only.
-      grantWrite(api, dir, orphanSid)
+      grantWrite(api, dir, capabilitySid)
       expect(apply).toHaveBeenCalledTimes(1)
       const aces = readDirectAces(api, dir)
       expect(aces.filter(ace => ace.sid === 'S-1-4-4242-2')).toHaveLength(1)
-      revokeWrite(api, dir, orphanSid)
+      revokeWrite(api, dir, capabilitySid)
       expect(readDirectAces(api, dir).some(ace => ace.sid === 'S-1-4-4242-2')).toBe(false)
     } finally {
       apply.mockRestore()
-      if (!isNullPtr(orphanSid)) api.localFree(orphanSid)
+      if (!isNullPtr(capabilitySid)) api.localFree(capabilitySid)
     }
   })
 
@@ -192,21 +192,58 @@ describe.skipIf(!isWin32)('ACL editing', () => {
     const api = await win32()
     const workspaceDir = scratch()
     const tempDir = scratch()
-    const sandbox = new AclSandbox({ writableDirs: [workspaceDir], tempDir, writeSid: 'S-1-4-9000-3', mode: 'workspace-write' })
+    const sandbox = new AclSandbox({
+      writableDirs: [workspaceDir],
+      tempDir,
+      writeSid: 'S-1-4-9000-3',
+      tempWriteSid: 'S-1-4-9000-3-1',
+      mode: 'workspace-write',
+    })
     await sandbox.init()
     sandbox.dispose()
     const workspaceAces = readDirectAces(api, workspaceDir)
     expect(workspaceAces.some(ace => ace.sid === 'S-1-4-9000-3')).toBe(true)
     const tempAces = readDirectAces(api, tempDir)
-    expect(tempAces.some(ace => ace.sid === 'S-1-4-9000-3')).toBe(false)
+    expect(tempAces.some(ace => ace.sid === 'S-1-4-9000-3-1')).toBe(false)
+  })
+
+  it('rejects an overlapping private temp directory before applying either capability', async () => {
+    const workspaceDir = scratch()
+    const nestedTemp = join(workspaceDir, 'temp')
+    const writeSid = 'S-1-4-9000-30'
+    const privateTempSid = 'S-1-4-9000-30-1'
+    mkdirSync(nestedTemp)
+    const sandbox = new AclSandbox({
+      writableDirs: [workspaceDir],
+      tempDir: nestedTemp,
+      writeSid,
+      tempWriteSid: privateTempSid,
+      mode: 'workspace-write',
+    })
+
+    await expect(sandbox.init()).rejects.toThrow(/private temp directory must be disjoint/u)
+    const api = await win32()
+    expect(readDirectAces(api, workspaceDir).some(ace => ace.sid === writeSid)).toBe(false)
+    expect(readDirectAces(api, nestedTemp).some(ace => ace.sid === privateTempSid)).toBe(false)
   })
 
   it('workspace-write without a write SID fails at construction; the token layer guards the same contract', () => {
     const dir = scratch()
     expect(() => new AclSandbox({ writableDirs: [dir], tempDir: null, mode: 'workspace-write' }))
       .toThrow(/requires a write SID/)
-    expect(() => createRestrictedToken({} as never, 0n as never, 0n as never, undefined, { world: 0n as never }, 'workspace-write'))
-      .toThrow(/requires the write SID/)
+    expect(() => new AclSandbox({ writableDirs: [dir], writeSid: 'S-1-4-1-1', mode: 'workspace-write' }))
+      .toThrow(/requires an explicit private temp directory or null/)
+    expect(() => new AclSandbox({ writableDirs: [dir], tempDir: dir, writeSid: 'S-1-4-1-1', mode: 'workspace-write' }))
+      .toThrow(/requires a temp write SID/)
+    expect(() => new AclSandbox({
+      writableDirs: [dir],
+      tempDir: dir,
+      writeSid: 'S-1-4-1-1',
+      tempWriteSid: 'S-1-4-1-1',
+      mode: 'workspace-write',
+    })).toThrow(/must be distinct/)
+    expect(() => createRestrictedToken({} as never, 0n as never, 0n as never, [], { world: 0n as never }, 'workspace-write'))
+      .toThrow(/requires at least one write SID/)
   })
 
   it('the per-path lock is exclusive: a second immediate lock attempt fails with ERROR_LOCK_VIOLATION until release', async () => {

@@ -287,6 +287,46 @@ describe('SessionPersistenceJsonl: durability and crash semantics', () => {
     expect((await ctx.sessionPersistence.list()).map(h => h.id)).toContain(m.id)
   })
 
+  it('readRaw returns the stored artifact text verbatim with its original filename', async () => {
+    const m = meta('raw-read', '/work')
+    await ctx.sessionPersistence.create(m)
+    await ctx.sessionPersistence.append(m.id, oneTurnLog())
+    const raw = await ctx.sessionPersistence.readRaw(m.id)
+    expect(raw).toBeDefined()
+    expect(raw!.filename).toBe('session.jsonl')
+    expect(raw!.meta.id).toBe(m.id)
+    // Byte-identical to the physical file — never a reconstruction.
+    expect(raw!.content).toBe(await readFile(rawLogPath(root, '/work', m.id), 'utf8'))
+    expect(raw!.content.split('\n')[0]).toBe(JSON.stringify(toHeaderLine(m)))
+    const scanned = scanLog(Buffer.from(raw!.content))
+    expect(scanned.events.map(event => event.type)).toEqual(oneTurnLog().map(event => event.type))
+  })
+
+  it('readRaw is undefined for an absent session', async () => {
+    const m = meta('raw-missing', '/work')
+    expect(await ctx.sessionPersistence.readRaw(m.id)).toBeUndefined()
+  })
+
+  it('readRaw rejects a corrupt header line instead of exporting it', async () => {
+    const m = meta('raw-corrupt', '/work')
+    await ctx.sessionPersistence.create(m)
+    await ctx.sessionPersistence.append(m.id, oneTurnLog())
+    await writeFile(rawLogPath(root, '/work', m.id), 'not a header line\n{"type":"turn/start","seq":0}\n')
+    await expect(ctx.sessionPersistence.readRaw(m.id)).rejects.toThrow(/corrupt session log/)
+  })
+
+  it('readRaw retries when the file revision changes during the read', async () => {
+    const m = meta('raw-revision-race', '/work')
+    await ctx.sessionPersistence.create(m)
+    await ctx.sessionPersistence.append(m.id, oneTurnLog())
+    statRace.path = rawLogPath(root, '/work', m.id)
+
+    const raw = await ctx.sessionPersistence.readRaw(m.id)
+    expect(raw).toBeDefined()
+    // Two stat calls per iteration; the mocked revision change forces a retry.
+    expect(statRace.reads).toBe(4)
+  })
+
   it('keeps the same location on resume and gives a fork its own location', async () => {
     const parent = meta('location-parent', '/work')
     const parentLocation = ctx.sessionPersistence.locate(parent)

@@ -383,7 +383,7 @@ describe('createRestrictedToken failure paths', () => {
     })
     const api = { createRestrictedToken: create } as unknown as Win32Bindings
     const logon = allocBytes(12)
-    expect(createRestrictedToken(api, 1n as NativePtr, logon, undefined, { world: 2n as NativePtr }, 'read-only')).toBe(9n)
+    expect(createRestrictedToken(api, 1n as NativePtr, logon, [], { world: 2n as NativePtr }, 'read-only')).toBe(9n)
   })
 
   it('builds the workspace-write restricting list with the write SID', () => {
@@ -397,7 +397,7 @@ describe('createRestrictedToken failure paths', () => {
     })
     const api = { createRestrictedToken: create } as unknown as Win32Bindings
     const logon = allocBytes(12)
-    expect(createRestrictedToken(api, 1n as NativePtr, logon, 3n as NativePtr, { world: 2n as NativePtr }, 'workspace-write')).toBe(9n)
+    expect(createRestrictedToken(api, 1n as NativePtr, logon, [3n as NativePtr], { world: 2n as NativePtr }, 'workspace-write')).toBe(9n)
   })
 
   it('reports when CreateRestrictedToken fails', () => {
@@ -409,7 +409,7 @@ describe('createRestrictedToken failure paths', () => {
     const logon = allocBytes(12)
     let caught: unknown
     try {
-      createRestrictedToken(api, 1n as NativePtr, logon, undefined, { world: 2n as NativePtr }, 'read-only')
+      createRestrictedToken(api, 1n as NativePtr, logon, [], { world: 2n as NativePtr }, 'read-only')
     } catch (error) {
       caught = error
     }
@@ -426,7 +426,7 @@ describe('createRestrictedToken failure paths', () => {
     const logon = allocBytes(12)
     let caught: unknown
     try {
-      createRestrictedToken(api, 1n as NativePtr, logon, undefined, { world: 2n as NativePtr }, 'read-only')
+      createRestrictedToken(api, 1n as NativePtr, logon, [], { world: 2n as NativePtr }, 'read-only')
     } catch (error) {
       caught = error
     }

@@ -259,7 +259,7 @@ export interface Config {
 
 Depends on: [`ToolPresentationMode`](subsystems/tools.md)
 
-Source: [`packages/core/agent-tool-mode/src/index.ts:36`](../packages/core/agent-tool-mode/src/index.ts)
+Source: [`packages/core/agent-tool-mode/src/index.ts:38`](../packages/core/agent-tool-mode/src/index.ts)
 
 ## `@deepseek-ai/dsh-attachment-local`
 
@@ -1368,7 +1368,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/sandbox/sandbox-local/src/index.ts:43`](../packages/sandbox/sandbox-local/src/index.ts)
+Source: [`packages/sandbox/sandbox-local/src/index.ts:44`](../packages/sandbox/sandbox-local/src/index.ts)
 
 ## `@deepseek-ai/dsh-sandbox-policy`
 
@@ -1430,7 +1430,7 @@ export interface Config {
 export type JsonlCompression = 'zstd' | 'none'
 ```
 
-Source: [`packages/session/session-persistence-jsonl/src/index.ts:59`](../packages/session/session-persistence-jsonl/src/index.ts)
+Source: [`packages/session/session-persistence-jsonl/src/index.ts:60`](../packages/session/session-persistence-jsonl/src/index.ts)
 
 ## `@deepseek-ai/dsh-session-persistence-sqlite`
 

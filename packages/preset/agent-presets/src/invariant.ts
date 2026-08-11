@@ -5,6 +5,10 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
+// Type-only: resolves the `system-prompt/assemble` waterfall this companion
+// joins, and the `agent` field `dsh-agent` merges into its context.
+import type {} from '@deepseek-ai/dsh-system-prompt'
+import type {} from '@deepseek-ai/dsh-agent'
 // Imported through the package name, not `./mount.ts`: a module shared between
 // the two build entry points becomes a third chunk that the published `files`
 // list does not carry, which `verify-built-package-invariants` rejects.
@@ -18,9 +22,10 @@ export const name = 'agent-presets-invariant'
 export const inject = ['invariants']
 
 /**
- * Assert that no installed preset composition reaches the root service realm.
+ * Assert that no installed preset composition reaches the root service realm,
+ * and that a deployment configuring a roster composes every agent from it.
  *
- * `mountPreset` proves this once, when the subtree settles. A row that
+ * `mountPreset` proves the first once, when the subtree settles. A row that
  * publishes later — from a timer, or an asynchronous continuation after its
  * plugin returned — would escape that one-shot audit, so re-check every live
  * mount whenever a service registration changes.
@@ -37,6 +42,33 @@ const install: InvariantInstaller = (ctx, fail) => {
       )
     }
   }, { global: true })
+
+  // An agent that joined no preset resolves `tools`, `system-prompt`, and
+  // `skill` against the empty global layer, so the model receives nothing.
+  // `composedPreset()` is the roster's own answer to "did this agent join",
+  // read from the live scope chain — see the [Agent
+  // Note](../../../../.agents/notes/implemented/architecture/2026-08-10-host-plane-ownership-after-presets.md)
+  // for why the warning beside it is advisory while this one fails.
+  //
+  // Two conditions, each load-bearing. `context.agent` is what makes this an
+  // AGENT assembly: a scope-only assembly — a cold read resolving presenters
+  // in a standing key, a diagnostic — is not an agent and must not be judged
+  // on whether it joined anything. And assembly rather than publication is the
+  // moment that matters, because an unjoined agent is legal until it addresses
+  // a model: `recompose` binds a bare agent as its first link, and that agent
+  // is unjoined for its whole life up to the switch.
+  ctx.on('system-prompt/assemble', (_assembly, context, next) => {
+    const presets = ctx.get('agentPresets')
+    const agent = context.agent
+    if (presets !== undefined && presets.config.roots.length > 0
+      && agent !== undefined && presets.composedPreset(agent.ctx) === undefined) {
+      fail(
+        `agent "${agent.id}" addressed a model without joining any agent preset while a roster is `
+        + 'composed; its tools, prompt sections, and skill catalog resolve against the empty global layer',
+      )
+    }
+    return next()
+  })
 }
 
 /**

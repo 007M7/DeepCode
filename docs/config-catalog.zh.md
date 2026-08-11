@@ -261,7 +261,7 @@ export interface Config {
 
 依赖：[`ToolPresentationMode`](subsystems/tools.md)
 
-来源：[`packages/core/agent-tool-mode/src/index.ts:36`](../packages/core/agent-tool-mode/src/index.ts)
+来源：[`packages/core/agent-tool-mode/src/index.ts:38`](../packages/core/agent-tool-mode/src/index.ts)
 
 ## `@deepseek-ai/dsh-attachment-local`
 
@@ -1370,7 +1370,7 @@ export interface Config {
 }
 ```
 
-来源：[`packages/sandbox/sandbox-local/src/index.ts:43`](../packages/sandbox/sandbox-local/src/index.ts)
+来源：[`packages/sandbox/sandbox-local/src/index.ts:44`](../packages/sandbox/sandbox-local/src/index.ts)
 
 ## `@deepseek-ai/dsh-sandbox-policy`
 
