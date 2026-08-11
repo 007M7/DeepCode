@@ -33,7 +33,10 @@ const WORKSPACE_CLOSURE = [
   // from the registry).
   'packages/sandbox/sandbox-windows-acl',
   'packages/sandbox/sandbox',
+  'packages/core/session',
+  'packages/core/scope',
   'packages/llm/llm',
+  'packages/typert/type-meta',
   'packages/attachment/attachment',
   'packages/util/brand',
   'packages/util/timeout',

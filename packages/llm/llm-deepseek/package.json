@@ -38,6 +38,7 @@
     "@deepseek-ai/dsh-llm": "workspace:^",
     "@deepseek-ai/dsh-settings": "workspace:^",
     "@deepseek-ai/dsh-timeout": "workspace:^",
+    "@deepseek-ai/dsh-user-id": "workspace:^",
     "@deepseek-ai/cordis": "workspace:^"
   },
   "dependencies": {
@@ -51,6 +52,7 @@
     "@deepseek-ai/dsh-llm": "workspace:^",
     "@deepseek-ai/dsh-settings": "workspace:^",
     "@deepseek-ai/dsh-timeout": "workspace:^",
+    "@deepseek-ai/dsh-user-id": "workspace:^",
     "@deepseek-ai/cordis": "workspace:^"
   }
 }

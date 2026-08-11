@@ -1,7 +1,7 @@
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import LlmService, { createUserMessage, CallId, ReasoningEffortId , createMessage } from '@deepseek-ai/dsh-llm'
 import type { Message, ToolSchema } from '@deepseek-ai/dsh-llm'
@@ -19,6 +19,12 @@ import { assemble, type AssembledResult } from './assemble.ts'
 const FLASH = 'deepseek-v4-flash'
 const PRO = 'deepseek-v4-pro'
 const contexts: Context[] = []
+let identityHome: string
+
+beforeEach(async () => {
+  identityHome = await mkdtemp(join(tmpdir(), 'dsh-e2e-user-id-'))
+  vi.stubEnv('DSH_HOME', identityHome)
+})
 
 async function harness(_model: string, config: Partial<Config> = {}) {
   const ctx = new Context()
@@ -30,6 +36,8 @@ async function harness(_model: string, config: Partial<Config> = {}) {
 
 afterEach(async () => {
   await Promise.all(contexts.splice(0).map(ctx => ctx.fiber.dispose()))
+  vi.unstubAllEnvs()
+  await rm(identityHome, { recursive: true, force: true })
 })
 
 function ask(text: string): Message[] {

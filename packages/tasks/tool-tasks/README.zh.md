@@ -18,7 +18,11 @@
 
 ## 完成通知
 
-一项尚未报告的完成会把 `background task <id> (<kind>: <label>) finished [status: ...]. Read its output with task_output.` 注入到确切所有者的 next-step inbox。应用上限时，即使采用 PTY 支持的 64 字节下限，稳定 id 前缀和收集命令的优先级也高于可变 label/detail，因此通知仍可操作。注入是等待后续 pre-step 领取的持久上下文，并非唤醒；取消或 owner 释放可能在领取前丢弃它。kill 或针对已终止任务的 read/wait 会把交付标为已报告，并抑制重复通知。
+一项尚未报告的完成会把 `background task <id> (<kind>: <label>) finished [status: ...]. Read its output with task_output.` 交付给确切所有者。应用上限时，即使采用 PTY 支持的 64 字节下限，稳定 id 前缀和收集命令的优先级也高于可变 label/detail，因此通知仍可操作。kill 或针对已终止任务的 read/wait 会把交付标为已报告并抑制重复通知；排空 owner 或服务的 teardown 取消同样如此。
+
+由哪条通道承载取决于所有者当时在做什么。繁忙的所有者走注入：通知进入 next-step inbox，而该 inbox 尚有内容时 turn 无法结束，因此同时结算的多个任务只花掉一步，而不是各占一轮。空闲的所有者则被 follow-up 唤醒，因为无人领取的待发通知等于模型永远不会知道的完成。`completionDelivery: quiet` 让空闲所有者也留在注入通道上，确定性 transcript 需要的正是这一点。
+
+唤醒是有界的。每个所有者最多可通过唤醒开启 `maxConsecutiveWakes` 轮，此后的通知降级为注入；领取任何用户撰写的消息都会恢复该预算。设界是因为这条链会自激：被唤醒的一轮可能启动某个后台任务，而它的完成又会唤醒同一个所有者。本插件自己排队的通知永远不会补充它刚花掉的预算。
 
 一个宿主注册表可能承载本插件的多份挂载——每个 agent preset 一份。注册表会把每次结算路由给所有者 scope 链所能抵达的监听器，因此某个 preset 下的挂载永远看不到另一个 preset 的 agent，无论挂载了多少 preset，一个 agent 每次完成都只读到一条通知。同一套路由也决定本挂载的控制器服务哪些 agent：组合中未加载 `tool-tasks` 的 agent 根本无法启动后台工作。
 
@@ -28,6 +32,8 @@
 |---|---|---|
 | `waitTimeoutMs` | `30000` | `wait: true` 省略 `timeout_ms` 时使用的等待时间 |
 | `maxWaitTimeoutMs` | `600000` | 模型所给等待时间的上限 |
+| `completionDelivery` | `wakeup` | `wakeup` 为空闲所有者开启一轮；`quiet` 让通知继续待领 |
+| `maxConsecutiveWakes` | `3` | 一个所有者可由唤醒开启的轮数，超出后通知降级为注入 |
 
 默认值高于上限时，插件会在加载时失败。
 
@@ -75,7 +81,7 @@ Track every background task id you start. You are notified in-session when a tas
 
 #### Token 影响
 
-结果与通知在压缩（compaction）前保留于父级历史。流读取不会重复已消费的输出；生产方提供的 `outputLimitBytes` 会限制每次完整读取或通知。
+结果与通知在压缩（compaction）前保留于父级历史。流读取不会重复已消费的输出；生产方提供的 `outputLimitBytes` 会限制每次完整读取或通知。在 `wakeup` 下，抵达空闲所有者的通知还会额外买下一次用户并未要求的模型请求，其数量按所有者由 `maxConsecutiveWakes` 封顶；抵达繁忙所有者的通知则只是给它已经在支付的那一轮加一步。
 
 #### KV Cache 影响
 
@@ -83,6 +89,8 @@ Track every background task id you start. You are notified in-session when a tas
 
 ## 已知限制与暂缓事项
 
-- **完成通知不会唤醒空闲 agent**：需要立即获得结果的调用方必须使用 `task_output`。
+- **落在 driver 退休窗口内的结算仍会让通知搁浅**：在轮次循环最后一次检查 inbox 与 driver 提交 idle 相位之间，所有者读起来仍是繁忙，因此通知走注入且无人唤醒。steer 有同样的洞；堵上它属于 `agent-loop`。
+- **已花掉的唤醒预算不会随时间恢复**：只有用户撰写的输入才能补充，因此预算耗尽的无人值守 agent 要等到其他原因开启下一轮时才收走剩余通知。
+- **待领于空闲所有者的通知无法在该所有者释放后存活**：释放时的取消会清空未领取的 inbox，日志保留插入/取消这一对作为记录。
 - **流读取只有单一消费方**：独立观察者需要另一套运行时 API。
 - **无 owner 的任务没有会话隔离**：外部调用方必须提供策略或避开这些任务。

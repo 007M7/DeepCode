@@ -23,6 +23,7 @@ import { PendingWait } from './pending.ts'
 import { Notifier } from './notifier.ts'
 import { ProjectionValueStore } from './projection-store.ts'
 import type { ProjectionsBaseline } from './projection-store.ts'
+import { resolvedClientTimeZone } from '../time-zone.ts'
 import { SessionQueueMirror } from './queue-mirror.ts'
 
 /** Messages requested per history page. */
@@ -194,7 +195,12 @@ export class Session implements SessionFace {
     let result: RpcResult<{ accepted: true }>
     try {
       if (this.address === undefined) {
-        result = (await this.api.sessions.prompt({ sessionId: this.sessionId, mode, content })).result
+        result = (await this.api.sessions.prompt({
+          sessionId: this.sessionId,
+          mode,
+          content,
+          clientTimeZone: resolvedClientTimeZone(),
+        })).result
       } else if (this.address.mode === 'one-shot') {
         result = {
           ok: false,
@@ -220,6 +226,7 @@ export class Session implements SessionFace {
             content: content.flatMap(part => part.type === 'text'
               ? [{ type: 'text' as const, text: part.text }]
               : []),
+            clientTimeZone: resolvedClientTimeZone(),
           })).result
           result = routed.ok ? { ok: true, value: { accepted: true } } : routed
         }

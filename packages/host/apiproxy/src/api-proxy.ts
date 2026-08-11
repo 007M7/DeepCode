@@ -107,8 +107,19 @@ import { canOpenNativePath, openNativePath, openNativeTextFile } from './native-
 /** Page size when history is called without maxMessages. */
 const DEFAULT_MAX_MESSAGES = 50
 
-/** Non-model settings namespaces intentionally served to the Web client. */
-const WEB_SETTINGS_NAMESPACES = ['locale', 'permission', 'ui-conversation', 'ui-theme'] as const
+/**
+ * Non-model settings namespaces intentionally served to the Web client. The
+ * plugin-owned entries (`agent-loop`, `bash`, `web-search-deepseek`) are the
+ * host-plane sections the plugin configuration page edits; a namespace absent
+ * here answers `settings-not-exposed` even when its owner registered it, so
+ * adding a section to that page is a decision made here rather than by the
+ * registering plugin. Moving that declaration to `settings.register()`, so a
+ * plugin can expose its own configuration without a change in this package,
+ * is deferred work.
+ */
+const WEB_SETTINGS_NAMESPACES = [
+  'agent-loop', 'bash', 'locale', 'permission', 'ui-conversation', 'ui-theme', 'web-search-deepseek',
+] as const
 
 /** Provider work budget: at most 100 calls and 2,000 inspected hits. */
 const SESSION_SEARCH_PROVIDER_CALL_LIMIT = 100
@@ -235,6 +246,25 @@ function referencedImage(events: readonly SessionEvent[], attachmentId: string):
  * configuration boundary or the pickers silently fail to persist.
  */
 const PRODUCT_SETTINGS_NAMESPACES = new Set(['ui-onboarding', AGENT_PRESET_SETTINGS_NAMESPACE])
+
+/** Strict browser-zone profile: UTC or an IANA Area/Location-style identifier. */
+const IANA_TIME_ZONE = /^[A-Za-z][A-Za-z0-9_+.-]*(?:\/[A-Za-z0-9_+.-]+)+$/
+
+/** Validate and canonicalize one browser-supplied IANA zone at the wire boundary. */
+function canonicalClientTimeZone(value: string): string | undefined {
+  if (value.length === 0 || value.trim() !== value
+    || (value !== 'UTC' && !IANA_TIME_ZONE.test(value))) return undefined
+  try {
+    const canonical = new Intl.DateTimeFormat('en-US', { timeZone: value })
+      .resolvedOptions().timeZone
+    /* v8 ignore next -- Intl returns UTC or a canonical IANA Area/Location for accepted input. */
+    if (canonical !== 'UTC' && !IANA_TIME_ZONE.test(canonical)) return undefined
+    return canonical
+  } catch {
+    // Intl rejects unsupported zone names; the RPC maps that parser rejection below.
+    return undefined
+  }
+}
 
 /** Read live abort state across awaits without treating it as synchronously immutable. */
 function isAborted(signal: AbortSignal): boolean {
@@ -2322,12 +2352,26 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       },
 
       async prompt(request) {
-        const { sessionId, mode, content } = request.payload
+        const { sessionId, mode, content, clientTimeZone } = request.payload
+        const canonicalTimeZone = clientTimeZone === undefined
+          ? undefined
+          : canonicalClientTimeZone(clientTimeZone)
+        if (clientTimeZone !== undefined && canonicalTimeZone === undefined) {
+          return err(request, {
+            code: 'invalid-time-zone',
+            message: 'clientTimeZone must be UTC or a valid IANA Area/Location name',
+            details: { value: clientTimeZone },
+          })
+        }
         const resolved = await turnAgentFor<{ accepted: true }>(request, sessionId)
         if ('refused' in resolved) return resolved.refused
         const agent = resolved.agent
-        // The rpcId rides MessageSource into user/message (merge declaration in api/sessions.ts; provisional correlation).
-        const source: MessageSource = { kind: 'user', rpcId: request.rpcId }
+        // Request identity and optional browser zone ride the exact durable user message.
+        const source: MessageSource = {
+          kind: 'user',
+          rpcId: request.rpcId,
+          ...(canonicalTimeZone === undefined ? {} : { clientTimeZone: canonicalTimeZone }),
+        }
         const hasImage = content.some(part => part.type === 'image')
         const admit = async (): Promise<RpcResponse<{ accepted: true }>> => {
           try {
@@ -2584,7 +2628,17 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       },
 
       async prompt(request, signal) {
-        const { parentSessionId, childSessionId, content } = request.payload
+        const { parentSessionId, childSessionId, content, clientTimeZone } = request.payload
+        const canonicalTimeZone = clientTimeZone === undefined
+          ? undefined
+          : canonicalClientTimeZone(clientTimeZone)
+        if (clientTimeZone !== undefined && canonicalTimeZone === undefined) {
+          return err(request, {
+            code: 'invalid-time-zone',
+            message: 'clientTimeZone must be UTC or a valid IANA Area/Location name',
+            details: { value: clientTimeZone },
+          })
+        }
         const parent = ctx.agents.get(parentSessionId)
         if (parent === undefined) {
           return err(request, {
@@ -2599,7 +2653,11 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         if (verified.error !== undefined) return err(request, verified.error)
         try {
           const messageId = await ctx.subagents.followup(parent, childSessionId, content, {
-            source: { kind: 'user', rpcId: request.rpcId },
+            source: {
+              kind: 'user',
+              rpcId: request.rpcId,
+              ...(canonicalTimeZone === undefined ? {} : { clientTimeZone: canonicalTimeZone }),
+            },
             signal,
           })
           return ok(request, { messageId })
@@ -2755,6 +2813,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           provider: selection.provider,
           model: selection.model,
           attachedSessions: ctx.agents.list().length,
+          canOpenPath: canOpenPaths(),
         }))
       },
 

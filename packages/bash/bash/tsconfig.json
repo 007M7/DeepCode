@@ -21,6 +21,9 @@
       "path": "../../sandbox/sandbox"
     },
     {
+      "path": "../../settings/settings"
+    },
+    {
       "path": "../../support/invariants"
     }
   ]

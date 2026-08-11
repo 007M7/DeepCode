@@ -19,6 +19,7 @@ import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { environmentOf, type EnvironmentSnapshot } from '@deepseek-ai/dsh-environment'
 import { deepEqualJson, installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
+import { getOrCreateAnonymousUserId, type AnonymousUserId } from '@deepseek-ai/dsh-user-id'
 import {
   DEFAULT_CONTEXT_WINDOW,
   DEFAULT_MAX_TOKENS,
@@ -244,7 +245,9 @@ export function apply(ctx: Context, config: Config): void {
     )
   }
 
-  const adapter = new DeepSeekAdapter({ options, resolveApiKey })
+  let userId: AnonymousUserId | undefined
+  const resolveUserId = (): AnonymousUserId => userId ??= getOrCreateAnonymousUserId()
+  const adapter = new DeepSeekAdapter({ options, resolveApiKey, resolveUserId })
   ctx.llm.registerConfigurableProviders([
     { provider: PROVIDER, displayName: 'DeepSeek', settingsNs: NS, settingsPath: [] },
   ])
