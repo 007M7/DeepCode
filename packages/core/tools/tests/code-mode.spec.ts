@@ -135,6 +135,32 @@ describe('mode-aware wire contribution', () => {
     expect(sdk?.text).not.toContain('run_code:')
   })
 
+  it("mode 'code' states the run_code-only rule BEFORE the per-tool guidance that names each tool", async () => {
+    const { ctx, systemPrompt } = await setup({ mode: 'code' })
+    registerEcho(ctx)
+    // Stand in for a real tool's guidance section, which sits in the 100-199
+    // band and names its tool without saying how it is reached.
+    ctx.systemPrompt.section({ name: 'tool:echo', order: 100, text: 'Use the echo tool.' })
+
+    const assembly = await systemPrompt.assemble()
+    const names = assembly.sections.map(section => section.name)
+    const rule = assembly.sections.find(section => section.name === 'tools:code-only')
+    expect(rule?.text).toContain(`\`${RUN_CODE_NAME}\` is the only tool you can call directly`)
+    // The rule is worthless after the guidance it qualifies.
+    expect(names.indexOf('tools:code-only')).toBeLessThan(names.indexOf('tool:echo'))
+    expect(names.indexOf('tools:code-only')).toBeLessThan(names.indexOf('tools:sdk'))
+  })
+
+  it("mode 'both' omits the run_code-only rule, because native calls do execute there", async () => {
+    const { ctx, systemPrompt } = await setup({ mode: 'both' })
+    registerEcho(ctx)
+    const assembly = await systemPrompt.assemble()
+    // Registered (the deployment is non-native) but empty, so the renderer
+    // drops it: `both` executes the native call the rule would forbid.
+    expect(assembly.sections.find(section => section.name === 'tools:code-only')?.text).toBe('')
+    expect(assembly.tools.map(tool => tool.name)).toContain('echo')
+  })
+
   it('projects deeply nested output schemas into the Code Mode SDK without structured-clone recursion', async () => {
     const { ctx, systemPrompt } = await setup({ mode: 'code' })
     let output: JsonSchemaNode = { type: 'string' }
@@ -1561,6 +1587,43 @@ describe('the run_code dispatch bridge', () => {
     const assembly = await ctx.systemPrompt.assemble()
     expect(assembly.sections.some(section => section.name === 'tools:sdk')).toBe(false)
   })
+  it('denies a model-direct native-tool call under code mode as UNKNOWN_TOOL', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt, {})
+    const registry = new ToolRegistry(ctx, { mode: 'code' })
+    registerEcho(ctx, 'write')
+    const result = await registry.execute({
+      signal: testToolSignal,
+      callId: CallId('call-1'),
+      name: 'write',
+      arguments: { text: 'hello' },
+    })
+    expect(result.isError).toBe(true)
+    expect(result.error?.info).toEqual({ name: 'ToolNotFoundError', code: 'UNKNOWN_TOOL' })
+    // The name IS declared to this model, so a bare `unknown tool` reads as a
+    // broken deployment. The denial carries the route instead.
+    expect(result.error?.message).toBe(
+      `unknown tool "write": only \`${RUN_CODE_NAME}\` is callable directly — call \`write\` from inside a \`${RUN_CODE_NAME}\` program instead`,
+    )
+  })
+
+  it('routes a pre-aborted collapsed call through ABORTED_BEFORE_DISPATCH', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt, {})
+    const registry = new ToolRegistry(ctx, { mode: 'code' })
+    registerEcho(ctx, 'write')
+    const aborted = new AbortController()
+    aborted.abort()
+    const result = await registry.execute({
+      signal: aborted.signal,
+      callId: CallId('call-1'),
+      name: 'write',
+      arguments: { text: 'hello' },
+    })
+    expect(result.isError).toBe(true)
+    expect(result.error?.info?.code).toBe(TOOL_ABORTED_BEFORE_DISPATCH)
+  })
+
 })
 
 /**
@@ -1572,7 +1635,7 @@ describe('the run_code dispatch bridge', () => {
 describe('per-agent presentation', () => {
   it('gives one agent Code Mode while the deployment stays native', async () => {
     const { ctx, systemPrompt } = await setup({ mode: 'native' })
-    registerEcho(ctx)
+    const calls = registerEcho(ctx)
     const { scope, agent } = await mintAgentScope(ctx)
 
     scope.ctx.tools.presentAs('code')
@@ -1581,6 +1644,17 @@ describe('per-agent presentation', () => {
     expect(coded.tools.map(tool => tool.name)).toEqual([RUN_CODE_NAME])
     expect(coded.sections.find(section => section.name === 'tools:sdk')?.text)
       .toContain('echo')
+    // Announced surface and callable surface must agree for THIS agent, whose
+    // mode is its own rather than the deployment's.
+    const denied = await ctx.tools.execute({
+      signal: testToolSignal,
+      callId: CallId('coded-direct'),
+      name: 'echo',
+      arguments: { value: 'coded' },
+      agent,
+    })
+    expect(denied.error?.info).toEqual({ name: 'ToolNotFoundError', code: 'UNKNOWN_TOOL' })
+    expect(calls).toEqual([])
     // The deployment default is untouched: an agent that declared nothing —
     // and the global view behind it — still sees the native catalog.
     const native = await systemPrompt.assemble()
@@ -1591,7 +1665,7 @@ describe('per-agent presentation', () => {
   it('inherits a STANDING preset scope\'s mode down the chain, agents beside it unaffected', async () => {
     const { bindScopeParent } = await import('@deepseek-ai/dsh-scope')
     const { ctx, systemPrompt } = await setup({ mode: 'native' })
-    registerEcho(ctx)
+    const calls = registerEcho(ctx)
     // The preset's standing scope declares once; the agent only PARENTS to it
     // (the per-preset standing mount configuration has no per-agent declaration).
     const standing = await mintAgentScope(ctx, 'preset:code-like')
@@ -1603,10 +1677,40 @@ describe('per-agent presentation', () => {
     expect(ctx.tools.get(RUN_CODE_NAME, joined.agent)).toBeDefined()
     const coded = await systemPrompt.assemble({ scope: joined.agent })
     expect(coded.tools.map(tool => tool.name)).toEqual([RUN_CODE_NAME])
+    // Through the EXECUTOR, not just the wire: the deployment default is
+    // `native` here, so a collapse predicate reading it instead of this
+    // scope's effective mode would announce [run_code] and still execute the
+    // native call — the bypass, reopened for exactly the preset composition
+    // `dsh-agent-tool-mode` produces.
+    expect(ctx.tools.executionMode({
+      signal: testToolSignal,
+      callId: CallId('preset-coded-schedule'),
+      name: 'echo',
+      arguments: { value: 'joined' },
+      agent: joined.agent,
+    })).toEqual({ kind: 'exclusive' })
+    const denied = await ctx.tools.execute({
+      signal: testToolSignal,
+      callId: CallId('preset-coded-direct'),
+      name: 'echo',
+      arguments: { value: 'joined' },
+      agent: joined.agent,
+    })
+    expect(denied.error?.info).toEqual({ name: 'ToolNotFoundError', code: 'UNKNOWN_TOOL' })
+    expect(calls).toEqual([])
     // A sibling that never parented stays native, as does the global view.
     expect(ctx.tools.get(RUN_CODE_NAME, loner.agent)).toBeUndefined()
     const native = await systemPrompt.assemble({ scope: loner.agent })
     expect(native.tools.map(tool => tool.name)).toEqual(['echo'])
+    const allowed = await ctx.tools.execute({
+      signal: testToolSignal,
+      callId: CallId('native-sibling-direct'),
+      name: 'echo',
+      arguments: { value: 'loner' },
+      agent: loner.agent,
+    })
+    expect(allowed).toMatchObject({ isError: false, value: 'echo:loner' })
+    expect(calls).toEqual([{ value: 'loner' }])
   })
 
   it('keeps run_code out of a native agent\'s dispatch table', async () => {
