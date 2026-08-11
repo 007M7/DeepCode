@@ -31,7 +31,6 @@ import type {} from '@deepseek-ai/dsh-api-remotes/types'
 // never — the owning package's client-safe, type-only subpath supplies the
 // cordis `Events` entry (and with it the branded `SettingsNamespace`).
 import type {} from '@deepseek-ai/dsh-settings/types'
-import type { TypeRTClientRemote } from '@deepseek-ai/dsh-type-meta'
 
 type SettingsFace = Pick<IApiClient, 'settings'>
 
