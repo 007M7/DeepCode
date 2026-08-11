@@ -706,6 +706,9 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
             .rejects.toThrow('lacks an identified message')
         }
 
+        // An out-of-repo event type passes only with the envelope's ignorable
+        // marker (unknown-type refusal otherwise), and its non-object data is
+        // not message-validated.
         const pluginId = SessionId('non-object-plugin-event')
         await ctx.sessionPersistence.create(meta(pluginId, WORK))
         await ctx.sessionPersistence.append(pluginId, [{
@@ -713,11 +716,12 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
           seq: 0,
           time: 1,
           data: null,
+          ignorable: true,
         } as unknown as SessionEvent])
         await expect(ctx.sessionPersistence.inspect(pluginId))
-          .resolves.toMatchObject({ events: [{ type: 'plugin/test', data: null }] })
+          .resolves.toMatchObject({ events: [{ type: 'plugin/test', data: null, ignorable: true }] })
         await expect(ctx.sessionPersistence.readFrom(pluginId, 0))
-          .resolves.toMatchObject({ events: [{ type: 'plugin/test', data: null }] })
+          .resolves.toMatchObject({ events: [{ type: 'plugin/test', data: null, ignorable: true }] })
 
         for (const type of ['user/message', 'assistant/message'] as const) {
           const missingContentId = SessionId(`invalid-${type}-without-content`)
@@ -1321,14 +1325,60 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
       }
     })
 
-    it('rejects an unknown format version on load (assertVersion)', async () => {
+    it('rejects a newer format version on load, naming the upgrade direction', async () => {
       const fix = await makeFixture()
       const { ctx, fiber } = await freshCtx(fix)
       try {
         const m = { version: 99, id: SessionId('v99'), createdAt: 1, cwd: WORK }
         await ctx.sessionPersistence.create(m)
         await ctx.sessionPersistence.append(m.id, oneTurnLog())
-        await expect(ctx.sessionPersistence.load(m.id)).rejects.toThrow(/version/)
+        const failure = await ctx.sessionPersistence.load(m.id).then(() => undefined, (error: unknown) => error as Error)
+        expect(failure?.name).toBe('SessionFormatUnsupportedError')
+        expect(failure?.message).toMatch(/written by a newer harness.*upgrade the harness/)
+      } finally {
+        await fiber.dispose()
+        await fix.cleanup()
+      }
+    })
+
+    it('rejects an older format version on load without claiming an upgrade path', async () => {
+      const fix = await makeFixture()
+      const { ctx, fiber } = await freshCtx(fix)
+      try {
+        const m = { version: -1, id: SessionId('v-older'), createdAt: 1, cwd: WORK }
+        await ctx.sessionPersistence.create(m)
+        await ctx.sessionPersistence.append(m.id, oneTurnLog())
+        const failure = await ctx.sessionPersistence.load(m.id).then(() => undefined, (error: unknown) => error as Error)
+        expect(failure?.name).toBe('SessionFormatUnsupportedError')
+        expect(failure?.message).toMatch(/older than the supported v0.*no upgrade path/)
+      } finally {
+        await fiber.dispose()
+        await fix.cleanup()
+      }
+    })
+
+    it('rejects an unknown event type on load unless the event is marked ignorable', async () => {
+      const fix = await makeFixture()
+      const { ctx, fiber } = await freshCtx(fix)
+      try {
+        const required = meta('unknown-required', WORK)
+        await ctx.sessionPersistence.create(required)
+        await ctx.sessionPersistence.append(required.id, [
+          ...oneTurnLog(),
+          { type: 'future/event', seq: oneTurnLog().length, time: 99, data: { payload: 1 } } as unknown as SessionEvent,
+        ])
+        const failure = await ctx.sessionPersistence.load(required.id).then(() => undefined, (error: unknown) => error as Error)
+        expect(failure?.name).toBe('SessionFormatUnsupportedError')
+        expect(failure?.message).toMatch(/event type "future\/event".*not marked ignorable/)
+
+        const skippable = meta('unknown-ignorable', WORK)
+        await ctx.sessionPersistence.create(skippable)
+        await ctx.sessionPersistence.append(skippable.id, [
+          ...oneTurnLog(),
+          { type: 'future/event', seq: oneTurnLog().length, time: 99, data: { payload: 1 }, ignorable: true } as unknown as SessionEvent,
+        ])
+        const loaded = await ctx.sessionPersistence.load(skippable.id)
+        expect(loaded.events.some(event => (event.type as string) === 'future/event')).toBe(true)
       } finally {
         await fiber.dispose()
         await fix.cleanup()
