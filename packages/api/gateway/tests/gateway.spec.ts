@@ -1011,6 +1011,24 @@ describe('TypertGatewayService', () => {
       error: { code: 'internal', message: 'non-error failure', details: {} },
     })
 
+    // A business rejection observed while the carrier signal is already aborted
+    // is the caller's cancellation, not an internal gateway fault.
+    const cancelledCall = new AbortController()
+    cancelledCall.abort(new Error('client disconnected'))
+    service.businessError = new Error('fixture business failure')
+    await expect(handler(
+      'goals/fail',
+      { args: { request: null } },
+      cancelledCall.signal,
+    )).resolves.toEqual({
+      ok: false,
+      error: {
+        code: 'cancelled',
+        message: 'Remote invocation "goals/fail" was aborted',
+        details: {},
+      },
+    })
+
     await gatewayFiber.dispose()
     expect(connection.handler).toBeUndefined()
   })
