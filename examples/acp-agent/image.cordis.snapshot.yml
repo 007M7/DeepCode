@@ -5,7 +5,7 @@
 # flash, so the strict read_image gate accepts the route and the tool result
 # carries the durable image block; the live DeepSeek route cannot record this.
 - id: base
-  name: '@cordisjs/plugin-include'
+  name: '@deepseek-ai/cordis-plugin-include'
   config:
     path: ./cordis.yml
     patches:
