@@ -5,7 +5,8 @@
  * root → 404, missing descendant → errored stream).
  */
 
-import { describe, expect, it } from 'vitest'
+import { randomBytes } from 'node:crypto'
+import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { unzipSync, strFromU8 } from 'fflate'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
@@ -284,6 +285,37 @@ describe('session.export download endpoint', () => {
     )
     const files = unzipSync(await responseBytes(response))
     expect(strFromU8(files['session.jsonl'] as Uint8Array)).toBe(root.content)
+  })
+
+  it('waits for response pull capacity before reading the next archive entry', async () => {
+    const root = artifact('session-root', undefined, [
+      imageEventLine('after-root'),
+      randomBytes(512 * 1024).toString('base64'),
+    ].join('\n'))
+    let imageReads = 0
+    const api = await buildApi({ 'session-root': root }, [], {
+      attachments: async (ref) => {
+        imageReads += 1
+        return storedImage(String(ref.attachmentId), ref.mediaType)
+      },
+    })
+    vi.useFakeTimers()
+    let response: Response | undefined
+    try {
+      response = await toFetchHandler(api).fetch(
+        new Request('http://host/api/session.export?sessionId=session-root'),
+      )
+      // Exhausting timer turns must not advance a producer whose byte queue is
+      // full; only a consumer pull can release it.
+      await vi.runAllTimersAsync()
+      expect(imageReads).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
+    if (response === undefined) throw new Error('missing export response')
+    const files = unzipSync(await responseBytes(response))
+    expect(imageReads).toBe(1)
+    expect(files['media/after-root.png']).toEqual(storedImage('after-root').data)
   })
 
   it('exports an empty artifact as an empty zip entry', async () => {
