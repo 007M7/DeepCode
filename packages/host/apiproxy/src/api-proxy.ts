@@ -2813,6 +2813,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           provider: selection.provider,
           model: selection.model,
           attachedSessions: ctx.agents.list().length,
+          canOpenPath: canOpenPaths(),
         }))
       },
 
