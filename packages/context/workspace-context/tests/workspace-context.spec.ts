@@ -117,6 +117,10 @@ class RecordingFileSystem extends FileSystem {
     return this.entries.get(target.targetKey)?.content ?? ''
   }
 
+  override async readBytes(_target: FsTarget, _signal: AbortSignal | undefined, _maxBytes: number): Promise<Uint8Array> {
+    throw new Error('not needed in workspace-context tests')
+  }
+
   override async streamText(target: FsTarget, signal?: AbortSignal): Promise<AsyncIterable<string>> {
     if (signal !== undefined) this.signals.push(signal)
     signal?.throwIfAborted()

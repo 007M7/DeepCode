@@ -151,6 +151,7 @@ function tailData(context: ConversationNodeContext<TurnTailState>): TurnTailChat
 /** Completed-turn footer Definition independent of any Assistant row. */
 export const turnTailDefinition: ConversationNodeDefinition<TurnTailState> = {
   kind: 'turn-tail',
+  target: 'chat',
   match: (event) => {
     if (event.type === 'turn/start') return { id: String(event.data.turn), role: 'start' }
     if (event.type === 'turn/end') return { id: String(event.data.turn), role: 'update' }
@@ -179,8 +180,7 @@ export const turnTailDefinition: ConversationNodeDefinition<TurnTailState> = {
       value,
     }
   },
-  buildViewNode: (context, target) => {
-    if (target !== 'chat') return null
+  buildViewNode: (context) => {
     const turn = turnLocation(context)
     const data = turn?.data.get('turn-tail')
     return data === undefined ? null : chatNode(context, 'turn-tail', closingAnchor(context), data)

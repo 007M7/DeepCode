@@ -60,6 +60,11 @@
       config:
         backend: json
 
+    - id: message-feedback
+      name: '@deepseek-ai/dsh-message-feedback'
+      config:
+        maxNoteBytes: 8192
+
     - id: workspace
       name: '@deepseek-ai/dsh-workspace'
 
@@ -201,6 +206,10 @@
 
     - id: ui-subagent
       name: '@deepseek-ai/dsh-client-ui-subagent'
+
+    # Background tasks: the session-header list over the tasksBySession mirror.
+    - id: ui-task
+      name: '@deepseek-ai/dsh-client-ui-task'
 
     # Goal surface: GoalBar in the input dock over the goal session projection.
     - id: ui-goal

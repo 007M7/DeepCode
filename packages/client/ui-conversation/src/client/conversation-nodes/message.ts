@@ -30,6 +30,7 @@ function isCompactionCheckpoint(event: Parameters<ConversationNodeDefinition['ma
 /** User, steering, and injected-context message classification Definition. */
 export const messageDefinition: ConversationNodeDefinition<MessageNode> = {
   kind: 'input-message',
+  target: 'chat',
   match: event => event.type === 'user/message'
     && isAppendSurfaceEvent(event)
     && !isCompactionCheckpoint(event)
@@ -68,8 +69,8 @@ export const messageDefinition: ConversationNodeDefinition<MessageNode> = {
       }
   },
   update: context => context.state,
-  buildViewNode: (context, target) => {
-    if (target !== 'chat' || context.state === undefined) return null
+  buildViewNode: (context) => {
+    if (context.state === undefined) return null
     return chatNode(context, context.state.kind, context.state.seq, context.state)
   },
 }

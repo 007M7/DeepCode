@@ -126,6 +126,7 @@ describe('runtime client apply', () => {
     const rebuild = vi.spyOn(Session.prototype, 'rebuildConversationRegistry')
     const definition: ConversationNodeDefinition<null> = {
       kind: 'registry-probe',
+      target: 'chat',
       match: () => null,
       start: () => null,
       update: context => context.state,

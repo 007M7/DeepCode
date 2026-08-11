@@ -176,8 +176,10 @@ describe('web e2e: agent-preset authoring is a host-side copy', () => {
 
     await expect.poll(async () => dialog.getByText('我的模式').count(), { timeout: 10_000 }).toBe(0)
     expect(existsSync(join(userRoot, 'my-agent'))).toBe(false)
-    // Custom group gone with its only member; the shipped set stands.
-    expect(await dialog.getByRole('heading', { name: '自定义' }).count()).toBe(0)
+    // The custom group outlives its only member: the heading stays with the
+    // creator entry so the place to author a preset never disappears.
+    expect(await dialog.getByRole('heading', { name: '自定义' }).count()).toBe(1)
+    expect(await dialog.getByRole('button', { name: '用「创造模式」创作自定义预设' }).count()).toBe(1)
     expect(await dialog.getByText('标准模式').count()).toBeGreaterThan(0)
   }, 60_000)
 

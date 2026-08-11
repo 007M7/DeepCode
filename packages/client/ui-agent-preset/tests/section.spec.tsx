@@ -253,6 +253,20 @@ describe('the preset list', () => {
     expect(actions.close).toHaveBeenCalledTimes(1)
   })
 
+  it('keeps the empty custom group on screen: heading plus the creator entry', () => {
+    renderSection({
+      rows: [
+        { id: 'standard', trust: 'system', isDefault: true, name: '标准模式' },
+        { id: 'cordis', trust: 'system', isDefault: false, name: '创造模式' },
+      ],
+    })
+
+    // No member yet, but the place where one's own preset will appear stays.
+    expect(screen.getByRole('heading', { name: en.customGroup })).toBeTruthy()
+    expect(screen.getByRole('button', { name: en.creatorDraft })).toBeTruthy()
+    expect(screen.queryByText(`· ${en.userTrust}`)).toBeNull()
+  })
+
   it('hides the creator entry without the flow or the preset, disables it without a root', () => {
     renderSection()
     expect(screen.queryByRole('button', { name: en.creatorDraft })).toBeNull()

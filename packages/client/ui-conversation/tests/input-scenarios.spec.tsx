@@ -11,7 +11,9 @@
 import { Context } from '@deepseek-ai/cordis'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render } from '@testing-library/react'
-import { EMPTY_CHAT_SNAPSHOT, SessionsService } from '@deepseek-ai/dsh-client-runtime/client'
+import {
+  EMPTY_CHAT_SNAPSHOT, EMPTY_CONVERSATION_VIEWS, SessionsService,
+} from '@deepseek-ai/dsh-client-runtime/client'
 import { SlashService } from '@deepseek-ai/dsh-client-ui-slash/client'
 import type { ClientSessionContext, CommandClaim, PickOutcome, SubmitOutcome } from '@deepseek-ai/dsh-client-ui-slash/client'
 import { FakeApiClient, ok } from '../../runtime/tests/fake-api.ts'
@@ -112,7 +114,7 @@ async function scopedBench(register?: (slash: SlashService) => void) {
   actx.on('slash/input-consume-token', req => shell.consumeToken(req.guard) ? true : undefined)
   const wiring = shell
   const sessionStore = createSnapshotStore<ConversationSnapshot>({
-    sessionId, chat: EMPTY_CHAT_SNAPSHOT,
+    sessionId, views: EMPTY_CONVERSATION_VIEWS, chat: EMPTY_CHAT_SNAPSHOT,
     nodes: [], turnTimings: new Map(), turnEnds: new Map(), partial: null, runningCalls: [],
     pending: [], queue: [], running: false, composerPhase: 'active', removed: false,
     openState: 'open', openError: null, hasMore: false, loadingOlder: false,
@@ -124,7 +126,7 @@ async function scopedBench(register?: (slash: SlashService) => void) {
     useSession: bindSnapshotSelector(sessionStore),
     useSessions: bindSnapshotSelector(createSnapshotStore({
       ids: [], byId: {}, current: undefined, phase: 'ready',
-      subagentsByParent: {}, currentAddress: undefined,
+      subagentsByParent: {}, tasksBySession: {}, currentAddress: undefined,
     })),
     useWorkspaces: bindSnapshotSelector(createSnapshotStore({
       items: [], archivedSessionIds: [], state: 'idle', phase: 'ready', error: null,

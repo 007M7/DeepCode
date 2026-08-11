@@ -76,10 +76,11 @@ Also defines `TurnEndReasonMap`, the merge-extensible `kind`-tagged sum type for
 
 An interrupted live turn ends with `{ kind: 'aborted', reason: AgentCancelCause }`, preserving the typed cancellation cause in the durable transcript. Persistence imports the coarse aborted outcome from the supported older format as `{ kind: 'aborted', reason: { kind: 'legacy' } }`, because that record did not retain its caller. A turn failure carries `{ kind: 'error', error }`; crash recovery alone synthesizes `{ kind: 'interrupted' }`.
 
-Every `SessionEvent` carries two optional top-level fields (structural metadata):
+Every `SessionEvent` carries three optional top-level fields (structural metadata):
 
 - `sourceEventSeqs?: number[]` — seq numbers of earlier events cited as sources (e.g., the `assistant/chunk` seqs behind an `assistant/message`, or the shadowed entries behind a compaction replacement entry). On `assistant/message`, a present `[]` records a known empty provider stream, while omission means a legacy or foreign event did not record the source stream; other surface events require a non-empty list when this field is present.
 - `surfaceOp?: SurfaceOp` — how this event entered the surface. Absent for non-surface events (boundaries, chunks, usage, errors).
+- `ignorable?: true` — marks an event a reader may safely skip when it does not recognize the type; absent means required, so an unknown-type event refuses session reconstruction ([mechanism](../../../.agents/notes/implemented/architecture/2026-08-10-session-log-version-mechanism.md)).
 
 ### Metadata types (`types.ts`)
 
@@ -139,5 +140,5 @@ Logging causes no invalidation, and exact reconstruction preserves request-prefi
 
 - **Session branching/tree** (pi-style entry tree) — deferred unless needed beyond boundary-based `fork()`.
 - **`fork()` cuts only at stable boundaries of live sessions** — the selected prefix must end outside an open turn and the source must be in the store; forking a persisted-but-unloaded session is excluded from the [fork API](../../../.agents/notes/implemented/feature/2026-06-30-session-store-fork-api.md).
-- **`SESSION_FORMAT_VERSION` stays pinned at `0`** — pre-release, no broad compatibility implied: `Session` accepts only current seed shapes and a backend rejects any other version. Narrow storage import upgrades belong to the persistence boundary ([policy](../../../AGENTS.md), [pre-identity message recovery](../../../.agents/notes/implemented/bug-fix/2026-07-28-load-pre-identity-session-messages.md)).
+- **`SESSION_FORMAT_VERSION` stays pinned at `0`** — pre-release, no broad compatibility implied: `Session` accepts only current seed shapes, and a backend refuses any other version naming the direction (newer: "written by a newer harness — upgrade"; older: no upgrade path ships yet). Unknown event types refuse the same way unless marked `ignorable` in the envelope; the versioning mechanism is the [session-log-version-mechanism note](../../../.agents/notes/implemented/architecture/2026-08-10-session-log-version-mechanism.md). Narrow storage import upgrades belong to the persistence boundary ([policy](../../../AGENTS.md), [pre-identity message recovery](../../../.agents/notes/implemented/bug-fix/2026-07-28-load-pre-identity-session-messages.md)).
 - **`TurnEndReasonMap` omits the ACP-named `refusal` / `max_turn_requests` variants** — producer-gated: they land when an adapter or the loop first emits them.

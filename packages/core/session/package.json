@@ -1,8 +1,15 @@
 {
   "name": "@deepseek-ai/dsh-session",
   "description": "Event-sourced session store for the DeepSeek Harness",
-  "version": "0.0.1",
-  "private": true,
+  "version": "0.0.1-rc.1",
+  "publishConfig": {
+    "access": "restricted"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/deepseek-ai/deepseek-harness.git",
+    "directory": "packages/core/session"
+  },
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",
@@ -34,12 +41,12 @@
   ],
   "license": "BSD-3-Clause",
   "peerDependencies": {
-    "@deepseek-ai/dsh-brand": "^0.0.1",
-    "@deepseek-ai/dsh-invariants": "^0.0.1",
-    "@deepseek-ai/dsh-llm": "^0.0.1",
-    "@deepseek-ai/dsh-scope": "^0.0.1",
-    "@deepseek-ai/dsh-type-meta": "^0.0.1",
-    "@deepseek-ai/cordis": "^4.0.0-rc.7"
+    "@deepseek-ai/dsh-brand": "workspace:^",
+    "@deepseek-ai/dsh-invariants": "workspace:^",
+    "@deepseek-ai/dsh-llm": "workspace:^",
+    "@deepseek-ai/dsh-scope": "workspace:^",
+    "@deepseek-ai/dsh-type-meta": "workspace:^",
+    "@deepseek-ai/cordis": "workspace:^"
   },
   "devDependencies": {
     "@deepseek-ai/dsh-brand": "workspace:^",
@@ -48,6 +55,6 @@
     "@deepseek-ai/dsh-scope": "workspace:^",
     "@deepseek-ai/dsh-type-meta": "workspace:^",
     "@deepseek-ai/dsh-typert-registry": "workspace:^",
-    "@deepseek-ai/cordis": "^4.0.0-rc.7"
+    "@deepseek-ai/cordis": "workspace:^"
   }
 }

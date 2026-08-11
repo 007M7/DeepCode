@@ -12,7 +12,8 @@ import { Context } from '@deepseek-ai/cordis'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render } from '@testing-library/react'
 import {
-  ConversationEventRegistry, ConversationViewRegistry, createSnapshotStore, SlotsService,
+  ConversationEventRegistry, ConversationViewRegistry, createSnapshotStore,
+  EMPTY_CONVERSATION_VIEWS, SlotsService,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import type {
   ConversationSnapshot, RunningToolCall, SessionId, SessionListState,
@@ -78,7 +79,8 @@ function snapshotWith(
   const nestedNodes = nodes.map(node => ({ ...node, subCalls }))
   const nestedRunningCalls = runningCalls.map(call => ({ ...call, subCalls }))
   return {
-    sessionId: SID, chat: toolChatSnapshot(nestedNodes, nestedRunningCalls),
+    sessionId: SID, views: EMPTY_CONVERSATION_VIEWS,
+    chat: toolChatSnapshot(nestedNodes, nestedRunningCalls),
     nodes: nestedNodes, turnTimings: new Map(), turnEnds: new Map(), partial: null,
     runningCalls: nestedRunningCalls,
     pending: [], queue: [], running: runningCalls.length > 0, composerPhase: 'active', removed: false,
@@ -110,7 +112,7 @@ async function bench(snapshot: ConversationSnapshot) {
     ids: [SID],
     byId: { [SID]: { id: SID, title: 'S', displayTitle: 'S', running: false, blank: false, updatedAt: 1 } },
     current: SID,
-    phase: 'ready', subagentsByParent: {}, currentAddress: undefined,
+    phase: 'ready', subagentsByParent: {}, tasksBySession: {}, currentAddress: undefined,
   })
   const scoped = { send: vi.fn(async () => {}), cancel: vi.fn(async () => {}) }
   const layout = { openDetails: vi.fn(), closeDetails: vi.fn() }
