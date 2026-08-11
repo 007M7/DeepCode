@@ -12,7 +12,7 @@ Launcher-side telemetry primitives for the dsh-sdk toolchain. This is a plain li
 | `getOrCreateAnonymousId` | Random UUID persisted in the harness home resolved by [`@deepseek-ai/dsh-paths`](../../util/paths/README.md) (`$DSH_HOME` > `~/.dsh`), scoped to that home rather than the machine, never derived from git. |
 | `TelemetryReporter` | Fire-and-forget send: `report()` never blocks or throws; delivery resolves on every path; `flush()` optionally drains in-flight sends within a cap. |
 
-`DSH_TELEMETRY_MODE` is the single positive consent setting for session and launcher telemetry. `FULL` enables this launcher feed; `FEEDBACK_ONLY` keeps command telemetry off and permits only feedback-triggered Session Log sharing; every other supported state keeps this feed off.
+`DSH_TELEMETRY_MODE` is the single positive consent setting for session and launcher telemetry. `FULL` enables this launcher feed; `FEEDBACK_ONLY` keeps command telemetry off and permits only feedback-triggered Session Log sharing; every other supported state keeps this feed off. Callers must resolve consent from the launching environment before running a command, because a command may load a project `.env` or mutate `process.env`; the launcher wiring in `@deepseek-ai/dsh-scripts` freezes the decision up front.
 
 The collection endpoint is a fixed constant (`DSH_TELEMETRY_ENDPOINT`).
 

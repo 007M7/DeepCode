@@ -12,7 +12,7 @@
 | `getOrCreateAnonymousId` | 将随机 UUID 持久化到 [`@deepseek-ai/dsh-paths`](../../util/paths/README.md) 解析出的 harness home（`$DSH_HOME` > `~/.dsh`）；其范围限定为该 home，而不是整台机器，且绝不从 git 派生。 |
 | `TelemetryReporter` | 即发即弃发送：`report()` 绝不阻塞或抛出；无论经过哪条路径，发送操作最终都会结束；`flush()` 可以在上限内排空进行中的发送。 |
 
-`DSH_TELEMETRY_MODE` 是会话与启动器 telemetry 的唯一正向授权配置。`FULL` 启用该启动器数据流；`FEEDBACK_ONLY` 保持命令 telemetry 关闭，只允许由反馈触发的 Session Log 共享；其他受支持的状态都会保持该数据流关闭。
+`DSH_TELEMETRY_MODE` 是会话与启动器 telemetry 的唯一正向授权配置。`FULL` 启用该启动器数据流；`FEEDBACK_ONLY` 保持命令 telemetry 关闭，只允许由反馈触发的 Session Log 共享；其他受支持的状态都会保持该数据流关闭。调用方必须在执行命令前从启动环境解析授权，因为命令可能加载项目 `.env` 或修改 `process.env`；`@deepseek-ai/dsh-scripts` 中的启动器接线会在命令执行前冻结该决定。
 
 收集端点是固定常量（`DSH_TELEMETRY_ENDPOINT`）。
 

@@ -32,7 +32,12 @@ import { runDshSdkCommand, type DshSdkCommandContext } from '../src/command.ts'
 import { runConfigCommand } from '../src/config.ts'
 import { ConfigWorkflow, type ConfigPlan } from '../src/config/config-workflow.ts'
 import { runCreatePluginCommand } from '../src/create-plugin.ts'
-import { reportCommandTelemetry, type CommandTelemetryEvent } from '../src/telemetry.ts'
+import {
+  freezeTelemetryConsent,
+  reportCommandTelemetry,
+  type CommandTelemetryDeps,
+  type CommandTelemetryEvent,
+} from '../src/telemetry.ts'
 import { initialize, resolve as resolveLocalPlugin } from '../src/local-plugin-loader-hooks.ts'
 
 const temporary: string[] = []
@@ -624,6 +629,53 @@ describe('command telemetry', () => {
       { resolve: async () => { throw new Error('boom') }, reporter },
     )).resolves.toBeUndefined()
     expect(sent).toHaveLength(1)
+  })
+
+  it('prefers frozen consent over resolving the mutated environment', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-telemetry-'))
+    temporary.push(dir)
+    const sent: unknown[] = []
+    const reporter = { report: () => { sent.push(1) }, flush: async () => {} }
+    let resolved = 0
+    await reportCommandTelemetry(
+      { command: 'start', cwd: dir, durationMs: 5, success: true },
+      {
+        consent: { allowed: false, reason: 'DISABLED' },
+        resolve: () => { resolved += 1; return { allowed: true, reason: 'FULL' } },
+        reporter,
+      },
+    )
+    expect(sent).toHaveLength(0)
+    expect(resolved).toBe(0)
+  })
+
+  it('freezes consent from the launching environment and denies unsupported modes', () => {
+    expect(freezeTelemetryConsent({ DSH_TELEMETRY_MODE: 'FULL' })).toEqual({ allowed: true, reason: 'FULL' })
+    expect(freezeTelemetryConsent({ DSH_TELEMETRY_MODE: 'FEEDBACK_ONLY' }))
+      .toEqual({ allowed: false, reason: 'FEEDBACK_ONLY' })
+    expect(freezeTelemetryConsent({})).toEqual({ allowed: false, reason: 'DISABLED' })
+    expect(freezeTelemetryConsent({ DSH_TELEMETRY_MODE: '' })).toEqual({ allowed: false, reason: 'DISABLED' })
+    expect(freezeTelemetryConsent({ DSH_TELEMETRY_MODE: 'nonsense' }))
+      .toEqual({ allowed: false, reason: 'DISABLED' })
+  })
+
+  it('denies reporting when the command itself sets the mode', async () => {
+    const project = await committedProject()
+    const previous = process.env.DSH_TELEMETRY_MODE
+    delete process.env.DSH_TELEMETRY_MODE
+    const seen: (CommandTelemetryDeps | undefined)[] = []
+    const context = commandContext(project.root)
+    context.telemetry = async (_event, deps) => { seen.push(deps) }
+    // A project `.env` load or project code mutating the environment mid-command.
+    context.build = async () => { process.env.DSH_TELEMETRY_MODE = 'FULL' }
+    try {
+      await expect(runDshSdkCommand(['build'], context)).resolves.toBe(0)
+    } finally {
+      if (previous === undefined) delete process.env.DSH_TELEMETRY_MODE
+      else process.env.DSH_TELEMETRY_MODE = previous
+    }
+    expect(seen).toHaveLength(1)
+    expect(seen[0]?.consent).toEqual({ allowed: false, reason: 'DISABLED' })
   })
 
   it('emits a telemetry event carrying each command outcome', async () => {

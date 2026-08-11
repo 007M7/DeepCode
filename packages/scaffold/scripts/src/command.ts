@@ -9,7 +9,12 @@ import { runProjectBuild } from './build.ts'
 import { runConfigCommand, type ConfigCommandContext } from './config.ts'
 import { runCreatePluginCommand } from './create-plugin.ts'
 import { runSDK } from './runtime.ts'
-import { reportCommandTelemetry, type CommandTelemetryEvent } from './telemetry.ts'
+import {
+  freezeTelemetryConsent,
+  reportCommandTelemetry,
+  type CommandTelemetryDeps,
+  type CommandTelemetryEvent,
+} from './telemetry.ts'
 import { DSH_SDK_TEMPLATES } from './templates/dsh-sdk-templates.ts'
 
 /** Injectable process and command boundaries used by the dsh-sdk bin. */
@@ -22,7 +27,7 @@ export interface DshSdkCommandContext extends ConfigCommandContext {
   build?: typeof runProjectBuild
   config?: typeof runConfigCommand
   createPlugin?: typeof runCreatePluginCommand
-  telemetry?: (event: CommandTelemetryEvent) => Promise<void>
+  telemetry?: (event: CommandTelemetryEvent, deps?: CommandTelemetryDeps) => Promise<void>
 }
 
 /** Run one parsed dsh-sdk command and return its process exit code. */
@@ -36,6 +41,9 @@ export async function runDshSdkCommand(
   },
 ): Promise<number> {
   const startedAt = Date.now()
+  // Freeze consent from the launching environment: a command may load a project
+  // `.env` or mutate `process.env`, and neither may grant launcher reporting.
+  const consent = freezeTelemetryConsent()
   let command: string | undefined
   let success = true
   try {
@@ -70,7 +78,7 @@ export async function runDshSdkCommand(
     if (command !== undefined) {
       /* v8 ignore next -- production telemetry wiring is exercised by the built-bin smoke */
       const telemetry = context.telemetry ?? reportCommandTelemetry
-      await telemetry({ command, cwd: context.cwd, durationMs: Date.now() - startedAt, success })
+      await telemetry({ command, cwd: context.cwd, durationMs: Date.now() - startedAt, success }, { consent })
     }
   }
 }

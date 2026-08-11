@@ -27,14 +27,37 @@ export interface CommandTelemetryEvent {
 
 /** Injectable consent and delivery hooks for tests. */
 export interface CommandTelemetryDeps {
+  /**
+   * Consent frozen from the launching environment before the command ran. When
+   * present it is authoritative: the environment a command mutated cannot grant
+   * or revoke reporting.
+   */
+  consent?: ConsentDecision
   resolve?: () => ConsentDecision | Promise<ConsentDecision>
   reporter?: Pick<TelemetryReporter, 'report' | 'flush'>
 }
 
 /**
- * Resolve the shared telemetry mode and, when allowed, assemble and send one
- * telemetry event, draining in-flight sends before returning. Swallows every
- * error so telemetry can never change a command's result.
+ * Freeze launcher telemetry consent from the launching environment before any
+ * command runs. A command may load a project `.env` or mutate `process.env`, so
+ * resolving consent afterwards would let project files or project code enable
+ * reporting of their own configuration. An unsupported mode denies rather than
+ * throwing, because telemetry may never change a command's result.
+ * @param env - Environment containing `DSH_TELEMETRY_MODE`; defaults to `process.env`.
+ * @returns The consent decision to apply after the command finishes.
+ */
+export function freezeTelemetryConsent(env: NodeJS.ProcessEnv = process.env): ConsentDecision {
+  try {
+    return resolveTelemetryConsent(env)
+  } catch {
+    return { allowed: false, reason: 'DISABLED' }
+  }
+}
+
+/**
+ * Assemble and send one telemetry event when consent allows, draining in-flight
+ * sends before returning. Swallows every error so telemetry can never change a
+ * command's result.
  * @param event - the command lifecycle facts.
  * @param deps - Consent and delivery hooks; defaults hit the real endpoint.
  */
@@ -44,7 +67,7 @@ export async function reportCommandTelemetry(
 ): Promise<void> {
   try {
     /* v8 ignore next -- the production resolver is exercised by its owning tests */
-    const consent = await (deps.resolve?.() ?? resolveTelemetryConsent())
+    const consent = deps.consent ?? await (deps.resolve?.() ?? resolveTelemetryConsent())
     if (!consent.allowed) return
     const payload = await buildTelemetryPayload({
       command: event.command,
