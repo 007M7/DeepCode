@@ -179,8 +179,10 @@ describe('dsh-tool-subagent-control/list-agents', () => {
     vi.spyOn(ctx.agents, 'get').mockImplementation(id => agents.get(id) as never)
     const result = await callTool(ctx, 'list_agents', {}, parent)
     expect(result.isError).toBe(false)
+    // `ready` is the resumable counterpart to a live `running` record, not a
+    // claim that the child's conversation ended with a result to collect.
     expect(text(result)).toBe(
-      `${started.childId} [complete] — real child\n`
+      `${started.childId} [ready] — real child\n`
       + 'running-child [running] — still working\n'
       + 'waiting-child [idle] — waiting on descendants\n'
       + 'broken-child [diagnostic: corrupt]',
@@ -217,7 +219,21 @@ describe('dsh-tool-subagent-control/list-agents', () => {
     await waitNoActivation(ctx, started.childId)
     const result = await callTool(ctx, 'list_agents', {}, parent)
     expect(result.isError).toBe(false)
-    expect(text(result)).toBe(`${started.childId} [complete] — summarize the doc`)
+    expect(text(result)).toBe(`${started.childId} [ready] — summarize the doc`)
+  })
+
+  it('describes ready as resumable and pins the status vocabulary', async () => {
+    const { ctx } = await setup([])
+    const schema = ctx.tools.schemas().find(candidate => candidate.name === 'list_agents')
+    // Completion reaches the parent through its notice; listing is discovery,
+    // so its inactive status must not send the model looking for a result.
+    expect(schema?.description).toContain('you are told when one finishes')
+    expect(schema?.description).toContain('resumable, not terminal')
+    // The enum is the closed vocabulary the model renders, so pin it rather than
+    // scanning prose that legitimately reads "not to poll for completion".
+    const variants = ctx.tools.get('list_agents')?.output.schema.items?.oneOf ?? []
+    const child = variants.find(variant => variant.properties?.kind?.enum?.includes('child'))
+    expect(child?.properties?.status?.enum).toEqual(['running', 'idle', 'ready'])
   })
 
   it('fails loud when invoked without a calling agent', async () => {
@@ -323,7 +339,7 @@ describe('dsh-tool-subagent-control/list-agents', () => {
     const result = await callTool(ctx, 'list_agents', { scope: 'descendants' }, parent)
     expect(result.isError).toBe(false)
     expect(text(result)).toBe(
-      'deep-leaf [complete] parent=one-shot-mid depth=2 — deep leaf\n'
+      'deep-leaf [ready] parent=one-shot-mid depth=2 — deep leaf\n'
       + `broken-node [diagnostic: unavailable] parent=${parent.id} depth=1`,
     )
   })
