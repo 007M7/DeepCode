@@ -907,6 +907,25 @@ describe('ToolRegistry', () => {
     })
   })
 
+  it('keeps the normalized content when the final content transform returns undefined', async () => {
+    const ctx = await setup()
+    let finalized = 0
+    ctx.tools.register({
+      ...echoTool,
+      name: 'identity-finalizer',
+      finalizeContent() {
+        finalized += 1
+        return undefined
+      },
+    })
+
+    const result = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('identity-finalizer'), name: 'identity-finalizer', arguments: {} })
+
+    expect(result.isError).toBe(false)
+    expect(result.content).toEqual([{ type: 'text', text: '' }])
+    expect(finalized).toBe(1)
+  })
+
   it('a block decision can ALSO attach additionalContexts', async () => {
     const ctx = await setup()
     ctx.tools.register(echoTool)

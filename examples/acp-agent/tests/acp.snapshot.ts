@@ -553,13 +553,15 @@ const SCENARIOS: Scenario[] = [
     toolSchemasSource: 'code-mode-turn',
     configPath: CODE_MODE_WORKSPACE_CONTEXT_CONFIG,
   },
+  // `both` owns its own expected prompt rather than sharing code-mode-turn's:
+  // the two modes agree on every section except the run_code-only rule, which
+  // `both` must NOT state because its native calls do execute.
   {
     name: 'both-mode-turn',
     hasModelTurn: true,
     recorded: true,
     pinsHeader: true,
     headerClass: 'both',
-    systemPromptSource: 'code-mode-turn',
     configPath: BOTH_MODE_CONFIG,
   },
   // Machine permission scenarios use an explicit deployment policy; there is
