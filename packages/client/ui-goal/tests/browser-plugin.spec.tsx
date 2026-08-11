@@ -5,8 +5,8 @@
  * conversation.input.dock, the inject face's four verbs read the CAS ref
  * from the session's CURRENT projected value at call time (no fence — the
  * Remote method's compare-and-set is the guard), a missing projection short-circuits
- * to the no-current-goal error without touching the wire, and Remote errors
- * map onto the inline-render result shape. Registration disposal rides the
+ * to the no-current-goal error without touching the wire, and a Remote failure
+ * reaches the strip verbatim. Registration disposal rides the
  * plugin fiber (HMR safety). The node half and the invariant companion are
  * exercised over the same Context.
  */
@@ -48,8 +48,7 @@ function makeProjection(revision = 3): GoalProjection {
 /** Boot the plugin over fake faces; Goal Remote methods record arguments and answer per the script. */
 async function bench(options: {
   projection?: GoalProjection | null | undefined
-  failWith?: { code: string; message: string }
-  rejectWith?: unknown
+  failWith?: { code: string; message: string; details: object }
 } = {}) {
   const ctx = new Context()
   const calls: { method: string; args: unknown[] }[] = []
@@ -57,12 +56,8 @@ async function bench(options: {
   function answer<T>(method: string, value: T) {
     return (...args: unknown[]) => {
       calls.push({ method, args })
-      // oxlint-disable-next-line typescript/prefer-promise-reject-errors -- the non-Error rejection is the defensive scenario under test.
-      if ('rejectWith' in options) return Promise.reject(options.rejectWith)
-      if (options.failWith !== undefined) {
-        return Promise.reject(new Error(`Remote ${method} failed`, { cause: options.failWith }))
-      }
-      return Promise.resolve(value)
+      if (options.failWith !== undefined) return Promise.resolve({ ok: false, error: options.failWith })
+      return Promise.resolve({ ok: true, value })
     }
   }
   const ref = { id: 'g-1', revision: 3 }
@@ -139,10 +134,13 @@ describe('ui-goal browser plugin', () => {
     const b = await bench({ projection: makeProjection(5) })
     await b.fiber.await()
     const verbs = b.entry()!.inject!(sid('s1'))
-    expect(await verbs.onEdit('New objective')).toEqual({ ok: true })
-    expect(await verbs.onPause()).toEqual({ ok: true })
-    expect(await verbs.onResume()).toEqual({ ok: true })
-    expect(await verbs.onClear()).toEqual({ ok: true })
+    // The strip forwards the Remote value verbatim; `answered` is the fake's
+    // reply, unrelated to the CAS ref the call carries.
+    const answered = { id: 'g-1', revision: 3 }
+    expect(await verbs.onEdit('New objective')).toEqual({ ok: true, value: { ref: answered } })
+    expect(await verbs.onPause()).toEqual({ ok: true, value: { ref: answered } })
+    expect(await verbs.onResume()).toEqual({ ok: true, value: { ref: answered } })
+    expect(await verbs.onClear()).toEqual({ ok: true, value: answered })
     expect(b.calls.map(c => c.method)).toEqual(['goals/edit', 'goals/pause', 'goals/resume', 'goals/clear'])
     const ref = { id: 'g-1', revision: 5 }
     expect(b.calls[0]?.args).toEqual(['s1', ref, { objective: 'New objective' }])
@@ -157,18 +155,22 @@ describe('ui-goal browser plugin', () => {
     const verbs = b.entry()!.inject!(sid('s1'))
     b.remountGoals()
 
-    expect(await verbs.onPause()).toEqual({ ok: true })
+    expect(await verbs.onPause()).toEqual({ ok: true, value: { ref: { id: 'g-1', revision: 3 } } })
     expect(b.calls).toMatchObject([{ method: 'remounted-goals/pause' }])
   })
 
-  it('settles every verb when the Remote namespace is temporarily absent', async () => {
+  it('rejects every verb once the Remote namespace is gone', async () => {
     const b = await bench({ projection: makeProjection() })
     await b.fiber.await()
     const verbs = b.entry()!.inject!(sid('s1'))
     b.unmountGoals()
 
-    for (const result of [await verbs.onEdit('x'), await verbs.onPause(), await verbs.onResume(), await verbs.onClear()]) {
-      expect(result).toMatchObject({ ok: false, error: { code: 'internal' } })
+    // A missing namespace is an assembly fault, not a call outcome: this plugin
+    // declares remote.goals in `inject`, so cordis disposes the dock entry along
+    // with the namespace. Only a React closure that outlived that disposal can
+    // reach these verbs, so no consumer-side guard renders it as an error.
+    for (const verb of [() => verbs.onEdit('x'), () => verbs.onPause(), () => verbs.onResume(), () => verbs.onClear()]) {
+      await expect(verb()).rejects.toThrow(TypeError)
     }
     expect(b.calls).toHaveLength(0)
   })
@@ -179,30 +181,17 @@ describe('ui-goal browser plugin', () => {
       await b.fiber.await()
       const verbs = b.entry()!.inject!(sid('s1'))
       for (const result of [await verbs.onEdit('x'), await verbs.onPause(), await verbs.onResume(), await verbs.onClear()]) {
-        expect(result).toEqual({ ok: false, error: { code: 'no-current-goal', message: 'no current goal to mutate' } })
+        expect(result).toEqual({ ok: false, error: { code: 'no-current-goal', message: 'no current goal to mutate', details: {} } })
       }
       expect(b.calls).toHaveLength(0)
     }
   })
 
-  it('maps a Remote error onto the inline-render shape', async () => {
-    const b = await bench({ projection: makeProjection(), failWith: { code: 'internal', message: 'stale revision' } })
+  it('forwards a Remote failure to the strip verbatim', async () => {
+    const b = await bench({ projection: makeProjection(), failWith: { code: 'internal', message: 'stale revision', details: {} } })
     await b.fiber.await()
     const verbs = b.entry()!.inject!(sid('s1'))
-    expect(await verbs.onEdit('x')).toEqual({ ok: false, error: { code: 'internal', message: 'stale revision' } })
-  })
-
-  it.each([
-    [new Error('connection closed'), 'connection closed'],
-    ['connection closed', 'goal mutation failed'],
-    [new Error('invalid Remote failure', { cause: null }), 'invalid Remote failure'],
-    [new Error('invalid Remote failure', { cause: { code: 1, message: 'stale revision' } }), 'invalid Remote failure'],
-    [new Error('invalid Remote failure', { cause: { code: 'internal', message: 1 } }), 'invalid Remote failure'],
-  ])('maps an unstructured rejection onto an internal error', async (rejection, message) => {
-    const b = await bench({ projection: makeProjection(), rejectWith: rejection })
-    await b.fiber.await()
-    const verbs = b.entry()!.inject!(sid('s1'))
-    expect(await verbs.onEdit('x')).toEqual({ ok: false, error: { code: 'internal', message } })
+    expect(await verbs.onEdit('x')).toEqual({ ok: false, error: { code: 'internal', message: 'stale revision', details: {} } })
   })
 
   it('drops the dock entry when the plugin fiber unloads (HMR safety)', async () => {
@@ -223,10 +212,10 @@ describe('GoalDock adapter', () => {
     const projection = makeProjection()
     const useProjection = vi.fn(() => projection)
     const actions: GoalBarActions = {
-      onEdit: () => Promise.resolve({ ok: true }),
-      onPause: () => Promise.resolve({ ok: true }),
-      onResume: () => Promise.resolve({ ok: true }),
-      onClear: () => Promise.resolve({ ok: true }),
+      onEdit: () => Promise.resolve({ ok: true, value: undefined }),
+      onPause: () => Promise.resolve({ ok: true, value: undefined }),
+      onResume: () => Promise.resolve({ ok: true, value: undefined }),
+      onClear: () => Promise.resolve({ ok: true, value: undefined }),
     }
     const t = makeTranslate(zh, commonZh)
     const dockProps = (up: () => GoalProjection | null | undefined) =>

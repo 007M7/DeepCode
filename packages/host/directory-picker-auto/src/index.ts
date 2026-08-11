@@ -42,7 +42,10 @@ export const BACKEND_PACKAGES: Record<DirectoryPickerBackendKind, string> = {
 /**
  * Client surface package per resolved kind, mounted with its backend so one
  * resolved interaction still composes both faces. Declared as dependencies by
- * every composing app for the same reason as {@link BACKEND_PACKAGES}.
+ * every composing app for the same reason as {@link BACKEND_PACKAGES}. Only the
+ * specifier is referenced here — the packages belong to the Client program, so
+ * no import of them exists on this side and knip needs them ignored for this
+ * workspace.
  */
 export const SURFACE_PACKAGES: Record<DirectoryPickerBackendKind, string> = {
   native: '@deepseek-ai/dsh-client-ui-directory-picker-native',

@@ -30,10 +30,10 @@ function makeGoal(over: Partial<GoalSnapshot> = {}): GoalSnapshot {
 
 function makeActions() {
   return {
-    onEdit: vi.fn<GoalBarActions['onEdit']>(() => Promise.resolve({ ok: true })),
-    onPause: vi.fn<GoalBarActions['onPause']>(() => Promise.resolve({ ok: true })),
-    onResume: vi.fn<GoalBarActions['onResume']>(() => Promise.resolve({ ok: true })),
-    onClear: vi.fn<GoalBarActions['onClear']>(() => Promise.resolve({ ok: true })),
+    onEdit: vi.fn<GoalBarActions['onEdit']>(() => Promise.resolve({ ok: true, value: undefined })),
+    onPause: vi.fn<GoalBarActions['onPause']>(() => Promise.resolve({ ok: true, value: undefined })),
+    onResume: vi.fn<GoalBarActions['onResume']>(() => Promise.resolve({ ok: true, value: undefined })),
+    onClear: vi.fn<GoalBarActions['onClear']>(() => Promise.resolve({ ok: true, value: undefined })),
   } satisfies GoalBarActions
 }
 
@@ -75,7 +75,7 @@ describe('GoalBar', () => {
     expect(actions.onClear).toHaveBeenCalledTimes(1)
     expect(clear.disabled).toBe(true)
 
-    await act(async () => { resolveClear({ ok: true }) })
+    await act(async () => { resolveClear({ ok: true, value: undefined }) })
     expect(container.firstChild).toBeNull()
 
     rerender(<GoalBar goal={makeGoal({ id: 'g2' as GoalSnapshot['id'], objective: 'Next goal' })} {...actions} t={t} />)
@@ -178,7 +178,7 @@ describe('GoalBar', () => {
 
   it('keeps the edit draft open and reports a failed save', async () => {
     const actions = makeActions()
-    actions.onEdit.mockResolvedValue({ ok: false, error: { code: 'agent-busy', message: 'stale revision' } })
+    actions.onEdit.mockResolvedValue({ ok: false, error: { code: 'agent-busy', message: 'stale revision', details: {} } })
     render(<GoalBar goal={makeGoal()} {...actions} t={t} />)
     fireEvent.click(screen.getByRole('button', { name: '编辑目标' }))
     const box = screen.getByRole('textbox', { name: '目标内容' })
@@ -191,12 +191,12 @@ describe('GoalBar', () => {
 
   it('reports resume and clear failures without hiding the goal', async () => {
     const actions = makeActions()
-    actions.onResume.mockResolvedValue({ ok: false, error: { code: 'internal', message: 'resume failed' } })
+    actions.onResume.mockResolvedValue({ ok: false, error: { code: 'internal', message: 'resume failed', details: {} } })
     const { rerender } = render(<GoalBar goal={makeGoal({ phase: 'paused' })} {...actions} t={t} />)
     fireEvent.click(screen.getByRole('button', { name: '恢复目标' }))
     expect((await screen.findByRole('alert')).textContent).toBe('resume failed (internal)')
 
-    actions.onClear.mockResolvedValue({ ok: false, error: { code: 'agent-busy', message: 'clear failed' } })
+    actions.onClear.mockResolvedValue({ ok: false, error: { code: 'agent-busy', message: 'clear failed', details: {} } })
     rerender(<GoalBar goal={makeGoal()} {...actions} t={t} />)
     fireEvent.click(screen.getByRole('button', { name: '清除目标' }))
     expect((await screen.findByRole('alert')).textContent).toBe('clear failed (agent-busy)')
