@@ -296,12 +296,16 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
+  margin-left: -4px;
   margin-right: calc(-1 * var(--dsh-session-list-edge-inset));
+  padding-left: 4px;
   overflow: hidden;
 }
 
 .rail .listArea {
+  margin-left: 0;
   margin-right: 0;
+  padding-left: 0;
 }
 
 /* Relative for the bottom fade overlay. */
@@ -342,7 +346,9 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  margin-left: -4px;
   margin-right: var(--dsh-session-list-scrollbar-offset);
+  padding-left: 4px;
   padding-right: calc(
     var(--dsh-session-list-edge-inset)
     - var(--dsh-session-list-scrollbar-width)
@@ -386,20 +392,28 @@
   content: '';
   position: absolute;
   z-index: 1;
-  left: 4px;
+  left: -4px;
   right: 4px;
-  height: 2px;
-  border-radius: 999px;
-  background: var(--dsw-alias-state-business-primary);
+  height: 12px;
+  background:
+    radial-gradient(
+      circle at 6px 6px,
+      transparent 0 3px,
+      var(--dsw-alias-state-business-primary) 3px 5px,
+      transparent 5px
+    ),
+    linear-gradient(
+      var(--dsw-alias-state-business-primary) 0 0
+    ) 10px 5px / calc(100% - 10px) 2px no-repeat;
   pointer-events: none;
 }
 
 .workspaceDropBefore::before {
-  top: -3px;
+  top: -8px;
 }
 
 .workspaceDropAfter::after {
-  bottom: -3px;
+  bottom: -8px;
 }
 
 .sessionOverflowButton {

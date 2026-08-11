@@ -236,8 +236,8 @@
   background: var(--dsw-alias-interactive-bg-hover);
 }
 
-/* Session drag insert line: an independent 2px rule between rows, absolutely
-   positioned so it neither resembles a row border nor changes layout. */
+/* Session drag insert marker: a hollow leading dot and 2px rule between rows,
+   absolutely positioned so it neither resembles a row border nor changes layout. */
 .sessionRow.dropBefore,
 .sessionRow.dropAfter {
   position: relative;
@@ -248,20 +248,28 @@
   content: '';
   position: absolute;
   z-index: 1;
-  left: 4px;
+  left: 0;
   right: 4px;
-  height: 2px;
-  border-radius: 999px;
-  background: var(--dsw-alias-state-business-primary);
+  height: 12px;
+  background:
+    radial-gradient(
+      circle at 6px 6px,
+      transparent 0 3px,
+      var(--dsw-alias-state-business-primary) 3px 5px,
+      transparent 5px
+    ),
+    linear-gradient(
+      var(--dsw-alias-state-business-primary) 0 0
+    ) 10px 5px / calc(100% - 10px) 2px no-repeat;
   pointer-events: none;
 }
 
 .sessionRow.dropBefore::before {
-  top: -2px;
+  top: -7px;
 }
 
 .sessionRow.dropAfter::after {
-  bottom: -2px;
+  bottom: -7px;
 }
 
 /* Hover-card body (figma 169:16903): dark surface, fixed colors both themes. */

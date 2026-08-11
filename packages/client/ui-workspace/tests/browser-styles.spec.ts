@@ -48,9 +48,13 @@ describe('WorkspaceBrowser.module.css list', () => {
     expect(root?.get('--dsh-session-list-scrollbar-width')).toBe('8px')
     expect(root?.get('--dsh-session-list-scrollbar-offset')).toBe('2px')
     expect(root?.get('padding-right')).toBe('var(--dsh-session-list-edge-inset)')
+    expect(listArea?.get('margin-left')).toBe('-4px')
+    expect(listArea?.get('padding-left')).toBe('4px')
     expect(listArea?.get('margin-right')).toBe('calc(-1 * var(--dsh-session-list-edge-inset))')
     expect(declarations('.fade')?.get('right')).toBe('var(--dsh-session-list-edge-inset)')
     expect(list?.get('margin-right')).toBe('var(--dsh-session-list-scrollbar-offset)')
+    expect(list?.get('margin-left')).toBe('-4px')
+    expect(list?.get('padding-left')).toBe('4px')
     expect(list?.get('padding-right')).toBe([
       'calc(',
       'var(--dsh-session-list-edge-inset)',
@@ -70,6 +74,20 @@ describe('WorkspaceBrowser.module.css list', () => {
     expect(declarations(".searchTree > [role='treeitem'] + [role='treeitem']")?.get('margin-top')).toBe('2px')
     expect(declarations('.groupSection > * + *')?.get('margin-top')).toBe('2px')
     expect(declarations('.groupSection + .groupSection')?.get('margin-top')).toBe('4px')
+  })
+
+  it('draws drag targets as a hollow leading dot joined to the insertion line', () => {
+    const workspaceMarker = declarations('.workspaceDropBefore::before')
+    const sessionMarker = rowDeclarations('.sessionRow.dropBefore::before')
+    expect(workspaceMarker?.get('left')).toBe('-4px')
+    expect(sessionMarker?.get('left')).toBe('0')
+    for (const marker of [workspaceMarker, sessionMarker]) {
+      expect(marker?.get('height')).toBe('12px')
+      expect(marker?.get('background')).toContain('radial-gradient')
+      expect(marker?.get('background')).toContain('linear-gradient')
+      expect(marker?.get('background')).toContain('var(--dsw-alias-state-business-primary) 3px 5px')
+      expect(marker?.get('background')).toContain('10px 5px / calc(100% - 10px) 2px')
+    }
   })
 
   it('keeps the compact fade, overflow control, search field, and row heights', () => {

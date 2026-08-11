@@ -215,12 +215,16 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
+  margin-left: -4px;
   margin-right: calc(-1 * var(--dsh-sidebar-inline-padding));
+  padding-left: 4px;
   overflow: hidden;
 }
 
 .collapsed .regionArea {
+  margin-left: 0;
   margin-right: 0;
+  padding-left: 0;
 }
 
 /* Foot seat: a pure layout socket pinned under the region; the ui-settings
