@@ -24,7 +24,7 @@
 import { stat } from 'node:fs/promises'
 import { Context, Service } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
-import { bindScopeParent, createScope, scopeChainOf, scopeOf, type Scope, type ScopeKey, type ScopeParentBinding } from '@deepseek-ai/dsh-scope'
+import { bindScopeParent, createScope, scopeOf, type Scope, type ScopeKey, type ScopeParentBinding } from '@deepseek-ai/dsh-scope'
 // Type-only: resolves the `agent/created` lifecycle event this service watches.
 import type {} from '@deepseek-ai/dsh-agent'
 import { settingsNamespace, type SettingsScope, type default as SettingsService } from '@deepseek-ai/dsh-settings'
@@ -133,24 +133,21 @@ export class AgentPresets extends Service {
       }, 'agentPresets.settings()')
     })
 
-    // An agent joins a preset by having its scope key parented to a standing
-    // mount, and `mount`/`composeFrom` are the only things in the runtime that
-    // install that link. An agent that never joined keeps a chain of length
-    // one, so its `tools`, `system-prompt`, and `skill` views resolve against
-    // the EMPTY global layer and the model simply has nothing — no error, no
-    // empty catalog to notice, just an agent that cannot act.
+    // Advisory, not fatal: a synchronous `agent/created` listener that throws
+    // VETOES publication, and this service must not, because composing an agent
+    // outside the roster is legal — `recompose` binds exactly such a bare agent
+    // below, and the ACP, SDK-server, and headless entry points all create one.
+    // The invariant companion is the check that fails loud, at assembly. Why an
+    // unjoined agent matters at all has one home: the [Agent
+    // Note](../../../../.agents/notes/implemented/architecture/2026-08-10-host-plane-ownership-after-presets.md).
     //
-    // Advisory rather than fatal, and deliberately not the same observation the
-    // invariant companion makes. A synchronous `agent/created` listener that
-    // throws VETOES publication, and this service must not: composing an agent
-    // outside the roster is legal (`recompose` documents the bare agent it then
-    // binds, and entry points that predate presets still create one), so
-    // vetoing would turn a capability gap into an outage. The companion fails
-    // loud instead, at the later point where the empty world reaches a model.
+    // Known false positive: a session created bare and bound later by
+    // `recompose` is warned about once, before its first bind. No shipped flow
+    // does that today — the Web surface mounts in `setup` and children join
+    // through `composeFrom` before publication.
     ctx.on('agent/created', ({ agent }) => {
       if (this.config.roots.length === 0) return
-      const key = scopeOf(agent.ctx)
-      if (key !== undefined && scopeChainOf(key).length > 1) return
+      if (this.composedPreset(agent.ctx) !== undefined) return
       ctx.logger.warn(
         `agent "${agent.id}" was published without joining an agent preset; `
         + 'its tools, prompt sections, and skill catalog resolve against the empty global layer '

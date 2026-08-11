@@ -301,16 +301,11 @@
   disabled: true
 
 # The token METER stays on the host plane; only the compaction backend that
-# reads it moves. It takes no configuration at all, keys every fold by Session,
-# and registers no tool or prompt section, so one host instance serves every
-# preset exactly as before. It also owns the `tokenUsage`/`contextPressure`/
-# `contextBreakdown` projection units, and the projection registry is
-# process-wide rather than scope-layered: registered from inside a preset, the
-# browser's context meter would appear for a session whose own composition
-# mounts no meter as soon as some OTHER session mounted one, and disappear
-# entirely in a process that only ever ran `minimal`. That is the same criterion
-# `tasks` and `goals` are read by — a Service the host and every preset can see
-# belongs to the plane both can see.
+# reads it moves. It owns the context-meter projection units, and that table is
+# process-wide, so preset ownership would make the meter a function of which
+# presets happen to be mounted rather than a per-session fact. Same criterion as
+# `tasks` and `goals`; the reasoning has one home in
+# `.agents/notes/implemented/architecture/2026-08-10-host-plane-ownership-after-presets.md`.
 
 - id: compact-basic
   disabled: true

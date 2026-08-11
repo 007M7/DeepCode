@@ -5,9 +5,10 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
-import { scopeChainOf } from '@deepseek-ai/dsh-scope'
-// Type-only: resolves the `system-prompt/assemble` waterfall this companion joins.
+// Type-only: resolves the `system-prompt/assemble` waterfall this companion
+// joins, and the `agent` field `dsh-agent` merges into its context.
 import type {} from '@deepseek-ai/dsh-system-prompt'
+import type {} from '@deepseek-ai/dsh-agent'
 // Imported through the package name, not `./mount.ts`: a module shared between
 // the two build entry points becomes a third chunk that the published `files`
 // list does not carry, which `verify-built-package-invariants` rejects.
@@ -42,26 +43,28 @@ const install: InvariantInstaller = (ctx, fail) => {
     }
   }, { global: true })
 
-  // The join is a scope-parent link, and `AgentPresets.mount()` is the only
-  // thing in the runtime that installs one. An agent minted without it keeps a
-  // chain of length one, so its `tools`, `system-prompt`, and `skill` views
-  // fall back to the empty global layer and the model receives nothing.
+  // An agent that joined no preset resolves `tools`, `system-prompt`, and
+  // `skill` against the empty global layer, so the model receives nothing.
+  // `composedPreset()` is the roster's own answer to "did this agent join",
+  // read from the live scope chain — see the [Agent
+  // Note](../../../../.agents/notes/implemented/architecture/2026-08-10-host-plane-ownership-after-presets.md)
+  // for why the warning beside it is advisory while this one fails.
   //
-  // Checked at ASSEMBLY, not at publication: an unjoined agent is legal until
-  // it addresses a model — `recompose` binds a bare agent as its first link,
-  // and that agent is unjoined for its whole life up to the switch. Assembling
-  // a prompt is the point where the empty world stops being a state and
-  // becomes what the model sees, and it is the only caller that supplies an
-  // agent scope, so a host assembly (no scope) and a standing mount are both
-  // correctly out of range.
+  // Two conditions, each load-bearing. `context.agent` is what makes this an
+  // AGENT assembly: a scope-only assembly — a cold read resolving presenters
+  // in a standing key, a diagnostic — is not an agent and must not be judged
+  // on whether it joined anything. And assembly rather than publication is the
+  // moment that matters, because an unjoined agent is legal until it addresses
+  // a model: `recompose` binds a bare agent as its first link, and that agent
+  // is unjoined for its whole life up to the switch.
   ctx.on('system-prompt/assemble', (_assembly, context, next) => {
     const presets = ctx.get('agentPresets')
-    const scope = context.scope
+    const agent = context.agent
     if (presets !== undefined && presets.config.roots.length > 0
-      && scope !== undefined && scopeChainOf(scope).length === 1) {
+      && agent !== undefined && presets.composedPreset(agent.ctx) === undefined) {
       fail(
-        'an agent addressed a model without joining any agent preset while a roster is composed; '
-        + 'its tools, prompt sections, and skill catalog resolve against the empty global layer',
+        `agent "${agent.id}" addressed a model without joining any agent preset while a roster is `
+        + 'composed; its tools, prompt sections, and skill catalog resolve against the empty global layer',
       )
     }
     return next()

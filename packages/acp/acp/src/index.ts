@@ -253,11 +253,9 @@ export function apply(ctx: Context, config: AcpConfig): void {
         validateSessionParams(params)
         const sessionId = SessionId(randomUUID())
         // No preset composition: the ACP bundle keeps the model-facing rows in
-        // the host plane, so this agent reads them from the global registry
-        // layer. A deployment that configures `dsh-agent-presets` has to join
-        // one here first — registration visibility inherits only along the
-        // `dsh-scope` parent chain, and an agent created without that link
-        // reads an empty global layer and reaches the model with no tools.
+        // the host plane, so this agent reads them from the global layer. A
+        // deployment that configures a roster has to join one here first
+        // (@deepseek-ai/dsh-agent-presets README, "Composing a child agent").
         const handle = await agents.create({
           sessionId,
           meta: { cwd: params.cwd },

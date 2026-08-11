@@ -159,7 +159,9 @@ describe('the shipped Web composition', () => {
       setup: agentCtx => ctx.agentPresets.mount(agentCtx, 'minimal').then(() => undefined),
     })
     try {
-      expect(Object.keys(projections.snapshot(handle.agent.session).values).sort())
+      // A subset assertion: `tasks`, `goal`, and the rest register into the
+      // same process-wide table, and this is about the meter's three units.
+      expect(Object.keys(projections.snapshot(handle.agent.session).values))
         .toEqual(expect.arrayContaining(['contextBreakdown', 'contextPressure', 'tokenUsage']))
     } finally {
       await handle.dispose()
