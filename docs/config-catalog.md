@@ -122,7 +122,7 @@ export interface Config {
 
 Depends on: [`AgentOptions`](subsystems/core.md) · [`SessionId`](subsystems/core.md)
 
-Source: [`packages/core/agent-loop/src/index.ts:236`](../packages/core/agent-loop/src/index.ts)
+Source: [`packages/core/agent-loop/src/index.ts:255`](../packages/core/agent-loop/src/index.ts)
 
 ## `@deepseek-ai/dsh-agent-presets`
 
@@ -315,7 +315,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/bash/bash-local/src/index.ts:40`](../packages/bash/bash-local/src/index.ts)
+Source: [`packages/bash/bash-local/src/index.ts:41`](../packages/bash/bash-local/src/index.ts)
 
 ## `@deepseek-ai/dsh-bash-sandbox`
 
@@ -1292,7 +1292,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/bash/pwsh-local/src/index.ts:54`](../packages/bash/pwsh-local/src/index.ts)
+Source: [`packages/bash/pwsh-local/src/index.ts:58`](../packages/bash/pwsh-local/src/index.ts)
 
 ## `@deepseek-ai/dsh-pwsh-sandbox`
 
@@ -2625,7 +2625,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/web/web-search-deepseek/src/index.ts:44`](../packages/web/web-search-deepseek/src/index.ts)
+Source: [`packages/web/web-search-deepseek/src/index.ts:46`](../packages/web/web-search-deepseek/src/index.ts)
 
 ## `@deepseek-ai/dsh-web-search-exa`
 
@@ -2747,6 +2747,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-client-ui-models` ([`packages/client/ui-models/src/index.ts`](../packages/client/ui-models/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-permission` ([`packages/client/ui-permission/src/index.ts`](../packages/client/ui-permission/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-plan` ([`packages/client/ui-plan/src/index.ts`](../packages/client/ui-plan/src/index.ts))
+- `@deepseek-ai/dsh-client-ui-plugin-config` ([`packages/client/ui-plugin-config/src/index.ts`](../packages/client/ui-plugin-config/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-question` ([`packages/client/ui-question/src/index.ts`](../packages/client/ui-question/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-settings` ([`packages/client/ui-settings/src/index.ts`](../packages/client/ui-settings/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-settings-general` ([`packages/client/ui-settings-general/src/index.ts`](../packages/client/ui-settings-general/src/index.ts))

@@ -17,6 +17,17 @@ export interface SettingsScopeSnapshot<T> {
   status: 'loading' | 'ready' | 'unavailable'
   /** Last accepted schema-resolved section; undefined before the first acceptance. */
   value: T | undefined
+  /**
+   * Composition layer the Host resolved {@link value} over, when the owning
+   * plugin declared one. What a field reverts to once cleared.
+   */
+  base: unknown
+  /**
+   * Raw user layer as stored, when one exists. A field's PRESENCE here is what
+   * marks it overridden — an override whose value equals the composition
+   * default is still an override, and comparing values could not see it.
+   */
+  user: unknown
   /** Namespace revision fencing the next write; undefined before the first Host view. */
   revision: number | undefined
   /** Whether the Host document accepts writes; memory mode never does. */
@@ -60,4 +71,11 @@ export interface SettingsScope<T> {
    * @returns settlement after the write and any latest-write recovery read.
    */
   set(field: string, value: unknown): Promise<void>
+  /**
+   * Queue one field clear, so the field re-inherits the composition layer.
+   * Shares {@link set}'s ordering, revision, and recovery contract.
+   * @param field - scalar field inside the namespace section.
+   * @returns settlement after the clear and any latest-write recovery read.
+   */
+  unset(field: string): Promise<void>
 }
