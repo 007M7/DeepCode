@@ -392,7 +392,23 @@ describe('session.export download endpoint', () => {
     )
     expect(response.status).toBe(500)
     const body = await response.text()
-    expect(body).toBe('session log export failed to read the stored artifact')
+    expect(body).toBe('session log export failed to prepare the stored artifact')
+    expect(body).not.toContain('/host/private/')
+  })
+
+  it('answers the private-error-safe 500 when the live root flush fails', async () => {
+    const api = await buildApi({ 'session-root': artifact('session-root') }, [], {
+      sessions: {
+        get: id => ({ id }),
+        flush: async () => { throw new Error('/host/private/flush-state') },
+      },
+    })
+    const response = await toFetchHandler(api).fetch(
+      new Request('http://host/api/session.export?sessionId=session-root'),
+    )
+    expect(response.status).toBe(500)
+    const body = await response.text()
+    expect(body).toBe('session log export failed to prepare the stored artifact')
     expect(body).not.toContain('/host/private/')
   })
 

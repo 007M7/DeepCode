@@ -3515,9 +3515,9 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           signal.throwIfAborted()
         } catch {
           signal.throwIfAborted()
-          // Backend read failure: answer 500 without echoing the error, which
-          // may carry absolute host paths into the browser error bar.
-          return new Response('session log export failed to read the stored artifact', { status: 500 })
+          // Root preparation failure: answer 500 without echoing the error,
+          // which may carry absolute host paths into the browser error bar.
+          return new Response('session log export failed to prepare the stored artifact', { status: 500 })
         }
         if (root === undefined) {
           return new Response('session not found', { status: 404 })
