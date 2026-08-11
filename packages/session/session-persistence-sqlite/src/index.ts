@@ -97,6 +97,8 @@ export interface Config {
  * listeners. Its torn-tail marker is the seq to delete from.
  */
 export class SessionPersistenceSqlite extends SessionPersistence implements PersistenceBackend<number> {
+  override readonly supportsRawArtifacts = false
+
   static inject = ['sessions']
 
   static Config: z<Config> = z.object({
