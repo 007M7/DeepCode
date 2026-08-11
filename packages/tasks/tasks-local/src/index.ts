@@ -253,10 +253,11 @@ export class LocalTaskService extends TaskService {
           }
           const onAbort = (): void => {
             task.waitResolvers.delete(onSettled)
+            // A settled task cannot reach here: settlement releases every waiter
+            // before it announces completion, and each released waiter detaches
+            // this listener in the same synchronous span, so nothing that reacts
+            // to a settlement can abort a wait the settlement already owed.
             if (timeoutOf(d.signal, TASK_WAIT_TIMEOUT) !== undefined) {
-              resolve()
-            } else if (isTerminal(task.status)) {
-              // Settlement suppressed the notice for this waiter; deliver it.
               resolve()
             } else {
               uncount()
@@ -402,9 +403,12 @@ export class LocalTaskService extends TaskService {
   }
 
   /**
-   * Record the first terminal outcome, notify contained listeners, and release
-   * waiters. First-wins preserves a teardown force-failure against late producer
-   * settlement. Pending waits mark the task reported before listeners run.
+   * Record the first terminal outcome, release waiters, then announce
+   * completion. First-wins preserves a teardown force-failure against late
+   * producer settlement. Pending waits mark the task reported before listeners
+   * run. Completion is announced last because a reporter may open a model turn
+   * synchronously: every other observer of this settlement must already have
+   * seen the committed record.
    */
   private settle(task: TrackedTask, outcome: TaskOutcome): void {
     if (isTerminal(task.status)) return
@@ -413,24 +417,23 @@ export class LocalTaskService extends TaskService {
     task.output = outcome.output
     task.finishedAt = Date.now()
     if (task.waiters > 0) task.reported = true
-    if (!this.listenersClosed) {
-      const snapshot = this.snapshot(task)
-      for (const listener of this.listenersFor(task.owner)) {
-        try {
-          const returned = listener(snapshot, task.owner)
-          void Promise.resolve(returned).catch((error: unknown) => {
-            this.selfCtx.logger.warn(`tasks: onTaskDone listener rejected for ${task.id}: ${String(error)}`)
-          })
-        } catch (error: unknown) {
-          this.selfCtx.logger.warn(`tasks: onTaskDone listener threw for ${task.id}: ${String(error)}`)
-        }
-      }
-    }
+    const snapshot = this.snapshot(task)
     const waitResolvers = [...task.waitResolvers]
     task.waitResolvers.clear()
     for (const resolveWait of waitResolvers) resolveWait()
     task.markSettled()
     this.notifyChanged(task.owner)
+    if (this.listenersClosed) return
+    for (const listener of this.listenersFor(task.owner)) {
+      try {
+        const returned = listener(snapshot, task.owner)
+        void Promise.resolve(returned).catch((error: unknown) => {
+          this.selfCtx.logger.warn(`tasks: onTaskDone listener rejected for ${task.id}: ${String(error)}`)
+        })
+      } catch (error: unknown) {
+        this.selfCtx.logger.warn(`tasks: onTaskDone listener threw for ${task.id}: ${String(error)}`)
+      }
+    }
   }
 
   /**
@@ -501,6 +504,14 @@ export class LocalTaskService extends TaskService {
   private cancelForTeardown(tasks: TrackedTask[], reason: string): void {
     for (const task of tasks) {
       if (isTerminal(task.status)) continue
+      // Teardown cancellation is a kill without a caller, so it claims the
+      // terminal report the same way `kill()` does. Nothing will read a notice
+      // for a task whose owner or service is being destroyed, and a waking
+      // reporter would spend a model request per teardown layer. This is
+      // decided before the producer runs: the force-failure below settles the
+      // record too, so a throwing cancel must not be the one path that
+      // announces an unreported completion into a disposing owner.
+      task.reported = true
       try {
         task.cancel(reason)
         task.status = 'stopping'

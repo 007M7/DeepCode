@@ -35,6 +35,7 @@ The browser side of the dsh web GUI: shell boot, browser-host communication, sha
 | [`ui-model/`](ui-model/README.md) | Provides model selection in conversation surfaces. |
 | [`ui-permission/`](ui-permission/README.md) | Configures default permissions and switches the current session's access. |
 | [`ui-plan/`](ui-plan/README.md) | Presents active plan-mode status and its exit control. |
+| [`ui-plugin-config/`](ui-plugin-config/README.md) | The Plugins settings section: host-plane plugin configuration as expandable cards. |
 | [`ui-question/`](ui-question/README.md) | Presents interactive questions requested by the agent. |
 | [`ui-agent-preset/`](ui-agent-preset/README.md) | Selects a session's agent preset and authors preset compositions. |
 | [`ui-settings/`](ui-settings/README.md) | Hosts the settings interface and its extension areas. |

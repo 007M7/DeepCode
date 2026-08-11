@@ -23,10 +23,14 @@ describe('connection lifecycle', () => {
   it('announces connected after describe + both streams open, then pumps frames to sinks', async () => {
     const api = new FakeApiClient()
     const muxSeen: string[] = []
+    const descriptions: boolean[] = []
     let connected = 0
     const controller = new ConnectionController(api, {
       onMuxEnvelope: envelope => muxSeen.push(envelope.payload.type),
-      onConnected: () => { connected++ },
+      onConnected: (description) => {
+        connected++
+        descriptions.push(description.canOpenPath)
+      },
     }, FAST)
     controller.start()
     try {
@@ -34,6 +38,7 @@ describe('connection lifecycle', () => {
       api.pushMux(subscribedFrame())
       await vi.waitFor(() => { expect(muxSeen).toEqual(['session/subscribed']) })
       expect(api.callsOf('host.describe')).toHaveLength(1)
+      expect(descriptions).toEqual([true])
     } finally {
       controller.stop()
     }
@@ -75,7 +80,7 @@ describe('connection lifecycle', () => {
     try {
       await vi.waitFor(() => { expect(describeCalls).toBe(2) }) // retried after backoff
       expect(connected).toBe(0) // never announced during the failed generation
-      gate.resolve(ok({ version: '0', cwd: '/f', attachedSessions: 0 }))
+      gate.resolve(ok({ version: '0', cwd: '/f', attachedSessions: 0, canOpenPath: true }))
       await vi.waitFor(() => { expect(connected).toBe(1) })
     } finally {
       controller.stop()
@@ -97,7 +102,7 @@ describe('connection lifecycle', () => {
           },
         })
       }
-      return Promise.resolve(ok({ version: '0', cwd: '/f', attachedSessions: 0 }))
+      return Promise.resolve(ok({ version: '0', cwd: '/f', attachedSessions: 0, canOpenPath: true }))
     }
     let connected = 0
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
@@ -175,6 +180,38 @@ describe('connection lifecycle', () => {
     }
   })
 
+  it('rejects a generation whose streams end during readiness and retries', async () => {
+    const api = new FakeApiClient()
+    const firstDescribe = deferred<Awaited<ReturnType<FakeApiClient['onDescribe']>>>()
+    let describeCalls = 0
+    api.onDescribe = () => {
+      describeCalls++
+      return describeCalls === 1
+        ? firstDescribe.promise
+        : Promise.resolve(ok({ version: '0', cwd: '/f', attachedSessions: 0, canOpenPath: true }))
+    }
+    const states: ConnectionState[] = []
+    let connected = 0
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const controller = new ConnectionController(api, {
+      onConnected: () => { connected++ },
+      onStateChange: state => states.push(state),
+    }, FAST)
+    controller.start()
+    try {
+      await vi.waitFor(() => { expect(api.openMuxCount).toBe(1) })
+      api.endStreams()
+      firstDescribe.resolve(ok({ version: '0', cwd: '/f', attachedSessions: 0, canOpenPath: true }))
+
+      await vi.waitFor(() => { expect(describeCalls).toBe(2) })
+      await vi.waitFor(() => { expect(connected).toBe(1) })
+      expect(states).toEqual(['reconnecting', 'connected'])
+    } finally {
+      controller.stop()
+      warnSpy.mockRestore()
+    }
+  })
+
   it('proceeds as connected via the timeout guard when a carrier never fires onOpen', async () => {
     const api = new FakeApiClient()
     api.suppressStreamOpen = true // misbehaving carrier: streams open but onOpen never fires
@@ -210,6 +247,24 @@ describe('connection lifecycle', () => {
     }
   })
 
+  it('does not announce a generation stopped synchronously by its connected state sink', async () => {
+    const api = new FakeApiClient()
+    const states: ConnectionState[] = []
+    let connected = 0
+    const controller = new ConnectionController(api, {
+      onConnected: () => { connected++ },
+      onStateChange: (state) => {
+        states.push(state)
+        if (state === 'connected') controller.stop()
+      },
+    }, FAST)
+
+    controller.start()
+    await vi.waitFor(() => { expect(states).toEqual(['connected']) })
+    await vi.waitFor(() => { expect(api.openMuxCount).toBe(0) })
+    expect(connected).toBe(0)
+  })
+
   it('deduplicates consecutive reconnecting emissions across two straight failures', async () => {
     const api = new FakeApiClient()
     const gate = deferred<Awaited<ReturnType<FakeApiClient['onDescribe']>>>()
@@ -228,7 +283,7 @@ describe('connection lifecycle', () => {
     controller.start()
     try {
       await vi.waitFor(() => { expect(describeCalls).toBe(3) })
-      gate.resolve(ok({ version: '0', cwd: '/f', attachedSessions: 0 }))
+      gate.resolve(ok({ version: '0', cwd: '/f', attachedSessions: 0, canOpenPath: true }))
       await vi.waitFor(() => { expect(connected).toBe(1) })
       expect(states).toEqual(['reconnecting', 'connected']) // two failures, one reconnecting emission
     } finally {

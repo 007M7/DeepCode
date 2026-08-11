@@ -816,7 +816,7 @@ describe('headless stream-json snapshots', () => {
         expect(calls.map(record => (record.data as JsonObject | undefined)?.name)).toEqual(['subagent'])
         const callArguments = (calls[0]?.data as JsonObject | undefined)?.arguments
         if (typeof callArguments !== 'string') throw new Error('subagent call did not persist its arguments')
-        expect(JSON.parse(callArguments)).toMatchObject({ run_in_background: true })
+        expect(JSON.parse(callArguments)).not.toHaveProperty('run_in_background')
 
         const notices = parentRecords.flatMap((record) => {
           if (record.type !== 'agent/inbox/spliced') return []

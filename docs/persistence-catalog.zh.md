@@ -536,6 +536,22 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 
 来源：[`packages/sandbox/sandbox-policy/src/session-mode.ts:33`](../packages/sandbox/sandbox-policy/src/session-mode.ts)
 
+### `schedule/*`
+
+#### `schedule/change` — log-only
+
+```ts persistence-catalog
+/**
+ * Versioned Schedule mutation. The owning package validates the complete
+ * session-local transition stream before accepting a candidate event.
+ */
+'schedule/change': ScheduleChange
+```
+
+类型：[ScheduleChange](subsystems/schedule.md)
+
+来源：[`packages/schedule/tool-schedule/src/types.ts:219`](../packages/schedule/tool-schedule/src/types.ts)
+
 ### `session/*`
 
 #### `session/end-seed` — log-only

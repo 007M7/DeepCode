@@ -2,7 +2,7 @@
 
 English | [中文](python-sdk.zh.md)
 
-This tutorial installs the Python SDK, runs a checked-in Cordis composition without the Web UI, and uses the same API in your own program. It uses the compact [`minimal.cordis.yml`](../../../examples/jsonrpc-agent/minimal.cordis.yml) configuration as a complete example with a fixed system prompt, tool catalog, persistent-shell behavior, and compaction policy.
+This tutorial installs the Python SDK, runs a checked-in Cordis composition without the Web UI, and uses the same API in your own program. It uses the compact [`minimal.cordis.yml`](../../../examples/jsonrpc-agent/minimal.cordis.yml) configuration as a complete example with a configurable system prompt, a two-tool catalog, persistent-shell behavior, and context compaction disabled.
 
 ## Prerequisites
 
@@ -63,6 +63,8 @@ Set the credential in the environment. Set `DEEPSEEK_BASE_URL` as well when the 
 ```sh
 export DEEPSEEK_API_KEY=sk-your-key-here
 # export DEEPSEEK_BASE_URL=http://127.0.0.1:8000/v1
+# export DSH_MODEL=deepseek-v4-flash
+# export DSH_SYSTEM_PROMPT='You are a helpful software engineer assistant.'
 ```
 
 Run one task from the repository checkout:
@@ -110,21 +112,23 @@ print(result.final_response)
 
 ## Understand the example configuration
 
-| Surface | Fixed value |
+| Property | Value |
 |---|---|
-| System prompt | `You are a helpful software engineer assistant.` |
+| System prompt | `DSH_SYSTEM_PROMPT`, falling back to `You are a helpful software engineer assistant.` |
+| Model in `minimal.py` | `--model`, then `DSH_MODEL`, then `deepseek-v4-flash` |
 | Model-facing tools | Persistent `bash` and `str_replace_editor` only |
 | Bash timeout | 300 seconds |
 | Editor output limit | 16,000 characters |
-| Compaction | Trigger ratio `0.8`, retain `20,480` tokens, summary cap `8,192` tokens, one retry |
+| Context compaction | Disabled |
+| Filesystem | Bare local backend; absolute editor paths may address any path visible to the runtime process |
 | Session persistence | Uncompressed JSONL under `DSH_SESSION_ROOT` |
 
-The configuration omits harness identity, workspace prompt text, skills, one-shot Bash, task tools, and every other model-facing plugin. Filesystem policy facts are logged as runtime user context rather than appended to the system prompt. The editor requires absolute paths as an unconditional current contract, so the obsolete `requireAbsolutePath` option is absent.
+The configuration omits harness identity, workspace prompt text, skills, one-shot Bash, task tools, compaction, and every other model-facing plugin. Sandbox-policy facts are logged as runtime user context rather than appended to the system prompt. The editor requires absolute paths as an unconditional current contract, so the obsolete `requireAbsolutePath` option is absent.
 
 ## Choose workspace and session IDs
 
 `cwd` selects the workspace available to the agent, while `session_root` stores session logs and state. Use a fresh session id for an independent task; reuse an id only when the next call should continue the same conversation and persistent shell state.
 
-The composition uses `danger-full-access`. Run it only inside a disposable checkout or container: Bash and the editor can modify any path allowed to the runtime process. The persistent PTY backend requires a POSIX terminal substrate and is not a Windows agent surface.
+The composition uses `danger-full-access`. Run it only inside a disposable checkout or container: Bash and the editor can modify any path allowed to the runtime process. The persistent PTY backend requires a POSIX terminal substrate, so this composition does not support Windows agents.
 
 For the complete SDK lifecycle and result contract, see the [Python SDK reference](../../../python/sdk/README.md). For Cordis composition syntax, see [Configuration](./config.md).

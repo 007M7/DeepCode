@@ -1,6 +1,6 @@
 # Complete unattended minimal-agent composition for the Python SDK. The model
-# sees one fixed system prompt and only the owner-scoped persistent Bash and
-# string-replace editor tools.
+# sees one deployment-selected system prompt and only the owner-scoped
+# persistent Bash and string-replace editor tools. Context compaction is absent.
 
 - id: jsonrpc
   name: '@deepseek-ai/dsh-jsonrpc'
@@ -9,6 +9,12 @@
 
 - id: llm-deepseek
   name: '@deepseek-ai/dsh-llm-deepseek'
+  config:
+    apiKeyEnv: DEEPSEEK_API_KEY
+    streamIdleTimeoutMs: 172800000
+    models:
+      - id: !!js process.env.DSH_MODEL ?? 'deepseek-v4-flash'
+        contextWindow: !!js Number(process.env.DSH_CONTEXT_WINDOW ?? 1000000)
 
 - id: sandbox
   name: '@deepseek-ai/dsh-sandbox-local'
@@ -30,22 +36,18 @@
   config:
     timeoutMs: 300000
 
-# The sandbox-aware filesystem backend applies the same per-session policy as
-# Bash. danger-full-access permits unrestricted workspace behavior while
-# keeping one policy boundary for both tools.
-- id: fs-sandbox
-  name: '@deepseek-ai/dsh-fs-sandbox'
+# The editor uses the bare local filesystem; persistent Bash still consumes the
+# shared danger-full-access sandbox policy above.
+- id: fs-local
+  name: '@deepseek-ai/dsh-fs-local'
   config:
     cwd: !!js process.env.DSH_CWD ?? process.cwd()
-
-- id: fs-policy
-  name: '@deepseek-ai/dsh-fs-policy'
 
 - id: agent-spine
   name: '@deepseek-ai/dsh-agent-spine-demo'
   config:
     includeHarnessIdentity: false
-    persona: You are a helpful software engineer assistant.
+    persona: !!js process.env.DSH_SYSTEM_PROMPT ?? 'You are a helpful software engineer assistant.'
     workspaceContext: false
     skills:
       enabled: false
@@ -76,16 +78,3 @@
   config:
     root: !!js process.env.DSH_SESSION_ROOT ?? './.sessions'
     compression: none
-
-- id: token-meter
-  name: '@deepseek-ai/dsh-token-meter'
-
-- id: compact-basic
-  name: '@deepseek-ai/dsh-compact-basic'
-  config:
-    thresholdRatio: 0.8
-    retainTokens: 20480
-    summarizationProvider: ''
-    summarizationModel: ''
-    maxTokens: 8192
-    compactionRetries: 1

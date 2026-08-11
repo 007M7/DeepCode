@@ -21,9 +21,10 @@ declare module '@deepseek-ai/dsh-llm' {
      * The prompt's rpcId is passed through MessageSource into the `user/message` event
      * (the client uses it to reconcile the optimistically
      * echoed provisional message with the event stream). kind stays `'user'` — the model face
-     * carries no transport vocabulary; rpcId is an extra durable-JSON field passed back to the client with the event.
+     * carries no transport vocabulary; rpcId and the optional Host-validated browser zone are
+     * durable JSON fields passed back to the client with the event.
      */
-    'user-rpc': { kind: 'user'; rpcId: RpcId }
+    'user-rpc': { kind: 'user'; rpcId: RpcId; clientTimeZone?: string }
   }
 }
 
@@ -308,8 +309,19 @@ export interface SessionsApi {
   fork(request: RpcRequest<{ sessionId: SessionId; atSeq?: number }>):
   Promise<RpcResponse<{ sessionId: SessionId }>>
 
-  /** Sends text and temporary image bytes after durable host admission. Session-backed subagents reject with `agent-busy`. */
-  prompt(request: RpcRequest<{ sessionId: SessionId; mode: 'queue' | 'steer'; content: PromptContentPart[] }>):
+  /**
+   * Sends text and temporary image bytes to an ordinary session Agent after durable host admission.
+   * Browser callers attach their current IANA zone;
+   * the Host validates, canonicalizes, and records it on that exact user message. Omission remains
+   * valid for non-browser callers. Session-backed subagents reject with `agent-busy` and use
+   * `subagent.prompt`.
+   */
+  prompt(request: RpcRequest<{
+    sessionId: SessionId
+    mode: 'queue' | 'steer'
+    content: PromptContentPart[]
+    clientTimeZone?: string
+  }>):
   Promise<RpcResponse<{ accepted: true; command?: { kind: 'success'; text?: string } }>>
 
   /** Reads one durable image after proving that this session's log references its id. */

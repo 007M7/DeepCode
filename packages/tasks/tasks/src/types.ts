@@ -118,8 +118,11 @@ export interface TaskSnapshot {
   /** Epoch ms when the task settled; absent while `running`/`stopping`. */
   finishedAt?: number
   /**
-   * True when a kill, read, or wait has reported or committed to report the
-   * terminal state. Completion reporters suppress redundant notices when set.
+   * True when a kill, read, wait, or teardown cancel has reported or committed
+   * to report the terminal state. Completion reporters suppress redundant
+   * notices when set. Teardown claims it because the owner or service being
+   * destroyed leaves no reader: a reporter that opens a turn on notice would
+   * otherwise spend a model request per teardown layer.
    */
   reported: boolean
 }
