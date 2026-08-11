@@ -10,6 +10,8 @@ Status: implemented
 
 这个缺口被记为一条限制，而不是被推敲过，于是退路成了 `task_output(wait: true)`——同一段提示词并不鼓励的阻塞等待。
 
+本决策取代[后台任务运行时决策](../architecture/2026-06-20-generic-long-running-tool-runtime.md)中的一条事实——完成永不唤醒空闲所有者——并把 teardown 加为 `reported` 的置位方。那份 note 仍拥有其余全部任务运行时决策，因此就地更新而非替换。
+
 交付机制从来不是障碍。自[统一 send 决策](../architecture/2026-07-22-unified-send-and-coalesced-user-messages.md)起，`Agent.send(message, target, wakeup)` 就覆盖了 `target` × `wakeup` 矩阵，`wakeDriver()` 也已经处理 idle、maintenance 和已取消未收敛三种相位。缺的是「一次完成走哪条通道」这一策略选择，以及该选择所需的界。
 
 ## 决策

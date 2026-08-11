@@ -16,7 +16,7 @@ import type { GenericCallView, ToolDefinition, ToolExecution } from '@deepseek-a
 import { TaskId } from '@deepseek-ai/dsh-tasks'
 import type { TaskSnapshot } from '@deepseek-ai/dsh-tasks'
 import type {} from '@deepseek-ai/dsh-system-prompt'
-import type {} from '@deepseek-ai/dsh-agent'
+import type { Agent } from '@deepseek-ai/dsh-agent'
 
 export const name = 'tool-tasks'
 export const inject = ['tools', 'tasks', 'systemPrompt']
@@ -211,7 +211,7 @@ export function apply(ctx: Context, config: Config): void {
   // Turns this plugin opened on each owner since that owner last consumed
   // human input. Keyed by the exact Agent, so a same-session replacement
   // starts with a full budget.
-  const spentWakes = new WeakMap<object, number>()
+  const spentWakes = new WeakMap<Agent, number>()
   if (waitDefault > waitCap) {
     throw new Error(`tool-tasks: waitTimeoutMs (${waitDefault}) exceeds maxWaitTimeoutMs (${waitCap})`)
   }
@@ -220,11 +220,14 @@ export function apply(ctx: Context, config: Config): void {
   if (!Number.isSafeInteger(wakeBudget)) {
     throw new Error(`tool-tasks: maxConsecutiveWakes (${wakeBudget}) must be a whole number of turns`)
   }
-  ctx.on('agent/inbox/claimed', ({ agent, message }) => {
-    // Claiming is the point the human's input actually enters a step; a notice
-    // this plugin itself queued must not refill the budget it just spent.
-    if (message.source.kind === 'user') spentWakes.delete(agent)
-  })
+  // Nothing spends the budget under quiet delivery, so nothing needs to refill it.
+  if (delivery === 'wakeup') {
+    ctx.on('agent/inbox/claimed', ({ agent, message }) => {
+      // Claiming is the point the human's input actually enters a step; a notice
+      // this plugin itself queued must not refill the budget it just spent.
+      if (message.source.kind === 'user') spentWakes.delete(agent)
+    })
+  }
 
   const outputLimits = new WeakMap<ToolExecution, number>()
   ctx.on('tools/pre-execute', (exec, next) => {

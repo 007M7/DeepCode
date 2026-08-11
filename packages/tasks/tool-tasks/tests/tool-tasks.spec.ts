@@ -128,6 +128,13 @@ describe('tool-tasks setup', () => {
       .rejects.toThrow('waitTimeoutMs (100) exceeds maxWaitTimeoutMs (50)')
   })
 
+  it('defaults delivery to wakeup and rejects an unknown lane', () => {
+    expect(ToolTasks.Config({}).completionDelivery).toBe('wakeup')
+    expect(ToolTasks.Config({}).maxConsecutiveWakes).toBe(3)
+    expect(() => ToolTasks.Config({ completionDelivery: 'loud' as never })).toThrow()
+    expect(() => ToolTasks.Config({ maxConsecutiveWakes: 0 })).toThrow()
+  })
+
   it('rejects a wake budget that cannot bound anything', async () => {
     // Reports the load outcome as text: a resolved fiber is not safely printable.
     const loadWith = async (maxConsecutiveWakes: number): Promise<string> => {

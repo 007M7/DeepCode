@@ -1,7 +1,7 @@
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
@@ -174,11 +174,24 @@ describe('bash tool through the agent loop', () => {
     expect(resultText(toolResult)).toContain('[exit code: 9]')
   })
 
-  it('background: start ack → completion continues the agent → task_output collects it', async () => {
+  it('background: start ack → completion wakes the idle agent → task_output collects it', async () => {
+    // The command blocks on a sentinel this test creates only after the agent
+    // has gone idle, so settlement cannot fold into the still-running turn.
+    // Without that fence a fast command can settle before step 2's pre-step
+    // claim, which folds the notice into a turn whose scripted reply is final:
+    // the turn then closes with an empty next-step inbox and the collection
+    // entries are never reached.
+    const dir = mkdtempSync(join(tmpdir(), 'dsh-bg-'))
+    dirs.push(dir)
+    const sentinel = join(dir, 'release')
     // The task id is deterministic (a fresh LocalTaskService counts per kind from 1),
     // so the script can name `bash-1` without threading a generated id.
     const adapter = new MockAdapter([
-      toolCallResponse('call-1', 'bash', { command: 'echo bg-ok', description: 'test command', run_in_background: true }),
+      toolCallResponse('call-1', 'bash', {
+        command: `while [ ! -f ${JSON.stringify(sentinel)} ]; do sleep 0.02; done; echo bg-ok`,
+        description: 'test command',
+        run_in_background: true,
+      }),
       textResponse('Started it in the background.'),
       toolCallResponse('call-2', 'task_output', { task_id: 'bash-1' }),
       textResponse('Background task finished.'),
@@ -192,29 +205,34 @@ describe('bash tool through the agent loop', () => {
     const firstResult = findEvent(events(agent), 'tool/result')
     expect(firstResult.data.message.content[0].isError).toBe(false)
     expect(resultText(firstResult)).toBe('started background task bash-1')
-
-    // No second user message. Settlement carries the notice into a turn on its
-    // own, and that turn collects the output. Whether it extends the running
-    // turn or wakes the idle agent depends on when the command exits, so this
-    // waits on the durable outcome rather than on a turn boundary; the lane
-    // choice itself is pinned in the tool-tasks unit tests.
+    // The turn closed with the task still running, so the notice cannot exist yet.
     const isNotice = (e: SessionEvent): e is SessionEvent<'user/message'> =>
       e.type === 'user/message' && e.data.source.kind === 'plugin'
+    expect(events(agent).some(isNotice)).toBe(false)
+
+    // Releasing the command now settles it against a provably idle owner. No
+    // second user message: the wake alone opens the turn that collects it.
+    writeFileSync(sentinel, '')
     const lastResultText = (): string => {
       const found = events(agent).findLast(event => event.type === 'tool/result')
       return found === undefined ? '' : resultText(found)
     }
     await pollUntil(() => events(agent).some(isNotice) && lastResultText().includes('bg-ok'))
+    // Two turns: the user's, then the one the completion opened by itself.
+    expect(events(agent).filter(event => event.type === 'turn/start')).toHaveLength(2)
 
+    // The notice carries the gated command as its label, so this pins the id,
+    // the terminal status, and the producer identity; the verbatim notice text
+    // and its bounding are pinned in the tool-tasks unit tests.
     const notice = events(agent).find(isNotice)!
-    expect(notice.data.content.some(
-      block => block.type === 'text' && block.text.includes('background task bash-1 (bash: echo bg-ok) finished'),
-    )).toBe(true)
-    expect(notice.data.source).toEqual({
+    const noticeText = notice.data.content
+      .filter(block => block.type === 'text').map(block => block.text).join('')
+    expect(noticeText).toContain('background task bash-1 (bash: ')
+    expect(noticeText).toContain('finished [status: completed, exit code: 0]')
+    expect(notice.data.source).toMatchObject({
       kind: 'plugin',
       plugin: 'tool-tasks',
       form: 'notice',
-      summary: 'bash echo bg-ok [status: completed, exit code: 0]',
     })
     const readResult = findEvent(events(agent), 'tool/result', 'last')
     expect(readResult.data.message.content[0].isError).toBe(false)
