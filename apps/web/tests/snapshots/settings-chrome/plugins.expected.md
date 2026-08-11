@@ -1,0 +1,4 @@
+- listitem "ui-settings, 存活, 已启用":
+  - strong: ui-settings
+  - img "存活"
+  - text: 已启用

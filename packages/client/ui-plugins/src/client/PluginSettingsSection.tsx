@@ -1,0 +1,149 @@
+import { useEffect, useId, useMemo, useState, type ReactNode } from 'react'
+import type { ClientRemote } from '@deepseek-ai/dsh-api-remotes/client'
+import { IconSearchOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
+import type { PluginsKey } from './locales.ts'
+import css from './PluginSettingsSection.module.css'
+
+/** Registration-side Remote face used by the section. */
+export interface PluginSettingsSectionInjected {
+  /** Read a current Host inventory snapshot. */
+  list: ClientRemote['pluginInventory']['list']
+}
+
+type PluginInventorySnapshot = Awaited<ReturnType<PluginSettingsSectionInjected['list']>>
+type PluginInventoryEntry = PluginInventorySnapshot['entries'][number]
+type PluginFiberPhase = PluginInventoryEntry['fiberPhase']
+
+/** Full component props assembled by the Settings slot renderer. */
+export type PluginSettingsSectionProps =
+  PropsRuntime<'settings.section'>
+  & PropsLocale<'settings.plugins'>
+  & InjectFace<PluginSettingsSectionInjected>
+
+type ViewState =
+  | { readonly status: 'loading' }
+  | { readonly status: 'error' }
+  | { readonly status: 'ready'; readonly snapshot: PluginInventorySnapshot }
+
+const PHASE_KEYS = {
+  pending: 'pending',
+  loading: 'loadingPhase',
+  active: 'active',
+  failed: 'failed',
+  unloading: 'unloading',
+} satisfies Record<Exclude<PluginFiberPhase, null>, PluginsKey>
+
+/** Localized accessible label for one root Fiber phase. */
+function phaseLabel(
+  phase: PluginFiberPhase,
+  t: PluginSettingsSectionProps['t'],
+): string {
+  return phase === null ? t('unobserved') : t(PHASE_KEYS[phase])
+}
+
+/** Whether an inventory row matches the local catalog query. */
+function matches(entry: PluginInventoryEntry, normalizedQuery: string): boolean {
+  if (normalizedQuery.length === 0) return true
+  return [entry.displayId, entry.entryId]
+    .some(value => value.toLocaleLowerCase().includes(normalizedQuery))
+}
+
+/** Render the read-only current Loader inventory. */
+export function PluginSettingsSection({ list, t }: PluginSettingsSectionProps): ReactNode {
+  const titleId = useId()
+  const [request, setRequest] = useState(0)
+  const [query, setQuery] = useState('')
+  const [state, setState] = useState<ViewState>({ status: 'loading' })
+
+  useEffect(() => {
+    let current = true
+    void Promise.resolve().then(() => list()).then(
+      (snapshot) => { if (current) setState({ status: 'ready', snapshot }) },
+      () => { if (current) setState({ status: 'error' }) },
+    )
+    return () => { current = false }
+  }, [list, request])
+
+  const normalizedQuery = query.trim().toLocaleLowerCase()
+  const filteredEntries = useMemo(
+    () => state.status === 'ready'
+      ? state.snapshot.entries.filter(entry => matches(entry, normalizedQuery))
+      : [],
+    [normalizedQuery, state],
+  )
+
+  const retry = (): void => {
+    setState({ status: 'loading' })
+    setRequest(value => value + 1)
+  }
+
+  return (
+    <section className={css.section} aria-labelledby={titleId} aria-busy={state.status === 'loading'}>
+      <header className={css.heading}>
+        <h2 id={titleId}>{t('title')}</h2>
+      </header>
+      {state.status === 'loading' ? <p className={css.status}>{t('loading')}</p> : null}
+      {state.status === 'error' ? (
+        <div className={css.failure}>
+          <p role="alert">{t('error')}</p>
+          <button type="button" onClick={retry}>{t('retry')}</button>
+        </div>
+      ) : null}
+      {state.status === 'ready' ? (
+        <div className={css.catalog}>
+          <label className={css.search}>
+            <IconSearchOutline16 aria-hidden="true" />
+            <span className={css.visuallyHidden}>{t('search')}</span>
+            <input
+              type="search"
+              value={query}
+              placeholder={t('search')}
+              aria-label={t('search')}
+              onChange={event => setQuery(event.currentTarget.value)}
+            />
+          </label>
+          <div className={css.catalogHeading}>
+            <h3>{t('catalog')}</h3>
+            <span data-plugin-count={filteredEntries.length}>{filteredEntries.length}</span>
+          </div>
+          {state.snapshot.entries.length === 0 ? <p className={css.status}>{t('empty')}</p> : null}
+          {state.snapshot.entries.length > 0 && filteredEntries.length === 0
+            ? <p className={css.status}>{t('emptySearch')}</p>
+            : null}
+          {filteredEntries.length > 0 ? (
+            <ul className={css.cards}>
+              {filteredEntries.map((entry) => {
+                const status = phaseLabel(entry.fiberPhase, t)
+                return (
+                  <li
+                    className={css.card}
+                    key={entry.entryId}
+                    data-plugin-entry={entry.entryId}
+                    aria-label={`${entry.displayId}, ${status}, ${t(entry.enabled ? 'enabledTag' : 'disabledTag')}`}
+                  >
+                    <div className={css.cardContent}>
+                      <strong className={css.cardTitle}>{entry.displayId}</strong>
+                      <span className={css.cardTrailing}>
+                        <span
+                          className={css.statusDot}
+                          data-phase={entry.fiberPhase ?? 'unobserved'}
+                          role="img"
+                          aria-label={status}
+                          title={status}
+                        />
+                        <span className={css.configTag} data-enabled={entry.enabled ? 'true' : 'false'}>
+                          {t(entry.enabled ? 'enabledTag' : 'disabledTag')}
+                        </span>
+                      </span>
+                    </div>
+                  </li>
+                )
+              })}
+            </ul>
+          ) : null}
+        </div>
+      ) : null}
+    </section>
+  )
+}
