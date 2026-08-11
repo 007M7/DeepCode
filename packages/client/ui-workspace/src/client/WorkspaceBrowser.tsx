@@ -299,15 +299,13 @@ function SessionTree({
       ? group.sessions.length
       : group.sessions.findIndex(session => session.id === anchor)
     if (sourceIndex !== -1 && (anchorIndex === sourceIndex || anchorIndex === sourceIndex + 1)) return
-    if (orderBy === 'updated') {
-      const account = orderedWorkspaces.find(workspace => workspace.workspaceId === activeDrag.workspaceId)
-      if (account === undefined) return
-      const nextOrder = account.sessionIds.filter(id => id !== activeDrag.sessionId)
-      const insertAt = anchor === undefined ? nextOrder.length : nextOrder.indexOf(anchor)
-      nextOrder.splice(insertAt === -1 ? nextOrder.length : insertAt, 0, activeDrag.sessionId)
-      setRecentSessionOrder(activeDrag.workspaceId, nextOrder.map(id => id as string))
-      return
-    }
+    const account = orderedWorkspaces.find(workspace => workspace.workspaceId === activeDrag.workspaceId)
+    if (account === undefined) return
+    const nextOrder = account.sessionIds.filter(id => id !== activeDrag.sessionId)
+    const insertAt = anchor === undefined ? nextOrder.length : nextOrder.indexOf(anchor)
+    nextOrder.splice(insertAt === -1 ? nextOrder.length : insertAt, 0, activeDrag.sessionId)
+    setRecentSessionOrder(activeDrag.workspaceId, nextOrder.map(id => id as string))
+    if (orderBy === 'updated') return
     insertSessionBefore(activeDrag.workspaceId, activeDrag.sessionId, anchor).catch((reason: unknown) => {
       console.warn('session reorder rejected:', reason)
     })
@@ -332,10 +330,18 @@ function SessionTree({
       console.warn('workspace reorder rejected:', reason)
     })
   }
+  const workspaceDropAtListStart = groups[0]?.workspaceId !== undefined
+    && workspaceDrag?.over?.id === groups[0].workspaceId
+    && workspaceDrag.over.half === 'before'
 
   return (
     <div className={clsx(css.treeBody, css.wide)}>
-      <div className={css.list} role="tree" aria-label={t('section.sessions')}>
+      {workspaceDropAtListStart && <span className={css.listTopDropIndicator} aria-hidden="true" />}
+      <div
+        className={clsx(css.list, workspaceDropAtListStart && css.listTopDropActive)}
+        role="tree"
+        aria-label={t('section.sessions')}
+      >
         {groups.length === 0 && (
           <div className={css.empty}>{t('empty.none')}</div>
         )}

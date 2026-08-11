@@ -299,7 +299,9 @@
   margin-left: -4px;
   margin-right: calc(-1 * var(--dsh-session-list-edge-inset));
   padding-left: 4px;
-  overflow: hidden;
+  /* The list remains the scroll clip. This seat stays visible so the
+     absolutely positioned first-boundary marker can occupy the header gap. */
+  overflow: visible;
 }
 
 .rail .listArea {
@@ -387,6 +389,7 @@
   margin-top: 4px;
 }
 
+.listTopDropIndicator,
 .workspaceDropBefore::before,
 .workspaceDropAfter::after {
   content: '';
@@ -406,6 +409,18 @@
       var(--dsw-alias-state-business-primary) 0 0
     ) 10px 5px / calc(100% - 10px) 2px no-repeat;
   pointer-events: none;
+}
+
+/* The first insertion boundary keeps the same -8px coordinate as every
+   Workspace boundary, but lives outside the scrolling clip. */
+.listTopDropIndicator {
+  top: -8px;
+  left: -4px;
+  right: calc(var(--dsh-session-list-edge-inset) + 4px);
+}
+
+.listTopDropActive > .workspaceDropBefore:first-child::before {
+  display: none;
 }
 
 .workspaceDropBefore::before {

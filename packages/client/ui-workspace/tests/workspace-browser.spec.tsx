@@ -661,6 +661,28 @@ describe('WorkspaceBrowser', () => {
     expect(insertWorkspaceBefore).toHaveBeenCalledWith(wid('tail'), wid('beta'))
   })
 
+  it('draws the first Workspace insertion boundary on the scroll container', () => {
+    mount({
+      useWorkspaces: hook(workspaceState([
+        workspace('alpha', []),
+        workspace('beta', []),
+      ])),
+    })
+    const source = screen.getByText('beta').closest('[role="treeitem"]') as HTMLElement
+    let firstSection = screen.getByText('alpha').closest('[role="treeitem"]')?.parentElement as HTMLElement
+    while (firstSection.parentElement?.getAttribute('role') !== 'tree') {
+      firstSection = firstSection.parentElement as HTMLElement
+    }
+    firstSection.getBoundingClientRect = () => ({
+      top: 100, bottom: 134, left: 0, right: 200, width: 200, height: 34, x: 0, y: 100, toJSON: () => ({}),
+    })
+    fireEvent.dragStart(source, { dataTransfer: dragData() })
+    fireDrag(firstSection, 'dragOver', 105)
+    expect(firstSection.parentElement?.className).toContain('listTopDropActive')
+    const marker = firstSection.parentElement?.previousElementSibling
+    expect(marker?.className).toContain('listTopDropIndicator')
+  })
+
   it('accepts a document-level drop and commits the last Workspace marker on drag end', () => {
     const insertWorkspaceBefore = vi.fn(async () => {})
     mount({

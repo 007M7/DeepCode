@@ -77,11 +77,14 @@ describe('WorkspaceBrowser.module.css list', () => {
   })
 
   it('draws drag targets as a hollow leading dot joined to the insertion line', () => {
+    const listTopMarker = declarations('.listTopDropIndicator')
     const workspaceMarker = declarations('.workspaceDropBefore::before')
     const sessionMarker = rowDeclarations('.sessionRow.dropBefore::before')
+    expect(listTopMarker?.get('top')).toBe('-8px')
+    expect(listTopMarker?.get('left')).toBe('-4px')
     expect(workspaceMarker?.get('left')).toBe('-4px')
     expect(sessionMarker?.get('left')).toBe('0')
-    for (const marker of [workspaceMarker, sessionMarker]) {
+    for (const marker of [listTopMarker, workspaceMarker, sessionMarker]) {
       expect(marker?.get('height')).toBe('12px')
       expect(marker?.get('background')).toContain('radial-gradient')
       expect(marker?.get('background')).toContain('linear-gradient')
