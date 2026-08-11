@@ -33,6 +33,9 @@
       "path": "../../credentials/credentials"
     },
     {
+      "path": "../../settings/settings"
+    },
+    {
       "path": "../../support/invariants"
     }
   ]

@@ -30,6 +30,9 @@
       "path": "../../subprocess/subprocess"
     },
     {
+      "path": "../../settings/settings"
+    },
+    {
       "path": "../../support/invariants"
     }
   ]
