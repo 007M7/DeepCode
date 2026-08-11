@@ -52,4 +52,6 @@ Feedback stays invisible to the model — the sidecar reaches neither the Sessio
 
 The sidecar publishes no live frames, so a second tab's rating surfaces on reconnect or on the next conflict reply, not immediately. The note editor does not pre-check `maxNoteBytes` (8192 in the Web bundle), so an oversized note fails on save with `note-too-large` rather than while typing.
 
-Nine existing Web UI snapshots gained the two rating buttons, confirming the strip reaches every settled assistant message in the shipped composition rather than only the fixture under test.
+Twenty-three existing Web UI snapshots gained the two rating buttons across 26 assistant messages, confirming the strip reaches every settled assistant message in the shipped composition rather than only the fixture under test.
+
+A dedicated Web E2E covers rate, note, reload restore, and retract against the shipped bundle. It has to hover the unrated control after a reload before asserting the restored state, because the deferred list read is what makes the sidecar value appear — the test documents that ordering rather than working around it. Sabotaging the controller's list restore makes the spec fail, so the durability assertion has teeth.
