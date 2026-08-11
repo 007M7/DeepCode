@@ -42,23 +42,24 @@ declare module '@deepseek-ai/dsh-type-meta' {
   }
 
   interface TypeRTRemoteMap {
-    'goals/create': (
+    'probe/create': (
       agentId: string,
       request: { readonly objective: string },
       signal?: AbortSignal,
     ) => Promise<{ readonly ref: string }>
+    'probe/maybe': (value: string | null | undefined) => Promise<string | null | undefined>
   }
 
   interface TypeRTRemoteScopeMap {
-    'fixture:goals/create': (
+    'fixture:probe/create': (
       request: { readonly objective: string },
       signal?: AbortSignal,
     ) => Promise<{ readonly ref: string }>
-    'fixture:goals/rename': (request: { readonly objective: string }) => Promise<{ readonly renamed: boolean }>
+    'fixture:probe/rename': (request: { readonly objective: string }) => Promise<{ readonly renamed: boolean }>
   }
 
   interface TypeRTRemoteNamespaceMap {
-    goals: TypeRTRemoteNamespace<'goals'>
+    probe: TypeRTRemoteNamespace<'probe'>
   }
 
 }
@@ -87,9 +88,9 @@ const renameResultSchema = z.object({ renamed: z.boolean() })
 
 function directDescriptor(): InvocationDescriptor {
   return {
-    id: '@fixture/goals#goals/create',
-    service: 'goals',
-    namespace: 'goals',
+    id: '@fixture/probe#probe/create',
+    service: 'probe',
+    namespace: 'probe',
     method: 'create',
     invocation: { kind: 'direct' },
     scope: { context: 'fixture', wire: 'agentId' },
@@ -112,9 +113,9 @@ function directDescriptor(): InvocationDescriptor {
 
 function contextDescriptor(): InvocationDescriptor {
   return {
-    id: '@fixture/goals#goals/rename',
-    service: 'goals',
-    namespace: 'goals',
+    id: '@fixture/probe#probe/rename',
+    service: 'probe',
+    namespace: 'probe',
     method: 'rename',
     invocation: {
       kind: 'context',
@@ -129,6 +130,25 @@ function contextDescriptor(): InvocationDescriptor {
       codec: { mode: 'strict', typeSymbol: '@fixture#RenameRequest', schema: requestSchema },
     }],
     result: { mode: 'strict', typeSymbol: '@fixture#RenameResult', schema: renameResultSchema },
+  }
+}
+
+function maybeDescriptor(): InvocationDescriptor {
+  const schema = z.union([z.string(), z.null(), z.undefined()])
+  return {
+    id: '@fixture/probe#probe/maybe',
+    service: 'probe',
+    namespace: 'probe',
+    method: 'maybe',
+    invocation: { kind: 'direct' },
+    parameters: [{
+      name: 'value',
+      wire: 'value',
+      source: 'json',
+      acceptsUndefined: true,
+      codec: { mode: 'strict', typeSymbol: '@fixture#MaybeValue', schema },
+    }],
+    result: { mode: 'strict', typeSymbol: '@fixture#MaybeValue', schema },
   }
 }
 
@@ -153,24 +173,24 @@ describe('Client TypeRT API', () => {
     const call = vi.fn<ConnectionHandle['rpc']['call']>()
       .mockResolvedValue({ ok: true, value: { ref: 'goal-1' } })
     const ctx = await bench(call)
-    const businessGoals = { owner: 'host business service' }
-    const disposeBusinessGoals = ctx.provide('goals', businessGoals)
+    const businessProbe = { owner: 'host business service' }
+    const disposeBusinessProbe = ctx.provide('probe', businessProbe)
     const assembly = ctx.plugin(Object.assign(
-      (scope: Context) => scope.remote.$mount({ package: '@fixture/goals', descriptors: [directDescriptor()] }),
+      (scope: Context) => scope.remote.$mount({ package: '@fixture/probe', descriptors: [directDescriptor()] }),
       { inject: ['remote'] },
     ))
     await assembly
-    const retained = ctx.remote.goals.create
+    const retained = ctx.remote.probe.create
 
-    await expect(ctx.remote.goals.create('agent-1', { objective: 'ship' })).resolves.toEqual({ ref: 'goal-1' })
+    await expect(ctx.remote.probe.create('agent-1', { objective: 'ship' })).resolves.toEqual({ ref: 'goal-1' })
     expect(call).toHaveBeenCalledWith(
       '/api',
-      'goals/create',
+      'probe/create',
       { args: { agentId: 'agent-1', request: { objective: 'ship' } } },
       expect.any(AbortSignal),
     )
     const callerAbort = new AbortController()
-    await expect(ctx.remote.goals.create(
+    await expect(ctx.remote.probe.create(
       'agent-1',
       { objective: 'cancel me' },
       callerAbort.signal,
@@ -182,18 +202,52 @@ describe('Client TypeRT API', () => {
     callerAbort.abort(cancellation)
     expect(combinedSignal?.aborted).toBe(true)
     expect(combinedSignal?.reason).toBe(cancellation)
-    await expect(ctx.remote.goals.create('', { objective: 'ship' })).rejects.toThrow('rejected "agentId"')
+    await expect(ctx.remote.probe.create('', { objective: 'ship' })).rejects.toThrow('rejected "agentId"')
 
     call.mockResolvedValueOnce({ ok: true, value: { ref: 1 } })
-    await expect(ctx.remote.goals.create('agent-1', { objective: 'ship' })).rejects.toThrow('rejected "result"')
+    await expect(ctx.remote.probe.create('agent-1', { objective: 'ship' })).rejects.toThrow('rejected "result"')
 
     await assembly.dispose()
-    expect((ctx.remote as unknown as Record<string, unknown>).goals).toBeUndefined()
-    expect(ctx.get('remote.goals')).toBeUndefined()
-    expect(ctx.get('goals')).toBe(businessGoals)
+    expect((ctx.remote as unknown as Record<string, unknown>).probe).toBeUndefined()
+    expect(ctx.get('remote.probe')).toBeUndefined()
+    expect(ctx.get('probe')).toBe(businessProbe)
     expect(ctx.typert.remotes.list()).toEqual([])
     await expect(retained?.('agent-1', { objective: 'ship' })).rejects.toThrow('no longer mounted')
-    disposeBusinessGoals()
+    disposeBusinessProbe()
+  })
+
+  it('encodes declared undefined as an omitted argument and distinguishes it from null results', async () => {
+    const call = vi.fn<ConnectionHandle['rpc']['call']>()
+      .mockResolvedValueOnce({ ok: true, value: undefined })
+      .mockResolvedValueOnce({ ok: true, value: null })
+    const ctx = await bench(call)
+    const dispose = await ctx.remote.$mount({
+      package: '@fixture/maybe',
+      descriptors: [maybeDescriptor()],
+    })
+
+    // The analyzers disagree on the key-remapped namespace projection: tsc
+    // resolves this method, oxlint reads it as an error type.
+    // oxlint-disable-next-line typescript/no-unsafe-call
+    await expect(ctx.remote.probe.maybe(undefined)).resolves.toBeUndefined()
+    expect(call).toHaveBeenNthCalledWith(
+      1,
+      '/api',
+      'probe/maybe',
+      { args: {} },
+      expect.any(AbortSignal),
+    )
+    // oxlint-disable-next-line typescript/no-unsafe-call
+    await expect(ctx.remote.probe.maybe(null)).resolves.toBeNull()
+    expect(call).toHaveBeenNthCalledWith(
+      2,
+      '/api',
+      'probe/maybe',
+      { args: { value: null } },
+      expect.any(AbortSignal),
+    )
+
+    await dispose()
   })
 
   it('projects one direct lookup descriptor onto an Agent-scoped alias', async () => {
@@ -205,24 +259,24 @@ describe('Client TypeRT API', () => {
       identity: candidate => (candidate as Context & { fixtureId?: string }).fixtureId,
     })
     const assembly = ctx.plugin(Object.assign(
-      (scope: Context) => scope.remote.$mount({ package: '@fixture/goals', descriptors: [directDescriptor()] }),
+      (scope: Context) => scope.remote.$mount({ package: '@fixture/probe', descriptors: [directDescriptor()] }),
       { inject: ['remote'] },
     ))
     await assembly
 
-    await expect(agentCtx.remote.goals.create({ objective: 'ship scoped' })).resolves.toEqual({ ref: 'goal-2' })
+    await expect(agentCtx.remote.probe.create({ objective: 'ship scoped' })).resolves.toEqual({ ref: 'goal-2' })
     expect(call).toHaveBeenCalledWith(
       '/api',
-      'goals/create',
+      'probe/create',
       { args: { agentId: 'agent-2', request: { objective: 'ship scoped' } } },
       expect.any(AbortSignal),
     )
-    await expect((ctx as FixtureContext).remote.goals.create({ objective: 'wrong scope' }))
+    await expect((ctx as FixtureContext).remote.probe.create({ objective: 'wrong scope' }))
       .rejects.toThrow('expected 2 business argument(s)')
 
     await assembly.dispose()
-    expect((ctx.remote as unknown as Record<string, unknown>).goals).toBeUndefined()
-    expect(ctx.get('remote.goals')).toBeUndefined()
+    expect((ctx.remote as unknown as Record<string, unknown>).probe).toBeUndefined()
+    expect(ctx.get('remote.probe')).toBeUndefined()
   })
 
   it('uses the caller Context identity for scoped namespace methods', async () => {
@@ -234,23 +288,23 @@ describe('Client TypeRT API', () => {
       identity: candidate => (candidate as Context & { fixtureId?: string }).fixtureId,
     })
     const assembly = ctx.plugin(Object.assign(
-      (scope: Context) => scope.remote.$mount({ package: '@fixture/goals', descriptors: [contextDescriptor()] }),
+      (scope: Context) => scope.remote.$mount({ package: '@fixture/probe', descriptors: [contextDescriptor()] }),
       { inject: ['remote'] },
     ))
     await assembly
 
-    await expect(agentCtx.remote.goals.rename({ objective: 'land' })).resolves.toEqual({ renamed: true })
+    await expect(agentCtx.remote.probe.rename({ objective: 'land' })).resolves.toEqual({ renamed: true })
     expect(call).toHaveBeenCalledWith(
       '/api',
-      'goals/rename',
+      'probe/rename',
       { args: { agentId: 'agent-2', request: { objective: 'land' } } },
       expect.any(AbortSignal),
     )
-    await expect((ctx as FixtureContext).remote.goals.rename({ objective: 'land' }))
+    await expect((ctx as FixtureContext).remote.probe.rename({ objective: 'land' }))
       .rejects.toThrow('requires a "fixture" Context')
 
     await assembly.dispose()
-    expect(ctx.get('remote.goals')).toBeUndefined()
+    expect(ctx.get('remote.probe')).toBeUndefined()
   })
 
   it('rejects weak descriptors and namespace collisions before registration', async () => {
@@ -282,32 +336,32 @@ describe('Client TypeRT API', () => {
 
     await expect(ctx.remote.$mount({
       package: '@fixture/direct-duplicates',
-      descriptors: [direct, { ...direct, id: '@fixture/goals#goals/create-again' }],
+      descriptors: [direct, { ...direct, id: '@fixture/probe#probe/create-again' }],
     })).rejects.toThrow('repeats direct method')
     await expect(ctx.remote.$mount({
       package: '@fixture/scoped-duplicates',
-      descriptors: [context, { ...context, id: '@fixture/goals#goals/rename-again' }],
+      descriptors: [context, { ...context, id: '@fixture/probe#probe/rename-again' }],
     })).rejects.toThrow('repeats scoped method')
 
     const disposeDirect = await ctx.remote.$mount({ package: '@fixture/direct-live', descriptors: [direct] })
     await expect(ctx.remote.$mount({
-      package: '@fixture/direct-conflict', descriptors: [{ ...direct, id: '@fixture/other#goals/create' }],
-    })).rejects.toThrow('direct method goals/create is already mounted')
+      package: '@fixture/direct-conflict', descriptors: [{ ...direct, id: '@fixture/other#probe/create' }],
+    })).rejects.toThrow('direct method probe/create is already mounted')
     await disposeDirect()
 
     const disposeScoped = await ctx.remote.$mount({ package: '@fixture/scoped-live', descriptors: [context] })
     await expect(ctx.remote.$mount({
-      package: '@fixture/scoped-conflict', descriptors: [{ ...context, id: '@fixture/other#goals/rename' }],
-    })).rejects.toThrow('scoped method goals/rename is already mounted')
+      package: '@fixture/scoped-conflict', descriptors: [{ ...context, id: '@fixture/other#probe/rename' }],
+    })).rejects.toThrow('scoped method probe/rename is already mounted')
     await expect(ctx.remote.$mount({
       package: '@fixture/service-method-conflict',
-      descriptors: [{ ...context, id: '@fixture/goals#goals/remove', method: 'remove' }],
+      descriptors: [{ ...context, id: '@fixture/probe#probe/remove', method: 'remove' }],
     })).rejects.toThrow('conflicts with its namespace service')
-    const scopedService = ctx.get('remote.goals') as unknown as object
+    const scopedService = ctx.get('remote.probe') as unknown as object
     Object.defineProperty(scopedService, 'custom', { configurable: true, value: () => undefined })
     await expect(ctx.remote.$mount({
       package: '@fixture/service-own-property-conflict',
-      descriptors: [{ ...direct, id: '@fixture/goals#goals/custom', method: 'custom' }],
+      descriptors: [{ ...direct, id: '@fixture/probe#probe/custom', method: 'custom' }],
     })).rejects.toThrow('conflicts with its namespace service')
     Reflect.deleteProperty(scopedService, 'custom')
     await disposeScoped()
@@ -323,10 +377,10 @@ describe('Client TypeRT API', () => {
       package: '@fixture/multiple-scoped',
       descriptors: [directDescriptor(), contextDescriptor()],
     })
-    await expect(agentCtx.remote.goals.rename({ objective: 'remounted' })).resolves.toEqual({ renamed: true })
+    await expect(agentCtx.remote.probe.rename({ objective: 'remounted' })).resolves.toEqual({ renamed: true })
     expect(call).toHaveBeenLastCalledWith(
       '/api',
-      'goals/rename',
+      'probe/rename',
       { args: { agentId: 'agent-remounted', request: { objective: 'remounted' } } },
       expect.any(AbortSignal),
     )
@@ -338,7 +392,7 @@ describe('Client TypeRT API', () => {
     const { scope: _scope, ...first } = directDescriptor()
     const second: InvocationDescriptor = {
       ...first,
-      id: '@fixture/goals#goals/archive',
+      id: '@fixture/probe#probe/archive',
       method: 'archive',
     }
     const defineProperty = Object.defineProperty
@@ -353,11 +407,11 @@ describe('Client TypeRT API', () => {
       spy.mockRestore()
     }
 
-    expect((ctx.remote as unknown as Record<string, unknown>).goals).toBeUndefined()
+    expect((ctx.remote as unknown as Record<string, unknown>).probe).toBeUndefined()
     await vi.waitFor(() => { expect(ctx.typert.remotes.list()).toEqual([]) })
     const retry = await ctx.remote.$mount({ package: '@fixture/retry-batch', descriptors: [first, second] })
-    expect(ctx.remote.goals.create).toBeTypeOf('function')
-    expect((ctx.remote.goals as unknown as Record<string, unknown>).archive).toBeTypeOf('function')
+    expect(ctx.remote.probe.create).toBeTypeOf('function')
+    expect((ctx.remote.probe as unknown as Record<string, unknown>).archive).toBeTypeOf('function')
     await retry()
   })
 
@@ -367,7 +421,7 @@ describe('Client TypeRT API', () => {
       package: '@fixture/context-anchor',
       descriptors: [contextDescriptor()],
     })
-    const namespace = ctx.get('remote.goals') as unknown as {
+    const namespace = ctx.get('remote.probe') as unknown as {
       installScoped: (...args: unknown[]) => void
       readonly create?: unknown
     }
@@ -429,28 +483,28 @@ describe('Client TypeRT API', () => {
     const ctx = await bench(call)
     const descriptor = directDescriptor()
     const dispose = await ctx.remote.$mount({
-      package: '@fixture/goals',
+      package: '@fixture/probe',
       descriptors: [descriptor, contextDescriptor()],
     })
-    const create = ctx.remote.goals.create as unknown as (...args: unknown[]) => Promise<unknown>
-    const goals = (ctx as FixtureContext).remote.goals
-    const rename = goals.rename as unknown as (...args: unknown[]) => Promise<unknown>
+    const create = ctx.remote.probe.create as unknown as (...args: unknown[]) => Promise<unknown>
+    const probe = (ctx as FixtureContext).remote.probe
+    const rename = probe.rename as unknown as (...args: unknown[]) => Promise<unknown>
 
     await expect(create('agent-1')).rejects.toThrow('expected 2 business argument(s) plus an optional AbortSignal, got 1')
     await expect(create('agent-1', { objective: 'ship' }, undefined, 'extra'))
       .rejects.toThrow('got 4')
-    await expect(rename.call(goals)).rejects.toThrow('expected 1 argument(s), got 0')
-    await expect((ctx as FixtureContext).remote.goals.create({ objective: 'ship' }))
+    await expect(rename.call(probe)).rejects.toThrow('expected 1 argument(s), got 0')
+    await expect((ctx as FixtureContext).remote.probe.create({ objective: 'ship' }))
       .rejects.toThrow('expected 2 business argument(s)')
-    await expect((ctx as FixtureContext).remote.goals.rename({ objective: 'ship' }))
+    await expect((ctx as FixtureContext).remote.probe.rename({ objective: 'ship' }))
       .rejects.toThrow('no Client Context binder')
 
     ;(descriptor.parameters[0] as { codec: { mode: string } }).codec.mode = 'src-json'
-    await expect(ctx.remote.goals.create('agent-1', { objective: 'ship' })).rejects.toThrow('has no strict codec')
+    await expect(ctx.remote.probe.create('agent-1', { objective: 'ship' })).rejects.toThrow('has no strict codec')
     ;(descriptor.parameters[0] as { codec: { mode: string } }).codec.mode = 'strict'
 
     ctx.set('connection', undefined)
-    await expect(ctx.remote.goals.create('agent-1', { objective: 'ship' })).rejects.toThrow('no active Connection')
+    await expect(ctx.remote.probe.create('agent-1', { objective: 'ship' })).rejects.toThrow('no active Connection')
     await dispose()
   })
 
@@ -464,23 +518,23 @@ describe('Client TypeRT API', () => {
     const { scope: _scope, ...first } = directDescriptor()
     const second: InvocationDescriptor = {
       ...first,
-      id: '@fixture/goals#goals/archive',
+      id: '@fixture/probe#probe/archive',
       method: 'archive',
     }
-    const dispose = await ctx.remote.$mount({ package: '@fixture/goals', descriptors: [first, second] })
-    const invocation = ctx.remote.goals.create('agent-1', { objective: 'ship' })
+    const dispose = await ctx.remote.$mount({ package: '@fixture/probe', descriptors: [first, second] })
+    const invocation = ctx.remote.probe.create('agent-1', { objective: 'ship' })
     await vi.waitFor(() => { expect(call).toHaveBeenCalledTimes(1) })
     await dispose()
     resolveCall({ ok: true, value: { ref: 'goal-1' } })
 
     await expect(invocation).rejects.toThrow('withdrawn during invocation')
-    expect((ctx.remote as unknown as Record<string, unknown>).goals).toBeUndefined()
+    expect((ctx.remote as unknown as Record<string, unknown>).probe).toBeUndefined()
   })
 
   it('fails a method obtained from a withdrawn namespace getter', async () => {
     const ctx = await bench(vi.fn<ConnectionHandle['rpc']['call']>())
-    const dispose = await ctx.remote.$mount({ package: '@fixture/goals', descriptors: [directDescriptor()] })
-    const namespace = ctx.get('remote.goals') as unknown as object
+    const dispose = await ctx.remote.$mount({ package: '@fixture/probe', descriptors: [directDescriptor()] })
+    const namespace = ctx.get('remote.probe') as unknown as object
     const getWithdrawn = Object.getOwnPropertyDescriptor(namespace, 'create')?.get?.bind(namespace)
 
     await dispose()
@@ -498,7 +552,7 @@ describe('Client TypeRT API', () => {
     const { scope: _scope, ...base } = directDescriptor()
     const descriptor: InvocationDescriptor = {
       ...base,
-      id: '@fixture/goals#goals/prototype',
+      id: '@fixture/probe#probe/prototype',
       method: 'prototype',
       parameters: [{
         name: 'value',
@@ -509,7 +563,7 @@ describe('Client TypeRT API', () => {
     }
     const dispose = await ctx.remote.$mount({ package: '@fixture/prototype', descriptors: [descriptor] })
 
-    const method = (ctx.remote.goals as unknown as Record<string, (...args: unknown[]) => Promise<unknown>>).prototype
+    const method = (ctx.remote.probe as unknown as Record<string, (...args: unknown[]) => Promise<unknown>>).prototype
     await expect(method?.('wire-value')).resolves.toEqual({ ref: 'goal-1' })
     const payload = call.mock.calls[0]?.[2] as { readonly args: Record<string, unknown> }
     expect(Object.getPrototypeOf(payload.args)).toBeNull()
@@ -526,15 +580,15 @@ describe('Client TypeRT API', () => {
       return defineProperty(target, key, attributes)
     })
     try {
-      await expect(ctx.remote.$mount({ package: '@fixture/goals', descriptors: [directDescriptor()] }))
+      await expect(ctx.remote.$mount({ package: '@fixture/probe', descriptors: [directDescriptor()] }))
         .rejects.toThrow('fixture namespace startup failure')
       await vi.waitFor(() => { expect(ctx.typert.remotes.list()).toEqual([]) })
     } finally {
       spy.mockRestore()
     }
 
-    const retry = await ctx.remote.$mount({ package: '@fixture/goals-retry', descriptors: [directDescriptor()] })
-    expect(ctx.remote.goals.create).toBeTypeOf('function')
+    const retry = await ctx.remote.$mount({ package: '@fixture/probe-retry', descriptors: [directDescriptor()] })
+    expect(ctx.remote.probe.create).toBeTypeOf('function')
     await retry()
   })
 
@@ -554,13 +608,13 @@ describe('Client TypeRT API', () => {
       spy.mockRestore()
     }
 
-    expect((ctx.remote as unknown as Record<string, unknown>).goals).toBeUndefined()
+    expect((ctx.remote as unknown as Record<string, unknown>).probe).toBeUndefined()
     await vi.waitFor(() => { expect(ctx.typert.remotes.list()).toEqual([]) })
     const retry = await ctx.remote.$mount({
       package: '@fixture/direct-method-retry',
       descriptors: [directDescriptor()],
     })
-    expect(ctx.remote.goals.create).toBeTypeOf('function')
+    expect(ctx.remote.probe.create).toBeTypeOf('function')
     await retry()
   })
 
@@ -578,35 +632,35 @@ describe('Client TypeRT API', () => {
       spy.mockRestore()
     }
 
-    expect(ctx.get('remote.goals')).toBeUndefined()
+    expect(ctx.get('remote.probe')).toBeUndefined()
     await vi.waitFor(() => { expect(ctx.typert.remotes.list()).toEqual([]) })
     const retry = await ctx.remote.$mount({ package: '@fixture/scoped-retry', descriptors: [contextDescriptor()] })
-    expect((ctx.get('remote.goals') as unknown as Record<string, unknown>).rename).toBeTypeOf('function')
+    expect((ctx.get('remote.probe') as unknown as Record<string, unknown>).rename).toBeTypeOf('function')
     await retry()
   })
 
   it('unregisters an empty scoped namespace so another provider can claim its name', async () => {
     const ctx = await bench(vi.fn<ConnectionHandle['rpc']['call']>())
     const dispose = await ctx.remote.$mount({ package: '@fixture/scoped', descriptors: [contextDescriptor()] })
-    expect(ctx.get('remote.goals')).toBeDefined()
+    expect(ctx.get('remote.probe')).toBeDefined()
 
     await dispose()
 
-    expect(ctx.get('remote.goals')).toBeUndefined()
+    expect(ctx.get('remote.probe')).toBeUndefined()
     const replacement = { owner: 'replacement' }
-    const disposeReplacement = ctx.reflect.provide('remote.goals', replacement)
-    expect(ctx.get('remote.goals')).toBe(replacement)
+    const disposeReplacement = ctx.reflect.provide('remote.probe', replacement)
+    expect(ctx.get('remote.probe')).toBe(replacement)
     await disposeReplacement()
   })
 
   it('throws RPC failures with the structured error as its cause', async () => {
     const rpcError = { code: 'internal' as const, message: 'host failed', details: {} }
     const ctx = await bench(vi.fn<ConnectionHandle['rpc']['call']>().mockResolvedValue({ ok: false, error: rpcError }))
-    await ctx.remote.$mount({ package: '@fixture/goals', descriptors: [directDescriptor()] })
+    await ctx.remote.$mount({ package: '@fixture/probe', descriptors: [directDescriptor()] })
 
     let failure: unknown
     try {
-      await ctx.remote.goals.create('agent-1', { objective: 'ship' })
+      await ctx.remote.probe.create('agent-1', { objective: 'ship' })
     } catch (error) {
       failure = error
     }
