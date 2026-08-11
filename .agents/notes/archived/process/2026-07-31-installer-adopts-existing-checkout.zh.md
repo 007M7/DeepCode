@@ -1,6 +1,7 @@
 # Agent Note: 安装器把已有检出接管进受管布局
 
 Status: implemented
+Archived: 2026-08-10
 
 [English](2026-07-31-installer-adopts-existing-checkout.md) | 中文
 
