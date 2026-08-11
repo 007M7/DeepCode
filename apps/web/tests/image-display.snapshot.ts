@@ -4,7 +4,7 @@
 // Opens the fixture history session whose turn 72 carries an image in BOTH a
 // user message and an assistant message, and pins the product surfaces: the
 // history ImageGallery loading real fixture bytes through the authorized
-// sessions.attachment route, the double-click ImageLightbox, and the composer
+// sessions.attachment route, the single-click ImageLightbox, and the composer
 // intake chain (paste → ordered thumbnail rail → image-only send enablement → remove).
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { expect, it } from 'vitest'
@@ -66,10 +66,10 @@ it('renders the history image pair through the authorized attachment route and o
   `)
   const userImage = document.querySelector<HTMLElement>('[data-align="end"] img')!
 
-  // Double-click opens the original-size lightbox; Escape/close dismisses it.
+  // A single click opens the original-size lightbox; Escape/close dismisses it.
   const frame = userImage.closest('button')
   if (frame === null) throw new Error('image frame button missing')
-  fireEvent.doubleClick(frame)
+  fireEvent.click(frame)
   const lightbox = await screen.findByRole('dialog')
   expect(within(lightbox).getByRole('img').getAttribute('src')?.split(':')[0]).toBe('blob')
   fireEvent.click(within(lightbox).getByRole('button', { name: /Close/ }))
@@ -133,4 +133,18 @@ it('accepts pasted images into the composer rail in order and removes them', asy
   await waitFor(() => {
     expect(document.querySelector('[role="group"][aria-label="Pending images"]')).toBeNull()
   })
+
+  // An unsupported file announces a transient toast (the inline strip is
+  // gone) and the banner dismisses itself after its hold-and-fade lifetime.
+  fireEvent.paste(textarea, {
+    clipboardData: {
+      items: [{ kind: 'file', type: 'text/plain', getAsFile: () => new File(['x'], 'notes.txt', { type: 'text/plain' }) }],
+      getData: () => '',
+    },
+  })
+  const toast = await screen.findByRole('alert')
+  expect(toast.textContent).toContain('Unsupported image format: text/plain')
+  await waitFor(() => {
+    expect(screen.queryByRole('alert')).toBeNull()
+  }, { timeout: 6_000 })
 })

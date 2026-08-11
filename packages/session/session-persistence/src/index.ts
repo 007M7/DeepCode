@@ -96,23 +96,31 @@ export abstract class SessionPersistence extends Service {
   abstract locate(meta: SessionHeader): SessionLocation | undefined
 
   /**
+   * Whether this backend exposes one verbatim raw artifact per session.
+   * A backend that declares `true` must override {@link readRaw}.
+   */
+  abstract readonly supportsRawArtifacts: boolean
+
+  /**
    * Read a session's backend-owned artifact text verbatim — the exact durable
    * bytes the backend wrote (decoded from its physical encoding, e.g. a
    * decompressed JSONL). The returned `content` is the raw text, not a
    * reconstruction from parsed events, so it preserves backend-specific
-   * serialization (chunk packing, key order, line breaks). Backends without a
-   * per-session artifact (SQLite) inherit the `undefined` default.
+   * serialization (chunk packing, key order, line breaks). Callers first test
+   * {@link supportsRawArtifacts}; `undefined` then means only that the requested
+   * session has no materialized artifact.
    * @param _id - the persisted session to read (unused by the default: no
    * per-session artifact).
    * @param signal - optional cancellation for backend read work.
    * @returns the raw artifact plus its parsed header, or `undefined` when the
-   * session is absent or the backend owns no per-session artifact.
+   * session is absent.
+   * @throws when this backend does not expose per-session raw artifacts.
    */
   readRaw(_id: SessionId, signal?: AbortSignal): Promise<SessionRawArtifact | undefined> {
     if (signal?.aborted === true) {
       return Promise.reject(signal.reason instanceof Error ? signal.reason : new Error('aborted'))
     }
-    return Promise.resolve(undefined)
+    return Promise.reject(new Error('this session persistence backend does not expose raw artifacts'))
   }
 
   /**

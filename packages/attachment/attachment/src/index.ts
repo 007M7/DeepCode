@@ -52,9 +52,11 @@ export abstract class AttachmentStore extends Service {
   /**
    * Read one image and verify that bytes still match the recorded reference.
    * @param ref - durable reference from the session log.
+   * @param signal - optional cancellation for backend read and verification work.
    * @returns the verified bytes and canonical reference.
+   * @throws the signal reason when aborted, or a storage error when verification fails.
    */
-  abstract readImage(ref: ImageAttachmentRef): Promise<StoredImageAttachment>
+  abstract readImage(ref: ImageAttachmentRef, signal?: AbortSignal): Promise<StoredImageAttachment>
 }
 
 export default AttachmentStore

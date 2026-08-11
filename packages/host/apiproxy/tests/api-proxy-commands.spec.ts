@@ -23,7 +23,7 @@ import SkillService from '@deepseek-ai/dsh-skill'
 import type { HostFrame } from '../src/api/index.ts'
 import type { RpcRequest, RpcResponse } from '../src/api/rpc.ts'
 import { RpcId } from '../src/api/rpc.ts'
-import { createApiProxy } from '../src/api-proxy.ts'
+import { assertJsonArgs, createApiProxy } from '../src/api-proxy.ts'
 
 const DEFAULTS = { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp' }
 
@@ -269,7 +269,7 @@ describe('skill.list', () => {
   })
 })
 
-describe('host/commands-changed frame', () => {
+describe('forwarded commands/change frame', () => {
   it('broadcasts on registry change', async () => {
     const ctx = await harness()
     const api = createApiProxy(ctx, DEFAULTS)
@@ -277,7 +277,29 @@ describe('host/commands-changed frame', () => {
     const stream = api.events.host({ rpcId: RpcId('t-host'), payload: {} }, abort.signal)
     const collected = collect<HostFrame>(stream, 1, abort)
     ctx.commands.register({ name: 'late', description: 'l', handler: () => ({ kind: 'success' }) })
-    expect(await collected).toEqual([{ type: 'host/commands-changed' }])
+    // Verbatim forwarding: the wire name is the host's own event name and
+    // `args` is its argument list (empty for this pure invalidation).
+    expect(await collected).toEqual([{ type: 'host/remote-event', event: 'commands/change', args: [] }])
+  })
+
+  // The guard belongs to the forwarding boundary, so it is tested there rather
+  // than through a malformed `ctx.emit`: every currently allowlisted event has a
+  // statically JSON-safe payload, so no type-legal emit can reach the rejection
+  // branch. These cases stand in for a future allowlist entry whose payload the
+  // wire cannot carry — a composition mistake that must fail loud.
+  describe('assertJsonArgs', () => {
+    it('passes a JSON-safe argument list through unchanged', () => {
+      const args = ['llm-deepseek', 7, null, { nested: ['ok'] }]
+      expect(assertJsonArgs('settings/document-updated', args)).toEqual(args)
+      expect(assertJsonArgs('commands/change', [])).toEqual([])
+    })
+
+    it('names the offending event and argument position when a payload is not lossless JSON', () => {
+      expect(() => assertJsonArgs('credentials/updated', [1n]))
+        .toThrow('forwarded host event "credentials/updated" argument 0 is not lossless JSON data')
+      expect(() => assertJsonArgs('settings/document-updated', ['ns', () => {}]))
+        .toThrow('forwarded host event "settings/document-updated" argument 1 is not lossless JSON data')
+    })
   })
 })
 

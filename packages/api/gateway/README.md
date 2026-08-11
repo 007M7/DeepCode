@@ -20,6 +20,8 @@ A cancellation-aware Remote method declares `signal: AbortSignal` as its final H
 
 Each call validates positional inputs, constructs the descriptor's exact named `args`, and sends it through `ctx.connection.rpc.call('/api', endpoint, ...)`. Generated cancellation-aware methods accept a final optional `AbortSignal`; the Client combines it with the contribution mount lifetime before calling Connection. The returned value is validated before reaching application code. Withdrawing a contribution removes its descriptors and methods together, aborts in-flight calls, and makes retained method handles reject.
 
+`ctx.remote.$on()` subscribes to one forwarded Host event. Its legal keys are exactly the Host assembly's forwarding selection, and the listener type is the owning package's own Cordis `Events` declaration, so no second signature can drift from it. Each subscription belongs to the calling fiber and disappears with it. Delivery is one-way and follows registration order; a listener that throws is logged and isolated from the remaining listeners, which never affects the frame pump. `ctx.remote.$dispatch()` is the other half of that surface, and it is the carrier's: the Client half owning the Host frame sink hands each decoded frame over, and an event name nobody subscribes to is dropped, since the wire carries whatever the Host selected. A consumer subscribes and never calls it.
+
 Generated declaration merges provide the TypeScript API through the shared `TypeRTClientRemote` contract. The Client entry contains no Host Service or Host Cordis interface merge, and method lookup and invocation use ordinary objects and functions rather than a JavaScript Proxy.
 
 ## Model Experience
@@ -37,3 +39,4 @@ No direct effect; invoked business Services own any model-visible result.
 - Only strict generated contributions can mount on the Client face. SRC markers have no Client codec or type projection.
 - The package dispatches unary methods only. Incremental Session data uses a separate named-stream protocol over the same Connection.
 - Lookup resolvers are configured per key; an individual Remote parameter or endpoint cannot currently select a live-only policy under the same `agent`/`session` key.
+- Forwarded events reach `$on` exactly as the Host emitted them: no payload projection or redaction, no Scope-bound subscription, and no replay after a reconnect.

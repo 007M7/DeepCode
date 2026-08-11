@@ -93,7 +93,7 @@ describe('WebSocket downlinks', () => {
       },
       async function * (signal) {
         try {
-          yield { rpcId: RpcId('host-1'), payload: { type: 'host/commands-changed' } }
+          yield { rpcId: RpcId('host-1'), payload: { type: 'host/remote-event', event: 'commands/change', args: [] } }
           await untilAbort(signal)
         } finally {
           hostAborted = true
@@ -116,8 +116,8 @@ describe('WebSocket downlinks', () => {
     expect(await hostFrame).toEqual({
       type: 'server-request',
       rpcId: 'host-1',
-      method: 'host/commands-changed',
-      payload: { type: 'host/commands-changed' },
+      method: 'host/remote-event',
+      payload: { type: 'host/remote-event', event: 'commands/change', args: [] },
     })
 
     const muxClosed = once(mux, 'close')
