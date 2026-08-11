@@ -15,7 +15,7 @@ describe('invariant companion', () => {
     await expect(ctx.plugin(ThemeInvariant).await()).resolves.toBeDefined()
   })
 
-  it('node-half waits for an optional settings provider', () => {
+  it('node-half waits for optional Host services', () => {
     nodeApply(new Context())
     expect(true).toBe(true)
   })

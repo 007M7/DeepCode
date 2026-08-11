@@ -21,6 +21,9 @@
       "path": "../ui-slots"
     },
     {
+      "path": "../../host/webserver"
+    },
+    {
       "path": "../../../vendor/cordis"
     },
     {
