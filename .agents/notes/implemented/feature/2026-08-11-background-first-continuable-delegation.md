@@ -18,7 +18,7 @@ The model-facing text divides responsibility by location:
 
 - the tool description states the call behavior, durable id, runtime settlement notice, follow-up through `send_message`, and the explicit foreground override;
 - the `run_in_background` parameter states the lifecycle-specific default and when to override it;
-- a `tool:<toolName>` system-prompt section tells the model to start independent delegations together, continue useful work while they run, and choose foreground only when the next action depends on the result.
+- a `tool:<toolName>` system-prompt section tells the model to start independent delegations together, continue useful work while they run, and choose foreground only when the next action depends on the result. The section renders only when that tool remains visible in the assembly scope, so a child tool restriction removes the schema and its guidance together.
 
 The [continuable child report obligation](2026-08-06-continuable-child-report-obligation.md) remains unchanged: the child prompt requires one self-contained final report and earlier reports for findings that change the parent's next action. Manager-owned settlement remains unconditional and does not inspect whether a report arrived. The two messages may repeat final content, but they retain distinct authors and purposes: `report` is the child's explicit handoff, while settlement records how the run ended and preserves terminal output when the child cannot cooperate. `reportDelivery` remains deployment scheduling policy with `wakeup` as its default.
 

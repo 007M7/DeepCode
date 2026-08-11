@@ -23,7 +23,7 @@ export const name = 'tool-subagent'
 export const inject = ['tools', 'subagents', 'systemPrompt']
 
 /** Prompt order after bounded delegation policy and before child reporting. */
-const SUBAGENT_SECTION_ORDER = 116
+const SUBAGENT_SECTION_ORDER = 116.5
 
 /** Config: which registered provider this tool delegates to, plus child defaults. */
 export interface Config {
@@ -301,7 +301,7 @@ export function apply(ctx: Context, config: Config): void {
         // a separately installed capability, so this promise holds whenever the
         // continuable background path is reachable at all.
         ? continuable
-          ? ' This tool uses its continuable background route by default and immediately returns a durable subagent id. When that run settles, the runtime sends the parent a notice containing its outcome and any final assistant message; `send_message` starts a later turn in the same child conversation. Set `run_in_background: false` to use a foreground run only when you must receive its result before taking your next action.'
+          ? ' This tool runs in the background by default, immediately returns a durable subagent id, and keeps the child conversation available for later turns. When that run settles, the runtime sends the parent a notice containing its outcome and any final assistant message; `send_message` starts a later turn in the same child conversation. Set `run_in_background: false` only when your next action depends on receiving the result.'
           : ' This call waits for the result by default. Set `run_in_background: true` to return a task id; collect with `task_output` and stop with `task_kill`.'
         : ' This call waits for the subagent and returns its result.'),
       parameters: {
@@ -319,7 +319,7 @@ export function apply(ctx: Context, config: Config): void {
           run_in_background: {
             type: 'boolean' as const,
             description: continuable
-              ? 'Whether to use the continuable background route. Defaults to true. Set false to run in the foreground and wait only when your next action depends on its result.'
+              ? 'Whether to run in the background and return a durable subagent id immediately. Defaults to true. Set false to wait for the result when your next action depends on it.'
               : 'Whether to run as a background task and return its id. Defaults to false; collect with task_output or stop with task_kill.',
           },
         } : {},
@@ -432,9 +432,11 @@ export function apply(ctx: Context, config: Config): void {
   }
 
   // Register listeners before checking presence so no synchronous change is missed.
-  // TODO(subagent-dup-toolname): two WAITING fibers configured with the same
-  // toolName collide when their provider appears, and the duplicate-name throw
-  // rolls back the provider registration. Add an intent registry if this occurs.
+  // TODO(subagent-dup-toolname): two waiting one-shot fibers configured with the
+  // same toolName collide when their provider appears, and the duplicate-name
+  // throw rolls back the provider registration. Continuable instances reserve
+  // their prompt-section name during apply() and fail earlier. Add an intent
+  // registry if the late one-shot collision occurs in a shipped composition.
   ctx.on('subagent/provider-added', (provider) => {
     if (provider.name === config.provider && disposeTool === undefined) mount(provider)
   })
@@ -457,9 +459,9 @@ export function apply(ctx: Context, config: Config): void {
     ctx.systemPrompt.section({
       name: `tool:${toolName}`,
       order: SUBAGENT_SECTION_ORDER,
-      text: () => ctx.subagents.getProvider(config.provider) === undefined
+      text: context => disposeTool === undefined || ctx.tools.get(toolName, context.scope) === undefined
         ? ''
-        : `Use ${toolName}'s continuable background route by default. Start independent delegations together in one assistant message and continue useful work while they run. Set \`run_in_background: false\` only when you cannot take your next action without that subagent's result. When a background run settles, the runtime sends you a notice containing its outcome and any final assistant message.`,
+        : `Use ${toolName} in the background by default. Start independent delegations together in one assistant message and continue useful work while they run. Set \`run_in_background: false\` only when your next action depends on that subagent's result. When a background run settles, the runtime sends you a notice containing its outcome and any final assistant message.`,
     })
   }
 }

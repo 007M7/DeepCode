@@ -354,13 +354,26 @@ describe('dsh-tool-subagent', () => {
     await ctx.plugin(ToolRegistry)
     await ctx.plugin(SubagentService)
 
-    // Arm 1: a mounted tool dies with its plugin fiber; the provider survives.
-    await mock.mountScriptedProvider(ctx, { name: 'mock' })
-    const mounted = await ctx.plugin(tool, { provider: 'mock' })
+    // Arm 1: a mounted tool and its prompt section die with the plugin fiber;
+    // the provider survives.
+    ctx.subagents.registerProvider({
+      name: 'continuable',
+      capabilities: { outputSchema: false, depthLimit: false, toolFilter: false, persona: false },
+      inheritsParentContext: false,
+      start: async () => { throw new Error('lifecycle test does not start a child') },
+      prepareContinuable: async () => ({}),
+    })
+    const mounted = await ctx.plugin(tool, {
+      provider: 'continuable',
+      backgroundMode: 'continuable',
+      maxDepth: 'provider-managed',
+    })
     expect(ctx.tools.schemas().some(s => s.name === 'subagent')).toBe(true)
+    expect((await ctx.systemPrompt.assemble()).sections.some(s => s.name === 'tool:subagent')).toBe(true)
     await mounted.dispose()
     expect(ctx.tools.schemas().some(s => s.name === 'subagent')).toBe(false)
-    expect(ctx.subagents.getProvider('mock')).toBeDefined()
+    expect((await ctx.systemPrompt.assemble()).sections.some(s => s.name === 'tool:subagent')).toBe(false)
+    expect(ctx.subagents.getProvider('continuable')).toBeDefined()
 
     // Arm 2: a fiber disposed while WAITING must not react to the provider
     // arriving later — a surviving listener would re-register a tool that no
@@ -1012,16 +1025,16 @@ describe('dsh-tool-subagent continuable background mode', () => {
     expect(schema.description).not.toContain('task_output')
     expect(schema.description).not.toContain('task_kill')
     expect(schema.description).toContain('send_message')
-    expect(schema.description).toContain('continuable background route by default')
+    expect(schema.description).toContain('runs in the background by default')
+    expect(schema.description).not.toContain('never poll or wait on it')
     const properties = (schema.parameters as {
       properties: Record<string, { description?: string }>
     }).properties
     expect(properties.run_in_background?.description).toContain('Defaults to true')
     const assembly = await ctx.systemPrompt.assemble(assembleContextFor(parent))
     const guidance = assembly.sections.find(section => section.name === 'tool:subagent')
-    expect(guidance?.text).toContain("Use subagent's continuable background route by default")
+    expect(guidance?.text).toContain('Use subagent in the background by default')
     expect(guidance?.text).toContain('runtime sends you a notice containing its outcome')
-    expect(guidance?.text).not.toContain('do not poll')
 
     const started = await callSubagent(
       ctx,
@@ -1042,6 +1055,15 @@ describe('dsh-tool-subagent continuable background mode', () => {
     const loaded = await ctx.sessionPersistence.load(SessionId(childId!))
     expect(loaded.events.some(event => event.type === 'subagent/descriptor')).toBe(true)
     expect(loaded.events.some(event => event.type === 'assistant/message')).toBe(true)
+  })
+
+  it('hides continuable guidance when the current agent cannot see the tool', async () => {
+    const { ctx, parent } = await continuableSetup()
+    parent.ctx.tools.restrict({ deny: ['subagent'] })
+
+    expect(ctx.tools.get('subagent', parent)).toBeUndefined()
+    const assembly = await ctx.systemPrompt.assemble(assembleContextFor(parent))
+    expect(assembly.sections.find(section => section.name === 'tool:subagent')?.text).toBe('')
   })
 
   it('waits for a continuable provider only when run_in_background is explicitly false', async () => {
