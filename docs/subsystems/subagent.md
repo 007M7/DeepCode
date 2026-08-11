@@ -411,7 +411,10 @@ Each provider is a named child-agent transport, and multiple providers may coexi
 /**
  * One registered transport for running child agents. Providers are trusted
  * same-process implementations; callers treat descriptors and returned values
- * as borrowed immutable data.
+ * as borrowed immutable data. The service may call one provider concurrently
+ * for distinct children. Providers isolate operation-local mutable state; a
+ * shared capacity controller may delay an operation but must not couple its
+ * settlement or cleanup to a sibling.
  */
 interface SubagentProvider {
   /** Unique registry name (e.g. `spawn`, `fork`, `acp`). */
@@ -432,7 +435,8 @@ interface SubagentProvider {
    * initial turn. Before fulfillment, the provider owns setup and cleans any
    * unpublished partial resources before rejecting. Ownership transfers on
    * fulfillment; subsequent turn or infrastructure failure settles through
-   * the returned run.
+   * the returned run. Distinct starts may overlap; cancellation, failure,
+   * result settlement, and disposal remain independent for each run.
    */
   start(request: ResolvedSubagentStartRequest): Promise<SubagentRun>
   /**
@@ -447,6 +451,8 @@ interface SubagentProvider {
    * continuation manager owns identity reservation, composition, Agent
    * creation, prompt delivery, cold resume, ownership, and disposal, so a
    * provider never sees the child's Agent, handle, turns, or teardown.
+   * Distinct preparations may overlap; each follows its own signal and returns
+   * data belonging only to `request.sessionId`.
    */
   prepareContinuable?(request: ContinuableCreateRequest): Promise<ContinuableCreateSpec>
 }
