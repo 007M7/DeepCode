@@ -160,7 +160,7 @@ export interface ResumeAgentOptions {
  * {@link AgentRegistry.resume}. The disposer is a CAPABILITY: among consumers,
  * only the holder can tear this agent down. The registered factory provider is
  * also a structural owner because the scoped agent depends on that provider's
- * service surface; provider unload stops and drains every live handle it made.
+ * service API; provider unload stops and drains every live handle it made.
  * `dispose()` stops the loop, awaits its exit, unregisters the agent, removes
  * its session from the store, and finally unwinds its scoped world.
  *

@@ -605,7 +605,7 @@ describe('agent scope lifecycle', () => {
           agentCtx.systemPrompt.section({
             name: 'dependency-origin-section',
             order: 1,
-            text: 'factory dependency surface',
+            text: 'factory dependency API',
           })
         },
       })

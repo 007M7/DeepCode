@@ -197,7 +197,7 @@ type MessageFeedbackDeleteResult =
 
 ## 持久化与 Remote 契约
 
-服务通过 `ctx.storageDomain` 在 `message_feedback` 存储域中保存完整 Session 行。`put` 提交引用目标消息的伴随记录前，身份匹配的 live 目标先经过权威 `ctx.sessions.flush` checkpoint；随后 live 与 cold 路径都会通过 `SessionPersistence.readFrom` 从序列零做物理复读。写入伴随记录前会再次校验所得观测，因此目标日志的持久提交始终先于其伴随记录。`maxNoteBytes` 为必填项，按 UTF-8 字节限制备注文本；Web Host 组合将其设为 `8192`。该包通过 `GatewayService` 与 `@Remote` 发布 Host `messageFeedback.list`、`messageFeedback.put` 和 `messageFeedback.delete` 一元 Remote 契约；下方生成的 Cordis surface 是方法级权威。
+服务通过 `ctx.storageDomain` 在 `message_feedback` 存储域中保存完整 Session 行。`put` 提交引用目标消息的伴随记录前，身份匹配的 live 目标先经过权威 `ctx.sessions.flush` checkpoint；随后 live 与 cold 路径都会通过 `SessionPersistence.readFrom` 从序列零做物理复读。写入伴随记录前会再次校验所得观测，因此目标日志的持久提交始终先于其伴随记录。`maxNoteBytes` 为必填项，按 UTF-8 字节限制备注文本；Web Host 组合将其设为 `8192`。该包通过 `GatewayService` 与 `@Remote` 发布 Host `messageFeedback.list`、`messageFeedback.put` 和 `messageFeedback.delete` 一元 Remote 契约；下方生成的 Cordis API 是方法级权威。
 
 Plugin disposal 会先关闭变更接纳，排空已进入各 Session 队列的工作，然后才关闭 storage domain。
 
@@ -215,9 +215,9 @@ Plugin disposal 会先关闭变更接纳，排空已进入各 Session 队列的�
 
 <a id="cordis-surface"></a>
 
-## Cordis surface
+## Cordis API
 
-Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` surface lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
+Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
 
 <a id="ctxmessagefeedback--messagefeedbackservice"></a>
 

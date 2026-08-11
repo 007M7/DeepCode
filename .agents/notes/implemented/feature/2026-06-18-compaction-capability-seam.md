@@ -16,7 +16,7 @@ Two forces shape the design. First, compaction policy and reusable token measure
 
 ### Compaction is a capability seam with separate Service Definition and Service provider roles
 
-Per the [capability-seams Agent Note](../architecture/2026-06-13-capability-seams.md), compaction ships as separate packages so the contract, the algorithm, and (later) the consumer surface evolve independently:
+Per the [capability-seams Agent Note](../architecture/2026-06-13-capability-seams.md), compaction ships as separate packages so the contract, the algorithm, and (later) the consumer API evolve independently:
 
 1. **Interface** — `@deepseek-ai/dsh-compact`: an abstract `CompactService` owning the `ctx.compact` key, the `CompactionResult` vocabulary, the `compact/*` session events, the manual failure taxonomy, and the canonical checkpoint message source. It declares `compactIfNeeded()`, `compactNow()`, and `compactRegion()` as **abstract** — the contract states *what* compaction does, not *how*.
 2. **Implementation** — `@deepseek-ai/dsh-compact-basic`: a concrete `BasicCompactService` that consumes `ctx.tokenMeter` and owns the tail→head retention walk, summarization via `ctx.llm.stream()`, the surface replacement, the lock, pre-step pressure, and canonical context-overflow recovery. `summarize()` is its sole subclass hook; pricing and replay stay with the meter.

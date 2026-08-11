@@ -8,15 +8,15 @@ English | [中文](2026-06-11-api-extractor-reports.zh.md)
 
 ## Problem
 
-Public API changes are invisible — nothing makes "this commit changed the public surface" an explicit, reviewable fact. A reviewer reading a diff can miss that an exported type gained a field or a method signature shifted.
+Public API changes are invisible — nothing makes "this commit changed the public API" an explicit, reviewable fact. A reviewer reading a diff can miss that an exported type gained a field or a method signature shifted.
 
 ## Proposal
 
-api-extractor (or `tsc --emitDeclarationOnly` + a normalized public-surface dump) producing a checked-in `etc/<pkg>.api.md` per package; CI fails if regeneration differs. Every public-API change becomes a diff line a reviewer (or review agent) must see.
+api-extractor (or `tsc --emitDeclarationOnly` + a normalized public-API dump) producing a checked-in `etc/<pkg>.api.md` per package; CI fails if regeneration differs. Every public-API change becomes a diff line a reviewer (or review agent) must see.
 
 ## Alternatives considered
 
-**`tsc --emitDeclarationOnly` plus a normalized public-surface dump** — the lighter mechanism if api-extractor proves too heavy; either satisfies the checked-in, diffable report shape the proposal needs.
+**`tsc --emitDeclarationOnly` plus a normalized public-API dump** — the lighter mechanism if api-extractor proves too heavy; either satisfies the checked-in, diffable report shape the proposal needs.
 
 ## Acceptance criteria
 
@@ -25,8 +25,8 @@ api-extractor (or `tsc --emitDeclarationOnly` + a normalized public-surface dump
 
 ## Risks
 
-The dependency is heavy and finicky — the reason this was deferred — and the report format churns with compiler upgrades, adding a maintenance surface that buys little while the packages stay unpublished.
+The dependency is heavy and finicky — the reason this was deferred — and the report format churns with compiler upgrades, adding a maintenance burden that buys little while the packages stay unpublished.
 
 ## Why deferred
 
-Deferred when doc-sync landed: low value for an internal monorepo where reviewers already see the source diff, and a heavy, finicky dependency. Revisit if the packages are ever published externally — at that point a stable, diffable public surface earns its keep.
+Deferred when doc-sync landed: low value for an internal monorepo where reviewers already see the source diff, and a heavy, finicky dependency. Revisit if the packages are ever published externally — at that point a stable, diffable public API earns its keep.

@@ -169,7 +169,7 @@ export interface FsEditOutcome {
 
 /**
  * Stable, machine-routable codes for filesystem failures. Carried on
- * {@link FsError}; the tool registry surfaces `{ name, code }` on `isError`
+ * {@link FsError}; the tool registry exposes `{ name, code }` on `isError`
  * results so retry/permission/UI layers can branch without parsing messages.
  */
 export type FsErrorCode =

@@ -10,7 +10,7 @@ When the Host reports that no adapter serves the session's route (`session.model
 
 Directories are per-session, resolved lazily through `ctx.models.directoryFor(sessionId)`, and disposed with the session scope. Addressed subagent sessions expose neither entry, and their directory rejects loads, selections, and reconnect refreshes, because ordinary Agent-bound model RPCs would activate persisted child history outside the direct-parent continuation path.
 
-The `/client` export surface is the plugin body (`apply`/`inject`), `ModelService`, `ModelDirectory` with its state shape, and the seat's injected face type.
+The `/client` exports are the plugin body (`apply`/`inject`), `ModelService`, `ModelDirectory` with its state fields, and the seat's injected face type.
 
 ## Model Experience
 

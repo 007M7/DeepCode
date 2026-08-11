@@ -80,7 +80,7 @@ export function describePlugins(ctx: Context): string[] {
 
 /**
  * The `tools` section: the model-facing tool names the CALLING agent can see
- * (its scoped layer shadowing/joining the restricted global surface) — the
+ * (its scoped layer shadowing/joining the restricted global tool set) — the
  * honest answer to the tool description's "what you can call".
  * @param ctx - the runtime whose tool registry is read.
  * @param scope - the calling agent (the viewing scope); omitted = global view.

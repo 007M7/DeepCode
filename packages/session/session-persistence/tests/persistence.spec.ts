@@ -87,7 +87,7 @@ class MemoryPersistence extends SessionPersistence implements PersistenceBackend
     this.coordinator = new PersistenceCoordinator<never>(this.ctx, this)
   }
 
-  // --- service surface (delegated to the coordinator) ---
+  // --- Service API (delegated to the coordinator) ---
 
   locate(_meta: SessionHeader): undefined {
     return undefined

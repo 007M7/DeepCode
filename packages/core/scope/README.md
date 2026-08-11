@@ -28,10 +28,10 @@ The registration context determines both visibility and ownership, preventing a 
 
 Scope-aware services define a concrete `ScopeLayer` that aggregates their heterogeneous tables and domain helpers. `ScopedLayers.effect()` accepts one synchronous action returning one synchronous undo, installs that undo before optional notification, and reclaims an exact-scope layer only when the complete aggregate is empty. `notify` defaults to `true`; the supplied callback owns whether observer failures throw or are contained. `EntryValues` remains internal, the storage classes are imported from the package root rather than a `/store` subpath, and the shared storage does not define registry-specific filtering or iteration policy. See the [shared scoped-layer storage Agent Note](../../../.agents/notes/implemented/architecture/2026-07-12-scoped-layers-store.md).
 
-Handing out a scoped context hands out the minting plugin's service-resolution surface (resolution walks the minting fiber's dependency chain, not the holder's) — mint it from the plugin whose dependencies the scoped registrations need to resolve.
+Handing out a scoped context hands out the minting plugin's service-resolution API (resolution walks the minting fiber's dependency chain, not the holder's) — mint it from the plugin whose dependencies the scoped registrations need to resolve.
 
 ## Known Limitations and Deferred Work
 
-- **Only scope-aware surfaces isolate state** — registries must file by `scopeOf()` and events must dispatch through `scopeTarget()`; an arbitrary Cordis service remains context-global merely because it is called through a scoped context.
+- **Only scope-aware APIs isolate state** — registries must file by `scopeOf()` and events must dispatch through `scopeTarget()`; an arbitrary Cordis service remains context-global merely because it is called through a scoped context.
 - **A context carries one nearest scope key** — the hierarchy lives in the key-level parent relation, not in context tags; nested scope CONTEXTS still shadow to a single tag, and multi-membership policy sets remain unsupported.
-- **Service reachability comes from the scope minter** — handing out `Scope.ctx` also hands out the minting plugin's injected service surface, so a broader minter cannot later be narrowed by the holder.
+- **Service reachability comes from the scope minter** — handing out `Scope.ctx` also hands out the minting plugin's injected services, so a broader minter cannot later be narrowed by the holder.

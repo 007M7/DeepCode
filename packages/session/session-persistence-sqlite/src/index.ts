@@ -167,7 +167,7 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
     }
   }
 
-  // --- SessionPersistence service surface (delegated to the coordinator) ---
+  // --- SessionPersistence service API (delegated to the coordinator) ---
 
   /** SQLite has one database, not an independent local artifact per session. */
   locate(_meta: SessionHeader): SessionLocation | undefined {

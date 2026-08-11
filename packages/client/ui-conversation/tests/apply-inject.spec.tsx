@@ -1,15 +1,15 @@
 // @vitest-environment jsdom
 // apply inject factories exercised end to end against the terminal thin
-// shape: the strict session surface (views triple, draft mirror), the
+// API: the strict session API (views triple, draft mirror), the
 // provide-channel input face (machine-sink submit choreography incl.
-// optimistic clear + failure restore), the resident surface (selectWorkspace
+// optimistic clear + failure restore), the resident API (selectWorkspace
 // draft carrying), the composer-bar stop face, openDetails = select action +
-// layout orchestration, and the closeDetails details surface. Complements
+// layout orchestration, and the closeDetails details API. Complements
 // chat-apply.spec.tsx (registration) and selection-survival.spec.tsx (store
 // axis). History opening is NOT an inject concern — the runtime sessions
 // service opens on watch (sessions-service.spec.ts owns that behavior).
 //
-// The inject surfaces are read off the ledger entries deliberately (typed at
+// The inject APIs are read off the ledger entries deliberately (typed at
 // this spec's own contract): these cases pin factory choreography the UI
 // guards would mask. Rendering-path acceptance lives in
 // chat-toolview-slot.spec.tsx.
@@ -75,30 +75,30 @@ async function bench() {
   const entryOf = (key: 'conversation' | 'conversation.session' | 'conversation.session.header' | 'conversation.composer.bar' | 'conversation.view' | 'details') =>
     runtime.slots.entries(key)[0]!
   /** Resolve store instance + call the inject the way the outlet would. */
-  const conversationSurface = (id: SessionId) => {
+  const conversationApi = (id: SessionId) => {
     const entry = entryOf('conversation.session')
     const instance = runtime.storeOf('conversation.session', id) as ChatInstance
     const injected = (entry.inject as unknown as (sessionId: SessionId, actions: ChatActions) => ConversationSessionInjected)(
       id, instance.actions)
     return { instance, injected }
   }
-  const conversationHeaderSurface = (id: SessionId) => {
+  const conversationHeaderApi = (id: SessionId) => {
     const entry = entryOf('conversation.session.header')
     const instance = runtime.storeOf('conversation.session.header', id) as ChatInstance
     const injected = (entry.inject as unknown as (sessionId: SessionId, actions: ChatActions) => ConversationSessionHeaderInjected)(
       id, instance.actions)
     return { instance, injected }
   }
-  const residentSurface = (id: SessionId | undefined) => {
+  const residentApi = (id: SessionId | undefined) => {
     const entry = entryOf('conversation')
     return (entry.inject as unknown as (sessionId: SessionId | undefined) => ConversationInjected)(id)
   }
-  const composerSurface = (id: SessionId | undefined) => {
+  const composerApi = (id: SessionId | undefined) => {
     const entry = entryOf('conversation.composer.bar')
     return (entry.inject as unknown as (sessionId: SessionId | undefined) => ComposerBarInjected)(id)
   }
   /** Same resolution for the chat entry riding the view ring. */
-  const chatViewSurface = (id: SessionId) => {
+  const chatViewApi = (id: SessionId) => {
     const entry = entryOf('conversation.view')
     const instance = runtime.storeOf('conversation.view', id) as ChatInstance
     const injected = (entry.inject as unknown as (sessionId: SessionId, actions: ChatActions) => ChatViewInjected)(
@@ -106,7 +106,7 @@ async function bench() {
     return { instance, injected }
   }
   /** Materialize the input provide contribution the way the runtime does. */
-  const inputSurface = (id: SessionId) => {
+  const inputApi = (id: SessionId) => {
     const info = runtime.sessions.provideInfo(id)!
     const state = info.hooks['input'] as {
       getSnapshot: () => { draft: string }
@@ -120,21 +120,21 @@ async function bench() {
   }
   return {
     runtime, feature, slots: runtime.slots, entryOf,
-    conversationSurface, conversationHeaderSurface, residentSurface, composerSurface, chatViewSurface, inputSurface,
+    conversationApi, conversationHeaderApi, residentApi, composerApi, chatViewApi, inputApi,
     sessionFake, layoutFake,
   }
 }
 
-describe('conversation slot inject surface', () => {
-  it('assembles the thin surface side-effect-free', async () => {
+describe('conversation slot inject API', () => {
+  it('assembles the thin API side-effect-free', async () => {
     const b = await bench()
-    const { injected } = b.conversationSurface(ROOT)
+    const { injected } = b.conversationApi(ROOT)
     // Assembly has no session side effects: opening the event window belongs
     // to the runtime watch path, not the inject factory.
     expect(b.sessionFake.open).not.toHaveBeenCalled()
     expect(injected.views.list().map(v => v.id)).toEqual(['chat'])
 
-    const chatView = b.chatViewSurface(ROOT)
+    const chatView = b.chatViewApi(ROOT)
     chatView.injected.loadOlder()
     expect(b.sessionFake.loadOlder).toHaveBeenCalledTimes(1)
     chatView.injected.forkAt(17)
@@ -149,8 +149,8 @@ describe('conversation slot inject surface', () => {
 
   it('the provide-channel input face submits through the machine sink: trim, optimistic clear, failure restore without clobber', async () => {
     const b = await bench()
-    const { injected } = b.conversationSurface(ROOT)
-    const { state, actions } = b.inputSurface(ROOT)
+    const { injected } = b.conversationApi(ROOT)
+    const { state, actions } = b.inputApi(ROOT)
     // Whitespace-only: the machine treats it as empty — no prompt, draft kept.
     actions.setDraft('   ')
     actions.submit()
@@ -176,16 +176,16 @@ describe('conversation slot inject surface', () => {
     await new Promise(r => setTimeout(r, 0))
     expect(state.getSnapshot().draft).toBe('typed during flight')
     // The provide contribution is idempotent per session: one shell identity.
-    expect(b.inputSurface(ROOT).state).toBe(state)
+    expect(b.inputApi(ROOT).state).toBe(state)
     // The draft mirror rides the conversation inject face.
     const mirrored: string[] = []
     const unbind = injected.bindDraftMirror(text => mirrored.push(text))
     actions.setDraft('mirrored text')
     expect(mirrored).toEqual(['mirrored text'])
     unbind()
-    // Stop failure is swallowed (promptError owns the surface).
+    // Stop failure is swallowed (promptError owns the display).
     b.sessionFake.cancel.mockResolvedValueOnce({ ok: false, error: { code: 'internal', message: 'x', details: {} } })
-    b.composerSurface(ROOT).stop!()
+    b.composerApi(ROOT).stop!()
     await new Promise(r => setTimeout(r, 0))
     expect(b.sessionFake.cancel).toHaveBeenCalledTimes(1)
     await b.runtime.dispose()
@@ -216,20 +216,20 @@ describe('conversation slot inject surface', () => {
 
   it('openDetails (chat view face) writes the selection through the store actions and opens the panel', async () => {
     const b = await bench()
-    const { instance, injected } = b.chatViewSurface(ROOT)
+    const { instance, injected } = b.chatViewApi(ROOT)
     injected.openDetails({ turnSeq: 2, callId: 'c1' })
     expect(instance.store.getSnapshot().selection).toEqual({ turnSeq: 2, callId: 'c1' })
     expect(b.layoutFake.openDetails).toHaveBeenCalledTimes(1)
     // The chat view shares the conversation entry's store instance: selection
     // writes land where the skeleton and details read.
-    const conv = b.conversationSurface(ROOT)
+    const conv = b.conversationApi(ROOT)
     expect(conv.instance).toBe(instance)
     await b.runtime.dispose()
   })
 
   it('openFile (chat view face) resolves against session cwd and calls workspaces.openPath', async () => {
     const b = await bench()
-    const { injected } = b.chatViewSurface(ROOT)
+    const { injected } = b.chatViewApi(ROOT)
     injected.openFile('src/a.ts')
     await vi.waitFor(() => {
       expect(b.runtime.workspaces.calls).toContainEqual({ method: 'openPath', args: ['/proj/src/a.ts'] })
@@ -239,11 +239,11 @@ describe('conversation slot inject surface', () => {
 
   it('routes workspace switching through the runtime owner, carrying the draft', async () => {
     const b = await bench()
-    const resident = b.residentSurface(ROOT)
+    const resident = b.residentApi(ROOT)
     // Same-session connect (the picked workspace resolves to this session):
     // no draft movement, plain re-open.
     b.runtime.workspaces.stub('connectWorkspace', () => Promise.resolve(ROOT))
-    const { state, actions } = b.inputSurface(ROOT)
+    const { state, actions } = b.inputApi(ROOT)
     actions.setDraft('carry me')
     void resident.selectWorkspace('workspace-1' as never)
     await vi.waitFor(() => {
@@ -261,7 +261,7 @@ describe('conversation slot inject surface', () => {
       expect(b.runtime.sessions.calls).toContainEqual({ method: 'open', args: [OTHER] })
     })
     expect(state.getSnapshot().draft).toBe('')
-    expect(b.inputSurface(OTHER).state.getSnapshot().draft).toBe('carry me')
+    expect(b.inputApi(OTHER).state.getSnapshot().draft).toBe('carry me')
     await b.runtime.dispose()
   })
 
@@ -269,7 +269,7 @@ describe('conversation slot inject surface', () => {
     const b = await bench()
     // No-session resident (hero before any session): connect resolves and
     // navigation proceeds without any draft choreography.
-    const noSession = b.residentSurface(undefined)
+    const noSession = b.residentApi(undefined)
     b.runtime.workspaces.stub('connectWorkspace', () => Promise.resolve(ROOT))
     void noSession.selectWorkspace('workspace-0' as never)
     await vi.waitFor(() => {
@@ -279,15 +279,15 @@ describe('conversation slot inject surface', () => {
     // Cross-session connect with an EMPTY draft: no move, no clearing.
     const OTHER = 'b9-other' as SessionId
     await b.runtime.sessions.add({ id: OTHER }, { current: false })
-    const resident = b.residentSurface(ROOT)
-    const { state } = b.inputSurface(ROOT)
+    const resident = b.residentApi(ROOT)
+    const { state } = b.inputApi(ROOT)
     expect(state.getSnapshot().draft).toBe('')
     b.runtime.workspaces.stub('connectWorkspace', () => Promise.resolve(OTHER))
     void resident.selectWorkspace('workspace-3' as never)
     await vi.waitFor(() => {
       expect(b.runtime.sessions.calls).toContainEqual({ method: 'open', args: [OTHER] })
     })
-    expect(b.inputSurface(OTHER).state.getSnapshot().draft).toBe('')
+    expect(b.inputApi(OTHER).state.getSnapshot().draft).toBe('')
 
     // Connect failure: the rejection propagates to the caller (the view owns
     // the rollback) and no further navigation happens.
@@ -310,7 +310,7 @@ describe('conversation slot inject surface', () => {
 
   it('views read face projects the ring ledger (subscribe/version through ctx.slots)', async () => {
     const b = await bench()
-    const { injected } = b.conversationSurface(ROOT)
+    const { injected } = b.conversationApi(ROOT)
     const before = injected.views.version()
     const listener = vi.fn()
     const unsub = injected.views.subscribe(listener)
@@ -332,7 +332,7 @@ describe('conversation slot inject surface', () => {
   })
 })
 
-describe('details inject surface', () => {
+describe('details inject API', () => {
   it('details injects the one layout callback; selection rides the shared store instead', async () => {
     const b = await bench()
     const entry = b.entryOf('details')

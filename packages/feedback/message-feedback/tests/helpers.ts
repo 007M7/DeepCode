@@ -30,7 +30,7 @@ export interface MessageFixture {
   readonly replacementAssistantMessageId: MessageId
 }
 
-/** Append one deterministic transcript surface used by target-validation tests. */
+/** Append one deterministic transcript used by target-validation tests. */
 export function appendMessageFixture(session: Session): Omit<MessageFixture, 'session'> {
   session.append('turn/start', { turn: 1 })
   session.append('step/start', { turn: 1, step: 1 })

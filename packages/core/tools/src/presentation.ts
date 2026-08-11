@@ -60,7 +60,7 @@ export interface GenericCallView {
   /** Category for icon/treatment; defaults to `other` when omitted. */
   kind?: ToolCallKind
   /**
-   * The salient input to surface in a detail/expanded view (e.g. a background
+   * The salient input to show in a detail/expanded view (e.g. a background
    * task id). Omit to show nothing; a string renders as-is, an object as pretty
    * JSON. NOT the full raw args object unless that is genuinely what a reader wants.
    */

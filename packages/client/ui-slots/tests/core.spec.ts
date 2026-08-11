@@ -1,6 +1,6 @@
 // SlotCore terminal-design behavior: the single register composition API —
 // a-priori 'root', children declaration/authorization, load-time validation,
-// one-axis lifecycle cascade, store scope pinning, subscription surface.
+// one-axis lifecycle cascade, store scope pinning, subscription API.
 import { describe, expect, it, vi } from 'vitest'
 import type { SlotComponent, StoreHandle } from '@deepseek-ai/dsh-client-ui-slots'
 import { SlotCore } from '@deepseek-ai/dsh-client-ui-slots'
@@ -230,7 +230,7 @@ describe('store scope pinning', () => {
   })
 })
 
-describe('subscription surface', () => {
+describe('subscription API', () => {
   it('tracks declaration epochs separately from ordinary entry mutations', () => {
     const core = new SlotCore()
     expect(core.declarationEpoch('root')).toBe(1)

@@ -151,4 +151,4 @@ Prefix-stable within a child: the statement never changes during the child's lif
 - **Process-local residency** — the Activation inbox and ownership graph do not coordinate two harness processes; concurrent access to one persistence store still requires a durable mailbox and cross-process lease protocol.
 - **No replay of accepted-but-unlogged messages** — only messages written to the child Session log are reconstructable with the source that supplied them. A crash may lose an accepted initial prompt or follow-up that never reached the log; a later authorized message can cold-resume the child, but the lost message is not replayed automatically.
 - **No durable report mailbox** — reports require a live direct parent and provide acceptance identity rather than exactly-once delivery or a read receipt.
-- **Lifecycle events are observe-only** — a run-affecting `subagent/end` continuation or decision surface waits for a concrete consumer.
+- **Lifecycle events are observe-only** — a run-affecting `subagent/end` continuation or decision API waits for a concrete consumer.
