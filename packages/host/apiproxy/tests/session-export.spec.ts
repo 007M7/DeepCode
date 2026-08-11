@@ -61,6 +61,10 @@ async function buildApi(
     query?: boolean
     persistence?: boolean | 'throw' | 'unsupported'
     attachments?: boolean | ((ref: ImageAttachmentRef) => Promise<ReturnType<typeof storedImage>>)
+    sessions?: {
+      get(id: SessionId): { readonly id: SessionId } | undefined
+      flush(session: { readonly id: SessionId }): Promise<boolean>
+    }
   } = {},
 ) {
   const ctx = new Context()
@@ -98,6 +102,7 @@ async function buildApi(
       readImage,
     } as never)
   }
+  if (services.sessions !== undefined) ctx.provide('sessions', services.sessions as never)
   return createApiProxy(ctx, {
     defaultModelSelection: () => ({ provider: 'p', model: 'm' }),
     cwd: '/tmp',
@@ -142,6 +147,55 @@ describe('session.export download endpoint', () => {
     ])
     expect(strFromU8(files['subagents/child-a/session.jsonl'] as Uint8Array))
       .toBe(artifact('child-a').content)
+  })
+
+  it('flushes each live root and descendant immediately before reading its artifact', async () => {
+    const stored: Record<string, SessionRawArtifact> = {
+      'session-root': artifact('session-root', undefined, 'stale root'),
+      'child-a': artifact('child-a', sid('session-root'), 'stale child'),
+    }
+    const durable: Record<string, SessionRawArtifact> = {
+      'session-root': artifact('session-root', undefined, 'durable root'),
+      'child-a': artifact('child-a', sid('session-root'), 'durable child'),
+    }
+    const flushed: SessionId[] = []
+    const api = await buildApi(stored, [node('child-a')], {
+      sessions: {
+        get: id => durable[id] === undefined ? undefined : { id },
+        flush: async (session) => {
+          const artifactAfterFlush = durable[session.id]
+          if (artifactAfterFlush === undefined) throw new Error('unexpected session')
+          flushed.push(session.id)
+          stored[session.id] = artifactAfterFlush
+          return true
+        },
+      },
+    })
+    const response = await toFetchHandler(api).fetch(
+      new Request('http://host/api/session.export?sessionId=session-root&includeDescendants=true'),
+    )
+    const files = unzipSync(await responseBytes(response))
+    expect(flushed).toEqual([sid('session-root'), sid('child-a')])
+    expect(strFromU8(files['session.jsonl'] as Uint8Array)).toBe('durable root')
+    expect(strFromU8(files['subagents/child-a/session.jsonl'] as Uint8Array)).toBe('durable child')
+  })
+
+  it('reads a cold artifact without asking the live-session store to flush', async () => {
+    const flush = vi.fn(async () => true)
+    const root = artifact('session-root')
+    const api = await buildApi({ 'session-root': root }, [], {
+      sessions: {
+        get: () => undefined,
+        flush,
+      },
+    })
+    const response = await api.downloads.sessionLog(
+      { sessionId: sid('session-root'), includeDescendants: false },
+      new AbortController().signal,
+    )
+    const files = unzipSync(await responseBytes(response))
+    expect(flush).not.toHaveBeenCalled()
+    expect(strFromU8(files['session.jsonl'] as Uint8Array)).toBe(root.content)
   })
 
   it('answers 404 for a missing root session', async () => {

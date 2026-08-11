@@ -6,7 +6,9 @@
  * by any included log under `media/<attachmentId>.<ext>` (content-addressed,
  * so one archive never duplicates a shared image). No manifest is written —
  * every file is byte-identical to the backend's durable artifact or attachment
- * store and self-describing through its own header line or media type.
+ * store and self-describing through its own header line or media type. Before
+ * each live session's artifact read, the SessionStore flush barrier makes the
+ * current in-memory log durable; cold sessions need no barrier.
  * Compression runs on the host with fflate's streaming Zip API, so the archive
  * bytes are produced incrementally and the host never holds the whole archive
  * in one buffer; production yields to the consumer whenever the response queue
@@ -20,14 +22,15 @@ import { Zip, ZipDeflate } from 'fflate'
 import type { Context } from '@deepseek-ai/cordis'
 import type { AttachmentStore, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { SessionLineageNode, SessionQueryService } from '@deepseek-ai/dsh-session-query'
-import type { SessionId } from '@deepseek-ai/dsh-session'
+import type { SessionId, SessionStore } from '@deepseek-ai/dsh-session'
 import type { SessionPersistence, SessionRawArtifact } from '@deepseek-ai/dsh-session-persistence'
 
-/** The services a session-log export needs (absent → the export is unavailable). */
+/** The services a session-log export needs (the live-session store is optional). */
 export interface SessionLogExportDeps {
   readonly sessionQuery: SessionQueryService | undefined
   readonly sessionPersistence: SessionPersistence | undefined
   readonly attachments: AttachmentStore | undefined
+  readonly sessions: SessionStore | undefined
 }
 
 /** The export services narrowed to the mounted ones streaming actually reads. */
@@ -35,6 +38,7 @@ export interface SessionLogExportReady {
   readonly sessionQuery: SessionQueryService
   readonly sessionPersistence: SessionPersistence
   readonly attachments: AttachmentStore
+  readonly sessions: SessionStore | undefined
 }
 
 /**
@@ -47,7 +51,30 @@ export function sessionLogExportDeps(ctx: Context): SessionLogExportDeps {
     sessionQuery: ctx.get('sessionQuery'),
     sessionPersistence: ctx.get('sessionPersistence'),
     attachments: ctx.get('attachments'),
+    sessions: ctx.get('sessions'),
   }
+}
+
+/**
+ * Flush one currently live session through the store's authoritative durability
+ * barrier immediately before its raw artifact is read. A cold or absent id has
+ * no in-memory work to flush.
+ * @param deps - export services, including the optional live-session store.
+ * @param id - the session whose artifact is about to be read.
+ * @param signal - optional cancellation observed around the flush barrier.
+ */
+export async function flushLiveSessionLog(
+  deps: Pick<SessionLogExportDeps, 'sessions'>,
+  id: SessionId,
+  signal?: AbortSignal,
+): Promise<void> {
+  signal?.throwIfAborted()
+  const sessions = deps.sessions
+  if (sessions === undefined) return
+  const session = sessions.get(id)
+  if (session === undefined) return
+  await sessions.flush(session)
+  signal?.throwIfAborted()
 }
 
 /** One exported file: a stored artifact text or one referenced media object. */
@@ -168,9 +195,9 @@ export function sessionLogZipFilename(sessionId: string): string {
 
 /**
  * Yield the export entries in zip order: the preloaded root artifact first,
- * then every subagent descendant in lineage order (each read from the
- * persistence backend right before it is yielded and dropped after the
- * consumer moves on), then every distinct media object referenced by any of
+ * then every subagent descendant in lineage order (each flushed when live,
+ * read from the persistence backend right before it is yielded, and dropped
+ * after the consumer moves on), then every distinct media object referenced by any of
  * the included logs (read and verified from the attachment store, one archive
  * entry per attachment id). The host holds at most one descendant's artifact
  * text and one media object at a time beyond the root.
@@ -205,6 +232,7 @@ export async function* sessionLogZipEntries(
         const id = node.session.header.id
         if (seen.has(id)) continue
         seen.add(id)
+        await flushLiveSessionLog(deps, id, signal)
         const raw = await deps.sessionPersistence.readRaw(id)
         if (raw === undefined) {
           throw new Error(`subagent "${id}" has no stored log artifact`)

@@ -43,6 +43,7 @@ import type {
   WorkspaceId, WorkspaceView,
 } from './api/index.ts'
 import {
+  flushLiveSessionLog,
   sessionLogExportDeps,
   sessionLogZipFilename,
   streamSessionLogZip,
@@ -3499,9 +3500,11 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           sessionQuery: deps.sessionQuery,
           sessionPersistence: deps.sessionPersistence,
           attachments: deps.attachments,
+          sessions: deps.sessions,
         }
         let root: SessionRawArtifact | undefined
         try {
+          await flushLiveSessionLog(deps, request.sessionId, signal)
           root = await deps.sessionPersistence.readRaw(request.sessionId, signal)
         } catch {
           // Backend read failure: answer 500 without echoing the error, which
