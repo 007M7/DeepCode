@@ -17,11 +17,10 @@
 // replacing those nodes.
 //
 // The round-trip against a loopback host is far too fast to observe, so this
-// scenario HOLDS the `session.history` response open at the browser's network
-// boundary and asserts the visible frame while it is in flight. That gate is
-// what makes the assertions non-vacuous: without the phase exemption, the
-// held window is exactly when `settling` would be painted and the composer
-// hidden.
+// scenario HOLDS the `session.history` response open in the browser's network
+// handler and asserts the visible frame while it is in flight. That wait is
+// what makes the assertions non-vacuous: without the phase exemption, the held
+// window is exactly when `settling` would be painted and the composer hidden.
 //
 // Zero model calls: registering a workspace and opening its blank session are
 // host RPCs with no model involvement. A stray stream would fail loud with

@@ -83,7 +83,7 @@ async function runHeadlessPtySmoke(): Promise<string> {
     ].join('\n'))
     const launch = resolveExampleLaunch({
       srcBin: dshBinScript,
-      configArgs: ['run', 'never complete'],
+      configArgs: ['--profile', 'headless', 'never complete'],
       tsconfigPath,
       env: {
         DSH_HOME: home,

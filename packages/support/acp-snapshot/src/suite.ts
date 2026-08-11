@@ -46,6 +46,11 @@ function childToolSchemasSnapshot(index: number): string {
   return `tool-schemas.${index}.expected.json`
 }
 
+/** Return the dedicated system-prompt sidecar for one child fixture index. */
+function childSystemPromptSnapshot(index: number): string {
+  return `system-prompt.${index}.expected.md`
+}
+
 /** The optional full Windows-native stdout transcript. */
 const WINDOWS_STDOUT_SNAPSHOT = 'stdout.expected.windows.jsonl'
 
@@ -116,6 +121,13 @@ export interface Scenario {
    * request-header field.
    */
   pinsChildToolSchemas?: readonly number[]
+  /**
+   * Child fixture indices whose own system prompt is pinned separately, where
+   * `1` names `session.1.jsonl` and `system-prompt.1.expected.md`. A child
+   * scope that installs its own prompt section (the continuable `report`
+   * guidance) composes a prompt the class pin cannot describe.
+   */
+  pinsChildSystemPrompts?: readonly number[]
   /**
    * How many changed `request/header` snapshots this PINNING scenario's primary
    * fixture legitimately carries (default 0). Their full prompt text is kept in
@@ -436,7 +448,7 @@ export function formatToolSchemasSnapshot(initial: readonly unknown[], changes: 
 }
 
 /**
- * Parse and validate the stable top-level shape of a tool-schema sidecar.
+ * Parse and validate the stable top-level fields of a tool-schema sidecar.
  *
  * @param snapshot The JSON sidecar text.
  * @returns Its initial and changed-header schema sets.
@@ -489,6 +501,18 @@ export function formatSystemPromptSnapshot(
     snapshot += change.endsWith('\n') ? change : `${change}\n`
   }
   return snapshot
+}
+
+/**
+ * Reject a child prompt sidecar that cannot own distinct, canonical prompt text.
+ * @param sidecar - committed child prompt snapshot.
+ * @param classPin - initial prompt snapshot owned by the scenario's header class.
+ * @param label - repository-relative fixture label for diagnostics.
+ */
+export function assertChildSystemPromptSnapshot(sidecar: string, classPin: string, label: string): void {
+  if (sidecar.trim().length === 0) throw new Error(`${label} must pin a non-empty prompt`)
+  if (!sidecar.endsWith('\n')) throw new Error(`${label} must end in a newline`)
+  if (sidecar === classPin) throw new Error(`${label} must differ from its class pin`)
 }
 
 /** Return the initial-prompt portion of a possibly multi-header snapshot. */
@@ -1192,6 +1216,7 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
         }
 
         const childSchemaPins = new Set(scenario.pinsChildToolSchemas ?? [])
+        const childPromptPins = new Set(scenario.pinsChildSystemPrompts ?? [])
 
         // Record writes live model fixtures; keyless refresh writes every comparable replayed
         // fixture. Pinning JSONL keeps prefixes but moves prompts and schemas into sidecars.
@@ -1281,6 +1306,18 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
               schemaSets.slice(1),
             ))
           }
+          for (const index of childPromptPins) {
+            const log = result.sessionLogs[index]
+            expect(log, `${mode}: no child session log at index ${index} to snapshot a prompt from`)
+              .toBeDefined()
+            const prompts = normalizedSystemPrompts((log as HarvestedLog).content, ctx)
+            expect(prompts.length, `${mode}: child ${index} produced no system prompt to snapshot`)
+              .toBeGreaterThan(0)
+            await writeFile(
+              join(dir, childSystemPromptSnapshot(index)),
+              formatSystemPromptSnapshot(prompts[0] as string),
+            )
+          }
         }
 
         for (const expected of stdoutExpectedVariants(scenario)) {
@@ -1340,6 +1377,13 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
           const parsed = parseToolSchemasSnapshot(sidecar)
           childPinnedSchemas.set(index, [parsed.initial, ...parsed.changes])
         }
+        const childPinnedPrompts = new Map<number, string>()
+        for (const index of childPromptPins) {
+          childPinnedPrompts.set(
+            index,
+            await readFile(join(dir, childSystemPromptSnapshot(index)), 'utf8'),
+          )
+        }
         for (const [logIndex, log] of result.sessionLogs.entries()) {
           const childSchemas = childPinnedSchemas.get(logIndex)
           const expectedChanges = scenario.pinsHeader === true && logIndex === 0
@@ -1366,8 +1410,14 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
             expect(header, `session ${log.id}: request/header #${k + 1} diverged from the pinned (${pinningScenario.name}) header`)
               .toEqual(expected)
             if (expectedChanges === 0) {
-              expect(formatSystemPromptSnapshot(prompts[k] as string), `session ${log.id}: initial system prompt #${k + 1} diverged from ${promptSource.name}/${SYSTEM_PROMPT_SNAPSHOT}`)
-                .toEqual(initialPromptSnapshot)
+              // A pinned child owns its whole prompt: its scope-local sections
+              // are exactly what the class pin cannot describe.
+              const childPrompt = childPinnedPrompts.get(logIndex)
+              const promptOrigin = childPrompt === undefined
+                ? `${promptSource.name}/${SYSTEM_PROMPT_SNAPSHOT}`
+                : childSystemPromptSnapshot(logIndex)
+              expect(formatSystemPromptSnapshot(prompts[k] as string), `session ${log.id}: initial system prompt #${k + 1} diverged from ${promptOrigin}`)
+                .toEqual(childPrompt ?? initialPromptSnapshot)
             }
           }
           if (scenario.pinsHeader === true && logIndex === 0) {
@@ -1400,16 +1450,19 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
 
     it('every registered scenario has its required fixture files', async () => {
       // Every scenario needs input, stdout, a primary session fixture, and matching optional sidecars.
-      for (const { name, overridden, pinsNativeWindowsStdout, pinsChildToolSchemas } of scenarios) {
+      for (const { name, overridden, pinsNativeWindowsStdout, pinsChildToolSchemas, pinsChildSystemPrompts } of scenarios) {
         const dir = join(snapshotsDir, name)
-        const declaredChildPins = new Set(pinsChildToolSchemas ?? [])
-        const childSidecars = (await readdir(dir, { withFileTypes: true }))
+        const files = (await readdir(dir, { withFileTypes: true }))
           .filter(entry => entry.isFile())
-          .map(entry => /^tool-schemas\.([1-9]\d*)\.expected\.json$/.exec(entry.name))
+          .map(entry => entry.name)
+        const childIndices = (pattern: RegExp): Set<number> => new Set(files
+          .map(file => pattern.exec(file))
           .filter((match): match is RegExpExecArray => match !== null)
-          .map(match => Number(match[1]))
-        expect(new Set(childSidecars), `${name}: child tool-schema sidecars must match \`pinsChildToolSchemas\``)
-          .toEqual(declaredChildPins)
+          .map(match => Number(match[1])))
+        expect(childIndices(/^tool-schemas\.([1-9]\d*)\.expected\.json$/), `${name}: child tool-schema sidecars must match \`pinsChildToolSchemas\``)
+          .toEqual(new Set(pinsChildToolSchemas ?? []))
+        expect(childIndices(/^system-prompt\.([1-9]\d*)\.expected\.md$/), `${name}: child system-prompt sidecars must match \`pinsChildSystemPrompts\``)
+          .toEqual(new Set(pinsChildSystemPrompts ?? []))
         expect(existsSync(join(dir, 'input.json')), `${name}/input.json`).toBe(true)
         expect(existsSync(join(dir, 'stdout.expected.jsonl')), `${name}/stdout.expected.jsonl`).toBe(true)
         expect(
@@ -1492,13 +1545,11 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
       assertUniqueSnapshotContents('tool-schema', schemas)
     })
 
-    it('every declared child tool-schema sidecar is canonical and names a real child', async () => {
+    it('every declared child sidecar is canonical and names a real child', async () => {
       for (const scenario of scenarios) {
-        const pins = scenario.pinsChildToolSchemas ?? []
-        if (pins.length === 0) continue
         const dir = join(snapshotsDir, scenario.name)
         const files = await sessionFixtures(dir)
-        for (const index of pins) {
+        for (const index of scenario.pinsChildToolSchemas ?? []) {
           expect(files[index], `${scenario.name}: child schema pin ${index} must name an existing session.<n>.jsonl fixture`)
             .toBeDefined()
           const file = childToolSchemasSnapshot(index)
@@ -1508,6 +1559,16 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
             .toBe(formatToolSchemasSnapshot(parsed.initial, parsed.changes))
           expect(parsed.initial.length, `${scenario.name}/${file} must pin at least one schema`)
             .toBeGreaterThan(0)
+        }
+        for (const index of scenario.pinsChildSystemPrompts ?? []) {
+          expect(files[index], `${scenario.name}: child prompt pin ${index} must name an existing session.<n>.jsonl fixture`)
+            .toBeDefined()
+          const file = childSystemPromptSnapshot(index)
+          const sidecar = await readFile(join(dir, file), 'utf8')
+          /* v8 ignore next -- registration guarantees every scenario class has resolved sources. */
+          const promptSource = promptSourceByClass.get(classOf(scenario)) ?? scenario
+          const classPin = await readFile(join(snapshotsDir, promptSource.name, SYSTEM_PROMPT_SNAPSHOT), 'utf8')
+          assertChildSystemPromptSnapshot(sidecar, initialSystemPromptSnapshot(classPin), `${scenario.name}/${file}`)
         }
       }
     })

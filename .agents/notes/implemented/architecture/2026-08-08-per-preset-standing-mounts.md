@@ -16,7 +16,7 @@ A preset is one composition per PROCESS, not one per session. The roster mounts 
 
 Standing mounts fix the class, not the instances: the registrations a reader needs exist for the process lifetime, keyed by preset id, no agent required. What made it cheap
 
-- The stateful preset plugins (`plan-mode`, `token-meter`, `compact-basic`, `tasks-local`) already key state by `Session`/`Agent` — they predate presets. Sharing one instance is a return to their design, not a rewrite.
+- The stateful preset plugins (`plan-mode`, `token-meter`, `compact-basic`) already key state by `Session`/`Agent` — they predate presets. Sharing one instance is a return to their design, not a rewrite. `tasks-local` shared that property and has since left the preset plane entirely: producers outside its realm (`tool-bash`, `tool-pty`, a non-continuable `tool-subagent`) resolve the registry with `ctx.get`, which an entry-local realm hides from them, so it is composed on the host plane and only the model-facing `tool-tasks` row stays per preset.
 - Preset ymls are unchanged: one mount per preset = one Entry per preset, whose entry-local realms (`isolate: <name>: true`) keep two presets' same-named services apart exactly as they kept two sessions' apart.
 - A shared realm label was NOT an option: `provide()` throws on a second registration under the same realm symbol, so labels pool the REALM, never the instance — a per-session world sharing a label crashes the second mount.
 
@@ -24,7 +24,7 @@ Standing mounts fix the class, not the instances: the registrations a reader nee
 
 - **Standing mounts hang off the service's untraced `selfCtx`.** A method invoked through the traceable proxy sees `this.ctx` rebound to the caller with a shadow; reflect resolution for every fiber in a subtree minted from it starts at the shadow's fiber, so entries fail on services their own `inject` declares (`cannot get property "tools" without inject` while the entry's store holds it). The `tasks-local` selfCtx precedent, now with a second consumer.
 - **A settled mount serves until its composition file's stamp changes.** The composition a running session joined must survive its file changing or disappearing; each generation records the file's stamp (mtime + size) and a session that finds it stale starts the next generation, so file edits — the only composition editor once authoring became copy-only — reach later sessions without any authoring call dropping the pointer. Joined sessions keep their generation, and superseded generations are reclaimed only by whole-tree teardown — deliberate, bounded by edit frequency, recorded in the package's Known Limitations.
-- **`peek()` stays chain-blind.** Restrictions and guards address one scope's own contributions; only registration VIEWS inherit. Restrictions along the chain intersect (any scope may mask a global-surface name for everything nested inside it).
+- **`peek()` stays chain-blind.** Restrictions and guards address one scope's own contributions; only registration VIEWS inherit. Restrictions along the chain intersect (any scope may mask a globally registered name for everything nested inside it).
 - **Re-linking runs only through the `ScopeParentBinding` the mount's one bind returned** — the roster holds it privately, so the blank-session recompose path is the sole re-link and no other caller can move a composed agent; it stays valid only while nothing produced under the old parent is retained, which the holder must uphold because the relation cannot see session logs.
 
 ## Alternatives considered

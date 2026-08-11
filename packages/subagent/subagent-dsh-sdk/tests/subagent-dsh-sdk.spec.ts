@@ -7,7 +7,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -24,7 +24,7 @@ import {
   type SdkRunSpec,
 } from '../src/run.ts'
 
-const fakeRuntime = fileURLToPath(new URL('../../../scaffold/client/tests/fake-runtime.ts', import.meta.url))
+const fakeRuntime = fileURLToPath(new URL('../../../sdk/client/tests/fake-runtime.ts', import.meta.url))
 
 /** A parent Agent stub. The SDK backend reads exactly one thing off it: the session header's cwd (the workspace its child inherits). */
 const fakeParent = { id: 'parent', session: { header: { cwd: process.cwd() } } } as unknown as Agent
@@ -172,6 +172,20 @@ describe('dsh-subagent-dsh-sdk provider', () => {
 
     expect(result.stopReason).toBe('error')
     expect(text(result.output)).toBe('stream-only answer')
+    await run.dispose()
+    await ctx.fiber.dispose()
+  })
+
+  it('keeps streamed text when the terminal message is an empty usage-only step', async () => {
+    // The child streams its answer, then emits an empty-content
+    // assistant/message (the harness loop appends one to host usage on a
+    // max-tokens step that assembled no text blocks). The empty message is
+    // not assistant output and must not erase the streamed answer.
+    const ctx = await setup({ FAKE_EMPTY_MESSAGE: '1', FAKE_REASON_KIND: 'max-tokens' })
+    const run = await ctx.subagents.start('dsh-sdk', request())
+    const result = await run.result
+    expect(result.stopReason).toBe('max-tokens')
+    expect(text(result.output)).toBe('hello from fake runtime')
     await run.dispose()
     await ctx.fiber.dispose()
   })

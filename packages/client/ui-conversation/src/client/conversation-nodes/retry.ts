@@ -1,4 +1,4 @@
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import type {
   ConversationLocation, ConversationNodeDefinition, ModelRetryNode,
 } from '@deepseek-ai/dsh-client-runtime/client'
@@ -40,6 +40,7 @@ function isClosed(location: ConversationLocation): boolean {
 /** Producer-correlated model retry chain Definition. */
 export const retryDefinition: ConversationNodeDefinition<RetryState> = {
   kind: 'model-retry',
+  target: 'chat',
   match: (event) => {
     if (event.type === 'llm/retry') {
       const retryId: unknown = event.data.retryId
@@ -70,8 +71,8 @@ export const retryDefinition: ConversationNodeDefinition<RetryState> = {
         attempt.retry === retry ? { ...attempt, retryState: 'started' } : attempt),
     }
   },
-  buildViewNode: (context, target) => {
-    if (target !== 'chat' || context.state === undefined || context.state.attempts.length === 0) return null
+  buildViewNode: (context) => {
+    if (context.state === undefined || context.state.attempts.length === 0) return null
     const location = context.start?.location ?? context.matches[0]?.location ?? { kind: 'unresolved' as const }
     const stateAttempts = context.state.attempts
     const attempts = stateAttempts.map((attempt, index) =>

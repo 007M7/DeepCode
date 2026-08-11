@@ -35,8 +35,8 @@
  * @module @deepseek-ai/dsh-credentials-local
  */
 
-import { Context, Service } from 'cordis'
-import z from 'schemastery'
+import { Context, Service } from '@deepseek-ai/cordis'
+import z from '@deepseek-ai/schemastery'
 import { watch as chokidarWatch } from 'chokidar'
 import { mkdir, readFile, stat } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
@@ -344,7 +344,7 @@ export class CredentialsLocal extends Credentials {
   /* jscpd:ignore-start -- the operation-chain and reload lifecycle is the same
      reviewed contract as settings-local, deliberately mirrored (prefer symmetry
      for parallel values); the two providers own different documents and
-     failure policies, so extracting the shape would couple their teardown
+     failure policies, so extracting a shared helper would couple their teardown
      semantics across packages for a handful of lines. */
   /** Queue one exclusive document operation behind every earlier one. */
   private enqueue<T>(operation: () => Promise<T>): Promise<T> {

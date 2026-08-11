@@ -2,7 +2,7 @@
   - navigation "Session hierarchy":
     - button "Use the ask_user_question tool to" [disabled]
   - img
-  - text: 标准模式
+  - text: Standard mode
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
@@ -23,7 +23,7 @@
   - img
   - text: Ask question waiting
 - status: Deep diving...
-- text: "Interjection Interjection: include the word BANANA in your final reply."
+- text: "Interjection: include the word BANANA in your final reply."
 - button "Copy":
   - img
 - region "Ready to continue?":

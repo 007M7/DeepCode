@@ -26,7 +26,6 @@ const PATTERNS = [
   'AGENTS.md',
   'packages/AGENTS.md',
   '.agents/skills/**/*.md',
-  'skills/**/*.md',
 ]
 
 interface Block {

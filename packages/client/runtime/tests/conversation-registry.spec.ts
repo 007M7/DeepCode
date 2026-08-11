@@ -1,4 +1,4 @@
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionId } from '@deepseek-ai/dsh-client-connection/client'
 import { ConversationEventRegistry } from '../src/client/conversation/event-registry.ts'
@@ -13,6 +13,7 @@ import { FakeApiClient, ok } from './fake-api.ts'
 function eventDefinition(kind: string): ConversationNodeDefinition<null> {
   return {
     kind,
+    target: 'chat',
     match: () => null,
     start: () => null,
     update: context => context.state,
@@ -69,6 +70,40 @@ describe('Conversation registries', () => {
     dispose()
     dispose()
     expect(events.fallbackEntry()).toBeUndefined()
+  })
+
+  it('rejects rendering Definitions that omit either target or builder', async () => {
+    const { events } = await bootRegistries()
+    const targetOnly: ConversationNodeDefinition<null> = {
+      kind: 'target-only',
+      target: 'chat',
+      match: () => null,
+      start: () => null,
+      update: context => context.state,
+    }
+    const builderOnly: ConversationNodeDefinition<null> = {
+      kind: 'builder-only',
+      match: () => null,
+      start: () => null,
+      update: context => context.state,
+      buildViewNode: () => null,
+    }
+
+    expect(() => events.register(targetOnly)).toThrow(/target and buildViewNode together/)
+    expect(() => events.register(builderOnly)).toThrow(/target and buildViewNode together/)
+  })
+
+  it('rejects a State-only Definition as the unmatched-event fallback', async () => {
+    const { events } = await bootRegistries()
+    const fallback: ConversationNodeDefinition<null> = {
+      kind: 'state-only-fallback',
+      match: () => null,
+      start: () => null,
+      update: context => context.state,
+    }
+
+    expect(() => events.registerFallback(fallback))
+      .toThrow('conversation fallback Definition must declare a target')
   })
 
   it('rejects duplicate view targets and disposes a view registration once', async () => {

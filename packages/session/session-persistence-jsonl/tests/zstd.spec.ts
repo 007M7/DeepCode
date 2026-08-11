@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import { appendFile, mkdir, mkdtemp, open, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import type { FileHandle } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -354,6 +354,39 @@ describe('SessionPersistenceJsonl: default Zstandard encoding', () => {
       '',
     ].join('\n'))
     expect((await ctx.sessionPersistence.load(header.id)).events).toEqual(oneTurnLog())
+  })
+
+  it('readRaw decodes the compressed artifact back to the original JSONL text', async () => {
+    const root = await freshRoot()
+    const ctx = await mount(root)
+    const header = meta('raw-read-zstd', '/work')
+    await ctx.sessionPersistence.create(header)
+    await ctx.sessionPersistence.append(header.id, oneTurnLog())
+
+    const raw = await ctx.sessionPersistence.readRaw(header.id)
+    expect(raw).toBeDefined()
+    // The logical name drops the physical encoding suffix.
+    expect(raw!.filename).toBe('session.jsonl')
+    expect(raw!.meta.id).toBe(header.id)
+    expect(raw!.content).toBe([
+      JSON.stringify(toHeaderLine(header)),
+      ...oneTurnLog().map(e => JSON.stringify(e)),
+      '',
+    ].join('\n'))
+    const scanned = scanLog(Buffer.from(raw!.content))
+    expect(scanned.events.map(event => event.type)).toEqual(oneTurnLog().map(event => event.type))
+  })
+
+  it('readRaw is undefined for a zstd artifact that carries no frame', async () => {
+    const root = await freshRoot()
+    const ctx = await mount(root)
+    const header = meta('raw-zero-frame', '/work')
+    await ctx.sessionPersistence.create(header)
+    await ctx.sessionPersistence.append(header.id, oneTurnLog())
+    // Overwrite the physical artifact with a short buffer: frame scanning
+    // answers zero frames before any magic check, so readRaw reports no artifact.
+    await writeFile(logPath(root, '/work', header.id, 'zstd'), Buffer.alloc(0))
+    expect(await ctx.sessionPersistence.readRaw(header.id)).toBeUndefined()
   })
 
   it('resolves the default when a programmatic wrapper bypasses Loader schema normalization', async () => {

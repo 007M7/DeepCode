@@ -18,7 +18,7 @@ Status: implemented
 
 两个插件都进入 Python runtime 闭包。持久 Bash 的闭包还包含 PTY 服务／本地后端，以及该后端要求的沙箱服务。由于 `node-pty` 在 macOS 上会执行原生 `spawn-helper`，每个打包后的 macOS 运行时可执行文件都会携带一个 `-spawn-helper` 伴随文件；Linux 直接使用 `forkpty`。固定版本的 `node-pty` 补丁会先检查 `DSH_NODE_PTY_SPAWN_HELPER`，因此对当前提供非伴随 helper 的外部消费方而言，该变量仍是真正的覆盖项。未设置该覆盖时，补丁会在打包可执行文件的伴随文件存在时解析它，否则在普通 Node 运行中保留上游查找方式。若 helper 缺失或不可执行，macOS 构建器会在发布前失败。
 
-已交付的 [`core-web.cordis.yml`](../../../../apps/cli/config/core-web.cordis.yml) overlay 会在常规 Web 界面之上组合这两个插件，以满足与 Claude SWE 兼容的 RL 约定。它固定使用原生工具模式；完整的系统提示词在设置 `DSH_SYSTEM_PROMPT` 时采用其值，否则采用 `You are a helpful software engineer assistant.`，且不包含 harness 身份、源码 checkout 提示词段、Web 界面定位、Workspace 指令或工具模式指引。它会禁用其他所有面向模型的消费方，使模型恰好只收到持久 `bash` 和 `str_replace_editor` 两个 schema，同时保留 Web 宿主、浏览器、Workspace、持久化、沙箱与权限栈。本地 PTY 后端会在创建 shell 时解析会话的有效沙箱模式。只要该所有者仍有打开的 shell 或仍在进行中的 spawn，另一种权限模式就会在对应的会话事件提交前遭到拒绝；编辑器则继续经由 Web 文件系统沙箱运行。
+随附的 [`minimal` agent preset](../../../../apps/cli/config/agent-presets/minimal/agent.cordis.yml) 会组合这两个插件，以满足与 Claude SWE 兼容的 RL 约定。其 entry 本地 PTY realm 持有注册表、本地后端和持久 Bash 工具；编辑器在该 realm 旁注册，并使用宿主文件系统。preset 会固定完整系统提示词、跟随部署的工具呈现模式，省略其他所有面向模型的消费方，并将浏览器、Workspace、持久化、沙箱与权限服务留在共享 Web 宿主上。本地 PTY 后端会在创建 shell 时解析会话的有效沙箱模式。只要该所有者仍有打开的 shell 或仍在进行中的 spawn，另一种权限模式就会在对应的会话事件提交前遭到拒绝；编辑器则继续经由 Web 文件系统沙箱运行。这一组合边界由 [minimal-preset 决策](../bug-fix/2026-08-10-minimal-preset-owns-rl-composition.md)负责说明。
 
 ## 考虑过的替代方案
 
@@ -32,4 +32,4 @@ Status: implemented
 
 ## 后果
 
-Profile 可以通过配置 persona 和描述复现外部 Agent，而底层包保持通用。持久 Bash 需要拥有它的 Agent 与真实 PTY 后端；shell 退出、超时或取消会丢失状态。编辑器把安全与变更策略委托给挂载的文件系统栈。Core Web profile 保留 Web 权限，但必须先关闭持久 shell 才能更改权限模式。运行时 wheel 包的消费方仍无需安装 Node；Linux wheel 包包含一个可执行文件，macOS wheel 包还包含其私有原生 helper。
+Profile 可以通过配置 persona 和描述复现外部 Agent，而底层包保持通用。持久 Bash 需要拥有它的 Agent 与真实 PTY 后端；shell 退出、超时或取消会丢失状态。编辑器把安全与变更策略委托给挂载的文件系统栈。minimal Web agent 保留 Web 权限，但必须先关闭持久 shell 才能更改权限模式。运行时 wheel 包的消费方仍无需安装 Node；Linux wheel 包包含一个可执行文件，macOS wheel 包还包含其私有原生 helper。

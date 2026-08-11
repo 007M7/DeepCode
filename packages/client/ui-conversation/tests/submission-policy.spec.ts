@@ -1,13 +1,10 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+import { stubSettingsScope } from '@deepseek-ai/dsh-client-test-runtime'
 import {
-  BUSY_ENTER_STORAGE_KEY, ComposerSubmissionPolicy, DEFAULT_BUSY_ENTER_BEHAVIOR,
+  ComposerSubmissionPolicy, DEFAULT_BUSY_ENTER_BEHAVIOR,
 } from '../src/client/input/submission-policy.ts'
-
-afterEach(() => {
-  vi.unstubAllGlobals()
-  localStorage.clear()
-})
+import type { ConversationSettings } from '../src/submission-settings.ts'
 
 describe('ComposerSubmissionPolicy', () => {
   it('defaults to Queue and only applies the preference while running', () => {
@@ -28,40 +25,42 @@ describe('ComposerSubmissionPolicy', () => {
     expect(policy.resolve(true, 'accelerated', true)).toBe('queue')
     expect(policy.resolve(false, 'enter', true)).toBe('queue')
     expect(policy.resolve(false, 'accelerated', true)).toBe('queue')
-    expect(localStorage.getItem(BUSY_ENTER_STORAGE_KEY)).toBe('steer')
   })
 
-  it('restores a valid preference and leaves an identical write untouched', () => {
-    localStorage.setItem(BUSY_ENTER_STORAGE_KEY, 'steer')
-    const write = vi.spyOn(Storage.prototype, 'setItem')
-    const policy = new ComposerSubmissionPolicy()
+  it('writes an explicit change through the scope after publishing it locally', () => {
+    const host = stubSettingsScope<ConversationSettings>()
+    const observed: string[] = []
+    let liveBehavior = (): string => 'unconstructed'
+    const scope: typeof host.scope = {
+      ...host.scope,
+      set: (field, value) => {
+        observed.push(`${field}=${String(value)}:${liveBehavior()}`)
+        return host.scope.set(field, value)
+      },
+    }
+    const policy = new ComposerSubmissionPolicy(scope)
+    liveBehavior = () => policy.busyEnter.getSnapshot()
+    policy.setBusyEnter('steer')
+    expect(observed).toEqual(['busyEnter=steer:steer'])
+    expect(host.set).toHaveBeenCalledWith('busyEnter', 'steer')
+    expect(host.set).toHaveBeenCalledOnce()
+  })
+
+  it('adopts a Host preference without writing it back and leaves an identical write untouched', () => {
+    const host = stubSettingsScope<ConversationSettings>()
+    const policy = new ComposerSubmissionPolicy(host.scope)
+    host.publish({ status: 'ready', value: { busyEnter: 'steer' }, revision: 1, writable: true })
     expect(policy.busyEnter.getSnapshot()).toBe('steer')
     policy.setBusyEnter('steer')
-    expect(write).not.toHaveBeenCalled()
-    write.mockRestore()
+    expect(host.set).not.toHaveBeenCalled()
+    host.publish({ value: { busyEnter: 'steer' }, revision: 2 })
+    expect(policy.busyEnter.getSnapshot()).toBe('steer')
   })
 
-  it('uses Queue for invalid, unavailable, or unreadable storage', () => {
-    localStorage.setItem(BUSY_ENTER_STORAGE_KEY, 'invalid')
-    expect(new ComposerSubmissionPolicy().busyEnter.getSnapshot()).toBe('queue')
-
-    vi.stubGlobal('localStorage', undefined)
-    expect(new ComposerSubmissionPolicy().busyEnter.getSnapshot()).toBe('queue')
-
-    vi.stubGlobal('localStorage', {
-      getItem: () => { throw new Error('blocked') },
-      setItem: vi.fn(),
-    })
-    expect(new ComposerSubmissionPolicy().busyEnter.getSnapshot()).toBe('queue')
-  })
-
-  it('keeps the in-memory preference when persistence throws', () => {
-    vi.stubGlobal('localStorage', {
-      getItem: () => null,
-      setItem: () => { throw new Error('quota') },
-    })
-    const policy = new ComposerSubmissionPolicy()
-    policy.setBusyEnter('steer')
+  it('adopts a section already standing at construction', () => {
+    const host = stubSettingsScope<ConversationSettings>()
+    host.publish({ status: 'ready', value: { busyEnter: 'steer' }, revision: 1, writable: true })
+    const policy = new ComposerSubmissionPolicy(host.scope)
     expect(policy.busyEnter.getSnapshot()).toBe('steer')
   })
 })

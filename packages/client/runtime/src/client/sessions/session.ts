@@ -1,10 +1,10 @@
 // Sessions remain resident after creation so they continue consuming mux frames off-screen.
 
-import type { Context } from 'cordis'
-import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
+import type { Context } from '@deepseek-ai/cordis'
+import type { AttachmentIdType, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import type {
-  HistoryEntry, IApiClient, MessageId, MuxFrame, QueueAction, RpcError,
+  HistoryEntry, IApiClient, MessageId, MuxFrame, PromptContentPart, QueueAction, RpcError,
   RpcId, RpcResponse, RpcResult, SessionId, SubagentAddress, ToolEventView,
 } from '@deepseek-ai/dsh-client-connection/client'
 // Value import from the inline-safe wire layer (not the connection plugin):
@@ -60,7 +60,7 @@ export interface SessionOptions {
  * remaining public members are manager/runtime entry points.
  */
 export class Session implements SessionFace {
-  // ---- Window and derived state (all private; the snapshot is the only read surface) ----
+  // ---- Window and derived state (all private; the snapshot is the only read API) ----
   private events: SessionEvent[] = []
   /** Wire views aligned with `events` by index (envelope-level annotations; undefined = no view).
    *  Kept parallel rather than merged so `events` stays the raw log slice (model-visible ⟺ logged). */
@@ -178,11 +178,11 @@ export class Session implements SessionFace {
 
   /**
    * Send (queue/steer passed through 1:1); failures land in the snapshot's promptError.
-   * @param content - core content blocks verbatim.
+   * @param content - text plus browser-owned temporary image uploads.
    * @param mode - queue appends after the current turn; steer interrupts it.
    * @returns the prompt result (also mirrored into promptError on failure).
    */
-  async prompt(content: ContentBlock[], mode: 'queue' | 'steer'): Promise<RpcResult<{ accepted: true }>> {
+  async prompt(content: PromptContentPart[], mode: 'queue' | 'steer'): Promise<RpcResult<{ accepted: true }>> {
     this.promptError = null
     this.lastAgentError = null
     // Synchronous, before the first await: the blank → engaging edge must be
@@ -205,8 +205,24 @@ export class Session implements SessionFace {
           },
         }
       } else {
-        const routed = (await this.api.subagents.prompt({ ...this.address, content })).result
-        result = routed.ok ? { ok: true, value: { accepted: true } } : routed
+        if (content.some(part => part.type === 'image')) {
+          result = {
+            ok: false,
+            error: {
+              code: 'attachment-error',
+              message: 'Image input is unavailable for subagent continuations.',
+              details: { reason: 'SUBAGENT_IMAGE_UNSUPPORTED' },
+            },
+          }
+        } else {
+          const routed = (await this.api.subagents.prompt({
+            ...this.address,
+            content: content.flatMap(part => part.type === 'text'
+              ? [{ type: 'text' as const, text: part.text }]
+              : []),
+          })).result
+          result = routed.ok ? { ok: true, value: { accepted: true } } : routed
+        }
       }
     } catch (error) {
       result = transportError(error)
@@ -230,6 +246,28 @@ export class Session implements SessionFace {
       this.notifier.markDirty()
     }
     return result
+  }
+
+  /**
+   * Resolve one image referenced by this session into browser-consumable bytes.
+   * @param attachmentId - opaque id found in the folded session log.
+   * @returns the authenticated reference and decoded bytes.
+   */
+  async readAttachment(
+    attachmentId: AttachmentIdType,
+  ): Promise<RpcResult<{ attachment: ImageAttachmentRef; data: Uint8Array }>> {
+    try {
+      const result = (await this.api.sessions.attachment({
+        sessionId: this.sessionId,
+        attachmentId,
+      })).result
+      if (!result.ok) return result
+      const binary = atob(result.value.data)
+      const data = Uint8Array.from(binary, char => char.charCodeAt(0))
+      return { ok: true, value: { attachment: result.value.attachment, data } }
+    } catch (error) {
+      return transportError(error)
+    }
   }
 
   /** Apply one operation to a still-pending queue occurrence. */
@@ -390,7 +428,7 @@ export class Session implements SessionFace {
     await this.open()
   }
 
-  // ---- Subscription surface (useSyncExternalStore direct wiring) ----
+  // ---- Subscription API (useSyncExternalStore direct wiring) ----
 
   /**
    * uSES subscription entry.
@@ -689,6 +727,7 @@ export class Session implements SessionFace {
     const legacy = chat.legacy
     return {
       sessionId: this.sessionId,
+      views: this.conversation,
       chat,
       nodes: legacy.nodes,
       turnTimings: legacy.turnTimings,
@@ -702,7 +741,8 @@ export class Session implements SessionFace {
         ? null
         : { address: this.address, parentAvailable: this.parentAvailable },
       composerPhase: derivePhase(
-        (!this.blankBit && !this.firstPromptPendingTurn)
+        hasVisibleConversationContent(chat)
+          || (!this.blankBit && !this.firstPromptPendingTurn)
           || this.running
           || this.pendingCache.value.length > 0,
         this.promptAttempted,
@@ -735,13 +775,18 @@ function conversationInput(entry: HistoryEntry): ConversationEventInput {
   return { event: entry.event, view: entry.view }
 }
 
+/** A generic command row alone remains control-plane content; every other visible Chat Node activates the conversation. */
+function hasVisibleConversationContent(chat: ChatSnapshot): boolean {
+  return chat.order.some(key => chat.nodes.get(key)?.kind !== 'command')
+}
+
 /**
  * The composerPhase judgment — the single site that knows the predicate
  * (consumers switch on the result, never re-derive). A failed first prompt
  * stays engaging until an authoritative accepted-turn, running, or pending
  * signal arrives (retry semantics — see ComposerPhase).
  * @param hasContent - authoritative non-blank activity beyond a pending first
- *   prompt, a running turn, or a pending interaction.
+ *   prompt, visible non-command Chat content, a running turn, or a pending interaction.
  * @param promptAttempted - a prompt was initiated on this session object.
  * @returns the derived phase.
  */

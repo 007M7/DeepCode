@@ -330,11 +330,11 @@ describe('workspace domain schemas', () => {
     expect(() => workspaceArchiveSessionValueSchema.parse({ archivedSessionIds: 's1' })).toThrow()
   })
 
-  it('create requires exactly one of path/name (both refine arms)', () => {
+  it('create requires a path', () => {
     expect(workspaceCreateRequestSchema.parse({ path: '/p' }).path).toBe('/p')
-    expect(workspaceCreateRequestSchema.parse({ name: 'n' }).name).toBe('n')
-    expect(() => workspaceCreateRequestSchema.parse({})).toThrow(/exactly one/)
-    expect(() => workspaceCreateRequestSchema.parse({ path: '/p', name: 'n' })).toThrow(/exactly one/)
+    expect(() => workspaceCreateRequestSchema.parse({})).toThrow()
+    // The retired create-by-name spelling stays a clean schema rejection.
+    expect(() => workspaceCreateRequestSchema.parse({ name: 'n' })).toThrow()
     expect(workspaceCreateValueSchema.parse({ workspace: view, created: false }).created).toBe(false)
   })
 
@@ -436,6 +436,11 @@ describe('events frame schemas', () => {
         },
       ] },
       { type: 'session/projection', sessionId: 's', key: 'todos', value: [{ content: 'x', status: 'pending' }], seq: 7 },
+      { type: 'session/tasks', sessionId: 's', tasks: [] },
+      { type: 'session/tasks', sessionId: 's', tasks: [
+        { id: 'bash-1', kind: 'bash', label: 'pnpm run build', status: 'running', startedAt: 5 },
+        { id: 'pty-send-2', kind: 'pty-send', label: 'send keys', status: 'failed', detail: 'exit code: 3', startedAt: 5, finishedAt: 9 },
+      ] },
       { type: 'stream/error', error: { code: 'internal', message: 'm', details: {} } },
     ]
     for (const frame of frames) expect(muxFrameSchema.parse(frame)).toMatchObject({ type: frame.type })
@@ -444,6 +449,14 @@ describe('events frame schemas', () => {
       { type: 'session/projection', sessionId: 's', key: '', value: null, seq: 0 },
       { type: 'session/projection', sessionId: 's', key: 'todos', value: null, seq: -1 },
       { type: 'session/projection', sessionId: 's', key: 'todos', value: null, seq: 0.5 },
+      // A producer kind stays an open string, but the closed status set and
+      // the identity/label bounds are the carrier's own wire contract.
+      { type: 'session/tasks', sessionId: 's', tasks: [{ id: '', kind: 'bash', label: 'l', status: 'running', startedAt: 0 }] },
+      { type: 'session/tasks', sessionId: 's', tasks: [{ id: 'bash-1', kind: '', label: 'l', status: 'running', startedAt: 0 }] },
+      { type: 'session/tasks', sessionId: 's', tasks: [{ id: 'bash-1', kind: 'bash', label: '', status: 'running', startedAt: 0 }] },
+      { type: 'session/tasks', sessionId: 's', tasks: [{ id: 'bash-1', kind: 'bash', label: 'l', status: 'pending', startedAt: 0 }] },
+      { type: 'session/tasks', sessionId: 's', tasks: [{ id: 'bash-1', kind: 'bash', label: 'l', status: 'running', startedAt: -1 }] },
+      { type: 'session/tasks', sessionId: 's', tasks: [{ id: 'bash-1', kind: 'bash', label: 'l', status: 'completed', startedAt: 0, finishedAt: 0.5 }] },
     ]) expect(() => muxFrameSchema.parse(invalid)).toThrow()
     expect(askUserQuestionItemSchema.parse({ id: 'q', question: 'Q?' }).id).toBe('q')
   })
@@ -493,6 +506,7 @@ describe('events frame schemas', () => {
       } },
       { type: 'host/workspace-removed', workspaceId: 'w' },
       { type: 'host/commands-changed' },
+      { type: 'host/session-preset-changed', sessionId: 's', agentPreset: 'minimal' },
       { type: 'stream/error', error: { code: 'internal', message: 'm', details: {} } },
     ]
     for (const frame of frames) expect(hostFrameSchema.parse(frame)).toMatchObject({ type: frame.type })

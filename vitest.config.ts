@@ -32,8 +32,6 @@ const windowsUnsupportedPackages = process.platform === 'win32'
       'packages/subprocess/*',
       'packages/pty/pty-local',
       'packages/sandbox/sandbox-local',
-      'packages/scaffold/create-sdk',
-      'packages/scaffold/helper',
     ]
   : []
 
@@ -45,6 +43,15 @@ const windowsOnlyCoverageExclusions = process.platform !== 'win32'
   ? [
       'packages/sandbox/sandbox-windows-acl/src/**/*.ts',
     ]
+  : []
+
+// The confinement runner entry executes exclusively as a spawned child
+// process (the sandbox seam's argv-prefix wrapper): its module-level main()
+// would run the confinement in-process if imported, and vitest's v8 coverage
+// never measures child processes. Its behavior is pinned end-to-end by
+// tests/runner.spec.ts, which spawns the real entry through tsx.
+const windowsRunnerCoverageExclusions = process.platform === 'win32'
+  ? ['packages/sandbox/sandbox-windows-acl/src/runner.ts']
   : []
 
 // pwsh-local's run/start/lifecycle suites self-skip without a real pwsh
@@ -162,8 +169,13 @@ export default defineConfig({
         'packages/client/ui-workspace/src/client/WorkspaceBrowser.tsx',
         'packages/client/ui-workspace/src/client/WorkspacePicker.tsx',
         'packages/client/web-react/src/*',
-        'packages/client/runtime/src/*',
-        'packages/client/ui-conversation/src/*',
+        // This isolated settings-scope lifecycle has complete unit coverage;
+        // keep it out of the broader client-runtime GUI debt exemption.
+        'packages/client/runtime/src/**/!(settings-scope).ts',
+        // Keep the browser conversation tree under its existing GUI debt
+        // exemption while gating the newly stateful Host half and vocabulary.
+        'packages/client/ui-conversation/src/client/*',
+        'packages/client/ui-conversation/src/invariant.ts',
         'packages/client/ui-primitives/src/DisclosureRow.tsx',
         'packages/client/ui-tool/src/*',
         'packages/client/ui-slots/src/*',
@@ -229,6 +241,7 @@ export default defineConfig({
         'packages/session/session-projection/src/index.ts',
         ...windowsUnsupportedPackages.map(path => `${path}/src/**/*.ts`),
         ...windowsOnlyCoverageExclusions,
+        ...windowsRunnerCoverageExclusions,
         ...pwshCoverageExclusions,
       ],
       // 100% or it doesn't merge (docs/testing.md: excessive tests are welcome).

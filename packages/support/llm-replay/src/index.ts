@@ -9,7 +9,7 @@
 
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { delimiter as pathDelimiter } from 'node:path'
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-compact'
 import { decodeStorageRecord } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
@@ -19,12 +19,13 @@ import type {
   LlmModelInfo,
   LlmProviderInfo,
   LlmResolvedModelInfo,
+  ModelModality,
   ResolvedRetryPolicy,
   RetryPolicyConfig,
   StreamChunk,
   TokenUsage,
 } from '@deepseek-ai/dsh-llm'
-import { LlmAdapter, LlmError, assertNever, resolveRetryPolicy } from '@deepseek-ai/dsh-llm'
+import { LlmAdapter, LlmError, ReasoningEffortId, assertNever, resolveRetryPolicy } from '@deepseek-ai/dsh-llm'
 
 /**
  * One recorded model call. `throw` may replay prefix chunks before failing;
@@ -51,6 +52,20 @@ export interface ReplayModelConfig {
   description?: string
   /** Optional positive integer context capacity published by the replay adapter. */
   contextWindow?: number
+  /** Optional declared input modalities, so a scenario can exercise capability gates (e.g. image-capable `read_image`). */
+  inputModalities?: readonly ModelModality[]
+  /**
+   * Optional per-request output cap the replay route materializes when callers
+   * omit one, so replay reconstructs the request header a live catalog produced.
+   */
+  defaultMaxTokens?: number
+  /** Optional reasoning-effort ids the replay route accepts, in display order. */
+  reasoningEfforts?: string[]
+  /**
+   * Optional effort materialized when callers omit one; must appear in
+   * {@link reasoningEfforts} or call resolution rejects the route.
+   */
+  defaultReasoningEffort?: string
 }
 
 /** One provider route exposed by the replay adapter. */
@@ -281,7 +296,7 @@ const REPLAY_CHUNK_TYPES = new Set<StreamChunk['type']>([
 const FROM_REQUEST_OPEN = '{{fromRequest:'
 const FROM_REQUEST_CLOSE = '}}'
 
-/** Collect every string leaf of one JSON-shaped value, in traversal order. */
+/** Collect every string leaf of one JSON-compatible value, in traversal order. */
 function collectStrings(value: unknown, out: string[]): void {
   if (typeof value === 'string') {
     out.push(value)
@@ -333,7 +348,7 @@ function substituteString(text: string, corpus: string): string {
   }
 }
 
-/** Deep-copy one JSON-shaped value with scripted placeholders resolved. */
+/** Deep-copy one JSON-compatible value with scripted placeholders resolved. */
 function substituteValue(value: unknown, corpus: string): unknown {
   if (typeof value === 'string') {
     return value.includes(FROM_REQUEST_OPEN) ? substituteString(value, corpus) : value
@@ -569,6 +584,7 @@ class ReplayAdapter extends LlmAdapter {
       id: model.id,
       name: model.name ?? model.id,
       ...model.description === undefined ? {} : { description: model.description },
+      ...model.inputModalities === undefined ? {} : { inputModalities: [...model.inputModalities] },
     })))
   }
 
@@ -582,9 +598,25 @@ class ReplayAdapter extends LlmAdapter {
       id: model,
       name: configuredModel?.name ?? model,
       ...configuredModel?.description === undefined ? {} : { description: configuredModel.description },
+      ...configuredModel?.inputModalities === undefined
+        ? {}
+        : { inputModalities: [...configuredModel.inputModalities] },
       ...configuredModel?.contextWindow === undefined
         ? {}
         : { context: { contextWindow: configuredModel.contextWindow } },
+      ...configuredModel?.defaultMaxTokens === undefined
+        ? {}
+        : { defaultMaxTokens: configuredModel.defaultMaxTokens },
+      ...configuredModel?.reasoningEfforts === undefined
+        ? {}
+        : {
+          reasoning: {
+            efforts: configuredModel.reasoningEfforts.map(id => ({ id: ReasoningEffortId(id), name: id })),
+            ...configuredModel.defaultReasoningEffort === undefined
+              ? {}
+              : { defaultEffort: ReasoningEffortId(configuredModel.defaultReasoningEffort) },
+          },
+        },
     })
   }
 
@@ -758,11 +790,28 @@ export interface Config {
   paceMs?: number
 }
 
+function validateConfiguredModalities(providers: ReplayProviderConfig[] | undefined): void {
+  for (const provider of providers ?? []) {
+    for (const model of provider.models ?? []) {
+      const modalities: unknown = model.inputModalities
+      if (modalities === undefined) continue
+      if (!Array.isArray(modalities)
+        || !modalities.every((modality: unknown) => modality === 'text' || modality === 'image')) {
+        throw new Error(
+          `llm-replay: provider "${provider.id}" model "${model.id}" inputModalities `
+          + 'must be an array containing only "text" and "image"',
+        )
+      }
+    }
+  }
+}
+
 export function apply(ctx: Context, config: Config = {}): void {
   const file = config.file ?? process.env.DSH_SNAPSHOT_FILE
   if (file === undefined || file.length === 0) {
     throw new Error('llm-replay: a fixture path is required (Config.file or $DSH_SNAPSHOT_FILE)')
   }
+  validateConfiguredModalities(config.providers)
   const overrideFile = config.overrideFile ?? process.env.DSH_SNAPSHOT_OVERRIDE
   const childEnv = process.env.DSH_SNAPSHOT_CHILD_FILES
   const childFiles = config.childFiles

@@ -31,8 +31,8 @@ const SEED = fileURLToPath(new URL('./snapshots/seeded-history/seed.jsonl', impo
 const MODE = webSnapshotMode()
 const BROWSER_EXPECTED = join(SNAPSHOT_DIR, 'directory-browser.expected.md')
 const SEED_ID = 'workspace-management-web-e2e'
-// Both waits exceed ui-primitives' 200ms POINTER_GRACE_MS. Keep them coupled
-// to that contract if the shared grace tuning changes.
+// Both waits exceed ui-primitives' 200ms POINTER_GRACE_MS. Keep them above
+// that value if the shared setting changes.
 const POINTER_TRANSIT_MS = 300
 const POINTER_HOLD_MS = 600
 
@@ -99,6 +99,19 @@ describe('web e2e: workspace management (create / rename / flat view / hover aff
     }
   }
 
+  /**
+   * Reveal and click a row action, re-hovering if a projection update replaces
+   * the row before its hover-only button becomes visible.
+   */
+  async function clickHoverAction(row: Locator, name: string): Promise<void> {
+    const button = row.getByRole('button', { name })
+    await expect.poll(async () => {
+      await row.hover()
+      return await button.isVisible()
+    }, { timeout: 10_000 }).toBe(true)
+    await button.click()
+  }
+
   beforeAll(async () => {
     scaffold = await launchWebScaffold({})
     // Seed one cold session (Ungrouped bucket) for the flat view + hover card.
@@ -137,10 +150,8 @@ describe('web e2e: workspace management (create / rename / flat view / hover aff
 
   it('renames a workspace over the wire with a duplicate-name pre-check', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-ws-rename'))
-    // The actions button is display:none until its row hovers — hover the
-    // group row first, then the revealed button becomes actionable.
-    await page.locator('[role="treeitem"]').filter({ hasText: 'alpha-ws' }).first().hover()
-    await page.getByRole('button', { name: 'Workspace actions for alpha-ws' }).click()
+    const alphaRow = page.locator('[role="treeitem"]').filter({ hasText: 'alpha-ws' }).first()
+    await clickHoverAction(alphaRow, 'Workspace actions for alpha-ws')
     await page.getByRole('menuitem', { name: 'Rename' }).click()
     const dialog = page.getByRole('dialog', { name: 'Rename workspace' })
     await dialog.waitFor({ timeout: 10_000 })
@@ -214,17 +225,19 @@ describe('web e2e: workspace management (create / rename / flat view / hover aff
     // The header row is wrapped by its HoverCard anchor span, so the section
     // is the nearest groupSection ancestor, not the immediate parent.
     const groupSection = groupRow.locator('xpath=ancestor::*[contains(@class, "groupSection")][1]')
-    if (await groupSection.locator('[role="treeitem"]').count() < 2) await groupRow.click()
-    await expect.poll(
-      () => groupSection.locator('[role="treeitem"]').count(),
-      { timeout: 10_000 },
-    ).toBeGreaterThanOrEqual(2)
+    await expect.poll(async () => {
+      const count = await groupSection.locator('[role="treeitem"]').count()
+      if (count < 2 && await groupRow.getAttribute('aria-expanded') !== 'true') {
+        await groupRow.click()
+        await page.waitForTimeout(50)
+      }
+      return await groupSection.locator('[role="treeitem"]').count()
+    }, { timeout: 10_000 }).toBeGreaterThanOrEqual(2)
     const seededRow = groupSection.locator('[role="treeitem"]').nth(1)
     await seededRow.click()
     await expect.poll(() => seededRow.getAttribute('aria-selected'), { timeout: 10_000 }).toBe('true')
 
-    await groupRow.hover()
-    await page.getByRole('button', { name: `Workspace actions for ${workspace.title}` }).click()
+    await clickHoverAction(groupRow, `Workspace actions for ${workspace.title}`)
     await page.getByRole('menuitem', { name: 'Delete workspace' }).click()
     const dialog = page.getByRole('dialog', { name: 'Delete workspace' })
     await dialog.waitFor({ timeout: 10_000 })
@@ -338,8 +351,7 @@ describe('web e2e: workspace management (create / rename / flat view / hover aff
     if (oldWorkspace === undefined) throw new Error('old same-name Workspace was not registered')
 
     const oldRow = page.locator('[role="treeitem"]').filter({ hasText: title }).first()
-    await oldRow.hover()
-    await page.getByRole('button', { name: `Workspace actions for ${title}` }).click()
+    await clickHoverAction(oldRow, `Workspace actions for ${title}`)
     await page.getByRole('menuitem', { name: 'Delete workspace' }).click()
     await page.getByRole('dialog', { name: 'Delete workspace' })
       .getByRole('button', { name: 'Delete workspace' }).click()
@@ -509,9 +521,10 @@ describe('web e2e: workspace management (create / rename / flat view / hover aff
     onTestFailed(() => saveFailureShot(page, 'web-e2e-ws-row-menu'))
     const sessionRow = await seededSessionRow()
     // The trigger is display:none until its row hovers.
-    await sessionRow.hover()
     const trigger = sessionRow.locator('button[aria-label^="Session actions for "]')
-    await trigger.click()
+    const triggerName = await trigger.getAttribute('aria-label')
+    if (triggerName === null) throw new Error('seeded Session row has no actions label')
+    await clickHoverAction(sessionRow, triggerName)
     const item = page.getByRole('menuitem', { name: 'Rename' })
     await item.waitFor({ timeout: 5_000 })
     // Into the list, then back up to the trigger across the 4px gap below it:
@@ -559,8 +572,7 @@ describe('web e2e: workspace management (create / rename / flat view / hover aff
     const rowTitle = await sessionRow.locator('[class*="title"]').innerText()
     // Row menu: hover reveals the actions button; Archive session commits
     // without a confirmation dialog (non-destructive: log + accounting stay).
-    await sessionRow.hover()
-    await sessionRow.getByRole('button', { name: `Session actions for ${rowTitle}` }).click()
+    await clickHoverAction(sessionRow, `Session actions for ${rowTitle}`)
     await page.getByRole('menuitem', { name: 'Archive session' }).click()
     // The row disappears on the archive-set echo; with no other visible
     // stray, the whole Ungrouped bucket withdraws.

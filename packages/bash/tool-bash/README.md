@@ -42,7 +42,7 @@ The tool owns its `presentCall`/`presentResult` render intent. A foreground call
 
 ## The tool builds its request from named args only
 
-`BashExecRequest` carries optional `stdoutMaxBytes`, `stdin`, ordinary `env`, and managed `dshEnv`, used by trusted in-process plugins and this tool's environment registry. The model-facing tool exposes none of `stdoutMaxBytes`, `stdin`, or `env`: it builds requests from named command/workdir/timeout/signal/sandbox fields plus the registry-collected `dshEnv`. Extra model keys are ignored and cannot replace managed values. Shell syntax provides equivalent command-level behavior, while the local executor scrubs ambient credentials and stale `DSH_*` values. See the [stdin/env Agent Note](../../../.agents/notes/implemented/architecture/2026-06-30-bash-stdin-env-trusted-plugin-surface.md).
+`BashExecRequest` carries optional `stdoutMaxBytes`, `stdin`, ordinary `env`, and managed `dshEnv`, used by trusted in-process plugins and this tool's environment registry. The model-facing tool exposes none of `stdoutMaxBytes`, `stdin`, or `env`: it builds requests from named command/workdir/timeout/signal/sandbox fields plus the registry-collected `dshEnv`. Extra model keys are ignored and cannot replace managed values. Shell syntax provides equivalent command-level behavior, while the local executor scrubs ambient credentials and stale `DSH_*` values. See the [stdin/env Agent Note](../../../.agents/notes/implemented/architecture/2026-06-30-bash-stdin-env-trusted-plugin-api.md).
 
 ## Permissions and escalation
 

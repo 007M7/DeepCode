@@ -18,7 +18,7 @@ Defaults are `enabled: true`, `package_allowlist: []`, and `package_blocklist: [
 
 Each entry is a case-sensitive JavaScript regular-expression source compiled with `new RegExp(pattern)`. Matching is unanchored unless the source supplies `^` and `$`; `/pattern/flags` syntax is not parsed. Blank, whitespace-padded, invalid, or duplicate entries within one list fail service startup. A valid pattern may match no currently loaded package so later loading and HMR remain deterministic.
 
-`ctx.invariants.register(packageName, installer)` reserves one active registration for the full npm package name, including when filters keep its installer inactive, and returns its disposer. An enabled contribution runs in a dedicated child Cordis fiber. The installer can declare its required service surface through `installer.inject` and receives `fail(message)`, which throws an `InvariantError` bound to the registering package. Synchronous or asynchronous installer completion is joined before registration succeeds; failure disposes the child and releases ownership atomically.
+`ctx.invariants.register(packageName, installer)` reserves one active registration for the full npm package name, including when filters keep its installer inactive, and returns its disposer. An enabled contribution runs in a dedicated child Cordis fiber. The installer can declare its required services through `installer.inject` and receives `fail(message)`, which throws an `InvariantError` bound to the registering package. Synchronous or asynchronous installer completion is joined before registration succeeds; failure disposes the child and releases ownership atomically.
 
 The service owns every registration fiber, while the returned disposer also belongs to the companion fiber. Unloading either side removes listeners, trace state, and the reservation. A companion can therefore reload and register the same package name without retaining its previous state. Session-backed companions rebuild their baseline from durable events; live-only companions observe operations that begin after reload.
 
@@ -30,7 +30,7 @@ Session itself owns immutable, surface-valid log storage in every composition: i
 
 Publication and registration are exhaustive; runtime assertions are deliberately not synthetic. A companion installs a check only when its package owns an observable event relationship or relevant mutable-data relationship. Confirming a required method, plugin name, injection, effect, or fixed pure-function result is a type, load, or unit-test concern rather than a runtime invariant.
 
-When no plausible runtime relationship exists, the companion uses an empty installer with a package-specific leading `No runtime invariant:` comment explaining why. This is common for pure utilities, thin implementations whose behavior is already observed through their seam, composition-only packages, binaries, persistence adapters whose contracts require crash/round-trip tests, and test-support packages. The explanation must be revisited when the owner gains mutable state or an event protocol.
+When no plausible runtime relationship exists, the companion uses an empty installer with a package-specific leading `No runtime invariant:` comment explaining why. This is common for pure utilities, thin implementations whose behavior is already observed through their interface package, composition-only packages, binaries, persistence adapters whose contracts require crash and round-trip tests, and test-support packages. The explanation must be revisited when the owner gains mutable state or an event protocol.
 
 The current executable companions protect these relationships:
 
@@ -52,7 +52,7 @@ The root entrypoint of each owner remains independent of diagnostics. Loading th
 ## Composition
 
 ```ts
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import InvariantService from '@deepseek-ai/dsh-invariants'
 import * as SessionInvariant from '@deepseek-ai/dsh-session/invariant'
 
@@ -66,7 +66,7 @@ ctx.plugin(InvariantService, {
 ctx.plugin(SessionInvariant)
 ```
 
-The standard agent spine mounts the service and its four core stateful companions. Custom compositions explicitly add companions for other loaded packages whose contracts they want checked; filters can disable or select registrations without changing package entrypoints.
+The standard agent composition mounts the service and its four core stateful companions. Custom compositions explicitly add companions for other loaded packages whose contracts they want checked; filters can disable or select registrations without changing package entrypoints.
 
 Every ordinary Vitest topology mounts an explicitly enabled service and the current test package's companion. Focused suites cover valid and invalid observations for executable companions, while one exhaustive topology mounts all companions to prove registration and disposal wiring.
 

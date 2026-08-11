@@ -1,18 +1,18 @@
-import { Context, Service, type Plugin } from 'cordis'
-import type { Dict } from 'cosmokit'
-import { ModuleLoader, type ModuleJob, type ResolveResult } from '@cordisjs/plugin-loader'
-import type { Include } from '@cordisjs/plugin-include'
+import { Context, Service, type Plugin } from '@deepseek-ai/cordis'
+import type { Dict } from '@deepseek-ai/cosmokit'
+import { ModuleLoader, type ModuleJob, type ResolveResult } from '@deepseek-ai/cordis-plugin-loader'
+import type { Include } from '@deepseek-ai/cordis-plugin-include'
 import { FSWatcher, watch, type ChokidarOptions } from 'chokidar'
 import { dirname, relative, resolve } from 'node:path'
 import { realpath, stat } from 'node:fs/promises'
 import { handleError } from './error.ts'
-import type {} from '@cordisjs/plugin-timer'
+import type {} from '@deepseek-ai/cordis-plugin-timer'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { createRequire } from 'node:module'
 import picomatch from 'picomatch'
-import z from 'schemastery'
+import z from '@deepseek-ai/schemastery'
 
-declare module 'cordis' {
+declare module '@deepseek-ai/cordis' {
   interface Context {
     hmr: Hmr
   }
@@ -502,7 +502,7 @@ class Hmr extends Service {
     const reload = (plugin: any, runtime: Plugin.Runtime) => {
       if (!runtime) return
       for (const oldFiber of runtime.fibers) {
-        const fiber = oldFiber.parent.registry.plugin(plugin, oldFiber.config, this.getOuterStack)
+        const fiber = oldFiber.parent.registry.plugin(plugin, oldFiber._config, this.getOuterStack)
         fiber.entry = oldFiber.entry
         if (fiber.entry) fiber.entry.fiber = fiber
       }

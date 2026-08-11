@@ -1,7 +1,7 @@
 /**
  * sessions domain zod schemas (names derived from map keys: sessionListRequestSchema /
  * sessionListValueSchema). SessionEvent passthrough = strict envelope (type/seq/time) + wide
- * data: the merge-extensible event surface keeps an unknown-type branch at the union level,
+ * data: the merge-extensible event API keeps an unknown-type branch at the union level,
  * with no field-level passthrough. SessionId brand cast point: sessionIdSchema, and only there.
  */
 
@@ -15,6 +15,7 @@ import type {
   ModelReasoningEffort, ModelSelection, SessionProjectionsBlock, SessionSearchItem, SessionSummary,
 } from './sessions.ts'
 import type { ToolEventView } from './events.ts'
+import type { AttachmentIdType, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { WorkspaceId } from './workspace.ts'
 import {
   SESSION_SEARCH_RESULT_LIMIT,
@@ -22,7 +23,7 @@ import {
   truncateUnicodeCodePoints,
 } from './session-search.ts'
 
-/** SessionId: one brand cast after shape validation (the only cast point in this domain). */
+/** SessionId: one brand cast after schema validation (the only cast point in this domain). */
 export const sessionIdSchema = z.string().min(1) as unknown as z.ZodType<SessionId>
 
 /** MessageId: one brand cast after non-empty string validation. */
@@ -44,6 +45,7 @@ export const sessionEventSchema = z.object({
   data: z.unknown(),
   sourceEventSeqs: z.array(z.number()).optional(),
   surfaceOp: z.unknown().optional(),
+  ignorable: z.literal(true).optional(),
 }) as unknown as z.ZodType<SessionEvent>
 
 /** SessionSummary row of session.list (`projections` reuses the history block's shape and schema). */
@@ -249,11 +251,25 @@ export const sessionSelectModelValueSchema = z.object({
 /** ContentBlock passthrough: core is merge-extensible — the type discriminant envelope is strict, the rest stays wide. */
 export const contentBlockSchema = z.looseObject({ type: z.string() })
 
+/** Raster image media types accepted by the version-one browser wire. */
+export const imageMediaTypeSchema = z.union([
+  z.literal('image/png'),
+  z.literal('image/jpeg'),
+  z.literal('image/webp'),
+  z.literal('image/gif'),
+])
+
+/** Prompt wire content is intentionally narrower than merge-extensible durable core content. */
+export const promptContentPartSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('text'), text: z.string() }),
+  z.object({ type: z.literal('image'), mediaType: imageMediaTypeSchema, data: z.string(), name: z.string().optional() }),
+])
+
 /** session.prompt request payload. */
 export const sessionPromptRequestSchema = z.object({
   sessionId: sessionIdSchema,
   mode: z.union([z.literal('queue'), z.literal('steer')]),
-  content: z.array(contentBlockSchema),
+  content: z.array(promptContentPartSchema),
 }) as unknown as z.ZodType<RequestPayload<'session.prompt'>>
 
 /** session.prompt response value (the command slot appears only when the prompt dispatched a slash command). */
@@ -264,6 +280,31 @@ export const sessionPromptValueSchema = z.object({
     text: z.string().optional(),
   }).optional(),
 }) satisfies z.ZodType<Wire<ResponseValue<'session.prompt'>>>
+
+/** Opaque attachment id after string-shape validation. */
+export const attachmentIdSchema = z.string().min(1) as unknown as z.ZodType<AttachmentIdType>
+
+/** Durable image reference returned from the authenticated session lookup. */
+export const imageAttachmentRefSchema = z.object({
+  attachmentId: attachmentIdSchema,
+  mediaType: imageMediaTypeSchema,
+  bytes: z.number().int().positive(),
+  width: z.number().int().positive(),
+  height: z.number().int().positive(),
+  name: z.string().optional(),
+}) as unknown as z.ZodType<ImageAttachmentRef>
+
+/** session.attachment request payload. */
+export const sessionAttachmentRequestSchema = z.object({
+  sessionId: sessionIdSchema,
+  attachmentId: attachmentIdSchema,
+}) satisfies z.ZodType<Wire<RequestPayload<'session.attachment'>>>
+
+/** session.attachment response value. */
+export const sessionAttachmentValueSchema = z.object({
+  attachment: imageAttachmentRefSchema,
+  data: z.string(),
+}) satisfies z.ZodType<Wire<ResponseValue<'session.attachment'>>>
 
 /** session.updateQueue request payload. */
 export const sessionUpdateQueueRequestSchema = z.object({

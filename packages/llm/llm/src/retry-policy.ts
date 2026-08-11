@@ -7,7 +7,7 @@
  * @module @deepseek-ai/dsh-llm/retry-policy
  */
 
-import z from 'schemastery'
+import z from '@deepseek-ai/schemastery'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { EMPTY_RESPONSE_CODE } from './error.ts'
 

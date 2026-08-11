@@ -5,8 +5,8 @@
  * @module @deepseek-ai/dsh-agent
  */
 
-import { Context, FiberState, getTraceable, Service, symbols } from 'cordis'
-import type { Fiber } from 'cordis'
+import { Context, FiberState, getTraceable, Service, symbols } from '@deepseek-ai/cordis'
+import type { Fiber } from '@deepseek-ai/cordis'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { isPromise } from 'node:util/types'
 import { scopeTarget } from '@deepseek-ai/dsh-scope'
@@ -18,6 +18,7 @@ import type { Agent, AgentOptions } from './runtime-types.ts'
 export * from './runtime-types.ts'
 export * from './types.ts'
 export * from './inbox.ts'
+export * from './consumed-work.ts'
 export * from './model-selection.ts'
 export { agentCarrier, agentEvents, assembleContextFor, emitAgentEvent } from './dispatch.ts'
 export type { AgentEventDispatch, AgentSubjectEvent } from './dispatch.ts'
@@ -32,7 +33,7 @@ declare module '@deepseek-ai/dsh-type-meta' {
   }
 }
 
-declare module 'cordis' {
+declare module '@deepseek-ai/cordis' {
   interface Context {
     agents: AgentRegistry
     /**
@@ -159,7 +160,7 @@ export interface ResumeAgentOptions {
  * {@link AgentRegistry.resume}. The disposer is a CAPABILITY: among consumers,
  * only the holder can tear this agent down. The registered factory provider is
  * also a structural owner because the scoped agent depends on that provider's
- * service surface; provider unload stops and drains every live handle it made.
+ * service API; provider unload stops and drains every live handle it made.
  * `dispose()` stops the loop, awaits its exit, unregisters the agent, removes
  * its session from the store, and finally unwinds its scoped world.
  *

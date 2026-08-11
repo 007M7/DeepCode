@@ -1,6 +1,6 @@
-import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import { CallId, createUserMessage } from '@deepseek-ai/dsh-llm'
 import { describe, expect, it } from 'vitest'
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import { type Agent, type AgentOptions } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
@@ -10,7 +10,8 @@ import * as SessionInvariant from '@deepseek-ai/dsh-session/invariant'
 import * as AgentInvariant from '@deepseek-ai/dsh-agent/invariant'
 import * as AgentLoopInvariant from '@deepseek-ai/dsh-agent-loop/invariant'
 import SubagentService, { snapshotSubagentDescriptor } from '@deepseek-ai/dsh-subagent'
-import { maxTokensResponse, MockAdapter, textResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
+import { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
+import { maxTokensResponse, MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 import { startInProcessRun } from '../src/index.ts'
 
 type Script = ConstructorParameters<typeof MockAdapter>[0]
@@ -78,6 +79,20 @@ describe('startInProcessRun', () => {
     expect(child.options).toMatchObject({ provider: 'mock', model: 'mock' })
     expect(child.session.header.cwd).toBe('/workspace')
     await expect(run.result).resolves.toMatchObject({ stopReason: 'completed' })
+    await run.dispose()
+  })
+
+  it('reports a prompt a pre-step rejection discarded as refusal, not completion', async () => {
+    const { ctx, parent } = await setup([])
+    // A UserPromptSubmit deny or a policy plugin: the child claims its prompt,
+    // the rejection discards it, and the turn closes `blocked` with no step.
+    ctx.on('agent/pre-step', async ({ agent: subject }, next) => {
+      if (subject === parent) return next()
+      return { kind: 'reject' as const }
+    })
+
+    const run = await startInProcessRun(request(parent), {})
+    await expect(run.result).resolves.toMatchObject({ stopReason: 'refusal' })
     await run.dispose()
   })
 
@@ -153,6 +168,31 @@ describe('startInProcessRun', () => {
       .toMatchObject({ data: { reason: { kind: 'max-tokens' } } })
     expect(result.stopReason).toBe('max-tokens')
     await run.dispose()
+  })
+
+  it('keeps earlier streamed text when the final step appends an empty usage-only message', async () => {
+    // A tool-only max-tokens step records an empty assistant/message for
+    // usage. The result retains the preceding assistant output.
+    const { ctx, parent } = await setup([
+      toolCallResponse('t1', 'noop', {}, 'partial one'),
+      [
+        { type: 'block-start', index: 0, blockType: 'tool-call' },
+        { type: 'tool-call-delta', index: 0, id: CallId('t2'), name: 'noop', argumentsDelta: '{}' },
+        { type: 'block-end', index: 0, block: { type: 'tool-call', id: CallId('t2'), name: 'noop', arguments: '{}' } },
+        { type: 'usage', usage: { inputTokens: 20, outputTokens: 5 } },
+        { type: 'finish', reason: { kind: 'max-tokens' } },
+      ],
+    ])
+    const disposeNoop = ctx.tools.register(defineContentToolFixture({
+      name: 'noop', description: 'probe', parameters: {},
+      execute() { return Promise.resolve([{ type: 'text', text: 'noop result' }]) },
+    }))
+    const run = await startInProcessRun(request(parent), {})
+    const result = await run.result
+    expect(result.stopReason).toBe('max-tokens')
+    expect(text(result.output)).toBe('partial one')
+    await run.dispose()
+    disposeNoop()
   })
 
   it('seeds a forked child but reads only the child-owned output', async () => {
@@ -278,7 +318,12 @@ describe('startInProcessRun', () => {
     const signalled = await startInProcessRun(request(parent, controller.signal), {})
     await new Promise(resolve => setTimeout(resolve, 30))
     controller.abort('stop child')
-    await expect(signalled.result).resolves.toMatchObject({ stopReason: 'aborted' })
+    // No step completed a message, so the text streamed before the abort is
+    // the cancelled run's output.
+    await expect(signalled.result).resolves.toEqual({
+      output: [{ type: 'text', text: 'partial' }],
+      stopReason: 'aborted',
+    })
     expect(adapter.requests[0]?.signal?.reason).toEqual({ kind: 'parent' })
     const child = parent.ctx.agents.get(signalled.id)
     const turnEnd = child?.session.events.findLast(event => event.type === 'turn/end')
@@ -298,7 +343,7 @@ describe('startInProcessRun', () => {
     await expect(startInProcessRun({
       ...request(parent),
       toolFilter: { deny: ['unknown-tool'] },
-    }, {})).rejects.toThrow('unknown global tool')
+    }, {})).rejects.toThrow('unknown inherited tool')
     expect(ctx.agents.list()).toHaveLength(beforeAgents)
     expect(ctx.sessions.list()).toHaveLength(beforeSessions)
   })

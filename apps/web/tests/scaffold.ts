@@ -29,13 +29,12 @@ import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import type { Page } from 'playwright'
 import { expect } from 'vitest'
-import { Context } from 'cordis'
-import Loader from '@cordisjs/plugin-loader'
-import Include, { type PatchOptions } from '@cordisjs/plugin-include'
-import Group from '@cordisjs/plugin-group'
+import { Context } from '@deepseek-ai/cordis'
+import Loader from '@deepseek-ai/cordis-plugin-loader'
+import Include, { type PatchOptions } from '@deepseek-ai/cordis-plugin-include'
+import Group from '@deepseek-ai/cordis-plugin-group'
 import { scrubRequestHeaders, stabilizeFixtureMessageIds } from '@deepseek-ai/dsh-acp-snapshot'
 import {
-  addHarnessSourceSection,
   assertEntriesLoaded,
   composeEntries,
   healProfilesModuleFallback,
@@ -65,6 +64,7 @@ import * as ToolCordis from '@deepseek-ai/dsh-tool-cordis'
 // Empty type imports carry the httpServer/agents/sessionPersistence Context merges.
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-agent'
+import { provideCmdline } from '@deepseek-ai/dsh-cmdline'
 import { REPO_ROOT, requireDist } from './support.ts'
 
 /** Snapshot mode for the lane, from $DSH_SNAPSHOT (same vocabulary as the other snapshot suites). */
@@ -246,11 +246,20 @@ export interface LaunchOptions {
   /** Leave the current welcome notice unacknowledged; ordinary scenarios publish it as complete before browser boot. */
   welcomeNoticePending?: boolean
   /**
+   * Mount the shipped telemetry row in FULL mode against this exporter URL
+   * instead of disabling it. Used to pin a real backend disclosure in
+   * assembled coverage; point the URL at a local dead endpoint so no record
+   * leaves the process.
+   */
+  telemetryUrl?: string
+  /**
    * Browse through a trusted non-loopback hostname that the browser resolves
    * to loopback (for example `*.localhost`). The test server stays bound to
    * 127.0.0.1; a non-resolving authority fails before Host trust is exercised.
    */
   remoteAuthority?: string
+  /** Reuse an existing harness home so a second Host can verify user settings across origins. */
+  harnessHome?: string
 }
 
 /** Dispose the booted tree and remove both owned temp roots, reporting every independent cleanup failure. */
@@ -297,16 +306,19 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
   // Isolated harness home: the settings/credentials rows resolve $DSH_HOME
   // paths at load, and an in-process boot must NEVER touch the developer's
   // real ~/.dsh document or credential file.
-  const harnessHome = join(workspaceCwd, '.dsh-home')
+  const harnessHome = options.harnessHome ?? join(workspaceCwd, '.dsh-home')
   // Skill discovery is model-visible input, and its roots now resolve inside a
   // PRESET — a subtree this lane's include patches cannot reach, because the
   // roster mounts it directly per session rather than as a row of the booted
   // tree. The row's documented fallback is the environment, so pin that: the
   // whole scaffold lifetime, not just the boot, since presets mount when a
   // session is created. Without this a developer's real ~/.dsh/skills silently
-  // enters replay requests and goldens while CI sees none.
+  // enters replay requests and goldens while CI sees none. `DSH_HOME` follows
+  // the resolved harness home so a scaffold sharing another's home — the
+  // cross-port persistence scenario — pins the same roots the settings and
+  // credentials rows were configured with.
   const skillRootEnvironment = {
-    DSH_HOME: join(workspaceCwd, '.dsh-home'),
+    DSH_HOME: harnessHome,
     DSH_AGENTS_HOME: join(workspaceCwd, '.agents-home'),
     DSH_BUNDLED_SKILL_DIR: join(workspaceCwd, '.bundled-skills'),
   }
@@ -329,6 +341,7 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
   } catch (error) {
     const failures: unknown[] = [error]
     await rm(workspaceCwd, { recursive: true, force: true }).catch((cleanupError: unknown) => failures.push(cleanupError))
+    restoreSkillRootEnvironment()
     if (failures.length > 1) throw new AggregateError(failures, 'web scaffold temp-root setup failed')
     throw error
   }
@@ -390,8 +403,11 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     { id: 'session-title-llm', disabled: true },
     // Fixture sessions must never leave the process: the shipped row defaults
     // to the production OTLP endpoint (or whatever DSH_TELEMETRY_OTLP_URL
-    // names in the ambient environment).
-    { id: 'telemetry-otel', disabled: true },
+    // names in the ambient environment). A scenario that pins a real backend
+    // disclosure passes a local dead endpoint instead of disabling the row.
+    options.telemetryUrl === undefined
+      ? { id: 'telemetry-otel', disabled: true }
+      : { id: 'telemetry-otel', config: { exporter: { url: options.telemetryUrl }, shutdownTimeoutMillis: 1_000 } },
     {
       id: 'webserver',
       config: { host: '127.0.0.1', port: 0 },
@@ -443,7 +459,7 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
   let replayHandle: ReplayHandle | undefined
   try {
     process.chdir(workspaceCwd)
-    // The production resolution shape: an empty profile root inside the temp
+    // The production module-resolution setup: an empty profile root inside the temp
     // harness home, with bare plugin names resolving through the flat module
     // fallback the launcher heals under <home>/profiles.
     healProfilesModuleFallback(INSTALL_ANCHOR, harnessHome)
@@ -454,19 +470,26 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     ctx.baseUrl = pathToFileURL(profileDir).href + '/'
     // This direct Loader harness supplies the same root-path capability as app-boot.
     ctx.provide('dshHomePath', dshHomePath)
+    // A host with no command line still provides one: the web bundle's startup
+    // row releases the rows waiting on it, and with no arguments each starts on
+    // the values this scaffold composed above. An exit request can only come
+    // from a rejected argument, which a fixed empty list has none of.
+    provideCmdline(ctx, {
+      args: [],
+      exit: (code) => {
+        throw new Error(`web e2e scaffold: the web app requested exit ${String(code)} with no arguments to reject`)
+      },
+    })
     await ctx.plugin(Loader)
     ctx.loader.builtins.include = Include
     // `cordis:group` beside it, exactly as `boot()` registers it: a group row is
     // how a preset gives one `isolate` realm to a provider and its consumers,
     // and a preset resolving package names from its own directory cannot reach
-    // `@cordisjs/plugin-group` by name.
+    // `@deepseek-ai/cordis-plugin-group` by name.
     ctx.loader.builtins.group = Group
     // The shipped CLI deliberately has no dependency on this opt-in package.
     // Keep the Loader row real without broadening the product installation.
     if (options.cordisTools === true) ctx.loader.builtins['tool-cordis'] = ToolCordis
-    if (surfaceContext) {
-      ctx.inject(['systemPrompt'], (promptCtx) => { addHarnessSourceSection(promptCtx, REPO_ROOT) })
-    }
     await ctx.loader.create({
       name: 'cordis:include',
       config: { path: pathToFileURL(rootConfig).href, patches },
@@ -621,7 +644,7 @@ export function fixtureUserPrompts(fixtureText: string): string[] {
  * through the REAL backend API (throwaway Context + SessionStore + JSONL
  * plugin — the semantic-checkpoint precedent), never raw file writes: no
  * knowledge of bucket hashing, filename encoding, or compression, and
- * malformed shapes fail loud at seed time. The fixture's tokenized identity
+ * malformed session events fail loud at seed time. The fixture's tokenized identity
  * ({{sessionId}}/{{cwd}}) is realized for this world before parsing.
  * @param scaffold - the target scaffold.
  * @param fixtureText - raw recorded session.jsonl contents.
@@ -725,7 +748,7 @@ function normalizeAria(snapshot: string, workspaceCwd: string): string {
     // between local worktrees and CI scratch directories.
     .replace(/(Compacted \d+ history items \(~)\d+( tokens\))/g, '$1{{tokens}}$2')
     // Message IconActions clocks widen by calendar day/year; collapse every
-    // shape so goldens stay stable across midnight and year boundaries.
+    // format so goldens stay stable across midnight and year changes.
     .replace(/\d{4}年\d{1,2}月\d{1,2}日 \d{2}:\d{2}/g, '{{clock}}')
     .replace(/\d{1,2}月\d{1,2}日 \d{2}:\d{2}/g, '{{clock}}')
     .replace(/(?<!\d)\d{1,2}:\d{2}:\d{2}(?:\.\d+)?(?:\s*[AP]M)?(?!\d)/gi, '{{clock}}')

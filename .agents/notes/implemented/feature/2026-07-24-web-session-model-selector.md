@@ -6,7 +6,7 @@ English | [中文](2026-07-24-web-session-model-selector.zh.md)
 
 ## Problem
 
-The Web conversation needs a visible, mutable session model selection sourced from the Host. Copying TUI presentation or hardcoding DeepSeek models in the browser would split model discovery and step-boundary semantics across front doors. A switch made while a response is running also needs one atomic boundary: prompt variables and request routing cannot observe different selections.
+The Web conversation needs a visible, mutable session model selection sourced from the Host. Copying TUI presentation or hardcoding DeepSeek models in the browser would split model discovery and step-boundary semantics across front ends. A switch made while a response is running also needs one atomic boundary: prompt variables and request routing cannot observe different selections.
 
 ## Decision
 
@@ -18,7 +18,7 @@ The browser `ModelService` owns one `ModelDirectory` per live session. Its snaps
 
 `@deepseek-ai/dsh-client-ui-conversation` declares the session-scoped single slot `conversation.input.model` as a child of its composer-bar entry. InputBar renders the seat in its trailing controls immediately before the pending indicator and primary button; the seat receives the bar's `locked` owner prop and session scope. `@deepseek-ai/dsh-client-ui-model` occupies that seat and also contributes `/model` over the same directory. Its compact trigger displays the exact catalog model name and effective reasoning label. When the current selection is absent from the groups, the trigger displays `Select model`, the model list marks no row active, and the Effort row stays absent; choosing a listed model assigns the complete selection through the shared selection path. The upward menu otherwise first offers Model and Effort; Model drills into provider groups, while Effort drills into the adapter-ordered levels. The provider-default row appears only when the adapter does not configure a model default.
 
-The production browser roster is assembled from `apps/cli/config/base.cordis.yml` plus `apps/cli/config/web.cordis.yml`; the model feature is one `dshClient` row rather than a package hardcoded in Web boot code. Its package manifest orders it after the runtime and command feature, while Cordis service injection waits for the conversation slot before registering the composer occupant.
+The production browser roster is assembled from `apps/cli/config/base.cordis.yml` plus `apps/cli/config/web.cordis.yml`; the model feature is one `dsh.client` row rather than a package hardcoded in Web boot code. Its package manifest orders it after the runtime and command feature, while Cordis service injection waits for the conversation slot before registering the composer occupant.
 
 ## Alternatives considered
 

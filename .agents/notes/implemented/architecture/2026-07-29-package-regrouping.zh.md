@@ -10,29 +10,26 @@ Status: implemented
 
 - `ui/` 混杂了四个互不相关的平面：人类终端通道（`tui`）、SDK 的 JSON-RPC 服务端一半（`jsonrpc`，它对 `dsh-sdk-protocol` 的对等依赖（peer dependency）把它绑在 SDK 通信栈上）、人机交互 seam（`user-interaction`、`user-approval`、`permission`、`tool-ask-user`、`commands`），以及与通道无关的 boot 胶水（`app-boot`）。它自己的 README 只能逐一叙述这堆混杂，说不出一个统一职责。
 - 会话家族被割裂在五个组里——`session-persistence/`、`session-projection/`、`session-query/`、`session-title/` 与 `telemetry/`——而实测依赖边明明把它们连成一体（query → persistence、title → projection、projection → persistence；见 [docs/module-graph.md](../../../../docs/module-graph.md)）。
-- 两个组名与不相干的包撞名：`telemetry/`（会话上报）撞上 `dsh-telemetry`（启动器侧 SDK telemetry），`timeout/`（一个工具调用守卫）撞上 `util/timeout`（通用 promise 工具）。
+- 用于工具调用守卫的 `timeout/` 组与通用 promise 工具 `util/timeout` 撞名。
 - `cordis/` 拿所有包共同依托的框架给自己的组命名，这个名字因此毫无区分度；组里唯一的包 `tool-cordis` 是运行时自我修改工具集。
-- 旧 `sdk/` 的目录命名不一致：`sdk/sdk-client` 和 `sdk/sdk-protocol` 重复了组名，而 `sdk/telemetry`、`sdk/helper`、`sdk/scripts` 没有。
 
 这次重新分组的指导准则：**聚类紧密的包同处一组。**聚类以实测为准（对等依赖边与 co-change），而非按主题归类。孤立的 seam 家族可以自成一个小组；要避免的失败形态，是名字概括不出单一职责的大杂烩组。
 
 ## Decision
 
-重组六个组；其余每个组都保持先前的边界与内容不变（依赖分析确认各能力家族——`bash/`、`pty/`、`code-runtime/`、`sandbox/`、`subprocess/`、`fs/`、`lsp/`、`web/`、`skill/` 及其余——本来就划得正确）。npm 包名一个未改；整个变更全部由目录树承载。
+五项重组决策仍然有效；其余每个组都保持先前的边界与内容不变（依赖分析确认各能力家族——`bash/`、`pty/`、`code-runtime/`、`sandbox/`、`subprocess/`、`fs/`、`lsp/`、`web/`、`skill/` 及其余——本来就划得正确）。原本的第六项决策把 SDK 项目初始化器、启动器工具与运行时 JSON-RPC 包汇集到 `scaffold/`；[移除这套未发布工具链](../simplification/2026-08-11-remove-sdk-project-toolchain.md)的决策删除了项目工具，并将存留的运行时三包移到 `sdk/`，从而取代了该项决策。
 
 | 组 | 成员（目录名） | 来源 |
 |---|---|---|
 | `session/` | session-persistence、session-persistence-jsonl、session-persistence-sqlite、session-checkpoint-policy、session-projection、session-projection-cache、session-title、session-title-llm、session-title-first-message-llm、session-title-all-messages-llm、session-telemetry、session-telemetry-otel | `session-persistence/` + `session-projection/` + `session-title/` + `telemetry/` |
 | `interaction/` | user-interaction、user-approval、permission、tool-ask-user、commands、tui | `ui/` |
 | `boot/` | app-boot | `ui/` |
-| `scaffold/` | helper、scripts、create-sdk、protocol、client、server、telemetry | `sdk/` + `ui/jsonrpc` |
 | `guard/` | repeat-tool-guard、timeout-policy | `guard/` + `timeout/` |
 | `self-modification/` | tool-cordis | `cordis/` |
 
-- **`session/`** 是持久会话数据平面：持久化 seam 连同其各后端与检查点策略、从该日志折叠（fold）出全量值对外供值的投影、日志兜底的标题，以及 OTel 上报。标题折叠本身就是读取侧的承重构件（`session-query` 对 `dsh-session-title` 声明对等依赖），所以标题属于数据平面，而非某个「派生服务」附属区。用这个朴素的名字是有意为之（名字要像人起的）；旁边的 `core/session` 包仍是常驻内存的实时服务，本组则是围绕它的持久家族。`session-query/` 保持独立成组：这个读取／工具面自带模型工具和 SQLite FTS 后端，其消费不依赖持久化内部实现。吸收 `telemetry/` 之后，与 `dsh-telemetry` 的组名冲突就此终结。
+- **`session/`** 是持久会话数据平面：持久化 seam 连同其各后端与检查点策略、从该日志折叠（fold）出全量值对外供值的投影、日志兜底的标题，以及 OTel 上报。标题折叠本身就是读取侧的承重构件（`session-query` 对 `dsh-session-title` 声明对等依赖），所以标题属于数据平面，而非某个「派生服务」附属区。用这个朴素的名字是有意为之（名字要像人起的）；旁边的 `core/session` 包仍是常驻内存的实时服务，本组则是围绕它的持久家族。`session-query/` 保持独立成组：这个读取／工具面自带模型工具和 SQLite FTS 后端，其消费不依赖持久化内部实现。
 - **`interaction/`** 是人机协作平面加上应答它的终端通道：提问／批准 seam、权限预设、面向模型的 `ask_user_question` 工具、人类命令注册表（`plan-mode` 与 `command-goal` 已经把 `commands` 和各交互 seam 放在一起消费），以及 `tui`——这个交互通道是该平面最重的提供方与消费方（对 `commands` 与 `user-interaction` 均有对等依赖边），而一个单包 `tui/` 组会把一个顶层名字花在一个插件上。
-- **`boot/`** 是角色完备的单包组：不归属任何通道也不归属任何组装的共享 bin boot 胶水（被 `apps/cli`、`scaffold/` 的启动器和 `examples/` 各演示 bin 消费）。
-- **`scaffold/`** 是开发者工具家族：项目 helper、启动器、初始化器、连同两端的通信协议（`server` 即原先的 `ui/jsonrpc`），以及启动器侧 telemetry。从 `sdk/` 改名：整个 `packages/` 树本身就是 SDK，树里再放一个叫 `sdk/` 的组等于什么都没说；`scaffold/` 说出了「创建／启动／驱动项目」这一实际角色。目录去掉遗留的 `sdk-` 前缀（`protocol`、`client`、`server`），与 `client/`/`host/` 的角色命名风格一致；在推迟的改名落地之前，受影响的三个 npm 名在 `tsconfig.base.json` 里于组通配符旁显式映射。
+- **`boot/`** 是角色完备的单包组：不归属任何通道也不归属任何组装的共享 bin boot 胶水（被 `apps/cli` 与 `examples/` 各演示 bin 消费）。
 - **`guard/`** 保留其文档记载的角色（循环卫生守卫），并新纳入强制执行工具调用超时的包；那个与 `util/timeout` 撞名的单包组 `timeout/` 随之解散。
 - **`self-modification/`** 把 `cordis/` 遮蔽掉的角色说了出来：它是 agent（智能体）检查并挂载自身实时运行时中插件所用的工具集，也是未来自我修改类包的落点。
 
@@ -40,35 +37,30 @@ Status: implemented
 
 ## Deferred renames (FIXME markers)
 
-五个 npm 名最终应当改掉，但在这次重组内部改名，会把一个纯移动的 PR（Pull Request）变成大量翻改 import 的 PR。因此每个受影响包的模块 JSDoc 里带有一条 `FIXME`，写明意图中的新名字。`FIXME` 会阻塞打 tag 的发布（[标记语义](../../../../docs/development.md)），这正是想要的倒逼机制：只有趁还没有外部消费方使用这些包时，这些改名才是零成本的。
+两个 npm 名最终应当改掉，但在这次重组内部改名，会把一个纯移动的 PR（Pull Request）变成大量翻改 import 的 PR。每个受影响包的模块 JSDoc 里带有一条 `FIXME`，写明意图中的新名字。`FIXME` 会阻塞打 tag 的发布（[标记语义](../../../../docs/development.md)），这正是想要的倒逼机制：只有趁还没有外部消费方使用这些包时，这些改名才是零成本的。移除未发布的 SDK 项目工具链时，另外三个包及其改名标记一并删除，没有为已经不存在的代码保留包名。
 
 | 当前 npm 名 | 目标名 | 原因 |
 |---|---|---|
 | `@deepseek-ai/dsh-jsonrpc` | `@deepseek-ai/dsh-sdk-server` | 名字说的是协议编码而非角色；它是 SDK 协议的服务端一半 |
-| `@deepseek-ai/dsh-telemetry` | `@deepseek-ai/dsh-sdk-telemetry` | 与 `dsh-session-telemetry` 家族撞名；它是启动器侧 SDK telemetry |
-| `@deepseek-ai/dsh-helper` | `@deepseek-ai/dsh-sdk-helper` | 作为公开发布名空泛得站不住脚 |
-| `@deepseek-ai/dsh-scripts` | `@deepseek-ai/dsh-sdk-scripts` | 同上 |
 | `@deepseek-ai/dsh-timeout-policy` | `@deepseek-ai/dsh-timeout-guard` | 仅为建议、尚未定案：使名字与其 `guard/` 归属对齐；到解决时再定 |
-
-前四个是已定的意图；兑现之后，SDK 通信栈的 npm 名随之收敛为 `dsh-sdk-*`（npm 前缀指产品栈，`scaffold/` 目录名指角色）。`@deepseek-ai/create-sdk` 保留其文档记载的 npm 初始化器特例。
 
 ## What the move touched
 
-移动以纯 `git mv` 形式落地，历史由重命名检测承载。组移动触及了：被移动包的 `tsconfig.json` 相对 `references` 及每个依赖方的对应条目（含 `apps/cli` 的 project references）；tsconfig 聚合与路径映射；各组 README（五组新的双语三文件配对、被解散组的 README 删除、[packages/README.md](../../../../packages/README.md) 的层级结构表、根 `AGENTS.md` 的布局图）；重新生成的产物（`docs/module-graph.md`、内嵌路径的目录、锁文件的 importer 键）；以及散文与门禁脚本中以仓库根为基准的 `packages/...` 引用。其余每一处组路径引用（workspace 配置、测试 glob、lint 键）都由验收门禁的响亮失败机械地找了出来——这正是本仓库自己的「配置错误必须响亮失败」规则。
+移动以纯 `git mv` 形式落地，历史由重命名检测承载。组移动触及了：被移动包的 `tsconfig.json` 相对 `references` 及每个依赖方的对应条目（含 `apps/cli` 的 project references）；tsconfig 聚合与路径映射；各组 README；[packages/README.md](../../../../packages/README.md) 的层级结构表；根 `AGENTS.md` 的布局图；重新生成的产物（`docs/module-graph.md`、内嵌路径的目录以及锁文件的 importer 键）；以及散文与门禁脚本中以仓库根为基准的 `packages/...` 引用。其余每一处组路径引用（workspace 配置、测试 glob、lint 键）都由验收门禁的响亮失败机械地找了出来——这正是本仓库自己的「配置错误必须响亮失败」规则。
 
 组移动未触及：npm 包名、import、`cordis.yml` 配置、快照 fixture（测试前置数据）、`pnpm-workspace.yaml` 与 `tsdown` 的 glob（都是 `packages/*/*`），以及 Python 运行时 manifest（元数据清单）——它们全部按 npm 包名引用包。
 
-`client/` 与 `host/` 不在本次范围内，保持不变。`experimental/` 组提案（PR #844）与本案正交：它是发布边界容器，不是聚类决策。
+`client/` 与 `host/` 不在本次范围内，保持不变。
 
 ## Alternatives considered
 
-**粗粒度领域桶**（`exec/` = subprocess+sandbox+bash+pty+code-runtime，`workspace/` = fs+lsp+workspace，`orchestration/` = subagent+workflow+tasks，`knowledge/` = web+skill，`collab/` = plan+todo+goal；约 16 个组）。不予采纳：实测依赖图与这些合并相矛盾。`sandbox` 和 `subprocess` 是被各家族跨界消费的共享基础设施（与 bash ×5、fs ×5、pty、lsp、mcp、subagent、scaffold 均有依赖边），`web` ↔ `skill` 之间零依赖边，而大桶只会在更大尺度上复现 `ui/` 式大杂烩。
+**粗粒度领域桶**（`exec/` = subprocess+sandbox+bash+pty+code-runtime，`workspace/` = fs+lsp+workspace，`orchestration/` = subagent+workflow+tasks，`knowledge/` = web+skill，`collab/` = plan+todo+goal；约 16 个组）。不予采纳：实测依赖图与这些合并相矛盾。`sandbox` 和 `subprocess` 是被各家族跨界消费的共享基础设施（与 bash ×5、fs ×5、pty、lsp、mcp 及 subagent 均有依赖边），`web` ↔ `skill` 之间零依赖边，而大桶只会在更大尺度上复现 `ui/` 式大杂烩。
 
 **抽象分层名**（`capability/`、`policy/`、`extension/`、`provider/`）。不予采纳：这些名字对每个插件都同样地不达意，而且一个 `capability/` 桶会装下约 50 个包。
 
 **一轮全量 npm 重命名**（每个包都改为 `dsh-<group>-<pkg>`）。不予采纳：npm 包名是扁平的，加组前缀只会在 import、配置和 fixture 之间制造改动，却换不来任何消歧收益；用 FIXME 跟踪的定点改名足以覆盖真正的撞名。
 
-**在重组内部一并完成那五个改名。** 不予采纳：改名会成倍放大开放 PR 的冲突，并破坏纯移动的评审属性。FIXME 标记让这些改名保持为可见的发布阻塞项，留待以小型后续 PR 逐一解决。
+**在重组内部一并完成推迟的改名。** 不予采纳：改名会成倍放大开放 PR 的冲突，并破坏纯移动的评审属性。剩余的 FIXME 标记让这些改名保持为可见的发布阻塞项，留待以小型后续 PR 逐一解决。
 
 **会话两分法**（`session-core/` + `session-utils/`）。不予采纳：query 放哪一侧都不干净，而且 `session-core` 容易与 `core/session` 混淆（后者是 `dsh-session`，常驻内存的实时服务，留在 `core/` 不动）。
 
@@ -78,9 +70,7 @@ Status: implemented
 
 **独立的单包 `tui/` 组。** 不予采纳：`tui` 是交互平面最重的提供方／消费方（对 `commands`、`user-interaction` 有对等依赖边），把一个顶层名字花在一个插件上只添组不添信息；它折入 `interaction/`。
 
-**保留组名 `sdk/`。** 不予采纳：整个 `packages/` 树本身就是 SDK，树里的 `sdk/` 组毫无区分度——与 `cordis/` 同病。`scaffold/` 说出了实际角色（从外部创建、启动、驱动项目）。
-
-**把 `app-boot` 挪到 `apps/`。** 不予采纳：`apps/` 是包层之上的组装层，而 `dsh-app-boot` 是被包层代码 import 的库（`scaffold/scripts` 的启动器对它声明对等依赖）——放进 `apps/` 会颠倒层级，并把一个 workspace 库放到 `packages/*/*` 构建 glob 之外。它仍是一个包；`boot/` 是它角色完备的家。
+**把 `app-boot` 挪到 `apps/`。** 不予采纳：`apps/` 是包层之上的组装层，而 `dsh-app-boot` 是包层的库——放进 `apps/` 会颠倒层级，并把一个 workspace 库放到 `packages/*/*` 构建 glob 之外。它仍是一个包；`boot/` 是它角色完备的家。
 
 **把 `tool-cordis` 挪进 `core/`。** 不予采纳：自我修改是独立的产品 seam，预期还会生长；主干保持精简。该组最初命名为 `self-evolve/`；名字最终定为更朴素的 `self-modification/`。
 
@@ -88,9 +78,9 @@ Status: implemented
 
 ## Consequences
 
-- 目录树与映射表一致：重组的六个组恰好持有所列成员；`ui/`、`sdk/`、`telemetry/`、`timeout/`、`cordis/`、`session-persistence/`、`session-projection/`、`session-title/` 这些组不复存在；其余每个组的内容不变。workspace 的包名集合在前后完全相同（npm 改名为零），五条 FIXME 标记钉住推迟的改名。日后若某条 FIXME 被证明不对，必须连同理由显式移除，绝不允许无声消失。
+- 五个仍然有效的重组家族持有所列成员；`ui/`、`telemetry/`、`timeout/`、`cordis/`、`session-persistence/`、`session-projection/`、`session-title/` 这些组不复存在。重组本身没有更改 npm 名。后续移除 SDK 工具链的决策有意改变包集合，并恢复 `sdk/` 作为运行时 SDK 三包的精确归属。两条 FIXME 标记钉住剩余的推迟改名；日后若某条 FIXME 被证明不对，必须连同理由显式移除，绝不允许无声消失。
 - 结果由以下检查钉住：`pnpm run typecheck`、每个被移动组的单元测试套件、`verify-package-paths`、`verify-md-links` 与全语料翻译配对在移动后的树上全部通过；`vitest.snapshot.config.ts` 中按组划定的测试 glob 随移动一并改写，套件收集到与移动前相同的测试文件（glob 匹配为空会无声地丢失覆盖）。
 - 每个触碰被移动文件的开放 PR 都跨过这次移动做一次变基；重命名检测可机械化解决大多数改动块。
 - 单包组依然存在（`boot/`、`self-modification/`，以及 `acp/` 等既有单包组）。这是有意接受的：每个都是角色完备的整体而非某个家族的碎片，一个名实相符的小组胜过一次徒有其名的合并。
-- 在推迟的改名落地之前，`scaffold/` 的目录名与其 npm 名并不一致——这是唯一的过渡性不对称，由 `tsconfig.base.json` 里三条显式 `paths` 映射承载，并由 FIXME 改名最终消除。
+- `sdk/` 的角色目录在 `tsconfig.base.json` 中显式映射到各自的 npm 名；在 `dsh-jsonrpc` 完成改名之前，`server/` 的映射仍是过渡性的。
 - **这次变更放弃了什么：** 功能上一无所失——变更只关乎导航。肌肉记忆和指向旧 GitHub 路径的外部链接会失效；在 pre-release、尚无外部消费者的前提下，这可以接受。

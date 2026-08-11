@@ -2,7 +2,7 @@
 
 [English](http-server.md) | 中文
 
-[dsh-host-webserver](../../packages/host/webserver) 是 GUI 宿主 web 形态的 HTTP 载体：单个提供 `ctx.httpServer` 的 `node:http` 插件，由具名路由注册表、index.html 转换挂点与单一可认领的回退席位组成。它不属于 agent loop（智能体循环）主干，也不是能力 seam：它不了解任何 harness 概念，每个功能表面（`/api` 桥接、插件 bundle、HMR（热模块替换）事件流）都是由其他插件注册的一条路由（[分层说明](../../.agents/notes/implemented/architecture/2026-07-19-gui-layering-and-rpc-protocol.md)）。仅限 web（浏览器）形态：Electron 通过 `file://` 加载 dist，并经 IPC 桥接承载 fetch，不经过本服务器。
+[dsh-host-webserver](../../packages/host/webserver) 是 GUI 宿主的浏览器 HTTP 载体：它是一个提供 `ctx.httpServer` 的 `node:http` 插件，包含具名路由注册表、index.html 转换回调，以及一个可由插件认领的回退处理器。它不属于 agent loop（智能体循环），也不是能力 seam；它不了解任何 harness 概念。其他插件负责注册所有功能路由，包括 `/api` 桥接、插件 bundle 和 HMR（热模块替换）事件流（[分层说明](../../.agents/notes/implemented/architecture/2026-07-19-gui-layering-and-rpc-protocol.md)）。该服务器只服务浏览器：Electron 通过 `file://` 加载已构建文件，并经 IPC 桥接发送 fetch 请求，不使用本服务器。
 
 源码：[`packages/host/webserver/src/index.ts`](../../packages/host/webserver/src/index.ts)
 
@@ -42,7 +42,7 @@ interface Config {
 
 ## 服务
 
-`HttpServerService`（`ctx.httpServer`）在激活时立即监听；监听失败（EADDRINUSE 等）会从 init 抛出，形成一个 FAILED fiber，由启动的大声失败 sweep 上报。`register(route)` 添加一条具名路由并返回其 disposer；重复的 `(kind, path)` 抛出异常，因为路由模式是组合层约定，冲突即配置错误。`tapIndex(transform)` 添加一个纯的 html 到 html 转换，按注册顺序应用于每个 index 响应（`/` 和每次 SPA 回退）；[dsh-client-modules](../../packages/client/modules) 用它注入启动 manifest（元数据清单）。`port` 读取监听端口，`config.port` 为 0 时读到的是操作系统分配的值。
+`HttpServerService`（`ctx.httpServer`）在激活时立即监听；监听失败（EADDRINUSE 等）会使初始化被拒绝，启动进程会报告失败的 fiber。`register(route)` 添加一条具名路由并返回其 disposer；重复的 `(kind, path)` 抛出异常，因为路由模式是组合层约定，冲突即配置错误。`tapIndex(transform)` 添加一个纯的 html 到 html 转换，按注册顺序应用于每个 index 响应（`/` 和每次 SPA 回退）；[dsh-client-modules](../../packages/client/modules) 用它注入启动 manifest（元数据清单）。`port` 读取监听端口，包括 `config.port` 为 0 时操作系统分配的端口。
 
 处理过程中抛出异常的请求（畸形的 % 转义撞上 `decodeURIComponent`、客户端在请求体中途断开）会记录为警告并应答 400（响应头已发出时则销毁 socket），绝不导致进程退出。dispose（资源释放）把 `close()` 与 `closeAllConnections()` 配对使用，因为处理器可能像 SSE（Server-Sent Events）那样保持响应打开，而这类连接永远不会自行结束；没有强制关闭，拆卸就会挂起。该包（package）从不打印输出：URL 行归 shell 所有。逐包运维细节（含开发模式的 bundle 监视流水线）留在 [README](../../packages/host/webserver/README.md) 中。
 
@@ -50,15 +50,15 @@ interface Config {
 
 <a id="cordis-surface"></a>
 
-## Cordis surface
+## Cordis API
 
-Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` surface lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
+Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
 
 <a id="ctxhttpserver--httpserverservice"></a>
 
 ### `ctx.httpServer` — `HttpServerService`
 
-The web-shape HTTP carrier service. Activation listens immediately (route registration order carries no request-facing semantics: named routes are composed to be disjoint, and the fallback seat answers anything not yet claimed during the boot window — 404 until its owner registers). A listen failure throws out of init — a FAILED fiber the boot's fail-loud sweep reports.
+The browser HTTP carrier service. Activation listens immediately. Route registration order does not affect requests because configured named routes must be distinct, and the fallback handler answers anything not yet claimed during startup with 404 until its owner registers. A listen failure rejects initialization, and the boot process reports the failed fiber.
 
 ```ts cordis-catalog
 /**
@@ -104,5 +104,5 @@ tapIndex(transform: (html: string) => string): () => void
 applyIndexTaps(html: string): string
 ```
 
-Source: [`packages/host/webserver/src/index.ts:60`](../../packages/host/webserver/src/index.ts)
+Source: [`packages/host/webserver/src/index.ts:59`](../../packages/host/webserver/src/index.ts)
 <!-- END GENERATED cordis-surface -->

@@ -14,6 +14,8 @@
 - `ctx.agentPresets.list(): Promise<AgentPreset[]>` 当前各根目录提供的全部 preset；id 重复时靠前的根目录胜出；损坏的 preset 也在其中，各自携带原因。
 - `ctx.agentPresets.resolve(id?): Promise<AgentPreset>` 按 id 取一个 preset，缺省取 `defaultId`。没有任何根目录提供该 id 时抛错，并列出可用 id。损坏的 preset 照样解析——删除、读取与上报都需要这一行。
 - `ctx.agentPresets.mount(agentCtx, id?): Promise<AgentPreset>` 用一个 preset 组装一个 agent——确保其常驻挂载（并发去重）并把 agent 的 scope key 认父到它——返回该 preset 供调用方记录。对损坏的 preset 直接以发现时记下的原因拒绝，所以每种不可加载的形态都在加载器介入之前以同一方式失败。
+- `ctx.agentPresets.composeFrom(agentCtx, parentCtx): string | undefined` 让一个 agent 加入另一个 agent 已在运行的常驻组装，返回所加入的 preset id——父方未加入任何 preset 时返回 `undefined`，那是无 roster 的部署，不是错误。这是认父而非挂载，因此同步、且自身没有组装失败模式；调用方用错（上下文无 scope、agent 已加入过）仍会拒绝。
+- `ctx.agentPresets.composedPreset(agentCtx): string | undefined` 某个**活着的** agent 正在运行的 preset，从其 scope 链读取而不是从其会话读取——对于持久化 header 尚在构建中的 agent，这是唯一能拿到的答案。
 - `ctx.agentPresets.recompose(agentCtx, id): Promise<AgentPreset>` 把一个 agent 重链到另一个 preset 的常驻组装。仅在该 agent 尚无任何产出时合法——**由调用方负责该检查**；新挂载在链移动之前确保完成，失败时 agent 原封不动。与 `mount()` 一样拒绝损坏的 preset。
 - `ctx.agentPresets.standingKeyFor(id?): Promise<ScopeKey>` 没有 agent 的宿主读取方（冷读记录）解析 preset 注册所用的常驻 scope key；确保挂载而不启动任何 agent、会话或轮次。与 `mount()` 一样拒绝损坏的 preset。
 - `ctx.agentPresets.authorable: boolean` 是否有任一配置根目录具备 `user` 信任级别，因而 preset 是否可创建。
@@ -26,6 +28,14 @@
 ### 应在何处调用 `mount()`
 
 agent 工厂的 `setup(agentCtx)` 钩子是唯一受支持的调用点。只有在那里，认父是在 agent 尚未发布时完成的，因此组装被拒绝会让整次创建回滚，而不会留下一个组装到一半的会话。常驻子树归 roster 服务自己的 fiber 所有——刻意用其未追踪的上下文，因为从被追踪的 `this.ctx` 派生的子树会经调用方的 shadow fiber 解析一切服务、无视各 entry 自己的 inject store——所以它比任何 agent 都活得久，只随整棵树卸载。每个代际记录其组装文件的 stamp（mtime 与大小）：发现 stamp 过期的会话会开启下一个代际，而所有已加入的会话保持各自正在运行的那个——正在运行的会话所加入的组装在其文件被修改或删除后继续存活；文件是唯一的组装编辑器，stamp 正是把编辑送达后续会话的机制。
+
+### 组装子 agent
+
+subagent 的子 agent 通过 `composeFrom()` 加入其父方的常驻组装，绝不走 `mount()`。所有面向模型的行都在 agent 平面，工具注册表的全局层是空的，因此没有加入任何组装的子 agent 抵达模型时既没有任何工具，也没有父方的任何提示段。
+
+按 id 重新挂载父方的 preset 与认父有两处差别，且两处都要紧。父方启动后被编辑过的组装文件会把与父方历史所产出时**不同**的一个代际交给子 agent；而此后被删除的 preset 会让子 agent 直接失败，尽管其父方仍在正常运行。认父还是同步的，这正是进程内 subagent 驱动能够使用它的前提——它们在同步的创建窗口里组装子 agent。
+
+子 agent 会把所加入的 id 记在自己的持久化 header 上（见 [`dsh-subagent`](../../subagent/subagent/README.md)），因此冷读子 agent 的历史时重建的是它实际运行过的组装，而不是部署默认值。
 
 ### 会话实际运行的是哪个 preset
 
@@ -55,13 +65,15 @@ agent 工厂的 `setup(agentCtx)` 钩子是唯一受支持的调用点。只有�
 
 **相对**路径仍从 preset 自身的目录解析，因此 preset 自带的插件文件与 skill 目录会随它一同迁移。
 
+**绝对**文件系统路径则保留其自身位置。挂载会先将它转换为 `file:` URL 再交给 ESM 导入，从而使 POSIX 路径和 Windows 盘符或 UNC 路径都采用 Node 能够接受的说明符。
+
 ### 展示用元信息
 
 preset 可以在组装文件旁的可选 `preset.yml` 里发布展示文本：
 
 ```yaml
 name: 极简模式
-description: 只向模型呈现 bash 与 str_replace_editor，适合 benchmark 与最小复现。
+description: 仅提供持久 bash 与 str_replace_editor 的双工具编码 Agent。
 ```
 
 它**只**承载展示文本。`id` 是目录名，`trust` 取自 preset 被发现时所在的根目录，两者都不可写在这里——否则本地创作的 preset 就能把自己命名进随附集合。之所以是独立文件：组装是插件行的顶层列表，YAML 无法在其旁携带同级键，而伪造一个元信息行等于递给 Loader 一个要加载的东西。
@@ -121,7 +133,8 @@ Indirectly, through the plugins a standing composition registers, which own ever
 ## Known Limitations and Deferred Work
 
 - **会话一旦产出内容便无法更换 preset** —— `recompose` 把**空白**会话的父作用域重链到另一个常驻挂载，且仅限空白会话：切换已运行过的组装会抽走模型已调用的工具。更改默认值只影响此后创建的会话。
-- **代际只以组装文件为键** —— stamp 检查只察觉 `agent.cordis.yml` 的变化，察觉不到旁边 skill 文件或资产的编辑；那些编辑要等组装文件本身变动或进程重启才达到新会话。已加入的会话保持其代际，进程存活期间不回收被替代的代际（上限取决于组装被编辑的频率，而非会话数）。
+- **代际只以组装文件为键** —— stamp 检查只察觉 `agent.cordis.yml` 的变化，察觉不到旁边 skill 文件或资产的编辑；那些编辑要等组装文件本身变动或进程重启才达到新会话。
+- **被替代的代际永不回收** —— 已加入的会话保持其运行所在的代际，而名单没有加入计数可以判断最后一个何时离开，因此整棵子树一直挂到进程结束。代价按代际计而非按会话计，但并非为零：`dsh-skill-local` 默认监听自己的根目录，因此每一轮「编辑后建会话」都会新增一套活的 watcher。上限取决于组装被编辑的频率——而设置页的编写流程把这件事从「每次部署」变成了「每次保存」。要回收就需要给常驻挂载加上已加入 agent 的计数；见 `ensureStanding` 处的 `TODO`。
 - **副本从不被实际挂载以校验** —— 它与来源逐字节相同，因此磁盘上已坏的来源会产出与来源同样损坏的副本；发现过程的健康检查会在下一次读取名单时把两行都标出来，而不是把失败推迟到会话启动。
 - **健康是形状检查，不是挂载** —— 发现过程只证明组装能以加载器方言解析、由具名行组成，不证明每一行的模块都能解析并激活；引用不存在的包的行仍在第一个会话处失败，并回滚该会话的创建。
 - **副本是会漂移的快照** —— 升级部署不会更新随附 preset 的副本，本层也没有表达「standard 加一处改动」的 patch 语义（那是 bundle 层 `cordis.patch.yml` 的能力）；随附集合自己也接受同样的代价——`cordis` 与 `code` 就是 `standard` 的完整副本——换来整份组装在一个文件里可读。

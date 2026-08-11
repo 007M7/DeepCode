@@ -17,11 +17,11 @@ Status: implemented
 - **`dsh-bash-local`（Consumer）**——`inject: ['subprocess']`；把每个解析后的 `BashExecSpec` 映射为一个 `SubprocessSpawnSpec`（`['bash', '-c', command]`），并保留自身配置、`resolve()` 默认值补全、基于融合 deadline 的 `timedOut`/`aborted` 分类、带 `[stderr]` 标记的后台读取合并及其消费游标，以及 `onProcessDone` 子类钩子。`dsh-bash-sandbox` 除了重新声明继承来的 inject 之外没有变化；它仍在命令字符串层面做包装，并重新进入继承的 spawn 路径。
 - **`dsh-bash`（Service Definition）**——把迁走的词汇从 `dsh-subprocess` 重导出，因此没有任何 bash Consumer 需要改动导入；`BashExecRequest`/`BashExecSpec`/`BashProcess` 与沙箱事实仍归 bash 所有。
 
-如今，每个加载 bash 执行器的组合都同时加载 `@deepseek-ai/dsh-subprocess-local`：CLI（命令行界面）、各示例、Python 捆绑运行时、create-sdk 的 bash 功能资源，以及各内联测试配置。
+每个加载 bash 执行器的组合都同时加载 `@deepseek-ai/dsh-subprocess-local`：CLI（命令行界面）、各示例、Python 捆绑运行时以及各内联测试配置。
 
 后台进程的存续期从执行器移到了管理器：执行器不再保有存活进程集合，于是重载执行器后，后台工作会继续运行且仍可读取，而组合拆除（管理器的 dispose）仍是先终止再等待退出的边界。一条行为约定随之挪动：后台 spawn 失败不再能在管道内部被缓冲成伪造的 stderr（对一个从未真正运行的进程，管理器会 reject `done`，且不缓冲任何内容），因此执行器把 `spawn failed: …` 提示注入恰好一个 `readOutput()` 增量。
 
-基于已观察到的流与生命周期需求，具备条件的进程消费方随后迁到该 seam：LSP 使用管道化协议流加收集式 stderr 尾部；ACP（Agent Client Protocol）后端使用管道化 ndjson、继承式 stderr 和消费方拥有的 stdin-EOF dispose 阶梯；PTY 使用 `spawnTerminal()`，同时保留就绪与终端策略。`dsh-subagent-subprocess` 与 LSP 私有进程树辅助函数均被删除。MCP 传输 spawn、SDK 包管理器运行器、同步 TUI Git 探测和刻意保持轻依赖的 test-support 启动器因所有权或执行形状仍留在外部；适用的生产调用方共享凭据清除。
+基于已观察到的流与生命周期需求，具备条件的进程消费方随后迁到该 seam：LSP 使用管道化协议流加收集式 stderr 尾部；ACP（Agent Client Protocol）后端使用管道化 ndjson、继承式 stderr 和消费方拥有的 stdin-EOF dispose 阶梯；PTY 使用 `spawnTerminal()`，同时保留就绪与终端策略。`dsh-subagent-subprocess` 与 LSP 私有进程树辅助函数均被删除。MCP 传输 spawn 和刻意保持轻依赖的 test-support 启动器因所有权或执行形状仍留在外部；适用的生产调用方共享凭据清除。
 
 ## 曾考虑的替代方案
 
@@ -31,7 +31,7 @@ Status: implemented
 
 **用单个 `stdio: 'pipe' | 'inherit' | 'collect'` 模式统一全部流。**否决：真实消费方按流混用模式——LSP 使用 pipe/pipe/collect，ACP 使用 pipe/pipe/inherit，Bash 使用 data/collect/collect。
 
-**把每一次进程启动都路由到 `ctx.subprocess`。**否决：MCP SDK 拥有其传输 spawn，SDK 向导没有 Cordis 上下文且需要继承式重定向，TUI 探测是同步的，support 启动器则刻意独立于产品 seam。PTY 分配迁到 `spawnTerminal()`，因为这项底层专用原语归提供方而非消费方所有。
+**把每一次进程启动都路由到 `ctx.subprocess`。**否决：MCP SDK 拥有其传输 spawn，support 启动器则刻意独立于产品 seam。PTY 分配迁到 `spawnTerminal()`，因为这项底层专用原语归提供方而非消费方所有。
 
 **改把 `run_in_background`/任务语义放进 subprocess 能力 seam。**否决：那条边界已经存在。`ctx.tasks` 拥有 id、所有权与通知，bash 工具则把 `BashProcess` 适配成任务钩子。subprocess seam 位于 bash 执行器*之下*，而不是与任务注册表并列。
 

@@ -8,7 +8,7 @@
 
 ```ts
 import { readFile } from 'node:fs/promises'
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 
 export const name = 'my-tool'
@@ -50,13 +50,13 @@ export function apply(ctx: Context) {
 
 ## 长时间运行的工作
 
-通过 producer 配置控制 `run_in_background`，然后使用 `ctx.tasks.start({ kind, label, owner: exec.agent, run })` 注册任务。注册表会在进入 producer 主体前将已预先中止的调用判为失败；运行时会在 `run()` 启动工作前校验 owner 和控制面是否可用，随后提供 id、会话围栏、通用控制工具、通知和 owner cleanup。成功的后台分支会返回类型化的规范句柄，如 `{ kind: 'background', taskId }`；其 Native 渲染器可以保留 `started background task bash-1` 这类供人阅读的自然语言，但 Code Mode 绝不能通过解析该文本取得 id。
+通过 producer 配置控制 `run_in_background`，然后使用 `ctx.tasks.start({ kind, label, owner: exec.agent, run })` 注册任务。注册表会在进入 producer 主体前将已预先中止的调用判为失败；运行时会在 `run()` 启动工作前校验 owner 和任务控制器是否可用，随后提供 id、会话围栏、通用控制工具、通知和 owner cleanup。成功的后台分支会返回类型化的规范句柄，如 `{ kind: 'background', taskId }`；其 Native 渲染器可以保留 `started background task bash-1` 这类供人阅读的自然语言，但 Code Mode 绝不能通过解析该文本取得 id。
 
 producer 提供同步的 `cancel`、在资源清理后 settle 且不 reject 的 `done`，以及可选的消费式 `readOutput`（负责有界输出的格式化）。预先中止的调用属于失败，因为此时没有任务，其 id 无法满足成功输出 schema。`ctx.tasks.start()` 发布 id 后，应使用任务自有的取消信号，而不是 `exec.signal`：之后取消外层调用只会停止等待本次调用，不会终止已经发布的工作；该生命周期归 `task_kill`、owner dispose 和服务 teardown 所有。前台工作仍与 `exec.signal` 耦合。流式 producer 的示例和完整约定见[后台 task 运行时 Agent Note](../../.agents/notes/implemented/architecture/2026-06-20-generic-long-running-tool-runtime.md)与 `dsh-tool-bash`。
 
 ## 执行策略与观测
 
-尽量不要把部署策略内建到工具中。使用 `tools/pre-execute` 实现可扩展的允许／拒绝／询问策略（见[权限门禁示例](extension-cookbook.md#a-hook-plugin-permission-gate-example)）；使用 `ctx.tools.guard()` 设置最终的单调拒绝，后续监听器无法撤销；使用 `tools/execute` 为规范分发包装截止时间／重试／指标作用域；使用 `tools/post-execute` 替换展示内容或规范值、阻止调用，或附加模型可见上下文；使用 `tools/result` 观测不可变的归一化结果而不改变它。替换内容不会阻止程序化访问 `value`；保密策略必须阻止调用或替换值。沙箱实现也可以位于工具执行器的能力 seam 之后；确切约定见 [`dsh-tools` README](../../packages/core/tools/README.md#extension-points)。
+尽量不要把部署策略内建到工具中。使用 `tools/pre-execute` 实现可扩展的允许／拒绝／询问策略（见[权限门禁示例](extension-cookbook.md#a-hook-plugin-permission-gate-example)）；使用 `ctx.tools.guard()` 设置最终的单调拒绝，后续监听器无法撤销；使用 `tools/execute` 为分发添加截止时间、重试或指标收集；使用 `tools/post-execute` 替换展示内容或返回值、阻止结果，或附加模型可见上下文；使用 `tools/result` 观测不可变的归一化结果而不改变它。替换内容不会阻止程序化访问 `value`；保密策略必须阻止调用或替换值。沙箱实现也可以在工具的执行器实现中运行；[`dsh-tools` README](../../packages/core/tools/README.md#extension-points) 定义每个扩展点的输入、顺序、返回值和失败行为。
 
 ## Code Mode 自动触达你的工具
 
@@ -85,7 +85,7 @@ producer 提供同步的 `cancel`、在资源清理后 settle 且不 reject 的 
 
 - **纯函数。** 这些方法在实时流式输出和会话日志回放时都会运行，因此必须是 `args`（加 result）的纯函数——不做 I/O、不读会话状态、不用时钟/随机数。diff 从 args 派生（`write` 使用 `oldText: null`，因为调用时的展示器没有文件先前内容）；会话上下文由 UI 适配器而非工具提供。如果你发现自己想在 `presentCall` 内获取文件旧内容或工作目录，请停下：那属于持久结果元数据或适配器，不属于展示器。
 - **UI 格式不进入模型结果。** 围栏 ` ```console ` 块、diff、相对化路径均不应仅为服务 UI 而进入规范值或 Native 内容。`output.render` 负责模型可见的自然语言；`presentationMeta` 和卡片展示器负责可回放的 UI 状态。`terminal` 结果视图携带原始输出，由适配器按需添加回退格式。
-- **`defineTool` 对展示路径做软校验。** 格式错误或旧版日志中的 arg 形态会使包装器返回 `undefined`（通用回退）而非抛异常——展示绝不能导致回放崩溃。
+- **`defineTool` 对展示路径做软校验。** 格式错误或旧版日志中的参数会使包装器返回 `undefined`（通用回退）而非抛异常——展示绝不能导致回放崩溃。
 
 中性词汇定义在 `dsh-tools` 中；工具绝不导入 UI 或传输类型。host/client 运行时将每个 `card` 映射到各自的视图。设计与原因见[渲染意图联合体 Agent Note](../../.agents/notes/implemented/architecture/2026-07-02-tool-render-intent-union.md)；`dsh-tool-fs`（generic/diff）和 `dsh-tool-bash`（terminal）是参考实现。
 

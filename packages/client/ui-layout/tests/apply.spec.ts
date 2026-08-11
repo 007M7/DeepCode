@@ -3,10 +3,10 @@
 // ONE register() call declares the three child slots + seats the store factory
 // + wires the panel actions through the inject hook; teardown cascades
 // (service unprovided + declarations gone + registration cleared). Node half
-// and the invariant companion ride along — one-line surfaces the aggregate
+// and the invariant companion ride along — one line exposes the aggregate
 // coverage gate still requires exercised.
 
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
 import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
@@ -22,9 +22,10 @@ beforeEach(() => {
 async function bench() {
   const ctx = new Context()
   const slotsFiber = ctx.plugin(SlotsService)
-  // Theme now injects ['slots', 'locale'] (it registers its Appearance
-  // settings row); seat a real locale service so the theme fiber activates.
+  // Theme registers its Appearance settings row and requires the connection
+  // seam for persistence; model this bench as a remote, memory-only browser.
   ctx.provide('locale', new LocaleService(ctx))
+  ctx.provide('connection', { api: { settings: {} }, isLoopback: false } as never)
   await ctx.plugin({ inject: themeInject, apply: themeApply }).await()
   await slotsFiber.await()
   return { ctx, slots: ctx.get('slots') as SlotsService }
@@ -110,7 +111,7 @@ describe('node half + invariant companion', () => {
     const register = vi.fn().mockReturnValue(() => {})
     const ctx = { invariants: { register } } as never
     // The /invariant subpath types live in lib/types (build product); assert
-    // the surface so the call stays typed where lint runs without a build.
+    // the API so the call stays typed where lint runs without a build.
     const dispose = await (invariant as { apply: (ctx: never) => Promise<() => void> }).apply(ctx)
     expect(register).toHaveBeenCalledWith('@deepseek-ai/dsh-client-ui-layout', expect.any(Function))
     // The installer is the declared no-op — calling it must not throw.

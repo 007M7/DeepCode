@@ -6,8 +6,8 @@
  * @module @deepseek-ai/dsh-web
  */
 
-import { Context, Service } from 'cordis'
-import z from 'schemastery'
+import { Context, Service } from '@deepseek-ai/cordis'
+import z from '@deepseek-ai/schemastery'
 import type {
   WebFetchProvider,
   WebFetchRequest,
@@ -32,7 +32,7 @@ export type {
   WebSearchSource,
 } from './types.ts'
 
-declare module 'cordis' {
+declare module '@deepseek-ai/cordis' {
   interface Context {
     web: WebService
   }
@@ -133,7 +133,7 @@ export class WebService extends Service {
    * time with the selection rules above; throws {@link WebError} when the
    * capability cannot run. The seam enforces `request.maxResults` on the result:
    * if the provider over-returns, `sources[]` is truncated and `truncated` set.
-   * @param request - the query plus result-shaping options.
+   * @param request - the query and optional result limit.
    * @param signal - optional cancellation signal forwarded to the provider.
    * @returns the provider's results, capped to `request.maxResults`.
    */

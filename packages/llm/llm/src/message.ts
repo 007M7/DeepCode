@@ -30,8 +30,8 @@ export interface ToolMessageSource {
 }
 
 /**
- * What SHAPE of information a producer-supplied context carries, declared by
- * the producer beside the source fields it supplied.
+ * The kind of information in producer-supplied context, declared by the
+ * producer beside its provenance.
  *
  * `MessageSource.kind` answers *who produced this*; `form` answers *what kind
  * of thing it is*, and the two axes are deliberately independent — several
@@ -69,10 +69,10 @@ export interface ContextSnapshotSection {
 
 /**
  * Producer-declared {@link ContextForm} and the fields that form requires,
- * mixed into the source shapes that carry one.
+ * mixed into the source types that carry one.
  *
- * Discriminated by `form` so a producer cannot declare a shape without the
- * facts that shape is presented from: a `notice` must record its one-line
+ * Discriminated by `form` so a producer cannot select a form without the
+ * fields needed to present it: a `notice` must record its one-line
  * account, a `snapshot` its sections. Omitting `form` stays valid — an
  * undeclared context is the documented default.
  */

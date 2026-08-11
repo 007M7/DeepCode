@@ -102,11 +102,115 @@
   --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
 }
 
+/* No-workspace trigger state: dashed l4 stroke marks the card as a pick-a-
+   workspace affordance rather than a live composer; hover answers in the
+   business blue to invite the click. Native `dashed` has a fixed browser
+   pattern, so the stroke is an ::after overlay: theme-token background masked
+   by an SVG dash ring (stroke-width 2 centered on the box edge = 1px visible
+   inside), which keeps the 22px radius and both themes. */
+.cardWorkspaceTrigger {
+  border-color: transparent;
+  cursor: pointer;
+}
+
+.cardWorkspaceTrigger::after {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: 22px;
+  background: var(--dsw-alias-border-l4);
+  transition: background-color 100ms ease;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='100%25' height='100%25' fill='none' rx='22' ry='22' stroke='black' stroke-width='2' stroke-dasharray='4 4'/%3E%3C/svg%3E");
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='100%25' height='100%25' fill='none' rx='22' ry='22' stroke='black' stroke-width='2' stroke-dasharray='4 4'/%3E%3C/svg%3E");
+  pointer-events: none;
+}
+
+/* Disabled toolbar controls neither receive nor swallow clicks in the trigger
+   state: pointer events fall through to the card's own click handler, making
+   the full capsule one pick target. */
+.cardWorkspaceTrigger :disabled {
+  pointer-events: none;
+}
+
+.cardWorkspaceTrigger:hover::after {
+  background: var(--dsw-alias-state-business-primary);
+}
+
+.dragActive {
+  border-color: var(--dsw-alias-state-business-primary);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--dsw-alias-state-business-primary) 24%, transparent), var(--dsw-shadow-lv2);
+}
+
+.dropHint {
+  position: absolute;
+  z-index: 2;
+  inset: 4px;
+  display: grid;
+  place-items: center;
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--dsw-specific-input-major) 88%, var(--dsw-alias-state-business-primary));
+  color: var(--dsw-alias-state-business-primary);
+  font-size: 14px;
+  font-weight: 600;
+  pointer-events: none;
+}
+
 .accessory {
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 10px 12px 0;
+}
+
+.attachments {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+  padding: 12px 12px 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.attachment {
+  position: relative;
+  flex: 0 0 72px;
+  width: 72px;
+  height: 72px;
+}
+
+.thumbnail {
+  width: 72px;
+  height: 72px;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--dsw-alias-border-l2-darkmode-thin);
+  border-radius: 12px;
+  background: var(--dsw-alias-interactive-bg-hover);
+  cursor: zoom-in;
+}
+
+.thumbnail img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.remove {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--dsw-specific-input-major);
+  border-radius: 999px;
+  background: var(--dsw-alias-label-primary);
+  color: var(--dsw-specific-input-major);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
 }
 
 /* Floating overlay anchor (menu / popupSelect shell): entries position
@@ -241,6 +345,10 @@
 .input:disabled {
   color: var(--dsw-alias-label-tertiary);
   cursor: not-allowed;
+}
+
+.input[aria-haspopup='menu'] {
+  cursor: pointer;
 }
 
 .mirror {

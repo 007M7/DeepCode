@@ -7,7 +7,7 @@
  * the narrowest safe granularity — code-fence-only splice, changed
  * Markdown units, heading sections, whole document — and `--apply` writes
  * the computed counterpart for pairs whose change is code-fence-only.
- * The briefing contract lives in `scripts/translation-brief.ts`; the
+ * The briefing rules live in `scripts/translation-brief.ts`; the
  * consuming workflow is `.agents/skills/dsh-translate-docs/SKILL.md`.
  */
 

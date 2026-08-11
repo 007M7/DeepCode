@@ -6,7 +6,7 @@ English | [中文](2026-07-22-product-first-root-readme.zh.md)
 
 ## Problem
 
-The root README is the repository's product front door. Its product-first structure and established voice remain useful, but concrete entry points and capability claims drift as the runtime grows. Rewriting sections whose facts remain correct increases the review surface and discards language that already works.
+The root README is the repository's product entry point. Its product-first structure and established voice remain useful, but concrete entry points and capability claims drift as the runtime grows. Rewriting sections whose facts remain correct increases the review surface and discards language that already works.
 
 ## Decision
 
@@ -26,7 +26,7 @@ Detailed package and service inventories remain at their owning documentation. T
 
 **Use a long marketing page with screenshots, badges, and duplicated tutorials.** Rich media can demonstrate a stable product journey, but it ages separately from commands and source contracts. The root stays compact and links to runnable examples and owned guides.
 
-**Project the root README as the documentation website home page.** A single landing page avoids two narratives, but the website's user guide and the repository's product/developer front door have different navigation and maintenance needs. The documentation root sends readers to quick start instead.
+**Project the root README as the documentation website home page.** A single landing page avoids two narratives, but the website's user guide and the repository's product/developer entry point have different navigation and maintenance needs. The documentation root sends readers to quick start instead.
 
 ## Consequences
 

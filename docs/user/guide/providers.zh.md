@@ -15,7 +15,7 @@ Harness 出厂自带 DeepSeek，同时预装了一个通用的多提供方适配
 
 ## 在 Web 界面里配置
 
-启动 `pnpm run dsh web`，打开**设置 → 模型**。
+启动 `pnpm dsh web`，打开**设置 → 模型**。
 
 ![模型页：DeepSeek 卡片，以及添加提供方与添加自定义提供方两个入口](providers-models-page.zh.png)
 
@@ -28,6 +28,8 @@ Harness 出厂自带 DeepSeek，同时预装了一个通用的多提供方适配
 **添加自定义提供方。** 点**添加自定义提供方**，用于内置目录没有的路由——公司网关、自建服务，或比内置目录更新的提供方。需要填 Provider ID（请求里点名它、也作为凭据名的小写标识）、API 地址、协议，以及至少一个模型。
 
 ![自定义提供方表单：Provider ID、显示名称、API 地址、API 协议、API 密钥](providers-custom-form.zh.png)
+
+除 Provider ID 外的每个字段之后都还能改：行上的**编辑**会重新打开这些字段，显示名称和协议在「自定义设置」里、紧挨着 API 地址；显示名称清空即退回 Provider ID。Provider ID 本身固定不可改：它在请求里、在 `agent-default-model` 里、在每一条已记录的会话里点名这条路由，同时还是凭据引用的词干，而页面永远读不回凭据值——因此重命名一条路由等于声明一个新提供方再把旧的删掉。
 
 **让端点自己报模型。** 展开**模型目录**后点**获取可用模型**，会按你**当前表单里**的地址与密钥去问端点（地址改了但没保存、密钥刚输入还没存下，都算数），把它报告的模型列成候选让你勾选。内置目录里的路由直接由目录作答，不联网。采纳只是把行写进草稿，最终还是你点保存才落盘。
 
@@ -133,7 +135,7 @@ agent-default-model:
   reasoningEffort: high   # optional
 ```
 
-会话跑过一轮后，其自身日志仍是模型选择的权威；默认值只适用于尚无请求记录的会话。这个段落之下的出厂兜底是 base 组合包的 `agent-default-model` 组合条目（`deepseek-official` / `deepseek-v4-flash`）。自行组装的 `cordis.yml` 会挂载并配置 `@deepseek-ai/dsh-agent-default-model`；直接前门与 Host 支撑的前门都读取同一服务。
+会话跑过一轮后，其自身日志仍是模型选择的权威；默认值只适用于尚无请求记录的会话。这个段落之下的出厂兜底是 base 组合包的 `agent-default-model` 组合条目（`deepseek-official` / `deepseek-v4-flash`）。自行组装的 `cordis.yml` 会挂载并配置 `@deepseek-ai/dsh-agent-default-model`；直接入口与 Host 支撑的入口都读取同一服务。
 
 如果某个已存默认值指向的提供方后来被删掉了，输入框会显示**选择模型**并拒绝输入，而不是把消息发给一个没人服务的路由。
 

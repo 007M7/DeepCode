@@ -7,11 +7,15 @@
 import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
-import { createSnapshotStore, EMPTY_CHAT_SNAPSHOT } from '@deepseek-ai/dsh-client-runtime/client'
+import {
+  createSnapshotStore, EMPTY_CHAT_SNAPSHOT, EMPTY_CONVERSATION_VIEWS,
+} from '@deepseek-ai/dsh-client-runtime/client'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import type { ClientContext, ConversationSnapshot, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import { SessionInputShell } from '../src/client/input/facade.ts'
+import type { ComposerAttachment } from '../src/client/contract/slots.ts'
+import type { DraftAttachmentId } from '../src/client/input/contract.ts'
 import { InputBar } from '../src/client/skeleton/InputBar.tsx'
 import type { InputBarProps } from '../src/client/skeleton/InputBar.tsx'
 import { zh } from '../src/client/locales.ts'
@@ -35,7 +39,7 @@ const SID = 's1' as SessionId
 
 function snapshotOf(overrides: Partial<ConversationSnapshot> = {}): ConversationSnapshot {
   return {
-    sessionId: SID, chat: EMPTY_CHAT_SNAPSHOT,
+    sessionId: SID, views: EMPTY_CONVERSATION_VIEWS, chat: EMPTY_CHAT_SNAPSHOT,
     nodes: [], turnTimings: new Map(), turnEnds: new Map(), partial: null, runningCalls: [],
     pending: [], queue: [], running: false, composerPhase: 'active', removed: false,
     openState: 'open', openError: null, hasMore: false, loadingOlder: false,
@@ -56,6 +60,9 @@ interface BenchOptions {
   running?: boolean
   subagent?: Exclude<ConversationSnapshot['subagent'], null>
   disabled?: boolean
+  inert?: boolean
+  workspacePickerOpen?: boolean
+  onRequestWorkspace?: () => void
   promptError?: ConversationSnapshot['promptError']
   /** Authoritative queue rows served to the machine overlay (empty = none). */
   queue?: ConversationSnapshot['queue']
@@ -69,6 +76,8 @@ interface BenchOptions {
   overlay?: React.ReactNode
   leftItems?: React.ReactNode
   rightItems?: React.ReactNode
+  attachments?: readonly ComposerAttachment[]
+  addImages?: (files: readonly File[]) => string | null
   commandMenuOpen?: boolean
   busyEnter?: 'queue' | 'steer'
   toggleCommandMenu?: (selection: { start: number; end: number }) => void
@@ -113,7 +122,9 @@ function bench(over?: BenchOptions) {
       : {}),
   })
   if (over?.draft !== undefined && over.draft !== '') shell.setDraft(over.draft)
+  if (over?.attachments !== undefined) shell.addImages(over.attachments.map(attachment => attachment.id))
   const stop = vi.fn()
+  const removeImage = vi.fn((id: DraftAttachmentId) => { shell.removeImage(id) })
   const menuLauncher = createSnapshotStore<string | null>(over?.commandMenuOpen === true ? 'command' : null)
   const slotCalls: { key: string; owner: unknown }[] = []
   const renderSlot = ((key: string, owner: object) => {
@@ -128,7 +139,7 @@ function bench(over?: BenchOptions) {
     useSession: bindSnapshotSelector(session),
     useSessions: bindSnapshotSelector(createSnapshotStore({
       ids: [], byId: {}, current: undefined, phase: 'ready',
-      subagentsByParent: {}, currentAddress: undefined,
+      subagentsByParent: {}, tasksBySession: {}, currentAddress: undefined,
     })),
     useWorkspaces: bindSnapshotSelector(createSnapshotStore({
       items: [], archivedSessionIds: [], state: 'idle', phase: 'ready', error: null,
@@ -139,6 +150,12 @@ function bench(over?: BenchOptions) {
     useInput: bindSnapshotSelector(shell.state),
     inputActions: shell.actions,
     keyboard: shell,
+    addImages: over?.addImages ?? (() => null),
+    removeImage,
+    draftImages: ids => ids.flatMap((id) => {
+      const attachment = over?.attachments?.find(candidate => candidate.id === id)
+      return attachment === undefined ? [] : [attachment]
+    }),
     resolveSubmitMode: (running, gesture, steeringAvailable) => {
       if (!running || !steeringAvailable) return 'queue'
       const preferred = over?.busyEnter ?? 'queue'
@@ -154,6 +171,9 @@ function bench(over?: BenchOptions) {
     t: over?.t ?? makeTranslate(zh, commonZh),
     renderSlot,
     variant: over?.variant ?? 'composer',
+    ...(over?.inert === true ? { disabled: true } : {}),
+    ...(over?.workspacePickerOpen !== undefined ? { workspacePickerOpen: over.workspacePickerOpen } : {}),
+    ...(over?.onRequestWorkspace !== undefined ? { onRequestWorkspace: over.onRequestWorkspace } : {}),
     ...(over?.placeholder !== undefined ? { placeholder: over.placeholder } : {}),
     ...(over?.accessory !== undefined ? { accessory: over.accessory } : {}),
     ...(over?.overlay !== undefined ? { overlay: over.overlay } : {}),
@@ -168,10 +188,65 @@ function bench(over?: BenchOptions) {
   )!
   const interruptButton = view.container.querySelector<HTMLButtonElement>('button[aria-label="停止生成"]')
   return {
-    view, textarea, button, interruptButton, props, sink, shell, wiring: shell, session, stop, slotCalls, menuLauncher,
+    view, textarea, button, interruptButton, props, sink, shell, wiring: shell, session, stop, removeImage, slotCalls,
+    menuLauncher,
     steerQueue: over?.steerQueue,
   }
 }
+
+describe('image draft rail', () => {
+  it('collects clipboard files while preserving text from a mixed paste', () => {
+    const addImages = vi.fn(() => null)
+    const { textarea, shell } = bench({ addImages })
+    const image = new File([Uint8Array.of(1, 2, 3)], 'pixel.png', { type: 'image/png' })
+    fireEvent.paste(textarea, {
+      clipboardData: {
+        items: [
+          { kind: 'string', type: 'text/plain', getAsFile: () => null },
+          { kind: 'file', type: 'image/png', getAsFile: () => image },
+        ],
+        getData: () => '同时粘贴的文字',
+      },
+    })
+    expect(addImages).toHaveBeenCalledWith([image])
+    expect(shell.snapshot.draft).toBe('同时粘贴的文字')
+  })
+
+  it('accepts file drops and prevents browser navigation', () => {
+    const addImages = vi.fn(() => null)
+    const { view } = bench({ addImages })
+    const card = view.container.querySelector('[class*="card"]')!
+    const image = new File([Uint8Array.of(1)], 'dropped.png', { type: 'image/png' })
+    const dataTransfer = { types: ['Files'], files: [image], dropEffect: 'none' }
+    expect(fireEvent.dragEnter(card, { dataTransfer })).toBe(false)
+    expect(view.getByRole('status').textContent).toContain('松开以添加图片')
+    expect(fireEvent.dragOver(card, { dataTransfer })).toBe(false)
+    expect(dataTransfer.dropEffect).toBe('copy')
+    expect(fireEvent.drop(card, { dataTransfer })).toBe(false)
+    expect(addImages).toHaveBeenCalledWith([image])
+  })
+
+  it('sends an image-only draft and removes its thumbnail', () => {
+    const file = new File([Uint8Array.of(1)], 'pixel.png', { type: 'image/png' })
+    const attachment = { kind: 'image' as const, id: 'draft-1' as DraftAttachmentId, file, previewUrl: 'blob:draft-1' }
+    const { view, textarea, sink, removeImage } = bench({ attachments: [attachment] })
+    expect((view.getByRole('button', { name: '发送消息' }) as HTMLButtonElement).disabled).toBe(false)
+    fireEvent.keyDown(textarea, { key: 'Enter' })
+    expect(sink).toHaveBeenCalledWith('', ['draft-1'], 'queue')
+    fireEvent.click(view.getByRole('button', { name: '移除图片 pixel.png' }))
+    expect(removeImage).toHaveBeenCalledWith('draft-1')
+  })
+
+  it('opens the original image on double-click and closes it with Escape', () => {
+    const file = new File([Uint8Array.of(1)], 'pixel.png', { type: 'image/png' })
+    const attachment = { kind: 'image' as const, id: 'draft-1' as DraftAttachmentId, file, previewUrl: 'blob:draft-1' }
+    const { view } = bench({ attachments: [attachment] })
+    fireEvent.doubleClick(view.getByTitle('双击查看原图'))
+    expect(view.getByRole('dialog', { name: '原图预览' })).toBeTruthy()
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(view.queryByRole('dialog', { name: '原图预览' })).toBeNull()
+  })
+})
 
 describe('Enter semantics', () => {
   it('advertises the empty-draft whole-queue steering gesture when it is available', () => {
@@ -228,7 +303,7 @@ describe('Enter semantics', () => {
   it('plain Enter submits queue mode through the machine; repeat and empty are suppressed', () => {
     const { textarea, sink } = bench({ draft: 'hello' })
     fireEvent.keyDown(textarea, { key: 'Enter' })
-    expect(sink).toHaveBeenCalledWith('hello', 'queue')
+    expect(sink).toHaveBeenCalledWith('hello', [], 'queue')
     fireEvent.keyDown(textarea, { key: 'Enter', repeat: true })
     expect(sink).toHaveBeenCalledTimes(1)
     const empty = bench({ draft: '   ' })
@@ -253,15 +328,15 @@ describe('Enter semantics', () => {
   it('Ctrl/Meta+Enter sends normally while idle and steers while running', () => {
     const idle = bench({ draft: 'hello' })
     fireEvent.keyDown(idle.textarea, { key: 'Enter', metaKey: true })
-    expect(idle.sink).toHaveBeenCalledWith('hello', 'queue')
+    expect(idle.sink).toHaveBeenCalledWith('hello', [], 'queue')
 
     const busyCtrl = bench({ running: true, draft: 'steer with ctrl' })
     fireEvent.keyDown(busyCtrl.textarea, { key: 'Enter', ctrlKey: true })
-    expect(busyCtrl.sink).toHaveBeenCalledWith('steer with ctrl', 'steer')
+    expect(busyCtrl.sink).toHaveBeenCalledWith('steer with ctrl', [], 'steer')
 
     const busyMeta = bench({ running: true, draft: 'steer with cmd' })
     fireEvent.keyDown(busyMeta.textarea, { key: 'Enter', metaKey: true })
-    expect(busyMeta.sink).toHaveBeenCalledWith('steer with cmd', 'steer')
+    expect(busyMeta.sink).toHaveBeenCalledWith('steer with cmd', [], 'steer')
   })
 
   it('empty-draft Cmd/Ctrl+Enter steers the whole queue instead of submitting', () => {
@@ -326,7 +401,7 @@ describe('Enter semantics', () => {
     const steerQueue = vi.fn()
     const { textarea, sink } = bench({ running: true, queue: [row('q-1')], draft: '插话', steerQueue })
     fireEvent.keyDown(textarea, { key: 'Enter', ctrlKey: true })
-    expect(sink).toHaveBeenCalledWith('插话', 'steer')
+    expect(sink).toHaveBeenCalledWith('插话', [], 'steer')
     expect(steerQueue).not.toHaveBeenCalled()
   })
 
@@ -374,7 +449,7 @@ describe('running and lock semantics', () => {
     expect(textarea.disabled).toBe(false)
     fireEvent.change(textarea, { target: { value: '排队消息2' } })
     fireEvent.keyDown(textarea, { key: 'Enter' })
-    expect(sink).toHaveBeenCalledWith('排队消息2', 'queue')
+    expect(sink).toHaveBeenCalledWith('排队消息2', [], 'queue')
     expect(button.getAttribute('aria-label')).toBe('停止生成')
     fireEvent.click(button)
     expect(stop).toHaveBeenCalledTimes(1)
@@ -383,17 +458,17 @@ describe('running and lock semantics', () => {
   it('running plain Enter follows the busy-state Steer preference', () => {
     const { textarea, sink } = bench({ running: true, busyEnter: 'steer', draft: '直接插话' })
     fireEvent.keyDown(textarea, { key: 'Enter' })
-    expect(sink).toHaveBeenCalledWith('直接插话', 'steer')
+    expect(sink).toHaveBeenCalledWith('直接插话', [], 'steer')
   })
 
   it('running Cmd/Ctrl+Enter uses the opposite of the busy-state Enter preference', () => {
     const meta = bench({ running: true, busyEnter: 'steer', draft: '排到下一轮' })
     fireEvent.keyDown(meta.textarea, { key: 'Enter', metaKey: true })
-    expect(meta.sink).toHaveBeenCalledWith('排到下一轮', 'queue')
+    expect(meta.sink).toHaveBeenCalledWith('排到下一轮', [], 'queue')
 
     const ctrl = bench({ running: true, busyEnter: 'steer', draft: 'also queue' })
     fireEvent.keyDown(ctrl.textarea, { key: 'Enter', ctrlKey: true })
-    expect(ctrl.sink).toHaveBeenCalledWith('also queue', 'queue')
+    expect(ctrl.sink).toHaveBeenCalledWith('also queue', [], 'queue')
   })
 
   it('running continuable subagent keeps Send beside an independent Stop', () => {
@@ -413,7 +488,7 @@ describe('running and lock semantics', () => {
     expect(interruptButton).not.toBeNull()
     expect(textarea.disabled).toBe(false)
     fireEvent.click(button)
-    expect(sink).toHaveBeenCalledWith('后续消息', 'queue')
+    expect(sink).toHaveBeenCalledWith('后续消息', [], 'queue')
     fireEvent.click(interruptButton!)
     expect(stop).toHaveBeenCalledTimes(1)
   })
@@ -470,11 +545,11 @@ describe('running and lock semantics', () => {
     }
     const plain = bench({ running: true, busyEnter: 'steer', draft: 'plain', subagent })
     fireEvent.keyDown(plain.textarea, { key: 'Enter' })
-    expect(plain.sink).toHaveBeenCalledWith('plain', 'queue')
+    expect(plain.sink).toHaveBeenCalledWith('plain', [], 'queue')
 
     const accelerated = bench({ running: true, draft: 'accelerated', subagent })
     fireEvent.keyDown(accelerated.textarea, { key: 'Enter', metaKey: true })
-    expect(accelerated.sink).toHaveBeenCalledWith('accelerated', 'queue')
+    expect(accelerated.sink).toHaveBeenCalledWith('accelerated', [], 'queue')
   })
 
   it('disabled (session removed) locks the textarea and chrome', () => {
@@ -487,7 +562,7 @@ describe('running and lock semantics', () => {
   it('idle primary sends and disables on empty draft', () => {
     const { button, sink } = bench({ draft: 'go' })
     fireEvent.click(button)
-    expect(sink).toHaveBeenCalledWith('go', 'queue')
+    expect(sink).toHaveBeenCalledWith('go', [], 'queue')
     const empty = bench()
     expect(empty.button.disabled).toBe(true)
   })
@@ -612,7 +687,7 @@ describe('running and lock semantics', () => {
     }
     // Pasted text lands below the fold: scroll down by exactly the overshoot.
     caretAt(500)
-    fireEvent.paste(textarea, { clipboardData: { getData: () => 'pasted' } })
+    fireEvent.paste(textarea, { clipboardData: { items: [], getData: () => 'pasted' } })
     await settle()
     expect(scroll.scrollTop).toBe(88) // 524 - 436
     // Measured on the mirror's own text, at the index the paste left the caret
@@ -621,12 +696,12 @@ describe('running and lock semantics', () => {
     expect(measured!.offset).toBe('pasted'.length)
     // A caret already inside the box does not move it.
     caretAt(200)
-    fireEvent.paste(textarea, { clipboardData: { getData: () => 'more' } })
+    fireEvent.paste(textarea, { clipboardData: { items: [], getData: () => 'more' } })
     await settle()
     expect(scroll.scrollTop).toBe(88)
     // Above the fold (a cut can leave it there): scroll back up.
     caretAt(60)
-    fireEvent.paste(textarea, { clipboardData: { getData: () => 'again' } })
+    fireEvent.paste(textarea, { clipboardData: { items: [], getData: () => 'again' } })
     await settle()
     expect(scroll.scrollTop).toBe(48) // 88 - (100 - 60)
     // A caret straight after a newline has nothing on its line to measure, so
@@ -634,7 +709,7 @@ describe('running and lock semantics', () => {
     // chromium reports no client rects at all for the collapsed position.
     mirror.style.lineHeight = '24px'
     caretAt(500)
-    fireEvent.paste(textarea, { clipboardData: { getData: () => 'block\n' } })
+    fireEvent.paste(textarea, { clipboardData: { items: [], getData: () => 'block\n' } })
     await settle()
     // The four pastes accumulate at the draft's head, so the caret is at the
     // end of what they inserted — and the measured index is the newline before it.
@@ -714,6 +789,40 @@ describe('running and lock semantics', () => {
     expect(live.textarea.placeholder).toBe('给智能体发消息')
     const custom = bench({ placeholder: 'Custom placeholder' })
     expect(custom.textarea.placeholder).toBe('Custom placeholder')
+  })
+
+  it('the inert textarea opens the Workspace picker by pointer or keyboard', () => {
+    const onRequestWorkspace = vi.fn()
+    const { view, textarea } = bench({
+      inert: true,
+      workspacePickerOpen: false,
+      onRequestWorkspace,
+      placeholder: '选择一个工作区开始',
+    })
+    expect(textarea.disabled).toBe(false)
+    expect(textarea.readOnly).toBe(true)
+    expect(textarea.getAttribute('aria-haspopup')).toBe('menu')
+    expect(textarea.getAttribute('aria-expanded')).toBe('false')
+    expect((view.getByLabelText('命令') as HTMLButtonElement).disabled).toBe(true)
+
+    fireEvent.click(textarea)
+    fireEvent.keyDown(textarea, { key: 'Enter' })
+    fireEvent.keyDown(textarea, { key: ' ' })
+    expect(onRequestWorkspace).toHaveBeenCalledTimes(3)
+
+    // The WHOLE capsule is the pick target, and its pointerdown never reaches
+    // the document — the open picker's outside-close must not race the reopen.
+    const card = view.container.querySelector('[data-composer-card]') as HTMLElement
+    fireEvent.click(card)
+    expect(onRequestWorkspace).toHaveBeenCalledTimes(4)
+    const onDocumentPointerDown = vi.fn()
+    document.addEventListener('pointerdown', onDocumentPointerDown)
+    try {
+      fireEvent.pointerDown(card)
+    } finally {
+      document.removeEventListener('pointerdown', onDocumentPointerDown)
+    }
+    expect(onDocumentPointerDown).not.toHaveBeenCalled()
   })
 
   it('the plan projection swaps the placeholder while its effective target is plan mode', () => {

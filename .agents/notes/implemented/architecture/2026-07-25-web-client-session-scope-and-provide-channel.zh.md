@@ -93,7 +93,7 @@ slot scope 是闭集 `root | session-maybe | session`：
 - `session-maybe` 以**收养（adoption）身份语义**跟随 current session（唯一行为——不存在「永久保持实例」模式）：空态出生的化身在**第一个** session 到来时保持 React 实例（空壳收养它——不重挂，DOM 存活）；此后行为与严格 session entry 完全一致——切到不同 session 重挂，跌回无 session 也重挂为崭新的空态化身（之后再次收养）。因此组件本地的 per-session 状态**由构造保证**随切换清零；需要活过切换的状态必须住 session 绑定的源（machine、store、hooks）。无 session 时 `sessionId`、`useSession`/`useInput` 的选择结果及 `inputActions` 均可缺省。根部无 key 的 `SessionMaybeProvider` 通过订阅 runtime 的原子 `currentProvide` 投影驱动这条更新——选择移动和提供方名册变化经同一 source 发布，current id 不变时的名册变化也会重发已挂载 bundle，而不是把 entry 困在过期的钩子/prop 形状上——`SessionMaybeProvideInfo` 靠静态键表在无 session 时仍保留完整钩子/prop 形状；逐 entry 的收养记账（化身计数 key）住在 renderer 的 `SessionMaybeEntry`。
 - `session` 保证 `sessionId`、所有钩子 source 与 props 均存在；每个严格 entry 的错误边界以 `sessionId` 为 key，切换 session 会重建该 entry 及其 session store。
 
-`conversation` 是 `session-maybe` 的常驻外壳：`ConversationRoot`、HeroShell、Workspace picker、root 持有的 scrollport 与 composer stack，以及 overlay chain 的 fallback 外框，在无 session → blank session 的切换中保持 React 实例。两个严格 session entry 只填入固定区域，不改变该树的父级：`conversation.session.header` 在 scrollport 上方承载 breadcrumb／tab／action，`conversation.session` 在其内部承载 view ring 与 draft mirror；二者共享同一个 session scope chat store。composer bar（`conversation.composer.bar`）本身即为 `session-maybe`：无 session 时以惰性态渲染（machine face 缺席、`disabled` owner prop），session 出现后同一实例（含 textarea）转为 live；其余输入 slot 保持严格 `session`，在此之前不分发任何条目。blank → engaging/active 的 InputBar 不因 phase 翻转而重建。
+`conversation` 是 `session-maybe` 的常驻外壳：`ConversationRoot`、HeroShell、Workspace picker、root 持有的 scrollport 与 composer stack，以及 overlay chain 的 fallback 外框，在无 session → blank session 的切换中保持 React 实例。两个严格 session entry 只填入固定区域，不改变该树的父级：`conversation.session.header` 在 scrollport 上方承载 breadcrumb／tab／action，`conversation.session` 在其内部承载 view ring 与 draft mirror；二者共享同一个 session scope chat store。composer bar（`conversation.composer.bar`）本身即为 `session-maybe`：无 session 时，其 machine face 和消息操作保持惰性，整张虚线卡片可经指针打开现有 Workspace picker，只读 textarea 也可通过 Enter 或 Space 打开。session 出现后同一实例（含 textarea）转为 live；其余输入 slot 保持严格 `session`，在此之前不分发任何条目。blank → engaging/active 的 InputBar 不因 phase 翻转而重建。
 
 - 运行时内建第一条：`'session'` 钩子——`useSession` 本身走同一机制，无特判。
 - Concurrent 纪律：渲染平面只从 hooks 格读（uSES 一致性保证）；props 格回调只在事件 handler 空间用；描述符解析 render-safe（幂等缓存、废弃渲染残留由 prune 收尸）。
@@ -132,5 +132,5 @@ slot scope 是闭集 `root | session-maybe | session`：
 - 插件获得与 host 同构的会话上下文：逐会话状态挂 actx、随 scope fiber 一次拆装，泄漏结构性不可能；双会话隔离由 scope filter 结构性保证。
 - client 对象层收敛为 wire 镜像：会话身份、生命周期、能力判别全部以 host 实体为准——输入体系（下一层）面对的永远是「有真 Agent 的会话」，slash/skill 等提供方一律以 sessionId 直接寻址。
 - 空会话治理零专用机制：状态靠一个派生位，可见性靠统一列表投影（仅 current blank 以 `New Session` 展示），回收靠 lazy persistence 的既有约定（重启蒸发），常规上限靠同 Workspace 复用。
-- 代价：id→ctx 换乘纪律、provide 的 Concurrent 纪律都是约定而非类型强制，靠 review 与测试钉住；「未选 workspace」期间输入全禁是产品面接受的体验代价（单一状态轴换来的）。
+- 代价：id→ctx 换乘纪律、provide 的 Concurrent 纪律都是约定而非类型强制，靠 review 与测试钉住。单一状态轴仍会在 Session 存在前隐藏 machine face；这段时间内，常驻卡片会把激活操作转到 Workspace picker（[决策](../feature/2026-08-07-workspace-picker-composer-entry.md)）。
 - 已知欠账：approval/question 跨 prune 恢复（TODO）；模型选择以 live-mutation 形状回归（host `selectModel` 三件套现成，其 client 消费方尚未构建）。

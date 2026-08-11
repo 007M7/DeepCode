@@ -44,9 +44,15 @@ describe('web e2e: agent-preset authoring is a host-side copy', () => {
     return page.getByRole('dialog', { name: '设置' })
   }
 
-  /** Tokenize the lane-owned preset root the way the scaffold tokenizes cwd. */
+  /** Tokenize the lane-owned preset root after general aria normalization. */
   function withPresetRoot(snapshot: string): string {
-    return snapshot.split(userRoot).join('{{presetRoot}}')
+    const rootSuffix = `/${userRoot.split('/').pop()!}`
+    return snapshot.split('\n').map((line) => {
+      const rootStart = line.indexOf(rootSuffix)
+      if (rootStart === -1) return line
+      const pathStart = line.lastIndexOf(' ', rootStart) + 1
+      return `${line.slice(0, pathStart)}{{presetRoot}}${line.slice(rootStart + rootSuffix.length)}`
+    }).join('\n')
   }
 
   beforeAll(async () => {
@@ -155,7 +161,7 @@ describe('web e2e: agent-preset authoring is a host-side copy', () => {
     expect(composition).toBe(await readFile(join(SHIPPED_PRESETS, 'minimal', 'agent.cordis.yml'), 'utf8'))
     const metadata = await readFile(join(userRoot, 'my-agent', 'preset.yml'), 'utf8')
     expect(metadata).toContain('name: 我的模式')
-    expect(metadata).toContain('description: 只向模型呈现 bash 与 str_replace_editor，适合 benchmark 与最小复现。')
+    expect(metadata).toContain('description: 仅提供持久 bash 与 str_replace_editor 的双工具编码 Agent。')
     expect(metadata).not.toContain('order:')
   }, 60_000)
 
@@ -170,8 +176,10 @@ describe('web e2e: agent-preset authoring is a host-side copy', () => {
 
     await expect.poll(async () => dialog.getByText('我的模式').count(), { timeout: 10_000 }).toBe(0)
     expect(existsSync(join(userRoot, 'my-agent'))).toBe(false)
-    // Custom group gone with its only member; the shipped set stands.
-    expect(await dialog.getByRole('heading', { name: '自定义' }).count()).toBe(0)
+    // The custom group outlives its only member: the heading stays with the
+    // creator entry so the place to author a preset never disappears.
+    expect(await dialog.getByRole('heading', { name: '自定义' }).count()).toBe(1)
+    expect(await dialog.getByRole('button', { name: '用「创造模式」创作自定义预设' }).count()).toBe(1)
     expect(await dialog.getByText('标准模式').count()).toBeGreaterThan(0)
   }, 60_000)
 
@@ -188,18 +196,18 @@ describe('web e2e: agent-preset authoring is a host-side copy', () => {
     const dialog = settingsDialog()
     await dialog.getByRole('button', { name: '通用设置' }).click()
     await dialog.getByRole('button', { name: 'Agent 预设' }).click()
-    await dialog.getByText('已损坏').first().waitFor({ timeout: 10_000 })
+    await dialog.getByText('加载失败').first().waitFor({ timeout: 10_000 })
 
     const snapshot = withPresetRoot(
       await captureStableAria(page, '[role="dialog"]', scaffold.workspaceCwd))
     await compareOrRefreshGolden(DAMAGED_EXPECTED, snapshot, MODE)
     // Both damage shapes surface as marked, unselectable, uncopyable cards
     // that still carry their metadata and the discovery-reported reason.
-    expect(snapshot).toContain('已损坏: broken-yaml')
-    expect(snapshot).toContain('已损坏: 幽灵预设')
+    expect(snapshot).toContain('加载失败: broken-yaml')
+    expect(snapshot).toContain('加载失败: 幽灵预设')
     expect(snapshot).toContain('not valid YAML')
     expect(snapshot).toContain('agent.cordis.yml is missing')
-    expect(await dialog.getByRole('button', { name: '已损坏: broken-yaml' }).isDisabled()).toBe(true)
+    expect(await dialog.getByRole('button', { name: '加载失败: broken-yaml' }).isDisabled()).toBe(true)
     expect(await dialog.getByRole('button', { name: '复制: 幽灵预设' }).isDisabled()).toBe(true)
     // A broken card offers no "set default" affordance at all — the aria name
     // IS the broken marking, so the picking name must not exist.

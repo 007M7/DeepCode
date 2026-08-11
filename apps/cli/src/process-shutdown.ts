@@ -14,8 +14,8 @@ export interface ProcessShutdown {
 /**
  * Create one process-exit controller around an application disposer.
  * @param dispose - Whole-application teardown that resolves at quiescence.
- * @param forceExit - Forced process exit boundary, replaceable by tests.
- * @param complete - Natural process completion boundary, replaceable by tests.
+ * @param forceExit - Function that exits the process immediately, replaceable by tests.
+ * @param complete - Function that records the natural completion code, replaceable by tests.
  * @param timeoutMs - Grace before forced exit, replaceable by tests.
  * @returns A controller whose normal calls coalesce and whose repeated signal call escalates.
  */

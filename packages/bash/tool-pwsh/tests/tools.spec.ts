@@ -11,7 +11,7 @@
  */
 
 import { describe, expect, it, vi } from 'vitest'
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import { mkdtempSync, realpathSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve as resolvePath } from 'node:path'
@@ -139,7 +139,7 @@ async function setup(toolConfig: Partial<ToolPwsh.Config> = {}, dshHome?: string
   return { ctx, bash }
 }
 
-/** Full harness: the generic task runtime + its control surface, then the pwsh tool. */
+/** Full harness: the generic task runtime + its controller, then the pwsh tool. */
 async function setupWithTasks(toolConfig: Partial<ToolPwsh.Config> = {}, dshHome?: string) {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
@@ -559,7 +559,8 @@ describe('sandbox escalation through ctx.approval', () => {
     expect(properties['sandbox_permissions']?.enum).toEqual(['workspace-write', 'danger-full-access'])
     expect(schema.description).toContain('approval prompt')
     expect(schema.description).toContain('ConstrainedLanguage')
-    expect(schema.description).toContain('named pipes')
+    expect(schema.description).toContain('workspace-write stays in FullLanguage')
+    expect(schema.description).toContain('In both confined modes, programs cannot open named pipes')
     expect(schema.description).toContain('fails with EPERM')
 
     for (const args of [
@@ -765,7 +766,7 @@ describe('background execution through the task runtime', () => {
   })
 
   it('never spawns the process when tasks.start preflight throws (no orphan, by construction)', async () => {
-    // With no control surface, task preflight fails before the executor can spawn.
+    // With no task controller, preflight fails before the executor can spawn.
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
@@ -777,7 +778,7 @@ describe('background execution through the task runtime', () => {
 
     const result = await call(ctx, 'pwsh', { command: 'Start-Sleep -Seconds 60', description: 'test command', run_in_background: true })
     expect(result.isError).toBe(true)
-    expect(text(result)).toContain('no control surface is attached')
+    expect(text(result)).toContain('no task controller serves this agent')
     // Declare-then-execute: the failed preflight means no process ever ran.
     expect(bash.startCalls).toBe(0)
   })

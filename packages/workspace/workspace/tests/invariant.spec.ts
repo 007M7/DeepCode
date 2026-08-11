@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import InvariantService from '@deepseek-ai/dsh-invariants'
 import type { DomainChanged } from '@deepseek-ai/dsh-storage-domain'
 import * as WorkspaceInvariant from '../src/invariant.ts'

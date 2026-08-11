@@ -145,12 +145,12 @@ export type PiAiReasoningEfforts = Partial<Record<ModelThinkingLevel, string | n
  * default) or per model (winning over the route). Only the switches pi-ai's
  * reasoning dispatch reads are offered; the rest of pi-ai's compat surface
  * keeps its baseURL-derived auto-detection. pi-ai types both fields only on
- * `OpenAICompletionsCompat` — the other wire protocols carry their reasoning
- * shape in the protocol itself — so resolution rejects a model-level switch
+ * `OpenAICompletionsCompat` — the other wire protocols define their reasoning
+ * fields in the protocol itself — so resolution rejects a model-level switch
  * anywhere else, while a route-level default skips past models it cannot fit.
  */
 export interface PiAiCompatProfile {
-  /** Reasoning parameter shape the endpoint expects; absent keeps the catalog entry's, then pi-ai's baseURL-derived guess. */
+  /** Reasoning parameter format the endpoint expects; absent keeps the catalog entry's, then pi-ai's baseURL-derived guess. */
   thinkingFormat?: PiAiThinkingFormat
   /** Whether the endpoint accepts `reasoning_effort`; absent keeps the catalog entry's, then pi-ai's baseURL-derived guess. */
   supportsReasoningEffort?: boolean

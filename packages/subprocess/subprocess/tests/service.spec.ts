@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { PassThrough } from 'node:stream'
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import { scrubbedParentEnv, SubprocessService } from '@deepseek-ai/dsh-subprocess'
 import type {
   SubprocessHandle,

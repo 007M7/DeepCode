@@ -1,5 +1,6 @@
 /** Test-owned sessions face: the SlotsService host contract over declarative fixtures. */
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
+import type { AttachmentIdType } from '@deepseek-ai/dsh-attachment'
 import { createScope, scopeOf, SessionProvideChannel } from '@deepseek-ai/dsh-client-runtime/client'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type {
@@ -86,6 +87,15 @@ export class FixtureSession implements SessionFace {
    */
   prompt(): never {
     throw new Error(`test session "${this.sessionId}": prompt is not stubbed — supply it on the fixture's session face`)
+  }
+
+  /**
+   * Fail-loud stub; supply `readAttachment` on the fixture's session face to exercise it.
+   * @param _attachmentId - opaque durable attachment id.
+   * @returns never — always throws.
+   */
+  readAttachment(_attachmentId: AttachmentIdType): never {
+    throw new Error(`test session "${this.sessionId}": readAttachment is not stubbed — supply it on the fixture's session face`)
   }
 
   /**
@@ -192,7 +202,7 @@ export class TestSessions implements ISessions {
   constructor(private readonly stabilize: Stabilizer, private readonly rootCtx: Context) {
     this.list = createSnapshotStore<SessionListState>({
       ids: [], byId: {}, current: undefined, phase: 'ready',
-      subagentsByParent: {}, currentAddress: undefined,
+      subagentsByParent: {}, tasksBySession: {}, currentAddress: undefined,
     })
     this.channel = new SessionProvideChannel({
       rebuildBundles: () => {

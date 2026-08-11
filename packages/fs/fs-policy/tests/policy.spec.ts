@@ -1,7 +1,7 @@
 /** Event-level policy tests; no filesystem provider is needed because the plugin performs no I/O. */
 
 import { describe, expect, it } from 'vitest'
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import { FsTargetKey, FsVersion } from '@deepseek-ai/dsh-fs'
 import type { FsObservation, FsTarget, FsWriteIntent } from '@deepseek-ai/dsh-fs'
 import * as FsPolicy from '@deepseek-ai/dsh-fs-policy'
@@ -30,7 +30,7 @@ async function setup() {
 }
 
 describe('registration / disposal', () => {
-  it('registers no service surface (it is a plugin, not ctx.fsPolicy)', async () => {
+  it('registers no service API (it is a plugin, not ctx.fsPolicy)', async () => {
     const { ctx } = await setup()
     expect((ctx as Context & { fsPolicy?: unknown }).fsPolicy).toBeUndefined()
   })

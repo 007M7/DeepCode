@@ -12,8 +12,8 @@
  * @module @deepseek-ai/dsh-session-projection-cache
  */
 
-import { Context, Service } from 'cordis'
-import z from 'schemastery'
+import { Context, Service } from '@deepseek-ai/cordis'
+import z from '@deepseek-ai/schemastery'
 import { snapshotJsonValue } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
 // Empty type import: applies the package's cordis Context merge
@@ -27,7 +27,7 @@ import type { CheckpointIdentity, CheckpointRecord } from './spec.ts'
 export { checkpointIdentity, checkpointRecord, checkpointRow, projectionCacheDomainSpec } from './spec.ts'
 export type { CheckpointIdentity, CheckpointRecord } from './spec.ts'
 
-declare module 'cordis' {
+declare module '@deepseek-ai/cordis' {
   interface Context {
     sessionProjectionCache: SessionProjectionCache
   }

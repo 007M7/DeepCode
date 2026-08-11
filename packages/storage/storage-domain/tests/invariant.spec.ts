@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { Context } from 'cordis'
+import { Context } from '@deepseek-ai/cordis'
 import { z } from 'zod'
 import Storage from '@deepseek-ai/dsh-storage'
 import InvariantService, { InvariantError } from '@deepseek-ai/dsh-invariants'

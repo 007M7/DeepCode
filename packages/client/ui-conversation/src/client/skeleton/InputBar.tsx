@@ -6,8 +6,8 @@
  * region-slot content) ride the owner props. Session facts
  * (running/removed/promptError) are self-selected via useSession. */
 
-import { useEffect, useRef } from 'react'
-import type { ChangeEvent, KeyboardEvent, MouseEvent, ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { ChangeEvent, DragEvent, KeyboardEvent, MouseEvent, ReactNode } from 'react'
 import clsx from 'clsx'
 import { IconPlusOutline16, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 // Type-only: the `plan` projection key merge (the TodoDock posture — the
@@ -16,10 +16,11 @@ import type {} from '@deepseek-ai/dsh-plan-mode/client'
 // Type-only: the `goal` projection key merge (hint disambiguation).
 import type {} from '@deepseek-ai/dsh-goal/client'
 import type { Translate } from '@deepseek-ai/dsh-client-ui-slots'
-import type { ComposerBarProps } from '../contract/slots.ts'
+import type { ComposerAttachment, ComposerBarProps } from '../contract/slots.ts'
 import { deriveDecorations } from '../input/decorations.ts'
 import type { DraftDecorations } from '../input/decorations.ts'
 import { ContextMeter } from './ContextMeter.tsx'
+import { ImageLightbox } from './ImageLightbox.tsx'
 import { PermissionSelect } from './PermissionSelect.tsx'
 import css from './InputBar.module.css'
 
@@ -35,10 +36,12 @@ export interface InputBarError {
 export type InputBarProps = ComposerBarProps
 
 export function InputBar({
-  useSession, useInput, inputActions, keyboard, resolveSubmitMode, toggleCommandMenu, stop, command, t,
+  useSession, useInput, inputActions, keyboard, addImages, removeImage, draftImages,
+  resolveSubmitMode, toggleCommandMenu, stop, command, t,
   renderSlot, useNotices, useLexicon, useMenuLauncher,
-  useProjection, sessionId, variant, disabled: inert = false, blocked, placeholder,
-  accessory, overlay, leftItems, rightItems, footer,
+  useProjection, sessionId, variant, disabled: inert = false, blocked,
+  workspacePickerOpen = false, onRequestWorkspace,
+  placeholder, accessory, overlay, leftItems, rightItems, footer,
 }: InputBarProps) {
   const input = useInput(s => s)
   const notice = useNotices(s => s)
@@ -63,8 +66,16 @@ export function InputBar({
   // current; the bar renders the same DOM inert instead of a parallel tree.
   const live = input !== undefined && keyboard !== undefined && inputActions !== undefined
   const draft = input?.draft ?? ''
-  const empty = draft.trim() === ''
+  const attachments = useMemo(
+    () => input === undefined || draftImages === undefined ? [] : draftImages(input.imageIds),
+    [draftImages, input?.imageIds],
+  )
+  const empty = draft.trim() === '' && attachments.length === 0
+  const [preview, setPreview] = useState<ComposerAttachment | null>(null)
+  const [dragActive, setDragActive] = useState(false)
+  const [dropError, setDropError] = useState<string | null>(null)
   const inputRef = useRef<HTMLTextAreaElement | null>(null)
+  const dragDepthRef = useRef(0)
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const mirrorRef = useRef<HTMLDivElement | null>(null)
   // IME guard: composition Enter picks a candidate, it must not send. The ref outlives renders;
@@ -99,8 +110,25 @@ export function InputBar({
   // be disabled do lock it — there is no session to choose a model for.
   const modelSeatLocked = removed || inert || !live
   const machineBusy = input?.phase === 'adjudicating' || input?.phase === 'submitting'
+  // The no-workspace textarea remains the resident DOM node but acts as the
+  // existing picker trigger. Message controls stay locked until a Session
+  // exists; the trigger itself is read-only rather than disabled so pointer
+  // and keyboard users can reach the recovery action.
+  const workspaceTrigger = inert && !removed && onRequestWorkspace !== undefined
+  const textareaDisabled = removed || (locked && !workspaceTrigger)
   const canSteerQueue = !locked && !machineBusy && !commandMenuOpen && empty && running && subagent === null
     && input.queue.some(row => row.placement === 'queued')
+
+  useEffect(() => {
+    if (input === undefined || inputActions === undefined) return
+    if (attachments.length !== input.imageIds.length) {
+      inputActions.pruneImages(attachments.map(attachment => attachment.id))
+    }
+  }, [attachments, input?.imageIds, inputActions])
+
+  useEffect(() => {
+    if (preview !== null && !attachments.some(attachment => attachment.id === preview.id)) setPreview(null)
+  }, [attachments, preview])
 
   // Scroll the draft scrollport the minimum that brings `caret` into view — the
   // browser's own behavior for typing, performed for the paths where it does
@@ -212,8 +240,15 @@ export function InputBar({
   }, [])
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>): void => {
-    // Absent machine (no session): the textarea is disabled so events cannot
-    // fire; the guard narrows the faces for the paths below.
+    if (workspaceTrigger) {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault()
+        onRequestWorkspace()
+      }
+      return
+    }
+    // Absent machine without a Workspace recovery action stays disabled; the
+    // guard narrows the faces for the paths below.
     if (keyboard === undefined || inputActions === undefined) return
     // Shift+Enter is the native newline UNCONDITIONALLY — decided before the
     // IME guard so a composition-closing Shift+Enter still breaks the line.
@@ -277,7 +312,7 @@ export function InputBar({
   }
 
   const onChange = (e: ChangeEvent<HTMLTextAreaElement>): void => {
-    if (keyboard === undefined) return // absent machine: disabled textarea, no events
+    if (keyboard === undefined || locked) return // disabled/read-only states cannot edit the draft
     if (machineBusy) return // submitting is the read-only span; adjudicating holds the pending lock
     const next = e.target.value
     keyboard.setDraft(next)
@@ -303,7 +338,7 @@ export function InputBar({
   /* oxlint-enable typescript/no-unnecessary-condition */
 
   const onCopyOrCut = (e: React.ClipboardEvent<HTMLTextAreaElement>, cut: boolean): void => {
-    if (input === undefined || keyboard === undefined) return // absent machine: disabled textarea, no events
+    if (input === undefined || keyboard === undefined) return // absent machine: no draft can be copied or cut
     const el = e.currentTarget
     const { start, end } = selectionOf(el)
     if (start === end) return
@@ -328,10 +363,18 @@ export function InputBar({
   }
 
   const onPaste = (e: React.ClipboardEvent<HTMLTextAreaElement>): void => {
-    if (keyboard === undefined) return // absent machine: disabled textarea, no events
+    if (keyboard === undefined) return // absent machine: no draft can accept a paste
     if (machineBusy || locked) return
+    const files = Array.from(e.clipboardData.items)
+      .filter(item => item.kind === 'file')
+      .map(item => item.getAsFile())
+      .filter((file): file is File => file !== null)
+    if (files.length > 0 && addImages !== undefined) setDropError(addImages(files))
     const text = e.clipboardData.getData('text/plain')
-    if (text === '') return
+    if (text === '') {
+      if (files.length > 0) e.preventDefault()
+      return
+    }
     e.preventDefault()
     const el = e.currentTarget
     const sel = selectionOf(el)
@@ -344,6 +387,39 @@ export function InputBar({
     restoreCaret(el, caret)
     keyboard.track(keyboard.snapshot.draft, caret)
   }
+
+  const onDragEnter = (event: DragEvent<HTMLDivElement>): void => {
+    if (!event.dataTransfer.types.includes('Files')) return
+    event.preventDefault()
+    if (locked || machineBusy || addImages === undefined) return
+    dragDepthRef.current += 1
+    setDropError(null)
+    setDragActive(true)
+  }
+
+  const onDragOver = (event: DragEvent<HTMLDivElement>): void => {
+    if (!event.dataTransfer.types.includes('Files')) return
+    event.preventDefault()
+    event.dataTransfer.dropEffect = locked || machineBusy || addImages === undefined ? 'none' : 'copy'
+  }
+
+  const onDragLeave = (event: DragEvent<HTMLDivElement>): void => {
+    if (!event.dataTransfer.types.includes('Files') || locked || machineBusy) return
+    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1)
+    if (dragDepthRef.current === 0) setDragActive(false)
+  }
+
+  const onDrop = (event: DragEvent<HTMLDivElement>): void => {
+    if (!event.dataTransfer.types.includes('Files')) return
+    event.preventDefault()
+    dragDepthRef.current = 0
+    setDragActive(false)
+    if (locked || machineBusy || addImages === undefined) return
+    const dropped = [...event.dataTransfer.files]
+    if (dropped.length > 0) setDropError(addImages(dropped))
+  }
+
+  const closePreview = useCallback(() => { setPreview(null) }, [])
 
   const onSelect = (e: React.SyntheticEvent<HTMLTextAreaElement>): void => {
     // Any caret/selection gesture ends a live paste attempt (the machine
@@ -454,7 +530,7 @@ export function InputBar({
     }
     pushPlain(draft.length)
     if (deco.hint !== null) {
-      // Claim tokens are shaped `/name ` (trailing space); trim to the bare name.
+      // Claim tokens have the `/name ` format (trailing space); trim to the bare name.
       const commandName = input?.claim?.token.slice(1).trim() ?? ''
       const hintKey = `hint.${commandName === 'goal' && hasGoal ? 'goal.active' : commandName}`
       // Dynamic lookup by claimed command name: unknown commands miss the
@@ -477,9 +553,50 @@ export function InputBar({
           {notice.text}
         </div>
       )}
-      <div className={css.card} data-composer-card>
+      {/* Trigger clicks land on the card, not the textarea: the toolbar row's
+          disabled controls swallow clicks otherwise (the CSS state disarms
+          their pointer events), so the WHOLE capsule is the pick target.
+          pointerdown stops here so the Menu's outside-close cannot race the
+          click's reopen (close-then-open flickers the chip's open echo). */}
+      {dropError !== null && <div className={css.error} role="alert">{dropError}</div>}
+      <div
+        className={clsx(css.card, workspaceTrigger && css.cardWorkspaceTrigger, dragActive && css.dragActive)}
+        data-composer-card
+        onClick={workspaceTrigger ? onRequestWorkspace : undefined}
+        onPointerDown={workspaceTrigger ? (e) => { e.stopPropagation() } : undefined}
+        onDragEnter={onDragEnter}
+        onDragOver={onDragOver}
+        onDragLeave={onDragLeave}
+        onDrop={onDrop}
+      >
+        {dragActive && <div className={css.dropHint} role="status">{t('image.dropHint')}</div>}
         {overlay !== undefined && <div className={css.overlayAnchor}>{overlay}</div>}
         {accessory !== undefined && <div className={css.accessory}>{accessory}</div>}
+        {attachments.length > 0 && (
+          <div className={css.attachments} role="group" aria-label={t('image.pending')}>
+            {attachments.map(attachment => (
+              <div key={attachment.id} className={css.attachment}>
+                <button
+                  type="button"
+                  className={css.thumbnail}
+                  title={t('image.openOriginal')}
+                  onDoubleClick={() => { setPreview(attachment) }}
+                >
+                  <img src={attachment.previewUrl} alt={attachment.file.name || t('image.pending')} />
+                </button>
+                <button
+                  type="button"
+                  className={css.remove}
+                  aria-label={t('image.remove', { name: attachment.file.name })}
+                  onClick={() => {
+                    setDropError(null)
+                    removeImage?.(attachment.id)
+                  }}
+                >×</button>
+              </div>
+            ))}
+          </div>
+        )}
         {/* One scrollport, two text layers. The hidden mirror renders draft+'\n' and stretches the
             stack to the draft's FULL height (counting rows by '\n' cannot see soft wraps); the
             absolutely-positioned backdrop and textarea ride that height, and .scroll — capped at 14
@@ -494,8 +611,11 @@ export function InputBar({
               ref={inputRef}
               className={css.input}
               value={draft}
-              disabled={locked}
-              readOnly={machineBusy}
+              disabled={textareaDisabled}
+              readOnly={machineBusy || workspaceTrigger}
+              aria-label={workspaceTrigger ? t('hero.chooseWorkspace') : undefined}
+              aria-haspopup={workspaceTrigger ? 'menu' : undefined}
+              aria-expanded={workspaceTrigger ? workspacePickerOpen : undefined}
               data-phase={input?.phase ?? 'inert'}
               placeholder={placeholder ?? (parentOffline
                 ? t('placeholder.parentOffline')
@@ -508,7 +628,10 @@ export function InputBar({
                     ? t('placeholder.steerQueue')
                     : planActive ? t('placeholder.plan') : t('placeholder.default'))}
               rows={2}
-              onChange={onChange}
+              onChange={(event) => {
+                setDropError(null)
+                onChange(event)
+              }}
               onKeyDown={onKeyDown}
               onSelect={onSelect}
               onCopy={(e) => { onCopyOrCut(e, false) }}
@@ -585,6 +708,14 @@ export function InputBar({
           </div>
         </div>
       </div>
+      {preview !== null && (
+        <ImageLightbox
+          src={preview.previewUrl}
+          alt={preview.file.name || t('image.original')}
+          onClose={closePreview}
+          t={t}
+        />
+      )}
       {footer}
     </div>
   )

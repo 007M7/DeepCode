@@ -6,7 +6,7 @@ English | [中文](2026-07-20-code-mode-typed-tool-returns.zh.md)
 
 ## Problem
 
-Code Mode originally projected each nested tool result back from `ContentBlock[]` into one string. That preserved the human-readable Native surface but erased the canonical result the tool had already produced: programs had to scrape task ids and dynamic mount ids from prose, structured search and workflow results lost their shape, and non-text blocks became placeholders. The generated SDK could describe arguments but could only promise `Promise<string>` regardless of the tool's real output.
+Code Mode originally projected each nested tool result back from `ContentBlock[]` into one string. That preserved the human-readable Native presentation but erased the canonical result the tool had already produced: programs had to scrape task ids and dynamic mount ids from prose, structured search and workflow results lost their shape, and non-text blocks became placeholders. The generated SDK could describe arguments but could only promise `Promise<string>` regardless of the tool's real output.
 
 The runtime also treated binding values and the final program value as presentation data. Separate log and completion caps could replace an oversized or non-cloneable completion with inspected text even though intermediate values do not enter model context. That made programmatic composition lossy and confused the memory boundary with the prompt boundary.
 

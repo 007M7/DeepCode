@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from 'vitest'
-import { Context, Service } from 'cordis'
+import { Context, Service } from '@deepseek-ai/cordis'
 import InvariantService, {
   InvariantError,
   type Config,
 } from '@deepseek-ai/dsh-invariants'
 
-declare module 'cordis' {
+declare module '@deepseek-ai/cordis' {
   interface Context {
     invariantProbe: InvariantProbeService
   }
@@ -166,7 +166,7 @@ describe('InvariantService validation', () => {
 })
 
 describe('InvariantService lifecycle', () => {
-  it('honors the installer dependency surface in its child fiber', async () => {
+  it('honors the installer dependency API in its child fiber', async () => {
     const { ctx } = await setup()
     await ctx.plugin(InvariantProbeService)
     let registration!: RuntimeRegistration

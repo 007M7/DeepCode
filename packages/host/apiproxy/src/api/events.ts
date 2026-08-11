@@ -14,6 +14,7 @@ import type { CallId } from '@deepseek-ai/dsh-llm/brand'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session/types'
 import type { ToolCallView, ToolResultView } from '@deepseek-ai/dsh-tools/presentation'
 import type { RpcError, RpcId, RpcRequest } from './rpc.ts'
+import type { TaskView } from './tasks.ts'
 import type { WorkspaceView } from './workspace.ts'
 
 // Client-side consumers take the render-intent vocabulary from the contract;
@@ -82,6 +83,20 @@ export type MuxFrame =
    */
   | { type: 'session/queue'; sessionId: SessionId; items: QueuedInboxItem[] }
   /**
+   * Complete set of background tasks this session can see, after every registry
+   * commit that changes it: registration, the stopping transition, settlement,
+   * and owner-disposal removal. The registry is process-local and holds no
+   * durable event, so — exactly like `session/queue` — the whole snapshot is
+   * what makes a start, a kill, a reconnect, and a second tab converge on one
+   * authoritative value.
+   *
+   * Sent as a subscription baseline only for a session that currently has
+   * tasks; an absent key means an empty set. A change that empties the set
+   * still sends `[]`, since that transition is the only one absence cannot
+   * express.
+   */
+  | { type: 'session/tasks'; sessionId: SessionId; tasks: TaskView[] }
+  /**
    * One projection unit's finished value changed (session-projection RFC).
    * Live push state, never logged — replay recomputes on the host (the
    * tool-view posture). `value` is the unit's schema-validated view output;
@@ -130,6 +145,18 @@ export type HostFrame =
    * background rather than diffing.
    */
   | { type: 'host/commands-changed' }
+  /**
+   * One blank session was recomposed onto another agent preset (the logged
+   * `agent-preset/selected` commit point, read off the session stream). The
+   * registry-wide `host/commands-changed` cannot stand in for it: recomposing
+   * re-parents that agent's scope without registering anything, so a
+   * preset already mounted for another session produces no registry change
+   * at all. Clients refetch the catalogs this session's composition decides
+   * (`command.list`, `skill.list`) for this sessionId alone, and fold the
+   * preset id into their session row — the RPC echo reaches only the client
+   * that issued the switch, so the row is where every other one learns it.
+   */
+  | { type: 'host/session-preset-changed'; sessionId: SessionId; agentPreset: string }
   /**
    * One settings namespace's resolved value changed (`settings/updated`
    * passthrough) — an RPC write, an external `settings.yaml` edit, or a

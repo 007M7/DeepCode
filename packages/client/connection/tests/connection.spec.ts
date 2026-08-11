@@ -83,6 +83,35 @@ describe('connection lifecycle', () => {
     }
   })
 
+  it('treats a host.describe business error as generation failure', async () => {
+    const api = new FakeApiClient()
+    let describeCalls = 0
+    api.onDescribe = () => {
+      describeCalls += 1
+      if (describeCalls === 1) {
+        return Promise.resolve({
+          rpcId: 'bad-describe' as never,
+          result: {
+            ok: false as const,
+            error: { code: 'internal' as const, message: 'not ready', details: {} },
+          },
+        })
+      }
+      return Promise.resolve(ok({ version: '0', cwd: '/f', attachedSessions: 0 }))
+    }
+    let connected = 0
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const controller = new ConnectionController(api, { onConnected: () => { connected++ } }, FAST)
+    controller.start()
+    try {
+      await vi.waitFor(() => { expect(describeCalls).toBe(2) })
+      await vi.waitFor(() => { expect(connected).toBe(1) })
+    } finally {
+      controller.stop()
+      warnSpy.mockRestore()
+    }
+  })
+
   it('converges stream/error frames into reconnect instead of dispatching them', async () => {
     const api = new FakeApiClient()
     const muxSeen: string[] = []
