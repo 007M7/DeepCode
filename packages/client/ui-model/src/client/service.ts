@@ -32,7 +32,7 @@ interface LiveState {
 
 /** The `ctx.models` session model-selection service. */
 export class ModelService extends Service {
-  static inject = ['connection', 'sessions']
+  static inject = ['connection', 'sessions', 'remote']
 
   private readonly live: LiveState = { directories: new Map() }
 
@@ -49,14 +49,15 @@ export class ModelService extends Service {
     ctx.on('connection/reset', () => {
       for (const directory of this.live.directories.values()) directory.resetConnected()
     })
-    // Provider topology changed on the host (a settings-born route appeared
-    // or dropped): refresh every open directory in the background so pickers
-    // show the new catalog without a reopen. Failures stay on each store.
-    ctx.on('models/changed', () => {
+    // Either source can change the directory: registry topology commits and
+    // settings documents that carry provider catalogs or default selection.
+    const refresh = (): void => {
       for (const directory of this.live.directories.values()) {
         directory.load().catch(() => undefined)
       }
-    })
+    }
+    ctx.remote.$on('llm/adapters-updated', refresh)
+    ctx.remote.$on('settings/document-updated', refresh)
   }
 
   /**

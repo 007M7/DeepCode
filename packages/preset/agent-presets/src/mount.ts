@@ -20,7 +20,7 @@ import { Context, type Fiber } from '@deepseek-ai/cordis'
 import { Include } from '@deepseek-ai/cordis-plugin-include'
 import type { EntryTree } from '@deepseek-ai/cordis-plugin-loader'
 import { scopeOf, scopeParentOf, type ScopeKey } from '@deepseek-ai/dsh-scope'
-import { PresetMountError, type AgentPreset } from './types.ts'
+import { PresetMountError, type AgentPreset } from './preset.ts'
 
 /** What one mounted subtree publishes about itself for the audit to read. */
 interface MountedTree {

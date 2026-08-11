@@ -12,6 +12,7 @@
  * source's own contract.
  */
 import { Context } from '@deepseek-ai/cordis'
+import { stubSettingsScope } from '@deepseek-ai/dsh-client-test-runtime'
 import { describe, expect, it } from 'vitest'
 import {
   SlotsService, type ConversationSnapshot, type SessionId, type SessionListState,
@@ -87,6 +88,9 @@ async function fullBench(sessions: SessionSummary[]) {
   ctx.provide('slash', { registerSource: (src: SlashSource) => { captured = src; return () => {} } })
   ctx.provide('sessions', face)
   ctx.provide('connection', { api: { settings: {} }, isLoopback: false } as never)
+  // ui-theme's Appearance row binds a durable scope through these two.
+  ctx.provide('remote', { $on: () => () => {} } as never)
+  ctx.provide('settingsScope', { bind: () => stubSettingsScope().scope } as never)
   await provideSlotFaces(ctx)
   await ctx.plugin({ inject: localeInject, apply: applyLocale }).await()
   await ctx.plugin({ inject: [...inject], apply }).await()
@@ -123,6 +127,9 @@ describe('apply', () => {
     await ctx.plugin(SlashService).await()
     ctx.provide('sessions', sessionsWith(FAMILY))
     ctx.provide('connection', { api: { settings: {} }, isLoopback: false } as never)
+    // ui-theme's Appearance row binds a durable scope through these two.
+    ctx.provide('remote', { $on: () => () => {} } as never)
+    ctx.provide('settingsScope', { bind: () => stubSettingsScope().scope } as never)
     await provideSlotFaces(ctx)
     await ctx.plugin({ inject: localeInject, apply: applyLocale }).await()
     const fiber = ctx.plugin({ inject: [...inject], apply })

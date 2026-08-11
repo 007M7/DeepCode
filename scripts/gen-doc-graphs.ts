@@ -758,10 +758,8 @@ const EVENT_API_METHODS = new Set(['on', 'once', 'emit', 'parallel', 'serial', '
  * documents why: one program cannot hold both faces' Context merges), so a
  * Client package enters only when a host file imports it. Client-face
  * listeners on client-face events are therefore under-reported —
- * `connection/reset` omits `ui-skill`/`ui-agent-preset`, `models/changed`
- * omits `ui-model`, `session/preset-changed` omits `ui-skill`. Closing it
- * needs a second Client program whose relations merge into these, not a
- * wider seed.
+   * `connection/reset` omits `ui-skill`/`ui-agent-preset`. Closing it needs a
+   * second Client program whose relations merge into these, not a wider seed.
  */
 export class EventRelationCollector {
   private readonly relations = new Map<string, EventRelation>()

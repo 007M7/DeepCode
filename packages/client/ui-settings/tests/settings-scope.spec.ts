@@ -2,9 +2,9 @@ import { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { describe, expect, it, vi } from 'vitest'
 import type { RpcResponse, SettingsNamespaceView } from '@deepseek-ai/dsh-client-connection/client'
-import {
-  bindSettingsScope, SettingsScopeController, type SettingsScope,
-} from '../src/client/settings-scope.ts'
+import { TestRemote } from '@deepseek-ai/dsh-client-test-runtime'
+import type { SettingsScope } from '@deepseek-ai/dsh-client-runtime/client'
+import { SettingsScopeController, SettingsScopeService } from '../src/client/settings-scope.ts'
 
 interface UiTestSettings {
   preference: 'light' | 'dark' | 'system'
@@ -294,8 +294,7 @@ describe('SettingsScopeController', () => {
     expect(mutate).not.toHaveBeenCalled()
   })
 })
-
-describe('bindSettingsScope', () => {
+describe('SettingsScopeService.bind', () => {
   it('subscribes before the initial read and converges to the latest queued invalidation', async () => {
     const initial = deferred<ReturnType<typeof described>>()
     const describeCall = vi.fn()
@@ -308,16 +307,18 @@ describe('bindSettingsScope', () => {
       isLoopback: true,
     } as never)
     let scope!: SettingsScope<UiTestSettings>
+    new TestRemote(ctx)
+    await ctx.plugin(SettingsScopeService).await()
     const fiber = ctx.plugin({
-      inject: ['connection'],
+      inject: ['connection', 'remote', 'settingsScope'],
       apply: (plugin: Context) => {
-        scope = bindSettingsScope<UiTestSettings>(plugin, { namespace: 'ui-test' })
+        scope = plugin.settingsScope.bind<UiTestSettings>({ namespace: 'ui-test' })
       },
     })
     await fiber.await()
     await vi.waitFor(() => { expect(describeCall).toHaveBeenCalledOnce() })
-    ctx.emit('settings/changed', 'unrelated')
-    ctx.emit('settings/changed', 'ui-test')
+    ctx.remote.$dispatch('settings/document-updated', ['unrelated', 0])
+    ctx.remote.$dispatch('settings/document-updated', ['ui-test', 0])
     ctx.emit('connection/reset')
     initial.resolve(described({ preference: 'dark' }, 1))
     await vi.waitFor(() => { expect(describeCall).toHaveBeenCalledTimes(3) })
@@ -325,7 +326,7 @@ describe('bindSettingsScope', () => {
       expect(scope.getSnapshot()).toMatchObject({ value: { preference: 'system' }, revision: 3 })
     })
     await fiber.dispose()
-    ctx.emit('settings/changed', 'ui-test')
+    ctx.remote.$dispatch('settings/document-updated', ['ui-test', 0])
     await Promise.resolve()
     expect(describeCall).toHaveBeenCalledTimes(3)
   })
@@ -338,10 +339,12 @@ describe('bindSettingsScope', () => {
       isLoopback: false,
     } as never)
     let scope!: SettingsScope<UiTestSettings>
+    new TestRemote(ctx)
+    await ctx.plugin(SettingsScopeService).await()
     const fiber = ctx.plugin({
-      inject: ['connection'],
+      inject: ['connection', 'remote', 'settingsScope'],
       apply: (plugin: Context) => {
-        scope = bindSettingsScope<UiTestSettings>(plugin, { namespace: 'ui-test' })
+        scope = plugin.settingsScope.bind<UiTestSettings>({ namespace: 'ui-test' })
       },
     })
     await fiber.await()

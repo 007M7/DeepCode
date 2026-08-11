@@ -45,7 +45,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 const NS = 'command'
 
 /** Required services: the '/' source registry plus the scope + wire faces the service reads, and the copy's locale registry. */
-export const inject = ['slash', 'sessions', 'connection', 'locale']
+export const inject = ['slash', 'sessions', 'connection', 'locale', 'remote']
 
 /**
  * Client plugin body: mount the service, then register the popupSelect shell

@@ -5,7 +5,7 @@
  */
 
 import { Service } from '@deepseek-ai/cordis'
-import type { Context } from '@deepseek-ai/cordis'
+import type { Context, Events } from '@deepseek-ai/cordis'
 import type { ConnectionHandle, RpcError } from '@deepseek-ai/dsh-client-connection/client'
 import type {
   InvocationDescriptor,
@@ -13,6 +13,7 @@ import type {
   TypeRTCodec,
   TypeRTDisposer,
   TypeRTRemoteContribution,
+  TypeRTRemoteEvent,
 } from '@deepseek-ai/dsh-type-meta'
 
 interface MountToken {
@@ -71,14 +72,28 @@ export function apply(ctx: Context): void {
   new ClientRemoteService(ctx)
 }
 
+/** One subscribed listener after `$on` erased its per-event argument list. */
+type RemoteEventListener = (...args: never[]) => void
+
+/**
+ * One subscription, identified by the registration rather than by its listener:
+ * two fibers may subscribe the same function object to the same event, and each
+ * disposer must retire only its own registration.
+ */
+interface RemoteEventSubscription {
+  readonly listener: RemoteEventListener
+}
+
 class ClientRemoteService extends Service implements TypeRTClientRemote {
   private readonly ownerCtx: Context
   private readonly namespaces = new Map<string, RemoteNamespaceHandle>()
+  private readonly subscriptions = new Map<string, RemoteEventSubscription[]>()
   private mutations = Promise.resolve()
 
   constructor(ctx: Context) {
     super(ctx, 'remote')
     this.ownerCtx = ctx
+    ctx.effect(() => () => { this.subscriptions.clear() }, 'api-gateway.client.subscriptions')
   }
 
   async $mount(contribution: TypeRTRemoteContribution): ReturnType<TypeRTClientRemote['$mount']> {
@@ -89,6 +104,64 @@ class ClientRemoteService extends Service implements TypeRTClientRemote {
     }, `api-gateway.client.$mount(${JSON.stringify(contribution.package)})`)
     await owned
     return async () => { await owned() }
+  }
+
+  $on<Event extends TypeRTRemoteEvent>(
+    event: Event,
+    listener: Events[Event],
+  ): ReturnType<TypeRTClientRemote['$on']> {
+    // The table is keyed by the runtime event name, so the argument list this
+    // signature pins per event cannot survive in it; `$deliver` restores it
+    // from the frame the Host emitted for that same name.
+    const subscription: RemoteEventSubscription = { listener }
+    const owned = this.ctx.effect(() => {
+      const listeners = this.listeners(event)
+      listeners.push(subscription)
+      return () => {
+        const at = listeners.indexOf(subscription)
+        /* v8 ignore next -- listener */
+        if (at >= 0) listeners.splice(at, 1)
+      }
+    }, `api-gateway.client.$on(${JSON.stringify(event)})`)
+    return () => { void owned() }
+  }
+
+  /**
+   * Deliver one forwarded event in registration order, isolating a listener
+   * that fails either synchronously or by rejecting a returned promise; see
+   * {@link TypeRTClientRemote.$dispatch} for the caller contract.
+   */
+  $dispatch(event: string, args: readonly unknown[]): void {
+    const listeners = this.subscriptions.get(event)
+    if (listeners === undefined) return
+    // Snapshot: a listener may subscribe or dispose during delivery, and this
+    // round's recipients are the ones registered when the frame arrived.
+    for (const { listener } of [...listeners]) {
+      const report = (error: unknown): void => {
+        console.error(`client api: Remote event ${JSON.stringify(event)} listener threw:`, error)
+      }
+      try {
+        /* oxlint-disable-next-line typescript/no-confusing-void-expression --
+         * The declared return is void, so nobody awaits an async listener; the
+         * runtime value is still a promise, and reading it is the only way to
+         * keep its rejection inside this containment instead of surfacing as an
+         * unhandled one. */
+        const settled: unknown = listener(...args as never[])
+        if (settled instanceof Promise) settled.catch(report)
+      } catch (error) {
+        report(error)
+      }
+    }
+  }
+
+  /** Subscriptions for one event name; empty arrays are retained, bounded by the Host's selection. */
+  private listeners(event: string): RemoteEventSubscription[] {
+    let listeners = this.subscriptions.get(event)
+    if (listeners === undefined) {
+      listeners = []
+      this.subscriptions.set(event, listeners)
+    }
+    return listeners
   }
 
   private enqueue<T>(operation: () => T | Promise<T>): Promise<T> {

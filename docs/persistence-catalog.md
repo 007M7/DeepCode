@@ -90,7 +90,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 }[T]
 ```
 
-Sources: [`packages/core/session/src/types.ts:331`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:338`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:367`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:399`](../packages/core/session/src/types.ts)
+Sources: [`packages/core/session/src/types.ts:336`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:343`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:372`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:404`](../packages/core/session/src/types.ts)
 
 ## Events
 
@@ -203,7 +203,7 @@ Source: [`packages/interaction/user-approval/src/index.ts:67`](../packages/inter
 
 Types: [StreamChunk](subsystems/llm-streaming.md)
 
-Source: [`packages/core/session/src/types.ts:261`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:266`](../packages/core/session/src/types.ts)
 
 #### `assistant/message` — surface
 
@@ -219,7 +219,7 @@ Source: [`packages/core/session/src/types.ts:261`](../packages/core/session/src/
 
 Types: [TokenUsage](subsystems/llm-streaming.md)
 
-Source: [`packages/core/session/src/types.ts:268`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:273`](../packages/core/session/src/types.ts)
 
 ### `command/*`
 
@@ -240,7 +240,7 @@ Source: [`packages/core/session/src/types.ts:268`](../packages/core/session/src/
 }
 ```
 
-Source: [`packages/interaction/commands/src/types.ts:41`](../packages/interaction/commands/src/types.ts)
+Source: [`packages/interaction/commands/src/types.ts:56`](../packages/interaction/commands/src/types.ts)
 
 #### `command/run` — log-only
 
@@ -258,7 +258,7 @@ Source: [`packages/interaction/commands/src/types.ts:41`](../packages/interactio
 'command/run': { commandId: CommandId; name: string; args?: string; source: CommandSource }
 ```
 
-Source: [`packages/interaction/commands/src/types.ts:34`](../packages/interaction/commands/src/types.ts)
+Source: [`packages/interaction/commands/src/types.ts:49`](../packages/interaction/commands/src/types.ts)
 
 ### `compact/*`
 
@@ -499,7 +499,7 @@ Source: [`packages/plan/plan-mode/src/index.ts:53`](../packages/plan/plan-mode/s
 'request/context': RequestContext
 ```
 
-Source: [`packages/core/session/src/types.ts:304`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:309`](../packages/core/session/src/types.ts)
 
 #### `request/header` — log-only
 
@@ -511,7 +511,7 @@ Source: [`packages/core/session/src/types.ts:304`](../packages/core/session/src/
 'request/header': { header: EpochHeader; reason: RequestHeaderReason }
 ```
 
-Source: [`packages/core/session/src/types.ts:299`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:304`](../packages/core/session/src/types.ts)
 
 ### `sandbox/*`
 
@@ -580,7 +580,7 @@ Source: [`packages/schedule/tool-schedule/src/types.ts:183`](../packages/schedul
 'session/end-seed': Record<string, never>
 ```
 
-Source: [`packages/core/session/src/types.ts:327`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:332`](../packages/core/session/src/types.ts)
 
 #### `session/title` — log-only
 
@@ -616,7 +616,7 @@ Source: [`packages/session/session-title-llm/src/index.ts:43`](../packages/sessi
 'step/end': { turn: number; step: number }
 ```
 
-Source: [`packages/core/session/src/types.ts:251`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:256`](../packages/core/session/src/types.ts)
 
 #### `step/start` — log-only
 
@@ -625,7 +625,7 @@ Source: [`packages/core/session/src/types.ts:251`](../packages/core/session/src/
 'step/start': { turn: number; step: number }
 ```
 
-Source: [`packages/core/session/src/types.ts:249`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:254`](../packages/core/session/src/types.ts)
 
 ### `subagent/*`
 
@@ -655,7 +655,7 @@ Source: [`packages/subagent/subagent/src/descriptor.ts:37`](../packages/subagent
 
 Types: [TodoItem](subsystems/session.md)
 
-Source: [`packages/core/session/src/types.ts:294`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:299`](../packages/core/session/src/types.ts)
 
 ### `tool/*`
 
@@ -672,7 +672,7 @@ Source: [`packages/core/session/src/types.ts:294`](../packages/core/session/src/
 
 Types: [CallId](subsystems/core.md)
 
-Source: [`packages/core/session/src/types.ts:274`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:279`](../packages/core/session/src/types.ts)
 
 #### `tool/code-dispatch` — log-only
 
@@ -741,7 +741,7 @@ Source: [`packages/core/tools/src/types.ts:40`](../packages/core/tools/src/types
 }
 ```
 
-Source: [`packages/core/session/src/types.ts:286`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:291`](../packages/core/session/src/types.ts)
 
 ### `tool-workflow/*`
 
@@ -811,7 +811,7 @@ Source: [`packages/workflow/tool-workflow/src/types.ts:47`](../packages/workflow
 
 Types: [TurnEndReason](subsystems/session.md)
 
-Source: [`packages/core/session/src/types.ts:247`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:252`](../packages/core/session/src/types.ts)
 
 #### `turn/start` — log-only
 
@@ -825,7 +825,7 @@ Source: [`packages/core/session/src/types.ts:247`](../packages/core/session/src/
 'turn/start': { turn: number }
 ```
 
-Source: [`packages/core/session/src/types.ts:238`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:243`](../packages/core/session/src/types.ts)
 
 ### `user/*`
 
@@ -842,7 +842,7 @@ Source: [`packages/core/session/src/types.ts:238`](../packages/core/session/src/
 'user/message': UserMessage
 ```
 
-Source: [`packages/core/session/src/types.ts:259`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:264`](../packages/core/session/src/types.ts)
 
 ### `web/*`
 

@@ -20,7 +20,7 @@ import { load } from 'js-yaml'
 import { entryListSchema } from '@deepseek-ai/cordis-plugin-include'
 import { expandHomePath } from '@deepseek-ai/dsh-paths'
 import { readPresetMetadata } from './metadata.ts'
-import { PRESET_ID, type AgentPreset, type PresetRoot } from './types.ts'
+import { PRESET_ID, type AgentPreset, type PresetRoot } from './preset.ts'
 
 /** The composition file that makes a directory a preset. */
 export const COMPOSITION_FILE = 'agent.cordis.yml'

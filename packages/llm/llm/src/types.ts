@@ -9,6 +9,21 @@ import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { CallId, ProviderRequestId, ReasoningEffortId } from './brand.ts'
 import type { Message } from './message.ts'
 
+declare module '@deepseek-ai/cordis' {
+  interface Events {
+    /**
+     * The provider topology changed: an adapter registered or unregistered
+     * routes, or the configurable-provider directory gained or lost entries.
+     * This payload-free registry notification fires at each commit point
+     * (including registration disposal); consumers re-read `listProviders()`,
+     * `listModels()`, or `listConfigurableProviders()` for the new state.
+     * Observer failures are contained and cannot veto the registry mutation.
+     * @mode emit
+     */
+    'llm/adapters-updated'(): void
+  }
+}
+
 export type {
   AssistantMessage,
   AssistantProvenance,
