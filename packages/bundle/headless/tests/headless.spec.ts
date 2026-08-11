@@ -1,6 +1,6 @@
 /** Direct one-shot Agent driving, durable aggregation, flushing, and exit mapping. */
 
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry, { Inbox } from '@deepseek-ai/dsh-agent'
 import type { Agent, AgentHandle, CreateAgentOptions } from '@deepseek-ai/dsh-agent'
@@ -8,7 +8,10 @@ import AgentDefaultModelService from '@deepseek-ai/dsh-agent-default-model'
 import { createAssistantMessage } from '@deepseek-ai/dsh-llm'
 import SessionStore from '@deepseek-ai/dsh-session'
 import type { Session, UserMessage } from '@deepseek-ai/dsh-session'
-import { apply, Config, type HeadlessIo } from '../src/index.ts'
+import { apply, Config, internals } from '../src/index.ts'
+
+const originalInternals = { ...internals }
+afterEach(() => { Object.assign(internals, originalInternals) })
 
 interface Script {
   before?(session: Session): void
@@ -93,13 +96,10 @@ async function bench(script: Script): Promise<{
       let err = ''
       const order: string[] = []
       ctx.on('session/flush', () => { order.push('flush') })
+      internals.stdout = { write: (chunk: string) => { out += chunk; return true } }
+      internals.stderr = { write: (chunk: string) => { err += chunk; return true } }
       const exited = new Promise<number>((resolve) => {
-        const io: HeadlessIo = {
-          stdout: { write: (chunk: string) => { out += chunk; return true } },
-          stderr: { write: (chunk: string) => { err += chunk; return true } },
-          exit: (code) => { order.push('exit'); resolve(code) },
-        }
-        ctx.provide('headlessIo', io)
+        ctx.provide('appExit', (code: number) => { order.push('exit'); resolve(code) })
       })
       apply(ctx, { task: 'do the thing' })
       return { code: await exited, out, err, order }
@@ -181,12 +181,10 @@ describe('headless runner', () => {
   it('reports a direct Agent creation failure', async () => {
     const ctx = new Context()
     let err = ''
+    internals.stdout = { write: () => true }
+    internals.stderr = { write: (chunk: string) => { err += chunk; return true } }
     const exited = new Promise<number>((resolve) => {
-      ctx.provide('headlessIo', {
-        stdout: { write: () => true },
-        stderr: { write: (chunk: string) => { err += chunk; return true } },
-        exit: resolve,
-      } satisfies HeadlessIo)
+      ctx.provide('appExit', resolve)
     })
     ctx.provide('agentDefaultModel', { currentSelection: () => ({ provider: 'p', model: 'm' }) } as never)
     ctx.provide('sessions', { flush: () => Promise.resolve(true) } as never)
@@ -200,12 +198,10 @@ describe('headless runner', () => {
   it('stringifies a non-Error Agent creation failure', async () => {
     const ctx = new Context()
     let err = ''
+    internals.stdout = { write: () => true }
+    internals.stderr = { write: (chunk: string) => { err += chunk; return true } }
     const exited = new Promise<number>((resolve) => {
-      ctx.provide('headlessIo', {
-        stdout: { write: () => true },
-        stderr: { write: (chunk: string) => { err += chunk; return true } },
-        exit: resolve,
-      } satisfies HeadlessIo)
+      ctx.provide('appExit', resolve)
     })
     ctx.provide('agentDefaultModel', { currentSelection: () => ({ provider: 'p', model: 'm' }) } as never)
     ctx.provide('sessions', { flush: () => Promise.resolve(true) } as never)
@@ -224,11 +220,9 @@ describe('headless runner', () => {
   it('abandons a run when the tree is disposed during Loader settlement', async () => {
     const ctx = new Context()
     let exited = false
-    ctx.provide('headlessIo', {
-      stdout: { write: () => true },
-      stderr: { write: () => true },
-      exit: () => { exited = true },
-    } satisfies HeadlessIo)
+    internals.stdout = { write: () => true }
+    internals.stderr = { write: () => true }
+    ctx.provide('appExit', () => { exited = true })
     const services = ctx.plugin((child: Context) => {
       child.provide('agentDefaultModel', { currentSelection: () => ({ provider: 'p', model: 'm' }) } as never)
       child.provide('sessions', {} as never)
@@ -246,9 +240,9 @@ describe('headless runner', () => {
     await ctx.fiber.dispose()
   })
 
-  it('fails loud without the launcher-owned headlessIo seam', () => {
+  it('fails loud without the launcher-provided exit request', () => {
     const ctx = new Context()
-    expect(() => { apply(ctx, { task: 't' }) }).toThrow('must provide ctx.headlessIo')
+    expect(() => { apply(ctx, { task: 't' }) }).toThrow('must provide ctx.appExit')
   })
 
   it('validates config: the task is required', () => {
