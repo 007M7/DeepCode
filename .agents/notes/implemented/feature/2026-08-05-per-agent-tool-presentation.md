@@ -12,16 +12,16 @@ The naive reading of "move tools down to the agent plane" does not work. `ctx.to
 
 ## Decision
 
-Split the registry from its projection. The registry stays host-plane; the **presentation** becomes per-agent state inside it, alongside the per-agent restrictions and guards that already live there.
+Split the registry from its projection. The registry stays host-plane; the **presentation** becomes scope state inside it, alongside the scoped restrictions and guards that already live there.
 
-`ToolRegistry.presentAs(mode)` is scoped-only and mirrors `restrict()`: it writes one cell on the calling scope's `ToolLayer` through `ScopedLayers.effect`, so it unwinds with the agent that declared it. `modeFor(scope)` resolves that cell against the config `mode`, which becomes the default for agents declaring nothing rather than a process-wide fact. The three reads that decided presentation — the wire schemas, the `run_code` entry in the visibility view, and the generated SDK section — take the scope's mode instead of the service's.
+`ToolRegistry.presentAs(mode)` is scoped-only and mirrors `restrict()`: it writes one cell on the calling scope's `ToolLayer` through `ScopedLayers.effect`, so it unwinds with the scope that declared it. In the shipped Web surface that scope is an agent preset's standing mount — the `code` preset carries the `tool-mode` row — so one declaration covers every agent joined to that preset, and `modeFor(scope)` takes the nearest declaration on the chain. It resolves against the config `mode`, which becomes the default for scopes declaring nothing rather than a process-wide fact. The three reads that decided presentation — the wire schemas, the `run_code` entry in the visibility view, and the generated SDK section — take the scope's mode instead of the service's.
 
 Two consequences fell out and are load-bearing:
 
 - **`run_code` is appended per scope.** Previously the transport entered every view whenever the transport existed. Per-agent, a native agent must not find `run_code` in its dispatch table because some other agent in the process presents it — so the append is conditional on that scope's own mode, and the transport is built lazily on first need.
 - **The reserved name is now unconditional.** `run_code` was rejected as a registration only while a code mode was configured. Any agent may now select a code mode, so a name that was free to take under a native deployment would become a collision the moment a preset mounted.
 
-The SDK prompt section is registered globally by a code-mode deployment (unchanged) and additionally per agent by `presentAs`, where it shadows by name. Its body renders empty for a native scope, which the prompt renderer drops — that is what keeps an agent opting OUT of a code-mode deployment free of an SDK section.
+The SDK prompt section is registered globally by a code-mode deployment (unchanged) and additionally per scope by `presentAs`, where it shadows by name. Its body renders empty for a native scope, which the prompt renderer drops — that is what keeps an agent opting OUT of a code-mode deployment free of an SDK section.
 
 The preset expresses the choice through one row, `@deepseek-ai/dsh-agent-tool-mode`, whose whole body is a `presentAs` call. A code mode waits for `ctx.codeRuntime` through `ctx.inject` rather than assuming it: the runtime is host-plane, and a pending row is what `dsh-agent-presets` already reports as an unusable mount, naming the row — so a preset selecting Code Mode against a runtime-less deployment fails where an operator can act.
 
