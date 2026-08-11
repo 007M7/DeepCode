@@ -21,7 +21,7 @@
 }
 
 .sessionRow.selected {
-  background: var(--dsw-alias-interactive-bg-active);
+  background: var(--dsw-alias-interactive-bg-hover);
 }
 
 .searchResultRow {
@@ -45,7 +45,7 @@
 }
 
 .searchResultRow.selected {
-  background: var(--dsw-alias-interactive-bg-active);
+  background: var(--dsw-alias-interactive-bg-hover);
 }
 
 .searchResultHeading {
@@ -229,14 +229,32 @@
   background: var(--dsw-alias-interactive-bg-hover);
 }
 
-/* Drag reorder insert line (workspace-group session rows): 2px accent above or
-   below the hovered row, drawn with box-shadow so no layout shift. */
-.sessionRow.dropBefore {
-  box-shadow: 0 -2px 0 0 var(--dsw-alias-state-business-primary);
+/* Session drag insert line: an independent 2px rule between rows, absolutely
+   positioned so it neither resembles a row border nor changes layout. */
+.sessionRow.dropBefore,
+.sessionRow.dropAfter {
+  position: relative;
 }
 
-.sessionRow.dropAfter {
-  box-shadow: 0 2px 0 0 var(--dsw-alias-state-business-primary);
+.sessionRow.dropBefore::before,
+.sessionRow.dropAfter::after {
+  content: '';
+  position: absolute;
+  z-index: 1;
+  left: 4px;
+  right: 4px;
+  height: 2px;
+  border-radius: 999px;
+  background: var(--dsw-alias-state-business-primary);
+  pointer-events: none;
+}
+
+.sessionRow.dropBefore::before {
+  top: -2px;
+}
+
+.sessionRow.dropAfter::after {
+  bottom: -2px;
 }
 
 /* Hover-card body (figma 169:16903): dark surface, fixed colors both themes. */

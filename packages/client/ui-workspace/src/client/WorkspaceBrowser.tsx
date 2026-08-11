@@ -35,7 +35,7 @@ const SEARCH_DEBOUNCE_MS = 250
 /** `session.search` wire bound, measured in JavaScript UTF-16 code units. */
 const SEARCH_QUERY_MAX_CODE_UNITS = 500
 /** Session rows visible per Workspace before the local overflow control. */
-const COLLAPSED_SESSION_LIMIT = 6
+const COLLAPSED_SESSION_LIMIT = 5
 
 /** Keep controlled input and RPC payload inside the session.search wire contract. */
 function sanitizeSearchQuery(value: string): string {
@@ -110,9 +110,16 @@ interface DragState {
   over: { id: SessionNode['id']; half: 'before' | 'after' } | null
 }
 
+/** In-flight Workspace-row drag: source identity plus the current marker. */
+interface WorkspaceDragState {
+  workspaceId: WorkspaceId
+  over: { id: WorkspaceId; half: 'before' | 'after' } | null
+}
+
 type SessionTreeProps = Pick<
   WorkspaceBrowserProps,
-  'useSessions' | 'startSession' | 'open' | 'forkSession' | 'insertSessionBefore' | 't'
+  'useSessions' | 'startSession' | 'open' | 'forkSession'
+  | 'insertWorkspaceBefore' | 'insertSessionBefore' | 't'
 > & {
   workspaces: readonly WorkspaceView[]
   /** Registry-global archive set (hidden rows). */
@@ -125,14 +132,15 @@ type SessionTreeProps = Pick<
   onSessionRename: (sessionId: SessionNode['id'], currentTitle: string) => void
   /** Archive a session (row menu action; the row disappears on the state echo). */
   onSessionArchive: (sessionId: SessionNode['id']) => void
-  /** Visual order; only manual mode exposes durable Workspace dragging. */
+  /** Session visual order; only manual mode exposes durable Session dragging. */
   orderBy: SessionOrderBy
 }
 
 /** The scrolling session tree; unmounting at collapse settle drops the sessions subscription and expansion state. */
 function SessionTree({
   useSessions, startSession, open, forkSession, workspaces, archivedSessionIds,
-  onRenameRequest, onDeleteRequest, onSessionRename, onSessionArchive, insertSessionBefore, orderBy, t,
+  onRenameRequest, onDeleteRequest, onSessionRename, onSessionArchive,
+  insertWorkspaceBefore, insertSessionBefore, orderBy, t,
 }: SessionTreeProps) {
   const list = useSessions(s => s)
   const current = list.current
@@ -140,6 +148,7 @@ function SessionTree({
   const [expandedSessionGroups, setExpandedSessionGroups] = useState<string[]>([])
   // Transient drag viewing state (never store-bound; order truth stays Host-side).
   const [drag, setDrag] = useState<DragState | null>(null)
+  const [workspaceDrag, setWorkspaceDrag] = useState<WorkspaceDragState | null>(null)
   const currentGroup = current === undefined
     ? undefined
     : (workspaces.find(w => w.sessionIds.includes(current))?.workspaceId as string | undefined)
@@ -160,18 +169,62 @@ function SessionTree({
         {groups.length === 0 && (
           <div className={css.empty}>{t('empty.none')}</div>
         )}
-        {groups.map(group => (
+        {groups.map((group) => {
+          const workspaceId = group.workspaceId
+          const workspaceMarker = workspaceId !== undefined && workspaceDrag?.over?.id === workspaceId
+            ? workspaceDrag.over.half
+            : null
+          const workspaceDragProps = workspaceId === undefined ? undefined : {
+            start: () => { setWorkspaceDrag({ workspaceId, over: null }) },
+            active: workspaceDrag !== null,
+            marker: null,
+            hover: (half: 'before' | 'after') => {
+              setWorkspaceDrag(active => active === null
+                ? active
+                : { ...active, over: { id: workspaceId, half } })
+            },
+            drop: (half: 'before' | 'after') => {
+              if (workspaceDrag === null) return
+              const rowIndex = workspaces.findIndex(workspace => workspace.workspaceId === workspaceId)
+              const anchor = half === 'before' ? workspaceId : workspaces[rowIndex + 1]?.workspaceId
+              setWorkspaceDrag(null)
+              if (anchor === workspaceDrag.workspaceId) return
+              const sourceIndex = workspaces.findIndex(workspace => workspace.workspaceId === workspaceDrag.workspaceId)
+              const anchorIndex = anchor === undefined
+                ? workspaces.length
+                : workspaces.findIndex(workspace => workspace.workspaceId === anchor)
+              if (sourceIndex !== -1 && (anchorIndex === sourceIndex || anchorIndex === sourceIndex + 1)) return
+              insertWorkspaceBefore(workspaceDrag.workspaceId, anchor).catch((reason: unknown) => {
+                console.warn('workspace reorder rejected:', reason)
+              })
+            },
+            end: () => { setWorkspaceDrag(null) },
+          }
+          return (
           // Group section: header row + expanded top-level session rows. The
           // inter-group breathing room is the section's own margin
           // (WorkspaceBrowser.module.css).
-          <div key={group.key} className={css.groupSection}>
+          <div
+            key={group.key}
+            className={clsx(
+              css.groupSection,
+              workspaceMarker === 'before' && css.workspaceDropBefore,
+              workspaceMarker === 'after' && css.workspaceDropAfter,
+            )}
+          >
             <ProjectRowItem
               group={group}
               t={t}
-              onToggle={() => { setExpandedProjects(l => toggled(l, group.key)) }}
+              onToggle={() => {
+                if (group.expanded) {
+                  setExpandedSessionGroups(keys => keys.filter(key => key !== group.key))
+                }
+                setExpandedProjects(l => toggled(l, group.key))
+              }}
               onCreate={() => {
                 if (group.workspaceId !== undefined) startSession(group.workspaceId)
               }}
+              drag={workspaceDragProps}
               actions={group.workspaceId === undefined
                 ? undefined
                 : {
@@ -251,7 +304,8 @@ function SessionTree({
               </button>
             )}
           </div>
-        ))}
+          )
+        })}
       </div>
       <span className={css.fade} />
     </div>
@@ -382,6 +436,7 @@ export function WorkspaceBrowser({
   forkSession,
   renameWorkspace,
   deleteWorkspace,
+  insertWorkspaceBefore,
   archiveSession,
   insertSessionBefore,
   createWorkspace,
@@ -406,6 +461,7 @@ export function WorkspaceBrowser({
   // The query outlives the tree and the input (both wide-only) so collapsing
   // does not silently drop an in-progress filter.
   const [query, setQuery] = useState('')
+  const [searchExpanded, setSearchExpanded] = useState(false)
   const normalizedQuery = sanitizeSearchQuery(query).trim()
   const [remoteSearch, setRemoteSearch] = useState<RemoteSearchState>({
     query: '',
@@ -413,6 +469,7 @@ export function WorkspaceBrowser({
     items: [],
     hasMore: false,
   })
+  const searchRoot = useRef<HTMLDivElement | null>(null)
   const searchInput = useRef<HTMLInputElement | null>(null)
   // Section-header ＋ opens the picker menu (same popover in wide and rail
   // states; the menu anchors on this button).
@@ -432,6 +489,21 @@ export function WorkspaceBrowser({
       return () => { window.clearTimeout(timer) }
     }
   }, [wide, searchOnExpand])
+
+  useEffect(() => {
+    if (!wide || !searchExpanded || searchOnExpand) return
+    searchInput.current?.focus({ preventScroll: true })
+  }, [wide, searchExpanded, searchOnExpand])
+
+  useEffect(() => {
+    if (!wide || !searchExpanded) return
+    const onPointerDown = (event: PointerEvent): void => {
+      if (!(event.target instanceof Node) || searchRoot.current?.contains(event.target) === true) return
+      searchInput.current?.blur()
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    return () => { document.removeEventListener('pointerdown', onPointerDown) }
+  }, [wide, searchExpanded])
 
   useEffect(() => {
     if (normalizedQuery === '') {
@@ -585,32 +657,91 @@ export function WorkspaceBrowser({
           </span>
         )}
         {wide && (
-          <ViewOptionsMenu
-            groupBy={groupBy}
-            orderBy={effectiveOrderBy}
-            onGroupPick={(mode) => { actions.setGroupBy(mode) }}
-            onOrderPick={(mode) => { actions.setOrderBy(mode) }}
-            t={t}
-          />
-        )}
-        {/* Adding is the button's one action, so a composition with no
-            picking affordance has nothing to offer here: the region hides the
-            button rather than leaving a dead one in the header. */}
-        {directoryFlowAvailable && (
-          <Tooltip label={t('workspace.add')} side="bottom" delayMs={500}>
-            <button
-              ref={wsPlusRef}
-              type="button"
-              className={css.iconButton}
-              aria-label={t('workspace.add')}
+          <div className={css.searchSlot}>
+            <div
+              ref={searchRoot}
+              className={clsx(css.search, searchExpanded && css.searchExpanded)}
               onClick={() => {
-                setWsPickerOpen(v => !v)
+                setWsPickerOpen(false)
+                setSearchExpanded(true)
+                searchInput.current?.focus()
               }}
             >
-              <IconProjectAddOutline16 size={wide ? 16 : 18} />
-            </button>
-          </Tooltip>
+              <Tooltip label={t('search')} disabled={searchExpanded}>
+                <button
+                  type="button"
+                  className={css.searchButton}
+                  aria-label={t('search.sessions.aria')}
+                  aria-expanded={searchExpanded}
+                  onClick={() => {
+                    setWsPickerOpen(false)
+                    setSearchExpanded(true)
+                  }}
+                >
+                  <IconSearchOutline16 size={11} />
+                </button>
+              </Tooltip>
+              <input
+                ref={searchInput}
+                className={css.searchInput}
+                type="text"
+                placeholder={t('search.placeholder')}
+                maxLength={SEARCH_QUERY_MAX_CODE_UNITS}
+                value={query}
+                tabIndex={searchExpanded ? 0 : -1}
+                onChange={(e) => { setQuery(sanitizeSearchQuery(e.target.value)) }}
+                onKeyDown={(e) => {
+                  if (e.key !== 'Escape') return
+                  setQuery('')
+                  setSearchExpanded(false)
+                }}
+              />
+              {searchExpanded && (
+                <button
+                  type="button"
+                  className={css.clearButton}
+                  aria-label={t('search.clear')}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setQuery('')
+                    setSearchExpanded(false)
+                  }}
+                >
+                  <IconCloseFill14 />
+                </button>
+              )}
+            </div>
+          </div>
         )}
+        <div className={clsx(css.headerActions, wide && searchExpanded && css.headerActionsHidden)}>
+          {wide && (
+            <ViewOptionsMenu
+              groupBy={groupBy}
+              orderBy={effectiveOrderBy}
+              onGroupPick={(mode) => { actions.setGroupBy(mode) }}
+              onOrderPick={(mode) => { actions.setOrderBy(mode) }}
+              t={t}
+            />
+          )}
+          {/* Adding is the button's one action, so a composition with no
+              picking affordance has nothing to offer here: the region hides the
+              button rather than leaving a dead one in the header. */}
+          {directoryFlowAvailable && (
+            <Tooltip label={t('workspace.add')} side="bottom" delayMs={500}>
+              <button
+                ref={wsPlusRef}
+                type="button"
+                className={css.iconButton}
+                aria-label={t('workspace.add')}
+                onClick={() => {
+                  setWsPickerOpen(v => !v)
+                }}
+              >
+                <IconProjectAddOutline16 size={wide ? 16 : 18} />
+              </button>
+            </Tooltip>
+          )}
+        </div>
         {/* Add flow + its error dialog (same package — direct composition). */}
         <WorkspacePickFlow
           t={t}
@@ -630,42 +761,23 @@ export function WorkspaceBrowser({
         />
       </div>
 
-      {/* Expanded: the row is a click-to-focus field (the leading icon is
-          decorative). Rail: the icon is the region's search control. */}
-      <div className={css.search} onClick={() => { if (wide) searchInput.current?.focus() }}>
-        <Tooltip label={t('search')} disabled={wide}>
+      {/* The collapsed rail keeps search as its own 36px control. */}
+      {!wide && <div className={css.search}>
+        <Tooltip label={t('search')}>
           <button
             type="button"
             className={css.searchButton}
             aria-label={t('search.sessions.aria')}
-            tabIndex={wide ? -1 : 0}
-            onClick={() => { if (!wide) { setSearchOnExpand(true); expandSidebar() } }}
+            onClick={() => {
+              setSearchExpanded(true)
+              setSearchOnExpand(true)
+              expandSidebar()
+            }}
           >
-            <IconSearchOutline16 size={wide ? 14 : 18} />
+            <IconSearchOutline16 size={18} />
           </button>
         </Tooltip>
-        {wide && (
-          <input
-            ref={searchInput}
-            className={clsx(css.searchInput, css.wide)}
-            type="text"
-            placeholder={t('search.placeholder')}
-            maxLength={SEARCH_QUERY_MAX_CODE_UNITS}
-            value={query}
-            onChange={(e) => { setQuery(sanitizeSearchQuery(e.target.value)) }}
-          />
-        )}
-        {wide && query !== '' && (
-          <button
-            type="button"
-            className={clsx(css.clearButton, css.wide)}
-            aria-label={t('search.clear')}
-            onClick={() => { setQuery('') }}
-          >
-            <IconCloseFill14 />
-          </button>
-        )}
-      </div>
+      </div>}
 
       {/* Always-mounted seat keeps the region's flex slot while the list
           itself is wide-only. */}
@@ -701,6 +813,7 @@ export function WorkspaceBrowser({
                 archivedSessionIds={archivedSessionIds}
                 startSession={startSession}
                 open={open}
+                insertWorkspaceBefore={insertWorkspaceBefore}
                 insertSessionBefore={insertSessionBefore}
                 orderBy={orderBy}
                 t={t}

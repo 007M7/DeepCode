@@ -67,6 +67,29 @@ function WorkspaceHoverContent({ label, cwd, createdAt, t }: {
 }
 
 /**
+ * Row drag wiring supplied by the tree owner. `drop` reports the half of the
+ * row where the pointer released so the owner can resolve an insert anchor.
+ */
+export interface RowDragProps {
+  /** Start dragging this row. */
+  start: () => void
+  /** A compatible row drag is in flight. */
+  active: boolean
+  /** Current marker on this row: insert line above, below, or none. */
+  marker: 'before' | 'after' | null
+  /** Report the hovered half while a compatible drag passes over this row. */
+  hover: (half: 'before' | 'after') => void
+  drop: (half: 'before' | 'after') => void
+  end: () => void
+}
+
+/** Pointer-position half of a row (insert line above or below). */
+function rowHalf(e: { clientY: number; currentTarget: HTMLElement }): 'before' | 'after' {
+  const rect = e.currentTarget.getBoundingClientRect()
+  return e.clientY < rect.top + rect.height / 2 ? 'before' : 'after'
+}
+
+/**
  * Project (workspace) header row: folder + title;
  * hover reveals the chevron and create button, and dwelling on a real
  * Workspace shows its hover card (the ungrouped bucket has none).
@@ -74,15 +97,18 @@ function WorkspaceHoverContent({ label, cwd, createdAt, t }: {
  * @param props.group - derived group node.
  * @param props.onToggle - expand/collapse the group.
  * @param props.onCreate - start a frontend Session inside this Workspace.
+ * @param props.drag - optional workspace-row drag wiring.
  * @param props.t - the browser root's locale seat.
  * @returns the row element.
  */
-export function ProjectRowItem({ group, onToggle, onCreate, actions, t }: {
+export function ProjectRowItem({ group, onToggle, onCreate, actions, drag, t }: {
   group: GroupNode
   onToggle: () => void
   onCreate: () => void
   /** Real-Workspace actions; absent for the ungrouped bucket (no menu shown). */
   actions?: { rename: () => void; delete: () => void } | undefined
+  /** Present only for real Workspace rows in the grouped view. */
+  drag?: RowDragProps | undefined
   t: RowTranslate
 }) {
   const row = group
@@ -96,10 +122,37 @@ export function ProjectRowItem({ group, onToggle, onCreate, actions, t }: {
   ]
   const ownRow = (
     <div
-      className={clsx(css.projectRow, menuOpen && css.menuOpen)}
+      className={clsx(
+        css.projectRow, menuOpen && css.menuOpen,
+        drag?.marker === 'before' && css.dropBefore, drag?.marker === 'after' && css.dropAfter,
+      )}
       role="treeitem"
       aria-expanded={row.expanded}
       onClick={onToggle}
+      draggable={drag !== undefined}
+      onDragStart={drag === undefined
+        ? undefined
+        : (e) => {
+          e.dataTransfer.effectAllowed = 'move'
+          e.dataTransfer.setData('text/plain', row.key)
+          drag.start()
+        }}
+      onDragEnd={drag?.end}
+      onDragOver={drag === undefined
+        ? undefined
+        : (e) => {
+          if (!drag.active) return
+          e.preventDefault()
+          e.dataTransfer.dropEffect = 'move'
+          drag.hover(rowHalf(e))
+        }}
+      onDrop={drag === undefined
+        ? undefined
+        : (e) => {
+          if (!drag.active) return
+          e.preventDefault()
+          drag.drop(rowHalf(e))
+        }}
     >
       <span className={clsx(css.slot, css.folder, active && css.folderActive)}>
         {row.expanded ? <IconFolderOpen16 /> : <IconFolderClose16 />}
@@ -238,24 +291,6 @@ function SessionHoverContent({ node, now, t }: { node: SessionNode; now: number;
 }
 
 /**
- * Session-row drag wiring supplied by the group owner (workspace groups only).
- * `drop` reports the half of the row the pointer released on: 'before'
- * inserts above this row, 'after' below it (the owner resolves the anchor).
- */
-export interface RowDragProps {
-  /** Start dragging this row. */
-  start: () => void
-  /** A drag from the same group is in flight (rows show insert markers). */
-  active: boolean
-  /** Current marker on this row: insert line above, below, or none. */
-  marker: 'before' | 'after' | null
-  /** Report the hovered half while a same-group drag passes over this row. */
-  hover: (half: 'before' | 'after') => void
-  drop: (half: 'before' | 'after') => void
-  end: () => void
-}
-
-/**
  * One flat search result: title, Workspace context, and optional content
  * excerpt. Search navigation opens the session only; it does not address an
  * event inside the conversation.
@@ -301,12 +336,6 @@ export function SearchResultItem({ result, currentId, onOpen, t }: {
       )}
     </button>
   )
-}
-
-/** Pointer-position half of a row (insert line above or below). */
-function rowHalf(e: { clientY: number; currentTarget: HTMLElement }): 'before' | 'after' {
-  const rect = e.currentTarget.getBoundingClientRect()
-  return e.clientY < rect.top + rect.height / 2 ? 'before' : 'after'
 }
 
 /**
@@ -368,6 +397,7 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
         ? undefined
         : (e) => {
           e.dataTransfer.effectAllowed = 'move'
+          e.dataTransfer.setData('text/plain', node.id)
           drag.start()
         }}
       onDragEnd={drag?.end}

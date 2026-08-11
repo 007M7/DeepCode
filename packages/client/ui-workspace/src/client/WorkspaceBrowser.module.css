@@ -38,9 +38,8 @@
   background: var(--dsw-alias-interactive-bg-hover);
 }
 
-/* Section header: 36px, "Workspaces/Sessions" label + group-by /
-   new-workspace buttons; the right-anchored new-workspace button is the
-   row's rail survivor. */
+/* Section header: title, an inline search control, and the two trailing
+   actions. Expanding search collapses the action cluster and takes its room. */
 .sectionHeader {
   flex: none;
   display: flex;
@@ -48,7 +47,7 @@
   justify-content: flex-end;
   gap: 4px;
   height: 36px;
-  padding-left: 12px;
+  padding-left: 4px;
   margin-bottom: 4px;
   box-sizing: border-box;
   border-radius: 12px;
@@ -56,64 +55,126 @@
   color: var(--dsw-alias-label-tertiary);
 }
 
+.root:not(.rail) .sectionHeader {
+  margin-right: -4px;
+}
+
 .sectionLabel {
-  flex: 1;
+  flex: none;
+  max-width: 45%;
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
   line-height: 20px;
 }
 
-/* Search input: 38px bar, 12px radius (figma 133:7649 geometry, squared-off
-   corners); rail state renders it as the
-   region's search control. Upstream binds a dedicated design-system variable
-   (light #F1F3F5 / dark #1B1B1C) matching no shipped alias — a component
-   token pinned to the static scale mirrors it. */
-.search {
-  --dsh-search-input-fill: var(--dsw-static-neutral-bluish-75);
+.searchSlot {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  padding-left: 4px;
+  box-sizing: border-box;
+}
+
+.headerActions {
   flex: none;
   display: flex;
   align-items: center;
-  gap: 8px;
-  height: 38px;
-  margin: 0 2px 12px;
-  padding: 0 14px;
+  gap: 4px;
+  max-width: 60px;
+  opacity: 1;
+  overflow: hidden;
+  visibility: visible;
+  transition:
+    max-width 180ms var(--ds-ease-in-out),
+    opacity 120ms var(--ds-ease-in-out),
+    transform 180ms var(--ds-ease-in-out),
+    visibility 0s linear;
+}
+
+.headerActionsHidden {
+  max-width: 0;
+  opacity: 0;
+  transform: translateX(4px);
+  visibility: hidden;
+  pointer-events: none;
+  transition-delay: 0s, 0s, 0s, 180ms;
+}
+
+/* Inline search always fills the room between the title and trailing actions;
+   it grows farther right when the action cluster collapses. */
+.search {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  width: 100%;
+  height: 26px;
+  margin: 0;
+  padding: 0;
   box-sizing: border-box;
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 12px;
-  background: var(--dsh-search-input-fill);
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 10px;
+  background: transparent;
+  cursor: text;
   color: var(--dsw-alias-label-caption);
   overflow: hidden;
+  transition:
+    width 180ms var(--ds-ease-in-out),
+    padding 180ms var(--ds-ease-in-out),
+    border-color 180ms var(--ds-ease-in-out),
+    background-color 180ms var(--ds-ease-in-out);
 }
 
-:global(body[data-ds-dark-theme]) .search {
-  --dsh-search-input-fill: var(--dsw-static-neutral-bluish-900);
+.searchExpanded {
+  padding: 0 4px 0 0;
+  border-color: var(--dsw-alias-border-l2);
+  background: transparent;
 }
 
-/* The capsule's leading icon: decorative while wide (pointer-events off so
-   clicks reach the input), the hit target in rail state. */
 .searchButton {
   flex: none;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  width: 26px;
+  height: 26px;
   border: none;
   border-radius: 50%;
   padding: 0;
   background: transparent;
-  pointer-events: none;
+  cursor: pointer;
   color: inherit;
+}
+
+.searchButton:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.searchExpanded .searchButton:hover {
+  background: transparent;
 }
 
 .searchInput {
   flex: 1;
+  width: 0;
   min-width: 0;
   border: none;
   outline: none;
   background: transparent;
-  font-size: 14px;
-  line-height: 20px;
+  opacity: 0;
+  pointer-events: none;
+  font-size: 13px;
+  line-height: 18px;
   color: var(--dsw-alias-label-primary);
+  transition: opacity 120ms var(--ds-ease-in-out);
+}
+
+.searchExpanded .searchInput {
+  margin-left: -2px;
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .searchInput::placeholder {
@@ -125,8 +186,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 18px;
+  height: 18px;
   border: none;
   border-radius: 50%;
   padding: 0;
@@ -144,6 +205,10 @@
   margin-bottom: 12px;
 }
 
+.rail .headerActions {
+  max-width: none;
+}
+
 .rail .iconButton {
   width: 36px;
   height: 36px;
@@ -151,6 +216,7 @@
 }
 
 .rail .search {
+  width: 36px;
   height: 36px;
   padding: 0;
   margin: 0 0 12px;
@@ -162,8 +228,6 @@
 .rail .searchButton {
   width: 36px;
   height: 36px;
-  pointer-events: auto;
-  cursor: pointer;
   color: var(--dsw-alias-label-primary);
 }
 
@@ -254,8 +318,33 @@
 }
 
 /* One workspace section: header row + a compact expanded session run. */
+.groupSection {
+  position: relative;
+}
+
 .groupSection + .groupSection {
   margin-top: 4px;
+}
+
+.workspaceDropBefore::before,
+.workspaceDropAfter::after {
+  content: '';
+  position: absolute;
+  z-index: 1;
+  left: 4px;
+  right: 4px;
+  height: 2px;
+  border-radius: 999px;
+  background: var(--dsw-alias-state-business-primary);
+  pointer-events: none;
+}
+
+.workspaceDropBefore::before {
+  top: -3px;
+}
+
+.workspaceDropAfter::after {
+  bottom: -3px;
 }
 
 .sessionOverflowButton {
@@ -271,9 +360,15 @@
   color: var(--dsw-alias-label-tertiary);
 }
 
+.groupSection > .sessionOverflowButton {
+  margin-top: 0;
+}
+
 .sessionOverflowButton:hover {
-  background: var(--dsw-alias-interactive-bg-hover);
+  background: transparent;
   color: var(--dsw-alias-label-secondary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 .empty {
@@ -322,5 +417,11 @@
 @media (prefers-reduced-motion: reduce) {
   .wide {
     animation: none;
+  }
+
+  .search,
+  .searchInput,
+  .headerActions {
+    transition: none;
   }
 }
