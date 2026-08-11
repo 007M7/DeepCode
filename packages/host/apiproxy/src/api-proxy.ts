@@ -3435,15 +3435,16 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         // root artifact 404 before any zip byte is produced. The root content
         // read here is reused as the first zip entry, so nothing is read twice.
         const deps = sessionLogExportDeps(ctx)
-        if (deps.sessionQuery === undefined || deps.sessionPersistence === undefined) {
+        if (deps.sessionQuery === undefined || deps.sessionPersistence === undefined || deps.attachments === undefined) {
           return new Response(
-            'session log export is unavailable: missing session-query or session-persistence service',
+            'session log export is unavailable: missing session-query, session-persistence, or attachments service',
             { status: 500 },
           )
         }
         const ready: SessionLogExportReady = {
           sessionQuery: deps.sessionQuery,
           sessionPersistence: deps.sessionPersistence,
+          attachments: deps.attachments,
         }
         let root: SessionRawArtifact | undefined
         try {

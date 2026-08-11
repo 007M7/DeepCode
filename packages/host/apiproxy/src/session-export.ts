@@ -1,21 +1,24 @@
 /**
  * Host-side session-log download: streams one ZIP archive whose files are the
- * sessions' stored artifact text verbatim. The root artifact sits under its
- * original base name (`session.jsonl`); each subagent descendant under
- * `subagents/<id>/<filename>`. No manifest is written — every file is
- * byte-identical to the backend's durable artifact and self-describing
- * through its own header line. Compression runs on the host with fflate's
- * streaming Zip API, so the archive bytes are produced incrementally and the
- * host never holds the whole archive in one buffer; production yields to the
- * consumer whenever the response queue fills past its high-water mark, so a
- * slow consumer bounds the accumulation instead of piling up the whole
- * archive (fflate's callback is synchronous — this drain point is the only
- * backpressure available).
+ * sessions' stored artifact text verbatim plus every referenced media object.
+ * The root artifact sits under its original base name (`session.jsonl`); each
+ * subagent descendant under `subagents/<id>/<filename>`; each image referenced
+ * by any included log under `media/<attachmentId>.<ext>` (content-addressed,
+ * so one archive never duplicates a shared image). No manifest is written —
+ * every file is byte-identical to the backend's durable artifact or attachment
+ * store and self-describing through its own header line or media type.
+ * Compression runs on the host with fflate's streaming Zip API, so the archive
+ * bytes are produced incrementally and the host never holds the whole archive
+ * in one buffer; production yields to the consumer whenever the response queue
+ * fills past its high-water mark, so a slow consumer bounds the accumulation
+ * instead of piling up the whole archive (fflate's callback is synchronous —
+ * this drain point is the only backpressure available).
  * @module
  */
 
 import { Zip, ZipDeflate } from 'fflate'
 import type { Context } from '@deepseek-ai/cordis'
+import type { AttachmentStore, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { SessionLineageNode, SessionQueryService } from '@deepseek-ai/dsh-session-query'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionPersistence, SessionRawArtifact } from '@deepseek-ai/dsh-session-persistence'
@@ -24,16 +27,18 @@ import type { SessionPersistence, SessionRawArtifact } from '@deepseek-ai/dsh-se
 export interface SessionLogExportDeps {
   readonly sessionQuery: SessionQueryService | undefined
   readonly sessionPersistence: SessionPersistence | undefined
+  readonly attachments: AttachmentStore | undefined
 }
 
 /** The export services narrowed to the mounted ones streaming actually reads. */
 export interface SessionLogExportReady {
   readonly sessionQuery: SessionQueryService
   readonly sessionPersistence: SessionPersistence
+  readonly attachments: AttachmentStore
 }
 
 /**
- * Resolve the persistence and session-query services a log export needs.
+ * Resolve the persistence, session-query, and attachment services a log export needs.
  * @param ctx - the composed host context.
  * @returns the export services (absent when the deployment does not mount them).
  */
@@ -41,15 +46,102 @@ export function sessionLogExportDeps(ctx: Context): SessionLogExportDeps {
   return {
     sessionQuery: ctx.get('sessionQuery'),
     sessionPersistence: ctx.get('sessionPersistence'),
+    attachments: ctx.get('attachments'),
   }
 }
 
-/** One exported artifact: the stored text plus the zip path it lands at. */
-export interface SessionLogZipEntry {
-  /** Zip entry path (root filename verbatim; descendants under `subagents/<id>/`). */
-  readonly path: string
-  /** The stored artifact text verbatim. */
-  readonly content: string
+/** One exported file: a stored artifact text or one referenced media object. */
+export type SessionLogZipEntry =
+  | { readonly path: string; readonly content: string }
+  | { readonly path: string; readonly data: Uint8Array }
+
+/** Zip extension for each accepted raster media type. */
+const MEDIA_TYPE_EXTENSIONS: Record<ImageAttachmentRef['mediaType'], string> = {
+  'image/png': 'png',
+  'image/jpeg': 'jpg',
+  'image/webp': 'webp',
+  'image/gif': 'gif',
+}
+
+/**
+ * The zip path for one media object: content-addressed by the opaque
+ * attachment id so shared images land once and the id in the log maps back to
+ * the archive entry without a manifest.
+ * @param ref - the durable reference from a session log.
+ * @returns the archive path.
+ */
+function mediaEntryPath(ref: ImageAttachmentRef): string {
+  return `media/${String(ref.attachmentId)}.${MEDIA_TYPE_EXTENSIONS[ref.mediaType]}`
+}
+
+/**
+ * Collect every image reference inside one content array, descending into
+ * nested tool results the way the live attachment route does.
+ * @param content - an event content array (or nested tool-result content).
+ * @param refs - the dedupe map being filled (keyed by attachment id).
+ */
+function collectImageRefs(content: unknown, refs: Map<string, ImageAttachmentRef>): void {
+  if (!Array.isArray(content)) return
+  const pending: unknown[] = []
+  for (const item of content) pending.push(item)
+  while (pending.length > 0) {
+    const value = pending.pop()
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) continue
+    const block = value as { type?: unknown; attachment?: unknown; content?: unknown }
+    if (block.type === 'image' && typeof block.attachment === 'object' && block.attachment !== null) {
+      const ref = block.attachment as ImageAttachmentRef
+      refs.set(String(ref.attachmentId), ref)
+    }
+    if (Array.isArray(block.content)) {
+      for (const item of block.content) pending.push(item)
+    }
+  }
+}
+
+/**
+ * Collect every image reference one session event carries, across the same
+ * carriers the live attachment route scans (direct content, message content,
+ * inserted messages, and completed assistant chunk blocks).
+ * @param event - one parsed JSONL event object.
+ * @param refs - the dedupe map being filled (keyed by attachment id).
+ */
+function collectEventImageRefs(event: unknown, refs: Map<string, ImageAttachmentRef>): void {
+  const data = (event as { data?: unknown }).data
+  if (typeof data !== 'object' || data === null) return
+  const carrier = data as {
+    content?: unknown
+    message?: { content?: unknown }
+    inserted?: Array<{ content?: unknown }>
+    chunk?: { type?: unknown; block?: unknown }
+  }
+  collectImageRefs(carrier.content, refs)
+  if (carrier.message !== undefined) collectImageRefs(carrier.message.content, refs)
+  if (carrier.inserted !== undefined) {
+    for (const message of carrier.inserted) collectImageRefs(message.content, refs)
+  }
+  if (carrier.chunk?.type === 'block-end') collectImageRefs([carrier.chunk.block], refs)
+}
+
+/**
+ * Collect the distinct media references one stored artifact text names.
+ * Lines that fail to parse cannot reference media and are skipped (the
+ * artifact text itself is exported verbatim regardless).
+ * @param content - the stored artifact text.
+ * @returns the dedupe map keyed by attachment id.
+ */
+function imageRefsInArtifact(content: string): Map<string, ImageAttachmentRef> {
+  const refs = new Map<string, ImageAttachmentRef>()
+  for (const line of content.split('\n')) {
+    if (line === '') continue
+    let event: unknown
+    try {
+      event = JSON.parse(line)
+    } catch {
+      continue
+    }
+    collectEventImageRefs(event, refs)
+  }
+  return refs
 }
 
 /**
@@ -76,10 +168,12 @@ export function sessionLogZipFilename(sessionId: string): string {
 
 /**
  * Yield the export entries in zip order: the preloaded root artifact first,
- * then every subagent descendant in lineage order, each read from the
+ * then every subagent descendant in lineage order (each read from the
  * persistence backend right before it is yielded and dropped after the
- * consumer moves on (the host holds at most one descendant's artifact text at
- * a time beyond the root).
+ * consumer moves on), then every distinct media object referenced by any of
+ * the included logs (read and verified from the attachment store, one archive
+ * entry per attachment id). The host holds at most one descendant's artifact
+ * text and one media object at a time beyond the root.
  * @param deps - the mounted export services (the caller answered 500 before this runs).
  * @param root - the already-read root artifact (read by the caller so the
  * missing-session path can answer cleanly before streaming starts).
@@ -95,34 +189,76 @@ export async function* sessionLogZipEntries(
   includeDescendants: boolean,
   signal?: AbortSignal,
 ): AsyncGenerator<SessionLogZipEntry> {
-  yield { path: root.filename, content: root.content }
-  if (!includeDescendants) return
-  const seen = new Set<SessionId>([sessionId])
-  const collect = async function* (
-    nodes: readonly SessionLineageNode[],
-  ): AsyncGenerator<SessionLogZipEntry> {
-    for (const node of nodes) {
-      signal?.throwIfAborted()
-      const id = node.session.header.id
-      if (seen.has(id)) continue
-      seen.add(id)
-      const raw = await deps.sessionPersistence.readRaw(id)
-      if (raw === undefined) {
-        throw new Error(`subagent "${id}" has no stored log artifact`)
-      }
-      yield {
-        path: `subagents/${safeSessionIdSegment(id)}/${raw.filename}`,
-        content: raw.content,
-      }
-      yield* collect(node.descendants)
-    }
+  const media = new Map<string, ImageAttachmentRef>()
+  const rememberMedia = (content: string): void => {
+    for (const [id, ref] of imageRefsInArtifact(content)) media.set(id, ref)
   }
-  const lineage = await deps.sessionQuery.traceSession(sessionId)
-  yield* collect(lineage.descendants)
+  rememberMedia(root.content)
+  yield { path: root.filename, content: root.content }
+  if (includeDescendants) {
+    const seen = new Set<SessionId>([sessionId])
+    const collect = async function* (
+      nodes: readonly SessionLineageNode[],
+    ): AsyncGenerator<SessionLogZipEntry> {
+      for (const node of nodes) {
+        signal?.throwIfAborted()
+        const id = node.session.header.id
+        if (seen.has(id)) continue
+        seen.add(id)
+        const raw = await deps.sessionPersistence.readRaw(id)
+        if (raw === undefined) {
+          throw new Error(`subagent "${id}" has no stored log artifact`)
+        }
+        rememberMedia(raw.content)
+        yield {
+          path: `subagents/${safeSessionIdSegment(id)}/${raw.filename}`,
+          content: raw.content,
+        }
+        yield* collect(node.descendants)
+      }
+    }
+    const lineage = await deps.sessionQuery.traceSession(sessionId)
+    yield* collect(lineage.descendants)
+  }
+  for (const ref of media.values()) {
+    signal?.throwIfAborted()
+    const stored = await deps.attachments.readImage(ref)
+    yield { path: mediaEntryPath(ref), data: stored.data }
+  }
 }
 
 /** How many code units of artifact text one zip push carries (bounded encode memory). */
 const PUSH_CHUNK_CODE_UNITS = 1 << 16
+
+/** How many bytes of media one zip push carries (bounded memory; images are already size-capped). */
+const PUSH_CHUNK_BYTES = 1 << 16
+
+/**
+ * Push one media object's bytes into a deflate stream in bounded chunks,
+ * yielding to a slow consumer between chunks like the artifact path does.
+ * @param deflate - the zip entry's deflate stream.
+ * @param data - the stored image bytes.
+ * @param signal - optional cancellation; throws when aborted.
+ */
+async function pushBinaryChunks(
+  deflate: ZipDeflate,
+  data: Uint8Array,
+  controller: ReadableStreamDefaultController<Uint8Array>,
+  signal?: AbortSignal,
+): Promise<void> {
+  let offset = 0
+  do {
+    signal?.throwIfAborted()
+    const end = Math.min(offset + PUSH_CHUNK_BYTES, data.byteLength)
+    const finalChunk = end >= data.byteLength
+    deflate.push(data.subarray(offset, end), finalChunk)
+    offset = end
+    /* v8 ignore next 2 -- only fires when a slow consumer leaves the queue over-full */
+    if (controller.desiredSize !== null && controller.desiredSize < 0) {
+      await new Promise(resolve => setTimeout(resolve, 0))
+    }
+  } while (offset < data.byteLength)
+}
 
 /**
  * Push one artifact's text into a deflate stream in bounded chunks, never
@@ -202,7 +338,11 @@ export function streamSessionLogZip(
           for await (const entry of sessionLogZipEntries(deps, root, sessionId, includeDescendants, signal)) {
             const deflate = new ZipDeflate(entry.path, { level: 6 })
             zip.add(deflate)
-            await pushArtifactChunks(deflate, entry.content, controller, signal)
+            if ('content' in entry) {
+              await pushArtifactChunks(deflate, entry.content, controller, signal)
+            } else {
+              await pushBinaryChunks(deflate, entry.data, controller, signal)
+            }
           }
           zip.end()
         } catch (error) {
