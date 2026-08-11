@@ -39,6 +39,7 @@ import { hostFrameSchema, muxFrameSchema, askUserQuestionItemSchema } from '../s
 import { approvalRequestIdSchema, approvalResponsePayloadSchema } from '../src/api/approvals.schema.ts'
 import { askUserQuestionAnswerSchema, questionResponsePayloadSchema } from '../src/api/questions.schema.ts'
 import { goalEditRequestSchema } from '../src/api/goals.schema.ts'
+import { subagentPromptRequestSchema } from '../src/api/subagents.schema.ts'
 
 describe('RpcId', () => {
   it('brands a raw string at zero runtime cost', () => {
@@ -63,6 +64,7 @@ describe('rpcErrorSchema', () => {
     expect(rpcErrorSchema.parse({ code: 'cancelled', message: 'm', details: {} }).code).toBe('cancelled')
     expect(rpcErrorSchema.parse({ code: 'session-not-found', message: 'm', details: { sessionId: 's' } }).code).toBe('session-not-found')
     expect(rpcErrorSchema.parse({ code: 'session-conflict', message: 'm', details: { sessionId: 's', requestedCwd: '/a', existingCwd: '/b' } }).code).toBe('session-conflict')
+    expect(rpcErrorSchema.parse({ code: 'invalid-time-zone', message: 'm', details: { value: 'CST' } }).code).toBe('invalid-time-zone')
     expect(rpcErrorSchema.parse({ code: 'workspace-attach-failed', message: 'm', details: { sessionId: 's', workspaceId: 'w' } }).code).toBe('workspace-attach-failed')
     expect(rpcErrorSchema.parse({ code: 'workspace-not-found', message: 'm', details: { workspaceId: 'w' } }).code).toBe('workspace-not-found')
     expect(rpcErrorSchema.parse({ code: 'workspace-invalid-path', message: 'm', details: { path: '/x' } }).code).toBe('workspace-invalid-path')
@@ -248,8 +250,17 @@ describe('sessions domain schemas', () => {
       }],
       failures: [],
     })).toThrow()
-    const prompt = sessionPromptRequestSchema.parse({ sessionId: 's1', mode: 'queue', content: [{ type: 'text', text: 'hi' }] })
+    const prompt = sessionPromptRequestSchema.parse({
+      sessionId: 's1',
+      mode: 'queue',
+      content: [{ type: 'text', text: 'hi' }],
+      clientTimeZone: 'Asia/Shanghai',
+    })
     expect(prompt.mode).toBe('queue')
+    expect(prompt.clientTimeZone).toBe('Asia/Shanghai')
+    expect(sessionPromptRequestSchema.parse({
+      sessionId: 's1', mode: 'queue', content: [],
+    }).clientTimeZone).toBeUndefined()
     expect(() => sessionPromptRequestSchema.parse({ sessionId: 's1', mode: 'inject', content: [] })).toThrow()
     expect(sessionPromptValueSchema.parse({ accepted: true }).accepted).toBe(true)
     // The command slot appears only when the prompt dispatched a slash command.
@@ -272,6 +283,24 @@ describe('sessions domain schemas', () => {
     expect(sessionCancelValueSchema.parse({ accepted: true }).accepted).toBe(true)
     expect(sessionUpdateQueueValueSchema.parse({ accepted: true }).accepted).toBe(true)
     expect(contentBlockSchema.parse({ type: 'text', text: 'x', extra: 1 })).toMatchObject({ extra: 1 })
+  })
+})
+
+describe('subagent domain schemas', () => {
+  it('carries optional request-local browser-zone provenance on prompts', () => {
+    expect(subagentPromptRequestSchema.parse({
+      parentSessionId: 'parent',
+      childSessionId: 'child',
+      mode: 'continuable',
+      content: [{ type: 'text', text: 'continue' }],
+      clientTimeZone: 'Asia/Shanghai',
+    }).clientTimeZone).toBe('Asia/Shanghai')
+    expect(subagentPromptRequestSchema.parse({
+      parentSessionId: 'parent',
+      childSessionId: 'child',
+      mode: 'continuable',
+      content: [],
+    }).clientTimeZone).toBeUndefined()
   })
 })
 
