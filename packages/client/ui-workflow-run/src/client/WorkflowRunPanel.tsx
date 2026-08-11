@@ -85,7 +85,7 @@ function ManualDisclosure(props: StatusDisclosureProps) {
 }
 
 function StatusDisclosure({ cleanCycleKey, requiresExpansion, ...props }: StatusDisclosureProps & {
-  readonly cleanCycleKey: number
+  readonly cleanCycleKey?: number | undefined
   readonly requiresExpansion: boolean
 }) {
   if (!requiresExpansion) return <ManualDisclosure key={cleanCycleKey} {...props} />
@@ -139,7 +139,6 @@ function RunHeader({ children, count, name, requiresExpansion, status, t }: {
     <StatusDisclosure
       icon={<IconChevronRightOutline14 />}
       title={t('run.title', { name })}
-      cleanCycleKey={count}
       requiresExpansion={requiresExpansion}
       expandOnRowClick
       previewChevron={false}
